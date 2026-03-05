@@ -485,6 +485,208 @@ def _benchmarks_slide(reqs, sid, report, idx):
     return idx + 1
 
 
+def _exports_slide(reqs, sid, report, idx):
+    exports = report.get("exports", report)
+    by_feature = exports.get("by_feature", [])
+    top_exporters = exports.get("top_exporters", [])
+    total = exports.get("total_exports", 0)
+
+    if not by_feature and total == 0:
+        return idx
+
+    _slide(reqs, sid, idx)
+    _slide_title(reqs, sid, "Export Behavior")
+
+    # Left: export volume by feature
+    per_user = exports.get("exports_per_active_user", 0)
+    active = exports.get("active_users", 0)
+    header = f"{total:,} exports  ·  {per_user}/active user  ·  {active} active users"
+    _box(reqs, f"{sid}_hdr", sid, MARGIN, BODY_Y, CONTENT_W, 18, header)
+    _style(reqs, f"{sid}_hdr", 0, len(header), size=10, color=GRAY, font=FONT)
+
+    fl = ["By Feature"]
+    for i, f in enumerate(by_feature[:8], 1):
+        name = f["feature"][:36] if len(f["feature"]) > 36 else f["feature"]
+        fl.append(f"  {i}. {name}  ({f['exports']:,})")
+    if not by_feature:
+        fl.append("  No export data")
+    ft = "\n".join(fl)
+    _box(reqs, f"{sid}_bf", sid, MARGIN, BODY_Y + 24, 340, 270, ft)
+    _style(reqs, f"{sid}_bf", 0, len(ft), size=10, color=NAVY, font=FONT)
+    _style(reqs, f"{sid}_bf", 0, len("By Feature"), bold=True, size=11, color=AMBER)
+
+    # Right: top exporters
+    el = ["Top Exporters"]
+    for u in top_exporters:
+        email = u["email"] or "unknown"
+        if len(email) > 32:
+            email = email[:29] + "..."
+        el.append(f"  {email}")
+        el.append(f"    {u['role']}  ·  {u['exports']:,} exports")
+    if not top_exporters:
+        el.append("  No export users")
+    et = "\n".join(el)
+    _box(reqs, f"{sid}_te", sid, 400, BODY_Y + 24, 280, 270, et)
+    _style(reqs, f"{sid}_te", 0, len(et), size=10, color=NAVY, font=FONT)
+    _style(reqs, f"{sid}_te", 0, len("Top Exporters"), bold=True, size=11, color=AMBER)
+
+    return idx + 1
+
+
+def _depth_slide(reqs, sid, report, idx):
+    depth = report.get("depth", report)
+    breakdown = depth.get("breakdown", [])
+    if not breakdown:
+        return idx
+
+    _slide(reqs, sid, idx)
+    _slide_title(reqs, sid, "Behavioral Depth")
+
+    write_ratio = depth.get("write_ratio", 0)
+    total = depth.get("total_feature_events", 0)
+    active = depth.get("active_users", 0)
+    header = (f"{total:,} feature interactions  ·  {active} active users  ·  "
+              f"{write_ratio}% write ratio")
+    _box(reqs, f"{sid}_hdr", sid, MARGIN, BODY_Y, CONTENT_W, 18, header)
+    _style(reqs, f"{sid}_hdr", 0, len(header), size=10, color=GRAY, font=FONT)
+
+    # Stacked horizontal bars for top categories
+    max_events = max((b["events"] for b in breakdown), default=1)
+    bar_max_w = 320
+    y = BODY_Y + 28
+    bar_h = 16
+    spacing = 6
+    for i, b in enumerate(breakdown[:10]):
+        label = f"{b['category']}  ({b['events']:,}, {b['users']}u)"
+        _box(reqs, f"{sid}_l{i}", sid, MARGIN, y, 200, bar_h, label)
+        _style(reqs, f"{sid}_l{i}", 0, len(label), size=8, color=NAVY, font=FONT)
+
+        bar_w = max(int(b["events"] / max_events * bar_max_w), 4)
+        _rect(reqs, f"{sid}_b{i}", sid, 260, y + 2, bar_w, bar_h - 4, AMBER if i < 3 else NAVY)
+
+        pct_label = f"{b['pct']}%"
+        _box(reqs, f"{sid}_p{i}", sid, 260 + bar_w + 6, y, 50, bar_h, pct_label)
+        _style(reqs, f"{sid}_p{i}", 0, len(pct_label), size=8, color=GRAY, font=FONT)
+
+        y += bar_h + spacing
+
+    # Read/Write/Collab summary at bottom right
+    read_e = depth.get("read_events", 0)
+    write_e = depth.get("write_events", 0)
+    collab_e = depth.get("collab_events", 0)
+    summary = f"Read: {read_e:,}\nWrite: {write_e:,}\nCollab: {collab_e:,}"
+    _box(reqs, f"{sid}_rw", sid, 560, BODY_Y + 28, 100, 60, summary)
+    _style(reqs, f"{sid}_rw", 0, len(summary), size=9, color=NAVY, font=MONO)
+    _style(reqs, f"{sid}_rw", 0, len("Read:"), bold=True, color=AMBER)
+
+    return idx + 1
+
+
+def _kei_slide(reqs, sid, report, idx):
+    kei = report.get("kei", report)
+    total_q = kei.get("total_queries", 0)
+    if total_q == 0 and not kei.get("users"):
+        return idx
+
+    _slide(reqs, sid, idx)
+    _slide_title(reqs, sid, "Kei AI Adoption")
+
+    active = kei.get("active_users", 0)
+    unique = kei.get("unique_users", 0)
+    adoption = kei.get("adoption_rate", 0)
+    exec_users = kei.get("executive_users", 0)
+    exec_queries = kei.get("executive_queries", 0)
+
+    # Metrics row
+    metrics = f"{total_q:,} queries  ·  {unique} users  ·  {adoption}% adoption"
+    _box(reqs, f"{sid}_met", sid, MARGIN, BODY_Y, CONTENT_W, 18, metrics)
+    _style(reqs, f"{sid}_met", 0, len(metrics), size=10, color=GRAY, font=FONT)
+
+    # Executive highlight pill
+    if exec_users > 0:
+        exec_text = f"  {exec_users} executives ({exec_queries:,} queries)  "
+        _pill(reqs, f"{sid}_exec", sid, MARGIN, BODY_Y + 26, 260, 22, exec_text, AMBER, WHITE)
+    else:
+        exec_text = "  No executive Kei usage detected  "
+        _pill(reqs, f"{sid}_exec", sid, MARGIN, BODY_Y + 26, 260, 22, exec_text, GRAY, WHITE)
+
+    # User list
+    users = kei.get("users", [])
+    lines = ["Kei Users"]
+    for u in users[:8]:
+        email = u.get("email", "unknown")
+        if len(email) > 30:
+            email = email[:27] + "..."
+        role = u.get("role", "")
+        exec_flag = " *" if u.get("is_executive") else ""
+        lines.append(f"  {email}")
+        lines.append(f"    {role}{exec_flag}  ·  {u.get('queries', 0):,} queries")
+    if not users:
+        lines.append("  No Kei usage in this period")
+    text = "\n".join(lines)
+    _box(reqs, f"{sid}_users", sid, MARGIN, BODY_Y + 58, CONTENT_W, 240, text)
+    _style(reqs, f"{sid}_users", 0, len(text), size=10, color=NAVY, font=FONT)
+    _style(reqs, f"{sid}_users", 0, len("Kei Users"), bold=True, size=11, color=AMBER)
+
+    return idx + 1
+
+
+def _guides_slide(reqs, sid, report, idx):
+    guides = report.get("guides", report)
+    total_events = guides.get("total_guide_events", 0)
+    if total_events == 0:
+        return idx
+
+    _slide(reqs, sid, idx)
+    _slide_title(reqs, sid, "Guide Engagement")
+
+    seen = guides.get("seen", 0)
+    advanced = guides.get("advanced", 0)
+    dismissed = guides.get("dismissed", 0)
+    reach = guides.get("guide_reach", 0)
+    dismiss_rate = guides.get("dismiss_rate", 0)
+    advance_rate = guides.get("advance_rate", 0)
+
+    metrics = (f"{seen:,} seen  ·  {advance_rate}% advanced  ·  {dismiss_rate}% dismissed  ·  "
+               f"{reach}% of users reached")
+    _box(reqs, f"{sid}_met", sid, MARGIN, BODY_Y, CONTENT_W, 18, metrics)
+    _style(reqs, f"{sid}_met", 0, len(metrics), size=10, color=GRAY, font=FONT)
+
+    # Advance/dismiss bars
+    bar_y = BODY_Y + 28
+    total_responses = advanced + dismissed
+    if total_responses > 0:
+        adv_w = int(advanced / total_responses * 400)
+        dis_w = int(dismissed / total_responses * 400)
+        _rect(reqs, f"{sid}_adv", sid, MARGIN, bar_y, max(adv_w, 4), 18, AMBER)
+        _rect(reqs, f"{sid}_dis", sid, MARGIN + adv_w, bar_y, max(dis_w, 4), 18, GRAY)
+        alab = f"Advanced ({advanced:,})"
+        _box(reqs, f"{sid}_alab", sid, MARGIN, bar_y + 20, 200, 14, alab)
+        _style(reqs, f"{sid}_alab", 0, len(alab), size=8, color=AMBER, font=FONT)
+        dlab = f"Dismissed ({dismissed:,})"
+        _box(reqs, f"{sid}_dlab", sid, MARGIN + adv_w, bar_y + 20, 200, 14, dlab)
+        _style(reqs, f"{sid}_dlab", 0, len(dlab), size=8, color=GRAY, font=FONT)
+        bar_y += 42
+
+    # Top guides
+    top_guides = guides.get("top_guides", [])
+    lines = ["Most Active Guides"]
+    for g in top_guides[:6]:
+        name = g["guide"]
+        if len(name) > 40:
+            name = name[:37] + "..."
+        lines.append(f"  {name}")
+        lines.append(f"    seen {g['seen']}  ·  adv {g['advanced']}  ·  dis {g['dismissed']}")
+    if not top_guides:
+        lines.append("  No guide interactions")
+    text = "\n".join(lines)
+    _box(reqs, f"{sid}_guides", sid, MARGIN, bar_y + 4, CONTENT_W, 220, text)
+    _style(reqs, f"{sid}_guides", 0, len(text), size=10, color=NAVY, font=FONT)
+    _style(reqs, f"{sid}_guides", 0, len("Most Active Guides"), bold=True, size=11, color=AMBER)
+
+    return idx + 1
+
+
 def _signals_slide(reqs, sid, report, idx):
     signals = report.get("signals", [])
     if not signals:
@@ -514,7 +716,128 @@ def _signals_slide(reqs, sid, report, idx):
     return idx + 1
 
 
-# ── Main deck creation ──
+# ── Composable API (agent builds deck slide by slide) ──
+
+# Maps slide type names to builder functions and the report keys they require
+_SLIDE_BUILDERS = {
+    "title": _title_slide,
+    "health": _health_slide,
+    "engagement": _engagement_slide,
+    "sites": _sites_slide,
+    "features": _features_slide,
+    "champions": _champions_slide,
+    "benchmarks": _benchmarks_slide,
+    "exports": _exports_slide,
+    "depth": _depth_slide,
+    "kei": _kei_slide,
+    "guides": _guides_slide,
+    "signals": _signals_slide,
+}
+
+# Which report keys each slide type needs (so the agent knows what data to supply)
+SLIDE_DATA_REQUIREMENTS = {
+    "title": ["customer", "days", "generated", "account"],
+    "health": ["engagement", "benchmarks", "account"],
+    "engagement": ["engagement", "account"],
+    "sites": ["sites"],
+    "features": ["top_pages", "top_features"],
+    "champions": ["champions", "at_risk_users"],
+    "benchmarks": ["benchmarks", "account"],
+    "exports": ["exports"],
+    "depth": ["depth"],
+    "kei": ["kei"],
+    "guides": ["guides"],
+    "signals": ["signals"],
+}
+
+
+def create_empty_deck(customer: str, days: int = 30) -> dict[str, Any]:
+    """Create an empty presentation. Returns {deck_id, url} for use with add_slide."""
+    try:
+        slides_service, drive_service = _get_service()
+    except (ValueError, FileNotFoundError) as e:
+        return {"error": str(e)}
+
+    title = f"{customer} — Usage Health Review (Last {days} Days)"
+    try:
+        file_meta = {"name": title, "mimeType": "application/vnd.google-apps.presentation"}
+        if GOOGLE_DRIVE_FOLDER_ID:
+            file_meta["parents"] = [GOOGLE_DRIVE_FOLDER_ID]
+        f = drive_service.files().create(body=file_meta).execute()
+        deck_id = f["id"]
+        logger.info("Created deck %s: %s", deck_id, title)
+    except HttpError as e:
+        return {"error": str(e)}
+
+    # Delete the default blank slide
+    try:
+        pres = slides_service.presentations().get(presentationId=deck_id).execute()
+        default_id = pres["slides"][0]["objectId"]
+        slides_service.presentations().batchUpdate(
+            presentationId=deck_id,
+            body={"requests": [{"deleteObject": {"objectId": default_id}}]},
+        ).execute()
+    except Exception:
+        pass
+
+    return {
+        "deck_id": deck_id,
+        "url": f"https://docs.google.com/presentation/d/{deck_id}/edit",
+    }
+
+
+_slide_counter: dict[str, int] = {}
+
+
+def add_slide(deck_id: str, slide_type: str, data: dict[str, Any]) -> dict[str, Any]:
+    """Add one slide to an existing deck.
+
+    Args:
+        deck_id: Presentation ID from create_empty_deck.
+        slide_type: One of: title, health, engagement, sites, features, champions, benchmarks, exports, depth, kei, guides, signals.
+        data: Dict with the keys required for that slide type (see SLIDE_DATA_REQUIREMENTS).
+
+    Returns:
+        {slide_type, status} or {error}.
+    """
+    builder = _SLIDE_BUILDERS.get(slide_type)
+    if not builder:
+        return {"error": f"Unknown slide type '{slide_type}'. Valid: {', '.join(_SLIDE_BUILDERS)}"}
+
+    try:
+        slides_service, _ = _get_service()
+    except (ValueError, FileNotFoundError) as e:
+        return {"error": str(e)}
+
+    # Determine insertion index
+    try:
+        pres = slides_service.presentations().get(presentationId=deck_id).execute()
+        idx = len(pres.get("slides", []))
+    except Exception:
+        idx = 0
+
+    # Unique slide ID
+    count = _slide_counter.get(deck_id, 0)
+    _slide_counter[deck_id] = count + 1
+    sid = f"s_{slide_type}_{count}"
+
+    reqs: list[dict] = []
+    new_idx = builder(reqs, sid, data, idx)
+
+    if not reqs:
+        return {"slide_type": slide_type, "status": "skipped (no data)"}
+
+    try:
+        slides_service.presentations().batchUpdate(
+            presentationId=deck_id, body={"requests": reqs},
+        ).execute()
+    except HttpError as e:
+        return {"error": str(e), "slide_type": slide_type}
+
+    return {"slide_type": slide_type, "status": "added", "position": idx + 1}
+
+
+# ── Monolith deck creation (still works, now uses composable internals) ──
 
 def create_health_deck(report: dict[str, Any]) -> dict[str, Any]:
     """Create a CS-oriented health deck from a customer health report."""
@@ -553,6 +876,10 @@ def create_health_deck(report: dict[str, Any]) -> dict[str, Any]:
     idx = _features_slide(reqs, "s_feat", report, idx)
     idx = _champions_slide(reqs, "s_champ", report, idx)
     idx = _benchmarks_slide(reqs, "s_bench", report, idx)
+    idx = _depth_slide(reqs, "s_depth", report, idx)
+    idx = _exports_slide(reqs, "s_exports", report, idx)
+    idx = _kei_slide(reqs, "s_kei", report, idx)
+    idx = _guides_slide(reqs, "s_guides", report, idx)
     idx = _signals_slide(reqs, "s_sig", report, idx)
 
     slides_created = idx - 1

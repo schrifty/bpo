@@ -430,84 +430,82 @@ class PendoClient:
         resp.raise_for_status()
         return resp.json()
 
-    # ── Health report (comprehensive data for CS decks) ──
+    # ── Cached visitor partition (shared across focused data methods) ──
 
-    def get_customer_health_report(
-        self,
-        customer_name: str,
-        days: int = 30,
-    ) -> dict[str, Any]:
-        """Gather all data needed for a CS-oriented health deck for one customer.
+    _visitor_cache: dict[str, Any] | None = None
+    _visitor_cache_ts: float = 0
+    _CACHE_TTL = 120  # seconds
 
-        Returns a dict with sections matching the deck slide structure:
-        - account: name, csm, region, sites
-        - engagement: tiers, role breakdown, total visitors
-        - sites: per-site metrics (visitors, events, minutes, last active)
-        - top_pages: top pages with human-readable names
-        - top_features: top features with human-readable names
-        - champions: most active users (name, role, events)
-        - at_risk_users: dormant users with roles
-        - benchmarks: customer's active rate vs peer median
-        - signals: automatically detected notable patterns
-        """
-        now_ms = int(time.time() * 1000)
+    def _get_visitor_partition(self, days: int = 30) -> dict[str, Any]:
+        """Fetch all visitors and partition by customer. Cached for 120s to avoid
+        redundant API calls when the agent invokes multiple tools in sequence."""
+        now = time.time()
+        if self._visitor_cache and (now - self._visitor_cache_ts) < self._CACHE_TTL:
+            cached_days = self._visitor_cache.get("days")
+            if cached_days == days:
+                return self._visitor_cache
+
+        now_ms = int(now * 1000)
         all_visitors = self.get_visitors(days=days).get("results", [])
 
         def _is_internal(v: dict) -> bool:
             agent = (v.get("metadata") or {}).get("agent") or {}
             return bool(agent.get("isinternaluser")) or agent.get("role") == "LeanDNAStaff"
 
-        # ── Partition visitors by customer (excluding internal users from stats) ──
-        customer_visitors: list[dict] = []
-        internal_visitors: list[dict] = []
         all_customer_stats: dict[str, dict] = {}
-
         for v in all_visitors:
             agent = (v.get("metadata") or {}).get("agent") or {}
             auto = (v.get("metadata") or {}).get("auto") or {}
+            if _is_internal(v):
+                continue
             sitenames = agent.get("sitenames") or []
             lv = auto.get("lastvisit", 0)
-            internal = _is_internal(v)
+            for sn in sitenames:
+                cust = str(sn).strip().split()[0] if sn else "?"
+                if cust not in all_customer_stats:
+                    all_customer_stats[cust] = {"total": 0, "active_7d": 0}
+                all_customer_stats[cust]["total"] += 1
+                if lv and (now_ms - lv) / (86400 * 1000) <= 7:
+                    all_customer_stats[cust]["active_7d"] += 1
+                break
 
-            if not internal:
-                for sn in sitenames:
-                    cust = str(sn).strip().split()[0] if sn else "?"
-                    if cust not in all_customer_stats:
-                        all_customer_stats[cust] = {"total": 0, "active_7d": 0}
-                    all_customer_stats[cust]["total"] += 1
-                    if lv and (now_ms - lv) / (86400 * 1000) <= 7:
-                        all_customer_stats[cust]["active_7d"] += 1
-                    break
+        result = {
+            "days": days,
+            "now_ms": now_ms,
+            "all_visitors": all_visitors,
+            "all_customer_stats": all_customer_stats,
+            "_is_internal": _is_internal,
+        }
+        self._visitor_cache = result
+        self._visitor_cache_ts = now
+        return result
 
+    def _filter_customer_visitors(self, customer_name: str, partition: dict) -> tuple[list[dict], list[dict]]:
+        """From a visitor partition, extract this customer's visitors and internal visitors."""
+        _is_internal = partition["_is_internal"]
+        customer_visitors = []
+        internal_visitors = []
+        for v in partition["all_visitors"]:
+            agent = (v.get("metadata") or {}).get("agent") or {}
+            sitenames = agent.get("sitenames") or []
             if any(_name_matches(customer_name, str(sn)) for sn in sitenames):
-                if internal:
+                if _is_internal(v):
                     internal_visitors.append(v)
                 else:
                     customer_visitors.append(v)
+        return customer_visitors, internal_visitors
 
-        if not customer_visitors:
-            return {"error": f"No visitors found matching '{customer_name}'"}
-
-        # ── Account info ──
-        sample_agent = (customer_visitors[0].get("metadata") or {}).get("agent") or {}
-        csm_names = set()
-        for v in customer_visitors:
-            on = ((v.get("metadata") or {}).get("agent") or {}).get("ownername")
-            if on:
-                csm_names.add(on)
-
-        # Find the account ID — prefer accounts whose name starts with the customer
-        account_id = None
+    def _resolve_account(self, customer_name: str, customer_visitors: list[dict]) -> tuple[str | None, str, dict]:
+        """Find the best-matching account ID and metadata for a customer."""
         account_ids_seen: dict[str, int] = {}
         for v in customer_visitors:
             auto = (v.get("metadata") or {}).get("auto") or {}
             aid = auto.get("accountid")
             if aid:
-                aid_str = str(aid)
-                account_ids_seen[aid_str] = account_ids_seen.get(aid_str, 0) + 1
+                account_ids_seen[str(aid)] = account_ids_seen.get(str(aid), 0) + 1
 
+        account_id = None
         if account_ids_seen:
-            # Try each candidate account and prefer one whose name matches the customer
             for aid_str in sorted(account_ids_seen, key=account_ids_seen.get, reverse=True):
                 try:
                     info = self.get_account_info(aid_str)
@@ -529,11 +527,31 @@ class PendoClient:
 
         acct_agent = (account_meta.get("metadata") or {}).get("agent") or {}
         acct_name = acct_agent.get("name", "")
-        # Use account name only if it starts with the customer name (word boundary)
         if not acct_name or not acct_name.lower().startswith(customer_name.lower()):
             acct_name = customer_name
 
-        # ── Engagement tiers ──
+        return account_id, acct_name, acct_agent
+
+    # ── Focused data methods (each returns agent-interpretable summaries) ──
+
+    def get_customer_health(self, customer_name: str, days: int = 30) -> dict[str, Any]:
+        """Engagement summary, role breakdown, benchmarks, and auto-detected signals.
+        This is what a CSM needs to quickly assess account health."""
+        partition = self._get_visitor_partition(days)
+        now_ms = partition["now_ms"]
+        customer_visitors, internal_visitors = self._filter_customer_visitors(customer_name, partition)
+
+        if not customer_visitors:
+            return {"error": f"No visitors found matching '{customer_name}'"}
+
+        account_id, acct_name, acct_agent = self._resolve_account(customer_name, customer_visitors)
+
+        csm_names = set()
+        for v in customer_visitors:
+            on = ((v.get("metadata") or {}).get("agent") or {}).get("ownername")
+            if on:
+                csm_names.add(on)
+
         engagement = {"active_7d": 0, "active_30d": 0, "dormant": 0}
         role_active: dict[str, int] = {}
         role_dormant: dict[str, int] = {}
@@ -543,7 +561,6 @@ class PendoClient:
             auto = (v.get("metadata") or {}).get("auto") or {}
             role = agent.get("role", "Unknown")
             lv = auto.get("lastvisit", 0)
-
             if lv:
                 days_ago = (now_ms - lv) / (86400 * 1000)
                 if days_ago <= 7:
@@ -560,9 +577,147 @@ class PendoClient:
                 role_dormant[role] = role_dormant.get(role, 0) + 1
 
         total_visitors = len(customer_visitors)
-        active_count = engagement["active_7d"] + engagement["active_30d"]
+        customer_rate = engagement["active_7d"] / max(total_visitors, 1)
 
-        # ── Per-site breakdown (only sites whose name matches the customer) ──
+        peer_rates = []
+        for stats in partition["all_customer_stats"].values():
+            if stats["total"] >= 5:
+                peer_rates.append(stats["active_7d"] / stats["total"])
+        peer_rates.sort()
+        median_rate = peer_rates[len(peer_rates) // 2] if peer_rates else 0
+
+        # Auto-detect signals
+        signals: list[str] = []
+        dormant_pct = engagement["dormant"] / max(total_visitors, 1)
+        if dormant_pct > 0.5:
+            signals.append(f"High dormancy: {engagement['dormant']}/{total_visitors} users ({dormant_pct:.0%}) inactive 30+ days")
+        if customer_rate > median_rate * 1.5 and total_visitors >= 5:
+            signals.append(f"Strong engagement: {customer_rate:.0%} weekly active rate vs {median_rate:.0%} peer median")
+        elif customer_rate < median_rate * 0.5 and total_visitors >= 5:
+            signals.append(f"Low engagement: {customer_rate:.0%} weekly active rate vs {median_rate:.0%} peer median")
+        if engagement["active_7d"] <= 2 and total_visitors >= 10:
+            signals.append(f"Concentration risk: only {engagement['active_7d']} of {total_visitors} users active this week")
+
+        # Count matching sites
+        site_count = 0
+        for v in customer_visitors:
+            agent = (v.get("metadata") or {}).get("agent") or {}
+            for sn in agent.get("sitenames") or []:
+                if sn and _name_matches(customer_name, str(sn)):
+                    site_count += 1
+                    break
+
+        site_names = set()
+        for v in customer_visitors:
+            for sn in ((v.get("metadata") or {}).get("agent") or {}).get("sitenames") or []:
+                if sn and _name_matches(customer_name, str(sn)):
+                    site_names.add(sn)
+
+        exec_roles = {"ExecutiveVP", "Director", "VP", "C-Level", "Executive"}
+        user_activity = self._build_user_activity(customer_visitors, now_ms)
+        exec_active = sum(1 for u in user_activity if u["role"] in exec_roles and u["days_inactive"] <= 7)
+        exec_total = sum(1 for u in user_activity if u["role"] in exec_roles)
+        if exec_total > 0 and exec_active == 0:
+            signals.append(f"No executive engagement: {exec_total} executives, none active this week")
+        elif exec_active > 0:
+            signals.append(f"Executive engagement: {exec_active}/{exec_total} executives active this week")
+
+        for sn in site_names:
+            if "training" in sn.lower():
+                signals.append(f"Active training site detected ({sn})")
+                break
+
+        if internal_visitors:
+            signals.append(f"{len(internal_visitors)} LeanDNA staff visited (excluded from metrics)")
+
+        # Behavioral depth signals
+        try:
+            depth_data = self.get_customer_depth(customer_name, days)
+            write_ratio = depth_data.get("write_ratio", 0)
+            collab_events = depth_data.get("collab_events", 0)
+            if write_ratio >= 40:
+                signals.append(f"Deep write adoption: {write_ratio}% write ratio (running operations in-app)")
+            elif write_ratio <= 10:
+                signals.append(f"Read-heavy usage: only {write_ratio}% write ratio (may be dashboard-only)")
+            if collab_events > 0:
+                signals.append(f"In-app collaboration: {collab_events:,} comment/chat/attachment events")
+        except Exception:
+            pass
+
+        # Export intensity signal
+        try:
+            export_data = self.get_customer_exports(customer_name, days)
+            total_exports = export_data.get("total_exports", 0)
+            exports_per_user = export_data.get("exports_per_active_user", 0)
+            if total_exports > 0:
+                signals.append(f"Export activity: {total_exports:,} exports ({exports_per_user}/active user)")
+        except Exception:
+            pass
+
+        # Kei AI signal
+        try:
+            kei_data = self.get_customer_kei(customer_name, days)
+            kei_queries = kei_data.get("total_queries", 0)
+            kei_exec = kei_data.get("executive_users", 0)
+            if kei_queries > 0:
+                msg = f"Kei AI active: {kei_queries:,} queries from {kei_data.get('unique_users', 0)} users"
+                if kei_exec > 0:
+                    msg += f" (incl. {kei_exec} executives)"
+                signals.append(msg)
+            else:
+                signals.append("No Kei AI usage detected — rollout opportunity")
+        except Exception:
+            pass
+
+        # Guide engagement signal
+        try:
+            guide_data = self.get_customer_guides(customer_name, days)
+            dismiss_rate = guide_data.get("dismiss_rate", 0)
+            guide_reach = guide_data.get("guide_reach", 0)
+            if dismiss_rate > 30:
+                signals.append(f"High guide dismiss rate: {dismiss_rate}% — possible onboarding friction")
+            if guide_reach < 30 and guide_data.get("active_users", 0) > 5:
+                signals.append(f"Low guide reach: only {guide_reach}% of active users see guides")
+        except Exception:
+            pass
+
+        return {
+            "customer": customer_name,
+            "days": days,
+            "generated": datetime.datetime.now().strftime("%Y-%m-%d"),
+            "account": {
+                "name": acct_name,
+                "region": acct_agent.get("region", ""),
+                "csm": ", ".join(sorted(csm_names)) if csm_names else "Unknown",
+                "account_id": account_id,
+                "total_visitors": total_visitors,
+                "internal_visitors": len(internal_visitors),
+                "total_sites": len(site_names),
+            },
+            "engagement": {
+                "active_7d": engagement["active_7d"],
+                "active_30d": engagement["active_30d"],
+                "dormant": engagement["dormant"],
+                "active_rate_7d": round(customer_rate * 100, 1),
+                "role_active": dict(sorted(role_active.items(), key=lambda x: -x[1])),
+                "role_dormant": dict(sorted(role_dormant.items(), key=lambda x: -x[1])),
+            },
+            "benchmarks": {
+                "customer_active_rate": round(customer_rate * 100, 1),
+                "peer_median_rate": round(median_rate * 100, 1),
+                "peer_count": len(peer_rates),
+            },
+            "signals": signals,
+        }
+
+    def get_customer_sites(self, customer_name: str, days: int = 30) -> dict[str, Any]:
+        """Per-site metrics: visitors, page views, feature clicks, events, minutes, last active."""
+        partition = self._get_visitor_partition(days)
+        now_ms = partition["now_ms"]
+        customer_visitors, _ = self._filter_customer_visitors(customer_name, partition)
+        if not customer_visitors:
+            return {"error": f"No visitors found matching '{customer_name}'"}
+
         site_data: dict[str, dict] = {}
         for v in customer_visitors:
             agent = (v.get("metadata") or {}).get("agent") or {}
@@ -580,11 +735,11 @@ class PendoClient:
         usage_by_site = self.get_usage_by_site(days=days)
         usage_map = {r["sitename"]: r for r in (usage_by_site.get("results") or [])}
 
-        sites_report = []
+        sites = []
         for sn, info in sorted(site_data.items()):
             usage = usage_map.get(sn, {})
             lv_ms = info["last_visit_ms"]
-            sites_report.append({
+            sites.append({
                 "sitename": sn,
                 "visitors": info["visitors"],
                 "page_views": usage.get("page_views", 0),
@@ -593,62 +748,46 @@ class PendoClient:
                 "total_minutes": usage.get("total_minutes", 0),
                 "last_active": datetime.datetime.fromtimestamp(lv_ms / 1000).strftime("%Y-%m-%d") if lv_ms else "N/A",
             })
+        return {"customer": customer_name, "days": days, "sites": sites}
 
-        # ── Top pages & features (via aggregation, grouped by ID) ──
+    def get_customer_features(self, customer_name: str, days: int = 30) -> dict[str, Any]:
+        """Top pages and features this customer uses, with human-readable names."""
+        partition = self._get_visitor_partition(days)
+        customer_visitors, _ = self._filter_customer_visitors(customer_name, partition)
+        if not customer_visitors:
+            return {"error": f"No visitors found matching '{customer_name}'"}
+
+        visitor_ids = {v.get("visitorId") for v in customer_visitors if v.get("visitorId")}
         ts = _time_series(days)
+
         page_catalog = {}
         feature_catalog = {}
         try:
             page_catalog = self.get_page_catalog()
-        except Exception as e:
-            logger.debug("Could not fetch page catalog: %s", e)
+        except Exception:
+            pass
         try:
             feature_catalog = self.get_feature_catalog()
-        except Exception as e:
-            logger.debug("Could not fetch feature catalog: %s", e)
+        except Exception:
+            pass
 
         top_pages: list[dict] = []
         top_features: list[dict] = []
 
         try:
-            page_pipeline = [
+            all_page_events = self.aggregate([
                 {"source": {"pageEvents": None, "timeSeries": ts}},
-                {"group": {
-                    "group": ["pageId"],
-                    "fields": {
-                        "totalEvents": {"sum": "numEvents"},
-                        "totalMinutes": {"sum": "numMinutes"},
-                    },
-                }},
-                {"sort": ["totalEvents desc"]},
-                {"limit": 200},
-            ]
-            page_results = self.aggregate(page_pipeline).get("results", [])
-
-            # We need per-visitor attribution to filter to this customer.
-            # Faster: use visitor-level page events and filter client-side.
-            visitor_ids = {
-                v.get("visitorId") for v in customer_visitors if v.get("visitorId")
-            }
-            page_by_visitor = [
-                {"source": {"pageEvents": None, "timeSeries": ts}},
-            ]
-            all_page_events = self.aggregate(page_by_visitor).get("results", [])
-            customer_page_counts: dict[str, dict] = {}
+            ]).get("results", [])
+            page_counts: dict[str, dict] = {}
             for ev in all_page_events:
                 if ev.get("visitorId") in visitor_ids:
                     pid = ev.get("pageId", "")
-                    if pid not in customer_page_counts:
-                        customer_page_counts[pid] = {"events": 0, "minutes": 0}
-                    customer_page_counts[pid]["events"] += ev.get("numEvents", 0) or 0
-                    customer_page_counts[pid]["minutes"] += ev.get("numMinutes", 0) or 0
-
-            for pid, counts in sorted(customer_page_counts.items(), key=lambda x: -x[1]["events"])[:10]:
-                top_pages.append({
-                    "name": page_catalog.get(pid, pid),
-                    "events": counts["events"],
-                    "minutes": counts["minutes"],
-                })
+                    if pid not in page_counts:
+                        page_counts[pid] = {"events": 0, "minutes": 0}
+                    page_counts[pid]["events"] += ev.get("numEvents", 0) or 0
+                    page_counts[pid]["minutes"] += ev.get("numMinutes", 0) or 0
+            for pid, c in sorted(page_counts.items(), key=lambda x: -x[1]["events"])[:10]:
+                top_pages.append({"name": page_catalog.get(pid, pid), "events": c["events"], "minutes": c["minutes"]})
         except Exception as e:
             logger.debug("Could not compute top pages: %s", e)
 
@@ -656,126 +795,478 @@ class PendoClient:
             all_feat_events = self.aggregate([
                 {"source": {"featureEvents": None, "timeSeries": ts}},
             ]).get("results", [])
-
-            visitor_ids = {
-                v.get("visitorId") for v in customer_visitors if v.get("visitorId")
-            }
-            customer_feat_counts: dict[str, int] = {}
+            feat_counts: dict[str, int] = {}
             for ev in all_feat_events:
                 if ev.get("visitorId") in visitor_ids:
                     fid = ev.get("featureId", "")
-                    customer_feat_counts[fid] = customer_feat_counts.get(fid, 0) + (ev.get("numEvents", 0) or 0)
-
-            for fid, count in sorted(customer_feat_counts.items(), key=lambda x: -x[1])[:10]:
-                top_features.append({
-                    "name": feature_catalog.get(fid, fid),
-                    "events": count,
-                })
+                    feat_counts[fid] = feat_counts.get(fid, 0) + (ev.get("numEvents", 0) or 0)
+            for fid, count in sorted(feat_counts.items(), key=lambda x: -x[1])[:10]:
+                top_features.append({"name": feature_catalog.get(fid, fid), "events": count})
         except Exception as e:
             logger.debug("Could not compute top features: %s", e)
 
-        # ── Champions (most active) & at-risk (dormant) ──
-        user_activity: list[dict] = []
-        for v in customer_visitors:
+        return {"customer": customer_name, "days": days, "top_pages": top_pages, "top_features": top_features}
+
+    def _build_user_activity(self, visitors: list[dict], now_ms: int) -> list[dict]:
+        """Build user activity list from visitor records."""
+        users = []
+        for v in visitors:
             agent = (v.get("metadata") or {}).get("agent") or {}
             auto = (v.get("metadata") or {}).get("auto") or {}
             lv = auto.get("lastvisit", 0)
-            email = agent.get("emailaddress", "")
-            role = agent.get("role", "Unknown")
             days_ago = (now_ms - lv) / (86400 * 1000) if lv else 999
-            user_activity.append({
-                "email": email,
-                "role": role,
+            users.append({
+                "email": agent.get("emailaddress", ""),
+                "role": agent.get("role", "Unknown"),
                 "last_visit": datetime.datetime.fromtimestamp(lv / 1000).strftime("%Y-%m-%d") if lv else "Never",
                 "days_inactive": round(days_ago, 1),
             })
+        return users
 
+    # ── Behavioral categorization engine ──
+
+    _BEHAVIOR_PATTERNS: dict[str, re.Pattern] = {
+        "collaboration": re.compile(r'comment|chat|send message|watchers|attachment', re.I),
+        "upload": re.compile(r'upload|excel upload', re.I),
+        "inline_edit": re.compile(r'edit cell|editable cell|commit date.*cell|status.*cell|tracking number.*cell|late delivery cause.*cell', re.I),
+        "task_mgmt": re.compile(r'task|action.*card|archive|snooze|unable to fix|done.*button|in progress|mark as fixed', re.I),
+        "filter": re.compile(r'filter|quick filter', re.I),
+        "drilldown": re.compile(r'drilldown|drill|nested|details.*drawer|expand.*panel|collapse.*panel|item code.*detail|burnoff', re.I),
+        "search": re.compile(r'search', re.I),
+        "export": re.compile(r'export|download.*(csv|xlsx|excel|template)', re.I),
+        "widget": re.compile(r'^widget', re.I),
+        "column_config": re.compile(r'^column', re.I),
+        "share": re.compile(r'share|save.*view|save.*dashboard|make a copy', re.I),
+        "kei_ai": re.compile(r'kei', re.I),
+        "send_to_erp": re.compile(r'send to erp', re.I),
+        "supplier": re.compile(r'supplier|scorecard|offer alternative|accept supplier', re.I),
+        "delivery": re.compile(r'delivery|split deliv', re.I),
+    }
+
+    _categorized_features_cache: dict[str, dict[str, str]] | None = None
+
+    def _get_categorized_features(self) -> dict[str, dict[str, str]]:
+        """Categorize all features by behavior type. Returns {category: {fid: name}}."""
+        if self._categorized_features_cache is not None:
+            return self._categorized_features_cache
+        catalog = self.get_feature_catalog()
+        result: dict[str, dict[str, str]] = {cat: {} for cat in self._BEHAVIOR_PATTERNS}
+        result["other"] = {}
+        for fid, name in catalog.items():
+            matched = False
+            for cat, pattern in self._BEHAVIOR_PATTERNS.items():
+                if pattern.search(name):
+                    result[cat][fid] = name
+                    matched = True
+                    break
+            if not matched:
+                result["other"][fid] = name
+        self._categorized_features_cache = result
+        logger.debug("Categorized %d features into %d behavior types", len(catalog),
+                      sum(1 for v in result.values() if v))
+        return result
+
+    _feat_events_cache: dict[str, Any] | None = None
+    _feat_events_cache_ts: float = 0
+
+    def _get_feature_events_cached(self, days: int) -> list[dict]:
+        """Cached feature events for reuse across all behavioral tools."""
+        now = time.time()
+        if self._feat_events_cache and (now - self._feat_events_cache_ts) < self._CACHE_TTL:
+            if self._feat_events_cache.get("days") == days:
+                return self._feat_events_cache["results"]
+
+        ts = _time_series(days)
+        results = self.aggregate([
+            {"source": {"featureEvents": None, "timeSeries": ts}},
+        ]).get("results", [])
+
+        self._feat_events_cache = {"days": days, "results": results}
+        self._feat_events_cache_ts = now
+        return results
+
+    def _visitor_info_map(self, visitors: list[dict]) -> dict[str, dict]:
+        """Build {visitorId: {email, role}} from visitor records."""
+        m = {}
+        for v in visitors:
+            vid = v.get("visitorId")
+            if vid:
+                agent = (v.get("metadata") or {}).get("agent") or {}
+                m[vid] = {
+                    "email": agent.get("emailaddress", ""),
+                    "role": agent.get("role", "Unknown"),
+                }
+        return m
+
+    def _count_active_users(self, visitors: list[dict], now_ms: int, window_days: int = 30) -> int:
+        threshold = window_days * 86400 * 1000
+        return sum(1 for v in visitors
+                   if ((v.get("metadata") or {}).get("auto") or {}).get("lastvisit", 0)
+                   and (now_ms - ((v.get("metadata") or {}).get("auto") or {}).get("lastvisit", 0)) <= threshold)
+
+    # ── Behavioral depth ──
+
+    def get_customer_depth(self, customer_name: str, days: int = 30) -> dict[str, Any]:
+        """Behavioral depth: how the customer uses the product across read/write/collab dimensions.
+        Returns event counts per behavior category and a read-vs-write ratio."""
+        partition = self._get_visitor_partition(days)
+        customer_visitors, _ = self._filter_customer_visitors(customer_name, partition)
+        if not customer_visitors:
+            return {"error": f"No visitors found matching '{customer_name}'"}
+
+        visitor_ids = {v.get("visitorId") for v in customer_visitors if v.get("visitorId")}
+        categories = self._get_categorized_features()
+        all_events = self._get_feature_events_cached(days)
+
+        fid_to_cat = {}
+        for cat, fids in categories.items():
+            for fid in fids:
+                fid_to_cat[fid] = cat
+
+        by_cat: dict[str, int] = {}
+        by_cat_users: dict[str, set] = {}
+        for ev in all_events:
+            if ev.get("visitorId") not in visitor_ids:
+                continue
+            fid = ev.get("featureId", "")
+            cat = fid_to_cat.get(fid, "other")
+            ne = ev.get("numEvents", 0) or 0
+            by_cat[cat] = by_cat.get(cat, 0) + ne
+            if cat not in by_cat_users:
+                by_cat_users[cat] = set()
+            by_cat_users[cat].add(ev.get("visitorId"))
+
+        total = sum(by_cat.values())
+        active = self._count_active_users(customer_visitors, partition["now_ms"])
+
+        # Read = search + filter + drilldown + widget + column_config
+        # Write = inline_edit + upload + task_mgmt + delivery + send_to_erp
+        # Collab = collaboration + share
+        read_cats = {"search", "filter", "drilldown", "widget", "column_config"}
+        write_cats = {"inline_edit", "upload", "task_mgmt", "delivery", "send_to_erp", "export"}
+        collab_cats = {"collaboration", "share"}
+
+        read_total = sum(by_cat.get(c, 0) for c in read_cats)
+        write_total = sum(by_cat.get(c, 0) for c in write_cats)
+        collab_total = sum(by_cat.get(c, 0) for c in collab_cats)
+
+        breakdown = []
+        display_order = ["collaboration", "upload", "inline_edit", "task_mgmt", "filter",
+                         "drilldown", "search", "export", "widget", "column_config",
+                         "share", "kei_ai", "send_to_erp", "supplier", "delivery", "other"]
+        display_labels = {
+            "collaboration": "Collaboration", "upload": "Data Upload",
+            "inline_edit": "Inline Editing", "task_mgmt": "Task Management",
+            "filter": "Filtering", "drilldown": "Drilldown/Details",
+            "search": "Search", "export": "Export/Download",
+            "widget": "Widget Config", "column_config": "Column Config",
+            "share": "Share/Save Views", "kei_ai": "Kei AI",
+            "send_to_erp": "Send to ERP", "supplier": "Supplier Mgmt",
+            "delivery": "Delivery Mgmt", "other": "Other",
+        }
+        for cat in display_order:
+            count = by_cat.get(cat, 0)
+            if count > 0:
+                breakdown.append({
+                    "category": display_labels.get(cat, cat),
+                    "events": count,
+                    "users": len(by_cat_users.get(cat, set())),
+                    "pct": round(count / max(total, 1) * 100, 1),
+                })
+
+        return {
+            "customer": customer_name,
+            "days": days,
+            "total_feature_events": total,
+            "active_users": active,
+            "read_events": read_total,
+            "write_events": write_total,
+            "collab_events": collab_total,
+            "write_ratio": round(write_total / max(read_total + write_total, 1) * 100, 1),
+            "breakdown": breakdown,
+        }
+
+    # ── Export analysis ──
+
+    def get_customer_exports(self, customer_name: str, days: int = 30) -> dict[str, Any]:
+        """Export behavior analysis: which data a customer exports, how often, and who does it."""
+        partition = self._get_visitor_partition(days)
+        customer_visitors, _ = self._filter_customer_visitors(customer_name, partition)
+        if not customer_visitors:
+            return {"error": f"No visitors found matching '{customer_name}'"}
+
+        visitor_ids = {v.get("visitorId") for v in customer_visitors if v.get("visitorId")}
+        export_features = self._get_categorized_features().get("export", {})
+        if not export_features:
+            return {"customer": customer_name, "days": days, "exports": [], "total_exports": 0,
+                    "note": "No export features found in catalog"}
+
+        all_feat_events = self._get_feature_events_cached(days)
+
+        by_feature: dict[str, int] = {}
+        by_user: dict[str, int] = {}
+        total = 0
+        for ev in all_feat_events:
+            fid = ev.get("featureId", "")
+            if fid in export_features and ev.get("visitorId") in visitor_ids:
+                ne = ev.get("numEvents", 0) or 0
+                by_feature[fid] = by_feature.get(fid, 0) + ne
+                vid = ev.get("visitorId", "")
+                by_user[vid] = by_user.get(vid, 0) + ne
+                total += ne
+
+        exports = []
+        for fid, count in sorted(by_feature.items(), key=lambda x: -x[1]):
+            exports.append({"feature": export_features[fid], "exports": count})
+
+        vid_to_info = self._visitor_info_map(customer_visitors)
+        top_exporters = []
+        for vid, count in sorted(by_user.items(), key=lambda x: -x[1])[:5]:
+            info = vid_to_info.get(vid, {})
+            top_exporters.append({"email": info.get("email", ""), "role": info.get("role", "Unknown"), "exports": count})
+
+        active = self._count_active_users(customer_visitors, partition["now_ms"])
+        return {
+            "customer": customer_name,
+            "days": days,
+            "total_exports": total,
+            "exports_per_active_user": round(total / max(active, 1), 1),
+            "active_users": active,
+            "by_feature": exports,
+            "top_exporters": top_exporters,
+        }
+
+    # ── Kei AI analysis ──
+
+    def get_customer_kei(self, customer_name: str, days: int = 30) -> dict[str, Any]:
+        """Kei AI chatbot usage: who's using it, how much, and critically whether executives are.
+        Kei adoption is a leading indicator of strategic engagement and executive pull-through."""
+        partition = self._get_visitor_partition(days)
+        customer_visitors, _ = self._filter_customer_visitors(customer_name, partition)
+        if not customer_visitors:
+            return {"error": f"No visitors found matching '{customer_name}'"}
+
+        visitor_ids = {v.get("visitorId") for v in customer_visitors if v.get("visitorId")}
+        kei_features = self._get_categorized_features().get("kei_ai", {})
+        all_feat_events = self._get_feature_events_cached(days)
+        vid_to_info = self._visitor_info_map(customer_visitors)
+
+        by_user: dict[str, int] = {}
+        total = 0
+        for ev in all_feat_events:
+            fid = ev.get("featureId", "")
+            if fid in kei_features and ev.get("visitorId") in visitor_ids:
+                ne = ev.get("numEvents", 0) or 0
+                vid = ev.get("visitorId", "")
+                by_user[vid] = by_user.get(vid, 0) + ne
+                total += ne
+
+        # Also check track events for "Kei AI: send-message"
+        try:
+            ts = _time_series(days)
+            track_results = self.aggregate([
+                {"source": {"events": None, "timeSeries": ts}},
+            ]).get("results", [])
+            for ev in track_results:
+                if ev.get("visitorId") not in visitor_ids:
+                    continue
+                pid = ev.get("pageId", "")
+                if "kei" in pid.lower():
+                    ne = ev.get("numEvents", 0) or 0
+                    vid = ev.get("visitorId", "")
+                    by_user[vid] = by_user.get(vid, 0) + ne
+                    total += ne
+        except Exception:
+            pass
+
+        active = self._count_active_users(customer_visitors, partition["now_ms"])
+        adoption_rate = round(len(by_user) / max(active, 1) * 100, 1)
+
+        exec_roles = {"ExecutiveVP", "Director", "VP", "C-Level", "Executive"}
+        users = []
+        exec_users = 0
+        exec_queries = 0
+        for vid, count in sorted(by_user.items(), key=lambda x: -x[1]):
+            info = vid_to_info.get(vid, {})
+            role = info.get("role", "Unknown")
+            is_exec = role in exec_roles
+            if is_exec:
+                exec_users += 1
+                exec_queries += count
+            users.append({
+                "email": info.get("email", ""),
+                "role": role,
+                "queries": count,
+                "is_executive": is_exec,
+            })
+
+        return {
+            "customer": customer_name,
+            "days": days,
+            "total_queries": total,
+            "unique_users": len(by_user),
+            "active_users": active,
+            "adoption_rate": adoption_rate,
+            "executive_users": exec_users,
+            "executive_queries": exec_queries,
+            "users": users[:10],
+        }
+
+    # ── Guide engagement ──
+
+    def get_customer_guides(self, customer_name: str, days: int = 30) -> dict[str, Any]:
+        """Guide engagement: are users seeing, advancing, or dismissing in-app guides?
+        High dismiss rates signal onboarding friction. Low guide-seen counts may indicate
+        users aren't reaching guided workflows."""
+        partition = self._get_visitor_partition(days)
+        customer_visitors, _ = self._filter_customer_visitors(customer_name, partition)
+        if not customer_visitors:
+            return {"error": f"No visitors found matching '{customer_name}'"}
+
+        visitor_ids = {v.get("visitorId") for v in customer_visitors if v.get("visitorId")}
+
+        ts = _time_series(days)
+        try:
+            guide_events = self.aggregate([
+                {"source": {"guideEvents": None, "timeSeries": ts}},
+            ]).get("results", [])
+        except Exception as e:
+            return {"error": f"Could not fetch guide events: {e}"}
+
+        by_type: dict[str, int] = {}
+        by_guide: dict[str, dict[str, int]] = {}
+        users_with_guides: set[str] = set()
+
+        for ev in guide_events:
+            if ev.get("visitorId") not in visitor_ids:
+                continue
+            t = ev.get("type", "?")
+            by_type[t] = by_type.get(t, 0) + 1
+            gid = ev.get("guideId", "?")
+            if gid not in by_guide:
+                by_guide[gid] = {}
+            by_guide[gid][t] = by_guide[gid].get(t, 0) + 1
+            users_with_guides.add(ev.get("visitorId"))
+
+        seen = by_type.get("guideSeen", 0)
+        advanced = by_type.get("guideAdvanced", 0)
+        dismissed = by_type.get("guideDismissed", 0)
+        active = self._count_active_users(customer_visitors, partition["now_ms"])
+
+        # Resolve guide names
+        guide_names = {}
+        try:
+            resp = requests.get(
+                f"{self.base_url}/guide",
+                headers={"x-pendo-integration-key": self.integration_key, "content-type": "application/json"},
+            )
+            if resp.ok:
+                for g in resp.json():
+                    guide_names[g["id"]] = g.get("name", g["id"])
+        except Exception:
+            pass
+
+        top_guides = []
+        for gid, counts in sorted(by_guide.items(), key=lambda x: -sum(x[1].values()))[:8]:
+            top_guides.append({
+                "guide": guide_names.get(gid, gid[:20]),
+                "seen": counts.get("guideSeen", 0),
+                "advanced": counts.get("guideAdvanced", 0),
+                "dismissed": counts.get("guideDismissed", 0),
+            })
+
+        return {
+            "customer": customer_name,
+            "days": days,
+            "total_guide_events": sum(by_type.values()),
+            "users_who_saw_guides": len(users_with_guides),
+            "active_users": active,
+            "guide_reach": round(len(users_with_guides) / max(active, 1) * 100, 1),
+            "seen": seen,
+            "advanced": advanced,
+            "dismissed": dismissed,
+            "dismiss_rate": round(dismissed / max(seen, 1) * 100, 1),
+            "advance_rate": round(advanced / max(seen, 1) * 100, 1),
+            "top_guides": top_guides,
+        }
+
+    def get_customer_people(self, customer_name: str, days: int = 30) -> dict[str, Any]:
+        """Champions (most active) and at-risk users (dormant), with roles and last visit."""
+        partition = self._get_visitor_partition(days)
+        customer_visitors, _ = self._filter_customer_visitors(customer_name, partition)
+        if not customer_visitors:
+            return {"error": f"No visitors found matching '{customer_name}'"}
+
+        user_activity = self._build_user_activity(customer_visitors, partition["now_ms"])
         champions = sorted(user_activity, key=lambda u: u["days_inactive"])[:5]
         at_risk = sorted(
             [u for u in user_activity if u["days_inactive"] > 30],
             key=lambda u: -u["days_inactive"],
         )[:8]
+        return {"customer": customer_name, "days": days, "champions": champions, "at_risk_users": at_risk}
 
-        # ── Benchmarks ──
+    def list_customers(self, days: int = 30) -> dict[str, Any]:
+        """Portfolio overview: all customers ranked by activity with summary stats.
+        Returns what an agent needs to decide which customers to focus on."""
+        partition = self._get_visitor_partition(days)
+        stats = partition["all_customer_stats"]
+
         peer_rates = []
-        for cname, stats in all_customer_stats.items():
-            if stats["total"] >= 5:
-                peer_rates.append(stats["active_7d"] / stats["total"])
+        for s in stats.values():
+            if s["total"] >= 5:
+                peer_rates.append(s["active_7d"] / s["total"])
         peer_rates.sort()
         median_rate = peer_rates[len(peer_rates) // 2] if peer_rates else 0
-        customer_rate = engagement["active_7d"] / max(total_visitors, 1)
 
-        # ── Signals (auto-detected notable patterns) ──
-        signals: list[str] = []
-
-        dormant_pct = engagement["dormant"] / max(total_visitors, 1)
-        if dormant_pct > 0.5:
-            signals.append(f"High dormancy: {engagement['dormant']}/{total_visitors} users ({dormant_pct:.0%}) haven't logged in for 30+ days")
-
-        if customer_rate > median_rate * 1.5 and total_visitors >= 5:
-            signals.append(f"Strong engagement: {customer_rate:.0%} weekly active rate is well above the {median_rate:.0%} peer median")
-        elif customer_rate < median_rate * 0.5 and total_visitors >= 5:
-            signals.append(f"Low engagement: {customer_rate:.0%} weekly active rate is well below the {median_rate:.0%} peer median")
-
-        if active_count > 0:
-            top_user_events = 0
-            total_cust_events = sum(s.get("total_events", 0) for s in sites_report)
-            # Single-user dependency is hard to compute without per-user event counts here,
-            # but we can flag if only 1-2 users are active
-            if engagement["active_7d"] <= 2 and total_visitors >= 10:
-                signals.append(f"Concentration risk: only {engagement['active_7d']} of {total_visitors} users active this week")
-
-        exec_roles = {"ExecutiveVP", "Director", "VP", "C-Level", "Executive"}
-        exec_active = sum(1 for u in user_activity if u["role"] in exec_roles and u["days_inactive"] <= 7)
-        exec_total = sum(1 for u in user_activity if u["role"] in exec_roles)
-        if exec_total > 0 and exec_active == 0:
-            signals.append(f"No executive engagement: {exec_total} executives on the account, none active this week")
-        elif exec_active > 0:
-            signals.append(f"Executive engagement: {exec_active}/{exec_total} executives active this week")
-
-        training_site_visitors = 0
-        for sn, info in site_data.items():
-            if "training" in sn.lower():
-                training_site_visitors += info["visitors"]
-        if training_site_visitors > 0:
-            signals.append(f"Active training: {training_site_visitors} users on training site (onboarding/expansion signal)")
-
-        if internal_visitors:
-            signals.append(f"Internal activity: {len(internal_visitors)} LeanDNA staff visited this account's sites (excluded from metrics above)")
+        customers = []
+        for name, s in stats.items():
+            if name == "?" or s["total"] < 2:
+                continue
+            rate = s["active_7d"] / s["total"]
+            customers.append({
+                "customer": name,
+                "total_users": s["total"],
+                "active_7d": s["active_7d"],
+                "active_rate_7d": round(rate * 100, 1),
+                "vs_median": round((rate - median_rate) * 100, 1),
+            })
+        customers.sort(key=lambda c: -c["total_users"])
 
         return {
-            "customer": customer_name,
             "days": days,
-            "generated": datetime.datetime.now().strftime("%Y-%m-%d"),
-            "account": {
-                "name": acct_name,
-                "region": acct_agent.get("region", ""),
-                "csm": ", ".join(sorted(csm_names)) if csm_names else "Unknown",
-                "account_id": account_id,
-                "total_visitors": total_visitors,
-                "internal_visitors": len(internal_visitors),
-                "total_sites": len(site_data),
-            },
-            "engagement": {
-                "active_7d": engagement["active_7d"],
-                "active_30d": engagement["active_30d"],
-                "dormant": engagement["dormant"],
-                "active_rate_7d": round(customer_rate * 100, 1),
-                "role_active": dict(sorted(role_active.items(), key=lambda x: -x[1])),
-                "role_dormant": dict(sorted(role_dormant.items(), key=lambda x: -x[1])),
-            },
-            "sites": sites_report,
-            "top_pages": top_pages,
-            "top_features": top_features,
-            "champions": champions,
-            "at_risk_users": at_risk,
-            "benchmarks": {
-                "customer_active_rate": round(customer_rate * 100, 1),
-                "peer_median_rate": round(median_rate * 100, 1),
-                "peer_count": len(peer_rates),
-                "total_visitors_rank": "top" if total_visitors > 100 else "mid" if total_visitors > 20 else "small",
-            },
-            "signals": signals,
+            "total_customers": len(customers),
+            "peer_median_rate": round(median_rate * 100, 1),
+            "customers": customers,
+        }
+
+    # ── Full health report (aggregates all focused methods for monolith deck) ──
+
+    def get_customer_health_report(self, customer_name: str, days: int = 30) -> dict[str, Any]:
+        """Comprehensive health report combining all focused methods.
+        Used by the monolith deck generator and as a convenience method."""
+        health = self.get_customer_health(customer_name, days)
+        if "error" in health:
+            return health
+
+        sites_data = self.get_customer_sites(customer_name, days)
+        features_data = self.get_customer_features(customer_name, days)
+        people_data = self.get_customer_people(customer_name, days)
+        exports_data = self.get_customer_exports(customer_name, days)
+        depth_data = self.get_customer_depth(customer_name, days)
+        kei_data = self.get_customer_kei(customer_name, days)
+        guides_data = self.get_customer_guides(customer_name, days)
+
+        return {
+            **health,
+            "sites": sites_data.get("sites", []),
+            "top_pages": features_data.get("top_pages", []),
+            "top_features": features_data.get("top_features", []),
+            "champions": people_data.get("champions", []),
+            "at_risk_users": people_data.get("at_risk_users", []),
+            "exports": exports_data,
+            "depth": depth_data,
+            "kei": kei_data,
+            "guides": guides_data,
         }
 
     def save_usage_to_file(
