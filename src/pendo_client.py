@@ -1366,6 +1366,159 @@ class PendoClient:
             "guides": guides_data,
         }
 
+    # ── Portfolio-level methods (cross-customer analysis) ──
+
+    def get_portfolio_report(self, days: int = 30, max_customers: int | None = None) -> dict[str, Any]:
+        """Full portfolio report for the book-of-business deck.
+        Calls preload() then iterates all customers."""
+        self.preload(days)
+        by_customer = self.get_sites_by_customer(days)
+        all_names = [c for c in by_customer["customer_list"] if c != "(unknown)"]
+        if max_customers:
+            all_names = all_names[:max_customers]
+
+        customer_summaries: list[dict[str, Any]] = []
+        for name in all_names:
+            try:
+                h = self.get_customer_health(name, days)
+                if "error" in h:
+                    continue
+                depth = self.get_customer_depth(name, days)
+                kei = self.get_customer_kei(name, days)
+                guides = self.get_customer_guides(name, days)
+                exports = self.get_customer_exports(name, days)
+                customer_summaries.append({
+                    "customer": name,
+                    "engagement": h.get("engagement", {}),
+                    "benchmarks": h.get("benchmarks", {}),
+                    "signals": h.get("signals", []),
+                    "score": h.get("engagement", {}).get("score", 0),
+                    "active_users": h.get("engagement", {}).get("active_users", 0),
+                    "total_users": h.get("engagement", {}).get("total_users", 0),
+                    "login_pct": h.get("engagement", {}).get("login_pct", 0),
+                    "depth": depth,
+                    "kei": kei,
+                    "guides": guides,
+                    "exports": exports,
+                })
+            except Exception as e:
+                logger.debug("Skipping %s: %s", name, e)
+
+        return {
+            "type": "portfolio",
+            "days": days,
+            "generated": datetime.datetime.now().strftime("%Y-%m-%d"),
+            "customer_count": len(customer_summaries),
+            "customers": customer_summaries,
+            "portfolio_signals": self._compute_portfolio_signals(customer_summaries),
+            "portfolio_trends": self._compute_portfolio_trends(customer_summaries),
+            "portfolio_leaders": self._compute_portfolio_leaders(customer_summaries),
+        }
+
+    def _compute_portfolio_signals(self, summaries: list[dict]) -> list[dict[str, Any]]:
+        """Extract the most critical per-customer signals, ranked by severity."""
+        alarm_keywords = [
+            "no active users", "declining", "dropped", "no kei", "dismiss",
+            "read-heavy", "low guide reach", "only", "at risk", "churned",
+        ]
+        signals: list[dict[str, Any]] = []
+        for s in summaries:
+            for sig in s.get("signals", []):
+                severity = 0
+                sig_lower = sig.lower()
+                for kw in alarm_keywords:
+                    if kw in sig_lower:
+                        severity += 1
+                if severity > 0:
+                    signals.append({
+                        "customer": s["customer"],
+                        "signal": sig,
+                        "severity": severity,
+                        "score": s.get("score", 0),
+                    })
+        signals.sort(key=lambda x: (-x["severity"], x["score"]))
+        return signals[:20]
+
+    def _compute_portfolio_trends(self, summaries: list[dict]) -> dict[str, Any]:
+        """Aggregate product-level trends across all customers."""
+        total_active = sum(s.get("active_users", 0) for s in summaries)
+        total_users = sum(s.get("total_users", 0) for s in summaries)
+
+        kei_adopters = [s for s in summaries if s.get("kei", {}).get("total_queries", 0) > 0]
+        kei_zero = [s for s in summaries if s.get("kei", {}).get("total_queries", 0) == 0]
+        high_dismiss = [s for s in summaries if s.get("guides", {}).get("dismiss_rate", 0) > 30]
+        read_heavy = [s for s in summaries if s.get("depth", {}).get("write_ratio", 50) < 15]
+        export_heavy = [s for s in summaries if s.get("exports", {}).get("total_exports", 0) > 100]
+        low_login = [s for s in summaries if s.get("login_pct", 100) < 30]
+
+        trends: list[dict[str, str]] = []
+        if kei_zero:
+            trends.append({
+                "trend": f"Kei AI has zero usage at {len(kei_zero)} of {len(summaries)} customers",
+                "type": "opportunity",
+                "customers": ", ".join(s["customer"] for s in kei_zero[:5]),
+            })
+        if kei_adopters:
+            total_kei_queries = sum(s.get("kei", {}).get("total_queries", 0) for s in kei_adopters)
+            trends.append({
+                "trend": f"Kei AI active at {len(kei_adopters)} customers ({total_kei_queries:,} queries)",
+                "type": "positive",
+                "customers": ", ".join(s["customer"] for s in kei_adopters[:5]),
+            })
+        if high_dismiss:
+            trends.append({
+                "trend": f"High guide dismiss rate (>30%) at {len(high_dismiss)} customers — onboarding friction",
+                "type": "concern",
+                "customers": ", ".join(s["customer"] for s in high_dismiss[:5]),
+            })
+        if read_heavy:
+            trends.append({
+                "trend": f"{len(read_heavy)} customers are read-heavy (<15% write ratio) — dashboard-only usage",
+                "type": "concern",
+                "customers": ", ".join(s["customer"] for s in read_heavy[:5]),
+            })
+        if export_heavy:
+            trends.append({
+                "trend": f"{len(export_heavy)} customers export heavily (>100 exports) — deep integration or workaround?",
+                "type": "insight",
+                "customers": ", ".join(s["customer"] for s in export_heavy[:5]),
+            })
+        if low_login:
+            trends.append({
+                "trend": f"{len(low_login)} customers below 30% login rate — adoption risk",
+                "type": "concern",
+                "customers": ", ".join(s["customer"] for s in low_login[:5]),
+            })
+
+        return {
+            "total_active_users": total_active,
+            "total_users": total_users,
+            "overall_login_pct": round(total_active / total_users * 100) if total_users else 0,
+            "trends": trends,
+        }
+
+    def _compute_portfolio_leaders(self, summaries: list[dict]) -> dict[str, list[dict]]:
+        """Rank customers across key categories."""
+        def _top(key_fn, label, n=5):
+            ranked = sorted(summaries, key=key_fn, reverse=True)
+            return [{"rank": i + 1, "customer": s["customer"], label: key_fn(s)}
+                    for i, s in enumerate(ranked[:n]) if key_fn(s) > 0]
+
+        return {
+            "kei_adoption": _top(
+                lambda s: s.get("kei", {}).get("adoption_rate", 0), "adoption_rate"),
+            "executive_engagement": _top(
+                lambda s: s.get("kei", {}).get("executive_users", 0), "executives"),
+            "engagement_score": _top(
+                lambda s: s.get("score", 0), "score"),
+            "write_depth": _top(
+                lambda s: s.get("depth", {}).get("write_ratio", 0), "write_ratio"),
+            "export_intensity": _top(
+                lambda s: s.get("exports", {}).get("total_exports", 0), "total_exports"),
+            "login_rate": _top(
+                lambda s: s.get("login_pct", 0), "login_pct"),
+        }
+
     def save_usage_to_file(
         self,
         data: dict[str, Any],
