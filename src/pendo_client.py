@@ -1,6 +1,8 @@
 """Pendo API client for the aggregation endpoint."""
 
+import datetime
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -9,6 +11,15 @@ from uuid import uuid4
 import requests
 
 from .config import PENDO_BASE_URL, PENDO_INTEGRATION_KEY, logger
+
+
+def _name_matches(query: str, text: str) -> bool:
+    """Check if query appears as a word boundary match in text.
+    'AGI' matches 'AGI Omaha' but not 'Integrated Packaging Machinery'.
+    """
+    if not query or not text:
+        return False
+    return bool(re.search(rf'\b{re.escape(query)}\b', text, re.IGNORECASE))
 
 
 def _time_series(days: int) -> dict[str, Any]:
@@ -386,6 +397,386 @@ class PendoClient:
             }
         ]
         return self.aggregate(pipeline)
+
+    # ── Catalog methods (for human-readable names) ──
+
+    def get_page_catalog(self) -> dict[str, str]:
+        """Fetch page catalog: {page_id: page_name}."""
+        resp = requests.get(
+            f"{self.base_url}/page", headers=self._headers(), timeout=30
+        )
+        resp.raise_for_status()
+        pages = resp.json()
+        return {p["id"]: p.get("name", p["id"]) for p in pages} if isinstance(pages, list) else {}
+
+    def get_feature_catalog(self) -> dict[str, str]:
+        """Fetch feature catalog: {feature_id: feature_name}."""
+        resp = requests.get(
+            f"{self.base_url}/feature", headers=self._headers(), timeout=30
+        )
+        resp.raise_for_status()
+        features = resp.json()
+        return {f["id"]: f.get("name", f["id"]) for f in features} if isinstance(features, list) else {}
+
+    def get_account_info(self, account_id: str) -> dict[str, Any]:
+        """Fetch account metadata from REST API."""
+        resp = requests.get(
+            f"{self.base_url}/account/{account_id}",
+            headers=self._headers(),
+            timeout=10,
+        )
+        if resp.status_code == 404:
+            return {}
+        resp.raise_for_status()
+        return resp.json()
+
+    # ── Health report (comprehensive data for CS decks) ──
+
+    def get_customer_health_report(
+        self,
+        customer_name: str,
+        days: int = 30,
+    ) -> dict[str, Any]:
+        """Gather all data needed for a CS-oriented health deck for one customer.
+
+        Returns a dict with sections matching the deck slide structure:
+        - account: name, csm, region, sites
+        - engagement: tiers, role breakdown, total visitors
+        - sites: per-site metrics (visitors, events, minutes, last active)
+        - top_pages: top pages with human-readable names
+        - top_features: top features with human-readable names
+        - champions: most active users (name, role, events)
+        - at_risk_users: dormant users with roles
+        - benchmarks: customer's active rate vs peer median
+        - signals: automatically detected notable patterns
+        """
+        now_ms = int(time.time() * 1000)
+        all_visitors = self.get_visitors(days=days).get("results", [])
+
+        def _is_internal(v: dict) -> bool:
+            agent = (v.get("metadata") or {}).get("agent") or {}
+            return bool(agent.get("isinternaluser")) or agent.get("role") == "LeanDNAStaff"
+
+        # ── Partition visitors by customer (excluding internal users from stats) ──
+        customer_visitors: list[dict] = []
+        internal_visitors: list[dict] = []
+        all_customer_stats: dict[str, dict] = {}
+
+        for v in all_visitors:
+            agent = (v.get("metadata") or {}).get("agent") or {}
+            auto = (v.get("metadata") or {}).get("auto") or {}
+            sitenames = agent.get("sitenames") or []
+            lv = auto.get("lastvisit", 0)
+            internal = _is_internal(v)
+
+            if not internal:
+                for sn in sitenames:
+                    cust = str(sn).strip().split()[0] if sn else "?"
+                    if cust not in all_customer_stats:
+                        all_customer_stats[cust] = {"total": 0, "active_7d": 0}
+                    all_customer_stats[cust]["total"] += 1
+                    if lv and (now_ms - lv) / (86400 * 1000) <= 7:
+                        all_customer_stats[cust]["active_7d"] += 1
+                    break
+
+            if any(_name_matches(customer_name, str(sn)) for sn in sitenames):
+                if internal:
+                    internal_visitors.append(v)
+                else:
+                    customer_visitors.append(v)
+
+        if not customer_visitors:
+            return {"error": f"No visitors found matching '{customer_name}'"}
+
+        # ── Account info ──
+        sample_agent = (customer_visitors[0].get("metadata") or {}).get("agent") or {}
+        csm_names = set()
+        for v in customer_visitors:
+            on = ((v.get("metadata") or {}).get("agent") or {}).get("ownername")
+            if on:
+                csm_names.add(on)
+
+        # Find the account ID — prefer accounts whose name starts with the customer
+        account_id = None
+        account_ids_seen: dict[str, int] = {}
+        for v in customer_visitors:
+            auto = (v.get("metadata") or {}).get("auto") or {}
+            aid = auto.get("accountid")
+            if aid:
+                aid_str = str(aid)
+                account_ids_seen[aid_str] = account_ids_seen.get(aid_str, 0) + 1
+
+        if account_ids_seen:
+            # Try each candidate account and prefer one whose name matches the customer
+            for aid_str in sorted(account_ids_seen, key=account_ids_seen.get, reverse=True):
+                try:
+                    info = self.get_account_info(aid_str)
+                    name = ((info.get("metadata") or {}).get("agent") or {}).get("name", "")
+                    if name and name.lower().startswith(customer_name.lower()):
+                        account_id = aid_str
+                        break
+                except Exception:
+                    continue
+            if account_id is None:
+                account_id = max(account_ids_seen, key=account_ids_seen.get)
+
+        account_meta = {}
+        if account_id:
+            try:
+                account_meta = self.get_account_info(account_id)
+            except Exception:
+                pass
+
+        acct_agent = (account_meta.get("metadata") or {}).get("agent") or {}
+        acct_name = acct_agent.get("name", "")
+        # Use account name only if it starts with the customer name (word boundary)
+        if not acct_name or not acct_name.lower().startswith(customer_name.lower()):
+            acct_name = customer_name
+
+        # ── Engagement tiers ──
+        engagement = {"active_7d": 0, "active_30d": 0, "dormant": 0}
+        role_active: dict[str, int] = {}
+        role_dormant: dict[str, int] = {}
+
+        for v in customer_visitors:
+            agent = (v.get("metadata") or {}).get("agent") or {}
+            auto = (v.get("metadata") or {}).get("auto") or {}
+            role = agent.get("role", "Unknown")
+            lv = auto.get("lastvisit", 0)
+
+            if lv:
+                days_ago = (now_ms - lv) / (86400 * 1000)
+                if days_ago <= 7:
+                    engagement["active_7d"] += 1
+                    role_active[role] = role_active.get(role, 0) + 1
+                elif days_ago <= 30:
+                    engagement["active_30d"] += 1
+                    role_active[role] = role_active.get(role, 0) + 1
+                else:
+                    engagement["dormant"] += 1
+                    role_dormant[role] = role_dormant.get(role, 0) + 1
+            else:
+                engagement["dormant"] += 1
+                role_dormant[role] = role_dormant.get(role, 0) + 1
+
+        total_visitors = len(customer_visitors)
+        active_count = engagement["active_7d"] + engagement["active_30d"]
+
+        # ── Per-site breakdown (only sites whose name matches the customer) ──
+        site_data: dict[str, dict] = {}
+        for v in customer_visitors:
+            agent = (v.get("metadata") or {}).get("agent") or {}
+            auto = (v.get("metadata") or {}).get("auto") or {}
+            lv = auto.get("lastvisit", 0)
+            for sn in agent.get("sitenames") or []:
+                if not sn or not _name_matches(customer_name, str(sn)):
+                    continue
+                if sn not in site_data:
+                    site_data[sn] = {"visitors": 0, "last_visit_ms": 0}
+                site_data[sn]["visitors"] += 1
+                if lv and lv > site_data[sn]["last_visit_ms"]:
+                    site_data[sn]["last_visit_ms"] = lv
+
+        usage_by_site = self.get_usage_by_site(days=days)
+        usage_map = {r["sitename"]: r for r in (usage_by_site.get("results") or [])}
+
+        sites_report = []
+        for sn, info in sorted(site_data.items()):
+            usage = usage_map.get(sn, {})
+            lv_ms = info["last_visit_ms"]
+            sites_report.append({
+                "sitename": sn,
+                "visitors": info["visitors"],
+                "page_views": usage.get("page_views", 0),
+                "feature_clicks": usage.get("feature_clicks", 0),
+                "total_events": usage.get("total_events", 0),
+                "total_minutes": usage.get("total_minutes", 0),
+                "last_active": datetime.datetime.fromtimestamp(lv_ms / 1000).strftime("%Y-%m-%d") if lv_ms else "N/A",
+            })
+
+        # ── Top pages & features (via aggregation, grouped by ID) ──
+        ts = _time_series(days)
+        page_catalog = {}
+        feature_catalog = {}
+        try:
+            page_catalog = self.get_page_catalog()
+        except Exception as e:
+            logger.debug("Could not fetch page catalog: %s", e)
+        try:
+            feature_catalog = self.get_feature_catalog()
+        except Exception as e:
+            logger.debug("Could not fetch feature catalog: %s", e)
+
+        top_pages: list[dict] = []
+        top_features: list[dict] = []
+
+        try:
+            page_pipeline = [
+                {"source": {"pageEvents": None, "timeSeries": ts}},
+                {"group": {
+                    "group": ["pageId"],
+                    "fields": {
+                        "totalEvents": {"sum": "numEvents"},
+                        "totalMinutes": {"sum": "numMinutes"},
+                    },
+                }},
+                {"sort": ["totalEvents desc"]},
+                {"limit": 200},
+            ]
+            page_results = self.aggregate(page_pipeline).get("results", [])
+
+            # We need per-visitor attribution to filter to this customer.
+            # Faster: use visitor-level page events and filter client-side.
+            visitor_ids = {
+                v.get("visitorId") for v in customer_visitors if v.get("visitorId")
+            }
+            page_by_visitor = [
+                {"source": {"pageEvents": None, "timeSeries": ts}},
+            ]
+            all_page_events = self.aggregate(page_by_visitor).get("results", [])
+            customer_page_counts: dict[str, dict] = {}
+            for ev in all_page_events:
+                if ev.get("visitorId") in visitor_ids:
+                    pid = ev.get("pageId", "")
+                    if pid not in customer_page_counts:
+                        customer_page_counts[pid] = {"events": 0, "minutes": 0}
+                    customer_page_counts[pid]["events"] += ev.get("numEvents", 0) or 0
+                    customer_page_counts[pid]["minutes"] += ev.get("numMinutes", 0) or 0
+
+            for pid, counts in sorted(customer_page_counts.items(), key=lambda x: -x[1]["events"])[:10]:
+                top_pages.append({
+                    "name": page_catalog.get(pid, pid),
+                    "events": counts["events"],
+                    "minutes": counts["minutes"],
+                })
+        except Exception as e:
+            logger.debug("Could not compute top pages: %s", e)
+
+        try:
+            all_feat_events = self.aggregate([
+                {"source": {"featureEvents": None, "timeSeries": ts}},
+            ]).get("results", [])
+
+            visitor_ids = {
+                v.get("visitorId") for v in customer_visitors if v.get("visitorId")
+            }
+            customer_feat_counts: dict[str, int] = {}
+            for ev in all_feat_events:
+                if ev.get("visitorId") in visitor_ids:
+                    fid = ev.get("featureId", "")
+                    customer_feat_counts[fid] = customer_feat_counts.get(fid, 0) + (ev.get("numEvents", 0) or 0)
+
+            for fid, count in sorted(customer_feat_counts.items(), key=lambda x: -x[1])[:10]:
+                top_features.append({
+                    "name": feature_catalog.get(fid, fid),
+                    "events": count,
+                })
+        except Exception as e:
+            logger.debug("Could not compute top features: %s", e)
+
+        # ── Champions (most active) & at-risk (dormant) ──
+        user_activity: list[dict] = []
+        for v in customer_visitors:
+            agent = (v.get("metadata") or {}).get("agent") or {}
+            auto = (v.get("metadata") or {}).get("auto") or {}
+            lv = auto.get("lastvisit", 0)
+            email = agent.get("emailaddress", "")
+            role = agent.get("role", "Unknown")
+            days_ago = (now_ms - lv) / (86400 * 1000) if lv else 999
+            user_activity.append({
+                "email": email,
+                "role": role,
+                "last_visit": datetime.datetime.fromtimestamp(lv / 1000).strftime("%Y-%m-%d") if lv else "Never",
+                "days_inactive": round(days_ago, 1),
+            })
+
+        champions = sorted(user_activity, key=lambda u: u["days_inactive"])[:5]
+        at_risk = sorted(
+            [u for u in user_activity if u["days_inactive"] > 30],
+            key=lambda u: -u["days_inactive"],
+        )[:8]
+
+        # ── Benchmarks ──
+        peer_rates = []
+        for cname, stats in all_customer_stats.items():
+            if stats["total"] >= 5:
+                peer_rates.append(stats["active_7d"] / stats["total"])
+        peer_rates.sort()
+        median_rate = peer_rates[len(peer_rates) // 2] if peer_rates else 0
+        customer_rate = engagement["active_7d"] / max(total_visitors, 1)
+
+        # ── Signals (auto-detected notable patterns) ──
+        signals: list[str] = []
+
+        dormant_pct = engagement["dormant"] / max(total_visitors, 1)
+        if dormant_pct > 0.5:
+            signals.append(f"High dormancy: {engagement['dormant']}/{total_visitors} users ({dormant_pct:.0%}) haven't logged in for 30+ days")
+
+        if customer_rate > median_rate * 1.5 and total_visitors >= 5:
+            signals.append(f"Strong engagement: {customer_rate:.0%} weekly active rate is well above the {median_rate:.0%} peer median")
+        elif customer_rate < median_rate * 0.5 and total_visitors >= 5:
+            signals.append(f"Low engagement: {customer_rate:.0%} weekly active rate is well below the {median_rate:.0%} peer median")
+
+        if active_count > 0:
+            top_user_events = 0
+            total_cust_events = sum(s.get("total_events", 0) for s in sites_report)
+            # Single-user dependency is hard to compute without per-user event counts here,
+            # but we can flag if only 1-2 users are active
+            if engagement["active_7d"] <= 2 and total_visitors >= 10:
+                signals.append(f"Concentration risk: only {engagement['active_7d']} of {total_visitors} users active this week")
+
+        exec_roles = {"ExecutiveVP", "Director", "VP", "C-Level", "Executive"}
+        exec_active = sum(1 for u in user_activity if u["role"] in exec_roles and u["days_inactive"] <= 7)
+        exec_total = sum(1 for u in user_activity if u["role"] in exec_roles)
+        if exec_total > 0 and exec_active == 0:
+            signals.append(f"No executive engagement: {exec_total} executives on the account, none active this week")
+        elif exec_active > 0:
+            signals.append(f"Executive engagement: {exec_active}/{exec_total} executives active this week")
+
+        training_site_visitors = 0
+        for sn, info in site_data.items():
+            if "training" in sn.lower():
+                training_site_visitors += info["visitors"]
+        if training_site_visitors > 0:
+            signals.append(f"Active training: {training_site_visitors} users on training site (onboarding/expansion signal)")
+
+        if internal_visitors:
+            signals.append(f"Internal activity: {len(internal_visitors)} LeanDNA staff visited this account's sites (excluded from metrics above)")
+
+        return {
+            "customer": customer_name,
+            "days": days,
+            "generated": datetime.datetime.now().strftime("%Y-%m-%d"),
+            "account": {
+                "name": acct_name,
+                "region": acct_agent.get("region", ""),
+                "csm": ", ".join(sorted(csm_names)) if csm_names else "Unknown",
+                "account_id": account_id,
+                "total_visitors": total_visitors,
+                "internal_visitors": len(internal_visitors),
+                "total_sites": len(site_data),
+            },
+            "engagement": {
+                "active_7d": engagement["active_7d"],
+                "active_30d": engagement["active_30d"],
+                "dormant": engagement["dormant"],
+                "active_rate_7d": round(customer_rate * 100, 1),
+                "role_active": dict(sorted(role_active.items(), key=lambda x: -x[1])),
+                "role_dormant": dict(sorted(role_dormant.items(), key=lambda x: -x[1])),
+            },
+            "sites": sites_report,
+            "top_pages": top_pages,
+            "top_features": top_features,
+            "champions": champions,
+            "at_risk_users": at_risk,
+            "benchmarks": {
+                "customer_active_rate": round(customer_rate * 100, 1),
+                "peer_median_rate": round(median_rate * 100, 1),
+                "peer_count": len(peer_rates),
+                "total_visitors_rank": "top" if total_visitors > 100 else "mid" if total_visitors > 20 else "small",
+            },
+            "signals": signals,
+        }
 
     def save_usage_to_file(
         self,
