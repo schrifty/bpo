@@ -1,5 +1,6 @@
 """Google Slides client for creating CS-oriented usage report decks."""
 
+import datetime
 import json
 import time
 from pathlib import Path
@@ -25,14 +26,28 @@ CONTENT_W = SLIDE_W - 2 * MARGIN
 TITLE_Y = 28
 BODY_Y = 80
 
-# ── Two-color palette ──
-NAVY = {"red": 0.12, "green": 0.22, "blue": 0.37}
-AMBER = {"red": 0.83, "green": 0.52, "blue": 0.11}
-WHITE = {"red": 1.0, "green": 1.0, "blue": 1.0}
-GRAY = {"red": 0.55, "green": 0.57, "blue": 0.60}
-LIGHT = {"red": 0.96, "green": 0.96, "blue": 0.97}
-FONT = "Google Sans"
-MONO = "Roboto Mono"
+# ── LeanDNA APEX brand palette (from template 1o2POERqEEp…) ──
+NAVY = {"red": 0.031, "green": 0.110, "blue": 0.200}    # #081c33  dark navy
+BLUE = {"red": 0.0,   "green": 0.604, "blue": 1.0}      # #009aff  primary accent
+LTBLUE = {"red": 0.482, "green": 0.769, "blue": 0.980}   # #7bc4fa  secondary accent
+TEAL = {"red": 0.220, "green": 0.753, "blue": 0.808}     # #38c0ce  tertiary accent
+MINT = {"red": 0.682, "green": 1.0,   "blue": 0.965}     # #aefff6  highlight
+WHITE = {"red": 1.0,  "green": 1.0,   "blue": 1.0}
+DARK = NAVY                                                # alias for readability
+GRAY = {"red": 0.522, "green": 0.522, "blue": 0.522}     # #858585  secondary text
+LIGHT = {"red": 0.933, "green": 0.941, "blue": 0.953}    # #eef0f3  light background
+FONT = "Source Sans Pro"
+FONT_SERIF = "IBM Plex Serif"
+MONO = "Source Sans 3"
+
+
+def _date_range(days: int) -> str:
+    """Format a human-readable date range like 'Feb 3 – Mar 5, 2026'."""
+    end = datetime.date.today()
+    start = end - datetime.timedelta(days=days)
+    if start.year == end.year:
+        return f"{start.strftime('%b %-d')} – {end.strftime('%b %-d, %Y')}"
+    return f"{start.strftime('%b %-d, %Y')} – {end.strftime('%b %-d, %Y')}"
 
 
 def _get_service():
@@ -180,11 +195,11 @@ def _align(reqs, oid, alignment):
 
 
 def _slide_title(reqs, sid, text):
-    """Standard content-slide title: navy text + amber underline."""
+    """Standard content-slide title: navy text + teal underline."""
     oid = f"{sid}_ttl"
     _box(reqs, oid, sid, MARGIN, TITLE_Y, CONTENT_W, 36, text)
-    _style(reqs, oid, 0, len(text), bold=True, size=20, color=NAVY, font=FONT)
-    _rect(reqs, f"{sid}_ul", sid, MARGIN, TITLE_Y + 38, 56, 2.5, AMBER)
+    _style(reqs, oid, 0, len(text), bold=True, size=20, color=NAVY, font=FONT_SERIF)
+    _rect(reqs, f"{sid}_ul", sid, MARGIN, TITLE_Y + 38, 56, 2.5, BLUE)
 
 
 # ── Slide builders ──
@@ -195,16 +210,16 @@ def _title_slide(reqs, sid, report, idx):
 
     acct = report["account"]
     name = report["customer"]
-    sub = f"Product Usage Review  ·  Last {report['days']} Days"
+    sub = f"Product Usage Review  ·  {_date_range(report['days'])}"
     meta = f"CSM: {acct['csm']}  |  {acct['total_sites']} sites · {acct['total_visitors']} users  |  {report['generated']}"
 
-    _rect(reqs, f"{sid}_bar", sid, 0, 190, SLIDE_W, 3, AMBER)
+    _rect(reqs, f"{sid}_bar", sid, 0, 190, SLIDE_W, 3, BLUE)
 
     _box(reqs, f"{sid}_n", sid, MARGIN, 100, CONTENT_W, 60, name)
-    _style(reqs, f"{sid}_n", 0, len(name), bold=True, size=40, color=WHITE, font=FONT)
+    _style(reqs, f"{sid}_n", 0, len(name), bold=True, size=40, color=WHITE, font=FONT_SERIF)
 
     _box(reqs, f"{sid}_s", sid, MARGIN, 200, CONTENT_W, 30, sub)
-    _style(reqs, f"{sid}_s", 0, len(sub), size=15, color=AMBER, font=FONT)
+    _style(reqs, f"{sid}_s", 0, len(sub), size=15, color=BLUE, font=FONT)
 
     _box(reqs, f"{sid}_m", sid, MARGIN, 350, CONTENT_W, 24, meta)
     _style(reqs, f"{sid}_m", 0, len(meta), size=9, color=GRAY, font=FONT)
@@ -229,7 +244,7 @@ def _health_slide(reqs, sid, report, idx):
     if rate >= 40:
         label, badge_bg = "HEALTHY", {"red": 0.10, "green": 0.55, "blue": 0.28}
     elif rate >= 20:
-        label, badge_bg = "MODERATE", AMBER
+        label, badge_bg = "MODERATE", BLUE
     else:
         label, badge_bg = "AT RISK", {"red": 0.78, "green": 0.18, "blue": 0.18}
     _pill(reqs, f"{sid}_badge", sid, SLIDE_W - MARGIN - 110, TITLE_Y + 2, 110, 28, label, badge_bg, WHITE)
@@ -311,10 +326,10 @@ def _engagement_slide(reqs, sid, report, idx):
     _style(reqs, f"{sid}_roles", 0, len(role_text), size=10, color=NAVY, font=FONT)
 
     ah = "Active Roles"
-    _style(reqs, f"{sid}_roles", 0, len(ah), bold=True, size=11, color=AMBER)
+    _style(reqs, f"{sid}_roles", 0, len(ah), bold=True, size=11, color=BLUE)
     dh = "Dormant Roles"
     di = role_text.index(dh)
-    _style(reqs, f"{sid}_roles", di, di + len(dh), bold=True, size=11, color=AMBER)
+    _style(reqs, f"{sid}_roles", di, di + len(dh), bold=True, size=11, color=BLUE)
 
     return idx + 1
 
@@ -349,7 +364,7 @@ def _sites_slide(reqs, sid, report, idx):
     tbl = "\n".join(rows)
     _box(reqs, f"{sid}_tbl", sid, MARGIN, BODY_Y, CONTENT_W, 290, tbl)
     _style(reqs, f"{sid}_tbl", 0, len(tbl), size=9, color=NAVY, font=MONO)
-    _style(reqs, f"{sid}_tbl", 0, len(hdr), bold=True, color=AMBER)
+    _style(reqs, f"{sid}_tbl", 0, len(hdr), bold=True, color=BLUE)
 
     return idx + 1
 
@@ -371,7 +386,7 @@ def _features_slide(reqs, sid, report, idx):
     pt = "\n".join(pl)
     _box(reqs, f"{sid}_pg", sid, MARGIN, BODY_Y, 310, 290, pt)
     _style(reqs, f"{sid}_pg", 0, len(pt), size=10, color=NAVY, font=FONT)
-    _style(reqs, f"{sid}_pg", 0, len("Top Pages"), bold=True, size=11, color=AMBER)
+    _style(reqs, f"{sid}_pg", 0, len("Top Pages"), bold=True, size=11, color=BLUE)
 
     # Features column
     fl = ["Top Features"]
@@ -383,7 +398,7 @@ def _features_slide(reqs, sid, report, idx):
     ft = "\n".join(fl)
     _box(reqs, f"{sid}_ft", sid, 380, BODY_Y, 300, 290, ft)
     _style(reqs, f"{sid}_ft", 0, len(ft), size=10, color=NAVY, font=FONT)
-    _style(reqs, f"{sid}_ft", 0, len("Top Features"), bold=True, size=11, color=AMBER)
+    _style(reqs, f"{sid}_ft", 0, len("Top Features"), bold=True, size=11, color=BLUE)
 
     return idx + 1
 
@@ -409,7 +424,7 @@ def _champions_slide(reqs, sid, report, idx):
 
     _box(reqs, f"{sid}_ch", sid, MARGIN, BODY_Y, 310, 290, ct)
     _style(reqs, f"{sid}_ch", 0, len(ct), size=10, color=NAVY, font=FONT)
-    _style(reqs, f"{sid}_ch", 0, len("Champions"), bold=True, size=11, color=AMBER)
+    _style(reqs, f"{sid}_ch", 0, len("Champions"), bold=True, size=11, color=BLUE)
 
     # At-risk
     rl = ["At Risk  (30+ days inactive)"]
@@ -427,7 +442,7 @@ def _champions_slide(reqs, sid, report, idx):
     _box(reqs, f"{sid}_ri", sid, 380, BODY_Y, 300, 290, rt)
     _style(reqs, f"{sid}_ri", 0, len(rt), size=10, color=NAVY, font=FONT)
     hdr = "At Risk  (30+ days inactive)"
-    _style(reqs, f"{sid}_ri", 0, len(hdr), bold=True, size=11, color=AMBER)
+    _style(reqs, f"{sid}_ri", 0, len(hdr), bold=True, size=11, color=BLUE)
 
     return idx + 1
 
@@ -445,7 +460,7 @@ def _benchmarks_slide(reqs, sid, report, idx):
     # Big number callout
     big = f"{cust_rate}%"
     _box(reqs, f"{sid}_big", sid, MARGIN, BODY_Y + 8, 160, 50, big)
-    _style(reqs, f"{sid}_big", 0, len(big), bold=True, size=36, color=AMBER, font=FONT)
+    _style(reqs, f"{sid}_big", 0, len(big), bold=True, size=36, color=BLUE, font=FONT)
 
     sub = "weekly active rate"
     _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y + 58, 160, 20, sub)
@@ -513,7 +528,7 @@ def _exports_slide(reqs, sid, report, idx):
     ft = "\n".join(fl)
     _box(reqs, f"{sid}_bf", sid, MARGIN, BODY_Y + 24, 340, 270, ft)
     _style(reqs, f"{sid}_bf", 0, len(ft), size=10, color=NAVY, font=FONT)
-    _style(reqs, f"{sid}_bf", 0, len("By Feature"), bold=True, size=11, color=AMBER)
+    _style(reqs, f"{sid}_bf", 0, len("By Feature"), bold=True, size=11, color=BLUE)
 
     # Right: top exporters
     el = ["Top Exporters"]
@@ -528,7 +543,7 @@ def _exports_slide(reqs, sid, report, idx):
     et = "\n".join(el)
     _box(reqs, f"{sid}_te", sid, 400, BODY_Y + 24, 280, 270, et)
     _style(reqs, f"{sid}_te", 0, len(et), size=10, color=NAVY, font=FONT)
-    _style(reqs, f"{sid}_te", 0, len("Top Exporters"), bold=True, size=11, color=AMBER)
+    _style(reqs, f"{sid}_te", 0, len("Top Exporters"), bold=True, size=11, color=BLUE)
 
     return idx + 1
 
@@ -562,7 +577,7 @@ def _depth_slide(reqs, sid, report, idx):
         _style(reqs, f"{sid}_l{i}", 0, len(label), size=8, color=NAVY, font=FONT)
 
         bar_w = max(int(b["events"] / max_events * bar_max_w), 4)
-        _rect(reqs, f"{sid}_b{i}", sid, 260, y + 2, bar_w, bar_h - 4, AMBER if i < 3 else NAVY)
+        _rect(reqs, f"{sid}_b{i}", sid, 260, y + 2, bar_w, bar_h - 4, BLUE if i < 3 else NAVY)
 
         pct_label = f"{b['pct']}%"
         _box(reqs, f"{sid}_p{i}", sid, 260 + bar_w + 6, y, 50, bar_h, pct_label)
@@ -577,7 +592,7 @@ def _depth_slide(reqs, sid, report, idx):
     summary = f"Read: {read_e:,}\nWrite: {write_e:,}\nCollab: {collab_e:,}"
     _box(reqs, f"{sid}_rw", sid, 560, BODY_Y + 28, 100, 60, summary)
     _style(reqs, f"{sid}_rw", 0, len(summary), size=9, color=NAVY, font=MONO)
-    _style(reqs, f"{sid}_rw", 0, len("Read:"), bold=True, color=AMBER)
+    _style(reqs, f"{sid}_rw", 0, len("Read:"), bold=True, color=BLUE)
 
     return idx + 1
 
@@ -605,7 +620,7 @@ def _kei_slide(reqs, sid, report, idx):
     # Executive highlight pill
     if exec_users > 0:
         exec_text = f"  {exec_users} executives ({exec_queries:,} queries)  "
-        _pill(reqs, f"{sid}_exec", sid, MARGIN, BODY_Y + 26, 260, 22, exec_text, AMBER, WHITE)
+        _pill(reqs, f"{sid}_exec", sid, MARGIN, BODY_Y + 26, 260, 22, exec_text, BLUE, WHITE)
     else:
         exec_text = "  No executive Kei usage detected  "
         _pill(reqs, f"{sid}_exec", sid, MARGIN, BODY_Y + 26, 260, 22, exec_text, GRAY, WHITE)
@@ -626,7 +641,7 @@ def _kei_slide(reqs, sid, report, idx):
     text = "\n".join(lines)
     _box(reqs, f"{sid}_users", sid, MARGIN, BODY_Y + 58, CONTENT_W, 240, text)
     _style(reqs, f"{sid}_users", 0, len(text), size=10, color=NAVY, font=FONT)
-    _style(reqs, f"{sid}_users", 0, len("Kei Users"), bold=True, size=11, color=AMBER)
+    _style(reqs, f"{sid}_users", 0, len("Kei Users"), bold=True, size=11, color=BLUE)
 
     return idx + 1
 
@@ -658,11 +673,11 @@ def _guides_slide(reqs, sid, report, idx):
     if total_responses > 0:
         adv_w = int(advanced / total_responses * 400)
         dis_w = int(dismissed / total_responses * 400)
-        _rect(reqs, f"{sid}_adv", sid, MARGIN, bar_y, max(adv_w, 4), 18, AMBER)
+        _rect(reqs, f"{sid}_adv", sid, MARGIN, bar_y, max(adv_w, 4), 18, BLUE)
         _rect(reqs, f"{sid}_dis", sid, MARGIN + adv_w, bar_y, max(dis_w, 4), 18, GRAY)
         alab = f"Advanced ({advanced:,})"
         _box(reqs, f"{sid}_alab", sid, MARGIN, bar_y + 20, 200, 14, alab)
-        _style(reqs, f"{sid}_alab", 0, len(alab), size=8, color=AMBER, font=FONT)
+        _style(reqs, f"{sid}_alab", 0, len(alab), size=8, color=BLUE, font=FONT)
         dlab = f"Dismissed ({dismissed:,})"
         _box(reqs, f"{sid}_dlab", sid, MARGIN + adv_w, bar_y + 20, 200, 14, dlab)
         _style(reqs, f"{sid}_dlab", 0, len(dlab), size=8, color=GRAY, font=FONT)
@@ -682,7 +697,47 @@ def _guides_slide(reqs, sid, report, idx):
     text = "\n".join(lines)
     _box(reqs, f"{sid}_guides", sid, MARGIN, bar_y + 4, CONTENT_W, 220, text)
     _style(reqs, f"{sid}_guides", 0, len(text), size=10, color=NAVY, font=FONT)
-    _style(reqs, f"{sid}_guides", 0, len("Most Active Guides"), bold=True, size=11, color=AMBER)
+    _style(reqs, f"{sid}_guides", 0, len("Most Active Guides"), bold=True, size=11, color=BLUE)
+
+    return idx + 1
+
+
+def _custom_slide(reqs, sid, report, idx):
+    """Flexible slide renderer for agent-composed content.
+
+    Expects data with:
+        title: str
+        sections: list of {header: str, body: str}
+    """
+    title = report.get("title", "")
+    sections = report.get("sections", [])
+    if not title and not sections:
+        return idx
+
+    _slide(reqs, sid, idx)
+    if title:
+        _slide_title(reqs, sid, title)
+
+    y = BODY_Y
+    col_w = CONTENT_W
+    if len(sections) == 2:
+        col_w = 300
+    elif len(sections) >= 3:
+        col_w = 195
+
+    for i, sec in enumerate(sections[:3]):
+        header = sec.get("header", "")
+        body = sec.get("body", "")
+        x = MARGIN + i * (col_w + 16)
+
+        if header:
+            _box(reqs, f"{sid}_h{i}", sid, x, y, col_w, 18, header)
+            _style(reqs, f"{sid}_h{i}", 0, len(header), bold=True, size=11, color=BLUE, font=FONT)
+
+        if body:
+            body_y = y + (22 if header else 0)
+            _box(reqs, f"{sid}_b{i}", sid, x, body_y, col_w, 280, body)
+            _style(reqs, f"{sid}_b{i}", 0, len(body), size=10, color=NAVY, font=FONT)
 
     return idx + 1
 
@@ -710,7 +765,7 @@ def _signals_slide(reqs, sid, report, idx):
     for line in lines:
         if line and line[0].isdigit():
             dot = line.index(".")
-            _style(reqs, f"{sid}_sig", off, off + dot + 1, bold=True, color=AMBER)
+            _style(reqs, f"{sid}_sig", off, off + dot + 1, bold=True, color=BLUE)
         off += len(line) + 1
 
     return idx + 1
@@ -731,6 +786,7 @@ _SLIDE_BUILDERS = {
     "depth": _depth_slide,
     "kei": _kei_slide,
     "guides": _guides_slide,
+    "custom": _custom_slide,
     "signals": _signals_slide,
 }
 
@@ -747,18 +803,20 @@ SLIDE_DATA_REQUIREMENTS = {
     "depth": ["depth"],
     "kei": ["kei"],
     "guides": ["guides"],
+    "custom": ["title", "sections"],
     "signals": ["signals"],
 }
 
 
-def create_empty_deck(customer: str, days: int = 30) -> dict[str, Any]:
+def create_empty_deck(customer: str, days: int = 30, deck_name: str | None = None) -> dict[str, Any]:
     """Create an empty presentation. Returns {deck_id, url} for use with add_slide."""
     try:
         slides_service, drive_service = _get_service()
     except (ValueError, FileNotFoundError) as e:
         return {"error": str(e)}
 
-    title = f"{customer} — Usage Health Review (Last {days} Days)"
+    label = deck_name or "Usage Health Review"
+    title = f"{customer} — {label} ({_date_range(days)})"
     try:
         file_meta = {"name": title, "mimeType": "application/vnd.google-apps.presentation"}
         if GOOGLE_DRIVE_FOLDER_ID:
@@ -794,7 +852,7 @@ def add_slide(deck_id: str, slide_type: str, data: dict[str, Any]) -> dict[str, 
 
     Args:
         deck_id: Presentation ID from create_empty_deck.
-        slide_type: One of: title, health, engagement, sites, features, champions, benchmarks, exports, depth, kei, guides, signals.
+        slide_type: One of: title, health, engagement, sites, features, champions, benchmarks, exports, depth, kei, guides, custom, signals.
         data: Dict with the keys required for that slide type (see SLIDE_DATA_REQUIREMENTS).
 
     Returns:
@@ -837,10 +895,18 @@ def add_slide(deck_id: str, slide_type: str, data: dict[str, Any]) -> dict[str, 
     return {"slide_type": slide_type, "status": "added", "position": idx + 1}
 
 
-# ── Monolith deck creation (still works, now uses composable internals) ──
+# ── Monolith deck creation (manifest-driven) ──
 
-def create_health_deck(report: dict[str, Any]) -> dict[str, Any]:
-    """Create a CS-oriented health deck from a customer health report."""
+def create_health_deck(
+    report: dict[str, Any],
+    manifest_id: str = "cs_health_review",
+) -> dict[str, Any]:
+    """Create a deck from a customer health report using a manifest.
+
+    Args:
+        report: Full customer health report from PendoClient.get_customer_health_report().
+        manifest_id: Which deck manifest to use. Defaults to 'cs_health_review'.
+    """
     if "error" in report:
         return {"error": report["error"]}
 
@@ -852,7 +918,12 @@ def create_health_deck(report: dict[str, Any]) -> dict[str, Any]:
     except (ValueError, FileNotFoundError) as e:
         return {"error": str(e)}
 
-    title = f"{customer} — Usage Health Review (Last {days} Days)"
+    from .manifest_loader import resolve_manifest
+
+    resolved = resolve_manifest(manifest_id, customer)
+    deck_name = resolved.get("name", "Health Review")
+    title = f"{customer} — {deck_name} ({_date_range(days)})"
+
     try:
         file_meta = {"name": title, "mimeType": "application/vnd.google-apps.presentation"}
         if GOOGLE_DRIVE_FOLDER_ID:
@@ -866,21 +937,16 @@ def create_health_deck(report: dict[str, Any]) -> dict[str, Any]:
             return {"error": f"Rate limit: {err_str}. Wait and retry."}
         return {"error": err_str}
 
+    slide_plan = resolved.get("slides", [])
     reqs: list[dict] = []
     idx = 1
 
-    idx = _title_slide(reqs, "s_title", report, idx)
-    idx = _health_slide(reqs, "s_health", report, idx)
-    idx = _engagement_slide(reqs, "s_engage", report, idx)
-    idx = _sites_slide(reqs, "s_sites", report, idx)
-    idx = _features_slide(reqs, "s_feat", report, idx)
-    idx = _champions_slide(reqs, "s_champ", report, idx)
-    idx = _benchmarks_slide(reqs, "s_bench", report, idx)
-    idx = _depth_slide(reqs, "s_depth", report, idx)
-    idx = _exports_slide(reqs, "s_exports", report, idx)
-    idx = _kei_slide(reqs, "s_kei", report, idx)
-    idx = _guides_slide(reqs, "s_guides", report, idx)
-    idx = _signals_slide(reqs, "s_sig", report, idx)
+    for entry in slide_plan:
+        slide_type = entry.get("slide_type", entry["id"])
+        builder = _SLIDE_BUILDERS.get(slide_type)
+        if builder:
+            sid = f"s_{entry['id']}_{idx}"
+            idx = builder(reqs, sid, report, idx)
 
     slides_created = idx - 1
 
@@ -910,29 +976,50 @@ def create_health_deck(report: dict[str, Any]) -> dict[str, Any]:
 def create_health_decks_for_customers(
     customer_names: list[str],
     days: int = 30,
-    delay_seconds: float = 3.0,
     max_customers: int | None = None,
+    manifest_id: str = "cs_health_review",
+    workers: int = 4,
 ) -> list[dict[str, Any]]:
-    """Create one health deck per customer."""
+    """Create one deck per customer using a manifest (parallel).
+
+    Args:
+        customer_names: List of customer names to generate decks for.
+        days: Lookback window in days.
+        max_customers: Cap on how many to generate.
+        manifest_id: Which deck manifest to use (default: cs_health_review).
+        workers: Concurrent deck-creation threads (default 4).
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     from .pendo_client import PendoClient
 
     client = PendoClient()
+    client.preload(days)
     customers = customer_names[:max_customers] if max_customers else customer_names
-    results = []
 
-    for i, name in enumerate(customers):
-        if i > 0:
-            time.sleep(delay_seconds)
-        logger.info("Generating health deck %d/%d: %s", i + 1, len(customers), name)
+    def _build_one(idx_name: tuple[int, str]) -> dict[str, Any]:
+        i, name = idx_name
+        logger.info("Generating deck %d/%d: %s (%s)", i + 1, len(customers), name, manifest_id)
         try:
             report = client.get_customer_health_report(name, days=days)
-            result = create_health_deck(report)
+            return create_health_deck(report, manifest_id=manifest_id)
         except Exception as e:
-            result = {"error": str(e), "customer": name}
-        results.append(result)
-        if "error" in result and "403" in str(result.get("error", "")):
-            results.append({"error": "Stopped: 403. Fix auth then retry.", "customers_attempted": i + 1})
-            break
+            return {"error": str(e), "customer": name}
+
+    results: list[dict[str, Any]] = [{}] * len(customers)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_build_one, (i, n)): i for i, n in enumerate(customers)}
+        for fut in as_completed(futures):
+            idx = futures[fut]
+            try:
+                results[idx] = fut.result()
+            except Exception as e:
+                results[idx] = {"error": str(e), "customer": customers[idx]}
+            r = results[idx]
+            if "error" in r and "403" in str(r.get("error", "")):
+                logger.error("Got 403 for %s — cancelling remaining.", customers[idx])
+                for f in futures:
+                    f.cancel()
+                break
 
     return results
 
@@ -946,7 +1033,7 @@ def create_deck_for_customer(customer, sites, days=30):
         slides_service, drive_service = _get_service()
     except (ValueError, FileNotFoundError) as e:
         return {"error": str(e)}
-    title = f"{customer} - Usage Report (Last {days} days)"
+    title = f"{customer} - Usage Report ({_date_range(days)})"
     try:
         meta = {"name": title, "mimeType": "application/vnd.google-apps.presentation"}
         if GOOGLE_DRIVE_FOLDER_ID:

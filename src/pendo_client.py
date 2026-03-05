@@ -3,6 +3,7 @@
 import datetime
 import json
 import re
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -430,11 +431,25 @@ class PendoClient:
         resp.raise_for_status()
         return resp.json()
 
-    # ── Cached visitor partition (shared across focused data methods) ──
+    # ── Global cache (all caches share a single TTL, extended in batch mode) ──
 
     _visitor_cache: dict[str, Any] | None = None
     _visitor_cache_ts: float = 0
-    _CACHE_TTL = 120  # seconds
+    _CACHE_TTL = 120  # seconds; overridden by preload() for batch runs
+    _page_events_cache: dict[str, Any] | None = None
+    _page_events_cache_ts: float = 0
+    _track_events_cache: dict[str, Any] | None = None
+    _track_events_cache_ts: float = 0
+    _guide_events_cache: dict[str, Any] | None = None
+    _guide_events_cache_ts: float = 0
+    _page_catalog_cache: dict[str, str] | None = None
+    _guide_catalog_cache: dict[str, str] | None = None
+    _usage_by_site_cache: dict[str, Any] | None = None
+    _usage_by_site_cache_ts: float = 0
+    _cache_lock = threading.Lock()
+
+    def _cache_valid(self, ts: float) -> bool:
+        return (time.time() - ts) < self._CACHE_TTL
 
     def _get_visitor_partition(self, days: int = 30) -> dict[str, Any]:
         """Fetch all visitors and partition by customer. Cached for 120s to avoid
@@ -479,6 +494,108 @@ class PendoClient:
         self._visitor_cache = result
         self._visitor_cache_ts = now
         return result
+
+    def _get_page_events_cached(self, days: int) -> list[dict]:
+        if self._page_events_cache and self._cache_valid(self._page_events_cache_ts):
+            if self._page_events_cache.get("days") == days:
+                return self._page_events_cache["results"]
+        ts = _time_series(days)
+        results = self.aggregate([
+            {"source": {"pageEvents": None, "timeSeries": ts}},
+        ]).get("results", [])
+        self._page_events_cache = {"days": days, "results": results}
+        self._page_events_cache_ts = time.time()
+        return results
+
+    def _get_track_events_cached(self, days: int) -> list[dict]:
+        if self._track_events_cache and self._cache_valid(self._track_events_cache_ts):
+            if self._track_events_cache.get("days") == days:
+                return self._track_events_cache["results"]
+        ts = _time_series(days)
+        results = self.aggregate([
+            {"source": {"events": None, "timeSeries": ts}},
+        ]).get("results", [])
+        self._track_events_cache = {"days": days, "results": results}
+        self._track_events_cache_ts = time.time()
+        return results
+
+    def _get_guide_events_cached(self, days: int) -> list[dict]:
+        if self._guide_events_cache and self._cache_valid(self._guide_events_cache_ts):
+            if self._guide_events_cache.get("days") == days:
+                return self._guide_events_cache["results"]
+        ts = _time_series(days)
+        results = self.aggregate([
+            {"source": {"guideEvents": None, "timeSeries": ts}},
+        ]).get("results", [])
+        self._guide_events_cache = {"days": days, "results": results}
+        self._guide_events_cache_ts = time.time()
+        return results
+
+    def _get_page_catalog_cached(self) -> dict[str, str]:
+        if self._page_catalog_cache is not None:
+            return self._page_catalog_cache
+        self._page_catalog_cache = self.get_page_catalog()
+        return self._page_catalog_cache
+
+    def _get_guide_catalog_cached(self) -> dict[str, str]:
+        if self._guide_catalog_cache is not None:
+            return self._guide_catalog_cache
+        try:
+            resp = requests.get(
+                f"{self.base_url}/guide",
+                headers={"x-pendo-integration-key": self.integration_key, "content-type": "application/json"},
+                timeout=30,
+            )
+            if resp.ok:
+                self._guide_catalog_cache = {g["id"]: g.get("name", g["id"]) for g in resp.json()}
+            else:
+                self._guide_catalog_cache = {}
+        except Exception:
+            self._guide_catalog_cache = {}
+        return self._guide_catalog_cache
+
+    def _get_usage_by_site_cached(self, days: int) -> dict[str, Any]:
+        if self._usage_by_site_cache and self._cache_valid(self._usage_by_site_cache_ts):
+            if self._usage_by_site_cache.get("days") == days:
+                return self._usage_by_site_cache
+        result = self.get_usage_by_site(days=days)
+        result["days"] = days
+        self._usage_by_site_cache = result
+        self._usage_by_site_cache_ts = time.time()
+        return result
+
+    def preload(self, days: int = 30) -> None:
+        """Prefetch all global data for a batch run. Sets TTL to 1 hour.
+        Fetches all data sources in parallel to minimize wall-clock time."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        self._CACHE_TTL = 3600
+        logger.info("Preloading global data for %d-day window (parallel)...", days)
+        t0 = time.time()
+
+        loaders = {
+            "visitors": lambda: self._get_visitor_partition(days),
+            "feature events": lambda: self._get_feature_events_cached(days),
+            "page events": lambda: self._get_page_events_cached(days),
+            "track events": lambda: self._get_track_events_cached(days),
+            "guide events": lambda: self._get_guide_events_cached(days),
+            "page catalog": lambda: self._get_page_catalog_cached(),
+            "feature catalog": lambda: self.get_feature_catalog(),
+            "guide catalog": lambda: self._get_guide_catalog_cached(),
+            "usage by site": lambda: self._get_usage_by_site_cached(days),
+        }
+
+        with ThreadPoolExecutor(max_workers=len(loaders)) as pool:
+            futures = {pool.submit(fn): name for name, fn in loaders.items()}
+            for fut in as_completed(futures):
+                name = futures[fut]
+                try:
+                    fut.result()
+                    logger.info("  %s: OK", name)
+                except Exception as e:
+                    logger.warning("  %s: FAILED (%s)", name, e)
+
+        logger.info("Preload complete in %.1fs", time.time() - t0)
 
     def _filter_customer_visitors(self, customer_name: str, partition: dict) -> tuple[list[dict], list[dict]]:
         """From a visitor partition, extract this customer's visitors and internal visitors."""
@@ -534,7 +651,8 @@ class PendoClient:
 
     # ── Focused data methods (each returns agent-interpretable summaries) ──
 
-    def get_customer_health(self, customer_name: str, days: int = 30) -> dict[str, Any]:
+    def get_customer_health(self, customer_name: str, days: int = 30,
+                            _precomputed_signals: dict | None = None) -> dict[str, Any]:
         """Engagement summary, role breakdown, benchmarks, and auto-detected signals.
         This is what a CSM needs to quickly assess account health."""
         partition = self._get_visitor_partition(days)
@@ -630,56 +748,12 @@ class PendoClient:
         if internal_visitors:
             signals.append(f"{len(internal_visitors)} LeanDNA staff visited (excluded from metrics)")
 
-        # Behavioral depth signals
-        try:
-            depth_data = self.get_customer_depth(customer_name, days)
-            write_ratio = depth_data.get("write_ratio", 0)
-            collab_events = depth_data.get("collab_events", 0)
-            if write_ratio >= 40:
-                signals.append(f"Deep write adoption: {write_ratio}% write ratio (running operations in-app)")
-            elif write_ratio <= 10:
-                signals.append(f"Read-heavy usage: only {write_ratio}% write ratio (may be dashboard-only)")
-            if collab_events > 0:
-                signals.append(f"In-app collaboration: {collab_events:,} comment/chat/attachment events")
-        except Exception:
-            pass
-
-        # Export intensity signal
-        try:
-            export_data = self.get_customer_exports(customer_name, days)
-            total_exports = export_data.get("total_exports", 0)
-            exports_per_user = export_data.get("exports_per_active_user", 0)
-            if total_exports > 0:
-                signals.append(f"Export activity: {total_exports:,} exports ({exports_per_user}/active user)")
-        except Exception:
-            pass
-
-        # Kei AI signal
-        try:
-            kei_data = self.get_customer_kei(customer_name, days)
-            kei_queries = kei_data.get("total_queries", 0)
-            kei_exec = kei_data.get("executive_users", 0)
-            if kei_queries > 0:
-                msg = f"Kei AI active: {kei_queries:,} queries from {kei_data.get('unique_users', 0)} users"
-                if kei_exec > 0:
-                    msg += f" (incl. {kei_exec} executives)"
-                signals.append(msg)
-            else:
-                signals.append("No Kei AI usage detected — rollout opportunity")
-        except Exception:
-            pass
-
-        # Guide engagement signal
-        try:
-            guide_data = self.get_customer_guides(customer_name, days)
-            dismiss_rate = guide_data.get("dismiss_rate", 0)
-            guide_reach = guide_data.get("guide_reach", 0)
-            if dismiss_rate > 30:
-                signals.append(f"High guide dismiss rate: {dismiss_rate}% — possible onboarding friction")
-            if guide_reach < 30 and guide_data.get("active_users", 0) > 5:
-                signals.append(f"Low guide reach: only {guide_reach}% of active users see guides")
-        except Exception:
-            pass
+        pre = _precomputed_signals or {}
+        self._add_behavioral_signals(
+            signals, customer_name, days,
+            depth_data=pre.get("depth"), export_data=pre.get("exports"),
+            kei_data=pre.get("kei"), guide_data=pre.get("guides"),
+        )
 
         return {
             "customer": customer_name,
@@ -710,6 +784,56 @@ class PendoClient:
             "signals": signals,
         }
 
+    def _add_behavioral_signals(
+        self, signals: list[str], customer_name: str, days: int,
+        depth_data: dict | None = None, export_data: dict | None = None,
+        kei_data: dict | None = None, guide_data: dict | None = None,
+    ) -> None:
+        """Append behavioral signals. Accepts pre-computed data to avoid redundant fetches."""
+        try:
+            d = depth_data or self.get_customer_depth(customer_name, days)
+            write_ratio = d.get("write_ratio", 0)
+            collab_events = d.get("collab_events", 0)
+            if write_ratio >= 40:
+                signals.append(f"Deep write adoption: {write_ratio}% write ratio (running operations in-app)")
+            elif write_ratio <= 10:
+                signals.append(f"Read-heavy usage: only {write_ratio}% write ratio (may be dashboard-only)")
+            if collab_events > 0:
+                signals.append(f"In-app collaboration: {collab_events:,} comment/chat/attachment events")
+        except Exception:
+            pass
+        try:
+            e = export_data or self.get_customer_exports(customer_name, days)
+            total_exports = e.get("total_exports", 0)
+            exports_per_user = e.get("exports_per_active_user", 0)
+            if total_exports > 0:
+                signals.append(f"Export activity: {total_exports:,} exports ({exports_per_user}/active user)")
+        except Exception:
+            pass
+        try:
+            k = kei_data or self.get_customer_kei(customer_name, days)
+            kei_queries = k.get("total_queries", 0)
+            kei_exec = k.get("executive_users", 0)
+            if kei_queries > 0:
+                msg = f"Kei AI active: {kei_queries:,} queries from {k.get('unique_users', 0)} users"
+                if kei_exec > 0:
+                    msg += f" (incl. {kei_exec} executives)"
+                signals.append(msg)
+            else:
+                signals.append("No Kei AI usage detected — rollout opportunity")
+        except Exception:
+            pass
+        try:
+            g = guide_data or self.get_customer_guides(customer_name, days)
+            dismiss_rate = g.get("dismiss_rate", 0)
+            guide_reach = g.get("guide_reach", 0)
+            if dismiss_rate > 30:
+                signals.append(f"High guide dismiss rate: {dismiss_rate}% — possible onboarding friction")
+            if guide_reach < 30 and g.get("active_users", 0) > 5:
+                signals.append(f"Low guide reach: only {guide_reach}% of active users see guides")
+        except Exception:
+            pass
+
     def get_customer_sites(self, customer_name: str, days: int = 30) -> dict[str, Any]:
         """Per-site metrics: visitors, page views, feature clicks, events, minutes, last active."""
         partition = self._get_visitor_partition(days)
@@ -732,7 +856,7 @@ class PendoClient:
                 if lv and lv > site_data[sn]["last_visit_ms"]:
                     site_data[sn]["last_visit_ms"] = lv
 
-        usage_by_site = self.get_usage_by_site(days=days)
+        usage_by_site = self._get_usage_by_site_cached(days)
         usage_map = {r["sitename"]: r for r in (usage_by_site.get("results") or [])}
 
         sites = []
@@ -758,26 +882,15 @@ class PendoClient:
             return {"error": f"No visitors found matching '{customer_name}'"}
 
         visitor_ids = {v.get("visitorId") for v in customer_visitors if v.get("visitorId")}
-        ts = _time_series(days)
 
-        page_catalog = {}
-        feature_catalog = {}
-        try:
-            page_catalog = self.get_page_catalog()
-        except Exception:
-            pass
-        try:
-            feature_catalog = self.get_feature_catalog()
-        except Exception:
-            pass
+        page_catalog = self._get_page_catalog_cached()
+        feature_catalog = self.get_feature_catalog()
 
         top_pages: list[dict] = []
         top_features: list[dict] = []
 
         try:
-            all_page_events = self.aggregate([
-                {"source": {"pageEvents": None, "timeSeries": ts}},
-            ]).get("results", [])
+            all_page_events = self._get_page_events_cached(days)
             page_counts: dict[str, dict] = {}
             for ev in all_page_events:
                 if ev.get("visitorId") in visitor_ids:
@@ -792,9 +905,7 @@ class PendoClient:
             logger.debug("Could not compute top pages: %s", e)
 
         try:
-            all_feat_events = self.aggregate([
-                {"source": {"featureEvents": None, "timeSeries": ts}},
-            ]).get("results", [])
+            all_feat_events = self._get_feature_events_cached(days)
             feat_counts: dict[str, int] = {}
             for ev in all_feat_events:
                 if ev.get("visitorId") in visitor_ids:
@@ -1063,10 +1174,7 @@ class PendoClient:
 
         # Also check track events for "Kei AI: send-message"
         try:
-            ts = _time_series(days)
-            track_results = self.aggregate([
-                {"source": {"events": None, "timeSeries": ts}},
-            ]).get("results", [])
+            track_results = self._get_track_events_cached(days)
             for ev in track_results:
                 if ev.get("visitorId") not in visitor_ids:
                     continue
@@ -1125,11 +1233,8 @@ class PendoClient:
 
         visitor_ids = {v.get("visitorId") for v in customer_visitors if v.get("visitorId")}
 
-        ts = _time_series(days)
         try:
-            guide_events = self.aggregate([
-                {"source": {"guideEvents": None, "timeSeries": ts}},
-            ]).get("results", [])
+            guide_events = self._get_guide_events_cached(days)
         except Exception as e:
             return {"error": f"Could not fetch guide events: {e}"}
 
@@ -1153,18 +1258,7 @@ class PendoClient:
         dismissed = by_type.get("guideDismissed", 0)
         active = self._count_active_users(customer_visitors, partition["now_ms"])
 
-        # Resolve guide names
-        guide_names = {}
-        try:
-            resp = requests.get(
-                f"{self.base_url}/guide",
-                headers={"x-pendo-integration-key": self.integration_key, "content-type": "application/json"},
-            )
-            if resp.ok:
-                for g in resp.json():
-                    guide_names[g["id"]] = g.get("name", g["id"])
-        except Exception:
-            pass
+        guide_names = self._get_guide_catalog_cached()
 
         top_guides = []
         for gid, counts in sorted(by_guide.items(), key=lambda x: -sum(x[1].values()))[:8]:
@@ -1244,10 +1338,7 @@ class PendoClient:
     def get_customer_health_report(self, customer_name: str, days: int = 30) -> dict[str, Any]:
         """Comprehensive health report combining all focused methods.
         Used by the monolith deck generator and as a convenience method."""
-        health = self.get_customer_health(customer_name, days)
-        if "error" in health:
-            return health
-
+        # Fetch all sub-reports first, then pass them to health for signal generation
         sites_data = self.get_customer_sites(customer_name, days)
         features_data = self.get_customer_features(customer_name, days)
         people_data = self.get_customer_people(customer_name, days)
@@ -1255,6 +1346,12 @@ class PendoClient:
         depth_data = self.get_customer_depth(customer_name, days)
         kei_data = self.get_customer_kei(customer_name, days)
         guides_data = self.get_customer_guides(customer_name, days)
+
+        health = self.get_customer_health(customer_name, days,
+            _precomputed_signals={"depth": depth_data, "exports": exports_data,
+                                   "kei": kei_data, "guides": guides_data})
+        if "error" in health:
+            return health
 
         return {
             **health,
