@@ -246,11 +246,11 @@ class ListCustomersTool(BaseTool):
         raise NotImplementedError
 
 
-# ── Manifest & recipe tools (tell the agent what deck to build) ──
+# ── Deck & recipe tools (tell the agent what deck to build) ──
 
 
 class ListDeckTypesTool(BaseTool):
-    """List available deck types (manifests)."""
+    """List available deck types."""
 
     name: str = "list_deck_types"
     description: str = (
@@ -262,36 +262,36 @@ class ListDeckTypesTool(BaseTool):
     )
 
     def _run(self, query: str) -> str:
-        from ..manifest_loader import list_manifests
+        from ..deck_loader import list_decks
         logger.info("Tool: list_deck_types")
-        return json.dumps(list_manifests(), indent=2)
+        return json.dumps(list_decks(), indent=2)
 
     async def _arun(self, query: str) -> str:
         raise NotImplementedError
 
 
-class GetDeckManifestTool(BaseTool):
-    """Load a deck manifest with resolved recipes for a customer."""
+class GetDeckDefinitionTool(BaseTool):
+    """Load a deck definition with resolved recipes for a customer."""
 
-    name: str = "get_deck_manifest"
+    name: str = "get_deck_definition"
     description: str = (
-        "Load a specific deck manifest for a customer. Returns the deck's purpose, "
+        "Load a specific deck definition for a customer. Returns the deck's purpose, "
         "audience, and the full slide plan: each slide's recipe prompt, data tools, "
         "whether it's required, and any override notes. "
         "This replaces get_slide_recipes — use this instead. "
-        "Input: 'manifest_id,customer' (e.g. 'cs_health_review,AGI'). "
-        "Use list_deck_types first to see available manifest IDs."
+        "Input: 'deck_id,customer' (e.g. 'cs_health_review,AGI'). "
+        "Use list_deck_types first to see available deck IDs."
     )
 
     def _run(self, query: str) -> str:
-        from ..manifest_loader import resolve_manifest
+        from ..deck_loader import resolve_deck
         parts = [p.strip() for p in query.split(",")]
         if len(parts) < 2:
-            return json.dumps({"error": "Input must be 'manifest_id,customer' (e.g. 'cs_health_review,AGI')"})
-        manifest_id = parts[0]
+            return json.dumps({"error": "Input must be 'deck_id,customer' (e.g. 'cs_health_review,AGI')"})
+        deck_id = parts[0]
         customer = parts[1]
-        logger.info("Tool: get_deck_manifest | %s for %s", manifest_id, customer)
-        result = resolve_manifest(manifest_id, customer)
+        logger.info("Tool: get_deck_definition | %s for %s", deck_id, customer)
+        result = resolve_deck(deck_id, customer)
         return json.dumps(result, indent=2)
 
     async def _arun(self, query: str) -> str:
@@ -299,12 +299,12 @@ class GetDeckManifestTool(BaseTool):
 
 
 class GetSlideRecipesTool(BaseTool):
-    """Load slide recipes for a customer (low-level, prefer get_deck_manifest)."""
+    """Load slide recipes for a customer (low-level, prefer get_deck_definition)."""
 
     name: str = "get_slide_recipes"
     description: str = (
-        "Get the raw list of all slide recipes for a customer, without manifest filtering. "
-        "Prefer get_deck_manifest instead — it applies the right slide lineup and overrides "
+        "Get the raw list of all slide recipes for a customer, without deck filtering. "
+        "Prefer get_deck_definition instead — it applies the right slide lineup and overrides "
         "for a specific deck type. Use this only if you need to see ALL available recipes. "
         "Input: customer name (e.g. 'AGI')."
     )
@@ -331,7 +331,7 @@ class CreateDeckTool(BaseTool):
         "Create a new empty Google Slides presentation. Returns a deck_id and URL. "
         "Use this first, then add slides with add_slide. "
         "Input: 'customer' or 'customer,days' or 'customer,days,deck_name'. "
-        "The deck_name comes from the manifest (e.g. 'Product Adoption Review')."
+        "The deck_name comes from the deck definition (e.g. 'Product Adoption Review')."
     )
 
     def _run(self, query: str) -> str:
@@ -404,9 +404,9 @@ def get_pendo_tools(
         CustomerKeiTool(**common),
         CustomerGuidesTool(**common),
         ListCustomersTool(**common),
-        # Manifests & recipes
+        # Decks & recipes
         ListDeckTypesTool(),
-        GetDeckManifestTool(),
+        GetDeckDefinitionTool(),
         GetSlideRecipesTool(),
         # Slides (composable)
         CreateDeckTool(),
