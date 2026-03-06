@@ -4,11 +4,13 @@ Tool design: each tool returns data at a level the agent can interpret and
 reason about, while leaving narrative/sequencing decisions to the agent.
 """
 
+import functools
 import json
 from typing import Any, Optional
 
 from langchain_core.tools import BaseTool
 from pydantic import Field
+from requests.exceptions import ConnectionError as ReqConnectionError, Timeout
 
 from ..config import PENDO_BASE_URL, PENDO_INTEGRATION_KEY, logger
 from ..pendo_client import PendoClient
@@ -19,6 +21,19 @@ def _client(integration_key: str | None = None, base_url: str | None = None) -> 
         integration_key=integration_key or PENDO_INTEGRATION_KEY,
         base_url=base_url or PENDO_BASE_URL,
     )
+
+
+def _network_safe(fn):
+    """Decorator: catch network errors and return a structured error to the agent."""
+    @functools.wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        try:
+            return fn(self, *args, **kwargs)
+        except (ReqConnectionError, Timeout, OSError) as e:
+            err_type = type(e).__name__
+            logger.warning("Tool %s network error: %s: %s", self.name, err_type, str(e)[:120])
+            return json.dumps({"error": f"Network error ({err_type}): could not reach API. Retry or skip this customer."})
+    return wrapper
 
 
 # ── Data tools (interpretable summaries the agent can reason about) ──
@@ -37,6 +52,7 @@ class CustomerHealthTool(BaseTool):
     integration_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
 
+    @_network_safe
     def _run(self, query: str) -> str:
         parts = [p.strip() for p in query.split(",")]
         customer = parts[0]
@@ -61,6 +77,7 @@ class CustomerSitesTool(BaseTool):
     integration_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
 
+    @_network_safe
     def _run(self, query: str) -> str:
         parts = [p.strip() for p in query.split(",")]
         customer = parts[0]
@@ -85,6 +102,7 @@ class CustomerFeaturesTool(BaseTool):
     integration_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
 
+    @_network_safe
     def _run(self, query: str) -> str:
         parts = [p.strip() for p in query.split(",")]
         customer = parts[0]
@@ -110,6 +128,7 @@ class CustomerPeopleTool(BaseTool):
     integration_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
 
+    @_network_safe
     def _run(self, query: str) -> str:
         parts = [p.strip() for p in query.split(",")]
         customer = parts[0]
@@ -136,6 +155,7 @@ class CustomerDepthTool(BaseTool):
     integration_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
 
+    @_network_safe
     def _run(self, query: str) -> str:
         parts = [p.strip() for p in query.split(",")]
         customer = parts[0]
@@ -161,6 +181,7 @@ class CustomerExportsTool(BaseTool):
     integration_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
 
+    @_network_safe
     def _run(self, query: str) -> str:
         parts = [p.strip() for p in query.split(",")]
         customer = parts[0]
@@ -186,6 +207,7 @@ class CustomerKeiTool(BaseTool):
     integration_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
 
+    @_network_safe
     def _run(self, query: str) -> str:
         parts = [p.strip() for p in query.split(",")]
         customer = parts[0]
@@ -211,6 +233,7 @@ class CustomerGuidesTool(BaseTool):
     integration_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
 
+    @_network_safe
     def _run(self, query: str) -> str:
         parts = [p.strip() for p in query.split(",")]
         customer = parts[0]
@@ -236,17 +259,18 @@ class ListCustomersTool(BaseTool):
     integration_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = Field(default=None, exclude=True)
 
-    def _run(self, query: str) -> str:
+    @_network_safe
+    def _run(self, query: str = "") -> str:
         days = int(query.strip()) if query.strip().isdigit() else 30
         logger.info("Tool: list_customers | %dd", days)
         result = _client(self.integration_key, self.base_url).list_customers(days)
         return json.dumps(result, indent=2)
 
-    async def _arun(self, query: str) -> str:
+    async def _arun(self, query: str = "") -> str:
         raise NotImplementedError
 
 
-# ── Deck & recipe tools (tell the agent what deck to build) ──
+# ── Deck & slide tools (tell the agent what deck to build) ──
 
 
 class ListDeckTypesTool(BaseTool):
@@ -261,24 +285,24 @@ class ListDeckTypesTool(BaseTool):
         "Input: empty string or 'list'."
     )
 
-    def _run(self, query: str) -> str:
+    def _run(self, query: str = "") -> str:
         from ..deck_loader import list_decks
         logger.info("Tool: list_deck_types")
         return json.dumps(list_decks(), indent=2)
 
-    async def _arun(self, query: str) -> str:
+    async def _arun(self, query: str = "") -> str:
         raise NotImplementedError
 
 
 class GetDeckDefinitionTool(BaseTool):
-    """Load a deck definition with resolved recipes for a customer."""
+    """Load a deck definition with resolved slide definitions for a customer."""
 
     name: str = "get_deck_definition"
     description: str = (
         "Load a specific deck definition for a customer. Returns the deck's purpose, "
-        "audience, and the full slide plan: each slide's recipe prompt, data tools, "
+        "audience, and the full slide plan: each slide's prompt, data tools, "
         "whether it's required, and any override notes. "
-        "This replaces get_slide_recipes — use this instead. "
+        "This replaces get_slide_definitions — use this instead. "
         "Input: 'deck_id,customer' (e.g. 'cs_health_review,AGI'). "
         "Use list_deck_types first to see available deck IDs."
     )
@@ -298,23 +322,23 @@ class GetDeckDefinitionTool(BaseTool):
         raise NotImplementedError
 
 
-class GetSlideRecipesTool(BaseTool):
-    """Load slide recipes for a customer (low-level, prefer get_deck_definition)."""
+class GetSlideDefinitionsTool(BaseTool):
+    """Load slide definitions for a customer (low-level, prefer get_deck_definition)."""
 
-    name: str = "get_slide_recipes"
+    name: str = "get_slide_definitions"
     description: str = (
-        "Get the raw list of all slide recipes for a customer, without deck filtering. "
+        "Get the raw list of all slide definitions for a customer, without deck filtering. "
         "Prefer get_deck_definition instead — it applies the right slide lineup and overrides "
-        "for a specific deck type. Use this only if you need to see ALL available recipes. "
+        "for a specific deck type. Use this only if you need to see ALL available slides. "
         "Input: customer name (e.g. 'AGI')."
     )
 
     def _run(self, query: str) -> str:
-        from ..recipe_loader import get_recipe_prompts
+        from ..slide_loader import get_slide_prompts
         customer = query.strip()
-        logger.info("Tool: get_slide_recipes | %s", customer)
-        recipes = get_recipe_prompts(customer)
-        return json.dumps(recipes, indent=2)
+        logger.info("Tool: get_slide_definitions | %s", customer)
+        slides = get_slide_prompts(customer)
+        return json.dumps(slides, indent=2)
 
     async def _arun(self, query: str) -> str:
         raise NotImplementedError
@@ -334,6 +358,7 @@ class CreateDeckTool(BaseTool):
         "The deck_name comes from the deck definition (e.g. 'Product Adoption Review')."
     )
 
+    @_network_safe
     def _run(self, query: str) -> str:
         from ..slides_client import create_empty_deck
         parts = [p.strip() for p in query.split(",")]
@@ -363,6 +388,7 @@ class AddSlideTool(BaseTool):
         "You control the slide order — add them in whatever sequence tells the best story."
     )
 
+    @_network_safe
     def _run(self, query: str) -> str:
         from ..slides_client import add_slide
         try:
@@ -379,6 +405,115 @@ class AddSlideTool(BaseTool):
 
         logger.info("Tool: add_slide | %s -> %s", slide_type, deck_id[:20])
         result = add_slide(deck_id, slide_type, data)
+        return json.dumps(result, indent=2)
+
+    async def _arun(self, query: str) -> str:
+        raise NotImplementedError
+
+
+# ── CS Report tools (platform metrics from Data Exports drive) ──
+
+
+class CustomerPlatformHealthTool(BaseTool):
+    """Platform health scores, component availability, and shortages from the CS Report."""
+
+    name: str = "customer_platform_health"
+    description: str = (
+        "Get platform health data from the Customer Success Report: health scores (GREEN/YELLOW/RED), "
+        "clear-to-build %, clear-to-commit %, component availability, shortage counts, and "
+        "buyer mapping quality per factory/site. This is supply-chain operational health — "
+        "complements Pendo app-usage engagement. "
+        "Input: customer name (e.g. 'Daikin')."
+    )
+
+    @_network_safe
+    def _run(self, query: str) -> str:
+        from ..cs_report_client import get_customer_platform_health
+        customer = query.strip().split(",")[0].strip()
+        logger.info("Tool: customer_platform_health | %s", customer)
+        return json.dumps(get_customer_platform_health(customer), indent=2)
+
+    async def _arun(self, query: str) -> str:
+        raise NotImplementedError
+
+
+class CustomerSupplyChainTool(BaseTool):
+    """Inventory values, DOI, excess, and shortage details from the CS Report."""
+
+    name: str = "customer_supply_chain"
+    description: str = (
+        "Get supply chain metrics from the Customer Success Report: on-hand and on-order "
+        "inventory values, days of inventory (DOI), excess inventory, late POs/PRs, and "
+        "days coverage per factory/site. Shows the dollar context behind product usage. "
+        "Input: customer name (e.g. 'Daikin')."
+    )
+
+    @_network_safe
+    def _run(self, query: str) -> str:
+        from ..cs_report_client import get_customer_supply_chain
+        customer = query.strip().split(",")[0].strip()
+        logger.info("Tool: customer_supply_chain | %s", customer)
+        return json.dumps(get_customer_supply_chain(customer), indent=2)
+
+    async def _arun(self, query: str) -> str:
+        raise NotImplementedError
+
+
+class CustomerPlatformValueTool(BaseTool):
+    """ROI metrics: savings achieved, open pipeline, operational throughput from the CS Report."""
+
+    name: str = "customer_platform_value"
+    description: str = (
+        "Get platform ROI/value metrics from the Customer Success Report: inventory action "
+        "savings achieved, open IA value pipeline, recommendations created, POs placed, "
+        "overdue workbench tasks, potential savings, and FY spend per factory/site. "
+        "This is the hard-dollar proof of value for renewals. "
+        "Input: customer name (e.g. 'Daikin')."
+    )
+
+    @_network_safe
+    def _run(self, query: str) -> str:
+        from ..cs_report_client import get_customer_platform_value
+        customer = query.strip().split(",")[0].strip()
+        logger.info("Tool: customer_platform_value | %s", customer)
+        return json.dumps(get_customer_platform_value(customer), indent=2)
+
+    async def _arun(self, query: str) -> str:
+        raise NotImplementedError
+
+
+class GenerateFullDeckTool(BaseTool):
+    """Generate a complete deck in one shot — fetches data, builds all slides, creates the presentation."""
+
+    name: str = "generate_full_deck"
+    description: str = (
+        "Generate a complete Google Slides deck for a customer in one step. "
+        "This is the FASTEST way to create a deck — it fetches all Pendo data, "
+        "builds every slide from the deck definition, and creates the presentation "
+        "in a single batch API call. Use this instead of create_deck + add_slide. "
+        "Input: 'customer,deck_id' or 'customer,deck_id,days'. "
+        "Example: 'Daikin,cs_health_review' or 'Daikin,cs_health_review,60'. "
+        "Use list_deck_types first to see available deck IDs."
+    )
+    integration_key: Optional[str] = Field(default=None, exclude=True)
+    base_url: Optional[str] = Field(default=None, exclude=True)
+
+    @_network_safe
+    def _run(self, query: str) -> str:
+        from ..slides_client import create_health_deck
+        parts = [p.strip() for p in query.split(",")]
+        if len(parts) < 2:
+            return json.dumps({"error": "Input must be 'customer,deck_id' (e.g. 'Daikin,cs_health_review')"})
+        customer = parts[0]
+        deck_id = parts[1]
+        days = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 30
+
+        logger.info("Tool: generate_full_deck | %s, %s, %dd", customer, deck_id, days)
+        client = _client(self.integration_key, self.base_url)
+        report = client.get_customer_health_report(customer, days=days)
+        if "error" in report:
+            return json.dumps({"error": report["error"]})
+        result = create_health_deck(report, deck_id=deck_id)
         return json.dumps(result, indent=2)
 
     async def _arun(self, query: str) -> str:
@@ -404,11 +539,17 @@ def get_pendo_tools(
         CustomerKeiTool(**common),
         CustomerGuidesTool(**common),
         ListCustomersTool(**common),
-        # Decks & recipes
+        # Decks & slides
         ListDeckTypesTool(),
         GetDeckDefinitionTool(),
-        GetSlideRecipesTool(),
-        # Slides (composable)
+        GetSlideDefinitionsTool(),
+        # CS Report (platform metrics from Data Exports)
+        CustomerPlatformHealthTool(),
+        CustomerSupplyChainTool(),
+        CustomerPlatformValueTool(),
+        # Full deck generation (preferred — one call does everything)
+        GenerateFullDeckTool(**common),
+        # Slides (composable — for custom/advanced use)
         CreateDeckTool(),
         AddSlideTool(),
     ]

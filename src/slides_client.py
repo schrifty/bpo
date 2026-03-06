@@ -25,6 +25,7 @@ MARGIN = 48
 CONTENT_W = SLIDE_W - 2 * MARGIN
 TITLE_Y = 28
 BODY_Y = 80
+BODY_BOTTOM = SLIDE_H - 36  # safe bottom edge (room for omission note + footer)
 
 # ── LeanDNA APEX brand palette (from template 1o2POERqEEp…) ──
 NAVY = {"red": 0.031, "green": 0.110, "blue": 0.200}    # #081c33  dark navy
@@ -161,6 +162,8 @@ def _pill(reqs, oid, sid, x, y, w, h, text, bg, fg):
 
 
 def _style(reqs, oid, start, end, bold=False, size=None, color=None, font=None, italic=False):
+    if start >= end:
+        return
     s: dict[str, Any] = {}
     f = []
     if bold:
@@ -209,6 +212,55 @@ def _internal_footer(reqs, sid):
     })
 
 
+def _clean_table(reqs, table_id, num_rows, num_cols):
+    """Strip all borders from a table, then add a thin blue header separator."""
+    reqs.append({
+        "updateTableBorderProperties": {
+            "objectId": table_id,
+            "tableRange": {
+                "location": {"rowIndex": 0, "columnIndex": 0},
+                "rowSpan": num_rows, "columnSpan": num_cols,
+            },
+            "borderPosition": "ALL",
+            "tableBorderProperties": {
+                "tableBorderFill": {"solidFill": {"color": {"rgbColor": WHITE}}},
+                "weight": {"magnitude": 0.01, "unit": "PT"},
+                "dashStyle": "SOLID",
+            },
+            "fields": "tableBorderFill,weight,dashStyle",
+        }
+    })
+    reqs.append({
+        "updateTableBorderProperties": {
+            "objectId": table_id,
+            "tableRange": {
+                "location": {"rowIndex": 0, "columnIndex": 0},
+                "rowSpan": 1, "columnSpan": num_cols,
+            },
+            "borderPosition": "BOTTOM",
+            "tableBorderProperties": {
+                "tableBorderFill": {"solidFill": {"color": {"rgbColor": BLUE}}},
+                "weight": {"magnitude": 1, "unit": "PT"},
+                "dashStyle": "SOLID",
+            },
+            "fields": "tableBorderFill,weight,dashStyle",
+        }
+    })
+
+
+def _omission_note(reqs, sid, omitted_names: list[str], label: str = "Not shown"):
+    """Add a small italic note near the bottom listing items omitted for space."""
+    if not omitted_names:
+        return
+    names = ", ".join(omitted_names[:8])
+    if len(omitted_names) > 8:
+        names += f", +{len(omitted_names) - 8} more"
+    note = f"{label}: {names}"
+    oid = f"{sid}_omit"
+    _box(reqs, oid, sid, MARGIN, BODY_BOTTOM - 2, CONTENT_W, 14, note)
+    _style(reqs, oid, 0, len(note), size=7, color=GRAY, font=FONT, italic=True)
+
+
 def _slide_title(reqs, sid, text):
     """Standard content-slide title: navy text + teal underline + internal footer."""
     oid = f"{sid}_ttl"
@@ -247,6 +299,104 @@ def _title_slide(reqs, sid, report, idx):
     return idx + 1
 
 
+# ── Composite health scoring ──
+
+_HEALTH_GOOD = {"red": 0.10, "green": 0.55, "blue": 0.28}   # green
+_HEALTH_MOD  = BLUE                                            # blue
+_HEALTH_BAD  = {"red": 0.78, "green": 0.18, "blue": 0.18}    # red
+_HEALTH_NA   = GRAY                                            # no data
+
+_SCORE_MAP = {"HEALTHY": 3, "MODERATE": 2, "AT RISK": 1}
+_LABEL_FROM_SCORE = {3: "HEALTHY", 2: "MODERATE", 1: "AT RISK"}
+_COLOR_FROM_LABEL = {"HEALTHY": _HEALTH_GOOD, "MODERATE": _HEALTH_MOD, "AT RISK": _HEALTH_BAD}
+
+
+def _score_engagement(report: dict) -> tuple[str, str]:
+    """Score user-engagement health from Pendo active rate. Returns (label, rationale)."""
+    rate = report.get("engagement", {}).get("active_rate_7d", 0)
+    if rate >= 40:
+        return "HEALTHY", f"{rate}% weekly active"
+    elif rate >= 20:
+        return "MODERATE", f"{rate}% weekly active"
+    else:
+        return "AT RISK", f"{rate}% weekly active"
+
+
+def _score_platform(report: dict) -> tuple[str, str] | None:
+    """Score platform health from CS Report factory health scores. Returns None if no data."""
+    cs = report.get("cs_platform_health", {})
+    sites = cs.get("sites", [])
+    if not sites:
+        return None
+    dist = cs.get("health_distribution", {})
+    reds = dist.get("RED", 0)
+    greens = dist.get("GREEN", 0)
+    total = len(sites)
+    pct_green = greens / max(total, 1) * 100
+    if reds > 0:
+        return "AT RISK", f"{reds} RED factory{'s' if reds != 1 else ''}"
+    elif pct_green >= 50:
+        return "HEALTHY", f"{greens}/{total} factories GREEN"
+    else:
+        return "MODERATE", f"{greens}/{total} factories GREEN"
+
+
+def _score_support(report: dict) -> tuple[str, str] | None:
+    """Score support health from Jira ticket data. Returns None if no data."""
+    jira = report.get("jira", {})
+    if not jira or jira.get("error") or jira.get("total_issues", 0) == 0:
+        return None
+    total = jira["total_issues"]
+    escalated = jira.get("escalated", 0)
+    open_n = jira.get("open_issues", 0)
+    ttr = jira.get("ttr", {})
+    breached = ttr.get("breached", 0)
+
+    esc_pct = escalated / max(total, 1) * 100
+    open_pct = open_n / max(total, 1) * 100
+
+    if breached > 0 or esc_pct > 40:
+        return "AT RISK", f"{escalated} escalated, {breached} SLA breach{'es' if breached != 1 else ''}"
+    elif esc_pct > 20 or open_pct > 50:
+        return "MODERATE", f"{open_n} open, {escalated} escalated"
+    else:
+        return "HEALTHY", f"{open_n} open, {escalated} escalated"
+
+
+def _composite_health(report: dict) -> dict[str, Any]:
+    """Compute composite health from all available dimensions."""
+    dims: list[dict[str, Any]] = []
+
+    eng_label, eng_why = _score_engagement(report)
+    dims.append({"name": "Engagement", "label": eng_label, "detail": eng_why,
+                 "source": "Pendo", "color": _COLOR_FROM_LABEL[eng_label]})
+
+    plat = _score_platform(report)
+    if plat:
+        dims.append({"name": "Platform", "label": plat[0], "detail": plat[1],
+                      "source": "CS Report", "color": _COLOR_FROM_LABEL[plat[0]]})
+
+    supp = _score_support(report)
+    if supp:
+        dims.append({"name": "Support", "label": supp[0], "detail": supp[1],
+                      "source": "Jira", "color": _COLOR_FROM_LABEL[supp[0]]})
+
+    scores = [_SCORE_MAP[d["label"]] for d in dims]
+    avg = sum(scores) / len(scores) if scores else 2
+    if avg >= 2.5:
+        overall = "HEALTHY"
+    elif avg >= 1.5:
+        overall = "MODERATE"
+    else:
+        overall = "AT RISK"
+
+    return {
+        "overall": overall,
+        "overall_color": _COLOR_FROM_LABEL[overall],
+        "dimensions": dims,
+    }
+
+
 def _health_slide(reqs, sid, report, idx):
     _slide(reqs, sid, idx)
     _slide_title(reqs, sid, "Account Health Snapshot")
@@ -256,17 +406,12 @@ def _health_slide(reqs, sid, report, idx):
     acct = report["account"]
     rate = eng["active_rate_7d"]
     active = eng["active_7d"] + eng["active_30d"]
-    vs = rate - bench["peer_median_rate"]
-    direction = "above" if vs > 0 else "below" if vs < 0 else "at"
     internal = acct.get("internal_visitors", 0)
 
-    # Health badge
-    if rate >= 40:
-        label, badge_bg = "HEALTHY", {"red": 0.10, "green": 0.55, "blue": 0.28}
-    elif rate >= 20:
-        label, badge_bg = "MODERATE", BLUE
-    else:
-        label, badge_bg = "AT RISK", {"red": 0.78, "green": 0.18, "blue": 0.18}
+    # Composite health badge
+    health = _composite_health(report)
+    label = health["overall"]
+    badge_bg = health["overall_color"]
     _pill(reqs, f"{sid}_badge", sid, SLIDE_W - MARGIN - 110, TITLE_Y + 2, 110, 28, label, badge_bg, WHITE)
 
     # KPIs — use cohort benchmark when available
@@ -278,6 +423,8 @@ def _health_slide(reqs, sid, report, idx):
         direction = "above" if vs > 0 else "below" if vs < 0 else "at"
         bench_label = f"{cohort_name} median of {cohort_med}%  ({cohort_n} peers)"
     else:
+        vs = rate - bench["peer_median_rate"]
+        direction = "above" if vs > 0 else "below" if vs < 0 else "at"
         bench_label = f"all-customer median of {bench['peer_median_rate']}%  ({bench['peer_count']} peers)"
     lines = [
         f"Customer Users: {acct['total_visitors']}",
@@ -292,7 +439,7 @@ def _health_slide(reqs, sid, report, idx):
         lines.append(f"({internal} internal staff excluded)")
     kpi = "\n".join(lines)
 
-    _box(reqs, f"{sid}_kpi", sid, MARGIN, BODY_Y, CONTENT_W, 260, kpi)
+    _box(reqs, f"{sid}_kpi", sid, MARGIN, BODY_Y, CONTENT_W // 2 + 20, 200, kpi)
     _style(reqs, f"{sid}_kpi", 0, len(kpi), size=12, color=NAVY, font=FONT)
 
     off = 0
@@ -301,6 +448,27 @@ def _health_slide(reqs, sid, report, idx):
             c = line.index(":")
             _style(reqs, f"{sid}_kpi", off, off + c + 1, bold=True)
         off += len(line) + 1
+
+    # Dimension breakdown (right side)
+    dims = health["dimensions"]
+    dx = MARGIN + CONTENT_W // 2 + 40
+    dw = CONTENT_W // 2 - 40
+    dy = BODY_Y + 4
+
+    for i, d in enumerate(dims):
+        dot_map = {"HEALTHY": "\u25cf", "MODERATE": "\u25cf", "AT RISK": "\u25cf"}
+        dot = dot_map.get(d["label"], "\u25cf")
+        dim_line = f"{dot}  {d['name']}: {d['label']}"
+        oid = f"{sid}_d{i}"
+        _box(reqs, oid, sid, dx, dy, dw, 18, dim_line)
+        _style(reqs, oid, 0, len(dim_line), bold=True, size=11, color=d["color"], font=FONT)
+
+        det = f"     {d['detail']}  ({d['source']})"
+        did = f"{sid}_dd{i}"
+        _box(reqs, did, sid, dx, dy + 16, dw, 14, det)
+        _style(reqs, did, 0, len(det), size=9, color=GRAY, font=FONT)
+
+        dy += 44
 
     return idx + 1
 
@@ -367,22 +535,51 @@ def _sites_slide(reqs, sid, report, idx):
     _slide(reqs, sid, idx)
     _slide_title(reqs, sid, "Site Comparison")
 
-    sites = report["sites"]
-    if not sites:
+    all_sites = report["sites"]
+    if not all_sites:
         _box(reqs, f"{sid}_e", sid, MARGIN, BODY_Y, CONTENT_W, 30, "No site data available")
         _style(reqs, f"{sid}_e", 0, 22, size=12, color=GRAY, font=FONT, italic=True)
         return idx + 1
 
-    headers = ["Site", "Users", "Pages", "Features", "Events", "Minutes", "Last Active"]
-    col_widths = [180, 50, 55, 65, 60, 60, 80]  # approximate pt
+    customer_prefix = report.get("account", {}).get("customer", "").strip()
 
-    show_total = len(sites) > 1
+    def _short_site(name: str) -> str:
+        n = name
+        if customer_prefix and n.lower().startswith(customer_prefix.lower()):
+            n = n[len(customer_prefix):].lstrip(" -·")
+        return n[:22] if len(n) > 22 else n
+
+    headers = ["Site", "Users", "Pages", "Features", "Events", "Minutes", "Last Active"]
+    col_widths = [180, 50, 55, 65, 60, 60, 80]
+    ROW_H = 28
+
+    show_total = len(all_sites) > 1
+    max_data_rows = (BODY_BOTTOM - BODY_Y) // ROW_H - 1 - (1 if show_total else 0)
+
+    omitted_sites: list[str] = []
+    if len(all_sites) > max_data_rows:
+        sites = all_sites[:max_data_rows - 1]
+        others = all_sites[max_data_rows - 1:]
+        omitted_sites = [s["sitename"] for s in others]
+        others_row = {
+            "sitename": f"Others ({len(others)} sites)",
+            "visitors": sum(s["visitors"] for s in others),
+            "page_views": sum(s["page_views"] for s in others),
+            "feature_clicks": sum(s["feature_clicks"] for s in others),
+            "total_events": sum(s["total_events"] for s in others),
+            "total_minutes": sum(s["total_minutes"] for s in others),
+            "last_active": "",
+        }
+        sites.append(others_row)
+    else:
+        sites = all_sites
+
     num_rows = 1 + len(sites) + (1 if show_total else 0)
     num_cols = len(headers)
     table_id = f"{sid}_table"
 
     tbl_w = sum(col_widths)
-    tbl_h = num_rows * 22
+    tbl_h = num_rows * ROW_H
     reqs.append({
         "createTable": {
             "objectId": table_id,
@@ -405,21 +602,22 @@ def _sites_slide(reqs, sid, report, idx):
                      "text": text, "insertionIndex": 0}})
 
     def _cell_style(row, col, text_len, bold=False, color=None, size=9, font=FONT, align=None):
-        s: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}}
-        f = ["fontSize"]
-        if bold:
-            s["bold"] = True; f.append("bold")
-        if color:
-            s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}; f.append("foregroundColor")
-        if font:
-            s["fontFamily"] = font; f.append("fontFamily")
-        reqs.append({
-            "updateTextStyle": {
-                "objectId": table_id, "cellLocation": _cell_loc(row, col),
-                "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
-                "style": s, "fields": ",".join(f),
-            }
-        })
+        if text_len > 0:
+            s: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}}
+            f = ["fontSize"]
+            if bold:
+                s["bold"] = True; f.append("bold")
+            if color:
+                s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}; f.append("foregroundColor")
+            if font:
+                s["fontFamily"] = font; f.append("fontFamily")
+            reqs.append({
+                "updateTextStyle": {
+                    "objectId": table_id, "cellLocation": _cell_loc(row, col),
+                    "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
+                    "style": s, "fields": ",".join(f),
+                }
+            })
         if align:
             reqs.append({
                 "updateParagraphStyle": {
@@ -440,16 +638,18 @@ def _sites_slide(reqs, sid, report, idx):
             }
         })
 
+    _clean_table(reqs, table_id, num_rows, num_cols)
+
     for ci, h in enumerate(headers):
         _cell_text(0, ci, h)
-        _cell_style(0, ci, len(h), bold=True, color=WHITE, size=9, font=FONT,
-                     align="END" if ci >= 1 and ci <= 5 else None)
-        _cell_bg(0, ci, NAVY)
+        _cell_style(0, ci, len(h), bold=True, color=GRAY, size=8, font=FONT,
+                     align="END" if 1 <= ci <= 5 else None)
+        _cell_bg(0, ci, WHITE)
 
     for ri, s in enumerate(sites):
         row = ri + 1
         vals = [
-            s["sitename"][:28],
+            _short_site(s["sitename"]),
             f'{s["visitors"]:,}',
             f'{s["page_views"]:,}',
             f'{s["feature_clicks"]:,}',
@@ -457,30 +657,47 @@ def _sites_slide(reqs, sid, report, idx):
             f'{s["total_minutes"]:,}',
             s["last_active"],
         ]
-        stripe = LIGHT if ri % 2 == 1 else WHITE
         for ci, v in enumerate(vals):
             _cell_text(row, ci, v)
             _cell_style(row, ci, len(v), color=NAVY, size=8, font=FONT,
-                         align="END" if ci >= 1 and ci <= 5 else None)
-            _cell_bg(row, ci, stripe)
+                         align="END" if 1 <= ci <= 5 else None)
+            _cell_bg(row, ci, WHITE)
 
     if show_total:
-        row = len(sites) + 1
+        total_row_idx = len(sites) + 1
+        reqs.append({
+            "updateTableBorderProperties": {
+                "objectId": table_id,
+                "tableRange": {
+                    "location": {"rowIndex": total_row_idx, "columnIndex": 0},
+                    "rowSpan": 1, "columnSpan": num_cols,
+                },
+                "borderPosition": "TOP",
+                "tableBorderProperties": {
+                    "tableBorderFill": {"solidFill": {"color": {"rgbColor": NAVY}}},
+                    "weight": {"magnitude": 0.5, "unit": "PT"},
+                    "dashStyle": "SOLID",
+                },
+                "fields": "tableBorderFill,weight,dashStyle",
+            }
+        })
         totals = [
             "Total",
-            f'{sum(s["visitors"] for s in sites):,}',
-            f'{sum(s["page_views"] for s in sites):,}',
-            f'{sum(s["feature_clicks"] for s in sites):,}',
-            f'{sum(s["total_events"] for s in sites):,}',
-            f'{sum(s["total_minutes"] for s in sites):,}',
+            f'{sum(s["visitors"] for s in all_sites):,}',
+            f'{sum(s["page_views"] for s in all_sites):,}',
+            f'{sum(s["feature_clicks"] for s in all_sites):,}',
+            f'{sum(s["total_events"] for s in all_sites):,}',
+            f'{sum(s["total_minutes"] for s in all_sites):,}',
             "",
         ]
         for ci, v in enumerate(totals):
             if v:
-                _cell_text(row, ci, v)
-                _cell_style(row, ci, len(v), bold=True, color=NAVY, size=8, font=FONT,
-                             align="END" if ci >= 1 and ci <= 5 else None)
-            _cell_bg(row, ci, LIGHT)
+                _cell_text(total_row_idx, ci, v)
+                _cell_style(total_row_idx, ci, len(v), bold=True, color=NAVY, size=8, font=FONT,
+                             align="END" if 1 <= ci <= 5 else None)
+            _cell_bg(total_row_idx, ci, WHITE)
+
+    _omission_note(reqs, sid, omitted_sites, label="Rolled into Others")
 
     return idx + 1
 
@@ -523,8 +740,11 @@ def _champions_slide(reqs, sid, report, idx):
     _slide(reqs, sid, idx)
     _slide_title(reqs, sid, "Champions & At-Risk Users")
 
-    champions = report["champions"]
-    at_risk = report["at_risk_users"]
+    max_per_col = (BODY_BOTTOM - BODY_Y) // 28 - 2  # ~28pt per user; reserve note row
+    all_champions = report["champions"]
+    all_at_risk = report["at_risk_users"]
+    champions = all_champions[:max_per_col]
+    at_risk_show = all_at_risk[:max_per_col]
 
     # Champions
     cl = ["Champions"]
@@ -544,14 +764,14 @@ def _champions_slide(reqs, sid, report, idx):
 
     # At-risk
     rl = ["At Risk  (30+ days inactive)"]
-    for u in at_risk[:6]:
+    for u in at_risk_show:
         email = u["email"] or "unknown"
         if len(email) > 32:
             email = email[:29] + "..."
         d = f"{int(u['days_inactive'])}d ago" if u["days_inactive"] < 999 else "never"
         rl.append(f"  {email}")
         rl.append(f"    {u['role']}  ·  {d}")
-    if not at_risk:
+    if not all_at_risk:
         rl.append("  All users active!")
     rt = "\n".join(rl)
 
@@ -559,6 +779,13 @@ def _champions_slide(reqs, sid, report, idx):
     _style(reqs, f"{sid}_ri", 0, len(rt), size=10, color=NAVY, font=FONT)
     hdr = "At Risk  (30+ days inactive)"
     _style(reqs, f"{sid}_ri", 0, len(hdr), bold=True, size=11, color=BLUE)
+
+    omitted: list[str] = []
+    if len(all_champions) > max_per_col:
+        omitted.append(f"+{len(all_champions) - max_per_col} more champions")
+    if len(all_at_risk) > max_per_col:
+        omitted.append(f"+{len(all_at_risk) - max_per_col} more at-risk users")
+    _omission_note(reqs, sid, omitted, label="Not shown")
 
     return idx + 1
 
@@ -654,8 +881,9 @@ def _exports_slide(reqs, sid, report, idx):
     _box(reqs, f"{sid}_hdr", sid, MARGIN, BODY_Y, CONTENT_W, 18, header)
     _style(reqs, f"{sid}_hdr", 0, len(header), size=10, color=GRAY, font=FONT)
 
+    max_features = 8
     fl = ["By Feature"]
-    for i, f in enumerate(by_feature[:8], 1):
+    for i, f in enumerate(by_feature[:max_features], 1):
         name = f["feature"][:36] if len(f["feature"]) > 36 else f["feature"]
         fl.append(f"  {i}. {name}  ({f['exports']:,})")
     if not by_feature:
@@ -666,8 +894,9 @@ def _exports_slide(reqs, sid, report, idx):
     _style(reqs, f"{sid}_bf", 0, len("By Feature"), bold=True, size=11, color=BLUE)
 
     # Right: top exporters
+    max_exporters = (BODY_BOTTOM - BODY_Y - 24) // 28 - 2  # 2 lines per user; reserve note
     el = ["Top Exporters"]
-    for u in top_exporters:
+    for u in top_exporters[:max_exporters]:
         email = u["email"] or "unknown"
         if len(email) > 32:
             email = email[:29] + "..."
@@ -679,6 +908,13 @@ def _exports_slide(reqs, sid, report, idx):
     _box(reqs, f"{sid}_te", sid, 400, BODY_Y + 24, 280, 270, et)
     _style(reqs, f"{sid}_te", 0, len(et), size=10, color=NAVY, font=FONT)
     _style(reqs, f"{sid}_te", 0, len("Top Exporters"), bold=True, size=11, color=BLUE)
+
+    omitted: list[str] = []
+    if len(by_feature) > max_features:
+        omitted.append(f"+{len(by_feature) - max_features} more export types")
+    if len(top_exporters) > max_exporters:
+        omitted.append(f"+{len(top_exporters) - max_exporters} more exporters")
+    _omission_note(reqs, sid, omitted, label="Not shown")
 
     return idx + 1
 
@@ -940,7 +1176,7 @@ def _jira_slide(reqs, sid, report, idx):
     right_x = MARGIN + left_w + col_gap
     right_w = CONTENT_W - left_w - col_gap
     body_top = BODY_Y + body_offset
-    max_y = SLIDE_H - 12
+    max_y = BODY_BOTTOM
 
     # ── LEFT COLUMN: By Status, By Priority, Recent Issues ──
     left_y = body_top
@@ -978,14 +1214,14 @@ def _jira_slide(reqs, sid, report, idx):
     left_y += pr_h + 4
 
     recent = jira.get("recent_issues", [])
-    avail_lines = max((max_y - left_y) // 10 - 1, 2)
-    recent = recent[:avail_lines]
+    avail_lines = max((max_y - left_y) // 12 - 1, 2)
+    recent = recent[:min(avail_lines, 6)]
     recent_lines = []
     for r in recent:
-        recent_lines.append(f"{r['key']}  {r['status'][:10]:10s}  {r['summary'][:28]}")
+        recent_lines.append(f"{r['key']}  {r['status'][:8]:8s}  {r['summary'][:30]}")
     recent_text = "Recent Issues\n" + "\n".join(recent_lines)
     _box(reqs, f"{sid}_rc", sid, left_x, left_y, left_w, max_y - left_y, recent_text)
-    _style(reqs, f"{sid}_rc", 0, len(recent_text), size=7, color=NAVY, font=MONO)
+    _style(reqs, f"{sid}_rc", 0, len(recent_text), size=8, color=NAVY, font=MONO)
     _style(reqs, f"{sid}_rc", 0, len("Recent Issues"), bold=True, size=9, color=BLUE, font=FONT)
 
     # ── RIGHT COLUMN: Escalated, Engineering Pipeline ──
@@ -993,8 +1229,8 @@ def _jira_slide(reqs, sid, report, idx):
 
     esc_issues = jira.get("escalated_issues", [])
     if esc_issues or esc > 0:
-        esc_show = esc_issues[:5]
-        esc_lines = [f"{e['key']}  {e['summary'][:38]}  ({e['status']})" for e in esc_show]
+        esc_show = esc_issues[:4]
+        esc_lines = [f"{e['key']}  {e['summary'][:36]}  ({e['status']})" for e in esc_show]
         esc_text = f"Escalated ({esc})\n" + "\n".join(esc_lines)
         esc_h = 12 * (len(esc_lines) + 1) + 6
         _box(reqs, f"{sid}_esc", sid, right_x, right_y, right_w, esc_h, esc_text)
@@ -1010,19 +1246,19 @@ def _jira_slide(reqs, sid, report, idx):
     if eng_open or eng_closed:
         eng_hdr = f"Engineering Pipeline  ({eng.get('open_count', 0)} open · {eng.get('closed_count', 0)} closed)"
         eng_lines = [eng_hdr]
-        avail_eng = max((max_y - right_y) // 10 - 2, 2)
+        avail_eng = max((max_y - right_y) // 12 - 2, 2)
         open_show = min(len(eng_open), max(avail_eng - 2, 1))
         for t in eng_open[:open_show]:
             assignee = t.get("assignee") or "unassigned"
-            eng_lines.append(f"  {t['key']}  {t['summary'][:28]}  [{assignee}]")
+            eng_lines.append(f"  {t['key']}  {t['summary'][:26]}  [{assignee}]")
         remaining = avail_eng - open_show
         if eng_closed and remaining > 1:
             eng_lines.append("Recently Closed")
-            for t in eng_closed[:remaining - 1]:
-                eng_lines.append(f"  {t['key']}  {t['summary'][:38]}")
+            for t in eng_closed[:min(remaining - 1, 4)]:
+                eng_lines.append(f"  {t['key']}  {t['summary'][:36]}")
         eng_text = "\n".join(eng_lines)
         _box(reqs, f"{sid}_eng", sid, right_x, right_y, right_w, max_y - right_y, eng_text)
-        _style(reqs, f"{sid}_eng", 0, len(eng_text), size=7, color=NAVY, font=MONO)
+        _style(reqs, f"{sid}_eng", 0, len(eng_text), size=8, color=NAVY, font=MONO)
         _style(reqs, f"{sid}_eng", 0, len(eng_hdr), bold=True, size=9, color=BLUE, font=FONT)
         rc_start = eng_text.find("Recently Closed")
         if rc_start >= 0:
@@ -1041,8 +1277,10 @@ def _signals_slide(reqs, sid, report, idx):
     _bg(reqs, sid, LIGHT)
     _slide_title(reqs, sid, "Notable Signals")
 
+    max_signals = (BODY_BOTTOM - BODY_Y) // 32 - 1  # ~32pt per signal; reserve note
+    shown = signals[:max_signals]
     lines = []
-    for i, s in enumerate(signals, 1):
+    for i, s in enumerate(shown, 1):
         lines.append(f"{i}.   {s}")
         lines.append("")
     text = "\n".join(lines)
@@ -1057,6 +1295,9 @@ def _signals_slide(reqs, sid, report, idx):
             dot = line.index(".")
             _style(reqs, f"{sid}_sig", off, off + dot + 1, bold=True, color=BLUE)
         off += len(line) + 1
+
+    if len(signals) > max_signals:
+        _omission_note(reqs, sid, [f"+{len(signals) - max_signals} more signals"], label="Not shown")
 
     return idx + 1
 
@@ -1264,9 +1505,17 @@ def _data_quality_slide(reqs, sid, report, idx):
     _style(reqs, f"{sid}_st", 0, len(status), bold=True, size=14, color=status_color, font=FONT)
 
     if total_flags == 0:
-        sub = "All data sources agree. Numbers on every slide have been cross-validated."
+        sub = "No discrepancies found where data sources overlap (Pendo, Jira, CS Report)."
         _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y + 32, CONTENT_W, 20, sub)
         _style(reqs, f"{sid}_sub", 0, len(sub), size=10, color=GRAY, font=FONT)
+
+        detail = ("Checks include: engagement bucket sums, active-rate calculations, "
+                  "site-count consistency across sources, JIRA breakdown totals, "
+                  "factory name matching, and cohort classification. "
+                  "Single-source metrics (feature adoption, exports, guides, dollar values) "
+                  "are not independently verified.")
+        _box(reqs, f"{sid}_det", sid, MARGIN, BODY_Y + 56, CONTENT_W, 60, detail)
+        _style(reqs, f"{sid}_det", 0, len(detail), size=8, color=GRAY, font=FONT, italic=True)
         return idx + 1
 
     y = BODY_Y + 36
@@ -1313,6 +1562,400 @@ def _data_quality_slide(reqs, sid, report, idx):
     return idx + 1
 
 
+# ── CS Report slide builders ──
+
+_HEALTH_BADGE = {
+    "GREEN": ({"red": 0.10, "green": 0.55, "blue": 0.28}, "\u2705"),
+    "YELLOW": ({"red": 0.9, "green": 0.65, "blue": 0.0}, "\u26a0"),
+    "RED": ({"red": 0.78, "green": 0.18, "blue": 0.18}, "\u2716"),
+}
+
+
+def _platform_health_slide(reqs, sid, report, idx):
+    cs = report.get("cs_platform_health", report)
+    site_list = cs.get("sites", [])
+    if not site_list:
+        return idx
+
+    _slide(reqs, sid, idx)
+    _slide_title(reqs, sid, "Platform Health")
+
+    dist = cs.get("health_distribution", {})
+    total_short = cs.get("total_shortages", 0)
+    total_crit = cs.get("total_critical_shortages", 0)
+    header = "  ·  ".join(
+        [f"{v} {k}" for k, v in dist.items() if v > 0]
+        + [f"{total_short:,} shortages ({total_crit:,} critical)"]
+    )
+    _box(reqs, f"{sid}_hdr", sid, MARGIN, BODY_Y, CONTENT_W, 18, header)
+    _style(reqs, f"{sid}_hdr", 0, len(header), size=10, color=GRAY, font=FONT)
+
+    ROW_H = 28
+    max_rows = (BODY_BOTTOM - BODY_Y - 24) // ROW_H - 1  # reserve space for omission note
+    headers_list = ["Factory", "Health", "CTB%", "CTC%", "Comp Avail%", "Shortages", "Critical"]
+    col_widths = [170, 60, 55, 55, 75, 65, 60]
+    show = site_list[:max_rows]
+    omitted_factories = [s.get("factory", "?") for s in site_list[max_rows:]]
+    num_rows = 1 + len(show)
+    table_id = f"{sid}_tbl"
+
+    reqs.append({
+        "createTable": {
+            "objectId": table_id,
+            "elementProperties": {
+                "pageObjectId": sid,
+                "size": _sz(sum(col_widths), num_rows * ROW_H),
+                "transform": _tf(MARGIN, BODY_Y + 24),
+            },
+            "rows": num_rows, "columns": len(headers_list),
+        }
+    })
+
+    def _ct(row, col, text):
+        if not text:
+            return
+        reqs.append({"insertText": {"objectId": table_id,
+                     "cellLocation": {"rowIndex": row, "columnIndex": col},
+                     "text": text, "insertionIndex": 0}})
+
+    def _cs(row, col, text_len, bold=False, color=None, size=8, align=None):
+        if text_len > 0:
+            s: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}, "fontFamily": FONT}
+            f = ["fontSize", "fontFamily"]
+            if bold:
+                s["bold"] = True; f.append("bold")
+            if color:
+                s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}; f.append("foregroundColor")
+            reqs.append({
+                "updateTextStyle": {
+                    "objectId": table_id,
+                    "cellLocation": {"rowIndex": row, "columnIndex": col},
+                    "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
+                    "style": s, "fields": ",".join(f),
+                }
+            })
+        if align:
+            reqs.append({
+                "updateParagraphStyle": {
+                    "objectId": table_id,
+                    "cellLocation": {"rowIndex": row, "columnIndex": col},
+                    "textRange": {"type": "ALL"},
+                    "style": {"alignment": align}, "fields": "alignment",
+                }
+            })
+
+    def _cbg(row, col, color):
+        reqs.append({
+            "updateTableCellProperties": {
+                "objectId": table_id,
+                "tableRange": {"location": {"rowIndex": row, "columnIndex": col}, "rowSpan": 1, "columnSpan": 1},
+                "tableCellProperties": {"tableCellBackgroundFill": {"solidFill": {"color": {"rgbColor": color}}}},
+                "fields": "tableCellBackgroundFill",
+            }
+        })
+
+    _clean_table(reqs, table_id, num_rows, len(headers_list))
+
+    for ci, h in enumerate(headers_list):
+        _ct(0, ci, h)
+        _cs(0, ci, len(h), bold=True, color=GRAY, size=8, align="END" if ci >= 2 else None)
+        _cbg(0, ci, WHITE)
+
+    for ri, s in enumerate(show):
+        row = ri + 1
+        hs = s.get("health_score") or "NONE"
+        badge_info = _HEALTH_BADGE.get(hs)
+        badge = badge_info[1] + " " + hs if badge_info else hs
+        vals = [
+            s.get("factory", "?")[:24],
+            badge,
+            f'{s.get("clear_to_build_pct", 0):.1f}' if "clear_to_build_pct" in s else "-",
+            f'{s.get("clear_to_commit_pct", 0):.1f}' if "clear_to_commit_pct" in s else "-",
+            f'{s.get("component_availability_pct", 0):.1f}' if "component_availability_pct" in s else "-",
+            f'{s.get("shortages", 0):,}' if "shortages" in s else "-",
+            f'{s.get("critical_shortages", 0):,}' if "critical_shortages" in s else "-",
+        ]
+        for ci, v in enumerate(vals):
+            _ct(row, ci, v)
+            _cs(row, ci, len(v), color=NAVY, size=8, align="END" if ci >= 2 else None)
+            _cbg(row, ci, WHITE)
+
+    _omission_note(reqs, sid, omitted_factories, label="Not shown")
+
+    return idx + 1
+
+
+def _supply_chain_slide(reqs, sid, report, idx):
+    cs = report.get("cs_supply_chain", report)
+    site_list = cs.get("sites", [])
+    if not site_list:
+        return idx
+
+    _slide(reqs, sid, idx)
+    _slide_title(reqs, sid, "Supply Chain Overview")
+
+    totals = cs.get("totals", {})
+    oh = totals.get("on_hand", 0)
+    oo = totals.get("on_order", 0)
+    ex = totals.get("excess_on_hand", 0)
+    header = f"${oh:,.0f} on-hand  ·  ${oo:,.0f} on-order  ·  ${ex:,.0f} excess"
+    _box(reqs, f"{sid}_hdr", sid, MARGIN, BODY_Y, CONTENT_W, 18, header)
+    _style(reqs, f"{sid}_hdr", 0, len(header), bold=True, size=11, color=NAVY, font=FONT)
+
+    ROW_H = 28
+    max_rows = (BODY_BOTTOM - BODY_Y - 28) // ROW_H - 1  # reserve space for omission note
+    headers_list = ["Factory", "On-Hand", "On-Order", "Excess", "DOI", "Late POs"]
+    col_widths = [150, 90, 90, 80, 55, 55]
+    show = site_list[:max_rows]
+    omitted_factories = [s.get("factory", "?") for s in site_list[max_rows:]]
+    num_rows = 1 + len(show)
+    table_id = f"{sid}_tbl"
+
+    reqs.append({
+        "createTable": {
+            "objectId": table_id,
+            "elementProperties": {
+                "pageObjectId": sid,
+                "size": _sz(sum(col_widths), num_rows * ROW_H),
+                "transform": _tf(MARGIN, BODY_Y + 28),
+            },
+            "rows": num_rows, "columns": len(headers_list),
+        }
+    })
+
+    def _ct(row, col, text):
+        if not text:
+            return
+        reqs.append({"insertText": {"objectId": table_id,
+                     "cellLocation": {"rowIndex": row, "columnIndex": col},
+                     "text": text, "insertionIndex": 0}})
+
+    def _cs(row, col, text_len, bold=False, color=None, size=8, align=None):
+        if text_len > 0:
+            s: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}, "fontFamily": FONT}
+            f = ["fontSize", "fontFamily"]
+            if bold:
+                s["bold"] = True; f.append("bold")
+            if color:
+                s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}; f.append("foregroundColor")
+            reqs.append({
+                "updateTextStyle": {
+                    "objectId": table_id,
+                    "cellLocation": {"rowIndex": row, "columnIndex": col},
+                    "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
+                    "style": s, "fields": ",".join(f),
+                }
+            })
+        if align:
+            reqs.append({
+                "updateParagraphStyle": {
+                    "objectId": table_id,
+                    "cellLocation": {"rowIndex": row, "columnIndex": col},
+                    "textRange": {"type": "ALL"},
+                    "style": {"alignment": align}, "fields": "alignment",
+                }
+            })
+
+    def _cbg(row, col, color):
+        reqs.append({
+            "updateTableCellProperties": {
+                "objectId": table_id,
+                "tableRange": {"location": {"rowIndex": row, "columnIndex": col}, "rowSpan": 1, "columnSpan": 1},
+                "tableCellProperties": {"tableCellBackgroundFill": {"solidFill": {"color": {"rgbColor": color}}}},
+                "fields": "tableCellBackgroundFill",
+            }
+        })
+
+    _clean_table(reqs, table_id, num_rows, len(headers_list))
+
+    for ci, h in enumerate(headers_list):
+        _ct(0, ci, h)
+        _cs(0, ci, len(h), bold=True, color=GRAY, size=8, align="END" if ci >= 1 else None)
+        _cbg(0, ci, WHITE)
+
+    def _fmtk(v):
+        if v is None or v == 0:
+            return "-"
+        if abs(v) >= 1_000_000:
+            return f"${v/1_000_000:.1f}M"
+        if abs(v) >= 1_000:
+            return f"${v/1_000:.0f}K"
+        return f"${v:,.0f}"
+
+    for ri, s in enumerate(show):
+        row = ri + 1
+        vals = [
+            s.get("factory", "?")[:22],
+            _fmtk(s.get("on_hand_value")),
+            _fmtk(s.get("on_order_value")),
+            _fmtk(s.get("excess_on_hand")),
+            f'{s["doi_days"]:.0f}d' if "doi_days" in s else "-",
+            f'{s.get("late_pos", 0):,}' if "late_pos" in s else "-",
+        ]
+        for ci, v in enumerate(vals):
+            _ct(row, ci, v)
+            _cs(row, ci, len(v), color=NAVY, size=8, align="END" if ci >= 1 else None)
+            _cbg(row, ci, WHITE)
+
+    _omission_note(reqs, sid, omitted_factories, label="Not shown")
+
+    return idx + 1
+
+
+def _platform_value_slide(reqs, sid, report, idx):
+    cs = report.get("cs_platform_value", report)
+    total_savings = cs.get("total_savings", 0)
+    total_open = cs.get("total_open_ia_value", 0)
+    total_recs = cs.get("total_recs_created_30d", 0)
+    site_list = cs.get("sites", [])
+
+    if total_savings == 0 and total_open == 0 and total_recs == 0:
+        return idx
+
+    _slide(reqs, sid, idx)
+    _slide_title(reqs, sid, "Platform Value & ROI")
+
+    def _fmt_dollar(v):
+        if abs(v) >= 1_000_000_000:
+            return f"${v / 1_000_000_000:,.2f}B"
+        if abs(v) >= 1_000_000:
+            return f"${v / 1_000_000:,.1f}M"
+        if abs(v) >= 1_000:
+            return f"${v / 1_000:,.0f}K"
+        return f"${v:,.0f}"
+
+    def _fmt_count(v):
+        if abs(v) >= 1_000_000:
+            return f"{v / 1_000_000:,.1f}M"
+        if abs(v) >= 100_000:
+            return f"{v / 1_000:,.0f}K"
+        return f"{v:,}"
+
+    sav = _fmt_dollar(total_savings)
+    _box(reqs, f"{sid}_sav", sid, MARGIN, BODY_Y + 8, 200, 50, sav)
+    _style(reqs, f"{sid}_sav", 0, len(sav), bold=True, size=28, color=BLUE, font=FONT)
+
+    sav_sub = "savings achieved"
+    _box(reqs, f"{sid}_ss", sid, MARGIN, BODY_Y + 56, 200, 18, sav_sub)
+    _style(reqs, f"{sid}_ss", 0, len(sav_sub), size=9, color=GRAY, font=FONT)
+
+    opn = _fmt_dollar(total_open)
+    _box(reqs, f"{sid}_opn", sid, 260, BODY_Y + 8, 200, 50, opn)
+    _style(reqs, f"{sid}_opn", 0, len(opn), bold=True, size=28, color=NAVY, font=FONT)
+
+    opn_sub = "open IA pipeline"
+    _box(reqs, f"{sid}_os", sid, 260, BODY_Y + 56, 200, 18, opn_sub)
+    _style(reqs, f"{sid}_os", 0, len(opn_sub), size=9, color=GRAY, font=FONT)
+
+    recs_text = _fmt_count(total_recs)
+    _box(reqs, f"{sid}_recs", sid, 480, BODY_Y + 8, 160, 50, recs_text)
+    _style(reqs, f"{sid}_recs", 0, len(recs_text), bold=True, size=28, color=TEAL, font=FONT)
+
+    recs_sub = "recs created (30d)"
+    _box(reqs, f"{sid}_rs", sid, 480, BODY_Y + 56, 160, 18, recs_sub)
+    _style(reqs, f"{sid}_rs", 0, len(recs_sub), size=9, color=GRAY, font=FONT)
+
+    # Per-site breakdown
+    total_pos = cs.get("total_pos_placed_30d", 0)
+    total_overdue = cs.get("total_overdue_tasks", 0)
+    ops = f"{total_pos:,} POs placed  ·  {total_overdue:,} overdue tasks"
+    _box(reqs, f"{sid}_ops", sid, MARGIN, BODY_Y + 84, CONTENT_W, 16, ops)
+    _style(reqs, f"{sid}_ops", 0, len(ops), size=9, color=GRAY, font=FONT)
+
+    # Factory breakdown as a table
+    factory_rows = [s for s in site_list if s.get("savings_current_period") or s.get("recs_created_30d")]
+    if factory_rows:
+        tbl_y = BODY_Y + 108
+        ROW_H = 28
+        max_rows = (BODY_BOTTOM - tbl_y) // ROW_H - 1  # reserve note
+        show = factory_rows[:max_rows]
+        omitted_factories = [s.get("factory", "?") for s in factory_rows[max_rows:]]
+        headers_list = ["Factory", "Savings", "Recs (30d)"]
+        col_widths = [180, 120, 80]
+        num_rows = 1 + len(show)
+        table_id = f"{sid}_tbl"
+
+        reqs.append({
+            "createTable": {
+                "objectId": table_id,
+                "elementProperties": {
+                    "pageObjectId": sid,
+                    "size": _sz(sum(col_widths), num_rows * ROW_H),
+                    "transform": _tf(MARGIN, tbl_y),
+                },
+                "rows": num_rows, "columns": len(headers_list),
+            }
+        })
+
+        def _ct(row, col, text):
+            if not text:
+                return
+            reqs.append({"insertText": {"objectId": table_id,
+                         "cellLocation": {"rowIndex": row, "columnIndex": col},
+                         "text": text, "insertionIndex": 0}})
+
+        def _cs(row, col, text_len, bold=False, color=None, size=8, align=None):
+            if text_len > 0:
+                s: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}, "fontFamily": FONT}
+                f = ["fontSize", "fontFamily"]
+                if bold:
+                    s["bold"] = True; f.append("bold")
+                if color:
+                    s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}; f.append("foregroundColor")
+                reqs.append({
+                    "updateTextStyle": {
+                        "objectId": table_id,
+                        "cellLocation": {"rowIndex": row, "columnIndex": col},
+                        "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
+                        "style": s, "fields": ",".join(f),
+                    }
+                })
+            if align:
+                reqs.append({
+                    "updateParagraphStyle": {
+                        "objectId": table_id,
+                        "cellLocation": {"rowIndex": row, "columnIndex": col},
+                        "textRange": {"type": "ALL"},
+                        "style": {"alignment": align}, "fields": "alignment",
+                    }
+                })
+
+        def _cbg(row, col, color):
+            reqs.append({
+                "updateTableCellProperties": {
+                    "objectId": table_id,
+                    "tableRange": {"location": {"rowIndex": row, "columnIndex": col}, "rowSpan": 1, "columnSpan": 1},
+                    "tableCellProperties": {"tableCellBackgroundFill": {"solidFill": {"color": {"rgbColor": color}}}},
+                    "fields": "tableCellBackgroundFill",
+                }
+            })
+
+        _clean_table(reqs, table_id, num_rows, len(headers_list))
+
+        for ci, h in enumerate(headers_list):
+            _ct(0, ci, h)
+            _cs(0, ci, len(h), bold=True, color=GRAY, size=8, align="END" if ci >= 1 else None)
+            _cbg(0, ci, WHITE)
+
+        for ri, s in enumerate(show):
+            row = ri + 1
+            sav_v = s.get("savings_current_period", 0)
+            recs_v = s.get("recs_created_30d", 0)
+            vals = [
+                s.get("factory", "?")[:24],
+                f"${sav_v:,.0f}" if sav_v else "-",
+                f"{recs_v:,}" if recs_v else "-",
+            ]
+            for ci, v in enumerate(vals):
+                _ct(row, ci, v)
+                _cs(row, ci, len(v), color=NAVY, size=8, align="END" if ci >= 1 else None)
+                _cbg(row, ci, WHITE)
+
+        _omission_note(reqs, sid, omitted_factories, label="Not shown")
+
+    return idx + 1
+
+
 # ── Composable API (agent builds deck slide by slide) ──
 
 # Maps slide type names to builder functions and the report keys they require
@@ -1331,6 +1974,9 @@ _SLIDE_BUILDERS = {
     "jira": _jira_slide,
     "custom": _custom_slide,
     "signals": _signals_slide,
+    "platform_health": _platform_health_slide,
+    "supply_chain": _supply_chain_slide,
+    "platform_value": _platform_value_slide,
     "data_quality": _data_quality_slide,
     "portfolio_title": _portfolio_title_slide,
     "portfolio_signals": _portfolio_signals_slide,
@@ -1354,6 +2000,9 @@ SLIDE_DATA_REQUIREMENTS = {
     "jira": ["jira"],
     "custom": ["title", "sections"],
     "signals": ["signals"],
+    "platform_health": ["cs_platform_health"],
+    "supply_chain": ["cs_supply_chain"],
+    "platform_value": ["cs_platform_value"],
     "data_quality": [],
     "portfolio_title": ["customer_count", "days", "generated"],
     "portfolio_signals": ["portfolio_signals"],
@@ -1362,13 +2011,21 @@ SLIDE_DATA_REQUIREMENTS = {
 }
 
 
+_output_folder_cache: tuple[str, str] | None = None  # (date_str, folder_id)
+
+
 def _get_deck_output_folder() -> str | None:
     """Return the ID of today's date-stamped subfolder (e.g. Decks-2026-03-06), creating it if needed."""
+    global _output_folder_cache
     if not GOOGLE_DRIVE_FOLDER_ID:
         return None
+    today = datetime.date.today().isoformat()
+    if _output_folder_cache and _output_folder_cache[0] == today:
+        return _output_folder_cache[1]
     from .drive_config import _find_or_create_folder
-    folder_name = f"Decks-{datetime.date.today().isoformat()}"
-    return _find_or_create_folder(folder_name, GOOGLE_DRIVE_FOLDER_ID)
+    folder_id = _find_or_create_folder(f"Decks-{today}", GOOGLE_DRIVE_FOLDER_ID)
+    _output_folder_cache = (today, folder_id)
+    return folder_id
 
 
 def create_empty_deck(customer: str, days: int = 30, deck_name: str | None = None) -> dict[str, Any]:
@@ -1431,20 +2088,21 @@ def add_slide(deck_id: str, slide_type: str, data: dict[str, Any]) -> dict[str, 
     except (ValueError, FileNotFoundError) as e:
         return {"error": str(e)}
 
-    # Determine insertion index
-    try:
-        pres = slides_service.presentations().get(presentationId=deck_id).execute()
-        idx = len(pres.get("slides", []))
-    except Exception:
-        idx = 0
-
-    # Unique slide ID
+    # Use local counter as insertion index to avoid an API round-trip per slide
     count = _slide_counter.get(deck_id, 0)
     _slide_counter[deck_id] = count + 1
+    idx = count
     sid = f"s_{slide_type}_{count}"
 
     reqs: list[dict] = []
-    new_idx = builder(reqs, sid, data, idx)
+    try:
+        new_idx = builder(reqs, sid, data, idx)
+    except (KeyError, TypeError, IndexError) as e:
+        required = SLIDE_DATA_REQUIREMENTS.get(slide_type, [])
+        return {
+            "error": f"Slide '{slide_type}' data is missing required key: {e}. Required keys: {required}",
+            "slide_type": slide_type,
+        }
 
     if not reqs:
         return {"slide_type": slide_type, "status": "skipped (no data)"}
@@ -1537,12 +2195,21 @@ def create_health_deck(
         logger.exception("Failed to build slides")
         return {"error": str(e), "presentation_id": pres_id}
 
-    return {
+    result = {
         "presentation_id": pres_id,
         "url": f"https://docs.google.com/presentation/d/{pres_id}/edit",
         "customer": customer,
         "slides_created": slides_created,
     }
+
+    try:
+        thumbs = export_slide_thumbnails(pres_id)
+        result["thumbnails"] = [str(p) for p in thumbs]
+        logger.info("Saved %d slide thumbnails for %s", len(thumbs), customer)
+    except Exception as e:
+        logger.warning("Thumbnail export failed: %s", e)
+
+    return result
 
 
 def create_portfolio_deck(
@@ -1652,3 +2319,57 @@ def create_decks_for_all_customers(by_customer, customer_list, days=30, delay_se
         if "error" in results[-1] and "403" in str(results[-1].get("error", "")):
             results.append({"error": "Stopped: 403.", "customers_attempted": i + 1}); break
     return results
+
+
+# ── Slide thumbnail export ──
+
+def export_slide_thumbnails(
+    presentation_id: str,
+    output_dir: str | Path | None = None,
+    size: str = "LARGE",
+) -> list[Path]:
+    """Download PNG thumbnails for every slide in a presentation.
+
+    Args:
+        presentation_id: Google Slides presentation ID or full URL.
+        output_dir: Where to save PNGs. Defaults to decks/thumbnails/<pres_id>/.
+        size: Thumbnail size — "SMALL" (default 200px) or "LARGE" (default 800px).
+
+    Returns:
+        List of saved PNG file paths.
+    """
+    import re
+    import urllib.request
+
+    match = re.search(r"/d/([a-zA-Z0-9_-]+)", presentation_id)
+    pres_id = match.group(1) if match else presentation_id
+
+    slides_service, _ = _get_service()
+    pres = slides_service.presentations().get(presentationId=pres_id).execute()
+    title = pres.get("title", pres_id)
+    slides = pres.get("slides", [])
+
+    if not slides:
+        logger.warning("Presentation %s has no slides", pres_id)
+        return []
+
+    if output_dir is None:
+        output_dir = Path("decks") / "thumbnails" / pres_id
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    saved: list[Path] = []
+    for i, slide in enumerate(slides):
+        page_id = slide["objectId"]
+        thumb = slides_service.presentations().pages().getThumbnail(
+            presentationId=pres_id,
+            pageObjectId=page_id,
+            thumbnailProperties_thumbnailSize=size,
+        ).execute()
+        url = thumb["contentUrl"]
+        dest = out / f"slide_{i + 1:02d}.png"
+        urllib.request.urlretrieve(url, str(dest))
+        saved.append(dest)
+
+    logger.info("Exported %d thumbnails for '%s' → %s", len(saved), title, out)
+    return saved

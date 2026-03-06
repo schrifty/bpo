@@ -66,7 +66,7 @@ python run_decks.py --list
 
 ### Drive Config Sync
 
-Deck definitions and recipes can be edited on Google Drive so non-developers can customize them. To push local configs to Drive:
+Deck definitions and slides can be edited on Google Drive so non-developers can customize them. To push local configs to Drive:
 
 ```bash
 # Upload new files (won't overwrite existing)
@@ -100,7 +100,7 @@ bpo/
 │   ├── executive-summary.yaml
 │   ├── product-adoption.yaml
 │   └── portfolio-review.yaml
-├── recipes/                  # Slide recipes (YAML) — individual slide definitions
+├── slides/                   # Slide definitions (YAML) — individual slide configs
 │   ├── std-01-title.yaml
 │   ├── std-02-health.yaml
 │   ├── ...
@@ -114,7 +114,7 @@ bpo/
 │   ├── jira_client.py        # JIRA API client (tickets, SLAs, engineering pipeline)
 │   ├── slides_client.py      # Google Slides/Drive client (slide builders, deck generation)
 │   ├── deck_loader.py        # Deck definition loader (Drive-first with local fallback)
-│   ├── recipe_loader.py      # Recipe loader (Drive-first with local fallback)
+│   ├── slide_loader.py       # Slide loader (Drive-first with local fallback)
 │   ├── drive_config.py       # Drive sync for editable configs
 │   ├── qa.py                 # Data quality registry (cross-source validation)
 │   ├── agent.py              # LangChain agent factory

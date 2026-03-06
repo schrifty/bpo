@@ -42,25 +42,33 @@ def create_pendo_agent(
         "- customer_exports: Export behavior — total exports, by feature, per user, top exporters\n"
         "- customer_kei: Kei AI chatbot usage — adoption rate, executive usage (strategic priority)\n"
         "- customer_guides: Guide engagement — seen/dismissed/advanced rates, onboarding effectiveness\n\n"
-        "DECK & RECIPE TOOLS:\n"
+        "CS REPORT TOOLS (platform metrics from Data Exports — supply chain context):\n"
+        "- customer_platform_health: Health scores (GREEN/YELLOW/RED), CTB%, CTC%, component availability, shortages per site\n"
+        "- customer_supply_chain: Inventory values, DOI, excess, late POs — the dollar context behind usage\n"
+        "- customer_platform_value: ROI proof — savings achieved, open IA value, recs created, POs placed\n"
+        "NOTE: Pendo tracks app engagement (page views, logins). CS Report tracks buyer workflow engagement\n"
+        "(daily/weekly active buyers). These measure different things and may differ — flag via data quality.\n\n"
+        "DECK & SLIDE TOOLS:\n"
         "- list_deck_types: See available deck types (CS Health Review, Product Adoption, Executive Summary, etc)\n"
         "- get_deck_definition: Load a specific deck type for a customer. Returns the purpose, audience,\n"
-        "  and full slide plan with recipe prompts, data tools, and override rules.\n"
-        "- get_slide_recipes: Low-level — all recipes without deck filtering. Rarely needed.\n\n"
-        "SLIDE TOOLS:\n"
+        "  and full slide plan with slide prompts, data tools, and override rules.\n"
+        "- get_slide_definitions: Low-level — all slide definitions without deck filtering. Rarely needed.\n\n"
+        "DECK GENERATION:\n"
+        "- generate_full_deck: THE FASTEST WAY TO BUILD A DECK. One call fetches all data, builds\n"
+        "  every slide, and creates the presentation. Input: 'customer,deck_id' or 'customer,deck_id,days'.\n"
+        "  ALWAYS prefer this over the manual create_deck + add_slide approach.\n\n"
+        "SLIDE TOOLS (advanced — only for custom decks or one-off slides):\n"
         "- create_deck: Create an empty presentation (pass customer, days, and deck name from deck definition)\n"
         "- add_slide: Add one slide. Standard types: title, health, engagement, sites, features,\n"
         "  champions, benchmarks, exports, depth, kei, guides, signals.\n"
         "  Custom type: pass {title, sections: [{header, body}]} as the data.\n\n"
         "BUILDING A DECK:\n"
-        "1. If no deck type is specified, call list_deck_types to show options\n"
-        "2. Call get_deck_definition with the chosen deck ID and customer\n"
-        "3. Read the deck's purpose — it explains the audience and narrative arc\n"
-        "4. For each slide in the plan, call the data tools it specifies\n"
-        "5. Interpret the data through the lens of each recipe's prompt AND the deck's purpose\n"
-        "6. Create a deck (use the deck name as the deck_name), then add slides in order\n"
-        "7. Required slides MUST appear even if data is sparse. Excluded slides MUST NOT appear.\n"
-        "8. For custom recipes, compose the content yourself and use slide_type 'custom'\n\n"
+        "1. If no deck type is specified, use 'cs_health_review' as the default\n"
+        "2. Call generate_full_deck with the customer and deck ID — this does everything in one step\n"
+        "3. Only use create_deck + add_slide if you need custom slides or a non-standard layout\n\n"
+        "CRITICAL: When the user asks to 'generate', 'create', or 'build' a review, deck, or presentation, "
+        "you MUST create Google Slides presentations using generate_full_deck. Do NOT just return a text summary. "
+        "The user expects actual slide decks in Google Drive. After generating, share the presentation URL(s).\n\n"
         "When analyzing customers, focus on actionable insights: churn risk signals, "
         "expansion opportunities, executive engagement, dormancy patterns, and feature adoption gaps."
     )
@@ -85,7 +93,7 @@ def run_agent(agent: Any, query: str) -> Any:
     logger.debug("Invoking agent with query: %s", query[:100] + "..." if len(query) > 100 else query)
     result = agent.invoke(
         {"messages": [HumanMessage(content=query)]},
-        config={"callbacks": [ToolLifecycleCallback()]},
+        config={"callbacks": [ToolLifecycleCallback()], "recursion_limit": 80},
     )
     logger.debug("Agent returned %d messages", len(result.get("messages", [])))
     return result
