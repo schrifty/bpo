@@ -1,6 +1,6 @@
 # bpo
 
-LangChain framework with Pendo API integration. An agent that can fetch usage and visitor data from Pendo and generate Google Slide decks per customer.
+Automated Customer Success deck generation powered by Pendo, JIRA, and Google Slides. Generates per-customer health reviews, executive summaries, product adoption reports, and portfolio-level book-of-business decks.
 
 ## Setup
 
@@ -26,50 +26,129 @@ To create slide decks in your Drive (using your quota instead of the service acc
    - **Google Workspace Admin** → [Manage Domain Wide Delegation](https://admin.google.com/ac/owl/domainwidedelegation) → Add new → paste Client ID → add scopes: `https://www.googleapis.com/auth/drive`, `https://www.googleapis.com/auth/presentations` → Authorize.
 4. Run `python scripts/test_slides_auth.py` to verify.
 
-## Usage
+### JIRA (optional)
 
-**Single query:**
+For the Support Summary slide (HELP tickets, SLAs, engineering pipeline):
+
+Add to `.env`: `JIRA_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`
+
+## Generating Decks
+
 ```bash
-python main.py "Get usage data for customer acme-123 for the last 30 days"
+# Single customer
+python run_decks.py cs_health_review --customers Carrier --days 30
+
+# Multiple specific customers
+python run_decks.py cs_health_review --customers Carrier Daikin Siemens --days 30
+
+# All active customers
+python run_decks.py cs_health_review --days 30
+
+# Different deck type
+python run_decks.py executive_summary --customers Carrier
+python run_decks.py product_adoption --customers Carrier --days 60
+
+# Portfolio (book of business — single cross-customer deck)
+python run_decks.py portfolio_review --days 30
+
+# See all available deck types
+python run_decks.py --list
 ```
 
-**Generate slide decks:**
+**Useful flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--days 30` | Lookback window (default: 30) |
+| `--max 5` | Cap number of customers (good for testing) |
+| `--workers 2` | Parallel threads (default: 4, reduce if rate-limited) |
+| `--customers X Y Z` | Generate only for named customers |
+
+### Drive Config Sync
+
+Deck definitions and recipes can be edited on Google Drive so non-developers can customize them. To push local configs to Drive:
+
 ```bash
-python main.py "Generate Google Slide decks for the last 30 days, active sites only, limit to 2 customers"
+# Upload new files (won't overwrite existing)
+python run_decks.py --sync-config
+
+# Overwrite Drive files with local versions
+python run_decks.py --sync-config --sync-overwrite
 ```
 
-**Interactive mode:**
+After syncing, the app reads from Drive first and falls back to local files if a Drive file has errors. Parse failures are surfaced on the Data Quality slide.
+
+## Interactive Agent Mode
+
 ```bash
+# Single query
+python main.py "Get usage data for customer Carrier for the last 30 days"
+
+# Interactive mode
 python main.py -i
-```
 
-**Custom model:**
-```bash
-python main.py -m "anthropic:claude-sonnet-4" "What visitors do we have from the last 7 days?"
+# Custom model
+python main.py -m "anthropic:claude-sonnet-4" "Generate a health review for Daikin"
 ```
 
 ## Structure
 
-- `src/pendo_client.py` – Pendo aggregation API client
-- `src/slides_client.py` – Google Slides/Drive client (creates decks per customer)
-- `src/tools/pendo_tool.py` – LangChain tools:
-  - `pendo_get_visitors` – Aggregate visitor data for a time range
-  - `pendo_get_usage` – Usage data for a specific customer
-  - `pendo_get_sites` – List sites
-  - `pendo_get_usage_for_site` – Usage for a single site
-  - `pendo_get_usage_by_site` – Usage grouped by site
-  - `pendo_get_all_sites_usage_report` – Full sites report
-  - `pendo_get_sites_by_customer` – Sites grouped by customer
-  - `pendo_get_sites_with_usage` – Sites with usage metrics
-  - `pendo_get_page_events` – Page view/event data
-  - `pendo_get_feature_events` – Feature click/usage events
-  - `pendo_get_track_events` – Custom track events (web, ios, etc.)
-  - `pendo_save_usage` – Save usage data to a JSON file
-  - `pendo_generate_slides` – Generate one Google Slide deck per customer
-- `src/agent.py` – Agent factory with Pendo tools
-- `main.py` – CLI entrypoint
-- `scripts/test_slides_auth.py` – Test Google Slides/Drive auth
+```
+bpo/
+├── decks/                    # Deck definitions (YAML) — what slides to include per audience
+│   ├── cs-health-review.yaml
+│   ├── executive-summary.yaml
+│   ├── product-adoption.yaml
+│   └── portfolio-review.yaml
+├── recipes/                  # Slide recipes (YAML) — individual slide definitions
+│   ├── std-01-title.yaml
+│   ├── std-02-health.yaml
+│   ├── ...
+│   └── std-99-data-quality.yaml
+├── cohorts.yaml              # Customer manufacturing cohort classifications
+├── docs/
+│   └── CUSTOMER_COHORTS.md   # Cohort research documentation
+├── src/
+│   ├── config.py             # Environment config
+│   ├── pendo_client.py       # Pendo API client (health, engagement, features, benchmarks)
+│   ├── jira_client.py        # JIRA API client (tickets, SLAs, engineering pipeline)
+│   ├── slides_client.py      # Google Slides/Drive client (slide builders, deck generation)
+│   ├── deck_loader.py        # Deck definition loader (Drive-first with local fallback)
+│   ├── recipe_loader.py      # Recipe loader (Drive-first with local fallback)
+│   ├── drive_config.py       # Drive sync for editable configs
+│   ├── qa.py                 # Data quality registry (cross-source validation)
+│   ├── agent.py              # LangChain agent factory
+│   └── tools/
+│       └── pendo_tool.py     # LangChain tools for agent mode
+├── run_decks.py              # CLI for batch deck generation
+└── main.py                   # CLI for interactive agent mode
+```
 
-## Adding More Tools
+## Deck Types
 
-Extend `get_pendo_tools()` in `src/tools/pendo_tool.py` or add new tools and pass them to `create_pendo_agent()`.
+| ID | Name | Audience | Slides |
+|----|------|----------|--------|
+| `cs_health_review` | Customer Success Health Review | CSMs | 14 slides — full account picture |
+| `executive_summary` | Executive Summary | Leadership | 7 slides — high-signal only |
+| `product_adoption` | Product Adoption Review | Product | 10 slides — feature/behavioral focus |
+| `portfolio_review` | Book of Business Review | CS Leadership | 5 slides — cross-customer |
+
+## Data Quality
+
+Every deck ends with a Data Quality slide that reports the results of automated cross-source validation. Checks include:
+
+- JIRA status/priority/type breakdowns sum to total issue count
+- JIRA open + resolved = total
+- SLA measured + waiting <= HELP ticket count
+- Pendo engagement buckets sum to total visitors
+- Active rate consistent with raw numbers
+- Customer exists in cohorts.yaml (warns if missing)
+- Unverified cohort classifications flagged
+- Site count consistency between health summary and detail
+- Drive config parse failures with local fallback
+
+When all checks pass, the slide shows a green "All checks passed" message. Discrepancies show as errors (red) or warnings (amber) with expected vs. actual values.
+
+## Cohort Benchmarking
+
+Customers are classified into manufacturing cohorts in `cohorts.yaml` for peer benchmarking. The system computes cohort-specific median active rates (minimum 3 members) and falls back to all-customer medians. See `docs/CUSTOMER_COHORTS.md` for the full classification.
