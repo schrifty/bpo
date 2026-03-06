@@ -288,9 +288,31 @@ Several companies appear under multiple Pendo prefixes due to typos, currency-co
 
 ---
 
+## Unverified Classifications
+
+12 entries are flagged `unverified: true` — their identity or cohort assignment is uncertain, typically because the Pendo prefix is a generic acronym or ambiguous name. These should be cross-referenced against Salesforce account data:
+
+| Prefix | Current Classification | Reason for Uncertainty |
+|--------|----------------------|----------------------|
+| EZ | Aerospace & Defense | May be a Safran Cabin division |
+| CMC | Aerospace & Defense | CMC is a common acronym |
+| Special | Aerospace & Defense | "Rockwell" could be location or company |
+| Enviro | HVAC & Building | Generic name |
+| Refrigeration | HVAC & Building | May be a Carrier subsidiary |
+| CAT | Vehicles | Likely Caterpillar but unconfirmed |
+| Control | Vehicles | Generic prefix |
+| OEM | Industrial Equipment | "OEM" is extremely generic |
+| Jonathan | Industrial Equipment | Could be a person name |
+| Bluecrest | Electronics | Could belong in Industrial Equipment |
+| BAYARD | Industrial Equipment | All-caps — confirm maps to Bayards |
+| UCC | Industrial Equipment | Common acronym |
+
+---
+
 ## Maintenance
 
 - **Adding a new customer**: Add an entry to `cohorts.yaml` under the appropriate cohort
 - **Reclassifying**: Change the `cohort` field in `cohorts.yaml`
+- **Clearing unverified flags**: Once confirmed via Salesforce, remove `unverified: true` and update `notes`
 - **New cohorts**: Add the cohort ID to `_COHORT_DISPLAY` in `src/pendo_client.py` for a clean display name
 - The YAML is loaded once per process and cached; restart to pick up changes
