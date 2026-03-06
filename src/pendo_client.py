@@ -40,6 +40,66 @@ def extract_customer_from_sitename(sitename: str) -> str:
     return parts[0] if parts else ""
 
 
+# ── Cohort system ──
+
+_cohort_data: dict[str, Any] | None = None
+_alias_map: dict[str, str] = {}
+
+
+def _load_cohorts() -> dict[str, Any]:
+    global _cohort_data, _alias_map
+    if _cohort_data is not None:
+        return _cohort_data
+    p = Path(__file__).resolve().parent.parent / "cohorts.yaml"
+    if not p.exists():
+        _cohort_data = {}
+        return _cohort_data
+    import yaml
+    with open(p) as f:
+        raw = yaml.safe_load(f) or {}
+    _cohort_data = raw.get("cohorts", raw)
+    _alias_map = {}
+    for key, info in _cohort_data.items():
+        if isinstance(info, dict):
+            for alias in info.get("aliases", []):
+                _alias_map[alias] = key
+    return _cohort_data
+
+
+def get_customer_cohort(customer_prefix: str) -> dict[str, Any]:
+    """Look up cohort info for a customer prefix. Returns {} if not found."""
+    data = _load_cohorts()
+    canonical = _alias_map.get(customer_prefix, customer_prefix)
+    info = data.get(canonical, {})
+    if not isinstance(info, dict) or info.get("exclude"):
+        return {}
+    return info
+
+
+_COHORT_DISPLAY = {
+    "aerospace_defense": "Aerospace & Defense",
+    "hvac_building": "HVAC & Building Systems",
+    "vehicles": "Automotive & Vehicles",
+    "medical_devices": "Medical Devices",
+    "industrial_equipment": "Industrial Equipment",
+    "electronics": "Electronics & Electrical",
+    "advanced_materials": "Advanced Materials",
+    "furniture": "Furniture & Office",
+    "consumer_products": "Consumer Products",
+}
+
+
+def get_cohort_members(cohort: str) -> list[str]:
+    """Return all customer prefixes belonging to a cohort (including aliases)."""
+    data = _load_cohorts()
+    members = []
+    for key, info in data.items():
+        if isinstance(info, dict) and not info.get("exclude") and info.get("cohort") == cohort:
+            members.append(key)
+            members.extend(info.get("aliases", []))
+    return members
+
+
 class PendoClient:
     """Client for Pendo aggregation API."""
 
@@ -697,22 +757,36 @@ class PendoClient:
         total_visitors = len(customer_visitors)
         customer_rate = engagement["active_7d"] / max(total_visitors, 1)
 
-        peer_rates = []
-        for stats in partition["all_customer_stats"].values():
-            if stats["total"] >= 5:
-                peer_rates.append(stats["active_7d"] / stats["total"])
-        peer_rates.sort()
-        median_rate = peer_rates[len(peer_rates) // 2] if peer_rates else 0
+        all_peer_rates = []
+        cohort_peer_rates = []
+        cust_cohort_info = get_customer_cohort(customer_name)
+        cust_cohort = cust_cohort_info.get("cohort", "")
+        cohort_members = set(get_cohort_members(cust_cohort)) if cust_cohort else set()
+        for cname, stats in partition["all_customer_stats"].items():
+            if stats["total"] < 5:
+                continue
+            rate = stats["active_7d"] / stats["total"]
+            c_info = get_customer_cohort(cname)
+            if c_info.get("exclude"):
+                continue
+            all_peer_rates.append(rate)
+            if cname in cohort_members:
+                cohort_peer_rates.append(rate)
+        all_peer_rates.sort()
+        cohort_peer_rates.sort()
+        median_rate = all_peer_rates[len(all_peer_rates) // 2] if all_peer_rates else 0
+        cohort_median = cohort_peer_rates[len(cohort_peer_rates) // 2] if cohort_peer_rates else None
+        bench_rate = cohort_median if cohort_median is not None else median_rate
 
         # Auto-detect signals
         signals: list[str] = []
         dormant_pct = engagement["dormant"] / max(total_visitors, 1)
         if dormant_pct > 0.5:
             signals.append(f"High dormancy: {engagement['dormant']}/{total_visitors} users ({dormant_pct:.0%}) inactive 30+ days")
-        if customer_rate > median_rate * 1.5 and total_visitors >= 5:
-            signals.append(f"Strong engagement: {customer_rate:.0%} weekly active rate vs {median_rate:.0%} peer median")
-        elif customer_rate < median_rate * 0.5 and total_visitors >= 5:
-            signals.append(f"Low engagement: {customer_rate:.0%} weekly active rate vs {median_rate:.0%} peer median")
+        if customer_rate > bench_rate * 1.5 and total_visitors >= 5:
+            signals.append(f"Strong engagement: {customer_rate:.0%} weekly active rate vs {bench_rate:.0%} peer median")
+        elif customer_rate < bench_rate * 0.5 and total_visitors >= 5:
+            signals.append(f"Low engagement: {customer_rate:.0%} weekly active rate vs {bench_rate:.0%} peer median")
         if engagement["active_7d"] <= 2 and total_visitors >= 10:
             signals.append(f"Concentration risk: only {engagement['active_7d']} of {total_visitors} users active this week")
 
@@ -779,7 +853,11 @@ class PendoClient:
             "benchmarks": {
                 "customer_active_rate": round(customer_rate * 100, 1),
                 "peer_median_rate": round(median_rate * 100, 1),
-                "peer_count": len(peer_rates),
+                "peer_count": len(all_peer_rates),
+                "cohort": cust_cohort,
+                "cohort_name": _COHORT_DISPLAY.get(cust_cohort, cust_cohort.replace("_", " ").title()) if cust_cohort else "",
+                "cohort_median_rate": round(cohort_median * 100, 1) if cohort_median is not None else None,
+                "cohort_count": len(cohort_peer_rates),
             },
             "signals": signals,
         }
@@ -1353,6 +1431,14 @@ class PendoClient:
         if "error" in health:
             return health
 
+        # JIRA data (optional — skipped if JIRA is not configured)
+        jira_data = {}
+        try:
+            from .jira_client import JiraClient
+            jira_data = JiraClient().get_customer_jira(customer_name, days=90)
+        except Exception:
+            pass
+
         return {
             **health,
             "sites": sites_data.get("sites", []),
@@ -1364,6 +1450,7 @@ class PendoClient:
             "depth": depth_data,
             "kei": kei_data,
             "guides": guides_data,
+            "jira": jira_data,
         }
 
     # ── Portfolio-level methods (cross-customer analysis) ──

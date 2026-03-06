@@ -194,12 +194,28 @@ def _align(reqs, oid, alignment):
     })
 
 
+def _internal_footer(reqs, sid):
+    label = "INTERNAL ONLY"
+    fid = f"{sid}_iof"
+    _box(reqs, fid, sid, SLIDE_W - MARGIN - 80, SLIDE_H - 16, 80, 12, label)
+    _style(reqs, fid, 0, len(label), size=6, color=GRAY, font=FONT)
+    reqs.append({
+        "updateParagraphStyle": {
+            "objectId": fid,
+            "textRange": {"type": "ALL"},
+            "style": {"alignment": "END"},
+            "fields": "alignment",
+        }
+    })
+
+
 def _slide_title(reqs, sid, text):
-    """Standard content-slide title: navy text + teal underline."""
+    """Standard content-slide title: navy text + teal underline + internal footer."""
     oid = f"{sid}_ttl"
     _box(reqs, oid, sid, MARGIN, TITLE_Y, CONTENT_W, 36, text)
     _style(reqs, oid, 0, len(text), bold=True, size=20, color=NAVY, font=FONT_SERIF)
     _rect(reqs, f"{sid}_ul", sid, MARGIN, TITLE_Y + 38, 56, 2.5, BLUE)
+    _internal_footer(reqs, sid)
 
 
 # ── Slide builders ──
@@ -223,6 +239,10 @@ def _title_slide(reqs, sid, report, idx):
 
     _box(reqs, f"{sid}_m", sid, MARGIN, 350, CONTENT_W, 24, meta)
     _style(reqs, f"{sid}_m", 0, len(meta), size=9, color=GRAY, font=FONT)
+
+    label = "INTERNAL ONLY"
+    _box(reqs, f"{sid}_int", sid, MARGIN, 160, CONTENT_W, 22, label)
+    _style(reqs, f"{sid}_int", 0, len(label), bold=True, size=10, color=BLUE, font=FONT)
 
     return idx + 1
 
@@ -249,15 +269,24 @@ def _health_slide(reqs, sid, report, idx):
         label, badge_bg = "AT RISK", {"red": 0.78, "green": 0.18, "blue": 0.18}
     _pill(reqs, f"{sid}_badge", sid, SLIDE_W - MARGIN - 110, TITLE_Y + 2, 110, 28, label, badge_bg, WHITE)
 
-    # KPIs
+    # KPIs — use cohort benchmark when available
+    cohort_name = bench.get("cohort_name", "")
+    cohort_med = bench.get("cohort_median_rate")
+    cohort_n = bench.get("cohort_count", 0)
+    if cohort_med is not None and cohort_n >= 3:
+        vs = rate - cohort_med
+        direction = "above" if vs > 0 else "below" if vs < 0 else "at"
+        bench_label = f"{cohort_name} median of {cohort_med}%  ({cohort_n} peers)"
+    else:
+        bench_label = f"all-customer median of {bench['peer_median_rate']}%  ({bench['peer_count']} peers)"
     lines = [
         f"Customer Users: {acct['total_visitors']}",
         f"Active This Week: {eng['active_7d']}  ({rate}%)",
         f"Active This Month: {active}",
         f"Dormant (30+ days): {eng['dormant']}",
         "",
-        f"Weekly Active Rate: {rate}%  ({abs(vs):.0f}pp {direction} peer median of {bench['peer_median_rate']}%)",
-        f"Sites: {acct['total_sites']}  |  Peers benchmarked: {bench['peer_count']}",
+        f"Weekly Active Rate: {rate}%  ({abs(vs):.0f}pp {direction} {bench_label})",
+        f"Sites: {acct['total_sites']}  |  Cohort: {cohort_name or 'Unclassified'}",
     ]
     if internal:
         lines.append(f"({internal} internal staff excluded)")
@@ -344,27 +373,114 @@ def _sites_slide(reqs, sid, report, idx):
         _style(reqs, f"{sid}_e", 0, 22, size=12, color=GRAY, font=FONT, italic=True)
         return idx + 1
 
-    hdr = f"{'Site':<26s} {'Users':>5s} {'Pages':>6s} {'Features':>8s} {'Events':>7s} {'Minutes':>7s} {'Last Active':>11s}"
-    rows = [hdr]
-    for s in sites:
-        nm = s["sitename"][:25] if len(s["sitename"]) > 25 else s["sitename"]
-        rows.append(
-            f"{nm:<26s} {s['visitors']:>5d} {s['page_views']:>6,d} {s['feature_clicks']:>8,d} "
-            f"{s['total_events']:>7,d} {s['total_minutes']:>7,d} {s['last_active']:>11s}"
-        )
-    if len(sites) > 1:
-        tv = sum(s["visitors"] for s in sites)
-        tp = sum(s["page_views"] for s in sites)
-        tf_ = sum(s["feature_clicks"] for s in sites)
-        te = sum(s["total_events"] for s in sites)
-        tm = sum(s["total_minutes"] for s in sites)
-        rows.append("")
-        rows.append(f"{'Total':<26s} {tv:>5d} {tp:>6,d} {tf_:>8,d} {te:>7,d} {tm:>7,d}")
+    headers = ["Site", "Users", "Pages", "Features", "Events", "Minutes", "Last Active"]
+    col_widths = [180, 50, 55, 65, 60, 60, 80]  # approximate pt
 
-    tbl = "\n".join(rows)
-    _box(reqs, f"{sid}_tbl", sid, MARGIN, BODY_Y, CONTENT_W, 290, tbl)
-    _style(reqs, f"{sid}_tbl", 0, len(tbl), size=9, color=NAVY, font=MONO)
-    _style(reqs, f"{sid}_tbl", 0, len(hdr), bold=True, color=BLUE)
+    show_total = len(sites) > 1
+    num_rows = 1 + len(sites) + (1 if show_total else 0)
+    num_cols = len(headers)
+    table_id = f"{sid}_table"
+
+    tbl_w = sum(col_widths)
+    tbl_h = num_rows * 22
+    reqs.append({
+        "createTable": {
+            "objectId": table_id,
+            "elementProperties": {
+                "pageObjectId": sid,
+                "size": _sz(tbl_w, tbl_h),
+                "transform": _tf(MARGIN, BODY_Y),
+            },
+            "rows": num_rows,
+            "columns": num_cols,
+        }
+    })
+
+    def _cell_loc(row, col):
+        return {"rowIndex": row, "columnIndex": col}
+
+    def _cell_text(row, col, text):
+        reqs.append({"insertText": {"objectId": table_id,
+                     "cellLocation": _cell_loc(row, col),
+                     "text": text, "insertionIndex": 0}})
+
+    def _cell_style(row, col, text_len, bold=False, color=None, size=9, font=FONT, align=None):
+        s: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}}
+        f = ["fontSize"]
+        if bold:
+            s["bold"] = True; f.append("bold")
+        if color:
+            s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}; f.append("foregroundColor")
+        if font:
+            s["fontFamily"] = font; f.append("fontFamily")
+        reqs.append({
+            "updateTextStyle": {
+                "objectId": table_id, "cellLocation": _cell_loc(row, col),
+                "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
+                "style": s, "fields": ",".join(f),
+            }
+        })
+        if align:
+            reqs.append({
+                "updateParagraphStyle": {
+                    "objectId": table_id, "cellLocation": _cell_loc(row, col),
+                    "textRange": {"type": "ALL"},
+                    "style": {"alignment": align},
+                    "fields": "alignment",
+                }
+            })
+
+    def _cell_bg(row, col, color):
+        reqs.append({
+            "updateTableCellProperties": {
+                "objectId": table_id,
+                "tableRange": {"location": {"rowIndex": row, "columnIndex": col}, "rowSpan": 1, "columnSpan": 1},
+                "tableCellProperties": {"tableCellBackgroundFill": {"solidFill": {"color": {"rgbColor": color}}}},
+                "fields": "tableCellBackgroundFill",
+            }
+        })
+
+    for ci, h in enumerate(headers):
+        _cell_text(0, ci, h)
+        _cell_style(0, ci, len(h), bold=True, color=WHITE, size=9, font=FONT,
+                     align="END" if ci >= 1 and ci <= 5 else None)
+        _cell_bg(0, ci, NAVY)
+
+    for ri, s in enumerate(sites):
+        row = ri + 1
+        vals = [
+            s["sitename"][:28],
+            f'{s["visitors"]:,}',
+            f'{s["page_views"]:,}',
+            f'{s["feature_clicks"]:,}',
+            f'{s["total_events"]:,}',
+            f'{s["total_minutes"]:,}',
+            s["last_active"],
+        ]
+        stripe = LIGHT if ri % 2 == 1 else WHITE
+        for ci, v in enumerate(vals):
+            _cell_text(row, ci, v)
+            _cell_style(row, ci, len(v), color=NAVY, size=8, font=FONT,
+                         align="END" if ci >= 1 and ci <= 5 else None)
+            _cell_bg(row, ci, stripe)
+
+    if show_total:
+        row = len(sites) + 1
+        totals = [
+            "Total",
+            f'{sum(s["visitors"] for s in sites):,}',
+            f'{sum(s["page_views"] for s in sites):,}',
+            f'{sum(s["feature_clicks"] for s in sites):,}',
+            f'{sum(s["total_events"] for s in sites):,}',
+            f'{sum(s["total_minutes"] for s in sites):,}',
+            "",
+        ]
+        for ci, v in enumerate(totals):
+            if v:
+                _cell_text(row, ci, v)
+                _cell_style(row, ci, len(v), bold=True, color=NAVY, size=8, font=FONT,
+                             align="END" if ci >= 1 and ci <= 5 else None)
+            _cell_bg(row, ci, LIGHT)
 
     return idx + 1
 
@@ -454,10 +570,15 @@ def _benchmarks_slide(reqs, sid, report, idx):
     bench = report["benchmarks"]
     acct = report["account"]
     cust_rate = bench["customer_active_rate"]
-    med_rate = bench["peer_median_rate"]
+    all_med = bench["peer_median_rate"]
+    cohort_med = bench.get("cohort_median_rate")
+    cohort_n = bench.get("cohort_count", 0)
+    cohort_name = bench.get("cohort_name", "")
+    use_cohort = cohort_med is not None and cohort_n >= 3
+    med_rate = cohort_med if use_cohort else all_med
     delta = cust_rate - med_rate
 
-    # Big number callout
+    # Big number callout — customer rate
     big = f"{cust_rate}%"
     _box(reqs, f"{sid}_big", sid, MARGIN, BODY_Y + 8, 160, 50, big)
     _style(reqs, f"{sid}_big", 0, len(big), bold=True, size=36, color=BLUE, font=FONT)
@@ -466,31 +587,45 @@ def _benchmarks_slide(reqs, sid, report, idx):
     _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y + 58, 160, 20, sub)
     _style(reqs, f"{sid}_sub", 0, len(sub), size=10, color=GRAY, font=FONT)
 
+    # Cohort median (or all-peer if no cohort)
     med_big = f"{med_rate}%"
     _box(reqs, f"{sid}_med", sid, 220, BODY_Y + 8, 160, 50, med_big)
     _style(reqs, f"{sid}_med", 0, len(med_big), bold=True, size=36, color=NAVY, font=FONT)
 
-    medsub = "peer median"
-    _box(reqs, f"{sid}_ms", sid, 220, BODY_Y + 58, 160, 20, medsub)
+    if use_cohort:
+        medsub = f"{cohort_name} median ({cohort_n})"
+    else:
+        medsub = f"all-customer median ({bench['peer_count']})"
+    _box(reqs, f"{sid}_ms", sid, 220, BODY_Y + 58, 200, 20, medsub)
     _style(reqs, f"{sid}_ms", 0, len(medsub), size=10, color=GRAY, font=FONT)
 
+    # All-customer median (secondary, if cohort is primary)
+    if use_cohort:
+        all_big = f"{all_med}%"
+        _box(reqs, f"{sid}_all", sid, 440, BODY_Y + 8, 160, 50, all_big)
+        _style(reqs, f"{sid}_all", 0, len(all_big), bold=True, size=28, color=GRAY, font=FONT)
+        allsub = f"all-customer median ({bench['peer_count']})"
+        _box(reqs, f"{sid}_as", sid, 440, BODY_Y + 58, 200, 20, allsub)
+        _style(reqs, f"{sid}_as", 0, len(allsub), size=9, color=GRAY, font=FONT)
+
     # Context
+    peer_label = cohort_name if use_cohort else "peer"
     lines = [
-        f"Delta: {'+' if delta >= 0 else ''}{delta:.0f} percentage points  (across {bench['peer_count']} customers with 5+ users)",
+        f"Delta: {'+' if delta >= 0 else ''}{delta:.0f} percentage points vs {peer_label} median",
         f"Account size: {acct['total_visitors']} users across {acct['total_sites']} sites",
         "",
     ]
     if delta > 15:
-        lines.append("Engagement significantly exceeds peer average.")
+        lines.append(f"Engagement significantly exceeds {peer_label} average.")
         lines.append("Strong candidate for case study, reference, or expansion.")
     elif delta > 0:
-        lines.append("Performing above peer average.")
+        lines.append(f"Performing above {peer_label} average.")
         lines.append("Continue strategy; watch for expansion signals.")
     elif delta > -10:
-        lines.append("Near the peer average.")
+        lines.append(f"Near the {peer_label} average.")
         lines.append("Monitor for downward trend; proactive outreach recommended.")
     else:
-        lines.append("Significantly below peer average.")
+        lines.append(f"Significantly below {peer_label} average.")
         lines.append("Recommend re-engagement, executive check-in, training refresh.")
 
     ctx = "\n".join(lines)
@@ -742,6 +877,161 @@ def _custom_slide(reqs, sid, report, idx):
     return idx + 1
 
 
+def _jira_slide(reqs, sid, report, idx):
+    jira = report.get("jira")
+    if not jira or jira.get("total_issues", 0) == 0:
+        return idx
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, "Support Summary")
+
+    total = jira["total_issues"]
+    open_n = jira["open_issues"]
+    resolved = jira["resolved_issues"]
+    esc = jira["escalated"]
+    bugs = jira["open_bugs"]
+    days = jira.get("days", 90)
+
+    from datetime import date, timedelta
+    end = date.today()
+    start = end - timedelta(days=days)
+    date_range = f"{start.strftime('%b %-d')} – {end.strftime('%b %-d, %Y')}"
+    header = f"{total} support tickets  ·  {date_range}  ·  {open_n} open  ·  {resolved} resolved  ·  {esc} escalated  ·  {bugs} open bugs"
+    _box(reqs, f"{sid}_hdr", sid, MARGIN, BODY_Y, CONTENT_W, 18, header)
+    _style(reqs, f"{sid}_hdr", 0, len(header), size=11, color=NAVY, font=FONT, bold=True)
+
+    sla_lines = []
+    ttfr = jira.get("ttfr", {})
+    if ttfr.get("measured", 0) > 0:
+        parts = [f"First Response:  median {ttfr['median']}  ·  avg {ttfr['avg']}"]
+        if ttfr.get("breached"):
+            parts.append(f"  ·  {ttfr['breached']} breach{'es' if ttfr['breached'] != 1 else ''}")
+        if ttfr.get("waiting"):
+            parts.append(f"  ·  {ttfr['waiting']} awaiting")
+        sla_lines.append("".join(parts))
+    ttr = jira.get("ttr", {})
+    if ttr.get("measured", 0) > 0:
+        parts = [f"Resolution:  median {ttr['median']}  ·  avg {ttr['avg']}"]
+        if ttr.get("breached"):
+            parts.append(f"  ·  {ttr['breached']} breach{'es' if ttr['breached'] != 1 else ''}")
+        if ttr.get("waiting"):
+            parts.append(f"  ·  {ttr['waiting']} unresolved")
+        sla_lines.append("".join(parts))
+    if sla_lines:
+        sla_text = "\n".join(sla_lines)
+        _box(reqs, f"{sid}_sla", sid, MARGIN, BODY_Y + 18, CONTENT_W, 12 * len(sla_lines) + 4, sla_text)
+        _style(reqs, f"{sid}_sla", 0, len(sla_text), size=9, color=GRAY, font=FONT)
+        fr_label = "First Response:"
+        fr_end = sla_text.find(fr_label)
+        if fr_end >= 0:
+            _style(reqs, f"{sid}_sla", fr_end, fr_end + len(fr_label), bold=True, color=NAVY)
+        res_label = "Resolution:"
+        res_pos = sla_text.find(res_label)
+        if res_pos >= 0:
+            _style(reqs, f"{sid}_sla", res_pos, res_pos + len(res_label), bold=True, color=NAVY)
+        body_offset = 22 + 12 * len(sla_lines)
+    else:
+        body_offset = 28
+
+    col_gap = 20
+    left_x = MARGIN
+    left_w = (CONTENT_W - col_gap) // 2
+    right_x = MARGIN + left_w + col_gap
+    right_w = CONTENT_W - left_w - col_gap
+    body_top = BODY_Y + body_offset
+    max_y = SLIDE_H - 12
+
+    # ── LEFT COLUMN: By Status, By Priority, Recent Issues ──
+    left_y = body_top
+
+    status_items = list(jira.get("by_status", {}).items())
+    status_lines = []
+    for s, c in status_items[:6]:
+        status_lines.append(f"{c:>4}  {s}")
+    if len(status_items) > 6:
+        other = sum(c for _, c in status_items[6:])
+        status_lines.append(f"{other:>4}  Other")
+    status_text = "By Status\n" + "\n".join(status_lines)
+    st_h = min(12 * (len(status_lines) + 1) + 4, max_y - left_y - 120)
+    _box(reqs, f"{sid}_st", sid, left_x, left_y, left_w, st_h, status_text)
+    _style(reqs, f"{sid}_st", 0, len(status_text), size=8, color=NAVY, font=FONT)
+    _style(reqs, f"{sid}_st", 0, len("By Status"), bold=True, size=9, color=BLUE)
+    left_y += st_h + 4
+
+    prio_lines = []
+    prio_short = {"Blocker: The platform is completely down": "Blocker",
+                  "Critical: Significant operational impact": "Critical",
+                  "Major: Workaround available, not essential": "Major",
+                  "Minor: Impairs non-essential functionality": "Minor"}
+    prio_items = list(jira.get("by_priority", {}).items())
+    for p, c in prio_items[:5]:
+        prio_lines.append(f"{c:>4}  {prio_short.get(p, p[:20])}")
+    if len(prio_items) > 5:
+        other_p = sum(c for _, c in prio_items[5:])
+        prio_lines.append(f"{other_p:>4}  Other")
+    prio_text = "By Priority\n" + "\n".join(prio_lines)
+    pr_h = min(12 * (len(prio_lines) + 1) + 4, max_y - left_y - 60)
+    _box(reqs, f"{sid}_pr", sid, left_x, left_y, left_w, pr_h, prio_text)
+    _style(reqs, f"{sid}_pr", 0, len(prio_text), size=8, color=NAVY, font=FONT)
+    _style(reqs, f"{sid}_pr", 0, len("By Priority"), bold=True, size=9, color=BLUE)
+    left_y += pr_h + 4
+
+    recent = jira.get("recent_issues", [])
+    avail_lines = max((max_y - left_y) // 10 - 1, 2)
+    recent = recent[:avail_lines]
+    recent_lines = []
+    for r in recent:
+        recent_lines.append(f"{r['key']}  {r['status'][:10]:10s}  {r['summary'][:28]}")
+    recent_text = "Recent Issues\n" + "\n".join(recent_lines)
+    _box(reqs, f"{sid}_rc", sid, left_x, left_y, left_w, max_y - left_y, recent_text)
+    _style(reqs, f"{sid}_rc", 0, len(recent_text), size=7, color=NAVY, font=MONO)
+    _style(reqs, f"{sid}_rc", 0, len("Recent Issues"), bold=True, size=9, color=BLUE, font=FONT)
+
+    # ── RIGHT COLUMN: Escalated, Engineering Pipeline ──
+    right_y = body_top
+
+    esc_issues = jira.get("escalated_issues", [])
+    if esc_issues or esc > 0:
+        esc_show = esc_issues[:5]
+        esc_lines = [f"{e['key']}  {e['summary'][:38]}  ({e['status']})" for e in esc_show]
+        esc_text = f"Escalated ({esc})\n" + "\n".join(esc_lines)
+        esc_h = 12 * (len(esc_lines) + 1) + 6
+        _box(reqs, f"{sid}_esc", sid, right_x, right_y, right_w, esc_h, esc_text)
+        _style(reqs, f"{sid}_esc", 0, len(esc_text), size=8, color=NAVY, font=FONT)
+        esc_hdr = f"Escalated ({esc})"
+        _style(reqs, f"{sid}_esc", 0, len(esc_hdr), bold=True, size=9,
+               color={"red": 0.85, "green": 0.15, "blue": 0.15})
+        right_y += esc_h + 4
+
+    eng = jira.get("engineering", {})
+    eng_open = eng.get("open", [])
+    eng_closed = eng.get("recent_closed", [])
+    if eng_open or eng_closed:
+        eng_hdr = f"Engineering Pipeline  ({eng.get('open_count', 0)} open · {eng.get('closed_count', 0)} closed)"
+        eng_lines = [eng_hdr]
+        avail_eng = max((max_y - right_y) // 10 - 2, 2)
+        open_show = min(len(eng_open), max(avail_eng - 2, 1))
+        for t in eng_open[:open_show]:
+            assignee = t.get("assignee") or "unassigned"
+            eng_lines.append(f"  {t['key']}  {t['summary'][:28]}  [{assignee}]")
+        remaining = avail_eng - open_show
+        if eng_closed and remaining > 1:
+            eng_lines.append("Recently Closed")
+            for t in eng_closed[:remaining - 1]:
+                eng_lines.append(f"  {t['key']}  {t['summary'][:38]}")
+        eng_text = "\n".join(eng_lines)
+        _box(reqs, f"{sid}_eng", sid, right_x, right_y, right_w, max_y - right_y, eng_text)
+        _style(reqs, f"{sid}_eng", 0, len(eng_text), size=7, color=NAVY, font=MONO)
+        _style(reqs, f"{sid}_eng", 0, len(eng_hdr), bold=True, size=9, color=BLUE, font=FONT)
+        rc_start = eng_text.find("Recently Closed")
+        if rc_start >= 0:
+            _style(reqs, f"{sid}_eng", rc_start, rc_start + len("Recently Closed"),
+                   bold=True, size=8, color=GRAY, font=FONT)
+
+    return idx + 1
+
+
 def _signals_slide(reqs, sid, report, idx):
     signals = report.get("signals", [])
     if not signals:
@@ -771,6 +1061,172 @@ def _signals_slide(reqs, sid, report, idx):
     return idx + 1
 
 
+# ── Portfolio slide builders (cross-customer) ──
+
+
+def _portfolio_title_slide(reqs, sid, report, idx):
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, NAVY)
+
+    n = report.get("customer_count", 0)
+    days = report.get("days", 30)
+    title = "Book of Business Review"
+    sub = f"{n} customers  ·  {_date_range(days)}"
+
+    _box(reqs, f"{sid}_t", sid, MARGIN, 100, CONTENT_W, 80, title)
+    _style(reqs, f"{sid}_t", 0, len(title), bold=True, size=36, color=WHITE, font=FONT_SERIF)
+
+    _box(reqs, f"{sid}_s", sid, MARGIN, 190, CONTENT_W, 30, sub)
+    _style(reqs, f"{sid}_s", 0, len(sub), size=15, color=LTBLUE, font=FONT)
+
+    gen = report.get("generated", "")
+    if gen:
+        _box(reqs, f"{sid}_d", sid, MARGIN, 340, CONTENT_W, 20, gen)
+        _style(reqs, f"{sid}_d", 0, len(gen), size=10, color=GRAY, font=FONT)
+
+    return idx + 1
+
+
+def _portfolio_signals_slide(reqs, sid, report, idx):
+    signals = report.get("portfolio_signals", [])
+    if not signals:
+        return idx
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, "Critical Signals Across Portfolio")
+
+    y = BODY_Y
+    max_rows = 12
+    for i, s in enumerate(signals[:max_rows]):
+        sev = s.get("severity", 0)
+        dot = "\u25cf "
+        dot_color = {"red": 0.85, "green": 0.15, "blue": 0.15} if sev >= 2 else \
+                    {"red": 0.9, "green": 0.65, "blue": 0.0}
+
+        cust = s["customer"]
+        sig = s["signal"]
+        line = f"{dot}{cust}:  {sig}"
+
+        _box(reqs, f"{sid}_r{i}", sid, MARGIN, y, CONTENT_W, 20, line)
+        _style(reqs, f"{sid}_r{i}", 0, len(line), size=9, color=NAVY, font=FONT)
+        _style(reqs, f"{sid}_r{i}", 0, len(dot), color=dot_color, size=10)
+        _style(reqs, f"{sid}_r{i}", len(dot), len(dot) + len(cust), bold=True, size=9)
+
+        y += 22
+
+    return idx + 1
+
+
+def _portfolio_trends_slide(reqs, sid, report, idx):
+    trends_data = report.get("portfolio_trends", {})
+    trends = trends_data.get("trends", [])
+    if not trends:
+        return idx
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, LIGHT)
+    _slide_title(reqs, sid, "Aggregate Trends")
+
+    total_active = trends_data.get("total_active_users", 0)
+    total_users = trends_data.get("total_users", 0)
+    login_pct = trends_data.get("overall_login_pct", 0)
+    header = f"{total_active:,} active users of {total_users:,} total  ·  {login_pct}% login rate"
+    _box(reqs, f"{sid}_hdr", sid, MARGIN, BODY_Y, CONTENT_W, 20, header)
+    _style(reqs, f"{sid}_hdr", 0, len(header), size=12, color=NAVY, font=FONT, bold=True)
+
+    type_colors = {
+        "concern": {"red": 0.85, "green": 0.15, "blue": 0.15},
+        "opportunity": BLUE,
+        "positive": {"red": 0.1, "green": 0.6, "blue": 0.2},
+        "insight": NAVY,
+    }
+
+    y = BODY_Y + 36
+    for i, t in enumerate(trends[:8]):
+        trend_type = t.get("type", "insight")
+        badge = f"[{trend_type.upper()}]"
+        text = t["trend"]
+        custs = t.get("customers", "")
+        line = f"{badge}  {text}"
+        if custs:
+            line += f"\n     {custs}"
+
+        _box(reqs, f"{sid}_t{i}", sid, MARGIN, y, CONTENT_W, 34, line)
+        _style(reqs, f"{sid}_t{i}", 0, len(line), size=10, color=NAVY, font=FONT)
+        _style(reqs, f"{sid}_t{i}", 0, len(badge), bold=True, size=10,
+               color=type_colors.get(trend_type, NAVY))
+
+        if custs:
+            cust_start = line.index(custs)
+            _style(reqs, f"{sid}_t{i}", cust_start, cust_start + len(custs),
+                   size=8, color=GRAY)
+
+        y += 38
+
+    return idx + 1
+
+
+def _portfolio_leaders_slide(reqs, sid, report, idx):
+    leaders = report.get("portfolio_leaders", {})
+    if not leaders:
+        return idx
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, "Customer Leaders")
+
+    categories = [
+        ("kei_adoption", "Kei AI Adoption", "adoption_rate", "%"),
+        ("executive_engagement", "Executive Engagement", "executives", ""),
+        ("engagement_score", "Engagement Score", "score", ""),
+        ("write_depth", "Write Depth", "write_ratio", "%"),
+        ("export_intensity", "Export Volume", "total_exports", ""),
+        ("login_rate", "Login Rate", "login_pct", "%"),
+    ]
+
+    col_w = (CONTENT_W - 20) // 3
+    col_h = 150
+    positions = [
+        (MARGIN, BODY_Y),
+        (MARGIN + col_w + 10, BODY_Y),
+        (MARGIN + 2 * (col_w + 10), BODY_Y),
+        (MARGIN, BODY_Y + col_h + 10),
+        (MARGIN + col_w + 10, BODY_Y + col_h + 10),
+        (MARGIN + 2 * (col_w + 10), BODY_Y + col_h + 10),
+    ]
+
+    for ci, (key, label, metric, unit) in enumerate(categories):
+        entries = leaders.get(key, [])
+        if not entries or ci >= len(positions):
+            continue
+        x, y = positions[ci]
+
+        _rect(reqs, f"{sid}_bg{ci}", sid, x, y, col_w, col_h, LIGHT)
+
+        _box(reqs, f"{sid}_cat{ci}", sid, x + 8, y + 6, col_w - 16, 18, label)
+        _style(reqs, f"{sid}_cat{ci}", 0, len(label), bold=True, size=10, color=BLUE, font=FONT)
+
+        lines = []
+        for e in entries[:5]:
+            val = e.get(metric, 0)
+            if isinstance(val, float):
+                val = round(val)
+            lines.append(f"{e['rank']}.  {e['customer']}  —  {val}{unit}")
+        text = "\n".join(lines)
+
+        _box(reqs, f"{sid}_ent{ci}", sid, x + 8, y + 28, col_w - 16, col_h - 34, text)
+        _style(reqs, f"{sid}_ent{ci}", 0, len(text), size=9, color=NAVY, font=FONT)
+
+        off = 0
+        for line in lines:
+            dot_end = line.index(".")
+            _style(reqs, f"{sid}_ent{ci}", off, off + dot_end + 1, bold=True, color=BLUE, size=9)
+            off += len(line) + 1
+
+    return idx + 1
+
+
 # ── Composable API (agent builds deck slide by slide) ──
 
 # Maps slide type names to builder functions and the report keys they require
@@ -786,8 +1242,13 @@ _SLIDE_BUILDERS = {
     "depth": _depth_slide,
     "kei": _kei_slide,
     "guides": _guides_slide,
+    "jira": _jira_slide,
     "custom": _custom_slide,
     "signals": _signals_slide,
+    "portfolio_title": _portfolio_title_slide,
+    "portfolio_signals": _portfolio_signals_slide,
+    "portfolio_trends": _portfolio_trends_slide,
+    "portfolio_leaders": _portfolio_leaders_slide,
 }
 
 # Which report keys each slide type needs (so the agent knows what data to supply)
@@ -803,8 +1264,13 @@ SLIDE_DATA_REQUIREMENTS = {
     "depth": ["depth"],
     "kei": ["kei"],
     "guides": ["guides"],
+    "jira": ["jira"],
     "custom": ["title", "sections"],
     "signals": ["signals"],
+    "portfolio_title": ["customer_count", "days", "generated"],
+    "portfolio_signals": ["portfolio_signals"],
+    "portfolio_trends": ["portfolio_trends"],
+    "portfolio_leaders": ["portfolio_leaders"],
 }
 
 
@@ -910,7 +1376,8 @@ def create_health_deck(
     if "error" in report:
         return {"error": report["error"]}
 
-    customer = report.get("customer", "Unknown")
+    is_portfolio = report.get("type") == "portfolio"
+    customer = report.get("customer", "Portfolio") if not is_portfolio else "Portfolio"
     days = report.get("days", 30)
 
     try:
@@ -922,7 +1389,10 @@ def create_health_deck(
 
     resolved = resolve_manifest(manifest_id, customer)
     deck_name = resolved.get("name", "Health Review")
-    title = f"{customer} — {deck_name} ({_date_range(days)})"
+    if is_portfolio:
+        title = f"{deck_name} ({_date_range(days)})"
+    else:
+        title = f"{customer} — {deck_name} ({_date_range(days)})"
 
     try:
         file_meta = {"name": title, "mimeType": "application/vnd.google-apps.presentation"}
@@ -971,6 +1441,18 @@ def create_health_deck(
         "customer": customer,
         "slides_created": slides_created,
     }
+
+
+def create_portfolio_deck(
+    days: int = 30,
+    max_customers: int | None = None,
+) -> dict[str, Any]:
+    """Generate a single portfolio-level deck across all customers."""
+    from .pendo_client import PendoClient
+
+    client = PendoClient()
+    report = client.get_portfolio_report(days=days, max_customers=max_customers)
+    return create_health_deck(report, manifest_id="portfolio_review")
 
 
 def create_health_decks_for_customers(
