@@ -1227,6 +1227,92 @@ def _portfolio_leaders_slide(reqs, sid, report, idx):
     return idx + 1
 
 
+# ── Data Quality slide ──
+
+_GREEN = {"red": 0.13, "green": 0.65, "blue": 0.35}   # #21a659
+_AMBER = {"red": 0.9,  "green": 0.65, "blue": 0.0}    # #e6a600
+_RED   = {"red": 0.85, "green": 0.15, "blue": 0.15}    # #d92626
+
+_SEV_COLOR = {"ERROR": _RED, "WARNING": _AMBER, "INFO": GRAY}
+_SEV_DOT   = {"ERROR": "\u2716", "WARNING": "\u26a0", "INFO": "\u2139"}
+
+
+def _data_quality_slide(reqs, sid, report, idx):
+    from .qa import qa
+    snap = qa.summary()
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, LIGHT)
+    _slide_title(reqs, sid, "Data Quality")
+
+    total_checks = snap["total_checks"]
+    total_flags = snap["total_flags"]
+    n_errors = snap["errors"]
+    n_warnings = snap["warnings"]
+
+    if total_flags == 0:
+        status = f"\u2705  All checks passed ({total_checks} validations)"
+        status_color = _GREEN
+    elif n_errors > 0:
+        status = f"\u2716  {n_errors} error{'s' if n_errors != 1 else ''}, {n_warnings} warning{'s' if n_warnings != 1 else ''} across {total_checks} checks"
+        status_color = _RED
+    else:
+        status = f"\u26a0  {n_warnings} warning{'s' if n_warnings != 1 else ''} across {total_checks} checks"
+        status_color = _AMBER
+
+    _box(reqs, f"{sid}_st", sid, MARGIN, BODY_Y, CONTENT_W, 24, status)
+    _style(reqs, f"{sid}_st", 0, len(status), bold=True, size=14, color=status_color, font=FONT)
+
+    if total_flags == 0:
+        sub = "All data sources agree. Numbers on every slide have been cross-validated."
+        _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y + 32, CONTENT_W, 20, sub)
+        _style(reqs, f"{sid}_sub", 0, len(sub), size=10, color=GRAY, font=FONT)
+        return idx + 1
+
+    y = BODY_Y + 36
+    max_rows = 14
+    flags = snap["flags"]
+    sorted_flags = sorted(flags, key=lambda f: {"ERROR": 0, "WARNING": 1, "INFO": 2}.get(f["severity"], 3))
+
+    for i, f in enumerate(sorted_flags[:max_rows]):
+        sev = f["severity"]
+        dot = _SEV_DOT.get(sev, "?")
+        dot_color = _SEV_COLOR.get(sev, GRAY)
+
+        msg = f["message"]
+        detail_parts = []
+        if f["expected"] is not None and f["actual"] is not None:
+            detail_parts.append(f"expected {f['expected']}, got {f['actual']}")
+        if f["auto_corrected"]:
+            detail_parts.append("auto-corrected")
+        if f["sources"]:
+            detail_parts.append(" vs ".join(f["sources"]))
+
+        line = f"{dot}  {msg}"
+        detail = ""
+        if detail_parts:
+            detail = f"    {' · '.join(detail_parts)}"
+
+        full = line + detail
+        if len(full) > 120:
+            full = full[:117] + "..."
+
+        _box(reqs, f"{sid}_f{i}", sid, MARGIN, y, CONTENT_W, 18, full)
+        _style(reqs, f"{sid}_f{i}", 0, len(full), size=9, color=NAVY, font=FONT)
+        _style(reqs, f"{sid}_f{i}", 0, len(dot), color=dot_color, size=10, bold=True)
+        if detail:
+            _style(reqs, f"{sid}_f{i}", len(line), len(full), color=GRAY, size=8)
+
+        y += 20
+
+    if len(flags) > max_rows:
+        more = f"... and {len(flags) - max_rows} more"
+        _box(reqs, f"{sid}_more", sid, MARGIN, y, CONTENT_W, 16, more)
+        _style(reqs, f"{sid}_more", 0, len(more), size=8, color=GRAY, font=FONT, italic=True)
+
+    return idx + 1
+
+
 # ── Composable API (agent builds deck slide by slide) ──
 
 # Maps slide type names to builder functions and the report keys they require
@@ -1245,6 +1331,7 @@ _SLIDE_BUILDERS = {
     "jira": _jira_slide,
     "custom": _custom_slide,
     "signals": _signals_slide,
+    "data_quality": _data_quality_slide,
     "portfolio_title": _portfolio_title_slide,
     "portfolio_signals": _portfolio_signals_slide,
     "portfolio_trends": _portfolio_trends_slide,
@@ -1267,11 +1354,21 @@ SLIDE_DATA_REQUIREMENTS = {
     "jira": ["jira"],
     "custom": ["title", "sections"],
     "signals": ["signals"],
+    "data_quality": [],
     "portfolio_title": ["customer_count", "days", "generated"],
     "portfolio_signals": ["portfolio_signals"],
     "portfolio_trends": ["portfolio_trends"],
     "portfolio_leaders": ["portfolio_leaders"],
 }
+
+
+def _get_deck_output_folder() -> str | None:
+    """Return the ID of today's date-stamped subfolder (e.g. Decks-2026-03-06), creating it if needed."""
+    if not GOOGLE_DRIVE_FOLDER_ID:
+        return None
+    from .drive_config import _find_or_create_folder
+    folder_name = f"Decks-{datetime.date.today().isoformat()}"
+    return _find_or_create_folder(folder_name, GOOGLE_DRIVE_FOLDER_ID)
 
 
 def create_empty_deck(customer: str, days: int = 30, deck_name: str | None = None) -> dict[str, Any]:
@@ -1285,8 +1382,9 @@ def create_empty_deck(customer: str, days: int = 30, deck_name: str | None = Non
     title = f"{customer} — {label} ({_date_range(days)})"
     try:
         file_meta = {"name": title, "mimeType": "application/vnd.google-apps.presentation"}
-        if GOOGLE_DRIVE_FOLDER_ID:
-            file_meta["parents"] = [GOOGLE_DRIVE_FOLDER_ID]
+        output_folder = _get_deck_output_folder()
+        if output_folder:
+            file_meta["parents"] = [output_folder]
         f = drive_service.files().create(body=file_meta).execute()
         deck_id = f["id"]
         logger.info("Created deck %s: %s", deck_id, title)
@@ -1361,17 +1459,17 @@ def add_slide(deck_id: str, slide_type: str, data: dict[str, Any]) -> dict[str, 
     return {"slide_type": slide_type, "status": "added", "position": idx + 1}
 
 
-# ── Monolith deck creation (manifest-driven) ──
+# ── Monolith deck creation (deck-definition-driven) ──
 
 def create_health_deck(
     report: dict[str, Any],
-    manifest_id: str = "cs_health_review",
+    deck_id: str = "cs_health_review",
 ) -> dict[str, Any]:
-    """Create a deck from a customer health report using a manifest.
+    """Create a deck from a customer health report using a deck definition.
 
     Args:
         report: Full customer health report from PendoClient.get_customer_health_report().
-        manifest_id: Which deck manifest to use. Defaults to 'cs_health_review'.
+        deck_id: Which deck definition to use. Defaults to 'cs_health_review'.
     """
     if "error" in report:
         return {"error": report["error"]}
@@ -1380,14 +1478,17 @@ def create_health_deck(
     customer = report.get("customer", "Portfolio") if not is_portfolio else "Portfolio"
     days = report.get("days", 30)
 
+    from .qa import qa
+    qa.begin(customer)
+
     try:
         slides_service, drive_service = _get_service()
     except (ValueError, FileNotFoundError) as e:
         return {"error": str(e)}
 
-    from .manifest_loader import resolve_manifest
+    from .deck_loader import resolve_deck
 
-    resolved = resolve_manifest(manifest_id, customer)
+    resolved = resolve_deck(deck_id, customer)
     deck_name = resolved.get("name", "Health Review")
     if is_portfolio:
         title = f"{deck_name} ({_date_range(days)})"
@@ -1396,8 +1497,9 @@ def create_health_deck(
 
     try:
         file_meta = {"name": title, "mimeType": "application/vnd.google-apps.presentation"}
-        if GOOGLE_DRIVE_FOLDER_ID:
-            file_meta["parents"] = [GOOGLE_DRIVE_FOLDER_ID]
+        output_folder = _get_deck_output_folder()
+        if output_folder:
+            file_meta["parents"] = [output_folder]
         file = drive_service.files().create(body=file_meta).execute()
         pres_id = file["id"]
         logger.info("Created presentation %s: %s", pres_id, title)
@@ -1452,23 +1554,23 @@ def create_portfolio_deck(
 
     client = PendoClient()
     report = client.get_portfolio_report(days=days, max_customers=max_customers)
-    return create_health_deck(report, manifest_id="portfolio_review")
+    return create_health_deck(report, deck_id="portfolio_review")
 
 
 def create_health_decks_for_customers(
     customer_names: list[str],
     days: int = 30,
     max_customers: int | None = None,
-    manifest_id: str = "cs_health_review",
+    deck_id: str = "cs_health_review",
     workers: int = 4,
 ) -> list[dict[str, Any]]:
-    """Create one deck per customer using a manifest (parallel).
+    """Create one deck per customer using a deck definition (parallel).
 
     Args:
         customer_names: List of customer names to generate decks for.
         days: Lookback window in days.
         max_customers: Cap on how many to generate.
-        manifest_id: Which deck manifest to use (default: cs_health_review).
+        deck_id: Which deck definition to use (default: cs_health_review).
         workers: Concurrent deck-creation threads (default 4).
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1480,10 +1582,10 @@ def create_health_decks_for_customers(
 
     def _build_one(idx_name: tuple[int, str]) -> dict[str, Any]:
         i, name = idx_name
-        logger.info("Generating deck %d/%d: %s (%s)", i + 1, len(customers), name, manifest_id)
+        logger.info("Generating deck %d/%d: %s (%s)", i + 1, len(customers), name, deck_id)
         try:
             report = client.get_customer_health_report(name, days=days)
-            return create_health_deck(report, manifest_id=manifest_id)
+            return create_health_deck(report, deck_id=deck_id)
         except Exception as e:
             return {"error": str(e), "customer": name}
 
@@ -1518,8 +1620,9 @@ def create_deck_for_customer(customer, sites, days=30):
     title = f"{customer} - Usage Report ({_date_range(days)})"
     try:
         meta = {"name": title, "mimeType": "application/vnd.google-apps.presentation"}
-        if GOOGLE_DRIVE_FOLDER_ID:
-            meta["parents"] = [GOOGLE_DRIVE_FOLDER_ID]
+        output_folder = _get_deck_output_folder()
+        if output_folder:
+            meta["parents"] = [output_folder]
         f = drive_service.files().create(body=meta).execute()
         pid = f["id"]
     except HttpError as e:

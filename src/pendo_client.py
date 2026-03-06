@@ -829,6 +829,12 @@ class PendoClient:
             kei_data=pre.get("kei"), guide_data=pre.get("guides"),
         )
 
+        # ── QA cross-checks ──
+        self._run_pendo_qa_checks(
+            customer_name, total_visitors, engagement, site_names,
+            cust_cohort_info, customer_rate, median_rate, cohort_median,
+        )
+
         return {
             "customer": customer_name,
             "days": days,
@@ -861,6 +867,67 @@ class PendoClient:
             },
             "signals": signals,
         }
+
+    @staticmethod
+    def _run_pendo_qa_checks(
+        customer_name, total_visitors, engagement, site_names,
+        cohort_info, customer_rate, median_rate, cohort_median,
+    ):
+        """Cross-validate Pendo data and flag discrepancies."""
+        from .qa import qa
+
+        # Engagement buckets should sum to total visitors
+        eng_sum = engagement["active_7d"] + engagement["active_30d"] + engagement["dormant"]
+        if eng_sum == total_visitors:
+            qa.check()
+        else:
+            qa.flag("Pendo engagement buckets don't sum to total visitors",
+                    expected=total_visitors, actual=eng_sum,
+                    sources=("active_7d + active_30d + dormant", "total visitor count"),
+                    severity="error")
+
+        # Active rate should be consistent with the raw numbers
+        expected_rate = engagement["active_7d"] / max(total_visitors, 1)
+        if abs(expected_rate - customer_rate) < 0.001:
+            qa.check()
+        else:
+            qa.flag("Active rate doesn't match active_7d / total_visitors",
+                    expected=f"{expected_rate:.3f}", actual=f"{customer_rate:.3f}",
+                    sources=("computed rate", "reported rate"),
+                    severity="error")
+
+        # Customer should exist in cohorts.yaml
+        if cohort_info.get("cohort"):
+            qa.check()
+        elif cohort_info.get("exclude"):
+            qa.check()
+        else:
+            qa.flag(f"Customer '{customer_name}' not found in cohorts.yaml",
+                    sources=("Pendo customer list", "cohorts.yaml"),
+                    severity="warning")
+
+        # Flag unverified cohort classifications
+        if cohort_info.get("unverified"):
+            qa.flag(f"Cohort classification unverified for '{customer_name}' ({cohort_info.get('cohort', '?')})",
+                    sources=("cohorts.yaml",),
+                    severity="info")
+
+        # Cohort median should exist if customer has a cohort with enough peers
+        if cohort_info.get("cohort") and not cohort_info.get("exclude"):
+            if cohort_median is not None:
+                qa.check()
+            else:
+                qa.flag(f"No cohort median available for '{cohort_info.get('cohort')}' — too few peers",
+                        sources=("cohort peer calculation",),
+                        severity="info")
+
+        # Zero sites is suspicious for a customer with visitors
+        if total_visitors > 0 and len(site_names) == 0:
+            qa.flag(f"Customer '{customer_name}' has {total_visitors} visitors but 0 sites",
+                    sources=("Pendo visitors", "site name matching"),
+                    severity="warning")
+        else:
+            qa.check()
 
     def _add_behavioral_signals(
         self, signals: list[str], customer_name: str, days: int,
@@ -1436,8 +1503,22 @@ class PendoClient:
         try:
             from .jira_client import JiraClient
             jira_data = JiraClient().get_customer_jira(customer_name, days=90)
-        except Exception:
-            pass
+        except Exception as e:
+            from .qa import qa
+            qa.flag(f"JIRA data unavailable: {str(e)[:80]}",
+                    sources=("JIRA API",), severity="warning")
+
+        # Cross-check: site count from health report vs detailed site list
+        from .qa import qa
+        health_site_count = health.get("account", {}).get("total_sites", 0)
+        detail_site_count = len(sites_data.get("sites", []))
+        if health_site_count == detail_site_count:
+            qa.check()
+        else:
+            qa.flag("Site count mismatch between health summary and site detail",
+                    expected=health_site_count, actual=detail_site_count,
+                    sources=("health report account.total_sites", "sites list length"),
+                    severity="warning")
 
         return {
             **health,
