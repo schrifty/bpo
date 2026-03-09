@@ -312,7 +312,7 @@ class AddSlideTool(BaseTool):
         "Add one slide to a deck. Input is JSON: "
         '{"deck_id": "...", "slide_type": "...", "data": {...}}. '
         "Slide types: title, health, engagement, sites, features, champions, benchmarks, "
-        "exports, depth, kei, guides, custom, signals. "
+        "exports, depth, kei, guides, custom, signals, team. "
         "For standard types, pass the data tool output as the 'data' field. "
         "For 'custom' type, pass {\"title\": \"...\", \"sections\": [{\"header\": \"...\", \"body\": \"...\"}]}. "
         "Up to 3 sections are rendered as columns. "

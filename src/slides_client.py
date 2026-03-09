@@ -1486,40 +1486,43 @@ def _data_quality_slide(reqs, sid, report, idx):
     _bg(reqs, sid, LIGHT)
     _slide_title(reqs, sid, "Data Quality")
 
+    # ── Section 1: Data source status badges ──
+    sources = snap.get("data_sources", {})
+    src_x = MARGIN
+    src_y = BODY_Y
+    for si, (name, status) in enumerate(sources.items()):
+        if status == "ok":
+            icon, color = "\u2713", _GREEN
+        else:
+            icon, color = "\u2717", _AMBER
+        label = f"{icon} {name}"
+        _pill(reqs, f"{sid}_src{si}", sid, src_x, src_y, 120, 22, label, WHITE, color)
+        src_x += 130
+
+    # ── Section 2: Validation summary ──
     total_checks = snap["total_checks"]
     total_flags = snap["total_flags"]
     n_errors = snap["errors"]
     n_warnings = snap["warnings"]
 
+    sum_y = src_y + 36
+
     if total_flags == 0:
-        status = f"\u2705  All checks passed ({total_checks} validations)"
+        status = f"All {total_checks} cross-source checks passed"
         status_color = _GREEN
     elif n_errors > 0:
-        status = f"\u2716  {n_errors} error{'s' if n_errors != 1 else ''}, {n_warnings} warning{'s' if n_warnings != 1 else ''} across {total_checks} checks"
+        status = f"{n_errors} error{'s' if n_errors != 1 else ''} and {n_warnings} warning{'s' if n_warnings != 1 else ''} found"
         status_color = _RED
     else:
-        status = f"\u26a0  {n_warnings} warning{'s' if n_warnings != 1 else ''} across {total_checks} checks"
+        status = f"{n_warnings} finding{'s' if n_warnings != 1 else ''} to note"
         status_color = _AMBER
 
-    _box(reqs, f"{sid}_st", sid, MARGIN, BODY_Y, CONTENT_W, 24, status)
-    _style(reqs, f"{sid}_st", 0, len(status), bold=True, size=14, color=status_color, font=FONT)
+    _box(reqs, f"{sid}_st", sid, MARGIN, sum_y, CONTENT_W, 20, status)
+    _style(reqs, f"{sid}_st", 0, len(status), bold=True, size=12, color=status_color, font=FONT)
 
-    if total_flags == 0:
-        sub = "No discrepancies found where data sources overlap (Pendo, Jira, CS Report)."
-        _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y + 32, CONTENT_W, 20, sub)
-        _style(reqs, f"{sid}_sub", 0, len(sub), size=10, color=GRAY, font=FONT)
-
-        detail = ("Checks include: engagement bucket sums, active-rate calculations, "
-                  "site-count consistency across sources, JIRA breakdown totals, "
-                  "factory name matching, and cohort classification. "
-                  "Single-source metrics (feature adoption, exports, guides, dollar values) "
-                  "are not independently verified.")
-        _box(reqs, f"{sid}_det", sid, MARGIN, BODY_Y + 56, CONTENT_W, 60, detail)
-        _style(reqs, f"{sid}_det", 0, len(detail), size=8, color=GRAY, font=FONT, italic=True)
-        return idx + 1
-
-    y = BODY_Y + 36
-    max_rows = 14
+    # ── Section 3: Findings (customer-facing flags only) ──
+    y = sum_y + 28
+    max_rows = 10
     flags = snap["flags"]
     sorted_flags = sorted(flags, key=lambda f: {"ERROR": 0, "WARNING": 1, "INFO": 2}.get(f["severity"], 3))
 
@@ -1532,8 +1535,6 @@ def _data_quality_slide(reqs, sid, report, idx):
         detail_parts = []
         if f["expected"] is not None and f["actual"] is not None:
             detail_parts.append(f"expected {f['expected']}, got {f['actual']}")
-        if f["auto_corrected"]:
-            detail_parts.append("auto-corrected")
         if f["sources"]:
             detail_parts.append(" vs ".join(f["sources"]))
 
@@ -1558,6 +1559,14 @@ def _data_quality_slide(reqs, sid, report, idx):
         more = f"... and {len(flags) - max_rows} more"
         _box(reqs, f"{sid}_more", sid, MARGIN, y, CONTENT_W, 16, more)
         _style(reqs, f"{sid}_more", 0, len(more), size=8, color=GRAY, font=FONT, italic=True)
+        y += 18
+
+    # ── Section 4: Confidence note ──
+    note_y = max(y + 6, BODY_BOTTOM - 40)
+    note = ("Single-source metrics (feature adoption, exports, guides, dollar values) "
+            "are not independently verified across sources.")
+    _box(reqs, f"{sid}_note", sid, MARGIN, note_y, CONTENT_W, 28, note)
+    _style(reqs, f"{sid}_note", 0, len(note), size=7, color=GRAY, font=FONT, italic=True)
 
     return idx + 1
 
@@ -1956,6 +1965,79 @@ def _platform_value_slide(reqs, sid, report, idx):
     return idx + 1
 
 
+# ── Team roster slide ──
+
+def _load_teams() -> dict[str, Any]:
+    """Load team rosters from teams.yaml (project root)."""
+    import yaml
+    path = Path(__file__).resolve().parent.parent / "teams.yaml"
+    if not path.exists():
+        return {}
+    try:
+        return yaml.safe_load(path.read_text()) or {}
+    except Exception:
+        return {}
+
+
+def _team_slide(reqs, sid, report, idx):
+    _slide(reqs, sid, idx)
+
+    customer = report.get("customer", "Customer")
+    teams = _load_teams()
+    team_data = teams.get(customer, {})
+    cust_members = [m.get("name", "") for m in team_data.get("customer_team", [])]
+    ldna_members = [m.get("name", "") for m in team_data.get("leandna_team", [])]
+
+    if not cust_members and not ldna_members:
+        cust_members = ["(no team roster configured)"]
+        ldna_members = ["(no team roster configured)"]
+
+    # Right panel: blue branded area
+    panel_x = 310
+    panel_w = SLIDE_W - panel_x
+    _rect(reqs, f"{sid}_rpanel", sid, panel_x, 0, panel_w, SLIDE_H, BLUE)
+
+    # Gradient overlay: darker navy strip at right edge
+    _rect(reqs, f"{sid}_rnav", sid, SLIDE_W - 80, 0, 80, SLIDE_H, NAVY)
+
+    # "LeanDNA.com" text on the blue panel
+    brand = "LeanDNA.com"
+    _box(reqs, f"{sid}_brand", sid, panel_x + 40, SLIDE_H - 60, 200, 30, brand)
+    _style(reqs, f"{sid}_brand", 0, len(brand), bold=True, size=16, color=WHITE, font=FONT)
+
+    # Left panel: white background (default), team rosters
+    left_w = panel_x - MARGIN
+    y = 30
+
+    # Customer team header
+    cust_hdr = f"{customer} Team"
+    _box(reqs, f"{sid}_ch", sid, MARGIN, y, left_w, 24, cust_hdr)
+    _style(reqs, f"{sid}_ch", 0, len(cust_hdr), bold=True, size=14, color=BLUE, font=FONT)
+    y += 30
+
+    # Customer team members
+    for i, name in enumerate(cust_members[:12]):
+        _box(reqs, f"{sid}_cm{i}", sid, MARGIN, y, left_w, 16, name)
+        _style(reqs, f"{sid}_cm{i}", 0, len(name), bold=True, size=10, color=NAVY, font=FONT)
+        y += 18
+
+    y += 14
+
+    # LeanDNA team header
+    ldna_hdr = "LeanDNA Team"
+    _box(reqs, f"{sid}_lh", sid, MARGIN, y, left_w, 24, ldna_hdr)
+    _style(reqs, f"{sid}_lh", 0, len(ldna_hdr), bold=True, size=14, color=BLUE, font=FONT)
+    y += 30
+
+    # LeanDNA team members
+    for i, name in enumerate(ldna_members[:12]):
+        _box(reqs, f"{sid}_lm{i}", sid, MARGIN, y, left_w, 16, name)
+        _style(reqs, f"{sid}_lm{i}", 0, len(name), bold=True, size=10, color=NAVY, font=FONT)
+        y += 18
+
+    return idx + 1
+
+
 # ── Composable API (agent builds deck slide by slide) ──
 
 # Maps slide type names to builder functions and the report keys they require
@@ -1982,6 +2064,7 @@ _SLIDE_BUILDERS = {
     "portfolio_signals": _portfolio_signals_slide,
     "portfolio_trends": _portfolio_trends_slide,
     "portfolio_leaders": _portfolio_leaders_slide,
+    "team": _team_slide,
 }
 
 # Which report keys each slide type needs (so the agent knows what data to supply)
@@ -2008,6 +2091,7 @@ SLIDE_DATA_REQUIREMENTS = {
     "portfolio_signals": ["portfolio_signals"],
     "portfolio_trends": ["portfolio_trends"],
     "portfolio_leaders": ["portfolio_leaders"],
+    "team": ["customer"],
 }
 
 
@@ -2122,12 +2206,14 @@ def add_slide(deck_id: str, slide_type: str, data: dict[str, Any]) -> dict[str, 
 def create_health_deck(
     report: dict[str, Any],
     deck_id: str = "cs_health_review",
+    thumbnails: bool = True,
 ) -> dict[str, Any]:
     """Create a deck from a customer health report using a deck definition.
 
     Args:
         report: Full customer health report from PendoClient.get_customer_health_report().
         deck_id: Which deck definition to use. Defaults to 'cs_health_review'.
+        thumbnails: Whether to export slide thumbnails. Disable for batch runs.
     """
     if "error" in report:
         return {"error": report["error"]}
@@ -2202,12 +2288,13 @@ def create_health_deck(
         "slides_created": slides_created,
     }
 
-    try:
-        thumbs = export_slide_thumbnails(pres_id)
-        result["thumbnails"] = [str(p) for p in thumbs]
-        logger.info("Saved %d slide thumbnails for %s", len(thumbs), customer)
-    except Exception as e:
-        logger.warning("Thumbnail export failed: %s", e)
+    if thumbnails:
+        try:
+            thumbs = export_slide_thumbnails(pres_id)
+            result["thumbnails"] = [str(p) for p in thumbs]
+            logger.info("Saved %d slide thumbnails for %s", len(thumbs), customer)
+        except Exception as e:
+            logger.warning("Thumbnail export failed: %s", e)
 
     return result
 
@@ -2230,6 +2317,7 @@ def create_health_decks_for_customers(
     max_customers: int | None = None,
     deck_id: str = "cs_health_review",
     workers: int = 4,
+    thumbnails: bool = False,
 ) -> list[dict[str, Any]]:
     """Create one deck per customer using a deck definition (parallel).
 
@@ -2239,6 +2327,7 @@ def create_health_decks_for_customers(
         max_customers: Cap on how many to generate.
         deck_id: Which deck definition to use (default: cs_health_review).
         workers: Concurrent deck-creation threads (default 4).
+        thumbnails: Export slide thumbnails (default False for batch — saves API quota).
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from .pendo_client import PendoClient
@@ -2252,7 +2341,7 @@ def create_health_decks_for_customers(
         logger.info("Generating deck %d/%d: %s (%s)", i + 1, len(customers), name, deck_id)
         try:
             report = client.get_customer_health_report(name, days=days)
-            return create_health_deck(report, deck_id=deck_id)
+            return create_health_deck(report, deck_id=deck_id, thumbnails=thumbnails)
         except Exception as e:
             return {"error": str(e), "customer": name}
 

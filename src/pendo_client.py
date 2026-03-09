@@ -1401,7 +1401,7 @@ class PendoClient:
         seen = by_type.get("guideSeen", 0)
         advanced = by_type.get("guideAdvanced", 0)
         dismissed = by_type.get("guideDismissed", 0)
-        active = self._count_active_users(customer_visitors, partition["now_ms"])
+        total_visitors = len(customer_visitors)
 
         guide_names = self._get_guide_catalog_cached()
 
@@ -1419,8 +1419,8 @@ class PendoClient:
             "days": days,
             "total_guide_events": sum(by_type.values()),
             "users_who_saw_guides": len(users_with_guides),
-            "active_users": active,
-            "guide_reach": round(len(users_with_guides) / max(active, 1) * 100, 1),
+            "total_visitors": total_visitors,
+            "guide_reach": round(len(users_with_guides) / max(total_visitors, 1) * 100, 1),
             "seen": seen,
             "advanced": advanced,
             "dismissed": dismissed,
