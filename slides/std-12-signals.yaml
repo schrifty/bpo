@@ -1,0 +1,26 @@
+id: signals
+type: standard
+order: 12
+title: Notable Signals
+slide_type: signals
+data_tools: [customer_health]
+customers: all
+
+prompt: |
+  Close the deck with a summary of auto-detected signals — the things
+  that stood out from the data. These are generated automatically from
+  all the other data tools and include:
+
+  - Engagement signals (strong/weak active rate vs peer median)
+  - Executive engagement (active or absent)
+  - Training site activity
+  - Internal LeanDNA staff visits
+  - Write adoption depth (running operations vs reading dashboards)
+  - Collaboration intensity
+  - Export volume
+  - Kei AI adoption (with executive flag)
+  - Guide engagement issues (high dismiss rate, low reach)
+
+  This slide should be the CSM's action list — the things to investigate,
+  celebrate, or escalate before/during the QBR. Number each signal so
+  they can be referenced in conversation.

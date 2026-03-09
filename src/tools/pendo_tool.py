@@ -48,9 +48,13 @@ class _PendoDataTool(BaseTool):
 
     @_network_safe
     def _run(self, query: str) -> str:
+        from ..quarters import resolve_quarter
         parts = [p.strip() for p in query.split(",")]
         customer = parts[0]
-        days = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 30
+        if len(parts) > 1 and parts[1].isdigit():
+            days = int(parts[1])
+        else:
+            days = resolve_quarter().days
         logger.info("Tool: %s | %s, %dd", self.name, customer, days)
         method = getattr(_client(self.integration_key, self.base_url), self._client_method)
         return json.dumps(method(customer, days), indent=2)
@@ -196,7 +200,8 @@ class ListCustomersTool(_PendoDataTool):
 
     @_network_safe
     def _run(self, query: str = "") -> str:
-        days = int(query.strip()) if query.strip().isdigit() else 30
+        from ..quarters import resolve_quarter
+        days = int(query.strip()) if query.strip().isdigit() else resolve_quarter().days
         logger.info("Tool: list_customers | %dd", days)
         return json.dumps(
             _client(self.integration_key, self.base_url).list_customers(days),
@@ -293,9 +298,10 @@ class CreateDeckTool(BaseTool):
     @_network_safe
     def _run(self, query: str) -> str:
         from ..slides_client import create_empty_deck
+        from ..quarters import resolve_quarter
         parts = [p.strip() for p in query.split(",")]
         customer = parts[0]
-        days = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 30
+        days = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else resolve_quarter().days
         deck_name = parts[2] if len(parts) > 2 else None
         logger.info("Tool: create_deck | %s, %dd, %s", customer, days, deck_name)
         return json.dumps(create_empty_deck(customer, days, deck_name), indent=2)
@@ -397,8 +403,9 @@ class GenerateFullDeckTool(BaseTool):
         "This is the FASTEST way to create a deck — it fetches all Pendo data, "
         "builds every slide from the deck definition, and creates the presentation "
         "in a single batch API call. Use this instead of create_deck + add_slide. "
-        "Input: 'customer,deck_id' or 'customer,deck_id,days'. "
-        "Example: 'Daikin,cs_health_review' or 'Daikin,cs_health_review,60'. "
+        "Input: 'customer,deck_id' or 'customer,deck_id,quarter' or 'customer,deck_id,days'. "
+        "Quarter examples: 'Daikin,cs_health_review,Q1 2026' or 'Daikin,cs_health_review,prev'. "
+        "If omitted, defaults to the current/previous quarter automatically. "
         "Use list_deck_types first to see available deck IDs."
     )
     integration_key: Optional[str] = Field(default=None, exclude=True)
@@ -407,18 +414,28 @@ class GenerateFullDeckTool(BaseTool):
     @_network_safe
     def _run(self, query: str) -> str:
         from ..slides_client import create_health_deck
+        from ..quarters import resolve_quarter
         parts = [p.strip() for p in query.split(",")]
         if len(parts) < 2:
             return json.dumps({"error": "Input must be 'customer,deck_id' (e.g. 'Daikin,cs_health_review')"})
         customer = parts[0]
         deck_id = parts[1]
-        days = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 30
 
-        logger.info("Tool: generate_full_deck | %s, %s, %dd", customer, deck_id, days)
+        if len(parts) > 2 and parts[2].isdigit():
+            days = int(parts[2])
+            quarter_label = None
+        else:
+            qr = resolve_quarter(parts[2] if len(parts) > 2 else None)
+            days = qr.days
+            quarter_label = qr.label
+
+        logger.info("Tool: generate_full_deck | %s, %s, %dd, %s", customer, deck_id, days, quarter_label or "no quarter")
         client = _client(self.integration_key, self.base_url)
         report = client.get_customer_health_report(customer, days=days)
         if "error" in report:
             return json.dumps({"error": report["error"]})
+        if quarter_label:
+            report["quarter"] = quarter_label
         return json.dumps(create_health_deck(report, deck_id=deck_id), indent=2)
 
     async def _arun(self, query: str) -> str:

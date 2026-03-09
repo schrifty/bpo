@@ -1,0 +1,52 @@
+id: product_adoption
+name: Product Adoption Review
+audience: Product
+
+purpose: |
+  This deck is for the Product team to understand how customers actually use
+  LeanDNA. The narrative arc should be: "Here's what they use, here's what
+  they ignore, here's where the UX is working, and here's where it's failing."
+
+  The audience cares about feature adoption breadth, behavioral depth (read vs
+  write vs collaborate), Kei AI traction, and guide effectiveness. They do NOT
+  need the CSM-oriented framing of churn risk and renewal prep — they need
+  product-oriented framing of what's landing and what's not.
+
+  When interpreting data, emphasize:
+  - Feature adoption gaps (what's available but unused)
+  - Behavioral patterns (are users reading or operating?)
+  - Kei AI as a product surface (not just a CS metric)
+  - Guide dismiss rates as UX signal (not onboarding friction)
+  - Export patterns as system-of-record signal
+
+slides:
+  - slide: title
+  - slide: features
+  - slide: depth
+  - slide: kei
+  - slide: exports
+  - slide: guides
+  - slide: engagement
+  - slide: benchmarks
+  - slide: signals
+  - slide: data_quality
+
+overrides:
+  - slide: health
+    exclude: true
+    note: Product doesn't need the CS health framing.
+  - slide: sites
+    exclude: true
+    note: Per-site breakdown is a CS concern, not a product concern.
+  - slide: champions
+    exclude: true
+    note: Individual user identification isn't relevant to Product.
+  - slide: depth
+    require: true
+    note: Behavioral depth is the core of the product adoption story.
+  - slide: kei
+    require: true
+    note: Kei is a product surface — always show its adoption data.
+  - slide: guides
+    require: true
+    note: Guide effectiveness is direct product feedback.

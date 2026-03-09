@@ -1,0 +1,16 @@
+id: benchmarks
+type: standard
+order: 7
+title: Peer Benchmarks
+slide_type: benchmarks
+data_tools: [customer_health]
+customers: all
+
+prompt: |
+  Compare this customer's weekly active rate against the peer median
+  across the entire customer base. Show the delta clearly — are they
+  above or below the median, and by how much? Include the total number
+  of peer accounts in the comparison. Use a visual scale or bar to make
+  the comparison intuitive. If the customer is significantly below the
+  median, frame it as a risk. If above, frame it as a strength to
+  reinforce during the QBR.

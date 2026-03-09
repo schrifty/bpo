@@ -42,13 +42,21 @@ FONT_SERIF = "IBM Plex Serif"
 MONO = "Source Sans 3"
 
 
-def _date_range(days: int) -> str:
-    """Format a human-readable date range like 'Feb 3 – Mar 5, 2026'."""
+def _date_range(days: int, quarter_label: str | None = None) -> str:
+    """Format a human-readable date range, with optional quarter prefix.
+
+    If quarter_label is set (e.g. 'Q1 2026'), the output looks like
+    'Q1 2026 (Jan 1 – Mar 9, 2026)'.  Otherwise plain 'Feb 7 – Mar 9, 2026'.
+    """
     end = datetime.date.today()
     start = end - datetime.timedelta(days=days)
     if start.year == end.year:
-        return f"{start.strftime('%b %-d')} – {end.strftime('%b %-d, %Y')}"
-    return f"{start.strftime('%b %-d, %Y')} – {end.strftime('%b %-d, %Y')}"
+        span = f"{start.strftime('%b %-d')} – {end.strftime('%b %-d, %Y')}"
+    else:
+        span = f"{start.strftime('%b %-d, %Y')} – {end.strftime('%b %-d, %Y')}"
+    if quarter_label:
+        return f"{quarter_label} ({span})"
+    return span
 
 
 def _get_service():
@@ -278,7 +286,7 @@ def _title_slide(reqs, sid, report, idx):
 
     acct = report["account"]
     name = report["customer"]
-    sub = f"Product Usage Review  ·  {_date_range(report['days'])}"
+    sub = f"Product Usage Review  ·  {_date_range(report['days'], report.get('quarter'))}"
     meta = f"CSM: {acct['csm']}  |  {acct['total_sites']} sites · {acct['total_visitors']} users  |  {report['generated']}"
 
     _rect(reqs, f"{sid}_bar", sid, 0, 190, SLIDE_W, 3, BLUE)
@@ -1311,8 +1319,9 @@ def _portfolio_title_slide(reqs, sid, report, idx):
 
     n = report.get("customer_count", 0)
     days = report.get("days", 30)
+    ql = report.get("quarter")
     title = "Book of Business Review"
-    sub = f"{n} customers  ·  {_date_range(days)}"
+    sub = f"{n} customers  ·  {_date_range(days, ql)}"
 
     _box(reqs, f"{sid}_t", sid, MARGIN, 100, CONTENT_W, 80, title)
     _style(reqs, f"{sid}_t", 0, len(title), bold=True, size=36, color=WHITE, font=FONT_SERIF)
@@ -2221,6 +2230,7 @@ def create_health_deck(
     is_portfolio = report.get("type") == "portfolio"
     customer = report.get("customer", "Portfolio") if not is_portfolio else "Portfolio"
     days = report.get("days", 30)
+    quarter_label = report.get("quarter")
 
     from .qa import qa
     qa.begin(customer)
@@ -2234,10 +2244,11 @@ def create_health_deck(
 
     resolved = resolve_deck(deck_id, customer)
     deck_name = resolved.get("name", "Health Review")
+    date_str = _date_range(days, quarter_label)
     if is_portfolio:
-        title = f"{deck_name} ({_date_range(days)})"
+        title = f"{deck_name} ({date_str})"
     else:
-        title = f"{customer} — {deck_name} ({_date_range(days)})"
+        title = f"{customer} — {deck_name} ({date_str})"
 
     try:
         file_meta = {"name": title, "mimeType": "application/vnd.google-apps.presentation"}
@@ -2302,12 +2313,15 @@ def create_health_deck(
 def create_portfolio_deck(
     days: int = 30,
     max_customers: int | None = None,
+    quarter: "QuarterRange | None" = None,
 ) -> dict[str, Any]:
     """Generate a single portfolio-level deck across all customers."""
     from .pendo_client import PendoClient
 
     client = PendoClient()
     report = client.get_portfolio_report(days=days, max_customers=max_customers)
+    if quarter:
+        report["quarter"] = quarter.label
     return create_health_deck(report, deck_id="portfolio_review")
 
 
@@ -2318,6 +2332,7 @@ def create_health_decks_for_customers(
     deck_id: str = "cs_health_review",
     workers: int = 4,
     thumbnails: bool = False,
+    quarter: "QuarterRange | None" = None,
 ) -> list[dict[str, Any]]:
     """Create one deck per customer using a deck definition (parallel).
 
@@ -2328,6 +2343,7 @@ def create_health_decks_for_customers(
         deck_id: Which deck definition to use (default: cs_health_review).
         workers: Concurrent deck-creation threads (default 4).
         thumbnails: Export slide thumbnails (default False for batch — saves API quota).
+        quarter: Optional QuarterRange to label slides with quarter info.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from .pendo_client import PendoClient
@@ -2335,12 +2351,15 @@ def create_health_decks_for_customers(
     client = PendoClient()
     client.preload(days)
     customers = customer_names[:max_customers] if max_customers else customer_names
+    quarter_label = quarter.label if quarter else None
 
     def _build_one(idx_name: tuple[int, str]) -> dict[str, Any]:
         i, name = idx_name
         logger.info("Generating deck %d/%d: %s (%s)", i + 1, len(customers), name, deck_id)
         try:
             report = client.get_customer_health_report(name, days=days)
+            if quarter_label:
+                report["quarter"] = quarter_label
             return create_health_deck(report, deck_id=deck_id, thumbnails=thumbnails)
         except Exception as e:
             return {"error": str(e), "customer": name}

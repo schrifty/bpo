@@ -1,0 +1,19 @@
+id: platform_value
+type: standard
+order: 16
+title: Platform Value & ROI
+slide_type: platform_value
+data_tools:
+  - customer_platform_value
+customers: all
+
+prompt: >
+  Hard-dollar ROI from the Customer Success Report. Shows inventory action
+  savings achieved, open IA pipeline value, recommendations created,
+  POs placed, and overdue workbench tasks per factory. This is the most
+  important slide for renewal conversations — it quantifies the value
+  LeanDNA delivers.
+
+  High savings + active recs = strong value story.
+  Low savings + many overdue tasks = customer not acting on recommendations.
+  Large open pipeline = opportunity if customer is engaged, risk if not.

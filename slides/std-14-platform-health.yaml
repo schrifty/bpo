@@ -1,0 +1,21 @@
+id: platform_health
+type: standard
+order: 14
+title: Platform Health
+slide_type: platform_health
+data_tools:
+  - customer_platform_health
+customers: all
+
+prompt: >
+  Factory-level platform health from the Customer Success Report.
+  Shows automated health scores (GREEN/YELLOW/RED), clear-to-build %,
+  clear-to-commit %, component availability, and shortage counts per site.
+  This measures operational value from LeanDNA — are buyers hitting their
+  targets? Are shortages under control? Complements Pendo app engagement
+  with supply-chain outcome metrics.
+
+  NOTE: "weeklyActiveBuyersPercent" from this source measures buyer workflow
+  engagement (actions taken), while Pendo "active_rate_7d" measures app logins.
+  These are intentionally different and both are valuable — flag if they
+  diverge dramatically as it may indicate users logging in but not acting.

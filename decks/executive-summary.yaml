@@ -1,0 +1,56 @@
+id: executive_summary
+name: Executive Summary
+audience: Leadership
+
+purpose: |
+  A concise, high-signal deck for internal leadership or customer executives.
+  No more than 6 slides. Every slide must earn its place — if it doesn't
+  drive a decision or surface a risk, it doesn't belong.
+
+  The narrative: "Here's the headline on this account, here's the proof,
+  here's what needs attention." Executives don't have time for feature-by-feature
+  breakdowns. They want health, benchmarks, who the key people are, and signals.
+
+slides:
+  - slide: title
+  - slide: health
+  - slide: benchmarks
+  - slide: kei
+  - slide: champions
+  - slide: platform_value
+  - slide: signals
+  - slide: data_quality
+
+overrides:
+  - slide: engagement
+    exclude: true
+    note: Too granular for executives.
+  - slide: sites
+    exclude: true
+    note: Site-level detail is operational, not strategic.
+  - slide: features
+    exclude: true
+    note: Feature adoption is a product concern, not an executive one.
+  - slide: depth
+    exclude: true
+    note: Behavioral depth is too detailed for this audience.
+  - slide: exports
+    exclude: true
+    note: Export data is operational detail.
+  - slide: guides
+    exclude: true
+    note: Guide engagement is a product/CS concern.
+  - slide: platform_health
+    exclude: true
+    note: Factory-level health detail is operational.
+  - slide: supply_chain
+    exclude: true
+    note: Inventory detail is too granular for executives.
+  - slide: platform_value
+    require: true
+    note: ROI proof is strategic — always include for executive audiences.
+  - slide: health
+    require: true
+  - slide: signals
+    require: true
+    note: Executives need the action items.

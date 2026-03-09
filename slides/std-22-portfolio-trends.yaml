@@ -1,0 +1,15 @@
+id: portfolio_trends
+type: standard
+order: 22
+title: Aggregate Trends
+slide_type: portfolio_trends
+data_tools: []
+customers: all
+
+prompt: >
+  Product-level and portfolio-wide trends that span multiple customers.
+  Highlights systemic patterns: features underperforming broadly,
+  Kei AI rollout gaps, guide friction, read-heavy usage clusters,
+  and overall engagement health. Each trend is tagged by type
+  (concern, opportunity, positive, insight) so the audience can
+  quickly triage what matters to their function.

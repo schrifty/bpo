@@ -1,0 +1,16 @@
+id: portfolio_leaders
+type: standard
+order: 23
+title: Customer Leaders
+slide_type: portfolio_leaders
+data_tools: []
+customers: all
+
+prompt: >
+  Top-performing customers ranked across six categories:
+  Kei AI adoption rate, executive engagement, overall engagement
+  score, write depth (operational usage vs dashboard-only),
+  export volume, and login rate. Use these leaders as reference
+  accounts, case study candidates, and benchmarks for the rest
+  of the portfolio. With Salesforce data, overlay ARR to find
+  high-value exemplars and CTB (clear-to-build) leaders.

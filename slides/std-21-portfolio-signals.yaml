@@ -1,0 +1,14 @@
+id: portfolio_signals
+type: standard
+order: 21
+title: Critical Signals
+slide_type: portfolio_signals
+data_tools: []
+customers: all
+
+prompt: >
+  The most urgent per-customer signals across the entire portfolio,
+  ranked by severity. Red dots indicate high-severity issues
+  (multiple risk keywords); amber dots are moderate.
+  This is the "what needs attention right now" slide.
+  With ARR data from Salesforce, prioritize signals by revenue impact.

@@ -1,0 +1,21 @@
+id: depth
+type: standard
+order: 8
+title: Behavioral Depth
+slide_type: depth
+data_tools: [customer_depth]
+customers: all
+
+prompt: |
+  Show how deeply the customer uses LeanDNA across behavioral categories:
+  collaboration (comments, chat, attachments), data upload, inline editing,
+  task management, filtering, drilldown/details, search, export, widget
+  configuration, column customization, sharing/saving views, Kei AI,
+  and supplier management.
+
+  The key insight is the read-vs-write ratio. A customer with a high write
+  ratio (inline edits, uploads, task management) is running their supply
+  chain operations in LeanDNA. A customer with a low write ratio is just
+  reading dashboards — they may be at risk of seeing the product as
+  optional. Collaboration events signal that teams are working together
+  inside the product, which increases stickiness.

@@ -1,0 +1,877 @@
+# Manufacturing cohort classification for LeanDNA customer benchmarking.
+# Each customer key matches the first-word prefix used in Pendo site names.
+#
+# Fields:
+#   name        – full company name
+#   cohort      – primary manufacturing cohort
+#   sub_cohort  – optional finer grouping within the cohort
+#   size        – account tier: enterprise (500+), mid (100-499), smb (<100)
+#   parent      – parent company (if a subsidiary with its own Pendo prefix)
+#   aliases     – other Pendo prefixes that map to the same company
+#   notes       – any useful context
+#   exclude     – true if this is a test/internal/duplicate account
+#   unverified  – true if classification needs confirmation (resolve via Salesforce)
+
+# ── Cohort definitions ──
+# aerospace_defense     Airframe, aerostructures, engines, avionics, defense electronics, MRO
+# hvac_building         HVAC, refrigeration, fire/safety, building controls, lighting
+# vehicles              Automotive OEM/Tier-1, specialty/commercial vehicles, heavy equipment
+# medical_devices       Medical device OEMs and contract manufacturers
+# industrial_equipment  Pumps, valves, automation, material handling, process equipment
+# electronics           Connectors, cable, semiconductors, photonics, test equipment
+# advanced_materials    Specialty materials, ceramics, thermal, insulation, energy storage
+
+cohorts:
+  # ════════════════════════════════════════════════
+  # AEROSPACE & DEFENSE
+  # ════════════════════════════════════════════════
+  Safran:
+    name: Safran SA
+    cohort: aerospace_defense
+    sub_cohort: aerostructures_systems
+    size: enterprise
+    notes: "Largest customer. Cabin, Seats, Electrical & Power, Electronics & Defense, Aerosystems divisions."
+
+  Spirit:
+    name: Spirit AeroSystems
+    cohort: aerospace_defense
+    sub_cohort: aerostructures_systems
+    size: enterprise
+    notes: "Major aerostructures (fuselages, nacelles). Wichita, Belfast, Morocco, Malaysia."
+
+  Bombardier:
+    name: Bombardier Aviation
+    cohort: aerospace_defense
+    sub_cohort: aerostructures_systems
+    size: enterprise
+    notes: "Business jets. Dorval, Querétaro, Red Oak, Toronto, St-Laurent."
+
+  Kaman:
+    name: Kaman Aerospace
+    cohort: aerospace_defense
+    sub_cohort: aerostructures_systems
+    size: mid
+    notes: "Aerospace structures, bearings, precision products. Multiple divisions."
+
+  Daher:
+    name: Daher
+    cohort: aerospace_defense
+    sub_cohort: aerostructures_systems
+    size: mid
+    notes: "Aerostructures, logistics, aircraft manufacturing. France, Morocco, US, Mexico."
+
+  Qarbon:
+    name: Qarbon Aerospace
+    cohort: aerospace_defense
+    sub_cohort: aerostructures_systems
+    size: mid
+    notes: "Composites and metallic aerostructures (formerly Triumph aerostructures). Red Oak, Thailand."
+
+  LMI:
+    name: LMI Aerospace (Sonaca)
+    cohort: aerospace_defense
+    sub_cohort: aerostructures_systems
+    size: mid
+    notes: "Aerospace structures, assemblies. Acquired by Sonaca. Multiple US sites."
+
+  Radius:
+    name: Radius Aerospace
+    cohort: aerospace_defense
+    sub_cohort: aerostructures_systems
+    size: smb
+    notes: "Sheet metal, machined parts for aerospace. Fort Worth, Hot Springs, Phoenix, UK."
+
+  Tighitco:
+    name: TIGHITCO Inc
+    cohort: aerospace_defense
+    sub_cohort: aerostructures_systems
+    size: smb
+    notes: "Aerospace composites, thermal insulation blankets. CT, SC, Mexico."
+
+  GKN:
+    name: GKN Aerospace
+    cohort: aerospace_defense
+    sub_cohort: aerostructures_systems
+    size: smb
+    notes: "Aerostructures and engine components. El Cajon site."
+
+  NORDAM:
+    name: NORDAM Group
+    cohort: aerospace_defense
+    sub_cohort: aerostructures_systems
+    size: smb
+    notes: "Aerospace nacelles, thrust reversers, MRO. Tulsa area."
+
+  Triumph:
+    name: Triumph Group
+    cohort: aerospace_defense
+    sub_cohort: aerostructures_systems
+    size: smb
+    notes: "Aerospace structures and systems. Mexicali, Spokane."
+
+  Signia:
+    name: Signia Aerospace
+    cohort: aerospace_defense
+    sub_cohort: aerostructures_systems
+    size: smb
+    notes: "Aerospace components. Montgomery, Piqua. Includes Onboard Systems (cargo hooks)."
+
+  Enjet:
+    name: Enjet Aero
+    cohort: aerospace_defense
+    sub_cohort: aerostructures_systems
+    size: smb
+    notes: "Precision aerospace machining. Multiple US sites + Thailand."
+
+  Allfast:
+    name: Allfast Fastening Systems
+    cohort: aerospace_defense
+    sub_cohort: aerostructures_systems
+    size: smb
+    notes: "Aerospace fasteners and installation tooling."
+
+  Monogram:
+    name: Monogram Aerospace Fasteners
+    cohort: aerospace_defense
+    sub_cohort: aerostructures_systems
+    size: smb
+    notes: "Aerospace fasteners (part of TransDigm)."
+
+  Kirkhill:
+    name: Kirkhill Inc
+    cohort: aerospace_defense
+    sub_cohort: aerostructures_systems
+    size: smb
+    notes: "Aerospace elastomers, seals, fuel cells. Brea, Tijuana."
+
+  Jamco:
+    name: Jamco America
+    cohort: aerospace_defense
+    sub_cohort: aerostructures_systems
+    size: smb
+    notes: "Aircraft interiors — lavatories, galleys, seats, flight deck doors."
+
+  EZ:
+    name: EZ Air Interior
+    cohort: aerospace_defense
+    sub_cohort: aerostructures_systems
+    size: mid
+    unverified: true
+    notes: "Aircraft interior parts, finance. Montreal, Santa Maria. Site codes (CG1, C61) mirror Safran Cabin — may be a Safran division."
+
+  Erickson:
+    name: Erickson Inc
+    cohort: aerospace_defense
+    sub_cohort: aerostructures_systems
+    size: smb
+    notes: "Helicopters, aerial services. Central Point OR."
+
+  Harcosemco:
+    name: HarcoSemco
+    cohort: aerospace_defense
+    sub_cohort: avionics_electronics
+    size: smb
+    notes: "Aerospace sensors, thermocouples, cable harnesses. TransDigm subsidiary. Branford CT, Nogales."
+
+  Thales:
+    name: Thales Avionics
+    cohort: aerospace_defense
+    sub_cohort: avionics_electronics
+    size: smb
+    notes: "In-flight entertainment and avionics. Irvine, Orlando."
+
+  Korry:
+    name: Korry Electronics
+    cohort: aerospace_defense
+    sub_cohort: avionics_electronics
+    size: mid
+    notes: "Cockpit displays and switches. Everett WA. Part of L3Harris/Esterline."
+
+  CMC:
+    name: CMC Electronics
+    cohort: aerospace_defense
+    sub_cohort: avionics_electronics
+    size: smb
+    unverified: true
+    notes: "Avionics, cockpit systems. Montreal. CMC is a common acronym — confirm identity."
+
+  BJG:
+    name: BJG Electronics
+    cohort: aerospace_defense
+    sub_cohort: avionics_electronics
+    size: smb
+    notes: "High-rel electronic components for aerospace/defense. Ronkonkoma NY."
+
+  Auxitrol:
+    name: Auxitrol (Safran subsidiary)
+    cohort: aerospace_defense
+    sub_cohort: avionics_electronics
+    size: smb
+    parent: Safran
+    notes: "Aerospace sensors. Bourges France, Tijuana."
+
+  CAES:
+    name: CAES (Cobham Advanced Electronic Solutions)
+    cohort: aerospace_defense
+    sub_cohort: defense_electronics
+    size: mid
+    notes: "Defense electronics, RF/microwave. San Diego."
+
+  Curtiss:
+    name: Curtiss-Wright Corporation
+    cohort: aerospace_defense
+    sub_cohort: defense_electronics
+    size: mid
+    notes: "Defense electronics, actuation, sensors. Multiple divisions."
+
+  Mercury:
+    name: Mercury Systems
+    cohort: aerospace_defense
+    sub_cohort: defense_electronics
+    size: smb
+    notes: "Defense electronics, processing subsystems. Multiple US sites."
+
+  ITT:
+    name: ITT Aerospace Controls
+    cohort: aerospace_defense
+    sub_cohort: defense_electronics
+    size: smb
+    notes: "Aerospace connectors, controls, ECS. Nogales, Valencia, Orchard Park."
+
+  VACCO:
+    name: VACCO Industries
+    cohort: aerospace_defense
+    sub_cohort: defense_electronics
+    size: mid
+    notes: "Aerospace/defense valves, filters, etched disc technology."
+
+  Special:
+    name: Special Products & Manufacturing
+    cohort: aerospace_defense
+    sub_cohort: defense_electronics
+    size: smb
+    unverified: true
+    notes: "Defense/aerospace specialty. 'Rockwell' in site name could be a location or Rockwell Collins reference."
+
+  # ════════════════════════════════════════════════
+  # HVAC, REFRIGERATION & BUILDING SYSTEMS
+  # ════════════════════════════════════════════════
+  Carrier:
+    name: Carrier Global Corporation
+    cohort: hvac_building
+    sub_cohort: hvac_refrigeration
+    size: enterprise
+    aliases: [Carrrier]
+    notes: "HVAC, refrigeration, fire & security. 100+ sites globally."
+
+  JCI:
+    name: Johnson Controls International
+    cohort: hvac_building
+    sub_cohort: hvac_refrigeration
+    size: enterprise
+    aliases: [Johnson]
+    notes: "Building automation, HVAC, fire & security. 20+ sites. JCI and Johnson are same company in Pendo."
+
+  Daikin:
+    name: Daikin Industries
+    cohort: hvac_building
+    sub_cohort: hvac_refrigeration
+    size: mid
+    aliases: [Daiking]
+    notes: "HVAC systems. San Luis Potosí, Staunton, Tijuana."
+
+  Hussmann:
+    name: Hussmann Corporation
+    cohort: hvac_building
+    sub_cohort: hvac_refrigeration
+    size: mid
+    aliases: [Hussman]
+    notes: "Commercial refrigeration (Panasonic subsidiary). Chino, Monterrey, Tijuana."
+
+  Modine:
+    name: Modine Manufacturing
+    cohort: hvac_building
+    sub_cohort: hvac_refrigeration
+    size: enterprise
+    notes: "Thermal management, heat exchangers. US, Brazil, Hungary, Netherlands, Mexico."
+
+  Kidde:
+    name: Kidde Global Solutions
+    cohort: hvac_building
+    sub_cohort: fire_safety
+    size: mid
+    parent: Carrier
+    notes: "Fire detection and suppression. EMEA distribution, Matamoros, Poland."
+
+  Spectrum:
+    name: Spectrum Safety (Carrier)
+    cohort: hvac_building
+    sub_cohort: fire_safety
+    size: smb
+    parent: Carrier
+    notes: "Fire safety brands — Autronica, Det-Tronics, Fireye, Marioff."
+
+  MSA:
+    name: MSA Safety
+    cohort: hvac_building
+    sub_cohort: fire_safety
+    size: enterprise
+    notes: "Safety equipment — gas detection, fall protection, firefighter gear. 59 sites worldwide."
+
+  Enviro:
+    name: Enviro Systems
+    cohort: hvac_building
+    sub_cohort: hvac_refrigeration
+    size: mid
+    unverified: true
+    notes: "Environmental control systems. Generic name — confirm identity and cohort."
+
+  Current:
+    name: Current Lighting (former GE Current)
+    cohort: hvac_building
+    sub_cohort: building_products
+    size: mid
+    notes: "Commercial/industrial lighting. 24 sites across US, Canada, Mexico."
+
+  Chamberlain:
+    name: Chamberlain Group
+    cohort: hvac_building
+    sub_cohort: building_products
+    size: mid
+    notes: "Garage door openers, access solutions. Nogales."
+
+  Sloan:
+    name: Sloan Valve Company
+    cohort: hvac_building
+    sub_cohort: building_products
+    size: smb
+    notes: "Commercial plumbing/water management. Franklin Park, Mesa, etc."
+
+  HySecurity:
+    name: HySecurity
+    cohort: hvac_building
+    sub_cohort: building_products
+    size: smb
+    notes: "Gate operators and security systems."
+
+  Turbochef:
+    name: TurboChef Technologies
+    cohort: hvac_building
+    sub_cohort: building_products
+    size: mid
+    notes: "High-speed commercial cooking equipment."
+
+  Refrigeration:
+    name: Refrigeration Solutions France
+    cohort: hvac_building
+    sub_cohort: hvac_refrigeration
+    size: smb
+    unverified: true
+    notes: "Refrigeration. Aubagne France. May be a Carrier subsidiary."
+
+  # ════════════════════════════════════════════════
+  # AUTOMOTIVE & VEHICLES
+  # ════════════════════════════════════════════════
+  Ford:
+    name: Ford Motor Company
+    cohort: vehicles
+    sub_cohort: automotive_oem
+    size: smb
+    notes: "Powertrain plants — Essex, Rawsonville, Sterling Axle, Van Dyke, Irapuato."
+
+  Bosch:
+    name: Robert Bosch
+    cohort: vehicles
+    sub_cohort: automotive_oem
+    size: smb
+    notes: "Automotive/industrial. Querétaro, Tizayuca, Toluca (Mexico)."
+
+  CAT:
+    name: Caterpillar (Reman)
+    cohort: vehicles
+    sub_cohort: heavy_equipment
+    size: smb
+    unverified: true
+    notes: "Likely Caterpillar remanufacturing (Mississippi). 'CAT Reman MS' strongly suggests Caterpillar but unconfirmed."
+
+  Gentex:
+    name: Gentex Corporation
+    cohort: vehicles
+    sub_cohort: automotive_oem
+    size: smb
+    notes: "Auto-dimming mirrors, electronics. Carbondale."
+
+  Control:
+    name: Control Devices
+    cohort: vehicles
+    sub_cohort: automotive_oem
+    size: smb
+    unverified: true
+    notes: "Automotive sensors, pressure switches. Fenton, Carr Lane. 'Control' is generic — confirm identity."
+
+  Midtronics:
+    name: Midtronics
+    cohort: vehicles
+    sub_cohort: automotive_oem
+    size: smb
+    notes: "Battery testing and management for automotive."
+
+  Fujikura:
+    name: Fujikura Automotive
+    cohort: vehicles
+    sub_cohort: automotive_oem
+    size: smb
+    notes: "Wiring harnesses. Mexico plants (MZ, PN series)."
+
+  Tata:
+    name: Tata AutoComp / TitanX
+    cohort: vehicles
+    sub_cohort: automotive_oem
+    size: smb
+    aliases: [TitanX]
+    notes: "Automotive thermal. Saltillo Mexico."
+
+  REV:
+    name: REV Group
+    cohort: vehicles
+    sub_cohort: specialty_vehicles
+    size: mid
+    aliases: [Rev, E-One]
+    notes: "Fire trucks, ambulances, buses, RVs. 22+ sites. E-One is a REV brand."
+
+  EnTrans:
+    name: EnTrans International
+    cohort: vehicles
+    sub_cohort: specialty_vehicles
+    size: mid
+    aliases: [Entrans]
+    notes: "Tank trailers, liquid transportation. Athens, Juárez, Gatesville, Holdingford."
+
+  CVG:
+    name: Commercial Vehicle Group
+    cohort: vehicles
+    sub_cohort: specialty_vehicles
+    size: smb
+    notes: "Cab systems, trim, seating for commercial vehicles. Vonore."
+
+  Viking:
+    name: Viking-Cives
+    cohort: vehicles
+    sub_cohort: specialty_vehicles
+    size: smb
+    notes: "Snow plows, truck-mounted equipment. CT, ME, VT, NY."
+
+  Nelson:
+    name: Nelson Global Products
+    cohort: vehicles
+    sub_cohort: specialty_vehicles
+    size: smb
+    notes: "Exhaust and emissions systems for commercial vehicles. Indianapolis, Monterrey."
+
+  USSC:
+    name: USSC Group
+    cohort: vehicles
+    sub_cohort: specialty_vehicles
+    size: smb
+    notes: "Transportation seating. Exton PA, Sweden."
+
+  # ════════════════════════════════════════════════
+  # MEDICAL DEVICES
+  # ════════════════════════════════════════════════
+  Terumo:
+    name: Terumo Corporation
+    cohort: medical_devices
+    size: enterprise
+    notes: "Medical devices — cardiovascular, blood management. 31 global sites."
+
+  MicroVention:
+    name: MicroVention (Terumo)
+    cohort: medical_devices
+    size: smb
+    aliases: [Microvention]
+    parent: Terumo
+    notes: "Neurovascular medical devices. California, Costa Rica."
+
+  Cirtec:
+    name: Cirtec Medical
+    cohort: medical_devices
+    size: mid
+    notes: "Medical device contract manufacturing. 13 sites — implantable, interventional."
+
+  Baxter:
+    name: Baxter International
+    cohort: medical_devices
+    size: smb
+    notes: "Medical devices, renal care. Batesville."
+
+  Artiflex:
+    name: Artiflex Manufacturing
+    cohort: medical_devices
+    size: smb
+    notes: "Contract manufacturing (medical focus). Wooster OH."
+
+  # ════════════════════════════════════════════════
+  # INDUSTRIAL EQUIPMENT & MACHINERY
+  # ════════════════════════════════════════════════
+  Dover:
+    name: Dover Corporation
+    cohort: industrial_equipment
+    sub_cohort: pumps_flow
+    size: enterprise
+    notes: "Diversified industrial — PSG (pumps), DFS (fueling), OPW, Belvac, Destaco. 46 sites."
+
+  Flowserve:
+    name: Flowserve Corporation
+    cohort: industrial_equipment
+    sub_cohort: pumps_flow
+    size: mid
+    notes: "Pumps, valves, seals for flow control. 37 global sites."
+
+  Ingersoll:
+    name: Ingersoll Rand
+    cohort: industrial_equipment
+    sub_cohort: pumps_flow
+    size: mid
+    notes: "Compressors, tools, fluid management. Nash, PST divisions."
+
+  Milton:
+    name: Milton Roy (Ingersoll Rand)
+    cohort: industrial_equipment
+    sub_cohort: pumps_flow
+    size: mid
+    parent: Ingersoll
+    notes: "Metering pumps, mixing. Southern Pines, Europe."
+
+  Hydraforce:
+    name: HydraForce Inc
+    cohort: industrial_equipment
+    sub_cohort: pumps_flow
+    size: mid
+    notes: "Hydraulic valves and manifolds. Lincolnshire IL, UK, China."
+
+  IDEX:
+    name: IDEX Corporation
+    cohort: industrial_equipment
+    sub_cohort: pumps_flow
+    size: smb
+    notes: "Diversified industrial (pumps, flow tech). CVI Albuquerque."
+
+  Astec:
+    name: Astec Industries
+    cohort: industrial_equipment
+    sub_cohort: heavy_machinery
+    size: mid
+    notes: "Road construction, aggregate processing equipment. Chattanooga, Burlington."
+
+  Columbus:
+    name: Columbus McKinnon
+    cohort: industrial_equipment
+    sub_cohort: heavy_machinery
+    size: smb
+    notes: "Hoists, rigging, motion control. Wadesboro, La Vergne."
+
+  Husky:
+    name: Husky Injection Molding
+    cohort: industrial_equipment
+    sub_cohort: heavy_machinery
+    size: mid
+    notes: "Plastic injection molding systems. Bolton, Milton, Lux, Shanghai."
+
+  CPM:
+    name: CPM Holdings
+    cohort: industrial_equipment
+    sub_cohort: process_equipment
+    size: smb
+    notes: "Process equipment for food, animal feed. Waterloo, Zaandam."
+
+  Duravant:
+    name: Duravant LLC
+    cohort: industrial_equipment
+    sub_cohort: process_equipment
+    size: smb
+    notes: "Food processing & packaging equipment. FMH, Foodmate, Key Technologies, Marlen, nVenia."
+
+  Integrated:
+    name: Integrated Packaging Machinery
+    cohort: industrial_equipment
+    sub_cohort: process_equipment
+    size: smb
+    notes: "Packaging equipment."
+
+  Convergix:
+    name: Convergix Automation Solutions
+    cohort: industrial_equipment
+    sub_cohort: automation
+    size: enterprise
+    notes: "Industrial automation and robotics integration."
+
+  JR:
+    name: JR Automation
+    cohort: industrial_equipment
+    sub_cohort: automation
+    size: enterprise
+    notes: "Industrial automation, robotics (Hitachi subsidiary)."
+
+  Destaco:
+    name: DESTACO (Dover)
+    cohort: industrial_equipment
+    sub_cohort: automation
+    size: smb
+    parent: Dover
+    notes: "Industrial clamping, gripping, transferring. Mt. Juliet, Oberursel."
+
+  OEM:
+    name: OEM Controls
+    cohort: industrial_equipment
+    sub_cohort: automation
+    size: smb
+    unverified: true
+    notes: "Industrial controls. 'OEM' is extremely generic — confirm actual company name."
+
+  Watlow:
+    name: Watlow Electric Manufacturing
+    cohort: industrial_equipment
+    sub_cohort: thermal_industrial
+    size: mid
+    notes: "Industrial heaters, temperature controllers. Columbia, Hannibal, St Louis, Mexico, Poland."
+
+  Jonathan:
+    name: Jonathan Engineered Solutions
+    cohort: industrial_equipment
+    sub_cohort: hardware
+    size: smb
+    unverified: true
+    notes: "Engineered hardware, fasteners. Emcor, JES. Could be a person name rather than company name."
+
+  Leco:
+    name: LECO Corporation
+    cohort: industrial_equipment
+    sub_cohort: analytical_instruments
+    size: smb
+    notes: "Analytical instruments, metallography."
+
+  Nuvera:
+    name: Nuvera Fuel Cells
+    cohort: industrial_equipment
+    sub_cohort: energy_systems
+    size: smb
+    notes: "Fuel cell engines for material handling."
+
+  # ════════════════════════════════════════════════
+  # ELECTRONICS, ELECTRICAL & SEMICONDUCTORS
+  # ════════════════════════════════════════════════
+  Viakable:
+    name: Viakable (Xignux)
+    cohort: electronics
+    sub_cohort: wire_cable
+    size: enterprise
+    aliases: [Viakablemex]
+    notes: "Wire and cable manufacturer. 52 sites across Mexico."
+
+  Volex:
+    name: Volex plc
+    cohort: electronics
+    sub_cohort: wire_cable
+    size: smb
+    notes: "Power cords, cable assemblies. Spokane."
+
+  Interconnect:
+    name: Interconnect Solutions
+    cohort: electronics
+    sub_cohort: connectors
+    size: smb
+    notes: "Connectors, cable assemblies. Chino, Mexico, ISC, Tri-Tek, Cablenet."
+
+  Chatsworth:
+    name: Chatsworth Products
+    cohort: electronics
+    sub_cohort: data_infrastructure
+    size: smb
+    notes: "Data center cabinets, containment, power. 5 sites."
+
+  Excelitas:
+    name: Excelitas Technologies
+    cohort: electronics
+    sub_cohort: photonics
+    size: smb
+    notes: "Photonics, optoelectronics. Billerica, Boulder, Hillsboro, Montreal, Toronto."
+
+  Veeco:
+    name: Veeco Instruments
+    cohort: electronics
+    sub_cohort: semiconductor_equipment
+    size: mid
+    notes: "Semiconductor process equipment. San Jose, Somerset."
+
+  Siemens:
+    name: Siemens
+    cohort: electronics
+    sub_cohort: industrial_electronics
+    size: smb
+    aliases: [SIemens]
+    notes: "Industrial conglomerate. Querétaro, Wendell (likely Siemens Energy or Healthineers)."
+
+  Bluecrest:
+    name: BlueCrest
+    cohort: electronics
+    sub_cohort: mail_equipment
+    size: smb
+    unverified: true
+    notes: "Mail processing/document handling. Danbury. Formerly Pitney Bowes division — could belong in industrial_equipment."
+
+  GE:
+    name: GE Appliances (Haier)
+    cohort: electronics
+    sub_cohort: appliances
+    size: smb
+    notes: "Home appliances. Louisville-area plants."
+
+  # ════════════════════════════════════════════════
+  # ADVANCED MATERIALS & ENERGY
+  # ════════════════════════════════════════════════
+  Morgan:
+    name: Morgan Advanced Materials
+    cohort: advanced_materials
+    size: mid
+    notes: "Ceramics, carbon, thermal management. 37 sites globally."
+
+  Aspen:
+    name: Aspen Aerogels
+    cohort: advanced_materials
+    size: mid
+    notes: "Aerogel insulation for energy/industrial. Statesboro, Monterrey."
+
+  EnerSys:
+    name: EnerSys
+    cohort: advanced_materials
+    sub_cohort: energy_storage
+    size: smb
+    aliases: [Enersys]
+    notes: "Industrial batteries, energy storage. Spokane, Suwanee."
+
+  # ════════════════════════════════════════════════
+  # FURNITURE & OFFICE
+  # ════════════════════════════════════════════════
+  HNI:
+    name: HNI Corporation
+    cohort: furniture
+    size: mid
+    notes: "Office furniture — Allsteel, HON, Kimball. 23 distribution sites."
+
+  Knoll:
+    name: Knoll (MillerKnoll)
+    cohort: furniture
+    size: smb
+    notes: "Office furniture. Grand Rapids, Muskegon, Toronto."
+
+  # ════════════════════════════════════════════════
+  # OTHER / NICHE
+  # ════════════════════════════════════════════════
+  Fender:
+    name: Fender Musical Instruments
+    cohort: consumer_products
+    size: smb
+    notes: "Guitars, amplifiers. Corona CA."
+
+  BAYARD:
+    name: Bayards Aluminium Solutions
+    cohort: industrial_equipment
+    size: smb
+    unverified: true
+    notes: "Custom lightweight aluminum structures. Netherlands. All-caps BAYARD — confirm this maps to Bayards."
+
+  AGI:
+    name: Ag Growth International
+    cohort: industrial_equipment
+    sub_cohort: heavy_machinery
+    size: smb
+    notes: "Agricultural grain handling and storage equipment. Omaha, Clay Center."
+
+  Tri-State:
+    name: Tri-State Industries
+    cohort: industrial_equipment
+    size: smb
+    notes: "Oil/gas fabrication and construction services. Louisiana."
+
+  UCC:
+    name: UCC Environmental
+    cohort: industrial_equipment
+    size: smb
+    unverified: true
+    notes: "Environmental services/systems. 'UCC' is a common acronym — confirm identity and cohort."
+
+  # ════════════════════════════════════════════════
+  # EXCLUDED — test, internal, duplicate, or ambiguous accounts
+  # ════════════════════════════════════════════════
+  Support:
+    exclude: true
+    notes: "Internal LeanDNA support/test account."
+  Training:
+    exclude: true
+    notes: "Training site."
+  LeanProjectRecovery:
+    exclude: true
+    notes: "Internal recovery account."
+  ISC:
+    exclude: true
+    notes: "Training site."
+  CI:
+    exclude: true
+    notes: "Strategic projects — internal."
+  USD:
+    exclude: true
+    notes: "Currency conversion placeholder."
+  Tijuana:
+    exclude: true
+    notes: "Orphan site name (no customer prefix)."
+  Jacksonville:
+    exclude: true
+    notes: "Orphan site name."
+  Buena:
+    exclude: true
+    notes: "Orphan site name (Buena Park)."
+  Primary:
+    exclude: true
+    notes: "Upload factory — internal."
+  SBO:
+    exclude: true
+    notes: "Demo account."
+  Stuart:
+    exclude: true
+    notes: "Orphan site — likely a Daher migration artifact."
+  Leach:
+    exclude: true
+    notes: "Training site."
+  TSA:
+    exclude: true
+    notes: "Ambiguous single-site account."
+  AWB:
+    exclude: true
+    notes: "Unknown single-site account."
+  AIP:
+    exclude: true
+    notes: "AIP Reladyne — industrial distribution, not manufacturing."
+  AST:
+    exclude: true
+    notes: "Unclear — AST McCay, AST PMSI. Likely internal/test."
+  L2:
+    exclude: true
+    notes: "Likely L2L software or internal test."
+  Beroun:
+    exclude: true
+    notes: "Carrier Czech Republic site listed separately."
+  Hyster-Yale:
+    exclude: true
+    notes: "Single EMEA site — likely pilot."
+  Stanadyne:
+    exclude: true
+    notes: "Single site (Blythewood) — overlaps with Blythewood prefix."
+  Blythewood:
+    exclude: true
+    notes: "Orphan site name — likely Stanadyne."
+  Monogram:
+    exclude: true
+    notes: "Single site, very small."
+  CVI:
+    exclude: true
+    notes: "Part of IDEX — single site."

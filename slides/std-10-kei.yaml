@@ -1,0 +1,24 @@
+id: kei
+type: standard
+order: 10
+title: Kei AI Adoption
+slide_type: kei
+data_tools: [customer_kei]
+customers: all
+
+prompt: |
+  Show Kei AI chatbot adoption for this customer. Kei is a strategic
+  priority — it's designed to pull executives into the product and keep
+  them engaged by making insights accessible without needing to learn
+  the full UI.
+
+  Display: total queries, unique users, adoption rate (% of active users
+  who have used Kei), and critically whether any executives are among the
+  users. List each Kei user with their email, role, query count, and
+  whether they're an executive.
+
+  If executives are using Kei, highlight this as a strategic win.
+  If no one is using Kei, frame it as a rollout opportunity and suggest
+  the CSM coordinate an enablement session.
+  If non-executives are using it but executives aren't, suggest a
+  targeted executive demo.

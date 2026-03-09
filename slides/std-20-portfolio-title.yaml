@@ -1,0 +1,13 @@
+id: portfolio_title
+type: standard
+order: 20
+title: Portfolio Title
+slide_type: portfolio_title
+data_tools: []
+customers: all
+
+prompt: >
+  Opening slide for the book-of-business review.
+  Shows the total customer count and date range.
+  Sets the stage for a portfolio-wide analysis
+  rather than a single-customer deep dive.

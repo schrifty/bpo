@@ -1,0 +1,18 @@
+id: supply_chain
+type: standard
+order: 15
+title: Supply Chain Overview
+slide_type: supply_chain
+data_tools:
+  - customer_supply_chain
+customers: all
+
+prompt: >
+  Inventory and supply chain metrics from the Customer Success Report.
+  Shows on-hand and on-order inventory values, days of inventory (DOI),
+  excess inventory, and late PO/PR counts per factory. This is the dollar
+  context that's missing from Pendo — it shows what the customer is
+  managing through LeanDNA and the scale of their supply chain operations.
+
+  Excess inventory and high DOI are efficiency opportunities. Late POs
+  and low days coverage are risk signals.

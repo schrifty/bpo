@@ -1,0 +1,14 @@
+id: team
+type: standard
+title: Team Roster
+slide_type: team
+order: "after signals"
+
+prompt: |
+  Show the customer's team roster alongside the LeanDNA account team.
+  This slide sets context for the relationship. Team members are loaded
+  from teams.yaml — no data tools needed.
+
+data_tools: []
+
+customers: all

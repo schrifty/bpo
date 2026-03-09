@@ -1,0 +1,51 @@
+id: cs_health_review
+name: Customer Success Health Review
+audience: Customer Success
+
+purpose: |
+  This deck is for CSMs preparing for QBRs, renewal conversations, or internal
+  health reviews. The narrative arc should be: "Here's where this customer stands,
+  here's what's working, here's what's concerning, and here's what to do about it."
+
+  The audience is a CSM who needs to walk into a meeting with a clear picture of
+  account health and specific talking points. Every slide should answer a question
+  the CSM or their customer might ask. Avoid vanity metrics — focus on signals
+  that drive action: churn risk, expansion opportunity, champion identification,
+  and adoption gaps.
+
+# Slides to include, in order.
+# Each entry references a slide ID from the slides/ folder.
+# Use "include: false" to explicitly exclude a slide that would otherwise apply.
+slides:
+  - slide: title
+  - slide: health
+  - slide: engagement
+  - slide: sites
+  - slide: features
+  - slide: champions
+  - slide: benchmarks
+  - slide: depth
+  - slide: exports
+  - slide: kei
+  - slide: guides
+  - slide: jira
+  - slide: platform_health
+  - slide: supply_chain
+  - slide: platform_value
+  - slide: signals
+  - slide: data_quality
+
+# Override rules:
+# - "require" means the slide MUST appear even if data is sparse
+# - "exclude" means the slide MUST NOT appear regardless of slide config
+# - "condition" is a hint the agent can evaluate at runtime
+overrides:
+  - slide: health
+    require: true
+    note: Always show health — it's the anchor of the conversation.
+  - slide: signals
+    require: true
+    note: Always close with signals — the CSM needs an action list.
+  - slide: kei
+    require: true
+    note: Kei adoption is a strategic priority. Show it even if usage is zero.
