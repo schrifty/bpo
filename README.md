@@ -36,23 +36,23 @@ Add to `.env`: `JIRA_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`
 
 ```bash
 # Single customer
-python run_decks.py cs_health_review --customers Carrier --days 30
+python decks.py cs_health_review --customers Carrier --days 30
 
 # Multiple specific customers
-python run_decks.py cs_health_review --customers Carrier Daikin Siemens --days 30
+python decks.py cs_health_review --customers Carrier Daikin Siemens --days 30
 
 # All active customers
-python run_decks.py cs_health_review --days 30
+python decks.py cs_health_review --days 30
 
 # Different deck type
-python run_decks.py executive_summary --customers Carrier
-python run_decks.py product_adoption --customers Carrier --days 60
+python decks.py executive_summary --customers Carrier
+python decks.py product_adoption --customers Carrier --days 60
 
 # Portfolio (book of business — single cross-customer deck)
-python run_decks.py portfolio_review --days 30
+python decks.py portfolio_review --days 30
 
 # See all available deck types
-python run_decks.py --list
+python decks.py --list
 ```
 
 **Useful flags:**
@@ -70,10 +70,10 @@ Deck definitions and slides can be edited on Google Drive so non-developers can 
 
 ```bash
 # Upload new files (won't overwrite existing)
-python run_decks.py --sync-config
+python decks.py --sync-config
 
 # Overwrite Drive files with local versions
-python run_decks.py --sync-config --sync-overwrite
+python decks.py --sync-config --sync-overwrite
 ```
 
 After syncing, the app reads from Drive first and falls back to local files if a Drive file has errors. Parse failures are surfaced on the Data Quality slide.
@@ -120,7 +120,7 @@ bpo/
 │   ├── agent.py              # LangChain agent factory
 │   └── tools/
 │       └── pendo_tool.py     # LangChain tools for agent mode
-├── run_decks.py              # CLI for batch deck generation
+├── decks.py              # CLI for batch deck generation
 └── main.py                   # CLI for interactive agent mode
 ```
 
