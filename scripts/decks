@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Run the deck generator from anywhere.
+BPO_DIR="/Users/Marc.Schriftman/Documents/projects/bpo"
+exec "$BPO_DIR/.venv/bin/python" "$BPO_DIR/decks.py" "$@"
