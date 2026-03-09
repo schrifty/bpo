@@ -1520,6 +1520,25 @@ class PendoClient:
                     sources=("health report account.total_sites", "sites list length"),
                     severity="warning")
 
+        # CS Report data (optional — from Data Exports shared drive)
+        cs_platform_health = {}
+        cs_supply_chain = {}
+        cs_platform_value = {}
+        try:
+            from .cs_report_client import (
+                get_customer_platform_health,
+                get_customer_supply_chain,
+                get_customer_platform_value,
+                cross_validate_with_pendo,
+            )
+            cs_platform_health = get_customer_platform_health(customer_name)
+            cs_supply_chain = get_customer_supply_chain(customer_name)
+            cs_platform_value = get_customer_platform_value(customer_name)
+            cross_validate_with_pendo(customer_name, {**health, "sites": sites_data.get("sites", [])})
+        except Exception as e:
+            qa.flag(f"CS Report data unavailable: {str(e)[:80]}",
+                    sources=("CS Report / Data Exports",), severity="warning")
+
         return {
             **health,
             "sites": sites_data.get("sites", []),
@@ -1532,6 +1551,9 @@ class PendoClient:
             "kei": kei_data,
             "guides": guides_data,
             "jira": jira_data,
+            "cs_platform_health": cs_platform_health,
+            "cs_supply_chain": cs_supply_chain,
+            "cs_platform_value": cs_platform_value,
         }
 
     # ── Portfolio-level methods (cross-customer analysis) ──

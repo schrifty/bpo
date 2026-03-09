@@ -6,7 +6,7 @@ reason about, while leaving narrative/sequencing decisions to the agent.
 
 import functools
 import json
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 
 from langchain_core.tools import BaseTool
 from pydantic import Field
@@ -36,10 +36,50 @@ def _network_safe(fn):
     return wrapper
 
 
-# ── Data tools (interpretable summaries the agent can reason about) ──
+# ── Base classes ──
 
 
-class CustomerHealthTool(BaseTool):
+class _PendoDataTool(BaseTool):
+    """Base for Pendo tools that take 'customer' or 'customer,days' and call a PendoClient method."""
+
+    integration_key: Optional[str] = Field(default=None, exclude=True)
+    base_url: Optional[str] = Field(default=None, exclude=True)
+    _client_method: ClassVar[str]
+
+    @_network_safe
+    def _run(self, query: str) -> str:
+        parts = [p.strip() for p in query.split(",")]
+        customer = parts[0]
+        days = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 30
+        logger.info("Tool: %s | %s, %dd", self.name, customer, days)
+        method = getattr(_client(self.integration_key, self.base_url), self._client_method)
+        return json.dumps(method(customer, days), indent=2)
+
+    async def _arun(self, query: str) -> str:
+        raise NotImplementedError
+
+
+class _CSReportTool(BaseTool):
+    """Base for CS Report tools that take 'customer' and call a cs_report_client function."""
+
+    _report_function: ClassVar[str]
+
+    @_network_safe
+    def _run(self, query: str) -> str:
+        from .. import cs_report_client
+        customer = query.strip().split(",")[0].strip()
+        logger.info("Tool: %s | %s", self.name, customer)
+        fn = getattr(cs_report_client, self._report_function)
+        return json.dumps(fn(customer), indent=2)
+
+    async def _arun(self, query: str) -> str:
+        raise NotImplementedError
+
+
+# ── Pendo data tools ──
+
+
+class CustomerHealthTool(_PendoDataTool):
     """Engagement summary, role breakdown, benchmarks, and auto-detected signals for a customer."""
 
     name: str = "customer_health"
@@ -49,23 +89,10 @@ class CustomerHealthTool(BaseTool):
         "(dormancy, concentration risk, executive engagement, etc). "
         "Input: customer name (e.g. 'AGI') or 'customer,days' (e.g. 'AGI,30')."
     )
-    integration_key: Optional[str] = Field(default=None, exclude=True)
-    base_url: Optional[str] = Field(default=None, exclude=True)
-
-    @_network_safe
-    def _run(self, query: str) -> str:
-        parts = [p.strip() for p in query.split(",")]
-        customer = parts[0]
-        days = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 30
-        logger.info("Tool: customer_health | %s, %dd", customer, days)
-        result = _client(self.integration_key, self.base_url).get_customer_health(customer, days)
-        return json.dumps(result, indent=2)
-
-    async def _arun(self, query: str) -> str:
-        raise NotImplementedError
+    _client_method = "get_customer_health"
 
 
-class CustomerSitesTool(BaseTool):
+class CustomerSitesTool(_PendoDataTool):
     """Per-site metrics for a customer."""
 
     name: str = "customer_sites"
@@ -74,23 +101,10 @@ class CustomerSitesTool(BaseTool):
         "total events, minutes, and last active date for each site. "
         "Input: customer name (e.g. 'AGI') or 'customer,days'."
     )
-    integration_key: Optional[str] = Field(default=None, exclude=True)
-    base_url: Optional[str] = Field(default=None, exclude=True)
-
-    @_network_safe
-    def _run(self, query: str) -> str:
-        parts = [p.strip() for p in query.split(",")]
-        customer = parts[0]
-        days = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 30
-        logger.info("Tool: customer_sites | %s, %dd", customer, days)
-        result = _client(self.integration_key, self.base_url).get_customer_sites(customer, days)
-        return json.dumps(result, indent=2)
-
-    async def _arun(self, query: str) -> str:
-        raise NotImplementedError
+    _client_method = "get_customer_sites"
 
 
-class CustomerFeaturesTool(BaseTool):
+class CustomerFeaturesTool(_PendoDataTool):
     """Top pages and features a customer uses."""
 
     name: str = "customer_features"
@@ -99,23 +113,10 @@ class CustomerFeaturesTool(BaseTool):
         "Shows what product value the customer is extracting and what they're ignoring. "
         "Input: customer name (e.g. 'AGI') or 'customer,days'."
     )
-    integration_key: Optional[str] = Field(default=None, exclude=True)
-    base_url: Optional[str] = Field(default=None, exclude=True)
-
-    @_network_safe
-    def _run(self, query: str) -> str:
-        parts = [p.strip() for p in query.split(",")]
-        customer = parts[0]
-        days = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 30
-        logger.info("Tool: customer_features | %s, %dd", customer, days)
-        result = _client(self.integration_key, self.base_url).get_customer_features(customer, days)
-        return json.dumps(result, indent=2)
-
-    async def _arun(self, query: str) -> str:
-        raise NotImplementedError
+    _client_method = "get_customer_features"
 
 
-class CustomerPeopleTool(BaseTool):
+class CustomerPeopleTool(_PendoDataTool):
     """Champions and at-risk users for a customer."""
 
     name: str = "customer_people"
@@ -125,23 +126,10 @@ class CustomerPeopleTool(BaseTool):
         "Use this to identify who to protect and who to re-engage. "
         "Input: customer name (e.g. 'AGI') or 'customer,days'."
     )
-    integration_key: Optional[str] = Field(default=None, exclude=True)
-    base_url: Optional[str] = Field(default=None, exclude=True)
-
-    @_network_safe
-    def _run(self, query: str) -> str:
-        parts = [p.strip() for p in query.split(",")]
-        customer = parts[0]
-        days = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 30
-        logger.info("Tool: customer_people | %s, %dd", customer, days)
-        result = _client(self.integration_key, self.base_url).get_customer_people(customer, days)
-        return json.dumps(result, indent=2)
-
-    async def _arun(self, query: str) -> str:
-        raise NotImplementedError
+    _client_method = "get_customer_people"
 
 
-class CustomerDepthTool(BaseTool):
+class CustomerDepthTool(_PendoDataTool):
     """Behavioral depth analysis: how a customer uses the product across read/write/collab."""
 
     name: str = "customer_depth"
@@ -152,23 +140,10 @@ class CustomerDepthTool(BaseTool):
         "high write ratio means they run their supply chain in LeanDNA, not just read dashboards. "
         "Input: customer name (e.g. 'AGI') or 'customer,days'."
     )
-    integration_key: Optional[str] = Field(default=None, exclude=True)
-    base_url: Optional[str] = Field(default=None, exclude=True)
-
-    @_network_safe
-    def _run(self, query: str) -> str:
-        parts = [p.strip() for p in query.split(",")]
-        customer = parts[0]
-        days = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 30
-        logger.info("Tool: customer_depth | %s, %dd", customer, days)
-        result = _client(self.integration_key, self.base_url).get_customer_depth(customer, days)
-        return json.dumps(result, indent=2)
-
-    async def _arun(self, query: str) -> str:
-        raise NotImplementedError
+    _client_method = "get_customer_depth"
 
 
-class CustomerExportsTool(BaseTool):
+class CustomerExportsTool(_PendoDataTool):
     """Export behavior analysis for a customer."""
 
     name: str = "customer_exports"
@@ -178,23 +153,10 @@ class CustomerExportsTool(BaseTool):
         "High export volume can signal deep engagement or that users are working outside "
         "the product. Input: customer name (e.g. 'AGI') or 'customer,days'."
     )
-    integration_key: Optional[str] = Field(default=None, exclude=True)
-    base_url: Optional[str] = Field(default=None, exclude=True)
-
-    @_network_safe
-    def _run(self, query: str) -> str:
-        parts = [p.strip() for p in query.split(",")]
-        customer = parts[0]
-        days = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 30
-        logger.info("Tool: customer_exports | %s, %dd", customer, days)
-        result = _client(self.integration_key, self.base_url).get_customer_exports(customer, days)
-        return json.dumps(result, indent=2)
-
-    async def _arun(self, query: str) -> str:
-        raise NotImplementedError
+    _client_method = "get_customer_exports"
 
 
-class CustomerKeiTool(BaseTool):
+class CustomerKeiTool(_PendoDataTool):
     """Kei AI chatbot usage analysis."""
 
     name: str = "customer_kei"
@@ -204,23 +166,10 @@ class CustomerKeiTool(BaseTool):
         "of strategic engagement and executive pull-through. "
         "Input: customer name (e.g. 'AGI') or 'customer,days'."
     )
-    integration_key: Optional[str] = Field(default=None, exclude=True)
-    base_url: Optional[str] = Field(default=None, exclude=True)
-
-    @_network_safe
-    def _run(self, query: str) -> str:
-        parts = [p.strip() for p in query.split(",")]
-        customer = parts[0]
-        days = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 30
-        logger.info("Tool: customer_kei | %s, %dd", customer, days)
-        result = _client(self.integration_key, self.base_url).get_customer_kei(customer, days)
-        return json.dumps(result, indent=2)
-
-    async def _arun(self, query: str) -> str:
-        raise NotImplementedError
+    _client_method = "get_customer_kei"
 
 
-class CustomerGuidesTool(BaseTool):
+class CustomerGuidesTool(_PendoDataTool):
     """Guide engagement analysis for a customer."""
 
     name: str = "customer_guides"
@@ -230,23 +179,10 @@ class CustomerGuidesTool(BaseTool):
         "signal onboarding friction. Low reach means users aren't hitting guided workflows. "
         "Input: customer name (e.g. 'AGI') or 'customer,days'."
     )
-    integration_key: Optional[str] = Field(default=None, exclude=True)
-    base_url: Optional[str] = Field(default=None, exclude=True)
-
-    @_network_safe
-    def _run(self, query: str) -> str:
-        parts = [p.strip() for p in query.split(",")]
-        customer = parts[0]
-        days = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 30
-        logger.info("Tool: customer_guides | %s, %dd", customer, days)
-        result = _client(self.integration_key, self.base_url).get_customer_guides(customer, days)
-        return json.dumps(result, indent=2)
-
-    async def _arun(self, query: str) -> str:
-        raise NotImplementedError
+    _client_method = "get_customer_guides"
 
 
-class ListCustomersTool(BaseTool):
+class ListCustomersTool(_PendoDataTool):
     """Portfolio overview: all customers ranked with activity stats."""
 
     name: str = "list_customers"
@@ -256,21 +192,19 @@ class ListCustomersTool(BaseTool):
         "to the peer median. Use this to decide which customers need attention. "
         "Input: days (e.g. '30') or empty for default 30 days."
     )
-    integration_key: Optional[str] = Field(default=None, exclude=True)
-    base_url: Optional[str] = Field(default=None, exclude=True)
+    _client_method = "list_customers"
 
     @_network_safe
     def _run(self, query: str = "") -> str:
         days = int(query.strip()) if query.strip().isdigit() else 30
         logger.info("Tool: list_customers | %dd", days)
-        result = _client(self.integration_key, self.base_url).list_customers(days)
-        return json.dumps(result, indent=2)
+        return json.dumps(
+            _client(self.integration_key, self.base_url).list_customers(days),
+            indent=2,
+        )
 
-    async def _arun(self, query: str = "") -> str:
-        raise NotImplementedError
 
-
-# ── Deck & slide tools (tell the agent what deck to build) ──
+# ── Deck & slide tools ──
 
 
 class ListDeckTypesTool(BaseTool):
@@ -315,8 +249,7 @@ class GetDeckDefinitionTool(BaseTool):
         deck_id = parts[0]
         customer = parts[1]
         logger.info("Tool: get_deck_definition | %s for %s", deck_id, customer)
-        result = resolve_deck(deck_id, customer)
-        return json.dumps(result, indent=2)
+        return json.dumps(resolve_deck(deck_id, customer), indent=2)
 
     async def _arun(self, query: str) -> str:
         raise NotImplementedError
@@ -337,8 +270,7 @@ class GetSlideDefinitionsTool(BaseTool):
         from ..slide_loader import get_slide_prompts
         customer = query.strip()
         logger.info("Tool: get_slide_definitions | %s", customer)
-        slides = get_slide_prompts(customer)
-        return json.dumps(slides, indent=2)
+        return json.dumps(get_slide_prompts(customer), indent=2)
 
     async def _arun(self, query: str) -> str:
         raise NotImplementedError
@@ -366,8 +298,7 @@ class CreateDeckTool(BaseTool):
         days = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 30
         deck_name = parts[2] if len(parts) > 2 else None
         logger.info("Tool: create_deck | %s, %dd, %s", customer, days, deck_name)
-        result = create_empty_deck(customer, days, deck_name)
-        return json.dumps(result, indent=2)
+        return json.dumps(create_empty_deck(customer, days, deck_name), indent=2)
 
     async def _arun(self, query: str) -> str:
         raise NotImplementedError
@@ -404,8 +335,7 @@ class AddSlideTool(BaseTool):
             return json.dumps({"error": "deck_id and slide_type are required"})
 
         logger.info("Tool: add_slide | %s -> %s", slide_type, deck_id[:20])
-        result = add_slide(deck_id, slide_type, data)
-        return json.dumps(result, indent=2)
+        return json.dumps(add_slide(deck_id, slide_type, data), indent=2)
 
     async def _arun(self, query: str) -> str:
         raise NotImplementedError
@@ -414,7 +344,7 @@ class AddSlideTool(BaseTool):
 # ── CS Report tools (platform metrics from Data Exports drive) ──
 
 
-class CustomerPlatformHealthTool(BaseTool):
+class CustomerPlatformHealthTool(_CSReportTool):
     """Platform health scores, component availability, and shortages from the CS Report."""
 
     name: str = "customer_platform_health"
@@ -425,19 +355,10 @@ class CustomerPlatformHealthTool(BaseTool):
         "complements Pendo app-usage engagement. "
         "Input: customer name (e.g. 'Daikin')."
     )
-
-    @_network_safe
-    def _run(self, query: str) -> str:
-        from ..cs_report_client import get_customer_platform_health
-        customer = query.strip().split(",")[0].strip()
-        logger.info("Tool: customer_platform_health | %s", customer)
-        return json.dumps(get_customer_platform_health(customer), indent=2)
-
-    async def _arun(self, query: str) -> str:
-        raise NotImplementedError
+    _report_function = "get_customer_platform_health"
 
 
-class CustomerSupplyChainTool(BaseTool):
+class CustomerSupplyChainTool(_CSReportTool):
     """Inventory values, DOI, excess, and shortage details from the CS Report."""
 
     name: str = "customer_supply_chain"
@@ -447,19 +368,10 @@ class CustomerSupplyChainTool(BaseTool):
         "days coverage per factory/site. Shows the dollar context behind product usage. "
         "Input: customer name (e.g. 'Daikin')."
     )
-
-    @_network_safe
-    def _run(self, query: str) -> str:
-        from ..cs_report_client import get_customer_supply_chain
-        customer = query.strip().split(",")[0].strip()
-        logger.info("Tool: customer_supply_chain | %s", customer)
-        return json.dumps(get_customer_supply_chain(customer), indent=2)
-
-    async def _arun(self, query: str) -> str:
-        raise NotImplementedError
+    _report_function = "get_customer_supply_chain"
 
 
-class CustomerPlatformValueTool(BaseTool):
+class CustomerPlatformValueTool(_CSReportTool):
     """ROI metrics: savings achieved, open pipeline, operational throughput from the CS Report."""
 
     name: str = "customer_platform_value"
@@ -470,16 +382,10 @@ class CustomerPlatformValueTool(BaseTool):
         "This is the hard-dollar proof of value for renewals. "
         "Input: customer name (e.g. 'Daikin')."
     )
+    _report_function = "get_customer_platform_value"
 
-    @_network_safe
-    def _run(self, query: str) -> str:
-        from ..cs_report_client import get_customer_platform_value
-        customer = query.strip().split(",")[0].strip()
-        logger.info("Tool: customer_platform_value | %s", customer)
-        return json.dumps(get_customer_platform_value(customer), indent=2)
 
-    async def _arun(self, query: str) -> str:
-        raise NotImplementedError
+# ── Full deck generation ──
 
 
 class GenerateFullDeckTool(BaseTool):
@@ -513,8 +419,7 @@ class GenerateFullDeckTool(BaseTool):
         report = client.get_customer_health_report(customer, days=days)
         if "error" in report:
             return json.dumps({"error": report["error"]})
-        result = create_health_deck(report, deck_id=deck_id)
-        return json.dumps(result, indent=2)
+        return json.dumps(create_health_deck(report, deck_id=deck_id), indent=2)
 
     async def _arun(self, query: str) -> str:
         raise NotImplementedError
@@ -529,7 +434,7 @@ def get_pendo_tools(
     """Return all tools for use with a LangChain agent."""
     common = {"integration_key": integration_key, "base_url": base_url}
     return [
-        # Data (interpretable summaries)
+        # Pendo data (interpretable summaries)
         CustomerHealthTool(**common),
         CustomerSitesTool(**common),
         CustomerFeaturesTool(**common),

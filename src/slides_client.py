@@ -2332,13 +2332,14 @@ def export_slide_thumbnails(
 
     Args:
         presentation_id: Google Slides presentation ID or full URL.
-        output_dir: Where to save PNGs. Defaults to decks/thumbnails/<pres_id>/.
+        output_dir: Where to save PNGs. Defaults to a temp directory.
         size: Thumbnail size — "SMALL" (default 200px) or "LARGE" (default 800px).
 
     Returns:
         List of saved PNG file paths.
     """
     import re
+    import tempfile
     import urllib.request
 
     match = re.search(r"/d/([a-zA-Z0-9_-]+)", presentation_id)
@@ -2354,7 +2355,7 @@ def export_slide_thumbnails(
         return []
 
     if output_dir is None:
-        output_dir = Path("decks") / "thumbnails" / pres_id
+        output_dir = Path(tempfile.mkdtemp(prefix=f"bpo-thumbs-{pres_id[:12]}-"))
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
