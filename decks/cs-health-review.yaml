@@ -29,9 +29,13 @@ slides:
   - slide: kei
   - slide: guides
   - slide: jira
+  - slide: sla_health
+  - slide: engineering
+  - slide: enhancements
   - slide: platform_health
   - slide: supply_chain
   - slide: platform_value
+  - slide: cross_validation
   - slide: signals
   - slide: data_quality
 

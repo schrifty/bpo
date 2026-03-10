@@ -34,46 +34,45 @@ Add to `.env`: `JIRA_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`
 
 ## Generating Decks
 
+The `decks` command takes a natural-language prompt — no flags to memorize:
+
 ```bash
 # Single customer
-python decks.py cs_health_review --customers Carrier --days 30
+decks health review for Carrier
 
 # Multiple specific customers
-python decks.py cs_health_review --customers Carrier Daikin Siemens --days 30
+decks health review for Carrier, Daikin, and Siemens
 
-# All active customers
-python decks.py cs_health_review --days 30
+# All active customers (default)
+decks health review for all customers
 
-# Different deck type
-python decks.py executive_summary --customers Carrier
-python decks.py product_adoption --customers Carrier --days 60
+# Quarter control
+decks health review, Q4 2025
+decks health review for last quarter
+decks product adoption for Carrier, 60 day lookback
+
+# Cap the run
+decks health review, max 5 customers
 
 # Portfolio (book of business — single cross-customer deck)
-python decks.py portfolio_review --days 30
+decks portfolio review
+
+# With thumbnails
+decks health review for Bombardier, with thumbnails
 
 # See all available deck types
-python decks.py --list
+decks --list
 ```
 
-**Useful flags:**
-
-| Flag | Description |
-|------|-------------|
-| `--days 30` | Lookback window (default: 30) |
-| `--max 5` | Cap number of customers (good for testing) |
-| `--workers 2` | Parallel threads (default: 4, reduce if rate-limited) |
-| `--customers X Y Z` | Generate only for named customers |
+The prompt is parsed by a lightweight LLM call (`gpt-4o-mini`) that extracts deck type, customers, quarter, lookback days, max, workers, and thumbnail preference. Anything not specified uses smart defaults (auto-detected quarter, all customers, 4 workers, no thumbnails).
 
 ### Drive Config Sync
 
 Deck definitions and slides can be edited on Google Drive so non-developers can customize them. To push local configs to Drive:
 
 ```bash
-# Upload new files (won't overwrite existing)
-python decks.py --sync-config
-
-# Overwrite Drive files with local versions
-python decks.py --sync-config --sync-overwrite
+decks --sync-config
+decks --sync-config --sync-overwrite
 ```
 
 After syncing, the app reads from Drive first and falls back to local files if a Drive file has errors. Parse failures are surfaced on the Data Quality slide.

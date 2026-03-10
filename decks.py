@@ -1,43 +1,96 @@
 #!/usr/bin/env python3
-"""Generate decks for all active customers.
+"""Generate decks from a natural-language prompt.
 
 Usage:
-    python decks.py cs_health_review
-    python decks.py cs_health_review --quarter Q4 2025
-    python decks.py product_adoption --days 60 --max 10 --workers 2
-    python decks.py --list
+    decks health review for all customers
+    decks product adoption for Bombardier and JCI, Q4 2025
+    decks portfolio review, max 5 customers
+    decks health review for Bombardier, 60 day lookback, with thumbnails
+    decks --list
+    decks --sync-config
 """
 
-import argparse
+import json
 import sys
 import time
 
+from openai import OpenAI
+
+
+def _parse_prompt(prompt: str) -> dict:
+    """Use a lightweight LLM call to extract structured parameters from a prompt."""
+    from src.deck_loader import list_decks
+
+    deck_ids = [d["id"] for d in list_decks()]
+    client = OpenAI()
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        temperature=0,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": (
+                "Extract deck-generation parameters from the user's request. "
+                "Return a JSON object with exactly these keys:\n"
+                f"  deck_id   – one of {deck_ids}. Default \"cs_health_review\". "
+                "Use \"portfolio_review\" for portfolio / book of business requests.\n"
+                "  quarter   – e.g. \"Q1 2026\", \"prev\", \"current\", or null to auto-detect.\n"
+                "  days      – integer lookback override, or null.\n"
+                "  customers – list of customer name strings, or null for all.\n"
+                "  max       – integer cap on customers, or null.\n"
+                "  workers   – integer threads, default 4.\n"
+                "  thumbnails – boolean, default false.\n\n"
+                "Interpret naturally: 'last quarter' → \"prev\", "
+                "'this quarter' → \"current\", 'all customers' → customers null, "
+                "'top 10' → max 10, 'with thumbnails' → thumbnails true."
+            )},
+            {"role": "user", "content": prompt},
+        ],
+    )
+    return json.loads(resp.choices[0].message.content)
+
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate decks from a deck definition")
-    parser.add_argument("deck", nargs="?", help="Deck ID (e.g. cs_health_review)")
-    parser.add_argument("--list", action="store_true", help="List available deck types and exit")
-    parser.add_argument("--quarter", nargs="*", default=None,
-                        help="Quarter override: 'Q1 2026', 'prev', 'current', or omit for auto-detect")
-    parser.add_argument("--days", type=int, default=None,
-                        help="Explicit lookback window in days (overrides --quarter)")
-    parser.add_argument("--max", type=int, default=None, help="Cap number of customers")
-    parser.add_argument("--workers", type=int, default=4, help="Parallel threads (default: 4)")
-    parser.add_argument("--customers", nargs="*", help="Specific customer names (default: all active)")
-    parser.add_argument("--thumbnails", action="store_true", help="Export slide thumbnails (slow, skipped by default)")
-    parser.add_argument("--sync-config", action="store_true", help="Push local decks/slides to Drive and exit")
-    parser.add_argument("--sync-overwrite", action="store_true", help="Overwrite existing Drive configs during sync")
-    args = parser.parse_args()
+    # Quick utility flags that don't need LLM parsing
+    if "--list" in sys.argv:
+        from src.deck_loader import list_decks
+        for m in list_decks():
+            print(f"  {m['id']:25s}  {m['name']}")
+        return
+
+    if "--sync-config" in sys.argv:
+        from src.drive_config import sync_config_to_drive
+        overwrite = "--sync-overwrite" in sys.argv
+        stats = sync_config_to_drive(overwrite=overwrite)
+        print(f"Decks uploaded:     {stats['decks_uploaded']}")
+        print(f"Slides uploaded:    {stats['slides_uploaded']}")
+        print(f"Skipped (exist):    {stats['skipped']}")
+        return
+
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print(__doc__.strip())
+        return
+
+    prompt = " ".join(a for a in sys.argv[1:] if not a.startswith("-"))
+    if not prompt.strip():
+        print(__doc__.strip())
+        sys.exit(1)
+
+    params = _parse_prompt(prompt)
+    deck_id = params.get("deck_id", "cs_health_review")
+    days_override = params.get("days")
+    customers_list = params.get("customers")
+    max_cust = params.get("max")
+    workers = params.get("workers", 4) or 4
+    thumbnails = params.get("thumbnails", False)
 
     from src.quarters import resolve_quarter
 
-    if args.days:
+    if days_override:
         qr = None
-        days = args.days
+        days = int(days_override)
         period_label = f"{days} days"
     else:
-        q_override = " ".join(args.quarter) if args.quarter else None
-        qr = resolve_quarter(q_override)
+        qr = resolve_quarter(params.get("quarter"))
         days = qr.days
         period_label = f"{qr.label} ({qr.start.strftime('%b %-d')} – {qr.end.strftime('%b %-d, %Y')}, {days}d)"
 
@@ -45,31 +98,15 @@ def main():
     from src.pendo_client import PendoClient
     from src.slides_client import create_health_decks_for_customers, create_portfolio_deck
 
-    if args.sync_config:
-        from src.drive_config import sync_config_to_drive
-        stats = sync_config_to_drive(overwrite=args.sync_overwrite)
-        print(f"Decks uploaded:     {stats['decks_uploaded']}")
-        print(f"Slides uploaded:    {stats['slides_uploaded']}")
-        print(f"Skipped (exist):    {stats['skipped']}")
-        return
-
-    if args.list:
-        for m in list_decks():
-            print(f"  {m['id']:25s}  {m['name']}")
-        return
-
-    if not args.deck:
-        parser.error("deck is required (use --list to see options)")
-
     # Portfolio deck generates a single cross-customer deck
-    if args.deck == "portfolio_review":
-        print(f"Deck:       {args.deck}")
+    if deck_id == "portfolio_review":
+        print(f"Deck:       {deck_id}")
         print(f"Period:     {period_label}")
-        if args.max:
-            print(f"Max cust:   {args.max}")
+        if max_cust:
+            print(f"Max cust:   {max_cust}")
         print()
         t0 = time.time()
-        result = create_portfolio_deck(days=days, max_customers=args.max, quarter=qr)
+        result = create_portfolio_deck(days=days, max_customers=max_cust, quarter=qr)
         elapsed = time.time() - t0
         print(f"\n{'=' * 60}")
         print(f"Done in {elapsed:.0f}s")
@@ -81,33 +118,32 @@ def main():
             print(f"  OK   {result.get('url', '')}")
         return
 
-    # Generic words that appear as "customers" in Pendo due to site naming artifacts
     _JUNK_CUSTOMERS = {
         "(unknown)", "Automated", "Automatic", "By", "Customer", "LOB",
         "LeanDNA", "Manual", "Override", "Prefixed", "Professional", "Test",
     }
 
-    if args.customers:
-        customers = args.customers
+    if customers_list:
+        customers = customers_list
     else:
         print("Fetching customer list from Pendo...")
         customers = PendoClient().get_sites_by_customer(days)["customer_list"]
         customers = [c for c in customers if c not in _JUNK_CUSTOMERS]
 
-    if args.max:
-        customers = customers[: args.max]
+    if max_cust:
+        customers = customers[: int(max_cust)]
 
-    print(f"Deck:       {args.deck}")
+    print(f"Deck:       {deck_id}")
     print(f"Customers:  {len(customers)}")
     print(f"Period:     {period_label}")
-    print(f"Workers:    {args.workers}")
+    print(f"Workers:    {workers}")
     print()
 
     t0 = time.time()
     results = create_health_decks_for_customers(
-        customers, days=days, max_customers=args.max,
-        deck_id=args.deck, workers=args.workers,
-        thumbnails=args.thumbnails,
+        customers, days=days, max_customers=max_cust,
+        deck_id=deck_id, workers=workers,
+        thumbnails=thumbnails,
         quarter=qr,
     )
     elapsed = time.time() - t0
@@ -128,7 +164,8 @@ def main():
     if fail:
         failed_names = [r.get("customer", "?") for r in fail]
         q_flag = f"--quarter {qr.label}" if qr else f"--days {days}"
-        retry_cmd = f"python decks.py {args.deck} {q_flag} --customers {' '.join(failed_names)}"
+        retry_names = " and ".join(failed_names)
+        retry_cmd = f'decks {deck_id} for {retry_names}, {q_flag.lstrip("--")}'
         print(f"\nTo retry failed customers:\n  {retry_cmd}")
 
     # Generate a portfolio (book of business) deck after per-customer decks
@@ -136,12 +173,13 @@ def main():
     t1 = time.time()
     try:
         from src.slides_client import create_health_deck
-        from src.pendo_client import PendoClient
         client = PendoClient()
-        portfolio_report = client.get_portfolio_report(days=days, max_customers=args.max)
+        portfolio_report = client.get_portfolio_report(days=days, max_customers=max_cust)
         if qr:
             portfolio_report["quarter"] = qr.label
-        portfolio_result = create_health_deck(portfolio_report, deck_id="portfolio_review", thumbnails=args.thumbnails)
+            portfolio_report["quarter_start"] = qr.start.isoformat()
+            portfolio_report["quarter_end"] = qr.end.isoformat()
+        portfolio_result = create_health_deck(portfolio_report, deck_id="portfolio_review", thumbnails=thumbnails)
         p_elapsed = time.time() - t1
         if "error" in portfolio_result:
             print(f"  FAIL  {portfolio_result['error'][:120]}  ({p_elapsed:.0f}s)")

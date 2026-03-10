@@ -13,13 +13,15 @@ SITE_IDS_FIELD = "customfield_10613"   # "Site IDs"
 SEVERITY_FIELD = "customfield_10629"   # "Bug Severity"
 TTFR_FIELD = "customfield_10666"       # "Time to first response" (JSM SLA)
 TTR_FIELD = "customfield_10665"        # "Time to resolution" (JSM SLA)
+SENTIMENT_FIELD = "customfield_10685"  # "Sentiment" (AI-detected)
+REQUEST_TYPE_FIELD = "customfield_10604"  # "Request Type" (JSM)
 
 _ISSUE_FIELDS = [
     "summary", "status", "issuetype", "project", "priority",
     "labels", "components", "created", "updated", "resolution",
     "assignee", "reporter",
     CUSTOMER_FIELD, ORG_FIELD, SITE_IDS_FIELD, SEVERITY_FIELD,
-    TTFR_FIELD, TTR_FIELD,
+    TTFR_FIELD, TTR_FIELD, SENTIMENT_FIELD, REQUEST_TYPE_FIELD,
 ]
 
 
@@ -82,6 +84,15 @@ class JiraClient:
         ttfr_ms, ttfr_breached, ttfr_waiting = _parse_sla(TTFR_FIELD)
         ttr_ms, ttr_breached, ttr_waiting = _parse_sla(TTR_FIELD)
 
+        sentiment_raw = f.get(SENTIMENT_FIELD) or []
+        sentiment = sentiment_raw[0].get("name", "") if sentiment_raw and isinstance(sentiment_raw, list) else ""
+
+        req_type_raw = f.get(REQUEST_TYPE_FIELD) or {}
+        req_type = ""
+        if isinstance(req_type_raw, dict):
+            rt = req_type_raw.get("requestType") or {}
+            req_type = rt.get("name", "") if isinstance(rt, dict) else ""
+
         return {
             "key": issue["key"],
             "summary": f.get("summary", ""),
@@ -105,6 +116,8 @@ class JiraClient:
             "ttr_ms": ttr_ms,
             "ttr_breached": ttr_breached,
             "ttr_waiting": ttr_waiting,
+            "sentiment": sentiment,
+            "request_type": req_type,
         }
 
     def get_customer_jira(self, customer_name: str, days: int = 90) -> dict[str, Any]:
@@ -141,7 +154,16 @@ class JiraClient:
             by_type[i["type"]] = by_type.get(i["type"], 0) + 1
             by_priority[i["priority"]] = by_priority.get(i["priority"], 0) + 1
 
+        by_sentiment: dict[str, int] = {}
+        by_request_type: dict[str, int] = {}
+        for i in issues:
+            s = i.get("sentiment") or "Unknown"
+            by_sentiment[s] = by_sentiment.get(s, 0) + 1
+            rt = i.get("request_type") or "Other"
+            by_request_type[rt] = by_request_type.get(rt, 0) + 1
+
         eng = self._get_engineering_tickets(safe_name)
+        enhancements = self._get_enhancement_requests(safe_name)
         ttfr = self._compute_sla(issues, "ttfr")
         ttr = self._compute_sla(issues, "ttr")
 
@@ -158,6 +180,8 @@ class JiraClient:
             "by_status": dict(sorted(by_status.items(), key=lambda x: -x[1])),
             "by_type": dict(sorted(by_type.items(), key=lambda x: -x[1])),
             "by_priority": dict(sorted(by_priority.items(), key=lambda x: -x[1])),
+            "by_sentiment": dict(sorted(by_sentiment.items(), key=lambda x: -x[1])),
+            "by_request_type": dict(sorted(by_request_type.items(), key=lambda x: -x[1])),
             "recent_issues": [
                 {"key": i["key"], "summary": i["summary"][:60], "type": i["type"],
                  "status": i["status"], "priority": i["priority"], "created": i["created"]}
@@ -169,6 +193,7 @@ class JiraClient:
                 for i in escalated[:5]
             ],
             "engineering": eng,
+            "enhancements": enhancements,
             "ttfr": ttfr,
             "ttr": ttr,
         }
@@ -242,6 +267,42 @@ class JiraClient:
             "closed_count": len(closed_eng),
             "open": [_fmt(i) for i in open_eng[:8]],
             "recent_closed": [_fmt(i) for i in closed_eng[:5]],
+        }
+
+    def _get_enhancement_requests(self, safe_name: str) -> dict[str, Any]:
+        """Fetch ER project tickets for a customer.
+
+        Returns open and recently shipped enhancement requests — shows
+        the customer that their feedback drives product improvements.
+        """
+        jql = (
+            f'project = ER AND (summary ~ "{safe_name}" OR description ~ "{safe_name}"'
+            f' OR "Customer" in ("{safe_name}"))'
+            f" ORDER BY updated DESC"
+        )
+        try:
+            raw = self._search(jql, max_results=50)
+        except Exception as e:
+            logger.warning("ER search failed for %s: %s", safe_name, e)
+            return {"total": 0, "open": [], "shipped": []}
+
+        issues = [self._normalize_issue(i) for i in raw]
+        open_er = [i for i in issues if i["resolution"] == ""]
+        shipped = [i for i in issues if i["resolution"] in ("Fixed", "Done")]
+        declined = [i for i in issues if i["resolution"] in ("Won't Do", "Won't Fix", "Declined", "Future Consideration")]
+
+        def _fmt(i: dict) -> dict:
+            return {"key": i["key"], "summary": i["summary"][:60], "type": i["type"],
+                    "status": i["status"], "priority": i["priority"], "updated": i["updated"]}
+
+        return {
+            "total": len(issues),
+            "open_count": len(open_er),
+            "shipped_count": len(shipped),
+            "declined_count": len(declined),
+            "open": [_fmt(i) for i in open_er[:8]],
+            "shipped": [_fmt(i) for i in shipped[:8]],
+            "declined": [_fmt(i) for i in declined[:5]],
         }
 
     @staticmethod

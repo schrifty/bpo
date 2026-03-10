@@ -318,7 +318,8 @@ class AddSlideTool(BaseTool):
         "Add one slide to a deck. Input is JSON: "
         '{"deck_id": "...", "slide_type": "...", "data": {...}}. '
         "Slide types: title, health, engagement, sites, features, champions, benchmarks, "
-        "exports, depth, kei, guides, custom, signals, team. "
+        "exports, depth, kei, guides, custom, signals, team, jira, sla_health, engineering, "
+        "enhancements, cross_validation, platform_health, supply_chain, platform_value. "
         "For standard types, pass the data tool output as the 'data' field. "
         "For 'custom' type, pass {\"title\": \"...\", \"sections\": [{\"header\": \"...\", \"body\": \"...\"}]}. "
         "Up to 3 sections are rendered as columns. "
@@ -423,19 +424,20 @@ class GenerateFullDeckTool(BaseTool):
 
         if len(parts) > 2 and parts[2].isdigit():
             days = int(parts[2])
-            quarter_label = None
+            qr = None
         else:
             qr = resolve_quarter(parts[2] if len(parts) > 2 else None)
             days = qr.days
-            quarter_label = qr.label
 
-        logger.info("Tool: generate_full_deck | %s, %s, %dd, %s", customer, deck_id, days, quarter_label or "no quarter")
+        logger.info("Tool: generate_full_deck | %s, %s, %dd, %s", customer, deck_id, days, qr.label if qr else "no quarter")
         client = _client(self.integration_key, self.base_url)
         report = client.get_customer_health_report(customer, days=days)
         if "error" in report:
             return json.dumps({"error": report["error"]})
-        if quarter_label:
-            report["quarter"] = quarter_label
+        if qr:
+            report["quarter"] = qr.label
+            report["quarter_start"] = qr.start.isoformat()
+            report["quarter_end"] = qr.end.isoformat()
         return json.dumps(create_health_deck(report, deck_id=deck_id), indent=2)
 
     async def _arun(self, query: str) -> str:
