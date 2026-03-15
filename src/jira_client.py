@@ -188,6 +188,7 @@ class JiraClient:
             "by_priority": dict(sorted(by_priority.items(), key=lambda x: -x[1])),
             "by_sentiment": dict(sorted(by_sentiment.items(), key=lambda x: -x[1])),
             "by_request_type": dict(sorted(by_request_type.items(), key=lambda x: -x[1])),
+            "tickets_over_time": self._bucket_by_week(issues),
             "recent_issues": [
                 {"key": i["key"], "summary": i["summary"][:60], "type": i["type"],
                  "status": i["status"], "priority": i["priority"], "created": i["created"]}
@@ -203,6 +204,36 @@ class JiraClient:
             "ttfr": ttfr,
             "ttr": ttr,
         }
+
+    @staticmethod
+    def _bucket_by_week(issues: list[dict]) -> list[dict]:
+        """Return weekly ticket counts sorted oldest-first.
+
+        Each entry: {"week": "YYYY-Www", "label": "Mar 10", "created": N, "resolved": N}
+        """
+        from datetime import datetime, timedelta
+        buckets: dict[str, dict] = {}
+        for i in issues:
+            for field, col in (("created", "created"), ("updated", "resolved")):
+                raw = i.get(field, "")
+                if not raw:
+                    continue
+                if col == "resolved" and i.get("resolution") == "":
+                    continue
+                try:
+                    dt = datetime.strptime(raw[:10], "%Y-%m-%d")
+                except ValueError:
+                    continue
+                # ISO week key
+                iso = dt.isocalendar()
+                key = f"{iso[0]}-W{iso[1]:02d}"
+                # Monday of that week for the label
+                monday = dt - timedelta(days=dt.weekday())
+                if key not in buckets:
+                    buckets[key] = {"week": key, "label": monday.strftime("%b %-d"), "created": 0, "resolved": 0}
+                buckets[key][col] += 1
+
+        return sorted(buckets.values(), key=lambda b: b["week"])
 
     @staticmethod
     def _compute_sla(issues: list[dict], prefix: str) -> dict[str, Any]:
