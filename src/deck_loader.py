@@ -115,6 +115,8 @@ def resolve_deck(
     excluded = []
     seen_in_slides = set()
 
+    id_counts: dict[str, int] = {}
+
     for entry in deck.get("slides", []):
         rid = entry.get("slide", entry.get("recipe", ""))
         seen_in_slides.add(rid)
@@ -129,15 +131,22 @@ def resolve_deck(
             logger.debug("Slide '%s' referenced in deck but not found for customer '%s'", rid, customer)
             continue
 
+        # Generate unique ID when a slide type appears multiple times
+        id_counts[rid] = id_counts.get(rid, 0) + 1
+        unique_id = f"{rid}_{id_counts[rid]}" if id_counts[rid] > 1 else rid
+
+        # Deck entry fields (e.g. title) override slide definition defaults
+        resolved_title = entry.get("title", slide_def.get("title", slide_def["id"]))
+
         slides.append({
-            "id": slide_def["id"],
+            "id": unique_id,
             "type": slide_def.get("type", "standard"),
-            "title": slide_def.get("title", slide_def["id"]),
+            "title": resolved_title,
             "slide_type": slide_def.get("slide_type", slide_def["id"]),
             "data_tools": slide_def.get("data_tools", []),
             "prompt": slide_def.get("prompt", "").strip(),
             "required": override.get("require", False),
-            "note": override.get("note", ""),
+            "note": entry.get("note", override.get("note", "")),
         })
 
     for rid, override in overrides.items():

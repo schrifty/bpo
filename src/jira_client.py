@@ -15,6 +15,8 @@ TTFR_FIELD = "customfield_10666"       # "Time to first response" (JSM SLA)
 TTR_FIELD = "customfield_10665"        # "Time to resolution" (JSM SLA)
 SENTIMENT_FIELD = "customfield_10685"  # "Sentiment" (AI-detected)
 REQUEST_TYPE_FIELD = "customfield_10604"  # "Request Type" (JSM)
+SITE_CMDB_FIELD = "customfield_11121"   # "Site" (CMDB object ref)
+ENTITY_CMDB_FIELD = "customfield_11154"  # "Entity" (CMDB object ref)
 
 _ISSUE_FIELDS = [
     "summary", "status", "issuetype", "project", "priority",
@@ -22,6 +24,7 @@ _ISSUE_FIELDS = [
     "assignee", "reporter",
     CUSTOMER_FIELD, ORG_FIELD, SITE_IDS_FIELD, SEVERITY_FIELD,
     TTFR_FIELD, TTR_FIELD, SENTIMENT_FIELD, REQUEST_TYPE_FIELD,
+    SITE_CMDB_FIELD, ENTITY_CMDB_FIELD,
 ]
 
 
@@ -118,6 +121,8 @@ class JiraClient:
             "ttr_waiting": ttr_waiting,
             "sentiment": sentiment,
             "request_type": req_type,
+            "site_cmdb": f.get(SITE_CMDB_FIELD),
+            "entity_cmdb": f.get(ENTITY_CMDB_FIELD),
         }
 
     def get_customer_jira(self, customer_name: str, days: int = 90) -> dict[str, Any]:
@@ -170,6 +175,7 @@ class JiraClient:
         self._run_qa_checks(issues, open_issues, resolved, by_status, by_priority, by_type, ttfr, ttr)
 
         return {
+            "base_url": self.base_url,
             "customer": customer_name,
             "days": days,
             "total_issues": len(issues),

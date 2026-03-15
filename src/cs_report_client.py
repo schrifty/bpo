@@ -64,6 +64,21 @@ def _kpi_delta_pct(raw) -> float | None:
     return float(v) if v is not None else None
 
 
+def check_reachable() -> None:
+    """Verify the CS Report folder on Drive is reachable. Raises if Drive or folder is down."""
+    drive = _get_drive()
+    q = f"'{_CS_REPORT_FOLDER_ID}' in parents and trashed = false"
+    drive.files().list(
+        q=q,
+        fields="files(id, name)",
+        includeItemsFromAllDrives=True,
+        supportsAllDrives=True,
+        corpora="drive",
+        driveId=_DATA_EXPORTS_DRIVE_ID,
+        pageSize=1,
+    ).execute()
+
+
 def _fetch_latest_report() -> list[dict[str, Any]]:
     """Download the latest CS Report from Drive and parse all rows.
 
@@ -146,6 +161,18 @@ def _customer_rows(customer_name: str, delta: str = "week") -> list[dict[str, An
     ]
 
 
+def _add_site_entity_from_row(row: dict[str, Any], entry: dict[str, Any]) -> None:
+    """If the CS Report row has site/entity columns (any casing), add them to entry."""
+    for key, val in row.items():
+        if val is None or val == "":
+            continue
+        k = key.strip().lower()
+        if k == "site":
+            entry["site"] = val if isinstance(val, str) else str(val)
+        elif k == "entity":
+            entry["entity"] = val if isinstance(val, str) else str(val)
+
+
 # ── Public API ──
 
 
@@ -199,6 +226,7 @@ def get_customer_platform_health(customer_name: str) -> dict[str, Any]:
             entry["buyer_mapping_quality"] = round(buyer_qual, 1)
         if risk_high is not None:
             entry["high_risk_items"] = int(risk_high)
+        _add_site_entity_from_row(r, entry)
 
         site_health.append(entry)
 
@@ -272,6 +300,7 @@ def get_customer_supply_chain(customer_name: str) -> dict[str, Any]:
             entry["late_pos"] = int(late_po)
         if late_pr is not None:
             entry["late_prs"] = int(late_pr)
+        _add_site_entity_from_row(r, entry)
 
         site_data.append(entry)
 
@@ -343,6 +372,7 @@ def get_customer_platform_value(customer_name: str) -> dict[str, Any]:
             entry["current_fy_spend"] = round(fy_spend)
         if prev_spend is not None:
             entry["previous_fy_spend"] = round(prev_spend)
+        _add_site_entity_from_row(r, entry)
 
         site_data.append(entry)
 

@@ -66,6 +66,17 @@ decks --list
 
 The prompt is parsed by a lightweight LLM call (`gpt-4o-mini`) that extracts deck type, customers, quarter, lookback days, max, workers, and thumbnail preference. Anything not specified uses smart defaults (auto-detected quarter, all customers, 4 workers, no thumbnails).
 
+### Evaluating Custom Slides
+
+CSMs can submit custom slides for automation. Drop a Google Slides presentation into the `new-slides/` folder in your Drive folder, then:
+
+```bash
+decks --evaluate            # assess each slide
+decks --evaluate --verbose  # include full extracted text
+```
+
+The evaluator exports a thumbnail of each slide, extracts text and layout structure, then uses GPT-4o vision to assess reproducibility against current data sources and slide-building capabilities. Output includes feasibility rating, data gaps, visual element analysis, effort estimate, and the closest existing slide type.
+
 ### Drive Config Sync
 
 Deck definitions and slides can be edited on Google Drive so non-developers can customize them. To push local configs to Drive:
@@ -89,6 +100,10 @@ python main.py -i
 # Custom model
 python main.py -m "anthropic:claude-sonnet-4" "Generate a health review for Daikin"
 ```
+
+## Deploying to AWS
+
+To run on AWS (EC2, Lambda, or ECS Fargate), see **[docs/AWS_DEPLOYMENT.md](docs/AWS_DEPLOYMENT.md)** for options, secrets setup, and scheduling.
 
 ## Structure
 

@@ -12,6 +12,9 @@ build/
 .env
 *.json
 !.vscode/*.json
+# Private key for Salesforce JWT — never commit
+server.key
+*.key
 
 # OS
 .DS_Store

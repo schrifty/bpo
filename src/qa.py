@@ -128,11 +128,12 @@ class QARegistry:
     def clean(self) -> bool:
         return len(self.customer_flags) == 0
 
-    def summary(self) -> dict[str, Any]:
+    def summary(self, report: dict | None = None) -> dict[str, Any]:
         """Snapshot suitable for the Data Quality slide builder.
 
         Only includes customer-facing flags. Internal/infrastructure flags
         are logged but excluded from the slide.
+        report: optional health report to infer data source availability (e.g. Salesforce).
         """
         visible = self.customer_flags
         all_flags = self.flags
@@ -144,7 +145,7 @@ class QARegistry:
             "warnings": len([f for f in visible if f.severity == Severity.WARNING]),
             "infos": len([f for f in visible if f.severity == Severity.INFO]),
             "internal_count": len([f for f in all_flags if f.internal]),
-            "data_sources": self._source_status(all_flags),
+            "data_sources": self._source_status(all_flags, report),
             "flags": [
                 {
                     "message": f.message,
@@ -159,15 +160,21 @@ class QARegistry:
         }
 
     @staticmethod
-    def _source_status(flags: list[QAFlag]) -> dict[str, str]:
-        """Determine availability of each data source from the flags."""
-        sources = {"Pendo": "ok", "CS Report": "ok", "JIRA": "ok"}
+    def _source_status(flags: list[QAFlag], report: dict | None = None) -> dict[str, str]:
+        """Determine availability of each data source from the flags and optional report."""
+        sources = {"Pendo": "ok", "CS Report": "ok", "JIRA": "ok", "Salesforce": "unavailable"}
         for f in flags:
             msg = f.message.lower()
             if "jira data unavailable" in msg:
                 sources["JIRA"] = "unavailable"
             elif "cs report data unavailable" in msg:
                 sources["CS Report"] = "unavailable"
+            elif "salesforce data unavailable" in msg:
+                sources["Salesforce"] = "unavailable"
+        if report:
+            sf = report.get("salesforce") or {}
+            if isinstance(sf, dict) and "error" not in sf:
+                sources["Salesforce"] = "ok"
         return sources
 
 

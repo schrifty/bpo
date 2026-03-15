@@ -334,6 +334,61 @@ class PendoClient:
         sorted_sites = sorted(by_site.values(), key=lambda s: (-s["total_events"], s["sitename"]))
         return {"results": sorted_sites, "total": len(by_site)}
 
+    def get_usage_by_site_and_entity(self, days: int = 30) -> dict[str, Any]:
+        """Get usage aggregated by site and entity (page views, feature clicks, events, minutes).
+        Uses metadata.agent sitename and entity at event time. Rows without entity use empty string.
+        """
+        site_field = "properties.__sg__.visitormetadata.agent__sitename"
+        entity_field = "properties.__sg__.visitormetadata.agent__entity"
+        ts = _time_series(days)
+
+        def _pipeline(source: str) -> list[dict[str, Any]]:
+            return [
+                {"source": {source: None, "timeSeries": ts}},
+                {
+                    "select": {
+                        "numEvents": "numEvents",
+                        "numMinutes": "numMinutes",
+                        "sitename": site_field,
+                        "entity": entity_field,
+                    }
+                },
+                {
+                    "group": {
+                        "group": ["sitename", "entity"],
+                        "fields": {"totalEvents": {"sum": "numEvents"}, "totalMinutes": {"sum": "numMinutes"}},
+                    }
+                },
+            ]
+
+        page_data = self.aggregate(_pipeline("pageEvents"))
+        feature_data = self.aggregate(_pipeline("featureEvents"))
+
+        by_key: dict[tuple[str, str], dict[str, Any]] = {}
+        for row in page_data.get("results") or []:
+            site = (row.get("sitename") or "").strip() or "(unknown)"
+            entity = (row.get("entity") or "").strip() if row.get("entity") else ""
+            key = (site, entity)
+            by_key[key] = {
+                "sitename": site,
+                "entity": entity,
+                "page_views": row.get("totalEvents", 0),
+                "feature_clicks": 0,
+                "total_events": row.get("totalEvents", 0),
+                "total_minutes": row.get("totalMinutes", 0),
+            }
+        for row in feature_data.get("results") or []:
+            site = (row.get("sitename") or "").strip() or "(unknown)"
+            entity = (row.get("entity") or "").strip() if row.get("entity") else ""
+            key = (site, entity)
+            if key not in by_key:
+                by_key[key] = {"sitename": site, "entity": entity, "page_views": 0, "feature_clicks": 0, "total_events": 0, "total_minutes": 0}
+            by_key[key]["feature_clicks"] = row.get("totalEvents", 0)
+            by_key[key]["total_events"] += row.get("totalEvents", 0)
+            by_key[key]["total_minutes"] += row.get("totalMinutes", 0)
+        sorted_results = sorted(by_key.values(), key=lambda s: (-s["total_events"], s["sitename"], s["entity"]))
+        return {"results": sorted_results, "total": len(by_key)}
+
     def get_all_sites_usage_report(
         self, days: int = 30, active_only: bool = False
     ) -> dict[str, Any]:
@@ -506,6 +561,8 @@ class PendoClient:
     _guide_catalog_cache: dict[str, str] | None = None
     _usage_by_site_cache: dict[str, Any] | None = None
     _usage_by_site_cache_ts: float = 0
+    _usage_by_site_entity_cache: dict[str, Any] | None = None
+    _usage_by_site_entity_cache_ts: float = 0
     _cache_lock = threading.Lock()
 
     def _cache_valid(self, ts: float) -> bool:
@@ -622,6 +679,16 @@ class PendoClient:
         result["days"] = days
         self._usage_by_site_cache = result
         self._usage_by_site_cache_ts = time.time()
+        return result
+
+    def _get_usage_by_site_entity_cached(self, days: int) -> dict[str, Any]:
+        if self._usage_by_site_entity_cache and self._cache_valid(self._usage_by_site_entity_cache_ts):
+            if self._usage_by_site_entity_cache.get("days") == days:
+                return self._usage_by_site_entity_cache
+        result = self.get_usage_by_site_and_entity(days=days)
+        result["days"] = days
+        self._usage_by_site_entity_cache = result
+        self._usage_by_site_entity_cache_ts = time.time()
         return result
 
     def preload(self, days: int = 30) -> None:
@@ -980,35 +1047,48 @@ class PendoClient:
             pass
 
     def get_customer_sites(self, customer_name: str, days: int = 30) -> dict[str, Any]:
-        """Per-site metrics: visitors, page views, feature clicks, events, minutes, last active."""
+        """Per-site (and per-entity when present) metrics: visitors, page views, feature clicks, events, minutes, last active.
+        Returns a flat list of rows; each row has sitename and optional entity (Customer → Site → Entity).
+        """
         partition = self._get_visitor_partition(days)
         now_ms = partition["now_ms"]
         customer_visitors, _ = self._filter_customer_visitors(customer_name, partition)
         if not customer_visitors:
             return {"error": f"No visitors found matching '{customer_name}'"}
 
-        site_data: dict[str, dict] = {}
+        # Key by (sitename, entity) so we get one row per site-entity pair when entity is set
+        site_data: dict[tuple[str, str], dict] = {}
         for v in customer_visitors:
             agent = (v.get("metadata") or {}).get("agent") or {}
             auto = (v.get("metadata") or {}).get("auto") or {}
             lv = auto.get("lastvisit", 0)
-            for sn in agent.get("sitenames") or []:
+            entity_str = (agent.get("entity") or "").strip() if agent.get("entity") else ""
+            site_names = agent.get("sitenames") or []
+            if not site_names and agent.get("sitename"):
+                site_names = [agent["sitename"]]
+            for sn in site_names:
                 if not sn or not _name_matches(customer_name, str(sn)):
                     continue
-                if sn not in site_data:
-                    site_data[sn] = {"visitors": 0, "last_visit_ms": 0}
-                site_data[sn]["visitors"] += 1
-                if lv and lv > site_data[sn]["last_visit_ms"]:
-                    site_data[sn]["last_visit_ms"] = lv
+                key = (sn, entity_str)
+                if key not in site_data:
+                    site_data[key] = {"visitors": 0, "last_visit_ms": 0}
+                site_data[key]["visitors"] += 1
+                if lv and lv > site_data[key]["last_visit_ms"]:
+                    site_data[key]["last_visit_ms"] = lv
 
         usage_by_site = self._get_usage_by_site_cached(days)
         usage_map = {r["sitename"]: r for r in (usage_by_site.get("results") or [])}
+        try:
+            usage_by_site_entity = self._get_usage_by_site_entity_cached(days)
+            usage_entity_map = {(r["sitename"], r.get("entity") or ""): r for r in (usage_by_site_entity.get("results") or [])}
+        except Exception:
+            usage_entity_map = {}
 
         sites = []
-        for sn, info in sorted(site_data.items()):
-            usage = usage_map.get(sn, {})
+        for (sn, entity_str), info in sorted(site_data.items(), key=lambda x: (-x[1]["visitors"], x[0][0], x[0][1])):
+            usage = usage_entity_map.get((sn, entity_str)) or usage_map.get(sn, {})
             lv_ms = info["last_visit_ms"]
-            sites.append({
+            row = {
                 "sitename": sn,
                 "visitors": info["visitors"],
                 "page_views": usage.get("page_views", 0),
@@ -1016,7 +1096,10 @@ class PendoClient:
                 "total_events": usage.get("total_events", 0),
                 "total_minutes": usage.get("total_minutes", 0),
                 "last_active": datetime.datetime.fromtimestamp(lv_ms / 1000).strftime("%Y-%m-%d") if lv_ms else "N/A",
-            })
+            }
+            if entity_str:
+                row["entity"] = entity_str
+            sites.append(row)
         return {"customer": customer_name, "days": days, "sites": sites}
 
     def get_customer_features(self, customer_name: str, days: int = 30) -> dict[str, Any]:
@@ -1430,7 +1513,7 @@ class PendoClient:
         }
 
     def get_customer_people(self, customer_name: str, days: int = 30) -> dict[str, Any]:
-        """Champions (most active) and at-risk users (dormant), with roles and last visit."""
+        """Champions (most active) and at-risk users (last login 2 wk–1 yr ago), with roles and last visit."""
         partition = self._get_visitor_partition(days)
         customer_visitors, _ = self._filter_customer_visitors(customer_name, partition)
         if not customer_visitors:
@@ -1438,8 +1521,9 @@ class PendoClient:
 
         user_activity = self._build_user_activity(customer_visitors, partition["now_ms"])
         champions = sorted(user_activity, key=lambda u: u["days_inactive"])[:5]
+        # At-risk: last login > 2 weeks ago and < 1 year ago (re-engagement window)
         at_risk = sorted(
-            [u for u in user_activity if u["days_inactive"] > 30],
+            [u for u in user_activity if 14 <= u["days_inactive"] < 365],
             key=lambda u: -u["days_inactive"],
         )[:8]
         return {"customer": customer_name, "days": days, "champions": champions, "at_risk_users": at_risk}
@@ -1508,6 +1592,17 @@ class PendoClient:
             qa.flag(f"JIRA data unavailable: {str(e)[:80]}",
                     sources=("JIRA API",), severity="warning")
 
+        # Salesforce data (optional — JWT Bearer Flow, skipped if not configured)
+        salesforce_data = {}
+        try:
+            from .salesforce_client import SalesforceClient
+            sf = SalesforceClient()
+            salesforce_data = sf.get_customer_salesforce(customer_name)
+        except Exception as e:
+            from .qa import qa
+            qa.flag(f"Salesforce data unavailable: {str(e)[:80]}",
+                    sources=("Salesforce API",), severity="warning")
+
         # Cross-check: site count from health report vs detailed site list
         from .qa import qa
         health_site_count = health.get("account", {}).get("total_sites", 0)
@@ -1551,6 +1646,7 @@ class PendoClient:
             "kei": kei_data,
             "guides": guides_data,
             "jira": jira_data,
+            "salesforce": salesforce_data,
             "cs_platform_health": cs_platform_health,
             "cs_supply_chain": cs_supply_chain,
             "cs_platform_value": cs_platform_value,

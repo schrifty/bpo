@@ -8,6 +8,11 @@ Usage:
     decks health review for Bombardier, 60 day lookback, with thumbnails
     decks --list
     decks --sync-config
+    decks --evaluate
+    decks hydrate                (pull decks from new-slides, auto-detect customer)
+    decks hydrate Bombardier     (override customer)
+    decks --hydrate / --hydrate Bombardier   (same)
+    decks --qa <presentation-url>
 """
 
 import json
@@ -57,6 +62,51 @@ def main():
             print(f"  {m['id']:25s}  {m['name']}")
         return
 
+    if "--evaluate" in sys.argv:
+        from src.evaluate import evaluate_new_slides
+        verbose = "--verbose" in sys.argv or "-v" in sys.argv
+        results = evaluate_new_slides(verbose=verbose)
+        if results:
+            reproducible = sum(1 for r in results if "fully" in r.get("feasibility", ""))
+            mostly = sum(1 for r in results if "mostly" in r.get("feasibility", ""))
+            partial = sum(1 for r in results if "partially" in r.get("feasibility", ""))
+            blocked = sum(1 for r in results if "not" in r.get("feasibility", ""))
+            print(f"{'=' * 60}")
+            print(f"Summary: {len(results)} slides evaluated")
+            print(f"  ✅ Fully reproducible:     {reproducible}")
+            print(f"  🟡 Mostly reproducible:    {mostly}")
+            print(f"  🟠 Partially reproducible: {partial}")
+            print(f"  ❌ Not reproducible:        {blocked}")
+            print(f"{'=' * 60}")
+        return
+
+    if "--qa" in sys.argv:
+        from src.evaluate import visual_qa
+        import re as _re
+        rest = " ".join(a for a in sys.argv[1:] if a != "--qa").strip()
+        m = _re.search(r"presentation/d/([a-zA-Z0-9_-]+)", rest)
+        pres_id = m.group(1) if m else rest
+        if not pres_id:
+            print("Usage: decks --qa <presentation-url-or-id>")
+            sys.exit(1)
+        results = visual_qa(pres_id)
+        issues = [r for r in results if not r.get("pass", True)]
+        if not issues:
+            print("\nAll slides passed visual QA.")
+        sys.exit(1 if issues else 0)
+
+    if "--hydrate" in sys.argv:
+        from src.evaluate import hydrate_new_slides
+        rest = [a for a in sys.argv[1:] if a not in ("--hydrate",)]
+        override = " ".join(rest).strip() if rest else None
+        if not override:
+            full = " ".join(sys.argv[1:])
+            import re
+            m = re.search(r"(?:for|hydrate)\s+(.+)", full, re.I)
+            override = m.group(1).strip() if m else None
+        hydrate_new_slides(customer_override=override)
+        return
+
     if "--sync-config" in sys.argv:
         from src.drive_config import sync_config_to_drive
         overwrite = "--sync-overwrite" in sys.argv
@@ -70,10 +120,27 @@ def main():
         print(__doc__.strip())
         return
 
-    prompt = " ".join(a for a in sys.argv[1:] if not a.startswith("-"))
-    if not prompt.strip():
+    prompt = " ".join(a for a in sys.argv[1:] if not a.startswith("-")).strip()
+    if not prompt:
         print(__doc__.strip())
         sys.exit(1)
+
+    # "decks hydrate" or "decks hydrate Bombardier" / "decks hydrate for Safran" → pull from new-slides
+    if prompt.lower() == "hydrate" or prompt.lower().startswith("hydrate "):
+        from src.data_source_health import check_all_required
+        from src.evaluate import hydrate_new_slides
+        preflight_errors = check_all_required()
+        if preflight_errors:
+            print("Data source check failed — not running hydrate:")
+            for msg in preflight_errors:
+                print(f"  • {msg}")
+            sys.exit(1)
+        rest = prompt[7:].strip()  # after "hydrate"
+        if rest.lower().startswith("for "):
+            rest = rest[4:].strip()
+        override = rest if rest else None
+        hydrate_new_slides(customer_override=override)
+        return
 
     params = _parse_prompt(prompt)
     deck_id = params.get("deck_id", "cs_health_review")
@@ -97,6 +164,14 @@ def main():
     from src.deck_loader import list_decks
     from src.pendo_client import PendoClient
     from src.slides_client import create_health_decks_for_customers, create_portfolio_deck
+    from src.data_source_health import check_all_required
+
+    preflight_errors = check_all_required()
+    if preflight_errors:
+        print("Data source check failed — not running:")
+        for msg in preflight_errors:
+            print(f"  • {msg}")
+        sys.exit(1)
 
     # Portfolio deck generates a single cross-customer deck
     if deck_id == "portfolio_review":
@@ -168,25 +243,48 @@ def main():
         retry_cmd = f'decks {deck_id} for {retry_names}, {q_flag.lstrip("--")}'
         print(f"\nTo retry failed customers:\n  {retry_cmd}")
 
+    # Only generate portfolio deck when running for multiple customers (not a targeted run)
+    if customers_list and len(customers_list) <= 3:
+        sys.exit(1 if fail else 0)
+
     # Generate a portfolio (book of business) deck after per-customer decks
-    print(f"\nGenerating Book of Business deck...")
+    # Brief cooldown to avoid Drive rate limits after chart/deck creation
+    print(f"\nGenerating Book of Business deck (pausing 10s for rate limit cooldown)...")
+    time.sleep(10)
     t1 = time.time()
-    try:
-        from src.slides_client import create_health_deck
-        client = PendoClient()
-        portfolio_report = client.get_portfolio_report(days=days, max_customers=max_cust)
-        if qr:
-            portfolio_report["quarter"] = qr.label
-            portfolio_report["quarter_start"] = qr.start.isoformat()
-            portfolio_report["quarter_end"] = qr.end.isoformat()
-        portfolio_result = create_health_deck(portfolio_report, deck_id="portfolio_review", thumbnails=thumbnails)
-        p_elapsed = time.time() - t1
-        if "error" in portfolio_result:
-            print(f"  FAIL  {portfolio_result['error'][:120]}  ({p_elapsed:.0f}s)")
-        else:
-            print(f"  OK    {portfolio_result.get('url', '')}  ({p_elapsed:.0f}s)")
-    except Exception as e:
-        print(f"  FAIL  {str(e)[:120]}  ({time.time() - t1:.0f}s)")
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            from src.slides_client import create_health_deck
+            client = PendoClient()
+            portfolio_report = client.get_portfolio_report(days=days, max_customers=max_cust)
+            if qr:
+                portfolio_report["quarter"] = qr.label
+                portfolio_report["quarter_start"] = qr.start.isoformat()
+                portfolio_report["quarter_end"] = qr.end.isoformat()
+            portfolio_result = create_health_deck(portfolio_report, deck_id="portfolio_review", thumbnails=thumbnails)
+            p_elapsed = time.time() - t1
+            if "error" in portfolio_result and "rate" in portfolio_result["error"].lower():
+                if attempt < max_retries:
+                    wait = 15 * attempt
+                    print(f"  Rate limited, retrying in {wait}s (attempt {attempt}/{max_retries})...")
+                    time.sleep(wait)
+                    continue
+            if "error" in portfolio_result:
+                print(f"  FAIL  {portfolio_result['error'][:120]}  ({p_elapsed:.0f}s)")
+            else:
+                print(f"  OK    {portfolio_result.get('url', '')}  ({p_elapsed:.0f}s)")
+            break
+        except Exception as e:
+            p_elapsed = time.time() - t1
+            err = str(e)
+            if "rate" in err.lower() and attempt < max_retries:
+                wait = 15 * attempt
+                print(f"  Rate limited, retrying in {wait}s (attempt {attempt}/{max_retries})...")
+                time.sleep(wait)
+            else:
+                print(f"  FAIL  {err[:120]}  ({p_elapsed:.0f}s)")
+                break
 
     sys.exit(1 if fail else 0)
 

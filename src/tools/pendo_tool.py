@@ -125,7 +125,7 @@ class CustomerPeopleTool(_PendoDataTool):
 
     name: str = "customer_people"
     description: str = (
-        "Get champions (most active users) and at-risk users (30+ days inactive) "
+        "Get champions (most active users) and at-risk users (last login 2 wk–1 yr ago) "
         "for a customer, with email, role, and last visit date. "
         "Use this to identify who to protect and who to re-engage. "
         "Input: customer name (e.g. 'AGI') or 'customer,days'."
