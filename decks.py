@@ -6,6 +6,7 @@ Usage:
     decks product adoption for Bombardier and JCI, Q4 2025
     decks portfolio review, max 5 customers
     decks health review for Bombardier, 60 day lookback, with thumbnails
+    decks engineering portfolio
     decks --list
     decks --sync-config
     decks --evaluate
@@ -140,6 +141,39 @@ def main():
             rest = rest[4:].strip()
         override = rest if rest else None
         hydrate_new_slides(customer_override=override)
+        return
+
+    # "decks engineering portfolio" or "decks eng portfolio" → product-level eng deck
+    _ep_triggers = ("engineering portfolio", "eng portfolio", "engineering review")
+    if any(prompt.lower().startswith(t) for t in _ep_triggers):
+        from src.data_source_health import check_all_required
+        from src.jira_client import JiraClient
+        from src.slides_client import create_health_deck
+        preflight_errors = check_all_required()
+        if preflight_errors:
+            print("Data source check failed — not running:")
+            for msg in preflight_errors:
+                print(f"  • {msg}")
+            sys.exit(1)
+        print("Fetching engineering portfolio data from Jira...")
+        t0 = time.time()
+        eng_data = JiraClient().get_engineering_portfolio(days=30)
+        report = {
+            "type": "engineering_portfolio",
+            "customer": "Engineering",
+            "days": 30,
+            "eng_portfolio": eng_data,
+        }
+        result = create_health_deck(report, deck_id="engineering-portfolio", thumbnails=False)
+        elapsed = time.time() - t0
+        print(f"\n{'=' * 60}")
+        print(f"Done in {elapsed:.0f}s")
+        print(f"{'=' * 60}")
+        if "error" in result:
+            print(f"  FAIL: {result['error'][:120]}")
+            sys.exit(1)
+        else:
+            print(f"  OK   {result.get('url', '')}")
         return
 
     params = _parse_prompt(prompt)

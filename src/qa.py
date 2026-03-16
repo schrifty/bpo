@@ -173,7 +173,8 @@ class QARegistry:
                 sources["Salesforce"] = "unavailable"
         if report:
             sf = report.get("salesforce") or {}
-            if isinstance(sf, dict) and "error" not in sf:
+            if isinstance(sf, dict) and sf and "error" not in sf:
+                # Only mark ok if we actually got data back (non-empty, no error)
                 sources["Salesforce"] = "ok"
         return sources
 

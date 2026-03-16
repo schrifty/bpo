@@ -46,7 +46,7 @@ def _get_drive():
     with _drive_lock:
         if _drive_service is None:
             from .slides_client import _get_service
-            _, _drive_service = _get_service()
+            _x2, _drive_service, _sh2 = _get_service()
         return _drive_service
 
 

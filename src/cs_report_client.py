@@ -27,7 +27,7 @@ _cache_lock = threading.Lock()
 
 def _get_drive():
     from .slides_client import _get_service
-    _, drive = _get_service()
+    _x, drive, _sh = _get_service()
     return drive
 
 

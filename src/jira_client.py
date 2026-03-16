@@ -17,15 +17,126 @@ SENTIMENT_FIELD = "customfield_10685"  # "Sentiment" (AI-detected)
 REQUEST_TYPE_FIELD = "customfield_10604"  # "Request Type" (JSM)
 SITE_CMDB_FIELD = "customfield_11121"   # "Site" (CMDB object ref)
 ENTITY_CMDB_FIELD = "customfield_11154"  # "Entity" (CMDB object ref)
+SPRINT_FIELD = "customfield_10204"       # "Sprint" (Agile sprint array)
+STORY_POINTS_FIELD = "customfield_10202" # "Story Points"
 
 _ISSUE_FIELDS = [
     "summary", "status", "issuetype", "project", "priority",
     "labels", "components", "created", "updated", "resolution",
-    "assignee", "reporter",
+    "assignee", "reporter", "description", "comment",
     CUSTOMER_FIELD, ORG_FIELD, SITE_IDS_FIELD, SEVERITY_FIELD,
     TTFR_FIELD, TTR_FIELD, SENTIMENT_FIELD, REQUEST_TYPE_FIELD,
     SITE_CMDB_FIELD, ENTITY_CMDB_FIELD,
 ]
+
+
+def _extract_adf_text(node: Any, _depth: int = 0) -> str:
+    """Recursively extract plain text from a Jira ADF (Atlassian Document Format) node."""
+    if node is None:
+        return ""
+    if isinstance(node, str):
+        return node
+    if not isinstance(node, dict):
+        return ""
+    node_type = node.get("type", "")
+    if node_type == "text":
+        return node.get("text", "")
+    parts: list[str] = []
+    for child in node.get("content", []) or []:
+        t = _extract_adf_text(child, _depth + 1)
+        if t:
+            parts.append(t)
+    separator = "\n" if node_type in (
+        "paragraph", "bulletList", "orderedList", "listItem",
+        "heading", "blockquote", "codeBlock"
+    ) else " "
+    return separator.join(parts).strip()
+
+
+def _summarize_ticket(issue: dict) -> str:
+    """Use GPT-4o-mini to write a 2–3 sentence narrative for an engineering ticket."""
+    summary = issue.get("summary", "")
+    resolution = issue.get("resolution", "")
+    status = issue.get("status", "")
+    assignee = issue.get("assignee", "") or "unassigned"
+    description = (issue.get("description_text") or "")[:600]
+    comments = issue.get("comment_texts") or []
+    comment_blob = "\n".join(f"- {c[:200]}" for c in comments[:3])
+
+    prompt = (
+        f"Jira ticket: {issue['key']}\n"
+        f"Summary: {summary}\n"
+        f"Status: {status}  |  Resolution: {resolution or 'unresolved'}  |  Assignee: {assignee}\n"
+    )
+    if description:
+        prompt += f"Description: {description}\n"
+    if comment_blob:
+        prompt += f"Recent comments:\n{comment_blob}\n"
+
+    prompt += (
+        "\nWrite 2–3 concise sentences (plain text, no markdown) for an engineering review slide. "
+        "Cover: (1) what the issue was, (2) how it was resolved or its current state, "
+        "(3) anything notable or interesting from the comments. "
+        "Be specific and factual. Do not start with 'This ticket'."
+    )
+    try:
+        from openai import OpenAI
+        client = OpenAI()
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0.3,
+            max_tokens=120,
+            messages=[
+                {"role": "system", "content": "You summarize Jira tickets for engineering review slides."},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        return resp.choices[0].message.content.strip()
+    except Exception as e:
+        logger.warning("GPT ticket summary failed for %s: %s", issue.get("key"), e)
+        # Graceful fallback
+        base = summary[:100]
+        if resolution:
+            return f"{base}. Resolved: {resolution}."
+        return f"{base}. Status: {status}."
+
+
+
+    """Recursively extract plain text from a Jira ADF (Atlassian Document Format) node."""
+    if node is None:
+        return ""
+    if isinstance(node, str):
+        return node
+    if not isinstance(node, dict):
+        return ""
+    node_type = node.get("type", "")
+    # Text leaf
+    if node_type == "text":
+        return node.get("text", "")
+    # Paragraph / block separator
+    parts: list[str] = []
+    for child in node.get("content", []) or []:
+        t = _extract_adf_text(child, _depth + 1)
+        if t:
+            parts.append(t)
+    separator = "\n" if node_type in ("paragraph", "bulletList", "orderedList", "listItem",
+                                       "heading", "blockquote", "codeBlock") else " "
+    text = separator.join(parts)
+    return text.strip()
+
+
+def _extract_comments(comment_field: Any) -> list[str]:
+    """Extract plain text from Jira comment field (ADF bodies). Returns up to 5 most recent."""
+    if not comment_field or not isinstance(comment_field, dict):
+        return []
+    comments = comment_field.get("comments") or []
+    texts = []
+    for c in reversed(comments[-5:]):
+        body = c.get("body")
+        t = _extract_adf_text(body).strip()
+        if t:
+            texts.append(t)
+    return texts
 
 
 class JiraClient:
@@ -123,6 +234,8 @@ class JiraClient:
             "request_type": req_type,
             "site_cmdb": f.get(SITE_CMDB_FIELD),
             "entity_cmdb": f.get(ENTITY_CMDB_FIELD),
+            "description_text": _extract_adf_text(f.get("description")),
+            "comment_texts": _extract_comments(f.get("comment")),
         }
 
     def get_customer_jira(self, customer_name: str, days: int = 90) -> dict[str, Any]:
@@ -147,7 +260,9 @@ class JiraClient:
         open_issues = [i for i in issues if i["resolution"] == ""]
         resolved = [i for i in issues if i["resolution"] != ""]
         escalated = [i for i in issues if "jira_escalated" in i["labels"]
-                     or i["type"] == "Developer escalation"]
+                     or i["type"] == "Developer escalation"
+                     or i["status"] == "In Engineering Queue"
+                     or "customer_escalation" in i["labels"]]
         bugs = [i for i in issues if i["type"] == "Bug"]
         open_bugs = [i for i in bugs if i["resolution"] == ""]
 
@@ -298,12 +413,33 @@ class JiraClient:
             return {"key": i["key"], "summary": i["summary"][:60], "type": i["type"],
                     "status": i["status"], "assignee": i["assignee"], "updated": i["updated"]}
 
+        # Generate narratives in parallel
+        open_show = open_eng[:8]
+        closed_show = closed_eng[:5]
+        all_show = open_show + closed_show
+
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            narratives = list(pool.map(_summarize_ticket, all_show))
+
+        open_fmted = []
+        for i, issue in enumerate(open_show):
+            t = _fmt(issue)
+            t["narrative"] = narratives[i]
+            open_fmted.append(t)
+
+        closed_fmted = []
+        for i, issue in enumerate(closed_show):
+            t = _fmt(issue)
+            t["narrative"] = narratives[len(open_show) + i]
+            closed_fmted.append(t)
+
         return {
             "total": len(issues),
             "open_count": len(open_eng),
             "closed_count": len(closed_eng),
-            "open": [_fmt(i) for i in open_eng[:8]],
-            "recent_closed": [_fmt(i) for i in closed_eng[:5]],
+            "open": open_fmted,
+            "recent_closed": closed_fmted,
         }
 
     def _get_enhancement_requests(self, safe_name: str) -> dict[str, Any]:
@@ -341,6 +477,343 @@ class JiraClient:
             "shipped": [_fmt(i) for i in shipped[:8]],
             "declined": [_fmt(i) for i in declined[:5]],
         }
+
+    def get_engineering_portfolio(self, days: int = 30) -> dict[str, Any]:
+        """Fetch a product/engineering-wide SDLC snapshot — not per-customer.
+
+        Returns sprint state, work-in-progress by theme, velocity, bug health,
+        enhancement backlog, and aggregate support pressure.
+        """
+        import re
+        import requests as _req
+
+        # ── Active sprint from Board 44 (LEAN Scrum - CURRENT Issues) ──
+        sprint_info: dict = {}
+        recent_sprints: list[dict] = []
+        try:
+            resp = _req.get(
+                f"{self.base_url}/rest/agile/1.0/board/44/sprint?state=active",
+                headers=self._headers, timeout=10,
+            )
+            if resp.ok:
+                vals = resp.json().get("values", [])
+                if vals:
+                    s = vals[0]
+                    sprint_info = {
+                        "id": s["id"],
+                        "name": s["name"],
+                        "state": s["state"],
+                        "start": s.get("startDate", "")[:10],
+                        "end": s.get("endDate", "")[:10],
+                        "goal": s.get("goal", ""),
+                    }
+            # Last 4 closed sprints for velocity
+            resp2 = _req.get(
+                f"{self.base_url}/rest/agile/1.0/board/44/sprint?state=closed&maxResults=4",
+                headers=self._headers, timeout=10,
+            )
+            if resp2.ok:
+                for s in reversed(resp2.json().get("values", [])[-4:]):
+                    recent_sprints.append({
+                        "id": s["id"],
+                        "name": s["name"],
+                        "start": s.get("startDate", "")[:10],
+                        "end": s.get("endDate", "")[:10],
+                    })
+        except Exception as e:
+            logger.warning("Sprint fetch failed: %s", e)
+
+        # ── In-flight LEAN tickets (all open) ──
+        _eng_fields = [
+            "summary", "status", "issuetype", "priority", "assignee",
+            "labels", "created", "updated", "resolution",
+            SPRINT_FIELD, STORY_POINTS_FIELD,
+        ]
+        try:
+            body_inflight = {
+                "jql": "project = LEAN AND status in (\"In Progress\", \"In Review\", \"Open\", \"Reopened\") ORDER BY updated DESC",
+                "maxResults": 200,
+                "fields": _eng_fields,
+            }
+            resp_if = _req.post(
+                f"{self.base_url}/rest/api/3/search/jql",
+                headers=self._headers, json=body_inflight, timeout=30,
+            )
+            resp_if.raise_for_status()
+            in_flight_raw = resp_if.json().get("issues", [])
+        except Exception as e:
+            logger.warning("LEAN in-flight fetch failed: %s", e)
+            in_flight_raw = []
+
+        # ── Recent closed LEAN tickets ──
+        try:
+            body_closed = {
+                "jql": f"project = LEAN AND status = Closed AND updated >= -{days}d ORDER BY updated DESC",
+                "maxResults": 200,
+                "fields": _eng_fields,
+            }
+            resp_c = _req.post(
+                f"{self.base_url}/rest/api/3/search/jql",
+                headers=self._headers, json=body_closed, timeout=30,
+            )
+            resp_c.raise_for_status()
+            closed_raw = resp_c.json().get("issues", [])
+        except Exception as e:
+            logger.warning("LEAN closed fetch failed: %s", e)
+            closed_raw = []
+
+        def _lean_norm(issue: dict) -> dict:
+            f = issue.get("fields", {})
+            sp_list = f.get(SPRINT_FIELD) or []
+            sprint_names = [s.get("name", "") for s in sp_list if s.get("state") != "future"]
+            return {
+                "key": issue["key"],
+                "summary": f.get("summary", ""),
+                "status": f.get("status", {}).get("name", ""),
+                "type": f.get("issuetype", {}).get("name", ""),
+                "priority": (f.get("priority") or {}).get("name", ""),
+                "assignee": (f.get("assignee") or {}).get("displayName", ""),
+                "labels": f.get("labels") or [],
+                "created": (f.get("created") or "")[:10],
+                "updated": (f.get("updated") or "")[:10],
+                "resolution": (f.get("resolution") or {}).get("name", "") if f.get("resolution") else "",
+                "sprints": sprint_names,
+            }
+
+        in_flight = [_lean_norm(i) for i in in_flight_raw]
+        closed = [_lean_norm(i) for i in closed_raw]
+
+        # ── Theme extraction from bracket-prefixed summaries ──
+        _theme_re = re.compile(r"^\[([^\]]+)\]")
+
+        def _theme(summary: str) -> str:
+            m = _theme_re.match(summary)
+            return m.group(1) if m else "Other"
+
+        themes: dict[str, list[dict]] = {}
+        for t in in_flight:
+            th = _theme(t["summary"])
+            themes.setdefault(th, []).append(t)
+
+        theme_summary = [
+            {
+                "theme": th,
+                "total": len(tix),
+                "in_progress": sum(1 for t in tix if t["status"] in ("In Progress", "In Review")),
+                "open": sum(1 for t in tix if t["status"] in ("Open", "Reopened")),
+                "bugs": sum(1 for t in tix if t["type"] == "Bug"),
+                "tickets": [{"key": t["key"], "summary": t["summary"][:70],
+                             "status": t["status"], "assignee": t["assignee"]}
+                            for t in tix[:4]],
+            }
+            for th, tix in sorted(themes.items(), key=lambda x: -len(x[1]))
+        ]
+
+        # ── Type & status & assignee breakdowns ──
+        by_type: dict[str, int] = {}
+        by_status: dict[str, int] = {}
+        by_assignee: dict[str, int] = {}
+        for t in in_flight:
+            by_type[t["type"]] = by_type.get(t["type"], 0) + 1
+            by_status[t["status"]] = by_status.get(t["status"], 0) + 1
+            if t["assignee"]:
+                by_assignee[t["assignee"]] = by_assignee.get(t["assignee"], 0) + 1
+
+        open_bugs = [t for t in in_flight if t["type"] == "Bug"]
+        blocker_critical = [
+            t for t in in_flight
+            if t["priority"].startswith(("Blocker", "Critical"))
+        ]
+
+        # ── Velocity: tickets closed per recent sprint ──
+        velocity: list[dict] = []
+        for sp in recent_sprints:
+            count = sum(1 for t in closed if sp["name"] in t.get("sprints", []))
+            velocity.append({"sprint": sp["name"], "closed": count,
+                              "start": sp["start"], "end": sp["end"]})
+
+        # ── Enhancement requests (all, no customer filter) ──
+        # Open tickets — fetch all
+        try:
+            body_er_open = {
+                "jql": "project = ER AND resolution is EMPTY AND status not in (Done, Closed, \"Not Taken\") ORDER BY updated DESC",
+                "maxResults": 200,
+                "fields": ["summary", "status", "issuetype", "priority",
+                           "labels", "created", "updated", "resolution",
+                           "description", "comment"],
+            }
+            resp_er_open = _req.post(
+                f"{self.base_url}/rest/api/3/search/jql",
+                headers=self._headers, json=body_er_open, timeout=30,
+            )
+            resp_er_open.raise_for_status()
+            er_open_raw = resp_er_open.json().get("issues", [])
+        except Exception as e:
+            logger.warning("ER open fetch failed: %s", e)
+            er_open_raw = []
+
+        # Shipped tickets — most recently resolved first
+        try:
+            body_er_shipped = {
+                "jql": "project = ER AND resolution in (Fixed, Done) ORDER BY updated DESC",
+                "maxResults": 50,
+                "fields": ["summary", "status", "issuetype", "priority",
+                           "labels", "created", "updated", "resolution",
+                           "description", "comment"],
+            }
+            resp_er_shipped = _req.post(
+                f"{self.base_url}/rest/api/3/search/jql",
+                headers=self._headers, json=body_er_shipped, timeout=30,
+            )
+            resp_er_shipped.raise_for_status()
+            er_shipped_raw = resp_er_shipped.json().get("issues", [])
+        except Exception as e:
+            logger.warning("ER shipped fetch failed: %s", e)
+            er_shipped_raw = []
+
+        # Declined count only — no need for full fetch
+        try:
+            body_er_dec = {
+                "jql": "project = ER AND resolution in (\"Won't Do\", \"Won't Fix\", Declined, \"Future Consideration\", \"Not Taken\")",
+                "maxResults": 1,
+                "fields": ["summary"],
+            }
+            resp_er_dec = _req.post(
+                f"{self.base_url}/rest/api/3/search/jql",
+                headers=self._headers, json=body_er_dec, timeout=30,
+            )
+            resp_er_dec.raise_for_status()
+            er_declined_count = resp_er_dec.json().get("total", 0) or 0
+        except Exception as e:
+            logger.warning("ER declined fetch failed: %s", e)
+            er_declined_count = 0
+
+        def _norm_er(i: dict) -> dict:
+            f = i["fields"]
+            return {
+                "key": i["key"],
+                "summary": f.get("summary", "")[:100],
+                "status": f.get("status", {}).get("name", ""),
+                "priority": (f.get("priority") or {}).get("name", ""),
+                "labels": f.get("labels") or [],
+                "updated": (f.get("updated") or "")[:10],
+                "description_text": _extract_adf_text(f.get("description")),
+                "comment_texts": _extract_comments(f.get("comment")),
+            }
+
+        er_open = [_norm_er(i) for i in er_open_raw]
+        er_shipped = [_norm_er(i) for i in er_shipped_raw]
+
+        # Generate narratives in parallel for all open + top shipped
+        def _er_narrative(entry: dict) -> str:
+            return _summarize_ticket({
+                "key": entry["key"],
+                "summary": entry["summary"],
+                "status": entry["status"],
+                "resolution": "",
+                "assignee": "",
+                "description_text": entry.get("description_text", ""),
+                "comment_texts": entry.get("comment_texts", []),
+            })
+
+        from concurrent.futures import ThreadPoolExecutor as _TPE
+        all_er = er_open + er_shipped[:10]
+        with _TPE(max_workers=12) as pool:
+            all_narratives = list(pool.map(_er_narrative, all_er))
+
+        open_with_narratives = []
+        for i, e in enumerate(er_open):
+            e = dict(e)
+            e["narrative"] = all_narratives[i]
+            open_with_narratives.append(e)
+
+        shipped_with_narratives = []
+        for i, e in enumerate(er_shipped[:10]):
+            e = dict(e)
+            e["narrative"] = all_narratives[len(er_open) + i]
+            shipped_with_narratives.append(e)
+
+        enhancements = {
+            "total": len(er_open) + len(er_shipped) + er_declined_count,
+            "open_count": len(er_open),
+            "shipped_count": len(er_shipped),
+            "declined_count": er_declined_count,
+            "open": open_with_narratives,
+            "shipped": shipped_with_narratives,
+            "days": days,
+        }
+
+        # ── Aggregate support pressure (HELP tickets across all customers) ──
+        try:
+            body_help = {
+                "jql": f"project = HELP AND created >= -{days}d ORDER BY created DESC",
+                "maxResults": 500,
+                "fields": ["summary", "status", "issuetype", "priority",
+                           "created", "resolution", "labels"],
+            }
+            resp_h = _req.post(
+                f"{self.base_url}/rest/api/3/search/jql",
+                headers=self._headers, json=body_help, timeout=30,
+            )
+            resp_h.raise_for_status()
+            help_raw = resp_h.json().get("issues", [])
+        except Exception as e:
+            logger.warning("HELP global fetch failed: %s", e)
+            help_raw = []
+
+        help_open = sum(1 for i in help_raw if not i["fields"].get("resolution"))
+        help_escalated = sum(
+            1 for i in help_raw
+            if i["fields"].get("status", {}).get("name") == "In Engineering Queue"
+            or "customer_escalation" in (i["fields"].get("labels") or [])
+        )
+        help_bugs = sum(
+            1 for i in help_raw
+            if i["fields"].get("issuetype", {}).get("name") == "Bug"
+        )
+        help_by_priority: dict[str, int] = {}
+        for i in help_raw:
+            p = (i["fields"].get("priority") or {}).get("name", "Unknown")
+            short = p.split(":")[0] if ":" in p else p
+            help_by_priority[short] = help_by_priority.get(short, 0) + 1
+
+        support_pressure = {
+            "total": len(help_raw),
+            "open": help_open,
+            "escalated_to_eng": help_escalated,
+            "open_bugs": help_bugs,
+            "by_priority": dict(sorted(help_by_priority.items(), key=lambda x: -x[1])),
+        }
+
+        # ── Weekly LEAN throughput ──
+        all_lean = in_flight + closed
+        throughput = self._bucket_by_week([
+            {"created": t["created"], "updated": t["updated"], "resolution": t["resolution"]}
+            for t in all_lean
+        ])
+
+        eng_data = {
+            "base_url": self.base_url,
+            "days": days,
+            "sprint": sprint_info,
+            "recent_sprints": recent_sprints,
+            "in_flight_count": len(in_flight),
+            "closed_count": len(closed),
+            "by_type": dict(sorted(by_type.items(), key=lambda x: -x[1])),
+            "by_status": dict(sorted(by_status.items(), key=lambda x: -x[1])),
+            "by_assignee": dict(sorted(by_assignee.items(), key=lambda x: -x[1])),
+            "themes": theme_summary,
+            "open_bugs": open_bugs,
+            "blocker_critical": blocker_critical,
+            "velocity": velocity,
+            "throughput": throughput,
+            "enhancements": enhancements,
+            "support_pressure": support_pressure,
+        }
+
+        # ── Generate slide-level insights in parallel ──
+        eng_data["insights"] = _generate_eng_insights(eng_data)
+        return eng_data
 
     @staticmethod
     def _run_qa_checks(issues, open_issues, resolved, by_status, by_priority, by_type, ttfr, ttr):

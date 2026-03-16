@@ -17,6 +17,11 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
+# Sheets scope is optional — only needed for embedded charts.
+# Requires "https://www.googleapis.com/auth/spreadsheets" in Google Workspace
+# DWD allowlist (Admin Console → Security → API Controls → Domain-wide delegation).
+_SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
+
 SLIDE_W = 720
 SLIDE_H = 405
 
@@ -98,7 +103,45 @@ def _get_service():
             raise ValueError(
                 "No valid credentials. Set GOOGLE_APPLICATION_CREDENTIALS or run: gcloud auth application-default login"
             ) from e
-    return build("slides", "v1", credentials=creds), build("drive", "v3", credentials=creds)
+    return (
+        build("slides", "v1", credentials=creds),
+        build("drive", "v3", credentials=creds),
+        None,  # sheets_svc placeholder — obtained separately via _get_sheets_service()
+    )
+
+
+def _get_sheets_service():
+    """Build a Sheets API service with the spreadsheets scope.
+
+    Returns None if the scope is not authorized (requires DWD allowlist update in
+    Google Workspace Admin → Security → API Controls → Domain-wide delegation).
+    Add https://www.googleapis.com/auth/spreadsheets to the service account's scopes.
+    """
+    creds_path = GOOGLE_APPLICATION_CREDENTIALS
+    if not creds_path:
+        return None
+    path = Path(creds_path)
+    if not path.exists():
+        return None
+    try:
+        creds = service_account.Credentials.from_service_account_file(
+            str(path), scopes=SCOPES + [_SHEETS_SCOPE],
+        )
+        try:
+            with open(path) as f:
+                proj_id = json.load(f).get("project_id")
+            if proj_id:
+                creds = creds.with_quota_project(proj_id)
+        except Exception:
+            pass
+        if GOOGLE_DRIVE_OWNER_EMAIL:
+            owner = GOOGLE_DRIVE_OWNER_EMAIL.strip()
+            if owner:
+                creds = creds.with_subject(owner)
+        return build("sheets", "v4", credentials=creds)
+    except Exception as e:
+        logger.debug("Sheets service unavailable (needs DWD scope): %s", e)
+        return None
 
 
 # ── Primitives ──
@@ -130,6 +173,26 @@ def _box(reqs, oid, sid, x, y, w, h, text):
         "createShape": {
             "objectId": oid, "shapeType": "TEXT_BOX",
             "elementProperties": {"pageObjectId": sid, "size": _sz(w, h), "transform": _tf(x, y)},
+        }
+    })
+    if text:
+        reqs.append({"insertText": {"objectId": oid, "text": text, "insertionIndex": 0}})
+
+
+def _wrap_box(reqs, oid, sid, x, y, w, h, text):
+    """Text box that clips content to its bounding box (prevents overflow onto neighbours)."""
+    reqs.append({
+        "createShape": {
+            "objectId": oid, "shapeType": "TEXT_BOX",
+            "elementProperties": {"pageObjectId": sid, "size": _sz(w, h), "transform": _tf(x, y)},
+        }
+    })
+    # Disable auto-fit so the box stays at the declared height and clips overflow
+    reqs.append({
+        "updateShapeProperties": {
+            "objectId": oid,
+            "shapeProperties": {"contentAlignment": "TOP"},
+            "fields": "contentAlignment",
         }
     })
     if text:
@@ -2569,7 +2632,7 @@ def _cross_validation_slide(reqs, sid, report, idx):
 
 
 def _engineering_slide(reqs, sid, report, idx):
-    """Dedicated slide for engineering work affecting this customer."""
+    """Dedicated slide for engineering work affecting this customer, with GPT-written ticket narratives."""
     jira = report.get("jira", {})
     eng = jira.get("engineering", {})
     eng_open = eng.get("open", [])
@@ -2589,48 +2652,58 @@ def _engineering_slide(reqs, sid, report, idx):
     _box(reqs, f"{sid}_hdr", sid, MARGIN, BODY_Y, CONTENT_W, 16, header)
     _style(reqs, f"{sid}_hdr", 0, len(header), size=10, color=NAVY, font=FONT, bold=True)
 
-    # Open tickets table
+    # Each ticket block = key+summary line (14pt) + narrative (3 lines × ~12pt each) + gap = ~58pt
+    TICKET_H = 58
     y = BODY_Y + 24
     max_y = BODY_BOTTOM
+
+    def _render_ticket(ticket: dict, label_color: dict, prefix: str, counter: int) -> None:
+        nonlocal y
+        if y + TICKET_H > max_y:
+            return
+        key = ticket["key"]
+        status = (ticket.get("status") or "")[:14]
+        assignee = ticket.get("assignee") or "unassigned"
+        updated = ticket.get("updated", "")
+        summary = ticket.get("summary", "")[:52]
+
+        # Key line
+        key_line = f"{key}  {status:14s}  {summary}  [{assignee}]"
+        if updated:
+            key_line += f"  ({updated})"
+        _box(reqs, f"{sid}_{prefix}{counter}_k", sid, MARGIN, y, CONTENT_W, 14, key_line)
+        _style(reqs, f"{sid}_{prefix}{counter}_k", 0, len(key_line), size=9, color=NAVY, font=FONT)
+        ticket_url = f"{jira_base}/browse/{key}" if jira_base else None
+        _style(reqs, f"{sid}_{prefix}{counter}_k", 0, len(key), bold=True, size=9,
+               color=label_color, font=MONO, link=ticket_url)
+        y += 15
+
+        # Narrative lines
+        narrative = (ticket.get("narrative") or "").strip()
+        if narrative and y + 36 <= max_y:
+            _box(reqs, f"{sid}_{prefix}{counter}_n", sid, MARGIN + 8, y, CONTENT_W - 8, 36, narrative)
+            _style(reqs, f"{sid}_{prefix}{counter}_n", 0, len(narrative), size=8, color=GRAY, font=FONT)
+            y += 38
+
+        y += 6  # gap between tickets
+
+    GREEN = {"red": 0.13, "green": 0.55, "blue": 0.13}
 
     if eng_open:
         open_title = f"In Progress ({open_count})"
         _box(reqs, f"{sid}_ot", sid, MARGIN, y, CONTENT_W, 16, open_title)
-        _style(reqs, f"{sid}_ot", 0, len(open_title), bold=True, size=10, color=BLUE, font=FONT)
+        _style(reqs, f"{sid}_ot", 0, len(open_title), bold=True, size=11, color=BLUE, font=FONT)
         y += 20
-
-        avail = max((max_y - y) // 14 - 6, 3)
-        for oi, t in enumerate(eng_open[:min(avail, 8)]):
-            assignee = t.get("assignee") or "unassigned"
-            status = t.get("status", "")[:12]
-            key = t["key"]
-            line = f"{key}  {status:12s}  {t['summary'][:32]}  [{assignee}]"
-            _box(reqs, f"{sid}_o{oi}", sid, MARGIN, y, CONTENT_W, 14, line)
-            _style(reqs, f"{sid}_o{oi}", 0, len(line), size=8, color=NAVY, font=MONO)
-            ticket_url = f"{jira_base}/browse/{key}" if jira_base else None
-            _style(reqs, f"{sid}_o{oi}", 0, len(key), bold=True, size=8, color=BLUE,
-                   font=MONO, link=ticket_url)
-            y += 14
-        y += 8
+        for i, t in enumerate(eng_open):
+            _render_ticket(t, BLUE, "o", i)
 
     if eng_closed and y < max_y - 40:
         closed_title = f"Recently Shipped ({closed_count})"
         _box(reqs, f"{sid}_ct", sid, MARGIN, y, CONTENT_W, 16, closed_title)
-        _style(reqs, f"{sid}_ct", 0, len(closed_title), bold=True, size=10,
-               color={"red": 0.13, "green": 0.55, "blue": 0.13}, font=FONT)
+        _style(reqs, f"{sid}_ct", 0, len(closed_title), bold=True, size=11, color=GREEN, font=FONT)
         y += 20
-
-        avail = max((max_y - y) // 14, 2)
-        for ci, t in enumerate(eng_closed[:min(avail, 5)]):
-            key = t["key"]
-            line = f"{key}  {t['summary'][:40]}  ({t.get('updated', '')})"
-            _box(reqs, f"{sid}_c{ci}", sid, MARGIN, y, CONTENT_W, 14, line)
-            _style(reqs, f"{sid}_c{ci}", 0, len(line), size=8, color=NAVY, font=MONO)
-            ticket_url = f"{jira_base}/browse/{key}" if jira_base else None
-            _style(reqs, f"{sid}_c{ci}", 0, len(key), bold=True, size=8,
-                   color={"red": 0.13, "green": 0.55, "blue": 0.13}, font=MONO,
-                   link=ticket_url)
-            y += 14
+        for i, t in enumerate(eng_closed):
+            _render_ticket(t, GREEN, "c", i)
 
     return idx + 1
 
@@ -2955,6 +3028,900 @@ def _bespoke_deployment_slide(reqs, sid, report, idx):
     return idx + 1
 
 
+def _support_breakdown_slide(reqs, sid, report, idx):
+    """Engineering-focused support breakdown: weekly trend, TTFR/TTR deep-dive, priority/type table, escalations."""
+    jira = report.get("jira")
+    if not jira or jira.get("total_issues", 0) == 0:
+        return _missing_data_slide(reqs, sid, report, idx, "Jira support ticket data")
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, "Support Breakdown")
+
+    days = jira.get("days", 90)
+    total = jira["total_issues"]
+    open_n = jira["open_issues"]
+    resolved = jira["resolved_issues"]
+    esc = jira["escalated"]
+    bugs = jira["open_bugs"]
+    jira_base = jira.get("base_url", "")
+
+    from datetime import date, timedelta
+    end_d = date.today()
+    start_d = end_d - timedelta(days=days)
+    date_range = f"{start_d.strftime('%b %-d')} – {end_d.strftime('%b %-d, %Y')}  ({days}d)"
+
+    # ── Top stat bar ──
+    stats_text = (
+        f"Total: {total}   |   Open: {open_n}   |   Resolved: {resolved}"
+        f"   |   Escalated: {esc}   |   Open bugs: {bugs}   |   {date_range}"
+    )
+    _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 18, stats_text)
+    _style(reqs, f"{sid}_bar", 0, len(stats_text), size=9, color=GRAY, font=FONT)
+    # Bold the numbers
+    for label in (f"Total: {total}", f"Open: {open_n}", f"Resolved: {resolved}",
+                  f"Escalated: {esc}", f"Open bugs: {bugs}"):
+        pos = stats_text.find(label)
+        if pos >= 0:
+            _style(reqs, f"{sid}_bar", pos, pos + len(label), bold=True, color=NAVY)
+
+    body_top = BODY_Y + 22
+    col_gap = 20
+    left_w = (CONTENT_W - col_gap) * 2 // 3
+    right_w = CONTENT_W - left_w - col_gap
+    left_x = MARGIN
+    right_x = MARGIN + left_w + col_gap
+
+    # ── LEFT: Weekly trend sparkline + SLA deep-dive ──
+    left_y = body_top
+
+    weeks = jira.get("tickets_over_time", [])
+    if weeks:
+        trend_title = "Weekly ticket volume"
+        _box(reqs, f"{sid}_trt", sid, left_x, left_y, left_w, 16, trend_title)
+        _style(reqs, f"{sid}_trt", 0, len(trend_title), bold=True, size=11, color=NAVY, font=FONT)
+        left_y += 18
+
+        # Sparkline: text bar chart using unicode blocks
+        max_created = max((w["created"] for w in weeks), default=1) or 1
+        BLOCKS = " ▁▂▃▄▅▆▇█"
+        spark_parts = []
+        label_parts = []
+        for w in weeks[-12:]:  # last 12 weeks
+            lvl = int(w["created"] / max_created * 8)
+            spark_parts.append(BLOCKS[lvl])
+            label_parts.append(w["label"])
+        sparkline = "  ".join(spark_parts)
+        _box(reqs, f"{sid}_spark", sid, left_x, left_y, left_w, 22, sparkline)
+        _style(reqs, f"{sid}_spark", 0, len(sparkline), size=16, color=BLUE, font="Courier New")
+        left_y += 24
+
+        # Labels under sparkline
+        label_text = "   ".join(w["label"] for w in weeks[-12:])
+        _box(reqs, f"{sid}_sparklbl", sid, left_x, left_y, left_w, 12, label_text)
+        _style(reqs, f"{sid}_sparklbl", 0, len(label_text), size=7, color=GRAY, font=FONT)
+        left_y += 18
+    else:
+        left_y += 4
+
+    # SLA section
+    sla_goal = {"ttfr": "48h", "ttr": "160h"}
+    sla_label_map = {"ttfr": "First Response (TTFR)", "ttr": "Resolution (TTR)"}
+    for sla_key in ("ttfr", "ttr"):
+        sla = jira.get(sla_key, {})
+        if sla.get("measured", 0) == 0:
+            continue
+        label = sla_label_map[sla_key]
+        goal = sla_goal[sla_key]
+        breached = sla.get("breached", 0)
+        measured = sla.get("measured", 1)
+        breach_pct = round(100 * breached / max(measured, 1))
+
+        if breach_pct == 0:
+            b_color: dict = {"red": 0.13, "green": 0.55, "blue": 0.13}
+            b_label = "On track"
+        elif breach_pct <= 20:
+            b_color = {"red": 0.85, "green": 0.65, "blue": 0.0}
+            b_label = f"Caution ({breach_pct}%)"
+        else:
+            b_color = {"red": 0.85, "green": 0.15, "blue": 0.15}
+            b_label = f"At risk ({breach_pct}%)"
+
+        title_text = f"{label}  ·  goal {goal}"
+        _box(reqs, f"{sid}_{sla_key}_t", sid, left_x, left_y, left_w, 18, title_text)
+        _style(reqs, f"{sid}_{sla_key}_t", 0, len(label), bold=True, size=12, color=NAVY, font=FONT)
+        _style(reqs, f"{sid}_{sla_key}_t", len(label), len(title_text), size=9, color=GRAY, font=FONT)
+        left_y += 20
+        _pill(reqs, f"{sid}_{sla_key}_pill", sid, left_x, left_y, 110, 20, b_label, b_color, WHITE)
+        stats_sla = (
+            f"Median {sla.get('median', '—')}  ·  Avg {sla.get('avg', '—')}"
+            f"  ·  Range {sla.get('min', '—')}–{sla.get('max', '—')}"
+            f"  ·  {breached} breaches of {measured}"
+        )
+        if sla.get("waiting"):
+            stats_sla += f"  ·  {sla['waiting']} open"
+        _box(reqs, f"{sid}_{sla_key}_st", sid, left_x + 118, left_y, left_w - 120, 20, stats_sla)
+        _style(reqs, f"{sid}_{sla_key}_st", 0, len(stats_sla), size=9, color=NAVY, font=FONT)
+        left_y += 26
+
+    # ── RIGHT: Priority + Type + Escalations ──
+    right_y = body_top
+
+    prio_short = {
+        "Blocker: The platform is completely down": "Blocker",
+        "Critical: Significant operational impact": "Critical",
+        "Major: Workaround available, not essential": "Major",
+        "Minor: Impairs non-essential functionality": "Minor",
+    }
+    prio_items = list(jira.get("by_priority", {}).items())[:6]
+    if prio_items:
+        ph = "By Priority"
+        _box(reqs, f"{sid}_prt", sid, right_x, right_y, right_w, 16, ph)
+        _style(reqs, f"{sid}_prt", 0, len(ph), bold=True, size=11, color=NAVY, font=FONT)
+        right_y += 18
+        for pi, (p, c) in enumerate(prio_items):
+            line = f"{c:>4}  {prio_short.get(p, p[:22])}"
+            _box(reqs, f"{sid}_pr{pi}", sid, right_x, right_y, right_w, 14, line)
+            _style(reqs, f"{sid}_pr{pi}", 0, len(line), size=9, color=NAVY, font=FONT)
+            _style(reqs, f"{sid}_pr{pi}", 0, len(f"{c:>4}"), bold=True, color=BLUE)
+            right_y += 14
+        right_y += 8
+
+    type_items = list(jira.get("by_type", {}).items())[:6]
+    if type_items:
+        th = "By Type"
+        _box(reqs, f"{sid}_tyt", sid, right_x, right_y, right_w, 16, th)
+        _style(reqs, f"{sid}_tyt", 0, len(th), bold=True, size=11, color=NAVY, font=FONT)
+        right_y += 18
+        for ti, (tp, c) in enumerate(type_items):
+            line = f"{c:>4}  {tp[:22]}"
+            _box(reqs, f"{sid}_ty{ti}", sid, right_x, right_y, right_w, 14, line)
+            _style(reqs, f"{sid}_ty{ti}", 0, len(line), size=9, color=NAVY, font=FONT)
+            _style(reqs, f"{sid}_ty{ti}", 0, len(f"{c:>4}"), bold=True, color=BLUE)
+            right_y += 14
+        right_y += 8
+
+    esc_issues = jira.get("escalated_issues", [])
+    if esc_issues and right_y + 40 < BODY_BOTTOM:
+        eh = "Escalated Tickets"
+        _box(reqs, f"{sid}_esct", sid, right_x, right_y, right_w, 16, eh)
+        _style(reqs, f"{sid}_esct", 0, len(eh), bold=True, size=11, color=_RED, font=FONT)
+        right_y += 18
+        for ei, esc_i in enumerate(esc_issues[:4]):
+            if right_y + 14 > BODY_BOTTOM:
+                break
+            key = esc_i["key"]
+            summary = esc_i.get("summary", "")[:28]
+            line = f"{key}  {summary}"
+            link = f"{jira_base}/browse/{key}" if jira_base else None
+            _box(reqs, f"{sid}_esc{ei}", sid, right_x, right_y, right_w, 14, line)
+            _style(reqs, f"{sid}_esc{ei}", 0, len(key), bold=True, size=9, color=_RED, font=MONO,
+                   link=link)
+            _style(reqs, f"{sid}_esc{ei}", len(key) + 2, len(line), size=9, color=NAVY, font=FONT)
+            right_y += 14
+
+    return idx + 1
+
+
+# ── Engineering Portfolio Slides ──────────────────────────────────────────────
+
+def _eng_portfolio_title_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """Cover slide for the engineering portfolio deck."""
+    from datetime import date
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, NAVY)
+
+    title = "Engineering Review"
+    _box(reqs, f"{sid}_t", sid, MARGIN, 100, CONTENT_W, 50, title)
+    _style(reqs, f"{sid}_t", 0, len(title), bold=True, size=36, color=WHITE, font=FONT)
+
+    sprint = report.get("sprint") or {}
+    sprint_name = sprint.get("name", "")
+    sprint_end = sprint.get("end", "")
+    try:
+        from datetime import datetime
+        end_dt = datetime.strptime(sprint_end, "%Y-%m-%d")
+        sprint_label = f"{sprint_name}  ·  ends {end_dt.strftime('%b %-d, %Y')}"
+    except Exception:
+        sprint_label = sprint_name or ""
+
+    sub = f"Sprint: {sprint_label}" if sprint_label else ""
+    if sub:
+        _box(reqs, f"{sid}_sp", sid, MARGIN, 160, CONTENT_W, 24, sub)
+        _style(reqs, f"{sid}_sp", 0, len(sub), size=14, color={"red": 0.6, "green": 0.8, "blue": 1.0}, font=FONT)
+
+    generated = date.today().strftime("%B %-d, %Y")
+    gen_text = f"Generated {generated}"
+    _box(reqs, f"{sid}_g", sid, MARGIN, SLIDE_H - 60, CONTENT_W, 18, gen_text)
+    _style(reqs, f"{sid}_g", 0, len(gen_text), size=10, color={"red": 0.5, "green": 0.6, "blue": 0.7}, font=FONT)
+    return idx + 1
+
+
+def _eng_sprint_snapshot_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """Sprint snapshot: current sprint state, type mix, active work by theme."""
+    eng = report.get("eng_portfolio") or {}
+    if not eng:
+        return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, "Sprint Snapshot")
+
+    sprint = eng.get("sprint") or {}
+    sprint_name = sprint.get("name", "current sprint")
+    sprint_start = sprint.get("start", "")
+    sprint_end = sprint.get("end", "")
+    try:
+        from datetime import datetime
+        s_dt = datetime.strptime(sprint_start, "%Y-%m-%d")
+        e_dt = datetime.strptime(sprint_end, "%Y-%m-%d")
+        date_range = f"{s_dt.strftime('%b %-d')} – {e_dt.strftime('%b %-d, %Y')}"
+    except Exception:
+        date_range = f"{sprint_start} – {sprint_end}"
+
+    # ── Stat bar ──
+    in_f = eng.get("in_flight_count", 0)
+    closed = eng.get("closed_count", 0)
+    by_status = eng.get("by_status", {})
+    active = by_status.get("In Progress", 0) + by_status.get("In Review", 0)
+    bar = (f"{sprint_name}  ·  {date_range}    "
+           f"In-flight: {in_f}   |   Active: {active}   |   Closed (period): {closed}")
+    _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 18, bar)
+    _style(reqs, f"{sid}_bar", 0, len(bar), size=9, color=GRAY, font=FONT)
+
+    body_top = BODY_Y + 22
+    col_gap = 20
+    left_w = (CONTENT_W - col_gap) * 2 // 3
+    right_w = CONTENT_W - left_w - col_gap
+    left_x = MARGIN
+    right_x = MARGIN + left_w + col_gap
+
+    # ── LEFT: Themes table ──
+    left_y = body_top
+    th_hdr = "Work In Progress  (by theme)"
+    _box(reqs, f"{sid}_tht", sid, left_x, left_y, left_w, 16, th_hdr)
+    _style(reqs, f"{sid}_tht", 0, len(th_hdr), bold=True, size=11, color=NAVY, font=FONT)
+    left_y += 20
+
+    # Column header as a single monospaced line
+    col_hdr = f"{'Theme':<26}  {'Tot':>3}  {'Act':>3}  {'Bug':>3}"
+    _box(reqs, f"{sid}_th_hdr", sid, left_x, left_y, left_w, 13, col_hdr)
+    _style(reqs, f"{sid}_th_hdr", 0, len(col_hdr), bold=True, size=8, color=GRAY, font=MONO)
+    left_y += 13
+
+    themes = eng.get("themes", [])
+    max_rows = min(len(themes), 16)
+    for ri, th in enumerate(themes[:max_rows]):
+        theme_name = th["theme"][:26]
+        total_s = str(th["total"])
+        active_s = str(th["in_progress"])
+        bugs_s = str(th["bugs"]) if th["bugs"] > 0 else "—"
+        line = f"{theme_name:<26}  {total_s:>3}  {active_s:>3}  {bugs_s:>3}"
+        _box(reqs, f"{sid}_tr{ri}", sid, left_x, left_y, left_w, 12, line)
+        # Style whole line navy, then bold the name, red the bug count if non-zero
+        _style(reqs, f"{sid}_tr{ri}", 0, len(line), size=8, color=NAVY, font=MONO)
+        if th["bugs"] > 0:
+            bug_start = len(f"{theme_name:<26}  {total_s:>3}  {active_s:>3}  ")
+            _style(reqs, f"{sid}_tr{ri}", bug_start, len(line), bold=True, color=_RED)
+        left_y += 12
+
+    # ── RIGHT: Type breakdown + Status breakdown + Assignee load ──
+    right_y = body_top
+    by_type = eng.get("by_type", {})
+    if by_type:
+        _box(reqs, f"{sid}_typ_h", sid, right_x, right_y, right_w, 16, "By Type")
+        _style(reqs, f"{sid}_typ_h", 0, 7, bold=True, size=11, color=NAVY, font=FONT)
+        right_y += 18
+        for ti, (tp, cnt) in enumerate(list(by_type.items())[:6]):
+            line = f"{cnt:>4}  {tp}"
+            _box(reqs, f"{sid}_ty{ti}", sid, right_x, right_y, right_w, 13, line)
+            color = _RED if tp == "Bug" else NAVY
+            _style(reqs, f"{sid}_ty{ti}", 0, len(f"{cnt:>4}"), bold=True, size=9, color=color, font=FONT)
+            _style(reqs, f"{sid}_ty{ti}", len(f"{cnt:>4}"), len(line), size=9, color=NAVY, font=FONT)
+            right_y += 13
+        right_y += 10
+
+    by_assignee = eng.get("by_assignee", {})
+    top_assignees = sorted(by_assignee.items(), key=lambda x: -x[1])[:8]
+    if top_assignees:
+        _box(reqs, f"{sid}_ass_h", sid, right_x, right_y, right_w, 16, "WIP by Engineer")
+        _style(reqs, f"{sid}_ass_h", 0, 15, bold=True, size=11, color=NAVY, font=FONT)
+        right_y += 18
+        max_val = top_assignees[0][1]
+        for ai, (name, cnt) in enumerate(top_assignees):
+            first = name.split()[0] if name else name
+            bar_pct = cnt / max_val if max_val else 0
+            bar_chars = int(bar_pct * 12)
+            bar_str = "█" * bar_chars
+            line = f"{cnt:>3}  {first:<12}  {bar_str}"
+            _box(reqs, f"{sid}_a{ai}", sid, right_x, right_y, right_w, 13, line)
+            _style(reqs, f"{sid}_a{ai}", 0, len(line), size=8, color=NAVY, font=MONO)
+            right_y += 13
+
+    return idx + 1
+
+
+def _eng_bug_health_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """Bug health: open bugs by priority, blocker/critical callout, trend."""
+    eng = report.get("eng_portfolio") or {}
+    if not eng:
+        return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, "Bug Health")
+
+    open_bugs = eng.get("open_bugs") or []
+    blocker_crit = eng.get("blocker_critical") or []
+    jira_base = eng.get("base_url", "")
+
+    # Stat bar
+    bar = f"Open bugs: {len(open_bugs)}   |   Blocker / Critical: {len(blocker_crit)}"
+    _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 18, bar)
+    _style(reqs, f"{sid}_bar", 0, len(bar), size=9, color=GRAY, font=FONT)
+    # Bold the counts
+    _style(reqs, f"{sid}_bar", len("Open bugs: "), len(f"Open bugs: {len(open_bugs)}"),
+           bold=True, color=_RED if open_bugs else _GREEN)
+    bc_start = bar.index("Blocker")
+    _style(reqs, f"{sid}_bar", bc_start, bc_start + len(f"Blocker / Critical: {len(blocker_crit)}"),
+           bold=True, color=_RED if blocker_crit else _GREEN)
+
+    body_top = BODY_Y + 22
+    col_gap = 20
+    left_w = (CONTENT_W - col_gap) * 2 // 3
+    right_w = CONTENT_W - left_w - col_gap
+    left_x = MARGIN
+    right_x = MARGIN + left_w + col_gap
+
+    # ── LEFT: Open bugs list ──
+    left_y = body_top
+    _box(reqs, f"{sid}_bl_h", sid, left_x, left_y, left_w, 16, "Open Bugs")
+    _style(reqs, f"{sid}_bl_h", 0, 9, bold=True, size=11, color=NAVY, font=FONT)
+    left_y += 18
+
+    prio_color = {
+        "Blocker": {"red": 0.85, "green": 0.15, "blue": 0.15},
+        "Critical": {"red": 0.9, "green": 0.4, "blue": 0.0},
+        "Major": NAVY,
+        "Minor": GRAY,
+    }
+    TICKET_H = 34  # key line (16) + summary line (18)
+    for bi, bug in enumerate(open_bugs[:12]):
+        if left_y + TICKET_H > BODY_BOTTOM:
+            break
+        key = bug["key"]
+        prio_short = bug["priority"].split(":")[0] if ":" in bug["priority"] else bug["priority"]
+        assignee = (bug.get("assignee") or "")
+        first_name = assignee.split()[0] if assignee else "—"
+        raw_summary = bug["summary"]
+        summary = raw_summary[:48] + "…" if len(raw_summary) > 48 else raw_summary
+
+        key_line = f"{key}  [{prio_short}]  {first_name}"
+        link = f"{jira_base}/browse/{key}" if jira_base else None
+        _box(reqs, f"{sid}_bk{bi}", sid, left_x, left_y, left_w, 16, key_line)
+        _style(reqs, f"{sid}_bk{bi}", 0, len(key), bold=True, size=8,
+               color=prio_color.get(prio_short, _RED), font=MONO, link=link)
+        _style(reqs, f"{sid}_bk{bi}", len(key), len(key_line), size=8, color=GRAY, font=FONT)
+        left_y += 16
+
+        _box(reqs, f"{sid}_bs{bi}", sid, left_x + 8, left_y, left_w - 8, 16, summary)
+        _style(reqs, f"{sid}_bs{bi}", 0, len(summary), size=8, color=NAVY, font=FONT)
+        left_y += 18
+
+    # ── RIGHT: Priority breakdown + escalated bugs ──
+    right_y = body_top
+    by_type = eng.get("by_type", {})
+    bug_count = by_type.get("Bug", 0)
+
+    # Priority distribution of ALL open tickets (not just bugs)
+    by_prio: dict[str, int] = {}
+    for bug in (eng.get("open_bugs") or []):
+        short = bug["priority"].split(":")[0] if ":" in bug["priority"] else bug["priority"]
+        by_prio[short] = by_prio.get(short, 0) + 1
+
+    if by_prio:
+        _box(reqs, f"{sid}_ph", sid, right_x, right_y, right_w, 16, "By Priority")
+        _style(reqs, f"{sid}_ph", 0, 11, bold=True, size=11, color=NAVY, font=FONT)
+        right_y += 18
+        for pi, (p, c) in enumerate(sorted(by_prio.items(),
+                                            key=lambda x: ["Blocker","Critical","Major","Minor"].index(x[0])
+                                            if x[0] in ["Blocker","Critical","Major","Minor"] else 99)):
+            line = f"{c:>4}  {p}"
+            _box(reqs, f"{sid}_pp{pi}", sid, right_x, right_y, right_w, 13, line)
+            col = prio_color.get(p, NAVY)
+            _style(reqs, f"{sid}_pp{pi}", 0, len(f"{c:>4}"), bold=True, size=10, color=col, font=FONT)
+            _style(reqs, f"{sid}_pp{pi}", len(f"{c:>4}"), len(line), size=10, color=NAVY, font=FONT)
+            right_y += 14
+        right_y += 10
+
+    if blocker_crit:
+        _box(reqs, f"{sid}_bch", sid, right_x, right_y, right_w, 16, "Blockers & Criticals")
+        _style(reqs, f"{sid}_bch", 0, 20, bold=True, size=11, color=_RED, font=FONT)
+        right_y += 18
+        for bi, bug in enumerate(blocker_crit[:6]):
+            key = bug["key"]
+            link = f"{jira_base}/browse/{key}" if jira_base else None
+            raw_s = bug["summary"]
+            summary = raw_s[:30] + "…" if len(raw_s) > 30 else raw_s
+            line = f"{key}  {summary}"
+            _box(reqs, f"{sid}_bc{bi}", sid, right_x, right_y, right_w, 16, line)
+            _style(reqs, f"{sid}_bc{bi}", 0, len(key), bold=True, size=9,
+                   color=_RED, font=MONO, link=link)
+            _style(reqs, f"{sid}_bc{bi}", len(key), len(line), size=9, color=NAVY, font=FONT)
+            right_y += 17
+
+    return idx + 1
+
+
+def _create_throughput_chart(weeks: list[dict], drive_svc, sheets_svc) -> tuple[str, int]:
+    """Create a temp Google Sheet with throughput data and a COMBO chart (bars=Created, line=Closed).
+
+    Returns (spreadsheet_id, chart_id).  Caller is responsible for deleting the spreadsheet.
+    """
+    # ── 1. Create spreadsheet ──
+    ss = sheets_svc.spreadsheets().create(body={
+        "properties": {"title": "_bpo_velocity_chart_tmp"},
+        "sheets": [{"properties": {"title": "data"}}],
+    }).execute()
+    ss_id = ss["spreadsheetId"]
+    sheet_id = ss["sheets"][0]["properties"]["sheetId"]
+
+    # ── 2. Write header + data ──
+    header = [["Week", "Created", "Closed"]]
+    rows = [[w.get("label", ""), w.get("created", 0), w.get("resolved", 0)] for w in weeks]
+    values = header + rows
+    sheets_svc.spreadsheets().values().update(
+        spreadsheetId=ss_id,
+        range="data!A1",
+        valueInputOption="RAW",
+        body={"values": values},
+    ).execute()
+
+    num_rows = len(values)  # header + data rows
+
+    # ── 3. Add COMBO chart ──
+    NAVY_RGB   = {"red": 0.031, "green": 0.110, "blue": 0.200}
+    BLUE_RGB   = {"red": 0.0,   "green": 0.604, "blue": 1.0}
+    GREEN_RGB  = {"red": 0.133, "green": 0.694, "blue": 0.298}
+
+    def _col_range(col_idx):
+        return {
+            "sheetId": sheet_id,
+            "startRowIndex": 1, "endRowIndex": num_rows,
+            "startColumnIndex": col_idx, "endColumnIndex": col_idx + 1,
+        }
+
+    chart_req = {
+        "addChart": {
+            "chart": {
+                "spec": {
+                    "title": "",
+                    "basicChart": {
+                        "chartType": "COMBO",
+                        "legendPosition": "BOTTOM_LEGEND",
+                        "axis": [
+                            {"position": "BOTTOM_AXIS", "title": ""},
+                            {"position": "LEFT_AXIS",   "title": "Tickets"},
+                        ],
+                        "domains": [{
+                            "domain": {"sourceRange": {"sources": [{
+                                "sheetId": sheet_id,
+                                "startRowIndex": 1, "endRowIndex": num_rows,
+                                "startColumnIndex": 0, "endColumnIndex": 1,
+                            }]}},
+                        }],
+                        "series": [
+                            {
+                                "series": {"sourceRange": {"sources": [_col_range(1)]}},
+                                "targetAxis": "LEFT_AXIS",
+                                "type": "COLUMN",
+                                "color": {"red": BLUE_RGB["red"], "green": BLUE_RGB["green"],
+                                          "blue": BLUE_RGB["blue"]},
+                            },
+                            {
+                                "series": {"sourceRange": {"sources": [_col_range(2)]}},
+                                "targetAxis": "LEFT_AXIS",
+                                "type": "LINE",
+                                "lineStyle": {"width": 3},
+                                "color": {"red": GREEN_RGB["red"], "green": GREEN_RGB["green"],
+                                          "blue": GREEN_RGB["blue"]},
+                            },
+                        ],
+                        "headerCount": 1,
+                    },
+                    "hiddenDimensionStrategy": "SKIP_HIDDEN_ROWS_AND_COLUMNS",
+                    "fontName": "Roboto",
+                },
+                "position": {
+                    "newSheet": False,
+                    "overlayPosition": {
+                        "anchorCell": {"sheetId": sheet_id, "rowIndex": 0, "columnIndex": 4},
+                        "widthPixels": 520,
+                        "heightPixels": 260,
+                    },
+                },
+            }
+        }
+    }
+
+    resp = sheets_svc.spreadsheets().batchUpdate(
+        spreadsheetId=ss_id,
+        body={"requests": [chart_req]},
+    ).execute()
+
+    chart_id = resp["replies"][0]["addChart"]["chart"]["chartId"]
+    return ss_id, chart_id
+
+
+def _eng_velocity_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """Velocity & throughput: combo chart (bars=Created, line=Closed) + pipeline status."""
+    eng = report.get("eng_portfolio") or {}
+    if not eng:
+        return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, "Velocity & Flow")
+
+    throughput = eng.get("throughput") or []
+    closed_count = eng.get("closed_count", 0)
+    in_flight = eng.get("in_flight_count", 0)
+
+    bar = f"In-flight: {in_flight}   |   Closed (period): {closed_count}"
+    _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 18, bar)
+    _style(reqs, f"{sid}_bar", 0, len(bar), size=9, color=GRAY, font=FONT)
+
+    body_top = BODY_Y + 22
+    col_gap = 20
+    left_w = (CONTENT_W - col_gap) * 3 // 5
+    right_w = CONTENT_W - left_w - col_gap
+    left_x = MARGIN
+    right_x = MARGIN + left_w + col_gap
+
+    # ── LEFT: Weekly throughput combo chart ──
+    left_y = body_top
+    recent_weeks = throughput[-12:] if len(throughput) >= 12 else throughput
+
+    sheets_svc = report.get("_sheets_svc")
+    drive_svc = report.get("_drive_svc")
+    chart_embedded = False
+
+    if recent_weeks and sheets_svc and drive_svc:
+        try:
+            ss_id, chart_id = _create_throughput_chart(recent_weeks, drive_svc, sheets_svc)
+            # Embed the chart into the slide at the left column area
+            # EMU: 1pt = 12700 EMU
+            PT = 12700
+            chart_x_emu = left_x * PT
+            chart_y_emu = left_y * PT
+            chart_w_emu = left_w * PT
+            chart_h_emu = 170 * PT  # ~170pt tall
+
+            reqs.append({
+                "createSheetsChart": {
+                    "objectId": f"{sid}_chart",
+                    "spreadsheetId": ss_id,
+                    "chartId": chart_id,
+                    "linkingMode": "NOT_LINKED_IMAGE",
+                    "elementProperties": {
+                        "pageObjectId": sid,
+                        "size": {
+                            "width": {"magnitude": chart_w_emu, "unit": "EMU"},
+                            "height": {"magnitude": chart_h_emu, "unit": "EMU"},
+                        },
+                        "transform": {
+                            "scaleX": 1, "scaleY": 1, "shearX": 0, "shearY": 0,
+                            "translateX": chart_x_emu,
+                            "translateY": chart_y_emu,
+                            "unit": "EMU",
+                        },
+                    },
+                }
+            })
+            left_y += 176  # chart height + small gap
+
+            # Schedule spreadsheet cleanup — store ss_id for post-build deletion
+            _tmp_sheets = report.setdefault("_tmp_sheets_to_delete", [])
+            _tmp_sheets.append(ss_id)
+            chart_embedded = True
+        except Exception as e:
+            logger.warning("Throughput chart creation failed, falling back to table: %s", e)
+
+    if not chart_embedded:
+        # Fallback: text table
+        _box(reqs, f"{sid}_sph", sid, left_x, left_y, left_w, 16, "Weekly Throughput  (last 12 wks)")
+        _style(reqs, f"{sid}_sph", 0, 20, bold=True, size=11, color=NAVY, font=FONT)
+        left_y += 20
+
+        if recent_weeks:
+            lbl = f"{recent_weeks[0]['label']}  →  {recent_weeks[-1]['label']}"
+            _box(reqs, f"{sid}_splbl", sid, left_x, left_y, left_w, 14, lbl)
+            _style(reqs, f"{sid}_splbl", 0, len(lbl), size=8, color=GRAY, font=FONT)
+            left_y += 18
+
+    # Weekly data table below chart (last 8 weeks)
+    if recent_weeks:
+        left_y += 4
+        _box(reqs, f"{sid}_wt_h", sid, left_x, left_y, left_w, 14, "Week        Created  Closed")
+        _style(reqs, f"{sid}_wt_h", 0, len("Week        Created  Closed"), bold=True, size=8, color=GRAY, font=MONO)
+        left_y += 14
+        for w in recent_weeks[-8:]:
+            row = f"{w['label']:<12}  {w.get('created',0):>5}    {w.get('resolved',0):>4}"
+            _box(reqs, f"{sid}_wr{w['week']}", sid, left_x, left_y, left_w, 12, row)
+            _style(reqs, f"{sid}_wr{w['week']}", 0, len(row), size=8, color=NAVY, font=MONO)
+            left_y += 12
+
+    # ── RIGHT: Q-label goal tracking ──
+    right_y = body_top
+    _box(reqs, f"{sid}_qlh", sid, right_x, right_y, right_w, 16, "Quarterly Goal Tracking")
+    _style(reqs, f"{sid}_qlh", 0, 24, bold=True, size=11, color=NAVY, font=FONT)
+    right_y += 20
+
+    # Look at in-flight tickets with Q labels
+    by_type = eng.get("by_type", {})
+    in_flight_total = sum(by_type.values())
+
+    # Q-label stats from themes (tickets labeled Q1_2026 / Q2_2026)
+    q_labels = {"Q1_2026": {"in_flight": 0, "closed": 0},
+                "Q2_2026": {"in_flight": 0, "closed": 0}}
+
+    for theme_entry in (eng.get("themes") or []):
+        for t in theme_entry.get("tickets", []):
+            pass  # themes don't carry full label data
+
+    # Use support data as proxy context
+    sp_pressure = eng.get("support_pressure") or {}
+    sp_total = sp_pressure.get("total", 0)
+    sp_open = sp_pressure.get("open", 0)
+    sp_esc = sp_pressure.get("escalated_to_eng", 0)
+
+    # Status breakdown
+    by_status = eng.get("by_status") or {}
+    stat_items = sorted(by_status.items(), key=lambda x: -x[1])
+
+    _box(reqs, f"{sid}_sbh", sid, right_x, right_y, right_w, 14, "Pipeline Status")
+    _style(reqs, f"{sid}_sbh", 0, 15, bold=True, size=10, color=NAVY, font=FONT)
+    right_y += 16
+    total_if = sum(by_status.values()) or 1
+    for status, cnt in stat_items:
+            pct = int(cnt / total_if * 100)
+            bar_w = int(pct / 100 * 16)
+            bar_str = "█" * bar_w + "░" * (16 - bar_w)
+            line = f"{cnt:>4}  {status:<18}  {bar_str}  {pct}%"
+            safe_status = status.replace(" ", "_").replace("/", "_")[:10]
+            _box(reqs, f"{sid}_sb_{safe_status}", sid, right_x, right_y, right_w, 13, line)
+            ip_color = BLUE if status in ("In Progress", "In Review") else NAVY
+            _style(reqs, f"{sid}_sb_{safe_status}", 0, len(line), size=8, color=ip_color, font=MONO)
+            right_y += 13
+
+    return idx + 1
+
+
+def _eng_enhancements_open_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """Open enhancement requests — paginated, all tickets shown."""
+    eng = report.get("eng_portfolio") or {}
+    if not eng:
+        return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
+
+    enhancements = eng.get("enhancements") or {}
+    open_tickets = enhancements.get("open", [])
+    open_count = enhancements.get("open_count", 0)
+    shipped_count = enhancements.get("shipped_count", 0)
+    declined_count = enhancements.get("declined_count", 0)
+    days = enhancements.get("days", eng.get("days", 30))
+    jira_base = eng.get("base_url", "")
+
+    TICKET_H = 96  # meta line (14) + summary box (36) + narrative (42) + gap (4)
+    PAGE_H = BODY_BOTTOM - (BODY_Y + 22)
+    tickets_per_page = max(1, PAGE_H // TICKET_H)
+
+    # Split tickets into pages
+    pages = [open_tickets[i:i + tickets_per_page]
+             for i in range(0, max(1, len(open_tickets)), tickets_per_page)]
+    num_pages = len(pages)
+
+    for pg, page_tickets in enumerate(pages):
+        page_sid = f"{sid}_p{pg}"
+        title = (f"Enhancement Requests — Open  ({pg + 1} of {num_pages})"
+                 if num_pages > 1 else "Enhancement Requests — Open")
+
+        _slide(reqs, page_sid, idx)
+        _bg(reqs, page_sid, WHITE)
+        _slide_title(reqs, page_sid, title)
+
+        bar = (f"Open backlog: {open_count}   |   Recently shipped: {shipped_count}"
+               f"   |   Declined: {declined_count}")
+        _box(reqs, f"{page_sid}_bar", page_sid, MARGIN, BODY_Y, CONTENT_W, 18, bar)
+        _style(reqs, f"{page_sid}_bar", 0, len(bar), size=9, color=GRAY, font=FONT)
+
+        y = BODY_Y + 22
+        for ri, req in enumerate(page_tickets):
+            key = req["key"]
+            link = f"{jira_base}/browse/{key}" if jira_base else None
+            raw_summary = req["summary"]
+            summary = raw_summary[:87] + "…" if len(raw_summary) > 87 else raw_summary
+            status = req.get("status", "Open")
+
+            # Format date nicely
+            raw_date = req.get("updated", "")
+            try:
+                from datetime import datetime as _dt
+                updated = _dt.strptime(raw_date, "%Y-%m-%d").strftime("%b %-d, %Y") if raw_date else ""
+            except ValueError:
+                updated = raw_date
+
+            # Line 1: key + status + date
+            meta = f"{key}  [{status}]"
+            if updated:
+                meta += f"  ·  updated {updated}"
+            _box(reqs, f"{page_sid}_k{ri}", page_sid, MARGIN, y, CONTENT_W, 14, meta)
+            _style(reqs, f"{page_sid}_k{ri}", 0, len(key), bold=True, size=9,
+                   color=BLUE, font=MONO, link=link)
+            _style(reqs, f"{page_sid}_k{ri}", len(key), len(meta), size=9, color=GRAY, font=FONT)
+            y += 14
+
+            # Line 2: summary (2–3 line box to handle long titles)
+            _box(reqs, f"{page_sid}_s{ri}", page_sid, MARGIN + 8, y, CONTENT_W - 8, 36, summary)
+            _style(reqs, f"{page_sid}_s{ri}", 0, len(summary), size=9, color=NAVY, font=FONT)
+            y += 36
+
+            # Line 3: narrative
+            narrative = (req.get("narrative") or "").strip()
+            if narrative and y + 40 <= BODY_BOTTOM:
+                _box(reqs, f"{page_sid}_n{ri}", page_sid, MARGIN + 8, y, CONTENT_W - 8, 40, narrative)
+                _style(reqs, f"{page_sid}_n{ri}", 0, len(narrative), size=8, color=GRAY, font=FONT)
+                y += 42
+
+            y += 4
+
+        idx += 1
+
+    return idx
+
+
+def _eng_enhancements_shipped_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """Recently shipped enhancement requests — what's been delivered."""
+    eng = report.get("eng_portfolio") or {}
+    if not eng:
+        return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
+
+    enhancements = eng.get("enhancements") or {}
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, "Enhancement Requests — Recently Shipped")
+
+    shipped_count = enhancements.get("shipped_count", 0)
+    open_count = enhancements.get("open_count", 0)
+    declined_count = enhancements.get("declined_count", 0)
+
+    bar = (f"Recently shipped: {shipped_count}   |   Open backlog: {open_count}"
+           f"   |   Declined: {declined_count}")
+    _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 18, bar)
+    _style(reqs, f"{sid}_bar", 0, len(bar), size=9, color=GRAY, font=FONT)
+
+    jira_base = eng.get("base_url", "")
+    TICKET_H = 96  # meta line (14) + summary box (36) + narrative (42) + gap (4)
+    y = BODY_Y + 22
+
+    for si, req in enumerate(enhancements.get("shipped", [])[:10]):
+        if y + TICKET_H > BODY_BOTTOM:
+            break
+        key = req["key"]
+        link = f"{jira_base}/browse/{key}" if jira_base else None
+        raw_summary = req["summary"]
+        summary = raw_summary[:87] + "…" if len(raw_summary) > 87 else raw_summary
+        raw_date = req.get("updated", "")
+        try:
+            from datetime import datetime as _dt
+            updated = _dt.strptime(raw_date, "%Y-%m-%d").strftime("%b %-d, %Y") if raw_date else ""
+        except ValueError:
+            updated = raw_date
+
+        # Line 1: key + date
+        meta = f"{key}  [Shipped]"
+        if updated:
+            meta += f"  ·  shipped {updated}"
+        _box(reqs, f"{sid}_k{si}", sid, MARGIN, y, CONTENT_W, 14, meta)
+        _style(reqs, f"{sid}_k{si}", 0, len(key), bold=True, size=9,
+               color=_GREEN, font=MONO, link=link)
+        _style(reqs, f"{sid}_k{si}", len(key), len(meta), size=9, color=GRAY, font=FONT)
+        y += 14
+
+        # Line 2: summary (2–3 line box to handle long titles)
+        _box(reqs, f"{sid}_s{si}", sid, MARGIN + 8, y, CONTENT_W - 8, 36, summary)
+        _style(reqs, f"{sid}_s{si}", 0, len(summary), size=9, color=NAVY, font=FONT)
+        y += 36
+
+        # Line 3: narrative
+        narrative = (req.get("narrative") or "").strip()
+        if narrative and y + 40 <= BODY_BOTTOM:
+            _box(reqs, f"{sid}_n{si}", sid, MARGIN + 8, y, CONTENT_W - 8, 40, narrative)
+            _style(reqs, f"{sid}_n{si}", 0, len(narrative), size=8, color=GRAY, font=FONT)
+            y += 42
+
+        y += 4
+
+    return idx + 1
+
+
+def _eng_support_pressure_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """Cross-customer support pressure feeding into engineering."""
+    eng = report.get("eng_portfolio") or {}
+    if not eng:
+        return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, "Support Pressure")
+
+    sp = eng.get("support_pressure") or {}
+    total = sp.get("total", 0)
+    open_n = sp.get("open", 0)
+    esc = sp.get("escalated_to_eng", 0)
+    bugs = sp.get("open_bugs", 0)
+    days = eng.get("days", 30)
+
+    bar = (f"Total ({days}d): {total}   |   Open: {open_n}"
+           f"   |   Escalated to Eng: {esc}   |   Open bugs: {bugs}")
+    _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 18, bar)
+    _style(reqs, f"{sid}_bar", 0, len(bar), size=9, color=GRAY, font=FONT)
+    _style(reqs, f"{sid}_bar", bar.index("Escalated"), bar.index("Escalated") + len(f"Escalated to Eng: {esc}"),
+           bold=True, color=_RED if esc > 0 else NAVY)
+
+    body_top = BODY_Y + 22
+
+    # Priority breakdown as a visual bar chart (horizontal)
+    by_prio = sp.get("by_priority") or {}
+    if by_prio:
+        _box(reqs, f"{sid}_ph", sid, MARGIN, body_top, CONTENT_W, 16, "Tickets by Priority")
+        _style(reqs, f"{sid}_ph", 0, 19, bold=True, size=12, color=NAVY, font=FONT)
+        y = body_top + 20
+
+        prio_order = ["Blocker", "Critical", "Major", "Minor", "Unknown"]
+        prio_colors = {
+            "Blocker": {"red": 0.85, "green": 0.15, "blue": 0.15},
+            "Critical": {"red": 0.9, "green": 0.4, "blue": 0.0},
+            "Major": BLUE,
+            "Minor": GRAY,
+            "Unknown": GRAY,
+        }
+        all_items = [(p, by_prio.get(p, 0)) for p in prio_order if by_prio.get(p, 0) > 0]
+        max_val = max(v for _, v in all_items) if all_items else 1
+        BAR_MAX_W = int(CONTENT_W * 0.55)
+
+        for pi, (prio, cnt) in enumerate(all_items):
+            bar_w = max(4, int(cnt / max_val * BAR_MAX_W))
+            label = f"{prio:<12}  {cnt:>4}"
+
+            label_box_id = f"{sid}_pb_l{pi}"
+            bar_box_id = f"{sid}_pb_b{pi}"
+
+            _box(reqs, label_box_id, sid, MARGIN, y, 120, 22, label)
+            _style(reqs, label_box_id, 0, len(label), size=11, bold=(prio in ("Blocker","Critical")),
+                   color=prio_colors.get(prio, NAVY), font=FONT)
+
+            _box(reqs, bar_box_id, sid, MARGIN + 128, y + 4, bar_w, 14, "")
+            reqs.append({"updateShapeProperties": {
+                "objectId": bar_box_id,
+                "shapeProperties": {"shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": prio_colors.get(prio, NAVY)}}}},
+                "fields": "shapeBackgroundFill",
+            }})
+            y += 26
+
+    # Throughput context note
+    throughput = eng.get("throughput") or []
+    if throughput:
+        recent = throughput[-4:]
+        avg_created = sum(w.get("created", 0) for w in recent) / len(recent)
+        avg_closed = sum(w.get("resolved", 0) for w in recent) / len(recent)
+        note = (f"4-week avg: {avg_created:.1f} tickets/wk created, "
+                f"{avg_closed:.1f} closed")
+        _box(reqs, f"{sid}_note", sid, MARGIN, BODY_BOTTOM - 20, CONTENT_W, 16, note)
+        _style(reqs, f"{sid}_note", 0, len(note), size=9, color=GRAY, font=FONT)
+
+    return idx + 1
+
+
 # ── Composable API (agent builds deck slide by slide) ──
 
 # Maps slide type names to builder functions and the report keys they require
@@ -2986,10 +3953,18 @@ _SLIDE_BUILDERS = {
     "cross_validation": _cross_validation_slide,
     "engineering": _engineering_slide,
     "enhancements": _enhancement_requests_slide,
+    "support_breakdown": _support_breakdown_slide,
     "bespoke_cover": _bespoke_cover_slide,
     "bespoke_agenda": _bespoke_agenda_slide,
     "bespoke_divider": _bespoke_divider_slide,
     "bespoke_deployment": _bespoke_deployment_slide,
+    "eng_portfolio_title": _eng_portfolio_title_slide,
+    "eng_sprint_snapshot": _eng_sprint_snapshot_slide,
+    "eng_bug_health": _eng_bug_health_slide,
+    "eng_velocity": _eng_velocity_slide,
+    "eng_enhancements": _eng_enhancements_open_slide,
+    "eng_enhancements_shipped": _eng_enhancements_shipped_slide,
+    "eng_support_pressure": _eng_support_pressure_slide,
 }
 
 # Which report keys each slide type needs (so the agent knows what data to supply)
@@ -3015,6 +3990,7 @@ SLIDE_DATA_REQUIREMENTS = {
     "cross_validation": ["cs_platform_health", "sites", "engagement"],
     "engineering": ["jira"],
     "enhancements": ["jira"],
+    "support_breakdown": ["jira"],
     "data_quality": [],
     "portfolio_title": ["customer_count", "days", "generated"],
     "portfolio_signals": ["portfolio_signals"],
@@ -3025,6 +4001,13 @@ SLIDE_DATA_REQUIREMENTS = {
     "bespoke_agenda": [],
     "bespoke_divider": [],
     "bespoke_deployment": ["sites"],
+    "eng_portfolio_title": ["eng_portfolio"],
+    "eng_sprint_snapshot": ["eng_portfolio"],
+    "eng_bug_health": ["eng_portfolio"],
+    "eng_velocity": ["eng_portfolio"],
+    "eng_enhancements": ["eng_portfolio"],
+    "eng_enhancements_shipped": ["eng_portfolio"],
+    "eng_support_pressure": ["eng_portfolio"],
 }
 
 
@@ -3048,7 +4031,7 @@ def _get_deck_output_folder() -> str | None:
 def create_empty_deck(customer: str, days: int = 30, deck_name: str | None = None) -> dict[str, Any]:
     """Create an empty presentation. Returns {deck_id, url} for use with add_slide."""
     try:
-        slides_service, drive_service = _get_service()
+        slides_service, drive_service, _ = _get_service()
     except (ValueError, FileNotFoundError) as e:
         return {"error": str(e)}
 
@@ -3101,7 +4084,7 @@ def add_slide(deck_id: str, slide_type: str, data: dict[str, Any]) -> dict[str, 
         return {"error": f"Unknown slide type '{slide_type}'. Valid: {', '.join(_SLIDE_BUILDERS)}"}
 
     try:
-        slides_service, _ = _get_service()
+        slides_service, _ds, _ = _get_service()
     except (ValueError, FileNotFoundError) as e:
         return {"error": str(e)}
 
@@ -3160,9 +4143,17 @@ def create_health_deck(
     qa.begin(customer)
 
     try:
-        slides_service, drive_service = _get_service()
+        slides_service, drive_service, sheets_service = _get_service()
     except (ValueError, FileNotFoundError) as e:
         return {"error": str(e)}
+
+    # Sheets service is optional (needs extra DWD scope) — fall back gracefully
+    sheets_service = _get_sheets_service()
+
+    # Make services accessible to slide builders via the report dict
+    report["_slides_svc"] = slides_service
+    report["_drive_svc"] = drive_service
+    report["_sheets_svc"] = sheets_service
 
     from .deck_loader import resolve_deck
 
@@ -3225,6 +4216,14 @@ def create_health_deck(
     except HttpError as e:
         logger.exception("Failed to build slides")
         return {"error": str(e), "presentation_id": pres_id}
+
+    # Clean up any temp spreadsheets created by slide builders (e.g. charts)
+    for tmp_ss_id in report.pop("_tmp_sheets_to_delete", []):
+        try:
+            drive_service.files().delete(fileId=tmp_ss_id).execute()
+            logger.debug("Deleted temp spreadsheet %s", tmp_ss_id)
+        except Exception as e:
+            logger.warning("Could not delete temp spreadsheet %s: %s", tmp_ss_id, e)
 
     result = {
         "presentation_id": pres_id,
@@ -3329,7 +4328,7 @@ def create_deck_for_customer(customer, sites, days=30):
     if not sites:
         return {"error": f"No sites for '{customer}'"}
     try:
-        slides_service, drive_service = _get_service()
+        slides_service, drive_service, _ = _get_service()
     except (ValueError, FileNotFoundError) as e:
         return {"error": str(e)}
     title = f"{customer} - Usage Report ({_date_range(days)})"
@@ -3393,7 +4392,7 @@ def export_slide_thumbnails(
     match = re.search(r"/d/([a-zA-Z0-9_-]+)", presentation_id)
     pres_id = match.group(1) if match else presentation_id
 
-    slides_service, _ = _get_service()
+    slides_service, _ds, _ = _get_service()
     pres = slides_service.presentations().get(presentationId=pres_id).execute()
     title = pres.get("title", pres_id)
     slides = pres.get("slides", [])
