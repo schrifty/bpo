@@ -3205,6 +3205,19 @@ def _support_breakdown_slide(reqs, sid, report, idx):
 
 # ── Engineering Portfolio Slides ──────────────────────────────────────────────
 
+def _eng_insight_bullets(reqs, sid, bullets: list[str], x, y, w) -> int:
+    """Render 2-3 LeanDNA insight bullets. Returns new y position."""
+    if not bullets:
+        return y
+    for bi, bullet in enumerate(bullets[:3]):
+        text = f"· {bullet}"
+        _box(reqs, f"{sid}_ins{bi}", sid, x, y, w, 22, text)
+        _style(reqs, f"{sid}_ins{bi}", 0, 2, bold=True, size=9, color=BLUE, font=FONT)
+        _style(reqs, f"{sid}_ins{bi}", 2, len(text), size=9, color=NAVY, font=FONT)
+        y += 22
+    return y
+
+
 def _eng_portfolio_title_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
     """Cover slide for the engineering portfolio deck."""
     from datetime import date
@@ -3243,12 +3256,8 @@ def _eng_sprint_snapshot_slide(reqs: list, sid: str, report: dict, idx: int) -> 
     if not eng:
         return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
 
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, "Sprint Snapshot")
-
     sprint = eng.get("sprint") or {}
-    sprint_name = sprint.get("name", "current sprint")
+    sprint_name = sprint.get("name", "Current Sprint")
     sprint_start = sprint.get("start", "")
     sprint_end = sprint.get("end", "")
     try:
@@ -3259,84 +3268,123 @@ def _eng_sprint_snapshot_slide(reqs: list, sid: str, report: dict, idx: int) -> 
     except Exception:
         date_range = f"{sprint_start} – {sprint_end}"
 
-    # ── Stat bar ──
     in_f = eng.get("in_flight_count", 0)
     closed = eng.get("closed_count", 0)
     by_status = eng.get("by_status", {})
     active = by_status.get("In Progress", 0) + by_status.get("In Review", 0)
-    bar = (f"{sprint_name}  ·  {date_range}    "
-           f"In-flight: {in_f}   |   Active: {active}   |   Closed (period): {closed}")
-    _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 18, bar)
-    _style(reqs, f"{sid}_bar", 0, len(bar), size=9, color=GRAY, font=FONT)
+    by_type = eng.get("by_type", {})
+    bugs_if = by_type.get("Bug", 0)
 
-    body_top = BODY_Y + 22
-    col_gap = 20
-    left_w = (CONTENT_W - col_gap) * 2 // 3
+    # Dynamic insight title
+    title = f"{sprint_name}: {in_f} In-Flight, {active} Active, {bugs_if} Bugs"
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+
+    # Scope context line
+    ctx = f"{date_range}   ·   Closed this period: {closed}"
+    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, ctx)
+    _style(reqs, f"{sid}_ctx", 0, len(ctx), size=9, color=GRAY, font=FONT)
+
+    body_top = BODY_Y + 18
+    col_gap = 24
+    left_w = (CONTENT_W - col_gap) * 3 // 5
     right_w = CONTENT_W - left_w - col_gap
     left_x = MARGIN
     right_x = MARGIN + left_w + col_gap
 
-    # ── LEFT: Themes table ──
+    # ── LEFT: Themes with visual bar (total tickets per theme) ──
     left_y = body_top
-    th_hdr = "Work In Progress  (by theme)"
+    themes = eng.get("themes", [])
+
+    th_hdr = "Work In Progress — by Theme"
     _box(reqs, f"{sid}_tht", sid, left_x, left_y, left_w, 16, th_hdr)
     _style(reqs, f"{sid}_tht", 0, len(th_hdr), bold=True, size=11, color=NAVY, font=FONT)
-    left_y += 20
+    left_y += 18
 
-    # Column header as a single monospaced line
-    col_hdr = f"{'Theme':<26}  {'Tot':>3}  {'Act':>3}  {'Bug':>3}"
-    _box(reqs, f"{sid}_th_hdr", sid, left_x, left_y, left_w, 13, col_hdr)
-    _style(reqs, f"{sid}_th_hdr", 0, len(col_hdr), bold=True, size=8, color=GRAY, font=MONO)
-    left_y += 13
+    max_theme_total = max((t["total"] for t in themes), default=1) or 1
+    BAR_MAX = left_w - 120  # px available for the bar
+    ROW_H = 16
 
-    themes = eng.get("themes", [])
-    max_rows = min(len(themes), 16)
-    for ri, th in enumerate(themes[:max_rows]):
-        theme_name = th["theme"][:26]
-        total_s = str(th["total"])
-        active_s = str(th["in_progress"])
-        bugs_s = str(th["bugs"]) if th["bugs"] > 0 else "—"
-        line = f"{theme_name:<26}  {total_s:>3}  {active_s:>3}  {bugs_s:>3}"
-        _box(reqs, f"{sid}_tr{ri}", sid, left_x, left_y, left_w, 12, line)
-        # Style whole line navy, then bold the name, red the bug count if non-zero
-        _style(reqs, f"{sid}_tr{ri}", 0, len(line), size=8, color=NAVY, font=MONO)
-        if th["bugs"] > 0:
-            bug_start = len(f"{theme_name:<26}  {total_s:>3}  {active_s:>3}  ")
-            _style(reqs, f"{sid}_tr{ri}", bug_start, len(line), bold=True, color=_RED)
-        left_y += 12
+    for ri, th in enumerate(themes[:14]):
+        if left_y + ROW_H > BODY_BOTTOM - 80:
+            break
+        theme_name = th["theme"][:24]
+        total_n = th["total"]
+        active_n = th["in_progress"]
+        bugs_n = th["bugs"]
 
-    # ── RIGHT: Type breakdown + Status breakdown + Assignee load ──
+        bar_w = max(4, int(total_n / max_theme_total * BAR_MAX))
+
+        # Label: name + counts
+        label = f"{theme_name}"
+        counts = f"{total_n} ({active_n} active{f', {bugs_n}🐛' if bugs_n else ''})"
+        _box(reqs, f"{sid}_tln{ri}", sid, left_x, left_y, 96, ROW_H, label)
+        _style(reqs, f"{sid}_tln{ri}", 0, len(label), size=8, color=NAVY, font=FONT)
+
+        # Visual bar
+        bar_x = left_x + 100
+        bar_color = {"red": 0.9, "green": 0.4, "blue": 0.0} if bugs_n else BLUE
+        _box(reqs, f"{sid}_tbar{ri}", sid, bar_x, left_y + 4, bar_w, 9, "")
+        reqs.append({"updateShapeProperties": {
+            "objectId": f"{sid}_tbar{ri}",
+            "shapeProperties": {"shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": bar_color}}}},
+            "fields": "shapeBackgroundFill",
+        }})
+
+        # Count label after bar
+        _box(reqs, f"{sid}_tcnt{ri}", sid, bar_x + bar_w + 4, left_y, 80, ROW_H, counts)
+        _style(reqs, f"{sid}_tcnt{ri}", 0, len(counts), size=8,
+               color=_RED if bugs_n else GRAY, font=FONT)
+        left_y += ROW_H
+
+    # ── RIGHT top: Type mix ──
     right_y = body_top
-    by_type = eng.get("by_type", {})
     if by_type:
-        _box(reqs, f"{sid}_typ_h", sid, right_x, right_y, right_w, 16, "By Type")
-        _style(reqs, f"{sid}_typ_h", 0, 7, bold=True, size=11, color=NAVY, font=FONT)
-        right_y += 18
+        _box(reqs, f"{sid}_typ_h", sid, right_x, right_y, right_w, 14, "Type Mix")
+        _style(reqs, f"{sid}_typ_h", 0, 8, bold=True, size=10, color=NAVY, font=FONT)
+        right_y += 16
+        total_if = sum(by_type.values()) or 1
+        max_t = max(by_type.values()) or 1
         for ti, (tp, cnt) in enumerate(list(by_type.items())[:6]):
-            line = f"{cnt:>4}  {tp}"
-            _box(reqs, f"{sid}_ty{ti}", sid, right_x, right_y, right_w, 13, line)
-            color = _RED if tp == "Bug" else NAVY
-            _style(reqs, f"{sid}_ty{ti}", 0, len(f"{cnt:>4}"), bold=True, size=9, color=color, font=FONT)
-            _style(reqs, f"{sid}_ty{ti}", len(f"{cnt:>4}"), len(line), size=9, color=NAVY, font=FONT)
+            pct = int(cnt / total_if * 100)
+            bw = max(3, int(cnt / max_t * (right_w - 70)))
+            label = f"{tp:<14} {pct}%"
+            _box(reqs, f"{sid}_ty{ti}", sid, right_x, right_y, right_w - 4, 13, label)
+            color = _RED if tp == "Bug" else BLUE
+            _style(reqs, f"{sid}_ty{ti}", 0, len(tp), bold=(tp == "Bug"), size=8, color=color, font=FONT)
+            _style(reqs, f"{sid}_ty{ti}", len(tp), len(label), size=8, color=GRAY, font=FONT)
             right_y += 13
         right_y += 10
 
+    # ── RIGHT mid: WIP by engineer (horizontal bars) ──
     by_assignee = eng.get("by_assignee", {})
-    top_assignees = sorted(by_assignee.items(), key=lambda x: -x[1])[:8]
+    top_assignees = sorted(by_assignee.items(), key=lambda x: -x[1])[:7]
     if top_assignees:
-        _box(reqs, f"{sid}_ass_h", sid, right_x, right_y, right_w, 16, "WIP by Engineer")
-        _style(reqs, f"{sid}_ass_h", 0, 15, bold=True, size=11, color=NAVY, font=FONT)
-        right_y += 18
-        max_val = top_assignees[0][1]
+        _box(reqs, f"{sid}_ass_h", sid, right_x, right_y, right_w, 14, "WIP by Engineer")
+        _style(reqs, f"{sid}_ass_h", 0, 15, bold=True, size=10, color=NAVY, font=FONT)
+        right_y += 16
+        max_val = top_assignees[0][1] or 1
         for ai, (name, cnt) in enumerate(top_assignees):
             first = name.split()[0] if name else name
-            bar_pct = cnt / max_val if max_val else 0
-            bar_chars = int(bar_pct * 12)
-            bar_str = "█" * bar_chars
-            line = f"{cnt:>3}  {first:<12}  {bar_str}"
-            _box(reqs, f"{sid}_a{ai}", sid, right_x, right_y, right_w, 13, line)
-            _style(reqs, f"{sid}_a{ai}", 0, len(line), size=8, color=NAVY, font=MONO)
+            bw = max(3, int(cnt / max_val * (right_w - 60)))
+            _box(reqs, f"{sid}_an{ai}", sid, right_x, right_y, 52, 13, first)
+            _style(reqs, f"{sid}_an{ai}", 0, len(first), size=8, color=NAVY, font=FONT)
+            _box(reqs, f"{sid}_ab{ai}", sid, right_x + 54, right_y + 3, bw, 8, "")
+            reqs.append({"updateShapeProperties": {
+                "objectId": f"{sid}_ab{ai}",
+                "shapeProperties": {"shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": BLUE}}}},
+                "fields": "shapeBackgroundFill",
+            }})
+            _box(reqs, f"{sid}_ac{ai}", sid, right_x + 56 + bw, right_y, 20, 13, str(cnt))
+            _style(reqs, f"{sid}_ac{ai}", 0, len(str(cnt)), size=8, color=GRAY, font=FONT)
             right_y += 13
+
+    # ── INSIGHT BULLETS (bottom of slide) ──
+    insights = (eng.get("insights") or {}).get("sprint_snapshot", [])
+    if insights:
+        bullet_y = BODY_BOTTOM - (len(insights) * 22) - 4
+        _eng_insight_bullets(reqs, sid, insights, MARGIN, bullet_y, CONTENT_W)
 
     return idx + 1
 
@@ -3347,9 +3395,20 @@ def _eng_bug_health_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
     if not eng:
         return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
 
+    open_bugs_list = eng.get("open_bugs") or []
+    blocker_crit = eng.get("blocker_critical") or []
+
+    # Dynamic insight title
+    if blocker_crit:
+        title = f"{len(open_bugs_list)} Open Bugs — {len(blocker_crit)} Blocker/Critical Need Attention"
+    elif open_bugs_list:
+        title = f"{len(open_bugs_list)} Open Bugs — No Blockers Currently Active"
+    else:
+        title = "Bug Backlog Clear — No Open Bugs"
+
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, "Bug Health")
+    _slide_title(reqs, sid, title)
 
     open_bugs = eng.get("open_bugs") or []
     blocker_crit = eng.get("blocker_critical") or []
@@ -3449,6 +3508,12 @@ def _eng_bug_health_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
                    color=_RED, font=MONO, link=link)
             _style(reqs, f"{sid}_bc{bi}", len(key), len(line), size=9, color=NAVY, font=FONT)
             right_y += 17
+
+    # ── INSIGHT BULLETS ──
+    insights = (eng.get("insights") or {}).get("bug_health", [])
+    if insights:
+        bullet_y = BODY_BOTTOM - (len(insights) * 22) - 4
+        _eng_insight_bullets(reqs, sid, insights, MARGIN, bullet_y, CONTENT_W)
 
     return idx + 1
 
@@ -3559,17 +3624,29 @@ def _eng_velocity_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
     if not eng:
         return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
 
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, "Velocity & Flow")
-
     throughput = eng.get("throughput") or []
     closed_count = eng.get("closed_count", 0)
     in_flight = eng.get("in_flight_count", 0)
 
-    bar = f"In-flight: {in_flight}   |   Closed (period): {closed_count}"
-    _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 18, bar)
-    _style(reqs, f"{sid}_bar", 0, len(bar), size=9, color=GRAY, font=FONT)
+    # Dynamic insight title based on flow balance
+    recent_tp = throughput[-4:] if throughput else []
+    avg_closed = sum(w.get("resolved", 0) for w in recent_tp) / len(recent_tp) if recent_tp else 0
+    avg_created = sum(w.get("created", 0) for w in recent_tp) / len(recent_tp) if recent_tp else 0
+    net = avg_closed - avg_created
+    if net > 2:
+        title = f"Backlog Shrinking — Team Closing {net:.0f} More Tickets/Week Than Created"
+    elif net < -2:
+        title = f"Backlog Growing — {abs(net):.0f} More Tickets Created Than Closed Per Week"
+    else:
+        title = f"Flow Balanced — {avg_closed:.0f} Tickets Closed Per Week"
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+
+    ctx = f"In-flight: {in_flight}   ·   Closed this period: {closed_count}   ·   Last 12 weeks"
+    _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 14, ctx)
+    _style(reqs, f"{sid}_bar", 0, len(ctx), size=9, color=GRAY, font=FONT)
 
     body_top = BODY_Y + 22
     col_gap = 20
@@ -3683,16 +3760,35 @@ def _eng_velocity_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
     _style(reqs, f"{sid}_sbh", 0, 15, bold=True, size=10, color=NAVY, font=FONT)
     right_y += 16
     total_if = sum(by_status.values()) or 1
+    max_s = max(by_status.values()) if by_status else 1
+    BAR_MAX_W = right_w - 76
     for status, cnt in stat_items:
-            pct = int(cnt / total_if * 100)
-            bar_w = int(pct / 100 * 16)
-            bar_str = "█" * bar_w + "░" * (16 - bar_w)
-            line = f"{cnt:>4}  {status:<18}  {bar_str}  {pct}%"
-            safe_status = status.replace(" ", "_").replace("/", "_")[:10]
-            _box(reqs, f"{sid}_sb_{safe_status}", sid, right_x, right_y, right_w, 13, line)
-            ip_color = BLUE if status in ("In Progress", "In Review") else NAVY
-            _style(reqs, f"{sid}_sb_{safe_status}", 0, len(line), size=8, color=ip_color, font=MONO)
-            right_y += 13
+        pct = int(cnt / total_if * 100)
+        bw = max(3, int(cnt / max_s * BAR_MAX_W))
+        safe_status = status.replace(" ", "_").replace("/", "_")[:10]
+        is_active = status in ("In Progress", "In Review")
+        bar_color = BLUE if is_active else {"red": 0.75, "green": 0.80, "blue": 0.90}
+        label = f"{cnt}  {status}"
+        _box(reqs, f"{sid}_sl_{safe_status}", sid, right_x, right_y, 70, 13, label)
+        _style(reqs, f"{sid}_sl_{safe_status}", 0, len(str(cnt)), bold=is_active, size=8,
+               color=BLUE if is_active else NAVY, font=FONT)
+        _style(reqs, f"{sid}_sl_{safe_status}", len(str(cnt)) + 2, len(label), size=8, color=GRAY, font=FONT)
+        _box(reqs, f"{sid}_sb_{safe_status}", sid, right_x + 72, right_y + 3, bw, 8, "")
+        reqs.append({"updateShapeProperties": {
+            "objectId": f"{sid}_sb_{safe_status}",
+            "shapeProperties": {"shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": bar_color}}}},
+            "fields": "shapeBackgroundFill",
+        }})
+        pct_lbl = f"{pct}%"
+        _box(reqs, f"{sid}_sp_{safe_status}", sid, right_x + 72 + bw + 4, right_y, 28, 13, pct_lbl)
+        _style(reqs, f"{sid}_sp_{safe_status}", 0, len(pct_lbl), size=8, color=GRAY, font=FONT)
+        right_y += 14
+
+    # ── INSIGHT BULLETS ──
+    insights = (eng.get("insights") or {}).get("velocity", [])
+    if insights:
+        bullet_y = BODY_BOTTOM - (len(insights) * 22) - 4
+        _eng_insight_bullets(reqs, sid, insights, MARGIN, bullet_y, CONTENT_W)
 
     return idx + 1
 
@@ -3722,8 +3818,11 @@ def _eng_enhancements_open_slide(reqs: list, sid: str, report: dict, idx: int) -
 
     for pg, page_tickets in enumerate(pages):
         page_sid = f"{sid}_p{pg}"
-        title = (f"Enhancement Requests — Open  ({pg + 1} of {num_pages})"
-                 if num_pages > 1 else "Enhancement Requests — Open")
+        if pg == 0:
+            title = (f"{open_count} Open Enhancement Requests  ({pg + 1} of {num_pages})"
+                     if num_pages > 1 else f"{open_count} Open Enhancement Requests in Backlog")
+        else:
+            title = f"Enhancement Requests — Open  ({pg + 1} of {num_pages})"
 
         _slide(reqs, page_sid, idx)
         _bg(reqs, page_sid, WHITE)
@@ -3788,7 +3887,7 @@ def _eng_enhancements_shipped_slide(reqs: list, sid: str, report: dict, idx: int
     enhancements = eng.get("enhancements") or {}
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, "Enhancement Requests — Recently Shipped")
+    _slide_title(reqs, sid, f"{shipped_count} Enhancement Requests Recently Shipped")
 
     shipped_count = enhancements.get("shipped_count", 0)
     open_count = enhancements.get("open_count", 0)
@@ -3850,10 +3949,6 @@ def _eng_support_pressure_slide(reqs: list, sid: str, report: dict, idx: int) ->
     if not eng:
         return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
 
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, "Support Pressure")
-
     sp = eng.get("support_pressure") or {}
     total = sp.get("total", 0)
     open_n = sp.get("open", 0)
@@ -3861,63 +3956,92 @@ def _eng_support_pressure_slide(reqs: list, sid: str, report: dict, idx: int) ->
     bugs = sp.get("open_bugs", 0)
     days = eng.get("days", 30)
 
-    bar = (f"Total ({days}d): {total}   |   Open: {open_n}"
-           f"   |   Escalated to Eng: {esc}   |   Open bugs: {bugs}")
-    _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 18, bar)
-    _style(reqs, f"{sid}_bar", 0, len(bar), size=9, color=GRAY, font=FONT)
-    _style(reqs, f"{sid}_bar", bar.index("Escalated"), bar.index("Escalated") + len(f"Escalated to Eng: {esc}"),
-           bold=True, color=_RED if esc > 0 else NAVY)
+    # Dynamic insight title
+    esc_pct = int(esc / total * 100) if total else 0
+    if esc_pct >= 30:
+        title = f"{esc_pct}% of Support Tickets Escalated to Engineering — High Pressure"
+    elif esc_pct >= 15:
+        title = f"{total} Support Tickets — {esc} Escalated to Engineering This Period"
+    elif total:
+        title = f"{total} Support Tickets — Engineering Escalation Rate at {esc_pct}%"
+    else:
+        title = "Support Pressure — No Ticket Data Available"
 
-    body_top = BODY_Y + 22
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
 
-    # Priority breakdown as a visual bar chart (horizontal)
+    ctx = f"Last {days} days   ·   Open: {open_n}   ·   Escalated to eng: {esc}   ·   Open bugs: {bugs}"
+    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, ctx)
+    _style(reqs, f"{sid}_ctx", 0, len(ctx), size=9, color=GRAY, font=FONT)
+
+    body_top = BODY_Y + 18
+    col_gap = 24
+    left_w = (CONTENT_W - col_gap) * 3 // 5
+    right_w = CONTENT_W - left_w - col_gap
+    left_x = MARGIN
+    right_x = MARGIN + left_w + col_gap
+
+    # ── LEFT: Priority breakdown as large horizontal bar chart ──
     by_prio = sp.get("by_priority") or {}
-    if by_prio:
-        _box(reqs, f"{sid}_ph", sid, MARGIN, body_top, CONTENT_W, 16, "Tickets by Priority")
-        _style(reqs, f"{sid}_ph", 0, 19, bold=True, size=12, color=NAVY, font=FONT)
-        y = body_top + 20
+    left_y = body_top
+    _box(reqs, f"{sid}_ph", sid, left_x, left_y, left_w, 16, "Ticket Volume by Priority")
+    _style(reqs, f"{sid}_ph", 0, 26, bold=True, size=12, color=NAVY, font=FONT)
+    left_y += 22
 
-        prio_order = ["Blocker", "Critical", "Major", "Minor", "Unknown"]
-        prio_colors = {
-            "Blocker": {"red": 0.85, "green": 0.15, "blue": 0.15},
-            "Critical": {"red": 0.9, "green": 0.4, "blue": 0.0},
-            "Major": BLUE,
-            "Minor": GRAY,
-            "Unknown": GRAY,
-        }
-        all_items = [(p, by_prio.get(p, 0)) for p in prio_order if by_prio.get(p, 0) > 0]
-        max_val = max(v for _, v in all_items) if all_items else 1
-        BAR_MAX_W = int(CONTENT_W * 0.55)
+    prio_order = ["Blocker", "Critical", "Major", "Minor", "Unknown"]
+    prio_colors = {
+        "Blocker": {"red": 0.85, "green": 0.15, "blue": 0.15},
+        "Critical": {"red": 0.9, "green": 0.4, "blue": 0.0},
+        "Major": BLUE,
+        "Minor": {"red": 0.48, "green": 0.77, "blue": 0.98},
+        "Unknown": GRAY,
+    }
+    all_items = [(p, by_prio.get(p, 0)) for p in prio_order if by_prio.get(p, 0) > 0]
+    max_val = max(v for _, v in all_items) if all_items else 1
+    BAR_MAX_W = left_w - 100
 
-        for pi, (prio, cnt) in enumerate(all_items):
-            bar_w = max(4, int(cnt / max_val * BAR_MAX_W))
-            label = f"{prio:<12}  {cnt:>4}"
+    for pi, (prio, cnt) in enumerate(all_items):
+        bar_w = max(6, int(cnt / max_val * BAR_MAX_W))
+        is_critical = prio in ("Blocker", "Critical")
+        _box(reqs, f"{sid}_pl{pi}", sid, left_x, left_y, 88, 26, prio)
+        _style(reqs, f"{sid}_pl{pi}", 0, len(prio), size=12, bold=is_critical,
+               color=prio_colors.get(prio, NAVY), font=FONT)
+        _box(reqs, f"{sid}_pb{pi}", sid, left_x + 92, left_y + 6, bar_w, 14, "")
+        reqs.append({"updateShapeProperties": {
+            "objectId": f"{sid}_pb{pi}",
+            "shapeProperties": {"shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": prio_colors.get(prio, NAVY)}}}},
+            "fields": "shapeBackgroundFill",
+        }})
+        cnt_lbl = str(cnt)
+        _box(reqs, f"{sid}_pc{pi}", sid, left_x + 96 + bar_w, left_y + 4, 40, 18, cnt_lbl)
+        _style(reqs, f"{sid}_pc{pi}", 0, len(cnt_lbl), size=11, bold=is_critical,
+               color=prio_colors.get(prio, NAVY), font=FONT)
+        left_y += 30
 
-            label_box_id = f"{sid}_pb_l{pi}"
-            bar_box_id = f"{sid}_pb_b{pi}"
+    # ── RIGHT: KPI cards ──
+    right_y = body_top
+    kpi_cards = [
+        ("Total", total, None),
+        ("Open", open_n, None),
+        ("Escalated to Eng", esc, _RED if esc > 5 else NAVY),
+        ("Open Bugs", bugs, _RED if bugs > 3 else NAVY),
+    ]
+    for label, val, color in kpi_cards:
+        color = color or NAVY
+        _box(reqs, f"{sid}_kl_{label[:6]}", sid, right_x, right_y, right_w, 14, label)
+        _style(reqs, f"{sid}_kl_{label[:6]}", 0, len(label), size=9, color=GRAY, font=FONT)
+        right_y += 14
+        val_str = str(val)
+        _box(reqs, f"{sid}_kv_{label[:6]}", sid, right_x, right_y, right_w, 28, val_str)
+        _style(reqs, f"{sid}_kv_{label[:6]}", 0, len(val_str), bold=True, size=22, color=color, font=FONT)
+        right_y += 36
 
-            _box(reqs, label_box_id, sid, MARGIN, y, 120, 22, label)
-            _style(reqs, label_box_id, 0, len(label), size=11, bold=(prio in ("Blocker","Critical")),
-                   color=prio_colors.get(prio, NAVY), font=FONT)
-
-            _box(reqs, bar_box_id, sid, MARGIN + 128, y + 4, bar_w, 14, "")
-            reqs.append({"updateShapeProperties": {
-                "objectId": bar_box_id,
-                "shapeProperties": {"shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": prio_colors.get(prio, NAVY)}}}},
-                "fields": "shapeBackgroundFill",
-            }})
-            y += 26
-
-    # Throughput context note
-    throughput = eng.get("throughput") or []
-    if throughput:
-        recent = throughput[-4:]
-        avg_created = sum(w.get("created", 0) for w in recent) / len(recent)
-        avg_closed = sum(w.get("resolved", 0) for w in recent) / len(recent)
-        note = (f"4-week avg: {avg_created:.1f} tickets/wk created, "
-                f"{avg_closed:.1f} closed")
-        _box(reqs, f"{sid}_note", sid, MARGIN, BODY_BOTTOM - 20, CONTENT_W, 16, note)
-        _style(reqs, f"{sid}_note", 0, len(note), size=9, color=GRAY, font=FONT)
+    # ── INSIGHT BULLETS ──
+    insights = (eng.get("insights") or {}).get("support_pressure", [])
+    if insights:
+        bullet_y = BODY_BOTTOM - (len(insights) * 22) - 4
+        _eng_insight_bullets(reqs, sid, insights, MARGIN, bullet_y, CONTENT_W)
 
     return idx + 1
 

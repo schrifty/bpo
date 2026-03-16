@@ -139,6 +139,118 @@ def _extract_comments(comment_field: Any) -> list[str]:
     return texts
 
 
+def _generate_eng_insights(eng: dict) -> dict[str, list[str]]:
+    """Generate 2-3 LeanDNA-style insight bullets for each engineering portfolio slide.
+
+    Returns a dict keyed by slide name, each value a list of bullet strings.
+    Runs all GPT calls in parallel.  Falls back to [] on any error.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from openai import OpenAI
+
+    _oai = OpenAI()
+
+    def _call(slide_name: str, prompt: str) -> tuple[str, list[str]]:
+        try:
+            resp = _oai.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": (
+                        "You are a technical analyst writing slide bullets for an engineering review deck. "
+                        "Follow these rules strictly:\n"
+                        "- Write exactly 2-3 bullets\n"
+                        "- Each bullet is one sentence, 8-14 words\n"
+                        "- Lead with the insight or implication, not the raw number\n"
+                        "- Use plain text, no markdown, no hyphens at the start\n"
+                        "- Tone: direct, analytical, not salesy"
+                    )},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.3,
+                max_tokens=200,
+            )
+            raw = resp.choices[0].message.content.strip()
+            bullets = [
+                line.lstrip("•-–— ").strip()
+                for line in raw.splitlines()
+                if line.strip() and not line.strip().startswith("#")
+            ]
+            return slide_name, [b for b in bullets if b][:3]
+        except Exception as e:
+            logger.warning("Insight generation failed for %s: %s", slide_name, e)
+            return slide_name, []
+
+    sprint = eng.get("sprint") or {}
+    sprint_name = sprint.get("name", "current sprint")
+    in_flight = eng.get("in_flight_count", 0)
+    closed = eng.get("closed_count", 0)
+    active = eng.get("by_status", {}).get("In Progress", 0)
+    themes = eng.get("themes") or []
+    top_theme = themes[0]["theme"] if themes else "unknown"
+    by_type = eng.get("by_type") or {}
+    bugs_if = by_type.get("Bug", 0)
+
+    open_bugs = eng.get("open_bugs") or []
+    blockers = eng.get("blocker_critical") or []
+    by_prio_bug: dict[str, int] = {}
+    for b in open_bugs:
+        p = b.get("priority", "Unknown").split(":")[0]
+        by_prio_bug[p] = by_prio_bug.get(p, 0) + 1
+
+    throughput = eng.get("throughput") or []
+    recent_tp = throughput[-4:] if throughput else []
+    avg_closed = sum(w.get("resolved", 0) for w in recent_tp) / len(recent_tp) if recent_tp else 0
+    avg_created = sum(w.get("created", 0) for w in recent_tp) / len(recent_tp) if recent_tp else 0
+
+    sp = eng.get("support_pressure") or {}
+    sp_total = sp.get("total", 0)
+    sp_esc = sp.get("escalated_to_eng", 0)
+    sp_bugs = sp.get("open_bugs", 0)
+    days = eng.get("days", 30)
+
+    enhancements = eng.get("enhancements") or {}
+    er_open = enhancements.get("open_count", 0)
+    er_shipped = enhancements.get("shipped_count", 0)
+
+    tasks = [
+        ("sprint_snapshot", (
+            f"Sprint: {sprint_name}. In-flight: {in_flight} tickets. Active (in progress/review): {active}. "
+            f"Closed this period: {closed}. Top theme by ticket count: {top_theme}. "
+            f"Bugs in flight: {bugs_if}. Type breakdown: {dict(list(by_type.items())[:5])}. "
+            "Write 2-3 insight bullets about the current sprint's focus, velocity, and any risks."
+        )),
+        ("bug_health", (
+            f"Open bugs: {len(open_bugs)}. Blockers/Critical: {len(blockers)}. "
+            f"Priority breakdown: {by_prio_bug}. "
+            f"Blocker examples: {', '.join(b['key'] + ': ' + b['summary'][:50] for b in blockers[:3])}. "
+            "Write 2-3 insight bullets about the bug backlog severity and what needs attention."
+        )),
+        ("velocity", (
+            f"4-week avg tickets created/week: {avg_created:.1f}. "
+            f"4-week avg tickets closed/week: {avg_closed:.1f}. "
+            f"Net flow (closed minus created): {(avg_closed - avg_created):.1f} per week. "
+            f"Total in-flight: {in_flight}. Total closed this period: {closed}. "
+            "Write 2-3 insight bullets about team throughput, backlog trend, and delivery pace."
+        )),
+        ("support_pressure", (
+            f"Support tickets in last {days} days: {sp_total} total, {sp_esc} escalated to engineering. "
+            f"Open support bugs: {sp_bugs}. "
+            f"Escalation rate: {(sp_esc / sp_total * 100):.0f}% of total."
+        ) if sp_total else (
+            f"Support ticket data unavailable for last {days} days. Write a note that data is unavailable."
+        )),
+    ]
+
+    insights: dict[str, list[str]] = {}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [pool.submit(_call, name, prompt) for name, prompt in tasks]
+        for f in futures:
+            name, bullets = f.result()
+            insights[name] = bullets
+
+    return insights
+
+
 class JiraClient:
     def __init__(self):
         if not all([JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN]):
