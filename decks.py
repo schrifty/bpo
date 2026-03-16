@@ -127,15 +127,9 @@ def main():
         sys.exit(1)
 
     # "decks hydrate" or "decks hydrate Bombardier" / "decks hydrate for Safran" → pull from new-slides
+    # Hydrate only needs Drive access — no Pendo/SF/CSR preflight required
     if prompt.lower() == "hydrate" or prompt.lower().startswith("hydrate "):
-        from src.data_source_health import check_all_required
         from src.evaluate import hydrate_new_slides
-        preflight_errors = check_all_required()
-        if preflight_errors:
-            print("Data source check failed — not running hydrate:")
-            for msg in preflight_errors:
-                print(f"  • {msg}")
-            sys.exit(1)
         rest = prompt[7:].strip()  # after "hydrate"
         if rest.lower().startswith("for "):
             rest = rest[4:].strip()
@@ -143,9 +137,13 @@ def main():
         hydrate_new_slides(customer_override=override)
         return
 
-    # "decks engineering portfolio" or "decks eng portfolio" → product-level eng deck
-    _ep_triggers = ("engineering portfolio", "eng portfolio", "engineering review")
-    if any(prompt.lower().startswith(t) for t in _ep_triggers):
+    params = _parse_prompt(prompt)
+    deck_id = params.get("deck_id", "cs_health_review")
+
+    # Engineering portfolio is a single product-level deck — never per-customer
+    _ep_triggers = ("engineering portfolio", "eng portfolio", "engineering review",
+                    "generate the engineering", "generate engineering")
+    if deck_id == "engineering-portfolio" or any(t in prompt.lower() for t in _ep_triggers):
         from src.data_source_health import check_all_required
         from src.jira_client import JiraClient
         from src.slides_client import create_health_deck
@@ -176,8 +174,6 @@ def main():
             print(f"  OK   {result.get('url', '')}")
         return
 
-    params = _parse_prompt(prompt)
-    deck_id = params.get("deck_id", "cs_health_review")
     days_override = params.get("days")
     customers_list = params.get("customers")
     max_cust = params.get("max")

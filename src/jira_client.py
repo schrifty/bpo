@@ -214,10 +214,11 @@ def _generate_eng_insights(eng: dict) -> dict[str, list[str]]:
 
     tasks = [
         ("sprint_snapshot", (
-            f"Sprint: {sprint_name}. In-flight: {in_flight} tickets. Active (in progress/review): {active}. "
+            f"Sprint: {sprint_name}. Total open tickets: {in_flight} (includes backlog and in-progress). "
+            f"Actively being worked (In Progress + In Review): {active}. "
             f"Closed this period: {closed}. Top theme by ticket count: {top_theme}. "
-            f"Bugs in flight: {bugs_if}. Type breakdown: {dict(list(by_type.items())[:5])}. "
-            "Write 2-3 insight bullets about the current sprint's focus, velocity, and any risks."
+            f"Open bugs: {bugs_if}. Type breakdown: {dict(list(by_type.items())[:5])}. "
+            "Write 2-3 insight bullets about the sprint's focus, how much is actively in motion vs backlog, and any risks."
         )),
         ("bug_health", (
             f"Open bugs: {len(open_bugs)}. Blockers/Critical: {len(blockers)}. "
@@ -745,10 +746,15 @@ class JiraClient:
                               "start": sp["start"], "end": sp["end"]})
 
         # ── Enhancement requests (all, no customer filter) ──
-        # Open tickets — fetch all
+        # Open tickets — updated in the last year, most recent first
         try:
             body_er_open = {
-                "jql": "project = ER AND resolution is EMPTY AND status not in (Done, Closed, \"Not Taken\") ORDER BY updated DESC",
+                "jql": (
+                    "project = ER AND resolution is EMPTY "
+                    "AND status not in (Done, Closed, \"Not Taken\") "
+                    "AND updated >= -365d "
+                    "ORDER BY updated DESC"
+                ),
                 "maxResults": 200,
                 "fields": ["summary", "status", "issuetype", "priority",
                            "labels", "created", "updated", "resolution",
@@ -764,10 +770,14 @@ class JiraClient:
             logger.warning("ER open fetch failed: %s", e)
             er_open_raw = []
 
-        # Shipped tickets — most recently resolved first
+        # Shipped tickets — resolved in the last year, most recently updated first
         try:
             body_er_shipped = {
-                "jql": "project = ER AND resolution in (Fixed, Done) ORDER BY updated DESC",
+                "jql": (
+                    "project = ER AND resolution in (Fixed, Done) "
+                    "AND updated >= -365d "
+                    "ORDER BY updated DESC"
+                ),
                 "maxResults": 50,
                 "fields": ["summary", "status", "issuetype", "priority",
                            "labels", "created", "updated", "resolution",
@@ -828,21 +838,31 @@ class JiraClient:
                 "comment_texts": entry.get("comment_texts", []),
             })
 
+        # Cap narratives: first 20 open ERs + first 10 shipped — the rest show title-only
+        _OPEN_NARRATIVE_CAP = 20
+        _SHIPPED_NARRATIVE_CAP = 10
+        er_open_with_narratives = er_open[:_OPEN_NARRATIVE_CAP]
+        er_shipped_for_narratives = er_shipped[:_SHIPPED_NARRATIVE_CAP]
+
         from concurrent.futures import ThreadPoolExecutor as _TPE
-        all_er = er_open + er_shipped[:10]
+        all_er_for_narr = er_open_with_narratives + er_shipped_for_narratives
         with _TPE(max_workers=12) as pool:
-            all_narratives = list(pool.map(_er_narrative, all_er))
+            all_narratives = list(pool.map(_er_narrative, all_er_for_narr))
+
+        n_open_narr = len(er_open_with_narratives)  # actual count generated
 
         open_with_narratives = []
         for i, e in enumerate(er_open):
             e = dict(e)
-            e["narrative"] = all_narratives[i]
+            if i < n_open_narr:
+                e["narrative"] = all_narratives[i]
+            # tickets beyond cap get no narrative — slide renders title only
             open_with_narratives.append(e)
 
         shipped_with_narratives = []
-        for i, e in enumerate(er_shipped[:10]):
+        for i, e in enumerate(er_shipped[:_SHIPPED_NARRATIVE_CAP]):
             e = dict(e)
-            e["narrative"] = all_narratives[len(er_open) + i]
+            e["narrative"] = all_narratives[n_open_narr + i]
             shipped_with_narratives.append(e)
 
         enhancements = {

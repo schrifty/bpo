@@ -3276,7 +3276,7 @@ def _eng_sprint_snapshot_slide(reqs: list, sid: str, report: dict, idx: int) -> 
     bugs_if = by_type.get("Bug", 0)
 
     # Dynamic insight title
-    title = f"{sprint_name}: {in_f} In-Flight, {active} Active, {bugs_if} Bugs"
+    title = f"{sprint_name}: {in_f} Open, {active} Active, {bugs_if} Bugs"
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
     _slide_title(reqs, sid, title)
@@ -3318,14 +3318,16 @@ def _eng_sprint_snapshot_slide(reqs: list, sid: str, report: dict, idx: int) -> 
 
         # Label: name + counts
         label = f"{theme_name}"
-        counts = f"{total_n} ({active_n} active{f', {bugs_n}🐛' if bugs_n else ''})"
+        counts = f"{total_n}" + (f" ({active_n} act)" if active_n else "") + (f" {bugs_n}B" if bugs_n else "")
         _box(reqs, f"{sid}_tln{ri}", sid, left_x, left_y, 96, ROW_H, label)
         _style(reqs, f"{sid}_tln{ri}", 0, len(label), size=8, color=NAVY, font=FONT)
 
-        # Visual bar
+        # Visual bar — capped so the count label fits within the left column
         bar_x = left_x + 100
+        max_bar_w = left_w - 100 - 52 - 4  # leave 52px for count label
+        bar_w_capped = min(bar_w, max_bar_w)
         bar_color = {"red": 0.9, "green": 0.4, "blue": 0.0} if bugs_n else BLUE
-        _box(reqs, f"{sid}_tbar{ri}", sid, bar_x, left_y + 4, bar_w, 9, "")
+        _box(reqs, f"{sid}_tbar{ri}", sid, bar_x, left_y + 4, bar_w_capped, 9, "")
         reqs.append({"updateShapeProperties": {
             "objectId": f"{sid}_tbar{ri}",
             "shapeProperties": {"shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": bar_color}}}},
@@ -3333,7 +3335,7 @@ def _eng_sprint_snapshot_slide(reqs: list, sid: str, report: dict, idx: int) -> 
         }})
 
         # Count label after bar
-        _box(reqs, f"{sid}_tcnt{ri}", sid, bar_x + bar_w + 4, left_y, 80, ROW_H, counts)
+        _box(reqs, f"{sid}_tcnt{ri}", sid, bar_x + bar_w_capped + 4, left_y, 48, ROW_H, counts)
         _style(reqs, f"{sid}_tcnt{ri}", 0, len(counts), size=8,
                color=_RED if bugs_n else GRAY, font=FONT)
         left_y += ROW_H
@@ -3446,7 +3448,7 @@ def _eng_bug_health_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
     }
     TICKET_H = 34  # key line (16) + summary line (18)
     for bi, bug in enumerate(open_bugs[:12]):
-        if left_y + TICKET_H > BODY_BOTTOM:
+        if left_y + TICKET_H > BODY_BOTTOM - 72:  # reserve space for insight bullets
             break
         key = bug["key"]
         prio_short = bug["priority"].split(":")[0] if ":" in bug["priority"] else bug["priority"]
@@ -3634,17 +3636,17 @@ def _eng_velocity_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
     avg_created = sum(w.get("created", 0) for w in recent_tp) / len(recent_tp) if recent_tp else 0
     net = avg_closed - avg_created
     if net > 2:
-        title = f"Backlog Shrinking — Team Closing {net:.0f} More Tickets/Week Than Created"
+        title = f"Backlog Shrinking — {net:.0f} More Tickets Closed Than Created Per Week"
     elif net < -2:
-        title = f"Backlog Growing — {abs(net):.0f} More Tickets Created Than Closed Per Week"
+        title = f"Backlog Growing — {abs(net):.0f} More Created Than Closed Per Week"
     else:
-        title = f"Flow Balanced — {avg_closed:.0f} Tickets Closed Per Week"
+        title = f"Flow Balanced — Averaging {avg_closed:.0f} Tickets Closed Per Week"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
     _slide_title(reqs, sid, title)
 
-    ctx = f"In-flight: {in_flight}   ·   Closed this period: {closed_count}   ·   Last 12 weeks"
+    ctx = f"Open: {in_flight}   ·   Closed this period: {closed_count}   ·   Last 12 weeks"
     _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 14, ctx)
     _style(reqs, f"{sid}_bar", 0, len(ctx), size=9, color=GRAY, font=FONT)
 
@@ -3707,7 +3709,8 @@ def _eng_velocity_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
     if not chart_embedded:
         # Fallback: text table
         _box(reqs, f"{sid}_sph", sid, left_x, left_y, left_w, 16, "Weekly Throughput  (last 12 wks)")
-        _style(reqs, f"{sid}_sph", 0, 20, bold=True, size=11, color=NAVY, font=FONT)
+        _style(reqs, f"{sid}_sph", 0, len("Weekly Throughput  (last 12 wks)"), size=11, color=NAVY, font=FONT)
+        _style(reqs, f"{sid}_sph", 0, len("Weekly Throughput"), bold=True, size=11, color=NAVY, font=FONT)
         left_y += 20
 
         if recent_weeks:
@@ -3761,7 +3764,8 @@ def _eng_velocity_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
     right_y += 16
     total_if = sum(by_status.values()) or 1
     max_s = max(by_status.values()) if by_status else 1
-    BAR_MAX_W = right_w - 76
+    PCT_COL_W = 30  # fixed width column for the % label
+    BAR_MAX_W = right_w - 76 - PCT_COL_W - 4
     for status, cnt in stat_items:
         pct = int(cnt / total_if * 100)
         bw = max(3, int(cnt / max_s * BAR_MAX_W))
@@ -3780,7 +3784,8 @@ def _eng_velocity_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
             "fields": "shapeBackgroundFill",
         }})
         pct_lbl = f"{pct}%"
-        _box(reqs, f"{sid}_sp_{safe_status}", sid, right_x + 72 + bw + 4, right_y, 28, 13, pct_lbl)
+        pct_x = right_x + right_w - PCT_COL_W
+        _box(reqs, f"{sid}_sp_{safe_status}", sid, pct_x, right_y, PCT_COL_W, 13, pct_lbl)
         _style(reqs, f"{sid}_sp_{safe_status}", 0, len(pct_lbl), size=8, color=GRAY, font=FONT)
         right_y += 14
 
@@ -3807,20 +3812,29 @@ def _eng_enhancements_open_slide(reqs: list, sid: str, report: dict, idx: int) -
     days = enhancements.get("days", eng.get("days", 30))
     jira_base = eng.get("base_url", "")
 
-    TICKET_H = 96  # meta line (14) + summary box (36) + narrative (42) + gap (4)
-    PAGE_H = BODY_BOTTOM - (BODY_Y + 22)
-    tickets_per_page = max(1, PAGE_H // TICKET_H)
-
-    # Split tickets into pages
-    pages = [open_tickets[i:i + tickets_per_page]
-             for i in range(0, max(1, len(open_tickets)), tickets_per_page)]
+    TICKETS_PER_PAGE = 3
+    pages = [open_tickets[i:i + TICKETS_PER_PAGE]
+             for i in range(0, max(1, len(open_tickets)), TICKETS_PER_PAGE)]
+    # For omission note calculation downstream
+    TICKET_H_SLIM = 54  # keep for omission note estimate
     num_pages = len(pages)
+
+    MAX_ER_PAGES = 10
+    if num_pages > MAX_ER_PAGES:
+        pages = pages[:MAX_ER_PAGES]
+        omitted_pages = num_pages - MAX_ER_PAGES
+        num_pages = MAX_ER_PAGES
+    else:
+        omitted_pages = 0
 
     for pg, page_tickets in enumerate(pages):
         page_sid = f"{sid}_p{pg}"
         if pg == 0:
-            title = (f"{open_count} Open Enhancement Requests  ({pg + 1} of {num_pages})"
-                     if num_pages > 1 else f"{open_count} Open Enhancement Requests in Backlog")
+            title = (f"{open_count} Open Enhancement Request  ({pg + 1} of {num_pages})"
+                     if num_pages > 1 else (
+                         f"1 Open Enhancement Request in Backlog" if open_count == 1
+                         else f"{open_count} Open Enhancement Requests in Backlog"
+                     ))
         else:
             title = f"Enhancement Requests — Open  ({pg + 1} of {num_pages})"
 
@@ -3875,6 +3889,18 @@ def _eng_enhancements_open_slide(reqs: list, sid: str, report: dict, idx: int) -
 
         idx += 1
 
+    if omitted_pages:
+        omit_sid = f"{sid}_omit"
+        _slide(reqs, omit_sid, idx)
+        _bg(reqs, omit_sid, WHITE)
+        _slide_title(reqs, omit_sid, f"Enhancement Requests — Open (continued)")
+        note = (f"{omitted_pages * (PAGE_H // TICKET_H_SLIM)}"
+                f" additional open enhancement requests not shown. "
+                f"Full backlog: {open_count} open tickets. View in Jira for complete list.")
+        _box(reqs, f"{omit_sid}_note", omit_sid, MARGIN, BODY_Y + 10, CONTENT_W, 40, note)
+        _style(reqs, f"{omit_sid}_note", 0, len(note), size=11, color=GRAY, font=FONT)
+        idx += 1
+
     return idx
 
 
@@ -3885,13 +3911,13 @@ def _eng_enhancements_shipped_slide(reqs: list, sid: str, report: dict, idx: int
         return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
 
     enhancements = eng.get("enhancements") or {}
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, f"{shipped_count} Enhancement Requests Recently Shipped")
-
     shipped_count = enhancements.get("shipped_count", 0)
     open_count = enhancements.get("open_count", 0)
     declined_count = enhancements.get("declined_count", 0)
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, f"{shipped_count} Enhancement Requests Recently Shipped")
 
     bar = (f"Recently shipped: {shipped_count}   |   Open backlog: {open_count}"
            f"   |   Declined: {declined_count}")
@@ -3901,6 +3927,18 @@ def _eng_enhancements_shipped_slide(reqs: list, sid: str, report: dict, idx: int
     jira_base = eng.get("base_url", "")
     TICKET_H = 96  # meta line (14) + summary box (36) + narrative (42) + gap (4)
     y = BODY_Y + 22
+
+    if not enhancements.get("shipped"):
+        msg = ("No enhancement requests were marked as resolved in Jira in the last 12 months. "
+               "This may indicate that shipped work isn't being closed out in the ER project — "
+               "worth a quick audit of the Jira workflow.")
+        _box(reqs, f"{sid}_empty", sid, MARGIN, y + 20, CONTENT_W, 60, msg)
+        _style(reqs, f"{sid}_empty", 0, len(msg), size=11, color=GRAY, font=FONT)
+        # Flag it visually
+        flag = "Action needed: update Jira ER tickets when shipping"
+        _box(reqs, f"{sid}_flag", sid, MARGIN, y + 90, CONTENT_W, 20, flag)
+        _style(reqs, f"{sid}_flag", 0, len(flag), bold=True, size=10, color=_RED, font=FONT)
+        return idx + 1
 
     for si, req in enumerate(enhancements.get("shipped", [])[:10]):
         if y + TICKET_H > BODY_BOTTOM:
@@ -4029,12 +4067,13 @@ def _eng_support_pressure_slide(reqs: list, sid: str, report: dict, idx: int) ->
     ]
     for label, val, color in kpi_cards:
         color = color or NAVY
-        _box(reqs, f"{sid}_kl_{label[:6]}", sid, right_x, right_y, right_w, 14, label)
-        _style(reqs, f"{sid}_kl_{label[:6]}", 0, len(label), size=9, color=GRAY, font=FONT)
+        safe_lbl = label.replace(" ", "_").replace("/", "_")[:8]
+        _box(reqs, f"{sid}_kl_{safe_lbl}", sid, right_x, right_y, right_w, 14, label)
+        _style(reqs, f"{sid}_kl_{safe_lbl}", 0, len(label), size=9, color=GRAY, font=FONT)
         right_y += 14
         val_str = str(val)
-        _box(reqs, f"{sid}_kv_{label[:6]}", sid, right_x, right_y, right_w, 28, val_str)
-        _style(reqs, f"{sid}_kv_{label[:6]}", 0, len(val_str), bold=True, size=22, color=color, font=FONT)
+        _box(reqs, f"{sid}_kv_{safe_lbl}", sid, right_x, right_y, right_w, 28, val_str)
+        _style(reqs, f"{sid}_kv_{safe_lbl}", 0, len(val_str), bold=True, size=22, color=color, font=FONT)
         right_y += 36
 
     # ── INSIGHT BULLETS ──
