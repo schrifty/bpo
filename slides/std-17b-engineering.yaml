@@ -1,0 +1,14 @@
+id: engineering
+type: standard
+order: 17.5
+title: Engineering Pipeline
+slide_type: engineering
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  What engineering is working on for this customer. Shows open bugs,
+  in-progress features, and recently shipped fixes from the LEAN
+  project. Gives CSMs a "wins" narrative for QBRs — customers love
+  seeing their issues being actively worked.

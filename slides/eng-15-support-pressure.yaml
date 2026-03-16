@@ -1,0 +1,13 @@
+id: eng_support_pressure
+type: standard
+order: 85
+title: Support Pressure
+slide_type: eng_support_pressure
+data_tools: []
+customers: all
+
+prompt: >
+  Cross-customer support pressure slide for the engineering portfolio deck.
+  Aggregate HELP ticket totals — total, open, escalated to eng, open bugs.
+  Priority breakdown as a horizontal bar chart.
+  Shows the unplanned demand competing with engineering capacity.

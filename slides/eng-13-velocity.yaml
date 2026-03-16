@@ -1,0 +1,12 @@
+id: eng_velocity
+type: standard
+order: 83
+title: Velocity & Flow
+slide_type: eng_velocity
+data_tools: []
+customers: all
+
+prompt: >
+  Velocity and flow slide for the engineering portfolio deck.
+  Shows a weekly throughput sparkline (last 12 weeks),
+  pipeline status breakdown, and created-vs-closed trend table.

@@ -1,0 +1,12 @@
+id: eng_enhancements
+type: standard
+order: 84
+title: Enhancement Pipeline
+slide_type: eng_enhancements
+data_tools: []
+customers: all
+
+prompt: >
+  Enhancement pipeline slide for the engineering portfolio deck.
+  Open ER requests and recently shipped items, all with Jira links.
+  Product-level — not filtered by customer.

@@ -1,0 +1,14 @@
+id: enhancements
+type: standard
+order: 17.6
+title: Enhancement Requests
+slide_type: enhancements
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Customer enhancement requests from the ER project: open requests
+  with priority, recently shipped enhancements, and declined/deferred
+  items. Demonstrates responsiveness to customer feedback and provides
+  a concrete product roadmap conversation starter for QBRs.

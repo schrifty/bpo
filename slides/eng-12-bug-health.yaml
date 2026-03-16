@@ -1,0 +1,12 @@
+id: eng_bug_health
+type: standard
+order: 82
+title: Bug Health
+slide_type: eng_bug_health
+data_tools: []
+customers: all
+
+prompt: >
+  Bug health slide for the engineering portfolio deck.
+  Lists all open bugs with priority and Jira links.
+  Highlights blockers and criticals. Priority distribution chart.

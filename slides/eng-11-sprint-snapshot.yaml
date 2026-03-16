@@ -1,0 +1,12 @@
+id: eng_sprint_snapshot
+type: standard
+order: 81
+title: Sprint Snapshot
+slide_type: eng_sprint_snapshot
+data_tools: []
+customers: all
+
+prompt: >
+  Sprint snapshot for the engineering portfolio deck.
+  Shows in-flight work grouped by theme (bracket prefix), type mix,
+  and WIP load per engineer. Product-level view — not per customer.

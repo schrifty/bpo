@@ -1,0 +1,11 @@
+id: eng_portfolio_title
+type: standard
+order: 80
+title: Engineering Portfolio Title
+slide_type: eng_portfolio_title
+data_tools: []
+customers: all
+
+prompt: >
+  Cover slide for the engineering portfolio deck.
+  Shows the current sprint name and date range.

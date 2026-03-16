@@ -1,0 +1,17 @@
+id: support_breakdown
+type: standard
+order: 30
+title: Support Breakdown
+slide_type: support_breakdown
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Engineering-focused deep-dive into support ticket data.
+  Shows weekly ticket volume trend (last 12 weeks), TTFR and TTR
+  performance vs. goals with breach rates, tickets by priority and
+  type, and escalated issues with links to Jira.
+  Designed for engineering / product review meetings where the team
+  needs to understand the per-customer support burden, response
+  quality, and active escalations.

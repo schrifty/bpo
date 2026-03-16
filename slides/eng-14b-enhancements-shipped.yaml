@@ -1,0 +1,13 @@
+id: eng_enhancements_shipped
+type: standard
+order: 85
+title: Enhancement Requests — Recently Shipped
+slide_type: eng_enhancements_shipped
+data_tools: []
+customers: all
+
+prompt: >
+  Recently shipped enhancement requests from the ER project.
+  Each ticket shows key, status, summary, shipped date, and a
+  2-3 sentence narrative covering what was delivered and anything
+  notable from comments. Includes the date range covered.
