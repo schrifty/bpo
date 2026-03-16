@@ -1,0 +1,13 @@
+id: bespoke_divider
+type: bespoke
+order: 3
+title: Section Divider
+slide_type: bespoke_divider
+data_tools: []
+customers: all
+
+prompt: |
+  Section divider slide with the LeanDNA tagline
+  ("THE RIGHT PART. In the right place. AT THE RIGHT TIME.")
+  and a section title in mint. Dark navy background.
+  The section title comes from the 'title' field in the deck definition entry.

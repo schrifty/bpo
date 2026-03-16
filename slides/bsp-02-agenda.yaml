@@ -1,0 +1,11 @@
+id: bespoke_agenda
+type: bespoke
+order: 2
+title: Agenda
+slide_type: bespoke_agenda
+data_tools: []
+customers: all
+
+prompt: |
+  Numbered agenda slide auto-generated from the deck's slide plan.
+  Dark navy background with accent panel. Numbers in mint, items in white.

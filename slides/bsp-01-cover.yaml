@@ -1,0 +1,12 @@
+id: bespoke_cover
+type: bespoke
+order: 1
+title: Executive Business Review
+slide_type: bespoke_cover
+data_tools: [customer_health]
+customers: all
+
+prompt: |
+  Branded cover slide with the LeanDNA APEX template styling.
+  Dark navy background, IBM Plex Serif title, customer name in mint,
+  date and confidential footer.

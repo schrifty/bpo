@@ -1,0 +1,12 @@
+id: bespoke_deployment
+type: bespoke
+order: 4
+title: Deployment Overview
+slide_type: bespoke_deployment
+data_tools: [customer_sites, customer_platform_health]
+customers: all
+
+prompt: |
+  Deployment overview slide showing the number of sites, their user counts,
+  health status (from CS Report), and last-active dates. Built from live
+  Pendo and CS Report data rather than a static screenshot.
