@@ -1,0 +1,32 @@
+id: engineering
+name: Engineering Review
+audience: Engineering / Product
+
+purpose: |
+  This deck is for engineering and product leaders who need a quick read on
+  per-customer support burden, SLA performance, pipeline health, and enhancement
+  requests. The narrative arc is: "Here's what each customer is experiencing in
+  support, how well we're responding, what we're actively building for them, and
+  what they've asked for next."
+
+  The audience cares about specifics — ticket counts, breach rates, open bugs,
+  and pipeline items — not high-level sentiment. Every slide should give an
+  engineering leader something actionable: a customer to prioritize, an SLA risk
+  to address, or a pipeline item to communicate back.
+
+slides:
+  - slide: title
+  - slide: support_breakdown
+  - slide: sla_health
+  - slide: jira
+  - slide: engineering
+  - slide: enhancements
+  - slide: data_quality
+
+overrides:
+  - slide: support_breakdown
+    require: true
+    note: Core of the engineering deck — always show even if data is sparse.
+  - slide: sla_health
+    require: true
+    note: Always show SLA health so engineers can see breach rates.

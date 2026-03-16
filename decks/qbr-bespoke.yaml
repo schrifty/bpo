@@ -1,0 +1,44 @@
+id: qbr_bespoke
+name: Quarterly Business Review (Bespoke)
+audience: Customer Success — QBR meetings
+
+purpose: |
+  A branded QBR deck that replicates the slide style CSMs have been building
+  manually. Opens with a branded cover and auto-generated agenda, uses section
+  dividers between major topics, and fills data slides with live Pendo, Jira,
+  and CS Report data.
+
+slides:
+  - slide: bespoke_cover
+  - slide: bespoke_agenda
+  - slide: bespoke_divider
+    title: Current deployment coverage
+  - slide: bespoke_deployment
+  - slide: bespoke_divider
+    title: Usage & engagement
+  - slide: health
+  - slide: engagement
+  - slide: sites
+  - slide: features
+  - slide: depth
+  - slide: bespoke_divider
+    title: Support & engineering
+  - slide: jira
+  - slide: sla_health
+  - slide: engineering
+  - slide: enhancements
+  - slide: bespoke_divider
+    title: Platform health & value
+  - slide: platform_health
+  - slide: supply_chain
+  - slide: platform_value
+  - slide: bespoke_divider
+    title: Summary & next steps
+  - slide: signals
+  - slide: data_quality
+
+overrides:
+  - slide: health
+    require: true
+  - slide: signals
+    require: true
