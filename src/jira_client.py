@@ -5,7 +5,7 @@ from typing import Any
 
 import requests
 
-from .config import JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN, logger
+from .config import JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN, LLM_MODEL_FAST, llm_client, logger
 
 CUSTOMER_FIELD = "customfield_10100"   # "Customer" multi-select
 ORG_FIELD = "customfield_10502"        # "Organizations" (JSM)
@@ -80,10 +80,9 @@ def _summarize_ticket(issue: dict) -> str:
         "Be specific and factual. Do not start with 'This ticket'."
     )
     try:
-        from openai import OpenAI
-        client = OpenAI()
+        client = llm_client()
         resp = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=LLM_MODEL_FAST,
             temperature=0.3,
             max_tokens=120,
             messages=[
@@ -146,14 +145,13 @@ def _generate_eng_insights(eng: dict) -> dict[str, list[str]]:
     Runs all GPT calls in parallel.  Falls back to [] on any error.
     """
     from concurrent.futures import ThreadPoolExecutor
-    from openai import OpenAI
 
-    _oai = OpenAI()
+    _oai = llm_client()
 
     def _call(slide_name: str, prompt: str) -> tuple[str, list[str]]:
         try:
             resp = _oai.chat.completions.create(
-                model="gpt-4o-mini",
+                model=LLM_MODEL_FAST,
                 messages=[
                     {"role": "system", "content": (
                         "You are a technical analyst writing slide bullets for an engineering review deck. "

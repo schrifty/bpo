@@ -46,3 +46,31 @@ SF_PRIVATE_KEY_PATH = os.environ.get("SF_PRIVATE_KEY_PATH")  # Path to server.ke
 # Optional limits for tool output (0 = no limit, full dataset returned)
 PENDO_MAX_RESULTS = int(os.environ.get("PENDO_MAX_RESULTS", "0"))
 PENDO_MAX_OUTPUT_CHARS = int(os.environ.get("PENDO_MAX_OUTPUT_CHARS", "0"))
+
+# LLM provider — set LLM_PROVIDER=gemini or LLM_PROVIDER=openai in .env.
+# Defaults to gemini if GEMINI_API_KEY is present, otherwise openai.
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+_default_provider = "gemini" if GEMINI_API_KEY else "openai"
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", _default_provider).lower()
+
+_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
+if LLM_PROVIDER == "gemini":
+    LLM_MODEL = "gemini-2.5-flash"
+    LLM_MODEL_FAST = "gemini-2.5-flash"
+else:
+    LLM_MODEL = "gpt-4o"
+    LLM_MODEL_FAST = "gpt-4o-mini"
+
+
+def llm_client():
+    """Return an OpenAI-SDK client for the configured LLM provider."""
+    from openai import OpenAI
+    if LLM_PROVIDER == "gemini":
+        if not GEMINI_API_KEY:
+            raise RuntimeError("LLM_PROVIDER=gemini but GEMINI_API_KEY is not set")
+        return OpenAI(api_key=GEMINI_API_KEY, base_url=_GEMINI_BASE_URL)
+    if not OPENAI_API_KEY:
+        raise RuntimeError("LLM_PROVIDER=openai but OPENAI_API_KEY is not set")
+    return OpenAI(api_key=OPENAI_API_KEY)

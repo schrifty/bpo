@@ -12,14 +12,14 @@ from __future__ import annotations
 import base64
 import json
 import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
 import requests as _requests
 
-from openai import OpenAI
-
-from .config import GOOGLE_DRIVE_FOLDER_ID, logger
+from .config import GOOGLE_DRIVE_FOLDER_ID, LLM_MODEL, LLM_MODEL_FAST, llm_client, logger
 from .slides_client import _get_service, SLIDE_DATA_REQUIREMENTS
 
 NEW_SLIDES_FOLDER_NAME = "new-slides"
@@ -94,9 +94,15 @@ KNOWN_LIMITATIONS: list[str] = [
 EXISTING_SLIDE_TYPES: list[str] = sorted(SLIDE_DATA_REQUIREMENTS.keys())
 
 
+_print_context = "bpo"  # overridden per command
+
 def _print(*args, **kwargs):
-    """Print with immediate flush so output appears in real time."""
-    print(*args, **kwargs, flush=True)
+    """Log and print with immediate flush so output appears in real time."""
+    end = kwargs.pop("end", "\n")
+    sep = kwargs.pop("sep", " ")
+    msg = sep.join(str(a) for a in args)
+    logger.info("%s: %s", _print_context, msg.rstrip())
+    print(msg, end=end, flush=True)
 
 
 # ── Helpers ──
@@ -117,13 +123,54 @@ def _find_new_slides_folder() -> str | None:
     results = drive.files().list(q=q, fields="files(id, name)", pageSize=5).execute()
     files = results.get("files", [])
     if not files:
-        logger.info("No '%s' folder found in Drive — nothing to evaluate", NEW_SLIDES_FOLDER_NAME)
+        logger.warning("No '%s' folder found in Drive — nothing to process. "
+                       "Create it inside your GOOGLE_DRIVE_FOLDER_ID folder.", NEW_SLIDES_FOLDER_NAME)
         return None
     return files[0]["id"]
 
 
+_PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+_GSLIDES_MIME = "application/vnd.google-apps.presentation"
+
+
+def _convert_pptx_to_slides(drive, file_id: str, name: str, folder_id: str) -> str:
+    """Copy a .pptx file into the same folder as a native Google Slides presentation.
+
+    Returns the new Google Slides file ID.
+    """
+    # Download the pptx bytes
+    import io
+    request = drive.files().get_media(fileId=file_id)
+    fh = io.BytesIO()
+    from googleapiclient.http import MediaIoBaseDownload
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+    fh.seek(0)
+
+    # Re-upload with conversion to Google Slides
+    from googleapiclient.http import MediaIoBaseUpload
+    base_name = name.rsplit(".", 1)[0]  # strip .pptx
+    media = MediaIoBaseUpload(fh, mimetype=_PPTX_MIME, resumable=True)
+    converted = drive.files().create(
+        body={
+            "name": base_name,
+            "mimeType": _GSLIDES_MIME,
+            "parents": [folder_id],
+        },
+        media_body=media,
+        fields="id,name",
+    ).execute()
+    _print(f"Converted '{name}' → Google Slides '{base_name}' (id: {converted['id']})")
+    return converted["id"], base_name
+
+
 def _list_presentations(folder_id: str) -> list[dict[str, str]]:
-    """List Google Slides presentations in a folder, resolving shortcuts."""
+    """List Google Slides presentations in a folder, resolving shortcuts.
+
+    .pptx files are automatically converted to Google Slides on the fly.
+    """
     _x, drive, _sh = _get_service()
     q = f"'{folder_id}' in parents and trashed = false"
     results = drive.files().list(
@@ -135,26 +182,59 @@ def _list_presentations(folder_id: str) -> list[dict[str, str]]:
     presentations: list[dict[str, str]] = []
     for f in results.get("files", []):
         mime = f.get("mimeType", "")
-        if mime == "application/vnd.google-apps.presentation":
+        if mime == _GSLIDES_MIME:
             presentations.append({"id": f["id"], "name": f["name"]})
+        elif mime == _PPTX_MIME:
+            try:
+                new_id, new_name = _convert_pptx_to_slides(drive, f["id"], f["name"], folder_id)
+                presentations.append({"id": new_id, "name": new_name})
+            except Exception as e:
+                _print(f"Could not convert '{f['name']}' to Google Slides: {e}")
         elif mime == "application/vnd.google-apps.shortcut":
             target = f.get("shortcutDetails", {})
-            if target.get("targetMimeType") == "application/vnd.google-apps.presentation":
+            if target.get("targetMimeType") == _GSLIDES_MIME:
                 presentations.append({"id": target["targetId"], "name": f["name"]})
     return presentations
 
 
-def _get_slide_thumbnail_b64(slides_svc, pres_id: str, page_id: str) -> str:
-    """Export a single slide thumbnail and return it as a base64-encoded PNG string."""
+def _get_slide_thumbnail_url(slides_svc, pres_id: str, page_id: str) -> str:
+    """Get the thumbnail content URL for a slide (main-thread only — not thread-safe).
+
+    The Google API client (httplib2) is not thread-safe, so this must be called
+    from a single thread.  Use _download_thumbnail_b64 to fetch the image bytes
+    in a worker thread.
+    """
     thumb = slides_svc.presentations().pages().getThumbnail(
         presentationId=pres_id,
         pageObjectId=page_id,
         thumbnailProperties_thumbnailSize="LARGE",
     ).execute()
-    url = thumb["contentUrl"]
-    resp = _requests.get(url, timeout=30)
-    resp.raise_for_status()
-    return base64.b64encode(resp.content).decode()
+    return thumb["contentUrl"]
+
+
+def _download_thumbnail_b64(url: str, max_retries: int = 3) -> str:
+    """Download a thumbnail from a pre-fetched URL and return base64-encoded PNG.
+
+    Safe to call from worker threads — uses requests which is thread-safe.
+    Retries on SSL/network errors.
+    """
+    last_err: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            resp = _requests.get(url, timeout=30)
+            resp.raise_for_status()
+            return base64.b64encode(resp.content).decode()
+        except Exception as e:
+            last_err = e
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
+    raise last_err
+
+
+def _get_slide_thumbnail_b64(slides_svc, pres_id: str, page_id: str) -> str:
+    """Convenience wrapper: get URL then download. Only safe from a single thread."""
+    url = _get_slide_thumbnail_url(slides_svc, pres_id, page_id)
+    return _download_thumbnail_b64(url)
 
 
 def _extract_text(element: dict) -> list[str]:
@@ -238,6 +318,8 @@ def evaluate_new_slides(verbose: bool = False) -> list[dict[str, Any]]:
 
     Returns a list of evaluation results, one per slide across all presentations.
     """
+    global _print_context
+    _print_context = "evaluate"
     folder_id = _find_new_slides_folder()
     if not folder_id:
         print(f"Create a '{NEW_SLIDES_FOLDER_NAME}' folder inside your Drive folder "
@@ -256,7 +338,7 @@ def evaluate_new_slides(verbose: bool = False) -> list[dict[str, Any]]:
     _print()
 
     slides_svc, _d, _ = _get_service()
-    client = OpenAI()
+    client = llm_client()
     capability_context = _build_capability_context()
     all_results: list[dict[str, Any]] = []
 
@@ -285,7 +367,8 @@ def evaluate_new_slides(verbose: bool = False) -> list[dict[str, Any]]:
             try:
                 thumb_b64 = _get_slide_thumbnail_b64(slides_svc, pres_id, page_id)
             except Exception as e:
-                logger.warning("Thumbnail unavailable for slide %d: %s", si, e)
+                logger.warning("evaluate: thumbnail unavailable for slide %d of '%s': %s",
+                               si, pres_name, e)
                 thumb_b64 = None
 
             messages = [
@@ -301,8 +384,8 @@ def evaluate_new_slides(verbose: bool = False) -> list[dict[str, Any]]:
                 )},
             ]
 
-            resp = client.chat.completions.create(
-                model="gpt-4o",
+            resp = _llm_create_with_retry(client, 
+                model=LLM_MODEL,
                 temperature=0,
                 response_format={"type": "json_object"},
                 messages=messages,
@@ -433,49 +516,85 @@ def visual_qa(pres_id: str, slides_svc=None) -> list[dict[str, Any]]:
     if not slides:
         return []
 
-    oai = OpenAI()
-    results: list[dict[str, Any]] = []
+    oai = llm_client()
+    n = len(slides)
 
-    _print(f"\n  Visual QA: reviewing {len(slides)} slides...")
+    _print(f"\n  Visual QA: reviewing {n} slides...")
 
+    # Step 1: Pre-fetch all thumbnail URLs in the main thread.
+    # The Google API client (httplib2) is NOT thread-safe — calling it from workers
+    # causes malloc double-free crashes.  Getting just the URL is fast (<0.5s/slide).
+    logger.info("QA: fetching thumbnail URLs for %d slides...", n)
+    thumb_urls: dict[str, str | None] = {}
     for si, slide in enumerate(slides, 1):
         page_id = slide["objectId"]
         try:
-            thumb_b64 = _get_slide_thumbnail_b64(slides_svc, pres_id, page_id)
+            thumb_urls[page_id] = _get_slide_thumbnail_url(slides_svc, pres_id, page_id)
         except Exception as e:
-            logger.warning("QA thumbnail failed for slide %d: %s", si, e)
-            results.append({"slide_num": si, "page_id": page_id, "pass": True,
-                            "issues": [], "severity": "none", "error": str(e)[:100]})
-            continue
+            logger.warning("QA: thumbnail URL failed for slide %d/%d: %s", si, n, e)
+            thumb_urls[page_id] = None
 
-        resp = oai.chat.completions.create(
-            model="gpt-4o",
+    # Step 2: Parallelise the HTTP download + GPT Vision call (both thread-safe).
+    def _review_slide(args: tuple[int, dict]) -> dict:
+        si, slide = args
+        page_id = slide["objectId"]
+        url = thumb_urls.get(page_id)
+        thumb_b64 = None
+        if url:
+            try:
+                thumb_b64 = _download_thumbnail_b64(url)
+            except Exception as e:
+                logger.warning("QA: thumbnail download failed for slide %d/%d: %s", si, n, e)
+
+        logger.info("QA: slide %d/%d — reviewing with %s...", si, n, LLM_MODEL)
+        resp = _llm_create_with_retry(oai,
+            model=LLM_MODEL,
             temperature=0,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": _QA_SYSTEM_PROMPT},
                 {"role": "user", "content": [
-                    {"type": "image_url",
-                     "image_url": {"url": f"data:image/png;base64,{thumb_b64}", "detail": "high"}},
-                    {"type": "text", "text": f"Slide {si}/{len(slides)}. Review this slide."},
+                    *(
+                        [{"type": "image_url",
+                          "image_url": {"url": f"data:image/png;base64,{thumb_b64}", "detail": "high"}}]
+                        if thumb_b64 else []
+                    ),
+                    {"type": "text", "text": f"Slide {si}/{n}. Review this slide."},
                 ]},
             ],
         )
         qa = json.loads(resp.choices[0].message.content)
         qa["slide_num"] = si
         qa["page_id"] = page_id
-        results.append(qa)
+        return qa
 
+    raw: dict[int, dict] = {}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {pool.submit(_review_slide, (si, slide)): si
+                   for si, slide in enumerate(slides, 1)}
+        for fut in as_completed(futures):
+            try:
+                qa = fut.result()
+                raw[qa["slide_num"]] = qa
+            except Exception as e:
+                si = futures[fut]
+                logger.warning("QA failed for slide %d: %s", si, e)
+                raw[si] = {"slide_num": si, "pass": True, "issues": [], "severity": "none"}
+
+    # Emit results in slide order
+    results: list[dict[str, Any]] = []
+    for si in range(1, n + 1):
+        qa = raw.get(si, {"slide_num": si, "pass": True, "issues": [], "severity": "none"})
+        results.append(qa)
         passed = qa.get("pass", True)
         severity = qa.get("severity", "none")
         issues = qa.get("issues", [])
-
         if passed:
-            _print(f"    [{si}/{len(slides)}] OK")
+            _print(f"    [{si}/{n}] OK")
         else:
-            icon = "🔴" if severity == "major" else "🟡"
-            _print(f"    [{si}/{len(slides)}] {icon} {severity.upper()}")
-            for issue in issues:
+            icon = "!" if severity == "major" else "~"
+            _print(f"    [{si}/{n}] [{icon}] {severity.upper()}: {'; '.join(issues[:2])}")
+            for issue in issues[2:]:
                 _print(f"         ↳ {issue}")
 
     passed_count = sum(1 for r in results if r.get("pass", True))
@@ -495,20 +614,37 @@ def visual_qa(pres_id: str, slides_svc=None) -> list[dict[str, Any]]:
 # ── Slide data adaptation ──
 
 
-def _extract_slide_text_elements(page_elements: list[dict]) -> list[dict]:
-    """Extract all text and image markers from slide elements."""
+def _extract_slide_text_elements(page_elements: list[dict],
+                                  _depth: int = 0) -> list[dict]:
+    """Extract all text and visual-data markers from slide elements.
+
+    Handles: shapes, images, tables, sheetsCharts, and element groups (recursive).
+    """
     items: list[dict] = []
     for el in page_elements:
         oid = el.get("objectId", "")
 
-        # Images — can't extract text, but flag their presence
-        image = el.get("image", {})
-        if image:
+        # Pasted/imported images
+        if el.get("image"):
             items.append({"type": "image", "element_id": oid, "text": "(embedded image)"})
             continue
 
-        # Shapes with image fills (pasted screenshots)
+        # Google Sheets chart — contains live numeric data, cannot be text-replaced
+        if el.get("sheetsChart"):
+            items.append({"type": "chart", "element_id": oid,
+                          "text": "(embedded chart — contains data that cannot be auto-updated)"})
+            continue
+
+        # Element groups — recurse into children
+        group = el.get("elementGroup", {})
+        if group:
+            children = group.get("children", [])
+            items.extend(_extract_slide_text_elements(children, _depth + 1))
+            continue
+
         shape = el.get("shape", {})
+
+        # Shapes with image/picture fills (pasted screenshots inside a shape)
         shape_props = shape.get("shapeProperties", {})
         if shape_props.get("shapeBackgroundFill", {}).get("propertyState") == "RENDERED":
             bg_fill = shape_props.get("shapeBackgroundFill", {})
@@ -524,7 +660,7 @@ def _extract_slide_text_elements(page_elements: list[dict]) -> list[dict]:
         if full_text:
             items.append({"type": "shape", "element_id": oid, "text": full_text})
 
-        # Table cells
+        # Tables
         table = el.get("table", {})
         if table:
             for ri, row in enumerate(table.get("tableRows", [])):
@@ -614,6 +750,9 @@ _ADAPT_SYSTEM_PROMPT = (
     "CURRENT DATA AVAILABLE:\n{data_json}\n\n"
     "RULES:\n"
     "- Only target DATA VALUES, never labels, headings, or descriptive text.\n"
+    "- NEVER target UI elements: dropdown labels, filter values, button text, "
+    "navigation text, column headers, product feature names, or any text that "
+    "is part of the application interface rather than a reported metric.\n"
     "- The 'original' field must be an EXACT substring of the slide text.\n"
     "- Match by MEANING: '16 sites' maps to total_sites=14, so new_value='14 sites'.\n"
     "- Preserve the original format style: '$324k' → '$291k', '16' → '14', '03/2025' → '03/2026'.\n"
@@ -621,35 +760,135 @@ _ADAPT_SYSTEM_PROMPT = (
     "- If a value COULD map but you're not confident, mark mapped=false.\n"
     "- Contract values, budget amounts, pricing, license costs, and any financial "
     "data not in our sources → mapped=false.\n"
-    "- Specific project dates, milestones, and roadmap timelines → mapped=false.\n\n"
+    "- Specific project dates, milestones, and roadmap timelines → mapped=false.\n"
+    "- HISTORICAL / RETROSPECTIVE CONTENT: If the surrounding text makes clear that a "
+    "widget or bullet point is summarising past achievements, past-period results, or "
+    "historical records (e.g. 'Key Partnership Results', 'What we achieved', "
+    "'Since go-live', 'As of [past date]'), treat ALL values in that block as "
+    "mapped=false. These are records of what happened, not live metrics to refresh.\n\n"
     "For UNMAPPED values, use these placeholders:\n"
     "  Numbers:     [000]\n"
     "  Currency:    [$000]\n"
     "  Dates:       [00/00/00]\n"
     "  Percentages: [00%]\n"
     "  Other:       [???]\n\n"
-    "IMAGES: If the slide contains images (marked as '(embedded image)' in the text "
-    "elements), examine the thumbnail to see if the image contains data (numbers, "
-    "charts, tables). If it does, add an entry with:\n"
+    "IMAGES & CHARTS: If the slide contains images or charts that show data:\n"
+    "- Images marked '(embedded image)' or '(image in shape)': examine the thumbnail "
+    "to check if the image contains data (numbers, charts, tables). If it does, add:\n"
     "  original: '(embedded image)', mapped: false,\n"
     "  new_value: '[STATIC IMAGE — contains data that cannot be auto-updated]',\n"
-    "  field: brief description of what data the image shows.\n\n"
+    "  field: brief description of what data the image shows.\n"
+    "- Charts marked '(embedded chart — contains data that cannot be auto-updated)': "
+    "always flag these regardless of what they show. Add:\n"
+    "  original: '(embedded chart — contains data that cannot be auto-updated)', "
+    "mapped: false,\n"
+    "  new_value: '[CHART — data cannot be auto-updated]',\n"
+    "  field: brief description of what the chart shows (e.g. 'inventory trend chart').\n\n"
     "Return JSON: {{\"replacements\": [\n"
     "  {{\"original\": \"exact text\", \"new_value\": \"replacement\", "
     "\"mapped\": true/false, \"field\": \"data source field or reason unmapped\"}}\n"
     "]}}\n"
+    "Keep 'field' values short (≤10 words). "
     "Return an EMPTY replacements list if the slide has no data values to replace."
 )
 
 
+def _llm_create_with_retry(client, max_retries: int = 3, **kwargs):
+    """Call client.chat.completions.create with exponential backoff on 429."""
+    import re as _re
+    from openai import NotFoundError, RateLimitError
+    from .config import LLM_MODEL, LLM_PROVIDER
+
+    delay = 30
+    for attempt in range(max_retries):
+        try:
+            return client.chat.completions.create(**kwargs)
+        except NotFoundError as e:
+            logger.error(
+                "LLM model not found (%s / %s). "
+                "Update LLM_MODEL in src/config.py or check the provider's model list. Error: %s",
+                LLM_PROVIDER, LLM_MODEL, str(e)[:200],
+            )
+            raise
+        except RateLimitError as e:
+            err_str = str(e)
+            # Detect hard quota exhaustion (limit: 0) vs. transient rate limit
+            hard_quota = "limit: 0" in err_str or "insufficient_quota" in err_str
+
+            if hard_quota:
+                if LLM_PROVIDER == "gemini":
+                    logger.error(
+                        "LLM quota exhausted (Gemini free tier). "
+                        "Fix: go to console.cloud.google.com, enable billing on the project "
+                        "that owns your GEMINI_API_KEY, then re-run. "
+                        "Or set LLM_PROVIDER=openai in .env to use OpenAI instead."
+                    )
+                else:
+                    logger.error(
+                        "LLM quota exhausted (OpenAI). "
+                        "Fix: add credits at platform.openai.com/settings/organization/billing, "
+                        "or set LLM_PROVIDER=gemini in .env to use Gemini instead."
+                    )
+                raise  # no point retrying a hard quota error
+
+            if attempt == max_retries - 1:
+                logger.error("LLM rate limit hit %d times, giving up. Error: %s",
+                             max_retries, err_str[:300])
+                raise
+
+            m = _re.search(r"retry in (\d+(?:\.\d+)?)s", err_str)
+            wait = int(float(m.group(1))) + 2 if m else delay
+            logger.warning("LLM rate limit — retrying in %ds (attempt %d/%d)...",
+                           wait, attempt + 1, max_retries)
+            time.sleep(wait)
+            delay *= 2
+    return None  # unreachable
+
+
+def _element_may_contain_data(el: dict) -> bool:
+    """Return True if this element is worth sending to GPT for data replacement.
+
+    Filters out pure label/header text that can never be a data value, reducing
+    token usage and avoiding false positives on column headers.
+    """
+    text = el.get("text", "")
+    # Always include visual-data markers (images, charts)
+    if text.startswith("(embedded") or text.startswith("(image"):
+        return True
+    # Skip very short labels (≤2 chars) — likely single-letter headers or bullets
+    if len(text) <= 2:
+        return False
+    # Skip text that contains no digits and no % $ signs — pure descriptive labels
+    import re as _re
+    if not _re.search(r'[\d%$€£¥#]', text):
+        return False
+    return True
+
+
 def _get_data_replacements(oai, text_elements: list[dict], data_summary: dict,
-                           thumb_b64: str | None = None) -> list[dict]:
+                           thumb_b64: str | None = None,
+                           slide_label: str = "?") -> list[dict]:
     """Ask GPT-4o to map slide data values to current report data."""
+    # Filter to elements that could plausibly contain data values
+    candidates = [el for el in text_elements if _element_may_contain_data(el)]
+    # Always include image/chart markers even if they slipped through the filter
+    markers = [el for el in text_elements
+               if el.get("text", "").startswith("(embedded") or
+               el.get("text", "").startswith("(image")]
+    # Merge, dedup by element_id
+    seen = set()
+    filtered = []
+    for el in candidates + markers:
+        key = (el.get("element_id"), el.get("text"))
+        if key not in seen:
+            seen.add(key)
+            filtered.append(el)
+
     text_desc = "\n".join(
         f"  [{t['type']}"
         + (f" row={t['row']} col={t['col']}" if t["type"] == "table_cell" else "")
         + f"]: \"{t['text']}\""
-        for t in text_elements
+        for t in filtered
     )
 
     system = _ADAPT_SYSTEM_PROMPT.format(
@@ -667,16 +906,28 @@ def _get_data_replacements(oai, text_elements: list[dict], data_summary: dict,
         "text": f"Slide text elements:\n{text_desc}\n\nIdentify all data values and map them.",
     })
 
-    resp = oai.chat.completions.create(
-        model="gpt-4o",
+    resp = _llm_create_with_retry(oai, 
+        model=LLM_MODEL,
         temperature=0,
+        max_tokens=4096,
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": parts},
         ],
     )
-    result = json.loads(resp.choices[0].message.content)
+    raw = resp.choices[0].message.content
+    finish_reason = resp.choices[0].finish_reason
+    if finish_reason == "length":
+        logger.warning("hydrate: slide %s — LLM response truncated (hit max_tokens), skipping data replacement",
+                       slide_label)
+        return []
+    try:
+        result = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        logger.warning("hydrate: slide %s — LLM response was invalid JSON (%s), skipping data replacement",
+                       slide_label, exc)
+        return []
     return result.get("replacements", [])
 
 
@@ -699,8 +950,14 @@ def _apply_adaptations(slides_svc, pres_id: str, page_id: str,
         new_value = r.get("new_value", "")
         mapped = r.get("mapped", True)
 
-        # Static image flag — can't replace text in images
-        if original == "(embedded image)" or _STATIC_IMAGE_MARKER in (new_value or ""):
+        # Static image / chart flag — can't replace pixels or chart data
+        _is_visual = (
+            original in ("(embedded image)", "(image in shape)",
+                         "(embedded chart — contains data that cannot be auto-updated)")
+            or _STATIC_IMAGE_MARKER in (new_value or "")
+            or "[CHART —" in (new_value or "")
+        )
+        if _is_visual:
             has_static_images = True
             has_unmapped = True
             continue
@@ -868,49 +1125,84 @@ def _add_incomplete_banner(page_id: str, slide_w: int = 720, slide_h: int = 405,
 
 def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
                         report: dict, oai) -> dict[str, Any]:
-    """Adapt custom slides by replacing data values with current data.
+    """Adapt slides by replacing data values with current data.
 
-    For each slide:
-      1. Extract text, send to GPT-4o with report data
-      2. Apply replacements (live data for mapped, placeholders for unmapped)
-      3. Style placeholders red + add INCOMPLETE banner
+    Two-phase approach:
+      Phase A (parallel)  — thumbnail fetch + GPT-4o per slide (I/O bound, safe to parallelise)
+      Phase B (sequential) — Slides API batchUpdate per slide (mutates shared presentation state)
     """
     data_summary = _build_data_summary(report)
     stats = {"adapted": 0, "incomplete": 0, "clean": 0, "skipped": 0}
 
     pres = slides_svc.presentations().get(presentationId=pres_id).execute()
     slides_by_id = {s["objectId"]: s for s in pres.get("slides", [])}
+    ordered_ids = [s["objectId"] for s in pres.get("slides", [])]
 
+    # ── Phase A: parallel GPT reasoning ──────────────────────────────────────
+    # Pre-fetch all thumbnail URLs sequentially in the main thread first.
+    # The Google API client (httplib2) is NOT thread-safe — calling it from
+    # workers causes malloc double-free crashes on macOS.
+    thumb_urls: dict[str, str | None] = {}
     for page_id in page_ids:
+        slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
+        logger.info("hydrate: adapt slide %s — fetching thumbnail...", slide_num)
+        try:
+            thumb_urls[page_id] = _get_slide_thumbnail_url(slides_svc, pres_id, page_id)
+        except Exception as e:
+            logger.warning("hydrate: adapt slide %s thumbnail URL failed: %s", slide_num, e)
+            thumb_urls[page_id] = None
+
+    def _fetch_and_reason(page_id: str) -> tuple[str, list[dict], list[dict]]:
+        """Download thumbnail bytes + call GPT. Thread-safe (no slides_svc access)."""
         slide = slides_by_id.get(page_id)
         if not slide:
-            stats["skipped"] += 1
-            continue
-
-        elements = slide.get("pageElements", [])
-        text_elements = _extract_slide_text_elements(elements)
+            return page_id, [], []
+        text_elements = _extract_slide_text_elements(slide.get("pageElements", []))
         if not text_elements:
-            stats["skipped"] += 1
-            continue
+            return page_id, [], []
+        slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
+        url = thumb_urls.get(page_id)
+        thumb_b64 = None
+        if url:
+            try:
+                thumb_b64 = _download_thumbnail_b64(url)
+            except Exception:
+                pass
+        n_total = len(text_elements)
+        n_data = sum(1 for el in text_elements if _element_may_contain_data(el))
+        logger.info("hydrate: adapt slide %s — asking %s (%d/%d elements contain data)...",
+                    slide_num, LLM_MODEL, n_data, n_total)
+        replacements = _get_data_replacements(oai, text_elements, data_summary, thumb_b64,
+                                              slide_label=str(slide_num))
+        return page_id, text_elements, replacements
 
-        # Get thumbnail for visual context
-        try:
-            thumb_b64 = _get_slide_thumbnail_b64(slides_svc, pres_id, page_id)
-        except Exception:
-            thumb_b64 = None
+    results: dict[str, tuple[list[dict], list[dict]]] = {}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {pool.submit(_fetch_and_reason, pid): pid for pid in page_ids}
+        for fut in as_completed(futures):
+            try:
+                pid, text_elements, replacements = fut.result()
+                results[pid] = (text_elements, replacements)
+            except Exception as e:
+                pid = futures[fut]
+                sn = ordered_ids.index(pid) + 1 if pid in ordered_ids else "?"
+                logger.warning("hydrate: slide %s — fetch/GPT reasoning failed: %s", sn, e)
+                results[pid] = ([], [])
 
-        # Ask GPT-4o for replacements
-        replacements = _get_data_replacements(oai, text_elements, data_summary, thumb_b64)
-        if not replacements:
+    # ── Phase B: sequential Slides API writes ──────────────────────────────────
+    for page_id in page_ids:
+        text_elements, replacements = results.get(page_id, ([], []))
+        slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
+
+        if not text_elements or not replacements:
             stats["skipped"] += 1
-            _print(f"    {page_id[:12]}… no data values found")
+            _print(f"    slide {slide_num}: no data values found")
             continue
 
         mapped_count = sum(1 for r in replacements if r.get("mapped"))
         unmapped_count = sum(1 for r in replacements if not r.get("mapped"))
-        _print(f"    {page_id[:12]}… {mapped_count} mapped, {unmapped_count} unmapped")
+        _print(f"    slide {slide_num}: {mapped_count} mapped, {unmapped_count} unmapped")
 
-        # Phase 1: Apply text replacements
         replace_reqs, has_unmapped, has_static_images = _apply_adaptations(
             slides_svc, pres_id, page_id, replacements
         )
@@ -923,11 +1215,11 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
                     body={"requests": replace_reqs},
                 ).execute()
             except Exception as e:
-                logger.warning("Adaptation replace failed for %s: %s", page_id, e)
+                logger.warning("hydrate: slide %s — failed to apply text replacements: %s",
+                               slide_num, e)
                 stats["skipped"] += 1
                 continue
 
-        # Phase 2: Red styling + INCOMPLETE banner
         if has_unmapped:
             style_reqs = _red_style_placeholders(slides_svc, pres_id, page_id)
             style_reqs.extend(_add_incomplete_banner(page_id, has_static_images=has_static_images))
@@ -937,7 +1229,8 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
                     body={"requests": style_reqs},
                 ).execute()
             except Exception as e:
-                logger.warning("Adaptation red-style failed for %s: %s", page_id, e)
+                logger.warning("hydrate: slide %s — failed to apply red placeholder styling: %s",
+                               slide_num, e)
             stats["incomplete"] += 1
         else:
             stats["clean"] += 1
@@ -1035,8 +1328,8 @@ def _classify_slide(client, text: str, elements: dict, thumb_b64: str | None,
         "Classify this slide."
     )})
 
-    resp = client.chat.completions.create(
-        model="gpt-4o",
+    resp = _llm_create_with_retry(client, 
+        model=LLM_MODEL,
         temperature=0,
         response_format={"type": "json_object"},
         messages=[
@@ -1058,9 +1351,9 @@ def _detect_customer(pres_name: str, known_customers: list[str]) -> str | None:
         if c.lower() in name_lower:
             return c
     # Fallback: ask GPT-4o-mini (our company name is never the customer)
-    oai = OpenAI()
-    resp = oai.chat.completions.create(
-        model="gpt-4o-mini",
+    oai = llm_client()
+    resp = _llm_create_with_retry(oai, 
+        model=LLM_MODEL_FAST,
         temperature=0,
         response_format={"type": "json_object"},
         messages=[
@@ -1085,6 +1378,8 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
     is provided, uses that for all decks (useful for generating a template-style
     deck for a different customer).
     """
+    global _print_context
+    _print_context = "hydrate"
     folder_id = _find_new_slides_folder()
     if not folder_id:
         _print(f"Create a '{NEW_SLIDES_FOLDER_NAME}' folder inside your Drive folder "
@@ -1118,7 +1413,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
             pass
 
     slides_svc, drive_svc, _ = _get_service()
-    oai = OpenAI()
+    oai = llm_client()
     all_results: list[dict[str, Any]] = []
     report_cache: dict[str, dict] = {}
 
@@ -1168,13 +1463,14 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
             elements = _describe_elements(slide)
             title_guess = texts[0][:60] if texts else "(no text)"
 
-            _print(f"  [{si}/{len(source_slides)}] \"{title_guess}\"", end="")
-
+            logger.info("hydrate: [%d/%d] fetching thumbnail — %s",
+                        si, len(source_slides), title_guess)
             try:
                 thumb_b64 = _get_slide_thumbnail_b64(slides_svc, source_id, slide["objectId"])
             except Exception:
                 thumb_b64 = None
 
+            logger.info("hydrate: [%d/%d] classifying slide...", si, len(source_slides))
             classification = _classify_slide(
                 oai, slide_text, elements, thumb_b64, si, len(source_slides), pres_name
             )
@@ -1182,7 +1478,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
             title = classification.get("title", title_guess)
             reasoning = classification.get("reasoning", "")
 
-            _print(f"  → {slide_type}")
+            _print(f"  [{si}/{len(source_slides)}] \"{title_guess}\"  → {slide_type}")
             if reasoning:
                 _print(f"       {reasoning}")
 
@@ -1234,7 +1530,8 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
             if status == 403:
                 _print("    Hint: Service account may lack access to the source file or output folder.")
             elif status == 404:
-                _print("    Hint: Source file not found or was deleted.")
+                _print("    Hint: The service account can read this file but cannot copy it.")
+                _print("    Fix: Open the source file in Drive, click Share, and give the service account 'Editor' access.")
             all_results.append({
                 "name": pres_name,
                 "error": f"copy failed: HTTP {status} {detail or str(e)}",
@@ -1252,7 +1549,11 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
             {"id": sp["slide_type"], "slide_type": sp["slide_type"], "title": sp["title"]}
             for sp in slide_plan if sp["slide_type"] != "skip"
         ]
-
+        # Phase 2: Delete slides classified as "skip", and rebuild the one purely-mechanical
+        # slide type (data_quality — color-coded boxes, no editorial content).
+        # All other slides are kept exactly as-is; their data values will be updated
+        # in-place during Phase 3.  Builder functions belong to the "build" path and
+        # must NOT be called here, to avoid overwriting the customer's editorial content.
         reqs: list[dict] = []
         delete_ids: list[str] = []
         offset = 0
@@ -1270,72 +1571,73 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
                 skipped += 1
                 continue
 
-            if st == "custom":
+            # data_quality is 100% mechanical (colored indicators, no editorial text);
+            # rebuild it so current source health is always accurate.
+            if st == "data_quality":
+                builder = _SLIDE_BUILDERS.get("data_quality")
+                if builder and orig_oid:
+                    report["_current_slide"] = {"id": st, "slide_type": st, "title": sp["title"]}
+                    insert_idx = i + 1 + offset
+                    sid = f"s_dq_{i}"
+                    try:
+                        new_idx = builder(reqs, sid, report, insert_idx)
+                        created = new_idx - insert_idx
+                        if created > 0:
+                            offset += created
+                            delete_ids.append(orig_oid)
+                            built += 1
+                            continue
+                    except Exception as e:
+                        logger.warning("data_quality builder failed, keeping original: %s", e)
                 kept += 1
                 continue
 
-            builder = _SLIDE_BUILDERS.get(st)
-            if not builder:
-                kept += 1
-                continue
-
-            # Insert replacement right after the original slide
-            report["_current_slide"] = {
-                "id": st, "slide_type": st, "title": sp["title"],
-            }
-            insert_idx = i + 1 + offset
-            sid = f"s_{st}_{i}"
-            try:
-                new_idx = builder(reqs, sid, report, insert_idx)
-                created = new_idx - insert_idx
-                if created > 0:
-                    offset += created
-                    if orig_oid:
-                        delete_ids.append(orig_oid)
-                    built += 1
-                else:
-                    kept += 1
-            except Exception as e:
-                logger.warning("Builder %s failed, keeping original: %s", st, e)
-                kept += 1
+            kept += 1
 
         # Delete the original slides that we replaced
         for oid in delete_ids:
             reqs.append({"deleteObject": {"objectId": oid}})
 
         # Execute
+        url = f"https://docs.google.com/presentation/d/{pres_id}/edit"
+        logger.info("hydrate: phase 2 — built=%d rebuilt, kept=%d, skipped=%d",
+                    built, kept, skipped)
         if reqs:
             try:
                 slides_svc.presentations().batchUpdate(
                     presentationId=pres_id, body={"requests": reqs},
                 ).execute()
             except HttpError as e:
-                _print(f"  FAIL building slides: {e}")
+                _print(f"  FAIL applying slide changes: {e}")
                 all_results.append({"name": pres_name, "error": str(e)[:200]})
                 continue
 
-        url = f"https://docs.google.com/presentation/d/{pres_id}/edit"
-        _print(f"  Replaced: {built} slides with live data, kept {kept} originals, {skipped} skipped")
-        _print(f"  {url}")
+        _print(f"  Phase 2: {built} rebuilt, {kept} kept, {skipped} skipped")
+        _print(f"  Output: {url}")
 
-        # Phase 3: Adapt custom slides — replace data values in-place
-        custom_page_ids = [
-            copy_slides[i]["objectId"]
-            for i, sp in enumerate(slide_plan)
-            if sp["slide_type"] == "custom" and i < len(copy_slides)
-        ]
-        if custom_page_ids:
-            _print(f"\n  Adapting {len(custom_page_ids)} custom slides with current data...")
+        # Phase 3: Adapt ALL kept slides — replace data values in-place, mark unmapped
+        # fields with red placeholders.  This covers every slide regardless of type;
+        # the classification in Phase 1 is for reporting only, not for gating adaptation.
+        # Re-fetch slide list after Phase 2 mutations so objectIds are current.
+        adapted_pres = slides_svc.presentations().get(presentationId=pres_id).execute()
+        adapted_slides = adapted_pres.get("slides", [])
+        adapt_page_ids = [s["objectId"] for s in adapted_slides]
+
+        if adapt_page_ids:
+            _print(f"\n  Adapting {len(adapt_page_ids)} slides with current data...")
             adapt_stats = adapt_custom_slides(
-                slides_svc, pres_id, custom_page_ids, report, oai,
+                slides_svc, pres_id, adapt_page_ids, report, oai,
             )
             _print(f"  Adapted: {adapt_stats['adapted']} slides "
                    f"({adapt_stats['clean']} clean, {adapt_stats['incomplete']} incomplete, "
                    f"{adapt_stats['skipped']} unchanged)")
 
         # Visual QA — review every slide for layout problems
+        logger.info("hydrate: running visual QA on '%s'...", pres_name)
         qa_results = visual_qa(pres_id, slides_svc=slides_svc)
         qa_issues = [r for r in qa_results if not r.get("pass", True)]
+        logger.info("hydrate: QA complete — %d passed, %d issues",
+                    len(qa_results) - len(qa_issues), len(qa_issues))
 
         result_entry: dict[str, Any] = {
             "name": pres_name, "customer": customer,
