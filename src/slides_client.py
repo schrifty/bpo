@@ -224,22 +224,43 @@ def _rect(reqs, oid, sid, x, y, w, h, fill):
 def get_speaker_notes_object_id(slides_svc, pres_id: str, slide_page_id: str) -> str | None:
     """Return the object ID of the speaker-notes shape for the given slide, or None if not found.
 
-    Uses slide's slideProperties.notesPageId and the notes page's notesProperties.speakerNotesObjectId.
+    Uses slide's slideProperties.notesPage (embedded) or notesPageId + pages.get for notesProperties.speakerNotesObjectId.
     """
-    pres = slides_svc.presentations().get(presentationId=pres_id).execute()
+    # Request slides with notes page data so speakerNotesObjectId is included
+    _fields = "slides(objectId,slideProperties(notesPage(objectId,notesProperties(speakerNotesObjectId))))"
+    pres = slides_svc.presentations().get(
+        presentationId=pres_id, fields=_fields
+    ).execute()
     for page in pres.get("slides", []):
         if page.get("objectId") != slide_page_id:
             continue
-        notes_page_id = (page.get("slideProperties") or {}).get("notesPageId")
+        sp = page.get("slideProperties") or {}
+        # API may return notesPage as embedded Page (with notesProperties.speakerNotesObjectId)
+        notes_page = sp.get("notesPage")
+        if isinstance(notes_page, dict):
+            oid = (notes_page.get("notesProperties") or {}).get("speakerNotesObjectId")
+            if oid:
+                return oid
+            # Embedded notes page without speakerNotesObjectId: fetch full page by its objectId
+            notes_page_id = notes_page.get("objectId")
+        else:
+            notes_page_id = sp.get("notesPageId")
+        # Fetch notes page by ID when not embedded or when speakerNotesObjectId was missing
         if not notes_page_id:
+            logger.debug("speaker_notes: slide %s has no notesPage/notesPageId", slide_page_id[:12])
             return None
         try:
             notes_page = slides_svc.presentations().pages().get(
                 presentationId=pres_id, pageObjectId=notes_page_id
             ).execute()
-        except HttpError:
+        except HttpError as e:
+            logger.warning("speaker_notes: failed to get notes page for slide %s: %s", slide_page_id[:12], e)
             return None
-        return (notes_page.get("notesProperties") or {}).get("speakerNotesObjectId")
+        oid = (notes_page.get("notesProperties") or {}).get("speakerNotesObjectId")
+        if not oid:
+            logger.debug("speaker_notes: notes page has no speakerNotesObjectId")
+        return oid
+    logger.debug("speaker_notes: slide %s not found in presentation", slide_page_id[:12])
     return None
 
 
@@ -247,17 +268,32 @@ def set_speaker_notes(slides_svc, pres_id: str, slide_page_id: str, notes_text: 
     """Write text to the speaker notes for the given slide. Returns True if successful."""
     oid = get_speaker_notes_object_id(slides_svc, pres_id, slide_page_id)
     if not oid:
+        logger.warning("set_speaker_notes: no speaker notes object for slide %s (pres %s)", slide_page_id[:12], pres_id[:12])
         return False
+    text = notes_text or ""
     reqs = [
         {"deleteText": {"objectId": oid, "textRange": {"type": "ALL"}}},
-        {"insertText": {"objectId": oid, "text": notes_text or "", "insertionIndex": 0}},
+        {"insertText": {"objectId": oid, "text": text, "insertionIndex": 0}},
     ]
     try:
         slides_svc.presentations().batchUpdate(
             presentationId=pres_id, body={"requests": reqs}
         ).execute()
         return True
-    except HttpError:
+    except HttpError as e:
+        err_str = str(e)
+        # Empty notes shape: deleteText ALL is invalid (startIndex 0 must be < endIndex 0)
+        if "startIndex 0 must be less than the endIndex 0" in err_str:
+            try:
+                slides_svc.presentations().batchUpdate(
+                    presentationId=pres_id,
+                    body={"requests": [{"insertText": {"objectId": oid, "text": text, "insertionIndex": 0}}]},
+                ).execute()
+                return True
+            except HttpError as e2:
+                logger.warning("set_speaker_notes: insertText (empty-notes fallback) failed for slide %s: %s", slide_page_id[:12], e2)
+                return False
+        logger.warning("set_speaker_notes: batchUpdate failed for slide %s: %s", slide_page_id[:12], e)
         return False
 
 

@@ -193,6 +193,25 @@ def test_resolve_data_ask_embedded_chart():
     assert "[CHART" in out[0]["new_value"] and out[0]["mapped"] is False
 
 
+def test_ensure_charts_and_images_marked():
+    """Charts and images get a replacement entry so they are always marked."""
+    text_els = [
+        {"type": "chart", "element_id": "c1", "text": evaluate._EMBEDDED_CHART_TEXT},
+        {"type": "image", "element_id": "i1", "text": "(embedded image)"},
+        {"type": "shape", "element_id": "s1", "text": "14 sites"},
+    ]
+    out = evaluate._ensure_charts_and_images_marked(text_els, [])
+    assert len(out) == 2  # one chart, one image
+    assert any(r.get("field") == "chart" and not r.get("mapped") for r in out)
+    assert any(r.get("field") == "image" and not r.get("mapped") for r in out)
+    # If LLM already returned one chart, we add only the missing one
+    with_chart = evaluate._ensure_charts_and_images_marked(
+        text_els, [{"field": "chart", "original": evaluate._EMBEDDED_CHART_TEXT, "mapped": False}]
+    )
+    assert sum(1 for r in with_chart if r.get("field") == "chart") == 1
+    assert sum(1 for r in with_chart if r.get("field") == "image") == 1
+
+
 # ── _derive_reproducibility (evaluate: deduce from data_ask) ───────────────────
 
 
@@ -266,6 +285,46 @@ def test_build_hydrate_speaker_notes_qa_governance():
         reps, els, report=report, has_unmapped=True, has_static_images=False
     )
     assert "INCOMPLETE" in out_incomplete and "Confirm before presenting" in out_incomplete
+
+
+def test_build_hydrate_speaker_notes_narrative_no_replacements():
+    """Slides with no pipeline ops still get QA notes + slide copy (not template fluff)."""
+    els = [
+        {"type": "shape", "text": "Prior quarter — Goals & Key Actions"},
+        {"type": "shape", "text": "• Ship feature X\n• Improve adoption"},
+    ]
+    out = evaluate._build_hydrate_speaker_notes([], els, report={"customer": "Acme"})
+    assert "No automated data replacements" in out
+    assert "Slide copy" in out
+    assert "Prior quarter" in out
+    assert "Ship feature" in out
+
+
+def test_build_hydrate_speaker_notes_chart_specs():
+    """When analysis has charts[], speaker notes include chart type, axes, transformations, and configuration."""
+    reps = [
+        {"field": "chart", "original": evaluate._EMBEDDED_CHART_TEXT, "new_value": "[CHART — ...]", "mapped": False},
+    ]
+    els = [{"type": "chart", "element_id": "c1", "text": evaluate._EMBEDDED_CHART_TEXT}]
+    analysis = {
+        "charts": [
+            {
+                "chart_type": "line",
+                "x_axis": "Month",
+                "y_axis": "Value",
+                "transformations": ["rolling 7-day average", "group by site"],
+                "configuration": "legend bottom, blue/green series",
+            }
+        ]
+    }
+    out = evaluate._build_hydrate_speaker_notes(reps, els, analysis=analysis)
+    assert "Charts & graphs" in out
+    assert "Type: line" in out
+    assert "X: Month" in out
+    assert "Y: Value" in out
+    assert "Transforms:" in out
+    assert "rolling" in out or "group by site" in out
+    assert "Config:" in out and "legend" in out
 
 
 def test_build_hydrate_speaker_notes_rebuild_spec():

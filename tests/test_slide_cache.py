@@ -47,6 +47,15 @@ def test_slide_content_hash_thumbnail_overrides_text():
     assert h_thumb == h_thumb2
 
 
+def test_slide_content_hash_page_id_isolates_slides():
+    """Same thumbnail on different slides (different page_id) must not share cache — avoids wrong speaker notes."""
+    b64 = _thumb_b64(b"identical-template-thumb")
+    h_s5 = evaluate._slide_content_hash(b64, page_id="slide_5_oid")
+    h_s6 = evaluate._slide_content_hash(b64, page_id="slide_6_oid")
+    assert h_s5 != h_s6
+    assert evaluate._slide_content_hash(b64, page_id="slide_5_oid") == h_s5
+
+
 def test_slide_content_hash_none_empty_returns_none():
     """No thumbnail and no text returns None."""
     assert evaluate._slide_content_hash(None, "") is None

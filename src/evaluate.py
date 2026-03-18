@@ -36,13 +36,14 @@ def _slide_cache_dir() -> Path:
     return root / ".slide_cache"
 
 
-def _slide_content_hash(thumb_b64: str | None, text_snapshot: str = "") -> str | None:
-    """Stable hash for cache key. Thumbnail-only when available; else text so thumb-less slides can still cache."""
+def _slide_content_hash(thumb_b64: str | None, text_snapshot: str = "", page_id: str = "") -> str | None:
+    """Stable hash for cache key. Includes page_id so different slides never share cache (avoids wrong notes/replacements)."""
+    prefix = (page_id or "").encode("utf-8")
     if thumb_b64:
         raw = base64.b64decode(thumb_b64, validate=True)
-        return hashlib.sha256(raw).hexdigest()
+        return hashlib.sha256(prefix + raw).hexdigest()
     if text_snapshot:
-        return hashlib.sha256(text_snapshot.encode("utf-8")).hexdigest()
+        return hashlib.sha256(prefix + text_snapshot.encode("utf-8")).hexdigest()
     return None
 
 
@@ -119,7 +120,7 @@ def _resolve_cached_replacements(cached: list[dict], data_summary: dict) -> list
 
 # ── Broader slide analysis (data ask + purpose) for future-proof cache ─────────
 # Bump when we change the analysis schema so old entries are ignored.
-_SLIDE_ANALYSIS_CACHE_VERSION = 1
+_SLIDE_ANALYSIS_CACHE_VERSION = 4  # v4: better fallback when analysis JSON invalid (use slide title)
 
 # Canonical data keys we can resolve from report/data_summary. LLM uses these or adds slugs.
 CANONICAL_DATA_KEYS = (
@@ -164,27 +165,32 @@ def _analyze_slide_broad(client, text: str, elements: dict, thumb_b64: str | Non
     keys_list = ", ".join(CANONICAL_DATA_KEYS)
 
     system = (
-        "You are analyzing a slide from a customer QBR deck to capture (1) what DATA it asks for "
-        "and (2) its PURPOSE. This analysis will be cached so we can re-hydrate the slide later "
-        "as we add data sources — be specific and complete.\n\n"
-        "DATA ASK: List every piece of data the slide displays or expects, as specifically as possible. "
-        "For each item use a canonical key if it matches our schema, otherwise a short slug (lowercase, underscores).\n"
+        "You are analyzing a slide from a customer QBR deck to capture (1) what DATA it asks for, "
+        "(2) its PURPOSE, and (3) CHART CONFIGURATION for every chart and graph.\n\n"
+        "DATA ASK: List every piece of data the slide displays or expects. "
         f"Canonical keys we support: {keys_list}. "
-        "Also support: nps_score, contract_value, arr, budget, timeline, and any other slug that describes the data.\n"
-        "For each data item return: key (canonical or slug), example_from_slide (the exact or representative text from the slide, e.g. '31 sites'). "
-        "Include embedded charts/images as data items: key '_embedded_chart' or '_embedded_image', example_from_slide the marker text.\n\n"
-        "PURPOSE: In one sentence, what is this slide trying to communicate? "
-        "E.g. 'Account overview with key metrics' or 'Inventory trends by site'. "
-        "This helps us later offer a data-equivalent simpler slide if we cannot reproduce the exact one.\n\n"
-        f"SLIDE TYPE: Choose from our builders: {builder_list}\n"
-        "Use the same rules as classification (custom for budget/roadmap/timelines; bespoke_deployment only for site table + health).\n\n"
+        "For each data item return: key (canonical or slug), example_from_slide. "
+        "Include embedded charts/images: key '_embedded_chart' or '_embedded_image', example_from_slide the marker text.\n\n"
+        "PURPOSE: One sentence — what is this slide communicating?\n\n"
+        f"SLIDE TYPE: Choose from: {builder_list}\n\n"
+        "CHARTS & GRAPHS (REQUIRED): You MUST identify and describe every chart and graph on the slide. "
+        "Look at the slide image and at Elements — any element with type 'chart' or type 'image' may be a chart. "
+        "For EACH chart/graph you see, add one object to the 'charts' array. Do NOT leave charts empty if the slide contains any visualization.\n"
+        "For each chart return:\n"
+        "  chart_type: line, bar, stacked_bar, column, pie, donut, area, combo, scatter, or a short description\n"
+        "  x_axis: label/description of the x axis (e.g. 'Month', 'Site', 'Category'); empty string for pie/donut\n"
+        "  y_axis: label/description of the y axis (e.g. 'Count', 'Revenue', '%'); empty string if N/A\n"
+        "  transformations: array of how data is transformed (e.g. 'group by quarter', 'rolling 7-day average', 'sum by category', 'YoY comparison')\n"
+        "  configuration: optional string describing other visible settings — legend position (e.g. bottom, right), series labels, colors or categories, axis scale (linear/log), gridlines, annotations, anything that would be needed to reproduce the chart\n"
+        "If there are truly no charts/graphs on the slide, return charts: [].\n\n"
         "Return JSON:\n"
         "  data_ask: [{ key, example_from_slide }, ...]\n"
-        "  purpose: string (one sentence)\n"
+        "  purpose: string\n"
         "  slide_type: one of the builder types above\n"
-        "  title: slide title or section name\n"
-        "  reasoning: 1 sentence for slide_type choice\n"
-        "  custom_sections: (only if slide_type='custom') [{header, body}] for text sections, max 5, body max 200 chars.\n"
+        "  title: string\n"
+        "  reasoning: string\n"
+        "  custom_sections: (only if slide_type='custom') [{header, body}]\n"
+        "  charts: [{ chart_type, x_axis, y_axis, transformations, configuration? }, ...]  // REQUIRED to fill for every chart/graph visible\n"
     )
 
     parts: list[dict] = []
@@ -196,8 +202,9 @@ def _analyze_slide_broad(client, text: str, elements: dict, thumb_b64: str | Non
     parts.append({"type": "text", "text": (
         f"Presentation: {pres_name}\nSlide {slide_num}/{total}\n\n"
         f"Extracted text:\n{text or '(no text)'}\n\n"
-        f"Elements: {json.dumps(elements)}\n\n"
-        "Analyze: data_ask (all data this slide asks for), purpose, slide_type, title."
+        f"Elements (look for type 'chart' or 'image' — each may be a chart/graph):\n{json.dumps(elements)}\n\n"
+        "Analyze: (1) data_ask, (2) purpose, (3) slide_type, (4) title. "
+        "Then identify EVERY chart and graph on the slide. For each one, fill the charts array with chart_type, x_axis, y_axis, transformations, and configuration (legend, series, colors, axis scale, etc.) so we can reproduce the chart setup."
     )})
 
     resp = _llm_create_with_retry(client,
@@ -210,7 +217,17 @@ def _analyze_slide_broad(client, text: str, elements: dict, thumb_b64: str | Non
             {"role": "user", "content": parts},
         ],
     )
-    return json.loads(resp.choices[0].message.content)
+    try:
+        analysis = json.loads(resp.choices[0].message.content)
+    except json.JSONDecodeError as e:
+        logger.warning("_analyze_slide_broad: LLM returned invalid JSON (slide %s/%s): %s", slide_num, total, e)
+        # Use slide text so speaker notes still show something useful (e.g. "Success Story")
+        title_guess = (text or "").strip().split("\n")[0].strip()[:100] if text else ""
+        purpose_fallback = f"Slide: {title_guess}" if title_guess else "Slide content (analysis parse failed)"
+        return {"data_ask": [], "purpose": purpose_fallback, "slide_type": "custom", "title": title_guess, "reasoning": "", "charts": []}
+    if not isinstance(analysis.get("charts"), list):
+        analysis["charts"] = []
+    return analysis
 
 
 def _resolve_data_ask_to_replacements(data_ask: list[dict], data_summary: dict,
@@ -716,7 +733,9 @@ def evaluate_new_slides(verbose: bool = False) -> list[dict[str, Any]]:
                                si, pres_name, e)
                 thumb_b64 = None
 
-            cache_key = _slide_content_hash(thumb_b64, slide_text[:2000] if slide_text else "")
+            cache_key = _slide_content_hash(
+                thumb_b64, slide_text[:2000] if slide_text else "", page_id=page_id
+            )
             if cache_key:
                 analysis = _get_cached_slide_analysis(cache_key)
                 if analysis:
@@ -1278,6 +1297,49 @@ def _get_data_replacements(oai, text_elements: list[dict], data_summary: dict,
 
 _PLACEHOLDER_MARKERS = ("[000]", "[$000]", "[00/00/00]", "[00%]", "[???]")
 _STATIC_IMAGE_MARKER = "[STATIC IMAGE"
+_EMBEDDED_CHART_TEXT = "(embedded chart — contains data that cannot be auto-updated)"
+_EMBEDDED_IMAGE_TEXTS = ("(embedded image)", "(image in shape)")
+_CHART_MARKER = "[CHART — data cannot be auto-updated; replace or verify for current period]"
+_IMAGE_MARKER = "[STATIC IMAGE — contains data that cannot be auto-updated; replace or verify]"
+
+
+def _ensure_charts_and_images_marked(
+    text_elements: list[dict], replacements: list[dict]
+) -> list[dict]:
+    """Append a replacement entry for every chart and image on the slide so they are always recognized and marked.
+
+    Charts and graphs cannot be auto-updated; we ensure each is in the pipeline so speaker notes
+    and INCOMPLETE banner reflect them.
+    """
+    originals_in_replacements: list[str] = [r.get("original", "") for r in replacements]
+    added: list[dict] = []
+    for el in text_elements:
+        typ = el.get("type", "")
+        text = el.get("text", "")
+        if typ == "chart":
+            added.append({
+                "field": "chart",
+                "original": _EMBEDDED_CHART_TEXT,
+                "new_value": _CHART_MARKER,
+                "mapped": False,
+            })
+        elif typ == "image" and text in _EMBEDDED_IMAGE_TEXTS:
+            added.append({
+                "field": "image",
+                "original": text,
+                "new_value": _IMAGE_MARKER,
+                "mapped": False,
+            })
+    # Only add as many as we're missing (LLM or data_ask may have already included some)
+    n_chart_in = sum(1 for o in originals_in_replacements if o == _EMBEDDED_CHART_TEXT)
+    n_image_in = sum(1 for o in originals_in_replacements if o in _EMBEDDED_IMAGE_TEXTS)
+    n_chart_el = sum(1 for el in text_elements if el.get("type") == "chart")
+    n_image_el = sum(1 for el in text_elements if el.get("type") == "image" and el.get("text") in _EMBEDDED_IMAGE_TEXTS)
+    chart_to_add = max(0, n_chart_el - n_chart_in)
+    image_to_add = max(0, n_image_el - n_image_in)
+    chart_added = [r for r in added if r.get("field") == "chart"][:chart_to_add]
+    image_added = [r for r in added if r.get("field") == "image"][:image_to_add]
+    return replacements + chart_added + image_added
 
 # Data source attribution for presenter QA: where to verify each field.
 DATA_SOURCE_BY_FIELD: dict[str, str] = {
@@ -1311,12 +1373,21 @@ def _build_hydrate_speaker_notes(
 ) -> str:
     """Speaker-notes for presenter QA and rebuild spec: objective, required data, governance."""
     import re as _re
+    from datetime import datetime as _dt
+    _ts = _dt.now().strftime("%Y-%m-%d %H:%M")
     lines: list[str] = [
         "══ QA this slide — data governance ══",
+        f"Generated: {_ts}",
         "",
         "Legend: LIVE = from our pipelines (traceable). UNMAPPED = placeholder — verify or replace. STATIC = image/chart, not auto-updated.",
         "",
     ]
+    if not replacements:
+        lines.append(
+            "Hydration: **No automated data replacements** on this slide — narrative/template, "
+            "or no metrics matched the pipeline. (Template speaker notes are replaced by this block.)"
+        )
+        lines.append("")
 
     # Rebuild spec: objective and required data (when analysis available)
     if analysis:
@@ -1357,7 +1428,42 @@ def _build_hydrate_speaker_notes(
         lines.append(f"   {i}. [{fld}]  {tag}")
         lines.append(f"      was: {orig}")
         lines.append(f"      now: {nv}")
-    lines.append("")
+
+    # Explicit list of charts & graphs — all must be replaced or verified; include inferred features when available
+    chart_and_image = [
+        r for r in replacements
+        if r.get("field") in ("chart", "image")
+        or r.get("original") in _EMBEDDED_IMAGE_TEXTS + (_EMBEDDED_CHART_TEXT,)
+    ]
+    chart_specs = (analysis or {}).get("charts") or []
+    if chart_and_image or chart_specs:
+        lines.append("")
+        lines.append("Charts & graphs on this slide (replace or verify for current period):")
+        for i, r in enumerate(chart_and_image):
+            kind = "Chart/graph" if r.get("field") == "chart" or _EMBEDDED_CHART_TEXT in str(r.get("original", "")) else "Image (may contain data)"
+            spec = chart_specs[i] if i < len(chart_specs) and isinstance(chart_specs[i], dict) else None
+            if spec:
+                ctype = spec.get("chart_type") or "chart"
+                x_lab = spec.get("x_axis") or ""
+                y_lab = spec.get("y_axis") or ""
+                trans = spec.get("transformations")
+                if isinstance(trans, list):
+                    trans = ", ".join(str(t) for t in trans)
+                trans = (trans or "").strip()
+                config = (spec.get("configuration") or "").strip()[:200]
+                parts_spec = [f"Type: {ctype}"]
+                if x_lab:
+                    parts_spec.append(f"X: {x_lab}")
+                if y_lab:
+                    parts_spec.append(f"Y: {y_lab}")
+                if trans:
+                    parts_spec.append(f"Transforms: {trans[:120]}")
+                if config:
+                    parts_spec.append(f"Config: {config}")
+                lines.append(f"   {i + 1}. {kind} — " + " | ".join(parts_spec))
+            else:
+                lines.append(f"   {i + 1}. {kind} — cannot be auto-updated")
+        lines.append("")
     lines.append("B. On-slide lines (numbers, $, %, or [placeholders])")
     seen: set[str] = set()
     n = 0
@@ -1376,6 +1482,24 @@ def _build_hydrate_speaker_notes(
     if n == 0:
         lines.append("   (none matched)")
     lines.append("")
+    # Narrative / no pipeline ops: show actual slide copy so notes aren't left as template fluff
+    if not replacements:
+        lines.append("C. Slide copy (no auto-replacements — verify narrative vs your source of truth)")
+        seen_txt: set[str] = set()
+        c = 0
+        for el in text_elements:
+            for part in (el.get("text") or "").split("\n"):
+                s = part.strip()
+                if len(s) < 2 or s in seen_txt:
+                    continue
+                seen_txt.add(s)
+                c += 1
+                if c > 45:
+                    break
+                lines.append(f"   {c}. {s[:320]}")
+        if c == 0:
+            lines.append("   (no extractable text)")
+        lines.append("")
     lines.append("QA checklist: ✓ Numbers match the source above? ✓ Placeholders replaced or accepted? ✓ Static images/charts current or replaced?")
     if has_unmapped or has_static_images:
         lines.append("")
@@ -1403,8 +1527,7 @@ def _apply_adaptations(slides_svc, pres_id: str, page_id: str,
 
         # Static image / chart flag — can't replace pixels or chart data
         _is_visual = (
-            original in ("(embedded image)", "(image in shape)",
-                         "(embedded chart — contains data that cannot be auto-updated)")
+            original in _EMBEDDED_IMAGE_TEXTS + (_EMBEDDED_CHART_TEXT,)
             or _STATIC_IMAGE_MARKER in (new_value or "")
             or "[CHART —" in (new_value or "")
         )
@@ -1583,7 +1706,7 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
       Phase B (sequential) — Slides API batchUpdate per slide (mutates shared presentation state)
     """
     data_summary = _build_data_summary(report)
-    stats = {"adapted": 0, "incomplete": 0, "clean": 0, "skipped": 0}
+    stats = {"adapted": 0, "incomplete": 0, "clean": 0, "skipped": 0, "notes_only": 0}
 
     pres = slides_svc.presentations().get(presentationId=pres_id).execute()
     slides_by_id = {s["objectId"]: s for s in pres.get("slides", [])}
@@ -1623,7 +1746,7 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
                 thumb_b64 = _download_thumbnail_b64(url)
             except Exception:
                 pass
-        cache_key = _slide_content_hash(thumb_b64) if thumb_b64 else None
+        cache_key = _slide_content_hash(thumb_b64, page_id=page_id) if thumb_b64 else None
         analysis: dict | None = None
         if cache_key:
             analysis = _get_cached_slide_analysis(cache_key)
@@ -1633,11 +1756,13 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
                 replacements = _resolve_data_ask_to_replacements(
                     analysis["data_ask"], data_summary, text_elements
                 )
+                replacements = _ensure_charts_and_images_marked(text_elements, replacements)
                 return page_id, text_elements, replacements, "analysis_hit", analysis
             cached = _get_cached_adapt(cache_key)
             if cached is not None:
                 logger.info("hydrate: adapt slide %s — adapt cache hit", slide_num)
                 replacements = _resolve_cached_replacements(cached, data_summary)
+                replacements = _ensure_charts_and_images_marked(text_elements, replacements)
                 return page_id, text_elements, replacements, "adapt_hit", analysis
         n_total = len(text_elements)
         n_data = sum(1 for el in text_elements if _element_may_contain_data(el))
@@ -1645,6 +1770,7 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
                     slide_num, LLM_MODEL, n_data, n_total)
         replacements = _get_data_replacements(oai, text_elements, data_summary, thumb_b64,
                                               slide_label=str(slide_num))
+        replacements = _ensure_charts_and_images_marked(text_elements, replacements)
         if cache_key and replacements:
             _set_cached_adapt(cache_key, replacements)
         if cache_key and not analysis:
@@ -1672,9 +1798,23 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
         text_elements, replacements, analysis = results.get(page_id, ([], [], None))
         slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
 
-        if not text_elements or not replacements:
+        if not text_elements:
             stats["skipped"] += 1
-            _print(f"    slide {slide_num}: no data values found")
+            _print(f"    slide {slide_num}: no text on slide")
+            continue
+
+        if not replacements:
+            stats["notes_only"] += 1
+            _print(f"    slide {slide_num}: no data values to replace — writing QA speaker notes only")
+            notes = _build_hydrate_speaker_notes(
+                [], text_elements,
+                report=report,
+                has_unmapped=False,
+                has_static_images=False,
+                analysis=analysis,
+            )
+            if not set_speaker_notes(slides_svc, pres_id, page_id, notes):
+                logger.warning("hydrate: slide %s — could not write speaker notes", slide_num)
             continue
 
         mapped_count = sum(1 for r in replacements if r.get("mapped"))
@@ -1989,7 +2129,9 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
             except Exception:
                 thumb_b64 = None
 
-            cache_key = _slide_content_hash(thumb_b64, slide_text[:2000] if slide_text else "")
+            cache_key = _slide_content_hash(
+                thumb_b64, slide_text[:2000] if slide_text else "", page_id=slide["objectId"]
+            )
             if cache_key:
                 analysis = _get_cached_slide_analysis(cache_key)
                 if analysis:
@@ -2193,7 +2335,8 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
             )
             _print(f"  Adapted: {adapt_stats['adapted']} slides "
                    f"({adapt_stats['clean']} clean, {adapt_stats['incomplete']} incomplete, "
-                   f"{adapt_stats['skipped']} unchanged)")
+                   f"{adapt_stats['skipped']} unchanged, "
+                   f"{adapt_stats.get('notes_only', 0)} notes-only)")
             c = adapt_stats.get("cache") or {}
             tot = c.get("total_slides") or 0
             if tot:
