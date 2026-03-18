@@ -10,6 +10,7 @@ then regenerates the deck using live customer data from Pendo/Jira/CS Report.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import tempfile
 import time
@@ -23,6 +24,258 @@ from .config import GOOGLE_DRIVE_FOLDER_ID, LLM_MODEL, LLM_MODEL_FAST, llm_clien
 from .slides_client import _get_service, SLIDE_DATA_REQUIREMENTS
 
 NEW_SLIDES_FOLDER_NAME = "new-slides"
+
+# Slide analysis cache — avoid re-calling the LLM for the same slide content.
+# Bump CACHE_VERSION when the classification prompt or slide types change.
+_SLIDE_CACHE_VERSION = 1
+
+
+def _slide_cache_dir() -> Path:
+    """Directory for persisted slide analysis cache (classification, adapt)."""
+    root = Path(__file__).resolve().parent.parent
+    return root / ".slide_cache"
+
+
+def _slide_content_hash(thumb_b64: str | None, text_snapshot: str = "") -> str | None:
+    """Stable hash for cache key. Thumbnail-only when available; else text so thumb-less slides can still cache."""
+    if thumb_b64:
+        raw = base64.b64decode(thumb_b64, validate=True)
+        return hashlib.sha256(raw).hexdigest()
+    if text_snapshot:
+        return hashlib.sha256(text_snapshot.encode("utf-8")).hexdigest()
+    return None
+
+
+def _get_cached_classification(cache_key: str) -> dict | None:
+    """Return cached classification result if present and version matches."""
+    d = _slide_cache_dir() / "classification"
+    path = d / f"{cache_key}.json"
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("_version") != _SLIDE_CACHE_VERSION:
+            return None
+        return {k: v for k, v in data.items() if not k.startswith("_")}
+    except Exception:
+        return None
+
+
+def _set_cached_classification(cache_key: str, result: dict) -> None:
+    """Persist classification result for this cache key."""
+    d = _slide_cache_dir() / "classification"
+    d.mkdir(parents=True, exist_ok=True)
+    out = {"_version": _SLIDE_CACHE_VERSION, **result}
+    (d / f"{cache_key}.json").write_text(json.dumps(out, indent=0), encoding="utf-8")
+
+
+def _get_cached_adapt(cache_key: str) -> list[dict] | None:
+    """Return cached adapt replacements if present and version matches."""
+    d = _slide_cache_dir() / "adapt"
+    path = d / f"{cache_key}.json"
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("_version") != _SLIDE_CACHE_VERSION:
+            return None
+        return data.get("replacements", [])
+    except Exception:
+        return None
+
+
+def _set_cached_adapt(cache_key: str, replacements: list[dict]) -> None:
+    """Persist adapt replacements for this cache key (values are resolved at read time)."""
+    d = _slide_cache_dir() / "adapt"
+    d.mkdir(parents=True, exist_ok=True)
+    out = {"_version": _SLIDE_CACHE_VERSION, "replacements": replacements}
+    (d / f"{cache_key}.json").write_text(json.dumps(out, indent=0, default=str), encoding="utf-8")
+
+
+def _resolve_cached_replacements(cached: list[dict], data_summary: dict) -> list[dict]:
+    """For cached replacements with mapped=true, set new_value from current data_summary.
+    Tries to preserve format (e.g. "31 sites" -> "14 sites") when original has a trailing suffix.
+    """
+    import re as _re
+    out = []
+    for r in list(cached):
+        r = dict(r)
+        if r.get("mapped") and r.get("field"):
+            key = r["field"].strip().replace(" ", "_").replace("-", "_").lower()
+            if key in data_summary:
+                val = data_summary[key]
+                if isinstance(val, (list, dict)):
+                    r["new_value"] = str(val)[:200]
+                else:
+                    raw = str(val) if val is not None else ""
+                    orig = r.get("original", "")
+                    # Preserve suffix from original (e.g. "31 sites" -> "14 sites")
+                    m = _re.match(r"^[\d.,\s$€£%]+", orig)
+                    suffix = (orig[m.end():].strip() if m else "").strip()
+                    r["new_value"] = f"{raw} {suffix}".strip() if suffix else raw
+        out.append(r)
+    return out
+
+
+# ── Broader slide analysis (data ask + purpose) for future-proof cache ─────────
+# Bump when we change the analysis schema so old entries are ignored.
+_SLIDE_ANALYSIS_CACHE_VERSION = 1
+
+# Canonical data keys we can resolve from report/data_summary. LLM uses these or adds slugs.
+CANONICAL_DATA_KEYS = (
+    "customer_name", "report_date", "quarter", "quarter_start", "quarter_end",
+    "total_users", "active_users", "total_sites", "active_sites", "health_score",
+    "site_details", "cs_health_sites", "support", "salesforce", "platform_value",
+    "supply_chain",
+)
+
+
+def _get_cached_slide_analysis(cache_key: str) -> dict | None:
+    """Return cached broad analysis (data_ask, purpose, slide_type) if present and version matches."""
+    d = _slide_cache_dir() / "analysis"
+    path = d / f"{cache_key}.json"
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("_version") != _SLIDE_ANALYSIS_CACHE_VERSION:
+            return None
+        return {k: v for k, v in data.items() if not k.startswith("_")}
+    except Exception:
+        return None
+
+
+def _set_cached_slide_analysis(cache_key: str, analysis: dict) -> None:
+    """Persist broad slide analysis for this cache key."""
+    d = _slide_cache_dir() / "analysis"
+    d.mkdir(parents=True, exist_ok=True)
+    out = {"_version": _SLIDE_ANALYSIS_CACHE_VERSION, **analysis}
+    (d / f"{cache_key}.json").write_text(json.dumps(out, indent=0, default=str), encoding="utf-8")
+
+
+def _analyze_slide_broad(client, text: str, elements: dict, thumb_b64: str | None,
+                         slide_num: int, total: int, pres_name: str) -> dict:
+    """One-time broad analysis: what data does this slide ask for, and what is its purpose?
+
+    Returns data_ask (list of {key, example_from_slide}), purpose, slide_type, title, etc.
+    Cached so we don't re-run when we add data sources or capabilities later.
+    """
+    builder_list = "\n".join(f"  - {k}: {v}" for k, v in _BUILDER_DESCRIPTIONS.items())
+    keys_list = ", ".join(CANONICAL_DATA_KEYS)
+
+    system = (
+        "You are analyzing a slide from a customer QBR deck to capture (1) what DATA it asks for "
+        "and (2) its PURPOSE. This analysis will be cached so we can re-hydrate the slide later "
+        "as we add data sources — be specific and complete.\n\n"
+        "DATA ASK: List every piece of data the slide displays or expects, as specifically as possible. "
+        "For each item use a canonical key if it matches our schema, otherwise a short slug (lowercase, underscores).\n"
+        f"Canonical keys we support: {keys_list}. "
+        "Also support: nps_score, contract_value, arr, budget, timeline, and any other slug that describes the data.\n"
+        "For each data item return: key (canonical or slug), example_from_slide (the exact or representative text from the slide, e.g. '31 sites'). "
+        "Include embedded charts/images as data items: key '_embedded_chart' or '_embedded_image', example_from_slide the marker text.\n\n"
+        "PURPOSE: In one sentence, what is this slide trying to communicate? "
+        "E.g. 'Account overview with key metrics' or 'Inventory trends by site'. "
+        "This helps us later offer a data-equivalent simpler slide if we cannot reproduce the exact one.\n\n"
+        f"SLIDE TYPE: Choose from our builders: {builder_list}\n"
+        "Use the same rules as classification (custom for budget/roadmap/timelines; bespoke_deployment only for site table + health).\n\n"
+        "Return JSON:\n"
+        "  data_ask: [{ key, example_from_slide }, ...]\n"
+        "  purpose: string (one sentence)\n"
+        "  slide_type: one of the builder types above\n"
+        "  title: slide title or section name\n"
+        "  reasoning: 1 sentence for slide_type choice\n"
+        "  custom_sections: (only if slide_type='custom') [{header, body}] for text sections, max 5, body max 200 chars.\n"
+    )
+
+    parts: list[dict] = []
+    if thumb_b64:
+        parts.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{thumb_b64}", "detail": "high"},
+        })
+    parts.append({"type": "text", "text": (
+        f"Presentation: {pres_name}\nSlide {slide_num}/{total}\n\n"
+        f"Extracted text:\n{text or '(no text)'}\n\n"
+        f"Elements: {json.dumps(elements)}\n\n"
+        "Analyze: data_ask (all data this slide asks for), purpose, slide_type, title."
+    )})
+
+    resp = _llm_create_with_retry(client,
+        model=LLM_MODEL,
+        temperature=0,
+        max_tokens=4096,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": parts},
+        ],
+    )
+    return json.loads(resp.choices[0].message.content)
+
+
+def _resolve_data_ask_to_replacements(data_ask: list[dict], data_summary: dict,
+                                       text_elements: list[dict]) -> list[dict]:
+    """Turn cached data_ask into replacement list using current data_summary and slide text.
+
+    Matches data_ask items to text_elements by example_from_slide; resolves key to value from data_summary.
+    """
+    import re as _re
+    replacements: list[dict] = []
+    # Build set of text snippets we can match (from slide)
+    element_texts = [el.get("text", "") for el in text_elements if el.get("text")]
+
+    for item in data_ask:
+        key = (item.get("key") or "").strip().replace(" ", "_").replace("-", "_").lower()
+        example = (item.get("example_from_slide") or "").strip()
+        if not key:
+            continue
+        # Special keys: visual elements we cannot replace with data
+        if key in ("_embedded_chart", "_embedded_image") or key.startswith("_embedded"):
+            replacements.append({
+                "original": example or f"({key})",
+                "new_value": "[CHART — data cannot be auto-updated]" if "chart" in key else "[STATIC IMAGE — contains data that cannot be auto-updated]",
+                "mapped": False,
+                "field": key,
+            })
+            continue
+        # Find best matching element text (exact or contains)
+        original = None
+        for et in element_texts:
+            if example and example in et:
+                original = example
+                break
+            if et and not original and (example in et or et in example):
+                original = et
+        if not original and example:
+            original = example
+        # Resolve value from data_summary
+        if key in data_summary:
+            val = data_summary[key]
+            if isinstance(val, (list, dict)):
+                new_value = str(val)[:200]
+            else:
+                raw = str(val) if val is not None else ""
+                # Preserve suffix from example (e.g. "31 sites" -> "14 sites")
+                m = _re.match(r"^[\d.,\s$€£%]+", original or "")
+                suffix = (original[m.end():].strip() if m and original else "").strip()
+                new_value = f"{raw} {suffix}".strip() if suffix else raw
+            replacements.append({
+                "original": original or example or key,
+                "new_value": new_value,
+                "mapped": True,
+                "field": key,
+            })
+        else:
+            # No current source for this key — placeholder so we mark slide incomplete
+            if original or example:
+                replacements.append({
+                    "original": original or example,
+                    "new_value": "[???]",
+                    "mapped": False,
+                    "field": key,
+                })
+    return replacements
+
 
 # Company/vendor name (us). Never treat as the customer when detecting from titles like "Safran & LeanDNA".
 COMPANY_NAMES_FOR_DETECT: frozenset[str] = frozenset({"leandna"})  # LeanDNA (company); "Leandna" typo normalizes here
@@ -311,12 +564,103 @@ def _build_capability_context() -> str:
     return "\n".join(lines)
 
 
-# ── Main evaluation ──
+# ── Main evaluation (data-centric: collect analysis, deduce reproducibility at render) ──
+
+# Keys we can currently fill from report/data_summary. Reproducibility is derived from data_ask vs this set.
+_AVAILABLE_DATA_KEYS = frozenset(CANONICAL_DATA_KEYS)
+
+
+def _cache_hit_rate_line(label: str, hits: int, total: int, **extra: int) -> str:
+    """Single log line for cache effectiveness."""
+    if total <= 0:
+        return f"{label}: no slides"
+    pct = 100.0 * hits / total
+    parts = [f"{hits}/{total} ({pct:.0f}%)"]
+    for k, v in sorted(extra.items()):
+        if v:
+            parts.append(f"{k}={v}")
+    return f"{label}: " + ", ".join(parts)
+
+
+def _derive_reproducibility(analysis: dict) -> dict:
+    """Derive feasibility, gaps, and summary from cached data_ask vs current available keys.
+
+    No LLM call — reproducibility is computed at report/render time from the same
+    analysis we use for hydrate.
+    """
+    data_ask = analysis.get("data_ask") or []
+    available_keys = _AVAILABLE_DATA_KEYS
+    data_needed: list[dict] = []
+    gaps: list[str] = []
+
+    for item in data_ask:
+        key = (item.get("key") or "").strip().replace(" ", "_").replace("-", "_").lower()
+        if not key:
+            continue
+        # Visual elements we cannot auto-fill (charts, static images)
+        if key.startswith("_embedded"):
+            data_needed.append({
+                "source": "slide",
+                "fields": key,
+                "available": False,
+                "note": "embedded visual — cannot auto-update",
+            })
+            gaps.append(f"Embedded visual ({key})")
+            continue
+        available = key in available_keys
+        data_needed.append({
+            "source": "report" if available else "—",
+            "fields": key,
+            "available": available,
+            "note": item.get("example_from_slide", ""),
+        })
+        if not available:
+            gaps.append(key)
+
+    n_total = len(data_ask)
+    n_available = sum(1 for d in data_needed if d.get("available"))
+    if n_total == 0:
+        feasibility = "fully reproducible"
+        summary = "Static slide; no data to fill."
+    elif n_available == n_total:
+        feasibility = "fully reproducible"
+        summary = f"Slide asks for {n_total} data item(s); we have all of them."
+    elif n_available > 0:
+        feasibility = "partially reproducible"
+        summary = f"Slide asks for {n_total} data item(s); we have {n_available}. Gaps: {', '.join(gaps[:5])}{'…' if len(gaps) > 5 else ''}."
+    else:
+        feasibility = "not reproducible"
+        summary = f"Slide asks for {n_total} data item(s); we have none yet. Gaps: {', '.join(gaps[:5])}{'…' if len(gaps) > 5 else ''}."
+
+    # Effort: rough heuristic from gap count and whether we have a builder
+    slide_type = analysis.get("slide_type") or "custom"
+    has_builder = slide_type in _BUILDER_DESCRIPTIONS and slide_type not in ("custom", "skip")
+    if n_total == 0:
+        effort_estimate = "trivial"
+    elif feasibility == "fully reproducible" and has_builder:
+        effort_estimate = "small"
+    elif feasibility == "fully reproducible":
+        effort_estimate = "medium"
+    else:
+        effort_estimate = "large" if len(gaps) > 3 else "medium"
+
+    return {
+        "feasibility": feasibility,
+        "confidence": 100,
+        "summary": summary,
+        "data_needed": data_needed,
+        "gaps": gaps,
+        "closest_existing": slide_type if slide_type != "custom" else None,
+        "effort_estimate": effort_estimate,
+    }
+
 
 def evaluate_new_slides(verbose: bool = False) -> list[dict[str, Any]]:
-    """Scan the new-slides Drive folder and evaluate every slide.
+    """Scan the new-slides Drive folder; collect data-centric analysis per slide, deduce reproducibility.
 
-    Returns a list of evaluation results, one per slide across all presentations.
+    Uses the same analysis as hydrate (data_ask + purpose). Reproducibility is derived at
+    report time from data_ask vs current available data keys — no separate LLM assessment.
+    Results are cached so hydrate can reuse them.
     """
     global _print_context
     _print_context = "evaluate"
@@ -339,7 +683,6 @@ def evaluate_new_slides(verbose: bool = False) -> list[dict[str, Any]]:
 
     slides_svc, _d, _ = _get_service()
     client = llm_client()
-    capability_context = _build_capability_context()
     all_results: list[dict[str, Any]] = []
 
     for pres in presentations:
@@ -353,6 +696,7 @@ def evaluate_new_slides(verbose: bool = False) -> list[dict[str, Any]]:
         slides = full_pres.get("slides", [])
         _print(f"  {len(slides)} slides\n")
 
+        eval_cache = {"analysis_hit": 0, "analysis_miss": 0, "no_cache_key": 0}
         for si, slide in enumerate(slides, 1):
             page_id = slide["objectId"]
             texts = []
@@ -360,7 +704,6 @@ def evaluate_new_slides(verbose: bool = False) -> list[dict[str, Any]]:
                 texts.extend(_extract_text(el))
             slide_text = "\n".join(texts)
             elements = _describe_elements(slide)
-
             title_guess = texts[0][:60] if texts else "(no text)"
             _print(f"  Slide {si}/{len(slides)}  \"{title_guess}\"")
 
@@ -371,70 +714,53 @@ def evaluate_new_slides(verbose: bool = False) -> list[dict[str, Any]]:
                                si, pres_name, e)
                 thumb_b64 = None
 
-            messages = [
-                {"role": "system", "content": (
-                    "You are evaluating a slide from a customer-facing deck. "
-                    "Assess whether we can reproduce this slide using the capabilities described below. "
-                    "Be specific about what data and visual elements the slide requires, "
-                    "what we can already do, and what gaps remain.\n\n"
-                    f"{capability_context}"
-                )},
-                {"role": "user", "content": _build_user_message(
-                    si, len(slides), pres_name, slide_text, elements, thumb_b64,
-                )},
-            ]
+            cache_key = _slide_content_hash(thumb_b64, slide_text[:2000] if slide_text else "")
+            if cache_key:
+                analysis = _get_cached_slide_analysis(cache_key)
+                if analysis:
+                    logger.info("evaluate: [%d/%d] analysis cache hit", si, len(slides))
+                    eval_cache["analysis_hit"] += 1
+                else:
+                    logger.info("evaluate: [%d/%d] analyzing slide (data ask + purpose)...",
+                                si, len(slides))
+                    analysis = _analyze_slide_broad(
+                        client, slide_text, elements, thumb_b64, si, len(slides), pres_name
+                    )
+                    _set_cached_slide_analysis(cache_key, analysis)
+                    eval_cache["analysis_miss"] += 1
+            else:
+                analysis = _analyze_slide_broad(
+                    client, slide_text, elements, thumb_b64, si, len(slides), pres_name
+                )
+                eval_cache["no_cache_key"] += 1
 
-            resp = _llm_create_with_retry(client, 
-                model=LLM_MODEL,
-                temperature=0,
-                response_format={"type": "json_object"},
-                messages=messages,
-            )
-            analysis = json.loads(resp.choices[0].message.content)
-
+            derived = _derive_reproducibility(analysis)
             result = {
                 "presentation": pres_name,
                 "slide_number": si,
                 "title_guess": title_guess,
                 "extracted_text": slide_text if verbose else slide_text[:200],
                 "elements": elements,
-                **analysis,
+                "purpose": analysis.get("purpose"),
+                "slide_type": analysis.get("slide_type"),
+                **derived,
             }
             all_results.append(result)
             _print_evaluation(result)
 
+        n_ev = len(slides)
+        ev_hit = eval_cache["analysis_hit"]
+        logger.info(
+            "evaluate: analysis cache summary for '%s' — %s | miss=%d no_key=%d",
+            pres_name,
+            _cache_hit_rate_line("cache_hit", ev_hit, n_ev),
+            eval_cache["analysis_miss"],
+            eval_cache["no_cache_key"],
+        )
+        _print(f"  Analysis cache: {ev_hit}/{n_ev} hits ({100 * ev_hit // n_ev if n_ev else 0}%) "
+               f"(new analysis {eval_cache['analysis_miss']}, no thumbnail key {eval_cache['no_cache_key']})\n")
+
     return all_results
-
-
-def _build_user_message(
-    slide_num: int, total: int, pres_name: str,
-    text: str, elements: dict, thumb_b64: str | None,
-) -> list[dict]:
-    """Build the multimodal user message for the evaluator LLM."""
-    text_part = (
-        f"Presentation: {pres_name}\n"
-        f"Slide {slide_num} of {total}\n\n"
-        f"Extracted text content:\n{text or '(no text found)'}\n\n"
-        f"Element counts: {json.dumps(elements)}\n\n"
-        "Please return a JSON object with:\n"
-        "  feasibility: \"fully reproducible\" | \"mostly reproducible\" | \"partially reproducible\" | \"not reproducible\"\n"
-        "  confidence: 0-100 (how confident you are in the assessment)\n"
-        "  summary: 1-2 sentence plain-English assessment\n"
-        "  data_needed: [{source, fields, available: true/false, note}] — what data the slide requires\n"
-        "  visual_elements: [{element, can_build: true/false, note}] — what visual components are needed\n"
-        "  gaps: [string] — specific things we cannot do today that this slide requires\n"
-        "  closest_existing: string | null — which existing slide type is most similar\n"
-        "  effort_estimate: \"trivial\" | \"small\" | \"medium\" | \"large\" — to implement from scratch\n"
-    )
-
-    parts: list[dict] = []
-    if thumb_b64:
-        parts.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/png;base64,{thumb_b64}", "detail": "high"},
-        })
-    parts.append({"type": "text", "text": text_part})
-    return parts
 
 
 def _print_evaluation(result: dict) -> None:
@@ -550,6 +876,7 @@ def visual_qa(pres_id: str, slides_svc=None) -> list[dict[str, Any]]:
         resp = _llm_create_with_retry(oai,
             model=LLM_MODEL,
             temperature=0,
+            max_tokens=1024,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": _QA_SYSTEM_PROMPT},
@@ -563,7 +890,12 @@ def visual_qa(pres_id: str, slides_svc=None) -> list[dict[str, Any]]:
                 ]},
             ],
         )
-        qa = json.loads(resp.choices[0].message.content)
+        raw_content = resp.choices[0].message.content
+        try:
+            qa = json.loads(raw_content)
+        except json.JSONDecodeError as e:
+            logger.warning("QA: slide %d/%d — invalid JSON from LLM (%s), treating as pass", si, n, e)
+            qa = {"pass": True, "issues": ["QA response invalid (JSON error)"], "severity": "none"}
         qa["slide_num"] = si
         qa["page_id"] = page_id
         return qa
@@ -1152,14 +1484,17 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
             logger.warning("hydrate: adapt slide %s thumbnail URL failed: %s", slide_num, e)
             thumb_urls[page_id] = None
 
-    def _fetch_and_reason(page_id: str) -> tuple[str, list[dict], list[dict]]:
-        """Download thumbnail bytes + call GPT. Thread-safe (no slides_svc access)."""
+    def _fetch_and_reason(page_id: str) -> tuple[str, list[dict], list[dict], str]:
+        """Returns (page_id, text_elements, replacements, cache_source).
+
+        cache_source: analysis_hit | adapt_hit | llm | empty | error
+        """
         slide = slides_by_id.get(page_id)
         if not slide:
-            return page_id, [], []
+            return page_id, [], [], "empty"
         text_elements = _extract_slide_text_elements(slide.get("pageElements", []))
         if not text_elements:
-            return page_id, [], []
+            return page_id, [], [], "empty"
         slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
         url = thumb_urls.get(page_id)
         thumb_b64 = None
@@ -1168,25 +1503,45 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
                 thumb_b64 = _download_thumbnail_b64(url)
             except Exception:
                 pass
+        cache_key = _slide_content_hash(thumb_b64) if thumb_b64 else None
+        if cache_key:
+            analysis = _get_cached_slide_analysis(cache_key)
+            if analysis and analysis.get("data_ask"):
+                logger.info("hydrate: adapt slide %s — analysis cache hit (resolving data ask)",
+                            slide_num)
+                replacements = _resolve_data_ask_to_replacements(
+                    analysis["data_ask"], data_summary, text_elements
+                )
+                return page_id, text_elements, replacements, "analysis_hit"
+            cached = _get_cached_adapt(cache_key)
+            if cached is not None:
+                logger.info("hydrate: adapt slide %s — adapt cache hit", slide_num)
+                replacements = _resolve_cached_replacements(cached, data_summary)
+                return page_id, text_elements, replacements, "adapt_hit"
         n_total = len(text_elements)
         n_data = sum(1 for el in text_elements if _element_may_contain_data(el))
         logger.info("hydrate: adapt slide %s — asking %s (%d/%d elements contain data)...",
                     slide_num, LLM_MODEL, n_data, n_total)
         replacements = _get_data_replacements(oai, text_elements, data_summary, thumb_b64,
                                               slide_label=str(slide_num))
-        return page_id, text_elements, replacements
+        if cache_key and replacements:
+            _set_cached_adapt(cache_key, replacements)
+        return page_id, text_elements, replacements, "llm"
 
     results: dict[str, tuple[list[dict], list[dict]]] = {}
+    adapt_cache_counts: dict[str, int] = {}
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(_fetch_and_reason, pid): pid for pid in page_ids}
         for fut in as_completed(futures):
             try:
-                pid, text_elements, replacements = fut.result()
+                pid, text_elements, replacements, src = fut.result()
+                adapt_cache_counts[src] = adapt_cache_counts.get(src, 0) + 1
                 results[pid] = (text_elements, replacements)
             except Exception as e:
                 pid = futures[fut]
                 sn = ordered_ids.index(pid) + 1 if pid in ordered_ids else "?"
                 logger.warning("hydrate: slide %s — fetch/GPT reasoning failed: %s", sn, e)
+                adapt_cache_counts["error"] = adapt_cache_counts.get("error", 0) + 1
                 results[pid] = ([], [])
 
     # ── Phase B: sequential Slides API writes ──────────────────────────────────
@@ -1237,6 +1592,27 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
 
         stats["adapted"] += 1
 
+    n_pages = len(page_ids)
+    ah = adapt_cache_counts.get("analysis_hit", 0)
+    adh = adapt_cache_counts.get("adapt_hit", 0)
+    llm_n = adapt_cache_counts.get("llm", 0)
+    empty_n = adapt_cache_counts.get("empty", 0)
+    err_n = adapt_cache_counts.get("error", 0)
+    cache_served = ah + adh
+    stats["cache"] = {
+        "analysis_hit": ah,
+        "adapt_hit": adh,
+        "llm": llm_n,
+        "empty": empty_n,
+        "error": err_n,
+        "total_slides": n_pages,
+    }
+    if n_pages:
+        logger.info(
+            "hydrate: adapt cache summary — %s | analysis_hit=%d adapt_hit=%d llm=%d empty=%d error=%d",
+            _cache_hit_rate_line("served_from_cache", cache_served, n_pages),
+            ah, adh, llm_n, empty_n, err_n,
+        )
     return stats
 
 
@@ -1453,6 +1829,10 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
         source_slides = full_pres.get("slides", [])
         _print(f"  {len(source_slides)} slides to classify and rebuild\n")
 
+        class_cache = {
+            "analysis_hit": 0, "legacy_classification_hit": 0,
+            "fresh_analysis": 0, "no_cache_key_classify": 0,
+        }
         # Phase 1: Classify every slide
         slide_plan: list[dict] = []
         for si, slide in enumerate(source_slides, 1):
@@ -1470,10 +1850,38 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
             except Exception:
                 thumb_b64 = None
 
-            logger.info("hydrate: [%d/%d] classifying slide...", si, len(source_slides))
-            classification = _classify_slide(
-                oai, slide_text, elements, thumb_b64, si, len(source_slides), pres_name
-            )
+            cache_key = _slide_content_hash(thumb_b64, slide_text[:2000] if slide_text else "")
+            if cache_key:
+                analysis = _get_cached_slide_analysis(cache_key)
+                if analysis:
+                    logger.info("hydrate: [%d/%d] slide analysis cache hit", si, len(source_slides))
+                    class_cache["analysis_hit"] += 1
+                    classification = {
+                        "slide_type": analysis.get("slide_type", "custom"),
+                        "title": analysis.get("title", title_guess),
+                        "reasoning": analysis.get("reasoning", ""),
+                        "custom_sections": analysis.get("custom_sections"),
+                    }
+                else:
+                    classification = _get_cached_classification(cache_key)
+                    if classification:
+                        logger.info("hydrate: [%d/%d] classification cache hit", si, len(source_slides))
+                        class_cache["legacy_classification_hit"] += 1
+                    else:
+                        logger.info("hydrate: [%d/%d] analyzing slide (data ask + purpose)...",
+                                    si, len(source_slides))
+                        classification = _analyze_slide_broad(
+                            oai, slide_text, elements, thumb_b64, si, len(source_slides), pres_name
+                        )
+                        _set_cached_slide_analysis(cache_key, classification)
+                        class_cache["fresh_analysis"] += 1
+            else:
+                logger.info("hydrate: [%d/%d] classifying slide (no cache key)...",
+                            si, len(source_slides))
+                classification = _classify_slide(
+                    oai, slide_text, elements, thumb_b64, si, len(source_slides), pres_name
+                )
+                class_cache["no_cache_key_classify"] += 1
             slide_type = classification.get("slide_type", "custom")
             title = classification.get("title", title_guess)
             reasoning = classification.get("reasoning", "")
@@ -1491,7 +1899,21 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
                 "custom_sections": classification.get("custom_sections"),
             })
 
-        _print(f"\n  Classification complete. Building deck...\n")
+        n_cls = len(source_slides)
+        cls_avoided = class_cache["analysis_hit"] + class_cache["legacy_classification_hit"]
+        logger.info(
+            "hydrate: classification cache summary — %s | analysis_hit=%d legacy_classification=%d fresh_analysis=%d no_key=%d",
+            _cache_hit_rate_line("avoided_LLM", cls_avoided, n_cls),
+            class_cache["analysis_hit"],
+            class_cache["legacy_classification_hit"],
+            class_cache["fresh_analysis"],
+            class_cache["no_cache_key_classify"],
+        )
+        _print(f"\n  Classification cache: {cls_avoided}/{n_cls} slides avoided classification LLM "
+               f"({100 * cls_avoided // n_cls if n_cls else 0}%) "
+               f"[analysis={class_cache['analysis_hit']} legacy={class_cache['legacy_classification_hit']} "
+               f"fresh={class_cache['fresh_analysis']} no_key={class_cache['no_cache_key_classify']}]")
+        _print(f"  Classification complete. Building deck...\n")
 
         # Phase 2: Copy the source presentation, then replace only data slides
         import datetime
@@ -1631,6 +2053,14 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
             _print(f"  Adapted: {adapt_stats['adapted']} slides "
                    f"({adapt_stats['clean']} clean, {adapt_stats['incomplete']} incomplete, "
                    f"{adapt_stats['skipped']} unchanged)")
+            c = adapt_stats.get("cache") or {}
+            tot = c.get("total_slides") or 0
+            if tot:
+                served = c.get("analysis_hit", 0) + c.get("adapt_hit", 0)
+                _print(f"  Adapt cache: {served}/{tot} slides avoided adapt LLM "
+                       f"({100 * served // tot if tot else 0}%) "
+                       f"[analysis={c.get('analysis_hit', 0)} legacy_adapt={c.get('adapt_hit', 0)} "
+                       f"llm={c.get('llm', 0)}]")
 
         # Visual QA — review every slide for layout problems
         logger.info("hydrate: running visual QA on '%s'...", pres_name)

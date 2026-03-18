@@ -27,5 +27,8 @@ Thumbs.db
 # Generated deck artifacts
 decks/thumbnails/
 
+# Slide analysis cache (classification / adapt) — avoid re-calling LLM for same slide
+.slide_cache/
+
 # Byte-compiled
 *.so

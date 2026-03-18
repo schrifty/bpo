@@ -218,6 +218,49 @@ def _rect(reqs, oid, sid, x, y, w, h, fill):
     })
 
 
+# ── Speaker notes (notes page per slide) ──────────────────────────────────────
+
+
+def get_speaker_notes_object_id(slides_svc, pres_id: str, slide_page_id: str) -> str | None:
+    """Return the object ID of the speaker-notes shape for the given slide, or None if not found.
+
+    Uses slide's slideProperties.notesPageId and the notes page's notesProperties.speakerNotesObjectId.
+    """
+    pres = slides_svc.presentations().get(presentationId=pres_id).execute()
+    for page in pres.get("slides", []):
+        if page.get("objectId") != slide_page_id:
+            continue
+        notes_page_id = (page.get("slideProperties") or {}).get("notesPageId")
+        if not notes_page_id:
+            return None
+        try:
+            notes_page = slides_svc.presentations().pages().get(
+                presentationId=pres_id, pageObjectId=notes_page_id
+            ).execute()
+        except HttpError:
+            return None
+        return (notes_page.get("notesProperties") or {}).get("speakerNotesObjectId")
+    return None
+
+
+def set_speaker_notes(slides_svc, pres_id: str, slide_page_id: str, notes_text: str) -> bool:
+    """Write text to the speaker notes for the given slide. Returns True if successful."""
+    oid = get_speaker_notes_object_id(slides_svc, pres_id, slide_page_id)
+    if not oid:
+        return False
+    reqs = [
+        {"deleteText": {"objectId": oid, "textRange": {"type": "ALL"}}},
+        {"insertText": {"objectId": oid, "text": notes_text or "", "insertionIndex": 0}},
+    ]
+    try:
+        slides_svc.presentations().batchUpdate(
+            presentationId=pres_id, body={"requests": reqs}
+        ).execute()
+        return True
+    except HttpError:
+        return False
+
+
 def _pill(reqs, oid, sid, x, y, w, h, text, bg, fg):
     reqs.append({
         "createShape": {
