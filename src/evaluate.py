@@ -21,7 +21,7 @@ from typing import Any
 import requests as _requests
 
 from .config import GOOGLE_DRIVE_FOLDER_ID, LLM_MODEL, LLM_MODEL_FAST, llm_client, logger
-from .slides_client import _get_service, SLIDE_DATA_REQUIREMENTS
+from .slides_client import _get_service, set_speaker_notes, SLIDE_DATA_REQUIREMENTS
 
 NEW_SLIDES_FOLDER_NAME = "new-slides"
 
@@ -684,6 +684,8 @@ def evaluate_new_slides(verbose: bool = False) -> list[dict[str, Any]]:
     slides_svc, _d, _ = _get_service()
     client = llm_client()
     all_results: list[dict[str, Any]] = []
+    eval_run_hits = 0
+    eval_run_slides = 0
 
     for pres in presentations:
         pres_id = pres["id"]
@@ -759,7 +761,18 @@ def evaluate_new_slides(verbose: bool = False) -> list[dict[str, Any]]:
         )
         _print(f"  Analysis cache: {ev_hit}/{n_ev} hits ({100 * ev_hit // n_ev if n_ev else 0}%) "
                f"(new analysis {eval_cache['analysis_miss']}, no thumbnail key {eval_cache['no_cache_key']})\n")
+        eval_run_hits += ev_hit
+        eval_run_slides += n_ev
 
+    _print(f"{'=' * 60}")
+    _print("CACHE HIT RATE (evaluate run — analysis cache)")
+    if eval_run_slides:
+        ep = 100 * eval_run_hits // eval_run_slides
+        _print(f"  Analysis cache hits: {eval_run_hits}/{eval_run_slides} slides ({ep}%)")
+        logger.info("evaluate: run summary — %s", _cache_hit_rate_line("analysis_cache_hit", eval_run_hits, eval_run_slides))
+    else:
+        _print("  No slides evaluated.")
+    _print(f"{'=' * 60}")
     return all_results
 
 
@@ -1266,6 +1279,112 @@ def _get_data_replacements(oai, text_elements: list[dict], data_summary: dict,
 _PLACEHOLDER_MARKERS = ("[000]", "[$000]", "[00/00/00]", "[00%]", "[???]")
 _STATIC_IMAGE_MARKER = "[STATIC IMAGE"
 
+# Data source attribution for presenter QA: where to verify each field.
+DATA_SOURCE_BY_FIELD: dict[str, str] = {
+    "customer_name": "Report",
+    "report_date": "Report",
+    "quarter": "Report",
+    "quarter_start": "Report",
+    "quarter_end": "Report",
+    "total_users": "Pendo",
+    "active_users": "Pendo",
+    "total_sites": "Pendo",
+    "active_sites": "Pendo",
+    "health_score": "Pendo",
+    "site_details": "Pendo",
+    "cs_health_sites": "CS Report",
+    "support": "Jira",
+    "salesforce": "Salesforce",
+    "platform_value": "CS Report",
+    "supply_chain": "CS Report",
+}
+
+
+def _build_hydrate_speaker_notes(
+    replacements: list[dict],
+    text_elements: list[dict],
+    *,
+    report: dict | None = None,
+    has_unmapped: bool = False,
+    has_static_images: bool = False,
+    analysis: dict | None = None,
+) -> str:
+    """Speaker-notes for presenter QA and rebuild spec: objective, required data, governance."""
+    import re as _re
+    lines: list[str] = [
+        "══ QA this slide — data governance ══",
+        "",
+        "Legend: LIVE = from our pipelines (traceable). UNMAPPED = placeholder — verify or replace. STATIC = image/chart, not auto-updated.",
+        "",
+    ]
+
+    # Rebuild spec: objective and required data (when analysis available)
+    if analysis:
+        purpose = (analysis.get("purpose") or "").strip()
+        if purpose:
+            lines.append(f"Objective: {purpose}")
+        title = (analysis.get("title") or "").strip()
+        slide_type = (analysis.get("slide_type") or "").strip()
+        if title or slide_type:
+            lines.append(f"Slide: {slide_type or 'custom'}" + (f" — {title}" if title else ""))
+        data_ask = analysis.get("data_ask") or []
+        if data_ask:
+            keys = [str(item.get("key") or item.get("field") or "?") for item in data_ask]
+            lines.append("Required data: " + ", ".join(keys))
+        lines.append("")
+
+    # Data context (where/when this data is from)
+    if report:
+        customer = (report.get("customer") or report.get("customer_name") or "").strip()
+        as_of = (report.get("generated") or report.get("report_date") or "").strip()
+        quarter = (report.get("quarter") or "").strip()
+        ctx_parts = [p for p in [f"Customer: {customer}" if customer else None, f"As-of: {as_of}" if as_of else None, f"Quarter: {quarter}" if quarter else None] if p]
+        if ctx_parts:
+            lines.append("Data context: " + " | ".join(ctx_parts))
+            lines.append("")
+
+    lines.append(f"A. Pipeline — {len(replacements)} data operation(s)")
+    for i, r in enumerate(replacements, 1):
+        fld = str(r.get("field") or "?")[:80]
+        orig = str(r.get("original") or "").replace("\n", " ").strip()[:120]
+        nv = str(r.get("new_value") or "").replace("\n", " ").strip()[:120]
+        mapped = r.get("mapped", True)
+        if mapped:
+            source = DATA_SOURCE_BY_FIELD.get(fld, "Report/data")
+            tag = f"LIVE — Source: {source}"
+        else:
+            tag = "UNMAPPED / static visual — verify or replace manually"
+        lines.append(f"   {i}. [{fld}]  {tag}")
+        lines.append(f"      was: {orig}")
+        lines.append(f"      now: {nv}")
+    lines.append("")
+    lines.append("B. On-slide lines (numbers, $, %, or [placeholders])")
+    seen: set[str] = set()
+    n = 0
+    for el in text_elements:
+        raw = el.get("text") or ""
+        typ = el.get("type", "?")
+        for part in raw.split("\n"):
+            s = part.strip()
+            if len(s) < 2 or s in seen:
+                continue
+            if not _re.search(r"[\d\[\]$%€£]", s):
+                continue
+            seen.add(s)
+            n += 1
+            lines.append(f"   {n}. [{typ}] {s[:240]}")
+    if n == 0:
+        lines.append("   (none matched)")
+    lines.append("")
+    lines.append("QA checklist: ✓ Numbers match the source above? ✓ Placeholders replaced or accepted? ✓ Static images/charts current or replaced?")
+    if has_unmapped or has_static_images:
+        lines.append("")
+        lines.append("⚠ Slide marked INCOMPLETE — contains placeholders or static images. Confirm before presenting.")
+    body = "\n".join(lines)
+    if len(body) > 12000:
+        body = body[:11900] + "\n\n… (truncated)"
+    return body
+
 
 def _apply_adaptations(slides_svc, pres_id: str, page_id: str,
                        replacements: list[dict]) -> tuple[list[dict], bool, bool]:
@@ -1484,17 +1603,18 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
             logger.warning("hydrate: adapt slide %s thumbnail URL failed: %s", slide_num, e)
             thumb_urls[page_id] = None
 
-    def _fetch_and_reason(page_id: str) -> tuple[str, list[dict], list[dict], str]:
-        """Returns (page_id, text_elements, replacements, cache_source).
+    def _fetch_and_reason(page_id: str) -> tuple[str, list[dict], list[dict], str, dict | None]:
+        """Returns (page_id, text_elements, replacements, cache_source, analysis_or_none).
 
         cache_source: analysis_hit | adapt_hit | llm | empty | error
+        analysis is included when in cache (for speaker-notes rebuild spec).
         """
         slide = slides_by_id.get(page_id)
         if not slide:
-            return page_id, [], [], "empty"
+            return page_id, [], [], "empty", None
         text_elements = _extract_slide_text_elements(slide.get("pageElements", []))
         if not text_elements:
-            return page_id, [], [], "empty"
+            return page_id, [], [], "empty", None
         slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
         url = thumb_urls.get(page_id)
         thumb_b64 = None
@@ -1504,6 +1624,7 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
             except Exception:
                 pass
         cache_key = _slide_content_hash(thumb_b64) if thumb_b64 else None
+        analysis: dict | None = None
         if cache_key:
             analysis = _get_cached_slide_analysis(cache_key)
             if analysis and analysis.get("data_ask"):
@@ -1512,12 +1633,12 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
                 replacements = _resolve_data_ask_to_replacements(
                     analysis["data_ask"], data_summary, text_elements
                 )
-                return page_id, text_elements, replacements, "analysis_hit"
+                return page_id, text_elements, replacements, "analysis_hit", analysis
             cached = _get_cached_adapt(cache_key)
             if cached is not None:
                 logger.info("hydrate: adapt slide %s — adapt cache hit", slide_num)
                 replacements = _resolve_cached_replacements(cached, data_summary)
-                return page_id, text_elements, replacements, "adapt_hit"
+                return page_id, text_elements, replacements, "adapt_hit", analysis
         n_total = len(text_elements)
         n_data = sum(1 for el in text_elements if _element_may_contain_data(el))
         logger.info("hydrate: adapt slide %s — asking %s (%d/%d elements contain data)...",
@@ -1526,27 +1647,29 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
                                               slide_label=str(slide_num))
         if cache_key and replacements:
             _set_cached_adapt(cache_key, replacements)
-        return page_id, text_elements, replacements, "llm"
+        if cache_key and not analysis:
+            analysis = _get_cached_slide_analysis(cache_key)
+        return page_id, text_elements, replacements, "llm", analysis
 
-    results: dict[str, tuple[list[dict], list[dict]]] = {}
+    results: dict[str, tuple[list[dict], list[dict], dict | None]] = {}
     adapt_cache_counts: dict[str, int] = {}
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(_fetch_and_reason, pid): pid for pid in page_ids}
         for fut in as_completed(futures):
             try:
-                pid, text_elements, replacements, src = fut.result()
+                pid, text_elements, replacements, src, analysis = fut.result()
                 adapt_cache_counts[src] = adapt_cache_counts.get(src, 0) + 1
-                results[pid] = (text_elements, replacements)
+                results[pid] = (text_elements, replacements, analysis)
             except Exception as e:
                 pid = futures[fut]
                 sn = ordered_ids.index(pid) + 1 if pid in ordered_ids else "?"
                 logger.warning("hydrate: slide %s — fetch/GPT reasoning failed: %s", sn, e)
                 adapt_cache_counts["error"] = adapt_cache_counts.get("error", 0) + 1
-                results[pid] = ([], [])
+                results[pid] = ([], [], None)
 
     # ── Phase B: sequential Slides API writes ──────────────────────────────────
     for page_id in page_ids:
-        text_elements, replacements = results.get(page_id, ([], []))
+        text_elements, replacements, analysis = results.get(page_id, ([], [], None))
         slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
 
         if not text_elements or not replacements:
@@ -1591,6 +1714,15 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
             stats["clean"] += 1
 
         stats["adapted"] += 1
+        notes = _build_hydrate_speaker_notes(
+            replacements, text_elements,
+            report=report,
+            has_unmapped=has_unmapped,
+            has_static_images=has_static_images,
+            analysis=analysis,
+        )
+        if not set_speaker_notes(slides_svc, pres_id, page_id, notes):
+            logger.warning("hydrate: slide %s — could not write speaker notes", slide_num)
 
     n_pages = len(page_ids)
     ah = adapt_cache_counts.get("analysis_hit", 0)
@@ -1792,6 +1924,13 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
     oai = llm_client()
     all_results: list[dict[str, Any]] = []
     report_cache: dict[str, dict] = {}
+    # Aggregate cache stats across all decks in this run (printed at the end)
+    run_cache_totals = {
+        "class_slides": 0,
+        "class_avoided": 0,
+        "adapt_slides": 0,
+        "adapt_served": 0,
+    }
 
     for pres in presentations:
         source_id = pres["id"]
@@ -1914,6 +2053,8 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
                f"[analysis={class_cache['analysis_hit']} legacy={class_cache['legacy_classification_hit']} "
                f"fresh={class_cache['fresh_analysis']} no_key={class_cache['no_cache_key_classify']}]")
         _print(f"  Classification complete. Building deck...\n")
+        run_cache_totals["class_slides"] += n_cls
+        run_cache_totals["class_avoided"] += cls_avoided
 
         # Phase 2: Copy the source presentation, then replace only data slides
         import datetime
@@ -2061,6 +2202,8 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
                        f"({100 * served // tot if tot else 0}%) "
                        f"[analysis={c.get('analysis_hit', 0)} legacy_adapt={c.get('adapt_hit', 0)} "
                        f"llm={c.get('llm', 0)}]")
+                run_cache_totals["adapt_slides"] += tot
+                run_cache_totals["adapt_served"] += served
 
         # Visual QA — review every slide for layout problems
         logger.info("hydrate: running visual QA on '%s'...", pres_name)
@@ -2086,5 +2229,22 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
 
     _print(f"{'=' * 60}")
     _print(f"Replication complete: {len(all_results)} deck(s)")
+    _print(f"{'=' * 60}")
+    _print("")
+    _print("CACHE HIT RATE (entire run)")
+    cs, ca = run_cache_totals["class_slides"], run_cache_totals["class_avoided"]
+    if cs:
+        cp = 100 * ca // cs
+        _print(f"  Classification LLM skipped: {ca}/{cs} slides ({cp}% hit rate)")
+        logger.info("hydrate: run summary — classification cache %s", _cache_hit_rate_line("hit", ca, cs))
+    else:
+        _print("  Classification: no slides processed this run")
+    ads, adh = run_cache_totals["adapt_slides"], run_cache_totals["adapt_served"]
+    if ads:
+        ap = 100 * adh // ads
+        _print(f"  Adapt LLM skipped:       {adh}/{ads} slides ({ap}% hit rate)")
+        logger.info("hydrate: run summary — adapt cache %s", _cache_hit_rate_line("hit", adh, ads))
+    else:
+        _print("  Adapt: no adapt phase ran this run (or all decks failed before adapt)")
     _print(f"{'=' * 60}")
     return all_results
