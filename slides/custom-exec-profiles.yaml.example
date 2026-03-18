@@ -1,0 +1,20 @@
+id: exec_profiles
+type: custom
+order: after champions
+title: Executive Profiles
+slide_type: custom
+data_tools: [customer_people, customer_kei]
+customers: all
+
+prompt: |
+  Show a profile card for each known executive at this customer. Include
+  their name, title, last login date, Kei usage, and whether they attended
+  the most recent QBR (if that data is available from Salesforce).
+
+  If Salesforce contact data is available, pull executive titles and contact
+  info from there rather than Pendo roles — Pendo roles are self-reported
+  and often inaccurate for executives. Cross-reference: if Salesforce shows
+  a VP who has never appeared in Pendo, flag that as a gap.
+
+  This slide helps the CSM prepare for executive conversations by knowing
+  exactly who is engaged and who needs outreach.

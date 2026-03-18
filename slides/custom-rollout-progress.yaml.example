@@ -1,0 +1,18 @@
+id: rollout_progress
+type: custom
+order: after sites
+title: Rollout Progress
+slide_type: custom
+data_tools: [customer_sites, customer_health]
+customers: ["Siemens"]
+
+prompt: |
+  This slide is specific to Siemens and tracks their multi-site rollout.
+  Categorize each site into a stage: Live (active users in the last 7 days),
+  Training (has a training site with recent activity), Onboarding (users
+  exist but activity is minimal), and Not Started (no users or no activity).
+
+  Show a progress bar or count of sites in each stage. Compare current
+  state to the previous period if possible. The goal is to give the CSM
+  a clear picture of rollout velocity — are new sites coming online on
+  schedule or is the rollout stalling?
