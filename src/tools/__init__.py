@@ -1,5 +1,6 @@
 """LangChain tools for BPO."""
 
+from .jira_tool import JiraProjectSnapshotTool
 from .pendo_tool import (
     CustomerHealthTool,
     CustomerSitesTool,
@@ -42,4 +43,5 @@ __all__ = [
     "CreateDeckTool",
     "AddSlideTool",
     "get_pendo_tools",
+    "JiraProjectSnapshotTool",
 ]

@@ -13,6 +13,15 @@ purpose: |
 
 slides:
   - slide: eng_portfolio_title
+  - slide: eng_jira_project
+    jira_project: HELP
+    title: "HELP — Support"
+  - slide: eng_jira_project
+    jira_project: CUSTOMER
+    title: "CUSTOMER — Implementation escalations"
+  - slide: eng_jira_project
+    jira_project: LEAN
+    title: "LEAN — Engineering escalations"
   - slide: eng_sprint_snapshot
   - slide: eng_bug_health
   - slide: eng_velocity

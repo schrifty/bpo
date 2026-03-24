@@ -138,7 +138,7 @@ def resolve_deck(
         # Deck entry fields (e.g. title) override slide definition defaults
         resolved_title = entry.get("title", slide_def.get("title", slide_def["id"]))
 
-        slides.append({
+        slide_row = {
             "id": unique_id,
             "type": slide_def.get("type", "standard"),
             "title": resolved_title,
@@ -147,7 +147,11 @@ def resolve_deck(
             "prompt": slide_def.get("prompt", "").strip(),
             "required": override.get("require", False),
             "note": entry.get("note", override.get("note", "")),
-        })
+        }
+        # Deck YAML may pass builder params (e.g. jira_project for eng_jira_project slides).
+        if "jira_project" in entry:
+            slide_row["jira_project"] = str(entry["jira_project"]).strip().upper()
+        slides.append(slide_row)
 
     for rid, override in overrides.items():
         if override.get("exclude") and rid not in seen_in_slides:

@@ -217,13 +217,21 @@ def _analyze_slide_broad(client, text: str, elements: dict, thumb_b64: str | Non
             {"role": "user", "content": parts},
         ],
     )
+    raw_content = resp.choices[0].message.content or ""
     try:
-        analysis = json.loads(resp.choices[0].message.content)
+        analysis = json.loads(raw_content)
     except json.JSONDecodeError as e:
         logger.warning("_analyze_slide_broad: LLM returned invalid JSON (slide %s/%s): %s", slide_num, total, e)
-        # Use slide text so speaker notes still show something useful (e.g. "Success Story")
+        # Extract purpose from raw response (often present even when JSON is truncated)
+        import re as _re
+        purpose_match = _re.search(r'"purpose"\s*:\s*"((?:[^"\\]|\\.)*)"?', raw_content)
+        purpose_fallback = purpose_match.group(1).strip() if purpose_match and purpose_match.group(1) else None
+        if not purpose_fallback:
+            title_match = _re.search(r'"title"\s*:\s*"((?:[^"\\]|\\.)*)"?', raw_content)
+            purpose_fallback = title_match.group(1).strip() if title_match and title_match.group(1) else None
         title_guess = (text or "").strip().split("\n")[0].strip()[:100] if text else ""
-        purpose_fallback = f"Slide: {title_guess}" if title_guess else "Slide content (analysis parse failed)"
+        if not purpose_fallback:
+            purpose_fallback = f"Slide: {title_guess}" if title_guess else "Slide content (analysis parse failed)"
         return {"data_ask": [], "purpose": purpose_fallback, "slide_type": "custom", "title": title_guess, "reasoning": "", "charts": []}
     if not isinstance(analysis.get("charts"), list):
         analysis["charts"] = []

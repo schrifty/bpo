@@ -17,11 +17,6 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
-# Sheets scope is optional — only needed for embedded charts.
-# Requires "https://www.googleapis.com/auth/spreadsheets" in Google Workspace
-# DWD allowlist (Admin Console → Security → API Controls → Domain-wide delegation).
-_SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
-
 SLIDE_W = 720
 SLIDE_H = 405
 
@@ -106,42 +101,8 @@ def _get_service():
     return (
         build("slides", "v1", credentials=creds),
         build("drive", "v3", credentials=creds),
-        None,  # sheets_svc placeholder — obtained separately via _get_sheets_service()
+        None,
     )
-
-
-def _get_sheets_service():
-    """Build a Sheets API service with the spreadsheets scope.
-
-    Returns None if the scope is not authorized (requires DWD allowlist update in
-    Google Workspace Admin → Security → API Controls → Domain-wide delegation).
-    Add https://www.googleapis.com/auth/spreadsheets to the service account's scopes.
-    """
-    creds_path = GOOGLE_APPLICATION_CREDENTIALS
-    if not creds_path:
-        return None
-    path = Path(creds_path)
-    if not path.exists():
-        return None
-    try:
-        creds = service_account.Credentials.from_service_account_file(
-            str(path), scopes=SCOPES + [_SHEETS_SCOPE],
-        )
-        try:
-            with open(path) as f:
-                proj_id = json.load(f).get("project_id")
-            if proj_id:
-                creds = creds.with_quota_project(proj_id)
-        except Exception:
-            pass
-        if GOOGLE_DRIVE_OWNER_EMAIL:
-            owner = GOOGLE_DRIVE_OWNER_EMAIL.strip()
-            if owner:
-                creds = creds.with_subject(owner)
-        return build("sheets", "v4", credentials=creds)
-    except Exception as e:
-        logger.debug("Sheets service unavailable (needs DWD scope): %s", e)
-        return None
 
 
 # ── Primitives ──
@@ -214,6 +175,29 @@ def _rect(reqs, oid, sid, x, y, w, h, fill):
                 "outline": {"propertyState": "NOT_RENDERED"},
             },
             "fields": "shapeBackgroundFill,outline",
+        }
+    })
+
+
+def _bar_rect(reqs, oid, sid, x, y, w, h, fill, outline=NAVY):
+    """Rectangle for chart bars with a visible outline."""
+    reqs.append({
+        "createShape": {
+            "objectId": oid, "shapeType": "RECTANGLE",
+            "elementProperties": {"pageObjectId": sid, "size": _sz(w, h), "transform": _tf(x, y)},
+        }
+    })
+    reqs.append({
+        "updateShapeProperties": {
+            "objectId": oid,
+            "shapeProperties": {
+                "shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": fill}}},
+                "outline": {
+                    "outlineFill": {"solidFill": {"color": {"rgbColor": outline}}},
+                    "weight": {"magnitude": 1, "unit": "PT"},
+                },
+            },
+            "fields": "shapeBackgroundFill,outline.outlineFill,outline.weight",
         }
     })
 
@@ -295,6 +279,70 @@ def set_speaker_notes(slides_svc, pres_id: str, slide_page_id: str, notes_text: 
                 return False
         logger.warning("set_speaker_notes: batchUpdate failed for slide %s: %s", slide_page_id[:12], e)
         return False
+
+
+def _collect_jql_queries(obj: Any) -> list[str]:
+    """Recursively collect JQL query lists from report data."""
+    if obj is None:
+        return []
+    if isinstance(obj, dict):
+        queries: list[str] = []
+        raw = obj.get("jql_queries")
+        if isinstance(raw, list):
+            queries.extend(str(q).strip() for q in raw if str(q).strip())
+        for val in obj.values():
+            queries.extend(_collect_jql_queries(val))
+        return queries
+    if isinstance(obj, list):
+        queries: list[str] = []
+        for item in obj:
+            queries.extend(_collect_jql_queries(item))
+        return queries
+    return []
+
+
+def _dedupe_keep_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        out.append(item)
+    return out
+
+
+def _build_slide_jql_speaker_notes(report: dict[str, Any], entry: dict[str, Any]) -> str:
+    """Build speaker notes with the JQL used for this slide/deck."""
+    from datetime import datetime
+
+    slide_type = entry.get("slide_type", entry.get("id", "slide"))
+    slide_title = entry.get("title", slide_type.replace("_", " ").title())
+    lines = [
+        "══ Slide Query Trace ══",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        f"Slide: {slide_title}",
+        f"Slide type: {slide_type}",
+        "",
+    ]
+
+    required_keys = SLIDE_DATA_REQUIREMENTS.get(slide_type, [])
+    scoped_queries: list[str] = []
+    for key in required_keys:
+        scoped_queries.extend(_collect_jql_queries(report.get(key)))
+    scoped_queries = _dedupe_keep_order(scoped_queries)
+
+    all_queries = _dedupe_keep_order(_collect_jql_queries(report))
+    queries = scoped_queries or all_queries
+
+    if not queries:
+        lines.append("JQL: none recorded for this slide/deck.")
+        return "\n".join(lines)
+
+    lines.append("JQL used:")
+    for i, q in enumerate(queries, 1):
+        lines.append(f"{i}. {q}")
+    return "\n".join(lines)
 
 
 def _pill(reqs, oid, sid, x, y, w, h, text, bg, fg):
@@ -561,9 +609,20 @@ def _omission_note(reqs, sid, omitted_names: list[str], label: str = "Not shown"
 
 def _slide_title(reqs, sid, text):
     """Standard content-slide title: navy text + teal underline + internal footer."""
+    title_len = len(text or "")
+    if title_len > 100:
+        title_size = 12
+    elif title_len > 85:
+        title_size = 13
+    elif title_len > 72:
+        title_size = 14
+    elif title_len > 60:
+        title_size = 16
+    else:
+        title_size = 20
     oid = f"{sid}_ttl"
     _box(reqs, oid, sid, MARGIN, TITLE_Y, CONTENT_W, 36, text)
-    _style(reqs, oid, 0, len(text), bold=True, size=20, color=NAVY, font=FONT_SERIF)
+    _style(reqs, oid, 0, len(text), bold=True, size=title_size, color=NAVY, font=FONT_SERIF)
     _rect(reqs, f"{sid}_ul", sid, MARGIN, TITLE_Y + 38, 56, 2.5, BLUE)
     _internal_footer(reqs, sid)
 
@@ -1313,7 +1372,6 @@ def _depth_slide(reqs, sid, report, idx):
     _style(reqs, f"{sid}_hdr", 0, len(header), size=10, color=GRAY, font=FONT)
 
     charts = report.get("_charts")
-    chart_embedded = False
     read_e = depth.get("read_events", 0)
     write_e = depth.get("write_events", 0)
     collab_e = depth.get("collab_events", 0)
@@ -1340,7 +1398,6 @@ def _depth_slide(reqs, sid, report, idx):
                 )
                 embed_chart(reqs, f"{sid}_chart", sid, ss_id, chart_id,
                             MARGIN, BODY_Y + 24, CONTENT_W * 0.6, BODY_BOTTOM - BODY_Y - 30)
-                chart_embedded = True
 
             # Pie: overall read/write/collab split
             if read_e + write_e + collab_e > 0:
@@ -1354,35 +1411,8 @@ def _depth_slide(reqs, sid, report, idx):
                 pie_w = CONTENT_W * 0.38
                 embed_chart(reqs, f"{sid}_pie", sid, ss_id2, pie_id,
                             pie_x, BODY_Y + 24, pie_w, (BODY_BOTTOM - BODY_Y - 30) * 0.6)
-                chart_embedded = True
         except Exception as e:
-            logger.warning("Chart embed failed for depth slide, falling back to shapes: %s", e)
-
-    if not chart_embedded:
-        # Fallback: shape-based bars
-        max_events = max((b["events"] for b in breakdown), default=1)
-        bar_max_w = 320
-        y = BODY_Y + 28
-        bar_h = 16
-        spacing = 6
-        for i, b in enumerate(breakdown[:10]):
-            label = f"{b['category']}  ({b['events']:,}, {b['users']}u)"
-            _box(reqs, f"{sid}_l{i}", sid, MARGIN, y, 200, bar_h, label)
-            _style(reqs, f"{sid}_l{i}", 0, len(label), size=8, color=NAVY, font=FONT)
-
-            bar_w = max(int(b["events"] / max_events * bar_max_w), 4)
-            _rect(reqs, f"{sid}_b{i}", sid, 260, y + 2, bar_w, bar_h - 4, BLUE if i < 3 else NAVY)
-
-            pct_label = f"{b['pct']}%"
-            _box(reqs, f"{sid}_p{i}", sid, 260 + bar_w + 6, y, 50, bar_h, pct_label)
-            _style(reqs, f"{sid}_p{i}", 0, len(pct_label), size=8, color=GRAY, font=FONT)
-
-            y += bar_h + spacing
-
-        summary = f"Read: {read_e:,}\nWrite: {write_e:,}\nCollab: {collab_e:,}"
-        _box(reqs, f"{sid}_rw", sid, 560, BODY_Y + 28, 100, 60, summary)
-        _style(reqs, f"{sid}_rw", 0, len(summary), size=9, color=NAVY, font=MONO)
-        _style(reqs, f"{sid}_rw", 0, len("Read:"), bold=True, color=BLUE)
+            logger.warning("Chart embed failed for depth slide: %s", e)
 
     return idx + 1
 
@@ -1463,8 +1493,8 @@ def _guides_slide(reqs, sid, report, idx):
     if total_responses > 0:
         adv_w = int(advanced / total_responses * 400)
         dis_w = int(dismissed / total_responses * 400)
-        _rect(reqs, f"{sid}_adv", sid, MARGIN, bar_y, max(adv_w, 4), 18, BLUE)
-        _rect(reqs, f"{sid}_dis", sid, MARGIN + adv_w, bar_y, max(dis_w, 4), 18, GRAY)
+        _bar_rect(reqs, f"{sid}_adv", sid, MARGIN, bar_y, max(adv_w, 4), 18, BLUE)
+        _bar_rect(reqs, f"{sid}_dis", sid, MARGIN + adv_w, bar_y, max(dis_w, 4), 18, GRAY)
         alab = f"Advanced ({advanced:,})"
         _box(reqs, f"{sid}_alab", sid, MARGIN, bar_y + 20, 200, 14, alab)
         _style(reqs, f"{sid}_alab", 0, len(alab), size=8, color=BLUE, font=FONT)
@@ -1699,6 +1729,148 @@ def _jira_slide(reqs, sid, report, idx):
         if rc_start >= 0:
             _style(reqs, f"{sid}_eng", rc_start, rc_start + len("Recently Closed"),
                    bold=True, size=8, color=GRAY, font=FONT)
+
+    return idx + 1
+
+
+def _customer_ticket_metrics_slide(reqs, sid, report, idx):
+    """Single-customer support ticket dashboard with KPI cards and ranked charts."""
+    jira = report.get("jira") or {}
+    snap = jira.get("customer_ticket_metrics") or {}
+    charts = report.get("_charts")
+    if snap.get("error"):
+        return _missing_data_slide(reqs, sid, report, idx, f"Customer ticket metrics: {snap.get('error')}")
+    if not snap or not charts:
+        return _missing_data_slide(reqs, sid, report, idx, "Customer ticket metrics and chart service")
+
+    customer = report.get("customer") or snap.get("customer") or "Customer"
+    entry = report.get("_current_slide") or {}
+    title = entry.get("title") or f"{customer} Ticket Metrics"
+
+    unresolved = int(snap.get("unresolved_count") or 0)
+    resolved_6mo = int(snap.get("resolved_in_6mo_count") or 0)
+    ttfr = snap.get("ttfr_1y") or {}
+    ttr = snap.get("ttr_1y") or {}
+    adherence = snap.get("sla_adherence_1y") or {}
+    by_type = snap.get("by_type_open") or {}
+    by_status = snap.get("by_status_open") or {}
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+
+    def _card(oid: str, x, y, w, h, label: str, value: str, subtext: str = "", accent: dict | None = None):
+        accent = accent or NAVY
+        _bar_rect(reqs, oid, sid, x, y, w, h, LIGHT, outline=GRAY)
+        _box(reqs, f"{oid}_l", sid, x + 10, y + 8, w - 20, 12, label)
+        _style(reqs, f"{oid}_l", 0, len(label), size=8, color=GRAY, font=FONT)
+        _box(reqs, f"{oid}_v", sid, x + 10, y + 20, w - 20, 20, value)
+        _style(reqs, f"{oid}_v", 0, len(value), bold=True, size=18, color=accent, font=FONT)
+        if subtext:
+            _box(reqs, f"{oid}_s", sid, x + 10, y + 41, w - 20, 10, subtext)
+            _style(reqs, f"{oid}_s", 0, len(subtext), size=7, color=GRAY, font=FONT)
+
+    row_gap = 14
+    col_gap = 18
+    top_card_w = (CONTENT_W - 2 * col_gap) / 3
+    bot_card_w = (CONTENT_W - col_gap) / 2
+    card_h = 54
+    row1_y = BODY_Y + 8
+    row2_y = row1_y + card_h + row_gap
+
+    adherence_pct = adherence.get("pct")
+    adherence_value = "—" if adherence_pct is None else f"{adherence_pct:.0f}%"
+    adherence_sub = (
+        f"{adherence.get('met', 0)} of {adherence.get('measured', 0)} met all measured SLAs"
+        if adherence.get("measured")
+        else "No measured HELP SLA tickets in the last year"
+    )
+
+    _card(f"{sid}_k1", MARGIN, row1_y, top_card_w, card_h, "Unresolved tickets", f"{unresolved}", accent=NAVY)
+    _card(
+        f"{sid}_k2", MARGIN + top_card_w + col_gap, row1_y, top_card_w, card_h,
+        "Resolved in last 6 months", f"{resolved_6mo}", accent=NAVY,
+    )
+    _card(
+        f"{sid}_k3", MARGIN + 2 * (top_card_w + col_gap), row1_y, top_card_w, card_h,
+        "SLA adherence (1y)", adherence_value, adherence_sub,
+        accent=_GREEN if (adherence_pct or 0) >= 90 else (BLUE if (adherence_pct or 0) >= 75 else _RED),
+    )
+
+    ttr_sub = (
+        f"avg {ttr.get('avg', '—')} · {ttr.get('measured', 0)} measured"
+        if ttr.get("measured")
+        else "No measured TTR in the last year"
+    )
+    ttfr_sub = (
+        f"avg {ttfr.get('avg', '—')} · {ttfr.get('measured', 0)} measured"
+        if ttfr.get("measured")
+        else "No measured TTFR in the last year"
+    )
+    _card(f"{sid}_k4", MARGIN, row2_y, bot_card_w, card_h, "TTR (1y median)", ttr.get("median", "—"), ttr_sub,
+          accent=NAVY)
+    _card(
+        f"{sid}_k5", MARGIN + bot_card_w + col_gap, row2_y, bot_card_w, card_h,
+        "TTFR (1y median)", ttfr.get("median", "—"), ttfr_sub, accent=NAVY,
+    )
+
+    chart_gap = 20
+    chart_w = (CONTENT_W - chart_gap) / 2
+    chart_h = 114
+    chart_title_y = row2_y + card_h + 14
+    chart_y = chart_title_y + 16
+    left_x = MARGIN
+    right_x = MARGIN + chart_w + chart_gap
+
+    def _chart_rows(items: dict[str, int], limit: int = 6) -> tuple[list[str], list[int]]:
+        pairs = list(items.items())
+        if len(pairs) > limit:
+            shown = pairs[: limit - 1]
+            other = sum(v for _, v in pairs[limit - 1:])
+            shown.append(("Other", other))
+        else:
+            shown = pairs
+        labels = []
+        values = []
+        for name, count in shown:
+            compact = name if len(name) <= 26 else f"{name[:23]}..."
+            labels.append(compact)
+            values.append(count)
+        return labels, values
+
+    type_labels, type_values = _chart_rows(by_type)
+    status_labels, status_values = _chart_rows(by_status)
+
+    type_hdr = "Unresolved tickets by type"
+    status_hdr = "Unresolved tickets by status"
+    _box(reqs, f"{sid}_type_h", sid, left_x, chart_title_y, chart_w, 14, type_hdr)
+    _style(reqs, f"{sid}_type_h", 0, len(type_hdr), bold=True, size=10, color=NAVY, font=FONT)
+    _box(reqs, f"{sid}_status_h", sid, right_x, chart_title_y, chart_w, 14, status_hdr)
+    _style(reqs, f"{sid}_status_h", 0, len(status_hdr), bold=True, size=10, color=NAVY, font=FONT)
+
+    from .charts import embed_chart
+
+    if type_labels:
+        ss_id, chart_id = charts.add_bar_chart(
+            title="Unresolved tickets by type",
+            labels=type_labels,
+            series={"Open tickets": type_values},
+            horizontal=True,
+            show_title=False,
+            axis_font_size=12,
+        )
+        embed_chart(reqs, f"{sid}_type_chart", sid, ss_id, chart_id, left_x, chart_y, chart_w, chart_h, linked=False)
+
+    if status_labels:
+        ss_id2, chart_id2 = charts.add_bar_chart(
+            title="Unresolved tickets by status",
+            labels=status_labels,
+            series={"Open tickets": status_values},
+            horizontal=True,
+            show_title=False,
+            axis_font_size=12,
+        )
+        embed_chart(reqs, f"{sid}_status_chart", sid, ss_id2, chart_id2, right_x, chart_y, chart_w, chart_h, linked=False)
 
     return idx + 1
 
@@ -2579,7 +2751,7 @@ def _sla_health_slide(reqs, sid, report, idx):
             pct = round(100 * count / max(sent_total, 1))
             bar_w = max(int(pct * (right_w - 120) / 100), 6)
             fill = color_map.get(name, GRAY)
-            _rect(reqs, f"{sid}_sb{si}", sid, right_x, right_y, bar_w, 16, fill)
+            _bar_rect(reqs, f"{sid}_sb{si}", sid, right_x, right_y, bar_w, 16, fill, outline=GRAY)
             label = f"{name}  {count} ({pct}%)"
             _box(reqs, f"{sid}_sl{si}", sid, right_x + bar_w + 8, right_y, right_w - bar_w - 8, 16, label)
             _style(reqs, f"{sid}_sl{si}", 0, len(label), size=11, color=NAVY, font=FONT)
@@ -3307,7 +3479,8 @@ def _eng_portfolio_title_slide(reqs: list, sid: str, report: dict, idx: int) -> 
     _box(reqs, f"{sid}_t", sid, MARGIN, 100, CONTENT_W, 50, title)
     _style(reqs, f"{sid}_t", 0, len(title), bold=True, size=36, color=WHITE, font=FONT)
 
-    sprint = report.get("sprint") or {}
+    eng = report.get("eng_portfolio") or {}
+    sprint = eng.get("sprint") or {}
     sprint_name = sprint.get("name", "")
     sprint_end = sprint.get("end", "")
     try:
@@ -3409,8 +3582,14 @@ def _eng_sprint_snapshot_slide(reqs: list, sid: str, report: dict, idx: int) -> 
         _box(reqs, f"{sid}_tbar{ri}", sid, bar_x, left_y + 4, bar_w_capped, 9, "")
         reqs.append({"updateShapeProperties": {
             "objectId": f"{sid}_tbar{ri}",
-            "shapeProperties": {"shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": bar_color}}}},
-            "fields": "shapeBackgroundFill",
+            "shapeProperties": {
+                "shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": bar_color}}},
+                "outline": {
+                    "outlineFill": {"solidFill": {"color": {"rgbColor": NAVY}}},
+                    "weight": {"magnitude": 0.75, "unit": "PT"},
+                },
+            },
+            "fields": "shapeBackgroundFill,outline.outlineFill,outline.weight",
         }})
 
         # Count label after bar
@@ -3419,47 +3598,49 @@ def _eng_sprint_snapshot_slide(reqs: list, sid: str, report: dict, idx: int) -> 
                color=_RED if bugs_n else GRAY, font=FONT)
         left_y += ROW_H
 
+    charts = report.get("_charts")
+
     # ── RIGHT top: Type mix ──
     right_y = body_top
     if by_type:
         _box(reqs, f"{sid}_typ_h", sid, right_x, right_y, right_w, 14, "Type Mix")
         _style(reqs, f"{sid}_typ_h", 0, 8, bold=True, size=10, color=NAVY, font=FONT)
         right_y += 16
-        total_if = sum(by_type.values()) or 1
-        max_t = max(by_type.values()) or 1
-        for ti, (tp, cnt) in enumerate(list(by_type.items())[:6]):
-            pct = int(cnt / total_if * 100)
-            bw = max(3, int(cnt / max_t * (right_w - 70)))
-            label = f"{tp:<14} {pct}%"
-            _box(reqs, f"{sid}_ty{ti}", sid, right_x, right_y, right_w - 4, 13, label)
-            color = _RED if tp == "Bug" else BLUE
-            _style(reqs, f"{sid}_ty{ti}", 0, len(tp), bold=(tp == "Bug"), size=8, color=color, font=FONT)
-            _style(reqs, f"{sid}_ty{ti}", len(tp), len(label), size=8, color=GRAY, font=FONT)
-            right_y += 13
-        right_y += 10
+        if charts:
+            from .charts import embed_chart
+            type_items = list(by_type.items())[:6]
+            ss_id, chart_id = charts.add_bar_chart(
+                title="Type Mix",
+                labels=[tp for tp, _ in type_items],
+                series={"Open tickets": [cnt for _, cnt in type_items]},
+                horizontal=False,
+            )
+            embed_chart(
+                reqs, f"{sid}_type_mix", sid, ss_id, chart_id,
+                right_x, right_y, right_w, 120, linked=False,
+            )
+            right_y += 126
 
-    # ── RIGHT mid: WIP by engineer (horizontal bars) ──
+    # ── RIGHT mid: WIP by engineer (vertical bars) ──
     by_assignee = eng.get("by_assignee", {})
     top_assignees = sorted(by_assignee.items(), key=lambda x: -x[1])[:7]
     if top_assignees:
         _box(reqs, f"{sid}_ass_h", sid, right_x, right_y, right_w, 14, "WIP by Engineer")
         _style(reqs, f"{sid}_ass_h", 0, 15, bold=True, size=10, color=NAVY, font=FONT)
         right_y += 16
-        max_val = top_assignees[0][1] or 1
-        for ai, (name, cnt) in enumerate(top_assignees):
-            first = name.split()[0] if name else name
-            bw = max(3, int(cnt / max_val * (right_w - 60)))
-            _box(reqs, f"{sid}_an{ai}", sid, right_x, right_y, 52, 13, first)
-            _style(reqs, f"{sid}_an{ai}", 0, len(first), size=8, color=NAVY, font=FONT)
-            _box(reqs, f"{sid}_ab{ai}", sid, right_x + 54, right_y + 3, bw, 8, "")
-            reqs.append({"updateShapeProperties": {
-                "objectId": f"{sid}_ab{ai}",
-                "shapeProperties": {"shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": BLUE}}}},
-                "fields": "shapeBackgroundFill",
-            }})
-            _box(reqs, f"{sid}_ac{ai}", sid, right_x + 56 + bw, right_y, 20, 13, str(cnt))
-            _style(reqs, f"{sid}_ac{ai}", 0, len(str(cnt)), size=8, color=GRAY, font=FONT)
-            right_y += 13
+        if charts:
+            from .charts import embed_chart
+            ss_id, chart_id = charts.add_bar_chart(
+                title="WIP by Engineer",
+                labels=[(name.split()[0] if name else "Unassigned") for name, _ in top_assignees],
+                series={"Open tickets": [cnt for _, cnt in top_assignees]},
+                horizontal=False,
+            )
+            embed_chart(
+                reqs, f"{sid}_wip_eng", sid, ss_id, chart_id,
+                right_x, right_y, right_w, 120, linked=False,
+            )
+            right_y += 126
 
     # ── INSIGHT BULLETS (bottom of slide) ──
     insights = (eng.get("insights") or {}).get("sprint_snapshot", [])
@@ -3599,106 +3780,6 @@ def _eng_bug_health_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
     return idx + 1
 
 
-def _create_throughput_chart(weeks: list[dict], drive_svc, sheets_svc) -> tuple[str, int]:
-    """Create a temp Google Sheet with throughput data and a COMBO chart (bars=Created, line=Closed).
-
-    Returns (spreadsheet_id, chart_id).  Caller is responsible for deleting the spreadsheet.
-    """
-    # ── 1. Create spreadsheet ──
-    ss = sheets_svc.spreadsheets().create(body={
-        "properties": {"title": "_bpo_velocity_chart_tmp"},
-        "sheets": [{"properties": {"title": "data"}}],
-    }).execute()
-    ss_id = ss["spreadsheetId"]
-    sheet_id = ss["sheets"][0]["properties"]["sheetId"]
-
-    # ── 2. Write header + data ──
-    header = [["Week", "Created", "Closed"]]
-    rows = [[w.get("label", ""), w.get("created", 0), w.get("resolved", 0)] for w in weeks]
-    values = header + rows
-    sheets_svc.spreadsheets().values().update(
-        spreadsheetId=ss_id,
-        range="data!A1",
-        valueInputOption="RAW",
-        body={"values": values},
-    ).execute()
-
-    num_rows = len(values)  # header + data rows
-
-    # ── 3. Add COMBO chart ──
-    NAVY_RGB   = {"red": 0.031, "green": 0.110, "blue": 0.200}
-    BLUE_RGB   = {"red": 0.0,   "green": 0.604, "blue": 1.0}
-    GREEN_RGB  = {"red": 0.133, "green": 0.694, "blue": 0.298}
-
-    def _col_range(col_idx):
-        return {
-            "sheetId": sheet_id,
-            "startRowIndex": 1, "endRowIndex": num_rows,
-            "startColumnIndex": col_idx, "endColumnIndex": col_idx + 1,
-        }
-
-    chart_req = {
-        "addChart": {
-            "chart": {
-                "spec": {
-                    "title": "",
-                    "basicChart": {
-                        "chartType": "COMBO",
-                        "legendPosition": "BOTTOM_LEGEND",
-                        "axis": [
-                            {"position": "BOTTOM_AXIS", "title": ""},
-                            {"position": "LEFT_AXIS",   "title": "Tickets"},
-                        ],
-                        "domains": [{
-                            "domain": {"sourceRange": {"sources": [{
-                                "sheetId": sheet_id,
-                                "startRowIndex": 1, "endRowIndex": num_rows,
-                                "startColumnIndex": 0, "endColumnIndex": 1,
-                            }]}},
-                        }],
-                        "series": [
-                            {
-                                "series": {"sourceRange": {"sources": [_col_range(1)]}},
-                                "targetAxis": "LEFT_AXIS",
-                                "type": "COLUMN",
-                                "color": {"red": BLUE_RGB["red"], "green": BLUE_RGB["green"],
-                                          "blue": BLUE_RGB["blue"]},
-                            },
-                            {
-                                "series": {"sourceRange": {"sources": [_col_range(2)]}},
-                                "targetAxis": "LEFT_AXIS",
-                                "type": "LINE",
-                                "lineStyle": {"width": 3},
-                                "color": {"red": GREEN_RGB["red"], "green": GREEN_RGB["green"],
-                                          "blue": GREEN_RGB["blue"]},
-                            },
-                        ],
-                        "headerCount": 1,
-                    },
-                    "hiddenDimensionStrategy": "SKIP_HIDDEN_ROWS_AND_COLUMNS",
-                    "fontName": "Roboto",
-                },
-                "position": {
-                    "newSheet": False,
-                    "overlayPosition": {
-                        "anchorCell": {"sheetId": sheet_id, "rowIndex": 0, "columnIndex": 4},
-                        "widthPixels": 520,
-                        "heightPixels": 260,
-                    },
-                },
-            }
-        }
-    }
-
-    resp = sheets_svc.spreadsheets().batchUpdate(
-        spreadsheetId=ss_id,
-        body={"requests": [chart_req]},
-    ).execute()
-
-    chart_id = resp["replies"][0]["addChart"]["chart"]["chartId"]
-    return ss_id, chart_id
-
-
 def _eng_velocity_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
     """Velocity & throughput: combo chart (bars=Created, line=Closed) + pipeline status."""
     eng = report.get("eng_portfolio") or {}
@@ -3739,64 +3820,24 @@ def _eng_velocity_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
     # ── LEFT: Weekly throughput combo chart ──
     left_y = body_top
     recent_weeks = throughput[-12:] if len(throughput) >= 12 else throughput
-
-    sheets_svc = report.get("_sheets_svc")
-    drive_svc = report.get("_drive_svc")
-    chart_embedded = False
-
-    if recent_weeks and sheets_svc and drive_svc:
+    charts = report.get("_charts")
+    if recent_weeks and charts:
         try:
-            ss_id, chart_id = _create_throughput_chart(recent_weeks, drive_svc, sheets_svc)
-            # Embed the chart into the slide at the left column area
-            # EMU: 1pt = 12700 EMU
-            PT = 12700
-            chart_x_emu = left_x * PT
-            chart_y_emu = left_y * PT
-            chart_w_emu = left_w * PT
-            chart_h_emu = 170 * PT  # ~170pt tall
+            from .charts import embed_chart
 
-            reqs.append({
-                "createSheetsChart": {
-                    "objectId": f"{sid}_chart",
-                    "spreadsheetId": ss_id,
-                    "chartId": chart_id,
-                    "linkingMode": "NOT_LINKED_IMAGE",
-                    "elementProperties": {
-                        "pageObjectId": sid,
-                        "size": {
-                            "width": {"magnitude": chart_w_emu, "unit": "EMU"},
-                            "height": {"magnitude": chart_h_emu, "unit": "EMU"},
-                        },
-                        "transform": {
-                            "scaleX": 1, "scaleY": 1, "shearX": 0, "shearY": 0,
-                            "translateX": chart_x_emu,
-                            "translateY": chart_y_emu,
-                            "unit": "EMU",
-                        },
-                    },
-                }
-            })
-            left_y += 176  # chart height + small gap
-
-            # Schedule spreadsheet cleanup — store ss_id for post-build deletion
-            _tmp_sheets = report.setdefault("_tmp_sheets_to_delete", [])
-            _tmp_sheets.append(ss_id)
-            chart_embedded = True
+            ss_id, chart_id = charts.add_combo_chart(
+                title="Weekly Throughput",
+                labels=[w.get("label", "") for w in recent_weeks],
+                bar_series={"Created": [w.get("created", 0) for w in recent_weeks]},
+                line_series={"Closed": [w.get("resolved", 0) for w in recent_weeks]},
+            )
+            embed_chart(
+                reqs, f"{sid}_chart", sid, ss_id, chart_id,
+                left_x, left_y, left_w, 170, linked=False,
+            )
+            left_y += 176
         except Exception as e:
-            logger.warning("Throughput chart creation failed, falling back to table: %s", e)
-
-    if not chart_embedded:
-        # Fallback: text table
-        _box(reqs, f"{sid}_sph", sid, left_x, left_y, left_w, 16, "Weekly Throughput  (last 12 wks)")
-        _style(reqs, f"{sid}_sph", 0, len("Weekly Throughput  (last 12 wks)"), size=11, color=NAVY, font=FONT)
-        _style(reqs, f"{sid}_sph", 0, len("Weekly Throughput"), bold=True, size=11, color=NAVY, font=FONT)
-        left_y += 20
-
-        if recent_weeks:
-            lbl = f"{recent_weeks[0]['label']}  →  {recent_weeks[-1]['label']}"
-            _box(reqs, f"{sid}_splbl", sid, left_x, left_y, left_w, 14, lbl)
-            _style(reqs, f"{sid}_splbl", 0, len(lbl), size=8, color=GRAY, font=FONT)
-            left_y += 18
+            logger.warning("Throughput chart embed failed: %s", e)
 
     # Weekly data table below chart (last 8 weeks)
     if recent_weeks:
@@ -3859,8 +3900,14 @@ def _eng_velocity_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
         _box(reqs, f"{sid}_sb_{safe_status}", sid, right_x + 72, right_y + 3, bw, 8, "")
         reqs.append({"updateShapeProperties": {
             "objectId": f"{sid}_sb_{safe_status}",
-            "shapeProperties": {"shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": bar_color}}}},
-            "fields": "shapeBackgroundFill",
+            "shapeProperties": {
+                "shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": bar_color}}},
+                "outline": {
+                    "outlineFill": {"solidFill": {"color": {"rgbColor": NAVY}}},
+                    "weight": {"magnitude": 0.75, "unit": "PT"},
+                },
+            },
+            "fields": "shapeBackgroundFill,outline.outlineFill,outline.weight",
         }})
         pct_lbl = f"{pct}%"
         pct_x = right_x + right_w - PCT_COL_W
@@ -4127,8 +4174,14 @@ def _eng_support_pressure_slide(reqs: list, sid: str, report: dict, idx: int) ->
         _box(reqs, f"{sid}_pb{pi}", sid, left_x + 92, left_y + 6, bar_w, 14, "")
         reqs.append({"updateShapeProperties": {
             "objectId": f"{sid}_pb{pi}",
-            "shapeProperties": {"shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": prio_colors.get(prio, NAVY)}}}},
-            "fields": "shapeBackgroundFill",
+            "shapeProperties": {
+                "shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": prio_colors.get(prio, NAVY)}}},
+                "outline": {
+                    "outlineFill": {"solidFill": {"color": {"rgbColor": NAVY}}},
+                    "weight": {"magnitude": 0.75, "unit": "PT"},
+                },
+            },
+            "fields": "shapeBackgroundFill,outline.outlineFill,outline.weight",
         }})
         cnt_lbl = str(cnt)
         _box(reqs, f"{sid}_pc{pi}", sid, left_x + 96 + bar_w, left_y + 4, 40, 18, cnt_lbl)
@@ -4164,6 +4217,231 @@ def _eng_support_pressure_slide(reqs: list, sid: str, report: dict, idx: int) ->
     return idx + 1
 
 
+_PROJECT_SLIDE_SUBTITLE = {
+    "HELP": "Support",
+    "CUSTOMER": "Implementation escalations",
+    "LEAN": "Engineering escalations",
+}
+
+
+def _eng_jira_project_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """Per-project Jira snapshot with status and assignee bar charts."""
+    eng = report.get("eng_portfolio") or {}
+    entry = report.get("_current_slide") or {}
+    pk = (entry.get("jira_project") or "HELP").strip().upper()
+    snapshots = eng.get("project_snapshots") or {}
+    snap = snapshots.get(pk) or {}
+
+    if snap.get("error") and "open_count" not in snap:
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            f"Jira project data ({pk}): {snap.get('error', 'unavailable')}",
+        )
+
+    title = entry.get("title") or f"{pk} — {_PROJECT_SLIDE_SUBTITLE.get(pk, pk)}"
+    open_n = int(snap.get("open_count") or 0)
+    by_status = snap.get("by_status_open") or {}
+    median_open = snap.get("median_open_age_days")
+    avg_cycle = snap.get("avg_resolved_cycle_days")
+    res_6m = int(snap.get("resolved_in_6mo_count") or 0)
+    assignee_rows = snap.get("assignee_resolved_table") or []
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+
+    open_lbl = (
+        f"Median age of open tickets: {median_open} d"
+        if median_open is not None else
+        "Median age of open tickets: —"
+    )
+    cycle_lbl = (
+        f"Avg open→resolved (6 mo): {avg_cycle} d" if avg_cycle is not None else "Avg open→resolved (6 mo): —"
+    )
+    meta = (
+        f"Total open: {open_n}   ·   {open_lbl}   ·   {cycle_lbl}   ·   Resolved (6 mo): {res_6m}"
+    )
+    _box(reqs, f"{sid}_meta", sid, MARGIN, BODY_Y, CONTENT_W, 30, meta)
+    _style(reqs, f"{sid}_meta", 0, len(meta), size=10, color=GRAY, font=FONT)
+
+    body_top = BODY_Y + 32
+    col_gap = 24
+    left_w = (CONTENT_W - col_gap) // 2
+    right_w = CONTENT_W - left_w - col_gap
+    left_x = MARGIN
+    right_x = MARGIN + left_w + col_gap
+    charts = report.get("_charts")
+
+    # ── LEFT: open tickets by status (vertical bar chart) ──
+    ly = body_top
+    hist_h = "Open tickets by status"
+    _box(reqs, f"{sid}_hh", sid, left_x, ly, left_w, 14, hist_h)
+    _style(reqs, f"{sid}_hh", 0, len(hist_h), bold=True, size=10, color=NAVY, font=FONT)
+    ly += 22
+
+    stat_items = list(by_status.items())[:8]
+    if stat_items and charts:
+        try:
+            from .charts import embed_chart
+            ss_id, chart_id = charts.add_bar_chart(
+                title=f"{pk} Open Tickets by Status",
+                labels=[s for s, _ in stat_items],
+                series={"Open tickets": [c for _, c in stat_items]},
+                horizontal=False,
+            )
+            embed_chart(
+                reqs, f"{sid}_status_chart", sid, ss_id, chart_id,
+                left_x, ly, left_w, 188, linked=False,
+            )
+        except Exception as e:
+            logger.warning("Jira project status chart failed (%s): %s", pk, e)
+
+    if not stat_items:
+        _box(reqs, f"{sid}_no_st", sid, left_x, ly + 68, left_w, 14, "No open tickets")
+        _style(reqs, f"{sid}_no_st", 0, 14, size=9, color=GRAY, font=FONT)
+
+    # ── RIGHT: top assignees by resolved volume (horizontal bar chart) ──
+    ry = body_top
+    bar_t = "Resolved tickets by assignee (6 mo)"
+    _box(reqs, f"{sid}_th", sid, right_x, ry, right_w, 14, bar_t)
+    _style(reqs, f"{sid}_th", 0, len(bar_t), bold=True, size=10, color=NAVY, font=FONT)
+    ry += 22
+
+    if assignee_rows and charts:
+        try:
+            from .charts import embed_chart
+            assignee_items = assignee_rows[:8]
+            ss_id, chart_id = charts.add_bar_chart(
+                title=f"{pk} Resolved Tickets by Assignee",
+                labels=[(row.get("assignee") or "Unassigned")[:24] for row in assignee_items],
+                series={"Resolved (6 mo)": [int(row.get("6m", 0)) for row in assignee_items]},
+                horizontal=True,
+            )
+            embed_chart(
+                reqs, f"{sid}_assignee_chart", sid, ss_id, chart_id,
+                right_x, ry, right_w, 188, linked=False,
+            )
+        except Exception as e:
+            logger.warning("Jira project assignee chart failed (%s): %s", pk, e)
+
+    if not assignee_rows:
+        _box(reqs, f"{sid}_no_as", sid, right_x, ry + 56, right_w, 14, "No resolved tickets in last 6 months")
+        _style(reqs, f"{sid}_no_as", 0, 36, size=8, color=GRAY, font=FONT)
+
+    note = "Assignee chart shows resolved tickets in the last 6 months."
+    _box(reqs, f"{sid}_fn", sid, MARGIN, BODY_BOTTOM - 12, CONTENT_W, 10, note)
+    _style(reqs, f"{sid}_fn", 0, len(note), size=6, color=GRAY, font=FONT)
+
+    return idx + 1
+
+
+def _eng_help_volume_trends_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """HELP monthly created vs resolved trends for all, escalated, and non-escalated tickets."""
+    eng = report.get("eng_portfolio") or {}
+    trends = (eng.get("help_ticket_trends") or {})
+    all_months = trends.get("all") or []
+    escalated_months = trends.get("escalated") or []
+    non_escalated_months = trends.get("non_escalated") or []
+    charts = report.get("_charts")
+
+    if not all_months or not charts:
+        return _missing_data_slide(reqs, sid, report, idx, "HELP ticket volume trends")
+
+    recent = all_months[-3:]
+    recent_created = sum(m.get("created", 0) for m in recent)
+    recent_resolved = sum(m.get("resolved", 0) for m in recent)
+    net = recent_created - recent_resolved
+    if net > 10:
+        title = f"HELP Volume Rising — {net} More Tickets Created Than Resolved in Last 3 Months"
+    elif net < -10:
+        title = f"HELP Backlog Pressure Easing — {abs(net)} More Tickets Resolved Than Created in Last 3 Months"
+    else:
+        title = "HELP Ticket Volume Trends — Created vs Resolved"
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+
+    ctx = "Last 12 months   ·   Monthly created vs monthly resolved   ·   Split into all, escalated, and non-escalated"
+    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 16, ctx)
+    _style(reqs, f"{sid}_ctx", 0, len(ctx), size=9, color=GRAY, font=FONT)
+
+    legend_y = BODY_Y + 18
+    _rect(reqs, f"{sid}_lg_created", sid, MARGIN, legend_y + 4, 18, 3, NAVY)
+    _box(reqs, f"{sid}_lg_created_t", sid, MARGIN + 24, legend_y, 48, 12, "Created")
+    _style(reqs, f"{sid}_lg_created_t", 0, 7, bold=True, size=9, color=NAVY, font=FONT)
+    created_resolved = {"red": 0.90, "green": 0.40, "blue": 0.00}
+    _rect(reqs, f"{sid}_lg_resolved", sid, MARGIN + 76, legend_y + 4, 18, 3, created_resolved)
+    _box(reqs, f"{sid}_lg_resolved_t", sid, MARGIN + 100, legend_y, 54, 12, "Resolved")
+    _style(reqs, f"{sid}_lg_resolved_t", 0, 8, bold=True, size=9, color=NAVY, font=FONT)
+
+    from .charts import embed_chart
+
+    top_y = BODY_Y + 34
+    top_gap = 16
+    top_chart_w = (CONTENT_W - top_gap) // 2
+    top_chart_h = 82
+    left_x = MARGIN
+    right_x = MARGIN + top_chart_w + top_gap
+
+    _box(reqs, f"{sid}_all_h", sid, left_x, top_y, top_chart_w, 14, "All HELP tickets")
+    _style(reqs, f"{sid}_all_h", 0, 16, bold=True, size=10, color=NAVY, font=FONT)
+    top_chart_y = top_y + 18
+    ss_id, chart_id = charts.add_line_chart(
+        title="",
+        labels=[m.get("label", "") for m in all_months],
+        series={
+            "Created": [m.get("created", 0) for m in all_months],
+            "Resolved": [m.get("resolved", 0) for m in all_months],
+        },
+        series_colors=[NAVY, created_resolved],
+        show_legend=False,
+        axis_font_size=9,
+        line_width=3,
+    )
+    embed_chart(reqs, f"{sid}_all_chart", sid, ss_id, chart_id, left_x, top_chart_y, top_chart_w, top_chart_h, linked=False)
+
+    _box(reqs, f"{sid}_esc_h", sid, right_x, top_y, top_chart_w, 14, "HELP tickets with jira_escalated label")
+    _style(reqs, f"{sid}_esc_h", 0, 38, bold=True, size=10, color=NAVY, font=FONT)
+    esc_chart_y = top_y + 18
+    ss_id2, chart_id2 = charts.add_line_chart(
+        title="",
+        labels=[m.get("label", "") for m in escalated_months],
+        series={
+            "Created": [m.get("created", 0) for m in escalated_months],
+            "Resolved": [m.get("resolved", 0) for m in escalated_months],
+        },
+        series_colors=[NAVY, created_resolved],
+        show_legend=False,
+        axis_font_size=9,
+        line_width=3,
+    )
+    embed_chart(reqs, f"{sid}_esc_chart", sid, ss_id2, chart_id2, right_x, esc_chart_y, top_chart_w, top_chart_h, linked=False)
+
+    bottom_chart_w = 436
+    bottom_chart_h = 82
+    bottom_x = MARGIN + (CONTENT_W - bottom_chart_w) / 2
+    bottom_y = top_chart_y + top_chart_h + 18
+    _box(reqs, f"{sid}_non_h", sid, bottom_x, bottom_y, bottom_chart_w, 14, "HELP tickets excluding jira_escalated")
+    _style(reqs, f"{sid}_non_h", 0, 37, bold=True, size=10, color=NAVY, font=FONT)
+    non_chart_y = bottom_y + 18
+    ss_id3, chart_id3 = charts.add_line_chart(
+        title="",
+        labels=[m.get("label", "") for m in non_escalated_months],
+        series={
+            "Created": [m.get("created", 0) for m in non_escalated_months],
+            "Resolved": [m.get("resolved", 0) for m in non_escalated_months],
+        },
+        series_colors=[NAVY, created_resolved],
+        show_legend=False,
+        axis_font_size=9,
+        line_width=3,
+    )
+    embed_chart(reqs, f"{sid}_non_chart", sid, ss_id3, chart_id3, bottom_x, non_chart_y, bottom_chart_w, bottom_chart_h, linked=False)
+
+    return idx + 1
+
+
 # ── Composable API (agent builds deck slide by slide) ──
 
 # Maps slide type names to builder functions and the report keys they require
@@ -4180,6 +4458,7 @@ _SLIDE_BUILDERS = {
     "kei": _kei_slide,
     "guides": _guides_slide,
     "jira": _jira_slide,
+    "customer_ticket_metrics": _customer_ticket_metrics_slide,
     "custom": _custom_slide,
     "signals": _signals_slide,
     "platform_health": _platform_health_slide,
@@ -4207,6 +4486,8 @@ _SLIDE_BUILDERS = {
     "eng_enhancements": _eng_enhancements_open_slide,
     "eng_enhancements_shipped": _eng_enhancements_shipped_slide,
     "eng_support_pressure": _eng_support_pressure_slide,
+    "eng_jira_project": _eng_jira_project_slide,
+    "eng_help_volume_trends": _eng_help_volume_trends_slide,
 }
 
 # Which report keys each slide type needs (so the agent knows what data to supply)
@@ -4223,6 +4504,7 @@ SLIDE_DATA_REQUIREMENTS = {
     "kei": ["kei"],
     "guides": ["guides"],
     "jira": ["jira"],
+    "customer_ticket_metrics": ["jira"],
     "custom": ["title", "sections"],
     "signals": ["signals"],
     "platform_health": ["cs_platform_health"],
@@ -4250,6 +4532,8 @@ SLIDE_DATA_REQUIREMENTS = {
     "eng_enhancements": ["eng_portfolio"],
     "eng_enhancements_shipped": ["eng_portfolio"],
     "eng_support_pressure": ["eng_portfolio"],
+    "eng_jira_project": ["eng_portfolio"],
+    "eng_help_volume_trends": ["eng_portfolio"],
 }
 
 
@@ -4356,6 +4640,17 @@ def add_slide(deck_id: str, slide_type: str, data: dict[str, Any]) -> dict[str, 
     except HttpError as e:
         return {"error": str(e), "slide_type": slide_type}
 
+    note_entry = {
+        "id": slide_type,
+        "slide_type": slide_type,
+        "title": data.get("title", slide_type.replace("_", " ").title()),
+    }
+    note_payload = dict(data)
+    note_payload["_current_slide"] = note_entry
+    notes = _build_slide_jql_speaker_notes(note_payload, note_entry)
+    if not set_speaker_notes(slides_service, deck_id, sid, notes):
+        logger.warning("Could not write JQL speaker notes for slide %s in deck %s", sid[:12], deck_id[:12])
+
     return {"slide_type": slide_type, "status": "added", "position": idx + 1}
 
 
@@ -4389,13 +4684,9 @@ def create_health_deck(
     except (ValueError, FileNotFoundError) as e:
         return {"error": str(e)}
 
-    # Sheets service is optional (needs extra DWD scope) — fall back gracefully
-    sheets_service = _get_sheets_service()
-
     # Make services accessible to slide builders via the report dict
     report["_slides_svc"] = slides_service
     report["_drive_svc"] = drive_service
-    report["_sheets_svc"] = sheets_service
 
     from .deck_loader import resolve_deck
 
@@ -4421,16 +4712,14 @@ def create_health_deck(
             return {"error": f"Rate limit: {err_str}. Wait and retry."}
         return {"error": err_str}
 
-    # Provide a DeckCharts instance for builders that want to embed Sheets charts
-    try:
-        from .charts import DeckCharts
-        report["_charts"] = DeckCharts(title)
-    except Exception as e:
-        logger.debug("Charts unavailable (will skip chart embeds): %s", e)
+    # Provide a DeckCharts instance for Slides embeds backed by Google Sheets.
+    from .charts import DeckCharts
+    report["_charts"] = DeckCharts(title)
 
     slide_plan = resolved.get("slides", [])
     reqs: list[dict] = []
     idx = 1
+    note_targets: list[tuple[str, dict[str, Any]]] = []
 
     report["_slide_plan"] = slide_plan
 
@@ -4440,6 +4729,7 @@ def create_health_deck(
         if builder:
             report["_current_slide"] = entry
             sid = f"s_{entry['id']}_{idx}"
+            note_targets.append((sid, dict(entry)))
             idx = builder(reqs, sid, report, idx)
 
     slides_created = idx - 1
@@ -4459,13 +4749,10 @@ def create_health_deck(
         logger.exception("Failed to build slides")
         return {"error": str(e), "presentation_id": pres_id}
 
-    # Clean up any temp spreadsheets created by slide builders (e.g. charts)
-    for tmp_ss_id in report.pop("_tmp_sheets_to_delete", []):
-        try:
-            drive_service.files().delete(fileId=tmp_ss_id).execute()
-            logger.debug("Deleted temp spreadsheet %s", tmp_ss_id)
-        except Exception as e:
-            logger.warning("Could not delete temp spreadsheet %s: %s", tmp_ss_id, e)
+    for sid, entry in note_targets:
+        notes = _build_slide_jql_speaker_notes(report, entry)
+        if not set_speaker_notes(slides_service, pres_id, sid, notes):
+            logger.warning("Could not write JQL speaker notes for slide %s in presentation %s", sid[:12], pres_id[:12])
 
     result = {
         "presentation_id": pres_id,

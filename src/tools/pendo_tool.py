@@ -14,6 +14,7 @@ from requests.exceptions import ConnectionError as ReqConnectionError, Timeout
 
 from ..config import PENDO_BASE_URL, PENDO_INTEGRATION_KEY, logger
 from ..pendo_client import PendoClient
+from .jira_tool import JiraProjectSnapshotTool
 
 
 def _client(integration_key: str | None = None, base_url: str | None = None) -> PendoClient:
@@ -463,6 +464,7 @@ def get_pendo_tools(
         CustomerKeiTool(**common),
         CustomerGuidesTool(**common),
         ListCustomersTool(**common),
+        JiraProjectSnapshotTool(),
         # Decks & slides
         ListDeckTypesTool(),
         GetDeckDefinitionTool(),

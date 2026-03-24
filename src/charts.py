@@ -32,10 +32,34 @@ BRAND_SERIES_COLORS = [
     GRAY,      # #858585
 ]
 
+LINE_SERIES_COLORS = [
+    NAVY,                                            # dark navy
+    {"red": 0.90, "green": 0.40, "blue": 0.00},     # strong orange
+    {"red": 0.78, "green": 0.18, "blue": 0.18},     # strong red
+    TEAL,
+]
+
 
 def _rgb_to_sheets(c: dict) -> dict:
     """Convert our {red, green, blue} floats to Sheets colorStyle format."""
     return {"rgbColor": {"red": c["red"], "green": c["green"], "blue": c["blue"]}}
+
+
+def _embedded_chart_border(c: dict = NAVY) -> dict:
+    """Build a visible border for embedded Sheets charts."""
+    return {
+        "colorStyle": _rgb_to_sheets(c),
+    }
+
+
+def _chart_text_format(font_size: int, color: dict = NAVY, bold: bool = False) -> dict:
+    """Build Sheets TextFormat for chart labels/titles."""
+    return {
+        "fontFamily": "Roboto",
+        "fontSize": font_size,
+        "bold": bold,
+        "foregroundColorStyle": _rgb_to_sheets(color),
+    }
 
 
 class DeckCharts:
@@ -133,6 +157,7 @@ class DeckCharts:
             spreadsheetId=ss_id,
             body={"requests": [{"addChart": {"chart": {
                 "spec": spec,
+                "border": _embedded_chart_border(),
                 "position": {"overlayPosition": {
                     "anchorCell": {"sheetId": sheet_id, "rowIndex": num_rows + 2, "columnIndex": 0},
                     "widthPixels": 800,
@@ -157,9 +182,11 @@ class DeckCharts:
         series: dict[str, list[float | int]],
         horizontal: bool = False,
         stacked: bool = False,
+        show_title: bool = True,
+        axis_font_size: int = 10,
     ) -> tuple[str, int]:
         """Create a bar/column chart. Returns (spreadsheet_id, chart_id)."""
-        sheet_id = self._add_sheet_tab(title)
+        sheet_id = self._add_sheet_tab(title or "Chart")
         series_names = list(series.keys())
         headers = ["Label"] + series_names
         rows = [[labels[i]] + [s[i] for s in series.values()] for i in range(len(labels))]
@@ -175,20 +202,21 @@ class DeckCharts:
                     "startRowIndex": 0, "endRowIndex": num_rows,
                     "startColumnIndex": ci + 1, "endColumnIndex": ci + 2,
                 }]}},
-                "targetAxis": "LEFT_AXIS",
+                "targetAxis": "BOTTOM_AXIS" if horizontal else "LEFT_AXIS",
             }
             if ci < len(BRAND_SERIES_COLORS):
                 s["colorStyle"] = _rgb_to_sheets(BRAND_SERIES_COLORS[ci])
             chart_series.append(s)
 
         spec: dict[str, Any] = {
-            "title": title,
+            "title": title if show_title else "",
+            "titleTextFormat": _chart_text_format(12, NAVY, bold=True),
             "basicChart": {
                 "chartType": chart_type,
                 "legendPosition": "BOTTOM_LEGEND" if len(series_names) > 1 else "NO_LEGEND",
                 "axis": [
-                    {"position": "BOTTOM_AXIS"},
-                    {"position": "LEFT_AXIS"},
+                    {"position": "BOTTOM_AXIS", "format": _chart_text_format(axis_font_size, GRAY)},
+                    {"position": "LEFT_AXIS", "format": _chart_text_format(axis_font_size, GRAY)},
                 ],
                 "domains": [{"domain": {"sourceRange": {"sources": [{
                     "sheetId": sheet_id,
@@ -203,7 +231,7 @@ class DeckCharts:
             spec["basicChart"]["stackedType"] = "STACKED"
 
         chart_id = self._create_chart(sheet_id, spec, num_rows)
-        logger.info("Created %s chart '%s' (sheet=%d, chart=%d)", chart_type, title, sheet_id, chart_id)
+        logger.debug("Created %s chart '%s' (sheet=%d, chart=%d)", chart_type, title, sheet_id, chart_id)
         return self._ss_id, chart_id
 
     def add_line_chart(
@@ -211,6 +239,10 @@ class DeckCharts:
         title: str,
         labels: list[str],
         series: dict[str, list[float | int]],
+        series_colors: list[dict[str, float]] | None = None,
+        show_legend: bool = True,
+        axis_font_size: int = 10,
+        line_width: int = 3,
     ) -> tuple[str, int]:
         """Create a line chart. Returns (spreadsheet_id, chart_id)."""
         sheet_id = self._add_sheet_tab(title)
@@ -229,19 +261,22 @@ class DeckCharts:
                     "startColumnIndex": ci + 1, "endColumnIndex": ci + 2,
                 }]}},
                 "targetAxis": "LEFT_AXIS",
+                "lineStyle": {"type": "SOLID", "width": line_width},
             }
-            if ci < len(BRAND_SERIES_COLORS):
-                s["colorStyle"] = _rgb_to_sheets(BRAND_SERIES_COLORS[ci])
+            colors = series_colors or LINE_SERIES_COLORS
+            if ci < len(colors):
+                s["colorStyle"] = _rgb_to_sheets(colors[ci])
             chart_series.append(s)
 
         spec = {
             "title": title,
+            "titleTextFormat": _chart_text_format(12, NAVY, bold=True),
             "basicChart": {
                 "chartType": "LINE",
-                "legendPosition": "BOTTOM_LEGEND" if len(series_names) > 1 else "NO_LEGEND",
+                "legendPosition": ("BOTTOM_LEGEND" if len(series_names) > 1 else "NO_LEGEND") if show_legend else "NO_LEGEND",
                 "axis": [
-                    {"position": "BOTTOM_AXIS"},
-                    {"position": "LEFT_AXIS"},
+                    {"position": "BOTTOM_AXIS", "format": _chart_text_format(axis_font_size, GRAY)},
+                    {"position": "LEFT_AXIS", "format": _chart_text_format(axis_font_size, GRAY)},
                 ],
                 "domains": [{"domain": {"sourceRange": {"sources": [{
                     "sheetId": sheet_id,
@@ -254,7 +289,7 @@ class DeckCharts:
         }
 
         chart_id = self._create_chart(sheet_id, spec, num_rows)
-        logger.info("Created LINE chart '%s' (sheet=%d, chart=%d)", title, sheet_id, chart_id)
+        logger.debug("Created LINE chart '%s' (sheet=%d, chart=%d)", title, sheet_id, chart_id)
         return self._ss_id, chart_id
 
     def add_pie_chart(
@@ -290,7 +325,7 @@ class DeckCharts:
         spec = {"title": title, "pieChart": pie_spec}
 
         chart_id = self._create_chart(sheet_id, spec, num_rows)
-        logger.info("Created PIE chart '%s' (sheet=%d, chart=%d)", title, sheet_id, chart_id)
+        logger.debug("Created PIE chart '%s' (sheet=%d, chart=%d)", title, sheet_id, chart_id)
         return self._ss_id, chart_id
 
     def add_combo_chart(
@@ -369,7 +404,7 @@ class DeckCharts:
         }
 
         chart_id = self._create_chart(sheet_id, spec, num_rows)
-        logger.info("Created COMBO chart '%s' (sheet=%d, chart=%d)", title, sheet_id, chart_id)
+        logger.debug("Created COMBO chart '%s' (sheet=%d, chart=%d)", title, sheet_id, chart_id)
         return self._ss_id, chart_id
 
 

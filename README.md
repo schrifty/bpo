@@ -32,6 +32,8 @@ For the Support Summary slide (HELP tickets, SLAs, engineering pipeline):
 
 Add to `.env`: `JIRA_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`
 
+The engineering portfolio deck (`decks eng portfolio`) loads **HELP**, **CUSTOMER**, and **LEAN** project snapshots (open totals, status mix, ages, assignee resolve table). Agents can call the **`jira_project_snapshot`** tool with a project key for the same JSON payload.
+
 ## Generating Decks
 
 The `decks` command takes a natural-language prompt — no flags to memorize:
@@ -133,7 +135,8 @@ bpo/
 │   ├── qa.py                 # Data quality registry (cross-source validation)
 │   ├── agent.py              # LangChain agent factory
 │   └── tools/
-│       └── pendo_tool.py     # LangChain tools for agent mode
+│       ├── pendo_tool.py     # LangChain tools (Pendo, decks, CS report, …)
+│       └── jira_tool.py      # `jira_project_snapshot` (HELP / CUSTOMER / LEAN metrics)
 ├── decks.py              # CLI for batch deck generation
 └── main.py                   # CLI for interactive agent mode
 ```

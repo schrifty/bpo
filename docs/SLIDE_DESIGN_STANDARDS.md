@@ -53,12 +53,23 @@ Each slide should follow a predictable structure.
 
 **Title**  
 A full-sentence takeaway.
+Titles should remain on a **single line**. If a draft title is too long, shorten the wording
+or reduce title font size slightly rather than allowing the title to wrap.
 
 **Context line (optional)**  
 A short subtitle explaining scope.
 
+**Metric / context bar (optional)**  
+A single-line summary directly below the title for scope, KPI totals, or timeframe.
+When used, it should be clearly readable at presentation size and generally use
+approximately **9–11 pt** text, not microtext.
+
 **Content area**  
 Charts, diagrams, metrics, or structured bullets.
+The content area must fit within the safe body bounds with explicit padding between sections.
+Do not allow KPI cards, section headers, embedded charts, or footer content to overlap.
+When a slide mixes KPI cards with charts, reserve at least **12–18 pt** of vertical space
+between the bottom of one block and the top of the next.
 
 **Footer**  
 Source, timeframe, or dataset description when relevant.
@@ -221,6 +232,27 @@ Avoid:
 
 ---
 
+## Embedded Chart Standards
+
+Quantitative visuals should default to **Google Sheets charts embedded in Slides** rather than hand-drawn shapes.
+
+Use Slides-native shapes only for:
+
+- decorative accents  
+- diagrams or workflows  
+- simple non-quantitative visual structure
+
+Use embedded Sheets charts for:
+
+- metric comparisons  
+- time-series trends  
+- ranked category summaries  
+- operational dashboards
+
+This improves consistency, reproducibility, and maintainability across decks.
+
+---
+
 ## Time-Series Charts
 
 Used for operational trends.
@@ -236,6 +268,9 @@ Standards:
 - time on the x-axis  
 - metric value on the y-axis  
 - consistent time intervals  
+- when multiple lines appear on the same chart, use clearly distinctive series colors with strong contrast  
+- axis labels and legends must be readable at presentation size; avoid undersized chart text  
+- if an embedded chart legend becomes too small, suppress it and render a larger slide-level legend instead  
 - major events annotated
 
 Example annotation:
@@ -256,8 +291,12 @@ Examples:
 
 Rules:
 
+- use **vertical column charts** by default for compact category comparisons and dashboard summaries  
+- use **horizontal bar charts** only when labels are long or ranking readability is the priority  
 - bars sorted descending  
 - maximum of roughly 10–12 bars  
+- when horizontal bar charts are shown side by side on a slide, keep each chart to roughly **5–7 bars** rather than shrinking label text  
+- all bar charts must have a visible **border / outline**  
 - highlight top or bottom performers
 
 ---
@@ -328,6 +367,9 @@ Charts must always include:
 - axis labels  
 - units  
 - timeframe
+- label text sized for presentation readability; do not shrink bar-chart category labels to fit more rows  
+
+For embedded charts, prefer roughly **10–12 pt** equivalent axis / category label sizing at presentation scale.
 
 Example:
 
@@ -463,9 +505,12 @@ When generating slides automatically:
 
 1. Identify the key insight from the dataset.  
 2. Generate a title that communicates the insight.  
-3. Select the appropriate chart type based on the data structure.  
-4. Apply LeanDNA color and labeling standards.  
-5. Add two or three explanatory bullets interpreting the data.
+3. Select the appropriate chart type based on the data structure, defaulting to embedded Sheets charts for quantitative visuals.  
+4. Use vertical column charts by default; switch to horizontal bars only when labels or ranking clarity require it.  
+5. Apply LeanDNA color, labeling, and bar-outline standards.  
+6. Reserve explicit layout space for headers, charts, and footers so embedded chart objects do not overlap surrounding text.  
+7. Export a thumbnail for any newly designed or materially changed slide layout and fix collisions before considering the slide done.  
+8. Add two or three explanatory bullets interpreting the data.
 
 Slides should **not include raw data tables** unless explicitly requested.
 
