@@ -3,7 +3,7 @@
 BPO today only responds to **synchronous** requests (you run the script). Soon it will also:
 
 - Run **every night** (cron).
-- React to **Google Drive events** (file added or changed in a certain folder, e.g. `new-slides`).
+- React to **Google Drive events** or a **schedule** (e.g. run `decks hydrate` after decks are shared with the intake group).
 
 This doc describes one architecture that supports all three: sync now, cron and Drive-triggered soon.
 
@@ -15,14 +15,14 @@ This doc describes one architecture that supports all three: sync now, cron and 
 |----------------|-------|--------|------------------------------------|
 | You run it     | ✅    | ✅     | Sync: CLI or API call              |
 | Nightly        | —     | ✅     | Cron (e.g. “health review for all customers”) |
-| Drive activity | —     | ✅     | File added/changed in a folder → e.g. hydrate or evaluate |
+| Drive / schedule | —     | ✅     | e.g. cron or webhook → `decks hydrate` / `decks evaluate` (group intake) |
 
 To support Drive, you need an **HTTP endpoint** that receives notifications and starts the right job. So the shape is:
 
 - **One place that runs the script:** EC2, or Lambda (short jobs) + ECS (long jobs).
 - **Sync:** You invoke that place (SSH + `decks.py`, or POST to an API).
 - **Cron:** EventBridge (or cron on EC2) invokes the same runner on a schedule.
-- **Drive:** Google sends a webhook to your endpoint; the endpoint triggers the runner (e.g. “hydrate” when something lands in `new-slides`).
+- **Drive:** Google can send a webhook to your endpoint; the handler triggers the runner (e.g. `decks hydrate` for group intake).
 
 ---
 
@@ -72,7 +72,7 @@ Google Drive can notify an URL when a file or folder changes (**Push Notificatio
 
 **Flow:**
 
-1. You register a **watch** on the Drive folder (e.g. the folder that contains `new-slides`, or the folder where you drop “run hydrate” triggers). Registration is done once (e.g. via a script or at app startup) and returns a `resourceId` and `expiration`; you renew before expiration.
+1. You register a **watch** on a relevant Drive resource, or use **cron** to run hydrate on a schedule. Registration is done once (e.g. via a script or at app startup) and returns a `resourceId` and `expiration`; you renew before expiration.
 2. When something changes, Drive sends a POST to your **webhook URL** with a small payload (e.g. `X-Goog-Resource-State: update`, `X-Goog-Channel-ID`, etc.). The body is often empty; you identify the change by headers.
 3. Your webhook handler verifies the request (see below), then triggers the job: e.g. run `decks hydrate` or `decks evaluate` (or enqueue a job that does that).
 
@@ -85,10 +85,10 @@ Google Drive can notify an URL when a file or folder changes (**Push Notificatio
 
 **What to run on “file added/changed”:**
 
-- If the watched folder is **new-slides**: on any change, run `decks hydrate` (and optionally `decks evaluate`). You may want to debounce (e.g. wait 30s and run once) so one upload doesn’t trigger many runs.
+- On a **timer or webhook**, run `decks hydrate` (and optionally `decks evaluate`) to process decks shared with `GOOGLE_HYDRATE_INTAKE_GROUP`. Debounce if needed (e.g. wait 30s and run once).
 - If you have another folder (e.g. “run requests”), you could have the webhook look at the change and call different commands.
 
-**Implementing the watch:** Use the Drive API `files.watch` on the folder ID (the one that contains `new-slides`, or the Drive folder ID you already use). You need to do this with credentials that have Drive scope; your existing service account or a user OAuth can do it. Store `expiration` and renew the watch before it expires (Google recommends renewing before 24h for reliability).
+**Implementing the watch:** Use the Drive API `files.watch` if you want push notifications, or rely on **cron** (e.g. every 15 minutes) calling `decks hydrate`. You need credentials with Drive scope; your existing service account or a user OAuth can do it. Store `expiration` and renew the watch before it expires (Google recommends renewing before 24h for reliability).
 
 ---
 
@@ -111,9 +111,9 @@ Trade-off: more moving parts (Lambda, ECS, IAM, task definitions), but no server
 | Nightly run (soon)     | Cron on EC2, or EventBridge → Lambda/ECS.             |
 | Drive events (soon)    | Public HTTPS webhook → verify → run `decks hydrate` (or evaluate). Webhook = Lambda or small server on EC2. |
 
-**Minimal path:** One EC2, cron for nightly, and a tiny webhook server (or API Gateway + Lambda) that runs `decks hydrate` when Drive notifies you of changes in the target folder. Sync stays “you run the script” (or one POST to that same server).
+**Minimal path:** One EC2, cron for nightly health runs, and cron (or a webhook) that runs `decks hydrate` on a schedule so group-shared decks are picked up. Sync stays “you run the script” (or one POST to that same server).
 
-If you want, next step can be a minimal Flask/FastAPI webhook stub in the repo (e.g. `scripts/drive_webhook.py`) that checks a shared secret and runs `decks hydrate` in the background, plus a small script to register the Drive watch on your folder.
+If you want, next step can be a minimal Flask/FastAPI webhook stub in the repo (e.g. `scripts/drive_webhook.py`) that checks a shared secret and runs `decks hydrate` in the background, plus a small script to register a Drive watch if you use push notifications.
 
 ---
 

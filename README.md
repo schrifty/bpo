@@ -70,11 +70,12 @@ The prompt is parsed by a lightweight LLM call (`gpt-4o-mini`) that extracts dec
 
 ### Evaluating Custom Slides
 
-CSMs can submit custom slides for automation. Drop a Google Slides presentation into the `new-slides/` folder in your Drive folder, then:
+CSMs can submit custom slides for automation by sharing a Google Slides deck with the intake Google Group. Set `GOOGLE_HYDRATE_INTAKE_GROUP` in `.env` to that group’s email **exactly** as it appears in Share (e.g. `hydrate-deck@leandna.com`). Viewer or Editor on the group both work. The service account must use an identity that can see those files (e.g. domain-wide delegation to a user who is in that group). Then:
 
 ```bash
 decks --evaluate            # assess each slide
 decks --evaluate --verbose  # include full extracted text
+decks hydrate               # same intake sources; fills live data
 ```
 
 The evaluator exports a thumbnail of each slide, extracts text and layout structure, then uses GPT-4o vision to assess reproducibility against current data sources and slide-building capabilities. Output includes feasibility rating, data gaps, visual element analysis, effort estimate, and the closest existing slide type.

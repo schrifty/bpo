@@ -1,6 +1,6 @@
-"""Evaluate and hydrate slides dropped in the new-slides Drive folder.
+"""Evaluate and hydrate Google Slides shared with the configured intake Google Group.
 
-Evaluate: reads presentations from a 'new-slides' subfolder, exports thumbnails,
+Evaluate: lists files shared with GOOGLE_HYDRATE_INTAKE_GROUP, exports thumbnails,
 extracts text/elements, and asks GPT-4o to assess reproducibility.
 
 Hydrate: classifies each slide in a source deck against our builder types,
@@ -20,14 +20,20 @@ from typing import Any
 
 import requests as _requests
 
-from .config import GOOGLE_DRIVE_FOLDER_ID, LLM_MODEL, LLM_MODEL_FAST, llm_client, logger
+from .config import (
+    GOOGLE_DRIVE_FOLDER_ID,
+    GOOGLE_HYDRATE_INTAKE_GROUP,
+    HYDRATE_MAX_SLIDES,
+    LLM_MODEL,
+    LLM_MODEL_FAST,
+    llm_client,
+    logger,
+)
 from .slides_client import _get_service, set_speaker_notes, SLIDE_DATA_REQUIREMENTS
-
-NEW_SLIDES_FOLDER_NAME = "new-slides"
 
 # Slide analysis cache — avoid re-calling the LLM for the same slide content.
 # Bump CACHE_VERSION when the classification prompt or slide types change.
-_SLIDE_CACHE_VERSION = 1
+_SLIDE_CACHE_VERSION = 2  # v2: classify title/cover/divider for hydrate skip
 
 
 def _slide_cache_dir() -> Path:
@@ -120,7 +126,7 @@ def _resolve_cached_replacements(cached: list[dict], data_summary: dict) -> list
 
 # ── Broader slide analysis (data ask + purpose) for future-proof cache ─────────
 # Bump when we change the analysis schema so old entries are ignored.
-_SLIDE_ANALYSIS_CACHE_VERSION = 4  # v4: better fallback when analysis JSON invalid (use slide title)
+_SLIDE_ANALYSIS_CACHE_VERSION = 5  # v5: slide_type hints for title/cover/divider (hydrate skip)
 
 # Canonical data keys we can resolve from report/data_summary. LLM uses these or adds slugs.
 CANONICAL_DATA_KEYS = (
@@ -172,7 +178,10 @@ def _analyze_slide_broad(client, text: str, elements: dict, thumb_b64: str | Non
         "For each data item return: key (canonical or slug), example_from_slide. "
         "Include embedded charts/images: key '_embedded_chart' or '_embedded_image', example_from_slide the marker text.\n\n"
         "PURPOSE: One sentence — what is this slide communicating?\n\n"
-        f"SLIDE TYPE: Choose from: {builder_list}\n\n"
+        f"SLIDE TYPE: Choose from: {builder_list}\n"
+        "Prefer 'title' (opening title), 'bespoke_cover' (branded cover), or "
+        "'bespoke_divider' (section/chapter title) when the slide is **primarily a title or cover** "
+        "with no customer metrics to refresh — hydration will not rewrite numbers on those types.\n\n"
         "CHARTS & GRAPHS (REQUIRED): You MUST identify and describe every chart and graph on the slide. "
         "Look at the slide image and at Elements — any element with type 'chart' or type 'image' may be a chart. "
         "For EACH chart/graph you see, add one object to the 'charts' array. Do NOT leave charts empty if the slide contains any visualization.\n"
@@ -291,7 +300,7 @@ def _resolve_data_ask_to_replacements(data_ask: list[dict], data_summary: dict,
                 "field": key,
             })
         else:
-            # No current source for this key — placeholder so we mark slide incomplete
+            # No current source for this key — generic on-slide placeholder (details in speaker notes)
             if original or example:
                 replacements.append({
                     "original": original or example,
@@ -385,28 +394,6 @@ def _print(*args, **kwargs):
 
 # ── Helpers ──
 
-def _find_new_slides_folder() -> str | None:
-    """Find the 'new-slides' subfolder inside the configured Drive folder."""
-    if not GOOGLE_DRIVE_FOLDER_ID:
-        logger.warning("GOOGLE_DRIVE_FOLDER_ID not set — cannot locate new-slides folder")
-        return None
-
-    _x, drive, _sh = _get_service()
-    q = (
-        f"'{GOOGLE_DRIVE_FOLDER_ID}' in parents "
-        f"and name = '{NEW_SLIDES_FOLDER_NAME}' "
-        "and mimeType = 'application/vnd.google-apps.folder' "
-        "and trashed = false"
-    )
-    results = drive.files().list(q=q, fields="files(id, name)", pageSize=5).execute()
-    files = results.get("files", [])
-    if not files:
-        logger.warning("No '%s' folder found in Drive — nothing to process. "
-                       "Create it inside your GOOGLE_DRIVE_FOLDER_ID folder.", NEW_SLIDES_FOLDER_NAME)
-        return None
-    return files[0]["id"]
-
-
 _PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 _GSLIDES_MIME = "application/vnd.google-apps.presentation"
 
@@ -444,35 +431,234 @@ def _convert_pptx_to_slides(drive, file_id: str, name: str, folder_id: str) -> s
     return converted["id"], base_name
 
 
-def _list_presentations(folder_id: str) -> list[dict[str, str]]:
-    """List Google Slides presentations in a folder, resolving shortcuts.
+def _drive_query_escape(value: str) -> str:
+    """Escape a string for use inside single quotes in Drive API `q` queries."""
+    return (value or "").replace("\\", "\\\\").replace("'", "\\'")
 
-    .pptx files are automatically converted to Google Slides on the fly.
+
+def _parent_folder_for_file(drive, file_id: str) -> str | None:
+    """First parent folder id for a Drive file (for placing converted uploads)."""
+    try:
+        meta = drive.files().get(fileId=file_id, fields="parents").execute()
+        parents = meta.get("parents") or []
+        return parents[0] if parents else None
+    except Exception as e:
+        logger.warning("Could not read parents for file %s: %s", file_id, e)
+        return None
+
+
+def _file_has_group_permission(drive, file_id: str, group_email_lower: str) -> bool:
+    """True if ``permissions.list`` includes the intake group (by emailAddress)."""
+    page_token: str | None = None
+    try:
+        while True:
+            resp = drive.permissions().list(
+                fileId=file_id,
+                fields="nextPageToken, permissions(emailAddress,deleted)",
+                pageSize=100,
+                pageToken=page_token,
+            ).execute()
+            for p in resp.get("permissions", []):
+                if p.get("deleted"):
+                    continue
+                addr = (p.get("emailAddress") or "").strip().lower()
+                if addr == group_email_lower:
+                    return True
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                break
+    except Exception as e:
+        logger.debug("permissions.list failed for file %s: %s", file_id, e)
+    return False
+
+
+def _intake_entries_from_drive_file(drive, f: dict) -> list[dict[str, str]]:
+    """Turn a Drive ``files.list`` row into zero or one intake presentation dict(s)."""
+    mime = f.get("mimeType", "")
+    out: list[dict[str, str]] = []
+    if mime == _GSLIDES_MIME:
+        out.append({"id": f["id"], "name": f["name"]})
+    elif mime == _PPTX_MIME:
+        parent = _parent_folder_for_file(drive, f["id"])
+        if not parent and GOOGLE_DRIVE_FOLDER_ID:
+            parent = GOOGLE_DRIVE_FOLDER_ID
+        if not parent:
+            _print(
+                f"Skipping PPTX '{f['name']}' (no parent folder; share as Google Slides or set GOOGLE_DRIVE_FOLDER_ID)."
+            )
+            return []
+        try:
+            new_id, new_name = _convert_pptx_to_slides(drive, f["id"], f["name"], parent)
+            out.append({"id": new_id, "name": new_name})
+        except Exception as e:
+            _print(f"Could not convert '{f['name']}' to Google Slides: {e}")
+    elif mime == "application/vnd.google-apps.shortcut":
+        target = f.get("shortcutDetails", {})
+        if target.get("targetMimeType") == _GSLIDES_MIME:
+            out.append({"id": target["targetId"], "name": f["name"]})
+    return out
+
+
+def _list_presentations_shared_with_group(group_email: str) -> list[dict[str, str]]:
+    """List Google Slides (and .pptx / shortcuts) where the intake group has access.
+
+    1) Drive search: ``'<group>' in readers or ... in writers`` (plus Slides/PPTX/shortcut mime).
+    2) If that returns nothing — common for **Google Groups** because search indexing is
+       unreliable for group principals — fall back to listing recent presentation files and
+       checking ``permissions.list`` for the group email.
+
+    Passes ``supportsAllDrives`` / ``includeItemsFromAllDrives`` on ``files.list`` so Shared
+    drives are included. The caller must use credentials that can see the file (service
+    account + optional ``GOOGLE_DRIVE_OWNER_EMAIL`` impersonation).
     """
+    ge = (group_email or "").strip()
+    if not ge:
+        return []
+
     _x, drive, _sh = _get_service()
-    q = f"'{folder_id}' in parents and trashed = false"
-    results = drive.files().list(
-        q=q,
-        fields="files(id, name, mimeType, shortcutDetails)",
-        pageSize=50,
-    ).execute()
+    esc = _drive_query_escape(ge)
+    q_search = (
+        f"(mimeType = '{_GSLIDES_MIME}' or mimeType = '{_PPTX_MIME}' "
+        "or mimeType = 'application/vnd.google-apps.shortcut') "
+        f"and ('{esc}' in readers or '{esc}' in writers) and trashed = false"
+    )
+    list_kw: dict[str, Any] = {
+        "supportsAllDrives": True,
+        "includeItemsFromAllDrives": True,
+    }
 
     presentations: list[dict[str, str]] = []
-    for f in results.get("files", []):
-        mime = f.get("mimeType", "")
-        if mime == _GSLIDES_MIME:
-            presentations.append({"id": f["id"], "name": f["name"]})
-        elif mime == _PPTX_MIME:
-            try:
-                new_id, new_name = _convert_pptx_to_slides(drive, f["id"], f["name"], folder_id)
-                presentations.append({"id": new_id, "name": new_name})
-            except Exception as e:
-                _print(f"Could not convert '{f['name']}' to Google Slides: {e}")
-        elif mime == "application/vnd.google-apps.shortcut":
-            target = f.get("shortcutDetails", {})
-            if target.get("targetMimeType") == _GSLIDES_MIME:
-                presentations.append({"id": target["targetId"], "name": f["name"]})
+    page_token: str | None = None
+    try:
+        while True:
+            req = drive.files().list(
+                q=q_search,
+                fields="nextPageToken, files(id, name, mimeType, shortcutDetails)",
+                pageSize=100,
+                pageToken=page_token,
+                **list_kw,
+            )
+            results = req.execute()
+            for f in results.get("files", []):
+                presentations.extend(_intake_entries_from_drive_file(drive, f))
+            page_token = results.get("nextPageToken")
+            if not page_token:
+                break
+    except Exception as e:
+        logger.warning("Drive query for group-shared presentations failed: %s", e)
+        _print(
+            f"Could not list files shared with group '{ge}': {e}\n"
+            "Check GOOGLE_HYDRATE_INTAKE_GROUP (must match the group address exactly), Drive API access, "
+            "and that the runner can see files shared with that group (Viewer or Editor)."
+        )
+        return []
+
+    if not presentations:
+        # Search often returns 0 for group principals; fallback is normal — no extra log here.
+        presentations = _fallback_intake_presentations_by_group_permission(drive, ge, list_kw)
+
+    if not presentations:
+        logger.info("intake group scan: no presentations shared with group %s", ge)
+    else:
+        logger.info(
+            "intake group scan: %d presentation(s) shared with group %s",
+            len(presentations),
+            ge,
+        )
     return presentations
+
+
+def _fallback_intake_presentations_by_group_permission(
+    drive,
+    group_email: str,
+    list_kw: dict[str, Any],
+) -> list[dict[str, str]]:
+    """List recent Slides/PPTX/shortcuts and keep files whose ACL includes the intake group."""
+    gl = group_email.strip().lower()
+    q_broad = (
+        f"(mimeType = '{_GSLIDES_MIME}' or mimeType = '{_PPTX_MIME}' "
+        "or mimeType = 'application/vnd.google-apps.shortcut') "
+        "and trashed = false"
+    )
+    out: list[dict[str, str]] = []
+    page_token: str | None = None
+    checked = 0
+    max_files_to_scan = 500
+
+    try:
+        while checked < max_files_to_scan:
+            results = drive.files().list(
+                q=q_broad,
+                fields="nextPageToken, files(id, name, mimeType, shortcutDetails)",
+                pageSize=100,
+                pageToken=page_token,
+                orderBy="modifiedTime desc",
+                **list_kw,
+            ).execute()
+            files = results.get("files", [])
+            if not files:
+                break
+            for f in files:
+                if checked >= max_files_to_scan:
+                    break
+                checked += 1
+                fid = f.get("id")
+                if not fid or not _file_has_group_permission(drive, fid, gl):
+                    continue
+                out.extend(_intake_entries_from_drive_file(drive, f))
+            page_token = results.get("nextPageToken")
+            if not page_token:
+                break
+    except Exception as e:
+        logger.warning("intake permission fallback failed: %s", e)
+
+    logger.info(
+        "intake group scan: checked %d recent file(s), %d presentation(s) shared with group %s",
+        min(checked, max_files_to_scan),
+        len(out),
+        group_email,
+    )
+    return out
+
+
+def _log_intake_decks_for_run(queue: list[dict[str, Any]], *, log_prefix: str) -> None:
+    """Log each presentation that will be processed (group intake)."""
+    for p in queue:
+        g = p.get("group_email") or GOOGLE_HYDRATE_INTAKE_GROUP or ""
+        logger.info(
+            "%s: deck %r id=%s — shared with group %s",
+            log_prefix,
+            p["name"],
+            p["id"],
+            g,
+        )
+
+
+def _collect_hydrate_intake_presentations(
+    *,
+    log_prefix: str = "intake",
+) -> tuple[list[dict[str, Any]], str | None]:
+    """List presentations shared with GOOGLE_HYDRATE_INTAKE_GROUP. Returns (presentations, message_if_empty).
+
+    user_message_if_empty is a short hint when nothing to process, or None when presentations exist.
+    """
+    if not GOOGLE_HYDRATE_INTAKE_GROUP:
+        return [], (
+            "Set GOOGLE_HYDRATE_INTAKE_GROUP in .env to your intake Google Group email "
+            "(decks shared with that group as Reader are processed)."
+        )
+
+    raw = _list_presentations_shared_with_group(GOOGLE_HYDRATE_INTAKE_GROUP)
+    if not raw:
+        return [], f"No presentations found shared with group {GOOGLE_HYDRATE_INTAKE_GROUP}."
+
+    ge = GOOGLE_HYDRATE_INTAKE_GROUP
+    merged: list[dict[str, Any]] = [
+        {"id": p["id"], "name": p["name"], "intake": "group", "group_email": ge}
+        for p in raw
+    ]
+    _log_intake_decks_for_run(merged, log_prefix=log_prefix)
+    return merged, None
 
 
 def _get_slide_thumbnail_url(slides_svc, pres_id: str, page_id: str) -> str:
@@ -681,7 +867,7 @@ def _derive_reproducibility(analysis: dict) -> dict:
 
 
 def evaluate_new_slides(verbose: bool = False) -> list[dict[str, Any]]:
-    """Scan the new-slides Drive folder; collect data-centric analysis per slide, deduce reproducibility.
+    """Scan decks shared with GOOGLE_HYDRATE_INTAKE_GROUP; collect data-centric analysis per slide.
 
     Uses the same analysis as hydrate (data_ask + purpose). Reproducibility is derived at
     report time from data_ask vs current available data keys — no separate LLM assessment.
@@ -689,21 +875,15 @@ def evaluate_new_slides(verbose: bool = False) -> list[dict[str, Any]]:
     """
     global _print_context
     _print_context = "evaluate"
-    folder_id = _find_new_slides_folder()
-    if not folder_id:
-        print(f"Create a '{NEW_SLIDES_FOLDER_NAME}' folder inside your Drive folder "
-              "and drop Google Slides presentations into it.")
+    presentations, empty_msg = _collect_hydrate_intake_presentations(log_prefix="evaluate")
+    if empty_msg:
+        print(empty_msg)
         return []
 
-    presentations = _list_presentations(folder_id)
-    if not presentations:
-        print(f"No presentations found in '{NEW_SLIDES_FOLDER_NAME}' folder.\n"
-              "Drop a Google Slides deck (with 1+ slides) into that folder and re-run.")
-        return []
-
-    _print(f"Found {len(presentations)} presentation(s) in '{NEW_SLIDES_FOLDER_NAME}':\n")
+    _print(f"Found {len(presentations)} presentation(s) to process:\n")
     for p in presentations:
-        _print(f"  - {p['name']}")
+        src = f"shared with group {p.get('group_email') or GOOGLE_HYDRATE_INTAKE_GROUP}"
+        _print(f"  - {p['name']}  ({src})")
     _print()
 
     slides_svc, _d, _ = _get_service()
@@ -1137,13 +1317,21 @@ _ADAPT_SYSTEM_PROMPT = (
     "widget or bullet point is summarising past achievements, past-period results, or "
     "historical records (e.g. 'Key Partnership Results', 'What we achieved', "
     "'Since go-live', 'As of [past date]'), treat ALL values in that block as "
-    "mapped=false. These are records of what happened, not live metrics to refresh.\n\n"
-    "For UNMAPPED values, use these placeholders:\n"
-    "  Numbers:     [000]\n"
-    "  Currency:    [$000]\n"
-    "  Dates:       [00/00/00]\n"
-    "  Percentages: [00%]\n"
-    "  Other:       [???]\n\n"
+    "mapped=false. These are records of what happened, not live metrics to refresh.\n"
+    "- BESPOKE / REFERENCE TABLES (tier grids, standard pricing bands, deployment scenario "
+    "matrices, sizing tables): If table cells read as **fixed product or commercial reference** "
+    "rather than **this customer's live metrics** from CURRENT DATA AVAILABLE—and nothing in the "
+    "data clearly maps to those rows/columns—treat the table as **intentionally static**: "
+    "**do not** include any of those cells in `replacements` (leave the text as-is; no "
+    "placeholders). **Never** replace only some rows or cells in the same coherent table; "
+    "partial updates look like mistakes. If unsure, leave the **whole** table unchanged.\n\n"
+    "For UNMAPPED values (no matching current data in CURRENT DATA AVAILABLE), use these "
+    "short on-slide placeholders only (speaker notes will explain meaning):\n"
+    "- Plain numbers → [000]\n"
+    "- Currency → [$000]\n"
+    "- Dates → [00/00/00]\n"
+    "- Percentages → [00%]\n"
+    "- Anything else → [???]\n\n"
     "IMAGES & CHARTS: If the slide contains images or charts that show data:\n"
     "- Images marked '(embedded image)' or '(image in shape)': examine the thumbnail "
     "to check if the image contains data (numbers, charts, tables). If it does, add:\n"
@@ -1300,7 +1488,45 @@ def _get_data_replacements(oai, text_elements: list[dict], data_summary: dict,
         logger.warning("hydrate: slide %s — LLM response was invalid JSON (%s), skipping data replacement",
                        slide_label, exc)
         return []
-    return result.get("replacements", [])
+    repl = result.get("replacements", []) or []
+    return repl
+
+
+def _unmapped_placeholder_descriptions_for_notes(oai, entries: list[dict]) -> list[str]:
+    """One short line per unmapped placeholder for speaker notes only (not shown on slide)."""
+    if not entries:
+        return []
+    from .config import LLM_MODEL_FAST
+    try:
+        resp = _llm_create_with_retry(
+            oai,
+            model=LLM_MODEL_FAST,
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": (
+                    "Each item is an unmapped metric on a slide: we show a generic token on the slide "
+                    "and need a one-line explanation for the presenter (speaker notes only).\n"
+                    "For each item, output one concise sentence (max ~120 chars) explaining what the "
+                    "original text represented or what to verify. Do not repeat the placeholder token alone.\n"
+                    "Return JSON: {\"lines\": [\"...\", ...]} with exactly the same length as input items."
+                )},
+                {"role": "user", "content": json.dumps({"items": entries}, indent=0, default=str)},
+            ],
+        )
+        raw = resp.choices[0].message.content
+        data = json.loads(raw)
+        lines = data.get("lines")
+        if isinstance(lines, list) and len(lines) == len(entries):
+            return [str(x).strip()[:200] for x in lines]
+    except Exception as e:
+        logger.warning("unmapped placeholder notes batch failed: %s", e)
+    out: list[str] = []
+    for e in entries:
+        fld = (e.get("field") or "?").strip()
+        orig = (e.get("original") or "")[:100]
+        out.append(f"Field `{fld}` — verify or source manually (was: {orig})")
+    return out
 
 
 _PLACEHOLDER_MARKERS = ("[000]", "[$000]", "[00/00/00]", "[00%]", "[???]")
@@ -1378,6 +1604,7 @@ def _build_hydrate_speaker_notes(
     has_unmapped: bool = False,
     has_static_images: bool = False,
     analysis: dict | None = None,
+    oai=None,
 ) -> str:
     """Speaker-notes for presenter QA and rebuild spec: objective, required data, governance."""
     import re as _re
@@ -1436,6 +1663,33 @@ def _build_hydrate_speaker_notes(
         lines.append(f"   {i}. [{fld}]  {tag}")
         lines.append(f"      was: {orig}")
         lines.append(f"      now: {nv}")
+
+    unmapped_generic = [
+        r for r in replacements
+        if not r.get("mapped")
+        and (str(r.get("new_value") or "").strip() in _PLACEHOLDER_MARKERS)
+        and r.get("field") not in ("chart", "image")
+    ]
+    if unmapped_generic:
+        lines.append("")
+        lines.append("Unmapped placeholders — what they represent (on-slide tokens stay short/red):")
+        if oai:
+            note_entries = [
+                {
+                    "field": str(r.get("field") or ""),
+                    "original": str(r.get("original") or "")[:400],
+                    "placeholder": str(r.get("new_value") or ""),
+                }
+                for r in unmapped_generic
+            ]
+            for j, line in enumerate(_unmapped_placeholder_descriptions_for_notes(oai, note_entries), 1):
+                lines.append(f"   {j}. {line}")
+        else:
+            for j, r in enumerate(unmapped_generic, 1):
+                fld = str(r.get("field") or "?")[:80]
+                orig = str(r.get("original") or "").replace("\n", " ").strip()[:120]
+                ph = str(r.get("new_value") or "")
+                lines.append(f"   {j}. `{fld}` — slide shows {ph}; original text was: {orig}")
 
     # Explicit list of charts & graphs — all must be replaced or verified; include inferred features when available
     chart_and_image = [
@@ -1820,6 +2074,7 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
                 has_unmapped=False,
                 has_static_images=False,
                 analysis=analysis,
+                oai=oai,
             )
             if not set_speaker_notes(slides_svc, pres_id, page_id, notes):
                 logger.warning("hydrate: slide %s — could not write speaker notes", slide_num)
@@ -1868,6 +2123,7 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
             has_unmapped=has_unmapped,
             has_static_images=has_static_images,
             analysis=analysis,
+            oai=oai,
         )
         if not set_speaker_notes(slides_svc, pres_id, page_id, notes):
             logger.warning("hydrate: slide %s — could not write speaker notes", slide_num)
@@ -1910,6 +2166,13 @@ _DATA_SLIDE_TYPES = {
 _STRUCTURAL_SLIDE_TYPES = {
     "bespoke_agenda", "bespoke_divider", "data_quality",
 }
+
+# Hydrate Phase 3: never run in-place LLM text replacement on these (editorial / title slides).
+_HYDRATE_SKIP_TEXT_ADAPT_TYPES = frozenset({
+    "title",
+    "bespoke_cover",
+    "bespoke_divider",
+})
 
 _BUILDER_DESCRIPTIONS = {
     "bespoke_cover": "Branded cover slide — customer name, date, 'Executive business review'",
@@ -1956,6 +2219,9 @@ def _classify_slide(client, text: str, elements: dict, thumb_b64: str | None,
         "IMPORTANT classification rules:\n"
         "- Only use a data slide type if the source slide's PURPOSE clearly matches. "
         "A slide about budget, pricing, timelines, or roadmaps is ALWAYS 'custom'.\n"
+        "- Use 'title' (opening deck title) or 'bespoke_divider' (section / chapter title) "
+        "for slides that are **primarily a title or cover** — large heading, minimal body, "
+        "no customer metrics to refresh. Hydration will **not** swap numbers on those slides.\n"
         "- 'bespoke_deployment' is ONLY for slides showing a table of site names, "
         "user counts, and health status. Deployment scenarios, pricing tables, "
         "project plans, and scope descriptions are 'custom'.\n"
@@ -2028,7 +2294,7 @@ def _detect_customer(pres_name: str, known_customers: list[str]) -> str | None:
 
 
 def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, Any]]:
-    """Hydrate presentations from new-slides/ using live data.
+    """Hydrate presentations shared with GOOGLE_HYDRATE_INTAKE_GROUP using live data.
 
     Auto-detects the customer from each presentation title. If customer_override
     is provided, uses that for all decks (useful for generating a template-style
@@ -2036,15 +2302,9 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
     """
     global _print_context
     _print_context = "hydrate"
-    folder_id = _find_new_slides_folder()
-    if not folder_id:
-        _print(f"Create a '{NEW_SLIDES_FOLDER_NAME}' folder inside your Drive folder "
-               "and drop Google Slides presentations into it.")
-        return []
-
-    presentations = _list_presentations(folder_id)
-    if not presentations:
-        _print(f"No presentations found in '{NEW_SLIDES_FOLDER_NAME}' folder.")
+    presentations, empty_msg = _collect_hydrate_intake_presentations(log_prefix="hydrate")
+    if empty_msg:
+        _print(empty_msg)
         return []
 
     # Load known customer names for auto-detection
@@ -2083,8 +2343,9 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
     for pres in presentations:
         source_id = pres["id"]
         pres_name = pres["name"]
+        g = pres.get("group_email") or GOOGLE_HYDRATE_INTAKE_GROUP
         _print(f"{'─' * 60}")
-        _print(f"Source: {pres_name}")
+        _print(f"Source: {pres_name}  (intake: group {g})")
         _print(f"{'─' * 60}")
 
         # Determine the customer for this deck
@@ -2096,25 +2357,22 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
             continue
         _print(f"  Customer: {customer}")
 
-        # Fetch (or reuse) the health report for this customer
-        if customer in report_cache:
-            report = report_cache[customer]
-        else:
-            _print(f"  Loading data...")
-            report = pc.get_customer_health_report(customer, days=days)
-            if "error" in report:
-                _print(f"  Failed to load data: {report['error']}\n")
-                all_results.append({"name": pres_name, "customer": customer, "error": report["error"]})
-                continue
-            report["quarter"] = qr.label
-            report["quarter_start"] = qr.start.isoformat()
-            report["quarter_end"] = qr.end.isoformat()
-            report_cache[customer] = report
-        _print(f"  Data loaded ({days}d window, {qr.label})\n")
-
         full_pres = slides_svc.presentations().get(presentationId=source_id).execute()
         source_slides = full_pres.get("slides", [])
-        _print(f"  {len(source_slides)} slides to classify and rebuild\n")
+        original_slide_count = len(source_slides)
+        if HYDRATE_MAX_SLIDES > 0 and original_slide_count > HYDRATE_MAX_SLIDES:
+            source_slides = source_slides[:HYDRATE_MAX_SLIDES]
+            _print(
+                f"  {len(source_slides)} of {original_slide_count} slides to classify and rebuild "
+                f"(HYDRATE_MAX_SLIDES={HYDRATE_MAX_SLIDES})\n"
+            )
+            logger.info(
+                "hydrate: capping at %d slides (source had %d)",
+                HYDRATE_MAX_SLIDES,
+                original_slide_count,
+            )
+        else:
+            _print(f"  {len(source_slides)} slides to classify and rebuild\n")
 
         class_cache = {
             "analysis_hit": 0, "legacy_classification_hit": 0,
@@ -2206,6 +2464,23 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
         run_cache_totals["class_slides"] += n_cls
         run_cache_totals["class_avoided"] += cls_avoided
 
+        # Load health report only after classification — Phase 1 uses slide text + vision, not Pendo/Jira/SF.
+        # Report is required for Phase 2 (e.g. data_quality rebuild) and Phase 3 (text adaptation + notes).
+        if customer in report_cache:
+            report = report_cache[customer]
+        else:
+            _print(f"  Loading customer metrics (Pendo + integrations) for copy & adaptation...")
+            report = pc.get_customer_health_report(customer, days=days)
+            if "error" in report:
+                _print(f"  Failed to load data: {report['error']}\n")
+                all_results.append({"name": pres_name, "customer": customer, "error": report["error"]})
+                continue
+            report["quarter"] = qr.label
+            report["quarter_start"] = qr.start.isoformat()
+            report["quarter_end"] = qr.end.isoformat()
+            report_cache[customer] = report
+        _print(f"  Data ready ({days}d window, {qr.label})\n")
+
         # Phase 2: Copy the source presentation, then replace only data slides
         import datetime
         date_str = f"{qr.label} ({qr.start.strftime('%b %-d')} – {qr.end.strftime('%b %-d, %Y')})"
@@ -2237,7 +2512,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
             _print(f"  FAIL copying presentation: HTTP {status} {reason}")
             if detail:
                 _print(f"    {detail}")
-            _print(f"    Source file (in '{NEW_SLIDES_FOLDER_NAME}' folder): {pres_name}")
+            _print(f"    Source file (group intake): {pres_name}")
             _print(f"    File ID: {source_id}")
             _print(f"    Open: https://docs.google.com/presentation/d/{source_id}/edit")
             if status == 403:
@@ -2256,6 +2531,26 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
         # Read the slide object IDs from the copy
         copy_pres = slides_svc.presentations().get(presentationId=pres_id).execute()
         copy_slides = copy_pres.get("slides", [])
+        # Drop slides beyond the cap so output matches slide_plan (copy duplicates full source first).
+        if HYDRATE_MAX_SLIDES > 0 and len(copy_slides) > HYDRATE_MAX_SLIDES:
+            trim_reqs = [
+                {"deleteObject": {"objectId": s["objectId"]}}
+                for s in copy_slides[HYDRATE_MAX_SLIDES:]
+            ]
+            if trim_reqs:
+                try:
+                    slides_svc.presentations().batchUpdate(
+                        presentationId=pres_id, body={"requests": trim_reqs},
+                    ).execute()
+                except HttpError as e:
+                    logger.warning("hydrate: failed to trim slides past cap: %s", e)
+                else:
+                    copy_pres = slides_svc.presentations().get(presentationId=pres_id).execute()
+                    copy_slides = copy_pres.get("slides", [])
+                    _print(
+                        f"  Output trimmed to first {len(copy_slides)} slides "
+                        f"(HYDRATE_MAX_SLIDES={HYDRATE_MAX_SLIDES}).\n"
+                    )
 
         # Attach slide plan to report so builders like bespoke_agenda can use it
         report["_slide_plan"] = [
@@ -2328,13 +2623,38 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
         _print(f"  Phase 2: {built} rebuilt, {kept} kept, {skipped} skipped")
         _print(f"  Output: {url}")
 
-        # Phase 3: Adapt ALL kept slides — replace data values in-place, mark unmapped
-        # fields with red placeholders.  This covers every slide regardless of type;
-        # the classification in Phase 1 is for reporting only, not for gating adaptation.
+        # Phase 3: In-place data adaptation for kept slides — except title/cover/divider,
+        # which stay as the customer authored them (classification gates this).
         # Re-fetch slide list after Phase 2 mutations so objectIds are current.
         adapted_pres = slides_svc.presentations().get(presentationId=pres_id).execute()
         adapted_slides = adapted_pres.get("slides", [])
-        adapt_page_ids = [s["objectId"] for s in adapted_slides]
+        filtered_plan = [sp for sp in slide_plan if sp.get("slide_type") != "skip"]
+        adapt_page_ids: list[str] = []
+        if len(adapted_slides) == len(filtered_plan):
+            n_skip_adapt = 0
+            for slide, sp in zip(adapted_slides, filtered_plan):
+                st = (sp.get("slide_type") or "custom").strip()
+                if st in _HYDRATE_SKIP_TEXT_ADAPT_TYPES:
+                    n_skip_adapt += 1
+                    logger.info(
+                        "hydrate: skipping text adaptation for slide_type=%s (%s)",
+                        st,
+                        (sp.get("title") or "")[:60],
+                    )
+                    continue
+                adapt_page_ids.append(slide["objectId"])
+            if n_skip_adapt:
+                _print(
+                    f"  Skipping in-place data swap on {n_skip_adapt} title/cover/divider slide(s).\n"
+                )
+        else:
+            logger.warning(
+                "hydrate: slide count mismatch after Phase 2 (%d slides vs %d non-skip in plan) — "
+                "adapting all slides (cannot align types to skip title slides)",
+                len(adapted_slides),
+                len(filtered_plan),
+            )
+            adapt_page_ids = [s["objectId"] for s in adapted_slides]
 
         if adapt_page_ids:
             _print(f"\n  Adapting {len(adapt_page_ids)} slides with current data...")
@@ -2345,6 +2665,17 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
                    f"({adapt_stats['clean']} clean, {adapt_stats['incomplete']} incomplete, "
                    f"{adapt_stats['skipped']} unchanged, "
                    f"{adapt_stats.get('notes_only', 0)} notes-only)")
+            if adapt_stats.get("adapted", 0) == 0:
+                _print(
+                    "  Note: The health report was used for this pass (data_quality rebuild if any, speaker "
+                    "notes, and adaptation attempts), but no slide body text was replaced — often normal for "
+                    "mostly static or custom slides."
+                )
+                logger.info(
+                    "hydrate: Phase 3 applied 0 text replacements; report still used for notes / builders "
+                    "where applicable (deck=%s)",
+                    pres_name,
+                )
             c = adapt_stats.get("cache") or {}
             tot = c.get("total_slides") or 0
             if tot:
@@ -2356,25 +2687,10 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
                 run_cache_totals["adapt_slides"] += tot
                 run_cache_totals["adapt_served"] += served
 
-        # Visual QA — review every slide for layout problems
-        logger.info("hydrate: running visual QA on '%s'...", pres_name)
-        qa_results = visual_qa(pres_id, slides_svc=slides_svc)
-        qa_issues = [r for r in qa_results if not r.get("pass", True)]
-        logger.info("hydrate: QA complete — %d passed, %d issues",
-                    len(qa_results) - len(qa_issues), len(qa_issues))
-
         result_entry: dict[str, Any] = {
             "name": pres_name, "customer": customer,
             "url": url, "built": built, "kept": kept, "skipped": skipped,
-            "qa_passed": len(qa_results) - len(qa_issues),
-            "qa_failed": len(qa_issues),
         }
-        if qa_issues:
-            result_entry["qa_issues"] = [
-                {"slide": r["slide_num"], "severity": r.get("severity"),
-                 "issues": r.get("issues", [])}
-                for r in qa_issues
-            ]
         all_results.append(result_entry)
         _print("")
 

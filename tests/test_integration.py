@@ -76,18 +76,18 @@ def test_adapt_custom_slides_integration(monkeypatch, tmp_path):
     slides_svc.presentations.return_value.batchUpdate.return_value.execute.assert_called_once()
 
 
-def test_hydrate_early_exit_when_no_folder():
-    """hydrate_new_slides returns [] and does not call Drive when folder is missing."""
-    with patch.object(evaluate, "_find_new_slides_folder", return_value=None):
+def test_hydrate_early_exit_when_no_intake_group():
+    """hydrate_new_slides returns [] when GOOGLE_HYDRATE_INTAKE_GROUP is not set."""
+    with patch.object(evaluate, "GOOGLE_HYDRATE_INTAKE_GROUP", None):
         result = evaluate.hydrate_new_slides(customer_override="TestCustomer")
     assert result == []
 
 
 def test_hydrate_early_exit_when_no_presentations():
-    """hydrate_new_slides returns [] when folder exists but has no presentations."""
+    """hydrate_new_slides returns [] when the group scan finds no presentations."""
     with (
-        patch.object(evaluate, "_find_new_slides_folder", return_value="folder_123"),
-        patch.object(evaluate, "_list_presentations", return_value=[]),
+        patch.object(evaluate, "GOOGLE_HYDRATE_INTAKE_GROUP", "intake@example.com"),
+        patch.object(evaluate, "_list_presentations_shared_with_group", return_value=[]),
     ):
         result = evaluate.hydrate_new_slides(customer_override="TestCustomer")
     assert result == []

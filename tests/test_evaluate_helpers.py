@@ -29,7 +29,7 @@ def test_resolve_cached_replacements_preserves_suffix():
 
 
 def test_resolve_cached_replacements_unmapped_unchanged():
-    """Unmapped replacement keeps existing new_value (placeholder)."""
+    """Unmapped cached rows are passed through (on-slide placeholder stays short)."""
     cached = [
         {"original": "TBD", "new_value": "[???]", "mapped": False, "field": "n/a"},
     ]
@@ -176,13 +176,14 @@ def test_resolve_data_ask_to_replacements_mapped():
 
 
 def test_resolve_data_ask_to_replacements_unmapped():
-    """Data ask keys not in data_summary produce unmapped placeholders."""
+    """Data ask keys not in data_summary produce generic [???] on-slide (details in speaker notes)."""
     data_ask = [{"key": "nps_score", "example_from_slide": "72"}]
     data_summary = {}
     text_elements = [{"text": "72"}]
     out = evaluate._resolve_data_ask_to_replacements(data_ask, data_summary, text_elements)
     assert len(out) == 1
-    assert out[0]["mapped"] is False and out[0]["new_value"] == "[???]"
+    assert out[0]["mapped"] is False
+    assert out[0]["new_value"] == "[???]"
 
 
 def test_resolve_data_ask_embedded_chart():
@@ -341,3 +342,10 @@ def test_build_hydrate_speaker_notes_rebuild_spec():
     assert "Objective: Account overview" in out
     assert "Required data: total_sites, quarter" in out
     assert "Slide: engagement — Account at a glance" in out
+
+
+# ── intake: Drive query escape ──────────────────────────────────────────────────
+
+
+def test_drive_query_escape_apostrophe():
+    assert evaluate._drive_query_escape("a'b") == "a\\'b"

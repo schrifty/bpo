@@ -10,7 +10,7 @@ Usage:
     decks --list
     decks --sync-config
     decks --evaluate
-    decks hydrate                (pull decks from new-slides, auto-detect customer)
+    decks hydrate                (decks shared with GOOGLE_HYDRATE_INTAKE_GROUP)
     decks hydrate Bombardier     (override customer)
     decks --hydrate / --hydrate Bombardier   (same)
     decks --qa <presentation-url>
@@ -207,7 +207,7 @@ def main():
         print(__doc__.strip())
         sys.exit(1)
 
-    # "decks hydrate" or "decks hydrate Bombardier" / "decks hydrate for Safran" → pull from new-slides
+    # "decks hydrate" or "decks hydrate Bombardier" / "decks hydrate for Safran" → group intake
     # Hydrate only needs Drive access — no Pendo/SF/CSR preflight required
     if prompt.lower() == "hydrate" or prompt.lower().startswith("hydrate "):
         from src.evaluate import hydrate_new_slides

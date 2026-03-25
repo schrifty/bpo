@@ -30,6 +30,15 @@ GOOGLE_APPLICATION_CREDENTIALS = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"
 GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
 # Optional: your email (folder owner) - transfer ownership so files count against your quota, not service account's
 GOOGLE_DRIVE_OWNER_EMAIL = os.environ.get("GOOGLE_DRIVE_OWNER_EMAIL")
+# Hydrate/evaluate: Google Group email (e.g. hydrate-deck@yourdomain.com). Must match Share exactly.
+# Lists Slides where the group is Viewer or Editor (Drive query uses in readers OR in writers).
+GOOGLE_HYDRATE_INTAKE_GROUP = os.environ.get("GOOGLE_HYDRATE_INTAKE_GROUP", "").strip() or None
+# Hydrate: max slides to classify and include in the output copy. 0 = no limit. Default 10.
+try:
+    _hms = os.environ.get("HYDRATE_MAX_SLIDES", "10").strip()
+    HYDRATE_MAX_SLIDES = max(0, int(_hms))
+except ValueError:
+    HYDRATE_MAX_SLIDES = 10
 # JIRA Cloud
 JIRA_URL = os.environ.get("JIRA_URL")
 JIRA_EMAIL = os.environ.get("JIRA_EMAIL")
