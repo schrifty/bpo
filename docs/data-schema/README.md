@@ -1,0 +1,12 @@
+# Data schema documentation
+
+This folder holds the **cross-system data registry** and **per-source schema** references for BPO.
+
+| Document | Description |
+|----------|-------------|
+| [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) | Stable identifiers, governance notes, and where each item is used |
+| [`JIRA_DATA_SCHEMA.md`](./JIRA_DATA_SCHEMA.md) | Jira / JSM fields, APIs, and custom fields |
+| [`PENDO_DATA_SCHEMA.md`](./PENDO_DATA_SCHEMA.md) | Pendo aggregation sources, metadata, and events |
+| [`CSR_DATA_SCHEMA.md`](./CSR_DATA_SCHEMA.md) | Customer Success Report (Drive XLSX) columns and KPI JSON |
+
+Other project docs (deployment, Salesforce setup, slide standards) remain under [`../`](../).

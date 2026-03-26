@@ -124,6 +124,7 @@ bpo/
 │   └── std-99-data-quality.yaml
 ├── cohorts.yaml              # Customer manufacturing cohort classifications
 ├── docs/
+│   ├── data-schema/          # Data registry + per-source schemas (Jira, Pendo, CS Report, …)
 │   └── CUSTOMER_COHORTS.md   # Cohort research documentation
 ├── src/
 │   ├── config.py             # Environment config
