@@ -1,19 +1,63 @@
 #!/usr/bin/env python3
-"""Generate decks from a natural-language prompt.
+"""decks — build Google Slides decks (CS health, portfolio, Jira) and run tooling.
 
-Usage:
-    decks health review for all customers
-    decks product adoption for Bombardier and JCI, Q4 2025
-    decks portfolio review, max 5 customers
-    decks health review for Bombardier, 60 day lookback, with thumbnails
-    decks engineering portfolio   (no LLM prompt-parse — matches phrase before _parse_prompt)
-    decks --list
-    decks --sync-config
-    decks --evaluate
-    decks hydrate                (decks shared with GOOGLE_HYDRATE_INTAKE_GROUP)
-    decks hydrate Bombardier     (override customer)
-    decks --hydrate / --hydrate Bombardier   (same)
-    decks --qa <presentation-url>
+Two ways to run:
+  • A flag command (below) — no natural-language parsing.
+  • A sentence — an LLM turns it into deck type, quarter, customers, etc. (needs API keys in .env).
+
+────────────────────────────────────────────────────────────────
+Flag commands (utilities)
+────────────────────────────────────────────────────────────────
+  decks --help, -h
+      Show this text.
+
+  decks --list
+      Print configured deck ids and display names (from local YAML).
+
+  decks --hydrate [customer]
+  decks hydrate [customer]
+      Hydrate slide content for presentations shared with the intake group (see .env:
+      GOOGLE_HYDRATE_INTAKE_GROUP). Optional customer name overrides detection.
+
+  decks --evaluate [--verbose|-v]
+      Run reproducibility checks on slides. Summary prints at the end.
+
+  decks --qa <url-or-presentation-id>
+      Visual QA for one presentation (URL may contain /presentation/d/<id>/).
+
+  decks --sync-config [--sync-overwrite]
+      Upload deck/slide YAML config to Google Drive.
+
+  decks --scan-fields [--db PATH] [--no-thumbnail] [--workers N] [--no-progress]
+                      [-- <presentation-id-or-url> ...]
+      Scan slide fields into a local SQLite DB. If you omit IDs after --, uses
+      presentations shared with GOOGLE_HYDRATE_INTAKE_GROUP. Slide cap matches
+      HYDRATE_MAX_SLIDES unless SCAN_MAX_SLIDES is set. Warms the slide analysis
+      cache (charts/interpretation) for hydrate. Progress bar on stderr (disable
+      with --no-progress for logs/CI).
+
+  decks --list-fields [--db PATH]
+      Print field_name / field_type rows from the scan DB.
+
+  decks --clear-fields [--db PATH]
+      Delete all rows in the scan DB.
+
+────────────────────────────────────────────────────────────────
+Generate decks (natural language — LLM parses the prompt)
+────────────────────────────────────────────────────────────────
+  decks health review for all customers
+  decks product adoption for Bombardier and JCI, Q4 2025
+  decks portfolio review, max 5 customers
+  decks health review for Bombardier, 60 day lookback, with thumbnails
+
+  These flows need Pendo (and related) data sources; a preflight runs first.
+
+  Fixed phrases (no LLM — matched before parsing):
+      engineering portfolio | eng portfolio | engineering review | ...
+      support | support review | support deck | ...
+
+  Same Jira-backed decks can also be selected if the LLM returns deck_id
+  engineering-portfolio or support.
 """
 
 import json
@@ -138,6 +182,21 @@ def _run_support_deck() -> None:
 
 def main():
     # Quick utility flags that don't need LLM parsing
+    if "--list-fields" in sys.argv:
+        from src.qbr_field_scan import run_list_fields_cli
+        run_list_fields_cli(sys.argv)
+        return
+
+    if "--clear-fields" in sys.argv:
+        from src.qbr_field_scan import run_clear_fields_cli
+        run_clear_fields_cli(sys.argv)
+        return
+
+    if "--scan-fields" in sys.argv:
+        from src.qbr_field_scan import run_scan_cli
+        run_scan_cli(sys.argv)
+        return
+
     if "--list" in sys.argv:
         from src.deck_loader import list_decks
         for m in list_decks():

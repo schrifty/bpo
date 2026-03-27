@@ -10,9 +10,12 @@ then regenerates the deck using live customer data from Pendo/Jira/CS Report.
 from __future__ import annotations
 
 import base64
+import datetime
 import hashlib
 import json
+import secrets
 import tempfile
+import textwrap
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -24,12 +27,20 @@ from .config import (
     GOOGLE_DRIVE_FOLDER_ID,
     GOOGLE_HYDRATE_INTAKE_GROUP,
     HYDRATE_MAX_SLIDES,
+    HYDRATE_REMOVE_INTAKE_GROUP_PERMISSION,
     LLM_MODEL,
     LLM_MODEL_FAST,
     llm_client,
     logger,
 )
-from .slides_client import _get_service, set_speaker_notes, SLIDE_DATA_REQUIREMENTS
+from .slides_client import (
+    SLIDE_DATA_REQUIREMENTS,
+    _box,
+    _get_service,
+    _slide,
+    _wrap_box,
+    set_speaker_notes,
+)
 
 # Slide analysis cache — avoid re-calling the LLM for the same slide content.
 # Bump CACHE_VERSION when the classification prompt or slide types change.
@@ -51,6 +62,91 @@ def _slide_content_hash(thumb_b64: str | None, text_snapshot: str = "", page_id:
     if text_snapshot:
         return hashlib.sha256(prefix + text_snapshot.encode("utf-8")).hexdigest()
     return None
+
+
+def _strip_json_code_fence(raw: str) -> str:
+    """Remove optional ```json ... ``` wrapper so json.loads succeeds."""
+    s = (raw or "").strip()
+    if not s.startswith("```"):
+        return s
+    lines = s.split("\n")
+    if lines and lines[0].startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
+_BROAD_ANALYSIS_MAX_TOKENS = 8192
+
+
+def _log_slide_visual_findings(pres_name: str, slide_num: int, total: int, charts: list[Any]) -> None:
+    """Log LLM chart/image visual analysis (multi-line, human-readable)."""
+    if not charts:
+        return
+    label = (pres_name or "(untitled deck)")[:100]
+    n_ok = sum(1 for c in charts if isinstance(c, dict))
+    idx = 0
+    for ch in charts:
+        if not isinstance(ch, dict):
+            continue
+        idx += 1
+        vk = (ch.get("visual_kind") or "—").strip()
+        ctype = (ch.get("chart_type") or "—").strip()
+        xa = (ch.get("x_axis") or "").strip()
+        ya = (ch.get("y_axis") or "").strip()
+        interp = (ch.get("interpretation") or "").replace("\n", " ").strip()
+        if len(interp) > 600:
+            interp = interp[:597] + "…"
+        keys_raw = ch.get("data_recommended_keys")
+        if isinstance(keys_raw, list):
+            keys_list = [str(x).strip() for x in keys_raw if x]
+            keys_s = ", ".join(keys_list) if keys_list else "—"
+        else:
+            keys_s = "—"
+        cov = (ch.get("data_coverage_note") or "").replace("\n", " ").strip()
+        if len(cov) > 500:
+            cov = cov[:497] + "…"
+
+        lines = [
+            "",
+            "┌── visual_analysis " + "─" * 52,
+            f"│  Deck:        {label}",
+            f"│  Slide:       {slide_num} / {total}          Visual: {idx} / {n_ok}",
+            f"│  Kind:        {vk}",
+            f"│  Chart type:  {ctype}",
+        ]
+        if xa or ya:
+            lines.append(f"│  Axes:        X: {xa or '—'}    Y: {ya or '—'}")
+        lines.append(f"│  Pipeline:    {keys_s}")
+        lines.append("│")
+        lines.append("│  What it shows:")
+        lines.extend(
+            "│" + row
+            for row in textwrap.wrap(
+                interp or "—",
+                width=86,
+                initial_indent="  ",
+                subsequent_indent="  ",
+                break_long_words=True,
+                break_on_hyphens=False,
+            )
+        )
+        lines.append("│")
+        lines.append("│  Coverage / gaps:")
+        lines.extend(
+            "│" + row
+            for row in textwrap.wrap(
+                cov or "—",
+                width=86,
+                initial_indent="  ",
+                subsequent_indent="  ",
+                break_long_words=True,
+                break_on_hyphens=False,
+            )
+        )
+        lines.append("└" + "─" * 69)
+        logger.info("\n".join(lines))
 
 
 def _get_cached_classification(cache_key: str) -> dict | None:
@@ -126,7 +222,7 @@ def _resolve_cached_replacements(cached: list[dict], data_summary: dict) -> list
 
 # ── Broader slide analysis (data ask + purpose) for future-proof cache ─────────
 # Bump when we change the analysis schema so old entries are ignored.
-_SLIDE_ANALYSIS_CACHE_VERSION = 5  # v5: slide_type hints for title/cover/divider (hydrate skip)
+_SLIDE_ANALYSIS_CACHE_VERSION = 7  # v7: charts[].interpretation + visual_kind + explicit pipeline gaps for visuals
 
 # Canonical data keys we can resolve from report/data_summary. LLM uses these or adds slugs.
 CANONICAL_DATA_KEYS = (
@@ -182,16 +278,33 @@ def _analyze_slide_broad(client, text: str, elements: dict, thumb_b64: str | Non
         "Prefer 'title' (opening title), 'bespoke_cover' (branded cover), or "
         "'bespoke_divider' (section/chapter title) when the slide is **primarily a title or cover** "
         "with no customer metrics to refresh — hydration will not rewrite numbers on those types.\n\n"
-        "CHARTS & GRAPHS (REQUIRED): You MUST identify and describe every chart and graph on the slide. "
-        "Look at the slide image and at Elements — any element with type 'chart' or type 'image' may be a chart. "
-        "For EACH chart/graph you see, add one object to the 'charts' array. Do NOT leave charts empty if the slide contains any visualization.\n"
-        "For each chart return:\n"
-        "  chart_type: line, bar, stacked_bar, column, pie, donut, area, combo, scatter, or a short description\n"
-        "  x_axis: label/description of the x axis (e.g. 'Month', 'Site', 'Category'); empty string for pie/donut\n"
-        "  y_axis: label/description of the y axis (e.g. 'Count', 'Revenue', '%'); empty string if N/A\n"
-        "  transformations: array of how data is transformed (e.g. 'group by quarter', 'rolling 7-day average', 'sum by category', 'YoY comparison')\n"
-        "  configuration: optional string describing other visible settings — legend position (e.g. bottom, right), series labels, colors or categories, axis scale (linear/log), gridlines, annotations, anything that would be needed to reproduce the chart\n"
-        "If there are truly no charts/graphs on the slide, return charts: [].\n\n"
+        "VISUALS (charts, graphs, plot images): You MUST analyze every visualization on the slide — including "
+        "native Slides **chart** elements AND **image** elements that show charts, plots, dashboards, or data graphics. "
+        "Use the slide thumbnail; read axis titles, legends, and labels when visible.\n"
+        "For EACH distinct visualization add one object to the 'charts' array (even if it is a pasted screenshot). "
+        "If the slide has no charts or data images, return charts: [].\n"
+        "For each visualization return:\n"
+        "  visual_kind: one of native_chart | image_or_screenshot | table_as_chart | unknown\n"
+        "  interpretation: REQUIRED — 1–2 short sentences (max ~280 characters) describing what DATA the visual encodes "
+        "(metrics, time span, comparison). If illegible, say so briefly.\n"
+        "  chart_type: line, bar, stacked_bar, column, pie, donut, area, combo, scatter, table, heatmap, or short text\n"
+        "  x_axis: label/description of the x axis; empty string if N/A\n"
+        "  y_axis: label/description of the y axis; empty string if N/A\n"
+        "  transformations: array of how data is transformed (e.g. 'group by quarter', 'rolling average')\n"
+        "  configuration: optional — legend, series names, colors, gridlines, etc.\n"
+        "  data_recommended_keys: array of 0–10 strings — ONLY from this exact list (exact spellings): "
+        f"{keys_list}. "
+        "Pick the **minimum** set of pipeline fields that could **replace or rebuild** this visual with our automated data. "
+        "Use [] if the visual needs metrics we do not model (name them in data_coverage_note).\n"
+        "  data_coverage_note: 1–2 sentences. State whether our pipeline likely has this data. "
+        "If something is missing (e.g. 'export usage', 'SKU-level revenue'), name it explicitly and say **not in pipeline**.\n"
+        "If there are truly no charts/graphs/data images on the slide, return charts: []. "
+        "At most 8 objects in charts[] — prioritize the most data-heavy visuals.\n\n"
+        "JSON RULES (critical): Output ONE JSON object only, no markdown fences. "
+        "Every string must be valid JSON: escape double-quotes as \\\", backslashes as \\\\, "
+        "and use \\n for newlines — never put a raw line break inside a string. "
+        "Keep example_from_slide under 100 characters (paraphrase; do not paste long slide quotes). "
+        "Keep reasoning under 300 characters.\n\n"
         "Return JSON:\n"
         "  data_ask: [{ key, example_from_slide }, ...]\n"
         "  purpose: string\n"
@@ -199,7 +312,8 @@ def _analyze_slide_broad(client, text: str, elements: dict, thumb_b64: str | Non
         "  title: string\n"
         "  reasoning: string\n"
         "  custom_sections: (only if slide_type='custom') [{header, body}]\n"
-        "  charts: [{ chart_type, x_axis, y_axis, transformations, configuration? }, ...]  // REQUIRED to fill for every chart/graph visible\n"
+        "  charts: [{ visual_kind, interpretation, chart_type, x_axis, y_axis, transformations, configuration?, "
+        "data_recommended_keys, data_coverage_note }, ...]\n"
     )
 
     parts: list[dict] = []
@@ -213,38 +327,77 @@ def _analyze_slide_broad(client, text: str, elements: dict, thumb_b64: str | Non
         f"Extracted text:\n{text or '(no text)'}\n\n"
         f"Elements (look for type 'chart' or 'image' — each may be a chart/graph):\n{json.dumps(elements)}\n\n"
         "Analyze: (1) data_ask, (2) purpose, (3) slide_type, (4) title. "
-        "Then identify EVERY chart and graph on the slide. For each one, fill the charts array with chart_type, x_axis, y_axis, transformations, and configuration (legend, series, colors, axis scale, etc.) so we can reproduce the chart setup."
+        "Then list every visualization in charts[], each with interpretation (what data it shows) and "
+        "data_recommended_keys when our pipeline can supply it."
     )})
 
-    resp = _llm_create_with_retry(client,
-        model=LLM_MODEL,
-        temperature=0,
-        max_tokens=4096,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": parts},
-        ],
-    )
-    raw_content = resp.choices[0].message.content or ""
-    try:
-        analysis = json.loads(raw_content)
-    except json.JSONDecodeError as e:
-        logger.warning("_analyze_slide_broad: LLM returned invalid JSON (slide %s/%s): %s", slide_num, total, e)
-        # Extract purpose from raw response (often present even when JSON is truncated)
-        import re as _re
-        purpose_match = _re.search(r'"purpose"\s*:\s*"((?:[^"\\]|\\.)*)"?', raw_content)
-        purpose_fallback = purpose_match.group(1).strip() if purpose_match and purpose_match.group(1) else None
-        if not purpose_fallback:
-            title_match = _re.search(r'"title"\s*:\s*"((?:[^"\\]|\\.)*)"?', raw_content)
-            purpose_fallback = title_match.group(1).strip() if title_match and title_match.group(1) else None
-        title_guess = (text or "").strip().split("\n")[0].strip()[:100] if text else ""
-        if not purpose_fallback:
-            purpose_fallback = f"Slide: {title_guess}" if title_guess else "Slide content (analysis parse failed)"
-        return {"data_ask": [], "purpose": purpose_fallback, "slide_type": "custom", "title": title_guess, "reasoning": "", "charts": []}
-    if not isinstance(analysis.get("charts"), list):
-        analysis["charts"] = []
-    return analysis
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": parts},
+    ]
+    raw_content = ""
+    for attempt in range(2):
+        resp = _llm_create_with_retry(
+            client,
+            model=LLM_MODEL,
+            temperature=0,
+            max_tokens=_BROAD_ANALYSIS_MAX_TOKENS,
+            response_format={"type": "json_object"},
+            messages=messages,
+        )
+        raw_content = _strip_json_code_fence(resp.choices[0].message.content or "")
+        try:
+            analysis = json.loads(raw_content)
+        except json.JSONDecodeError as e:
+            if attempt == 0:
+                logger.warning(
+                    "_analyze_slide_broad: invalid JSON (slide %s/%s), retrying once: %s",
+                    slide_num,
+                    total,
+                    e,
+                )
+                # Avoid blowing context with a huge truncated reply
+                clipped = raw_content[:6000] + ("…" if len(raw_content) > 6000 else "")
+                messages.append({"role": "assistant", "content": clipped})
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        f"That output was not valid JSON ({e}). "
+                        "Reply with a single valid JSON object only — no markdown. "
+                        "Escape every \" inside strings as \\\". "
+                        "Use \\n for newlines inside strings. "
+                        "Shorten strings if needed; cap charts at 6 items."
+                    ),
+                })
+                continue
+            logger.warning(
+                "_analyze_slide_broad: LLM returned invalid JSON after retry (slide %s/%s): %s",
+                slide_num,
+                total,
+                e,
+            )
+            import re as _re
+            purpose_match = _re.search(r'"purpose"\s*:\s*"((?:[^"\\]|\\.)*)"?', raw_content)
+            purpose_fallback = purpose_match.group(1).strip() if purpose_match and purpose_match.group(1) else None
+            if not purpose_fallback:
+                title_match = _re.search(r'"title"\s*:\s*"((?:[^"\\]|\\.)*)"?', raw_content)
+                purpose_fallback = title_match.group(1).strip() if title_match and title_match.group(1) else None
+            title_guess = (text or "").strip().split("\n")[0].strip()[:100] if text else ""
+            if not purpose_fallback:
+                purpose_fallback = f"Slide: {title_guess}" if title_guess else "Slide content (analysis parse failed)"
+            return {
+                "data_ask": [],
+                "purpose": purpose_fallback,
+                "slide_type": "custom",
+                "title": title_guess,
+                "reasoning": "",
+                "charts": [],
+            }
+        if not isinstance(analysis.get("charts"), list):
+            analysis["charts"] = []
+        _log_slide_visual_findings(pres_name, slide_num, total, analysis["charts"])
+        return analysis
+    assert False, "_analyze_slide_broad: unreachable"  # noqa: B011
 
 
 def _resolve_data_ask_to_replacements(data_ask: list[dict], data_summary: dict,
@@ -1596,11 +1749,55 @@ DATA_SOURCE_BY_FIELD: dict[str, str] = {
 }
 
 
+def _normalize_canonical_data_key(key: str) -> str:
+    return (key or "").strip().replace(" ", "_").replace("-", "_").lower()
+
+
+def _filter_chart_recommended_keys(raw: Any) -> list[str]:
+    """Keep LLM-suggested keys that match our pipeline (deduped, order preserved)."""
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        nk = _normalize_canonical_data_key(item)
+        if nk in _AVAILABLE_DATA_KEYS:
+            out.append(nk)
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for k in out:
+        if k not in seen:
+            seen.add(k)
+            deduped.append(k)
+    return deduped
+
+
+def _format_data_summary_value(val: Any, max_chars: int = 2000) -> str:
+    """Compact string for speaker notes (JSON for nested structures)."""
+    import json as _json
+    if val is None:
+        return "(null)"
+    if isinstance(val, (str, int, float, bool)):
+        s = str(val)
+        return s if len(s) <= max_chars else s[: max_chars - 3] + "..."
+    try:
+        s = _json.dumps(val, indent=2, default=str, ensure_ascii=False)
+    except Exception:
+        s = str(val)
+    return s if len(s) <= max_chars else s[: max_chars - 3] + "..."
+
+
 def _build_hydrate_speaker_notes(
     replacements: list[dict],
     text_elements: list[dict],
     *,
     report: dict | None = None,
+    data_summary: dict | None = None,
     has_unmapped: bool = False,
     has_static_images: bool = False,
     analysis: dict | None = None,
@@ -1610,6 +1807,11 @@ def _build_hydrate_speaker_notes(
     import re as _re
     from datetime import datetime as _dt
     _ts = _dt.now().strftime("%Y-%m-%d %H:%M")
+    ds: dict[str, Any] = {}
+    if data_summary is not None:
+        ds = data_summary
+    elif report:
+        ds = _build_data_summary(report)
     lines: list[str] = [
         "══ QA this slide — data governance ══",
         f"Generated: {_ts}",
@@ -1700,11 +1902,29 @@ def _build_hydrate_speaker_notes(
     chart_specs = (analysis or {}).get("charts") or []
     if chart_and_image or chart_specs:
         lines.append("")
-        lines.append("Charts & graphs on this slide (replace or verify for current period):")
-        for i, r in enumerate(chart_and_image):
-            kind = "Chart/graph" if r.get("field") == "chart" or _EMBEDDED_CHART_TEXT in str(r.get("original", "")) else "Image (may contain data)"
-            spec = chart_specs[i] if i < len(chart_specs) and isinstance(chart_specs[i], dict) else None
+        lines.append(
+            "Visuals — charts & data images (LLM interpretation; pipeline data when available):"
+        )
+        n_vis = len(chart_and_image)
+        n_spec = len(chart_specs)
+        n_charts = max(n_vis, n_spec)
+        for i in range(n_charts):
+            r = chart_and_image[i] if i < n_vis else None
+            spec = chart_specs[i] if i < n_spec and isinstance(chart_specs[i], dict) else None
+            if r:
+                kind = (
+                    "Chart/graph"
+                    if r.get("field") == "chart" or _EMBEDDED_CHART_TEXT in str(r.get("original", ""))
+                    else "Image (may contain data)"
+                )
+            elif spec:
+                kind = "Visual (from analysis — no separate replacement row)"
+            else:
+                kind = "Visual"
             if spec:
+                vk = (spec.get("visual_kind") or "").strip()
+                if vk:
+                    kind = f"{kind} [{vk}]"
                 ctype = spec.get("chart_type") or "chart"
                 x_lab = spec.get("x_axis") or ""
                 y_lab = spec.get("y_axis") or ""
@@ -1723,8 +1943,41 @@ def _build_hydrate_speaker_notes(
                 if config:
                     parts_spec.append(f"Config: {config}")
                 lines.append(f"   {i + 1}. {kind} — " + " | ".join(parts_spec))
+                interp = (spec.get("interpretation") or "").strip()
+                if interp:
+                    ip = interp if len(interp) <= 1200 else interp[:1197] + "..."
+                    lines.append(f"      What it shows: {ip}")
+                rec_keys = _filter_chart_recommended_keys(spec.get("data_recommended_keys"))
+                cov = (spec.get("data_coverage_note") or "").strip()
+                cov_short = cov[:400] + ("..." if len(cov) > 400 else "")
+                if rec_keys:
+                    lines.append(
+                        "      Pipeline fields that may supply this visual (best guess): "
+                        + ", ".join(rec_keys)
+                    )
+                elif cov_short:
+                    lines.append(
+                        "      Pipeline fields: (none matched — see coverage note below)"
+                    )
+                if cov_short:
+                    lines.append(f"      Coverage / gaps: {cov_short}")
+                if ds and rec_keys:
+                    lines.append("      Data we have for this run (copy from pipeline — verify against the slide):")
+                    for pk in rec_keys:
+                        src_lbl = DATA_SOURCE_BY_FIELD.get(pk, "Report/data")
+                        if pk in ds:
+                            snap = _format_data_summary_value(ds.get(pk))
+                            lines.append(f"         • {pk} [{src_lbl}]: {snap}")
+                        else:
+                            lines.append(
+                                f"         • {pk} [{src_lbl}]: (not in this report snapshot)"
+                            )
+                elif not rec_keys and (interp or cov_short):
+                    lines.append(
+                        "      Auto-fetch: not mapped to pipeline keys — source this data manually or extend integrations."
+                    )
             else:
-                lines.append(f"   {i + 1}. {kind} — cannot be auto-updated")
+                lines.append(f"   {i + 1}. {kind} — cannot be auto-updated (no visual analysis)")
         lines.append("")
     lines.append("B. On-slide lines (numbers, $, %, or [placeholders])")
     seen: set[str] = set()
@@ -1959,16 +2212,109 @@ def _add_incomplete_banner(page_id: str, slide_w: int = 720, slide_h: int = 405,
     return reqs
 
 
-def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
-                        report: dict, oai) -> dict[str, Any]:
+def _replacement_is_visual(r: dict) -> bool:
+    """True if this row is a static chart/image placeholder (not a text data swap)."""
+    fld = str(r.get("field") or "")
+    if fld in ("chart", "image"):
+        return True
+    orig = str(r.get("original") or "")
+    return orig in _EMBEDDED_IMAGE_TEXTS + (_EMBEDDED_CHART_TEXT,)
+
+
+def _build_hydrate_data_match_notes(slide_entries: list[dict[str, Any]]) -> str:
+    """Speaker-notes body: per-slide source field → target value (or none)."""
+    lines: list[str] = [
+        "Data matching — source identifier : target (or none)",
+        "",
+    ]
+    for block in slide_entries:
+        sn = block.get("slide_num")
+        reps = block.get("replacements") or []
+        if not reps:
+            continue
+        lines.append(f"Slide {sn}")
+        for r in reps:
+            fld = str(r.get("field") or "?").strip()
+            if _replacement_is_visual(r):
+                lines.append(f"  {fld} : none")
+                continue
+            mapped = r.get("mapped", True)
+            nv = str(r.get("new_value") or "").replace("\n", " ").strip()
+            target = nv if (mapped and nv) else "none"
+            lines.append(f"  {fld} : {target}")
+        lines.append("")
+    body = "\n".join(lines).strip()
+    if len(body) > 11500:
+        body = body[:11400] + "\n\n… (truncated)"
+    return body
+
+
+def _append_hydrate_summary_slide(
+    slides_svc,
+    pres_id: str,
+    *,
+    body_text: str,
+    notes_text: str,
+) -> bool:
+    """Append a slide at the end with summary body + speaker notes. Returns True on success."""
+    from googleapiclient.errors import HttpError
+
+    try:
+        pres = slides_svc.presentations().get(presentationId=pres_id).execute()
+        insertion = len(pres.get("slides") or [])
+    except HttpError as e:
+        logger.warning("hydrate summary slide: could not read presentation: %s", e)
+        return False
+
+    sid = f"hydrate_run_{secrets.token_hex(8)}"
+    title_oid = f"{sid}_t"
+    body_oid = f"{sid}_b"
+    reqs: list[dict[str, Any]] = []
+    _slide(reqs, sid, insertion)
+    _box(reqs, title_oid, sid, 36, 36, 648, 56, "Hydrate run summary")
+    _wrap_box(reqs, body_oid, sid, 36, 108, 648, 360, body_text)
+    try:
+        slides_svc.presentations().batchUpdate(
+            presentationId=pres_id, body={"requests": reqs},
+        ).execute()
+    except HttpError as e:
+        logger.warning("hydrate summary slide: batchUpdate failed: %s", e)
+        return False
+    if set_speaker_notes(slides_svc, pres_id, sid, notes_text):
+        return True
+    logger.warning("hydrate summary slide: could not write speaker notes on summary slide")
+    return False
+
+
+def adapt_custom_slides(
+    slides_svc,
+    pres_id: str,
+    page_ids: list[str],
+    report: dict,
+    oai,
+    *,
+    source_presentation_name: str = "",
+    run_started_at: datetime.datetime | None = None,
+) -> dict[str, Any]:
     """Adapt slides by replacing data values with current data.
 
     Two-phase approach:
       Phase A (parallel)  — thumbnail fetch + GPT-4o per slide (I/O bound, safe to parallelise)
       Phase B (sequential) — Slides API batchUpdate per slide (mutates shared presentation state)
+
+    Clears speaker notes on all slides in ``page_ids``; appends a summary slide at the end with
+    run stats on-slide and data-matching details in that slide's speaker notes.
     """
+    run_start = run_started_at or datetime.datetime.now(datetime.timezone.utc)
     data_summary = _build_data_summary(report)
-    stats = {"adapted": 0, "incomplete": 0, "clean": 0, "skipped": 0, "notes_only": 0}
+    stats = {
+        "adapted": 0,
+        "incomplete": 0,
+        "clean": 0,
+        "skipped": 0,
+        "notes_only": 0,
+        "summary_slide_added": False,
+    }
 
     pres = slides_svc.presentations().get(presentationId=pres_id).execute()
     slides_by_id = {s["objectId"]: s for s in pres.get("slides", [])}
@@ -2055,7 +2401,7 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
                 adapt_cache_counts["error"] = adapt_cache_counts.get("error", 0) + 1
                 results[pid] = ([], [], None)
 
-    # ── Phase B: sequential Slides API writes ──────────────────────────────────
+    # ── Phase B: sequential Slides API writes — clear per-slide notes; summary at end ─
     for page_id in page_ids:
         text_elements, replacements, analysis = results.get(page_id, ([], [], None))
         slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
@@ -2063,21 +2409,13 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
         if not text_elements:
             stats["skipped"] += 1
             _print(f"    slide {slide_num}: no text on slide")
+            set_speaker_notes(slides_svc, pres_id, page_id, "")
             continue
 
         if not replacements:
             stats["notes_only"] += 1
-            _print(f"    slide {slide_num}: no data values to replace — writing QA speaker notes only")
-            notes = _build_hydrate_speaker_notes(
-                [], text_elements,
-                report=report,
-                has_unmapped=False,
-                has_static_images=False,
-                analysis=analysis,
-                oai=oai,
-            )
-            if not set_speaker_notes(slides_svc, pres_id, page_id, notes):
-                logger.warning("hydrate: slide %s — could not write speaker notes", slide_num)
+            _print(f"    slide {slide_num}: no data values — cleared speaker notes")
+            set_speaker_notes(slides_svc, pres_id, page_id, "")
             continue
 
         mapped_count = sum(1 for r in replacements if r.get("mapped"))
@@ -2099,6 +2437,7 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
                 logger.warning("hydrate: slide %s — failed to apply text replacements: %s",
                                slide_num, e)
                 stats["skipped"] += 1
+                set_speaker_notes(slides_svc, pres_id, page_id, "")
                 continue
 
         if has_unmapped:
@@ -2117,16 +2456,101 @@ def adapt_custom_slides(slides_svc, pres_id: str, page_ids: list[str],
             stats["clean"] += 1
 
         stats["adapted"] += 1
-        notes = _build_hydrate_speaker_notes(
-            replacements, text_elements,
-            report=report,
-            has_unmapped=has_unmapped,
-            has_static_images=has_static_images,
-            analysis=analysis,
-            oai=oai,
+        if not set_speaker_notes(slides_svc, pres_id, page_id, ""):
+            logger.warning("hydrate: slide %s — could not clear speaker notes", slide_num)
+
+    run_end = datetime.datetime.now(datetime.timezone.utc)
+    src_label = (source_presentation_name or pres_id or "(unknown)")[:200]
+
+    slides_processed = len(page_ids)
+    slides_with_data = 0
+    charts_identified = 0
+    charts_not_identified = 0
+    elements_replaced = 0
+    elements_not_updated = 0
+
+    for _pid, (te, reps, analysis) in results.items():
+        if reps:
+            slides_with_data += 1
+        for r in reps:
+            if _replacement_is_visual(r):
+                elements_not_updated += 1
+            elif r.get("mapped"):
+                elements_replaced += 1
+            else:
+                elements_not_updated += 1
+
+        chs = (analysis or {}).get("charts") if analysis else None
+        if isinstance(chs, list) and chs:
+            for ch in chs:
+                if not isinstance(ch, dict):
+                    continue
+                if _filter_chart_recommended_keys(ch.get("data_recommended_keys")):
+                    charts_identified += 1
+                else:
+                    charts_not_identified += 1
+        else:
+            ncr = sum(
+                1 for r in reps
+                if r.get("field") == "chart" or _EMBEDDED_CHART_TEXT in str(r.get("original", ""))
+            )
+            charts_not_identified += ncr
+
+    slide_match_entries: list[dict[str, Any]] = []
+    for page_id in page_ids:
+        _te, reps, _an = results.get(page_id, ([], [], None))
+        if not reps:
+            continue
+        sn = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else 0
+        slide_match_entries.append({"slide_num": sn, "replacements": reps})
+
+    if slide_match_entries:
+        match_notes = _build_hydrate_data_match_notes(slide_match_entries)
+    else:
+        match_notes = (
+            "Data matching — source identifier : target (or none)\n\n"
+            "(No slides with replacement rows in this run.)"
         )
-        if not set_speaker_notes(slides_svc, pres_id, page_id, notes):
-            logger.warning("hydrate: slide %s — could not write speaker notes", slide_num)
+    dur = run_end - run_start
+    dur_s = int(dur.total_seconds())
+    _mm, ss = divmod(dur_s, 60)
+    hh, mm = divmod(_mm, 60)
+    dur_str = f"{hh}:{mm:02d}:{ss:02d}" if hh else f"{mm}:{ss:02d}"
+
+    summary_body = "\n".join([
+        f"Source presentation: {src_label}",
+        "",
+        f"Start: {run_start.strftime('%Y-%m-%d %H:%M:%S UTC')}",
+        f"End:   {run_end.strftime('%Y-%m-%d %H:%M:%S UTC')}",
+        f"Duration: {dur_str}",
+        "",
+        f"Slides processed: {slides_processed}",
+        f"Slides with data found: {slides_with_data}",
+        "",
+        f"Charts & graphs — data identified: {charts_identified} / not identified: {charts_not_identified}",
+        "",
+        f"Data elements — replaced with current data: {elements_replaced} / not updated: {elements_not_updated}",
+    ])
+
+    if _append_hydrate_summary_slide(
+        slides_svc,
+        pres_id,
+        body_text=summary_body,
+        notes_text=match_notes,
+    ):
+        stats["summary_slide_added"] = True
+    else:
+        stats["summary_slide_added"] = False
+        logger.warning("hydrate: could not append summary slide (see logs above)")
+
+    stats["run_started_utc"] = run_start.isoformat()
+    stats["run_ended_utc"] = run_end.isoformat()
+    stats["duration_seconds"] = dur_s
+    stats["slides_with_data"] = slides_with_data
+    stats["charts_identified"] = charts_identified
+    stats["charts_not_identified"] = charts_not_identified
+    stats["elements_replaced"] = elements_replaced
+    stats["elements_not_updated"] = elements_not_updated
 
     n_pages = len(page_ids)
     ah = adapt_cache_counts.get("analysis_hit", 0)
@@ -2291,6 +2715,55 @@ def _detect_customer(pres_name: str, known_customers: list[str]) -> str | None:
     )
     result = json.loads(resp.choices[0].message.content)
     return result.get("customer")
+
+
+def _remove_intake_group_permission_from_file(drive_svc, file_id: str, group_email: str) -> int:
+    """Remove Drive ACL entries for ``group_email`` on ``file_id``.
+
+    Used after hydrate to drop the intake group from the **source** deck's sharing.
+    Caller must have permission to modify sharing on that file.
+
+    Returns how many permission rows were deleted (usually 0 or 1).
+    """
+    ge = (group_email or "").strip().lower()
+    if not ge:
+        return 0
+    removed = 0
+    try:
+        page_token: str | None = None
+        while True:
+            req = drive_svc.permissions().list(
+                fileId=file_id,
+                fields="nextPageToken, permissions(id,emailAddress,type,role)",
+                supportsAllDrives=True,
+                pageSize=100,
+                pageToken=page_token,
+            )
+            resp = req.execute()
+            for p in resp.get("permissions", []):
+                addr = (p.get("emailAddress") or "").strip().lower()
+                if addr != ge:
+                    continue
+                pid = p.get("id")
+                if not pid:
+                    continue
+                drive_svc.permissions().delete(
+                    fileId=file_id,
+                    permissionId=pid,
+                    supportsAllDrives=True,
+                ).execute()
+                removed += 1
+                logger.info(
+                    "hydrate: removed Drive permission for %s from file %s",
+                    ge,
+                    file_id,
+                )
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                break
+    except Exception as e:
+        logger.warning("hydrate: could not remove intake group from file: %s", e)
+    return removed
 
 
 def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, Any]]:
@@ -2518,8 +2991,11 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
             if status == 403:
                 _print("    Hint: Service account may lack access to the source file or output folder.")
             elif status == 404:
-                _print("    Hint: The service account can read this file but cannot copy it.")
-                _print("    Fix: Open the source file in Drive, click Share, and give the service account 'Editor' access.")
+                _print("    Hint: Drive returned 404 (file not found for this request). Typical causes:")
+                _print("      • Presentation was deleted, moved to trash, or the file id is stale/wrong.")
+                _print("      • The integration user cannot see the file for copy (some setups surface this as 404).")
+                _print("    Fix: Open the URL above; if it loads, share that file with the service account as Editor.")
+                _print("    Fix: Restore from trash if applicable, or re-share the deck with the intake group.")
             all_results.append({
                 "name": pres_name,
                 "error": f"copy failed: HTTP {status} {detail or str(e)}",
@@ -2658,9 +3134,16 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
 
         if adapt_page_ids:
             _print(f"\n  Adapting {len(adapt_page_ids)} slides with current data...")
+            adapt_phase_started = datetime.datetime.now(datetime.timezone.utc)
             adapt_stats = adapt_custom_slides(
                 slides_svc, pres_id, adapt_page_ids, report, oai,
+                source_presentation_name=pres_name,
+                run_started_at=adapt_phase_started,
             )
+            if adapt_stats.get("summary_slide_added"):
+                _print(
+                    "  Summary slide appended at end of deck (stats on slide; per-field matching in its notes)."
+                )
             _print(f"  Adapted: {adapt_stats['adapted']} slides "
                    f"({adapt_stats['clean']} clean, {adapt_stats['incomplete']} incomplete, "
                    f"{adapt_stats['skipped']} unchanged, "
@@ -2686,6 +3169,16 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
                        f"llm={c.get('llm', 0)}]")
                 run_cache_totals["adapt_slides"] += tot
                 run_cache_totals["adapt_served"] += served
+
+        if HYDRATE_REMOVE_INTAKE_GROUP_PERMISSION and GOOGLE_HYDRATE_INTAKE_GROUP:
+            n_perm = _remove_intake_group_permission_from_file(
+                drive_svc, source_id, GOOGLE_HYDRATE_INTAKE_GROUP
+            )
+            if n_perm:
+                _print(
+                    f"  Removed intake group {GOOGLE_HYDRATE_INTAKE_GROUP!r} "
+                    f"from source deck sharing ({n_perm} permission(s))."
+                )
 
         result_entry: dict[str, Any] = {
             "name": pres_name, "customer": customer,

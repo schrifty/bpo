@@ -2,6 +2,7 @@
 
 Authenticates with a Connected App via JWT signed by a private key.
 Queries Account (Entity Contract) and Opportunity (creation count, pipeline ARR).
+Also exposes SOQL helpers for common standard objects (see MAINSTREAM_OBJECT_FIELDS).
 """
 
 import time
@@ -27,6 +28,81 @@ ACCOUNT_FIELDS = (
 # Opportunity types for creation and pipeline
 OPP_TYPES = ("New Business", "New Expansion Business", "Expansion Business", "POC")
 PIPELINE_STAGES = ("3-Business Validation", "4-Proposal", "5-Contracts")
+
+# REST API version used for query + sObject metadata (keep in sync across methods).
+SF_REST_API_VERSION = "v59.0"
+
+# Default SELECT columns for mainstream standard objects (org must expose these fields).
+# If a field is missing or renamed in your org, pass ``fields=`` to ``query_mainstream_object``
+# or use ``query_soql`` with your own SOQL.
+MAINSTREAM_OBJECT_FIELDS: dict[str, tuple[str, ...]] = {
+    "Lead": (
+        "Id", "FirstName", "LastName", "Company", "Email", "Phone", "Status", "LeadSource",
+        "OwnerId", "CreatedDate", "LastModifiedDate", "IsConverted",
+    ),
+    "Account": (
+        "Id", "Name", "Type", "Industry", "BillingCity", "BillingState", "BillingCountry",
+        "Phone", "Website", "OwnerId", "CreatedDate",
+    ),
+    "Contact": (
+        "Id", "FirstName", "LastName", "Email", "Phone", "AccountId", "Title",
+        "MailingCity", "MailingState", "MailingCountry", "OwnerId", "CreatedDate",
+    ),
+    "Opportunity": (
+        "Id", "Name", "AccountId", "StageName", "Amount", "Probability", "CloseDate", "Type",
+        "ForecastCategoryName", "OwnerId", "CreatedDate", "LastModifiedDate",
+    ),
+    "Case": (
+        "Id", "CaseNumber", "Subject", "Status", "Priority", "Origin",
+        "AccountId", "ContactId", "OwnerId", "CreatedDate", "ClosedDate",
+    ),
+    "Task": (
+        "Id", "Subject", "Status", "Priority", "ActivityDate", "WhoId", "WhatId",
+        "OwnerId", "IsClosed", "CreatedDate",
+    ),
+    "Event": (
+        "Id", "Subject", "StartDateTime", "EndDateTime", "Location", "WhoId", "WhatId",
+        "OwnerId", "CreatedDate",
+    ),
+    "Campaign": (
+        "Id", "Name", "Status", "Type", "StartDate", "EndDate", "BudgetedCost", "ActualCost",
+        "OwnerId",
+    ),
+    "CampaignMember": (
+        "Id", "CampaignId", "LeadId", "ContactId", "Status", "CreatedDate",
+    ),
+    "User": (
+        "Id", "Name", "Username", "Email", "IsActive", "ProfileId", "UserType",
+    ),
+    "Product2": (
+        "Id", "Name", "ProductCode", "Description", "IsActive", "Family", "CreatedDate",
+    ),
+    "Pricebook2": (
+        "Id", "Name", "IsActive", "IsStandard", "Description",
+    ),
+    "Contract": (
+        "Id", "ContractNumber", "AccountId", "Status", "StartDate", "EndDate",
+        "ContractTerm", "OwnerId", "CreatedDate",
+    ),
+    "Order": (
+        "Id", "OrderNumber", "AccountId", "EffectiveDate", "Status", "TotalAmount",
+        "Type", "OwnerId", "CreatedDate",
+    ),
+    "Quote": (
+        "Id", "QuoteNumber", "Name", "OpportunityId", "AccountId", "Status",
+        "ExpirationDate", "GrandTotal", "OwnerId", "CreatedDate",
+    ),
+    "Asset": (
+        "Id", "Name", "AccountId", "SerialNumber", "Status", "Product2Id",
+        "InstallDate", "OwnerId",
+    ),
+    "OpportunityLineItem": (
+        "Id", "OpportunityId", "Product2Id", "Quantity", "UnitPrice", "TotalPrice",
+        "ServiceDate",
+    ),
+}
+
+MAINSTREAM_OBJECT_NAMES: tuple[str, ...] = tuple(sorted(MAINSTREAM_OBJECT_FIELDS.keys()))
 
 
 def _parse_oauth_error(resp: requests.Response | None) -> str:
@@ -118,7 +194,7 @@ class SalesforceClient:
     def _query(self, soql: str) -> list[dict]:
         """Run SOQL query and return list of records."""
         self._ensure_token()
-        url = f"{self._instance_url}/services/data/v59.0/query"
+        url = f"{self._instance_url}/services/data/{SF_REST_API_VERSION}/query"
         params = {"q": soql}
         headers = {"Authorization": f"Bearer {self._token}"}
         out: list[dict] = []
@@ -136,6 +212,140 @@ class SalesforceClient:
             else:
                 req_url = None
         return out
+
+    def query_soql(self, soql: str) -> list[dict[str, Any]]:
+        """Public: run arbitrary SOQL (same as internal query runner)."""
+        return self._query(soql)
+
+    def list_sobject_types(self) -> list[dict[str, Any]]:
+        """Return global describe list (``sobjects``) — name, label, custom flags, etc."""
+        self._ensure_token()
+        url = f"{self._instance_url}/services/data/{SF_REST_API_VERSION}/sobjects/"
+        resp = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {self._token}"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return resp.json().get("sobjects", [])
+
+    def query_mainstream_object(
+        self,
+        object_api_name: str,
+        *,
+        fields: tuple[str, ...] | None = None,
+        where: str | None = None,
+        limit: int | None = 2000,
+    ) -> list[dict[str, Any]]:
+        """SELECT default field sets for a known standard object (see MAINSTREAM_OBJECT_FIELDS).
+
+        ``where`` is the SOQL condition only (no leading ``WHERE``). Use bind-safe literals;
+        this does not escape user input.
+
+        Raises ``ValueError`` if ``object_api_name`` is unknown and ``fields`` is omitted.
+        """
+        if fields is not None:
+            cols = fields
+        elif object_api_name in MAINSTREAM_OBJECT_FIELDS:
+            cols = MAINSTREAM_OBJECT_FIELDS[object_api_name]
+        else:
+            raise ValueError(
+                f"Unknown mainstream object {object_api_name!r}; pass fields=(...) or use one "
+                f"of: {', '.join(MAINSTREAM_OBJECT_NAMES)}"
+            )
+        field_list = ", ".join(cols)
+        soql = f"SELECT {field_list} FROM {object_api_name}"
+        if where:
+            soql += f" WHERE {where}"
+        if limit is not None:
+            cap = max(1, min(int(limit), 2000))
+            soql += f" LIMIT {cap}"
+        return self._query(soql)
+
+    def query_leads(
+        self, *, where: str | None = None, limit: int | None = 2000
+    ) -> list[dict[str, Any]]:
+        return self.query_mainstream_object("Lead", where=where, limit=limit)
+
+    def query_accounts(
+        self, *, where: str | None = None, limit: int | None = 2000
+    ) -> list[dict[str, Any]]:
+        return self.query_mainstream_object("Account", where=where, limit=limit)
+
+    def query_contacts(
+        self, *, where: str | None = None, limit: int | None = 2000
+    ) -> list[dict[str, Any]]:
+        return self.query_mainstream_object("Contact", where=where, limit=limit)
+
+    def query_opportunities(
+        self, *, where: str | None = None, limit: int | None = 2000
+    ) -> list[dict[str, Any]]:
+        return self.query_mainstream_object("Opportunity", where=where, limit=limit)
+
+    def query_cases(
+        self, *, where: str | None = None, limit: int | None = 2000
+    ) -> list[dict[str, Any]]:
+        return self.query_mainstream_object("Case", where=where, limit=limit)
+
+    def query_tasks(
+        self, *, where: str | None = None, limit: int | None = 2000
+    ) -> list[dict[str, Any]]:
+        return self.query_mainstream_object("Task", where=where, limit=limit)
+
+    def query_events(
+        self, *, where: str | None = None, limit: int | None = 2000
+    ) -> list[dict[str, Any]]:
+        return self.query_mainstream_object("Event", where=where, limit=limit)
+
+    def query_campaigns(
+        self, *, where: str | None = None, limit: int | None = 2000
+    ) -> list[dict[str, Any]]:
+        return self.query_mainstream_object("Campaign", where=where, limit=limit)
+
+    def query_campaign_members(
+        self, *, where: str | None = None, limit: int | None = 2000
+    ) -> list[dict[str, Any]]:
+        return self.query_mainstream_object("CampaignMember", where=where, limit=limit)
+
+    def query_users(
+        self, *, where: str | None = None, limit: int | None = 2000
+    ) -> list[dict[str, Any]]:
+        return self.query_mainstream_object("User", where=where, limit=limit)
+
+    def query_products(
+        self, *, where: str | None = None, limit: int | None = 2000
+    ) -> list[dict[str, Any]]:
+        return self.query_mainstream_object("Product2", where=where, limit=limit)
+
+    def query_pricebooks(
+        self, *, where: str | None = None, limit: int | None = 2000
+    ) -> list[dict[str, Any]]:
+        return self.query_mainstream_object("Pricebook2", where=where, limit=limit)
+
+    def query_contracts(
+        self, *, where: str | None = None, limit: int | None = 2000
+    ) -> list[dict[str, Any]]:
+        return self.query_mainstream_object("Contract", where=where, limit=limit)
+
+    def query_orders(
+        self, *, where: str | None = None, limit: int | None = 2000
+    ) -> list[dict[str, Any]]:
+        return self.query_mainstream_object("Order", where=where, limit=limit)
+
+    def query_quotes(
+        self, *, where: str | None = None, limit: int | None = 2000
+    ) -> list[dict[str, Any]]:
+        return self.query_mainstream_object("Quote", where=where, limit=limit)
+
+    def query_assets(
+        self, *, where: str | None = None, limit: int | None = 2000
+    ) -> list[dict[str, Any]]:
+        return self.query_mainstream_object("Asset", where=where, limit=limit)
+
+    def query_opportunity_line_items(
+        self, *, where: str | None = None, limit: int | None = 2000
+    ) -> list[dict[str, Any]]:
+        return self.query_mainstream_object("OpportunityLineItem", where=where, limit=limit)
 
     def get_entity_accounts(self) -> list[dict[str, Any]]:
         """All Account records with Type = 'Customer Entity' (contract info)."""
@@ -168,7 +378,7 @@ class SalesforceClient:
             f"AND CALENDAR_YEAR(CreatedDate) = {time.gmtime().tm_year}"
         )
         self._ensure_token()
-        url = f"{self._instance_url}/services/data/v59.0/query"
+        url = f"{self._instance_url}/services/data/{SF_REST_API_VERSION}/query"
         resp = requests.get(
             url, params={"q": soql}, headers={"Authorization": f"Bearer {self._token}"}, timeout=30
         )

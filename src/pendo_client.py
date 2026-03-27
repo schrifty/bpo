@@ -1592,17 +1592,13 @@ class PendoClient:
             qa.flag(f"JIRA data unavailable: {str(e)[:80]}",
                     sources=("JIRA API",), severity="warning")
 
-        # Salesforce data (optional — JWT Bearer Flow, skipped if not configured)
+        # Salesforce — required when configured (preflight); skipped if not configured
+        from .data_source_health import _salesforce_configured
         salesforce_data: dict = {}
-        try:
+        if _salesforce_configured():
             from .salesforce_client import SalesforceClient
             sf = SalesforceClient()
             salesforce_data = sf.get_customer_salesforce(customer_name)
-        except Exception as e:
-            from .qa import qa
-            qa.flag(f"Salesforce data unavailable: {str(e)[:80]}",
-                    sources=("Salesforce API",), severity="warning")
-            salesforce_data = {"error": str(e)}
 
         # Cross-check: site count from health report vs detailed site list
         from .qa import qa

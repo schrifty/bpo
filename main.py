@@ -9,7 +9,10 @@ from src.config import logger
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="LangChain agent with Pendo API - ask questions about usage data"
+        description=(
+            "Pendo usage Q&A via a LangChain agent. "
+            "Pass a question, use -i for interactive mode, or run with no args for help."
+        )
     )
     parser.add_argument(
         "query",

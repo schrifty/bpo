@@ -8,5 +8,6 @@ This folder holds the **cross-system data registry** and **per-source schema** r
 | [`JIRA_DATA_SCHEMA.md`](./JIRA_DATA_SCHEMA.md) | Jira / JSM fields, APIs, and custom fields |
 | [`PENDO_DATA_SCHEMA.md`](./PENDO_DATA_SCHEMA.md) | Pendo aggregation sources, metadata, and events |
 | [`CSR_DATA_SCHEMA.md`](./CSR_DATA_SCHEMA.md) | Customer Success Report (Drive XLSX) columns and KPI JSON |
+| [`SALESFORCE_DATA_SCHEMA.md`](./SALESFORCE_DATA_SCHEMA.md) | Salesforce REST query surfaces, SOQL, Account/Opportunity fields |
 
 Other project docs (deployment, Salesforce setup, slide standards) remain under [`../`](../).

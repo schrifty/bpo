@@ -39,6 +39,9 @@ try:
     HYDRATE_MAX_SLIDES = max(0, int(_hms))
 except ValueError:
     HYDRATE_MAX_SLIDES = 10
+# After hydrate: remove GOOGLE_HYDRATE_INTAKE_GROUP from the **source** deck's sharing (Drive permission).
+_rm = os.environ.get("HYDRATE_REMOVE_INTAKE_GROUP_PERMISSION", "true").strip().lower()
+HYDRATE_REMOVE_INTAKE_GROUP_PERMISSION = _rm in ("1", "true", "yes", "on")
 # JIRA Cloud
 JIRA_URL = os.environ.get("JIRA_URL")
 JIRA_EMAIL = os.environ.get("JIRA_EMAIL")

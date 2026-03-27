@@ -236,6 +236,8 @@ Column names, KPI JSON shape, and how BPO reads the workbook are documented in *
 
 ## Salesforce
 
+Field-level schema and HTTP surfaces: [`SALESFORCE_DATA_SCHEMA.md`](./SALESFORCE_DATA_SCHEMA.md).
+
 ### Query Surfaces
 
 | Identifier | Description | Source field / query surface | Where used | Status note |

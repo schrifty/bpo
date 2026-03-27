@@ -73,7 +73,8 @@ def test_adapt_custom_slides_integration(monkeypatch, tmp_path):
         )
 
     assert stats["adapted"] == 1 or stats["clean"] == 1 or stats["incomplete"] == 1
-    slides_svc.presentations.return_value.batchUpdate.return_value.execute.assert_called_once()
+    # Replacements + optional styling + clear notes + summary slide each may call batchUpdate.
+    assert slides_svc.presentations.return_value.batchUpdate.return_value.execute.call_count >= 1
 
 
 def test_hydrate_early_exit_when_no_intake_group():

@@ -319,13 +319,73 @@ def test_build_hydrate_speaker_notes_chart_specs():
         ]
     }
     out = evaluate._build_hydrate_speaker_notes(reps, els, analysis=analysis)
-    assert "Charts & graphs" in out
+    assert "Visuals —" in out
     assert "Type: line" in out
     assert "X: Month" in out
     assert "Y: Value" in out
     assert "Transforms:" in out
     assert "rolling" in out or "group by site" in out
     assert "Config:" in out and "legend" in out
+
+
+def test_build_hydrate_speaker_notes_chart_includes_pipeline_snapshot():
+    """Chart analysis can list data_recommended_keys; speaker notes attach pipeline values when present."""
+    reps = [
+        {"field": "chart", "original": evaluate._EMBEDDED_CHART_TEXT, "new_value": "[CHART — ...]", "mapped": False},
+    ]
+    els = [{"type": "chart", "element_id": "c1", "text": evaluate._EMBEDDED_CHART_TEXT}]
+    analysis = {
+        "charts": [
+            {
+                "visual_kind": "native_chart",
+                "interpretation": "Column chart of users by site.",
+                "chart_type": "column",
+                "x_axis": "Site",
+                "y_axis": "Users",
+                "transformations": [],
+                "configuration": "",
+                "data_recommended_keys": ["active_users", "total_sites", "bogus_key"],
+                "data_coverage_note": "Per-site user counts vs total footprint.",
+            }
+        ]
+    }
+    ds = {"active_users": 42, "total_sites": 7}
+    out = evaluate._build_hydrate_speaker_notes(
+        reps, els, analysis=analysis, data_summary=ds
+    )
+    assert "Pipeline fields that may supply" in out
+    assert "active_users" in out and "total_sites" in out
+    assert "bogus_key" not in out
+    assert "Data we have for this run" in out
+    assert "42" in out and "7" in out
+    assert "Pendo" in out
+    assert "What it shows:" in out and "Column chart" in out
+    assert "Per-site user" in out or "footprint" in out
+
+
+def test_build_hydrate_speaker_notes_visual_no_pipeline_keys_shows_gap():
+    """When LLM cannot map a visual to pipeline keys, notes explain manual sourcing."""
+    reps = [
+        {"field": "chart", "original": evaluate._EMBEDDED_CHART_TEXT, "new_value": "[CHART — ...]", "mapped": False},
+    ]
+    els = [{"type": "chart", "element_id": "c1", "text": evaluate._EMBEDDED_CHART_TEXT}]
+    analysis = {
+        "charts": [
+            {
+                "visual_kind": "image_or_screenshot",
+                "interpretation": "Line graph of export API calls by week; last 90 days.",
+                "chart_type": "line",
+                "x_axis": "Week",
+                "y_axis": "Exports",
+                "data_recommended_keys": [],
+                "data_coverage_note": "Export usage not in pipeline — not auto-fetchable.",
+            }
+        ]
+    }
+    out = evaluate._build_hydrate_speaker_notes(reps, els, analysis=analysis, data_summary={})
+    assert "What it shows:" in out and "export" in out.lower()
+    assert "Pipeline fields: (none matched" in out
+    assert "Auto-fetch: not mapped" in out
 
 
 def test_build_hydrate_speaker_notes_rebuild_spec():

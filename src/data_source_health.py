@@ -36,11 +36,9 @@ def _salesforce_configured() -> bool:
 
 
 def check_salesforce() -> tuple[bool, str | None]:
-    """Return (True, None) always — Salesforce auth issues are currently non-blocking.
+    """Return (True, None) if Salesforce is not configured or auth + query succeed.
 
-    Salesforce is optional; if auth fails the health report runs without SF data
-    and the Data Quality slide marks it as unavailable.
-    TODO: re-enable blocking once Salesforce JWT cert is confirmed by admin.
+    When credentials are set, failures block deck generation (same as Pendo / CS Report).
     """
     if not _salesforce_configured():
         return True, None
@@ -51,8 +49,8 @@ def check_salesforce() -> tuple[bool, str | None]:
         client._query("SELECT Id FROM Account LIMIT 1")
         return True, None
     except Exception as e:
-        logger.warning("Salesforce preflight: auth issue (non-blocking): %s", e)
-        return True, None  # warn but don't block
+        logger.warning("Salesforce preflight failed: %s", e)
+        return False, f"Salesforce: {str(e)[:120]}"
 
 
 def check_cs_report() -> tuple[bool, str | None]:
