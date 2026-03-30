@@ -1513,7 +1513,7 @@ class PendoClient:
         }
 
     def get_customer_people(self, customer_name: str, days: int = 30) -> dict[str, Any]:
-        """Champions (most active) and at-risk users (last login 2 wk–1 yr ago), with roles and last visit."""
+        """Champions (most active) and at-risk users (last login 2 wk–~6 mo ago), with roles and last visit."""
         partition = self._get_visitor_partition(days)
         customer_visitors, _ = self._filter_customer_visitors(customer_name, partition)
         if not customer_visitors:
@@ -1521,9 +1521,9 @@ class PendoClient:
 
         user_activity = self._build_user_activity(customer_visitors, partition["now_ms"])
         champions = sorted(user_activity, key=lambda u: u["days_inactive"])[:5]
-        # At-risk: last login > 2 weeks ago and < 1 year ago (re-engagement window)
+        # At-risk: inactive ≥2 weeks and <~6 months (183 d ≈ half year); longer absence is out of this window
         at_risk = sorted(
-            [u for u in user_activity if 14 <= u["days_inactive"] < 365],
+            [u for u in user_activity if 14 <= u["days_inactive"] < 183],
             key=lambda u: -u["days_inactive"],
         )[:8]
         return {"customer": customer_name, "days": days, "champions": champions, "at_risk_users": at_risk}

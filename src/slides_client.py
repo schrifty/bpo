@@ -1233,7 +1233,7 @@ def _champions_slide(reqs, sid, report, idx):
         c_slice = all_champions[p * max_per_col : (p + 1) * max_per_col]
         r_slice = all_at_risk[p * max_per_col : (p + 1) * max_per_col]
         _render_users(page_sid, c_slice, left_x, "Champions", BLUE, _champ_detail, "c", p * max_per_col)
-        _render_users(page_sid, r_slice, right_x, "At Risk  (2 wk – 1 yr inactive)", GRAY, _risk_detail, "r", p * max_per_col)
+        _render_users(page_sid, r_slice, right_x, "At Risk  (2 wk – 6 mo inactive)", GRAY, _risk_detail, "r", p * max_per_col)
     return idx + num_pages, oids
 
 

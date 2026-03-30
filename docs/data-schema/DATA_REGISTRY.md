@@ -175,7 +175,7 @@ Examples:
 | `GUIDE-ADVANCE-RATE-30-DAYS` | Percent of seen guides advanced by users. | `guideAdvanced / guideSeen` | `src/pendo_client.py`, guides slide | `DERIVED` |
 | `GUIDE-REACH-30-DAYS` | Percent of visitors who saw at least one guide. | `users_with_guides / total_visitors` | `src/pendo_client.py`, guides slide | `DERIVED` |
 | `CHAMPION-USERS` | Most recently active users for a customer. | Derived from visitor activity list | `src/pendo_client.py`, champions slide | `DERIVED` |
-| `AT-RISK-USERS` | Users inactive between 14 and 365 days. | Derived from visitor activity list | `src/pendo_client.py`, champions slide | `DERIVED` |
+| `AT-RISK-USERS` | Users inactive ≥14 days and <183 days (~2 wk–6 mo). | Derived from visitor activity list | `src/pendo_client.py`, champions slide | `DERIVED` |
 | `PENDO-NPS-SCORE` | NPS response data from polls. | `pollEvents.pollResponse`, `pollType` | `docs/data-schema/PENDO_DATA_SCHEMA.md`, `docs/USAGE_DATA_PRIORITIES.md` | `UNUSED`, `MISSING` from current deck outputs |
 | `PENDO-FRUSTRATION-SIGNALS` | Rage clicks, dead clicks, error clicks, U-turns by page/feature/account. | Event fields `rageClickCount`, `deadClickCount`, `errorClickCount`, `uTurnCount` | `docs/data-schema/PENDO_DATA_SCHEMA.md`, `docs/USAGE_DATA_PRIORITIES.md` | `UNUSED`, high-value candidate |
 | `LICENSED-SEATS` | Licensed-seat denominator for seat utilization. | Not available in Pendo | `docs/USAGE_DATA_PRIORITIES.md` | `MISSING`, likely CRM/billing |
