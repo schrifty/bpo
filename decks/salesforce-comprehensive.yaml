@@ -1,0 +1,65 @@
+id: salesforce_comprehensive
+name: Salesforce Comprehensive Export
+audience: Customer Success / RevOps
+
+purpose: |
+  Internal-first deck: one slide per mainstream Salesforce object category for
+  the matched Customer Entity account(s) and their descendant accounts (standard
+  Account ParentId hierarchy). Row counts are capped per query; empty categories
+  are omitted (no blank table slides). Trim or split decks once you know which
+  views matter for each customer.
+
+slides:
+  - slide: sf_comprehensive_cover
+  - slide: sf_data_table
+    title: Salesforce — Entity accounts
+    sf_category: entity_accounts
+  - slide: sf_data_table
+    title: Salesforce — Contacts
+    sf_category: contacts
+  - slide: sf_data_table
+    title: Salesforce — Opportunities
+    sf_category: opportunities
+  - slide: sf_data_table
+    title: Salesforce — Opportunity line items
+    sf_category: opportunity_line_items
+  - slide: sf_data_table
+    title: Salesforce — Quotes
+    sf_category: quotes
+  - slide: sf_data_table
+    title: Salesforce — Orders
+    sf_category: orders
+  - slide: sf_data_table
+    title: Salesforce — Contracts
+    sf_category: contracts
+  - slide: sf_data_table
+    title: Salesforce — Cases
+    sf_category: cases
+  - slide: sf_data_table
+    title: Salesforce — Tasks (on account)
+    sf_category: tasks
+  - slide: sf_data_table
+    title: Salesforce — Events (on account)
+    sf_category: events
+  - slide: sf_data_table
+    title: Salesforce — Assets
+    sf_category: assets
+  - slide: sf_data_table
+    title: Salesforce — Campaign members
+    sf_category: campaign_members
+  - slide: sf_data_table
+    title: Salesforce — Campaigns (via contacts)
+    sf_category: campaigns_related
+  - slide: sf_data_table
+    title: Salesforce — Leads (name/company match)
+    sf_category: leads_name_match
+  - slide: sf_data_table
+    title: Salesforce — Account owners (sample)
+    sf_category: owners_sample
+  - slide: sf_data_table
+    title: Salesforce — Products (org sample)
+    sf_category: products_org_sample
+  - slide: sf_data_table
+    title: Salesforce — Price books (org sample)
+    sf_category: pricebooks_org_sample
+  - slide: data_quality

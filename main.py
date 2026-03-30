@@ -2,12 +2,56 @@
 """Run the LangChain agent with Pendo API tools."""
 
 import argparse
+import sys
 
 from src.agent import create_pendo_agent, run_agent
 from src.config import logger
 
 
 def main() -> None:
+    argv = sys.argv[1:]
+    if argv and argv[0] == "qbr":
+        customer = " ".join(argv[1:]).strip()
+        if not customer:
+            print("Usage: python main.py qbr <customer>", file=sys.stderr)
+            print("  Builds a QBR deck from the Drive template (see GOOGLE_QBR_GENERATOR_FOLDER_ID).", file=sys.stderr)
+            sys.exit(2)
+        from src.qbr_template import run_qbr_from_template
+
+        logger.info("QBR run for customer query: %s", customer)
+        result = run_qbr_from_template(customer)
+        if result.get("error"):
+            print(f"Error: {result['error']}", file=sys.stderr)
+            if result.get("hint"):
+                print(result["hint"], file=sys.stderr)
+            sys.exit(1)
+        print(result.get("url", ""))
+        print(f"Customer: {result.get('customer')}")
+        if result.get("bundle_folder_id"):
+            print(
+                f"Bundle folder: https://drive.google.com/drive/folders/{result['bundle_folder_id']}"
+            )
+        em = result.get("exec_manifest_slides", 0)
+        ep = result.get("exec_slides_inserted", 0)
+        if em:
+            exec_line = f"Exec summary: {em} deck slide(s) → {ep} page(s)"
+        else:
+            exec_line = f"Exec summary: {ep} page(s)"
+        print(
+            f"Slides — {exec_line}; "
+            f"hidden: {result.get('slides_hidden', 0)}; "
+            f"adapted: {result.get('adapt_slides', 0)}"
+        )
+        if result.get("plan_notes"):
+            print(f"Manifest plan: {result['plan_notes']}")
+        for row in result.get("companion_decks") or []:
+            label = row.get("key") or row.get("deck_id", "")
+            if row.get("error"):
+                print(f"  [{label}] skipped/failed: {row['error']}")
+            elif row.get("url"):
+                print(f"  [{label}] {row['url']}")
+        return
+
     parser = argparse.ArgumentParser(
         description=(
             "Pendo usage Q&A via a LangChain agent. "
@@ -66,7 +110,9 @@ def main() -> None:
             print(result)
     else:
         parser.print_help()
-        print("\nExample: python main.py 'Get usage data for customer acme-123'")
+        print("\nExamples:")
+        print("  python main.py 'Get usage data for customer acme-123'")
+        print("  python main.py qbr \"Acme Corp\"   # QBR from Drive template (see GOOGLE_QBR_GENERATOR_FOLDER_ID)")
 
 
 if __name__ == "__main__":

@@ -25,6 +25,8 @@ Version: `SF_REST_API_VERSION` in code (e.g. `v59.0`). Not used here: Bulk/Compo
 
 **Opportunity** — aggregates only (via `get_opportunity_creation_this_year`, `get_advanced_pipeline_arr`): filter by `Type` (New Business, New Expansion Business, Expansion Business, POC), `AccountId` in matched accounts, current **calendar year** on `CreatedDate` for counts; same types + `StageName` in (3-Business Validation, 4-Proposal, 5-Contracts) for **SUM(ARR__c)**.
 
+**Comprehensive deck** (`get_customer_salesforce_comprehensive`) — after matching Customer Entity account(s), BPO walks the standard Account hierarchy: every account with `ParentId` pointing at an Id already in the set is added (breadth-first), up to depth 25 and 2000 Ids total, then all category SOQL uses that expanded Id list. Partner relationships and other non-`ParentId` links are not followed.
+
 ## 3. `get_customer_salesforce` output
 
 | Key | Meaning |
