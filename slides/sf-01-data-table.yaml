@@ -1,0 +1,11 @@
+id: sf_data_table
+type: standard
+order: 51
+title: Salesforce data
+slide_type: salesforce_category
+data_tools: [customer_health]
+customers: all
+
+prompt: |
+  Tabular dump for one Salesforce category. The deck entry sets sf_category
+  (e.g. contacts, opportunities) and an explicit title.

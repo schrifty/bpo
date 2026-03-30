@@ -1,0 +1,13 @@
+id: eng_jira_project
+type: standard
+order: 81
+title: Jira project snapshot
+slide_type: eng_jira_project
+data_tools: []
+customers: all
+
+prompt: >
+  Operational snapshot for one Jira project (HELP, CUSTOMER, or LEAN).
+  Deck YAML must set jira_project and may override title.
+  Shows total open tickets, open-by-status histogram, average ages,
+  and top assignees by resolved volume (2w / 1m / 3m / 6m cumulative).

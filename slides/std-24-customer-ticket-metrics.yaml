@@ -1,0 +1,15 @@
+id: customer_ticket_metrics
+type: standard
+order: 24
+title: Customer Ticket Metrics
+slide_type: customer_ticket_metrics
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Single-customer support ticket dashboard. Show unresolved tickets, tickets
+  resolved in the last 6 months, TTR over the last year, TTFR over the last
+  year, and SLA adherence over the last year. Include a horizontal bar chart
+  for unresolved ticket types and a horizontal bar chart for unresolved ticket
+  statuses. Optimize for a clean KPI dashboard on top with ranked charts below.

@@ -1,0 +1,11 @@
+id: sf_comprehensive_cover
+type: standard
+order: 50
+title: Salesforce — comprehensive export
+slide_type: salesforce_comprehensive_cover
+data_tools: [customer_health]
+customers: all
+
+prompt: |
+  Cover for the Salesforce multi-object export deck. Explains row limits and
+  that products/price books are org-wide samples.
