@@ -736,10 +736,17 @@ class JiraClient:
         customer_name: str,
         match_terms: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Metrics for a single customer's support tickets across open/6mo/1y windows."""
+        """Metrics for a single customer's support tickets across open/6mo/1y windows.
+
+        Scoped to ``project = HELP`` only. The customer clause matches Organizations and
+        text (summary/description); without a project filter, those text matches pull in
+        LEAN and other projects and inflate Support Review KPIs.
+        """
         jql_start = len(self._jql_log)
         base_filter = self._customer_match_clause(customer_name, match_terms)
         max_fetch = 1500
+        # Support desk only — must match eng_help_volume_trends / JSM HELP usage.
+        proj = "project = HELP AND "
 
         def _norm_snapshot_issue(issue: dict) -> dict[str, Any]:
             f = issue.get("fields", {})
@@ -777,17 +784,17 @@ class JiraClient:
 
         try:
             open_raw = self._search(
-                f"{base_filter} AND statusCategory != Done ORDER BY updated DESC",
+                f"{proj}{base_filter} AND statusCategory != Done ORDER BY updated DESC",
                 max_results=max_fetch,
                 fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
             )
             resolved_raw = self._search(
-                f"{base_filter} AND resolution is not EMPTY AND resolved >= -180d ORDER BY resolved DESC",
+                f"{proj}{base_filter} AND resolution is not EMPTY AND resolved >= -180d ORDER BY resolved DESC",
                 max_results=max_fetch,
                 fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
             )
             year_raw = self._search(
-                f"{base_filter} AND created >= -365d ORDER BY created DESC",
+                f"{proj}{base_filter} AND created >= -365d ORDER BY created DESC",
                 max_results=max_fetch,
                 fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
             )

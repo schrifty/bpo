@@ -2,6 +2,9 @@
 
 import datetime
 import json
+import os
+import random
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -26,6 +29,20 @@ CONTENT_W = SLIDE_W - 2 * MARGIN
 TITLE_Y = 28
 BODY_Y = 80
 BODY_BOTTOM = SLIDE_H - 36  # safe bottom edge (room for omission note + footer)
+
+# Max physical slides one logical slide type may span when paginating (tables, lists, continuations).
+MAX_PAGINATED_SLIDE_PAGES = 10
+
+
+def _cap_page_count(n: int) -> int:
+    return min(max(n, 1), MAX_PAGINATED_SLIDE_PAGES)
+
+
+def _cap_chunk_list(chunks: list[Any]) -> list[Any]:
+    if len(chunks) <= MAX_PAGINATED_SLIDE_PAGES:
+        return chunks
+    return chunks[:MAX_PAGINATED_SLIDE_PAGES]
+
 
 # ── LeanDNA APEX brand palette (from template 1o2POERqEEp…) ──
 NAVY = {"red": 0.031, "green": 0.110, "blue": 0.200}    # #081c33  dark navy
@@ -103,6 +120,152 @@ def _get_service():
         build("drive", "v3", credentials=creds),
         None,
     )
+
+
+# Google Slides presentations.batchUpdate hard limit (documented): 100_000 entries in `requests`.
+_GOOGLE_SLIDES_MAX_SUBREQUESTS_PER_BATCH = 100_000
+# Stay far below: large CS decks can queue 100k+ ops total across many small batches.
+_SLIDES_BATCH_UPDATE_DEFAULT_CHUNK = 2_000
+_SLIDES_BATCH_UPDATE_MAX_CHUNK = 5_000
+
+# Quota: WriteRequestsPerMinutePerUser ≈ 60. Space batchUpdate calls to avoid 429 bursts.
+_slides_write_lock = threading.Lock()
+_slides_last_write_mono: float = 0.0
+
+
+def _slides_write_interval_sec() -> float:
+    raw = os.environ.get("BPO_SLIDES_WRITE_INTERVAL_SEC", "1.05").strip()
+    try:
+        v = float(raw)
+    except ValueError:
+        return 1.05
+    return max(0.0, v)
+
+
+def _slides_batch_update_max_retries() -> int:
+    raw = os.environ.get("BPO_SLIDES_BATCH_UPDATE_RETRIES", "12").strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        return 12
+    return max(1, min(n, 30))
+
+
+def _throttle_before_slides_write() -> None:
+    """Ensure a minimum gap between successful Slides write calls (batchUpdate)."""
+    interval = _slides_write_interval_sec()
+    if interval <= 0:
+        return
+    global _slides_last_write_mono
+    with _slides_write_lock:
+        now = time.monotonic()
+        wait = _slides_last_write_mono + interval - now
+        if wait > 0:
+            time.sleep(wait)
+
+
+def _mark_slides_write_completed() -> None:
+    global _slides_last_write_mono
+    with _slides_write_lock:
+        _slides_last_write_mono = time.monotonic()
+
+
+def _http_error_retry_after_seconds(err: HttpError) -> float | None:
+    resp = getattr(err, "resp", None)
+    if resp is None:
+        return None
+    raw = None
+    if callable(getattr(resp, "get", None)):
+        raw = resp.get("retry-after")
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_slides_write_rate_limit(err: BaseException) -> bool:
+    if not isinstance(err, HttpError):
+        return False
+    status = getattr(err.resp, "status", None)
+    if status == 429:
+        return True
+    # Some client paths surface quota text without a numeric status we trust
+    s = str(err).lower()
+    return "rate_limit_exceeded" in s or "quota exceeded" in s and "write" in s
+
+
+def slides_presentations_batch_update(
+    slides_service: Any,
+    presentation_id: str,
+    requests: list[dict[str, Any]],
+) -> None:
+    """Run ``presentations.batchUpdate`` with per-user write throttling and 429 retries.
+
+    Each API call counts as one write toward ~60/min/user. Hydration and large chunked builds
+    otherwise burst past that limit.
+
+    Env (optional):
+      BPO_SLIDES_WRITE_INTERVAL_SEC — minimum seconds between successful writes (default 1.05; 0 disables).
+      BPO_SLIDES_BATCH_UPDATE_RETRIES — max attempts per call including the first (default 12).
+    """
+    if not requests:
+        return
+    max_retries = _slides_batch_update_max_retries()
+    last_err: HttpError | None = None
+    for attempt in range(max_retries):
+        _throttle_before_slides_write()
+        try:
+            slides_service.presentations().batchUpdate(
+                presentationId=presentation_id,
+                body={"requests": list(requests)},
+            ).execute()
+            _mark_slides_write_completed()
+            return
+        except HttpError as e:
+            last_err = e
+            if not _is_slides_write_rate_limit(e) or attempt >= max_retries - 1:
+                raise
+            ra = _http_error_retry_after_seconds(e)
+            base = min(120.0, (2**attempt) * 1.0 + random.random())
+            delay = max(base, ra) if ra is not None else base
+            logger.warning(
+                "Slides batchUpdate rate limited (429); sleeping %.1fs then retry %d/%d",
+                delay,
+                attempt + 2,
+                max_retries,
+            )
+            time.sleep(delay)
+    assert last_err is not None
+    raise last_err
+
+
+def presentations_batch_update_chunked(
+    slides_service: Any,
+    presentation_id: str,
+    requests: list[dict[str, Any]],
+    *,
+    chunk_size: int | None = None,
+) -> None:
+    """Call presentations.batchUpdate in ordered chunks to stay under per-call subrequest limits."""
+    if not requests:
+        return
+    raw = chunk_size if chunk_size is not None else _SLIDES_BATCH_UPDATE_DEFAULT_CHUNK
+    size = max(1, min(raw, _SLIDES_BATCH_UPDATE_MAX_CHUNK))
+    # Never approach the API ceiling (even if a caller passes a huge chunk_size).
+    size = min(size, _GOOGLE_SLIDES_MAX_SUBREQUESTS_PER_BATCH // 20)
+    n = len(requests)
+    if n > size:
+        logger.info(
+            "Slides batchUpdate: sending %d subrequest(s) in %d chunk(s) (max %d per call)",
+            n,
+            (n + size - 1) // size,
+            size,
+        )
+    for i in range(0, n, size):
+        chunk = requests[i : i + size]
+        slides_presentations_batch_update(slides_service, presentation_id, list(chunk))
 
 
 # ── Primitives ──
@@ -987,6 +1150,7 @@ def _sites_slide(reqs, sid, report, idx):
     rows_per_page = max(1, max_rows_fit - 2)  # header + total
     show_total = len(all_sites) > 1
     num_pages = ((len(all_sites) + rows_per_page - 1) // rows_per_page) if rows_per_page else 1
+    num_pages = _cap_page_count(num_pages)
 
     def _add_site_table(page_sid: str, table_sid: str, sites_chunk: list, add_total: bool) -> None:
         num_rows = 1 + len(sites_chunk) + (1 if add_total else 0)
@@ -1164,7 +1328,7 @@ def _features_slide(reqs, sid, report, idx):
 
     n_pg = (len(pages) + max_items - 1) // max_items if pages else 0
     n_ft = (len(features) + max_items - 1) // max_items if features else 0
-    num_pages = max(n_pg, n_ft, 1)
+    num_pages = _cap_page_count(max(n_pg, n_ft, 1))
     oids: list[str] = []
     for p in range(num_pages):
         page_sid = f"{sid}_p{p}" if num_pages > 1 else sid
@@ -1183,12 +1347,21 @@ def _champions_slide(reqs, sid, report, idx):
     if not all_champions and not all_at_risk:
         return _missing_data_slide(reqs, sid, report, idx, "champion / at-risk user data")
 
+    _CHAMPIONS_COL_MAX = 5
+    _AT_RISK_COL_MAX = 5
+
+    def _days_inactive(u: dict) -> float:
+        d = u.get("days_inactive")
+        return float(d) if d is not None else 999.0
+
+    ch_sorted = sorted(all_champions, key=_days_inactive)[:_CHAMPIONS_COL_MAX]
+    ar_sorted = sorted(all_at_risk, key=_days_inactive)[:_AT_RISK_COL_MAX]
+
     USER_H = 38
     col_gap = 30
     col_w = (CONTENT_W - col_gap) // 2
     left_x = MARGIN
     right_x = MARGIN + col_w + col_gap
-    max_per_col = max(1, (BODY_BOTTOM - BODY_Y - 28) // USER_H)
 
     def _render_users(page_sid, users, x, label, label_color, detail_fn, prefix, start_i: int):
         y = BODY_Y
@@ -1220,21 +1393,11 @@ def _champions_slide(reqs, sid, report, idx):
         d = f"{int(u['days_inactive'])}d ago" if u["days_inactive"] < 999 else "never"
         return f"{u['role']}  ·  {d}"
 
-    n_ch = (len(all_champions) + max_per_col - 1) // max_per_col if all_champions else 0
-    n_ar = (len(all_at_risk) + max_per_col - 1) // max_per_col if all_at_risk else 0
-    num_pages = max(n_ch, n_ar, 1)
-    oids: list[str] = []
-    for p in range(num_pages):
-        page_sid = f"{sid}_p{p}" if num_pages > 1 else sid
-        oids.append(page_sid)
-        _slide(reqs, page_sid, idx + p)
-        st = "Champions & At-Risk Users" if num_pages == 1 else f"Champions & At-Risk Users ({p + 1} of {num_pages})"
-        _slide_title(reqs, page_sid, st)
-        c_slice = all_champions[p * max_per_col : (p + 1) * max_per_col]
-        r_slice = all_at_risk[p * max_per_col : (p + 1) * max_per_col]
-        _render_users(page_sid, c_slice, left_x, "Champions", BLUE, _champ_detail, "c", p * max_per_col)
-        _render_users(page_sid, r_slice, right_x, "At Risk  (2 wk – 6 mo inactive)", GRAY, _risk_detail, "r", p * max_per_col)
-    return idx + num_pages, oids
+    _slide(reqs, sid, idx)
+    _slide_title(reqs, sid, "Champions & At-Risk Users")
+    _render_users(sid, ch_sorted, left_x, "Champions", BLUE, _champ_detail, "c", 0)
+    _render_users(sid, ar_sorted, right_x, "At Risk  (2 wk – 6 mo inactive)", GRAY, _risk_detail, "r", 0)
+    return idx + 1, [sid]
 
 
 def _benchmarks_slide(reqs, sid, report, idx):
@@ -1325,7 +1488,7 @@ def _exports_slide(reqs, sid, report, idx):
     max_exporters = max(2, (BODY_BOTTOM - BODY_Y - 24) // 28 - 2)
     n_fp = (len(by_feature) + max_features - 1) // max_features if by_feature else 0
     n_ep = (len(top_exporters) + max_exporters - 1) // max_exporters if top_exporters else 0
-    num_pages = max(n_fp, n_ep, 1)
+    num_pages = _cap_page_count(max(n_fp, n_ep, 1))
     oids: list[str] = []
     for p in range(num_pages):
         page_sid = f"{sid}_p{p}" if num_pages > 1 else sid
@@ -1657,6 +1820,8 @@ def _jira_slide(reqs, sid, report, idx):
         start_idx: int,
         total_pages: int,
         body_top_y: float,
+        *,
+        max_slide_index_exclusive: int | None = None,
     ) -> tuple[int, list[str]]:
         oids_extra: list[str] = []
         cont_y0 = body_top_y
@@ -1670,7 +1835,7 @@ def _jira_slide(reqs, sid, report, idx):
                 flat.append(("l", ln))
         pos = 0
         page_num = start_idx
-        while pos < len(flat):
+        while pos < len(flat) and (max_slide_index_exclusive is None or page_num < max_slide_index_exclusive):
             page_sid = f"{sid}_p{page_num}"
             oids_extra.append(page_sid)
             _slide(reqs, page_sid, idx + page_num)
@@ -1790,6 +1955,7 @@ def _jira_slide(reqs, sid, report, idx):
         flat_lines = sum(len(s[1]) + 1 for s in cont_sections)
         per_pg = max(1, int((max_y - body_top - 8) // line_h))
         total_pages = 1 + (flat_lines + per_pg - 1) // per_pg
+        total_pages = min(total_pages, MAX_PAGINATED_SLIDE_PAGES)
     else:
         total_pages = 1
 
@@ -1903,7 +2069,10 @@ def _jira_slide(reqs, sid, report, idx):
                     off = p + len(key)
 
     if cont_sections:
-        _, extra_oids = _continuation_pages(cont_sections, 1, total_pages, body_top)
+        _, extra_oids = _continuation_pages(
+            cont_sections, 1, total_pages, body_top,
+            max_slide_index_exclusive=MAX_PAGINATED_SLIDE_PAGES,
+        )
         oids.extend(extra_oids)
 
     if len(oids) == 1:
@@ -2059,7 +2228,9 @@ def _signals_slide(reqs, sid, report, idx):
         return _missing_data_slide(reqs, sid, report, idx, "action signals")
 
     max_signals = max(1, (BODY_BOTTOM - BODY_Y) // 32 - 1)
-    chunks = [signals[i : i + max_signals] for i in range(0, len(signals), max_signals)]
+    chunks = _cap_chunk_list(
+        [signals[i : i + max_signals] for i in range(0, len(signals), max_signals)]
+    )
     oids: list[str] = []
     for pi, shown in enumerate(chunks):
         page_sid = f"{sid}_p{pi}" if len(chunks) > 1 else sid
@@ -2119,7 +2290,9 @@ def _portfolio_signals_slide(reqs, sid, report, idx):
         return _missing_data_slide(reqs, sid, report, idx, "portfolio action signals")
 
     max_rows = 12
-    chunks = [signals[i : i + max_rows] for i in range(0, len(signals), max_rows)]
+    chunks = _cap_chunk_list(
+        [signals[i : i + max_rows] for i in range(0, len(signals), max_rows)]
+    )
     oids: list[str] = []
     for pi, chunk in enumerate(chunks):
         page_sid = f"{sid}_p{pi}" if len(chunks) > 1 else sid
@@ -2159,7 +2332,9 @@ def _portfolio_trends_slide(reqs, sid, report, idx):
     }
 
     per_page = 8
-    trend_chunks = [trends[i : i + per_page] for i in range(0, len(trends), per_page)]
+    trend_chunks = _cap_chunk_list(
+        [trends[i : i + per_page] for i in range(0, len(trends), per_page)]
+    )
     oids: list[str] = []
     for pi, tchunk in enumerate(trend_chunks):
         page_sid = f"{sid}_p{pi}" if len(trend_chunks) > 1 else sid
@@ -2272,7 +2447,9 @@ def _data_quality_slide(reqs, sid, report, idx):
     max_rows = 10
     flags = snap["flags"]
     sorted_flags = sorted(flags, key=lambda f: {"ERROR": 0, "WARNING": 1, "INFO": 2}.get(f["severity"], 3))
-    flag_chunks = [sorted_flags[i : i + max_rows] for i in range(0, len(sorted_flags), max_rows)]
+    flag_chunks = _cap_chunk_list(
+        [sorted_flags[i : i + max_rows] for i in range(0, len(sorted_flags), max_rows)]
+    )
     if not flag_chunks:
         flag_chunks = [[]]
     num_pages = len(flag_chunks)
@@ -2388,7 +2565,9 @@ def _platform_health_slide(reqs, sid, report, idx):
     max_rows = max(1, (BODY_BOTTOM - BODY_Y - 24) // ROW_H - 1)
     headers_list = ["Factory", "Health", "CTB%", "CTC%", "Comp Avail%", "Shortages", "Critical"]
     col_widths = [170, 60, 55, 55, 75, 65, 60]
-    chunks = [site_list[i : i + max_rows] for i in range(0, len(site_list), max_rows)]
+    chunks = _cap_chunk_list(
+        [site_list[i : i + max_rows] for i in range(0, len(site_list), max_rows)]
+    )
     oids: list[str] = []
 
     for pi, show in enumerate(chunks):
@@ -2511,7 +2690,9 @@ def _supply_chain_slide(reqs, sid, report, idx):
     max_rows = max(1, (BODY_BOTTOM - BODY_Y - 28) // ROW_H - 1)
     headers_list = ["Factory", "On-Hand", "On-Order", "Excess", "DOI", "Late POs"]
     col_widths = [150, 90, 90, 80, 55, 55]
-    chunks = [site_list[i : i + max_rows] for i in range(0, len(site_list), max_rows)]
+    chunks = _cap_chunk_list(
+        [site_list[i : i + max_rows] for i in range(0, len(site_list), max_rows)]
+    )
     oids: list[str] = []
 
     for pi, show in enumerate(chunks):
@@ -2672,6 +2853,7 @@ def _platform_value_slide(reqs, sid, report, idx):
         while r:
             chunks_planned.append(r[:max_rows_cont])
             r = r[max_rows_cont:]
+    chunks_planned = _cap_chunk_list(chunks_planned)
 
     oids: list[str] = []
     if not chunks_planned:
@@ -3046,7 +3228,9 @@ def _cross_validation_slide(reqs, sid, report, idx):
         _style(reqs, f"{sid}_none", 0, len(note), size=11, color=GRAY, font=FONT)
         return idx + 1
 
-    row_chunks = [rows[i : i + max_rows] for i in range(0, len(rows), max_rows)]
+    row_chunks = _cap_chunk_list(
+        [rows[i : i + max_rows] for i in range(0, len(rows), max_rows)]
+    )
     cols = ["Site", "Pendo Users", "Pendo Events", "CS Active %", "CS Health"]
     col_widths = [150, 90, 100, 90, 90]
     num_cols = len(cols)
@@ -3118,6 +3302,7 @@ def _engineering_slide(reqs, sid, report, idx):
             cur = []
     if cur:
         pages.append(cur)
+    pages = _cap_chunk_list(pages)
 
     GREEN = {"red": 0.13, "green": 0.55, "blue": 0.13}
     oids: list[str] = []
@@ -3230,6 +3415,7 @@ def _enhancement_requests_slide(reqs, sid, report, idx):
         used += row_h
     if page:
         pages.append(page)
+    pages = _cap_chunk_list(pages)
 
     oids: list[str] = []
     for pi, page_items in enumerate(pages):
@@ -3470,7 +3656,9 @@ def _bespoke_deployment_slide(reqs, sid, report, idx):
     col_widths = [220, 60, 80, 130]
     ROW_H = 26
     max_rows = max(1, (BODY_BOTTOM - (BODY_Y + 14)) // ROW_H - 1)
-    site_chunks = [all_sites[i : i + max_rows] for i in range(0, len(all_sites), max_rows)]
+    site_chunks = _cap_chunk_list(
+        [all_sites[i : i + max_rows] for i in range(0, len(all_sites), max_rows)]
+    )
     status_colors = {
         "GREEN": {"red": 0.1, "green": 0.6, "blue": 0.2},
         "YELLOW": {"red": 0.9, "green": 0.7, "blue": 0.1},
@@ -4172,19 +4360,11 @@ def _eng_enhancements_open_slide(reqs: list, sid: str, report: dict, idx: int) -
     jira_base = eng.get("base_url", "")
 
     TICKETS_PER_PAGE = 3
-    pages = [open_tickets[i:i + TICKETS_PER_PAGE]
-             for i in range(0, max(1, len(open_tickets)), TICKETS_PER_PAGE)]
-    # For omission note calculation downstream
-    TICKET_H_SLIM = 54  # keep for omission note estimate
+    pages_all = [open_tickets[i:i + TICKETS_PER_PAGE]
+                 for i in range(0, max(1, len(open_tickets)), TICKETS_PER_PAGE)]
+    pages = _cap_chunk_list(pages_all)
     num_pages = len(pages)
-
-    MAX_ER_PAGES = 10
-    if num_pages > MAX_ER_PAGES:
-        pages = pages[:MAX_ER_PAGES]
-        omitted_pages = num_pages - MAX_ER_PAGES
-        num_pages = MAX_ER_PAGES
-    else:
-        omitted_pages = 0
+    omitted_tickets = sum(len(p) for p in pages_all[len(pages):])
 
     for pg, page_tickets in enumerate(pages):
         page_sid = f"{sid}_p{pg}"
@@ -4248,13 +4428,13 @@ def _eng_enhancements_open_slide(reqs: list, sid: str, report: dict, idx: int) -
 
         idx += 1
 
-    if omitted_pages:
+    if omitted_tickets:
         omit_sid = f"{sid}_omit"
         _slide(reqs, omit_sid, idx)
         _bg(reqs, omit_sid, WHITE)
         _slide_title(reqs, omit_sid, f"Enhancement Requests — Open (continued)")
-        note = (f"{omitted_pages * (PAGE_H // TICKET_H_SLIM)}"
-                f" additional open enhancement requests not shown. "
+        note = (f"{omitted_tickets} additional open enhancement requests not shown "
+                f"(pagination cap {MAX_PAGINATED_SLIDE_PAGES} pages). "
                 f"Full backlog: {open_count} open tickets. View in Jira for complete list.")
         _box(reqs, f"{omit_sid}_note", omit_sid, MARGIN, BODY_Y + 10, CONTENT_W, 40, note)
         _style(reqs, f"{omit_sid}_note", 0, len(note), size=11, color=GRAY, font=FONT)
@@ -4808,7 +4988,9 @@ def _salesforce_category_slide(reqs, sid, report, idx):
         _style(reqs, eid, 0, len(msg), size=11, color=NAVY, font=FONT)
         return idx + 1
 
-    chunks = [records[i : i + rows_per_page] for i in range(0, len(records), rows_per_page)]
+    chunks = _cap_chunk_list(
+        [records[i : i + rows_per_page] for i in range(0, len(records), rows_per_page)]
+    )
     oids: list[str] = []
     for pi, chunk in enumerate(chunks):
         page_sid = f"{sid}_p{pi}" if len(chunks) > 1 else sid
@@ -5031,9 +5213,7 @@ def add_slide(deck_id: str, slide_type: str, data: dict[str, Any]) -> dict[str, 
         return {"slide_type": slide_type, "status": "skipped (no data)"}
 
     try:
-        slides_service.presentations().batchUpdate(
-            presentationId=deck_id, body={"requests": reqs},
-        ).execute()
+        presentations_batch_update_chunked(slides_service, deck_id, reqs)
     except HttpError as e:
         return {"error": str(e), "slide_type": slide_type}
 
@@ -5092,6 +5272,9 @@ def create_health_deck(
     from .deck_loader import resolve_deck
 
     resolved = resolve_deck(deck_id, customer)
+    if resolved.get("error"):
+        return {"error": resolved["error"]}
+
     deck_name = resolved.get("name", "Health Review")
     date_str = _date_range(days, quarter_label, report.get("quarter_start"), report.get("quarter_end"))
     if is_portfolio:
@@ -5099,28 +5282,7 @@ def create_health_deck(
     else:
         title = f"{customer} — {deck_name} ({date_str})"
 
-    try:
-        file_meta = {"name": title, "mimeType": "application/vnd.google-apps.presentation"}
-        output_folder = output_folder_id if output_folder_id else _get_deck_output_folder()
-        if output_folder:
-            file_meta["parents"] = [output_folder]
-        file = drive_service.files().create(body=file_meta).execute()
-        pres_id = file["id"]
-        logger.info("Created presentation %s: %s", pres_id, title)
-    except HttpError as e:
-        err_str = str(e)
-        if "rate" in err_str.lower() or "quota" in err_str.lower():
-            return {"error": f"Rate limit: {err_str}. Wait and retry."}
-        return {"error": err_str}
-
-    # Provide a DeckCharts instance for Slides embeds backed by Google Sheets.
-    from .charts import DeckCharts
-    report["_charts"] = DeckCharts(title)
-
-    slide_plan = resolved.get("slides", [])
-    reqs: list[dict] = []
-    idx = 1
-    note_targets: list[tuple[str, dict[str, Any]]] = []
+    slide_plan: list[dict[str, Any]] = list(resolved.get("slides") or [])
 
     if deck_id == "salesforce_comprehensive":
         from .data_source_health import _salesforce_configured
@@ -5156,36 +5318,98 @@ def create_health_deck(
             slide_plan, report.get("salesforce_comprehensive") or {}
         )
 
+    if not slide_plan:
+        logger.error(
+            "create_health_deck: empty slide plan (deck_id=%s customer=%r). "
+            "Check decks/*.yaml vs slides/, Drive bpo-config sync, and per-customer slide filters.",
+            deck_id,
+            customer,
+        )
+        return {
+            "error": "Deck has no slides to generate (resolved plan is empty).",
+            "hint": "Verify deck YAML slide IDs exist in slides/. If using Drive config, ensure "
+            "bpo-config/decks and slides match the repo. Slides with customers: [...] exclude "
+            "everyone except listed customers.",
+            "customer": customer,
+            "deck_id": deck_id,
+        }
+
+    try:
+        file_meta = {"name": title, "mimeType": "application/vnd.google-apps.presentation"}
+        output_folder = output_folder_id if output_folder_id else _get_deck_output_folder()
+        if output_folder:
+            file_meta["parents"] = [output_folder]
+        file = drive_service.files().create(body=file_meta).execute()
+        pres_id = file["id"]
+        logger.info("Created presentation %s: %s", pres_id, title)
+    except HttpError as e:
+        err_str = str(e)
+        if "rate" in err_str.lower() or "quota" in err_str.lower():
+            return {"error": f"Rate limit: {err_str}. Wait and retry."}
+        return {"error": err_str}
+
+    # Provide a DeckCharts instance for Slides embeds backed by Google Sheets.
+    from .charts import DeckCharts
+    report["_charts"] = DeckCharts(title)
+
     report["_slide_plan"] = slide_plan
+    reqs: list[dict] = []
+    idx = 1
+    note_targets: list[tuple[str, dict[str, Any]]] = []
 
     for entry in slide_plan:
         slide_type = entry.get("slide_type", entry["id"])
         builder = _SLIDE_BUILDERS.get(slide_type)
-        if builder:
-            report["_current_slide"] = entry
-            sid = f"s_{entry['id']}_{idx}"
-            ret = builder(reqs, sid, report, idx)
-            next_idx, note_ids = _normalize_builder_return(ret, sid)
-            for nid in note_ids:
-                note_targets.append((nid, dict(entry)))
-            idx = next_idx
+        if not builder:
+            logger.warning(
+                "create_health_deck: no _SLIDE_BUILDERS entry for slide_type=%r (deck %s entry id=%r)",
+                slide_type,
+                deck_id,
+                entry.get("id"),
+            )
+            continue
+        report["_current_slide"] = entry
+        sid = f"s_{entry['id']}_{idx}"
+        ret = builder(reqs, sid, report, idx)
+        next_idx, note_ids = _normalize_builder_return(ret, sid)
+        for nid in note_ids:
+            note_targets.append((nid, dict(entry)))
+        idx = next_idx
 
     slides_created = idx - 1
 
     try:
         pres = slides_service.presentations().get(presentationId=pres_id).execute()
         default_id = pres["slides"][0]["objectId"]
-        reqs.append({"deleteObject": {"objectId": default_id}})
+        if slides_created > 0:
+            reqs.append({"deleteObject": {"objectId": default_id}})
+        else:
+            logger.error(
+                "create_health_deck: built 0 slides (deck_id=%s customer=%r plan_len=%d). "
+                "Leaving default slide; check warnings above for missing builders.",
+                deck_id,
+                customer,
+                len(slide_plan),
+            )
     except Exception:
         pass
 
     try:
-        slides_service.presentations().batchUpdate(
-            presentationId=pres_id, body={"requests": reqs},
-        ).execute()
+        presentations_batch_update_chunked(slides_service, pres_id, reqs)
     except HttpError as e:
         logger.exception("Failed to build slides")
         return {"error": str(e), "presentation_id": pres_id}
+
+    if slides_created == 0:
+        url = f"https://docs.google.com/presentation/d/{pres_id}/edit"
+        return {
+            "error": "No slides were built — every slide_type may be unknown or builders returned nothing.",
+            "hint": "See logs for slide_type warnings. Compare slides/*.yaml slide_type to src/slides_client.py _SLIDE_BUILDERS.",
+            "presentation_id": pres_id,
+            "url": url,
+            "customer": customer,
+            "slides_created": 0,
+        }
 
     for sid, entry in note_targets:
         notes = _build_slide_jql_speaker_notes(report, entry)
@@ -5317,7 +5541,7 @@ def create_deck_for_customer(customer, sites, days=30):
         body = f"Page views: {s.get('page_views',0)}\nFeature clicks: {s.get('feature_clicks',0)}\nEvents: {s.get('total_events',0)}\nMinutes: {s.get('total_minutes',0)}"
         _box(r, f"lb_{i}", sid, 60, 100, 600, 280, body)
     try:
-        slides_service.presentations().batchUpdate(presentationId=pid, body={"requests": r}).execute()
+        presentations_batch_update_chunked(slides_service, pid, r)
     except HttpError as e:
         return {"error": str(e), "presentation_id": pid}
     return {"presentation_id": pid, "url": f"https://docs.google.com/presentation/d/{pid}/edit", "customer": customer, "slides_created": len(sites)}

@@ -39,6 +39,7 @@ from .slides_client import (
     _get_service,
     _normalize_builder_return,
     _SLIDE_BUILDERS,
+    presentations_batch_update_chunked,
     set_speaker_notes,
 )
 
@@ -414,9 +415,7 @@ def _insert_executive_summary_slides(
     if not reqs:
         raise RuntimeError("executive_summary: no slide requests generated")
 
-    slides_svc.presentations().batchUpdate(
-        presentationId=pres_id, body={"requests": reqs},
-    ).execute()
+    presentations_batch_update_chunked(slides_svc, pres_id, reqs)
 
     for sid, entry in note_targets:
         notes = _build_slide_jql_speaker_notes(report, entry)

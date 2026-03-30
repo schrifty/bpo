@@ -32,6 +32,11 @@ def _time_series(days: int) -> dict[str, Any]:
     }
 
 
+# Pendo metadata.agent.role values treated as executives (signals + KEI breakdown).
+# Director/VP are excluded — they inflate counts on large accounts.
+_EXECUTIVE_VISITOR_ROLES = frozenset({"C-Level", "Executive", "ExecutiveVP"})
+
+
 def extract_customer_from_sitename(sitename: str) -> str:
     """Extract customer from sitename. Format is '{customer} {Site}' (e.g. 'Safran Ventilation Systems' -> 'Safran')."""
     if not sitename or not isinstance(sitename, str):
@@ -872,10 +877,11 @@ class PendoClient:
                 if sn and _name_matches(customer_name, str(sn)):
                     site_names.add(sn)
 
-        exec_roles = {"ExecutiveVP", "Director", "VP", "C-Level", "Executive"}
         user_activity = self._build_user_activity(customer_visitors, now_ms)
-        exec_active = sum(1 for u in user_activity if u["role"] in exec_roles and u["days_inactive"] <= 7)
-        exec_total = sum(1 for u in user_activity if u["role"] in exec_roles)
+        exec_active = sum(
+            1 for u in user_activity if u["role"] in _EXECUTIVE_VISITOR_ROLES and u["days_inactive"] <= 7
+        )
+        exec_total = sum(1 for u in user_activity if u["role"] in _EXECUTIVE_VISITOR_ROLES)
         if exec_total > 0 and exec_active == 0:
             signals.append(f"No executive engagement: {exec_total} executives, none active this week")
         elif exec_active > 0:
@@ -1418,14 +1424,13 @@ class PendoClient:
         active = self._count_active_users(customer_visitors, partition["now_ms"])
         adoption_rate = round(len(by_user) / max(active, 1) * 100, 1)
 
-        exec_roles = {"ExecutiveVP", "Director", "VP", "C-Level", "Executive"}
         users = []
         exec_users = 0
         exec_queries = 0
         for vid, count in sorted(by_user.items(), key=lambda x: -x[1]):
             info = vid_to_info.get(vid, {})
             role = info.get("role", "Unknown")
-            is_exec = role in exec_roles
+            is_exec = role in _EXECUTIVE_VISITOR_ROLES
             if is_exec:
                 exec_users += 1
                 exec_queries += count
@@ -1513,19 +1518,20 @@ class PendoClient:
         }
 
     def get_customer_people(self, customer_name: str, days: int = 30) -> dict[str, Any]:
-        """Champions (most active) and at-risk users (last login 2 wk–~6 mo ago), with roles and last visit."""
+        """Up to 5 champions (most recently active first) and 5 at-risk users (2 wk–~6 mo inactive, most recent lapse first)."""
         partition = self._get_visitor_partition(days)
         customer_visitors, _ = self._filter_customer_visitors(customer_name, partition)
         if not customer_visitors:
             return {"error": f"No visitors found matching '{customer_name}'"}
 
         user_activity = self._build_user_activity(customer_visitors, partition["now_ms"])
+        # Champions: lowest days since last visit first (most recently active).
         champions = sorted(user_activity, key=lambda u: u["days_inactive"])[:5]
-        # At-risk: inactive ≥2 weeks and <~6 months (183 d ≈ half year); longer absence is out of this window
+        # At-risk: same ordering — smallest days_inactive first (went quiet most recently).
         at_risk = sorted(
             [u for u in user_activity if 14 <= u["days_inactive"] < 183],
-            key=lambda u: -u["days_inactive"],
-        )[:8]
+            key=lambda u: u["days_inactive"],
+        )[:5]
         return {"customer": customer_name, "days": days, "champions": champions, "at_risk_users": at_risk}
 
     def list_customers(self, days: int = 30) -> dict[str, Any]:
