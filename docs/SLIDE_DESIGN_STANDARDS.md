@@ -199,6 +199,8 @@ Use the shared **KPI box** pattern (light fill **``LIGHT``**, **~1 pt** gray out
 
 **Peer Benchmarks** slide: **This account** weekly active rate, **peer / cohort median**, and (when shown) **all-customer median** must use **KPI boxes** in one row; delta, account size, and qualitative bullets stay in a **separate** body text region under the row.
 
+**BPO slide builders that use KPI boxes today** (``_kpi_metric_card``): **Customer ticket metrics** (HELP dashboard), **Peer Benchmarks**, **Platform Value & ROI** (three headline metrics + a gray **subline** under the row for POs / overdue tasks — not inside the cards), **Supply Chain Overview** (portfolio on-hand / on-order / excess above the factory table), **Kei AI Adoption** (queries, adoption %, users with queries — executive pill and user list stay outside the cards), **Behavioral Depth** (feature interactions, active users, write ratio — then charts), **Engagement Breakdown** (three tier counts in a full-width row — donut and role lists sit below). **Not** converted when the “header” is narrative, a dynamic sentence, or a table-only layout: e.g. **Account Health Snapshot** (multi-line composite + dimensions), **Platform Health** (distribution + shortages as one summary line), **Export Behavior** (single header + lists), **Data cross-validation** (comparison prose + table).
+
 #### Compact KPI tiles (mixed layouts)
 
 On slides that **pair KPI rows with charts, tables, or other body content**, card height is usually **tight** (on the order of **50–56 pt** tall). For those tiles:
@@ -606,6 +608,7 @@ JQL used:
 
 - Report payloads store ``jql_queries`` as a list of objects: ``{"description": "…", "jql": "…"}``. Plain strings are still accepted for backward compatibility and are shown with description `[Jira issue search]`.  
 - New Jira fetches must supply a **description** at record time (e.g. ``_search(..., data_description="…")`` or ``_record_jql(jql, description="…")``).
+- Slides that are **not** Jira-backed but still need trace lines (e.g. **Peer Benchmarks**) should attach ``data_traces`` on the relevant report subtree: a list of ``{"description": "…", "source": "Pendo", "query": "…"}`` where **query** is a short pipeline / field explanation (not necessarily executable SQL). ``_build_slide_jql_speaker_notes`` merges these into the same ``description: source - query`` lines as Jira.
 
 ---
 

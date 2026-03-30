@@ -593,6 +593,17 @@ def _collect_data_trace_entries(obj: Any) -> list[dict[str, str]]:
                         "source": "Salesforce",
                         "query": item.strip(),
                     })
+        # Declared pipeline traces (Pendo, CS Report, etc.) — not JQL/SOQL
+        dt_raw = obj.get("data_traces")
+        if isinstance(dt_raw, list):
+            for item in dt_raw:
+                if not isinstance(item, dict):
+                    continue
+                desc = str(item.get("description") or "").strip()
+                src = str(item.get("source") or "Report").strip()
+                q = str(item.get("query") or item.get("trace") or "").strip()
+                if desc and q:
+                    entries.append({"description": desc, "source": src, "query": q})
         for val in obj.values():
             entries.extend(_collect_data_trace_entries(val))
         return entries
@@ -1176,6 +1187,22 @@ def _engagement_slide(reqs, sid, report, idx):
     eng = report["engagement"]
     total = report["account"]["total_visitors"]
 
+    _EG_KPI_H = 54
+    _EG_GAP = 16.0
+    kpy = BODY_Y + 8
+    egw = (CONTENT_W - 2 * _EG_GAP) / 3
+    tier_specs = [
+        ("Active (7d)", eng["active_7d"], BLUE),
+        ("Active (8–30d)", eng["active_30d"], NAVY),
+        ("Dormant (30d+)", eng["dormant"], GRAY),
+    ]
+    for j, (lbl, cnt, ac) in enumerate(tier_specs):
+        _kpi_metric_card(
+            reqs, f"{sid}_ek{j}", sid, MARGIN + j * (egw + _EG_GAP), kpy, egw, _EG_KPI_H,
+            lbl, f"{cnt}", accent=ac, value_pt=22,
+        )
+    content_top = kpy + _EG_KPI_H + 12
+
     charts = report.get("_charts")
     has_chart = False
 
@@ -1192,11 +1219,10 @@ def _engagement_slide(reqs, sid, report, idx):
                 values=[active_7d, active_30d, dormant],
                 donut=True,
             )
-            # Chart fills most of the left side of the page
             chart_w = 320
-            chart_h = int(BODY_BOTTOM - BODY_Y)  # full body height
+            chart_h = max(120, int(BODY_BOTTOM - content_top - 8))
             embed_chart(reqs, f"{sid}_donut", sid, ss_id, chart_id,
-                        MARGIN, BODY_Y, chart_w, chart_h)
+                        MARGIN, content_top, chart_w, chart_h)
             has_chart = True
         except Exception as e:
             logger.warning("Chart embed failed for engagement slide: %s", e)
@@ -1208,67 +1234,76 @@ def _engagement_slide(reqs, sid, report, idx):
     col_gap = 40
     col_w = (text_w - col_gap) // 2 if not has_chart else text_w
 
-    # ── Engagement tiers ──
-    tiers = [
-        ("Active (7d)", eng["active_7d"], BLUE),
-        ("Active (8–30d)", eng["active_30d"], NAVY),
-        ("Dormant (30d+)", eng["dormant"], GRAY),
-    ]
-    y = BODY_Y + 8
-    for i, (label, count, color) in enumerate(tiers):
-        pct = round(count / max(total, 1) * 100)
-        num_text = f"{count}"
-        _box(reqs, f"{sid}_n{i}", sid, text_x, y, 80, 36, num_text)
-        _style(reqs, f"{sid}_n{i}", 0, len(num_text), bold=True, size=28, color=color, font=FONT)
-
-        detail = f"{label}  ({pct}%)"
-        _box(reqs, f"{sid}_d{i}", sid, text_x + 85, y + 8, col_w - 85, 24, detail)
-        _style(reqs, f"{sid}_d{i}", 0, len(detail), size=14, color=NAVY, font=FONT)
-        y += 56
-
-    total_text = f"{total} total users"
-    _box(reqs, f"{sid}_tot", sid, text_x, y + 8, col_w, 20, total_text)
-    _style(reqs, f"{sid}_tot", 0, len(total_text), size=12, color=GRAY, font=FONT)
-
-    # ── Role breakdown (below chart when chart present, right column when not) ──
-    if has_chart:
-        right_x = text_x
-        ry = y + 40
-    else:
-        right_x = MARGIN + col_w + col_gap
-        ry = BODY_Y + 8
-
+    tot_r = f"{total:,} tracked users"
+    ry0 = content_top + 18
     active_roles = list(eng["role_active"].items())[:6]
     dormant_roles = list(eng["role_dormant"].items())[:6]
 
-    if active_roles:
-        ah = "Active Roles"
-        _box(reqs, f"{sid}_ah", sid, right_x, ry, col_w, 22, ah)
-        _style(reqs, f"{sid}_ah", 0, len(ah), bold=True, size=14, color=BLUE, font=FONT)
-        ry += 28
-        for ri, (role, count) in enumerate(active_roles):
-            if ry + 22 > BODY_BOTTOM:
-                break
-            line = f"{count:>4}   {role}"
-            _box(reqs, f"{sid}_ar{ri}", sid, right_x, ry, col_w, 18, line)
-            _style(reqs, f"{sid}_ar{ri}", 0, len(line), size=13, color=NAVY, font=FONT)
-            _style(reqs, f"{sid}_ar{ri}", 0, len(f"{count:>4}"), bold=True, size=13, color=BLUE, font=FONT)
-            ry += 22
-
-    if dormant_roles and ry + 50 < BODY_BOTTOM:
-        ry += 12
-        dh = "Dormant Roles"
-        _box(reqs, f"{sid}_dh", sid, right_x, ry, col_w, 22, dh)
-        _style(reqs, f"{sid}_dh", 0, len(dh), bold=True, size=14, color=GRAY, font=FONT)
-        ry += 28
-        for ri, (role, count) in enumerate(dormant_roles):
-            if ry + 22 > BODY_BOTTOM:
-                break
-            line = f"{count:>4}   {role}"
-            _box(reqs, f"{sid}_dr{ri}", sid, right_x, ry, col_w, 18, line)
-            _style(reqs, f"{sid}_dr{ri}", 0, len(line), size=13, color=GRAY, font=FONT)
-            _style(reqs, f"{sid}_dr{ri}", 0, len(f"{count:>4}"), bold=True, size=13)
-            ry += 22
+    if has_chart:
+        _box(reqs, f"{sid}_tot", sid, text_x, content_top, text_w, 14, tot_r)
+        _style(reqs, f"{sid}_tot", 0, len(tot_r), size=9, color=GRAY, font=FONT)
+        ax = text_x
+        ry = ry0
+        if active_roles:
+            ah = "Active Roles"
+            _box(reqs, f"{sid}_ah", sid, ax, ry, col_w, 22, ah)
+            _style(reqs, f"{sid}_ah", 0, len(ah), bold=True, size=14, color=BLUE, font=FONT)
+            ry += 28
+            for ri, (role, count) in enumerate(active_roles):
+                if ry + 22 > BODY_BOTTOM:
+                    break
+                line = f"{count:>4}   {role}"
+                _box(reqs, f"{sid}_ar{ri}", sid, ax, ry, col_w, 18, line)
+                _style(reqs, f"{sid}_ar{ri}", 0, len(line), size=13, color=NAVY, font=FONT)
+                _style(reqs, f"{sid}_ar{ri}", 0, len(f"{count:>4}"), bold=True, size=13, color=BLUE, font=FONT)
+                ry += 22
+        if dormant_roles and ry + 50 < BODY_BOTTOM:
+            ry += 12
+            dh = "Dormant Roles"
+            _box(reqs, f"{sid}_dh", sid, ax, ry, col_w, 22, dh)
+            _style(reqs, f"{sid}_dh", 0, len(dh), bold=True, size=14, color=GRAY, font=FONT)
+            ry += 28
+            for ri, (role, count) in enumerate(dormant_roles):
+                if ry + 22 > BODY_BOTTOM:
+                    break
+                line = f"{count:>4}   {role}"
+                _box(reqs, f"{sid}_dr{ri}", sid, ax, ry, col_w, 18, line)
+                _style(reqs, f"{sid}_dr{ri}", 0, len(line), size=13, color=GRAY, font=FONT)
+                _style(reqs, f"{sid}_dr{ri}", 0, len(f"{count:>4}"), bold=True, size=13)
+                ry += 22
+    else:
+        _box(reqs, f"{sid}_tot", sid, MARGIN, content_top, CONTENT_W, 14, tot_r)
+        _style(reqs, f"{sid}_tot", 0, len(tot_r), size=9, color=GRAY, font=FONT)
+        lx = MARGIN
+        rx = MARGIN + col_w + col_gap
+        ry_l = ry0
+        if active_roles:
+            ah = "Active Roles"
+            _box(reqs, f"{sid}_ah", sid, lx, ry_l, col_w, 22, ah)
+            _style(reqs, f"{sid}_ah", 0, len(ah), bold=True, size=14, color=BLUE, font=FONT)
+            ry_l += 28
+            for ri, (role, count) in enumerate(active_roles):
+                if ry_l + 22 > BODY_BOTTOM:
+                    break
+                line = f"{count:>4}   {role}"
+                _box(reqs, f"{sid}_ar{ri}", sid, lx, ry_l, col_w, 18, line)
+                _style(reqs, f"{sid}_ar{ri}", 0, len(line), size=13, color=NAVY, font=FONT)
+                _style(reqs, f"{sid}_ar{ri}", 0, len(f"{count:>4}"), bold=True, size=13, color=BLUE, font=FONT)
+                ry_l += 22
+        ry_r = ry0
+        if dormant_roles and ry_r + 50 < BODY_BOTTOM:
+            dh = "Dormant Roles"
+            _box(reqs, f"{sid}_dh", sid, rx, ry_r, col_w, 22, dh)
+            _style(reqs, f"{sid}_dh", 0, len(dh), bold=True, size=14, color=GRAY, font=FONT)
+            ry_r += 28
+            for ri, (role, count) in enumerate(dormant_roles):
+                if ry_r + 22 > BODY_BOTTOM:
+                    break
+                line = f"{count:>4}   {role}"
+                _box(reqs, f"{sid}_dr{ri}", sid, rx, ry_r, col_w, 18, line)
+                _style(reqs, f"{sid}_dr{ri}", 0, len(line), size=13, color=GRAY, font=FONT)
+                _style(reqs, f"{sid}_dr{ri}", 0, len(f"{count:>4}"), bold=True, size=13)
+                ry_r += 22
 
     return idx + 1
 
@@ -1728,10 +1763,24 @@ def _depth_slide(reqs, sid, report, idx):
     write_ratio = depth.get("write_ratio", 0)
     total = depth.get("total_feature_events", 0)
     active = depth.get("active_users", 0)
-    header = (f"{total:,} feature interactions  ·  {active} active users  ·  "
-              f"{write_ratio}% write ratio")
-    _box(reqs, f"{sid}_hdr", sid, MARGIN, BODY_Y, CONTENT_W, 18, header)
-    _style(reqs, f"{sid}_hdr", 0, len(header), size=10, color=GRAY, font=FONT)
+
+    _DP_KPI_H = 54
+    _DP_GAP = 16.0
+    dpy = BODY_Y + 8
+    dpw = (CONTENT_W - 2 * _DP_GAP) / 3
+    _kpi_metric_card(
+        reqs, f"{sid}_dk0", sid, MARGIN, dpy, dpw, _DP_KPI_H,
+        "Feature interactions", f"{total:,}", accent=NAVY, value_pt=20,
+    )
+    _kpi_metric_card(
+        reqs, f"{sid}_dk1", sid, MARGIN + dpw + _DP_GAP, dpy, dpw, _DP_KPI_H,
+        "Active users", f"{active}", accent=BLUE, value_pt=20,
+    )
+    _kpi_metric_card(
+        reqs, f"{sid}_dk2", sid, MARGIN + 2 * (dpw + _DP_GAP), dpy, dpw, _DP_KPI_H,
+        "Write ratio", f"{write_ratio}%", accent=TEAL, value_pt=20,
+    )
+    chart_top = dpy + _DP_KPI_H + 10
 
     charts = report.get("_charts")
     read_e = depth.get("read_events", 0)
@@ -1741,8 +1790,6 @@ def _depth_slide(reqs, sid, report, idx):
     if charts:
         try:
             from .charts import embed_chart
-
-            chart_top = BODY_Y + 24
             bottom_pad = 10
             chart_h = BODY_BOTTOM - chart_top - bottom_pad
 
@@ -1818,28 +1865,41 @@ def _kei_slide(reqs, sid, report, idx):
     _slide(reqs, sid, idx)
     _slide_title(reqs, sid, "Kei AI Adoption")
 
-    active = kei.get("active_users", 0)
     unique = kei.get("unique_users", 0)
     adoption = kei.get("adoption_rate", 0)
     exec_users = kei.get("executive_users", 0)
     exec_queries = kei.get("executive_queries", 0)
 
-    # Metrics row
-    metrics = f"{total_q:,} queries  ·  {unique} users  ·  {adoption}% adoption"
-    _box(reqs, f"{sid}_met", sid, MARGIN, BODY_Y, CONTENT_W, 18, metrics)
-    _style(reqs, f"{sid}_met", 0, len(metrics), size=10, color=GRAY, font=FONT)
+    _KEI_KPI_H = 58
+    _KEI_GAP = 18.0
+    krow = BODY_Y + 8
+    kcw = (CONTENT_W - 2 * _KEI_GAP) / 3
+    _kpi_metric_card(
+        reqs, f"{sid}_k0", sid, MARGIN, krow, kcw, _KEI_KPI_H,
+        "Total queries", f"{total_q:,}", accent=NAVY, value_pt=22,
+    )
+    _kpi_metric_card(
+        reqs, f"{sid}_k1", sid, MARGIN + kcw + _KEI_GAP, krow, kcw, _KEI_KPI_H,
+        "Adoption rate", f"{adoption}%", accent=BLUE, value_pt=22,
+    )
+    _kpi_metric_card(
+        reqs, f"{sid}_k2", sid, MARGIN + 2 * (kcw + _KEI_GAP), krow, kcw, _KEI_KPI_H,
+        "Users with queries", f"{unique}", accent=TEAL, value_pt=22,
+    )
 
+    exec_y = krow + _KEI_KPI_H + 10
     # Executive highlight pill
     if exec_users > 0:
         exec_text = f"  {exec_users} executives ({exec_queries:,} queries)  "
-        _pill(reqs, f"{sid}_exec", sid, MARGIN, BODY_Y + 26, 260, 22, exec_text, BLUE, WHITE)
+        _pill(reqs, f"{sid}_exec", sid, MARGIN, exec_y, 260, 22, exec_text, BLUE, WHITE)
     else:
         exec_text = "  No executive Kei usage detected  "
-        _pill(reqs, f"{sid}_exec", sid, MARGIN, BODY_Y + 26, 260, 22, exec_text, GRAY, WHITE)
+        _pill(reqs, f"{sid}_exec", sid, MARGIN, exec_y, 260, 22, exec_text, GRAY, WHITE)
 
     # User list
     users = kei.get("users", [])
     lines = ["Kei Users"]
+    users_top = exec_y + 28 + 8
     for u in users[:8]:
         email = u.get("email", "unknown")
         if len(email) > 30:
@@ -1851,7 +1911,8 @@ def _kei_slide(reqs, sid, report, idx):
     if not users:
         lines.append("  No Kei usage in this period")
     text = "\n".join(lines)
-    _box(reqs, f"{sid}_users", sid, MARGIN, BODY_Y + 58, CONTENT_W, 240, text)
+    users_h = max(120.0, BODY_BOTTOM - users_top - 4)
+    _box(reqs, f"{sid}_users", sid, MARGIN, users_top, CONTENT_W, users_h, text)
     _style(reqs, f"{sid}_users", 0, len(text), size=10, color=NAVY, font=FONT)
     _style(reqs, f"{sid}_users", 0, len("Kei Users"), bold=True, size=11, color=BLUE)
 
@@ -3134,7 +3195,6 @@ def _supply_chain_slide(reqs, sid, report, idx):
     oh = totals.get("on_hand", 0)
     oo = totals.get("on_order", 0)
     ex = totals.get("excess_on_hand", 0)
-    summary_hdr = f"${oh:,.0f} on-hand  ·  ${oo:,.0f} on-order  ·  ${ex:,.0f} excess"
 
     def _fmtk(v):
         if v is None or v == 0:
@@ -3145,8 +3205,12 @@ def _supply_chain_slide(reqs, sid, report, idx):
             return f"${v/1_000:.0f}K"
         return f"${v:,.0f}"
 
+    _SC_KPI_H = 58
+    _SC_GAP = 18.0
+    _SC_TABLE_TOP = BODY_Y + 8 + _SC_KPI_H + 12
+
     ROW_H = 28
-    max_rows = max(1, (BODY_BOTTOM - BODY_Y - 28) // ROW_H - 1)
+    max_rows = max(1, (BODY_BOTTOM - _SC_TABLE_TOP) // ROW_H - 1)
     headers_list = ["Factory", "On-Hand", "On-Order", "Excess", "DOI", "Late POs"]
     col_widths = [150, 90, 90, 80, 55, 55]
     chunks = _cap_chunk_list(
@@ -3160,8 +3224,20 @@ def _supply_chain_slide(reqs, sid, report, idx):
         _slide(reqs, page_sid, idx + pi)
         ttl = "Supply Chain Overview" if len(chunks) == 1 else f"Supply Chain Overview ({pi + 1} of {len(chunks)})"
         _slide_title(reqs, page_sid, ttl)
-        _box(reqs, f"{page_sid}_hdr", page_sid, MARGIN, BODY_Y, CONTENT_W, 18, summary_hdr)
-        _style(reqs, f"{page_sid}_hdr", 0, len(summary_hdr), bold=True, size=11, color=NAVY, font=FONT)
+        scw = (CONTENT_W - 2 * _SC_GAP) / 3
+        kry = BODY_Y + 8
+        _kpi_metric_card(
+            reqs, f"{page_sid}_k0", page_sid, MARGIN, kry, scw, _SC_KPI_H,
+            "Inventory on-hand", _fmtk(oh), accent=NAVY, value_pt=20,
+        )
+        _kpi_metric_card(
+            reqs, f"{page_sid}_k1", page_sid, MARGIN + scw + _SC_GAP, kry, scw, _SC_KPI_H,
+            "On-order", _fmtk(oo), accent=BLUE, value_pt=20,
+        )
+        _kpi_metric_card(
+            reqs, f"{page_sid}_k2", page_sid, MARGIN + 2 * (scw + _SC_GAP), kry, scw, _SC_KPI_H,
+            "Excess on-hand", _fmtk(ex), accent=TEAL, value_pt=20,
+        )
 
         num_rows = 1 + len(show)
         table_id = f"{page_sid}_tbl"
@@ -3171,7 +3247,7 @@ def _supply_chain_slide(reqs, sid, report, idx):
                 "elementProperties": {
                     "pageObjectId": page_sid,
                     "size": _sz(sum(col_widths), num_rows * ROW_H),
-                    "transform": _tf(MARGIN, BODY_Y + 28),
+                    "transform": _tf(MARGIN, _SC_TABLE_TOP),
                 },
                 "rows": num_rows, "columns": len(headers_list),
             }
@@ -3275,31 +3351,31 @@ def _platform_value_slide(reqs, sid, report, idx):
     total_overdue = cs.get("total_overdue_tasks", 0)
     ops = f"{total_pos:,} POs placed  ·  {total_overdue:,} overdue tasks"
 
+    _PV_CARD_H = 58
+    _PV_GAP = 18.0
+
     def _render_kpi(page_sid: str) -> None:
-        sav = _fmt_dollar(total_savings)
-        _box(reqs, f"{page_sid}_sav", page_sid, MARGIN, BODY_Y + 8, 200, 50, sav)
-        _style(reqs, f"{page_sid}_sav", 0, len(sav), bold=True, size=28, color=BLUE, font=FONT)
-        sav_sub = "savings achieved"
-        _box(reqs, f"{page_sid}_ss", page_sid, MARGIN, BODY_Y + 56, 200, 18, sav_sub)
-        _style(reqs, f"{page_sid}_ss", 0, len(sav_sub), size=9, color=GRAY, font=FONT)
-        opn = _fmt_dollar(total_open)
-        _box(reqs, f"{page_sid}_opn", page_sid, 260, BODY_Y + 8, 200, 50, opn)
-        _style(reqs, f"{page_sid}_opn", 0, len(opn), bold=True, size=28, color=NAVY, font=FONT)
-        opn_sub = "open IA pipeline"
-        _box(reqs, f"{page_sid}_os", page_sid, 260, BODY_Y + 56, 200, 18, opn_sub)
-        _style(reqs, f"{page_sid}_os", 0, len(opn_sub), size=9, color=GRAY, font=FONT)
-        recs_text = _fmt_count(total_recs)
-        _box(reqs, f"{page_sid}_recs", page_sid, 480, BODY_Y + 8, 160, 50, recs_text)
-        _style(reqs, f"{page_sid}_recs", 0, len(recs_text), bold=True, size=28, color=TEAL, font=FONT)
-        recs_sub = "recs created (30d)"
-        _box(reqs, f"{page_sid}_rs", page_sid, 480, BODY_Y + 56, 160, 18, recs_sub)
-        _style(reqs, f"{page_sid}_rs", 0, len(recs_sub), size=9, color=GRAY, font=FONT)
-        _box(reqs, f"{page_sid}_ops", page_sid, MARGIN, BODY_Y + 84, CONTENT_W, 16, ops)
+        row_y = BODY_Y + 8
+        cw = (CONTENT_W - 2 * _PV_GAP) / 3
+        _kpi_metric_card(
+            reqs, f"{page_sid}_k0", page_sid, MARGIN, row_y, cw, _PV_CARD_H,
+            "Savings achieved", _fmt_dollar(total_savings), accent=BLUE, value_pt=22,
+        )
+        _kpi_metric_card(
+            reqs, f"{page_sid}_k1", page_sid, MARGIN + cw + _PV_GAP, row_y, cw, _PV_CARD_H,
+            "Open IA pipeline", _fmt_dollar(total_open), accent=NAVY, value_pt=22,
+        )
+        _kpi_metric_card(
+            reqs, f"{page_sid}_k2", page_sid, MARGIN + 2 * (cw + _PV_GAP), row_y, cw, _PV_CARD_H,
+            "Recs created (30d)", _fmt_count(total_recs), accent=TEAL, value_pt=22,
+        )
+        ops_y = row_y + _PV_CARD_H + 10
+        _box(reqs, f"{page_sid}_ops", page_sid, MARGIN, ops_y, CONTENT_W, 16, ops)
         _style(reqs, f"{page_sid}_ops", 0, len(ops), size=9, color=GRAY, font=FONT)
 
     factory_rows = [s for s in site_list if s.get("savings_current_period") or s.get("recs_created_30d")]
     ROW_H = 28
-    tbl_y_kpi = BODY_Y + 108
+    tbl_y_kpi = BODY_Y + 8 + _PV_CARD_H + 10 + 16 + 12
     max_rows_first = max(1, (BODY_BOTTOM - tbl_y_kpi) // ROW_H - 1)
     tbl_y_cont = BODY_Y + 24
     max_rows_cont = max(1, (BODY_BOTTOM - tbl_y_cont) // ROW_H - 1)

@@ -325,3 +325,23 @@ def test_speaker_notes_timestamp_first_line_has_seconds():
     parts = first.split()
     assert len(parts) >= 2
     assert parts[1].count(":") == 2
+
+
+def test_speaker_notes_benchmarks_includes_data_traces():
+    """Peer Benchmarks is Pendo-only; traces come from benchmarks.data_traces on the health report."""
+    report = {
+        "benchmarks": {
+            "customer_active_rate": 39.0,
+            "data_traces": [
+                {
+                    "description": "Weekly active rate (this account)",
+                    "source": "Pendo",
+                    "query": "active_7d / total_visitors (7-day window)",
+                },
+            ],
+        },
+        "account": {"total_visitors": 100, "total_sites": 5},
+    }
+    entry = {"slide_type": "benchmarks", "title": "Peer Benchmarks"}
+    notes = _build_slide_jql_speaker_notes(report, entry)
+    assert "Weekly active rate (this account): Pendo - active_7d / total_visitors (7-day window)" in notes

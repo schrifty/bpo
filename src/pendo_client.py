@@ -1155,6 +1155,40 @@ class PendoClient:
                 "cohort_name": _COHORT_DISPLAY.get(cust_cohort, cust_cohort.replace("_", " ").title()) if cust_cohort else "",
                 "cohort_median_rate": round(cohort_median * 100, 1) if cohort_median is not None else None,
                 "cohort_count": len(cohort_peer_rates),
+                "data_traces": [
+                    {
+                        "description": "Weekly active rate (this account)",
+                        "source": "Pendo",
+                        "query": (
+                            "active_7d / total_visitors over the report window; "
+                            "7-day activity from visitor time-bucket aggregation"
+                        ),
+                    },
+                    {
+                        "description": "All-customer median active rate",
+                        "source": "Pendo",
+                        "query": (
+                            "Median of the same weekly active rate across accounts "
+                            "with Pendo data in the same period (peer_count in payload)"
+                        ),
+                    },
+                    {
+                        "description": "Cohort median active rate (when shown)",
+                        "source": "Pendo + cohorts.yaml",
+                        "query": (
+                            "Median among accounts in the same manufacturing cohort "
+                            "(get_customer_cohort / cohorts.yaml); only if cohort n≥3"
+                        ),
+                    },
+                    {
+                        "description": "Account size (users, sites) on slide",
+                        "source": "Pendo",
+                        "query": (
+                            "account.total_visitors, account.total_sites from visitor records "
+                            "and sitenames metadata for this customer"
+                        ),
+                    },
+                ],
             },
             "signals": signals,
         }

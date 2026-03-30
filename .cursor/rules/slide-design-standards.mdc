@@ -1,0 +1,21 @@
+---
+description: Read slide design standards before changing slides, decks, or slide builders
+globs:
+  - src/slides_client.py
+  - src/deck_loader.py
+  - src/slide_loader.py
+  - src/qbr_template.py
+  - decks/**/*.yaml
+  - slides/**/*.yaml
+alwaysApply: false
+---
+
+# Slide design standards (mandatory)
+
+Before **adding, removing, or materially changing** slide layout, typography, KPI/metric presentation, charts, speaker-note expectations, or deck/slide YAML definitions:
+
+1. **Read** `docs/SLIDE_DESIGN_STANDARDS.md` (use the Read tool if it is not already in context).
+2. **Match** existing patterns in `src/slides_client.py` (e.g. `_slide_title`, `_kpi_metric_card`, spacing constants, color tokens) unless the doc explicitly calls for something new.
+3. **Update** `docs/SLIDE_DESIGN_STANDARDS.md` when you introduce a **new** visual pattern or rule that future slides should follow (do not expand scope beyond what the user asked).
+
+If the user’s request conflicts with the doc, **follow the user** for that task and note the deviation briefly.
