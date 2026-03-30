@@ -151,6 +151,10 @@ def resolve_deck(
         # Deck YAML may pass builder params (e.g. jira_project for eng_jira_project slides).
         if "jira_project" in entry:
             slide_row["jira_project"] = str(entry["jira_project"]).strip().upper()
+        if slide_def.get("sf_category"):
+            slide_row["sf_category"] = str(slide_def["sf_category"]).strip()
+        if entry.get("sf_category"):
+            slide_row["sf_category"] = str(entry["sf_category"]).strip()
         slides.append(slide_row)
 
     for rid, override in overrides.items():

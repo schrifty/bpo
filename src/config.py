@@ -28,6 +28,10 @@ PENDO_INTEGRATION_KEY = os.environ.get("PENDO_INTEGRATION_KEY")
 GOOGLE_APPLICATION_CREDENTIALS = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
 # Optional: folder ID in your Drive (shared with service account) to avoid service account quota
 GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
+# QBR template generator: folder "QBR Generator" (contains [Template] deck + Prompts/Manifest Doc)
+GOOGLE_QBR_GENERATOR_FOLDER_ID = os.environ.get("GOOGLE_QBR_GENERATOR_FOLDER_ID", "").strip() or None
+# Optional parent for `{ISO-date} - Output`; defaults to GOOGLE_DRIVE_FOLDER_ID
+GOOGLE_QBR_OUTPUT_PARENT_ID = os.environ.get("GOOGLE_QBR_OUTPUT_PARENT_ID", "").strip() or None
 # Optional: your email (folder owner) - transfer ownership so files count against your quota, not service account's
 GOOGLE_DRIVE_OWNER_EMAIL = os.environ.get("GOOGLE_DRIVE_OWNER_EMAIL")
 # Hydrate/evaluate: Google Group email (e.g. hydrate-deck@yourdomain.com). Must match Share exactly.

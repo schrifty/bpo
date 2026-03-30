@@ -312,6 +312,14 @@ def _dedupe_keep_order(items: list[str]) -> list[str]:
     return out
 
 
+def _normalize_builder_return(ret: Any, default_slide_id: str) -> tuple[int, list[str]]:
+    """Slide builders return ``next_idx`` (int) or ``(next_idx, [page_object_id, ...])`` for multi-page slides."""
+    if isinstance(ret, tuple) and len(ret) == 2 and isinstance(ret[1], list):
+        ids = [str(x) for x in ret[1] if x]
+        return int(ret[0]), (ids if ids else [default_slide_id])
+    return int(ret), [default_slide_id]
+
+
 def _build_slide_jql_speaker_notes(report: dict[str, Any], entry: dict[str, Any]) -> str:
     """Build speaker notes with the JQL used for this slide/deck."""
     from datetime import datetime
@@ -333,10 +341,21 @@ def _build_slide_jql_speaker_notes(report: dict[str, Any], entry: dict[str, Any]
     scoped_queries = _dedupe_keep_order(scoped_queries)
 
     all_queries = _dedupe_keep_order(_collect_jql_queries(report))
-    queries = scoped_queries or all_queries
+    # Only fall back to deck-wide JQL when this slide type does not declare specific
+    # report keys. Otherwise empty scoped_queries (e.g. Salesforce payloads) would
+    # incorrectly show every Jira query from the health report.
+    queries = scoped_queries if required_keys else (scoped_queries or all_queries)
 
     if not queries:
-        lines.append("JQL: none recorded for this slide/deck.")
+        if slide_type in ("salesforce_comprehensive_cover", "salesforce_category"):
+            lines.append("No Jira JQL for this slide — data is from Salesforce (SOQL via REST API).")
+        elif required_keys:
+            lines.append(
+                "JQL: none recorded for this slide's declared data sources "
+                f"({', '.join(required_keys)})."
+            )
+        else:
+            lines.append("JQL: none recorded for this slide/deck.")
         return "\n".join(lines)
 
     lines.append("JQL used:")
@@ -967,10 +986,7 @@ def _sites_slide(reqs, sid, report, idx):
     max_rows_fit = (BODY_BOTTOM - table_top) // ROW_H
     rows_per_page = max(1, max_rows_fit - 2)  # header + total
     show_total = len(all_sites) > 1
-    max_site_pages = 5
-    raw_pages = ((len(all_sites) + rows_per_page - 1) // rows_per_page) if rows_per_page else 1
-    num_pages = min(max_site_pages, raw_pages)
-    sites_not_displayed = max(0, len(all_sites) - num_pages * rows_per_page)
+    num_pages = ((len(all_sites) + rows_per_page - 1) // rows_per_page) if rows_per_page else 1
 
     def _add_site_table(page_sid: str, table_sid: str, sites_chunk: list, add_total: bool) -> None:
         num_rows = 1 + len(sites_chunk) + (1 if add_total else 0)
@@ -1111,14 +1127,8 @@ def _sites_slide(reqs, sid, report, idx):
         add_total = show_total and (page == num_pages - 1)
         _add_site_table(page_sid, f"{page_sid}_table", chunk, add_total)
 
-        # On 5th page when we capped: note how many sites weren't shown
-        if page == num_pages - 1 and sites_not_displayed > 0:
-            note = f"{sites_not_displayed:,} sites not displayed"
-            note_oid = f"{page_sid}_sites_omit"
-            _box(reqs, note_oid, page_sid, MARGIN, BODY_BOTTOM - 2, CONTENT_W, 14, note)
-            _style(reqs, note_oid, 0, len(note), size=7, color=GRAY, font=FONT, italic=True)
-
-    return idx + num_pages
+    slide_oids = [f"{sid}_p{i}" for i in range(num_pages)] if num_pages > 1 else [sid]
+    return idx + num_pages, slide_oids
 
 
 def _features_slide(reqs, sid, report, idx):
@@ -1127,10 +1137,6 @@ def _features_slide(reqs, sid, report, idx):
     if not pages and not features:
         return _missing_data_slide(reqs, sid, report, idx, "top pages / feature adoption data")
 
-    _slide(reqs, sid, idx)
-    _slide_title(reqs, sid, "Feature Adoption")
-
-    # Two columns, fewer items and larger font for readability
     max_items = 5
     font_body = 12
     font_header = 14
@@ -1140,25 +1146,35 @@ def _features_slide(reqs, sid, report, idx):
     right_x = MARGIN + col_w + col_gap
     box_h = BODY_BOTTOM - BODY_Y
 
-    def _render_column(prefix, title, items, name_key, events_key, events_suffix):
-        lines = [title]
-        for i, it in enumerate(items[:max_items], 1):
+    def _render_column(page_sid, prefix, col_title, items, name_key, events_key, events_suffix, start_rank: int):
+        lines = [col_title]
+        slice_items = items[start_rank : start_rank + max_items]
+        for j, it in enumerate(slice_items, start=start_rank + 1):
             nm = (it[name_key] or "")[:32]
             if len(it.get(name_key) or "") > 32:
                 nm = nm.rstrip() + "…"
-            lines.append(f"  {i}. {nm}  ({it[events_key]:,} {events_suffix})")
-        if not items:
+            lines.append(f"  {j}. {nm}  ({it[events_key]:,} {events_suffix})")
+        if not slice_items and start_rank == 0:
             lines.append("  No data")
         text = "\n".join(lines)
-        oid = f"{sid}_{prefix}"
-        _box(reqs, oid, sid, left_x if prefix == "pg" else right_x, BODY_Y, col_w, box_h, text)
+        oid = f"{page_sid}_{prefix}"
+        _box(reqs, oid, page_sid, left_x if prefix == "pg" else right_x, BODY_Y, col_w, box_h, text)
         _style(reqs, oid, 0, len(text), size=font_body, color=NAVY, font=FONT)
-        _style(reqs, oid, 0, len(title), bold=True, size=font_header, color=BLUE)
+        _style(reqs, oid, 0, len(col_title), bold=True, size=font_header, color=BLUE)
 
-    _render_column("pg", "Top Pages", pages, "name", "events", "events")
-    _render_column("ft", "Top Features", features, "name", "events", "clicks")
-
-    return idx + 1
+    n_pg = (len(pages) + max_items - 1) // max_items if pages else 0
+    n_ft = (len(features) + max_items - 1) // max_items if features else 0
+    num_pages = max(n_pg, n_ft, 1)
+    oids: list[str] = []
+    for p in range(num_pages):
+        page_sid = f"{sid}_p{p}" if num_pages > 1 else sid
+        oids.append(page_sid)
+        _slide(reqs, page_sid, idx + p)
+        st = "Feature Adoption" if num_pages == 1 else f"Feature Adoption ({p + 1} of {num_pages})"
+        _slide_title(reqs, page_sid, st)
+        _render_column(page_sid, "pg", "Top Pages", pages, "name", "events", "events", p * max_items)
+        _render_column(page_sid, "ft", "Top Features", features, "name", "events", "clicks", p * max_items)
+    return idx + num_pages, oids
 
 
 def _champions_slide(reqs, sid, report, idx):
@@ -1167,29 +1183,23 @@ def _champions_slide(reqs, sid, report, idx):
     if not all_champions and not all_at_risk:
         return _missing_data_slide(reqs, sid, report, idx, "champion / at-risk user data")
 
-    _slide(reqs, sid, idx)
-    _slide_title(reqs, sid, "Champions & At-Risk Users")
-
     USER_H = 38
     col_gap = 30
     col_w = (CONTENT_W - col_gap) // 2
     left_x = MARGIN
     right_x = MARGIN + col_w + col_gap
-    max_per_col = (BODY_BOTTOM - BODY_Y - 28) // USER_H  # 28pt for header
+    max_per_col = max(1, (BODY_BOTTOM - BODY_Y - 28) // USER_H)
 
-    champions = all_champions[:max_per_col]
-    at_risk_show = all_at_risk[:max_per_col]
-
-    def _render_users(users, x, label, label_color, detail_fn, prefix):
+    def _render_users(page_sid, users, x, label, label_color, detail_fn, prefix, start_i: int):
         y = BODY_Y
-        _box(reqs, f"{sid}_{prefix}h", sid, x, y, col_w, 22, label)
-        _style(reqs, f"{sid}_{prefix}h", 0, len(label), bold=True, size=14, color=label_color, font=FONT)
+        _box(reqs, f"{page_sid}_{prefix}h", page_sid, x, y, col_w, 22, label)
+        _style(reqs, f"{page_sid}_{prefix}h", 0, len(label), bold=True, size=14, color=label_color, font=FONT)
         y += 28
 
-        if not users:
+        if not users and start_i == 0:
             empty = "No active users" if prefix == "c" else "All users active!"
-            _box(reqs, f"{sid}_{prefix}e", sid, x, y, col_w, 20, empty)
-            _style(reqs, f"{sid}_{prefix}e", 0, len(empty), size=12, color=GRAY, font=FONT, italic=True)
+            _box(reqs, f"{page_sid}_{prefix}e", page_sid, x, y, col_w, 20, empty)
+            _style(reqs, f"{page_sid}_{prefix}e", 0, len(empty), size=12, color=GRAY, font=FONT, italic=True)
             return
 
         for ui, u in enumerate(users):
@@ -1197,12 +1207,10 @@ def _champions_slide(reqs, sid, report, idx):
             if len(email) > 28:
                 email = email[:25] + "..."
             detail = detail_fn(u)
-
-            _box(reqs, f"{sid}_{prefix}{ui}", sid, x, y, col_w, 18, email)
-            _style(reqs, f"{sid}_{prefix}{ui}", 0, len(email), bold=True, size=12, color=NAVY, font=FONT)
-
-            _box(reqs, f"{sid}_{prefix}d{ui}", sid, x + 8, y + 18, col_w - 8, 16, detail)
-            _style(reqs, f"{sid}_{prefix}d{ui}", 0, len(detail), size=10, color=GRAY, font=FONT)
+            _box(reqs, f"{page_sid}_{prefix}{start_i + ui}", page_sid, x, y, col_w, 18, email)
+            _style(reqs, f"{page_sid}_{prefix}{start_i + ui}", 0, len(email), bold=True, size=12, color=NAVY, font=FONT)
+            _box(reqs, f"{page_sid}_{prefix}d{start_i + ui}", page_sid, x + 8, y + 18, col_w - 8, 16, detail)
+            _style(reqs, f"{page_sid}_{prefix}d{start_i + ui}", 0, len(detail), size=10, color=GRAY, font=FONT)
             y += USER_H
 
     def _champ_detail(u):
@@ -1212,17 +1220,21 @@ def _champions_slide(reqs, sid, report, idx):
         d = f"{int(u['days_inactive'])}d ago" if u["days_inactive"] < 999 else "never"
         return f"{u['role']}  ·  {d}"
 
-    _render_users(champions, left_x, "Champions", BLUE, _champ_detail, "c")
-    _render_users(at_risk_show, right_x, "At Risk  (2 wk – 1 yr inactive)", GRAY, _risk_detail, "r")
-
-    omitted: list[str] = []
-    if len(all_champions) > max_per_col:
-        omitted.append(f"+{len(all_champions) - max_per_col} more champions")
-    if len(all_at_risk) > max_per_col:
-        omitted.append(f"+{len(all_at_risk) - max_per_col} more at-risk users")
-    _omission_note(reqs, sid, omitted, label="Not shown")
-
-    return idx + 1
+    n_ch = (len(all_champions) + max_per_col - 1) // max_per_col if all_champions else 0
+    n_ar = (len(all_at_risk) + max_per_col - 1) // max_per_col if all_at_risk else 0
+    num_pages = max(n_ch, n_ar, 1)
+    oids: list[str] = []
+    for p in range(num_pages):
+        page_sid = f"{sid}_p{p}" if num_pages > 1 else sid
+        oids.append(page_sid)
+        _slide(reqs, page_sid, idx + p)
+        st = "Champions & At-Risk Users" if num_pages == 1 else f"Champions & At-Risk Users ({p + 1} of {num_pages})"
+        _slide_title(reqs, page_sid, st)
+        c_slice = all_champions[p * max_per_col : (p + 1) * max_per_col]
+        r_slice = all_at_risk[p * max_per_col : (p + 1) * max_per_col]
+        _render_users(page_sid, c_slice, left_x, "Champions", BLUE, _champ_detail, "c", p * max_per_col)
+        _render_users(page_sid, r_slice, right_x, "At Risk  (2 wk – 1 yr inactive)", GRAY, _risk_detail, "r", p * max_per_col)
+    return idx + num_pages, oids
 
 
 def _benchmarks_slide(reqs, sid, report, idx):
@@ -1306,52 +1318,50 @@ def _exports_slide(reqs, sid, report, idx):
     if not by_feature and total == 0:
         return _missing_data_slide(reqs, sid, report, idx, "export / benchmark data")
 
-    _slide(reqs, sid, idx)
-    _slide_title(reqs, sid, "Export Behavior")
-
-    # Left: export volume by feature
     per_user = exports.get("exports_per_active_user", 0)
     active = exports.get("active_users", 0)
     header = f"{total:,} exports  ·  {per_user}/active user  ·  {active} active users"
-    _box(reqs, f"{sid}_hdr", sid, MARGIN, BODY_Y, CONTENT_W, 18, header)
-    _style(reqs, f"{sid}_hdr", 0, len(header), size=10, color=GRAY, font=FONT)
-
     max_features = 8
-    fl = ["By Feature"]
-    for i, f in enumerate(by_feature[:max_features], 1):
-        name = f["feature"][:36] if len(f["feature"]) > 36 else f["feature"]
-        fl.append(f"  {i}. {name}  ({f['exports']:,})")
-    if not by_feature:
-        fl.append("  No export data")
-    ft = "\n".join(fl)
-    _box(reqs, f"{sid}_bf", sid, MARGIN, BODY_Y + 24, 340, 270, ft)
-    _style(reqs, f"{sid}_bf", 0, len(ft), size=10, color=NAVY, font=FONT)
-    _style(reqs, f"{sid}_bf", 0, len("By Feature"), bold=True, size=11, color=BLUE)
-
-    # Right: top exporters
-    max_exporters = (BODY_BOTTOM - BODY_Y - 24) // 28 - 2  # 2 lines per user; reserve note
-    el = ["Top Exporters"]
-    for u in top_exporters[:max_exporters]:
-        email = u["email"] or "unknown"
-        if len(email) > 32:
-            email = email[:29] + "..."
-        el.append(f"  {email}")
-        el.append(f"    {u['role']}  ·  {u['exports']:,} exports")
-    if not top_exporters:
-        el.append("  No export users")
-    et = "\n".join(el)
-    _box(reqs, f"{sid}_te", sid, 400, BODY_Y + 24, 280, 270, et)
-    _style(reqs, f"{sid}_te", 0, len(et), size=10, color=NAVY, font=FONT)
-    _style(reqs, f"{sid}_te", 0, len("Top Exporters"), bold=True, size=11, color=BLUE)
-
-    omitted: list[str] = []
-    if len(by_feature) > max_features:
-        omitted.append(f"+{len(by_feature) - max_features} more export types")
-    if len(top_exporters) > max_exporters:
-        omitted.append(f"+{len(top_exporters) - max_exporters} more exporters")
-    _omission_note(reqs, sid, omitted, label="Not shown")
-
-    return idx + 1
+    max_exporters = max(2, (BODY_BOTTOM - BODY_Y - 24) // 28 - 2)
+    n_fp = (len(by_feature) + max_features - 1) // max_features if by_feature else 0
+    n_ep = (len(top_exporters) + max_exporters - 1) // max_exporters if top_exporters else 0
+    num_pages = max(n_fp, n_ep, 1)
+    oids: list[str] = []
+    for p in range(num_pages):
+        page_sid = f"{sid}_p{p}" if num_pages > 1 else sid
+        oids.append(page_sid)
+        _slide(reqs, page_sid, idx + p)
+        st = "Export Behavior" if num_pages == 1 else f"Export Behavior ({p + 1} of {num_pages})"
+        _slide_title(reqs, page_sid, st)
+        _box(reqs, f"{page_sid}_hdr", page_sid, MARGIN, BODY_Y, CONTENT_W, 18, header)
+        _style(reqs, f"{page_sid}_hdr", 0, len(header), size=10, color=GRAY, font=FONT)
+        fl = ["By Feature"]
+        feat_slice = by_feature[p * max_features : (p + 1) * max_features]
+        start_i = p * max_features
+        for j, f in enumerate(feat_slice, start=start_i + 1):
+            name = f["feature"][:36] if len(f["feature"]) > 36 else f["feature"]
+            fl.append(f"  {j}. {name}  ({f['exports']:,})")
+        if not feat_slice and p == 0 and not by_feature:
+            fl.append("  No export data")
+        ft = "\n".join(fl)
+        _box(reqs, f"{page_sid}_bf", page_sid, MARGIN, BODY_Y + 24, 340, 270, ft)
+        _style(reqs, f"{page_sid}_bf", 0, len(ft), size=10, color=NAVY, font=FONT)
+        _style(reqs, f"{page_sid}_bf", 0, len("By Feature"), bold=True, size=11, color=BLUE)
+        el = ["Top Exporters"]
+        exp_slice = top_exporters[p * max_exporters : (p + 1) * max_exporters]
+        for u in exp_slice:
+            email = u["email"] or "unknown"
+            if len(email) > 32:
+                email = email[:29] + "..."
+            el.append(f"  {email}")
+            el.append(f"    {u['role']}  ·  {u['exports']:,} exports")
+        if not exp_slice and p == 0 and not top_exporters:
+            el.append("  No export users")
+        et = "\n".join(el)
+        _box(reqs, f"{page_sid}_te", page_sid, 400, BODY_Y + 24, 280, 270, et)
+        _style(reqs, f"{page_sid}_te", 0, len(et), size=10, color=NAVY, font=FONT)
+        _style(reqs, f"{page_sid}_te", 0, len("Top Exporters"), bold=True, size=11, color=BLUE)
+    return idx + num_pages, oids
 
 
 def _depth_slide(reqs, sid, report, idx):
@@ -1568,10 +1578,6 @@ def _jira_slide(reqs, sid, report, idx):
         return _missing_data_slide(reqs, sid, report, idx, "Jira support ticket data")
     jira_base = jira.get("base_url", "")
 
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, "Support Summary")
-
     total = jira["total_issues"]
     open_n = jira["open_issues"]
     resolved = jira["resolved_issues"]
@@ -1584,8 +1590,6 @@ def _jira_slide(reqs, sid, report, idx):
     start = end - timedelta(days=days)
     date_range = f"{start.strftime('%b %-d')} – {end.strftime('%b %-d, %Y')}"
     header = f"{total} support tickets  ·  {date_range}  ·  {open_n} open  ·  {resolved} resolved  ·  {esc} escalated  ·  {bugs} open bugs"
-    _box(reqs, f"{sid}_hdr", sid, MARGIN, BODY_Y, CONTENT_W, 18, header)
-    _style(reqs, f"{sid}_hdr", 0, len(header), size=11, color=NAVY, font=FONT, bold=True)
 
     sla_lines = []
     ttfr = jira.get("ttfr", {})
@@ -1606,131 +1610,305 @@ def _jira_slide(reqs, sid, report, idx):
         sla_lines.append("".join(parts))
     if sla_lines:
         sla_text = "\n".join(sla_lines)
-        _box(reqs, f"{sid}_sla", sid, MARGIN, BODY_Y + 18, CONTENT_W, 12 * len(sla_lines) + 4, sla_text)
-        _style(reqs, f"{sid}_sla", 0, len(sla_text), size=9, color=GRAY, font=FONT)
-        fr_label = "First Response:"
-        fr_end = sla_text.find(fr_label)
-        if fr_end >= 0:
-            _style(reqs, f"{sid}_sla", fr_end, fr_end + len(fr_label), bold=True, color=NAVY)
-        res_label = "Resolution:"
-        res_pos = sla_text.find(res_label)
-        if res_pos >= 0:
-            _style(reqs, f"{sid}_sla", res_pos, res_pos + len(res_label), bold=True, color=NAVY)
         body_offset = 22 + 12 * len(sla_lines)
     else:
+        sla_text = ""
         body_offset = 28
 
-    col_gap = 20
-    left_x = MARGIN
-    left_w = (CONTENT_W - col_gap) // 2
-    right_x = MARGIN + left_w + col_gap
-    right_w = CONTENT_W - left_w - col_gap
-    body_top = BODY_Y + body_offset
-    max_y = BODY_BOTTOM
-
-    # ── LEFT COLUMN: By Status, By Priority, Recent Issues ──
-    left_y = body_top
-
     status_items = list(jira.get("by_status", {}).items())
-    status_lines = []
-    for s, c in status_items[:6]:
-        status_lines.append(f"{c:>4}  {s}")
-    if len(status_items) > 6:
-        other = sum(c for _, c in status_items[6:])
-        status_lines.append(f"{other:>4}  Other")
-    status_text = "By Status\n" + "\n".join(status_lines)
-    st_h = min(12 * (len(status_lines) + 1) + 4, max_y - left_y - 120)
-    _box(reqs, f"{sid}_st", sid, left_x, left_y, left_w, st_h, status_text)
-    _style(reqs, f"{sid}_st", 0, len(status_text), size=8, color=NAVY, font=FONT)
-    _style(reqs, f"{sid}_st", 0, len("By Status"), bold=True, size=9, color=BLUE)
-    left_y += st_h + 4
-
-    prio_lines = []
+    status_lines = [f"{c:>4}  {s}" for s, c in status_items]
     prio_short = {"Blocker: The platform is completely down": "Blocker",
                   "Critical: Significant operational impact": "Critical",
                   "Major: Workaround available, not essential": "Major",
                   "Minor: Impairs non-essential functionality": "Minor"}
     prio_items = list(jira.get("by_priority", {}).items())
-    for p, c in prio_items[:5]:
-        prio_lines.append(f"{c:>4}  {prio_short.get(p, p[:20])}")
-    if len(prio_items) > 5:
-        other_p = sum(c for _, c in prio_items[5:])
-        prio_lines.append(f"{other_p:>4}  Other")
-    prio_text = "By Priority\n" + "\n".join(prio_lines)
-    pr_h = min(12 * (len(prio_lines) + 1) + 4, max_y - left_y - 60)
-    _box(reqs, f"{sid}_pr", sid, left_x, left_y, left_w, pr_h, prio_text)
-    _style(reqs, f"{sid}_pr", 0, len(prio_text), size=8, color=NAVY, font=FONT)
-    _style(reqs, f"{sid}_pr", 0, len("By Priority"), bold=True, size=9, color=BLUE)
-    left_y += pr_h + 4
+    prio_lines = [f"{c:>4}  {prio_short.get(p, p[:20])}" for p, c in prio_items]
 
-    recent = jira.get("recent_issues", [])
-    avail_lines = max((max_y - left_y) // 12 - 1, 2)
-    recent = recent[:min(avail_lines, 6)]
-    recent_lines = []
-    for r in recent:
-        recent_lines.append(f"{r['key']}  {r['status'][:8]:8s}  {r['summary'][:30]}")
-    recent_text = "Recent Issues\n" + "\n".join(recent_lines)
-    _box(reqs, f"{sid}_rc", sid, left_x, left_y, left_w, max_y - left_y, recent_text)
-    _style(reqs, f"{sid}_rc", 0, len(recent_text), size=8, color=NAVY, font=MONO)
-    _style(reqs, f"{sid}_rc", 0, len("Recent Issues"), bold=True, size=9, color=BLUE, font=FONT)
-    if jira_base:
-        offset = len("Recent Issues\n")
-        for r in recent:
-            key = r["key"]
-            _style(reqs, f"{sid}_rc", offset, offset + len(key), bold=True, size=8,
-                   color=BLUE, font=MONO, link=f"{jira_base}/browse/{key}")
-            offset += len(f"{key}  {r['status'][:8]:8s}  {r['summary'][:30]}") + 1
+    recent_all = list(jira.get("recent_issues", []))
+    esc_issues = list(jira.get("escalated_issues", []))
+    eng = jira.get("engineering", {})
+    eng_open = list(eng.get("open", []))
+    eng_closed = list(eng.get("recent_closed", []))
+    eng_hdr = (
+        f"Engineering Pipeline  ({eng.get('open_count', len(eng_open))} open · "
+        f"{eng.get('closed_count', len(eng_closed))} closed)"
+    )
 
-    # ── RIGHT COLUMN: Escalated, Engineering Pipeline ──
+    col_gap = 20
+    left_w = (CONTENT_W - col_gap) // 2
+    right_w = CONTENT_W - left_w - col_gap
+    max_y = BODY_BOTTOM
+    line_h = 12
+    sec_title_h = 16
+
+    def _pack_lines(lines: list[str], budget: float) -> tuple[list[str], list[str], float]:
+        if budget < sec_title_h + line_h:
+            return [], lines, 0.0
+        used = float(sec_title_h)
+        take: list[str] = []
+        rest = list(lines)
+        while rest and used + line_h <= budget:
+            take.append(rest.pop(0))
+            used += line_h
+        return take, rest, used
+
+    def _continuation_pages(
+        sections: list[tuple[str, list[str]]],
+        start_idx: int,
+        total_pages: int,
+        body_top_y: float,
+    ) -> tuple[int, list[str]]:
+        oids_extra: list[str] = []
+        cont_y0 = body_top_y
+        per_page_lines = max(1, int((max_y - cont_y0 - 8) // line_h))
+        flat: list[tuple[str, str]] = []
+        for sec_title, slines in sections:
+            if not slines:
+                continue
+            flat.append(("h", sec_title))
+            for ln in slines:
+                flat.append(("l", ln))
+        pos = 0
+        page_num = start_idx
+        while pos < len(flat):
+            page_sid = f"{sid}_p{page_num}"
+            oids_extra.append(page_sid)
+            _slide(reqs, page_sid, idx + page_num)
+            _bg(reqs, page_sid, WHITE)
+            ttl = "Support Summary" if total_pages == 1 else f"Support Summary ({page_num + 1} of {total_pages})"
+            _slide_title(reqs, page_sid, ttl)
+            _box(reqs, f"{page_sid}_hdr", page_sid, MARGIN, BODY_Y, CONTENT_W, 18, header)
+            _style(reqs, f"{page_sid}_hdr", 0, len(header), size=11, color=NAVY, font=FONT, bold=True)
+            y = cont_y0
+            used_lines = 0
+            while pos < len(flat) and used_lines < per_page_lines:
+                kind, text = flat[pos]
+                if kind == "h":
+                    _box(reqs, f"{page_sid}_h{pos}", page_sid, MARGIN, y, CONTENT_W, sec_title_h, text)
+                    _style(reqs, f"{page_sid}_h{pos}", 0, len(text), bold=True, size=10, color=BLUE, font=FONT)
+                    y += sec_title_h
+                    used_lines += 1
+                else:
+                    _box(reqs, f"{page_sid}_l{pos}", page_sid, MARGIN, y, CONTENT_W, line_h, text)
+                    _style(reqs, f"{page_sid}_l{pos}", 0, len(text), size=8, color=NAVY, font=MONO)
+                    if jira_base and text and text.strip():
+                        key = text.split()[0] if text.split() else ""
+                        if key and "-" in key:
+                            lk = len(key)
+                            _style(reqs, f"{page_sid}_l{pos}", 0, lk, bold=True, size=8, color=BLUE, font=MONO,
+                                   link=f"{jira_base}/browse/{key}")
+                    y += line_h
+                    used_lines += 1
+                pos += 1
+            page_num += 1
+        return page_num, oids_extra
+
+    # ── Page 1: pack two columns; push overflow into continuation sections ──
+    status_rest: list[str] = []
+    prio_rest: list[str] = []
+    recent_rest: list = []
+    esc_rest: list = []
+    eng_open_rest: list = []
+    eng_closed_rest: list = []
+    oids: list[str] = []
+
+    body_top = BODY_Y + body_offset
+    left_x = MARGIN
+    right_x = MARGIN + left_w + col_gap
+    reserve_bottom = 36
+    summary_budget = max(max_y - body_top - reserve_bottom - 140, sec_title_h + line_h)
+
+    st_take, status_rest, st_used = _pack_lines(status_lines, summary_budget)
+    pr_budget = max(summary_budget - st_used - 4, sec_title_h + line_h)
+    pr_take, prio_rest, pr_used = _pack_lines(prio_lines, pr_budget)
+
+    left_y = body_top + st_used + 4 + pr_used + 4
+    recent_take: list = []
+    if recent_all:
+        avail_recent = max(int((max_y - left_y) // line_h) - 1, 0)
+        recent_take = recent_all[:avail_recent]
+        recent_rest = recent_all[avail_recent:]
+
     right_y = body_top
-
-    esc_issues = jira.get("escalated_issues", [])
+    esc_take = []
     if esc_issues or esc > 0:
-        esc_show = esc_issues[:4]
-        esc_lines = [f"{e['key']}  {e['summary'][:36]}  ({e['status']})" for e in esc_show]
-        esc_text = f"Escalated ({esc})\n" + "\n".join(esc_lines)
-        esc_h = 12 * (len(esc_lines) + 1) + 6
-        _box(reqs, f"{sid}_esc", sid, right_x, right_y, right_w, esc_h, esc_text)
-        _style(reqs, f"{sid}_esc", 0, len(esc_text), size=8, color=NAVY, font=FONT)
-        esc_hdr = f"Escalated ({esc})"
-        _style(reqs, f"{sid}_esc", 0, len(esc_hdr), bold=True, size=9,
-               color={"red": 0.85, "green": 0.15, "blue": 0.15})
+        esc_line_budget = max(int((max_y - right_y - reserve_bottom) // line_h) - 1, 0)
+        if esc_line_budget <= 0 and esc_issues:
+            esc_rest = list(esc_issues)
+        else:
+            esc_take = esc_issues[:esc_line_budget]
+            esc_rest = esc_issues[esc_line_budget:]
+
+    show_esc_block_p1 = bool(esc_take) or (esc > 0 and not esc_rest)
+    right_y_eng = body_top
+    if show_esc_block_p1:
+        right_y_eng += line_h * (len(esc_take) + 1) + 10
+
+    eng_open_take: list = []
+    eng_closed_take: list = []
+    eng_open_rest: list = []
+    eng_closed_rest: list = []
+    if eng_open or eng_closed:
+        avail_eng = max(int((max_y - right_y_eng) // line_h) - 2, 1)
+        eng_open_take = eng_open[:avail_eng]
+        eng_open_rest = eng_open[len(eng_open_take):]
+        rem = avail_eng - len(eng_open_take)
+        if eng_closed and rem > 1:
+            eng_closed_take = eng_closed[: rem - 1]
+            eng_closed_rest = eng_closed[len(eng_closed_take):]
+        elif eng_closed and rem == 1:
+            eng_closed_rest = list(eng_closed)
+
+    cont_sections: list[tuple[str, list[str]]] = []
+    if status_rest:
+        cont_sections.append(("By Status (continued)", status_rest))
+    if prio_rest:
+        cont_sections.append(("By Priority (continued)", prio_rest))
+    if recent_rest:
+        cont_sections.append(
+            ("Recent Issues (continued)",
+             [f"{r['key']}  {r['status'][:8]:8s}  {r['summary'][:52]}" for r in recent_rest])
+        )
+    if esc_rest:
+        cont_sections.append(
+            ("Escalated (continued)",
+             [f"{e['key']}  {e['summary'][:48]}  ({e['status']})" for e in esc_rest])
+        )
+    eng_cont: list[str] = []
+    if eng_open_rest:
+        for t in eng_open_rest:
+            assignee = t.get("assignee") or "unassigned"
+            eng_cont.append(f"{t['key']}  {t['summary'][:40]}  [{assignee}]")
+    if eng_closed_rest:
+        eng_cont.append("— Recently Closed —")
+        for t in eng_closed_rest:
+            eng_cont.append(f"{t['key']}  {t['summary'][:48]}")
+    if eng_cont:
+        cont_sections.append(("Engineering Pipeline (continued)", eng_cont))
+
+    if cont_sections:
+        flat_lines = sum(len(s[1]) + 1 for s in cont_sections)
+        per_pg = max(1, int((max_y - body_top - 8) // line_h))
+        total_pages = 1 + (flat_lines + per_pg - 1) // per_pg
+    else:
+        total_pages = 1
+
+    page_sid0 = f"{sid}_p0" if total_pages > 1 else sid
+    oids.append(page_sid0)
+    _slide(reqs, page_sid0, idx)
+    _bg(reqs, page_sid0, WHITE)
+    ttl0 = "Support Summary" if total_pages == 1 else f"Support Summary (1 of {total_pages})"
+    _slide_title(reqs, page_sid0, ttl0)
+    _box(reqs, f"{page_sid0}_hdr", page_sid0, MARGIN, BODY_Y, CONTENT_W, 18, header)
+    _style(reqs, f"{page_sid0}_hdr", 0, len(header), size=11, color=NAVY, font=FONT, bold=True)
+    if sla_lines:
+        _box(reqs, f"{page_sid0}_sla", page_sid0, MARGIN, BODY_Y + 18, CONTENT_W, 12 * len(sla_lines) + 4, sla_text)
+        _style(reqs, f"{page_sid0}_sla", 0, len(sla_text), size=9, color=GRAY, font=FONT)
+        fr_label = "First Response:"
+        fr_end = sla_text.find(fr_label)
+        if fr_end >= 0:
+            _style(reqs, f"{page_sid0}_sla", fr_end, fr_end + len(fr_label), bold=True, color=NAVY)
+        res_label = "Resolution:"
+        res_pos = sla_text.find(res_label)
+        if res_pos >= 0:
+            _style(reqs, f"{page_sid0}_sla", res_pos, res_pos + len(res_label), bold=True, color=NAVY)
+
+    body_top = BODY_Y + body_offset
+    left_y = body_top
+    left_x = MARGIN
+    right_x = MARGIN + left_w + col_gap
+
+    if st_take:
+        status_text = "By Status\n" + "\n".join(st_take)
+        st_h = sec_title_h + line_h * len(st_take) + 4
+        _box(reqs, f"{page_sid0}_st", page_sid0, left_x, left_y, left_w, st_h, status_text)
+        _style(reqs, f"{page_sid0}_st", 0, len(status_text), size=8, color=NAVY, font=FONT)
+        _style(reqs, f"{page_sid0}_st", 0, len("By Status"), bold=True, size=9, color=BLUE)
+        left_y += st_h + 4
+    if pr_take:
+        prio_text = "By Priority\n" + "\n".join(pr_take)
+        pr_h = sec_title_h + line_h * len(pr_take) + 4
+        _box(reqs, f"{page_sid0}_pr", page_sid0, left_x, left_y, left_w, pr_h, prio_text)
+        _style(reqs, f"{page_sid0}_pr", 0, len(prio_text), size=8, color=NAVY, font=FONT)
+        _style(reqs, f"{page_sid0}_pr", 0, len("By Priority"), bold=True, size=9, color=BLUE)
+        left_y += pr_h + 4
+
+    if recent_take:
+        recent_lines = [f"{r['key']}  {r['status'][:8]:8s}  {r['summary'][:30]}" for r in recent_take]
+        recent_text = "Recent Issues\n" + "\n".join(recent_lines)
+        _box(reqs, f"{page_sid0}_rc", page_sid0, left_x, left_y, left_w, max_y - left_y, recent_text)
+        _style(reqs, f"{page_sid0}_rc", 0, len(recent_text), size=8, color=NAVY, font=MONO)
+        _style(reqs, f"{page_sid0}_rc", 0, len("Recent Issues"), bold=True, size=9, color=BLUE, font=FONT)
         if jira_base:
+            offset = len("Recent Issues\n")
+            for r in recent_take:
+                key = r["key"]
+                _style(reqs, f"{page_sid0}_rc", offset, offset + len(key), bold=True, size=8,
+                       color=BLUE, font=MONO, link=f"{jira_base}/browse/{key}")
+                offset += len(f"{key}  {r['status'][:8]:8s}  {r['summary'][:30]}") + 1
+
+    right_y = body_top
+    if show_esc_block_p1:
+        esc_lines = [f"{e['key']}  {e['summary'][:36]}  ({e['status']})" for e in esc_take]
+        esc_text = f"Escalated ({esc})\n" + "\n".join(esc_lines)
+        esc_h = line_h * (len(esc_take) + 1) + 6
+        _box(reqs, f"{page_sid0}_esc", page_sid0, right_x, right_y, right_w, esc_h, esc_text)
+        _style(reqs, f"{page_sid0}_esc", 0, len(esc_text), size=8, color=NAVY, font=FONT)
+        esc_hdr = f"Escalated ({esc})"
+        _style(reqs, f"{page_sid0}_esc", 0, len(esc_hdr), bold=True, size=9,
+               color={"red": 0.85, "green": 0.15, "blue": 0.15})
+        if jira_base and esc_take:
             offset = len(esc_hdr) + 1
-            for e in esc_show:
+            for e in esc_take:
                 key = e["key"]
-                _style(reqs, f"{sid}_esc", offset, offset + len(key), bold=True, size=8,
+                _style(reqs, f"{page_sid0}_esc", offset, offset + len(key), bold=True, size=8,
                        color={"red": 0.85, "green": 0.15, "blue": 0.15},
                        link=f"{jira_base}/browse/{key}")
                 offset += len(f"{key}  {e['summary'][:36]}  ({e['status']})") + 1
         right_y += esc_h + 4
 
-    eng = jira.get("engineering", {})
-    eng_open = eng.get("open", [])
-    eng_closed = eng.get("recent_closed", [])
-    if eng_open or eng_closed:
-        eng_hdr = f"Engineering Pipeline  ({eng.get('open_count', 0)} open · {eng.get('closed_count', 0)} closed)"
-        eng_lines = [eng_hdr]
-        avail_eng = max((max_y - right_y) // 12 - 2, 2)
-        open_show = min(len(eng_open), max(avail_eng - 2, 1))
-        for t in eng_open[:open_show]:
+    if eng_open_take or eng_closed_take:
+        eng_lines_body = [eng_hdr]
+        for t in eng_open_take:
             assignee = t.get("assignee") or "unassigned"
-            eng_lines.append(f"  {t['key']}  {t['summary'][:26]}  [{assignee}]")
-        remaining = avail_eng - open_show
-        if eng_closed and remaining > 1:
-            eng_lines.append("Recently Closed")
-            for t in eng_closed[:min(remaining - 1, 4)]:
-                eng_lines.append(f"  {t['key']}  {t['summary'][:36]}")
-        eng_text = "\n".join(eng_lines)
-        _box(reqs, f"{sid}_eng", sid, right_x, right_y, right_w, max_y - right_y, eng_text)
-        _style(reqs, f"{sid}_eng", 0, len(eng_text), size=8, color=NAVY, font=MONO)
-        _style(reqs, f"{sid}_eng", 0, len(eng_hdr), bold=True, size=9, color=BLUE, font=FONT)
+            eng_lines_body.append(f"  {t['key']}  {t['summary'][:26]}  [{assignee}]")
+        if eng_closed_take:
+            eng_lines_body.append("Recently Closed")
+            for t in eng_closed_take:
+                eng_lines_body.append(f"  {t['key']}  {t['summary'][:36]}")
+        eng_text = "\n".join(eng_lines_body)
+        _box(reqs, f"{page_sid0}_eng", page_sid0, right_x, right_y, right_w, max_y - right_y, eng_text)
+        _style(reqs, f"{page_sid0}_eng", 0, len(eng_text), size=8, color=NAVY, font=MONO)
+        _style(reqs, f"{page_sid0}_eng", 0, len(eng_hdr), bold=True, size=9, color=BLUE, font=FONT)
         rc_start = eng_text.find("Recently Closed")
         if rc_start >= 0:
-            _style(reqs, f"{sid}_eng", rc_start, rc_start + len("Recently Closed"),
+            _style(reqs, f"{page_sid0}_eng", rc_start, rc_start + len("Recently Closed"),
                    bold=True, size=8, color=GRAY, font=FONT)
+        if jira_base:
+            off = 0
+            for t in eng_open_take:
+                key = t["key"]
+                p = eng_text.find(key, off)
+                if p >= 0:
+                    _style(reqs, f"{page_sid0}_eng", p, p + len(key), bold=True, size=8, color=BLUE, font=MONO,
+                           link=f"{jira_base}/browse/{key}")
+                    off = p + len(key)
+            off = rc_start + len("Recently Closed") if rc_start >= 0 else 0
+            for t in eng_closed_take:
+                key = t["key"]
+                p = eng_text.find(key, off)
+                if p >= 0:
+                    _style(reqs, f"{page_sid0}_eng", p, p + len(key), bold=True, size=8, color=BLUE, font=MONO,
+                           link=f"{jira_base}/browse/{key}")
+                    off = p + len(key)
 
-    return idx + 1
+    if cont_sections:
+        _, extra_oids = _continuation_pages(cont_sections, 1, total_pages, body_top)
+        oids.extend(extra_oids)
+
+    if len(oids) == 1:
+        return idx + 1
+    return idx + len(oids), oids
 
 
 def _customer_ticket_metrics_slide(reqs, sid, report, idx):
@@ -1880,33 +2058,32 @@ def _signals_slide(reqs, sid, report, idx):
     if not signals:
         return _missing_data_slide(reqs, sid, report, idx, "action signals")
 
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, LIGHT)
-    _slide_title(reqs, sid, "Notable Signals")
-
-    max_signals = (BODY_BOTTOM - BODY_Y) // 32 - 1  # ~32pt per signal; reserve note
-    shown = signals[:max_signals]
-    lines = []
-    for i, s in enumerate(shown, 1):
-        lines.append(f"{i}.   {s}")
-        lines.append("")
-    text = "\n".join(lines)
-
-    _box(reqs, f"{sid}_sig", sid, MARGIN, BODY_Y, CONTENT_W, 290, text)
-    _style(reqs, f"{sid}_sig", 0, len(text), size=12, color=NAVY, font=FONT)
-
-    # Bold just the number prefix of each signal
-    off = 0
-    for line in lines:
-        if line and line[0].isdigit():
-            dot = line.index(".")
-            _style(reqs, f"{sid}_sig", off, off + dot + 1, bold=True, color=BLUE)
-        off += len(line) + 1
-
-    if len(signals) > max_signals:
-        _omission_note(reqs, sid, [f"+{len(signals) - max_signals} more signals"], label="Not shown")
-
-    return idx + 1
+    max_signals = max(1, (BODY_BOTTOM - BODY_Y) // 32 - 1)
+    chunks = [signals[i : i + max_signals] for i in range(0, len(signals), max_signals)]
+    oids: list[str] = []
+    for pi, shown in enumerate(chunks):
+        page_sid = f"{sid}_p{pi}" if len(chunks) > 1 else sid
+        oids.append(page_sid)
+        _slide(reqs, page_sid, idx + pi)
+        _bg(reqs, page_sid, LIGHT)
+        st = "Notable Signals" if len(chunks) == 1 else f"Notable Signals ({pi + 1} of {len(chunks)})"
+        _slide_title(reqs, page_sid, st)
+        base = pi * max_signals
+        lines = []
+        for i, s in enumerate(shown, start=base + 1):
+            lines.append(f"{i}.   {s}")
+            lines.append("")
+        text = "\n".join(lines)
+        oid = f"{page_sid}_sig"
+        _box(reqs, oid, page_sid, MARGIN, BODY_Y, CONTENT_W, 290, text)
+        _style(reqs, oid, 0, len(text), size=12, color=NAVY, font=FONT)
+        off = 0
+        for line in lines:
+            if line and line[0].isdigit():
+                dot = line.index(".")
+                _style(reqs, oid, off, off + dot + 1, bold=True, color=BLUE)
+            off += len(line) + 1
+    return idx + len(chunks), oids
 
 
 # ── Portfolio slide builders (cross-customer) ──
@@ -1941,30 +2118,31 @@ def _portfolio_signals_slide(reqs, sid, report, idx):
     if not signals:
         return _missing_data_slide(reqs, sid, report, idx, "portfolio action signals")
 
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, "Critical Signals Across Portfolio")
-
-    y = BODY_Y
     max_rows = 12
-    for i, s in enumerate(signals[:max_rows]):
-        sev = s.get("severity", 0)
-        dot = "\u25cf "
-        dot_color = {"red": 0.85, "green": 0.15, "blue": 0.15} if sev >= 2 else \
-                    {"red": 0.9, "green": 0.65, "blue": 0.0}
-
-        cust = s["customer"]
-        sig = s["signal"]
-        line = f"{dot}{cust}:  {sig}"
-
-        _box(reqs, f"{sid}_r{i}", sid, MARGIN, y, CONTENT_W, 20, line)
-        _style(reqs, f"{sid}_r{i}", 0, len(line), size=9, color=NAVY, font=FONT)
-        _style(reqs, f"{sid}_r{i}", 0, len(dot), color=dot_color, size=10)
-        _style(reqs, f"{sid}_r{i}", len(dot), len(dot) + len(cust), bold=True, size=9)
-
-        y += 22
-
-    return idx + 1
+    chunks = [signals[i : i + max_rows] for i in range(0, len(signals), max_rows)]
+    oids: list[str] = []
+    for pi, chunk in enumerate(chunks):
+        page_sid = f"{sid}_p{pi}" if len(chunks) > 1 else sid
+        oids.append(page_sid)
+        _slide(reqs, page_sid, idx + pi)
+        _bg(reqs, page_sid, WHITE)
+        st = "Critical Signals Across Portfolio" if len(chunks) == 1 else f"Critical Signals ({pi + 1} of {len(chunks)})"
+        _slide_title(reqs, page_sid, st)
+        y = BODY_Y
+        for i, s in enumerate(chunk):
+            sev = s.get("severity", 0)
+            dot = "\u25cf "
+            dot_color = {"red": 0.85, "green": 0.15, "blue": 0.15} if sev >= 2 else \
+                        {"red": 0.9, "green": 0.65, "blue": 0.0}
+            cust = s["customer"]
+            sig = s["signal"]
+            line = f"{dot}{cust}:  {sig}"
+            _box(reqs, f"{page_sid}_r{i}", page_sid, MARGIN, y, CONTENT_W, 20, line)
+            _style(reqs, f"{page_sid}_r{i}", 0, len(line), size=9, color=NAVY, font=FONT)
+            _style(reqs, f"{page_sid}_r{i}", 0, len(dot), color=dot_color, size=10)
+            _style(reqs, f"{page_sid}_r{i}", len(dot), len(dot) + len(cust), bold=True, size=9)
+            y += 22
+    return idx + len(chunks), oids
 
 
 def _portfolio_trends_slide(reqs, sid, report, idx):
@@ -1973,17 +2151,6 @@ def _portfolio_trends_slide(reqs, sid, report, idx):
     if not trends:
         return _missing_data_slide(reqs, sid, report, idx, "portfolio trends")
 
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, LIGHT)
-    _slide_title(reqs, sid, "Aggregate Trends")
-
-    total_active = trends_data.get("total_active_users", 0)
-    total_users = trends_data.get("total_users", 0)
-    login_pct = trends_data.get("overall_login_pct", 0)
-    header = f"{total_active:,} active users of {total_users:,} total  ·  {login_pct}% login rate"
-    _box(reqs, f"{sid}_hdr", sid, MARGIN, BODY_Y, CONTENT_W, 20, header)
-    _style(reqs, f"{sid}_hdr", 0, len(header), size=12, color=NAVY, font=FONT, bold=True)
-
     type_colors = {
         "concern": {"red": 0.85, "green": 0.15, "blue": 0.15},
         "opportunity": BLUE,
@@ -1991,29 +2158,41 @@ def _portfolio_trends_slide(reqs, sid, report, idx):
         "insight": NAVY,
     }
 
-    y = BODY_Y + 36
-    for i, t in enumerate(trends[:8]):
-        trend_type = t.get("type", "insight")
-        badge = f"[{trend_type.upper()}]"
-        text = t["trend"]
-        custs = t.get("customers", "")
-        line = f"{badge}  {text}"
-        if custs:
-            line += f"\n     {custs}"
-
-        _box(reqs, f"{sid}_t{i}", sid, MARGIN, y, CONTENT_W, 34, line)
-        _style(reqs, f"{sid}_t{i}", 0, len(line), size=10, color=NAVY, font=FONT)
-        _style(reqs, f"{sid}_t{i}", 0, len(badge), bold=True, size=10,
-               color=type_colors.get(trend_type, NAVY))
-
-        if custs:
-            cust_start = line.index(custs)
-            _style(reqs, f"{sid}_t{i}", cust_start, cust_start + len(custs),
-                   size=8, color=GRAY)
-
-        y += 38
-
-    return idx + 1
+    per_page = 8
+    trend_chunks = [trends[i : i + per_page] for i in range(0, len(trends), per_page)]
+    oids: list[str] = []
+    for pi, tchunk in enumerate(trend_chunks):
+        page_sid = f"{sid}_p{pi}" if len(trend_chunks) > 1 else sid
+        oids.append(page_sid)
+        _slide(reqs, page_sid, idx + pi)
+        _bg(reqs, page_sid, LIGHT)
+        st = "Aggregate Trends" if len(trend_chunks) == 1 else f"Aggregate Trends ({pi + 1} of {len(trend_chunks)})"
+        _slide_title(reqs, page_sid, st)
+        total_active = trends_data.get("total_active_users", 0)
+        total_users = trends_data.get("total_users", 0)
+        login_pct = trends_data.get("overall_login_pct", 0)
+        header = f"{total_active:,} active users of {total_users:,} total  ·  {login_pct}% login rate"
+        _box(reqs, f"{page_sid}_hdr", page_sid, MARGIN, BODY_Y, CONTENT_W, 20, header)
+        _style(reqs, f"{page_sid}_hdr", 0, len(header), size=12, color=NAVY, font=FONT, bold=True)
+        y = BODY_Y + 36
+        for i, t in enumerate(tchunk):
+            trend_type = t.get("type", "insight")
+            badge = f"[{trend_type.upper()}]"
+            text = t["trend"]
+            custs = t.get("customers", "")
+            line = f"{badge}  {text}"
+            if custs:
+                line += f"\n     {custs}"
+            _box(reqs, f"{page_sid}_t{i}", page_sid, MARGIN, y, CONTENT_W, 34, line)
+            _style(reqs, f"{page_sid}_t{i}", 0, len(line), size=10, color=NAVY, font=FONT)
+            _style(reqs, f"{page_sid}_t{i}", 0, len(badge), bold=True, size=10,
+                   color=type_colors.get(trend_type, NAVY))
+            if custs:
+                cust_start = line.index(custs)
+                _style(reqs, f"{page_sid}_t{i}", cust_start, cust_start + len(custs),
+                       size=8, color=GRAY)
+            y += 38
+    return idx + len(trend_chunks), oids
 
 
 def _portfolio_leaders_slide(reqs, sid, report, idx):
@@ -2090,93 +2269,96 @@ def _data_quality_slide(reqs, sid, report, idx):
     from .qa import qa
     snap = qa.summary(report=report)
 
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, LIGHT)
-    _slide_title(reqs, sid, "Data Quality")
-
-    # ── Section 1: Data source status badges ──
-    sources = snap.get("data_sources", {})
-    src_x = MARGIN
-    src_y = BODY_Y
-    for si, (name, status) in enumerate(sources.items()):
-        if status == "ok":
-            icon, color = "\u2713", _GREEN
-        else:
-            icon, color = "\u2717", _AMBER
-        label = f"{icon} {name}"
-        _pill(reqs, f"{sid}_src{si}", sid, src_x, src_y, 120, 22, label, WHITE, color)
-        src_x += 130
-
-    # ── Section 2: Validation summary ──
-    total_checks = snap["total_checks"]
-    total_flags = snap["total_flags"]
-    n_errors = snap["errors"]
-    n_warnings = snap["warnings"]
-
-    sum_y = src_y + 36
-
-    if total_flags == 0:
-        status = f"All {total_checks} cross-source checks passed"
-        status_color = _GREEN
-    elif n_errors > 0:
-        status = f"{n_errors} error{'s' if n_errors != 1 else ''} and {n_warnings} warning{'s' if n_warnings != 1 else ''} found"
-        status_color = _RED
-    else:
-        status = f"{n_warnings} finding{'s' if n_warnings != 1 else ''} to note"
-        status_color = _AMBER
-
-    _box(reqs, f"{sid}_st", sid, MARGIN, sum_y, CONTENT_W, 20, status)
-    _style(reqs, f"{sid}_st", 0, len(status), bold=True, size=12, color=status_color, font=FONT)
-
-    # ── Section 3: Findings (customer-facing flags only) ──
-    y = sum_y + 28
     max_rows = 10
     flags = snap["flags"]
     sorted_flags = sorted(flags, key=lambda f: {"ERROR": 0, "WARNING": 1, "INFO": 2}.get(f["severity"], 3))
+    flag_chunks = [sorted_flags[i : i + max_rows] for i in range(0, len(sorted_flags), max_rows)]
+    if not flag_chunks:
+        flag_chunks = [[]]
+    num_pages = len(flag_chunks)
+    oids: list[str] = []
 
-    for i, f in enumerate(sorted_flags[:max_rows]):
+    def _render_flag_row(page_sid: str, fi: int, f: dict, y_pos: float) -> None:
         sev = f["severity"]
         dot = _SEV_DOT.get(sev, "?")
         dot_color = _SEV_COLOR.get(sev, GRAY)
-
         msg = f["message"]
         detail_parts = []
         if f["expected"] is not None and f["actual"] is not None:
             detail_parts.append(f"expected {f['expected']}, got {f['actual']}")
         if f["sources"]:
             detail_parts.append(" vs ".join(f["sources"]))
-
         line = f"{dot}  {msg}"
         detail = ""
         if detail_parts:
             detail = f"    {' · '.join(detail_parts)}"
-
         full = line + detail
         if len(full) > 120:
             full = full[:117] + "..."
-
-        _box(reqs, f"{sid}_f{i}", sid, MARGIN, y, CONTENT_W, 18, full)
-        _style(reqs, f"{sid}_f{i}", 0, len(full), size=9, color=NAVY, font=FONT)
-        _style(reqs, f"{sid}_f{i}", 0, len(dot), color=dot_color, size=10, bold=True)
+        oid = f"{page_sid}_f{fi}"
+        _box(reqs, oid, page_sid, MARGIN, y_pos, CONTENT_W, 18, full)
+        _style(reqs, oid, 0, len(full), size=9, color=NAVY, font=FONT)
+        _style(reqs, oid, 0, len(dot), color=dot_color, size=10, bold=True)
         if detail:
-            _style(reqs, f"{sid}_f{i}", len(line), len(full), color=GRAY, size=8)
+            _style(reqs, oid, len(line), len(full), color=GRAY, size=8)
 
-        y += 20
+    for pi, chunk in enumerate(flag_chunks):
+        page_sid = f"{sid}_p{pi}" if num_pages > 1 else sid
+        oids.append(page_sid)
+        _slide(reqs, page_sid, idx + pi)
+        _bg(reqs, page_sid, LIGHT)
+        if pi == 0:
+            _slide_title(reqs, page_sid, "Data Quality")
+            sources = snap.get("data_sources", {})
+            src_x = MARGIN
+            src_y = BODY_Y
+            for si, (name, status) in enumerate(sources.items()):
+                if status == "ok":
+                    icon, color = "\u2713", _GREEN
+                else:
+                    icon, color = "\u2717", _AMBER
+                label = f"{icon} {name}"
+                _pill(reqs, f"{page_sid}_src{si}", page_sid, src_x, src_y, 120, 22, label, WHITE, color)
+                src_x += 130
+            total_checks = snap["total_checks"]
+            total_flags = snap["total_flags"]
+            n_errors = snap["errors"]
+            n_warnings = snap["warnings"]
+            sum_y = src_y + 36
+            if total_flags == 0:
+                status = f"All {total_checks} cross-source checks passed"
+                status_color = _GREEN
+            elif n_errors > 0:
+                status = (
+                    f"{n_errors} error{'s' if n_errors != 1 else ''} and "
+                    f"{n_warnings} warning{'s' if n_warnings != 1 else ''} found"
+                )
+                status_color = _RED
+            else:
+                status = f"{n_warnings} finding{'s' if n_warnings != 1 else ''} to note"
+                status_color = _AMBER
+            _box(reqs, f"{page_sid}_st", page_sid, MARGIN, sum_y, CONTENT_W, 20, status)
+            _style(reqs, f"{page_sid}_st", 0, len(status), bold=True, size=12, color=status_color, font=FONT)
+            y = sum_y + 28
+        else:
+            ttl = f"Data Quality — findings ({pi + 1} of {num_pages})"
+            _slide_title(reqs, page_sid, ttl)
+            y = BODY_Y
 
-    if len(flags) > max_rows:
-        more = f"... and {len(flags) - max_rows} more"
-        _box(reqs, f"{sid}_more", sid, MARGIN, y, CONTENT_W, 16, more)
-        _style(reqs, f"{sid}_more", 0, len(more), size=8, color=GRAY, font=FONT, italic=True)
-        y += 18
+        for i, f in enumerate(chunk):
+            _render_flag_row(page_sid, pi * 100 + i, f, y)
+            y += 20
 
-    # ── Section 4: Confidence note ──
-    note_y = max(y + 6, BODY_BOTTOM - 40)
-    note = ("Single-source metrics (feature adoption, exports, guides, dollar values) "
-            "are not independently verified across sources.")
-    _box(reqs, f"{sid}_note", sid, MARGIN, note_y, CONTENT_W, 28, note)
-    _style(reqs, f"{sid}_note", 0, len(note), size=7, color=GRAY, font=FONT, italic=True)
+        if pi == num_pages - 1:
+            note_y = max(y + 6, BODY_BOTTOM - 40)
+            note = (
+                "Single-source metrics (feature adoption, exports, guides, dollar values) "
+                "are not independently verified across sources."
+            )
+            _box(reqs, f"{page_sid}_note", page_sid, MARGIN, note_y, CONTENT_W, 28, note)
+            _style(reqs, f"{page_sid}_note", 0, len(note), size=7, color=GRAY, font=FONT, italic=True)
 
-    return idx + 1
+    return idx + num_pages, oids
 
 
 # ── CS Report slide builders ──
@@ -2194,112 +2376,114 @@ def _platform_health_slide(reqs, sid, report, idx):
     if not site_list:
         return _missing_data_slide(reqs, sid, report, idx, "CS Report platform health / site list")
 
-    _slide(reqs, sid, idx)
-    _slide_title(reqs, sid, "Platform Health")
-
     dist = cs.get("health_distribution", {})
     total_short = cs.get("total_shortages", 0)
     total_crit = cs.get("total_critical_shortages", 0)
-    header = "  ·  ".join(
+    summary_hdr = "  ·  ".join(
         [f"{v} {k}" for k, v in dist.items() if v > 0]
         + [f"{total_short:,} shortages ({total_crit:,} critical)"]
     )
-    _box(reqs, f"{sid}_hdr", sid, MARGIN, BODY_Y, CONTENT_W, 18, header)
-    _style(reqs, f"{sid}_hdr", 0, len(header), size=10, color=GRAY, font=FONT)
 
     ROW_H = 28
-    max_rows = (BODY_BOTTOM - BODY_Y - 24) // ROW_H - 1  # reserve space for omission note
+    max_rows = max(1, (BODY_BOTTOM - BODY_Y - 24) // ROW_H - 1)
     headers_list = ["Factory", "Health", "CTB%", "CTC%", "Comp Avail%", "Shortages", "Critical"]
     col_widths = [170, 60, 55, 55, 75, 65, 60]
-    show = site_list[:max_rows]
-    omitted_factories = [s.get("factory", "?") for s in site_list[max_rows:]]
-    num_rows = 1 + len(show)
-    table_id = f"{sid}_tbl"
+    chunks = [site_list[i : i + max_rows] for i in range(0, len(site_list), max_rows)]
+    oids: list[str] = []
 
-    reqs.append({
-        "createTable": {
-            "objectId": table_id,
-            "elementProperties": {
-                "pageObjectId": sid,
-                "size": _sz(sum(col_widths), num_rows * ROW_H),
-                "transform": _tf(MARGIN, BODY_Y + 24),
-            },
-            "rows": num_rows, "columns": len(headers_list),
-        }
-    })
+    for pi, show in enumerate(chunks):
+        page_sid = f"{sid}_p{pi}" if len(chunks) > 1 else sid
+        oids.append(page_sid)
+        _slide(reqs, page_sid, idx + pi)
+        ttl = "Platform Health" if len(chunks) == 1 else f"Platform Health ({pi + 1} of {len(chunks)})"
+        _slide_title(reqs, page_sid, ttl)
+        _box(reqs, f"{page_sid}_hdr", page_sid, MARGIN, BODY_Y, CONTENT_W, 18, summary_hdr)
+        _style(reqs, f"{page_sid}_hdr", 0, len(summary_hdr), size=10, color=GRAY, font=FONT)
 
-    def _ct(row, col, text):
-        if not text:
-            return
-        reqs.append({"insertText": {"objectId": table_id,
-                     "cellLocation": {"rowIndex": row, "columnIndex": col},
-                     "text": text, "insertionIndex": 0}})
-
-    def _cs(row, col, text_len, bold=False, color=None, size=8, align=None):
-        if text_len > 0:
-            s: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}, "fontFamily": FONT}
-            f = ["fontSize", "fontFamily"]
-            if bold:
-                s["bold"] = True; f.append("bold")
-            if color:
-                s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}; f.append("foregroundColor")
-            reqs.append({
-                "updateTextStyle": {
-                    "objectId": table_id,
-                    "cellLocation": {"rowIndex": row, "columnIndex": col},
-                    "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
-                    "style": s, "fields": ",".join(f),
-                }
-            })
-        if align:
-            reqs.append({
-                "updateParagraphStyle": {
-                    "objectId": table_id,
-                    "cellLocation": {"rowIndex": row, "columnIndex": col},
-                    "textRange": {"type": "ALL"},
-                    "style": {"alignment": align}, "fields": "alignment",
-                }
-            })
-
-    def _cbg(row, col, color):
+        num_rows = 1 + len(show)
+        table_id = f"{page_sid}_tbl"
         reqs.append({
-            "updateTableCellProperties": {
+            "createTable": {
                 "objectId": table_id,
-                "tableRange": {"location": {"rowIndex": row, "columnIndex": col}, "rowSpan": 1, "columnSpan": 1},
-                "tableCellProperties": {"tableCellBackgroundFill": {"solidFill": {"color": {"rgbColor": color}}}},
-                "fields": "tableCellBackgroundFill",
+                "elementProperties": {
+                    "pageObjectId": page_sid,
+                    "size": _sz(sum(col_widths), num_rows * ROW_H),
+                    "transform": _tf(MARGIN, BODY_Y + 24),
+                },
+                "rows": num_rows, "columns": len(headers_list),
             }
         })
 
-    _clean_table(reqs, table_id, num_rows, len(headers_list))
+        def _ct(row, col, text):
+            if not text:
+                return
+            reqs.append({"insertText": {"objectId": table_id,
+                         "cellLocation": {"rowIndex": row, "columnIndex": col},
+                         "text": text, "insertionIndex": 0}})
 
-    for ci, h in enumerate(headers_list):
-        _ct(0, ci, h)
-        _cs(0, ci, len(h), bold=True, color=GRAY, size=8, align="END" if ci >= 2 else None)
-        _cbg(0, ci, WHITE)
+        def _cs(row, col, text_len, bold=False, color=None, size=8, align=None):
+            if text_len > 0:
+                s: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}, "fontFamily": FONT}
+                f = ["fontSize", "fontFamily"]
+                if bold:
+                    s["bold"] = True; f.append("bold")
+                if color:
+                    s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}; f.append("foregroundColor")
+                reqs.append({
+                    "updateTextStyle": {
+                        "objectId": table_id,
+                        "cellLocation": {"rowIndex": row, "columnIndex": col},
+                        "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
+                        "style": s, "fields": ",".join(f),
+                    }
+                })
+            if align:
+                reqs.append({
+                    "updateParagraphStyle": {
+                        "objectId": table_id,
+                        "cellLocation": {"rowIndex": row, "columnIndex": col},
+                        "textRange": {"type": "ALL"},
+                        "style": {"alignment": align}, "fields": "alignment",
+                    }
+                })
 
-    for ri, s in enumerate(show):
-        row = ri + 1
-        hs = s.get("health_score") or "NONE"
-        badge_info = _HEALTH_BADGE.get(hs)
-        badge = badge_info[1] + " " + hs if badge_info else hs
-        vals = [
-            s.get("factory", "?")[:24],
-            badge,
-            f'{s.get("clear_to_build_pct", 0):.1f}' if "clear_to_build_pct" in s else "-",
-            f'{s.get("clear_to_commit_pct", 0):.1f}' if "clear_to_commit_pct" in s else "-",
-            f'{s.get("component_availability_pct", 0):.1f}' if "component_availability_pct" in s else "-",
-            f'{s.get("shortages", 0):,}' if "shortages" in s else "-",
-            f'{s.get("critical_shortages", 0):,}' if "critical_shortages" in s else "-",
-        ]
-        for ci, v in enumerate(vals):
-            _ct(row, ci, v)
-            _cs(row, ci, len(v), color=NAVY, size=8, align="END" if ci >= 2 else None)
-            _cbg(row, ci, WHITE)
+        def _cbg(row, col, color):
+            reqs.append({
+                "updateTableCellProperties": {
+                    "objectId": table_id,
+                    "tableRange": {"location": {"rowIndex": row, "columnIndex": col}, "rowSpan": 1, "columnSpan": 1},
+                    "tableCellProperties": {"tableCellBackgroundFill": {"solidFill": {"color": {"rgbColor": color}}}},
+                    "fields": "tableCellBackgroundFill",
+                }
+            })
 
-    _omission_note(reqs, sid, omitted_factories, label="Not shown")
+        _clean_table(reqs, table_id, num_rows, len(headers_list))
 
-    return idx + 1
+        for ci, h in enumerate(headers_list):
+            _ct(0, ci, h)
+            _cs(0, ci, len(h), bold=True, color=GRAY, size=8, align="END" if ci >= 2 else None)
+            _cbg(0, ci, WHITE)
+
+        for ri, s in enumerate(show):
+            row = ri + 1
+            hs = s.get("health_score") or "NONE"
+            badge_info = _HEALTH_BADGE.get(hs)
+            badge = badge_info[1] + " " + hs if badge_info else hs
+            vals = [
+                s.get("factory", "?")[:24],
+                badge,
+                f'{s.get("clear_to_build_pct", 0):.1f}' if "clear_to_build_pct" in s else "-",
+                f'{s.get("clear_to_commit_pct", 0):.1f}' if "clear_to_commit_pct" in s else "-",
+                f'{s.get("component_availability_pct", 0):.1f}' if "component_availability_pct" in s else "-",
+                f'{s.get("shortages", 0):,}' if "shortages" in s else "-",
+                f'{s.get("critical_shortages", 0):,}' if "critical_shortages" in s else "-",
+            ]
+            for ci, v in enumerate(vals):
+                _ct(row, ci, v)
+                _cs(row, ci, len(v), color=NAVY, size=8, align="END" if ci >= 2 else None)
+                _cbg(row, ci, WHITE)
+
+    return idx + len(chunks), oids
 
 
 def _supply_chain_slide(reqs, sid, report, idx):
@@ -2308,87 +2492,11 @@ def _supply_chain_slide(reqs, sid, report, idx):
     if not site_list:
         return _missing_data_slide(reqs, sid, report, idx, "CS Report supply chain / site list")
 
-    _slide(reqs, sid, idx)
-    _slide_title(reqs, sid, "Supply Chain Overview")
-
     totals = cs.get("totals", {})
     oh = totals.get("on_hand", 0)
     oo = totals.get("on_order", 0)
     ex = totals.get("excess_on_hand", 0)
-    header = f"${oh:,.0f} on-hand  ·  ${oo:,.0f} on-order  ·  ${ex:,.0f} excess"
-    _box(reqs, f"{sid}_hdr", sid, MARGIN, BODY_Y, CONTENT_W, 18, header)
-    _style(reqs, f"{sid}_hdr", 0, len(header), bold=True, size=11, color=NAVY, font=FONT)
-
-    ROW_H = 28
-    max_rows = (BODY_BOTTOM - BODY_Y - 28) // ROW_H - 1  # reserve space for omission note
-    headers_list = ["Factory", "On-Hand", "On-Order", "Excess", "DOI", "Late POs"]
-    col_widths = [150, 90, 90, 80, 55, 55]
-    show = site_list[:max_rows]
-    omitted_factories = [s.get("factory", "?") for s in site_list[max_rows:]]
-    num_rows = 1 + len(show)
-    table_id = f"{sid}_tbl"
-
-    reqs.append({
-        "createTable": {
-            "objectId": table_id,
-            "elementProperties": {
-                "pageObjectId": sid,
-                "size": _sz(sum(col_widths), num_rows * ROW_H),
-                "transform": _tf(MARGIN, BODY_Y + 28),
-            },
-            "rows": num_rows, "columns": len(headers_list),
-        }
-    })
-
-    def _ct(row, col, text):
-        if not text:
-            return
-        reqs.append({"insertText": {"objectId": table_id,
-                     "cellLocation": {"rowIndex": row, "columnIndex": col},
-                     "text": text, "insertionIndex": 0}})
-
-    def _cs(row, col, text_len, bold=False, color=None, size=8, align=None):
-        if text_len > 0:
-            s: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}, "fontFamily": FONT}
-            f = ["fontSize", "fontFamily"]
-            if bold:
-                s["bold"] = True; f.append("bold")
-            if color:
-                s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}; f.append("foregroundColor")
-            reqs.append({
-                "updateTextStyle": {
-                    "objectId": table_id,
-                    "cellLocation": {"rowIndex": row, "columnIndex": col},
-                    "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
-                    "style": s, "fields": ",".join(f),
-                }
-            })
-        if align:
-            reqs.append({
-                "updateParagraphStyle": {
-                    "objectId": table_id,
-                    "cellLocation": {"rowIndex": row, "columnIndex": col},
-                    "textRange": {"type": "ALL"},
-                    "style": {"alignment": align}, "fields": "alignment",
-                }
-            })
-
-    def _cbg(row, col, color):
-        reqs.append({
-            "updateTableCellProperties": {
-                "objectId": table_id,
-                "tableRange": {"location": {"rowIndex": row, "columnIndex": col}, "rowSpan": 1, "columnSpan": 1},
-                "tableCellProperties": {"tableCellBackgroundFill": {"solidFill": {"color": {"rgbColor": color}}}},
-                "fields": "tableCellBackgroundFill",
-            }
-        })
-
-    _clean_table(reqs, table_id, num_rows, len(headers_list))
-
-    for ci, h in enumerate(headers_list):
-        _ct(0, ci, h)
-        _cs(0, ci, len(h), bold=True, color=GRAY, size=8, align="END" if ci >= 1 else None)
-        _cbg(0, ci, WHITE)
+    summary_hdr = f"${oh:,.0f} on-hand  ·  ${oo:,.0f} on-order  ·  ${ex:,.0f} excess"
 
     def _fmtk(v):
         if v is None or v == 0:
@@ -2399,106 +2507,31 @@ def _supply_chain_slide(reqs, sid, report, idx):
             return f"${v/1_000:.0f}K"
         return f"${v:,.0f}"
 
-    for ri, s in enumerate(show):
-        row = ri + 1
-        vals = [
-            s.get("factory", "?")[:22],
-            _fmtk(s.get("on_hand_value")),
-            _fmtk(s.get("on_order_value")),
-            _fmtk(s.get("excess_on_hand")),
-            f'{s["doi_days"]:.0f}d' if "doi_days" in s else "-",
-            f'{s.get("late_pos", 0):,}' if "late_pos" in s else "-",
-        ]
-        for ci, v in enumerate(vals):
-            _ct(row, ci, v)
-            _cs(row, ci, len(v), color=NAVY, size=8, align="END" if ci >= 1 else None)
-            _cbg(row, ci, WHITE)
+    ROW_H = 28
+    max_rows = max(1, (BODY_BOTTOM - BODY_Y - 28) // ROW_H - 1)
+    headers_list = ["Factory", "On-Hand", "On-Order", "Excess", "DOI", "Late POs"]
+    col_widths = [150, 90, 90, 80, 55, 55]
+    chunks = [site_list[i : i + max_rows] for i in range(0, len(site_list), max_rows)]
+    oids: list[str] = []
 
-    _omission_note(reqs, sid, omitted_factories, label="Not shown")
+    for pi, show in enumerate(chunks):
+        page_sid = f"{sid}_p{pi}" if len(chunks) > 1 else sid
+        oids.append(page_sid)
+        _slide(reqs, page_sid, idx + pi)
+        ttl = "Supply Chain Overview" if len(chunks) == 1 else f"Supply Chain Overview ({pi + 1} of {len(chunks)})"
+        _slide_title(reqs, page_sid, ttl)
+        _box(reqs, f"{page_sid}_hdr", page_sid, MARGIN, BODY_Y, CONTENT_W, 18, summary_hdr)
+        _style(reqs, f"{page_sid}_hdr", 0, len(summary_hdr), bold=True, size=11, color=NAVY, font=FONT)
 
-    return idx + 1
-
-
-def _platform_value_slide(reqs, sid, report, idx):
-    cs = report.get("cs_platform_value", report)
-    total_savings = cs.get("total_savings", 0)
-    total_open = cs.get("total_open_ia_value", 0)
-    total_recs = cs.get("total_recs_created_30d", 0)
-    site_list = cs.get("sites", [])
-
-    if total_savings == 0 and total_open == 0 and total_recs == 0:
-        return _missing_data_slide(reqs, sid, report, idx, "platform value / ROI (savings, pipeline, recommendations)")
-
-    _slide(reqs, sid, idx)
-    _slide_title(reqs, sid, "Platform Value & ROI")
-
-    def _fmt_dollar(v):
-        if abs(v) >= 1_000_000_000:
-            return f"${v / 1_000_000_000:,.2f}B"
-        if abs(v) >= 1_000_000:
-            return f"${v / 1_000_000:,.1f}M"
-        if abs(v) >= 1_000:
-            return f"${v / 1_000:,.0f}K"
-        return f"${v:,.0f}"
-
-    def _fmt_count(v):
-        if abs(v) >= 1_000_000:
-            return f"{v / 1_000_000:,.1f}M"
-        if abs(v) >= 100_000:
-            return f"{v / 1_000:,.0f}K"
-        return f"{v:,}"
-
-    sav = _fmt_dollar(total_savings)
-    _box(reqs, f"{sid}_sav", sid, MARGIN, BODY_Y + 8, 200, 50, sav)
-    _style(reqs, f"{sid}_sav", 0, len(sav), bold=True, size=28, color=BLUE, font=FONT)
-
-    sav_sub = "savings achieved"
-    _box(reqs, f"{sid}_ss", sid, MARGIN, BODY_Y + 56, 200, 18, sav_sub)
-    _style(reqs, f"{sid}_ss", 0, len(sav_sub), size=9, color=GRAY, font=FONT)
-
-    opn = _fmt_dollar(total_open)
-    _box(reqs, f"{sid}_opn", sid, 260, BODY_Y + 8, 200, 50, opn)
-    _style(reqs, f"{sid}_opn", 0, len(opn), bold=True, size=28, color=NAVY, font=FONT)
-
-    opn_sub = "open IA pipeline"
-    _box(reqs, f"{sid}_os", sid, 260, BODY_Y + 56, 200, 18, opn_sub)
-    _style(reqs, f"{sid}_os", 0, len(opn_sub), size=9, color=GRAY, font=FONT)
-
-    recs_text = _fmt_count(total_recs)
-    _box(reqs, f"{sid}_recs", sid, 480, BODY_Y + 8, 160, 50, recs_text)
-    _style(reqs, f"{sid}_recs", 0, len(recs_text), bold=True, size=28, color=TEAL, font=FONT)
-
-    recs_sub = "recs created (30d)"
-    _box(reqs, f"{sid}_rs", sid, 480, BODY_Y + 56, 160, 18, recs_sub)
-    _style(reqs, f"{sid}_rs", 0, len(recs_sub), size=9, color=GRAY, font=FONT)
-
-    # Per-site breakdown
-    total_pos = cs.get("total_pos_placed_30d", 0)
-    total_overdue = cs.get("total_overdue_tasks", 0)
-    ops = f"{total_pos:,} POs placed  ·  {total_overdue:,} overdue tasks"
-    _box(reqs, f"{sid}_ops", sid, MARGIN, BODY_Y + 84, CONTENT_W, 16, ops)
-    _style(reqs, f"{sid}_ops", 0, len(ops), size=9, color=GRAY, font=FONT)
-
-    # Factory breakdown as a table
-    factory_rows = [s for s in site_list if s.get("savings_current_period") or s.get("recs_created_30d")]
-    if factory_rows:
-        tbl_y = BODY_Y + 108
-        ROW_H = 28
-        max_rows = (BODY_BOTTOM - tbl_y) // ROW_H - 1  # reserve note
-        show = factory_rows[:max_rows]
-        omitted_factories = [s.get("factory", "?") for s in factory_rows[max_rows:]]
-        headers_list = ["Factory", "Savings", "Recs (30d)"]
-        col_widths = [180, 120, 80]
         num_rows = 1 + len(show)
-        table_id = f"{sid}_tbl"
-
+        table_id = f"{page_sid}_tbl"
         reqs.append({
             "createTable": {
                 "objectId": table_id,
                 "elementProperties": {
-                    "pageObjectId": sid,
+                    "pageObjectId": page_sid,
                     "size": _sz(sum(col_widths), num_rows * ROW_H),
-                    "transform": _tf(MARGIN, tbl_y),
+                    "transform": _tf(MARGIN, BODY_Y + 28),
                 },
                 "rows": num_rows, "columns": len(headers_list),
             }
@@ -2556,6 +2589,178 @@ def _platform_value_slide(reqs, sid, report, idx):
 
         for ri, s in enumerate(show):
             row = ri + 1
+            vals = [
+                s.get("factory", "?")[:22],
+                _fmtk(s.get("on_hand_value")),
+                _fmtk(s.get("on_order_value")),
+                _fmtk(s.get("excess_on_hand")),
+                f'{s["doi_days"]:.0f}d' if "doi_days" in s else "-",
+                f'{s.get("late_pos", 0):,}' if "late_pos" in s else "-",
+            ]
+            for ci, v in enumerate(vals):
+                _ct(row, ci, v)
+                _cs(row, ci, len(v), color=NAVY, size=8, align="END" if ci >= 1 else None)
+                _cbg(row, ci, WHITE)
+
+    return idx + len(chunks), oids
+
+
+def _platform_value_slide(reqs, sid, report, idx):
+    cs = report.get("cs_platform_value", report)
+    total_savings = cs.get("total_savings", 0)
+    total_open = cs.get("total_open_ia_value", 0)
+    total_recs = cs.get("total_recs_created_30d", 0)
+    site_list = cs.get("sites", [])
+
+    if total_savings == 0 and total_open == 0 and total_recs == 0:
+        return _missing_data_slide(reqs, sid, report, idx, "platform value / ROI (savings, pipeline, recommendations)")
+
+    def _fmt_dollar(v):
+        if abs(v) >= 1_000_000_000:
+            return f"${v / 1_000_000_000:,.2f}B"
+        if abs(v) >= 1_000_000:
+            return f"${v / 1_000_000:,.1f}M"
+        if abs(v) >= 1_000:
+            return f"${v / 1_000:,.0f}K"
+        return f"${v:,.0f}"
+
+    def _fmt_count(v):
+        if abs(v) >= 1_000_000:
+            return f"{v / 1_000_000:,.1f}M"
+        if abs(v) >= 100_000:
+            return f"{v / 1_000:,.0f}K"
+        return f"{v:,}"
+
+    total_pos = cs.get("total_pos_placed_30d", 0)
+    total_overdue = cs.get("total_overdue_tasks", 0)
+    ops = f"{total_pos:,} POs placed  ·  {total_overdue:,} overdue tasks"
+
+    def _render_kpi(page_sid: str) -> None:
+        sav = _fmt_dollar(total_savings)
+        _box(reqs, f"{page_sid}_sav", page_sid, MARGIN, BODY_Y + 8, 200, 50, sav)
+        _style(reqs, f"{page_sid}_sav", 0, len(sav), bold=True, size=28, color=BLUE, font=FONT)
+        sav_sub = "savings achieved"
+        _box(reqs, f"{page_sid}_ss", page_sid, MARGIN, BODY_Y + 56, 200, 18, sav_sub)
+        _style(reqs, f"{page_sid}_ss", 0, len(sav_sub), size=9, color=GRAY, font=FONT)
+        opn = _fmt_dollar(total_open)
+        _box(reqs, f"{page_sid}_opn", page_sid, 260, BODY_Y + 8, 200, 50, opn)
+        _style(reqs, f"{page_sid}_opn", 0, len(opn), bold=True, size=28, color=NAVY, font=FONT)
+        opn_sub = "open IA pipeline"
+        _box(reqs, f"{page_sid}_os", page_sid, 260, BODY_Y + 56, 200, 18, opn_sub)
+        _style(reqs, f"{page_sid}_os", 0, len(opn_sub), size=9, color=GRAY, font=FONT)
+        recs_text = _fmt_count(total_recs)
+        _box(reqs, f"{page_sid}_recs", page_sid, 480, BODY_Y + 8, 160, 50, recs_text)
+        _style(reqs, f"{page_sid}_recs", 0, len(recs_text), bold=True, size=28, color=TEAL, font=FONT)
+        recs_sub = "recs created (30d)"
+        _box(reqs, f"{page_sid}_rs", page_sid, 480, BODY_Y + 56, 160, 18, recs_sub)
+        _style(reqs, f"{page_sid}_rs", 0, len(recs_sub), size=9, color=GRAY, font=FONT)
+        _box(reqs, f"{page_sid}_ops", page_sid, MARGIN, BODY_Y + 84, CONTENT_W, 16, ops)
+        _style(reqs, f"{page_sid}_ops", 0, len(ops), size=9, color=GRAY, font=FONT)
+
+    factory_rows = [s for s in site_list if s.get("savings_current_period") or s.get("recs_created_30d")]
+    ROW_H = 28
+    tbl_y_kpi = BODY_Y + 108
+    max_rows_first = max(1, (BODY_BOTTOM - tbl_y_kpi) // ROW_H - 1)
+    tbl_y_cont = BODY_Y + 24
+    max_rows_cont = max(1, (BODY_BOTTOM - tbl_y_cont) // ROW_H - 1)
+
+    chunks_planned: list[list[Any]] = []
+    if factory_rows:
+        r = list(factory_rows)
+        chunks_planned.append(r[:max_rows_first])
+        r = r[max_rows_first:]
+        while r:
+            chunks_planned.append(r[:max_rows_cont])
+            r = r[max_rows_cont:]
+
+    oids: list[str] = []
+    if not chunks_planned:
+        _slide(reqs, sid, idx)
+        _slide_title(reqs, sid, "Platform Value & ROI")
+        _render_kpi(sid)
+        return idx + 1, [sid]
+
+    for pi, show in enumerate(chunks_planned):
+        page_sid = f"{sid}_p{pi}" if len(chunks_planned) > 1 else sid
+        oids.append(page_sid)
+        _slide(reqs, page_sid, idx + pi)
+        if pi == 0:
+            _slide_title(reqs, page_sid, "Platform Value & ROI")
+            _render_kpi(page_sid)
+            tbl_y = tbl_y_kpi
+        else:
+            _slide_title(
+                reqs, page_sid,
+                f"Platform Value & ROI — factory detail ({pi + 1} of {len(chunks_planned)})",
+            )
+            tbl_y = tbl_y_cont
+
+        headers_list = ["Factory", "Savings", "Recs (30d)"]
+        col_widths = [180, 120, 80]
+        num_rows = 1 + len(show)
+        table_id = f"{page_sid}_tbl"
+        reqs.append({
+            "createTable": {
+                "objectId": table_id,
+                "elementProperties": {
+                    "pageObjectId": page_sid,
+                    "size": _sz(sum(col_widths), num_rows * ROW_H),
+                    "transform": _tf(MARGIN, tbl_y),
+                },
+                "rows": num_rows, "columns": len(headers_list),
+            }
+        })
+
+        def _ct(row, col, text):
+            if not text:
+                return
+            reqs.append({"insertText": {"objectId": table_id,
+                         "cellLocation": {"rowIndex": row, "columnIndex": col},
+                         "text": text, "insertionIndex": 0}})
+
+        def _cs(row, col, text_len, bold=False, color=None, size=8, align=None):
+            if text_len > 0:
+                s: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}, "fontFamily": FONT}
+                f = ["fontSize", "fontFamily"]
+                if bold:
+                    s["bold"] = True; f.append("bold")
+                if color:
+                    s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}; f.append("foregroundColor")
+                reqs.append({
+                    "updateTextStyle": {
+                        "objectId": table_id,
+                        "cellLocation": {"rowIndex": row, "columnIndex": col},
+                        "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
+                        "style": s, "fields": ",".join(f),
+                    }
+                })
+            if align:
+                reqs.append({
+                    "updateParagraphStyle": {
+                        "objectId": table_id,
+                        "cellLocation": {"rowIndex": row, "columnIndex": col},
+                        "textRange": {"type": "ALL"},
+                        "style": {"alignment": align}, "fields": "alignment",
+                    }
+                })
+
+        def _cbg(row, col, color):
+            reqs.append({
+                "updateTableCellProperties": {
+                    "objectId": table_id,
+                    "tableRange": {"location": {"rowIndex": row, "columnIndex": col}, "rowSpan": 1, "columnSpan": 1},
+                    "tableCellProperties": {"tableCellBackgroundFill": {"solidFill": {"color": {"rgbColor": color}}}},
+                    "fields": "tableCellBackgroundFill",
+                }
+            })
+
+        _clean_table(reqs, table_id, num_rows, len(headers_list))
+        for ci, h in enumerate(headers_list):
+            _ct(0, ci, h)
+            _cs(0, ci, len(h), bold=True, color=GRAY, size=8, align="END" if ci >= 1 else None)
+            _cbg(0, ci, WHITE)
+        for ri, s in enumerate(show):
+            row = ri + 1
             sav_v = s.get("savings_current_period", 0)
             recs_v = s.get("recs_created_30d", 0)
             vals = [
@@ -2568,9 +2773,7 @@ def _platform_value_slide(reqs, sid, report, idx):
                 _cs(row, ci, len(v), color=NAVY, size=8, align="END" if ci >= 1 else None)
                 _cbg(row, ci, WHITE)
 
-        _omission_note(reqs, sid, omitted_factories, label="Not shown")
-
-    return idx + 1
+    return idx + len(chunks_planned), oids
 
 
 # ── Team roster slide ──
@@ -2785,10 +2988,6 @@ def _cross_validation_slide(reqs, sid, report, idx):
     if not cs_factories and not pendo_sites:
         return _missing_data_slide(reqs, sid, report, idx, "Pendo sites and/or CS Report factories for comparison")
 
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, LIGHT)
-    _slide_title(reqs, sid, "Data Cross-Validation")
-
     engagement = report.get("engagement", {})
     pendo_rate = engagement.get("active_rate_7d")
     if pendo_rate is not None:
@@ -2810,13 +3009,10 @@ def _cross_validation_slide(reqs, sid, report, idx):
             header_parts.append(f"⚠ {diff}pp gap")
 
     header = "  ·  ".join(header_parts) if header_parts else "Comparing Pendo usage with CS Report metrics"
-    _box(reqs, f"{sid}_hdr", sid, MARGIN, BODY_Y, CONTENT_W, 16, header)
-    _style(reqs, f"{sid}_hdr", 0, len(header), size=10, color=NAVY, font=FONT, bold=True)
 
-    # Build per-site comparison table
     ROW_H = 20
     tbl_y = BODY_Y + 24
-    max_rows = (BODY_BOTTOM - tbl_y) // ROW_H - 1
+    max_rows = max(1, (BODY_BOTTOM - tbl_y) // ROW_H - 1)
 
     pendo_by_site: dict[str, dict] = {}
     for s in pendo_sites:
@@ -2842,44 +3038,55 @@ def _cross_validation_slide(reqs, sid, report, idx):
         rows.append((fname[:22], p_users, p_events, cs_wab, cs_health_str))
 
     if not rows:
+        _slide(reqs, sid, idx)
+        _bg(reqs, sid, LIGHT)
+        _slide_title(reqs, sid, "Data Cross-Validation")
         note = "No overlapping site data between Pendo and CS Report"
         _box(reqs, f"{sid}_none", sid, MARGIN, tbl_y, CONTENT_W, 30, note)
         _style(reqs, f"{sid}_none", 0, len(note), size=11, color=GRAY, font=FONT)
         return idx + 1
 
-    shown = rows[:max_rows]
+    row_chunks = [rows[i : i + max_rows] for i in range(0, len(rows), max_rows)]
     cols = ["Site", "Pendo Users", "Pendo Events", "CS Active %", "CS Health"]
     col_widths = [150, 90, 100, 90, 90]
-    num_rows = len(shown) + 1
     num_cols = len(cols)
-    table_id = f"{sid}_tbl"
+    oids: list[str] = []
 
-    reqs.append({
-        "createTable": {
-            "objectId": table_id,
-            "elementProperties": {
-                "pageObjectId": sid,
-                "size": {"width": {"magnitude": sum(col_widths), "unit": "PT"},
-                         "height": {"magnitude": ROW_H * num_rows, "unit": "PT"}},
-                "transform": _tf(MARGIN, tbl_y),
-            },
-            "rows": num_rows, "columns": num_cols,
-        }
-    })
-    _clean_table(reqs, table_id, num_rows, num_cols)
+    for pi, shown in enumerate(row_chunks):
+        page_sid = f"{sid}_p{pi}" if len(row_chunks) > 1 else sid
+        oids.append(page_sid)
+        _slide(reqs, page_sid, idx + pi)
+        _bg(reqs, page_sid, LIGHT)
+        ttl = "Data Cross-Validation" if len(row_chunks) == 1 else f"Data Cross-Validation ({pi + 1} of {len(row_chunks)})"
+        _slide_title(reqs, page_sid, ttl)
+        _box(reqs, f"{page_sid}_hdr", page_sid, MARGIN, BODY_Y, CONTENT_W, 16, header)
+        _style(reqs, f"{page_sid}_hdr", 0, len(header), size=10, color=NAVY, font=FONT, bold=True)
 
-    for ci, hdr in enumerate(cols):
-        reqs.append({"insertText": {"objectId": table_id, "text": hdr,
-                                    "cellLocation": {"tableId": table_id, "rowIndex": 0, "columnIndex": ci}}})
-    for ri, row in enumerate(shown, 1):
-        for ci, val in enumerate(row):
-            reqs.append({"insertText": {"objectId": table_id, "text": val,
-                                        "cellLocation": {"tableId": table_id, "rowIndex": ri, "columnIndex": ci}}})
+        num_rows = len(shown) + 1
+        table_id = f"{page_sid}_tbl"
+        reqs.append({
+            "createTable": {
+                "objectId": table_id,
+                "elementProperties": {
+                    "pageObjectId": page_sid,
+                    "size": {"width": {"magnitude": sum(col_widths), "unit": "PT"},
+                             "height": {"magnitude": ROW_H * num_rows, "unit": "PT"}},
+                    "transform": _tf(MARGIN, tbl_y),
+                },
+                "rows": num_rows, "columns": num_cols,
+            }
+        })
+        _clean_table(reqs, table_id, num_rows, num_cols)
 
-    if len(rows) > max_rows:
-        _omission_note(reqs, sid, [f"+{len(rows) - max_rows} more sites"], label="Not shown")
+        for ci, hdr in enumerate(cols):
+            reqs.append({"insertText": {"objectId": table_id, "text": hdr,
+                                        "cellLocation": {"tableId": table_id, "rowIndex": 0, "columnIndex": ci}}})
+        for ri, row in enumerate(shown, 1):
+            for ci, val in enumerate(row):
+                reqs.append({"insertText": {"objectId": table_id, "text": val,
+                                            "cellLocation": {"tableId": table_id, "rowIndex": ri, "columnIndex": ci}}})
 
-    return idx + 1
+    return idx + len(row_chunks), oids
 
 
 def _engineering_slide(reqs, sid, report, idx):
@@ -2893,70 +3100,81 @@ def _engineering_slide(reqs, sid, report, idx):
     if not eng_open and not eng_closed:
         return _missing_data_slide(reqs, sid, report, idx, "Jira engineering pipeline (in progress / shipped)")
 
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, "Engineering Pipeline")
-
     open_count = eng.get("open_count", len(eng_open))
     closed_count = eng.get("closed_count", len(eng_closed))
     header = f"{eng.get('total', open_count + closed_count)} engineering tickets  ·  {open_count} open  ·  {closed_count} closed"
-    _box(reqs, f"{sid}_hdr", sid, MARGIN, BODY_Y, CONTENT_W, 16, header)
-    _style(reqs, f"{sid}_hdr", 0, len(header), size=10, color=NAVY, font=FONT, bold=True)
 
-    # Each ticket block = key+summary line (14pt) + narrative (3 lines × ~12pt each) + gap = ~58pt
     TICKET_H = 58
-    y = BODY_Y + 24
+    y0 = BODY_Y + 24
     max_y = BODY_BOTTOM
+    per_page = max(1, (max_y - y0 - 24) // TICKET_H)
+    seq: list[tuple[str, dict]] = [("o", t) for t in eng_open] + [("c", t) for t in eng_closed]
+    pages: list[list[tuple[str, dict]]] = []
+    cur: list[tuple[str, dict]] = []
+    for item in seq:
+        cur.append(item)
+        if len(cur) >= per_page:
+            pages.append(cur)
+            cur = []
+    if cur:
+        pages.append(cur)
 
-    def _render_ticket(ticket: dict, label_color: dict, prefix: str, counter: int) -> None:
-        nonlocal y
-        if y + TICKET_H > max_y:
-            return
+    GREEN = {"red": 0.13, "green": 0.55, "blue": 0.13}
+    oids: list[str] = []
+
+    def _render_ticket(page_sid: str, ticket: dict, label_color: dict, prefix: str, counter: int, y_ref: list[float]) -> None:
+        y = y_ref[0]
         key = ticket["key"]
         status = (ticket.get("status") or "")[:14]
         assignee = ticket.get("assignee") or "unassigned"
         updated = ticket.get("updated", "")
         summary = ticket.get("summary", "")[:52]
-
-        # Key line
         key_line = f"{key}  {status:14s}  {summary}  [{assignee}]"
         if updated:
             key_line += f"  ({updated})"
-        _box(reqs, f"{sid}_{prefix}{counter}_k", sid, MARGIN, y, CONTENT_W, 14, key_line)
-        _style(reqs, f"{sid}_{prefix}{counter}_k", 0, len(key_line), size=9, color=NAVY, font=FONT)
+        _box(reqs, f"{page_sid}_{prefix}{counter}_k", page_sid, MARGIN, y, CONTENT_W, 14, key_line)
+        _style(reqs, f"{page_sid}_{prefix}{counter}_k", 0, len(key_line), size=9, color=NAVY, font=FONT)
         ticket_url = f"{jira_base}/browse/{key}" if jira_base else None
-        _style(reqs, f"{sid}_{prefix}{counter}_k", 0, len(key), bold=True, size=9,
+        _style(reqs, f"{page_sid}_{prefix}{counter}_k", 0, len(key), bold=True, size=9,
                color=label_color, font=MONO, link=ticket_url)
         y += 15
-
-        # Narrative lines
         narrative = (ticket.get("narrative") or "").strip()
         if narrative and y + 36 <= max_y:
-            _box(reqs, f"{sid}_{prefix}{counter}_n", sid, MARGIN + 8, y, CONTENT_W - 8, 36, narrative)
-            _style(reqs, f"{sid}_{prefix}{counter}_n", 0, len(narrative), size=8, color=GRAY, font=FONT)
+            _box(reqs, f"{page_sid}_{prefix}{counter}_n", page_sid, MARGIN + 8, y, CONTENT_W - 8, 36, narrative)
+            _style(reqs, f"{page_sid}_{prefix}{counter}_n", 0, len(narrative), size=8, color=GRAY, font=FONT)
             y += 38
+        y += 6
+        y_ref[0] = y
 
-        y += 6  # gap between tickets
+    for pi, page_items in enumerate(pages):
+        page_sid = f"{sid}_p{pi}" if len(pages) > 1 else sid
+        oids.append(page_sid)
+        _slide(reqs, page_sid, idx + pi)
+        _bg(reqs, page_sid, WHITE)
+        ttl = "Engineering Pipeline" if len(pages) == 1 else f"Engineering Pipeline ({pi + 1} of {len(pages)})"
+        _slide_title(reqs, page_sid, ttl)
+        _box(reqs, f"{page_sid}_hdr", page_sid, MARGIN, BODY_Y, CONTENT_W, 16, header)
+        _style(reqs, f"{page_sid}_hdr", 0, len(header), size=10, color=NAVY, font=FONT, bold=True)
+        y_ref = [y0]
+        last_kind: str | None = None
+        for j, (kind, t) in enumerate(page_items):
+            if kind == "o" and last_kind != "o":
+                open_title = f"In Progress ({open_count})"
+                _box(reqs, f"{page_sid}_ot{j}", page_sid, MARGIN, y_ref[0], CONTENT_W, 16, open_title)
+                _style(reqs, f"{page_sid}_ot{j}", 0, len(open_title), bold=True, size=11, color=BLUE, font=FONT)
+                y_ref[0] += 20
+                last_kind = "o"
+            elif kind == "c" and last_kind != "c":
+                closed_title = f"Recently Shipped ({closed_count})"
+                _box(reqs, f"{page_sid}_ct{j}", page_sid, MARGIN, y_ref[0], CONTENT_W, 16, closed_title)
+                _style(reqs, f"{page_sid}_ct{j}", 0, len(closed_title), bold=True, size=11, color=GREEN, font=FONT)
+                y_ref[0] += 20
+                last_kind = "c"
+            col = BLUE if kind == "o" else GREEN
+            pref = "o" if kind == "o" else "c"
+            _render_ticket(page_sid, t, col, pref, pi * 200 + j, y_ref)
 
-    GREEN = {"red": 0.13, "green": 0.55, "blue": 0.13}
-
-    if eng_open:
-        open_title = f"In Progress ({open_count})"
-        _box(reqs, f"{sid}_ot", sid, MARGIN, y, CONTENT_W, 16, open_title)
-        _style(reqs, f"{sid}_ot", 0, len(open_title), bold=True, size=11, color=BLUE, font=FONT)
-        y += 20
-        for i, t in enumerate(eng_open):
-            _render_ticket(t, BLUE, "o", i)
-
-    if eng_closed and y < max_y - 40:
-        closed_title = f"Recently Shipped ({closed_count})"
-        _box(reqs, f"{sid}_ct", sid, MARGIN, y, CONTENT_W, 16, closed_title)
-        _style(reqs, f"{sid}_ct", 0, len(closed_title), bold=True, size=11, color=GREEN, font=FONT)
-        y += 20
-        for i, t in enumerate(eng_closed):
-            _render_ticket(t, GREEN, "c", i)
-
-    return idx + 1
+    return idx + len(pages), oids
 
 
 def _enhancement_requests_slide(reqs, sid, report, idx):
@@ -2971,92 +3189,110 @@ def _enhancement_requests_slide(reqs, sid, report, idx):
     if not er_open and not er_shipped and not er_declined:
         return _missing_data_slide(reqs, sid, report, idx, "Jira enhancement requests (open / shipped / declined)")
 
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, "Enhancement Requests")
-
     open_n = er.get("open_count", len(er_open))
     shipped_n = er.get("shipped_count", len(er_shipped))
     declined_n = er.get("declined_count", len(er_declined))
     total = er.get("total", open_n + shipped_n + declined_n)
-
     header = f"{total} enhancement requests  ·  {open_n} open  ·  {shipped_n} shipped  ·  {declined_n} declined"
-    _box(reqs, f"{sid}_hdr", sid, MARGIN, BODY_Y, CONTENT_W, 16, header)
-    _style(reqs, f"{sid}_hdr", 0, len(header), size=10, color=NAVY, font=FONT, bold=True)
 
-    col_gap = 20
-    left_x = MARGIN
-    left_w = (CONTENT_W - col_gap) // 2
-    right_x = MARGIN + left_w + col_gap
-    right_w = CONTENT_W - left_w - col_gap
     body_top = BODY_Y + 24
     max_y = BODY_BOTTOM
+    budget = max_y - body_top
+    SEC_TITLE = 20
+    ROW_OS = 28
+    ROW_DEC = 16
+    ER_GREEN = {"red": 0.13, "green": 0.55, "blue": 0.13}
 
-    # ── LEFT: Open requests ──
-    left_y = body_top
-    if er_open:
-        open_title = f"Open ({open_n})"
-        _box(reqs, f"{sid}_otitle", sid, left_x, left_y, left_w, 16, open_title)
-        _style(reqs, f"{sid}_otitle", 0, len(open_title), bold=True, size=10, color=BLUE, font=FONT)
-        left_y += 20
+    seq: list[tuple[str, dict]] = (
+        [("o", t) for t in er_open] + [("s", t) for t in er_shipped] + [("d", t) for t in er_declined]
+    )
 
-        avail = max((max_y - left_y) // 28, 2)
-        for oi, t in enumerate(er_open[:min(avail, 6)]):
-            key = t["key"]
-            prio = t.get("priority", "")
-            prio_short = prio.split(":")[0] if ":" in prio else prio[:8]
-            line1 = f"{key}  {prio_short}"
-            line2 = t["summary"][:38]
-            text = f"{line1}\n{line2}"
-            _box(reqs, f"{sid}_eo{oi}", sid, left_x, left_y, left_w, 26, text)
-            _style(reqs, f"{sid}_eo{oi}", 0, len(text), size=8, color=NAVY, font=FONT)
+    def _row_h(kind: str) -> int:
+        return ROW_OS if kind in ("o", "s") else ROW_DEC
+
+    pages: list[list[tuple[str, dict]]] = []
+    page: list[tuple[str, dict]] = []
+    used = 0
+    last_section: str | None = None
+
+    for kind, t in seq:
+        row_h = _row_h(kind)
+        extra = SEC_TITLE if last_section != kind else 0
+        if page and used + extra + row_h > budget:
+            pages.append(page)
+            page = []
+            used = 0
+            last_section = None
+        if last_section != kind:
+            used += SEC_TITLE
+            last_section = kind
+        page.append((kind, t))
+        used += row_h
+    if page:
+        pages.append(page)
+
+    oids: list[str] = []
+    for pi, page_items in enumerate(pages):
+        page_sid = f"{sid}_p{pi}" if len(pages) > 1 else sid
+        oids.append(page_sid)
+        _slide(reqs, page_sid, idx + pi)
+        _bg(reqs, page_sid, WHITE)
+        ttl = "Enhancement Requests" if len(pages) == 1 else f"Enhancement Requests ({pi + 1} of {len(pages)})"
+        _slide_title(reqs, page_sid, ttl)
+        _box(reqs, f"{page_sid}_hdr", page_sid, MARGIN, BODY_Y, CONTENT_W, 16, header)
+        _style(reqs, f"{page_sid}_hdr", 0, len(header), size=10, color=NAVY, font=FONT, bold=True)
+
+        y = body_top
+        last_kind: str | None = None
+        for j, (kind, ticket) in enumerate(page_items):
+            if last_kind != kind:
+                if kind == "o":
+                    sec = f"Open ({open_n})"
+                    _box(reqs, f"{page_sid}_ot{j}", page_sid, MARGIN, y, CONTENT_W, 16, sec)
+                    _style(reqs, f"{page_sid}_ot{j}", 0, len(sec), bold=True, size=10, color=BLUE, font=FONT)
+                elif kind == "s":
+                    sec = f"Shipped ({shipped_n})"
+                    _box(reqs, f"{page_sid}_st{j}", page_sid, MARGIN, y, CONTENT_W, 16, sec)
+                    _style(reqs, f"{page_sid}_st{j}", 0, len(sec), bold=True, size=10, color=ER_GREEN, font=FONT)
+                else:
+                    sec = f"Declined / Deferred ({declined_n})"
+                    _box(reqs, f"{page_sid}_dt{j}", page_sid, MARGIN, y, CONTENT_W, 16, sec)
+                    _style(reqs, f"{page_sid}_dt{j}", 0, len(sec), bold=True, size=10, color=GRAY, font=FONT)
+                y += SEC_TITLE
+                last_kind = kind
+
+            key = ticket["key"]
             ticket_url = f"{jira_base}/browse/{key}" if jira_base else None
-            _style(reqs, f"{sid}_eo{oi}", 0, len(key), bold=True, size=8, color=BLUE,
-                   font=MONO, link=ticket_url)
-            left_y += 28
+            if kind == "o":
+                prio = ticket.get("priority", "")
+                prio_short = prio.split(":")[0] if ":" in prio else prio[:8]
+                line1 = f"{key}  {prio_short}"
+                line2 = (ticket.get("summary") or "")[:72]
+                text = f"{line1}\n{line2}"
+                oid = f"{page_sid}_eo{pi}_{j}"
+                _box(reqs, oid, page_sid, MARGIN, y, CONTENT_W, 26, text)
+                _style(reqs, oid, 0, len(text), size=8, color=NAVY, font=FONT)
+                _style(reqs, oid, 0, len(key), bold=True, size=8, color=BLUE, font=MONO, link=ticket_url)
+                y += ROW_OS
+            elif kind == "s":
+                line1 = f"{key}  ({ticket.get('updated', '')})"
+                line2 = (ticket.get("summary") or "")[:72]
+                text = f"{line1}\n{line2}"
+                oid = f"{page_sid}_es{pi}_{j}"
+                _box(reqs, oid, page_sid, MARGIN, y, CONTENT_W, 26, text)
+                _style(reqs, oid, 0, len(text), size=8, color=NAVY, font=FONT)
+                _style(reqs, oid, 0, len(key), bold=True, size=8, color=ER_GREEN, font=MONO, link=ticket_url)
+                y += ROW_OS
+            else:
+                line = f"{key}  {(ticket.get('summary') or '')[:80]}"
+                oid = f"{page_sid}_ed{pi}_{j}"
+                _box(reqs, oid, page_sid, MARGIN, y, CONTENT_W, 14, line)
+                _style(reqs, oid, 0, len(line), size=8, color=GRAY, font=MONO)
+                if ticket_url:
+                    _style(reqs, oid, 0, len(key), size=8, color=GRAY, font=MONO, link=ticket_url)
+                y += ROW_DEC
 
-    # ── RIGHT: Shipped ──
-    right_y = body_top
-    if er_shipped:
-        ship_title = f"Shipped ({shipped_n})"
-        _box(reqs, f"{sid}_stitle", sid, right_x, right_y, right_w, 16, ship_title)
-        _style(reqs, f"{sid}_stitle", 0, len(ship_title), bold=True, size=10,
-               color={"red": 0.13, "green": 0.55, "blue": 0.13}, font=FONT)
-        right_y += 20
-
-        avail = max((max_y - right_y) // 28, 2)
-        for si, t in enumerate(er_shipped[:min(avail, 6)]):
-            key = t["key"]
-            line1 = f"{key}  ({t.get('updated', '')})"
-            line2 = t["summary"][:38]
-            text = f"{line1}\n{line2}"
-            _box(reqs, f"{sid}_es{si}", sid, right_x, right_y, right_w, 26, text)
-            _style(reqs, f"{sid}_es{si}", 0, len(text), size=8, color=NAVY, font=FONT)
-            ticket_url = f"{jira_base}/browse/{key}" if jira_base else None
-            _style(reqs, f"{sid}_es{si}", 0, len(key), bold=True, size=8,
-                   color={"red": 0.13, "green": 0.55, "blue": 0.13}, font=MONO,
-                   link=ticket_url)
-            right_y += 28
-
-    if er_declined and right_y < max_y - 40:
-        dec_title = f"Declined / Deferred ({declined_n})"
-        _box(reqs, f"{sid}_dtitle", sid, right_x, right_y, right_w, 16, dec_title)
-        _style(reqs, f"{sid}_dtitle", 0, len(dec_title), bold=True, size=10, color=GRAY, font=FONT)
-        right_y += 20
-
-        avail = max((max_y - right_y) // 14, 1)
-        for di, t in enumerate(er_declined[:min(avail, 3)]):
-            key = t["key"]
-            line = f"{key}  {t['summary'][:36]}"
-            _box(reqs, f"{sid}_ed{di}", sid, right_x, right_y, right_w, 14, line)
-            _style(reqs, f"{sid}_ed{di}", 0, len(line), size=8, color=GRAY, font=MONO)
-            ticket_url = f"{jira_base}/browse/{key}" if jira_base else None
-            if ticket_url:
-                _style(reqs, f"{sid}_ed{di}", 0, len(key), size=8, color=GRAY, font=MONO,
-                       link=ticket_url)
-            right_y += 14
-
-    return idx + 1
+    return idx + len(pages), oids
 
 
 # ── Bespoke slide builders (replicate CSM-designed slides) ──
@@ -3206,9 +3442,6 @@ def _bespoke_deployment_slide(reqs, sid, report, idx):
     if not all_sites:
         return _missing_data_slide(reqs, sid, report, idx, "Pendo site list for deployment summary")
 
-    _slide(reqs, sid, idx)
-    _slide_title(reqs, sid, "Deployment — Number of Sites")
-
     customer = report.get("customer", report.get("account", {}).get("customer", ""))
     raw_gen = report.get("generated", "")
     try:
@@ -3216,10 +3449,7 @@ def _bespoke_deployment_slide(reqs, sid, report, idx):
     except (ValueError, TypeError):
         generated = raw_gen or datetime.datetime.now().strftime("%B %-d, %Y")
     subtitle = f"As of {generated}"
-    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y - 10, CONTENT_W, 18, subtitle)
-    _style(reqs, f"{sid}_sub", 0, len(subtitle), size=10, color=GRAY, font=FONT)
 
-    # Health status from CS Report if available
     cs_health = report.get("cs_platform_health", {})
     site_health = {}
     for row in cs_health.get("sites", []):
@@ -3239,44 +3469,47 @@ def _bespoke_deployment_slide(reqs, sid, report, idx):
     headers = ["Site", "Users", "Status", "Last Active"]
     col_widths = [220, 60, 80, 130]
     ROW_H = 26
-
-    max_rows = (BODY_BOTTOM - (BODY_Y + 14)) // ROW_H - 1
-    sites_to_show = all_sites[:max_rows]
-
-    rows_data = []
-    for s in sites_to_show:
-        site_name = _short_site(s.get("sitename", "?"))
-        visitors = str(s.get("visitors", 0))
-        health = site_health.get(s.get("sitename", "").lower(), "—")
-        last_active_raw = s.get("last_active", "—")
-        try:
-            last_active = datetime.datetime.strptime(
-                str(last_active_raw)[:10], "%Y-%m-%d"
-            ).strftime("%b %-d, %Y")
-        except (ValueError, TypeError):
-            last_active = str(last_active_raw)[:10] if last_active_raw else "—"
-        rows_data.append([site_name, visitors, health, last_active])
-
-    _simple_table(reqs, f"{sid}_tbl", sid, MARGIN, BODY_Y + 14,
-                  col_widths, ROW_H, headers, rows_data)
-
-    # Color-code status cells
+    max_rows = max(1, (BODY_BOTTOM - (BODY_Y + 14)) // ROW_H - 1)
+    site_chunks = [all_sites[i : i + max_rows] for i in range(0, len(all_sites), max_rows)]
     status_colors = {
         "GREEN": {"red": 0.1, "green": 0.6, "blue": 0.2},
         "YELLOW": {"red": 0.9, "green": 0.7, "blue": 0.1},
         "RED": {"red": 0.85, "green": 0.15, "blue": 0.15},
     }
-    for ri, row in enumerate(rows_data):
-        status = row[2].upper() if len(row) > 2 else ""
-        if status in status_colors:
-            _table_cell_bg(reqs, f"{sid}_tbl", ri + 1, 2, status_colors[status])
+    oids: list[str] = []
 
-    if len(all_sites) > max_rows:
-        omit = f"+ {len(all_sites) - max_rows} more sites not shown"
-        _box(reqs, f"{sid}_omit", sid, MARGIN, BODY_BOTTOM - 14, CONTENT_W, 14, omit)
-        _style(reqs, f"{sid}_omit", 0, len(omit), size=8, color=GRAY, font=FONT)
+    for pi, sites_to_show in enumerate(site_chunks):
+        page_sid = f"{sid}_p{pi}" if len(site_chunks) > 1 else sid
+        oids.append(page_sid)
+        _slide(reqs, page_sid, idx + pi)
+        ttl = "Deployment — Number of Sites" if len(site_chunks) == 1 else f"Deployment — Sites ({pi + 1} of {len(site_chunks)})"
+        _slide_title(reqs, page_sid, ttl)
+        _box(reqs, f"{page_sid}_sub", page_sid, MARGIN, BODY_Y - 10, CONTENT_W, 18, subtitle)
+        _style(reqs, f"{page_sid}_sub", 0, len(subtitle), size=10, color=GRAY, font=FONT)
 
-    return idx + 1
+        rows_data = []
+        for s in sites_to_show:
+            site_name = _short_site(s.get("sitename", "?"))
+            visitors = str(s.get("visitors", 0))
+            health = site_health.get(s.get("sitename", "").lower(), "—")
+            last_active_raw = s.get("last_active", "—")
+            try:
+                last_active = datetime.datetime.strptime(
+                    str(last_active_raw)[:10], "%Y-%m-%d"
+                ).strftime("%b %-d, %Y")
+            except (ValueError, TypeError):
+                last_active = str(last_active_raw)[:10] if last_active_raw else "—"
+            rows_data.append([site_name, visitors, health, last_active])
+
+        tbl_id = f"{page_sid}_tbl"
+        _simple_table(reqs, tbl_id, page_sid, MARGIN, BODY_Y + 14,
+                      col_widths, ROW_H, headers, rows_data)
+        for ri, row in enumerate(rows_data):
+            status = row[2].upper() if len(row) > 2 else ""
+            if status in status_colors:
+                _table_cell_bg(reqs, tbl_id, ri + 1, 2, status_colors[status])
+
+    return idx + len(site_chunks), oids
 
 
 def _support_breakdown_slide(reqs, sid, report, idx):
@@ -4442,6 +4675,165 @@ def _eng_help_volume_trends_slide(reqs: list, sid: str, report: dict, idx: int) 
     return idx + 1
 
 
+def _sf_format_cell(val: Any, max_len: int = 44) -> str:
+    if val is None:
+        return ""
+    if isinstance(val, (dict, list)):
+        s = json.dumps(val, default=str)
+    else:
+        s = str(val)
+    if len(s) > max_len:
+        return s[: max_len - 1] + "…"
+    return s
+
+
+def _sf_records_to_table(
+    records: list[dict[str, Any]],
+    *,
+    max_cols: int = 7,
+    max_rows: int = 12,
+) -> tuple[list[str], list[list[str]]]:
+    if not records:
+        return [], []
+    keys: list[str] = []
+    for rec in records[:40]:
+        for k in rec.keys():
+            if k not in keys:
+                keys.append(k)
+    keys = keys[:max_cols]
+    rows = [[_sf_format_cell(rec.get(k)) for k in keys] for rec in records[:max_rows]]
+    return keys, rows
+
+
+def _sf_category_records(sfc: dict[str, Any], category: str) -> list[dict[str, Any]]:
+    """Resolve records for a deck ``sf_category`` (must match ``_salesforce_category_slide``)."""
+    cat = (category or "").strip()
+    if cat == "entity_accounts":
+        return list(sfc.get("accounts") or [])
+    return list((sfc.get("categories") or {}).get(cat) or [])
+
+
+def _filter_salesforce_comprehensive_slide_plan(
+    slide_plan: list[dict[str, Any]],
+    sfc: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Drop ``salesforce_category`` entries with no rows (cover, data_quality, etc. stay)."""
+    out: list[dict[str, Any]] = []
+    for entry in slide_plan:
+        st = entry.get("slide_type", entry.get("id", ""))
+        if st != "salesforce_category":
+            out.append(entry)
+            continue
+        if _sf_category_records(sfc, entry.get("sf_category") or ""):
+            out.append(entry)
+    return out
+
+
+def _salesforce_comprehensive_cover_slide(reqs, sid, report, idx):
+    """Intro slide for the Salesforce comprehensive deck."""
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, LIGHT)
+    _slide_title(reqs, sid, "Salesforce — comprehensive export")
+    sfc = report.get("salesforce_comprehensive") or {}
+    customer = report.get("customer", "")
+    parts: list[str] = []
+    err = sfc.get("error")
+    if err:
+        parts.append(f"Setup: {err}")
+    if not sfc.get("matched"):
+        parts.append(f'No Customer Entity account matched for "{customer}".')
+    else:
+        n_acc = len(sfc.get("accounts") or [])
+        parts.append(f"Customer: {customer}")
+        parts.append(f"Matched {n_acc} Customer Entity account(s).")
+        exp = sfc.get("account_ids_expanded") or sfc.get("account_ids") or []
+        if len(exp) > n_acc:
+            parts.append(
+                f"Queries include {len(exp)} account Id(s) (entity row(s) plus child accounts via ParentId)."
+            )
+        elif exp:
+            parts.append(f"Queries scoped to {len(exp)} account Id(s).")
+        rl = sfc.get("row_limit", 75)
+        parts.append(
+            f"Each related object is capped at ~{rl} rows (API first page); not a full data warehouse export."
+        )
+    parts.append("Products and price books are org-wide samples (not filtered to this account).")
+    body = "\n".join(parts)
+    oid = f"{sid}_body"
+    body_h = max(80.0, BODY_BOTTOM - BODY_Y - 8)
+    _wrap_box(reqs, oid, sid, MARGIN, BODY_Y, CONTENT_W, body_h, body)
+    _style(reqs, oid, 0, len(body), size=11, color=NAVY, font=FONT)
+    return idx + 1
+
+
+def _salesforce_category_slide(reqs, sid, report, idx):
+    """One table per mainstream Salesforce category (see deck ``sf_category``)."""
+    entry = report.get("_current_slide") or {}
+    cat = (entry.get("sf_category") or "").strip()
+    title = (entry.get("title") or cat.replace("_", " ").title())[:100]
+    sfc = report.get("salesforce_comprehensive") or {}
+
+    if "salesforce_comprehensive" not in report:
+        return _missing_data_slide(reqs, sid, report, idx, "salesforce_comprehensive payload")
+
+    if not cat:
+        return _missing_data_slide(reqs, sid, report, idx, "sf_category not set on slide")
+
+    records = _sf_category_records(sfc, cat)
+
+    err_note = (sfc.get("category_errors") or {}).get(cat)
+
+    # Slides grows table rows when 9pt text wraps in narrow cells; 12pt nominal height underruns badly.
+    row_h = 28.0
+    y0 = BODY_Y + (38 if err_note else 0)
+    bottom_pad = 10.0
+    avail_h = BODY_BOTTOM - y0 - bottom_pad
+    # Table is 1 header row + N data rows, each row_h pt tall in API layout.
+    rows_per_page = max(2, int(avail_h // row_h) - 1)
+
+    if not records:
+        _slide(reqs, sid, idx)
+        _bg(reqs, sid, LIGHT)
+        _slide_title(reqs, sid, title)
+        y = BODY_Y
+        if err_note:
+            banner = f"Query error: {err_note[:140]}"
+            bid = f"{sid}_warn"
+            _box(reqs, bid, sid, MARGIN, y, CONTENT_W, 32, banner)
+            _style(reqs, bid, 0, len(banner), size=8, color=GRAY, font=FONT)
+            y += 38
+        msg = "No records for this category." + (" (see query error above)" if err_note else "")
+        eid = f"{sid}_empty"
+        _box(reqs, eid, sid, MARGIN, y, CONTENT_W, 36, msg)
+        _style(reqs, eid, 0, len(msg), size=11, color=NAVY, font=FONT)
+        return idx + 1
+
+    chunks = [records[i : i + rows_per_page] for i in range(0, len(records), rows_per_page)]
+    oids: list[str] = []
+    for pi, chunk in enumerate(chunks):
+        page_sid = f"{sid}_p{pi}" if len(chunks) > 1 else sid
+        oids.append(page_sid)
+        _slide(reqs, page_sid, idx + pi)
+        _bg(reqs, page_sid, LIGHT)
+        page_title = title if len(chunks) == 1 else f"{title} ({pi + 1} of {len(chunks)})"
+        _slide_title(reqs, page_sid, page_title)
+        y = BODY_Y
+        if pi == 0 and err_note:
+            banner = f"Query error: {err_note[:140]}"
+            bid = f"{page_sid}_warn"
+            _box(reqs, bid, page_sid, MARGIN, y, CONTENT_W, 32, banner)
+            _style(reqs, bid, 0, len(banner), size=8, color=GRAY, font=FONT)
+            y += 38
+        headers, rows = _sf_records_to_table(chunk, max_rows=len(chunk))
+        if not headers:
+            continue
+        n = len(headers)
+        col_w = min(118.0, CONTENT_W / max(1, n))
+        col_widths = [col_w] * n
+        _simple_table(reqs, f"{page_sid}_tbl", page_sid, MARGIN, y, col_widths, row_h, headers, rows)
+    return idx + len(chunks), oids
+
+
 # ── Composable API (agent builds deck slide by slide) ──
 
 # Maps slide type names to builder functions and the report keys they require
@@ -4488,6 +4880,8 @@ _SLIDE_BUILDERS = {
     "eng_support_pressure": _eng_support_pressure_slide,
     "eng_jira_project": _eng_jira_project_slide,
     "eng_help_volume_trends": _eng_help_volume_trends_slide,
+    "salesforce_comprehensive_cover": _salesforce_comprehensive_cover_slide,
+    "salesforce_category": _salesforce_category_slide,
 }
 
 # Which report keys each slide type needs (so the agent knows what data to supply)
@@ -4534,6 +4928,8 @@ SLIDE_DATA_REQUIREMENTS = {
     "eng_support_pressure": ["eng_portfolio"],
     "eng_jira_project": ["eng_portfolio"],
     "eng_help_volume_trends": ["eng_portfolio"],
+    "salesforce_comprehensive_cover": ["salesforce_comprehensive"],
+    "salesforce_category": ["salesforce_comprehensive"],
 }
 
 
@@ -4622,7 +5018,8 @@ def add_slide(deck_id: str, slide_type: str, data: dict[str, Any]) -> dict[str, 
 
     reqs: list[dict] = []
     try:
-        new_idx = builder(reqs, sid, data, idx)
+        ret = builder(reqs, sid, data, idx)
+        new_idx, note_ids = _normalize_builder_return(ret, sid)
     except (KeyError, TypeError, IndexError) as e:
         required = SLIDE_DATA_REQUIREMENTS.get(slide_type, [])
         return {
@@ -4648,10 +5045,11 @@ def add_slide(deck_id: str, slide_type: str, data: dict[str, Any]) -> dict[str, 
     note_payload = dict(data)
     note_payload["_current_slide"] = note_entry
     notes = _build_slide_jql_speaker_notes(note_payload, note_entry)
-    if not set_speaker_notes(slides_service, deck_id, sid, notes):
-        logger.warning("Could not write JQL speaker notes for slide %s in deck %s", sid[:12], deck_id[:12])
+    for nid in note_ids:
+        if not set_speaker_notes(slides_service, deck_id, nid, notes):
+            logger.warning("Could not write JQL speaker notes for slide %s in deck %s", nid[:12], deck_id[:12])
 
-    return {"slide_type": slide_type, "status": "added", "position": idx + 1}
+    return {"slide_type": slide_type, "status": "added", "position": idx + 1, "pages": len(note_ids)}
 
 
 # ── Monolith deck creation (deck-definition-driven) ──
@@ -4660,6 +5058,7 @@ def create_health_deck(
     report: dict[str, Any],
     deck_id: str = "cs_health_review",
     thumbnails: bool = True,
+    output_folder_id: str | None = None,
 ) -> dict[str, Any]:
     """Create a deck from a customer health report using a deck definition.
 
@@ -4667,6 +5066,8 @@ def create_health_deck(
         report: Full customer health report from PendoClient.get_customer_health_report().
         deck_id: Which deck definition to use. Defaults to 'cs_health_review'.
         thumbnails: Whether to export slide thumbnails. Disable for batch runs.
+        output_folder_id: Optional Drive folder id for the new presentation. When omitted,
+            uses today's ``Decks-{date}`` folder under ``GOOGLE_DRIVE_FOLDER_ID`` (if set).
     """
     if "error" in report:
         return {"error": report["error"]}
@@ -4700,7 +5101,7 @@ def create_health_deck(
 
     try:
         file_meta = {"name": title, "mimeType": "application/vnd.google-apps.presentation"}
-        output_folder = _get_deck_output_folder()
+        output_folder = output_folder_id if output_folder_id else _get_deck_output_folder()
         if output_folder:
             file_meta["parents"] = [output_folder]
         file = drive_service.files().create(body=file_meta).execute()
@@ -4721,6 +5122,40 @@ def create_health_deck(
     idx = 1
     note_targets: list[tuple[str, dict[str, Any]]] = []
 
+    if deck_id == "salesforce_comprehensive":
+        from .data_source_health import _salesforce_configured
+
+        empty_sf = {
+            "customer": customer,
+            "accounts": [],
+            "account_ids": [],
+            "matched": False,
+            "opportunity_count_this_year": 0,
+            "pipeline_arr": 0.0,
+            "row_limit": 75,
+            "categories": {},
+            "category_errors": {},
+        }
+        if _salesforce_configured():
+            try:
+                from .salesforce_client import SalesforceClient
+
+                report["salesforce_comprehensive"] = SalesforceClient().get_customer_salesforce_comprehensive(
+                    customer
+                )
+            except Exception as e:
+                logger.warning("Salesforce comprehensive fetch failed: %s", e)
+                report["salesforce_comprehensive"] = {
+                    **empty_sf,
+                    "error": str(e)[:500],
+                }
+        else:
+            report["salesforce_comprehensive"] = {**empty_sf, "error": "Salesforce not configured"}
+
+        slide_plan = _filter_salesforce_comprehensive_slide_plan(
+            slide_plan, report.get("salesforce_comprehensive") or {}
+        )
+
     report["_slide_plan"] = slide_plan
 
     for entry in slide_plan:
@@ -4729,8 +5164,11 @@ def create_health_deck(
         if builder:
             report["_current_slide"] = entry
             sid = f"s_{entry['id']}_{idx}"
-            note_targets.append((sid, dict(entry)))
-            idx = builder(reqs, sid, report, idx)
+            ret = builder(reqs, sid, report, idx)
+            next_idx, note_ids = _normalize_builder_return(ret, sid)
+            for nid in note_ids:
+                note_targets.append((nid, dict(entry)))
+            idx = next_idx
 
     slides_created = idx - 1
 

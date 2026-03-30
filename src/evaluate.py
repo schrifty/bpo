@@ -13,6 +13,7 @@ import base64
 import datetime
 import hashlib
 import json
+import re
 import secrets
 import tempfile
 import textwrap
@@ -1447,6 +1448,123 @@ def _build_data_summary(report: dict) -> dict:
     return s
 
 
+def _data_summary_fingerprint(data_summary: dict) -> str:
+    """Stable hash of the full data summary so adapt cache invalidates when report data changes."""
+    canonical = json.dumps(data_summary, sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _adapt_cache_key(thumb_b64: str | None, page_id: str, data_summary: dict) -> str | None:
+    """Cache key for adapt replacements: slide pixels + current data fingerprint (unlike analysis-only cache)."""
+    base = _slide_content_hash(thumb_b64, page_id=page_id)
+    if not base:
+        return None
+    fp = _data_summary_fingerprint(data_summary)
+    return hashlib.sha256(f"{base}:{fp}".encode("utf-8")).hexdigest()
+
+
+# Max JSON chars for CURRENT DATA in the adapt system prompt (structured pruning before hard cut).
+_ADAPT_PROMPT_DATA_MAX_CHARS = 12000
+_ADAPT_MAX_TOKENS = 8192
+_ADAPT_MAX_TOKENS_RETRY = 16384
+
+
+def _prune_data_summary_for_prompt(data: dict, *, site_limit: int, cs_limit: int, account_limit: int) -> dict:
+    """Return a shallow-deep copy with large list fields trimmed so prompts stay bounded."""
+    out: dict[str, Any] = {}
+    for k, v in data.items():
+        if k == "site_details" and isinstance(v, list):
+            out[k] = v[:site_limit]
+        elif k == "cs_health_sites" and isinstance(v, list):
+            out[k] = v[:cs_limit]
+        elif k == "salesforce" and isinstance(v, dict):
+            sf = dict(v)
+            acct = sf.get("accounts")
+            if isinstance(acct, list):
+                sf["accounts"] = acct[:account_limit]
+            out[k] = sf
+        elif k in ("platform_value", "supply_chain") and isinstance(v, dict):
+            # Deep-trim string-heavy nested blobs
+            out[k] = _truncate_strings_in_obj(v, max_str=800, max_list_items=40)
+        else:
+            out[k] = v
+    return out
+
+
+def _truncate_strings_in_obj(obj: Any, *, max_str: int, max_list_items: int) -> Any:
+    """Recursively shorten long strings and cap list lengths for prompt size limits."""
+    if isinstance(obj, str):
+        return obj if len(obj) <= max_str else obj[: max_str - 1] + "…"
+    if isinstance(obj, list):
+        return [_truncate_strings_in_obj(x, max_str=max_str, max_list_items=max_list_items) for x in obj[:max_list_items]]
+    if isinstance(obj, dict):
+        return {k: _truncate_strings_in_obj(v, max_str=max_str, max_list_items=max_list_items) for k, v in obj.items()}
+    return obj
+
+
+def _format_data_summary_for_adapt_prompt(data_summary: dict) -> str:
+    """Serialize data_summary for the adapt LLM: compact JSON, prune if needed, avoid blind 6k truncation."""
+    max_chars = _ADAPT_PROMPT_DATA_MAX_CHARS
+    tiers = [
+        (30, 20, 25),
+        (20, 15, 15),
+        (15, 10, 10),
+        (10, 8, 8),
+        (8, 5, 5),
+        (5, 3, 3),
+    ]
+    for site_l, cs_l, acct_l in tiers:
+        pruned = _prune_data_summary_for_prompt(
+            data_summary, site_limit=site_l, cs_limit=cs_l, account_limit=acct_l
+        )
+        pruned = _truncate_strings_in_obj(pruned, max_str=600, max_list_items=50)
+        compact = json.dumps(pruned, separators=(",", ":"), sort_keys=True, default=str)
+        if len(compact) <= max_chars:
+            if (site_l, cs_l, acct_l) != (30, 20, 25):
+                logger.info(
+                    "hydrate: adapt prompt data_summary pruned to fit (%d chars, site=%d cs=%d acct=%d)",
+                    len(compact),
+                    site_l,
+                    cs_l,
+                    acct_l,
+                )
+            return compact
+    compact = json.dumps(
+        _truncate_strings_in_obj(
+            _prune_data_summary_for_prompt(data_summary, site_limit=3, cs_limit=2, account_limit=2),
+            max_str=300,
+            max_list_items=20,
+        ),
+        separators=(",", ":"),
+        sort_keys=True,
+        default=str,
+    )
+    if len(compact) > max_chars:
+        logger.warning(
+            "hydrate: data_summary still oversized after pruning; truncating JSON to %d chars",
+            max_chars,
+        )
+        return compact[: max_chars - 1] + "…"
+    return compact
+
+
+_ADAPT_SPELLED_NUMBER_RE = re.compile(
+    r"\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+    r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
+    r"thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion)\b",
+    re.I,
+)
+# Full month names only — avoids matching the common verb "may".
+_ADAPT_MONTH_NAME_RE = re.compile(
+    r"\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\b",
+    re.I,
+)
+_ADAPT_QUARTER_OR_PERCENT_RE = re.compile(
+    r"\b(?:Q[1-4]|percent|per\s+cent)\b",
+    re.I,
+)
+
+
 _ADAPT_SYSTEM_PROMPT = (
     "You are analyzing a slide from a customer QBR presentation. "
     "Identify every DATA VALUE on this slide — numbers, dates, percentages, "
@@ -1454,7 +1572,14 @@ _ADAPT_SYSTEM_PROMPT = (
     "current data to replace it.\n\n"
     "CURRENT DATA AVAILABLE:\n{data_json}\n\n"
     "RULES:\n"
-    "- Only target DATA VALUES, never labels, headings, or descriptive text.\n"
+    "- Only target DATA VALUES, never pure headings or descriptive prose. "
+    "Exception: **metric lines** like \"NPS: -19\", \"CSAT: 4.2\", \"Score: 42\" combine a "
+    "short metric name with a number — treat the line (or at least the numeric token) as a "
+    "data value. **Negative numbers** (e.g. -19) are always data, never skip them.\n"
+    "- If such a metric is **not** in CURRENT DATA AVAILABLE (NPS/CSAT/CES are often absent), "
+    "you MUST still emit a replacement with mapped=false and a short placeholder "
+    "(e.g. new_value \"[???]\" for the whole line or \"NPS: [???]\" preserving the label) so the "
+    "slide is visibly flagged for the CSM.\n"
     "- NEVER target UI elements: dropdown labels, filter values, button text, "
     "navigation text, column headers, product feature names, or any text that "
     "is part of the application interface rather than a reported metric.\n"
@@ -1571,11 +1696,59 @@ def _element_may_contain_data(el: dict) -> bool:
     # Skip very short labels (≤2 chars) — likely single-letter headers or bullets
     if len(text) <= 2:
         return False
-    # Skip text that contains no digits and no % $ signs — pure descriptive labels
-    import re as _re
-    if not _re.search(r'[\d%$€£¥#]', text):
-        return False
-    return True
+    # Digits / currency / % — strong signal of a data value
+    if re.search(r"[\d%$€£¥#]", text):
+        return True
+    # Spelled-out counts, month names, quarters, "percent" — metrics without Arabic numerals
+    if (
+        _ADAPT_SPELLED_NUMBER_RE.search(text)
+        or _ADAPT_MONTH_NAME_RE.search(text)
+        or _ADAPT_QUARTER_OR_PERCENT_RE.search(text)
+    ):
+        return True
+    return False
+
+
+def _normalize_adapt_replacements(replacements: list[Any]) -> list[dict]:
+    """Keep only well-formed replacement dicts; coerce types; drop rows missing original."""
+    out: list[dict] = []
+    if not isinstance(replacements, list):
+        return []
+    for i, r in enumerate(replacements):
+        if not isinstance(r, dict):
+            logger.warning("hydrate: adapt replacement[%d] skipped (not a dict)", i)
+            continue
+        orig = r.get("original")
+        if orig is None:
+            logger.warning("hydrate: adapt replacement[%d] skipped (missing original)", i)
+            continue
+        orig_s = str(orig).strip()
+        if not orig_s:
+            continue
+        nv = r.get("new_value", "")
+        if nv is None:
+            nv = ""
+        elif not isinstance(nv, str):
+            nv = str(nv)
+        mapped = bool(r.get("mapped", True))
+        field = r.get("field", "")
+        if field is not None and not isinstance(field, str):
+            field = str(field)
+        out.append({
+            "original": orig_s,
+            "new_value": nv,
+            "mapped": mapped,
+            "field": (field or "").strip(),
+        })
+    return out
+
+
+def _dedupe_replacements_by_original(replacements: list[dict]) -> list[dict]:
+    """Later rows win (e.g. merged from split LLM calls)."""
+    by_o: dict[str, dict] = {}
+    for r in replacements:
+        by_o[r["original"]] = r
+    return list(by_o.values())
 
 
 def _get_data_replacements(oai, text_elements: list[dict], data_summary: dict,
@@ -1597,51 +1770,85 @@ def _get_data_replacements(oai, text_elements: list[dict], data_summary: dict,
             seen.add(key)
             filtered.append(el)
 
-    text_desc = "\n".join(
-        f"  [{t['type']}"
-        + (f" row={t['row']} col={t['col']}" if t["type"] == "table_cell" else "")
-        + f"]: \"{t['text']}\""
-        for t in filtered
-    )
+    data_json = _format_data_summary_for_adapt_prompt(data_summary)
+    system = _ADAPT_SYSTEM_PROMPT.format(data_json=data_json)
 
-    system = _ADAPT_SYSTEM_PROMPT.format(
-        data_json=json.dumps(data_summary, indent=2, default=str)[:6000]
-    )
+    def _text_desc(rows: list[dict]) -> str:
+        return "\n".join(
+            f"  [{t['type']}"
+            + (f" row={t['row']} col={t['col']}" if t["type"] == "table_cell" else "")
+            + f"]: \"{t['text']}\""
+            for t in rows
+        )
 
-    parts: list[dict] = []
-    if thumb_b64:
+    def _messages_for_rows(rows: list[dict]) -> list[dict]:
+        parts: list[dict] = []
+        if thumb_b64:
+            parts.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{thumb_b64}", "detail": "high"},
+            })
+        td = _text_desc(rows)
         parts.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/png;base64,{thumb_b64}", "detail": "high"},
+            "type": "text",
+            "text": f"Slide text elements:\n{td}\n\nIdentify all data values and map them.",
         })
-    parts.append({
-        "type": "text",
-        "text": f"Slide text elements:\n{text_desc}\n\nIdentify all data values and map them.",
-    })
-
-    resp = _llm_create_with_retry(oai, 
-        model=LLM_MODEL,
-        temperature=0,
-        max_tokens=4096,
-        response_format={"type": "json_object"},
-        messages=[
+        return [
             {"role": "system", "content": system},
             {"role": "user", "content": parts},
-        ],
-    )
-    raw = resp.choices[0].message.content
-    finish_reason = resp.choices[0].finish_reason
+        ]
+
+    def _call_llm(rows: list[dict], max_tokens: int) -> tuple[list[dict], str | None]:
+        if not rows:
+            return [], None
+        resp = _llm_create_with_retry(
+            oai,
+            model=LLM_MODEL,
+            temperature=0,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            messages=_messages_for_rows(rows),
+        )
+        raw = resp.choices[0].message.content
+        fr = resp.choices[0].finish_reason
+        try:
+            result = json.loads(raw or "")
+        except json.JSONDecodeError as exc:
+            logger.warning(
+                "hydrate: slide %s — LLM response was invalid JSON (%s), skipping data replacement",
+                slide_label,
+                exc,
+            )
+            return [], fr
+        repl = _normalize_adapt_replacements(result.get("replacements", []) or [])
+        return repl, fr
+
+    repl, finish_reason = _call_llm(filtered, _ADAPT_MAX_TOKENS)
     if finish_reason == "length":
-        logger.warning("hydrate: slide %s — LLM response truncated (hit max_tokens), skipping data replacement",
-                       slide_label)
-        return []
-    try:
-        result = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        logger.warning("hydrate: slide %s — LLM response was invalid JSON (%s), skipping data replacement",
-                       slide_label, exc)
-        return []
-    repl = result.get("replacements", []) or []
+        logger.warning(
+            "hydrate: slide %s — LLM hit max_tokens (%d); retrying with %d",
+            slide_label,
+            _ADAPT_MAX_TOKENS,
+            _ADAPT_MAX_TOKENS_RETRY,
+        )
+        repl, finish_reason = _call_llm(filtered, _ADAPT_MAX_TOKENS_RETRY)
+
+    if finish_reason == "length" and len(filtered) > 1:
+        mid = len(filtered) // 2
+        logger.warning(
+            "hydrate: slide %s — still truncated; splitting %d elements into two LLM calls",
+            slide_label,
+            len(filtered),
+        )
+        first, fr1 = _call_llm(filtered[:mid], _ADAPT_MAX_TOKENS)
+        second, fr2 = _call_llm(filtered[mid:], _ADAPT_MAX_TOKENS)
+        if fr1 == "length" or fr2 == "length":
+            logger.warning(
+                "hydrate: slide %s — split LLM calls still truncated; partial replacements only",
+                slide_label,
+            )
+        repl = _dedupe_replacements_by_original(_normalize_adapt_replacements(first + second))
+
     return repl
 
 
@@ -2025,6 +2232,76 @@ def _build_hydrate_speaker_notes(
     return body
 
 
+def _replacement_row_is_static_visual_incomplete(r: dict) -> bool:
+    """True when :func:`_apply_adaptations` treats the row as static chart/image (no text replace)."""
+    original = r.get("original", "")
+    new_value = r.get("new_value", "")
+    return (
+        original in _EMBEDDED_IMAGE_TEXTS + (_EMBEDDED_CHART_TEXT,)
+        or _STATIC_IMAGE_MARKER in (new_value or "")
+        or "[CHART —" in (new_value or "")
+    )
+
+
+def _has_text_placeholder_incomplete(replacements: list[dict]) -> bool:
+    """True if some row is incomplete for non-visual text reasons (worth an on-slide banner)."""
+    for r in replacements:
+        if _replacement_row_is_static_visual_incomplete(r):
+            continue
+        original = r.get("original", "")
+        new_value = r.get("new_value", "")
+        mapped = r.get("mapped", True)
+        if not original or original == new_value:
+            continue
+        if not mapped:
+            return True
+    return False
+
+
+_METRICISH_IN_ORIGINAL = re.compile(r"[\d%$€£]|Q[1-4]\b", re.I)
+
+
+def _unmapped_nonvisual_rows_all_editorial_headings(replacements: list[dict]) -> bool:
+    """True when every unmapped non-visual row looks like prose/section copy, not a metric placeholder."""
+    found = False
+    for r in replacements:
+        if _replacement_row_is_static_visual_incomplete(r):
+            continue
+        original = (r.get("original") or "").strip()
+        new_value = r.get("new_value", "")
+        mapped = r.get("mapped", True)
+        if not original or original == new_value:
+            continue
+        if mapped:
+            continue
+        found = True
+        if len(original) < 12:
+            return False
+        if _METRICISH_IN_ORIGINAL.search(original):
+            return False
+    return found
+
+
+def _should_add_incomplete_banner(
+    page_id: str,
+    replacements: list[dict],
+    title_slide_object_id: str | None = None,
+    analysis: dict | None = None,
+) -> bool:
+    """Skip banner on title slide, divider/cover types, prose-only unmapped, static-only slides."""
+    if title_slide_object_id and page_id == title_slide_object_id:
+        return False
+    if analysis:
+        st = (analysis.get("slide_type") or "").strip()
+        if st in _HYDRATE_SKIP_TEXT_ADAPT_TYPES:
+            return False
+    if not _has_text_placeholder_incomplete(replacements):
+        return False
+    if _unmapped_nonvisual_rows_all_editorial_headings(replacements):
+        return False
+    return True
+
+
 def _apply_adaptations(slides_svc, pres_id: str, page_id: str,
                        replacements: list[dict]) -> tuple[list[dict], bool, bool]:
     """Build Slides API requests to replace data values on a slide.
@@ -2041,12 +2318,7 @@ def _apply_adaptations(slides_svc, pres_id: str, page_id: str,
         mapped = r.get("mapped", True)
 
         # Static image / chart flag — can't replace pixels or chart data
-        _is_visual = (
-            original in _EMBEDDED_IMAGE_TEXTS + (_EMBEDDED_CHART_TEXT,)
-            or _STATIC_IMAGE_MARKER in (new_value or "")
-            or "[CHART —" in (new_value or "")
-        )
-        if _is_visual:
+        if _replacement_row_is_static_visual_incomplete(r):
             has_static_images = True
             has_unmapped = True
             continue
@@ -2131,15 +2403,20 @@ def _red_style_placeholders(slides_svc, pres_id: str, page_id: str) -> list[dict
 
 
 def _add_incomplete_banner(page_id: str, slide_w: int = 720, slide_h: int = 405,
-                           has_static_images: bool = False) -> list[dict]:
+                           has_static_images: bool = False,
+                           banner_text: str | None = None) -> list[dict]:
     """Create a prominent red INCOMPLETE banner across the top of a slide."""
-    banner_id = f"incomplete_{page_id[:20]}"
+    import secrets as _secrets
+
+    banner_id = f"incomplete_{page_id[:12]}_{_secrets.token_hex(4)}"
     emu = 12700
     banner_w = slide_w - 40
     banner_h = 28
     banner_x = 20
     banner_y = 4
-    if has_static_images:
+    if banner_text:
+        text = banner_text
+    elif has_static_images:
         text = "INCOMPLETE — contains static image(s) with data that cannot be auto-updated"
     else:
         text = "INCOMPLETE — red values need manual update"
@@ -2295,6 +2572,7 @@ def adapt_custom_slides(
     *,
     source_presentation_name: str = "",
     run_started_at: datetime.datetime | None = None,
+    title_slide_object_id: str | None = None,
 ) -> dict[str, Any]:
     """Adapt slides by replacing data values with current data.
 
@@ -2304,6 +2582,11 @@ def adapt_custom_slides(
 
     Clears speaker notes on all slides in ``page_ids``; appends a summary slide at the end with
     run stats on-slide and data-matching details in that slide's speaker notes.
+
+    When ``title_slide_object_id`` is set (e.g. QBR template cover), no incomplete banner is added
+    on that slide. Banners are also omitted when the only unmapped rows are static images/charts
+    (no text placeholders to flag), when cached analysis classifies the slide as title/cover/divider,
+    or when the only unmapped text is long prose/headings (no metric-like characters).
     """
     run_start = run_started_at or datetime.datetime.now(datetime.timezone.utc)
     data_summary = _build_data_summary(report)
@@ -2354,10 +2637,11 @@ def adapt_custom_slides(
                 thumb_b64 = _download_thumbnail_b64(url)
             except Exception:
                 pass
-        cache_key = _slide_content_hash(thumb_b64, page_id=page_id) if thumb_b64 else None
+        slide_cache_key = _slide_content_hash(thumb_b64, page_id=page_id) if thumb_b64 else None
+        adapt_cache_key = _adapt_cache_key(thumb_b64, page_id, data_summary) if thumb_b64 else None
         analysis: dict | None = None
-        if cache_key:
-            analysis = _get_cached_slide_analysis(cache_key)
+        if slide_cache_key:
+            analysis = _get_cached_slide_analysis(slide_cache_key)
             if analysis and analysis.get("data_ask"):
                 logger.info("hydrate: adapt slide %s — analysis cache hit (resolving data ask)",
                             slide_num)
@@ -2366,7 +2650,10 @@ def adapt_custom_slides(
                 )
                 replacements = _ensure_charts_and_images_marked(text_elements, replacements)
                 return page_id, text_elements, replacements, "analysis_hit", analysis
-            cached = _get_cached_adapt(cache_key)
+            if adapt_cache_key is not None:
+                cached = _get_cached_adapt(adapt_cache_key)
+            else:
+                cached = None
             if cached is not None:
                 logger.info("hydrate: adapt slide %s — adapt cache hit", slide_num)
                 replacements = _resolve_cached_replacements(cached, data_summary)
@@ -2379,10 +2666,10 @@ def adapt_custom_slides(
         replacements = _get_data_replacements(oai, text_elements, data_summary, thumb_b64,
                                               slide_label=str(slide_num))
         replacements = _ensure_charts_and_images_marked(text_elements, replacements)
-        if cache_key and replacements:
-            _set_cached_adapt(cache_key, replacements)
-        if cache_key and not analysis:
-            analysis = _get_cached_slide_analysis(cache_key)
+        if adapt_cache_key and replacements:
+            _set_cached_adapt(adapt_cache_key, replacements)
+        if slide_cache_key and not analysis:
+            analysis = _get_cached_slide_analysis(slide_cache_key)
         return page_id, text_elements, replacements, "llm", analysis
 
     results: dict[str, tuple[list[dict], list[dict], dict | None]] = {}
@@ -2442,15 +2729,17 @@ def adapt_custom_slides(
 
         if has_unmapped:
             style_reqs = _red_style_placeholders(slides_svc, pres_id, page_id)
-            style_reqs.extend(_add_incomplete_banner(page_id, has_static_images=has_static_images))
-            try:
-                slides_svc.presentations().batchUpdate(
-                    presentationId=pres_id,
-                    body={"requests": style_reqs},
-                ).execute()
-            except Exception as e:
-                logger.warning("hydrate: slide %s — failed to apply red placeholder styling: %s",
-                               slide_num, e)
+            if _should_add_incomplete_banner(page_id, replacements, title_slide_object_id, analysis):
+                style_reqs.extend(_add_incomplete_banner(page_id, has_static_images=has_static_images))
+            if style_reqs:
+                try:
+                    slides_svc.presentations().batchUpdate(
+                        presentationId=pres_id,
+                        body={"requests": style_reqs},
+                    ).execute()
+                except Exception as e:
+                    logger.warning("hydrate: slide %s — failed to apply red placeholder styling: %s",
+                                   slide_num, e)
             stats["incomplete"] += 1
         else:
             stats["clean"] += 1
@@ -2627,6 +2916,8 @@ _BUILDER_DESCRIPTIONS = {
     "data_quality": "Data quality — cross-source validation results",
     "custom": "Static content slide — reproduced text with title and body sections",
     "skip": "Skip this slide entirely (blank, transition, or not reproducible)",
+    "salesforce_comprehensive_cover": "Salesforce export intro — match status, row limits, org-wide product note",
+    "salesforce_category": "Salesforce table — one object category (sf_category) from comprehensive fetch",
 }
 
 
@@ -3169,6 +3460,12 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
                        f"llm={c.get('llm', 0)}]")
                 run_cache_totals["adapt_slides"] += tot
                 run_cache_totals["adapt_served"] += served
+        else:
+            _print(
+                "\n  Phase 3 (adapt): skipped — no slides marked for in-place data swap "
+                "(only title / bespoke_cover / bespoke_divider slides, or slide/plan length mismatch)."
+            )
+            logger.info("hydrate: Phase 3 skipped — adapt_page_ids empty")
 
         if HYDRATE_REMOVE_INTAKE_GROUP_PERMISSION and GOOGLE_HYDRATE_INTAKE_GROUP:
             n_perm = _remove_intake_group_permission_from_file(
@@ -3205,6 +3502,9 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
         _print(f"  Adapt LLM skipped:       {adh}/{ads} slides ({ap}% hit rate)")
         logger.info("hydrate: run summary — adapt cache %s", _cache_hit_rate_line("hit", adh, ads))
     else:
-        _print("  Adapt: no adapt phase ran this run (or all decks failed before adapt)")
+        _print(
+            "  Adapt: no adapt cache stats (Phase 3 did not run — e.g. copy failed, "
+            "or every slide skipped adaptation, or no intake decks processed)."
+        )
     _print(f"{'=' * 60}")
     return all_results

@@ -2,7 +2,8 @@
 
 Authenticates with a Connected App via JWT signed by a private key.
 Queries Account (Entity Contract) and Opportunity (creation count, pipeline ARR).
-Also exposes SOQL helpers for common standard objects (see MAINSTREAM_OBJECT_FIELDS).
+Also exposes SOQL helpers for common standard objects (see MAINSTREAM_OBJECT_FIELDS)
+and ``get_customer_salesforce_comprehensive`` for deck-sized multi-object exports.
 """
 
 import time
@@ -104,6 +105,94 @@ MAINSTREAM_OBJECT_FIELDS: dict[str, tuple[str, ...]] = {
 
 MAINSTREAM_OBJECT_NAMES: tuple[str, ...] = tuple(sorted(MAINSTREAM_OBJECT_FIELDS.keys()))
 
+# Narrower SELECT lists when the default set hits INVALID_FIELD / unsupported columns in some orgs.
+MAINSTREAM_OBJECT_FALLBACK_FIELDS: dict[str, tuple[str, ...]] = {
+    "Case": (
+        "Id", "CaseNumber", "Subject", "Status", "AccountId", "OwnerId", "CreatedDate",
+    ),
+    "Task": (
+        "Id", "Subject", "Status", "ActivityDate", "WhatId", "OwnerId", "CreatedDate",
+    ),
+    "Event": (
+        "Id", "Subject", "StartDateTime", "EndDateTime", "WhatId", "OwnerId", "CreatedDate",
+    ),
+    "Order": (
+        "Id", "OrderNumber", "AccountId", "EffectiveDate", "Status", "OwnerId", "CreatedDate",
+    ),
+    "Quote": (
+        "Id", "Name", "OpportunityId", "AccountId", "Status", "OwnerId", "CreatedDate",
+    ),
+    "Asset": (
+        "Id", "Name", "AccountId", "Status", "OwnerId",
+    ),
+    "OpportunityLineItem": (
+        "Id", "OpportunityId", "Product2Id", "Quantity",
+    ),
+    "User": (
+        "Id", "Name", "Username", "Email", "IsActive",
+    ),
+    "Lead": (
+        "Id", "FirstName", "LastName", "Company", "Email", "Status", "OwnerId", "CreatedDate",
+    ),
+    "Product2": (
+        "Id", "Name", "IsActive", "CreatedDate",
+    ),
+    "Pricebook2": (
+        "Id", "Name", "IsActive",
+    ),
+}
+
+
+def _soql_string_escape(s: str) -> str:
+    """Escape a value for use inside a SOQL single-quoted string (double single-quotes)."""
+    return (s or "").replace("'", "''")
+
+
+def _soql_like_literal(s: str) -> str:
+    """Sanitize for LIKE pattern body: escape %, _, and \\ per SOQL rules."""
+    t = (s or "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return _soql_string_escape(t)
+
+
+def _strip_sf_attributes(rec: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in rec.items() if k != "attributes"}
+
+
+def _chunk_list(items: list[str], size: int) -> list[list[str]]:
+    if size < 1:
+        size = 1
+    return [items[i : i + size] for i in range(0, len(items), size)]
+
+
+def _parse_salesforce_rest_errors(resp: requests.Response | None) -> str:
+    """Best-effort parse of Salesforce REST error JSON (query, describe, etc.)."""
+    if resp is None:
+        return "no response"
+    raw = (resp.text or "").strip()
+    if not raw:
+        return (getattr(resp, "reason", None) or f"HTTP {resp.status_code}")[:500]
+    try:
+        body = resp.json()
+    except Exception:
+        return raw[:500]
+    parts: list[str] = []
+    if isinstance(body, list):
+        for item in body:
+            if isinstance(item, dict):
+                code = item.get("errorCode") or item.get("error")
+                msg = item.get("message") or item.get("error_description")
+                if code and msg:
+                    parts.append(f"{code}: {msg}")
+                elif msg:
+                    parts.append(str(msg))
+    elif isinstance(body, dict):
+        if "message" in body:
+            parts.append(str(body["message"]))
+        for key in ("error_description", "error"):
+            if body.get(key):
+                parts.append(str(body[key]))
+    return "; ".join(parts)[:800] if parts else raw[:500]
+
 
 def _parse_oauth_error(resp: requests.Response | None) -> str:
     """Extract error message from Salesforce OAuth token error (JSON or form-encoded)."""
@@ -202,7 +291,12 @@ class SalesforceClient:
         req_params: dict | None = params
         while req_url:
             resp = requests.get(req_url, params=req_params, headers=headers, timeout=30)
-            resp.raise_for_status()
+            if not resp.ok:
+                detail = _parse_salesforce_rest_errors(resp)
+                raise requests.HTTPError(
+                    f"{resp.status_code} Salesforce error: {detail}",
+                    response=resp,
+                )
             data = resp.json()
             out.extend(data.get("records", []))
             next_path = data.get("nextRecordsUrl")
@@ -228,6 +322,23 @@ class SalesforceClient:
         )
         resp.raise_for_status()
         return resp.json().get("sobjects", [])
+
+    def get_queryable_sobject_names(self) -> frozenset[str]:
+        """API names of sObjects the current user may query (``queryable`` on global describe).
+
+        Cached per client instance for the lifetime of the token/session.
+        """
+        cached = getattr(self, "_queryable_sobject_names_cache", None)
+        if cached is not None:
+            return cached
+        rows = self.list_sobject_types()
+        names = frozenset(
+            str(o["name"])
+            for o in rows
+            if isinstance(o, dict) and o.get("name") and o.get("queryable") is True
+        )
+        self._queryable_sobject_names_cache = names
+        return names
 
     def query_mainstream_object(
         self,
@@ -260,7 +371,20 @@ class SalesforceClient:
         if limit is not None:
             cap = max(1, min(int(limit), 2000))
             soql += f" LIMIT {cap}"
-        return self._query(soql)
+        try:
+            return self._query(soql)
+        except requests.HTTPError as e:
+            if (
+                e.response is not None
+                and e.response.status_code == 400
+                and fields is None
+            ):
+                fb = MAINSTREAM_OBJECT_FALLBACK_FIELDS.get(object_api_name)
+                if fb is not None:
+                    return self.query_mainstream_object(
+                        object_api_name, fields=fb, where=where, limit=limit
+                    )
+            raise
 
     def query_leads(
         self, *, where: str | None = None, limit: int | None = 2000
@@ -433,3 +557,258 @@ class SalesforceClient:
             "pipeline_arr": self.get_advanced_pipeline_arr(account_ids),
             "matched": True,
         }
+
+    def expand_descendant_account_ids(
+        self,
+        seed_ids: list[str],
+        *,
+        max_depth: int = 25,
+        max_total_accounts: int = 2000,
+        chunk_size: int = 100,
+    ) -> list[str]:
+        """Return ``seed_ids`` plus every Account Id reachable via ``ParentId`` (children), breadth-first.
+
+        Does not follow partner or other relationships—only the standard Account hierarchy. Stops at
+        ``max_depth`` or ``max_total_accounts`` to bound API cost and SOQL ``IN`` size.
+        """
+        seeds = [x for x in seed_ids if x]
+        if not seeds:
+            return []
+        ordered: list[str] = []
+        seen: set[str] = set()
+        for s in seeds:
+            if s not in seen:
+                seen.add(s)
+                ordered.append(s)
+        frontier = list(seeds)
+        depth = 0
+        while frontier and depth < max_depth and len(seen) < max_total_accounts:
+            next_frontier: list[str] = []
+            for chunk in _chunk_list(frontier, chunk_size):
+                ids_in = ", ".join(f"'{x}'" for x in chunk)
+                soql = f"SELECT Id FROM Account WHERE ParentId IN ({ids_in})"
+                rows = self._query(soql)
+                for r in rows:
+                    cid = r.get("Id")
+                    if not cid or cid in seen:
+                        continue
+                    if len(seen) >= max_total_accounts:
+                        break
+                    seen.add(cid)
+                    ordered.append(cid)
+                    next_frontier.append(cid)
+                if len(seen) >= max_total_accounts:
+                    break
+            frontier = next_frontier
+            depth += 1
+        return ordered
+
+    def get_customer_salesforce_comprehensive(
+        self,
+        customer_name: str,
+        *,
+        row_limit: int = 75,
+    ) -> dict[str, Any]:
+        """Fetch a wide slice of mainstream Salesforce objects scoped to matched Customer Entity accounts.
+
+        Reuses ``get_customer_salesforce`` matching (Name / LeanDNA_Entity_Name__c). Child accounts in the
+        standard hierarchy (``ParentId``) are included via ``expand_descendant_account_ids``; all SOQL
+        filters use that expanded Id set. Each object query is isolated: failures are recorded in
+        ``category_errors`` without failing the whole call.
+        ``products_org_sample`` and ``pricebooks_org_sample`` are org-wide samples (not account-filtered).
+        """
+        base = self.get_customer_salesforce(customer_name)
+        out: dict[str, Any] = {
+            **base,
+            "row_limit": max(1, min(int(row_limit), 500)),
+            "categories": {},
+            "category_errors": {},
+        }
+        account_ids = base.get("account_ids") or []
+        if not base.get("matched") or not account_ids:
+            return out
+
+        try:
+            expanded = self.expand_descendant_account_ids(account_ids)
+        except Exception as e:
+            logger.warning("Salesforce account hierarchy expansion failed: %s", e)
+            expanded = list(account_ids)
+            out["category_errors"]["account_hierarchy"] = str(e)[:500]
+        out["account_ids_expanded"] = expanded
+        out["opportunity_count_this_year"] = self.get_opportunity_creation_this_year(expanded)
+        out["pipeline_arr"] = self.get_advanced_pipeline_arr(expanded)
+
+        ids_in = ", ".join(f"'{aid}'" for aid in expanded)
+        cap = out["row_limit"]
+
+        try:
+            queryable = self.get_queryable_sobject_names()
+        except Exception as e:
+            logger.warning(
+                "Salesforce global sObject describe failed; comprehensive queries will not be pre-skipped: %s",
+                e,
+            )
+            queryable = None
+
+        def _run(label: str, fetcher, *, sobject: str | None = None):
+            if queryable is not None and sobject is not None and sobject not in queryable:
+                out["categories"][label] = []
+                out["category_errors"][label] = (
+                    f"SObject {sobject!r} is not API-queryable for this integration user. "
+                    "In Salesforce: open the Connected App user's Profile or Permission Set and enable "
+                    "object access (at least Read) for SOQL, or use a user with broader API rights."
+                )[:500]
+                logger.info(
+                    "Salesforce comprehensive skip %s: %s not in queryable sObject set for this user",
+                    label,
+                    sobject,
+                )
+                return
+            try:
+                raw = fetcher()
+                out["categories"][label] = [_strip_sf_attributes(r) for r in raw]
+            except Exception as e:
+                out["category_errors"][label] = str(e)[:500]
+                logger.warning("Salesforce comprehensive %s failed: %s", label, e)
+                out["categories"][label] = []
+
+        _run(
+            "contacts",
+            lambda: self.query_contacts(where=f"AccountId IN ({ids_in})", limit=cap),
+            sobject="Contact",
+        )
+        _run(
+            "opportunities",
+            lambda: self.query_opportunities(where=f"AccountId IN ({ids_in})", limit=cap),
+            sobject="Opportunity",
+        )
+        _run(
+            "opportunity_line_items",
+            lambda: self.query_opportunity_line_items(
+                where=f"OpportunityId IN (SELECT Id FROM Opportunity WHERE AccountId IN ({ids_in}))",
+                limit=cap,
+            ),
+            sobject="OpportunityLineItem",
+        )
+        _run(
+            "cases",
+            lambda: self.query_cases(where=f"AccountId IN ({ids_in})", limit=cap),
+            sobject="Case",
+        )
+        _run(
+            "tasks",
+            lambda: self.query_tasks(where=f"WhatId IN ({ids_in})", limit=cap),
+            sobject="Task",
+        )
+        _run(
+            "events",
+            lambda: self.query_events(where=f"WhatId IN ({ids_in})", limit=cap),
+            sobject="Event",
+        )
+        _run(
+            "contracts",
+            lambda: self.query_contracts(where=f"AccountId IN ({ids_in})", limit=cap),
+            sobject="Contract",
+        )
+        _run(
+            "orders",
+            lambda: self.query_orders(where=f"AccountId IN ({ids_in})", limit=cap),
+            sobject="Order",
+        )
+        _run(
+            "quotes",
+            lambda: self.query_quotes(where=f"AccountId IN ({ids_in})", limit=cap),
+            sobject="Quote",
+        )
+        _run(
+            "assets",
+            lambda: self.query_assets(where=f"AccountId IN ({ids_in})", limit=cap),
+            sobject="Asset",
+        )
+        _run(
+            "owners_sample",
+            lambda: self.query_users(
+                where=f"Id IN (SELECT OwnerId FROM Account WHERE Id IN ({ids_in}))",
+                limit=min(40, cap),
+            ),
+            sobject="User",
+        )
+
+        contacts = out["categories"].get("contacts") or []
+        cids = [c["Id"] for c in contacts if c.get("Id")]
+        if cids:
+            # Long ContactId IN lists make the REST query string huge; chunk to avoid 400/URI limits.
+            contact_in_chunk = 25
+
+            def fetch_campaign_members_chunked() -> list[dict[str, Any]]:
+                seen: set[str] = set()
+                acc: list[dict[str, Any]] = []
+                for ch in _chunk_list(cids, contact_in_chunk):
+                    c_in = ", ".join(f"'{x}'" for x in ch)
+                    batch = self.query_campaign_members(
+                        where=f"ContactId IN ({c_in})", limit=cap
+                    )
+                    for r in batch:
+                        rid = r.get("Id")
+                        if rid:
+                            if rid in seen:
+                                continue
+                            seen.add(rid)
+                        acc.append(r)
+                        if len(acc) >= cap:
+                            return acc
+                return acc
+
+            def fetch_campaigns_chunked() -> list[dict[str, Any]]:
+                seen_camp: set[str] = set()
+                acc: list[dict[str, Any]] = []
+                for ch in _chunk_list(cids, contact_in_chunk):
+                    c_in = ", ".join(f"'{x}'" for x in ch)
+                    batch = self.query_campaigns(
+                        where=(
+                            "Id IN (SELECT CampaignId FROM CampaignMember "
+                            f"WHERE ContactId IN ({c_in}))"
+                        ),
+                        limit=cap,
+                    )
+                    for r in batch:
+                        rid = r.get("Id")
+                        if not rid or rid in seen_camp:
+                            continue
+                        seen_camp.add(rid)
+                        acc.append(r)
+                        if len(acc) >= cap:
+                            return acc
+                return acc
+
+            _run("campaign_members", fetch_campaign_members_chunked, sobject="CampaignMember")
+            _run("campaigns_related", fetch_campaigns_chunked, sobject="Campaign")
+        else:
+            out["categories"]["campaign_members"] = []
+            out["categories"]["campaigns_related"] = []
+
+        frag = _soql_like_literal((customer_name or "").strip()[:120])
+        if frag:
+            _run(
+                "leads_name_match",
+                lambda: self.query_leads(
+                    where=f"(Company LIKE '%{frag}%' OR LastName LIKE '%{frag}%')",
+                    limit=min(40, cap),
+                ),
+                sobject="Lead",
+            )
+        else:
+            out["categories"]["leads_name_match"] = []
+
+        _run(
+            "products_org_sample",
+            lambda: self.query_products(where="IsActive = true", limit=min(40, cap)),
+            sobject="Product2",
+        )
+        _run(
+            "pricebooks_org_sample",
+            lambda: self.query_pricebooks(limit=min(25, cap)),
+            sobject="Pricebook2",
+        )
+
+        return out

@@ -70,6 +70,35 @@ def _find_or_create_folder(name: str, parent_id: str | None = None) -> str:
     return folder["id"]
 
 
+def find_file_in_folder(
+    name: str,
+    parent_id: str,
+    mime_type: str | None = None,
+) -> str | None:
+    """Return the file id of the first non-trashed file with exact ``name`` under ``parent_id``."""
+    drive = _get_drive()
+    esc = name.replace("\\", "\\\\").replace("'", "\\'")
+    q = f"name = '{esc}' and '{parent_id}' in parents and trashed = false"
+    if mime_type:
+        mt = mime_type.replace("'", "\\'")
+        q += f" and mimeType = '{mt}'"
+    results = drive.files().list(q=q, fields="files(id, name)", pageSize=5).execute()
+    files = results.get("files", [])
+    return files[0]["id"] if files else None
+
+
+def export_google_doc_as_plain_text(file_id: str) -> str:
+    """Export a Google Doc to UTF-8 plain text."""
+    drive = _get_drive()
+    request = drive.files().export(fileId=file_id, mimeType="text/plain")
+    buf = io.BytesIO()
+    downloader = MediaIoBaseDownload(buf, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+    return buf.getvalue().decode("utf-8", errors="replace")
+
+
 def _get_config_folder_ids() -> tuple[str, str, str]:
     """Return (root_id, decks_id, slides_id) for the config tree on Drive."""
     if not GOOGLE_DRIVE_FOLDER_ID:

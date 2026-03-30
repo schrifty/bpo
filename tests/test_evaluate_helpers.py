@@ -77,6 +77,11 @@ def test_element_may_contain_data_embedded_image():
     assert evaluate._element_may_contain_data({"text": "(image in shape)"}) is True
 
 
+def test_element_may_contain_data_nps_negative_score():
+    """Regression: adapt must consider metric lines with negative numbers (e.g. NPS)."""
+    assert evaluate._element_may_contain_data({"text": "NPS: -19", "type": "shape"}) is True
+
+
 def test_element_may_contain_data_has_digit_or_symbol():
     """Text with digits or % $ is considered data."""
     assert evaluate._element_may_contain_data({"text": "31 sites"}) is True
@@ -91,6 +96,50 @@ def test_element_may_contain_data_pure_labels_excluded():
     assert evaluate._element_may_contain_data({"text": ""}) is False
     assert evaluate._element_may_contain_data({"text": "Section title"}) is False
     assert evaluate._element_may_contain_data({"text": "Key metrics"}) is False
+
+
+def test_element_may_contain_data_spelled_or_quarter():
+    """Spelled counts, quarters, months, or 'percent' without digits still qualify."""
+    assert evaluate._element_may_contain_data({"text": "twelve active sites"}) is True
+    assert evaluate._element_may_contain_data({"text": "January summary"}) is True
+    assert evaluate._element_may_contain_data({"text": "Q3 overview"}) is True
+    assert evaluate._element_may_contain_data({"text": "growth percent"}) is True
+
+
+# ── adapt cache / prompt helpers ─────────────────────────────────────────────
+
+
+def test_data_summary_fingerprint_stable_and_sensitive():
+    """Same summary → same fingerprint; different values → different fingerprint."""
+    a = evaluate._build_data_summary({"customer": "X", "account": {"total_sites": 1}})
+    b = evaluate._build_data_summary({"customer": "X", "account": {"total_sites": 2}})
+    assert evaluate._data_summary_fingerprint(a) == evaluate._data_summary_fingerprint(a)
+    assert evaluate._data_summary_fingerprint(a) != evaluate._data_summary_fingerprint(b)
+
+
+def test_format_data_summary_for_adapt_prompt_bounded():
+    """Prompt JSON is compact and within max length (no blind mid-slice of top-level JSON)."""
+    report = {"customer": "C", "account": {}, "sites": [{"sitename": f"S{i}", "visitors": i} for i in range(100)]}
+    s = evaluate._build_data_summary(report)
+    out = evaluate._format_data_summary_for_adapt_prompt(s)
+    assert len(out) <= 12000
+    assert "site_details" in out
+
+
+def test_normalize_and_dedupe_replacements():
+    """Invalid rows dropped; duplicate originals deduped."""
+    raw = [
+        {"original": "x", "new_value": "1", "mapped": True, "field": "a"},
+        "not-a-dict",
+        {"original": "x", "new_value": "2", "mapped": True, "field": "b"},
+        {"new_value": "missing original"},
+    ]
+    norm = evaluate._normalize_adapt_replacements(raw)
+    assert len(norm) == 2
+    assert norm[0]["original"] == "x"
+    deduped = evaluate._dedupe_replacements_by_original(norm)
+    assert len(deduped) == 1
+    assert deduped[0]["new_value"] == "2"
 
 
 # ── _build_data_summary ──────────────────────────────────────────────────────
@@ -402,6 +451,66 @@ def test_build_hydrate_speaker_notes_rebuild_spec():
     assert "Objective: Account overview" in out
     assert "Required data: total_sites, quarter" in out
     assert "Slide: engagement — Account at a glance" in out
+
+
+# ── incomplete banner gating ────────────────────────────────────────────────────
+
+
+def test_should_add_incomplete_banner_skips_title_slide():
+    reps = [{"original": "x", "new_value": "[???]", "mapped": False, "field": "n"}]
+    assert evaluate._should_add_incomplete_banner("t1", reps, title_slide_object_id="t1") is False
+    assert evaluate._should_add_incomplete_banner("t2", reps, title_slide_object_id="t1") is True
+
+
+def test_should_add_incomplete_banner_skips_visual_only_unmapped():
+    reps = [
+        {
+            "original": evaluate._EMBEDDED_IMAGE_TEXTS[0],
+            "new_value": "",
+            "mapped": False,
+            "field": "image",
+        },
+    ]
+    assert evaluate._should_add_incomplete_banner("p1", reps, title_slide_object_id=None) is False
+
+
+def test_should_add_incomplete_banner_true_when_mixed_visual_and_text():
+    reps = [
+        {
+            "original": evaluate._EMBEDDED_IMAGE_TEXTS[0],
+            "new_value": "",
+            "mapped": False,
+            "field": "image",
+        },
+        {"original": "99", "new_value": "[???]", "mapped": False, "field": "n"},
+    ]
+    assert evaluate._should_add_incomplete_banner("p1", reps, title_slide_object_id=None) is True
+
+
+def test_should_add_incomplete_banner_skips_prose_heading_plus_static_image():
+    """Section dividers: static image row + LLM false-positive unmapped headline should not get a banner."""
+    reps = [
+        {
+            "original": evaluate._EMBEDDED_IMAGE_TEXTS[0],
+            "new_value": evaluate._IMAGE_MARKER,
+            "mapped": False,
+            "field": "image",
+        },
+        {
+            "original": "Review LeanDNA value areas (top opportunities)",
+            "new_value": "[???]",
+            "mapped": False,
+            "field": "n",
+        },
+    ]
+    assert evaluate._should_add_incomplete_banner("p1", reps, None, None) is False
+
+
+def test_should_add_incomplete_banner_skips_bespoke_divider_from_analysis():
+    reps = [{"original": "x", "new_value": "[???]", "mapped": False, "field": "n"}]
+    assert evaluate._should_add_incomplete_banner(
+        "p1", reps, None, {"slide_type": "bespoke_divider"}
+    ) is False
 
 
 # ── intake: Drive query escape ──────────────────────────────────────────────────
