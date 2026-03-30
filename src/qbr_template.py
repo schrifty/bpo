@@ -41,6 +41,7 @@ from .slides_client import (
     _SLIDE_BUILDERS,
     presentations_batch_update_chunked,
     set_speaker_notes,
+    slides_presentations_batch_update,
 )
 
 # Drive layout under GOOGLE_QBR_GENERATOR_FOLDER_ID ("QBR Generator")
@@ -321,9 +322,7 @@ def _apply_slide_skipped(
         }
         for oid in object_ids
     ]
-    slides_svc.presentations().batchUpdate(
-        presentationId=pres_id, body={"requests": reqs},
-    ).execute()
+    slides_presentations_batch_update(slides_svc, pres_id, reqs)
 
 
 def _apply_move_template_slides_to_end(
@@ -356,17 +355,16 @@ def _apply_move_template_slides_to_end(
         return
     rest = [x for x in id_order if x not in to_move]
     insertion_index = len(rest)
-    slides_svc.presentations().batchUpdate(
-        presentationId=pres_id,
-        body={
-            "requests": [{
-                "updateSlidesPosition": {
-                    "slideObjectIds": to_move,
-                    "insertionIndex": insertion_index,
-                },
-            }],
-        },
-    ).execute()
+    slides_presentations_batch_update(
+        slides_svc,
+        pres_id,
+        [{
+            "updateSlidesPosition": {
+                "slideObjectIds": to_move,
+                "insertionIndex": insertion_index,
+            },
+        }],
+    )
 
 
 def _insert_executive_summary_slides(

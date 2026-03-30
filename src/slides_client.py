@@ -423,19 +423,18 @@ def set_speaker_notes(slides_svc, pres_id: str, slide_page_id: str, notes_text: 
         {"insertText": {"objectId": oid, "text": text, "insertionIndex": 0}},
     ]
     try:
-        slides_svc.presentations().batchUpdate(
-            presentationId=pres_id, body={"requests": reqs}
-        ).execute()
+        slides_presentations_batch_update(slides_svc, pres_id, reqs)
         return True
     except HttpError as e:
         err_str = str(e)
         # Empty notes shape: deleteText ALL is invalid (startIndex 0 must be < endIndex 0)
         if "startIndex 0 must be less than the endIndex 0" in err_str:
             try:
-                slides_svc.presentations().batchUpdate(
-                    presentationId=pres_id,
-                    body={"requests": [{"insertText": {"objectId": oid, "text": text, "insertionIndex": 0}}]},
-                ).execute()
+                slides_presentations_batch_update(
+                    slides_svc,
+                    pres_id,
+                    [{"insertText": {"objectId": oid, "text": text, "insertionIndex": 0}}],
+                )
                 return True
             except HttpError as e2:
                 logger.warning("set_speaker_notes: insertText (empty-notes fallback) failed for slide %s: %s", slide_page_id[:12], e2)
@@ -512,13 +511,7 @@ def _build_slide_jql_speaker_notes(report: dict[str, Any], entry: dict[str, Any]
     if not queries:
         if slide_type in ("salesforce_comprehensive_cover", "salesforce_category"):
             lines.append("No Jira JQL for this slide — data is from Salesforce (SOQL via REST API).")
-        elif required_keys:
-            lines.append(
-                "JQL: none recorded for this slide's declared data sources "
-                f"({', '.join(required_keys)})."
-            )
-        else:
-            lines.append("JQL: none recorded for this slide/deck.")
+        # No "JQL: none recorded…" lines — omit when there is nothing to show.
         return "\n".join(lines)
 
     lines.append("JQL used:")
@@ -5156,10 +5149,11 @@ def create_empty_deck(customer: str, days: int = 30, deck_name: str | None = Non
     try:
         pres = slides_service.presentations().get(presentationId=deck_id).execute()
         default_id = pres["slides"][0]["objectId"]
-        slides_service.presentations().batchUpdate(
-            presentationId=deck_id,
-            body={"requests": [{"deleteObject": {"objectId": default_id}}]},
-        ).execute()
+        slides_presentations_batch_update(
+            slides_service,
+            deck_id,
+            [{"deleteObject": {"objectId": default_id}}],
+        )
     except Exception:
         pass
 

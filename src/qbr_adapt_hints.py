@@ -26,9 +26,9 @@ from .evaluate import (
     _llm_create_with_retry,
     _strip_json_code_fence,
 )
+from .slides_client import slides_presentations_batch_update
 
 YELLOW_FIELD_PLACEHOLDER = "[???]"
-_BATCH_CHUNK = 80
 
 
 # Zero-width / format chars Slides often keeps on styled runs (no visible [???] when "replaced").
@@ -345,11 +345,57 @@ def _cell_key(cell: dict[str, int] | None) -> tuple[tuple[str, int], ...]:
     return tuple(sorted(cell.items()))
 
 
+def _find_text_body_for_hint_target(
+    slide: dict,
+    object_id: str,
+    cell_location: dict[str, int] | None,
+) -> dict | None:
+    """Return shape.text or table cell text dict for mutation target."""
+
+    def walk(elements: list[dict]) -> dict | None:
+        for el in elements or []:
+            if el.get("elementGroup"):
+                found = walk(el["elementGroup"].get("children") or [])
+                if found is not None:
+                    return found
+            sh = el.get("shape") or {}
+            if sh.get("objectId") == object_id and cell_location is None:
+                return sh.get("text") or {}
+            tb = el.get("table") or {}
+            if tb.get("objectId") == object_id and cell_location is not None:
+                ri = cell_location["rowIndex"]
+                ci = cell_location["columnIndex"]
+                rows = tb.get("tableRows") or []
+                if ri < len(rows):
+                    cells = rows[ri].get("tableCells") or []
+                    if ci < len(cells):
+                        return cells[ci].get("text") or {}
+        return None
+
+    return walk(slide.get("pageElements") or [])
+
+
+def _text_body_max_exclusive_index(text_body: dict) -> int:
+    """Exclusive end index upper bound (UTF-16), aligned with Slides textElements walk."""
+    pos = 0
+    for te in text_body.get("textElements") or []:
+        si = te.get("startIndex")
+        if si is not None:
+            pos = int(si)
+        if te.get("textRun"):
+            c = te["textRun"].get("content") or ""
+            pos += _utf16_code_units(c)
+        elif te.get("paragraphMarker") is not None:
+            pos += 1
+    return pos
+
+
 def hint_mutations_to_batch_requests(
     page_object_id: str,
     muts: list[_HintMutation],
     *,
     add_banner: bool = True,
+    slide: dict | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """Return (all requests, count excluding banner). Omit banner when ``add_banner`` is False."""
     if not muts:
@@ -382,13 +428,32 @@ def hint_mutations_to_batch_requests(
 
         repl = [x for x in items if x.action == "replace"]
         repl.sort(key=lambda x: x.start, reverse=True)
+        text_body = (
+            _find_text_body_for_hint_target(slide, oid, cell)
+            if slide is not None
+            else None
+        )
+        max_excl = _text_body_max_exclusive_index(text_body) if text_body else None
         for x in repl:
+            start_i, end_i = x.start, x.end
+            if max_excl is not None and max_excl >= 0:
+                end_i = min(end_i, max_excl)
+                start_i = min(start_i, end_i)
+            if start_i >= end_i:
+                logger.debug(
+                    "QBR hint skip replace (empty or out-of-range): oid=%s cell=%s range was %s-%s",
+                    oid[:12],
+                    cell,
+                    x.start,
+                    x.end,
+                )
+                continue
             base_del: dict[str, Any] = {
                 "objectId": oid,
                 "textRange": {
                     "type": "FIXED_RANGE",
-                    "startIndex": x.start,
-                    "endIndex": x.end,
+                    "startIndex": start_i,
+                    "endIndex": end_i,
                 },
             }
             del_req: dict[str, Any] = {"deleteText": dict(base_del)}
@@ -400,7 +465,7 @@ def hint_mutations_to_batch_requests(
             ins_req: dict[str, Any] = {
                 "insertText": {
                     "objectId": oid,
-                    "insertionIndex": x.start,
+                    "insertionIndex": start_i,
                     "text": x.replacement,
                 }
             }
@@ -433,8 +498,8 @@ def apply_hint_mutations_to_presentation(
     title_slide_object_id: str | None = None,
 ) -> int:
     """Apply orange shape removal, orange cell text clears, yellow→[???], and optional banner."""
-    all_reqs: list[dict[str, Any]] = []
     n_slides = 0
+    total_reqs = 0
     for row in nonempty_rows:
         pid = row.get("object_id")
         slide = slide_by_id.get(pid) if pid else None
@@ -446,30 +511,28 @@ def apply_hint_mutations_to_presentation(
                         row.get("slide_num", "?"))
             continue
         add_banner = title_slide_object_id is None or pid != title_slide_object_id
-        chunk, content_n = hint_mutations_to_batch_requests(pid, muts, add_banner=add_banner)
-        all_reqs.extend(chunk)
+        chunk, content_n = hint_mutations_to_batch_requests(
+            pid, muts, add_banner=add_banner, slide=slide
+        )
+        if not chunk:
+            continue
         n_slides += 1
+        total_reqs += len(chunk)
         logger.info(
             "QBR adapt hints — slide %s: queued %d text mutation(s)%s",
             row.get("slide_num", "?"),
             content_n,
             " + red banner" if add_banner else " (no banner — title slide)",
         )
-
-    if not all_reqs:
-        return 0
-
-    for i in range(0, len(all_reqs), _BATCH_CHUNK):
-        chunk = all_reqs[i : i + _BATCH_CHUNK]
         try:
-            slides_svc.presentations().batchUpdate(
-                presentationId=pres_id,
-                body={"requests": chunk},
-            ).execute()
+            slides_presentations_batch_update(slides_svc, pres_id, chunk)
         except HttpError as e:
-            logger.warning("QBR adapt hints: batchUpdate failed (chunk %d): %s", i // _BATCH_CHUNK, e)
+            logger.warning("QBR adapt hints: batchUpdate failed (slide %s): %s", row.get("slide_num", "?"), e)
             raise
-    logger.info("QBR adapt hints: applied surface changes (%d request(s)) on %d slide(s)", len(all_reqs), n_slides)
+
+    if not n_slides:
+        return 0
+    logger.info("QBR adapt hints: applied surface changes (%d request(s)) on %d slide(s)", total_reqs, n_slides)
     return n_slides
 
 
@@ -634,7 +697,7 @@ You receive JSON with one entry per slide: slide_num, title_guess, yellow_segmen
 
 For EACH slide with at least one non-empty segment list, respond with concise adaptation advice (1–4 sentences) for engineers or the adapt LLM: what to refresh, what to treat as static, and any risks.
 
-Return ONLY valid JSON:
+Return ONLY valid JSON (one object, no markdown):
 {
   "slides": [
     {
@@ -648,40 +711,39 @@ Return ONLY valid JSON:
   "overall_summary": "<one sentence>"
 }
 
+JSON string rules (required — output is parsed with Python json.loads):
+• Escape every double-quote inside a string as \\" .
+• Do not put raw line breaks inside "advice" or "reason"; use \\n if needed.
+• Keep "advice" and "reason" short (aim under 200 characters each) to avoid truncation.
+
 If no slide has any yellow or orange segments, return slides: [], overall_useful: false, overall_summary explaining there was nothing to analyze.
 """
 
+_LLM_SEG_CHAR_CAP = 420
+_LLM_USER_JSON_CAP = 24000
 
-def analyze_adapt_hints_with_llm(
-    oai: Any,
-    rows: list[dict[str, Any]],
-    customer: str,
-) -> dict[str, Any]:
-    """One batched LLM call over slides that had extracted segments."""
-    payload = {"customer": customer, "slides": rows}
-    try:
-        resp = _llm_create_with_retry(
-            oai,
-            model=LLM_MODEL_FAST,
-            temperature=0,
-            max_tokens=4096,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": _ADAPT_HINTS_SYSTEM},
-                {"role": "user", "content": json.dumps(payload, indent=0, default=str)[:24000]},
-            ],
-        )
-        raw = _strip_json_code_fence(resp.choices[0].message.content or "")
-        data = json.loads(raw)
-    except Exception as e:
-        logger.warning("QBR adapt hints: LLM analysis failed: %s", e)
-        return {
-            "slides": [],
-            "overall_useful": False,
-            "overall_summary": f"LLM analysis failed: {e}",
-            "error": str(e),
-        }
 
+def _trim_hint_rows_for_llm(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Shorten segment strings so the model is less likely to echo broken quotes/newlines."""
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        cp = dict(r)
+        for key in ("yellow_segments", "orange_segments"):
+            segs = cp.get(key)
+            if not isinstance(segs, list):
+                continue
+            trimmed: list[str] = []
+            for s in segs:
+                t = s if isinstance(s, str) else str(s)
+                if len(t) > _LLM_SEG_CHAR_CAP:
+                    t = t[: _LLM_SEG_CHAR_CAP] + "…"
+                trimmed.append(t)
+            cp[key] = trimmed
+        out.append(cp)
+    return out
+
+
+def _coerce_adapt_hints_llm_result(data: Any) -> dict[str, Any]:
     if not isinstance(data, dict):
         return {
             "slides": [],
@@ -696,6 +758,76 @@ def analyze_adapt_hints_with_llm(
         "overall_useful": bool(data.get("overall_useful", False)),
         "overall_summary": str(data.get("overall_summary", "") or "")[:500],
     }
+
+
+def analyze_adapt_hints_with_llm(
+    oai: Any,
+    rows: list[dict[str, Any]],
+    customer: str,
+) -> dict[str, Any]:
+    """One batched LLM call over slides that had extracted segments."""
+    payload = {"customer": customer, "slides": _trim_hint_rows_for_llm(rows)}
+    user_json = json.dumps(payload, indent=0, default=str)[:_LLM_USER_JSON_CAP]
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": _ADAPT_HINTS_SYSTEM},
+        {"role": "user", "content": user_json},
+    ]
+    resp: Any = None
+    for attempt in range(2):
+        try:
+            resp = _llm_create_with_retry(
+                oai,
+                model=LLM_MODEL_FAST,
+                temperature=0,
+                max_tokens=8192,
+                response_format={"type": "json_object"},
+                messages=messages,
+            )
+            raw = _strip_json_code_fence(resp.choices[0].message.content or "")
+            data = json.loads(raw)
+            return _coerce_adapt_hints_llm_result(data)
+        except json.JSONDecodeError as e:
+            if attempt == 0 and resp is not None:
+                bad = (resp.choices[0].message.content or "").strip()
+                if len(bad) > 1600:
+                    bad = bad[:1600] + "…"
+                logger.warning("QBR adapt hints: invalid JSON from LLM (%s); retrying once with repair prompt", e)
+                messages = [
+                    {
+                        "role": "system",
+                        "content": _ADAPT_HINTS_SYSTEM
+                        + "\n\nYour previous reply was not valid JSON. This attempt must be a single JSON object only.",
+                    },
+                    {"role": "user", "content": user_json},
+                    {"role": "assistant", "content": bad},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"That output failed json.loads with: {e}. "
+                            "Reply with ONLY one corrected JSON object (same schema). "
+                            "Escape any literal double-quote inside string values with a backslash. "
+                            "Keep each advice and reason under 120 characters."
+                        ),
+                    },
+                ]
+                continue
+            logger.warning("QBR adapt hints: LLM analysis failed: %s", e)
+            return {
+                "slides": [],
+                "overall_useful": False,
+                "overall_summary": f"LLM analysis failed: {e}",
+                "error": str(e),
+            }
+        except Exception as e:
+            logger.warning("QBR adapt hints: LLM analysis failed: %s", e)
+            return {
+                "slides": [],
+                "overall_useful": False,
+                "overall_summary": f"LLM analysis failed: {e}",
+                "error": str(e),
+            }
+
+    raise RuntimeError("analyze_adapt_hints_with_llm: exhausted retries without return")
 
 
 def log_extracted_hints(rows: list[dict[str, Any]]) -> None:

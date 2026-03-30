@@ -41,6 +41,7 @@ from .slides_client import (
     _slide,
     _wrap_box,
     set_speaker_notes,
+    slides_presentations_batch_update,
 )
 
 # Slide analysis cache — avoid re-calling the LLM for the same slide content.
@@ -2551,9 +2552,7 @@ def _append_hydrate_summary_slide(
     _box(reqs, title_oid, sid, 36, 36, 648, 56, "Hydrate run summary")
     _wrap_box(reqs, body_oid, sid, 36, 108, 648, 360, body_text)
     try:
-        slides_svc.presentations().batchUpdate(
-            presentationId=pres_id, body={"requests": reqs},
-        ).execute()
+        slides_presentations_batch_update(slides_svc, pres_id, reqs)
     except HttpError as e:
         logger.warning("hydrate summary slide: batchUpdate failed: %s", e)
         return False
@@ -2716,10 +2715,7 @@ def adapt_custom_slides(
             _print(f"      ↳ contains static image(s) with data")
         if replace_reqs:
             try:
-                slides_svc.presentations().batchUpdate(
-                    presentationId=pres_id,
-                    body={"requests": replace_reqs},
-                ).execute()
+                slides_presentations_batch_update(slides_svc, pres_id, replace_reqs)
             except Exception as e:
                 logger.warning("hydrate: slide %s — failed to apply text replacements: %s",
                                slide_num, e)
@@ -2733,10 +2729,7 @@ def adapt_custom_slides(
                 style_reqs.extend(_add_incomplete_banner(page_id, has_static_images=has_static_images))
             if style_reqs:
                 try:
-                    slides_svc.presentations().batchUpdate(
-                        presentationId=pres_id,
-                        body={"requests": style_reqs},
-                    ).execute()
+                    slides_presentations_batch_update(slides_svc, pres_id, style_reqs)
                 except Exception as e:
                     logger.warning("hydrate: slide %s — failed to apply red placeholder styling: %s",
                                    slide_num, e)
@@ -3306,9 +3299,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
             ]
             if trim_reqs:
                 try:
-                    slides_svc.presentations().batchUpdate(
-                        presentationId=pres_id, body={"requests": trim_reqs},
-                    ).execute()
+                    slides_presentations_batch_update(slides_svc, pres_id, trim_reqs)
                 except HttpError as e:
                     logger.warning("hydrate: failed to trim slides past cap: %s", e)
                 else:
@@ -3379,9 +3370,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
                     built, kept, skipped)
         if reqs:
             try:
-                slides_svc.presentations().batchUpdate(
-                    presentationId=pres_id, body={"requests": reqs},
-                ).execute()
+                slides_presentations_batch_update(slides_svc, pres_id, reqs)
             except HttpError as e:
                 _print(f"  FAIL applying slide changes: {e}")
                 all_results.append({"name": pres_name, "error": str(e)[:200]})
