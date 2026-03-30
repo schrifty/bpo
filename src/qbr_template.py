@@ -33,7 +33,7 @@ from .evaluate import (
 )
 from .pendo_client import PendoClient
 from .qbr_adapt_hints import run_qbr_adapt_hints_phase
-from .quarters import resolve_quarter
+from .quarters import QuarterRange, resolve_quarter
 from .slides_client import (
     _build_slide_jql_speaker_notes,
     _get_service,
@@ -133,15 +133,33 @@ QBR_BUNDLE_COMPANION_DECKS: tuple[tuple[str, str], ...] = (
     ("executive_summary", "executive_summary"),
     ("support", "support"),
     ("product_adoption", "product_adoption"),
+    ("cohort_review", "cohort_review"),
 )
+
+
+def _quarter_range_from_health_report(report: dict[str, Any]) -> QuarterRange | None:
+    """Rebuild ``QuarterRange`` from fields set on QBR / health reports (for cohort portfolio window)."""
+    from datetime import date
+
+    label = report.get("quarter")
+    qs = report.get("quarter_start")
+    qe = report.get("quarter_end")
+    if not label or not qs or not qe:
+        return None
+    try:
+        start = date.fromisoformat(str(qs)[:10])
+        end = date.fromisoformat(str(qe)[:10])
+        return QuarterRange(label=str(label), start=start, end=end)
+    except ValueError:
+        return None
 
 
 def _build_companion_decks_for_qbr_bundle(
     report: dict[str, Any],
     bundle_folder_id: str,
 ) -> list[dict[str, Any]]:
-    """Generate health, exec summary, support, and product-adoption decks into the bundle folder."""
-    from .slides_client import create_health_deck
+    """Generate health, exec summary, support, product adoption, and cohort review decks into the bundle folder."""
+    from .slides_client import create_cohort_deck, create_health_deck
 
     base = copy.deepcopy(report)
     for k in ("_slide_plan", "_current_slide", "_charts", "_slides_svc", "_drive_svc"):
@@ -151,12 +169,23 @@ def _build_companion_decks_for_qbr_bundle(
     for deck_id, key in QBR_BUNDLE_COMPANION_DECKS:
         sub = copy.deepcopy(base)
         try:
-            cr = create_health_deck(
-                sub,
-                deck_id=deck_id,
-                thumbnails=False,
-                output_folder_id=bundle_folder_id,
-            )
+            if deck_id == "cohort_review":
+                days = int(sub.get("days") or 30)
+                qr = _quarter_range_from_health_report(sub)
+                cr = create_cohort_deck(
+                    days=days,
+                    max_customers=None,
+                    quarter=qr,
+                    thumbnails=False,
+                    output_folder_id=bundle_folder_id,
+                )
+            else:
+                cr = create_health_deck(
+                    sub,
+                    deck_id=deck_id,
+                    thumbnails=False,
+                    output_folder_id=bundle_folder_id,
+                )
             entry: dict[str, Any] = {
                 "key": key,
                 "deck_id": deck_id,
@@ -452,7 +481,9 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
     When ``GOOGLE_QBR_OUTPUT_PARENT_ID`` or ``GOOGLE_DRIVE_FOLDER_ID`` is set, creates
     ``{date} - Output/{customer} — QBR bundle ({quarter})/`` and places the hydrated QBR
     deck there together with standalone Customer Success Health Review, Executive Summary,
-    Support Review, and Product Adoption Review decks (same Pendo report / quarter window).
+    Support Review, Product Adoption Review, and Manufacturing Cohort Review decks
+    (cohort deck uses the same quarter window and a full portfolio rollup; other companions
+    use the single-customer health report).
 
     Returns a result dict with ``url``, ``bundle_folder_id``, ``companion_decks``, and logging fields.
     """

@@ -33,6 +33,88 @@ BODY_BOTTOM = SLIDE_H - 36  # safe bottom edge (room for omission note + footer)
 # Max physical slides one logical slide type may span when paginating (tables, lists, continuations).
 MAX_PAGINATED_SLIDE_PAGES = 10
 
+# ── Pagination registry & layout helpers ─────────────────────────────────────
+# Use ``slide_type_may_paginate()`` for tooling/docs. Builders with ad-hoc continuation
+# (e.g. ``jira``) still count as paginating when they emit ``_pN`` continuation slides.
+SLIDE_PAGINATING_SLIDE_TYPES: frozenset[str] = frozenset({
+    "sites",
+    "features",
+    "exports",
+    "signals",
+    "portfolio_signals",
+    "portfolio_trends",
+    "data_quality",
+    "platform_health",
+    "supply_chain",
+    "platform_value",
+    "cross_validation",
+    "engineering",
+    "jira",
+    "enhancements",
+    "eng_enhancements",
+    "bespoke_deployment",
+    "salesforce_category",
+    "support_recent_opened",
+    "support_recent_closed",
+    "cohort_profiles",
+})
+
+
+def slide_type_may_paginate(slide_type: str) -> bool:
+    """True if this ``slide_type`` can produce more than one physical slide."""
+    return slide_type in SLIDE_PAGINATING_SLIDE_TYPES
+
+
+def _estimated_body_line_height_pt(font_body_pt: float | int) -> int:
+    """Approximate line height (pt) for multiline text boxes in Slides body text."""
+    return max(11, int(round(float(font_body_pt) * 1.22)))
+
+
+def _list_data_rows_fit_span(
+    *,
+    y_top: float,
+    y_bottom: float,
+    font_body_pt: float | int,
+    reserved_header_lines: int = 1,
+    max_rows_cap: int = 40,
+) -> int:
+    """How many list rows fit in ``[y_top, y_bottom]`` after a column header line."""
+    line_h = _estimated_body_line_height_pt(font_body_pt)
+    avail = max(0.0, float(y_bottom) - float(y_top))
+    total_lines = int(avail // line_h)
+    data_rows = total_lines - int(reserved_header_lines)
+    return max(1, min(max_rows_cap, data_rows))
+
+
+def _single_embedded_chart_layout(
+    *,
+    y_top: float,
+    bottom_pad: float = 10,
+    pie_or_donut: bool,
+) -> tuple[float, float, float, float]:
+    """Return ``(x, y, w, h)`` in pt for one Sheets chart in the body band.
+
+    Uses horizontal margins (``MARGIN`` / ``CONTENT_W``) and vertical space
+    down to ``BODY_BOTTOM - bottom_pad``. Pie/donut charts use the largest
+    centered square that fits; bar/line charts span full content width with
+    nearly full band height, vertically centered.
+    """
+    avail_h = float(BODY_BOTTOM) - float(y_top) - float(bottom_pad)
+    if avail_h < 30:
+        avail_h = 80.0
+    cw = float(CONTENT_W)
+    if pie_or_donut:
+        side = min(cw, avail_h) * 0.96
+        w = h = side
+        x = float(MARGIN) + (cw - w) / 2.0
+        y = float(y_top) + max(0.0, (avail_h - h) / 2.0)
+        return x, y, w, h
+    w = cw
+    h = avail_h * 0.96
+    x = float(MARGIN)
+    y = float(y_top) + max(0.0, (avail_h - h) / 2.0)
+    return x, y, w, h
+
 
 def _cap_page_count(n: int) -> int:
     return min(max(n, 1), MAX_PAGINATED_SLIDE_PAGES)
@@ -365,6 +447,33 @@ def _bar_rect(reqs, oid, sid, x, y, w, h, fill, outline=NAVY):
     })
 
 
+def _kpi_metric_card(
+    reqs: list,
+    oid_base: str,
+    sid: str,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    label: str,
+    value: str,
+    *,
+    accent: dict | None = None,
+    label_pt: float = 8,
+    value_pt: float = 18,
+) -> None:
+    """Outlined KPI tile — gray label, bold value. See docs/SLIDE_DESIGN_STANDARDS.md (KPI boxes)."""
+    accent = accent or NAVY
+    _bar_rect(reqs, oid_base, sid, x, y, w, h, LIGHT, outline=GRAY)
+    pad = 10.0
+    inner_w = max(40.0, w - 2 * pad)
+    _box(reqs, f"{oid_base}_l", sid, x + pad, y + 8, inner_w, 12, label)
+    _style(reqs, f"{oid_base}_l", 0, len(label), size=label_pt, color=GRAY, font=FONT)
+    val_h = max(22.0, h - 28.0)
+    _box(reqs, f"{oid_base}_v", sid, x + pad, y + 22, inner_w, val_h, value)
+    _style(reqs, f"{oid_base}_v", 0, len(value), bold=True, size=value_pt, color=accent, font=FONT)
+
+
 # ── Speaker notes (notes page per slide) ──────────────────────────────────────
 
 
@@ -443,24 +552,74 @@ def set_speaker_notes(slides_svc, pres_id: str, slide_page_id: str, notes_text: 
         return False
 
 
-def _collect_jql_queries(obj: Any) -> list[str]:
-    """Recursively collect JQL query lists from report data."""
+def _collect_data_trace_entries(obj: Any) -> list[dict[str, str]]:
+    """Recursively collect trace rows for speaker notes: ``jql_queries`` (Jira), ``soql_queries`` (Salesforce).
+
+    Each item is ``{description, source, query}`` where *source* is a short system label (e.g. ``Jira``).
+    """
     if obj is None:
         return []
     if isinstance(obj, dict):
-        queries: list[str] = []
-        raw = obj.get("jql_queries")
-        if isinstance(raw, list):
-            queries.extend(str(q).strip() for q in raw if str(q).strip())
+        entries: list[dict[str, str]] = []
+        jql_raw = obj.get("jql_queries")
+        if isinstance(jql_raw, list):
+            for item in jql_raw:
+                if isinstance(item, dict) and str(item.get("jql") or "").strip():
+                    entries.append({
+                        "description": str(item.get("description") or "Jira issue search").strip(),
+                        "source": "Jira",
+                        "query": str(item["jql"]).strip(),
+                    })
+                elif isinstance(item, str) and item.strip():
+                    entries.append({
+                        "description": "Jira issue search",
+                        "source": "Jira",
+                        "query": item.strip(),
+                    })
+        soql_raw = obj.get("soql_queries")
+        if isinstance(soql_raw, list):
+            for item in soql_raw:
+                if isinstance(item, dict):
+                    q = str(item.get("soql") or item.get("query") or "").strip()
+                    if q:
+                        entries.append({
+                            "description": str(item.get("description") or "Salesforce query").strip(),
+                            "source": "Salesforce",
+                            "query": q,
+                        })
+                elif isinstance(item, str) and item.strip():
+                    entries.append({
+                        "description": "Salesforce query",
+                        "source": "Salesforce",
+                        "query": item.strip(),
+                    })
         for val in obj.values():
-            queries.extend(_collect_jql_queries(val))
-        return queries
+            entries.extend(_collect_data_trace_entries(val))
+        return entries
     if isinstance(obj, list):
-        queries: list[str] = []
-        for item in obj:
-            queries.extend(_collect_jql_queries(item))
-        return queries
+        return [e for item in obj for e in _collect_data_trace_entries(item)]
     return []
+
+
+def _dedupe_data_trace_entries(entries: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Drop duplicate (source, query) pairs; keep first description."""
+    seen: set[tuple[str, str]] = set()
+    out: list[dict[str, str]] = []
+    for e in entries:
+        src = (e.get("source") or "Unknown").strip()
+        q = (e.get("query") or "").strip()
+        if not q:
+            continue
+        key = (src.casefold(), q)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            "description": (e.get("description") or "Data").strip(),
+            "source": src,
+            "query": q,
+        })
+    return out
 
 
 def _dedupe_keep_order(items: list[str]) -> list[str]:
@@ -483,41 +642,46 @@ def _normalize_builder_return(ret: Any, default_slide_id: str) -> tuple[int, lis
 
 
 def _build_slide_jql_speaker_notes(report: dict[str, Any], entry: dict[str, Any]) -> str:
-    """Build speaker notes with the JQL used for this slide/deck."""
+    """Speaker notes: timestamp first; then slide id; then one line per data trace (description: source - query)."""
     from datetime import datetime
 
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     slide_type = entry.get("slide_type", entry.get("id", "slide"))
     slide_title = entry.get("title", slide_type.replace("_", " ").title())
-    lines = [
-        "══ Slide Query Trace ══",
-        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+    header = [
+        ts,
+        "",
         f"Slide: {slide_title}",
         f"Slide type: {slide_type}",
-        "",
     ]
 
     required_keys = SLIDE_DATA_REQUIREMENTS.get(slide_type, [])
-    scoped_queries: list[str] = []
+    scoped: list[dict[str, str]] = []
     for key in required_keys:
-        scoped_queries.extend(_collect_jql_queries(report.get(key)))
-    scoped_queries = _dedupe_keep_order(scoped_queries)
+        scoped.extend(_collect_data_trace_entries(report.get(key)))
+    scoped = _dedupe_data_trace_entries(scoped)
 
-    all_queries = _dedupe_keep_order(_collect_jql_queries(report))
-    # Only fall back to deck-wide JQL when this slide type does not declare specific
-    # report keys. Otherwise empty scoped_queries (e.g. Salesforce payloads) would
-    # incorrectly show every Jira query from the health report.
-    queries = scoped_queries if required_keys else (scoped_queries or all_queries)
+    all_traces = _dedupe_data_trace_entries(_collect_data_trace_entries(report))
+    # Only fall back to deck-wide traces when this slide type does not declare specific
+    # report keys. Otherwise empty scoped (e.g. Salesforce payloads) would list every
+    # Jira query from the health report.
+    entries = scoped if required_keys else (scoped or all_traces)
 
-    if not queries:
+    if not entries:
         if slide_type in ("salesforce_comprehensive_cover", "salesforce_category"):
-            lines.append("No Jira JQL for this slide — data is from Salesforce (SOQL via REST API).")
-        # No "JQL: none recorded…" lines — omit when there is nothing to show.
-        return "\n".join(lines)
+            header.append("")
+            header.append(
+                "Live Salesforce metrics: Salesforce - SOQL via REST API (per-object queries not recorded in this payload)"
+            )
+        return "\n".join(header)
 
-    lines.append("JQL used:")
-    for i, q in enumerate(queries, 1):
-        lines.append(f"{i}. {q}")
-    return "\n".join(lines)
+    header.append("")
+    for e in entries:
+        desc = e.get("description") or "Data"
+        src = e.get("source") or "Unknown"
+        q = e.get("query") or ""
+        header.append(f"{desc}: {src} - {q}")
+    return "\n".join(header)
 
 
 def _pill(reqs, oid, sid, x, y, w, h, text, bg, fg):
@@ -1294,16 +1458,26 @@ def _features_slide(reqs, sid, report, idx):
     if not pages and not features:
         return _missing_data_slide(reqs, sid, report, idx, "top pages / feature adoption data")
 
-    max_items = 5
     font_body = 12
     font_header = 14
     col_gap = 24
     col_w = (CONTENT_W - col_gap) // 2
     left_x = MARGIN
     right_x = MARGIN + col_w + col_gap
-    box_h = BODY_BOTTOM - BODY_Y
+    _ins = report.get("feature_adoption_insights") or {}
+    _ins_text = (_ins.get("narrative") or "").strip() if isinstance(_ins, dict) else ""
+    _ins_band = 74  # reserved height for usage-pattern footnote (pt)
+    # One vertical budget for all pages: tightest is slide 1 when footnote is shown.
+    _tight_bottom = BODY_BOTTOM - (_ins_band if _ins_text else 0)
+    max_items = _list_data_rows_fit_span(
+        y_top=BODY_Y,
+        y_bottom=_tight_bottom,
+        font_body_pt=font_body,
+        reserved_header_lines=1,
+        max_rows_cap=30,
+    )
 
-    def _render_column(page_sid, prefix, col_title, items, name_key, events_key, events_suffix, start_rank: int):
+    def _render_column(page_sid, prefix, col_title, items, name_key, events_key, events_suffix, start_rank: int, box_h: int):
         lines = [col_title]
         slice_items = items[start_rank : start_rank + max_items]
         for j, it in enumerate(slice_items, start=start_rank + 1):
@@ -1329,8 +1503,15 @@ def _features_slide(reqs, sid, report, idx):
         _slide(reqs, page_sid, idx + p)
         st = "Feature Adoption" if num_pages == 1 else f"Feature Adoption ({p + 1} of {num_pages})"
         _slide_title(reqs, page_sid, st)
-        _render_column(page_sid, "pg", "Top Pages", pages, "name", "events", "events", p * max_items)
-        _render_column(page_sid, "ft", "Top Features", features, "name", "events", "clicks", p * max_items)
+        foot = _ins_text if (p == 0 and _ins_text) else ""
+        col_bottom = BODY_BOTTOM - (_ins_band if foot else 0)
+        box_h = col_bottom - BODY_Y
+        _render_column(page_sid, "pg", "Top Pages", pages, "name", "events", "events", p * max_items, box_h)
+        _render_column(page_sid, "ft", "Top Features", features, "name", "events", "clicks", p * max_items, box_h)
+        if foot:
+            ins_oid = f"{page_sid}_usagepat"
+            _wrap_box(reqs, ins_oid, page_sid, MARGIN, col_bottom, CONTENT_W, _ins_band - 4, foot)
+            _style(reqs, ins_oid, 0, len(foot), size=10, color=GRAY, font=FONT)
     return idx + num_pages, oids
 
 
@@ -1408,37 +1589,38 @@ def _benchmarks_slide(reqs, sid, report, idx):
     med_rate = cohort_med if use_cohort else all_med
     delta = cust_rate - med_rate
 
-    # Big number callout — customer rate
-    big = f"{cust_rate}%"
-    _box(reqs, f"{sid}_big", sid, MARGIN, BODY_Y + 8, 160, 50, big)
-    _style(reqs, f"{sid}_big", 0, len(big), bold=True, size=36, color=BLUE, font=FONT)
+    def _short_label(s: str, max_len: int = 44) -> str:
+        s = (s or "").strip()
+        return s if len(s) <= max_len else f"{s[: max_len - 1]}…"
 
-    sub = "weekly active rate"
-    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y + 58, 160, 20, sub)
-    _style(reqs, f"{sid}_sub", 0, len(sub), size=10, color=GRAY, font=FONT)
+    row_y = BODY_Y + 8
+    card_h = 58
+    col_gap = 18.0
+    n_cards = 3 if use_cohort else 2
+    card_w = (CONTENT_W - (n_cards - 1) * col_gap) / n_cards
 
-    # Cohort median (or all-peer if no cohort)
-    med_big = f"{med_rate}%"
-    _box(reqs, f"{sid}_med", sid, 220, BODY_Y + 8, 160, 50, med_big)
-    _style(reqs, f"{sid}_med", 0, len(med_big), bold=True, size=36, color=NAVY, font=FONT)
+    _kpi_metric_card(
+        reqs, f"{sid}_k0", sid, MARGIN, row_y, card_w, card_h,
+        "Weekly active rate (this account)", f"{cust_rate}%", accent=BLUE, value_pt=22,
+    )
 
     if use_cohort:
-        medsub = f"{cohort_name} median ({cohort_n})"
+        med_lbl = _short_label(f"{cohort_name} median ({cohort_n} accounts)")
     else:
-        medsub = f"all-customer median ({bench['peer_count']})"
-    _box(reqs, f"{sid}_ms", sid, 220, BODY_Y + 58, 200, 20, medsub)
-    _style(reqs, f"{sid}_ms", 0, len(medsub), size=10, color=GRAY, font=FONT)
+        med_lbl = f"All-customer median ({bench['peer_count']} accounts)"
+    _kpi_metric_card(
+        reqs, f"{sid}_k1", sid, MARGIN + card_w + col_gap, row_y, card_w, card_h,
+        med_lbl, f"{med_rate}%", accent=NAVY, value_pt=22,
+    )
 
-    # All-customer median (secondary, if cohort is primary)
     if use_cohort:
-        all_big = f"{all_med}%"
-        _box(reqs, f"{sid}_all", sid, 440, BODY_Y + 8, 160, 50, all_big)
-        _style(reqs, f"{sid}_all", 0, len(all_big), bold=True, size=28, color=GRAY, font=FONT)
-        allsub = f"all-customer median ({bench['peer_count']})"
-        _box(reqs, f"{sid}_as", sid, 440, BODY_Y + 58, 200, 20, allsub)
-        _style(reqs, f"{sid}_as", 0, len(allsub), size=9, color=GRAY, font=FONT)
+        all_lbl = f"All-customer median ({bench['peer_count']} accounts)"
+        _kpi_metric_card(
+            reqs, f"{sid}_k2", sid, MARGIN + 2 * (card_w + col_gap), row_y, card_w, card_h,
+            _short_label(all_lbl), f"{all_med}%", accent=GRAY, value_pt=20,
+        )
 
-    # Context
+    # Context (narrative — outside KPI cards; see SLIDE_DESIGN_STANDARDS KPI boxes)
     peer_label = cohort_name if use_cohort else "peer"
     lines = [
         f"Delta: {'+' if delta >= 0 else ''}{delta:.0f} percentage points vs {peer_label} median",
@@ -1459,7 +1641,9 @@ def _benchmarks_slide(reqs, sid, report, idx):
         lines.append("Recommend re-engagement, executive check-in, training refresh.")
 
     ctx = "\n".join(lines)
-    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y + 100, CONTENT_W, 180, ctx)
+    ctx_y = row_y + card_h + 16
+    ctx_h = max(96.0, BODY_BOTTOM - ctx_y - 4)
+    _box(reqs, f"{sid}_ctx", sid, MARGIN, ctx_y, CONTENT_W, ctx_h, ctx)
     _style(reqs, f"{sid}_ctx", 0, len(ctx), size=11, color=NAVY, font=FONT)
 
     return idx + 1
@@ -1477,8 +1661,20 @@ def _exports_slide(reqs, sid, report, idx):
     per_user = exports.get("exports_per_active_user", 0)
     active = exports.get("active_users", 0)
     header = f"{total:,} exports  ·  {per_user}/active user  ·  {active} active users"
-    max_features = 8
-    max_exporters = max(2, (BODY_BOTTOM - BODY_Y - 24) // 28 - 2)
+    _exp_list_top = BODY_Y + 24
+    # Use full body band so feature and exporter columns share one line budget (same box height).
+    _exp_list_bottom = min(_exp_list_top + 270, BODY_BOTTOM - 4)
+    _exp_list_h = max(120.0, float(_exp_list_bottom) - float(_exp_list_top))
+    line_budget = _list_data_rows_fit_span(
+        y_top=_exp_list_top,
+        y_bottom=_exp_list_top + _exp_list_h,
+        font_body_pt=10,
+        reserved_header_lines=1,
+        max_rows_cap=40,
+    )
+    # By Feature: one line per row. Top Exporters: two lines per user (email + detail).
+    max_features = line_budget
+    max_exporters = max(1, line_budget // 2)
     n_fp = (len(by_feature) + max_features - 1) // max_features if by_feature else 0
     n_ep = (len(top_exporters) + max_exporters - 1) // max_exporters if top_exporters else 0
     num_pages = _cap_page_count(max(n_fp, n_ep, 1))
@@ -1546,6 +1742,10 @@ def _depth_slide(reqs, sid, report, idx):
         try:
             from .charts import embed_chart
 
+            chart_top = BODY_Y + 24
+            bottom_pad = 10
+            chart_h = BODY_BOTTOM - chart_top - bottom_pad
+
             # Stacked bar: top categories by read/write/collab
             top = breakdown[:8]
             labels = [b["category"] for b in top]
@@ -1553,8 +1753,12 @@ def _depth_slide(reqs, sid, report, idx):
             write_vals = [b.get("write", 0) for b in top]
             collab_vals = [b.get("collab", 0) for b in top]
             has_rwc = any(v > 0 for v in read_vals + write_vals + collab_vals)
+            pie_ok = read_e + write_e + collab_e > 0
 
-            if has_rwc:
+            if has_rwc and pie_ok:
+                gap = 8.0
+                left_w = (CONTENT_W - gap) * 0.58
+                right_w = CONTENT_W - gap - left_w
                 ss_id, chart_id = charts.add_bar_chart(
                     title="Feature Category Depth",
                     labels=labels,
@@ -1562,21 +1766,43 @@ def _depth_slide(reqs, sid, report, idx):
                     horizontal=True,
                     stacked=True,
                 )
-                embed_chart(reqs, f"{sid}_chart", sid, ss_id, chart_id,
-                            MARGIN, BODY_Y + 24, CONTENT_W * 0.6, BODY_BOTTOM - BODY_Y - 30)
-
-            # Pie: overall read/write/collab split
-            if read_e + write_e + collab_e > 0:
+                embed_chart(
+                    reqs, f"{sid}_chart", sid, ss_id, chart_id,
+                    MARGIN, chart_top, left_w, chart_h,
+                )
                 ss_id2, pie_id = charts.add_pie_chart(
                     title="Read / Write / Collab",
                     labels=["Read", "Write", "Collab"],
                     values=[read_e, write_e, collab_e],
                     donut=True,
                 )
-                pie_x = MARGIN + CONTENT_W * 0.62
-                pie_w = CONTENT_W * 0.38
-                embed_chart(reqs, f"{sid}_pie", sid, ss_id2, pie_id,
-                            pie_x, BODY_Y + 24, pie_w, (BODY_BOTTOM - BODY_Y - 30) * 0.6)
+                embed_chart(
+                    reqs, f"{sid}_pie", sid, ss_id2, pie_id,
+                    MARGIN + left_w + gap, chart_top, right_w, chart_h,
+                )
+            elif has_rwc:
+                bx, by, bw, bh = _single_embedded_chart_layout(
+                    y_top=chart_top, bottom_pad=bottom_pad, pie_or_donut=False,
+                )
+                ss_id, chart_id = charts.add_bar_chart(
+                    title="Feature Category Depth",
+                    labels=labels,
+                    series={"Read": read_vals, "Write": write_vals, "Collab": collab_vals},
+                    horizontal=True,
+                    stacked=True,
+                )
+                embed_chart(reqs, f"{sid}_chart", sid, ss_id, chart_id, bx, by, bw, bh)
+            elif pie_ok:
+                px, py, pw, ph = _single_embedded_chart_layout(
+                    y_top=chart_top, bottom_pad=bottom_pad, pie_or_donut=True,
+                )
+                ss_id2, pie_id = charts.add_pie_chart(
+                    title="Read / Write / Collab",
+                    labels=["Read", "Write", "Collab"],
+                    values=[read_e, write_e, collab_e],
+                    donut=True,
+                )
+                embed_chart(reqs, f"{sid}_pie", sid, ss_id2, pie_id, px, py, pw, ph)
         except Exception as e:
             logger.warning("Chart embed failed for depth slide: %s", e)
 
@@ -1632,11 +1858,45 @@ def _kei_slide(reqs, sid, report, idx):
     return idx + 1
 
 
+def _guides_no_usage_slide(reqs, sid, report, idx, guides: dict[str, Any]) -> int:
+    """Guide engagement succeeded but zero events — explicit signal, not missing data."""
+    _slide(reqs, sid, idx)
+    _slide_title(reqs, sid, "Guide Engagement")
+
+    days = guides.get("days")
+    tv = int(guides.get("total_visitors") or 0)
+    scope_parts = [f"{tv:,} tracked visitors"]
+    if days is not None:
+        scope_parts.append(f"{days}-day lookback")
+    scope = "  ·  ".join(scope_parts)
+    _box(reqs, f"{sid}_scope", sid, MARGIN, BODY_Y, CONTENT_W, 18, scope)
+    _style(reqs, f"{sid}_scope", 0, len(scope), size=10, color=GRAY, font=FONT)
+
+    headline = "No usage"
+    _box(reqs, f"{sid}_nu", sid, MARGIN, BODY_Y + 32, CONTENT_W, 36, headline)
+    _style(reqs, f"{sid}_nu", 0, len(headline), bold=True, size=22, color=NAVY, font=FONT)
+
+    detail = (
+        "No in-app guide events (seen, advanced, or dismissed) were recorded for this "
+        "customer in this period — an adoption signal worth reviewing with the account team."
+    )
+    _wrap_box(reqs, f"{sid}_nu_d", sid, MARGIN, BODY_Y + 76, CONTENT_W, 120, detail)
+    _style(reqs, f"{sid}_nu_d", 0, len(detail), size=11, color=NAVY, font=FONT)
+
+    return idx + 1
+
+
 def _guides_slide(reqs, sid, report, idx):
-    guides = report.get("guides", report)
-    total_events = guides.get("total_guide_events", 0)
+    guides = report.get("guides")
+    if not isinstance(guides, dict):
+        return _missing_data_slide(reqs, sid, report, idx, "guide engagement data")
+    err = guides.get("error")
+    if err:
+        return _missing_data_slide(reqs, sid, report, idx, f"guide engagement: {err}")
+
+    total_events = int(guides.get("total_guide_events") or 0)
     if total_events == 0:
-        return _missing_data_slide(reqs, sid, report, idx, "guide engagement events")
+        return _guides_no_usage_slide(reqs, sid, report, idx, guides)
 
     _slide(reqs, sid, idx)
     _slide_title(reqs, sid, "Guide Engagement")
@@ -2099,17 +2359,6 @@ def _customer_ticket_metrics_slide(reqs, sid, report, idx):
     _bg(reqs, sid, WHITE)
     _slide_title(reqs, sid, title)
 
-    def _card(oid: str, x, y, w, h, label: str, value: str, subtext: str = "", accent: dict | None = None):
-        accent = accent or NAVY
-        _bar_rect(reqs, oid, sid, x, y, w, h, LIGHT, outline=GRAY)
-        _box(reqs, f"{oid}_l", sid, x + 10, y + 8, w - 20, 12, label)
-        _style(reqs, f"{oid}_l", 0, len(label), size=8, color=GRAY, font=FONT)
-        _box(reqs, f"{oid}_v", sid, x + 10, y + 20, w - 20, 20, value)
-        _style(reqs, f"{oid}_v", 0, len(value), bold=True, size=18, color=accent, font=FONT)
-        if subtext:
-            _box(reqs, f"{oid}_s", sid, x + 10, y + 41, w - 20, 10, subtext)
-            _style(reqs, f"{oid}_s", 0, len(subtext), size=7, color=GRAY, font=FONT)
-
     row_gap = 14
     col_gap = 18
     top_card_w = (CONTENT_W - 2 * col_gap) / 3
@@ -2120,45 +2369,37 @@ def _customer_ticket_metrics_slide(reqs, sid, report, idx):
 
     adherence_pct = adherence.get("pct")
     adherence_value = "—" if adherence_pct is None else f"{adherence_pct:.0f}%"
-    adherence_sub = (
-        f"{adherence.get('met', 0)} of {adherence.get('measured', 0)} met all measured SLAs"
-        if adherence.get("measured")
-        else "No measured HELP SLA tickets in the last year"
-    )
 
-    _card(f"{sid}_k1", MARGIN, row1_y, top_card_w, card_h, "Unresolved tickets", f"{unresolved}", accent=NAVY)
-    _card(
-        f"{sid}_k2", MARGIN + top_card_w + col_gap, row1_y, top_card_w, card_h,
+    _kpi_metric_card(
+        reqs, f"{sid}_k1", sid, MARGIN, row1_y, top_card_w, card_h,
+        "Unresolved tickets", f"{unresolved}", accent=NAVY,
+    )
+    _kpi_metric_card(
+        reqs, f"{sid}_k2", sid, MARGIN + top_card_w + col_gap, row1_y, top_card_w, card_h,
         "Resolved in last 6 months", f"{resolved_6mo}", accent=NAVY,
     )
-    _card(
-        f"{sid}_k3", MARGIN + 2 * (top_card_w + col_gap), row1_y, top_card_w, card_h,
-        "SLA adherence (1y)", adherence_value, adherence_sub,
+    _kpi_metric_card(
+        reqs, f"{sid}_k3", sid, MARGIN + 2 * (top_card_w + col_gap), row1_y, top_card_w, card_h,
+        "SLA adherence (1y)", adherence_value,
         accent=_GREEN if (adherence_pct or 0) >= 90 else (BLUE if (adherence_pct or 0) >= 75 else _RED),
     )
 
-    ttr_sub = (
-        f"avg {ttr.get('avg', '—')} · {ttr.get('measured', 0)} measured"
-        if ttr.get("measured")
-        else "No measured TTR in the last year"
+    _kpi_metric_card(
+        reqs, f"{sid}_k4", sid, MARGIN, row2_y, bot_card_w, card_h,
+        "TTR (1y median)", ttr.get("median", "—"), accent=NAVY,
     )
-    ttfr_sub = (
-        f"avg {ttfr.get('avg', '—')} · {ttfr.get('measured', 0)} measured"
-        if ttfr.get("measured")
-        else "No measured TTFR in the last year"
-    )
-    _card(f"{sid}_k4", MARGIN, row2_y, bot_card_w, card_h, "TTR (1y median)", ttr.get("median", "—"), ttr_sub,
-          accent=NAVY)
-    _card(
-        f"{sid}_k5", MARGIN + bot_card_w + col_gap, row2_y, bot_card_w, card_h,
-        "TTFR (1y median)", ttfr.get("median", "—"), ttfr_sub, accent=NAVY,
+    _kpi_metric_card(
+        reqs, f"{sid}_k5", sid, MARGIN + bot_card_w + col_gap, row2_y, bot_card_w, card_h,
+        "TTFR (1y median)", ttfr.get("median", "—"), accent=NAVY,
     )
 
     chart_gap = 20
     chart_w = (CONTENT_W - chart_gap) / 2
-    chart_h = 114
+    # Leave room below slide-level headers so they do not overlap the Sheets chart plot area.
+    chart_header_h = 20
     chart_title_y = row2_y + card_h + 14
-    chart_y = chart_title_y + 16
+    chart_y = chart_title_y + chart_header_h + 10
+    chart_h = max(96, BODY_BOTTOM - 4 - chart_y)
     left_x = MARGIN
     right_x = MARGIN + chart_w + chart_gap
 
@@ -2183,12 +2424,15 @@ def _customer_ticket_metrics_slide(reqs, sid, report, idx):
 
     type_hdr = "Unresolved tickets by type"
     status_hdr = "Unresolved tickets by status"
-    _box(reqs, f"{sid}_type_h", sid, left_x, chart_title_y, chart_w, 14, type_hdr)
+    _box(reqs, f"{sid}_type_h", sid, left_x, chart_title_y, chart_w, chart_header_h, type_hdr)
     _style(reqs, f"{sid}_type_h", 0, len(type_hdr), bold=True, size=10, color=NAVY, font=FONT)
-    _box(reqs, f"{sid}_status_h", sid, right_x, chart_title_y, chart_w, 14, status_hdr)
+    _box(reqs, f"{sid}_status_h", sid, right_x, chart_title_y, chart_w, chart_header_h, status_hdr)
     _style(reqs, f"{sid}_status_h", 0, len(status_hdr), bold=True, size=10, color=NAVY, font=FONT)
 
     from .charts import embed_chart
+
+    # +8 pt vs prior 12 for category / value axis text (bar labels were too small at slide scale).
+    _ticket_bar_axis_pt = 20
 
     if type_labels:
         ss_id, chart_id = charts.add_bar_chart(
@@ -2197,7 +2441,7 @@ def _customer_ticket_metrics_slide(reqs, sid, report, idx):
             series={"Open tickets": type_values},
             horizontal=True,
             show_title=False,
-            axis_font_size=12,
+            axis_font_size=_ticket_bar_axis_pt,
         )
         embed_chart(reqs, f"{sid}_type_chart", sid, ss_id, chart_id, left_x, chart_y, chart_w, chart_h, linked=False)
 
@@ -2208,11 +2452,118 @@ def _customer_ticket_metrics_slide(reqs, sid, report, idx):
             series={"Open tickets": status_values},
             horizontal=True,
             show_title=False,
-            axis_font_size=12,
+            axis_font_size=_ticket_bar_axis_pt,
         )
         embed_chart(reqs, f"{sid}_status_chart", sid, ss_id2, chart_id2, right_x, chart_y, chart_w, chart_h, linked=False)
 
     return idx + 1
+
+
+def _customer_help_recent_slide(
+    reqs: list,
+    sid: str,
+    report: dict,
+    idx: int,
+    *,
+    closed: bool,
+) -> int | tuple[int, list[str]]:
+    """Shared list slide for HELP tickets opened or resolved in a recent window."""
+    jira = report.get("jira") or {}
+    blob = jira.get("customer_help_recent")
+    if not isinstance(blob, dict):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            "customer HELP recent tickets (not in report — use support deck data fetch)",
+        )
+    if blob.get("error"):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            f"customer HELP recent tickets: {blob['error']}",
+        )
+
+    jira_base = (jira.get("base_url") or "").rstrip("/")
+    items: list[dict[str, Any]] = list(
+        blob.get("recently_closed" if closed else "recently_opened") or [],
+    )
+    days = int(blob.get("closed_within_days" if closed else "opened_within_days") or 45)
+    customer = blob.get("customer") or report.get("customer") or "Customer"
+
+    entry = report.get("_current_slide") or {}
+    base_title = entry.get("title") or (
+        "Recently closed HELP tickets" if closed else "Recently opened HELP tickets"
+    )
+    kind = "Resolved" if closed else "Created"
+    total_n = len(items)
+    sub = (
+        f"project HELP  ·  matched to {customer}  ·  {kind} in the last {days} days  ·  "
+        f"{total_n} ticket{'s' if total_n != 1 else ''}"
+    )
+
+    body_top = BODY_Y + 24
+    max_rows = _list_data_rows_fit_span(
+        y_top=body_top,
+        y_bottom=BODY_BOTTOM - 10,
+        font_body_pt=9,
+        reserved_header_lines=0,
+        max_rows_cap=28,
+    )
+    max_rows = max(1, max_rows)
+
+    if not items:
+        chunks: list[list[dict[str, Any]]] = [[]]
+    else:
+        raw_chunks = [items[i : i + max_rows] for i in range(0, len(items), max_rows)]
+        chunks = _cap_chunk_list(raw_chunks)
+    num_pages = len(chunks)
+    oids: list[str] = []
+
+    for p, chunk in enumerate(chunks):
+        page_sid = f"{sid}_p{p}" if num_pages > 1 else sid
+        oids.append(page_sid)
+        _slide(reqs, page_sid, idx + p)
+        _bg(reqs, page_sid, WHITE)
+        page_title = base_title if num_pages == 1 else f"{base_title} ({p + 1} of {num_pages})"
+        _slide_title(reqs, page_sid, page_title)
+        _box(reqs, f"{page_sid}_sub", page_sid, MARGIN, BODY_Y, CONTENT_W, 18, sub)
+        _style(reqs, f"{page_sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
+
+        y = float(body_top)
+        line_h = 14.0
+        if not chunk:
+            empty_msg = f"No HELP tickets in this window ({kind.lower()} in the last {days} days)."
+            _box(reqs, f"{page_sid}_empty", page_sid, MARGIN, int(y), CONTENT_W, 40, empty_msg)
+            _style(reqs, f"{page_sid}_empty", 0, len(empty_msg), size=10, color=NAVY, font=FONT)
+        else:
+            for i, it in enumerate(chunk):
+                sm = it.get("summary") or ""
+                if len(sm) > 46:
+                    sm = sm[:43] + "…"
+                status = (it.get("status") or "—")[:22]
+                when = (it.get("resolved_short") if closed else it.get("created_short")) or "—"
+                key = it.get("key") or "?"
+                line = f"{key:12}{sm}  ·  {status}  ·  {when}"
+                oid = f"{page_sid}_ln{i}"
+                _box(reqs, oid, page_sid, MARGIN, int(y), CONTENT_W, int(line_h), line)
+                _style(reqs, oid, 0, len(line), size=9, color=NAVY, font=MONO)
+                if jira_base and key and key != "?":
+                    lk = len(key)
+                    _style(
+                        reqs, oid, 0, lk, bold=True, size=9, color=BLUE, font=MONO,
+                        link=f"{jira_base}/browse/{key}",
+                    )
+                y += line_h
+
+    if num_pages == 1:
+        return idx + 1
+    return idx + num_pages, oids
+
+
+def _support_recent_opened_slide(reqs: list, sid: str, report: dict, idx: int) -> int | tuple[int, list[str]]:
+    return _customer_help_recent_slide(reqs, sid, report, idx, closed=False)
+
+
+def _support_recent_closed_slide(reqs: list, sid: str, report: dict, idx: int) -> int | tuple[int, list[str]]:
+    return _customer_help_recent_slide(reqs, sid, report, idx, closed=True)
 
 
 def _signals_slide(reqs, sid, report, idx):
@@ -2419,6 +2770,121 @@ def _portfolio_leaders_slide(reqs, sid, report, idx):
             dot_end = line.index(".")
             _style(reqs, f"{sid}_ent{ci}", off, off + dot_end + 1, bold=True, color=BLUE, size=9)
             off += len(line) + 1
+
+    return idx + 1
+
+
+_COHORT_PROFILE_MAX_SLIDES = 10
+
+
+def _cohort_deck_title_slide(reqs, sid, report, idx):
+    """Title for manufacturing cohort deck (uses same portfolio report payload)."""
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, NAVY)
+
+    n = report.get("customer_count", 0)
+    days = report.get("days", 30)
+    ql = report.get("quarter")
+    title = "Manufacturing cohort review"
+    sub = f"{n} customers in scope  ·  {_date_range(days, ql, report.get('quarter_start'), report.get('quarter_end'))}"
+
+    _box(reqs, f"{sid}_t", sid, MARGIN, 100, CONTENT_W, 80, title)
+    _style(reqs, f"{sid}_t", 0, len(title), bold=True, size=32, color=WHITE, font=FONT_SERIF)
+
+    _box(reqs, f"{sid}_s", sid, MARGIN, 188, CONTENT_W, 36, sub)
+    _style(reqs, f"{sid}_s", 0, len(sub), size=14, color=LTBLUE, font=FONT)
+
+    note = "Cohorts from cohorts.yaml · see docs/CUSTOMER_COHORTS.md"
+    _box(reqs, f"{sid}_n", sid, MARGIN, 240, CONTENT_W, 20, note)
+    _style(reqs, f"{sid}_n", 0, len(note), size=10, color=GRAY, font=FONT)
+
+    gen = report.get("generated", "")
+    if gen:
+        _box(reqs, f"{sid}_d", sid, MARGIN, 340, CONTENT_W, 20, gen)
+        _style(reqs, f"{sid}_d", 0, len(gen), size=10, color=GRAY, font=FONT)
+
+    return idx + 1
+
+
+def _cohort_profiles_slide(reqs, sid, report, idx) -> int | tuple[int, list[str]]:
+    """Up to ``_COHORT_PROFILE_MAX_SLIDES`` slides — one cohort bucket per slide (by customer count)."""
+    digest = report.get("cohort_digest") or {}
+    rows = sorted(
+        [(k, v) for k, v in digest.items() if isinstance(v, dict) and int(v.get("n") or 0) > 0],
+        key=lambda x: -int(x[1].get("n") or 0),
+    )[:_COHORT_PROFILE_MAX_SLIDES]
+    if not rows:
+        return _missing_data_slide(reqs, sid, report, idx, "cohort_digest (no customers in cohort buckets)")
+
+    oids: list[str] = []
+    num = len(rows)
+    for pi, (_cid, block) in enumerate(rows):
+        page_sid = f"{sid}_p{pi}" if num > 1 else sid
+        oids.append(page_sid)
+        _slide(reqs, page_sid, idx + pi)
+        _bg(reqs, page_sid, WHITE)
+        ttl = block["display_name"] if num == 1 else f"{block['display_name']} ({pi + 1} of {num})"
+        _slide_title(reqs, page_sid, ttl)
+
+        mlogin = block.get("median_login_pct")
+        mlogin_s = "—" if mlogin is None else f"{mlogin}%"
+        mw = block.get("median_write_ratio")
+        mw_s = "—" if mw is None else f"{mw}%"
+        ms = block.get("median_score")
+        ms_s = "—" if ms is None else str(ms)
+        me = block.get("median_exports")
+        me_s = "—" if me is None else f"{me:.0f}"
+
+        hdr = (
+            f"{block['n']} customers  ·  {block['total_active_users']:,} active / "
+            f"{block['total_users']:,} licensed users"
+        )
+        _box(reqs, f"{page_sid}_hdr", page_sid, MARGIN, BODY_Y, CONTENT_W, 18, hdr)
+        _style(reqs, f"{page_sid}_hdr", 0, len(hdr), size=10, color=GRAY, font=FONT)
+
+        stats = (
+            f"Median login {mlogin_s}  ·  median write ratio {mw_s}  ·  median score {ms_s}  ·  "
+            f"Kei adoption {block.get('kei_adoption_pct', 0)}%  ·  median exports {me_s}"
+        )
+        _box(reqs, f"{page_sid}_st", page_sid, MARGIN, BODY_Y + 22, CONTENT_W, 36, stats)
+        _style(reqs, f"{page_sid}_st", 0, len(stats), size=10, color=NAVY, font=FONT)
+
+        names = ", ".join(block.get("customers") or [])
+        if len(names) > 420:
+            names = names[:417] + "…"
+        body = f"Accounts\n{names}"
+        _wrap_box(
+            reqs, f"{page_sid}_acc", page_sid, MARGIN, BODY_Y + 64, CONTENT_W, BODY_BOTTOM - BODY_Y - 72, body,
+        )
+        _style(reqs, f"{page_sid}_acc", 0, len(body), size=9, color=NAVY, font=FONT)
+        _style(reqs, f"{page_sid}_acc", 0, len("Accounts"), bold=True, size=10, color=BLUE, font=FONT)
+
+    if num == 1:
+        return idx + 1
+    return idx + num, oids
+
+
+def _cohort_findings_slide(reqs, sid, report, idx):
+    bullets = list(report.get("cohort_findings_bullets") or [])
+    if not bullets:
+        return _missing_data_slide(reqs, sid, report, idx, "cohort_findings_bullets")
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, LIGHT)
+    _slide_title(reqs, sid, "Notable findings — cohort differences")
+
+    y = float(BODY_Y)
+    for i, raw in enumerate(bullets[:9]):
+        line = raw if len(raw) <= 220 else raw[:217] + "…"
+        text = f"• {line}"
+        h = min(44.0, float(BODY_BOTTOM) - y - 8.0)
+        if h < 24:
+            break
+        oid = f"{sid}_f{i}"
+        _wrap_box(reqs, oid, sid, MARGIN, int(y), CONTENT_W, int(h), text)
+        _style(reqs, oid, 0, len(text), size=9, color=NAVY, font=FONT)
+        _style(reqs, oid, 0, 1, bold=True, size=10, color=BLUE, font=FONT)
+        y += h + 6.0
 
     return idx + 1
 
@@ -4744,14 +5210,36 @@ def _eng_jira_project_slide(reqs: list, sid: str, report: dict, idx: int) -> int
 def _eng_help_volume_trends_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
     """HELP monthly created vs resolved trends for all, escalated, and non-escalated tickets."""
     eng = report.get("eng_portfolio") or {}
-    trends = (eng.get("help_ticket_trends") or {})
-    all_months = trends.get("all") or []
-    escalated_months = trends.get("escalated") or []
-    non_escalated_months = trends.get("non_escalated") or []
+    raw_trends = eng.get("help_ticket_trends")
+    trends = raw_trends if isinstance(raw_trends, dict) else {}
+    err = trends.get("error")
+    all_months = list(trends.get("all") or [])
+    escalated_months = list(trends.get("escalated") or [])
+    non_escalated_months = list(trends.get("non_escalated") or [])
     charts = report.get("_charts")
 
-    if not all_months or not charts:
-        return _missing_data_slide(reqs, sid, report, idx, "HELP ticket volume trends")
+    # Zero HELP tickets still yields 12 monthly buckets (zeros); empty ``all`` means Jira
+    # fetch failed or the portfolio payload never included ``help_ticket_trends``.
+    if err:
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            f"HELP ticket volume trends — Jira error: {err}",
+        )
+    if not all_months:
+        if raw_trends is None:
+            return _missing_data_slide(
+                reqs, sid, report, idx,
+                "HELP ticket volume trends — missing help_ticket_trends in engineering portfolio",
+            )
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            "HELP ticket volume trends — no monthly series (unexpected empty response)",
+        )
+    if not charts:
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            "HELP ticket volume trends — chart embedding unavailable",
+        )
 
     recent = all_months[-3:]
     recent_created = sum(m.get("created", 0) for m in recent)
@@ -5026,6 +5514,8 @@ _SLIDE_BUILDERS = {
     "guides": _guides_slide,
     "jira": _jira_slide,
     "customer_ticket_metrics": _customer_ticket_metrics_slide,
+    "support_recent_opened": _support_recent_opened_slide,
+    "support_recent_closed": _support_recent_closed_slide,
     "custom": _custom_slide,
     "signals": _signals_slide,
     "platform_health": _platform_health_slide,
@@ -5057,6 +5547,9 @@ _SLIDE_BUILDERS = {
     "eng_help_volume_trends": _eng_help_volume_trends_slide,
     "salesforce_comprehensive_cover": _salesforce_comprehensive_cover_slide,
     "salesforce_category": _salesforce_category_slide,
+    "cohort_deck_title": _cohort_deck_title_slide,
+    "cohort_profiles": _cohort_profiles_slide,
+    "cohort_findings": _cohort_findings_slide,
 }
 
 # Which report keys each slide type needs (so the agent knows what data to supply)
@@ -5074,6 +5567,8 @@ SLIDE_DATA_REQUIREMENTS = {
     "guides": ["guides"],
     "jira": ["jira"],
     "customer_ticket_metrics": ["jira"],
+    "support_recent_opened": ["jira"],
+    "support_recent_closed": ["jira"],
     "custom": ["title", "sections"],
     "signals": ["signals"],
     "platform_health": ["cs_platform_health"],
@@ -5089,6 +5584,9 @@ SLIDE_DATA_REQUIREMENTS = {
     "portfolio_signals": ["portfolio_signals"],
     "portfolio_trends": ["portfolio_trends"],
     "portfolio_leaders": ["portfolio_leaders"],
+    "cohort_deck_title": ["customer_count", "days", "generated"],
+    "cohort_profiles": ["cohort_digest"],
+    "cohort_findings": ["cohort_findings_bullets"],
     "team": ["customer"],
     "bespoke_cover": ["customer", "days"],
     "bespoke_agenda": [],
@@ -5443,6 +5941,30 @@ def create_portfolio_deck(
         report["quarter_start"] = quarter.start.isoformat()
         report["quarter_end"] = quarter.end.isoformat()
     return create_health_deck(report, deck_id="portfolio_review")
+
+
+def create_cohort_deck(
+    days: int = 30,
+    max_customers: int | None = None,
+    quarter: "QuarterRange | None" = None,
+    thumbnails: bool = False,
+    output_folder_id: str | None = None,
+) -> dict[str, Any]:
+    """Single deck: cohort buckets from cohorts.yaml + portfolio metrics (max 10 profile slides)."""
+    from .pendo_client import PendoClient
+
+    client = PendoClient()
+    report = client.get_portfolio_report(days=days, max_customers=max_customers)
+    if quarter:
+        report["quarter"] = quarter.label
+        report["quarter_start"] = quarter.start.isoformat()
+        report["quarter_end"] = quarter.end.isoformat()
+    return create_health_deck(
+        report,
+        deck_id="cohort_review",
+        thumbnails=thumbnails,
+        output_folder_id=output_folder_id,
+    )
 
 
 def create_health_decks_for_customers(

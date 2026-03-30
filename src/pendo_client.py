@@ -11,7 +11,12 @@ from uuid import uuid4
 
 import requests
 
-from .config import PENDO_BASE_URL, PENDO_INTEGRATION_KEY, logger
+from .config import (
+    FEATURE_ADOPTION_INSIGHTS,
+    PENDO_BASE_URL,
+    PENDO_INTEGRATION_KEY,
+    logger,
+)
 
 
 def _name_matches(query: str, text: str) -> bool:
@@ -30,6 +35,107 @@ def _time_series(days: int) -> dict[str, Any]:
         "first": "now()",
         "count": -days,  # Negative = look back
     }
+
+
+def _aggregate_customer_page_events(
+    events: list[dict],
+    visitor_ids: set[str],
+) -> dict[str, dict[str, int]]:
+    page_counts: dict[str, dict[str, int]] = {}
+    for ev in events:
+        if ev.get("visitorId") not in visitor_ids:
+            continue
+        pid = ev.get("pageId", "")
+        if pid not in page_counts:
+            page_counts[pid] = {"events": 0, "minutes": 0}
+        page_counts[pid]["events"] += int(ev.get("numEvents", 0) or 0)
+        page_counts[pid]["minutes"] += int(ev.get("numMinutes", 0) or 0)
+    return page_counts
+
+
+def _aggregate_customer_feature_events(
+    events: list[dict],
+    visitor_ids: set[str],
+) -> dict[str, int]:
+    feat_counts: dict[str, int] = {}
+    for ev in events:
+        if ev.get("visitorId") not in visitor_ids:
+            continue
+        fid = ev.get("featureId", "")
+        feat_counts[fid] = feat_counts.get(fid, 0) + int(ev.get("numEvents", 0) or 0)
+    return feat_counts
+
+
+def _feature_adoption_pattern_narrative(
+    *,
+    days: int,
+    recent_days: int,
+    prior_days: int,
+    feat_full: dict[str, int],
+    feat_recent: dict[str, int],
+    feature_catalog: dict[str, str],
+) -> str:
+    """Short deterministic copy for the Feature Adoption slide (half-over-half)."""
+    tf = sum(feat_full.values())
+    tr = sum(feat_recent.values())
+    tprior = tf - tr
+    if tf <= 0:
+        return ""
+
+    def _short(nm: str) -> str:
+        s = (nm or "").strip() or "?"
+        return (s[:26] + "…") if len(s) > 26 else s
+
+    parts: list[str] = []
+    if tprior > 0:
+        delta = round((tr - tprior) / tprior * 100)
+        if abs(delta) >= 8:
+            direction = "higher" if delta > 0 else "lower"
+            parts.append(
+                f"In the last {recent_days} days vs the prior {prior_days} days of this {days}-day window, "
+                f"total feature clicks were {delta:+d}% {direction}."
+            )
+        else:
+            parts.append(
+                f"Feature click volume was similar in the last {recent_days} days vs the prior {prior_days} days."
+            )
+    elif tr > 0:
+        parts.append(f"All recorded feature clicks in this window fell in the most recent {recent_days} days.")
+
+    risers: list[str] = []
+    fallers: list[str] = []
+    for fid, total in sorted(feat_full.items(), key=lambda x: -x[1])[:15]:
+        rec = feat_recent.get(fid, 0)
+        prior = max(0, total - rec)
+        if prior < 10 and rec < 10:
+            continue
+        if prior <= 0:
+            if rec >= 15:
+                risers.append(_short(feature_catalog.get(fid, fid)))
+            continue
+        ch = (rec - prior) / prior * 100
+        label = _short(feature_catalog.get(fid, fid))
+        if ch >= 28:
+            risers.append(label)
+        elif ch <= -28:
+            fallers.append(label)
+
+    risers = risers[:3]
+    fallers = fallers[:3]
+    if risers or fallers:
+        bit = []
+        if risers:
+            bit.append(f"notably up: {', '.join(risers)}")
+        if fallers:
+            bit.append(f"softer: {', '.join(fallers)}")
+        parts.append("Among top features — " + "; ".join(bit) + ".")
+    elif parts:
+        parts.append("No sharp half-over-half swings among leading features.")
+
+    text = " ".join(parts).strip()
+    if len(text) > 420:
+        text = text[:417] + "…"
+    return text
 
 
 # Pendo metadata.agent.role values treated as executives (signals + KEI breakdown).
@@ -103,6 +209,118 @@ def get_cohort_members(cohort: str) -> list[str]:
             members.append(key)
             members.extend(info.get("aliases", []))
     return members
+
+
+def _median_nums(vals: list[float]) -> float | None:
+    nums = sorted(v for v in vals if isinstance(v, (int, float)) and v is not None)
+    if not nums:
+        return None
+    mid = len(nums) // 2
+    if len(nums) % 2:
+        return round(float(nums[mid]), 1)
+    return round((nums[mid - 1] + nums[mid]) / 2.0, 1)
+
+
+def compute_cohort_portfolio_rollup(
+    customer_summaries: list[dict[str, Any]],
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """Bucket portfolio rows by ``cohorts.yaml`` classification (via ``get_customer_cohort``).
+
+    Does not define cohorts — only reads ``cohort`` from existing customer records.
+    Returns ``(cohort_digest, findings_bullets)``.
+    """
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    for s in customer_summaries:
+        name = s.get("customer") or ""
+        info = get_customer_cohort(name)
+        cid = (info.get("cohort") or "").strip() if info else ""
+        if not cid:
+            cid = "unclassified"
+        buckets.setdefault(cid, []).append(s)
+
+    digest: dict[str, dict[str, Any]] = {}
+    for cid, rows in buckets.items():
+        if cid == "unclassified":
+            display = "Unclassified / not in cohorts.yaml"
+        else:
+            display = _COHORT_DISPLAY.get(cid, cid.replace("_", " ").title())
+        logins = [float(r.get("login_pct") or 0) for r in rows]
+        writes = [float((r.get("depth") or {}).get("write_ratio") or 0) for r in rows]
+        scores = [float(r.get("score") or 0) for r in rows]
+        exports = [float((r.get("exports") or {}).get("total_exports") or 0) for r in rows]
+        kei_yes = sum(1 for r in rows if (r.get("kei") or {}).get("total_queries", 0) > 0)
+        n = len(rows)
+        digest[cid] = {
+            "cohort_id": cid,
+            "display_name": display,
+            "n": n,
+            "customers": sorted(r.get("customer", "") for r in rows),
+            "median_login_pct": _median_nums(logins),
+            "median_write_ratio": _median_nums(writes),
+            "median_score": _median_nums(scores),
+            "median_exports": _median_nums(exports),
+            "kei_adoption_pct": round(100.0 * kei_yes / n, 1) if n else 0.0,
+            "total_active_users": sum(int(r.get("active_users") or 0) for r in rows),
+            "total_users": sum(int(r.get("total_users") or 0) for r in rows),
+        }
+
+    bullets: list[str] = []
+    with_data = [(cid, digest[cid]) for cid in digest if digest[cid]["n"] > 0]
+    with_data.sort(key=lambda x: -x[1]["n"])
+    if not customer_summaries:
+        bullets.append("No customers in the portfolio window — rerun with a valid Pendo period.")
+        return digest, bullets
+    if len(with_data) < 2:
+        bullets.append(
+            "Only one cohort bucket has customers in this window — compare across cohorts when more accounts load.",
+        )
+    else:
+        largest = with_data[0]
+        bullets.append(
+            f"Largest cohort in this deck: {largest[1]['display_name']} ({largest[1]['n']} customers).",
+        )
+
+    ge3 = [(cid, d) for cid, d in with_data if d["n"] >= 3]
+    if len(ge3) >= 2:
+        by_login = sorted(ge3, key=lambda x: (x[1].get("median_login_pct") or 0), reverse=True)
+        hi, lo = by_login[0], by_login[-1]
+        bullets.append(
+            f"Median login % (cohorts with ≥3 customers): highest {hi[1]['display_name']} "
+            f"({hi[1]['median_login_pct']}%) vs lowest {lo[1]['display_name']} ({lo[1]['median_login_pct']}%).",
+        )
+        by_write = sorted(ge3, key=lambda x: (x[1].get("median_write_ratio") or 0), reverse=True)
+        w_hi, w_lo = by_write[0], by_write[-1]
+        if w_hi[0] != w_lo[0]:
+            bullets.append(
+                f"Median write ratio: highest {w_hi[1]['display_name']} ({w_hi[1]['median_write_ratio']}%) "
+                f"vs lowest {w_lo[1]['display_name']} ({w_lo[1]['median_write_ratio']}%).",
+            )
+        by_kei = sorted(ge3, key=lambda x: x[1].get("kei_adoption_pct") or 0, reverse=True)
+        k_hi, k_lo = by_kei[0], by_kei[-1]
+        if k_hi[0] != k_lo[0]:
+            bullets.append(
+                f"Kei adoption (share of customers with any query): highest {k_hi[1]['display_name']} "
+                f"({k_hi[1]['kei_adoption_pct']}%) vs lowest {k_lo[1]['display_name']} ({k_lo[1]['kei_adoption_pct']}%).",
+            )
+
+    small = [d["display_name"] for _, d in with_data if d["n"] < 3]
+    if small:
+        bullets.append(
+            f"Small sample (under 3 customers in this window): {', '.join(small[:6])}"
+            f"{'…' if len(small) > 6 else ''} — treat medians as directional only.",
+        )
+
+    un = digest.get("unclassified", {})
+    if un.get("n"):
+        bullets.append(
+            f"{un['n']} customer(s) are unclassified — add or alias them in cohorts.yaml to benchmark by industry cohort.",
+        )
+
+    bullets.append(
+        "Cohort labels and membership come from cohorts.yaml and docs/CUSTOMER_COHORTS.md — not redefined in this deck.",
+    )
+
+    return digest, bullets
 
 
 class PendoClient:
@@ -1122,6 +1340,8 @@ class PendoClient:
 
         top_pages: list[dict] = []
         top_features: list[dict] = []
+        all_page_events: list[dict] = []
+        all_feat_events: list[dict] = []
 
         try:
             all_page_events = self._get_page_events_cached(days)
@@ -1150,7 +1370,40 @@ class PendoClient:
         except Exception as e:
             logger.debug("Could not compute top features: %s", e)
 
-        return {"customer": customer_name, "days": days, "top_pages": top_pages, "top_features": top_features}
+        out: dict[str, Any] = {
+            "customer": customer_name,
+            "days": days,
+            "top_pages": top_pages,
+            "top_features": top_features,
+        }
+
+        if FEATURE_ADOPTION_INSIGHTS and days >= 12 and all_feat_events:
+            try:
+                half = min(max(days // 2, 5), days - 1)
+                if 0 < half < days:
+                    recent_feat = self._get_feature_events_cached(half)
+                    ff = _aggregate_customer_feature_events(all_feat_events, visitor_ids)
+                    fr = _aggregate_customer_feature_events(recent_feat, visitor_ids)
+                    narrative = _feature_adoption_pattern_narrative(
+                        days=days,
+                        recent_days=half,
+                        prior_days=days - half,
+                        feat_full=ff,
+                        feat_recent=fr,
+                        feature_catalog=feature_catalog,
+                    )
+                    if narrative:
+                        out["feature_adoption_insights"] = {
+                            "recent_days": half,
+                            "prior_days": days - half,
+                            "narrative": narrative,
+                            "feature_clicks_total": sum(ff.values()),
+                            "feature_clicks_recent": sum(fr.values()),
+                        }
+            except Exception as e:
+                logger.debug("Feature adoption usage patterns skipped: %s", e)
+
+        return out
 
     def _build_user_activity(self, visitors: list[dict], now_ms: int) -> list[dict]:
         """Build user activity list from visitor records."""
@@ -1642,6 +1895,7 @@ class PendoClient:
             "sites": sites_data.get("sites", []),
             "top_pages": features_data.get("top_pages", []),
             "top_features": features_data.get("top_features", []),
+            "feature_adoption_insights": features_data.get("feature_adoption_insights"),
             "champions": people_data.get("champions", []),
             "at_risk_users": people_data.get("at_risk_users", []),
             "exports": exports_data,
@@ -1693,6 +1947,8 @@ class PendoClient:
             except Exception as e:
                 logger.debug("Skipping %s: %s", name, e)
 
+        cohort_digest, cohort_findings_bullets = compute_cohort_portfolio_rollup(customer_summaries)
+
         return {
             "type": "portfolio",
             "days": days,
@@ -1702,6 +1958,8 @@ class PendoClient:
             "portfolio_signals": self._compute_portfolio_signals(customer_summaries),
             "portfolio_trends": self._compute_portfolio_trends(customer_summaries),
             "portfolio_leaders": self._compute_portfolio_leaders(customer_summaries),
+            "cohort_digest": cohort_digest,
+            "cohort_findings_bullets": cohort_findings_bullets,
         }
 
     def _compute_portfolio_signals(self, summaries: list[dict]) -> list[dict[str, Any]]:

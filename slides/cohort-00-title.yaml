@@ -1,0 +1,11 @@
+id: cohort_deck_title
+type: standard
+order: 5
+title: Manufacturing cohort review
+slide_type: cohort_deck_title
+data_tools: []
+customers: all
+
+prompt: >
+  Cover slide for the cohort deck. Navy background; states customer count and
+  period; references cohorts.yaml and CUSTOMER_COHORTS.md.

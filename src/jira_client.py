@@ -253,32 +253,41 @@ class JiraClient:
             "Authorization": f"Basic {auth}",
             "Content-Type": "application/json",
         }
-        self._jql_log: list[str] = []
+        self._jql_log: list[dict[str, str]] = []
 
-    def _record_jql(self, jql: str) -> None:
-        """Record a JQL statement so it can be surfaced in speaker notes."""
+    def _record_jql(self, jql: str, *, description: str | None = None) -> None:
+        """Record JQL with a short human label for speaker notes (``[label] - JQL``)."""
         cleaned = (jql or "").strip()
-        if cleaned:
-            self._jql_log.append(cleaned)
+        if not cleaned:
+            return
+        label = (description or "Jira issue search").strip()
+        self._jql_log.append({"description": label, "jql": cleaned})
 
-    def _jql_since(self, start_idx: int) -> list[str]:
-        """Return unique JQL strings recorded since start_idx, preserving order."""
+    def _jql_since(self, start_idx: int) -> list[dict[str, str]]:
+        """Return unique JQL entries since start_idx, preserving order (dedupe by JQL text)."""
         seen: set[str] = set()
-        out: list[str] = []
-        for jql in self._jql_log[start_idx:]:
-            if jql in seen:
+        out: list[dict[str, str]] = []
+        for entry in self._jql_log[start_idx:]:
+            jql = (entry.get("jql") or "").strip()
+            if not jql or jql in seen:
                 continue
             seen.add(jql)
-            out.append(jql)
+            desc = (entry.get("description") or "Jira issue search").strip()
+            out.append({"description": desc, "jql": jql})
         return out
 
     def _search(
-        self, jql: str, max_results: int = 100, fields: list[str] | None = None,
+        self,
+        jql: str,
+        max_results: int = 100,
+        fields: list[str] | None = None,
+        *,
+        data_description: str | None = None,
     ) -> list[dict]:
         results: list[dict] = []
         next_token: str | None = None
         flds = fields if fields is not None else _ISSUE_FIELDS
-        self._record_jql(jql)
+        self._record_jql(jql, description=data_description or "Jira issue search")
         while len(results) < max_results:
             body: dict[str, Any] = {
                 "jql": jql,
@@ -431,6 +440,7 @@ class JiraClient:
                 f'project = {pk} AND statusCategory != Done ORDER BY updated DESC',
                 max_results=max_fetch,
                 fields=_PROJECT_SNAPSHOT_FIELDS,
+                data_description=f"{pk} project open issues (statusCategory != Done)",
             )
         except Exception as e:
             logger.warning("Jira open fetch failed for %s: %s", pk, e)
@@ -442,6 +452,7 @@ class JiraClient:
                 f"ORDER BY resolved DESC",
                 max_results=max_fetch,
                 fields=_PROJECT_SNAPSHOT_FIELDS,
+                data_description=f"{pk} project issues resolved in last 180 days",
             )
         except Exception as e:
             logger.warning("Jira resolved fetch failed for %s: %s", pk, e)
@@ -556,7 +567,11 @@ class JiraClient:
         )
 
         try:
-            raw = self._search(jql, max_results=200)
+            raw = self._search(
+                jql,
+                max_results=200,
+                data_description=f"Customer issues (Organizations/summary, {days}d lookback)",
+            )
         except Exception as e:
             logger.warning("JIRA search failed for %s: %s", customer_name, e)
             return {"error": str(e)}
@@ -787,16 +802,19 @@ class JiraClient:
                 f"{proj}{base_filter} AND statusCategory != Done ORDER BY updated DESC",
                 max_results=max_fetch,
                 fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
+                data_description="HELP open issues for customer (non-done)",
             )
             resolved_raw = self._search(
                 f"{proj}{base_filter} AND resolution is not EMPTY AND resolved >= -180d ORDER BY resolved DESC",
                 max_results=max_fetch,
                 fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
+                data_description="HELP customer issues resolved in last 180 days",
             )
             year_raw = self._search(
                 f"{proj}{base_filter} AND created >= -365d ORDER BY created DESC",
                 max_results=max_fetch,
                 fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
+                data_description="HELP customer issues created in last 365 days",
             )
         except Exception as e:
             logger.warning("Customer ticket metrics fetch failed for %s: %s", customer_name, e)
@@ -821,6 +839,80 @@ class JiraClient:
             "sla_adherence_1y": sla_adherence,
             "by_type_open": by_type_open,
             "by_status_open": by_status_open,
+            "jql_queries": self._jql_since(jql_start),
+        }
+
+    def get_customer_help_recent_tickets(
+        self,
+        customer_name: str,
+        match_terms: list[str] | None = None,
+        *,
+        opened_within_days: int = 45,
+        closed_within_days: int = 45,
+        max_each: int = 45,
+    ) -> dict[str, Any]:
+        """Recent HELP issues for one customer: opened in window vs resolved in window.
+
+        Uses the same ``project = HELP`` + organization/text match as
+        ``get_customer_ticket_metrics``.
+        """
+        jql_start = len(self._jql_log)
+        base_filter = self._customer_match_clause(customer_name, match_terms)
+        proj = "project = HELP AND "
+
+        def _row(issue: dict) -> dict[str, Any]:
+            f = issue.get("fields", {}) or {}
+            cr = self._parse_jira_datetime(f.get("created"))
+            rs = self._parse_jira_datetime(f.get("resolutiondate"))
+            st = f.get("status") or {}
+            status_name = st.get("name", "—") if isinstance(st, dict) else "—"
+            return {
+                "key": issue.get("key", ""),
+                "summary": (f.get("summary") or "").strip(),
+                "status": status_name,
+                "created": f.get("created") or "",
+                "created_short": cr.strftime("%Y-%m-%d") if cr else "—",
+                "resolved_short": rs.strftime("%Y-%m-%d") if rs else "—",
+            }
+
+        od = int(opened_within_days)
+        cd = int(closed_within_days)
+        try:
+            open_jql = f"{proj}{base_filter} AND created >= -{od}d ORDER BY created DESC"
+            closed_jql = (
+                f"{proj}{base_filter} AND resolution is not EMPTY AND resolved >= -{cd}d "
+                "ORDER BY resolved DESC"
+            )
+            raw_open = self._search(
+                open_jql,
+                max_results=max_each,
+                fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
+                data_description=f"HELP customer tickets created in last {od} days",
+            )
+            raw_closed = self._search(
+                closed_jql,
+                max_results=max_each,
+                fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
+                data_description=f"HELP customer tickets resolved in last {cd} days",
+            )
+        except Exception as e:
+            logger.warning("Customer HELP recent tickets fetch failed for %s: %s", customer_name, e)
+            return {
+                "error": str(e),
+                "customer": customer_name,
+                "opened_within_days": od,
+                "closed_within_days": cd,
+                "recently_opened": [],
+                "recently_closed": [],
+                "jql_queries": self._jql_since(jql_start),
+            }
+
+        return {
+            "customer": customer_name,
+            "opened_within_days": od,
+            "closed_within_days": cd,
+            "recently_opened": [_row(i) for i in raw_open],
+            "recently_closed": [_row(i) for i in raw_closed],
             "jql_queries": self._jql_since(jql_start),
         }
 
@@ -887,7 +979,12 @@ class JiraClient:
             "ORDER BY created DESC"
         )
         try:
-            raw = self._search(jql, max_results=max_fetch, fields=_TREND_FIELDS)
+            raw = self._search(
+                jql,
+                max_results=max_fetch,
+                fields=_TREND_FIELDS,
+                data_description="HELP volume trends (12-month created vs resolved)",
+            )
         except Exception as e:
             logger.warning("HELP ticket trend fetch failed: %s", e)
             return {"error": str(e), "all": [], "escalated": [], "non_escalated": []}
@@ -918,7 +1015,11 @@ class JiraClient:
             f" ORDER BY updated DESC"
         )
         try:
-            raw = self._search(jql, max_results=50)
+            raw = self._search(
+                jql,
+                max_results=50,
+                data_description="LEAN issues mentioning customer (engineering pipeline)",
+            )
         except Exception as e:
             logger.warning("LEAN search failed for %s: %s", safe_name, e)
             return {"total": 0, "open": [], "recent_closed": []}
@@ -972,7 +1073,11 @@ class JiraClient:
             f" ORDER BY updated DESC"
         )
         try:
-            raw = self._search(jql, max_results=50)
+            raw = self._search(
+                jql,
+                max_results=50,
+                data_description="ER enhancement requests for customer",
+            )
         except Exception as e:
             logger.warning("ER search failed for %s: %s", safe_name, e)
             return {"total": 0, "open": [], "shipped": []}
@@ -1055,7 +1160,10 @@ class JiraClient:
                 "maxResults": 200,
                 "fields": _eng_fields,
             }
-            self._record_jql(body_inflight["jql"])
+            self._record_jql(
+                body_inflight["jql"],
+                description="LEAN in-flight engineering work (Open / In Progress / In Review / Reopened)",
+            )
             resp_if = _req.post(
                 f"{self.base_url}/rest/api/3/search/jql",
                 headers=self._headers, json=body_inflight, timeout=30,
@@ -1073,7 +1181,10 @@ class JiraClient:
                 "maxResults": 200,
                 "fields": _eng_fields,
             }
-            self._record_jql(body_closed["jql"])
+            self._record_jql(
+                body_closed["jql"],
+                description=f"LEAN issues closed or updated in last {days} days",
+            )
             resp_c = _req.post(
                 f"{self.base_url}/rest/api/3/search/jql",
                 headers=self._headers, json=body_closed, timeout=30,
@@ -1169,7 +1280,10 @@ class JiraClient:
                            "labels", "created", "updated", "resolution",
                            "description", "comment"],
             }
-            self._record_jql(body_er_open["jql"])
+            self._record_jql(
+                body_er_open["jql"],
+                description="ER open enhancement backlog (last year)",
+            )
             resp_er_open = _req.post(
                 f"{self.base_url}/rest/api/3/search/jql",
                 headers=self._headers, json=body_er_open, timeout=30,
@@ -1193,7 +1307,10 @@ class JiraClient:
                            "labels", "created", "updated", "resolution",
                            "description", "comment"],
             }
-            self._record_jql(body_er_shipped["jql"])
+            self._record_jql(
+                body_er_shipped["jql"],
+                description="ER shipped or Done enhancements (last year)",
+            )
             resp_er_shipped = _req.post(
                 f"{self.base_url}/rest/api/3/search/jql",
                 headers=self._headers, json=body_er_shipped, timeout=30,
@@ -1211,7 +1328,10 @@ class JiraClient:
                 "maxResults": 1,
                 "fields": ["summary"],
             }
-            self._record_jql(body_er_dec["jql"])
+            self._record_jql(
+                body_er_dec["jql"],
+                description="ER declined / won't do / not taken (count query)",
+            )
             resp_er_dec = _req.post(
                 f"{self.base_url}/rest/api/3/search/jql",
                 headers=self._headers, json=body_er_dec, timeout=30,
@@ -1295,7 +1415,10 @@ class JiraClient:
                 "fields": ["summary", "status", "issuetype", "priority",
                            "created", "resolution", "labels"],
             }
-            self._record_jql(body_help["jql"])
+            self._record_jql(
+                body_help["jql"],
+                description=f"HELP aggregate desk load (created last {days} days)",
+            )
             resp_h = _req.post(
                 f"{self.base_url}/rest/api/3/search/jql",
                 headers=self._headers, json=body_help, timeout=30,

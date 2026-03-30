@@ -1,0 +1,12 @@
+id: cohort_profiles
+type: standard
+order: 6
+title: Cohort profiles
+slide_type: cohort_profiles
+data_tools: []
+customers: all
+
+prompt: >
+  Emits up to 10 physical slides — one per cohort bucket with at least one
+  customer, ordered by cohort size. Metrics: medians for login %, write ratio,
+  score, Kei adoption %, median exports; lists account names.

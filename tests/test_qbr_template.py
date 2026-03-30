@@ -1,7 +1,20 @@
 """Unit tests for QBR template flow (no live Google/Pendo)."""
+import datetime
+
 from unittest.mock import MagicMock, patch
 
 from src import qbr_template
+
+
+def test_quarter_range_from_health_report():
+    r = qbr_template._quarter_range_from_health_report(
+        {"quarter": "Q1 2026", "quarter_start": "2026-01-01", "quarter_end": "2026-03-31"},
+    )
+    assert r is not None
+    assert r.label == "Q1 2026"
+    assert r.start == datetime.date(2026, 1, 1)
+    assert r.end == datetime.date(2026, 3, 31)
+    assert qbr_template._quarter_range_from_health_report({"days": 30}) is None
 
 
 def test_normalize_manifest_plan():
@@ -87,6 +100,7 @@ def test_compute_adapt_page_ids_includes_hidden_template_excludes_exec_and_title
     assert adapt == ["h1", "t2"]
 
 
+@patch("src.slides_client.create_cohort_deck")
 @patch("src.slides_client.create_health_deck")
 @patch.object(qbr_template, "_find_or_create_folder", return_value="bundlefold")
 @patch.object(qbr_template, "adapt_custom_slides")
@@ -106,10 +120,15 @@ def test_run_qbr_from_template_smoke(
     mock_adapt,
     mock_find_or_create,
     mock_create_health_deck,
+    mock_create_cohort_deck,
 ):
     mock_create_health_deck.return_value = {
         "presentation_id": "companion1",
         "url": "https://docs.example/companion",
+    }
+    mock_create_cohort_deck.return_value = {
+        "presentation_id": "cohort1",
+        "url": "https://docs.example/cohort",
     }
     mock_pc = MagicMock()
     mock_pc.get_sites_by_customer.return_value = {"customer_list": ["Acme Corp", "Other"]}
@@ -167,6 +186,7 @@ def test_run_qbr_from_template_smoke(
     assert adapt_ids == ["a1"]
 
 
+@patch("src.slides_client.create_cohort_deck")
 @patch("src.slides_client.create_health_deck")
 @patch.object(qbr_template, "_find_or_create_folder", return_value="bundlefold")
 @patch.object(qbr_template, "adapt_custom_slides")
@@ -186,8 +206,10 @@ def test_run_qbr_skips_exec_insert_when_manifest_false(
     mock_adapt,
     mock_find_or_create,
     mock_create_health_deck,
+    mock_create_cohort_deck,
 ):
     mock_create_health_deck.return_value = {"presentation_id": "x", "url": "https://x"}
+    mock_create_cohort_deck.return_value = {"presentation_id": "c", "url": "https://c"}
     mock_pc = MagicMock()
     mock_pc.get_sites_by_customer.return_value = {"customer_list": ["Acme Corp"]}
     mock_pc.get_customer_health_report.return_value = {

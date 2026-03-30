@@ -1,0 +1,11 @@
+id: cohort_findings
+type: standard
+order: 7
+title: Notable findings — cohort differences
+slide_type: cohort_findings
+data_tools: []
+customers: all
+
+prompt: >
+  Bullet comparison of cohorts (sample sizes, median login/write/Kei spread,
+  unclassified). Text is computed from cohort_digest — not hand-authored.

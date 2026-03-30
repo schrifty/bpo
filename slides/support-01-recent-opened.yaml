@@ -1,0 +1,13 @@
+id: support_recent_opened
+type: standard
+order: 91
+title: Recently opened HELP tickets
+slide_type: support_recent_opened
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Lists HELP project tickets for the scoped customer whose created date falls
+  in the recent window (same match as ticket metrics). Newest first. Ticket
+  keys link to Jira when base URL is present.

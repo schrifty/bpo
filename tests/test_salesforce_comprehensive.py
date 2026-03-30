@@ -301,3 +301,27 @@ def test_speaker_notes_data_quality_still_lists_deck_jql_when_scoped_empty():
     entry = {"slide_type": "data_quality", "title": "Data Quality"}
     notes = _build_slide_jql_speaker_notes(report, entry)
     assert "LEAN" in notes
+    assert "Jira issue search: Jira - project = LEAN" in notes
+
+
+def test_speaker_notes_jql_structured_description_trace_format():
+    report = {
+        "jira": {
+            "jql_queries": [
+                {"description": "HELP test slice", "jql": "project = HELP ORDER BY created DESC"},
+            ],
+        },
+    }
+    entry = {"slide_type": "data_quality", "title": "Data Quality"}
+    notes = _build_slide_jql_speaker_notes(report, entry)
+    assert "HELP test slice: Jira - project = HELP ORDER BY created DESC" in notes
+
+
+def test_speaker_notes_timestamp_first_line_has_seconds():
+    report = {"jira": {"jql_queries": ["project = X"]}}
+    entry = {"slide_type": "data_quality", "title": "Data Quality"}
+    notes = _build_slide_jql_speaker_notes(report, entry)
+    first = notes.split("\n", 1)[0]
+    parts = first.split()
+    assert len(parts) >= 2
+    assert parts[1].count(":") == 2

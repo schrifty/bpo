@@ -2014,15 +2014,16 @@ def _build_hydrate_speaker_notes(
     """Speaker-notes for presenter QA and rebuild spec: objective, required data, governance."""
     import re as _re
     from datetime import datetime as _dt
-    _ts = _dt.now().strftime("%Y-%m-%d %H:%M")
+    _ts = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
     ds: dict[str, Any] = {}
     if data_summary is not None:
         ds = data_summary
     elif report:
         ds = _build_data_summary(report)
     lines: list[str] = [
+        _ts,
+        "",
         "══ QA this slide — data governance ══",
-        f"Generated: {_ts}",
         "",
         "Legend: LIVE = from our pipelines (traceable). UNMAPPED = placeholder — verify or replace. STATIC = image/chart, not auto-updated.",
         "",
@@ -2897,6 +2898,9 @@ _BUILDER_DESCRIPTIONS = {
     "kei": "Kei AI adoption — chatbot usage, adoption rate, executive engagement",
     "guides": "Guide engagement — onboarding guides seen/dismissed/advanced rates",
     "jira": "Support summary — HELP ticket counts, priority, status breakdown",
+    "customer_ticket_metrics": "Per-customer HELP KPIs — open/resolved counts, SLA, type/status bar charts",
+    "support_recent_opened": "HELP tickets opened in the last ~45 days for the scoped customer",
+    "support_recent_closed": "HELP tickets resolved in the last ~45 days for the scoped customer",
     "sla_health": "Support health & SLA — TTFR/TTR, breach rate, sentiment, channels",
     "engineering": "Engineering pipeline — LEAN project open/shipped tickets",
     "enhancements": "Enhancement requests — ER project open/shipped/declined",
@@ -2911,6 +2915,9 @@ _BUILDER_DESCRIPTIONS = {
     "skip": "Skip this slide entirely (blank, transition, or not reproducible)",
     "salesforce_comprehensive_cover": "Salesforce export intro — match status, row limits, org-wide product note",
     "salesforce_category": "Salesforce table — one object category (sf_category) from comprehensive fetch",
+    "cohort_deck_title": "Cohort deck cover — portfolio period, customer count, cohorts.yaml reference",
+    "cohort_profiles": "Per-cohort profile slides — medians and account list for each manufacturing cohort bucket",
+    "cohort_findings": "Cohort comparison bullets — spread across cohorts from portfolio rollup",
 }
 
 

@@ -84,7 +84,8 @@ def _parse_prompt(prompt: str) -> dict:
                 "Extract deck-generation parameters from the user's request. "
                 "Return a JSON object with exactly these keys:\n"
                 f"  deck_id   – one of {deck_ids}. Default \"cs_health_review\". "
-                "Use \"portfolio_review\" for portfolio / book of business requests.\n"
+                "Use \"portfolio_review\" for portfolio / book of business requests. "
+                "Use \"cohort_review\" for manufacturing cohort comparison (cohorts.yaml).\n"
                 "  quarter   – e.g. \"Q1 2026\", \"prev\", \"current\", or null to auto-detect.\n"
                 "  days      – integer lookback override, or null.\n"
                 "  customers – list of customer name strings, or null for all.\n"
@@ -156,9 +157,17 @@ def _run_support_deck() -> None:
     client = JiraClient()
     eng_data = client.get_engineering_portfolio(days=30)
     safran_name = "Safran Electronics & Defense (SED)"
+    match_terms = ["Safran Electronics and Defense", "SED", "Defense"]
     safran_metrics = client.get_customer_ticket_metrics(
         safran_name,
-        match_terms=["Safran Electronics and Defense", "SED", "Defense"],
+        match_terms=match_terms,
+    )
+    help_recent = client.get_customer_help_recent_tickets(
+        safran_name,
+        match_terms=match_terms,
+        opened_within_days=45,
+        closed_within_days=45,
+        max_each=45,
     )
     report = {
         "type": "support_review",
@@ -166,7 +175,9 @@ def _run_support_deck() -> None:
         "days": 365,
         "eng_portfolio": eng_data,
         "jira": {
+            "base_url": (client.base_url or "").rstrip("/"),
             "customer_ticket_metrics": safran_metrics,
+            "customer_help_recent": help_recent,
         },
     }
     result = create_health_deck(report, deck_id="support", thumbnails=False)
@@ -289,6 +300,37 @@ def main():
         _run_support_deck()
         return
 
+    _cohort_exact = (
+        "cohort review", "cohorts review", "cohort deck", "cohorts deck",
+        "manufacturing cohort", "manufacturing cohorts",
+    )
+    if pl.strip() in _cohort_exact:
+        from src.data_source_health import check_all_required
+        from src.quarters import resolve_quarter
+        from src.slides_client import create_cohort_deck
+
+        preflight_errors = check_all_required()
+        if preflight_errors:
+            print("Data source check failed — not running:")
+            for msg in preflight_errors:
+                print(f"  • {msg}")
+            sys.exit(1)
+        qr = resolve_quarter(None)
+        print("Deck:       cohort_review")
+        print(f"Period:     {qr.label} ({qr.start.strftime('%-d %b')} – {qr.end.strftime('%-d %b %Y')}, {qr.days}d)")
+        print()
+        t0 = time.time()
+        result = create_cohort_deck(days=qr.days, quarter=qr, thumbnails=False)
+        elapsed = time.time() - t0
+        print(f"\n{'=' * 60}")
+        print(f"Done in {elapsed:.0f}s")
+        print(f"{'=' * 60}")
+        if "error" in result:
+            print(f"  FAIL: {result['error'][:80]}")
+            sys.exit(1)
+        print(f"  OK   {result.get('url', '')}")
+        return
+
     params = _parse_prompt(prompt)
     deck_id = params.get("deck_id", "cs_health_review")
 
@@ -318,7 +360,11 @@ def main():
 
     from src.deck_loader import list_decks
     from src.pendo_client import PendoClient
-    from src.slides_client import create_health_decks_for_customers, create_portfolio_deck
+    from src.slides_client import (
+        create_cohort_deck,
+        create_health_decks_for_customers,
+        create_portfolio_deck,
+    )
     from src.data_source_health import check_all_required
 
     preflight_errors = check_all_required()
@@ -346,6 +392,29 @@ def main():
             sys.exit(1)
         else:
             print(f"  OK   {result.get('url', '')}")
+        return
+
+    if deck_id == "cohort_review":
+        print(f"Deck:       {deck_id}")
+        print(f"Period:     {period_label}")
+        if max_cust:
+            print(f"Max cust:   {max_cust}")
+        print()
+        t0 = time.time()
+        result = create_cohort_deck(
+            days=days,
+            max_customers=max_cust,
+            quarter=qr,
+            thumbnails=thumbnails,
+        )
+        elapsed = time.time() - t0
+        print(f"\n{'=' * 60}")
+        print(f"Done in {elapsed:.0f}s")
+        print(f"{'=' * 60}")
+        if "error" in result:
+            print(f"  FAIL: {result['error'][:80]}")
+            sys.exit(1)
+        print(f"  OK   {result.get('url', '')}")
         return
 
     _JUNK_CUSTOMERS = {

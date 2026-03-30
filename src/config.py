@@ -63,6 +63,10 @@ SF_PRIVATE_KEY_PATH = os.environ.get("SF_PRIVATE_KEY_PATH")  # Path to server.ke
 PENDO_MAX_RESULTS = int(os.environ.get("PENDO_MAX_RESULTS", "0"))
 PENDO_MAX_OUTPUT_CHARS = int(os.environ.get("PENDO_MAX_OUTPUT_CHARS", "0"))
 
+# Feature Adoption slide: half-over-half usage narrative (extra Pendo aggregations). Off by default — disable by unsetting or false.
+_fai = os.environ.get("BPO_FEATURE_ADOPTION_INSIGHTS", "").strip().lower()
+FEATURE_ADOPTION_INSIGHTS = _fai in ("1", "true", "yes", "on")
+
 # LLM provider — set LLM_PROVIDER=gemini or LLM_PROVIDER=openai in .env.
 # Defaults to gemini if GEMINI_API_KEY is present, otherwise openai.
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")

@@ -95,6 +95,30 @@ Avoid:
 
 ---
 
+## Pagination and continuation slides
+
+Some logical slide types emit **more than one physical slide** when lists, tables, or paired columns would otherwise overflow the safe body band (from the metric/context row through **`BODY_BOTTOM`**).
+
+### Principles
+
+1. **Derive capacity from layout, not arbitrary caps.** Items per page should come from the **available height** and **body font size**, using a consistent line-height model (approximately **font size × 1.22** pt per line for multiline text boxes). Reserve at least one line for a column header when measuring list capacity.
+
+2. **Multi-column slides share one vertical budget.** If two columns use the **same** top and bottom bounds, they must agree on how many **lines** fit. When one column uses **multiple lines per logical row** (for example an email line plus a detail line), its row capacity is roughly **half** (or the appropriate fraction) of a single-line list in that same box—do not give one column a generous line-based budget and the other a smaller heuristic in pixels, or the deck will paginate **early** on one side and waste space on the other.
+
+3. **Paginate only when necessary.** If all content for that slide type fits in one body region, use **one** slide. Continuation slides should be the exception, not the default.
+
+4. **Label continuations clearly.** When there are multiple physical slides for one concept, titles should read like **`Section Name (2 of 3)`** so reviewers know nothing was dropped silently.
+
+5. **Bound runaway pagination.** Cap continuation pages at a **small fixed maximum** (for example ten) so automation never produces enormous decks; if data exceeds that, truncate with an explicit omission or summary strategy rather than unbounded slides.
+
+6. **Charts vs lists.** Pagination rules apply to **text and tables**. Embedded charts follow **Embedded Chart Standards** (including *Single chart on a slide*); do not shrink charts to “make room” for extra list rows when the design calls for a single dominant chart.
+
+### Implementation note for automation
+
+The codebase exposes **`slide_type_may_paginate(slide_type)`** and a registry of slide types that may emit multiple pages (for example long site lists, feature adoption, export behavior, signals, platform health, Jira- or Salesforce-backed tables). Prefer that registry for docs and tooling rather than duplicating the full list here; when adding a new paginating builder, update the registry and this document if the pattern is new.
+
+---
+
 ## Title Rules
 
 Titles must communicate insight.
@@ -158,6 +182,32 @@ Example:
 Inventory Turns  
 6.2  
 +0.8 YoY
+
+#### When to use KPI boxes (outlined metric cards)
+
+Use the shared **KPI box** pattern (light fill **``LIGHT``**, **~1 pt** gray outline via **``_bar_rect``** / **``_kpi_metric_card``** in code — same chrome as HELP ticket metrics) when:
+
+- The slide’s main point is **one to six headline numbers** (rates, counts, scores, medians, dollars) that the audience should read **at a glance** in parallel.
+- Each metric fits **one short label** (metric name or peer context, typically **≤ ~44 characters** on one line; truncate with an ellipsis if the cohort name is long) and **one primary value** (bold, accent color where hierarchy matters).
+- You are **not** trying to fit a full sentence, bullet list, or multi-line caveat **inside** the same rectangle.
+
+**Do not** put the KPI chrome on:
+
+- Narrative interpretation, recommendations, or delta explanations in prose (use a **plain text box** below or beside the cards).
+- Table cells, chart axes, rank labels, or footnotes.
+- Titles and section headers (use **``_slide_title``** / dividers, not metric cards).
+
+**Peer Benchmarks** slide: **This account** weekly active rate, **peer / cohort median**, and (when shown) **all-customer median** must use **KPI boxes** in one row; delta, account size, and qualitative bullets stay in a **separate** body text region under the row.
+
+#### Compact KPI tiles (mixed layouts)
+
+On slides that **pair KPI rows with charts, tables, or other body content**, card height is usually **tight** (on the order of **50–56 pt** tall). For those tiles:
+
+- Use **only two visual lines inside the box**: **metric label** (small, secondary color) and **primary value** (large, emphasis color).  
+- **Do not** add a third line of explanatory or qualifying text inside the same box unless you **increase card height** materially (for example **≥ 72 pt**), verify in a thumbnail export, and leave clearance above **``BODY_BOTTOM``**. Clipped footlines read as a bug, not a feature.  
+- Put definitions, denominators (“21 of 26 met SLAs”), averages, and caveats in **speaker notes**, a **metric bar under the slide title**, or a **separate callout**—not inside a short KPI rectangle.
+
+The full “name + value + delta + sparkline” pattern applies to **dedicated dashboard slides** where cards are given enough vertical space for all elements.
 
 ---
 
@@ -250,6 +300,16 @@ Use embedded Sheets charts for:
 - operational dashboards
 
 This improves consistency, reproducibility, and maintainability across decks.
+
+### Single chart on a slide
+
+When a slide shows **exactly one** embedded Sheets chart (no second chart, table, or dense text column competing for the body), that chart must:
+
+- use the **full content width** for bar/column/line-style charts, or the **largest square that fits** the body band for pie/donut charts  
+- be **horizontally centered** in the content area (between the standard left/right margins)  
+- extend **vertically** from just below the title / metric bar through **``BODY_BOTTOM``** minus a small bottom pad (~10 pt), so it reads at presentation scale instead of sitting in a corner with empty space  
+
+When **two** charts share a slide, split the content width (for example ~58% / ~40% with a small gap) and give each chart the **full available height** in the band—do not shrink a lone chart into the right column.
 
 ---
 
@@ -456,7 +516,7 @@ Priority order:
 3. Key numbers  
 4. Supporting bullets  
 
-Charts should occupy approximately **60% of slide area**.
+Charts should occupy approximately **60% of slide area** when multiple elements share the slide. A **sole** embedded chart in the body should dominate that band (see *Single chart on a slide* under Embedded Chart Standards).
 
 ---
 
@@ -510,9 +570,42 @@ When generating slides automatically:
 5. Apply LeanDNA color, labeling, and bar-outline standards.  
 6. Reserve explicit layout space for headers, charts, and footers so embedded chart objects do not overlap surrounding text.  
 7. Export a thumbnail for any newly designed or materially changed slide layout and fix collisions before considering the slide done.  
-8. Add two or three explanatory bullets interpreting the data.
+8. Add two or three explanatory bullets interpreting the data.  
+9. For list- or table-heavy slides, follow **Pagination and continuation slides**: compute rows from the body band and font size; align multi-column line budgets; avoid unnecessary continuations.  
+10. For any new Jira-backed data fetch, record JQL with a **data description** and follow **Speaker notes: JQL trace** formatting in speaker notes.
 
 Slides should **not include raw data tables** unless explicitly requested.
+
+---
+
+## Speaker notes: JQL trace
+
+Automated decks write **speaker notes** on each slide under a **Slide Query Trace** header. When the slide is backed by Jira, the notes include a **JQL used:** section.
+
+### Required line format
+
+Each Jira query must appear as:
+
+`[Data description] - JQL`
+
+Rules:
+
+- **Data description** — Short phrase in **square brackets** naming what the query *feeds* (the slice of data), not the slide title. Example: `[HELP customer issues resolved in last 180 days]` not `[SED Ticket Metrics]`.  
+- **Separator** — Space, hyphen, space: ` - ` between the closing `]` and the JQL text.  
+- **Enumeration** — When multiple queries apply to the same slide, prefix with `1.`, `2.`, … so lists stay scannable.
+
+Example block:
+
+```text
+JQL used:
+1. [HELP open issues for customer (non-done)] - project = HELP AND (…) AND statusCategory != Done ORDER BY updated DESC
+2. [HELP customer issues created in last 365 days] - project = HELP AND (…) AND created >= -365d ORDER BY created DESC
+```
+
+### Implementation
+
+- Report payloads store ``jql_queries`` as a list of objects: ``{"description": "…", "jql": "…"}``. Plain strings are still accepted for backward compatibility and are shown with description `[Jira issue search]`.  
+- New Jira fetches must supply a **description** at record time (e.g. ``_search(..., data_description="…")`` or ``_record_jql(jql, description="…")``).
 
 ---
 
@@ -554,4 +647,4 @@ Supporting bullets:
 
 The long-term goal is for operational datasets to generate slides automatically.
 
-LeanDNA analytics systems and health-check datasets should ultimately feed automated reporting pipelines capable of generating QBR decks directly from data. :contentReference[oaicite:0]{index=0}
+LeanDNA analytics systems and health-check datasets should ultimately feed automated reporting pipelines capable of generating QBR decks directly from data.

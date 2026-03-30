@@ -1,0 +1,13 @@
+id: support_recent_closed
+type: standard
+order: 92
+title: Recently closed HELP tickets
+slide_type: support_recent_closed
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Lists HELP project tickets for the scoped customer resolved in the recent
+  window (same match as ticket metrics). Most recently resolved first. Ticket
+  keys link to Jira when base URL is present.
