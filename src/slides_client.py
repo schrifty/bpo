@@ -522,6 +522,7 @@ def _kpi_metric_card(
 ) -> None:
     """Outlined KPI tile — all decks use this helper; black label, bold accent value. See SLIDE_DESIGN_STANDARDS."""
     accent = accent or NAVY
+    label = _truncate_kpi_card_label(label)
     _bar_rect(reqs, oid_base, sid, x, y, w, h, LIGHT, outline=GRAY)
     pad = 10.0
     inner_w = max(40.0, w - 2 * pad)
@@ -939,7 +940,7 @@ def _peer_benchmarks_pipeline_traces(report: dict[str, Any]) -> list[dict[str, s
         all_lbl = _truncate_kpi_card_label(f"All-customer median ({bench['peer_count']} accounts)")
         out.append({"description": all_lbl, "source": "Pendo", "query": q_all_median})
     else:
-        med_lbl = f"All-customer median ({bench['peer_count']} accounts)"
+        med_lbl = _truncate_kpi_card_label(f"All-customer median ({bench['peer_count']} accounts)")
         out.append({"description": med_lbl, "source": "Pendo", "query": q_all_median})
 
     out.append({"description": "Delta", "source": "Pendo", "query": q_delta})
@@ -2057,17 +2058,17 @@ def _benchmarks_slide(reqs, sid, report, idx):
     if use_cohort:
         med_lbl = _truncate_kpi_card_label(f"{cohort_name} median ({cohort_n} accounts)")
     else:
-        med_lbl = f"All-customer median ({bench['peer_count']} accounts)"
+        med_lbl = _truncate_kpi_card_label(f"All-customer median ({bench['peer_count']} accounts)")
     _kpi_metric_card(
         reqs, f"{sid}_k1", sid, MARGIN + card_w + col_gap, row_y, card_w, card_h,
         med_lbl, f"{med_rate}%", accent=BLUE, value_pt=22,
     )
 
     if use_cohort:
-        all_lbl = f"All-customer median ({bench['peer_count']} accounts)"
+        all_lbl = _truncate_kpi_card_label(f"All-customer median ({bench['peer_count']} accounts)")
         _kpi_metric_card(
             reqs, f"{sid}_k2", sid, MARGIN + 2 * (card_w + col_gap), row_y, card_w, card_h,
-            _truncate_kpi_card_label(all_lbl), f"{all_med}%", accent=BLUE, value_pt=22,
+            all_lbl, f"{all_med}%", accent=BLUE, value_pt=22,
         )
 
     # Context (narrative — outside KPI cards; see SLIDE_DESIGN_STANDARDS KPI boxes)

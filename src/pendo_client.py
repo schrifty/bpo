@@ -3,7 +3,7 @@
 import datetime
 import json
 import re
-import socket
+
 import threading
 import time
 from pathlib import Path
@@ -365,15 +365,10 @@ class PendoClient:
                 "pipeline": pipeline,
             },
         }
-        old_default = socket.getdefaulttimeout()
-        try:
-            socket.setdefaulttimeout(PENDO_REQUEST_TIMEOUT_S)
-            resp = self._session.post(
-                url, json=payload, headers=self._headers(),
-                timeout=(10, PENDO_REQUEST_TIMEOUT_S),
-            )
-        finally:
-            socket.setdefaulttimeout(old_default)
+        resp = self._session.post(
+            url, json=payload, headers=self._headers(),
+            timeout=(10, PENDO_REQUEST_TIMEOUT_S),
+        )
         resp.raise_for_status()
         data = resp.json()
         result_count = len(data.get("results", [])) if isinstance(data.get("results"), list) else "?"
@@ -931,23 +926,27 @@ class PendoClient:
         return result
 
     def _get_usage_by_site_cached(self, days: int) -> dict[str, Any]:
-        if self._usage_by_site_cache and self._cache_valid(self._usage_by_site_cache_ts):
-            if self._usage_by_site_cache.get("days") == days:
-                return self._usage_by_site_cache
+        with self._cache_lock:
+            if self._usage_by_site_cache and self._cache_valid(self._usage_by_site_cache_ts):
+                if self._usage_by_site_cache.get("days") == days:
+                    return self._usage_by_site_cache
         result = self.get_usage_by_site(days=days)
         result["days"] = days
-        self._usage_by_site_cache = result
-        self._usage_by_site_cache_ts = time.time()
+        with self._cache_lock:
+            self._usage_by_site_cache = result
+            self._usage_by_site_cache_ts = time.time()
         return result
 
     def _get_usage_by_site_entity_cached(self, days: int) -> dict[str, Any]:
-        if self._usage_by_site_entity_cache and self._cache_valid(self._usage_by_site_entity_cache_ts):
-            if self._usage_by_site_entity_cache.get("days") == days:
-                return self._usage_by_site_entity_cache
+        with self._cache_lock:
+            if self._usage_by_site_entity_cache and self._cache_valid(self._usage_by_site_entity_cache_ts):
+                if self._usage_by_site_entity_cache.get("days") == days:
+                    return self._usage_by_site_entity_cache
         result = self.get_usage_by_site_and_entity(days=days)
         result["days"] = days
-        self._usage_by_site_entity_cache = result
-        self._usage_by_site_entity_cache_ts = time.time()
+        with self._cache_lock:
+            self._usage_by_site_entity_cache = result
+            self._usage_by_site_entity_cache_ts = time.time()
         return result
 
     def preload(self, days: int = 30) -> None:

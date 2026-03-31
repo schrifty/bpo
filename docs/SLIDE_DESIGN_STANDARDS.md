@@ -190,7 +190,8 @@ Inventory Turns
 The shared **KPI box** pattern is: light fill **``LIGHT``**, **~1 pt** gray outline (**``_bar_rect``** inside **``_kpi_metric_card``**), **metric label** at **``KPI_METRIC_LABEL_PT``** (**10 pt**) in **``BLACK``**, **primary value** bold in a caller-chosen accent (default **``NAVY``** when ``accent`` is omitted). **``_kpi_metric_card``** applies label and value styles with **``textRange: ALL``** so Slides’ implicit paragraph marker does not leave text in the theme’s default gray. Use this when:
 
 - The slide’s main point is **one to six headline numbers** (rates, counts, scores, medians, dollars) that the audience should read **at a glance** in parallel.
-- Each metric fits **one short label** (metric name or peer context, typically **≤ ~44 characters** on one line; truncate with an ellipsis if the cohort name is long) and **one primary value** (bold accent — semantic colors such as **``_RED``** for thresholds are still passed as ``accent``).
+- Each metric fits **one short label** (metric name or peer context) and **one primary value** (bold accent — semantic colors such as **``_RED``** for thresholds are still passed as ``accent``).
+- **Box labels must remain on a single line — never wrap to a second row.** Keep labels to roughly **≤ 44 characters**. If a cohort name, qualifier, or scope makes the label too long, truncate or abbreviate (e.g. use an ellipsis, drop parenthetical account counts, or shorten the category) rather than allowing the text to overflow into the value row. A two-line label pushes the value down and out of the visible card area.
 - You are **not** trying to fit a full sentence, bullet list, or multi-line caveat **inside** the same rectangle.
 
 **Do not** put the KPI chrome on:
@@ -207,7 +208,7 @@ The shared **KPI box** pattern is: light fill **``LIGHT``**, **~1 pt** gray outl
 
 On slides that **pair KPI rows with charts, tables, or other body content**, card height is usually **tight** (on the order of **50–56 pt** tall). For those tiles:
 
-- Use **only two visual lines inside the box**: **metric label** (**``KPI_METRIC_LABEL_PT``** / **10 pt**, **``BLACK``**) and **primary value** (large, bold accent from the ``accent`` argument).  
+- Use **only two visual lines inside the box**: **metric label** (**``KPI_METRIC_LABEL_PT``** / **10 pt**, **``BLACK``**) and **primary value** (large, bold accent from the ``accent`` argument). The label **must not wrap** to a second line — it occupies exactly one row of text. If the label text is too long (typically beyond ~44 characters), shorten the wording, abbreviate the cohort/scope, or truncate with an ellipsis. A wrapped label pushes the value out of the card’s visible area.
 - **Do not** add a third line of explanatory or qualifying text inside the same box unless you **increase card height** materially (for example **≥ 72 pt**), verify in a thumbnail export, and leave clearance above **``BODY_BOTTOM``**. Clipped footlines read as a bug, not a feature.  
 - Put definitions, denominators (“21 of 26 met SLAs”), averages, and caveats in **speaker notes**, a **metric bar under the slide title**, or a **separate callout**—not inside a short KPI rectangle.
 

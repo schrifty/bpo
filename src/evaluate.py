@@ -2611,9 +2611,7 @@ def adapt_custom_slides(
     # Slides service so there is no shared mutable state.
     thumb_urls: dict[str, str | None] = {}
     if google_creds is not None and len(page_ids) > 1:
-        from concurrent.futures import ThreadPoolExecutor, as_completed
         import threading as _thr
-
         _thread_local = _thr.local()
 
         def _thumb_worker(page_id: str) -> tuple[str, str | None]:
