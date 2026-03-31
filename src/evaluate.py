@@ -37,10 +37,12 @@ from .config import (
 from .slides_client import (
     SLIDE_DATA_REQUIREMENTS,
     _box,
+    _build_slides_service_for_thread,
     _get_service,
     _slide,
     _wrap_box,
     set_speaker_notes,
+    set_speaker_notes_batch,
     slides_presentations_batch_update,
 )
 
@@ -2573,6 +2575,7 @@ def adapt_custom_slides(
     source_presentation_name: str = "",
     run_started_at: datetime.datetime | None = None,
     title_slide_object_id: str | None = None,
+    google_creds=None,
 ) -> dict[str, Any]:
     """Adapt slides by replacing data values with current data.
 
@@ -2604,18 +2607,39 @@ def adapt_custom_slides(
     ordered_ids = [s["objectId"] for s in pres.get("slides", [])]
 
     # ── Phase A: parallel GPT reasoning ──────────────────────────────────────
-    # Pre-fetch all thumbnail URLs sequentially in the main thread first.
-    # The Google API client (httplib2) is NOT thread-safe — calling it from
-    # workers causes malloc double-free crashes on macOS.
+    # Fetch thumbnail URLs in parallel — each worker gets its own httplib2-backed
+    # Slides service so there is no shared mutable state.
     thumb_urls: dict[str, str | None] = {}
-    for page_id in page_ids:
-        slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
-        logger.info("hydrate: adapt slide %s — fetching thumbnail...", slide_num)
-        try:
-            thumb_urls[page_id] = _get_slide_thumbnail_url(slides_svc, pres_id, page_id)
-        except Exception as e:
-            logger.warning("hydrate: adapt slide %s thumbnail URL failed: %s", slide_num, e)
-            thumb_urls[page_id] = None
+    if google_creds is not None and len(page_ids) > 1:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import threading as _thr
+
+        _thread_local = _thr.local()
+
+        def _thumb_worker(page_id: str) -> tuple[str, str | None]:
+            if not hasattr(_thread_local, "svc"):
+                _thread_local.svc = _build_slides_service_for_thread(google_creds)
+            try:
+                url = _get_slide_thumbnail_url(_thread_local.svc, pres_id, page_id)
+                return page_id, url
+            except Exception as e:
+                slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
+                logger.warning("hydrate: adapt slide %s thumbnail URL failed: %s", slide_num, e)
+                return page_id, None
+
+        logger.info("hydrate: fetching %d thumbnail URLs in parallel", len(page_ids))
+        with ThreadPoolExecutor(max_workers=min(4, len(page_ids))) as pool:
+            for page_id, url in pool.map(_thumb_worker, page_ids):
+                thumb_urls[page_id] = url
+    else:
+        for page_id in page_ids:
+            slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
+            logger.info("hydrate: adapt slide %s — fetching thumbnail...", slide_num)
+            try:
+                thumb_urls[page_id] = _get_slide_thumbnail_url(slides_svc, pres_id, page_id)
+            except Exception as e:
+                logger.warning("hydrate: adapt slide %s thumbnail URL failed: %s", slide_num, e)
+                thumb_urls[page_id] = None
 
     def _fetch_and_reason(page_id: str) -> tuple[str, list[dict], list[dict], str, dict | None]:
         """Returns (page_id, text_elements, replacements, cache_source, analysis_or_none).
@@ -2689,6 +2713,7 @@ def adapt_custom_slides(
                 results[pid] = ([], [], None)
 
     # ── Phase B: sequential Slides API writes — clear per-slide notes; summary at end ─
+    notes_to_clear: list[str] = []
     for page_id in page_ids:
         text_elements, replacements, analysis = results.get(page_id, ([], [], None))
         slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
@@ -2696,13 +2721,13 @@ def adapt_custom_slides(
         if not text_elements:
             stats["skipped"] += 1
             _print(f"    slide {slide_num}: no text on slide")
-            set_speaker_notes(slides_svc, pres_id, page_id, "")
+            notes_to_clear.append(page_id)
             continue
 
         if not replacements:
             stats["notes_only"] += 1
             _print(f"    slide {slide_num}: no data values — cleared speaker notes")
-            set_speaker_notes(slides_svc, pres_id, page_id, "")
+            notes_to_clear.append(page_id)
             continue
 
         mapped_count = sum(1 for r in replacements if r.get("mapped"))
@@ -2721,7 +2746,7 @@ def adapt_custom_slides(
                 logger.warning("hydrate: slide %s — failed to apply text replacements: %s",
                                slide_num, e)
                 stats["skipped"] += 1
-                set_speaker_notes(slides_svc, pres_id, page_id, "")
+                notes_to_clear.append(page_id)
                 continue
 
         if has_unmapped:
@@ -2739,8 +2764,11 @@ def adapt_custom_slides(
             stats["clean"] += 1
 
         stats["adapted"] += 1
-        if not set_speaker_notes(slides_svc, pres_id, page_id, ""):
-            logger.warning("hydrate: slide %s — could not clear speaker notes", slide_num)
+        notes_to_clear.append(page_id)
+
+    if notes_to_clear:
+        n = set_speaker_notes_batch(slides_svc, pres_id, [(pid, "") for pid in notes_to_clear])
+        logger.info("hydrate: cleared speaker notes for %d/%d slides in single batchUpdate", n, len(notes_to_clear))
 
     run_end = datetime.datetime.now(datetime.timezone.utc)
     src_label = (source_presentation_name or pres_id or "(unknown)")[:200]
@@ -3092,7 +3120,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
         except Exception:
             pass
 
-    slides_svc, drive_svc, _ = _get_service()
+    slides_svc, drive_svc, _google_creds = _get_service()
     oai = llm_client()
     all_results: list[dict[str, Any]] = []
     report_cache: dict[str, dict] = {}
@@ -3426,6 +3454,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
                 slides_svc, pres_id, adapt_page_ids, report, oai,
                 source_presentation_name=pres_name,
                 run_started_at=adapt_phase_started,
+                google_creds=_google_creds,
             )
             if adapt_stats.get("summary_slide_added"):
                 _print(

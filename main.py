@@ -47,9 +47,16 @@ def main() -> None:
         for row in result.get("companion_decks") or []:
             label = row.get("key") or row.get("deck_id", "")
             if row.get("error"):
-                print(f"  [{label}] skipped/failed: {row['error']}")
+                print(f"  [{label}] skipped/failed: {row['error']}", flush=True)
+                if row.get("hint"):
+                    print(f"      {row['hint']}", flush=True)
             elif row.get("url"):
-                print(f"  [{label}] {row['url']}")
+                print(f"  [{label}] {row['url']}", flush=True)
+            else:
+                print(
+                    f"  [{label}] no URL in result (unexpected — see bpo logs for this companion)",
+                    flush=True,
+                )
         return
 
     parser = argparse.ArgumentParser(

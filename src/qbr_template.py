@@ -37,8 +37,11 @@ from .quarters import QuarterRange, resolve_quarter
 from .slides_client import (
     _build_slide_jql_speaker_notes,
     _get_service,
+    _google_api_unreachable_hint,
     _normalize_builder_return,
     _SLIDE_BUILDERS,
+    create_cohort_deck,
+    create_health_deck,
     presentations_batch_update_chunked,
     set_speaker_notes,
     slides_presentations_batch_update,
@@ -158,26 +161,54 @@ def _build_companion_decks_for_qbr_bundle(
     report: dict[str, Any],
     bundle_folder_id: str,
 ) -> list[dict[str, Any]]:
-    """Generate health, exec summary, support, product adoption, and cohort review decks into the bundle folder."""
-    from .slides_client import create_cohort_deck, create_health_deck
+    """Generate health, exec summary, support, product adoption, and cohort review decks into the bundle folder.
+
+    The portfolio report for the cohort deck is computed in a background thread
+    while the first four companion decks build, so the two phases overlap.
+    """
+    import threading
 
     base = copy.deepcopy(report)
     for k in ("_slide_plan", "_current_slide", "_charts", "_slides_svc", "_drive_svc"):
         base.pop(k, None)
+
+    days = int(base.get("days") or 30)
+    qr = _quarter_range_from_health_report(base)
+
+    portfolio_result: dict[str, Any] = {}
+    portfolio_error: BaseException | None = None
+
+    def _precompute_portfolio() -> None:
+        nonlocal portfolio_result, portfolio_error
+        try:
+            logger.info(
+                "QBR bundle: starting portfolio precompute for cohort_review "
+                "(runs in background while other companions build)"
+            )
+            pc = PendoClient()
+            portfolio_result = pc.get_portfolio_report(days=days)
+        except BaseException as e:
+            portfolio_error = e
+            logger.warning("QBR bundle: portfolio precompute failed: %s", e)
+
+    portfolio_thread = threading.Thread(target=_precompute_portfolio, daemon=True)
+    portfolio_thread.start()
 
     out: list[dict[str, Any]] = []
     for deck_id, key in QBR_BUNDLE_COMPANION_DECKS:
         sub = copy.deepcopy(base)
         try:
             if deck_id == "cohort_review":
-                days = int(sub.get("days") or 30)
-                qr = _quarter_range_from_health_report(sub)
+                portfolio_thread.join()
+                if portfolio_error:
+                    raise portfolio_error
                 cr = create_cohort_deck(
                     days=days,
                     max_customers=None,
                     quarter=qr,
                     thumbnails=False,
                     output_folder_id=bundle_folder_id,
+                    portfolio_report=portfolio_result,
                 )
             else:
                 cr = create_health_deck(
@@ -194,13 +225,19 @@ def _build_companion_decks_for_qbr_bundle(
             }
             if cr.get("error"):
                 entry["error"] = cr["error"]
+                if cr.get("hint"):
+                    entry["hint"] = cr["hint"]
                 logger.warning("QBR bundle companion %s failed: %s", deck_id, cr["error"])
             else:
                 logger.info("QBR bundle companion %s → %s", deck_id, cr.get("url", ""))
             out.append(entry)
         except Exception as e:
             logger.warning("QBR bundle companion %s failed: %s", deck_id, e)
-            out.append({"key": key, "deck_id": deck_id, "error": str(e)[:500]})
+            row = {"key": key, "deck_id": deck_id, "error": str(e)[:500]}
+            gh = _google_api_unreachable_hint(e)
+            if gh:
+                row["hint"] = gh
+            out.append(row)
     return out
 
 
@@ -505,9 +542,12 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
     days = qr.days
     pc = PendoClient()
     try:
-        known = pc.get_sites_by_customer(days)["customer_list"]
+        logger.info("QBR: preloading Pendo data for %d-day window…", days)
+        pc.preload(days)
+        partition = pc._get_visitor_partition(days)
+        known = sorted(c for c in partition.get("all_customer_stats", {}) if c != "?")
     except Exception as e:
-        return {"error": f"Pendo customer list failed: {e}"}
+        return {"error": f"Pendo preload / customer list failed: {e}"}
 
     customer = _detect_customer(customer_query, known)
     if not customer:
@@ -524,7 +564,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
     report["quarter_start"] = qr.start.isoformat()
     report["quarter_end"] = qr.end.isoformat()
 
-    slides_svc, drive_svc, _ = _get_service()
+    slides_svc, drive_svc, _google_creds = _get_service()
     output_folder = get_qbr_output_folder_id()
     bundle_folder_id: str | None = None
     if output_folder:
@@ -644,6 +684,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
             oai,
             source_presentation_name=out_title,
             title_slide_object_id=title_oid,
+            google_creds=_google_creds,
         )
 
     result: dict[str, Any] = {

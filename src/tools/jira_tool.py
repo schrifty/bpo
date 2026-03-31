@@ -21,11 +21,12 @@ class JiraProjectSnapshotTool(BaseTool):
 
     def _run(self, query: str) -> str:
         try:
-            from ..jira_client import JiraClient
+            from ..jira_client import JiraClient, _validate_project_key
 
-            pk = (query or "").strip().upper()
-            if not pk:
-                return json.dumps({"error": "Provide a Jira project key (e.g. HELP)."})
+            try:
+                pk = _validate_project_key(query)
+            except ValueError as e:
+                return json.dumps({"error": str(e)})
             data = JiraClient().get_project_operational_snapshot(pk)
             return json.dumps(data, indent=2)
         except ValueError as e:

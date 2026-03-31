@@ -217,23 +217,28 @@ def _utf16_code_units(s: str) -> int:
 
 
 def iter_text_run_spans(text_body: dict) -> list[tuple[int, int, str, dict]]:
-    """(start, end, content, style) per textRun; uses startIndex when present else cumulative UTF-16."""
+    """(start, end, content, style) per textRun.
+
+    Must use the same index walk as ``_text_body_max_exclusive_index`` (paragraph markers
+    consume one UTF-16 index each). Skipping markers but advancing ``pos`` only on runs
+    produced spans past the real document end and caused deleteText 400s on short cells.
+    """
     spans: list[tuple[int, int, str, dict]] = []
     pos = 0
     for te in text_body.get("textElements", []):
-        tr = te.get("textRun")
-        if not tr:
-            continue
-        content = tr.get("content") or ""
-        clen = _utf16_code_units(content)
         si = te.get("startIndex")
         if si is not None:
-            start = int(si)
-        else:
+            pos = int(si)
+        tr = te.get("textRun")
+        if tr:
+            content = tr.get("content") or ""
+            clen = _utf16_code_units(content)
             start = pos
-        end = start + clen
-        spans.append((start, end, content, tr.get("style") or {}))
-        pos = end
+            end = start + clen
+            spans.append((start, end, content, tr.get("style") or {}))
+            pos = end
+        elif te.get("paragraphMarker") is not None:
+            pos += 1
     return spans
 
 
@@ -500,6 +505,7 @@ def apply_hint_mutations_to_presentation(
     """Apply orange shape removal, orange cell text clears, yellow→[???], and optional banner."""
     n_slides = 0
     total_reqs = 0
+    all_reqs: list[dict[str, Any]] = []
     for row in nonempty_rows:
         pid = row.get("object_id")
         slide = slide_by_id.get(pid) if pid else None
@@ -518,21 +524,22 @@ def apply_hint_mutations_to_presentation(
             continue
         n_slides += 1
         total_reqs += len(chunk)
+        all_reqs.extend(chunk)
         logger.info(
             "QBR adapt hints — slide %s: queued %d text mutation(s)%s",
             row.get("slide_num", "?"),
             content_n,
             " + red banner" if add_banner else " (no banner — title slide)",
         )
-        try:
-            slides_presentations_batch_update(slides_svc, pres_id, chunk)
-        except HttpError as e:
-            logger.warning("QBR adapt hints: batchUpdate failed (slide %s): %s", row.get("slide_num", "?"), e)
-            raise
 
-    if not n_slides:
+    if not all_reqs:
         return 0
-    logger.info("QBR adapt hints: applied surface changes (%d request(s)) on %d slide(s)", total_reqs, n_slides)
+    try:
+        slides_presentations_batch_update(slides_svc, pres_id, all_reqs)
+    except HttpError as e:
+        logger.warning("QBR adapt hints: batchUpdate failed: %s", e)
+        raise
+    logger.info("QBR adapt hints: applied surface changes (%d request(s)) on %d slide(s) in single batchUpdate", total_reqs, n_slides)
     return n_slides
 
 

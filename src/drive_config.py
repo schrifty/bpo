@@ -87,16 +87,31 @@ def find_file_in_folder(
     return files[0]["id"] if files else None
 
 
-def export_google_doc_as_plain_text(file_id: str) -> str:
-    """Export a Google Doc to UTF-8 plain text."""
+def export_google_doc_as_plain_text(file_id: str, *, _max_retries: int = 5) -> str:
+    """Export a Google Doc to UTF-8 plain text (retries on rate-limit errors)."""
+    import random, time
+
     drive = _get_drive()
-    request = drive.files().export(fileId=file_id, mimeType="text/plain")
-    buf = io.BytesIO()
-    downloader = MediaIoBaseDownload(buf, request)
-    done = False
-    while not done:
-        _, done = downloader.next_chunk()
-    return buf.getvalue().decode("utf-8", errors="replace")
+    last_err: HttpError | None = None
+    for attempt in range(_max_retries):
+        try:
+            request = drive.files().export(fileId=file_id, mimeType="text/plain")
+            buf = io.BytesIO()
+            downloader = MediaIoBaseDownload(buf, request)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+            return buf.getvalue().decode("utf-8", errors="replace")
+        except HttpError as e:
+            last_err = e
+            status = getattr(e.resp, "status", 0)
+            if status not in (403, 429) or attempt >= _max_retries - 1:
+                raise
+            delay = min(60.0, (2 ** attempt) + random.random())
+            logger.warning("Drive export rate-limited (%s); retry %d/%d in %.1fs",
+                           status, attempt + 1, _max_retries, delay)
+            time.sleep(delay)
+    raise last_err  # unreachable, but keeps type-checker happy
 
 
 def _get_config_folder_ids() -> tuple[str, str, str]:

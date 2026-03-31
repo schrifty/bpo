@@ -1,5 +1,6 @@
 """JIRA Cloud client for fetching customer-related issues."""
 
+import re
 from base64 import b64encode
 from collections import Counter
 from datetime import datetime, timezone
@@ -45,6 +46,33 @@ _ISSUE_FIELDS = [
     TTFR_FIELD, TTR_FIELD, SENTIMENT_FIELD, REQUEST_TYPE_FIELD,
     SITE_CMDB_FIELD, ENTITY_CMDB_FIELD,
 ]
+
+
+_PROJECT_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,29}$")
+
+
+def _validate_project_key(raw: str) -> str:
+    """Sanitise and validate a Jira project key.
+
+    Jira project keys are 2-10 uppercase ASCII letters/digits starting with a
+    letter (we allow up to 30 chars and underscores for safety).  Raises
+    ``ValueError`` if the cleaned value doesn't match.
+    """
+    pk = (raw or "").strip().upper()
+    if not pk or not _PROJECT_KEY_RE.match(pk):
+        raise ValueError(
+            f"Invalid Jira project key: {pk!r}. "
+            "Expected uppercase letters/digits starting with a letter (e.g. HELP, LEAN)."
+        )
+    return pk
+
+
+def _jql_escape_string(value: str) -> str:
+    """Escape a value for use inside JQL double-quoted strings.
+
+    Handles the characters that can break out of or alter a JQL string literal.
+    """
+    return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _extract_adf_text(node: Any, _depth: int = 0) -> str:
@@ -324,7 +352,7 @@ class JiraClient:
             if lowered in seen:
                 continue
             seen.add(lowered)
-            terms.append(cleaned.replace('"', '\\"'))
+            terms.append(_jql_escape_string(cleaned))
 
         clauses: list[str] = []
         for term in terms:
@@ -424,9 +452,10 @@ class JiraClient:
 
         Assignee columns are **cumulative** windows from today: last 14d, 30d, 90d, 180d.
         """
-        pk = (project_key or "").strip().upper()
-        if not pk:
-            return {"error": "project_key required", "project_key": ""}
+        try:
+            pk = _validate_project_key(project_key)
+        except ValueError as e:
+            return {"error": str(e), "project_key": (project_key or "").strip()}
 
         jql_start = len(self._jql_log)
         now = datetime.now(timezone.utc)
@@ -560,7 +589,7 @@ class JiraClient:
         Matches on Organizations field (JSM) and summary prefix.
         """
         jql_start = len(self._jql_log)
-        safe_name = customer_name.replace('"', '\\"')
+        safe_name = _jql_escape_string(customer_name)
         jql = (
             f'(Organizations = "{safe_name}" OR summary ~ "{safe_name}")'
             f" AND created >= -{days}d ORDER BY created DESC"

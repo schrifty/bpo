@@ -118,6 +118,32 @@ def test_collect_mutations_orange_text_uses_delete_only():
     assert any(m.replacement == "" for m in muts)
 
 
+def test_orange_glyph_after_paragraph_marker_uses_indices_past_marker():
+    """Regression (slide 29 batchUpdate): skipping paragraphMarker made the first textRun span (0,1)
+    while Slides indices reserved 0 for the marker — deleteText endIndex exceeded document length.
+    """
+    orange = {"foregroundColor": {"opaqueColor": {"rgbColor": {"red": 0.95, "green": 0.45, "blue": 0.1}}}}
+    text_body = {
+        "textElements": [
+            {"startIndex": 0, "paragraphMarker": {"style": {}}},
+            {"textRun": {"content": "\u2b24", "style": orange}},
+        ],
+    }
+    slide = {
+        "pageElements": [{
+            "objectId": "sym1",
+            "shape": {"shapeProperties": {}, "text": text_body},
+        }],
+    }
+    muts = hints.collect_hint_mutations_from_slide(slide)
+    assert len(muts) == 1
+    assert (muts[0].start, muts[0].end) == (1, 2)
+    assert hints._text_body_max_exclusive_index(text_body) == 2
+    reqs, _ = hints.hint_mutations_to_batch_requests("pg", muts, add_banner=False, slide=slide)
+    assert reqs[0]["deleteText"]["textRange"]["startIndex"] == 1
+    assert reqs[0]["deleteText"]["textRange"]["endIndex"] == 2
+
+
 def test_extract_yellow_from_shape_runs():
     slide = {
         "pageElements": [{

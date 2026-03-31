@@ -9,9 +9,13 @@ import time
 from pathlib import Path
 from typing import Any
 
+import httplib2
 from google.oauth2 import service_account
+from google_auth_httplib2 import AuthorizedHttp
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+
+GOOGLE_API_TIMEOUT_S = 120
 
 from .config import GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_DRIVE_FOLDER_ID, GOOGLE_DRIVE_OWNER_EMAIL, logger
 
@@ -135,10 +139,29 @@ MINT = {"red": 0.682, "green": 1.0,   "blue": 0.965}     # #aefff6  highlight
 WHITE = {"red": 1.0,  "green": 1.0,   "blue": 1.0}
 DARK = NAVY                                                # alias for readability
 GRAY = {"red": 0.522, "green": 0.522, "blue": 0.522}     # #858585  secondary text
+BLACK = {"red": 0.0, "green": 0.0, "blue": 0.0}         # metric labels on LIGHT KPI tiles
+# Universal KPI tile label size for ``_kpi_metric_card`` (keep in sync with SLIDE_DESIGN_STANDARDS.md).
+KPI_METRIC_LABEL_PT = 10.0
 LIGHT = {"red": 0.933, "green": 0.941, "blue": 0.953}    # #eef0f3  light background
 FONT = "Source Sans Pro"
 FONT_SERIF = "IBM Plex Serif"
 MONO = "Source Sans 3"
+
+
+# Account Health Snapshot — text before ':' must match _health_slide and speaker-note traces.
+class _HealthSnapshotLabels:
+    CUSTOMER_USERS = "Customer Users"
+    ACTIVE_THIS_WEEK = "Active This Week"
+    ACTIVE_THIS_MONTH = "Active This Month"
+    DORMANT = "Dormant (30+ days)"
+    WEEKLY_ACTIVE_RATE = "Weekly Active Rate"
+    SITES = "Sites"
+    COHORT = "Cohort"
+
+
+def _truncate_kpi_card_label(s: str, max_len: int = 44) -> str:
+    s = (s or "").strip()
+    return s if len(s) <= max_len else f"{s[: max_len - 1]}…"
 
 
 def _date_range(days: int, quarter_label: str | None = None,
@@ -197,11 +220,46 @@ def _get_service():
             raise ValueError(
                 "No valid credentials. Set GOOGLE_APPLICATION_CREDENTIALS or run: gcloud auth application-default login"
             ) from e
+    http = AuthorizedHttp(creds, http=httplib2.Http(timeout=GOOGLE_API_TIMEOUT_S))
     return (
-        build("slides", "v1", credentials=creds),
-        build("drive", "v3", credentials=creds),
-        None,
+        build("slides", "v1", http=http),
+        build("drive", "v3", http=http),
+        creds,
     )
+
+
+def _build_slides_service_for_thread(creds) -> Any:
+    """Create an independent Slides service with its own HTTP transport.
+
+    Each instance has a private ``httplib2.Http`` so it's safe to use from
+    any thread without locking.  Use this for parallel read-only operations
+    like thumbnail URL fetching.
+    """
+    http = AuthorizedHttp(creds, http=httplib2.Http(timeout=GOOGLE_API_TIMEOUT_S))
+    return build("slides", "v1", http=http)
+
+
+def _google_api_unreachable_hint(exc: BaseException) -> str | None:
+    """If *exc* looks like DNS/network failure reaching Google, return guidance for operators."""
+    err = str(exc).lower()
+    markers = (
+        "oauth2.googleapis.com",
+        "unable to find the server",
+        "failed to establish a new connection",
+        "name or service not known",
+        "nodename nor servname provided, or not known",
+        "connection refused",
+        "network is unreachable",
+        "temporary failure in name resolution",
+        "getaddrinfo failed",
+    )
+    if any(m in err for m in markers):
+        return (
+            "Cannot reach Google APIs (often oauth2.googleapis.com for token exchange). "
+            "Check internet, VPN, DNS, and firewall. Service accounts still need outbound HTTPS "
+            "to trade a JWT for access tokens before Slides/Drive calls succeed."
+        )
+    return None
 
 
 # Google Slides presentations.batchUpdate hard limit (documented): 100_000 entries in `requests`.
@@ -459,19 +517,46 @@ def _kpi_metric_card(
     value: str,
     *,
     accent: dict | None = None,
-    label_pt: float = 8,
+    label_pt: float = KPI_METRIC_LABEL_PT,
     value_pt: float = 18,
 ) -> None:
-    """Outlined KPI tile — gray label, bold value. See docs/SLIDE_DESIGN_STANDARDS.md (KPI boxes)."""
+    """Outlined KPI tile — all decks use this helper; black label, bold accent value. See SLIDE_DESIGN_STANDARDS."""
     accent = accent or NAVY
     _bar_rect(reqs, oid_base, sid, x, y, w, h, LIGHT, outline=GRAY)
     pad = 10.0
     inner_w = max(40.0, w - 2 * pad)
     _box(reqs, f"{oid_base}_l", sid, x + pad, y + 8, inner_w, 12, label)
-    _style(reqs, f"{oid_base}_l", 0, len(label), size=label_pt, color=GRAY, font=FONT)
+    # Use ALL so styling covers the full text (Slides may reserve index 0 for a paragraph marker;
+    # FIXED_RANGE 0..len(label) often leaves the visible run in theme gray).
+    if label:
+        reqs.append({
+            "updateTextStyle": {
+                "objectId": f"{oid_base}_l",
+                "textRange": {"type": "ALL"},
+                "style": {
+                    "fontSize": {"magnitude": label_pt, "unit": "PT"},
+                    "foregroundColor": {"opaqueColor": {"rgbColor": BLACK}},
+                    "fontFamily": FONT,
+                },
+                "fields": "fontSize,foregroundColor,fontFamily",
+            }
+        })
     val_h = max(22.0, h - 28.0)
     _box(reqs, f"{oid_base}_v", sid, x + pad, y + 22, inner_w, val_h, value)
-    _style(reqs, f"{oid_base}_v", 0, len(value), bold=True, size=value_pt, color=accent, font=FONT)
+    if value:
+        reqs.append({
+            "updateTextStyle": {
+                "objectId": f"{oid_base}_v",
+                "textRange": {"type": "ALL"},
+                "style": {
+                    "bold": True,
+                    "fontSize": {"magnitude": value_pt, "unit": "PT"},
+                    "foregroundColor": {"opaqueColor": {"rgbColor": accent}},
+                    "fontFamily": FONT,
+                },
+                "fields": "bold,fontSize,foregroundColor,fontFamily",
+            }
+        })
 
 
 # ── Speaker notes (notes page per slide) ──────────────────────────────────────
@@ -552,11 +637,84 @@ def set_speaker_notes(slides_svc, pres_id: str, slide_page_id: str, notes_text: 
         return False
 
 
-def _collect_data_trace_entries(obj: Any) -> list[dict[str, str]]:
-    """Recursively collect trace rows for speaker notes: ``jql_queries`` (Jira), ``soql_queries`` (Salesforce).
+def _build_notes_shape_map(slides_svc, pres_id: str) -> dict[str, str]:
+    """Single ``presentations.get`` → map of ``slide_page_id → speakerNotesObjectId``.
 
-    Each item is ``{description, source, query}`` where *source* is a short system label (e.g. ``Jira``).
+    Falls back to a per-slide ``pages.get`` only when the embedded notesPage
+    omits ``speakerNotesObjectId`` (rare).
     """
+    _fields = "slides(objectId,slideProperties(notesPage(objectId,notesProperties(speakerNotesObjectId))))"
+    pres = slides_svc.presentations().get(
+        presentationId=pres_id, fields=_fields
+    ).execute()
+    result: dict[str, str] = {}
+    for page in pres.get("slides", []):
+        slide_id = page.get("objectId")
+        sp = page.get("slideProperties") or {}
+        notes_page = sp.get("notesPage")
+        if isinstance(notes_page, dict):
+            oid = (notes_page.get("notesProperties") or {}).get("speakerNotesObjectId")
+            if oid:
+                result[slide_id] = oid
+                continue
+            notes_page_id = notes_page.get("objectId")
+        else:
+            notes_page_id = sp.get("notesPageId")
+        if notes_page_id:
+            try:
+                np = slides_svc.presentations().pages().get(
+                    presentationId=pres_id, pageObjectId=notes_page_id
+                ).execute()
+                oid = (np.get("notesProperties") or {}).get("speakerNotesObjectId")
+                if oid:
+                    result[slide_id] = oid
+            except HttpError:
+                pass
+    return result
+
+
+def set_speaker_notes_batch(
+    slides_svc, pres_id: str, items: list[tuple[str, str]]
+) -> int:
+    """Write speaker notes for many slides in **one** ``batchUpdate``.
+
+    *items* is a list of ``(slide_page_id, notes_text)`` pairs.
+    Returns the number of slides successfully updated.
+    """
+    if not items:
+        return 0
+    notes_map = _build_notes_shape_map(slides_svc, pres_id)
+    reqs: list[dict[str, Any]] = []
+    mapped = 0
+    for slide_id, text in items:
+        oid = notes_map.get(slide_id)
+        if not oid:
+            logger.warning("set_speaker_notes_batch: no notes shape for slide %s", slide_id[:12])
+            continue
+        reqs.append({"deleteText": {"objectId": oid, "textRange": {"type": "ALL"}}})
+        reqs.append({"insertText": {"objectId": oid, "text": text or "", "insertionIndex": 0}})
+        mapped += 1
+    if not reqs:
+        return 0
+    try:
+        slides_presentations_batch_update(slides_svc, pres_id, reqs)
+        return mapped
+    except HttpError as e:
+        err_str = str(e)
+        if "startIndex 0 must be less than the endIndex 0" in err_str:
+            insert_only = [r for r in reqs if "insertText" in r]
+            try:
+                slides_presentations_batch_update(slides_svc, pres_id, insert_only)
+                return mapped
+            except HttpError as e2:
+                logger.warning("set_speaker_notes_batch: insert-only fallback failed: %s", e2)
+                return 0
+        logger.warning("set_speaker_notes_batch: batchUpdate failed: %s", e)
+        return 0
+
+
+def _collect_jql_soql_trace_entries(obj: Any) -> list[dict[str, str]]:
+    """Recursively collect Jira ``jql_queries`` and Salesforce ``soql_queries`` only."""
     if obj is None:
         return []
     if isinstance(obj, dict):
@@ -593,7 +751,20 @@ def _collect_data_trace_entries(obj: Any) -> list[dict[str, str]]:
                         "source": "Salesforce",
                         "query": item.strip(),
                     })
-        # Declared pipeline traces (Pendo, CS Report, etc.) — not JQL/SOQL
+        for val in obj.values():
+            entries.extend(_collect_jql_soql_trace_entries(val))
+        return entries
+    if isinstance(obj, list):
+        return [e for item in obj for e in _collect_jql_soql_trace_entries(item)]
+    return []
+
+
+def _collect_declared_data_trace_entries(obj: Any) -> list[dict[str, str]]:
+    """Recursively collect ``data_traces`` (declared pipeline notes, not JQL/SOQL)."""
+    if obj is None:
+        return []
+    if isinstance(obj, dict):
+        entries: list[dict[str, str]] = []
         dt_raw = obj.get("data_traces")
         if isinstance(dt_raw, list):
             for item in dt_raw:
@@ -605,11 +776,16 @@ def _collect_data_trace_entries(obj: Any) -> list[dict[str, str]]:
                 if desc and q:
                     entries.append({"description": desc, "source": src, "query": q})
         for val in obj.values():
-            entries.extend(_collect_data_trace_entries(val))
+            entries.extend(_collect_declared_data_trace_entries(val))
         return entries
     if isinstance(obj, list):
-        return [e for item in obj for e in _collect_data_trace_entries(item)]
+        return [e for item in obj for e in _collect_declared_data_trace_entries(item)]
     return []
+
+
+def _collect_data_trace_entries(obj: Any) -> list[dict[str, str]]:
+    """All trace rows: Jira, Salesforce, and declared ``data_traces``."""
+    return _collect_jql_soql_trace_entries(obj) + _collect_declared_data_trace_entries(obj)
 
 
 def _dedupe_data_trace_entries(entries: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -652,6 +828,237 @@ def _normalize_builder_return(ret: Any, default_slide_id: str) -> tuple[int, lis
     return int(ret), [default_slide_id]
 
 
+def _health_snapshot_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Speaker-note rows for Account Health Snapshot — description = on-slide label (text before ``:``)."""
+    eng = report.get("engagement") or {}
+    bench = report.get("benchmarks") or {}
+    acct = report.get("account") or {}
+    if not eng or not bench or not acct:
+        return []
+    H = _HealthSnapshotLabels
+    rate = eng.get("active_rate_7d")
+    cohort_name = (bench.get("cohort_name") or "").strip()
+    cohort_med = bench.get("cohort_median_rate")
+    cohort_n = bench.get("cohort_count") or 0
+    use_cohort = cohort_med is not None and cohort_n >= 3
+    if use_cohort:
+        vs = rate - cohort_med
+        bench_label = f"{cohort_name} median of {cohort_med}%  ({cohort_n} peers)"
+    else:
+        vs = rate - bench.get("peer_median_rate", 0)
+        bench_label = f"all-customer median of {bench.get('peer_median_rate')}%  ({bench.get('peer_count')} peers)"
+    direction = "above" if vs > 0 else "below" if vs < 0 else "at"
+
+    rows: list[dict[str, str]] = [
+        {
+            "description": H.CUSTOMER_USERS,
+            "source": "Pendo",
+            "query": "account.total_visitors — visitors attributed to this customer (metadata / sitenames rollup)",
+        },
+        {
+            "description": H.ACTIVE_THIS_WEEK,
+            "source": "Pendo",
+            "query": (
+                "engagement.active_7d; on-slide % is active_rate_7d (= active_7d / total_visitors)"
+            ),
+        },
+        {
+            "description": H.ACTIVE_THIS_MONTH,
+            "source": "Pendo",
+            "query": "Sum of active_7d + active_30d engagement buckets (counts on slide)",
+        },
+        {
+            "description": H.DORMANT,
+            "source": "Pendo",
+            "query": "engagement.dormant — no activity in 30+ days",
+        },
+        {
+            "description": H.WEEKLY_ACTIVE_RATE,
+            "source": "Pendo",
+            "query": (
+                f"Same % as row above; {abs(vs):.0f}pp {direction} {bench_label} "
+                "(cohort from cohorts.yaml when n≥3)"
+            ),
+        },
+        {
+            "description": H.SITES,
+            "source": "Pendo",
+            "query": "account.total_sites from visitor sitenames linked to this customer",
+        },
+        {
+            "description": H.COHORT,
+            "source": "Pendo + cohorts.yaml",
+            "query": "Label from get_customer_cohort / cohorts.yaml (shows Unclassified when missing)",
+        },
+    ]
+    internal = int(acct.get("internal_visitors") or 0)
+    if internal:
+        rows.append({
+            "description": "Internal staff excluded",
+            "source": "Pendo",
+            "query": "LeanDNA/internal visitors removed from customer engagement totals",
+        })
+    return rows
+
+
+def _peer_benchmarks_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Speaker-note rows for Peer Benchmarks — KPI card labels and body lines match ``_benchmarks_slide``."""
+    bench = report.get("benchmarks") or {}
+    if not bench:
+        return []
+    cohort_med = bench.get("cohort_median_rate")
+    cohort_n = bench.get("cohort_count", 0)
+    cohort_name = bench.get("cohort_name", "")
+    use_cohort = cohort_med is not None and cohort_n >= 3
+
+    q_rate = (
+        "active_7d / total_visitors over the report window; "
+        "7-day activity from visitor time-bucket aggregation"
+    )
+    q_all_median = (
+        "Median of weekly active rate across accounts with Pendo data in the same period "
+        "(peer_count on payload)"
+    )
+    q_cohort_median = (
+        "Median among accounts in the same manufacturing cohort "
+        "(get_customer_cohort / cohorts.yaml); shown when cohort n≥3"
+    )
+    q_delta = (
+        "Customer weekly active rate minus comparison median (percentage points vs peer/cohort on slide)"
+    )
+    q_acct = (
+        "account.total_visitors and account.total_sites for the account size line under KPI row"
+    )
+
+    out: list[dict[str, str]] = [
+        {"description": "Weekly active rate (this account)", "source": "Pendo", "query": q_rate},
+    ]
+    if use_cohort:
+        med_lbl = _truncate_kpi_card_label(f"{cohort_name} median ({cohort_n} accounts)")
+        out.append({"description": med_lbl, "source": "Pendo", "query": q_cohort_median})
+        all_lbl = _truncate_kpi_card_label(f"All-customer median ({bench['peer_count']} accounts)")
+        out.append({"description": all_lbl, "source": "Pendo", "query": q_all_median})
+    else:
+        med_lbl = f"All-customer median ({bench['peer_count']} accounts)"
+        out.append({"description": med_lbl, "source": "Pendo", "query": q_all_median})
+
+    out.append({"description": "Delta", "source": "Pendo", "query": q_delta})
+    out.append({"description": "Account size", "source": "Pendo", "query": q_acct})
+    return out
+
+
+def _fmt_platform_value_dollar(v: float) -> str:
+    av = abs(float(v))
+    if av >= 1_000_000_000:
+        return f"${v / 1_000_000_000:,.2f}B"
+    if av >= 1_000_000:
+        return f"${v / 1_000_000:,.1f}M"
+    if av >= 1_000:
+        return f"${v / 1_000:,.0f}K"
+    return f"${v:,.0f}"
+
+
+def _fmt_platform_value_count(v: int | float) -> str:
+    n = int(v)
+    an = abs(n)
+    if an >= 1_000_000:
+        return f"{n / 1_000_000:,.1f}M"
+    if an >= 100_000:
+        return f"{n / 1_000:,.0f}K"
+    return f"{n:,}"
+
+
+def _platform_value_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Speaker-note rows for Platform Value & ROI — KPI labels match ``_platform_value_slide``; values echoed in query."""
+    cs = report.get("cs_platform_value")
+    if not isinstance(cs, dict) or cs.get("error"):
+        return []
+    ts = float(cs.get("total_savings") or 0)
+    to = float(cs.get("total_open_ia_value") or 0)
+    tr = int(cs.get("total_recs_created_30d") or 0)
+    if ts == 0 and to == 0 and tr == 0:
+        return []
+    tp = int(cs.get("total_pos_placed_30d") or 0)
+    td = int(cs.get("total_overdue_tasks") or 0)
+    fc = int(cs.get("factory_count") or 0)
+    site_list = cs.get("sites") or []
+    factory_rows = [s for s in site_list if s.get("savings_current_period") or s.get("recs_created_30d")]
+    n_tab = len(factory_rows)
+
+    rows: list[dict[str, str]] = [
+        {
+            "description": "Savings achieved",
+            "source": "CS Report",
+            "query": (
+                f"On-slide value {_fmt_platform_value_dollar(ts)} — sum of "
+                "inventoryActionCurrentReportingPeriodSavings endValue across customer week rows "
+                f"({fc} factories)"
+            ),
+        },
+        {
+            "description": "Open IA pipeline",
+            "source": "CS Report",
+            "query": (
+                f"On-slide value {_fmt_platform_value_dollar(to)} — sum of "
+                "inventoryActionOpenValue endValue across customer week rows"
+            ),
+        },
+        {
+            "description": "Recs created (30d)",
+            "source": "CS Report",
+            "query": (
+                f"On-slide value {_fmt_platform_value_count(tr)} — sum of "
+                "recsCreatedLast30DaysCt endValue across customer week rows"
+            ),
+        },
+        {
+            "description": "POs placed (30d)",
+            "source": "CS Report",
+            "query": (
+                f"Shown in gray subline as {tp:,} POs placed — sum of "
+                "posPlacedInLast30DaysCt endValue across customer week rows"
+            ),
+        },
+        {
+            "description": "Overdue tasks",
+            "source": "CS Report",
+            "query": (
+                f"Shown in gray subline as {td:,} overdue tasks — sum of "
+                "workbenchOverdueTasksCt endValue across customer week rows"
+            ),
+        },
+        {
+            "description": "Factory",
+            "source": "CS Report",
+            "query": (
+                f"Table column; {n_tab} site row(s) with savings or recs; values from factoryName per week row"
+            ),
+        },
+        {
+            "description": "Savings",
+            "source": "CS Report",
+            "query": (
+                "Table column — per-site savings_current_period (same KPI field as headline Savings achieved)"
+            ),
+        },
+        {
+            "description": "Recs (30d)",
+            "source": "CS Report",
+            "query": (
+                "Table column — per-site recs_created_30d (same KPI field as headline Recs created (30d))"
+            ),
+        },
+    ]
+    return rows
+
+
+_SLIDE_CANONICAL_PIPELINE_TRACES: dict[str, Any] = {
+    "health": _health_snapshot_pipeline_traces,
+    "benchmarks": _peer_benchmarks_pipeline_traces,
+    "platform_value": _platform_value_pipeline_traces,
+}
+
+
 def _build_slide_jql_speaker_notes(report: dict[str, Any], entry: dict[str, Any]) -> str:
     """Speaker notes: timestamp first; then slide id; then one line per data trace (description: source - query)."""
     from datetime import datetime
@@ -667,16 +1074,27 @@ def _build_slide_jql_speaker_notes(report: dict[str, Any], entry: dict[str, Any]
     ]
 
     required_keys = SLIDE_DATA_REQUIREMENTS.get(slide_type, [])
-    scoped: list[dict[str, str]] = []
-    for key in required_keys:
-        scoped.extend(_collect_data_trace_entries(report.get(key)))
-    scoped = _dedupe_data_trace_entries(scoped)
+    canon_fn = _SLIDE_CANONICAL_PIPELINE_TRACES.get(slide_type)
 
-    all_traces = _dedupe_data_trace_entries(_collect_data_trace_entries(report))
-    # Only fall back to deck-wide traces when this slide type does not declare specific
-    # report keys. Otherwise empty scoped (e.g. Salesforce payloads) would list every
-    # Jira query from the health report.
-    entries = scoped if required_keys else (scoped or all_traces)
+    pipeline: list[dict[str, str]] = []
+    if canon_fn is not None:
+        pipeline = canon_fn(report)
+    elif required_keys:
+        for key in required_keys:
+            pipeline.extend(_collect_declared_data_trace_entries(report.get(key)))
+        pipeline = _dedupe_data_trace_entries(pipeline)
+    else:
+        pipeline = _dedupe_data_trace_entries(_collect_declared_data_trace_entries(report))
+
+    executable: list[dict[str, str]] = []
+    if required_keys:
+        for key in required_keys:
+            executable.extend(_collect_jql_soql_trace_entries(report.get(key)))
+    else:
+        executable = _collect_jql_soql_trace_entries(report)
+    executable = _dedupe_data_trace_entries(executable)
+
+    entries = _dedupe_data_trace_entries(pipeline + executable)
 
     if not entries:
         if slide_type in ("salesforce_comprehensive_cover", "salesforce_category"):
@@ -1133,14 +1551,15 @@ def _health_slide(reqs, sid, report, idx):
         vs = rate - bench["peer_median_rate"]
         direction = "above" if vs > 0 else "below" if vs < 0 else "at"
         bench_label = f"all-customer median of {bench['peer_median_rate']}%  ({bench['peer_count']} peers)"
+    H = _HealthSnapshotLabels
     lines = [
-        f"Customer Users: {acct['total_visitors']}",
-        f"Active This Week: {eng['active_7d']}  ({rate}%)",
-        f"Active This Month: {active}",
-        f"Dormant (30+ days): {eng['dormant']}",
+        f"{H.CUSTOMER_USERS}: {acct['total_visitors']}",
+        f"{H.ACTIVE_THIS_WEEK}: {eng['active_7d']}  ({rate}%)",
+        f"{H.ACTIVE_THIS_MONTH}: {active}",
+        f"{H.DORMANT}: {eng['dormant']}",
         "",
-        f"Weekly Active Rate: {rate}%  ({abs(vs):.0f}pp {direction} {bench_label})",
-        f"Sites: {acct['total_sites']}  |  Cohort: {cohort_name or 'Unclassified'}",
+        f"{H.WEEKLY_ACTIVE_RATE}: {rate}%  ({abs(vs):.0f}pp {direction} {bench_label})",
+        f"{H.SITES}: {acct['total_sites']}  |  {H.COHORT}: {cohort_name or 'Unclassified'}",
     ]
     if internal:
         lines.append(f"({internal} internal staff excluded)")
@@ -1624,10 +2043,6 @@ def _benchmarks_slide(reqs, sid, report, idx):
     med_rate = cohort_med if use_cohort else all_med
     delta = cust_rate - med_rate
 
-    def _short_label(s: str, max_len: int = 44) -> str:
-        s = (s or "").strip()
-        return s if len(s) <= max_len else f"{s[: max_len - 1]}…"
-
     row_y = BODY_Y + 8
     card_h = 58
     col_gap = 18.0
@@ -1640,19 +2055,19 @@ def _benchmarks_slide(reqs, sid, report, idx):
     )
 
     if use_cohort:
-        med_lbl = _short_label(f"{cohort_name} median ({cohort_n} accounts)")
+        med_lbl = _truncate_kpi_card_label(f"{cohort_name} median ({cohort_n} accounts)")
     else:
         med_lbl = f"All-customer median ({bench['peer_count']} accounts)"
     _kpi_metric_card(
         reqs, f"{sid}_k1", sid, MARGIN + card_w + col_gap, row_y, card_w, card_h,
-        med_lbl, f"{med_rate}%", accent=NAVY, value_pt=22,
+        med_lbl, f"{med_rate}%", accent=BLUE, value_pt=22,
     )
 
     if use_cohort:
         all_lbl = f"All-customer median ({bench['peer_count']} accounts)"
         _kpi_metric_card(
             reqs, f"{sid}_k2", sid, MARGIN + 2 * (card_w + col_gap), row_y, card_w, card_h,
-            _short_label(all_lbl), f"{all_med}%", accent=GRAY, value_pt=20,
+            _truncate_kpi_card_label(all_lbl), f"{all_med}%", accent=BLUE, value_pt=22,
         )
 
     # Context (narrative — outside KPI cards; see SLIDE_DESIGN_STANDARDS KPI boxes)
@@ -1679,7 +2094,7 @@ def _benchmarks_slide(reqs, sid, report, idx):
     ctx_y = row_y + card_h + 16
     ctx_h = max(96.0, BODY_BOTTOM - ctx_y - 4)
     _box(reqs, f"{sid}_ctx", sid, MARGIN, ctx_y, CONTENT_W, ctx_h, ctx)
-    _style(reqs, f"{sid}_ctx", 0, len(ctx), size=11, color=NAVY, font=FONT)
+    _style(reqs, f"{sid}_ctx", 0, len(ctx), size=11, color=BLUE, font=FONT)
 
     return idx + 1
 
@@ -3331,22 +3746,6 @@ def _platform_value_slide(reqs, sid, report, idx):
     if total_savings == 0 and total_open == 0 and total_recs == 0:
         return _missing_data_slide(reqs, sid, report, idx, "platform value / ROI (savings, pipeline, recommendations)")
 
-    def _fmt_dollar(v):
-        if abs(v) >= 1_000_000_000:
-            return f"${v / 1_000_000_000:,.2f}B"
-        if abs(v) >= 1_000_000:
-            return f"${v / 1_000_000:,.1f}M"
-        if abs(v) >= 1_000:
-            return f"${v / 1_000:,.0f}K"
-        return f"${v:,.0f}"
-
-    def _fmt_count(v):
-        if abs(v) >= 1_000_000:
-            return f"{v / 1_000_000:,.1f}M"
-        if abs(v) >= 100_000:
-            return f"{v / 1_000:,.0f}K"
-        return f"{v:,}"
-
     total_pos = cs.get("total_pos_placed_30d", 0)
     total_overdue = cs.get("total_overdue_tasks", 0)
     ops = f"{total_pos:,} POs placed  ·  {total_overdue:,} overdue tasks"
@@ -3359,15 +3758,15 @@ def _platform_value_slide(reqs, sid, report, idx):
         cw = (CONTENT_W - 2 * _PV_GAP) / 3
         _kpi_metric_card(
             reqs, f"{page_sid}_k0", page_sid, MARGIN, row_y, cw, _PV_CARD_H,
-            "Savings achieved", _fmt_dollar(total_savings), accent=BLUE, value_pt=22,
+            "Savings achieved", _fmt_platform_value_dollar(total_savings), accent=BLUE, value_pt=22,
         )
         _kpi_metric_card(
             reqs, f"{page_sid}_k1", page_sid, MARGIN + cw + _PV_GAP, row_y, cw, _PV_CARD_H,
-            "Open IA pipeline", _fmt_dollar(total_open), accent=NAVY, value_pt=22,
+            "Open IA pipeline", _fmt_platform_value_dollar(total_open), accent=BLUE, value_pt=22,
         )
         _kpi_metric_card(
             reqs, f"{page_sid}_k2", page_sid, MARGIN + 2 * (cw + _PV_GAP), row_y, cw, _PV_CARD_H,
-            "Recs created (30d)", _fmt_count(total_recs), accent=TEAL, value_pt=22,
+            "Recs created (30d)", _fmt_platform_value_count(total_recs), accent=BLUE, value_pt=22,
         )
         ops_y = row_y + _PV_CARD_H + 10
         _box(reqs, f"{page_sid}_ops", page_sid, MARGIN, ops_y, CONTENT_W, 16, ops)
@@ -5137,7 +5536,9 @@ def _eng_support_pressure_slide(reqs: list, sid: str, report: dict, idx: int) ->
                color=prio_colors.get(prio, NAVY), font=FONT)
         left_y += 30
 
-    # ── RIGHT: KPI cards ──
+    # ── RIGHT: KPI cards (same chrome as all ``_kpi_metric_card`` tiles) ──
+    _ENG_SP_KPI_H = 52
+    _ENG_SP_KPI_GAP = 6
     right_y = body_top
     kpi_cards = [
         ("Total", total, None),
@@ -5145,16 +5546,13 @@ def _eng_support_pressure_slide(reqs: list, sid: str, report: dict, idx: int) ->
         ("Escalated to Eng", esc, _RED if esc > 5 else NAVY),
         ("Open Bugs", bugs, _RED if bugs > 3 else NAVY),
     ]
-    for label, val, color in kpi_cards:
-        color = color or NAVY
-        safe_lbl = label.replace(" ", "_").replace("/", "_")[:8]
-        _box(reqs, f"{sid}_kl_{safe_lbl}", sid, right_x, right_y, right_w, 14, label)
-        _style(reqs, f"{sid}_kl_{safe_lbl}", 0, len(label), size=9, color=GRAY, font=FONT)
-        right_y += 14
-        val_str = str(val)
-        _box(reqs, f"{sid}_kv_{safe_lbl}", sid, right_x, right_y, right_w, 28, val_str)
-        _style(reqs, f"{sid}_kv_{safe_lbl}", 0, len(val_str), bold=True, size=22, color=color, font=FONT)
-        right_y += 36
+    for i, (label, val, color) in enumerate(kpi_cards):
+        ac = color or NAVY
+        _kpi_metric_card(
+            reqs, f"{sid}_spk{i}", sid, right_x, right_y, right_w, _ENG_SP_KPI_H,
+            label, str(val), accent=ac, value_pt=22,
+        )
+        right_y += _ENG_SP_KPI_H + _ENG_SP_KPI_GAP
 
     # ── INSIGHT BULLETS ──
     insights = (eng.get("insights") or {}).get("support_pressure", [])
@@ -5793,9 +6191,10 @@ def add_slide(deck_id: str, slide_type: str, data: dict[str, Any]) -> dict[str, 
     note_payload = dict(data)
     note_payload["_current_slide"] = note_entry
     notes = _build_slide_jql_speaker_notes(note_payload, note_entry)
-    for nid in note_ids:
-        if not set_speaker_notes(slides_service, deck_id, nid, notes):
-            logger.warning("Could not write JQL speaker notes for slide %s in deck %s", nid[:12], deck_id[:12])
+    if note_ids:
+        n = set_speaker_notes_batch(slides_service, deck_id, [(nid, notes) for nid in note_ids])
+        if n < len(note_ids):
+            logger.warning("Could not write JQL speaker notes for %d/%d slides in deck %s", len(note_ids) - n, len(note_ids), deck_id[:12])
 
     return {"slide_type": slide_type, "status": "added", "position": idx + 1, "pages": len(note_ids)}
 
@@ -5915,6 +6314,11 @@ def create_health_deck(
         if "rate" in err_str.lower() or "quota" in err_str.lower():
             return {"error": f"Rate limit: {err_str}. Wait and retry."}
         return {"error": err_str}
+    except Exception as e:
+        hint = _google_api_unreachable_hint(e)
+        if hint:
+            return {"error": str(e), "hint": hint, "customer": customer, "deck_id": deck_id}
+        raise
 
     # Provide a DeckCharts instance for Slides embeds backed by Google Sheets.
     from .charts import DeckCharts
@@ -5967,6 +6371,11 @@ def create_health_deck(
     except HttpError as e:
         logger.exception("Failed to build slides")
         return {"error": str(e), "presentation_id": pres_id}
+    except Exception as e:
+        hint = _google_api_unreachable_hint(e)
+        if hint:
+            return {"error": str(e), "hint": hint, "presentation_id": pres_id, "customer": customer, "deck_id": deck_id}
+        raise
 
     if slides_created == 0:
         url = f"https://docs.google.com/presentation/d/{pres_id}/edit"
@@ -5979,10 +6388,10 @@ def create_health_deck(
             "slides_created": 0,
         }
 
-    for sid, entry in note_targets:
-        notes = _build_slide_jql_speaker_notes(report, entry)
-        if not set_speaker_notes(slides_service, pres_id, sid, notes):
-            logger.warning("Could not write JQL speaker notes for slide %s in presentation %s", sid[:12], pres_id[:12])
+    notes_items = [(sid, _build_slide_jql_speaker_notes(report, entry)) for sid, entry in note_targets]
+    if notes_items:
+        n = set_speaker_notes_batch(slides_service, pres_id, notes_items)
+        logger.info("Speaker notes: wrote %d/%d slide notes in single batchUpdate", n, len(notes_items))
 
     result = {
         "presentation_id": pres_id,
@@ -6025,16 +6434,28 @@ def create_cohort_deck(
     quarter: "QuarterRange | None" = None,
     thumbnails: bool = False,
     output_folder_id: str | None = None,
+    portfolio_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Single deck: cohort buckets from cohorts.yaml + portfolio metrics (max 10 profile slides)."""
-    from .pendo_client import PendoClient
+    """Single deck: cohort buckets from cohorts.yaml + portfolio metrics (max 10 profile slides).
 
-    client = PendoClient()
-    report = client.get_portfolio_report(days=days, max_customers=max_customers)
+    If *portfolio_report* is supplied the expensive Pendo preload + customer
+    iteration is skipped entirely — the caller already computed it.
+    """
+    if portfolio_report is not None:
+        report = portfolio_report
+    else:
+        from .pendo_client import PendoClient
+        client = PendoClient()
+        report = client.get_portfolio_report(days=days, max_customers=max_customers)
+
     if quarter:
         report["quarter"] = quarter.label
         report["quarter_start"] = quarter.start.isoformat()
         report["quarter_end"] = quarter.end.isoformat()
+    logger.info(
+        "cohort_review: portfolio report ready (%d customers) — sending to Google Slides",
+        report.get("customer_count", 0),
+    )
     return create_health_deck(
         report,
         deck_id="cohort_review",

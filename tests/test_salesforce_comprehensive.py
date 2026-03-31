@@ -327,21 +327,76 @@ def test_speaker_notes_timestamp_first_line_has_seconds():
     assert parts[1].count(":") == 2
 
 
-def test_speaker_notes_benchmarks_includes_data_traces():
-    """Peer Benchmarks is Pendo-only; traces come from benchmarks.data_traces on the health report."""
+def test_speaker_notes_benchmarks_uses_on_slide_kpi_labels():
+    """Peer Benchmarks pipeline traces use the same KPI titles as ``_benchmarks_slide`` (not ad-hoc descriptions)."""
     report = {
         "benchmarks": {
             "customer_active_rate": 39.0,
-            "data_traces": [
-                {
-                    "description": "Weekly active rate (this account)",
-                    "source": "Pendo",
-                    "query": "active_7d / total_visitors (7-day window)",
-                },
-            ],
+            "peer_median_rate": 35.0,
+            "peer_count": 100,
+            "cohort_median_rate": None,
+            "cohort_count": 0,
+            "cohort_name": "",
         },
         "account": {"total_visitors": 100, "total_sites": 5},
     }
     entry = {"slide_type": "benchmarks", "title": "Peer Benchmarks"}
     notes = _build_slide_jql_speaker_notes(report, entry)
-    assert "Weekly active rate (this account): Pendo - active_7d / total_visitors (7-day window)" in notes
+    assert "Weekly active rate (this account): Pendo -" in notes
+    assert "All-customer median (100 accounts): Pendo -" in notes
+    assert "Delta: Pendo -" in notes
+    assert "Account size: Pendo -" in notes
+
+
+def test_speaker_notes_health_snapshot_uses_on_slide_row_labels():
+    """Account Health Snapshot traces use the same row prefixes as the slide body (text before ``:``)."""
+    report = {
+        "engagement": {
+            "active_7d": 642,
+            "active_30d": 100,
+            "dormant": 50,
+            "active_rate_7d": 39.1,
+        },
+        "benchmarks": {
+            "peer_median_rate": 40.0,
+            "peer_count": 80,
+            "cohort_median_rate": None,
+            "cohort_count": 0,
+            "cohort_name": "",
+        },
+        "account": {"total_visitors": 1642, "total_sites": 3},
+    }
+    entry = {"slide_type": "health", "title": "Account Health Snapshot"}
+    notes = _build_slide_jql_speaker_notes(report, entry)
+    assert "Active This Week: Pendo -" in notes
+    assert "Weekly Active Rate: Pendo -" in notes
+    assert "Customer Users: Pendo -" in notes
+
+
+def test_speaker_notes_platform_value_includes_kpis_and_table_columns():
+    """Platform Value & ROI uses canonical traces so KPI headlines and table columns appear in notes."""
+    report = {
+        "cs_platform_value": {
+            "customer": "Acme",
+            "source": "cs_report",
+            "factory_count": 3,
+            "total_savings": 96_500_000,
+            "total_open_ia_value": 269_000_000,
+            "total_recs_created_30d": 188_000,
+            "total_pos_placed_30d": 66_680,
+            "total_overdue_tasks": 2_027,
+            "sites": [
+                {"factory": "Site A", "savings_current_period": 1, "recs_created_30d": 2},
+            ],
+        },
+    }
+    entry = {"slide_type": "platform_value", "title": "Platform Value & ROI"}
+    notes = _build_slide_jql_speaker_notes(report, entry)
+    assert "Savings achieved: CS Report -" in notes and "$96.5M" in notes
+    assert "Open IA pipeline: CS Report -" in notes and "$269.0M" in notes
+    assert "Recs created (30d): CS Report -" in notes and "188" in notes
+    assert "POs placed (30d): CS Report -" in notes and "66,680" in notes
+    assert "Overdue tasks: CS Report -" in notes and "2,027" in notes
+    assert "Factory: CS Report -" in notes
+    assert "Savings: CS Report -" in notes
+    assert "Recs (30d): CS Report -" in notes

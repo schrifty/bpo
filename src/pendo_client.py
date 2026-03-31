@@ -3,6 +3,7 @@
 import datetime
 import json
 import re
+import socket
 import threading
 import time
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 import requests
+from requests.adapters import HTTPAdapter
 
 from .config import (
     FEATURE_ADOPTION_INSIGHTS,
@@ -17,6 +19,9 @@ from .config import (
     PENDO_INTEGRATION_KEY,
     logger,
 )
+
+PENDO_REQUEST_TIMEOUT_S = 90
+PENDO_TOTAL_TIMEOUT_S = 300
 
 
 def _name_matches(query: str, text: str) -> bool:
@@ -337,6 +342,10 @@ class PendoClient:
             raise ValueError(
                 "Pendo integration key required. Set PENDO_INTEGRATION_KEY or pass integration_key."
             )
+        self._session = requests.Session()
+        adapter = HTTPAdapter(pool_maxsize=4, max_retries=1)
+        self._session.mount("https://", adapter)
+        self._session.mount("http://", adapter)
         logger.debug("PendoClient initialized (base_url=%s)", self.base_url)
 
     def _headers(self) -> dict[str, str]:
@@ -356,7 +365,15 @@ class PendoClient:
                 "pipeline": pipeline,
             },
         }
-        resp = requests.post(url, json=payload, headers=self._headers(), timeout=60)
+        old_default = socket.getdefaulttimeout()
+        try:
+            socket.setdefaulttimeout(PENDO_REQUEST_TIMEOUT_S)
+            resp = self._session.post(
+                url, json=payload, headers=self._headers(),
+                timeout=(10, PENDO_REQUEST_TIMEOUT_S),
+            )
+        finally:
+            socket.setdefaulttimeout(old_default)
         resp.raise_for_status()
         data = resp.json()
         result_count = len(data.get("results", [])) if isinstance(data.get("results"), list) else "?"
@@ -382,7 +399,8 @@ class PendoClient:
         """Get usage data for a customer over the last N days.
         If no visitor/account matches, falls back to site name matching (e.g. 'Safran' -> 'Safran Ventilation Systems').
         """
-        result = self.get_visitors(days=days)
+        partition = self._get_visitor_partition(days)
+        result = {"results": partition.get("all_visitors") or []}
         if "results" in result and isinstance(result["results"], list):
             result["results"] = [
                 r
@@ -455,10 +473,15 @@ class PendoClient:
         return metrics
 
     def get_sites(self, days: int = 30) -> dict[str, Any]:
-        """Get unique sites from visitor metadata (metadata.agent.siteid/sitename)."""
-        result = self.get_visitors(days=days)
+        """Get unique sites from visitor metadata (metadata.agent.siteid/sitename).
+
+        Uses the cached visitor partition when available (populated by ``preload``),
+        falling back to a raw ``get_visitors`` call only if the cache is cold.
+        """
+        partition = self._get_visitor_partition(days)
+        all_visitors = partition.get("all_visitors") or []
         sites: dict[int, dict[str, Any]] = {}
-        for r in result.get("results", []) or []:
+        for r in all_visitors:
             agent = (r.get("metadata") or {}).get("agent") or {}
             site_ids = agent.get("siteids") or ([agent["siteid"]] if agent.get("siteid") is not None else [])
             site_names = agent.get("sitenames") or ([agent["sitename"]] if agent.get("sitename") else [])
@@ -479,7 +502,8 @@ class PendoClient:
         self, site: str | int, days: int = 30, include_usage_metrics: bool = True
     ) -> dict[str, Any]:
         """Get usage data for visitors in a site (by site ID or site name)."""
-        result = self.get_visitors(days=days)
+        partition = self._get_visitor_partition(days)
+        result = {"results": partition.get("all_visitors") or []}
         site_str = str(site).strip()
         site_int = int(site) if site_str.isdigit() else None
 
@@ -671,9 +695,10 @@ class PendoClient:
 
     def get_sites_with_usage(self, days: int = 30) -> dict[str, Any]:
         """Get sites with visitor count and usage summary from the last N days."""
-        result = self.get_visitors(days=days)
+        partition = self._get_visitor_partition(days)
+        all_visitors = partition.get("all_visitors") or []
         sites: dict[int, dict[str, Any]] = {}
-        for r in result.get("results", []) or []:
+        for r in all_visitors:
             agent = (r.get("metadata") or {}).get("agent") or {}
             auto = (r.get("metadata") or {}).get("auto") or {}
             site_ids = agent.get("siteids") or ([agent["siteid"]] if agent.get("siteid") is not None else [])
@@ -741,7 +766,7 @@ class PendoClient:
 
     def get_page_catalog(self) -> dict[str, str]:
         """Fetch page catalog: {page_id: page_name}."""
-        resp = requests.get(
+        resp = self._session.get(
             f"{self.base_url}/page", headers=self._headers(), timeout=30
         )
         resp.raise_for_status()
@@ -750,7 +775,7 @@ class PendoClient:
 
     def get_feature_catalog(self) -> dict[str, str]:
         """Fetch feature catalog: {feature_id: feature_name}."""
-        resp = requests.get(
+        resp = self._session.get(
             f"{self.base_url}/feature", headers=self._headers(), timeout=30
         )
         resp.raise_for_status()
@@ -759,7 +784,7 @@ class PendoClient:
 
     def get_account_info(self, account_id: str) -> dict[str, Any]:
         """Fetch account metadata from REST API."""
-        resp = requests.get(
+        resp = self._session.get(
             f"{self.base_url}/account/{account_id}",
             headers=self._headers(),
             timeout=10,
@@ -794,13 +819,14 @@ class PendoClient:
     def _get_visitor_partition(self, days: int = 30) -> dict[str, Any]:
         """Fetch all visitors and partition by customer. Cached for 120s to avoid
         redundant API calls when the agent invokes multiple tools in sequence."""
-        now = time.time()
-        if self._visitor_cache and (now - self._visitor_cache_ts) < self._CACHE_TTL:
-            cached_days = self._visitor_cache.get("days")
-            if cached_days == days:
-                return self._visitor_cache
+        with self._cache_lock:
+            now = time.time()
+            if self._visitor_cache and (now - self._visitor_cache_ts) < self._CACHE_TTL:
+                cached_days = self._visitor_cache.get("days")
+                if cached_days == days:
+                    return self._visitor_cache
 
-        now_ms = int(now * 1000)
+        now_ms = int(time.time() * 1000)
         all_visitors = self.get_visitors(days=days).get("results", [])
 
         def _is_internal(v: dict) -> bool:
@@ -831,68 +857,78 @@ class PendoClient:
             "all_customer_stats": all_customer_stats,
             "_is_internal": _is_internal,
         }
-        self._visitor_cache = result
-        self._visitor_cache_ts = now
+        with self._cache_lock:
+            self._visitor_cache = result
+            self._visitor_cache_ts = time.time()
         return result
 
     def _get_page_events_cached(self, days: int) -> list[dict]:
-        if self._page_events_cache and self._cache_valid(self._page_events_cache_ts):
-            if self._page_events_cache.get("days") == days:
-                return self._page_events_cache["results"]
+        with self._cache_lock:
+            if self._page_events_cache and self._cache_valid(self._page_events_cache_ts):
+                if self._page_events_cache.get("days") == days:
+                    return self._page_events_cache["results"]
         ts = _time_series(days)
         results = self.aggregate([
             {"source": {"pageEvents": None, "timeSeries": ts}},
         ]).get("results", [])
-        self._page_events_cache = {"days": days, "results": results}
-        self._page_events_cache_ts = time.time()
+        with self._cache_lock:
+            self._page_events_cache = {"days": days, "results": results}
+            self._page_events_cache_ts = time.time()
         return results
 
     def _get_track_events_cached(self, days: int) -> list[dict]:
-        if self._track_events_cache and self._cache_valid(self._track_events_cache_ts):
-            if self._track_events_cache.get("days") == days:
-                return self._track_events_cache["results"]
+        with self._cache_lock:
+            if self._track_events_cache and self._cache_valid(self._track_events_cache_ts):
+                if self._track_events_cache.get("days") == days:
+                    return self._track_events_cache["results"]
         ts = _time_series(days)
         results = self.aggregate([
             {"source": {"events": None, "timeSeries": ts}},
         ]).get("results", [])
-        self._track_events_cache = {"days": days, "results": results}
-        self._track_events_cache_ts = time.time()
+        with self._cache_lock:
+            self._track_events_cache = {"days": days, "results": results}
+            self._track_events_cache_ts = time.time()
         return results
 
     def _get_guide_events_cached(self, days: int) -> list[dict]:
-        if self._guide_events_cache and self._cache_valid(self._guide_events_cache_ts):
-            if self._guide_events_cache.get("days") == days:
-                return self._guide_events_cache["results"]
+        with self._cache_lock:
+            if self._guide_events_cache and self._cache_valid(self._guide_events_cache_ts):
+                if self._guide_events_cache.get("days") == days:
+                    return self._guide_events_cache["results"]
         ts = _time_series(days)
         results = self.aggregate([
             {"source": {"guideEvents": None, "timeSeries": ts}},
         ]).get("results", [])
-        self._guide_events_cache = {"days": days, "results": results}
-        self._guide_events_cache_ts = time.time()
+        with self._cache_lock:
+            self._guide_events_cache = {"days": days, "results": results}
+            self._guide_events_cache_ts = time.time()
         return results
 
     def _get_page_catalog_cached(self) -> dict[str, str]:
-        if self._page_catalog_cache is not None:
-            return self._page_catalog_cache
-        self._page_catalog_cache = self.get_page_catalog()
-        return self._page_catalog_cache
+        with self._cache_lock:
+            if self._page_catalog_cache is not None:
+                return self._page_catalog_cache
+        result = self.get_page_catalog()
+        with self._cache_lock:
+            self._page_catalog_cache = result
+        return result
 
     def _get_guide_catalog_cached(self) -> dict[str, str]:
-        if self._guide_catalog_cache is not None:
-            return self._guide_catalog_cache
+        with self._cache_lock:
+            if self._guide_catalog_cache is not None:
+                return self._guide_catalog_cache
         try:
-            resp = requests.get(
+            resp = self._session.get(
                 f"{self.base_url}/guide",
                 headers={"x-pendo-integration-key": self.integration_key, "content-type": "application/json"},
                 timeout=30,
             )
-            if resp.ok:
-                self._guide_catalog_cache = {g["id"]: g.get("name", g["id"]) for g in resp.json()}
-            else:
-                self._guide_catalog_cache = {}
+            result = {g["id"]: g.get("name", g["id"]) for g in resp.json()} if resp.ok else {}
         except Exception:
-            self._guide_catalog_cache = {}
-        return self._guide_catalog_cache
+            result = {}
+        with self._cache_lock:
+            self._guide_catalog_cache = result
+        return result
 
     def _get_usage_by_site_cached(self, days: int) -> dict[str, Any]:
         if self._usage_by_site_cache and self._cache_valid(self._usage_by_site_cache_ts):
@@ -919,7 +955,7 @@ class PendoClient:
         Fetches all data sources in parallel to minimize wall-clock time."""
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        self._CACHE_TTL = 3600
+        PendoClient._CACHE_TTL = 3600
         logger.info("Preloading global data for %d-day window (parallel)...", days)
         t0 = time.time()
 
@@ -1155,40 +1191,6 @@ class PendoClient:
                 "cohort_name": _COHORT_DISPLAY.get(cust_cohort, cust_cohort.replace("_", " ").title()) if cust_cohort else "",
                 "cohort_median_rate": round(cohort_median * 100, 1) if cohort_median is not None else None,
                 "cohort_count": len(cohort_peer_rates),
-                "data_traces": [
-                    {
-                        "description": "Weekly active rate (this account)",
-                        "source": "Pendo",
-                        "query": (
-                            "active_7d / total_visitors over the report window; "
-                            "7-day activity from visitor time-bucket aggregation"
-                        ),
-                    },
-                    {
-                        "description": "All-customer median active rate",
-                        "source": "Pendo",
-                        "query": (
-                            "Median of the same weekly active rate across accounts "
-                            "with Pendo data in the same period (peer_count in payload)"
-                        ),
-                    },
-                    {
-                        "description": "Cohort median active rate (when shown)",
-                        "source": "Pendo + cohorts.yaml",
-                        "query": (
-                            "Median among accounts in the same manufacturing cohort "
-                            "(get_customer_cohort / cohorts.yaml); only if cohort n≥3"
-                        ),
-                    },
-                    {
-                        "description": "Account size (users, sites) on slide",
-                        "source": "Pendo",
-                        "query": (
-                            "account.total_visitors, account.total_sites from visitor records "
-                            "and sitenames metadata for this customer"
-                        ),
-                    },
-                ],
             },
             "signals": signals,
         }
@@ -1945,42 +1947,69 @@ class PendoClient:
 
     # ── Portfolio-level methods (cross-customer analysis) ──
 
+    def _portfolio_customer_summary(self, name: str, days: int) -> dict[str, Any] | None:
+        """Compute a single customer's portfolio summary (called from thread pool)."""
+        h = self.get_customer_health(name, days)
+        if "error" in h:
+            return None
+        depth = self.get_customer_depth(name, days)
+        kei = self.get_customer_kei(name, days)
+        guides = self.get_customer_guides(name, days)
+        exports = self.get_customer_exports(name, days)
+        return {
+            "customer": name,
+            "engagement": h.get("engagement", {}),
+            "benchmarks": h.get("benchmarks", {}),
+            "signals": h.get("signals", []),
+            "score": h.get("engagement", {}).get("score", 0),
+            "active_users": h.get("engagement", {}).get("active_users", 0),
+            "total_users": h.get("engagement", {}).get("total_users", 0),
+            "login_pct": h.get("engagement", {}).get("login_pct", 0),
+            "depth": depth,
+            "kei": kei,
+            "guides": guides,
+            "exports": exports,
+        }
+
     def get_portfolio_report(self, days: int = 30, max_customers: int | None = None) -> dict[str, Any]:
         """Full portfolio report for the book-of-business deck.
-        Calls preload() then iterates all customers."""
+        Calls preload() then iterates all customers in parallel."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         self.preload(days)
         by_customer = self.get_sites_by_customer(days)
         all_names = [c for c in by_customer["customer_list"] if c != "(unknown)"]
         if max_customers:
             all_names = all_names[:max_customers]
 
-        customer_summaries: list[dict[str, Any]] = []
-        for name in all_names:
-            try:
-                h = self.get_customer_health(name, days)
-                if "error" in h:
-                    continue
-                depth = self.get_customer_depth(name, days)
-                kei = self.get_customer_kei(name, days)
-                guides = self.get_customer_guides(name, days)
-                exports = self.get_customer_exports(name, days)
-                customer_summaries.append({
-                    "customer": name,
-                    "engagement": h.get("engagement", {}),
-                    "benchmarks": h.get("benchmarks", {}),
-                    "signals": h.get("signals", []),
-                    "score": h.get("engagement", {}).get("score", 0),
-                    "active_users": h.get("engagement", {}).get("active_users", 0),
-                    "total_users": h.get("engagement", {}).get("total_users", 0),
-                    "login_pct": h.get("engagement", {}).get("login_pct", 0),
-                    "depth": depth,
-                    "kei": kei,
-                    "guides": guides,
-                    "exports": exports,
-                })
-            except Exception as e:
-                logger.debug("Skipping %s: %s", name, e)
+        total = len(all_names)
+        logger.info("Portfolio: processing %d customers (parallel, 8 workers)", total)
+        t0 = time.time()
 
+        customer_summaries: list[dict[str, Any]] = []
+        done = 0
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            futures = {
+                pool.submit(self._portfolio_customer_summary, name, days): name
+                for name in all_names
+            }
+            for fut in as_completed(futures):
+                name = futures[fut]
+                done += 1
+                if done == 1 or done % 25 == 0 or done == total:
+                    logger.info("Portfolio: completed %d/%d (%.0fs elapsed)", done, total, time.time() - t0)
+                try:
+                    row = fut.result()
+                    if row is not None:
+                        customer_summaries.append(row)
+                except Exception as e:
+                    logger.debug("Skipping %s: %s", name, e)
+
+        customer_summaries.sort(key=lambda r: r["customer"])
+        logger.info(
+            "Portfolio: computed %d customer summaries in %.1fs, building cohort rollup",
+            len(customer_summaries), time.time() - t0,
+        )
         cohort_digest, cohort_findings_bullets = compute_cohort_portfolio_rollup(customer_summaries)
 
         return {
