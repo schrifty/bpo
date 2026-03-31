@@ -185,10 +185,12 @@ Inventory Turns
 
 #### When to use KPI boxes (outlined metric cards)
 
-Use the shared **KPI box** pattern (light fill **``LIGHT``**, **~1 pt** gray outline via **``_bar_rect``** / **``_kpi_metric_card``** in code — same chrome as HELP ticket metrics) when:
+**Universal rule:** Any automated slide that shows an **outlined KPI metric tile** (light panel + metric name + headline number) must render it **only** via **``_kpi_metric_card``** in ``src/slides_client.py``. Do **not** hand-roll separate label and value text boxes: styling is defined once there so every deck stays consistent.
+
+The shared **KPI box** pattern is: light fill **``LIGHT``**, **~1 pt** gray outline (**``_bar_rect``** inside **``_kpi_metric_card``**), **metric label** at **``KPI_METRIC_LABEL_PT``** (**10 pt**) in **``BLACK``**, **primary value** bold in a caller-chosen accent (default **``NAVY``** when ``accent`` is omitted). **``_kpi_metric_card``** applies label and value styles with **``textRange: ALL``** so Slides’ implicit paragraph marker does not leave text in the theme’s default gray. Use this when:
 
 - The slide’s main point is **one to six headline numbers** (rates, counts, scores, medians, dollars) that the audience should read **at a glance** in parallel.
-- Each metric fits **one short label** (metric name or peer context, typically **≤ ~44 characters** on one line; truncate with an ellipsis if the cohort name is long) and **one primary value** (bold, accent color where hierarchy matters).
+- Each metric fits **one short label** (metric name or peer context, typically **≤ ~44 characters** on one line; truncate with an ellipsis if the cohort name is long) and **one primary value** (bold accent — semantic colors such as **``_RED``** for thresholds are still passed as ``accent``).
 - You are **not** trying to fit a full sentence, bullet list, or multi-line caveat **inside** the same rectangle.
 
 **Do not** put the KPI chrome on:
@@ -197,15 +199,15 @@ Use the shared **KPI box** pattern (light fill **``LIGHT``**, **~1 pt** gray out
 - Table cells, chart axes, rank labels, or footnotes.
 - Titles and section headers (use **``_slide_title``** / dividers, not metric cards).
 
-**Peer Benchmarks** slide: **This account** weekly active rate, **peer / cohort median**, and (when shown) **all-customer median** must use **KPI boxes** in one row; delta, account size, and qualitative bullets stay in a **separate** body text region under the row.
+**Peer Benchmarks** and **Platform Value & ROI** headline KPI rows: use **``BLUE``** for **every** KPI **value** in that row (single accent per slide). **Peer Benchmarks** also uses **``BLUE``** for the narrative body under the row. Delta / account-size lines are not KPI tiles.
 
-**BPO slide builders that use KPI boxes today** (``_kpi_metric_card``): **Customer ticket metrics** (HELP dashboard), **Peer Benchmarks**, **Platform Value & ROI** (three headline metrics + a gray **subline** under the row for POs / overdue tasks — not inside the cards), **Supply Chain Overview** (portfolio on-hand / on-order / excess above the factory table), **Kei AI Adoption** (queries, adoption %, users with queries — executive pill and user list stay outside the cards), **Behavioral Depth** (feature interactions, active users, write ratio — then charts), **Engagement Breakdown** (three tier counts in a full-width row — donut and role lists sit below). **Not** converted when the “header” is narrative, a dynamic sentence, or a table-only layout: e.g. **Account Health Snapshot** (multi-line composite + dimensions), **Platform Health** (distribution + shortages as one summary line), **Export Behavior** (single header + lists), **Data cross-validation** (comparison prose + table).
+**BPO slide builders that use KPI boxes today** (all via ``_kpi_metric_card``): **Customer ticket metrics** (HELP dashboard), **Peer Benchmarks**, **Platform Value & ROI** (three headline metrics + a gray **subline** under the row for POs / overdue tasks — not inside the cards), **Supply Chain Overview** (portfolio on-hand / on-order / excess above the factory table), **Kei AI Adoption** (queries, adoption %, users with queries — executive pill and user list stay outside the cards), **Behavioral Depth** (feature interactions, active users, write ratio — then charts), **Engagement Breakdown** (three tier counts in a full-width row — donut and role lists sit below), **Engineering — Support Pressure** (stacked KPI column beside the priority bar chart). **Not** converted when the “header” is narrative, a dynamic sentence, or a table-only layout: e.g. **Account Health Snapshot** (multi-line composite + dimensions), **Platform Health** (distribution + shortages as one summary line), **Export Behavior** (single header + lists), **Data cross-validation** (comparison prose + table).
 
 #### Compact KPI tiles (mixed layouts)
 
 On slides that **pair KPI rows with charts, tables, or other body content**, card height is usually **tight** (on the order of **50–56 pt** tall). For those tiles:
 
-- Use **only two visual lines inside the box**: **metric label** (small, secondary color) and **primary value** (large, emphasis color).  
+- Use **only two visual lines inside the box**: **metric label** (**``KPI_METRIC_LABEL_PT``** / **10 pt**, **``BLACK``**) and **primary value** (large, bold accent from the ``accent`` argument).  
 - **Do not** add a third line of explanatory or qualifying text inside the same box unless you **increase card height** materially (for example **≥ 72 pt**), verify in a thumbnail export, and leave clearance above **``BODY_BOTTOM``**. Clipped footlines read as a bug, not a feature.  
 - Put definitions, denominators (“21 of 26 met SLAs”), averages, and caveats in **speaker notes**, a **metric bar under the slide title**, or a **separate callout**—not inside a short KPI rectangle.
 
@@ -608,7 +610,9 @@ JQL used:
 
 - Report payloads store ``jql_queries`` as a list of objects: ``{"description": "…", "jql": "…"}``. Plain strings are still accepted for backward compatibility and are shown with description `[Jira issue search]`.  
 - New Jira fetches must supply a **description** at record time (e.g. ``_search(..., data_description="…")`` or ``_record_jql(jql, description="…")``).
-- Slides that are **not** Jira-backed but still need trace lines (e.g. **Peer Benchmarks**) should attach ``data_traces`` on the relevant report subtree: a list of ``{"description": "…", "source": "Pendo", "query": "…"}`` where **query** is a short pipeline / field explanation (not necessarily executable SQL). ``_build_slide_jql_speaker_notes`` merges these into the same ``description: source - query`` lines as Jira.
+- **Pipeline trace descriptions must match on-slide copy.** For each automated metric row or KPI card, the speaker-note **description** (the text before ``:`` in ``description: source - query``) must be the **same header/label as on the slide**—not a paraphrase (e.g. use **Active This Week**, not “weekly active rate for this account”). Implement shared constants in ``src/slides_client.py`` so slide bodies and canonical trace builders cannot drift.
+- **Account Health Snapshot** (``slide_type`` ``health``), **Peer Benchmarks** (``benchmarks``), and **Platform Value & ROI** (``platform_value``) use built-in canonical pipeline rows in ``_SLIDE_CANONICAL_PIPELINE_TRACES`` (on-slide KPI labels plus CS Report field provenance; headline numbers echoed in the trace text). Do not rely on ad-hoc ``data_traces`` in the payload for those slides.
+- Other slides that are not Jira-backed but still need trace lines may attach ``data_traces`` on the relevant report subtree: a list of ``{"description": "…", "source": "…", "query": "…"}`` where **description** matches the visible slide label and **query** is a short pipeline / field explanation (not necessarily executable SQL). ``_build_slide_jql_speaker_notes`` merges these into the same ``description: source - query`` lines as Jira when no canonical builder applies.
 
 ---
 
