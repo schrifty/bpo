@@ -18,6 +18,8 @@ def main() -> None:
             sys.exit(2)
         from src.qbr_template import run_qbr_from_template
 
+        import time as _time
+        _qbr_t0 = _time.monotonic()
         logger.info("QBR run for customer query: %s", customer)
         result = run_qbr_from_template(customer)
         if result.get("error"):
@@ -57,6 +59,9 @@ def main() -> None:
                     f"  [{label}] no URL in result (unexpected — see bpo logs for this companion)",
                     flush=True,
                 )
+        elapsed = _time.monotonic() - _qbr_t0
+        mins, secs = divmod(int(elapsed), 60)
+        logger.info("QBR complete in %dm %02ds", mins, secs)
         return
 
     parser = argparse.ArgumentParser(

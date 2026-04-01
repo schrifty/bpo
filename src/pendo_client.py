@@ -251,7 +251,6 @@ def compute_cohort_portfolio_rollup(
             display = _COHORT_DISPLAY.get(cid, cid.replace("_", " ").title())
         logins = [float(r.get("login_pct") or 0) for r in rows]
         writes = [float((r.get("depth") or {}).get("write_ratio") or 0) for r in rows]
-        scores = [float(r.get("score") or 0) for r in rows]
         exports = [float((r.get("exports") or {}).get("total_exports") or 0) for r in rows]
         kei_yes = sum(1 for r in rows if (r.get("kei") or {}).get("total_queries", 0) > 0)
         n = len(rows)
@@ -262,7 +261,6 @@ def compute_cohort_portfolio_rollup(
             "customers": sorted(r.get("customer", "") for r in rows),
             "median_login_pct": _median_nums(logins),
             "median_write_ratio": _median_nums(writes),
-            "median_score": _median_nums(scores),
             "median_exports": _median_nums(exports),
             "kei_adoption_pct": round(100.0 * kei_yes / n, 1) if n else 0.0,
             "total_active_users": sum(int(r.get("active_users") or 0) for r in rows),
@@ -976,7 +974,7 @@ class PendoClient:
                 name = futures[fut]
                 try:
                     fut.result()
-                    logger.info("  %s: OK", name)
+                    logger.debug("  %s: OK", name)
                 except Exception as e:
                     logger.warning("  %s: FAILED (%s)", name, e)
 
@@ -1955,15 +1953,17 @@ class PendoClient:
         kei = self.get_customer_kei(name, days)
         guides = self.get_customer_guides(name, days)
         exports = self.get_customer_exports(name, days)
+        eng = h.get("engagement", {})
+        total_v = h.get("account", {}).get("total_visitors", 0)
+        active_7d = eng.get("active_7d", 0)
         return {
             "customer": name,
-            "engagement": h.get("engagement", {}),
+            "engagement": eng,
             "benchmarks": h.get("benchmarks", {}),
             "signals": h.get("signals", []),
-            "score": h.get("engagement", {}).get("score", 0),
-            "active_users": h.get("engagement", {}).get("active_users", 0),
-            "total_users": h.get("engagement", {}).get("total_users", 0),
-            "login_pct": h.get("engagement", {}).get("login_pct", 0),
+            "active_users": active_7d,
+            "total_users": total_v,
+            "login_pct": eng.get("active_rate_7d", 0),
             "depth": depth,
             "kei": kei,
             "guides": guides,
@@ -2118,8 +2118,6 @@ class PendoClient:
                 lambda s: s.get("kei", {}).get("adoption_rate", 0), "adoption_rate"),
             "executive_engagement": _top(
                 lambda s: s.get("kei", {}).get("executive_users", 0), "executives"),
-            "engagement_score": _top(
-                lambda s: s.get("score", 0), "score"),
             "write_depth": _top(
                 lambda s: s.get("depth", {}).get("write_ratio", 0), "write_ratio"),
             "export_intensity": _top(

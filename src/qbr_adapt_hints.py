@@ -513,8 +513,8 @@ def apply_hint_mutations_to_presentation(
             continue
         muts = collect_hint_mutations_from_slide(slide)
         if not muts:
-            logger.info("QBR adapt hints — slide %s: no structural mutations (extraction had text but no API spans?)",
-                        row.get("slide_num", "?"))
+            logger.debug("QBR adapt hints — slide %s: no structural mutations (extraction had text but no API spans?)",
+                         row.get("slide_num", "?"))
             continue
         add_banner = title_slide_object_id is None or pid != title_slide_object_id
         chunk, content_n = hint_mutations_to_batch_requests(
@@ -525,7 +525,7 @@ def apply_hint_mutations_to_presentation(
         n_slides += 1
         total_reqs += len(chunk)
         all_reqs.extend(chunk)
-        logger.info(
+        logger.debug(
             "QBR adapt hints — slide %s: queued %d text mutation(s)%s",
             row.get("slide_num", "?"),
             content_n,
@@ -849,14 +849,14 @@ def log_extracted_hints(rows: list[dict[str, Any]]) -> None:
         any_content = True
         sn = row.get("slide_num", "?")
         title = (row.get("title_guess") or "")[:80]
-        logger.info("QBR adapt hints — slide %s %r: yellow=%d segment(s), orange=%d segment(s)",
-                    sn, title, len(y), len(o))
+        logger.debug("QBR adapt hints — slide %s %r: yellow=%d segment(s), orange=%d segment(s)",
+                     sn, title, len(y), len(o))
         for i, seg in enumerate(y):
             t = seg if len(seg) <= max_seg else seg[:max_seg] + "…"
-            logger.info("QBR adapt hints — slide %s yellow[%d]: %s", sn, i, t.replace("\n", " "))
+            logger.debug("QBR adapt hints — slide %s yellow[%d]: %s", sn, i, t.replace("\n", " "))
         for i, seg in enumerate(o):
             t = seg if len(seg) <= max_seg else seg[:max_seg] + "…"
-            logger.info("QBR adapt hints — slide %s orange[%d]: %s", sn, i, t.replace("\n", " "))
+            logger.debug("QBR adapt hints — slide %s orange[%d]: %s", sn, i, t.replace("\n", " "))
     if not any_content:
         logger.info(
             "QBR adapt hints: no yellow/orange-styled text detected on slides slated for adaptation "
@@ -884,7 +884,7 @@ def log_llm_hints_result(result: dict[str, Any]) -> None:
         adv = str(ent.get("advice", "") or "")
         adv_t = adv if len(adv) <= 350 else adv[:350] + "…"
         reason = str(ent.get("reason", "") or "")
-        logger.info(
+        logger.debug(
             "QBR adapt hints — slide %s LLM useful=%s reason=%r advice=%s",
             sn,
             u,

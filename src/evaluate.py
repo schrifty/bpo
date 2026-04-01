@@ -545,7 +545,7 @@ def _print(*args, **kwargs):
     end = kwargs.pop("end", "\n")
     sep = kwargs.pop("sep", " ")
     msg = sep.join(str(a) for a in args)
-    logger.info("%s: %s", _print_context, msg.rstrip())
+    logger.debug("%s: %s", _print_context, msg.rstrip())
     print(msg, end=end, flush=True)
 
 
@@ -782,7 +782,7 @@ def _log_intake_decks_for_run(queue: list[dict[str, Any]], *, log_prefix: str) -
     """Log each presentation that will be processed (group intake)."""
     for p in queue:
         g = p.get("group_email") or GOOGLE_HYDRATE_INTAKE_GROUP or ""
-        logger.info(
+        logger.debug(
             "%s: deck %r id=%s — shared with group %s",
             log_prefix,
             p["name"],
@@ -1084,11 +1084,11 @@ def evaluate_new_slides(verbose: bool = False) -> list[dict[str, Any]]:
             if cache_key:
                 analysis = _get_cached_slide_analysis(cache_key)
                 if analysis:
-                    logger.info("evaluate: [%d/%d] analysis cache hit", si, len(slides))
+                    logger.debug("evaluate: [%d/%d] analysis cache hit", si, len(slides))
                     eval_cache["analysis_hit"] += 1
                 else:
-                    logger.info("evaluate: [%d/%d] analyzing slide (data ask + purpose)...",
-                                si, len(slides))
+                    logger.debug("evaluate: [%d/%d] analyzing slide (data ask + purpose)...",
+                                 si, len(slides))
                     analysis = _analyze_slide_broad(
                         client, slide_text, elements, thumb_b64, si, len(slides), pres_name
                     )
@@ -1249,7 +1249,7 @@ def visual_qa(pres_id: str, slides_svc=None) -> list[dict[str, Any]]:
             except Exception as e:
                 logger.warning("QA: thumbnail download failed for slide %d/%d: %s", si, n, e)
 
-        logger.info("QA: slide %d/%d — reviewing with %s...", si, n, LLM_MODEL)
+        logger.debug("QA: slide %d/%d — reviewing with %s...", si, n, LLM_MODEL)
         resp = _llm_create_with_retry(oai,
             model=LLM_MODEL,
             temperature=0,
@@ -2632,7 +2632,7 @@ def adapt_custom_slides(
     else:
         for page_id in page_ids:
             slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
-            logger.info("hydrate: adapt slide %s — fetching thumbnail...", slide_num)
+            logger.debug("hydrate: adapt slide %s — fetching thumbnail...", slide_num)
             try:
                 thumb_urls[page_id] = _get_slide_thumbnail_url(slides_svc, pres_id, page_id)
             except Exception as e:
@@ -2665,8 +2665,8 @@ def adapt_custom_slides(
         if slide_cache_key:
             analysis = _get_cached_slide_analysis(slide_cache_key)
             if analysis and analysis.get("data_ask"):
-                logger.info("hydrate: adapt slide %s — analysis cache hit (resolving data ask)",
-                            slide_num)
+                logger.debug("hydrate: adapt slide %s — analysis cache hit (resolving data ask)",
+                             slide_num)
                 replacements = _resolve_data_ask_to_replacements(
                     analysis["data_ask"], data_summary, text_elements
                 )
@@ -2677,14 +2677,14 @@ def adapt_custom_slides(
             else:
                 cached = None
             if cached is not None:
-                logger.info("hydrate: adapt slide %s — adapt cache hit", slide_num)
+                logger.debug("hydrate: adapt slide %s — adapt cache hit", slide_num)
                 replacements = _resolve_cached_replacements(cached, data_summary)
                 replacements = _ensure_charts_and_images_marked(text_elements, replacements)
                 return page_id, text_elements, replacements, "adapt_hit", analysis
         n_total = len(text_elements)
         n_data = sum(1 for el in text_elements if _element_may_contain_data(el))
-        logger.info("hydrate: adapt slide %s — asking %s (%d/%d elements contain data)...",
-                    slide_num, LLM_MODEL, n_data, n_total)
+        logger.debug("hydrate: adapt slide %s — asking %s (%d/%d elements contain data)...",
+                     slide_num, LLM_MODEL, n_data, n_total)
         replacements = _get_data_replacements(oai, text_elements, data_summary, thumb_b64,
                                               slide_label=str(slide_num))
         replacements = _ensure_charts_and_images_marked(text_elements, replacements)
@@ -3070,7 +3070,7 @@ def _remove_intake_group_permission_from_file(drive_svc, file_id: str, group_ema
                     supportsAllDrives=True,
                 ).execute()
                 removed += 1
-                logger.info(
+                logger.debug(
                     "hydrate: removed Drive permission for %s from file %s",
                     ge,
                     file_id,
@@ -3178,8 +3178,8 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
             elements = _describe_elements(slide)
             title_guess = texts[0][:60] if texts else "(no text)"
 
-            logger.info("hydrate: [%d/%d] fetching thumbnail — %s",
-                        si, len(source_slides), title_guess)
+            logger.debug("hydrate: [%d/%d] fetching thumbnail — %s",
+                         si, len(source_slides), title_guess)
             try:
                 thumb_b64 = _get_slide_thumbnail_b64(slides_svc, source_id, slide["objectId"])
             except Exception:
@@ -3191,7 +3191,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
             if cache_key:
                 analysis = _get_cached_slide_analysis(cache_key)
                 if analysis:
-                    logger.info("hydrate: [%d/%d] slide analysis cache hit", si, len(source_slides))
+                    logger.debug("hydrate: [%d/%d] slide analysis cache hit", si, len(source_slides))
                     class_cache["analysis_hit"] += 1
                     classification = {
                         "slide_type": analysis.get("slide_type", "custom"),
@@ -3202,19 +3202,19 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
                 else:
                     classification = _get_cached_classification(cache_key)
                     if classification:
-                        logger.info("hydrate: [%d/%d] classification cache hit", si, len(source_slides))
+                        logger.debug("hydrate: [%d/%d] classification cache hit", si, len(source_slides))
                         class_cache["legacy_classification_hit"] += 1
                     else:
-                        logger.info("hydrate: [%d/%d] analyzing slide (data ask + purpose)...",
-                                    si, len(source_slides))
+                        logger.debug("hydrate: [%d/%d] analyzing slide (data ask + purpose)...",
+                                     si, len(source_slides))
                         classification = _analyze_slide_broad(
                             oai, slide_text, elements, thumb_b64, si, len(source_slides), pres_name
                         )
                         _set_cached_slide_analysis(cache_key, classification)
                         class_cache["fresh_analysis"] += 1
             else:
-                logger.info("hydrate: [%d/%d] classifying slide (no cache key)...",
-                            si, len(source_slides))
+                logger.debug("hydrate: [%d/%d] classifying slide (no cache key)...",
+                             si, len(source_slides))
                 classification = _classify_slide(
                     oai, slide_text, elements, thumb_b64, si, len(source_slides), pres_name
                 )
@@ -3425,7 +3425,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
                 st = (sp.get("slide_type") or "custom").strip()
                 if st in _HYDRATE_SKIP_TEXT_ADAPT_TYPES:
                     n_skip_adapt += 1
-                    logger.info(
+                    logger.debug(
                         "hydrate: skipping text adaptation for slide_type=%s (%s)",
                         st,
                         (sp.get("title") or "")[:60],

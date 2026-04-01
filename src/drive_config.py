@@ -195,7 +195,7 @@ def sync_config_to_drive(
             fid = existing.get(f.name) if overwrite else None
             _upload_file(f.name, content, drive_folder, file_id=fid)
             stats[f"{label}_uploaded"] += 1
-            logger.info("Uploaded %s/%s to Drive", label, f.name)
+            logger.debug("Uploaded %s/%s to Drive", label, f.name)
 
     return stats
 

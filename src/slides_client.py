@@ -160,8 +160,51 @@ class _HealthSnapshotLabels:
 
 
 def _truncate_kpi_card_label(s: str, max_len: int = 44) -> str:
+    """Truncate a KPI label to *max_len* characters.
+
+    Prefer the width-aware logic inside ``_kpi_metric_card`` (which
+    dynamically adjusts font size *and* truncates based on actual card
+    geometry).  This function is a static safety net for call-sites that
+    build labels before passing them to the card helper.
+    """
     s = (s or "").strip()
     return s if len(s) <= max_len else f"{s[: max_len - 1]}…"
+
+
+_KPI_LABEL_CHAR_WIDTH_FACTOR = 0.55
+"""Approximate average character width as a fraction of font-size (pt)
+for Roboto / sans-serif mixed-case text.  Conservative (slightly wide)
+so truncation errs on the side of fitting."""
+
+_KPI_LABEL_MIN_PT = 8.0
+"""Smallest font we'll auto-shrink a KPI label to before truncating."""
+
+
+def _fit_kpi_label(label: str, inner_w: float, label_pt: float) -> tuple[str, float]:
+    """Return *(possibly truncated label, possibly reduced font size)*.
+
+    Strategy: estimate rendered width from character count and font size.
+    If the label is too wide, first try shrinking font (down to
+    ``_KPI_LABEL_MIN_PT``).  If still too wide, truncate.
+    """
+    label = (label or "").strip()
+    if not label:
+        return label, label_pt
+
+    def _max_chars(pt: float) -> int:
+        return max(6, int(inner_w / (_KPI_LABEL_CHAR_WIDTH_FACTOR * pt)))
+
+    if len(label) <= _max_chars(label_pt):
+        return label, label_pt
+
+    pt = label_pt
+    while pt > _KPI_LABEL_MIN_PT:
+        pt -= 0.5
+        if len(label) <= _max_chars(pt):
+            return label, pt
+
+    mc = _max_chars(pt)
+    return (f"{label[: mc - 1]}…", pt) if len(label) > mc else (label, pt)
 
 
 def _date_range(days: int, quarter_label: str | None = None,
@@ -397,7 +440,7 @@ def presentations_batch_update_chunked(
     size = min(size, _GOOGLE_SLIDES_MAX_SUBREQUESTS_PER_BATCH // 20)
     n = len(requests)
     if n > size:
-        logger.info(
+        logger.debug(
             "Slides batchUpdate: sending %d subrequest(s) in %d chunk(s) (max %d per call)",
             n,
             (n + size - 1) // size,
@@ -522,10 +565,10 @@ def _kpi_metric_card(
 ) -> None:
     """Outlined KPI tile — all decks use this helper; black label, bold accent value. See SLIDE_DESIGN_STANDARDS."""
     accent = accent or NAVY
-    label = _truncate_kpi_card_label(label)
     _bar_rect(reqs, oid_base, sid, x, y, w, h, LIGHT, outline=GRAY)
     pad = 10.0
     inner_w = max(40.0, w - 2 * pad)
+    label, label_pt = _fit_kpi_label(label, inner_w, label_pt)
     _box(reqs, f"{oid_base}_l", sid, x + pad, y + 8, inner_w, 12, label)
     # Use ALL so styling covers the full text (Slides may reserve index 0 for a paragraph marker;
     # FIXED_RANGE 0..len(label) often leaves the visible run in theme gray).
@@ -977,8 +1020,6 @@ def _platform_value_pipeline_traces(report: dict[str, Any]) -> list[dict[str, st
     ts = float(cs.get("total_savings") or 0)
     to = float(cs.get("total_open_ia_value") or 0)
     tr = int(cs.get("total_recs_created_30d") or 0)
-    if ts == 0 and to == 0 and tr == 0:
-        return []
     tp = int(cs.get("total_pos_placed_30d") or 0)
     td = int(cs.get("total_overdue_tasks") or 0)
     fc = int(cs.get("factory_count") or 0)
@@ -3203,10 +3244,9 @@ def _portfolio_leaders_slide(reqs, sid, report, idx):
     categories = [
         ("kei_adoption", "Kei AI Adoption", "adoption_rate", "%"),
         ("executive_engagement", "Executive Engagement", "executives", ""),
-        ("engagement_score", "Engagement Score", "score", ""),
         ("write_depth", "Write Depth", "write_ratio", "%"),
         ("export_intensity", "Export Volume", "total_exports", ""),
-        ("login_rate", "Login Rate", "login_pct", "%"),
+        ("login_rate", "Weekly Active Rate", "login_pct", "%"),
     ]
 
     col_w = (CONTENT_W - 20) // 3
@@ -3288,11 +3328,12 @@ def _cohort_profiles_slide(reqs, sid, report, idx) -> int | tuple[int, list[str]
     digest = report.get("cohort_digest") or {}
     rows = sorted(
         [(k, v) for k, v in digest.items() if isinstance(v, dict) and int(v.get("n") or 0) > 0],
-        key=lambda x: -int(x[1].get("n") or 0),
+        key=lambda x: (x[0] == "unclassified", -int(x[1].get("n") or 0)),
     )[:_COHORT_PROFILE_MAX_SLIDES]
     if not rows:
         return _missing_data_slide(reqs, sid, report, idx, "cohort_digest (no customers in cohort buckets)")
 
+    total_customers = report.get("customer_count", 0)
     oids: list[str] = []
     num = len(rows)
     for pi, (_cid, block) in enumerate(rows):
@@ -3300,41 +3341,40 @@ def _cohort_profiles_slide(reqs, sid, report, idx) -> int | tuple[int, list[str]
         oids.append(page_sid)
         _slide(reqs, page_sid, idx + pi)
         _bg(reqs, page_sid, WHITE)
-        ttl = block["display_name"] if num == 1 else f"{block['display_name']} ({pi + 1} of {num})"
+        cohort_n = block["n"]
+        ttl = f"{block['display_name']} ({cohort_n} of {total_customers} customers)"
         _slide_title(reqs, page_sid, ttl)
 
         mlogin = block.get("median_login_pct")
         mlogin_s = "—" if mlogin is None else f"{mlogin}%"
         mw = block.get("median_write_ratio")
         mw_s = "—" if mw is None else f"{mw}%"
-        ms = block.get("median_score")
-        ms_s = "—" if ms is None else str(ms)
         me = block.get("median_exports")
         me_s = "—" if me is None else f"{me:.0f}"
 
         hdr = (
-            f"{block['n']} customers  ·  {block['total_active_users']:,} active / "
+            f"{block['total_active_users']:,} active / "
             f"{block['total_users']:,} licensed users"
         )
-        _box(reqs, f"{page_sid}_hdr", page_sid, MARGIN, BODY_Y, CONTENT_W, 18, hdr)
-        _style(reqs, f"{page_sid}_hdr", 0, len(hdr), size=10, color=GRAY, font=FONT)
+        _box(reqs, f"{page_sid}_hdr", page_sid, MARGIN, BODY_Y, CONTENT_W, 20, hdr)
+        _style(reqs, f"{page_sid}_hdr", 0, len(hdr), size=12, color=GRAY, font=FONT)
 
         stats = (
-            f"Median login {mlogin_s}  ·  median write ratio {mw_s}  ·  median score {ms_s}  ·  "
-            f"Kei adoption {block.get('kei_adoption_pct', 0)}%  ·  median exports {me_s}"
+            f"Median active rate {mlogin_s}  ·  write ratio {mw_s}  ·  "
+            f"Kei adoption {block.get('kei_adoption_pct', 0)}%  ·  tracked exports {me_s}"
         )
-        _box(reqs, f"{page_sid}_st", page_sid, MARGIN, BODY_Y + 22, CONTENT_W, 36, stats)
-        _style(reqs, f"{page_sid}_st", 0, len(stats), size=10, color=NAVY, font=FONT)
+        _box(reqs, f"{page_sid}_st", page_sid, MARGIN, BODY_Y + 24, CONTENT_W, 36, stats)
+        _style(reqs, f"{page_sid}_st", 0, len(stats), size=12, color=NAVY, font=FONT)
 
         names = ", ".join(block.get("customers") or [])
         if len(names) > 420:
             names = names[:417] + "…"
         body = f"Accounts\n{names}"
         _wrap_box(
-            reqs, f"{page_sid}_acc", page_sid, MARGIN, BODY_Y + 64, CONTENT_W, BODY_BOTTOM - BODY_Y - 72, body,
+            reqs, f"{page_sid}_acc", page_sid, MARGIN, BODY_Y + 66, CONTENT_W, BODY_BOTTOM - BODY_Y - 74, body,
         )
-        _style(reqs, f"{page_sid}_acc", 0, len(body), size=9, color=NAVY, font=FONT)
-        _style(reqs, f"{page_sid}_acc", 0, len("Accounts"), bold=True, size=10, color=BLUE, font=FONT)
+        _style(reqs, f"{page_sid}_acc", 0, len(body), size=11, color=NAVY, font=FONT)
+        _style(reqs, f"{page_sid}_acc", 0, len("Accounts"), bold=True, size=12, color=BLUE, font=FONT)
 
     if num == 1:
         return idx + 1
@@ -3743,9 +3783,6 @@ def _platform_value_slide(reqs, sid, report, idx):
     total_open = cs.get("total_open_ia_value", 0)
     total_recs = cs.get("total_recs_created_30d", 0)
     site_list = cs.get("sites", [])
-
-    if total_savings == 0 and total_open == 0 and total_recs == 0:
-        return _missing_data_slide(reqs, sid, report, idx, "platform value / ROI (savings, pipeline, recommendations)")
 
     total_pos = cs.get("total_pos_placed_30d", 0)
     total_overdue = cs.get("total_overdue_tasks", 0)
@@ -6497,7 +6534,7 @@ def create_health_decks_for_customers(
 
     def _build_one(idx_name: tuple[int, str]) -> dict[str, Any]:
         i, name = idx_name
-        logger.info("Generating deck %d/%d: %s (%s)", i + 1, len(customers), name, deck_id)
+        logger.debug("Generating deck %d/%d: %s (%s)", i + 1, len(customers), name, deck_id)
         try:
             report = client.get_customer_health_report(name, days=days)
             if quarter_label:
