@@ -1107,9 +1107,23 @@ class PendoClient:
         if dormant_pct > 0.5:
             signals.append(f"High dormancy: {engagement['dormant']}/{total_visitors} users ({dormant_pct:.0%}) inactive 30+ days")
         if customer_rate > bench_rate * 1.5 and total_visitors >= 5:
-            signals.append(f"Strong engagement: {customer_rate:.0%} weekly active rate vs {bench_rate:.0%} peer median")
+            if cohort_median is not None:
+                signals.append(
+                    f"Strong engagement: {customer_rate:.0%} weekly active rate vs {bench_rate:.0%} cohort median"
+                )
+            else:
+                signals.append(
+                    f"Strong engagement: {customer_rate:.0%} weekly active rate vs {bench_rate:.0%} portfolio median"
+                )
         elif customer_rate < bench_rate * 0.5 and total_visitors >= 5:
-            signals.append(f"Low engagement: {customer_rate:.0%} weekly active rate vs {bench_rate:.0%} peer median")
+            if cohort_median is not None:
+                signals.append(
+                    f"Low engagement: {customer_rate:.0%} weekly active rate vs {bench_rate:.0%} cohort median"
+                )
+            else:
+                signals.append(
+                    f"Low engagement: {customer_rate:.0%} weekly active rate vs {bench_rate:.0%} portfolio median"
+                )
         if engagement["active_7d"] <= 2 and total_visitors >= 10:
             signals.append(f"Concentration risk: only {engagement['active_7d']} of {total_visitors} users active this week")
 
@@ -1877,8 +1891,8 @@ class PendoClient:
         # JIRA data (optional — skipped if JIRA is not configured)
         jira_data = {}
         try:
-            from .jira_client import JiraClient
-            jira_data = JiraClient().get_customer_jira(customer_name, days=90)
+            from .jira_client import get_shared_jira_client
+            jira_data = get_shared_jira_client().get_customer_jira(customer_name, days=90)
         except Exception as e:
             from .qa import qa
             qa.flag(f"JIRA data unavailable: {str(e)[:80]}",

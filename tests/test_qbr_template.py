@@ -76,9 +76,12 @@ def test_insert_executive_summary_marks_slides_skipped(mock_resolve, mock_apply_
         "quarter_end": "2026-03-31",
     }
     with patch.object(qbr_template, "_SLIDE_BUILDERS", {"title": fake_title}):
-        ids, built = qbr_template._insert_executive_summary_slides(slides_svc, "pres123", report, "Acme")
+        ids, built, sig_pages = qbr_template._insert_executive_summary_slides(
+            slides_svc, "pres123", report, "Acme"
+        )
     assert ids == ["qbr_es_title_1"]
     assert built == 1
+    assert sig_pages == []
     mock_apply_skip.assert_called_once()
     _svc, pres_id, oids = mock_apply_skip.call_args[0]
     assert pres_id == "pres123"
@@ -100,11 +103,12 @@ def test_compute_adapt_page_ids_includes_hidden_template_excludes_exec_and_title
     assert adapt == ["h1", "t2"]
 
 
-@patch("src.slides_client.create_cohort_deck")
-@patch("src.slides_client.create_health_deck")
+@patch.object(qbr_template, "apply_cohort_bundle_links_to_notable_signals", return_value=0)
+@patch.object(qbr_template, "create_cohort_deck")
+@patch.object(qbr_template, "create_health_deck")
 @patch.object(qbr_template, "_find_or_create_folder", return_value="bundlefold")
 @patch.object(qbr_template, "adapt_custom_slides")
-@patch.object(qbr_template, "_insert_executive_summary_slides", return_value=(["e1", "e2"], 2))
+@patch.object(qbr_template, "_insert_executive_summary_slides", return_value=(["e1", "e2"], 2, []))
 @patch.object(qbr_template, "call_manifest_planner")
 @patch.object(qbr_template, "llm_client")
 @patch.object(qbr_template, "PendoClient")
@@ -121,6 +125,7 @@ def test_run_qbr_from_template_smoke(
     mock_find_or_create,
     mock_create_health_deck,
     mock_create_cohort_deck,
+    mock_cohort_links,
 ):
     mock_create_health_deck.return_value = {
         "presentation_id": "companion1",
@@ -176,6 +181,7 @@ def test_run_qbr_from_template_smoke(
     assert r["customer"] == "Acme Corp"
     assert r.get("bundle_folder_id") == "bundlefold"
     assert len(r.get("companion_decks", [])) == len(qbr_template.QBR_BUNDLE_COMPANION_DECKS)
+    assert mock_cohort_links.call_count >= 1
     mock_create_health_deck.assert_called()
     assert mock_create_health_deck.call_args.kwargs.get("output_folder_id") == "bundlefold"
     copy_kw = drive_svc.files().copy.call_args
@@ -186,8 +192,9 @@ def test_run_qbr_from_template_smoke(
     assert adapt_ids == ["a1"]
 
 
-@patch("src.slides_client.create_cohort_deck")
-@patch("src.slides_client.create_health_deck")
+@patch.object(qbr_template, "apply_cohort_bundle_links_to_notable_signals", return_value=0)
+@patch.object(qbr_template, "create_cohort_deck")
+@patch.object(qbr_template, "create_health_deck")
 @patch.object(qbr_template, "_find_or_create_folder", return_value="bundlefold")
 @patch.object(qbr_template, "adapt_custom_slides")
 @patch.object(qbr_template, "_insert_executive_summary_slides")
@@ -207,6 +214,7 @@ def test_run_qbr_skips_exec_insert_when_manifest_false(
     mock_find_or_create,
     mock_create_health_deck,
     mock_create_cohort_deck,
+    mock_cohort_links,
 ):
     mock_create_health_deck.return_value = {"presentation_id": "x", "url": "https://x"}
     mock_create_cohort_deck.return_value = {"presentation_id": "c", "url": "https://c"}

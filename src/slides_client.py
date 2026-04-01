@@ -3463,6 +3463,124 @@ def _signals_slide(reqs, sid, report, idx):
     return idx + len(chunks), oids
 
 
+# Substrings in auto-generated Notable Signals lines → hyperlink to the cohort review deck (QBR bundle).
+_COHORT_BUNDLE_SIGNAL_LINK_PHRASES: tuple[str, ...] = ("cohort median", "portfolio median")
+
+
+def _utf16_code_unit_len(s: str) -> int:
+    return len(s.encode("utf-16-le")) // 2 if s else 0
+
+
+def _slides_shape_text_plain(text_body: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for te in text_body.get("textElements") or []:
+        tr = te.get("textRun")
+        if isinstance(tr, dict):
+            parts.append(str(tr.get("content") or ""))
+    return "".join(parts)
+
+
+def _utf16_ranges_for_phrases(full: str, phrases: tuple[str, ...]) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    for phrase in phrases:
+        if not phrase:
+            continue
+        pos = 0
+        while True:
+            j = full.find(phrase, pos)
+            if j < 0:
+                break
+            u0 = _utf16_code_unit_len(full[:j])
+            u1 = u0 + _utf16_code_unit_len(phrase)
+            ranges.append((u0, u1))
+            pos = j + len(phrase)
+    return ranges
+
+
+def _iter_flat_page_elements(elements: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for el in elements or []:
+        grp = el.get("elementGroup")
+        if isinstance(grp, dict):
+            out.extend(_iter_flat_page_elements(grp.get("children")))
+        else:
+            out.append(el)
+    return out
+
+
+def apply_cohort_bundle_links_to_notable_signals(
+    slides_svc: Any,
+    pres_id: str,
+    cohort_deck_url: str,
+    *,
+    page_object_ids: list[str] | None = None,
+) -> int:
+    """Hyperlink cohort/portfolio median wording on Notable Signals to the cohort review deck.
+
+    Signal bodies are built by ``_signals_slide`` as shapes whose objectId ends with ``_sig``.
+    When ``page_object_ids`` is set (QBR exec-summary insert), only those slides are scanned;
+    when omitted or empty, every slide is scanned (standalone Executive Summary companion deck).
+    """
+    link_url = (cohort_deck_url or "").strip()
+    if not link_url:
+        return 0
+    if "/edit" not in link_url:
+        link_url = link_url.rstrip("/") + "/edit"
+
+    try:
+        pres = slides_svc.presentations().get(presentationId=pres_id).execute()
+    except HttpError as e:
+        logger.warning("apply_cohort_bundle_links: could not read presentation %s: %s", pres_id[:12], e)
+        return 0
+
+    by_id = {s["objectId"]: s for s in pres.get("slides", [])}
+    if page_object_ids:
+        slides_to_scan = [by_id[pid] for pid in page_object_ids if pid in by_id]
+    else:
+        slides_to_scan = list(by_id.values())
+
+    reqs: list[dict[str, Any]] = []
+    for slide in slides_to_scan:
+        for el in _iter_flat_page_elements(slide.get("pageElements")):
+            oid = el.get("objectId") or ""
+            if not oid.endswith("_sig"):
+                continue
+            shape = el.get("shape") or {}
+            tb = shape.get("text") or {}
+            full = _slides_shape_text_plain(tb)
+            if not full:
+                continue
+            for u0, u1 in _utf16_ranges_for_phrases(full, _COHORT_BUNDLE_SIGNAL_LINK_PHRASES):
+                if u0 >= u1:
+                    continue
+                reqs.append({
+                    "updateTextStyle": {
+                        "objectId": oid,
+                        "textRange": {
+                            "type": "FIXED_RANGE",
+                            "startIndex": u0,
+                            "endIndex": u1,
+                        },
+                        "style": {"link": {"url": link_url}},
+                        "fields": "link",
+                    }
+                })
+
+    if not reqs:
+        return 0
+    try:
+        presentations_batch_update_chunked(slides_svc, pres_id, reqs)
+    except HttpError as e:
+        logger.warning("apply_cohort_bundle_links: batchUpdate failed for %s: %s", pres_id[:12], e)
+        return 0
+    logger.info(
+        "Linked cohort/portfolio median text → cohort deck (%d span(s)) in presentation %s…",
+        len(reqs),
+        pres_id[:12],
+    )
+    return len(reqs)
+
+
 # ── Portfolio slide builders (cross-customer) ──
 
 
@@ -6200,8 +6318,8 @@ def _eng_help_volume_trends_slide(reqs: list, sid: str, report: dict, idx: int) 
 
     if raw_trends is None:
         try:
-            from .jira_client import JiraClient
-            raw_trends = JiraClient()._get_help_ticket_volume_trends()
+            from .jira_client import get_shared_jira_client
+            raw_trends = get_shared_jira_client()._get_help_ticket_volume_trends()
             eng["help_ticket_trends"] = raw_trends
             report.setdefault("eng_portfolio", eng)
             logger.debug("eng_help_volume_trends: fetched HELP trends on demand (no eng_portfolio)")

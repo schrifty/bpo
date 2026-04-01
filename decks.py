@@ -105,7 +105,7 @@ def _parse_prompt(prompt: str) -> dict:
 def _run_jira_backed_deck(deck_id: str, label: str) -> None:
     """Generate a Jira-backed single deck using engineering portfolio data."""
     from src.data_source_health import check_all_required
-    from src.jira_client import JiraClient
+    from src.jira_client import get_shared_jira_client
     from src.slides_client import create_health_deck
 
     preflight_errors = check_all_required()
@@ -116,7 +116,7 @@ def _run_jira_backed_deck(deck_id: str, label: str) -> None:
         sys.exit(1)
     print(f"Fetching {label.lower()} data from Jira...")
     t0 = time.time()
-    eng_data = JiraClient().get_engineering_portfolio(days=30)
+    eng_data = get_shared_jira_client().get_engineering_portfolio(days=30)
     report = {
         "type": "engineering_portfolio",
         "customer": "Engineering",
@@ -142,7 +142,7 @@ def _run_engineering_portfolio_deck() -> None:
 def _run_support_deck() -> None:
     """Single support-focused deck from Jira — no LLM prompt parsing required."""
     from src.data_source_health import check_all_required
-    from src.jira_client import JiraClient
+    from src.jira_client import get_shared_jira_client
     from src.slides_client import create_health_deck
 
     preflight_errors = check_all_required()
@@ -154,7 +154,7 @@ def _run_support_deck() -> None:
 
     print("Fetching support review data from Jira...")
     t0 = time.time()
-    client = JiraClient()
+    client = get_shared_jira_client()
     eng_data = client.get_engineering_portfolio(days=30)
     safran_name = "Safran Electronics & Defense (SED)"
     match_terms = ["Safran Electronics and Defense", "SED", "Defense"]

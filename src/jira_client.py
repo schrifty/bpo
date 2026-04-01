@@ -1,15 +1,36 @@
 """JIRA Cloud client for fetching customer-related issues."""
 
 import difflib
+import hashlib
+import os
 import re
+import threading
+import time
 from base64 import b64encode
 from collections import Counter
-from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import requests
 
 from .config import JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN, LLM_MODEL_FAST, llm_client, logger
+
+# ── Performance: shared JSM org directory (paginated API) ─────────────────
+_JSM_ORG_GLOBAL_LOCK = threading.Lock()
+_JSM_ORG_GLOBAL_CACHE: dict[str, tuple[float, list[str]]] = {}
+# TTL for JSM organization list (same tenant rarely changes during a batch run).
+_JSM_ORG_CACHE_TTL_S = float(os.environ.get("BPO_JSM_ORG_CACHE_TTL_S", "900"))
+
+_SHARED_JIRA_CLIENT_LOCK = threading.Lock()
+_shared_jira_client: Any = None
+
+# Cap HELP body fetch (slide lists / histograms); extra issues are omitted from breakdowns.
+HELP_JIRA_BODY_MAX_RESULTS = int(os.environ.get("BPO_HELP_JIRA_BODY_MAX", "750"))
+# Single merged JQL for ticket metrics (open ∪ 180d resolved ∪ 365d created).
+HELP_METRICS_MERGED_MAX_RESULTS = int(os.environ.get("BPO_HELP_JIRA_METRICS_MAX", "2000"))
+# Parallel Jira fetches (rate-limit aware).
+_JIRA_PARALLEL_WORKERS = max(1, min(4, int(os.environ.get("BPO_JIRA_PARALLEL_WORKERS", "3"))))
 
 CUSTOMER_FIELD = "customfield_10100"   # "Customer" multi-select
 ORG_FIELD = "customfield_10502"        # "Organizations" (JSM)
@@ -344,8 +365,14 @@ class JiraClient:
             "Content-Type": "application/json",
         }
         self._jql_log: list[dict[str, str]] = []
-        # Populated by ``_list_jsm_organization_names`` (JSM Service Desk API).
-        self._jsm_organization_names_cache: list[str] | None = None
+        self._jql_lock = threading.Lock()
+        self._jsm_cache_key = hashlib.sha256(
+            f"{self.base_url}\0{self._headers.get('Authorization', '')}".encode()
+        ).hexdigest()
+
+    def _jql_log_len(self) -> int:
+        with self._jql_lock:
+            return len(self._jql_log)
 
     def _record_jql(self, jql: str, *, description: str | None = None) -> None:
         """Record JQL with a short human label for speaker notes (``[label] - JQL``)."""
@@ -353,13 +380,16 @@ class JiraClient:
         if not cleaned:
             return
         label = (description or "Jira issue search").strip()
-        self._jql_log.append({"description": label, "jql": cleaned})
+        with self._jql_lock:
+            self._jql_log.append({"description": label, "jql": cleaned})
 
     def _jql_since(self, start_idx: int) -> list[dict[str, str]]:
         """Return unique JQL entries since start_idx, preserving order (dedupe by JQL text)."""
+        with self._jql_lock:
+            tail = list(self._jql_log[start_idx:])
         seen: set[str] = set()
         out: list[dict[str, str]] = []
-        for entry in self._jql_log[start_idx:]:
+        for entry in tail:
             jql = (entry.get("jql") or "").strip()
             if not jql or jql in seen:
                 continue
@@ -367,6 +397,28 @@ class JiraClient:
             desc = (entry.get("description") or "Jira issue search").strip()
             out.append({"description": desc, "jql": jql})
         return out
+
+    def _jql_match_total(self, jql: str) -> int | None:
+        """Return Jira's match count for JQL without fetching issue bodies (maxResults=0)."""
+        try:
+            body: dict[str, Any] = {
+                "jql": jql.strip(),
+                "maxResults": 0,
+                "fields": ["summary"],
+            }
+            resp = requests.post(
+                f"{self.base_url}/rest/api/3/search/jql",
+                headers=self._headers,
+                json=body,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            t = data.get("total")
+            return int(t) if t is not None else None
+        except Exception as e:
+            logger.debug("JIRA jql match total failed: %s", e)
+            return None
 
     def _search(
         self,
@@ -403,9 +455,23 @@ class JiraClient:
         return results
 
     def _list_jsm_organization_names(self) -> list[str]:
-        """All JSM organization names (exact strings valid in ``Organizations =`` JQL)."""
-        if self._jsm_organization_names_cache is not None:
-            return self._jsm_organization_names_cache
+        """All JSM organization names (exact strings valid in ``Organizations =`` JQL).
+
+        Cached process-wide with TTL so every new ``JiraClient()`` does not re-walk the
+        paginated Service Desk API. Set ``BPO_JIRA_SKIP_JSM_ORG_FUZZY=1`` to skip the
+        directory fetch (literal ``Organizations =`` terms only).
+        """
+        if os.environ.get("BPO_JIRA_SKIP_JSM_ORG_FUZZY", "").strip() in ("1", "true", "yes"):
+            return []
+
+        now = time.monotonic()
+        with _JSM_ORG_GLOBAL_LOCK:
+            ent = _JSM_ORG_GLOBAL_CACHE.get(self._jsm_cache_key)
+            if ent is not None:
+                ts, names = ent
+                if now - ts < _JSM_ORG_CACHE_TTL_S:
+                    return names
+
         names: list[str] = []
         start = 0
         limit = 50
@@ -433,7 +499,8 @@ class JiraClient:
                 "Could not list JSM organizations (%s); JQL uses literal customer names only",
                 e,
             )
-            self._jsm_organization_names_cache = []
+            with _JSM_ORG_GLOBAL_LOCK:
+                _JSM_ORG_GLOBAL_CACHE[self._jsm_cache_key] = (now, [])
             return []
 
         seen_ci: set[str] = set()
@@ -443,7 +510,8 @@ class JiraClient:
             if k not in seen_ci:
                 seen_ci.add(k)
                 unique.append(n)
-        self._jsm_organization_names_cache = unique
+        with _JSM_ORG_GLOBAL_LOCK:
+            _JSM_ORG_GLOBAL_CACHE[self._jsm_cache_key] = (now, unique)
         return unique
 
     def _customer_match_clause(
@@ -601,7 +669,7 @@ class JiraClient:
         except ValueError as e:
             return {"error": str(e), "project_key": (project_key or "").strip()}
 
-        jql_start = len(self._jql_log)
+        jql_start = self._jql_log_len()
         now = datetime.now(timezone.utc)
         max_fetch = 1500
 
@@ -735,19 +803,64 @@ class JiraClient:
         directory names), summary, and description.  Without ``project = HELP``, text
         matches pull in LEAN/ER and other projects and inflate QBR Support Summary totals.
         """
-        jql_start = len(self._jql_log)
+        jql_start = self._jql_log_len()
         safe_name = _jql_escape_string(customer_name)
         base_filter, resolved_jsm_orgs = self._customer_match_clause(customer_name)
         jql = f"project = HELP AND {base_filter} AND created >= -{days}d ORDER BY created DESC"
+        clause_bundle = (base_filter, resolved_jsm_orgs)
 
-        try:
-            raw = self._search(
+        def _fetch_help_body() -> tuple[list[dict], int | None]:
+            cap = HELP_JIRA_BODY_MAX_RESULTS
+            total_hint = self._jql_match_total(jql)
+            fetch_n = cap
+            if total_hint is not None and total_hint > 0:
+                fetch_n = min(cap, total_hint)
+            raw_inner = self._search(
                 jql,
-                max_results=1500,
+                max_results=max(1, fetch_n),
                 data_description=f"HELP project issues for customer ({days}d lookback)",
             )
+            return raw_inner, total_hint
+
+        def _safe_metrics() -> dict[str, Any]:
+            try:
+                return self.get_customer_ticket_metrics(
+                    customer_name, _prebuilt_clause=clause_bundle
+                )
+            except Exception as e:
+                return {
+                    "error": str(e),
+                    "customer": customer_name,
+                    "jsm_organizations_resolved": clause_bundle[1],
+                }
+
+        raw: list[dict] = []
+        help_jql_total: int | None = None
+        customer_ticket_metrics: dict[str, Any] = {}
+        eng: dict[str, Any] = {}
+        enhancements: dict[str, Any] = {}
+        try:
+            with ThreadPoolExecutor(max_workers=_JIRA_PARALLEL_WORKERS) as pool:
+                f_body = pool.submit(_fetch_help_body)
+                f_met = pool.submit(_safe_metrics)
+                f_eng = pool.submit(self._get_engineering_tickets, safe_name)
+                f_er = pool.submit(self._get_enhancement_requests, safe_name)
+                customer_ticket_metrics = f_met.result()
+                try:
+                    eng = f_eng.result()
+                except Exception as e:
+                    eng = {"total": 0, "open": [], "recent_closed": [], "error": str(e)}
+                try:
+                    enhancements = f_er.result()
+                except Exception as e:
+                    enhancements = {"total": 0, "open": [], "shipped": [], "error": str(e)}
+                try:
+                    raw, help_jql_total = f_body.result()
+                except Exception as e:
+                    logger.warning("JIRA HELP body fetch failed for %s: %s", customer_name, e)
+                    return {"error": str(e)}
         except Exception as e:
-            logger.warning("JIRA search failed for %s: %s", customer_name, e)
+            logger.warning("JIRA parallel fetch failed for %s: %s", customer_name, e)
             return {"error": str(e)}
 
         issues = [self._normalize_issue(i) for i in raw]
@@ -777,13 +890,20 @@ class JiraClient:
             rt = i.get("request_type") or "Other"
             by_request_type[rt] = by_request_type.get(rt, 0) + 1
 
-        eng = self._get_engineering_tickets(safe_name)
-        enhancements = self._get_enhancement_requests(safe_name)
         ttfr = self._compute_sla(issues, "ttfr")
         ttr = self._compute_sla(issues, "ttr")
-        customer_ticket_metrics = self.get_customer_ticket_metrics(customer_name)
 
         self._run_qa_checks(issues, open_issues, resolved, by_status, by_priority, by_type, ttfr, ttr)
+
+        if help_jql_total is not None and help_jql_total > len(issues):
+            from .qa import qa
+            qa.flag(
+                "JIRA HELP slide body sampled: breakdowns omit older issues in window",
+                expected=help_jql_total,
+                actual=len(issues),
+                sources=("JQL total vs fetched issues", "BPO_HELP_JIRA_BODY_MAX"),
+                severity="warning",
+            )
 
         return {
             "base_url": self.base_url,
@@ -926,10 +1046,38 @@ class JiraClient:
             "pct": pct,
         }
 
+    def _partition_help_metrics_merged(
+        self,
+        merged_raw: list[dict],
+    ) -> tuple[list[dict], list[dict], list[dict]]:
+        """Split a merged HELP union query into open / resolved-180d / created-365d buckets."""
+        now = datetime.now(timezone.utc)
+        cutoff_res = now - timedelta(days=180)
+        cutoff_cre = now - timedelta(days=365)
+        open_raw: list[dict] = []
+        resolved_raw: list[dict] = []
+        year_raw: list[dict] = []
+        for raw in merged_raw:
+            f = raw.get("fields", {}) or {}
+            status = f.get("status") or {}
+            cat = ((status.get("statusCategory") or {}).get("key") or "").lower()
+            is_done = cat == "done"
+            res_dt = self._parse_jira_datetime(f.get("resolutiondate"))
+            cre_dt = self._parse_jira_datetime(f.get("created"))
+            if not is_done:
+                open_raw.append(raw)
+            if f.get("resolution") and res_dt is not None and res_dt >= cutoff_res:
+                resolved_raw.append(raw)
+            if cre_dt is not None and cre_dt >= cutoff_cre:
+                year_raw.append(raw)
+        return open_raw, resolved_raw, year_raw
+
     def get_customer_ticket_metrics(
         self,
         customer_name: str,
         match_terms: list[str] | None = None,
+        *,
+        _prebuilt_clause: tuple[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """Metrics for a single customer's support tickets across open/6mo/1y windows.
 
@@ -937,11 +1085,17 @@ class JiraClient:
         (literal + fuzzy-resolved JSM labels) and text (summary/description); without a
         project filter, those text matches pull in LEAN and other projects and inflate
         Support Review KPIs.
+
+        Uses a **single merged JQL** (open ∪ resolved-in-180d ∪ created-in-365d) plus
+        client-side partitioning to avoid triple pagination. Pass ``_prebuilt_clause``
+        from ``get_customer_jira`` to skip a second org-resolution pass.
         """
-        jql_start = len(self._jql_log)
-        base_filter, resolved_jsm_orgs = self._customer_match_clause(customer_name, match_terms)
-        max_fetch = 1500
-        # Support desk only — must match eng_help_volume_trends / JSM HELP usage.
+        jql_start = self._jql_log_len()
+        if _prebuilt_clause is not None:
+            base_filter, resolved_jsm_orgs = _prebuilt_clause
+        else:
+            base_filter, resolved_jsm_orgs = self._customer_match_clause(customer_name, match_terms)
+        max_fetch = HELP_METRICS_MERGED_MAX_RESULTS
         proj = "project = HELP AND "
 
         def _norm_snapshot_issue(issue: dict) -> dict[str, Any]:
@@ -978,24 +1132,19 @@ class JiraClient:
                 "ttr_waiting": ttr_waiting,
             }
 
+        union_jql = (
+            f"{proj}{base_filter} AND ("
+            "statusCategory != Done OR "
+            "(resolution is not EMPTY AND resolved >= -180d) OR "
+            "created >= -365d"
+            ") ORDER BY updated DESC"
+        )
         try:
-            open_raw = self._search(
-                f"{proj}{base_filter} AND statusCategory != Done ORDER BY updated DESC",
+            merged_raw = self._search(
+                union_jql,
                 max_results=max_fetch,
                 fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
-                data_description="HELP open issues for customer (non-done)",
-            )
-            resolved_raw = self._search(
-                f"{proj}{base_filter} AND resolution is not EMPTY AND resolved >= -180d ORDER BY resolved DESC",
-                max_results=max_fetch,
-                fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
-                data_description="HELP customer issues resolved in last 180 days",
-            )
-            year_raw = self._search(
-                f"{proj}{base_filter} AND created >= -365d ORDER BY created DESC",
-                max_results=max_fetch,
-                fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
-                data_description="HELP customer issues created in last 365 days",
+                data_description="HELP customer metrics (merged open / 180d resolved / 365d created)",
             )
         except Exception as e:
             logger.warning("Customer ticket metrics fetch failed for %s: %s", customer_name, e)
@@ -1004,6 +1153,8 @@ class JiraClient:
                 "customer": customer_name,
                 "jsm_organizations_resolved": resolved_jsm_orgs,
             }
+
+        open_raw, resolved_raw, year_raw = self._partition_help_metrics_merged(merged_raw)
 
         open_issues = [_norm_snapshot_issue(i) for i in open_raw]
         resolved_issues = [_norm_snapshot_issue(i) for i in resolved_raw]
@@ -1042,7 +1193,7 @@ class JiraClient:
         Uses the same ``project = HELP`` + organization/text match as
         ``get_customer_ticket_metrics``.
         """
-        jql_start = len(self._jql_log)
+        jql_start = self._jql_log_len()
         base_filter, resolved_jsm_orgs = self._customer_match_clause(customer_name, match_terms)
         proj = "project = HELP AND "
 
@@ -1069,18 +1220,23 @@ class JiraClient:
                 f"{proj}{base_filter} AND resolution is not EMPTY AND resolved >= -{cd}d "
                 "ORDER BY resolved DESC"
             )
-            raw_open = self._search(
-                open_jql,
-                max_results=max_each,
-                fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
-                data_description=f"HELP customer tickets created in last {od} days",
-            )
-            raw_closed = self._search(
-                closed_jql,
-                max_results=max_each,
-                fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
-                data_description=f"HELP customer tickets resolved in last {cd} days",
-            )
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                f_open = pool.submit(
+                    self._search,
+                    open_jql,
+                    max_each,
+                    _CUSTOMER_TICKET_SLIDE_FIELDS,
+                    data_description=f"HELP customer tickets created in last {od} days",
+                )
+                f_closed = pool.submit(
+                    self._search,
+                    closed_jql,
+                    max_each,
+                    _CUSTOMER_TICKET_SLIDE_FIELDS,
+                    data_description=f"HELP customer tickets resolved in last {cd} days",
+                )
+                raw_open = f_open.result()
+                raw_closed = f_closed.result()
         except Exception as e:
             logger.warning("Customer HELP recent tickets fetch failed for %s: %s", customer_name, e)
             return {
@@ -1298,7 +1454,7 @@ class JiraClient:
         import re
         import requests as _req
 
-        jql_start = len(self._jql_log)
+        jql_start = self._jql_log_len()
 
         # ── Active sprint from Board 44 (LEAN Scrum - CURRENT Issues) ──
         sprint_info: dict = {}
@@ -1650,12 +1806,16 @@ class JiraClient:
 
         # ── Per-project operational snapshots (HELP / CUSTOMER / LEAN slides) ──
         project_snapshots: dict[str, Any] = {}
-        for _pk in ("HELP", "CUSTOMER", "LEAN"):
-            try:
-                project_snapshots[_pk] = self.get_project_operational_snapshot(_pk)
-            except Exception as e:
-                logger.warning("Project snapshot %s failed: %s", _pk, e)
-                project_snapshots[_pk] = {"error": str(e), "project_key": _pk, "base_url": self.base_url}
+        _pks = ("HELP", "CUSTOMER", "LEAN")
+        with ThreadPoolExecutor(max_workers=len(_pks)) as pool:
+            future_to_pk = {pool.submit(self.get_project_operational_snapshot, pk): pk for pk in _pks}
+            for fut in as_completed(future_to_pk):
+                pk = future_to_pk[fut]
+                try:
+                    project_snapshots[pk] = fut.result()
+                except Exception as e:
+                    logger.warning("Project snapshot %s failed: %s", pk, e)
+                    project_snapshots[pk] = {"error": str(e), "project_key": pk, "base_url": self.base_url}
 
         help_ticket_trends = self._get_help_ticket_volume_trends()
 
@@ -1744,3 +1904,12 @@ class JiraClient:
                         expected=f"<= {tickets}", actual=measured + waiting,
                         sources=(f"{label} SLA data", "HELP issue count"),
                         severity="warning")
+
+
+def get_shared_jira_client() -> JiraClient:
+    """Return a process-wide singleton ``JiraClient`` (avoids repeated JSM org directory fetches)."""
+    global _shared_jira_client
+    with _SHARED_JIRA_CLIENT_LOCK:
+        if _shared_jira_client is None:
+            _shared_jira_client = JiraClient()
+        return _shared_jira_client

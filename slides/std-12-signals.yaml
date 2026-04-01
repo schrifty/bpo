@@ -11,7 +11,7 @@ prompt: |
   that stood out from the data. These are generated automatically from
   all the other data tools and include:
 
-  - Engagement signals (strong/weak active rate vs peer median)
+  - Engagement signals (strong/weak active rate vs cohort or portfolio median)
   - Executive engagement (active or absent)
   - Training site activity
   - Internal LeanDNA staff visits

@@ -40,6 +40,7 @@ from .slides_client import (
     _google_api_unreachable_hint,
     _normalize_builder_return,
     _SLIDE_BUILDERS,
+    apply_cohort_bundle_links_to_notable_signals,
     create_cohort_deck,
     create_health_deck,
     presentations_batch_update_chunked,
@@ -438,12 +439,14 @@ def _insert_executive_summary_slides(
     pres_id: str,
     report: dict[str, Any],
     customer: str,
-) -> tuple[list[str], int]:
+) -> tuple[list[str], int, list[str]]:
     """Insert resolved executive_summary deck after template slide 1.
 
-    Returns ``(object_ids, manifest_slide_count)`` where ``manifest_slide_count`` is how many
-    deck entries had a builder (one per YAML slide row); ``len(object_ids)`` may be larger when
-    a slide type paginates into multiple pages.
+    Returns ``(object_ids, manifest_slide_count, signals_page_ids)`` where
+    ``manifest_slide_count`` is how many deck entries had a builder (one per YAML slide row);
+    ``len(object_ids)`` may be larger when a slide type paginates into multiple pages.
+    ``signals_page_ids`` lists physical slide object IDs for ``slide_type == "signals"`` (for
+    post-linking to the cohort review deck in the QBR bundle).
     """
     resolved = resolve_deck("executive_summary", customer)
     if resolved.get("error"):
@@ -455,6 +458,7 @@ def _insert_executive_summary_slides(
     reqs: list[dict] = []
     idx = 1
     exec_ids: list[str] = []
+    signals_page_ids: list[str] = []
     manifest_built = 0
     note_targets: list[tuple[str, dict[str, Any]]] = []
     report = dict(report)
@@ -474,6 +478,8 @@ def _insert_executive_summary_slides(
         for nid in page_ids:
             exec_ids.append(nid)
             note_targets.append((nid, dict(entry)))
+        if slide_type == "signals":
+            signals_page_ids.extend(page_ids)
         idx = next_idx
 
     if not reqs:
@@ -492,7 +498,7 @@ def _insert_executive_summary_slides(
     except HttpError as e:
         logger.warning("QBR: could not mark executive summary slides skipped: %s", e)
 
-    return exec_ids, manifest_built
+    return exec_ids, manifest_built, signals_page_ids
 
 
 def compute_adapt_page_ids(
@@ -625,12 +631,13 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
 
     exec_ids: list[str] = []
     exec_manifest_slides = 0
+    exec_signals_page_ids: list[str] = []
     if plan.get("insert_executive_summary"):
         from .charts import DeckCharts
 
         report["_charts"] = DeckCharts(f"{customer} — QBR executive summary")
         try:
-            exec_ids, exec_manifest_slides = _insert_executive_summary_slides(
+            exec_ids, exec_manifest_slides, exec_signals_page_ids = _insert_executive_summary_slides(
                 slides_svc, pres_id, report, customer
             )
         except Exception as e:
@@ -712,5 +719,35 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
             "QBR: no Drive Output folder — skipping companion decks "
             "(set GOOGLE_QBR_OUTPUT_PARENT_ID or GOOGLE_DRIVE_FOLDER_ID)"
         )
+
+    cohort_url = next(
+        (
+            c.get("url")
+            for c in result.get("companion_decks") or []
+            if c.get("deck_id") == "cohort_review" and c.get("url") and not c.get("error")
+        ),
+        None,
+    )
+    if cohort_url:
+        if exec_signals_page_ids:
+            n = apply_cohort_bundle_links_to_notable_signals(
+                slides_svc, pres_id, cohort_url, page_object_ids=exec_signals_page_ids
+            )
+            if n:
+                result["cohort_links_on_qbr_signals"] = n
+        exec_companion_pid = next(
+            (
+                c.get("presentation_id")
+                for c in result.get("companion_decks") or []
+                if c.get("deck_id") == "executive_summary" and c.get("presentation_id") and not c.get("error")
+            ),
+            None,
+        )
+        if exec_companion_pid:
+            n2 = apply_cohort_bundle_links_to_notable_signals(
+                slides_svc, str(exec_companion_pid), cohort_url, page_object_ids=None
+            )
+            if n2:
+                result["cohort_links_on_exec_summary_deck"] = n2
 
     return result
