@@ -10,5 +10,6 @@ purpose: |
 
 slides:
   - slide: cohort_deck_title
+  - slide: cohort_summary
   - slide: cohort_profiles
   - slide: cohort_findings

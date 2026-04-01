@@ -1094,10 +1094,172 @@ def _platform_value_pipeline_traces(report: dict[str, Any]) -> list[dict[str, st
     return rows
 
 
+def _support_health_exec_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Speaker-note rows for Support Health Summary (exec)."""
+    jira = report.get("jira")
+    if not isinstance(jira, dict) or jira.get("error") or jira.get("total_issues", 0) == 0:
+        return []
+    total = jira["total_issues"]
+    open_n = jira.get("open_issues", 0)
+    esc = jira.get("escalated", 0)
+    ttfr = jira.get("ttfr", {})
+    ttr = jira.get("ttr", {})
+    rows: list[dict[str, str]] = [
+        {"description": "Open tickets", "source": "Jira (HELP)",
+         "query": f"On-slide value {open_n} — open issues in HELP project (of {total} total in period)"},
+        {"description": "Escalated", "source": "Jira (HELP)",
+         "query": f"On-slide value {esc} — issues with escalation flag"},
+        {"description": "TTFR (median)", "source": "Jira (HELP)",
+         "query": f"On-slide value {ttfr.get('median', '—')} — median time to first response across {ttfr.get('measured', 0)} measured tickets"},
+        {"description": "TTR (median)", "source": "Jira (HELP)",
+         "query": f"On-slide value {ttr.get('median', '—')} — median time to resolution across {ttr.get('measured', 0)} measured tickets"},
+    ]
+    sentiment = jira.get("by_sentiment", {})
+    if sentiment:
+        parts = [f"{k}: {v}" for k, v in sentiment.items() if k != "Unknown"]
+        rows.append({"description": "Sentiment", "source": "Jira (HELP)",
+                     "query": f"Ticket sentiment breakdown — {', '.join(parts)}"})
+    return rows
+
+
+def _salesforce_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Speaker-note rows for Salesforce Pipeline (exec)."""
+    sf = report.get("salesforce")
+    if not isinstance(sf, dict) or not sf.get("matched"):
+        return []
+    opp = sf.get("opportunity_count_this_year", 0)
+    arr = sf.get("pipeline_arr", 0)
+    n_accts = len(sf.get("accounts", []))
+    return [
+        {"description": "Pipeline ARR", "source": "Salesforce",
+         "query": f"On-slide value ${arr:,.0f} — sum of Amount on open Opportunity records for matched accounts"},
+        {"description": "Opportunities (this year)", "source": "Salesforce",
+         "query": f"On-slide value {opp} — count of Opportunity records with CloseDate in current fiscal year"},
+        {"description": "SF accounts matched", "source": "Salesforce",
+         "query": f"On-slide value {n_accts} — Customer Entity accounts matched by name search"},
+    ]
+
+
+def _platform_risk_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Speaker-note rows for Platform Risk slide (health distribution + supply chain)."""
+    rows: list[dict[str, str]] = []
+    cs_ph = report.get("cs_platform_health")
+    if isinstance(cs_ph, dict) and not cs_ph.get("error"):
+        dist = cs_ph.get("health_distribution", {})
+        fc = cs_ph.get("factory_count", 0)
+        rows.extend([
+            {"description": "Factory count", "source": "CS Report",
+             "query": f"On-slide value {fc} — number of factory rows in CS Report platform health"},
+            {"description": "Health distribution", "source": "CS Report",
+             "query": f"GREEN={dist.get('GREEN', 0)} YELLOW={dist.get('YELLOW', 0)} RED={dist.get('RED', 0)} — health_score band per factory"},
+            {"description": "Critical shortages", "source": "CS Report",
+             "query": f"On-slide value {cs_ph.get('total_critical_shortages', 0)} — sum of criticalShortagesCt across factories"},
+        ])
+    cs_sc = report.get("cs_supply_chain")
+    if isinstance(cs_sc, dict) and not cs_sc.get("error"):
+        t = cs_sc.get("totals", {})
+        rows.extend([
+            {"description": "Total on-hand", "source": "CS Report",
+             "query": f"On-slide value ${t.get('total_on_hand', 0):,.0f} — sum of onHandValue across factories"},
+            {"description": "Excess inventory", "source": "CS Report",
+             "query": f"On-slide value ${t.get('total_excess', 0):,.0f} — sum of excessValue across factories"},
+            {"description": "Late POs", "source": "CS Report",
+             "query": f"On-slide value {t.get('total_late_pos', 0):,} — sum of latePosCt across factories"},
+        ])
+    return rows
+
+
+def _cohort_summary_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Speaker-note rows for Cohort Summary slide — aggregate KPIs."""
+    digest = report.get("cohort_digest") or {}
+    buckets = [v for v in digest.values() if isinstance(v, dict) and int(v.get("n") or 0) > 0]
+    if not buckets:
+        return []
+    total_users = sum(b.get("total_users", 0) for b in buckets)
+    total_active = sum(b.get("total_active_users", 0) for b in buckets)
+    arr_map = report.get("_arr_by_customer") or {}
+    total_arr = sum(arr_map.values()) if arr_map else 0
+    rows: list[dict[str, str]] = [{
+        "description": "Cohort summary aggregates",
+        "source": "Pendo (cohort_digest aggregation) + Salesforce (ARR)",
+        "query": (
+            f"{len(buckets)} cohorts | "
+            f"{report.get('customer_count', 0)} customers | "
+            f"total users={total_users:,} | active(7d)={total_active:,} | "
+            f"total ARR=${total_arr:,.0f} | "
+            "median-of-medians for active rate, write ratio, exports, Kei adoption"
+        ),
+    }]
+    return rows
+
+
+def _cohort_profiles_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Speaker-note rows for Cohort Profile slides — describes every on-slide metric."""
+    digest = report.get("cohort_digest") or {}
+    if not digest:
+        return []
+    rows: list[dict[str, str]] = []
+    for cid, block in digest.items():
+        if not isinstance(block, dict) or not int(block.get("n") or 0):
+            continue
+        name = block.get("display_name", cid)
+        n = block["n"]
+        rows.append({
+            "description": f"Cohort: {name} ({n} customers)",
+            "source": "Pendo (portfolio rollup via cohorts.yaml)",
+            "query": (
+                f"active(7d)={block.get('total_active_users', 0)} / "
+                f"total={block.get('total_users', 0)} | "
+                f"median weekly active rate={block.get('median_login_pct', 0)}% "
+                f"(engagement.active_rate_7d per customer, median across cohort) | "
+                f"write-to-total ratio={block.get('median_write_ratio', 0)}% "
+                f"(depth.write_ratio per customer, median) | "
+                f"Kei adopters={block.get('kei_adoption_pct', 0)}% "
+                f"(% of customers with ≥1 Kei query) | "
+                f"exports/customer(median,30d)={block.get('median_exports', 0)} "
+                f"(exports.total_exports per customer, median)"
+            ),
+        })
+    arr_map = report.get("_arr_by_customer") or {}
+    if arr_map:
+        n_with = len(arr_map)
+        total_arr = sum(arr_map.values())
+        rows.append({
+            "description": "ARR by customer",
+            "source": "Salesforce (Account.ARR__c)",
+            "query": (
+                f"Matched {n_with} customers with ARR totalling ${total_arr:,.0f} — "
+                "single batch query on Entity accounts, matched by Name / LeanDNA_Entity_Name__c"
+            ),
+        })
+    return rows
+
+
+def _cohort_findings_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Speaker-note rows for Cohort Findings slide."""
+    bullets = report.get("cohort_findings_bullets") or []
+    if not bullets:
+        return []
+    return [{
+        "description": "Cohort findings",
+        "source": "Pendo (compute_cohort_portfolio_rollup)",
+        "query": (
+            f"{len(bullets)} auto-generated finding(s) comparing cohorts on "
+            "median login %, write ratio, Kei adoption — derived from portfolio customer summaries"
+        ),
+    }]
+
+
 _SLIDE_CANONICAL_PIPELINE_TRACES: dict[str, Any] = {
     "health": _health_snapshot_pipeline_traces,
     "benchmarks": _peer_benchmarks_pipeline_traces,
     "platform_value": _platform_value_pipeline_traces,
+    "support_health_exec": _support_health_exec_pipeline_traces,
+    "salesforce_pipeline": _salesforce_pipeline_traces,
+    "platform_risk": _platform_risk_pipeline_traces,
+    "cohort_summary": _cohort_summary_pipeline_traces,
+    "cohort_profiles": _cohort_profiles_pipeline_traces,
+    "cohort_findings": _cohort_findings_pipeline_traces,
 }
 
 
@@ -2223,11 +2385,12 @@ def _depth_slide(reqs, sid, report, idx):
 
     _DP_KPI_H = 54
     _DP_GAP = 16.0
+    _DP_CHART_GAP = 16.0
     dpy = BODY_Y + 8
     dpw = (CONTENT_W - 2 * _DP_GAP) / 3
     _kpi_metric_card(
         reqs, f"{sid}_dk0", sid, MARGIN, dpy, dpw, _DP_KPI_H,
-        "Feature interactions", f"{total:,}", accent=NAVY, value_pt=20,
+        "Feature interactions", f"{total:,}", accent=BLUE, value_pt=20,
     )
     _kpi_metric_card(
         reqs, f"{sid}_dk1", sid, MARGIN + dpw + _DP_GAP, dpy, dpw, _DP_KPI_H,
@@ -2235,9 +2398,9 @@ def _depth_slide(reqs, sid, report, idx):
     )
     _kpi_metric_card(
         reqs, f"{sid}_dk2", sid, MARGIN + 2 * (dpw + _DP_GAP), dpy, dpw, _DP_KPI_H,
-        "Write ratio", f"{write_ratio}%", accent=TEAL, value_pt=20,
+        "Write ratio", f"{write_ratio}%", accent=BLUE, value_pt=20,
     )
-    chart_top = dpy + _DP_KPI_H + 10
+    chart_top = dpy + _DP_KPI_H + _DP_CHART_GAP
 
     charts = report.get("_charts")
     read_e = depth.get("read_events", 0)
@@ -2247,7 +2410,7 @@ def _depth_slide(reqs, sid, report, idx):
     if charts:
         try:
             from .charts import embed_chart
-            bottom_pad = 10
+            bottom_pad = 16
             chart_h = BODY_BOTTOM - chart_top - bottom_pad
 
             # Stacked bar: top categories by read/write/collab
@@ -2333,7 +2496,7 @@ def _kei_slide(reqs, sid, report, idx):
     kcw = (CONTENT_W - 2 * _KEI_GAP) / 3
     _kpi_metric_card(
         reqs, f"{sid}_k0", sid, MARGIN, krow, kcw, _KEI_KPI_H,
-        "Total queries", f"{total_q:,}", accent=NAVY, value_pt=22,
+        "Total queries", f"{total_q:,}", accent=BLUE, value_pt=22,
     )
     _kpi_metric_card(
         reqs, f"{sid}_k1", sid, MARGIN + kcw + _KEI_GAP, krow, kcw, _KEI_KPI_H,
@@ -2341,7 +2504,7 @@ def _kei_slide(reqs, sid, report, idx):
     )
     _kpi_metric_card(
         reqs, f"{sid}_k2", sid, MARGIN + 2 * (kcw + _KEI_GAP), krow, kcw, _KEI_KPI_H,
-        "Users with queries", f"{unique}", accent=TEAL, value_pt=22,
+        "Users with queries", f"{unique}", accent=BLUE, value_pt=22,
     )
 
     exec_y = krow + _KEI_KPI_H + 10
@@ -3294,6 +3457,99 @@ def _portfolio_leaders_slide(reqs, sid, report, idx):
 _COHORT_PROFILE_MAX_SLIDES = 10
 
 
+def _cohort_summary_slide(reqs, sid, report, idx):
+    """Portfolio-wide cohort summary — aggregate KPIs across all cohorts."""
+    digest = report.get("cohort_digest") or {}
+    buckets = [v for v in digest.values() if isinstance(v, dict) and int(v.get("n") or 0) > 0]
+    if not buckets:
+        return _missing_data_slide(reqs, sid, report, idx, "cohort_digest (no cohort data)")
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+
+    total_customers = report.get("customer_count", 0)
+    num_cohorts = len(buckets)
+    total_users = sum(b.get("total_users", 0) for b in buckets)
+    total_active = sum(b.get("total_active_users", 0) for b in buckets)
+    overall_active_pct = round(100.0 * total_active / total_users, 1) if total_users else 0.0
+
+    arr_map = report.get("_arr_by_customer") or {}
+    total_arr = sum(arr_map.values()) if arr_map else 0.0
+
+    login_medians = [b["median_login_pct"] for b in buckets if b.get("median_login_pct") is not None]
+    write_medians = [b["median_write_ratio"] for b in buckets if b.get("median_write_ratio") is not None]
+    export_medians = [b["median_exports"] for b in buckets if b.get("median_exports") is not None]
+    kei_rates = [b.get("kei_adoption_pct", 0) for b in buckets]
+
+    def _med(nums):
+        if not nums:
+            return None
+        s = sorted(nums)
+        mid = len(s) // 2
+        return s[mid] if len(s) % 2 else round((s[mid - 1] + s[mid]) / 2, 1)
+
+    med_login = _med(login_medians)
+    med_write = _med(write_medians)
+    med_exports = _med(export_medians)
+    med_kei = _med(kei_rates)
+
+    ttl = "Cohort Summary"
+    _slide_title(reqs, sid, ttl)
+
+    row1_y = BODY_Y + 8
+    card_h = 58
+    gap = 12
+    cards_per_row = 3
+    card_w = (CONTENT_W - gap * (cards_per_row - 1)) / cards_per_row
+
+    _kpi_metric_card(reqs, f"{sid}_c0", sid,
+                     MARGIN, row1_y, card_w, card_h,
+                     "Total customers", str(total_customers), accent=NAVY)
+    _kpi_metric_card(reqs, f"{sid}_c1", sid,
+                     MARGIN + card_w + gap, row1_y, card_w, card_h,
+                     "Cohorts", str(num_cohorts), accent=NAVY)
+    arr_str = _fmt_platform_value_dollar(total_arr) if total_arr > 0 else "—"
+    _kpi_metric_card(reqs, f"{sid}_c2", sid,
+                     MARGIN + 2 * (card_w + gap), row1_y, card_w, card_h,
+                     "Total ARR", arr_str, accent=BLUE)
+
+    row2_y = row1_y + card_h + gap
+    _kpi_metric_card(reqs, f"{sid}_c3", sid,
+                     MARGIN, row2_y, card_w, card_h,
+                     "Total users", f"{total_users:,}", accent=NAVY)
+    _kpi_metric_card(reqs, f"{sid}_c4", sid,
+                     MARGIN + card_w + gap, row2_y, card_w, card_h,
+                     "Active users (7d)", f"{total_active:,}", accent=NAVY)
+    _kpi_metric_card(reqs, f"{sid}_c5", sid,
+                     MARGIN + 2 * (card_w + gap), row2_y, card_w, card_h,
+                     "Active rate", f"{overall_active_pct}%", accent=BLUE)
+
+    row3_y = row2_y + card_h + gap
+    _kpi_metric_card(reqs, f"{sid}_c6", sid,
+                     MARGIN, row3_y, card_w, card_h,
+                     "Weekly active rate (median)", f"{med_login}%" if med_login is not None else "—", accent=NAVY)
+    _kpi_metric_card(reqs, f"{sid}_c7", sid,
+                     MARGIN + card_w + gap, row3_y, card_w, card_h,
+                     "Write ratio (median)", f"{med_write}%" if med_write is not None else "—", accent=NAVY)
+    _kpi_metric_card(reqs, f"{sid}_c8", sid,
+                     MARGIN + 2 * (card_w + gap), row3_y, card_w, card_h,
+                     "Kei adoption (median)", f"{med_kei}%" if med_kei is not None else "—", accent=BLUE)
+
+    row4_y = row3_y + card_h + gap
+    cards_r4 = 2
+    card_w4 = (CONTENT_W - gap * (cards_r4 - 1)) / cards_r4
+    _kpi_metric_card(reqs, f"{sid}_c9", sid,
+                     MARGIN, row4_y, card_w4, card_h,
+                     "Exports per customer (median, 30d)", f"{med_exports:.0f}" if med_exports is not None else "—", accent=NAVY)
+    biggest = max(buckets, key=lambda b: b.get("n", 0))
+    biggest_lbl = f"{biggest['display_name']} ({biggest['n']})"
+    _kpi_metric_card(reqs, f"{sid}_c10", sid,
+                     MARGIN + card_w4 + gap, row4_y, card_w4, card_h,
+                     "Largest cohort", biggest_lbl, accent=NAVY, value_pt=14)
+
+    return idx + 1
+
+
 def _cohort_deck_title_slide(reqs, sid, report, idx):
     """Title for manufacturing cohort deck (uses same portfolio report payload)."""
     _slide(reqs, sid, idx)
@@ -3334,6 +3590,7 @@ def _cohort_profiles_slide(reqs, sid, report, idx) -> int | tuple[int, list[str]
         return _missing_data_slide(reqs, sid, report, idx, "cohort_digest (no customers in cohort buckets)")
 
     total_customers = report.get("customer_count", 0)
+    arr_map = report.get("_arr_by_customer") or {}
     oids: list[str] = []
     num = len(rows)
     for pi, (_cid, block) in enumerate(rows):
@@ -3342,7 +3599,11 @@ def _cohort_profiles_slide(reqs, sid, report, idx) -> int | tuple[int, list[str]
         _slide(reqs, page_sid, idx + pi)
         _bg(reqs, page_sid, WHITE)
         cohort_n = block["n"]
-        ttl = f"{block['display_name']} ({cohort_n} of {total_customers} customers)"
+        cohort_arr = sum(arr_map.get(c, 0) for c in (block.get("customers") or []))
+        ttl = f"{block['display_name']} ({cohort_n} of {total_customers} customers"
+        if cohort_arr > 0:
+            ttl += f", {_fmt_platform_value_dollar(cohort_arr)} ARR"
+        ttl += ")"
         _slide_title(reqs, page_sid, ttl)
 
         mlogin = block.get("median_login_pct")
@@ -6092,6 +6353,7 @@ _SLIDE_BUILDERS = {
     "salesforce_comprehensive_cover": _salesforce_comprehensive_cover_slide,
     "salesforce_category": _salesforce_category_slide,
     "cohort_deck_title": _cohort_deck_title_slide,
+    "cohort_summary": _cohort_summary_slide,
     "cohort_profiles": _cohort_profiles_slide,
     "cohort_findings": _cohort_findings_slide,
 }
@@ -6129,6 +6391,7 @@ SLIDE_DATA_REQUIREMENTS = {
     "portfolio_trends": ["portfolio_trends"],
     "portfolio_leaders": ["portfolio_leaders"],
     "cohort_deck_title": ["customer_count", "days", "generated"],
+    "cohort_summary": ["cohort_digest"],
     "cohort_profiles": ["cohort_digest"],
     "cohort_findings": ["cohort_findings_bullets"],
     "team": ["customer"],

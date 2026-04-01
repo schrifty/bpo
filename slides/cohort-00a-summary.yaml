@@ -1,0 +1,13 @@
+id: cohort_summary
+type: standard
+order: 5
+title: Cohort Summary
+slide_type: cohort_summary
+data_tools: []
+customers: all
+
+prompt: >
+  Portfolio-wide cohort summary — aggregate KPIs across all cohorts.
+  Shows total customers, cohort count, total ARR, total/active users,
+  active rate, and median-of-medians for weekly active rate, write ratio,
+  Kei adoption, and exports.
