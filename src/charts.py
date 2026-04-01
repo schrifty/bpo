@@ -52,6 +52,9 @@ def _embedded_chart_border(c: dict = NAVY) -> dict:
     }
 
 
+CHART_TITLE_PT = 36
+CHART_AXIS_PT = 10
+
 def _chart_text_format(font_size: int, color: dict = NAVY, bold: bool = False) -> dict:
     """Build Sheets TextFormat for chart labels/titles."""
     return {
@@ -223,7 +226,7 @@ class DeckCharts:
 
         spec: dict[str, Any] = {
             "title": title if show_title else "",
-            "titleTextFormat": _chart_text_format(12, NAVY, bold=True),
+            "titleTextFormat": _chart_text_format(CHART_TITLE_PT, NAVY, bold=True),
             "basicChart": {
                 "chartType": chart_type,
                 "legendPosition": legend_pos,
@@ -283,7 +286,7 @@ class DeckCharts:
 
         spec = {
             "title": title,
-            "titleTextFormat": _chart_text_format(12, NAVY, bold=True),
+            "titleTextFormat": _chart_text_format(CHART_TITLE_PT, NAVY, bold=True),
             "basicChart": {
                 "chartType": "LINE",
                 "legendPosition": ("BOTTOM_LEGEND" if len(series_names) > 1 else "NO_LEGEND") if show_legend else "NO_LEGEND",
@@ -344,7 +347,7 @@ class DeckCharts:
 
         spec = {
             "title": title,
-            "titleTextFormat": _chart_text_format(12, NAVY, bold=True),
+            "titleTextFormat": _chart_text_format(CHART_TITLE_PT, NAVY, bold=True),
             "pieChart": pie_spec,
         }
 
@@ -409,6 +412,7 @@ class DeckCharts:
 
         spec = {
             "title": title,
+            "titleTextFormat": _chart_text_format(CHART_TITLE_PT, NAVY, bold=True),
             "basicChart": {
                 "chartType": "COMBO",
                 "legendPosition": "BOTTOM_LEGEND",

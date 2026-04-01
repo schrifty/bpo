@@ -364,10 +364,14 @@ def _find_text_body_for_hint_target(
                 if found is not None:
                     return found
             sh = el.get("shape") or {}
-            if sh.get("objectId") == object_id and cell_location is None:
+            # Mutations use the page element's objectId (see ``_mutations_from_shape(el)``);
+            # Slides often omit objectId on the nested ``shape`` dict — match both.
+            shape_oid = el.get("objectId") or sh.get("objectId")
+            if shape_oid == object_id and cell_location is None:
                 return sh.get("text") or {}
             tb = el.get("table") or {}
-            if tb.get("objectId") == object_id and cell_location is not None:
+            table_oid = el.get("objectId") or tb.get("objectId")
+            if table_oid == object_id and cell_location is not None:
                 ri = cell_location["rowIndex"]
                 ci = cell_location["columnIndex"]
                 rows = tb.get("tableRows") or []
@@ -380,10 +384,14 @@ def _find_text_body_for_hint_target(
     return walk(slide.get("pageElements") or [])
 
 
-def _text_body_max_exclusive_index(text_body: dict) -> int:
-    """Exclusive end index upper bound (UTF-16), aligned with Slides textElements walk."""
+def _text_body_walk_end_exclusive(text_body: dict) -> int:
+    """Exclusive end index from the same walk as ``iter_text_run_spans`` (UTF-16).
+
+    ``startIndex`` resets the cursor; each ``textRun`` advances by its content length;
+    each ``paragraphMarker`` advances by 1.  This matches how we compute mutation spans.
+    """
     pos = 0
-    for te in text_body.get("textElements") or []:
+    for te in text_body.get("textElements", []):
         si = te.get("startIndex")
         if si is not None:
             pos = int(si)
@@ -393,6 +401,28 @@ def _text_body_max_exclusive_index(text_body: dict) -> int:
         elif te.get("paragraphMarker") is not None:
             pos += 1
     return pos
+
+
+def _text_body_max_exclusive_index(text_body: dict) -> int:
+    """Exclusive end index upper bound safe for ``deleteText`` (UTF-16).
+
+    Google sometimes returns ``endIndex`` on text elements that is one past the length
+    Slides accepts for ``deleteText`` (400: end index > existing text length).  We take
+    the **minimum** of the API max ``endIndex`` and the positional walk so clamping
+    never exceeds what the API will accept.
+    """
+    elements = text_body.get("textElements") or []
+    walk_end = _text_body_walk_end_exclusive(text_body)
+    api_max = 0
+    for te in elements:
+        ei = te.get("endIndex")
+        if ei is not None:
+            api_max = max(api_max, int(ei))
+    if api_max > 0 and walk_end > 0:
+        return min(api_max, walk_end)
+    if walk_end > 0:
+        return walk_end
+    return api_max
 
 
 def hint_mutations_to_batch_requests(

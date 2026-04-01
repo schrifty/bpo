@@ -113,6 +113,8 @@ Some logical slide types emit **more than one physical slide** when lists, table
 
 6. **Charts vs lists.** Pagination rules apply to **text and tables**. Embedded charts follow **Embedded Chart Standards** (including *Single chart on a slide*); do not shrink charts to “make room” for extra list rows when the design calls for a single dominant chart.
 
+7. **Slides tables vs list line height.** Google Slides applies **default cell padding** around table text, so each **rendered** row is taller than the cell ``fontSize`` alone. Paginating with ``fontSize × 1.22`` (or an arbitrary small constant like 18 pt) **over-counts** rows and the table **runs off the bottom** even when titles show “(2 of N)”. Use **``_table_rows_fit_span``** in ``slides_client.py`` with an empirical **effective row height** (for compact site tables, ~**26 pt** at 7 pt body text) that matches both **``createTable`` total height** and the pagination divisor.
+
 ### Implementation note for automation
 
 The codebase exposes **`slide_type_may_paginate(slide_type)`** and a registry of slide types that may emit multiple pages (for example long site lists, feature adoption, export behavior, signals, platform health, Jira- or Salesforce-backed tables). Prefer that registry for docs and tooling rather than duplicating the full list here; when adding a new paginating builder, update the registry and this document if the pattern is new.
@@ -302,6 +304,15 @@ Use embedded Sheets charts for:
 - metric comparisons  
 - time-series trends  
 - ranked category summaries  
+
+### Chart title and axis font sizing
+
+Sheets charts are created at an internal resolution (800×400 px) and then **scaled down** when embedded in the slide.  Text that looks fine in the spreadsheet becomes unreadably small at presentation scale.  Therefore all chart builders in ``src/charts.py`` must use the constants defined there:
+
+- **``CHART_TITLE_PT``** (**36 pt**) — bold, ``NAVY`` — for the chart title.  This renders at roughly 12 pt equivalent once the chart is scaled to its slide element size.
+- **``CHART_AXIS_PT``** (**10 pt**) — ``GRAY`` — for axis labels and category labels.  Callers may pass a different ``axis_font_size`` when category text needs more or less room.
+
+Do **not** hard-code font sizes in individual chart specs; always reference the constants so every chart stays consistent.
 - operational dashboards
 
 This improves consistency, reproducibility, and maintainability across decks.

@@ -90,6 +90,29 @@ def _list_data_rows_fit_span(
     return max(1, min(max_rows_cap, data_rows))
 
 
+def _table_rows_fit_span(
+    *,
+    y_top: float,
+    y_bottom: float,
+    row_height_pt: float | int,
+    reserved_table_rows: int = 2,
+    max_rows_cap: int = 40,
+) -> int:
+    """How many **data** rows fit in a Slides table between ``y_top`` and ``y_bottom``.
+
+    Use *row_height_pt* close to the **rendered** row height (font + Slides
+    default cell padding), not the text ``fontSize`` alone.  Otherwise
+    pagination packs too many rows and the table runs past ``BODY_BOTTOM``.
+    *reserved_table_rows* is header plus worst-case footer (e.g. total row on
+    the last page).
+    """
+    rh = max(12.0, float(row_height_pt))
+    avail = max(0.0, float(y_bottom) - float(y_top))
+    max_fit = int(avail // rh)
+    data = max_fit - int(reserved_table_rows)
+    return max(1, min(max_rows_cap, data))
+
+
 def _single_embedded_chart_layout(
     *,
     y_top: float,
@@ -1982,24 +2005,46 @@ def _sites_slide(reqs, sid, report, idx):
             n = n[len(customer_prefix):].lstrip(" -·")
         return n[:18] if len(n) > 18 else n
 
-    # Compact layout: smaller row height and fonts so we fit more rows and can paginate
-    ROW_H = 18
+    # Compact body font; table *rendered* row height is ~font + default cell padding (~26 pt),
+    # not 18 pt — using 18 for pagination caused overflow off the bottom of the slide.
+    ROW_H = 26
     FONT_PT = 7
     table_top = BODY_Y
 
     if has_entity:
-        headers = ["Site", "Entity", "Users", "Pg", "Feat", "Evt", "Min", "Last"]
-        col_widths = [118, 78, 40, 44, 46, 44, 40, 58]
+        headers = [
+            "Site",
+            "Entity",
+            "Users",
+            "Page views",
+            "Feature clicks",
+            "Events",
+            "Minutes",
+            "Last active",
+        ]
+        col_widths = [96, 72, 44, 56, 72, 48, 52, 64]
         end_col_start, end_col_end = 2, 6
     else:
-        headers = ["Site", "Users", "Pg", "Feat", "Evt", "Min", "Last"]
-        col_widths = [150, 40, 44, 46, 44, 40, 58]
+        headers = [
+            "Site",
+            "Users",
+            "Page views",
+            "Feature clicks",
+            "Events",
+            "Minutes",
+            "Last active",
+        ]
+        col_widths = [128, 44, 56, 72, 48, 52, 64]
         end_col_start, end_col_end = 1, 5
 
     num_cols = len(headers)
-    # Data rows per page: leave room for header + total row on last page
-    max_rows_fit = (BODY_BOTTOM - table_top) // ROW_H
-    rows_per_page = max(1, max_rows_fit - 2)  # header + total
+    rows_per_page = _table_rows_fit_span(
+        y_top=table_top,
+        y_bottom=BODY_BOTTOM,
+        row_height_pt=ROW_H,
+        reserved_table_rows=2,
+        max_rows_cap=40,
+    )
     show_total = len(all_sites) > 1
     num_pages = ((len(all_sites) + rows_per_page - 1) // rows_per_page) if rows_per_page else 1
     num_pages = _cap_page_count(num_pages)
@@ -2614,7 +2659,7 @@ def _guides_no_usage_slide(reqs, sid, report, idx, guides: dict[str, Any]) -> in
     _style(reqs, f"{sid}_nu", 0, len(headline), bold=True, size=22, color=NAVY, font=FONT)
 
     detail = (
-        "No in-app guide events (seen, advanced, or dismissed) were recorded for this "
+        "No in-app guide events (views, continue/next, or dismiss) were recorded for this "
         "customer in this period — an adoption signal worth reviewing with the account team."
     )
     _wrap_box(reqs, f"{sid}_nu_d", sid, MARGIN, BODY_Y + 76, CONTENT_W, 120, detail)
@@ -2645,42 +2690,61 @@ def _guides_slide(reqs, sid, report, idx):
     dismiss_rate = guides.get("dismiss_rate", 0)
     advance_rate = guides.get("advance_rate", 0)
 
-    metrics = (f"{seen:,} seen  ·  {advance_rate}% advanced  ·  {dismiss_rate}% dismissed  ·  "
-               f"{reach}% of users reached")
-    _box(reqs, f"{sid}_met", sid, MARGIN, BODY_Y, CONTENT_W, 18, metrics)
+    metrics = (
+        f"{seen:,} guide views (Pendo)  ·  {reach}% of tracked users saw at least one guide\n"
+        f"{advance_rate}% of views included a continue (next step)  ·  "
+        f"{dismiss_rate}% of views included a dismiss"
+    )
+    _box(reqs, f"{sid}_met", sid, MARGIN, BODY_Y, CONTENT_W, 34, metrics)
     _style(reqs, f"{sid}_met", 0, len(metrics), size=10, color=GRAY, font=FONT)
 
-    # Advance/dismiss bars
-    bar_y = BODY_Y + 28
+    # Continue vs dismiss: bar is split of those two event types only (many views have neither).
+    bar_y = BODY_Y + 42
     total_responses = advanced + dismissed
     if total_responses > 0:
         adv_w = int(advanced / total_responses * 400)
         dis_w = int(dismissed / total_responses * 400)
         _bar_rect(reqs, f"{sid}_adv", sid, MARGIN, bar_y, max(adv_w, 4), 18, BLUE)
         _bar_rect(reqs, f"{sid}_dis", sid, MARGIN + adv_w, bar_y, max(dis_w, 4), 18, GRAY)
-        alab = f"Advanced ({advanced:,})"
-        _box(reqs, f"{sid}_alab", sid, MARGIN, bar_y + 20, 200, 14, alab)
+        alab = f"Continue / next step ({advanced:,})"
+        _box(reqs, f"{sid}_alab", sid, MARGIN, bar_y + 20, 220, 14, alab)
         _style(reqs, f"{sid}_alab", 0, len(alab), size=8, color=BLUE, font=FONT)
         dlab = f"Dismissed ({dismissed:,})"
-        _box(reqs, f"{sid}_dlab", sid, MARGIN + adv_w, bar_y + 20, 200, 14, dlab)
+        _box(reqs, f"{sid}_dlab", sid, MARGIN + adv_w, bar_y + 20, 220, 14, dlab)
         _style(reqs, f"{sid}_dlab", 0, len(dlab), size=8, color=GRAY, font=FONT)
-        bar_y += 42
+        bar_note = (
+            "Bar = share of continue vs dismiss events only; other guide views did not continue or dismiss."
+        )
+        _box(reqs, f"{sid}_bnote", sid, MARGIN, bar_y + 36, CONTENT_W, 22, bar_note)
+        _style(reqs, f"{sid}_bnote", 0, len(bar_note), size=7, color=GRAY, font=FONT)
+        bar_y += 62
 
-    # Top guides
+    # Top guides — one bullet per guide; legend explains Pendo event meanings.
     top_guides = guides.get("top_guides", [])
-    lines = ["Most Active Guides"]
+    sec_title = "Most active guides"
+    sec_legend = (
+        "Each bullet: views = times the guide was shown; continue = user went to the next step; "
+        "dismiss = user closed the guide without continuing."
+    )
+    bullet_lines: list[str] = []
     for g in top_guides[:6]:
-        name = g["guide"]
-        if len(name) > 40:
-            name = name[:37] + "..."
-        lines.append(f"  {name}")
-        lines.append(f"    seen {g['seen']}  ·  adv {g['advanced']}  ·  dis {g['dismissed']}")
-    if not top_guides:
-        lines.append("  No guide interactions")
-    text = "\n".join(lines)
+        name = str(g.get("guide") or "")
+        if len(name) > 52:
+            name = name[:49] + "..."
+        bullet_lines.append(
+            f"• {name}: {g['seen']} views, {g['advanced']} continue, {g['dismissed']} dismiss"
+        )
+    if not bullet_lines:
+        bullet_lines.append("• No guide interactions in this period.")
+    body = "\n".join(bullet_lines)
+    text = f"{sec_title}\n{sec_legend}\n\n{body}"
     _box(reqs, f"{sid}_guides", sid, MARGIN, bar_y + 4, CONTENT_W, 220, text)
     _style(reqs, f"{sid}_guides", 0, len(text), size=10, color=NAVY, font=FONT)
-    _style(reqs, f"{sid}_guides", 0, len("Most Active Guides"), bold=True, size=11, color=BLUE)
+    _len_title = len(sec_title)
+    _style(reqs, f"{sid}_guides", 0, _len_title, bold=True, size=11, color=BLUE, font=FONT)
+    _leg_start = _len_title + 1
+    _leg_end = _leg_start + len(sec_legend)
+    _style(reqs, f"{sid}_guides", _leg_start, _leg_end, size=8, color=GRAY, font=FONT)
 
     return idx + 1
 
@@ -2742,7 +2806,10 @@ def _jira_slide(reqs, sid, report, idx):
     end = date.today()
     start = end - timedelta(days=days)
     date_range = f"{start.strftime('%b %-d')} – {end.strftime('%b %-d, %Y')}"
-    header = f"{total} support tickets  ·  {date_range}  ·  {open_n} open  ·  {resolved} resolved  ·  {esc} escalated  ·  {bugs} open bugs"
+    header = (
+        f"{total} HELP tickets  ·  {date_range}  ·  {open_n} open  ·  {resolved} resolved  ·  "
+        f"{esc} escalated  ·  {bugs} open bugs"
+    )
 
     sla_lines = []
     ttfr = jira.get("ttfr", {})
@@ -2769,6 +2836,8 @@ def _jira_slide(reqs, sid, report, idx):
         body_offset = 28
 
     status_items = list(jira.get("by_status", {}).items())
+    sum_status = sum(c for _, c in status_items)
+    sum_priority = sum(c for _, c in jira.get("by_priority", {}).items())
     status_lines = [f"{c:>4}  {s}" for s, c in status_items]
     prio_short = {"Blocker: The platform is completely down": "Blocker",
                   "Critical: Significant operational impact": "Critical",
@@ -2812,11 +2881,18 @@ def _jira_slide(reqs, sid, report, idx):
         body_top_y: float,
         *,
         max_slide_index_exclusive: int | None = None,
+        reconcile_header_total: int | None = None,
     ) -> tuple[int, list[str]]:
         oids_extra: list[str] = []
         cont_y0 = body_top_y
         per_page_lines = max(1, int((max_y - cont_y0 - 8) // line_h))
         flat: list[tuple[str, str]] = []
+        if reconcile_header_total is not None and start_idx >= 1:
+            flat.append((
+                "n",
+                f"Together with slide 1, the breakdowns below account for all "
+                f"{reconcile_header_total} tickets in the header.",
+            ))
         for sec_title, slines in sections:
             if not slines:
                 continue
@@ -2843,6 +2919,11 @@ def _jira_slide(reqs, sid, report, idx):
                     _style(reqs, f"{page_sid}_h{pos}", 0, len(text), bold=True, size=10, color=BLUE, font=FONT)
                     y += sec_title_h
                     used_lines += 1
+                elif kind == "n":
+                    _box(reqs, f"{page_sid}_n{pos}", page_sid, MARGIN, y, CONTENT_W, line_h * 2 + 4, text)
+                    _style(reqs, f"{page_sid}_n{pos}", 0, len(text), size=8, color=GRAY, font=FONT)
+                    y += line_h * 2 + 6
+                    used_lines += 2
                 else:
                     _box(reqs, f"{page_sid}_l{pos}", page_sid, MARGIN, y, CONTENT_W, line_h, text)
                     _style(reqs, f"{page_sid}_l{pos}", 0, len(text), size=8, color=NAVY, font=MONO)
@@ -2877,7 +2958,18 @@ def _jira_slide(reqs, sid, report, idx):
     pr_budget = max(summary_budget - st_used - 4, sec_title_h + line_h)
     pr_take, prio_rest, pr_used = _pack_lines(prio_lines, pr_budget)
 
-    left_y = body_top + st_used + 4 + pr_used + 4
+    st_footer_h = 0
+    if st_take and status_rest:
+        st_footer_h = line_h * 3
+    elif st_take and sum_status != total:
+        st_footer_h = line_h * 2
+    pr_footer_h = 0
+    if pr_take and prio_rest:
+        pr_footer_h = line_h * 3
+    elif pr_take and sum_priority != total:
+        pr_footer_h = line_h * 2
+
+    left_y = body_top + st_used + 4 + pr_used + 4 + st_footer_h + pr_footer_h
     recent_take: list = []
     if recent_all:
         avail_recent = max(int((max_y - left_y) // line_h) - 1, 0)
@@ -2975,18 +3067,50 @@ def _jira_slide(reqs, sid, report, idx):
     right_x = MARGIN + left_w + col_gap
 
     if st_take:
-        status_text = "By Status\n" + "\n".join(st_take)
-        st_h = sec_title_h + line_h * len(st_take) + 4
+        st_footer = ""
+        if status_rest:
+            k_st = len(st_take)
+            sub_st = sum(c for _, c in status_items[:k_st])
+            rest_st = sum(c for _, c in status_items[k_st:])
+            n_st = len(status_items) - k_st
+            st_footer = (
+                f"\nSubtotal {sub_st} tickets in the statuses above. "
+                f"Next slide(s): {rest_st} tickets across {n_st} more status row(s). "
+                f"(All statuses total {sum_status} tickets.)"
+            )
+        elif sum_status != total:
+            st_footer = f"\nNote: status rows sum to {sum_status}; header shows {total} issues."
+        status_text = "By Status\n" + "\n".join(st_take) + st_footer
+        st_h = sec_title_h + line_h * len(st_take) + 4 + st_footer_h
         _box(reqs, f"{page_sid0}_st", page_sid0, left_x, left_y, left_w, st_h, status_text)
         _style(reqs, f"{page_sid0}_st", 0, len(status_text), size=8, color=NAVY, font=FONT)
         _style(reqs, f"{page_sid0}_st", 0, len("By Status"), bold=True, size=9, color=BLUE)
+        if st_footer:
+            _st_f0 = len("By Status\n" + "\n".join(st_take))
+            _style(reqs, f"{page_sid0}_st", _st_f0, len(status_text), size=7, color=GRAY, font=FONT)
         left_y += st_h + 4
     if pr_take:
-        prio_text = "By Priority\n" + "\n".join(pr_take)
-        pr_h = sec_title_h + line_h * len(pr_take) + 4
+        pr_footer = ""
+        if prio_rest:
+            k_pr = len(pr_take)
+            sub_pr = sum(c for _, c in prio_items[:k_pr])
+            rest_pr = sum(c for _, c in prio_items[k_pr:])
+            n_pr = len(prio_items) - k_pr
+            pr_footer = (
+                f"\nSubtotal {sub_pr} tickets in the priorities above. "
+                f"Next slide(s): {rest_pr} tickets across {n_pr} more priority row(s). "
+                f"(All priorities total {sum_priority} tickets.)"
+            )
+        elif sum_priority != total:
+            pr_footer = f"\nNote: priority rows sum to {sum_priority}; header shows {total} issues."
+        prio_text = "By Priority\n" + "\n".join(pr_take) + pr_footer
+        pr_h = sec_title_h + line_h * len(pr_take) + 4 + pr_footer_h
         _box(reqs, f"{page_sid0}_pr", page_sid0, left_x, left_y, left_w, pr_h, prio_text)
         _style(reqs, f"{page_sid0}_pr", 0, len(prio_text), size=8, color=NAVY, font=FONT)
         _style(reqs, f"{page_sid0}_pr", 0, len("By Priority"), bold=True, size=9, color=BLUE)
+        if pr_footer:
+            _pr_f0 = len("By Priority\n" + "\n".join(pr_take))
+            _style(reqs, f"{page_sid0}_pr", _pr_f0, len(prio_text), size=7, color=GRAY, font=FONT)
         left_y += pr_h + 4
 
     if recent_take:
@@ -3062,6 +3186,7 @@ def _jira_slide(reqs, sid, report, idx):
         _, extra_oids = _continuation_pages(
             cont_sections, 1, total_pages, body_top,
             max_slide_index_exclusive=MAX_PAGINATED_SLIDE_PAGES,
+            reconcile_header_total=total,
         )
         oids.extend(extra_oids)
 
@@ -3965,7 +4090,7 @@ def _platform_health_slide(reqs, sid, report, idx):
 
         for ci, h in enumerate(headers_list):
             _ct(0, ci, h)
-            _cs(0, ci, len(h), bold=True, color=GRAY, size=8, align="END" if ci >= 2 else None)
+            _cs(0, ci, len(h), bold=True, color=NAVY, size=9, align="END" if ci >= 2 else None)
             _cbg(0, ci, WHITE)
 
         for ri, s in enumerate(show):
@@ -4105,7 +4230,7 @@ def _supply_chain_slide(reqs, sid, report, idx):
 
         for ci, h in enumerate(headers_list):
             _ct(0, ci, h)
-            _cs(0, ci, len(h), bold=True, color=GRAY, size=8, align="END" if ci >= 1 else None)
+            _cs(0, ci, len(h), bold=True, color=NAVY, size=9, align="END" if ci >= 1 else None)
             _cbg(0, ci, WHITE)
 
         for ri, s in enumerate(show):
@@ -4260,7 +4385,7 @@ def _platform_value_slide(reqs, sid, report, idx):
         _clean_table(reqs, table_id, num_rows, len(headers_list))
         for ci, h in enumerate(headers_list):
             _ct(0, ci, h)
-            _cs(0, ci, len(h), bold=True, color=GRAY, size=8, align="END" if ci >= 1 else None)
+            _cs(0, ci, len(h), bold=True, color=NAVY, size=9, align="END" if ci >= 1 else None)
             _cbg(0, ci, WHITE)
         for ri, s in enumerate(show):
             row = ri + 1

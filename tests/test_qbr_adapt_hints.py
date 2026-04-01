@@ -144,6 +144,27 @@ def test_orange_glyph_after_paragraph_marker_uses_indices_past_marker():
     assert reqs[0]["deleteText"]["textRange"]["endIndex"] == 2
 
 
+@patch.object(hints, "_add_incomplete_banner", return_value=[])
+def test_hint_mutations_clamps_delete_when_api_endindex_exceeds_walk(mock_banner):
+    """Regression: Slides batchUpdate rejects deleteText when endIndex > document length."""
+    thirteen = "a" * 13
+    text_body = {
+        "textElements": [
+            {"startIndex": 0, "endIndex": 14, "textRun": {"content": thirteen, "style": {}}},
+        ],
+    }
+    slide = {
+        "pageElements": [{
+            "objectId": "p1",
+            "shape": {"shapeProperties": {}, "text": text_body},
+        }],
+    }
+    muts = [hints._HintMutation("p1", None, "replace", 0, 14, hints.YELLOW_FIELD_PLACEHOLDER)]
+    reqs, _ = hints.hint_mutations_to_batch_requests("pg", muts, add_banner=False, slide=slide)
+    assert reqs[0]["deleteText"]["textRange"]["endIndex"] == 13
+    assert reqs[0]["deleteText"]["textRange"]["startIndex"] == 0
+
+
 def test_extract_yellow_from_shape_runs():
     slide = {
         "pageElements": [{

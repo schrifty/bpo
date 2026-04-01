@@ -1,5 +1,6 @@
 """JIRA Cloud client for fetching customer-related issues."""
 
+import difflib
 import re
 from base64 import b64encode
 from collections import Counter
@@ -73,6 +74,67 @@ def _jql_escape_string(value: str) -> str:
     Handles the characters that can break out of or alter a JQL string literal.
     """
     return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _norm_org_for_match(s: str) -> str:
+    """Normalize a label for fuzzy comparison against JSM organization names."""
+    t = (s or "").lower().strip()
+    t = re.sub(r"[\s,.'\"&]+", " ", t)
+    return t.strip()
+
+
+def _score_jsm_org_candidate(query: str, organization_name: str) -> float:
+    """Similarity in [0, 1] between a search string and a JSM organization name."""
+    q = _norm_org_for_match(query)
+    o = _norm_org_for_match(organization_name)
+    if not q or not o:
+        return 0.0
+    if q == o:
+        return 1.0
+    # Containment: require the shorter side to be long enough to avoid noise ("inc", "llc").
+    shorter, longer = (q, o) if len(q) <= len(o) else (o, q)
+    if len(shorter) >= 5 and shorter in longer:
+        return 0.9
+    return difflib.SequenceMatcher(None, q, o).ratio()
+
+
+def _fuzzy_pick_jsm_organizations(queries: list[str], candidates: list[str]) -> list[str]:
+    """Map free-text customer names to exact JSM organization labels (enum-safe for JQL).
+
+    Uses the Service Desk organization directory. Short or ambiguous queries are skipped
+    so we do not OR in the wrong organization.
+    """
+    if not candidates:
+        return []
+    picked: list[str] = []
+    seen_lower: set[str] = set()
+    for raw_q in queries:
+        q = (raw_q or "").strip()
+        if not q:
+            continue
+        nq = _norm_org_for_match(q)
+        thresh = 0.92 if len(nq) < 6 else 0.82
+        scored = [(org, _score_jsm_org_candidate(q, org)) for org in candidates]
+        scored.sort(key=lambda x: -x[1])
+        if not scored or scored[0][1] < thresh:
+            continue
+        top_org, top_s = scored[0]
+        second_s = scored[1][1] if len(scored) > 1 else 0.0
+        if second_s >= top_s - 0.05:
+            logger.debug(
+                "JSM org fuzzy match ambiguous for %r: %r (%.2f) vs %r (%.2f); skipping",
+                q,
+                top_org,
+                top_s,
+                scored[1][0],
+                second_s,
+            )
+            continue
+        lk = top_org.strip().lower()
+        if lk not in seen_lower:
+            seen_lower.add(lk)
+            picked.append(top_org)
+    return picked
 
 
 def _extract_adf_text(node: Any, _depth: int = 0) -> str:
@@ -282,6 +344,8 @@ class JiraClient:
             "Content-Type": "application/json",
         }
         self._jql_log: list[dict[str, str]] = []
+        # Populated by ``_list_jsm_organization_names`` (JSM Service Desk API).
+        self._jsm_organization_names_cache: list[str] | None = None
 
     def _record_jql(self, jql: str, *, description: str | None = None) -> None:
         """Record JQL with a short human label for speaker notes (``[label] - JQL``)."""
@@ -338,12 +402,71 @@ class JiraClient:
                 break
         return results
 
-    @staticmethod
-    def _customer_match_clause(customer_name: str, match_terms: list[str] | None = None) -> str:
-        """Build a Jira JQL clause to match a customer by canonical name and aliases."""
+    def _list_jsm_organization_names(self) -> list[str]:
+        """All JSM organization names (exact strings valid in ``Organizations =`` JQL)."""
+        if self._jsm_organization_names_cache is not None:
+            return self._jsm_organization_names_cache
+        names: list[str] = []
+        start = 0
+        limit = 50
+        try:
+            while True:
+                url = (
+                    f"{self.base_url}/rest/servicedeskapi/organization"
+                    f"?start={start}&limit={limit}"
+                )
+                resp = requests.get(url, headers=self._headers, timeout=45)
+                resp.raise_for_status()
+                data = resp.json()
+                batch = data.get("values") or []
+                for v in batch:
+                    if not isinstance(v, dict):
+                        continue
+                    n = (v.get("name") or "").strip()
+                    if n:
+                        names.append(n)
+                if data.get("isLastPage", True) or not batch:
+                    break
+                start += len(batch)
+        except Exception as e:
+            logger.warning(
+                "Could not list JSM organizations (%s); JQL uses literal customer names only",
+                e,
+            )
+            self._jsm_organization_names_cache = []
+            return []
+
+        seen_ci: set[str] = set()
+        unique: list[str] = []
+        for n in names:
+            k = n.lower()
+            if k not in seen_ci:
+                seen_ci.add(k)
+                unique.append(n)
+        self._jsm_organization_names_cache = unique
+        return unique
+
+    def _customer_match_clause(
+        self,
+        customer_name: str,
+        match_terms: list[str] | None = None,
+    ) -> tuple[str, list[str]]:
+        """Build JQL to match a customer on HELP: Organizations (exact + fuzzy) and text.
+
+        JSM ``Organizations`` is the authoritative link to a customer, but JQL requires
+        the exact directory string. We list organizations via the Service Desk API and
+        fuzzy-match the report's customer name (and aliases) to those labels, then OR
+        ``Organizations = "<resolved>"`` together with literal terms and ``summary`` /
+        ``description`` matches for tickets missing org metadata.
+
+        Returns:
+            ``(jql_fragment, resolved_jsm_organization_names)`` — the second value is
+            the fuzzy-matched enum labels (may be empty if the API failed or no confident match).
+        """
         raw_terms = [customer_name] + list(match_terms or [])
         seen: set[str] = set()
-        terms: list[str] = []
+        cleaned_terms: list[str] = []
+        escaped_terms: list[str] = []
         for term in raw_terms:
             cleaned = (term or "").strip()
             if not cleaned:
@@ -352,14 +475,35 @@ class JiraClient:
             if lowered in seen:
                 continue
             seen.add(lowered)
-            terms.append(_jql_escape_string(cleaned))
+            cleaned_terms.append(cleaned)
+            escaped_terms.append(_jql_escape_string(cleaned))
 
-        clauses: list[str] = []
-        for term in terms:
-            clauses.append(f'Organizations = "{term}"')
-            clauses.append(f'summary ~ "{term}"')
-            clauses.append(f'description ~ "{term}"')
-        return "(" + " OR ".join(clauses) + ")"
+        resolved_orgs = _fuzzy_pick_jsm_organizations(
+            cleaned_terms,
+            self._list_jsm_organization_names(),
+        )
+
+        org_fragments: list[str] = []
+        seen_org: set[str] = set()
+        for esc in escaped_terms:
+            frag = f'Organizations = "{esc}"'
+            if frag not in seen_org:
+                seen_org.add(frag)
+                org_fragments.append(frag)
+        for org in resolved_orgs:
+            esc = _jql_escape_string(org.strip())
+            frag = f'Organizations = "{esc}"'
+            if frag not in seen_org:
+                seen_org.add(frag)
+                org_fragments.append(frag)
+
+        text_fragments: list[str] = []
+        for esc in escaped_terms:
+            text_fragments.append(f'summary ~ "{esc}"')
+            text_fragments.append(f'description ~ "{esc}"')
+
+        clauses = org_fragments + text_fragments
+        return "(" + " OR ".join(clauses) + ")", resolved_orgs
 
     def _normalize_issue(self, issue: dict) -> dict:
         f = issue["fields"]
@@ -586,20 +730,21 @@ class JiraClient:
     def get_customer_jira(self, customer_name: str, days: int = 90) -> dict[str, Any]:
         """Get JIRA picture for a customer: open issues, recent activity, escalations.
 
-        Matches on Organizations field (JSM) and summary prefix.
+        Scoped to **project HELP** (support desk) only, with the same customer clause as
+        ``get_customer_ticket_metrics``: Organizations (literal + fuzzy-resolved JSM
+        directory names), summary, and description.  Without ``project = HELP``, text
+        matches pull in LEAN/ER and other projects and inflate QBR Support Summary totals.
         """
         jql_start = len(self._jql_log)
         safe_name = _jql_escape_string(customer_name)
-        jql = (
-            f'(Organizations = "{safe_name}" OR summary ~ "{safe_name}")'
-            f" AND created >= -{days}d ORDER BY created DESC"
-        )
+        base_filter, resolved_jsm_orgs = self._customer_match_clause(customer_name)
+        jql = f"project = HELP AND {base_filter} AND created >= -{days}d ORDER BY created DESC"
 
         try:
             raw = self._search(
                 jql,
-                max_results=200,
-                data_description=f"Customer issues (Organizations/summary, {days}d lookback)",
+                max_results=1500,
+                data_description=f"HELP project issues for customer ({days}d lookback)",
             )
         except Exception as e:
             logger.warning("JIRA search failed for %s: %s", customer_name, e)
@@ -644,6 +789,12 @@ class JiraClient:
             "base_url": self.base_url,
             "customer": customer_name,
             "days": days,
+            "jsm_organizations_resolved": resolved_jsm_orgs,
+            "help_scope": (
+                "Jira project HELP only; tickets match Organizations (including JSM directory "
+                "names fuzzy-matched from this report), summary, or description "
+                f"for this account ({customer_name!r})."
+            ),
             "total_issues": len(issues),
             "open_issues": len(open_issues),
             "resolved_issues": len(resolved),
@@ -782,12 +933,13 @@ class JiraClient:
     ) -> dict[str, Any]:
         """Metrics for a single customer's support tickets across open/6mo/1y windows.
 
-        Scoped to ``project = HELP`` only. The customer clause matches Organizations and
-        text (summary/description); without a project filter, those text matches pull in
-        LEAN and other projects and inflate Support Review KPIs.
+        Scoped to ``project = HELP`` only. The customer clause matches Organizations
+        (literal + fuzzy-resolved JSM labels) and text (summary/description); without a
+        project filter, those text matches pull in LEAN and other projects and inflate
+        Support Review KPIs.
         """
         jql_start = len(self._jql_log)
-        base_filter = self._customer_match_clause(customer_name, match_terms)
+        base_filter, resolved_jsm_orgs = self._customer_match_clause(customer_name, match_terms)
         max_fetch = 1500
         # Support desk only — must match eng_help_volume_trends / JSM HELP usage.
         proj = "project = HELP AND "
@@ -847,7 +999,11 @@ class JiraClient:
             )
         except Exception as e:
             logger.warning("Customer ticket metrics fetch failed for %s: %s", customer_name, e)
-            return {"error": str(e), "customer": customer_name}
+            return {
+                "error": str(e),
+                "customer": customer_name,
+                "jsm_organizations_resolved": resolved_jsm_orgs,
+            }
 
         open_issues = [_norm_snapshot_issue(i) for i in open_raw]
         resolved_issues = [_norm_snapshot_issue(i) for i in resolved_raw]
@@ -861,6 +1017,7 @@ class JiraClient:
 
         return {
             "customer": customer_name,
+            "jsm_organizations_resolved": resolved_jsm_orgs,
             "unresolved_count": len(open_issues),
             "resolved_in_6mo_count": len(resolved_issues),
             "ttfr_1y": ttfr,
@@ -886,7 +1043,7 @@ class JiraClient:
         ``get_customer_ticket_metrics``.
         """
         jql_start = len(self._jql_log)
-        base_filter = self._customer_match_clause(customer_name, match_terms)
+        base_filter, resolved_jsm_orgs = self._customer_match_clause(customer_name, match_terms)
         proj = "project = HELP AND "
 
         def _row(issue: dict) -> dict[str, Any]:
@@ -929,6 +1086,7 @@ class JiraClient:
             return {
                 "error": str(e),
                 "customer": customer_name,
+                "jsm_organizations_resolved": resolved_jsm_orgs,
                 "opened_within_days": od,
                 "closed_within_days": cd,
                 "recently_opened": [],
@@ -938,6 +1096,7 @@ class JiraClient:
 
         return {
             "customer": customer_name,
+            "jsm_organizations_resolved": resolved_jsm_orgs,
             "opened_within_days": od,
             "closed_within_days": cd,
             "recently_opened": [_row(i) for i in raw_open],
