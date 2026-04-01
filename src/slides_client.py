@@ -3370,23 +3370,40 @@ def _cohort_profiles_slide(reqs, sid, report, idx) -> int | tuple[int, list[str]
         _style(reqs, f"{page_sid}_st", 0, len(stats), size=12, color=NAVY, font=FONT)
 
         customers = block.get("customers") or []
-        mid = (len(customers) + 1) // 2
-        col_left = customers[:mid]
-        col_right = customers[mid:]
+        arr_map = report.get("_arr_by_customer") or {}
+
+        def _fmt_arr(v: float) -> str:
+            av = abs(v)
+            if av >= 1_000_000:
+                return f"${v / 1_000_000:,.1f}M"
+            if av >= 1_000:
+                return f"${v / 1_000:,.0f}K"
+            return f"${v:,.0f}"
+
+        decorated = [(n, arr_map.get(n, 0.0)) for n in customers]
+        decorated.sort(key=lambda x: -x[1])
+
+        def _label(name: str, arr: float) -> str:
+            return f"• {name} — {_fmt_arr(arr)}" if arr else f"• {name}"
+
+        mid = (len(decorated) + 1) // 2
+        col_left = decorated[:mid]
+        col_right = decorated[mid:]
 
         acc_y = BODY_Y + 66
         acc_h = BODY_BOTTOM - acc_y - 8
         col_w = (CONTENT_W - 24) // 2
 
-        left_hdr = "Accounts"
-        left_lines = [left_hdr] + [f"• {n}" for n in col_left]
+        has_arr = any(arr > 0 for _, arr in decorated)
+        left_hdr = "Accounts (by ARR)" if has_arr else "Accounts"
+        left_lines = [left_hdr] + [_label(n, a) for n, a in col_left]
         left_body = "\n".join(left_lines)
         _wrap_box(reqs, f"{page_sid}_accL", page_sid, MARGIN, acc_y, col_w, acc_h, left_body)
         _style(reqs, f"{page_sid}_accL", 0, len(left_body), size=11, color=NAVY, font=FONT)
         _style(reqs, f"{page_sid}_accL", 0, len(left_hdr), bold=True, size=12, color=BLUE, font=FONT)
 
         if col_right:
-            right_lines = [""] + [f"• {n}" for n in col_right]
+            right_lines = [""] + [_label(n, a) for n, a in col_right]
             right_body = "\n".join(right_lines)
             _wrap_box(reqs, f"{page_sid}_accR", page_sid, MARGIN + col_w + 24, acc_y, col_w, acc_h, right_body)
             _style(reqs, f"{page_sid}_accR", 0, len(right_body), size=11, color=NAVY, font=FONT)
@@ -6509,6 +6526,24 @@ def create_cohort_deck(
         "cohort_review: portfolio report ready (%d customers) — sending to Google Slides",
         report.get("customer_count", 0),
     )
+
+    try:
+        from .data_source_health import _salesforce_configured
+        if _salesforce_configured():
+            from .salesforce_client import SalesforceClient
+            digest = report.get("cohort_digest") or {}
+            all_names: list[str] = []
+            for block in digest.values():
+                if isinstance(block, dict):
+                    all_names.extend(block.get("customers") or [])
+            if all_names:
+                arr_map = SalesforceClient().get_arr_by_customer_names(all_names)
+                report["_arr_by_customer"] = arr_map
+                logger.info("cohort_review: loaded ARR for %d/%d customers from Salesforce",
+                            len(arr_map), len(all_names))
+    except Exception as e:
+        logger.warning("cohort_review: Salesforce ARR lookup failed (continuing without): %s", e)
+
     return create_health_deck(
         report,
         deck_id="cohort_review",

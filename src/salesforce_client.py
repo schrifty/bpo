@@ -527,6 +527,31 @@ class SalesforceClient:
         total = raw[0].get("total")
         return float(total) if total is not None else 0.0
 
+    def get_arr_by_customer_names(self, customer_names: list[str]) -> dict[str, float]:
+        """Return ``{customer_name: ARR}`` for all matching Entity accounts in one query.
+
+        Names are matched case-insensitively against Account.Name and
+        Account.LeanDNA_Entity_Name__c.  When multiple Account rows match
+        the same customer, ARR values are summed.
+        """
+        if not customer_names:
+            return {}
+        accounts = self.get_entity_accounts()
+        lookup: dict[str, float] = {}
+        for name in customer_names:
+            upper = (name or "").strip().upper()
+            if not upper:
+                continue
+            total_arr = 0.0
+            for a in accounts:
+                a_name = (a.get("Name") or "").upper()
+                a_entity = (a.get("LeanDNA_Entity_Name__c") or "").upper()
+                if upper in a_name or upper in a_entity:
+                    total_arr += float(a.get("ARR__c") or 0)
+            if total_arr:
+                lookup[name] = total_arr
+        return lookup
+
     def get_customer_salesforce(self, customer_name: str) -> dict[str, Any]:
         """Contract info, opportunity count (this year), and pipeline ARR for a customer.
 
