@@ -3353,28 +3353,43 @@ def _cohort_profiles_slide(reqs, sid, report, idx) -> int | tuple[int, list[str]
         me_s = "—" if me is None else f"{me:.0f}"
 
         hdr = (
-            f"{block['total_active_users']:,} active / "
-            f"{block['total_users']:,} licensed users"
+            f"{block['total_active_users']:,} active (7d) / "
+            f"{block['total_users']:,} total users across cohort"
         )
         _box(reqs, f"{page_sid}_hdr", page_sid, MARGIN, BODY_Y, CONTENT_W, 20, hdr)
         _style(reqs, f"{page_sid}_hdr", 0, len(hdr), size=12, color=GRAY, font=FONT)
 
+        kei_pct = block.get("kei_adoption_pct", 0)
         stats = (
-            f"Median active rate {mlogin_s}  ·  write ratio {mw_s}  ·  "
-            f"Kei adoption {block.get('kei_adoption_pct', 0)}%  ·  tracked exports {me_s}"
+            f"Weekly active rate (median) {mlogin_s}  ·  "
+            f"write-to-total ratio (median) {mw_s}  ·  "
+            f"Kei adopters (% of customers) {kei_pct}%  ·  "
+            f"exports per customer (median, 30d) {me_s}"
         )
         _box(reqs, f"{page_sid}_st", page_sid, MARGIN, BODY_Y + 24, CONTENT_W, 36, stats)
         _style(reqs, f"{page_sid}_st", 0, len(stats), size=12, color=NAVY, font=FONT)
 
-        names = ", ".join(block.get("customers") or [])
-        if len(names) > 420:
-            names = names[:417] + "…"
-        body = f"Accounts\n{names}"
-        _wrap_box(
-            reqs, f"{page_sid}_acc", page_sid, MARGIN, BODY_Y + 66, CONTENT_W, BODY_BOTTOM - BODY_Y - 74, body,
-        )
-        _style(reqs, f"{page_sid}_acc", 0, len(body), size=11, color=NAVY, font=FONT)
-        _style(reqs, f"{page_sid}_acc", 0, len("Accounts"), bold=True, size=12, color=BLUE, font=FONT)
+        customers = block.get("customers") or []
+        mid = (len(customers) + 1) // 2
+        col_left = customers[:mid]
+        col_right = customers[mid:]
+
+        acc_y = BODY_Y + 66
+        acc_h = BODY_BOTTOM - acc_y - 8
+        col_w = (CONTENT_W - 24) // 2
+
+        left_hdr = "Accounts"
+        left_lines = [left_hdr] + [f"• {n}" for n in col_left]
+        left_body = "\n".join(left_lines)
+        _wrap_box(reqs, f"{page_sid}_accL", page_sid, MARGIN, acc_y, col_w, acc_h, left_body)
+        _style(reqs, f"{page_sid}_accL", 0, len(left_body), size=11, color=NAVY, font=FONT)
+        _style(reqs, f"{page_sid}_accL", 0, len(left_hdr), bold=True, size=12, color=BLUE, font=FONT)
+
+        if col_right:
+            right_lines = [""] + [f"• {n}" for n in col_right]
+            right_body = "\n".join(right_lines)
+            _wrap_box(reqs, f"{page_sid}_accR", page_sid, MARGIN + col_w + 24, acc_y, col_w, acc_h, right_body)
+            _style(reqs, f"{page_sid}_accR", 0, len(right_body), size=11, color=NAVY, font=FONT)
 
     if num == 1:
         return idx + 1
