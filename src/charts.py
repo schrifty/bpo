@@ -184,8 +184,14 @@ class DeckCharts:
         stacked: bool = False,
         show_title: bool = True,
         axis_font_size: int = 10,
+        suppress_legend: bool = False,
     ) -> tuple[str, int]:
-        """Create a bar/column chart. Returns (spreadsheet_id, chart_id)."""
+        """Create a bar/column chart. Returns (spreadsheet_id, chart_id).
+
+        When *suppress_legend* is True the Sheets-rendered legend is hidden;
+        callers should render a slide-level legend via ``_slide_chart_legend``
+        in ``slides_client`` so text is readable at presentation scale.
+        """
         sheet_id = self._add_sheet_tab(title or "Chart")
         series_names = list(series.keys())
         headers = ["Label"] + series_names
@@ -208,12 +214,19 @@ class DeckCharts:
                 s["colorStyle"] = _rgb_to_sheets(BRAND_SERIES_COLORS[ci])
             chart_series.append(s)
 
+        if suppress_legend:
+            legend_pos = "NO_LEGEND"
+        elif len(series_names) > 1:
+            legend_pos = "BOTTOM_LEGEND"
+        else:
+            legend_pos = "NO_LEGEND"
+
         spec: dict[str, Any] = {
             "title": title if show_title else "",
             "titleTextFormat": _chart_text_format(12, NAVY, bold=True),
             "basicChart": {
                 "chartType": chart_type,
-                "legendPosition": "BOTTOM_LEGEND" if len(series_names) > 1 else "NO_LEGEND",
+                "legendPosition": legend_pos,
                 "axis": [
                     {"position": "BOTTOM_AXIS", "format": _chart_text_format(axis_font_size, GRAY)},
                     {"position": "LEFT_AXIS", "format": _chart_text_format(axis_font_size, GRAY)},
@@ -298,8 +311,15 @@ class DeckCharts:
         labels: list[str],
         values: list[float | int],
         donut: bool = False,
+        suppress_legend: bool = True,
     ) -> tuple[str, int]:
-        """Create a pie (or donut) chart. Returns (spreadsheet_id, chart_id)."""
+        """Create a pie (or donut) chart. Returns (spreadsheet_id, chart_id).
+
+        When *suppress_legend* is True (the default) the Sheets-rendered legend
+        is hidden; callers should render a slide-level legend via
+        ``_slide_chart_legend`` in ``slides_client`` so the text is readable
+        at presentation scale.
+        """
         sheet_id = self._add_sheet_tab(title)
         headers = ["Label", "Value"]
         rows = [[labels[i], values[i]] for i in range(len(labels))]
@@ -307,7 +327,7 @@ class DeckCharts:
         num_rows = len(rows) + 1
 
         pie_spec: dict[str, Any] = {
-            "legendPosition": "RIGHT_LEGEND",
+            "legendPosition": "NO_LEGEND" if suppress_legend else "RIGHT_LEGEND",
             "domain": {"sourceRange": {"sources": [{
                 "sheetId": sheet_id,
                 "startRowIndex": 0, "endRowIndex": num_rows,
@@ -322,7 +342,11 @@ class DeckCharts:
         if donut:
             pie_spec["pieHole"] = 0.4
 
-        spec = {"title": title, "pieChart": pie_spec}
+        spec = {
+            "title": title,
+            "titleTextFormat": _chart_text_format(12, NAVY, bold=True),
+            "pieChart": pie_spec,
+        }
 
         chart_id = self._create_chart(sheet_id, spec, num_rows)
         logger.debug("Created PIE chart '%s' (sheet=%d, chart=%d)", title, sheet_id, chart_id)

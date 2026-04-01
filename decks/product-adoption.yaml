@@ -21,6 +21,7 @@ purpose: |
 
 slides:
   - slide: title
+  - slide: signals
   - slide: features
   - slide: depth
   - slide: kei
@@ -28,7 +29,6 @@ slides:
   - slide: guides
   - slide: engagement
   - slide: benchmarks
-  - slide: signals
   - slide: data_quality
 
 overrides:

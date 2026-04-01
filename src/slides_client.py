@@ -564,7 +564,7 @@ def _kpi_metric_card(
     value_pt: float = 18,
 ) -> None:
     """Outlined KPI tile — all decks use this helper; black label, bold accent value. See SLIDE_DESIGN_STANDARDS."""
-    accent = accent or NAVY
+    accent = accent or BLUE
     _bar_rect(reqs, oid_base, sid, x, y, w, h, LIGHT, outline=GRAY)
     pad = 10.0
     inner_w = max(40.0, w - 2 * pad)
@@ -601,6 +601,39 @@ def _kpi_metric_card(
                 "fields": "bold,fontSize,foregroundColor,fontFamily",
             }
         })
+
+
+CHART_LEGEND_PT = 11.0
+
+def _slide_chart_legend(
+    reqs: list,
+    sid: str,
+    oid_prefix: str,
+    x: float,
+    y: float,
+    entries: list[tuple[str, dict]],
+    *,
+    font_pt: float = CHART_LEGEND_PT,
+    swatch_size: float = 10.0,
+    gap: float = 6.0,
+    entry_gap: float = 18.0,
+) -> float:
+    """Render a horizontal slide-level chart legend and return y + height consumed.
+
+    *entries* is a list of ``(label, color_dict)`` pairs.  Each entry gets a
+    small filled square (swatch) followed by the label text.  This replaces
+    Sheets-rendered legends that are too small at presentation scale.
+    """
+    cursor_x = x
+    for i, (label, color) in enumerate(entries):
+        sw_oid = f"{oid_prefix}_sw{i}"
+        _rect(reqs, sw_oid, sid, cursor_x, y + 2, swatch_size, swatch_size, color)
+        cursor_x += swatch_size + gap
+        lbl_oid = f"{oid_prefix}_lt{i}"
+        _box(reqs, lbl_oid, sid, cursor_x, y, 120, swatch_size + 6, label)
+        _style(reqs, lbl_oid, 0, len(label), size=font_pt, color=NAVY, font=FONT)
+        cursor_x += len(label) * font_pt * 0.52 + entry_gap
+    return y + swatch_size + 8
 
 
 # ── Speaker notes (notes page per slide) ──────────────────────────────────────
@@ -1816,8 +1849,8 @@ def _engagement_slide(reqs, sid, report, idx):
     egw = (CONTENT_W - 2 * _EG_GAP) / 3
     tier_specs = [
         ("Active (7d)", eng["active_7d"], BLUE),
-        ("Active (8–30d)", eng["active_30d"], NAVY),
-        ("Dormant (30d+)", eng["dormant"], GRAY),
+        ("Active (8–30d)", eng["active_30d"], BLUE),
+        ("Dormant (30d+)", eng["dormant"], BLUE),
     ]
     for j, (lbl, cnt, ac) in enumerate(tier_specs):
         _kpi_metric_card(
@@ -1832,20 +1865,24 @@ def _engagement_slide(reqs, sid, report, idx):
     # Try to embed a donut chart for the tier distribution
     if charts and total > 0:
         try:
-            from .charts import embed_chart
+            from .charts import embed_chart, BRAND_SERIES_COLORS as _BSC
             active_7d = eng["active_7d"]
             active_30d = eng["active_30d"]
             dormant = eng["dormant"]
+            donut_labels = ["Active (7d)", "Active (8–30d)", "Dormant (30d+)"]
             ss_id, chart_id = charts.add_pie_chart(
                 title="User Engagement",
-                labels=["Active (7d)", "Active (8–30d)", "Dormant (30d+)"],
+                labels=donut_labels,
                 values=[active_7d, active_30d, dormant],
                 donut=True,
             )
+            legend_h = 22
             chart_w = 320
-            chart_h = max(120, int(BODY_BOTTOM - content_top - 8))
+            chart_h = max(120, int(BODY_BOTTOM - content_top - 8 - legend_h))
             embed_chart(reqs, f"{sid}_donut", sid, ss_id, chart_id,
                         MARGIN, content_top, chart_w, chart_h)
+            legend_entries = [(l, _BSC[i]) for i, l in enumerate(donut_labels) if i < len(_BSC)]
+            _slide_chart_legend(reqs, sid, f"{sid}_dleg", MARGIN, content_top + chart_h + 4, legend_entries)
             has_chart = True
         except Exception as e:
             logger.warning("Chart embed failed for engagement slide: %s", e)
@@ -2423,53 +2460,73 @@ def _depth_slide(reqs, sid, report, idx):
             pie_ok = read_e + write_e + collab_e > 0
 
             if has_rwc and pie_ok:
+                from .charts import BRAND_SERIES_COLORS as _BSC
                 gap = 8.0
+                legend_h = 22
                 left_w = (CONTENT_W - gap) * 0.58
                 right_w = CONTENT_W - gap - left_w
+                vis_chart_h = chart_h - legend_h
+                rwc_labels = ["Read", "Write", "Collab"]
                 ss_id, chart_id = charts.add_bar_chart(
                     title="Feature Category Depth",
                     labels=labels,
                     series={"Read": read_vals, "Write": write_vals, "Collab": collab_vals},
                     horizontal=True,
                     stacked=True,
+                    suppress_legend=True,
                 )
                 embed_chart(
                     reqs, f"{sid}_chart", sid, ss_id, chart_id,
-                    MARGIN, chart_top, left_w, chart_h,
+                    MARGIN, chart_top, left_w, vis_chart_h,
                 )
+                legend_entries = [(l, _BSC[i]) for i, l in enumerate(rwc_labels) if i < len(_BSC)]
+                _slide_chart_legend(reqs, sid, f"{sid}_bleg", MARGIN, chart_top + vis_chart_h + 4, legend_entries)
+
                 ss_id2, pie_id = charts.add_pie_chart(
                     title="Read / Write / Collab",
-                    labels=["Read", "Write", "Collab"],
+                    labels=rwc_labels,
                     values=[read_e, write_e, collab_e],
                     donut=True,
                 )
+                pie_x = MARGIN + left_w + gap
                 embed_chart(
                     reqs, f"{sid}_pie", sid, ss_id2, pie_id,
-                    MARGIN + left_w + gap, chart_top, right_w, chart_h,
+                    pie_x, chart_top, right_w, vis_chart_h,
                 )
             elif has_rwc:
+                from .charts import BRAND_SERIES_COLORS as _BSC
+                legend_h = 22
                 bx, by, bw, bh = _single_embedded_chart_layout(
-                    y_top=chart_top, bottom_pad=bottom_pad, pie_or_donut=False,
+                    y_top=chart_top, bottom_pad=bottom_pad + legend_h, pie_or_donut=False,
                 )
+                rwc_labels = ["Read", "Write", "Collab"]
                 ss_id, chart_id = charts.add_bar_chart(
                     title="Feature Category Depth",
                     labels=labels,
                     series={"Read": read_vals, "Write": write_vals, "Collab": collab_vals},
                     horizontal=True,
                     stacked=True,
+                    suppress_legend=True,
                 )
                 embed_chart(reqs, f"{sid}_chart", sid, ss_id, chart_id, bx, by, bw, bh)
+                legend_entries = [(l, _BSC[i]) for i, l in enumerate(rwc_labels) if i < len(_BSC)]
+                _slide_chart_legend(reqs, sid, f"{sid}_bleg", bx, by + bh + 4, legend_entries)
             elif pie_ok:
+                from .charts import BRAND_SERIES_COLORS as _BSC
+                legend_h = 22
                 px, py, pw, ph = _single_embedded_chart_layout(
-                    y_top=chart_top, bottom_pad=bottom_pad, pie_or_donut=True,
+                    y_top=chart_top, bottom_pad=bottom_pad + legend_h, pie_or_donut=True,
                 )
+                pie_labels = ["Read", "Write", "Collab"]
                 ss_id2, pie_id = charts.add_pie_chart(
                     title="Read / Write / Collab",
-                    labels=["Read", "Write", "Collab"],
+                    labels=pie_labels,
                     values=[read_e, write_e, collab_e],
                     donut=True,
                 )
                 embed_chart(reqs, f"{sid}_pie", sid, ss_id2, pie_id, px, py, pw, ph)
+                legend_entries = [(l, _BSC[i]) for i, l in enumerate(pie_labels) if i < len(_BSC)]
+                _slide_chart_legend(reqs, sid, f"{sid}_pleg", px, py + ph + 4, legend_entries)
         except Exception as e:
             logger.warning("Chart embed failed for depth slide: %s", e)
 
@@ -2479,11 +2536,10 @@ def _depth_slide(reqs, sid, report, idx):
 def _kei_slide(reqs, sid, report, idx):
     kei = report.get("kei", report)
     total_q = kei.get("total_queries", 0)
-    if total_q == 0 and not kei.get("users"):
-        return _missing_data_slide(reqs, sid, report, idx, "Kei query / user data")
 
     _slide(reqs, sid, idx)
-    _slide_title(reqs, sid, "Kei AI Adoption")
+    title = "Kei AI Adoption" if total_q > 0 else "Kei AI Adoption — No Usage"
+    _slide_title(reqs, sid, title)
 
     unique = kei.get("unique_users", 0)
     adoption = kei.get("adoption_rate", 0)
@@ -3053,11 +3109,11 @@ def _customer_ticket_metrics_slide(reqs, sid, report, idx):
 
     _kpi_metric_card(
         reqs, f"{sid}_k1", sid, MARGIN, row1_y, top_card_w, card_h,
-        "Unresolved tickets", f"{unresolved}", accent=NAVY,
+        "Unresolved tickets", f"{unresolved}", accent=BLUE,
     )
     _kpi_metric_card(
         reqs, f"{sid}_k2", sid, MARGIN + top_card_w + col_gap, row1_y, top_card_w, card_h,
-        "Resolved in last 6 months", f"{resolved_6mo}", accent=NAVY,
+        "Resolved in last 6 months", f"{resolved_6mo}", accent=BLUE,
     )
     _kpi_metric_card(
         reqs, f"{sid}_k3", sid, MARGIN + 2 * (top_card_w + col_gap), row1_y, top_card_w, card_h,
@@ -3067,11 +3123,11 @@ def _customer_ticket_metrics_slide(reqs, sid, report, idx):
 
     _kpi_metric_card(
         reqs, f"{sid}_k4", sid, MARGIN, row2_y, bot_card_w, card_h,
-        "TTR (1y median)", ttr.get("median", "—"), accent=NAVY,
+        "TTR (1y median)", ttr.get("median", "—"), accent=BLUE,
     )
     _kpi_metric_card(
         reqs, f"{sid}_k5", sid, MARGIN + bot_card_w + col_gap, row2_y, bot_card_w, card_h,
-        "TTFR (1y median)", ttfr.get("median", "—"), accent=NAVY,
+        "TTFR (1y median)", ttfr.get("median", "—"), accent=BLUE,
     )
 
     chart_gap = 20
@@ -3504,10 +3560,10 @@ def _cohort_summary_slide(reqs, sid, report, idx):
 
     _kpi_metric_card(reqs, f"{sid}_c0", sid,
                      MARGIN, row1_y, card_w, card_h,
-                     "Total customers", str(total_customers), accent=NAVY)
+                     "Total customers", str(total_customers), accent=BLUE)
     _kpi_metric_card(reqs, f"{sid}_c1", sid,
                      MARGIN + card_w + gap, row1_y, card_w, card_h,
-                     "Cohorts", str(num_cohorts), accent=NAVY)
+                     "Cohorts", str(num_cohorts), accent=BLUE)
     arr_str = _fmt_platform_value_dollar(total_arr) if total_arr > 0 else "—"
     _kpi_metric_card(reqs, f"{sid}_c2", sid,
                      MARGIN + 2 * (card_w + gap), row1_y, card_w, card_h,
@@ -3516,10 +3572,10 @@ def _cohort_summary_slide(reqs, sid, report, idx):
     row2_y = row1_y + card_h + gap
     _kpi_metric_card(reqs, f"{sid}_c3", sid,
                      MARGIN, row2_y, card_w, card_h,
-                     "Total users", f"{total_users:,}", accent=NAVY)
+                     "Total users", f"{total_users:,}", accent=BLUE)
     _kpi_metric_card(reqs, f"{sid}_c4", sid,
                      MARGIN + card_w + gap, row2_y, card_w, card_h,
-                     "Active users (7d)", f"{total_active:,}", accent=NAVY)
+                     "Active users (7d)", f"{total_active:,}", accent=BLUE)
     _kpi_metric_card(reqs, f"{sid}_c5", sid,
                      MARGIN + 2 * (card_w + gap), row2_y, card_w, card_h,
                      "Active rate", f"{overall_active_pct}%", accent=BLUE)
@@ -3527,10 +3583,10 @@ def _cohort_summary_slide(reqs, sid, report, idx):
     row3_y = row2_y + card_h + gap
     _kpi_metric_card(reqs, f"{sid}_c6", sid,
                      MARGIN, row3_y, card_w, card_h,
-                     "Weekly active rate (median)", f"{med_login}%" if med_login is not None else "—", accent=NAVY)
+                     "Weekly active rate (median)", f"{med_login}%" if med_login is not None else "—", accent=BLUE)
     _kpi_metric_card(reqs, f"{sid}_c7", sid,
                      MARGIN + card_w + gap, row3_y, card_w, card_h,
-                     "Write ratio (median)", f"{med_write}%" if med_write is not None else "—", accent=NAVY)
+                     "Write ratio (median)", f"{med_write}%" if med_write is not None else "—", accent=BLUE)
     _kpi_metric_card(reqs, f"{sid}_c8", sid,
                      MARGIN + 2 * (card_w + gap), row3_y, card_w, card_h,
                      "Kei adoption (median)", f"{med_kei}%" if med_kei is not None else "—", accent=BLUE)
@@ -3540,12 +3596,12 @@ def _cohort_summary_slide(reqs, sid, report, idx):
     card_w4 = (CONTENT_W - gap * (cards_r4 - 1)) / cards_r4
     _kpi_metric_card(reqs, f"{sid}_c9", sid,
                      MARGIN, row4_y, card_w4, card_h,
-                     "Exports per customer (median, 30d)", f"{med_exports:.0f}" if med_exports is not None else "—", accent=NAVY)
+                     "Exports per customer (median, 30d)", f"{med_exports:.0f}" if med_exports is not None else "—", accent=BLUE)
     biggest = max(buckets, key=lambda b: b.get("n", 0))
     biggest_lbl = f"{biggest['display_name']} ({biggest['n']})"
     _kpi_metric_card(reqs, f"{sid}_c10", sid,
                      MARGIN + card_w4 + gap, row4_y, card_w4, card_h,
-                     "Largest cohort", biggest_lbl, accent=NAVY, value_pt=14)
+                     "Largest cohort", biggest_lbl, accent=BLUE, value_pt=14)
 
     return idx + 1
 
@@ -3977,7 +4033,7 @@ def _supply_chain_slide(reqs, sid, report, idx):
         kry = BODY_Y + 8
         _kpi_metric_card(
             reqs, f"{page_sid}_k0", page_sid, MARGIN, kry, scw, _SC_KPI_H,
-            "Inventory on-hand", _fmtk(oh), accent=NAVY, value_pt=20,
+            "Inventory on-hand", _fmtk(oh), accent=BLUE, value_pt=20,
         )
         _kpi_metric_card(
             reqs, f"{page_sid}_k1", page_sid, MARGIN + scw + _SC_GAP, kry, scw, _SC_KPI_H,
@@ -3985,7 +4041,7 @@ def _supply_chain_slide(reqs, sid, report, idx):
         )
         _kpi_metric_card(
             reqs, f"{page_sid}_k2", page_sid, MARGIN + 2 * (scw + _SC_GAP), kry, scw, _SC_KPI_H,
-            "Excess on-hand", _fmtk(ex), accent=TEAL, value_pt=20,
+            "Excess on-hand", _fmtk(ex), accent=BLUE, value_pt=20,
         )
 
         num_rows = 1 + len(show)
@@ -5874,11 +5930,11 @@ def _eng_support_pressure_slide(reqs: list, sid: str, report: dict, idx: int) ->
     kpi_cards = [
         ("Total", total, None),
         ("Open", open_n, None),
-        ("Escalated to Eng", esc, _RED if esc > 5 else NAVY),
-        ("Open Bugs", bugs, _RED if bugs > 3 else NAVY),
+        ("Escalated to Eng", esc, _RED if esc > 5 else BLUE),
+        ("Open Bugs", bugs, _RED if bugs > 3 else BLUE),
     ]
     for i, (label, val, color) in enumerate(kpi_cards):
-        ac = color or NAVY
+        ac = color or BLUE
         _kpi_metric_card(
             reqs, f"{sid}_spk{i}", sid, right_x, right_y, right_w, _ENG_SP_KPI_H,
             label, str(val), accent=ac, value_pt=22,
@@ -6016,6 +6072,18 @@ def _eng_help_volume_trends_slide(reqs: list, sid: str, report: dict, idx: int) 
     """HELP monthly created vs resolved trends for all, escalated, and non-escalated tickets."""
     eng = report.get("eng_portfolio") or {}
     raw_trends = eng.get("help_ticket_trends")
+
+    if raw_trends is None:
+        try:
+            from .jira_client import JiraClient
+            raw_trends = JiraClient()._get_help_ticket_volume_trends()
+            eng["help_ticket_trends"] = raw_trends
+            report.setdefault("eng_portfolio", eng)
+            logger.debug("eng_help_volume_trends: fetched HELP trends on demand (no eng_portfolio)")
+        except Exception as e:
+            logger.warning("eng_help_volume_trends: on-demand HELP trends fetch failed: %s", e)
+            raw_trends = {"error": str(e)}
+
     trends = raw_trends if isinstance(raw_trends, dict) else {}
     err = trends.get("error")
     all_months = list(trends.get("all") or [])
@@ -6023,19 +6091,12 @@ def _eng_help_volume_trends_slide(reqs: list, sid: str, report: dict, idx: int) 
     non_escalated_months = list(trends.get("non_escalated") or [])
     charts = report.get("_charts")
 
-    # Zero HELP tickets still yields 12 monthly buckets (zeros); empty ``all`` means Jira
-    # fetch failed or the portfolio payload never included ``help_ticket_trends``.
     if err:
         return _missing_data_slide(
             reqs, sid, report, idx,
             f"HELP ticket volume trends — Jira error: {err}",
         )
     if not all_months:
-        if raw_trends is None:
-            return _missing_data_slide(
-                reqs, sid, report, idx,
-                "HELP ticket volume trends — missing help_ticket_trends in engineering portfolio",
-            )
         return _missing_data_slide(
             reqs, sid, report, idx,
             "HELP ticket volume trends — no monthly series (unexpected empty response)",
@@ -6794,16 +6855,30 @@ def create_cohort_deck(
         from .data_source_health import _salesforce_configured
         if _salesforce_configured():
             from .salesforce_client import SalesforceClient
+            sf = SalesforceClient()
             digest = report.get("cohort_digest") or {}
             all_names: list[str] = []
             for block in digest.values():
                 if isinstance(block, dict):
                     all_names.extend(block.get("customers") or [])
             if all_names:
-                arr_map = SalesforceClient().get_arr_by_customer_names(all_names)
+                arr_map = sf.get_arr_by_customer_names(all_names)
                 report["_arr_by_customer"] = arr_map
                 logger.info("cohort_review: loaded ARR for %d/%d customers from Salesforce",
                             len(arr_map), len(all_names))
+
+                active_names = sf.get_active_customer_names(all_names)
+                churned = set(all_names) - active_names
+                if churned:
+                    logger.info("cohort_review: filtering %d churned customer(s) from cohort slides", len(churned))
+                    from .pendo_client import compute_cohort_portfolio_rollup
+                    customers = report.get("customers") or []
+                    active_summaries = [s for s in customers if s.get("customer") not in churned]
+                    new_digest, new_findings = compute_cohort_portfolio_rollup(active_summaries)
+                    report["cohort_digest"] = new_digest
+                    report["cohort_findings_bullets"] = new_findings
+                    report["customer_count"] = len(active_summaries)
+                    report["_churned_customers"] = sorted(churned)
     except Exception as e:
         logger.warning("cohort_review: Salesforce ARR lookup failed (continuing without): %s", e)
 

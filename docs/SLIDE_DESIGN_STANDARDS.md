@@ -200,7 +200,7 @@ The shared **KPI box** pattern is: light fill **``LIGHT``**, **~1 pt** gray outl
 - Table cells, chart axes, rank labels, or footnotes.
 - Titles and section headers (use **``_slide_title``** / dividers, not metric cards).
 
-**Peer Benchmarks** and **Platform Value & ROI** headline KPI rows: use **``BLUE``** for **every** KPI **value** in that row (single accent per slide). **Peer Benchmarks** also uses **``BLUE``** for the narrative body under the row. Delta / account-size lines are not KPI tiles.
+**Universal accent rule for KPI rows:** Every KPI value in a single row must use the **same** accent colour — **``BLUE``** by default. Do **not** mix ``NAVY``, ``BLUE``, and ``TEAL`` across cards in the same row; this creates visual inconsistency and fails the "single accent per slide" principle. **Peer Benchmarks** also uses **``BLUE``** for the narrative body under the row. Delta / account-size lines are not KPI tiles.
 
 **BPO slide builders that use KPI boxes today** (all via ``_kpi_metric_card``): **Customer ticket metrics** (HELP dashboard), **Peer Benchmarks**, **Platform Value & ROI** (three headline metrics + a gray **subline** under the row for POs / overdue tasks — not inside the cards), **Supply Chain Overview** (portfolio on-hand / on-order / excess above the factory table), **Kei AI Adoption** (queries, adoption %, users with queries — executive pill and user list stay outside the cards), **Behavioral Depth** (feature interactions, active users, write ratio — then charts), **Engagement Breakdown** (three tier counts in a full-width row — donut and role lists sit below), **Engineering — Support Pressure** (stacked KPI column beside the priority bar chart). **Not** converted when the “header” is narrative, a dynamic sentence, or a table-only layout: e.g. **Account Health Snapshot** (multi-line composite + dimensions), **Platform Health** (distribution + shortages as one summary line), **Export Behavior** (single header + lists), **Data cross-validation** (comparison prose + table).
 
@@ -315,6 +315,17 @@ When a slide shows **exactly one** embedded Sheets chart (no second chart, table
 - extend **vertically** from just below the title / metric bar through **``BODY_BOTTOM``** minus a small bottom pad (~10 pt), so it reads at presentation scale instead of sitting in a corner with empty space  
 
 When **two** charts share a slide, split the content width (for example ~58% / ~40% with a small gap) and give each chart the **full available height** in the band—do not shrink a lone chart into the right column.
+
+### Chart legend sizing
+
+The Google Sheets API does **not** expose legend font size — Sheets-rendered legends are often unreadably small when the chart is scaled down for a slide. Therefore:
+
+- **Always suppress** the Sheets-rendered legend on pie/donut charts (``suppress_legend=True`` / ``legendPosition: NO_LEGEND``).
+- **Always suppress** the Sheets-rendered legend on multi-series bar/stacked-bar charts (``suppress_legend=True``).
+- **Render a slide-level legend** via **``_slide_chart_legend``** in ``slides_client.py``. This draws a row of colour swatches and labels using standard slide text at **``CHART_LEGEND_PT``** (**11 pt**), guaranteeing readability at presentation scale.
+- Position the slide-level legend **below** the embedded chart, reserving **~22 pt** of vertical space in the chart area calculation (reduce chart height by ``legend_h``).
+- Pass the same series labels and **``BRAND_SERIES_COLORS``** order used when creating the chart so swatches match slices/bars.
+- Single-series bar charts (one colour, no ambiguity) may skip the legend entirely (``NO_LEGEND`` with no slide-level substitute).
 
 ---
 

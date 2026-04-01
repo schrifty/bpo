@@ -527,6 +527,8 @@ class SalesforceClient:
         total = raw[0].get("total")
         return float(total) if total is not None else 0.0
 
+    _CHURNED_STATUSES = frozenset({"churned", "cancelled", "terminated", "expired", "closed"})
+
     def get_arr_by_customer_names(self, customer_names: list[str]) -> dict[str, float]:
         """Return ``{customer_name: ARR}`` for all matching Entity accounts in one query.
 
@@ -551,6 +553,37 @@ class SalesforceClient:
             if total_arr:
                 lookup[name] = total_arr
         return lookup
+
+    def get_active_customer_names(self, customer_names: list[str]) -> set[str]:
+        """Return the subset of *customer_names* whose Contract_Status__c is NOT churned.
+
+        A customer is considered **active** when at least one matched Entity
+        account has a ``Contract_Status__c`` that is *not* in
+        ``_CHURNED_STATUSES`` (case-insensitive).  Customers with no Salesforce
+        match are assumed active (we lack data to exclude them).
+        """
+        if not customer_names:
+            return set()
+        accounts = self.get_entity_accounts()
+        active: set[str] = set()
+        for name in customer_names:
+            upper = (name or "").strip().upper()
+            if not upper:
+                continue
+            matched_any = False
+            has_active_contract = False
+            for a in accounts:
+                a_name = (a.get("Name") or "").upper()
+                a_entity = (a.get("LeanDNA_Entity_Name__c") or "").upper()
+                if upper in a_name or upper in a_entity:
+                    matched_any = True
+                    status = (a.get("Contract_Status__c") or "").strip().lower()
+                    if status not in self._CHURNED_STATUSES:
+                        has_active_contract = True
+                        break
+            if has_active_contract or not matched_any:
+                active.add(name)
+        return active
 
     def get_customer_salesforce(self, customer_name: str) -> dict[str, Any]:
         """Contract info, opportunity count (this year), and pipeline ARR for a customer.
