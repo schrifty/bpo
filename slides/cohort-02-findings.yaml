@@ -6,6 +6,34 @@ slide_type: cohort_findings
 data_tools: []
 customers: all
 
-prompt: >
-  Bullet comparison of cohorts (sample sizes, median login/write/Kei spread,
-  unclassified). Text is computed from cohort_digest — not hand-authored.
+prompt: |
+  **Audience & job:** Portfolio / QBR readers who need a fast, honest read on how
+  manufacturing cohort buckets differ in engagement — not account-level stories.
+
+  **What this slide is:** One title slide with up to nine bullet lines. Copy is
+  deterministic: every bullet is produced in code from the same portfolio rollup
+  that builds cohort_digest. There is no separate LLM pass for slide body text;
+  to change phrasing or add comparisons, edit compute_cohort_portfolio_rollup in
+  pendo_client.py (and keep speaker-note pipeline traces in slides_client in sync).
+
+  **Data contract:** Requires report["cohort_findings_bullets"] (list of strings).
+  Upstream: customer summaries in the portfolio window, cohort labels from
+  get_customer_cohort / cohorts.yaml (see docs/CUSTOMER_COHORTS.md). Related keys:
+  cohort_digest (per-bucket medians and customer lists) feeds the rollup logic;
+  this slide does not render the digest table — that is cohort_profiles and
+  cohort_summary.
+
+  **What bullets typically cover:** Largest bucket by count; when at least two
+  cohorts have ≥3 customers — spread of median login %, median write ratio, and
+  Kei adoption (% of customers with any Kei query); explicit small-sample warning
+  for buckets with n<3; count of unclassified accounts; reminder that labels come
+  from cohorts.yaml.
+
+  **Tone & guardrails:** Factual, comparative, cohort-level only. Do not imply
+  statistical significance or causal claims. Small-n medians are explicitly
+  flagged as directional.
+
+  **Disambiguation for tooling:** Choose cohort_findings for a single
+  “notable findings / cohort differences” bullet list. Choose cohort_profiles for
+  one slide per cohort with account names and medians. Choose signals for
+  per-customer risk/expansion heuristics, not cohort bucket rollups.

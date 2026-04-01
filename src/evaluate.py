@@ -2943,7 +2943,11 @@ _BUILDER_DESCRIPTIONS = {
     "salesforce_category": "Salesforce table — one object category (sf_category) from comprehensive fetch",
     "cohort_deck_title": "Cohort deck cover — portfolio period, customer count, cohorts.yaml reference",
     "cohort_profiles": "Per-cohort profile slides — medians and account list for each manufacturing cohort bucket",
-    "cohort_findings": "Cohort comparison bullets — spread across cohorts from portfolio rollup",
+    "cohort_findings": (
+        "Single slide — bullet list comparing cohort buckets (sample sizes, median login/write, "
+        "Kei adoption spread when n≥3, unclassified count); auto text from portfolio rollup — "
+        "not per-account profiles (that's cohort_profiles) or risk signals (that's signals)"
+    ),
 }
 
 
