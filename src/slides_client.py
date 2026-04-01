@@ -415,6 +415,7 @@ def slides_presentations_batch_update(
     Env (optional):
       BPO_SLIDES_WRITE_INTERVAL_SEC — minimum seconds between successful writes (default 1.05; 0 disables).
       BPO_SLIDES_BATCH_UPDATE_RETRIES — max attempts per call including the first (default 12).
+      BPO_SLIDES_BATCH_CHUNK_SIZE — default subrequests per batchUpdate chunk (default 2000, max 5000).
     """
     if not requests:
         return
@@ -447,6 +448,16 @@ def slides_presentations_batch_update(
     raise last_err
 
 
+def _slides_batch_chunk_default() -> int:
+    raw = os.environ.get("BPO_SLIDES_BATCH_CHUNK_SIZE", "").strip()
+    if not raw:
+        return _SLIDES_BATCH_UPDATE_DEFAULT_CHUNK
+    try:
+        return int(raw)
+    except ValueError:
+        return _SLIDES_BATCH_UPDATE_DEFAULT_CHUNK
+
+
 def presentations_batch_update_chunked(
     slides_service: Any,
     presentation_id: str,
@@ -454,10 +465,15 @@ def presentations_batch_update_chunked(
     *,
     chunk_size: int | None = None,
 ) -> None:
-    """Call presentations.batchUpdate in ordered chunks to stay under per-call subrequest limits."""
+    """Call presentations.batchUpdate in ordered chunks to stay under per-call subrequest limits.
+
+    Env ``BPO_SLIDES_BATCH_CHUNK_SIZE`` sets the default chunk when *chunk_size* is None
+    (clamped to ``_SLIDES_BATCH_UPDATE_MAX_CHUNK``). Larger chunks mean fewer round trips
+    per deck but each call must stay under API subrequest limits.
+    """
     if not requests:
         return
-    raw = chunk_size if chunk_size is not None else _SLIDES_BATCH_UPDATE_DEFAULT_CHUNK
+    raw = chunk_size if chunk_size is not None else _slides_batch_chunk_default()
     size = max(1, min(raw, _SLIDES_BATCH_UPDATE_MAX_CHUNK))
     # Never approach the API ceiling (even if a caller passes a huge chunk_size).
     size = min(size, _GOOGLE_SLIDES_MAX_SUBREQUESTS_PER_BATCH // 20)
@@ -7054,10 +7070,14 @@ def create_portfolio_deck(
     quarter: "QuarterRange | None" = None,
 ) -> dict[str, Any]:
     """Generate a single portfolio-level deck across all customers."""
-    from .pendo_client import PendoClient
+    from .pendo_portfolio_snapshot_drive import try_load_portfolio_snapshot_for_request
 
-    client = PendoClient()
-    report = client.get_portfolio_report(days=days, max_customers=max_customers)
+    report = try_load_portfolio_snapshot_for_request(days, max_customers)
+    if report is None:
+        from .pendo_client import PendoClient
+
+        client = PendoClient()
+        report = client.get_portfolio_report(days=days, max_customers=max_customers)
     if quarter:
         report["quarter"] = quarter.label
         report["quarter_start"] = quarter.start.isoformat()
@@ -7077,13 +7097,22 @@ def create_cohort_deck(
 
     If *portfolio_report* is supplied the expensive Pendo preload + customer
     iteration is skipped entirely — the caller already computed it.
+
+    Otherwise, when the resolved snapshot folder (``GOOGLE_QBR_GENERATOR_FOLDER_ID`` /
+    ``Portfolio cache`` or ``BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID``) has a fresh JSON
+    file (see ``pendo_portfolio_snapshot_drive``), it is used instead of calling Pendo.
     """
     if portfolio_report is not None:
         report = portfolio_report
     else:
-        from .pendo_client import PendoClient
-        client = PendoClient()
-        report = client.get_portfolio_report(days=days, max_customers=max_customers)
+        from .pendo_portfolio_snapshot_drive import try_load_portfolio_snapshot_for_request
+
+        report = try_load_portfolio_snapshot_for_request(days, max_customers)
+        if report is None:
+            from .pendo_client import PendoClient
+
+            client = PendoClient()
+            report = client.get_portfolio_report(days=days, max_customers=max_customers)
 
     if quarter:
         report["quarter"] = quarter.label

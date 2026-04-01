@@ -32,6 +32,22 @@ GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
 GOOGLE_QBR_GENERATOR_FOLDER_ID = os.environ.get("GOOGLE_QBR_GENERATOR_FOLDER_ID", "").strip() or None
 # Optional parent for `{ISO-date} - Output`; defaults to GOOGLE_DRIVE_FOLDER_ID
 GOOGLE_QBR_OUTPUT_PARENT_ID = os.environ.get("GOOGLE_QBR_OUTPUT_PARENT_ID", "").strip() or None
+# Portfolio / cohort: optional override for JSON snapshot folder. If unset, snapshots live under
+# GOOGLE_QBR_GENERATOR_FOLDER_ID in a subfolder (see pendo_portfolio_snapshot_drive.resolve_portfolio_snapshot_folder_id).
+BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID", "").strip() or None
+try:
+    _psma = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS", "36").strip()
+    BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS = float(_psma)
+except ValueError:
+    BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS = 36.0
+_psd = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_DISABLED", "").strip().lower()
+BPO_PORTFOLIO_SNAPSHOT_DISABLED = _psd in ("1", "true", "yes", "on")
+_psf = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH", "").strip().lower()
+BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH = _psf in ("1", "true", "yes", "on")
+# When true (default), QBR ensures Drive has a portfolio JSON for the current calendar day (see pendo_portfolio_snapshot_drive).
+_psad = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_AUTO_DAILY", "true").strip().lower()
+BPO_PORTFOLIO_SNAPSHOT_AUTO_DAILY = _psad not in ("0", "false", "no", "off")
+BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ", "UTC").strip() or "UTC"
 # Optional: your email (folder owner) - transfer ownership so files count against your quota, not service account's
 GOOGLE_DRIVE_OWNER_EMAIL = os.environ.get("GOOGLE_DRIVE_OWNER_EMAIL")
 # Hydrate/evaluate: Google Group email (e.g. hydrate-deck@yourdomain.com). Must match Share exactly.

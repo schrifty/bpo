@@ -28,6 +28,14 @@ Flag commands (utilities)
   decks --sync-config [--sync-overwrite]
       Upload deck/slide YAML config to Google Drive.
 
+  decks --upload-portfolio-snapshot [--days N] [--max-customers M]
+      Run full Pendo portfolio crawl and upload JSON to the portfolio snapshot
+      folder: BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID if set, else "Portfolio cache"
+      under GOOGLE_QBR_GENERATOR_FOLDER_ID. If you omit --days, uses the same
+      calendar length as resolve_quarter() (matches default QBR cohort window).
+      QBR also auto-refreshes this file once per calendar day by default (see .env
+      BPO_PORTFOLIO_SNAPSHOT_AUTO_DAILY).
+
   decks --scan-fields [--db PATH] [--no-thumbnail] [--workers N] [--no-progress]
                       [-- <presentation-id-or-url> ...]
       Scan slide fields into a local SQLite DB. If you omit IDs after --, uses
@@ -266,6 +274,39 @@ def main():
         print(f"Decks uploaded:     {stats['decks_uploaded']}")
         print(f"Slides uploaded:    {stats['slides_uploaded']}")
         print(f"Skipped (exist):    {stats['skipped']}")
+        return
+
+    if "--upload-portfolio-snapshot" in sys.argv:
+        from src.pendo_portfolio_snapshot_drive import run_upload_portfolio_snapshot_cli
+        from src.quarters import resolve_quarter
+
+        days: int | None = None
+        max_cust: int | None = None
+        argv = sys.argv[1:]
+        i = 0
+        while i < len(argv):
+            if argv[i] == "--days" and i + 1 < len(argv):
+                days = int(argv[i + 1])
+                i += 2
+                continue
+            if argv[i] == "--max-customers" and i + 1 < len(argv):
+                max_cust = int(argv[i + 1])
+                i += 2
+                continue
+            i += 1
+        if days is None:
+            days = resolve_quarter(None).days
+            print(
+                f"Using --days {days} from resolve_quarter() (same window as default QBR); "
+                "pass --days explicitly to override."
+            )
+        print(f"Uploading portfolio snapshot (days={days}, max_customers={max_cust})...")
+        result = run_upload_portfolio_snapshot_cli(days, max_cust)
+        if result.get("error"):
+            print(f"  FAIL: {result['error']}")
+            sys.exit(1)
+        print(f"  OK   file_id={result.get('file_id')}  {result.get('filename')}")
+        print(f"       customers in snapshot: {result.get('customer_count')}")
         return
 
     if "--help" in sys.argv or "-h" in sys.argv:

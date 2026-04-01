@@ -2,6 +2,7 @@
 
 import datetime
 import json
+import os
 import re
 
 import threading
@@ -775,6 +776,17 @@ class PendoClient:
         features = resp.json()
         return {f["id"]: f.get("name", f["id"]) for f in features} if isinstance(features, list) else {}
 
+    def _get_feature_catalog_cached(self) -> dict[str, str]:
+        """Like page/guide catalogs — cache across preloads so QBR + portfolio snapshot don't refetch."""
+        with self._cache_lock:
+            if self._feature_catalog_cache is not None and self._cache_valid(self._feature_catalog_cache_ts):
+                return self._feature_catalog_cache
+        result = self.get_feature_catalog()
+        with self._cache_lock:
+            self._feature_catalog_cache = result
+            self._feature_catalog_cache_ts = time.time()
+        return result
+
     def get_account_info(self, account_id: str) -> dict[str, Any]:
         """Fetch account metadata from REST API."""
         resp = self._session.get(
@@ -800,6 +812,8 @@ class PendoClient:
     _guide_events_cache_ts: float = 0
     _page_catalog_cache: dict[str, str] | None = None
     _guide_catalog_cache: dict[str, str] | None = None
+    _feature_catalog_cache: dict[str, str] | None = None
+    _feature_catalog_cache_ts: float = 0
     _usage_by_site_cache: dict[str, Any] | None = None
     _usage_by_site_cache_ts: float = 0
     _usage_by_site_entity_cache: dict[str, Any] | None = None
@@ -963,7 +977,7 @@ class PendoClient:
             "track events": lambda: self._get_track_events_cached(days),
             "guide events": lambda: self._get_guide_events_cached(days),
             "page catalog": lambda: self._get_page_catalog_cached(),
-            "feature catalog": lambda: self.get_feature_catalog(),
+            "feature catalog": lambda: self._get_feature_catalog_cached(),
             "guide catalog": lambda: self._get_guide_catalog_cached(),
             "usage by site": lambda: self._get_usage_by_site_cached(days),
         }
@@ -1996,12 +2010,17 @@ class PendoClient:
             all_names = all_names[:max_customers]
 
         total = len(all_names)
-        logger.info("Portfolio: processing %d customers (parallel, 8 workers)", total)
+        try:
+            _nw = int(os.environ.get("BPO_PORTFOLIO_PARALLEL_WORKERS", "8").strip())
+            pool_workers = max(1, min(32, _nw))
+        except ValueError:
+            pool_workers = 8
+        logger.info("Portfolio: processing %d customers (parallel, %d workers)", total, pool_workers)
         t0 = time.time()
 
         customer_summaries: list[dict[str, Any]] = []
         done = 0
-        with ThreadPoolExecutor(max_workers=8) as pool:
+        with ThreadPoolExecutor(max_workers=pool_workers) as pool:
             futures = {
                 pool.submit(self._portfolio_customer_summary, name, days): name
                 for name in all_names

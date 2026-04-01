@@ -6,6 +6,7 @@ import copy
 import datetime
 import hashlib
 import json
+import time
 from typing import Any
 
 from googleapiclient.errors import HttpError
@@ -32,6 +33,11 @@ from .evaluate import (
     adapt_custom_slides,
 )
 from .pendo_client import PendoClient
+from .pendo_portfolio_snapshot_drive import (
+    ensure_daily_portfolio_snapshot_for_qbr,
+    portfolio_snapshot_filename,
+    try_load_portfolio_snapshot_for_request,
+)
 from .qbr_adapt_hints import run_qbr_adapt_hints_phase
 from .quarters import QuarterRange, resolve_quarter
 from .slides_client import (
@@ -164,8 +170,11 @@ def _build_companion_decks_for_qbr_bundle(
 ) -> list[dict[str, Any]]:
     """Generate health, exec summary, support, product adoption, and cohort review decks into the bundle folder.
 
-    The portfolio report for the cohort deck is computed in a background thread
-    while the first four companion decks build, so the two phases overlap.
+    When a fresh JSON portfolio snapshot exists on Drive (folder from
+    ``resolve_portfolio_snapshot_folder_id`` in ``pendo_portfolio_snapshot_drive``),
+    cohort_review uses it and no background Pendo
+    thread runs. Otherwise the portfolio report is computed in a background thread
+    while the first four companion decks build so the two phases overlap.
     """
     import threading
 
@@ -178,29 +187,49 @@ def _build_companion_decks_for_qbr_bundle(
 
     portfolio_result: dict[str, Any] = {}
     portfolio_error: BaseException | None = None
+    portfolio_thread: threading.Thread | None = None
 
-    def _precompute_portfolio() -> None:
-        nonlocal portfolio_result, portfolio_error
-        try:
-            logger.info(
-                "QBR bundle: starting portfolio precompute for cohort_review "
-                "(runs in background while other companions build)"
-            )
-            pc = PendoClient()
-            portfolio_result = pc.get_portfolio_report(days=days)
-        except BaseException as e:
-            portfolio_error = e
-            logger.warning("QBR bundle: portfolio precompute failed: %s", e)
+    snap = try_load_portfolio_snapshot_for_request(days, None)
+    if snap is not None:
+        portfolio_result = snap
+        logger.info(
+            "QBR bundle: cohort_review will use Drive portfolio snapshot (%d customers); "
+            "skipping background Pendo precompute",
+            portfolio_result.get("customer_count", 0),
+        )
+    else:
+        logger.info(
+            "QBR bundle: no usable portfolio snapshot — cohort waits on live Pendo after "
+            "four companion decks (they usually dominate wall time; snapshot skips work that "
+            "overlapped with them). Expected Drive file: %s",
+            portfolio_snapshot_filename(days, None),
+        )
 
-    portfolio_thread = threading.Thread(target=_precompute_portfolio, daemon=True)
-    portfolio_thread.start()
+        def _precompute_portfolio() -> None:
+            nonlocal portfolio_result, portfolio_error
+            try:
+                logger.info(
+                    "QBR bundle: starting portfolio precompute for cohort_review "
+                    "(runs in background while other companions build)"
+                )
+                pc = PendoClient()
+                portfolio_result = pc.get_portfolio_report(days=days)
+            except BaseException as e:
+                portfolio_error = e
+                logger.warning("QBR bundle: portfolio precompute failed: %s", e)
+
+        portfolio_thread = threading.Thread(target=_precompute_portfolio, daemon=True)
+        portfolio_thread.start()
 
     out: list[dict[str, Any]] = []
+    t_bundle0 = time.perf_counter()
     for deck_id, key in QBR_BUNDLE_COMPANION_DECKS:
         sub = copy.deepcopy(base)
+        t_deck0 = time.perf_counter()
         try:
             if deck_id == "cohort_review":
-                portfolio_thread.join()
+                if portfolio_thread is not None:
+                    portfolio_thread.join()
                 if portfolio_error:
                     raise portfolio_error
                 cr = create_cohort_deck(
@@ -239,6 +268,13 @@ def _build_companion_decks_for_qbr_bundle(
             if gh:
                 row["hint"] = gh
             out.append(row)
+        finally:
+            logger.info(
+                "QBR bundle companion %s wall time %.1fs (running total %.1fs)",
+                deck_id,
+                time.perf_counter() - t_deck0,
+                time.perf_counter() - t_bundle0,
+            )
     return out
 
 
@@ -526,7 +562,8 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
     deck there together with standalone Customer Success Health Review, Executive Summary,
     Support Review, Product Adoption Review, and Manufacturing Cohort Review decks
     (cohort deck uses the same quarter window and a full portfolio rollup; other companions
-    use the single-customer health report).
+    use the single-customer health report). After preload, may auto-build/upload the Drive
+    portfolio snapshot once per calendar day (see ``ensure_daily_portfolio_snapshot_for_qbr``).
 
     Returns a result dict with ``url``, ``bundle_folder_id``, ``companion_decks``, and logging fields.
     """
@@ -554,6 +591,8 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
         known = sorted(c for c in partition.get("all_customer_stats", {}) if c != "?")
     except Exception as e:
         return {"error": f"Pendo preload / customer list failed: {e}"}
+
+    ensure_daily_portfolio_snapshot_for_qbr(days, None)
 
     customer = _detect_customer(customer_query, known)
     if not customer:

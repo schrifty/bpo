@@ -6,7 +6,8 @@ Convention (authoring guide):
 
 After logging + LLM analysis, orange coaching shapes are removed from the deck (entire box), orange table
 cells are cleared, fill-in (yellow-styled) text is replaced with ``[???]``, and a red banner summarizes what
-actually changed on that slide.
+actually changed on that slide. Surface cleanup runs for **every** slide slated for adaptation, not only
+slides where extraction found strings (so we never skip removals when the LLM batch is empty).
 """
 
 from __future__ import annotations
@@ -527,16 +528,22 @@ def hint_mutations_to_batch_requests(
 def apply_hint_mutations_to_presentation(
     slides_svc: Any,
     pres_id: str,
-    nonempty_rows: list[dict[str, Any]],
+    hint_rows: list[dict[str, Any]],
     slide_by_id: dict[str, dict],
     *,
     title_slide_object_id: str | None = None,
 ) -> int:
-    """Apply orange shape removal, orange cell text clears, yellow→[???], and optional banner."""
+    """Apply orange shape removal, orange cell text clears, yellow→[???], and optional banner.
+
+    Pass **every** adapt slide row (same order as ``build_hint_rows_for_adapt_slides``), not only
+    rows that had extracted yellow/orange strings. Extraction can miss cues the API still exposes
+    in structure we use for ``collect_hint_mutations_from_slide``; scanning all slides keeps
+    cleanup consistent.
+    """
     n_slides = 0
     total_reqs = 0
     all_reqs: list[dict[str, Any]] = []
-    for row in nonempty_rows:
+    for row in hint_rows:
         pid = row.get("object_id")
         slide = slide_by_id.get(pid) if pid else None
         if not slide:
@@ -970,21 +977,19 @@ def run_qbr_adapt_hints_phase(
     ]
     slide_by_id = {s["objectId"]: s for s in final_slides}
 
-    if not nonempty:
-        out = {
+    if nonempty:
+        analysis = analyze_adapt_hints_with_llm(oai, nonempty, customer)
+    else:
+        analysis = {
             "slides": [],
             "overall_useful": False,
             "overall_summary": "No yellow/orange segments extracted; skipped LLM.",
         }
-        log_llm_hints_result(out)
-        return out
-
-    analysis = analyze_adapt_hints_with_llm(oai, nonempty, customer)
     log_llm_hints_result(analysis)
 
     try:
         n_mod = apply_hint_mutations_to_presentation(
-            slides_svc, pres_id, nonempty, slide_by_id, title_slide_object_id=title_slide_object_id
+            slides_svc, pres_id, rows, slide_by_id, title_slide_object_id=title_slide_object_id
         )
         analysis["slides_surface_updated"] = n_mod
     except Exception as e:

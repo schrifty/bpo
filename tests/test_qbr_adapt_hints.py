@@ -1,5 +1,5 @@
 """Tests for QBR template yellow/orange hint extraction."""
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from src import qbr_adapt_hints as hints
 
@@ -485,3 +485,60 @@ def test_qbr_hint_banner_text_both():
     ]
     t = hints.qbr_hint_banner_text_for_mutations(muts)
     assert "[???]" in t and "orange" in t.lower()
+
+
+@patch.object(hints, "apply_hint_mutations_to_presentation", return_value=0)
+@patch.object(hints, "analyze_adapt_hints_with_llm")
+def test_run_qbr_adapt_hints_phase_always_runs_surface_cleanup(mock_llm, mock_apply):
+    """Regression: empty extraction used to return early and skip apply_hint_mutations entirely."""
+    hints.run_qbr_adapt_hints_phase(
+        MagicMock(),
+        MagicMock(),
+        "pres-1",
+        [{"objectId": "z1", "pageElements": []}],
+        ["z1"],
+        "Acme",
+        title_slide_object_id="cover",
+    )
+    mock_llm.assert_not_called()
+    mock_apply.assert_called_once()
+    rows_arg = mock_apply.call_args[0][2]
+    assert len(rows_arg) == 1
+    assert rows_arg[0]["object_id"] == "z1"
+
+
+@patch.object(hints, "apply_hint_mutations_to_presentation", return_value=1)
+@patch.object(hints, "analyze_adapt_hints_with_llm", return_value={"slides": [], "overall_useful": True, "overall_summary": "ok"})
+def test_run_qbr_adapt_hints_phase_llm_only_when_segments(mock_llm, mock_apply):
+    slide = {
+        "objectId": "s1",
+        "pageElements": [{
+            "objectId": "cap1",
+            "shape": {
+                "shapeProperties": {},
+                "text": {
+                    "textElements": [
+                        {"textRun": {
+                            "content": "tip",
+                            "style": {
+                                "foregroundColor": {
+                                    "opaqueColor": {"rgbColor": {"red": 0.95, "green": 0.45, "blue": 0.1}},
+                                },
+                            },
+                        }},
+                    ]
+                },
+            },
+        }],
+    }
+    hints.run_qbr_adapt_hints_phase(
+        MagicMock(),
+        MagicMock(),
+        "pres-2",
+        [slide],
+        ["s1"],
+        "Acme",
+    )
+    mock_llm.assert_called_once()
+    mock_apply.assert_called_once()
+    assert len(mock_apply.call_args[0][2]) == 1
