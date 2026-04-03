@@ -83,6 +83,15 @@ PENDO_MAX_OUTPUT_CHARS = int(os.environ.get("PENDO_MAX_OUTPUT_CHARS", "0"))
 _fai = os.environ.get("BPO_FEATURE_ADOPTION_INSIGHTS", "").strip().lower()
 FEATURE_ADOPTION_INSIGHTS = _fai in ("1", "true", "yes", "on")
 
+# Notable Signals: optional LLM pass to prioritize / merge heuristic + cross-source lines (after Phase 1 rules).
+_sslm = os.environ.get("BPO_SIGNALS_LLM", "").strip().lower()
+BPO_SIGNALS_LLM = _sslm in ("1", "true", "yes", "on")
+try:
+    _sslm_max = int(os.environ.get("BPO_SIGNALS_LLM_MAX_ITEMS", "10").strip())
+    BPO_SIGNALS_LLM_MAX_ITEMS = max(3, min(15, _sslm_max))
+except ValueError:
+    BPO_SIGNALS_LLM_MAX_ITEMS = 10
+
 # LLM provider — set LLM_PROVIDER=gemini or LLM_PROVIDER=openai in .env.
 # Defaults to gemini if GEMINI_API_KEY is present, otherwise openai.
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")

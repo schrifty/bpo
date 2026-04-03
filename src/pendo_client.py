@@ -21,6 +21,7 @@ from .config import (
     logger,
 )
 from .cross_source_signals import extend_health_report_signals
+from .signals_llm import maybe_rewrite_signals_with_llm
 
 PENDO_REQUEST_TIMEOUT_S = 90
 PENDO_TOTAL_TIMEOUT_S = 300
@@ -1971,6 +1972,7 @@ class PendoClient:
             "cs_platform_value": cs_platform_value,
         }
         extend_health_report_signals(merged)
+        maybe_rewrite_signals_with_llm(merged)
         return merged
 
     # ── Portfolio-level methods (cross-customer analysis) ──
