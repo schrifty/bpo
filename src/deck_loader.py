@@ -1,7 +1,7 @@
 """Load deck definitions from YAML files.
 
 Sources (in priority order):
-  1. Google Drive  bpo-config/decks/  (user-editable)
+  1. Google Drive  bpo-config/decks/  (user-editable; repo wins on first load each run)
   2. Local repo    decks/             (canonical defaults)
 
 If a Drive file fails to parse, the local version is used and a QA warning

@@ -4,12 +4,12 @@ audience: CS Leadership, Strategy
 
 purpose: |
   Cross-customer view grouped by manufacturing cohort as defined in cohorts.yaml
-  (documented in docs/CUSTOMER_COHORTS.md). Up to ten slides show the largest
-  cohorts by customer count in the current portfolio window; a final slide
-  summarizes notable differences between cohorts. Does not redefine cohorts.
+  (documented in docs/CUSTOMER_COHORTS.md). After the portfolio summary, one slide
+  states notable cohort differences; then up to ten slides profile the largest
+  cohorts by customer count. Does not redefine cohorts.
 
 slides:
   - slide: cohort_deck_title
   - slide: cohort_summary
-  - slide: cohort_profiles
   - slide: cohort_findings
+  - slide: cohort_profiles

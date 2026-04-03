@@ -6,6 +6,9 @@ Strategy:
   2. On subsequent runs, read from Drive first.  If a Drive file fails to
      parse, fall back to the local version and log a QA warning.
   3. New local files that don't exist on Drive are uploaded automatically.
+  4. Before the first load of ``bpo-config`` from Drive in a process, the repo
+     is pushed to Drive for any YAML that differs or is missing (see
+     ``ensure_drive_config_matches_repo``) so git and Drive stay aligned.
 
 The Drive folder structure mirrors the local layout:
     <GOOGLE_DRIVE_FOLDER_ID>/
@@ -39,6 +42,9 @@ _drive_lock = threading.Lock()
 
 _yaml_cache: dict[str, list[dict[str, Any]]] = {}
 _yaml_cache_lock = threading.Lock()
+
+# Set by ensure_drive_config_matches_repo (at most once per process).
+_drive_repo_sync_ran = False
 
 
 def _get_drive():
@@ -161,6 +167,296 @@ def _upload_file(name: str, content: str, folder_id: str, file_id: str | None = 
     return f["id"]
 
 
+def _normalize_config_text(text: str) -> str:
+    """Normalize YAML text for equality checks (line endings, trailing whitespace)."""
+    s = text.replace("\r\n", "\n").replace("\r", "\n")
+    body = "\n".join(line.rstrip() for line in s.split("\n")).rstrip("\n")
+    return body + "\n" if body else ""
+
+
+def config_text_matches_local(local_text: str, drive_text: str) -> bool:
+    """Return True if Drive content is equivalent to the local file for sync purposes."""
+    return _normalize_config_text(local_text) == _normalize_config_text(drive_text)
+
+
+def clear_yaml_config_cache() -> None:
+    """Drop cached deck/slide YAML from Drive so the next load refetches."""
+    with _yaml_cache_lock:
+        _yaml_cache.clear()
+
+
+def list_obsolete_drive_config(
+    decks_dir: str | Path | None = None,
+    slides_dir: str | Path | None = None,
+    *,
+    slides_only: bool = False,
+    decks_only: bool = False,
+) -> dict[str, Any]:
+    """Compare local ``*.yaml`` to Drive; return files whose Drive copy differs from repo.
+
+    Does not upload. Requires ``GOOGLE_DRIVE_FOLDER_ID`` and Drive API access.
+
+    Returns:
+        dict with keys ``stale_decks``, ``stale_slides`` (list of filenames),
+        ``missing_on_drive_decks``, ``missing_on_drive_slides`` (local files with no Drive object),
+        ``error`` (str, if setup failed).
+    """
+    from .deck_loader import DEFAULT_DECKS_DIR
+    from .slide_loader import DEFAULT_SLIDES_DIR
+
+    if slides_only and decks_only:
+        raise ValueError("slides_only and decks_only cannot both be true")
+
+    empty: dict[str, Any] = {
+        "stale_decks": [],
+        "stale_slides": [],
+        "missing_on_drive_decks": [],
+        "missing_on_drive_slides": [],
+    }
+
+    if not GOOGLE_DRIVE_FOLDER_ID:
+        return {**empty, "error": "GOOGLE_DRIVE_FOLDER_ID not set"}
+
+    d_dir = Path(decks_dir) if decks_dir else DEFAULT_DECKS_DIR
+    s_dir = Path(slides_dir) if slides_dir else DEFAULT_SLIDES_DIR
+
+    try:
+        _, d_folder, s_folder = _get_config_folder_ids()
+    except Exception as e:
+        return {**empty, "error": str(e)}
+
+    include_decks = not slides_only
+    include_slides = not decks_only
+
+    out = dict(empty)
+    if include_decks:
+        d = _list_stale_in_folder(d_dir, d_folder, "decks")
+        out["stale_decks"] = d["stale_decks"]
+        out["missing_on_drive_decks"] = d["missing_on_drive_decks"]
+    if include_slides:
+        s = _list_stale_in_folder(s_dir, s_folder, "slides")
+        out["stale_slides"] = s["stale_slides"]
+        out["missing_on_drive_slides"] = s["missing_on_drive_slides"]
+    return out
+
+
+def _list_stale_in_folder(
+    local_dir: Path,
+    drive_folder_id: str,
+    kind: str,
+) -> dict[str, list[str]]:
+    """Return stale_* and missing_on_drive_* for one kind (decks or slides)."""
+    drive_files = _list_drive_files(drive_folder_id)
+    by_name = {f["name"]: f["id"] for f in drive_files}
+
+    stale_key = f"stale_{kind}"
+    missing_key = f"missing_on_drive_{kind}"
+    result: dict[str, list[str]] = {stale_key: [], missing_key: []}
+
+    for f in sorted(local_dir.glob("*.yaml")):
+        local_text = f.read_text(encoding="utf-8")
+        fid = by_name.get(f.name)
+        if not fid:
+            result[missing_key].append(f.name)
+            continue
+        try:
+            drive_text = _read_drive_file(fid)
+        except Exception as e:
+            logger.warning("Drive %s/%s unreadable (%s) — treating as stale", kind, f.name, e)
+            result[stale_key].append(f.name)
+            continue
+        if not config_text_matches_local(local_text, drive_text):
+            result[stale_key].append(f.name)
+
+    return result
+
+
+def sync_obsolete_drive_config(
+    decks_dir: str | Path | None = None,
+    slides_dir: str | Path | None = None,
+    *,
+    dry_run: bool = False,
+    slides_only: bool = False,
+    decks_only: bool = False,
+    upload_missing: bool = True,
+) -> dict[str, Any]:
+    """Overwrite Drive YAML that differs from the repo (and optionally upload missing files).
+
+    After any successful upload or update, clears the in-process YAML cache so the
+    next ``load_yaml_from_drive`` refetches.
+
+    Args:
+        dry_run: If True, only report what would change; no Drive writes.
+        slides_only: Only check/update ``slides/`` on Drive.
+        decks_only: Only check/update ``decks/`` on Drive.
+        upload_missing: If True, upload local files that have no Drive object yet
+            (same as a first-time sync for those names).
+
+    Returns:
+        Stats including ``decks_updated``, ``slides_updated``, ``decks_uploaded_new``,
+        ``slides_uploaded_new``, lists of filenames, and ``dry_run``.
+    """
+    from .deck_loader import DEFAULT_DECKS_DIR
+    from .slide_loader import DEFAULT_SLIDES_DIR
+
+    report = list_obsolete_drive_config(
+        decks_dir=decks_dir,
+        slides_dir=slides_dir,
+        slides_only=slides_only,
+        decks_only=decks_only,
+    )
+    if report.get("error"):
+        return {
+            "error": report["error"],
+            "dry_run": dry_run,
+            "decks_updated": 0,
+            "slides_updated": 0,
+            "decks_uploaded_new": 0,
+            "slides_uploaded_new": 0,
+        }
+
+    d_dir = Path(decks_dir) if decks_dir else DEFAULT_DECKS_DIR
+    s_dir = Path(slides_dir) if slides_dir else DEFAULT_SLIDES_DIR
+    _, d_folder, s_folder = _get_config_folder_ids()
+
+    stats: dict[str, Any] = {
+        "dry_run": dry_run,
+        "decks_updated": 0,
+        "slides_updated": 0,
+        "decks_uploaded_new": 0,
+        "slides_uploaded_new": 0,
+        "updated_deck_files": [],
+        "updated_slide_files": [],
+        "new_deck_files": [],
+        "new_slide_files": [],
+    }
+
+    include_decks = not slides_only
+    include_slides = not decks_only
+
+    def process_kind(
+        local_dir: Path,
+        drive_folder: str,
+        label: str,
+        stale_names: list[str],
+        missing_names: list[str],
+    ) -> None:
+        existing = {f["name"]: f["id"] for f in _list_drive_files(drive_folder)}
+        for name in stale_names:
+            path = local_dir / name
+            if not path.is_file():
+                continue
+            content = path.read_text(encoding="utf-8")
+            fid = existing.get(name)
+            if dry_run:
+                if label == "decks":
+                    stats["decks_updated"] += 1
+                    stats["updated_deck_files"].append(name)
+                else:
+                    stats["slides_updated"] += 1
+                    stats["updated_slide_files"].append(name)
+                continue
+            if fid:
+                _upload_file(name, content, drive_folder, file_id=fid)
+                logger.info("Drive %s/%s overwritten from repo (was obsolete)", label, name)
+            if label == "decks":
+                stats["decks_updated"] += 1
+                stats["updated_deck_files"].append(name)
+            else:
+                stats["slides_updated"] += 1
+                stats["updated_slide_files"].append(name)
+
+        if not upload_missing:
+            return
+        for name in missing_names:
+            path = local_dir / name
+            if not path.is_file():
+                continue
+            content = path.read_text(encoding="utf-8")
+            if dry_run:
+                if label == "decks":
+                    stats["decks_uploaded_new"] += 1
+                    stats["new_deck_files"].append(name)
+                else:
+                    stats["slides_uploaded_new"] += 1
+                    stats["new_slide_files"].append(name)
+                continue
+            _upload_file(name, content, drive_folder, file_id=None)
+            logger.info("Drive %s/%s created from repo (was missing)", label, name)
+            if label == "decks":
+                stats["decks_uploaded_new"] += 1
+                stats["new_deck_files"].append(name)
+            else:
+                stats["slides_uploaded_new"] += 1
+                stats["new_slide_files"].append(name)
+
+    if include_decks:
+        process_kind(
+            d_dir,
+            d_folder,
+            "decks",
+            report["stale_decks"],
+            report["missing_on_drive_decks"],
+        )
+    if include_slides:
+        process_kind(
+            s_dir,
+            s_folder,
+            "slides",
+            report["stale_slides"],
+            report["missing_on_drive_slides"],
+        )
+
+    changed = (
+        stats["decks_updated"]
+        + stats["slides_updated"]
+        + stats["decks_uploaded_new"]
+        + stats["slides_uploaded_new"]
+    )
+    if changed and not dry_run:
+        clear_yaml_config_cache()
+
+    return stats
+
+
+def ensure_drive_config_matches_repo() -> None:
+    """Once per process: overwrite stale or missing Drive YAML from the local repo.
+
+    Invoked automatically before reading ``bpo-config`` from Drive so QBR and deck
+    runs match the checked-in definitions. Failures are logged; loading continues
+    with whatever is on Drive (or local fallback).
+    """
+    global _drive_repo_sync_ran
+    if _drive_repo_sync_ran:
+        return
+    _drive_repo_sync_ran = True
+    if not GOOGLE_DRIVE_FOLDER_ID:
+        return
+    try:
+        stats = sync_obsolete_drive_config(dry_run=False, upload_missing=True)
+        if stats.get("error"):
+            logger.warning("Drive bpo-config repo sync skipped: %s", stats["error"])
+            return
+        total = (
+            stats["decks_updated"]
+            + stats["slides_updated"]
+            + stats["decks_uploaded_new"]
+            + stats["slides_uploaded_new"]
+        )
+        if total:
+            logger.info(
+                "Synced %d bpo-config file(s) from repo to Drive "
+                "(decks replaced=%d, slides replaced=%d, new decks=%d, new slides=%d)",
+                total,
+                stats["decks_updated"],
+                stats["slides_updated"],
+                stats["decks_uploaded_new"],
+                stats["slides_uploaded_new"],
+            )
+    except Exception as e:
+        logger.warning("Drive bpo-config repo sync failed (continuing): %s", e)
+
+
 # ── Public API ──
 
 def sync_config_to_drive(
@@ -196,6 +492,9 @@ def sync_config_to_drive(
             _upload_file(f.name, content, drive_folder, file_id=fid)
             stats[f"{label}_uploaded"] += 1
             logger.debug("Uploaded %s/%s to Drive", label, f.name)
+
+    if stats["decks_uploaded"] + stats["slides_uploaded"]:
+        clear_yaml_config_cache()
 
     return stats
 
@@ -235,6 +534,8 @@ def _load_yaml_from_drive_uncached(
     """Actual Drive fetch logic (called once, then cached)."""
     if not GOOGLE_DRIVE_FOLDER_ID:
         return _load_all_local(local_dir, kind)
+
+    ensure_drive_config_matches_repo()
 
     try:
         _, d_folder, s_folder = _get_config_folder_ids()

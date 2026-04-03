@@ -607,11 +607,20 @@ Slides should **not include raw data tables** unless explicitly requested.
 
 ## Speaker notes: JQL trace
 
-Automated decks write **speaker notes** on each slide under a **Slide Query Trace** header. When the slide is backed by Jira, the notes include a **JQL used:** section.
+### Automated deck layout (``_build_slide_jql_speaker_notes``)
 
-### Required line format
+Speaker notes are plain text, **no** titled section header (e.g. no **“Slide Query Trace”** line). Order:
 
-Each Jira query must appear as:
+1. Timestamp (first line).  
+2. Blank line.  
+3. ``Slide: …`` and ``Slide type: …``.  
+4. Blank line, then **one line per trace** in unified format (see below).  
+
+Jira and SOQL rows use the same line shape as pipeline traces; there is **no** separate **“JQL used:”** block in the automated output.
+
+### Required line format (Jira — authoring / documentation convention)
+
+When documenting or hand-writing Jira lines, each query can be described as:
 
 `[Data description] - JQL`
 
@@ -621,7 +630,7 @@ Rules:
 - **Separator** — Space, hyphen, space: ` - ` between the closing `]` and the JQL text.  
 - **Enumeration** — When multiple queries apply to the same slide, prefix with `1.`, `2.`, … so lists stay scannable.
 
-Example block:
+Example block (documentation / presenter-facing style):
 
 ```text
 JQL used:
@@ -634,7 +643,8 @@ JQL used:
 - Report payloads store ``jql_queries`` as a list of objects: ``{"description": "…", "jql": "…"}``. Plain strings are still accepted for backward compatibility and are shown with description `[Jira issue search]`.  
 - New Jira fetches must supply a **description** at record time (e.g. ``_search(..., data_description="…")`` or ``_record_jql(jql, description="…")``).
 - **Pipeline trace descriptions must match on-slide copy.** For each automated metric row or KPI card, the speaker-note **description** (the text before ``:`` in ``description: source - query``) must be the **same header/label as on the slide**—not a paraphrase (e.g. use **Active This Week**, not “weekly active rate for this account”). Implement shared constants in ``src/slides_client.py`` so slide bodies and canonical trace builders cannot drift.
-- **Account Health Snapshot** (``slide_type`` ``health``), **Peer Benchmarks** (``benchmarks``), and **Platform Value & ROI** (``platform_value``) use built-in canonical pipeline rows in ``_SLIDE_CANONICAL_PIPELINE_TRACES`` (on-slide KPI labels plus CS Report field provenance; headline numbers echoed in the trace text). Do not rely on ad-hoc ``data_traces`` in the payload for those slides.
+- **Unified automated format.** After slide id/type, emit **one line per trace** as ``description: source - query`` (e.g. ``…: Jira - …`` for Jira). Do **not** insert a **Slide Query Trace** heading. Do not collapse multiple KPIs or metrics into a single run-on ``query`` string—add one trace row per on-slide metric (or per logical data slice), same as **Account Health Snapshot** (``health``), **Peer Benchmarks** (``benchmarks``), **Platform Value & ROI** (``platform_value``), and every other entry in ``_SLIDE_CANONICAL_PIPELINE_TRACES``.
+- **Canonical builders** in ``_SLIDE_CANONICAL_PIPELINE_TRACES`` must follow that rule: on-slide KPI labels plus field provenance; echo headline numbers in each trace line where helpful. Do not rely on ad-hoc ``data_traces`` in the payload for those slide types.
 - Other slides that are not Jira-backed but still need trace lines may attach ``data_traces`` on the relevant report subtree: a list of ``{"description": "…", "source": "…", "query": "…"}`` where **description** matches the visible slide label and **query** is a short pipeline / field explanation (not necessarily executable SQL). ``_build_slide_jql_speaker_notes`` merges these into the same ``description: source - query`` lines as Jira when no canonical builder applies.
 
 ---

@@ -182,6 +182,79 @@ class _HealthSnapshotLabels:
     COHORT = "Cohort"
 
 
+# Cohort Summary KPI cards — labels must match _cohort_summary_slide and speaker-note traces.
+# Cohort profile slide — trace ``description`` must match subtitle/stat wording on ``_cohort_profiles_slide``.
+class _CohortProfileTraceLabels:
+    ACTIVE_USERS_7D = "Active users (7d)"
+    TOTAL_USERS = "Total users"
+    WEEKLY_ACTIVE_MEDIAN = "Weekly active rate (median)"
+    WRITE_RATIO_MEDIAN = "Write-to-total ratio (median)"
+    KEI_ADOPTERS_PCT = "Kei adopters (% of customers)"
+    EXPORTS_MEDIAN = "Exports per customer (median, 30d)"
+    TOTAL_ARR = "Total ARR"
+
+
+class _CohortSummaryLabels:
+    TOTAL_CUSTOMERS = "Total customers"
+    COHORTS = "Cohorts"
+    TOTAL_ARR = "Total ARR"
+    TOTAL_USERS = "Total users"
+    ACTIVE_USERS_7D = "Active users (7d)"
+    ACTIVE_RATE = "Active rate"
+    WEEKLY_ACTIVE_MEDIAN = "Weekly active rate (median)"
+    WRITE_RATIO_MEDIAN = "Write ratio (median)"
+    KEI_ADOPTION_MEDIAN = "Kei adoption (median)"
+    EXPORTS_MEDIAN = "Exports per customer (median, 30d)"
+    LARGEST_COHORT = "Largest cohort"
+
+
+def _cohort_summary_metrics(report: dict[str, Any]) -> dict[str, Any] | None:
+    """Shared cohort summary numbers for ``_cohort_summary_slide`` and pipeline traces."""
+    digest = report.get("cohort_digest") or {}
+    buckets = [v for v in digest.values() if isinstance(v, dict) and int(v.get("n") or 0) > 0]
+    if not buckets:
+        return None
+    total_customers = report.get("customer_count", 0)
+    num_cohorts = len(buckets)
+    total_users = sum(b.get("total_users", 0) for b in buckets)
+    total_active = sum(b.get("total_active_users", 0) for b in buckets)
+    overall_active_pct = round(100.0 * total_active / total_users, 1) if total_users else 0.0
+    arr_map = report.get("_arr_by_customer") or {}
+    total_arr = sum(arr_map.values()) if arr_map else 0.0
+    login_medians = [b["median_login_pct"] for b in buckets if b.get("median_login_pct") is not None]
+    write_medians = [b["median_write_ratio"] for b in buckets if b.get("median_write_ratio") is not None]
+    export_medians = [b["median_exports"] for b in buckets if b.get("median_exports") is not None]
+    kei_rates = [b.get("kei_adoption_pct", 0) for b in buckets]
+
+    def _med(nums: list[Any]) -> float | int | None:
+        if not nums:
+            return None
+        s = sorted(nums)
+        mid = len(s) // 2
+        return s[mid] if len(s) % 2 else round((s[mid - 1] + s[mid]) / 2, 1)
+
+    med_login = _med(login_medians)
+    med_write = _med(write_medians)
+    med_exports = _med(export_medians)
+    med_kei = _med(kei_rates)
+    biggest = max(buckets, key=lambda b: b.get("n", 0))
+    biggest_lbl = f"{biggest['display_name']} ({biggest['n']})"
+    return {
+        "buckets": buckets,
+        "total_customers": total_customers,
+        "num_cohorts": num_cohorts,
+        "total_users": total_users,
+        "total_active": total_active,
+        "overall_active_pct": overall_active_pct,
+        "total_arr": total_arr,
+        "med_login": med_login,
+        "med_write": med_write,
+        "med_exports": med_exports,
+        "med_kei": med_kei,
+        "biggest_lbl": biggest_lbl,
+    }
+
+
 def _truncate_kpi_card_label(s: str, max_len: int = 44) -> str:
     """Truncate a KPI label to *max_len* characters.
 
@@ -1242,62 +1315,223 @@ def _platform_risk_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str
 
 
 def _cohort_summary_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
-    """Speaker-note rows for Cohort Summary slide — aggregate KPIs."""
-    digest = report.get("cohort_digest") or {}
-    buckets = [v for v in digest.values() if isinstance(v, dict) and int(v.get("n") or 0) > 0]
-    if not buckets:
+    """Speaker-note rows for Cohort Summary — one ``description: source - query`` line per KPI card."""
+    m = _cohort_summary_metrics(report)
+    if not m:
         return []
-    total_users = sum(b.get("total_users", 0) for b in buckets)
-    total_active = sum(b.get("total_active_users", 0) for b in buckets)
+    L = _CohortSummaryLabels
+    total_arr = m["total_arr"]
+    arr_echo = f"${total_arr:,.0f}" if total_arr > 0 else "—"
+    med_login = m["med_login"]
+    med_write = m["med_write"]
+    med_exports = m["med_exports"]
+    med_kei = m["med_kei"]
+    return [
+        {
+            "description": L.TOTAL_CUSTOMERS,
+            "source": "Pendo",
+            "query": f"On-slide value {m['total_customers']} — customer_count in portfolio report (cohort_digest scope)",
+        },
+        {
+            "description": L.COHORTS,
+            "source": "Pendo",
+            "query": f"On-slide value {m['num_cohorts']} — cohort buckets with ≥1 customer (get_customer_cohort / cohorts.yaml)",
+        },
+        {
+            "description": L.TOTAL_ARR,
+            "source": "Salesforce",
+            "query": (
+                f"On-slide value {arr_echo} — sum of Account ARR__c for matched customers "
+                f"(Name / LeanDNA_Entity_Name__c); {len(report.get('_arr_by_customer') or {})} accounts matched"
+            ),
+        },
+        {
+            "description": L.TOTAL_USERS,
+            "source": "Pendo",
+            "query": f"On-slide value {m['total_users']:,} — sum of total_users across cohort_digest buckets",
+        },
+        {
+            "description": L.ACTIVE_USERS_7D,
+            "source": "Pendo",
+            "query": f"On-slide value {m['total_active']:,} — sum of total_active_users (7d) across cohort_digest buckets",
+        },
+        {
+            "description": L.ACTIVE_RATE,
+            "source": "Pendo",
+            "query": (
+                f"On-slide value {m['overall_active_pct']}% — 100 × active_users / total_users "
+                "(portfolio-wide across cohorts)"
+            ),
+        },
+        {
+            "description": L.WEEKLY_ACTIVE_MEDIAN,
+            "source": "Pendo",
+            "query": (
+                f"On-slide value {med_login}% — median of per-cohort median_login_pct "
+                "(each cohort median is across its customers’ engagement.active_rate_7d)"
+                if med_login is not None
+                else "On-slide — — median of per-cohort median_login_pct (insufficient data)"
+            ),
+        },
+        {
+            "description": L.WRITE_RATIO_MEDIAN,
+            "source": "Pendo",
+            "query": (
+                f"On-slide value {med_write}% — median of per-cohort median_write_ratio "
+                "(depth.write_ratio per customer, median within cohort, then median across cohorts)"
+                if med_write is not None
+                else "On-slide — — median of per-cohort write ratios (insufficient data)"
+            ),
+        },
+        {
+            "description": L.KEI_ADOPTION_MEDIAN,
+            "source": "Pendo",
+            "query": (
+                f"On-slide value {med_kei}% — median of per-cohort kei_adoption_pct "
+                "(% of customers in bucket with ≥1 Kei query)"
+                if med_kei is not None
+                else "On-slide — — median of per-cohort Kei adoption (insufficient data)"
+            ),
+        },
+        {
+            "description": L.EXPORTS_MEDIAN,
+            "source": "Pendo",
+            "query": (
+                f"On-slide value {med_exports:.0f} — median of per-cohort median_exports "
+                "(exports.total_exports per customer, 30d window, median within cohort then across cohorts)"
+                if med_exports is not None
+                else "On-slide — — median of per-cohort export medians (insufficient data)"
+            ),
+        },
+        {
+            "description": L.LARGEST_COHORT,
+            "source": "Pendo",
+            "query": f"On-slide value {m['biggest_lbl']} — cohort_digest bucket with max customer count",
+        },
+    ]
+
+
+def _cohort_profile_pipeline_rows_for_block(
+    report: dict[str, Any],
+    block: dict[str, Any],
+    *,
+    cohort_label: str,
+) -> list[dict[str, str]]:
+    """One ``description: source - query`` line per on-slide metric for a single cohort bucket."""
+    L = _CohortProfileTraceLabels
+    name = block.get("display_name", cohort_label)
+    n = int(block.get("n") or 0)
+    ta = int(block.get("total_active_users") or 0)
+    tu = int(block.get("total_users") or 0)
+    mlogin = block.get("median_login_pct")
+    mw = block.get("median_write_ratio")
+    kei_pct = block.get("kei_adoption_pct", 0)
+    mex = block.get("median_exports")
+
+    mlogin_os = "On-slide —" if mlogin is None else f"On-slide {mlogin}%"
+    mw_os = "On-slide —" if mw is None else f"On-slide {mw}%"
+    mex_os = "On-slide —" if mex is None else f"On-slide {mex:.0f}"
+
+    rows: list[dict[str, str]] = [
+        {
+            "description": f"Cohort profile: {name} ({n} customers)",
+            "source": "Pendo",
+            "query": (
+                f"Bucket {cohort_label!r} in cohort_digest — "
+                "get_customer_cohort / cohorts.yaml; portfolio rollup customer summaries"
+            ),
+        },
+        {
+            "description": L.ACTIVE_USERS_7D,
+            "source": "Pendo",
+            "query": (
+                f"On-slide cohort total {ta:,} — cohort_digest.total_active_users "
+                f"({name})"
+            ),
+        },
+        {
+            "description": L.TOTAL_USERS,
+            "source": "Pendo",
+            "query": (
+                f"On-slide cohort total {tu:,} — cohort_digest.total_users ({name})"
+            ),
+        },
+        {
+            "description": L.WEEKLY_ACTIVE_MEDIAN,
+            "source": "Pendo",
+            "query": (
+                f"{mlogin_os} — median of engagement.active_rate_7d across customers "
+                f"in this cohort ({name})"
+            ),
+        },
+        {
+            "description": L.WRITE_RATIO_MEDIAN,
+            "source": "Pendo",
+            "query": (
+                f"{mw_os} — median of depth.write_ratio per customer in cohort ({name})"
+            ),
+        },
+        {
+            "description": L.KEI_ADOPTERS_PCT,
+            "source": "Pendo",
+            "query": (
+                f"On-slide {kei_pct}% — share of customers in cohort with ≥1 Kei query ({name})"
+            ),
+        },
+        {
+            "description": L.EXPORTS_MEDIAN,
+            "source": "Pendo",
+            "query": (
+                f"{mex_os} — median exports.total_exports (30d) per customer in cohort ({name})"
+            ),
+        },
+    ]
+
     arr_map = report.get("_arr_by_customer") or {}
-    total_arr = sum(arr_map.values()) if arr_map else 0
-    rows: list[dict[str, str]] = [{
-        "description": "Cohort summary aggregates",
-        "source": "Pendo (cohort_digest aggregation) + Salesforce (ARR)",
-        "query": (
-            f"{len(buckets)} cohorts | "
-            f"{report.get('customer_count', 0)} customers | "
-            f"total users={total_users:,} | active(7d)={total_active:,} | "
-            f"total ARR=${total_arr:,.0f} | "
-            "median-of-medians for active rate, write ratio, exports, Kei adoption"
-        ),
-    }]
+    customers = block.get("customers") or []
+    cohort_arr = sum(float(arr_map.get(c, 0) or 0) for c in customers)
+    n_matched = sum(1 for c in customers if float(arr_map.get(c, 0) or 0) > 0)
+    if cohort_arr > 0:
+        rows.append({
+            "description": L.TOTAL_ARR,
+            "source": "Salesforce",
+            "query": (
+                f"On-slide {_fmt_platform_value_dollar(cohort_arr)} — sum Account.ARR__c for "
+                f"{n_matched}/{len(customers)} cohort customers with matches ({name}); "
+                "Name / LeanDNA_Entity_Name__c match"
+            ),
+        })
     return rows
 
 
 def _cohort_profiles_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
-    """Speaker-note rows for Cohort Profile slides — describes every on-slide metric."""
+    """Speaker-note rows for Cohort Profile slide(s) — one trace line per metric; scoped per page when set."""
+    entry = report.get("_speaker_note_slide_entry")
+    entry = entry if isinstance(entry, dict) else {}
+    scoped = entry.get("_cohort_profile_block")
+    if isinstance(scoped, dict) and int(scoped.get("n") or 0) > 0:
+        cid = str(scoped.get("cohort_id") or scoped.get("display_name") or "bucket")
+        return _cohort_profile_pipeline_rows_for_block(report, scoped, cohort_label=cid)
+
     digest = report.get("cohort_digest") or {}
     if not digest:
         return []
     rows: list[dict[str, str]] = []
-    for cid, block in digest.items():
+    ordered = sorted(
+        digest.items(),
+        key=lambda kv: (kv[0] == "unclassified", -int((kv[1] or {}).get("n") or 0) if isinstance(kv[1], dict) else 0),
+    )
+    for cid, block in ordered:
         if not isinstance(block, dict) or not int(block.get("n") or 0):
             continue
-        name = block.get("display_name", cid)
-        n = block["n"]
-        rows.append({
-            "description": f"Cohort: {name} ({n} customers)",
-            "source": "Pendo (portfolio rollup via cohorts.yaml)",
-            "query": (
-                f"active(7d)={block.get('total_active_users', 0)} / "
-                f"total={block.get('total_users', 0)} | "
-                f"median weekly active rate={block.get('median_login_pct', 0)}% "
-                f"(engagement.active_rate_7d per customer, median across cohort) | "
-                f"write-to-total ratio={block.get('median_write_ratio', 0)}% "
-                f"(depth.write_ratio per customer, median) | "
-                f"Kei adopters={block.get('kei_adoption_pct', 0)}% "
-                f"(% of customers with ≥1 Kei query) | "
-                f"exports/customer(median,30d)={block.get('median_exports', 0)} "
-                f"(exports.total_exports per customer, median)"
-            ),
-        })
+        rows.extend(_cohort_profile_pipeline_rows_for_block(report, block, cohort_label=str(cid)))
+
     arr_map = report.get("_arr_by_customer") or {}
     if arr_map:
         n_with = len(arr_map)
         total_arr = sum(arr_map.values())
         rows.append({
-            "description": "ARR by customer",
+            "description": "ARR by customer (portfolio)",
             "source": "Salesforce (Account.ARR__c)",
             "query": (
                 f"Matched {n_with} customers with ARR totalling ${total_arr:,.0f} — "
@@ -1336,57 +1570,65 @@ _SLIDE_CANONICAL_PIPELINE_TRACES: dict[str, Any] = {
 
 
 def _build_slide_jql_speaker_notes(report: dict[str, Any], entry: dict[str, Any]) -> str:
-    """Speaker notes: timestamp first; then slide id; then one line per data trace (description: source - query)."""
+    """Speaker notes: timestamp; slide id/type; blank line; trace lines only (description: source - query)—no section heading."""
     from datetime import datetime
 
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    slide_type = entry.get("slide_type", entry.get("id", "slide"))
-    slide_title = entry.get("title", slide_type.replace("_", " ").title())
-    header = [
-        ts,
-        "",
-        f"Slide: {slide_title}",
-        f"Slide type: {slide_type}",
-    ]
+    prev_sn_entry = report.get("_speaker_note_slide_entry")
+    report["_speaker_note_slide_entry"] = entry
+    try:
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        slide_type = entry.get("slide_type", entry.get("id", "slide"))
+        slide_title = entry.get("title", slide_type.replace("_", " ").title())
+        header = [
+            ts,
+            "",
+            f"Slide: {slide_title}",
+            f"Slide type: {slide_type}",
+        ]
 
-    required_keys = SLIDE_DATA_REQUIREMENTS.get(slide_type, [])
-    canon_fn = _SLIDE_CANONICAL_PIPELINE_TRACES.get(slide_type)
+        required_keys = SLIDE_DATA_REQUIREMENTS.get(slide_type, [])
+        canon_fn = _SLIDE_CANONICAL_PIPELINE_TRACES.get(slide_type)
 
-    pipeline: list[dict[str, str]] = []
-    if canon_fn is not None:
-        pipeline = canon_fn(report)
-    elif required_keys:
-        for key in required_keys:
-            pipeline.extend(_collect_declared_data_trace_entries(report.get(key)))
-        pipeline = _dedupe_data_trace_entries(pipeline)
-    else:
-        pipeline = _dedupe_data_trace_entries(_collect_declared_data_trace_entries(report))
+        pipeline: list[dict[str, str]] = []
+        if canon_fn is not None:
+            pipeline = canon_fn(report)
+        elif required_keys:
+            for key in required_keys:
+                pipeline.extend(_collect_declared_data_trace_entries(report.get(key)))
+            pipeline = _dedupe_data_trace_entries(pipeline)
+        else:
+            pipeline = _dedupe_data_trace_entries(_collect_declared_data_trace_entries(report))
 
-    executable: list[dict[str, str]] = []
-    if required_keys:
-        for key in required_keys:
-            executable.extend(_collect_jql_soql_trace_entries(report.get(key)))
-    else:
-        executable = _collect_jql_soql_trace_entries(report)
-    executable = _dedupe_data_trace_entries(executable)
+        executable: list[dict[str, str]] = []
+        if required_keys:
+            for key in required_keys:
+                executable.extend(_collect_jql_soql_trace_entries(report.get(key)))
+        else:
+            executable = _collect_jql_soql_trace_entries(report)
+        executable = _dedupe_data_trace_entries(executable)
 
-    entries = _dedupe_data_trace_entries(pipeline + executable)
+        entries = _dedupe_data_trace_entries(pipeline + executable)
 
-    if not entries:
-        if slide_type in ("salesforce_comprehensive_cover", "salesforce_category"):
-            header.append("")
-            header.append(
-                "Live Salesforce metrics: Salesforce - SOQL via REST API (per-object queries not recorded in this payload)"
-            )
+        if not entries:
+            if slide_type in ("salesforce_comprehensive_cover", "salesforce_category"):
+                header.append("")
+                header.append(
+                    "Live Salesforce metrics: Salesforce - SOQL via REST API (per-object queries not recorded in this payload)"
+                )
+            return "\n".join(header)
+
+        header.append("")
+        for e in entries:
+            desc = e.get("description") or "Data"
+            src = e.get("source") or "Unknown"
+            q = e.get("query") or ""
+            header.append(f"{desc}: {src} - {q}")
         return "\n".join(header)
-
-    header.append("")
-    for e in entries:
-        desc = e.get("description") or "Data"
-        src = e.get("source") or "Unknown"
-        q = e.get("query") or ""
-        header.append(f"{desc}: {src} - {q}")
-    return "\n".join(header)
+    finally:
+        if prev_sn_entry is not None:
+            report["_speaker_note_slide_entry"] = prev_sn_entry
+        else:
+            report.pop("_speaker_note_slide_entry", None)
 
 
 def _pill(reqs, oid, sid, x, y, w, h, text, bg, fg):
@@ -3774,39 +4016,25 @@ _COHORT_PROFILE_MAX_SLIDES = 10
 
 def _cohort_summary_slide(reqs, sid, report, idx):
     """Portfolio-wide cohort summary — aggregate KPIs across all cohorts."""
-    digest = report.get("cohort_digest") or {}
-    buckets = [v for v in digest.values() if isinstance(v, dict) and int(v.get("n") or 0) > 0]
-    if not buckets:
+    m = _cohort_summary_metrics(report)
+    if not m:
         return _missing_data_slide(reqs, sid, report, idx, "cohort_digest (no cohort data)")
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
 
-    total_customers = report.get("customer_count", 0)
-    num_cohorts = len(buckets)
-    total_users = sum(b.get("total_users", 0) for b in buckets)
-    total_active = sum(b.get("total_active_users", 0) for b in buckets)
-    overall_active_pct = round(100.0 * total_active / total_users, 1) if total_users else 0.0
-
-    arr_map = report.get("_arr_by_customer") or {}
-    total_arr = sum(arr_map.values()) if arr_map else 0.0
-
-    login_medians = [b["median_login_pct"] for b in buckets if b.get("median_login_pct") is not None]
-    write_medians = [b["median_write_ratio"] for b in buckets if b.get("median_write_ratio") is not None]
-    export_medians = [b["median_exports"] for b in buckets if b.get("median_exports") is not None]
-    kei_rates = [b.get("kei_adoption_pct", 0) for b in buckets]
-
-    def _med(nums):
-        if not nums:
-            return None
-        s = sorted(nums)
-        mid = len(s) // 2
-        return s[mid] if len(s) % 2 else round((s[mid - 1] + s[mid]) / 2, 1)
-
-    med_login = _med(login_medians)
-    med_write = _med(write_medians)
-    med_exports = _med(export_medians)
-    med_kei = _med(kei_rates)
+    L = _CohortSummaryLabels
+    total_customers = m["total_customers"]
+    num_cohorts = m["num_cohorts"]
+    total_users = m["total_users"]
+    total_active = m["total_active"]
+    overall_active_pct = m["overall_active_pct"]
+    total_arr = m["total_arr"]
+    med_login = m["med_login"]
+    med_write = m["med_write"]
+    med_exports = m["med_exports"]
+    med_kei = m["med_kei"]
+    biggest_lbl = m["biggest_lbl"]
 
     ttl = "Cohort Summary"
     _slide_title(reqs, sid, ttl)
@@ -3819,48 +4047,46 @@ def _cohort_summary_slide(reqs, sid, report, idx):
 
     _kpi_metric_card(reqs, f"{sid}_c0", sid,
                      MARGIN, row1_y, card_w, card_h,
-                     "Total customers", str(total_customers), accent=BLUE)
+                     L.TOTAL_CUSTOMERS, str(total_customers), accent=BLUE)
     _kpi_metric_card(reqs, f"{sid}_c1", sid,
                      MARGIN + card_w + gap, row1_y, card_w, card_h,
-                     "Cohorts", str(num_cohorts), accent=BLUE)
+                     L.COHORTS, str(num_cohorts), accent=BLUE)
     arr_str = _fmt_platform_value_dollar(total_arr) if total_arr > 0 else "—"
     _kpi_metric_card(reqs, f"{sid}_c2", sid,
                      MARGIN + 2 * (card_w + gap), row1_y, card_w, card_h,
-                     "Total ARR", arr_str, accent=BLUE)
+                     L.TOTAL_ARR, arr_str, accent=BLUE)
 
     row2_y = row1_y + card_h + gap
     _kpi_metric_card(reqs, f"{sid}_c3", sid,
                      MARGIN, row2_y, card_w, card_h,
-                     "Total users", f"{total_users:,}", accent=BLUE)
+                     L.TOTAL_USERS, f"{total_users:,}", accent=BLUE)
     _kpi_metric_card(reqs, f"{sid}_c4", sid,
                      MARGIN + card_w + gap, row2_y, card_w, card_h,
-                     "Active users (7d)", f"{total_active:,}", accent=BLUE)
+                     L.ACTIVE_USERS_7D, f"{total_active:,}", accent=BLUE)
     _kpi_metric_card(reqs, f"{sid}_c5", sid,
                      MARGIN + 2 * (card_w + gap), row2_y, card_w, card_h,
-                     "Active rate", f"{overall_active_pct}%", accent=BLUE)
+                     L.ACTIVE_RATE, f"{overall_active_pct}%", accent=BLUE)
 
     row3_y = row2_y + card_h + gap
     _kpi_metric_card(reqs, f"{sid}_c6", sid,
                      MARGIN, row3_y, card_w, card_h,
-                     "Weekly active rate (median)", f"{med_login}%" if med_login is not None else "—", accent=BLUE)
+                     L.WEEKLY_ACTIVE_MEDIAN, f"{med_login}%" if med_login is not None else "—", accent=BLUE)
     _kpi_metric_card(reqs, f"{sid}_c7", sid,
                      MARGIN + card_w + gap, row3_y, card_w, card_h,
-                     "Write ratio (median)", f"{med_write}%" if med_write is not None else "—", accent=BLUE)
+                     L.WRITE_RATIO_MEDIAN, f"{med_write}%" if med_write is not None else "—", accent=BLUE)
     _kpi_metric_card(reqs, f"{sid}_c8", sid,
                      MARGIN + 2 * (card_w + gap), row3_y, card_w, card_h,
-                     "Kei adoption (median)", f"{med_kei}%" if med_kei is not None else "—", accent=BLUE)
+                     L.KEI_ADOPTION_MEDIAN, f"{med_kei}%" if med_kei is not None else "—", accent=BLUE)
 
     row4_y = row3_y + card_h + gap
     cards_r4 = 2
     card_w4 = (CONTENT_W - gap * (cards_r4 - 1)) / cards_r4
     _kpi_metric_card(reqs, f"{sid}_c9", sid,
                      MARGIN, row4_y, card_w4, card_h,
-                     "Exports per customer (median, 30d)", f"{med_exports:.0f}" if med_exports is not None else "—", accent=BLUE)
-    biggest = max(buckets, key=lambda b: b.get("n", 0))
-    biggest_lbl = f"{biggest['display_name']} ({biggest['n']})"
+                     L.EXPORTS_MEDIAN, f"{med_exports:.0f}" if med_exports is not None else "—", accent=BLUE)
     _kpi_metric_card(reqs, f"{sid}_c10", sid,
                      MARGIN + card_w4 + gap, row4_y, card_w4, card_h,
-                     "Largest cohort", biggest_lbl, accent=BLUE, value_pt=14)
+                     L.LARGEST_COHORT, biggest_lbl, accent=BLUE, value_pt=14)
 
     return idx + 1
 
@@ -3907,10 +4133,12 @@ def _cohort_profiles_slide(reqs, sid, report, idx) -> int | tuple[int, list[str]
     total_customers = report.get("customer_count", 0)
     arr_map = report.get("_arr_by_customer") or {}
     oids: list[str] = []
+    blocks_for_notes: list[dict[str, Any]] = []
     num = len(rows)
     for pi, (_cid, block) in enumerate(rows):
         page_sid = f"{sid}_p{pi}" if num > 1 else sid
         oids.append(page_sid)
+        blocks_for_notes.append(block)
         _slide(reqs, page_sid, idx + pi)
         _bg(reqs, page_sid, WHITE)
         cohort_n = block["n"]
@@ -3983,6 +4211,8 @@ def _cohort_profiles_slide(reqs, sid, report, idx) -> int | tuple[int, list[str]
             right_body = "\n".join(right_lines)
             _wrap_box(reqs, f"{page_sid}_accR", page_sid, MARGIN + col_w + 24, acc_y, col_w, acc_h, right_body)
             _style(reqs, f"{page_sid}_accR", 0, len(right_body), size=11, color=NAVY, font=FONT)
+
+    report["_cohort_profile_speaker_note_blocks"] = blocks_for_notes
 
     if num == 1:
         return idx + 1
@@ -6997,8 +7227,16 @@ def create_health_deck(
         sid = f"s_{entry['id']}_{idx}"
         ret = builder(reqs, sid, report, idx)
         next_idx, note_ids = _normalize_builder_return(ret, sid)
-        for nid in note_ids:
-            note_targets.append((nid, dict(entry)))
+        if slide_type == "cohort_profiles" and note_ids:
+            blks = report.get("_cohort_profile_speaker_note_blocks") or []
+            for i, nid in enumerate(note_ids):
+                note_entry = dict(entry)
+                if i < len(blks):
+                    note_entry["_cohort_profile_block"] = blks[i]
+                note_targets.append((nid, note_entry))
+        else:
+            for nid in note_ids:
+                note_targets.append((nid, dict(entry)))
         idx = next_idx
 
     slides_created = idx - 1

@@ -21,11 +21,15 @@ Version: `SF_REST_API_VERSION` in code (e.g. `v59.0`). Not used here: Bulk/Compo
 | `Id` | PK; drives Opportunity filters |
 | `Name`, `LeanDNA_Entity_Name__c` | Match to deck customer (substring, case-insensitive) |
 | `US_Persons_Only_Customer__c` | Loaded; not on slides |
-| `Contract_Status__c`, `Contract_Contract_Start_Date__c`, `Contract_Contract_End_Date__c`, `ARR__c` | Contract / ARR |
+| `Contract_Status__c`, `Contract_Contract_Start_Date__c`, `Contract_Contract_End_Date__c`, `ARR__c` | Contract / ARR **on the Account row** (not the standard **Contract** sObject) |
+
+**Portfolio / cohort “Total ARR”** — `get_arr_by_customer_names` sums **`Account.ARR__c`** on matched Customer Entity accounts only. It does **not** read the standard **`Contract`** object or roll up contract line amounts. For standard Contract fields BPO can query, see **§7 Contract** and **`query_contracts`** / comprehensive category **`contracts`**.
+
+**Deeper background** on where ARR/MRR usually lives (Account vs Opportunity vs Order vs CPQ Subscriptions vs Revenue Cloud): **[`SALESFORCE_REVENUE_AND_ARR.md`](./SALESFORCE_REVENUE_AND_ARR.md)**.
 
 **Opportunity** — aggregates only (via `get_opportunity_creation_this_year`, `get_advanced_pipeline_arr`): filter by `Type` (New Business, New Expansion Business, Expansion Business, POC), `AccountId` in matched accounts, current **calendar year** on `CreatedDate` for counts; same types + `StageName` in (3-Business Validation, 4-Proposal, 5-Contracts) for **SUM(ARR__c)**.
 
-**Comprehensive deck** (`get_customer_salesforce_comprehensive`) — after matching Customer Entity account(s), BPO walks the standard Account hierarchy: every account with `ParentId` pointing at an Id already in the set is added (breadth-first), up to depth 25 and 2000 Ids total, then all category SOQL uses that expanded Id list. Partner relationships and other non-`ParentId` links are not followed.
+**Comprehensive deck** (`get_customer_salesforce_comprehensive`) — after matching Customer Entity account(s), BPO walks the standard Account hierarchy: every account with `ParentId` pointing at an Id already in the set is added (breadth-first), up to depth 25 and 2000 Ids total, then all category SOQL uses that expanded Id list. Partner relationships and other non-`ParentId` links are not followed. Included categories: contacts, opportunities, opportunity_line_items, cases, tasks, events, **`contracts`** (standard Contract: `AccountId IN (...)`), orders, quotes, assets, owners_sample, etc.
 
 ## 3. `get_customer_salesforce` output
 
@@ -186,6 +190,10 @@ Formal **price quote** (often CPQ) linked to an **Opportunity** and **Account**;
 
 **Commercial agreement** (subscription, MSA, etc.) with **term** and **status**; often used for **renewal** and entitlement tracking.
 
+**BPO implementation** — Canonical column list: **`MAINSTREAM_OBJECT_FIELDS["Contract"]`** in [`src/salesforce_client.py`](../../src/salesforce_client.py) (must stay in sync with this table). Call **`SalesforceClient.query_contracts(where=..., limit=...)`** or **`query_mainstream_object("Contract", ...)`** with a custom **`fields=`** tuple if your org adds columns (e.g. custom **ARR / MRR**). **`get_customer_salesforce_comprehensive`** stores rows under **`categories["contracts"]`**, filtered with **`AccountId IN (...)`** on the expanded account Id set. **Cohort summary and similar deck ARR** still use **`Account.ARR__c`** on Customer Entity accounts, not this object, unless you extend the code to aggregate Contract fields.
+
+**Not in BPO’s default Contract SELECT** — Standard Salesforce may expose **`CustomerSignedId`**, **`CompanySignedDate`**, **`SpecialTerms`**, CPQ-related fields, or custom **`__c`** currency fields; use **`…/sobjects/Contract/describe`** or Object Manager, then **`fields=`** or raw **`query_soql`**.
+
 | Field | Type | Length / precision | Description |
 |-------|------|--------------------|-------------|
 | `Id` | Id (reference) | 18-character Salesforce Id | Primary key. |
@@ -338,3 +346,4 @@ Formal **price quote** (often CPQ) linked to an **Opportunity** and **Account**;
 
 - [`../SALESFORCE_SETUP.md`](../SALESFORCE_SETUP.md)
 - [`DATA_REGISTRY.md`](./DATA_REGISTRY.md)
+- **[`SALESFORCE_REVENUE_AND_ARR.md`](./SALESFORCE_REVENUE_AND_ARR.md)** — ARR/MRR, `Contract` vs contract value, CPQ (`SBQQ__`), Orders, admin checklist

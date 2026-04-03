@@ -236,7 +236,7 @@ Column names, KPI JSON shape, and how BPO reads the workbook are documented in *
 
 ## Salesforce
 
-Field-level schema and HTTP surfaces: [`SALESFORCE_DATA_SCHEMA.md`](./SALESFORCE_DATA_SCHEMA.md).
+Field-level schema and HTTP surfaces: [`SALESFORCE_DATA_SCHEMA.md`](./SALESFORCE_DATA_SCHEMA.md). **Where ARR/recurring value is modeled** (Account vs Contract vs CPQ vs Revenue Cloud): [`SALESFORCE_REVENUE_AND_ARR.md`](./SALESFORCE_REVENUE_AND_ARR.md).
 
 ### Query Surfaces
 
@@ -245,6 +245,7 @@ Field-level schema and HTTP surfaces: [`SALESFORCE_DATA_SCHEMA.md`](./SALESFORCE
 | `SALESFORCE-ACCOUNT-ENTITY-CONTRACT-QUERY` | Account query for customer-entity contract data. | SOQL `SELECT ... FROM Account WHERE Type = 'Customer Entity'` | `src/salesforce_client.py` | Core surface |
 | `SALESFORCE-OPPORTUNITY-CREATION-QUERY` | Opportunity-count query for current-year creation volume. | SOQL `SELECT COUNT() FROM Opportunity ... CALENDAR_YEAR(CreatedDate)` | `src/salesforce_client.py` | Core surface |
 | `SALESFORCE-OPPORTUNITY-PIPELINE-ARR-QUERY` | Opportunity query for advanced pipeline ARR. | SOQL `SELECT SUM(ARR__c) ... StageName IN (...)` | `src/salesforce_client.py` | Core surface |
+| `SALESFORCE-CONTRACT-MAINSTREAM-QUERY` | Standard **Contract** sObject via mainstream field list. | SOQL `SELECT <MAINSTREAM_OBJECT_FIELDS["Contract"]> FROM Contract` (+ optional `WHERE`); `query_contracts()` | `src/salesforce_client.py`, `get_customer_salesforce_comprehensive` → `categories.contracts` | `AVAILABLE`; **not** used for cohort/portfolio ARR (that uses `Account.ARR__c`) |
 
 ### Registry Entries
 
@@ -264,6 +265,15 @@ Field-level schema and HTTP surfaces: [`SALESFORCE_DATA_SCHEMA.md`](./SALESFORCE
 | `SALESFORCE-OPPORTUNITY-COUNT-THIS-YEAR` | Count of qualifying opportunities created this year for matched accounts. | Derived from Opportunity count query | `src/salesforce_client.py` | `DERIVED` |
 | `SALESFORCE-PIPELINE-ARR` | Sum of ARR for advanced-stage opportunities. | Derived from Opportunity ARR query | `src/salesforce_client.py` | `DERIVED` |
 | `SALESFORCE-CUSTOMER-MATCH-FLAG` | Whether a Salesforce customer match was found by name/entity. | Derived from account matching logic | `src/salesforce_client.py` | `DERIVED`, `NEEDS-REVIEW` fuzzy matching |
+| `SALESFORCE-CONTRACT-ID` | Standard Contract record Id. | `Contract.Id` | `src/salesforce_client.py` (`query_contracts`, comprehensive) | Core identifier |
+| `SALESFORCE-CONTRACT-NUMBER` | Human-readable contract number. | `Contract.ContractNumber` | `src/salesforce_client.py` | Core field |
+| `SALESFORCE-CONTRACT-ACCOUNT-ID` | Account the contract belongs to. | `Contract.AccountId` | `src/salesforce_client.py` | Join key to Account |
+| `SALESFORCE-CONTRACT-STATUS` | Contract lifecycle status. | `Contract.Status` | `src/salesforce_client.py` | Picklist (org-defined) |
+| `SALESFORCE-CONTRACT-START-DATE` | Contract start. | `Contract.StartDate` | `src/salesforce_client.py` | Distinct from `Account.Contract_Contract_Start_Date__c` |
+| `SALESFORCE-CONTRACT-END-DATE` | Contract end / renewal anchor. | `Contract.EndDate` | `src/salesforce_client.py` | Distinct from `Account.Contract_Contract_End_Date__c` |
+| `SALESFORCE-CONTRACT-TERM-MONTHS` | Term length in months (standard field semantics). | `Contract.ContractTerm` | `src/salesforce_client.py` | Integer |
+| `SALESFORCE-CONTRACT-OWNER-ID` | Contract owner user. | `Contract.OwnerId` | `src/salesforce_client.py` | Reference |
+| `SALESFORCE-CONTRACT-CREATED-DATE` | Contract record created timestamp. | `Contract.CreatedDate` | `src/salesforce_client.py` | DateTime |
 
 ## Internal / Derived
 
