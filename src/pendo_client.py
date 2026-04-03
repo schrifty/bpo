@@ -20,6 +20,7 @@ from .config import (
     PENDO_INTEGRATION_KEY,
     logger,
 )
+from .cross_source_signals import extend_health_report_signals
 
 PENDO_REQUEST_TIMEOUT_S = 90
 PENDO_TOTAL_TIMEOUT_S = 300
@@ -1951,7 +1952,7 @@ class PendoClient:
             qa.flag(f"CS Report data unavailable: {str(e)[:80]}",
                     sources=("CS Report / Data Exports",), severity="warning")
 
-        return {
+        merged = {
             **health,
             "sites": sites_data.get("sites", []),
             "top_pages": features_data.get("top_pages", []),
@@ -1969,6 +1970,8 @@ class PendoClient:
             "cs_supply_chain": cs_supply_chain,
             "cs_platform_value": cs_platform_value,
         }
+        extend_health_report_signals(merged)
+        return merged
 
     # ── Portfolio-level methods (cross-customer analysis) ──
 
