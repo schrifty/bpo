@@ -1,4 +1,4 @@
-"""Tests for optional LLM Notable Signals pass (Phase 2)."""
+"""Tests for optional LLM Notable Signals (Phases 2–3: facts envelope + editorial)."""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from src.signals_llm import (
     build_signals_llm_payload,
+    build_signals_llm_user_envelope,
+    extract_executive_signals_slide_prompt,
     maybe_rewrite_signals_with_llm,
     _normalize_item_text,
 )
@@ -32,9 +34,43 @@ def test_build_signals_llm_payload_shape():
     assert p["jira"]["open_issues"] == 5
 
 
+def test_extract_executive_signals_slide_prompt_finds_signals_slide():
+    fake = {
+        "slides": [
+            {"id": "health", "slide_type": "health", "prompt": ""},
+            {"id": "signals", "slide_type": "signals", "prompt": "  Close with action items.  "},
+        ]
+    }
+    with patch("src.deck_loader.resolve_deck", return_value=fake):
+        out = extract_executive_signals_slide_prompt("AnyCustomer", max_chars=500)
+    assert out == "Close with action items."
+
+
 def test_normalize_item_text_strips_leading_number():
     assert _normalize_item_text("1. Something important") == "Something important"
     assert _normalize_item_text("12) Another") == "Another"
+
+
+def test_build_signals_llm_user_envelope_includes_editorial():
+    report = {"customer": "X", "days": 30, "signals": ["A"], "engagement": {}, "benchmarks": {}, "account": {}}
+    with patch("src.signals_llm.BPO_SIGNALS_LLM_EDITORIAL", True):
+        env = build_signals_llm_user_envelope(
+            report,
+            manifest_rules="Focus on renewal risk.",
+            slide_prompt="Number each theme for the CSM.",
+        )
+    assert "facts" in env
+    assert env["facts"]["heuristic_signals"] == ["A"]
+    assert env["editorial"]["manifest_rules"] == "Focus on renewal risk."
+    assert "slide_brief_from_yaml" in env["editorial"]
+
+
+def test_maybe_rewrite_pops_editorial_keys_even_when_llm_disabled():
+    report = {"signals": ["x"], "_signals_llm_manifest_rules": "secret", "_signals_llm_slide_prompt": "brief"}
+    with patch("src.signals_llm.BPO_SIGNALS_LLM", False):
+        maybe_rewrite_signals_with_llm(report)
+    assert "_signals_llm_manifest_rules" not in report
+    assert "_signals_llm_slide_prompt" not in report
 
 
 def test_maybe_rewrite_skips_when_flag_off():
@@ -78,6 +114,7 @@ def test_maybe_rewrite_applies_llm_output():
     assert report["signals"] == ["Merged insight from data", "Second point"]
     assert report["_signals_llm_meta"]["source"] == "llm"
     assert report["_signals_llm_meta"]["count"] == 2
+    assert report["_signals_llm_meta"]["editorial"] is False
 
 
 def test_maybe_rewrite_fallback_on_bad_json():

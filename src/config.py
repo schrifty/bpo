@@ -92,6 +92,26 @@ try:
 except ValueError:
     BPO_SIGNALS_LLM_MAX_ITEMS = 10
 
+# Phase 3: Manifest + executive-summary signals slide YAML → editorial guidance for the signals LLM (QBR only passes these).
+try:
+    BPO_SIGNALS_LLM_MANIFEST_MAX_CHARS = max(
+        500,
+        min(12000, int(os.environ.get("BPO_SIGNALS_LLM_MANIFEST_MAX_CHARS", "8000").strip())),
+    )
+except ValueError:
+    BPO_SIGNALS_LLM_MANIFEST_MAX_CHARS = 8000
+try:
+    BPO_SIGNALS_LLM_SLIDE_PROMPT_MAX_CHARS = max(
+        200,
+        min(8000, int(os.environ.get("BPO_SIGNALS_LLM_SLIDE_PROMPT_MAX_CHARS", "2500").strip())),
+    )
+except ValueError:
+    BPO_SIGNALS_LLM_SLIDE_PROMPT_MAX_CHARS = 2500
+_sed = os.environ.get("BPO_SIGNALS_LLM_EDITORIAL", "true").strip().lower()
+BPO_SIGNALS_LLM_EDITORIAL = _sed not in ("0", "false", "no", "off")
+_sdp = os.environ.get("BPO_SIGNALS_LLM_DECK_PROMPT", "true").strip().lower()
+BPO_SIGNALS_LLM_DECK_PROMPT = _sdp not in ("0", "false", "no", "off")
+
 # LLM provider — set LLM_PROVIDER=gemini or LLM_PROVIDER=openai in .env.
 # Defaults to gemini if GEMINI_API_KEY is present, otherwise openai.
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")

@@ -1,4 +1,5 @@
-"""Optional LLM rewrite of Notable Signals (Phase 2) — grounded in heuristic + cross-source lines.
+"""Optional LLM rewrite of Notable Signals — heuristic + cross-source facts (Phase 1 rules),
+plus optional QBR Manifest + YAML slide brief as editorial context (Phase 3).
 
 Enabled with ``BPO_SIGNALS_LLM=1``. Runs after ``extend_health_report_signals`` on the full health report.
 """
@@ -12,7 +13,10 @@ from typing import Any
 
 from .config import (
     BPO_SIGNALS_LLM,
+    BPO_SIGNALS_LLM_EDITORIAL,
     BPO_SIGNALS_LLM_MAX_ITEMS,
+    BPO_SIGNALS_LLM_MANIFEST_MAX_CHARS,
+    BPO_SIGNALS_LLM_SLIDE_PROMPT_MAX_CHARS,
     LLM_MODEL,
     llm_client,
     logger,
@@ -166,23 +170,81 @@ def build_signals_llm_payload(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def extract_executive_signals_slide_prompt(
+    customer: str,
+    *,
+    max_chars: int | None = None,
+) -> str | None:
+    """Return the ``prompt`` text from the ``signals`` slide in ``executive_summary`` deck YAML (if any)."""
+    from .deck_loader import resolve_deck
+
+    cap = max_chars if max_chars is not None else BPO_SIGNALS_LLM_SLIDE_PROMPT_MAX_CHARS
+    try:
+        r = resolve_deck("executive_summary", customer)
+    except Exception as e:
+        logger.debug("signals_llm: resolve_deck for slide prompt failed: %s", e)
+        return None
+    if not r or r.get("error"):
+        return None
+    for entry in r.get("slides") or []:
+        st = entry.get("slide_type") or entry.get("id")
+        if st != "signals":
+            continue
+        p = (entry.get("prompt") or "").strip()
+        if not p:
+            return None
+        return p[:cap] if len(p) > cap else p
+    return None
+
+
+def build_signals_llm_user_envelope(
+    report: dict[str, Any],
+    *,
+    manifest_rules: str | None,
+    slide_prompt: str | None,
+) -> dict[str, Any]:
+    """Wrap ``facts`` plus optional ``editorial`` (Manifest + slide YAML) for the user message."""
+    facts = build_signals_llm_payload(report)
+    envelope: dict[str, Any] = {"facts": facts}
+    if not BPO_SIGNALS_LLM_EDITORIAL:
+        return envelope
+    editorial: dict[str, str] = {}
+    if manifest_rules and manifest_rules.strip():
+        mr = manifest_rules.strip()
+        mx = BPO_SIGNALS_LLM_MANIFEST_MAX_CHARS
+        editorial["manifest_rules"] = mr[:mx] if len(mr) > mx else mr
+    if slide_prompt and slide_prompt.strip():
+        sp = slide_prompt.strip()
+        cap = BPO_SIGNALS_LLM_SLIDE_PROMPT_MAX_CHARS
+        editorial["slide_brief_from_yaml"] = sp[:cap] if len(sp) > cap else sp
+    if editorial:
+        envelope["editorial"] = editorial
+    return envelope
+
+
 _SIGNALS_LLM_SYSTEM = """You are preparing Notable Signals for a customer QBR slide.
 
-You receive JSON with:
-- heuristic_signals: auto-generated lines (already merged from product analytics, support, CRM, CS exports). Treat every fact in them as authoritative.
-- Structured fields (engagement, benchmarks, jira, salesforce, cs_*, people, feature narrative) for extra context. Do NOT invent numbers: only state metrics that appear in the input JSON.
+You receive JSON. The object has:
+- "facts": same structure as before — heuristic_signals (authoritative strings) plus structured fields
+  (engagement, benchmarks, jira, salesforce, cs_*, people, feature narrative). Do NOT invent numbers:
+  only state metrics that appear in facts JSON.
+- Optional "editorial": may contain "manifest_rules" (QBR Manifest from Google Docs) and/or
+  "slide_brief_from_yaml" (instructions from the deck YAML for the Notable Signals slide).
+  Use editorial only for audience, tone, emphasis, ordering, and what to de-emphasize or skip.
+  Editorial cannot add new factual claims; if it asks for a metric not in facts, omit it.
 
 Task:
-- Produce at most {max_items} distinct, high-value signal lines for a CSM action list.
+- Produce at most {max_items} distinct, high-value signal lines for a CSM / QBR action list.
 - Merge overlapping heuristic lines where it improves clarity; drop low-impact redundancy.
-- Prioritize: commercial risk, support risk, adoption/engagement gaps, operational (supply/shortage) issues, then positives/wins.
+- Default priority when editorial is silent: commercial risk, support risk, adoption/engagement gaps,
+  operational (supply/shortage) issues, then positives/wins.
 - Each line is one concise sentence (no leading number like "1."; the slide template adds numbering).
 - No markdown, no bullet characters at the start.
 
 Return ONLY valid JSON:
 {{"items":[{{"text":"<string>","theme":"<engagement|support|operations|commercial|product|people|other>"}}]}}
 
-If heuristic_signals is empty, return {{"items":[]}}.
+If facts.heuristic_signals is empty, return {{"items":[]}}.
 """
 
 
@@ -219,9 +281,13 @@ def _parse_llm_signals(raw: str) -> list[str]:
 def maybe_rewrite_signals_with_llm(report: dict[str, Any]) -> None:
     """If ``BPO_SIGNALS_LLM`` is on, replace ``report['signals']`` with LLM output; else no-op.
 
-    On any failure, leaves ``report['signals']`` unchanged and sets ``report['_signals_llm_meta']``.
+    Consumes and removes ``_signals_llm_manifest_rules`` / ``_signals_llm_slide_prompt`` if present
+    (QBR passes Manifest + YAML brief). On failure, leaves heuristic ``signals`` and sets meta.
     """
     report.pop("_signals_llm_meta", None)
+    manifest_rules = report.pop("_signals_llm_manifest_rules", None)
+    slide_prompt = report.pop("_signals_llm_slide_prompt", None)
+
     if not BPO_SIGNALS_LLM:
         return
 
@@ -237,10 +303,14 @@ def maybe_rewrite_signals_with_llm(report: dict[str, Any]) -> None:
         report["_signals_llm_meta"] = {"source": "heuristic", "reason": "no_llm_client"}
         return
 
-    payload = build_signals_llm_payload(report)
-    user_json = json.dumps(payload, separators=(",", ":"), default=str)
-    if len(user_json) > 14000:
-        user_json = user_json[:13900] + "…"
+    envelope = build_signals_llm_user_envelope(
+        report,
+        manifest_rules=manifest_rules if isinstance(manifest_rules, str) else None,
+        slide_prompt=slide_prompt if isinstance(slide_prompt, str) else None,
+    )
+    user_json = json.dumps(envelope, separators=(",", ":"), default=str)
+    if len(user_json) > 18000:
+        user_json = user_json[:17900] + "…"
 
     system = _SIGNALS_LLM_SYSTEM.format(max_items=BPO_SIGNALS_LLM_MAX_ITEMS)
     try:
@@ -268,4 +338,8 @@ def maybe_rewrite_signals_with_llm(report: dict[str, Any]) -> None:
         return
 
     report["signals"] = lines
-    report["_signals_llm_meta"] = {"source": "llm", "count": len(lines)}
+    report["_signals_llm_meta"] = {
+        "source": "llm",
+        "count": len(lines),
+        "editorial": bool(envelope.get("editorial")),
+    }

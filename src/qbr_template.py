@@ -12,6 +12,10 @@ from typing import Any
 from googleapiclient.errors import HttpError
 
 from .config import (
+    BPO_SIGNALS_LLM,
+    BPO_SIGNALS_LLM_DECK_PROMPT,
+    BPO_SIGNALS_LLM_EDITORIAL,
+    BPO_SIGNALS_LLM_MANIFEST_MAX_CHARS,
     GOOGLE_DRIVE_FOLDER_ID,
     GOOGLE_QBR_GENERATOR_FOLDER_ID,
     GOOGLE_QBR_OUTPUT_PARENT_ID,
@@ -601,7 +605,20 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
             "hint": "Use a substring that matches a Pendo customer name",
         }
 
-    report = pc.get_customer_health_report(customer, days=days)
+    mf_excerpt: str | None = None
+    sig_prompt: str | None = None
+    if BPO_SIGNALS_LLM and BPO_SIGNALS_LLM_EDITORIAL:
+        if manifest_text and manifest_text.strip():
+            mf_excerpt = manifest_text.strip()[:BPO_SIGNALS_LLM_MANIFEST_MAX_CHARS]
+        if BPO_SIGNALS_LLM_DECK_PROMPT:
+            sig_prompt = extract_executive_signals_slide_prompt(customer)
+
+    report = pc.get_customer_health_report(
+        customer,
+        days=days,
+        signals_llm_manifest_rules=mf_excerpt,
+        signals_llm_slide_prompt=sig_prompt,
+    )
     if "error" in report:
         return {"error": report["error"], "customer_query": customer_query}
 

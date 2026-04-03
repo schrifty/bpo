@@ -15,6 +15,7 @@ import requests
 from requests.adapters import HTTPAdapter
 
 from .config import (
+    BPO_SIGNALS_LLM,
     FEATURE_ADOPTION_INSIGHTS,
     PENDO_BASE_URL,
     PENDO_INTEGRATION_KEY,
@@ -1886,9 +1887,21 @@ class PendoClient:
 
     # ── Full health report (aggregates all focused methods for monolith deck) ──
 
-    def get_customer_health_report(self, customer_name: str, days: int = 30) -> dict[str, Any]:
+    def get_customer_health_report(
+        self,
+        customer_name: str,
+        days: int = 30,
+        *,
+        signals_llm_manifest_rules: str | None = None,
+        signals_llm_slide_prompt: str | None = None,
+    ) -> dict[str, Any]:
         """Comprehensive health report combining all focused methods.
-        Used by the monolith deck generator and as a convenience method."""
+        Used by the monolith deck generator and as a convenience method.
+
+        When ``BPO_SIGNALS_LLM`` is enabled, optional ``signals_llm_manifest_rules`` (QBR Manifest
+        excerpt) and ``signals_llm_slide_prompt`` (Notable Signals slide YAML brief) are passed
+        through to the signals LLM as editorial context (Phase 3).
+        """
         # Fetch all sub-reports first, then pass them to health for signal generation
         sites_data = self.get_customer_sites(customer_name, days)
         features_data = self.get_customer_features(customer_name, days)
@@ -1972,6 +1985,11 @@ class PendoClient:
             "cs_platform_value": cs_platform_value,
         }
         extend_health_report_signals(merged)
+        if BPO_SIGNALS_LLM:
+            if signals_llm_manifest_rules:
+                merged["_signals_llm_manifest_rules"] = signals_llm_manifest_rules.strip()
+            if signals_llm_slide_prompt:
+                merged["_signals_llm_slide_prompt"] = signals_llm_slide_prompt.strip()
         maybe_rewrite_signals_with_llm(merged)
         return merged
 
