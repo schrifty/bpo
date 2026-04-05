@@ -112,6 +112,26 @@ BPO_SIGNALS_LLM_EDITORIAL = _sed not in ("0", "false", "no", "off")
 _sdp = os.environ.get("BPO_SIGNALS_LLM_DECK_PROMPT", "true").strip().lower()
 BPO_SIGNALS_LLM_DECK_PROMPT = _sdp not in ("0", "false", "no", "off")
 
+# Notable Signals: Pendo visitor-window comparisons for trend banner + LLM (extra aggregate calls when on).
+_std = os.environ.get("BPO_SIGNALS_TRENDS", "true").strip().lower()
+BPO_SIGNALS_TRENDS = _std not in ("0", "false", "no", "off")
+# Prior N-day window = second full-org visitor pull (heavy); off by default — enable for QoQ-style deltas.
+_stp = os.environ.get("BPO_SIGNALS_TRENDS_PRIOR_PERIOD", "false").strip().lower()
+BPO_SIGNALS_TRENDS_PRIOR_PERIOD = _stp in ("1", "true", "yes", "on")
+try:
+    BPO_SIGNALS_TRENDS_TIMEOUT = max(
+        15,
+        min(180, int(os.environ.get("BPO_SIGNALS_TRENDS_TIMEOUT", "75").strip())),
+    )
+except ValueError:
+    BPO_SIGNALS_TRENDS_TIMEOUT = 75
+_stw = os.environ.get("BPO_SIGNALS_TRENDS_WOW", "true").strip().lower()
+BPO_SIGNALS_TRENDS_WOW = _stw not in ("0", "false", "no", "off")
+_stm = os.environ.get("BPO_SIGNALS_TRENDS_MOM", "false").strip().lower()
+BPO_SIGNALS_TRENDS_MOM = _stm in ("1", "true", "yes", "on")
+_sty = os.environ.get("BPO_SIGNALS_TRENDS_YOY", "false").strip().lower()
+BPO_SIGNALS_TRENDS_YOY = _sty in ("1", "true", "yes", "on")
+
 # LLM provider — set LLM_PROVIDER=gemini or LLM_PROVIDER=openai in .env.
 # Defaults to gemini if GEMINI_API_KEY is present, otherwise openai.
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")

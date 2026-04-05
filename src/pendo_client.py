@@ -16,6 +16,7 @@ from requests.adapters import HTTPAdapter
 
 from .config import (
     BPO_SIGNALS_LLM,
+    BPO_SIGNALS_TRENDS,
     FEATURE_ADOPTION_INSIGHTS,
     PENDO_BASE_URL,
     PENDO_INTEGRATION_KEY,
@@ -389,6 +390,46 @@ class PendoClient:
             }
         ]
         return self.aggregate(pipeline)
+
+    def get_visitors_range(
+        self,
+        start_ms: int,
+        end_ms: int,
+        *,
+        _timeout: tuple[int, float] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Visitors with any activity in ``[start_ms, end_ms]`` (epoch ms). One aggregation call.
+
+        Uses a one-off ``requests.post`` (not the shared session) so parallel trend fetches are safe.
+        """
+        if end_ms <= start_ms:
+            return []
+        connect_t, read_t = _timeout if _timeout is not None else (10, float(PENDO_REQUEST_TIMEOUT_S))
+        url = f"{self.base_url}/aggregation"
+        pipeline = [
+            {
+                "source": {
+                    "visitors": {"startTime": int(start_ms), "endTime": int(end_ms)},
+                }
+            }
+        ]
+        payload = {
+            "response": {"mimeType": "application/json"},
+            "request": {
+                "requestId": str(uuid4()),
+                "pipeline": pipeline,
+            },
+        }
+        resp = requests.post(
+            url,
+            json=payload,
+            headers=self._headers(),
+            timeout=(connect_t, read_t),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        results = data.get("results")
+        return results if isinstance(results, list) else []
 
     def get_usage_for_customer(
         self, customer: str, days: int = 30, include_usage_metrics: bool = True
@@ -1984,6 +2025,15 @@ class PendoClient:
             "cs_supply_chain": cs_supply_chain,
             "cs_platform_value": cs_platform_value,
         }
+        if BPO_SIGNALS_TRENDS:
+            try:
+                from .signals_trends import build_signals_trend_context
+
+                _ctx = build_signals_trend_context(self, customer_name, days, merged)
+                merged["signals_trend_context"] = _ctx
+            except Exception as e:
+                logger.warning("signals_trends: build failed (%s)", e)
+                merged["signals_trend_context"] = None
         extend_health_report_signals(merged)
         if BPO_SIGNALS_LLM:
             if signals_llm_manifest_rules:
@@ -1991,6 +2041,13 @@ class PendoClient:
             if signals_llm_slide_prompt:
                 merged["_signals_llm_slide_prompt"] = signals_llm_slide_prompt.strip()
         maybe_rewrite_signals_with_llm(merged)
+        if BPO_SIGNALS_TRENDS:
+            try:
+                from .signals_trends import finalize_signals_trends_banner
+
+                finalize_signals_trends_banner(merged)
+            except Exception as e:
+                logger.warning("signals_trends: finalize failed (%s)", e)
         return merged
 
     # ── Portfolio-level methods (cross-customer analysis) ──

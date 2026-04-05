@@ -102,7 +102,11 @@ def test_maybe_rewrite_applies_llm_output():
     mock_resp.choices = [
         MagicMock(
             message=MagicMock(
-                content='{"items":[{"text":"Merged insight from data","theme":"engagement"},{"text":"Second point","theme":"support"}]}'
+                content=(
+                    '{"items":[{"text":"Merged insight from data","theme":"engagement"},'
+                    '{"text":"Second point","theme":"support"}],'
+                    '"trend_summary_for_slide":"QoQ: rate +1pp","preferred_comparison_horizon":"QoQ"}'
+                )
             )
         )
     ]
@@ -115,6 +119,8 @@ def test_maybe_rewrite_applies_llm_output():
     assert report["_signals_llm_meta"]["source"] == "llm"
     assert report["_signals_llm_meta"]["count"] == 2
     assert report["_signals_llm_meta"]["editorial"] is False
+    assert report["signals_trends_display"] == "QoQ: rate +1pp"
+    assert report["_signals_llm_meta"]["comparison_horizon"] == "QoQ"
 
 
 def test_maybe_rewrite_fallback_on_bad_json():

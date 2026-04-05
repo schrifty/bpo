@@ -167,6 +167,7 @@ def build_signals_llm_payload(report: dict[str, Any]) -> dict[str, Any]:
         "cs_platform_value": cs_pv or None,
         "people": {"champions_count": champions_n, "at_risk_users_count": at_risk_n},
         "feature_adoption_narrative": feat_narr,
+        "signals_trend_context": report.get("signals_trend_context"),
     }
 
 
@@ -232,19 +233,34 @@ You receive JSON. The object has:
   "slide_brief_from_yaml" (instructions from the deck YAML for the Notable Signals slide).
   Use editorial only for audience, tone, emphasis, ordering, and what to de-emphasize or skip.
   Editorial cannot add new factual claims; if it asks for a metric not in facts, omit it.
+- facts.signals_trend_context (when present): precomputed comparisons — WoW, MoM, prior_same_length
+  (QoQ-style when the primary window is quarter-like), optional YoY. Each block includes
+  weekly_active_rate_pct deltas and cohort medians under facts.benchmarks / cohort.
 
 Task:
 - Produce at most {max_items} distinct, high-value signal lines for a CSM / QBR action list.
+- Where a trend comparison is relevant, cite **one** primary horizon in the signal text
+  (e.g. "WoW", "MoM", "QoQ", "YoY") and use only numbers from signals_trend_context or engagement.
+- Choose WoW for recent operational swings, MoM for monthly steering, QoQ / prior_same_length when
+  the primary window matches quarterly reviews, YoY only if facts.signals_trend_context.yoy exists.
 - Merge overlapping heuristic lines where it improves clarity; drop low-impact redundancy.
 - Default priority when editorial is silent: commercial risk, support risk, adoption/engagement gaps,
   operational (supply/shortage) issues, then positives/wins.
 - Each line is one concise sentence (no leading number like "1."; the slide template adds numbering).
 - No markdown, no bullet characters at the start.
 
-Return ONLY valid JSON:
-{{"items":[{{"text":"<string>","theme":"<engagement|support|operations|commercial|product|people|other>"}}]}}
+Also set:
+- "trend_summary_for_slide": one line (max ~220 chars) for the slide subtitle area: lead with your
+  chosen horizon (WoW/MoM/QoQ/YoY) and state the most important rate change plus cohort context
+  (cohort median vs this account) when facts support it. Omit if signals_trend_context is missing or empty.
+- "preferred_comparison_horizon": one of WoW | MoM | QoQ | YoY | mixed | prior_period
 
-If facts.heuristic_signals is empty, return {{"items":[]}}.
+Return ONLY valid JSON:
+{{"items":[{{"text":"<string>","theme":"<engagement|support|operations|commercial|product|people|other>"}}],
+ "trend_summary_for_slide":"<string or empty>",
+ "preferred_comparison_horizon":"<WoW|MoM|QoQ|YoY|mixed|prior_period>"}}
+
+If facts.heuristic_signals is empty, return {{"items":[],"trend_summary_for_slide":"","preferred_comparison_horizon":""}}.
 """
 
 
@@ -257,11 +273,14 @@ def _normalize_item_text(text: str) -> str:
     return t
 
 
-def _parse_llm_signals(raw: str) -> list[str]:
+_LLM_HORIZON_OK = frozenset({"WoW", "MoM", "QoQ", "YoY", "mixed", "prior_period"})
+
+
+def _parse_llm_signals_response(raw: str) -> dict[str, Any]:
     data = json.loads(_strip_json_code_fence(raw or ""))
     items = data.get("items")
     if not isinstance(items, list):
-        return []
+        items = []
     out: list[str] = []
     for it in items:
         if isinstance(it, str):
@@ -275,7 +294,19 @@ def _parse_llm_signals(raw: str) -> list[str]:
         out.append(t)
         if len(out) >= BPO_SIGNALS_LLM_MAX_ITEMS:
             break
-    return out
+    ts_raw = data.get("trend_summary_for_slide")
+    trend_summary = str(ts_raw).strip()[:240] if ts_raw else ""
+    if not trend_summary:
+        trend_summary = ""
+    ph_raw = data.get("preferred_comparison_horizon")
+    horizon = str(ph_raw).strip() if ph_raw else ""
+    if horizon not in _LLM_HORIZON_OK:
+        horizon = ""
+    return {
+        "items": out,
+        "trend_summary_for_slide": trend_summary,
+        "preferred_comparison_horizon": horizon,
+    }
 
 
 def maybe_rewrite_signals_with_llm(report: dict[str, Any]) -> None:
@@ -326,7 +357,8 @@ def maybe_rewrite_signals_with_llm(report: dict[str, Any]) -> None:
             ],
         )
         raw = resp.choices[0].message.content or ""
-        lines = _parse_llm_signals(raw)
+        parsed = _parse_llm_signals_response(raw)
+        lines = parsed["items"]
     except Exception as e:
         logger.warning("signals_llm: LLM call failed (%s); keeping heuristic signals", e)
         report["_signals_llm_meta"] = {"source": "heuristic", "reason": "llm_error", "detail": str(e)[:120]}
@@ -338,8 +370,11 @@ def maybe_rewrite_signals_with_llm(report: dict[str, Any]) -> None:
         return
 
     report["signals"] = lines
+    if parsed.get("trend_summary_for_slide"):
+        report["signals_trends_display"] = parsed["trend_summary_for_slide"]
     report["_signals_llm_meta"] = {
         "source": "llm",
         "count": len(lines),
         "editorial": bool(envelope.get("editorial")),
+        "comparison_horizon": parsed.get("preferred_comparison_horizon") or None,
     }

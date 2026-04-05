@@ -3703,6 +3703,20 @@ def _signals_slide(reqs, sid, report, idx):
         _bg(reqs, page_sid, LIGHT)
         st = "Notable Signals" if len(chunks) == 1 else f"Notable Signals ({pi + 1} of {len(chunks)})"
         _slide_title(reqs, page_sid, st)
+        trend_banner = (report.get("signals_trends_display") or "").strip()
+        trend_h = 0
+        if pi == 0 and trend_banner:
+            trend_h = 46
+            _box(reqs, f"{page_sid}_trend", page_sid, MARGIN, BODY_Y, CONTENT_W, trend_h - 4, trend_banner)
+            _style(
+                reqs,
+                f"{page_sid}_trend",
+                0,
+                len(trend_banner),
+                size=11,
+                color=GRAY,
+                font=FONT,
+            )
         base = pi * max_signals
         lines = []
         for i, s in enumerate(shown, start=base + 1):
@@ -3710,7 +3724,9 @@ def _signals_slide(reqs, sid, report, idx):
             lines.append("")
         text = "\n".join(lines)
         oid = f"{page_sid}_sig"
-        _box(reqs, oid, page_sid, MARGIN, BODY_Y, CONTENT_W, 290, text)
+        body_top = BODY_Y + trend_h
+        body_h = max(120, 290 - trend_h)
+        _box(reqs, oid, page_sid, MARGIN, body_top, CONTENT_W, body_h, text)
         _style(reqs, oid, 0, len(text), size=12, color=NAVY, font=FONT)
         off = 0
         for line in lines:

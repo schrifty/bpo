@@ -8,6 +8,11 @@ After logging + LLM analysis, orange coaching shapes are removed from the deck (
 cells are cleared, fill-in (yellow-styled) text is replaced with ``[???]``, and a red banner summarizes what
 actually changed on that slide. Surface cleanup runs for **every** slide slated for adaptation, not only
 slides where extraction found strings (so we never skip removals when the LLM batch is empty).
+
+Yellow→``[???]`` inserts clear text highlight immediately (Slides otherwise keeps highlight on the new run).
+After ``adapt_custom_slides``, ``replaceAllText`` preserves character styles, so a second pass strips any
+remaining yellow highlight / orange coaching text color and clears orange table-cell fills / deletes any
+orange coaching shapes the first pass missed.
 """
 
 from __future__ import annotations
@@ -78,6 +83,7 @@ def _foreground_rgb_from_run_style(style: dict | None) -> tuple[float, float, fl
 # When the API omits rgbColor, themeColor still marks template styling (varies by master theme).
 _ORANGE_COACHING_FILL_THEMES = frozenset({"ACCENT2", "ACCENT3", "ACCENT6"})
 _ORANGE_COACHING_TEXT_THEMES = frozenset({"ACCENT2", "ACCENT3", "ACCENT6"})
+# Table/shape fill + text highlight theme slots Slides uses for “marker” yellow (varies by master).
 _YELLOW_FIELD_THEME_HINTS = frozenset({"ACCENT4", "ACCENT5", "ACCENT6", "LIGHT2"})
 
 
@@ -124,11 +130,41 @@ def _cell_fill_suggests_orange_coaching(cell: dict) -> bool:
     return False
 
 
+def _fill_suggests_yellow_template(
+    rgb: tuple[float, float, float] | None, theme: str | None
+) -> bool:
+    """Yellow table/shape cell fill (not the same as orange coaching)."""
+    if rgb and is_yellow_foreground(rgb):
+        return True
+    if theme and theme in _YELLOW_FIELD_THEME_HINTS:
+        return True
+    return False
+
+
+def _shape_fill_suggests_yellow_template(shape: dict) -> bool:
+    sp = shape.get("shapeProperties") or {}
+    bg = sp.get("shapeBackgroundFill") or {}
+    if bg.get("propertyState") == "NOT_RENDERED":
+        return False
+    rgb, theme = _solid_fill_color_rgb_and_theme(bg)
+    return _fill_suggests_yellow_template(rgb, theme)
+
+
+def _cell_fill_suggests_yellow_template(cell: dict) -> bool:
+    tcp = cell.get("tableCellProperties") or {}
+    tbf = tcp.get("tableCellBackgroundFill") or {}
+    rgb, theme = _solid_fill_color_rgb_and_theme(tbf)
+    return _fill_suggests_yellow_template(rgb, theme)
+
+
 def is_yellow_foreground(rgb: tuple[float, float, float]) -> bool:
     """Heuristic for template 'adapt this value' yellow text or highlight (tolerates theme variance)."""
     r, g, b = rgb
     # Strong yellow: high R+G, B clearly lower (includes many Slides highlight swatches)
     if r >= 0.72 and g >= 0.72 and b <= 0.55:
+        return True
+    # Pale / lemon highlighter (Slides default — blue channel often 0.55–0.75)
+    if r >= 0.78 and g >= 0.78 and b <= 0.82 and (r + g - b) >= 0.85:
         return True
     # Gold / dark yellow
     if r >= 0.85 and g >= 0.65 and b <= 0.35:
@@ -142,11 +178,11 @@ def is_yellow_foreground(rgb: tuple[float, float, float]) -> bool:
 def is_orange_fill(rgb: tuple[float, float, float]) -> bool:
     """Heuristic for orange instruction boxes."""
     r, g, b = rgb
-    if r < 0.75:
+    if r < 0.72:
         return False
-    if g < 0.25 or g > 0.75:
+    if g < 0.22 or g > 0.82:
         return False
-    if b > 0.35:
+    if b > 0.38:
         return False
     return True
 
@@ -163,9 +199,6 @@ def is_orange_foreground(rgb: tuple[float, float, float]) -> bool:
     return r > g and r > b
 
 
-_YELLOW_FG_THEME_HINTS = frozenset({"ACCENT5", "ACCENT6"})
-
-
 def _run_is_template_yellow_field(style: dict) -> bool:
     """Yellow fill-in field: RGB on foreground or highlight, or common theme slots when rgb omitted."""
     for key in ("foregroundColor", "backgroundColor"):
@@ -175,17 +208,26 @@ def _run_is_template_yellow_field(style: dict) -> bool:
             t = _rgb_tuple(oc["rgbColor"])
             if t and is_yellow_foreground(t):
                 return True
+        tc = oc.get("themeColor")
+        if tc and str(tc) in _YELLOW_FIELD_THEME_HINTS:
+            return True
+    return False
+
+
+def _run_has_any_opaque_text_highlight(style: dict) -> bool:
+    """True if this run has any text background (RGB or theme). Used post-adapt: replaceAllText keeps highlights."""
     bg = style.get("backgroundColor") or {}
     oc = bg.get("opaqueColor") or {}
-    tc = oc.get("themeColor")
-    if tc and str(tc) in _YELLOW_FIELD_THEME_HINTS:
+    if not oc:
+        return False
+    if "rgbColor" in oc:
         return True
-    fg = style.get("foregroundColor") or {}
-    oc = fg.get("opaqueColor") or {}
     tc = oc.get("themeColor")
-    if tc and str(tc) in _YELLOW_FG_THEME_HINTS:
-        return True
-    return False
+    return bool(tc) and str(tc) != "THEME_COLOR_TYPE_UNSPECIFIED"
+
+
+def _run_should_strip_text_highlight_post_adapt(style: dict) -> bool:
+    return _run_is_template_yellow_field(style) or _run_has_any_opaque_text_highlight(style)
 
 
 def _run_is_orange_coaching_text(style: dict) -> bool:
@@ -243,11 +285,41 @@ def iter_text_run_spans(text_body: dict) -> list[tuple[int, int, str, dict]]:
     return spans
 
 
+def _req_clear_template_text_cue_style(
+    object_id: str,
+    cell_location: dict[str, int] | None,
+    start: int,
+    end: int,
+    *,
+    orange_text: bool,
+) -> dict[str, Any]:
+    """Strip yellow highlight / orange coaching from a text range (post-replaceAllText safe)."""
+    style: dict[str, Any] = {"backgroundColor": {}}
+    fields = ["backgroundColor"]
+    if orange_text:
+        style["foregroundColor"] = {
+            "opaqueColor": {"rgbColor": {"red": 0.12, "green": 0.16, "blue": 0.22}}
+        }
+        fields.append("foregroundColor")
+    uts: dict[str, Any] = {
+        "objectId": object_id,
+        "textRange": {"type": "FIXED_RANGE", "startIndex": start, "endIndex": end},
+        "style": style,
+        "fields": ",".join(fields),
+    }
+    if cell_location is not None:
+        uts["cellLocation"] = {
+            "rowIndex": int(cell_location["rowIndex"]),
+            "columnIndex": int(cell_location["columnIndex"]),
+        }
+    return {"updateTextStyle": uts}
+
+
 @dataclass
 class _HintMutation:
     object_id: str
     cell_location: dict[str, int] | None  # rowIndex, columnIndex for tables
-    action: str  # "delete_shape" | "clear_all" | "replace"
+    action: str  # "delete_shape" | "clear_all" | "clear_shape_fill" | "clear_cell_fill" | "replace"
     start: int = 0
     end: int = 0
     replacement: str = YELLOW_FIELD_PLACEHOLDER
@@ -261,11 +333,14 @@ def _mutations_from_shape(shape_el: dict) -> list[_HintMutation]:
     if _shape_fill_suggests_orange_coaching(shape):
         return [_HintMutation(oid, None, "delete_shape")]
 
+    out: list[_HintMutation] = []
+    if _shape_fill_suggests_yellow_template(shape):
+        out.append(_HintMutation(oid, None, "clear_shape_fill"))
+
     text_body = shape.get("text") or {}
     if not text_body.get("textElements"):
-        return []
+        return out
 
-    out: list[_HintMutation] = []
     for start, end, content, style in iter_text_run_spans(text_body):
         if not _span_has_visible_text(content):
             continue
@@ -290,6 +365,8 @@ def _mutations_from_table(table_el: dict) -> list[_HintMutation]:
             if _cell_fill_suggests_orange_coaching(cell):
                 out.append(_HintMutation(oid, cell_loc, "clear_all"))
                 continue
+            if _cell_fill_suggests_yellow_template(cell):
+                out.append(_HintMutation(oid, cell_loc, "clear_cell_fill"))
             if not text_body.get("textElements"):
                 continue
             for start, end, content, style in iter_text_run_spans(text_body):
@@ -331,7 +408,7 @@ def qbr_hint_banner_text_for_mutations(muts: list[_HintMutation]) -> str:
     )
     n_orange = sum(
         1 for m in muts
-        if m.action in ("delete_shape", "clear_all")
+        if m.action in ("delete_shape", "clear_all", "clear_shape_fill", "clear_cell_fill")
         or (m.action == "replace" and m.replacement == "")
     )
     if n_placeholder and n_orange:
@@ -405,25 +482,56 @@ def _text_body_walk_end_exclusive(text_body: dict) -> int:
 
 
 def _text_body_max_exclusive_index(text_body: dict) -> int:
-    """Exclusive end index upper bound safe for ``deleteText`` (UTF-16).
+    """Exclusive end index upper bound safe for ``deleteText`` / ``updateTextStyle`` (UTF-16).
 
-    Google sometimes returns ``endIndex`` on text elements that is one past the length
-    Slides accepts for ``deleteText`` (400: end index > existing text length).  We take
-    the **minimum** of the API max ``endIndex`` and the positional walk so clamping
-    never exceeds what the API will accept.
+    Google sometimes returns ``endIndex`` values that match our positional ``walk_end`` while
+    ``deleteText`` still rejects the range (400: end index > existing text length). Typical
+    cause: a **terminal paragraph marker** (or an extra structural index) is counted in
+    ``walk_end`` / ``endIndex`` but is not part of the deletable UTF-16 span Slides reports
+    as "text length".
+
+    We take the minimum of: walk end, max API ``endIndex``, and the **end of the last
+    textRun span** from the same walk as ``iter_text_run_spans`` — that last value matches
+    deletable content even when the JSON omits a trailing ``paragraphMarker`` element.
     """
     elements = text_body.get("textElements") or []
     walk_end = _text_body_walk_end_exclusive(text_body)
+    spans = iter_text_run_spans(text_body)
+    run_tail = max((e for _, e, _, _ in spans), default=0)
     api_max = 0
     for te in elements:
         ei = te.get("endIndex")
         if ei is not None:
             api_max = max(api_max, int(ei))
     if api_max > 0 and walk_end > 0:
-        return min(api_max, walk_end)
-    if walk_end > 0:
-        return walk_end
-    return api_max
+        cap = min(api_max, walk_end)
+    elif walk_end > 0:
+        cap = walk_end
+    else:
+        cap = api_max
+    if run_tail > 0:
+        cap = min(cap, run_tail)
+    if elements and elements[-1].get("paragraphMarker") is not None and not elements[-1].get("textRun"):
+        cap = min(cap, max(0, walk_end - 1))
+    return cap
+
+
+def _clamp_utf16_range_to_text_body(
+    text_body: dict | None, start: int, end: int
+) -> tuple[int, int] | None:
+    """Clamp [start, end) for deleteText/updateTextStyle; return None if empty after clamp."""
+    if start >= end:
+        return None
+    # Without structural text from the Slides payload we cannot bound indices — emitting
+    # raw ranges caused batchUpdate 400s (e.g. start past cell length).
+    if not text_body or not text_body.get("textElements"):
+        return None
+    mx = _text_body_max_exclusive_index(text_body)
+    end = min(int(end), mx)
+    start = max(0, min(int(start), end))
+    if start >= end:
+        return None
+    return start, end
 
 
 def hint_mutations_to_batch_requests(
@@ -462,6 +570,38 @@ def hint_mutations_to_batch_requests(
             reqs.append(dt)
             continue
 
+        for x in items:
+            if x.action == "clear_shape_fill":
+                reqs.append({
+                    "updateShapeProperties": {
+                        "objectId": oid,
+                        "shapeProperties": {
+                            "shapeBackgroundFill": {"propertyState": "NOT_RENDERED"},
+                        },
+                        "fields": "shapeBackgroundFill",
+                    }
+                })
+            elif x.action == "clear_cell_fill" and cell is not None:
+                reqs.append({
+                    "updateTableCellProperties": {
+                        "objectId": oid,
+                        "tableRange": {
+                            "location": {
+                                "rowIndex": cell["rowIndex"],
+                                "columnIndex": cell["columnIndex"],
+                            },
+                            "rowSpan": 1,
+                            "columnSpan": 1,
+                        },
+                        "tableCellProperties": {
+                            "tableCellBackgroundFill": {
+                                "propertyState": "NOT_RENDERED",
+                            },
+                        },
+                        "fields": "tableCellBackgroundFill",
+                    }
+                })
+
         repl = [x for x in items if x.action == "replace"]
         repl.sort(key=lambda x: x.start, reverse=True)
         text_body = (
@@ -469,13 +609,9 @@ def hint_mutations_to_batch_requests(
             if slide is not None
             else None
         )
-        max_excl = _text_body_max_exclusive_index(text_body) if text_body else None
         for x in repl:
-            start_i, end_i = x.start, x.end
-            if max_excl is not None and max_excl >= 0:
-                end_i = min(end_i, max_excl)
-                start_i = min(start_i, end_i)
-            if start_i >= end_i:
+            cl = _clamp_utf16_range_to_text_body(text_body, x.start, x.end)
+            if cl is None:
                 logger.debug(
                     "QBR hint skip replace (empty or out-of-range): oid=%s cell=%s range was %s-%s",
                     oid[:12],
@@ -484,6 +620,7 @@ def hint_mutations_to_batch_requests(
                     x.end,
                 )
                 continue
+            start_i, end_i = cl
             base_del: dict[str, Any] = {
                 "objectId": oid,
                 "textRange": {
@@ -513,6 +650,19 @@ def hint_mutations_to_batch_requests(
             reqs.append(del_req)
             if x.replacement:
                 reqs.append(ins_req)
+                ins_len = _utf16_code_units(x.replacement)
+                if ins_len > 0 and x.replacement == YELLOW_FIELD_PLACEHOLDER:
+                    style_end = start_i + ins_len
+                    if text_body is not None:
+                        mx0 = _text_body_max_exclusive_index(text_body)
+                        new_len = mx0 - (end_i - start_i) + ins_len
+                        style_end = min(style_end, new_len)
+                    if start_i < style_end:
+                        reqs.append(
+                            _req_clear_template_text_cue_style(
+                                oid, cell, start_i, style_end, orange_text=False
+                            )
+                        )
 
     content_n = len(reqs)
     if add_banner:
@@ -523,6 +673,179 @@ def hint_mutations_to_batch_requests(
             )
         )
     return reqs, content_n
+
+
+def build_post_adapt_template_style_strip_requests(slide: dict) -> list[dict[str, Any]]:
+    """Clear yellow highlight / orange coaching text styles; drop orange coaching shapes; clear orange cell fills.
+
+    ``adapt_custom_slides`` uses ``replaceAllText``, which keeps the old run's highlight and colors — this
+    pass removes those template cues without changing the adapted wording.
+    """
+
+    def walk(elements: list[dict], out: list[dict[str, Any]]) -> None:
+        for el in elements or []:
+            if el.get("elementGroup"):
+                walk(el["elementGroup"].get("children") or [], out)
+                continue
+            if el.get("shape"):
+                oid = el.get("objectId") or (el.get("shape") or {}).get("objectId")
+                if not oid:
+                    continue
+                shape = el.get("shape") or {}
+                if _shape_fill_suggests_orange_coaching(shape):
+                    out.append({"deleteObject": {"objectId": oid}})
+                    continue
+                if _shape_fill_suggests_yellow_template(shape):
+                    out.append({
+                        "updateShapeProperties": {
+                            "objectId": oid,
+                            "shapeProperties": {
+                                "shapeBackgroundFill": {"propertyState": "NOT_RENDERED"},
+                            },
+                            "fields": "shapeBackgroundFill",
+                        }
+                    })
+                text_body = shape.get("text") or {}
+                for start, end, content, style in iter_text_run_spans(text_body):
+                    if not _span_has_visible_text(content):
+                        continue
+                    cl = _clamp_utf16_range_to_text_body(text_body, start, end)
+                    if cl is None:
+                        continue
+                    s0, e0 = cl
+                    if _run_is_orange_coaching_text(style):
+                        out.append(
+                            _req_clear_template_text_cue_style(
+                                oid, None, s0, e0, orange_text=True
+                            )
+                        )
+                    elif _run_should_strip_text_highlight_post_adapt(style):
+                        out.append(
+                            _req_clear_template_text_cue_style(
+                                oid, None, s0, e0, orange_text=False
+                            )
+                        )
+            if el.get("table"):
+                oid = el.get("objectId") or (el.get("table") or {}).get("objectId")
+                if not oid:
+                    continue
+                table = el.get("table") or {}
+                for ri, row in enumerate(table.get("tableRows", [])):
+                    for ci, cell in enumerate(row.get("tableCells", [])):
+                        cell_loc = {"rowIndex": ri, "columnIndex": ci}
+                        if _cell_fill_suggests_orange_coaching(cell):
+                            out.append({
+                                "updateTableCellProperties": {
+                                    "objectId": oid,
+                                    "tableRange": {
+                                        "location": {
+                                            "rowIndex": ri,
+                                            "columnIndex": ci,
+                                        },
+                                        "rowSpan": 1,
+                                        "columnSpan": 1,
+                                    },
+                                    "tableCellProperties": {
+                                        "tableCellBackgroundFill": {
+                                            "propertyState": "NOT_RENDERED",
+                                        },
+                                    },
+                                    "fields": "tableCellBackgroundFill",
+                                }
+                            })
+                        elif _cell_fill_suggests_yellow_template(cell):
+                            out.append({
+                                "updateTableCellProperties": {
+                                    "objectId": oid,
+                                    "tableRange": {
+                                        "location": {
+                                            "rowIndex": ri,
+                                            "columnIndex": ci,
+                                        },
+                                        "rowSpan": 1,
+                                        "columnSpan": 1,
+                                    },
+                                    "tableCellProperties": {
+                                        "tableCellBackgroundFill": {
+                                            "propertyState": "NOT_RENDERED",
+                                        },
+                                    },
+                                    "fields": "tableCellBackgroundFill",
+                                }
+                            })
+                        text_body = cell.get("text") or {}
+                        for start, end, content, style in iter_text_run_spans(text_body):
+                            if not _span_has_visible_text(content):
+                                continue
+                            cl = _clamp_utf16_range_to_text_body(text_body, start, end)
+                            if cl is None:
+                                continue
+                            s0, e0 = cl
+                            if _run_is_orange_coaching_text(style):
+                                out.append(
+                                    _req_clear_template_text_cue_style(
+                                        oid, cell_loc, s0, e0, orange_text=True
+                                    )
+                                )
+                            elif _run_should_strip_text_highlight_post_adapt(style):
+                                out.append(
+                                    _req_clear_template_text_cue_style(
+                                        oid, cell_loc, s0, e0, orange_text=False
+                                    )
+                                )
+
+    out_reqs: list[dict[str, Any]] = []
+    walk(slide.get("pageElements") or [], out_reqs)
+    return out_reqs
+
+
+def apply_qbr_template_style_strip_after_adapt(
+    slides_svc: Any,
+    pres_id: str,
+    page_object_ids: list[str],
+) -> int:
+    """Re-read the deck and strip template authoring colors after data adaptation."""
+    if not page_object_ids:
+        return 0
+    try:
+        pres = slides_svc.presentations().get(presentationId=pres_id).execute()
+    except HttpError as e:
+        logger.warning("QBR post-adapt style strip: get presentation failed: %s", e)
+        return 0
+    by_id = {s["objectId"]: s for s in pres.get("slides", [])}
+    total_reqs = 0
+    slides_touched = 0
+    for pid in page_object_ids:
+        slide = by_id.get(pid)
+        if not slide:
+            continue
+        slide_reqs = build_post_adapt_template_style_strip_requests(slide)
+        if not slide_reqs:
+            continue
+        try:
+            slides_presentations_batch_update(slides_svc, pres_id, slide_reqs)
+            total_reqs += len(slide_reqs)
+            slides_touched += 1
+        except HttpError as e:
+            logger.warning(
+                "QBR post-adapt style strip: batchUpdate failed for slide %s (%d req): %s",
+                pid[:16],
+                len(slide_reqs),
+                e,
+            )
+    if total_reqs == 0:
+        logger.warning(
+            "QBR post-adapt style strip: generated 0 successful Slides requests across %d slide(s) — "
+            "if yellow/orange cues remain, the API may be omitting colors or using an untracked style",
+            len(page_object_ids),
+        )
+        return 0
+    logger.info(
+        "QBR post-adapt: stripped template yellow/orange styling (%d request(s)) on %d slide(s)",
+        total_reqs,
+        slides_touched,
+    )
+    return total_reqs
 
 
 def apply_hint_mutations_to_presentation(
@@ -542,7 +865,6 @@ def apply_hint_mutations_to_presentation(
     """
     n_slides = 0
     total_reqs = 0
-    all_reqs: list[dict[str, Any]] = []
     for row in hint_rows:
         pid = row.get("object_id")
         slide = slide_by_id.get(pid) if pid else None
@@ -559,24 +881,32 @@ def apply_hint_mutations_to_presentation(
         )
         if not chunk:
             continue
-        n_slides += 1
-        total_reqs += len(chunk)
-        all_reqs.extend(chunk)
-        logger.debug(
-            "QBR adapt hints — slide %s: queued %d text mutation(s)%s",
-            row.get("slide_num", "?"),
-            content_n,
-            " + red banner" if add_banner else " (no banner — title slide)",
-        )
+        try:
+            slides_presentations_batch_update(slides_svc, pres_id, chunk)
+            n_slides += 1
+            total_reqs += len(chunk)
+            logger.debug(
+                "QBR adapt hints — slide %s: applied %d text mutation(s)%s",
+                row.get("slide_num", "?"),
+                content_n,
+                " + red banner" if add_banner else " (no banner — title slide)",
+            )
+        except HttpError as e:
+            logger.warning(
+                "QBR adapt hints: batchUpdate failed for slide %s (slide_num=%s, %d req): %s",
+                (pid or "")[:16],
+                row.get("slide_num", "?"),
+                len(chunk),
+                e,
+            )
 
-    if not all_reqs:
+    if total_reqs == 0:
         return 0
-    try:
-        slides_presentations_batch_update(slides_svc, pres_id, all_reqs)
-    except HttpError as e:
-        logger.warning("QBR adapt hints: batchUpdate failed: %s", e)
-        raise
-    logger.info("QBR adapt hints: applied surface changes (%d request(s)) on %d slide(s) in single batchUpdate", total_reqs, n_slides)
+    logger.info(
+        "QBR adapt hints: applied surface changes (%d request(s)) across %d slide(s) (one batchUpdate per slide)",
+        total_reqs,
+        n_slides,
+    )
     return n_slides
 
 

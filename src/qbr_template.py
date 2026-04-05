@@ -42,7 +42,11 @@ from .pendo_portfolio_snapshot_drive import (
     portfolio_snapshot_filename,
     try_load_portfolio_snapshot_for_request,
 )
-from .qbr_adapt_hints import run_qbr_adapt_hints_phase
+from .qbr_adapt_hints import (
+    apply_qbr_template_style_strip_after_adapt,
+    run_qbr_adapt_hints_phase,
+)
+from .signals_llm import extract_executive_signals_slide_prompt
 from .quarters import QuarterRange, resolve_quarter
 from .slides_client import (
     _build_slide_jql_speaker_notes,
@@ -749,6 +753,10 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
             title_slide_object_id=title_oid,
             google_creds=_google_creds,
         )
+        try:
+            apply_qbr_template_style_strip_after_adapt(slides_svc, pres_id, adapt_ids)
+        except Exception as e:
+            logger.warning("QBR: post-adapt template style strip failed (slide may still show yellow/orange): %s", e)
 
     result: dict[str, Any] = {
         "ok": True,

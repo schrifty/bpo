@@ -4,9 +4,34 @@ from unittest.mock import MagicMock, patch
 from src import qbr_adapt_hints as hints
 
 
+def test_max_exclusive_index_trailing_paragraph_matches_slides_delete_bounds():
+    """Slides text length often excludes the terminal paragraph marker (walk 14 vs usable 13)."""
+    text_body = {
+        "textElements": [
+            {"startIndex": 0, "textRun": {"content": "a" * 13, "style": {}}},
+            {"startIndex": 13, "paragraphMarker": {"style": {}}},
+        ],
+    }
+    assert hints._text_body_walk_end_exclusive(text_body) == 14
+    assert hints._text_body_max_exclusive_index(text_body) == 13
+
+
+def test_max_exclusive_index_no_trailing_pm_still_caps_at_run_tail():
+    """Slides may omit a terminal paragraphMarker but still report endIndex == walk (14) while delete max is 13."""
+    text_body = {
+        "textElements": [
+            {"startIndex": 0, "endIndex": 14, "textRun": {"content": "a" * 13, "style": {}}},
+        ],
+    }
+    assert hints._text_body_walk_end_exclusive(text_body) == 13
+    assert hints._text_body_max_exclusive_index(text_body) == 13
+
+
 def test_is_yellow_foreground():
     assert hints.is_yellow_foreground((1.0, 1.0, 0.0)) is True
     assert hints.is_yellow_foreground((0.9, 0.85, 0.2)) is True
+    # Default Slides highlighter — high blue channel, previously missed by b<=0.55 rule
+    assert hints.is_yellow_foreground((0.99, 0.99, 0.62)) is True
     assert hints.is_yellow_foreground((0.2, 0.2, 0.9)) is False
 
 
@@ -420,7 +445,18 @@ def test_collect_hint_mutations_orange_shape_no_text_still_deleted():
 @patch.object(hints, "_add_incomplete_banner", return_value=[])
 def test_hint_mutations_orange_text_delete_only_no_insert(mock_banner):
     muts = [hints._HintMutation("p1", None, "replace", 0, 5, "")]
-    reqs, content_n = hints.hint_mutations_to_batch_requests("pageZ", muts)
+    slide = {
+        "pageElements": [{
+            "objectId": "p1",
+            "shape": {
+                "shapeProperties": {},
+                "text": {"textElements": [{"textRun": {"content": "hello", "style": {}}}]},
+            },
+        }],
+    }
+    reqs, content_n = hints.hint_mutations_to_batch_requests(
+        "pageZ", muts, add_banner=False, slide=slide
+    )
     assert content_n == 1
     assert len(reqs) == 1
     assert "deleteText" in reqs[0]
@@ -447,8 +483,17 @@ def test_hint_mutations_to_batch_requests(mock_banner):
     muts = [
         hints._HintMutation("p1", None, "replace", 2, 5, hints.YELLOW_FIELD_PLACEHOLDER),
     ]
-    reqs, content_n = hints.hint_mutations_to_batch_requests("pageZ", muts)
-    assert content_n == 2
+    slide = {
+        "pageElements": [{
+            "objectId": "p1",
+            "shape": {
+                "shapeProperties": {},
+                "text": {"textElements": [{"textRun": {"content": "xxxxx", "style": {}}}]},
+            },
+        }],
+    }
+    reqs, content_n = hints.hint_mutations_to_batch_requests("pageZ", muts, slide=slide)
+    assert content_n == 3
     assert reqs[-1] == {"banner": True}
     assert any(
         r.get("deleteText", {}).get("textRange", {}).get("startIndex") == 2
@@ -458,6 +503,7 @@ def test_hint_mutations_to_batch_requests(mock_banner):
         r.get("insertText", {}).get("text") == hints.YELLOW_FIELD_PLACEHOLDER
         for r in reqs
     )
+    assert any(r.get("updateTextStyle") for r in reqs[:-1])
     mock_banner.assert_called_once()
     _args, kwargs = mock_banner.call_args
     assert _args[0] == "pageZ"
@@ -485,6 +531,66 @@ def test_qbr_hint_banner_text_both():
     ]
     t = hints.qbr_hint_banner_text_for_mutations(muts)
     assert "[???]" in t and "orange" in t.lower()
+
+
+def test_post_adapt_strips_any_opaque_text_highlight():
+    """replaceAllText can leave non-yellow highlights; post-adapt clears any run background."""
+    slide = {
+        "pageElements": [{
+            "objectId": "s1",
+            "shape": {
+                "shapeProperties": {},
+                "text": {
+                    "textElements": [
+                        {"textRun": {
+                            "content": "Done",
+                            "style": {
+                                "backgroundColor": {
+                                    "opaqueColor": {"themeColor": "ACCENT1"},
+                                },
+                            },
+                        }},
+                    ]
+                },
+            },
+        }],
+    }
+    reqs = hints.build_post_adapt_template_style_strip_requests(slide)
+    assert len(reqs) == 1
+    assert reqs[0]["updateTextStyle"]["style"]["backgroundColor"] == {}
+
+
+def test_post_adapt_style_strip_clears_yellow_highlight_without_changing_detection():
+    """replaceAllText keeps highlight — post-adapt pass issues updateTextStyle only."""
+    slide = {
+        "pageElements": [{
+            "objectId": "s1",
+            "shape": {
+                "shapeProperties": {},
+                "text": {
+                    "textElements": [
+                        {"textRun": {
+                            "content": "Acme Corp",
+                            "style": {
+                                "foregroundColor": {
+                                    "opaqueColor": {"rgbColor": {"red": 0.15, "green": 0.15, "blue": 0.2}},
+                                },
+                                "backgroundColor": {
+                                    "opaqueColor": {"rgbColor": {"red": 1, "green": 1, "blue": 0}},
+                                },
+                            },
+                        }},
+                    ]
+                },
+            },
+        }],
+    }
+    reqs = hints.build_post_adapt_template_style_strip_requests(slide)
+    assert len(reqs) == 1
+    uts = reqs[0]["updateTextStyle"]
+    assert uts["objectId"] == "s1"
+    assert uts["textRange"]["startIndex"] == 0
+    assert uts["style"]["backgroundColor"] == {}
 
 
 @patch.object(hints, "apply_hint_mutations_to_presentation", return_value=0)

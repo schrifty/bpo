@@ -34,6 +34,11 @@ from .config import (
     llm_client,
     logger,
 )
+from .data_field_synonyms import (
+    apply_synonym_resolution_to_replacements,
+    data_summary_lookup,
+    data_summary_path_exists,
+)
 from .slides_client import (
     SLIDE_DATA_REQUIREMENTS,
     _box,
@@ -202,6 +207,7 @@ def _set_cached_adapt(cache_key: str, replacements: list[dict]) -> None:
 def _resolve_cached_replacements(cached: list[dict], data_summary: dict) -> list[dict]:
     """For cached replacements with mapped=true, set new_value from current data_summary.
     Tries to preserve format (e.g. "31 sites" -> "14 sites") when original has a trailing suffix.
+    Supports dotted paths (e.g. ``platform_value.total_savings``).
     """
     import re as _re
     out = []
@@ -209,8 +215,8 @@ def _resolve_cached_replacements(cached: list[dict], data_summary: dict) -> list
         r = dict(r)
         if r.get("mapped") and r.get("field"):
             key = r["field"].strip().replace(" ", "_").replace("-", "_").lower()
-            if key in data_summary:
-                val = data_summary[key]
+            if data_summary_path_exists(data_summary, key):
+                val = data_summary_lookup(data_summary, key)
                 if isinstance(val, (list, dict)):
                     r["new_value"] = str(val)[:200]
                 else:
@@ -231,7 +237,10 @@ _SLIDE_ANALYSIS_CACHE_VERSION = 7  # v7: charts[].interpretation + visual_kind +
 # Canonical data keys we can resolve from report/data_summary. LLM uses these or adds slugs.
 CANONICAL_DATA_KEYS = (
     "customer_name", "report_date", "quarter", "quarter_start", "quarter_end",
-    "total_users", "active_users", "total_sites", "active_sites", "health_score",
+    "total_users", "total_visitors", "unique_visitors", "active_users",
+    "total_sites", "active_sites", "health_score",
+    "account_total_minutes", "account_avg_weekly_hours",
+    "total_shortages", "total_critical_shortages", "weekly_active_buyers_pct_avg",
     "site_details", "cs_health_sites", "support", "salesforce", "platform_value",
     "supply_chain",
 )
@@ -439,9 +448,9 @@ def _resolve_data_ask_to_replacements(data_ask: list[dict], data_summary: dict,
                 original = et
         if not original and example:
             original = example
-        # Resolve value from data_summary
-        if key in data_summary:
-            val = data_summary[key]
+        # Resolve value from data_summary (top-level or dotted path)
+        if data_summary_path_exists(data_summary, key):
+            val = data_summary_lookup(data_summary, key)
             if isinstance(val, (list, dict)):
                 new_value = str(val)[:200]
             else:
@@ -1397,13 +1406,29 @@ def _build_data_summary(report: dict) -> dict:
     }
 
     acct = report.get("account", {})
-    s["total_users"] = acct.get("total_visitors", 0)
+    _vis = acct.get("total_visitors", 0)
+    s["total_users"] = _vis
+    s["total_visitors"] = _vis
+    s["unique_visitors"] = _vis
     s["active_users"] = acct.get("active_visitors", 0)
     s["total_sites"] = acct.get("total_sites", 0)
     s["active_sites"] = acct.get("active_sites", 0)
     s["health_score"] = acct.get("health_score", "")
 
     sites = report.get("sites", [])
+    total_minutes = 0
+    for si in sites:
+        try:
+            total_minutes += int(si.get("total_minutes") or 0)
+        except (TypeError, ValueError):
+            pass
+    days = int(report.get("days") or 90)
+    weeks = max(days / 7.0, 1e-6)
+    s["account_total_minutes"] = total_minutes
+    s["account_avg_weekly_hours"] = (
+        round(total_minutes / 60.0 / weeks, 1) if total_minutes else 0.0
+    )
+
     s["site_details"] = [
         {
             "name": si.get("sitename", ""),
@@ -1411,13 +1436,30 @@ def _build_data_summary(report: dict) -> dict:
             "pages_used": si.get("pages_used", 0),
             "features_used": si.get("features_used", 0),
             "events": si.get("total_events", 0),
+            "total_minutes": si.get("total_minutes", 0),
             "last_active": si.get("last_active", ""),
         }
         for si in sites[:30]
     ]
 
     cs = report.get("cs_platform_health", {})
-    if cs:
+    if cs and not cs.get("error"):
+        ts = cs.get("total_shortages")
+        if ts is not None:
+            s["total_shortages"] = int(ts)
+        tc = cs.get("total_critical_shortages")
+        if tc is not None:
+            s["total_critical_shortages"] = int(tc)
+        rates: list[float] = []
+        for row in cs.get("sites") or []:
+            w = row.get("weekly_active_buyers_pct")
+            if w is not None:
+                try:
+                    rates.append(float(w))
+                except (TypeError, ValueError):
+                    pass
+        if rates:
+            s["weekly_active_buyers_pct_avg"] = round(sum(rates) / len(rates), 1)
         s["cs_health_sites"] = [
             {"site": r.get("site", ""), "health": r.get("health_status", ""),
              "ctb": r.get("ctb_pct", ""), "ctc": r.get("ctc_pct", "")}
@@ -1594,11 +1636,22 @@ _ADAPT_SYSTEM_PROMPT = (
     "- Contract values, budget amounts, pricing, license costs, and any financial "
     "data not in our sources → mapped=false.\n"
     "- Specific project dates, milestones, and roadmap timelines → mapped=false.\n"
-    "- HISTORICAL / RETROSPECTIVE CONTENT: If the surrounding text makes clear that a "
-    "widget or bullet point is summarising past achievements, past-period results, or "
-    "historical records (e.g. 'Key Partnership Results', 'What we achieved', "
-    "'Since go-live', 'As of [past date]'), treat ALL values in that block as "
-    "mapped=false. These are records of what happened, not live metrics to refresh.\n"
+    "- HISTORICAL / RETROSPECTIVE (narrow): Only treat a block as **frozen history** when the copy is "
+    "clearly **past-tense narrative** about completed work (e.g. \"we delivered in 2023\", "
+    "\"since go-live in 2022\", \"as of March 2024\") **and** the values look like **final** "
+    "snapshots, not bracket placeholders.\n"
+    "- **EXCEPTION — example / headline / template slides**: If the slide title or body is dominated by "
+    "bracket placeholders like [000], [$000], [00%], [???], or the title includes words like "
+    "**Example**, **Sample**, **Headlines**, or **Template**, treat the slide as a **fill-in pattern** "
+    "to hydrate from CURRENT DATA. **Map every metric you can** (including bullets under headings such as "
+    "\"Key Partnership Results\") — do **not** blanket-map=false those blocks just because the heading "
+    "sounds like achievements.\n"
+    "- Synonyms in CURRENT DATA: **total_users**, **total_visitors**, and **unique_visitors** are the "
+    "same Pendo visitor count; **active_users** is active visitors in the reporting window; "
+    "**total_sites** / **active_sites** are site counts.\n"
+    "- A **phrase dictionary** (``config/data_field_synonyms.json``) also maps common slide wording to "
+    "dotted paths in CURRENT DATA (e.g. cost-avoidance language → ``platform_value.total_savings``). "
+    "Prefer those paths when the slide context matches.\n"
     "- BESPOKE / REFERENCE TABLES (tier grids, standard pricing bands, deployment scenario "
     "matrices, sizing tables): If table cells read as **fixed product or commercial reference** "
     "rather than **this customer's live metrics** from CURRENT DATA AVAILABLE—and nothing in the "
@@ -1946,10 +1999,17 @@ DATA_SOURCE_BY_FIELD: dict[str, str] = {
     "quarter_start": "Report",
     "quarter_end": "Report",
     "total_users": "Pendo",
+    "total_visitors": "Pendo",
+    "unique_visitors": "Pendo",
     "active_users": "Pendo",
     "total_sites": "Pendo",
     "active_sites": "Pendo",
     "health_score": "Pendo",
+    "account_total_minutes": "Pendo",
+    "account_avg_weekly_hours": "Pendo",
+    "total_shortages": "CS Report",
+    "total_critical_shortages": "CS Report",
+    "weekly_active_buyers_pct_avg": "CS Report",
     "site_details": "Pendo",
     "cs_health_sites": "CS Report",
     "support": "Jira",
@@ -1957,6 +2017,12 @@ DATA_SOURCE_BY_FIELD: dict[str, str] = {
     "platform_value": "CS Report",
     "supply_chain": "CS Report",
 }
+
+
+def _data_source_label_for_field(field: str) -> str:
+    """Attribution for speaker notes; dotted fields use the top-level pipeline bucket."""
+    top = (field or "").split(".", 1)[0].strip().lower()
+    return DATA_SOURCE_BY_FIELD.get(top, "Report/data")
 
 
 def _normalize_canonical_data_key(key: str) -> str:
@@ -2069,11 +2135,15 @@ def _build_hydrate_speaker_notes(
         nv = str(r.get("new_value") or "").replace("\n", " ").strip()[:120]
         mapped = r.get("mapped", True)
         if mapped:
-            source = DATA_SOURCE_BY_FIELD.get(fld, "Report/data")
+            source = _data_source_label_for_field(fld)
             tag = f"LIVE — Source: {source}"
         else:
             tag = "UNMAPPED / static visual — verify or replace manually"
         lines.append(f"   {i}. [{fld}]  {tag}")
+        syn = (r.get("synonym_phrase") or "").strip()
+        if syn:
+            spath = (r.get("synonym_path") or fld).strip()
+            lines.append(f"      Synonym: matched phrase \"{syn}\" → `{spath}`")
         lines.append(f"      was: {orig}")
         lines.append(f"      now: {nv}")
 
@@ -2175,7 +2245,7 @@ def _build_hydrate_speaker_notes(
                 if ds and rec_keys:
                     lines.append("      Data we have for this run (copy from pipeline — verify against the slide):")
                     for pk in rec_keys:
-                        src_lbl = DATA_SOURCE_BY_FIELD.get(pk, "Report/data")
+                        src_lbl = _data_source_label_for_field(pk)
                         if pk in ds:
                             snap = _format_data_summary_value(ds.get(pk))
                             lines.append(f"         • {pk} [{src_lbl}]: {snap}")
@@ -2583,8 +2653,9 @@ def adapt_custom_slides(
       Phase A (parallel)  — thumbnail fetch + GPT-4o per slide (I/O bound, safe to parallelise)
       Phase B (sequential) — Slides API batchUpdate per slide (mutates shared presentation state)
 
-    Clears speaker notes on all slides in ``page_ids``; appends a summary slide at the end with
-    run stats on-slide and data-matching details in that slide's speaker notes.
+    Writes per-slide speaker notes (hydration QA: pipeline mapping, unmapped placeholders, slide copy);
+    appends a summary slide at the end with run stats on-slide and aggregate data-matching details
+    in that slide's speaker notes.
 
     When ``title_slide_object_id`` is set (e.g. QBR template cover), no incomplete banner is added
     on that slide. Banners are also omitted when the only unmapped rows are static images/charts
@@ -2670,6 +2741,9 @@ def adapt_custom_slides(
                 replacements = _resolve_data_ask_to_replacements(
                     analysis["data_ask"], data_summary, text_elements
                 )
+                replacements = apply_synonym_resolution_to_replacements(
+                    replacements, text_elements, data_summary
+                )
                 replacements = _ensure_charts_and_images_marked(text_elements, replacements)
                 return page_id, text_elements, replacements, "analysis_hit", analysis
             if adapt_cache_key is not None:
@@ -2679,6 +2753,9 @@ def adapt_custom_slides(
             if cached is not None:
                 logger.debug("hydrate: adapt slide %s — adapt cache hit", slide_num)
                 replacements = _resolve_cached_replacements(cached, data_summary)
+                replacements = apply_synonym_resolution_to_replacements(
+                    replacements, text_elements, data_summary
+                )
                 replacements = _ensure_charts_and_images_marked(text_elements, replacements)
                 return page_id, text_elements, replacements, "adapt_hit", analysis
         n_total = len(text_elements)
@@ -2687,6 +2764,9 @@ def adapt_custom_slides(
                      slide_num, LLM_MODEL, n_data, n_total)
         replacements = _get_data_replacements(oai, text_elements, data_summary, thumb_b64,
                                               slide_label=str(slide_num))
+        replacements = apply_synonym_resolution_to_replacements(
+            replacements, text_elements, data_summary
+        )
         replacements = _ensure_charts_and_images_marked(text_elements, replacements)
         if adapt_cache_key and replacements:
             _set_cached_adapt(adapt_cache_key, replacements)
@@ -2711,7 +2791,7 @@ def adapt_custom_slides(
                 results[pid] = ([], [], None)
 
     # ── Phase B: sequential Slides API writes — clear per-slide notes; summary at end ─
-    notes_to_clear: list[str] = []
+    notes_updates: list[tuple[str, str]] = []
     for page_id in page_ids:
         text_elements, replacements, analysis = results.get(page_id, ([], [], None))
         slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
@@ -2719,13 +2799,20 @@ def adapt_custom_slides(
         if not text_elements:
             stats["skipped"] += 1
             _print(f"    slide {slide_num}: no text on slide")
-            notes_to_clear.append(page_id)
+            notes_updates.append((page_id, ""))
             continue
 
         if not replacements:
             stats["notes_only"] += 1
-            _print(f"    slide {slide_num}: no data values — cleared speaker notes")
-            notes_to_clear.append(page_id)
+            _print(f"    slide {slide_num}: no data values — speaker notes set to hydration QA stub")
+            notes_updates.append(
+                (
+                    page_id,
+                    _build_hydrate_speaker_notes(
+                        [], text_elements, report=report, data_summary=data_summary, oai=oai
+                    ),
+                )
+            )
             continue
 
         mapped_count = sum(1 for r in replacements if r.get("mapped"))
@@ -2744,7 +2831,7 @@ def adapt_custom_slides(
                 logger.warning("hydrate: slide %s — failed to apply text replacements: %s",
                                slide_num, e)
                 stats["skipped"] += 1
-                notes_to_clear.append(page_id)
+                notes_updates.append((page_id, ""))
                 continue
 
         if has_unmapped:
@@ -2762,11 +2849,25 @@ def adapt_custom_slides(
             stats["clean"] += 1
 
         stats["adapted"] += 1
-        notes_to_clear.append(page_id)
+        notes_updates.append(
+            (
+                page_id,
+                _build_hydrate_speaker_notes(
+                    replacements,
+                    text_elements,
+                    report=report,
+                    data_summary=data_summary,
+                    has_unmapped=has_unmapped,
+                    has_static_images=has_static_images,
+                    analysis=analysis,
+                    oai=oai,
+                ),
+            )
+        )
 
-    if notes_to_clear:
-        n = set_speaker_notes_batch(slides_svc, pres_id, [(pid, "") for pid in notes_to_clear])
-        logger.info("hydrate: cleared speaker notes for %d/%d slides in single batchUpdate", n, len(notes_to_clear))
+    if notes_updates:
+        n = set_speaker_notes_batch(slides_svc, pres_id, notes_updates)
+        logger.info("hydrate: wrote speaker notes for %d/%d slides in single batchUpdate", n, len(notes_updates))
 
     run_end = datetime.datetime.now(datetime.timezone.utc)
     src_label = (source_presentation_name or pres_id or "(unknown)")[:200]

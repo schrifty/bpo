@@ -24,3 +24,7 @@ prompt: |
   This slide should be the CSM's action list — the things to investigate,
   celebrate, or escalate before/during the QBR. Number each signal so
   they can be referenced in conversation.
+
+  When trend data is available, a one-line context under the title may
+  summarize WoW / MoM / QoQ / YoY (chosen for the account) plus cohort
+  median vs this customer; signal bullets should stay consistent with that horizon.
