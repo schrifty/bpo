@@ -30,7 +30,7 @@ Flag commands (utilities)
 
   decks --upload-portfolio-snapshot [--days N] [--max-customers M]
       Run full Pendo portfolio crawl and upload JSON to the portfolio snapshot
-      folder: BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID if set, else "Portfolio cache"
+      folder: BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID if set, else "Cache" under QBR generator
       under GOOGLE_QBR_GENERATOR_FOLDER_ID. If you omit --days, uses the same
       calendar length as resolve_quarter() (matches default QBR cohort window).
       QBR also auto-refreshes this file once per calendar day by default (see .env

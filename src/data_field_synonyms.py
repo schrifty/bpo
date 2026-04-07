@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,7 @@ _SYNONYM_TRIGGER_PLACEHOLDERS = frozenset(
 
 _cache_rows: list[tuple[int, str, str, str]] | None = None
 _cache_key: object | None = None
+_default_synonym_load_lock = threading.Lock()
 
 
 def _normalize_context(s: str) -> str:
@@ -88,19 +90,35 @@ def _load_synonym_rows(config_path: Path | None = None) -> list[tuple[int, str, 
 
     from .pendo_portfolio_snapshot_drive import load_data_field_synonyms_document
 
-    data, source = load_data_field_synonyms_document(allow_drive=True)
-    if not isinstance(data, dict):
-        data = {}
-    h = hashlib.sha256(
-        json.dumps(data, sort_keys=True, default=str).encode("utf-8")
-    ).hexdigest()[:32]
-    ck = ("synonyms", source, h)
-    if _cache_rows is not None and _cache_key == ck:
+    # Serialize Drive + parse: parallel hydrate threads used to hammer Drive concurrently and
+    # trigger flaky TLS (SSL record layer) and possible native heap issues in OpenSSL.
+    if (
+        _cache_rows is not None
+        and isinstance(_cache_key, tuple)
+        and len(_cache_key) == 3
+        and _cache_key[0] == "synonyms"
+    ):
         return _cache_rows
-    rows = _rows_from_synonyms_data(data)
-    _cache_rows = rows
-    _cache_key = ck
-    return rows
+
+    with _default_synonym_load_lock:
+        if (
+            _cache_rows is not None
+            and isinstance(_cache_key, tuple)
+            and len(_cache_key) == 3
+            and _cache_key[0] == "synonyms"
+        ):
+            return _cache_rows
+        data, source = load_data_field_synonyms_document(allow_drive=True)
+        if not isinstance(data, dict):
+            data = {}
+        h = hashlib.sha256(
+            json.dumps(data, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()[:32]
+        ck: object = ("synonyms", source, h)
+        rows = _rows_from_synonyms_data(data)
+        _cache_rows = rows
+        _cache_key = ck
+        return rows
 
 
 def data_summary_lookup(data_summary: dict[str, Any], path: str) -> Any:

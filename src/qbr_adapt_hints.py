@@ -428,6 +428,34 @@ def _cell_key(cell: dict[str, int] | None) -> tuple[tuple[str, int], ...]:
     return tuple(sorted(cell.items()))
 
 
+def _merge_touching_replace_mutations(repl: list[_HintMutation]) -> list[_HintMutation]:
+    """Merge overlapping or adjacent replace spans that share the same replacement string.
+
+    ``batchUpdate`` applies requests in order; overlapping ``deleteText`` ranges built from the
+    same snapshot cause index drift and Slides 400s (end index past length, invalid start).
+    """
+    if len(repl) <= 1:
+        return repl
+    by_rep: dict[str, list[_HintMutation]] = defaultdict(list)
+    for m in repl:
+        by_rep[m.replacement].append(m)
+    out: list[_HintMutation] = []
+    for rep, group in by_rep.items():
+        group.sort(key=lambda m: (m.start, m.end))
+        cur_s = group[0].start
+        cur_e = group[0].end
+        oid = group[0].object_id
+        cell = group[0].cell_location
+        for m in group[1:]:
+            if m.start <= cur_e:
+                cur_e = max(cur_e, m.end)
+            else:
+                out.append(_HintMutation(oid, cell, "replace", cur_s, cur_e, rep))
+                cur_s, cur_e = m.start, m.end
+        out.append(_HintMutation(oid, cell, "replace", cur_s, cur_e, rep))
+    return out
+
+
 def _find_text_body_for_hint_target(
     slide: dict,
     object_id: str,
@@ -481,6 +509,28 @@ def _text_body_walk_end_exclusive(text_body: dict) -> int:
     return pos
 
 
+def _text_body_last_text_run_exclusive_end(text_body: dict) -> int:
+    """Position after the last textRun (UTF-16 walk); ignores trailing paragraphMarker tail.
+
+    Slides' ``deleteText`` "existing text length" often matches this value while our full
+    ``walk_end`` includes a terminal structural paragraph index (+1), causing 400s when
+    merged replace spans end at ``walk_end`` (e.g. end 150 vs length 149).
+    """
+    pos = 0
+    last_run_end = 0
+    for te in text_body.get("textElements") or []:
+        si = te.get("startIndex")
+        if si is not None:
+            pos = int(si)
+        if te.get("textRun"):
+            c = te["textRun"].get("content") or ""
+            pos += _utf16_code_units(c)
+            last_run_end = pos
+        elif te.get("paragraphMarker") is not None:
+            pos += 1
+    return last_run_end
+
+
 def _text_body_max_exclusive_index(text_body: dict) -> int:
     """Exclusive end index upper bound safe for ``deleteText`` / ``updateTextStyle`` (UTF-16).
 
@@ -513,6 +563,18 @@ def _text_body_max_exclusive_index(text_body: dict) -> int:
         cap = min(cap, run_tail)
     if elements and elements[-1].get("paragraphMarker") is not None and not elements[-1].get("textRun"):
         cap = min(cap, max(0, walk_end - 1))
+    # When every textRun includes endIndex, the largest matches Slides' document tail (helps 400s
+    # where walk_end and a lone textRun disagree by one UTF-16 unit).
+    run_ends: list[int] = []
+    for te in elements:
+        if te.get("textRun") is not None and te.get("endIndex") is not None:
+            run_ends.append(int(te["endIndex"]))
+    n_text_runs = sum(1 for te in elements if te.get("textRun"))
+    if run_ends and len(run_ends) == n_text_runs:
+        cap = min(cap, max(run_ends))
+    lr = _text_body_last_text_run_exclusive_end(text_body)
+    if lr > 0:
+        cap = min(cap, lr)
     return cap
 
 
@@ -540,8 +602,13 @@ def hint_mutations_to_batch_requests(
     *,
     add_banner: bool = True,
     slide: dict | None = None,
-) -> tuple[list[dict[str, Any]], int]:
-    """Return (all requests, count excluding banner). Omit banner when ``add_banner`` is False."""
+) -> tuple[list[list[dict[str, Any]]], int]:
+    """Return (batches, content_request_count excluding banner).
+
+    ``batches`` must be applied **in order** via separate ``batchUpdate`` calls. Slides applies
+    each request sequentially; multiple ``deleteText``/``insertText`` pairs in one batch leave
+    later indices stale vs the snapshot (400: end index past length / start past length).
+    """
     if not muts:
         return [], 0
     groups: dict[tuple[str, tuple], list[_HintMutation]] = defaultdict(list)
@@ -549,13 +616,31 @@ def hint_mutations_to_batch_requests(
         key = (m.object_id, _cell_key(m.cell_location))
         groups[key].append(m)
 
-    reqs: list[dict[str, Any]] = []
+    prefix_reqs: list[dict[str, Any]] = []
+    replace_batches: list[list[dict[str, Any]]] = []
     for (oid, cell_tup), items in groups.items():
         cell = dict(cell_tup) if cell_tup else None
         if any(x.action == "delete_shape" for x in items):
-            reqs.append({"deleteObject": {"objectId": oid}})
+            prefix_reqs.append({"deleteObject": {"objectId": oid}})
             continue
         if any(x.action == "clear_all" for x in items):
+            text_body_clear = (
+                _find_text_body_for_hint_target(slide, oid, cell)
+                if slide is not None
+                else None
+            )
+            mx_clear = (
+                _text_body_max_exclusive_index(text_body_clear)
+                if text_body_clear and text_body_clear.get("textElements")
+                else 0
+            )
+            if mx_clear <= 0:
+                logger.debug(
+                    "QBR hint skip clear_all (empty cell): oid=%s cell=%s",
+                    (oid or "")[:16],
+                    cell,
+                )
+                continue
             dt: dict[str, Any] = {
                 "deleteText": {
                     "objectId": oid,
@@ -567,12 +652,12 @@ def hint_mutations_to_batch_requests(
                     "rowIndex": cell["rowIndex"],
                     "columnIndex": cell["columnIndex"],
                 }
-            reqs.append(dt)
+            prefix_reqs.append(dt)
             continue
 
         for x in items:
             if x.action == "clear_shape_fill":
-                reqs.append({
+                prefix_reqs.append({
                     "updateShapeProperties": {
                         "objectId": oid,
                         "shapeProperties": {
@@ -582,7 +667,7 @@ def hint_mutations_to_batch_requests(
                     }
                 })
             elif x.action == "clear_cell_fill" and cell is not None:
-                reqs.append({
+                prefix_reqs.append({
                     "updateTableCellProperties": {
                         "objectId": oid,
                         "tableRange": {
@@ -602,7 +687,7 @@ def hint_mutations_to_batch_requests(
                     }
                 })
 
-        repl = [x for x in items if x.action == "replace"]
+        repl = _merge_touching_replace_mutations([x for x in items if x.action == "replace"])
         repl.sort(key=lambda x: x.start, reverse=True)
         text_body = (
             _find_text_body_for_hint_target(slide, oid, cell)
@@ -647,9 +732,9 @@ def hint_mutations_to_batch_requests(
                     "rowIndex": cell["rowIndex"],
                     "columnIndex": cell["columnIndex"],
                 }
-            reqs.append(del_req)
+            one_replace: list[dict[str, Any]] = [del_req]
             if x.replacement:
-                reqs.append(ins_req)
+                one_replace.append(ins_req)
                 ins_len = _utf16_code_units(x.replacement)
                 if ins_len > 0 and x.replacement == YELLOW_FIELD_PLACEHOLDER:
                     style_end = start_i + ins_len
@@ -658,21 +743,28 @@ def hint_mutations_to_batch_requests(
                         new_len = mx0 - (end_i - start_i) + ins_len
                         style_end = min(style_end, new_len)
                     if start_i < style_end:
-                        reqs.append(
+                        one_replace.append(
                             _req_clear_template_text_cue_style(
                                 oid, cell, start_i, style_end, orange_text=False
                             )
                         )
+            replace_batches.append(one_replace)
 
-    content_n = len(reqs)
+    batches: list[list[dict[str, Any]]] = []
+    if prefix_reqs:
+        batches.append(prefix_reqs)
+    batches.extend(replace_batches)
+    content_n = sum(len(b) for b in batches)
     if add_banner:
-        reqs.extend(
-            _add_incomplete_banner(
-                page_object_id,
-                banner_text=qbr_hint_banner_text_for_mutations(muts),
-            )
+        banner = _add_incomplete_banner(
+            page_object_id,
+            banner_text=qbr_hint_banner_text_for_mutations(muts),
         )
-    return reqs, content_n
+        if batches:
+            batches[-1].extend(banner)
+        else:
+            batches.append(list(banner))
+    return batches, content_n
 
 
 def build_post_adapt_template_style_strip_requests(slide: dict) -> list[dict[str, Any]]:
@@ -865,6 +957,7 @@ def apply_hint_mutations_to_presentation(
     """
     n_slides = 0
     total_reqs = 0
+    total_batch_calls = 0
     for row in hint_rows:
         pid = row.get("object_id")
         slide = slide_by_id.get(pid) if pid else None
@@ -876,36 +969,46 @@ def apply_hint_mutations_to_presentation(
                          row.get("slide_num", "?"))
             continue
         add_banner = title_slide_object_id is None or pid != title_slide_object_id
-        chunk, content_n = hint_mutations_to_batch_requests(
+        batches, content_n = hint_mutations_to_batch_requests(
             pid, muts, add_banner=add_banner, slide=slide
         )
-        if not chunk:
+        if not batches:
             continue
+        slide_reqs = 0
+        slide_batches = 0
         try:
-            slides_presentations_batch_update(slides_svc, pres_id, chunk)
+            for sub in batches:
+                if not sub:
+                    continue
+                slides_presentations_batch_update(slides_svc, pres_id, sub)
+                slide_reqs += len(sub)
+                slide_batches += 1
             n_slides += 1
-            total_reqs += len(chunk)
+            total_reqs += slide_reqs
+            total_batch_calls += slide_batches
             logger.debug(
-                "QBR adapt hints — slide %s: applied %d text mutation(s)%s",
+                "QBR adapt hints — slide %s: applied %d text mutation(s)%s (%d batchUpdate call(s))",
                 row.get("slide_num", "?"),
                 content_n,
                 " + red banner" if add_banner else " (no banner — title slide)",
+                slide_batches,
             )
         except HttpError as e:
             logger.warning(
-                "QBR adapt hints: batchUpdate failed for slide %s (slide_num=%s, %d req): %s",
+                "QBR adapt hints: batchUpdate failed for slide %s (slide_num=%s, %d req in failed batch): %s",
                 (pid or "")[:16],
                 row.get("slide_num", "?"),
-                len(chunk),
+                slide_reqs or sum(len(s) for s in batches),
                 e,
             )
 
     if total_reqs == 0:
         return 0
     logger.info(
-        "QBR adapt hints: applied surface changes (%d request(s)) across %d slide(s) (one batchUpdate per slide)",
+        "QBR adapt hints: applied surface changes (%d request(s)) across %d slide(s) (%d batchUpdate call(s))",
         total_reqs,
         n_slides,
+        total_batch_calls,
     )
     return n_slides
 

@@ -4,6 +4,7 @@ import datetime
 import json
 import os
 import re
+import sys
 
 import threading
 import time
@@ -13,6 +14,7 @@ from uuid import uuid4
 
 import requests
 from requests.adapters import HTTPAdapter
+from tqdm.auto import tqdm
 
 from .config import (
     BPO_SIGNALS_LLM,
@@ -825,10 +827,23 @@ class PendoClient:
         with self._cache_lock:
             if self._feature_catalog_cache is not None and self._cache_valid(self._feature_catalog_cache_ts):
                 return self._feature_catalog_cache
+        from .pendo_preload_cache_drive import (
+            PRELOAD_KIND_FEATURE_CATALOG,
+            save_pendo_preload_payload,
+            try_load_pendo_preload_payload,
+        )
+
+        blob = try_load_pendo_preload_payload(PRELOAD_KIND_FEATURE_CATALOG, None)
+        if isinstance(blob, dict):
+            with self._cache_lock:
+                self._feature_catalog_cache = blob
+                self._feature_catalog_cache_ts = time.time()
+            return blob
         result = self.get_feature_catalog()
         with self._cache_lock:
             self._feature_catalog_cache = result
             self._feature_catalog_cache_ts = time.time()
+        save_pendo_preload_payload(PRELOAD_KIND_FEATURE_CATALOG, None, result)
         return result
 
     def get_account_info(self, account_id: str) -> dict[str, Any]:
@@ -867,6 +882,16 @@ class PendoClient:
     def _cache_valid(self, ts: float) -> bool:
         return (time.time() - ts) < self._CACHE_TTL
 
+    @staticmethod
+    def _visitor_is_internal(v: dict) -> bool:
+        agent = (v.get("metadata") or {}).get("agent") or {}
+        return bool(agent.get("isinternaluser")) or agent.get("role") == "LeanDNAStaff"
+
+    def _visitor_partition_attach_callable(self, payload: dict[str, Any]) -> dict[str, Any]:
+        out = dict(payload)
+        out["_is_internal"] = self._visitor_is_internal
+        return out
+
     def _get_visitor_partition(self, days: int = 30) -> dict[str, Any]:
         """Fetch all visitors and partition by customer. Cached for 120s to avoid
         redundant API calls when the agent invokes multiple tools in sequence."""
@@ -877,18 +902,28 @@ class PendoClient:
                 if cached_days == days:
                     return self._visitor_cache
 
+        from .pendo_preload_cache_drive import (
+            PRELOAD_KIND_VISITORS,
+            save_pendo_preload_payload,
+            try_load_pendo_preload_payload,
+        )
+
+        blob = try_load_pendo_preload_payload(PRELOAD_KIND_VISITORS, days)
+        if isinstance(blob, dict) and "all_visitors" in blob and "all_customer_stats" in blob:
+            result = self._visitor_partition_attach_callable(blob)
+            with self._cache_lock:
+                self._visitor_cache = result
+                self._visitor_cache_ts = time.time()
+            return result
+
         now_ms = int(time.time() * 1000)
         all_visitors = self.get_visitors(days=days).get("results", [])
-
-        def _is_internal(v: dict) -> bool:
-            agent = (v.get("metadata") or {}).get("agent") or {}
-            return bool(agent.get("isinternaluser")) or agent.get("role") == "LeanDNAStaff"
 
         all_customer_stats: dict[str, dict] = {}
         for v in all_visitors:
             agent = (v.get("metadata") or {}).get("agent") or {}
             auto = (v.get("metadata") or {}).get("auto") or {}
-            if _is_internal(v):
+            if self._visitor_is_internal(v):
                 continue
             sitenames = agent.get("sitenames") or []
             lv = auto.get("lastvisit", 0)
@@ -906,11 +941,13 @@ class PendoClient:
             "now_ms": now_ms,
             "all_visitors": all_visitors,
             "all_customer_stats": all_customer_stats,
-            "_is_internal": _is_internal,
+            "_is_internal": self._visitor_is_internal,
         }
         with self._cache_lock:
             self._visitor_cache = result
             self._visitor_cache_ts = time.time()
+        store = {k: v for k, v in result.items() if k != "_is_internal"}
+        save_pendo_preload_payload(PRELOAD_KIND_VISITORS, days, store)
         return result
 
     def _get_page_events_cached(self, days: int) -> list[dict]:
@@ -918,6 +955,18 @@ class PendoClient:
             if self._page_events_cache and self._cache_valid(self._page_events_cache_ts):
                 if self._page_events_cache.get("days") == days:
                     return self._page_events_cache["results"]
+        from .pendo_preload_cache_drive import (
+            PRELOAD_KIND_PAGE_EVENTS,
+            save_pendo_preload_payload,
+            try_load_pendo_preload_payload,
+        )
+
+        blob = try_load_pendo_preload_payload(PRELOAD_KIND_PAGE_EVENTS, days)
+        if isinstance(blob, list):
+            with self._cache_lock:
+                self._page_events_cache = {"days": days, "results": blob}
+                self._page_events_cache_ts = time.time()
+            return blob
         ts = _time_series(days)
         results = self.aggregate([
             {"source": {"pageEvents": None, "timeSeries": ts}},
@@ -925,6 +974,7 @@ class PendoClient:
         with self._cache_lock:
             self._page_events_cache = {"days": days, "results": results}
             self._page_events_cache_ts = time.time()
+        save_pendo_preload_payload(PRELOAD_KIND_PAGE_EVENTS, days, results)
         return results
 
     def _get_track_events_cached(self, days: int) -> list[dict]:
@@ -932,6 +982,18 @@ class PendoClient:
             if self._track_events_cache and self._cache_valid(self._track_events_cache_ts):
                 if self._track_events_cache.get("days") == days:
                     return self._track_events_cache["results"]
+        from .pendo_preload_cache_drive import (
+            PRELOAD_KIND_TRACK_EVENTS,
+            save_pendo_preload_payload,
+            try_load_pendo_preload_payload,
+        )
+
+        blob = try_load_pendo_preload_payload(PRELOAD_KIND_TRACK_EVENTS, days)
+        if isinstance(blob, list):
+            with self._cache_lock:
+                self._track_events_cache = {"days": days, "results": blob}
+                self._track_events_cache_ts = time.time()
+            return blob
         ts = _time_series(days)
         results = self.aggregate([
             {"source": {"events": None, "timeSeries": ts}},
@@ -939,6 +1001,7 @@ class PendoClient:
         with self._cache_lock:
             self._track_events_cache = {"days": days, "results": results}
             self._track_events_cache_ts = time.time()
+        save_pendo_preload_payload(PRELOAD_KIND_TRACK_EVENTS, days, results)
         return results
 
     def _get_guide_events_cached(self, days: int) -> list[dict]:
@@ -946,6 +1009,18 @@ class PendoClient:
             if self._guide_events_cache and self._cache_valid(self._guide_events_cache_ts):
                 if self._guide_events_cache.get("days") == days:
                     return self._guide_events_cache["results"]
+        from .pendo_preload_cache_drive import (
+            PRELOAD_KIND_GUIDE_EVENTS,
+            save_pendo_preload_payload,
+            try_load_pendo_preload_payload,
+        )
+
+        blob = try_load_pendo_preload_payload(PRELOAD_KIND_GUIDE_EVENTS, days)
+        if isinstance(blob, list):
+            with self._cache_lock:
+                self._guide_events_cache = {"days": days, "results": blob}
+                self._guide_events_cache_ts = time.time()
+            return blob
         ts = _time_series(days)
         results = self.aggregate([
             {"source": {"guideEvents": None, "timeSeries": ts}},
@@ -953,21 +1028,45 @@ class PendoClient:
         with self._cache_lock:
             self._guide_events_cache = {"days": days, "results": results}
             self._guide_events_cache_ts = time.time()
+        save_pendo_preload_payload(PRELOAD_KIND_GUIDE_EVENTS, days, results)
         return results
 
     def _get_page_catalog_cached(self) -> dict[str, str]:
         with self._cache_lock:
             if self._page_catalog_cache is not None:
                 return self._page_catalog_cache
+        from .pendo_preload_cache_drive import (
+            PRELOAD_KIND_PAGE_CATALOG,
+            save_pendo_preload_payload,
+            try_load_pendo_preload_payload,
+        )
+
+        blob = try_load_pendo_preload_payload(PRELOAD_KIND_PAGE_CATALOG, None)
+        if isinstance(blob, dict):
+            with self._cache_lock:
+                self._page_catalog_cache = blob
+            return blob
         result = self.get_page_catalog()
         with self._cache_lock:
             self._page_catalog_cache = result
+        save_pendo_preload_payload(PRELOAD_KIND_PAGE_CATALOG, None, result)
         return result
 
     def _get_guide_catalog_cached(self) -> dict[str, str]:
         with self._cache_lock:
             if self._guide_catalog_cache is not None:
                 return self._guide_catalog_cache
+        from .pendo_preload_cache_drive import (
+            PRELOAD_KIND_GUIDE_CATALOG,
+            save_pendo_preload_payload,
+            try_load_pendo_preload_payload,
+        )
+
+        blob = try_load_pendo_preload_payload(PRELOAD_KIND_GUIDE_CATALOG, None)
+        if isinstance(blob, dict):
+            with self._cache_lock:
+                self._guide_catalog_cache = blob
+            return blob
         try:
             resp = self._session.get(
                 f"{self.base_url}/guide",
@@ -979,6 +1078,7 @@ class PendoClient:
             result = {}
         with self._cache_lock:
             self._guide_catalog_cache = result
+        save_pendo_preload_payload(PRELOAD_KIND_GUIDE_CATALOG, None, result)
         return result
 
     def _get_usage_by_site_cached(self, days: int) -> dict[str, Any]:
@@ -986,11 +1086,24 @@ class PendoClient:
             if self._usage_by_site_cache and self._cache_valid(self._usage_by_site_cache_ts):
                 if self._usage_by_site_cache.get("days") == days:
                     return self._usage_by_site_cache
+        from .pendo_preload_cache_drive import (
+            PRELOAD_KIND_USAGE_BY_SITE,
+            save_pendo_preload_payload,
+            try_load_pendo_preload_payload,
+        )
+
+        blob = try_load_pendo_preload_payload(PRELOAD_KIND_USAGE_BY_SITE, days)
+        if isinstance(blob, dict) and blob.get("days") == days:
+            with self._cache_lock:
+                self._usage_by_site_cache = blob
+                self._usage_by_site_cache_ts = time.time()
+            return blob
         result = self.get_usage_by_site(days=days)
         result["days"] = days
         with self._cache_lock:
             self._usage_by_site_cache = result
             self._usage_by_site_cache_ts = time.time()
+        save_pendo_preload_payload(PRELOAD_KIND_USAGE_BY_SITE, days, result)
         return result
 
     def _get_usage_by_site_entity_cached(self, days: int) -> dict[str, Any]:
@@ -1011,7 +1124,7 @@ class PendoClient:
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         PendoClient._CACHE_TTL = 3600
-        logger.info("Preloading global data for %d-day window (parallel)...", days)
+        logger.info("Pendo: preloading global data for %d-day window (parallel)...", days)
         t0 = time.time()
 
         loaders = {
@@ -1027,16 +1140,22 @@ class PendoClient:
         }
 
         with ThreadPoolExecutor(max_workers=len(loaders)) as pool:
-            futures = {pool.submit(fn): name for name, fn in loaders.items()}
+            futures: dict[Any, str] = {}
+            started: dict[Any, float] = {}
+            for name, fn in loaders.items():
+                fut = pool.submit(fn)
+                futures[fut] = name
+                started[fut] = time.time()
             for fut in as_completed(futures):
                 name = futures[fut]
+                elapsed = time.time() - started[fut]
                 try:
                     fut.result()
-                    logger.debug("  %s: OK", name)
+                    logger.info("Pendo: %s — complete (%.1fs)", name, elapsed)
                 except Exception as e:
-                    logger.warning("  %s: FAILED (%s)", name, e)
+                    logger.warning("Pendo: %s — FAILED after %.1fs (%s)", name, elapsed, e)
 
-        logger.info("Preload complete in %.1fs", time.time() - t0)
+        logger.info("Pendo: preload complete in %.1fs", time.time() - t0)
 
     def _filter_customer_visitors(self, customer_name: str, partition: dict) -> tuple[list[dict], list[dict]]:
         """From a visitor partition, extract this customer's visitors and internal visitors."""
@@ -1574,18 +1693,34 @@ class PendoClient:
 
     def _get_feature_events_cached(self, days: int) -> list[dict]:
         """Cached feature events for reuse across all behavioral tools."""
-        now = time.time()
-        if self._feat_events_cache and (now - self._feat_events_cache_ts) < self._CACHE_TTL:
-            if self._feat_events_cache.get("days") == days:
-                return self._feat_events_cache["results"]
+        with self._cache_lock:
+            now = time.time()
+            if self._feat_events_cache and (now - self._feat_events_cache_ts) < self._CACHE_TTL:
+                if self._feat_events_cache.get("days") == days:
+                    return self._feat_events_cache["results"]
+
+        from .pendo_preload_cache_drive import (
+            PRELOAD_KIND_FEATURE_EVENTS,
+            save_pendo_preload_payload,
+            try_load_pendo_preload_payload,
+        )
+
+        blob = try_load_pendo_preload_payload(PRELOAD_KIND_FEATURE_EVENTS, days)
+        if isinstance(blob, list):
+            with self._cache_lock:
+                self._feat_events_cache = {"days": days, "results": blob}
+                self._feat_events_cache_ts = time.time()
+            return blob
 
         ts = _time_series(days)
         results = self.aggregate([
             {"source": {"featureEvents": None, "timeSeries": ts}},
         ]).get("results", [])
 
-        self._feat_events_cache = {"days": days, "results": results}
-        self._feat_events_cache_ts = now
+        with self._cache_lock:
+            self._feat_events_cache = {"days": days, "results": results}
+            self._feat_events_cache_ts = time.time()
+        save_pendo_preload_payload(PRELOAD_KIND_FEATURE_EVENTS, days, results)
         return results
 
     def _visitor_info_map(self, visitors: list[dict]) -> dict[str, dict]:
@@ -2056,6 +2191,12 @@ class PendoClient:
         """Compute a single customer's portfolio summary (called from thread pool)."""
         h = self.get_customer_health(name, days)
         if "error" in h:
+            err = h.get("error")
+            logger.error(
+                "Portfolio: skipped customer %r — no summary (%s)",
+                name,
+                err if err is not None else "error in health payload",
+            )
             return None
         depth = self.get_customer_depth(name, days)
         kei = self.get_customer_kei(name, days)
@@ -2097,25 +2238,50 @@ class PendoClient:
             pool_workers = 8
         logger.info("Portfolio: processing %d customers (parallel, %d workers)", total, pool_workers)
         t0 = time.time()
+        stderr_tty = sys.stderr.isatty()
 
         customer_summaries: list[dict[str, Any]] = []
         done = 0
-        with ThreadPoolExecutor(max_workers=pool_workers) as pool:
-            futures = {
-                pool.submit(self._portfolio_customer_summary, name, days): name
-                for name in all_names
-            }
-            for fut in as_completed(futures):
-                name = futures[fut]
-                done += 1
-                if done == 1 or done % 25 == 0 or done == total:
-                    logger.info("Portfolio: completed %d/%d (%.0fs elapsed)", done, total, time.time() - t0)
-                try:
-                    row = fut.result()
-                    if row is not None:
-                        customer_summaries.append(row)
-                except Exception as e:
-                    logger.debug("Skipping %s: %s", name, e)
+        pbar = tqdm(
+            total=total,
+            desc="Portfolio customers",
+            unit="cust",
+            file=sys.stderr,
+            disable=not stderr_tty,
+            dynamic_ncols=True,
+            mininterval=0.2,
+        )
+        try:
+            with ThreadPoolExecutor(max_workers=pool_workers) as pool:
+                futures = {
+                    pool.submit(self._portfolio_customer_summary, name, days): name
+                    for name in all_names
+                }
+                for fut in as_completed(futures):
+                    name = futures[fut]
+                    done += 1
+                    if not stderr_tty:
+                        if done == 1 or done % 25 == 0 or done == total:
+                            logger.info(
+                                "Portfolio: completed %d/%d (%.0fs elapsed)",
+                                done,
+                                total,
+                                time.time() - t0,
+                            )
+                    try:
+                        row = fut.result()
+                        if row is not None:
+                            customer_summaries.append(row)
+                    except Exception as e:
+                        logger.error(
+                            "Portfolio: skipped customer %r — exception during summary: %s",
+                            name,
+                            e,
+                            exc_info=True,
+                        )
+                    pbar.update(1)
+        finally:
+            pbar.close()
 
         customer_summaries.sort(key=lambda r: r["customer"])
         logger.info(

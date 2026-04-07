@@ -4,6 +4,10 @@ from unittest.mock import MagicMock, patch
 from src import qbr_adapt_hints as hints
 
 
+def _flat_hint_batches(batches: list[list[dict]]) -> list[dict]:
+    return [r for b in batches for r in b]
+
+
 def test_max_exclusive_index_trailing_paragraph_matches_slides_delete_bounds():
     """Slides text length often excludes the terminal paragraph marker (walk 14 vs usable 13)."""
     text_body = {
@@ -164,9 +168,34 @@ def test_orange_glyph_after_paragraph_marker_uses_indices_past_marker():
     assert len(muts) == 1
     assert (muts[0].start, muts[0].end) == (1, 2)
     assert hints._text_body_max_exclusive_index(text_body) == 2
-    reqs, _ = hints.hint_mutations_to_batch_requests("pg", muts, add_banner=False, slide=slide)
-    assert reqs[0]["deleteText"]["textRange"]["startIndex"] == 1
-    assert reqs[0]["deleteText"]["textRange"]["endIndex"] == 2
+    batches, _ = hints.hint_mutations_to_batch_requests("pg", muts, add_banner=False, slide=slide)
+    assert batches[0][0]["deleteText"]["textRange"]["startIndex"] == 1
+    assert batches[0][0]["deleteText"]["textRange"]["endIndex"] == 2
+
+
+@patch.object(hints, "_add_incomplete_banner", return_value=[])
+def test_merge_touching_yellow_replaces_single_delete_span(mock_banner):
+    """Overlapping/touching yellow runs must merge so batchUpdate delete indices stay valid."""
+    yellow = {"foregroundColor": {"opaqueColor": {"rgbColor": {"red": 1, "green": 1, "blue": 0}}}}
+    text_body = {
+        "textElements": [
+            {"textRun": {"content": "aaa", "style": yellow}},
+            {"textRun": {"content": "bbb", "style": yellow}},
+        ],
+    }
+    slide = {
+        "pageElements": [{
+            "objectId": "p1",
+            "shape": {"shapeProperties": {}, "text": text_body},
+        }],
+    }
+    muts = hints.collect_hint_mutations_from_slide(slide)
+    assert len(muts) == 2
+    batches, content_n = hints.hint_mutations_to_batch_requests("pg", muts, add_banner=False, slide=slide)
+    delete_reqs = [r for r in _flat_hint_batches(batches) if "deleteText" in r]
+    assert len(delete_reqs) == 1
+    assert delete_reqs[0]["deleteText"]["textRange"]["startIndex"] == 0
+    assert delete_reqs[0]["deleteText"]["textRange"]["endIndex"] == 6
 
 
 @patch.object(hints, "_add_incomplete_banner", return_value=[])
@@ -185,9 +214,9 @@ def test_hint_mutations_clamps_delete_when_api_endindex_exceeds_walk(mock_banner
         }],
     }
     muts = [hints._HintMutation("p1", None, "replace", 0, 14, hints.YELLOW_FIELD_PLACEHOLDER)]
-    reqs, _ = hints.hint_mutations_to_batch_requests("pg", muts, add_banner=False, slide=slide)
-    assert reqs[0]["deleteText"]["textRange"]["endIndex"] == 13
-    assert reqs[0]["deleteText"]["textRange"]["startIndex"] == 0
+    batches, _ = hints.hint_mutations_to_batch_requests("pg", muts, add_banner=False, slide=slide)
+    assert batches[0][0]["deleteText"]["textRange"]["endIndex"] == 13
+    assert batches[0][0]["deleteText"]["textRange"]["startIndex"] == 0
 
 
 def test_extract_yellow_from_shape_runs():
@@ -454,28 +483,28 @@ def test_hint_mutations_orange_text_delete_only_no_insert(mock_banner):
             },
         }],
     }
-    reqs, content_n = hints.hint_mutations_to_batch_requests(
+    batches, content_n = hints.hint_mutations_to_batch_requests(
         "pageZ", muts, add_banner=False, slide=slide
     )
     assert content_n == 1
-    assert len(reqs) == 1
-    assert "deleteText" in reqs[0]
+    assert len(batches) == 1 and len(batches[0]) == 1
+    assert "deleteText" in batches[0][0]
 
 
 @patch.object(hints, "_add_incomplete_banner", return_value=[{"should_not": "appear"}])
 def test_hint_mutations_respects_add_banner_false(mock_banner):
     muts = [hints._HintMutation("box1", None, "delete_shape")]
-    reqs, _ = hints.hint_mutations_to_batch_requests("pageZ", muts, add_banner=False)
-    assert reqs == [{"deleteObject": {"objectId": "box1"}}]
+    batches, _ = hints.hint_mutations_to_batch_requests("pageZ", muts, add_banner=False)
+    assert batches == [[{"deleteObject": {"objectId": "box1"}}]]
     mock_banner.assert_not_called()
 
 
 @patch.object(hints, "_add_incomplete_banner", return_value=[])
 def test_hint_mutations_delete_shape_emits_delete_object(mock_banner):
     muts = [hints._HintMutation("box1", None, "delete_shape")]
-    reqs, content_n = hints.hint_mutations_to_batch_requests("pageZ", muts)
+    batches, content_n = hints.hint_mutations_to_batch_requests("pageZ", muts)
     assert content_n == 1
-    assert reqs == [{"deleteObject": {"objectId": "box1"}}]
+    assert batches == [[{"deleteObject": {"objectId": "box1"}}]]
 
 
 @patch.object(hints, "_add_incomplete_banner", return_value=[{"banner": True}])
@@ -492,18 +521,19 @@ def test_hint_mutations_to_batch_requests(mock_banner):
             },
         }],
     }
-    reqs, content_n = hints.hint_mutations_to_batch_requests("pageZ", muts, slide=slide)
+    batches, content_n = hints.hint_mutations_to_batch_requests("pageZ", muts, slide=slide)
     assert content_n == 3
-    assert reqs[-1] == {"banner": True}
+    flat = _flat_hint_batches(batches)
+    assert flat[-1] == {"banner": True}
     assert any(
         r.get("deleteText", {}).get("textRange", {}).get("startIndex") == 2
-        for r in reqs
+        for r in flat
     )
     assert any(
         r.get("insertText", {}).get("text") == hints.YELLOW_FIELD_PLACEHOLDER
-        for r in reqs
+        for r in flat
     )
-    assert any(r.get("updateTextStyle") for r in reqs[:-1])
+    assert any(r.get("updateTextStyle") for r in flat[:-1])
     mock_banner.assert_called_once()
     _args, kwargs = mock_banner.call_args
     assert _args[0] == "pageZ"

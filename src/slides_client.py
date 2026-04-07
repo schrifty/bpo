@@ -7353,7 +7353,7 @@ def create_cohort_deck(
     iteration is skipped entirely — the caller already computed it.
 
     Otherwise, when the resolved snapshot folder (``GOOGLE_QBR_GENERATOR_FOLDER_ID`` /
-    ``Portfolio cache`` or ``BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID``) has a fresh JSON
+    ``Cache`` (QBR generator subfolder) or ``BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID``) has a fresh JSON
     file (see ``pendo_portfolio_snapshot_drive``), it is used instead of calling Pendo.
     """
     if portfolio_report is not None:

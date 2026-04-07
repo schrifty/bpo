@@ -48,6 +48,9 @@ BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH = _psf in ("1", "true", "yes", "on")
 _psad = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_AUTO_DAILY", "true").strip().lower()
 BPO_PORTFOLIO_SNAPSHOT_AUTO_DAILY = _psad not in ("0", "false", "no", "off")
 BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ", "UTC").strip() or "UTC"
+# Pendo preload slice JSON on Drive (same folder as portfolio snapshot). Uses snapshot max-age / force-refresh.
+_ppc = os.environ.get("BPO_PENDO_PRELOAD_CACHE_DISABLED", "").strip().lower()
+BPO_PENDO_PRELOAD_CACHE_DISABLED = _ppc in ("1", "true", "yes", "on")
 # Optional: your email (folder owner) - transfer ownership so files count against your quota, not service account's
 GOOGLE_DRIVE_OWNER_EMAIL = os.environ.get("GOOGLE_DRIVE_OWNER_EMAIL")
 # Hydrate/evaluate: Google Group email (e.g. hydrate-deck@yourdomain.com). Must match Share exactly.

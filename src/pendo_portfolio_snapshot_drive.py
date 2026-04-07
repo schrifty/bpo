@@ -10,24 +10,28 @@ bundle time may barely change until Slides work shrinks (or you tune
 
 Snapshot folder resolution:
   1. ``BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID`` if set — explicit Drive folder id.
-  2. Else ``Portfolio cache`` under ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` (created if missing).
+  2. Else subfolder ``Cache`` under ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` (created if missing).
 
 Other env (see ``config``):
-  BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS — max age of snapshot to accept (default 36)
+  BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS — max age of snapshot to accept (default 36); also used for Pendo preload JSON cache
   BPO_PORTFOLIO_SNAPSHOT_DISABLED=1  — never read snapshot; always compute from Pendo
-  BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH=1 — ignore snapshot for this process (compute + still can upload)
+  BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH=1 — ignore snapshot for this process (compute + still can upload); also skips reading Pendo preload cache
   BPO_PORTFOLIO_SNAPSHOT_AUTO_DAILY — when true (default), each QBR run ensures Drive has a snapshot
     for the current calendar day in BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ (default UTC); set to 0/false/off to disable.
   BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ — IANA zone for “today” (e.g. America/New_York).
 
-Also stores ``data_field_synonyms.json`` in the same folder (repo is pushed on first load
-per process; hydrate reads Drive first with local fallback).
+Also stores ``data_field_synonyms.json`` and ``pendo_preload_v1_*.json`` slice caches in the same folder.
+Synonyms: repo is pushed on first load per process; hydrate reads Drive first with local fallback.
+If you previously used the folder name ``Portfolio cache``, rename it to ``Cache`` in Drive or set
+``BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID`` to the old folder so existing files remain visible.
 """
 
 from __future__ import annotations
 
 import io
 import json
+import ssl
+import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -56,7 +60,7 @@ from .qa import qa
 PORTFOLIO_SNAPSHOT_SCHEMA_VERSION = 1
 _SNAPSHOT_PREFIX = f"portfolio_snapshot_v{PORTFOLIO_SNAPSHOT_SCHEMA_VERSION}"
 # Subfolder under GOOGLE_QBR_GENERATOR_FOLDER_ID when BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID is unset.
-PORTFOLIO_SNAPSHOT_CACHE_FOLDER_NAME = "Portfolio cache"
+PORTFOLIO_SNAPSHOT_CACHE_FOLDER_NAME = "Cache"
 DATA_FIELD_SYNONYMS_FILENAME = "data_field_synonyms.json"
 
 _UNRESOLVED = object()
@@ -172,6 +176,33 @@ def _read_drive_file_text(file_id: str) -> str:
     return buf.getvalue().decode("utf-8")
 
 
+def _drive_io_transient(e: BaseException) -> bool:
+    if isinstance(e, ssl.SSLError):
+        return True
+    if isinstance(e, (BrokenPipeError, ConnectionError, TimeoutError)):
+        return True
+    msg = str(e).lower()
+    return (
+        "ssl" in msg
+        or "record layer" in msg
+        or "connection reset" in msg
+        or "remote end closed" in msg
+    )
+
+
+def _read_drive_file_text_retrying(file_id: str, *, attempts: int = 4) -> str:
+    last: BaseException | None = None
+    for i in range(attempts):
+        try:
+            return _read_drive_file_text(file_id)
+        except Exception as e:
+            last = e
+            if not _drive_io_transient(e) or i >= attempts - 1:
+                raise
+            time.sleep(0.35 * (i + 1))
+    raise AssertionError(last)  # pragma: no cover
+
+
 _data_field_synonyms_sync_ran = False
 
 
@@ -181,7 +212,7 @@ def local_data_field_synonyms_path() -> Path:
 
 
 def ensure_data_field_synonyms_repo_on_drive() -> None:
-    """Once per process: ensure Portfolio cache has the repo copy of ``data_field_synonyms.json``.
+    """Once per process: ensure QBR Cache folder has the repo copy of ``data_field_synonyms.json``.
 
     Same idea as ``ensure_drive_config_matches_repo`` for YAML: local repo wins when content
     differs or the Drive file is missing. No-op when snapshot folder is not configured.
@@ -192,7 +223,7 @@ def ensure_data_field_synonyms_repo_on_drive() -> None:
     _data_field_synonyms_sync_ran = True
     folder_id = resolve_portfolio_snapshot_folder_id()
     if not folder_id:
-        logger.debug("data_field_synonyms: no portfolio cache folder — skip Drive sync")
+        logger.debug("data_field_synonyms: no QBR cache folder — skip Drive sync")
         return
     local_path = local_data_field_synonyms_path()
     if not local_path.is_file():
@@ -208,11 +239,11 @@ def ensure_data_field_synonyms_repo_on_drive() -> None:
         if not fid:
             _upload_data_field_synonyms_bytes(local_text.encode("utf-8"), folder_id, file_id=None)
             logger.info(
-                "data_field_synonyms: uploaded %r to portfolio cache folder",
+                "data_field_synonyms: uploaded %r to QBR cache folder",
                 DATA_FIELD_SYNONYMS_FILENAME,
             )
             return
-        drive_text = _read_drive_file_text(fid)
+        drive_text = _read_drive_file_text_retrying(fid)
         if config_text_matches_local(local_text, drive_text):
             logger.debug("data_field_synonyms: Drive copy matches repo — no upload")
             return
@@ -265,7 +296,7 @@ def load_data_field_synonyms_document(*, allow_drive: bool = True) -> tuple[dict
             try:
                 fid = find_file_in_folder(DATA_FIELD_SYNONYMS_FILENAME, folder_id, mime_type=None)
                 if fid:
-                    text = _read_drive_file_text(fid)
+                    text = _read_drive_file_text_retrying(fid)
                     try:
                         data = json.loads(text)
                     except json.JSONDecodeError as e:
@@ -277,7 +308,7 @@ def load_data_field_synonyms_document(*, allow_drive: bool = True) -> tuple[dict
                             f"Drive {DATA_FIELD_SYNONYMS_FILENAME} parse error — using local",
                             expected="valid JSON",
                             actual=str(e)[:120],
-                            sources=(f"Portfolio cache/{DATA_FIELD_SYNONYMS_FILENAME}", str(local_path)),
+                            sources=(f"Cache/{DATA_FIELD_SYNONYMS_FILENAME}", str(local_path)),
                             internal=True,
                             severity="error",
                         )
@@ -292,7 +323,7 @@ def load_data_field_synonyms_document(*, allow_drive: bool = True) -> tuple[dict
                         f"Drive {DATA_FIELD_SYNONYMS_FILENAME} invalid shape — using local",
                         expected="object with entries[]",
                         actual=type(data).__name__,
-                        sources=(f"Portfolio cache/{DATA_FIELD_SYNONYMS_FILENAME}", str(local_path)),
+                        sources=(f"Cache/{DATA_FIELD_SYNONYMS_FILENAME}", str(local_path)),
                         internal=True,
                         severity="error",
                     )
