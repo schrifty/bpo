@@ -9,6 +9,7 @@ from src.salesforce_client import (
     _parse_salesforce_rest_errors,
     _soql_like_literal,
     _strip_sf_attributes,
+    clear_salesforce_read_cache,
 )
 from src.slides_client import _build_slide_jql_speaker_notes, _filter_salesforce_comprehensive_slide_plan
 
@@ -49,6 +50,33 @@ def test_parse_salesforce_rest_errors_extracts_query_message():
     msg = _parse_salesforce_rest_errors(r)
     assert "INVALID_FIELD" in msg
     assert "Foo__c" in msg
+
+
+def test_query_soql_hits_read_cache_second_call(monkeypatch):
+    import src.salesforce_client as sfc
+
+    monkeypatch.setattr(sfc, "BPO_SALESFORCE_CACHE_TTL_SECONDS", 86400)
+    monkeypatch.setattr(sfc, "BPO_SALESFORCE_CACHE_FORCE_REFRESH", False)
+    clear_salesforce_read_cache()
+    client = SalesforceClient()
+    client._token = "t"
+    client._instance_url = "https://example.salesforce.com"
+
+    good = requests.Response()
+    good.status_code = 200
+    good._content = b'{"records":[{"Id":"001","x":1}],"done":true}'
+    good.headers["Content-Type"] = "application/json"
+
+    with patch("src.salesforce_client.requests.get", return_value=good) as g:
+        r1 = client.query_soql("SELECT Id FROM Account LIMIT 1")
+        r2 = client.query_soql("SELECT Id FROM Account LIMIT 1")
+    assert g.call_count == 1
+    assert r1[0]["Id"] == r2[0]["Id"] == "001"
+    r1[0]["x"] = 99
+    with patch("src.salesforce_client.requests.get", return_value=good) as g2:
+        r3 = client.query_soql("SELECT Id FROM Account LIMIT 1")
+    assert g2.call_count == 0
+    assert r3[0].get("x") == 1
 
 
 def test_query_mainstream_object_retries_with_fallback_fields_on_400():

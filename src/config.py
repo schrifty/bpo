@@ -77,6 +77,17 @@ SF_CONSUMER_KEY = os.environ.get("SF_CONSUMER_KEY")  # Connected App Consumer Ke
 SF_USERNAME = os.environ.get("SF_USERNAME")  # Integration user username
 SF_PRIVATE_KEY = os.environ.get("SF_PRIVATE_KEY")  # PEM string (or use SF_PRIVATE_KEY_PATH)
 SF_PRIVATE_KEY_PATH = os.environ.get("SF_PRIVATE_KEY_PATH")  # Path to server.key
+# Salesforce read cache: SOQL results, global sObject describe, COUNT() totals. Default 48h.
+try:
+    _sf_cache_hours = float(os.environ.get("BPO_SALESFORCE_CACHE_TTL_HOURS", "48").strip())
+except ValueError:
+    _sf_cache_hours = 48.0
+BPO_SALESFORCE_CACHE_TTL_SECONDS = max(0, int(_sf_cache_hours * 3600))
+_sfc_off = os.environ.get("BPO_SALESFORCE_CACHE_DISABLED", "").strip().lower()
+if _sfc_off in ("1", "true", "yes", "on"):
+    BPO_SALESFORCE_CACHE_TTL_SECONDS = 0
+_sfc_fr = os.environ.get("BPO_SALESFORCE_CACHE_FORCE_REFRESH", "").strip().lower()
+BPO_SALESFORCE_CACHE_FORCE_REFRESH = _sfc_fr in ("1", "true", "yes", "on")
 
 # Optional limits for tool output (0 = no limit, full dataset returned)
 PENDO_MAX_RESULTS = int(os.environ.get("PENDO_MAX_RESULTS", "0"))

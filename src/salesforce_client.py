@@ -4,8 +4,14 @@ Authenticates with a Connected App via JWT signed by a private key.
 Queries Account (Entity Contract) and Opportunity (creation count, pipeline ARR).
 Also exposes SOQL helpers for common standard objects (see MAINSTREAM_OBJECT_FIELDS)
 and ``get_customer_salesforce_comprehensive`` for deck-sized multi-object exports.
+
+Read responses (SOQL record lists, global sObject describe, COUNT totals) are cached
+in-process for ``BPO_SALESFORCE_CACHE_TTL_HOURS`` (default 48). JWT tokens are not cached here.
 """
 
+import copy
+import hashlib
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -13,6 +19,8 @@ from typing import Any
 import requests
 
 from .config import (
+    BPO_SALESFORCE_CACHE_FORCE_REFRESH,
+    BPO_SALESFORCE_CACHE_TTL_SECONDS,
     SF_LOGIN_URL,
     SF_CONSUMER_KEY,
     SF_USERNAME,
@@ -20,6 +28,41 @@ from .config import (
     SF_PRIVATE_KEY_PATH,
     logger,
 )
+
+_SF_READ_CACHE_LOCK = threading.Lock()
+_sf_read_cache: dict[str, tuple[float, Any]] = {}
+
+
+def clear_salesforce_read_cache() -> None:
+    """Drop cached Salesforce read responses (SOQL, describe, counts). For tests and debugging."""
+    with _SF_READ_CACHE_LOCK:
+        _sf_read_cache.clear()
+
+
+def _sf_cache_key(kind: str, payload: str) -> str:
+    return f"sf:{kind}:{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
+
+
+def _sf_read_cache_get(key: str) -> Any | None:
+    if BPO_SALESFORCE_CACHE_FORCE_REFRESH or BPO_SALESFORCE_CACHE_TTL_SECONDS <= 0:
+        return None
+    now = time.time()
+    with _SF_READ_CACHE_LOCK:
+        hit = _sf_read_cache.get(key)
+        if not hit:
+            return None
+        ts, val = hit
+        if now - ts > BPO_SALESFORCE_CACHE_TTL_SECONDS:
+            del _sf_read_cache[key]
+            return None
+        return copy.deepcopy(val)
+
+
+def _sf_read_cache_set(key: str, val: Any) -> None:
+    if BPO_SALESFORCE_CACHE_FORCE_REFRESH or BPO_SALESFORCE_CACHE_TTL_SECONDS <= 0:
+        return
+    with _SF_READ_CACHE_LOCK:
+        _sf_read_cache[key] = (time.time(), copy.deepcopy(val))
 
 # Account (Entity Contract): Type = 'Customer Entity'
 ACCOUNT_FIELDS = (
@@ -280,8 +323,8 @@ class SalesforceClient:
         self._token = data["access_token"]
         self._instance_url = data["instance_url"].rstrip("/")
 
-    def _query(self, soql: str) -> list[dict]:
-        """Run SOQL query and return list of records."""
+    def _query_uncached(self, soql: str) -> list[dict]:
+        """Run SOQL query and return list of records (no read cache)."""
         self._ensure_token()
         url = f"{self._instance_url}/services/data/{SF_REST_API_VERSION}/query"
         params = {"q": soql}
@@ -307,12 +350,26 @@ class SalesforceClient:
                 req_url = None
         return out
 
+    def _query(self, soql: str) -> list[dict]:
+        """Run SOQL query and return list of records (cached per ``BPO_SALESFORCE_CACHE_TTL_*``)."""
+        key = _sf_cache_key("rec", soql)
+        cached = _sf_read_cache_get(key)
+        if cached is not None:
+            return cached
+        out = self._query_uncached(soql)
+        _sf_read_cache_set(key, out)
+        return out
+
     def query_soql(self, soql: str) -> list[dict[str, Any]]:
         """Public: run arbitrary SOQL (same as internal query runner)."""
         return self._query(soql)
 
     def list_sobject_types(self) -> list[dict[str, Any]]:
         """Return global describe list (``sobjects``) — name, label, custom flags, etc."""
+        key = _sf_cache_key("describe", f"{SF_REST_API_VERSION}/sobjects/")
+        cached = _sf_read_cache_get(key)
+        if cached is not None:
+            return cached
         self._ensure_token()
         url = f"{self._instance_url}/services/data/{SF_REST_API_VERSION}/sobjects/"
         resp = requests.get(
@@ -321,7 +378,9 @@ class SalesforceClient:
             timeout=30,
         )
         resp.raise_for_status()
-        return resp.json().get("sobjects", [])
+        objs = resp.json().get("sobjects", [])
+        _sf_read_cache_set(key, objs)
+        return objs
 
     def get_queryable_sobject_names(self) -> frozenset[str]:
         """API names of sObjects the current user may query (``queryable`` on global describe).
@@ -501,13 +560,19 @@ class SalesforceClient:
             f"WHERE AccountId IN ({ids_comma}) AND Type IN ({types_comma}) "
             f"AND CALENDAR_YEAR(CreatedDate) = {time.gmtime().tm_year}"
         )
+        key = _sf_cache_key("cnt", soql)
+        cached = _sf_read_cache_get(key)
+        if cached is not None:
+            return int(cached)
         self._ensure_token()
         url = f"{self._instance_url}/services/data/{SF_REST_API_VERSION}/query"
         resp = requests.get(
             url, params={"q": soql}, headers={"Authorization": f"Bearer {self._token}"}, timeout=30
         )
         resp.raise_for_status()
-        return resp.json().get("totalSize", 0)
+        n = resp.json().get("totalSize", 0)
+        _sf_read_cache_set(key, n)
+        return n
 
     def get_advanced_pipeline_arr(self, account_ids: list[str]) -> float:
         """Sum ARR__c for Opportunities in pipeline stages for given Account IDs."""
