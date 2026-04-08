@@ -21,7 +21,7 @@ from .config import (
     llm_client,
     logger,
 )
-from .evaluate import _llm_create_with_retry, _strip_json_code_fence
+from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
 
 # Compact payload for the model (avoid sending full site lists).
 _PAYLOAD_MAX_HEURISTIC = 24

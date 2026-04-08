@@ -34,7 +34,7 @@ from .evaluate import (
     _set_cached_slide_analysis,
     _slide_content_hash,
 )
-from .slides_client import _get_service
+from .slides_api import _get_service
 
 
 def _scan_max_slides_per_deck() -> int | None:

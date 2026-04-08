@@ -29,13 +29,8 @@ from .drive_config import (
     find_file_in_folder,
     _find_or_create_folder,
 )
-from .evaluate import (
-    _detect_customer,
-    _extract_text,
-    _llm_create_with_retry,
-    _strip_json_code_fence,
-    adapt_custom_slides,
-)
+from .evaluate import _detect_customer, _extract_text, adapt_custom_slides
+from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
 from .pendo_client import PendoClient
 from .pendo_portfolio_snapshot_drive import (
     ensure_daily_portfolio_snapshot_for_qbr,

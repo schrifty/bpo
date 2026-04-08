@@ -51,7 +51,7 @@ def _get_drive():
     global _drive_service
     with _drive_lock:
         if _drive_service is None:
-            from .slides_client import _get_service
+            from .slides_api import _get_service
             _x2, _drive_service, _sh2 = _get_service()
         return _drive_service
 

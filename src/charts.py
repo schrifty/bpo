@@ -16,9 +16,19 @@ from typing import Any
 from googleapiclient.errors import HttpError
 
 from .config import GOOGLE_DRIVE_FOLDER_ID, logger
-from .slides_client import (
-    _get_service, NAVY, BLUE, TEAL, LTBLUE, MINT, GRAY, WHITE,
-    MARGIN, BODY_Y, BODY_BOTTOM, CONTENT_W,
+from .slides_api import _get_service
+from .slides_theme import (
+    NAVY,
+    BLUE,
+    TEAL,
+    LTBLUE,
+    MINT,
+    GRAY,
+    WHITE,
+    MARGIN,
+    BODY_Y,
+    BODY_BOTTOM,
+    CONTENT_W,
 )
 
 PT_TO_EMU = 12700
@@ -482,7 +492,7 @@ def _build_sheets_service():
     The drive scope (already authorized for domain-wide delegation) covers
     Sheets API access, so we reuse the same credential chain as Slides/Drive.
     """
-    from .slides_client import _get_service
+    from .slides_api import _get_service
     from googleapiclient.discovery import build
 
     slides_svc, _d2, _s2 = _get_service()
@@ -495,7 +505,7 @@ def _get_chart_folder() -> str | None:
     if not GOOGLE_DRIVE_FOLDER_ID:
         return None
 
-    from .slides_client import _get_service
+    from .slides_api import _get_service
     _x, drive, _sh = _get_service()
 
     q = (

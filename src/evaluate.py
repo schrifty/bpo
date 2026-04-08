@@ -39,6 +39,7 @@ from .data_field_synonyms import (
     data_summary_lookup,
     data_summary_path_exists,
 )
+from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
 from .slides_client import (
     SLIDE_DATA_REQUIREMENTS,
     _box,
@@ -71,19 +72,6 @@ def _slide_content_hash(thumb_b64: str | None, text_snapshot: str = "", page_id:
     if text_snapshot:
         return hashlib.sha256(prefix + text_snapshot.encode("utf-8")).hexdigest()
     return None
-
-
-def _strip_json_code_fence(raw: str) -> str:
-    """Remove optional ```json ... ``` wrapper so json.loads succeeds."""
-    s = (raw or "").strip()
-    if not s.startswith("```"):
-        return s
-    lines = s.split("\n")
-    if lines and lines[0].startswith("```"):
-        lines = lines[1:]
-    if lines and lines[-1].strip() == "```":
-        lines = lines[:-1]
-    return "\n".join(lines).strip()
 
 
 _BROAD_ANALYSIS_MAX_TOKENS = 8192
@@ -1685,58 +1673,6 @@ _ADAPT_SYSTEM_PROMPT = (
     "Keep 'field' values short (≤10 words). "
     "Return an EMPTY replacements list if the slide has no data values to replace."
 )
-
-
-def _llm_create_with_retry(client, max_retries: int = 3, **kwargs):
-    """Call client.chat.completions.create with exponential backoff on 429."""
-    import re as _re
-    from openai import NotFoundError, RateLimitError
-    from .config import LLM_MODEL, LLM_PROVIDER
-
-    delay = 30
-    for attempt in range(max_retries):
-        try:
-            return client.chat.completions.create(**kwargs)
-        except NotFoundError as e:
-            logger.error(
-                "LLM model not found (%s / %s). "
-                "Update LLM_MODEL in src/config.py or check the provider's model list. Error: %s",
-                LLM_PROVIDER, LLM_MODEL, str(e)[:200],
-            )
-            raise
-        except RateLimitError as e:
-            err_str = str(e)
-            # Detect hard quota exhaustion (limit: 0) vs. transient rate limit
-            hard_quota = "limit: 0" in err_str or "insufficient_quota" in err_str
-
-            if hard_quota:
-                if LLM_PROVIDER == "gemini":
-                    logger.error(
-                        "LLM quota exhausted (Gemini free tier). "
-                        "Fix: go to console.cloud.google.com, enable billing on the project "
-                        "that owns your GEMINI_API_KEY, then re-run. "
-                        "Or set LLM_PROVIDER=openai in .env to use OpenAI instead."
-                    )
-                else:
-                    logger.error(
-                        "LLM quota exhausted (OpenAI). "
-                        "Fix: add credits at platform.openai.com/settings/organization/billing, "
-                        "or set LLM_PROVIDER=gemini in .env to use Gemini instead."
-                    )
-                raise  # no point retrying a hard quota error
-
-            if attempt == max_retries - 1:
-                logger.error("LLM rate limit hit %d times, giving up. Error: %s",
-                             max_retries, err_str[:300])
-                raise
-
-            m = _re.search(r"retry in (\d+(?:\.\d+)?)s", err_str)
-            wait = int(float(m.group(1))) + 2 if m else delay
-            logger.warning("LLM rate limit — retrying in %ds (attempt %d/%d)...",
-                           wait, attempt + 1, max_retries)
-            time.sleep(wait)
-            delay *= 2
-    return None  # unreachable
 
 
 def _element_may_contain_data(el: dict) -> bool:
