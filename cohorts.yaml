@@ -803,6 +803,27 @@ cohorts:
   # ════════════════════════════════════════════════
   # EXCLUDED — test, internal, duplicate, or ambiguous accounts
   # ════════════════════════════════════════════════
+  By:
+    exclude: true
+    notes: "False customer prefix — Pendo sitename(s) whose first word is 'By' (e.g. 'By …'); not a real account key."
+  LOB:
+    exclude: true
+    notes: "False customer prefix — Pendo sitename first word is not a real account key (e.g. line-of-business label)."
+  Manual:
+    exclude: true
+    notes: "False customer prefix — Pendo sitename first word is not a real account key."
+  Override:
+    exclude: true
+    notes: "False customer prefix — Pendo sitename first word is not a real account key."
+  Prefixed:
+    exclude: true
+    notes: "False customer prefix — Pendo sitename first word is not a real account key."
+  Professional:
+    exclude: true
+    notes: "False customer prefix — Pendo sitename first word is not a real account key."
+  Automated:
+    exclude: true
+    notes: "Automation/internal account; often no matching Pendo visitors for portfolio."
   Support:
     exclude: true
     notes: "Internal LeanDNA support/test account."

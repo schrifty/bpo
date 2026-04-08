@@ -40,6 +40,7 @@ SLIDE_PAGINATING_SLIDE_TYPES: frozenset[str] = frozenset({
     "support_recent_opened",
     "support_recent_closed",
     "cohort_profiles",
+    "cohort_findings",
 })
 
 

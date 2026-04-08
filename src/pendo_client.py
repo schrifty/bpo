@@ -199,6 +199,23 @@ def get_customer_cohort(customer_prefix: str) -> dict[str, Any]:
     return info
 
 
+def customer_is_excluded_from_portfolio(customer_prefix: str) -> bool:
+    """True if portfolio/cohort rollup should not fetch a summary for this Pendo customer prefix.
+
+    Uses the same **exclude: true** block in ``cohorts.yaml`` as benchmarking (see docs/CUSTOMER_COHORTS.md),
+    plus optional env ``BPO_PORTFOLIO_EXCLUDE_CUSTOMERS`` (comma-separated prefixes, e.g. ``Automated,Foo``).
+    Excluded names are dropped before ``get_customer_health`` so missing-visitor errors are not logged as ERROR.
+    """
+    raw = os.environ.get("BPO_PORTFOLIO_EXCLUDE_CUSTOMERS", "")
+    extras = {x.strip() for x in raw.split(",") if x.strip()}
+    if customer_prefix in extras:
+        return True
+    data = _load_cohorts()
+    canonical = _alias_map.get(customer_prefix, customer_prefix)
+    info = data.get(canonical, {})
+    return isinstance(info, dict) and bool(info.get("exclude"))
+
+
 _COHORT_DISPLAY = {
     "aerospace_defense": "Aerospace & Defense",
     "hvac_building": "HVAC & Building Systems",
@@ -280,14 +297,54 @@ def compute_cohort_portfolio_rollup(
     if not customer_summaries:
         bullets.append("No customers in the portfolio window — rerun with a valid Pendo period.")
         return digest, bullets
+
+    total_users_all = sum(int(s.get("total_users") or 0) for s in customer_summaries)
+    total_active_all = sum(int(s.get("active_users") or 0) for s in customer_summaries)
+    n_cust = len(customer_summaries)
+    bullets.append(
+        f"Portfolio (this window): {n_cust} customers · {total_users_all:,} total users · "
+        f"{total_active_all:,} active (7d).",
+    )
+
+    def _fmt_pct(v: float | None) -> str:
+        if v is None:
+            return "—"
+        return f"{round(float(v), 1)}%"
+
+    def _fmt_num(v: float | None) -> str:
+        if v is None:
+            return "—"
+        x = float(v)
+        if abs(x - round(x)) < 1e-9:
+            return str(int(round(x)))
+        s = f"{x:.1f}".rstrip("0").rstrip(".")
+        return s or "0"
+
+    max_cohort_lines = 24
+    cohort_lines = 0
+    for _cid, d in with_data:
+        if cohort_lines >= max_cohort_lines:
+            rest = len(with_data) - cohort_lines
+            if rest > 0:
+                bullets.append(f"… plus {rest} more cohort bucket(s) in the digest (see cohort summary slide).")
+            break
+        ml = _fmt_pct(d.get("median_login_pct"))
+        mw = _fmt_pct(d.get("median_write_ratio"))
+        me = _fmt_num(d.get("median_exports"))
+        kei = d.get("kei_adoption_pct")
+        kei_s = f"{round(float(kei), 1)}%" if kei is not None else "—"
+        ta = int(d.get("total_active_users") or 0)
+        tu = int(d.get("total_users") or 0)
+        bullets.append(
+            f"{d['display_name']} ({d['n']} customers): weekly active median {ml} · "
+            f"write ratio median {mw} · exports median {me} · Kei adopters {kei_s} · "
+            f"{ta:,} active (7d) / {tu:,} users.",
+        )
+        cohort_lines += 1
+
     if len(with_data) < 2:
         bullets.append(
             "Only one cohort bucket has customers in this window — compare across cohorts when more accounts load.",
-        )
-    else:
-        largest = with_data[0]
-        bullets.append(
-            f"Largest cohort in this deck: {largest[1]['display_name']} ({largest[1]['n']} customers).",
         )
 
     ge3 = [(cid, d) for cid, d in with_data if d["n"] >= 3]
@@ -304,6 +361,13 @@ def compute_cohort_portfolio_rollup(
             bullets.append(
                 f"Median write ratio: highest {w_hi[1]['display_name']} ({w_hi[1]['median_write_ratio']}%) "
                 f"vs lowest {w_lo[1]['display_name']} ({w_lo[1]['median_write_ratio']}%).",
+            )
+        by_exp = sorted(ge3, key=lambda x: (x[1].get("median_exports") or 0), reverse=True)
+        e_hi, e_lo = by_exp[0], by_exp[-1]
+        if e_hi[0] != e_lo[0]:
+            bullets.append(
+                f"Median exports (30d): highest {e_hi[1]['display_name']} ({e_hi[1]['median_exports']}) "
+                f"vs lowest {e_lo[1]['display_name']} ({e_lo[1]['median_exports']}).",
             )
         by_kei = sorted(ge3, key=lambda x: x[1].get("kei_adoption_pct") or 0, reverse=True)
         k_hi, k_lo = by_kei[0], by_kei[-1]
@@ -2226,7 +2290,19 @@ class PendoClient:
 
         self.preload(days)
         by_customer = self.get_sites_by_customer(days)
-        all_names = [c for c in by_customer["customer_list"] if c != "(unknown)"]
+        raw_list = [c for c in by_customer["customer_list"] if c != "(unknown)"]
+        skipped_ex = [c for c in raw_list if customer_is_excluded_from_portfolio(c)]
+        all_names = [c for c in raw_list if c not in skipped_ex]
+        if skipped_ex:
+            preview = ", ".join(skipped_ex[:25])
+            if len(skipped_ex) > 25:
+                preview += ", …"
+            logger.info(
+                "Portfolio: skipping %d customer(s) excluded from portfolio (cohorts.yaml exclude "
+                "or BPO_PORTFOLIO_EXCLUDE_CUSTOMERS): %s",
+                len(skipped_ex),
+                preview,
+            )
         if max_customers:
             all_names = all_names[:max_customers]
 

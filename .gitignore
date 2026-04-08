@@ -32,3 +32,4 @@ decks/thumbnails/
 
 # Byte-compiled
 *.so
+src/pendo_client.py

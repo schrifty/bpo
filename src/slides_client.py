@@ -1052,8 +1052,8 @@ def _cohort_findings_pipeline_traces(report: dict[str, Any]) -> list[dict[str, s
         "description": "Cohort findings",
         "source": "Pendo (compute_cohort_portfolio_rollup)",
         "query": (
-            f"{len(bullets)} auto-generated finding(s) comparing cohorts on "
-            "median login %, write ratio, Kei adoption — derived from portfolio customer summaries"
+            f"{len(bullets)} bullet(s): portfolio totals, per-cohort medians (login, write, exports, Kei), "
+            "cross-cohort spreads — from full portfolio customer summaries in this report"
         ),
     }]
 
@@ -3742,24 +3742,40 @@ def _cohort_findings_slide(reqs, sid, report, idx):
     if not bullets:
         return _missing_data_slide(reqs, sid, report, idx, "cohort_findings_bullets")
 
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, LIGHT)
-    _slide_title(reqs, sid, "Notable findings — cohort differences")
-
-    y = float(BODY_Y)
-    for i, raw in enumerate(bullets[:9]):
-        line = raw if len(raw) <= 220 else raw[:217] + "…"
-        text = f"• {line}"
-        h = min(44.0, float(BODY_BOTTOM) - y - 8.0)
-        if h < 24:
-            break
-        oid = f"{sid}_f{i}"
-        _wrap_box(reqs, oid, sid, MARGIN, int(y), CONTENT_W, int(h), text)
-        _style(reqs, oid, 0, len(text), size=9, color=NAVY, font=FONT)
-        _style(reqs, oid, 0, 1, bold=True, size=10, color=BLUE, font=FONT)
-        y += h + 6.0
-
-    return idx + 1
+    max_rows = 12
+    chunks = _cap_chunk_list(
+        [bullets[i : i + max_rows] for i in range(0, len(bullets), max_rows)]
+    )
+    oids: list[str] = []
+    for pi, chunk in enumerate(chunks):
+        page_sid = f"{sid}_p{pi}" if len(chunks) > 1 else sid
+        oids.append(page_sid)
+        _slide(reqs, page_sid, idx + pi)
+        _bg(reqs, page_sid, LIGHT)
+        st = (
+            "Notable findings — cohort differences"
+            if len(chunks) == 1
+            else f"Notable findings — cohort differences ({pi + 1} of {len(chunks)})"
+        )
+        _slide_title(reqs, page_sid, st)
+        lines: list[str] = []
+        base = pi * max_rows
+        for i, raw in enumerate(chunk, start=base + 1):
+            line = raw if len(raw) <= 220 else raw[:217] + "…"
+            lines.append(f"{i}.   {line}")
+            lines.append("")
+        text = "\n".join(lines)
+        oid = f"{page_sid}_sig"
+        body_h = max(120, 290)
+        _box(reqs, oid, page_sid, MARGIN, BODY_Y, CONTENT_W, body_h, text)
+        _style(reqs, oid, 0, len(text), size=12, color=NAVY, font=FONT)
+        off = 0
+        for line in lines:
+            if line and line[0].isdigit():
+                dot = line.index(".")
+                _style(reqs, oid, off, off + dot + 1, bold=True, color=BLUE)
+            off += len(line) + 1
+    return idx + len(chunks), oids
 
 
 # ── Data Quality slide ──

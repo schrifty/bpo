@@ -50,7 +50,8 @@ def test_compute_cohort_portfolio_rollup_buckets_and_medians():
     assert digest["alpha"]["median_login_pct"] == 70.0
     assert digest["beta"]["median_login_pct"] == 40.0
     assert digest["alpha"]["kei_adoption_pct"] == 50.0
-    assert any("Largest cohort" in b for b in bullets)
+    assert any("Portfolio (this window)" in b for b in bullets)
+    assert any("Alpha" in b for b in bullets)
     assert any("unclassified" in b.lower() for b in bullets)
 
 
