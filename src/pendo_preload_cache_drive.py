@@ -1,10 +1,8 @@
 """Google Drive JSON cache for heavy Pendo ``PendoClient.preload`` slices (same folder as portfolio).
 
 Files live under ``resolve_portfolio_snapshot_folder_id()`` (QBR generator ``Cache`` subfolder or
-``BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID``). Staleness uses ``BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS`` and
-``BPO_DRIVE_CACHE_*`` (see ``pendo_portfolio_snapshot_drive.classify_drive_cache_age``). Reads are
-skipped when ``BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH`` is set. Disable file cache with
-``BPO_PENDO_PRELOAD_CACHE_DISABLED=1``.
+``BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID``). Age policy matches ``pendo_portfolio_snapshot_drive.classify_drive_cache_age``
+(7d fresh, weekday stale reuse, weekend refresh). Drive writes for existing files run on weekends only.
 
 Cached payloads are point-in-time snapshots (like the portfolio JSON): very fresh numbers may
 differ slightly from a live Pendo pull until the file ages out and is refetched.
@@ -21,12 +19,7 @@ from typing import Any
 
 from googleapiclient.http import MediaIoBaseUpload
 
-from .config import (
-    BPO_DRIVE_CACHE_WEEKEND_SCHEDULE,
-    BPO_PENDO_PRELOAD_CACHE_DISABLED,
-    BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH,
-    logger,
-)
+from .config import logger
 from .drive_config import _get_drive, drive_api_lock, find_file_in_folder
 from .pendo_portfolio_snapshot_drive import (
     _drive_io_transient,
@@ -110,18 +103,6 @@ def _validate_envelope(raw: Any, kind: str, days: int | None) -> dict[str, Any] 
 def try_load_pendo_preload_payload(kind: str, days: int | None) -> Any | None:
     """Return cached *payload* if a fresh JSON exists on Drive; else None."""
     name = pendo_preload_cache_filename(kind, days)
-    if BPO_PENDO_PRELOAD_CACHE_DISABLED:
-        logger.debug(
-            "Pendo preload cache: skip %r — BPO_PENDO_PRELOAD_CACHE_DISABLED",
-            name,
-        )
-        return None
-    if BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH:
-        logger.debug(
-            "Pendo preload cache: skip %r — BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH",
-            name,
-        )
-        return None
     folder_id = resolve_portfolio_snapshot_folder_id()
     if not folder_id:
         logger.info(
@@ -189,16 +170,12 @@ def try_load_pendo_preload_payload(kind: str, days: int | None) -> Any | None:
 
 def save_pendo_preload_payload(kind: str, days: int | None, payload: Any) -> None:
     """Write or replace a cache JSON on Drive (best-effort; logs failures)."""
-    if BPO_PENDO_PRELOAD_CACHE_DISABLED:
-        return
     folder_id = resolve_portfolio_snapshot_folder_id()
     if not folder_id:
         return
     name = pendo_preload_cache_filename(kind, days)
     if (
-        BPO_DRIVE_CACHE_WEEKEND_SCHEDULE
-        and not BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH
-        and find_file_in_folder(name, folder_id, mime_type=None)
+        find_file_in_folder(name, folder_id, mime_type=None)
         and not is_weekend_in_snapshot_tz()
     ):
         logger.info(
@@ -216,7 +193,12 @@ def save_pendo_preload_payload(kind: str, days: int | None, payload: Any) -> Non
         envelope["days"] = None
     else:
         envelope["days"] = int(days) if days is not None else None
-    body = json.dumps(envelope, ensure_ascii=False, indent=2, default=str).encode("utf-8")
+    body = json.dumps(
+        envelope,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
     with _SAVE_LOCK:
         last_err: BaseException | None = None
         for attempt in range(4):

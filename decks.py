@@ -33,8 +33,8 @@ Flag commands (utilities)
       folder: BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID if set, else "Cache" under QBR generator
       under GOOGLE_QBR_GENERATOR_FOLDER_ID. If you omit --days, uses the same
       calendar length as resolve_quarter() (matches default QBR cohort window).
-      QBR also auto-refreshes this file once per calendar day by default (see .env
-      BPO_PORTFOLIO_SNAPSHOT_AUTO_DAILY).
+      QBR may auto-refresh this snapshot on weekends when Drive needs an update (see
+      ``pendo_portfolio_snapshot_drive.ensure_daily_portfolio_snapshot_for_qbr``).
 
   decks --scan-fields [--db PATH] [--no-thumbnail] [--workers N] [--no-progress]
                       [-- <presentation-id-or-url> ...]

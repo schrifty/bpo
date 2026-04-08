@@ -13,12 +13,10 @@ Snapshot folder resolution:
   2. Else subfolder ``Cache`` under ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` (created if missing).
 
 Other env (see ``config``):
-  BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS — max age of snapshot to accept (default 36); also used for Pendo preload JSON cache
-  BPO_PORTFOLIO_SNAPSHOT_DISABLED=1  — never read snapshot; always compute from Pendo
-  BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH=1 — ignore snapshot for this process (compute + still can upload); also skips reading Pendo preload cache
-  BPO_PORTFOLIO_SNAPSHOT_AUTO_DAILY — when true (default), each QBR run ensures Drive has a snapshot
-    for the current calendar day in BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ (default UTC); set to 0/false/off to disable.
-  BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ — IANA zone for “today” (e.g. America/New_York).
+  BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ — IANA zone for weekend/weekday (Sat/Sun refresh) and calendar logic.
+
+Cache age policy is fixed in code: 7d fresh, 14d max weekday stale reuse, Drive writes for large JSON on weekends
+(see module constants ``DRIVE_CACHE_*``).
 
 Also stores ``data_field_synonyms.json`` and ``pendo_preload_v1_*.json`` slice caches in the same folder.
 Synonyms: repo is pushed on first load per process; hydrate reads Drive first with local fallback.
@@ -41,14 +39,8 @@ from zoneinfo import ZoneInfo
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 from .config import (
-    BPO_DRIVE_CACHE_STALE_MAX_AGE_HOURS,
-    BPO_DRIVE_CACHE_WEEKEND_SCHEDULE,
-    BPO_PORTFOLIO_SNAPSHOT_AUTO_DAILY,
     BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
-    BPO_PORTFOLIO_SNAPSHOT_DISABLED,
     BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID,
-    BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH,
-    BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS,
     GOOGLE_QBR_GENERATOR_FOLDER_ID,
     logger,
 )
@@ -66,6 +58,10 @@ _SNAPSHOT_PREFIX = f"portfolio_snapshot_v{PORTFOLIO_SNAPSHOT_SCHEMA_VERSION}"
 # Subfolder under GOOGLE_QBR_GENERATOR_FOLDER_ID when BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID is unset.
 PORTFOLIO_SNAPSHOT_CACHE_FOLDER_NAME = "Cache"
 DATA_FIELD_SYNONYMS_FILENAME = "data_field_synonyms.json"
+
+# Drive JSON cache policy (fixed; no env toggles): 7d fresh, 14d weekday stale cap, weekend refresh.
+DRIVE_CACHE_MAX_FRESH_AGE_HOURS = 168.0
+DRIVE_CACHE_STALE_CAP_AGE_HOURS = 336.0
 
 _UNRESOLVED = object()
 _resolved_generator_cache_folder_id: object | str | None = _UNRESOLVED
@@ -365,10 +361,6 @@ def try_load_portfolio_snapshot_for_request(
     max_age_hours: float | None = None,
 ) -> dict[str, Any] | None:
     """Load a fresh portfolio snapshot from Drive if configured and valid; else None."""
-    if BPO_PORTFOLIO_SNAPSHOT_DISABLED:
-        return None
-    if BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH:
-        return None
     folder_id = resolve_portfolio_snapshot_folder_id()
     if not folder_id:
         logger.debug(
@@ -408,7 +400,7 @@ def try_load_portfolio_snapshot_for_request(
         if age_h is None:
             logger.warning("Portfolio snapshot: could not determine age for %r — rejecting", name)
             return None
-        mf = max_age_hours if max_age_hours is not None else BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS
+        mf = max_age_hours if max_age_hours is not None else DRIVE_CACHE_MAX_FRESH_AGE_HOURS
         decision = classify_drive_cache_age(
             age_h,
             cache_name=name,
@@ -468,29 +460,15 @@ def classify_drive_cache_age(
 ) -> str:
     """Decide how to treat a Drive JSON cache by age (hours).
 
-    With ``BPO_DRIVE_CACHE_WEEKEND_SCHEDULE`` (default on):
-      * ``fresh`` — age ≤ ``BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS`` (default 7d).
-      * ``stale_ok`` — age between that and ``BPO_DRIVE_CACHE_STALE_MAX_AGE_HOURS`` on a weekday:
-        reuse payload until the next weekend refresh.
-      * ``reject`` — missing age, older than stale cap, or weekend in the stale band (refresh).
-
-    When weekend schedule is off, behavior matches the legacy rule: reject if age > max age only.
+    * ``fresh`` — age ≤ max fresh window (default ``DRIVE_CACHE_MAX_FRESH_AGE_HOURS``, 7d).
+    * ``stale_ok`` — age between that and ``DRIVE_CACHE_STALE_CAP_AGE_HOURS`` on a weekday:
+      reuse payload until the next weekend refresh.
+    * ``reject`` — missing age, older than stale cap, or weekend in the stale band (refresh).
     """
     if age_h is None:
         return "reject"
-    max_h = BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS if max_fresh_hours is None else max_fresh_hours
-    cap_h = BPO_DRIVE_CACHE_STALE_MAX_AGE_HOURS
-    if not BPO_DRIVE_CACHE_WEEKEND_SCHEDULE:
-        if age_h > max_h:
-            logger.info(
-                "%s: skip %r — stale or unknown age (%.1fh vs max %.1fh)",
-                log_label,
-                cache_name,
-                age_h,
-                max_h,
-            )
-            return "reject"
-        return "fresh"
+    max_h = DRIVE_CACHE_MAX_FRESH_AGE_HOURS if max_fresh_hours is None else max_fresh_hours
+    cap_h = DRIVE_CACHE_STALE_CAP_AGE_HOURS
     if age_h <= max_h:
         return "fresh"
     if age_h > cap_h:
@@ -532,19 +510,15 @@ def saved_at_to_calendar_date(saved_at: str) -> date | None:
 
 
 def ensure_daily_portfolio_snapshot_for_qbr(days: int, max_customers: int | None = None) -> None:
-    """If enabled and a snapshot folder exists, ensure Drive has a portfolio JSON when needed.
+    """If a snapshot folder exists, ensure Drive has a portfolio JSON when needed.
 
-    With ``BPO_DRIVE_CACHE_WEEKEND_SCHEDULE`` (default), auto-upload runs **only on Sat/Sun** in
-    ``BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ``. Weekdays skip the expensive crawl; rely on Drive read
-    (including stale weekday reuse) from ``try_load_portfolio_snapshot_for_request``.
+    Auto-upload runs **only on Sat/Sun** in ``BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ``. Weekdays skip the
+    expensive crawl; rely on Drive read (including stale weekday reuse) from
+    ``try_load_portfolio_snapshot_for_request``.
 
     Called after ``PendoClient.preload`` on QBR so portfolio crawl reuses warm caches.
     Failures are logged; QBR continues without snapshot for this run.
     """
-    if BPO_PORTFOLIO_SNAPSHOT_DISABLED:
-        return
-    if not BPO_PORTFOLIO_SNAPSHOT_AUTO_DAILY:
-        return
     folder_id = resolve_portfolio_snapshot_folder_id()
     if not folder_id:
         return
@@ -553,9 +527,9 @@ def ensure_daily_portfolio_snapshot_for_qbr(days: int, max_customers: int | None
 
     name = portfolio_snapshot_filename(days, max_customers)
 
-    if BPO_DRIVE_CACHE_WEEKEND_SCHEDULE and not is_weekend_in_snapshot_tz():
+    if not is_weekend_in_snapshot_tz():
         logger.info(
-            "QBR: portfolio snapshot auto-upload skipped (weekend-only schedule; weekday in %s)",
+            "Pendo: portfolio snapshot auto-upload skipped (weekend-only schedule; weekday in %s)",
             BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
         )
         return
@@ -563,14 +537,14 @@ def ensure_daily_portfolio_snapshot_for_qbr(days: int, max_customers: int | None
     existing = try_load_portfolio_snapshot_for_request(days, max_customers)
     if existing is not None:
         logger.info(
-            "QBR: portfolio snapshot %r already fresh enough on Drive — skip auto-upload",
+            "Pendo: portfolio snapshot %r already fresh enough on Drive — skip auto-upload",
             name,
         )
         return
 
     t0 = time.perf_counter()
     logger.info(
-        "QBR: auto-uploading portfolio snapshot %r (weekend refresh or missing; %s)...",
+        "Pendo: auto-uploading portfolio snapshot %r (weekend refresh or missing; %s)...",
         name,
         BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
     )
@@ -581,13 +555,13 @@ def ensure_daily_portfolio_snapshot_for_qbr(days: int, max_customers: int | None
         report = client.get_portfolio_report(days=days, max_customers=max_customers)
         upload_portfolio_snapshot_to_drive(report, folder_id, days, max_customers)
         logger.info(
-            "QBR: portfolio snapshot %r uploaded in %.1fs (%d customers)",
+            "Pendo: portfolio snapshot %r uploaded in %.1fs (%d customers)",
             name,
             time.perf_counter() - t0,
             report.get("customer_count", 0),
         )
     except Exception as e:
-        logger.warning("QBR: portfolio snapshot auto-upload failed (continuing QBR): %s", e)
+            logger.warning("Pendo: portfolio snapshot auto-upload failed (continuing): %s", e)
 
 
 def upload_portfolio_snapshot_to_drive(
@@ -600,9 +574,8 @@ def upload_portfolio_snapshot_to_drive(
 ) -> str:
     """Serialize *report* (from ``get_portfolio_report``) and create or replace the snapshot file.
 
-    When ``BPO_DRIVE_CACHE_WEEKEND_SCHEDULE`` is on, skips updating an **existing** file on weekdays
-    unless *force_weekday_write* is true (e.g. ``decks --upload-portfolio-snapshot``). New files
-    are always created.
+    Skips updating an **existing** file on weekdays unless *force_weekday_write* is true
+    (e.g. ``decks --upload-portfolio-snapshot``). New files are always created.
     """
     if report.get("type") != "portfolio":
         raise ValueError("report must be a portfolio dict from get_portfolio_report")
@@ -610,7 +583,7 @@ def upload_portfolio_snapshot_to_drive(
     payload = json.dumps(envelope, ensure_ascii=False, indent=2, default=str)
     name = portfolio_snapshot_filename(days, max_customers)
 
-    if BPO_DRIVE_CACHE_WEEKEND_SCHEDULE and not force_weekday_write:
+    if not force_weekday_write:
         existing_early = find_file_in_folder(name, folder_id, mime_type=None)
         if existing_early and not is_weekend_in_snapshot_tz():
             logger.info(

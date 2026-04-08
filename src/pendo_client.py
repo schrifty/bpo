@@ -49,6 +49,75 @@ def _time_series(days: int) -> dict[str, Any]:
     }
 
 
+def _merge_visitor_event_rows_by_dimension(
+    results: list[dict],
+    dimension_key: str,
+) -> list[dict]:
+    """Merge day-bucket time-series rows into one row per (visitorId, *dimension_key*).
+
+    Pendo returns many rows per visitor–dimension pair when ``timeSeries`` uses dayRange; our
+    consumers only sum ``numEvents`` / ``numMinutes``, so merging preserves totals in less RAM
+    and smaller Drive preload JSON.
+    """
+    merged: dict[tuple[str, str], dict[str, Any]] = {}
+    for ev in results:
+        if not isinstance(ev, dict):
+            continue
+        vid = ev.get("visitorId")
+        dim = ev.get(dimension_key)
+        key = (str(vid), str(dim))
+        ne = int(ev.get("numEvents") or 0)
+        nm = int(ev.get("numMinutes") or 0)
+        if key not in merged:
+            merged[key] = {
+                "visitorId": vid,
+                dimension_key: dim,
+                "numEvents": 0,
+                "numMinutes": 0,
+                "had_minutes": False,
+            }
+        m = merged[key]
+        m["numEvents"] += ne
+        m["numMinutes"] += nm
+        if ev.get("numMinutes") is not None:
+            m["had_minutes"] = True
+    out: list[dict] = []
+    for m in merged.values():
+        row: dict[str, Any] = {
+            "visitorId": m["visitorId"],
+            dimension_key: m[dimension_key],
+            "numEvents": m["numEvents"],
+        }
+        if m["had_minutes"] or m["numMinutes"] > 0:
+            row["numMinutes"] = m["numMinutes"]
+        out.append(row)
+    return out
+
+
+def _merge_guide_event_rows(results: list[dict]) -> list[dict]:
+    """Merge guide event time buckets; preserve counts per (visitorId, guideId, type)."""
+    merged: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for ev in results:
+        if not isinstance(ev, dict):
+            continue
+        vid = ev.get("visitorId")
+        gid = ev.get("guideId")
+        typ = ev.get("type", "?")
+        key = (str(vid), str(gid), str(typ))
+        # Historically each row counted as one event; buckets may repeat with numEvents.
+        n = int(ev.get("numEvents") or 0)
+        inc = n if n > 0 else 1
+        if key not in merged:
+            merged[key] = {
+                "visitorId": vid,
+                "guideId": gid,
+                "type": typ,
+                "numEvents": 0,
+            }
+        merged[key]["numEvents"] += inc
+    return list(merged.values())
+
+
 def _aggregate_customer_page_events(
     events: list[dict],
     visitor_ids: set[str],
@@ -1040,9 +1109,10 @@ class PendoClient:
                 self._page_events_cache_ts = time.time()
             return blob
         ts = _time_series(days)
-        results = self.aggregate([
+        raw = self.aggregate([
             {"source": {"pageEvents": None, "timeSeries": ts}},
         ]).get("results", [])
+        results = _merge_visitor_event_rows_by_dimension(raw, "pageId")
         with self._cache_lock:
             self._page_events_cache = {"days": days, "results": results}
             self._page_events_cache_ts = time.time()
@@ -1070,7 +1140,7 @@ class PendoClient:
         # subscription extract with ``events: None`` is enormous and slow; restrict to the
         # platform classes Kei can fire on (same spirit as get_track_events, but multi-surface).
         ts = _time_series(days)
-        results = self.aggregate([
+        raw = self.aggregate([
             {
                 "source": {
                     "events": {"eventClass": ["web", "ios", "android"]},
@@ -1078,6 +1148,7 @@ class PendoClient:
                 }
             },
         ]).get("results", [])
+        results = _merge_visitor_event_rows_by_dimension(raw, "pageId")
         with self._cache_lock:
             self._track_events_cache = {"days": days, "results": results}
             self._track_events_cache_ts = time.time()
@@ -1102,9 +1173,10 @@ class PendoClient:
                 self._guide_events_cache_ts = time.time()
             return blob
         ts = _time_series(days)
-        results = self.aggregate([
+        raw = self.aggregate([
             {"source": {"guideEvents": None, "timeSeries": ts}},
         ]).get("results", [])
+        results = _merge_guide_event_rows(raw)
         with self._cache_lock:
             self._guide_events_cache = {"days": days, "results": results}
             self._guide_events_cache_ts = time.time()
@@ -1793,9 +1865,10 @@ class PendoClient:
             return blob
 
         ts = _time_series(days)
-        results = self.aggregate([
+        raw = self.aggregate([
             {"source": {"featureEvents": None, "timeSeries": ts}},
         ]).get("results", [])
+        results = _merge_visitor_event_rows_by_dimension(raw, "featureId")
 
         with self._cache_lock:
             self._feat_events_cache = {"days": days, "results": results}
@@ -2052,11 +2125,12 @@ class PendoClient:
             if ev.get("visitorId") not in visitor_ids:
                 continue
             t = ev.get("type", "?")
-            by_type[t] = by_type.get(t, 0) + 1
+            w = int(ev.get("numEvents") or 0) or 1
+            by_type[t] = by_type.get(t, 0) + w
             gid = ev.get("guideId", "?")
             if gid not in by_guide:
                 by_guide[gid] = {}
-            by_guide[gid][t] = by_guide[gid].get(t, 0) + 1
+            by_guide[gid][t] = by_guide[gid].get(t, 0) + w
             users_with_guides.add(ev.get("visitorId"))
 
         seen = by_type.get("guideSeen", 0)

@@ -174,6 +174,32 @@ def test_orange_glyph_after_paragraph_marker_uses_indices_past_marker():
 
 
 @patch.object(hints, "_add_incomplete_banner", return_value=[])
+def test_two_non_touching_yellow_spans_one_batch_prevents_index_drift(mock_banner):
+    """Multiple replaces on the same shape must be one batchUpdate; sequential batches used stale indices."""
+    yellow = {"foregroundColor": {"opaqueColor": {"rgbColor": {"red": 1, "green": 1, "blue": 0}}}}
+    text_body = {
+        "textElements": [
+            {"textRun": {"content": "aa", "style": yellow}},
+            {"textRun": {"content": "        ", "style": {}}},
+            {"textRun": {"content": "bb", "style": yellow}},
+        ],
+    }
+    slide = {
+        "pageElements": [{
+            "objectId": "p1",
+            "shape": {"shapeProperties": {}, "text": text_body},
+        }],
+    }
+    muts = hints.collect_hint_mutations_from_slide(slide)
+    assert len(muts) == 2
+    batches, _ = hints.hint_mutations_to_batch_requests("pg", muts, add_banner=False, slide=slide)
+    replace_batches = [b for b in batches if any("deleteText" in r for r in b)]
+    assert len(replace_batches) == 1
+    flat = [r for r in replace_batches[0] if "deleteText" in r or "insertText" in r]
+    assert len(flat) == 4
+
+
+@patch.object(hints, "_add_incomplete_banner", return_value=[])
 def test_merge_touching_yellow_replaces_single_delete_span(mock_banner):
     """Overlapping/touching yellow runs must merge so batchUpdate delete indices stay valid."""
     yellow = {"foregroundColor": {"opaqueColor": {"rgbColor": {"red": 1, "green": 1, "blue": 0}}}}

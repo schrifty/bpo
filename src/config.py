@@ -35,30 +35,8 @@ GOOGLE_QBR_OUTPUT_PARENT_ID = os.environ.get("GOOGLE_QBR_OUTPUT_PARENT_ID", "").
 # Portfolio / cohort: optional override for JSON snapshot folder. If unset, snapshots live under
 # GOOGLE_QBR_GENERATOR_FOLDER_ID in a subfolder (see pendo_portfolio_snapshot_drive.resolve_portfolio_snapshot_folder_id).
 BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID", "").strip() or None
-try:
-    _psma = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS", "168").strip()
-    BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS = float(_psma)
-except ValueError:
-    BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS = 168.0
-# Hard cap (hours) for using a Drive cache on weekdays when it is past MAX_AGE but weekend refresh is pending.
-try:
-    _dcs = os.environ.get("BPO_DRIVE_CACHE_STALE_MAX_AGE_HOURS", "336").strip()
-    BPO_DRIVE_CACHE_STALE_MAX_AGE_HOURS = float(_dcs)
-except ValueError:
-    BPO_DRIVE_CACHE_STALE_MAX_AGE_HOURS = 336.0
-_dcw = os.environ.get("BPO_DRIVE_CACHE_WEEKEND_SCHEDULE", "true").strip().lower()
-BPO_DRIVE_CACHE_WEEKEND_SCHEDULE = _dcw not in ("0", "false", "no", "off")
-_psd = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_DISABLED", "").strip().lower()
-BPO_PORTFOLIO_SNAPSHOT_DISABLED = _psd in ("1", "true", "yes", "on")
-_psf = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH", "").strip().lower()
-BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH = _psf in ("1", "true", "yes", "on")
-# When true (default), QBR ensures Drive has a portfolio JSON for the current calendar day (see pendo_portfolio_snapshot_drive).
-_psad = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_AUTO_DAILY", "true").strip().lower()
-BPO_PORTFOLIO_SNAPSHOT_AUTO_DAILY = _psad not in ("0", "false", "no", "off")
+# IANA zone for weekend/weekday and calendar-day logic in ``pendo_portfolio_snapshot_drive`` (Drive cache refresh).
 BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ", "UTC").strip() or "UTC"
-# Pendo preload slice JSON on Drive (same folder as portfolio snapshot). Uses snapshot max-age / force-refresh.
-_ppc = os.environ.get("BPO_PENDO_PRELOAD_CACHE_DISABLED", "").strip().lower()
-BPO_PENDO_PRELOAD_CACHE_DISABLED = _ppc in ("1", "true", "yes", "on")
 # Optional: your email (folder owner) - transfer ownership so files count against your quota, not service account's
 GOOGLE_DRIVE_OWNER_EMAIL = os.environ.get("GOOGLE_DRIVE_OWNER_EMAIL")
 # Hydrate/evaluate: Google Group email (e.g. hydrate-deck@yourdomain.com). Must match Share exactly.

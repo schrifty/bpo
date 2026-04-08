@@ -600,6 +600,9 @@ def _clamp_utf16_range_to_text_body(
     if not text_body or not text_body.get("textElements"):
         return None
     mx = _text_body_max_exclusive_index(text_body)
+    span_max = max((e for _, e, _, _ in iter_text_run_spans(text_body)), default=0)
+    if span_max > 0:
+        mx = min(mx, span_max)
     end = min(int(end), mx)
     start = max(0, min(int(start), end))
     if start >= end:
@@ -616,9 +619,10 @@ def hint_mutations_to_batch_requests(
 ) -> tuple[list[list[dict[str, Any]]], int]:
     """Return (batches, content_request_count excluding banner).
 
-    ``batches`` must be applied **in order** via separate ``batchUpdate`` calls. Slides applies
-    each request sequentially; multiple ``deleteText``/``insertText`` pairs in one batch leave
-    later indices stale vs the snapshot (400: end index past length / start past length).
+    ``batches`` must be applied **in order** via separate ``batchUpdate`` calls. For each text
+    target, all ``replace`` operations are merged into **one** batch with deletes ordered by
+    descending ``start`` (right-to-left). Otherwise each sub-batch would use the same pre-edit
+    snapshot while earlier sub-batches already mutated the slide (400: index past length).
     """
     if not muts:
         return [], 0
@@ -705,6 +709,8 @@ def hint_mutations_to_batch_requests(
             if slide is not None
             else None
         )
+        combined_replace: list[dict[str, Any]] = []
+        single_span = len(repl) == 1
         for x in repl:
             cl = _clamp_utf16_range_to_text_body(text_body, x.start, x.end)
             if cl is None:
@@ -743,23 +749,28 @@ def hint_mutations_to_batch_requests(
                     "rowIndex": cell["rowIndex"],
                     "columnIndex": cell["columnIndex"],
                 }
-            one_replace: list[dict[str, Any]] = [del_req]
+            combined_replace.append(del_req)
             if x.replacement:
-                one_replace.append(ins_req)
+                combined_replace.append(ins_req)
                 ins_len = _utf16_code_units(x.replacement)
-                if ins_len > 0 and x.replacement == YELLOW_FIELD_PLACEHOLDER:
+                if (
+                    single_span
+                    and ins_len > 0
+                    and x.replacement == YELLOW_FIELD_PLACEHOLDER
+                ):
                     style_end = start_i + ins_len
                     if text_body is not None:
                         mx0 = _text_body_max_exclusive_index(text_body)
                         new_len = mx0 - (end_i - start_i) + ins_len
                         style_end = min(style_end, new_len)
                     if start_i < style_end:
-                        one_replace.append(
+                        combined_replace.append(
                             _req_clear_template_text_cue_style(
                                 oid, cell, start_i, style_end, orange_text=False
                             )
                         )
-            replace_batches.append(one_replace)
+        if combined_replace:
+            replace_batches.append(combined_replace)
 
     batches: list[list[dict[str, Any]]] = []
     if prefix_reqs:

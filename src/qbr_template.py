@@ -588,7 +588,6 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
     days = qr.days
     pc = PendoClient()
     try:
-        logger.info("QBR: preloading Pendo data for %d-day window…", days)
         pc.preload(days)
         partition = pc._get_visitor_partition(days)
         known = sorted(c for c in partition.get("all_customer_stats", {}) if c != "?")
