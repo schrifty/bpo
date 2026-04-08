@@ -63,6 +63,9 @@ SF_CONSUMER_KEY = os.environ.get("SF_CONSUMER_KEY")  # Connected App Consumer Ke
 SF_USERNAME = os.environ.get("SF_USERNAME")  # Integration user username
 SF_PRIVATE_KEY = os.environ.get("SF_PRIVATE_KEY")  # PEM string (or use SF_PRIVATE_KEY_PATH)
 SF_PRIVATE_KEY_PATH = os.environ.get("SF_PRIVATE_KEY_PATH")  # Path to server.key
+# Optional: API name of the Account lookup to Ultimate Parent (e.g. Ultimate_Parent_Account__c).
+# When set, entity Account SOQL also selects Parent + Ultimate Parent names for matching ARR.
+SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP = os.environ.get("SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP", "").strip()
 # Salesforce read cache: SOQL results, global sObject describe, COUNT() totals. Default 48h.
 try:
     _sf_cache_hours = float(os.environ.get("BPO_SALESFORCE_CACHE_TTL_HOURS", "48").strip())

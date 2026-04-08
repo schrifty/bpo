@@ -21,6 +21,7 @@ import requests
 from .config import (
     BPO_SALESFORCE_CACHE_FORCE_REFRESH,
     BPO_SALESFORCE_CACHE_TTL_SECONDS,
+    SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP,
     SF_LOGIN_URL,
     SF_CONSUMER_KEY,
     SF_USERNAME,
@@ -65,10 +66,79 @@ def _sf_read_cache_set(key: str, val: Any) -> None:
         _sf_read_cache[key] = (time.time(), copy.deepcopy(val))
 
 # Account (Entity Contract): Type = 'Customer Entity'
-ACCOUNT_FIELDS = (
-    "Id", "Name", "LeanDNA_Entity_Name__c", "US_Persons_Only_Customer__c",
-    "Contract_Status__c", "Contract_Contract_Start_Date__c", "Contract_Contract_End_Date__c", "ARR__c",
+# Base fields; Parent + optional Ultimate Parent are added by ``_entity_account_select_field_names``.
+_ACCOUNT_ENTITY_CORE_FIELDS = (
+    "Id",
+    "Name",
+    "LeanDNA_Entity_Name__c",
+    "US_Persons_Only_Customer__c",
+    "Contract_Status__c",
+    "Contract_Contract_Start_Date__c",
+    "Contract_Contract_End_Date__c",
+    "ARR__c",
+    "ParentId",
+    "Parent.Name",
 )
+
+
+def _relationship_json_key_for_lookup(lookup_field: str) -> str:
+    """Custom lookup API name -> REST expand key (e.g. Ultimate_Parent_Account__c -> Ultimate_Parent_Account__r)."""
+    lf = (lookup_field or "").strip()
+    if lf.endswith("__c"):
+        return lf[:-3] + "__r"
+    return lf + "__r"
+
+
+def _entity_account_select_field_names() -> tuple[str, ...]:
+    """Columns for Customer Entity accounts: core + Parent + optional Ultimate Parent + ARR."""
+    ult = (SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP or "").strip()
+    if not ult:
+        return _ACCOUNT_ENTITY_CORE_FIELDS
+    if ult.endswith("__c"):
+        return _ACCOUNT_ENTITY_CORE_FIELDS + (ult, ult[:-3] + "__r.Name")
+    return _ACCOUNT_ENTITY_CORE_FIELDS + (ult, ult + ".Name")
+
+
+def _normalize_entity_account_row(r: dict[str, Any]) -> dict[str, Any]:
+    """Flatten Parent / Ultimate Parent names for matching and slides."""
+    parent = r.get("Parent") if isinstance(r.get("Parent"), dict) else {}
+    parent_name = (parent.get("Name") or "").strip()
+    ult_name = ""
+    lf = (SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP or "").strip()
+    if lf:
+        uo = r.get(_relationship_json_key_for_lookup(lf))
+        if isinstance(uo, dict):
+            ult_name = (uo.get("Name") or "").strip()
+    return {
+        "Id": r.get("Id"),
+        "Name": r.get("Name"),
+        "LeanDNA_Entity_Name__c": r.get("LeanDNA_Entity_Name__c"),
+        "US_Persons_Only_Customer__c": r.get("US_Persons_Only_Customer__c"),
+        "Contract_Status__c": r.get("Contract_Status__c"),
+        "Contract_Contract_Start_Date__c": r.get("Contract_Contract_Start_Date__c"),
+        "Contract_Contract_End_Date__c": r.get("Contract_Contract_End_Date__c"),
+        "ARR__c": r.get("ARR__c"),
+        "ParentId": r.get("ParentId"),
+        "parent_name": parent_name,
+        "ultimate_parent_name": ult_name,
+    }
+
+
+def _customer_name_matches_entity_account(name_upper: str, a: dict[str, Any]) -> bool:
+    """Match Pendo/customer label to Entity Account Name, entity name, Parent, or Ultimate Parent."""
+    if not name_upper:
+        return False
+    if name_upper in (a.get("Name") or "").upper():
+        return True
+    if name_upper in (a.get("LeanDNA_Entity_Name__c") or "").upper():
+        return True
+    pn = (a.get("parent_name") or "").strip()
+    if pn and name_upper in pn.upper():
+        return True
+    un = (a.get("ultimate_parent_name") or "").strip()
+    if un and name_upper in un.upper():
+        return True
+    return False
 # Opportunity types for creation and pipeline
 OPP_TYPES = ("New Business", "New Expansion Business", "Expansion Business", "POC")
 PIPELINE_STAGES = ("3-Business Validation", "4-Proposal", "5-Contracts")
@@ -531,23 +601,11 @@ class SalesforceClient:
         return self.query_mainstream_object("OpportunityLineItem", where=where, limit=limit)
 
     def get_entity_accounts(self) -> list[dict[str, Any]]:
-        """All Account records with Type = 'Customer Entity' (contract info)."""
-        fields = ", ".join(ACCOUNT_FIELDS)
+        """All Account records with Type = 'Customer Entity' (contract, ARR, Parent / Ultimate Parent)."""
+        fields = ", ".join(_entity_account_select_field_names())
         soql = f"SELECT {fields} FROM Account WHERE Type = 'Customer Entity'"
         raw = self._query(soql)
-        return [
-            {
-                "Id": r.get("Id"),
-                "Name": r.get("Name"),
-                "LeanDNA_Entity_Name__c": r.get("LeanDNA_Entity_Name__c"),
-                "US_Persons_Only_Customer__c": r.get("US_Persons_Only_Customer__c"),
-                "Contract_Status__c": r.get("Contract_Status__c"),
-                "Contract_Contract_Start_Date__c": r.get("Contract_Contract_Start_Date__c"),
-                "Contract_Contract_End_Date__c": r.get("Contract_Contract_End_Date__c"),
-                "ARR__c": r.get("ARR__c"),
-            }
-            for r in raw
-        ]
+        return [_normalize_entity_account_row(r) for r in raw]
 
     def get_opportunity_creation_this_year(self, account_ids: list[str]) -> int:
         """Count Opportunities (Type in OPP_TYPES, CreatedDate = THIS YEAR) for given Account IDs."""
@@ -597,9 +655,10 @@ class SalesforceClient:
     def get_arr_by_customer_names(self, customer_names: list[str]) -> dict[str, float]:
         """Return ``{customer_name: ARR}`` for all matching Entity accounts in one query.
 
-        Names are matched case-insensitively against Account.Name and
-        Account.LeanDNA_Entity_Name__c.  When multiple Account rows match
-        the same customer, ARR values are summed.
+        Names are matched case-insensitively against Account ``Name``,
+        ``LeanDNA_Entity_Name__c``, Parent Account name, and (when configured)
+        Ultimate Parent Account name. When multiple Account rows match the same
+        customer, ARR values are summed.
         """
         if not customer_names:
             return {}
@@ -611,10 +670,12 @@ class SalesforceClient:
                 continue
             total_arr = 0.0
             for a in accounts:
-                a_name = (a.get("Name") or "").upper()
-                a_entity = (a.get("LeanDNA_Entity_Name__c") or "").upper()
-                if upper in a_name or upper in a_entity:
+                if not _customer_name_matches_entity_account(upper, a):
+                    continue
+                try:
                     total_arr += float(a.get("ARR__c") or 0)
+                except (TypeError, ValueError):
+                    continue
             if total_arr:
                 lookup[name] = total_arr
         return lookup
@@ -638,14 +699,13 @@ class SalesforceClient:
             matched_any = False
             has_active_contract = False
             for a in accounts:
-                a_name = (a.get("Name") or "").upper()
-                a_entity = (a.get("LeanDNA_Entity_Name__c") or "").upper()
-                if upper in a_name or upper in a_entity:
-                    matched_any = True
-                    status = (a.get("Contract_Status__c") or "").strip().lower()
-                    if status not in self._CHURNED_STATUSES:
-                        has_active_contract = True
-                        break
+                if not _customer_name_matches_entity_account(upper, a):
+                    continue
+                matched_any = True
+                status = (a.get("Contract_Status__c") or "").strip().lower()
+                if status not in self._CHURNED_STATUSES:
+                    has_active_contract = True
+                    break
             if has_active_contract or not matched_any:
                 active.add(name)
         return active
@@ -653,15 +713,13 @@ class SalesforceClient:
     def get_customer_salesforce(self, customer_name: str) -> dict[str, Any]:
         """Contract info, opportunity count (this year), and pipeline ARR for a customer.
 
-        Matches Account by Name or LeanDNA_Entity_Name__c (case-insensitive contains).
+        Matches Entity Account by ``Name``, ``LeanDNA_Entity_Name__c``, Parent name, or
+        Ultimate Parent name (case-insensitive substring; Ultimate Parent requires
+        ``SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP``).
         """
         accounts = self.get_entity_accounts()
         name_upper = (customer_name or "").strip().upper()
-        matching = [
-            a for a in accounts
-            if name_upper in (a.get("Name") or "").upper()
-            or name_upper in (a.get("LeanDNA_Entity_Name__c") or "").upper()
-        ]
+        matching = [a for a in accounts if _customer_name_matches_entity_account(name_upper, a)]
         if not matching:
             return {
                 "customer": customer_name,
@@ -734,7 +792,8 @@ class SalesforceClient:
     ) -> dict[str, Any]:
         """Fetch a wide slice of mainstream Salesforce objects scoped to matched Customer Entity accounts.
 
-        Reuses ``get_customer_salesforce`` matching (Name / LeanDNA_Entity_Name__c). Child accounts in the
+        Reuses ``get_customer_salesforce`` matching (Name / LeanDNA_Entity_Name__c / Parent /
+        Ultimate Parent). Child accounts in the
         standard hierarchy (``ParentId``) are included via ``expand_descendant_account_ids``; all SOQL
         filters use that expanded Id set. Each object query is isolated: failures are recorded in
         ``category_errors`` without failing the whole call.

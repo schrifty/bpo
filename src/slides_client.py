@@ -844,7 +844,8 @@ def _cohort_summary_pipeline_traces(report: dict[str, Any]) -> list[dict[str, st
             "source": "Salesforce",
             "query": (
                 f"On-slide value {arr_echo} — sum of Account ARR__c for matched customers "
-                f"(Name / LeanDNA_Entity_Name__c); {len(report.get('_arr_by_customer') or {})} accounts matched"
+                f"(Name / LeanDNA_Entity_Name__c / Parent / Ultimate Parent); "
+                f"{len(report.get('_arr_by_customer') or {})} accounts matched"
             ),
         },
         {
@@ -1000,7 +1001,7 @@ def _cohort_profile_pipeline_rows_for_block(
             "query": (
                 f"On-slide {_fmt_platform_value_dollar(cohort_arr)} — sum Account.ARR__c for "
                 f"{n_matched}/{len(customers)} cohort customers with matches ({name}); "
-                "Name / LeanDNA_Entity_Name__c match"
+                "Name / LeanDNA_Entity_Name__c / Parent / Ultimate Parent match"
             ),
         })
     return rows
@@ -1037,7 +1038,7 @@ def _cohort_profiles_pipeline_traces(report: dict[str, Any]) -> list[dict[str, s
             "source": "Salesforce (Account.ARR__c)",
             "query": (
                 f"Matched {n_with} customers with ARR totalling ${total_arr:,.0f} — "
-                "single batch query on Entity accounts, matched by Name / LeanDNA_Entity_Name__c"
+                "single batch query on Entity accounts, matched by Name / LeanDNA_Entity_Name__c / Parent / Ultimate Parent"
             ),
         })
     return rows

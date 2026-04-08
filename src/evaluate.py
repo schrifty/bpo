@@ -1596,6 +1596,22 @@ _ADAPT_QUARTER_OR_PERCENT_RE = re.compile(
     r"\b(?:Q[1-4]|percent|per\s+cent)\b",
     re.I,
 )
+# Percentage unit or common placeholders — used to block % → plain-number mistakes.
+_ADAPT_PERCENT_PLACEHOLDER_RE = re.compile(r"\[00%\]|\[00\s*%\]", re.I)
+
+
+def _adapt_text_has_percentage_semantics(s: str) -> bool:
+    """True if *s* clearly denotes a percentage (symbol, wording, or [00%] placeholder)."""
+    if not (s or "").strip():
+        return False
+    t = s
+    if "%" in t or "\uFF05" in t or "\u2030" in t:  # %, fullwidth %, ‰
+        return True
+    if _ADAPT_PERCENT_PLACEHOLDER_RE.search(t):
+        return True
+    if re.search(r"\b(?:percent|per\s+cent|pct)\b", t, re.I):
+        return True
+    return False
 
 
 _ADAPT_SYSTEM_PROMPT = (
@@ -1619,6 +1635,9 @@ _ADAPT_SYSTEM_PROMPT = (
     "- The 'original' field must be an EXACT substring of the slide text.\n"
     "- Match by MEANING: '16 sites' maps to total_sites=14, so new_value='14 sites'.\n"
     "- Preserve the original format style: '$324k' → '$291k', '16' → '14', '03/2025' → '03/2026'.\n"
+    "- **Percentages:** If `original` contains a percent sign (`%`) or reads as a percent "
+    "(e.g. \"42 percent\"), `new_value` MUST also be a percentage (include `%`, or "
+    "`percent`/`pct`). Never replace a percentage with a bare number or a count.\n"
     "- For site names that appear in our data, keep them (they're still correct).\n"
     "- If a value COULD map but you're not confident, mark mapped=false.\n"
     "- Contract values, budget amounts, pricing, license costs, and any financial "
@@ -1722,6 +1741,17 @@ def _normalize_adapt_replacements(replacements: list[Any]) -> list[dict]:
             nv = ""
         elif not isinstance(nv, str):
             nv = str(nv)
+        if _adapt_text_has_percentage_semantics(orig_s) and not _adapt_text_has_percentage_semantics(
+            nv.strip()
+        ):
+            logger.warning(
+                "hydrate: adapt replacement[%d] skipped (percentage original requires "
+                "percentage new_value): original=%r new_value=%r",
+                i,
+                orig_s[:120],
+                (nv or "")[:120],
+            )
+            continue
         mapped = bool(r.get("mapped", True))
         field = r.get("field", "")
         if field is not None and not isinstance(field, str):

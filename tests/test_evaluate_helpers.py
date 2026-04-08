@@ -142,6 +142,26 @@ def test_normalize_and_dedupe_replacements():
     assert deduped[0]["new_value"] == "2"
 
 
+def test_normalize_adapt_replacements_skips_percent_to_non_percent():
+    """Do not apply a replacement when the slide value is a % but the new value is not."""
+    raw = [
+        {"original": "42%", "new_value": "40", "mapped": True, "field": "bad"},
+        {"original": "42%", "new_value": "40%", "mapped": True, "field": "ok"},
+        {"original": "12 percent", "new_value": "10", "mapped": True, "field": "bad2"},
+        {"original": "12 percent", "new_value": "10 percent", "mapped": True, "field": "ok2"},
+    ]
+    norm = evaluate._normalize_adapt_replacements(raw)
+    assert [r["new_value"] for r in norm] == ["40%", "10 percent"]
+
+
+def test_adapt_text_has_percentage_semantics():
+    assert evaluate._adapt_text_has_percentage_semantics("42%")
+    assert evaluate._adapt_text_has_percentage_semantics("about 5 percent")
+    assert evaluate._adapt_text_has_percentage_semantics("[00%]")
+    assert not evaluate._adapt_text_has_percentage_semantics("42")
+    assert not evaluate._adapt_text_has_percentage_semantics("100")
+
+
 # ── _build_data_summary ──────────────────────────────────────────────────────
 
 

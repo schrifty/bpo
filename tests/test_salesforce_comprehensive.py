@@ -6,7 +6,9 @@ from unittest.mock import MagicMock, patch
 from src.deck_loader import resolve_deck
 from src.salesforce_client import (
     SalesforceClient,
+    _customer_name_matches_entity_account,
     _parse_salesforce_rest_errors,
+    _relationship_json_key_for_lookup,
     _soql_like_literal,
     _strip_sf_attributes,
     clear_salesforce_read_cache,
@@ -428,3 +430,26 @@ def test_speaker_notes_platform_value_includes_kpis_and_table_columns():
     assert "Factory: CS Report -" in notes
     assert "Savings: CS Report -" in notes
     assert "Recs (30d): CS Report -" in notes
+
+
+def test_relationship_json_key_for_lookup_custom_field():
+    assert _relationship_json_key_for_lookup("Ultimate_Parent_Account__c") == "Ultimate_Parent_Account__r"
+
+
+def test_customer_name_matches_entity_account_parent_and_ultimate():
+    needle = "BOMBARDIER"
+    base = {
+        "Name": "Other",
+        "LeanDNA_Entity_Name__c": "",
+        "parent_name": "",
+        "ultimate_parent_name": "",
+    }
+    assert not _customer_name_matches_entity_account(needle, base)
+    assert _customer_name_matches_entity_account(
+        needle,
+        {**base, "parent_name": "Bombardier Inc. Subsidiary"},
+    )
+    assert _customer_name_matches_entity_account(
+        needle,
+        {**base, "ultimate_parent_name": "Bombardier Aerospace"},
+    )
