@@ -1,8 +1,9 @@
 """Google Drive JSON cache for heavy Pendo ``PendoClient.preload`` slices (same folder as portfolio).
 
 Files live under ``resolve_portfolio_snapshot_folder_id()`` (QBR generator ``Cache`` subfolder or
-``BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID``). Staleness uses ``BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS``;
-reads are skipped when ``BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH`` is set. Disable file cache with
+``BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID``). Staleness uses ``BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS`` and
+``BPO_DRIVE_CACHE_*`` (see ``pendo_portfolio_snapshot_drive.classify_drive_cache_age``). Reads are
+skipped when ``BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH`` is set. Disable file cache with
 ``BPO_PENDO_PRELOAD_CACHE_DISABLED=1``.
 
 Cached payloads are point-in-time snapshots (like the portfolio JSON): very fresh numbers may
@@ -21,15 +22,17 @@ from typing import Any
 from googleapiclient.http import MediaIoBaseUpload
 
 from .config import (
+    BPO_DRIVE_CACHE_WEEKEND_SCHEDULE,
     BPO_PENDO_PRELOAD_CACHE_DISABLED,
     BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH,
-    BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS,
     logger,
 )
 from .drive_config import _get_drive, drive_api_lock, find_file_in_folder
 from .pendo_portfolio_snapshot_drive import (
     _drive_io_transient,
     _read_drive_file_text_retrying,
+    classify_drive_cache_age,
+    is_weekend_in_snapshot_tz,
     resolve_portfolio_snapshot_folder_id,
 )
 
@@ -148,19 +151,31 @@ def try_load_pendo_preload_payload(kind: str, days: int | None) -> Any | None:
             )
             return None
         age_h = _envelope_age_hours(env.get("saved_at"), meta.get("modifiedTime"))
-        if age_h is None or age_h > BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS:
+        if age_h is None:
             logger.info(
-                "Pendo preload cache: skip %r — stale or unknown age (%.1fh vs max %.1fh)",
+                "Pendo preload cache: skip %r — could not determine age",
                 name,
-                age_h if age_h is not None else -1.0,
-                BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS,
             )
             return None
-        logger.info(
-            "Pendo preload cache: loaded %r from Drive (%.1fh old)",
-            name,
+        decision = classify_drive_cache_age(
             age_h,
+            cache_name=name,
+            log_label="Pendo preload cache",
         )
+        if decision == "reject":
+            return None
+        if decision == "fresh":
+            logger.info(
+                "Pendo preload cache: loaded %r from Drive (%.1fh old)",
+                name,
+                age_h,
+            )
+        else:
+            logger.info(
+                "Pendo preload cache: loaded %r from Drive (stale weekday, %.1fh)",
+                name,
+                age_h,
+            )
         return env["payload"]
     except Exception as e:
         logger.warning(
@@ -180,6 +195,17 @@ def save_pendo_preload_payload(kind: str, days: int | None, payload: Any) -> Non
     if not folder_id:
         return
     name = pendo_preload_cache_filename(kind, days)
+    if (
+        BPO_DRIVE_CACHE_WEEKEND_SCHEDULE
+        and not BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH
+        and find_file_in_folder(name, folder_id, mime_type=None)
+        and not is_weekend_in_snapshot_tz()
+    ):
+        logger.info(
+            "Pendo preload cache: skip write %r — weekday (weekend-only Drive updates)",
+            name,
+        )
+        return
     envelope: dict[str, Any] = {
         "schema_version": PENDO_PRELOAD_CACHE_SCHEMA_VERSION,
         "kind": kind,

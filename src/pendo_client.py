@@ -1066,9 +1066,17 @@ class PendoClient:
                 self._track_events_cache = {"days": days, "results": blob}
                 self._track_events_cache_ts = time.time()
             return blob
+        # Only *get_customer_kei* uses this list — it keeps rows with "kei" in pageId. A full
+        # subscription extract with ``events: None`` is enormous and slow; restrict to the
+        # platform classes Kei can fire on (same spirit as get_track_events, but multi-surface).
         ts = _time_series(days)
         results = self.aggregate([
-            {"source": {"events": None, "timeSeries": ts}},
+            {
+                "source": {
+                    "events": {"eventClass": ["web", "ios", "android"]},
+                    "timeSeries": ts,
+                }
+            },
         ]).get("results", [])
         with self._cache_lock:
             self._track_events_cache = {"days": days, "results": results}

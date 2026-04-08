@@ -36,10 +36,18 @@ GOOGLE_QBR_OUTPUT_PARENT_ID = os.environ.get("GOOGLE_QBR_OUTPUT_PARENT_ID", "").
 # GOOGLE_QBR_GENERATOR_FOLDER_ID in a subfolder (see pendo_portfolio_snapshot_drive.resolve_portfolio_snapshot_folder_id).
 BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID", "").strip() or None
 try:
-    _psma = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS", "36").strip()
+    _psma = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS", "168").strip()
     BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS = float(_psma)
 except ValueError:
-    BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS = 36.0
+    BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS = 168.0
+# Hard cap (hours) for using a Drive cache on weekdays when it is past MAX_AGE but weekend refresh is pending.
+try:
+    _dcs = os.environ.get("BPO_DRIVE_CACHE_STALE_MAX_AGE_HOURS", "336").strip()
+    BPO_DRIVE_CACHE_STALE_MAX_AGE_HOURS = float(_dcs)
+except ValueError:
+    BPO_DRIVE_CACHE_STALE_MAX_AGE_HOURS = 336.0
+_dcw = os.environ.get("BPO_DRIVE_CACHE_WEEKEND_SCHEDULE", "true").strip().lower()
+BPO_DRIVE_CACHE_WEEKEND_SCHEDULE = _dcw not in ("0", "false", "no", "off")
 _psd = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_DISABLED", "").strip().lower()
 BPO_PORTFOLIO_SNAPSHOT_DISABLED = _psd in ("1", "true", "yes", "on")
 _psf = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH", "").strip().lower()
