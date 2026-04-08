@@ -326,6 +326,8 @@ class _HintMutation:
     start: int = 0
     end: int = 0
     replacement: str = YELLOW_FIELD_PLACEHOLDER
+    # Exact text in the span (for replaceAllText when it appears once on the page — avoids UTF-16 index drift).
+    source_text: str = ""
 
 
 def _mutations_from_shape(shape_el: dict) -> list[_HintMutation]:
@@ -348,10 +350,14 @@ def _mutations_from_shape(shape_el: dict) -> list[_HintMutation]:
         if not _span_has_visible_text(content):
             continue
         if _run_is_orange_coaching_text(style) and end > start:
-            out.append(_HintMutation(oid, None, "replace", start, end, ""))
+            out.append(_HintMutation(oid, None, "replace", start, end, "", source_text=content))
             continue
         if _run_is_template_yellow_field(style) and end > start:
-            out.append(_HintMutation(oid, None, "replace", start, end, YELLOW_FIELD_PLACEHOLDER))
+            out.append(
+                _HintMutation(
+                    oid, None, "replace", start, end, YELLOW_FIELD_PLACEHOLDER, source_text=content
+                )
+            )
     return out
 
 
@@ -376,11 +382,19 @@ def _mutations_from_table(table_el: dict) -> list[_HintMutation]:
                 if not _span_has_visible_text(content):
                     continue
                 if _run_is_orange_coaching_text(style) and end > start:
-                    out.append(_HintMutation(oid, cell_loc, "replace", start, end, ""))
+                    out.append(_HintMutation(oid, cell_loc, "replace", start, end, "", source_text=content))
                     continue
                 if _run_is_template_yellow_field(style) and end > start:
                     out.append(
-                        _HintMutation(oid, cell_loc, "replace", start, end, YELLOW_FIELD_PLACEHOLDER)
+                        _HintMutation(
+                            oid,
+                            cell_loc,
+                            "replace",
+                            start,
+                            end,
+                            YELLOW_FIELD_PLACEHOLDER,
+                            source_text=content,
+                        )
                     )
     return out
 
@@ -447,15 +461,18 @@ def _merge_touching_replace_mutations(repl: list[_HintMutation]) -> list[_HintMu
         group.sort(key=lambda m: (m.start, m.end))
         cur_s = group[0].start
         cur_e = group[0].end
+        cur_src = group[0].source_text or ""
         oid = group[0].object_id
         cell = group[0].cell_location
         for m in group[1:]:
             if m.start <= cur_e:
                 cur_e = max(cur_e, m.end)
+                cur_src += m.source_text or ""
             else:
-                out.append(_HintMutation(oid, cell, "replace", cur_s, cur_e, rep))
+                out.append(_HintMutation(oid, cell, "replace", cur_s, cur_e, rep, source_text=cur_src))
                 cur_s, cur_e = m.start, m.end
-        out.append(_HintMutation(oid, cell, "replace", cur_s, cur_e, rep))
+                cur_src = m.source_text or ""
+        out.append(_HintMutation(oid, cell, "replace", cur_s, cur_e, rep, source_text=cur_src))
     return out
 
 
@@ -491,6 +508,37 @@ def _find_text_body_for_hint_target(
         return None
 
     return walk(slide.get("pageElements") or [])
+
+
+def _plain_text_from_text_body(text_body: dict) -> str:
+    """Concatenate all textRun contents (no paragraph markers) — for substring search."""
+    parts: list[str] = []
+    for te in text_body.get("textElements") or []:
+        tr = te.get("textRun")
+        if tr:
+            parts.append(tr.get("content") or "")
+    return "".join(parts)
+
+
+def _slide_plain_text_concat(slide: dict) -> str:
+    """All visible text on the slide (shapes + table cells) for replaceAllText uniqueness checks."""
+    parts: list[str] = []
+
+    def walk(elements: list[dict]) -> None:
+        for el in elements or []:
+            if el.get("elementGroup"):
+                walk(el["elementGroup"].get("children") or [])
+                continue
+            sh = el.get("shape") or {}
+            if sh.get("text"):
+                parts.append(_plain_text_from_text_body(sh.get("text") or {}))
+            tb = el.get("table") or {}
+            for row in tb.get("tableRows") or []:
+                for cell in row.get("tableCells") or []:
+                    parts.append(_plain_text_from_text_body(cell.get("text") or {}))
+
+    walk(slide.get("pageElements") or [])
+    return "".join(parts)
 
 
 def _text_body_walk_end_exclusive(text_body: dict) -> int:
@@ -631,6 +679,8 @@ def hint_mutations_to_batch_requests(
         key = (m.object_id, _cell_key(m.cell_location))
         groups[key].append(m)
 
+    page_plain = _slide_plain_text_concat(slide) if slide is not None else ""
+
     prefix_reqs: list[dict[str, Any]] = []
     replace_batches: list[list[dict[str, Any]]] = []
     for (oid, cell_tup), items in groups.items():
@@ -712,6 +762,22 @@ def hint_mutations_to_batch_requests(
         combined_replace: list[dict[str, Any]] = []
         single_span = len(repl) == 1
         for x in repl:
+            raw_src = x.source_text or ""
+            if (
+                page_plain
+                and raw_src
+                and len(raw_src.strip()) >= 2
+                and page_plain.count(raw_src) == 1
+            ):
+                combined_replace.append({
+                    "replaceAllText": {
+                        "containsText": {"text": raw_src, "matchCase": True},
+                        "replaceText": x.replacement,
+                        "pageObjectIds": [page_object_id],
+                    }
+                })
+                continue
+
             cl = _clamp_utf16_range_to_text_body(text_body, x.start, x.end)
             if cl is None:
                 logger.debug(
@@ -985,6 +1051,16 @@ def apply_hint_mutations_to_presentation(
         slide = slide_by_id.get(pid) if pid else None
         if not slide:
             continue
+        try:
+            pres = slides_svc.presentations().get(presentationId=pres_id).execute()
+            fresh_by_id = {s["objectId"]: s for s in pres.get("slides", [])}
+            slide = fresh_by_id.get(pid) or slide
+        except HttpError as e:
+            logger.debug(
+                "QBR adapt hints: could not refresh slide %s before mutations (%s); using cached slide",
+                (pid or "")[:16],
+                e,
+            )
         muts = collect_hint_mutations_from_slide(slide)
         if not muts:
             logger.debug("QBR adapt hints — slide %s: no structural mutations (extraction had text but no API spans?)",

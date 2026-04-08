@@ -193,10 +193,11 @@ def test_two_non_touching_yellow_spans_one_batch_prevents_index_drift(mock_banne
     muts = hints.collect_hint_mutations_from_slide(slide)
     assert len(muts) == 2
     batches, _ = hints.hint_mutations_to_batch_requests("pg", muts, add_banner=False, slide=slide)
-    replace_batches = [b for b in batches if any("deleteText" in r for r in b)]
-    assert len(replace_batches) == 1
-    flat = [r for r in replace_batches[0] if "deleteText" in r or "insertText" in r]
-    assert len(flat) == 4
+    flat = _flat_hint_batches(batches)
+    # Prefer page-scoped replaceAllText when each span is unique on the slide (no UTF-16 deleteText).
+    rat = [r for r in flat if "replaceAllText" in r]
+    assert len(rat) == 2
+    assert all("pg" in (r.get("replaceAllText") or {}).get("pageObjectIds", []) for r in rat)
 
 
 @patch.object(hints, "_add_incomplete_banner", return_value=[])
@@ -218,10 +219,10 @@ def test_merge_touching_yellow_replaces_single_delete_span(mock_banner):
     muts = hints.collect_hint_mutations_from_slide(slide)
     assert len(muts) == 2
     batches, content_n = hints.hint_mutations_to_batch_requests("pg", muts, add_banner=False, slide=slide)
-    delete_reqs = [r for r in _flat_hint_batches(batches) if "deleteText" in r]
-    assert len(delete_reqs) == 1
-    assert delete_reqs[0]["deleteText"]["textRange"]["startIndex"] == 0
-    assert delete_reqs[0]["deleteText"]["textRange"]["endIndex"] == 6
+    flat = _flat_hint_batches(batches)
+    rat = [r for r in flat if "replaceAllText" in r]
+    assert len(rat) == 1
+    assert rat[0]["replaceAllText"]["containsText"]["text"] == "aaabbb"
 
 
 @patch.object(hints, "_add_incomplete_banner", return_value=[])
