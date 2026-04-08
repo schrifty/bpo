@@ -411,11 +411,19 @@ class PendoClient:
             raise ValueError(
                 "Pendo integration key required. Set PENDO_INTEGRATION_KEY or pass integration_key."
             )
-        self._session = requests.Session()
-        adapter = HTTPAdapter(pool_maxsize=4, max_retries=1)
-        self._session.mount("https://", adapter)
-        self._session.mount("http://", adapter)
+        # Session is not thread-safe; preload() uses a thread pool — one Session per thread.
+        self._http_tls = threading.local()
         logger.debug("PendoClient initialized (base_url=%s)", self.base_url)
+
+    def _http_session(self) -> requests.Session:
+        s = getattr(self._http_tls, "session", None)
+        if s is None:
+            s = requests.Session()
+            adapter = HTTPAdapter(pool_maxsize=4, max_retries=1)
+            s.mount("https://", adapter)
+            s.mount("http://", adapter)
+            self._http_tls.session = s
+        return s
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -434,7 +442,7 @@ class PendoClient:
                 "pipeline": pipeline,
             },
         }
-        resp = self._session.post(
+        resp = self._http_session().post(
             url, json=payload, headers=self._headers(),
             timeout=(10, PENDO_REQUEST_TIMEOUT_S),
         )
@@ -870,7 +878,7 @@ class PendoClient:
 
     def get_page_catalog(self) -> dict[str, str]:
         """Fetch page catalog: {page_id: page_name}."""
-        resp = self._session.get(
+        resp = self._http_session().get(
             f"{self.base_url}/page", headers=self._headers(), timeout=30
         )
         resp.raise_for_status()
@@ -879,7 +887,7 @@ class PendoClient:
 
     def get_feature_catalog(self) -> dict[str, str]:
         """Fetch feature catalog: {feature_id: feature_name}."""
-        resp = self._session.get(
+        resp = self._http_session().get(
             f"{self.base_url}/feature", headers=self._headers(), timeout=30
         )
         resp.raise_for_status()
@@ -912,7 +920,7 @@ class PendoClient:
 
     def get_account_info(self, account_id: str) -> dict[str, Any]:
         """Fetch account metadata from REST API."""
-        resp = self._session.get(
+        resp = self._http_session().get(
             f"{self.base_url}/account/{account_id}",
             headers=self._headers(),
             timeout=10,
@@ -1132,7 +1140,7 @@ class PendoClient:
                 self._guide_catalog_cache = blob
             return blob
         try:
-            resp = self._session.get(
+            resp = self._http_session().get(
                 f"{self.base_url}/guide",
                 headers={"x-pendo-integration-key": self.integration_key, "content-type": "application/json"},
                 timeout=30,

@@ -31,6 +31,7 @@ from __future__ import annotations
 import io
 import json
 import ssl
+import threading
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -53,6 +54,7 @@ from .drive_config import (
     _find_or_create_folder,
     _get_drive,
     config_text_matches_local,
+    drive_api_lock,
     find_file_in_folder,
 )
 from .qa import qa
@@ -65,6 +67,23 @@ DATA_FIELD_SYNONYMS_FILENAME = "data_field_synonyms.json"
 
 _UNRESOLVED = object()
 _resolved_generator_cache_folder_id: object | str | None = _UNRESOLVED
+_portfolio_snapshot_folder_lock = threading.Lock()
+
+
+def _drive_io_transient(e: BaseException) -> bool:
+    if isinstance(e, ssl.SSLError):
+        return True
+    if isinstance(e, (BrokenPipeError, ConnectionError, TimeoutError)):
+        return True
+    msg = str(e).lower()
+    return (
+        "ssl" in msg
+        or "record layer" in msg
+        or "connection reset" in msg
+        or "remote end closed" in msg
+        or "timed out" in msg
+        or "timeout" in msg
+    )
 
 
 def resolve_portfolio_snapshot_folder_id() -> str | None:
@@ -73,27 +92,38 @@ def resolve_portfolio_snapshot_folder_id() -> str | None:
     if explicit:
         return explicit
     global _resolved_generator_cache_folder_id
-    if _resolved_generator_cache_folder_id is not _UNRESOLVED:
-        out = _resolved_generator_cache_folder_id
-        return out if isinstance(out, str) else None
-    if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
+    with _portfolio_snapshot_folder_lock:
+        if _resolved_generator_cache_folder_id is not _UNRESOLVED:
+            out = _resolved_generator_cache_folder_id
+            return out if isinstance(out, str) else None
+        if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
+            _resolved_generator_cache_folder_id = None
+            return None
+        last_err: BaseException | None = None
+        for attempt in range(4):
+            try:
+                _resolved_generator_cache_folder_id = _find_or_create_folder(
+                    PORTFOLIO_SNAPSHOT_CACHE_FOLDER_NAME,
+                    GOOGLE_QBR_GENERATOR_FOLDER_ID,
+                )
+                logger.debug(
+                    "Portfolio snapshot: using folder %r under QBR generator (%s)",
+                    PORTFOLIO_SNAPSHOT_CACHE_FOLDER_NAME,
+                    _resolved_generator_cache_folder_id,
+                )
+                out = _resolved_generator_cache_folder_id
+                return out if isinstance(out, str) else None
+            except Exception as e:
+                last_err = e
+                if not _drive_io_transient(e) or attempt >= 3:
+                    break
+                time.sleep(0.35 * (attempt + 1))
+        logger.warning(
+            "Portfolio snapshot: could not open cache folder under QBR generator: %s",
+            last_err,
+        )
         _resolved_generator_cache_folder_id = None
         return None
-    try:
-        _resolved_generator_cache_folder_id = _find_or_create_folder(
-            PORTFOLIO_SNAPSHOT_CACHE_FOLDER_NAME,
-            GOOGLE_QBR_GENERATOR_FOLDER_ID,
-        )
-        logger.debug(
-            "Portfolio snapshot: using folder %r under QBR generator (%s)",
-            PORTFOLIO_SNAPSHOT_CACHE_FOLDER_NAME,
-            _resolved_generator_cache_folder_id,
-        )
-    except Exception as e:
-        logger.warning("Portfolio snapshot: could not open cache folder under QBR generator: %s", e)
-        _resolved_generator_cache_folder_id = None
-    out = _resolved_generator_cache_folder_id
-    return out if isinstance(out, str) else None
 
 
 def portfolio_snapshot_filename(days: int, max_customers: int | None) -> str:
@@ -166,28 +196,15 @@ def _snapshot_age_hours(saved_at: str | None, modified_time_rfc3339: str | None)
 
 
 def _read_drive_file_text(file_id: str) -> str:
-    drive = _get_drive()
-    request = drive.files().get_media(fileId=file_id)
-    buf = io.BytesIO()
-    downloader = MediaIoBaseDownload(buf, request)
-    done = False
-    while not done:
-        _, done = downloader.next_chunk()
-    return buf.getvalue().decode("utf-8")
-
-
-def _drive_io_transient(e: BaseException) -> bool:
-    if isinstance(e, ssl.SSLError):
-        return True
-    if isinstance(e, (BrokenPipeError, ConnectionError, TimeoutError)):
-        return True
-    msg = str(e).lower()
-    return (
-        "ssl" in msg
-        or "record layer" in msg
-        or "connection reset" in msg
-        or "remote end closed" in msg
-    )
+    with drive_api_lock:
+        drive = _get_drive()
+        request = drive.files().get_media(fileId=file_id)
+        buf = io.BytesIO()
+        downloader = MediaIoBaseDownload(buf, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        return buf.getvalue().decode("utf-8")
 
 
 def _read_drive_file_text_retrying(file_id: str, *, attempts: int = 4) -> str:
@@ -262,14 +279,15 @@ def _upload_data_field_synonyms_bytes(
     *,
     file_id: str | None,
 ) -> str:
-    drive = _get_drive()
-    media = MediaIoBaseUpload(io.BytesIO(payload), mimetype="application/json")
-    if file_id:
-        f = drive.files().update(fileId=file_id, media_body=media, fields="id").execute()
+    with drive_api_lock:
+        drive = _get_drive()
+        media = MediaIoBaseUpload(io.BytesIO(payload), mimetype="application/json")
+        if file_id:
+            f = drive.files().update(fileId=file_id, media_body=media, fields="id").execute()
+            return str(f["id"])
+        meta: dict[str, Any] = {"name": DATA_FIELD_SYNONYMS_FILENAME, "parents": [folder_id]}
+        f = drive.files().create(body=meta, media_body=media, fields="id").execute()
         return str(f["id"])
-    meta: dict[str, Any] = {"name": DATA_FIELD_SYNONYMS_FILENAME, "parents": [folder_id]}
-    f = drive.files().create(body=meta, media_body=media, fields="id").execute()
-    return str(f["id"])
 
 
 def load_data_field_synonyms_document(*, allow_drive: bool = True) -> tuple[dict[str, Any], str]:
@@ -370,8 +388,9 @@ def try_load_portfolio_snapshot_for_request(
             )
             return None
 
-        drive = _get_drive()
-        meta = drive.files().get(fileId=file_id, fields="modifiedTime").execute()
+        with drive_api_lock:
+            drive = _get_drive()
+            meta = drive.files().get(fileId=file_id, fields="modifiedTime").execute()
         modified_time = meta.get("modifiedTime")
 
         text = _read_drive_file_text(file_id)
@@ -510,20 +529,21 @@ def upload_portfolio_snapshot_to_drive(
     payload = json.dumps(envelope, ensure_ascii=False, indent=2, default=str)
     name = portfolio_snapshot_filename(days, max_customers)
 
-    drive = _get_drive()
-    media = MediaIoBaseUpload(
-        io.BytesIO(payload.encode("utf-8")),
-        mimetype="application/json",
-    )
-    existing_id = find_file_in_folder(name, folder_id, mime_type=None)
-    if existing_id:
-        f = drive.files().update(fileId=existing_id, media_body=media, fields="id").execute()
-        logger.info("Portfolio snapshot: updated Drive file %r (%s)", name, f["id"])
+    with drive_api_lock:
+        drive = _get_drive()
+        media = MediaIoBaseUpload(
+            io.BytesIO(payload.encode("utf-8")),
+            mimetype="application/json",
+        )
+        existing_id = find_file_in_folder(name, folder_id, mime_type=None)
+        if existing_id:
+            f = drive.files().update(fileId=existing_id, media_body=media, fields="id").execute()
+            logger.info("Portfolio snapshot: updated Drive file %r (%s)", name, f["id"])
+            return f["id"]
+        meta: dict[str, Any] = {"name": name, "parents": [folder_id]}
+        f = drive.files().create(body=meta, media_body=media, fields="id").execute()
+        logger.info("Portfolio snapshot: created Drive file %r (%s)", name, f["id"])
         return f["id"]
-    meta: dict[str, Any] = {"name": name, "parents": [folder_id]}
-    f = drive.files().create(body=meta, media_body=media, fields="id").execute()
-    logger.info("Portfolio snapshot: created Drive file %r (%s)", name, f["id"])
-    return f["id"]
 
 
 def run_upload_portfolio_snapshot_cli(days: int, max_customers: int | None) -> dict[str, Any]:

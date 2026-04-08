@@ -39,6 +39,8 @@ _CONFIG_ROOT_NAME = "bpo-config"
 
 _drive_service = None
 _drive_lock = threading.Lock()
+# Serialize all googleapiclient Drive HTTP — the shared Resource/httplib2 stack is not thread-safe.
+drive_api_lock = threading.RLock()
 
 _yaml_cache: dict[str, list[dict[str, Any]]] = {}
 _yaml_cache_lock = threading.Lock()
@@ -63,23 +65,24 @@ def _drive_q_escape(value: str) -> str:
 
 def _find_or_create_folder(name: str, parent_id: str | None = None) -> str:
     """Find a subfolder by name, or create it. Returns the folder ID."""
-    drive = _get_drive()
-    esc = _drive_q_escape(name)
-    q = f"name = '{esc}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-    if parent_id:
-        q += f" and '{parent_id}' in parents"
+    with drive_api_lock:
+        drive = _get_drive()
+        esc = _drive_q_escape(name)
+        q = f"name = '{esc}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        if parent_id:
+            q += f" and '{parent_id}' in parents"
 
-    results = drive.files().list(q=q, fields="files(id, name)", pageSize=5).execute()
-    files = results.get("files", [])
-    if files:
-        return files[0]["id"]
+        results = drive.files().list(q=q, fields="files(id, name)", pageSize=5).execute()
+        files = results.get("files", [])
+        if files:
+            return files[0]["id"]
 
-    meta: dict[str, Any] = {"name": name, "mimeType": "application/vnd.google-apps.folder"}
-    if parent_id:
-        meta["parents"] = [parent_id]
-    folder = drive.files().create(body=meta, fields="id").execute()
-    logger.info("Created Drive folder: %s (%s)", name, folder["id"])
-    return folder["id"]
+        meta: dict[str, Any] = {"name": name, "mimeType": "application/vnd.google-apps.folder"}
+        if parent_id:
+            meta["parents"] = [parent_id]
+        folder = drive.files().create(body=meta, fields="id").execute()
+        logger.info("Created Drive folder: %s (%s)", name, folder["id"])
+        return folder["id"]
 
 
 def find_file_in_folder(
@@ -88,31 +91,33 @@ def find_file_in_folder(
     mime_type: str | None = None,
 ) -> str | None:
     """Return the file id of the first non-trashed file with exact ``name`` under ``parent_id``."""
-    drive = _get_drive()
-    esc = _drive_q_escape(name)
-    q = f"name = '{esc}' and '{parent_id}' in parents and trashed = false"
-    if mime_type:
-        q += f" and mimeType = '{_drive_q_escape(mime_type)}'"
-    results = drive.files().list(q=q, fields="files(id, name)", pageSize=5).execute()
-    files = results.get("files", [])
-    return files[0]["id"] if files else None
+    with drive_api_lock:
+        drive = _get_drive()
+        esc = _drive_q_escape(name)
+        q = f"name = '{esc}' and '{parent_id}' in parents and trashed = false"
+        if mime_type:
+            q += f" and mimeType = '{_drive_q_escape(mime_type)}'"
+        results = drive.files().list(q=q, fields="files(id, name)", pageSize=5).execute()
+        files = results.get("files", [])
+        return files[0]["id"] if files else None
 
 
 def export_google_doc_as_plain_text(file_id: str, *, _max_retries: int = 5) -> str:
     """Export a Google Doc to UTF-8 plain text (retries on rate-limit errors)."""
     import random, time
 
-    drive = _get_drive()
     last_err: HttpError | None = None
     for attempt in range(_max_retries):
         try:
-            request = drive.files().export(fileId=file_id, mimeType="text/plain")
-            buf = io.BytesIO()
-            downloader = MediaIoBaseDownload(buf, request)
-            done = False
-            while not done:
-                _, done = downloader.next_chunk()
-            return buf.getvalue().decode("utf-8", errors="replace")
+            with drive_api_lock:
+                drive = _get_drive()
+                request = drive.files().export(fileId=file_id, mimeType="text/plain")
+                buf = io.BytesIO()
+                downloader = MediaIoBaseDownload(buf, request)
+                done = False
+                while not done:
+                    _, done = downloader.next_chunk()
+                return buf.getvalue().decode("utf-8", errors="replace")
         except HttpError as e:
             last_err = e
             status = getattr(e.resp, "status", 0)
@@ -137,34 +142,37 @@ def _get_config_folder_ids() -> tuple[str, str, str]:
 
 def _list_drive_files(folder_id: str) -> list[dict[str, str]]:
     """List YAML files in a Drive folder. Returns [{id, name}]."""
-    drive = _get_drive()
-    q = f"'{folder_id}' in parents and trashed = false and (name contains '.yaml' or name contains '.yml')"
-    results = drive.files().list(q=q, fields="files(id, name, modifiedTime)", pageSize=200).execute()
-    return results.get("files", [])
+    with drive_api_lock:
+        drive = _get_drive()
+        q = f"'{folder_id}' in parents and trashed = false and (name contains '.yaml' or name contains '.yml')"
+        results = drive.files().list(q=q, fields="files(id, name, modifiedTime)", pageSize=200).execute()
+        return results.get("files", [])
 
 
 def _read_drive_file(file_id: str) -> str:
     """Download a Drive file as UTF-8 text."""
-    drive = _get_drive()
-    request = drive.files().get_media(fileId=file_id)
-    buf = io.BytesIO()
-    downloader = MediaIoBaseDownload(buf, request)
-    done = False
-    while not done:
-        _, done = downloader.next_chunk()
-    return buf.getvalue().decode("utf-8")
+    with drive_api_lock:
+        drive = _get_drive()
+        request = drive.files().get_media(fileId=file_id)
+        buf = io.BytesIO()
+        downloader = MediaIoBaseDownload(buf, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        return buf.getvalue().decode("utf-8")
 
 
 def _upload_file(name: str, content: str, folder_id: str, file_id: str | None = None) -> str:
     """Upload or update a YAML file on Drive. Returns the file ID."""
-    drive = _get_drive()
-    media = MediaIoBaseUpload(io.BytesIO(content.encode("utf-8")), mimetype="text/yaml")
-    if file_id:
-        f = drive.files().update(fileId=file_id, media_body=media).execute()
+    with drive_api_lock:
+        drive = _get_drive()
+        media = MediaIoBaseUpload(io.BytesIO(content.encode("utf-8")), mimetype="text/yaml")
+        if file_id:
+            f = drive.files().update(fileId=file_id, media_body=media).execute()
+            return f["id"]
+        meta: dict[str, Any] = {"name": name, "parents": [folder_id]}
+        f = drive.files().create(body=meta, media_body=media, fields="id").execute()
         return f["id"]
-    meta: dict[str, Any] = {"name": name, "parents": [folder_id]}
-    f = drive.files().create(body=meta, media_body=media, fields="id").execute()
-    return f["id"]
 
 
 def _normalize_config_text(text: str) -> str:

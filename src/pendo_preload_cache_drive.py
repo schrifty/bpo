@@ -14,6 +14,7 @@ from __future__ import annotations
 import io
 import json
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -25,8 +26,9 @@ from .config import (
     BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS,
     logger,
 )
-from .drive_config import _get_drive, find_file_in_folder
+from .drive_config import _get_drive, drive_api_lock, find_file_in_folder
 from .pendo_portfolio_snapshot_drive import (
+    _drive_io_transient,
     _read_drive_file_text_retrying,
     resolve_portfolio_snapshot_folder_id,
 )
@@ -104,29 +106,51 @@ def _validate_envelope(raw: Any, kind: str, days: int | None) -> dict[str, Any] 
 
 def try_load_pendo_preload_payload(kind: str, days: int | None) -> Any | None:
     """Return cached *payload* if a fresh JSON exists on Drive; else None."""
+    name = pendo_preload_cache_filename(kind, days)
     if BPO_PENDO_PRELOAD_CACHE_DISABLED:
+        logger.debug(
+            "Pendo preload cache: skip %r — BPO_PENDO_PRELOAD_CACHE_DISABLED",
+            name,
+        )
         return None
     if BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH:
+        logger.debug(
+            "Pendo preload cache: skip %r — BPO_PORTFOLIO_SNAPSHOT_FORCE_REFRESH",
+            name,
+        )
         return None
     folder_id = resolve_portfolio_snapshot_folder_id()
     if not folder_id:
+        logger.info(
+            "Pendo preload cache: skip %r — no Drive cache folder (GOOGLE_QBR_GENERATOR_FOLDER_ID / "
+            "BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID unset, or folder resolve failed)",
+            name,
+        )
         return None
-    name = pendo_preload_cache_filename(kind, days)
     try:
         fid = find_file_in_folder(name, folder_id, mime_type=None)
         if not fid:
+            logger.info(
+                "Pendo preload cache: skip %r — file not in Drive cache folder",
+                name,
+            )
             return None
-        drive = _get_drive()
-        meta = drive.files().get(fileId=fid, fields="modifiedTime").execute()
+        with drive_api_lock:
+            drive = _get_drive()
+            meta = drive.files().get(fileId=fid, fields="modifiedTime").execute()
         text = _read_drive_file_text_retrying(fid)
         raw = json.loads(text)
         env = _validate_envelope(raw, kind, days)
         if env is None:
+            logger.info(
+                "Pendo preload cache: skip %r — JSON envelope invalid (schema/kind/days/payload)",
+                name,
+            )
             return None
         age_h = _envelope_age_hours(env.get("saved_at"), meta.get("modifiedTime"))
         if age_h is None or age_h > BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS:
-            logger.debug(
-                "Pendo preload cache: skip %r (stale or unknown age, %.1fh vs max %.1fh)",
+            logger.info(
+                "Pendo preload cache: skip %r — stale or unknown age (%.1fh vs max %.1fh)",
                 name,
                 age_h if age_h is not None else -1.0,
                 BPO_PORTFOLIO_SNAPSHOT_MAX_AGE_HOURS,
@@ -139,7 +163,12 @@ def try_load_pendo_preload_payload(kind: str, days: int | None) -> Any | None:
         )
         return env["payload"]
     except Exception as e:
-        logger.debug("Pendo preload cache: read %r failed — %s", name, e)
+        logger.warning(
+            "Pendo preload cache: read %r failed — %s: %s",
+            name,
+            type(e).__name__,
+            e,
+        )
         return None
 
 
@@ -163,18 +192,28 @@ def save_pendo_preload_payload(kind: str, days: int | None, payload: Any) -> Non
         envelope["days"] = int(days) if days is not None else None
     body = json.dumps(envelope, ensure_ascii=False, indent=2, default=str).encode("utf-8")
     with _SAVE_LOCK:
-        try:
-            drive = _get_drive()
-            media = MediaIoBaseUpload(io.BytesIO(body), mimetype="application/json")
-            fid = find_file_in_folder(name, folder_id, mime_type=None)
-            if fid:
-                drive.files().update(fileId=fid, media_body=media, fields="id").execute()
-            else:
-                drive.files().create(
-                    body={"name": name, "parents": [folder_id]},
-                    media_body=media,
-                    fields="id",
-                ).execute()
-            logger.debug("Pendo preload cache: wrote %r (%d bytes)", name, len(body))
-        except Exception as e:
-            logger.warning("Pendo preload cache: failed to write %r — %s", name, e)
+        last_err: BaseException | None = None
+        for attempt in range(4):
+            try:
+                with drive_api_lock:
+                    drive = _get_drive()
+                    media = MediaIoBaseUpload(io.BytesIO(body), mimetype="application/json")
+                    fid = find_file_in_folder(name, folder_id, mime_type=None)
+                    if fid:
+                        drive.files().update(fileId=fid, media_body=media, fields="id").execute()
+                    else:
+                        drive.files().create(
+                            body={"name": name, "parents": [folder_id]},
+                            media_body=media,
+                            fields="id",
+                        ).execute()
+                logger.debug("Pendo preload cache: wrote %r (%d bytes)", name, len(body))
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                if not _drive_io_transient(e) or attempt >= 3:
+                    break
+                time.sleep(0.35 * (attempt + 1))
+        if last_err is not None:
+            logger.warning("Pendo preload cache: failed to write %r — %s", name, last_err)
