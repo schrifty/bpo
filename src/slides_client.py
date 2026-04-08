@@ -3737,12 +3737,25 @@ def _cohort_profiles_slide(reqs, sid, report, idx) -> int | tuple[int, list[str]
     return idx + num, oids
 
 
+# Vertical budget per numbered finding (body band — same idea as portfolio trends / signals rows).
+_COHORT_FINDING_ROW_H_PT = 38
+_COHORT_FINDING_ROW_GAP_PT = 6
+
+
+def _cohort_findings_rows_per_page() -> int:
+    """How many wrapped bullet rows fit between BODY_Y and BODY_BOTTOM (matches list pagination elsewhere)."""
+    avail = float(BODY_BOTTOM) - float(BODY_Y) - 8.0
+    step = float(_COHORT_FINDING_ROW_H_PT + _COHORT_FINDING_ROW_GAP_PT)
+    return max(1, int(avail // step))
+
+
 def _cohort_findings_slide(reqs, sid, report, idx):
     bullets = list(report.get("cohort_findings_bullets") or [])
     if not bullets:
         return _missing_data_slide(reqs, sid, report, idx, "cohort_findings_bullets")
 
-    max_rows = 12
+    max_rows = _cohort_findings_rows_per_page()
+    max_rows = min(max_rows, 28)
     chunks = _cap_chunk_list(
         [bullets[i : i + max_rows] for i in range(0, len(bullets), max_rows)]
     )
@@ -3758,23 +3771,26 @@ def _cohort_findings_slide(reqs, sid, report, idx):
             else f"Notable findings — cohort differences ({pi + 1} of {len(chunks)})"
         )
         _slide_title(reqs, page_sid, st)
-        lines: list[str] = []
         base = pi * max_rows
+        y = float(BODY_Y)
         for i, raw in enumerate(chunk, start=base + 1):
             line = raw if len(raw) <= 220 else raw[:217] + "…"
-            lines.append(f"{i}.   {line}")
-            lines.append("")
-        text = "\n".join(lines)
-        oid = f"{page_sid}_sig"
-        body_h = max(120, 290)
-        _box(reqs, oid, page_sid, MARGIN, BODY_Y, CONTENT_W, body_h, text)
-        _style(reqs, oid, 0, len(text), size=12, color=NAVY, font=FONT)
-        off = 0
-        for line in lines:
-            if line and line[0].isdigit():
-                dot = line.index(".")
-                _style(reqs, oid, off, off + dot + 1, bold=True, color=BLUE)
-            off += len(line) + 1
+            prefix = f"{i}.   "
+            full = f"{prefix}{line}"
+            oid_b = f"{page_sid}_cf{i}"
+            _wrap_box(
+                reqs,
+                oid_b,
+                page_sid,
+                MARGIN,
+                int(y),
+                CONTENT_W,
+                _COHORT_FINDING_ROW_H_PT,
+                full,
+            )
+            _style(reqs, oid_b, 0, len(full), size=12, color=NAVY, font=FONT)
+            _style(reqs, oid_b, 0, len(prefix), bold=True, color=BLUE)
+            y += float(_COHORT_FINDING_ROW_H_PT + _COHORT_FINDING_ROW_GAP_PT)
     return idx + len(chunks), oids
 
 

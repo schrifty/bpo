@@ -389,68 +389,78 @@ def compute_cohort_portfolio_rollup(
         s = f"{x:.1f}".rstrip("0").rstrip(".")
         return s or "0"
 
-    max_cohort_lines = 24
-    cohort_lines = 0
-    for _cid, d in with_data:
-        if cohort_lines >= max_cohort_lines:
-            rest = len(with_data) - cohort_lines
-            if rest > 0:
-                bullets.append(f"… plus {rest} more cohort bucket(s) in the digest (see cohort summary slide).")
-            break
-        ml = _fmt_pct(d.get("median_login_pct"))
-        mw = _fmt_pct(d.get("median_write_ratio"))
-        me = _fmt_num(d.get("median_exports"))
-        kei = d.get("kei_adoption_pct")
-        kei_s = f"{round(float(kei), 1)}%" if kei is not None else "—"
-        ta = int(d.get("total_active_users") or 0)
-        tu = int(d.get("total_users") or 0)
+    # Insight bullets: contrasts, outliers, and viewer-facing takeaways — not one stat line per cohort.
+    if with_data:
+        top = with_data[0][1]
+        share = round(100.0 * top["n"] / n_cust, 1) if n_cust else 0.0
         bullets.append(
-            f"{d['display_name']} ({d['n']} customers): weekly active median {ml} · "
-            f"write ratio median {mw} · exports median {me} · Kei adopters {kei_s} · "
-            f"{ta:,} active (7d) / {tu:,} users.",
+            f"Largest cohort: {top['display_name']} ({top['n']} customers, {share}% of portfolio).",
         )
-        cohort_lines += 1
+        if len(with_data) > 1:
+            second = with_data[1][1]
+            s2 = round(100.0 * second["n"] / n_cust, 1) if n_cust else 0.0
+            bullets.append(
+                f"Next-largest: {second['display_name']} ({second['n']} customers, {s2}%).",
+            )
+
+    ge3 = [(cid, d) for cid, d in with_data if d["n"] >= 3]
+    if len(ge3) >= 2:
+        by_login = sorted(ge3, key=lambda x: (x[1].get("median_login_pct") or 0), reverse=True)
+        hi, lo = by_login[0], by_login[-1]
+        hiv = float(hi[1].get("median_login_pct") or 0)
+        lov = float(lo[1].get("median_login_pct") or 0)
+        spread = abs(hiv - lov)
+        if hi[0] != lo[0] and spread >= 5:
+            bullets.append(
+                f"Widest spread in median weekly login: {hi[1]['display_name']} ({_fmt_pct(hiv)}) vs "
+                f"{lo[1]['display_name']} ({_fmt_pct(lov)}) — about {spread:.0f} points apart.",
+            )
+        by_write = sorted(ge3, key=lambda x: (x[1].get("median_write_ratio") or 0), reverse=True)
+        w_hi, w_lo = by_write[0], by_write[-1]
+        if w_hi[0] != w_lo[0]:
+            bullets.append(
+                f"Write-heavy vs read-heavy: {w_hi[1]['display_name']} leads write ratio "
+                f"({_fmt_pct(w_hi[1].get('median_write_ratio'))}) vs lowest "
+                f"{w_lo[1]['display_name']} ({_fmt_pct(w_lo[1].get('median_write_ratio'))}).",
+            )
+        if hi[0] != w_hi[0]:
+            bullets.append(
+                f"Different engagement modes: {hi[1]['display_name']} tops login median but "
+                f"{w_hi[1]['display_name']} tops write ratio — worth a CS conversation on “why”.",
+            )
+        by_exp = sorted(ge3, key=lambda x: (x[1].get("median_exports") or 0), reverse=True)
+        e_hi, e_lo = by_exp[0], by_exp[-1]
+        if e_hi[0] != e_lo[0]:
+            bullets.append(
+                f"Export volume (median 30d) peaks in {e_hi[1]['display_name']} ({_fmt_num(e_hi[1].get('median_exports'))}) "
+                f"and is lowest in {e_lo[1]['display_name']} ({_fmt_num(e_lo[1].get('median_exports'))}).",
+            )
+        by_kei = sorted(ge3, key=lambda x: x[1].get("kei_adoption_pct") or 0, reverse=True)
+        k_hi, k_lo = by_kei[0], by_kei[-1]
+        if k_hi[0] != k_lo[0]:
+            kp = float(k_hi[1].get("kei_adoption_pct") or 0)
+            kq = float(k_lo[1].get("kei_adoption_pct") or 0)
+            bullets.append(
+                f"Kei adoption gap: {k_hi[1]['display_name']} {kp:.1f}% of customers with any query vs "
+                f"{k_lo[1]['display_name']} {kq:.1f}% — training, rollout, or use-case difference?",
+            )
+
+    singletons = [d["display_name"] for _, d in with_data if d["n"] == 1]
+    if singletons:
+        bullets.append(
+            f"Singleton cohorts (one account in-window): {', '.join(singletons[:8])}"
+            f"{'…' if len(singletons) > 8 else ''} — treat as directional only.",
+        )
 
     if len(with_data) < 2:
         bullets.append(
             "Only one cohort bucket has customers in this window — compare across cohorts when more accounts load.",
         )
 
-    ge3 = [(cid, d) for cid, d in with_data if d["n"] >= 3]
-    if len(ge3) >= 2:
-        by_login = sorted(ge3, key=lambda x: (x[1].get("median_login_pct") or 0), reverse=True)
-        hi, lo = by_login[0], by_login[-1]
+    thin = [d["display_name"] for _, d in with_data if d["n"] == 2]
+    if thin:
         bullets.append(
-            f"Median login % (cohorts with ≥3 customers): highest {hi[1]['display_name']} "
-            f"({hi[1]['median_login_pct']}%) vs lowest {lo[1]['display_name']} ({lo[1]['median_login_pct']}%).",
-        )
-        by_write = sorted(ge3, key=lambda x: (x[1].get("median_write_ratio") or 0), reverse=True)
-        w_hi, w_lo = by_write[0], by_write[-1]
-        if w_hi[0] != w_lo[0]:
-            bullets.append(
-                f"Median write ratio: highest {w_hi[1]['display_name']} ({w_hi[1]['median_write_ratio']}%) "
-                f"vs lowest {w_lo[1]['display_name']} ({w_lo[1]['median_write_ratio']}%).",
-            )
-        by_exp = sorted(ge3, key=lambda x: (x[1].get("median_exports") or 0), reverse=True)
-        e_hi, e_lo = by_exp[0], by_exp[-1]
-        if e_hi[0] != e_lo[0]:
-            bullets.append(
-                f"Median exports (30d): highest {e_hi[1]['display_name']} ({e_hi[1]['median_exports']}) "
-                f"vs lowest {e_lo[1]['display_name']} ({e_lo[1]['median_exports']}).",
-            )
-        by_kei = sorted(ge3, key=lambda x: x[1].get("kei_adoption_pct") or 0, reverse=True)
-        k_hi, k_lo = by_kei[0], by_kei[-1]
-        if k_hi[0] != k_lo[0]:
-            bullets.append(
-                f"Kei adoption (share of customers with any query): highest {k_hi[1]['display_name']} "
-                f"({k_hi[1]['kei_adoption_pct']}%) vs lowest {k_lo[1]['display_name']} ({k_lo[1]['kei_adoption_pct']}%).",
-            )
-
-    small = [d["display_name"] for _, d in with_data if d["n"] < 3]
-    if small:
-        bullets.append(
-            f"Small sample (under 3 customers in this window): {', '.join(small[:6])}"
-            f"{'…' if len(small) > 6 else ''} — treat medians as directional only.",
+            f"Thin samples (exactly 2 customers): {', '.join(thin[:6])}{'…' if len(thin) > 6 else ''} — medians are fragile.",
         )
 
     un = digest.get("unclassified", {})
