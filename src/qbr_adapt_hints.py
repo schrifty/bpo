@@ -259,8 +259,10 @@ def iter_text_run_spans(text_body: dict) -> list[tuple[int, int, str, dict]]:
     """(start, end, content, style) per textRun.
 
     Must use the same index walk as ``_text_body_max_exclusive_index`` (paragraph markers
-    consume one UTF-16 index each). Skipping markers but advancing ``pos`` only on runs
-    produced spans past the real document end and caused deleteText 400s on short cells.
+    consume one UTF-16 index each).     When Slides provides ``endIndex`` on a textRun, combine it with the UTF-16 length of
+    ``content``: use ``min(endIndex, start + utf16_len(content))``. The API sometimes
+    sets ``endIndex`` one past the deletable span; using content length alone could also
+    drift. The minimum matches ``deleteText`` / reported text length and avoids 400s.
     """
     spans: list[tuple[int, int, str, dict]] = []
     pos = 0
@@ -271,9 +273,14 @@ def iter_text_run_spans(text_body: dict) -> list[tuple[int, int, str, dict]]:
         tr = te.get("textRun")
         if tr:
             content = tr.get("content") or ""
-            clen = _utf16_code_units(content)
             start = pos
-            end = start + clen
+            end_from_content = start + _utf16_code_units(content)
+            if te.get("endIndex") is not None:
+                # Slides sometimes sets endIndex one past the deletable UTF-16 span; never exceed
+                # the run's content length (matches deleteText "existing text length").
+                end = min(int(te["endIndex"]), end_from_content)
+            else:
+                end = end_from_content
             spans.append((start, end, content, tr.get("style") or {}))
             pos = end
         elif te.get("paragraphMarker") is not None:
@@ -489,8 +496,8 @@ def _find_text_body_for_hint_target(
 def _text_body_walk_end_exclusive(text_body: dict) -> int:
     """Exclusive end index from the same walk as ``iter_text_run_spans`` (UTF-16).
 
-    ``startIndex`` resets the cursor; each ``textRun`` advances by its content length;
-    each ``paragraphMarker`` advances by 1.  This matches how we compute mutation spans.
+    ``startIndex`` resets the cursor; each ``textRun`` advances by API ``endIndex`` when
+    present, else content length; each ``paragraphMarker`` advances by 1.
     """
     pos = 0
     for te in text_body.get("textElements", []):
@@ -499,7 +506,11 @@ def _text_body_walk_end_exclusive(text_body: dict) -> int:
             pos = int(si)
         if te.get("textRun"):
             c = te["textRun"].get("content") or ""
-            pos += _utf16_code_units(c)
+            end_fc = pos + _utf16_code_units(c)
+            if te.get("endIndex") is not None:
+                pos = min(int(te["endIndex"]), end_fc)
+            else:
+                pos = end_fc
         elif te.get("paragraphMarker") is not None:
             pos += 1
     return pos
@@ -520,7 +531,11 @@ def _text_body_last_text_run_exclusive_end(text_body: dict) -> int:
             pos = int(si)
         if te.get("textRun"):
             c = te["textRun"].get("content") or ""
-            pos += _utf16_code_units(c)
+            end_fc = pos + _utf16_code_units(c)
+            if te.get("endIndex") is not None:
+                pos = min(int(te["endIndex"]), end_fc)
+            else:
+                pos = end_fc
             last_run_end = pos
         elif te.get("paragraphMarker") is not None:
             pos += 1
