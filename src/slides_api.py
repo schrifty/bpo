@@ -23,6 +23,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
+
 def _get_service():
     """Build authenticated Slides + Drive API services."""
     creds = None

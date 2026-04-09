@@ -59,6 +59,6 @@ def test_speaker_notes_include_synonym_line():
         }
     ]
     notes = evaluate._build_hydrate_speaker_notes(reps, [{"type": "shape", "text": "99"}])
-    assert "Synonym:" in notes
+    assert "synonym:" in notes
     assert "total sites" in notes
     assert "`total_sites`" in notes

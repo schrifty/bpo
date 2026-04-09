@@ -2060,7 +2060,7 @@ def _build_hydrate_speaker_notes(
         "",
         "══ QA this slide — data governance ══",
         "",
-        "Legend: LIVE = from our pipelines (traceable). UNMAPPED = placeholder — verify or replace. STATIC = image/chart, not auto-updated.",
+        "Legend: LIVE = traceable. UNMAPPED = manual check. STATIC = chart/image.",
         "",
     ]
     if not replacements:
@@ -2095,30 +2095,39 @@ def _build_hydrate_speaker_notes(
             lines.append("Data context: " + " | ".join(ctx_parts))
             lines.append("")
 
-    lines.append(f"A. Pipeline — {len(replacements)} data operation(s)")
+    n_ops = len(replacements)
+    lines.append("1 data operation:" if n_ops == 1 else f"{n_ops} data operations:")
     for i, r in enumerate(replacements, 1):
         fld = str(r.get("field") or "?")[:80]
         orig = str(r.get("original") or "").replace("\n", " ").strip()[:120]
         nv = str(r.get("new_value") or "").replace("\n", " ").strip()[:120]
         mapped = r.get("mapped", True)
+
+        if _hydrate_speaker_note_row_is_generic_unmapped(r):
+            lines.append(f"   {i}. [generic] unmapped")
+            continue
+
+        if _replacement_is_visual(r):
+            lines.append(f"   {i}. [{fld}] — static visual (not auto-updated)")
+            continue
+
         if mapped:
             source = _data_source_label_for_field(fld)
-            tag = f"LIVE — Source: {source}"
-        else:
-            tag = "UNMAPPED / static visual — verify or replace manually"
-        lines.append(f"   {i}. [{fld}]  {tag}")
-        syn = (r.get("synonym_phrase") or "").strip()
-        if syn:
-            spath = (r.get("synonym_path") or fld).strip()
-            lines.append(f"      Synonym: matched phrase \"{syn}\" → `{spath}`")
-        lines.append(f"      was: {orig}")
-        lines.append(f"      now: {nv}")
+            lines.append(f"   {i}. [{fld}] is now [{nv}], (source: {source})")
+            syn = (r.get("synonym_phrase") or "").strip()
+            if syn:
+                spath = (r.get("synonym_path") or fld).strip()
+                lines.append(f"      synonym: \"{syn}\" → `{spath}`")
+            continue
+
+        lines.append(f"   {i}. [{fld}] unmapped — was: {orig}; now: {nv}")
 
     unmapped_generic = [
         r for r in replacements
         if not r.get("mapped")
         and (str(r.get("new_value") or "").strip() in _PLACEHOLDER_MARKERS)
         and r.get("field") not in ("chart", "image")
+        and not _hydrate_speaker_note_row_is_generic_unmapped(r)
     ]
     if unmapped_generic:
         lines.append("")
@@ -2380,6 +2389,149 @@ def _apply_adaptations(slides_svc, pres_id: str, page_id: str,
     return reqs, has_unmapped, has_static_images
 
 
+def _mapped_new_values_for_font_clamp(replacements: list[dict]) -> set[str]:
+    """New values we actually swapped in — used to target font clamping after replaceAllText."""
+    out: set[str] = set()
+    for r in replacements:
+        if _replacement_row_is_static_visual_incomplete(r):
+            continue
+        nv = str(r.get("new_value") or "").strip()
+        orig = str(r.get("original") or "").strip()
+        if not nv or nv == orig:
+            continue
+        if nv in ("[???]", "[?]"):
+            continue
+        out.add(nv)
+    return out
+
+
+def _slide_metric_font_clamp_requests(
+    slide: dict,
+    replacements: list[dict],
+) -> list[dict[str, Any]]:
+    """After replaceAllText, clamp runs that inherited headline-sized fonts.
+
+    Slides API: replacement text inherits the style of the **first character** of the matched
+    substring. If that character sat in a large headline run, currency/metrics explode and
+    overlap. We lower font size on runs that look like adapted metrics, using a body reference
+    size from the same text box.
+    """
+    from .qbr_adapt_hints import iter_text_run_spans
+
+    mapped_vals = _mapped_new_values_for_font_clamp(replacements)
+    _MAX_METRIC_PT = 28.0
+    _MIN_BODY_PT = 8.0
+    _MAX_BODY_FOR_REF_PT = 24.0
+    _ABSOLUTE_FALLBACK_PT = 14.0
+    _AGGRESSIVE_MAG_PT = 36.0  # fallback clamp even without exact mapped match
+
+    def _body_reference_font_pt(text_body: dict) -> float:
+        mags: list[float] = []
+        for _s, _e, _c, style in iter_text_run_spans(text_body):
+            fs = style.get("fontSize") or {}
+            mag = fs.get("magnitude")
+            if mag is not None and _MIN_BODY_PT <= mag <= _MAX_BODY_FOR_REF_PT:
+                mags.append(float(mag))
+        if mags:
+            mags.sort()
+            return mags[len(mags) // 2]
+        mags2: list[float] = []
+        for _s, _e, _c, style in iter_text_run_spans(text_body):
+            fs = style.get("fontSize") or {}
+            mag = fs.get("magnitude")
+            if mag is not None and mag <= _MAX_METRIC_PT + 6:
+                mags2.append(float(mag))
+        if mags2:
+            return float(min(mags2))
+        return _ABSOLUTE_FALLBACK_PT
+
+    def _looks_like_metricish(s: str) -> bool:
+        t = (s or "").strip()
+        if len(t) > 72:
+            return False
+        return bool(re.search(r"[\d%$€£]", t))
+
+    def _run_matches_mapped_value(content: str, mapped: set[str]) -> bool:
+        c = content.strip()
+        if c in mapped:
+            return True
+        for mv in mapped:
+            if len(mv) >= 4 and mv in c:
+                return True
+        return False
+
+    def _clamp_text_body(
+        oid: str,
+        text_body: dict,
+        cell_loc: dict[str, int] | None,
+    ) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        ref = min(_body_reference_font_pt(text_body), 22.0)
+        for start, end, content, style in iter_text_run_spans(text_body):
+            fs = style.get("fontSize") or {}
+            mag = fs.get("magnitude")
+            if mag is None:
+                continue
+            mag = float(mag)
+            if mag <= _MAX_METRIC_PT:
+                continue
+            if not _looks_like_metricish(content):
+                continue
+            matched = _run_matches_mapped_value(content, mapped_vals)
+            if not matched and (mag <= _AGGRESSIVE_MAG_PT or len(content.strip()) > 48):
+                continue
+            target = min(mag, max(ref, 12.0))
+            if abs(target - mag) < 0.4:
+                continue
+            uts: dict[str, Any] = {
+                "objectId": oid,
+                "textRange": {"type": "FIXED_RANGE", "startIndex": start, "endIndex": end},
+                "style": {"fontSize": {"magnitude": round(target, 1), "unit": "PT"}},
+                "fields": "fontSize",
+            }
+            if cell_loc is not None:
+                uts["cellLocation"] = {
+                    "rowIndex": int(cell_loc["rowIndex"]),
+                    "columnIndex": int(cell_loc["columnIndex"]),
+                }
+            out.append({"updateTextStyle": uts})
+        return out
+
+    reqs: list[dict[str, Any]] = []
+
+    def walk(elements: list[dict]) -> None:
+        for el in elements or []:
+            if el.get("elementGroup"):
+                walk(el["elementGroup"].get("children") or [])
+                continue
+            oid = el.get("objectId") or ""
+            if el.get("shape"):
+                tb = el.get("shape", {}).get("text") or {}
+                if tb.get("textElements"):
+                    reqs.extend(_clamp_text_body(oid, tb, None))
+            if el.get("table"):
+                table = el.get("table") or {}
+                for ri, row in enumerate(table.get("tableRows", [])):
+                    for ci, cell in enumerate(row.get("tableCells", [])):
+                        tb = cell.get("text") or {}
+                        if tb.get("textElements"):
+                            reqs.extend(
+                                _clamp_text_body(
+                                    oid,
+                                    tb,
+                                    {"rowIndex": ri, "columnIndex": ci},
+                                )
+                            )
+
+    walk(slide.get("pageElements") or [])
+    if reqs:
+        logger.debug(
+            "adapt: font clamp %d run(s) (replaceAllText headline inheritance)",
+            len(reqs),
+        )
+    return reqs
+
+
 def _red_style_placeholders(slides_svc, pres_id: str, page_id: str) -> list[dict]:
     """Re-read a slide and return updateTextStyle requests to make placeholders red."""
     pres = slides_svc.presentations().get(presentationId=pres_id).execute()
@@ -2537,6 +2689,20 @@ def _replacement_is_visual(r: dict) -> bool:
         return True
     orig = str(r.get("original") or "")
     return orig in _EMBEDDED_IMAGE_TEXTS + (_EMBEDDED_CHART_TEXT,)
+
+
+def _hydrate_speaker_note_row_is_generic_unmapped(r: dict) -> bool:
+    """True for placeholder-only unmapped rows we summarize as one line: ``[generic] unmapped``."""
+    if r.get("mapped", True):
+        return False
+    if _replacement_row_is_static_visual_incomplete(r):
+        return False
+    fld = str(r.get("field") or "")
+    if "generic placeholder" in fld.lower():
+        return True
+    orig = str(r.get("original") or "").strip()
+    nv = str(r.get("new_value") or "").strip()
+    return bool(orig == nv and nv in _PLACEHOLDER_MARKERS)
 
 
 def _build_hydrate_data_match_notes(slide_entries: list[dict[str, Any]]) -> str:
@@ -2794,6 +2960,22 @@ def adapt_custom_slides(
         if replace_reqs:
             try:
                 slides_presentations_batch_update(slides_svc, pres_id, replace_reqs)
+                try:
+                    pres_fresh = slides_svc.presentations().get(presentationId=pres_id).execute()
+                    slide_fresh = next(
+                        (s for s in pres_fresh.get("slides", []) if s.get("objectId") == page_id),
+                        None,
+                    )
+                    if slide_fresh:
+                        clamp_reqs = _slide_metric_font_clamp_requests(slide_fresh, replacements)
+                        if clamp_reqs:
+                            slides_presentations_batch_update(slides_svc, pres_id, clamp_reqs)
+                except Exception as e:
+                    logger.warning(
+                        "hydrate: slide %s — post-adapt font clamp failed (slide may show oversized metrics): %s",
+                        slide_num,
+                        e,
+                    )
             except Exception as e:
                 logger.warning("hydrate: slide %s — failed to apply text replacements: %s",
                                slide_num, e)

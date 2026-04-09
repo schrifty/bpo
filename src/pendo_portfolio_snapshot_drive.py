@@ -30,6 +30,7 @@ import io
 import json
 import ssl
 import threading
+from http.client import IncompleteRead as HttpClientIncompleteRead
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -73,6 +74,15 @@ def _drive_io_transient(e: BaseException) -> bool:
         return True
     if isinstance(e, (BrokenPipeError, ConnectionError, TimeoutError)):
         return True
+    # Large get_media downloads can stop mid-stream (VPN, proxy, idle timeout).
+    if isinstance(e, HttpClientIncompleteRead):
+        return True
+    try:
+        from urllib3.exceptions import IncompleteRead as Urllib3IncompleteRead
+    except ImportError:
+        Urllib3IncompleteRead = ()  # type: ignore[misc, assignment]
+    if Urllib3IncompleteRead and isinstance(e, Urllib3IncompleteRead):
+        return True
     msg = str(e).lower()
     return (
         "ssl" in msg
@@ -81,6 +91,8 @@ def _drive_io_transient(e: BaseException) -> bool:
         or "remote end closed" in msg
         or "timed out" in msg
         or "timeout" in msg
+        or "incompleteread" in msg.replace(" ", "")
+        or "incomplete read" in msg
     )
 
 
@@ -205,7 +217,8 @@ def _read_drive_file_text(file_id: str) -> str:
         return buf.getvalue().decode("utf-8")
 
 
-def _read_drive_file_text_retrying(file_id: str, *, attempts: int = 4) -> str:
+def _read_drive_file_text_retrying(file_id: str, *, attempts: int = 6) -> str:
+    """Download full file text; retries on transient TLS/socket/IncompleteRead (large JSON common)."""
     last: BaseException | None = None
     for i in range(attempts):
         try:
@@ -214,7 +227,9 @@ def _read_drive_file_text_retrying(file_id: str, *, attempts: int = 4) -> str:
             last = e
             if not _drive_io_transient(e) or i >= attempts - 1:
                 raise
-            time.sleep(0.35 * (i + 1))
+            # Longer backoff for mid-download failures (~100MB feature_events cache).
+            delay = 0.5 * (i + 1) if isinstance(e, HttpClientIncompleteRead) else 0.35 * (i + 1)
+            time.sleep(delay)
     raise AssertionError(last)  # pragma: no cover
 
 

@@ -316,6 +316,22 @@ def test_cache_hit_rate_line():
     assert evaluate._cache_hit_rate_line("x", 0, 0) == "x: no slides"
 
 
+def test_build_hydrate_speaker_notes_generic_placeholder_one_liner():
+    """Generic [???]→[???] rows use [generic] unmapped instead of long UNMAPPED tag."""
+    reps = [
+        {
+            "field": "Generic placeholder, no specific data mapping",
+            "original": "[???]",
+            "new_value": "[???]",
+            "mapped": False,
+        },
+    ]
+    out = evaluate._build_hydrate_speaker_notes(reps, [{"type": "shape", "text": "x"}])
+    assert "1 data operation:" in out
+    assert "[generic] unmapped" in out
+    assert "UNMAPPED / static visual" not in out
+
+
 def test_build_hydrate_speaker_notes_lists_lines():
     """Speaker notes manifest includes each replacement and per-line slide data."""
     reps = [
@@ -327,7 +343,9 @@ def test_build_hydrate_speaker_notes_lists_lines():
         {"type": "shape", "text": "[00%] reduction In Past Due PO's"},
     ]
     out = evaluate._build_hydrate_speaker_notes(reps, els)
-    assert "Pipeline" in out and "total_sites" in out and "nps_score" in out
+    assert "2 data operations:" in out and "total_sites" in out and "nps_score" in out
+    assert "is now [14], (source: Pendo)" in out
+    assert "[nps_score] unmapped" in out and "was: 72" in out
     assert "Manufacturing sites" in out
     assert "Past Due" in out
     assert out.count("[shape]") >= 2
@@ -346,8 +364,8 @@ def test_build_hydrate_speaker_notes_qa_governance():
     )
     assert "QA this slide" in out
     assert "Data context" in out and "Acme" in out and "2025-03-06" in out and "Q1 2025" in out
-    assert "LIVE — Source: Pendo" in out
-    assert "LIVE — Source: Jira" in out
+    assert "is now [14], (source: Pendo)" in out
+    assert "is now [12], (source: Jira)" in out
     assert "QA checklist" in out
     assert "INCOMPLETE" not in out
 
@@ -531,6 +549,40 @@ def test_should_add_incomplete_banner_skips_bespoke_divider_from_analysis():
     assert evaluate._should_add_incomplete_banner(
         "p1", reps, None, {"slide_type": "bespoke_divider"}
     ) is False
+
+
+def test_slide_metric_font_clamp_requests_lowers_inherited_headline_size():
+    """replaceAllText can inherit 72pt headline style on metric text — clamp to body reference."""
+    slide = {
+        "pageElements": [
+            {
+                "objectId": "shape1",
+                "shape": {
+                    "text": {
+                        "textElements": [
+                            {
+                                "textRun": {
+                                    "content": "Label ",
+                                    "style": {"fontSize": {"magnitude": 12, "unit": "PT"}},
+                                }
+                            },
+                            {
+                                "textRun": {
+                                    "content": "$166,290",
+                                    "style": {"fontSize": {"magnitude": 72, "unit": "PT"}},
+                                }
+                            },
+                        ]
+                    }
+                }
+            }
+        ]
+    }
+    reps = [{"original": "$100,000", "new_value": "$166,290", "mapped": True}]
+    reqs = evaluate._slide_metric_font_clamp_requests(slide, reps)
+    assert len(reqs) == 1
+    mag = reqs[0]["updateTextStyle"]["style"]["fontSize"]["magnitude"]
+    assert mag <= 22.0
 
 
 # ── intake: Drive query escape ──────────────────────────────────────────────────

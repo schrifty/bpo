@@ -20,6 +20,37 @@ def test_max_exclusive_index_trailing_paragraph_matches_slides_delete_bounds():
     assert hints._text_body_max_exclusive_index(text_body) == 13
 
 
+def test_hard_max_uses_api_end_index_when_smaller_than_walk():
+    """``deleteText`` length follows Slides JSON ``endIndex`` — cap must not exceed it."""
+    text_body = {
+        "textElements": [
+            {"startIndex": 0, "endIndex": 1, "textRun": {"content": "x", "style": {}}},
+        ],
+    }
+    assert hints._api_max_end_index(text_body) == 1
+    assert hints._hard_max_exclusive_index(text_body) == 1
+
+
+def test_resolve_replace_delete_range_matches_source_when_hint_indices_invalid():
+    """When merged/hint UTF-16 range is past API length, match ``source_text`` to the textRun."""
+    m = hints._HintMutation(
+        "s1",
+        None,
+        "replace",
+        2,
+        4,
+        "[???]",
+        source_text="Hi",
+    )
+    text_body = {
+        "textElements": [
+            {"startIndex": 0, "endIndex": 2, "textRun": {"content": "Hi", "style": {}}},
+        ],
+    }
+    cl = hints._resolve_replace_delete_range(text_body, m)
+    assert cl == (0, 2)
+
+
 def test_max_exclusive_index_no_trailing_pm_still_caps_at_run_tail():
     """Slides may omit a terminal paragraphMarker but still report endIndex == walk (14) while delete max is 13."""
     text_body = {

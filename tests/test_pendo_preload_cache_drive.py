@@ -1,6 +1,9 @@
 """Unit tests for Pendo preload Drive cache filenames and envelope validation."""
 
+from http.client import IncompleteRead
+
 from src import pendo_preload_cache_drive as ppc
+from src.pendo_portfolio_snapshot_drive import _drive_io_transient
 
 
 def test_pendo_preload_cache_filename_days_and_catalog():
@@ -31,3 +34,8 @@ def test_validate_envelope_accepts_catalog_and_visitors():
     }
     assert ppc._validate_envelope(raw_v, ppc.PRELOAD_KIND_VISITORS, 30) == raw_v
     assert ppc._validate_envelope(raw_v, ppc.PRELOAD_KIND_VISITORS, 90) is None
+
+
+def test_drive_io_transient_incomplete_read_is_retryable():
+    """Large Drive get_media reads use _read_drive_file_text_retrying; IncompleteRead must retry."""
+    assert _drive_io_transient(IncompleteRead(b"x" * 100, 999999))

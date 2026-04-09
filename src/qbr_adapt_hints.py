@@ -590,6 +590,25 @@ def _text_body_last_text_run_exclusive_end(text_body: dict) -> int:
     return last_run_end
 
 
+def _api_max_end_index(text_body: dict) -> int:
+    """Largest ``endIndex`` from Slides JSON for this text body (exclusive document length)."""
+    mx = 0
+    for te in text_body.get("textElements") or []:
+        ei = te.get("endIndex")
+        if ei is not None:
+            mx = max(mx, int(ei))
+    return mx
+
+
+def _hard_max_exclusive_index(text_body: dict) -> int:
+    """Conservative cap for ``deleteText`` / ``insertText`` — Slides rejects ranges past this."""
+    soft = _text_body_max_exclusive_index(text_body)
+    api_hi = _api_max_end_index(text_body)
+    if api_hi > 0:
+        return min(soft, api_hi)
+    return soft
+
+
 def _text_body_max_exclusive_index(text_body: dict) -> int:
     """Exclusive end index upper bound safe for ``deleteText`` / ``updateTextStyle`` (UTF-16).
 
@@ -647,7 +666,7 @@ def _clamp_utf16_range_to_text_body(
     # raw ranges caused batchUpdate 400s (e.g. start past cell length).
     if not text_body or not text_body.get("textElements"):
         return None
-    mx = _text_body_max_exclusive_index(text_body)
+    mx = _hard_max_exclusive_index(text_body)
     span_max = max((e for _, e, _, _ in iter_text_run_spans(text_body)), default=0)
     if span_max > 0:
         mx = min(mx, span_max)
@@ -656,6 +675,65 @@ def _clamp_utf16_range_to_text_body(
     if start >= end:
         return None
     return start, end
+
+
+def _clamp_delete_range_strict(
+    text_body: dict, start: int, end: int
+) -> tuple[int, int] | None:
+    """Final [start,end) for deleteText: must satisfy 0 <= start < end <= hard_max."""
+    hard = _hard_max_exclusive_index(text_body)
+    if hard <= 0:
+        return None
+    start = max(0, int(start))
+    end = min(int(end), hard)
+    if start >= hard:
+        return None
+    if end <= start:
+        return None
+    if end > hard:
+        end = hard
+    if start >= end:
+        return None
+    return start, end
+
+
+def _resolve_replace_delete_range(text_body: dict | None, m: _HintMutation) -> tuple[int, int] | None:
+    """Resolve delete+insert indices for yellow/orange text replacement.
+
+    Prefer matching ``source_text`` to a single ``iter_text_run_spans`` run so indices match
+    Slides' UTF-16 space. Fall back to clamping ``m.start``/``m.end``. Uses
+    ``_hard_max_exclusive_index`` so we never emit ``deleteText`` past API length (fixes 400s
+    like start=2 when existing length is 1).
+    """
+    if not text_body or not text_body.get("textElements"):
+        return None
+    src = m.source_text or ""
+    if src:
+        exact: list[tuple[int, int]] = []
+        for a, b, c, _ in iter_text_run_spans(text_body):
+            if c == src:
+                exact.append((a, b))
+        if len(exact) == 1:
+            a, b = exact[0]
+            return _clamp_delete_range_strict(text_body, a, b)
+        if len(exact) > 1:
+            a, b = min(exact, key=lambda se: abs(se[0] - m.start))
+            return _clamp_delete_range_strict(text_body, a, b)
+        stripped: list[tuple[int, int]] = []
+        for a, b, c, _ in iter_text_run_spans(text_body):
+            if (c or "").strip() == src.strip() and (c or "").strip():
+                stripped.append((a, b))
+        if len(stripped) == 1:
+            a, b = stripped[0]
+            return _clamp_delete_range_strict(text_body, a, b)
+        if len(stripped) > 1:
+            a, b = min(stripped, key=lambda se: abs(se[0] - m.start))
+            return _clamp_delete_range_strict(text_body, a, b)
+    cl = _clamp_utf16_range_to_text_body(text_body, m.start, m.end)
+    if cl is None:
+        return None
+    a, b = cl
+    return _clamp_delete_range_strict(text_body, a, b)
 
 
 def hint_mutations_to_batch_requests(
@@ -778,14 +856,16 @@ def hint_mutations_to_batch_requests(
                 })
                 continue
 
-            cl = _clamp_utf16_range_to_text_body(text_body, x.start, x.end)
+            cl = _resolve_replace_delete_range(text_body, x)
             if cl is None:
-                logger.debug(
-                    "QBR hint skip replace (empty or out-of-range): oid=%s cell=%s range was %s-%s",
-                    oid[:12],
+                logger.warning(
+                    "QBR hint skip replace (no valid deleteText range): oid=%s cell=%s "
+                    "hint_range=%s-%s source_text=%r",
+                    (oid or "")[:16],
                     cell,
                     x.start,
                     x.end,
+                    (x.source_text or "")[:120],
                 )
                 continue
             start_i, end_i = cl
@@ -826,7 +906,7 @@ def hint_mutations_to_batch_requests(
                 ):
                     style_end = start_i + ins_len
                     if text_body is not None:
-                        mx0 = _text_body_max_exclusive_index(text_body)
+                        mx0 = _hard_max_exclusive_index(text_body)
                         new_len = mx0 - (end_i - start_i) + ins_len
                         style_end = min(style_end, new_len)
                     if start_i < style_end:
