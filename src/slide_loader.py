@@ -267,6 +267,21 @@ def cohort_profiles_max_physical_slides() -> int:
     return max(1, min(100, m["max_physical_slides"]))
 
 
+def get_slide_definition(
+    slide_id: str,
+    slides_dir: str | Path | None = None,
+) -> dict[str, Any] | None:
+    """Return a deep copy of one slide YAML by ``id``, or None if missing.
+
+    Used to read ``hydrate:`` and other metadata for template hydration without
+    loading the full customer-filtered slide list.
+    """
+    for r in _load_all_slides(slides_dir):
+        if r.get("id") == slide_id:
+            return copy.deepcopy(r)
+    return None
+
+
 def get_slide_prompts(
     customer: str,
     slides_dir: str | Path | None = None,

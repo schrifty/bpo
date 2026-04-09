@@ -591,6 +591,15 @@ def test_build_hydrate_speaker_notes_rebuild_spec():
     assert "Type: engagement" in out
 
 
+def test_hydrate_speaker_notes_title_skips_placeholder_first_line():
+    """Header line uses first non-placeholder shape line, not [???] template slots."""
+    els = [{"type": "shape", "text": "[???]\nUsage & engagement"}]
+    out = evaluate._build_hydrate_speaker_notes([], els, report={"customer": "Acme"})
+    first = out.split("\n")[0]
+    assert "— [???]" not in first
+    assert "Usage & engagement" in first
+
+
 # ── incomplete banner gating ────────────────────────────────────────────────────
 
 
@@ -683,6 +692,91 @@ def test_slide_metric_font_clamp_requests_lowers_inherited_headline_size():
     assert len(reqs) == 1
     mag = reqs[0]["updateTextStyle"]["style"]["fontSize"]["magnitude"]
     assert mag <= 22.0
+
+
+# ── QBR agenda Title #N → section titles ───────────────────────────────────────
+
+
+def test_merge_qbr_agenda_title_replacements_replaces_title_hash():
+    plan = [
+        {"slide_type": "qbr_cover", "title": "Cover"},
+        {"slide_type": "qbr_agenda", "title": "Agenda"},
+        {"slide_type": "qbr_divider", "title": "First Section"},
+        {"slide_type": "qbr_divider", "title": "Second Section"},
+    ]
+    text_elements = [
+        {"type": "shape", "element_id": "a", "text": "Agenda"},
+        {"type": "shape", "element_id": "b", "text": "Title #1"},
+        {"type": "shape", "element_id": "c", "text": "Title #2"},
+    ]
+    base = [
+        {"original": "Title #1", "new_value": "wrong", "mapped": True, "field": "x"},
+        {"original": "166290", "new_value": "99", "mapped": True, "field": "y"},
+    ]
+    out = evaluate._merge_qbr_agenda_title_replacements(text_elements, base, {"_slide_plan": plan})
+    by_orig = {r["original"]: r["new_value"] for r in out}
+    assert by_orig["Title #1"] == "First Section"
+    assert by_orig["Title #2"] == "Second Section"
+    assert by_orig["166290"] == "99"
+
+
+def test_merge_qbr_agenda_title_replacements_no_plan_noop():
+    text_elements = [{"type": "shape", "element_id": "b", "text": "Title #1"}]
+    base = [{"original": "x", "new_value": "y", "mapped": True, "field": "z"}]
+    out = evaluate._merge_qbr_agenda_title_replacements(text_elements, base, {})
+    assert out == base
+
+
+def test_merge_qbr_agenda_title_replacements_yaml_opt_out():
+    """YAML hydrate.template.section_titles.from_deck_plan: false disables title merge."""
+    plan = [
+        {"slide_type": "qbr_divider", "title": "First Section"},
+        {"slide_type": "qbr_divider", "title": "Second Section"},
+    ]
+    text_elements = [
+        {"type": "shape", "element_id": "a", "text": "Agenda"},
+        {"type": "shape", "element_id": "b", "text": "Title #1"},
+    ]
+    base = [{"original": "keep", "new_value": "me", "mapped": True, "field": "x"}]
+    report = {
+        "_slide_plan": plan,
+        "_hydrate_slide_hints": {
+            "qbr_agenda": {
+                "template": {
+                    "section_titles": {"from_deck_plan": False, "slot_labels": "title_number_hash"},
+                }
+            }
+        },
+    }
+    out = evaluate._merge_qbr_agenda_title_replacements(text_elements, base, report)
+    assert out == base
+
+
+def test_merge_qbr_agenda_title_replacements_with_yaml_hints():
+    """Explicit qbr_agenda hints (from slide YAML) still merge when from_deck_plan is true."""
+    plan = [
+        {"slide_type": "qbr_divider", "title": "Alpha"},
+        {"slide_type": "qbr_divider", "title": "Beta"},
+    ]
+    text_elements = [
+        {"type": "shape", "element_id": "a", "text": "Agenda"},
+        {"type": "shape", "element_id": "b", "text": "Title #1"},
+        {"type": "shape", "element_id": "c", "text": "Title #2"},
+    ]
+    report = {
+        "_slide_plan": plan,
+        "_hydrate_slide_hints": {
+            "qbr_agenda": {
+                "template": {
+                    "section_titles": {"from_deck_plan": True, "slot_labels": "title_number_hash"},
+                }
+            }
+        },
+    }
+    out = evaluate._merge_qbr_agenda_title_replacements(text_elements, [], report)
+    by_orig = {r["original"]: r["new_value"] for r in out}
+    assert by_orig["Title #1"] == "Alpha"
+    assert by_orig["Title #2"] == "Beta"
 
 
 # ── intake: Drive query escape ──────────────────────────────────────────────────

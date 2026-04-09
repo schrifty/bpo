@@ -65,6 +65,34 @@ def test_synonym_preserves_percent_sign_when_prefix_had_percent(monkeypatch):
     assert "of the COGS" in out[0]["new_value"]
 
 
+def test_synonym_narrow_haystack_same_shape_other_line_no_cross_match():
+    """Placeholder lines must not inherit phrase matches from unrelated lines in the same text box."""
+    text_elements = [
+        {
+            "type": "shape",
+            "text": (
+                "weekly on leandna for engagement metrics\n"
+                "[4 BU]\n"
+                "[8 Differents ERP]"
+            ),
+        },
+    ]
+    ds = {"account_avg_weekly_hours": 39371.5}
+    for orig in ("[4 BU]", "[8 Differents ERP]"):
+        repl = [
+            {
+                "original": orig,
+                "new_value": "[000]",
+                "mapped": False,
+                "field": "?",
+            }
+        ]
+        out = dfs.apply_synonym_resolution_to_replacements(repl, text_elements, ds)
+        assert len(out) == 1, orig
+        assert out[0]["mapped"] is False, orig
+        assert out[0].get("synonym_path") is None, orig
+
+
 def test_apply_synonym_to_unmapped_replacement():
     text_elements = [
         {"type": "shape", "text": "Average hours spent weekly on LeanDNA: [000]"},

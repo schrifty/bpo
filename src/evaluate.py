@@ -2174,6 +2174,115 @@ def _unmapped_placeholder_descriptions_for_notes(oai, entries: list[dict]) -> li
 
 
 _PLACEHOLDER_MARKERS = ("[000]", "[$000]", "[00/00/00]", "[00%]", "[???]")
+
+# QBR template agenda: "Title #1" … "Title #N" labels → section titles from decks/qbr.yaml (via report["_slide_plan"]).
+_TITLE_HASH_PLACEHOLDER_RE = re.compile(r"\bTitle\s*#\s*(\d+)\b", re.I)
+
+
+def _qbr_agenda_items_from_plan(slide_plan: list[dict]) -> list[str]:
+    """Same section ordering as :func:`slides_client._qbr_agenda_slide`."""
+    divider_items = [
+        str(entry.get("title", "")).strip()
+        for entry in slide_plan
+        if entry.get("slide_type", entry.get("id", "")) == "qbr_divider"
+        and entry.get("title")
+    ]
+    divider_items = [t for t in divider_items if t]
+    if divider_items:
+        return divider_items
+    skip_types = {"qbr_cover", "qbr_agenda", "title", "data_quality", "skip"}
+    out: list[str] = []
+    for entry in slide_plan:
+        st = entry.get("slide_type", entry.get("id", ""))
+        if st in skip_types:
+            continue
+        t = str(entry.get("title", "") or "").strip() or str(entry.get("id", "")).replace("_", " ").title()
+        if t:
+            out.append(t)
+    return out
+
+
+def _slide_looks_like_qbr_agenda_titles(text_elements: list[dict]) -> bool:
+    blob = "\n".join((el.get("text") or "") for el in text_elements)
+    if "agenda" in blob.lower():
+        return True
+    return bool(_TITLE_HASH_PLACEHOLDER_RE.search(blob))
+
+
+def _build_qbr_title_hash_replacements(
+    text_elements: list[dict],
+    items: list[str],
+) -> list[dict]:
+    """One replaceAllText row per distinct ``Title #N`` substring on the slide."""
+    seen: set[str] = set()
+    rows: list[dict] = []
+    for el in text_elements:
+        text = el.get("text") or ""
+        for m in _TITLE_HASH_PLACEHOLDER_RE.finditer(text):
+            exact = m.group(0)
+            n = int(m.group(1))
+            if n < 1 or n > len(items):
+                continue
+            if exact in seen:
+                continue
+            seen.add(exact)
+            label = items[n - 1]
+            rows.append({
+                "original": exact,
+                "new_value": label[:200],
+                "mapped": True,
+                "field": "qbr_agenda_section",
+            })
+    return rows
+
+
+def _merge_qbr_agenda_title_replacements(
+    text_elements: list[dict],
+    base_replacements: list[dict],
+    report: dict,
+) -> list[dict]:
+    """Replace template ``Title #N`` strings with QBR section titles; drop conflicting base rows.
+
+    When ``report["_hydrate_slide_hints"]["qbr_agenda"]`` is set (from ``slides/qbr-02-agenda.yaml``),
+    the ``hydrate.template.section_titles`` block controls whether this runs and which slot pattern is used.
+    If hints are absent (non-QBR hydrate), behavior is unchanged (heuristic + deck plan).
+    """
+    plan = report.get("_slide_plan")
+    if not isinstance(plan, list) or not plan:
+        return base_replacements
+    if not _slide_looks_like_qbr_agenda_titles(text_elements):
+        return base_replacements
+
+    hints = report.get("_hydrate_slide_hints")
+    if isinstance(hints, dict) and "qbr_agenda" in hints:
+        ag = hints.get("qbr_agenda")
+        if not isinstance(ag, dict):
+            return base_replacements
+        st = (ag.get("template") or {}).get("section_titles") or {}
+        if st.get("from_deck_plan") is False:
+            return base_replacements
+        sl = (st.get("slot_labels") or "title_number_hash").strip()
+        if sl != "title_number_hash":
+            logger.warning(
+                "hydrate: qbr_agenda slot_labels=%r not supported — skipping section title merge",
+                sl,
+            )
+            return base_replacements
+
+    items = _qbr_agenda_items_from_plan(plan)
+    if not items:
+        return base_replacements
+    title_rows = _build_qbr_title_hash_replacements(text_elements, items)
+    if not title_rows:
+        return base_replacements
+    originals = {str(r["original"]).strip() for r in title_rows}
+    filtered = [
+        r for r in base_replacements
+        if str(r.get("original", "")).strip() not in originals
+    ]
+    return filtered + title_rows
+# Single-line template slots (not real slide titles) when inferring speaker-note header.
+_BAD_HYDRATE_TITLE_BRACKET_ONLY = re.compile(r"^\[[\?\d\$\s%/.—\-]+\]$")
 _STATIC_IMAGE_MARKER = "[STATIC IMAGE"
 _EMBEDDED_CHART_TEXT = "(embedded chart — contains data that cannot be auto-updated)"
 _EMBEDDED_IMAGE_TEXTS = ("(embedded image)", "(image in shape)")
@@ -2296,27 +2405,45 @@ def _format_data_summary_value(val: Any, max_chars: int = 2000) -> str:
     return s if len(s) <= max_chars else s[: max_chars - 3] + "..."
 
 
+def _line_unfit_for_hydrate_slide_title(s: str) -> bool:
+    """True for placeholder tokens and non-title markers — not a real slide heading."""
+    t = (s or "").strip()
+    if len(t) < 2:
+        return True
+    if t in _PLACEHOLDER_MARKERS:
+        return True
+    low = t.lower()
+    if low.startswith("(embedded") or low.startswith("(image"):
+        return True
+    if len(t) <= 80 and _BAD_HYDRATE_TITLE_BRACKET_ONLY.match(t):
+        return True
+    return False
+
+
 def _slide_title_for_notes(
     text_elements: list[dict],
     analysis: dict | None,
     *,
     slide_title: str | None = None,
 ) -> str:
-    """Best-effort slide title: explicit param, then cached analysis, then first shape line."""
+    """Best-effort slide title: explicit param, then cached analysis, then first non-placeholder shape line."""
     if slide_title and str(slide_title).strip():
-        return str(slide_title).strip()
+        st = str(slide_title).strip()
+        if not _line_unfit_for_hydrate_slide_title(st):
+            return st
     if analysis:
         t = (analysis.get("title") or "").strip()
-        if t:
+        if t and not _line_unfit_for_hydrate_slide_title(t):
             return t
     for el in text_elements:
         if el.get("type") == "shape":
             raw = (el.get("text") or "").strip()
             if not raw:
                 continue
-            first = raw.split("\n")[0].strip()
-            if 2 <= len(first) <= 200:
-                return first
+            for line in raw.split("\n"):
+                first = line.strip()
+                if 2 <= len(first) <= 200 and not _line_unfit_for_hydrate_slide_title(first):
+                    return first
     return ""
 
 
@@ -3195,6 +3322,7 @@ def adapt_custom_slides(
     notes_updates: list[tuple[str, str]] = []
     for page_id in page_ids:
         text_elements, replacements, analysis = results.get(page_id, ([], [], None))
+        replacements = _merge_qbr_agenda_title_replacements(text_elements, replacements, report)
         slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
 
         if not text_elements:

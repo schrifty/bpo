@@ -172,6 +172,31 @@ def _format_scalar_for_slide(val: Any, *, path: str) -> str:
     return str(val)
 
 
+def _narrow_synonym_haystack(orig: str, text_elements: list[dict]) -> str:
+    """Use only lines (or a short window) around ``orig`` so unrelated copy in the same shape
+    cannot trigger phrase matches for a different placeholder (e.g. ``[4 BU]``,
+    ``[8 Differents ERP]`` vs ``weekly on leandna`` on another line).
+    """
+    if not orig:
+        return ""
+    parts: list[str] = []
+    for el in text_elements:
+        t = el.get("text") or ""
+        if orig not in t:
+            continue
+        lines = t.splitlines()
+        hit_lines = [ln for ln in lines if orig in ln]
+        if hit_lines:
+            parts.append("\n".join(hit_lines))
+            continue
+        # Rare: orig spans lines — fall back to a window around the first occurrence
+        i = t.index(orig)
+        lo = max(0, i - 160)
+        hi = min(len(t), i + len(orig) + 160)
+        parts.append(t[lo:hi])
+    return "\n".join(parts) if parts else orig
+
+
 def try_resolve_phrase_in_text(
     haystack: str,
     data_summary: dict[str, Any],
@@ -220,12 +245,7 @@ def apply_synonym_resolution_to_replacements(
             out.append(r)
             continue
         orig = str(r.get("original") or "")
-        hay_parts: list[str] = []
-        for el in text_elements:
-            t = el.get("text") or ""
-            if orig and orig in t:
-                hay_parts.append(t)
-        haystack = "\n".join(hay_parts) if hay_parts else orig
+        haystack = _narrow_synonym_haystack(orig, text_elements)
         hit = try_resolve_phrase_in_text(haystack, data_summary, config_path=config_path)
         if not hit:
             out.append(r)

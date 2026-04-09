@@ -9,3 +9,13 @@ customers: all
 prompt: |
   Numbered agenda slide auto-generated from the deck's slide plan.
   Dark navy background with accent panel. Numbers in mint, items in white.
+
+# Template-hydrate path (Google Slides copy): declares how on-slide text maps to data.
+# Builder path ignores this; see evaluate._merge_qbr_agenda_title_replacements.
+hydrate:
+  template:
+    section_titles:
+      # Replace template labels (e.g. "Title #1" … "Title #N") with QBR section names
+      # from decks/qbr.yaml — same order as slides_client._qbr_agenda_slide (dividers first).
+      from_deck_plan: true
+      slot_labels: title_number_hash

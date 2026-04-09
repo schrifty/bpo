@@ -6,6 +6,7 @@ from src.slide_loader import (
     cohort_findings_rollup_params,
     cohort_findings_min_customers_for_cross_cohort_compare,
     cohort_profiles_max_physical_slides,
+    get_slide_definition,
 )
 
 
@@ -32,3 +33,14 @@ def test_cohort_findings_rollup_has_expected_keys_and_defaults():
     assert p["singleton_n"] == 1
     assert p["thin_sample_n"] == 2
     assert cohort_findings_min_customers_for_cross_cohort_compare() == 5
+
+
+def test_get_slide_definition_qbr_agenda_includes_hydrate():
+    sd = get_slide_definition("qbr_agenda")
+    assert sd is not None
+    assert sd.get("id") == "qbr_agenda"
+    h = sd.get("hydrate")
+    assert isinstance(h, dict)
+    st = h.get("template", {}).get("section_titles", {})
+    assert st.get("from_deck_plan") is True
+    assert st.get("slot_labels") == "title_number_hash"

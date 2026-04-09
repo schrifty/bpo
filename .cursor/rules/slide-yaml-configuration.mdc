@@ -1,0 +1,23 @@
+---
+description: Prefer slide YAML and deck metadata over hardcoded Python behavior
+globs:
+  - slides/**/*.yaml
+  - decks/**/*.yaml
+  - src/slide_loader.py
+  - src/deck_loader.py
+  - src/qbr_template.py
+  - src/evaluate.py
+  - src/qbr_adapt_hints.py
+alwaysApply: false
+---
+
+# Slide YAML over hardcoding
+
+When changing **slide behavior**, **template hydration**, or **QBR/deck wiring**:
+
+1. **Prefer** declaring semantics in `slides/<id>.yaml` (e.g. `hydrate:`, `rollup_params:`, `metadata:`) or deck YAML, and **reading** that config from `slide_loader` / `deck_loader` / `resolve_deck`, over baking one-off heuristics or magic strings in Python.
+2. **Use** Python for parsing, defaults, validation, and glue — not for slide-specific copy, slot patterns, or “this slide means X” when those can live in YAML with a stable schema.
+3. **Extend** the YAML schema and document new keys in comments on the slide file (or the design doc if the user asks) rather than scattering unexplained constants in `evaluate.py` or `slides_client.py`.
+4. **Exception:** Keep hardcoding when YAML would be awkward (pure algorithms, API batching, Google Slides limits) or when the user asks for a minimal hotfix without schema work.
+
+If unsure, **default to YAML-first** for anything a deck author might reasonably want to edit without touching Python.

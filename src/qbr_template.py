@@ -24,6 +24,7 @@ from .config import (
     llm_client,
 )
 from .deck_loader import resolve_deck
+from .slide_loader import get_slide_definition
 from .drive_config import (
     export_google_doc_as_plain_text,
     find_file_in_folder,
@@ -623,6 +624,25 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
     report["quarter"] = qr.label
     report["quarter_start"] = qr.start.isoformat()
     report["quarter_end"] = qr.end.isoformat()
+
+    qbr_resolved = resolve_deck("qbr", customer)
+    if qbr_resolved.get("error"):
+        logger.warning(
+            "QBR: resolve_deck('qbr') failed — on-slide agenda titles will not hydrate: %s",
+            qbr_resolved.get("error"),
+        )
+        report["_slide_plan"] = []
+    else:
+        report["_slide_plan"] = qbr_resolved.get("slides") or []
+
+    qbr_agenda_def = get_slide_definition("qbr_agenda")
+    if not isinstance(qbr_agenda_def, dict):
+        qbr_agenda_def = {}
+    hydrate_block = qbr_agenda_def.get("hydrate")
+    if isinstance(hydrate_block, dict) and hydrate_block:
+        report["_hydrate_slide_hints"] = {"qbr_agenda": hydrate_block}
+    else:
+        report["_hydrate_slide_hints"] = {}
 
     slides_svc, drive_svc, _google_creds = _get_service()
     output_folder = get_qbr_output_folder_id()
