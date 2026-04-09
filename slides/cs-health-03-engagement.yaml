@@ -1,0 +1,18 @@
+# CS Health Review — dedicated copy (decks/cs-health-review.yaml).
+# slide_type matches the shared builder; id is deck-specific.
+
+id: cs_health_engagement
+type: standard
+order: 3
+title: Engagement Breakdown
+slide_type: engagement
+data_tools: [customer_health]
+customers: all
+
+prompt: |
+  Break down engagement by role. For each role, show the number of active
+  users (last 7 days) versus dormant users as a visual comparison.
+  This helps the CSM understand which personas are adopting the product
+  and where there are gaps — e.g. buyers are active but planners are not,
+  or executives have dropped off. Roles with the most dormant users should
+  stand out visually.

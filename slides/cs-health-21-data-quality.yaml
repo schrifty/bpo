@@ -1,0 +1,17 @@
+# CS Health Review — dedicated copy (decks/cs-health-review.yaml).
+# slide_type matches the shared builder; id is deck-specific.
+
+id: cs_health_data_quality
+type: standard
+order: 99
+title: Data Quality
+slide_type: data_quality
+data_tools: []
+customers: all
+
+prompt: |
+  Final slide in every deck. Shows the results of automated cross-source
+  validation checks. If all checks passed, display a reassuring green status.
+  If discrepancies were found, list them with severity, expected vs. actual
+  values, and data sources involved. This slide is always present — a clean
+  bill of health is itself valuable information.

@@ -5,6 +5,16 @@ BPO reads the **latest CS Report** as an **XLSX** file from a shared Google Driv
 Implementation: [`src/cs_report_client.py`](../../src/cs_report_client.py).  
 Cross-links: governance registry in [`DATA_REGISTRY.md`](./DATA_REGISTRY.md).
 
+In a **merged health report** (e.g. from `PendoClient.get_customer_health_report`), CS Report payloads are grouped under **`report["csr"]`**:
+
+| Key | Produced by |
+|-----|----------------|
+| `csr["platform_health"]` | `get_customer_platform_health` |
+| `csr["supply_chain"]` | `get_customer_supply_chain` |
+| `csr["platform_value"]` | `get_customer_platform_value` |
+
+`get_csr_section(report)` returns this object and still accepts legacy top-level `cs_platform_health` / `cs_supply_chain` / `cs_platform_value` for older JSON.
+
 ---
 
 ## 1. Transport & file shape

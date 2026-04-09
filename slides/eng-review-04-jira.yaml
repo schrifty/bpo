@@ -1,0 +1,19 @@
+# Engineering Review deck — dedicated copy (decks/engineering.yaml).
+# slide_type matches the shared builder; id is deck-specific.
+
+id: eng_review_jira
+type: standard
+order: 13
+title: Support Summary
+slide_type: jira
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Snapshot of the customer's current JIRA state: open vs resolved issues,
+  priority distribution, escalation count, and recent ticket activity.
+  This slide gives the CSM concrete support context before a QBR —
+  are there unresolved blockers, a spike in escalations, or recurring
+  issue patterns? The 90-day window captures trends beyond the
+  standard 30-day Pendo lookback.

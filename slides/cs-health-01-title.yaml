@@ -1,0 +1,15 @@
+# CS Health Review — dedicated copy (decks/cs-health-review.yaml).
+# slide_type matches the shared builder; id is deck-specific.
+
+id: cs_health_title
+type: standard
+order: 1
+title: Title Slide
+slide_type: title
+data_tools: [customer_health]
+customers: all
+
+prompt: |
+  Open the deck with the customer name prominently displayed.
+  Include the date range covered, the assigned CSM name, total number of sites,
+  and total number of users. This sets the context for the entire presentation.

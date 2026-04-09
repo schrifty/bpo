@@ -118,10 +118,11 @@ bpo/
 │   ├── product-adoption.yaml
 │   └── portfolio-review.yaml
 ├── slides/                   # Slide definitions (YAML) — individual slide configs
-│   ├── std-01-title.yaml
-│   ├── std-02-health.yaml
+│   ├── qbr-01-cover.yaml     # QBR primary deck filenames (qbr-01 … qbr-18 …)
+│   ├── qbr-05-health.yaml
 │   ├── ...
-│   └── std-99-data-quality.yaml
+│   └── qbr-18-data-quality.yaml
+│   (other prefixes: std-*, cohort-*, eng-*, … for non-QBR decks)
 ├── cohorts.yaml              # Customer manufacturing cohort classifications
 ├── docs/
 │   ├── data-schema/          # Data registry + per-source schemas (Jira, Pendo, CS Report, …)
@@ -147,7 +148,9 @@ bpo/
 
 | ID | Name | Audience | Slides |
 |----|------|----------|--------|
-| `cs_health_review` | Customer Success Health Review | CSMs | 14 slides — full account picture |
+| `qbr` | Quarterly Business Review | Customer Success — QBR | 22 slides (`decks/qbr.yaml`, `slides/qbr-*.yaml`) |
+| `cs_health_review` | Customer Success Health Review | CSMs | 21 slides — full account picture (`slides/cs-health-*.yaml`) |
+| `engineering` | Engineering Review | Engineering / Product | 7 slides (`slides/eng-review-*.yaml`) |
 | `executive_summary` | Executive Summary | Leadership | 7 slides — high-signal only |
 | `product_adoption` | Product Adoption Review | Product | 10 slides — feature/behavioral focus |
 | `portfolio_review` | Book of Business Review | CS Leadership | 5 slides — cross-customer |

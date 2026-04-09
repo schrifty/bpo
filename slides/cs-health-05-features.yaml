@@ -1,0 +1,18 @@
+# CS Health Review — dedicated copy (decks/cs-health-review.yaml).
+# slide_type matches the shared builder; id is deck-specific.
+
+id: cs_health_features
+type: standard
+order: 5
+title: Feature Adoption
+slide_type: features
+data_tools: [customer_features]
+customers: all
+
+prompt: |
+  Show the top pages and features this customer uses most, with
+  human-readable names and event counts. This tells the CSM what product
+  value the customer is actually extracting — and by omission, what they're
+  ignoring. Split into two columns: top pages (where they spend time)
+  and top features (what they click on). If key product capabilities are
+  absent from the list, that's a coaching or enablement opportunity.

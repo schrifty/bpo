@@ -1,0 +1,26 @@
+# CS Health Review — dedicated copy (decks/cs-health-review.yaml).
+# slide_type matches the shared builder; id is deck-specific.
+
+id: cs_health_guides
+type: standard
+order: 11
+title: Guide Engagement
+slide_type: guides
+data_tools: [customer_guides]
+customers: all
+
+prompt: |
+  Show how this customer interacts with in-app guides (tooltips, walkthroughs,
+  product update announcements, NPS surveys). Display: total guide events,
+  number of users who saw guides, guide reach (% of active users), and the
+  advance vs dismiss rates.
+
+  A high dismiss rate (>30%) signals that users are annoyed by or ignoring
+  onboarding content — the CSM may need to work with Product to adjust
+  guide targeting for this account. Low guide reach means users aren't
+  hitting the parts of the product where guides are triggered, which could
+  indicate shallow usage patterns.
+
+  List the most-interacted guides with their seen/advanced/dismissed counts
+  so the CSM can see whether product update guides, onboarding content,
+  or NPS surveys are getting the most attention.

@@ -1,8 +1,8 @@
-id: bespoke_deployment
-type: bespoke
+id: qbr_deployment
+type: qbr
 order: 4
 title: Deployment Overview
-slide_type: bespoke_deployment
+slide_type: qbr_deployment
 data_tools: [customer_sites, customer_platform_health]
 customers: all
 

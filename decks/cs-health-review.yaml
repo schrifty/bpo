@@ -13,43 +13,38 @@ purpose: |
   that drive action: churn risk, expansion opportunity, champion identification,
   and adoption gaps.
 
-# Slides to include, in order.
-# Each entry references a slide ID from the slides/ folder.
-# Use "include: false" to explicitly exclude a slide that would otherwise apply.
-slides:
-  - slide: title
-  - slide: health
-  - slide: engagement
-  - slide: sites
-  - slide: features
-  - slide: champions
-  - slide: benchmarks
-  - slide: depth
-  - slide: exports
-  - slide: kei
-  - slide: guides
-  - slide: jira
-  - slide: sla_health
-  - slide: engineering
-  - slide: enhancements
-  - slide: platform_health
-  - slide: supply_chain
-  - slide: platform_value
-  - slide: cross_validation
-  - slide: signals
-  - slide: data_quality
+# Slide YAML: slides/cs-health-01-title.yaml … cs-health-21-data-quality.yaml (ids cs_health_*).
 
-# Override rules:
-# - "require" means the slide MUST appear even if data is sparse
-# - "exclude" means the slide MUST NOT appear regardless of slide config
-# - "condition" is a hint the agent can evaluate at runtime
+slides:
+  - slide: cs_health_title
+  - slide: cs_health_health
+  - slide: cs_health_engagement
+  - slide: cs_health_sites
+  - slide: cs_health_features
+  - slide: cs_health_champions
+  - slide: cs_health_benchmarks
+  - slide: cs_health_depth
+  - slide: cs_health_exports
+  - slide: cs_health_kei
+  - slide: cs_health_guides
+  - slide: cs_health_jira
+  - slide: cs_health_sla_health
+  - slide: cs_health_engineering
+  - slide: cs_health_enhancements
+  - slide: cs_health_platform_health
+  - slide: cs_health_supply_chain
+  - slide: cs_health_platform_value
+  - slide: cs_health_cross_validation
+  - slide: cs_health_signals
+  - slide: cs_health_data_quality
+
 overrides:
-  - slide: health
+  - slide: cs_health_health
     require: true
     note: Always show health — it's the anchor of the conversation.
-  - slide: signals
+  - slide: cs_health_signals
     require: true
     note: Always close with signals — the CSM needs an action list.
-  - slide: kei
+  - slide: cs_health_kei
     require: true
     note: Kei adoption is a strategic priority. Show it even if usage is zero.

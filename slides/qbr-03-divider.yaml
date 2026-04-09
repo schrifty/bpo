@@ -1,8 +1,8 @@
-id: bespoke_divider
-type: bespoke
+id: qbr_divider
+type: qbr
 order: 3
 title: Section Divider
-slide_type: bespoke_divider
+slide_type: qbr_divider
 data_tools: []
 customers: all
 

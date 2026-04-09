@@ -1,0 +1,18 @@
+# CS Health Review — dedicated copy (decks/cs-health-review.yaml).
+# slide_type matches the shared builder; id is deck-specific.
+
+id: cs_health_cross_validation
+type: standard
+order: 19
+title: Data Cross-Validation
+slide_type: cross_validation
+data_tools:
+  - customer_platform_health
+  - customer_sites
+customers: all
+
+prompt: >
+  Side-by-side comparison of Pendo usage data with CS Report metrics
+  per site/factory. Shows engagement rate gaps, user counts vs buyer
+  counts, and health score alignment. Helps CSMs spot data pipeline
+  issues and understand discrepancies before their customer does.

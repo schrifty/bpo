@@ -1,8 +1,8 @@
-id: bespoke_cover
-type: bespoke
+id: qbr_cover
+type: qbr
 order: 1
 title: Executive Business Review
-slide_type: bespoke_cover
+slide_type: qbr_cover
 data_tools: [customer_health]
 customers: all
 

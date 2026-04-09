@@ -1,8 +1,8 @@
-id: bespoke_agenda
-type: bespoke
+id: qbr_agenda
+type: qbr
 order: 2
 title: Agenda
-slide_type: bespoke_agenda
+slide_type: qbr_agenda
 data_tools: []
 customers: all
 

@@ -1,0 +1,18 @@
+# CS Health Review — dedicated copy (decks/cs-health-review.yaml).
+# slide_type matches the shared builder; id is deck-specific.
+
+id: cs_health_sites
+type: standard
+order: 4
+title: Site Performance
+slide_type: sites
+data_tools: [customer_sites]
+customers: all
+
+prompt: |
+  Show a per-site breakdown of usage metrics. For each site, include the
+  number of visitors, page views, feature clicks, total events, time spent
+  (minutes), and the date of last activity. This reveals which sites are
+  thriving and which are underperforming or going dark. Sites with no
+  recent activity should be flagged. If this is a multi-site rollout,
+  the comparison between sites tells an adoption story.

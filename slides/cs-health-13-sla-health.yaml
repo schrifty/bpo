@@ -1,0 +1,17 @@
+# CS Health Review — dedicated copy (decks/cs-health-review.yaml).
+# slide_type matches the shared builder; id is deck-specific.
+
+id: cs_health_sla_health
+type: standard
+order: 17
+title: Support Health & SLA
+slide_type: sla_health
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  SLA performance dashboard: TTFR and TTR vs goals with breach rates,
+  ticket sentiment distribution (Positive/Neutral/Negative), and
+  request channel mix. Gives the CSM a quick read on support quality
+  and customer satisfaction trajectory.

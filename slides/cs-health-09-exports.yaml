@@ -1,0 +1,22 @@
+# CS Health Review — dedicated copy (decks/cs-health-review.yaml).
+# slide_type matches the shared builder; id is deck-specific.
+
+id: cs_health_exports
+type: standard
+order: 9
+title: Export Behavior
+slide_type: exports
+data_tools: [customer_exports]
+customers: all
+
+prompt: |
+  Show what data this customer exports from LeanDNA, how often, and who
+  does it. Break down exports by feature (e.g. "CTB: Export to Excel",
+  "Workbench: Export to Excel") and list the top 5 exporters with their
+  email and role.
+
+  High export volume is a double-edged signal: it can mean deep engagement
+  (they need LeanDNA data for downstream processes) or it can mean LeanDNA
+  isn't the system of record (they're pulling data out to work in Excel).
+  The CSM should investigate which — especially if the same users are
+  both heavy exporters and light in-app editors.

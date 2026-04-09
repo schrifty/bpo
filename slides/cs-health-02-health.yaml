@@ -1,0 +1,18 @@
+# CS Health Review — dedicated copy (decks/cs-health-review.yaml).
+# slide_type matches the shared builder; id is deck-specific.
+
+id: cs_health_health
+type: standard
+order: 2
+title: Account Health
+slide_type: health
+data_tools: [customer_health]
+customers: all
+
+prompt: |
+  Show the overall health of this account at a glance. Display the weekly
+  active rate as a prominent metric with a tier label (Healthy/Watch/At Risk).
+  Include the total number of active users in the last 7 and 30 days, the
+  dormant count, and how this customer's active rate compares to the peer median.
+  Show a role breakdown of active vs dormant users so the viewer can see
+  which roles are engaged and which aren't.

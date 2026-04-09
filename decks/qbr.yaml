@@ -1,5 +1,5 @@
-id: qbr_bespoke
-name: Quarterly Business Review (Bespoke)
+id: qbr
+name: Quarterly Business Review
 audience: Customer Success — QBR meetings
 
 purpose: |
@@ -8,31 +8,34 @@ purpose: |
   dividers between major topics, and fills data slides with live Pendo, Jira,
   and CS Report data.
 
+# Slide configs on disk (slides/*.yaml), QBR deck order: qbr-01-cover … qbr-18-data-quality.
+# Template slides use ids qbr_cover, qbr_agenda, qbr_divider, qbr_deployment; metric slides share ids like health, signals (other decks reuse those files).
+
 slides:
-  - slide: bespoke_cover
-  - slide: bespoke_agenda
-  - slide: bespoke_divider
+  - slide: qbr_cover
+  - slide: qbr_agenda
+  - slide: qbr_divider
     title: Current deployment coverage
-  - slide: bespoke_deployment
-  - slide: bespoke_divider
+  - slide: qbr_deployment
+  - slide: qbr_divider
     title: Usage & engagement
   - slide: health
   - slide: engagement
   - slide: sites
   - slide: features
   - slide: depth
-  - slide: bespoke_divider
+  - slide: qbr_divider
     title: Support & engineering
   - slide: jira
   - slide: sla_health
   - slide: engineering
   - slide: enhancements
-  - slide: bespoke_divider
+  - slide: qbr_divider
     title: Platform health & value
   - slide: platform_health
   - slide: supply_chain
   - slide: platform_value
-  - slide: bespoke_divider
+  - slide: qbr_divider
     title: Summary & next steps
   - slide: signals
   - slide: data_quality

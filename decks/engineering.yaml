@@ -14,19 +14,21 @@ purpose: |
   engineering leader something actionable: a customer to prioritize, an SLA risk
   to address, or a pipeline item to communicate back.
 
+# Slide YAML: slides/eng-review-01-title.yaml … eng-review-07-data-quality.yaml (ids eng_review_*).
+
 slides:
-  - slide: title
-  - slide: support_breakdown
-  - slide: sla_health
-  - slide: jira
-  - slide: engineering
-  - slide: enhancements
-  - slide: data_quality
+  - slide: eng_review_title
+  - slide: eng_review_support_breakdown
+  - slide: eng_review_sla_health
+  - slide: eng_review_jira
+  - slide: eng_review_engineering
+  - slide: eng_review_enhancements
+  - slide: eng_review_data_quality
 
 overrides:
-  - slide: support_breakdown
+  - slide: eng_review_support_breakdown
     require: true
     note: Core of the engineering deck — always show even if data is sparse.
-  - slide: sla_health
+  - slide: eng_review_sla_health
     require: true
     note: Always show SLA health so engineers can see breach rates.

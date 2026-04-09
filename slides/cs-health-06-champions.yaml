@@ -1,0 +1,20 @@
+# CS Health Review — dedicated copy (decks/cs-health-review.yaml).
+# slide_type matches the shared builder; id is deck-specific.
+
+id: cs_health_champions
+type: standard
+order: 6
+title: Champions & At-Risk Users
+slide_type: champions
+data_tools: [customer_people]
+customers: all
+
+prompt: |
+  Identify the people who matter most. Show the top 5 champions — users
+  who are most recently and frequently active — with their email, role,
+  and last visit date. These are the people to protect during a renewal.
+  Also show up to 5 at-risk users inactive between 2 weeks and ~6 months,
+  sorted by most recent activity first (smallest gap since last visit within
+  the at-risk window). These are re-engagement targets. If an
+  executive or key stakeholder appears in the at-risk list, that's a
+  critical signal to highlight.
