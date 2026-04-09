@@ -26,7 +26,7 @@ from .config import (
 )
 from .cross_source_signals import extend_health_report_signals
 from .signals_llm import maybe_rewrite_signals_with_llm
-from .slide_loader import cohort_findings_rollup_params
+from .slide_loader import cohort_findings_metadata, cohort_findings_rollup_params
 
 PENDO_REQUEST_TIMEOUT_S = 90
 PENDO_TOTAL_TIMEOUT_S = 300
@@ -320,6 +320,70 @@ def _median_nums(vals: list[float]) -> float | None:
     return round((nums[mid - 1] + nums[mid]) / 2.0, 1)
 
 
+def _cohort_findings_metadata_bullets(
+    *,
+    with_data: list[tuple[str, Any]],
+    singletons: list[str],
+    thin: list[str],
+    thin_n: int,
+    singleton_n: int,
+    un: dict[str, Any],
+) -> list[str]:
+    """Build cohort metadata lines from ``cohort_findings`` slide YAML ``metadata`` block."""
+    cfg = cohort_findings_metadata()
+    t = cfg.get("templates") or {}
+    try:
+        max_b = max(1, int(cfg.get("max_bullets") or 1))
+    except (TypeError, ValueError):
+        max_b = 1
+    try:
+        smb = max(1, int(cfg.get("singleton_list_max") or 8))
+    except (TypeError, ValueError):
+        smb = 8
+    try:
+        tmb = max(1, int(cfg.get("thin_list_max") or 6))
+    except (TypeError, ValueError):
+        tmb = 6
+    priority = cfg.get("priority") or []
+    out: list[str] = []
+    for kind in priority:
+        if len(out) >= max_b:
+            break
+        line: str | None = None
+        if kind == "single_bucket":
+            if len(with_data) < 2:
+                line = (t.get("single_bucket") or "").strip() or None
+        elif kind == "singleton":
+            if singletons:
+                names = ", ".join(singletons[:smb])
+                ellipsis = "…" if len(singletons) > smb else ""
+                if singleton_n == 1:
+                    tmpl = t.get("singleton_one")
+                    if tmpl:
+                        line = tmpl.format(names=names, ellipsis=ellipsis)
+                else:
+                    tmpl = t.get("singleton_many")
+                    if tmpl:
+                        line = tmpl.format(singleton_n=singleton_n, names=names, ellipsis=ellipsis)
+        elif kind == "thin_sample":
+            if thin:
+                names = ", ".join(thin[:tmb])
+                ellipsis = "…" if len(thin) > tmb else ""
+                tmpl = t.get("thin_sample")
+                if tmpl:
+                    line = tmpl.format(thin_n=thin_n, names=names, ellipsis=ellipsis)
+        elif kind == "unclassified":
+            if un.get("n"):
+                tmpl = t.get("unclassified")
+                if tmpl:
+                    line = tmpl.format(n=int(un["n"]))
+        elif kind == "provenance":
+            line = (t.get("provenance") or "").strip() or None
+        if line and line.strip():
+            out.append(line.strip())
+    return out
+
+
 def compute_cohort_portfolio_rollup(
     customer_summaries: list[dict[str, Any]],
 ) -> tuple[dict[str, dict[str, Any]], list[str]]:
@@ -451,37 +515,20 @@ def compute_cohort_portfolio_rollup(
                 f"{k_lo[1]['display_name']} {kq:.1f}% — training, rollout, or use-case difference?",
             )
 
-    singletons = [d["display_name"] for _, d in with_data if singleton_n > 0 and d["n"] == singleton_n]
-    if singletons:
-        if singleton_n == 1:
-            label = "Singleton cohorts (one account in-window)"
-        else:
-            label = f"Cohort buckets with exactly {singleton_n} customers in-window"
-        bullets.append(
-            f"{label}: {', '.join(singletons[:8])}"
-            f"{'…' if len(singletons) > 8 else ''} — treat as directional only.",
-        )
-
-    if len(with_data) < 2:
-        bullets.append(
-            "Only one cohort bucket has customers in this window — compare across cohorts when more accounts load.",
-        )
-
-    thin = [d["display_name"] for _, d in with_data if thin_n > 0 and d["n"] == thin_n]
-    if thin:
-        bullets.append(
-            f"Thin samples (exactly {thin_n} customers): {', '.join(thin[:6])}"
-            f"{'…' if len(thin) > 6 else ''} — medians are fragile.",
-        )
-
     un = digest.get("unclassified", {})
-    if un.get("n"):
-        bullets.append(
-            f"{un['n']} customer(s) are unclassified — add or alias them in cohorts.yaml to benchmark by industry cohort.",
+    if not isinstance(un, dict):
+        un = {}
+    singletons = [d["display_name"] for _, d in with_data if singleton_n > 0 and d["n"] == singleton_n]
+    thin = [d["display_name"] for _, d in with_data if thin_n > 0 and d["n"] == thin_n]
+    bullets.extend(
+        _cohort_findings_metadata_bullets(
+            with_data=with_data,
+            singletons=singletons,
+            thin=thin,
+            thin_n=thin_n,
+            singleton_n=singleton_n,
+            un=un,
         )
-
-    bullets.append(
-        "Cohort labels and membership come from cohorts.yaml and docs/CUSTOMER_COHORTS.md — not redefined in this deck.",
     )
 
     return digest, bullets

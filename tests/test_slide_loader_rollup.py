@@ -2,6 +2,7 @@
 
 from src.slide_loader import (
     benchmarks_min_peers_for_cohort_median,
+    cohort_findings_metadata,
     cohort_findings_rollup_params,
     cohort_findings_min_customers_for_cross_cohort_compare,
     cohort_profiles_max_physical_slides,
@@ -14,6 +15,14 @@ def test_benchmarks_min_peers_matches_repo_yaml():
 
 def test_cohort_profiles_max_slides_matches_repo_yaml():
     assert cohort_profiles_max_physical_slides() == 10
+
+
+def test_cohort_findings_metadata_templates_from_yaml():
+    md = cohort_findings_metadata()
+    assert md["max_bullets"] == 1
+    assert md["priority"][0] == "single_bucket"
+    assert "provenance" in md["templates"]
+    assert "{names}" in md["templates"]["singleton_one"]
 
 
 def test_cohort_findings_rollup_has_expected_keys_and_defaults():

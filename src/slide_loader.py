@@ -8,6 +8,7 @@ If a Drive file fails to parse, the local version is used and a QA warning
 is raised so the discrepancy shows up on the Data Quality slide.
 """
 
+import copy
 import functools
 from pathlib import Path
 from typing import Any
@@ -155,16 +156,85 @@ _COHORT_FINDINGS_ROLLUP_DEFAULTS: dict[str, int] = {
     "thin_sample_n": 2,
 }
 
+# Defaults mirror ``slides/cohort-02-findings.yaml`` ``metadata:`` block.
+_COHORT_FINDINGS_METADATA_DEFAULTS: dict[str, Any] = {
+    "max_bullets": 1,
+    "priority": [
+        "single_bucket",
+        "singleton",
+        "thin_sample",
+        "unclassified",
+        "provenance",
+    ],
+    "singleton_list_max": 8,
+    "thin_list_max": 6,
+    "templates": {
+        "single_bucket": (
+            "Only one cohort bucket has customers in this window — compare across cohorts when more accounts load."
+        ),
+        "singleton_one": (
+            "Singleton cohorts (one account in-window): {names}{ellipsis} — treat as directional only."
+        ),
+        "singleton_many": (
+            "Cohort buckets with exactly {singleton_n} customers in-window: {names}{ellipsis} "
+            "— treat as directional only."
+        ),
+        "thin_sample": (
+            "Thin samples (exactly {thin_n} customers): {names}{ellipsis} — medians are fragile."
+        ),
+        "unclassified": (
+            "{n} customer(s) are unclassified — add or alias them in cohorts.yaml to benchmark by industry cohort."
+        ),
+        "provenance": (
+            "Cohort labels and membership come from cohorts.yaml and docs/CUSTOMER_COHORTS.md — "
+            "not redefined in this deck."
+        ),
+    },
+}
+
 
 @functools.lru_cache(maxsize=1)
 def cohort_findings_rollup_params() -> dict[str, int]:
     """Rollup tuning for :func:`compute_cohort_portfolio_rollup` (cohort findings slide).
 
     Source: ``rollup_params`` on the ``cohort_findings`` slide YAML
-    (``slides/cohort-02-findings.yaml`` or Drive). See defaults in
-    ``_COHORT_FINDINGS_ROLLUP_DEFAULTS``.
+    (``slides/cohort-02-findings.yaml`` or Drive). See ``_COHORT_FINDINGS_ROLLUP_DEFAULTS``.
     """
     return _merge_int_rollup_params("cohort_findings", _COHORT_FINDINGS_ROLLUP_DEFAULTS)
+
+
+@functools.lru_cache(maxsize=1)
+def cohort_findings_metadata() -> dict[str, Any]:
+    """Cohort metadata bullets for :func:`compute_cohort_portfolio_rollup` (templates, priority, caps).
+
+    Source: ``metadata`` on the ``cohort_findings`` slide YAML. Merged with
+    ``_COHORT_FINDINGS_METADATA_DEFAULTS``.
+    """
+    out = copy.deepcopy(_COHORT_FINDINGS_METADATA_DEFAULTS)
+    slides = _load_all_slides()
+    for r in slides:
+        if r.get("id") != "cohort_findings":
+            continue
+        md = r.get("metadata")
+        if not isinstance(md, dict):
+            break
+        if "max_bullets" in md:
+            mb = md["max_bullets"]
+            if isinstance(mb, (int, float)) and int(mb) >= 1:
+                out["max_bullets"] = int(mb)
+        if "priority" in md and isinstance(md["priority"], list) and md["priority"]:
+            out["priority"] = [str(x).strip() for x in md["priority"] if str(x).strip()]
+        for key in ("singleton_list_max", "thin_list_max"):
+            if key in md:
+                v = md[key]
+                if isinstance(v, (int, float)) and int(v) >= 1:
+                    out[key] = int(v)
+        if "templates" in md and isinstance(md["templates"], dict):
+            for k, v in md["templates"].items():
+                if isinstance(v, str) and v.strip():
+                    out["templates"][k] = v.strip()
+        break
+    return out
 
 
 def cohort_findings_min_customers_for_cross_cohort_compare() -> int:

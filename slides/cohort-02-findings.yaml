@@ -11,9 +11,34 @@ rollup_params:
   min_customers_for_cross_cohort_compare: 5
   # Minimum median-login gap (percentage points) to emit the "widest spread" bullet.
   min_login_spread_pp: 5
-  # Cohort bucket sizes for sample-size callouts (exact match on customer count).
+  # Bucket sizes for singleton / thin-sample text (only one metadata bullet total is shown).
   singleton_n: 1
   thin_sample_n: 2
+
+# Optional cohort “metadata” bullet (sample size / provenance) — at most ``max_bullets``, first matching ``priority``.
+metadata:
+  max_bullets: 1
+  priority:
+    - single_bucket
+    - singleton
+    - thin_sample
+    - unclassified
+    - provenance
+  singleton_list_max: 8
+  thin_list_max: 6
+  templates:
+    single_bucket: >-
+      Only one cohort bucket has customers in this window — compare across cohorts when more accounts load.
+    singleton_one: >-
+      Singleton cohorts (one account in-window): {names}{ellipsis} — treat as directional only.
+    singleton_many: >-
+      Cohort buckets with exactly {singleton_n} customers in-window: {names}{ellipsis} — treat as directional only.
+    thin_sample: >-
+      Thin samples (exactly {thin_n} customers): {names}{ellipsis} — medians are fragile.
+    unclassified: >-
+      {n} customer(s) are unclassified — add or alias them in cohorts.yaml to benchmark by industry cohort.
+    provenance: >-
+      Cohort labels and membership come from cohorts.yaml and docs/CUSTOMER_COHORTS.md — not redefined in this deck.
 
 prompt: |
   **Audience & job:** Portfolio / QBR readers who need a fast, honest read on how
@@ -23,10 +48,10 @@ prompt: |
   (same idea as Notable Signals / aggregate trends — no single oversized text box).
   Copy is deterministic from compute_cohort_portfolio_rollup (no LLM for body text);
   edit that function for phrasing. Bullets emphasize contrasts and outliers (largest
-  cohorts, widest login spread, write vs login leaders, export and Kei gaps,
-  singleton/thin-sample warnings), not one stat line per cohort. ``rollup_params``
-  also sets minimum login spread (pp), and which bucket sizes get singleton vs
-  thin-sample callouts — see keys under ``rollup_params`` above.
+  cohorts, widest login spread, write vs login leaders, export and Kei gaps),
+  not one stat line per cohort. **Cohort metadata** (at most ``metadata.max_bullets``):
+  first match in ``metadata.priority`` using ``metadata.templates`` — edit those keys,
+  not Python. ``rollup_params`` holds numeric thresholds (compare, spread, singleton/thin n).
 
   **Data contract:** Requires report["cohort_findings_bullets"] (list of strings).
   Upstream: customer summaries in the portfolio window, cohort labels from
@@ -39,8 +64,7 @@ prompt: |
   cohort by count; when ≥2 cohorts meet the minimum bucket size (``rollup_params``) —
   widest login spread, write-heavy vs
   read-heavy contrast (including when login leader ≠ write leader), export
-  extremes, Kei adoption gap; singleton and thin-sample callouts; unclassified
-  count; cohorts.yaml provenance.
+  extremes, Kei adoption gap; plus at most one metadata bullet (see above).
 
   **Tone & guardrails:** Factual, comparative, cohort-level only. Do not imply
   statistical significance or causal claims. Small-n medians are explicitly
