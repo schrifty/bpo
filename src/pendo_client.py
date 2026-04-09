@@ -26,6 +26,7 @@ from .config import (
 )
 from .cross_source_signals import extend_health_report_signals
 from .signals_llm import maybe_rewrite_signals_with_llm
+from .slide_loader import cohort_findings_min_customers_for_cross_cohort_compare
 
 PENDO_REQUEST_TIMEOUT_S = 90
 PENDO_TOTAL_TIMEOUT_S = 300
@@ -403,9 +404,10 @@ def compute_cohort_portfolio_rollup(
                 f"Next-largest: {second['display_name']} ({second['n']} customers, {s2}%).",
             )
 
-    ge3 = [(cid, d) for cid, d in with_data if d["n"] >= 3]
-    if len(ge3) >= 2:
-        by_login = sorted(ge3, key=lambda x: (x[1].get("median_login_pct") or 0), reverse=True)
+    min_n_compare = cohort_findings_min_customers_for_cross_cohort_compare()
+    ge_compare = [(cid, d) for cid, d in with_data if d["n"] >= min_n_compare]
+    if len(ge_compare) >= 2:
+        by_login = sorted(ge_compare, key=lambda x: (x[1].get("median_login_pct") or 0), reverse=True)
         hi, lo = by_login[0], by_login[-1]
         hiv = float(hi[1].get("median_login_pct") or 0)
         lov = float(lo[1].get("median_login_pct") or 0)
@@ -415,7 +417,7 @@ def compute_cohort_portfolio_rollup(
                 f"Widest spread in median weekly login: {hi[1]['display_name']} ({_fmt_pct(hiv)}) vs "
                 f"{lo[1]['display_name']} ({_fmt_pct(lov)}) — about {spread:.0f} points apart.",
             )
-        by_write = sorted(ge3, key=lambda x: (x[1].get("median_write_ratio") or 0), reverse=True)
+        by_write = sorted(ge_compare, key=lambda x: (x[1].get("median_write_ratio") or 0), reverse=True)
         w_hi, w_lo = by_write[0], by_write[-1]
         if w_hi[0] != w_lo[0]:
             bullets.append(
@@ -428,14 +430,14 @@ def compute_cohort_portfolio_rollup(
                 f"Different engagement modes: {hi[1]['display_name']} tops login median but "
                 f"{w_hi[1]['display_name']} tops write ratio — worth a CS conversation on “why”.",
             )
-        by_exp = sorted(ge3, key=lambda x: (x[1].get("median_exports") or 0), reverse=True)
+        by_exp = sorted(ge_compare, key=lambda x: (x[1].get("median_exports") or 0), reverse=True)
         e_hi, e_lo = by_exp[0], by_exp[-1]
         if e_hi[0] != e_lo[0]:
             bullets.append(
                 f"Export volume (median 30d) peaks in {e_hi[1]['display_name']} ({_fmt_num(e_hi[1].get('median_exports'))}) "
                 f"and is lowest in {e_lo[1]['display_name']} ({_fmt_num(e_lo[1].get('median_exports'))}).",
             )
-        by_kei = sorted(ge3, key=lambda x: x[1].get("kei_adoption_pct") or 0, reverse=True)
+        by_kei = sorted(ge_compare, key=lambda x: x[1].get("kei_adoption_pct") or 0, reverse=True)
         k_hi, k_lo = by_kei[0], by_kei[-1]
         if k_hi[0] != k_lo[0]:
             kp = float(k_hi[1].get("kei_adoption_pct") or 0)

@@ -8,6 +8,7 @@ If a Drive file fails to parse, the local version is used and a QA warning
 is raised so the discrepancy shows up on the Data Quality slide.
 """
 
+import functools
 from pathlib import Path
 from typing import Any
 
@@ -121,6 +122,30 @@ def _sort_slides(slides: list[dict]) -> list[dict]:
         id_to_idx = {r["id"]: i for i, r in enumerate(result)}
 
     return result
+
+
+@functools.lru_cache(maxsize=1)
+def cohort_findings_min_customers_for_cross_cohort_compare() -> int:
+    """Minimum customers per cohort bucket for cross-cohort comparison bullets (login spread, etc.).
+
+    Source of truth: ``rollup_params.min_customers_for_cross_cohort_compare`` on the
+    ``cohort_findings`` slide in ``slides/cohort-02-findings.yaml`` (or Drive ``bpo-config/slides``).
+    Default **5** if the slide or key is missing or invalid.
+    """
+    slides = _load_all_slides()
+    for r in slides:
+        if r.get("id") != "cohort_findings":
+            continue
+        rp = r.get("rollup_params")
+        if not isinstance(rp, dict):
+            break
+        n = rp.get("min_customers_for_cross_cohort_compare")
+        if isinstance(n, int) and n >= 1:
+            return n
+        if isinstance(n, float) and n == int(n) and int(n) >= 1:
+            return int(n)
+        break
+    return 5
 
 
 def get_slide_prompts(

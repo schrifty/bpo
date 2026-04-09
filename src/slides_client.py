@@ -16,6 +16,7 @@ from typing import Any
 from googleapiclient.errors import HttpError
 
 from .config import GOOGLE_DRIVE_FOLDER_ID, logger
+from .slide_loader import cohort_findings_min_customers_for_cross_cohort_compare
 from .slides_api import (
     GOOGLE_API_TIMEOUT_S,
     SCOPES,
@@ -1049,12 +1050,14 @@ def _cohort_findings_pipeline_traces(report: dict[str, Any]) -> list[dict[str, s
     bullets = report.get("cohort_findings_bullets") or []
     if not bullets:
         return []
+    _n = cohort_findings_min_customers_for_cross_cohort_compare()
     return [{
         "description": "Cohort findings",
         "source": "Pendo (compute_cohort_portfolio_rollup)",
         "query": (
             f"{len(bullets)} bullet(s): portfolio totals, per-cohort medians (login, write, exports, Kei), "
-            "cross-cohort spreads — from full portfolio customer summaries in this report"
+            f"cross-cohort spreads (cohorts with n≥{_n} only; slides/cohort-02-findings.yaml rollup_params) — "
+            "from full portfolio customer summaries in this report"
         ),
     }]
 

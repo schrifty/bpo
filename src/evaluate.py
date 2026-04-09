@@ -40,6 +40,7 @@ from .data_field_synonyms import (
     data_summary_path_exists,
 )
 from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
+from .slide_loader import cohort_findings_min_customers_for_cross_cohort_compare
 from .slides_client import (
     SLIDE_DATA_REQUIREMENTS,
     _box,
@@ -3012,7 +3013,8 @@ _BUILDER_DESCRIPTIONS = {
     "cohort_profiles": "Per-cohort profile slides — medians and account list for each manufacturing cohort bucket",
     "cohort_findings": (
         "Single slide — bullet list comparing cohort buckets (sample sizes, median login/write, "
-        "Kei adoption spread when n≥3, unclassified count); auto text from portfolio rollup — "
+        f"Kei adoption spread when ≥2 cohorts have n≥{cohort_findings_min_customers_for_cross_cohort_compare()}, "
+        "unclassified count); auto text from portfolio rollup — "
         "not per-account profiles (that's cohort_profiles) or risk signals (that's signals)"
     ),
 }

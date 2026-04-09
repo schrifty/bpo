@@ -3,6 +3,7 @@
 from unittest.mock import patch
 
 from src.pendo_client import compute_cohort_portfolio_rollup
+from src.slide_loader import cohort_findings_min_customers_for_cross_cohort_compare
 
 
 def _row(
@@ -59,3 +60,43 @@ def test_compute_cohort_portfolio_rollup_empty():
     digest, bullets = compute_cohort_portfolio_rollup([])
     assert digest == {}
     assert bullets and "No customers" in bullets[0]
+
+
+def test_cohort_findings_median_comparisons_only_when_two_buckets_meet_yaml_threshold():
+    """Cross-cohort bullets require n≥rollup_params.min_customers_for_cross_cohort_compare per cohort."""
+    min_n = cohort_findings_min_customers_for_cross_cohort_compare()
+    summaries = [
+        _row(f"A{i}", login_pct=80, write_ratio=0.5, exports=5.0) for i in range(min_n)
+    ]
+    summaries += [
+        _row(f"B{i}", login_pct=10, write_ratio=0.05, exports=1.0) for i in range(min_n)
+    ]
+
+    def fake_cohort(name: str):
+        return {"cohort": "alpha" if name.startswith("A") else "beta"}
+
+    with patch("src.pendo_client.get_customer_cohort", side_effect=fake_cohort):
+        _digest, bullets = compute_cohort_portfolio_rollup(summaries)
+    joined = " ".join(bullets)
+    assert "Widest spread" in joined
+    assert "Write-heavy" in joined
+
+
+def test_cohort_findings_skips_median_comparisons_when_buckets_below_yaml_threshold():
+    min_n = cohort_findings_min_customers_for_cross_cohort_compare()
+    below = max(0, min_n - 1)
+    summaries = [
+        _row(f"A{i}", login_pct=80, write_ratio=0.5) for i in range(below)
+    ]
+    summaries += [_row(f"B{i}", login_pct=10, write_ratio=0.05) for i in range(below)]
+
+    def fake_cohort(name: str):
+        return {"cohort": "alpha" if name.startswith("A") else "beta"}
+
+    with patch("src.pendo_client.get_customer_cohort", side_effect=fake_cohort):
+        _digest, bullets = compute_cohort_portfolio_rollup(summaries)
+    joined = " ".join(bullets)
+    assert "Widest spread" not in joined
+    assert "Write-heavy" not in joined
+    assert "Export volume" not in joined
+    assert "Kei adoption gap" not in joined
