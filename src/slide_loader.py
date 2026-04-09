@@ -124,28 +124,77 @@ def _sort_slides(slides: list[dict]) -> list[dict]:
     return result
 
 
-@functools.lru_cache(maxsize=1)
-def cohort_findings_min_customers_for_cross_cohort_compare() -> int:
-    """Minimum customers per cohort bucket for cross-cohort comparison bullets (login spread, etc.).
-
-    Source of truth: ``rollup_params.min_customers_for_cross_cohort_compare`` on the
-    ``cohort_findings`` slide in ``slides/cohort-02-findings.yaml`` (or Drive ``bpo-config/slides``).
-    Default **5** if the slide or key is missing or invalid.
-    """
+def _merge_int_rollup_params(slide_id: str, defaults: dict[str, int]) -> dict[str, int]:
+    """Merge ``rollup_params`` from the slide YAML into ``defaults`` (unknown keys ignored)."""
+    out = dict(defaults)
     slides = _load_all_slides()
     for r in slides:
-        if r.get("id") != "cohort_findings":
+        if r.get("id") != slide_id:
             continue
         rp = r.get("rollup_params")
         if not isinstance(rp, dict):
             break
-        n = rp.get("min_customers_for_cross_cohort_compare")
-        if isinstance(n, int) and n >= 1:
-            return n
-        if isinstance(n, float) and n == int(n) and int(n) >= 1:
-            return int(n)
+        for key in defaults:
+            if key not in rp:
+                continue
+            v = rp[key]
+            if isinstance(v, bool):
+                continue
+            if isinstance(v, (int, float)):
+                iv = int(v)
+                if iv >= 0:
+                    out[key] = iv
         break
-    return 5
+    return out
+
+
+_COHORT_FINDINGS_ROLLUP_DEFAULTS: dict[str, int] = {
+    "min_customers_for_cross_cohort_compare": 5,
+    "min_login_spread_pp": 5,
+    "singleton_n": 1,
+    "thin_sample_n": 2,
+}
+
+
+@functools.lru_cache(maxsize=1)
+def cohort_findings_rollup_params() -> dict[str, int]:
+    """Rollup tuning for :func:`compute_cohort_portfolio_rollup` (cohort findings slide).
+
+    Source: ``rollup_params`` on the ``cohort_findings`` slide YAML
+    (``slides/cohort-02-findings.yaml`` or Drive). See defaults in
+    ``_COHORT_FINDINGS_ROLLUP_DEFAULTS``.
+    """
+    return _merge_int_rollup_params("cohort_findings", _COHORT_FINDINGS_ROLLUP_DEFAULTS)
+
+
+def cohort_findings_min_customers_for_cross_cohort_compare() -> int:
+    """Minimum customers per cohort bucket for cross-cohort comparison bullets.
+
+    Delegates to :func:`cohort_findings_rollup_params` (``min_customers_for_cross_cohort_compare``).
+    """
+    return max(1, cohort_findings_rollup_params()["min_customers_for_cross_cohort_compare"])
+
+
+@functools.lru_cache(maxsize=1)
+def benchmarks_min_peers_for_cohort_median() -> int:
+    """Minimum same-cohort peer accounts before the Peer Benchmarks / health UI uses cohort median.
+
+    Source: ``rollup_params.min_peers_for_cohort_median`` on the ``benchmarks`` slide
+    (``slides/std-07-benchmarks.yaml``). Default **3**.
+    """
+    m = _merge_int_rollup_params("benchmarks", {"min_peers_for_cohort_median": 3})
+    return max(1, m["min_peers_for_cohort_median"])
+
+
+@functools.lru_cache(maxsize=1)
+def cohort_profiles_max_physical_slides() -> int:
+    """Cap on physical slides emitted for the cohort profiles slide type.
+
+    Source: ``rollup_params.max_physical_slides`` on the ``cohort_profiles`` slide
+    (``slides/cohort-01-profiles.yaml``). Default **10**, clamped to 1–100.
+    """
+    m = _merge_int_rollup_params("cohort_profiles", {"max_physical_slides": 10})
+    return max(1, min(100, m["max_physical_slides"]))
 
 
 def get_slide_prompts(

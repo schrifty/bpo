@@ -26,7 +26,7 @@ from .config import (
 )
 from .cross_source_signals import extend_health_report_signals
 from .signals_llm import maybe_rewrite_signals_with_llm
-from .slide_loader import cohort_findings_min_customers_for_cross_cohort_compare
+from .slide_loader import cohort_findings_rollup_params
 
 PENDO_REQUEST_TIMEOUT_S = 90
 PENDO_TOTAL_TIMEOUT_S = 300
@@ -404,7 +404,11 @@ def compute_cohort_portfolio_rollup(
                 f"Next-largest: {second['display_name']} ({second['n']} customers, {s2}%).",
             )
 
-    min_n_compare = cohort_findings_min_customers_for_cross_cohort_compare()
+    rp = cohort_findings_rollup_params()
+    min_n_compare = max(1, rp["min_customers_for_cross_cohort_compare"])
+    spread_min_pp = max(0, rp["min_login_spread_pp"])
+    singleton_n = max(0, rp["singleton_n"])
+    thin_n = max(0, rp["thin_sample_n"])
     ge_compare = [(cid, d) for cid, d in with_data if d["n"] >= min_n_compare]
     if len(ge_compare) >= 2:
         by_login = sorted(ge_compare, key=lambda x: (x[1].get("median_login_pct") or 0), reverse=True)
@@ -412,7 +416,7 @@ def compute_cohort_portfolio_rollup(
         hiv = float(hi[1].get("median_login_pct") or 0)
         lov = float(lo[1].get("median_login_pct") or 0)
         spread = abs(hiv - lov)
-        if hi[0] != lo[0] and spread >= 5:
+        if hi[0] != lo[0] and spread >= spread_min_pp:
             bullets.append(
                 f"Widest spread in median weekly login: {hi[1]['display_name']} ({_fmt_pct(hiv)}) vs "
                 f"{lo[1]['display_name']} ({_fmt_pct(lov)}) — about {spread:.0f} points apart.",
@@ -447,10 +451,14 @@ def compute_cohort_portfolio_rollup(
                 f"{k_lo[1]['display_name']} {kq:.1f}% — training, rollout, or use-case difference?",
             )
 
-    singletons = [d["display_name"] for _, d in with_data if d["n"] == 1]
+    singletons = [d["display_name"] for _, d in with_data if singleton_n > 0 and d["n"] == singleton_n]
     if singletons:
+        if singleton_n == 1:
+            label = "Singleton cohorts (one account in-window)"
+        else:
+            label = f"Cohort buckets with exactly {singleton_n} customers in-window"
         bullets.append(
-            f"Singleton cohorts (one account in-window): {', '.join(singletons[:8])}"
+            f"{label}: {', '.join(singletons[:8])}"
             f"{'…' if len(singletons) > 8 else ''} — treat as directional only.",
         )
 
@@ -459,10 +467,11 @@ def compute_cohort_portfolio_rollup(
             "Only one cohort bucket has customers in this window — compare across cohorts when more accounts load.",
         )
 
-    thin = [d["display_name"] for _, d in with_data if d["n"] == 2]
+    thin = [d["display_name"] for _, d in with_data if thin_n > 0 and d["n"] == thin_n]
     if thin:
         bullets.append(
-            f"Thin samples (exactly 2 customers): {', '.join(thin[:6])}{'…' if len(thin) > 6 else ''} — medians are fragile.",
+            f"Thin samples (exactly {thin_n} customers): {', '.join(thin[:6])}"
+            f"{'…' if len(thin) > 6 else ''} — medians are fragile.",
         )
 
     un = digest.get("unclassified", {})

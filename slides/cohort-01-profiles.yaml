@@ -6,7 +6,10 @@ slide_type: cohort_profiles
 data_tools: []
 customers: all
 
+rollup_params:
+  max_physical_slides: 10
+
 prompt: >
-  Emits up to 10 physical slides — one per cohort bucket with at least one
+  Emits up to ``rollup_params.max_physical_slides`` physical slides — one per cohort bucket with at least one
   customer, ordered by cohort size. Metrics: medians for login %, write ratio,
   score, Kei adoption %, median exports; lists account names.

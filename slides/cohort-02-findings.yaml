@@ -9,6 +9,11 @@ customers: all
 # Rollup behavior for ``compute_cohort_portfolio_rollup`` (single source of truth — do not duplicate in code).
 rollup_params:
   min_customers_for_cross_cohort_compare: 5
+  # Minimum median-login gap (percentage points) to emit the "widest spread" bullet.
+  min_login_spread_pp: 5
+  # Cohort bucket sizes for sample-size callouts (exact match on customer count).
+  singleton_n: 1
+  thin_sample_n: 2
 
 prompt: |
   **Audience & job:** Portfolio / QBR readers who need a fast, honest read on how
@@ -19,9 +24,9 @@ prompt: |
   Copy is deterministic from compute_cohort_portfolio_rollup (no LLM for body text);
   edit that function for phrasing. Bullets emphasize contrasts and outliers (largest
   cohorts, widest login spread, write vs login leaders, export and Kei gaps,
-  singleton/thin-sample warnings), not one stat line per cohort. Cross-cohort
-  median comparisons use buckets with at least ``rollup_params.min_customers_for_cross_cohort_compare``
-  customers only (see ``rollup_params`` above).
+  singleton/thin-sample warnings), not one stat line per cohort. ``rollup_params``
+  also sets minimum login spread (pp), and which bucket sizes get singleton vs
+  thin-sample callouts — see keys under ``rollup_params`` above.
 
   **Data contract:** Requires report["cohort_findings_bullets"] (list of strings).
   Upstream: customer summaries in the portfolio window, cohort labels from

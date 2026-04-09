@@ -16,7 +16,11 @@ from typing import Any
 from googleapiclient.errors import HttpError
 
 from .config import GOOGLE_DRIVE_FOLDER_ID, logger
-from .slide_loader import cohort_findings_min_customers_for_cross_cohort_compare
+from .slide_loader import (
+    benchmarks_min_peers_for_cohort_median,
+    cohort_findings_min_customers_for_cross_cohort_compare,
+    cohort_profiles_max_physical_slides,
+)
 from .slides_api import (
     GOOGLE_API_TIMEOUT_S,
     SCOPES,
@@ -532,7 +536,8 @@ def _health_snapshot_pipeline_traces(report: dict[str, Any]) -> list[dict[str, s
     cohort_name = (bench.get("cohort_name") or "").strip()
     cohort_med = bench.get("cohort_median_rate")
     cohort_n = bench.get("cohort_count") or 0
-    use_cohort = cohort_med is not None and cohort_n >= 3
+    min_peers = benchmarks_min_peers_for_cohort_median()
+    use_cohort = cohort_med is not None and cohort_n >= min_peers
     if use_cohort:
         vs = rate - cohort_med
         bench_label = f"{cohort_name} median of {cohort_med}%  ({cohort_n} peers)"
@@ -569,7 +574,7 @@ def _health_snapshot_pipeline_traces(report: dict[str, Any]) -> list[dict[str, s
             "source": "Pendo",
             "query": (
                 f"Same % as row above; {abs(vs):.0f}pp {direction} {bench_label} "
-                "(cohort from cohorts.yaml when n≥3)"
+                f"(cohort from cohorts.yaml when n≥{min_peers}; slides/std-07-benchmarks.yaml rollup_params)"
             ),
         },
         {
@@ -601,7 +606,8 @@ def _peer_benchmarks_pipeline_traces(report: dict[str, Any]) -> list[dict[str, s
     cohort_med = bench.get("cohort_median_rate")
     cohort_n = bench.get("cohort_count", 0)
     cohort_name = bench.get("cohort_name", "")
-    use_cohort = cohort_med is not None and cohort_n >= 3
+    min_peers = benchmarks_min_peers_for_cohort_median()
+    use_cohort = cohort_med is not None and cohort_n >= min_peers
 
     q_rate = (
         "active_7d / total_visitors over the report window; "
@@ -613,7 +619,8 @@ def _peer_benchmarks_pipeline_traces(report: dict[str, Any]) -> list[dict[str, s
     )
     q_cohort_median = (
         "Median among accounts in the same manufacturing cohort "
-        "(get_customer_cohort / cohorts.yaml); shown when cohort n≥3"
+        f"(get_customer_cohort / cohorts.yaml); shown when cohort n≥{min_peers} "
+        "(rollup_params on slides/std-07-benchmarks.yaml)"
     )
     q_delta = (
         "Customer weekly active rate minus comparison median (percentage points vs peer/cohort on slide)"
@@ -1567,7 +1574,7 @@ def _health_slide(reqs, sid, report, idx):
     cohort_name = bench.get("cohort_name", "")
     cohort_med = bench.get("cohort_median_rate")
     cohort_n = bench.get("cohort_count", 0)
-    if cohort_med is not None and cohort_n >= 3:
+    if cohort_med is not None and cohort_n >= benchmarks_min_peers_for_cohort_median():
         vs = rate - cohort_med
         direction = "above" if vs > 0 else "below" if vs < 0 else "at"
         bench_label = f"{cohort_name} median of {cohort_med}%  ({cohort_n} peers)"
@@ -2089,7 +2096,7 @@ def _benchmarks_slide(reqs, sid, report, idx):
     cohort_med = bench.get("cohort_median_rate")
     cohort_n = bench.get("cohort_count", 0)
     cohort_name = bench.get("cohort_name", "")
-    use_cohort = cohort_med is not None and cohort_n >= 3
+    use_cohort = cohort_med is not None and cohort_n >= benchmarks_min_peers_for_cohort_median()
     med_rate = cohort_med if use_cohort else all_med
     delta = cust_rate - med_rate
 
@@ -3533,9 +3540,6 @@ def _portfolio_leaders_slide(reqs, sid, report, idx):
     return idx + 1
 
 
-_COHORT_PROFILE_MAX_SLIDES = 10
-
-
 def _cohort_summary_slide(reqs, sid, report, idx):
     """Portfolio-wide cohort summary — aggregate KPIs across all cohorts."""
     m = _cohort_summary_metrics(report)
@@ -3643,12 +3647,13 @@ def _cohort_deck_title_slide(reqs, sid, report, idx):
 
 
 def _cohort_profiles_slide(reqs, sid, report, idx) -> int | tuple[int, list[str]]:
-    """Up to ``_COHORT_PROFILE_MAX_SLIDES`` slides — one cohort bucket per slide (by customer count)."""
+    """Up to ``rollup_params.max_physical_slides`` cohort profile pages (see cohort-01-profiles.yaml)."""
     digest = report.get("cohort_digest") or {}
+    cap = cohort_profiles_max_physical_slides()
     rows = sorted(
         [(k, v) for k, v in digest.items() if isinstance(v, dict) and int(v.get("n") or 0) > 0],
         key=lambda x: (x[0] == "unclassified", -int(x[1].get("n") or 0)),
-    )[:_COHORT_PROFILE_MAX_SLIDES]
+    )[:cap]
     if not rows:
         return _missing_data_slide(reqs, sid, report, idx, "cohort_digest (no customers in cohort buckets)")
 

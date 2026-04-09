@@ -6,6 +6,10 @@ slide_type: benchmarks
 data_tools: [customer_health]
 customers: all
 
+# When same-cohort peer count meets this minimum, KPIs use cohort median (else all-customer median).
+rollup_params:
+  min_peers_for_cohort_median: 3
+
 prompt: |
   Compare this customer's weekly active rate against the peer median
   across the entire customer base. Show the delta clearly — are they
