@@ -1,3 +1,11 @@
+# =============================================================================
+# QBR — Agenda slide (builder + Google Slides template hydrate)
+# =============================================================================
+# Deck authors: edit the main fields below. The "hydrate" block only affects runs
+# that copy a Google Slides template (QBR from template). Programmatic decks built
+# in-app use "prompt" and the deck YAML only.
+# =============================================================================
+
 id: qbr_agenda
 type: qbr
 order: 2
@@ -10,12 +18,35 @@ prompt: |
   Numbered agenda slide auto-generated from the deck's slide plan.
   Dark navy background with accent panel. Numbers in mint, items in white.
 
-# Template-hydrate path (Google Slides copy): declares how on-slide text maps to data.
-# Builder path ignores this; see evaluate._merge_qbr_agenda_title_replacements.
+# -----------------------------------------------------------------------------
+# Template hydrate (Google Slides copy)
+# -----------------------------------------------------------------------------
+# When you copy a marketing/template deck, the pipeline fills placeholders using
+# live data. This block tells it how to treat THIS slide — not global adapt rules.
+#
+# Keys under hydrate.template:
+#   section_titles — map "Title #1" style labels to real section names from decks/qbr.yaml
+#   slide_detection — when to treat a physical slide as THIS agenda slide (OR logic)
+# -----------------------------------------------------------------------------
 hydrate:
   template:
+    # --- Section title slots (replace "Title #1", "Title #2", …) ----------------
     section_titles:
-      # Replace template labels (e.g. "Title #1" … "Title #N") with QBR section names
-      # from decks/qbr.yaml — same order as slides_client._qbr_agenda_slide (dividers first).
+      # Pull names from the resolved QBR deck: prefer qbr_divider rows, else other slides.
       from_deck_plan: true
+      # "title_number_hash" = match template strings like Title #1 (see title_slot_regex).
       slot_labels: title_number_hash
+      # Python regex; must have one group for the 1-based index. Edit if your template
+      # uses different wording (keep one capture group for the number).
+      title_slot_regex: "\\bTitle\\s*#\\s*(\\d+)\\b"
+
+    # --- Which slides count as "the agenda" for title replacement ---------------
+    slide_detection:
+      # Match if the slide body contains this word (case-insensitive). Add more strings
+      # if your template says "Meeting agenda" instead of "Agenda", etc.
+      body_contains_word:
+        - Agenda
+      # Match if this regex hits anywhere on the slide (Python re, case-insensitive).
+      # Default catches "Title #1", "title # 2", etc. even without the word "Agenda".
+      body_matches_regex: "Title\\s*#\\s*\\d+"
+      # To fall back to older built-in detection only, set slide_detection: null (not recommended).

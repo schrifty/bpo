@@ -1,0 +1,24 @@
+# Used by src/evaluate.py when building the adapt (template hydrate) LLM system prompt.
+# Edit the paragraph below to change how "example / headline / template" slides are handled
+# without editing Python.
+#
+# Requirements:
+# - Keep this file valid YAML (indent the block under template_fill_in_slide_rule with |).
+# - Do not use { or } in the rule text (they break str.format); use "curly" wording or rephrase.
+
+version: 1
+
+# Shown in speaker-note / tooling only; the model sees template_fill_in_slide_rule.
+template_fill_in_title_keywords:
+  - Example
+  - Sample
+  - Headlines
+  - Template
+
+template_fill_in_slide_rule: |
+  - **EXCEPTION — example / headline / template slides**: If the slide title or body is dominated by
+    bracket placeholders like [000], [$000], [00%], [???], or the title includes words like
+    **Example**, **Sample**, **Headlines**, or **Template**, treat the slide as a **fill-in pattern**
+    to hydrate from CURRENT DATA. **Map every metric you can** (including bullets under headings such as
+    "Key Partnership Results") — do **not** blanket-map=false those blocks just because the heading
+    sounds like achievements.

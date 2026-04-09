@@ -7,6 +7,7 @@ from src.slide_loader import (
     cohort_findings_min_customers_for_cross_cohort_compare,
     cohort_profiles_max_physical_slides,
     get_slide_definition,
+    hydrate_hints_by_slide_id,
 )
 
 
@@ -35,6 +36,13 @@ def test_cohort_findings_rollup_has_expected_keys_and_defaults():
     assert cohort_findings_min_customers_for_cross_cohort_compare() == 5
 
 
+def test_hydrate_hints_by_slide_id_includes_qbr_agenda():
+    h = hydrate_hints_by_slide_id()
+    assert "qbr_agenda" in h
+    assert isinstance(h["qbr_agenda"], dict)
+    assert "template" in h["qbr_agenda"]
+
+
 def test_get_slide_definition_qbr_agenda_includes_hydrate():
     sd = get_slide_definition("qbr_agenda")
     assert sd is not None
@@ -44,3 +52,7 @@ def test_get_slide_definition_qbr_agenda_includes_hydrate():
     st = h.get("template", {}).get("section_titles", {})
     assert st.get("from_deck_plan") is True
     assert st.get("slot_labels") == "title_number_hash"
+    assert "title_slot_regex" in st
+    sd_det = h.get("template", {}).get("slide_detection", {})
+    assert "Agenda" in (sd_det.get("body_contains_word") or [])
+    assert sd_det.get("body_matches_regex")

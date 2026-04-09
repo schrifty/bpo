@@ -282,6 +282,23 @@ def get_slide_definition(
     return None
 
 
+@functools.lru_cache(maxsize=1)
+def hydrate_hints_by_slide_id(slides_dir: str | Path | None = None) -> dict[str, Any]:
+    """Map slide ``id`` → ``hydrate`` dict for every slide YAML that defines a non-empty ``hydrate`` block.
+
+    Used by QBR template hydrate so ``report["_hydrate_slide_hints"]`` is data-driven from ``slides/``
+    instead of hardcoding one slide id in Python.
+    """
+    out: dict[str, Any] = {}
+    for r in _load_all_slides(slides_dir):
+        hid = r.get("id")
+        h = r.get("hydrate")
+        if not hid or not isinstance(h, dict) or not h:
+            continue
+        out[str(hid)] = copy.deepcopy(h)
+    return out
+
+
 def get_slide_prompts(
     customer: str,
     slides_dir: str | Path | None = None,

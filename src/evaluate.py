@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import datetime
+import functools
 import hashlib
 import json
 import re
@@ -23,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import requests as _requests
+import yaml
 
 from .config import (
     GOOGLE_DRIVE_FOLDER_ID,
@@ -41,7 +43,10 @@ from .data_field_synonyms import (
     data_summary_path_exists,
 )
 from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
-from .slide_loader import cohort_findings_min_customers_for_cross_cohort_compare
+from .slide_loader import (
+    cohort_findings_min_customers_for_cross_cohort_compare,
+    get_slide_definition,
+)
 from .slides_client import (
     SLIDE_DATA_REQUIREMENTS,
     _box,
@@ -1736,6 +1741,37 @@ def _adapt_text_has_percentage_semantics(s: str) -> bool:
     return False
 
 
+_ADAPT_TEMPLATE_SLIDE_YAML = Path(__file__).resolve().parent.parent / "config" / "adapt_template_slide.yaml"
+
+_ADAPT_TEMPLATE_FILL_IN_FALLBACK = (
+    "- **EXCEPTION — example / headline / template slides**: If the slide title or body is dominated by "
+    "bracket placeholders like [000], [$000], [00%], [???], or the title includes words like "
+    "**Example**, **Sample**, **Headlines**, or **Template**, treat the slide as a **fill-in pattern** "
+    "to hydrate from CURRENT DATA. **Map every metric you can** (including bullets under headings such as "
+    "\"Key Partnership Results\") — do **not** blanket-map=false those blocks just because the heading "
+    "sounds like achievements.\n"
+)
+
+
+@functools.lru_cache(maxsize=1)
+def _load_adapt_template_slide_rule() -> str:
+    """Load the adapt LLM exception for example/headline/template slides from YAML config."""
+    p = _ADAPT_TEMPLATE_SLIDE_YAML
+    try:
+        raw = p.read_text(encoding="utf-8")
+        data = yaml.safe_load(raw)
+        if not isinstance(data, dict):
+            return _ADAPT_TEMPLATE_FILL_IN_FALLBACK
+        rule = data.get("template_fill_in_slide_rule")
+        if isinstance(rule, str) and rule.strip():
+            return rule.rstrip() + "\n"
+    except OSError as e:
+        logger.warning("adapt: could not read %s — using fallback (%s)", p, e)
+    except (yaml.YAMLError, TypeError) as e:
+        logger.warning("adapt: invalid YAML in %s — using fallback (%s)", p, e)
+    return _ADAPT_TEMPLATE_FILL_IN_FALLBACK
+
+
 _ADAPT_SYSTEM_PROMPT = (
     "You are analyzing a slide from a customer QBR presentation. "
     "Identify every DATA VALUE on this slide — numbers, dates, percentages, "
@@ -1783,12 +1819,7 @@ _ADAPT_SYSTEM_PROMPT = (
     "clearly **past-tense narrative** about completed work (e.g. \"we delivered in 2023\", "
     "\"since go-live in 2022\", \"as of March 2024\") **and** the values look like **final** "
     "snapshots, not bracket placeholders.\n"
-    "- **EXCEPTION — example / headline / template slides**: If the slide title or body is dominated by "
-    "bracket placeholders like [000], [$000], [00%], [???], or the title includes words like "
-    "**Example**, **Sample**, **Headlines**, or **Template**, treat the slide as a **fill-in pattern** "
-    "to hydrate from CURRENT DATA. **Map every metric you can** (including bullets under headings such as "
-    "\"Key Partnership Results\") — do **not** blanket-map=false those blocks just because the heading "
-    "sounds like achievements.\n"
+    "{template_fill_in_rule}"
     "- Synonyms in CURRENT DATA: **total_users**, **total_visitors**, and **unique_visitors** are the "
     "same Pendo visitor count; **active_users** is active visitors in the reporting window; "
     "**total_sites** / **active_sites** are site counts.\n"
@@ -2055,7 +2086,10 @@ def _get_data_replacements(oai, text_elements: list[dict], data_summary: dict,
             filtered.append(el)
 
     data_json = _format_data_summary_for_adapt_prompt(data_summary)
-    system = _ADAPT_SYSTEM_PROMPT.format(data_json=data_json)
+    system = _ADAPT_SYSTEM_PROMPT.format(
+        data_json=data_json,
+        template_fill_in_rule=_load_adapt_template_slide_rule(),
+    )
 
     def _text_desc(rows: list[dict]) -> str:
         return "\n".join(
@@ -2202,23 +2236,78 @@ def _qbr_agenda_items_from_plan(slide_plan: list[dict]) -> list[str]:
     return out
 
 
-def _slide_looks_like_qbr_agenda_titles(text_elements: list[dict]) -> bool:
+def _qbr_agenda_hydrate_config(report: dict) -> dict:
+    """``hydrate`` block from the report bundle or ``slides/qbr-02-agenda.yaml``."""
+    hints = report.get("_hydrate_slide_hints")
+    if isinstance(hints, dict) and isinstance(hints.get("qbr_agenda"), dict):
+        return hints["qbr_agenda"]
+    sd = get_slide_definition("qbr_agenda")
+    if isinstance(sd, dict) and isinstance(sd.get("hydrate"), dict):
+        return sd["hydrate"]
+    return {}
+
+
+def _slide_looks_like_qbr_agenda_titles_legacy(text_elements: list[dict]) -> bool:
     blob = "\n".join((el.get("text") or "") for el in text_elements)
     if "agenda" in blob.lower():
         return True
     return bool(_TITLE_HASH_PLACEHOLDER_RE.search(blob))
 
 
+def _slide_matches_qbr_agenda_hydrate(text_elements: list[dict], ag_hydrate: dict) -> bool:
+    """Whether this slide is the QBR agenda for title merge — driven by ``slides/qbr-02-agenda.yaml``."""
+    td = (ag_hydrate.get("template") or {}).get("slide_detection")
+    if td is None:
+        return _slide_looks_like_qbr_agenda_titles_legacy(text_elements)
+    if not isinstance(td, dict):
+        return _slide_looks_like_qbr_agenda_titles_legacy(text_elements)
+    words = td.get("body_contains_word")
+    if isinstance(words, str):
+        words = [words]
+    if not isinstance(words, list):
+        words = []
+    pat = (td.get("body_matches_regex") or "").strip()
+    if not words and not pat:
+        return _slide_looks_like_qbr_agenda_titles_legacy(text_elements)
+    blob = "\n".join((el.get("text") or "") for el in text_elements)
+    bl = blob.lower()
+    matched = False
+    for w in words:
+        if str(w).lower() in bl:
+            matched = True
+            break
+    if not matched and pat:
+        try:
+            if re.search(pat, blob, re.I):
+                matched = True
+        except re.error as e:
+            logger.warning("hydrate: qbr_agenda slide_detection.body_matches_regex invalid: %s", e)
+    return matched
+
+
+def _compiled_title_slot_pattern(section_titles: dict) -> re.Pattern:
+    pat = (section_titles.get("title_slot_regex") or "").strip()
+    if pat:
+        try:
+            return re.compile(pat, re.I)
+        except re.error as e:
+            logger.warning("hydrate: qbr_agenda title_slot_regex invalid: %s — using default", e)
+    return _TITLE_HASH_PLACEHOLDER_RE
+
+
 def _build_qbr_title_hash_replacements(
     text_elements: list[dict],
     items: list[str],
+    *,
+    pattern: re.Pattern | None = None,
 ) -> list[dict]:
-    """One replaceAllText row per distinct ``Title #N`` substring on the slide."""
+    """One replaceAllText row per distinct title-slot substring on the slide."""
+    rx = pattern or _TITLE_HASH_PLACEHOLDER_RE
     seen: set[str] = set()
     rows: list[dict] = []
     for el in text_elements:
         text = el.get("text") or ""
-        for m in _TITLE_HASH_PLACEHOLDER_RE.finditer(text):
+        for m in rx.finditer(text):
             exact = m.group(0)
             n = int(m.group(1))
             if n < 1 or n > len(items):
@@ -2241,38 +2330,37 @@ def _merge_qbr_agenda_title_replacements(
     base_replacements: list[dict],
     report: dict,
 ) -> list[dict]:
-    """Replace template ``Title #N`` strings with QBR section titles; drop conflicting base rows.
+    """Replace template title slots with QBR section titles; drop conflicting base rows.
 
-    When ``report["_hydrate_slide_hints"]["qbr_agenda"]`` is set (from ``slides/qbr-02-agenda.yaml``),
-    the ``hydrate.template.section_titles`` block controls whether this runs and which slot pattern is used.
-    If hints are absent (non-QBR hydrate), behavior is unchanged (heuristic + deck plan).
+    Policy lives in ``slides/qbr-02-agenda.yaml`` (``hydrate``). The report may also carry
+    ``_hydrate_slide_hints`` from :func:`slide_loader.hydrate_hints_by_slide_id`.
     """
     plan = report.get("_slide_plan")
     if not isinstance(plan, list) or not plan:
         return base_replacements
-    if not _slide_looks_like_qbr_agenda_titles(text_elements):
+
+    ag = _qbr_agenda_hydrate_config(report)
+    if not _slide_matches_qbr_agenda_hydrate(text_elements, ag):
         return base_replacements
 
-    hints = report.get("_hydrate_slide_hints")
-    if isinstance(hints, dict) and "qbr_agenda" in hints:
-        ag = hints.get("qbr_agenda")
-        if not isinstance(ag, dict):
-            return base_replacements
-        st = (ag.get("template") or {}).get("section_titles") or {}
-        if st.get("from_deck_plan") is False:
-            return base_replacements
-        sl = (st.get("slot_labels") or "title_number_hash").strip()
-        if sl != "title_number_hash":
-            logger.warning(
-                "hydrate: qbr_agenda slot_labels=%r not supported — skipping section title merge",
-                sl,
-            )
-            return base_replacements
+    if not isinstance(ag, dict):
+        return base_replacements
+    st = (ag.get("template") or {}).get("section_titles") or {}
+    if st.get("from_deck_plan") is False:
+        return base_replacements
+    sl = (st.get("slot_labels") or "title_number_hash").strip()
+    if sl != "title_number_hash":
+        logger.warning(
+            "hydrate: qbr_agenda slot_labels=%r not supported — skipping section title merge",
+            sl,
+        )
+        return base_replacements
 
     items = _qbr_agenda_items_from_plan(plan)
     if not items:
         return base_replacements
-    title_rows = _build_qbr_title_hash_replacements(text_elements, items)
+    pat = _compiled_title_slot_pattern(st)
+    title_rows = _build_qbr_title_hash_replacements(text_elements, items, pattern=pat)
     if not title_rows:
         return base_replacements
     originals = {str(r["original"]).strip() for r in title_rows}
