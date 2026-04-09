@@ -8,6 +8,8 @@ from __future__ import annotations
 import datetime as _dt
 from typing import Any
 
+from .cs_report_client import get_csr_section
+
 
 # Cap total signals after enrichment (slide paginates; avoid unbounded lists).
 _MAX_TOTAL_SIGNALS = 22
@@ -235,11 +237,12 @@ def _collect_feature_signals(report: dict[str, Any]) -> list[str]:
 
 def _ordered_cross_source_candidates(report: dict[str, Any]) -> list[str]:
     """Higher-priority signals first (support risk → ops → commercial → people → usage narrative)."""
+    csr = get_csr_section(report)
     chunks: list[list[str]] = [
         _collect_jira_signals(report.get("jira") or {}),
-        _collect_cs_platform_signals(report.get("cs_platform_health") or {}),
-        _collect_cs_supply_signals(report.get("cs_supply_chain") or {}),
-        _collect_cs_value_signals(report.get("cs_platform_value") or {}),
+        _collect_cs_platform_signals(csr.get("platform_health") or {}),
+        _collect_cs_supply_signals(csr.get("supply_chain") or {}),
+        _collect_cs_value_signals(csr.get("platform_value") or {}),
         _collect_salesforce_signals(report.get("salesforce") or {}),
         _collect_people_signals(report),
         _collect_feature_signals(report),

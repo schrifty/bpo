@@ -21,7 +21,7 @@ def test_extend_appends_jira_escalated_and_respects_cap():
             "total_issues": 20,
             "days": 90,
         },
-        "cs_platform_health": {"error": "none"},
+        "csr": {"platform_health": {"error": "none"}},
         "salesforce": {},
         "champions": [{"x": 1}],
         "at_risk_users": [],
@@ -65,12 +65,14 @@ def test_extend_cs_red_health():
     report = {
         "signals": [],
         "jira": {},
-        "cs_platform_health": {
-            "health_distribution": {"RED": 2, "YELLOW": 0, "GREEN": 0},
-            "total_critical_shortages": 5,
-            "total_shortages": 100,
-            "factory_count": 3,
-            "sites": [],
+        "csr": {
+            "platform_health": {
+                "health_distribution": {"RED": 2, "YELLOW": 0, "GREEN": 0},
+                "total_critical_shortages": 5,
+                "total_shortages": 100,
+                "factory_count": 3,
+                "sites": [],
+            },
         },
         "champions": [],
         "at_risk_users": [],

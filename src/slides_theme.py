@@ -35,7 +35,7 @@ SLIDE_PAGINATING_SLIDE_TYPES: frozenset[str] = frozenset({
     "jira",
     "enhancements",
     "eng_enhancements",
-    "bespoke_deployment",
+    "qbr_deployment",
     "salesforce_category",
     "support_recent_opened",
     "support_recent_closed",

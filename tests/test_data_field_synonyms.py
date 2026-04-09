@@ -22,6 +22,49 @@ def test_try_resolve_phrase_cost_avoidance():
     assert raw == 1_234_567
 
 
+def test_synonym_skips_absurd_value_when_slide_is_percent_context(monkeypatch):
+    """Do not inject hours/minutes-scale scalars into a % slot (e.g. 39371 for 91%)."""
+    def fake_hit(*_a, **_kw):
+        return ("fake", "account_avg_weekly_hours", "account_avg_weekly_hours", 39371.5)
+
+    monkeypatch.setattr(dfs, "try_resolve_phrase_in_text", fake_hit)
+    text_elements = [{"type": "shape", "text": "91% of the COGS under management"}]
+    repl = [
+        {
+            "original": "91%",
+            "new_value": "[000]",
+            "mapped": False,
+            "field": "?",
+        }
+    ]
+    ds = {"account_avg_weekly_hours": 39371.5}
+    out = dfs.apply_synonym_resolution_to_replacements(repl, text_elements, ds)
+    assert len(out) == 1
+    assert out[0]["mapped"] is False
+
+
+def test_synonym_preserves_percent_sign_when_prefix_had_percent(monkeypatch):
+    def fake_hit(*_a, **_kw):
+        return ("fake", "weekly_active_buyers_pct_avg", "weekly_active_buyers_pct_avg", 42.3)
+
+    monkeypatch.setattr(dfs, "try_resolve_phrase_in_text", fake_hit)
+    text_elements = [{"type": "shape", "text": "91% of the COGS under management"}]
+    repl = [
+        {
+            "original": "91% of the COGS under management",
+            "new_value": "[000]",
+            "mapped": False,
+            "field": "?",
+        }
+    ]
+    ds = {"weekly_active_buyers_pct_avg": 42.3}
+    out = dfs.apply_synonym_resolution_to_replacements(repl, text_elements, ds)
+    assert len(out) == 1
+    assert out[0]["mapped"] is True
+    assert "42.3%" in out[0]["new_value"]
+    assert "of the COGS" in out[0]["new_value"]
+
+
 def test_apply_synonym_to_unmapped_replacement():
     text_elements = [
         {"type": "shape", "text": "Average hours spent weekly on LeanDNA: [000]"},

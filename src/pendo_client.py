@@ -2378,9 +2378,11 @@ class PendoClient:
             "guides": guides_data,
             "jira": jira_data,
             "salesforce": salesforce_data,
-            "cs_platform_health": cs_platform_health,
-            "cs_supply_chain": cs_supply_chain,
-            "cs_platform_value": cs_platform_value,
+            "csr": {
+                "platform_health": cs_platform_health,
+                "supply_chain": cs_supply_chain,
+                "platform_value": cs_platform_value,
+            },
         }
         if BPO_SIGNALS_TRENDS:
             try:

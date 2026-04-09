@@ -16,6 +16,7 @@ from typing import Any
 from googleapiclient.errors import HttpError
 
 from .config import GOOGLE_DRIVE_FOLDER_ID, logger
+from .cs_report_client import get_csr_section
 from .slide_loader import (
     benchmarks_min_peers_for_cohort_median,
     cohort_findings_min_customers_for_cross_cohort_compare,
@@ -669,7 +670,7 @@ def _fmt_platform_value_count(v: int | float) -> str:
 
 def _platform_value_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
     """Speaker-note rows for Platform Value & ROI — KPI labels match ``_platform_value_slide``; values echoed in query."""
-    cs = report.get("cs_platform_value")
+    cs = get_csr_section(report).get("platform_value")
     if not isinstance(cs, dict) or cs.get("error"):
         return []
     ts = float(cs.get("total_savings") or 0)
@@ -798,7 +799,8 @@ def _salesforce_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
 def _platform_risk_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
     """Speaker-note rows for Platform Risk slide (health distribution + supply chain)."""
     rows: list[dict[str, str]] = []
-    cs_ph = report.get("cs_platform_health")
+    csr = get_csr_section(report)
+    cs_ph = csr.get("platform_health")
     if isinstance(cs_ph, dict) and not cs_ph.get("error"):
         dist = cs_ph.get("health_distribution", {})
         fc = cs_ph.get("factory_count", 0)
@@ -810,7 +812,7 @@ def _platform_risk_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str
             {"description": "Critical shortages", "source": "CS Report",
              "query": f"On-slide value {cs_ph.get('total_critical_shortages', 0)} — sum of criticalShortagesCt across factories"},
         ])
-    cs_sc = report.get("cs_supply_chain")
+    cs_sc = csr.get("supply_chain")
     if isinstance(cs_sc, dict) and not cs_sc.get("error"):
         t = cs_sc.get("totals", {})
         rows.extend([
@@ -1480,7 +1482,7 @@ def _score_engagement(report: dict) -> tuple[str, str]:
 
 def _score_platform(report: dict) -> tuple[str, str] | None:
     """Score platform health from CS Report factory health scores. Returns None if no data."""
-    cs = report.get("cs_platform_health", {})
+    cs = get_csr_section(report).get("platform_health") or {}
     sites = cs.get("sites", [])
     if not sites:
         return None
@@ -3921,7 +3923,7 @@ _HEALTH_BADGE = {
 
 
 def _platform_health_slide(reqs, sid, report, idx):
-    cs = report.get("cs_platform_health", report)
+    cs = get_csr_section(report).get("platform_health") or {}
     site_list = cs.get("sites", [])
     if not site_list:
         return _missing_data_slide(reqs, sid, report, idx, "CS Report platform health / site list")
@@ -4039,7 +4041,7 @@ def _platform_health_slide(reqs, sid, report, idx):
 
 
 def _supply_chain_slide(reqs, sid, report, idx):
-    cs = report.get("cs_supply_chain", report)
+    cs = get_csr_section(report).get("supply_chain") or {}
     site_list = cs.get("sites", [])
     if not site_list:
         return _missing_data_slide(reqs, sid, report, idx, "CS Report supply chain / site list")
@@ -4175,7 +4177,7 @@ def _supply_chain_slide(reqs, sid, report, idx):
 
 
 def _platform_value_slide(reqs, sid, report, idx):
-    cs = report.get("cs_platform_value", report)
+    cs = get_csr_section(report).get("platform_value") or {}
     total_savings = cs.get("total_savings", 0)
     total_open = cs.get("total_open_ia_value", 0)
     total_recs = cs.get("total_recs_created_30d", 0)
@@ -4532,7 +4534,7 @@ def _sla_health_slide(reqs, sid, report, idx):
 
 def _cross_validation_slide(reqs, sid, report, idx):
     """Pendo vs CS Report engagement comparison per site."""
-    cs_ph = report.get("cs_platform_health", {})
+    cs_ph = get_csr_section(report).get("platform_health") or {}
     pendo_sites = report.get("sites", [])
 
     cs_factories = cs_ph.get("factories", [])
@@ -4850,13 +4852,13 @@ def _enhancement_requests_slide(reqs, sid, report, idx):
     return idx + len(pages), oids
 
 
-# ── Bespoke slide builders (replicate CSM-designed slides) ──
+# ── QBR template slide builders (LeanDNA APEX styling) ──
 
 # Colors extracted from the Safran QBR template
 _BESPOKE_NAVY = {"red": 0.031, "green": 0.239, "blue": 0.471}   # #083d78 accent navy
 _BESPOKE_DARK = {"red": 0.031, "green": 0.110, "blue": 0.200}   # #081c33 deep bg
 
-def _bespoke_cover_slide(reqs, sid, report, idx):
+def _qbr_cover_slide(reqs, sid, report, idx):
     """Branded cover slide: customer name, deck title, date."""
     _slide(reqs, sid, idx)
     _bg(reqs, sid, NAVY)
@@ -4902,7 +4904,7 @@ def _bespoke_cover_slide(reqs, sid, report, idx):
     return idx + 1
 
 
-def _bespoke_agenda_slide(reqs, sid, report, idx):
+def _qbr_agenda_slide(reqs, sid, report, idx):
     """Numbered agenda slide generated from the deck's slide plan."""
     _slide(reqs, sid, idx)
     _bg(reqs, sid, NAVY)
@@ -4920,13 +4922,13 @@ def _bespoke_agenda_slide(reqs, sid, report, idx):
     divider_items = [
         entry.get("title", "")
         for entry in slide_plan
-        if entry.get("slide_type", entry.get("id", "")) == "bespoke_divider"
+        if entry.get("slide_type", entry.get("id", "")) == "qbr_divider"
         and entry.get("title")
     ]
     if divider_items:
         items = divider_items
     else:
-        skip_types = {"bespoke_cover", "bespoke_agenda", "title", "data_quality", "skip"}
+        skip_types = {"qbr_cover", "qbr_agenda", "title", "data_quality", "skip"}
         items = [
             entry.get("title", entry.get("id", "").replace("_", " ").title())
             for entry in slide_plan
@@ -4957,7 +4959,7 @@ def _bespoke_agenda_slide(reqs, sid, report, idx):
     return idx + 1
 
 
-def _bespoke_divider_slide(reqs, sid, report, idx):
+def _qbr_divider_slide(reqs, sid, report, idx):
     """Section divider slide with LeanDNA tagline and section title."""
     _slide(reqs, sid, idx)
     _bg(reqs, sid, NAVY)
@@ -4991,7 +4993,7 @@ def _bespoke_divider_slide(reqs, sid, report, idx):
     return idx + 1
 
 
-def _bespoke_deployment_slide(reqs, sid, report, idx):
+def _qbr_deployment_slide(reqs, sid, report, idx):
     """Deployment overview: site count and status table from Pendo data."""
     all_sites = report.get("sites", [])
     if not all_sites:
@@ -5005,7 +5007,7 @@ def _bespoke_deployment_slide(reqs, sid, report, idx):
         generated = raw_gen or datetime.datetime.now().strftime("%B %-d, %Y")
     subtitle = f"As of {generated}"
 
-    cs_health = report.get("cs_platform_health", {})
+    cs_health = get_csr_section(report).get("platform_health") or {}
     site_health = {}
     for row in cs_health.get("sites", []):
         name = row.get("site", "")
@@ -6446,10 +6448,10 @@ _SLIDE_BUILDERS = {
     "engineering": _engineering_slide,
     "enhancements": _enhancement_requests_slide,
     "support_breakdown": _support_breakdown_slide,
-    "bespoke_cover": _bespoke_cover_slide,
-    "bespoke_agenda": _bespoke_agenda_slide,
-    "bespoke_divider": _bespoke_divider_slide,
-    "bespoke_deployment": _bespoke_deployment_slide,
+    "qbr_cover": _qbr_cover_slide,
+    "qbr_agenda": _qbr_agenda_slide,
+    "qbr_divider": _qbr_divider_slide,
+    "qbr_deployment": _qbr_deployment_slide,
     "eng_portfolio_title": _eng_portfolio_title_slide,
     "eng_sprint_snapshot": _eng_sprint_snapshot_slide,
     "eng_bug_health": _eng_bug_health_slide,
@@ -6486,11 +6488,11 @@ SLIDE_DATA_REQUIREMENTS = {
     "support_recent_closed": ["jira"],
     "custom": ["title", "sections"],
     "signals": ["signals"],
-    "platform_health": ["cs_platform_health"],
-    "supply_chain": ["cs_supply_chain"],
-    "platform_value": ["cs_platform_value"],
+    "platform_health": ["csr"],
+    "supply_chain": ["csr"],
+    "platform_value": ["csr"],
     "sla_health": ["jira"],
-    "cross_validation": ["cs_platform_health", "sites", "engagement"],
+    "cross_validation": ["csr", "sites", "engagement"],
     "engineering": ["jira"],
     "enhancements": ["jira"],
     "support_breakdown": ["jira"],
@@ -6504,10 +6506,10 @@ SLIDE_DATA_REQUIREMENTS = {
     "cohort_profiles": ["cohort_digest"],
     "cohort_findings": ["cohort_findings_bullets"],
     "team": ["customer"],
-    "bespoke_cover": ["customer", "days"],
-    "bespoke_agenda": [],
-    "bespoke_divider": [],
-    "bespoke_deployment": ["sites"],
+    "qbr_cover": ["customer", "days"],
+    "qbr_agenda": [],
+    "qbr_divider": [],
+    "qbr_deployment": ["sites"],
     "eng_portfolio_title": ["eng_portfolio"],
     "eng_sprint_snapshot": ["eng_portfolio"],
     "eng_bug_health": ["eng_portfolio"],

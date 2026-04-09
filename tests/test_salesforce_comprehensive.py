@@ -406,18 +406,20 @@ def test_speaker_notes_health_snapshot_uses_on_slide_row_labels():
 def test_speaker_notes_platform_value_includes_kpis_and_table_columns():
     """Platform Value & ROI uses canonical traces so KPI headlines and table columns appear in notes."""
     report = {
-        "cs_platform_value": {
-            "customer": "Acme",
-            "source": "cs_report",
-            "factory_count": 3,
-            "total_savings": 96_500_000,
-            "total_open_ia_value": 269_000_000,
-            "total_recs_created_30d": 188_000,
-            "total_pos_placed_30d": 66_680,
-            "total_overdue_tasks": 2_027,
-            "sites": [
-                {"factory": "Site A", "savings_current_period": 1, "recs_created_30d": 2},
-            ],
+        "csr": {
+            "platform_value": {
+                "customer": "Acme",
+                "source": "cs_report",
+                "factory_count": 3,
+                "total_savings": 96_500_000,
+                "total_open_ia_value": 269_000_000,
+                "total_recs_created_30d": 188_000,
+                "total_pos_placed_30d": 66_680,
+                "total_overdue_tasks": 2_027,
+                "sites": [
+                    {"factory": "Site A", "savings_current_period": 1, "recs_created_30d": 2},
+                ],
+            },
         },
     }
     entry = {"slide_type": "platform_value", "title": "Platform Value & ROI"}

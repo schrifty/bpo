@@ -37,9 +37,11 @@ def main() -> None:
         )
         data = {
             "customer": args.customer,
-            "cs_platform_health": get_customer_platform_health(args.customer),
-            "cs_supply_chain": get_customer_supply_chain(args.customer),
-            "cs_platform_value": get_customer_platform_value(args.customer),
+            "csr": {
+                "platform_health": get_customer_platform_health(args.customer),
+                "supply_chain": get_customer_supply_chain(args.customer),
+                "platform_value": get_customer_platform_value(args.customer),
+            },
         }
     else:
         from src.pendo_client import PendoClient
@@ -54,7 +56,8 @@ def main() -> None:
     else:
         print(json.dumps(data, indent=2))
 
-    err = data.get("error") or (data.get("cs_platform_health") or {}).get("error")
+    ph = (data.get("csr") or {}).get("platform_health") or {}
+    err = data.get("error") or (ph.get("error") if isinstance(ph, dict) else None)
     if err:
         sys.exit(1)
 

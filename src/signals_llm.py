@@ -21,6 +21,7 @@ from .config import (
     llm_client,
     logger,
 )
+from .cs_report_client import get_csr_section
 from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
 
 # Compact payload for the model (avoid sending full site lists).
@@ -95,7 +96,8 @@ def build_signals_llm_payload(report: dict[str, Any]) -> dict[str, Any]:
             "renewal_within_days_min": _renewal_min_days(sf),
         }
 
-    ph = report.get("cs_platform_health") or {}
+    csr = get_csr_section(report)
+    ph = csr.get("platform_health") or {}
     cs_ph: dict[str, Any] = {}
     if ph and not ph.get("error"):
         cs_ph = {
@@ -105,12 +107,12 @@ def build_signals_llm_payload(report: dict[str, Any]) -> dict[str, Any]:
             "factory_count": ph.get("factory_count"),
         }
 
-    sc = report.get("cs_supply_chain") or {}
+    sc = csr.get("supply_chain") or {}
     cs_sc: dict[str, Any] = {}
     if sc and not sc.get("error"):
         cs_sc = {"totals": sc.get("totals"), "factory_count": sc.get("factory_count")}
 
-    pv = report.get("cs_platform_value") or {}
+    pv = csr.get("platform_value") or {}
     cs_pv: dict[str, Any] = {}
     if pv and not pv.get("error"):
         cs_pv = {
@@ -162,9 +164,11 @@ def build_signals_llm_payload(report: dict[str, Any]) -> dict[str, Any]:
         },
         "jira": jira_sum or None,
         "salesforce": sf_sum or None,
-        "cs_platform_health": cs_ph or None,
-        "cs_supply_chain": cs_sc or None,
-        "cs_platform_value": cs_pv or None,
+        "csr": {
+            "platform_health": cs_ph or None,
+            "supply_chain": cs_sc or None,
+            "platform_value": cs_pv or None,
+        },
         "people": {"champions_count": champions_n, "at_risk_users_count": at_risk_n},
         "feature_adoption_narrative": feat_narr,
         "signals_trend_context": report.get("signals_trend_context"),

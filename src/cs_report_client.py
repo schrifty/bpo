@@ -458,3 +458,19 @@ def cross_validate_with_pendo(customer_name: str, pendo_health: dict[str, Any]) 
         )
     else:
         qa.check("Factory names consistent between Pendo and CS Report")
+
+
+def get_csr_section(report: dict[str, Any]) -> dict[str, Any]:
+    """Return the CS Report (CSR) subsection from a merged health report.
+
+    Preferred shape: ``report["csr"]`` with keys ``platform_health``, ``supply_chain``,
+    ``platform_value``. Legacy top-level ``cs_platform_*`` keys are still supported.
+    """
+    csr = report.get("csr")
+    if isinstance(csr, dict) and csr:
+        return csr
+    return {
+        "platform_health": report.get("cs_platform_health") or {},
+        "supply_chain": report.get("cs_supply_chain") or {},
+        "platform_value": report.get("cs_platform_value") or {},
+    }

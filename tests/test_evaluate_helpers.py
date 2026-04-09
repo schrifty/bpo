@@ -126,6 +126,17 @@ def test_format_data_summary_for_adapt_prompt_bounded():
     assert "site_details" in out
 
 
+def test_format_data_summary_for_adapt_prompt_caps_wide_dicts():
+    """Very wide nested dicts must not exceed adapt prompt budget (dict key cap)."""
+    s = {
+        "customer_name": "Acme",
+        "platform_value": {f"k{i}": {"note": "x" * 500, "v": i} for i in range(2000)},
+    }
+    out = evaluate._format_data_summary_for_adapt_prompt(s)
+    assert len(out) <= 12000
+    assert "platform_value" in out
+
+
 def test_normalize_and_dedupe_replacements():
     """Invalid rows dropped; duplicate originals deduped."""
     raw = [
@@ -142,6 +153,17 @@ def test_normalize_and_dedupe_replacements():
     assert deduped[0]["new_value"] == "2"
 
 
+def test_normalize_adapt_replacements_skips_single_digit_original():
+    """replaceAllText('1'→…) hits every '1' on the page — breaks P1/P2 and similar."""
+    raw = [
+        {"original": "1", "new_value": "[000]", "mapped": False, "field": "bad"},
+        {"original": "P1", "new_value": "P1", "mapped": True, "field": "ok"},
+    ]
+    norm = evaluate._normalize_adapt_replacements(raw)
+    assert len(norm) == 1
+    assert norm[0]["original"] == "P1"
+
+
 def test_normalize_adapt_replacements_skips_percent_to_non_percent():
     """Do not apply a replacement when the slide value is a % but the new value is not."""
     raw = [
@@ -154,6 +176,29 @@ def test_normalize_adapt_replacements_skips_percent_to_non_percent():
     assert [r["new_value"] for r in norm] == ["40%", "10 percent"]
 
 
+def test_sanitize_adapt_replacements_percent_demotes_when_new_value_lacks_percent():
+    """Post-synonym guard: % slots must not ship as bare scalars (e.g. weekly hours)."""
+    els = [{"type": "shape", "text": "91% of the COGS under management"}]
+    repl = [
+        {
+            "original": "91%",
+            "new_value": "39371.5 of the COGS under management",
+            "mapped": True,
+            "field": "account_avg_weekly_hours",
+        }
+    ]
+    out = evaluate._sanitize_adapt_replacements_percent_semantics(repl, els)
+    assert out[0]["mapped"] is False
+    assert "[00%]" in out[0]["new_value"]
+
+
+def test_sanitize_adapt_replacements_percent_detects_bare_digits_before_percent_sign():
+    els = [{"type": "shape", "text": "91% of the COGS under management"}]
+    repl = [{"original": "91", "new_value": "39371.5", "mapped": True, "field": "x"}]
+    out = evaluate._sanitize_adapt_replacements_percent_semantics(repl, els)
+    assert out[0]["mapped"] is False
+
+
 def test_adapt_text_has_percentage_semantics():
     assert evaluate._adapt_text_has_percentage_semantics("42%")
     assert evaluate._adapt_text_has_percentage_semantics("about 5 percent")
@@ -162,7 +207,63 @@ def test_adapt_text_has_percentage_semantics():
     assert not evaluate._adapt_text_has_percentage_semantics("100")
 
 
+def test_sanitize_adapt_replacements_plausible_years_demotes_absurd():
+    """Minutes/hours misread as calendar years must not ship as mapped."""
+    raw = [
+        {
+            "original": "XX years",
+            "new_value": "39375.5 years",
+            "mapped": True,
+            "field": "account_total_minutes",
+        },
+        {
+            "original": "15 years",
+            "new_value": "12 years",
+            "mapped": True,
+            "field": "tenure",
+        },
+        {
+            "original": "29 sites",
+            "new_value": "29 sites",
+            "mapped": True,
+            "field": "total_sites",
+        },
+    ]
+    out = evaluate._sanitize_adapt_replacements_plausible_years(raw)
+    assert len(out) == 3
+    assert out[0]["mapped"] is False
+    assert out[0]["new_value"] == "[000] years"
+    assert "implausible" in out[0]["field"]
+    assert out[1]["mapped"] is True
+    assert out[1]["new_value"] == "12 years"
+    assert out[2]["mapped"] is True
+
+
+def test_sanitize_adapt_replacements_plausible_years_demotes_wrong_unit_field():
+    """Values tied to minutes/hours in field text are demoted even when < 150."""
+    raw = [
+        {
+            "original": "XX years",
+            "new_value": "120",
+            "mapped": True,
+            "field": "account_total_minutes",
+        },
+    ]
+    out = evaluate._sanitize_adapt_replacements_plausible_years(raw)
+    assert out[0]["mapped"] is False
+    assert out[0]["new_value"] == "[000] years"
+
+
 # ── _build_data_summary ──────────────────────────────────────────────────────
+
+
+def test_build_data_summary_csr_nested_matches_legacy_keys():
+    """CS Report data may live under report['csr'] or legacy cs_platform_* keys."""
+    pv = {"customer": "Acme", "source": "cs_report", "total_savings": 42}
+    nested = evaluate._build_data_summary({"customer": "Acme", "account": {}, "csr": {"platform_value": pv}})
+    legacy = evaluate._build_data_summary({"customer": "Acme", "account": {}, "cs_platform_value": pv})
+    assert nested.get("platform_value") == pv
+    assert legacy.get("platform_value") == pv
 
 
 def test_build_data_summary_minimal():
@@ -327,13 +428,13 @@ def test_build_hydrate_speaker_notes_generic_placeholder_one_liner():
         },
     ]
     out = evaluate._build_hydrate_speaker_notes(reps, [{"type": "shape", "text": "x"}])
-    assert "1 data operation:" in out
-    assert "[generic] unmapped" in out
+    assert "Data Fields:" in out
+    assert "generic placeholder — no pipeline mapping" in out
     assert "UNMAPPED / static visual" not in out
 
 
 def test_build_hydrate_speaker_notes_lists_lines():
-    """Speaker notes manifest includes each replacement and per-line slide data."""
+    """Speaker notes list each replacement as [slide] -> [field] -> [value] (no duplicate on-slide scan)."""
     reps = [
         {"field": "total_sites", "original": "31", "new_value": "14", "mapped": True},
         {"field": "nps_score", "original": "72", "new_value": "[???]", "mapped": False},
@@ -343,12 +444,9 @@ def test_build_hydrate_speaker_notes_lists_lines():
         {"type": "shape", "text": "[00%] reduction In Past Due PO's"},
     ]
     out = evaluate._build_hydrate_speaker_notes(reps, els)
-    assert "2 data operations:" in out and "total_sites" in out and "nps_score" in out
-    assert "is now [14], (source: Pendo)" in out
-    assert "[nps_score] unmapped" in out and "was: 72" in out
-    assert "Manufacturing sites" in out
-    assert "Past Due" in out
-    assert out.count("[shape]") >= 2
+    assert "Data Fields:" in out and "total_sites" in out and "nps_score" in out
+    assert "`total_sites`" in out and "Pendo" in out and "[14]" in out
+    assert "`nps_score` unmapped" in out and "[72]" in out
 
 
 def test_build_hydrate_speaker_notes_qa_governance():
@@ -362,11 +460,11 @@ def test_build_hydrate_speaker_notes_qa_governance():
     out = evaluate._build_hydrate_speaker_notes(
         reps, els, report=report, has_unmapped=False, has_static_images=False
     )
-    assert "QA this slide" in out
+    assert "QA this slide" not in out
     assert "Data context" in out and "Acme" in out and "2025-03-06" in out and "Q1 2025" in out
-    assert "is now [14], (source: Pendo)" in out
-    assert "is now [12], (source: Jira)" in out
-    assert "QA checklist" in out
+    assert "`total_sites`" in out and "Pendo" in out and "[14]" in out
+    assert "`support`" in out and "Jira" in out and "[12]" in out
+    assert "QA:" in out
     assert "INCOMPLETE" not in out
 
     out_incomplete = evaluate._build_hydrate_speaker_notes(
@@ -382,8 +480,9 @@ def test_build_hydrate_speaker_notes_narrative_no_replacements():
         {"type": "shape", "text": "• Ship feature X\n• Improve adoption"},
     ]
     out = evaluate._build_hydrate_speaker_notes([], els, report={"customer": "Acme"})
-    assert "No automated data replacements" in out
-    assert "Slide copy" in out
+    assert "No automated data replacements" not in out
+    assert "Slide copy (reference):" in out
+    assert "YAML:" in out
     assert "Prior quarter" in out
     assert "Ship feature" in out
 
@@ -406,7 +505,7 @@ def test_build_hydrate_speaker_notes_chart_specs():
         ]
     }
     out = evaluate._build_hydrate_speaker_notes(reps, els, analysis=analysis)
-    assert "Visuals —" in out
+    assert "Visuals:" in out
     assert "Type: line" in out
     assert "X: Month" in out
     assert "Y: Value" in out
@@ -440,10 +539,10 @@ def test_build_hydrate_speaker_notes_chart_includes_pipeline_snapshot():
     out = evaluate._build_hydrate_speaker_notes(
         reps, els, analysis=analysis, data_summary=ds
     )
-    assert "Pipeline fields that may supply" in out
+    assert "Pipeline fields (guess):" in out
     assert "active_users" in out and "total_sites" in out
     assert "bogus_key" not in out
-    assert "Data we have for this run" in out
+    assert "Data snapshot for this run" in out
     assert "42" in out and "7" in out
     assert "Pendo" in out
     assert "What it shows:" in out and "Column chart" in out
@@ -472,7 +571,7 @@ def test_build_hydrate_speaker_notes_visual_no_pipeline_keys_shows_gap():
     out = evaluate._build_hydrate_speaker_notes(reps, els, analysis=analysis, data_summary={})
     assert "What it shows:" in out and "export" in out.lower()
     assert "Pipeline fields: (none matched" in out
-    assert "Auto-fetch: not mapped" in out
+    assert "Not auto-fetchable" in out
 
 
 def test_build_hydrate_speaker_notes_rebuild_spec():
@@ -487,8 +586,9 @@ def test_build_hydrate_speaker_notes_rebuild_spec():
     }
     out = evaluate._build_hydrate_speaker_notes(reps, els, analysis=analysis)
     assert "Objective: Account overview" in out
-    assert "Required data: total_sites, quarter" in out
-    assert "Slide: engagement — Account at a glance" in out
+    assert "Required data keys: total_sites, quarter" in out
+    assert "Account at a glance" in out.split("\n")[0]
+    assert "Type: engagement" in out
 
 
 # ── incomplete banner gating ────────────────────────────────────────────────────
@@ -544,10 +644,10 @@ def test_should_add_incomplete_banner_skips_prose_heading_plus_static_image():
     assert evaluate._should_add_incomplete_banner("p1", reps, None, None) is False
 
 
-def test_should_add_incomplete_banner_skips_bespoke_divider_from_analysis():
+def test_should_add_incomplete_banner_skips_qbr_divider_from_analysis():
     reps = [{"original": "x", "new_value": "[???]", "mapped": False, "field": "n"}]
     assert evaluate._should_add_incomplete_banner(
-        "p1", reps, None, {"slide_type": "bespoke_divider"}
+        "p1", reps, None, {"slide_type": "qbr_divider"}
     ) is False
 
 

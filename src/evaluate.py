@@ -34,6 +34,7 @@ from .config import (
     llm_client,
     logger,
 )
+from .cs_report_client import get_csr_section
 from .data_field_synonyms import (
     apply_synonym_resolution_to_replacements,
     data_summary_lookup,
@@ -277,8 +278,8 @@ def _analyze_slide_broad(client, text: str, elements: dict, thumb_b64: str | Non
         "Include embedded charts/images: key '_embedded_chart' or '_embedded_image', example_from_slide the marker text.\n\n"
         "PURPOSE: One sentence — what is this slide communicating?\n\n"
         f"SLIDE TYPE: Choose from: {builder_list}\n"
-        "Prefer 'title' (opening title), 'bespoke_cover' (branded cover), or "
-        "'bespoke_divider' (section/chapter title) when the slide is **primarily a title or cover** "
+        "Prefer 'title' (opening title), 'qbr_cover' (branded QBR cover), or "
+        "'qbr_divider' (section/chapter title) when the slide is **primarily a title or cover** "
         "with no customer metrics to refresh — hydration will not rewrite numbers on those types.\n\n"
         "VISUALS (charts, graphs, plot images): You MUST analyze every visualization on the slide — including "
         "native Slides **chart** elements AND **image** elements that show charts, plots, dashboards, or data graphics. "
@@ -1431,7 +1432,8 @@ def _build_data_summary(report: dict) -> dict:
         for si in sites[:30]
     ]
 
-    cs = report.get("cs_platform_health", {})
+    csr = get_csr_section(report)
+    cs = csr.get("platform_health") or {}
     if cs and not cs.get("error"):
         ts = cs.get("total_shortages")
         if ts is not None:
@@ -1471,11 +1473,11 @@ def _build_data_summary(report: dict) -> dict:
             "pipeline_arr": sf.get("pipeline_arr", 0),
         }
 
-    cs_val = report.get("cs_platform_value", {})
+    cs_val = csr.get("platform_value") or {}
     if cs_val:
         s["platform_value"] = cs_val
 
-    cs_sc = report.get("cs_supply_chain", {})
+    cs_sc = csr.get("supply_chain") or {}
     if cs_sc:
         s["supply_chain"] = cs_sc
 
@@ -1499,6 +1501,8 @@ def _adapt_cache_key(thumb_b64: str | None, page_id: str, data_summary: dict) ->
 
 # Max JSON chars for CURRENT DATA in the adapt system prompt (structured pruning before hard cut).
 _ADAPT_PROMPT_DATA_MAX_CHARS = 12000
+# Log at most once per hydrate run when JSON still needs a hard slice (parallel slides share the same report).
+_ADAPT_OVERSIZE_WARN_EMITTED = False
 _ADAPT_MAX_TOKENS = 8192
 _ADAPT_MAX_TOKENS_RETRY = 16384
 
@@ -1519,27 +1523,59 @@ def _prune_data_summary_for_prompt(data: dict, *, site_limit: int, cs_limit: int
             out[k] = sf
         elif k in ("platform_value", "supply_chain") and isinstance(v, dict):
             # Deep-trim string-heavy nested blobs
-            out[k] = _truncate_strings_in_obj(v, max_str=800, max_list_items=40)
+            out[k] = _truncate_strings_in_obj(
+                v, max_str=800, max_list_items=40, max_dict_keys=160
+            )
         else:
             out[k] = v
     return out
 
 
-def _truncate_strings_in_obj(obj: Any, *, max_str: int, max_list_items: int) -> Any:
-    """Recursively shorten long strings and cap list lengths for prompt size limits."""
+def _truncate_strings_in_obj(
+    obj: Any,
+    *,
+    max_str: int,
+    max_list_items: int,
+    max_dict_keys: int | None = None,
+) -> Any:
+    """Recursively shorten long strings and cap list lengths for prompt size limits.
+
+    ``max_dict_keys`` caps entries per dict (sorted by key) so wide maps (e.g. platform_value)
+    cannot blow past the adapt prompt budget.
+    """
     if isinstance(obj, str):
         return obj if len(obj) <= max_str else obj[: max_str - 1] + "…"
     if isinstance(obj, list):
-        return [_truncate_strings_in_obj(x, max_str=max_str, max_list_items=max_list_items) for x in obj[:max_list_items]]
+        return [
+            _truncate_strings_in_obj(
+                x,
+                max_str=max_str,
+                max_list_items=max_list_items,
+                max_dict_keys=max_dict_keys,
+            )
+            for x in obj[:max_list_items]
+        ]
     if isinstance(obj, dict):
-        return {k: _truncate_strings_in_obj(v, max_str=max_str, max_list_items=max_list_items) for k, v in obj.items()}
+        items = sorted(obj.items(), key=lambda kv: str(kv[0]))
+        if max_dict_keys is not None and len(items) > max_dict_keys:
+            items = items[:max_dict_keys]
+        return {
+            k: _truncate_strings_in_obj(
+                v,
+                max_str=max_str,
+                max_list_items=max_list_items,
+                max_dict_keys=max_dict_keys,
+            )
+            for k, v in items
+        }
     return obj
 
 
 def _format_data_summary_for_adapt_prompt(data_summary: dict) -> str:
     """Serialize data_summary for the adapt LLM: compact JSON, prune if needed, avoid blind 6k truncation."""
+    global _ADAPT_OVERSIZE_WARN_EMITTED
     max_chars = _ADAPT_PROMPT_DATA_MAX_CHARS
-    tiers = [
+    site_tiers = [
         (30, 20, 25),
         (20, 15, 15),
         (15, 10, 10),
@@ -1547,37 +1583,93 @@ def _format_data_summary_for_adapt_prompt(data_summary: dict) -> str:
         (8, 5, 5),
         (5, 3, 3),
     ]
-    for site_l, cs_l, acct_l in tiers:
+    # (max_str, max_list_items, max_dict_keys) — wide nested dicts need key caps, not just string caps.
+    truncate_tiers = [
+        (600, 50, 128),
+        (400, 35, 96),
+        (300, 25, 72),
+        (200, 16, 56),
+        (120, 10, 40),
+    ]
+    for site_l, cs_l, acct_l in site_tiers:
         pruned = _prune_data_summary_for_prompt(
             data_summary, site_limit=site_l, cs_limit=cs_l, account_limit=acct_l
         )
-        pruned = _truncate_strings_in_obj(pruned, max_str=600, max_list_items=50)
-        compact = json.dumps(pruned, separators=(",", ":"), sort_keys=True, default=str)
+        for max_str, max_list, max_dk in truncate_tiers:
+            compact = json.dumps(
+                _truncate_strings_in_obj(
+                    pruned,
+                    max_str=max_str,
+                    max_list_items=max_list,
+                    max_dict_keys=max_dk,
+                ),
+                separators=(",", ":"),
+                sort_keys=True,
+                default=str,
+            )
+            if len(compact) <= max_chars:
+                if (site_l, cs_l, acct_l) != (30, 20, 25) or (max_str, max_list, max_dk) != (
+                    600,
+                    50,
+                    128,
+                ):
+                    logger.info(
+                        "hydrate: adapt prompt data_summary pruned to fit (%d chars, "
+                        "site=%d cs=%d acct=%d, str=%d list=%d dict_keys=%d)",
+                        len(compact),
+                        site_l,
+                        cs_l,
+                        acct_l,
+                        max_str,
+                        max_list,
+                        max_dk,
+                    )
+                return compact
+    minimal = _prune_data_summary_for_prompt(data_summary, site_limit=3, cs_limit=2, account_limit=2)
+    for max_str, max_list, max_dk in [(300, 20, 48), (200, 12, 32), (120, 8, 24), (80, 5, 16)]:
+        compact = json.dumps(
+            _truncate_strings_in_obj(
+                minimal,
+                max_str=max_str,
+                max_list_items=max_list,
+                max_dict_keys=max_dk,
+            ),
+            separators=(",", ":"),
+            sort_keys=True,
+            default=str,
+        )
         if len(compact) <= max_chars:
-            if (site_l, cs_l, acct_l) != (30, 20, 25):
-                logger.info(
-                    "hydrate: adapt prompt data_summary pruned to fit (%d chars, site=%d cs=%d acct=%d)",
-                    len(compact),
-                    site_l,
-                    cs_l,
-                    acct_l,
-                )
+            logger.info(
+                "hydrate: adapt prompt data_summary aggressive truncation fit (%d chars, str=%d list=%d dict_keys=%d)",
+                len(compact),
+                max_str,
+                max_list,
+                max_dk,
+            )
             return compact
     compact = json.dumps(
         _truncate_strings_in_obj(
-            _prune_data_summary_for_prompt(data_summary, site_limit=3, cs_limit=2, account_limit=2),
-            max_str=300,
-            max_list_items=20,
+            minimal,
+            max_str=60,
+            max_list_items=4,
+            max_dict_keys=12,
         ),
         separators=(",", ":"),
         sort_keys=True,
         default=str,
     )
     if len(compact) > max_chars:
-        logger.warning(
-            "hydrate: data_summary still oversized after pruning; truncating JSON to %d chars",
-            max_chars,
-        )
+        if not _ADAPT_OVERSIZE_WARN_EMITTED:
+            logger.warning(
+                "hydrate: data_summary still oversized after pruning; truncating JSON to %d chars",
+                max_chars,
+            )
+            _ADAPT_OVERSIZE_WARN_EMITTED = True
+        else:
+            logger.debug(
+                "hydrate: data_summary still oversized after pruning; truncating JSON to %d chars (repeat)",
+                max_chars,
+            )
         return compact[: max_chars - 1] + "…"
     return compact
 
@@ -1599,6 +1691,35 @@ _ADAPT_QUARTER_OR_PERCENT_RE = re.compile(
 )
 # Percentage unit or common placeholders — used to block % → plain-number mistakes.
 _ADAPT_PERCENT_PLACEHOLDER_RE = re.compile(r"\[00%\]|\[00\s*%\]", re.I)
+
+
+def _adapt_original_reads_as_percent_on_slide(orig: str, text_elements: list[dict]) -> bool:
+    """True if *orig* is the numeric part of a percent in slide text (e.g. ``91`` before ``%``)."""
+    o = (orig or "").strip()
+    if not o:
+        return False
+    if _adapt_text_has_percentage_semantics(o):
+        return True
+    if not re.match(r"^[\d.,]+\s*$", o):
+        return False
+    try:
+        float(o.replace(",", ""))
+    except ValueError:
+        return False
+    for el in text_elements:
+        t = el.get("text") or ""
+        if o not in t:
+            continue
+        pos = 0
+        while True:
+            i = t.find(o, pos)
+            if i < 0:
+                break
+            j = i + len(o)
+            if j < len(t) and t[j] == "%":
+                return True
+            pos = i + 1
+    return False
 
 
 def _adapt_text_has_percentage_semantics(s: str) -> bool:
@@ -1634,6 +1755,20 @@ _ADAPT_SYSTEM_PROMPT = (
     "navigation text, column headers, product feature names, or any text that "
     "is part of the application interface rather than a reported metric.\n"
     "- The 'original' field must be an EXACT substring of the slide text.\n"
+    "- **Never** use `original` that is **only a single digit** (0–9). Slides `replaceAllText` "
+    "replaces **every** occurrence of that substring on the page, which corrupts priority labels "
+    "like **P1** / **P2** (not metrics). Prefer a longer unique substring, or mark unmapped.\n"
+    "- **Repeated placeholders (e.g. two \"XX\" on one line):** Each slot must use a "
+    "**different** `original` string that **disambiguates** position — include enough "
+    "surrounding words so each `original` is unique (e.g. \"XX sites\" vs \"XX years\"). "
+    "Never emit two replacements with the **same** `original` text unless `new_value` is "
+    "identical (the pipeline dedupes identical originals).\n"
+    "- **Tenure / lifetime / \"years\" / \"since join\":** Do **not** map these to "
+    "**minutes**, **hours**, **total_minutes**, **avg_weekly_hours**, or other raw "
+    "duration fields unless you **explicitly** convert to **calendar years** and the "
+    "result is human-plausible (typically well under 100). If you cannot derive a "
+    "credible **years** figure from CURRENT DATA, use mapped=false and `[000]` / "
+    "`[000] years` as appropriate.\n"
     "- Match by MEANING: '16 sites' maps to total_sites=14, so new_value='14 sites'.\n"
     "- Preserve the original format style: '$324k' → '$291k', '16' → '14', '03/2025' → '03/2026'.\n"
     "- **Percentages:** If `original` contains a percent sign (`%`) or reads as a percent "
@@ -1737,6 +1872,14 @@ def _normalize_adapt_replacements(replacements: list[Any]) -> list[dict]:
         orig_s = str(orig).strip()
         if not orig_s:
             continue
+        if len(orig_s) == 1 and orig_s.isdigit():
+            logger.warning(
+                "hydrate: adapt replacement[%d] skipped (single-digit original would match "
+                "every occurrence on the page, e.g. P1/P2 priority labels): original=%r",
+                i,
+                orig_s,
+            )
+            continue
         nv = r.get("new_value", "")
         if nv is None:
             nv = ""
@@ -1766,12 +1909,130 @@ def _normalize_adapt_replacements(replacements: list[Any]) -> list[dict]:
     return out
 
 
+def _adapt_placeholder_for_percent_mismatch(original: str) -> str:
+    """Placeholder when a percent slot was filled with a non-percentage value."""
+    orig = (original or "").strip()
+    m = re.match(r"^[\d.,\s$€£%]+", orig)
+    if not m:
+        return "[00%]"
+    suffix = (orig[m.end() :].strip() if m else "").strip()
+    return f"[00%] {suffix}" if suffix else "[00%]"
+
+
+def _sanitize_adapt_replacements_percent_semantics(
+    replacements: list[dict],
+    text_elements: list[dict] | None,
+) -> list[dict]:
+    """Demote mapped rows where the slide shows a percent but new_value lost % (synonym/LLM bug)."""
+    out: list[dict] = []
+    for r in replacements:
+        if not bool(r.get("mapped", True)):
+            out.append(r)
+            continue
+        orig = str(r.get("original") or "")
+        nv = str(r.get("new_value") or "")
+        if text_elements:
+            percent_ctx = _adapt_original_reads_as_percent_on_slide(orig, text_elements)
+        else:
+            percent_ctx = _adapt_text_has_percentage_semantics(orig)
+        if not percent_ctx:
+            out.append(r)
+            continue
+        if _adapt_text_has_percentage_semantics(nv.strip()):
+            out.append(r)
+            continue
+        logger.warning(
+            "hydrate: demoting replacement (percent context requires %% in new_value): "
+            "original=%r new_value=%r",
+            orig[:120],
+            nv[:120],
+        )
+        field = str(r.get("field") or "")
+        out.append({
+            "original": orig,
+            "new_value": _adapt_placeholder_for_percent_mismatch(orig),
+            "mapped": False,
+            "field": (field + " (percent slot; verify manually)").strip(),
+        })
+    return out
+
+
 def _dedupe_replacements_by_original(replacements: list[dict]) -> list[dict]:
     """Later rows win (e.g. merged from split LLM calls)."""
     by_o: dict[str, dict] = {}
     for r in replacements:
         by_o[r["original"]] = r
     return list(by_o.values())
+
+
+_ADAPT_YEARS_CONTEXT_RE = re.compile(
+    r"\b(?:years?|lifetime|tenure|since\s+join)\b",
+    re.I,
+)
+# Field text suggesting the value came from minutes/hours, not calendar years.
+_ADAPT_WRONG_TIME_UNIT_FIELD_RE = re.compile(
+    r"\b(?:total_)?minutes?\b|\bhours?\b|weekly\s*hours|avg[_\s]*hours|account_total_minutes",
+    re.I,
+)
+
+
+def _adapt_first_number_in_new_value(s: str) -> float | None:
+    """Leading numeric token from new_value (commas, decimals); ignores $ prefix."""
+    if not (s or "").strip():
+        return None
+    t = s.strip()
+    m = re.match(r"^\s*\$?\s*([\d,]+(?:\.\d+)?)", t)
+    if not m:
+        return None
+    try:
+        return float(m.group(1).replace(",", ""))
+    except ValueError:
+        return None
+
+
+def _adapt_placeholder_for_years_context(original: str) -> str:
+    """Placeholder that preserves a trailing 'years' label when the slide had one."""
+    if _ADAPT_YEARS_CONTEXT_RE.search(original or ""):
+        return "[000] years"
+    return "[000]"
+
+
+def _sanitize_adapt_replacements_plausible_years(replacements: list[dict]) -> list[dict]:
+    """Demote absurd \"years\" values (e.g. minutes/hours mistaken for years)."""
+    out: list[dict] = []
+    for r in replacements:
+        orig = str(r.get("original") or "")
+        nv = str(r.get("new_value") or "")
+        field = str(r.get("field") or "")
+        mapped = bool(r.get("mapped", True))
+        if not mapped:
+            out.append(r)
+            continue
+        if not _ADAPT_YEARS_CONTEXT_RE.search(orig):
+            out.append(r)
+            continue
+        n = _adapt_first_number_in_new_value(nv)
+        if n is None:
+            out.append(r)
+            continue
+        abs_n = abs(n)
+        wrong_unit = bool(_ADAPT_WRONG_TIME_UNIT_FIELD_RE.search(field))
+        if abs_n > 150 or (wrong_unit and abs_n > 50):
+            logger.warning(
+                "hydrate: demoting implausible years replacement: original=%r new_value=%r field=%r",
+                orig[:120],
+                nv[:120],
+                field[:120],
+            )
+            out.append({
+                "original": orig,
+                "new_value": _adapt_placeholder_for_years_context(orig),
+                "mapped": False,
+                "field": (field + " (implausible years; verify manually)").strip(),
+            })
+            continue
+        out.append(r)
+    return out
 
 
 def _get_data_replacements(oai, text_elements: list[dict], data_summary: dict,
@@ -2035,6 +2296,70 @@ def _format_data_summary_value(val: Any, max_chars: int = 2000) -> str:
     return s if len(s) <= max_chars else s[: max_chars - 3] + "..."
 
 
+def _slide_title_for_notes(
+    text_elements: list[dict],
+    analysis: dict | None,
+    *,
+    slide_title: str | None = None,
+) -> str:
+    """Best-effort slide title: explicit param, then cached analysis, then first shape line."""
+    if slide_title and str(slide_title).strip():
+        return str(slide_title).strip()
+    if analysis:
+        t = (analysis.get("title") or "").strip()
+        if t:
+            return t
+    for el in text_elements:
+        if el.get("type") == "shape":
+            raw = (el.get("text") or "").strip()
+            if not raw:
+                continue
+            first = raw.split("\n")[0].strip()
+            if 2 <= len(first) <= 200:
+                return first
+    return ""
+
+
+def _hydrate_line_is_qbr_banner_noise(s: str) -> bool:
+    """True for post-hint banner lines that are not data fields (avoid duplicate 'MODIFIED' rows)."""
+    t = (s or "").strip()
+    if not t:
+        return True
+    if t.startswith("MODIFIED —"):
+        return True
+    low = t.lower()
+    if "orange coaching" in low and "modified" in t:
+        return True
+    if "template cues processed" in low:
+        return True
+    return False
+
+
+def _hydrate_data_field_line(r: dict) -> str:
+    """One line: [slide text] -> [field description] -> [replacement value]."""
+    orig = str(r.get("original") or "").replace("\n", " ").strip()[:200]
+    fld = str(r.get("field") or "?")[:100]
+    nv = str(r.get("new_value") or "").replace("\n", " ").strip()[:200]
+    if _hydrate_speaker_note_row_is_generic_unmapped(r):
+        return f"[{orig}] -> [generic placeholder — no pipeline mapping] -> [{nv}]"
+    if _replacement_is_visual(r):
+        vk = (
+            "embedded chart — not auto-updated"
+            if r.get("field") == "chart" or _EMBEDDED_CHART_TEXT in str(r.get("original", ""))
+            else "embedded image — not auto-updated"
+        )
+        return f"[{orig}] -> [{vk}] -> [{nv}]"
+    if r.get("mapped", True):
+        src = _data_source_label_for_field(fld)
+        desc = f"`{fld}` ({src})"
+        syn = (r.get("synonym_phrase") or "").strip()
+        if syn:
+            spath = (r.get("synonym_path") or fld).strip()
+            desc = f"`{fld}` (synonym: \"{syn}\" → `{spath}`) ({src})"
+        return f"[{orig}] -> [{desc}] -> [{nv}]"
+    return f"[{orig}] -> [`{fld}` unmapped] -> [{nv}]"
+
+
 def _build_hydrate_speaker_notes(
     replacements: list[dict],
     text_elements: list[dict],
@@ -2045,9 +2370,10 @@ def _build_hydrate_speaker_notes(
     has_static_images: bool = False,
     analysis: dict | None = None,
     oai=None,
+    slide_title: str | None = None,
+    slide_yaml_hint: str | None = None,
 ) -> str:
-    """Speaker-notes for presenter QA and rebuild spec: objective, required data, governance."""
-    import re as _re
+    """Hydration speaker notes: timestamp + title, data context, Data Fields (arrow lines), visuals, checklist."""
     from datetime import datetime as _dt
     _ts = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
     ds: dict[str, Any] = {}
@@ -2055,113 +2381,64 @@ def _build_hydrate_speaker_notes(
         ds = data_summary
     elif report:
         ds = _build_data_summary(report)
-    lines: list[str] = [
-        _ts,
-        "",
-        "══ QA this slide — data governance ══",
-        "",
-        "Legend: LIVE = traceable. UNMAPPED = manual check. STATIC = chart/image.",
-        "",
-    ]
-    if not replacements:
-        lines.append(
-            "Hydration: **No automated data replacements** on this slide — narrative/template, "
-            "or no metrics matched the pipeline. (Template speaker notes are replaced by this block.)"
-        )
-        lines.append("")
+    title_guess = _slide_title_for_notes(text_elements, analysis, slide_title=slide_title)
+    head = f"{_ts} — {title_guess}" if title_guess else _ts
+    lines: list[str] = [head]
 
-    # Rebuild spec: objective and required data (when analysis available)
     if analysis:
         purpose = (analysis.get("purpose") or "").strip()
+        slide_type = (analysis.get("slide_type") or "").strip()
         if purpose:
             lines.append(f"Objective: {purpose}")
-        title = (analysis.get("title") or "").strip()
-        slide_type = (analysis.get("slide_type") or "").strip()
-        if title or slide_type:
-            lines.append(f"Slide: {slide_type or 'custom'}" + (f" — {title}" if title else ""))
+        if slide_type and not (title_guess and slide_type == "custom"):
+            lines.append(f"Type: {slide_type}")
         data_ask = analysis.get("data_ask") or []
         if data_ask:
             keys = [str(item.get("key") or item.get("field") or "?") for item in data_ask]
-            lines.append("Required data: " + ", ".join(keys))
-        lines.append("")
+            lines.append("Required data keys: " + ", ".join(keys))
 
-    # Data context (where/when this data is from)
     if report:
         customer = (report.get("customer") or report.get("customer_name") or "").strip()
         as_of = (report.get("generated") or report.get("report_date") or "").strip()
         quarter = (report.get("quarter") or "").strip()
-        ctx_parts = [p for p in [f"Customer: {customer}" if customer else None, f"As-of: {as_of}" if as_of else None, f"Quarter: {quarter}" if quarter else None] if p]
+        ctx_parts = [
+            p
+            for p in [
+                f"Customer: {customer}" if customer else None,
+                f"As-of: {as_of}" if as_of else None,
+                f"Quarter: {quarter}" if quarter else None,
+            ]
+            if p
+        ]
         if ctx_parts:
             lines.append("Data context: " + " | ".join(ctx_parts))
-            lines.append("")
 
-    n_ops = len(replacements)
-    lines.append("1 data operation:" if n_ops == 1 else f"{n_ops} data operations:")
-    for i, r in enumerate(replacements, 1):
-        fld = str(r.get("field") or "?")[:80]
-        orig = str(r.get("original") or "").replace("\n", " ").strip()[:120]
-        nv = str(r.get("new_value") or "").replace("\n", " ").strip()[:120]
-        mapped = r.get("mapped", True)
+    if slide_yaml_hint and str(slide_yaml_hint).strip():
+        lines.append("Slide YAML: " + str(slide_yaml_hint).strip()[:2000])
+    else:
+        lines.append(
+            "YAML: Document each slide's field semantics in the deck YAML under `slides:` "
+            "(match template yellow/orange cues). Use a comment such as "
+            "`# HYDRATE_UNKNOWN: …` when a slot cannot be mapped reliably; otherwise note the "
+            "intended pipeline field so hydration stays deterministic."
+        )
 
-        if _hydrate_speaker_note_row_is_generic_unmapped(r):
-            lines.append(f"   {i}. [generic] unmapped")
-            continue
+    lines.append("Data Fields:")
+    if replacements:
+        for r in replacements:
+            lines.append(_hydrate_data_field_line(r))
+    else:
+        lines.append("(none — narrative slide or no metrics matched the pipeline)")
 
-        if _replacement_is_visual(r):
-            lines.append(f"   {i}. [{fld}] — static visual (not auto-updated)")
-            continue
-
-        if mapped:
-            source = _data_source_label_for_field(fld)
-            lines.append(f"   {i}. [{fld}] is now [{nv}], (source: {source})")
-            syn = (r.get("synonym_phrase") or "").strip()
-            if syn:
-                spath = (r.get("synonym_path") or fld).strip()
-                lines.append(f"      synonym: \"{syn}\" → `{spath}`")
-            continue
-
-        lines.append(f"   {i}. [{fld}] unmapped — was: {orig}; now: {nv}")
-
-    unmapped_generic = [
-        r for r in replacements
-        if not r.get("mapped")
-        and (str(r.get("new_value") or "").strip() in _PLACEHOLDER_MARKERS)
-        and r.get("field") not in ("chart", "image")
-        and not _hydrate_speaker_note_row_is_generic_unmapped(r)
-    ]
-    if unmapped_generic:
-        lines.append("")
-        lines.append("Unmapped placeholders — what they represent (on-slide tokens stay short/red):")
-        if oai:
-            note_entries = [
-                {
-                    "field": str(r.get("field") or ""),
-                    "original": str(r.get("original") or "")[:400],
-                    "placeholder": str(r.get("new_value") or ""),
-                }
-                for r in unmapped_generic
-            ]
-            for j, line in enumerate(_unmapped_placeholder_descriptions_for_notes(oai, note_entries), 1):
-                lines.append(f"   {j}. {line}")
-        else:
-            for j, r in enumerate(unmapped_generic, 1):
-                fld = str(r.get("field") or "?")[:80]
-                orig = str(r.get("original") or "").replace("\n", " ").strip()[:120]
-                ph = str(r.get("new_value") or "")
-                lines.append(f"   {j}. `{fld}` — slide shows {ph}; original text was: {orig}")
-
-    # Explicit list of charts & graphs — all must be replaced or verified; include inferred features when available
     chart_and_image = [
-        r for r in replacements
+        r
+        for r in replacements
         if r.get("field") in ("chart", "image")
         or r.get("original") in _EMBEDDED_IMAGE_TEXTS + (_EMBEDDED_CHART_TEXT,)
     ]
     chart_specs = (analysis or {}).get("charts") or []
     if chart_and_image or chart_specs:
-        lines.append("")
-        lines.append(
-            "Visuals — charts & data images (LLM interpretation; pipeline data when available):"
-        )
+        lines.append("Visuals:")
         n_vis = len(chart_and_image)
         n_spec = len(chart_specs)
         n_charts = max(n_vis, n_spec)
@@ -2175,7 +2452,7 @@ def _build_hydrate_speaker_notes(
                     else "Image (may contain data)"
                 )
             elif spec:
-                kind = "Visual (from analysis — no separate replacement row)"
+                kind = "Visual (analysis only — no replacement row)"
             else:
                 kind = "Visual"
             if spec:
@@ -2199,64 +2476,40 @@ def _build_hydrate_speaker_notes(
                     parts_spec.append(f"Transforms: {trans[:120]}")
                 if config:
                     parts_spec.append(f"Config: {config}")
-                lines.append(f"   {i + 1}. {kind} — " + " | ".join(parts_spec))
+                lines.append(f"  • {kind} — " + " | ".join(parts_spec))
                 interp = (spec.get("interpretation") or "").strip()
                 if interp:
                     ip = interp if len(interp) <= 1200 else interp[:1197] + "..."
-                    lines.append(f"      What it shows: {ip}")
+                    lines.append(f"    What it shows: {ip}")
                 rec_keys = _filter_chart_recommended_keys(spec.get("data_recommended_keys"))
                 cov = (spec.get("data_coverage_note") or "").strip()
                 cov_short = cov[:400] + ("..." if len(cov) > 400 else "")
                 if rec_keys:
                     lines.append(
-                        "      Pipeline fields that may supply this visual (best guess): "
-                        + ", ".join(rec_keys)
+                        "    Pipeline fields (guess): " + ", ".join(rec_keys)
                     )
                 elif cov_short:
-                    lines.append(
-                        "      Pipeline fields: (none matched — see coverage note below)"
-                    )
+                    lines.append("    Pipeline fields: (none matched — see coverage)")
                 if cov_short:
-                    lines.append(f"      Coverage / gaps: {cov_short}")
+                    lines.append(f"    Coverage / gaps: {cov_short}")
                 if ds and rec_keys:
-                    lines.append("      Data we have for this run (copy from pipeline — verify against the slide):")
+                    lines.append("    Data snapshot for this run:")
                     for pk in rec_keys:
                         src_lbl = _data_source_label_for_field(pk)
                         if pk in ds:
                             snap = _format_data_summary_value(ds.get(pk))
-                            lines.append(f"         • {pk} [{src_lbl}]: {snap}")
+                            lines.append(f"      • {pk} [{src_lbl}]: {snap}")
                         else:
-                            lines.append(
-                                f"         • {pk} [{src_lbl}]: (not in this report snapshot)"
-                            )
+                            lines.append(f"      • {pk} [{src_lbl}]: (not in this report snapshot)")
                 elif not rec_keys and (interp or cov_short):
                     lines.append(
-                        "      Auto-fetch: not mapped to pipeline keys — source this data manually or extend integrations."
+                        "    Not auto-fetchable — source manually or extend integrations."
                     )
             else:
-                lines.append(f"   {i + 1}. {kind} — cannot be auto-updated (no visual analysis)")
-        lines.append("")
-    lines.append("B. On-slide lines (numbers, $, %, or [placeholders])")
-    seen: set[str] = set()
-    n = 0
-    for el in text_elements:
-        raw = el.get("text") or ""
-        typ = el.get("type", "?")
-        for part in raw.split("\n"):
-            s = part.strip()
-            if len(s) < 2 or s in seen:
-                continue
-            if not _re.search(r"[\d\[\]$%€£]", s):
-                continue
-            seen.add(s)
-            n += 1
-            lines.append(f"   {n}. [{typ}] {s[:240]}")
-    if n == 0:
-        lines.append("   (none matched)")
-    lines.append("")
-    # Narrative / no pipeline ops: show actual slide copy so notes aren't left as template fluff
+                lines.append(f"  • {kind} — cannot be auto-updated (no visual analysis)")
+
     if not replacements:
-        lines.append("C. Slide copy (no auto-replacements — verify narrative vs your source of truth)")
+        lines.append("Slide copy (reference):")
         seen_txt: set[str] = set()
         c = 0
         for el in text_elements:
@@ -2264,18 +2517,21 @@ def _build_hydrate_speaker_notes(
                 s = part.strip()
                 if len(s) < 2 or s in seen_txt:
                     continue
+                if _hydrate_line_is_qbr_banner_noise(s):
+                    continue
                 seen_txt.add(s)
                 c += 1
                 if c > 45:
                     break
-                lines.append(f"   {c}. {s[:320]}")
+                lines.append(f"  • {s[:320]}")
         if c == 0:
-            lines.append("   (no extractable text)")
-        lines.append("")
-    lines.append("QA checklist: ✓ Numbers match the source above? ✓ Placeholders replaced or accepted? ✓ Static images/charts current or replaced?")
+            lines.append("  (no extractable text)")
+
+    lines.append(
+        "QA: ✓ Values match source? ✓ Placeholders OK? ✓ Static visuals current?"
+    )
     if has_unmapped or has_static_images:
-        lines.append("")
-        lines.append("⚠ Slide marked INCOMPLETE — contains placeholders or static images. Confirm before presenting.")
+        lines.append("⚠ INCOMPLETE — placeholders or static images remain. Confirm before presenting.")
     body = "\n".join(lines)
     if len(body) > 12000:
         body = body[:11900] + "\n\n… (truncated)"
@@ -2795,6 +3051,8 @@ def adapt_custom_slides(
     (no text placeholders to flag), when cached analysis classifies the slide as title/cover/divider,
     or when the only unmapped text is long prose/headings (no metric-like characters).
     """
+    global _ADAPT_OVERSIZE_WARN_EMITTED
+    _ADAPT_OVERSIZE_WARN_EMITTED = False
     run_start = run_started_at or datetime.datetime.now(datetime.timezone.utc)
     data_summary = _build_data_summary(report)
     stats = {
@@ -2877,6 +3135,10 @@ def adapt_custom_slides(
                 replacements = apply_synonym_resolution_to_replacements(
                     replacements, text_elements, data_summary
                 )
+                replacements = _sanitize_adapt_replacements_plausible_years(replacements)
+                replacements = _sanitize_adapt_replacements_percent_semantics(
+                    replacements, text_elements
+                )
                 replacements = _ensure_charts_and_images_marked(text_elements, replacements)
                 return page_id, text_elements, replacements, "analysis_hit", analysis
             if adapt_cache_key is not None:
@@ -2889,6 +3151,10 @@ def adapt_custom_slides(
                 replacements = apply_synonym_resolution_to_replacements(
                     replacements, text_elements, data_summary
                 )
+                replacements = _sanitize_adapt_replacements_plausible_years(replacements)
+                replacements = _sanitize_adapt_replacements_percent_semantics(
+                    replacements, text_elements
+                )
                 replacements = _ensure_charts_and_images_marked(text_elements, replacements)
                 return page_id, text_elements, replacements, "adapt_hit", analysis
         n_total = len(text_elements)
@@ -2900,6 +3166,8 @@ def adapt_custom_slides(
         replacements = apply_synonym_resolution_to_replacements(
             replacements, text_elements, data_summary
         )
+        replacements = _sanitize_adapt_replacements_plausible_years(replacements)
+        replacements = _sanitize_adapt_replacements_percent_semantics(replacements, text_elements)
         replacements = _ensure_charts_and_images_marked(text_elements, replacements)
         if adapt_cache_key and replacements:
             _set_cached_adapt(adapt_cache_key, replacements)
@@ -2942,7 +3210,13 @@ def adapt_custom_slides(
                 (
                     page_id,
                     _build_hydrate_speaker_notes(
-                        [], text_elements, report=report, data_summary=data_summary, oai=oai
+                        [],
+                        text_elements,
+                        report=report,
+                        data_summary=data_summary,
+                        analysis=analysis,
+                        slide_title=(analysis or {}).get("title"),
+                        oai=oai,
                     ),
                 )
             )
@@ -3009,6 +3283,7 @@ def adapt_custom_slides(
                     has_unmapped=has_unmapped,
                     has_static_images=has_static_images,
                     analysis=analysis,
+                    slide_title=(analysis or {}).get("title"),
                     oai=oai,
                 ),
             )
@@ -3143,25 +3418,25 @@ _DATA_SLIDE_TYPES = {
     "benchmarks", "exports", "depth", "kei", "guides", "jira", "signals",
     "platform_health", "supply_chain", "platform_value", "sla_health",
     "cross_validation", "engineering", "enhancements", "team",
-    "bespoke_cover", "bespoke_deployment",
+    "qbr_cover", "qbr_deployment",
 }
 
 _STRUCTURAL_SLIDE_TYPES = {
-    "bespoke_agenda", "bespoke_divider", "data_quality",
+    "qbr_agenda", "qbr_divider", "data_quality",
 }
 
 # Hydrate Phase 3: never run in-place LLM text replacement on these (editorial / title slides).
 _HYDRATE_SKIP_TEXT_ADAPT_TYPES = frozenset({
     "title",
-    "bespoke_cover",
-    "bespoke_divider",
+    "qbr_cover",
+    "qbr_divider",
 })
 
 _BUILDER_DESCRIPTIONS = {
-    "bespoke_cover": "Branded cover slide — customer name, date, 'Executive business review'",
-    "bespoke_agenda": "Numbered agenda listing sections of the deck",
-    "bespoke_divider": "Section divider with LeanDNA tagline and a section title",
-    "bespoke_deployment": "Deployment overview — site count, health status, last active dates",
+    "qbr_cover": "Branded QBR cover — customer name, date, 'Executive business review'",
+    "qbr_agenda": "Numbered agenda listing sections of the deck",
+    "qbr_divider": "Section divider with LeanDNA tagline and a section title",
+    "qbr_deployment": "Deployment overview — site count, health status, last active dates",
     "title": "Title slide with customer name, date range, CSM, site/user counts",
     "health": "Account health snapshot — engagement tiers, health score, benchmarks",
     "engagement": "Engagement breakdown — active/dormant counts by tier and role",
@@ -3215,10 +3490,10 @@ def _classify_slide(client, text: str, elements: dict, thumb_b64: str | None,
         "IMPORTANT classification rules:\n"
         "- Only use a data slide type if the source slide's PURPOSE clearly matches. "
         "A slide about budget, pricing, timelines, or roadmaps is ALWAYS 'custom'.\n"
-        "- Use 'title' (opening deck title) or 'bespoke_divider' (section / chapter title) "
+        "- Use 'title' (opening deck title) or 'qbr_divider' (section / chapter title) "
         "for slides that are **primarily a title or cover** — large heading, minimal body, "
         "no customer metrics to refresh. Hydration will **not** swap numbers on those slides.\n"
-        "- 'bespoke_deployment' is ONLY for slides showing a table of site names, "
+        "- 'qbr_deployment' is ONLY for slides showing a table of site names, "
         "user counts, and health status. Deployment scenarios, pricing tables, "
         "project plans, and scope descriptions are 'custom'.\n"
         "- When in doubt, choose 'custom' — it's safer to reproduce text than to "
@@ -3598,7 +3873,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
                         f"(HYDRATE_MAX_SLIDES={HYDRATE_MAX_SLIDES}).\n"
                     )
 
-        # Attach slide plan to report so builders like bespoke_agenda can use it
+        # Attach slide plan to report so builders like qbr_agenda can use it
         report["_slide_plan"] = [
             {"id": sp["slide_type"], "slide_type": sp["slide_type"], "title": sp["title"]}
             for sp in slide_plan if sp["slide_type"] != "skip"
@@ -3741,7 +4016,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
         else:
             _print(
                 "\n  Phase 3 (adapt): skipped — no slides marked for in-place data swap "
-                "(only title / bespoke_cover / bespoke_divider slides, or slide/plan length mismatch)."
+                "(only title / qbr_cover / qbr_divider slides, or slide/plan length mismatch)."
             )
             logger.info("hydrate: Phase 3 skipped — adapt_page_ids empty")
 

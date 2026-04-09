@@ -231,10 +231,45 @@ def apply_synonym_resolution_to_replacements(
             out.append(r)
             continue
         matched_phrase, path, _display_field, raw_val = hit
+        # Lazy import: evaluate imports this module at load time.
+        from .evaluate import (
+            _adapt_original_reads_as_percent_on_slide,
+            _adapt_text_has_percentage_semantics,
+        )
+
+        def _float_scalar(val: Any) -> float | None:
+            if isinstance(val, (int, float)):
+                return float(val)
+            if isinstance(val, str):
+                try:
+                    return float(val.replace(",", "").replace("$", "").strip())
+                except ValueError:
+                    return None
+            return None
+
+        fv = _float_scalar(raw_val)
+        if fv is not None and abs(fv) > 150:
+            if _adapt_text_has_percentage_semantics(orig) or _adapt_original_reads_as_percent_on_slide(
+                orig, text_elements
+            ):
+                out.append(r)
+                continue
+
         raw_s = _format_scalar_for_slide(raw_val, path=path)
         m = _re.match(r"^[\d.,\s$€£%]+", orig)
         suffix = (orig[m.end():].strip() if m else "").strip()
-        new_value = f"{raw_s} {suffix}".strip() if suffix else raw_s
+        pct_in_prefix = bool(m and "%" in m.group())
+        percent_slot = (
+            pct_in_prefix
+            or _adapt_text_has_percentage_semantics(orig)
+            or _adapt_original_reads_as_percent_on_slide(orig, text_elements)
+        )
+        if percent_slot:
+            if suffix.startswith("%"):
+                suffix = suffix[1:].strip()
+            new_value = f"{raw_s}% {suffix}".strip() if suffix else f"{raw_s}%"
+        else:
+            new_value = f"{raw_s} {suffix}".strip() if suffix else raw_s
         r["mapped"] = True
         r["field"] = path
         r["new_value"] = new_value
