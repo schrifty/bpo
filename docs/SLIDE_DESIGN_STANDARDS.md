@@ -3,7 +3,7 @@ Version 1.0 (Internal Use)
 
 ## Purpose
 
-This document defines how LeanDNA presentations should be structured, styled, and visualized. It is intended for automated slide generation systems (such as Cursor agents) and for humans building decks.
+This document defines how LeanDNA presentations should be structured, styled, and visualized **when those slides are built by this application** (programmatic layout via `slides_client.py` and related builders). It is intended for automated slide generation systems (such as Cursor agents) and for humans authoring deck YAML that drives those builders.
 
 The goal is to produce slides that are:
 
@@ -11,6 +11,12 @@ The goal is to produce slides that are:
 - visually consistent across decks  
 - analytical rather than narrative  
 - optimized for executive and customer decision-making  
+
+## Scope (what this document applies to)
+
+**In scope:** Slides **created or materially laid out by this codebase**—for example, slides assembled through `slides_client.py` helpers (titles, KPI tiles, charts, body layout), deck/slide YAML that drives those builders, and any Python that positions or styles content the app owns.
+
+**Out of scope:** Slides (or slide content) that **come from an external Google Slides template, an existing deck, or copy/paste / duplicate operations**—including QBR or other flows that **copy** template slides and only **hydrate or adapt text**. Do not use this document to redesign, re-layout, or “fix” those slides unless the user explicitly asks to change **app-owned** building behavior. Template-origin slides keep their source layout and styling; this guide does not govern them.
 
 LeanDNA presentations typically combine three elements:
 

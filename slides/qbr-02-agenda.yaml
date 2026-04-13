@@ -1,9 +1,69 @@
 # =============================================================================
-# QBR — Agenda slide (builder + Google Slides template hydrate)
+# QBR template slide definitions — shared guide (same intro on every QBR slides/*.yaml)
 # =============================================================================
-# Deck authors: edit the main fields below. The "hydrate" block only affects runs
-# that copy a Google Slides template (QBR from template). Programmatic decks built
-# in-app use "prompt" and the deck YAML only.
+#
+# What this is
+# ------------
+# Each file here describes one slide in the QBR Google Slides template: how the
+# app should find that slide after the deck is copied, fill placeholders, and
+# keep text fitting the layout. Your day-to-day edits are usually under `hydrate`
+# below.
+#
+# Who edits it
+# ------------
+# Customer Success and anyone tuning QBR content. You can fix wording, layout
+# guidance, and template behavior here without opening the codebase. If you are
+# unsure about a change (especially renaming ids or adding new slide types), ask
+# engineering first.
+#
+# Adding or removing slides from the QBR deck
+# -------------------------------------------
+# The deck’s order and which slides appear are controlled in decks/qbr.yaml,
+# not in this file. Open that file and add or remove lines under `slides:`.
+# Each entry points at a slide `id` that must match a file in slides/ (for
+# example `slide: qbr_agenda` matches this file’s id). To add a brand-new slide
+# type you need both: a new slides/*.yaml definition and a line in decks/qbr.yaml.
+# Section titles on divider slides can be set right in decks/qbr.yaml next to
+# each `qbr_divider` entry.
+#
+# How the template deck is filled
+# --------------------------------
+# QBR starts from your team’s Slides template. After copy, the app finds each
+# slide, merges live data and section names where needed, and runs text cleanup
+# (“adapt”) so placeholders become customer-ready copy. The `hydrate` section
+# below controls how that works for this slide—detection, merge rules, and any
+# extra wording or length guidance you add.
+#
+# Optional: Google Drive
+# ----------------------
+# Your org may keep copies of these YAML files in Drive so edits sync without a
+# git checkout. If something you changed in Drive doesn’t show up, fall back to
+# the copy in the repo or ask engineering—rules vary by setup.
+#
+# =============================================================================
+# This file — Agenda slide (qbr_agenda)
+# =============================================================================
+#
+# What this slide does
+# --------------------
+# The agenda lists the sections of this QBR in order (from the deck plan). The
+# app finds the slide that looks like the agenda (e.g. “Agenda” plus “Title #1”
+# placeholders) and fills in real section names from the plan.
+#
+# What to change when…
+# --------------------
+# • Text overlaps or doesn’t fit — edit `hydrate.template.adapt_instructions`
+#   (plain-language rules for how to shorten or split lines). Keep the character
+#   limit under `section_titles.max_chars_per_section_title` in mind; the system
+#   enforces that limit when inserting names.
+# • The wrong slide is treated as the agenda — adjust `hydrate.template.slide_detection`
+#   so it matches your template’s wording (e.g. add a phrase the slide contains).
+# • You want cheaper/faster runs — under `visual_refinement`, turn `enabled` off
+#   to skip extra review passes (layout issues may slip through).
+# • The `prompt` field below is secondary; most fixes belong in `hydrate`.
+#
+# Don’t change the `id` field unless engineering renames it everywhere.
+#
 # =============================================================================
 
 id: qbr_agenda
@@ -19,43 +79,36 @@ prompt: |
   Dark navy background with accent panel. Numbers in mint, items in white.
 
 # -----------------------------------------------------------------------------
-# Template hydrate (Google Slides copy)
-# -----------------------------------------------------------------------------
-# When you copy a marketing/template deck, the pipeline fills placeholders using
-# live data. This block tells it how to treat THIS slide — not global adapt rules.
-#
-# Keys under hydrate.template:
-#   section_titles — map "Title #1" style labels to real section names from decks/qbr.yaml
-#   slide_detection — when to treat a physical slide as THIS agenda slide (OR logic)
-#   visual_refinement — after main hydrate, optionally re-run adapt with a vision model
-#     (thumbnail) until the slide looks acceptable or max_refinements is reached
+# Hydrate — how this slide is found and filled in the copied template
 # -----------------------------------------------------------------------------
 hydrate:
   template:
-    # --- Post-hydrate: vision QA + optional re-adapt (QBR template path only) ---
+    # Rules for the “adapt” step on this slide only (wording, length, layout).
+    adapt_instructions: |
+      QBR AGENDA SLIDE (this slide only). The template layout is tight—avoid overlapping or wrapped title rows.
+
+      • Each section title line: keep to the character budget implied by max_chars_per_section_title below
+        (long titles are shortened automatically to match; don’t rely on tiny fonts instead).
+      • Each description line under a section title: at most 60 characters; truncate with … if needed.
+      • Do not shrink font size to fit extra text.
+      • Prefer a single line per title where the template allows; avoid manual line breaks in title boxes.
+
+    # Optional extra pass that checks a thumbnail and may re-run adapt (uses more API time when on).
     visual_refinement:
-      # Set false to skip extra API calls (faster, cheaper; may leave layout issues).
       enabled: true
-      # After the first adapt, at most this many extra full adapt passes for the agenda slide.
       max_refinements: 2
 
-    # --- Section title slots (replace "Title #1", "Title #2", …) ----------------
+    # Merge deck section names into placeholder lines like “Title #1”, “Title #2”, …
     section_titles:
-      # Pull names from the resolved QBR deck: prefer qbr_divider rows, else other slides.
       from_deck_plan: true
-      # "title_number_hash" = match template strings like Title #1 (see title_slot_regex).
+      max_chars_per_section_title: 15
       slot_labels: title_number_hash
-      # Python regex; must have one group for the 1-based index. Edit if your template
-      # uses different wording (keep one capture group for the number).
+      # Match how your template labels slots; default is “Title #1”, “Title #2”, …
       title_slot_regex: "\\bTitle\\s*#\\s*(\\d+)\\b"
 
-    # --- Which slides count as "the agenda" for title replacement ---------------
+    # How we know which slide in the copied deck is the agenda (any match wins).
     slide_detection:
-      # Match if the slide body contains this word (case-insensitive). Add more strings
-      # if your template says "Meeting agenda" instead of "Agenda", etc.
       body_contains_word:
         - Agenda
-      # Match if this regex hits anywhere on the slide (Python re, case-insensitive).
-      # Default catches "Title #1", "title # 2", etc. even without the word "Agenda".
       body_matches_regex: "Title\\s*#\\s*\\d+"
-      # To fall back to older built-in detection only, set slide_detection: null (not recommended).
+      # To use only the app’s older built-in guess, set slide_detection: null (not recommended).

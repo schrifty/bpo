@@ -2,12 +2,14 @@
 
 Convention (authoring guide):
   • Yellow(-ish) text or **highlight** (foreground or background on a run) → fields to refresh.
-  • Orange **filled** shapes/cells, or orange **foreground** coaching lines → remove after hints are logged.
+  • Orange **filled** shapes/cells, or orange **foreground** coaching lines → captured then removed from the deck.
 
-After logging + LLM analysis, orange coaching shapes are removed from the deck (entire box), orange table
-cells are cleared, fill-in (yellow-styled) text is replaced with ``[???]``, and a red banner summarizes what
-actually changed on that slide. Surface cleanup runs for **every** slide slated for adaptation, not only
-slides where extraction found strings (so we never skip removals when the LLM batch is empty).
+**Order:** extracted segments + LLM advice are **persisted** to ``slides/qbr-template-authoring-cues.yaml``
+(no ``id`` key — not loaded as a slide definition). **Then** orange coaching shapes are removed (entire box),
+orange table cells are cleared, and fill-in (yellow-styled) text is replaced with ``[???]``. We **do not**
+add a red “MODIFIED …” banner on the slide (that was internal-only; it broke vision QA and is redundant once
+cues live in the YAML file). Surface cleanup runs for **every** slide slated for adaptation, not only slides
+where extraction found strings.
 
 Yellow→``[???]`` inserts clear text highlight immediately (Slides otherwise keeps highlight on the new run).
 After ``adapt_custom_slides``, ``replaceAllText`` preserves character styles, so a second pass strips any
@@ -21,9 +23,12 @@ import json
 import re
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from googleapiclient.errors import HttpError
+import yaml
 
 from .config import LLM_MODEL_FAST, logger
 from .evaluate import _add_incomplete_banner, _extract_text
@@ -1113,15 +1118,13 @@ def apply_hint_mutations_to_presentation(
     pres_id: str,
     hint_rows: list[dict[str, Any]],
     slide_by_id: dict[str, dict],
-    *,
-    title_slide_object_id: str | None = None,
 ) -> int:
-    """Apply orange shape removal, orange cell text clears, yellow→[???], and optional banner.
+    """Apply orange shape removal, orange cell text clears, yellow→[???]. No red MODIFIED banner.
 
     Pass **every** adapt slide row (same order as ``build_hint_rows_for_adapt_slides``), not only
     rows that had extracted yellow/orange strings. Extraction can miss cues the API still exposes
     in structure we use for ``collect_hint_mutations_from_slide``; scanning all slides keeps
-    cleanup consistent.
+    cleanup consistent. Authoring cues are persisted to ``qbr-template-authoring-cues.yaml`` before this runs.
     """
     n_slides = 0
     total_reqs = 0
@@ -1146,9 +1149,8 @@ def apply_hint_mutations_to_presentation(
             logger.debug("QBR adapt hints — slide %s: no structural mutations (extraction had text but no API spans?)",
                          row.get("slide_num", "?"))
             continue
-        add_banner = title_slide_object_id is None or pid != title_slide_object_id
         batches, content_n = hint_mutations_to_batch_requests(
-            pid, muts, add_banner=add_banner, slide=slide
+            pid, muts, add_banner=False, slide=slide
         )
         if not batches:
             continue
@@ -1165,10 +1167,9 @@ def apply_hint_mutations_to_presentation(
             total_reqs += slide_reqs
             total_batch_calls += slide_batches
             logger.debug(
-                "QBR adapt hints — slide %s: applied %d text mutation(s)%s (%d batchUpdate call(s))",
+                "QBR adapt hints — slide %s: applied %d text mutation(s) (%d batchUpdate call(s))",
                 row.get("slide_num", "?"),
                 content_n,
-                " + red banner" if add_banner else " (no banner — title slide)",
                 slide_batches,
             )
         except HttpError as e:
@@ -1541,6 +1542,57 @@ def log_llm_hints_result(result: dict[str, Any]) -> None:
         )
 
 
+def _qbr_authoring_cues_yaml_path() -> Path:
+    """Repo ``slides/qbr-template-authoring-cues.yaml`` — not a slide file (no ``id``)."""
+    return Path(__file__).resolve().parent.parent / "slides" / "qbr-template-authoring-cues.yaml"
+
+
+def persist_qbr_template_authoring_cues(
+    rows: list[dict[str, Any]],
+    analysis: dict[str, Any],
+    *,
+    customer: str = "",
+    manifest_sha16: str | None = None,
+) -> str | None:
+    """Write extracted template cues and LLM analysis to disk **before** deck surface cleanup.
+
+    The file is under ``slides/`` but has no top-level ``id`` so :func:`slide_loader._load_all_slides`
+    ignores it. Failures are logged; QBR continues.
+    """
+    path = _qbr_authoring_cues_yaml_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        serializable_analysis = {
+            k: v
+            for k, v in analysis.items()
+            if k not in ("slides_surface_updated", "surface_mutation_error")
+        }
+        payload: dict[str, Any] = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "customer": customer or None,
+            "manifest_sha16": manifest_sha16,
+            "source": "QBR template copy — extracted before adapt/hydrate; internal template cues removed after this snapshot",
+            "slides": rows,
+            "llm_analysis": serializable_analysis,
+        }
+        header = (
+            "# Auto-generated by QBR template pipeline — do not hand-edit unless you know the flow.\n"
+            "# Yellow/orange authoring cues are persisted here, then removed from the copied deck before hydrate.\n\n"
+        )
+        body = yaml.safe_dump(
+            payload,
+            sort_keys=False,
+            allow_unicode=True,
+            default_flow_style=False,
+        )
+        path.write_text(header + body, encoding="utf-8")
+        logger.info("QBR adapt hints: persisted template authoring cues to %s", path)
+        return str(path)
+    except OSError as e:
+        logger.warning("QBR adapt hints: could not persist authoring cues YAML (%s): %s", path, e)
+        return None
+
+
 def build_hint_rows_for_adapt_slides(
     final_slides: list[dict],
     adapt_page_ids: list[str],
@@ -1576,9 +1628,9 @@ def run_qbr_adapt_hints_phase(
     adapt_page_ids: list[str],
     customer: str,
     *,
-    title_slide_object_id: str | None = None,
+    manifest_sha16: str | None = None,
 ) -> dict[str, Any]:
-    """Extract template hints, log them, LLM analysis, then strip orange / yellow→[???] / banner."""
+    """Extract template hints, log them, LLM analysis, persist cues to YAML, then strip orange / yellow→[???]."""
     rows = build_hint_rows_for_adapt_slides(final_slides, adapt_page_ids)
     log_extracted_hints(rows)
 
@@ -1598,10 +1650,14 @@ def run_qbr_adapt_hints_phase(
         }
     log_llm_hints_result(analysis)
 
+    cues_path = persist_qbr_template_authoring_cues(
+        rows, analysis, customer=customer, manifest_sha16=manifest_sha16
+    )
+    if cues_path:
+        analysis["authoring_cues_yaml"] = cues_path
+
     try:
-        n_mod = apply_hint_mutations_to_presentation(
-            slides_svc, pres_id, rows, slide_by_id, title_slide_object_id=title_slide_object_id
-        )
+        n_mod = apply_hint_mutations_to_presentation(slides_svc, pres_id, rows, slide_by_id)
         analysis["slides_surface_updated"] = n_mod
     except Exception as e:
         logger.warning("QBR adapt hints: surface mutation phase failed: %s", e)

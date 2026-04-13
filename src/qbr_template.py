@@ -753,7 +753,13 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
     qbr_agenda_visual: dict[str, Any] = {"enabled": False, "skipped": True}
     if adapt_ids:
         run_qbr_adapt_hints_phase(
-            oai, slides_svc, pres_id, final_slides, adapt_ids, customer, title_slide_object_id=title_oid
+            oai,
+            slides_svc,
+            pres_id,
+            final_slides,
+            adapt_ids,
+            customer,
+            manifest_sha16=mf_hash,
         )
         adapt_custom_slides(
             slides_svc,
@@ -779,6 +785,16 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
                 "QBR agenda visual refinement: %s",
                 qbr_agenda_visual,
             )
+        else:
+            logger.warning(
+                "QBR: no slide matched qbr_agenda hydrate (find_qbr_agenda_page_id returned None); "
+                "QBR agenda visual refinement was not run."
+            )
+            qbr_agenda_visual = {
+                "enabled": False,
+                "skipped": True,
+                "reason": "agenda_slide_not_found",
+            }
         try:
             apply_qbr_template_style_strip_after_adapt(slides_svc, pres_id, adapt_ids)
         except Exception as e:

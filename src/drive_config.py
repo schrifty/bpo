@@ -571,8 +571,16 @@ def _load_yaml_from_drive_uncached(
         try:
             text = _read_drive_file(df["id"])
             parsed = yaml.safe_load(text)
-            if not isinstance(parsed, dict) or "id" not in parsed:
-                raise ValueError(f"Missing 'id' field in {df['name']}")
+            if not isinstance(parsed, dict):
+                raise ValueError(f"Expected mapping in {df['name']}")
+            if "id" not in parsed:
+                # Non-slide YAML in slides/ (e.g. ``qbr-template-authoring-cues.yaml`` — no ``id`` by design).
+                logger.debug(
+                    "Drive %s/%s has no top-level id — skipping (not a deck/slide definition)",
+                    kind,
+                    df["name"],
+                )
+                continue
             parsed["_source"] = "drive"
             parsed["_file"] = df["name"]
             results.append(parsed)

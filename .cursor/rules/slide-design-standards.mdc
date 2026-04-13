@@ -1,5 +1,5 @@
 ---
-description: Read slide design standards before changing slides, decks, or slide builders
+description: Slide design standards apply only to slides built by this app—not template-copied decks
 globs:
   - src/slides_client.py
   - src/deck_loader.py
@@ -10,12 +10,16 @@ globs:
 alwaysApply: false
 ---
 
-# Slide design standards (mandatory)
+# Slide design standards (app-built slides only)
 
-Before **adding, removing, or materially changing** slide layout, typography, KPI/metric presentation, charts, speaker-note expectations, or deck/slide YAML definitions:
+These standards govern **slides this application constructs** (layout, typography, KPI/chart presentation driven from `slides_client.py`, deck/slide YAML, and slide builders).
+
+**Do not apply** `docs/SLIDE_DESIGN_STANDARDS.md` to slides that are **copied from a template or existing deck** (e.g. QBR template copy, Drive duplicate, hydrate/adapt-only text on template slides). For those paths, preserve source layout unless the user asks to change **programmatic** building code.
+
+When **adding, removing, or materially changing** app-owned slide layout, typography, KPI/metric presentation, charts, speaker-note expectations, or deck/slide YAML that feeds **builders** (not template copy wiring):
 
 1. **Read** `docs/SLIDE_DESIGN_STANDARDS.md` (use the Read tool if it is not already in context).
 2. **Match** existing patterns in `src/slides_client.py` (e.g. `_slide_title`, `_kpi_metric_card`, spacing constants, color tokens) unless the doc explicitly calls for something new.
-3. **Update** `docs/SLIDE_DESIGN_STANDARDS.md` when you introduce a **new** visual pattern or rule that future slides should follow (do not expand scope beyond what the user asked).
+3. **Update** `docs/SLIDE_DESIGN_STANDARDS.md` when you introduce a **new** visual pattern or rule that future **app-built** slides should follow (do not expand scope beyond what the user asked).
 
 If the user’s request conflicts with the doc, **follow the user** for that task and note the deviation briefly.

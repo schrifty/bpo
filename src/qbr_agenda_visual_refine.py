@@ -10,6 +10,9 @@ import json
 from typing import Any
 
 from .config import LLM_MODEL, logger
+
+# Log prefix for the agenda thumbnail → vision → optional re-adapt cycle (grep-friendly).
+_QBR_VCYCLE = "QBR agenda visual cycle"
 from .evaluate import (
     _add_incomplete_banner,
     _apply_adaptations,
@@ -77,19 +80,35 @@ def find_qbr_agenda_page_id(
             continue
         te = _extract_slide_text_elements(slide.get("pageElements", []))
         if _slide_matches_qbr_agenda_hydrate(te, ag):
+            logger.info(
+                "%s: matched qbr_agenda slide objectId=%s (will run view/review if enabled)",
+                _QBR_VCYCLE,
+                pid,
+            )
             return pid
     return None
 
 
-def _qbr_agenda_visual_quality_ok(oai, thumb_b64: str | None) -> tuple[bool, str]:
-    """Return (passes, issues text). If no thumbnail, pass to avoid blocking."""
+def _qbr_agenda_visual_quality_ok(
+    oai, thumb_b64: str | None, *, review_label: str = "review"
+) -> tuple[bool, str]:
+    """Return (passes, issues text). Missing thumbnail is a failure (do not fake a pass)."""
     if not thumb_b64:
-        return True, ""
+        logger.warning(
+            "%s: %s — no thumbnail; cannot run vision review",
+            _QBR_VCYCLE,
+            review_label,
+        )
+        return False, "Slide thumbnail unavailable; visual QA could not run."
     system = (
-        "You evaluate ONE slide image (QBR agenda / section list). "
-        "Decide if it is acceptable for a customer-facing deck: text should be readable, "
-        "not severely overlapping or stacked illegibly, and not a chaotic jumble of labels. "
-        "Some [???] placeholders are acceptable if data is missing. "
+        "You evaluate ONE slide image (QBR agenda / section list) for a customer-facing deck. "
+        "Be strict: set ok=false if any of these apply: text overlaps other text or shapes, "
+        "labels are stacked or crowded so they are hard to read, long strings overflow or "
+        "crowd small rows, numbers or titles are illegible at normal viewing distance, "
+        "or the layout looks chaotic. "
+        "A few [???] placeholders alone are acceptable when data is missing; ok=false if "
+        "[???] appears together with severe crowding or overlap. "
+        "When in doubt between acceptable and not, choose ok=false. "
         "Return ONLY JSON: {\"ok\": true or false, \"issues\": \"short English\"}"
     )
     try:
@@ -108,7 +127,13 @@ def _qbr_agenda_visual_quality_ok(oai, thumb_b64: str | None) -> tuple[bool, str
                             "type": "image_url",
                             "image_url": {"url": f"data:image/png;base64,{thumb_b64}", "detail": "high"},
                         },
-                        {"type": "text", "text": "Is this agenda slide visually acceptable?"},
+                        {
+                            "type": "text",
+                            "text": (
+                                "Would you ship this slide as-is to an executive audience? "
+                                "If there is overlap, unreadable density, or unclear labels, answer ok=false."
+                            ),
+                        },
                     ],
                 },
             ],
@@ -117,10 +142,17 @@ def _qbr_agenda_visual_quality_ok(oai, thumb_b64: str | None) -> tuple[bool, str
         data = json.loads(_strip_json_code_fence(raw or "{}"))
         ok = bool(data.get("ok"))
         issues = str(data.get("issues") or "").strip()[:1200]
+        logger.info(
+            "%s: %s — vision verdict ok=%s issues=%s",
+            _QBR_VCYCLE,
+            review_label,
+            ok,
+            (issues or "(none)")[:400],
+        )
         return ok, issues
     except Exception as e:
-        logger.warning("QBR agenda visual QA failed (%s) — treating as pass", e)
-        return True, ""
+        logger.warning("QBR agenda visual QA failed (%s) — not treating as pass", e)
+        return False, f"Vision QA error: {e}"
 
 
 def _apply_single_page_hydrate(
@@ -141,6 +173,13 @@ def _apply_single_page_hydrate(
     slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
     replace_reqs, has_unmapped, has_static_images = _apply_adaptations(
         slides_svc, pres_id, page_id, replacements
+    )
+    logger.info(
+        "%s: hydrate apply slide %s — %s replace batch request(s), unmapped=%s",
+        _QBR_VCYCLE,
+        slide_num,
+        len(replace_reqs),
+        has_unmapped,
     )
     if replace_reqs:
         try:
@@ -214,21 +253,46 @@ def run_qbr_agenda_visual_refinement_loop(
 
     pres = slides_svc.presentations().get(presentationId=pres_id).execute()
     ordered_ids = [s["objectId"] for s in pres.get("slides", [])]
+    slide_idx = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
     data_summary = _build_data_summary(report)
     max_r = cfg["max_refinements"]
 
-    def _thumb() -> str | None:
+    logger.info(
+        "%s: start presentation=%s page_id=%s slide_index=%s max_refinements=%s model=%s",
+        _QBR_VCYCLE,
+        pres_id,
+        page_id,
+        slide_idx,
+        max_r,
+        LLM_MODEL,
+    )
+
+    def _thumb(phase: str) -> str | None:
+        logger.info("%s: fetch thumbnail (%s) page_id=%s", _QBR_VCYCLE, phase, page_id)
         try:
             url = _get_slide_thumbnail_url(slides_svc, pres_id, page_id)
-            return _download_thumbnail_b64(url)
+            b64 = _download_thumbnail_b64(url)
+            if b64:
+                logger.info(
+                    "%s: thumbnail ok (%s) base64_len=%s",
+                    _QBR_VCYCLE,
+                    phase,
+                    len(b64),
+                )
+            else:
+                logger.warning("%s: thumbnail empty after download (%s)", _QBR_VCYCLE, phase)
+            return b64
         except Exception as e:
-            logger.warning("QBR agenda refine: thumbnail failed: %s", e)
+            logger.warning("%s: thumbnail failed (%s): %s", _QBR_VCYCLE, phase, e)
             return None
 
-    thumb_b64 = _thumb()
-    ok, issues = _qbr_agenda_visual_quality_ok(oai, thumb_b64)
+    thumb_b64 = _thumb("initial_review")
+    ok, issues = _qbr_agenda_visual_quality_ok(oai, thumb_b64, review_label="initial_review")
     if ok:
-        logger.info("QBR agenda visual QA: pass (no refinement needed)")
+        logger.info(
+            "%s: done — pass on first review (no refinement passes)",
+            _QBR_VCYCLE,
+        )
         return {
             "enabled": True,
             "skipped": False,
@@ -237,22 +301,43 @@ def run_qbr_agenda_visual_refinement_loop(
             "last_issues": "",
         }
 
-    logger.info("QBR agenda visual QA: issues — %s", (issues or "?")[:300])
+    logger.info(
+        "%s: initial review did not pass — entering refinement (up to %s pass(es)). Issues: %s",
+        _QBR_VCYCLE,
+        max_r,
+        (issues or "?")[:400],
+    )
 
     refinements_used = 0
     feedback = issues or "Overlapping or unreadable text; shorten values and reduce density."
 
     for _ in range(max_r):
         refinements_used += 1
+        logger.info(
+            "%s: refinement pass %s/%s starting",
+            _QBR_VCYCLE,
+            refinements_used,
+            max_r,
+        )
         pres = slides_svc.presentations().get(presentationId=pres_id).execute()
         slides_by_id = {s["objectId"]: s for s in pres.get("slides", [])}
         slide = slides_by_id.get(page_id)
         if not slide:
+            logger.warning(
+                "%s: pass %s — slide objectId missing from presentation; stopping refinement",
+                _QBR_VCYCLE,
+                refinements_used,
+            )
             break
         text_elements = _extract_slide_text_elements(slide.get("pageElements", []))
         if not text_elements:
+            logger.warning(
+                "%s: pass %s — no text elements on slide; stopping refinement",
+                _QBR_VCYCLE,
+                refinements_used,
+            )
             break
-        thumb_b64 = _thumb()
+        thumb_b64 = _thumb(f"refine_{refinements_used}_before_adapt")
         extra = _QBR_AGENDA_REFINEMENT_RULES.format(feedback=feedback)
         replacements = _get_data_replacements(
             oai,
@@ -270,8 +355,18 @@ def run_qbr_agenda_visual_refinement_loop(
         replacements = _ensure_charts_and_images_marked(text_elements, replacements)
         replacements = _merge_qbr_agenda_title_replacements(text_elements, replacements, report)
 
+        logger.info(
+            "%s: pass %s — adapt produced %s replacement rule(s) (0 means slide likely unchanged)",
+            _QBR_VCYCLE,
+            refinements_used,
+            len(replacements),
+        )
         if not replacements:
-            logger.warning("QBR agenda refine: no replacements on pass %s", refinements_used)
+            logger.warning(
+                "%s: pass %s — no replacements; skipping hydrate apply (slide text unchanged this pass)",
+                _QBR_VCYCLE,
+                refinements_used,
+            )
         else:
             _apply_single_page_hydrate(
                 slides_svc,
@@ -287,11 +382,16 @@ def run_qbr_agenda_visual_refinement_loop(
                 analysis=None,
             )
 
-        thumb_b64 = _thumb()
-        ok, issues = _qbr_agenda_visual_quality_ok(oai, thumb_b64)
+        thumb_b64 = _thumb(f"refine_{refinements_used}_after_apply")
+        ok, issues = _qbr_agenda_visual_quality_ok(
+            oai,
+            thumb_b64,
+            review_label=f"after_refinement_pass_{refinements_used}",
+        )
         if ok:
             logger.info(
-                "QBR agenda visual QA: pass after %s refinement pass(es)",
+                "%s: done — pass after %s refinement pass(es)",
+                _QBR_VCYCLE,
                 refinements_used,
             )
             return {
@@ -304,7 +404,8 @@ def run_qbr_agenda_visual_refinement_loop(
         feedback = issues or feedback
 
     logger.warning(
-        "QBR agenda visual QA: still not passing after %s refinement(s). Last issues: %s",
+        "%s: finished — still not passing after %s refinement(s). Last vision issues: %s",
+        _QBR_VCYCLE,
         refinements_used,
         (issues or "")[:400],
     )

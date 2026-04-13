@@ -143,7 +143,7 @@ WHITE = {"red": 1.0,  "green": 1.0,   "blue": 1.0}
 DARK = NAVY                                                # alias for readability
 GRAY = {"red": 0.522, "green": 0.522, "blue": 0.522}     # #858585  secondary text
 BLACK = {"red": 0.0, "green": 0.0, "blue": 0.0}         # metric labels on LIGHT KPI tiles
-# Universal KPI tile label size for ``_kpi_metric_card`` (keep in sync with SLIDE_DESIGN_STANDARDS.md).
+# Universal KPI tile label size for ``_kpi_metric_card`` (app-built slides; keep in sync with SLIDE_DESIGN_STANDARDS.md scope).
 KPI_METRIC_LABEL_PT = 10.0
 LIGHT = {"red": 0.933, "green": 0.941, "blue": 0.953}    # #eef0f3  light background
 FONT = "Source Sans Pro"

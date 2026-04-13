@@ -2301,11 +2301,24 @@ def _compiled_title_slot_pattern(section_titles: dict) -> re.Pattern:
     return _TITLE_HASH_PLACEHOLDER_RE
 
 
+def _truncate_agenda_line(s: str, max_chars: int) -> str:
+    """Trim to ``max_chars`` with a trailing ellipsis when shortened (agenda layout)."""
+    t = (s or "").strip()
+    if max_chars <= 0:
+        return ""
+    if len(t) <= max_chars:
+        return t
+    if max_chars == 1:
+        return t[0]
+    return t[: max_chars - 1] + "…"
+
+
 def _build_qbr_title_hash_replacements(
     text_elements: list[dict],
     items: list[str],
     *,
     pattern: re.Pattern | None = None,
+    max_title_chars: int | None = None,
 ) -> list[dict]:
     """One replaceAllText row per distinct title-slot substring on the slide."""
     rx = pattern or _TITLE_HASH_PLACEHOLDER_RE
@@ -2322,13 +2335,71 @@ def _build_qbr_title_hash_replacements(
                 continue
             seen.add(exact)
             label = items[n - 1]
+            if max_title_chars is not None:
+                try:
+                    mc = int(max_title_chars)
+                    if mc > 0:
+                        label = _truncate_agenda_line(label, mc)
+                except (TypeError, ValueError):
+                    label = label[:200]
+            else:
+                label = label[:200]
             rows.append({
                 "original": exact,
-                "new_value": label[:200],
+                "new_value": label,
                 "mapped": True,
                 "field": "qbr_agenda_section",
             })
     return rows
+
+
+def _qbr_agenda_adapt_extra_rules(report: dict, text_elements: list[dict]) -> str:
+    """Extra adapt system rules from ``slides/qbr-02-agenda.yaml``.
+
+    Prefer ``hydrate.template.adapt_instructions`` (freeform multiline). If absent or blank,
+    fall back to legacy prose built from ``section_titles.max_chars_per_*``.
+    """
+    ag = _qbr_agenda_hydrate_config(report)
+    if not isinstance(ag, dict):
+        return ""
+    if not _slide_matches_qbr_agenda_hydrate(text_elements, ag):
+        return ""
+    tmpl = ag.get("template")
+    if not isinstance(tmpl, dict):
+        tmpl = {}
+    raw = tmpl.get("adapt_instructions")
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    st = tmpl.get("section_titles") or {}
+    if not isinstance(st, dict):
+        return ""
+    mt = st.get("max_chars_per_section_title")
+    md = st.get("max_chars_per_description")
+    if mt is None and md is None:
+        return ""
+    lines = [
+        "QBR AGENDA SLIDE (this slide only) — strict character limits so rows fit the template layout.",
+    ]
+    if mt is not None:
+        try:
+            lines.append(
+                f"Each section title line must be at most {int(mt)} characters "
+                "(truncate with … if needed; do not shrink font size to cheat)."
+            )
+        except (TypeError, ValueError):
+            pass
+    if md is not None:
+        try:
+            lines.append(
+                f"Each description line under a section title must be at most {int(md)} characters "
+                "(truncate with … if needed; do not shrink font size to cheat)."
+            )
+        except (TypeError, ValueError):
+            pass
+    lines.append(
+        "Treat every distinct short line under a numbered agenda row as a “description” for this limit."
+    )
+    return "\n".join(lines)
 
 
 def _merge_qbr_agenda_title_replacements(
@@ -2366,7 +2437,13 @@ def _merge_qbr_agenda_title_replacements(
     if not items:
         return base_replacements
     pat = _compiled_title_slot_pattern(st)
-    title_rows = _build_qbr_title_hash_replacements(text_elements, items, pattern=pat)
+    max_title = st.get("max_chars_per_section_title")
+    title_rows = _build_qbr_title_hash_replacements(
+        text_elements,
+        items,
+        pattern=pat,
+        max_title_chars=max_title,
+    )
     if not title_rows:
         return base_replacements
     originals = {str(r["original"]).strip() for r in title_rows}
@@ -3335,6 +3412,7 @@ def adapt_custom_slides(
         if not text_elements:
             return page_id, [], [], "empty", None
         slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
+        extra_agenda = _qbr_agenda_adapt_extra_rules(report, text_elements)
         url = thumb_urls.get(page_id)
         thumb_b64 = None
         if url:
@@ -3362,7 +3440,7 @@ def adapt_custom_slides(
                 )
                 replacements = _ensure_charts_and_images_marked(text_elements, replacements)
                 return page_id, text_elements, replacements, "analysis_hit", analysis
-            if adapt_cache_key is not None:
+            if adapt_cache_key is not None and not (extra_agenda or "").strip():
                 cached = _get_cached_adapt(adapt_cache_key)
             else:
                 cached = None
@@ -3382,15 +3460,21 @@ def adapt_custom_slides(
         n_data = sum(1 for el in text_elements if _element_may_contain_data(el))
         logger.debug("hydrate: adapt slide %s — asking %s (%d/%d elements contain data)...",
                      slide_num, LLM_MODEL, n_data, n_total)
-        replacements = _get_data_replacements(oai, text_elements, data_summary, thumb_b64,
-                                              slide_label=str(slide_num))
+        replacements = _get_data_replacements(
+            oai,
+            text_elements,
+            data_summary,
+            thumb_b64,
+            slide_label=str(slide_num),
+            extra_system_rules=extra_agenda,
+        )
         replacements = apply_synonym_resolution_to_replacements(
             replacements, text_elements, data_summary
         )
         replacements = _sanitize_adapt_replacements_plausible_years(replacements)
         replacements = _sanitize_adapt_replacements_percent_semantics(replacements, text_elements)
         replacements = _ensure_charts_and_images_marked(text_elements, replacements)
-        if adapt_cache_key and replacements:
+        if adapt_cache_key and replacements and not (extra_agenda or "").strip():
             _set_cached_adapt(adapt_cache_key, replacements)
         if slide_cache_key and not analysis:
             analysis = _get_cached_slide_analysis(slide_cache_key)

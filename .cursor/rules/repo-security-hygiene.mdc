@@ -1,0 +1,12 @@
+---
+description: Do not commit secrets, keys, or environment file contents
+globs:
+  - "**/*"
+alwaysApply: false
+---
+
+# Repository security and hygiene
+
+- **Do not** add, commit, or paste into tracked files: **private keys**, **JWT / TLS certs** (e.g. `.pem`, `.key`, `.crt` used for auth), **API secrets**, or **`.env` / environment file contents**.
+- **Do** keep secrets in local env, a password manager, or CI secrets; document **variable names** and **where** to set them (e.g. `.env.example` with placeholders only) — never real values in the repo.
+- If a secret was accidentally committed: rotate it, remove it from history if required by policy, and add the path pattern to `.gitignore` as needed.

@@ -681,9 +681,10 @@ def test_post_adapt_style_strip_clears_yellow_highlight_without_changing_detecti
     assert uts["style"]["backgroundColor"] == {}
 
 
+@patch.object(hints, "persist_qbr_template_authoring_cues", return_value=None)
 @patch.object(hints, "apply_hint_mutations_to_presentation", return_value=0)
 @patch.object(hints, "analyze_adapt_hints_with_llm")
-def test_run_qbr_adapt_hints_phase_always_runs_surface_cleanup(mock_llm, mock_apply):
+def test_run_qbr_adapt_hints_phase_always_runs_surface_cleanup(mock_llm, mock_apply, _mock_persist):
     """Regression: empty extraction used to return early and skip apply_hint_mutations entirely."""
     hints.run_qbr_adapt_hints_phase(
         MagicMock(),
@@ -692,7 +693,6 @@ def test_run_qbr_adapt_hints_phase_always_runs_surface_cleanup(mock_llm, mock_ap
         [{"objectId": "z1", "pageElements": []}],
         ["z1"],
         "Acme",
-        title_slide_object_id="cover",
     )
     mock_llm.assert_not_called()
     mock_apply.assert_called_once()
@@ -701,9 +701,10 @@ def test_run_qbr_adapt_hints_phase_always_runs_surface_cleanup(mock_llm, mock_ap
     assert rows_arg[0]["object_id"] == "z1"
 
 
+@patch.object(hints, "persist_qbr_template_authoring_cues", return_value=None)
 @patch.object(hints, "apply_hint_mutations_to_presentation", return_value=1)
 @patch.object(hints, "analyze_adapt_hints_with_llm", return_value={"slides": [], "overall_useful": True, "overall_summary": "ok"})
-def test_run_qbr_adapt_hints_phase_llm_only_when_segments(mock_llm, mock_apply):
+def test_run_qbr_adapt_hints_phase_llm_only_when_segments(mock_llm, mock_apply, _mock_persist):
     slide = {
         "objectId": "s1",
         "pageElements": [{
@@ -736,3 +737,27 @@ def test_run_qbr_adapt_hints_phase_llm_only_when_segments(mock_llm, mock_apply):
     mock_llm.assert_called_once()
     mock_apply.assert_called_once()
     assert len(mock_apply.call_args[0][2]) == 1
+
+
+def test_persist_qbr_template_authoring_cues_writes_file(tmp_path, monkeypatch):
+    target = tmp_path / "qbr-template-authoring-cues.yaml"
+    monkeypatch.setattr(hints, "_qbr_authoring_cues_yaml_path", lambda: target)
+    out = hints.persist_qbr_template_authoring_cues(
+        [
+            {
+                "slide_num": 2,
+                "object_id": "oid1",
+                "title_guess": "Agenda",
+                "yellow_segments": ["x"],
+                "orange_segments": [],
+            }
+        ],
+        {"overall_useful": True, "overall_summary": "ok", "slides": []},
+        customer="Acme",
+        manifest_sha16="deadbeef",
+    )
+    assert out == str(target)
+    text = target.read_text(encoding="utf-8")
+    assert "oid1" in text
+    assert "deadbeef" in text
+    assert "Agenda" in text

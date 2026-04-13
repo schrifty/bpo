@@ -779,6 +779,77 @@ def test_merge_qbr_agenda_title_replacements_with_yaml_hints():
     assert by_orig["Title #2"] == "Beta"
 
 
+def test_merge_qbr_agenda_title_truncates_to_max_chars_per_section_title():
+    plan = [
+        {"slide_type": "qbr_divider", "title": "This is a very long section title indeed"},
+    ]
+    text_elements = [
+        {"type": "shape", "element_id": "a", "text": "Agenda"},
+        {"type": "shape", "element_id": "b", "text": "Title #1"},
+    ]
+    report = {
+        "_slide_plan": plan,
+        "_hydrate_slide_hints": {
+            "qbr_agenda": {
+                "template": {
+                    "section_titles": {
+                        "from_deck_plan": True,
+                        "slot_labels": "title_number_hash",
+                        "max_chars_per_section_title": 20,
+                    }
+                }
+            }
+        },
+    }
+    out = evaluate._merge_qbr_agenda_title_replacements(text_elements, [], report)
+    nv = next(x["new_value"] for x in out if x["original"] == "Title #1")
+    assert len(nv) <= 20
+
+
+def test_qbr_agenda_adapt_extra_rules_uses_adapt_instructions_verbatim():
+    text_elements = [
+        {"type": "shape", "element_id": "a", "text": "Agenda"},
+        {"type": "shape", "element_id": "b", "text": "Title #1"},
+    ]
+    report = {
+        "_hydrate_slide_hints": {
+            "qbr_agenda": {
+                "template": {
+                    "adapt_instructions": "  Line one about agenda.\n\n  Line two.\n",
+                    "section_titles": {"max_chars_per_section_title": 99},
+                }
+            }
+        }
+    }
+    s = evaluate._qbr_agenda_adapt_extra_rules(report, text_elements)
+    assert s == "Line one about agenda.\n\n  Line two."
+    assert "99" not in s
+
+
+def test_qbr_agenda_adapt_extra_rules_legacy_when_no_adapt_instructions():
+    """Older YAML with only max_chars_* still gets generated prose."""
+    text_elements = [
+        {"type": "shape", "element_id": "a", "text": "Agenda"},
+        {"type": "shape", "element_id": "b", "text": "Title #1"},
+    ]
+    report = {
+        "_hydrate_slide_hints": {
+            "qbr_agenda": {
+                "template": {
+                    "section_titles": {
+                        "max_chars_per_section_title": 20,
+                        "max_chars_per_description": 6,
+                    }
+                }
+            }
+        }
+    }
+    s = evaluate._qbr_agenda_adapt_extra_rules(report, text_elements)
+    assert "20" in s
+    assert "6" in s
+    assert "description" in s.lower()
+
+
 # ── intake: Drive query escape ──────────────────────────────────────────────────
 
 

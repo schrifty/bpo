@@ -183,7 +183,7 @@ def _kpi_metric_card(
     label_pt: float = KPI_METRIC_LABEL_PT,
     value_pt: float = 18,
 ) -> None:
-    """Outlined KPI tile — all decks use this helper; black label, bold accent value. See SLIDE_DESIGN_STANDARDS."""
+    """Outlined KPI tile for app-built slides; black label, bold accent value. See SLIDE_DESIGN_STANDARDS (app-built scope)."""
     accent = accent or BLUE
     _bar_rect(reqs, oid_base, sid, x, y, w, h, LIGHT, outline=GRAY)
     pad = 10.0
@@ -2129,7 +2129,7 @@ def _benchmarks_slide(reqs, sid, report, idx):
             all_lbl, f"{all_med}%", accent=BLUE, value_pt=22,
         )
 
-    # Context (narrative — outside KPI cards; see SLIDE_DESIGN_STANDARDS KPI boxes)
+    # Context (narrative — outside KPI cards; see SLIDE_DESIGN_STANDARDS KPI boxes for app-built slides)
     peer_label = cohort_name if use_cohort else "peer"
     lines = [
         f"Delta: {'+' if delta >= 0 else ''}{delta:.0f} percentage points vs {peer_label} median",

@@ -206,14 +206,44 @@ def _snapshot_age_hours(saved_at: str | None, modified_time_rfc3339: str | None)
 
 
 def _read_drive_file_text(file_id: str) -> str:
+    """Download full file via resumable chunks. Logs progress — large JSON can take minutes (not a hang)."""
     with drive_api_lock:
         drive = _get_drive()
         request = drive.files().get_media(fileId=file_id)
         buf = io.BytesIO()
         downloader = MediaIoBaseDownload(buf, request)
         done = False
+        chunk_n = 0
+        last_log_bytes = 0
+        fid_short = (file_id[:16] + "…") if len(file_id) > 16 else file_id
         while not done:
-            _, done = downloader.next_chunk()
+            status, done = downloader.next_chunk()
+            chunk_n += 1
+            n_bytes = buf.tell()
+            # Without this, multi‑minute SSL reads look like a deadlock (single lock held for whole download).
+            if (
+                chunk_n == 1
+                or done
+                or chunk_n % 25 == 0
+                or (n_bytes - last_log_bytes) >= 8 * 1024 * 1024
+            ):
+                pct = ""
+                if status is not None:
+                    try:
+                        prog = getattr(status, "progress", lambda: None)()
+                        if prog is not None:
+                            pct = f" ~{int(float(prog) * 100)}%"
+                    except (TypeError, ValueError, AttributeError):
+                        pass
+                logger.info(
+                    "Drive get_media progress: file=%s chunk=%s bytes=%s%s%s",
+                    fid_short,
+                    chunk_n,
+                    n_bytes,
+                    pct,
+                    " (done)" if done else "",
+                )
+                last_log_bytes = n_bytes
         return buf.getvalue().decode("utf-8")
 
 

@@ -21,3 +21,5 @@ When changing **slide behavior**, **template hydration**, or **QBR/deck wiring**
 4. **Exception:** Keep hardcoding when YAML would be awkward (pure algorithms, API batching, Google Slides limits) or when the user asks for a minimal hotfix without schema work.
 
 If unsure, **default to YAML-first** for anything a deck author might reasonably want to edit without touching Python.
+
+**Slide design:** `docs/SLIDE_DESIGN_STANDARDS.md` applies only to **slides built by this application** (builders / `slides_client`), not to slides copied from templates or existing decks. See `.cursor/rules/slide-design-standards.mdc`.
