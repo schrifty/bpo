@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from src.drive_config import _normalize_config_text, clear_yaml_config_cache, config_text_matches_local
+from src.drive_config import (
+    _drive_transport_retryable,
+    _normalize_config_text,
+    clear_yaml_config_cache,
+    config_text_matches_local,
+)
 
 
 def test_normalize_line_endings_and_trailing_space() -> None:
@@ -22,6 +27,15 @@ def test_config_text_matches_local_equivalent_yaml_spacing() -> None:
 
 def test_config_text_matches_local_different_content() -> None:
     assert not config_text_matches_local("a: 1\n", "a: 2\n")
+
+
+def test_drive_transport_retryable_recognizes_pipe_and_connection() -> None:
+    assert _drive_transport_retryable(BrokenPipeError())
+    assert _drive_transport_retryable(ConnectionResetError())
+    import errno as errno_mod
+
+    assert _drive_transport_retryable(OSError(errno_mod.ECONNRESET, "reset"))
+    assert not _drive_transport_retryable(ValueError("nope"))
 
 
 def test_ensure_drive_config_matches_repo_skips_without_folder(monkeypatch: pytest.MonkeyPatch) -> None:

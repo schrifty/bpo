@@ -23,8 +23,10 @@ The Drive folder structure mirrors the local layout:
 
 from __future__ import annotations
 
+import errno
 import io
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +60,26 @@ def _get_drive():
         return _drive_service
 
 
+def _invalidate_drive_service() -> None:
+    """Drop cached Drive API client so the next call builds a fresh HTTP connection."""
+    global _drive_service
+    with _drive_lock:
+        _drive_service = None
+
+
+def _drive_transport_retryable(exc: BaseException) -> bool:
+    """True for dead sockets / broken pipes — common after long idle with one shared httplib2 pool."""
+    if isinstance(exc, HttpError):
+        return False
+    if isinstance(exc, (BrokenPipeError, ConnectionError)):
+        return True
+    if isinstance(exc, OSError):
+        n = getattr(exc, "errno", None)
+        if n in (errno.EPIPE, errno.ECONNRESET, errno.ETIMEDOUT, errno.ENOTCONN):
+            return True
+    return False
+
+
 def _drive_q_escape(value: str) -> str:
     """Escape a value for use in a single-quoted Drive ``files.list`` query string."""
     return value.replace("\\", "\\\\").replace("'", "\\'")
@@ -65,24 +87,43 @@ def _drive_q_escape(value: str) -> str:
 
 def _find_or_create_folder(name: str, parent_id: str | None = None) -> str:
     """Find a subfolder by name, or create it. Returns the folder ID."""
-    with drive_api_lock:
-        drive = _get_drive()
-        esc = _drive_q_escape(name)
-        q = f"name = '{esc}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-        if parent_id:
-            q += f" and '{parent_id}' in parents"
+    esc = _drive_q_escape(name)
+    q = f"name = '{esc}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    if parent_id:
+        q += f" and '{parent_id}' in parents"
 
-        results = drive.files().list(q=q, fields="files(id, name)", pageSize=5).execute()
-        files = results.get("files", [])
-        if files:
-            return files[0]["id"]
+    max_attempts = 4
+    for attempt in range(max_attempts):
+        try:
+            with drive_api_lock:
+                drive = _get_drive()
+                results = drive.files().list(q=q, fields="files(id, name)", pageSize=5).execute()
+                files = results.get("files", [])
+                if files:
+                    return files[0]["id"]
 
-        meta: dict[str, Any] = {"name": name, "mimeType": "application/vnd.google-apps.folder"}
-        if parent_id:
-            meta["parents"] = [parent_id]
-        folder = drive.files().create(body=meta, fields="id").execute()
-        logger.info("Created Drive folder: %s (%s)", name, folder["id"])
-        return folder["id"]
+                meta: dict[str, Any] = {
+                    "name": name,
+                    "mimeType": "application/vnd.google-apps.folder",
+                }
+                if parent_id:
+                    meta["parents"] = [parent_id]
+                folder = drive.files().create(body=meta, fields="id").execute()
+                logger.info("Created Drive folder: %s (%s)", name, folder["id"])
+                return folder["id"]
+        except Exception as e:
+            if not _drive_transport_retryable(e) or attempt >= max_attempts - 1:
+                raise
+            logger.warning(
+                "Drive files.list/create failed (%s: %s) — recycling HTTP client, retry %d/%d",
+                type(e).__name__,
+                e,
+                attempt + 1,
+                max_attempts - 1,
+            )
+            _invalidate_drive_service()
+            time.sleep(0.35 * (attempt + 1))
+    raise RuntimeError("_find_or_create_folder: unreachable")  # pragma: no cover
 
 
 def find_file_in_folder(
@@ -91,15 +132,32 @@ def find_file_in_folder(
     mime_type: str | None = None,
 ) -> str | None:
     """Return the file id of the first non-trashed file with exact ``name`` under ``parent_id``."""
-    with drive_api_lock:
-        drive = _get_drive()
-        esc = _drive_q_escape(name)
-        q = f"name = '{esc}' and '{parent_id}' in parents and trashed = false"
-        if mime_type:
-            q += f" and mimeType = '{_drive_q_escape(mime_type)}'"
-        results = drive.files().list(q=q, fields="files(id, name)", pageSize=5).execute()
-        files = results.get("files", [])
-        return files[0]["id"] if files else None
+    esc = _drive_q_escape(name)
+    q = f"name = '{esc}' and '{parent_id}' in parents and trashed = false"
+    if mime_type:
+        q += f" and mimeType = '{_drive_q_escape(mime_type)}'"
+
+    max_attempts = 4
+    for attempt in range(max_attempts):
+        try:
+            with drive_api_lock:
+                drive = _get_drive()
+                results = drive.files().list(q=q, fields="files(id, name)", pageSize=5).execute()
+                files = results.get("files", [])
+                return files[0]["id"] if files else None
+        except Exception as e:
+            if not _drive_transport_retryable(e) or attempt >= max_attempts - 1:
+                raise
+            logger.warning(
+                "Drive files.list failed (%s: %s) — recycling HTTP client, retry %d/%d",
+                type(e).__name__,
+                e,
+                attempt + 1,
+                max_attempts - 1,
+            )
+            _invalidate_drive_service()
+            time.sleep(0.35 * (attempt + 1))
+    raise RuntimeError("find_file_in_folder: unreachable")  # pragma: no cover
 
 
 def export_google_doc_as_plain_text(file_id: str, *, _max_retries: int = 5) -> str:

@@ -1755,16 +1755,22 @@ _ADAPT_TEMPLATE_FILL_IN_FALLBACK = (
 
 @functools.lru_cache(maxsize=1)
 def _load_adapt_template_slide_rule() -> str:
-    """Load the adapt LLM exception for example/headline/template slides from YAML config."""
+    """Load adapt LLM rules from YAML: example/template exception plus optional layout rules."""
     p = _ADAPT_TEMPLATE_SLIDE_YAML
     try:
         raw = p.read_text(encoding="utf-8")
         data = yaml.safe_load(raw)
         if not isinstance(data, dict):
             return _ADAPT_TEMPLATE_FILL_IN_FALLBACK
-        rule = data.get("template_fill_in_slide_rule")
-        if isinstance(rule, str) and rule.strip():
-            return rule.rstrip() + "\n"
+        fill = data.get("template_fill_in_slide_rule")
+        if isinstance(fill, str) and fill.strip():
+            base = fill.rstrip()
+        else:
+            base = _ADAPT_TEMPLATE_FILL_IN_FALLBACK.rstrip()
+        layout = data.get("adapt_layout_rule")
+        if isinstance(layout, str) and layout.strip():
+            return base + "\n" + layout.strip() + "\n"
+        return base + "\n"
     except OSError as e:
         logger.warning("adapt: could not read %s — using fallback (%s)", p, e)
     except (yaml.YAMLError, TypeError) as e:
