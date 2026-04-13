@@ -27,9 +27,18 @@ prompt: |
 # Keys under hydrate.template:
 #   section_titles — map "Title #1" style labels to real section names from decks/qbr.yaml
 #   slide_detection — when to treat a physical slide as THIS agenda slide (OR logic)
+#   visual_refinement — after main hydrate, optionally re-run adapt with a vision model
+#     (thumbnail) until the slide looks acceptable or max_refinements is reached
 # -----------------------------------------------------------------------------
 hydrate:
   template:
+    # --- Post-hydrate: vision QA + optional re-adapt (QBR template path only) ---
+    visual_refinement:
+      # Set false to skip extra API calls (faster, cheaper; may leave layout issues).
+      enabled: true
+      # After the first adapt, at most this many extra full adapt passes for the agenda slide.
+      max_refinements: 2
+
     # --- Section title slots (replace "Title #1", "Title #2", …) ----------------
     section_titles:
       # Pull names from the resolved QBR deck: prefer qbr_divider rows, else other slides.

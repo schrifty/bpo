@@ -2068,8 +2068,12 @@ def _sanitize_adapt_replacements_plausible_years(replacements: list[dict]) -> li
 
 def _get_data_replacements(oai, text_elements: list[dict], data_summary: dict,
                            thumb_b64: str | None = None,
-                           slide_label: str = "?") -> list[dict]:
-    """Ask GPT-4o to map slide data values to current report data."""
+                           slide_label: str = "?",
+                           extra_system_rules: str = "") -> list[dict]:
+    """Ask GPT-4o to map slide data values to current report data.
+
+    ``extra_system_rules`` is appended to the system prompt (e.g. QBR agenda visual refinement).
+    """
     # Filter to elements that could plausibly contain data values
     candidates = [el for el in text_elements if _element_may_contain_data(el)]
     # Always include image/chart markers even if they slipped through the filter
@@ -2089,7 +2093,9 @@ def _get_data_replacements(oai, text_elements: list[dict], data_summary: dict,
     system = _ADAPT_SYSTEM_PROMPT.format(
         data_json=data_json,
         template_fill_in_rule=_load_adapt_template_slide_rule(),
-    )
+    ).rstrip()
+    if (extra_system_rules or "").strip():
+        system += "\n\n" + (extra_system_rules or "").strip() + "\n"
 
     def _text_desc(rows: list[dict]) -> str:
         return "\n".join(

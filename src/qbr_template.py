@@ -42,6 +42,10 @@ from .qbr_adapt_hints import (
     apply_qbr_template_style_strip_after_adapt,
     run_qbr_adapt_hints_phase,
 )
+from .qbr_agenda_visual_refine import (
+    find_qbr_agenda_page_id,
+    run_qbr_agenda_visual_refinement_loop,
+)
 from .signals_llm import extract_executive_signals_slide_prompt
 from .quarters import QuarterRange, resolve_quarter
 from .slides_client import (
@@ -746,6 +750,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
     adapt_ids = compute_adapt_page_ids(final_slides, title_oid, exec_set)
     logger.info("QBR: adapting %d template slides (excludes title and any inserted exec block; hidden included)", len(adapt_ids))
 
+    qbr_agenda_visual: dict[str, Any] = {"enabled": False, "skipped": True}
     if adapt_ids:
         run_qbr_adapt_hints_phase(
             oai, slides_svc, pres_id, final_slides, adapt_ids, customer, title_slide_object_id=title_oid
@@ -760,6 +765,20 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
             title_slide_object_id=title_oid,
             google_creds=_google_creds,
         )
+        agenda_page_id = find_qbr_agenda_page_id(slides_svc, pres_id, adapt_ids, report)
+        if agenda_page_id:
+            qbr_agenda_visual = run_qbr_agenda_visual_refinement_loop(
+                slides_svc,
+                pres_id,
+                agenda_page_id,
+                report,
+                oai,
+                title_slide_object_id=title_oid,
+            )
+            logger.info(
+                "QBR agenda visual refinement: %s",
+                qbr_agenda_visual,
+            )
         try:
             apply_qbr_template_style_strip_after_adapt(slides_svc, pres_id, adapt_ids)
         except Exception as e:
@@ -777,6 +796,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
         "exec_slides_inserted": len(exec_ids),
         "exec_manifest_slides": exec_manifest_slides,
         "adapt_slides": len(adapt_ids),
+        "qbr_agenda_visual_refinement": qbr_agenda_visual,
         "plan_notes": plan.get("notes", ""),
         "qbr_output_folder_id": output_folder,
         "bundle_folder_id": bundle_folder_id,
