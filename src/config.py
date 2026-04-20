@@ -26,8 +26,15 @@ PENDO_INTEGRATION_KEY = os.environ.get("PENDO_INTEGRATION_KEY")
 
 # Google Slides API (service account JSON path)
 GOOGLE_APPLICATION_CREDENTIALS = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-# QBR Generator folder id (template, Prompts, decks/, slides/). Required for hydrate/QBR and Drive-backed YAML.
+# QBR Generator folder id (Prompts, decks/, slides/, chart-data/, Decks-{date}/). Required for hydrate/QBR and Drive-backed YAML.
 GOOGLE_QBR_GENERATOR_FOLDER_ID = os.environ.get("GOOGLE_QBR_GENERATOR_FOLDER_ID", "").strip() or None
+# Optional: Drive folder id where the QBR Slides template lives. If unset, the template is resolved under GOOGLE_QBR_GENERATOR_FOLDER_ID.
+GOOGLE_QBR_TEMPLATE_FOLDER_ID = os.environ.get("GOOGLE_QBR_TEMPLATE_FOLDER_ID", "").strip() or None
+# Exact Google Slides file name (title) for the QBR template on Drive (must match).
+QBR_TEMPLATE_FILE_NAME = (
+    os.environ.get("QBR_TEMPLATE_FILE_NAME", "").strip()
+    or "BPO [Template] Executive Business Review [QBR]"
+)
 # Optional override: parent folder for `{ISO-date} - Output`; default is `<QBR Generator>/Output/`.
 GOOGLE_QBR_OUTPUT_PARENT_ID = os.environ.get("GOOGLE_QBR_OUTPUT_PARENT_ID", "").strip() or None
 # Portfolio / cohort: optional override for JSON snapshot folder. If unset, snapshots live under

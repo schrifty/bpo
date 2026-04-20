@@ -18,7 +18,9 @@ from .config import (
     BPO_SIGNALS_LLM_MANIFEST_MAX_CHARS,
     GOOGLE_QBR_GENERATOR_FOLDER_ID,
     GOOGLE_QBR_OUTPUT_PARENT_ID,
+    GOOGLE_QBR_TEMPLATE_FOLDER_ID,
     LLM_MODEL,
+    QBR_TEMPLATE_FILE_NAME,
     logger,
     llm_client,
 )
@@ -65,7 +67,6 @@ from .slides_client import (
 
 # Drive layout under the QBR Generator folder (see get_qbr_generator_folder_id_for_drive_config)
 QBR_OUTPUT_SUBFOLDER = "Output"
-QBR_TEMPLATE_FILE_NAME = "[Template] - Quarterly Business Review"
 # qbr_slide_list (Google Doc) + (via drive_config) repo ``prompts/adapt_system_prompt.yaml`` synced here for adapt
 QBR_PROMPTS_SUBFOLDER = "Prompts"
 QBR_SLIDE_LIST_DOC_NAME = "qbr_slide_list"
@@ -96,13 +97,18 @@ def build_slide_inventory(slides: list[dict]) -> list[dict[str, Any]]:
 
 
 def resolve_qbr_template_and_manifest(generator_folder_id: str) -> tuple[str, str]:
-    """Return (template_presentation_file_id, manifest_plain_text)."""
+    """Return (template_presentation_file_id, manifest_plain_text).
+
+    Template Slides file: ``QBR_TEMPLATE_FILE_NAME`` (from env) under ``GOOGLE_QBR_TEMPLATE_FOLDER_ID`` if set,
+    else under ``generator_folder_id``. Prompts / ``qbr_slide_list`` always use ``generator_folder_id``.
+    """
+    template_folder = GOOGLE_QBR_TEMPLATE_FOLDER_ID or generator_folder_id
     tid = find_file_in_folder(
-        QBR_TEMPLATE_FILE_NAME, generator_folder_id, _MIME_PRESENTATION
+        QBR_TEMPLATE_FILE_NAME, template_folder, _MIME_PRESENTATION
     )
     if not tid:
         raise FileNotFoundError(
-            f"QBR template not found: '{QBR_TEMPLATE_FILE_NAME}' under folder {generator_folder_id}"
+            f"QBR template not found: '{QBR_TEMPLATE_FILE_NAME}' under folder {template_folder}"
         )
     prompts_id = find_file_in_folder(QBR_PROMPTS_SUBFOLDER, generator_folder_id, _MIME_FOLDER)
     if not prompts_id:
@@ -596,6 +602,12 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
         gen_id = get_qbr_generator_folder_id_for_drive_config()
     except RuntimeError as e:
         return {"error": str(e), "hint": "Set GOOGLE_QBR_GENERATOR_FOLDER_ID in .env to your QBR Generator folder id."}
+
+    logger.info(
+        "QBR: generator base folder id=%s — https://drive.google.com/drive/folders/%s",
+        gen_id,
+        gen_id,
+    )
 
     try:
         template_id, manifest_text = resolve_qbr_template_and_manifest(gen_id)
