@@ -234,6 +234,39 @@ Column names, KPI JSON shape, and how BPO reads the workbook are documented in *
 | `CURRENT-FY-SPEND` | Current fiscal-year spend. | `currentFySpend.endValue` | `src/cs_report_client.py`, platform value slide | Core field |
 | `PREVIOUS-FY-SPEND` | Previous fiscal-year spend. | `previousFySpend.endValue` | `src/cs_report_client.py`, platform value slide | Core field |
 
+## LeanDNA Data API
+
+REST API for item-level supply chain data. Full swagger spec: [`docs/leandna-data-api-swagger.json`](../leandna-data-api-swagger.json). Implementation: `src/leandna_item_master_client.py`, `src/leandna_item_master_enrich.py`. Tool analysis: [`LEANDNA_DATA_API_TOOLS.md`](../LEANDNA_DATA_API_TOOLS.md).
+
+### Query Surfaces
+
+| Identifier | Description | Source field / query surface | Where used | Status note |
+|---|---|---|---|---|
+| `LEANDNA-ITEM-MASTER-DATA` | Item Master Data Report (comprehensive item-level metrics). | `GET /data/ItemMasterData` | `src/leandna_item_master_client.py`, supply chain/platform health slides | Core surface |
+| `LEANDNA-SESSION-IDENTITY` | Session info with authorized sites and user details. | `GET /data/identity` | `src/leandna_item_master_client.py` (future: site mapping) | Core surface |
+
+### Registry Entries (Item Master Data)
+
+| Identifier | Description | Source field / query surface | Where used | Status note |
+|---|---|---|---|---|
+| `DAYS-OF-INVENTORY-BACKWARD` | **Backward-looking DOI** (historical consumption). | `daysOfInventoryBackward` (ItemMasterData) | `src/leandna_item_master_client.py`, supply chain slide | **NEW** — not in CSR |
+| `DAYS-OF-INVENTORY-FORWARD-LEANDNA` | Forward-looking DOI from LeanDNA API. | `daysOfInventoryForward` (ItemMasterData) | `src/leandna_item_master_client.py` | `DUPLICATE` with CSR `doiForwards`; API is live vs static export |
+| `AGGREGATE-RISK-SCORE-ITEM` | Item-level aggregate risk score (0-100). | `aggregateRiskScore` (ItemMasterData) | `src/leandna_item_master_client.py`, platform health slide | **NEW** — item-level risk not in CSR |
+| `RISK-LEVEL-ITEM` | Item risk classification (text label). | `riskLevel` (ItemMasterData) | `src/leandna_item_master_client.py` | **NEW** |
+| `ABC-RANK` | ABC classification (A/B/C for criticality). | `abcRank` (ItemMasterData) | `src/leandna_item_master_client.py`, supply chain enrichment | **NEW** |
+| `LEAD-TIME-PLANNED` | Planned lead time (days). | `leadTime` (ItemMasterData) | `src/leandna_item_master_client.py` | Core field |
+| `LEAD-TIME-OBSERVED` | Actual observed lead time (days). | `observedLeadTime` (ItemMasterData) | `src/leandna_item_master_client.py`, supplier performance | **NEW** |
+| `EXCESS-ON-HAND-VALUE-ITEM` | Excess on-hand value per item. | `excessOnHandValue` (ItemMasterData) | `src/leandna_item_master_client.py`, supply chain slide | Item-level vs CSR site aggregate |
+| `EXCESS-ON-HAND-QTY-ITEM` | Excess on-hand quantity per item. | `excessOnHandQty` (ItemMasterData) | `src/leandna_item_master_client.py` | Item-level |
+| `CTB-SHORTAGE-IMPACTED-VALUE-ITEM` | Clear-to-build shortage impact value per item. | `ctbShortageImpactedValue` (ItemMasterData) | `src/leandna_item_master_client.py`, platform health enrichment | Item-level CTB impact |
+| `CTB-IMPACTED-ORDERS-ITEM` | Count of CTB-impacted orders per item. | `ctbImpactedOrders` (ItemMasterData) | `src/leandna_item_master_client.py` | Item-level |
+| `DAYS-COVERAGE-ITEM` | Days coverage (work days) per item. | `daysOfCoverageWorkDays` (ItemMasterData) | `src/leandna_item_master_client.py` | Item-level vs CSR `daysCoverage` |
+| `CRITICALITY-LEVEL-ITEM` | Item criticality level (numeric or label). | `criticalityLevel` (ItemMasterData) | `src/leandna_item_master_client.py` | **NEW** |
+| `WEEKLY-DEMAND-STD-DEV` | Weekly demand standard deviation (volatility). | `weeklyDemandStdDev` (ItemMasterData) | `src/leandna_item_master_client.py` | **NEW** — forecasting/planning |
+| `FUTURE-DEMAND-DAILY` | Forecast daily demand. | `futureDemandDaily` (ItemMasterData) | `src/leandna_item_master_client.py` | **NEW** |
+
+**Note:** LeanDNA fields are **optional** and only available when `LEANDNA_DATA_API_BEARER_TOKEN` is configured. QBR slides gracefully degrade if enrichment is disabled or fails.
+
 ## Salesforce
 
 Field-level schema and HTTP surfaces: [`SALESFORCE_DATA_SCHEMA.md`](./SALESFORCE_DATA_SCHEMA.md). **Where ARR/recurring value is modeled** (Account vs Contract vs CPQ vs Revenue Cloud): [`SALESFORCE_REVENUE_AND_ARR.md`](./SALESFORCE_REVENUE_AND_ARR.md).

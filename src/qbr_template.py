@@ -657,6 +657,13 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
     report["quarter_start"] = qr.start.isoformat()
     report["quarter_end"] = qr.end.isoformat()
 
+    # Enrich with LeanDNA Item Master Data if configured
+    try:
+        from .leandna_item_master_enrich import enrich_qbr_with_item_master
+        report = enrich_qbr_with_item_master(report, customer)
+    except Exception as e:
+        logger.warning("LeanDNA enrichment failed (non-fatal): %s", e)
+
     qbr_resolved = resolve_deck("qbr", customer)
     if qbr_resolved.get("error"):
         logger.warning(

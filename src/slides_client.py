@@ -3931,10 +3931,19 @@ def _platform_health_slide(reqs, sid, report, idx):
     dist = cs.get("health_distribution", {})
     total_short = cs.get("total_shortages", 0)
     total_crit = cs.get("total_critical_shortages", 0)
-    summary_hdr = "  ·  ".join(
-        [f"{v} {k}" for k, v in dist.items() if v > 0]
-        + [f"{total_short:,} shortages ({total_crit:,} critical)"]
-    )
+    
+    # LeanDNA enrichment: high-risk items badge
+    ldna = report.get("leandna_item_master") or {}
+    ldna_enabled = ldna.get("enabled", False)
+    high_risk_count = len(ldna.get("high_risk_items", [])) if ldna_enabled else 0
+    
+    parts = [f"{v} {k}" for k, v in dist.items() if v > 0]
+    parts.append(f"{total_short:,} shortages ({total_crit:,} critical)")
+    
+    if ldna_enabled and high_risk_count > 0:
+        parts.append(f"{high_risk_count} high-risk items")
+    
+    summary_hdr = "  ·  ".join(parts)
 
     ROW_H = 28
     max_rows = max(1, (BODY_BOTTOM - BODY_Y - 24) // ROW_H - 1)
@@ -4050,6 +4059,12 @@ def _supply_chain_slide(reqs, sid, report, idx):
     oh = totals.get("on_hand", 0)
     oo = totals.get("on_order", 0)
     ex = totals.get("excess_on_hand", 0)
+    
+    # LeanDNA enrichment
+    ldna = report.get("leandna_item_master") or {}
+    ldna_enabled = ldna.get("enabled", False)
+    doi_bwd_data = ldna.get("doi_backwards") or {}
+    items_over_60 = doi_bwd_data.get("items_over_60_days", 0) if ldna_enabled else 0
 
     def _fmtk(v):
         if v is None or v == 0:
@@ -4062,12 +4077,21 @@ def _supply_chain_slide(reqs, sid, report, idx):
 
     _SC_KPI_H = 58
     _SC_GAP = 18.0
+    # Adjust for 4 KPI cards if LeanDNA enabled
+    num_kpis = 4 if ldna_enabled else 3
     _SC_TABLE_TOP = BODY_Y + 8 + _SC_KPI_H + 12
 
     ROW_H = 28
     max_rows = max(1, (BODY_BOTTOM - _SC_TABLE_TOP) // ROW_H - 1)
-    headers_list = ["Factory", "On-Hand", "On-Order", "Excess", "DOI", "Late POs"]
-    col_widths = [150, 90, 90, 80, 55, 55]
+    
+    # Add DOI Bwd column if LeanDNA enabled
+    if ldna_enabled:
+        headers_list = ["Factory", "On-Hand", "On-Order", "Excess", "DOI Fwd", "DOI Bwd", "Late POs"]
+        col_widths = [140, 85, 85, 75, 50, 50, 55]
+    else:
+        headers_list = ["Factory", "On-Hand", "On-Order", "Excess", "DOI", "Late POs"]
+        col_widths = [150, 90, 90, 80, 55, 55]
+    
     chunks = _cap_chunk_list(
         [site_list[i : i + max_rows] for i in range(0, len(site_list), max_rows)]
     )
@@ -4079,7 +4103,15 @@ def _supply_chain_slide(reqs, sid, report, idx):
         _slide(reqs, page_sid, idx + pi)
         ttl = "Supply Chain Overview" if len(chunks) == 1 else f"Supply Chain Overview ({pi + 1} of {len(chunks)})"
         _slide_title(reqs, page_sid, ttl)
-        scw = (CONTENT_W - 2 * _SC_GAP) / 3
+        
+        # KPI cards
+        if num_kpis == 4:
+            # 4 cards: narrower
+            scw = (CONTENT_W - 3 * _SC_GAP) / 4
+        else:
+            # 3 cards: original layout
+            scw = (CONTENT_W - 2 * _SC_GAP) / 3
+        
         kry = BODY_Y + 8
         _kpi_metric_card(
             reqs, f"{page_sid}_k0", page_sid, MARGIN, kry, scw, _SC_KPI_H,
@@ -4093,6 +4125,14 @@ def _supply_chain_slide(reqs, sid, report, idx):
             reqs, f"{page_sid}_k2", page_sid, MARGIN + 2 * (scw + _SC_GAP), kry, scw, _SC_KPI_H,
             "Excess on-hand", _fmtk(ex), accent=BLUE, value_pt=20,
         )
+        
+        if num_kpis == 4:
+            # 4th KPI: Items >60d DOI Bwd
+            card_accent = ORANGE if items_over_60 > 10 else BLUE
+            _kpi_metric_card(
+                reqs, f"{page_sid}_k3", page_sid, MARGIN + 3 * (scw + _SC_GAP), kry, scw, _SC_KPI_H,
+                "Items >60d DOI Bwd", f"{items_over_60:,}", accent=card_accent, value_pt=20,
+            )
 
         num_rows = 1 + len(show)
         table_id = f"{page_sid}_tbl"
@@ -4160,14 +4200,28 @@ def _supply_chain_slide(reqs, sid, report, idx):
 
         for ri, s in enumerate(show):
             row = ri + 1
-            vals = [
-                s.get("factory", "?")[:22],
-                _fmtk(s.get("on_hand_value")),
-                _fmtk(s.get("on_order_value")),
-                _fmtk(s.get("excess_on_hand")),
-                f'{s["doi_days"]:.0f}d' if "doi_days" in s else "-",
-                f'{s.get("late_pos", 0):,}' if "late_pos" in s else "-",
-            ]
+            if ldna_enabled:
+                # With DOI Bwd column
+                doi_bwd_val = doi_bwd_data.get("mean")  # Global mean for now; TODO: per-site aggregation
+                vals = [
+                    s.get("factory", "?")[:22],
+                    _fmtk(s.get("on_hand_value")),
+                    _fmtk(s.get("on_order_value")),
+                    _fmtk(s.get("excess_on_hand")),
+                    f'{s["doi_days"]:.0f}d' if "doi_days" in s else "-",
+                    f'{doi_bwd_val:.0f}d' if doi_bwd_val else "-",
+                    f'{s.get("late_pos", 0):,}' if "late_pos" in s else "-",
+                ]
+            else:
+                # Original 6 columns
+                vals = [
+                    s.get("factory", "?")[:22],
+                    _fmtk(s.get("on_hand_value")),
+                    _fmtk(s.get("on_order_value")),
+                    _fmtk(s.get("excess_on_hand")),
+                    f'{s["doi_days"]:.0f}d' if "doi_days" in s else "-",
+                    f'{s.get("late_pos", 0):,}' if "late_pos" in s else "-",
+                ]
             for ci, v in enumerate(vals):
                 _ct(row, ci, v)
                 _cs(row, ci, len(v), color=NAVY, size=8, align="END" if ci >= 1 else None)

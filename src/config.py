@@ -83,6 +83,15 @@ if _sfc_off in ("1", "true", "yes", "on"):
 _sfc_fr = os.environ.get("BPO_SALESFORCE_CACHE_FORCE_REFRESH", "").strip().lower()
 BPO_SALESFORCE_CACHE_FORCE_REFRESH = _sfc_fr in ("1", "true", "yes", "on")
 
+# LeanDNA Data API (optional; supply chain enrichment with Item Master Data)
+LEANDNA_DATA_API_BASE_URL = os.environ.get("LEANDNA_DATA_API_BASE_URL", "https://app.leandna.com/api").rstrip("/")
+LEANDNA_DATA_API_BEARER_TOKEN = os.environ.get("LEANDNA_DATA_API_BEARER_TOKEN")  # required for LeanDNA integration
+try:
+    _ldna_cache_hours = int(os.environ.get("LEANDNA_ITEM_MASTER_CACHE_TTL_HOURS", "24").strip())
+    LEANDNA_ITEM_MASTER_CACHE_TTL_HOURS = max(1, min(168, _ldna_cache_hours))  # 1h-7d range
+except ValueError:
+    LEANDNA_ITEM_MASTER_CACHE_TTL_HOURS = 24
+
 # Optional limits for tool output (0 = no limit, full dataset returned)
 PENDO_MAX_RESULTS = int(os.environ.get("PENDO_MAX_RESULTS", "0"))
 PENDO_MAX_OUTPUT_CHARS = int(os.environ.get("PENDO_MAX_OUTPUT_CHARS", "0"))
