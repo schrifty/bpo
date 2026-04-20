@@ -267,6 +267,35 @@ REST API for item-level supply chain data. Full swagger spec: [`docs/leandna-dat
 
 **Note:** LeanDNA fields are **optional** and only available when `LEANDNA_DATA_API_BEARER_TOKEN` is configured. QBR slides gracefully degrade if enrichment is disabled or fails.
 
+### Registry Entries (Material Shortages)
+
+|| Identifier | Description | Source field / query surface | Where used | Status note |
+||---|---|---|---|---|
+|| `SHORTAGE-BY-ITEM-WEEKLY` | Weekly shortage forecast (32 weeks forward). | `GET /data/MaterialShortages/ShortagesByItem/Weekly` | `src/leandna_shortage_client.py`, shortage forecast slide | Core shortage surface |
+|| `SHORTAGE-BY-ITEM-DAILY` | Daily shortage forecast (45 days forward). | `GET /data/MaterialShortages/ShortagesByItem/Daily` | `src/leandna_shortage_client.py` | Available for deep dive decks |
+|| `SHORTAGE-BY-ORDER` | Shortage-by-production-order mapping. | `GET /data/MaterialShortages/ShortagesByOrder` | `src/leandna_shortage_client.py` | Links shortages to customer orders |
+|| `SHORTAGE-WITH-DELIVERIES` | Weekly shortages + scheduled PO delivery tracking. | `GET /data/MaterialShortages/ShortagesByItemWithScheduledDeliveries/Weekly` | `src/leandna_shortage_client.py`, shortage deliveries slide | Delivery resolution tracking |
+|| `CRITICALITY-LEVEL-SHORTAGE` | Shortage criticality level (1-5 numeric or label). | `criticalityLevel` (ShortagesByItem) | `src/leandna_shortage_client.py`, critical shortages slide | Current shortage severity |
+|| `CTB-SHORTAGE-IMPACTED-VALUE` | Clear-to-build dollar impact from shortage. | `ctbShortageImpactedValue` (ShortagesByItem) | `src/leandna_shortage_client.py`, shortage forecast/critical slides | Production revenue at risk |
+|| `CTB-IMPACTED-ORDERS-COUNT` | Count of production orders impacted by this shortage. | `ctbImpactedOrdersSingleShortageCount` (ShortagesByItem) | `src/leandna_shortage_client.py` | Order impact breadth |
+|| `DAYS-IN-SHORTAGE` | Cumulative days item has been in shortage. | `daysInShortage` (ShortagesByItem) | `src/leandna_shortage_client.py`, critical shortages table | Historical shortage duration |
+|| `FIRST-CRITICAL-BUCKET-WEEK` | Date of first critical shortage bucket (week start). | `firstCriticalBucketWeek` (ShortagesByItem) | `src/leandna_shortage_client.py`, critical timeline | When shortage becomes critical |
+|| `FIRST-CRITICAL-BUCKET-DAY` | Date of first critical shortage bucket (daily). | `firstCriticalBucketDay` (ShortagesByItem/Daily) | `src/leandna_shortage_client.py` | Daily precision for near-term critical |
+|| `SHORTAGE-BUCKET-QUANTITY` | Shortage quantity for a given time bucket. | `bucket1quantity...bucket32quantity` (weekly), `day1quantity...day45quantity` (daily) | `src/leandna_shortage_client.py`, forecast aggregation | Time-series shortage qty |
+|| `SHORTAGE-BUCKET-CRITICALITY` | Criticality label for time bucket (Critical/High/Medium/Low). | `bucket1criticality...bucket32criticality` (weekly) | `src/leandna_shortage_client.py`, forecast stacked chart | Time-series criticality |
+|| `FIRST-PO-REQUESTED-DATE` | Requested delivery date for first impacted PO. | `firstPORequestedDate` (ShortagesByItem) | `src/leandna_shortage_client.py`, critical shortages | PO timing |
+|| `FIRST-PO-COMMIT-DATE` | Supplier commit date for first impacted PO. | `firstPOCommitDate` (ShortagesByItem) | `src/leandna_shortage_client.py`, critical shortages | Supplier promise |
+|| `FIRST-PO-STATUS` | Status of first impacted PO (Late/On-time/Unknown). | `firstPoStatus` (ShortagesByItem) | `src/leandna_shortage_client.py`, critical shortages table | PO health indicator |
+|| `FIRST-IMPACTED-ORDER` | Production order number first impacted by shortage. | `firstImpactedOrder` (ShortagesByItem) | `src/leandna_shortage_client.py` | Production impact link |
+|| `FIRST-IMPACTED-ORDER-DATE` | Due date of first impacted production order. | `firstImpactedOrderDate` (ShortagesByItem) | `src/leandna_shortage_client.py` | Customer delivery risk date |
+|| `SCHEDULED-DELIVERIES-COUNT` | Number of scheduled PO deliveries for this item. | `scheduledDeliveries` (WithScheduledDeliveries) | `src/leandna_shortage_client.py`, deliveries slide | Delivery tracking breadth |
+|| `SCHEDULED-QUANTITY` | Total quantity scheduled for delivery. | `scheduledQuantity` (WithScheduledDeliveries) | `src/leandna_shortage_client.py`, deliveries slide | Delivery resolution qty |
+|| `FIRST-DELIVERY-DATE` | Date of first scheduled delivery. | `firstDeliveryDate` (WithScheduledDeliveries) | `src/leandna_shortage_client.py`, deliveries slide | When shortage resolves |
+|| `FIRST-DELIVERY-QTY` | Quantity of first scheduled delivery. | `firstDeliveryQty` (WithScheduledDeliveries) | `src/leandna_shortage_client.py` | First delivery resolution |
+|| `FIRST-DELIVERY-TRACKING-NUMBER` | Tracking number for first scheduled delivery. | `firstDeliveryTrackingNumber` (WithScheduledDeliveries) | `src/leandna_shortage_client.py` | Shipment tracking |
+
+**Note:** Shortage data is cached shorter (12h TTL default) than Item Master (24h) since shortage forecasts are more time-sensitive. Configuration: `LEANDNA_SHORTAGE_CACHE_TTL_HOURS`.
+
 ## Salesforce
 
 Field-level schema and HTTP surfaces: [`SALESFORCE_DATA_SCHEMA.md`](./SALESFORCE_DATA_SCHEMA.md). **Where ARR/recurring value is modeled** (Account vs Contract vs CPQ vs Revenue Cloud): [`SALESFORCE_REVENUE_AND_ARR.md`](./SALESFORCE_REVENUE_AND_ARR.md).

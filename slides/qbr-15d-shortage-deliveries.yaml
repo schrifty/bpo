@@ -1,0 +1,24 @@
+id: shortage_deliveries
+type: standard
+order: 15.3
+title: Shortage Resolution — Scheduled Deliveries
+slide_type: shortage_deliveries
+data_tools:
+  - leandna_shortage_trends
+customers: all
+
+prompt: >
+  Shortage resolution tracking via scheduled PO deliveries.
+  Shows which shortage items have confirmed delivery schedules and when
+  deliveries are expected to arrive. Three KPI cards: items with scheduled
+  deliveries (PO tracking populated), average deliveries per item, and
+  total quantity arriving in next 7 days.
+  
+  This answers "When will shortages resolve?" — the mirror image of the forecast.
+  If an item is critical on Week 3 but has a scheduled delivery arriving Week 2,
+  the shortage should self-resolve. Items *without* scheduled deliveries are
+  the ones that need CS/buyer attention (missing PO commit dates or tracking).
+  
+  Use this to validate that customer procurement teams are actively managing
+  shortage mitigation and to highlight where LeanDNA's PO tracking data is sparse
+  (opportunity for better ERP integration or manual PO updates).

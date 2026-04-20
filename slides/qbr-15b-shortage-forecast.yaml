@@ -1,0 +1,20 @@
+id: shortage_forecast
+type: standard
+order: 15.1
+title: Material Shortage Forecast — Next 12 Weeks
+slide_type: shortage_forecast
+data_tools:
+  - leandna_shortage_trends
+customers: all
+
+prompt: >
+  12-week shortage forecast from LeanDNA Material Shortages API.
+  Shows time-series shortage quantity by criticality level (critical/high/medium/low)
+  as a stacked area chart, with weekly buckets showing when shortage peaks occur.
+  Four KPI cards below: total items in shortage, critical items (criticality ≥3),
+  peak week date, and total CTB (Clear-to-Build) impact value.
+  
+  This is forward-looking intelligence — it tells CS and customer ops teams
+  when shortages will become critical and how much production revenue is at risk.
+  Use this to prioritize expediting POs and escalating with suppliers before
+  shortages materialize into missed customer deliveries.

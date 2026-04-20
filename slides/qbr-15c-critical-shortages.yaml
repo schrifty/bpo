@@ -1,0 +1,22 @@
+id: critical_shortages_detail
+type: standard
+order: 15.2
+title: Critical Material Shortages — Next 90 Days
+slide_type: critical_shortages_detail
+data_tools:
+  - leandna_shortage_trends
+customers: all
+
+prompt: >
+  Top 20 critical material shortages ranked by CTB impact value.
+  Table shows item code, description, site, first critical week (color-coded
+  by urgency: red <7d, orange 7-14d, yellow 14-30d), days in shortage,
+  CTB impact ($), and PO status (late/on-time/unknown).
+  
+  This is the tactical action list for buyers and planners. Each row is an item
+  that needs PO expediting or supplier escalation. "First critical week" is when
+  the shortage reaches criticality threshold (level 3+), meaning production orders
+  will start missing due dates if the shortage isn't resolved by then.
+  
+  CS should use this to coach customers on procurement prioritization and to
+  demonstrate LeanDNA's value in surfacing hidden supply chain risks.

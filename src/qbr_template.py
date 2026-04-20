@@ -662,7 +662,14 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
         from .leandna_item_master_enrich import enrich_qbr_with_item_master
         report = enrich_qbr_with_item_master(report, customer)
     except Exception as e:
-        logger.warning("LeanDNA enrichment failed (non-fatal): %s", e)
+        logger.warning("LeanDNA Item Master enrichment failed (non-fatal): %s", e)
+    
+    # Enrich with LeanDNA Material Shortage Trends if configured
+    try:
+        from .leandna_shortage_enrich import enrich_qbr_with_shortage_trends
+        report = enrich_qbr_with_shortage_trends(report, customer, weeks_forward=12)
+    except Exception as e:
+        logger.warning("LeanDNA Shortage Trends enrichment failed (non-fatal): %s", e)
 
     qbr_resolved = resolve_deck("qbr", customer)
     if qbr_resolved.get("error"):

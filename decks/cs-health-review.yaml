@@ -33,6 +33,7 @@ slides:
   - slide: cs_health_enhancements
   - slide: cs_health_platform_health
   - slide: cs_health_supply_chain
+  - slide: shortage_forecast
   - slide: cs_health_platform_value
   - slide: cs_health_cross_validation
   - slide: cs_health_signals

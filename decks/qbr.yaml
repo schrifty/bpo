@@ -34,6 +34,9 @@ slides:
     title: Platform health & value
   - slide: platform_health
   - slide: supply_chain
+  - slide: shortage_forecast
+  - slide: critical_shortages_detail
+  - slide: shortage_deliveries
   - slide: platform_value
   - slide: qbr_divider
     title: Summary & next steps
