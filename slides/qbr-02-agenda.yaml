@@ -35,9 +35,10 @@
 # extra wording or length guidance you add.
 #
 # True “shrink text to fit the shape” (Slides UI) cannot be set by this app — the
-# Google Slides API only allows turning autofit off, not enabling TEXT_AUTOFIT. For
-# agenda rows, edit the **QBR master template** and set **Format → autofit →
-# Shrink text on overflow** on each Title #N / section title text box (or widen boxes).
+# Google Slides API only allows turning autofit off, not enabling TEXT_AUTOFIT. After
+# hydrate, the app sets **autofit → NONE** on shapes that still match Title #N slots
+# (see code) so Slides is less likely to reflow/wrap in those title bars. For more
+# control, edit the **QBR master template** (box width, Shrink text on overflow, etc.).
 #
 # Optional: Google Drive
 # ----------------------
@@ -107,6 +108,10 @@ hydrate:
     # Merge deck section names into placeholder lines like “Title #1”, “Title #2”, …
     section_titles:
       from_deck_plan: true
+      # Optional: shorten long section names before merge (none | acronym | first_word | first_two_words).
+      # Vision ``layout_hints.shorten_mode`` can override for a post-hydrate pass.
+      label_shortening:
+        mode: none
       # Hard cap when merging deck section names into Title #N (ellipsis if longer). ~40 fits most labels; tune
       # with your template box width + “Shrink text on overflow” in the Slides master.
       max_chars_per_section_title: 42

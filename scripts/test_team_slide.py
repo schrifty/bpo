@@ -16,9 +16,9 @@ def main():
 
     # Create a minimal presentation
     title = f"Bombardier — Team Slide Test ({_date_range(30)})"
-    from src.config import GOOGLE_DRIVE_FOLDER_ID
+    from src.config import GOOGLE_QBR_GENERATOR_FOLDER_ID
     meta = {"name": title, "mimeType": "application/vnd.google-apps.presentation"}
-    if GOOGLE_DRIVE_FOLDER_ID:
+    if GOOGLE_QBR_GENERATOR_FOLDER_ID:
         from src.slides_client import _get_deck_output_folder
         folder = _get_deck_output_folder()
         if folder:

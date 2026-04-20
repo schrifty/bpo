@@ -15,7 +15,7 @@ from typing import Any
 
 from googleapiclient.errors import HttpError
 
-from .config import GOOGLE_DRIVE_FOLDER_ID, logger
+from .config import GOOGLE_QBR_GENERATOR_FOLDER_ID, logger
 from .cs_report_client import get_csr_section
 from .slide_loader import (
     benchmarks_min_peers_for_cohort_median,
@@ -6524,20 +6524,26 @@ SLIDE_DATA_REQUIREMENTS = {
 }
 
 
-_output_folder_cache: tuple[str, str] | None = None  # (date_str, folder_id)
+_output_folder_cache: tuple[str, str, str] | None = None  # (date_str, parent_id, folder_id)
 
 
 def _get_deck_output_folder() -> str | None:
     """Return the ID of today's date-stamped subfolder (e.g. Decks-2026-03-06), creating it if needed."""
     global _output_folder_cache
-    if not GOOGLE_DRIVE_FOLDER_ID:
+    from .drive_config import _find_or_create_folder, get_qbr_generator_folder_id_for_drive_config
+
+    if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
         return None
+    parent = get_qbr_generator_folder_id_for_drive_config()
     today = datetime.date.today().isoformat()
-    if _output_folder_cache and _output_folder_cache[0] == today:
-        return _output_folder_cache[1]
-    from .drive_config import _find_or_create_folder
-    folder_id = _find_or_create_folder(f"Decks-{today}", GOOGLE_DRIVE_FOLDER_ID)
-    _output_folder_cache = (today, folder_id)
+    if (
+        _output_folder_cache
+        and _output_folder_cache[0] == today
+        and _output_folder_cache[1] == parent
+    ):
+        return _output_folder_cache[2]
+    folder_id = _find_or_create_folder(f"Decks-{today}", parent)
+    _output_folder_cache = (today, parent, folder_id)
     return folder_id
 
 
@@ -6658,7 +6664,7 @@ def create_health_deck(
         deck_id: Which deck definition to use. Defaults to 'cs_health_review'.
         thumbnails: Whether to export slide thumbnails. Disable for batch runs.
         output_folder_id: Optional Drive folder id for the new presentation. When omitted,
-            uses today's ``Decks-{date}`` folder under ``GOOGLE_DRIVE_FOLDER_ID`` (if set).
+            uses today's ``Decks-{date}`` folder under the resolved QBR Generator folder (if any).
     """
     if "error" in report:
         return {"error": report["error"]}
@@ -6732,14 +6738,14 @@ def create_health_deck(
     if not slide_plan:
         logger.error(
             "create_health_deck: empty slide plan (deck_id=%s customer=%r). "
-            "Check decks/*.yaml vs slides/, Drive bpo-config sync, and per-customer slide filters.",
+            "Check decks/*.yaml vs slides/, Drive BPO/QBR Generator sync, and per-customer slide filters.",
             deck_id,
             customer,
         )
         return {
             "error": "Deck has no slides to generate (resolved plan is empty).",
             "hint": "Verify deck YAML slide IDs exist in slides/. If using Drive config, ensure "
-            "bpo-config/decks and slides match the repo. Slides with customers: [...] exclude "
+            "BPO/QBR Generator decks/ and slides/ on Drive match the repo. Slides with customers: [...] exclude "
             "everyone except listed customers.",
             "customer": customer,
             "deck_id": deck_id,

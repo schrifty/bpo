@@ -172,7 +172,7 @@ def test_run_qbr_from_template_smoke(
     slides_svc.presentations().get.return_value.execute.side_effect = [pres_seq, pres_final]
 
     mock_gs = MagicMock(return_value=(slides_svc, drive_svc, None))
-    with patch.object(qbr_template, "GOOGLE_QBR_GENERATOR_FOLDER_ID", "gen_folder"):
+    with patch.object(qbr_template, "get_qbr_generator_folder_id_for_drive_config", return_value="gen_folder"):
         with patch.object(qbr_template, "_get_service", mock_gs):
             with patch.object(qbr_template, "_detect_customer", return_value="Acme Corp"):
                 r = qbr_template.run_qbr_from_template("acme")
@@ -246,7 +246,7 @@ def test_run_qbr_skips_exec_insert_when_manifest_false(
     slides_svc.presentations().get.return_value.execute.side_effect = [pres, pres]
 
     mock_gs = MagicMock(return_value=(slides_svc, drive_svc, None))
-    with patch.object(qbr_template, "GOOGLE_QBR_GENERATOR_FOLDER_ID", "gen_folder"):
+    with patch.object(qbr_template, "get_qbr_generator_folder_id_for_drive_config", return_value="gen_folder"):
         with patch.object(qbr_template, "_get_service", mock_gs):
             with patch.object(qbr_template, "_detect_customer", return_value="Acme Corp"):
                 r = qbr_template.run_qbr_from_template("acme")

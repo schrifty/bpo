@@ -1,7 +1,7 @@
 """Load slide definitions from YAML files.
 
 Sources (in priority order):
-  1. Google Drive  bpo-config/slides/  (user-editable; repo wins on first load each run)
+  1. Google Drive  ``<QBR Generator>/slides/`` (see ``get_qbr_generator_folder_id_for_drive_config`` in drive_config; repo wins on first load each run)
   2. Local repo    slides/             (canonical defaults)
 
 If a Drive file fails to parse, the local version is used and a QA warning
@@ -15,11 +15,11 @@ from typing import Any
 
 import yaml
 
-from .config import GOOGLE_DRIVE_FOLDER_ID, logger
+from .config import GOOGLE_QBR_GENERATOR_FOLDER_ID, logger
 
 DEFAULT_SLIDES_DIR = Path(__file__).resolve().parent.parent / "slides"
 
-_USE_DRIVE = bool(GOOGLE_DRIVE_FOLDER_ID)
+_USE_DRIVE = bool(GOOGLE_QBR_GENERATOR_FOLDER_ID)
 
 
 def _parse_order(order_val: Any) -> tuple[int, str]:

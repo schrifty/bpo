@@ -32,17 +32,17 @@ def main():
             "https://www.googleapis.com/auth/drive",
         ]
         creds = service_account.Credentials.from_service_account_file(creds_path, scopes=SCOPES)
-        # Create via Drive API. If storage quota exceeded, create a folder in YOUR Drive,
-        # share it with the service account (Editor), set GOOGLE_DRIVE_FOLDER_ID in .env
+        # Create via Drive API. If storage quota exceeded, share your QBR Generator folder with the
+        # service account (Editor) and set GOOGLE_QBR_GENERATOR_FOLDER_ID in .env
         drive = build("drive", "v3", credentials=creds)
         file_meta = {"name": "BPO Test - Delete Me", "mimeType": "application/vnd.google-apps.presentation"}
-        folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "").strip()
+        folder_id = os.environ.get("GOOGLE_QBR_GENERATOR_FOLDER_ID", "").strip()
         owner_email = os.environ.get("GOOGLE_DRIVE_OWNER_EMAIL", "").strip()
         if folder_id:
             file_meta["parents"] = [folder_id]
-            print(f"Using folder: {folder_id}")
+            print(f"Using QBR Generator folder: {folder_id}")
         else:
-            print("No GOOGLE_DRIVE_FOLDER_ID in .env - creating in service account Drive")
+            print("No GOOGLE_QBR_GENERATOR_FOLDER_ID in .env - creating in service account Drive")
         if owner_email:
             creds = creds.with_subject(owner_email)
             drive = build("drive", "v3", credentials=creds)
@@ -74,9 +74,9 @@ def main():
                 pass
             if "storageQuotaExceeded" in str(e) or "storage quota" in str(e).lower():
                 print("\nFIX: Service account Drive is full. Use domain-wide delegation:")
-                print("  1. Create a folder in YOUR Google Drive")
+                print("  1. Create or pick your QBR Generator folder in Google Drive")
                 print("  2. Share it with bpo-slides-account@bpo-slides.iam.gserviceaccount.com (Editor)")
-                print("  3. Add to .env: GOOGLE_DRIVE_FOLDER_ID=<folder-id>")
+                print("  3. Add to .env: GOOGLE_QBR_GENERATOR_FOLDER_ID=<folder-id>")
                 print("  4. Enable domain-wide delegation (see README) and add GOOGLE_DRIVE_OWNER_EMAIL=<your-email>")
                 return 1
             print("\n403 FIX - Run (requires gcloud auth login first):")

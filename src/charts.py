@@ -5,8 +5,8 @@ Workflow:
   2. For each chart: add a sheet tab, populate data, create chart via addChart.
   3. Return (spreadsheet_id, chart_id) for embedding via Slides createSheetsChart.
 
-The spreadsheet is kept in the same Drive folder as the deck so CSMs can
-inspect or tweak the underlying data.
+Spreadsheets live under a ``chart-data`` folder inside the resolved QBR Generator
+folder (see :func:`drive_config.get_qbr_generator_folder_id_for_drive_config`).
 """
 
 from __future__ import annotations
@@ -15,7 +15,8 @@ from typing import Any
 
 from googleapiclient.errors import HttpError
 
-from .config import GOOGLE_DRIVE_FOLDER_ID, logger
+from .config import GOOGLE_QBR_GENERATOR_FOLDER_ID, logger
+from .drive_config import get_qbr_generator_folder_id_for_drive_config
 from .slides_api import _get_service
 from .slides_theme import (
     NAVY,
@@ -501,15 +502,16 @@ def _build_sheets_service():
 
 
 def _get_chart_folder() -> str | None:
-    """Return the Drive folder ID for chart data spreadsheets."""
-    if not GOOGLE_DRIVE_FOLDER_ID:
+    """Return the Drive folder ID for chart data spreadsheets (child of QBR Generator)."""
+    if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
         return None
+    parent = get_qbr_generator_folder_id_for_drive_config()
 
     from .slides_api import _get_service
     _x, drive, _sh = _get_service()
 
     q = (
-        f"'{GOOGLE_DRIVE_FOLDER_ID}' in parents "
+        f"'{parent}' in parents "
         "and name = 'chart-data' "
         "and mimeType = 'application/vnd.google-apps.folder' "
         "and trashed = false"
@@ -522,7 +524,7 @@ def _get_chart_folder() -> str | None:
     meta = {
         "name": "chart-data",
         "mimeType": "application/vnd.google-apps.folder",
-        "parents": [GOOGLE_DRIVE_FOLDER_ID],
+        "parents": [parent],
     }
     folder = drive.files().create(body=meta, fields="id").execute()
     logger.info("Created chart-data folder: %s", folder["id"])

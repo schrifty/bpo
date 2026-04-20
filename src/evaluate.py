@@ -16,6 +16,7 @@ import hashlib
 import json
 import re
 import secrets
+import sys
 import tempfile
 import textwrap
 import time
@@ -27,7 +28,7 @@ import requests as _requests
 import yaml
 
 from .config import (
-    GOOGLE_DRIVE_FOLDER_ID,
+    GOOGLE_QBR_GENERATOR_FOLDER_ID,
     GOOGLE_HYDRATE_INTAKE_GROUP,
     HYDRATE_MAX_SLIDES,
     HYDRATE_REMOVE_INTAKE_GROUP_PERMISSION,
@@ -42,11 +43,9 @@ from .data_field_synonyms import (
     data_summary_lookup,
     data_summary_path_exists,
 )
+from .drive_config import assert_qbr_prompts_ready_or_raise
 from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
-from .slide_loader import (
-    cohort_findings_min_customers_for_cross_cohort_compare,
-    get_slide_definition,
-)
+from .slide_loader import get_slide_definition
 from .slides_client import (
     SLIDE_DATA_REQUIREMENTS,
     _box,
@@ -641,11 +640,11 @@ def _intake_entries_from_drive_file(drive, f: dict) -> list[dict[str, str]]:
         out.append({"id": f["id"], "name": f["name"]})
     elif mime == _PPTX_MIME:
         parent = _parent_folder_for_file(drive, f["id"])
-        if not parent and GOOGLE_DRIVE_FOLDER_ID:
-            parent = GOOGLE_DRIVE_FOLDER_ID
+        if not parent and GOOGLE_QBR_GENERATOR_FOLDER_ID:
+            parent = GOOGLE_QBR_GENERATOR_FOLDER_ID
         if not parent:
             _print(
-                f"Skipping PPTX '{f['name']}' (no parent folder; share as Google Slides or set GOOGLE_DRIVE_FOLDER_ID)."
+                f"Skipping PPTX '{f['name']}' (no parent folder; share as Google Slides or set GOOGLE_QBR_GENERATOR_FOLDER_ID)."
             )
             return []
         try:
@@ -1742,6 +1741,7 @@ def _adapt_text_has_percentage_semantics(s: str) -> bool:
 
 
 _ADAPT_TEMPLATE_SLIDE_YAML = Path(__file__).resolve().parent.parent / "config" / "adapt_template_slide.yaml"
+_ADAPT_SYSTEM_PROMPT_YAML = Path(__file__).resolve().parent.parent / "prompts" / "adapt_system_prompt.yaml"
 
 _ADAPT_TEMPLATE_FILL_IN_FALLBACK = (
     "- **EXCEPTION — example / headline / template slides**: If the slide title or body is dominated by "
@@ -1778,93 +1778,57 @@ def _load_adapt_template_slide_rule() -> str:
     return _ADAPT_TEMPLATE_FILL_IN_FALLBACK
 
 
-_ADAPT_SYSTEM_PROMPT = (
-    "You are analyzing a slide from a customer QBR presentation. "
-    "Identify every DATA VALUE on this slide — numbers, dates, percentages, "
-    "currency amounts, counts, metrics — and determine whether we have "
-    "current data to replace it.\n\n"
-    "CURRENT DATA AVAILABLE:\n{data_json}\n\n"
-    "RULES:\n"
-    "- Only target DATA VALUES, never pure headings or descriptive prose. "
-    "Exception: **metric lines** like \"NPS: -19\", \"CSAT: 4.2\", \"Score: 42\" combine a "
-    "short metric name with a number — treat the line (or at least the numeric token) as a "
-    "data value. **Negative numbers** (e.g. -19) are always data, never skip them.\n"
-    "- If such a metric is **not** in CURRENT DATA AVAILABLE (NPS/CSAT/CES are often absent), "
-    "you MUST still emit a replacement with mapped=false and a short placeholder "
-    "(e.g. new_value \"[???]\" for the whole line or \"NPS: [???]\" preserving the label) so the "
-    "slide is visibly flagged for the CSM.\n"
-    "- NEVER target UI elements: dropdown labels, filter values, button text, "
-    "navigation text, column headers, product feature names, or any text that "
-    "is part of the application interface rather than a reported metric.\n"
-    "- The 'original' field must be an EXACT substring of the slide text.\n"
-    "- **Never** use `original` that is **only a single digit** (0–9). Slides `replaceAllText` "
-    "replaces **every** occurrence of that substring on the page, which corrupts priority labels "
-    "like **P1** / **P2** (not metrics). Prefer a longer unique substring, or mark unmapped.\n"
-    "- **Repeated placeholders (e.g. two \"XX\" on one line):** Each slot must use a "
-    "**different** `original` string that **disambiguates** position — include enough "
-    "surrounding words so each `original` is unique (e.g. \"XX sites\" vs \"XX years\"). "
-    "Never emit two replacements with the **same** `original` text unless `new_value` is "
-    "identical (the pipeline dedupes identical originals).\n"
-    "- **Tenure / lifetime / \"years\" / \"since join\":** Do **not** map these to "
-    "**minutes**, **hours**, **total_minutes**, **avg_weekly_hours**, or other raw "
-    "duration fields unless you **explicitly** convert to **calendar years** and the "
-    "result is human-plausible (typically well under 100). If you cannot derive a "
-    "credible **years** figure from CURRENT DATA, use mapped=false and `[000]` / "
-    "`[000] years` as appropriate.\n"
-    "- Match by MEANING: '16 sites' maps to total_sites=14, so new_value='14 sites'.\n"
-    "- Preserve the original format style: '$324k' → '$291k', '16' → '14', '03/2025' → '03/2026'.\n"
-    "- **Percentages:** If `original` contains a percent sign (`%`) or reads as a percent "
-    "(e.g. \"42 percent\"), `new_value` MUST also be a percentage (include `%`, or "
-    "`percent`/`pct`). Never replace a percentage with a bare number or a count.\n"
-    "- For site names that appear in our data, keep them (they're still correct).\n"
-    "- If a value COULD map but you're not confident, mark mapped=false.\n"
-    "- Contract values, budget amounts, pricing, license costs, and any financial "
-    "data not in our sources → mapped=false.\n"
-    "- Specific project dates, milestones, and roadmap timelines → mapped=false.\n"
-    "- HISTORICAL / RETROSPECTIVE (narrow): Only treat a block as **frozen history** when the copy is "
-    "clearly **past-tense narrative** about completed work (e.g. \"we delivered in 2023\", "
-    "\"since go-live in 2022\", \"as of March 2024\") **and** the values look like **final** "
-    "snapshots, not bracket placeholders.\n"
-    "{template_fill_in_rule}"
-    "- Synonyms in CURRENT DATA: **total_users**, **total_visitors**, and **unique_visitors** are the "
-    "same Pendo visitor count; **active_users** is active visitors in the reporting window; "
-    "**total_sites** / **active_sites** are site counts.\n"
-    "- A **phrase dictionary** (``config/data_field_synonyms.json``) also maps common slide wording to "
-    "dotted paths in CURRENT DATA (e.g. cost-avoidance language → ``platform_value.total_savings``). "
-    "Prefer those paths when the slide context matches.\n"
-    "- BESPOKE / REFERENCE TABLES (tier grids, standard pricing bands, deployment scenario "
-    "matrices, sizing tables): If table cells read as **fixed product or commercial reference** "
-    "rather than **this customer's live metrics** from CURRENT DATA AVAILABLE—and nothing in the "
-    "data clearly maps to those rows/columns—treat the table as **intentionally static**: "
-    "**do not** include any of those cells in `replacements` (leave the text as-is; no "
-    "placeholders). **Never** replace only some rows or cells in the same coherent table; "
-    "partial updates look like mistakes. If unsure, leave the **whole** table unchanged.\n\n"
-    "For UNMAPPED values (no matching current data in CURRENT DATA AVAILABLE), use these "
-    "short on-slide placeholders only (speaker notes will explain meaning):\n"
-    "- Plain numbers → [000]\n"
-    "- Currency → [$000]\n"
-    "- Dates → [00/00/00]\n"
-    "- Percentages → [00%]\n"
-    "- Anything else → [???]\n\n"
-    "IMAGES & CHARTS: If the slide contains images or charts that show data:\n"
-    "- Images marked '(embedded image)' or '(image in shape)': examine the thumbnail "
-    "to check if the image contains data (numbers, charts, tables). If it does, add:\n"
-    "  original: '(embedded image)', mapped: false,\n"
-    "  new_value: '[STATIC IMAGE — contains data that cannot be auto-updated]',\n"
-    "  field: brief description of what data the image shows.\n"
-    "- Charts marked '(embedded chart — contains data that cannot be auto-updated)': "
-    "always flag these regardless of what they show. Add:\n"
-    "  original: '(embedded chart — contains data that cannot be auto-updated)', "
-    "mapped: false,\n"
-    "  new_value: '[CHART — data cannot be auto-updated]',\n"
-    "  field: brief description of what the chart shows (e.g. 'inventory trend chart').\n\n"
-    "Return JSON: {{\"replacements\": [\n"
-    "  {{\"original\": \"exact text\", \"new_value\": \"replacement\", "
-    "\"mapped\": true/false, \"field\": \"data source field or reason unmapped\"}}\n"
-    "]}}\n"
-    "Keep 'field' values short (≤10 words). "
-    "Return an EMPTY replacements list if the slide has no data values to replace."
-)
+@functools.lru_cache(maxsize=1)
+def _load_adapt_system_prompt_template() -> str:
+    """Load the adapt LLM system prompt template (str.format placeholders: data_json, template_fill_in_rule).
+
+    When ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` is set, syncs repo ``prompts/adapt_system_prompt.yaml``
+    to that folder’s ``Prompts/``, then prefers Drive text — same pattern as deck/slide YAML.
+    """
+    p = _ADAPT_SYSTEM_PROMPT_YAML
+
+    def _parse(raw_yaml: str) -> str | None:
+        data = yaml.safe_load(raw_yaml)
+        if not isinstance(data, dict):
+            return None
+        s = data.get("adapt_system_prompt")
+        if not isinstance(s, str) or not s.strip():
+            return None
+        return s.rstrip("\n") + "\n"
+
+    if GOOGLE_QBR_GENERATOR_FOLDER_ID:
+        try:
+            from .drive_config import (
+                ensure_qbr_adapt_prompt_yaml_synced_from_repo,
+                read_adapt_system_prompt_yaml_text_from_drive,
+            )
+
+            ensure_qbr_adapt_prompt_yaml_synced_from_repo()
+            drive_raw = read_adapt_system_prompt_yaml_text_from_drive()
+            if drive_raw is not None:
+                parsed = _parse(drive_raw)
+                if parsed is not None:
+                    return parsed
+                logger.warning(
+                    "adapt: QBR Prompts %s on Drive is not valid adapt_system_prompt YAML — using local file",
+                    "adapt_system_prompt.yaml",
+                )
+        except Exception as e:
+            logger.warning("adapt: QBR Prompts Drive prompt unavailable (%s) — using local file", e)
+
+    try:
+        raw = p.read_text(encoding="utf-8")
+        parsed = _parse(raw)
+        if parsed is not None:
+            return parsed
+        raise ValueError("missing or empty adapt_system_prompt")
+    except OSError as e:
+        logger.warning("adapt: could not read %s — %s", p, e)
+    except (yaml.YAMLError, TypeError, ValueError) as e:
+        logger.warning("adapt: invalid YAML in %s — %s", p, e)
+    raise RuntimeError(
+        f"Adapt system prompt is required: edit or restore {p} (see repo prompts/ folder)."
+    )
 
 
 def _element_may_contain_data(el: dict) -> bool:
@@ -2096,7 +2060,7 @@ def _get_data_replacements(oai, text_elements: list[dict], data_summary: dict,
             filtered.append(el)
 
     data_json = _format_data_summary_for_adapt_prompt(data_summary)
-    system = _ADAPT_SYSTEM_PROMPT.format(
+    system = _load_adapt_system_prompt_template().format(
         data_json=data_json,
         template_fill_in_rule=_load_adapt_template_slide_rule(),
     ).rstrip()
@@ -2308,8 +2272,12 @@ def _compiled_title_slot_pattern(section_titles: dict) -> re.Pattern:
 
 
 def _truncate_agenda_line(s: str, max_chars: int) -> str:
-    """Trim to ``max_chars`` with a trailing ellipsis when shortened (agenda layout)."""
-    t = (s or "").strip()
+    """Trim to ``max_chars`` with a trailing ellipsis when shortened (agenda layout).
+
+    Collapses all internal whitespace (including newlines from YAML/LLM) to a single space so
+    title-bar text does not pick up explicit line breaks that Slides treats as wrap.
+    """
+    t = re.sub(r"\s+", " ", (s or "").strip())
     if max_chars <= 0:
         return ""
     if len(t) <= max_chars:
@@ -2319,12 +2287,148 @@ def _truncate_agenda_line(s: str, max_chars: int) -> str:
     return t[: max_chars - 1] + "…"
 
 
+def _shorten_agenda_label(
+    raw: str,
+    mode: str,
+    max_title_chars: int | None,
+) -> str:
+    """Shorten a deck section title for narrow agenda rows (YAML or vision ``layout_hints``).
+
+    ``mode`` is one of: ``none``, ``acronym``, ``first_word``, ``first_two_words``.
+    After semantic shortening, ``max_title_chars`` still applies as a hard cap (ellipsis).
+    """
+    t = re.sub(r"\s+", " ", (raw or "").strip())
+    if not t:
+        return ""
+    m = (mode or "none").strip().lower()
+    if m in ("", "none"):
+        if max_title_chars is not None:
+            try:
+                mc = int(max_title_chars)
+                if mc > 0:
+                    return _truncate_agenda_line(t, mc)
+            except (TypeError, ValueError):
+                pass
+        return t[:200] if len(t) > 200 else t
+
+    if m == "acronym":
+        words = re.findall(r"[A-Za-z0-9]+", t)
+        if not words:
+            return _truncate_agenda_line(t, max_title_chars or 12)
+        ac = "".join(w[0].upper() for w in words[:12])
+        if len(ac) > 8:
+            ac = ac[:8]
+        out = ac
+    elif m == "first_word":
+        words = re.findall(r"\S+", t)
+        skip = {
+            "the",
+            "a",
+            "an",
+            "and",
+            "or",
+            "of",
+            "for",
+            "in",
+            "on",
+            "at",
+            "to",
+        }
+        out = ""
+        for w in words:
+            core = w.strip(".,!?;:\"'()[]")
+            if not core:
+                continue
+            if core.lower() in skip:
+                continue
+            out = core
+            break
+        if not out and words:
+            out = words[0].strip(".,!?;:\"'()[]")
+    elif m == "first_two_words":
+        toks = t.split()
+        skip = {
+            "the",
+            "a",
+            "an",
+            "and",
+            "or",
+            "of",
+            "for",
+            "in",
+            "on",
+            "at",
+            "to",
+        }
+        picked: list[str] = []
+        for tok in toks:
+            core = tok.strip(".,!?;:\"'()[]")
+            if not core:
+                continue
+            if core.lower() in skip and not picked:
+                continue
+            picked.append(core)
+            if len(picked) >= 2:
+                break
+        out = " ".join(picked) if picked else t
+    else:
+        out = t
+
+    if max_title_chars is not None:
+        try:
+            mc = int(max_title_chars)
+            if mc > 0:
+                return _truncate_agenda_line(out, mc)
+        except (TypeError, ValueError):
+            pass
+    return out[:200] if len(out) > 200 else out
+
+
+def _qbr_agenda_label_shortening_mode(report: dict, section_titles: dict) -> str:
+    ov = report.get("_qbr_agenda_shorten_mode_override")
+    if isinstance(ov, str) and ov.strip():
+        return ov.strip().lower()
+    ls = section_titles.get("label_shortening") if isinstance(section_titles, dict) else None
+    if isinstance(ls, dict):
+        mode = ls.get("mode")
+        if isinstance(mode, str) and mode.strip():
+            return mode.strip().lower()
+    return "none"
+
+
+def _qbr_agenda_effective_max_chars(report: dict, section_titles: dict) -> int | None:
+    """``max_chars_per_section_title`` with optional vision/YAML scale or override."""
+    base = section_titles.get("max_chars_per_section_title")
+    try:
+        base_int = int(base) if base is not None else None
+    except (TypeError, ValueError):
+        base_int = None
+    ov = report.get("_qbr_agenda_max_chars_override")
+    if ov is not None:
+        try:
+            oi = int(ov)
+            if oi > 0:
+                return oi
+        except (TypeError, ValueError):
+            pass
+    scale = report.get("_qbr_agenda_max_chars_scale")
+    if base_int is not None and scale is not None:
+        try:
+            sc = float(scale)
+            if 0 < sc <= 2:
+                return max(1, int(round(base_int * sc)))
+        except (TypeError, ValueError):
+            pass
+    return base_int
+
+
 def _build_qbr_title_hash_replacements(
     text_elements: list[dict],
     items: list[str],
     *,
     pattern: re.Pattern | None = None,
     max_title_chars: int | None = None,
+    shorten_mode: str = "none",
 ) -> list[dict]:
     """One replaceAllText row per distinct title-slot substring on the slide."""
     rx = pattern or _TITLE_HASH_PLACEHOLDER_RE
@@ -2340,16 +2444,7 @@ def _build_qbr_title_hash_replacements(
             if exact in seen:
                 continue
             seen.add(exact)
-            label = items[n - 1]
-            if max_title_chars is not None:
-                try:
-                    mc = int(max_title_chars)
-                    if mc > 0:
-                        label = _truncate_agenda_line(label, mc)
-                except (TypeError, ValueError):
-                    label = label[:200]
-            else:
-                label = label[:200]
+            label = _shorten_agenda_label(items[n - 1], shorten_mode, max_title_chars)
             rows.append({
                 "original": exact,
                 "new_value": label,
@@ -2357,6 +2452,107 @@ def _build_qbr_title_hash_replacements(
                 "field": "qbr_agenda_section",
             })
     return rows
+
+
+def _qbr_agenda_title_bar_shape_object_ids(text_elements: list[dict], report: dict) -> list[str]:
+    """Object IDs of text shapes that hold ``Title #N`` slots (for post-adapt autofit fix)."""
+    saved = report.get("_qbr_agenda_title_shape_ids")
+    if isinstance(saved, list) and saved:
+        out = [str(x) for x in saved if x]
+        if out:
+            return out
+    ag = _qbr_agenda_hydrate_config(report)
+    if not _slide_matches_qbr_agenda_hydrate(text_elements, ag):
+        return []
+    if not isinstance(ag, dict):
+        return []
+    st = (ag.get("template") or {}).get("section_titles") or {}
+    if not isinstance(st, dict) or st.get("from_deck_plan") is False:
+        return []
+    pat = _compiled_title_slot_pattern(st)
+    out: list[str] = []
+    seen: set[str] = set()
+    for el in text_elements:
+        if el.get("type") != "shape":
+            continue
+        text = el.get("text") or ""
+        if not pat.search(text):
+            continue
+        oid = el.get("element_id")
+        if not oid or oid in seen:
+            continue
+        seen.add(oid)
+        out.append(str(oid))
+    return out
+
+
+def _build_qbr_agenda_reshorten_replacements(
+    text_elements: list[dict],
+    report: dict,
+) -> list[dict]:
+    """After placeholders are gone, shorten full section titles already on the slide (vision/YAML hints).
+
+    Emits ``replaceAllText`` rows only when the long title substring still appears and the
+    shortened form differs.
+    """
+    plan = report.get("_slide_plan")
+    if not isinstance(plan, list) or not plan:
+        return []
+    ag = _qbr_agenda_hydrate_config(report)
+    if not _slide_matches_qbr_agenda_hydrate(text_elements, ag):
+        return []
+    if not isinstance(ag, dict):
+        return []
+    st = (ag.get("template") or {}).get("section_titles") or {}
+    if not isinstance(st, dict) or st.get("from_deck_plan") is False:
+        return []
+    mode = _qbr_agenda_label_shortening_mode(report, st)
+    if mode in ("", "none"):
+        return []
+    items = _qbr_agenda_items_from_plan(plan)
+    if not items:
+        return []
+    blob = "\n".join((el.get("text") or "") for el in text_elements if el.get("type") == "shape")
+    max_title = _qbr_agenda_effective_max_chars(report, st)
+    rows: list[dict] = []
+    seen_orig: set[str] = set()
+    for item in items:
+        raw = (item or "").strip()
+        if not raw:
+            continue
+        if raw not in blob:
+            continue
+        short = _shorten_agenda_label(raw, mode, max_title)
+        if short == raw:
+            continue
+        if raw in seen_orig:
+            continue
+        seen_orig.add(raw)
+        rows.append({
+            "original": raw,
+            "new_value": short,
+            "mapped": True,
+            "field": "qbr_agenda_section_reshorten",
+        })
+    return rows
+
+
+def _shape_autofit_none_requests(object_ids: list[str]) -> list[dict[str, Any]]:
+    """Slides API: disable text autofit on shapes (reduces reflow/wrap behavior on narrow title bars)."""
+    reqs: list[dict[str, Any]] = []
+    for oid in object_ids:
+        if not oid:
+            continue
+        reqs.append({
+            "updateShapeProperties": {
+                "objectId": oid,
+                "shapeProperties": {
+                    "autofit": {"autofitType": "NONE"},
+                },
+                "fields": "autofit",
+            }
+        })
+    return reqs
 
 
 def _qbr_agenda_adapt_extra_rules(report: dict, text_elements: list[dict]) -> str:
@@ -2443,15 +2639,29 @@ def _merge_qbr_agenda_title_replacements(
     if not items:
         return base_replacements
     pat = _compiled_title_slot_pattern(st)
-    max_title = st.get("max_chars_per_section_title")
+    max_title = _qbr_agenda_effective_max_chars(report, st)
+    shorten_mode = _qbr_agenda_label_shortening_mode(report, st)
     title_rows = _build_qbr_title_hash_replacements(
         text_elements,
         items,
         pattern=pat,
         max_title_chars=max_title,
+        shorten_mode=shorten_mode,
     )
     if not title_rows:
         return base_replacements
+    oids: list[str] = []
+    for el in text_elements:
+        if el.get("type") != "shape":
+            continue
+        text = el.get("text") or ""
+        if not pat.search(text):
+            continue
+        oid = el.get("element_id")
+        if oid:
+            oids.append(str(oid))
+    if oids:
+        report["_qbr_agenda_title_shape_ids"] = oids
     originals = {str(r["original"]).strip() for r in title_rows}
     filtered = [
         r for r in base_replacements
@@ -3556,6 +3766,18 @@ def adapt_custom_slides(
                         clamp_reqs = _slide_metric_font_clamp_requests(slide_fresh, replacements)
                         if clamp_reqs:
                             slides_presentations_batch_update(slides_svc, pres_id, clamp_reqs)
+                        af_reqs = _shape_autofit_none_requests(
+                            _qbr_agenda_title_bar_shape_object_ids(text_elements, report)
+                        )
+                        if af_reqs:
+                            try:
+                                slides_presentations_batch_update(slides_svc, pres_id, af_reqs)
+                            except Exception as ae:
+                                logger.warning(
+                                    "hydrate: slide %s — agenda title-bar autofit NONE failed: %s",
+                                    slide_num,
+                                    ae,
+                                )
                 except Exception as e:
                     logger.warning(
                         "hydrate: slide %s — post-adapt font clamp failed (slide may show oversized metrics): %s",
@@ -3782,8 +4004,8 @@ _BUILDER_DESCRIPTIONS = {
     "cohort_profiles": "Per-cohort profile slides — medians and account list for each manufacturing cohort bucket",
     "cohort_findings": (
         "Single slide — bullet list comparing cohort buckets (sample sizes, median login/write, "
-        f"Kei adoption spread when ≥2 cohorts have n≥{cohort_findings_min_customers_for_cross_cohort_compare()}, "
-        "unclassified count); auto text from portfolio rollup — "
+        "Kei adoption spread when ≥2 cohorts have enough accounts (default n≥5 per cohort_findings "
+        "rollup_params in slides YAML), unclassified count); auto text from portfolio rollup — "
         "not per-account profiles (that's cohort_profiles) or risk signals (that's signals)"
     ),
 }
@@ -3938,6 +4160,12 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
     if empty_msg:
         _print(empty_msg)
         return []
+
+    try:
+        assert_qbr_prompts_ready_or_raise()
+    except Exception as e:
+        _print(f"\nCannot start hydrate (Prompts / adapt_system_prompt.yaml): {e}\n")
+        sys.exit(1)
 
     # Load known customer names for auto-detection
     from .pendo_client import PendoClient

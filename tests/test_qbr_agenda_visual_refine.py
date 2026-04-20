@@ -36,6 +36,7 @@ def test_visual_refinement_disabled():
 
 
 def test_visual_quality_missing_thumbnail_is_not_pass():
-    ok, issues = _qbr_agenda_visual_quality_ok(None, None)
+    ok, issues, hints = _qbr_agenda_visual_quality_ok(None, None)
     assert ok is False
     assert "thumbnail" in issues.lower()
+    assert hints == {}

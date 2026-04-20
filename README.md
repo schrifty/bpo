@@ -19,8 +19,8 @@ Config is in `src/config.py` (reads from env).
 
 To create slide decks in your Drive (using your quota instead of the service account's 15 GB):
 
-1. Create a folder in your Google Drive and share it with `bpo-slides-account@bpo-slides.iam.gserviceaccount.com` (Editor).
-2. Add to `.env`: `GOOGLE_DRIVE_FOLDER_ID=<folder-id-from-url>`, `GOOGLE_DRIVE_OWNER_EMAIL=<your-google-email>`, `GOOGLE_APPLICATION_CREDENTIALS=<path-to-service-account.json>`.
+1. Create your **QBR Generator** folder in Google Drive (or pick an existing one) and share it with `bpo-slides-account@bpo-slides.iam.gserviceaccount.com` (Editor).
+2. Add to `.env`: `GOOGLE_QBR_GENERATOR_FOLDER_ID=<folder-id-from-url>`, `GOOGLE_DRIVE_OWNER_EMAIL=<your-google-email>`, `GOOGLE_APPLICATION_CREDENTIALS=<path-to-service-account.json>`.
 3. **Enable domain-wide delegation** (requires Google Workspace Super Admin):
    - **GCP Console** → [IAM & Admin → Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts?project=bpo-slides) → click `bpo-slides-account` → Details → Advanced settings → copy **Client ID** (numeric).
    - **Google Workspace Admin** → [Manage Domain Wide Delegation](https://admin.google.com/ac/owl/domainwidedelegation) → Add new → paste Client ID → add scopes: `https://www.googleapis.com/auth/drive`, `https://www.googleapis.com/auth/presentations` → Authorize.

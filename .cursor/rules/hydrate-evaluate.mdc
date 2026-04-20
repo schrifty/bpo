@@ -7,6 +7,7 @@ globs:
   - src/qbr_template.py
   - config/data_field_synonyms.json
   - config/adapt_template_slide.yaml
+  - prompts/adapt_system_prompt.yaml
   - tests/test_data_field_synonyms.py
   - tests/test_evaluate_helpers.py
   - tests/test_qbr_agenda_visual_refine.py
@@ -15,7 +16,7 @@ alwaysApply: false
 
 # Hydrate / adapt / speaker notes (`evaluate.py`)
 
-1. **Treat as one pipeline:** adapt (LLM + replacements), cache keys, synonym resolution, sanitizers, `replaceAllText`, speaker notes, and summary behavior hang together. Avoid bolt-on slide-specific branches in `evaluate.py` when the same intent can live in **`slides/*.yaml`**, **`config/adapt_template_slide.yaml`**, or **`config/data_field_synonyms.json`**.
+1. **Treat as one pipeline:** adapt (LLM + replacements), cache keys, synonym resolution, sanitizers, `replaceAllText`, speaker notes, and summary behavior hang together. Avoid bolt-on slide-specific branches in `evaluate.py` when the same intent can live in **`slides/*.yaml`**, **`prompts/adapt_system_prompt.yaml`** (main adapt system prompt template; synced to **BPO/QBR Generator/Prompts/** on Drive when that folder is resolved, like deck/slide YAML), **`config/adapt_template_slide.yaml`**, or **`config/data_field_synonyms.json`**.
 2. **Prefer config first:** new “what this slide means for hydrate” rules belong in YAML/JSON with clear schema and comments; Python should load, validate, and apply — not duplicate magic strings per slide type.
 3. **Design standards:** `docs/SLIDE_DESIGN_STANDARDS.md` applies to **app-built** slide code, not to template-copied slides that only receive hydrate/adapt text. Do not treat hydrate/QBR template slides as requiring that design guide unless the change is to shared builders.
 

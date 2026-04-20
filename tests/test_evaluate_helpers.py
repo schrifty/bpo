@@ -850,6 +850,51 @@ def test_qbr_agenda_adapt_extra_rules_legacy_when_no_adapt_instructions():
     assert "description" in s.lower()
 
 
+def test_shorten_agenda_label_acronym():
+    assert evaluate._shorten_agenda_label(
+        "Quarterly Business Review", "acronym", None
+    ) == "QBR"
+
+
+def test_shorten_agenda_label_first_word_skips_article():
+    assert evaluate._shorten_agenda_label(
+        "The Financial Results", "first_word", None
+    ) == "Financial"
+
+
+def test_shorten_agenda_label_none_truncates():
+    assert evaluate._shorten_agenda_label(
+        "abcdefghijklmnopqrstuvwxyz", "none", 10
+    ) == "abcdefghi…"
+
+
+def test_build_qbr_agenda_reshorten_replacements():
+    text_elements = [
+        {"type": "shape", "element_id": "a", "text": "Agenda"},
+        {"type": "shape", "element_id": "b", "text": "Long Section Name Here"},
+    ]
+    report = {
+        "_slide_plan": [
+            {"slide_type": "qbr_divider", "title": "Long Section Name Here"},
+        ],
+        "_hydrate_slide_hints": {
+            "qbr_agenda": {
+                "template": {
+                    "section_titles": {
+                        "from_deck_plan": True,
+                        "label_shortening": {"mode": "acronym"},
+                    },
+                    "slide_detection": {"body_contains_word": ["Agenda"]},
+                }
+            }
+        },
+    }
+    rows = evaluate._build_qbr_agenda_reshorten_replacements(text_elements, report)
+    assert len(rows) == 1
+    assert rows[0]["original"] == "Long Section Name Here"
+    assert rows[0]["new_value"] == "LSNH"
+
+
 # ── intake: Drive query escape ──────────────────────────────────────────────────
 
 

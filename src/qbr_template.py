@@ -16,7 +16,6 @@ from .config import (
     BPO_SIGNALS_LLM_DECK_PROMPT,
     BPO_SIGNALS_LLM_EDITORIAL,
     BPO_SIGNALS_LLM_MANIFEST_MAX_CHARS,
-    GOOGLE_DRIVE_FOLDER_ID,
     GOOGLE_QBR_GENERATOR_FOLDER_ID,
     GOOGLE_QBR_OUTPUT_PARENT_ID,
     LLM_MODEL,
@@ -26,8 +25,10 @@ from .config import (
 from .deck_loader import resolve_deck
 from .slide_loader import hydrate_hints_by_slide_id
 from .drive_config import (
+    ADAPT_SYSTEM_PROMPT_FILENAME,
     export_google_doc_as_plain_text,
     find_file_in_folder,
+    get_qbr_generator_folder_id_for_drive_config,
     _find_or_create_folder,
 )
 from .evaluate import _detect_customer, _extract_text, adapt_custom_slides
@@ -62,10 +63,12 @@ from .slides_client import (
     slides_presentations_batch_update,
 )
 
-# Drive layout under GOOGLE_QBR_GENERATOR_FOLDER_ID ("QBR Generator")
+# Drive layout under the QBR Generator folder (see get_qbr_generator_folder_id_for_drive_config)
+QBR_OUTPUT_SUBFOLDER = "Output"
 QBR_TEMPLATE_FILE_NAME = "[Template] - Quarterly Business Review"
+# qbr_slide_list (Google Doc) + (via drive_config) repo ``prompts/adapt_system_prompt.yaml`` synced here for adapt
 QBR_PROMPTS_SUBFOLDER = "Prompts"
-QBR_MANIFEST_DOC_NAME = "Manifest Prompt"
+QBR_SLIDE_LIST_DOC_NAME = "qbr_slide_list"
 
 _MIME_PRESENTATION = "application/vnd.google-apps.presentation"
 _MIME_FOLDER = "application/vnd.google-apps.folder"
@@ -106,21 +109,35 @@ def resolve_qbr_template_and_manifest(generator_folder_id: str) -> tuple[str, st
         raise FileNotFoundError(
             f"QBR Prompts folder not found: '{QBR_PROMPTS_SUBFOLDER}' under {generator_folder_id}"
         )
-    mid = find_file_in_folder(QBR_MANIFEST_DOC_NAME, prompts_id, _MIME_DOC)
+    if not find_file_in_folder(ADAPT_SYSTEM_PROMPT_FILENAME, prompts_id, None):
+        raise FileNotFoundError(
+            f"{ADAPT_SYSTEM_PROMPT_FILENAME} not found under Prompts folder (id={prompts_id})"
+        )
+    mid = find_file_in_folder(QBR_SLIDE_LIST_DOC_NAME, prompts_id, _MIME_DOC)
     if not mid:
         raise FileNotFoundError(
-            f"Manifest Doc not found: '{QBR_MANIFEST_DOC_NAME}' under Prompts folder"
+            f"qbr_slide_list Google Doc not found: '{QBR_SLIDE_LIST_DOC_NAME}' under Prompts folder"
         )
     text = export_google_doc_as_plain_text(mid)
     return tid, text
 
 
 def get_qbr_output_folder_id() -> str | None:
-    """Return folder id for ``{ISO-date} - Output``, creating it if needed."""
-    parent = GOOGLE_QBR_OUTPUT_PARENT_ID or GOOGLE_DRIVE_FOLDER_ID
-    if not parent:
-        logger.warning("QBR: no GOOGLE_QBR_OUTPUT_PARENT_ID or GOOGLE_DRIVE_FOLDER_ID — copy stays in Drive root")
-        return None
+    """Return folder id for ``{ISO-date} - Output``, creating it if needed.
+
+    Default parent chain: ``<QBR Generator>/Output/``. Override with ``GOOGLE_QBR_OUTPUT_PARENT_ID``
+    (parent of the date-stamped folder only).
+    """
+    if GOOGLE_QBR_OUTPUT_PARENT_ID:
+        parent = GOOGLE_QBR_OUTPUT_PARENT_ID
+    else:
+        if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
+            logger.warning(
+                "QBR: GOOGLE_QBR_GENERATOR_FOLDER_ID not set — cannot create Output folder under generator"
+            )
+            return None
+        gen = get_qbr_generator_folder_id_for_drive_config()
+        parent = _find_or_create_folder(QBR_OUTPUT_SUBFOLDER, gen)
     name = f"{datetime.date.today().isoformat()} - Output"
     return _find_or_create_folder(name, parent)
 
@@ -565,8 +582,8 @@ def compute_adapt_page_ids(
 def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
     """End-to-end QBR: copy template, manifest plan (optional exec-summary insert), hide/move, adapt.
 
-    When ``GOOGLE_QBR_OUTPUT_PARENT_ID`` or ``GOOGLE_DRIVE_FOLDER_ID`` is set, creates
-    ``{date} - Output/{customer} — QBR bundle ({quarter})/`` and places the hydrated QBR
+    Creates ``<QBR Generator>/Output/{date} - Output/{customer} — QBR bundle ({quarter})/`` (unless
+    ``GOOGLE_QBR_OUTPUT_PARENT_ID`` overrides the parent of ``{date} - Output``), and places the hydrated QBR
     deck there together with standalone Customer Success Health Review, Executive Summary,
     Support Review, Product Adoption Review, and Manufacturing Cohort Review decks
     (cohort deck uses the same quarter window and a full portfolio rollup; other companions
@@ -575,14 +592,13 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
 
     Returns a result dict with ``url``, ``bundle_folder_id``, ``companion_decks``, and logging fields.
     """
-    if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
-        return {
-            "error": "GOOGLE_QBR_GENERATOR_FOLDER_ID is not set",
-            "hint": "Set it to your Drive folder ID for BPO > QBR Generator",
-        }
+    try:
+        gen_id = get_qbr_generator_folder_id_for_drive_config()
+    except RuntimeError as e:
+        return {"error": str(e), "hint": "Set GOOGLE_QBR_GENERATOR_FOLDER_ID in .env to your QBR Generator folder id."}
 
     try:
-        template_id, manifest_text = resolve_qbr_template_and_manifest(GOOGLE_QBR_GENERATOR_FOLDER_ID)
+        template_id, manifest_text = resolve_qbr_template_and_manifest(gen_id)
     except FileNotFoundError as e:
         return {"error": str(e)}
 
@@ -824,7 +840,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
         result["companion_decks"] = []
         logger.info(
             "QBR: no Drive Output folder — skipping companion decks "
-            "(set GOOGLE_QBR_OUTPUT_PARENT_ID or GOOGLE_DRIVE_FOLDER_ID)"
+            "(set GOOGLE_QBR_GENERATOR_FOLDER_ID; optional GOOGLE_QBR_OUTPUT_PARENT_ID overrides Output parent)"
         )
 
     cohort_url = next(
