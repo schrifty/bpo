@@ -6467,6 +6467,276 @@ def _salesforce_category_slide(reqs, sid, report, idx):
     return idx + len(chunks), oids
 
 
+# ── LeanDNA Shortage Trends Slides ──
+
+def _critical_shortages_detail_slide(reqs, sid, report, idx):
+    """Critical Material Shortages table (top 20 by CTB impact)."""
+    ldna_shortage = report.get("leandna_shortage_trends") or {}
+    
+    if not ldna_shortage.get("enabled"):
+        return _missing_data_slide(reqs, sid, report, idx, "LeanDNA Shortage Trends not configured")
+    
+    critical_timeline = ldna_shortage.get("critical_timeline") or []
+    if not critical_timeline:
+        return _missing_data_slide(reqs, sid, report, idx, "No critical shortages found")
+    
+    _slide(reqs, sid, idx)
+    _slide_title(reqs, sid, "Critical Material Shortages — Next 90 Days")
+    
+    # Table with 7 columns
+    headers = ["Item Code", "Description", "Site", "First Critical", "Days Short", "CTB Impact", "PO Status"]
+    col_widths = [80, 140, 70, 75, 55, 65, 60]
+    ROW_H = 24
+    
+    # Fit as many rows as possible
+    max_rows = min(len(critical_timeline), 20)
+    table_top = BODY_Y + 12
+    
+    num_rows = 1 + max_rows
+    table_id = f"{sid}_tbl"
+    
+    reqs.append({
+        "createTable": {
+            "objectId": table_id,
+            "elementProperties": {
+                "pageObjectId": sid,
+                "size": _sz(sum(col_widths), num_rows * ROW_H),
+                "transform": _tf(MARGIN, table_top),
+            },
+            "rows": num_rows,
+            "columns": len(headers),
+        }
+    })
+    
+    def _ct(row, col, text):
+        if not text:
+            return
+        reqs.append({
+            "insertText": {
+                "objectId": table_id,
+                "cellLocation": {"rowIndex": row, "columnIndex": col},
+                "text": str(text),
+                "insertionIndex": 0,
+            }
+        })
+    
+    def _cs(row, col, text_len, bold=False, color=None, size=8, align=None):
+        if text_len > 0:
+            from typing import Any
+            s: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}, "fontFamily": FONT}
+            f = ["fontSize", "fontFamily"]
+            if bold:
+                s["bold"] = True
+                f.append("bold")
+            if color:
+                s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}
+                f.append("foregroundColor")
+            reqs.append({
+                "updateTextStyle": {
+                    "objectId": table_id,
+                    "cellLocation": {"rowIndex": row, "columnIndex": col},
+                    "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
+                    "style": s,
+                    "fields": ",".join(f),
+                }
+            })
+        if align:
+            reqs.append({
+                "updateParagraphStyle": {
+                    "objectId": table_id,
+                    "cellLocation": {"rowIndex": row, "columnIndex": col},
+                    "textRange": {"type": "ALL"},
+                    "style": {"alignment": align},
+                    "fields": "alignment",
+                }
+            })
+    
+    def _cbg(row, col, color):
+        reqs.append({
+            "updateTableCellProperties": {
+                "objectId": table_id,
+                "tableRange": {"location": {"rowIndex": row, "columnIndex": col}, "rowSpan": 1, "columnSpan": 1},
+                "tableCellProperties": {"tableCellBackgroundFill": {"solidFill": {"color": {"rgbColor": color}}}},
+                "fields": "tableCellBackgroundFill",
+            }
+        })
+    
+    _clean_table(reqs, table_id, num_rows, len(headers))
+    
+    # Header row
+    for ci, h in enumerate(headers):
+        _ct(0, ci, h)
+        _cs(0, ci, len(h), bold=True, color=NAVY, size=8, align="END" if ci >= 3 else None)
+        _cbg(0, ci, WHITE)
+    
+    # Data rows
+    for ri, item in enumerate(critical_timeline[:max_rows]):
+        row_idx = ri + 1
+        
+        item_code = (item.get("itemCode") or "")[:20]
+        desc = (item.get("itemDescription") or "")[:35]
+        site = (item.get("site") or "")[:15]
+        first_crit = item.get("firstCriticalWeek") or ""
+        days_short = item.get("daysInShortage") or 0
+        ctb_impact = item.get("ctbImpact") or 0
+        po_status = item.get("poStatus") or "Unknown"
+        
+        # Format first critical date as M/D
+        if first_crit:
+            try:
+                from dateutil import parser
+                dt = parser.parse(first_crit)
+                first_crit_disp = dt.strftime("%m/%d")
+            except Exception:
+                first_crit_disp = first_crit[:10]
+        else:
+            first_crit_disp = "-"
+        
+        # Format CTB impact
+        if ctb_impact >= 1_000_000:
+            ctb_disp = f"${ctb_impact/1_000_000:.1f}M"
+        elif ctb_impact >= 1_000:
+            ctb_disp = f"${ctb_impact/1_000:.0f}K"
+        else:
+            ctb_disp = f"${ctb_impact:,.0f}" if ctb_impact > 0 else "-"
+        
+        vals = [item_code, desc, site, first_crit_disp, str(days_short) if days_short else "-", ctb_disp, po_status]
+        
+        for ci, v in enumerate(vals):
+            _ct(row_idx, ci, v)
+            # Color-code "First Critical" column by urgency
+            if ci == 3:
+                cell_color = None
+                try:
+                    if first_crit:
+                        from datetime import datetime, timezone
+                        from dateutil import parser
+                        dt = parser.parse(first_crit)
+                        days_until = (dt.replace(tzinfo=timezone.utc) - datetime.now(timezone.utc)).days
+                        if days_until < 7:
+                            cell_color = {"red": 1.0, "green": 0.8, "blue": 0.8}
+                        elif days_until < 14:
+                            cell_color = {"red": 1.0, "green": 0.9, "blue": 0.7}
+                        elif days_until < 30:
+                            cell_color = {"red": 1.0, "green": 1.0, "blue": 0.8}
+                except Exception:
+                    pass
+                
+                if cell_color:
+                    _cbg(row_idx, ci, cell_color)
+            
+            _cs(row_idx, ci, len(v), size=7, align="END" if ci >= 3 else None)
+    
+    return [sid]
+
+
+def _shortage_forecast_slide(reqs, sid, report, idx):
+    """Shortage Forecast slide with chart and 4 KPI cards."""
+    ldna_shortage = report.get("leandna_shortage_trends") or {}
+    
+    if not ldna_shortage.get("enabled"):
+        return _missing_data_slide(reqs, sid, report, idx, "LeanDNA Shortage Trends not configured")
+    
+    forecast = ldna_shortage.get("forecast") or {}
+    buckets = forecast.get("buckets") or []
+    
+    if not buckets:
+        return _missing_data_slide(reqs, sid, report, idx, "No shortage forecast data available")
+    
+    _slide(reqs, sid, idx)
+    _slide_title(reqs, sid, "Material Shortage Forecast — Next 12 Weeks")
+    
+    # Chart placeholder
+    chart_y = BODY_Y + 12
+    chart_h = 200
+    _box(reqs, f"{sid}_chart_placeholder", sid, MARGIN, chart_y, CONTENT_W, chart_h, fill={"red": 0.95, "green": 0.95, "blue": 0.95})
+    _text(reqs, f"{sid}_chart_text", sid, MARGIN, chart_y + 80, CONTENT_W, 40, 
+          "[Stacked Area Chart: Weekly Shortage Forecast]\n(Chart generation TODO)", 
+          size=14, color=GRAY, align="CENTER", valign="MIDDLE")
+    
+    # KPI cards below chart
+    kpi_y = chart_y + chart_h + 18
+    kpi_h = 58
+    kpi_gap = 18
+    kpi_w = (CONTENT_W - 3 * kpi_gap) / 4
+    
+    total_items = ldna_shortage.get("total_items_in_shortage", 0)
+    critical_items = ldna_shortage.get("critical_items", 0)
+    peak_week = forecast.get("peak_week") or "N/A"
+    total_value = forecast.get("total_shortage_value", 0)
+    
+    # Format peak week as M/D if possible
+    if peak_week != "N/A":
+        try:
+            from dateutil import parser
+            dt = parser.parse(peak_week)
+            peak_week_disp = dt.strftime("%b %d")
+        except Exception:
+            peak_week_disp = peak_week[:10]
+    else:
+        peak_week_disp = "N/A"
+    
+    # Format total value
+    if total_value >= 1_000_000:
+        value_disp = f"${total_value/1_000_000:.1f}M"
+    elif total_value >= 1_000:
+        value_disp = f"${total_value/1_000:.0f}K"
+    else:
+        value_disp = f"${total_value:,.0f}" if total_value > 0 else "$0"
+    
+    _kpi_metric_card(reqs, f"{sid}_k0", sid, MARGIN, kpi_y, kpi_w, kpi_h,
+                     "Total Items in Shortage", f"{total_items:,}", accent=BLUE, value_pt=18)
+    _kpi_metric_card(reqs, f"{sid}_k1", sid, MARGIN + kpi_w + kpi_gap, kpi_y, kpi_w, kpi_h,
+                     "Critical Items", f"{critical_items:,}", 
+                     accent=ORANGE if critical_items > 10 else BLUE, value_pt=18)
+    _kpi_metric_card(reqs, f"{sid}_k2", sid, MARGIN + 2 * (kpi_w + kpi_gap), kpi_y, kpi_w, kpi_h,
+                     "Peak Week", peak_week_disp, accent=BLUE, value_pt=18)
+    _kpi_metric_card(reqs, f"{sid}_k3", sid, MARGIN + 3 * (kpi_w + kpi_gap), kpi_y, kpi_w, kpi_h,
+                     "Shortage Value", value_disp, accent=BLUE, value_pt=18)
+    
+    return [sid]
+
+
+def _shortage_deliveries_slide(reqs, sid, report, idx):
+    """Shortage Resolution — Scheduled Deliveries slide."""
+    ldna_shortage = report.get("leandna_shortage_trends") or {}
+    
+    if not ldna_shortage.get("enabled"):
+        return _missing_data_slide(reqs, sid, report, idx, "LeanDNA Shortage Trends not configured")
+    
+    deliveries = ldna_shortage.get("scheduled_deliveries") or {}
+    items_with_sched = deliveries.get("items_with_schedules", 0)
+    
+    _slide(reqs, sid, idx)
+    _slide_title(reqs, sid, "Shortage Resolution — Scheduled Deliveries")
+    
+    # Placeholder for dual chart
+    chart_y = BODY_Y + 12
+    chart_h = 220
+    _box(reqs, f"{sid}_chart_placeholder", sid, MARGIN, chart_y, CONTENT_W, chart_h, fill={"red": 0.95, "green": 0.95, "blue": 0.95})
+    _text(reqs, f"{sid}_chart_text", sid, MARGIN, chart_y + 90, CONTENT_W, 40,
+          "[Dual Chart: Shortage vs Scheduled Deliveries]\n(Chart generation TODO)",
+          size=14, color=GRAY, align="CENTER", valign="MIDDLE")
+    
+    # KPI cards below
+    kpi_y = chart_y + chart_h + 18
+    kpi_h = 58
+    kpi_gap = 22
+    kpi_w = (CONTENT_W - 2 * kpi_gap) / 3
+    
+    avg_del = deliveries.get("avg_deliveries_per_item", 0)
+    next_7_qty = deliveries.get("next_n_days_scheduled_qty", 0)
+    
+    _kpi_metric_card(reqs, f"{sid}_k0", sid, MARGIN, kpi_y, kpi_w, kpi_h,
+                     "Items with Schedules", f"{items_with_sched:,}", accent=BLUE, value_pt=18)
+    _kpi_metric_card(reqs, f"{sid}_k1", sid, MARGIN + kpi_w + kpi_gap, kpi_y, kpi_w, kpi_h,
+                     "Avg Deliveries/Item", f"{avg_del:.1f}", accent=BLUE, value_pt=18)
+    _kpi_metric_card(reqs, f"{sid}_k2", sid, MARGIN + 2 * (kpi_w + kpi_gap), kpi_y, kpi_w, kpi_h,
+                     "Next 7 Days Qty", f"{next_7_qty:,.0f}", accent=BLUE, value_pt=18)
+    
+    return [sid]
+
+
 # ── Composable API (agent builds deck slide by slide) ──
 
 # Maps slide type names to builder functions and the report keys they require
@@ -7186,278 +7456,3 @@ def export_slide_thumbnails(
     logger.info("Exported %d thumbnails for '%s' → %s", len(saved), title, out)
     return saved
 
-
-# ── LeanDNA Shortage Trends Slides ──
-
-def _critical_shortages_detail_slide(reqs, sid, report, idx):
-    """Critical Material Shortages table (top 20 by CTB impact)."""
-    ldna_shortage = report.get("leandna_shortage_trends") or {}
-    
-    if not ldna_shortage.get("enabled"):
-        return _missing_data_slide(reqs, sid, report, idx, "LeanDNA Shortage Trends not configured")
-    
-    critical_timeline = ldna_shortage.get("critical_timeline") or []
-    if not critical_timeline:
-        return _missing_data_slide(reqs, sid, report, idx, "No critical shortages found")
-    
-    _slide(reqs, sid, idx)
-    _slide_title(reqs, sid, "Critical Material Shortages — Next 90 Days")
-    
-    # Table with 7 columns
-    headers = ["Item Code", "Description", "Site", "First Critical", "Days Short", "CTB Impact", "PO Status"]
-    col_widths = [80, 140, 70, 75, 55, 65, 60]
-    ROW_H = 24
-    
-    # Fit as many rows as possible
-    max_rows = min(len(critical_timeline), 20)  # top 20
-    table_top = BODY_Y + 12
-    
-    num_rows = 1 + max_rows
-    table_id = f"{sid}_tbl"
-    
-    reqs.append({
-        "createTable": {
-            "objectId": table_id,
-            "elementProperties": {
-                "pageObjectId": sid,
-                "size": _sz(sum(col_widths), num_rows * ROW_H),
-                "transform": _tf(MARGIN, table_top),
-            },
-            "rows": num_rows,
-            "columns": len(headers),
-        }
-    })
-    
-    def _ct(row, col, text):
-        if not text:
-            return
-        reqs.append({
-            "insertText": {
-                "objectId": table_id,
-                "cellLocation": {"rowIndex": row, "columnIndex": col},
-                "text": str(text),
-                "insertionIndex": 0,
-            }
-        })
-    
-    def _cs(row, col, text_len, bold=False, color=None, size=8, align=None):
-        if text_len > 0:
-            from typing import Any
-            s: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}, "fontFamily": FONT}
-            f = ["fontSize", "fontFamily"]
-            if bold:
-                s["bold"] = True
-                f.append("bold")
-            if color:
-                s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}
-                f.append("foregroundColor")
-            reqs.append({
-                "updateTextStyle": {
-                    "objectId": table_id,
-                    "cellLocation": {"rowIndex": row, "columnIndex": col},
-                    "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
-                    "style": s,
-                    "fields": ",".join(f),
-                }
-            })
-        if align:
-            reqs.append({
-                "updateParagraphStyle": {
-                    "objectId": table_id,
-                    "cellLocation": {"rowIndex": row, "columnIndex": col},
-                    "textRange": {"type": "ALL"},
-                    "style": {"alignment": align},
-                    "fields": "alignment",
-                }
-            })
-    
-    def _cbg(row, col, color):
-        reqs.append({
-            "updateTableCellProperties": {
-                "objectId": table_id,
-                "tableRange": {"location": {"rowIndex": row, "columnIndex": col}, "rowSpan": 1, "columnSpan": 1},
-                "tableCellProperties": {"tableCellBackgroundFill": {"solidFill": {"color": {"rgbColor": color}}}},
-                "fields": "tableCellBackgroundFill",
-            }
-        })
-    
-    _clean_table(reqs, table_id, num_rows, len(headers))
-    
-    # Header row
-    for ci, h in enumerate(headers):
-        _ct(0, ci, h)
-        _cs(0, ci, len(h), bold=True, color=NAVY, size=8, align="END" if ci >= 3 else None)
-        _cbg(0, ci, WHITE)
-    
-    # Data rows
-    for ri, item in enumerate(critical_timeline[:max_rows]):
-        row_idx = ri + 1
-        
-        item_code = (item.get("itemCode") or "")[:20]
-        desc = (item.get("itemDescription") or "")[:35]
-        site = (item.get("site") or "")[:15]
-        first_crit = item.get("firstCriticalWeek") or ""
-        days_short = item.get("daysInShortage") or 0
-        ctb_impact = item.get("ctbImpact") or 0
-        po_status = item.get("poStatus") or "Unknown"
-        
-        # Format first critical date as M/D
-        if first_crit:
-            try:
-                from dateutil import parser
-                dt = parser.parse(first_crit)
-                first_crit_disp = dt.strftime("%m/%d")
-            except Exception:
-                first_crit_disp = first_crit[:10]
-        else:
-            first_crit_disp = "-"
-        
-        # Format CTB impact
-        if ctb_impact >= 1_000_000:
-            ctb_disp = f"${ctb_impact/1_000_000:.1f}M"
-        elif ctb_impact >= 1_000:
-            ctb_disp = f"${ctb_impact/1_000:.0f}K"
-        else:
-            ctb_disp = f"${ctb_impact:,.0f}" if ctb_impact > 0 else "-"
-        
-        vals = [item_code, desc, site, first_crit_disp, str(days_short) if days_short else "-", ctb_disp, po_status]
-        
-        for ci, v in enumerate(vals):
-            _ct(row_idx, ci, v)
-            # Color-code "First Critical" column by urgency
-            if ci == 3:  # First Critical column
-                # Determine color based on how soon it is
-                cell_color = None
-                try:
-                    if first_crit:
-                        from datetime import datetime, timezone
-                        from dateutil import parser
-                        dt = parser.parse(first_crit)
-                        days_until = (dt.replace(tzinfo=timezone.utc) - datetime.now(timezone.utc)).days
-                        if days_until < 7:
-                            cell_color = {"red": 1.0, "green": 0.8, "blue": 0.8}  # light red
-                        elif days_until < 14:
-                            cell_color = {"red": 1.0, "green": 0.9, "blue": 0.7}  # light orange
-                        elif days_until < 30:
-                            cell_color = {"red": 1.0, "green": 1.0, "blue": 0.8}  # light yellow
-                except Exception:
-                    pass
-                
-                if cell_color:
-                    _cbg(row_idx, ci, cell_color)
-            
-            _cs(row_idx, ci, len(v), size=7, align="END" if ci >= 3 else None)
-    
-    return [sid]
-
-
-def _shortage_forecast_slide(reqs, sid, report, idx):
-    """Shortage Forecast slide with chart and 4 KPI cards."""
-    ldna_shortage = report.get("leandna_shortage_trends") or {}
-    
-    if not ldna_shortage.get("enabled"):
-        return _missing_data_slide(reqs, sid, report, idx, "LeanDNA Shortage Trends not configured")
-    
-    forecast = ldna_shortage.get("forecast") or {}
-    buckets = forecast.get("buckets") or []
-    
-    if not buckets:
-        return _missing_data_slide(reqs, sid, report, idx, "No shortage forecast data available")
-    
-    _slide(reqs, sid, idx)
-    _slide_title(reqs, sid, "Material Shortage Forecast — Next 12 Weeks")
-    
-    # For now: placeholder chart area + KPI cards
-    # TODO: Implement stacked area chart using DeckCharts
-    
-    # Chart placeholder
-    chart_y = BODY_Y + 12
-    chart_h = 200
-    _box(reqs, f"{sid}_chart_placeholder", sid, MARGIN, chart_y, CONTENT_W, chart_h, fill={"red": 0.95, "green": 0.95, "blue": 0.95})
-    _text(reqs, f"{sid}_chart_text", sid, MARGIN, chart_y + 80, CONTENT_W, 40, 
-          "[Stacked Area Chart: Weekly Shortage Forecast]\n(Chart generation TODO)", 
-          size=14, color=GRAY, align="CENTER", valign="MIDDLE")
-    
-    # KPI cards below chart
-    kpi_y = chart_y + chart_h + 18
-    kpi_h = 58
-    kpi_gap = 18
-    kpi_w = (CONTENT_W - 3 * kpi_gap) / 4
-    
-    total_items = ldna_shortage.get("total_items_in_shortage", 0)
-    critical_items = ldna_shortage.get("critical_items", 0)
-    peak_week = forecast.get("peak_week") or "N/A"
-    total_value = forecast.get("total_shortage_value", 0)
-    
-    # Format peak week as M/D if possible
-    if peak_week != "N/A":
-        try:
-            from dateutil import parser
-            dt = parser.parse(peak_week)
-            peak_week_disp = dt.strftime("%b %d")
-        except Exception:
-            peak_week_disp = peak_week[:10]
-    else:
-        peak_week_disp = "N/A"
-    
-    # Format total value
-    if total_value >= 1_000_000:
-        value_disp = f"${total_value/1_000_000:.1f}M"
-    elif total_value >= 1_000:
-        value_disp = f"${total_value/1_000:.0f}K"
-    else:
-        value_disp = f"${total_value:,.0f}" if total_value > 0 else "$0"
-    
-    _kpi_metric_card(reqs, f"{sid}_k0", sid, MARGIN, kpi_y, kpi_w, kpi_h,
-                     "Total Items in Shortage", f"{total_items:,}", accent=BLUE, value_pt=18)
-    _kpi_metric_card(reqs, f"{sid}_k1", sid, MARGIN + kpi_w + kpi_gap, kpi_y, kpi_w, kpi_h,
-                     "Critical Items", f"{critical_items:,}", 
-                     accent=ORANGE if critical_items > 10 else BLUE, value_pt=18)
-    _kpi_metric_card(reqs, f"{sid}_k2", sid, MARGIN + 2 * (kpi_w + kpi_gap), kpi_y, kpi_w, kpi_h,
-                     "Peak Week", peak_week_disp, accent=BLUE, value_pt=18)
-    _kpi_metric_card(reqs, f"{sid}_k3", sid, MARGIN + 3 * (kpi_w + kpi_gap), kpi_y, kpi_w, kpi_h,
-                     "Shortage Value", value_disp, accent=BLUE, value_pt=18)
-    
-    return [sid]
-
-
-def _shortage_deliveries_slide(reqs, sid, report, idx):
-    """Shortage Resolution — Scheduled Deliveries slide."""
-    ldna_shortage = report.get("leandna_shortage_trends") or {}
-    
-    if not ldna_shortage.get("enabled"):
-        return _missing_data_slide(reqs, sid, report, idx, "LeanDNA Shortage Trends not configured")
-    
-    deliveries = ldna_shortage.get("scheduled_deliveries") or {}
-    items_with_sched = deliveries.get("items_with_schedules", 0)
-    
-    _slide(reqs, sid, idx)
-    _slide_title(reqs, sid, "Shortage Resolution — Scheduled Deliveries")
-    
-    # Placeholder for dual chart
-    # TODO: Implement line chart (shortage) + bar chart (deliveries) overlay
-    
-    chart_y = BODY_Y + 12
-    chart_h = 220
-    _box(reqs, f"{sid}_chart_placeholder", sid, MARGIN, chart_y, CONTENT_W, chart_h, fill={"red": 0.95, "green": 0.95, "blue": 0.95})
-    _text(reqs, f"{sid}_chart_text", sid, MARGIN, chart_y + 90, CONTENT_W, 40,
-          "[Dual Chart: Shortage vs Scheduled Deliveries]\n(Chart generation TODO)",
-          size=14, color=GRAY, align="CENTER", valign="MIDDLE")
-    
-    # KPI cards below
-    kpi_y = chart_y + chart_h + 18
-    kpi_h = 58
-    kpi_gap = 22
-    kpi_w = (CONTENT_W - 2 * kpi_gap) / 3
-    
-    avg_del = deliveries.get("avg_deliveries_per_item", 0)
-    next_7_qty = deliveries.get("next_n_days_scheduled_qty", 0)
-    
-    _kpi_metric_card(reqs, f"{sid}_k0", sid, MARGIN, kpi_y, kpi_w, kpi_h,
-                     "Items with Schedules", f"{items_with_sched:,}", accent=BLUE, value_pt=18)
-    _kpi_metric_card(reqs, f"{sid}_k1", sid, MARGIN + kpi_w + kpi_gap, kpi_y, kpi_w, kpi_h,
-                     "Avg Deliveries/Item", f"{avg_del:.1f}", accent=BLUE, value_pt=18)
-    _kpi_metric_card(reqs, f"{sid}_k2", sid, MARGIN + 2 * (kpi_w + kpi_gap), kpi_y, kpi_w, kpi_h,
-                     "Next 7 Days Qty", f"{next_7_qty:,.0f}", accent=BLUE, value_pt=18)
-    
-    return [sid]

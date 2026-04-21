@@ -53,6 +53,8 @@ def enrich_qbr_with_shortage_trends(
     Raises:
         No exceptions raised; logs warnings and returns report unchanged on error.
     """
+    logger.info("LeanDNA Shortage Trends enrichment: starting for customer=%s", customer)
+    
     # Check if LeanDNA is configured
     if not LEANDNA_DATA_API_BEARER_TOKEN:
         logger.debug("LeanDNA shortage trends skipped: LEANDNA_DATA_API_BEARER_TOKEN not set")
