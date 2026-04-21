@@ -670,6 +670,13 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
         report = enrich_qbr_with_shortage_trends(report, customer, weeks_forward=12)
     except Exception as e:
         logger.warning("LeanDNA Shortage Trends enrichment failed (non-fatal): %s", e)
+    
+    # Enrich with LeanDNA Lean Projects if configured
+    try:
+        from .leandna_lean_projects_enrich import enrich_qbr_with_lean_projects
+        report = enrich_qbr_with_lean_projects(report, customer)
+    except Exception as e:
+        logger.warning("LeanDNA Lean Projects enrichment failed (non-fatal): %s", e)
 
     qbr_resolved = resolve_deck("qbr", customer)
     if qbr_resolved.get("error"):

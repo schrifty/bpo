@@ -1,0 +1,29 @@
+id: lean_projects_savings
+title: "Lean Projects Savings Tracking"
+description: "Monthly savings (actual vs target) and portfolio KPIs"
+type: chart_with_kpis
+tags:
+  - lean_projects
+  - savings
+  - continuous_improvement
+speaker_notes: |
+  ## Lean Projects Savings
+
+  This slide tracks monthly savings achievement across all active Lean projects.
+
+  **KPI Cards:**
+  - Total Projects: All projects in the portfolio
+  - Active Projects: Excludes Closed/Cancelled
+  - Total Savings: Actual savings achieved this quarter
+  - Achievement %: Actual vs target (green if >100%)
+
+  **Chart (Placeholder):**
+  - Monthly breakdown of actual vs target savings
+  - Helps identify trends and momentum
+
+  **Follow-up Questions:**
+  - Are we on track to hit quarterly savings targets?
+  - Which months had highest achievement?
+  - What drove over/under-performance?
+
+  **Data Source:** LeanDNA Lean Projects API (monthly savings breakdown)

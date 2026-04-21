@@ -96,6 +96,11 @@ try:
     LEANDNA_SHORTAGE_CACHE_TTL_HOURS = max(1, min(48, _ldna_shortage_cache_hours))  # 1h-48h range
 except ValueError:
     LEANDNA_SHORTAGE_CACHE_TTL_HOURS = 12
+try:
+    _ldna_projects_cache_hours = int(os.environ.get("LEANDNA_LEAN_PROJECTS_CACHE_TTL_HOURS", "24").strip())
+    LEANDNA_LEAN_PROJECTS_CACHE_TTL_HOURS = max(1, min(168, _ldna_projects_cache_hours))  # 1h-7d range
+except ValueError:
+    LEANDNA_LEAN_PROJECTS_CACHE_TTL_HOURS = 24
 
 # Optional limits for tool output (0 = no limit, full dataset returned)
 PENDO_MAX_RESULTS = int(os.environ.get("PENDO_MAX_RESULTS", "0"))

@@ -1,0 +1,24 @@
+id: lean_projects_portfolio
+title: "Lean Projects Portfolio"
+description: "Top 10 active Lean projects by savings achievement"
+type: data_table
+tags:
+  - lean_projects
+  - continuous_improvement
+  - portfolio
+speaker_notes: |
+  ## Lean Projects Portfolio
+
+  This slide shows the top 10 Lean projects by actual savings for the quarter.
+
+  **Key Metrics:**
+  - Project stage (Planning, Execution, Validation, Closed)
+  - Health state (good = green, warn = yellow, bad = red)
+  - Savings achievement (actual vs target)
+
+  **Follow-up Questions:**
+  - Which projects are behind target?
+  - Are there best practice projects we can share across sites?
+  - What's blocking at-risk projects?
+
+  **Data Source:** LeanDNA Lean Projects API

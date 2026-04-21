@@ -296,6 +296,32 @@ REST API for item-level supply chain data. Full swagger spec: [`docs/leandna-dat
 
 **Note:** Shortage data is cached shorter (12h TTL default) than Item Master (24h) since shortage forecasts are more time-sensitive. Configuration: `LEANDNA_SHORTAGE_CACHE_TTL_HOURS`.
 
+### Registry Entries (Lean Projects)
+
+| Identifier | Description | Source field / query surface | Where used | Status note |
+|---|---|---|---|---|
+|| `LEAN-PROJECT-ID` | Unique project identifier. | `id` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Core identifier |
+|| `LEAN-PROJECT-NAME` | Project name. | `name` (/data/LeanProject) | `src/leandna_lean_projects_client.py`, portfolio slide | Core field |
+|| `LEAN-PROJECT-SITE-ID` | Site where project is managed. | `siteId` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Site join key |
+|| `LEAN-PROJECT-AREA` | Project area (e.g., Procurement, Production). | `area` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Categorization |
+|| `LEAN-PROJECT-TYPE` | Project type (e.g., Cost Reduction, Lead Time). | `type` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Categorization |
+|| `LEAN-PROJECT-STAGE` | Current project stage (Planning, Execution, Validation, Closed). | `stage` (/data/LeanProject) | `src/leandna_lean_projects_client.py`, portfolio slide | Core status field |
+|| `LEAN-PROJECT-STATE` | Health state indicator (good, warn, bad). | `state` (/data/LeanProject) | `src/leandna_lean_projects_client.py`, portfolio slide | Visual indicator |
+|| `LEAN-PROJECT-START-DATE` | Project start date. | `startDate` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Core timeline field |
+|| `LEAN-PROJECT-DUE-DATE` | Project due/target completion date. | `dueDate` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Core timeline field |
+|| `LEAN-PROJECT-MANAGER-NAME` | Name of project manager. | `projectManager.name` (/data/LeanProject) | `src/leandna_lean_projects_client.py`, portfolio slide | Core field |
+|| `LEAN-PROJECT-SPONSOR-NAME` | Name of executive sponsor. | `sponsor.name` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Core field |
+|| `LEAN-PROJECT-SAVINGS-ACTUAL` | Total actual savings for period. | `totalActualSavingsForPeriod` (/data/LeanProject) | `src/leandna_lean_projects_client.py`, portfolio slide | Core ROI metric |
+|| `LEAN-PROJECT-SAVINGS-TARGET` | Total target savings for period. | `totalTargetSavingsForPeriod` (/data/LeanProject) | `src/leandna_lean_projects_client.py`, portfolio slide | Core ROI metric |
+|| `LEAN-PROJECT-BEST-PRACTICE-FLAG` | Whether project is marked as best practice. | `isBestPractice` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Quality indicator |
+|| `LEAN-PROJECT-VALIDATED-FLAG` | Whether project results are validated. | `isProjectResultsValidated` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Quality indicator |
+|| `LEAN-PROJECT-MONTHLY-SAVINGS-ACTUAL` | Actual savings for a specific month. | `savings[].actual` (/data/LeanProject/{ids}/Savings) | `src/leandna_lean_projects_client.py`, savings slide | Time-series metric |
+|| `LEAN-PROJECT-MONTHLY-SAVINGS-TARGET` | Target savings for a specific month. | `savings[].target` (/data/LeanProject/{ids}/Savings) | `src/leandna_lean_projects_client.py`, savings slide | Time-series metric |
+|| `LEAN-PROJECT-SAVINGS-CATEGORY` | Category of savings (e.g., Inventory Reduction). | `savings[].savingsCategory` (/data/LeanProject/{ids}/Savings) | `src/leandna_lean_projects_client.py` | Categorization for breakdown |
+|| `LEAN-PROJECT-LINK` | Direct link to project in LeanDNA UI. | `link` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Navigation |
+
+**Note:** Lean Projects data is cached with 24h TTL (same as Item Master). Configuration: `LEANDNA_LEAN_PROJECTS_CACHE_TTL_HOURS`. Not all customers use the Lean Projects module, so enrichment gracefully skips if no projects are found for the quarter.
+
 ## Salesforce
 
 Field-level schema and HTTP surfaces: [`SALESFORCE_DATA_SCHEMA.md`](./SALESFORCE_DATA_SCHEMA.md). **Where ARR/recurring value is modeled** (Account vs Contract vs CPQ vs Revenue Cloud): [`SALESFORCE_REVENUE_AND_ARR.md`](./SALESFORCE_REVENUE_AND_ARR.md).

@@ -6737,6 +6737,213 @@ def _shortage_deliveries_slide(reqs, sid, report, idx):
     return [sid]
 
 
+# ── LeanDNA Lean Projects Slides ──
+
+def _lean_projects_portfolio_slide(reqs, sid, report, idx):
+    """Lean Projects Portfolio — Top 10 projects by savings."""
+    ldna_projects = report.get("leandna_lean_projects") or {}
+    
+    if not ldna_projects.get("enabled"):
+        return _missing_data_slide(reqs, sid, report, idx, "LeanDNA Lean Projects not configured")
+    
+    top_projects = ldna_projects.get("top_projects") or []
+    if not top_projects:
+        return _missing_data_slide(reqs, sid, report, idx, "No Lean projects found for period")
+    
+    _slide(reqs, sid, idx)
+    _slide_title(reqs, sid, "Lean Projects Portfolio — Top 10 by Savings")
+    
+    # Table with 7 columns
+    headers = ["Project Name", "Stage", "State", "Manager", "Actual", "Target", "Achieve %"]
+    col_widths = [180, 70, 50, 90, 70, 70, 55]
+    ROW_H = 24
+    
+    max_rows = min(len(top_projects), 10)
+    table_top = BODY_Y + 12
+    
+    num_rows = 1 + max_rows
+    table_id = f"{sid}_tbl"
+    
+    reqs.append({
+        "createTable": {
+            "objectId": table_id,
+            "elementProperties": {
+                "pageObjectId": sid,
+                "size": _sz(sum(col_widths), num_rows * ROW_H),
+                "transform": _tf(MARGIN, table_top),
+            },
+            "rows": num_rows,
+            "columns": len(headers),
+        }
+    })
+    
+    def _ct(row, col, text):
+        if not text:
+            return
+        reqs.append({
+            "insertText": {
+                "objectId": table_id,
+                "cellLocation": {"rowIndex": row, "columnIndex": col},
+                "text": str(text),
+                "insertionIndex": 0,
+            }
+        })
+    
+    def _cs(row, col, text_len, bold=False, color=None, size=8, align=None):
+        if text_len > 0:
+            from typing import Any
+            s: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}, "fontFamily": FONT}
+            f = ["fontSize", "fontFamily"]
+            if bold:
+                s["bold"] = True
+                f.append("bold")
+            if color:
+                s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}
+                f.append("foregroundColor")
+            reqs.append({
+                "updateTextStyle": {
+                    "objectId": table_id,
+                    "cellLocation": {"rowIndex": row, "columnIndex": col},
+                    "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
+                    "style": s,
+                    "fields": ",".join(f),
+                }
+            })
+        if align:
+            reqs.append({
+                "updateParagraphStyle": {
+                    "objectId": table_id,
+                    "cellLocation": {"rowIndex": row, "columnIndex": col},
+                    "textRange": {"type": "ALL"},
+                    "style": {"alignment": align},
+                    "fields": "alignment",
+                }
+            })
+    
+    def _cbg(row, col, color):
+        reqs.append({
+            "updateTableCellProperties": {
+                "objectId": table_id,
+                "tableRange": {"location": {"rowIndex": row, "columnIndex": col}, "rowSpan": 1, "columnSpan": 1},
+                "tableCellProperties": {"tableCellBackgroundFill": {"solidFill": {"color": {"rgbColor": color}}}},
+                "fields": "tableCellBackgroundFill",
+            }
+        })
+    
+    _clean_table(reqs, table_id, num_rows, len(headers))
+    
+    # Header row
+    for ci, h in enumerate(headers):
+        _ct(0, ci, h)
+        _cs(0, ci, len(h), bold=True, color=NAVY, size=8, align="END" if ci >= 4 else None)
+        _cbg(0, ci, WHITE)
+    
+    # Data rows
+    for ri, proj in enumerate(top_projects[:max_rows]):
+        row_idx = ri + 1
+        
+        name = (proj.get("name") or "Unknown")[:40]
+        stage = proj.get("stage") or "Unknown"
+        state = proj.get("state") or "unknown"
+        manager = (proj.get("project_manager") or "")[:25]
+        actual = proj.get("savings_actual", 0.0)
+        target = proj.get("savings_target", 0.0)
+        
+        # Format savings
+        if actual >= 1_000_000:
+            actual_disp = f"${actual/1_000_000:.1f}M"
+        elif actual >= 1_000:
+            actual_disp = f"${actual/1_000:.0f}K"
+        else:
+            actual_disp = f"${actual:,.0f}" if actual > 0 else "$0"
+        
+        if target >= 1_000_000:
+            target_disp = f"${target/1_000_000:.1f}M"
+        elif target >= 1_000:
+            target_disp = f"${target/1_000:.0f}K"
+        else:
+            target_disp = f"${target:,.0f}" if target > 0 else "$0"
+        
+        # Achievement %
+        achievement = (actual / target * 100) if target > 0 else 0.0
+        achieve_disp = f"{achievement:.0f}%"
+        
+        vals = [name, stage, state, manager, actual_disp, target_disp, achieve_disp]
+        
+        for ci, v in enumerate(vals):
+            _ct(row_idx, ci, v)
+            
+            # Color-code state column
+            if ci == 2:
+                if state == "good":
+                    cell_color = {"red": 0.8, "green": 1.0, "blue": 0.8}
+                elif state == "warn":
+                    cell_color = {"red": 1.0, "green": 0.95, "blue": 0.7}
+                elif state == "bad":
+                    cell_color = {"red": 1.0, "green": 0.8, "blue": 0.8}
+                else:
+                    cell_color = None
+                
+                if cell_color:
+                    _cbg(row_idx, ci, cell_color)
+            
+            _cs(row_idx, ci, len(v), size=7, align="END" if ci >= 4 else None)
+    
+    return [sid]
+
+
+def _lean_projects_savings_slide(reqs, sid, report, idx):
+    """Lean Projects Savings — Monthly trend and KPIs."""
+    ldna_projects = report.get("leandna_lean_projects") or {}
+    
+    if not ldna_projects.get("enabled"):
+        return _missing_data_slide(reqs, sid, report, idx, "LeanDNA Lean Projects not configured")
+    
+    monthly = ldna_projects.get("monthly_savings") or []
+    
+    _slide(reqs, sid, idx)
+    _slide_title(reqs, sid, "Lean Projects Savings Tracking")
+    
+    # Placeholder chart
+    chart_y = BODY_Y + 12
+    chart_h = 200
+    _box(reqs, f"{sid}_chart_placeholder", sid, MARGIN, chart_y, CONTENT_W, chart_h, fill={"red": 0.95, "green": 0.95, "blue": 0.95})
+    _text(reqs, f"{sid}_chart_text", sid, MARGIN, chart_y + 80, CONTENT_W, 40,
+          "[Stacked Column Chart: Monthly Savings (Actual vs Target)]\n(Chart generation TODO)",
+          size=14, color=GRAY, align="CENTER", valign="MIDDLE")
+    
+    # KPI cards below chart
+    kpi_y = chart_y + chart_h + 18
+    kpi_h = 58
+    kpi_gap = 18
+    kpi_w = (CONTENT_W - 3 * kpi_gap) / 4
+    
+    total_projects = ldna_projects.get("total_projects", 0)
+    active_projects = ldna_projects.get("active_projects", 0)
+    total_actual = ldna_projects.get("total_savings_actual", 0.0)
+    achievement = ldna_projects.get("savings_achievement_pct", 0.0)
+    
+    # Format total actual
+    if total_actual >= 1_000_000:
+        actual_disp = f"${total_actual/1_000_000:.1f}M"
+    elif total_actual >= 1_000:
+        actual_disp = f"${total_actual/1_000:.0f}K"
+    else:
+        actual_disp = f"${total_actual:,.0f}" if total_actual > 0 else "$0"
+    
+    _kpi_metric_card(reqs, f"{sid}_k0", sid, MARGIN, kpi_y, kpi_w, kpi_h,
+                     "Total Projects", f"{total_projects:,}", accent=BLUE, value_pt=18)
+    _kpi_metric_card(reqs, f"{sid}_k1", sid, MARGIN + kpi_w + kpi_gap, kpi_y, kpi_w, kpi_h,
+                     "Active Projects", f"{active_projects:,}", accent=BLUE, value_pt=18)
+    _kpi_metric_card(reqs, f"{sid}_k2", sid, MARGIN + 2 * (kpi_w + kpi_gap), kpi_y, kpi_w, kpi_h,
+                     "Total Savings", actual_disp, accent=GREEN, value_pt=18)
+    _kpi_metric_card(reqs, f"{sid}_k3", sid, MARGIN + 3 * (kpi_w + kpi_gap), kpi_y, kpi_w, kpi_h,
+                     "Achievement", f"{achievement:.0f}%",
+                     accent=GREEN if achievement >= 100 else ORANGE, value_pt=18)
+    
+    return [sid]
+
+
 # ── Composable API (agent builds deck slide by slide) ──
 
 # Maps slide type names to builder functions and the report keys they require
@@ -6794,6 +7001,8 @@ _SLIDE_BUILDERS = {
     "shortage_forecast": _shortage_forecast_slide,
     "critical_shortages_detail": _critical_shortages_detail_slide,
     "shortage_deliveries": _shortage_deliveries_slide,
+    "lean_projects_portfolio": _lean_projects_portfolio_slide,
+    "lean_projects_savings": _lean_projects_savings_slide,
 }
 
 # Which report keys each slide type needs (so the agent knows what data to supply)

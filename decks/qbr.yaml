@@ -37,6 +37,8 @@ slides:
   - slide: shortage_forecast
   - slide: critical_shortages_detail
   - slide: shortage_deliveries
+  - slide: lean_projects_savings
+  - slide: lean_projects_portfolio
   - slide: platform_value
   - slide: qbr_divider
     title: Summary & next steps
