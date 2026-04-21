@@ -174,6 +174,9 @@ QBR_BUNDLE_COMPANION_DECKS: tuple[tuple[str, str], ...] = (
     ("executive_summary", "executive_summary"),
     ("support", "support"),
     ("product_adoption", "product_adoption"),
+    ("supply_chain_review", "supply_chain"),
+    ("platform_value_summary", "platform_value"),
+    ("engineering", "engineering"),
     ("cohort_review", "cohort_review"),
 )
 

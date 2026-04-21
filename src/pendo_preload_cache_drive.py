@@ -121,7 +121,9 @@ def try_load_pendo_preload_payload(kind: str, days: int | None) -> Any | None:
             return None
         with drive_api_lock:
             drive = _get_drive()
-            meta = drive.files().get(fileId=fid, fields="modifiedTime").execute()
+            from .network_utils import network_timeout
+            with network_timeout(30.0, "Drive file metadata get"):
+                meta = drive.files().get(fileId=fid, fields="modifiedTime").execute()
         text = _read_drive_file_text_retrying(fid)
         raw = json.loads(text)
         env = _validate_envelope(raw, kind, days)
@@ -203,18 +205,21 @@ def save_pendo_preload_payload(kind: str, days: int | None, payload: Any) -> Non
         last_err: BaseException | None = None
         for attempt in range(4):
             try:
+                from .network_utils import network_timeout
                 with drive_api_lock:
                     drive = _get_drive()
                     media = MediaIoBaseUpload(io.BytesIO(body), mimetype="application/json")
                     fid = find_file_in_folder(name, folder_id, mime_type=None)
                     if fid:
-                        drive.files().update(fileId=fid, media_body=media, fields="id").execute()
+                        with network_timeout(30.0, "Drive file update"):
+                            drive.files().update(fileId=fid, media_body=media, fields="id").execute()
                     else:
-                        drive.files().create(
-                            body={"name": name, "parents": [folder_id]},
-                            media_body=media,
-                            fields="id",
-                        ).execute()
+                        with network_timeout(30.0, "Drive file creation"):
+                            drive.files().create(
+                                body={"name": name, "parents": [folder_id]},
+                                media_body=media,
+                                fields="id",
+                            ).execute()
                 logger.debug("Pendo preload cache: wrote %r (%d bytes)", name, len(body))
                 last_err = None
                 break

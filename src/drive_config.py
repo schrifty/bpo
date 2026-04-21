@@ -251,29 +251,25 @@ def _dedupe_drive_yaml_files_by_name(files: list[dict[str, Any]]) -> list[dict[s
 
 def _list_drive_files(folder_id: str) -> list[dict[str, Any]]:
     """List YAML files in a Drive folder. Returns one file per basename (newest if duplicates exist)."""
-    import socket
-    old_timeout = socket.getdefaulttimeout()
-    try:
-        socket.setdefaulttimeout(30.0)  # 30 second timeout for listing
+    from .network_utils import network_timeout
+    
+    with network_timeout(30.0, "Drive folder listing"):
         with drive_api_lock:
             drive = _get_drive()
             q = f"'{folder_id}' in parents and trashed = false and (name contains '.yaml' or name contains '.yml')"
             results = drive.files().list(q=q, fields="files(id, name, modifiedTime)", pageSize=200).execute()
             raw = results.get("files", [])
         return _dedupe_drive_yaml_files_by_name(raw)
-    finally:
-        socket.setdefaulttimeout(old_timeout)
 
 
 def _read_drive_file(file_id: str) -> str:
     """Download a Drive file as UTF-8 text."""
-    import socket
+    from .network_utils import network_timeout
+    
     with drive_api_lock:
         drive = _get_drive()
         # Set socket timeout for Drive API calls
-        old_timeout = socket.getdefaulttimeout()
-        try:
-            socket.setdefaulttimeout(30.0)  # 30 second timeout per chunk
+        with network_timeout(30.0, "Drive file download"):
             request = drive.files().get_media(fileId=file_id)
             buf = io.BytesIO()
             downloader = MediaIoBaseDownload(buf, request)
@@ -285,8 +281,6 @@ def _read_drive_file(file_id: str) -> str:
                 if chunk_count > 100:  # Safety limit: max 100 chunks per file
                     raise TimeoutError(f"Drive file {file_id[:12]}… exceeded max chunks (100)")
             return buf.getvalue().decode("utf-8")
-        finally:
-            socket.setdefaulttimeout(old_timeout)
 
 
 def _upload_file(name: str, content: str, folder_id: str, file_id: str | None = None) -> str:

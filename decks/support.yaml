@@ -7,7 +7,8 @@ purpose: |
   Starts with the HELP created-vs-resolved trend so the team can isolate
   backlog pressure and escalations without mixing it into the broader
   engineering portfolio narrative. Adds per-customer KPIs, then recent opened
-  and recent closed HELP ticket lists (same customer match as metrics).
+  and recent closed ticket lists for HELP, CUSTOMER, and LEAN projects (same customer match as metrics).
+  Includes resolved tickets by assignee for HELP and CUSTOMER projects (last 90 days).
 
 slides:
   - slide: eng_help_volume_trends
@@ -18,3 +19,15 @@ slides:
     title: "Recently opened HELP tickets (SED)"
   - slide: support_recent_closed
     title: "Recently closed HELP tickets (SED)"
+  - slide: help_resolved_by_assignee
+    title: "HELP Tickets Resolved by Assignee (Last 90 Days)"
+  - slide: customer_project_recent_opened
+    title: "Recently opened CUSTOMER tickets (SED)"
+  - slide: customer_project_recent_closed
+    title: "Recently closed CUSTOMER tickets (SED)"
+  - slide: customer_resolved_by_assignee
+    title: "CUSTOMER Tickets Resolved by Assignee (Last 90 Days)"
+  - slide: lean_project_recent_opened
+    title: "Recently opened LEAN tickets (SED)"
+  - slide: lean_project_recent_closed
+    title: "Recently closed LEAN tickets (SED)"

@@ -66,17 +66,20 @@ def _kpi_delta_pct(raw) -> float | None:
 
 def check_reachable() -> None:
     """Verify the CS Report folder on Drive is reachable. Raises if Drive or folder is down."""
-    drive = _get_drive()
-    q = f"'{_CS_REPORT_FOLDER_ID}' in parents and trashed = false"
-    drive.files().list(
-        q=q,
-        fields="files(id, name)",
-        includeItemsFromAllDrives=True,
-        supportsAllDrives=True,
-        corpora="drive",
-        driveId=_DATA_EXPORTS_DRIVE_ID,
-        pageSize=1,
-    ).execute()
+    from .network_utils import network_timeout
+    
+    with network_timeout(30.0, "Drive CS Report folder check"):
+        drive = _get_drive()
+        q = f"'{_CS_REPORT_FOLDER_ID}' in parents and trashed = false"
+        drive.files().list(
+            q=q,
+            fields="files(id, name)",
+            includeItemsFromAllDrives=True,
+            supportsAllDrives=True,
+            corpora="drive",
+            driveId=_DATA_EXPORTS_DRIVE_ID,
+            pageSize=1,
+        ).execute()
 
 
 def _fetch_latest_report() -> list[dict[str, Any]]:
@@ -94,37 +97,43 @@ def _fetch_latest_report() -> list[dict[str, Any]]:
         if _cache is not None:
             return _cache["rows"]
 
-        drive = _get_drive()
+        from .network_utils import network_timeout
+        with network_timeout(30.0, "Drive CS Report download"):
+            drive = _get_drive()
 
-        q = f"'{_CS_REPORT_FOLDER_ID}' in parents and trashed = false"
-        results = drive.files().list(
-            q=q,
-            fields="files(id, name, modifiedTime)",
-            includeItemsFromAllDrives=True,
-            supportsAllDrives=True,
-            corpora="drive",
-            driveId=_DATA_EXPORTS_DRIVE_ID,
-            pageSize=5,
-            orderBy="modifiedTime desc",
-        ).execute()
-        files = results.get("files", [])
-        if not files:
-            logger.warning("No CS Report found in Data Exports drive")
-            return []
+            q = f"'{_CS_REPORT_FOLDER_ID}' in parents and trashed = false"
+            results = drive.files().list(
+                q=q,
+                fields="files(id, name, modifiedTime)",
+                includeItemsFromAllDrives=True,
+                supportsAllDrives=True,
+                corpora="drive",
+                driveId=_DATA_EXPORTS_DRIVE_ID,
+                pageSize=5,
+                orderBy="modifiedTime desc",
+            ).execute()
+            files = results.get("files", [])
+            if not files:
+                logger.warning("No CS Report found in Data Exports drive")
+                return []
 
-        latest = files[0]
-        logger.info("Fetching CS Report: %s (%s)", latest["name"], latest["modifiedTime"][:10])
+            latest = files[0]
+            logger.info("Fetching CS Report: %s (%s)", latest["name"], latest["modifiedTime"][:10])
 
-        request = drive.files().export_media(
-            fileId=latest["id"],
-            mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-        buf = io.BytesIO()
-        from googleapiclient.http import MediaIoBaseDownload
-        downloader = MediaIoBaseDownload(buf, request)
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
+            request = drive.files().export_media(
+                fileId=latest["id"],
+                mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+            buf = io.BytesIO()
+            from googleapiclient.http import MediaIoBaseDownload
+            downloader = MediaIoBaseDownload(buf, request)
+            done = False
+            chunk_count = 0
+            while not done:
+                _, done = downloader.next_chunk()
+                chunk_count += 1
+                if chunk_count > 100:  # Safety limit: max 100 chunks
+                    raise TimeoutError(f"CS Report download exceeded max chunks (100)")
 
         buf.seek(0)
         import openpyxl

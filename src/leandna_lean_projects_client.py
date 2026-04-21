@@ -54,6 +54,7 @@ def _get_cache_key(sites: str | None, date_from: str | None, date_to: str | None
 def _load_from_drive_cache(cache_prefix: str, cache_key: str, ttl_hours: int) -> dict[str, Any] | None:
     """Load cached JSON from Drive if still valid."""
     try:
+        from .network_utils import network_timeout
         from .slides_api import _get_service
         _, drive, _ = _get_service()
         
@@ -62,7 +63,8 @@ def _load_from_drive_cache(cache_prefix: str, cache_key: str, ttl_hours: int) ->
         file_pattern = f"{cache_prefix}_{cache_key}_{today}.json"
         
         q = f"name = '{file_pattern}' and trashed = false"
-        results = drive.files().list(q=q, pageSize=5, fields="files(id, name, createdTime)").execute()
+        with network_timeout(30.0, "Drive file listing"):
+            results = drive.files().list(q=q, pageSize=5, fields="files(id, name, createdTime)").execute()
         files = results.get("files", [])
         
         if not files:
@@ -79,7 +81,8 @@ def _load_from_drive_cache(cache_prefix: str, cache_key: str, ttl_hours: int) ->
         
         # Download
         request = drive.files().get_media(fileId=file_info["id"])
-        content = request.execute()
+        with network_timeout(30.0, "Drive file download"):
+            content = request.execute()
         data = json.loads(content)
         
         logger.info("LeanDNA Lean Projects: loaded from Drive cache %s (%.1fh old)", file_pattern, age_hours)
@@ -93,6 +96,7 @@ def _load_from_drive_cache(cache_prefix: str, cache_key: str, ttl_hours: int) ->
 def _save_to_drive_cache(cache_prefix: str, cache_key: str, data: dict[str, Any]) -> None:
     """Save JSON to Drive cache."""
     try:
+        from .network_utils import network_timeout
         from .slides_api import _get_service
         from googleapiclient.http import MediaInMemoryUpload
         
@@ -105,7 +109,8 @@ def _save_to_drive_cache(cache_prefix: str, cache_key: str, data: dict[str, Any]
         media = MediaInMemoryUpload(content, mimetype="application/json", resumable=False)
         meta = {"name": filename, "mimeType": "application/json"}
         
-        drive.files().create(body=meta, media_body=media, fields="id").execute()
+        with network_timeout(30.0, "Drive file creation"):
+            drive.files().create(body=meta, media_body=media, fields="id").execute()
         logger.debug("LeanDNA Lean Projects: saved to Drive cache %s", filename)
         
     except Exception as e:

@@ -885,7 +885,7 @@ cohorts:
     exclude: true
     notes: "Single EMEA site — likely pilot."
   Stanadyne:
-    exclude: true
+    exclude: false
     notes: "Single site (Blythewood) — overlaps with Blythewood prefix."
   Blythewood:
     exclude: true

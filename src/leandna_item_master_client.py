@@ -84,6 +84,7 @@ def _try_load_from_drive(cache_key: str) -> list[dict] | None:
         if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
             return None
         
+        from .network_utils import network_timeout
         from .slides_api import _get_service
         _, drive, _ = _get_service()
         
@@ -93,12 +94,13 @@ def _try_load_from_drive(cache_key: str) -> list[dict] | None:
         
         # Query for file in cache subfolder (if exists) or generator root
         query = f"name='{filename}' and trashed=false"
-        results = drive.files().list(
-            q=query,
-            fields="files(id, name, modifiedTime)",
-            spaces="drive",
-            pageSize=5,
-        ).execute()
+        with network_timeout(30.0, "Drive file listing"):
+            results = drive.files().list(
+                q=query,
+                fields="files(id, name, modifiedTime)",
+                spaces="drive",
+                pageSize=5,
+            ).execute()
         
         files = results.get("files", [])
         if not files:
@@ -119,7 +121,8 @@ def _try_load_from_drive(cache_key: str) -> list[dict] | None:
         
         # Download and parse
         request = drive.files().get_media(fileId=file_info["id"])
-        content = request.execute()
+        with network_timeout(30.0, "Drive file download"):
+            content = request.execute()
         data = json.loads(content.decode("utf-8"))
         logger.info("LeanDNA Item Master: loaded %d items from Drive cache (%s)", len(data), filename)
         return data
@@ -139,6 +142,7 @@ def _save_to_drive(data: list[dict], cache_key: str) -> None:
         if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
             return
         
+        from .network_utils import network_timeout
         from .slides_api import _get_service
         from googleapiclient.http import MediaInMemoryUpload
         
@@ -156,7 +160,8 @@ def _save_to_drive(data: list[dict], cache_key: str) -> None:
             "mimeType": "application/json",
         }
         
-        file_obj = drive.files().create(body=meta, media_body=media, fields="id").execute()
+        with network_timeout(30.0, "Drive file creation"):
+            file_obj = drive.files().create(body=meta, media_body=media, fields="id").execute()
         logger.info("LeanDNA Item Master: saved %d items to Drive cache (%s, id=%s)", len(data), filename, file_obj["id"][:16])
         
     except Exception as e:

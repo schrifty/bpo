@@ -106,22 +106,29 @@ class DeckCharts:
         if self._ss_id:
             return self._ss_id
 
-        body: dict[str, Any] = {
-            "properties": {"title": f"{self._deck_name} — Chart Data"},
-        }
-        ss = self._sheets_svc.spreadsheets().create(body=body, fields="spreadsheetId").execute()
-        self._ss_id = ss["spreadsheetId"]
-        logger.info("Created chart spreadsheet %s", self._ss_id)
+        import socket
+        old_timeout = socket.getdefaulttimeout()
+        try:
+            socket.setdefaulttimeout(30.0)  # 30 second timeout for Sheets/Drive API
+            
+            body: dict[str, Any] = {
+                "properties": {"title": f"{self._deck_name} — Chart Data"},
+            }
+            ss = self._sheets_svc.spreadsheets().create(body=body, fields="spreadsheetId").execute()
+            self._ss_id = ss["spreadsheetId"]
+            logger.info("Created chart spreadsheet %s", self._ss_id)
 
-        if self._folder_id:
-            try:
-                self._drive_svc.files().update(
-                    fileId=self._ss_id,
-                    addParents=self._folder_id,
-                    fields="id,parents",
-                ).execute()
-            except HttpError as e:
-                logger.warning("Could not move chart spreadsheet to folder: %s", e)
+            if self._folder_id:
+                try:
+                    self._drive_svc.files().update(
+                        fileId=self._ss_id,
+                        addParents=self._folder_id,
+                        fields="id,parents",
+                    ).execute()
+                except HttpError as e:
+                    logger.warning("Could not move chart spreadsheet to folder: %s", e)
+        finally:
+            socket.setdefaulttimeout(old_timeout)
 
         return self._ss_id
 

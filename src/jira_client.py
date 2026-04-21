@@ -56,7 +56,7 @@ _TREND_FIELDS = [
 ]
 
 _CUSTOMER_TICKET_SLIDE_FIELDS = [
-    "summary", "status", "issuetype", "project", "created", "updated",
+    "summary", "status", "issuetype", "project", "priority", "created", "updated",
     "resolution", "resolutiondate", TTFR_FIELD, TTR_FIELD,
 ]
 
@@ -977,6 +977,8 @@ class JiraClient:
     @staticmethod
     def _compute_sla(issues: list[dict], prefix: str) -> dict[str, Any]:
         """Compute SLA statistics (TTFR or TTR) from JSM SLA data."""
+        import statistics
+
         help_issues = [i for i in issues if i.get("project") == "HELP"]
         values = [i[f"{prefix}_ms"] for i in help_issues if i.get(f"{prefix}_ms") is not None]
         breached = sum(1 for i in help_issues if i.get(f"{prefix}_breached"))
@@ -987,7 +989,7 @@ class JiraClient:
 
         values.sort()
         avg_ms = sum(values) / len(values)
-        med_ms = values[len(values) // 2]
+        med_ms = statistics.median(values)
 
         def _fmt(ms: int) -> str:
             mins = ms / 60_000
@@ -1193,9 +1195,41 @@ class JiraClient:
         Uses the same ``project = HELP`` + organization/text match as
         ``get_customer_ticket_metrics``.
         """
+        return self.get_customer_project_recent_tickets(
+            "HELP",
+            customer_name,
+            match_terms,
+            opened_within_days=opened_within_days,
+            closed_within_days=closed_within_days,
+            max_each=max_each,
+        )
+    
+    def get_customer_project_recent_tickets(
+        self,
+        project: str,
+        customer_name: str,
+        match_terms: list[str] | None = None,
+        *,
+        opened_within_days: int = 45,
+        closed_within_days: int = 45,
+        max_each: int = 45,
+    ) -> dict[str, Any]:
+        """Recent tickets for any project for one customer: opened in window vs resolved in window.
+
+        For HELP project, uses organization/text match.
+        For other projects (CUSTOMER, LEAN), uses text match only.
+        """
         jql_start = self._jql_log_len()
-        base_filter, resolved_jsm_orgs = self._customer_match_clause(customer_name, match_terms)
-        proj = "project = HELP AND "
+        
+        # For HELP, use full customer match clause; for others, use text search
+        if project == "HELP":
+            base_filter, resolved_jsm_orgs = self._customer_match_clause(customer_name, match_terms)
+        else:
+            resolved_jsm_orgs = []
+            safe_name = _jql_escape_string(customer_name)
+            base_filter = f'(summary ~ "{safe_name}" OR description ~ "{safe_name}")'
+        
+        proj = f"project = {project} AND "
 
         def _row(issue: dict) -> dict[str, Any]:
             f = issue.get("fields", {}) or {}
@@ -1203,12 +1237,16 @@ class JiraClient:
             rs = self._parse_jira_datetime(f.get("resolutiondate"))
             st = f.get("status") or {}
             status_name = st.get("name", "—") if isinstance(st, dict) else "—"
+            pr = f.get("priority") or {}
+            priority_name = pr.get("name", "—") if isinstance(pr, dict) else "—"
             return {
                 "key": issue.get("key", ""),
                 "summary": (f.get("summary") or "").strip(),
                 "status": status_name,
+                "priority": priority_name,
                 "created": f.get("created") or "",
                 "created_short": cr.strftime("%Y-%m-%d") if cr else "—",
+                "resolved": f.get("resolutiondate") or "",
                 "resolved_short": rs.strftime("%Y-%m-%d") if rs else "—",
             }
 
@@ -1226,21 +1264,22 @@ class JiraClient:
                     open_jql,
                     max_each,
                     _CUSTOMER_TICKET_SLIDE_FIELDS,
-                    data_description=f"HELP customer tickets created in last {od} days",
+                    data_description=f"{project} customer tickets created in last {od} days",
                 )
                 f_closed = pool.submit(
                     self._search,
                     closed_jql,
                     max_each,
                     _CUSTOMER_TICKET_SLIDE_FIELDS,
-                    data_description=f"HELP customer tickets resolved in last {cd} days",
+                    data_description=f"{project} customer tickets resolved in last {cd} days",
                 )
                 raw_open = f_open.result()
                 raw_closed = f_closed.result()
         except Exception as e:
-            logger.warning("Customer HELP recent tickets fetch failed for %s: %s", customer_name, e)
+            logger.warning("Customer %s recent tickets fetch failed for %s: %s", project, customer_name, e)
             return {
                 "error": str(e),
+                "project": project,
                 "customer": customer_name,
                 "jsm_organizations_resolved": resolved_jsm_orgs,
                 "opened_within_days": od,
@@ -1251,12 +1290,91 @@ class JiraClient:
             }
 
         return {
+            "project": project,
             "customer": customer_name,
             "jsm_organizations_resolved": resolved_jsm_orgs,
             "opened_within_days": od,
             "closed_within_days": cd,
             "recently_opened": [_row(i) for i in raw_open],
             "recently_closed": [_row(i) for i in raw_closed],
+            "jql_queries": self._jql_since(jql_start),
+        }
+    
+    def get_resolved_tickets_by_assignee(
+        self,
+        project: str,
+        customer_name: str,
+        match_terms: list[str] | None = None,
+        *,
+        days: int = 90,
+        max_results: int = 500,
+    ) -> dict[str, Any]:
+        """Get resolved tickets grouped by assignee for a project and customer.
+        
+        Args:
+            project: Jira project key (e.g., "HELP", "CUSTOMER")
+            customer_name: Customer name to filter by
+            match_terms: Additional match terms for the customer
+            days: Number of days to look back for resolved tickets
+            max_results: Maximum tickets to fetch
+        
+        Returns:
+            Dict with assignee counts sorted by count descending.
+        """
+        jql_start = self._jql_log_len()
+        
+        # For HELP, use full customer match clause; for others, use text search
+        if project == "HELP":
+            base_filter, resolved_jsm_orgs = self._customer_match_clause(customer_name, match_terms)
+        else:
+            resolved_jsm_orgs = []
+            safe_name = _jql_escape_string(customer_name)
+            base_filter = f'(summary ~ "{safe_name}" OR description ~ "{safe_name}")'
+        
+        jql = (
+            f"project = {project} AND {base_filter} AND resolution is not EMPTY "
+            f"AND resolved >= -{days}d ORDER BY resolved DESC"
+        )
+        
+        try:
+            raw = self._search(
+                jql,
+                max_results=max_results,
+                fields=["assignee", "resolutiondate"],
+                data_description=f"{project} resolved tickets by assignee (last {days}d)",
+            )
+        except Exception as e:
+            logger.warning("Resolved tickets by assignee fetch failed for %s %s: %s", project, customer_name, e)
+            return {
+                "error": str(e),
+                "project": project,
+                "customer": customer_name,
+                "days": days,
+                "by_assignee": [],
+                "total_resolved": 0,
+            }
+        
+        # Group by assignee
+        assignee_counts: dict[str, int] = {}
+        for issue in raw:
+            f = issue.get("fields", {}) or {}
+            assignee = f.get("assignee") or {}
+            if isinstance(assignee, dict):
+                name = assignee.get("displayName") or assignee.get("name") or "Unassigned"
+            else:
+                name = "Unassigned"
+            assignee_counts[name] = assignee_counts.get(name, 0) + 1
+        
+        # Sort by count descending
+        sorted_assignees = sorted(assignee_counts.items(), key=lambda x: (-x[1], x[0]))
+        
+        return {
+            "project": project,
+            "customer": customer_name,
+            "jsm_organizations_resolved": resolved_jsm_orgs,
+            "days": days,
+            "total_resolved": len(raw),
+            "by_assignee": [{"assignee": name, "count": count} for name, count in sorted_assignees],
             "jql_queries": self._jql_since(jql_start),
         }
 

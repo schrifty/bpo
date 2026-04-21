@@ -1,0 +1,42 @@
+id: platform_value_summary
+name: Platform Value & ROI Summary
+audience: CFO / Procurement / Executive Sponsors
+
+purpose: |
+  This deck is for financial and executive stakeholders who need a concise
+  answer to "What's the value?" The narrative is: "Here's the measurable ROI
+  your team has achieved this quarter through the platform — cost avoidance,
+  efficiency gains, and continuous improvement savings."
+
+  The audience cares about dollars and outcomes, not usage metrics or feature
+  adoption. Every slide should quantify value in financial or operational
+  terms that justify the platform investment.
+
+# Slide YAML: focused subset emphasizing ROI and value metrics.
+
+slides:
+  - slide: std_title
+    title: Platform Value & ROI Summary
+  - slide: platform_value
+    note: Total cost avoidance and efficiency gains (primary value slide)
+  - slide: supply_chain
+    note: Operational improvements (CTB, DOI, risk reduction)
+  - slide: lean_projects_savings
+    note: Continuous improvement ROI and achievement %
+  - slide: lean_projects_portfolio
+    note: Active initiatives driving savings (top projects)
+  - slide: platform_health
+    note: Platform stability and performance indicators
+  - slide: data_quality
+    note: Data quality and completeness (governance indicator)
+
+overrides:
+  - slide: platform_value
+    require: true
+    note: Core value proposition — must always appear.
+  - slide: lean_projects_savings
+    require: false
+    note: Only show if customer uses Lean Projects module.
+  - slide: lean_projects_portfolio
+    require: false
+    note: Only show if customer uses Lean Projects module.

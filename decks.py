@@ -150,7 +150,6 @@ def _run_engineering_portfolio_deck() -> None:
 def _run_support_deck() -> None:
     """Single support-focused deck from Jira — no LLM prompt parsing required."""
     from src.data_source_health import check_all_required
-    from src.jira_client import get_shared_jira_client
     from src.slides_client import create_health_deck
 
     preflight_errors = check_all_required()
@@ -160,34 +159,17 @@ def _run_support_deck() -> None:
             print(f"  • {msg}")
         sys.exit(1)
 
-    print("Fetching support review data from Jira...")
+    print("Generating support review deck...")
     t0 = time.time()
-    client = get_shared_jira_client()
-    eng_data = client.get_engineering_portfolio(days=30)
+    
+    # Minimal report - let create_health_deck() fetch all support-specific data
     safran_name = "Safran Electronics & Defense (SED)"
-    match_terms = ["Safran Electronics and Defense", "SED", "Defense"]
-    safran_metrics = client.get_customer_ticket_metrics(
-        safran_name,
-        match_terms=match_terms,
-    )
-    help_recent = client.get_customer_help_recent_tickets(
-        safran_name,
-        match_terms=match_terms,
-        opened_within_days=45,
-        closed_within_days=45,
-        max_each=45,
-    )
     report = {
         "type": "support_review",
         "customer": safran_name,
         "days": 365,
-        "eng_portfolio": eng_data,
-        "jira": {
-            "base_url": (client.base_url or "").rstrip("/"),
-            "customer_ticket_metrics": safran_metrics,
-            "customer_help_recent": help_recent,
-        },
     }
+    
     result = create_health_deck(report, deck_id="support", thumbnails=False)
     elapsed = time.time() - t0
     print(f"\n{'=' * 60}")

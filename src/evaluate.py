@@ -491,7 +491,7 @@ DATA_SOURCES: dict[str, list[str]] = {
     ],
     "Jira / JSM": [
         "HELP project tickets (open/resolved/total, by priority & status)",
-        "SLA metrics (TTFR, TTR, breach rate, % measured)",
+        "SLA metrics (TTFR, TTR - median & average, breach rate, % measured)",
         "ticket sentiment (positive/neutral/negative/unrated)",
         "request channel mix (portal/email/internal)",
         "LEAN project engineering pipeline (open/shipped by priority)",
@@ -3983,7 +3983,7 @@ _BUILDER_DESCRIPTIONS = {
     "kei": "Kei AI adoption — chatbot usage, adoption rate, executive engagement",
     "guides": "Guide engagement — onboarding guides seen/dismissed/advanced rates",
     "jira": "Support summary — HELP ticket counts, priority, status breakdown",
-    "customer_ticket_metrics": "Per-customer HELP KPIs — open/resolved counts, SLA, type/status bar charts",
+    "customer_ticket_metrics": "Per-customer HELP KPIs — open/resolved counts, SLA (median & average), type/status bar charts",
     "support_recent_opened": "HELP tickets opened in the last ~45 days for the scoped customer",
     "support_recent_closed": "HELP tickets resolved in the last ~45 days for the scoped customer",
     "sla_health": "Support health & SLA — TTFR/TTR, breach rate, sentiment, channels",

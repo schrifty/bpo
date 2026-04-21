@@ -3028,11 +3028,22 @@ def _customer_ticket_metrics_slide(reqs, sid, report, idx):
         "TTFR (1y median)", ttfr.get("median", "—"), accent=BLUE,
     )
 
+    # Row 3: Average metrics
+    row3_y = row2_y + card_h + row_gap
+    _kpi_metric_card(
+        reqs, f"{sid}_k6", sid, MARGIN, row3_y, bot_card_w, card_h,
+        "TTR (1y average)", ttr.get("avg", "—"), accent=BLUE,
+    )
+    _kpi_metric_card(
+        reqs, f"{sid}_k7", sid, MARGIN + bot_card_w + col_gap, row3_y, bot_card_w, card_h,
+        "TTFR (1y average)", ttfr.get("avg", "—"), accent=BLUE,
+    )
+
     chart_gap = 20
     chart_w = (CONTENT_W - chart_gap) / 2
     # Leave room below slide-level headers so they do not overlap the Sheets chart plot area.
     chart_header_h = 20
-    chart_title_y = row2_y + card_h + 14
+    chart_title_y = row3_y + card_h + 14
     chart_y = chart_title_y + chart_header_h + 10
     chart_h = max(96, BODY_BOTTOM - 4 - chart_y)
     left_x = MARGIN
@@ -3101,8 +3112,8 @@ def _customer_help_recent_slide(
     idx: int,
     *,
     closed: bool,
-) -> int | tuple[int, list[str]]:
-    """Shared list slide for HELP tickets opened or resolved in a recent window."""
+) -> int:
+    """Table slide for HELP tickets opened or resolved in a recent window."""
     jira = report.get("jira") or {}
     blob = jira.get("customer_help_recent")
     if not isinstance(blob, dict):
@@ -3129,76 +3140,572 @@ def _customer_help_recent_slide(
     )
     kind = "Resolved" if closed else "Created"
     total_n = len(items)
+    
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, base_title)
+    
     sub = (
         f"project HELP  ·  matched to {customer}  ·  {kind} in the last {days} days  ·  "
         f"{total_n} ticket{'s' if total_n != 1 else ''}"
     )
-
-    body_top = BODY_Y + 24
-    max_rows = _list_data_rows_fit_span(
-        y_top=body_top,
-        y_bottom=BODY_BOTTOM - 10,
-        font_body_pt=9,
-        reserved_header_lines=0,
-        max_rows_cap=28,
-    )
-    max_rows = max(1, max_rows)
-
+    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
+    _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
+    
     if not items:
-        chunks: list[list[dict[str, Any]]] = [[]]
-    else:
-        raw_chunks = [items[i : i + max_rows] for i in range(0, len(items), max_rows)]
-        chunks = _cap_chunk_list(raw_chunks)
-    num_pages = len(chunks)
-    oids: list[str] = []
-
-    for p, chunk in enumerate(chunks):
-        page_sid = f"{sid}_p{p}" if num_pages > 1 else sid
-        oids.append(page_sid)
-        _slide(reqs, page_sid, idx + p)
-        _bg(reqs, page_sid, WHITE)
-        page_title = base_title if num_pages == 1 else f"{base_title} ({p + 1} of {num_pages})"
-        _slide_title(reqs, page_sid, page_title)
-        _box(reqs, f"{page_sid}_sub", page_sid, MARGIN, BODY_Y, CONTENT_W, 18, sub)
-        _style(reqs, f"{page_sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
-
-        y = float(body_top)
-        line_h = 14.0
-        if not chunk:
-            empty_msg = f"No HELP tickets in this window ({kind.lower()} in the last {days} days)."
-            _box(reqs, f"{page_sid}_empty", page_sid, MARGIN, int(y), CONTENT_W, 40, empty_msg)
-            _style(reqs, f"{page_sid}_empty", 0, len(empty_msg), size=10, color=NAVY, font=FONT)
-        else:
-            for i, it in enumerate(chunk):
-                sm = it.get("summary") or ""
-                if len(sm) > 46:
-                    sm = sm[:43] + "…"
-                status = (it.get("status") or "—")[:22]
-                when = (it.get("resolved_short") if closed else it.get("created_short")) or "—"
-                key = it.get("key") or "?"
-                line = f"{key:12}{sm}  ·  {status}  ·  {when}"
-                oid = f"{page_sid}_ln{i}"
-                _box(reqs, oid, page_sid, MARGIN, int(y), CONTENT_W, int(line_h), line)
-                _style(reqs, oid, 0, len(line), size=9, color=NAVY, font=MONO)
-                if jira_base and key and key != "?":
-                    lk = len(key)
-                    _style(
-                        reqs, oid, 0, lk, bold=True, size=9, color=BLUE, font=MONO,
-                        link=f"{jira_base}/browse/{key}",
-                    )
-                y += line_h
-
-    if num_pages == 1:
+        empty_msg = f"No HELP tickets in this window ({kind.lower()} in the last {days} days)."
+        _box(reqs, f"{sid}_empty", sid, MARGIN, BODY_Y + 30, CONTENT_W, 40, empty_msg)
+        _style(reqs, f"{sid}_empty", 0, len(empty_msg), size=10, color=NAVY, font=FONT)
         return idx + 1
-    return idx + num_pages, oids
+    
+    # Limit to 15 rows to fit on page (includes top 15 most recent)
+    max_rows = 15
+    display_items = items[:max_rows]
+    
+    # Create table
+    headers = ["ID", "Title", "Status", "Priority", "Created", "Resolved"]
+    col_widths = [60, 240, 80, 60, 72, 72]  # Total: 584pt (fits in ~600pt content width)
+    ROW_H = 18
+    
+    table_top = BODY_Y + 24
+    num_rows = 1 + len(display_items)
+    table_id = f"{sid}_tbl"
+    
+    reqs.append({
+        "createTable": {
+            "objectId": table_id,
+            "elementProperties": {
+                "pageObjectId": sid,
+                "size": _sz(sum(col_widths), num_rows * ROW_H),
+                "transform": _tf(MARGIN, table_top),
+            },
+            "rows": num_rows,
+            "columns": len(headers),
+        }
+    })
+    
+    def _ct(row, col, text):
+        if not text:
+            return
+        reqs.append({
+            "insertText": {
+                "objectId": table_id,
+                "cellLocation": {"rowIndex": row, "columnIndex": col},
+                "text": str(text),
+                "insertionIndex": 0,
+            }
+        })
+    
+    def _cs(row, col, text_len, bold=False, color=None, size=8, align=None, link=None):
+        if text_len > 0:
+            from typing import Any
+            s: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}, "fontFamily": FONT}
+            f = ["fontSize", "fontFamily"]
+            if bold:
+                s["bold"] = True
+                f.append("bold")
+            if color:
+                s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}
+                f.append("foregroundColor")
+            if link:
+                s["link"] = {"url": link}
+                f.append("link")
+            reqs.append({
+                "updateTextStyle": {
+                    "objectId": table_id,
+                    "cellLocation": {"rowIndex": row, "columnIndex": col},
+                    "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
+                    "style": s,
+                    "fields": ",".join(f),
+                }
+            })
+        if align:
+            reqs.append({
+                "updateParagraphStyle": {
+                    "objectId": table_id,
+                    "cellLocation": {"rowIndex": row, "columnIndex": col},
+                    "textRange": {"type": "ALL"},
+                    "style": {"alignment": align},
+                    "fields": "alignment",
+                }
+            })
+    
+    def _cbg(row, col, color):
+        reqs.append({
+            "updateTableCellProperties": {
+                "objectId": table_id,
+                "tableRange": {"location": {"rowIndex": row, "columnIndex": col}, "rowSpan": 1, "columnSpan": 1},
+                "tableCellProperties": {"tableCellBackgroundFill": {"solidFill": {"color": {"rgbColor": color}}}},
+                "fields": "tableCellBackgroundFill",
+            }
+        })
+    
+    _clean_table(reqs, table_id, num_rows, len(headers))
+    
+    # Header row
+    for ci, h in enumerate(headers):
+        _ct(0, ci, h)
+        _cs(0, ci, len(h), bold=True, color=NAVY, size=9)
+        _cbg(0, ci, WHITE)
+    
+    # Data rows
+    for ri, it in enumerate(display_items):
+        row_idx = ri + 1
+        
+        key = it.get("key") or "—"
+        title = it.get("summary") or ""
+        if len(title) > 60:
+            title = title[:57] + "..."
+        status = (it.get("status") or "—")[:18]
+        priority = (it.get("priority") or "—")[:12]
+        created = it.get("created_short") or "—"
+        resolved = it.get("resolved_short") or "—"
+        
+        vals = [key, title, status, priority, created, resolved]
+        
+        for ci, v in enumerate(vals):
+            _ct(row_idx, ci, v)
+            
+            # Make ticket ID a link and bold
+            if ci == 0 and jira_base and key and key != "—":
+                _cs(row_idx, ci, len(v), bold=True, color=BLUE, size=8, link=f"{jira_base}/browse/{key}")
+            else:
+                _cs(row_idx, ci, len(v), size=8)
+    
+    # Add footnote if we're showing a subset
+    if total_n > max_rows:
+        footnote = f"Showing {max_rows} of {total_n} tickets (most recent)"
+        footnote_y = table_top + (num_rows * ROW_H) + 8
+        _box(reqs, f"{sid}_footnote", sid, MARGIN, footnote_y, CONTENT_W, 14, footnote)
+        _style(reqs, f"{sid}_footnote", 0, len(footnote), size=8, color=GRAY, font=FONT, italic=True)
+    
+    return idx + 1
 
 
-def _support_recent_opened_slide(reqs: list, sid: str, report: dict, idx: int) -> int | tuple[int, list[str]]:
+def _support_recent_opened_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
     return _customer_help_recent_slide(reqs, sid, report, idx, closed=False)
 
 
-def _support_recent_closed_slide(reqs: list, sid: str, report: dict, idx: int) -> int | tuple[int, list[str]]:
+def _support_recent_closed_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
     return _customer_help_recent_slide(reqs, sid, report, idx, closed=True)
+
+
+def _customer_project_recent_opened_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """Recently opened CUSTOMER project tickets table."""
+    jira = report.get("jira") or {}
+    blob = jira.get("customer_project_recent")
+    if not isinstance(blob, dict):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            "CUSTOMER project recent tickets (not in report)",
+        )
+    if blob.get("error"):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            f"CUSTOMER project recent tickets: {blob['error']}",
+        )
+
+    return _project_recent_tickets_table_slide(reqs, sid, report, idx, blob, "CUSTOMER", closed=False)
+
+
+def _customer_project_recent_closed_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """Recently closed CUSTOMER project tickets table."""
+    jira = report.get("jira") or {}
+    blob = jira.get("customer_project_recent")
+    if not isinstance(blob, dict):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            "CUSTOMER project recent tickets (not in report)",
+        )
+    if blob.get("error"):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            f"CUSTOMER project recent tickets: {blob['error']}",
+        )
+
+    return _project_recent_tickets_table_slide(reqs, sid, report, idx, blob, "CUSTOMER", closed=True)
+
+
+def _lean_project_recent_opened_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """Recently opened LEAN project tickets table."""
+    jira = report.get("jira") or {}
+    blob = jira.get("lean_project_recent")
+    if not isinstance(blob, dict):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            "LEAN project recent tickets (not in report)",
+        )
+    if blob.get("error"):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            f"LEAN project recent tickets: {blob['error']}",
+        )
+
+    return _project_recent_tickets_table_slide(reqs, sid, report, idx, blob, "LEAN", closed=False)
+
+
+def _lean_project_recent_closed_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """Recently closed LEAN project tickets table."""
+    jira = report.get("jira") or {}
+    blob = jira.get("lean_project_recent")
+    if not isinstance(blob, dict):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            "LEAN project recent tickets (not in report)",
+        )
+    if blob.get("error"):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            f"LEAN project recent tickets: {blob['error']}",
+        )
+
+    return _project_recent_tickets_table_slide(reqs, sid, report, idx, blob, "LEAN", closed=True)
+
+
+def _help_resolved_by_assignee_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """HELP tickets resolved by assignee - last 90 days."""
+    jira = report.get("jira") or {}
+    blob = jira.get("help_resolved_by_assignee")
+    if not isinstance(blob, dict):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            "HELP resolved tickets by assignee (not in report)",
+        )
+    if blob.get("error"):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            f"HELP resolved tickets by assignee: {blob['error']}",
+        )
+
+    return _resolved_by_assignee_table_slide(reqs, sid, report, idx, blob, "HELP")
+
+
+def _customer_resolved_by_assignee_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """CUSTOMER tickets resolved by assignee - last 90 days."""
+    jira = report.get("jira") or {}
+    blob = jira.get("customer_resolved_by_assignee")
+    if not isinstance(blob, dict):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            "CUSTOMER resolved tickets by assignee (not in report)",
+        )
+    if blob.get("error"):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            f"CUSTOMER resolved tickets by assignee: {blob['error']}",
+        )
+
+    return _resolved_by_assignee_table_slide(reqs, sid, report, idx, blob, "CUSTOMER")
+
+
+def _resolved_by_assignee_table_slide(
+    reqs: list,
+    sid: str,
+    report: dict,
+    idx: int,
+    blob: dict,
+    project: str,
+) -> int:
+    """Generic table slide for resolved tickets grouped by assignee."""
+    assignees = blob.get("by_assignee") or []
+    total_resolved = blob.get("total_resolved", 0)
+    days = blob.get("days", 90)
+    customer = blob.get("customer") or report.get("customer") or "Customer"
+
+    entry = report.get("_current_slide") or {}
+    base_title = entry.get("title") or f"{project} Tickets Resolved by Assignee"
+    
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, base_title)
+    
+    sub = f"project {project}  ·  matched to {customer}  ·  resolved in last {days} days  ·  {total_resolved} ticket{'s' if total_resolved != 1 else ''}"
+    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
+    _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
+    
+    if not assignees:
+        empty_msg = f"No {project} tickets resolved in the last {days} days."
+        _box(reqs, f"{sid}_empty", sid, MARGIN, BODY_Y + 30, CONTENT_W, 40, empty_msg)
+        _style(reqs, f"{sid}_empty", 0, len(empty_msg), size=10, color=NAVY, font=FONT)
+        return idx + 1
+    
+    # Limit to 20 rows to fit on page
+    max_rows = 20
+    display_assignees = assignees[:max_rows]
+    
+    # Create table
+    headers = ["Assignee", "Tickets Resolved"]
+    col_widths = [450, 134]  # Total: 584pt
+    ROW_H = 18
+    
+    table_top = BODY_Y + 24
+    num_rows = 1 + len(display_assignees)
+    table_id = f"{sid}_tbl"
+    
+    reqs.append({
+        "createTable": {
+            "objectId": table_id,
+            "elementProperties": {
+                "pageObjectId": sid,
+                "size": _sz(sum(col_widths), num_rows * ROW_H),
+                "transform": _tf(MARGIN, table_top),
+            },
+            "rows": num_rows,
+            "columns": len(headers),
+        }
+    })
+    
+    def _ct(row, col, text):
+        if not text:
+            return
+        reqs.append({
+            "insertText": {
+                "objectId": table_id,
+                "cellLocation": {"rowIndex": row, "columnIndex": col},
+                "text": str(text),
+                "insertionIndex": 0,
+            }
+        })
+    
+    def _cs(row, col, text_len, bold=False, color=None, size=8, align=None):
+        if text_len > 0:
+            from typing import Any
+            s: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}, "fontFamily": FONT}
+            f = ["fontSize", "fontFamily"]
+            if bold:
+                s["bold"] = True
+                f.append("bold")
+            if color:
+                s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}
+                f.append("foregroundColor")
+            reqs.append({
+                "updateTextStyle": {
+                    "objectId": table_id,
+                    "cellLocation": {"rowIndex": row, "columnIndex": col},
+                    "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
+                    "style": s,
+                    "fields": ",".join(f),
+                }
+            })
+        if align:
+            reqs.append({
+                "updateParagraphStyle": {
+                    "objectId": table_id,
+                    "cellLocation": {"rowIndex": row, "columnIndex": col},
+                    "textRange": {"type": "ALL"},
+                    "style": {"alignment": align},
+                    "fields": "alignment",
+                }
+            })
+    
+    def _cbg(row, col, color):
+        reqs.append({
+            "updateTableCellProperties": {
+                "objectId": table_id,
+                "tableRange": {"location": {"rowIndex": row, "columnIndex": col}, "rowSpan": 1, "columnSpan": 1},
+                "tableCellProperties": {"tableCellBackgroundFill": {"solidFill": {"color": {"rgbColor": color}}}},
+                "fields": "tableCellBackgroundFill",
+            }
+        })
+    
+    _clean_table(reqs, table_id, num_rows, len(headers))
+    
+    # Header row
+    for ci, h in enumerate(headers):
+        _ct(0, ci, h)
+        _cs(0, ci, len(h), bold=True, color=NAVY, size=9, align="END" if ci == 1 else None)
+        _cbg(0, ci, WHITE)
+    
+    # Data rows
+    for ri, item in enumerate(display_assignees):
+        row_idx = ri + 1
+        
+        assignee = item.get("assignee") or "—"
+        count = item.get("count", 0)
+        
+        if len(assignee) > 80:
+            assignee = assignee[:77] + "..."
+        
+        vals = [assignee, str(count)]
+        
+        for ci, v in enumerate(vals):
+            _ct(row_idx, ci, v)
+            _cs(row_idx, ci, len(v), size=9, align="END" if ci == 1 else None)
+    
+    # Add footnote if we're showing a subset
+    if len(assignees) > max_rows:
+        footnote = f"Showing top {max_rows} of {len(assignees)} assignees"
+        footnote_y = table_top + (num_rows * ROW_H) + 8
+        _box(reqs, f"{sid}_footnote", sid, MARGIN, footnote_y, CONTENT_W, 14, footnote)
+        _style(reqs, f"{sid}_footnote", 0, len(footnote), size=8, color=GRAY, font=FONT, italic=True)
+    
+    return idx + 1
+
+
+def _project_recent_tickets_table_slide(
+    reqs: list,
+    sid: str,
+    report: dict,
+    idx: int,
+    blob: dict,
+    project: str,
+    *,
+    closed: bool,
+) -> int:
+    """Generic table slide for any project's recent tickets."""
+    jira_base = (report.get("jira", {}).get("base_url") or "").rstrip("/")
+    items: list[dict[str, Any]] = list(
+        blob.get("recently_closed" if closed else "recently_opened") or [],
+    )
+    days = int(blob.get("closed_within_days" if closed else "opened_within_days") or 45)
+    customer = blob.get("customer") or report.get("customer") or "Customer"
+
+    entry = report.get("_current_slide") or {}
+    base_title = entry.get("title") or (
+        f"Recently closed {project} tickets" if closed else f"Recently opened {project} tickets"
+    )
+    kind = "Resolved" if closed else "Created"
+    total_n = len(items)
+    
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, base_title)
+    
+    sub = (
+        f"project {project}  ·  matched to {customer}  ·  {kind} in the last {days} days  ·  "
+        f"{total_n} ticket{'s' if total_n != 1 else ''}"
+    )
+    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
+    _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
+    
+    if not items:
+        empty_msg = f"No {project} tickets in this window ({kind.lower()} in the last {days} days)."
+        _box(reqs, f"{sid}_empty", sid, MARGIN, BODY_Y + 30, CONTENT_W, 40, empty_msg)
+        _style(reqs, f"{sid}_empty", 0, len(empty_msg), size=10, color=NAVY, font=FONT)
+        return idx + 1
+    
+    # Limit to 15 rows to fit on page
+    max_rows = 15
+    display_items = items[:max_rows]
+    
+    # Create table
+    headers = ["ID", "Title", "Status", "Priority", "Created", "Resolved"]
+    col_widths = [60, 240, 80, 60, 72, 72]
+    ROW_H = 18
+    
+    table_top = BODY_Y + 24
+    num_rows = 1 + len(display_items)
+    table_id = f"{sid}_tbl"
+    
+    reqs.append({
+        "createTable": {
+            "objectId": table_id,
+            "elementProperties": {
+                "pageObjectId": sid,
+                "size": _sz(sum(col_widths), num_rows * ROW_H),
+                "transform": _tf(MARGIN, table_top),
+            },
+            "rows": num_rows,
+            "columns": len(headers),
+        }
+    })
+    
+    def _ct(row, col, text):
+        if not text:
+            return
+        reqs.append({
+            "insertText": {
+                "objectId": table_id,
+                "cellLocation": {"rowIndex": row, "columnIndex": col},
+                "text": str(text),
+                "insertionIndex": 0,
+            }
+        })
+    
+    def _cs(row, col, text_len, bold=False, color=None, size=8, align=None, link=None):
+        if text_len > 0:
+            from typing import Any
+            s: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}, "fontFamily": FONT}
+            f = ["fontSize", "fontFamily"]
+            if bold:
+                s["bold"] = True
+                f.append("bold")
+            if color:
+                s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}
+                f.append("foregroundColor")
+            if link:
+                s["link"] = {"url": link}
+                f.append("link")
+            reqs.append({
+                "updateTextStyle": {
+                    "objectId": table_id,
+                    "cellLocation": {"rowIndex": row, "columnIndex": col},
+                    "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
+                    "style": s,
+                    "fields": ",".join(f),
+                }
+            })
+        if align:
+            reqs.append({
+                "updateParagraphStyle": {
+                    "objectId": table_id,
+                    "cellLocation": {"rowIndex": row, "columnIndex": col},
+                    "textRange": {"type": "ALL"},
+                    "style": {"alignment": align},
+                    "fields": "alignment",
+                }
+            })
+    
+    def _cbg(row, col, color):
+        reqs.append({
+            "updateTableCellProperties": {
+                "objectId": table_id,
+                "tableRange": {"location": {"rowIndex": row, "columnIndex": col}, "rowSpan": 1, "columnSpan": 1},
+                "tableCellProperties": {"tableCellBackgroundFill": {"solidFill": {"color": {"rgbColor": color}}}},
+                "fields": "tableCellBackgroundFill",
+            }
+        })
+    
+    _clean_table(reqs, table_id, num_rows, len(headers))
+    
+    # Header row
+    for ci, h in enumerate(headers):
+        _ct(0, ci, h)
+        _cs(0, ci, len(h), bold=True, color=NAVY, size=9)
+        _cbg(0, ci, WHITE)
+    
+    # Data rows
+    for ri, it in enumerate(display_items):
+        row_idx = ri + 1
+        
+        key = it.get("key") or "—"
+        title = it.get("summary") or ""
+        if len(title) > 60:
+            title = title[:57] + "..."
+        status = (it.get("status") or "—")[:18]
+        priority = (it.get("priority") or "—")[:12]
+        created = it.get("created_short") or "—"
+        resolved = it.get("resolved_short") or "—"
+        
+        vals = [key, title, status, priority, created, resolved]
+        
+        for ci, v in enumerate(vals):
+            _ct(row_idx, ci, v)
+            
+            # Make ticket ID a link and bold
+            if ci == 0 and jira_base and key and key != "—":
+                _cs(row_idx, ci, len(v), bold=True, color=BLUE, size=8, link=f"{jira_base}/browse/{key}")
+            else:
+                _cs(row_idx, ci, len(v), size=8)
+    
+    # Add footnote if we're showing a subset
+    if total_n > max_rows:
+        footnote = f"Showing {max_rows} of {total_n} tickets (most recent)"
+        footnote_y = table_top + (num_rows * ROW_H) + 8
+        _box(reqs, f"{sid}_footnote", sid, MARGIN, footnote_y, CONTENT_W, 14, footnote)
+        _style(reqs, f"{sid}_footnote", 0, len(footnote), size=8, color=GRAY, font=FONT, italic=True)
+    
+    return idx + 1
 
 
 def _signals_slide(reqs, sid, report, idx):
@@ -6963,6 +7470,12 @@ _SLIDE_BUILDERS = {
     "customer_ticket_metrics": _customer_ticket_metrics_slide,
     "support_recent_opened": _support_recent_opened_slide,
     "support_recent_closed": _support_recent_closed_slide,
+    "customer_project_recent_opened": _customer_project_recent_opened_slide,
+    "customer_project_recent_closed": _customer_project_recent_closed_slide,
+    "lean_project_recent_opened": _lean_project_recent_opened_slide,
+    "lean_project_recent_closed": _lean_project_recent_closed_slide,
+    "help_resolved_by_assignee": _help_resolved_by_assignee_slide,
+    "customer_resolved_by_assignee": _customer_resolved_by_assignee_slide,
     "custom": _custom_slide,
     "signals": _signals_slide,
     "platform_health": _platform_health_slide,
@@ -7022,6 +7535,12 @@ SLIDE_DATA_REQUIREMENTS = {
     "customer_ticket_metrics": ["jira"],
     "support_recent_opened": ["jira"],
     "support_recent_closed": ["jira"],
+    "customer_project_recent_opened": ["jira"],
+    "customer_project_recent_closed": ["jira"],
+    "lean_project_recent_opened": ["jira"],
+    "lean_project_recent_closed": ["jira"],
+    "help_resolved_by_assignee": ["jira"],
+    "customer_resolved_by_assignee": ["jira"],
     "custom": ["title", "sections"],
     "signals": ["signals"],
     "platform_health": ["csr"],
@@ -7097,7 +7616,15 @@ def create_empty_deck(customer: str, days: int = 30, deck_name: str | None = Non
         output_folder = _get_deck_output_folder()
         if output_folder:
             file_meta["parents"] = [output_folder]
-        f = drive_service.files().create(body=file_meta).execute()
+            
+        import socket
+        old_timeout = socket.getdefaulttimeout()
+        try:
+            socket.setdefaulttimeout(30.0)  # 30 second timeout for Drive operations
+            f = drive_service.files().create(body=file_meta).execute()
+        finally:
+            socket.setdefaulttimeout(old_timeout)
+            
         deck_id = f["id"]
         logger.info("Created deck %s: %s", deck_id, title)
     except HttpError as e:
@@ -7105,13 +7632,19 @@ def create_empty_deck(customer: str, days: int = 30, deck_name: str | None = Non
 
     # Delete the default blank slide
     try:
-        pres = slides_service.presentations().get(presentationId=deck_id).execute()
-        default_id = pres["slides"][0]["objectId"]
-        slides_presentations_batch_update(
-            slides_service,
-            deck_id,
-            [{"deleteObject": {"objectId": default_id}}],
-        )
+        import socket
+        old_timeout = socket.getdefaulttimeout()
+        try:
+            socket.setdefaulttimeout(30.0)  # 30 second timeout for Slides API
+            pres = slides_service.presentations().get(presentationId=deck_id).execute()
+            default_id = pres["slides"][0]["objectId"]
+            slides_presentations_batch_update(
+                slides_service,
+                deck_id,
+                [{"deleteObject": {"objectId": default_id}}],
+            )
+        finally:
+            socket.setdefaulttimeout(old_timeout)
     except Exception:
         pass
 
@@ -7271,6 +7804,128 @@ def create_health_deck(
             slide_plan, report.get("salesforce_comprehensive") or {}
         )
 
+    if deck_id == "support":
+        try:
+            from .jira_client import get_shared_jira_client
+
+            jira_client = get_shared_jira_client()
+            
+            # Initialize jira dict with base_url
+            if "jira" not in report:
+                report["jira"] = {}
+            
+            if "base_url" not in report["jira"]:
+                report["jira"]["base_url"] = (jira_client.base_url or "").rstrip("/")
+            
+            # Fetch customer ticket metrics if not already in report
+            if "customer_ticket_metrics" not in report["jira"]:
+                logger.info("Support deck: fetching customer ticket metrics for %s", customer)
+                customer_ticket_metrics = jira_client.get_customer_ticket_metrics(customer)
+                report["jira"]["customer_ticket_metrics"] = customer_ticket_metrics
+            
+            # Fetch recent HELP tickets
+            logger.info("Support deck: fetching recent HELP tickets for %s", customer)
+            customer_help_recent = jira_client.get_customer_help_recent_tickets(
+                customer,
+                opened_within_days=45,
+                closed_within_days=45,
+            )
+            report["jira"]["customer_help_recent"] = customer_help_recent
+            
+            # Fetch recent CUSTOMER project tickets
+            logger.info("Support deck: fetching recent CUSTOMER project tickets for %s", customer)
+            customer_project_recent = jira_client.get_customer_project_recent_tickets(
+                "CUSTOMER",
+                customer,
+                opened_within_days=45,
+                closed_within_days=45,
+            )
+            report["jira"]["customer_project_recent"] = customer_project_recent
+            
+            # Fetch recent LEAN project tickets
+            logger.info("Support deck: fetching recent LEAN project tickets for %s", customer)
+            lean_project_recent = jira_client.get_customer_project_recent_tickets(
+                "LEAN",
+                customer,
+                opened_within_days=45,
+                closed_within_days=45,
+            )
+            report["jira"]["lean_project_recent"] = lean_project_recent
+            
+            # Fetch resolved tickets by assignee for HELP (last 90 days)
+            logger.info("Support deck: fetching HELP resolved tickets by assignee for %s", customer)
+            help_resolved_by_assignee = jira_client.get_resolved_tickets_by_assignee(
+                "HELP",
+                customer,
+                days=90,
+            )
+            report["jira"]["help_resolved_by_assignee"] = help_resolved_by_assignee
+            
+            # Fetch resolved tickets by assignee for CUSTOMER (last 90 days)
+            logger.info("Support deck: fetching CUSTOMER resolved tickets by assignee for %s", customer)
+            customer_resolved_by_assignee = jira_client.get_resolved_tickets_by_assignee(
+                "CUSTOMER",
+                customer,
+                days=90,
+            )
+            report["jira"]["customer_resolved_by_assignee"] = customer_resolved_by_assignee
+            
+            logger.info(
+                "Support deck: fetched data for %s (HELP: %d/%d, CUSTOMER: %d/%d, LEAN: %d/%d, HELP resolved: %d, CUSTOMER resolved: %d)",
+                customer,
+                len(customer_help_recent.get("recently_opened", [])),
+                len(customer_help_recent.get("recently_closed", [])),
+                len(customer_project_recent.get("recently_opened", [])),
+                len(customer_project_recent.get("recently_closed", [])),
+                len(lean_project_recent.get("recently_opened", [])),
+                len(lean_project_recent.get("recently_closed", [])),
+                help_resolved_by_assignee.get("total_resolved", 0),
+                customer_resolved_by_assignee.get("total_resolved", 0),
+            )
+        except Exception as e:
+            logger.warning("Support deck: Jira data fetch failed for %s: %s", customer, e)
+            if "jira" not in report:
+                report["jira"] = {}
+            if "customer_ticket_metrics" not in report["jira"]:
+                report["jira"]["customer_ticket_metrics"] = {
+                    "error": str(e)[:500],
+                    "customer": customer,
+                }
+            report["jira"]["customer_help_recent"] = {
+                "error": str(e)[:500],
+                "customer": customer,
+                "recently_opened": [],
+                "recently_closed": [],
+            }
+            report["jira"]["customer_project_recent"] = {
+                "error": str(e)[:500],
+                "project": "CUSTOMER",
+                "customer": customer,
+                "recently_opened": [],
+                "recently_closed": [],
+            }
+            report["jira"]["lean_project_recent"] = {
+                "error": str(e)[:500],
+                "project": "LEAN",
+                "customer": customer,
+                "recently_opened": [],
+                "recently_closed": [],
+            }
+            report["jira"]["help_resolved_by_assignee"] = {
+                "error": str(e)[:500],
+                "project": "HELP",
+                "customer": customer,
+                "by_assignee": [],
+                "total_resolved": 0,
+            }
+            report["jira"]["customer_resolved_by_assignee"] = {
+                "error": str(e)[:500],
+                "project": "CUSTOMER",
+                "customer": customer,
+                "by_assignee": [],
+                "total_resolved": 0,
+            }
+
     if not slide_plan:
         logger.error(
             "create_health_deck: empty slide plan (deck_id=%s customer=%r). "
@@ -7288,13 +7943,20 @@ def create_health_deck(
         }
 
     try:
-        file_meta = {"name": title, "mimeType": "application/vnd.google-apps.presentation"}
-        output_folder = output_folder_id if output_folder_id else _get_deck_output_folder()
-        if output_folder:
-            file_meta["parents"] = [output_folder]
-        file = drive_service.files().create(body=file_meta).execute()
-        pres_id = file["id"]
-        logger.info("Created presentation %s: %s", pres_id, title)
+        import socket
+        old_timeout = socket.getdefaulttimeout()
+        try:
+            socket.setdefaulttimeout(30.0)  # 30 second timeout for Drive operations
+            
+            file_meta = {"name": title, "mimeType": "application/vnd.google-apps.presentation"}
+            output_folder = output_folder_id if output_folder_id else _get_deck_output_folder()
+            if output_folder:
+                file_meta["parents"] = [output_folder]
+            file = drive_service.files().create(body=file_meta).execute()
+            pres_id = file["id"]
+            logger.info("Created presentation %s: %s", pres_id, title)
+        finally:
+            socket.setdefaulttimeout(old_timeout)
     except HttpError as e:
         err_str = str(e)
         if "rate" in err_str.lower() or "quota" in err_str.lower():
@@ -7345,7 +8007,14 @@ def create_health_deck(
     slides_created = idx - 1
 
     try:
-        pres = slides_service.presentations().get(presentationId=pres_id).execute()
+        import socket
+        old_timeout = socket.getdefaulttimeout()
+        try:
+            socket.setdefaulttimeout(30.0)  # 30 second timeout for Slides API
+            pres = slides_service.presentations().get(presentationId=pres_id).execute()
+        finally:
+            socket.setdefaulttimeout(old_timeout)
+            
         default_id = pres["slides"][0]["objectId"]
         if slides_created > 0:
             reqs.append({"deleteObject": {"objectId": default_id}})
@@ -7361,7 +8030,13 @@ def create_health_deck(
         pass
 
     try:
-        presentations_batch_update_chunked(slides_service, pres_id, reqs)
+        import socket
+        old_timeout = socket.getdefaulttimeout()
+        try:
+            socket.setdefaulttimeout(60.0)  # 60 second timeout for batchUpdate (can be large)
+            presentations_batch_update_chunked(slides_service, pres_id, reqs)
+        finally:
+            socket.setdefaulttimeout(old_timeout)
     except HttpError as e:
         logger.exception("Failed to build slides")
         return {"error": str(e), "presentation_id": pres_id}

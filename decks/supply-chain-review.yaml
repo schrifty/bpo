@@ -1,0 +1,47 @@
+id: supply_chain_review
+name: Supply Chain & Operations Review
+audience: Supply Chain Leaders / Operations Managers
+
+purpose: |
+  This deck is for supply chain and operations leaders who need a focused view
+  of platform health, inventory risk, shortage trends, and continuous improvement
+  ROI. The narrative arc is: "Here's the current state of your supply chain
+  operations, the risks we're tracking, and the value your team is delivering
+  through platform-driven improvements."
+
+  The audience cares about operational metrics — DOI, CTB, shortage forecasts,
+  critical items, and Lean Projects savings — not engagement or adoption metrics.
+  Every slide should give an operations leader something actionable: items to
+  expedite, shortages to address, or projects to celebrate.
+
+# Slide YAML: reuses existing slides from QBR plus LeanDNA data.
+
+slides:
+  - slide: std_title
+    title: Supply Chain & Operations Review
+  - slide: platform_health
+    note: Health score, CTB, CTC, component availability
+  - slide: supply_chain
+    note: DOI backwards, high-risk items, ABC distribution
+  - slide: shortage_forecast
+    note: 12-week shortage outlook with KPIs
+  - slide: critical_shortages_detail
+    note: Top 20 critical items by urgency
+  - slide: shortage_deliveries
+    note: Scheduled deliveries and resolution timeline
+  - slide: lean_projects_savings
+    note: Monthly savings tracking and achievement
+  - slide: lean_projects_portfolio
+    note: Top 10 active projects by savings
+  - slide: platform_value
+    note: Total cost avoidance and efficiency gains
+  - slide: data_quality
+    note: Data completeness and quality indicators
+
+overrides:
+  - slide: platform_health
+    require: true
+    note: Core of the ops deck — always show even if data is sparse.
+  - slide: supply_chain
+    require: true
+    note: Critical inventory metrics baseline.

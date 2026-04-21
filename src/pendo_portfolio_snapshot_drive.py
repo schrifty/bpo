@@ -322,14 +322,18 @@ def _upload_data_field_synonyms_bytes(
     *,
     file_id: str | None,
 ) -> str:
+    from .network_utils import network_timeout
+    
     with drive_api_lock:
         drive = _get_drive()
         media = MediaIoBaseUpload(io.BytesIO(payload), mimetype="application/json")
         if file_id:
-            f = drive.files().update(fileId=file_id, media_body=media, fields="id").execute()
+            with network_timeout(30.0, "Drive file update"):
+                f = drive.files().update(fileId=file_id, media_body=media, fields="id").execute()
             return str(f["id"])
         meta: dict[str, Any] = {"name": DATA_FIELD_SYNONYMS_FILENAME, "parents": [folder_id]}
-        f = drive.files().create(body=meta, media_body=media, fields="id").execute()
+        with network_timeout(30.0, "Drive file creation"):
+            f = drive.files().create(body=meta, media_body=media, fields="id").execute()
         return str(f["id"])
 
 
@@ -428,7 +432,9 @@ def try_load_portfolio_snapshot_for_request(
 
         with drive_api_lock:
             drive = _get_drive()
-            meta = drive.files().get(fileId=file_id, fields="modifiedTime").execute()
+            from .network_utils import network_timeout
+            with network_timeout(30.0, "Drive file metadata get"):
+                meta = drive.files().get(fileId=file_id, fields="modifiedTime").execute()
         modified_time = meta.get("modifiedTime")
 
         text = _read_drive_file_text(file_id)
@@ -637,6 +643,8 @@ def upload_portfolio_snapshot_to_drive(
             )
             return existing_early
 
+    from .network_utils import network_timeout
+    
     with drive_api_lock:
         drive = _get_drive()
         media = MediaIoBaseUpload(
@@ -645,11 +653,13 @@ def upload_portfolio_snapshot_to_drive(
         )
         existing_id = find_file_in_folder(name, folder_id, mime_type=None)
         if existing_id:
-            f = drive.files().update(fileId=existing_id, media_body=media, fields="id").execute()
+            with network_timeout(30.0, "Drive file update"):
+                f = drive.files().update(fileId=existing_id, media_body=media, fields="id").execute()
             logger.info("Portfolio snapshot: updated Drive file %r (%s)", name, f["id"])
             return f["id"]
         meta: dict[str, Any] = {"name": name, "parents": [folder_id]}
-        f = drive.files().create(body=meta, media_body=media, fields="id").execute()
+        with network_timeout(30.0, "Drive file creation"):
+            f = drive.files().create(body=meta, media_body=media, fields="id").execute()
         logger.info("Portfolio snapshot: created Drive file %r (%s)", name, f["id"])
         return f["id"]
 
