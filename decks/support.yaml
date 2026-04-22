@@ -4,30 +4,46 @@ audience: Support / Engineering Leadership
 
 purpose: |
   A focused support deck for operational ticket-volume review.
-  Starts with the HELP created-vs-resolved trend so the team can isolate
-  backlog pressure and escalations without mixing it into the broader
-  engineering portfolio narrative. Adds per-customer KPIs, then recent opened
-  and recent closed ticket lists for HELP, CUSTOMER, and LEAN projects (same customer match as metrics).
-  Includes resolved tickets by assignee for HELP and CUSTOMER projects (last 90 days).
+  Three parallel blocks — HELP, CUSTOMER, and LEAN — each with the same six
+  slides: volume trends, KPI ticket metrics, open-ticket breakdown (pies),
+  recently opened, recently closed, and resolved by assignee (90 days).
+  Customer scoping matches organization/text search per project (all-customers
+  runs use full project scope where applicable).
 
 slides:
   - slide: eng_help_volume_trends
     title: "HELP Ticket Volume Trends"
   - slide: customer_ticket_metrics
-    title: "Safran Electronics & Defense (SED) Ticket Metrics"
+    title: "Safran Electronics & Defense (SED) HELP Ticket Metrics"
+  - slide: support_ticket_metrics_breakdown
+    title: "Safran Electronics & Defense (SED) HELP Ticket Metrics Breakdown"
   - slide: support_recent_opened
     title: "Recently opened HELP tickets (SED)"
   - slide: support_recent_closed
     title: "Recently closed HELP tickets (SED)"
   - slide: help_resolved_by_assignee
     title: "HELP Tickets Resolved by Assignee (Last 90 Days)"
+  - slide: customer_project_volume_trends
+    title: "Safran Electronics & Defense (SED) CUSTOMER Ticket Volume Trends"
+  - slide: customer_project_ticket_metrics
+    title: "Safran Electronics & Defense (SED) CUSTOMER Ticket Metrics"
+  - slide: customer_project_ticket_metrics_breakdown
+    title: "Safran Electronics & Defense (SED) CUSTOMER Ticket Metrics Breakdown"
   - slide: customer_project_recent_opened
     title: "Recently opened CUSTOMER tickets (SED)"
   - slide: customer_project_recent_closed
     title: "Recently closed CUSTOMER tickets (SED)"
   - slide: customer_resolved_by_assignee
     title: "CUSTOMER Tickets Resolved by Assignee (Last 90 Days)"
+  - slide: lean_project_volume_trends
+    title: "Safran Electronics & Defense (SED) LEAN Ticket Volume Trends"
+  - slide: lean_project_ticket_metrics
+    title: "Safran Electronics & Defense (SED) LEAN Ticket Metrics"
+  - slide: lean_project_ticket_metrics_breakdown
+    title: "Safran Electronics & Defense (SED) LEAN Ticket Metrics Breakdown"
   - slide: lean_project_recent_opened
     title: "Recently opened LEAN tickets (SED)"
   - slide: lean_project_recent_closed
     title: "Recently closed LEAN tickets (SED)"
+  - slide: lean_resolved_by_assignee
+    title: "LEAN Tickets Resolved by Assignee (Last 90 Days)"

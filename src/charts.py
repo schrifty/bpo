@@ -333,6 +333,8 @@ class DeckCharts:
         values: list[float | int],
         donut: bool = False,
         suppress_legend: bool = True,
+        show_title: bool = True,
+        legend_position: str = "BOTTOM_LEGEND",
     ) -> tuple[str, int]:
         """Create a pie (or donut) chart. Returns (spreadsheet_id, chart_id).
 
@@ -348,7 +350,7 @@ class DeckCharts:
         num_rows = len(rows) + 1
 
         pie_spec: dict[str, Any] = {
-            "legendPosition": "NO_LEGEND" if suppress_legend else "RIGHT_LEGEND",
+            "legendPosition": "NO_LEGEND" if suppress_legend else legend_position,
             "domain": {"sourceRange": {"sources": [{
                 "sheetId": sheet_id,
                 "startRowIndex": 0, "endRowIndex": num_rows,
@@ -364,7 +366,7 @@ class DeckCharts:
             pie_spec["pieHole"] = 0.4
 
         spec = {
-            "title": title,
+            "title": title if show_title else "",
             "titleTextFormat": _chart_text_format(CHART_TITLE_PT, NAVY, bold=True),
             "pieChart": pie_spec,
         }

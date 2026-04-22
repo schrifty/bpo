@@ -1,0 +1,12 @@
+id: lean_project_ticket_metrics_breakdown
+type: standard
+order: 24.3
+title: LEAN Ticket Metrics Breakdown
+slide_type: lean_project_ticket_metrics_breakdown
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Breakdown of unresolved LEAN tickets by type and by status. Use two side-by-side
+  donut charts with readable titles and legend labels sized for slide viewing.

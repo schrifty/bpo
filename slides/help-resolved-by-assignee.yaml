@@ -1,0 +1,12 @@
+id: help_resolved_by_assignee
+type: standard
+order: 95
+title: HELP Tickets Resolved by Assignee
+slide_type: help_resolved_by_assignee
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Shows HELP project tickets resolved in the recent window grouped by assignee,
+  showing total resolved count per person. Sorted by count descending.

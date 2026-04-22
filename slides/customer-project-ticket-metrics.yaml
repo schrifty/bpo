@@ -1,0 +1,12 @@
+id: customer_project_ticket_metrics
+type: standard
+order: 61
+title: CUSTOMER ticket metrics
+slide_type: customer_project_ticket_metrics
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Jira project CUSTOMER only: KPI cards mirroring HELP ticket metrics
+  (unresolved, resolved 6mo, SLA adherence, TTR open backlog age, TTFR).

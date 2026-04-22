@@ -27,8 +27,10 @@ _shared_jira_client: Any = None
 
 # Cap HELP body fetch (slide lists / histograms); extra issues are omitted from breakdowns.
 HELP_JIRA_BODY_MAX_RESULTS = int(os.environ.get("BPO_HELP_JIRA_BODY_MAX", "750"))
-# Single merged JQL for ticket metrics (open ∪ 180d resolved ∪ 365d created).
+# Single merged JQL for ticket metrics (open ∪ 365d resolved ∪ 365d created).
 HELP_METRICS_MERGED_MAX_RESULTS = int(os.environ.get("BPO_HELP_JIRA_METRICS_MAX", "2000"))
+# HELP trend fetch cap (created/resolved monthly trend series).
+HELP_TRENDS_MAX_RESULTS = int(os.environ.get("BPO_HELP_TRENDS_MAX", "12000"))
 # Parallel Jira fetches (rate-limit aware).
 _JIRA_PARALLEL_WORKERS = max(1, min(4, int(os.environ.get("BPO_JIRA_PARALLEL_WORKERS", "3"))))
 
@@ -57,7 +59,7 @@ _TREND_FIELDS = [
 
 _CUSTOMER_TICKET_SLIDE_FIELDS = [
     "summary", "status", "issuetype", "project", "priority", "created", "updated",
-    "resolution", "resolutiondate", TTFR_FIELD, TTR_FIELD,
+    "resolution", "resolutiondate", ORG_FIELD, TTFR_FIELD, TTR_FIELD,
 ]
 
 _ISSUE_FIELDS = [
@@ -516,7 +518,7 @@ class JiraClient:
 
     def _customer_match_clause(
         self,
-        customer_name: str,
+        customer_name: str | None,
         match_terms: list[str] | None = None,
     ) -> tuple[str, list[str]]:
         """Build JQL to match a customer on HELP: Organizations (exact + fuzzy) and text.
@@ -526,11 +528,18 @@ class JiraClient:
         fuzzy-match the report's customer name (and aliases) to those labels, then OR
         ``Organizations = "<resolved>"`` together with literal terms and ``summary`` /
         ``description`` matches for tickets missing org metadata.
+        
+        If customer_name is None, returns an empty filter (matches all customers).
 
         Returns:
             ``(jql_fragment, resolved_jsm_organization_names)`` — the second value is
             the fuzzy-matched enum labels (may be empty if the API failed or no confident match).
         """
+        # Handle "all customers" case
+        if not customer_name:
+            # Jira JQL-safe tautology used with "project = HELP AND ...".
+            return ("key is not EMPTY", [])
+            
         raw_terms = [customer_name] + list(match_terms or [])
         seen: set[str] = set()
         cleaned_terms: list[str] = []
@@ -975,17 +984,72 @@ class JiraClient:
         return sorted(buckets.values(), key=lambda b: b["week"])
 
     @staticmethod
-    def _compute_sla(issues: list[dict], prefix: str) -> dict[str, Any]:
+    def _compute_sla(
+        issues: list[dict],
+        prefix: str,
+        *,
+        project_key: str = "HELP",
+    ) -> dict[str, Any]:
         """Compute SLA statistics (TTFR or TTR) from JSM SLA data."""
         import statistics
 
-        help_issues = [i for i in issues if i.get("project") == "HELP"]
-        values = [i[f"{prefix}_ms"] for i in help_issues if i.get(f"{prefix}_ms") is not None]
-        breached = sum(1 for i in help_issues if i.get(f"{prefix}_breached"))
-        waiting = sum(1 for i in help_issues if i.get(f"{prefix}_waiting"))
+        scoped = [i for i in issues if i.get("project") == project_key]
+        values = [i[f"{prefix}_ms"] for i in scoped if i.get(f"{prefix}_ms") is not None]
+        breached = sum(1 for i in scoped if i.get(f"{prefix}_breached"))
+        waiting = sum(1 for i in scoped if i.get(f"{prefix}_waiting"))
 
         if not values:
-            return {"tickets": len(help_issues), "measured": 0, "waiting": waiting}
+            return {"tickets": len(scoped), "measured": 0, "waiting": waiting}
+
+        values.sort()
+        avg_ms = sum(values) / len(values)
+        med_ms = statistics.median(values)
+
+        def _fmt(ms: int) -> str:
+            mins = ms / 60_000
+            if mins < 60:
+                return f"{mins:.0f}m"
+            hrs = mins / 60
+            if hrs < 24:
+                return f"{hrs:.1f}h"
+            return f"{hrs / 24:.1f}d"
+
+        return {
+            "tickets": len(scoped),
+            "measured": len(values),
+            "waiting": waiting,
+            "breached": breached,
+            "avg_ms": int(avg_ms),
+            "median_ms": med_ms,
+            "min_ms": values[0],
+            "max_ms": values[-1],
+            "avg": _fmt(int(avg_ms)),
+            "median": _fmt(med_ms),
+            "min": _fmt(values[0]),
+            "max": _fmt(values[-1]),
+        }
+
+    @staticmethod
+    def _compute_calendar_ttr(issues: list[dict]) -> dict[str, Any]:
+        """Compute calendar TTR from issue created -> resolutiondate timestamps."""
+        import statistics
+
+        help_issues = [i for i in issues if i.get("project") == "HELP"]
+        values: list[int] = []
+        invalid = 0
+        for issue in help_issues:
+            created_dt = JiraClient._parse_jira_datetime(issue.get("created"))
+            resolved_dt = JiraClient._parse_jira_datetime(issue.get("resolutiondate"))
+            if created_dt is None or resolved_dt is None:
+                continue
+            elapsed_ms = int((resolved_dt - created_dt).total_seconds() * 1000)
+            if elapsed_ms < 0:
+                invalid += 1
+                continue
+            values.append(elapsed_ms)
+
+        if not values:
+            return {"tickets": len(help_issues), "measured": 0, "waiting": 0, "source": "calendar"}
 
         values.sort()
         avg_ms = sum(values) / len(values)
@@ -1003,8 +1067,7 @@ class JiraClient:
         return {
             "tickets": len(help_issues),
             "measured": len(values),
-            "waiting": waiting,
-            "breached": breached,
+            "waiting": 0,
             "avg_ms": int(avg_ms),
             "median_ms": med_ms,
             "min_ms": values[0],
@@ -1013,12 +1076,73 @@ class JiraClient:
             "median": _fmt(med_ms),
             "min": _fmt(values[0]),
             "max": _fmt(values[-1]),
+            "invalid": invalid,
+            "source": "calendar",
         }
 
     @staticmethod
-    def _compute_sla_adherence(issues: list[dict]) -> dict[str, Any]:
-        """Percent of HELP tickets that met every measured SLA on the issue."""
-        help_issues = [i for i in issues if i.get("project") == "HELP"]
+    def _compute_backlog_age(
+        issues: list[dict],
+        *,
+        project_key: str = "HELP",
+    ) -> dict[str, Any]:
+        """Compute open-ticket backlog age from created -> now (NOT DONE, scoped by project)."""
+        import statistics
+
+        help_issues = [i for i in issues if i.get("project") == project_key]
+        now = datetime.now(timezone.utc)
+        values: list[int] = []
+        invalid = 0
+        for issue in help_issues:
+            created_dt = JiraClient._parse_jira_datetime(issue.get("created"))
+            if created_dt is None:
+                continue
+            elapsed_ms = int((now - created_dt).total_seconds() * 1000)
+            if elapsed_ms < 0:
+                invalid += 1
+                continue
+            values.append(elapsed_ms)
+
+        if not values:
+            return {"tickets": len(help_issues), "measured": 0, "waiting": 0, "source": "open_backlog_age"}
+
+        values.sort()
+        avg_ms = sum(values) / len(values)
+        med_ms = statistics.median(values)
+
+        def _fmt(ms: int) -> str:
+            mins = ms / 60_000
+            if mins < 60:
+                return f"{mins:.0f}m"
+            hrs = mins / 60
+            if hrs < 24:
+                return f"{hrs:.1f}h"
+            return f"{hrs / 24:.1f}d"
+
+        return {
+            "tickets": len(help_issues),
+            "measured": len(values),
+            "waiting": 0,
+            "avg_ms": int(avg_ms),
+            "median_ms": med_ms,
+            "min_ms": values[0],
+            "max_ms": values[-1],
+            "avg": _fmt(int(avg_ms)),
+            "median": _fmt(med_ms),
+            "min": _fmt(values[0]),
+            "max": _fmt(values[-1]),
+            "invalid": invalid,
+            "source": "open_backlog_age",
+        }
+
+    @staticmethod
+    def _compute_sla_adherence(
+        issues: list[dict],
+        *,
+        project_key: str = "HELP",
+    ) -> dict[str, Any]:
+        """Percent of project tickets that met every measured SLA on the issue."""
+        help_issues = [i for i in issues if i.get("project") == project_key]
         measured = 0
         met = 0
         waiting = 0
@@ -1051,14 +1175,16 @@ class JiraClient:
     def _partition_help_metrics_merged(
         self,
         merged_raw: list[dict],
-    ) -> tuple[list[dict], list[dict], list[dict]]:
-        """Split a merged HELP union query into open / resolved-180d / created-365d buckets."""
+    ) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
+        """Split merged HELP union query into open / resolved-180d / created-365d / resolved-365d."""
         now = datetime.now(timezone.utc)
-        cutoff_res = now - timedelta(days=180)
+        cutoff_res_180 = now - timedelta(days=180)
+        cutoff_res_365 = now - timedelta(days=365)
         cutoff_cre = now - timedelta(days=365)
         open_raw: list[dict] = []
         resolved_raw: list[dict] = []
         year_raw: list[dict] = []
+        resolved_year_raw: list[dict] = []
         for raw in merged_raw:
             f = raw.get("fields", {}) or {}
             status = f.get("status") or {}
@@ -1068,15 +1194,17 @@ class JiraClient:
             cre_dt = self._parse_jira_datetime(f.get("created"))
             if not is_done:
                 open_raw.append(raw)
-            if f.get("resolution") and res_dt is not None and res_dt >= cutoff_res:
+            if f.get("resolution") and res_dt is not None and res_dt >= cutoff_res_180:
                 resolved_raw.append(raw)
+            if f.get("resolution") and res_dt is not None and res_dt >= cutoff_res_365:
+                resolved_year_raw.append(raw)
             if cre_dt is not None and cre_dt >= cutoff_cre:
                 year_raw.append(raw)
-        return open_raw, resolved_raw, year_raw
+        return open_raw, resolved_raw, year_raw, resolved_year_raw
 
     def get_customer_ticket_metrics(
         self,
-        customer_name: str,
+        customer_name: str | None,
         match_terms: list[str] | None = None,
         *,
         _prebuilt_clause: tuple[str, list[str]] | None = None,
@@ -1088,7 +1216,7 @@ class JiraClient:
         project filter, those text matches pull in LEAN and other projects and inflate
         Support Review KPIs.
 
-        Uses a **single merged JQL** (open ∪ resolved-in-180d ∪ created-in-365d) plus
+        Uses a **single merged JQL** (open ∪ resolved-in-365d ∪ created-in-365d) plus
         client-side partitioning to avoid triple pagination. Pass ``_prebuilt_clause``
         from ``get_customer_jira`` to skip a second org-resolution pass.
         """
@@ -1137,7 +1265,7 @@ class JiraClient:
         union_jql = (
             f"{proj}{base_filter} AND ("
             "statusCategory != Done OR "
-            "(resolution is not EMPTY AND resolved >= -180d) OR "
+            "(resolution is not EMPTY AND resolved >= -365d) OR "
             "created >= -365d"
             ") ORDER BY updated DESC"
         )
@@ -1146,7 +1274,7 @@ class JiraClient:
                 union_jql,
                 max_results=max_fetch,
                 fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
-                data_description="HELP customer metrics (merged open / 180d resolved / 365d created)",
+                data_description="HELP customer metrics (merged open / 365d resolved / 365d created)",
             )
         except Exception as e:
             logger.warning("Customer ticket metrics fetch failed for %s: %s", customer_name, e)
@@ -1156,16 +1284,18 @@ class JiraClient:
                 "jsm_organizations_resolved": resolved_jsm_orgs,
             }
 
-        open_raw, resolved_raw, year_raw = self._partition_help_metrics_merged(merged_raw)
+        open_raw, resolved_raw, year_raw, resolved_year_raw = self._partition_help_metrics_merged(merged_raw)
 
         open_issues = [_norm_snapshot_issue(i) for i in open_raw]
         resolved_issues = [_norm_snapshot_issue(i) for i in resolved_raw]
         year_issues = [_norm_snapshot_issue(i) for i in year_raw]
+        resolved_year_issues = [_norm_snapshot_issue(i) for i in resolved_year_raw]
 
         by_type_open = dict(sorted(Counter(i["type"] for i in open_issues).items(), key=lambda x: (-x[1], x[0])))
         by_status_open = dict(sorted(Counter(i["status"] for i in open_issues).items(), key=lambda x: (-x[1], x[0])))
         ttfr = self._compute_sla(year_issues, "ttfr")
-        ttr = self._compute_sla(year_issues, "ttr")
+        # For support deck, TTR is defined as age of open NOT DONE backlog tickets.
+        ttr = self._compute_backlog_age(open_issues)
         sla_adherence = self._compute_sla_adherence(year_issues)
 
         return {
@@ -1178,6 +1308,190 @@ class JiraClient:
             "sla_adherence_1y": sla_adherence,
             "by_type_open": by_type_open,
             "by_status_open": by_status_open,
+            "jql_queries": self._jql_since(jql_start),
+        }
+
+    def get_project_ticket_metrics(
+        self,
+        project: str,
+        customer_name: str | None,
+        match_terms: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """KPI metrics for CUSTOMER or LEAN, mirroring ``get_customer_ticket_metrics`` for HELP."""
+        jql_start = self._jql_log_len()
+        try:
+            proj = _validate_project_key(project)
+        except ValueError as e:
+            return {
+                "error": str(e),
+                "project": (project or "").strip().upper(),
+                "customer": customer_name,
+            }
+        if proj not in ("CUSTOMER", "LEAN"):
+            return {
+                "error": "get_project_ticket_metrics supports CUSTOMER and LEAN only",
+                "project": proj,
+                "customer": customer_name,
+            }
+
+        resolved_jsm_orgs: list[str] = []
+        if customer_name:
+            safe_name = _jql_escape_string(customer_name)
+            base_filter = f'(summary ~ "{safe_name}" OR description ~ "{safe_name}")'
+        else:
+            base_filter = "key is not EMPTY"
+
+        max_fetch = HELP_METRICS_MERGED_MAX_RESULTS
+        proj_prefix = f"project = {proj} AND "
+
+        def _norm_snapshot_issue(issue: dict) -> dict[str, Any]:
+            f = issue.get("fields", {}) or {}
+
+            def _parse_sla(field_key: str) -> tuple[int | None, bool, bool]:
+                data = f.get(field_key) or {}
+                ms = None
+                breached = False
+                waiting = False
+                completed = data.get("completedCycles", [])
+                if completed:
+                    ms = completed[0].get("elapsedTime", {}).get("millis")
+                    breached = completed[0].get("breached", False)
+                elif data.get("ongoingCycle"):
+                    waiting = True
+                return ms, breached, waiting
+
+            ttfr_ms, ttfr_breached, ttfr_waiting = _parse_sla(TTFR_FIELD)
+            ttr_ms, ttr_breached, ttr_waiting = _parse_sla(TTR_FIELD)
+
+            return {
+                "status": (f.get("status") or {}).get("name", "Unknown"),
+                "type": (f.get("issuetype") or {}).get("name", "Unknown"),
+                "project": (f.get("project") or {}).get("key", ""),
+                "created": f.get("created") or "",
+                "updated": f.get("updated") or "",
+                "resolutiondate": f.get("resolutiondate") or "",
+                "ttfr_ms": ttfr_ms,
+                "ttfr_breached": ttfr_breached,
+                "ttfr_waiting": ttfr_waiting,
+                "ttr_ms": ttr_ms,
+                "ttr_breached": ttr_breached,
+                "ttr_waiting": ttr_waiting,
+            }
+
+        union_jql = (
+            f"{proj_prefix}{base_filter} AND ("
+            "statusCategory != Done OR "
+            "(resolution is not EMPTY AND resolved >= -365d) OR "
+            "created >= -365d"
+            ") ORDER BY updated DESC"
+        )
+        try:
+            merged_raw = self._search(
+                union_jql,
+                max_results=max_fetch,
+                fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
+                data_description=f"{proj} project ticket metrics (merged open / 365d resolved / 365d created)",
+            )
+        except Exception as e:
+            logger.warning("Project ticket metrics fetch failed for %s %s: %s", proj, customer_name, e)
+            return {
+                "error": str(e),
+                "project": proj,
+                "customer": customer_name,
+                "jsm_organizations_resolved": resolved_jsm_orgs,
+            }
+
+        open_raw, resolved_raw, year_raw, resolved_year_raw = self._partition_help_metrics_merged(merged_raw)
+        open_issues = [_norm_snapshot_issue(i) for i in open_raw]
+        resolved_issues = [_norm_snapshot_issue(i) for i in resolved_raw]
+        year_issues = [_norm_snapshot_issue(i) for i in year_raw]
+        by_type_open = dict(sorted(Counter(i["type"] for i in open_issues).items(), key=lambda x: (-x[1], x[0])))
+        by_status_open = dict(sorted(Counter(i["status"] for i in open_issues).items(), key=lambda x: (-x[1], x[0])))
+        ttfr = self._compute_sla(year_issues, "ttfr", project_key=proj)
+        ttr = self._compute_backlog_age(open_issues, project_key=proj)
+        sla_adherence = self._compute_sla_adherence(year_issues, project_key=proj)
+
+        return {
+            "project": proj,
+            "customer": customer_name,
+            "jsm_organizations_resolved": resolved_jsm_orgs,
+            "unresolved_count": len(open_issues),
+            "resolved_in_6mo_count": len(resolved_issues),
+            "ttfr_1y": ttfr,
+            "ttr_1y": ttr,
+            "sla_adherence_1y": sla_adherence,
+            "by_type_open": by_type_open,
+            "by_status_open": by_status_open,
+            "jql_queries": self._jql_since(jql_start),
+        }
+
+    def get_project_ticket_volume_trends(
+        self,
+        project: str,
+        customer_name: str | None,
+        match_terms: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """12-month created vs resolved trends for CUSTOMER or LEAN (all / escalated / non-escalated)."""
+        jql_start = self._jql_log_len()
+        try:
+            proj = _validate_project_key(project)
+        except ValueError as e:
+            return {
+                "error": str(e),
+                "all": [],
+                "escalated": [],
+                "non_escalated": [],
+            }
+        if proj not in ("CUSTOMER", "LEAN"):
+            return {
+                "error": "get_project_ticket_volume_trends supports CUSTOMER and LEAN only",
+                "all": [],
+                "escalated": [],
+                "non_escalated": [],
+            }
+        if customer_name:
+            safe_name = _jql_escape_string(customer_name)
+            base = f'(summary ~ "{safe_name}" OR description ~ "{safe_name}")'
+        else:
+            base = "key is not EMPTY"
+        jql = (
+            f"project = {proj} AND {base} AND (created >= -365d OR resolved >= -365d) "
+            "ORDER BY created DESC"
+        )
+        try:
+            raw = self._search(
+                jql,
+                max_results=HELP_TRENDS_MAX_RESULTS,
+                fields=_TREND_FIELDS,
+                data_description=f"{proj} volume trends (12-month created vs resolved)",
+            )
+        except Exception as e:
+            logger.warning("%s ticket trend fetch failed: %s", proj, e)
+            return {
+                "error": str(e),
+                "project": proj,
+                "customer": customer_name,
+                "all": [],
+                "escalated": [],
+                "non_escalated": [],
+                "jql_queries": self._jql_since(jql_start),
+            }
+        issues = []
+        for issue in raw:
+            f = issue.get("fields", {}) or {}
+            issues.append(
+                {
+                    "created": f.get("created") or "",
+                    "resolutiondate": f.get("resolutiondate") or "",
+                    "labels": f.get("labels") or [],
+                }
+            )
+        return {
+            "project": proj,
+            "customer": customer_name,
+            "all": self._bucket_by_month(issues, escalated_only=False),
+            "escalated": self._bucket_by_month(issues, escalated_only=True),
+            "non_escalated": self._bucket_by_month(issues, exclude_escalated=True),
             "jql_queries": self._jql_since(jql_start),
         }
 
@@ -1221,13 +1535,17 @@ class JiraClient:
         """
         jql_start = self._jql_log_len()
         
-        # For HELP, use full customer match clause; for others, use text search
+        # For HELP, use full customer match clause; for others, use text search.
+        # If customer_name is None on non-HELP projects, scope to all project tickets.
         if project == "HELP":
             base_filter, resolved_jsm_orgs = self._customer_match_clause(customer_name, match_terms)
         else:
             resolved_jsm_orgs = []
-            safe_name = _jql_escape_string(customer_name)
-            base_filter = f'(summary ~ "{safe_name}" OR description ~ "{safe_name}")'
+            if customer_name:
+                safe_name = _jql_escape_string(customer_name)
+                base_filter = f'(summary ~ "{safe_name}" OR description ~ "{safe_name}")'
+            else:
+                base_filter = "key is not EMPTY"
         
         proj = f"project = {project} AND "
 
@@ -1239,9 +1557,12 @@ class JiraClient:
             status_name = st.get("name", "—") if isinstance(st, dict) else "—"
             pr = f.get("priority") or {}
             priority_name = pr.get("name", "—") if isinstance(pr, dict) else "—"
+            orgs = f.get(ORG_FIELD) or []
+            org_names = [o.get("name", "") for o in orgs if isinstance(o, dict) and o.get("name")]
             return {
                 "key": issue.get("key", ""),
                 "summary": (f.get("summary") or "").strip(),
+                "organization": ", ".join(org_names) if org_names else "—",
                 "status": status_name,
                 "priority": priority_name,
                 "created": f.get("created") or "",
@@ -1299,11 +1620,73 @@ class JiraClient:
             "recently_closed": [_row(i) for i in raw_closed],
             "jql_queries": self._jql_since(jql_start),
         }
+
+    def get_customer_project_open_breakdown(
+        self,
+        project: str,
+        customer_name: str | None,
+        match_terms: list[str] | None = None,
+        *,
+        max_results: int = 1000,
+    ) -> dict[str, Any]:
+        """Open-ticket status/type breakdown for a project/customer scope."""
+        jql_start = self._jql_log_len()
+        try:
+            proj = _validate_project_key(project)
+        except ValueError as e:
+            return {"error": str(e), "project": (project or "").strip().upper(), "customer": customer_name}
+
+        if proj == "HELP":
+            base_filter, resolved_jsm_orgs = self._customer_match_clause(customer_name, match_terms)
+        else:
+            resolved_jsm_orgs = []
+            if customer_name:
+                safe_name = _jql_escape_string(customer_name)
+                base_filter = f'(summary ~ "{safe_name}" OR description ~ "{safe_name}")'
+            else:
+                base_filter = "key is not EMPTY"
+
+        jql = f"project = {proj} AND {base_filter} AND statusCategory != Done ORDER BY updated DESC"
+        try:
+            raw = self._search(
+                jql,
+                max_results=max_results,
+                fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
+                data_description=f"{proj} customer open-ticket breakdown",
+            )
+        except Exception as e:
+            logger.warning("Customer %s open breakdown fetch failed for %s: %s", proj, customer_name, e)
+            return {
+                "error": str(e),
+                "project": proj,
+                "customer": customer_name,
+                "jsm_organizations_resolved": resolved_jsm_orgs,
+                "jql_queries": self._jql_since(jql_start),
+            }
+
+        open_rows: list[dict[str, str]] = []
+        for issue in raw:
+            f = issue.get("fields", {}) or {}
+            status = (f.get("status") or {}).get("name", "Unknown")
+            issue_type = (f.get("issuetype") or {}).get("name", "Unknown")
+            open_rows.append({"status": status, "type": issue_type})
+
+        by_type_open = dict(sorted(Counter(r["type"] for r in open_rows).items(), key=lambda x: (-x[1], x[0])))
+        by_status_open = dict(sorted(Counter(r["status"] for r in open_rows).items(), key=lambda x: (-x[1], x[0])))
+        return {
+            "project": proj,
+            "customer": customer_name,
+            "jsm_organizations_resolved": resolved_jsm_orgs,
+            "unresolved_count": len(open_rows),
+            "by_type_open": by_type_open,
+            "by_status_open": by_status_open,
+            "jql_queries": self._jql_since(jql_start),
+        }
     
     def get_resolved_tickets_by_assignee(
         self,
         project: str,
-        customer_name: str,
+        customer_name: str | None,
         match_terms: list[str] | None = None,
         *,
         days: int = 90,
@@ -1323,13 +1706,17 @@ class JiraClient:
         """
         jql_start = self._jql_log_len()
         
-        # For HELP, use full customer match clause; for others, use text search
+        # For HELP, use full customer match clause; for others, use text search.
+        # If customer_name is None on non-HELP projects, scope to all project tickets.
         if project == "HELP":
             base_filter, resolved_jsm_orgs = self._customer_match_clause(customer_name, match_terms)
         else:
             resolved_jsm_orgs = []
-            safe_name = _jql_escape_string(customer_name)
-            base_filter = f'(summary ~ "{safe_name}" OR description ~ "{safe_name}")'
+            if customer_name:
+                safe_name = _jql_escape_string(customer_name)
+                base_filter = f'(summary ~ "{safe_name}" OR description ~ "{safe_name}")'
+            else:
+                base_filter = "key is not EMPTY"
         
         jql = (
             f"project = {project} AND {base_filter} AND resolution is not EMPTY "
@@ -1384,12 +1771,16 @@ class JiraClient:
         escalated_only: bool = False,
         exclude_escalated: bool = False,
     ) -> list[dict[str, Any]]:
-        """Return the last 12 monthly created/resolved buckets, oldest first."""
+        """Return the last 12 full-month created/resolved buckets, oldest first."""
         from datetime import datetime
 
         now = datetime.now(timezone.utc)
+        # Use full months only (exclude the current partial month).
         year = now.year
-        month = now.month
+        month = now.month - 1
+        if month == 0:
+            month = 12
+            year -= 1
         month_starts: list[datetime] = []
         for _ in range(12):
             month_starts.append(datetime(year, month, 1, tzinfo=timezone.utc))
@@ -1435,7 +1826,6 @@ class JiraClient:
 
     def _get_help_ticket_volume_trends(self) -> dict[str, Any]:
         """Return 12-month HELP created vs resolved trends for all/escalated/non-escalated."""
-        max_fetch = 5000
         jql = (
             "project = HELP AND (created >= -365d OR resolved >= -365d) "
             "ORDER BY created DESC"
@@ -1443,7 +1833,7 @@ class JiraClient:
         try:
             raw = self._search(
                 jql,
-                max_results=max_fetch,
+                max_results=HELP_TRENDS_MAX_RESULTS,
                 fields=_TREND_FIELDS,
                 data_description="HELP volume trends (12-month created vs resolved)",
             )

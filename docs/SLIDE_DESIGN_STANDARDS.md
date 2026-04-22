@@ -333,16 +333,23 @@ When a slide shows **exactly one** embedded Sheets chart (no second chart, table
 
 When **two** charts share a slide, split the content width (for example ~58% / ~40% with a small gap) and give each chart the **full available height** in the band—do not shrink a lone chart into the right column.
 
-### Chart legend sizing
+### Chart title alignment
 
-The Google Sheets API does **not** expose legend font size — Sheets-rendered legends are often unreadably small when the chart is scaled down for a slide. Therefore:
+Chart titles and section headers should align to the **visual unit** represented by the chart:
 
-- **Always suppress** the Sheets-rendered legend on pie/donut charts (``suppress_legend=True`` / ``legendPosition: NO_LEGEND``).
-- **Always suppress** the Sheets-rendered legend on multi-series bar/stacked-bar charts (``suppress_legend=True``).
-- **Render a slide-level legend** via **``_slide_chart_legend``** in ``slides_client.py``. This draws a row of colour swatches and labels using standard slide text at **``CHART_LEGEND_PT``** (**11 pt**), guaranteeing readability at presentation scale.
-- Position the slide-level legend **below** the embedded chart, reserving **~22 pt** of vertical space in the chart area calculation (reduce chart height by ``legend_h``).
-- Pass the same series labels and **``BRAND_SERIES_COLORS``** order used when creating the chart so swatches match slices/bars.
-- Single-series bar charts (one colour, no ambiguity) may skip the legend entirely (``NO_LEGEND`` with no slide-level substitute).
+- If the legend is **below** the chart, center the title over the **chart plot area**.
+- If the legend sits **beside** the chart, center the title over the **combined chart + legend block**.
+- For two charts on one slide, each chart title should be centered over its own chart block (not left-aligned to the slide margin).
+
+### Chart legend sizing and placement
+
+The Google Sheets API does **not** expose legend font size, and Sheets-rendered legends can become unreadably small after scaling. Therefore:
+
+- Prefer a **slide-level legend** via **``_slide_chart_legend``** in ``slides_client.py`` when the native legend text is too small.
+- For slide-level legends, reserve **~22 pt** of vertical space in layout calculations and keep labels at readable presentation size (e.g., **``CHART_LEGEND_PT``**, **11 pt**).
+- If native chart legends are readable at final slide size and improve fidelity (for example, guaranteed slice-color matching), native legends are acceptable.
+- When using a custom slide-level legend, pass series labels and colors in the same order used to build the chart so swatches match slices/bars.
+- Single-series charts (no ambiguity) may omit legends entirely.
 
 ---
 

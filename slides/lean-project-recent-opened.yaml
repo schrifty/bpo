@@ -1,0 +1,13 @@
+id: lean_project_recent_opened
+type: standard
+order: 97
+title: Recently opened LEAN tickets
+slide_type: lean_project_recent_opened
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Lists LEAN project tickets for the scoped customer whose created date falls
+  in the recent window (same match as ticket metrics). Newest first. Ticket
+  keys link to Jira when base URL is present.

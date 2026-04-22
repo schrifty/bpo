@@ -1,0 +1,13 @@
+id: customer_project_volume_trends
+type: standard
+order: 60
+title: CUSTOMER ticket volume trends
+slide_type: customer_project_volume_trends
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Jira project CUSTOMER: 12-month created vs resolved line charts for all
+  tickets, jira_escalated only, and excluding jira_escalated (same structure
+  as HELP volume trends).

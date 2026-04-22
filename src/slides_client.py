@@ -2969,7 +2969,7 @@ def _jira_slide(reqs, sid, report, idx):
 
 
 def _customer_ticket_metrics_slide(reqs, sid, report, idx):
-    """Single-customer support ticket dashboard with KPI cards and ranked charts."""
+    """Support ticket KPI dashboard (cards only)."""
     jira = report.get("jira") or {}
     snap = jira.get("customer_ticket_metrics") or {}
     charts = report.get("_charts")
@@ -2978,7 +2978,7 @@ def _customer_ticket_metrics_slide(reqs, sid, report, idx):
     if not snap or not charts:
         return _missing_data_slide(reqs, sid, report, idx, "Customer ticket metrics and chart service")
 
-    customer = report.get("customer") or snap.get("customer") or "Customer"
+    customer = report.get("customer") or snap.get("customer") or "All Customers"
     entry = report.get("_current_slide") or {}
     title = entry.get("title") or f"{customer} Ticket Metrics"
 
@@ -2993,13 +2993,19 @@ def _customer_ticket_metrics_slide(reqs, sid, report, idx):
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
     _slide_title(reqs, sid, title)
+    scope = "Scope: Jira project HELP only"
+    _box(reqs, f"{sid}_scope", sid, MARGIN, BODY_Y, CONTENT_W, 14, scope)
+    _style(reqs, f"{sid}_scope", 0, len(scope), size=9, color=GRAY, font=FONT)
+    defs = "TTR = now - created for NOT DONE HELP tickets.  TTFR = JSM first-response SLA elapsed time."
+    _box(reqs, f"{sid}_defs", sid, MARGIN, BODY_Y + 12, CONTENT_W, 14, defs)
+    _style(reqs, f"{sid}_defs", 0, len(defs), size=8, color=GRAY, font=FONT)
 
     row_gap = 14
     col_gap = 18
     top_card_w = (CONTENT_W - 2 * col_gap) / 3
     bot_card_w = (CONTENT_W - col_gap) / 2
     card_h = 54
-    row1_y = BODY_Y + 8
+    row1_y = BODY_Y + 30
     row2_y = row1_y + card_h + row_gap
 
     adherence_pct = adherence.get("pct")
@@ -3007,47 +3013,169 @@ def _customer_ticket_metrics_slide(reqs, sid, report, idx):
 
     _kpi_metric_card(
         reqs, f"{sid}_k1", sid, MARGIN, row1_y, top_card_w, card_h,
-        "Unresolved tickets", f"{unresolved}", accent=BLUE,
+        "HELP unresolved tickets", f"{unresolved}", accent=BLUE,
     )
     _kpi_metric_card(
         reqs, f"{sid}_k2", sid, MARGIN + top_card_w + col_gap, row1_y, top_card_w, card_h,
-        "Resolved in last 6 months", f"{resolved_6mo}", accent=BLUE,
+        "HELP resolved (last 6mo)", f"{resolved_6mo}", accent=BLUE,
     )
     _kpi_metric_card(
         reqs, f"{sid}_k3", sid, MARGIN + 2 * (top_card_w + col_gap), row1_y, top_card_w, card_h,
-        "SLA adherence (1y)", adherence_value,
+        "HELP SLA adherence (1y)", adherence_value,
         accent=_GREEN if (adherence_pct or 0) >= 90 else (BLUE if (adherence_pct or 0) >= 75 else _RED),
     )
 
     _kpi_metric_card(
         reqs, f"{sid}_k4", sid, MARGIN, row2_y, bot_card_w, card_h,
-        "TTR (1y median)", ttr.get("median", "—"), accent=BLUE,
+        "HELP TTR (Open Backlog Age, median)", ttr.get("median", "—"), accent=BLUE,
     )
     _kpi_metric_card(
         reqs, f"{sid}_k5", sid, MARGIN + bot_card_w + col_gap, row2_y, bot_card_w, card_h,
-        "TTFR (1y median)", ttfr.get("median", "—"), accent=BLUE,
+        "HELP TTFR (1y median)", ttfr.get("median", "—"), accent=BLUE,
     )
 
     # Row 3: Average metrics
     row3_y = row2_y + card_h + row_gap
     _kpi_metric_card(
         reqs, f"{sid}_k6", sid, MARGIN, row3_y, bot_card_w, card_h,
-        "TTR (1y average)", ttr.get("avg", "—"), accent=BLUE,
+        "HELP TTR (Open Backlog Age, average)", ttr.get("avg", "—"), accent=BLUE,
     )
     _kpi_metric_card(
         reqs, f"{sid}_k7", sid, MARGIN + bot_card_w + col_gap, row3_y, bot_card_w, card_h,
-        "TTFR (1y average)", ttfr.get("avg", "—"), accent=BLUE,
+        "HELP TTFR (1y average)", ttfr.get("avg", "—"), accent=BLUE,
     )
 
-    chart_gap = 20
-    chart_w = (CONTENT_W - chart_gap) / 2
-    # Leave room below slide-level headers so they do not overlap the Sheets chart plot area.
-    chart_header_h = 20
-    chart_title_y = row3_y + card_h + 14
-    chart_y = chart_title_y + chart_header_h + 10
-    chart_h = max(96, BODY_BOTTOM - 4 - chart_y)
-    left_x = MARGIN
-    right_x = MARGIN + chart_w + chart_gap
+    return idx + 1
+
+
+def _non_help_project_ticket_kpi_slide(
+    reqs: list,
+    sid: str,
+    report: dict,
+    idx: int,
+    *,
+    snap_key: str,
+    project: str,
+) -> int:
+    """KPI dashboard for CUSTOMER or LEAN (mirrors HELP ticket metrics card layout)."""
+    jira = report.get("jira") or {}
+    snap = jira.get(snap_key) or {}
+    charts = report.get("_charts")
+    if snap.get("error"):
+        return _missing_data_slide(reqs, sid, report, idx, f"{project} ticket metrics: {snap.get('error')}")
+    if not snap or not charts:
+        return _missing_data_slide(reqs, sid, report, idx, f"{project} ticket metrics and chart service")
+
+    customer = report.get("customer") or snap.get("customer") or "All Customers"
+    entry = report.get("_current_slide") or {}
+    title = entry.get("title") or f"{customer} {project} Ticket Metrics"
+
+    unresolved = int(snap.get("unresolved_count") or 0)
+    resolved_6mo = int(snap.get("resolved_in_6mo_count") or 0)
+    ttfr = snap.get("ttfr_1y") or {}
+    ttr = snap.get("ttr_1y") or {}
+    adherence = snap.get("sla_adherence_1y") or {}
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, _project_slide_bg(project))
+    _slide_title(reqs, sid, title)
+    scope = f"Scope: Jira project {project} only"
+    _box(reqs, f"{sid}_scope", sid, MARGIN, BODY_Y, CONTENT_W, 14, scope)
+    _style(reqs, f"{sid}_scope", 0, len(scope), size=9, color=GRAY, font=FONT)
+    defs = f"TTR = now - created for NOT DONE {project} tickets.  TTFR = JSM first-response SLA elapsed time."
+    _box(reqs, f"{sid}_defs", sid, MARGIN, BODY_Y + 12, CONTENT_W, 14, defs)
+    _style(reqs, f"{sid}_defs", 0, len(defs), size=8, color=GRAY, font=FONT)
+
+    row_gap = 14
+    col_gap = 18
+    top_card_w = (CONTENT_W - 2 * col_gap) / 3
+    bot_card_w = (CONTENT_W - col_gap) / 2
+    card_h = 54
+    row1_y = BODY_Y + 30
+    row2_y = row1_y + card_h + row_gap
+
+    adherence_pct = adherence.get("pct")
+    adherence_value = "—" if adherence_pct is None else f"{adherence_pct:.0f}%"
+
+    _kpi_metric_card(
+        reqs, f"{sid}_k1", sid, MARGIN, row1_y, top_card_w, card_h,
+        f"{project} unresolved tickets", f"{unresolved}", accent=BLUE,
+    )
+    _kpi_metric_card(
+        reqs, f"{sid}_k2", sid, MARGIN + top_card_w + col_gap, row1_y, top_card_w, card_h,
+        f"{project} resolved (last 6mo)", f"{resolved_6mo}", accent=BLUE,
+    )
+    _kpi_metric_card(
+        reqs, f"{sid}_k3", sid, MARGIN + 2 * (top_card_w + col_gap), row1_y, top_card_w, card_h,
+        f"{project} SLA adherence (1y)", adherence_value,
+        accent=_GREEN if (adherence_pct or 0) >= 90 else (BLUE if (adherence_pct or 0) >= 75 else _RED),
+    )
+
+    _kpi_metric_card(
+        reqs, f"{sid}_k4", sid, MARGIN, row2_y, bot_card_w, card_h,
+        f"{project} TTR (Open Backlog Age, median)", ttr.get("median", "—"), accent=BLUE,
+    )
+    _kpi_metric_card(
+        reqs, f"{sid}_k5", sid, MARGIN + bot_card_w + col_gap, row2_y, bot_card_w, card_h,
+        f"{project} TTFR (1y median)", ttfr.get("median", "—"), accent=BLUE,
+    )
+
+    row3_y = row2_y + card_h + row_gap
+    _kpi_metric_card(
+        reqs, f"{sid}_k6", sid, MARGIN, row3_y, bot_card_w, card_h,
+        f"{project} TTR (Open Backlog Age, average)", ttr.get("avg", "—"), accent=BLUE,
+    )
+    _kpi_metric_card(
+        reqs, f"{sid}_k7", sid, MARGIN + bot_card_w + col_gap, row3_y, bot_card_w, card_h,
+        f"{project} TTFR (1y average)", ttfr.get("avg", "—"), accent=BLUE,
+    )
+
+    return idx + 1
+
+
+def _customer_project_ticket_metrics_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    return _non_help_project_ticket_kpi_slide(
+        reqs, sid, report, idx, snap_key="customer_project_ticket_metrics", project="CUSTOMER",
+    )
+
+
+def _lean_project_ticket_metrics_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    return _non_help_project_ticket_kpi_slide(
+        reqs, sid, report, idx, snap_key="lean_project_ticket_metrics", project="LEAN",
+    )
+
+
+def _project_ticket_metrics_breakdown_slide(
+    reqs: list,
+    sid: str,
+    report: dict,
+    idx: int,
+    *,
+    snap_key: str,
+    project: str,
+    default_title: str,
+) -> int:
+    """Pie-chart breakdown slide for unresolved tickets by type/status."""
+    jira = report.get("jira") or {}
+    snap = jira.get(snap_key) or {}
+    charts = report.get("_charts")
+    if snap.get("error"):
+        return _missing_data_slide(reqs, sid, report, idx, f"{project} ticket metrics breakdown: {snap.get('error')}")
+    if not snap or not charts:
+        return _missing_data_slide(reqs, sid, report, idx, f"{project} ticket metrics breakdown and chart service")
+
+    customer = report.get("customer") or snap.get("customer") or "All Customers"
+    entry = report.get("_current_slide") or {}
+    title = entry.get("title") or f"{customer} {default_title}"
+    by_type = snap.get("by_type_open") or {}
+    by_status = snap.get("by_status_open") or {}
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, _project_slide_bg(project))
+    _slide_title(reqs, sid, title)
+    scope = f"Scope: Jira project {project} only"
+    _box(reqs, f"{sid}_sp", sid, MARGIN, BODY_Y, CONTENT_W, 14, scope)
+    _style(reqs, f"{sid}_sp", 0, len(scope), size=9, color=GRAY, font=FONT)
 
     def _chart_rows(items: dict[str, int], limit: int = 6) -> tuple[list[str], list[int]]:
         pairs = list(items.items())
@@ -3060,49 +3188,85 @@ def _customer_ticket_metrics_slide(reqs, sid, report, idx):
         labels = []
         values = []
         for name, count in shown:
-            compact = name if len(name) <= 26 else f"{name[:23]}..."
+            compact = name if len(name) <= 24 else f"{name[:21]}..."
             labels.append(compact)
             values.append(count)
         return labels, values
 
     type_labels, type_values = _chart_rows(by_type)
     status_labels, status_values = _chart_rows(by_status)
-
-    type_hdr = "Unresolved tickets by type"
-    status_hdr = "Unresolved tickets by status"
-    _box(reqs, f"{sid}_type_h", sid, left_x, chart_title_y, chart_w, chart_header_h, type_hdr)
-    _style(reqs, f"{sid}_type_h", 0, len(type_hdr), bold=True, size=10, color=NAVY, font=FONT)
-    _box(reqs, f"{sid}_status_h", sid, right_x, chart_title_y, chart_w, chart_header_h, status_hdr)
-    _style(reqs, f"{sid}_status_h", 0, len(status_hdr), bold=True, size=10, color=NAVY, font=FONT)
+    if not type_labels and not status_labels:
+        msg = f"No open {project} tickets to chart."
+        _box(reqs, f"{sid}_em", sid, MARGIN, BODY_Y + 42, CONTENT_W, 24, msg)
+        _style(reqs, f"{sid}_em", 0, len(msg), size=10, color=NAVY, font=FONT)
+        return idx + 1
 
     from .charts import embed_chart
 
-    # +8 pt vs prior 12 for category / value axis text (bar labels were too small at slide scale).
-    _ticket_bar_axis_pt = 20
+    chart_gap = 18
+    chart_w = (CONTENT_W - chart_gap) / 2
+    title_y = BODY_Y + 18
+    chart_y = title_y + 18
+    chart_h = max(208, BODY_BOTTOM - chart_y - 4)
+    left_x = MARGIN
+    right_x = MARGIN + chart_w + chart_gap
 
     if type_labels:
-        ss_id, chart_id = charts.add_bar_chart(
-            title="Unresolved tickets by type",
+        type_hdr = "Unresolved by type"
+        _box(reqs, f"{sid}_th", sid, left_x, title_y, chart_w, 14, type_hdr)
+        _style(reqs, f"{sid}_th", 0, len(type_hdr), bold=True, size=13, color=NAVY, font=FONT)
+        _align(reqs, f"{sid}_th", "CENTER")
+        ss_id, chart_id = charts.add_pie_chart(
+            title=f"{project} unresolved by type",
             labels=type_labels,
-            series={"Open tickets": type_values},
-            horizontal=True,
+            values=type_values,
+            donut=False,
+            suppress_legend=False,
             show_title=False,
-            axis_font_size=_ticket_bar_axis_pt,
+            legend_position="BOTTOM_LEGEND",
         )
-        embed_chart(reqs, f"{sid}_type_chart", sid, ss_id, chart_id, left_x, chart_y, chart_w, chart_h, linked=False)
+        embed_chart(reqs, f"{sid}_tc", sid, ss_id, chart_id, left_x, chart_y, chart_w, chart_h, linked=False)
 
     if status_labels:
-        ss_id2, chart_id2 = charts.add_bar_chart(
-            title="Unresolved tickets by status",
+        status_hdr = "Unresolved by status"
+        _box(reqs, f"{sid}_sh", sid, right_x, title_y, chart_w, 14, status_hdr)
+        _style(reqs, f"{sid}_sh", 0, len(status_hdr), bold=True, size=13, color=NAVY, font=FONT)
+        _align(reqs, f"{sid}_sh", "CENTER")
+        ss_id2, chart_id2 = charts.add_pie_chart(
+            title=f"{project} unresolved by status",
             labels=status_labels,
-            series={"Open tickets": status_values},
-            horizontal=True,
+            values=status_values,
+            donut=False,
+            suppress_legend=False,
             show_title=False,
-            axis_font_size=_ticket_bar_axis_pt,
+            legend_position="BOTTOM_LEGEND",
         )
-        embed_chart(reqs, f"{sid}_status_chart", sid, ss_id2, chart_id2, right_x, chart_y, chart_w, chart_h, linked=False)
+        embed_chart(reqs, f"{sid}_sc", sid, ss_id2, chart_id2, right_x, chart_y, chart_w, chart_h, linked=False)
 
     return idx + 1
+
+
+def _project_slide_bg(project: str) -> dict[str, float]:
+    """Subtle project tint backgrounds for project-specific slides."""
+    proj = (project or "").strip().upper()
+    if proj == "CUSTOMER":
+        return {"red": 0.95, "green": 0.98, "blue": 1.0}
+    if proj == "LEAN":
+        return {"red": 0.95, "green": 1.0, "blue": 0.97}
+    return WHITE
+
+
+def _customer_ticket_metrics_charts_slide(reqs, sid, report, idx):
+    """HELP ticket breakdown slide with pie charts."""
+    return _project_ticket_metrics_breakdown_slide(
+        reqs,
+        sid,
+        report,
+        idx,
+        snap_key="customer_ticket_metrics",
+        project="HELP",
+        default_title="Ticket Metrics Breakdown",
+    )
 
 
 def _customer_help_recent_slide(
@@ -3132,7 +3296,10 @@ def _customer_help_recent_slide(
         blob.get("recently_closed" if closed else "recently_opened") or [],
     )
     days = int(blob.get("closed_within_days" if closed else "opened_within_days") or 45)
-    customer = blob.get("customer") or report.get("customer") or "Customer"
+    # Always use report customer as source of truth (blob may be from cache)
+    customer = report.get("customer") or blob.get("customer") or "All Customers"
+    is_all_customers = report.get("customer") is None
+    is_all_customers = report.get("customer") is None
 
     entry = report.get("_current_slide") or {}
     base_title = entry.get("title") or (
@@ -3145,9 +3312,16 @@ def _customer_help_recent_slide(
     _bg(reqs, sid, WHITE)
     _slide_title(reqs, sid, base_title)
     
+    # Show "showing X of Y" if we have more tickets than fit on slide
+    max_rows = 8
+    if total_n > max_rows:
+        count_text = f"showing {max_rows} of {total_n} tickets"
+    else:
+        count_text = f"{total_n} ticket{'s' if total_n != 1 else ''}"
+    
     sub = (
         f"project HELP  ·  matched to {customer}  ·  {kind} in the last {days} days  ·  "
-        f"{total_n} ticket{'s' if total_n != 1 else ''}"
+        f"{count_text}"
     )
     _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
     _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
@@ -3158,14 +3332,18 @@ def _customer_help_recent_slide(
         _style(reqs, f"{sid}_empty", 0, len(empty_msg), size=10, color=NAVY, font=FONT)
         return idx + 1
     
-    # Limit to 15 rows to fit on page (includes top 15 most recent)
-    max_rows = 15
+    # Limit to 8 rows to fit on page with tighter spacing
     display_items = items[:max_rows]
     
     # Create table
-    headers = ["ID", "Title", "Status", "Priority", "Created", "Resolved"]
-    col_widths = [60, 240, 80, 60, 72, 72]  # Total: 584pt (fits in ~600pt content width)
-    ROW_H = 18
+    if is_all_customers:
+        headers = ["ID", "Title", "Organization", "Status", "Priority", "Created", "Resolved"]
+        # Keep total width inside CONTENT_W while adding Organization before Status.
+        col_widths = [56, 206, 96, 76, 52, 62, 62]
+    else:
+        headers = ["ID", "Title", "Status", "Priority", "Created", "Resolved"]
+        col_widths = [60, 240, 80, 60, 72, 72]  # Total: 584pt (fits in ~600pt content width)
+    ROW_H = 14  # Reduced from 18pt for tighter spacing
     
     table_top = BODY_Y + 24
     num_rows = 1 + len(display_items)
@@ -3256,12 +3434,18 @@ def _customer_help_recent_slide(
         title = it.get("summary") or ""
         if len(title) > 60:
             title = title[:57] + "..."
+        org = (it.get("organization") or "—")
+        if len(org) > 26:
+            org = org[:23] + "..."
         status = (it.get("status") or "—")[:18]
         priority = (it.get("priority") or "—")[:12]
         created = it.get("created_short") or "—"
         resolved = it.get("resolved_short") or "—"
-        
-        vals = [key, title, status, priority, created, resolved]
+
+        if is_all_customers:
+            vals = [key, title, org, status, priority, created, resolved]
+        else:
+            vals = [key, title, status, priority, created, resolved]
         
         for ci, v in enumerate(vals):
             _ct(row_idx, ci, v)
@@ -3326,6 +3510,19 @@ def _customer_project_recent_closed_slide(reqs: list, sid: str, report: dict, id
     return _project_recent_tickets_table_slide(reqs, sid, report, idx, blob, "CUSTOMER", closed=True)
 
 
+def _customer_project_ticket_metrics_breakdown_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """CUSTOMER ticket breakdown (pie charts)."""
+    return _project_ticket_metrics_breakdown_slide(
+        reqs,
+        sid,
+        report,
+        idx,
+        snap_key="customer_project_open_breakdown",
+        project="CUSTOMER",
+        default_title="CUSTOMER Ticket Metrics Breakdown",
+    )
+
+
 def _lean_project_recent_opened_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
     """Recently opened LEAN project tickets table."""
     jira = report.get("jira") or {}
@@ -3360,6 +3557,19 @@ def _lean_project_recent_closed_slide(reqs: list, sid: str, report: dict, idx: i
         )
 
     return _project_recent_tickets_table_slide(reqs, sid, report, idx, blob, "LEAN", closed=True)
+
+
+def _lean_project_ticket_metrics_breakdown_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """LEAN ticket breakdown (pie charts)."""
+    return _project_ticket_metrics_breakdown_slide(
+        reqs,
+        sid,
+        report,
+        idx,
+        snap_key="lean_project_open_breakdown",
+        project="LEAN",
+        default_title="LEAN Ticket Metrics Breakdown",
+    )
 
 
 def _help_resolved_by_assignee_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
@@ -3398,6 +3608,24 @@ def _customer_resolved_by_assignee_slide(reqs: list, sid: str, report: dict, idx
     return _resolved_by_assignee_table_slide(reqs, sid, report, idx, blob, "CUSTOMER")
 
 
+def _lean_resolved_by_assignee_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """LEAN tickets resolved by assignee - last 90 days."""
+    jira = report.get("jira") or {}
+    blob = jira.get("lean_resolved_by_assignee")
+    if not isinstance(blob, dict):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            "LEAN resolved tickets by assignee (not in report)",
+        )
+    if blob.get("error"):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            f"LEAN resolved tickets by assignee: {blob['error']}",
+        )
+
+    return _resolved_by_assignee_table_slide(reqs, sid, report, idx, blob, "LEAN")
+
+
 def _resolved_by_assignee_table_slide(
     reqs: list,
     sid: str,
@@ -3407,19 +3635,30 @@ def _resolved_by_assignee_table_slide(
     project: str,
 ) -> int:
     """Generic table slide for resolved tickets grouped by assignee."""
+    jira = report.get("jira") or {}
+    jira_base = (jira.get("base_url") or "").rstrip("/")
     assignees = blob.get("by_assignee") or []
     total_resolved = blob.get("total_resolved", 0)
     days = blob.get("days", 90)
-    customer = blob.get("customer") or report.get("customer") or "Customer"
+    # Always use report customer as source of truth (blob may be from cache)
+    customer = report.get("customer") or blob.get("customer") or "All Customers"
 
     entry = report.get("_current_slide") or {}
     base_title = entry.get("title") or f"{project} Tickets Resolved by Assignee"
     
     _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
+    _bg(reqs, sid, _project_slide_bg(project))
     _slide_title(reqs, sid, base_title)
     
-    sub = f"project {project}  ·  matched to {customer}  ·  resolved in last {days} days  ·  {total_resolved} ticket{'s' if total_resolved != 1 else ''}"
+    # Show "showing top X of Y assignees" if we have more than fit on slide
+    max_rows = 12
+    num_assignees = len(assignees)
+    if num_assignees > max_rows:
+        assignee_text = f"showing top {max_rows} of {num_assignees} assignees"
+    else:
+        assignee_text = f"{num_assignees} assignee{'s' if num_assignees != 1 else ''}"
+    
+    sub = f"project {project}  ·  matched to {customer}  ·  resolved in last {days} days  ·  {total_resolved} tickets  ·  {assignee_text}"
     _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
     _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
     
@@ -3429,13 +3668,14 @@ def _resolved_by_assignee_table_slide(
         _style(reqs, f"{sid}_empty", 0, len(empty_msg), size=10, color=NAVY, font=FONT)
         return idx + 1
     
-    # Limit to 20 rows to fit on page
-    max_rows = 20
+    # Limit to 12 rows to fit on page (assignee names typically fit on 1 line)
+    # Available space: BODY_BOTTOM - table_top ≈ 265pt
+    # Header: ~18pt, each data row: ~18pt → 13 rows max (using 12 for safety)
     display_assignees = assignees[:max_rows]
     
-    # Create table
-    headers = ["Assignee", "Tickets Resolved"]
-    col_widths = [450, 134]  # Total: 584pt
+    # Create narrower table - reduce white space
+    headers = ["Assignee", "Resolved"]
+    col_widths = [350, 100]  # Narrower than before (was 450, 134)
     ROW_H = 18
     
     table_top = BODY_Y + 24
@@ -3467,7 +3707,7 @@ def _resolved_by_assignee_table_slide(
             }
         })
     
-    def _cs(row, col, text_len, bold=False, color=None, size=8, align=None):
+    def _cs(row, col, text_len, bold=False, color=None, size=8, align=None, link=None):
         if text_len > 0:
             from typing import Any
             s: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}, "fontFamily": FONT}
@@ -3478,6 +3718,9 @@ def _resolved_by_assignee_table_slide(
             if color:
                 s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}
                 f.append("foregroundColor")
+            if link:
+                s["link"] = {"url": link}
+                f.append("link")
             reqs.append({
                 "updateTextStyle": {
                     "objectId": table_id,
@@ -3526,11 +3769,23 @@ def _resolved_by_assignee_table_slide(
         if len(assignee) > 80:
             assignee = assignee[:77] + "..."
         
+        # Build JQL filter link for this assignee
+        jql_link = None
+        if jira_base and assignee != "—":
+            import urllib.parse
+            # JQL: project = {project} AND assignee = "{assignee}" AND resolved >= -{days}d
+            jql = f'project = {project} AND assignee = "{assignee}" AND resolved >= -{days}d'
+            jql_link = f"{jira_base}/issues/?jql={urllib.parse.quote(jql)}"
+        
         vals = [assignee, str(count)]
         
         for ci, v in enumerate(vals):
             _ct(row_idx, ci, v)
-            _cs(row_idx, ci, len(v), size=9, align="END" if ci == 1 else None)
+            # Add link to count column (ci == 1) if we have a Jira base URL
+            if ci == 1 and jql_link:
+                _cs(row_idx, ci, len(v), size=9, color=BLUE, align="END", link=jql_link)
+            else:
+                _cs(row_idx, ci, len(v), size=9, align="END" if ci == 1 else None)
     
     # Add footnote if we're showing a subset
     if len(assignees) > max_rows:
@@ -3558,7 +3813,9 @@ def _project_recent_tickets_table_slide(
         blob.get("recently_closed" if closed else "recently_opened") or [],
     )
     days = int(blob.get("closed_within_days" if closed else "opened_within_days") or 45)
-    customer = blob.get("customer") or report.get("customer") or "Customer"
+    # Always use report customer as source of truth (blob may be from cache)
+    customer = report.get("customer") or blob.get("customer") or "All Customers"
+    is_all_customers = report.get("customer") is None
 
     entry = report.get("_current_slide") or {}
     base_title = entry.get("title") or (
@@ -3568,12 +3825,19 @@ def _project_recent_tickets_table_slide(
     total_n = len(items)
     
     _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
+    _bg(reqs, sid, _project_slide_bg(project))
     _slide_title(reqs, sid, base_title)
+    
+    # Show "showing X of Y" if we have more tickets than fit on slide
+    max_rows = 8
+    if total_n > max_rows:
+        count_text = f"showing {max_rows} of {total_n} tickets"
+    else:
+        count_text = f"{total_n} ticket{'s' if total_n != 1 else ''}"
     
     sub = (
         f"project {project}  ·  matched to {customer}  ·  {kind} in the last {days} days  ·  "
-        f"{total_n} ticket{'s' if total_n != 1 else ''}"
+        f"{count_text}"
     )
     _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
     _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
@@ -3584,14 +3848,19 @@ def _project_recent_tickets_table_slide(
         _style(reqs, f"{sid}_empty", 0, len(empty_msg), size=10, color=NAVY, font=FONT)
         return idx + 1
     
-    # Limit to 15 rows to fit on page
-    max_rows = 15
+    # Limit to 8 rows to fit on page with tighter spacing
+    # Available space: BODY_BOTTOM - table_top ≈ 265pt
+    # With ROW_H=14pt: Header ~28pt, 8 data rows ~28pt each = ~252pt total
     display_items = items[:max_rows]
     
     # Create table
-    headers = ["ID", "Title", "Status", "Priority", "Created", "Resolved"]
-    col_widths = [60, 240, 80, 60, 72, 72]
-    ROW_H = 18
+    if is_all_customers:
+        headers = ["ID", "Title", "Organization", "Status", "Priority", "Created", "Resolved"]
+        col_widths = [56, 206, 96, 76, 52, 62, 62]
+    else:
+        headers = ["ID", "Title", "Status", "Priority", "Created", "Resolved"]
+        col_widths = [60, 240, 80, 60, 72, 72]
+    ROW_H = 14  # Reduced from 18pt for tighter spacing
     
     table_top = BODY_Y + 24
     num_rows = 1 + len(display_items)
@@ -3682,12 +3951,18 @@ def _project_recent_tickets_table_slide(
         title = it.get("summary") or ""
         if len(title) > 60:
             title = title[:57] + "..."
+        org = (it.get("organization") or "—")
+        if len(org) > 26:
+            org = org[:23] + "..."
         status = (it.get("status") or "—")[:18]
         priority = (it.get("priority") or "—")[:12]
         created = it.get("created_short") or "—"
         resolved = it.get("resolved_short") or "—"
-        
-        vals = [key, title, status, priority, created, resolved]
+
+        if is_all_customers:
+            vals = [key, title, org, status, priority, created, resolved]
+        else:
+            vals = [key, title, status, priority, created, resolved]
         
         for ci, v in enumerate(vals):
             _ct(row_idx, ci, v)
@@ -6679,43 +6954,31 @@ def _eng_jira_project_slide(reqs: list, sid: str, report: dict, idx: int) -> int
     return idx + 1
 
 
-def _eng_help_volume_trends_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
-    """HELP monthly created vs resolved trends for all, escalated, and non-escalated tickets."""
-    eng = report.get("eng_portfolio") or {}
-    raw_trends = eng.get("help_ticket_trends")
-
-    if raw_trends is None:
-        try:
-            from .jira_client import get_shared_jira_client
-            raw_trends = get_shared_jira_client()._get_help_ticket_volume_trends()
-            eng["help_ticket_trends"] = raw_trends
-            report.setdefault("eng_portfolio", eng)
-            logger.debug("eng_help_volume_trends: fetched HELP trends on demand (no eng_portfolio)")
-        except Exception as e:
-            logger.warning("eng_help_volume_trends: on-demand HELP trends fetch failed: %s", e)
-            raw_trends = {"error": str(e)}
-
-    trends = raw_trends if isinstance(raw_trends, dict) else {}
-    err = trends.get("error")
+def _render_project_volume_trends(
+    reqs: list,
+    sid: str,
+    report: dict,
+    idx: int,
+    *,
+    trends: dict,
+    project: str,
+    bg: dict,
+) -> int:
+    """Shared layout: monthly created vs resolved (all / escalated / non-escalated)."""
     all_months = list(trends.get("all") or [])
     escalated_months = list(trends.get("escalated") or [])
     non_escalated_months = list(trends.get("non_escalated") or [])
     charts = report.get("_charts")
 
-    if err:
-        return _missing_data_slide(
-            reqs, sid, report, idx,
-            f"HELP ticket volume trends — Jira error: {err}",
-        )
     if not all_months:
         return _missing_data_slide(
             reqs, sid, report, idx,
-            "HELP ticket volume trends — no monthly series (unexpected empty response)",
+            f"{project} ticket volume trends — no monthly series (unexpected empty response)",
         )
     if not charts:
         return _missing_data_slide(
             reqs, sid, report, idx,
-            "HELP ticket volume trends — chart embedding unavailable",
+            f"{project} ticket volume trends — chart embedding unavailable",
         )
 
     recent = all_months[-3:]
@@ -6723,17 +6986,17 @@ def _eng_help_volume_trends_slide(reqs: list, sid: str, report: dict, idx: int) 
     recent_resolved = sum(m.get("resolved", 0) for m in recent)
     net = recent_created - recent_resolved
     if net > 10:
-        title = f"HELP Volume Rising — {net} More Tickets Created Than Resolved in Last 3 Months"
+        title = f"{project} Volume Rising — {net} More Tickets Created Than Resolved in Last 3 Full Months"
     elif net < -10:
-        title = f"HELP Backlog Pressure Easing — {abs(net)} More Tickets Resolved Than Created in Last 3 Months"
+        title = f"{project} Backlog Pressure Easing — {abs(net)} More Tickets Resolved Than Created in Last 3 Full Months"
     else:
-        title = "HELP Ticket Volume Trends — Created vs Resolved"
+        title = f"{project} Ticket Volume Trends — Created vs Resolved"
 
     _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
+    _bg(reqs, sid, bg)
     _slide_title(reqs, sid, title)
 
-    ctx = "Last 12 months   ·   Monthly created vs monthly resolved   ·   Split into all, escalated, and non-escalated"
+    ctx = "Last 12 full months   ·   Monthly created vs monthly resolved   ·   Split into all, escalated, and non-escalated"
     _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 16, ctx)
     _style(reqs, f"{sid}_ctx", 0, len(ctx), size=9, color=GRAY, font=FONT)
 
@@ -6755,8 +7018,9 @@ def _eng_help_volume_trends_slide(reqs: list, sid: str, report: dict, idx: int) 
     left_x = MARGIN
     right_x = MARGIN + top_chart_w + top_gap
 
-    _box(reqs, f"{sid}_all_h", sid, left_x, top_y, top_chart_w, 14, "All HELP tickets")
-    _style(reqs, f"{sid}_all_h", 0, 16, bold=True, size=10, color=NAVY, font=FONT)
+    all_hdr = f"All {project} tickets"
+    _box(reqs, f"{sid}_all_h", sid, left_x, top_y, top_chart_w, 14, all_hdr)
+    _style(reqs, f"{sid}_all_h", 0, len(all_hdr), bold=True, size=10, color=NAVY, font=FONT)
     top_chart_y = top_y + 18
     ss_id, chart_id = charts.add_line_chart(
         title="",
@@ -6772,8 +7036,9 @@ def _eng_help_volume_trends_slide(reqs: list, sid: str, report: dict, idx: int) 
     )
     embed_chart(reqs, f"{sid}_all_chart", sid, ss_id, chart_id, left_x, top_chart_y, top_chart_w, top_chart_h, linked=False)
 
-    _box(reqs, f"{sid}_esc_h", sid, right_x, top_y, top_chart_w, 14, "HELP tickets with jira_escalated label")
-    _style(reqs, f"{sid}_esc_h", 0, 38, bold=True, size=10, color=NAVY, font=FONT)
+    esc_hdr = f"{project} tickets with jira_escalated label"
+    _box(reqs, f"{sid}_esc_h", sid, right_x, top_y, top_chart_w, 14, esc_hdr)
+    _style(reqs, f"{sid}_esc_h", 0, len(esc_hdr), bold=True, size=10, color=NAVY, font=FONT)
     esc_chart_y = top_y + 18
     ss_id2, chart_id2 = charts.add_line_chart(
         title="",
@@ -6793,8 +7058,9 @@ def _eng_help_volume_trends_slide(reqs: list, sid: str, report: dict, idx: int) 
     bottom_chart_h = 82
     bottom_x = MARGIN + (CONTENT_W - bottom_chart_w) / 2
     bottom_y = top_chart_y + top_chart_h + 18
-    _box(reqs, f"{sid}_non_h", sid, bottom_x, bottom_y, bottom_chart_w, 14, "HELP tickets excluding jira_escalated")
-    _style(reqs, f"{sid}_non_h", 0, 37, bold=True, size=10, color=NAVY, font=FONT)
+    non_hdr = f"{project} tickets excluding jira_escalated"
+    _box(reqs, f"{sid}_non_h", sid, bottom_x, bottom_y, bottom_chart_w, 14, non_hdr)
+    _style(reqs, f"{sid}_non_h", 0, len(non_hdr), bold=True, size=10, color=NAVY, font=FONT)
     non_chart_y = bottom_y + 18
     ss_id3, chart_id3 = charts.add_line_chart(
         title="",
@@ -6811,6 +7077,66 @@ def _eng_help_volume_trends_slide(reqs: list, sid: str, report: dict, idx: int) 
     embed_chart(reqs, f"{sid}_non_chart", sid, ss_id3, chart_id3, bottom_x, non_chart_y, bottom_chart_w, bottom_chart_h, linked=False)
 
     return idx + 1
+
+
+def _eng_help_volume_trends_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """HELP monthly created vs resolved trends for all, escalated, and non-escalated tickets."""
+    eng = report.get("eng_portfolio") or {}
+    raw_trends = eng.get("help_ticket_trends")
+
+    if raw_trends is None:
+        try:
+            from .jira_client import get_shared_jira_client
+            raw_trends = get_shared_jira_client()._get_help_ticket_volume_trends()
+            eng["help_ticket_trends"] = raw_trends
+            report.setdefault("eng_portfolio", eng)
+            logger.debug("eng_help_volume_trends: fetched HELP trends on demand (no eng_portfolio)")
+        except Exception as e:
+            logger.warning("eng_help_volume_trends: on-demand HELP trends fetch failed: %s", e)
+            raw_trends = {"error": str(e)}
+
+    trends = raw_trends if isinstance(raw_trends, dict) else {}
+    err = trends.get("error")
+    if err:
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            f"HELP ticket volume trends — Jira error: {err}",
+        )
+    return _render_project_volume_trends(
+        reqs, sid, report, idx, trends=trends, project="HELP", bg=WHITE,
+    )
+
+
+def _customer_project_volume_trends_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """CUSTOMER project monthly created vs resolved (all / escalated / non-escalated)."""
+    jira = report.get("jira") or {}
+    trends = jira.get("customer_project_volume_trends") or {}
+    if not isinstance(trends, dict):
+        return _missing_data_slide(reqs, sid, report, idx, "CUSTOMER volume trends (not in report)")
+    if trends.get("error"):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            f"CUSTOMER ticket volume trends — Jira error: {trends.get('error')}",
+        )
+    return _render_project_volume_trends(
+        reqs, sid, report, idx, trends=trends, project="CUSTOMER", bg=_project_slide_bg("CUSTOMER"),
+    )
+
+
+def _lean_project_volume_trends_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """LEAN project monthly created vs resolved (all / escalated / non-escalated)."""
+    jira = report.get("jira") or {}
+    trends = jira.get("lean_project_volume_trends") or {}
+    if not isinstance(trends, dict):
+        return _missing_data_slide(reqs, sid, report, idx, "LEAN volume trends (not in report)")
+    if trends.get("error"):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            f"LEAN ticket volume trends — Jira error: {trends.get('error')}",
+        )
+    return _render_project_volume_trends(
+        reqs, sid, report, idx, trends=trends, project="LEAN", bg=_project_slide_bg("LEAN"),
+    )
 
 
 def _sf_format_cell(val: Any, max_len: int = 44) -> str:
@@ -7468,14 +7794,22 @@ _SLIDE_BUILDERS = {
     "guides": _guides_slide,
     "jira": _jira_slide,
     "customer_ticket_metrics": _customer_ticket_metrics_slide,
+    "customer_ticket_metrics_charts": _customer_ticket_metrics_charts_slide,
     "support_recent_opened": _support_recent_opened_slide,
     "support_recent_closed": _support_recent_closed_slide,
+    "customer_project_volume_trends": _customer_project_volume_trends_slide,
+    "customer_project_ticket_metrics": _customer_project_ticket_metrics_slide,
+    "customer_project_ticket_metrics_breakdown": _customer_project_ticket_metrics_breakdown_slide,
     "customer_project_recent_opened": _customer_project_recent_opened_slide,
     "customer_project_recent_closed": _customer_project_recent_closed_slide,
+    "lean_project_volume_trends": _lean_project_volume_trends_slide,
+    "lean_project_ticket_metrics": _lean_project_ticket_metrics_slide,
+    "lean_project_ticket_metrics_breakdown": _lean_project_ticket_metrics_breakdown_slide,
     "lean_project_recent_opened": _lean_project_recent_opened_slide,
     "lean_project_recent_closed": _lean_project_recent_closed_slide,
     "help_resolved_by_assignee": _help_resolved_by_assignee_slide,
     "customer_resolved_by_assignee": _customer_resolved_by_assignee_slide,
+    "lean_resolved_by_assignee": _lean_resolved_by_assignee_slide,
     "custom": _custom_slide,
     "signals": _signals_slide,
     "platform_health": _platform_health_slide,
@@ -7533,14 +7867,22 @@ SLIDE_DATA_REQUIREMENTS = {
     "guides": ["guides"],
     "jira": ["jira"],
     "customer_ticket_metrics": ["jira"],
+    "customer_ticket_metrics_charts": ["jira"],
     "support_recent_opened": ["jira"],
     "support_recent_closed": ["jira"],
+    "customer_project_volume_trends": ["jira"],
+    "customer_project_ticket_metrics": ["jira"],
+    "customer_project_ticket_metrics_breakdown": ["jira"],
     "customer_project_recent_opened": ["jira"],
     "customer_project_recent_closed": ["jira"],
+    "lean_project_volume_trends": ["jira"],
+    "lean_project_ticket_metrics": ["jira"],
+    "lean_project_ticket_metrics_breakdown": ["jira"],
     "lean_project_recent_opened": ["jira"],
     "lean_project_recent_closed": ["jira"],
     "help_resolved_by_assignee": ["jira"],
     "customer_resolved_by_assignee": ["jira"],
+    "lean_resolved_by_assignee": ["jira"],
     "custom": ["title", "sections"],
     "signals": ["signals"],
     "platform_health": ["csr"],
@@ -7579,27 +7921,20 @@ SLIDE_DATA_REQUIREMENTS = {
 }
 
 
-_output_folder_cache: tuple[str, str, str] | None = None  # (date_str, parent_id, folder_id)
+_output_folder_cache: str | None = None
 
 
 def _get_deck_output_folder() -> str | None:
-    """Return the ID of today's date-stamped subfolder (e.g. Decks-2026-03-06), creating it if needed."""
+    """Return the base QBR Generator folder ID for individual deck outputs."""
     global _output_folder_cache
-    from .drive_config import _find_or_create_folder, get_qbr_generator_folder_id_for_drive_config
+    from .drive_config import get_qbr_generator_folder_id_for_drive_config
 
     if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
         return None
-    parent = get_qbr_generator_folder_id_for_drive_config()
-    today = datetime.date.today().isoformat()
-    if (
-        _output_folder_cache
-        and _output_folder_cache[0] == today
-        and _output_folder_cache[1] == parent
-    ):
-        return _output_folder_cache[2]
-    folder_id = _find_or_create_folder(f"Decks-{today}", parent)
-    _output_folder_cache = (today, parent, folder_id)
-    return folder_id
+    if _output_folder_cache:
+        return _output_folder_cache
+    _output_folder_cache = get_qbr_generator_folder_id_for_drive_config()
+    return _output_folder_cache
 
 
 def create_empty_deck(customer: str, days: int = 30, deck_name: str | None = None) -> dict[str, Any]:
@@ -7733,13 +8068,17 @@ def create_health_deck(
         deck_id: Which deck definition to use. Defaults to 'cs_health_review'.
         thumbnails: Whether to export slide thumbnails. Disable for batch runs.
         output_folder_id: Optional Drive folder id for the new presentation. When omitted,
-            uses today's ``Decks-{date}`` folder under the resolved QBR Generator folder (if any).
+            uses ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` (if configured).
     """
     if "error" in report:
         return {"error": report["error"]}
 
     is_portfolio = report.get("type") == "portfolio"
-    customer = report.get("customer", "Portfolio") if not is_portfolio else "Portfolio"
+    # Preserve None for "all customers" case; only default to "Portfolio" for actual portfolio reports
+    if is_portfolio:
+        customer = "Portfolio"
+    else:
+        customer = report.get("customer")  # Can be None for "all customers"
     days = report.get("days", 30)
     quarter_label = report.get("quarter")
 
@@ -7757,18 +8096,34 @@ def create_health_deck(
 
     from .deck_loader import resolve_deck
 
+    # For "all customers" support deck (customer=None), resolve_deck will load all slides
     resolved = resolve_deck(deck_id, customer)
     if resolved.get("error"):
         return {"error": resolved["error"]}
 
     deck_name = resolved.get("name", "Health Review")
     date_str = _date_range(days, quarter_label, report.get("quarter_start"), report.get("quarter_end"))
-    if is_portfolio:
+    
+    slide_plan: list[dict[str, Any]] = list(resolved.get("slides") or [])
+    
+    # For support deck without customer, include full support slide lineup with all-project scope.
+    if deck_id == "support" and not customer:
+        title = f"{deck_name} — All Customers ({date_str})"
+    elif is_portfolio:
         title = f"{deck_name} ({date_str})"
     else:
         title = f"{customer} — {deck_name} ({date_str})"
 
-    slide_plan: list[dict[str, Any]] = list(resolved.get("slides") or [])
+    if deck_id == "support":
+        # Deck YAML stores legacy SED labels in titles; rewrite to active scope.
+        active_customer = customer if customer else "All Customers"
+        for entry in slide_plan:
+            raw_title = entry.get("title")
+            if not isinstance(raw_title, str):
+                continue
+            updated = raw_title.replace("Safran Electronics & Defense (SED)", active_customer)
+            updated = updated.replace("(SED)", f"({active_customer})")
+            entry["title"] = updated
 
     if deck_id == "salesforce_comprehensive":
         from .data_source_health import _salesforce_configured
@@ -7805,6 +8160,9 @@ def create_health_deck(
         )
 
     if deck_id == "support":
+        # Set display name for logging
+        customer_display = "All Customers" if not customer else customer
+            
         try:
             from .jira_client import get_shared_jira_client
 
@@ -7817,14 +8175,14 @@ def create_health_deck(
             if "base_url" not in report["jira"]:
                 report["jira"]["base_url"] = (jira_client.base_url or "").rstrip("/")
             
-            # Fetch customer ticket metrics if not already in report
+            # Fetch customer ticket metrics (works with None for all customers)
             if "customer_ticket_metrics" not in report["jira"]:
-                logger.info("Support deck: fetching customer ticket metrics for %s", customer)
+                logger.info("Support deck: fetching customer ticket metrics for %s", customer_display)
                 customer_ticket_metrics = jira_client.get_customer_ticket_metrics(customer)
                 report["jira"]["customer_ticket_metrics"] = customer_ticket_metrics
             
-            # Fetch recent HELP tickets
-            logger.info("Support deck: fetching recent HELP tickets for %s", customer)
+            # Fetch recent HELP tickets (works with None for all customers)
+            logger.info("Support deck: fetching recent HELP tickets for %s", customer_display)
             customer_help_recent = jira_client.get_customer_help_recent_tickets(
                 customer,
                 opened_within_days=45,
@@ -7832,28 +8190,8 @@ def create_health_deck(
             )
             report["jira"]["customer_help_recent"] = customer_help_recent
             
-            # Fetch recent CUSTOMER project tickets
-            logger.info("Support deck: fetching recent CUSTOMER project tickets for %s", customer)
-            customer_project_recent = jira_client.get_customer_project_recent_tickets(
-                "CUSTOMER",
-                customer,
-                opened_within_days=45,
-                closed_within_days=45,
-            )
-            report["jira"]["customer_project_recent"] = customer_project_recent
-            
-            # Fetch recent LEAN project tickets
-            logger.info("Support deck: fetching recent LEAN project tickets for %s", customer)
-            lean_project_recent = jira_client.get_customer_project_recent_tickets(
-                "LEAN",
-                customer,
-                opened_within_days=45,
-                closed_within_days=45,
-            )
-            report["jira"]["lean_project_recent"] = lean_project_recent
-            
-            # Fetch resolved tickets by assignee for HELP (last 90 days)
-            logger.info("Support deck: fetching HELP resolved tickets by assignee for %s", customer)
+            # Fetch resolved tickets by assignee for HELP (works with None for all customers)
+            logger.info("Support deck: fetching HELP resolved tickets by assignee for %s", customer_display)
             help_resolved_by_assignee = jira_client.get_resolved_tickets_by_assignee(
                 "HELP",
                 customer,
@@ -7861,18 +8199,72 @@ def create_health_deck(
             )
             report["jira"]["help_resolved_by_assignee"] = help_resolved_by_assignee
             
+            # Fetch recent CUSTOMER project tickets (customer-scoped or all-project scope)
+            logger.info("Support deck: fetching recent CUSTOMER project tickets for %s", customer_display)
+            customer_project_recent = jira_client.get_customer_project_recent_tickets(
+                "CUSTOMER",
+                customer,
+                opened_within_days=45,
+                closed_within_days=45,
+            )
+            report["jira"]["customer_project_recent"] = customer_project_recent
+            customer_project_open_breakdown = jira_client.get_customer_project_open_breakdown(
+                "CUSTOMER",
+                customer,
+            )
+            report["jira"]["customer_project_open_breakdown"] = customer_project_open_breakdown
+            logger.info("Support deck: fetching CUSTOMER volume trends for %s", customer_display)
+            report["jira"]["customer_project_volume_trends"] = jira_client.get_project_ticket_volume_trends(
+                "CUSTOMER", customer
+            )
+            logger.info("Support deck: fetching CUSTOMER ticket KPI metrics for %s", customer_display)
+            report["jira"]["customer_project_ticket_metrics"] = jira_client.get_project_ticket_metrics(
+                "CUSTOMER", customer
+            )
+
+            # Fetch recent LEAN project tickets (customer-scoped or all-project scope)
+            logger.info("Support deck: fetching recent LEAN project tickets for %s", customer_display)
+            lean_project_recent = jira_client.get_customer_project_recent_tickets(
+                "LEAN",
+                customer,
+                opened_within_days=45,
+                closed_within_days=45,
+            )
+            report["jira"]["lean_project_recent"] = lean_project_recent
+            lean_project_open_breakdown = jira_client.get_customer_project_open_breakdown(
+                "LEAN",
+                customer,
+            )
+            report["jira"]["lean_project_open_breakdown"] = lean_project_open_breakdown
+            logger.info("Support deck: fetching LEAN volume trends for %s", customer_display)
+            report["jira"]["lean_project_volume_trends"] = jira_client.get_project_ticket_volume_trends(
+                "LEAN", customer
+            )
+            logger.info("Support deck: fetching LEAN ticket KPI metrics for %s", customer_display)
+            report["jira"]["lean_project_ticket_metrics"] = jira_client.get_project_ticket_metrics(
+                "LEAN", customer
+            )
+
             # Fetch resolved tickets by assignee for CUSTOMER (last 90 days)
-            logger.info("Support deck: fetching CUSTOMER resolved tickets by assignee for %s", customer)
+            logger.info("Support deck: fetching CUSTOMER resolved tickets by assignee for %s", customer_display)
             customer_resolved_by_assignee = jira_client.get_resolved_tickets_by_assignee(
                 "CUSTOMER",
                 customer,
                 days=90,
             )
             report["jira"]["customer_resolved_by_assignee"] = customer_resolved_by_assignee
-            
-            logger.info(
-                "Support deck: fetched data for %s (HELP: %d/%d, CUSTOMER: %d/%d, LEAN: %d/%d, HELP resolved: %d, CUSTOMER resolved: %d)",
+
+            logger.info("Support deck: fetching LEAN resolved tickets by assignee for %s", customer_display)
+            lean_resolved_by_assignee = jira_client.get_resolved_tickets_by_assignee(
+                "LEAN",
                 customer,
+                days=90,
+            )
+            report["jira"]["lean_resolved_by_assignee"] = lean_resolved_by_assignee
+
+            logger.info(
+                "Support deck: fetched data for %s (HELP: %d/%d, CUSTOMER: %d/%d, LEAN: %d/%d, HELP/CUSTOMER/LEAN resolved: %d/%d/%d)",
+                customer_display,
                 len(customer_help_recent.get("recently_opened", [])),
                 len(customer_help_recent.get("recently_closed", [])),
                 len(customer_project_recent.get("recently_opened", [])),
@@ -7881,6 +8273,7 @@ def create_health_deck(
                 len(lean_project_recent.get("recently_closed", [])),
                 help_resolved_by_assignee.get("total_resolved", 0),
                 customer_resolved_by_assignee.get("total_resolved", 0),
+                lean_resolved_by_assignee.get("total_resolved", 0),
             )
         except Exception as e:
             logger.warning("Support deck: Jira data fetch failed for %s: %s", customer, e)
@@ -7911,6 +8304,22 @@ def create_health_deck(
                 "recently_opened": [],
                 "recently_closed": [],
             }
+            report["jira"]["customer_project_open_breakdown"] = {
+                "error": str(e)[:500],
+                "project": "CUSTOMER",
+                "customer": customer,
+                "unresolved_count": 0,
+                "by_type_open": {},
+                "by_status_open": {},
+            }
+            report["jira"]["lean_project_open_breakdown"] = {
+                "error": str(e)[:500],
+                "project": "LEAN",
+                "customer": customer,
+                "unresolved_count": 0,
+                "by_type_open": {},
+                "by_status_open": {},
+            }
             report["jira"]["help_resolved_by_assignee"] = {
                 "error": str(e)[:500],
                 "project": "HELP",
@@ -7924,6 +8333,35 @@ def create_health_deck(
                 "customer": customer,
                 "by_assignee": [],
                 "total_resolved": 0,
+            }
+            report["jira"]["lean_resolved_by_assignee"] = {
+                "error": str(e)[:500],
+                "project": "LEAN",
+                "customer": customer,
+                "by_assignee": [],
+                "total_resolved": 0,
+            }
+            report["jira"]["customer_project_volume_trends"] = {
+                "error": str(e)[:500],
+                "all": [],
+                "escalated": [],
+                "non_escalated": [],
+            }
+            report["jira"]["lean_project_volume_trends"] = {
+                "error": str(e)[:500],
+                "all": [],
+                "escalated": [],
+                "non_escalated": [],
+            }
+            report["jira"]["customer_project_ticket_metrics"] = {
+                "error": str(e)[:500],
+                "project": "CUSTOMER",
+                "customer": customer,
+            }
+            report["jira"]["lean_project_ticket_metrics"] = {
+                "error": str(e)[:500],
+                "project": "LEAN",
+                "customer": customer,
             }
 
     if not slide_plan:

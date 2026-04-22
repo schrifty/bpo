@@ -149,8 +149,23 @@ def _run_engineering_portfolio_deck() -> None:
 
 def _run_support_deck() -> None:
     """Single support-focused deck from Jira — no LLM prompt parsing required."""
+    import argparse
     from src.data_source_health import check_all_required
     from src.slides_client import create_health_deck
+
+    parser = argparse.ArgumentParser(description="Generate support review deck")
+    parser.add_argument(
+        "--customer",
+        type=str,
+        default=None,
+        help="Customer name to filter tickets (default: all customers across HELP/CUSTOMER/LEAN)",
+    )
+    
+    # Parse only the args after 'support'
+    import sys
+    support_idx = sys.argv.index("support") if "support" in sys.argv else -1
+    args_to_parse = sys.argv[support_idx + 1:] if support_idx >= 0 else []
+    args = parser.parse_args(args_to_parse)
 
     preflight_errors = check_all_required()
     if preflight_errors:
@@ -159,14 +174,17 @@ def _run_support_deck() -> None:
             print(f"  • {msg}")
         sys.exit(1)
 
-    print("Generating support review deck...")
+    customer = args.customer
+    if customer:
+        print(f"Generating support review deck for: {customer}")
+    else:
+        print("Generating support review deck for: All Customers")
     t0 = time.time()
     
     # Minimal report - let create_health_deck() fetch all support-specific data
-    safran_name = "Safran Electronics & Defense (SED)"
     report = {
         "type": "support_review",
-        "customer": safran_name,
+        "customer": customer,
         "days": 365,
     }
     

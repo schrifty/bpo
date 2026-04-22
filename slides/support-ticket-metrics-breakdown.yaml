@@ -1,0 +1,13 @@
+id: support_ticket_metrics_breakdown
+type: standard
+order: 24.1
+title: Customer Ticket Metrics Breakdown
+slide_type: customer_ticket_metrics_charts
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Follow-up to the ticket metrics KPI slide. Show two horizontal bar charts:
+  unresolved ticket counts by ticket type and unresolved ticket counts by status.
+  Keep labels readable and reserve full chart area for the two breakdowns.

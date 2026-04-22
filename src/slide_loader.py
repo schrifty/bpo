@@ -73,14 +73,18 @@ def load_slides(
     Args:
         slides_dir: Path to the slides folder. Defaults to project root /slides.
         customer: If provided, only return slides that apply to this customer.
+                 If None, returns all slides with customers="all".
 
     Returns:
         Sorted list of slide dicts.
     """
     slides = _load_all_slides(slides_dir)
 
-    if customer:
+    if customer is not None:
         slides = _filter_for_customer(slides, customer)
+    else:
+        # When customer is None, only include slides with customers="all"
+        slides = [s for s in slides if s.get("customers") == "all"]
 
     return _sort_slides(slides)
 

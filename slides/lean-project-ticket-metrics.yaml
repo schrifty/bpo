@@ -1,0 +1,12 @@
+id: lean_project_ticket_metrics
+type: standard
+order: 71
+title: LEAN ticket metrics
+slide_type: lean_project_ticket_metrics
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Jira project LEAN only: KPI cards mirroring HELP ticket metrics
+  (unresolved, resolved 6mo, SLA adherence, TTR open backlog age, TTFR).
