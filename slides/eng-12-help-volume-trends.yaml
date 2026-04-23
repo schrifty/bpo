@@ -1,12 +1,12 @@
 id: eng_help_volume_trends
 type: standard
 order: 82
-title: HELP ticket volume trends
+title: Volume Analysis
 slide_type: eng_help_volume_trends
 data_tools: []
 customers: all
 
 prompt: >
-  HELP ticket volume investigation slide. Shows three 12-month line charts:
-  created vs resolved for all HELP tickets, HELP tickets with the
-  jira_escalated label, and HELP tickets excluding jira_escalated.
+  HELP volume analysis. Title: HELP Volume Analysis. Headline under the title
+  summarizes last-3-month created vs resolved net. Three 12-month line charts:
+  all HELP tickets, jira_escalated only, and excluding jira_escalated.

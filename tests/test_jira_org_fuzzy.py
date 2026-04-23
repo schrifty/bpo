@@ -1,6 +1,9 @@
 """Fuzzy resolution of JSM organization names for customer-scoped JQL."""
 
+from unittest.mock import patch
+
 from src.jira_client import (
+    JiraClient,
     _fuzzy_pick_jsm_organizations,
     _norm_org_for_match,
     _score_jsm_org_candidate,
@@ -32,3 +35,14 @@ def test_fuzzy_pick_skips_ambiguous_tie():
 
 def test_fuzzy_pick_empty_candidates():
     assert _fuzzy_pick_jsm_organizations(["Anything"], []) == []
+
+
+def test_customer_match_clause_organizations_only_omits_text_for_metrics():
+    jc = JiraClient.__new__(JiraClient)
+    with patch.object(jc, "_list_jsm_organization_names", return_value=[]):
+        frag, _ = jc._customer_match_clause("Carrier", organizations_only=True)
+    assert "summary" not in frag and "description" not in frag
+    assert "Organizations" in frag
+    with patch.object(jc, "_list_jsm_organization_names", return_value=[]):
+        frag2, _ = jc._customer_match_clause("Carrier", organizations_only=False)
+    assert "summary" in frag2

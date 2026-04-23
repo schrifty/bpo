@@ -1,0 +1,13 @@
+---
+description: Prefer clear failures over silent fallbacks for LLM and other integration-driven output
+alwaysApply: true
+---
+
+# Fail loud for integration and LLM content
+
+- When a feature is designed to be produced by an **LLM, API, or other integration**, do not **silently substitute** generic or placeholder text at full success. A silent fallback hides bugs and confuses people into trusting bad output.
+- On failure, **return or raise a clear error** (or exit non‑zero in CLIs) so the issue can be fixed. Include enough context to debug (e.g. parse failure, missing credentials) without logging secrets.
+- If a **development-only** or **opt-in** fallback is needed (e.g. CI with no API keys, local smoke tests), gate it behind an **explicit environment variable** or flag and **log** that the path is a fallback, not a successful generation.
+- This project applies this pattern to the support deck **Notable** slide: default is strict (`BPO_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK` unset/false). Set to `true` to restore static bullets on LLM or parse errors.
+
+When adding new LLM-driven surfaces, follow the same pattern unless product requirements say otherwise in writing.

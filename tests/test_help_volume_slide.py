@@ -7,7 +7,7 @@ from src.slides_client import _eng_help_volume_trends_slide
 
 def test_help_volume_jira_error_is_missing_data_not_no_usage():
     report: dict = {
-        "_current_slide": {"slide_type": "eng_help_volume_trends", "title": "HELP Ticket Volume Trends"},
+        "_current_slide": {"slide_type": "eng_help_volume_trends", "title": "Volume Analysis"},
         "eng_portfolio": {
             "help_ticket_trends": {
                 "error": "401 Unauthorized",
@@ -33,7 +33,7 @@ def test_help_volume_all_months_zero_is_not_missing_data():
     charts.add_line_chart.return_value = ("spreadsheet_id", "chart_id")
 
     report: dict = {
-        "_current_slide": {"slide_type": "eng_help_volume_trends", "title": "HELP Ticket Volume Trends"},
+        "_current_slide": {"slide_type": "eng_help_volume_trends", "title": "Volume Analysis"},
         "eng_portfolio": {"help_ticket_trends": trends},
         "_charts": charts,
     }

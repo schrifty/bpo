@@ -47,6 +47,10 @@ ENTITY_CMDB_FIELD = "customfield_11154"  # "Entity" (CMDB object ref)
 SPRINT_FIELD = "customfield_10204"       # "Sprint" (Agile sprint array)
 STORY_POINTS_FIELD = "customfield_10202" # "Story Points"
 
+# Exclude transient/infrastructure tickets (Outage, Healthcheck) from support metrics.
+# These are typically caused by customer IT and don't reflect actionable support issues.
+_TRANSIENT_LABELS_EXCLUSION = "(labels IS EMPTY OR labels NOT IN (Outage, Healthcheck))"
+
 # Minimal fields for per-project operational slides (open + recently resolved).
 _PROJECT_SNAPSHOT_FIELDS = [
     "summary", "status", "issuetype", "created", "updated",
@@ -520,15 +524,21 @@ class JiraClient:
         self,
         customer_name: str | None,
         match_terms: list[str] | None = None,
+        *,
+        organizations_only: bool = False,
     ) -> tuple[str, list[str]]:
-        """Build JQL to match a customer on HELP: Organizations (exact + fuzzy) and text.
+        """Build JQL to match a customer on HELP: Organizations (exact + fuzzy) and optional text.
 
         JSM ``Organizations`` is the authoritative link to a customer, but JQL requires
         the exact directory string. We list organizations via the Service Desk API and
         fuzzy-match the report's customer name (and aliases) to those labels, then OR
-        ``Organizations = "<resolved>"`` together with literal terms and ``summary`` /
-        ``description`` matches for tickets missing org metadata.
-        
+        ``Organizations = "<resolved>"`` together. By default we also OR ``summary`` /
+        ``description`` matches for tickets that lack org metadata (QBR / discovery lists).
+
+        For **Ticket Metrics** (KPIs, by-type / by-status breakdowns), set
+        ``organizations_only=True`` so counts are not inflated by the word *Carrier* in
+        title/body on unrelated orgs.
+
         If customer_name is None, returns an empty filter (matches all customers).
 
         Returns:
@@ -579,8 +589,24 @@ class JiraClient:
             text_fragments.append(f'summary ~ "{esc}"')
             text_fragments.append(f'description ~ "{esc}"')
 
-        clauses = org_fragments + text_fragments
+        if organizations_only:
+            if not org_fragments:
+                # No Organizations literals (should be rare) — JQL that matches no real issues.
+                return ('summary ~ "___BPO_NO_ORG_MATCH___"', resolved_orgs)
+            clauses = org_fragments
+        else:
+            clauses = org_fragments + text_fragments
         return "(" + " OR ".join(clauses) + ")", resolved_orgs
+
+    def _help_project_customer_filter(
+        self,
+        customer_name: str | None,
+        match_terms: list[str] | None = None,
+    ) -> tuple[str, list[str]]:
+        """HELP + customer scope: JSM ``Organizations`` only (no ``summary`` / ``description``)."""
+        return self._customer_match_clause(
+            customer_name, match_terms, organizations_only=True
+        )
 
     def _normalize_issue(self, issue: dict) -> dict:
         f = issue["fields"]
@@ -807,15 +833,15 @@ class JiraClient:
     def get_customer_jira(self, customer_name: str, days: int = 90) -> dict[str, Any]:
         """Get JIRA picture for a customer: open issues, recent activity, escalations.
 
-        Scoped to **project HELP** (support desk) only, with the same customer clause as
-        ``get_customer_ticket_metrics``: Organizations (literal + fuzzy-resolved JSM
-        directory names), summary, and description.  Without ``project = HELP``, text
-        matches pull in LEAN/ER and other projects and inflate QBR Support Summary totals.
+        Scoped to **project HELP** (support desk) only. All HELP issue lists and
+        :func:`get_customer_ticket_metrics` prebuilt slice use the same JQL: JSM
+        ``Organizations`` only (no ``summary`` / ``description`` text match) so
+        per-customer counts are not inflated by other orgs' tickets.
         """
         jql_start = self._jql_log_len()
         safe_name = _jql_escape_string(customer_name)
-        base_filter, resolved_jsm_orgs = self._customer_match_clause(customer_name)
-        jql = f"project = HELP AND {base_filter} AND created >= -{days}d ORDER BY created DESC"
+        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(customer_name)
+        jql = f"project = HELP AND {base_filter} AND {_TRANSIENT_LABELS_EXCLUSION} AND created >= -{days}d ORDER BY created DESC"
         clause_bundle = (base_filter, resolved_jsm_orgs)
 
         def _fetch_help_body() -> tuple[list[dict], int | None]:
@@ -920,9 +946,8 @@ class JiraClient:
             "days": days,
             "jsm_organizations_resolved": resolved_jsm_orgs,
             "help_scope": (
-                "Jira project HELP only; tickets match Organizations (including JSM directory "
-                "names fuzzy-matched from this report), summary, or description "
-                f"for this account ({customer_name!r})."
+                f"Jira project HELP only. All lists and ticket metrics: JSM Organizations for "
+                f"{customer_name!r} (no summary/description text match)."
             ),
             "total_issues": len(issues),
             "open_issues": len(open_issues),
@@ -1211,20 +1236,29 @@ class JiraClient:
     ) -> dict[str, Any]:
         """Metrics for a single customer's support tickets across open/6mo/1y windows.
 
-        Scoped to ``project = HELP`` only. The customer clause matches Organizations
-        (literal + fuzzy-resolved JSM labels) and text (summary/description); without a
-        project filter, those text matches pull in LEAN and other projects and inflate
-        Support Review KPIs.
+        Scoped to ``project = HELP`` only. The customer clause is **Organizations only**
+        (literal and fuzzy JSM names) — **no** ``summary``/``description`` text match, so KPIs
+        and pie charts match the JSM org, not every issue mentioning the account name in text.
 
-        Uses a **single merged JQL** (open ∪ resolved-in-365d ∪ created-in-365d) plus
-        client-side partitioning to avoid triple pagination. Pass ``_prebuilt_clause``
-        from ``get_customer_jira`` to skip a second org-resolution pass.
+        The **JQL** is a single **merged** query, not "open" alone:
+
+        ``(statusCategory != Done OR (resolved in last 365d) OR (created in last 365d))``
+
+        so one fetch can back TTFR, SLA, and backlog slices. Open/unresolved is partitioned
+        client-side from that set (``statusCategory != Done``). A query that is only
+        ``... AND statusCategory != Done`` would **omit** resolved/created-in-window issues
+        and break 1y metrics.
+
+        Pass ``_prebuilt_clause`` from ``get_customer_jira`` (same org-only fragment as the
+        HELP body fetch) to skip a second org-resolution pass.
         """
         jql_start = self._jql_log_len()
         if _prebuilt_clause is not None:
             base_filter, resolved_jsm_orgs = _prebuilt_clause
         else:
-            base_filter, resolved_jsm_orgs = self._customer_match_clause(customer_name, match_terms)
+            base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
+                customer_name, match_terms
+            )
         max_fetch = HELP_METRICS_MERGED_MAX_RESULTS
         proj = "project = HELP AND "
 
@@ -1263,7 +1297,7 @@ class JiraClient:
             }
 
         union_jql = (
-            f"{proj}{base_filter} AND ("
+            f"{proj}{base_filter} AND {_TRANSIENT_LABELS_EXCLUSION} AND ("
             "statusCategory != Done OR "
             "(resolution is not EMPTY AND resolved >= -365d) OR "
             "created >= -365d"
@@ -1506,8 +1540,7 @@ class JiraClient:
     ) -> dict[str, Any]:
         """Recent HELP issues for one customer: opened in window vs resolved in window.
 
-        Uses the same ``project = HELP`` + organization/text match as
-        ``get_customer_ticket_metrics``.
+        Same JSM ``Organizations``-only scoping as :func:`get_customer_ticket_metrics`.
         """
         return self.get_customer_project_recent_tickets(
             "HELP",
@@ -1530,15 +1563,16 @@ class JiraClient:
     ) -> dict[str, Any]:
         """Recent tickets for any project for one customer: opened in window vs resolved in window.
 
-        For HELP project, uses organization/text match.
+        For HELP project, uses JSM ``Organizations`` only (no summary/description text).
         For other projects (CUSTOMER, LEAN), uses text match only.
         """
         jql_start = self._jql_log_len()
         
-        # For HELP, use full customer match clause; for others, use text search.
         # If customer_name is None on non-HELP projects, scope to all project tickets.
         if project == "HELP":
-            base_filter, resolved_jsm_orgs = self._customer_match_clause(customer_name, match_terms)
+            base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
+                customer_name, match_terms
+            )
         else:
             resolved_jsm_orgs = []
             if customer_name:
@@ -1573,10 +1607,12 @@ class JiraClient:
 
         od = int(opened_within_days)
         cd = int(closed_within_days)
+        # Only apply transient label exclusion for HELP project (Outage/Healthcheck are HELP-specific).
+        label_filter = f" AND {_TRANSIENT_LABELS_EXCLUSION}" if project == "HELP" else ""
         try:
-            open_jql = f"{proj}{base_filter} AND created >= -{od}d ORDER BY created DESC"
+            open_jql = f"{proj}{base_filter}{label_filter} AND created >= -{od}d ORDER BY created DESC"
             closed_jql = (
-                f"{proj}{base_filter} AND resolution is not EMPTY AND resolved >= -{cd}d "
+                f"{proj}{base_filter}{label_filter} AND resolution is not EMPTY AND resolved >= -{cd}d "
                 "ORDER BY resolved DESC"
             )
             with ThreadPoolExecutor(max_workers=2) as pool:
@@ -1637,7 +1673,9 @@ class JiraClient:
             return {"error": str(e), "project": (project or "").strip().upper(), "customer": customer_name}
 
         if proj == "HELP":
-            base_filter, resolved_jsm_orgs = self._customer_match_clause(customer_name, match_terms)
+            base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
+                customer_name, match_terms
+            )
         else:
             resolved_jsm_orgs = []
             if customer_name:
@@ -1706,10 +1744,11 @@ class JiraClient:
         """
         jql_start = self._jql_log_len()
         
-        # For HELP, use full customer match clause; for others, use text search.
         # If customer_name is None on non-HELP projects, scope to all project tickets.
         if project == "HELP":
-            base_filter, resolved_jsm_orgs = self._customer_match_clause(customer_name, match_terms)
+            base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
+                customer_name, match_terms
+            )
         else:
             resolved_jsm_orgs = []
             if customer_name:
@@ -1718,8 +1757,10 @@ class JiraClient:
             else:
                 base_filter = "key is not EMPTY"
         
+        # Only apply transient label exclusion for HELP project.
+        label_filter = f" AND {_TRANSIENT_LABELS_EXCLUSION}" if project == "HELP" else ""
         jql = (
-            f"project = {project} AND {base_filter} AND resolution is not EMPTY "
+            f"project = {project} AND {base_filter}{label_filter} AND resolution is not EMPTY "
             f"AND resolved >= -{days}d ORDER BY resolved DESC"
         )
         
@@ -1827,7 +1868,7 @@ class JiraClient:
     def _get_help_ticket_volume_trends(self) -> dict[str, Any]:
         """Return 12-month HELP created vs resolved trends for all/escalated/non-escalated."""
         jql = (
-            "project = HELP AND (created >= -365d OR resolved >= -365d) "
+            f"project = HELP AND {_TRANSIENT_LABELS_EXCLUSION} AND (created >= -365d OR resolved >= -365d) "
             "ORDER BY created DESC"
         )
         try:
@@ -2262,7 +2303,7 @@ class JiraClient:
         # ── Aggregate support pressure (HELP tickets across all customers) ──
         try:
             body_help = {
-                "jql": f"project = HELP AND created >= -{days}d ORDER BY created DESC",
+                "jql": f"project = HELP AND {_TRANSIENT_LABELS_EXCLUSION} AND created >= -{days}d ORDER BY created DESC",
                 "maxResults": 500,
                 "fields": ["summary", "status", "issuetype", "priority",
                            "created", "resolution", "labels"],

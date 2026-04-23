@@ -83,10 +83,10 @@ CHART_AXIS_PT = 12
 # Applied to ChartSpec so legend text scales with chart body when the API allows.
 CHART_SPEC_FONT_NAME = "Roboto"
 # Pies are embedded at slide PT size; larger backing pixels + maximized spec improve label/legend
-# legibility in the bitmap Slides uses (no API for legend font size on pie).
-# Increased for LABELED_LEGEND readability on large slide embeds.
-CHART_PIE_OVERLAY_W_PX = 1600
-CHART_PIE_OVERLAY_H_PX = 1000
+# legibility. Prefer linked=True in Slides so LABELED_LEGEND (callouts) is preserved; NOT_LINKED_IMAGE
+# can flatten to a tiny block legend. No Sheets API for pie data-label point size; pixels matter.
+CHART_PIE_OVERLAY_W_PX = 2560
+CHART_PIE_OVERLAY_H_PX = 1600
 
 def _chart_text_format(font_size: int, color: dict = NAVY, bold: bool = False) -> dict:
     """Build Sheets TextFormat for chart labels/titles."""
@@ -414,12 +414,15 @@ class DeckCharts:
         if donut:
             pie_spec["pieHole"] = 0.4
 
+        # Omit titleTextFormat when there is no title: a 36pt title spec still affects layout
+        # and can shrink the pie + LABELED_LEGEND callout text in the render.
         spec: dict[str, Any] = {
             "title": title if show_title else "",
-            "titleTextFormat": _chart_text_format(CHART_TITLE_PT, NAVY, bold=True),
             "fontName": CHART_SPEC_FONT_NAME,
             "pieChart": pie_spec,
         }
+        if show_title:
+            spec["titleTextFormat"] = _chart_text_format(CHART_TITLE_PT, NAVY, bold=True)
         if maximized:
             spec["maximized"] = True
 

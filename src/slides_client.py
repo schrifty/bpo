@@ -145,11 +145,11 @@ def _set_support_deck_corner_customer(name: str | None) -> None:
     _SUPPORT_DECK_CORNER_CUSTOMER = (name or "").strip() or None
 
 
-def _support_sub_matched_phrase(report: dict, customer: str) -> str:
-    """Text segment including 'matched to' for Jira scoping, or empty when the deck shows the customer in the corner."""
+def _support_subtitle_matched_lead(report: dict, customer: str) -> str:
+    """Prefix for support table subtitles, or empty when the title/corner already shows the account."""
     if report.get("support_deck_scoped_titles") and report.get("customer") is not None:
         return ""
-    return f"  ·  matched to {customer}  ·"
+    return f"Matched to {customer}  ·  "
 
 
 def _slide(reqs, sid, idx):
@@ -2547,23 +2547,23 @@ def _guides_no_usage_slide(reqs, sid, report, idx, guides: dict[str, Any]) -> in
     _slide_title(reqs, sid, "Guide Engagement")
 
     days = guides.get("days")
-    tv = int(guides.get("total_visitors") or 0)
-    scope_parts = [f"{tv:,} tracked visitors"]
-    if days is not None:
-        scope_parts.append(f"{days}-day lookback")
-    scope = "  ·  ".join(scope_parts)
-    _box(reqs, f"{sid}_scope", sid, MARGIN, BODY_Y, CONTENT_W, 18, scope)
-    _style(reqs, f"{sid}_scope", 0, len(scope), size=10, color=GRAY, font=FONT)
+    # Do not echo "0 visitors" under the title — the headline already says "No usage".
+    scope = f"{int(days)}-day lookback" if days is not None else ""
+    nu_y = BODY_Y
+    if scope:
+        _box(reqs, f"{sid}_scope", sid, MARGIN, BODY_Y, CONTENT_W, 16, scope)
+        _style(reqs, f"{sid}_scope", 0, len(scope), size=10, color=GRAY, font=FONT)
+        nu_y = BODY_Y + 22
 
     headline = "No usage"
-    _box(reqs, f"{sid}_nu", sid, MARGIN, BODY_Y + 32, CONTENT_W, 36, headline)
+    _box(reqs, f"{sid}_nu", sid, MARGIN, nu_y, CONTENT_W, 36, headline)
     _style(reqs, f"{sid}_nu", 0, len(headline), bold=True, size=22, color=NAVY, font=FONT)
 
     detail = (
         "No in-app guide events (views, continue/next, or dismiss) were recorded for this "
         "customer in this period — an adoption signal worth reviewing with the account team."
     )
-    _wrap_box(reqs, f"{sid}_nu_d", sid, MARGIN, BODY_Y + 76, CONTENT_W, 120, detail)
+    _wrap_box(reqs, f"{sid}_nu_d", sid, MARGIN, nu_y + 44, CONTENT_W, 120, detail)
     _style(reqs, f"{sid}_nu_d", 0, len(detail), size=11, color=NAVY, font=FONT)
 
     return idx + 1
@@ -3127,11 +3127,8 @@ def _customer_ticket_metrics_slide(reqs, sid, report, idx):
     _slide(reqs, sid, idx)
     _bg(reqs, sid, _project_slide_bg("HELP"))
     _slide_title(reqs, sid, title)
-    scope = "Scope: Jira project HELP only"
-    _box(reqs, f"{sid}_scope", sid, MARGIN, BODY_Y, CONTENT_W, 14, scope)
-    _style(reqs, f"{sid}_scope", 0, len(scope), size=9, color=GRAY, font=FONT)
-    defs = "TTR = now - created for NOT DONE HELP tickets.  TTFR = JSM first-response SLA elapsed time."
-    _box(reqs, f"{sid}_defs", sid, MARGIN, BODY_Y + 12, CONTENT_W, 14, defs)
+    defs = "TTR = now - created for NOT DONE tickets.  TTFR = JSM first-response SLA elapsed time."
+    _box(reqs, f"{sid}_defs", sid, MARGIN, BODY_Y, CONTENT_W, 14, defs)
     _style(reqs, f"{sid}_defs", 0, len(defs), size=8, color=GRAY, font=FONT)
 
     row_gap = 14
@@ -3139,7 +3136,7 @@ def _customer_ticket_metrics_slide(reqs, sid, report, idx):
     top_card_w = (CONTENT_W - 2 * col_gap) / 3
     bot_card_w = (CONTENT_W - col_gap) / 2
     card_h = 54
-    row1_y = BODY_Y + 30
+    row1_y = BODY_Y + 18
     row2_y = row1_y + card_h + row_gap
 
     adherence_pct = adherence.get("pct")
@@ -3224,11 +3221,8 @@ def _non_help_project_ticket_kpi_slide(
     _slide(reqs, sid, idx)
     _bg(reqs, sid, _project_slide_bg(project))
     _slide_title(reqs, sid, title)
-    scope = f"Scope: Jira project {project} only"
-    _box(reqs, f"{sid}_scope", sid, MARGIN, BODY_Y, CONTENT_W, 14, scope)
-    _style(reqs, f"{sid}_scope", 0, len(scope), size=9, color=GRAY, font=FONT)
-    defs = f"TTR = now - created for NOT DONE {project} tickets.  TTFR = JSM first-response SLA elapsed time."
-    _box(reqs, f"{sid}_defs", sid, MARGIN, BODY_Y + 12, CONTENT_W, 14, defs)
+    defs = "TTR = now - created for NOT DONE tickets.  TTFR = JSM first-response SLA elapsed time."
+    _box(reqs, f"{sid}_defs", sid, MARGIN, BODY_Y, CONTENT_W, 14, defs)
     _style(reqs, f"{sid}_defs", 0, len(defs), size=8, color=GRAY, font=FONT)
 
     row_gap = 14
@@ -3236,7 +3230,7 @@ def _non_help_project_ticket_kpi_slide(
     top_card_w = (CONTENT_W - 2 * col_gap) / 3
     bot_card_w = (CONTENT_W - col_gap) / 2
     card_h = 54
-    row1_y = BODY_Y + 30
+    row1_y = BODY_Y + 18
     row2_y = row1_y + card_h + row_gap
 
     adherence_pct = adherence.get("pct")
@@ -3328,9 +3322,6 @@ def _project_ticket_metrics_breakdown_slide(
     _slide(reqs, sid, idx)
     _bg(reqs, sid, _project_slide_bg(project))
     _slide_title(reqs, sid, title)
-    scope = f"Scope: Jira project {project} only"
-    _box(reqs, f"{sid}_sp", sid, MARGIN, BODY_Y, CONTENT_W, 14, scope)
-    _style(reqs, f"{sid}_sp", 0, len(scope), size=9, color=GRAY, font=FONT)
 
     def _chart_rows(items: dict[str, int], limit: int = 6) -> tuple[list[str], list[int]]:
         pairs = list(items.items())
@@ -3357,7 +3348,7 @@ def _project_ticket_metrics_breakdown_slide(
         _style(reqs, f"{sid}_em", 0, len(msg), size=10, color=NAVY, font=FONT)
         return idx + 1
 
-    from .charts import embed_chart
+    from .charts import PIE_SLICE_COLORS, embed_chart
 
     col_gap = 16
     col_w = (CONTENT_W - col_gap) / 2
@@ -3370,40 +3361,90 @@ def _project_ticket_metrics_breakdown_slide(
     left_x = MARGIN
     right_x = MARGIN + col_w + col_gap
 
+    def _sole_nonzero_entry(labels: list[str], values: list[int]) -> tuple[str, int] | None:
+        """If the pie has only one positive slice, return (label, count); else None."""
+        pos = [(str(labels[i]), int(values[i])) for i in range(len(labels)) if int(values[i]) > 0]
+        if len(pos) == 1:
+            return pos[0]
+        if len(pos) == 0 and len(labels) == 1:
+            return str(labels[0]), int(values[0]) if values else 0
+        return None
+
+    def _single_slice_type_callout(oid: str, x: float, y0: float, w: float, label: str, n: int) -> None:
+        """One Jira type (or one bucket) = a full pie disk with no labels; replace with text + swatch."""
+        c = PIE_SLICE_COLORS[0] if PIE_SLICE_COLORS else _RED
+        _rect(reqs, f"{oid}_sw", sid, x + w / 2 - 8, y0 + 6, 16, 16, c)
+        line1 = f"Single type: {label}"
+        _box(reqs, f"{oid}_l1", sid, x, y0 + 28, w, 20, line1)
+        _style(reqs, f"{oid}_l1", 0, len(line1), bold=True, size=12, color=NAVY, font=FONT)
+        _align(reqs, f"{oid}_l1", "CENTER")
+        ntot = int(n) if n else 0
+        line2 = f"{ntot} open  ·  100% of unresolved in this view"
+        _box(reqs, f"{oid}_l2", sid, x, y0 + 50, w, 36, line2)
+        _style(reqs, f"{oid}_l2", 0, len(line2), size=9, color=GRAY, font=FONT)
+        _align(reqs, f"{oid}_l2", "CENTER")
+        line3 = "A pie has no split when there is only one type."
+        _box(reqs, f"{oid}_l3", sid, x, y0 + 88, w, 20, line3)
+        _style(reqs, f"{oid}_l3", 0, len(line3), size=8, color=GRAY, font=FONT)
+        _align(reqs, f"{oid}_l3", "CENTER")
+
+    def _single_slice_status_callout(oid: str, x: float, y0: float, w: float, label: str, n: int) -> None:
+        c = PIE_SLICE_COLORS[0] if PIE_SLICE_COLORS else _RED
+        _rect(reqs, f"{oid}_sw", sid, x + w / 2 - 8, y0 + 6, 16, 16, c)
+        line1 = f"Single status: {label}"
+        _box(reqs, f"{oid}_l1", sid, x, y0 + 28, w, 20, line1)
+        _style(reqs, f"{oid}_l1", 0, len(line1), bold=True, size=12, color=NAVY, font=FONT)
+        _align(reqs, f"{oid}_l1", "CENTER")
+        ntot = int(n) if n else 0
+        line2 = f"{ntot} open  ·  100% in this view"
+        _box(reqs, f"{oid}_l2", sid, x, y0 + 50, w, 32, line2)
+        _style(reqs, f"{oid}_l2", 0, len(line2), size=9, color=GRAY, font=FONT)
+        _align(reqs, f"{oid}_l2", "CENTER")
+
     if type_labels:
         type_hdr = "Unresolved by type"
         _box(reqs, f"{sid}_th", sid, left_x, title_y, col_w, 14, type_hdr)
         _style(reqs, f"{sid}_th", 0, len(type_hdr), bold=True, size=13, color=NAVY, font=FONT)
         _align(reqs, f"{sid}_th", "CENTER")
-        # LABELED_LEGEND: labels near slices with leader lines. Large chart = readable text.
-        ss_id, chart_id = charts.add_pie_chart(
-            title=f"{project} unresolved by type",
-            labels=type_labels,
-            values=type_values,
-            donut=False,
-            suppress_legend=False,
-            show_title=False,
-            legend_position="LABELED_LEGEND",
-            background=slide_bg,
-        )
-        embed_chart(reqs, f"{sid}_tc", sid, ss_id, chart_id, left_x, chart_y, col_w, chart_h, linked=False)
+        tsole = _sole_nonzero_entry(type_labels, [int(x) for x in type_values])
+        if tsole and type_labels:
+            lab, n0 = tsole
+            _single_slice_type_callout(f"{sid}_ts", left_x, chart_y, col_w, lab, n0)
+        else:
+            # LINKED: preserves Sheets LABELED_LEGEND (callout lines) better than a flat bitmap.
+            ss_id, chart_id = charts.add_pie_chart(
+                title=f"{project} unresolved by type",
+                labels=type_labels,
+                values=type_values,
+                donut=False,
+                suppress_legend=False,
+                show_title=False,
+                legend_position="LABELED_LEGEND",
+                background=slide_bg,
+            )
+            embed_chart(reqs, f"{sid}_tc", sid, ss_id, chart_id, left_x, chart_y, col_w, chart_h, linked=True)
 
     if status_labels:
         status_hdr = "Unresolved by status"
         _box(reqs, f"{sid}_sh", sid, right_x, title_y, col_w, 14, status_hdr)
         _style(reqs, f"{sid}_sh", 0, len(status_hdr), bold=True, size=13, color=NAVY, font=FONT)
         _align(reqs, f"{sid}_sh", "CENTER")
-        ss_id2, chart_id2 = charts.add_pie_chart(
-            title=f"{project} unresolved by status",
-            labels=status_labels,
-            values=status_values,
-            donut=False,
-            suppress_legend=False,
-            show_title=False,
-            legend_position="LABELED_LEGEND",
-            background=slide_bg,
-        )
-        embed_chart(reqs, f"{sid}_sc", sid, ss_id2, chart_id2, right_x, chart_y, col_w, chart_h, linked=False)
+        ssole = _sole_nonzero_entry(status_labels, [int(x) for x in status_values])
+        if ssole and status_labels:
+            slab, n0s = ssole
+            _single_slice_status_callout(f"{sid}_ss", right_x, chart_y, col_w, slab, n0s)
+        else:
+            ss_id2, chart_id2 = charts.add_pie_chart(
+                title=f"{project} unresolved by status",
+                labels=status_labels,
+                values=status_values,
+                donut=False,
+                suppress_legend=False,
+                show_title=False,
+                legend_position="LABELED_LEGEND",
+                background=slide_bg,
+            )
+            embed_chart(reqs, f"{sid}_sc", sid, ss_id2, chart_id2, right_x, chart_y, col_w, chart_h, linked=True)
 
     return idx + 1
 
@@ -3494,11 +3535,8 @@ def _customer_help_recent_slide(
         count_text = f"{total_n} ticket{'s' if total_n != 1 else ''}"
     
     port_note = " ·  no org column (portfolio scope)" if is_all_customers else ""
-    _m = _support_sub_matched_phrase(report, customer)
-    sub = (
-        f"project HELP{_m if _m else '  ·  '}{kind} in the last {days} days  ·  "
-        f"{count_text}{port_note}"
-    )
+    _lead = _support_subtitle_matched_lead(report, customer)
+    sub = f"{_lead}{kind} in the last {days} days  ·  {count_text}{port_note}"
     _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
     _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
     
@@ -3810,10 +3848,9 @@ def _resolved_by_assignee_table_slide(
     _slide_title(reqs, sid, base_title)
 
     if not assignees:
-        _m = _support_sub_matched_phrase(report, customer)
+        _lead = _support_subtitle_matched_lead(report, customer)
         sub_empty = (
-            f"project {project}{_m if _m else '  ·  '}resolved in last {days} days  ·  "
-            f"{total_resolved} tickets  ·  0 assignees"
+            f"{_lead}resolved in last {days} days  ·  {total_resolved} tickets  ·  0 assignees"
         )
         _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub_empty)
         _style(reqs, f"{sid}_sub", 0, len(sub_empty), size=9, color=GRAY, font=FONT)
@@ -3842,11 +3879,8 @@ def _resolved_by_assignee_table_slide(
     else:
         assignee_text = f"{num_assignees} assignee{'s' if num_assignees != 1 else ''}"
 
-    _m = _support_sub_matched_phrase(report, customer)
-    sub = (
-        f"project {project}{_m if _m else '  ·  '}resolved in last {days} days  ·  "
-        f"{total_resolved} tickets  ·  {assignee_text}"
-    )
+    _lead = _support_subtitle_matched_lead(report, customer)
+    sub = f"{_lead}resolved in last {days} days  ·  {total_resolved} tickets  ·  {assignee_text}"
     _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
     _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
 
@@ -4016,11 +4050,8 @@ def _project_recent_tickets_table_slide(
         count_text = f"{total_n} ticket{'s' if total_n != 1 else ''}"
     
     port_note = " ·  no org column (portfolio scope)" if is_all_customers else ""
-    _m = _support_sub_matched_phrase(report, customer)
-    sub = (
-        f"project {project}{_m if _m else '  ·  '}{kind} in the last {days} days  ·  "
-        f"{count_text}{port_note}"
-    )
+    _lead = _support_subtitle_matched_lead(report, customer)
+    sub = f"{_lead}{kind} in the last {days} days  ·  {count_text}{port_note}"
     _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
     _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
     
@@ -7150,21 +7181,30 @@ def _render_project_volume_trends(
     recent_resolved = sum(m.get("resolved", 0) for m in recent)
     net = recent_created - recent_resolved
     if net > 10:
-        title = f"{project} Volume Rising — {net} More Tickets Created Than Resolved in Last 3 Full Months"
+        headline = (
+            f"Volume Rising - {net} more tickets created than resolved in last 3 full months"
+        )
     elif net < -10:
-        title = f"{project} Backlog Pressure Easing — {abs(net)} More Tickets Resolved Than Created in Last 3 Full Months"
+        headline = (
+            f"Volume Easing - {abs(net)} more tickets resolved than created in last 3 full months"
+        )
     else:
-        title = f"{project} Ticket Volume Trends — Created vs Resolved"
+        headline = (
+            "Last 3 full months: created and resolved within 10 tickets of each other"
+        )
+
+    title = f"{project} Volume Analysis"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, bg)
     _slide_title(reqs, sid, title)
 
-    ctx = "Last 12 full months   ·   Monthly created vs monthly resolved   ·   Split into all, escalated, and non-escalated"
-    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 16, ctx)
-    _style(reqs, f"{sid}_ctx", 0, len(ctx), size=9, color=GRAY, font=FONT)
+    _box(reqs, f"{sid}_headline", sid, MARGIN, BODY_Y, CONTENT_W, 22, headline)
+    _style(
+        reqs, f"{sid}_headline", 0, len(headline), bold=True, size=12, color=NAVY, font=FONT
+    )
 
-    legend_y = BODY_Y + 18
+    legend_y = BODY_Y + 26
     _rect(reqs, f"{sid}_lg_created", sid, MARGIN, legend_y + 4, 20, 4, NAVY)
     _box(reqs, f"{sid}_lg_created_t", sid, MARGIN + 28, legend_y, 64, 14, "Created")
     _style(reqs, f"{sid}_lg_created_t", 0, 7, bold=True, size=CHART_LEGEND_PT, color=NAVY, font=FONT)
@@ -7175,7 +7215,7 @@ def _render_project_volume_trends(
 
     from .charts import embed_chart
 
-    top_y = BODY_Y + 34
+    top_y = legend_y + 16
     top_gap = 16
     top_chart_w = (CONTENT_W - top_gap) // 2
     # Short line charts (~80pt tall) shrink axis/category text to illegible on the slide.
@@ -8786,7 +8826,11 @@ def create_health_deck(
         }
 
     if deck_id == "support" and notable_deferred and slides_created > 0:
-        from .support_notable_llm import build_support_review_digest, generate_notable_bullets_via_llm
+        from .support_notable_llm import (
+            NotableLlmError,
+            build_support_review_digest,
+            generate_notable_bullets_via_llm,
+        )
 
         titles = [e.get("title", "") for e in plan_work]
         try:
@@ -8795,7 +8839,20 @@ def create_health_deck(
             logger.warning("Notable: digest build failed; LLM may have thin context. %s", e)
             digest = {}
         ne = dict(notable_deferred)
-        bullets, src = generate_notable_bullets_via_llm(digest, ne)
+        try:
+            bullets, src = generate_notable_bullets_via_llm(digest, ne)
+        except NotableLlmError as e:
+            _set_support_deck_corner_customer(None)
+            url = f"https://docs.google.com/presentation/d/{pres_id}/edit"
+            return {
+                "error": str(e),
+                "presentation_id": pres_id,
+                "url": url,
+                "customer": customer,
+                "slides_created": slides_created,
+                "deck_id": deck_id,
+                "hint": "Notable slide was not added. The deck is otherwise complete. Set BPO_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true to insert generic bullets, or fix the Notable/LLM path and regenerate.",
+            }
         ne["notable_items"] = bullets
         report["support_notable_bullets"] = bullets
         report["support_notable_bullets_source"] = src
