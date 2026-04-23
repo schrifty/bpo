@@ -5,6 +5,7 @@ Dimensions, brand palette, and shared layout helpers live in ``slides_theme``.
 """
 
 import datetime
+import hashlib
 import json
 import os
 import random
@@ -71,6 +72,20 @@ from .slides_theme import (
     slide_type_may_paginate,
 )
 
+# Google Slides API: objectId max length 50. Slide builders append suffixes (e.g. ``_sdcorner`` = 10).
+# Reserve room for the longest common suffixes on a page (``_p12`` + margin, or ``_sdcorner``).
+_SLIDES_OBJECT_ID_BASE_MAX = 38
+
+
+def _slide_object_id_base(slide_id: str, seq: int) -> str:
+    """Build a page-level objectId base that stays under Slides' 50-char cap with sub-element suffixes."""
+    raw = f"s_{slide_id}_{seq}"
+    if len(raw) <= _SLIDES_OBJECT_ID_BASE_MAX:
+        return raw
+    digest = hashlib.blake2s(f"{slide_id}\n{seq}".encode(), digest_size=5).hexdigest()[:10]
+    return f"s_{seq}_{digest}"
+
+
 # ── Primitives ──
 
 def _sz(w, h):
@@ -119,6 +134,22 @@ def _max_chars_one_line_for_table_col(col_width_pt: float, font_pt: float = 8.0)
     inner = max(20.0, float(col_width_pt) - 18.0)  # ~9 pt inset each side
     per = max(3.2, float(font_pt) * 0.58)
     return max(4, int((inner / per) * 0.88))
+
+
+# When create_health_deck runs support + one customer, _slide_title shows this in the upper-right.
+_SUPPORT_DECK_CORNER_CUSTOMER: str | None = None
+
+
+def _set_support_deck_corner_customer(name: str | None) -> None:
+    global _SUPPORT_DECK_CORNER_CUSTOMER
+    _SUPPORT_DECK_CORNER_CUSTOMER = (name or "").strip() or None
+
+
+def _support_sub_matched_phrase(report: dict, customer: str) -> str:
+    """Text segment including 'matched to' for Jira scoping, or empty when the deck shows the customer in the corner."""
+    if report.get("support_deck_scoped_titles") and report.get("customer") is not None:
+        return ""
+    return f"  ·  matched to {customer}  ·"
 
 
 def _slide(reqs, sid, idx):
@@ -295,6 +326,39 @@ def _slide_chart_legend(
         _style(reqs, lbl_oid, 0, len(label), size=font_pt, color=NAVY, font=FONT)
         cursor_x += len(label) * font_pt * 0.52 + entry_gap
     return y + swatch_size + 8
+
+
+def _slide_chart_legend_vertical(
+    reqs: list,
+    sid: str,
+    oid_prefix: str,
+    x: float,
+    y: float,
+    max_w: float,
+    entries: list[tuple[str, dict]],
+    *,
+    font_pt: float = 10.0,
+    swatch_size: float = 8.0,
+    gap: float = 4.0,
+    row_h: float = 14.0,
+    max_label_chars: int = 22,
+) -> float:
+    """Render a vertical (stacked) slide-level chart legend; returns y + height consumed.
+
+    Used for pie charts where horizontal legends overflow. Renders compact rows
+    with swatch + truncated label.
+    """
+    cursor_y = y
+    for i, (label, color) in enumerate(entries):
+        # Truncate long labels
+        disp = label if len(label) <= max_label_chars else label[: max_label_chars - 1] + "…"
+        sw_oid = f"{oid_prefix}_sw{i}"
+        _rect(reqs, sw_oid, sid, x, cursor_y + 2, swatch_size, swatch_size, color)
+        lbl_oid = f"{oid_prefix}_lt{i}"
+        _box(reqs, lbl_oid, sid, x + swatch_size + gap, cursor_y, max_w - swatch_size - gap, row_h, disp)
+        _style(reqs, lbl_oid, 0, len(disp), size=font_pt, color=NAVY, font=FONT)
+        cursor_y += row_h
+    return cursor_y
 
 
 # ── Speaker notes (notes page per slide) ──────────────────────────────────────
@@ -1460,7 +1524,11 @@ def _omission_note(reqs, sid, omitted_names: list[str], label: str = "Not shown"
 
 
 def _slide_title(reqs, sid, text):
-    """Standard content-slide title: navy text + teal underline + internal footer."""
+    """Standard content-slide title: navy text + teal underline + internal footer.
+
+    For support + single customer, reserves the upper right for the customer name (set via
+    ``_set_support_deck_corner_customer``) so the title string can omit it.
+    """
     title_len = len(text or "")
     if title_len > 100:
         title_size = 12
@@ -1473,9 +1541,18 @@ def _slide_title(reqs, sid, text):
     else:
         title_size = 20
     oid = f"{sid}_ttl"
-    _box(reqs, oid, sid, MARGIN, TITLE_Y, CONTENT_W, 36, text)
+    corner = _SUPPORT_DECK_CORNER_CUSTOMER
+    corner_w = 200.0
+    title_w = (CONTENT_W - corner_w - 8) if corner else float(CONTENT_W)
+    _box(reqs, oid, sid, MARGIN, TITLE_Y, title_w, 36, text)
     _style(reqs, oid, 0, len(text), bold=True, size=title_size, color=NAVY, font=FONT_SERIF)
     _rect(reqs, f"{sid}_ul", sid, MARGIN, TITLE_Y + 38, 56, 2.5, BLUE)
+    if corner:
+        coid = f"{sid}_sdcorner"
+        cx = MARGIN + title_w + 8.0
+        _box(reqs, coid, sid, cx, TITLE_Y, corner_w, 40, corner)
+        _style(reqs, coid, 0, len(corner), size=12, color=NAVY, font=FONT, bold=True)
+        _align(reqs, coid, "END")
     _internal_footer(reqs, sid)
 
 
@@ -3031,7 +3108,13 @@ def _customer_ticket_metrics_slide(reqs, sid, report, idx):
 
     customer = report.get("customer") or snap.get("customer") or "All Customers"
     entry = report.get("_current_slide") or {}
-    title = entry.get("title") or f"{customer} Ticket Metrics"
+    t0 = (entry.get("title") or "").strip()
+    if t0:
+        title = t0
+    elif report.get("support_deck_scoped_titles") and report.get("customer"):
+        title = "HELP Ticket Metrics"
+    else:
+        title = f"{customer} Ticket Metrics"
 
     unresolved = int(snap.get("unresolved_count") or 0)
     resolved_6mo = int(snap.get("resolved_in_6mo_count") or 0)
@@ -3042,7 +3125,7 @@ def _customer_ticket_metrics_slide(reqs, sid, report, idx):
     by_status = snap.get("by_status_open") or {}
 
     _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
+    _bg(reqs, sid, _project_slide_bg("HELP"))
     _slide_title(reqs, sid, title)
     scope = "Scope: Jira project HELP only"
     _box(reqs, f"{sid}_scope", sid, MARGIN, BODY_Y, CONTENT_W, 14, scope)
@@ -3124,7 +3207,13 @@ def _non_help_project_ticket_kpi_slide(
 
     customer = report.get("customer") or snap.get("customer") or "All Customers"
     entry = report.get("_current_slide") or {}
-    title = entry.get("title") or f"{customer} {project} Ticket Metrics"
+    t0 = (entry.get("title") or "").strip()
+    if t0:
+        title = t0
+    elif report.get("support_deck_scoped_titles") and report.get("customer"):
+        title = f"{project} Ticket Metrics"
+    else:
+        title = f"{customer} {project} Ticket Metrics"
 
     unresolved = int(snap.get("unresolved_count") or 0)
     resolved_6mo = int(snap.get("resolved_in_6mo_count") or 0)
@@ -3226,7 +3315,13 @@ def _project_ticket_metrics_breakdown_slide(
 
     customer = report.get("customer") or snap.get("customer") or "All Customers"
     entry = report.get("_current_slide") or {}
-    title = entry.get("title") or f"{customer} {default_title}"
+    t0 = (entry.get("title") or "").strip()
+    if t0:
+        title = t0
+    elif report.get("support_deck_scoped_titles") and report.get("customer"):
+        title = f"{project} {default_title}"
+    else:
+        title = f"{customer} {default_title}"
     by_type = snap.get("by_type_open") or {}
     by_status = snap.get("by_status_open") or {}
 
@@ -3264,31 +3359,23 @@ def _project_ticket_metrics_breakdown_slide(
 
     from .charts import embed_chart
 
-    chart_gap = 18
-    chart_w = (CONTENT_W - chart_gap) / 2
+    col_gap = 16
+    col_w = (CONTENT_W - col_gap) / 2
+    slide_bg = _project_slide_bg(project)
     title_y = BODY_Y + 18
-    # Clear gap after ~14pt section subheads so embedded charts do not overlap titles.
     chart_y = title_y + 24
-
-    def _pie_h(_n_labels: int) -> int:
-        """Height for the embedded chart; legend is part of the Sheets object—use most of the body band."""
-        # Short embeds make *all* in-chart text (incl. legend) microscopic on the slide. Prefer
-        # RIGHT_LEGEND (below) and a tall box so the pie and labels scale up together.
-        avail = int(float(BODY_BOTTOM) - float(chart_y) - 6.0)
-        return max(150, min(320, avail))
+    # Maximize chart height - LABELED_LEGEND puts text on slices, so full height is usable.
+    chart_h = int(float(BODY_BOTTOM) - float(chart_y) - 4.0)
 
     left_x = MARGIN
-    right_x = MARGIN + chart_w + chart_gap
+    right_x = MARGIN + col_w + col_gap
 
     if type_labels:
         type_hdr = "Unresolved by type"
-        _box(reqs, f"{sid}_th", sid, left_x, title_y, chart_w, 14, type_hdr)
+        _box(reqs, f"{sid}_th", sid, left_x, title_y, col_w, 14, type_hdr)
         _style(reqs, f"{sid}_th", 0, len(type_hdr), bold=True, size=13, color=NAVY, font=FONT)
         _align(reqs, f"{sid}_th", "CENTER")
-        ch = _pie_h(len(type_labels))
-        # Native Sheets legend: slice colors and legend are guaranteed to match. Per-slice
-        # colors are not controllable on pie charts via the API; a slide-level "legend"
-        # with brand colors can mislead (chart uses the spreadsheet theme palette).
+        # LABELED_LEGEND: labels near slices with leader lines. Large chart = readable text.
         ss_id, chart_id = charts.add_pie_chart(
             title=f"{project} unresolved by type",
             labels=type_labels,
@@ -3296,16 +3383,16 @@ def _project_ticket_metrics_breakdown_slide(
             donut=False,
             suppress_legend=False,
             show_title=False,
-            legend_position="RIGHT_LEGEND",
+            legend_position="LABELED_LEGEND",
+            background=slide_bg,
         )
-        embed_chart(reqs, f"{sid}_tc", sid, ss_id, chart_id, left_x, chart_y, chart_w, ch, linked=False)
+        embed_chart(reqs, f"{sid}_tc", sid, ss_id, chart_id, left_x, chart_y, col_w, chart_h, linked=False)
 
     if status_labels:
         status_hdr = "Unresolved by status"
-        _box(reqs, f"{sid}_sh", sid, right_x, title_y, chart_w, 14, status_hdr)
+        _box(reqs, f"{sid}_sh", sid, right_x, title_y, col_w, 14, status_hdr)
         _style(reqs, f"{sid}_sh", 0, len(status_hdr), bold=True, size=13, color=NAVY, font=FONT)
         _align(reqs, f"{sid}_sh", "CENTER")
-        ch2 = _pie_h(len(status_labels))
         ss_id2, chart_id2 = charts.add_pie_chart(
             title=f"{project} unresolved by status",
             labels=status_labels,
@@ -3313,11 +3400,10 @@ def _project_ticket_metrics_breakdown_slide(
             donut=False,
             suppress_legend=False,
             show_title=False,
-            legend_position="RIGHT_LEGEND",
+            legend_position="LABELED_LEGEND",
+            background=slide_bg,
         )
-        embed_chart(
-            reqs, f"{sid}_sc", sid, ss_id2, chart_id2, right_x, chart_y, chart_w, ch2, linked=False
-        )
+        embed_chart(reqs, f"{sid}_sc", sid, ss_id2, chart_id2, right_x, chart_y, col_w, chart_h, linked=False)
 
     return idx + 1
 
@@ -3329,6 +3415,8 @@ def _project_slide_bg(project: str) -> dict[str, float]:
         return {"red": 0.95, "green": 0.98, "blue": 1.0}
     if proj == "LEAN":
         return {"red": 0.95, "green": 1.0, "blue": 0.97}
+    if proj == "HELP":
+        return {"red": 1.0, "green": 0.96, "blue": 0.96}
     return WHITE
 
 
@@ -3384,7 +3472,7 @@ def _customer_help_recent_slide(
     total_n = len(items)
     
     _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
+    _bg(reqs, sid, _project_slide_bg("HELP"))
     _slide_title(reqs, sid, base_title)
     
     # Tight row pitch (≈19 pt) + cap 8 data rows: keeps HELP recent tables in the body band
@@ -3406,8 +3494,9 @@ def _customer_help_recent_slide(
         count_text = f"{total_n} ticket{'s' if total_n != 1 else ''}"
     
     port_note = " ·  no org column (portfolio scope)" if is_all_customers else ""
+    _m = _support_sub_matched_phrase(report, customer)
     sub = (
-        f"project HELP  ·  matched to {customer}  ·  {kind} in the last {days} days  ·  "
+        f"project HELP{_m if _m else '  ·  '}{kind} in the last {days} days  ·  "
         f"{count_text}{port_note}"
     )
     _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
@@ -3721,8 +3810,9 @@ def _resolved_by_assignee_table_slide(
     _slide_title(reqs, sid, base_title)
 
     if not assignees:
+        _m = _support_sub_matched_phrase(report, customer)
         sub_empty = (
-            f"project {project}  ·  matched to {customer}  ·  resolved in last {days} days  ·  "
+            f"project {project}{_m if _m else '  ·  '}resolved in last {days} days  ·  "
             f"{total_resolved} tickets  ·  0 assignees"
         )
         _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub_empty)
@@ -3752,7 +3842,11 @@ def _resolved_by_assignee_table_slide(
     else:
         assignee_text = f"{num_assignees} assignee{'s' if num_assignees != 1 else ''}"
 
-    sub = f"project {project}  ·  matched to {customer}  ·  resolved in last {days} days  ·  {total_resolved} tickets  ·  {assignee_text}"
+    _m = _support_sub_matched_phrase(report, customer)
+    sub = (
+        f"project {project}{_m if _m else '  ·  '}resolved in last {days} days  ·  "
+        f"{total_resolved} tickets  ·  {assignee_text}"
+    )
     _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
     _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
 
@@ -3922,8 +4016,9 @@ def _project_recent_tickets_table_slide(
         count_text = f"{total_n} ticket{'s' if total_n != 1 else ''}"
     
     port_note = " ·  no org column (portfolio scope)" if is_all_customers else ""
+    _m = _support_sub_matched_phrase(report, customer)
     sub = (
-        f"project {project}  ·  matched to {customer}  ·  {kind} in the last {days} days  ·  "
+        f"project {project}{_m if _m else '  ·  '}{kind} in the last {days} days  ·  "
         f"{count_text}{port_note}"
     )
     _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
@@ -7103,6 +7198,7 @@ def _render_project_volume_trends(
         show_legend=False,
         axis_font_size=12,
         line_width=3,
+        background=bg,
     )
     embed_chart(reqs, f"{sid}_all_chart", sid, ss_id, chart_id, left_x, top_chart_y, top_chart_w, top_chart_h, linked=False)
 
@@ -7121,6 +7217,7 @@ def _render_project_volume_trends(
         show_legend=False,
         axis_font_size=12,
         line_width=3,
+        background=bg,
     )
     embed_chart(reqs, f"{sid}_esc_chart", sid, ss_id2, chart_id2, right_x, esc_chart_y, top_chart_w, top_chart_h, linked=False)
 
@@ -7143,6 +7240,7 @@ def _render_project_volume_trends(
         show_legend=False,
         axis_font_size=12,
         line_width=3,
+        background=bg,
     )
     embed_chart(reqs, f"{sid}_non_chart", sid, ss_id3, chart_id3, bottom_x, non_chart_y, bottom_chart_w, bottom_chart_h, linked=False)
 
@@ -7173,7 +7271,7 @@ def _eng_help_volume_trends_slide(reqs: list, sid: str, report: dict, idx: int) 
             f"HELP ticket volume trends — Jira error: {err}",
         )
     return _render_project_volume_trends(
-        reqs, sid, report, idx, trends=trends, project="HELP", bg=WHITE,
+        reqs, sid, report, idx, trends=trends, project="HELP", bg=_project_slide_bg("HELP"),
     )
 
 
@@ -7207,6 +7305,24 @@ def _lean_project_volume_trends_slide(reqs: list, sid: str, report: dict, idx: i
     return _render_project_volume_trends(
         reqs, sid, report, idx, trends=trends, project="LEAN", bg=_project_slide_bg("LEAN"),
     )
+
+
+def _support_deck_cover_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """Title slide for support decks: Support Review, customer (or All Customers), generated timestamp."""
+    c = (report.get("customer") or "").strip() or "All Customers"
+    gen = (report.get("support_deck_generated_at") or "").strip() or "—"
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    h1 = "Support Review"
+    _box(reqs, f"{sid}_h1", sid, MARGIN, 100, CONTENT_W, 48, h1)
+    _style(reqs, f"{sid}_h1", 0, len(h1), bold=True, size=32, color=NAVY, font=FONT_SERIF)
+    _rect(reqs, f"{sid}_h1u", sid, MARGIN, 150, 64, 2.5, BLUE)
+    _box(reqs, f"{sid}_cust", sid, MARGIN, 170, CONTENT_W, 40, c)
+    _style(reqs, f"{sid}_cust", 0, len(c), size=20, color=NAVY, font=FONT, bold=True)
+    _box(reqs, f"{sid}_gen", sid, MARGIN, 220, CONTENT_W, 24, f"Generated {gen}")
+    _style(reqs, f"{sid}_gen", 0, len(f"Generated {gen}"), size=11, color=GRAY, font=FONT)
+    _internal_footer(reqs, sid)
+    return idx + 1
 
 
 def _support_intro_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
@@ -7973,6 +8089,7 @@ _SLIDE_BUILDERS = {
     "eng_support_pressure": _eng_support_pressure_slide,
     "eng_jira_project": _eng_jira_project_slide,
     "eng_help_volume_trends": _eng_help_volume_trends_slide,
+    "support_deck_cover": _support_deck_cover_slide,
     "support_intro": _support_intro_slide,
     "cs_notable": _cs_notable_slide,
     "salesforce_comprehensive_cover": _salesforce_comprehensive_cover_slide,
@@ -8052,6 +8169,7 @@ SLIDE_DATA_REQUIREMENTS = {
     "eng_support_pressure": ["eng_portfolio"],
     "eng_jira_project": ["eng_portfolio"],
     "eng_help_volume_trends": ["eng_portfolio"],
+    "support_deck_cover": [],
     "support_intro": [],
     "cs_notable": [],
     "salesforce_comprehensive_cover": ["salesforce_comprehensive"],
@@ -8154,7 +8272,7 @@ def add_slide(deck_id: str, slide_type: str, data: dict[str, Any]) -> dict[str, 
     count = _slide_counter.get(deck_id, 0)
     _slide_counter[deck_id] = count + 1
     idx = count
-    sid = f"s_{slide_type}_{count}"
+    sid = _slide_object_id_base(slide_type, count)
 
     reqs: list[dict] = []
     try:
@@ -8253,15 +8371,8 @@ def create_health_deck(
         title = f"{customer} — {deck_name} ({date_str})"
 
     if deck_id == "support":
-        # Deck YAML stores legacy SED labels in titles; rewrite to active scope.
-        active_customer = customer if customer else "All Customers"
-        for entry in slide_plan:
-            raw_title = entry.get("title")
-            if not isinstance(raw_title, str):
-                continue
-            updated = raw_title.replace("Safran Electronics & Defense (SED)", active_customer)
-            updated = updated.replace("(SED)", f"({active_customer})")
-            entry["title"] = updated
+        # Titles: canonical text lives in `decks/support.yaml` (and any synced Drive copy).
+        # For scoping + UI (corner badge, sublines) only — do not embed customer in titles here.
         if not customer:
             # Avoid "All Customers CUSTOMER …" (Jira project + audience phrasing clash).
             for entry in slide_plan:
@@ -8272,6 +8383,17 @@ def create_health_deck(
                 t2 = t2.replace("All Customers LEAN", "All customers — Jira LEAN")
                 t2 = t2.replace("All Customers HELP", "All customers — Jira HELP")
                 entry["title"] = t2
+        if customer:
+            report["support_deck_scoped_titles"] = True
+        else:
+            report.pop("support_deck_scoped_titles", None)
+
+        from datetime import datetime, timezone
+
+        report["support_deck_generated_at"] = datetime.now(timezone.utc).strftime(
+            "%Y-%m-%d %H:%M UTC"
+        )
+        # Cover slide is configured in decks/support.yaml + slides/support-deck-cover.yaml, not here.
 
     if deck_id == "salesforce_comprehensive":
         from .data_source_health import _salesforce_configured
@@ -8577,6 +8699,8 @@ def create_health_deck(
     reqs: list[dict] = []
     idx = 1
     note_targets: list[tuple[str, dict[str, Any]]] = []
+    if deck_id == "support" and customer:
+        _set_support_deck_corner_customer(str(customer).strip())
 
     for entry in plan_work:
         slide_type = entry.get("slide_type", entry["id"])
@@ -8590,7 +8714,7 @@ def create_health_deck(
             )
             continue
         report["_current_slide"] = entry
-        sid = f"s_{entry['id']}_{idx}"
+        sid = _slide_object_id_base(str(entry["id"]), idx)
         ret = builder(reqs, sid, report, idx)
         next_idx, note_ids = _normalize_builder_return(ret, sid)
         if slide_type == "cohort_profiles" and note_ids:
@@ -8640,14 +8764,17 @@ def create_health_deck(
             socket.setdefaulttimeout(old_timeout)
     except HttpError as e:
         logger.exception("Failed to build slides")
+        _set_support_deck_corner_customer(None)
         return {"error": str(e), "presentation_id": pres_id}
     except Exception as e:
         hint = _google_api_unreachable_hint(e)
         if hint:
+            _set_support_deck_corner_customer(None)
             return {"error": str(e), "hint": hint, "presentation_id": pres_id, "customer": customer, "deck_id": deck_id}
         raise
 
     if slides_created == 0:
+        _set_support_deck_corner_customer(None)
         url = f"https://docs.google.com/presentation/d/{pres_id}/edit"
         return {
             "error": "No slides were built — every slide_type may be unknown or builders returned nothing.",
@@ -8693,6 +8820,7 @@ def create_health_deck(
             for nid in n_note_ids:
                 note_targets.append((nid, ne))
 
+    _set_support_deck_corner_customer(None)
     notes_items = [(sid, _build_slide_jql_speaker_notes(report, entry)) for sid, entry in note_targets]
     if notes_items:
         n = set_speaker_notes_batch(slides_service, pres_id, notes_items)

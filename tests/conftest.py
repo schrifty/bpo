@@ -1,4 +1,8 @@
-"""Pytest configuration and shared fixtures."""
+"""Pytest configuration and shared fixtures.
+
+Fast pre-push: ``pytest -m "not slow"`` (skips tests marked ``@pytest.mark.slow``,
+see ``pytest.ini``). Run the full ``tests/`` tree before release or in CI.
+"""
 import sys
 from pathlib import Path
 

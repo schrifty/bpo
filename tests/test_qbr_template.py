@@ -1,6 +1,7 @@
 """Unit tests for QBR template flow (no live Google/Pendo)."""
 import datetime
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from src import qbr_template
@@ -103,6 +104,7 @@ def test_compute_adapt_page_ids_includes_hidden_template_excludes_exec_and_title
     assert adapt == ["h1", "t2"]
 
 
+@pytest.mark.slow
 @patch.object(qbr_template, "apply_cohort_bundle_links_to_notable_signals", return_value=0)
 @patch.object(qbr_template, "create_cohort_deck")
 @patch.object(qbr_template, "create_health_deck")
@@ -192,6 +194,7 @@ def test_run_qbr_from_template_smoke(
     assert adapt_ids == ["a1"]
 
 
+@pytest.mark.slow
 @patch.object(qbr_template, "apply_cohort_bundle_links_to_notable_signals", return_value=0)
 @patch.object(qbr_template, "create_cohort_deck")
 @patch.object(qbr_template, "create_health_deck")

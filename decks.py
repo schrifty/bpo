@@ -337,7 +337,8 @@ def main():
     if any(t in pl for t in _ep_triggers):
         _run_engineering_portfolio_deck()
         return
-    if pl.strip() == "support" or any(t in pl for t in _support_triggers):
+    # "support" alone, or "support <customer>..." (non-flag args only), or phrases like "support review"
+    if pl.strip() == "support" or pl.startswith("support ") or any(t in pl for t in _support_triggers):
         _run_support_deck()
         return
 

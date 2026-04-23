@@ -58,7 +58,9 @@ def test_adapt_custom_slides_integration(monkeypatch, tmp_path):
     def fake_thumbnail_url(*args, **kwargs):
         return None
 
-    def fake_get_replacements(oai, text_elements, data_summary, thumb_b64=None, slide_label="?"):
+    def fake_get_replacements(
+        oai, text_elements, data_summary, thumb_b64=None, slide_label="?", extra_system_rules="",
+    ):
         return [
             {"original": "31", "new_value": "14", "mapped": True, "field": "total_sites"},
         ]

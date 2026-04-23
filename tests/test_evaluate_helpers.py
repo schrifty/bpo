@@ -697,6 +697,7 @@ def test_slide_metric_font_clamp_requests_lowers_inherited_headline_size():
 # ── QBR agenda Title #N → section titles ───────────────────────────────────────
 
 
+@pytest.mark.slow
 def test_merge_qbr_agenda_title_replacements_replaces_title_hash():
     plan = [
         {"slide_type": "qbr_cover", "title": "Cover"},

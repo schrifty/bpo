@@ -28,10 +28,11 @@ def test_partition_open_done_and_year_window():
         _issue("new", resolution=None, created=old_open_cre),
         _issue("new", resolution=None, created=year_cre),
     ]
-    o, r, y = jc._partition_help_metrics_merged(merged)
+    o, r, y, ry = jc._partition_help_metrics_merged(merged)
     assert len(o) == 2
     assert len(r) == 1
     assert len(y) == 1
+    assert len(ry) == 1  # resolved in last 365d (superset of 180d bucket for issue 1)
 
 
 def test_shared_jira_client_singleton():

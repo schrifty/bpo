@@ -1,6 +1,7 @@
 """Unit tests for Salesforce comprehensive customer fetch and deck wiring."""
 
 import requests
+import pytest
 from unittest.mock import MagicMock, patch
 
 from src.deck_loader import resolve_deck
@@ -221,6 +222,7 @@ def test_get_customer_salesforce_comprehensive_isolates_query_errors():
     assert "opportunities" in out["category_errors"]
 
 
+@pytest.mark.slow
 def test_resolve_deck_salesforce_includes_sf_category_per_row():
     plan = resolve_deck("salesforce_comprehensive", "TestCo")
     assert "error" not in plan
@@ -231,6 +233,7 @@ def test_resolve_deck_salesforce_includes_sf_category_per_row():
     assert plan["slides"][0].get("slide_type") == "salesforce_comprehensive_cover"
 
 
+@pytest.mark.slow
 def test_filter_salesforce_comprehensive_drops_empty_categories():
     plan = resolve_deck("salesforce_comprehensive", "TestCo")
     assert "error" not in plan

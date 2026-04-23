@@ -1,0 +1,13 @@
+id: support_deck_cover
+type: standard
+order: 0
+title: Support Review
+slide_type: support_deck_cover
+customers: all
+data_tools: []
+
+prompt: |
+  Title / cover: "Support Review", scoping customer name (or "All Customers"
+  for portfolio runs), and generated timestamp. Order and inclusion come from
+  decks/support.yaml; the builder only reads support_deck_generated_at and, for
+  a single customer, support_deck_scoped_titles (corner badge, title stripping).

@@ -2,6 +2,8 @@
 
 from unittest.mock import patch
 
+import pytest
+
 from src.pendo_client import compute_cohort_portfolio_rollup
 from src.slide_loader import cohort_findings_min_customers_for_cross_cohort_compare
 
@@ -29,6 +31,7 @@ def _row(
     }
 
 
+@pytest.mark.slow
 def test_compute_cohort_portfolio_rollup_buckets_and_medians():
     summaries = [
         _row("A", login_pct=80, write_ratio=0.3, score=90, kei_queries=1),

@@ -300,9 +300,11 @@ def get_slide_definition(
     """Return a deep copy of one slide YAML by ``id``, or None if missing.
 
     Used to read ``hydrate:`` and other metadata for template hydration without
-    loading the full customer-filtered slide list.
+    loading the full customer-filtered slide list. Passes a single ``id`` to
+    :func:`_load_all_slides` so only that YAML is loaded (avoids a full-Drive
+    or full-``slides/*.yaml`` walk when a folder id is set or for large trees).
     """
-    for r in _load_all_slides(slides_dir):
+    for r in _load_all_slides(slides_dir, only_slide_ids={slide_id}):
         if r.get("id") == slide_id:
             return copy.deepcopy(r)
     return None

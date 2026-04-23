@@ -1,5 +1,5 @@
 # LeanDNA Slide Design and Data Visualization Standards
-Version 1.4 (Internal Use)
+Version 1.5 (Internal Use)
 
 ## Purpose
 
@@ -493,7 +493,8 @@ The Google Sheets API does not expose a dedicated **legend** font size; Sheets-r
 Therefore:
 
 - **Multi-series bar/column (and stacked) charts** must set `suppress_legend=True` in `src/charts.py` and render a slide-level legend via `_slide_chart_legend` in `slides_client.py`, using `BRAND_SERIES_COLORS` in the same order as the series. Do not rely on the embedded `BOTTOM_LEGEND` for these chart types in customer-facing decks.
-- **Pie/donut** (dashboard, two-up): prefer **`RIGHT_LEGEND`** in the Sheets `pieChart` spec so the plot and labels share the embed more usefully than a **bottom** legend; use a **tall** `embed_chart` height (most of the body band below the section subheads). Shallow embeds make *all* in-chart text, including the legend, microscopic. If the native legend is still too small, `suppress_legend` + a slide-level legend is acceptable when slice–color matching with the brand palette is verified.
+- **Pie / two-up ticket breakdown** (Jira project unresolved by type / by status on one slide): use **`legendPosition` = `LABELED_LEGEND`** in the `pieChart` spec so **category names render on or beside slices** (correct colors, no side legend to shrink). Pair with a **tall** `embed_chart` in pt (roughly **200–420** pt height where the body allows), and in `add_pie_chart` set **`maximized: true`** on the `ChartSpec` plus **`CHART_PIE_OVERLAY_W_PX` / `CHART_PIE_OVERLAY_H_PX`** so the source chart is rendered at high pixel size before the slide downscales it. Do not regress to a shallow embed + `RIGHT_LEGEND` for this slide; side legends on embedded pies are presentation-unreadable.
+- **Donut** charts elsewhere (e.g. engagement) often use `suppress_legend=True` and a **slide-level** swatch legend via `_slide_chart_legend` where slice colors are aligned with the series palette; keep pie overlay pixels the same (see `CHART_PIE_OVERLAY_*` in `src/charts.py`).
 - **Line / trend charts** (e.g. monthly created vs resolved): the **embedded box height** must not be very short (on the order of **80 pt** is too small—axis and month labels shrink to unreadable). Target roughly **100 pt** or more per chart in the support volume layout, with `show_legend=False` and a slide-level Created/Resolved key when needed.
 - For slide-level legends, reserve about **24–28 pt** of vertical space below the chart; label text at **`CHART_LEGEND_PT` (12 pt by default)**, with swatches at least **10×10 pt**.
 - **Single-series** bar/column charts have no series legend; axis/category labels are handled separately.
@@ -513,6 +514,9 @@ All chart builders in `src/charts.py` must use shared constants.
 - `CHART_AXIS_PT` = **12 pt** — `GRAY` (minimum for category/axis labels at presentation scale; 10 pt was too small)
 - `CHART_SPEC_FONT_NAME` = **Roboto** — `ChartSpec.fontName` for embedded charts
 - `CHART_LEGEND_PT` = **12 pt** in `slides_client` — slide-level swatch legend labels (not a Sheets property)
+- `CHART_PIE_OVERLAY_W_PX` / `CHART_PIE_OVERLAY_H_PX` in `src/charts.py` — **width/height in pixels** for the in-sheet `overlayPosition` when creating **pie** charts (larger = sharper bitmap when embedded in Slides at fixed pt). Change these only with visual QA; update this doc when you change the numbers.
+
+**Maintenance:** when you change how pie/bar/line embeds, legend strategy (`LABELED_LEGEND`, `suppress_legend` + slide legend, etc.), or these constants, **update this file in the same PR/change** so the guide does not “revert” in practice.
 
 Do not hard-code ad hoc chart font sizes in individual chart `spec` dicts; prefer these constants and `add_*` parameters.
 

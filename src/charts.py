@@ -50,6 +50,20 @@ LINE_SERIES_COLORS = [
     TEAL,
 ]
 
+# Google Sheets default pie chart slice colors (Material Design palette, in order).
+# Used in slide-level legends to match the Sheets-rendered chart slices.
+# These match Google's default sequence so legends are correct without custom slice formatting.
+PIE_SLICE_COLORS = [
+    {"red": 0.86, "green": 0.27, "blue": 0.22},     # #DB4437 red
+    {"red": 0.96, "green": 0.71, "blue": 0.00},     # #F4B400 yellow/gold
+    {"red": 0.06, "green": 0.62, "blue": 0.35},     # #0F9D58 green
+    {"red": 0.26, "green": 0.52, "blue": 0.96},     # #4285F4 blue
+    {"red": 0.67, "green": 0.28, "blue": 0.74},     # #AB47BC purple
+    {"red": 0.00, "green": 0.67, "blue": 0.76},     # #00ACC1 cyan
+    {"red": 1.00, "green": 0.44, "blue": 0.26},     # #FF7043 deep orange
+    {"red": 0.62, "green": 0.62, "blue": 0.62},     # #9E9E9E gray
+]
+
 
 def _rgb_to_sheets(c: dict) -> dict:
     """Convert our {red, green, blue} floats to Sheets colorStyle format."""
@@ -68,6 +82,11 @@ CHART_TITLE_PT = 36
 CHART_AXIS_PT = 12
 # Applied to ChartSpec so legend text scales with chart body when the API allows.
 CHART_SPEC_FONT_NAME = "Roboto"
+# Pies are embedded at slide PT size; larger backing pixels + maximized spec improve label/legend
+# legibility in the bitmap Slides uses (no API for legend font size on pie).
+# Increased for LABELED_LEGEND readability on large slide embeds.
+CHART_PIE_OVERLAY_W_PX = 1600
+CHART_PIE_OVERLAY_H_PX = 1000
 
 def _chart_text_format(font_size: int, color: dict = NAVY, bold: bool = False) -> dict:
     """Build Sheets TextFormat for chart labels/titles."""
@@ -174,7 +193,15 @@ class DeckCharts:
             body={"values": all_rows},
         ).execute()
 
-    def _create_chart(self, sheet_id: int, spec: dict, num_rows: int) -> int:
+    def _create_chart(
+        self,
+        sheet_id: int,
+        spec: dict,
+        num_rows: int,
+        *,
+        width_pixels: int = 800,
+        height_pixels: int = 400,
+    ) -> int:
         """Create a chart in the spreadsheet and return its chartId."""
         ss_id = self._ensure_spreadsheet()
         resp = self._sheets_svc.spreadsheets().batchUpdate(
@@ -184,8 +211,8 @@ class DeckCharts:
                 "border": _embedded_chart_border(),
                 "position": {"overlayPosition": {
                     "anchorCell": {"sheetId": sheet_id, "rowIndex": num_rows + 2, "columnIndex": 0},
-                    "widthPixels": 800,
-                    "heightPixels": 400,
+                    "widthPixels": width_pixels,
+                    "heightPixels": height_pixels,
                 }},
             }}}]},
         ).execute()
@@ -209,6 +236,8 @@ class DeckCharts:
         show_title: bool = True,
         axis_font_size: int = CHART_AXIS_PT,
         suppress_legend: bool = False,
+        *,
+        background: dict[str, float] | None = None,
     ) -> tuple[str, int]:
         """Create a bar/column chart. Returns (spreadsheet_id, chart_id).
 
@@ -268,6 +297,9 @@ class DeckCharts:
         if stacked:
             spec["basicChart"]["stackedType"] = "STACKED"
 
+        if background is not None:
+            spec["backgroundColorStyle"] = _rgb_to_sheets(background)
+
         chart_id = self._create_chart(sheet_id, spec, num_rows)
         logger.debug("Created %s chart '%s' (sheet=%d, chart=%d)", chart_type, title, sheet_id, chart_id)
         return self._ss_id, chart_id
@@ -281,6 +313,8 @@ class DeckCharts:
         show_legend: bool = True,
         axis_font_size: int = CHART_AXIS_PT,
         line_width: int = 3,
+        *,
+        background: dict[str, float] | None = None,
     ) -> tuple[str, int]:
         """Create a line chart. Returns (spreadsheet_id, chart_id)."""
         sheet_id = self._add_sheet_tab(title)
@@ -327,6 +361,9 @@ class DeckCharts:
             },
         }
 
+        if background is not None:
+            spec["backgroundColorStyle"] = _rgb_to_sheets(background)
+
         chart_id = self._create_chart(sheet_id, spec, num_rows)
         logger.debug("Created LINE chart '%s' (sheet=%d, chart=%d)", title, sheet_id, chart_id)
         return self._ss_id, chart_id
@@ -340,6 +377,9 @@ class DeckCharts:
         suppress_legend: bool = True,
         show_title: bool = True,
         legend_position: str = "BOTTOM_LEGEND",
+        *,
+        background: dict[str, float] | None = None,
+        maximized: bool = True,
     ) -> tuple[str, int]:
         """Create a pie (or donut) chart. Returns (spreadsheet_id, chart_id).
 
@@ -347,6 +387,10 @@ class DeckCharts:
         is hidden; callers should render a slide-level legend via
         ``_slide_chart_legend`` in ``slides_client`` so the text is readable
         at presentation scale.
+
+        *maximized* reduces padding in the chart object; larger overlay pixels
+        (``CHART_PIE_OVERLAY_*_PX``) make embedded bitmaps sharper. There is
+        no Sheets API to set pie legend font size directly.
         """
         sheet_id = self._add_sheet_tab(title)
         headers = ["Label", "Value"]
@@ -370,14 +414,23 @@ class DeckCharts:
         if donut:
             pie_spec["pieHole"] = 0.4
 
-        spec = {
+        spec: dict[str, Any] = {
             "title": title if show_title else "",
             "titleTextFormat": _chart_text_format(CHART_TITLE_PT, NAVY, bold=True),
             "fontName": CHART_SPEC_FONT_NAME,
             "pieChart": pie_spec,
         }
+        if maximized:
+            spec["maximized"] = True
 
-        chart_id = self._create_chart(sheet_id, spec, num_rows)
+        if background is not None:
+            spec["backgroundColorStyle"] = _rgb_to_sheets(background)
+
+        chart_id = self._create_chart(
+            sheet_id, spec, num_rows,
+            width_pixels=CHART_PIE_OVERLAY_W_PX,
+            height_pixels=CHART_PIE_OVERLAY_H_PX,
+        )
         logger.debug("Created PIE chart '%s' (sheet=%d, chart=%d)", title, sheet_id, chart_id)
         return self._ss_id, chart_id
 
@@ -387,6 +440,8 @@ class DeckCharts:
         labels: list[str],
         bar_series: dict[str, list[float | int]],
         line_series: dict[str, list[float | int]],
+        *,
+        background: dict[str, float] | None = None,
     ) -> tuple[str, int]:
         """Create a combo chart (bars + lines). Returns (spreadsheet_id, chart_id)."""
         sheet_id = self._add_sheet_tab(title)
@@ -457,6 +512,9 @@ class DeckCharts:
                 "headerCount": 1,
             },
         }
+
+        if background is not None:
+            spec["backgroundColorStyle"] = _rgb_to_sheets(background)
 
         chart_id = self._create_chart(sheet_id, spec, num_rows)
         logger.debug("Created COMBO chart '%s' (sheet=%d, chart=%d)", title, sheet_id, chart_id)

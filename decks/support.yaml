@@ -8,42 +8,56 @@ purpose: |
   slides: volume trends, KPI ticket metrics, open-ticket breakdown (pies),
   recently opened, recently closed, and resolved by assignee (90 days).
   Customer scoping matches organization/text search per project (all-customers
-  runs use full project scope where applicable).
+  runs use full project scope where applicable). For a single customer, titles
+  omit the account name; it appears on the cover and in the upper right of
+  each slide (single-customer only; all-customer runs show 'All Customers' on
+  the cover and have no per-slide corner badge). Cover order and titles come
+  from the slides list below, not from Python.
+  The Notable slide is listed explicitly as `support_notable` in the slides
+  list (same as every other slide). At build time the app defers that slide to a
+  second pass so it can be filled from an LLM digest of the same Jira data as
+  the rest of the deck, with slide YAML as fallback; it is then inserted as
+  slide 2 (index 1) so it sits under the cover.
 
+# Order here is the canonical deck: cover, Notable, then Jira block slides.
 slides:
+  - slide: support_deck_cover
+    title: Support Review
+  - slide: support_notable
+    title: Notable
   - slide: eng_help_volume_trends
     title: "HELP Ticket Volume Trends"
   - slide: customer_ticket_metrics
-    title: "Safran Electronics & Defense (SED) HELP Ticket Metrics"
+    title: "HELP Ticket Metrics"
   - slide: support_ticket_metrics_breakdown
-    title: "Safran Electronics & Defense (SED) HELP Ticket Metrics Breakdown"
+    title: "HELP Ticket Metrics Breakdown"
   - slide: support_recent_opened
-    title: "Recently opened HELP tickets (SED)"
+    title: "Recently opened HELP tickets"
   - slide: support_recent_closed
-    title: "Recently closed HELP tickets (SED)"
+    title: "Recently closed HELP tickets"
   - slide: help_resolved_by_assignee
     title: "HELP Tickets Resolved by Assignee (Last 90 Days)"
   - slide: customer_project_volume_trends
-    title: "Safran Electronics & Defense (SED) CUSTOMER Ticket Volume Trends"
+    title: "CUSTOMER Ticket Volume Trends"
   - slide: customer_project_ticket_metrics
-    title: "Safran Electronics & Defense (SED) CUSTOMER Ticket Metrics"
+    title: "CUSTOMER Ticket Metrics"
   - slide: customer_project_ticket_metrics_breakdown
-    title: "Safran Electronics & Defense (SED) CUSTOMER Ticket Metrics Breakdown"
+    title: "CUSTOMER Ticket Metrics Breakdown"
   - slide: customer_project_recent_opened
-    title: "Recently opened CUSTOMER tickets (SED)"
+    title: "Recently opened CUSTOMER tickets"
   - slide: customer_project_recent_closed
-    title: "Recently closed CUSTOMER tickets (SED)"
+    title: "Recently closed CUSTOMER tickets"
   - slide: customer_resolved_by_assignee
     title: "CUSTOMER Tickets Resolved by Assignee (Last 90 Days)"
   - slide: lean_project_volume_trends
-    title: "Safran Electronics & Defense (SED) LEAN Ticket Volume Trends"
+    title: "LEAN Ticket Volume Trends"
   - slide: lean_project_ticket_metrics
-    title: "Safran Electronics & Defense (SED) LEAN Ticket Metrics"
+    title: "LEAN Ticket Metrics"
   - slide: lean_project_ticket_metrics_breakdown
-    title: "Safran Electronics & Defense (SED) LEAN Ticket Metrics Breakdown"
+    title: "LEAN Ticket Metrics Breakdown"
   - slide: lean_project_recent_opened
-    title: "Recently opened LEAN tickets (SED)"
+    title: "Recently opened LEAN tickets"
   - slide: lean_project_recent_closed
-    title: "Recently closed LEAN tickets (SED)"
+    title: "Recently closed LEAN tickets"
   - slide: lean_resolved_by_assignee
     title: "LEAN Tickets Resolved by Assignee (Last 90 Days)"
