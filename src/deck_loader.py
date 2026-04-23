@@ -68,11 +68,49 @@ def list_decks(
     ]
 
 
+def _slide_ids_required_by_deck(deck: dict[str, Any]) -> set[str]:
+    """Collect slide ``recipe``/``slide`` ids from a deck that need a slide YAML (not excluded)."""
+    overrides: dict[str, Any] = {}
+    for o in deck.get("overrides", []) or []:
+        rid = o.get("slide", o.get("recipe", ""))
+        if rid:
+            overrides[str(rid)] = o
+    out: set[str] = set()
+    for entry in deck.get("slides", []) or []:
+        rid = entry.get("slide", entry.get("recipe", ""))
+        if not rid:
+            continue
+        if overrides.get(rid, {}).get("exclude"):
+            continue
+        out.add(str(rid))
+    return out
+
+
 def load_deck(
     deck_id: str,
     decks_dir: str | Path | None = None,
 ) -> dict[str, Any] | None:
-    """Load a single deck definition by ID."""
+    """Load a single deck definition by ID (prefers ``decks/{deck_id}.yaml`` — one file, not the full folder)."""
+    d = Path(decks_dir) if decks_dir else DEFAULT_DECKS_DIR
+    direct = d / f"{deck_id}.yaml"
+    if direct.is_file():
+        try:
+            raw = yaml.safe_load(direct.read_text())
+            if isinstance(raw, dict) and raw.get("id") == deck_id:
+                raw.setdefault("_file", direct.name)
+                raw.setdefault("_source", "local")
+                return raw
+        except Exception as e:
+            logger.debug("load_deck: %s: %s", direct, e)
+    if _USE_DRIVE and not decks_dir:
+        try:
+            from .drive_config import load_deck_yaml_from_drive
+
+            got = load_deck_yaml_from_drive(deck_id, d)
+            if got and got.get("id") == deck_id:
+                return got
+        except Exception as e:
+            logger.debug("load_deck: Drive single fetch: %s", e)
     for raw in _load_all_decks(decks_dir):
         if raw.get("id") == deck_id:
             return raw
@@ -102,7 +140,12 @@ def resolve_deck(
     if not deck:
         return {"error": f"Deck '{deck_id}' not found"}
 
-    all_slides = load_slides(slides_dir=slides_dir, customer=customer)
+    need_ids = _slide_ids_required_by_deck(deck)
+    all_slides = load_slides(
+        slides_dir=slides_dir,
+        customer=customer,
+        only_slide_ids=need_ids,
+    )
     slide_map = {r["id"]: r for r in all_slides}
 
     overrides = {}
@@ -155,6 +198,13 @@ def resolve_deck(
             slide_row["sf_category"] = str(slide_def["sf_category"]).strip()
         if entry.get("sf_category"):
             slide_row["sf_category"] = str(entry["sf_category"]).strip()
+        if slide_def.get("intro_blurb") is not None:
+            slide_row["intro_blurb"] = str(slide_def.get("intro_blurb") or "").strip()
+        if slide_def.get("notable_subtitle") is not None:
+            slide_row["notable_subtitle"] = str(slide_def.get("notable_subtitle") or "").strip()
+        ni = slide_def.get("notable_items")
+        if ni:
+            slide_row["notable_items"] = [str(x).strip() for x in ni if str(x).strip()][:6]
         slides.append(slide_row)
 
     for rid, override in overrides.items():

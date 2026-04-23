@@ -789,9 +789,53 @@ def sync_config_to_drive(
     return stats
 
 
+def load_deck_yaml_from_drive(deck_id: str, local_dir: Path) -> dict[str, Any] | None:
+    """Load a single ``decks/{deck_id}.yaml`` from Drive (one get_media) if the folder is configured.
+
+    Skips the full multi-deck fetch used by :func:`load_yaml_from_drive` when only one deck
+    is needed (e.g. support review).
+    """
+    if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
+        return None
+    basename = f"{deck_id}.yaml"
+    p = local_dir / basename
+    if p.is_file():
+        d = _load_single_local(p)
+        if d and d.get("id") == deck_id:
+            return d
+    try:
+        ensure_drive_config_matches_repo()
+        _, d_folder, _s = _get_config_folder_ids()
+        for df in _list_drive_files(d_folder):
+            if df.get("name") == basename:
+                t_read = time.perf_counter()
+                try:
+                    text = _read_drive_file(df["id"])
+                    raw = yaml.safe_load(text)
+                    if isinstance(raw, dict) and raw.get("id") == deck_id:
+                        raw["_source"] = "drive"
+                        raw["_file"] = basename
+                        dt = time.perf_counter() - t_read
+                        logger.info(
+                            "Drive decks: single-file load %s in %.2fs (folder_id=%s…)",
+                            basename,
+                            dt,
+                            (d_folder or "")[:12],
+                        )
+                        return raw
+                except Exception as e:
+                    logger.debug("load_deck_yaml_from_drive: %s: %s", basename, e)
+                break
+    except Exception as e:
+        logger.debug("load_deck_yaml_from_drive: %s", e)
+    return None
+
+
 def load_yaml_from_drive(
     kind: str,
     local_dir: Path,
+    *,
+    only_slide_ids: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Load YAML configs from Drive with fallback to local files.
 
@@ -799,13 +843,24 @@ def load_yaml_from_drive(
     don't change between customers, so there's no reason to refetch them 150+
     times during a batch run.
 
+    When ``only_slide_ids`` is set (``kind == "slides"`` only), loads only those
+    slide definitions (stops after every id is found on Drive, then fills gaps
+    from local). That path is not cached (subset varies by deck).
+
     Args:
         kind: "decks" or "slides"
         local_dir: local directory to fall back to
+        only_slide_ids: If set, only load slide YAMLs whose top-level ``id`` is
+            in this set (reduces Drive get_media for single-deck runs like support).
 
     Returns:
         List of parsed dicts with a "_source" key indicating "drive" or "local".
     """
+    if only_slide_ids is not None and kind == "slides":
+        if not only_slide_ids:
+            return []
+        return _load_yaml_from_drive_uncached(kind, local_dir, only_slide_ids=only_slide_ids)
+
     if kind in _yaml_cache:
         return _yaml_cache[kind]
 
@@ -820,10 +875,17 @@ def load_yaml_from_drive(
 def _load_yaml_from_drive_uncached(
     kind: str,
     local_dir: Path,
+    *,
+    only_slide_ids: set[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Actual Drive fetch logic (called once, then cached)."""
+    """Actual Drive fetch logic (called once, then cached, unless only_slide_ids is set)."""
     if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
-        out = _load_all_local(local_dir, kind)
+        if only_slide_ids is not None and kind == "slides":
+            if not only_slide_ids:
+                return []
+            out = load_local_slide_definitions_for_ids(local_dir, only_slide_ids)
+        else:
+            out = _load_all_local(local_dir, kind)
         logger.info(
             "Loaded %d %s YAML file(s) from local repo only (set GOOGLE_QBR_GENERATOR_FOLDER_ID "
             "for Drive-backed YAML)",
@@ -846,21 +908,65 @@ def _load_yaml_from_drive_uncached(
             severity="warning",
             internal=True,
         )
+        if only_slide_ids is not None and kind == "slides":
+            if not only_slide_ids:
+                return []
+            return load_local_slide_definitions_for_ids(local_dir, only_slide_ids)
         return _load_all_local(local_dir, kind)
 
     if not drive_files:
         logger.info("No %s on Drive yet — using local defaults", kind)
+        if only_slide_ids is not None and kind == "slides":
+            if not only_slide_ids:
+                return []
+            return load_local_slide_definitions_for_ids(local_dir, only_slide_ids)
         return _load_all_local(local_dir, kind)
 
     results: list[dict[str, Any]] = []
-    drive_names = set()
-
-    logger.debug("Loading %d %s YAML files from Drive", len(drive_files), kind)
+    drive_names: set[str] = set()
+    n_drive_files = len(drive_files)
+    target_mode = only_slide_ids is not None and kind == "slides" and bool(only_slide_ids)
+    found_ids: set[str] = set()
+    if target_mode:
+        logger.info(
+            "Drive %s: need %d slide def(s) by id (subset load); up to %d file(s) in folder_id=%s…",
+            kind,
+            len(only_slide_ids or ()),
+            n_drive_files,
+            (folder_id or "")[:12],
+        )
+    else:
+        logger.info(
+            "Drive %s: reading %d YAML file(s) from folder_id=%s… (per-file progress follows)",
+            kind,
+            n_drive_files,
+            (folder_id or "")[:12],
+        )
     for i, df in enumerate(drive_files, 1):
+        if target_mode and only_slide_ids and found_ids >= only_slide_ids:
+            logger.info(
+                "Drive %s: subset load complete — have all %d id(s) after %d get_media (skipped %d remaining in folder)",
+                kind,
+                len(only_slide_ids),
+                i - 1,
+                n_drive_files - (i - 1),
+            )
+            break
         drive_names.add(df["name"])
+        logger.info("Drive %s: %d/%d %s — get_media starting …", kind, i, n_drive_files, df["name"])
+        t_read = time.perf_counter()
         try:
-            logger.debug("Drive %s: reading file %d/%d: %s (id=%s…)", kind, i, len(drive_files), df["name"], df["id"][:12])
             text = _read_drive_file(df["id"])
+            dt = time.perf_counter() - t_read
+            if dt >= 1.0:
+                logger.info(
+                    "Drive %s: %d/%d %s — get_media done in %.2fs",
+                    kind,
+                    i,
+                    n_drive_files,
+                    df["name"],
+                    dt,
+                )
             parsed = yaml.safe_load(text)
             if not isinstance(parsed, dict):
                 raise ValueError(f"Expected mapping in {df['name']}")
@@ -872,12 +978,24 @@ def _load_yaml_from_drive_uncached(
                     df["name"],
                 )
                 continue
+            sid = str(parsed["id"])
+            if target_mode and only_slide_ids and sid not in only_slide_ids:
+                continue
             parsed["_source"] = "drive"
             parsed["_file"] = df["name"]
             results.append(parsed)
+            if target_mode and only_slide_ids:
+                found_ids.add(sid)
             qa.check()
         except Exception as e:
-            logger.warning("Drive %s/%s failed to parse: %s — falling back to local", kind, df["name"], e)
+            dt_err = time.perf_counter() - t_read
+            logger.warning(
+                "Drive %s/%s failed after %.2fs: %s — falling back to local",
+                kind,
+                df["name"],
+                dt_err,
+                e,
+            )
             qa.flag(
                 f"Drive {kind}/{df['name']} parse error — using local version",
                 expected="valid YAML",
@@ -887,21 +1005,41 @@ def _load_yaml_from_drive_uncached(
                 severity="error",
             )
             local = _load_single_local(local_dir / df["name"])
-            if local:
+            if local and local.get("id") and (not target_mode or str(local.get("id")) in (only_slide_ids or set())):
                 results.append(local)
+                if target_mode and only_slide_ids and local.get("id"):
+                    found_ids.add(str(local["id"]))
 
-    for f in sorted(local_dir.glob("*.yaml")):
-        if f.name not in drive_names:
+    if target_mode and only_slide_ids:
+        missing = (only_slide_ids or set()) - {str(r.get("id")) for r in results if r.get("id")}
+        for f in sorted(local_dir.glob("*.yaml")):
+            if not missing:
+                break
             local = _load_single_local(f)
-            if local:
+            lid = str(local.get("id")) if local and local.get("id") else ""
+            if local and lid in missing:
                 qa.flag(
-                    f"New local {kind}/{f.name} not yet on Drive",
+                    f"Local {kind}/{f.name} for missing id {lid}",
                     sources=(f"local {kind}/{f.name}",),
                     severity="info",
                     auto_corrected=False,
                     internal=True,
                 )
                 results.append(local)
+                missing.discard(lid)
+    else:
+        for f in sorted(local_dir.glob("*.yaml")):
+            if f.name not in drive_names:
+                local = _load_single_local(f)
+                if local:
+                    qa.flag(
+                        f"New local {kind}/{f.name} not yet on Drive",
+                        sources=(f"local {kind}/{f.name}",),
+                        severity="info",
+                        auto_corrected=False,
+                        internal=True,
+                    )
+                    results.append(local)
 
     n_drive = sum(1 for r in results if r.get("_source") == "drive")
     n_local = sum(1 for r in results if r.get("_source") == "local")
@@ -913,6 +1051,24 @@ def _load_yaml_from_drive_uncached(
         n_local,
         (folder_id or "")[:12],
     )
+    return results
+
+
+def load_local_slide_definitions_for_ids(
+    local_dir: Path, only_slide_ids: set[str]
+) -> list[dict[str, Any]]:
+    """Read only ``slides/*.yaml`` that define an ``id`` in ``only_slide_ids`` (early exit when complete)."""
+    if not only_slide_ids:
+        return []
+    have: set[str] = set()
+    results: list[dict[str, Any]] = []
+    for f in sorted(local_dir.glob("*.yaml")):
+        d = _load_single_local(f)
+        if d and d.get("id") in only_slide_ids:
+            results.append(d)
+            have.add(str(d["id"]))
+            if have >= only_slide_ids:
+                break
     return results
 
 

@@ -1,0 +1,14 @@
+id: support_intro
+type: standard
+order: 1
+title: Support Review
+slide_type: support_intro
+customers: all
+data_tools: []
+intro_blurb: |
+  Jira ticket volume, backlog, response-time KPIs, and recent activity—organized
+  by project (HELP, CUSTOMER, LEAN) for operations and customer success.
+
+prompt: |
+  Opening context slide for the support review deck. Title and blurb are editable
+  in this file; the deck can override the title in decks/support.yaml.

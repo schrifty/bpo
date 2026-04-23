@@ -64,7 +64,10 @@ def _embedded_chart_border(c: dict = NAVY) -> dict:
 
 
 CHART_TITLE_PT = 36
-CHART_AXIS_PT = 10
+# Min axis / category label size for embedded charts (Sliders scale charts down; 10pt became unreadable).
+CHART_AXIS_PT = 12
+# Applied to ChartSpec so legend text scales with chart body when the API allows.
+CHART_SPEC_FONT_NAME = "Roboto"
 
 def _chart_text_format(font_size: int, color: dict = NAVY, bold: bool = False) -> dict:
     """Build Sheets TextFormat for chart labels/titles."""
@@ -204,7 +207,7 @@ class DeckCharts:
         horizontal: bool = False,
         stacked: bool = False,
         show_title: bool = True,
-        axis_font_size: int = 10,
+        axis_font_size: int = CHART_AXIS_PT,
         suppress_legend: bool = False,
     ) -> tuple[str, int]:
         """Create a bar/column chart. Returns (spreadsheet_id, chart_id).
@@ -245,6 +248,7 @@ class DeckCharts:
         spec: dict[str, Any] = {
             "title": title if show_title else "",
             "titleTextFormat": _chart_text_format(CHART_TITLE_PT, NAVY, bold=True),
+            "fontName": CHART_SPEC_FONT_NAME,
             "basicChart": {
                 "chartType": chart_type,
                 "legendPosition": legend_pos,
@@ -275,7 +279,7 @@ class DeckCharts:
         series: dict[str, list[float | int]],
         series_colors: list[dict[str, float]] | None = None,
         show_legend: bool = True,
-        axis_font_size: int = 10,
+        axis_font_size: int = CHART_AXIS_PT,
         line_width: int = 3,
     ) -> tuple[str, int]:
         """Create a line chart. Returns (spreadsheet_id, chart_id)."""
@@ -305,6 +309,7 @@ class DeckCharts:
         spec = {
             "title": title,
             "titleTextFormat": _chart_text_format(CHART_TITLE_PT, NAVY, bold=True),
+            "fontName": CHART_SPEC_FONT_NAME,
             "basicChart": {
                 "chartType": "LINE",
                 "legendPosition": ("BOTTOM_LEGEND" if len(series_names) > 1 else "NO_LEGEND") if show_legend else "NO_LEGEND",
@@ -368,6 +373,7 @@ class DeckCharts:
         spec = {
             "title": title if show_title else "",
             "titleTextFormat": _chart_text_format(CHART_TITLE_PT, NAVY, bold=True),
+            "fontName": CHART_SPEC_FONT_NAME,
             "pieChart": pie_spec,
         }
 
@@ -433,6 +439,7 @@ class DeckCharts:
         spec = {
             "title": title,
             "titleTextFormat": _chart_text_format(CHART_TITLE_PT, NAVY, bold=True),
+            "fontName": CHART_SPEC_FONT_NAME,
             "basicChart": {
                 "chartType": "COMBO",
                 "legendPosition": "BOTTOM_LEGEND",

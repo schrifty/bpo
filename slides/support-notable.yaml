@@ -1,0 +1,21 @@
+id: support_notable
+type: standard
+order: 2
+title: Notable
+slide_type: cs_notable
+customers: all
+data_tools: []
+notable_items:
+  - "Adoption and depth: Are the right people using the product in the ways that matter for business outcomes?"
+  - "Account health and risk: Churn, renewal, adoption trends, and what would worry you on this account."
+  - "Value proof: Concrete metrics and outcomes the customer and their execs would recognize as progress or ROI."
+  - "Champions and executive coverage: Sponsors, power users, and access at the right level."
+  - "Support, friction, and product gaps: Ticket patterns, training vs. real gaps, and recurring blockers to value."
+  - "Expectations and follow-through: What was committed, what shipped, what is still open, and what is next."
+notable_subtitle: "What Customer Success leaders usually scan first in this review"
+
+prompt: |
+  At deck build time, the app runs an LLM on a JSON digest of the same Jira data
+  as the other support slides, then inserts this slide as position 2 (after the intro).
+  If the LLM is off or keys are missing, ``notable_items`` below (or the built-in default)
+  is used. Reorder or edit the YAML list as a static fallback; keep to six for layout.

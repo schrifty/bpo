@@ -1,5 +1,5 @@
 # LeanDNA Slide Design and Data Visualization Standards
-Version 1.0 (Internal Use)
+Version 1.4 (Internal Use)
 
 ## Purpose
 
@@ -7,24 +7,91 @@ This document defines how LeanDNA presentations should be structured, styled, an
 
 The goal is to produce slides that are:
 
-- information-dense but readable  
-- visually consistent across decks  
-- analytical rather than narrative  
-- optimized for executive and customer decision-making  
+- information-dense but readable
+- visually consistent across decks
+- analytical rather than narrative
+- optimized for executive and customer decision-making
 
-## Scope (what this document applies to)
+This version is written to be more directly usable by automated systems. Where possible, preferences are expressed as **explicit constraints, fallback orders, and implementation rules** rather than general guidance alone.
 
-**In scope:** Slides **created or materially laid out by this codebase**—for example, slides assembled through `slides_client.py` helpers (titles, KPI tiles, charts, body layout), deck/slide YAML that drives those builders, and any Python that positions or styles content the app owns.
+---
 
-**Out of scope:** Slides (or slide content) that **come from an external Google Slides template, an existing deck, or copy/paste / duplicate operations**—including QBR or other flows that **copy** template slides and only **hydrate or adapt text**. Do not use this document to redesign, re-layout, or “fix” those slides unless the user explicitly asks to change **app-owned** building behavior. Template-origin slides keep their source layout and styling; this guide does not govern them.
+## Scope
 
-LeanDNA presentations typically combine three elements:
+### In scope
 
-- operational narrative  
-- quantitative performance metrics  
-- product or initiative status updates  
+Slides **created or materially laid out by this codebase**—for example:
 
-Slides should emphasize **evidence, metrics, and clarity**, not decoration.
+- slides assembled through `slides_client.py` helpers
+- deck or slide YAML that drives those builders
+- Python that positions or styles content the app owns
+- automated layouts that create or materially change app-owned slide structure
+
+### Out of scope
+
+Slides or slide content that **come from an external Google Slides template, an existing deck, or copy/paste / duplicate operations**—including QBR or other flows that **copy** template slides and only **hydrate or adapt text**.
+
+Automation must **not** use this document to redesign, re-layout, or “fix” those slides unless the user explicitly asks to change **app-owned** building behavior.
+
+**Rule:** Template-origin slides keep their source layout and styling unless the requested change is explicitly about the application’s owned layout logic.
+
+---
+
+## Document Structure for Automation
+
+Automation systems should treat this guide as five layers, in descending order of priority:
+
+1. **Hard constraints** — rules that must be enforced unless technically impossible.
+2. **Layout system** — safe bounds, spacing, pagination, density, and continuation behavior.
+3. **Component standards** — KPI cards, title rows, chart blocks, legends, tables, and body text.
+4. **Charting and data visualization standards** — chart selection, labeling, annotation, and color logic.
+5. **Presentation philosophy** — clarity, signal, and executive usefulness.
+
+If two rules appear to conflict, follow the rule from the **higher-priority layer**.
+
+---
+
+## Hard Constraints
+
+The following rules are mandatory for automated generation.
+
+### Slide intent
+
+- Every slide must answer **one primary question**.
+- Every slide must communicate **one primary takeaway**.
+- Every slide title must state the takeaway, not merely name the topic.
+
+### Layout safety
+
+- No content may render outside the safe body bounds.
+- No text, chart, KPI card, footer, or legend may overlap another slide element.
+- No text may extend below `BODY_BOTTOM`.
+- Footer and source text must remain visually separate from the body.
+
+### Readability
+
+- Title must be readable at presentation scale.
+- Axis labels, category labels, legends, and KPI labels must remain readable at presentation scale.
+- Do not shrink text below defined minimum sizes simply to avoid pagination.
+
+### Quantitative visuals
+
+- Quantitative charts should default to **embedded Google Sheets charts**.
+- Do not hand-draw quantitative charts with ad hoc shapes unless there is no embedded-chart path available.
+- Do not use 3D charts.
+- Do not use decorative chart styling.
+
+### KPI cards
+
+- Any outlined KPI metric tile must be rendered only through `_kpi_metric_card` in `src/slides_client.py`.
+- KPI labels inside cards must remain single-line.
+- KPI values in the same row must use the same accent color unless a semantic exception is explicitly intended.
+
+### Continuation behavior
+
+- Continuation slides may be emitted only when content does not fit in the allotted body region.
+- Continuation slides must be labeled clearly, e.g. `Section Name (2 of 3)`.
+- Pagination must be bounded by a small fixed maximum, typically ten slides.
 
 ---
 
@@ -34,22 +101,61 @@ LeanDNA decks prioritize **clarity of signal over visual novelty**.
 
 Slides should:
 
-- answer a specific question  
-- present one idea or analytical takeaway  
-- include evidence (data, chart, KPI, metric)  
-- minimize filler language  
+- answer a specific question
+- present one idea or analytical takeaway
+- include evidence such as a chart, KPI, metric, or structured comparison
+- minimize filler language
 
-Avoid slides that simply restate what the presenter will say.
+Avoid slides that merely restate what the presenter will say.
 
-Every slide should communicate **one key takeaway in the title**.
+### Title principle
 
-Example:
+Every slide should communicate the key takeaway in the title.
 
-Bad title  
+Bad title:
+
 `Inventory Trends`
 
-Good title  
+Good title:
+
 `Inventory Turns Improved 18% QoQ Across 24 Sites`
+
+---
+
+## Density Profiles
+
+To reduce ambiguity, automation should choose a density profile before laying out a slide.
+
+### Executive deck density
+
+Use for strategy, board, leadership, or high-level internal presentations.
+
+- lower text density
+- one dominant visual or KPI block
+- minimal supporting bullets
+- more whitespace
+
+### QBR density
+
+Use for customer QBRs and operational reviews.
+
+- medium density
+- one to two visuals
+- three to five supporting bullets maximum
+- explicit scope and source labeling
+
+### Dashboard / analytical density
+
+Use for internal performance dashboards, benchmark slides, and data-heavy operational review content.
+
+- highest allowable density
+- strong structure required
+- tighter spacing allowed, but readability rules still apply
+- pagination preferred over microtext
+
+### Default
+
+If slide type is unknown, default to **QBR density**.
 
 ---
 
@@ -57,100 +163,90 @@ Good title
 
 Each slide should follow a predictable structure.
 
-**Title**  
-A full-sentence takeaway.
-Titles should remain on a **single line**. If a draft title is too long, shorten the wording
-or reduce title font size slightly rather than allowing the title to wrap.
+### Title
 
-**Context line (optional)**  
+A full-sentence takeaway.
+
+**Preferred rule:** titles should remain on a single line.
+
+### Context line (optional)
+
 A short subtitle explaining scope.
 
-**Metric / context bar (optional)**  
+### Metric / context bar (optional)
+
 A single-line summary directly below the title for scope, KPI totals, or timeframe.
-When used, it should be clearly readable at presentation size and generally use
-approximately **9–11 pt** text, not microtext.
 
-**Content area**  
+When used, it should remain clearly readable at presentation size and typically use approximately **9–11 pt** text.
+
+### Content area
+
 Charts, diagrams, metrics, or structured bullets.
-The content area must fit within the safe body bounds with explicit padding between sections.
-Do not allow KPI cards, section headers, embedded charts, or footer content to overlap.
-When a slide mixes KPI cards with charts, reserve at least **12–18 pt** of vertical space
-between the bottom of one block and the top of the next.
 
-**Footer**  
+The content area must fit within the safe body bounds with explicit padding between sections.
+
+### Footer
+
 Source, timeframe, or dataset description when relevant.
 
 ---
 
-## Slide Density
+## Title Fallback Order
 
-LeanDNA slides are moderately dense.
+Automation must use the following fallback order if a title does not fit on one line.
 
-Target guidelines:
+1. Shorten wording while preserving meaning.
+2. Reduce title font size slightly.
+3. Tighten title-area horizontal padding slightly if layout permits.
+4. Rephrase for brevity.
+5. Allow wrapping only as a last resort.
 
-- 1–2 charts per slide  
-- 3–5 supporting bullets maximum  
-- 20–40 words total text typical  
-- clear whitespace between elements
-
-Avoid:
-
-- long paragraphs  
-- full-page text blocks  
-- decorative icons unless meaningful
+**Do not** reduce title size below the minimum readable threshold just to preserve a single line.
 
 ---
 
-## Pagination and continuation slides
+## Layout Spacing Rules
 
-Some logical slide types emit **more than one physical slide** when lists, tables, or paired columns would otherwise overflow the safe body band (from the metric/context row through **`BODY_BOTTOM`**).
+Use explicit block spacing between vertically stacked elements.
 
-### Principles
+### Standard spacing
 
-1. **Derive capacity from layout, not arbitrary caps.** Items per page should come from the **available height** and **body font size**, using a consistent line-height model (approximately **font size × 1.22** pt per line for multiline text boxes). Reserve at least one line for a column header when measuring list capacity.
+- Reserve clear separation between title area and body content.
+- When a slide mixes KPI cards with charts, reserve at least **12–18 pt** between vertical blocks.
+- When a slide includes a footer, leave enough clearance that footer content does not visually merge with the body.
 
-2. **Multi-column slides share one vertical budget.** If two columns use the **same** top and bottom bounds, they must agree on how many **lines** fit. When one column uses **multiple lines per logical row** (for example an email line plus a detail line), its row capacity is roughly **half** (or the appropriate fraction) of a single-line list in that same box—do not give one column a generous line-based budget and the other a smaller heuristic in pixels, or the deck will paginate **early** on one side and waste space on the other.
+### Block boundary rule
 
-3. **Paginate only when necessary.** If all content for that slide type fits in one body region, use **one** slide. Continuation slides should be the exception, not the default.
+Each block must have a clear top, bottom, and padding allowance before layout proceeds to the next block.
 
-4. **Label continuations clearly.** When there are multiple physical slides for one concept, titles should read like **`Section Name (2 of 3)`** so reviewers know nothing was dropped silently.
-
-5. **Bound runaway pagination.** Cap continuation pages at a **small fixed maximum** (for example ten) so automation never produces enormous decks; if data exceeds that, truncate with an explicit omission or summary strategy rather than unbounded slides.
-
-6. **Charts vs lists.** Pagination rules apply to **text and tables**. Embedded charts follow **Embedded Chart Standards** (including *Single chart on a slide*); do not shrink charts to “make room” for extra list rows when the design calls for a single dominant chart.
-
-7. **Slides tables vs list line height.** Google Slides applies **default cell padding** around table text, so each **rendered** row is taller than the cell ``fontSize`` alone. Paginating with ``fontSize × 1.22`` (or an arbitrary small constant like 18 pt) **over-counts** rows and the table **runs off the bottom** even when titles show “(2 of N)”. Use **``_table_rows_fit_span``** in ``slides_client.py`` with an empirical **effective row height** (for compact site tables, ~**26 pt** at 7 pt body text) that matches both **``createTable`` total height** and the pagination divisor.
-
-### Implementation note for automation
-
-The codebase exposes **`slide_type_may_paginate(slide_type)`** and a registry of slide types that may emit multiple pages (for example long site lists, feature adoption, export behavior, signals, platform health, Jira- or Salesforce-backed tables). Prefer that registry for docs and tooling rather than duplicating the full list here; when adding a new paginating builder, update the registry and this document if the pattern is new.
+Automation should not place body elements opportunistically into leftover gaps unless the resulting spacing still reads as intentional.
 
 ---
 
-## Title Rules
+## Anti-Pattern Resolution Order
 
-Titles must communicate insight.
+If a layout problem occurs, automation must resolve it in this order unless the slide type explicitly overrides the sequence.
 
-Recommended structure:
+1. Remove non-essential supporting bullets.
+2. Paginate long lists or tables.
+3. Reduce non-essential chart footprint if the slide contains more than one major visual.
+4. Tighten spacing within allowed bounds.
+5. Reduce font size within defined minimums.
+6. Truncate low-priority text.
+7. As a last resort, emit an explicit omission note or summary.
 
-`Observation + metric + scope`
+### Things automation should not do early
 
-Examples:
-
-`Time-to-Value Reduced from 180 to 124 Days in 2025`  
-`Writeback Adoption Increased to 42% of Sites`  
-`Supply Coverage Errors Concentrated in 3 Factories`
-
-Avoid neutral titles such as:
-
-`QBR Metrics`  
-`Operational KPIs`
+- shrink labels to unreadable sizes
+- compress a dominant single chart into a corner
+- remove the primary insight from the title
+- silently drop rows or data categories without labeling the omission
 
 ---
 
 ## Canonical Slide Types
 
-Automated systems such as Cursor should generate slides using a limited number of repeatable templates.
+Automated systems should generate slides using a limited number of repeatable templates.
 
 ### Strategic Insight Slide
 
@@ -158,17 +254,15 @@ Purpose: highlight a major finding.
 
 Structure:
 
-- Title states the insight
-- Large chart
+- title states the insight
+- large chart
 - 2–3 bullets interpreting the data
 
-Typical bullets:
+Typical bullet roles:
 
-- explanation of the trend  
-- operational implication  
-- next action  
-
----
+- explanation of the trend
+- operational implication
+- next action
 
 ### KPI Dashboard Slide
 
@@ -176,53 +270,14 @@ Purpose: provide a snapshot of performance.
 
 Layout:
 
-Grid of KPI cards (typically 4–6 metrics).
+- grid of KPI cards, typically 4–6 metrics
 
 Each KPI card contains:
 
-- metric name  
-- current value  
-- change versus previous period  
-- small sparkline if possible
-
-Example:
-
-Inventory Turns  
-6.2  
-+0.8 YoY
-
-#### When to use KPI boxes (outlined metric cards)
-
-**Universal rule:** Any automated slide that shows an **outlined KPI metric tile** (light panel + metric name + headline number) must render it **only** via **``_kpi_metric_card``** in ``src/slides_client.py``. Do **not** hand-roll separate label and value text boxes: styling is defined once there so every deck stays consistent.
-
-The shared **KPI box** pattern is: light fill **``LIGHT``**, **~1 pt** gray outline (**``_bar_rect``** inside **``_kpi_metric_card``**), **metric label** at **``KPI_METRIC_LABEL_PT``** (**10 pt**) in **``BLACK``**, **primary value** bold in a caller-chosen accent (default **``NAVY``** when ``accent`` is omitted). **``_kpi_metric_card``** applies label and value styles with **``textRange: ALL``** so Slides’ implicit paragraph marker does not leave text in the theme’s default gray. Use this when:
-
-- The slide’s main point is **one to six headline numbers** (rates, counts, scores, medians, dollars) that the audience should read **at a glance** in parallel.
-- Each metric fits **one short label** (metric name or peer context) and **one primary value** (bold accent — semantic colors such as **``_RED``** for thresholds are still passed as ``accent``).
-- **Box labels must remain on a single line — never wrap to a second row.** ``_kpi_metric_card`` enforces this structurally via ``_fit_kpi_label``: it calculates the rendered text width from the card's inner width and the font size, auto-shrinks the font (down to **8 pt**) when the label is too wide, and truncates with an ellipsis only as a last resort. This means labels stay single-line regardless of column count or card width — no caller needs to guess a character limit. If you build labels before passing them to the card helper, ``_truncate_kpi_card_label`` (static **≤ 44** char safety net) is still available but is no longer the primary guard.
-- You are **not** trying to fit a full sentence, bullet list, or multi-line caveat **inside** the same rectangle.
-
-**Do not** put the KPI chrome on:
-
-- Narrative interpretation, recommendations, or delta explanations in prose (use a **plain text box** below or beside the cards).
-- Table cells, chart axes, rank labels, or footnotes.
-- Titles and section headers (use **``_slide_title``** / dividers, not metric cards).
-
-**Universal accent rule for KPI rows:** Every KPI value in a single row must use the **same** accent colour — **``BLUE``** by default. Do **not** mix ``NAVY``, ``BLUE``, and ``TEAL`` across cards in the same row; this creates visual inconsistency and fails the "single accent per slide" principle. **Peer Benchmarks** also uses **``BLUE``** for the narrative body under the row. Delta / account-size lines are not KPI tiles.
-
-**BPO slide builders that use KPI boxes today** (all via ``_kpi_metric_card``): **Customer ticket metrics** (HELP dashboard), **Peer Benchmarks**, **Platform Value & ROI** (three headline metrics + a gray **subline** under the row for POs / overdue tasks — not inside the cards), **Supply Chain Overview** (portfolio on-hand / on-order / excess above the factory table), **Kei AI Adoption** (queries, adoption %, users with queries — executive pill and user list stay outside the cards), **Behavioral Depth** (feature interactions, active users, write ratio — then charts), **Engagement Breakdown** (three tier counts in a full-width row — donut and role lists sit below), **Engineering — Support Pressure** (stacked KPI column beside the priority bar chart). **Not** converted when the “header” is narrative, a dynamic sentence, or a table-only layout: e.g. **Account Health Snapshot** (multi-line composite + dimensions), **Platform Health** (distribution + shortages as one summary line), **Export Behavior** (single header + lists), **Data cross-validation** (comparison prose + table).
-
-#### Compact KPI tiles (mixed layouts)
-
-On slides that **pair KPI rows with charts, tables, or other body content**, card height is usually **tight** (on the order of **50–56 pt** tall). For those tiles:
-
-- Use **only two visual lines inside the box**: **metric label** (**``KPI_METRIC_LABEL_PT``** / **10 pt** default, **``BLACK``**) and **primary value** (large, bold accent from the ``accent`` argument). The label **must not wrap** — ``_fit_kpi_label`` inside ``_kpi_metric_card`` automatically shrinks the label font (down to **8 pt**) or truncates to guarantee a single line, based on the card’s actual pixel width. No manual character-count checks are needed at call sites.
-- **Do not** add a third line of explanatory or qualifying text inside the same box unless you **increase card height** materially (for example **≥ 72 pt**), verify in a thumbnail export, and leave clearance above **``BODY_BOTTOM``**. Clipped footlines read as a bug, not a feature.  
-- Put definitions, denominators (“21 of 26 met SLAs”), averages, and caveats in **speaker notes**, a **metric bar under the slide title**, or a **separate callout**—not inside a short KPI rectangle.
-
-The full “name + value + delta + sparkline” pattern applies to **dedicated dashboard slides** where cards are given enough vertical space for all elements.
-
----
+- metric name
+- current value
+- change versus previous period
+- small sparkline if possible and space allows
 
 ### Trend Analysis Slide
 
@@ -230,10 +285,8 @@ Purpose: show change over time.
 
 Layout:
 
-- large time-series chart  
+- large time-series chart
 - 2–3 explanatory bullets below chart
-
----
 
 ### Comparative Analysis Slide
 
@@ -241,14 +294,8 @@ Purpose: compare entities such as factories, sites, customers, or products.
 
 Layout:
 
-- ranked bar chart  
-- optionally highlight top or bottom performers
-
-Example title:
-
-`Top 10 Factories by Inventory Reduction`
-
----
+- ranked bar chart
+- optional highlight for top or bottom performers
 
 ### Operational Process Slide
 
@@ -259,39 +306,141 @@ Layout:
 - simple diagram
 - minimal text
 
----
-
 ### Initiative Status Slide
 
 Purpose: report project progress.
 
 Layout:
 
-- short status summary  
-- milestones achieved  
-- next milestones  
+- short status summary
+- milestones achieved
+- next milestones
 - risks or blockers
 
 ---
 
-## Charting Standards
+## KPI Dashboard and Card Standards
 
-Charts must communicate operational insight quickly and clearly.
+### Universal card rule
 
-Preferred chart types:
+Any automated slide that shows an outlined KPI metric tile must render it only via `_kpi_metric_card` in `src/slides_client.py`.
 
-- line charts  
-- bar charts  
-- stacked bar charts  
-- scatter plots  
-- heatmaps  
-- small sparklines
+Do not hand-roll separate label and value text boxes.
 
-Avoid:
+### Shared KPI card styling
 
-- 3D charts  
-- decorative chart styles  
-- pie charts (except when categories are extremely limited)
+The shared KPI box pattern is:
+
+- light fill `LIGHT`
+- approximately 1 pt gray outline
+- metric label at `KPI_METRIC_LABEL_PT` (10 pt) in `BLACK`
+- primary value bold in caller-chosen accent
+- default accent `NAVY` when `accent` is omitted
+
+`_kpi_metric_card` applies styles with `textRange: ALL` so Slides theme defaults do not leak into the label or value.
+
+### When to use KPI cards
+
+Use KPI cards when:
+
+- the slide’s main point is one to six headline numbers
+- each metric fits one short label and one primary value
+- the audience should read the metrics in parallel at a glance
+
+### When not to use KPI cards
+
+Do not use KPI card chrome for:
+
+- narrative interpretation or recommendations in prose
+- table cells
+- chart axes or rank labels
+- footnotes
+- titles or section headers
+
+### Label-fitting rule
+
+Box labels must remain on a single line.
+
+`_kpi_metric_card` enforces this structurally via `_fit_kpi_label`, which:
+
+- calculates rendered text width from the card’s inner width and font size
+- auto-shrinks font down to **8 pt** when necessary
+- truncates with an ellipsis only as a last resort
+
+If labels are prepared before calling the helper, `_truncate_kpi_card_label` may still be used as a static safety net, but it is no longer the primary guard.
+
+### Universal accent rule
+
+Every KPI value in a single row must use the same accent color, typically `BLUE` by default.
+
+Do not mix `NAVY`, `BLUE`, and `TEAL` across cards in the same row unless there is a deliberate semantic reason.
+
+### Compact KPI tiles in mixed layouts
+
+On slides that pair KPI rows with charts, tables, or other body content, card height is typically tight.
+
+For compact cards:
+
+- use only two visual lines inside the box
+- line 1: metric label
+- line 2: primary value
+
+Do not place explanatory or qualifying third lines inside short KPI cards unless card height is materially increased and the result is verified visually.
+
+Put caveats, denominators, or definitions in:
+
+- speaker notes
+- a context bar under the title
+- a separate plain-text callout
+
+---
+
+## Pagination and Continuation Slides
+
+Some logical slide types emit more than one physical slide when lists, tables, or paired columns would otherwise overflow the safe body band.
+
+### Principles
+
+1. **Derive capacity from layout, not arbitrary caps.** Items per page should come from available height and body font size, using a consistent line-height model of approximately **font size × 1.22 pt per line** for multiline text boxes.
+2. **Multi-column slides share one vertical budget.** If two columns use the same top and bottom bounds, they must agree on how many lines fit.
+3. **Paginate only when necessary.** If all content fits in one body region, use one slide.
+4. **Label continuations clearly.** Use `Section Name (2 of 3)` format.
+5. **Bound runaway pagination.** Cap continuation pages at a small fixed maximum, typically ten.
+6. **Charts vs lists.** Pagination rules apply to text and tables. Do not shrink a chart that is meant to be dominant merely to fit extra list rows.
+7. **Tables must use empirical row fit.** Use `_table_rows_fit_span` in `slides_client.py` with an effective row height that matches rendered Slides table behavior.
+
+### Table-specific rule
+
+Google Slides applies default cell padding around table text, so rendered row height is greater than `fontSize × 1.22` alone.
+
+For compact site tables, use an empirical effective row height of roughly **26 pt** at **7 pt** body text unless better calibrated values are available.
+
+**Jira “recent opened / recent closed” tables** (HELP, CUSTOMER, LEAN): use `_table_rows_fit_span` with a **tight** `row_height_pt` (≈ **19 pt** in the current implementation), **`max_rows_cap=8`**, and text truncated with `_max_chars_one_line_for_table_col` per text column. A looser row pitch (e.g. 22 pt) plus up to 11–12 rows **looked** fine in layout math but **failed in Slides** when any cell still wrapped: wrapped rows are much taller than the nominal row height, so the table overflowed. Keep **8 data rows** and stricter one-line limits over increasing row count.
+
+**Critical (overflow):** Truncate text with `_truncate_table_cell` using a **per-column** max length from `_max_chars_one_line_for_table_col(column_width_pt, font_pt)` (see `slides_client.py`). A single global max (e.g. 110 characters) in a ~236 pt Title column is unsafe: **Slides wraps** long strings, **row height grows past the `row_height_pt` budget**, and the table still overflows even when row *count* math looks correct.
+
+### Implementation note
+
+The codebase exposes `slide_type_may_paginate(slide_type)` and a registry of slide types that may emit multiple pages.
+
+Prefer that registry for docs and tooling rather than duplicating a long slide-type list here.
+
+---
+
+## Visual Hierarchy
+
+Slides should guide the viewer’s eye in this order:
+
+1. Title
+2. Primary chart or KPI block
+3. Key numbers
+4. Supporting bullets
+
+### Chart dominance rules
+
+- When multiple elements share a slide, the primary chart should typically occupy approximately **60% of the slide body area**.
+- When a slide contains **one sole embedded chart**, that chart should dominate the body band.
+- Do not leave a lone chart undersized with large unused whitespace around it.
 
 ---
 
@@ -299,144 +448,151 @@ Avoid:
 
 Quantitative visuals should default to **Google Sheets charts embedded in Slides** rather than hand-drawn shapes.
 
-Use Slides-native shapes only for:
+### Use Slides-native shapes only for
 
-- decorative accents  
-- diagrams or workflows  
+- decorative accents
+- diagrams or workflows
 - simple non-quantitative visual structure
 
-Use embedded Sheets charts for:
+### Use embedded Sheets charts for
 
-- metric comparisons  
-- time-series trends  
-- ranked category summaries  
-
-### Chart title and axis font sizing
-
-Sheets charts are created at an internal resolution (800×400 px) and then **scaled down** when embedded in the slide.  Text that looks fine in the spreadsheet becomes unreadably small at presentation scale.  Therefore all chart builders in ``src/charts.py`` must use the constants defined there:
-
-- **``CHART_TITLE_PT``** (**36 pt**) — bold, ``NAVY`` — for the chart title.  This renders at roughly 12 pt equivalent once the chart is scaled to its slide element size.
-- **``CHART_AXIS_PT``** (**10 pt**) — ``GRAY`` — for axis labels and category labels.  Callers may pass a different ``axis_font_size`` when category text needs more or less room.
-
-Do **not** hard-code font sizes in individual chart specs; always reference the constants so every chart stays consistent.
+- metric comparisons
+- time-series trends
+- ranked category summaries
 - operational dashboards
 
 This improves consistency, reproducibility, and maintainability across decks.
 
 ### Single chart on a slide
 
-When a slide shows **exactly one** embedded Sheets chart (no second chart, table, or dense text column competing for the body), that chart must:
+When a slide shows exactly one embedded Sheets chart and no second chart, table, or dense text column competes for the body:
 
-- use the **full content width** for bar/column/line-style charts, or the **largest square that fits** the body band for pie/donut charts  
-- be **horizontally centered** in the content area (between the standard left/right margins)  
-- extend **vertically** from just below the title / metric bar through **``BODY_BOTTOM``** minus a small bottom pad (~10 pt), so it reads at presentation scale instead of sitting in a corner with empty space  
+- use the full content width for bar, column, or line charts
+- use the largest square that fits for pie or donut charts
+- center the chart horizontally in the content area
+- extend the chart vertically from just below the title or metric bar through `BODY_BOTTOM` minus a small bottom pad of about **10 pt**
 
-When **two** charts share a slide, split the content width (for example ~58% / ~40% with a small gap) and give each chart the **full available height** in the band—do not shrink a lone chart into the right column.
+When two charts share a slide:
+
+- split the content width, for example about **58% / 40%** with a small gap
+- give each chart full available height in the content band
+- do not shrink a lone chart into a side column layout
 
 ### Chart title alignment
 
-Chart titles and section headers should align to the **visual unit** represented by the chart:
+Chart titles and section headers should align to the visual unit represented by the chart:
 
-- If the legend is **below** the chart, center the title over the **chart plot area**.
-- If the legend sits **beside** the chart, center the title over the **combined chart + legend block**.
-- For two charts on one slide, each chart title should be centered over its own chart block (not left-aligned to the slide margin).
+- if the legend is below, center the title over the plot area
+- if the legend is beside the chart, center the title over the combined chart-plus-legend block
+- for two charts on one slide, each title should be centered over its own chart block
 
 ### Chart legend sizing and placement
 
-The Google Sheets API does **not** expose legend font size, and Sheets-rendered legends can become unreadably small after scaling. Therefore:
+The Google Sheets API does not expose a dedicated **legend** font size; Sheets-rendered legends (especially on pie/donut and **multi-series bar/column** charts) often look fine in the spreadsheet but are **unreadably small** once the chart is embedded and scaled on a slide.
 
-- Prefer a **slide-level legend** via **``_slide_chart_legend``** in ``slides_client.py`` when the native legend text is too small.
-- For slide-level legends, reserve **~22 pt** of vertical space in layout calculations and keep labels at readable presentation size (e.g., **``CHART_LEGEND_PT``**, **11 pt**).
-- If native chart legends are readable at final slide size and improve fidelity (for example, guaranteed slice-color matching), native legends are acceptable.
-- When using a custom slide-level legend, pass series labels and colors in the same order used to build the chart so swatches match slices/bars.
-- Single-series charts (no ambiguity) may omit legends entirely.
+Therefore:
+
+- **Multi-series bar/column (and stacked) charts** must set `suppress_legend=True` in `src/charts.py` and render a slide-level legend via `_slide_chart_legend` in `slides_client.py`, using `BRAND_SERIES_COLORS` in the same order as the series. Do not rely on the embedded `BOTTOM_LEGEND` for these chart types in customer-facing decks.
+- **Pie/donut** (dashboard, two-up): prefer **`RIGHT_LEGEND`** in the Sheets `pieChart` spec so the plot and labels share the embed more usefully than a **bottom** legend; use a **tall** `embed_chart` height (most of the body band below the section subheads). Shallow embeds make *all* in-chart text, including the legend, microscopic. If the native legend is still too small, `suppress_legend` + a slide-level legend is acceptable when slice–color matching with the brand palette is verified.
+- **Line / trend charts** (e.g. monthly created vs resolved): the **embedded box height** must not be very short (on the order of **80 pt** is too small—axis and month labels shrink to unreadable). Target roughly **100 pt** or more per chart in the support volume layout, with `show_legend=False` and a slide-level Created/Resolved key when needed.
+- For slide-level legends, reserve about **24–28 pt** of vertical space below the chart; label text at **`CHART_LEGEND_PT` (12 pt by default)**, with swatches at least **10×10 pt**.
+- **Single-series** bar/column charts have no series legend; axis/category labels are handled separately.
+- `ChartSpec.fontName` is set in `src/charts.py` to **`CHART_SPEC_FONT_NAME`** (Roboto) so chart text scales as a system font where the API applies it to titles/axes/legends.
 
 ---
 
-## Time-Series Charts
+## Chart Font and Text Sizing
 
-Used for operational trends.
+Sheets charts are created at an internal resolution and scaled down when embedded. Text that looks acceptable in the spreadsheet can become unreadably small on the slide.
 
-Examples include:
+All chart builders in `src/charts.py` must use shared constants.
 
-- inventory turns over time  
-- time-to-value reduction  
+### Standard chart constants
+
+- `CHART_TITLE_PT` = **36 pt** — bold, `NAVY`
+- `CHART_AXIS_PT` = **12 pt** — `GRAY` (minimum for category/axis labels at presentation scale; 10 pt was too small)
+- `CHART_SPEC_FONT_NAME` = **Roboto** — `ChartSpec.fontName` for embedded charts
+- `CHART_LEGEND_PT` = **12 pt** in `slides_client` — slide-level swatch legend labels (not a Sheets property)
+
+Do not hard-code ad hoc chart font sizes in individual chart `spec` dicts; prefer these constants and `add_*` parameters.
+
+Callers may pass a different `axis_font_size` only when category text genuinely needs more or less room (e.g. dense month labels on line charts), but not below **10 pt** for audience-facing slides.
+
+---
+
+## Charting Standards
+
+Charts must communicate operational insight quickly and clearly.
+
+### Preferred chart types
+
+- line charts
+- bar charts
+- stacked bar charts
+- scatter plots
+- heatmaps
+- small sparklines
+
+### Avoid
+
+- 3D charts
+- decorative chart styles
+- pie charts except when category count is very limited and composition is the point
+
+### Time-series charts
+
+Use for operational trends such as:
+
+- inventory turns over time
+- time-to-value reduction
 - forecast accuracy
 
-Standards:
+Rules:
 
-- time on the x-axis  
-- metric value on the y-axis  
-- consistent time intervals  
-- when multiple lines appear on the same chart, use clearly distinctive series colors with strong contrast  
-- axis labels and legends must be readable at presentation size; avoid undersized chart text  
-- if an embedded chart legend becomes too small, suppress it and render a larger slide-level legend instead  
-- major events annotated
+- time on the x-axis
+- metric value on the y-axis
+- consistent time intervals
+- strong series contrast when multiple lines are shown
+- readable labels and legends
+- annotate major events when relevant
 
 Example annotation:
 
 `Forecast model deployed`
 
----
+### Bar charts
 
-## Bar Charts
+Use for comparisons such as:
 
-Used for comparisons.
-
-Examples:
-
-- factory performance  
-- customer segments  
+- factory performance
+- customer segments
 - regional results
 
 Rules:
 
-- use **vertical column charts** by default for compact category comparisons and dashboard summaries  
-- use **horizontal bar charts** only when labels are long or ranking readability is the priority  
-- bars sorted descending  
-- maximum of roughly 10–12 bars  
-- when horizontal bar charts are shown side by side on a slide, keep each chart to roughly **5–7 bars** rather than shrinking label text  
-- all bar charts must have a visible **border / outline**  
-- highlight top or bottom performers
+- use **vertical column charts** by default for compact category comparisons and dashboard summaries
+- use **horizontal bar charts** only when labels are long or ranking readability is the priority
+- sort bars descending unless there is a clear chronological or categorical reason not to
+- maximum of roughly **10–12 bars** per chart
+- if horizontal bar charts are shown side by side, keep each chart to roughly **5–7 bars**
+- all bar charts must have a visible border or outline
+- highlight top or bottom performers when relevant
 
----
+### Stacked bar charts
 
-## Stacked Bar Charts
+Use to show composition.
 
-Used to show composition.
+Avoid more than four segments unless there is a strong reason and the result remains legible.
 
-Examples:
+### Scatter plots
 
-- inventory categories  
-- demand vs supply sources
-
-Rule:
-
-Avoid more than four segments.
-
----
-
-## Scatter Plots
-
-Used to illustrate relationships between variables.
-
-Examples:
-
-- factory complexity vs time-to-value  
-- demand volatility vs stockouts
+Use to illustrate relationships between variables.
 
 Add regression lines if meaningful.
 
----
+### Heatmaps
 
-## Heatmaps
-
-Used for dense operational data.
-
-Examples:
-
-- factory vs metric performance  
-- SKU vs demand volatility
+Use for dense operational data.
 
 Always include a clear color legend.
 
@@ -446,17 +602,18 @@ Always include a clear color legend.
 
 Charts must follow consistent color logic.
 
-Primary meanings:
+### Primary meanings
 
-- LeanDNA Blue → baseline metrics  
-- Green → improvement  
-- Red → deterioration  
+- LeanDNA Blue → baseline metrics
+- Green → improvement
+- Red → deterioration
 - Gray → baseline comparison
 
-Rules:
+### Color rules
 
-- never rely solely on color to communicate meaning  
+- never rely solely on color to communicate meaning
 - include labels and legends
+- preserve color meaning consistently within the deck
 
 ---
 
@@ -464,18 +621,23 @@ Rules:
 
 Charts must always include:
 
-- axis labels  
-- units  
+- axis labels
+- units
 - timeframe
-- label text sized for presentation readability; do not shrink bar-chart category labels to fit more rows  
+- label text sized for presentation readability
 
-For embedded charts, prefer roughly **10–12 pt** equivalent axis / category label sizing at presentation scale.
+Do not shrink bar-chart category labels merely to fit more rows.
+
+For embedded charts, prefer approximately **10–12 pt equivalent** axis and category label sizing at presentation scale.
 
 Example:
 
 `Inventory Turns (Monthly)`
 
-Avoid charts without labels.
+### Time units (minutes)
+
+- Use **`min`** for minutes in axis labels, KPI text, tables, and legends (e.g. `15 min`, `Median time to first response (min)`).
+- Do **not** use **`m`** for minutes. **`m`** is easy to read as meters, a casual million shorthand, or an ambiguous single letter.
 
 ---
 
@@ -485,11 +647,11 @@ Charts should include callouts when meaningful.
 
 Examples:
 
-- major system change  
-- algorithm deployment  
+- major system change
+- algorithm deployment
 - customer rollout
 
-Annotations significantly improve interpretability.
+Annotations significantly improve interpretability and are preferred whenever a visible shift in the data is tied to a known event.
 
 ---
 
@@ -499,74 +661,11 @@ All charts must clearly indicate scope.
 
 Examples:
 
-- `Across 24 Sites`  
-- `Top 100 SKUs`  
+- `Across 24 Sites`
+- `Top 100 SKUs`
 - `Q1–Q4 2025`
 
 Avoid ambiguous charts.
-
----
-
-## QBR Charting Standards
-
-QBR decks typically focus on operational performance metrics.
-
-Common QBR metrics include:
-
-- inventory turns  
-- stockout rate  
-- forecast accuracy  
-- excess inventory  
-- time-to-value  
-- writeback usage  
-- demand volatility
-
-Charts should frequently compare:
-
-- current quarter  
-- previous quarter  
-- customer benchmark
-
----
-
-## Executive Deck vs QBR Deck
-
-Executive decks emphasize:
-
-- strategy  
-- macro trends  
-- financial outcomes
-
-QBR decks emphasize:
-
-- operational analytics  
-- site performance  
-- improvement opportunities
-
----
-
-## Visual Hierarchy
-
-Slides should guide the viewer’s eye.
-
-Priority order:
-
-1. Title  
-2. Primary chart  
-3. Key numbers  
-4. Supporting bullets  
-
-Charts should occupy approximately **60% of slide area** when multiple elements share the slide. A **sole** embedded chart in the body should dominate that band (see *Single chart on a slide* under Embedded Chart Standards).
-
----
-
-## Whitespace
-
-Whitespace should be used intentionally.
-
-Do not fill the entire slide.
-
-Whitespace improves readability and visual hierarchy.
 
 ---
 
@@ -574,12 +673,23 @@ Whitespace improves readability and visual hierarchy.
 
 Text must remain concise.
 
-Preferred bullet style:
+### Preferred bullet style
 
-- one sentence  
-- roughly 8–14 words
+- one sentence
+- roughly **8–14 words**
 
-Avoid nested bullet structures.
+### Avoid
+
+- nested bullet structures
+- long paragraphs
+- full-page text blocks
+- filler bullets that restate the title without adding interpretation
+
+### Typical text density
+
+For most QBR and operational slides, **20–40 total words** is a reasonable default.
+
+This is guidance, not a hard cap. Dense analytical slides may exceed it when warranted, but readability and hierarchy still govern.
 
 ---
 
@@ -587,11 +697,13 @@ Avoid nested bullet structures.
 
 Charts must use consistent definitions across the deck.
 
+If a metric has a canonical definition, that definition must remain stable from slide to slide.
+
 Example:
 
 Inventory turns must always use the same calculation.
 
-Data sources should be stable and repeatable.
+Data sources should be stable, repeatable, and documented.
 
 Example source reference:
 
@@ -599,39 +711,88 @@ Example source reference:
 
 ---
 
+## QBR Deck vs Executive Deck
+
+### Executive decks emphasize
+
+- strategy
+- macro trends
+- financial outcomes
+- fewer, more dominant visuals
+
+### QBR decks emphasize
+
+- operational analytics
+- site performance
+- improvement opportunities
+- benchmark and comparison context
+
+Automation should choose layouts and density accordingly.
+
+---
+
 ## Automation Guidance for Cursor
 
 When generating slides automatically:
 
-1. Identify the key insight from the dataset.  
-2. Generate a title that communicates the insight.  
-3. Select the appropriate chart type based on the data structure, defaulting to embedded Sheets charts for quantitative visuals.  
-4. Use vertical column charts by default; switch to horizontal bars only when labels or ranking clarity require it.  
-5. Apply LeanDNA color, labeling, and bar-outline standards.  
-6. Reserve explicit layout space for headers, charts, and footers so embedded chart objects do not overlap surrounding text.  
-7. Export a thumbnail for any newly designed or materially changed slide layout and fix collisions before considering the slide done.  
-8. Add two or three explanatory bullets interpreting the data.  
-9. For list- or table-heavy slides, follow **Pagination and continuation slides**: compute rows from the body band and font size; align multi-column line budgets; avoid unnecessary continuations.  
-10. For any new Jira-backed data fetch, record JQL with a **data description** and follow **Speaker notes: JQL trace** formatting in speaker notes.
+1. Identify the key insight from the dataset.
+2. Generate a title that communicates the insight.
+3. Select the appropriate slide type.
+4. Select the appropriate chart type based on the data structure, defaulting to embedded Sheets charts for quantitative visuals.
+5. Use vertical column charts by default and switch to horizontal bars only when label length or ranking readability requires it.
+6. Apply LeanDNA color, labeling, and bar-outline standards.
+7. Reserve explicit layout space for headers, charts, legends, and footers so embedded chart objects do not overlap surrounding text.
+8. Add two or three explanatory bullets interpreting the data when the slide type calls for them.
+9. For list- or table-heavy slides, follow pagination rules using the actual body band and font size.
+10. For newly designed or materially changed app-owned layouts, export a thumbnail and validate it before considering the slide done.
+11. For any new Jira-backed data fetch, record JQL with a data description and follow speaker-notes trace formatting.
 
-Slides should **not include raw data tables** unless explicitly requested.
+Slides should **not include raw data tables** unless explicitly requested or unless the slide type is inherently tabular.
 
 ---
 
-## Speaker notes: JQL trace
+## Visual QA Checklist for Automation
 
-### Automated deck layout (``_build_slide_jql_speaker_notes``)
+Before marking a newly generated or materially changed slide as complete, automation should verify all of the following.
 
-Speaker notes are plain text, **no** titled section header (e.g. no **“Slide Query Trace”** line). Order:
+### Required checks
 
-1. Timestamp (first line).  
-2. Blank line.  
-3. ``Slide: …`` and ``Slide type: …``.  
-4. Blank line, then **one line per trace** in unified format (see below).  
+- no overlaps between any visible slide elements
+- no text below `BODY_BOTTOM`
+- title fully visible and readable at normal presentation scale
+- chart axis labels and legends readable at thumbnail or presentation scale
+- KPI labels remain single-line inside metric cards
+- footer remains distinct from the body
+- lone charts use dominant-body treatment rather than undersized placement
+- continuation slides are labeled correctly
+- continuation slides are not emitted unnecessarily
+- no continuation slide has extremely low utilization unless required by data grouping rules
 
-Jira and SOQL rows use the same line shape as pipeline traces; there is **no** separate **“JQL used:”** block in the automated output.
+### Low-utilization continuation rule
 
-### Required line format (Jira — authoring / documentation convention)
+A continuation slide with less than approximately **25% body utilization** should be treated as suspicious.
+
+Automation should attempt to repack prior slides before accepting such an output, unless keeping groups together is more important than fill efficiency.
+
+---
+
+## Speaker Notes: JQL Trace
+
+### Automated deck layout (`_build_slide_jql_speaker_notes`)
+
+Speaker notes are plain text with **no titled section header**.
+
+Order:
+
+1. Timestamp
+2. Blank line
+3. `Slide: …` and `Slide type: …`
+4. Blank line
+5. One line per trace in unified format
+
+Jira and SOQL rows use the same line shape as pipeline traces. There is no separate `JQL used:` block in automated output.
+
+### Required Jira documentation format
 
 When documenting or hand-writing Jira lines, each query can be described as:
 
@@ -639,11 +800,11 @@ When documenting or hand-writing Jira lines, each query can be described as:
 
 Rules:
 
-- **Data description** — Short phrase in **square brackets** naming what the query *feeds* (the slice of data), not the slide title. Example: `[HELP customer issues resolved in last 180 days]` not `[SED Ticket Metrics]`.  
-- **Separator** — Space, hyphen, space: ` - ` between the closing `]` and the JQL text.  
-- **Enumeration** — When multiple queries apply to the same slide, prefix with `1.`, `2.`, … so lists stay scannable.
+- **Data description** is a short phrase in square brackets naming what the query feeds
+- use separator ` - ` between the description and the JQL text
+- when multiple queries apply to the same slide, prefix with `1.`, `2.`, and so on
 
-Example block (documentation / presenter-facing style):
+Example block:
 
 ```text
 JQL used:
@@ -651,14 +812,16 @@ JQL used:
 2. [HELP customer issues created in last 365 days] - project = HELP AND (…) AND created >= -365d ORDER BY created DESC
 ```
 
-### Implementation
+### Implementation rules
 
-- Report payloads store ``jql_queries`` as a list of objects: ``{"description": "…", "jql": "…"}``. Plain strings are still accepted for backward compatibility and are shown with description `[Jira issue search]`.  
-- New Jira fetches must supply a **description** at record time (e.g. ``_search(..., data_description="…")`` or ``_record_jql(jql, description="…")``).
-- **Pipeline trace descriptions must match on-slide copy.** For each automated metric row or KPI card, the speaker-note **description** (the text before ``:`` in ``description: source - query``) must be the **same header/label as on the slide**—not a paraphrase (e.g. use **Active This Week**, not “weekly active rate for this account”). Implement shared constants in ``src/slides_client.py`` so slide bodies and canonical trace builders cannot drift.
-- **Unified automated format.** After slide id/type, emit **one line per trace** as ``description: source - query`` (e.g. ``…: Jira - …`` for Jira). Do **not** insert a **Slide Query Trace** heading. Do not collapse multiple KPIs or metrics into a single run-on ``query`` string—add one trace row per on-slide metric (or per logical data slice), same as **Account Health Snapshot** (``health``), **Peer Benchmarks** (``benchmarks``), **Platform Value & ROI** (``platform_value``), and every other entry in ``_SLIDE_CANONICAL_PIPELINE_TRACES``.
-- **Canonical builders** in ``_SLIDE_CANONICAL_PIPELINE_TRACES`` must follow that rule: on-slide KPI labels plus field provenance; echo headline numbers in each trace line where helpful. Do not rely on ad-hoc ``data_traces`` in the payload for those slide types.
-- Other slides that are not Jira-backed but still need trace lines may attach ``data_traces`` on the relevant report subtree: a list of ``{"description": "…", "source": "…", "query": "…"}`` where **description** matches the visible slide label and **query** is a short pipeline / field explanation (not necessarily executable SQL). ``_build_slide_jql_speaker_notes`` merges these into the same ``description: source - query`` lines as Jira when no canonical builder applies.
+- report payloads store `jql_queries` as a list of objects: `{"description": "…", "jql": "…"}`
+- plain strings are still accepted for backward compatibility and shown with description `[Jira issue search]`
+- new Jira fetches must supply a description at record time
+- pipeline trace descriptions must match on-slide copy exactly
+- automated output should emit one line per trace as `description: source - query`
+- do not collapse multiple KPIs into a single run-on trace line
+- canonical builders in `_SLIDE_CANONICAL_PIPELINE_TRACES` must follow the same one-line-per-visible-metric rule
+- non-Jira slides may attach `data_traces` with `description`, `source`, and `query` fields using the same output shape
 
 ---
 
@@ -666,11 +829,14 @@ JQL used:
 
 Slides should not:
 
-- repeat the same metric multiple times  
-- show charts without interpretation  
-- include more than two or three charts  
-- include decorative graphics without meaning  
+- repeat the same metric multiple times without adding meaning
+- show charts without interpretation when interpretation is expected
+- include more than two or three major visuals on a single slide
+- include decorative graphics without analytical meaning
 - contain excessive text
+- silently omit overflowed data
+- mix incompatible density patterns on the same slide
+- use microtext to avoid pagination
 
 ---
 
@@ -690,14 +856,26 @@ Annotation:
 
 Supporting bullets:
 
-- turns increased from 5.1 to 6.0  
-- strongest improvement in high-volatility SKUs  
+- turns increased from 5.1 to 6.0
+- strongest improvement in high-volatility SKUs
 - next step is rollout to remaining factories
 
 ---
 
-## Future Automation
+## Future Direction: Prefer Executable Constraints Where Possible
 
-The long-term goal is for operational datasets to generate slides automatically.
+The long-term goal is for operational datasets to generate slides automatically and for style rules to be increasingly machine-enforced.
 
-LeanDNA analytics systems and health-check datasets should ultimately feed automated reporting pipelines capable of generating QBR decks directly from data.
+Where a rule can be represented as configuration or code, prefer executable constraints over prose.
+
+Examples include:
+
+- minimum and maximum font sizes
+- chart/body area ratios
+- pagination limits
+- density profile defaults
+- KPI label fitting rules
+- safe block spacing
+- QA validation checks
+
+This document should remain the human-readable policy layer, but the most important layout and validation rules should ultimately live in shared constants, helper functions, registries, or schema-driven configuration.

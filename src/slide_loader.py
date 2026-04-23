@@ -37,19 +37,37 @@ def _parse_order(order_val: Any) -> tuple[int, str]:
     return (5000, "")
 
 
-def _load_all_slides(slides_dir: str | Path | None = None) -> list[dict[str, Any]]:
-    """Load slide definitions from Drive (with local fallback) or purely local."""
+def _load_all_slides(
+    slides_dir: str | Path | None = None,
+    *,
+    only_slide_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Load slide definitions from Drive (with local fallback) or purely local.
+
+    If ``only_slide_ids`` is set, only definitions whose ``id`` is in that set are
+    read (faster for a single known deck; see :func:`resolve_deck`).
+    """
     d = Path(slides_dir) if slides_dir else DEFAULT_SLIDES_DIR
+    if only_slide_ids is not None and not only_slide_ids:
+        return []
     if _USE_DRIVE and not slides_dir:
         try:
             from .drive_config import load_yaml_from_drive
-            return load_yaml_from_drive("slides", d)
+            return load_yaml_from_drive(
+                "slides",
+                d,
+                only_slide_ids=only_slide_ids,
+            )
         except Exception as e:
             logger.warning("Drive slide load failed, falling back to local: %s", e)
 
     if not d.is_dir():
         logger.warning("Slides directory not found: %s", d)
         return []
+
+    if only_slide_ids:
+        from .drive_config import load_local_slide_definitions_for_ids
+        return load_local_slide_definitions_for_ids(d, only_slide_ids)
 
     results: list[dict[str, Any]] = []
     for f in sorted(d.glob("*.yaml")):
@@ -67,6 +85,8 @@ def _load_all_slides(slides_dir: str | Path | None = None) -> list[dict[str, Any
 def load_slides(
     slides_dir: str | Path | None = None,
     customer: str | None = None,
+    *,
+    only_slide_ids: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Load all active slide definitions, optionally filtered for a specific customer.
 
@@ -74,11 +94,13 @@ def load_slides(
         slides_dir: Path to the slides folder. Defaults to project root /slides.
         customer: If provided, only return slides that apply to this customer.
                  If None, returns all slides with customers="all".
+        only_slide_ids: If set, only load these slide ids (from deck YAML). Skips
+            reading the rest of ``slides/`` on Drive or disk — use with :func:`resolve_deck`.
 
     Returns:
         Sorted list of slide dicts.
     """
-    slides = _load_all_slides(slides_dir)
+    slides = _load_all_slides(slides_dir, only_slide_ids=only_slide_ids)
 
     if customer is not None:
         slides = _filter_for_customer(slides, customer)

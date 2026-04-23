@@ -81,6 +81,46 @@ def _tf(x, y):
     return {"scaleX": 1, "scaleY": 1, "translateX": x, "translateY": y, "unit": "PT"}
 
 
+def _truncate_table_cell(value: str | None, max_len: int) -> str:
+    """Trim to one line with ``...``; when truncating, prefer a word break over mid-word cuts."""
+    if value is None:
+        return "—"
+    t = str(value).strip()
+    if not t:
+        return "—"
+    if len(t) <= max_len:
+        return t
+    if max_len < 4:
+        return t[:max_len]
+    room = max_len - 3
+    head = t[:room]
+    if " " in head:
+        i = head.rfind(" ")
+        if i > max(6, max_len // 4):
+            head = head[:i].rstrip()
+    if not head:
+        head = t[:room]
+    return head + "..."
+
+
+def _max_chars_one_line_for_table_col(col_width_pt: float, font_pt: float = 8.0) -> int:
+    """Upper bound on characters for a single-line table cell at *font_pt* in *col_width_pt*.
+
+    Google Slides wraps long text; row height then exceeds the nominal `row_height_pt` used in
+    `_table_rows_fit_span` and the table spills past ``BODY_BOTTOM``. Truncate to this length
+    (via ``_truncate_table_cell``) so one line fits the column.
+
+    Slides table cells have horizontal padding; the drawable text width is smaller than
+    *col_width_pt*. Use a conservative advance width (~0.58× font) and a safety margin so we
+    stay on one line in practice (a ~0.48 model was still wrapping wide titles in production).
+    """
+    if col_width_pt <= 0:
+        return 8
+    inner = max(20.0, float(col_width_pt) - 18.0)  # ~9 pt inset each side
+    per = max(3.2, float(font_pt) * 0.58)
+    return max(4, int((inner / per) * 0.88))
+
+
 def _slide(reqs, sid, idx):
     reqs.append({"createSlide": {"objectId": sid, "insertionIndex": idx}})
 
@@ -223,7 +263,8 @@ def _kpi_metric_card(
         })
 
 
-CHART_LEGEND_PT = 11.0
+# Slide-level swatch+label legend (replaces tiny Sheets chart legends). Must stay ≥11 pt for deck projection.
+CHART_LEGEND_PT = 12.0
 
 def _slide_chart_legend(
     reqs: list,
@@ -1071,6 +1112,15 @@ def _cohort_findings_pipeline_traces(report: dict[str, Any]) -> list[dict[str, s
     }]
 
 
+def _cs_notable_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
+    src = (report.get("support_notable_bullets_source") or "").strip() or "static"
+    return [{
+        "description": "Notable (CS) bullets",
+        "source": "LLM" if src == "llm" else "static / YAML (digest + optional LLM in support deck run)",
+        "query": f"source={src}; Jira + engagement digest; see BPO logs for this run",
+    }]
+
+
 _SLIDE_CANONICAL_PIPELINE_TRACES: dict[str, Any] = {
     "health": _health_snapshot_pipeline_traces,
     "benchmarks": _peer_benchmarks_pipeline_traces,
@@ -1081,6 +1131,7 @@ _SLIDE_CANONICAL_PIPELINE_TRACES: dict[str, Any] = {
     "cohort_summary": _cohort_summary_pipeline_traces,
     "cohort_profiles": _cohort_profiles_pipeline_traces,
     "cohort_findings": _cohort_findings_pipeline_traces,
+    "cs_notable": _cs_notable_pipeline_traces,
 }
 
 
@@ -3010,6 +3061,11 @@ def _customer_ticket_metrics_slide(reqs, sid, report, idx):
 
     adherence_pct = adherence.get("pct")
     adherence_value = "—" if adherence_pct is None else f"{adherence_pct:.0f}%"
+    # Same row accent: missing SLA uses BLUE like other "—" cells; R/G only when pct exists.
+    if adherence_pct is None:
+        k3_accent = BLUE
+    else:
+        k3_accent = _GREEN if adherence_pct >= 90 else (BLUE if adherence_pct >= 75 else _RED)
 
     _kpi_metric_card(
         reqs, f"{sid}_k1", sid, MARGIN, row1_y, top_card_w, card_h,
@@ -3022,7 +3078,7 @@ def _customer_ticket_metrics_slide(reqs, sid, report, idx):
     _kpi_metric_card(
         reqs, f"{sid}_k3", sid, MARGIN + 2 * (top_card_w + col_gap), row1_y, top_card_w, card_h,
         "HELP SLA adherence (1y)", adherence_value,
-        accent=_GREEN if (adherence_pct or 0) >= 90 else (BLUE if (adherence_pct or 0) >= 75 else _RED),
+        accent=k3_accent,
     )
 
     _kpi_metric_card(
@@ -3096,6 +3152,10 @@ def _non_help_project_ticket_kpi_slide(
 
     adherence_pct = adherence.get("pct")
     adherence_value = "—" if adherence_pct is None else f"{adherence_pct:.0f}%"
+    if adherence_pct is None:
+        k3_accent = BLUE
+    else:
+        k3_accent = _GREEN if adherence_pct >= 90 else (BLUE if adherence_pct >= 75 else _RED)
 
     _kpi_metric_card(
         reqs, f"{sid}_k1", sid, MARGIN, row1_y, top_card_w, card_h,
@@ -3108,7 +3168,7 @@ def _non_help_project_ticket_kpi_slide(
     _kpi_metric_card(
         reqs, f"{sid}_k3", sid, MARGIN + 2 * (top_card_w + col_gap), row1_y, top_card_w, card_h,
         f"{project} SLA adherence (1y)", adherence_value,
-        accent=_GREEN if (adherence_pct or 0) >= 90 else (BLUE if (adherence_pct or 0) >= 75 else _RED),
+        accent=k3_accent,
     )
 
     _kpi_metric_card(
@@ -3181,16 +3241,17 @@ def _project_ticket_metrics_breakdown_slide(
         pairs = list(items.items())
         if len(pairs) > limit:
             shown = pairs[: limit - 1]
-            other = sum(v for _, v in pairs[limit - 1:])
+            other = sum(int(v) for _, v in pairs[limit - 1:])
             shown.append(("Other", other))
         else:
             shown = pairs
         labels = []
         values = []
         for name, count in shown:
-            compact = name if len(name) <= 24 else f"{name[:21]}..."
-            labels.append(compact)
-            values.append(count)
+            lab = str(name) if name is not None else ""
+            lab = _truncate_table_cell(lab, 48) if lab else "—"
+            labels.append(lab)
+            values.append(int(count))
         return labels, values
 
     type_labels, type_values = _chart_rows(by_type)
@@ -3206,8 +3267,16 @@ def _project_ticket_metrics_breakdown_slide(
     chart_gap = 18
     chart_w = (CONTENT_W - chart_gap) / 2
     title_y = BODY_Y + 18
-    chart_y = title_y + 18
-    chart_h = max(208, BODY_BOTTOM - chart_y - 4)
+    # Clear gap after ~14pt section subheads so embedded charts do not overlap titles.
+    chart_y = title_y + 24
+
+    def _pie_h(_n_labels: int) -> int:
+        """Height for the embedded chart; legend is part of the Sheets object—use most of the body band."""
+        # Short embeds make *all* in-chart text (incl. legend) microscopic on the slide. Prefer
+        # RIGHT_LEGEND (below) and a tall box so the pie and labels scale up together.
+        avail = int(float(BODY_BOTTOM) - float(chart_y) - 6.0)
+        return max(150, min(320, avail))
+
     left_x = MARGIN
     right_x = MARGIN + chart_w + chart_gap
 
@@ -3216,6 +3285,10 @@ def _project_ticket_metrics_breakdown_slide(
         _box(reqs, f"{sid}_th", sid, left_x, title_y, chart_w, 14, type_hdr)
         _style(reqs, f"{sid}_th", 0, len(type_hdr), bold=True, size=13, color=NAVY, font=FONT)
         _align(reqs, f"{sid}_th", "CENTER")
+        ch = _pie_h(len(type_labels))
+        # Native Sheets legend: slice colors and legend are guaranteed to match. Per-slice
+        # colors are not controllable on pie charts via the API; a slide-level "legend"
+        # with brand colors can mislead (chart uses the spreadsheet theme palette).
         ss_id, chart_id = charts.add_pie_chart(
             title=f"{project} unresolved by type",
             labels=type_labels,
@@ -3223,15 +3296,16 @@ def _project_ticket_metrics_breakdown_slide(
             donut=False,
             suppress_legend=False,
             show_title=False,
-            legend_position="BOTTOM_LEGEND",
+            legend_position="RIGHT_LEGEND",
         )
-        embed_chart(reqs, f"{sid}_tc", sid, ss_id, chart_id, left_x, chart_y, chart_w, chart_h, linked=False)
+        embed_chart(reqs, f"{sid}_tc", sid, ss_id, chart_id, left_x, chart_y, chart_w, ch, linked=False)
 
     if status_labels:
         status_hdr = "Unresolved by status"
         _box(reqs, f"{sid}_sh", sid, right_x, title_y, chart_w, 14, status_hdr)
         _style(reqs, f"{sid}_sh", 0, len(status_hdr), bold=True, size=13, color=NAVY, font=FONT)
         _align(reqs, f"{sid}_sh", "CENTER")
+        ch2 = _pie_h(len(status_labels))
         ss_id2, chart_id2 = charts.add_pie_chart(
             title=f"{project} unresolved by status",
             labels=status_labels,
@@ -3239,9 +3313,11 @@ def _project_ticket_metrics_breakdown_slide(
             donut=False,
             suppress_legend=False,
             show_title=False,
-            legend_position="BOTTOM_LEGEND",
+            legend_position="RIGHT_LEGEND",
         )
-        embed_chart(reqs, f"{sid}_sc", sid, ss_id2, chart_id2, right_x, chart_y, chart_w, chart_h, linked=False)
+        embed_chart(
+            reqs, f"{sid}_sc", sid, ss_id2, chart_id2, right_x, chart_y, chart_w, ch2, linked=False
+        )
 
     return idx + 1
 
@@ -3299,7 +3375,6 @@ def _customer_help_recent_slide(
     # Always use report customer as source of truth (blob may be from cache)
     customer = report.get("customer") or blob.get("customer") or "All Customers"
     is_all_customers = report.get("customer") is None
-    is_all_customers = report.get("customer") is None
 
     entry = report.get("_current_slide") or {}
     base_title = entry.get("title") or (
@@ -3312,16 +3387,28 @@ def _customer_help_recent_slide(
     _bg(reqs, sid, WHITE)
     _slide_title(reqs, sid, base_title)
     
-    # Show "showing X of Y" if we have more tickets than fit on slide
-    max_rows = 8
-    if total_n > max_rows:
-        count_text = f"showing {max_rows} of {total_n} tickets"
+    # Tight row pitch (≈19 pt) + cap 8 data rows: keeps HELP recent tables in the body band
+    # when all cells stay single-line. Wrapping blows row height; see _max_chars_one_line_for_table_col.
+    table_top = BODY_Y + 24
+    row_h = 19.0
+    max_data_rows = _table_rows_fit_span(
+        y_top=table_top,
+        y_bottom=BODY_BOTTOM,
+        row_height_pt=row_h,
+        reserved_table_rows=1,
+        max_rows_cap=8,
+    )
+    display_items = items[:max_data_rows]
+    n_show = len(display_items)
+    if total_n > n_show:
+        count_text = f"showing {n_show} of {total_n} tickets (most recent)"
     else:
         count_text = f"{total_n} ticket{'s' if total_n != 1 else ''}"
     
+    port_note = " ·  no org column (portfolio scope)" if is_all_customers else ""
     sub = (
         f"project HELP  ·  matched to {customer}  ·  {kind} in the last {days} days  ·  "
-        f"{count_text}"
+        f"{count_text}{port_note}"
     )
     _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
     _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
@@ -3332,23 +3419,21 @@ def _customer_help_recent_slide(
         _style(reqs, f"{sid}_empty", 0, len(empty_msg), size=10, color=NAVY, font=FONT)
         return idx + 1
     
-    # Limit to 8 rows to fit on page with tighter spacing
-    display_items = items[:max_rows]
-    
-    # Create table
+    # Portfolio (all customers): omit Organization — not meaningful per row; give width to Title.
     if is_all_customers:
-        headers = ["ID", "Title", "Organization", "Status", "Priority", "Created", "Resolved"]
-        # Keep total width inside CONTENT_W while adding Organization before Status.
-        col_widths = [56, 206, 96, 76, 52, 62, 62]
+        headers = ["ID", "Title", "Status", "Priority", "Created", "Resolved"]
+        col_widths = [60, 236, 100, 100, 64, 64]
     else:
         headers = ["ID", "Title", "Status", "Priority", "Created", "Resolved"]
-        col_widths = [60, 240, 80, 60, 72, 72]  # Total: 584pt (fits in ~600pt content width)
-    ROW_H = 14  # Reduced from 18pt for tighter spacing
-    
-    table_top = BODY_Y + 24
+        col_widths = [60, 200, 100, 100, 64, 64]
+    t_title = _max_chars_one_line_for_table_col(float(col_widths[1]))
+    t_st = _max_chars_one_line_for_table_col(float(col_widths[2]))
+    t_pr = _max_chars_one_line_for_table_col(float(col_widths[3]))
+    ROW_H = row_h
+
     num_rows = 1 + len(display_items)
     table_id = f"{sid}_tbl"
-    
+
     reqs.append({
         "createTable": {
             "objectId": table_id,
@@ -3361,7 +3446,7 @@ def _customer_help_recent_slide(
             "columns": len(headers),
         }
     })
-    
+
     def _ct(row, col, text):
         if not text:
             return
@@ -3373,7 +3458,7 @@ def _customer_help_recent_slide(
                 "insertionIndex": 0,
             }
         })
-    
+
     def _cs(row, col, text_len, bold=False, color=None, size=8, align=None, link=None):
         if text_len > 0:
             from typing import Any
@@ -3431,21 +3516,13 @@ def _customer_help_recent_slide(
         row_idx = ri + 1
         
         key = it.get("key") or "—"
-        title = it.get("summary") or ""
-        if len(title) > 60:
-            title = title[:57] + "..."
-        org = (it.get("organization") or "—")
-        if len(org) > 26:
-            org = org[:23] + "..."
-        status = (it.get("status") or "—")[:18]
-        priority = (it.get("priority") or "—")[:12]
+        title = _truncate_table_cell(it.get("summary"), t_title)
+        status = _truncate_table_cell(it.get("status"), t_st)
+        priority = _truncate_table_cell(it.get("priority"), t_pr)
         created = it.get("created_short") or "—"
         resolved = it.get("resolved_short") or "—"
 
-        if is_all_customers:
-            vals = [key, title, org, status, priority, created, resolved]
-        else:
-            vals = [key, title, status, priority, created, resolved]
+        vals = [key, title, status, priority, created, resolved]
         
         for ci, v in enumerate(vals):
             _ct(row_idx, ci, v)
@@ -3455,13 +3532,6 @@ def _customer_help_recent_slide(
                 _cs(row_idx, ci, len(v), bold=True, color=BLUE, size=8, link=f"{jira_base}/browse/{key}")
             else:
                 _cs(row_idx, ci, len(v), size=8)
-    
-    # Add footnote if we're showing a subset
-    if total_n > max_rows:
-        footnote = f"Showing {max_rows} of {total_n} tickets (most recent)"
-        footnote_y = table_top + (num_rows * ROW_H) + 8
-        _box(reqs, f"{sid}_footnote", sid, MARGIN, footnote_y, CONTENT_W, 14, footnote)
-        _style(reqs, f"{sid}_footnote", 0, len(footnote), size=8, color=GRAY, font=FONT, italic=True)
     
     return idx + 1
 
@@ -3649,36 +3719,48 @@ def _resolved_by_assignee_table_slide(
     _slide(reqs, sid, idx)
     _bg(reqs, sid, _project_slide_bg(project))
     _slide_title(reqs, sid, base_title)
-    
-    # Show "showing top X of Y assignees" if we have more than fit on slide
-    max_rows = 12
-    num_assignees = len(assignees)
-    if num_assignees > max_rows:
-        assignee_text = f"showing top {max_rows} of {num_assignees} assignees"
-    else:
-        assignee_text = f"{num_assignees} assignee{'s' if num_assignees != 1 else ''}"
-    
-    sub = f"project {project}  ·  matched to {customer}  ·  resolved in last {days} days  ·  {total_resolved} tickets  ·  {assignee_text}"
-    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
-    _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
-    
+
     if not assignees:
+        sub_empty = (
+            f"project {project}  ·  matched to {customer}  ·  resolved in last {days} days  ·  "
+            f"{total_resolved} tickets  ·  0 assignees"
+        )
+        _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub_empty)
+        _style(reqs, f"{sid}_sub", 0, len(sub_empty), size=9, color=GRAY, font=FONT)
         empty_msg = f"No {project} tickets resolved in the last {days} days."
         _box(reqs, f"{sid}_empty", sid, MARGIN, BODY_Y + 30, CONTENT_W, 40, empty_msg)
         _style(reqs, f"{sid}_empty", 0, len(empty_msg), size=10, color=NAVY, font=FONT)
         return idx + 1
-    
-    # Limit to 12 rows to fit on page (assignee names typically fit on 1 line)
-    # Available space: BODY_BOTTOM - table_top ≈ 265pt
-    # Header: ~18pt, each data row: ~18pt → 13 rows max (using 12 for safety)
-    display_assignees = assignees[:max_rows]
-    
+
+    num_assignees = len(assignees)
+    # Nominal row height for size math must match _table_rows_fit_span so we do not
+    # claim "top 12" while Slides cell padding / clipping hides the last row. Use
+    # ~22pt, not 18pt, so reserved height is closer to rendered table rows.
+    table_top = BODY_Y + 24
+    row_h = 22
+    max_data_rows = _table_rows_fit_span(
+        y_top=table_top,
+        y_bottom=BODY_BOTTOM,
+        row_height_pt=row_h,
+        reserved_table_rows=1,
+        max_rows_cap=12,
+    )
+    display_assignees = assignees[:max_data_rows]
+    n_shown = len(display_assignees)
+    if num_assignees > n_shown:
+        assignee_text = f"showing top {n_shown} of {num_assignees} assignees"
+    else:
+        assignee_text = f"{num_assignees} assignee{'s' if num_assignees != 1 else ''}"
+
+    sub = f"project {project}  ·  matched to {customer}  ·  resolved in last {days} days  ·  {total_resolved} tickets  ·  {assignee_text}"
+    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
+    _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
+
     # Create narrower table - reduce white space
     headers = ["Assignee", "Resolved"]
     col_widths = [350, 100]  # Narrower than before (was 450, 134)
-    ROW_H = 18
-    
-    table_top = BODY_Y + 24
+    ROW_H = row_h
+
     num_rows = 1 + len(display_assignees)
     table_id = f"{sid}_tbl"
     
@@ -3787,13 +3869,8 @@ def _resolved_by_assignee_table_slide(
             else:
                 _cs(row_idx, ci, len(v), size=9, align="END" if ci == 1 else None)
     
-    # Add footnote if we're showing a subset
-    if len(assignees) > max_rows:
-        footnote = f"Showing top {max_rows} of {len(assignees)} assignees"
-        footnote_y = table_top + (num_rows * ROW_H) + 8
-        _box(reqs, f"{sid}_footnote", sid, MARGIN, footnote_y, CONTENT_W, 14, footnote)
-        _style(reqs, f"{sid}_footnote", 0, len(footnote), size=8, color=GRAY, font=FONT, italic=True)
-    
+    # Subtitle already states "showing top N of M assignees" when truncated; do not
+    # add a second line below the table (nominal row height != rendered height → overlap).
     return idx + 1
 
 
@@ -3828,16 +3905,26 @@ def _project_recent_tickets_table_slide(
     _bg(reqs, sid, _project_slide_bg(project))
     _slide_title(reqs, sid, base_title)
     
-    # Show "showing X of Y" if we have more tickets than fit on slide
-    max_rows = 8
-    if total_n > max_rows:
-        count_text = f"showing {max_rows} of {total_n} tickets"
+    table_top = BODY_Y + 24
+    row_h = 19.0
+    max_data_rows = _table_rows_fit_span(
+        y_top=table_top,
+        y_bottom=BODY_BOTTOM,
+        row_height_pt=row_h,
+        reserved_table_rows=1,
+        max_rows_cap=8,
+    )
+    display_items = items[:max_data_rows]
+    n_show = len(display_items)
+    if total_n > n_show:
+        count_text = f"showing {n_show} of {total_n} tickets (most recent)"
     else:
         count_text = f"{total_n} ticket{'s' if total_n != 1 else ''}"
     
+    port_note = " ·  no org column (portfolio scope)" if is_all_customers else ""
     sub = (
         f"project {project}  ·  matched to {customer}  ·  {kind} in the last {days} days  ·  "
-        f"{count_text}"
+        f"{count_text}{port_note}"
     )
     _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
     _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
@@ -3848,24 +3935,21 @@ def _project_recent_tickets_table_slide(
         _style(reqs, f"{sid}_empty", 0, len(empty_msg), size=10, color=NAVY, font=FONT)
         return idx + 1
     
-    # Limit to 8 rows to fit on page with tighter spacing
-    # Available space: BODY_BOTTOM - table_top ≈ 265pt
-    # With ROW_H=14pt: Header ~28pt, 8 data rows ~28pt each = ~252pt total
-    display_items = items[:max_rows]
-    
-    # Create table
+    # Same layout as _customer_help_recent_slide: portfolio = no Organization column.
     if is_all_customers:
-        headers = ["ID", "Title", "Organization", "Status", "Priority", "Created", "Resolved"]
-        col_widths = [56, 206, 96, 76, 52, 62, 62]
+        headers = ["ID", "Title", "Status", "Priority", "Created", "Resolved"]
+        col_widths = [60, 236, 100, 100, 64, 64]
     else:
         headers = ["ID", "Title", "Status", "Priority", "Created", "Resolved"]
-        col_widths = [60, 240, 80, 60, 72, 72]
-    ROW_H = 14  # Reduced from 18pt for tighter spacing
-    
-    table_top = BODY_Y + 24
+        col_widths = [60, 200, 100, 100, 64, 64]
+    t_title = _max_chars_one_line_for_table_col(float(col_widths[1]))
+    t_st = _max_chars_one_line_for_table_col(float(col_widths[2]))
+    t_pr = _max_chars_one_line_for_table_col(float(col_widths[3]))
+    ROW_H = row_h
+
     num_rows = 1 + len(display_items)
     table_id = f"{sid}_tbl"
-    
+
     reqs.append({
         "createTable": {
             "objectId": table_id,
@@ -3878,7 +3962,7 @@ def _project_recent_tickets_table_slide(
             "columns": len(headers),
         }
     })
-    
+
     def _ct(row, col, text):
         if not text:
             return
@@ -3890,7 +3974,7 @@ def _project_recent_tickets_table_slide(
                 "insertionIndex": 0,
             }
         })
-    
+
     def _cs(row, col, text_len, bold=False, color=None, size=8, align=None, link=None):
         if text_len > 0:
             from typing import Any
@@ -3948,38 +4032,23 @@ def _project_recent_tickets_table_slide(
         row_idx = ri + 1
         
         key = it.get("key") or "—"
-        title = it.get("summary") or ""
-        if len(title) > 60:
-            title = title[:57] + "..."
-        org = (it.get("organization") or "—")
-        if len(org) > 26:
-            org = org[:23] + "..."
-        status = (it.get("status") or "—")[:18]
-        priority = (it.get("priority") or "—")[:12]
+        title = _truncate_table_cell(it.get("summary"), t_title)
+        status = _truncate_table_cell(it.get("status"), t_st)
+        priority = _truncate_table_cell(it.get("priority"), t_pr)
         created = it.get("created_short") or "—"
         resolved = it.get("resolved_short") or "—"
 
-        if is_all_customers:
-            vals = [key, title, org, status, priority, created, resolved]
-        else:
-            vals = [key, title, status, priority, created, resolved]
-        
+        vals = [key, title, status, priority, created, resolved]
+
         for ci, v in enumerate(vals):
             _ct(row_idx, ci, v)
-            
+
             # Make ticket ID a link and bold
             if ci == 0 and jira_base and key and key != "—":
                 _cs(row_idx, ci, len(v), bold=True, color=BLUE, size=8, link=f"{jira_base}/browse/{key}")
             else:
                 _cs(row_idx, ci, len(v), size=8)
-    
-    # Add footnote if we're showing a subset
-    if total_n > max_rows:
-        footnote = f"Showing {max_rows} of {total_n} tickets (most recent)"
-        footnote_y = table_top + (num_rows * ROW_H) + 8
-        _box(reqs, f"{sid}_footnote", sid, MARGIN, footnote_y, CONTENT_W, 14, footnote)
-        _style(reqs, f"{sid}_footnote", 0, len(footnote), size=8, color=GRAY, font=FONT, italic=True)
-    
+
     return idx + 1
 
 
@@ -7001,20 +7070,21 @@ def _render_project_volume_trends(
     _style(reqs, f"{sid}_ctx", 0, len(ctx), size=9, color=GRAY, font=FONT)
 
     legend_y = BODY_Y + 18
-    _rect(reqs, f"{sid}_lg_created", sid, MARGIN, legend_y + 4, 18, 3, NAVY)
-    _box(reqs, f"{sid}_lg_created_t", sid, MARGIN + 24, legend_y, 48, 12, "Created")
-    _style(reqs, f"{sid}_lg_created_t", 0, 7, bold=True, size=9, color=NAVY, font=FONT)
+    _rect(reqs, f"{sid}_lg_created", sid, MARGIN, legend_y + 4, 20, 4, NAVY)
+    _box(reqs, f"{sid}_lg_created_t", sid, MARGIN + 28, legend_y, 64, 14, "Created")
+    _style(reqs, f"{sid}_lg_created_t", 0, 7, bold=True, size=CHART_LEGEND_PT, color=NAVY, font=FONT)
     created_resolved = {"red": 0.90, "green": 0.40, "blue": 0.00}
-    _rect(reqs, f"{sid}_lg_resolved", sid, MARGIN + 76, legend_y + 4, 18, 3, created_resolved)
-    _box(reqs, f"{sid}_lg_resolved_t", sid, MARGIN + 100, legend_y, 54, 12, "Resolved")
-    _style(reqs, f"{sid}_lg_resolved_t", 0, 8, bold=True, size=9, color=NAVY, font=FONT)
+    _rect(reqs, f"{sid}_lg_resolved", sid, MARGIN + 100, legend_y + 4, 20, 4, created_resolved)
+    _box(reqs, f"{sid}_lg_resolved_t", sid, MARGIN + 128, legend_y, 64, 14, "Resolved")
+    _style(reqs, f"{sid}_lg_resolved_t", 0, 8, bold=True, size=CHART_LEGEND_PT, color=NAVY, font=FONT)
 
     from .charts import embed_chart
 
     top_y = BODY_Y + 34
     top_gap = 16
     top_chart_w = (CONTENT_W - top_gap) // 2
-    top_chart_h = 82
+    # Short line charts (~80pt tall) shrink axis/category text to illegible on the slide.
+    top_chart_h = 100
     left_x = MARGIN
     right_x = MARGIN + top_chart_w + top_gap
 
@@ -7031,7 +7101,7 @@ def _render_project_volume_trends(
         },
         series_colors=[NAVY, created_resolved],
         show_legend=False,
-        axis_font_size=9,
+        axis_font_size=12,
         line_width=3,
     )
     embed_chart(reqs, f"{sid}_all_chart", sid, ss_id, chart_id, left_x, top_chart_y, top_chart_w, top_chart_h, linked=False)
@@ -7049,13 +7119,13 @@ def _render_project_volume_trends(
         },
         series_colors=[NAVY, created_resolved],
         show_legend=False,
-        axis_font_size=9,
+        axis_font_size=12,
         line_width=3,
     )
     embed_chart(reqs, f"{sid}_esc_chart", sid, ss_id2, chart_id2, right_x, esc_chart_y, top_chart_w, top_chart_h, linked=False)
 
     bottom_chart_w = 436
-    bottom_chart_h = 82
+    bottom_chart_h = 100
     bottom_x = MARGIN + (CONTENT_W - bottom_chart_w) / 2
     bottom_y = top_chart_y + top_chart_h + 18
     non_hdr = f"{project} tickets excluding jira_escalated"
@@ -7071,7 +7141,7 @@ def _render_project_volume_trends(
         },
         series_colors=[NAVY, created_resolved],
         show_legend=False,
-        axis_font_size=9,
+        axis_font_size=12,
         line_width=3,
     )
     embed_chart(reqs, f"{sid}_non_chart", sid, ss_id3, chart_id3, bottom_x, non_chart_y, bottom_chart_w, bottom_chart_h, linked=False)
@@ -7137,6 +7207,70 @@ def _lean_project_volume_trends_slide(reqs: list, sid: str, report: dict, idx: i
     return _render_project_volume_trends(
         reqs, sid, report, idx, trends=trends, project="LEAN", bg=_project_slide_bg("LEAN"),
     )
+
+
+def _support_intro_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """First slide: deck title, audience/timeframe, and short context (Support Review)."""
+    entry = report.get("_current_slide") or {}
+    days = int(report.get("days") or 30)
+    dr = _date_range(
+        days, report.get("quarter"), report.get("quarter_start"), report.get("quarter_end"),
+    )
+    c_disp = report.get("customer") or "All Customers"
+    title = entry.get("title") or "Support Review"
+    blurb = (entry.get("intro_blurb") or "").strip() or (
+        "Jira ticket volume, backlog, response-time KPIs, and recent activity—organized by project "
+        "(HELP, CUSTOMER, LEAN) for operations and customer success."
+    )
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+    line1 = f"{c_disp}  ·  {dr}"
+    _box(reqs, f"{sid}_meta", sid, MARGIN, BODY_Y, CONTENT_W, 22, line1)
+    _style(reqs, f"{sid}_meta", 0, len(line1), size=10, color=GRAY, font=FONT)
+    y2 = BODY_Y + 28
+    h = max(64.0, float(BODY_BOTTOM) - y2 - 4.0)
+    _box(reqs, f"{sid}_b", sid, MARGIN, y2, CONTENT_W, h, blurb)
+    _style(reqs, f"{sid}_b", 0, len(blurb), size=12, color=NAVY, font=FONT)
+    return idx + 1
+
+
+def _cs_notable_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """Six focus areas of interest to Customer Success leaders; from LLM digest, slide YAML, or default copy."""
+    entry = report.get("_current_slide") or {}
+    title = entry.get("title") or "Notable"
+    default_items = [
+        "Adoption and depth: Are the right people using the product in the ways that matter for business outcomes?",
+        "Account health and risk: Churn, renewal, adoption trends, and what would worry you on this account.",
+        "Value proof: Concrete metrics and outcomes the customer and their execs would recognize as progress or ROI.",
+        "Champions and executive coverage: Sponsors, power users, and access at the right level.",
+        "Support, friction, and product gaps: Ticket patterns, training vs. real gaps, and recurring blockers to value.",
+        "Expectations and follow-through: What was committed, what shipped, what is still open, and what is next.",
+    ]
+    llm_b = report.get("support_notable_bullets")
+    if isinstance(llm_b, list) and len(llm_b) > 0:
+        items = [str(x).strip() for x in llm_b if str(x).strip()][:6]
+    else:
+        items = list(entry.get("notable_items") or default_items)
+    items = [str(x).strip() for x in items if str(x).strip()][:6]
+    if not items:
+        return _missing_data_slide(reqs, sid, report, idx, "notable_items")
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+    y = float(BODY_Y)
+    st = (entry.get("notable_subtitle") or entry.get("subtitle") or "").strip()
+    if st:
+        _box(reqs, f"{sid}_st", sid, MARGIN, y, CONTENT_W, 20, st)
+        _style(reqs, f"{sid}_st", 0, len(st), size=9, color=GRAY, font=FONT)
+        y += 24.0
+    body = "\n\n".join(f"• {t}" for t in items)
+    h = float(BODY_BOTTOM) - y - 4.0
+    if h < 40:
+        h = 40.0
+    _box(reqs, f"{sid}_li", sid, MARGIN, y, CONTENT_W, h, body)
+    _style(reqs, f"{sid}_li", 0, len(body), size=10, color=NAVY, font=FONT)
+    return idx + 1
 
 
 def _sf_format_cell(val: Any, max_len: int = 44) -> str:
@@ -7839,6 +7973,8 @@ _SLIDE_BUILDERS = {
     "eng_support_pressure": _eng_support_pressure_slide,
     "eng_jira_project": _eng_jira_project_slide,
     "eng_help_volume_trends": _eng_help_volume_trends_slide,
+    "support_intro": _support_intro_slide,
+    "cs_notable": _cs_notable_slide,
     "salesforce_comprehensive_cover": _salesforce_comprehensive_cover_slide,
     "salesforce_category": _salesforce_category_slide,
     "cohort_deck_title": _cohort_deck_title_slide,
@@ -7916,6 +8052,8 @@ SLIDE_DATA_REQUIREMENTS = {
     "eng_support_pressure": ["eng_portfolio"],
     "eng_jira_project": ["eng_portfolio"],
     "eng_help_volume_trends": ["eng_portfolio"],
+    "support_intro": [],
+    "cs_notable": [],
     "salesforce_comprehensive_cover": ["salesforce_comprehensive"],
     "salesforce_category": ["salesforce_comprehensive"],
 }
@@ -8096,7 +8234,7 @@ def create_health_deck(
 
     from .deck_loader import resolve_deck
 
-    # For "all customers" support deck (customer=None), resolve_deck will load all slides
+    # resolve_deck loads only slide YAMLs referenced by this deck (not the full slides/ catalog).
     resolved = resolve_deck(deck_id, customer)
     if resolved.get("error"):
         return {"error": resolved["error"]}
@@ -8124,6 +8262,16 @@ def create_health_deck(
             updated = raw_title.replace("Safran Electronics & Defense (SED)", active_customer)
             updated = updated.replace("(SED)", f"({active_customer})")
             entry["title"] = updated
+        if not customer:
+            # Avoid "All Customers CUSTOMER …" (Jira project + audience phrasing clash).
+            for entry in slide_plan:
+                t = entry.get("title")
+                if not isinstance(t, str):
+                    continue
+                t2 = t.replace("All Customers CUSTOMER", "All customers — Jira CUSTOMER")
+                t2 = t2.replace("All Customers LEAN", "All customers — Jira LEAN")
+                t2 = t2.replace("All Customers HELP", "All customers — Jira HELP")
+                entry["title"] = t2
 
     if deck_id == "salesforce_comprehensive":
         from .data_source_health import _salesforce_configured
@@ -8411,11 +8559,26 @@ def create_health_deck(
     report["_charts"] = DeckCharts(title)
 
     report["_slide_plan"] = slide_plan
+
+    # Build every slide except "Notable" on the first pass; fetches are already in ``report`` for support.
+    # The Notable slide (cs_notable) is inserted in a second batch at insertionIndex 1 after the LLM runs on a digest
+    # of the same in-memory Jira data (so we do not refetch; bullets reflect the same dataset as the rest of the deck).
+    plan_work: list[dict[str, Any]] = list(slide_plan)
+    notable_deferred: dict[str, Any] | None = None
+    if deck_id == "support":
+        kept2: list[dict[str, Any]] = []
+        for e in plan_work:
+            if (e.get("slide_type") or e.get("id", "")) == "cs_notable" and notable_deferred is None:
+                notable_deferred = e
+            else:
+                kept2.append(e)
+        plan_work = kept2
+
     reqs: list[dict] = []
     idx = 1
     note_targets: list[tuple[str, dict[str, Any]]] = []
 
-    for entry in slide_plan:
+    for entry in plan_work:
         slide_type = entry.get("slide_type", entry["id"])
         builder = _SLIDE_BUILDERS.get(slide_type)
         if not builder:
@@ -8495,6 +8658,41 @@ def create_health_deck(
             "slides_created": 0,
         }
 
+    if deck_id == "support" and notable_deferred and slides_created > 0:
+        from .support_notable_llm import build_support_review_digest, generate_notable_bullets_via_llm
+
+        titles = [e.get("title", "") for e in plan_work]
+        try:
+            digest = build_support_review_digest(report, slide_titles=titles)
+        except Exception as e:
+            logger.warning("Notable: digest build failed; LLM may have thin context. %s", e)
+            digest = {}
+        ne = dict(notable_deferred)
+        bullets, src = generate_notable_bullets_via_llm(digest, ne)
+        ne["notable_items"] = bullets
+        report["support_notable_bullets"] = bullets
+        report["support_notable_bullets_source"] = src
+        report["_current_slide"] = ne
+        nreq: list[dict] = []
+        nsid = "s_snb1"
+        ret_n = _cs_notable_slide(nreq, nsid, report, 1)
+        _nidx, n_note_ids = _normalize_builder_return(ret_n, nsid)
+        del _nidx
+        try:
+            import socket
+            o2 = socket.getdefaulttimeout()
+            try:
+                socket.setdefaulttimeout(60.0)
+                presentations_batch_update_chunked(slides_service, pres_id, nreq)
+            finally:
+                socket.setdefaulttimeout(o2)
+        except HttpError as e:
+            logger.error("Notable: second batch (insert at index 1) failed: %s", e)
+        else:
+            slides_created += 1
+            for nid in n_note_ids:
+                note_targets.append((nid, ne))
+
     notes_items = [(sid, _build_slide_jql_speaker_notes(report, entry)) for sid, entry in note_targets]
     if notes_items:
         n = set_speaker_notes_batch(slides_service, pres_id, notes_items)
@@ -8506,6 +8704,9 @@ def create_health_deck(
         "customer": customer,
         "slides_created": slides_created,
     }
+    nsrc = report.get("support_notable_bullets_source")
+    if nsrc:
+        result["notable_bullets_source"] = nsrc
 
     if thumbnails:
         try:
