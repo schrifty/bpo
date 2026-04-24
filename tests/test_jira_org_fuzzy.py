@@ -46,3 +46,15 @@ def test_customer_match_clause_organizations_only_omits_text_for_metrics():
     with patch.object(jc, "_list_jsm_organization_names", return_value=[]):
         frag2, _ = jc._customer_match_clause("Carrier", organizations_only=False)
     assert "summary" in frag2
+
+
+def test_customer_project_text_match_clause_uses_summary_description_not_orgs():
+    """CUSTOMER/LEAN: customer scope is summary+description, not JSM Organizations."""
+    jc = JiraClient.__new__(JiraClient)  # no Jira __init__ / API
+    frag, orgs = jc._customer_project_text_match_clause("Carrier", ["CARR"])
+    assert orgs == []
+    assert "Organizations" not in frag
+    assert "summary" in frag
+    assert "description" in frag
+    # Extra alias terms OR together
+    assert " OR " in frag or "Carrier" in frag

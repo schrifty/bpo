@@ -12,6 +12,13 @@ from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
 
 _MAX_DIGEST_JSON_CHARS = 24_000
 
+# Shorter reminder for follow-up (top-up) LLM calls; full rules are in the main user prompt.
+_NOTABLE_TREND_RULE_REMINDER = (
+    "Reminder: Do not use words like 'trend', 'decrease', 'increase', or 'momentum' when you only have two months "
+    "(or two periods). State both counts neutrally. Use direction/trend language only with three or more "
+    "comparable time buckets in the digest. Avoid cause speculation (e.g. logging behavior) without evidence in the data."
+)
+
 
 class NotableLlmError(RuntimeError):
     """Notable slide LLM did not return usable content (do not fall back in strict mode)."""
@@ -516,9 +523,13 @@ def _top_up_notable_bullets(
         "messages": [
             {
                 "role": "system",
-                "content": "Valid JSON only. The user needs extra bullets; output key add with a string array.",
+                "content": (
+                    "Valid JSON only; output key add with a string array. "
+                    "Same rules as the main Notable pass: do not use 'trend' or similar for only two time periods; "
+                    "need 3+ comparable buckets for trend language. No unfounded cause speculation."
+                ),
             },
-            {"role": "user", "content": user},
+            {"role": "user", "content": user + "\n\n" + _NOTABLE_TREND_RULE_REMINDER},
         ],
         "max_tokens": 1_200,
         "temperature": 0.25,
@@ -623,6 +634,7 @@ def generate_notable_bullets_via_llm(
         "You are a support-data analyst preparing insights for Customer Success leaders. "
         "Your job is to find patterns, risks, and opportunities in Jira ticket data that CS should know before QBRs or when engaging Support. "
         "Extract specific, actionable insights — not generic advice. Reference actual numbers from the data. "
+        "Be conservative with trend language: two data points (e.g. two months) are not a trend. "
         "Each bullet should answer: 'What does CS need to know or do based on this data?'"
     )
     user = (
@@ -632,7 +644,7 @@ def generate_notable_bullets_via_llm(
         f"say '{customer_name} has X tickets' not 'there are X tickets'.\n\n"
         f"DATA:\n{payload}\n\n"
         "For each bullet, identify ONE of these (cover at least 4 different categories across your 6 bullets):\n"
-        f"• VOLUME: Ticket creation/resolution trends for {customer_name}.\n"
+        f"• VOLUME: Ticket creation vs resolution and recent volume for {customer_name} (see trend rules below).\n"
         f"• SLA HEALTH: TTFR/TTR metrics for {customer_name}'s tickets. Are they meeting expectations?\n"
         f"• BACKLOG: {customer_name}'s unresolved tickets, aging tickets, or those stuck 'Waiting for customer'.\n"
         f"• TOP THEMES: What ticket types dominate for {customer_name}? Recurring issues?\n"
@@ -642,6 +654,12 @@ def generate_notable_bullets_via_llm(
         f"- Always attribute numbers to {customer_name} (e.g., '{customer_name} has 8 tickets waiting').\n"
         "- Each bullet: 1-2 sentences, max 300 chars. Start with category in caps.\n"
         "- Do not invent data. Use only what's in the digest.\n"
+        "- TREND / MOMENTUM: Do not call a change a 'trend', 'decrease', 'increase', 'momentum', or 'shift' "
+        "if you are only comparing **two** periods (e.g. two months in a row). That is a single step, not a trend. "
+        "For two months, report the numbers factually (e.g. 'February N created vs March M created') and avoid trend words. "
+        "Use 'trend' or direction words only if the digest has **at least three** comparable time buckets (e.g. three+ months) showing the same direction, "
+        "or say you are describing 'recent month-to-month' activity, not a multi-month trend.\n"
+        "- Do not speculate about causes (e.g. 'logging behavior', 'reduced issues') unless the digest explicitly supports it; stick to what the numbers show.\n"
         "- In JSON, never use ASCII double-quote characters inside a bullet. Paraphrase Jira titles; use 'single quotes' if you must quote text.\n\n"
         "OUTPUT: JSON only:\n"
         "```json\n"

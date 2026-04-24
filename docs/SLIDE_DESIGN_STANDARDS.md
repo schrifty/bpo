@@ -493,12 +493,53 @@ The Google Sheets API does not expose a dedicated **legend** font size; Sheets-r
 Therefore:
 
 - **Multi-series bar/column (and stacked) charts** must set `suppress_legend=True` in `src/charts.py` and render a slide-level legend via `_slide_chart_legend` in `slides_client.py`, using `BRAND_SERIES_COLORS` in the same order as the series. Do not rely on the embedded `BOTTOM_LEGEND` for these chart types in customer-facing decks.
-- **Pie / two-up ticket breakdown** (Jira project unresolved by type / by status on one slide): use **`legendPosition` = `LABELED_LEGEND`** in the `pieChart` spec so **category names render on or beside slices** (correct colors, no side legend to shrink). Pair with a **tall** `embed_chart` in pt (roughly **200–420** pt height where the body allows), and in `add_pie_chart` set **`maximized: true`** on the `ChartSpec` plus **`CHART_PIE_OVERLAY_W_PX` / `CHART_PIE_OVERLAY_H_PX`** so the source chart is rendered at high pixel size before the slide downscales it. Do not regress to a shallow embed + `RIGHT_LEGEND` for this slide; side legends on embedded pies are presentation-unreadable.
-- **Donut** charts elsewhere (e.g. engagement) often use `suppress_legend=True` and a **slide-level** swatch legend via `_slide_chart_legend` where slice colors are aligned with the series palette; keep pie overlay pixels the same (see `CHART_PIE_OVERLAY_*` in `src/charts.py`).
+- **Jira “ticket metrics breakdown” (two pies on one slide)** — the canonical pattern for *Unresolved by type* and *Unresolved by status* — is documented in **Pie charts: Jira ticket metrics breakdown** below. In short: **no** Sheets-rendered pie legend; **slide-level stacked** legend; large overlay pixels; chart background matches page tint.
+- **Other pie / donut charts** (e.g. single pie, engagement): use `suppress_legend=True` in `add_pie_chart` when the embedded legend would be unreadable, and a slide-level swatch legend via `_slide_chart_legend` (horizontal) or vertical stacking where needed. Use **`CHART_PIE_OVERLAY_W_PX` / `CHART_PIE_OVERLAY_H_PX`** and **`maximized: true`** on the `ChartSpec` for sharp embeds. Do not rely on a shallow `embed_chart` box with `RIGHT_LEGEND` or `BOTTOM_LEGEND` for audience-facing slides.
 - **Line / trend charts** (e.g. monthly created vs resolved): the **embedded box height** must not be very short (on the order of **80 pt** is too small—axis and month labels shrink to unreadable). Target roughly **100 pt** or more per chart in the support volume layout, with `show_legend=False` and a slide-level Created/Resolved key when needed.
-- For slide-level legends, reserve about **24–28 pt** of vertical space below the chart; label text at **`CHART_LEGEND_PT` (12 pt by default)**, with swatches at least **10×10 pt**.
+- For slide-level legends, reserve about **24–28 pt** of vertical space below the chart (more for **stacked** pie legends; see below); label text at **`CHART_LEGEND_PT` (12 pt by default)** for default horizontal legends, with swatches at least **10×10 pt** where that helper is used.
 - **Single-series** bar/column charts have no series legend; axis/category labels are handled separately.
 - `ChartSpec.fontName` is set in `src/charts.py` to **`CHART_SPEC_FONT_NAME`** (Roboto) so chart text scales as a system font where the API applies it to titles/axes/legends.
+
+### Pie charts: Jira ticket metrics breakdown (LEAN / CUSTOMER / HELP)
+
+This is the **approved** pattern for composition-of-open-work slides that show two pies side by side. Implementations: `_project_ticket_metrics_breakdown_slide` in `src/slides_client.py` (used by e.g. `lean_project_ticket_metrics_breakdown`, `customer_project_ticket_metrics_breakdown`, and the HELP **Ticket Metrics Breakdown** slide via `customer_ticket_metrics`).
+
+**Rationale:** Google Sheets does not expose a controllable legend font size for pie charts. Embedded `BOTTOM_LEGEND` / `RIGHT_LEGEND` legends are often **illegible** on slides. The fix is: **hide** the in-chart legend (`legendPosition` → **`NO_LEGEND`** when `suppress_legend=True` in `add_pie_chart`) and draw a **slide-native** legend with readable type.
+
+**Layout**
+
+- **Two columns** in the content band: equal width with a small gap (about **16 pt**); each column is one visual unit: centered **section title** + **pie** + **stacked legend** under the pie.
+- **Section titles** (e.g. “Unresolved by type”, “Unresolved by status”): **13 pt** bold, `NAVY`, sans; **centered** over that column.
+- **Vertical space:** Body height from the chart row through `BODY_BOTTOM` drives a shared `chart_h`. Each column reserves space for a **tall** pie and a **variable-height** legend band below. The pie height is `max(90, h_body - legend_h - 4)` pt so the pie never vanishes; legend height scales with slice count (capped, e.g. to ~**40%** of the column’s body height) so long legends do not obliterate the chart.
+
+**Sheets chart (embedded pie)**
+
+- Call `charts.add_pie_chart` with: **`suppress_legend=True`** (so **`NO_LEGEND`** in the `pieChart` spec), **`show_title=False`**, empty `title` string (so a hidden title does not steal layout from the pie), **`maximized=True`**, and **`background=`** the same rgb dict as the slide page (`_project_slide_bg(project)`) so the pie area is not a flat white box on a tinted slide.
+- Use the shared **large** overlay: **`CHART_PIE_OVERLAY_W_PX`** / **`CHART_PIE_OVERLAY_H_PX`** (defaults **2560×1600** in `src/charts.py`) when creating the chart so the **bitmap** that Slides embeds is sharp at typical deck sizes.
+- `embed_chart(..., linked=True)` is preferred for quality on this path.
+
+**Slide-level legend (stacked, under each pie)**
+
+- Use **`_slide_chart_legend_vertical`**, not the horizontal `_slide_chart_legend`, so multi-slice lists **wrap in a column** and stay readable.
+- **Each row:** **10×10 pt** color swatch + label; **6 pt** gap; **~16 pt** row height; label **12 pt** (`CHART_LEGEND_PT`) navy sans — controlled by the parameters on `_embed_pie_plus_stacked_legend` in `slides_client.py`.
+- **Label format (audience copy):**  
+  `"{Category name}  —  {N} open"`  
+  Use a **spaced em dash** between the category and the count (as generated in code: two spaces, em dash, two spaces) so the legend matches deck typography expectations.
+- **Color alignment:** Swatch colors come from **`PIE_SLICE_COLORS[i % n]`** in **lockstep** with the **order of `labels` / `values`** passed into `add_pie_chart`. That order matches **Google Sheets’ default pie slice color sequence** for rows top-to-bottom, so the **swatch always matches the slice** without custom per-slice fill APIs. If you change sort order, bucket “Other,” or filter categories, keep **data order** and **legend order** identical.
+
+**Data rules**
+
+- Up to **6** type/status buckets per pie; if there are more, roll the tail into an **“Other”** sum so the pie stays scannable.
+- Truncate long Jira names for chart labels with the same helper used for tables where noted in code (keeps the pie and legend stable).
+
+**Regressions to avoid**
+
+- Re-enabling any **Sheets** pie legend for this slide (too small, wrong layout).
+- **Horizontal** legend that runs off the column for many categories.
+- **Mismatched** `background` between `updatePageProperties` and `add_pie_chart` (visible rectangle around the pie).
+- **Shallow** `embed_chart` height (shrinks the bitmap and muddies slice colors).
+
+**Maintenance:** Any change to pie embed size, `suppress_legend` behavior, legend helpers, or `PIE_SLICE_COLORS` should be reflected **here** and in **`src/charts.py`** comments in the same change.
 
 ---
 
@@ -541,7 +582,7 @@ Charts must communicate operational insight quickly and clearly.
 
 - 3D charts
 - decorative chart styles
-- pie charts except when category count is very limited and composition is the point
+- pie charts for general comparison or many categories — **exception:** the Jira **ticket metrics breakdown** two-up pies (capped categories, “Other” bucket, slide-stacked legend; see **Pie charts: Jira ticket metrics breakdown** under embedded chart standards)
 
 ### Time-series charts
 

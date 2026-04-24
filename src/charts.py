@@ -82,9 +82,10 @@ CHART_TITLE_PT = 36
 CHART_AXIS_PT = 12
 # Applied to ChartSpec so legend text scales with chart body when the API allows.
 CHART_SPEC_FONT_NAME = "Roboto"
-# Pies are embedded at slide PT size; larger backing pixels + maximized spec improve label/legend
-# legibility. Prefer linked=True in Slides so LABELED_LEGEND (callouts) is preserved; NOT_LINKED_IMAGE
-# can flatten to a tiny block legend. No Sheets API for pie data-label point size; pixels matter.
+# Pies are embedded at slide PT size; larger backing pixels + maximized spec improve the bitmap
+# when Slides downscales the chart. For ticket metrics breakdown slides, the in-chart legend is
+# off (NO_LEGEND) and readable copy lives in _slide_chart_legend_vertical — see
+# docs/SLIDE_DESIGN_STANDARDS.md (Pie charts: Jira ticket metrics breakdown).
 CHART_PIE_OVERLAY_W_PX = 2560
 CHART_PIE_OVERLAY_H_PX = 1600
 
@@ -276,7 +277,6 @@ class DeckCharts:
 
         spec: dict[str, Any] = {
             "title": title if show_title else "",
-            "titleTextFormat": _chart_text_format(CHART_TITLE_PT, NAVY, bold=True),
             "fontName": CHART_SPEC_FONT_NAME,
             "basicChart": {
                 "chartType": chart_type,
@@ -299,6 +299,9 @@ class DeckCharts:
 
         if background is not None:
             spec["backgroundColorStyle"] = _rgb_to_sheets(background)
+
+        if show_title and (title or "").strip():
+            spec["titleTextFormat"] = _chart_text_format(CHART_TITLE_PT, NAVY, bold=True)
 
         chart_id = self._create_chart(sheet_id, spec, num_rows)
         logger.debug("Created %s chart '%s' (sheet=%d, chart=%d)", chart_type, title, sheet_id, chart_id)

@@ -527,7 +527,10 @@ class JiraClient:
         *,
         organizations_only: bool = False,
     ) -> tuple[str, list[str]]:
-        """Build JQL to match a customer on HELP: Organizations (exact + fuzzy) and optional text.
+        """Build JQL to match a customer for **project HELP** only: JSM ``Organizations`` (and optional text).
+
+        For **CUSTOMER** and **LEAN** projects, use :meth:`_customer_project_text_match_clause` instead
+        (``summary`` / ``description``), not this method.
 
         JSM ``Organizations`` is the authoritative link to a customer, but JQL requires
         the exact directory string. We list organizations via the Service Desk API and
@@ -607,6 +610,47 @@ class JiraClient:
         return self._customer_match_clause(
             customer_name, match_terms, organizations_only=True
         )
+
+    def _customer_project_text_match_clause(
+        self,
+        customer_name: str | None,
+        match_terms: list[str] | None = None,
+    ) -> tuple[str, list[str]]:
+        """CUSTOMER and LEAN projects: match the account with ``summary`` / ``description`` JQL.
+
+        The JSM **Organizations** field is not how these projects are tied to the customer; use
+        :meth:`_help_project_customer_filter` for ``project = HELP`` only.
+        """
+        if not (customer_name or "").strip() and not (match_terms or []):
+            return ("key is not EMPTY", [])
+
+        raw: list[str] = []
+        cn = (customer_name or "").strip()
+        if cn:
+            raw.append(cn)
+        for t in match_terms or []:
+            t = (t or "").strip()
+            if t:
+                raw.append(t)
+
+        seen: set[str] = set()
+        terms: list[str] = []
+        for t in raw:
+            k = t.lower()
+            if k in seen:
+                continue
+            seen.add(k)
+            terms.append(t)
+        if not terms:
+            return ("key is not EMPTY", [])
+
+        parts: list[str] = []
+        for t in terms:
+            esc = _jql_escape_string(t)
+            parts.append(f'(summary ~ "{esc}" OR description ~ "{esc}")')
+        if len(parts) == 1:
+            return (parts[0], [])
+        return ("(" + " OR ".join(parts) + ")", [])
 
     def _normalize_issue(self, issue: dict) -> dict:
         f = issue["fields"]
@@ -1351,7 +1395,11 @@ class JiraClient:
         customer_name: str | None,
         match_terms: list[str] | None = None,
     ) -> dict[str, Any]:
-        """KPI metrics for CUSTOMER or LEAN, mirroring ``get_customer_ticket_metrics`` for HELP."""
+        """KPI metrics for CUSTOMER or LEAN, mirroring ``get_customer_ticket_metrics`` for HELP.
+
+        Customer scoping is ``summary`` / ``description`` text (not JSM ``Organizations``); use
+        ``get_customer_ticket_metrics`` for the HELP project.
+        """
         jql_start = self._jql_log_len()
         try:
             proj = _validate_project_key(project)
@@ -1368,12 +1416,9 @@ class JiraClient:
                 "customer": customer_name,
             }
 
-        resolved_jsm_orgs: list[str] = []
-        if customer_name:
-            safe_name = _jql_escape_string(customer_name)
-            base_filter = f'(summary ~ "{safe_name}" OR description ~ "{safe_name}")'
-        else:
-            base_filter = "key is not EMPTY"
+        base_filter, resolved_jsm_orgs = self._customer_project_text_match_clause(
+            customer_name, match_terms
+        )
 
         max_fetch = HELP_METRICS_MERGED_MAX_RESULTS
         proj_prefix = f"project = {proj} AND "
@@ -1465,7 +1510,10 @@ class JiraClient:
         customer_name: str | None,
         match_terms: list[str] | None = None,
     ) -> dict[str, Any]:
-        """12-month created vs resolved trends for CUSTOMER or LEAN (all / escalated / non-escalated)."""
+        """12-month created vs resolved trends for CUSTOMER or LEAN (all / escalated / non-escalated).
+
+        Scoped with ``summary`` / ``description`` (see :meth:`_customer_project_text_match_clause`).
+        """
         jql_start = self._jql_log_len()
         try:
             proj = _validate_project_key(project)
@@ -1483,11 +1531,7 @@ class JiraClient:
                 "escalated": [],
                 "non_escalated": [],
             }
-        if customer_name:
-            safe_name = _jql_escape_string(customer_name)
-            base = f'(summary ~ "{safe_name}" OR description ~ "{safe_name}")'
-        else:
-            base = "key is not EMPTY"
+        base, _ = self._customer_project_text_match_clause(customer_name, match_terms)
         jql = (
             f"project = {proj} AND {base} AND (created >= -365d OR resolved >= -365d) "
             "ORDER BY created DESC"
@@ -1574,12 +1618,9 @@ class JiraClient:
                 customer_name, match_terms
             )
         else:
-            resolved_jsm_orgs = []
-            if customer_name:
-                safe_name = _jql_escape_string(customer_name)
-                base_filter = f'(summary ~ "{safe_name}" OR description ~ "{safe_name}")'
-            else:
-                base_filter = "key is not EMPTY"
+            base_filter, resolved_jsm_orgs = self._customer_project_text_match_clause(
+                customer_name, match_terms
+            )
         
         proj = f"project = {project} AND "
 
@@ -1677,12 +1718,9 @@ class JiraClient:
                 customer_name, match_terms
             )
         else:
-            resolved_jsm_orgs = []
-            if customer_name:
-                safe_name = _jql_escape_string(customer_name)
-                base_filter = f'(summary ~ "{safe_name}" OR description ~ "{safe_name}")'
-            else:
-                base_filter = "key is not EMPTY"
+            base_filter, resolved_jsm_orgs = self._customer_project_text_match_clause(
+                customer_name, match_terms
+            )
 
         jql = f"project = {proj} AND {base_filter} AND statusCategory != Done ORDER BY updated DESC"
         try:
@@ -1750,12 +1788,9 @@ class JiraClient:
                 customer_name, match_terms
             )
         else:
-            resolved_jsm_orgs = []
-            if customer_name:
-                safe_name = _jql_escape_string(customer_name)
-                base_filter = f'(summary ~ "{safe_name}" OR description ~ "{safe_name}")'
-            else:
-                base_filter = "key is not EMPTY"
+            base_filter, resolved_jsm_orgs = self._customer_project_text_match_clause(
+                customer_name, match_terms
+            )
         
         # Only apply transient label exclusion for HELP project.
         label_filter = f" AND {_TRANSIENT_LABELS_EXCLUSION}" if project == "HELP" else ""

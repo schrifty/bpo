@@ -1473,7 +1473,7 @@ def _simple_table(reqs, table_id, sid, x, y, col_widths, row_h, headers, rows):
 
     for ci, h in enumerate(headers):
         _ct(0, ci, h)
-        _cs(0, ci, len(str(h)), bold=True, size=9, color=WHITE, font=FONT)
+        _cs(0, ci, len(str(h)), bold=True, size=9, color=NAVY, font=FONT)
 
     for ri, row in enumerate(rows):
         for ci, val in enumerate(row):
@@ -1488,14 +1488,6 @@ def _simple_table(reqs, table_id, sid, x, y, col_widths, row_h, headers, rows):
         }})
 
     _clean_table(reqs, table_id, num_rows, num_cols)
-
-    for ci in range(num_cols):
-        reqs.append({"updateTableCellProperties": {
-            "objectId": table_id,
-            "tableRange": {"location": {"rowIndex": 0, "columnIndex": ci}, "rowSpan": 1, "columnSpan": 1},
-            "tableCellProperties": {"tableCellBackgroundFill": {"solidFill": {"color": {"rgbColor": NAVY}}}},
-            "fields": "tableCellBackgroundFill",
-        }})
 
     return num_rows * row_h
 
@@ -3355,96 +3347,60 @@ def _project_ticket_metrics_breakdown_slide(
     slide_bg = _project_slide_bg(project)
     title_y = BODY_Y + 18
     chart_y = title_y + 24
-    # Maximize chart height - LABELED_LEGEND puts text on slices, so full height is usable.
+    # Room below each pie for our slide-level stacked legend (reliable at deck scale).
     chart_h = int(float(BODY_BOTTOM) - float(chart_y) - 4.0)
 
     left_x = MARGIN
     right_x = MARGIN + col_w + col_gap
 
-    def _sole_nonzero_entry(labels: list[str], values: list[int]) -> tuple[str, int] | None:
-        """If the pie has only one positive slice, return (label, count); else None."""
-        pos = [(str(labels[i]), int(values[i])) for i in range(len(labels)) if int(values[i]) > 0]
-        if len(pos) == 1:
-            return pos[0]
-        if len(pos) == 0 and len(labels) == 1:
-            return str(labels[0]), int(values[0]) if values else 0
-        return None
+    def _pie_legend_rows(labs: list[str], vals: list[int]) -> list[tuple[str, dict[str, float]]]:
+        ncols = len(PIE_SLICE_COLORS) if PIE_SLICE_COLORS else 1
+        rows: list[tuple[str, dict[str, float]]] = []
+        for i, lab in enumerate(labs):
+            t = f"{_truncate_table_cell(str(lab), 44)}  —  {int(vals[i])} open"
+            c = PIE_SLICE_COLORS[i % ncols] if PIE_SLICE_COLORS else _RED
+            rows.append((t, c))
+        return rows
 
-    def _single_slice_type_callout(oid: str, x: float, y0: float, w: float, label: str, n: int) -> None:
-        """One Jira type (or one bucket) = a full pie disk with no labels; replace with text + swatch."""
-        c = PIE_SLICE_COLORS[0] if PIE_SLICE_COLORS else _RED
-        _rect(reqs, f"{oid}_sw", sid, x + w / 2 - 8, y0 + 6, 16, 16, c)
-        line1 = f"Single type: {label}"
-        _box(reqs, f"{oid}_l1", sid, x, y0 + 28, w, 20, line1)
-        _style(reqs, f"{oid}_l1", 0, len(line1), bold=True, size=12, color=NAVY, font=FONT)
-        _align(reqs, f"{oid}_l1", "CENTER")
-        ntot = int(n) if n else 0
-        line2 = f"{ntot} open  ·  100% of unresolved in this view"
-        _box(reqs, f"{oid}_l2", sid, x, y0 + 50, w, 36, line2)
-        _style(reqs, f"{oid}_l2", 0, len(line2), size=9, color=GRAY, font=FONT)
-        _align(reqs, f"{oid}_l2", "CENTER")
-        line3 = "A pie has no split when there is only one type."
-        _box(reqs, f"{oid}_l3", sid, x, y0 + 88, w, 20, line3)
-        _style(reqs, f"{oid}_l3", 0, len(line3), size=8, color=GRAY, font=FONT)
-        _align(reqs, f"{oid}_l3", "CENTER")
+    def _leg_h_for_pie(n_slices: int) -> float:
+        h = 16.0 * float(max(1, n_slices)) + 12.0
+        return min(h, chart_h * 0.40)
 
-    def _single_slice_status_callout(oid: str, x: float, y0: float, w: float, label: str, n: int) -> None:
-        c = PIE_SLICE_COLORS[0] if PIE_SLICE_COLORS else _RED
-        _rect(reqs, f"{oid}_sw", sid, x + w / 2 - 8, y0 + 6, 16, 16, c)
-        line1 = f"Single status: {label}"
-        _box(reqs, f"{oid}_l1", sid, x, y0 + 28, w, 20, line1)
-        _style(reqs, f"{oid}_l1", 0, len(line1), bold=True, size=12, color=NAVY, font=FONT)
-        _align(reqs, f"{oid}_l1", "CENTER")
-        ntot = int(n) if n else 0
-        line2 = f"{ntot} open  ·  100% in this view"
-        _box(reqs, f"{oid}_l2", sid, x, y0 + 50, w, 32, line2)
-        _style(reqs, f"{oid}_l2", 0, len(line2), size=9, color=GRAY, font=FONT)
-        _align(reqs, f"{oid}_l2", "CENTER")
+    def _embed_pie_plus_stacked_legend(oid: str, x: float, y0: float, w: float, h_body: float, plabs, pvals) -> None:
+        rows = _pie_legend_rows(plabs, pvals)
+        lh = _leg_h_for_pie(len(plabs))
+        h_p = max(90.0, h_body - lh - 4.0)
+        ss_p, ch_p = charts.add_pie_chart(
+            title="",
+            labels=plabs,
+            values=pvals,
+            donut=False,
+            suppress_legend=True,
+            show_title=False,
+            background=slide_bg,
+        )
+        embed_chart(reqs, oid, sid, ss_p, ch_p, x, y0, w, h_p, linked=True)
+        _slide_chart_legend_vertical(
+            reqs, sid, f"{oid}leg", x, y0 + h_p + 4.0, w - 2, rows, font_pt=CHART_LEGEND_PT, max_label_chars=64, row_h=16.0, swatch_size=10.0, gap=6.0
+        )
 
     if type_labels:
         type_hdr = "Unresolved by type"
         _box(reqs, f"{sid}_th", sid, left_x, title_y, col_w, 14, type_hdr)
         _style(reqs, f"{sid}_th", 0, len(type_hdr), bold=True, size=13, color=NAVY, font=FONT)
         _align(reqs, f"{sid}_th", "CENTER")
-        tsole = _sole_nonzero_entry(type_labels, [int(x) for x in type_values])
-        if tsole and type_labels:
-            lab, n0 = tsole
-            _single_slice_type_callout(f"{sid}_ts", left_x, chart_y, col_w, lab, n0)
-        else:
-            # LINKED: preserves Sheets LABELED_LEGEND (callout lines) better than a flat bitmap.
-            ss_id, chart_id = charts.add_pie_chart(
-                title=f"{project} unresolved by type",
-                labels=type_labels,
-                values=type_values,
-                donut=False,
-                suppress_legend=False,
-                show_title=False,
-                legend_position="LABELED_LEGEND",
-                background=slide_bg,
-            )
-            embed_chart(reqs, f"{sid}_tc", sid, ss_id, chart_id, left_x, chart_y, col_w, chart_h, linked=True)
+        _embed_pie_plus_stacked_legend(
+            f"{sid}_t", left_x, chart_y, col_w, float(chart_h), type_labels, [int(x) for x in type_values],
+        )
 
     if status_labels:
         status_hdr = "Unresolved by status"
         _box(reqs, f"{sid}_sh", sid, right_x, title_y, col_w, 14, status_hdr)
         _style(reqs, f"{sid}_sh", 0, len(status_hdr), bold=True, size=13, color=NAVY, font=FONT)
         _align(reqs, f"{sid}_sh", "CENTER")
-        ssole = _sole_nonzero_entry(status_labels, [int(x) for x in status_values])
-        if ssole and status_labels:
-            slab, n0s = ssole
-            _single_slice_status_callout(f"{sid}_ss", right_x, chart_y, col_w, slab, n0s)
-        else:
-            ss_id2, chart_id2 = charts.add_pie_chart(
-                title=f"{project} unresolved by status",
-                labels=status_labels,
-                values=status_values,
-                donut=False,
-                suppress_legend=False,
-                show_title=False,
-                legend_position="LABELED_LEGEND",
-                background=slide_bg,
-            )
-            embed_chart(reqs, f"{sid}_sc", sid, ss_id2, chart_id2, right_x, chart_y, col_w, chart_h, linked=True)
+        _embed_pie_plus_stacked_legend(
+            f"{sid}_s", right_x, chart_y, col_w, float(chart_h), status_labels, [int(x) for x in status_values],
+        )
 
     return idx + 1
 
@@ -3636,7 +3592,6 @@ def _customer_help_recent_slide(
     for ci, h in enumerate(headers):
         _ct(0, ci, h)
         _cs(0, ci, len(h), bold=True, color=NAVY, size=9)
-        _cbg(0, ci, WHITE)
     
     # Data rows
     for ri, it in enumerate(display_items):
@@ -3967,7 +3922,6 @@ def _resolved_by_assignee_table_slide(
     for ci, h in enumerate(headers):
         _ct(0, ci, h)
         _cs(0, ci, len(h), bold=True, color=NAVY, size=9, align="END" if ci == 1 else None)
-        _cbg(0, ci, WHITE)
     
     # Data rows
     for ri, item in enumerate(display_assignees):
@@ -4151,7 +4105,6 @@ def _project_recent_tickets_table_slide(
     for ci, h in enumerate(headers):
         _ct(0, ci, h)
         _cs(0, ci, len(h), bold=True, color=NAVY, size=9)
-        _cbg(0, ci, WHITE)
     
     # Data rows
     for ri, it in enumerate(display_items):
@@ -7199,12 +7152,12 @@ def _render_project_volume_trends(
     _bg(reqs, sid, bg)
     _slide_title(reqs, sid, title)
 
-    _box(reqs, f"{sid}_headline", sid, MARGIN, BODY_Y, CONTENT_W, 22, headline)
+    _box(reqs, f"{sid}_headline", sid, MARGIN, BODY_Y, CONTENT_W, 34, headline)
     _style(
-        reqs, f"{sid}_headline", 0, len(headline), bold=True, size=12, color=NAVY, font=FONT
+        reqs, f"{sid}_headline", 0, len(headline), bold=True, size=16, color=NAVY, font=FONT
     )
 
-    legend_y = BODY_Y + 26
+    legend_y = BODY_Y + 40
     _rect(reqs, f"{sid}_lg_created", sid, MARGIN, legend_y + 4, 20, 4, NAVY)
     _box(reqs, f"{sid}_lg_created_t", sid, MARGIN + 28, legend_y, 64, 14, "Created")
     _style(reqs, f"{sid}_lg_created_t", 0, 7, bold=True, size=CHART_LEGEND_PT, color=NAVY, font=FONT)
@@ -7690,7 +7643,6 @@ def _critical_shortages_detail_slide(reqs, sid, report, idx):
     for ci, h in enumerate(headers):
         _ct(0, ci, h)
         _cs(0, ci, len(h), bold=True, color=NAVY, size=8, align="END" if ci >= 3 else None)
-        _cbg(0, ci, WHITE)
     
     # Data rows
     for ri, item in enumerate(critical_timeline[:max_rows]):
@@ -7959,7 +7911,6 @@ def _lean_projects_portfolio_slide(reqs, sid, report, idx):
     for ci, h in enumerate(headers):
         _ct(0, ci, h)
         _cs(0, ci, len(h), bold=True, color=NAVY, size=8, align="END" if ci >= 4 else None)
-        _cbg(0, ci, WHITE)
     
     # Data rows
     for ri, proj in enumerate(top_projects[:max_rows]):
