@@ -7,6 +7,10 @@ purpose: |
   Three parallel blocks — HELP, CUSTOMER, and LEAN — each with the same six
   slides: volume trends, KPI ticket metrics, open-ticket breakdown (pies),
   recently opened, recently closed, and resolved by assignee (90 days).
+  All-customer runs also include a ranking of JSM organizations by HELP tickets
+  opened in the last ~90 days (before the recently opened/closed tables). Every
+  run includes a Customer Escalations table: open HELP issues with the
+  customer_escalation label, not Done, ordered by last update.
   Customer scoping matches organization/text search per project (all-customers
   runs use full project scope where applicable). For a single customer, titles
   omit the account name; it appears on the cover and in the upper right of
@@ -31,6 +35,10 @@ slides:
     title: "HELP Ticket Metrics"
   - slide: support_ticket_metrics_breakdown
     title: "HELP Ticket Metrics Breakdown"
+  - slide: support_help_orgs_by_opened
+    title: "HELP — Tickets Opened by Organization (90 Days)"
+  - slide: support_help_customer_escalations
+    title: "Customer Escalations (HELP)"
   - slide: support_recent_opened
     title: "Recently opened HELP tickets"
   - slide: support_recent_closed

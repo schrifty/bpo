@@ -39,6 +39,7 @@ SLIDE_PAGINATING_SLIDE_TYPES: frozenset[str] = frozenset({
     "salesforce_category",
     "support_recent_opened",
     "support_recent_closed",
+    "support_help_customer_escalations",
     "cohort_profiles",
     "cohort_findings",
 })

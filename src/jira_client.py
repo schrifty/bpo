@@ -1869,6 +1869,137 @@ class JiraClient:
             "jql_queries": self._jql_since(jql_start),
         }
 
+    def get_help_organizations_by_opened(
+        self,
+        *,
+        days: int = 90,
+        max_results: int = 5000,
+    ) -> dict[str, Any]:
+        """HELP issues created in the last *days* days, tallied by JSM ``Organizations``.
+
+        All-customers / portfolio scope (no per-customer JQL). Issues with
+        multiple organizations add one to each. Issues with none map to
+        ``(No organization)``.
+        """
+        jql_start = self._jql_log_len()
+        jql = (
+            f"project = HELP AND {_TRANSIENT_LABELS_EXCLUSION} AND created >= -{days}d "
+            "ORDER BY created DESC"
+        )
+        try:
+            raw = self._search(
+                jql,
+                max_results=max_results,
+                fields=[ORG_FIELD],
+                data_description=f"HELP tickets by organization (created in last {days}d, portfolio)",
+            )
+        except Exception as e:
+            logger.warning("HELP organizations by opened fetch failed: %s", e)
+            return {
+                "error": str(e),
+                "days": days,
+                "by_organization": [],
+                "total_issues": 0,
+                "jql_queries": self._jql_since(jql_start),
+            }
+
+        counts: Counter[str] = Counter()
+        for issue in raw:
+            f = issue.get("fields", {}) or {}
+            orgs = f.get(ORG_FIELD) or []
+            names: list[str] = []
+            for o in orgs:
+                if isinstance(o, dict):
+                    n = (o.get("name") or "").strip()
+                    if n:
+                        names.append(n)
+            if not names:
+                counts["(No organization)"] += 1
+            else:
+                for n in names:
+                    counts[n] += 1
+
+        sorted_rows = sorted(counts.items(), key=lambda x: (-x[1], x[0].lower()))
+        return {
+            "days": days,
+            "total_issues": len(raw),
+            "by_organization": [
+                {"organization": name, "count": count} for name, count in sorted_rows
+            ],
+            "jql_queries": self._jql_since(jql_start),
+        }
+
+    def get_help_customer_escalations(
+        self,
+        customer_name: str | None = None,
+        match_terms: list[str] | None = None,
+        *,
+        max_results: int = 200,
+    ) -> dict[str, Any]:
+        """Open HELP issues with Jira label ``customer_escalation``, most recently updated first.
+
+        JQL shape: ``project = HELP`` + :meth:`_help_project_customer_filter` (all
+        customers: tautology) + ``labels = "customer_escalation"`` + ``statusCategory != Done``
+        + ``ORDER BY updated DESC`` — matches the support-deck spec for this slide.
+        """
+        jql_start = self._jql_log_len()
+        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
+            customer_name, match_terms
+        )
+        jql = (
+            f"project = HELP AND ({base_filter}) AND labels = \"customer_escalation\" "
+            "AND statusCategory != Done ORDER BY updated DESC"
+        )
+
+        def _row(issue: dict) -> dict[str, Any]:
+            f = issue.get("fields", {}) or {}
+            cr = self._parse_jira_datetime(f.get("created"))
+            up = self._parse_jira_datetime(f.get("updated"))
+            rs = self._parse_jira_datetime(f.get("resolutiondate"))
+            st = f.get("status") or {}
+            status_name = st.get("name", "—") if isinstance(st, dict) else "—"
+            pr = f.get("priority") or {}
+            priority_name = pr.get("name", "—") if isinstance(pr, dict) else "—"
+            orgs = f.get(ORG_FIELD) or []
+            org_names = [o.get("name", "") for o in orgs if isinstance(o, dict) and o.get("name")]
+            return {
+                "key": issue.get("key", ""),
+                "summary": (f.get("summary") or "").strip(),
+                "organization": ", ".join(org_names) if org_names else "—",
+                "status": status_name,
+                "priority": priority_name,
+                "created": f.get("created") or "",
+                "created_short": cr.strftime("%Y-%m-%d") if cr else "—",
+                "updated": f.get("updated") or "",
+                "updated_short": up.strftime("%Y-%m-%d") if up else "—",
+                "resolved": f.get("resolutiondate") or "",
+                "resolved_short": rs.strftime("%Y-%m-%d") if rs else "—",
+            }
+
+        try:
+            raw = self._search(
+                jql,
+                max_results=max_results,
+                fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
+                data_description="HELP customer_escalation (open) by updated",
+            )
+        except Exception as e:
+            logger.warning("HELP customer escalations fetch failed: %s", e)
+            return {
+                "error": str(e),
+                "customer": customer_name,
+                "jsm_organizations_resolved": resolved_jsm_orgs,
+                "tickets": [],
+                "jql_queries": self._jql_since(jql_start),
+            }
+
+        return {
+            "customer": customer_name,
+            "jsm_organizations_resolved": resolved_jsm_orgs,
+            "tickets": [_row(i) for i in raw],
+            "jql_queries": self._jql_since(jql_start),
+        }
+
     @staticmethod
     def _bucket_by_month(
         issues: list[dict],

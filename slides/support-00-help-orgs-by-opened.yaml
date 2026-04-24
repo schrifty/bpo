@@ -1,0 +1,14 @@
+id: support_help_orgs_by_opened
+type: standard
+order: 88
+title: HELP — Tickets Opened by Organization (90 Days)
+slide_type: support_help_orgs_by_opened
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  All-customers support deck only (omitted for single-customer runs). Ranks
+  JSM organization names by count of HELP project issues created in the last
+  90 days (≈3 months), excluding transient Outage/Healthcheck labels. Table
+  format matches resolved-by-assignee: Organization, Tickets opened.

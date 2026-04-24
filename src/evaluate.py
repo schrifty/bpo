@@ -3984,6 +3984,12 @@ _BUILDER_DESCRIPTIONS = {
     "guides": "Guide engagement — onboarding guides seen/dismissed/advanced rates",
     "jira": "Support summary — HELP ticket counts, priority, status breakdown",
     "customer_ticket_metrics": "Per-customer HELP KPIs — open/resolved counts, SLA (median & average), type/status bar charts",
+    "support_help_orgs_by_opened": (
+        "All-customers only — table ranking JSM organizations by HELP tickets created in the last ~90 days"
+    ),
+    "support_help_customer_escalations": (
+        "Open HELP issues with label customer_escalation and not Done, ordered by last update"
+    ),
     "support_recent_opened": "HELP tickets opened in the last ~45 days for the scoped customer",
     "support_recent_closed": "HELP tickets resolved in the last ~45 days for the scoped customer",
     "sla_health": "Support health & SLA — TTFR/TTR, breach rate, sentiment, channels",

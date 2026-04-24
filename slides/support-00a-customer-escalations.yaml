@@ -1,0 +1,15 @@
+id: support_help_customer_escalations
+type: standard
+order: 89
+title: Customer Escalations (HELP)
+slide_type: support_help_customer_escalations
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Lists open HELP project issues that have the Jira label customer_escalation
+  and are not in a Done status category, ordered by updated (most recent
+  first). Respects the same JSM Organizations scope as other HELP slides for
+  the deck’s customer (all customers = full HELP scope). Table columns match
+  the recently opened HELP slide, with Updated instead of Resolved.

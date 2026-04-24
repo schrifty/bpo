@@ -3632,6 +3632,284 @@ def _customer_help_recent_slide(
     return idx + 1
 
 
+def _support_help_customer_escalations_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """HELP open issues with label customer_escalation, ordered by last update (same table style as recent HELP)."""
+    jira = report.get("jira") or {}
+    blob = jira.get("help_customer_escalations")
+    if not isinstance(blob, dict):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            "HELP customer escalations (not in report — support deck Jira fetch)",
+        )
+    if blob.get("error"):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            f"HELP customer escalations: {blob['error']}",
+        )
+
+    jira_base = (jira.get("base_url") or "").rstrip("/")
+    items: list[dict[str, Any]] = list(blob.get("tickets") or [])
+    customer = report.get("customer") or blob.get("customer") or "All Customers"
+    is_all_customers = report.get("customer") is None
+
+    entry = report.get("_current_slide") or {}
+    base_title = entry.get("title") or "Customer Escalations (HELP)"
+    total_n = len(items)
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, _project_slide_bg("HELP"))
+    _slide_title(reqs, sid, base_title)
+
+    table_top = BODY_Y + 24
+    row_h = 19.0
+    max_data_rows = _table_rows_fit_span(
+        y_top=table_top,
+        y_bottom=BODY_BOTTOM,
+        row_height_pt=row_h,
+        reserved_table_rows=1,
+        max_rows_cap=30,
+    )
+    display_items = items[:max_data_rows]
+    n_show = len(display_items)
+    if total_n > n_show:
+        count_text = f"showing {n_show} of {total_n} tickets (by last update)"
+    else:
+        count_text = f"{total_n} ticket{'s' if total_n != 1 else ''}"
+
+    port_note = " ·  no org column (portfolio scope)" if is_all_customers else ""
+    _lead = _support_subtitle_matched_lead(report, customer)
+    sub = (
+        f"{_lead}label customer_escalation · not Done · order by updated  ·  {count_text}{port_note}"
+    )
+    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
+    _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
+
+    if not items:
+        empty_msg = "No open HELP tickets with label customer_escalation."
+        _box(reqs, f"{sid}_empty", sid, MARGIN, BODY_Y + 30, CONTENT_W, 40, empty_msg)
+        _style(reqs, f"{sid}_empty", 0, len(empty_msg), size=10, color=NAVY, font=FONT)
+        return idx + 1
+
+    if is_all_customers:
+        headers = ["ID", "Title", "Status", "Priority", "Created", "Updated"]
+        col_widths = [60, 220, 100, 100, 64, 64]
+    else:
+        headers = ["ID", "Title", "Status", "Priority", "Created", "Updated"]
+        col_widths = [60, 196, 100, 100, 64, 64]
+    t_title = _max_chars_one_line_for_table_col(float(col_widths[1]))
+    t_st = _max_chars_one_line_for_table_col(float(col_widths[2]))
+    t_pr = _max_chars_one_line_for_table_col(float(col_widths[3]))
+    ROW_H = row_h
+    num_rows = 1 + len(display_items)
+    table_id = f"{sid}_tbl"
+
+    reqs.append({
+        "createTable": {
+            "objectId": table_id,
+            "elementProperties": {
+                "pageObjectId": sid,
+                "size": _sz(sum(col_widths), num_rows * ROW_H),
+                "transform": _tf(MARGIN, table_top),
+            },
+            "rows": num_rows,
+            "columns": len(headers),
+        }
+    })
+
+    def _ct(row, col, text):
+        if not text:
+            return
+        reqs.append({
+            "insertText": {
+                "objectId": table_id,
+                "cellLocation": {"rowIndex": row, "columnIndex": col},
+                "text": str(text),
+                "insertionIndex": 0,
+            }
+        })
+
+    def _cs_e(row, col, text_len, bold=False, color=None, size=8, link=None):
+        if text_len > 0:
+            s: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}, "fontFamily": FONT}
+            f = ["fontSize", "fontFamily"]
+            if bold:
+                s["bold"] = True
+                f.append("bold")
+            if color:
+                s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}
+                f.append("foregroundColor")
+            if link:
+                s["link"] = {"url": link}
+                f.append("link")
+            reqs.append({
+                "updateTextStyle": {
+                    "objectId": table_id,
+                    "cellLocation": {"rowIndex": row, "columnIndex": col},
+                    "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
+                    "style": s, "fields": ",".join(f),
+                }
+            })
+
+    _clean_table(reqs, table_id, num_rows, len(headers))
+
+    for ci, h in enumerate(headers):
+        _ct(0, ci, h)
+        _cs_e(0, ci, len(h), bold=True, size=9, color=NAVY)
+
+    for ri, it in enumerate(display_items):
+        row_idx = ri + 1
+        key = it.get("key") or "—"
+        title = _truncate_table_cell(it.get("summary"), t_title)
+        status = _truncate_table_cell(it.get("status"), t_st)
+        priority = _truncate_table_cell(it.get("priority"), t_pr)
+        created = it.get("created_short") or "—"
+        updated = it.get("updated_short") or "—"
+        vals = [key, title, status, priority, created, updated]
+        for ci, v in enumerate(vals):
+            _ct(row_idx, ci, v)
+            if ci == 0 and jira_base and key and key != "—":
+                _cs_e(row_idx, ci, len(v), bold=True, color=BLUE, size=8, link=f"{jira_base}/browse/{key}")
+            else:
+                _cs_e(row_idx, ci, len(v), size=8)
+
+    return idx + 1
+
+
+def _support_help_orgs_by_opened_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """All-customers: rank JSM organizations by HELP tickets opened in the lookback window.
+
+    Omitted from the slide plan for single-customer support runs (see create_health_deck).
+    """
+    blob = (report.get("jira") or {}).get("help_orgs_by_opened")
+    if not isinstance(blob, dict):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            "HELP organizations by opened (not in report — all-customers support deck only)",
+        )
+    if blob.get("error"):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            f"HELP organizations by opened: {blob['error']}",
+        )
+
+    days = int(blob.get("days") or 90)
+    all_rows: list[dict[str, Any]] = list(blob.get("by_organization") or [])
+    total_issues = int(blob.get("total_issues") or 0)
+    n_orgs = len(all_rows)
+
+    entry = report.get("_current_slide") or {}
+    base_title = entry.get("title") or f"HELP Tickets Opened by Organization (Last {days} Days)"
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, _project_slide_bg("HELP"))
+    _slide_title(reqs, sid, base_title)
+
+    table_top = BODY_Y + 24
+    row_h = 22.0
+    max_data_rows = _table_rows_fit_span(
+        y_top=table_top,
+        y_bottom=BODY_BOTTOM,
+        row_height_pt=row_h,
+        reserved_table_rows=1,
+        max_rows_cap=20,
+    )
+    display_rows = all_rows[:max_data_rows]
+    n_shown = len(display_rows)
+    if n_orgs > n_shown:
+        orgs_text = f"showing top {n_shown} of {n_orgs} organizations by volume"
+    else:
+        orgs_text = f"{n_orgs} organization{'s' if n_orgs != 1 else ''}"
+
+    sub = (
+        f"HELP: tickets created in the last {days} days (≈3 months), by JSM organization  ·  "
+        f"{total_issues} issues  ·  {orgs_text}"
+    )
+    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
+    _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
+
+    if not all_rows:
+        em = f"No HELP tickets created in the last {days} days."
+        _box(reqs, f"{sid}_em", sid, MARGIN, BODY_Y + 30, CONTENT_W, 40, em)
+        _style(reqs, f"{sid}_em", 0, len(em), size=10, color=NAVY, font=FONT)
+        return idx + 1
+
+    headers = ["Organization", "Tickets opened"]
+    col_widths = [400, 100]
+    num_rows = 1 + len(display_rows)
+    table_id = f"{sid}_tbl"
+
+    reqs.append({
+        "createTable": {
+            "objectId": table_id,
+            "elementProperties": {
+                "pageObjectId": sid,
+                "size": _sz(sum(col_widths), num_rows * row_h),
+                "transform": _tf(MARGIN, table_top),
+            },
+            "rows": num_rows,
+            "columns": len(headers),
+        }
+    })
+
+    def _ct_o(row, col, text):
+        if not text:
+            return
+        reqs.append({
+            "insertText": {
+                "objectId": table_id,
+                "cellLocation": {"rowIndex": row, "columnIndex": col},
+                "text": str(text),
+                "insertionIndex": 0,
+            }
+        })
+
+    def _cs_o(row, col, text_len, bold=False, size=9, align=None):
+        if text_len > 0:
+            s: dict[str, Any] = {
+                "fontSize": {"magnitude": size, "unit": "PT"},
+                "fontFamily": FONT,
+            }
+            f = ["fontSize", "fontFamily"]
+            if bold:
+                s["bold"] = True
+                f.append("bold")
+            reqs.append({
+                "updateTextStyle": {
+                    "objectId": table_id,
+                    "cellLocation": {"rowIndex": row, "columnIndex": col},
+                    "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
+                    "style": s, "fields": ",".join(f),
+                }
+            })
+        if align:
+            reqs.append({
+                "updateParagraphStyle": {
+                    "objectId": table_id,
+                    "cellLocation": {"rowIndex": row, "columnIndex": col},
+                    "textRange": {"type": "ALL"},
+                    "style": {"alignment": align},
+                    "fields": "alignment",
+                }
+            })
+
+    _clean_table(reqs, table_id, num_rows, len(headers))
+
+    for ci, h in enumerate(headers):
+        _ct_o(0, ci, h)
+        _cs_o(0, ci, len(h), bold=True, size=9, align="END" if ci == 1 else None)
+
+    for ri, rowd in enumerate(display_rows):
+        rj = ri + 1
+        oname = (rowd.get("organization") or "—")[:64]
+        cnt = int(rowd.get("count") or 0)
+        cs = str(cnt)
+        _ct_o(rj, 0, oname)
+        _ct_o(rj, 1, cs)
+        _cs_o(rj, 0, len(oname), size=9)
+        _cs_o(rj, 1, len(cs), size=9, align="END")
+
+    return idx + 1
+
+
 def _support_recent_opened_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
     return _customer_help_recent_slide(reqs, sid, report, idx, closed=False)
 
@@ -8054,6 +8332,8 @@ _SLIDE_BUILDERS = {
     "jira": _jira_slide,
     "customer_ticket_metrics": _customer_ticket_metrics_slide,
     "customer_ticket_metrics_charts": _customer_ticket_metrics_charts_slide,
+    "support_help_orgs_by_opened": _support_help_orgs_by_opened_slide,
+    "support_help_customer_escalations": _support_help_customer_escalations_slide,
     "support_recent_opened": _support_recent_opened_slide,
     "support_recent_closed": _support_recent_closed_slide,
     "customer_project_volume_trends": _customer_project_volume_trends_slide,
@@ -8130,6 +8410,8 @@ SLIDE_DATA_REQUIREMENTS = {
     "jira": ["jira"],
     "customer_ticket_metrics": ["jira"],
     "customer_ticket_metrics_charts": ["jira"],
+    "support_help_orgs_by_opened": ["jira"],
+    "support_help_customer_escalations": ["jira"],
     "support_recent_opened": ["jira"],
     "support_recent_closed": ["jira"],
     "customer_project_volume_trends": ["jira"],
@@ -8394,6 +8676,11 @@ def create_health_deck(
                 entry["title"] = t2
         if customer:
             report["support_deck_scoped_titles"] = True
+            # All-customers-only: organization ranking table (not meaningful for a single account).
+            slide_plan = [
+                e for e in slide_plan
+                if e.get("slide_type") != "support_help_orgs_by_opened"
+            ]
         else:
             report.pop("support_deck_scoped_titles", None)
 
@@ -8459,6 +8746,18 @@ def create_health_deck(
                 logger.info("Support deck: fetching customer ticket metrics for %s", customer_display)
                 customer_ticket_metrics = jira_client.get_customer_ticket_metrics(customer)
                 report["jira"]["customer_ticket_metrics"] = customer_ticket_metrics
+
+            if not customer and "help_orgs_by_opened" not in report["jira"]:
+                logger.info("Support deck: fetching HELP org ranking (all customers) for %s", customer_display)
+                report["jira"]["help_orgs_by_opened"] = jira_client.get_help_organizations_by_opened(
+                    days=90, max_results=5000
+                )
+
+            if "help_customer_escalations" not in report["jira"]:
+                logger.info("Support deck: fetching HELP customer escalations for %s", customer_display)
+                report["jira"]["help_customer_escalations"] = jira_client.get_help_customer_escalations(
+                    customer,
+                )
             
             # Fetch recent HELP tickets (works with None for all customers)
             logger.info("Support deck: fetching recent HELP tickets for %s", customer_display)
@@ -8644,6 +8943,17 @@ def create_health_deck(
                 "error": str(e)[:500],
                 "project": "LEAN",
                 "customer": customer,
+            }
+            report["jira"]["help_orgs_by_opened"] = {
+                "error": str(e)[:500],
+                "by_organization": [],
+                "total_issues": 0,
+                "days": 90,
+            }
+            report["jira"]["help_customer_escalations"] = {
+                "error": str(e)[:500],
+                "customer": customer,
+                "tickets": [],
             }
 
     if not slide_plan:

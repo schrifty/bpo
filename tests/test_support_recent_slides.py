@@ -45,6 +45,65 @@ def test_truncate_table_cell_word_boundary():
     assert _truncate_table_cell(None, 20) == "—"
 
 
+def test_support_help_customer_escalations_renders_table():
+    report: dict = {
+        "_current_slide": {
+            "slide_type": "support_help_customer_escalations",
+            "title": "Escalations",
+        },
+        "customer": "Acme",
+        "jira": {
+            "base_url": "https://example.atlassian.net",
+            "help_customer_escalations": {
+                "tickets": [
+                    {
+                        "key": "HELP-1",
+                        "summary": "Test",
+                        "status": "Open",
+                        "priority": "P2",
+                        "created_short": "2026-01-01",
+                        "updated_short": "2026-01-10",
+                    },
+                ],
+            },
+        },
+    }
+    reqs: list = []
+    from src.slides_client import _support_help_customer_escalations_slide
+
+    _support_help_customer_escalations_slide(reqs, "s_esc", report, 0)
+    assert not report.get("_missing_slide_data")
+    assert any("createTable" in r for r in reqs)
+    assert any("Updated" in str(r) for r in reqs)
+
+
+def test_support_help_orgs_by_opened_renders_table():
+    report: dict = {
+        "_current_slide": {
+            "slide_type": "support_help_orgs_by_opened",
+            "title": "Orgs",
+        },
+        "customer": None,
+        "jira": {
+            "help_orgs_by_opened": {
+                "days": 90,
+                "total_issues": 3,
+                "by_organization": [
+                    {"organization": "Acme Corp", "count": 2},
+                    {"organization": "Beta", "count": 1},
+                ],
+            },
+        },
+    }
+    reqs: list = []
+    from src.slides_client import _support_help_orgs_by_opened_slide
+
+    _support_help_orgs_by_opened_slide(reqs, "s_org", report, 0)
+    assert not report.get("_missing_slide_data")
+    assert any("createTable" in r for r in reqs)
+    assert any("Organization" in str(r) for r in reqs)
+
+
 def test_support_recent_closed_error_uses_missing_slide():
     report: dict = {
         "_current_slide": {"slide_type": "support_recent_closed", "title": "Recent closed"},
