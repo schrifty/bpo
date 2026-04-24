@@ -833,9 +833,9 @@ Order:
 2. Blank line
 3. `Slide: …` and `Slide type: …`
 4. Blank line
-5. One line per trace in unified format
+5. One **bullet per trace** (`• description — source`), with the **query on the following line(s)** indented, and a **blank line** between separate traces so long JQL is scannable
 
-Jira and SOQL rows use the same line shape as pipeline traces. There is no separate `JQL used:` block in automated output.
+Jira and SOQL rows use the same block shape as pipeline traces. There is no separate `JQL used:` block in automated output.
 
 ### Required Jira documentation format
 
@@ -863,9 +863,9 @@ JQL used:
 - plain strings are still accepted for backward compatibility and shown with description `[Jira issue search]`
 - new Jira fetches must supply a description at record time
 - pipeline trace descriptions must match on-slide copy exactly
-- automated output should emit one line per trace as `description: source - query`
-- do not collapse multiple KPIs into a single run-on trace line
-- canonical builders in `_SLIDE_CANONICAL_PIPELINE_TRACES` must follow the same one-line-per-visible-metric rule
+- automated output emits one bullet per trace, then the query (multi-line if needed); do not run `description: source - query` on a single unbroken line
+- do not collapse multiple KPIs into a single trace block
+- canonical builders in `_SLIDE_CANONICAL_PIPELINE_TRACES` must follow the same one-block-per-visible-metric rule
 - non-Jira slides may attach `data_traces` with `description`, `source`, and `query` fields using the same output shape
 
 ---

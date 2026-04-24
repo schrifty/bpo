@@ -334,7 +334,8 @@ def test_speaker_notes_data_quality_still_lists_deck_jql_when_scoped_empty():
     entry = {"slide_type": "data_quality", "title": "Data Quality"}
     notes = _build_slide_jql_speaker_notes(report, entry)
     assert "LEAN" in notes
-    assert "Jira issue search: Jira - project = LEAN" in notes
+    assert "• Jira issue search — Jira" in notes
+    assert "  project = LEAN" in notes
 
 
 def test_speaker_notes_jql_structured_description_trace_format():
@@ -347,7 +348,8 @@ def test_speaker_notes_jql_structured_description_trace_format():
     }
     entry = {"slide_type": "data_quality", "title": "Data Quality"}
     notes = _build_slide_jql_speaker_notes(report, entry)
-    assert "HELP test slice: Jira - project = HELP ORDER BY created DESC" in notes
+    assert "• HELP test slice — Jira" in notes
+    assert "  project = HELP ORDER BY created DESC" in notes
 
 
 def test_speaker_notes_timestamp_first_line_has_seconds():
@@ -375,10 +377,10 @@ def test_speaker_notes_benchmarks_uses_on_slide_kpi_labels():
     }
     entry = {"slide_type": "benchmarks", "title": "Peer Benchmarks"}
     notes = _build_slide_jql_speaker_notes(report, entry)
-    assert "Weekly active rate (this account): Pendo -" in notes
-    assert "All-customer median (100 accounts): Pendo -" in notes
-    assert "Delta: Pendo -" in notes
-    assert "Account size: Pendo -" in notes
+    assert "• Weekly active rate (this account) — Pendo" in notes
+    assert "• All-customer median (100 accounts) — Pendo" in notes
+    assert "• Delta — Pendo" in notes
+    assert "• Account size — Pendo" in notes
 
 
 def test_speaker_notes_health_snapshot_uses_on_slide_row_labels():
@@ -401,9 +403,9 @@ def test_speaker_notes_health_snapshot_uses_on_slide_row_labels():
     }
     entry = {"slide_type": "health", "title": "Account Health Snapshot"}
     notes = _build_slide_jql_speaker_notes(report, entry)
-    assert "Active This Week: Pendo -" in notes
-    assert "Weekly Active Rate: Pendo -" in notes
-    assert "Customer Users: Pendo -" in notes
+    assert "• Active This Week — Pendo" in notes
+    assert "• Weekly Active Rate — Pendo" in notes
+    assert "• Customer Users — Pendo" in notes
 
 
 def test_speaker_notes_platform_value_includes_kpis_and_table_columns():
@@ -427,14 +429,14 @@ def test_speaker_notes_platform_value_includes_kpis_and_table_columns():
     }
     entry = {"slide_type": "platform_value", "title": "Platform Value & ROI"}
     notes = _build_slide_jql_speaker_notes(report, entry)
-    assert "Savings achieved: CS Report -" in notes and "$96.5M" in notes
-    assert "Open IA pipeline: CS Report -" in notes and "$269.0M" in notes
-    assert "Recs created (30d): CS Report -" in notes and "188" in notes
-    assert "POs placed (30d): CS Report -" in notes and "66,680" in notes
-    assert "Overdue tasks: CS Report -" in notes and "2,027" in notes
-    assert "Factory: CS Report -" in notes
-    assert "Savings: CS Report -" in notes
-    assert "Recs (30d): CS Report -" in notes
+    assert "• Savings achieved — CS Report" in notes and "$96.5M" in notes
+    assert "• Open IA pipeline — CS Report" in notes and "$269.0M" in notes
+    assert "• Recs created (30d) — CS Report" in notes and "188" in notes
+    assert "• POs placed (30d) — CS Report" in notes and "66,680" in notes
+    assert "• Overdue tasks — CS Report" in notes and "2,027" in notes
+    assert "• Factory — CS Report" in notes
+    assert "• Savings — CS Report" in notes
+    assert "• Recs (30d) — CS Report" in notes
 
 
 def test_relationship_json_key_for_lookup_custom_field():

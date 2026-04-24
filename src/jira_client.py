@@ -29,6 +29,8 @@ _shared_jira_client: Any = None
 HELP_JIRA_BODY_MAX_RESULTS = int(os.environ.get("BPO_HELP_JIRA_BODY_MAX", "750"))
 # Single merged JQL for ticket metrics (open ∪ 365d resolved ∪ 365d created).
 HELP_METRICS_MERGED_MAX_RESULTS = int(os.environ.get("BPO_HELP_JIRA_METRICS_MAX", "2000"))
+# Full Jira field fetch for LLM + Escalation metrics slide (capped; totals use _jql_match_total).
+HELP_ESCALATION_LLM_MAX_ISSUES = int(os.environ.get("BPO_HELP_ESCALATION_LLM_MAX_ISSUES", "200"))
 # HELP trend fetch cap (created/resolved monthly trend series).
 HELP_TRENDS_MAX_RESULTS = int(os.environ.get("BPO_HELP_TRENDS_MAX", "12000"))
 # Parallel Jira fetches (rate-limit aware).
@@ -51,6 +53,17 @@ STORY_POINTS_FIELD = "customfield_10202" # "Story Points"
 # These are typically caused by customer IT and don't reflect actionable support issues.
 _TRANSIENT_LABELS_EXCLUSION = "(labels IS EMPTY OR labels NOT IN (Outage, Healthcheck))"
 
+# CUSTOMER/LEAN support slides: exclude portfolio / utility work items (see JIRA_DATA_SCHEMA issue types).
+_CUSTOMER_LEAN_ISSUETYPE_EXCLUSION = "issuetype not in (Epic, SUT)"
+
+
+def _jql_customer_lean_exclude_epic_sut(project: str) -> str:
+    """Append to JQL for CUSTOMER or LEAN only; no-op for HELP and other projects."""
+    p = (project or "").strip().upper()
+    if p in ("CUSTOMER", "LEAN"):
+        return f" AND {_CUSTOMER_LEAN_ISSUETYPE_EXCLUSION}"
+    return ""
+
 # Minimal fields for per-project operational slides (open + recently resolved).
 _PROJECT_SNAPSHOT_FIELDS = [
     "summary", "status", "issuetype", "created", "updated",
@@ -63,7 +76,7 @@ _TREND_FIELDS = [
 
 _CUSTOMER_TICKET_SLIDE_FIELDS = [
     "summary", "status", "issuetype", "project", "priority", "created", "updated",
-    "resolution", "resolutiondate", ORG_FIELD, TTFR_FIELD, TTR_FIELD,
+    "resolution", "resolutiondate", "labels", ORG_FIELD, TTFR_FIELD, TTR_FIELD,
 ]
 
 _ISSUE_FIELDS = [
@@ -751,13 +764,15 @@ class JiraClient:
         jql_start = self._jql_log_len()
         now = datetime.now(timezone.utc)
         max_fetch = 1500
+        is_cl = pk in ("CUSTOMER", "LEAN")
+        is_ex = f" AND {_CUSTOMER_LEAN_ISSUETYPE_EXCLUSION}" if is_cl else ""
 
         try:
             # Use Jira workflow state rather than `resolution is EMPTY` because some HELP
             # tickets remain unresolved while already in a done-like status, which inflates
             # the "open" count on portfolio slides.
             open_raw = self._search(
-                f'project = {pk} AND statusCategory != Done ORDER BY updated DESC',
+                f"project = {pk}{is_ex} AND statusCategory != Done ORDER BY updated DESC",
                 max_results=max_fetch,
                 fields=_PROJECT_SNAPSHOT_FIELDS,
                 data_description=f"{pk} project open issues (statusCategory != Done)",
@@ -768,7 +783,7 @@ class JiraClient:
 
         try:
             resolved_raw = self._search(
-                f"project = {pk} AND resolution is not EMPTY AND resolved >= -180d "
+                f"project = {pk}{is_ex} AND resolution is not EMPTY AND resolved >= -180d "
                 f"ORDER BY resolved DESC",
                 max_results=max_fetch,
                 fields=_PROJECT_SNAPSHOT_FIELDS,
@@ -1325,6 +1340,12 @@ class JiraClient:
             ttfr_ms, ttfr_breached, ttfr_waiting = _parse_sla(TTFR_FIELD)
             ttr_ms, ttr_breached, ttr_waiting = _parse_sla(TTR_FIELD)
 
+            raw_lbls = f.get("labels")
+            if isinstance(raw_lbls, (list, tuple)):
+                label_list = [str(x) for x in raw_lbls if x is not None]
+            else:
+                label_list = []
+
             return {
                 "status": (f.get("status") or {}).get("name", "Unknown"),
                 "type": (f.get("issuetype") or {}).get("name", "Unknown"),
@@ -1332,6 +1353,7 @@ class JiraClient:
                 "created": f.get("created") or "",
                 "updated": f.get("updated") or "",
                 "resolutiondate": f.get("resolutiondate") or "",
+                "labels": label_list,
                 "ttfr_ms": ttfr_ms,
                 "ttfr_breached": ttfr_breached,
                 "ttfr_waiting": ttfr_waiting,
@@ -1399,6 +1421,9 @@ class JiraClient:
 
         Customer scoping is ``summary`` / ``description`` text (not JSM ``Organizations``); use
         ``get_customer_ticket_metrics`` for the HELP project.
+
+        Excludes Jira issue types **Epic** and **SUT** from the merged JQL (same as other
+        CUSTOMER/LEAN support slides).
         """
         jql_start = self._jql_log_len()
         try:
@@ -1458,7 +1483,7 @@ class JiraClient:
             }
 
         union_jql = (
-            f"{proj_prefix}{base_filter} AND ("
+            f"{proj_prefix}{base_filter} AND {_CUSTOMER_LEAN_ISSUETYPE_EXCLUSION} AND ("
             "statusCategory != Done OR "
             "(resolution is not EMPTY AND resolved >= -365d) OR "
             "created >= -365d"
@@ -1469,7 +1494,7 @@ class JiraClient:
                 union_jql,
                 max_results=max_fetch,
                 fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
-                data_description=f"{proj} project ticket metrics (merged open / 365d resolved / 365d created)",
+                data_description=f"{proj} project ticket metrics (merged open / 365d resolved / 365d created; excl. Epic, SUT)",
             )
         except Exception as e:
             logger.warning("Project ticket metrics fetch failed for %s %s: %s", proj, customer_name, e)
@@ -1513,6 +1538,8 @@ class JiraClient:
         """12-month created vs resolved trends for CUSTOMER or LEAN (all / escalated / non-escalated).
 
         Scoped with ``summary`` / ``description`` (see :meth:`_customer_project_text_match_clause`).
+
+        Excludes **Epic** and **SUT** issue types.
         """
         jql_start = self._jql_log_len()
         try:
@@ -1533,7 +1560,8 @@ class JiraClient:
             }
         base, _ = self._customer_project_text_match_clause(customer_name, match_terms)
         jql = (
-            f"project = {proj} AND {base} AND (created >= -365d OR resolved >= -365d) "
+            f"project = {proj} AND {base} AND {_CUSTOMER_LEAN_ISSUETYPE_EXCLUSION} "
+            "AND (created >= -365d OR resolved >= -365d) "
             "ORDER BY created DESC"
         )
         try:
@@ -1541,7 +1569,7 @@ class JiraClient:
                 jql,
                 max_results=HELP_TRENDS_MAX_RESULTS,
                 fields=_TREND_FIELDS,
-                data_description=f"{proj} volume trends (12-month created vs resolved)",
+                data_description=f"{proj} volume trends (12-month; excl. Epic, SUT)",
             )
         except Exception as e:
             logger.warning("%s ticket trend fetch failed: %s", proj, e)
@@ -1665,22 +1693,23 @@ class JiraClient:
             cd = None
         # Only apply transient label exclusion for HELP project (Outage/Healthcheck are HELP-specific).
         label_filter = f" AND {_TRANSIENT_LABELS_EXCLUSION}" if project == "HELP" else ""
+        cl_iss = _jql_customer_lean_exclude_epic_sut(project)
         try:
             if od is not None:
-                open_jql = f"{proj}{base_filter}{label_filter} AND created >= -{od}d ORDER BY created DESC"
+                open_jql = f"{proj}{base_filter}{label_filter}{cl_iss} AND created >= -{od}d ORDER BY created DESC"
                 open_desc = f"{project} customer tickets created in last {od} days"
             else:
-                open_jql = f"{proj}{base_filter}{label_filter} ORDER BY created DESC"
+                open_jql = f"{proj}{base_filter}{label_filter}{cl_iss} ORDER BY created DESC"
                 open_desc = f"{project} customer tickets, most recent by created"
             if cd is not None:
                 closed_jql = (
-                    f"{proj}{base_filter}{label_filter} AND resolution is not EMPTY AND resolved >= -{cd}d "
+                    f"{proj}{base_filter}{label_filter}{cl_iss} AND resolution is not EMPTY AND resolved >= -{cd}d "
                     "ORDER BY resolved DESC"
                 )
                 closed_desc = f"{project} customer tickets resolved in last {cd} days"
             else:
                 closed_jql = (
-                    f"{proj}{base_filter}{label_filter} AND resolution is not EMPTY "
+                    f"{proj}{base_filter}{label_filter}{cl_iss} AND resolution is not EMPTY "
                     "ORDER BY resolved DESC"
                 )
                 closed_desc = f"{project} customer tickets, most recent by resolution"
@@ -1750,13 +1779,17 @@ class JiraClient:
                 customer_name, match_terms
             )
 
-        jql = f"project = {proj} AND {base_filter} AND statusCategory != Done ORDER BY updated DESC"
+        ex_cl = _jql_customer_lean_exclude_epic_sut(proj)
+        jql = (
+            f"project = {proj} AND {base_filter}{ex_cl} AND statusCategory != Done "
+            "ORDER BY updated DESC"
+        )
         try:
             raw = self._search(
                 jql,
                 max_results=max_results,
                 fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
-                data_description=f"{proj} customer open-ticket breakdown",
+                data_description=f"{proj} customer open-ticket breakdown (excl. Epic, SUT)" if ex_cl else f"{proj} customer open-ticket breakdown",
             )
         except Exception as e:
             logger.warning("Customer %s open breakdown fetch failed for %s: %s", proj, customer_name, e)
@@ -1822,8 +1855,9 @@ class JiraClient:
         
         # Only apply transient label exclusion for HELP project.
         label_filter = f" AND {_TRANSIENT_LABELS_EXCLUSION}" if project == "HELP" else ""
+        ex_cl = _jql_customer_lean_exclude_epic_sut(project)
         jql = (
-            f"project = {project} AND {base_filter}{label_filter} AND resolution is not EMPTY "
+            f"project = {project} AND {base_filter}{label_filter}{ex_cl} AND resolution is not EMPTY "
             f"AND resolved >= -{days}d ORDER BY resolved DESC"
         )
         
@@ -1832,7 +1866,11 @@ class JiraClient:
                 jql,
                 max_results=max_results,
                 fields=["assignee", "resolutiondate"],
-                data_description=f"{project} resolved tickets by assignee (last {days}d)",
+                data_description=(
+                    f"{project} resolved by assignee (last {days}d; excl. Epic, SUT)"
+                    if ex_cl
+                    else f"{project} resolved tickets by assignee (last {days}d)"
+                ),
             )
         except Exception as e:
             logger.warning("Resolved tickets by assignee fetch failed for %s %s: %s", project, customer_name, e)
@@ -1999,6 +2037,188 @@ class JiraClient:
             "jsm_organizations_resolved": resolved_jsm_orgs,
             "tickets": [_row(i) for i in raw],
             "jql_queries": self._jql_since(jql_start),
+        }
+
+    def get_help_escalation_metrics(
+        self,
+        customer_name: str | None = None,
+        match_terms: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """HELP escalation KPIs: open backlog TTR split by ``customer_escalation`` label, plus 90d open/close counts.
+
+        Same JSM org scope and transient label exclusions (Outage, Healthcheck) as
+        :meth:`get_customer_ticket_metrics`. TTR = now − created for open NOT DONE tickets
+        (median/avg from :meth:`_compute_backlog_age`). Counts and 90d windows use the
+        ``customer_escalation`` Jira label.
+        """
+        jql_start = self._jql_log_len()
+        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
+            customer_name, match_terms
+        )
+        excl = _TRANSIENT_LABELS_EXCLUSION
+        max_open = HELP_METRICS_MERGED_MAX_RESULTS
+
+        def _label_names(fields: dict) -> list[str]:
+            lbs = fields.get("labels")
+            if isinstance(lbs, (list, tuple)):
+                return [str(x) for x in lbs if x is not None]
+            return []
+
+        def _to_backlog_rows(issues: list[dict]) -> list[dict[str, Any]]:
+            rows: list[dict[str, Any]] = []
+            for issue in issues:
+                f = issue.get("fields", {}) or {}
+                rows.append({
+                    "project": (f.get("project") or {}).get("key", "HELP"),
+                    "created": f.get("created") or "",
+                })
+            return rows
+
+        jql_open = (
+            f"project = HELP AND ({base_filter}) AND {excl} AND statusCategory != Done "
+            "ORDER BY updated DESC"
+        )
+        try:
+            raw_open = self._search(
+                jql_open,
+                max_results=max_open,
+                fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
+                data_description="HELP open NOT DONE (partition escalation vs not for TTR)",
+            )
+        except Exception as e:
+            logger.warning("HELP escalation metrics (open) fetch failed: %s", e)
+            return {
+                "error": str(e),
+                "customer": customer_name,
+                "jsm_organizations_resolved": resolved_jsm_orgs,
+                "jql_queries": self._jql_since(jql_start),
+            }
+
+        raw_with_esc: list[dict] = []
+        raw_without_esc: list[dict] = []
+        for issue in raw_open:
+            f = issue.get("fields", {}) or {}
+            if "customer_escalation" in _label_names(f):
+                raw_with_esc.append(issue)
+            else:
+                raw_without_esc.append(issue)
+
+        ttr_esc = self._compute_backlog_age(
+            _to_backlog_rows(raw_with_esc), project_key="HELP",
+        )
+        ttr_not_esc = self._compute_backlog_age(
+            _to_backlog_rows(raw_without_esc), project_key="HELP",
+        )
+
+        jql_90_created = (
+            f'project = HELP AND ({base_filter}) AND {excl} AND labels = "customer_escalation" '
+            "AND created >= -90d ORDER BY created DESC"
+        )
+        jql_90_resolved = (
+            f'project = HELP AND ({base_filter}) AND {excl} AND labels = "customer_escalation" '
+            "AND resolution is not EMPTY AND resolved >= -90d ORDER BY resolved DESC"
+        )
+        n_90o: int | None = self._jql_match_total(jql_90_created)
+        if n_90o is None:
+            try:
+                n_90o = len(
+                    self._search(
+                        jql_90_created,
+                        max_results=5000,
+                        fields=["summary"],
+                        data_description="HELP customer_escalation — 90d created (count fallback)",
+                    )
+                )
+            except Exception as e:
+                logger.warning("HELP escalation metrics (90d created count) failed: %s", e)
+                n_90o = 0
+        n_90c: int | None = self._jql_match_total(jql_90_resolved)
+        if n_90c is None:
+            try:
+                n_90c = len(
+                    self._search(
+                        jql_90_resolved,
+                        max_results=5000,
+                        fields=["summary"],
+                        data_description="HELP customer_escalation — 90d resolved (count fallback)",
+                    )
+                )
+            except Exception as e:
+                logger.warning("HELP escalation metrics (90d resolved count) failed: %s", e)
+                n_90c = 0
+
+        cap = HELP_ESCALATION_LLM_MAX_ISSUES
+        jql_lbl_open = (
+            f'project = HELP AND ({base_filter}) AND {excl} AND labels = "customer_escalation" '
+            "AND statusCategory != Done ORDER BY updated DESC"
+        )
+        try:
+            raw_llm_open = self._search(
+                jql_lbl_open,
+                max_results=cap,
+                fields=_ISSUE_FIELDS,
+                data_description="HELP escalation — open w/ label (LLM + slide context)",
+            )
+        except Exception as e:
+            logger.warning("HELP escalation LLM fetch (open labeled) failed: %s", e)
+            raw_llm_open = []
+        try:
+            raw_llm_90c = self._search(
+                jql_90_created,
+                max_results=cap,
+                fields=_ISSUE_FIELDS,
+                data_description="HELP escalation — created 90d (LLM context)",
+            )
+        except Exception as e:
+            logger.warning("HELP escalation LLM fetch (90d created) failed: %s", e)
+            raw_llm_90c = []
+        try:
+            raw_llm_90r = self._search(
+                jql_90_resolved,
+                max_results=cap,
+                fields=_ISSUE_FIELDS,
+                data_description="HELP escalation — resolved 90d (LLM context)",
+            )
+        except Exception as e:
+            logger.warning("HELP escalation LLM fetch (90d resolved) failed: %s", e)
+            raw_llm_90r = []
+
+        def _issue_for_escalation_llm(issue: dict) -> dict[str, Any]:
+            d: dict[str, Any] = dict(self._normalize_issue(issue))
+            d["description_text"] = (d.get("description_text") or "")[:3000]
+            cts = d.get("comment_texts") or []
+            if isinstance(cts, list):
+                tail = [str(c) for c in cts[-20:]]
+                d["comment_texts"] = [t[:1200] for t in tail]
+            return d
+
+        llm_ticket_context = {
+            "jsm_organizations_resolved": list(resolved_jsm_orgs),
+            "open_with_label": [_issue_for_escalation_llm(i) for i in raw_llm_open],
+            "created_90d": [_issue_for_escalation_llm(i) for i in raw_llm_90c],
+            "resolved_90d": [_issue_for_escalation_llm(i) for i in raw_llm_90r],
+            "totals_90d": {
+                "created": int(n_90o) if n_90o is not None else 0,
+                "resolved": int(n_90c) if n_90c is not None else 0,
+            },
+            "sample_limits": {
+                "per_bucket": cap,
+                "description_chars": 3000,
+                "comment_items_max": 20,
+                "comment_char_cap": 1200,
+            },
+        }
+
+        return {
+            "customer": customer_name,
+            "jsm_organizations_resolved": resolved_jsm_orgs,
+            "not_done_escalation_count": len(raw_with_esc),
+            "escalations_opened_90d": int(n_90o) if n_90o is not None else 0,
+            "escalations_closed_90d": int(n_90c) if n_90c is not None else 0,
+            "ttr_open_backlog_customer_escalation": ttr_esc,
+            "ttr_open_backlog_not_customer_escalation": ttr_not_esc,
+            "jql_queries": self._jql_since(jql_start),
+            "llm_ticket_context": llm_ticket_context,
         }
 
     @staticmethod

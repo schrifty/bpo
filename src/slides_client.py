@@ -163,6 +163,23 @@ def _support_subtitle_matched_lead(report: dict, customer: str) -> str:
     return f"Matched to {customer}  ·  "
 
 
+def _support_title_includes_project(title: str, project: str) -> bool:
+    """True when the slide title already names *project* (start or trailing (PROJECT)), so body copy can omit a repeat."""
+    t = (title or "").strip()
+    p = (project or "").strip().upper()
+    if not t or not p:
+        return False
+    u = t.upper()
+    if u.startswith(p + " "):
+        return True
+    for sep in ("—", "–", "-", ":"):
+        if u.startswith(p + sep):
+            return True
+    if f"({p})" in u:  # e.g. "Customer escalations (HELP)" from legacy titles
+        return True
+    return u.endswith(f"({p})".upper())
+
+
 def _slide(reqs, sid, idx):
     reqs.append({"createSlide": {"objectId": sid, "insertionIndex": idx}})
 
@@ -1211,7 +1228,7 @@ _SLIDE_CANONICAL_PIPELINE_TRACES: dict[str, Any] = {
 
 
 def _build_slide_jql_speaker_notes(report: dict[str, Any], entry: dict[str, Any]) -> str:
-    """Speaker notes: timestamp; slide id/type; blank line; trace lines only (description: source - query)—no section heading."""
+    """Speaker notes: header block; then one bullet per trace with query on its own line(s) and a blank line between items."""
     from datetime import datetime
 
     prev_sn_entry = report.get("_speaker_note_slide_entry")
@@ -1259,11 +1276,19 @@ def _build_slide_jql_speaker_notes(report: dict[str, Any], entry: dict[str, Any]
             return "\n".join(header)
 
         header.append("")
-        for e in entries:
-            desc = e.get("description") or "Data"
-            src = e.get("source") or "Unknown"
-            q = e.get("query") or ""
-            header.append(f"{desc}: {src} - {q}")
+        n = len(entries)
+        for i, e in enumerate(entries):
+            desc = (e.get("description") or "Data").strip()
+            src = (e.get("source") or "Unknown").strip()
+            q = (e.get("query") or "").strip()
+            header.append(f"• {desc} — {src}")
+            if q:
+                for part in q.splitlines():
+                    p = part.strip()
+                    if p:
+                        header.append(f"  {p}")
+            if i < n - 1:
+                header.append("")
         return "\n".join(header)
     finally:
         if prev_sn_entry is not None:
@@ -3130,7 +3155,12 @@ def _customer_ticket_metrics_slide(reqs, sid, report, idx):
     _slide(reqs, sid, idx)
     _bg(reqs, sid, _project_slide_bg("HELP"))
     _slide_title(reqs, sid, title)
-    defs = "TTR = now - created for NOT DONE tickets.  TTFR = JSM first-response SLA elapsed time."
+    tp = _support_title_includes_project(title, "HELP")
+    defs = (
+        "TTR: age of open, not-done backlog. TTFR: JSM first-response SLA (elapsed)."
+        if tp
+        else "TTR = now − created for not-done tickets.  TTFR = JSM first-response SLA elapsed time."
+    )
     _box(reqs, f"{sid}_defs", sid, MARGIN, BODY_Y, CONTENT_W, 14, defs)
     _style(reqs, f"{sid}_defs", 0, len(defs), size=8, color=GRAY, font=FONT)
 
@@ -3150,38 +3180,46 @@ def _customer_ticket_metrics_slide(reqs, sid, report, idx):
     else:
         k3_accent = _GREEN if adherence_pct >= 90 else (BLUE if adherence_pct >= 75 else _RED)
 
+    l1 = "Unresolved" if tp else "HELP unresolved tickets"
+    l2 = "Resolved (6 mo)" if tp else "HELP resolved (last 6mo)"
+    l3 = "SLA adherence (1y)" if tp else "HELP SLA adherence (1y)"
+    l4 = "TTR — open backlog (median)" if tp else "HELP TTR (Open Backlog Age, median)"
+    l5 = "TTFR — median (1y)" if tp else "HELP TTFR (1y median)"
+    l6 = "TTR — open backlog (avg.)" if tp else "HELP TTR (Open Backlog Age, average)"
+    l7 = "TTFR — average (1y)" if tp else "HELP TTFR (1y average)"
+
     _kpi_metric_card(
         reqs, f"{sid}_k1", sid, MARGIN, row1_y, top_card_w, card_h,
-        "HELP unresolved tickets", f"{unresolved}", accent=BLUE,
+        l1, f"{unresolved}", accent=BLUE,
     )
     _kpi_metric_card(
         reqs, f"{sid}_k2", sid, MARGIN + top_card_w + col_gap, row1_y, top_card_w, card_h,
-        "HELP resolved (last 6mo)", f"{resolved_6mo}", accent=BLUE,
+        l2, f"{resolved_6mo}", accent=BLUE,
     )
     _kpi_metric_card(
         reqs, f"{sid}_k3", sid, MARGIN + 2 * (top_card_w + col_gap), row1_y, top_card_w, card_h,
-        "HELP SLA adherence (1y)", adherence_value,
+        l3, adherence_value,
         accent=k3_accent,
     )
 
     _kpi_metric_card(
         reqs, f"{sid}_k4", sid, MARGIN, row2_y, bot_card_w, card_h,
-        "HELP TTR (Open Backlog Age, median)", ttr.get("median", "—"), accent=BLUE,
+        l4, ttr.get("median", "—"), accent=BLUE,
     )
     _kpi_metric_card(
         reqs, f"{sid}_k5", sid, MARGIN + bot_card_w + col_gap, row2_y, bot_card_w, card_h,
-        "HELP TTFR (1y median)", ttfr.get("median", "—"), accent=BLUE,
+        l5, ttfr.get("median", "—"), accent=BLUE,
     )
 
     # Row 3: Average metrics
     row3_y = row2_y + card_h + row_gap
     _kpi_metric_card(
         reqs, f"{sid}_k6", sid, MARGIN, row3_y, bot_card_w, card_h,
-        "HELP TTR (Open Backlog Age, average)", ttr.get("avg", "—"), accent=BLUE,
+        l6, ttr.get("avg", "—"), accent=BLUE,
     )
     _kpi_metric_card(
         reqs, f"{sid}_k7", sid, MARGIN + bot_card_w + col_gap, row3_y, bot_card_w, card_h,
-        "HELP TTFR (1y average)", ttfr.get("avg", "—"), accent=BLUE,
+        l7, ttfr.get("avg", "—"), accent=BLUE,
     )
 
     return idx + 1
@@ -3224,7 +3262,12 @@ def _non_help_project_ticket_kpi_slide(
     _slide(reqs, sid, idx)
     _bg(reqs, sid, _project_slide_bg(project))
     _slide_title(reqs, sid, title)
-    defs = "TTR = now - created for NOT DONE tickets.  TTFR = JSM first-response SLA elapsed time."
+    tp = _support_title_includes_project(title, project)
+    defs = (
+        "TTR: age of open, not-done backlog. TTFR: JSM first-response SLA (elapsed)."
+        if tp
+        else "TTR = now − created for not-done tickets.  TTFR = JSM first-response SLA elapsed time."
+    )
     _box(reqs, f"{sid}_defs", sid, MARGIN, BODY_Y, CONTENT_W, 14, defs)
     _style(reqs, f"{sid}_defs", 0, len(defs), size=8, color=GRAY, font=FONT)
 
@@ -3243,37 +3286,46 @@ def _non_help_project_ticket_kpi_slide(
     else:
         k3_accent = _GREEN if adherence_pct >= 90 else (BLUE if adherence_pct >= 75 else _RED)
 
+    pfx = f"{project} "
+    l1 = "Unresolved" if tp else f"{pfx}unresolved tickets"
+    l2 = "Resolved (6 mo)" if tp else f"{pfx}resolved (last 6mo)"
+    l3 = "SLA adherence (1y)" if tp else f"{pfx}SLA adherence (1y)"
+    l4 = f"TTR — open backlog (median)" if tp else f"{pfx}TTR (Open Backlog Age, median)"
+    l5 = f"TTFR — median (1y)" if tp else f"{pfx}TTFR (1y median)"
+    l6 = f"TTR — open backlog (avg.)" if tp else f"{pfx}TTR (Open Backlog Age, average)"
+    l7 = f"TTFR — average (1y)" if tp else f"{pfx}TTFR (1y average)"
+
     _kpi_metric_card(
         reqs, f"{sid}_k1", sid, MARGIN, row1_y, top_card_w, card_h,
-        f"{project} unresolved tickets", f"{unresolved}", accent=BLUE,
+        l1, f"{unresolved}", accent=BLUE,
     )
     _kpi_metric_card(
         reqs, f"{sid}_k2", sid, MARGIN + top_card_w + col_gap, row1_y, top_card_w, card_h,
-        f"{project} resolved (last 6mo)", f"{resolved_6mo}", accent=BLUE,
+        l2, f"{resolved_6mo}", accent=BLUE,
     )
     _kpi_metric_card(
         reqs, f"{sid}_k3", sid, MARGIN + 2 * (top_card_w + col_gap), row1_y, top_card_w, card_h,
-        f"{project} SLA adherence (1y)", adherence_value,
+        l3, adherence_value,
         accent=k3_accent,
     )
 
     _kpi_metric_card(
         reqs, f"{sid}_k4", sid, MARGIN, row2_y, bot_card_w, card_h,
-        f"{project} TTR (Open Backlog Age, median)", ttr.get("median", "—"), accent=BLUE,
+        l4, ttr.get("median", "—"), accent=BLUE,
     )
     _kpi_metric_card(
         reqs, f"{sid}_k5", sid, MARGIN + bot_card_w + col_gap, row2_y, bot_card_w, card_h,
-        f"{project} TTFR (1y median)", ttfr.get("median", "—"), accent=BLUE,
+        l5, ttfr.get("median", "—"), accent=BLUE,
     )
 
     row3_y = row2_y + card_h + row_gap
     _kpi_metric_card(
         reqs, f"{sid}_k6", sid, MARGIN, row3_y, bot_card_w, card_h,
-        f"{project} TTR (Open Backlog Age, average)", ttr.get("avg", "—"), accent=BLUE,
+        l6, ttr.get("avg", "—"), accent=BLUE,
     )
     _kpi_metric_card(
         reqs, f"{sid}_k7", sid, MARGIN + bot_card_w + col_gap, row3_y, bot_card_w, card_h,
-        f"{project} TTFR (1y average)", ttfr.get("avg", "—"), accent=BLUE,
+        l7, ttfr.get("avg", "—"), accent=BLUE,
     )
 
     return idx + 1
@@ -3316,9 +3368,9 @@ def _project_ticket_metrics_breakdown_slide(
     if t0:
         title = t0
     elif report.get("support_deck_scoped_titles") and report.get("customer"):
-        title = f"{project} {default_title}"
+        title = f"{project} — {default_title}"
     else:
-        title = f"{customer} {default_title}"
+        title = f"{customer} — {default_title}"
     by_type = snap.get("by_type_open") or {}
     by_status = snap.get("by_status_open") or {}
 
@@ -3771,6 +3823,84 @@ def _support_help_customer_escalations_slide(reqs: list, sid: str, report: dict,
                 _cs_e(row_idx, ci, len(v), bold=True, color=BLUE, size=8, link=f"{jira_base}/browse/{key}")
             else:
                 _cs_e(row_idx, ci, len(v), size=8)
+
+    return idx + 1
+
+
+def _support_help_escalation_metrics_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
+    """HELP-only KPIs: backlog TTR with/without customer_escalation label; 90d open/close counts."""
+    jira = report.get("jira") or {}
+    blob = jira.get("help_escalation_metrics")
+    if not isinstance(blob, dict):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            "HELP escalation metrics (not in report — support deck Jira fetch)",
+        )
+    if blob.get("error"):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            f"HELP escalation metrics: {blob['error']}",
+        )
+
+    entry = report.get("_current_slide") or {}
+    t0 = (entry.get("title") or "").strip()
+    base_title = t0 or "HELP — Escalation metrics"
+    tp = _support_title_includes_project(base_title, "HELP")
+    t_esc = blob.get("ttr_open_backlog_customer_escalation") or {}
+    t_not = blob.get("ttr_open_backlog_not_customer_escalation") or {}
+    n_open = int(blob.get("not_done_escalation_count") or 0)
+    n_90o = int(blob.get("escalations_opened_90d") or 0)
+    n_90c = int(blob.get("escalations_closed_90d") or 0)
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, _project_slide_bg("HELP"))
+    _slide_title(reqs, sid, base_title)
+    llm_q = (blob.get("llm_nature_summary") or "").strip()
+    y = float(BODY_Y)
+    if llm_q:
+        # Tall box + larger body type for 2–4 short paragraphs; KPI tiles tighten slightly to fit.
+        q_h = 128.0
+        _wrap_box(reqs, f"{sid}_quote", sid, MARGIN, y, CONTENT_W, q_h, llm_q)
+        _style(reqs, f"{sid}_quote", 0, len(llm_q), size=11, color=NAVY, font=FONT_SERIF)
+        y = y + q_h + 6.0
+        row_gap = 10.0
+        card_h = 50.0
+    else:
+        row_gap = 14.0
+        card_h = 54.0
+
+    col_gap = 18
+    top_card_w = (CONTENT_W - 2 * col_gap) / 3
+    bot_card_w = (CONTENT_W - col_gap) / 2
+    row1_y = y + 4.0
+    row2_y = row1_y + card_h + row_gap
+
+    l1 = "Open w/ label (not done)" if tp else "Open w/ label customer_escalation (not done)"
+    l2 = "Created in 90d" if tp else "Created in 90d (label customer_escalation)"
+    l3 = "Resolved in 90d" if tp else "Resolved in 90d (label customer_escalation)"
+    l4 = "TTR (median) — w/ label" if tp else "TTR (median) — w/ label customer_escalation"
+    l5 = "TTR (median) — w/o label" if tp else "TTR (median) — w/o label customer_escalation"
+
+    _kpi_metric_card(
+        reqs, f"{sid}_k1", sid, MARGIN, row1_y, top_card_w, card_h,
+        l1, f"{n_open}", accent=BLUE,
+    )
+    _kpi_metric_card(
+        reqs, f"{sid}_k2", sid, MARGIN + top_card_w + col_gap, row1_y, top_card_w, card_h,
+        l2, f"{n_90o}", accent=BLUE,
+    )
+    _kpi_metric_card(
+        reqs, f"{sid}_k3", sid, MARGIN + 2 * (top_card_w + col_gap), row1_y, top_card_w, card_h,
+        l3, f"{n_90c}", accent=BLUE,
+    )
+    _kpi_metric_card(
+        reqs, f"{sid}_k4", sid, MARGIN, row2_y, bot_card_w, card_h,
+        l4, t_esc.get("median", "—"), accent=BLUE,
+    )
+    _kpi_metric_card(
+        reqs, f"{sid}_k5", sid, MARGIN + bot_card_w + col_gap, row2_y, bot_card_w, card_h,
+        l5, t_not.get("median", "—"), accent=BLUE,
+    )
 
     return idx + 1
 
@@ -7442,11 +7572,14 @@ def _render_project_volume_trends(
             "Last 3 full months: created and resolved within 10 tickets of each other"
         )
 
-    title = f"{project} Volume Analysis"
+    entry = report.get("_current_slide") or {}
+    t0 = (entry.get("title") or "").strip()
+    vtitle = t0 if t0 else f"{project} — Volume analysis"
+    st = _support_title_includes_project(vtitle, project)
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, bg)
-    _slide_title(reqs, sid, title)
+    _slide_title(reqs, sid, vtitle)
 
     _box(reqs, f"{sid}_headline", sid, MARGIN, BODY_Y, CONTENT_W, 34, headline)
     _style(
@@ -7472,7 +7605,7 @@ def _render_project_volume_trends(
     left_x = MARGIN
     right_x = MARGIN + top_chart_w + top_gap
 
-    all_hdr = f"All {project} tickets"
+    all_hdr = "All tickets" if st else f"All {project} tickets"
     _box(reqs, f"{sid}_all_h", sid, left_x, top_y, top_chart_w, 14, all_hdr)
     _style(reqs, f"{sid}_all_h", 0, len(all_hdr), bold=True, size=10, color=NAVY, font=FONT)
     top_chart_y = top_y + 18
@@ -7491,7 +7624,7 @@ def _render_project_volume_trends(
     )
     embed_chart(reqs, f"{sid}_all_chart", sid, ss_id, chart_id, left_x, top_chart_y, top_chart_w, top_chart_h, linked=False)
 
-    esc_hdr = f"{project} tickets with jira_escalated label"
+    esc_hdr = "w/ jira_escalated" if st else f"{project} tickets with jira_escalated label"
     _box(reqs, f"{sid}_esc_h", sid, right_x, top_y, top_chart_w, 14, esc_hdr)
     _style(reqs, f"{sid}_esc_h", 0, len(esc_hdr), bold=True, size=10, color=NAVY, font=FONT)
     esc_chart_y = top_y + 18
@@ -7514,7 +7647,7 @@ def _render_project_volume_trends(
     bottom_chart_h = 100
     bottom_x = MARGIN + (CONTENT_W - bottom_chart_w) / 2
     bottom_y = top_chart_y + top_chart_h + 18
-    non_hdr = f"{project} tickets excluding jira_escalated"
+    non_hdr = "w/o jira_escalated" if st else f"{project} tickets excluding jira_escalated"
     _box(reqs, f"{sid}_non_h", sid, bottom_x, bottom_y, bottom_chart_w, 14, non_hdr)
     _style(reqs, f"{sid}_non_h", 0, len(non_hdr), bold=True, size=10, color=NAVY, font=FONT)
     non_chart_y = bottom_y + 18
@@ -8341,6 +8474,7 @@ _SLIDE_BUILDERS = {
     "customer_ticket_metrics_charts": _customer_ticket_metrics_charts_slide,
     "support_help_orgs_by_opened": _support_help_orgs_by_opened_slide,
     "support_help_customer_escalations": _support_help_customer_escalations_slide,
+    "support_help_escalation_metrics": _support_help_escalation_metrics_slide,
     "support_recent_opened": _support_recent_opened_slide,
     "support_recent_closed": _support_recent_closed_slide,
     "customer_project_volume_trends": _customer_project_volume_trends_slide,
@@ -8419,6 +8553,7 @@ SLIDE_DATA_REQUIREMENTS = {
     "customer_ticket_metrics_charts": ["jira"],
     "support_help_orgs_by_opened": ["jira"],
     "support_help_customer_escalations": ["jira"],
+    "support_help_escalation_metrics": ["jira"],
     "support_recent_opened": ["jira"],
     "support_recent_closed": ["jira"],
     "customer_project_volume_trends": ["customer_project_volume_jql_trace"],
@@ -8765,7 +8900,13 @@ def create_health_deck(
                 report["jira"]["help_customer_escalations"] = jira_client.get_help_customer_escalations(
                     customer,
                 )
-            
+
+            if "help_escalation_metrics" not in report["jira"]:
+                logger.info("Support deck: fetching HELP escalation metrics for %s", customer_display)
+                report["jira"]["help_escalation_metrics"] = jira_client.get_help_escalation_metrics(
+                    customer,
+                )
+
             # Fetch recent HELP tickets (works with None for all customers)
             logger.info("Support deck: fetching recent HELP tickets for %s", customer_display)
             customer_help_recent = jira_client.get_customer_help_recent_tickets(
@@ -8962,6 +9103,24 @@ def create_health_deck(
                 "customer": customer,
                 "tickets": [],
             }
+            report["jira"]["help_escalation_metrics"] = {
+                "error": str(e)[:500],
+                "customer": customer,
+                "not_done_escalation_count": 0,
+                "escalations_opened_90d": 0,
+                "escalations_closed_90d": 0,
+            }
+
+        hem_post = (report.get("jira") or {}).get("help_escalation_metrics")
+        if isinstance(hem_post, dict) and not hem_post.get("error"):
+            try:
+                from .support_notable_llm import generate_help_escalation_nature_quote_llm
+
+                enq = generate_help_escalation_nature_quote_llm(report)
+                if enq:
+                    hem_post["llm_nature_summary"] = enq
+            except Exception as e:
+                logger.warning("Support deck: escalation nature quote LLM failed: %s", e)
 
     if not slide_plan:
         logger.error(

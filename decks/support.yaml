@@ -4,9 +4,12 @@ audience: Support / Engineering Leadership
 
 purpose: |
   A focused support deck for operational ticket-volume review.
+  The HELP block includes Escalation Metrics (label customer_escalation KPIs)
+  before the Customer Escalations table, and other HELP-only rows as listed.
   Three parallel blocks — HELP, CUSTOMER, and LEAN — each with the same six
-  slides: volume trends, KPI ticket metrics, open-ticket breakdown (pies),
-  recently opened, recently closed, and resolved by assignee (90 days).
+  core slides: volume trends, KPI ticket metrics, open-ticket breakdown (pies),
+  recently opened, recently closed, and resolved by assignee (90 days), plus
+  HELP-only rows where listed below.
   All-customer runs also include a ranking of JSM organizations by HELP tickets
   opened in the last ~90 days (before the recently opened/closed tables). Every
   run includes a Customer Escalations table: open HELP issues with the
@@ -37,6 +40,8 @@ slides:
     title: "HELP Ticket Metrics Breakdown"
   - slide: support_help_orgs_by_opened
     title: "HELP — Tickets Opened by Organization (90 Days)"
+  - slide: support_help_escalation_metrics
+    title: "HELP — Escalation metrics"
   - slide: support_help_customer_escalations
     title: "Customer Escalations (HELP)"
   - slide: support_recent_opened

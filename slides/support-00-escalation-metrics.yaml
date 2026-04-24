@@ -1,0 +1,17 @@
+id: support_help_escalation_metrics
+type: standard
+order: 35
+title: HELP — Escalation metrics
+slide_type: support_help_escalation_metrics
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  HELP block only (not in CUSTOMER/LEAN). Five KPIs: count of open NOT DONE
+  issues with Jira label customer_escalation; count of issues with that label
+  created in the last 90 days; count with that label resolved in the last 90
+  days; median TTR (open backlog age, now minus created) for open NOT DONE
+  tickets with the label; same TTR median for open NOT DONE without the label.
+  Same JSM org scope and transient label exclusions (Outage, Healthcheck) as
+  HELP Ticket Metrics.

@@ -3990,6 +3990,10 @@ _BUILDER_DESCRIPTIONS = {
     "support_help_customer_escalations": (
         "Open HELP issues with label customer_escalation and not Done, ordered by last update"
     ),
+    "support_help_escalation_metrics": (
+        "HELP only — open backlog TTR (median) with vs without label customer_escalation; "
+        "counts of open escalations, created in 90d, resolved in 90d"
+    ),
     "support_recent_opened": "HELP tickets opened in the last ~45 days for the scoped customer",
     "support_recent_closed": "HELP tickets resolved in the last ~45 days for the scoped customer",
     "sla_health": "Support health & SLA — TTFR/TTR, breach rate, sentiment, channels",

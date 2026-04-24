@@ -11,6 +11,7 @@ from .config import LLM_MODEL, LLM_MODEL_FAST, logger, llm_client
 from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
 
 _MAX_DIGEST_JSON_CHARS = 24_000
+_MAX_ESCALATION_NATURE_JSON_CHARS = 40_000
 
 # Shorter reminder for follow-up (top-up) LLM calls; full rules are in the main user prompt.
 _NOTABLE_TREND_RULE_REMINDER = (
@@ -26,6 +27,11 @@ class NotableLlmError(RuntimeError):
 
 def _flag_use_llm() -> bool:
     v = (os.environ.get("BPO_SUPPORT_NOTABLE_LLM", "true") or "").strip().lower()
+    return v not in ("0", "false", "no", "off")
+
+
+def _flag_escalation_nature_llm() -> bool:
+    v = (os.environ.get("BPO_SUPPORT_ESCALATION_NATURE_LLM", "true") or "").strip().lower()
     return v not in ("0", "false", "no", "off")
 
 
@@ -117,6 +123,18 @@ def build_support_review_digest(
     elif isinstance(ctm, dict) and ctm.get("error"):
         r["help_tickets_error"] = str(ctm.get("error"))[:400]
 
+    hem = j.get("help_escalation_metrics")
+    if isinstance(hem, dict) and hem and not hem.get("error"):
+        t_esc = hem.get("ttr_open_backlog_customer_escalation") or {}
+        t_not = hem.get("ttr_open_backlog_not_customer_escalation") or {}
+        r["help_escalation_metrics"] = {
+            "not_done_escalation_count": hem.get("not_done_escalation_count"),
+            "escalations_opened_90d": hem.get("escalations_opened_90d"),
+            "escalations_closed_90d": hem.get("escalations_closed_90d"),
+            "ttr_median_with_label": t_esc.get("median"),
+            "ttr_median_without_label": t_not.get("median"),
+        }
+
     def _recent_block(name: str, proj_label: str) -> None:
         blob = j.get(name) or {}
         if not isinstance(blob, dict):
@@ -200,6 +218,109 @@ def build_support_review_digest(
             else:
                 break
     return r
+
+
+def _normalize_escalation_llm_text(ch: str) -> str:
+    """Plain text, 2–4 paragraphs; cap length for the slide text box."""
+    t = (ch or "").strip()
+    t = re.sub(r"^[`'\"]+", "", t)
+    t = re.sub(r"[`'\"]+$", "", t)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    parts = t.split("\n\n")
+    parts = [re.sub(r"[\r\n]+", " ", p).strip() for p in parts if p and p.strip()]
+    t = "\n\n".join(parts)
+    if len(t) > 2_800:
+        t = t[:2_796].rstrip() + "…"
+    return t
+
+
+def generate_help_escalation_nature_quote_llm(report: dict[str, Any]) -> str | None:
+    """Multi-paragraph analysis for the Escalation metrics slide: themes, KPIs, and ticket evidence.
+
+    Uses ``jira.help_escalation_metrics.llm_ticket_context`` (full field samples) and respects
+    ``BPO_SUPPORT_ESCALATION_NATURE_LLM`` (off → None). Reuses the same master LLM switch as Notable
+    (``BPO_SUPPORT_NOTABLE_LLM``) so support runs can disable all LLM in one place.
+    """
+    if not _flag_use_llm() or not _flag_escalation_nature_llm():
+        return None
+    j = report.get("jira") or {}
+    hem = j.get("help_escalation_metrics")
+    if not isinstance(hem, dict) or hem.get("error"):
+        return None
+    ctx = hem.get("llm_ticket_context")
+    if not isinstance(ctx, dict):
+        return None
+
+    c_disp = str(report.get("customer") or "").strip() or "All customers"
+    t_esc = hem.get("ttr_open_backlog_customer_escalation") or {}
+    t_not = hem.get("ttr_open_backlog_not_customer_escalation") or {}
+    kpi = {
+        "not_done_escalation_count": hem.get("not_done_escalation_count"),
+        "escalations_opened_90d": hem.get("escalations_opened_90d"),
+        "escalations_closed_90d": hem.get("escalations_closed_90d"),
+        "ttr_median_with_label": t_esc.get("median"),
+        "ttr_avg_with_label": t_esc.get("avg"),
+        "ttr_median_without_label": t_not.get("median"),
+        "ttr_avg_without_label": t_not.get("avg"),
+    }
+    payload: dict[str, Any] = {
+        "data_scope": c_disp,
+        "kpi": kpi,
+        "tickets": ctx,
+    }
+    raw = json.dumps(payload, default=str, ensure_ascii=False)
+    if len(raw) > _MAX_ESCALATION_NATURE_JSON_CHARS:
+        payload["tickets"] = {
+            "note": f"Payload truncated (was {len(raw)} chars). Open/90d samples shortened.",
+            "open_with_label": (ctx.get("open_with_label") or [])[:55],
+            "created_90d": (ctx.get("created_90d") or [])[:55],
+            "resolved_90d": (ctx.get("resolved_90d") or [])[:55],
+            "totals_90d": ctx.get("totals_90d"),
+        }
+        raw = json.dumps(payload, default=str, ensure_ascii=False)
+
+    try:
+        client = llm_client()
+    except RuntimeError as e:
+        logger.info("Escalation nature quote: no LLM client (%s)", e)
+        return None
+
+    sys = (
+        "You are a support analytics lead writing slide copy for executives. "
+        "Ground every claim in the JSON: ticket samples (summaries, descriptions, labels, type, org, status, "
+        "SLA/timing fields) and the numeric kpi. Do not fabricate product areas, account names, or severities. "
+        "If samples are smaller than the KPI totals, say so explicitly; relate patterns to the samples and cite kpi for scale."
+    )
+    user = (
+        f"Data scope: **{c_disp}** (data_scope in JSON). Below is the escalation metrics payload: KPIs and ticket samples.\n\n"
+        f"DATA (JSON):\n{raw}\n\n"
+        "Write **2–4 short paragraphs** in **plain text only** (no JSON, no markdown, no \"##\" or bullets; "
+        "paragraphs separated by one blank line).\n\n"
+        "Include:\n"
+        "• First paragraph: the dominant **themes and nature** of the work (issue types, recurring problems, org/product signals visible in the samples).\n"
+        "• Second and third paragraphs: **deeper observations**—severity/priority, SLA/aging hints if visible, "
+        "notable differences between open-labeled backlog vs. the without-label TTR, or between created vs. resolved 90d samples, "
+        "if the data supports it (avoid speculation beyond the JSON).\n"
+        "• Final paragraph: **brief synthesis**—what leadership should take away, tied to the KPI counts/TTRs when relevant.\n\n"
+        "Aim for roughly 900–2,200 characters total. Vary sentence length. Do not start with filler like \"The data shows\" or \"In conclusion\"."
+    )
+    try:
+        model = LLM_MODEL_FAST if len(raw) < 12_000 else LLM_MODEL
+        resp = _llm_create_with_retry(
+            client,
+            model=model,
+            messages=[{"role": "system", "content": sys}, {"role": "user", "content": user}],
+            max_tokens=1_800,
+            temperature=0.28,
+        )
+        ch = (resp.choices[0].message.content or "").strip() if resp and resp.choices else ""
+    except Exception as e:
+        logger.info("Escalation nature quote: LLM failed: %s", e)
+        return None
+    if not ch:
+        return None
+    t = _normalize_escalation_llm_text(ch)
+    return t if t else None
 
 
 def _fallback_items(entry: dict[str, Any]) -> list[str]:
