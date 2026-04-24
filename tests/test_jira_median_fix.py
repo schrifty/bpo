@@ -95,7 +95,7 @@ def test_compute_sla_formats():
         {"project": "HELP", "ttfr_ms": 30 * 60 * 1000, "ttfr_breached": False, "ttfr_waiting": False},
     ]
     result_mins = JiraClient._compute_sla(issues_mins, "ttfr")
-    assert result_mins["median"] == "30m"
+    assert result_mins["median"] == "30 min"
     
     # Test hours format
     issues_hours = [

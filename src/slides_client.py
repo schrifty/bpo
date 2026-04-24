@@ -7554,6 +7554,9 @@ def _eng_help_volume_trends_slide(reqs: list, sid: str, report: dict, idx: int) 
 
     trends = raw_trends if isinstance(raw_trends, dict) else {}
     err = trends.get("error")
+    # Speaker notes: this slide’s JQL only (not full eng_portfolio query list)
+    jql_block = trends.get("jql_queries") if isinstance(trends.get("jql_queries"), list) else []
+    report["eng_help_volume_jql_trace"] = {"jql_queries": jql_block}
     if err:
         return _missing_data_slide(
             reqs, sid, report, idx,
@@ -7568,6 +7571,8 @@ def _customer_project_volume_trends_slide(reqs: list, sid: str, report: dict, id
     """CUSTOMER project monthly created vs resolved (all / escalated / non-escalated)."""
     jira = report.get("jira") or {}
     trends = jira.get("customer_project_volume_trends") or {}
+    jq = trends.get("jql_queries") if isinstance(trends, dict) and isinstance(trends.get("jql_queries"), list) else []
+    report["customer_project_volume_jql_trace"] = {"jql_queries": jq}
     if not isinstance(trends, dict):
         return _missing_data_slide(reqs, sid, report, idx, "CUSTOMER volume trends (not in report)")
     if trends.get("error"):
@@ -7584,6 +7589,8 @@ def _lean_project_volume_trends_slide(reqs: list, sid: str, report: dict, idx: i
     """LEAN project monthly created vs resolved (all / escalated / non-escalated)."""
     jira = report.get("jira") or {}
     trends = jira.get("lean_project_volume_trends") or {}
+    jq = trends.get("jql_queries") if isinstance(trends, dict) and isinstance(trends.get("jql_queries"), list) else []
+    report["lean_project_volume_jql_trace"] = {"jql_queries": jq}
     if not isinstance(trends, dict):
         return _missing_data_slide(reqs, sid, report, idx, "LEAN volume trends (not in report)")
     if trends.get("error"):
@@ -8414,12 +8421,12 @@ SLIDE_DATA_REQUIREMENTS = {
     "support_help_customer_escalations": ["jira"],
     "support_recent_opened": ["jira"],
     "support_recent_closed": ["jira"],
-    "customer_project_volume_trends": ["jira"],
+    "customer_project_volume_trends": ["customer_project_volume_jql_trace"],
     "customer_project_ticket_metrics": ["jira"],
     "customer_project_ticket_metrics_breakdown": ["jira"],
     "customer_project_recent_opened": ["jira"],
     "customer_project_recent_closed": ["jira"],
-    "lean_project_volume_trends": ["jira"],
+    "lean_project_volume_trends": ["lean_project_volume_jql_trace"],
     "lean_project_ticket_metrics": ["jira"],
     "lean_project_ticket_metrics_breakdown": ["jira"],
     "lean_project_recent_opened": ["jira"],
@@ -8459,7 +8466,7 @@ SLIDE_DATA_REQUIREMENTS = {
     "eng_enhancements_shipped": ["eng_portfolio"],
     "eng_support_pressure": ["eng_portfolio"],
     "eng_jira_project": ["eng_portfolio"],
-    "eng_help_volume_trends": ["eng_portfolio"],
+    "eng_help_volume_trends": ["eng_help_volume_jql_trace"],
     "support_deck_cover": [],
     "support_intro": [],
     "cs_notable": [],

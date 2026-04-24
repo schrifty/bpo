@@ -1077,7 +1077,7 @@ class JiraClient:
         def _fmt(ms: int) -> str:
             mins = ms / 60_000
             if mins < 60:
-                return f"{mins:.0f}m"
+                return f"{mins:.0f} min"
             hrs = mins / 60
             if hrs < 24:
                 return f"{hrs:.1f}h"
@@ -1127,7 +1127,7 @@ class JiraClient:
         def _fmt(ms: int) -> str:
             mins = ms / 60_000
             if mins < 60:
-                return f"{mins:.0f}m"
+                return f"{mins:.0f} min"
             hrs = mins / 60
             if hrs < 24:
                 return f"{hrs:.1f}h"
@@ -1182,7 +1182,7 @@ class JiraClient:
         def _fmt(ms: int) -> str:
             mins = ms / 60_000
             if mins < 60:
-                return f"{mins:.0f}m"
+                return f"{mins:.0f} min"
             hrs = mins / 60
             if hrs < 24:
                 return f"{hrs:.1f}h"
@@ -1843,6 +1843,7 @@ class JiraClient:
                 "days": days,
                 "by_assignee": [],
                 "total_resolved": 0,
+                "jql_queries": self._jql_since(jql_start),
             }
         
         # Group by assignee
@@ -2061,6 +2062,7 @@ class JiraClient:
 
     def _get_help_ticket_volume_trends(self) -> dict[str, Any]:
         """Return 12-month HELP created vs resolved trends for all/escalated/non-escalated."""
+        jql_start = self._jql_log_len()
         jql = (
             f"project = HELP AND {_TRANSIENT_LABELS_EXCLUSION} AND (created >= -365d OR resolved >= -365d) "
             "ORDER BY created DESC"
@@ -2074,7 +2076,13 @@ class JiraClient:
             )
         except Exception as e:
             logger.warning("HELP ticket trend fetch failed: %s", e)
-            return {"error": str(e), "all": [], "escalated": [], "non_escalated": []}
+            return {
+                "error": str(e),
+                "all": [],
+                "escalated": [],
+                "non_escalated": [],
+                "jql_queries": self._jql_since(jql_start),
+            }
 
         issues = []
         for issue in raw:
@@ -2089,6 +2097,7 @@ class JiraClient:
             "all": self._bucket_by_month(issues, escalated_only=False),
             "escalated": self._bucket_by_month(issues, escalated_only=True),
             "non_escalated": self._bucket_by_month(issues, exclude_escalated=True),
+            "jql_queries": self._jql_since(jql_start),
         }
 
     def _get_engineering_tickets(self, safe_name: str) -> dict[str, Any]:
