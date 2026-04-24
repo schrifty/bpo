@@ -21,8 +21,8 @@ def test_support_recent_opened_renders_empty_window_without_missing_flag():
             "base_url": "https://example.atlassian.net",
             "customer_help_recent": {
                 "customer": "Acme",
-                "opened_within_days": 45,
-                "closed_within_days": 45,
+                "opened_within_days": None,
+                "closed_within_days": None,
                 "recently_opened": [],
                 "recently_closed": [],
                 "jql_queries": [],

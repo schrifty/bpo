@@ -77,6 +77,17 @@ from .slides_theme import (
 _SLIDES_OBJECT_ID_BASE_MAX = 38
 
 
+def _blob_recent_tickets_window_days(blob: dict, closed: bool) -> int | None:
+    """Return the Jira ``*_within_days`` window, or None if unbounded (no date filter in JQL). Missing key: legacy 45."""
+    key = "closed_within_days" if closed else "opened_within_days"
+    if key not in blob:
+        return 45
+    v = blob.get(key)
+    if v is None:
+        return None
+    return int(v)
+
+
 def _slide_object_id_base(slide_id: str, seq: int) -> str:
     """Build a page-level objectId base that stays under Slides' 50-char cap with sub-element suffixes."""
     raw = f"s_{slide_id}_{seq}"
@@ -3438,7 +3449,7 @@ def _customer_help_recent_slide(
     *,
     closed: bool,
 ) -> int:
-    """Table slide for HELP tickets opened or resolved in a recent window."""
+    """Table slide for HELP tickets opened or resolved; shows as many rows as fit in the body band."""
     jira = report.get("jira") or {}
     blob = jira.get("customer_help_recent")
     if not isinstance(blob, dict):
@@ -3456,7 +3467,7 @@ def _customer_help_recent_slide(
     items: list[dict[str, Any]] = list(
         blob.get("recently_closed" if closed else "recently_opened") or [],
     )
-    days = int(blob.get("closed_within_days" if closed else "opened_within_days") or 45)
+    window_d = _blob_recent_tickets_window_days(blob, closed)
     # Always use report customer as source of truth (blob may be from cache)
     customer = report.get("customer") or blob.get("customer") or "All Customers"
     is_all_customers = report.get("customer") is None
@@ -3472,8 +3483,7 @@ def _customer_help_recent_slide(
     _bg(reqs, sid, _project_slide_bg("HELP"))
     _slide_title(reqs, sid, base_title)
     
-    # Tight row pitch (≈19 pt) + cap 8 data rows: keeps HELP recent tables in the body band
-    # when all cells stay single-line. Wrapping blows row height; see _max_chars_one_line_for_table_col.
+    # Tight row pitch (≈19 pt). Rows that fit: _table_rows_fit_span (no artificial low cap).
     table_top = BODY_Y + 24
     row_h = 19.0
     max_data_rows = _table_rows_fit_span(
@@ -3481,7 +3491,7 @@ def _customer_help_recent_slide(
         y_bottom=BODY_BOTTOM,
         row_height_pt=row_h,
         reserved_table_rows=1,
-        max_rows_cap=8,
+        max_rows_cap=30,
     )
     display_items = items[:max_data_rows]
     n_show = len(display_items)
@@ -3492,12 +3502,16 @@ def _customer_help_recent_slide(
     
     port_note = " ·  no org column (portfolio scope)" if is_all_customers else ""
     _lead = _support_subtitle_matched_lead(report, customer)
-    sub = f"{_lead}{kind} in the last {days} days  ·  {count_text}{port_note}"
+    if window_d is None:
+        time_phrase = f"Most recently {kind.lower()}"
+    else:
+        time_phrase = f"{kind} in the last {window_d} days"
+    sub = f"{_lead}{time_phrase}  ·  {count_text}{port_note}"
     _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
     _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
     
     if not items:
-        empty_msg = f"No HELP tickets in this window ({kind.lower()} in the last {days} days)."
+        empty_msg = "No matching HELP tickets."
         _box(reqs, f"{sid}_empty", sid, MARGIN, BODY_Y + 30, CONTENT_W, 40, empty_msg)
         _style(reqs, f"{sid}_empty", 0, len(empty_msg), size=10, color=NAVY, font=FONT)
         return idx + 1
@@ -3971,7 +3985,7 @@ def _project_recent_tickets_table_slide(
     items: list[dict[str, Any]] = list(
         blob.get("recently_closed" if closed else "recently_opened") or [],
     )
-    days = int(blob.get("closed_within_days" if closed else "opened_within_days") or 45)
+    window_d = _blob_recent_tickets_window_days(blob, closed)
     # Always use report customer as source of truth (blob may be from cache)
     customer = report.get("customer") or blob.get("customer") or "All Customers"
     is_all_customers = report.get("customer") is None
@@ -3994,7 +4008,7 @@ def _project_recent_tickets_table_slide(
         y_bottom=BODY_BOTTOM,
         row_height_pt=row_h,
         reserved_table_rows=1,
-        max_rows_cap=8,
+        max_rows_cap=30,
     )
     display_items = items[:max_data_rows]
     n_show = len(display_items)
@@ -4005,12 +4019,16 @@ def _project_recent_tickets_table_slide(
     
     port_note = " ·  no org column (portfolio scope)" if is_all_customers else ""
     _lead = _support_subtitle_matched_lead(report, customer)
-    sub = f"{_lead}{kind} in the last {days} days  ·  {count_text}{port_note}"
+    if window_d is None:
+        time_phrase = f"Most recently {kind.lower()}"
+    else:
+        time_phrase = f"{kind} in the last {window_d} days"
+    sub = f"{_lead}{time_phrase}  ·  {count_text}{port_note}"
     _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
     _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
     
     if not items:
-        empty_msg = f"No {project} tickets in this window ({kind.lower()} in the last {days} days)."
+        empty_msg = f"No matching {project} tickets."
         _box(reqs, f"{sid}_empty", sid, MARGIN, BODY_Y + 30, CONTENT_W, 40, empty_msg)
         _style(reqs, f"{sid}_empty", 0, len(empty_msg), size=10, color=NAVY, font=FONT)
         return idx + 1
@@ -8446,8 +8464,9 @@ def create_health_deck(
             logger.info("Support deck: fetching recent HELP tickets for %s", customer_display)
             customer_help_recent = jira_client.get_customer_help_recent_tickets(
                 customer,
-                opened_within_days=45,
-                closed_within_days=45,
+                opened_within_days=None,
+                closed_within_days=None,
+                max_each=200,
             )
             report["jira"]["customer_help_recent"] = customer_help_recent
             
@@ -8465,8 +8484,9 @@ def create_health_deck(
             customer_project_recent = jira_client.get_customer_project_recent_tickets(
                 "CUSTOMER",
                 customer,
-                opened_within_days=45,
-                closed_within_days=45,
+                opened_within_days=None,
+                closed_within_days=None,
+                max_each=200,
             )
             report["jira"]["customer_project_recent"] = customer_project_recent
             customer_project_open_breakdown = jira_client.get_customer_project_open_breakdown(
@@ -8488,8 +8508,9 @@ def create_health_deck(
             lean_project_recent = jira_client.get_customer_project_recent_tickets(
                 "LEAN",
                 customer,
-                opened_within_days=45,
-                closed_within_days=45,
+                opened_within_days=None,
+                closed_within_days=None,
+                max_each=200,
             )
             report["jira"]["lean_project_recent"] = lean_project_recent
             lean_project_open_breakdown = jira_client.get_customer_project_open_breakdown(

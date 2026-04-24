@@ -1578,13 +1578,16 @@ class JiraClient:
         customer_name: str,
         match_terms: list[str] | None = None,
         *,
-        opened_within_days: int = 45,
-        closed_within_days: int = 45,
-        max_each: int = 45,
+        opened_within_days: int | None = 45,
+        closed_within_days: int | None = 45,
+        max_each: int = 100,
     ) -> dict[str, Any]:
         """Recent HELP issues for one customer: opened in window vs resolved in window.
 
         Same JSM ``Organizations``-only scoping as :func:`get_customer_ticket_metrics`.
+
+        ``opened_within_days`` / ``closed_within_days``: pass ``None`` to omit a date
+        clause in JQL and order by most recent created/resolved (still capped at *max_each*).
         """
         return self.get_customer_project_recent_tickets(
             "HELP",
@@ -1601,14 +1604,18 @@ class JiraClient:
         customer_name: str,
         match_terms: list[str] | None = None,
         *,
-        opened_within_days: int = 45,
-        closed_within_days: int = 45,
-        max_each: int = 45,
+        opened_within_days: int | None = 45,
+        closed_within_days: int | None = 45,
+        max_each: int = 100,
     ) -> dict[str, Any]:
         """Recent tickets for any project for one customer: opened in window vs resolved in window.
 
         For HELP project, uses JSM ``Organizations`` only (no summary/description text).
         For other projects (CUSTOMER, LEAN), uses text match only.
+
+        ``opened_within_days`` / ``closed_within_days``: pass ``None`` to omit the
+        corresponding ``>= -Nd`` filter and return the *max_each* most recent
+        by created/resolved.
         """
         jql_start = self._jql_log_len()
         
@@ -1646,30 +1653,51 @@ class JiraClient:
                 "resolved_short": rs.strftime("%Y-%m-%d") if rs else "—",
             }
 
-        od = int(opened_within_days)
-        cd = int(closed_within_days)
+        od: int | None
+        if opened_within_days is not None and int(opened_within_days) > 0:
+            od = int(opened_within_days)
+        else:
+            od = None
+        cd: int | None
+        if closed_within_days is not None and int(closed_within_days) > 0:
+            cd = int(closed_within_days)
+        else:
+            cd = None
         # Only apply transient label exclusion for HELP project (Outage/Healthcheck are HELP-specific).
         label_filter = f" AND {_TRANSIENT_LABELS_EXCLUSION}" if project == "HELP" else ""
         try:
-            open_jql = f"{proj}{base_filter}{label_filter} AND created >= -{od}d ORDER BY created DESC"
-            closed_jql = (
-                f"{proj}{base_filter}{label_filter} AND resolution is not EMPTY AND resolved >= -{cd}d "
-                "ORDER BY resolved DESC"
-            )
+            if od is not None:
+                open_jql = f"{proj}{base_filter}{label_filter} AND created >= -{od}d ORDER BY created DESC"
+                open_desc = f"{project} customer tickets created in last {od} days"
+            else:
+                open_jql = f"{proj}{base_filter}{label_filter} ORDER BY created DESC"
+                open_desc = f"{project} customer tickets, most recent by created"
+            if cd is not None:
+                closed_jql = (
+                    f"{proj}{base_filter}{label_filter} AND resolution is not EMPTY AND resolved >= -{cd}d "
+                    "ORDER BY resolved DESC"
+                )
+                closed_desc = f"{project} customer tickets resolved in last {cd} days"
+            else:
+                closed_jql = (
+                    f"{proj}{base_filter}{label_filter} AND resolution is not EMPTY "
+                    "ORDER BY resolved DESC"
+                )
+                closed_desc = f"{project} customer tickets, most recent by resolution"
             with ThreadPoolExecutor(max_workers=2) as pool:
                 f_open = pool.submit(
                     self._search,
                     open_jql,
                     max_each,
                     _CUSTOMER_TICKET_SLIDE_FIELDS,
-                    data_description=f"{project} customer tickets created in last {od} days",
+                    data_description=open_desc,
                 )
                 f_closed = pool.submit(
                     self._search,
                     closed_jql,
                     max_each,
                     _CUSTOMER_TICKET_SLIDE_FIELDS,
-                    data_description=f"{project} customer tickets resolved in last {cd} days",
+                    data_description=closed_desc,
                 )
                 raw_open = f_open.result()
                 raw_closed = f_closed.result()
