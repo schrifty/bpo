@@ -12,7 +12,10 @@ from __future__ import annotations
 import io
 import json
 import threading
+from pathlib import Path
 from typing import Any
+
+import yaml
 
 from .config import logger
 from .qa import qa
@@ -23,6 +26,11 @@ _CS_REPORT_FOLDER_ID = "16922c1MWTKNx3Pw1W7bbUARC_q2aat0Z"
 
 _cache: dict[str, Any] | None = None
 _cache_lock = threading.Lock()
+
+# Optional: project-root YAML — map Pendo customer → exact CS Report `customer` values
+_CSR_ALIAS_FILE = Path(__file__).resolve().parent.parent / "cs_report_customer_aliases.yaml"
+_cs_report_alias_map: dict[str, list[str]] | None = None
+_cs_report_alias_lock = threading.Lock()
 
 
 def _get_drive():
@@ -160,14 +168,83 @@ def _fetch_latest_report() -> list[dict[str, Any]]:
         return rows
 
 
+def _load_cs_report_alias_map() -> dict[str, list[str]]:
+    """Pendo (or QBR) customer name (lower) → list of exact CS `customer` column values."""
+    global _cs_report_alias_map
+    if _cs_report_alias_map is not None:
+        return _cs_report_alias_map
+    with _cs_report_alias_lock:
+        if _cs_report_alias_map is not None:
+            return _cs_report_alias_map
+        out: dict[str, list[str]] = {}
+        if _CSR_ALIAS_FILE.is_file():
+            try:
+                raw = yaml.safe_load(_CSR_ALIAS_FILE.read_text())
+                if isinstance(raw, dict):
+                    for k, v in raw.items():
+                        if str(k).strip().startswith("#"):
+                            continue
+                        key = str(k).strip().lower()
+                        if not key:
+                            continue
+                        if isinstance(v, str):
+                            vals = [v]
+                        elif isinstance(v, list):
+                            vals = [str(x).strip() for x in v if str(x).strip()]
+                        else:
+                            continue
+                        out[key] = vals
+            except Exception as e:
+                logger.warning("cs_report_customer_aliases: could not load %s: %s", _CSR_ALIAS_FILE, e)
+        _cs_report_alias_map = out
+        return out
+
+
+def cs_report_customer_name_candidates(pendo_name: str) -> list[str]:
+    """Return distinct names to try for CS `customer` matching: pendo name first, then aliases."""
+    raw = (pendo_name or "").strip()
+    if not raw:
+        return []
+    al = _load_cs_report_alias_map().get(raw.lower()) or []
+    out: list[str] = []
+    seen: set[str] = set()
+    for c in (raw, *al):
+        s = (c or "").strip()
+        if not s:
+            continue
+        k = s.lower()
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(s)
+    return out
+
+
 def _customer_rows(customer_name: str, delta: str = "week") -> list[dict[str, Any]]:
-    """Get rows for a customer filtered to a specific time delta."""
+    """Get rows for a customer filtered to a specific time delta.
+
+    Tries the given name, then any entries in ``cs_report_customer_aliases.yaml`` for
+    the same Pendo/health-report name, since the CS export often uses a legal name.
+    """
     rows = _fetch_latest_report()
-    return [
-        r for r in rows
-        if r.get("customer", "").lower() == customer_name.lower()
-        and r.get("delta") == delta
-    ]
+    cands = cs_report_customer_name_candidates(customer_name)
+    pendo_lower = (customer_name or "").strip().lower()
+    for name in cands:
+        matched = [
+            r for r in rows
+            if (r.get("customer") or "").strip().lower() == name.lower()
+            and r.get("delta") == delta
+        ]
+        if matched:
+            if name.lower() != pendo_lower:
+                logger.info(
+                    "CS Report: matched %d row(s) for %r using `customer`=%r",
+                    len(matched),
+                    customer_name,
+                    name,
+                )
+            return matched
+    return []
 
 
 def _add_site_entity_from_row(row: dict[str, Any], entry: dict[str, Any]) -> None:
@@ -189,7 +266,11 @@ def get_customer_platform_health(customer_name: str) -> dict[str, Any]:
     """Health scores, component availability, CTB/CTC, and shortage summary per site."""
     sites = _customer_rows(customer_name, "week")
     if not sites:
-        return {"error": f"No CS Report data for '{customer_name}'", "source": "cs_report"}
+        tried = cs_report_customer_name_candidates(customer_name)
+        return {
+            "error": f"No CS Report data for {customer_name!r} (tried `customer`={tried!r}, delta=week)",
+            "source": "cs_report",
+        }
 
     site_health: list[dict[str, Any]] = []
     total_shortages = 0
@@ -256,7 +337,11 @@ def get_customer_supply_chain(customer_name: str) -> dict[str, Any]:
     """Inventory values, DOI, excess, and shortage trends per site."""
     sites = _customer_rows(customer_name, "week")
     if not sites:
-        return {"error": f"No CS Report data for '{customer_name}'", "source": "cs_report"}
+        tried = cs_report_customer_name_candidates(customer_name)
+        return {
+            "error": f"No CS Report data for {customer_name!r} (tried `customer`={tried!r}, delta=week)",
+            "source": "cs_report",
+        }
 
     site_data: list[dict[str, Any]] = []
     totals = {
@@ -328,7 +413,11 @@ def get_customer_platform_value(customer_name: str) -> dict[str, Any]:
     """ROI metrics: savings, open IA value, recs created, PO activity."""
     sites = _customer_rows(customer_name, "week")
     if not sites:
-        return {"error": f"No CS Report data for '{customer_name}'", "source": "cs_report"}
+        tried = cs_report_customer_name_candidates(customer_name)
+        return {
+            "error": f"No CS Report data for {customer_name!r} (tried `customer`={tried!r}, delta=week)",
+            "source": "cs_report",
+        }
 
     site_data: list[dict[str, Any]] = []
     total_savings = 0.0

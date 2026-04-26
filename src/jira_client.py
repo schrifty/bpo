@@ -10,6 +10,7 @@ from base64 import b64encode
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -136,6 +137,65 @@ def _score_jsm_org_candidate(query: str, organization_name: str) -> float:
     if len(shorter) >= 5 and shorter in longer:
         return 0.9
     return difflib.SequenceMatcher(None, q, o).ratio()
+
+
+_JSM_ORG_ALIAS_FILE = Path(__file__).resolve().parent.parent / "jsm_organization_aliases.yaml"
+_jsm_org_alias_map: dict[str, list[str]] | None = None
+
+
+def _load_jsm_org_alias_map() -> dict[str, list[str]]:
+    """Optional YAML: map lowercased customer key -> extra JSM org search strings (fuzzy + literals)."""
+    global _jsm_org_alias_map
+    if _jsm_org_alias_map is not None:
+        return _jsm_org_alias_map
+    _jsm_org_alias_map = {}
+    if not _JSM_ORG_ALIAS_FILE.is_file():
+        return _jsm_org_alias_map
+    try:
+        import yaml
+
+        with open(_JSM_ORG_ALIAS_FILE, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except Exception as e:
+        logger.warning("JSM org aliases: could not load %s: %s", _JSM_ORG_ALIAS_FILE, e)
+        return _jsm_org_alias_map
+    if not isinstance(data, dict):
+        return _jsm_org_alias_map
+    for k, v in data.items():
+        if not k or not isinstance(v, (list, tuple)):
+            continue
+        extras = [str(x).strip() for x in v if str(x).strip()]
+        if extras:
+            _jsm_org_alias_map[str(k).strip().lower()] = extras
+    return _jsm_org_alias_map
+
+
+def _merge_jsm_customer_alias_terms(terms: list[str | None]) -> list[str]:
+    """Append alias strings for any term that appears as a key in jsm_organization_aliases.yaml."""
+    am = _load_jsm_org_alias_map()
+    if not am:
+        return [t for t in terms if t and str(t).strip()]
+    out: list[str] = []
+    seen: set[str] = set()
+    for t in terms:
+        if not t or not (t or "").strip():
+            continue
+        c = t.strip()
+        k = c.lower()
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(c)
+    for t in list(out):
+        extras = am.get(t.lower())
+        if not extras:
+            continue
+        for e in extras:
+            el = e.lower()
+            if el not in seen:
+                seen.add(el)
+                out.append(e)
+    return out
 
 
 def _fuzzy_pick_jsm_organizations(queries: list[str], candidates: list[str]) -> list[str]:
@@ -388,6 +448,8 @@ class JiraClient:
         self._jsm_cache_key = hashlib.sha256(
             f"{self.base_url}\0{self._headers.get('Authorization', '')}".encode()
         ).hexdigest()
+        # One LLM resolution per (tenant, request terms) per JiraClient lifetime (avoids 15+ calls per support deck)
+        self._jsm_llm_org_resolve_cache: dict[str, list[str]] = {}
 
     def _jql_log_len(self) -> int:
         with self._jql_lock:
@@ -547,7 +609,8 @@ class JiraClient:
 
         JSM ``Organizations`` is the authoritative link to a customer, but JQL requires
         the exact directory string. We list organizations via the Service Desk API and
-        fuzzy-match the report's customer name (and aliases) to those labels, then OR
+        fuzzy-match the customer name plus any extra terms from
+        ``jsm_organization_aliases.yaml`` (e.g. JCI → "Johnson Controls") to those labels, then OR
         ``Organizations = "<resolved>"`` together. By default we also OR ``summary`` /
         ``description`` matches for tickets that lack org metadata (QBR / discovery lists).
 
@@ -566,7 +629,9 @@ class JiraClient:
             # Jira JQL-safe tautology used with "project = HELP AND ...".
             return ("key is not EMPTY", [])
             
-        raw_terms = [customer_name] + list(match_terms or [])
+        raw_terms = _merge_jsm_customer_alias_terms(
+            [customer_name] + list(match_terms or []),
+        )
         seen: set[str] = set()
         cleaned_terms: list[str] = []
         escaped_terms: list[str] = []
@@ -581,20 +646,43 @@ class JiraClient:
             cleaned_terms.append(cleaned)
             escaped_terms.append(_jql_escape_string(cleaned))
 
-        resolved_orgs = _fuzzy_pick_jsm_organizations(
-            cleaned_terms,
-            self._list_jsm_organization_names(),
+        candidates = self._list_jsm_organization_names()
+        # JQL `Organizations` must be an exact JSM directory string (not a nickname like "JCI" unless that label exists)
+        jsm_name_by_lower = {c.lower(): c for c in candidates}
+        resolved_orgs: list[str] = list(
+            _fuzzy_pick_jsm_organizations(cleaned_terms, candidates) or []
         )
+        if not resolved_orgs and organizations_only and cleaned_terms:
+            from .jsm_org_llm import resolve_jsm_customer_organizations_llm
+
+            llm_orgs = resolve_jsm_customer_organizations_llm(
+                tenant_key=self._jsm_cache_key,
+                customer_name=customer_name.strip(),
+                all_terms=cleaned_terms,
+                all_organizations=candidates,
+                cache=self._jsm_llm_org_resolve_cache,
+            )
+            for o in llm_orgs or []:
+                ex = jsm_name_by_lower.get((o or "").strip().lower()) or (o or "").strip()
+                if not ex:
+                    continue
+                if not any(x.lower() == ex.lower() for x in resolved_orgs):
+                    resolved_orgs.append(ex)
 
         org_fragments: list[str] = []
         seen_org: set[str] = set()
-        for esc in escaped_terms:
+        for term in cleaned_terms:
+            exact = jsm_name_by_lower.get(term.lower())
+            if not exact:
+                continue
+            esc = _jql_escape_string(exact)
             frag = f'Organizations = "{esc}"'
             if frag not in seen_org:
                 seen_org.add(frag)
                 org_fragments.append(frag)
         for org in resolved_orgs:
-            esc = _jql_escape_string(org.strip())
+            ex = jsm_name_by_lower.get(org.strip().lower(), org.strip())
+            esc = _jql_escape_string(ex)
             frag = f'Organizations = "{esc}"'
             if frag not in seen_org:
                 seen_org.add(frag)

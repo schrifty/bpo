@@ -1,0 +1,7 @@
+# Optional extra JSM org *search* strings (before fuzzy + optional LLM resolution).
+# Prefer letting BPO resolve free-text via fuzzy + BPO_JSM_ORG_LLM; use this only for
+# cases that must work without an LLM or for disambiguation.
+# Keys: case-insensitive match to `--customer` / match_terms. Values: merged into search terms.
+JCI:
+  - Johnson Controls
+  - Johnson Controls International

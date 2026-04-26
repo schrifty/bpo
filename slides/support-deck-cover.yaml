@@ -7,7 +7,7 @@ customers: all
 data_tools: []
 
 prompt: |
-  Title / cover: "Support Review", scoping customer name (or "All Customers"
-  for portfolio runs), and generated timestamp. Order and inclusion come from
-  decks/support.yaml; the builder only reads support_deck_generated_at and, for
-  a single customer, support_deck_scoped_titles (corner badge, title stripping).
+  Title / cover: primary heading (default "Support Review" if title omitted in deck),
+  customer name (or "All Customers"), and generated timestamp. Order from decks/*.yaml;
+  builder uses support_deck_generated_at. Support: support_deck_scoped_titles
+  (corner, title stripping) where applicable. Same cover layout as Supply Chain deck.

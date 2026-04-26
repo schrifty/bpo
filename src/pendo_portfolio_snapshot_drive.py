@@ -1,7 +1,7 @@
 """Google Drive cache for the Pendo portfolio crawl (cohort / portfolio decks).
 
 **Wall clock:** Skipping ``get_portfolio_report`` saves Pendo/API time, but QBR bundle runs
-four companion Slides decks *before* cohort. Those decks usually take longer than the
+several single-customer companion Slides decks *before* portfolio and cohort. Those decks usually take longer than the
 portfolio crawl, and the crawl previously ran *in parallel* with them—so end-to-end
 bundle time may barely change until Slides work shrinks (or you tune
 ``BPO_SLIDES_WRITE_INTERVAL_SEC`` / chunk size). The filename **must** match the QBR

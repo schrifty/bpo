@@ -74,3 +74,4 @@ slides:
     title: "Recently closed LEAN tickets"
   - slide: lean_resolved_by_assignee
     title: "LEAN Tickets Resolved by Assignee (Last 90 Days)"
+  - slide: data_quality

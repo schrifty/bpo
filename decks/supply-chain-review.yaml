@@ -17,7 +17,7 @@ purpose: |
 # Slide YAML: reuses existing slides from QBR plus LeanDNA data.
 
 slides:
-  - slide: std_title
+  - slide: supply_chain_deck_cover
     title: Supply Chain & Operations Review
   - slide: platform_health
     note: Health score, CTB, CTC, component availability

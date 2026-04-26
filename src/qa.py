@@ -128,15 +128,27 @@ class QARegistry:
     def clean(self) -> bool:
         return len(self.customer_flags) == 0
 
-    def summary(self, report: dict | None = None) -> dict[str, Any]:
+    def summary(
+        self,
+        report: dict | None = None,
+        data_source_order: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Snapshot suitable for the Data Quality slide builder.
 
         Only includes customer-facing flags. Internal/infrastructure flags
         are logged but excluded from the slide.
         report: optional health report to infer data source availability (e.g. Salesforce).
+        data_source_order: if set, only these keys (in this order) appear in ``data_sources``;
+        if omitted, uses the legacy set (Pendo, CS Report, JIRA, Salesforce).
         """
         visible = self.customer_flags
         all_flags = self.flags
+        full_sources = self._source_status(all_flags, report)
+        if data_source_order is not None:
+            data_sources = {k: full_sources[k] for k in data_source_order if k in full_sources}
+        else:
+            legacy = ("Pendo", "CS Report", "JIRA", "Salesforce")
+            data_sources = {k: full_sources[k] for k in legacy if k in full_sources}
         return {
             "customer": self._customer,
             "total_checks": self.total_checks,
@@ -145,7 +157,7 @@ class QARegistry:
             "warnings": len([f for f in visible if f.severity == Severity.WARNING]),
             "infos": len([f for f in visible if f.severity == Severity.INFO]),
             "internal_count": len([f for f in all_flags if f.internal]),
-            "data_sources": self._source_status(all_flags, report),
+            "data_sources": data_sources,
             "flags": [
                 {
                     "message": f.message,
@@ -160,9 +172,34 @@ class QARegistry:
         }
 
     @staticmethod
+    def _leandna_source_status(report: dict | None) -> str:
+        if not report or not isinstance(report, dict):
+            return "unavailable"
+        for key in ("leandna_shortage_trends", "leandna_item_master", "leandna_lean_projects"):
+            b = report.get(key)
+            if not isinstance(b, dict) or not b:
+                continue
+            if b.get("enabled"):
+                err = (b.get("error") or "").strip()
+                if err:
+                    return "unavailable"
+                return "ok"
+        for key in ("leandna_shortage_trends", "leandna_item_master", "leandna_lean_projects"):
+            b = report.get(key)
+            if isinstance(b, dict) and b and b.get("enabled") is False:
+                return "unavailable"
+        return "unavailable"
+
+    @staticmethod
     def _source_status(flags: list[QAFlag], report: dict | None = None) -> dict[str, str]:
         """Determine availability of each data source from the flags and optional report."""
-        sources = {"Pendo": "ok", "CS Report": "ok", "JIRA": "ok", "Salesforce": "unavailable"}
+        sources = {
+            "Pendo": "ok",
+            "CS Report": "ok",
+            "JIRA": "ok",
+            "Salesforce": "unavailable",
+            "LeanDNA": QARegistry._leandna_source_status(report),
+        }
         for f in flags:
             msg = f.message.lower()
             if "jira data unavailable" in msg:
@@ -176,6 +213,7 @@ class QARegistry:
             if isinstance(sf, dict) and sf and "error" not in sf:
                 # Only mark ok if we actually got data back (non-empty, no error)
                 sources["Salesforce"] = "ok"
+        sources["LeanDNA"] = QARegistry._leandna_source_status(report)
         return sources
 
 

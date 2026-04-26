@@ -1,0 +1,7 @@
+# Map Pendo / `get_customer_health_report` customer names to exact strings in the
+# CS Report spreadsheet `customer` column (rows also need `delta: week`).
+# Same spirit as jsm_organization_aliases — use when the Pendo account name and CS
+# export name differ. Keys are case-insensitive.
+JCI:
+  - Johnson Controls
+  - Johnson Controls International

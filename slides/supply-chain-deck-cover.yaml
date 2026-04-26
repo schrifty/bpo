@@ -1,0 +1,12 @@
+id: supply_chain_deck_cover
+type: standard
+order: 0
+title: Supply Chain & Operations Review
+slide_type: support_deck_cover
+customers: all
+data_tools: []
+
+prompt: |
+  White cover: deck title, customer (or "All Customers"), and generated time — same
+  layout and styling as the Support deck cover. Content slides use the same title bar
+  + upper-right account name as Support.

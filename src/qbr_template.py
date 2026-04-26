@@ -177,6 +177,9 @@ QBR_BUNDLE_COMPANION_DECKS: tuple[tuple[str, str], ...] = (
     ("supply_chain_review", "supply_chain"),
     ("platform_value_summary", "platform_value"),
     ("engineering", "engineering"),
+    ("engineering-portfolio", "engineering_portfolio"),
+    ("salesforce_comprehensive", "salesforce"),
+    ("portfolio_review", "portfolio_review"),
     ("cohort_review", "cohort_review"),
 )
 
@@ -202,13 +205,13 @@ def _build_companion_decks_for_qbr_bundle(
     report: dict[str, Any],
     bundle_folder_id: str,
 ) -> list[dict[str, Any]]:
-    """Generate health, exec summary, support, product adoption, and cohort review decks into the bundle folder.
+    """Generate companion decks (single-account + cross-account) into the bundle folder.
 
     When a fresh JSON portfolio snapshot exists on Drive (folder from
     ``resolve_portfolio_snapshot_folder_id`` in ``pendo_portfolio_snapshot_drive``),
-    cohort_review uses it and no background Pendo
+    ``portfolio_review`` and ``cohort_review`` use it and no background Pendo
     thread runs. Otherwise the portfolio report is computed in a background thread
-    while the first four companion decks build so the two phases overlap.
+    while earlier companion decks build so the two phases overlap.
     """
     import threading
 
@@ -233,9 +236,9 @@ def _build_companion_decks_for_qbr_bundle(
         )
     else:
         logger.info(
-            "QBR bundle: no usable portfolio snapshot — cohort waits on live Pendo after "
-            "four companion decks (they usually dominate wall time; snapshot skips work that "
-            "overlapped with them). Expected Drive file: %s",
+            "QBR bundle: no usable portfolio snapshot — portfolio_review and cohort_review "
+            "wait on live Pendo after earlier companions (they usually dominate wall time; "
+            "snapshot skips work that overlapped with them). Expected Drive file: %s",
             portfolio_snapshot_filename(days, None),
         )
 
@@ -261,19 +264,32 @@ def _build_companion_decks_for_qbr_bundle(
         sub = copy.deepcopy(base)
         t_deck0 = time.perf_counter()
         try:
-            if deck_id == "cohort_review":
+            if deck_id in ("portfolio_review", "cohort_review"):
                 if portfolio_thread is not None:
                     portfolio_thread.join()
                 if portfolio_error:
                     raise portfolio_error
-                cr = create_cohort_deck(
-                    days=days,
-                    max_customers=None,
-                    quarter=qr,
-                    thumbnails=False,
-                    output_folder_id=bundle_folder_id,
-                    portfolio_report=portfolio_result,
-                )
+                if deck_id == "portfolio_review":
+                    pr = copy.deepcopy(portfolio_result)
+                    if qr is not None:
+                        pr["quarter"] = qr.label
+                        pr["quarter_start"] = qr.start.isoformat()
+                        pr["quarter_end"] = qr.end.isoformat()
+                    cr = create_health_deck(
+                        pr,
+                        deck_id="portfolio_review",
+                        thumbnails=False,
+                        output_folder_id=bundle_folder_id,
+                    )
+                else:
+                    cr = create_cohort_deck(
+                        days=days,
+                        max_customers=None,
+                        quarter=qr,
+                        thumbnails=False,
+                        output_folder_id=bundle_folder_id,
+                        portfolio_report=portfolio_result,
+                    )
             else:
                 cr = create_health_deck(
                     sub,
@@ -593,10 +609,10 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
 
     Creates ``<QBR Generator>/Output/{date} - Output/{customer} — QBR bundle ({quarter})/`` (unless
     ``GOOGLE_QBR_OUTPUT_PARENT_ID`` overrides the parent of ``{date} - Output``), and places the hydrated QBR
-    deck there together with standalone Customer Success Health Review, Executive Summary,
-    Support Review, Product Adoption Review, and Manufacturing Cohort Review decks
-    (cohort deck uses the same quarter window and a full portfolio rollup; other companions
-    use the single-customer health report). After preload, may auto-build/upload the Drive
+    deck there together with companion decks listed in ``QBR_BUNDLE_COMPANION_DECKS`` (see that tuple for
+    the current set: single-customer reports, engineering portfolio, Salesforce export, book-of-business
+    portfolio, and cohort — portfolio-level decks share the Pendo portfolio rollup and quarter window).
+    After preload, may auto-build/upload the Drive
     portfolio snapshot once per calendar day (see ``ensure_daily_portfolio_snapshot_for_qbr``).
 
     Returns a result dict with ``url``, ``bundle_folder_id``, ``companion_decks``, and logging fields.

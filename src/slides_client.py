@@ -1554,8 +1554,8 @@ def _omission_note(reqs, sid, omitted_names: list[str], label: str = "Not shown"
 def _slide_title(reqs, sid, text):
     """Standard content-slide title: navy text + teal underline + internal footer.
 
-    For support + single customer, reserves the upper right for the customer name (set via
-    ``_set_support_deck_corner_customer``) so the title string can omit it.
+    For support or supply_chain_review + single customer, reserves the upper right for the
+    account name (set via ``_set_support_deck_corner_customer``) so the title can omit it.
     """
     title_len = len(text or "")
     if title_len > 100:
@@ -5173,7 +5173,9 @@ _SEV_DOT   = {"ERROR": "\u2716", "WARNING": "\u26a0", "INFO": "\u2139"}
 
 def _data_quality_slide(reqs, sid, report, idx):
     from .qa import qa
-    snap = qa.summary(report=report)
+    sp = report.get("_slide_plan") or []
+    dq_order = _ordered_dq_data_sources_for_slide_plan(sp)
+    snap = qa.summary(report=report, data_source_order=dq_order)
 
     max_rows = 10
     flags = snap["flags"]
@@ -5282,7 +5284,9 @@ def _platform_health_slide(reqs, sid, report, idx):
     cs = get_csr_section(report).get("platform_health") or {}
     site_list = cs.get("sites", [])
     if not site_list:
-        return _missing_data_slide(reqs, sid, report, idx, "CS Report platform health / site list")
+        err = (cs.get("error") or "").strip()
+        desc = err or "CS Report platform health / site list"
+        return _missing_data_slide(reqs, sid, report, idx, desc)
 
     dist = cs.get("health_distribution", {})
     total_short = cs.get("total_shortages", 0)
@@ -5409,7 +5413,9 @@ def _supply_chain_slide(reqs, sid, report, idx):
     cs = get_csr_section(report).get("supply_chain") or {}
     site_list = cs.get("sites", [])
     if not site_list:
-        return _missing_data_slide(reqs, sid, report, idx, "CS Report supply chain / site list")
+        err = (cs.get("error") or "").strip()
+        desc = err or "CS Report supply chain / site list"
+        return _missing_data_slide(reqs, sid, report, idx, desc)
 
     totals = cs.get("totals", {})
     oh = totals.get("on_hand", 0)
@@ -7737,12 +7743,17 @@ def _lean_project_volume_trends_slide(reqs: list, sid: str, report: dict, idx: i
 
 
 def _support_deck_cover_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
-    """Title slide for support decks: Support Review, customer (or All Customers), generated timestamp."""
+    """Title slide for support / supply-chain (scoped) decks: H1, customer, generated timestamp.
+
+    H1 text comes from the slide plan entry (``_current_slide.title``), defaulting to
+    ``Support Review`` when absent — same white cover + typography as the Support deck.
+    """
+    entry = report.get("_current_slide") or {}
     c = (report.get("customer") or "").strip() or "All Customers"
     gen = (report.get("support_deck_generated_at") or "").strip() or "—"
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    h1 = "Support Review"
+    h1 = (entry.get("title") or "Support Review").strip() or "Support Review"
     _box(reqs, f"{sid}_h1", sid, MARGIN, 100, CONTENT_W, 48, h1)
     _style(reqs, f"{sid}_h1", 0, len(h1), bold=True, size=32, color=NAVY, font=FONT_SERIF)
     _rect(reqs, f"{sid}_h1u", sid, MARGIN, 150, 64, 2.5, BLUE)
@@ -7981,12 +7992,38 @@ def _salesforce_category_slide(reqs, sid, report, idx):
 
 # ── LeanDNA Shortage Trends Slides ──
 
+_SLIDES_NEEDING_LEANDNA_SHORTAGE = frozenset(
+    ("shortage_forecast", "critical_shortages_detail", "shortage_deliveries")
+)
+
+
+def _leandna_shortage_unavailable_message(ldna: dict[str, Any]) -> str:
+    """Explain why Material Shortage slides cannot render (config, API, or no rows)."""
+    if not ldna:
+        return (
+            "LeanDNA Material Shortage — data not in report; regenerating the deck will fetch "
+            "trends if LEANDNA_DATA_API_BEARER_TOKEN is set"
+        )
+    if not ldna.get("enabled"):
+        r = (ldna.get("reason") or "").strip()
+        if r == "bearer_token_not_configured":
+            return "LeanDNA Material Shortage — set LEANDNA_DATA_API_BEARER_TOKEN (Data API access)"
+        if r:
+            return f"LeanDNA Material Shortage — {r[:85]}"
+    err = (ldna.get("error") or "").strip()
+    if err and err not in ("no_shortage_items_returned",):
+        return f"LeanDNA Material Shortage — {err[:90]}"
+    return "LeanDNA Material Shortage — not configured or unavailable"
+
+
 def _critical_shortages_detail_slide(reqs, sid, report, idx):
     """Critical Material Shortages table (top 20 by CTB impact)."""
     ldna_shortage = report.get("leandna_shortage_trends") or {}
     
     if not ldna_shortage.get("enabled"):
-        return _missing_data_slide(reqs, sid, report, idx, "LeanDNA Shortage Trends not configured")
+        return _missing_data_slide(
+            reqs, sid, report, idx, _leandna_shortage_unavailable_message(ldna_shortage),
+        )
     
     critical_timeline = ldna_shortage.get("critical_timeline") or []
     if not critical_timeline:
@@ -8146,7 +8183,9 @@ def _shortage_forecast_slide(reqs, sid, report, idx):
     ldna_shortage = report.get("leandna_shortage_trends") or {}
     
     if not ldna_shortage.get("enabled"):
-        return _missing_data_slide(reqs, sid, report, idx, "LeanDNA Shortage Trends not configured")
+        return _missing_data_slide(
+            reqs, sid, report, idx, _leandna_shortage_unavailable_message(ldna_shortage),
+        )
     
     forecast = ldna_shortage.get("forecast") or {}
     buckets = forecast.get("buckets") or []
@@ -8213,7 +8252,9 @@ def _shortage_deliveries_slide(reqs, sid, report, idx):
     ldna_shortage = report.get("leandna_shortage_trends") or {}
     
     if not ldna_shortage.get("enabled"):
-        return _missing_data_slide(reqs, sid, report, idx, "LeanDNA Shortage Trends not configured")
+        return _missing_data_slide(
+            reqs, sid, report, idx, _leandna_shortage_unavailable_message(ldna_shortage),
+        )
     
     deliveries = ldna_shortage.get("scheduled_deliveries") or {}
     items_with_sched = deliveries.get("items_with_schedules", 0)
@@ -8571,8 +8612,8 @@ SLIDE_DATA_REQUIREMENTS = {
     "lean_resolved_by_assignee": ["jira"],
     "custom": ["title", "sections"],
     "signals": ["signals"],
-    "platform_health": ["csr"],
-    "supply_chain": ["csr"],
+    "platform_health": ["csr", "leandna_item_master"],
+    "supply_chain": ["csr", "leandna_item_master"],
     "platform_value": ["csr"],
     "sla_health": ["jira"],
     "cross_validation": ["csr", "sites", "engagement"],
@@ -8604,10 +8645,84 @@ SLIDE_DATA_REQUIREMENTS = {
     "eng_help_volume_trends": ["eng_help_volume_jql_trace"],
     "support_deck_cover": [],
     "support_intro": [],
-    "cs_notable": [],
+    "cs_notable": ["jira"],
     "salesforce_comprehensive_cover": ["salesforce_comprehensive"],
     "salesforce_category": ["salesforce_comprehensive"],
+    "shortage_forecast": ["leandna_shortage_trends"],
+    "critical_shortages_detail": ["leandna_shortage_trends"],
+    "shortage_deliveries": ["leandna_shortage_trends"],
+    "lean_projects_portfolio": ["leandna_lean_projects"],
+    "lean_projects_savings": ["leandna_lean_projects"],
 }
+
+
+# Pills on the Data Quality slide: canonical order; values match keys in ``qa`` source status
+_DQ_SOURCE_LABEL_ORDER: tuple[str, ...] = (
+    "Pendo",
+    "CS Report",
+    "JIRA",
+    "Salesforce",
+    "LeanDNA",
+)
+
+# Maps each ``SLIDE_DATA_REQUIREMENTS`` entry (report key) to one pill, or None to skip
+_REPORT_KEY_TO_DQ_SOURCE: dict[str, str | None] = {
+    "engagement": "Pendo",
+    "account": "Pendo",
+    "sites": "Pendo",
+    "top_pages": "Pendo",
+    "top_features": "Pendo",
+    "champions": "Pendo",
+    "at_risk_users": "Pendo",
+    "benchmarks": "Pendo",
+    "exports": "Pendo",
+    "depth": "Pendo",
+    "kei": "Pendo",
+    "guides": "Pendo",
+    "signals": "Pendo",
+    "customer": "Pendo",
+    "customer_count": "Pendo",
+    "portfolio_signals": "Pendo",
+    "portfolio_trends": "Pendo",
+    "portfolio_leaders": "Pendo",
+    "cohort_digest": "Pendo",
+    "cohort_findings_bullets": "Pendo",
+    "jira": "JIRA",
+    "csr": "CS Report",
+    "customer_project_volume_jql_trace": "JIRA",
+    "lean_project_volume_jql_trace": "JIRA",
+    "eng_help_volume_jql_trace": "JIRA",
+    "eng_portfolio": "JIRA",
+    "salesforce_comprehensive": "Salesforce",
+    "leandna_shortage_trends": "LeanDNA",
+    "leandna_item_master": "LeanDNA",
+    "leandna_lean_projects": "LeanDNA",
+    "title": None,
+    "sections": None,
+    "days": None,
+    "generated": None,
+}
+
+
+def _ordered_dq_data_sources_for_slide_plan(
+    slide_plan: list[dict[str, Any]] | None,
+) -> list[str] | None:
+    """Data sources to show as pills for this deck, deduped, in a stable order."""
+    req_keys: set[str] = set()
+    for entry in slide_plan or ():
+        st = (entry.get("slide_type") or "").strip()
+        if st in ("", "data_quality", "qbr_divider"):
+            continue
+        for req in SLIDE_DATA_REQUIREMENTS.get(st) or ():
+            req_keys.add(req)
+    label_set: set[str] = set()
+    for key in req_keys:
+        label = _REPORT_KEY_TO_DQ_SOURCE.get(key)
+        if label:
+            label_set.add(label)
+    if not label_set:
+        return None
+    return [x for x in _DQ_SOURCE_LABEL_ORDER if x in label_set]
 
 
 _output_folder_cache: str | None = None
@@ -8802,6 +8917,13 @@ def create_health_deck(
         title = f"{deck_name} ({date_str})"
     else:
         title = f"{customer} — {deck_name} ({date_str})"
+
+    if deck_id == "supply_chain_review":
+        from datetime import datetime, timezone
+
+        report["support_deck_generated_at"] = datetime.now(timezone.utc).strftime(
+            "%Y-%m-%d %H:%M UTC"
+        )
 
     if deck_id == "support":
         # Titles: canonical text lives in `decks/support.yaml` (and any synced Drive copy).
@@ -9122,6 +9244,29 @@ def create_health_deck(
             except Exception as e:
                 logger.warning("Support deck: escalation nature quote LLM failed: %s", e)
 
+    # Material Shortage slides: QBR run_qbr_from_template() calls enrich_qbr_with_shortage_trends,
+    # but standalone create_health_deck (e.g. supply_chain_review) only had get_customer_health_report
+    # and never loaded LeanDNA. Fetch here when the deck plan includes those slides.
+    if (
+        customer
+        and slide_plan
+        and "leandna_shortage_trends" not in report
+        and _SLIDES_NEEDING_LEANDNA_SHORTAGE
+        & {str((e or {}).get("slide_type") or (e or {}).get("id") or "") for e in slide_plan}
+    ):
+        try:
+            from .leandna_shortage_enrich import enrich_qbr_with_shortage_trends
+
+            report = enrich_qbr_with_shortage_trends(
+                report, str(customer).strip(), weeks_forward=12
+            )
+        except Exception as e:
+            logger.warning("create_health_deck: LeanDNA shortage enrichment failed: %s", e)
+            report.setdefault(
+                "leandna_shortage_trends",
+                {"enabled": False, "reason": str(e)[:200]},
+            )
+
     if not slide_plan:
         logger.error(
             "create_health_deck: empty slide plan (deck_id=%s customer=%r). "
@@ -9187,7 +9332,7 @@ def create_health_deck(
     reqs: list[dict] = []
     idx = 1
     note_targets: list[tuple[str, dict[str, Any]]] = []
-    if deck_id == "support" and customer:
+    if deck_id in ("support", "supply_chain_review") and customer:
         _set_support_deck_corner_customer(str(customer).strip())
 
     for entry in plan_work:
