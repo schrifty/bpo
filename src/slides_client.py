@@ -68,6 +68,12 @@ from .slide_utils import (
     slide_transform as _tf,
     truncate_table_cell as _truncate_table_cell,
 )
+from .slide_text import (
+    iter_flat_page_elements as _iter_flat_page_elements,
+    slides_shape_text_plain as _slides_shape_text_plain,
+    utf16_code_unit_len as _utf16_code_unit_len,
+    utf16_ranges_for_phrases as _utf16_ranges_for_phrases,
+)
 from .slides_theme import (
     BLACK,
     BLUE,
@@ -3654,47 +3660,6 @@ def _signals_slide(reqs, sid, report, idx):
 
 # Substrings in auto-generated Notable Signals lines → hyperlink to the cohort review deck (QBR bundle).
 _COHORT_BUNDLE_SIGNAL_LINK_PHRASES: tuple[str, ...] = ("cohort median", "portfolio median")
-
-
-def _utf16_code_unit_len(s: str) -> int:
-    return len(s.encode("utf-16-le")) // 2 if s else 0
-
-
-def _slides_shape_text_plain(text_body: dict[str, Any]) -> str:
-    parts: list[str] = []
-    for te in text_body.get("textElements") or []:
-        tr = te.get("textRun")
-        if isinstance(tr, dict):
-            parts.append(str(tr.get("content") or ""))
-    return "".join(parts)
-
-
-def _utf16_ranges_for_phrases(full: str, phrases: tuple[str, ...]) -> list[tuple[int, int]]:
-    ranges: list[tuple[int, int]] = []
-    for phrase in phrases:
-        if not phrase:
-            continue
-        pos = 0
-        while True:
-            j = full.find(phrase, pos)
-            if j < 0:
-                break
-            u0 = _utf16_code_unit_len(full[:j])
-            u1 = u0 + _utf16_code_unit_len(phrase)
-            ranges.append((u0, u1))
-            pos = j + len(phrase)
-    return ranges
-
-
-def _iter_flat_page_elements(elements: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for el in elements or []:
-        grp = el.get("elementGroup")
-        if isinstance(grp, dict):
-            out.extend(_iter_flat_page_elements(grp.get("children")))
-        else:
-            out.append(el)
-    return out
 
 
 def apply_cohort_bundle_links_to_notable_signals(
