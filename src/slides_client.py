@@ -7,7 +7,6 @@ Dimensions, brand palette, and shared layout helpers live in ``slides_theme``.
 from __future__ import annotations
 
 import datetime
-import hashlib
 import json
 import os
 import random
@@ -60,6 +59,15 @@ from .slide_pipeline_traces import (
     salesforce_pipeline_traces as _salesforce_pipeline_traces,
     support_health_exec_pipeline_traces as _support_health_exec_pipeline_traces,
 )
+from .slide_utils import (
+    blob_recent_tickets_window_days as _blob_recent_tickets_window_days,
+    dedupe_keep_order as _dedupe_keep_order,
+    max_chars_one_line_for_table_col as _max_chars_one_line_for_table_col,
+    slide_object_id_base as _slide_object_id_base,
+    slide_size as _sz,
+    slide_transform as _tf,
+    truncate_table_cell as _truncate_table_cell,
+)
 from .slides_theme import (
     BLACK,
     BLUE,
@@ -100,79 +108,7 @@ from .slides_theme import (
     slide_type_may_paginate,
 )
 
-# Google Slides API: objectId max length 50. Slide builders append suffixes (e.g. ``_sdcorner`` = 10).
-# Reserve room for the longest common suffixes on a page (``_p12`` + margin, or ``_sdcorner``).
-_SLIDES_OBJECT_ID_BASE_MAX = 38
-
-
-def _blob_recent_tickets_window_days(blob: dict, closed: bool) -> int | None:
-    """Return the Jira ``*_within_days`` window, or None if unbounded (no date filter in JQL). Missing key: legacy 45."""
-    key = "closed_within_days" if closed else "opened_within_days"
-    if key not in blob:
-        return 45
-    v = blob.get(key)
-    if v is None:
-        return None
-    return int(v)
-
-
-def _slide_object_id_base(slide_id: str, seq: int) -> str:
-    """Build a page-level objectId base that stays under Slides' 50-char cap with sub-element suffixes."""
-    raw = f"s_{slide_id}_{seq}"
-    if len(raw) <= _SLIDES_OBJECT_ID_BASE_MAX:
-        return raw
-    digest = hashlib.blake2s(f"{slide_id}\n{seq}".encode(), digest_size=5).hexdigest()[:10]
-    return f"s_{seq}_{digest}"
-
-
 # ── Primitives ──
-
-def _sz(w, h):
-    return {"width": {"magnitude": w, "unit": "PT"}, "height": {"magnitude": h, "unit": "PT"}}
-
-
-def _tf(x, y):
-    return {"scaleX": 1, "scaleY": 1, "translateX": x, "translateY": y, "unit": "PT"}
-
-
-def _truncate_table_cell(value: str | None, max_len: int) -> str:
-    """Trim to one line with ``...``; when truncating, prefer a word break over mid-word cuts."""
-    if value is None:
-        return "—"
-    t = str(value).strip()
-    if not t:
-        return "—"
-    if len(t) <= max_len:
-        return t
-    if max_len < 4:
-        return t[:max_len]
-    room = max_len - 3
-    head = t[:room]
-    if " " in head:
-        i = head.rfind(" ")
-        if i > max(6, max_len // 4):
-            head = head[:i].rstrip()
-    if not head:
-        head = t[:room]
-    return head + "..."
-
-
-def _max_chars_one_line_for_table_col(col_width_pt: float, font_pt: float = 8.0) -> int:
-    """Upper bound on characters for a single-line table cell at *font_pt* in *col_width_pt*.
-
-    Google Slides wraps long text; row height then exceeds the nominal `row_height_pt` used in
-    `_table_rows_fit_span` and the table spills past ``BODY_BOTTOM``. Truncate to this length
-    (via ``_truncate_table_cell``) so one line fits the column.
-
-    Slides table cells have horizontal padding; the drawable text width is smaller than
-    *col_width_pt*. Use a conservative advance width (~0.58× font) and a safety margin so we
-    stay on one line in practice (a ~0.48 model was still wrapping wide titles in production).
-    """
-    if col_width_pt <= 0:
-        return 8
-    inner = max(20.0, float(col_width_pt) - 18.0)  # ~9 pt inset each side
-    per = max(3.2, float(font_pt) * 0.58)
-    return max(4, int((inner / per) * 0.88))
 
 
 # When create_health_deck runs support + one customer, _slide_title shows this in the upper-right.
@@ -380,17 +316,6 @@ def _slide_chart_legend_vertical(
         _style(reqs, lbl_oid, 0, len(disp), size=font_pt, color=NAVY, font=FONT)
         cursor_y += row_h
     return cursor_y
-
-
-def _dedupe_keep_order(items: list[str]) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    for item in items:
-        if item in seen:
-            continue
-        seen.add(item)
-        out.append(item)
-    return out
 
 
 def normalize_builder_return(ret: Any, default_slide_id: str) -> tuple[int, list[str]]:
