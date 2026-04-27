@@ -72,6 +72,7 @@ from .slide_salesforce import (
     sf_format_cell as _sf_format_cell,
     sf_records_to_table as _sf_records_to_table,
 )
+from .slide_title_page import title_slide as _title_slide
 from .slide_usage import (
     champions_slide as _champions_slide,
     features_slide as _features_slide,
@@ -196,35 +197,6 @@ def build_slide_jql_speaker_notes_for_entry(report: dict[str, Any], entry: dict[
 
 
 _build_slide_jql_speaker_notes = build_slide_jql_speaker_notes_for_entry
-
-
-# ── Slide builders ──
-
-def _title_slide(reqs, sid, report, idx):
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, NAVY)
-
-    acct = report["account"]
-    name = report["customer"]
-    sub = f"Product Usage Review  ·  {_date_range(report['days'], report.get('quarter'), report.get('quarter_start'), report.get('quarter_end'))}"
-    meta = f"CSM: {acct['csm']}  |  {acct['total_sites']} sites · {acct['total_visitors']} users  |  {report['generated']}"
-
-    _rect(reqs, f"{sid}_bar", sid, 0, 190, SLIDE_W, 3, BLUE)
-
-    _box(reqs, f"{sid}_n", sid, MARGIN, 100, CONTENT_W, 60, name)
-    _style(reqs, f"{sid}_n", 0, len(name), bold=True, size=40, color=WHITE, font=FONT_SERIF)
-
-    _box(reqs, f"{sid}_s", sid, MARGIN, 200, CONTENT_W, 30, sub)
-    _style(reqs, f"{sid}_s", 0, len(sub), size=15, color=BLUE, font=FONT)
-
-    _box(reqs, f"{sid}_m", sid, MARGIN, 350, CONTENT_W, 24, meta)
-    _style(reqs, f"{sid}_m", 0, len(meta), size=9, color=GRAY, font=FONT)
-
-    label = "INTERNAL ONLY"
-    _box(reqs, f"{sid}_int", sid, MARGIN, 160, CONTENT_W, 22, label)
-    _style(reqs, f"{sid}_int", 0, len(label), bold=True, size=10, color=BLUE, font=FONT)
-
-    return idx + 1
 
 
 # ── Composite health scoring ──
