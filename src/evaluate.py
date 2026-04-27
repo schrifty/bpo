@@ -24,7 +24,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-import requests as _requests
 import yaml
 
 from .config import (
@@ -51,6 +50,11 @@ from .hydrate_capabilities import (
     build_capability_context as _build_capability_context,
     builder_descriptions_text,
 )
+from .hydrate_extract import describe_elements as _describe_elements
+from .hydrate_extract import extract_text as _extract_text
+from .hydrate_thumbnails import download_thumbnail_b64 as _download_thumbnail_b64
+from .hydrate_thumbnails import get_slide_thumbnail_b64 as _get_slide_thumbnail_b64
+from .hydrate_thumbnails import get_slide_thumbnail_url as _get_slide_thumbnail_url
 from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
 from . import matching_log
 from .slide_loader import get_slide_definition
@@ -830,94 +834,6 @@ def _collect_hydrate_intake_presentations(
     ]
     _log_intake_decks_for_run(merged, log_prefix=log_prefix)
     return merged, None
-
-
-def _get_slide_thumbnail_url(slides_svc, pres_id: str, page_id: str) -> str:
-    """Get the thumbnail content URL for a slide (main-thread only — not thread-safe).
-
-    The Google API client (httplib2) is not thread-safe, so this must be called
-    from a single thread.  Use _download_thumbnail_b64 to fetch the image bytes
-    in a worker thread.
-    """
-    thumb = slides_svc.presentations().pages().getThumbnail(
-        presentationId=pres_id,
-        pageObjectId=page_id,
-        thumbnailProperties_thumbnailSize="LARGE",
-    ).execute()
-    return thumb["contentUrl"]
-
-
-def _download_thumbnail_b64(url: str, max_retries: int = 3) -> str:
-    """Download a thumbnail from a pre-fetched URL and return base64-encoded PNG.
-
-    Safe to call from worker threads — uses requests which is thread-safe.
-    Retries on SSL/network errors.
-    """
-    last_err: Exception | None = None
-    for attempt in range(max_retries):
-        try:
-            resp = _requests.get(url, timeout=30)
-            resp.raise_for_status()
-            return base64.b64encode(resp.content).decode()
-        except Exception as e:
-            last_err = e
-            if attempt < max_retries - 1:
-                time.sleep(2 ** attempt)
-    raise last_err
-
-
-def _get_slide_thumbnail_b64(slides_svc, pres_id: str, page_id: str) -> str:
-    """Convenience wrapper: get URL then download. Only safe from a single thread."""
-    url = _get_slide_thumbnail_url(slides_svc, pres_id, page_id)
-    return _download_thumbnail_b64(url)
-
-
-def _extract_text(element: dict) -> list[str]:
-    """Recursively extract text runs from a page element."""
-    texts: list[str] = []
-
-    # Shape text
-    shape_text = element.get("shape", {}).get("text", {})
-    for te in shape_text.get("textElements", []):
-        content = te.get("textRun", {}).get("content", "").strip()
-        if content:
-            texts.append(content)
-
-    # Table cells
-    table = element.get("table", {})
-    for row in table.get("tableRows", []):
-        for cell in row.get("tableCells", []):
-            for te in cell.get("text", {}).get("textElements", []):
-                content = te.get("textRun", {}).get("content", "").strip()
-                if content:
-                    texts.append(content)
-
-    # Groups
-    group = element.get("elementGroup", {})
-    for child in group.get("children", []):
-        texts.extend(_extract_text(child))
-
-    return texts
-
-
-def _describe_elements(slide: dict) -> dict[str, Any]:
-    """Summarize the visual element types on a slide."""
-    counts = {"text_boxes": 0, "tables": 0, "images": 0, "shapes": 0, "charts": 0}
-    for el in slide.get("pageElements", []):
-        if "table" in el:
-            counts["tables"] += 1
-        elif "image" in el:
-            counts["images"] += 1
-        elif "sheetsChart" in el:
-            counts["charts"] += 1
-        elif "shape" in el:
-            if el["shape"].get("text", {}).get("textElements"):
-                counts["text_boxes"] += 1
-            else:
-                counts["shapes"] += 1
-        elif "elementGroup" in el:
-            counts["shapes"] += 1
-    return counts
 
 
 # ── Main evaluation (data-centric: collect analysis, deduce reproducibility at render) ──
