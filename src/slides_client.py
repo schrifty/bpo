@@ -36,6 +36,7 @@ from .slide_depth import depth_slide as _depth_slide
 from .slide_engagement import engagement_slide as _engagement_slide
 from .slide_exports import exports_slide as _exports_slide
 from .slide_engineering_portfolio import (
+    eng_bug_health_slide as _eng_bug_health_slide,
     eng_insight_bullets as _eng_insight_bullets,
     eng_portfolio_title_slide as _eng_portfolio_title_slide,
     eng_sprint_snapshot_slide as _eng_sprint_snapshot_slide,
@@ -2695,135 +2696,6 @@ def _support_breakdown_slide(reqs, sid, report, idx):
 
 
 # ── Engineering Portfolio Slides ──────────────────────────────────────────────
-
-
-def _eng_bug_health_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
-    """Bug health: open bugs by priority, blocker/critical callout, trend."""
-    eng = report.get("eng_portfolio") or {}
-    if not eng:
-        return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
-
-    open_bugs_list = eng.get("open_bugs") or []
-    blocker_crit = eng.get("blocker_critical") or []
-
-    # Dynamic insight title
-    if blocker_crit:
-        title = f"{len(open_bugs_list)} Open Bugs — {len(blocker_crit)} Blocker/Critical Need Attention"
-    elif open_bugs_list:
-        title = f"{len(open_bugs_list)} Open Bugs — No Blockers Currently Active"
-    else:
-        title = "Bug Backlog Clear — No Open Bugs"
-
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, title)
-
-    open_bugs = eng.get("open_bugs") or []
-    blocker_crit = eng.get("blocker_critical") or []
-    jira_base = eng.get("base_url", "")
-
-    # Stat bar
-    bar = f"Open bugs: {len(open_bugs)}   |   Blocker / Critical: {len(blocker_crit)}"
-    _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 18, bar)
-    _style(reqs, f"{sid}_bar", 0, len(bar), size=9, color=GRAY, font=FONT)
-    # Bold the counts
-    _style(reqs, f"{sid}_bar", len("Open bugs: "), len(f"Open bugs: {len(open_bugs)}"),
-           bold=True, color=_RED if open_bugs else _GREEN)
-    bc_start = bar.index("Blocker")
-    _style(reqs, f"{sid}_bar", bc_start, bc_start + len(f"Blocker / Critical: {len(blocker_crit)}"),
-           bold=True, color=_RED if blocker_crit else _GREEN)
-
-    body_top = BODY_Y + 22
-    col_gap = 20
-    left_w = (CONTENT_W - col_gap) * 2 // 3
-    right_w = CONTENT_W - left_w - col_gap
-    left_x = MARGIN
-    right_x = MARGIN + left_w + col_gap
-
-    # ── LEFT: Open bugs list ──
-    left_y = body_top
-    _box(reqs, f"{sid}_bl_h", sid, left_x, left_y, left_w, 16, "Open Bugs")
-    _style(reqs, f"{sid}_bl_h", 0, 9, bold=True, size=11, color=NAVY, font=FONT)
-    left_y += 18
-
-    prio_color = {
-        "Blocker": {"red": 0.85, "green": 0.15, "blue": 0.15},
-        "Critical": {"red": 0.9, "green": 0.4, "blue": 0.0},
-        "Major": NAVY,
-        "Minor": GRAY,
-    }
-    TICKET_H = 34  # key line (16) + summary line (18)
-    for bi, bug in enumerate(open_bugs[:12]):
-        if left_y + TICKET_H > BODY_BOTTOM - 72:  # reserve space for insight bullets
-            break
-        key = bug["key"]
-        prio_short = bug["priority"].split(":")[0] if ":" in bug["priority"] else bug["priority"]
-        assignee = (bug.get("assignee") or "")
-        first_name = assignee.split()[0] if assignee else "—"
-        raw_summary = bug["summary"]
-        summary = raw_summary[:48] + "…" if len(raw_summary) > 48 else raw_summary
-
-        key_line = f"{key}  [{prio_short}]  {first_name}"
-        link = f"{jira_base}/browse/{key}" if jira_base else None
-        _box(reqs, f"{sid}_bk{bi}", sid, left_x, left_y, left_w, 16, key_line)
-        _style(reqs, f"{sid}_bk{bi}", 0, len(key), bold=True, size=8,
-               color=prio_color.get(prio_short, _RED), font=MONO, link=link)
-        _style(reqs, f"{sid}_bk{bi}", len(key), len(key_line), size=8, color=GRAY, font=FONT)
-        left_y += 16
-
-        _box(reqs, f"{sid}_bs{bi}", sid, left_x + 8, left_y, left_w - 8, 16, summary)
-        _style(reqs, f"{sid}_bs{bi}", 0, len(summary), size=8, color=NAVY, font=FONT)
-        left_y += 18
-
-    # ── RIGHT: Priority breakdown + escalated bugs ──
-    right_y = body_top
-    by_type = eng.get("by_type", {})
-    bug_count = by_type.get("Bug", 0)
-
-    # Priority distribution of ALL open tickets (not just bugs)
-    by_prio: dict[str, int] = {}
-    for bug in (eng.get("open_bugs") or []):
-        short = bug["priority"].split(":")[0] if ":" in bug["priority"] else bug["priority"]
-        by_prio[short] = by_prio.get(short, 0) + 1
-
-    if by_prio:
-        _box(reqs, f"{sid}_ph", sid, right_x, right_y, right_w, 16, "By Priority")
-        _style(reqs, f"{sid}_ph", 0, 11, bold=True, size=11, color=NAVY, font=FONT)
-        right_y += 18
-        for pi, (p, c) in enumerate(sorted(by_prio.items(),
-                                            key=lambda x: ["Blocker","Critical","Major","Minor"].index(x[0])
-                                            if x[0] in ["Blocker","Critical","Major","Minor"] else 99)):
-            line = f"{c:>4}  {p}"
-            _box(reqs, f"{sid}_pp{pi}", sid, right_x, right_y, right_w, 13, line)
-            col = prio_color.get(p, NAVY)
-            _style(reqs, f"{sid}_pp{pi}", 0, len(f"{c:>4}"), bold=True, size=10, color=col, font=FONT)
-            _style(reqs, f"{sid}_pp{pi}", len(f"{c:>4}"), len(line), size=10, color=NAVY, font=FONT)
-            right_y += 14
-        right_y += 10
-
-    if blocker_crit:
-        _box(reqs, f"{sid}_bch", sid, right_x, right_y, right_w, 16, "Blockers & Criticals")
-        _style(reqs, f"{sid}_bch", 0, 20, bold=True, size=11, color=_RED, font=FONT)
-        right_y += 18
-        for bi, bug in enumerate(blocker_crit[:6]):
-            key = bug["key"]
-            link = f"{jira_base}/browse/{key}" if jira_base else None
-            raw_s = bug["summary"]
-            summary = raw_s[:30] + "…" if len(raw_s) > 30 else raw_s
-            line = f"{key}  {summary}"
-            _box(reqs, f"{sid}_bc{bi}", sid, right_x, right_y, right_w, 16, line)
-            _style(reqs, f"{sid}_bc{bi}", 0, len(key), bold=True, size=9,
-                   color=_RED, font=MONO, link=link)
-            _style(reqs, f"{sid}_bc{bi}", len(key), len(line), size=9, color=NAVY, font=FONT)
-            right_y += 17
-
-    # ── INSIGHT BULLETS ──
-    insights = (eng.get("insights") or {}).get("bug_health", [])
-    if insights:
-        bullet_y = BODY_BOTTOM - (len(insights) * 22) - 4
-        _eng_insight_bullets(reqs, sid, insights, MARGIN, bullet_y, CONTENT_W)
-
-    return idx + 1
 
 
 def _eng_velocity_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
