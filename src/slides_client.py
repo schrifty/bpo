@@ -77,6 +77,7 @@ from .slide_salesforce import (
     sf_format_cell as _sf_format_cell,
     sf_records_to_table as _sf_records_to_table,
 )
+from .slide_signals import signals_slide as _signals_slide
 from .slide_sites import sites_slide as _sites_slide
 from .slide_title_page import title_slide as _title_slide
 from .slide_usage import (
@@ -2040,57 +2041,6 @@ def _project_recent_tickets_table_slide(
                 _cs(row_idx, ci, len(v), size=8)
 
     return idx + 1
-
-
-def _signals_slide(reqs, sid, report, idx):
-    signals = report.get("signals", [])
-    if not signals:
-        return _missing_data_slide(reqs, sid, report, idx, "action signals")
-
-    max_signals = max(1, (BODY_BOTTOM - BODY_Y) // 32 - 1)
-    chunks = _cap_chunk_list(
-        [signals[i : i + max_signals] for i in range(0, len(signals), max_signals)]
-    )
-    oids: list[str] = []
-    for pi, shown in enumerate(chunks):
-        page_sid = f"{sid}_p{pi}" if len(chunks) > 1 else sid
-        oids.append(page_sid)
-        _slide(reqs, page_sid, idx + pi)
-        _bg(reqs, page_sid, LIGHT)
-        st = "Notable Signals" if len(chunks) == 1 else f"Notable Signals ({pi + 1} of {len(chunks)})"
-        _slide_title(reqs, page_sid, st)
-        trend_banner = (report.get("signals_trends_display") or "").strip()
-        trend_h = 0
-        if pi == 0 and trend_banner:
-            trend_h = 46
-            _box(reqs, f"{page_sid}_trend", page_sid, MARGIN, BODY_Y, CONTENT_W, trend_h - 4, trend_banner)
-            _style(
-                reqs,
-                f"{page_sid}_trend",
-                0,
-                len(trend_banner),
-                size=11,
-                color=GRAY,
-                font=FONT,
-            )
-        base = pi * max_signals
-        lines = []
-        for i, s in enumerate(shown, start=base + 1):
-            lines.append(f"{i}.   {s}")
-            lines.append("")
-        text = "\n".join(lines)
-        oid = f"{page_sid}_sig"
-        body_top = BODY_Y + trend_h
-        body_h = max(120, 290 - trend_h)
-        _box(reqs, oid, page_sid, MARGIN, body_top, CONTENT_W, body_h, text)
-        _style(reqs, oid, 0, len(text), size=12, color=NAVY, font=FONT)
-        off = 0
-        for line in lines:
-            if line and line[0].isdigit():
-                dot = line.index(".")
-                _style(reqs, oid, off, off + dot + 1, bold=True, color=BLUE)
-            off += len(line) + 1
-    return idx + len(chunks), oids
 
 
 # ── Data Quality slide ──
