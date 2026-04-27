@@ -171,8 +171,6 @@ def test_run_qbr_from_template_smoke(
     pres_final = {
         "slides": [
             {"objectId": "t0", "pageElements": []},
-            {"objectId": "e1", "pageElements": []},
-            {"objectId": "e2", "pageElements": []},
             {"objectId": "a1", "pageElements": []},
         ]
     }
@@ -186,6 +184,9 @@ def test_run_qbr_from_template_smoke(
 
     assert r.get("ok") is True
     assert r["customer"] == "Acme Corp"
+    assert r["insert_executive_summary"] is False
+    assert r["exec_slides_inserted"] == 0
+    mock_insert.assert_not_called()
     assert r.get("bundle_folder_id") == "bundlefold"
     assert len(r.get("companion_decks", [])) == len(qbr_template.QBR_BUNDLE_COMPANION_DECKS)
     assert mock_cohort_links.call_count >= 1

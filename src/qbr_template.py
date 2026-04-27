@@ -802,25 +802,9 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
     exec_manifest_slides = 0
     exec_signals_page_ids: list[str] = []
     if plan.get("insert_executive_summary"):
-        from .charts import DeckCharts
-
-        report["_charts"] = DeckCharts(f"{customer} — QBR executive summary")
-        try:
-            exec_ids, exec_manifest_slides, exec_signals_page_ids = _insert_executive_summary_slides(
-                slides_svc, pres_id, report, customer
-            )
-        except Exception as e:
-            logger.exception("QBR: executive summary insert failed")
-            return {
-                "error": f"Executive summary insert failed: {e}",
-                "presentation_id": pres_id,
-                "url": url,
-                "customer": customer,
-            }
         logger.info(
-            "QBR: inserted %d executive summary page(s) from %d manifest slide(s)",
-            len(exec_ids),
-            exec_manifest_slides,
+            "QBR: manifest requested executive-summary insert, but main-deck insertion is disabled; "
+            "the executive_summary companion deck covers this section"
         )
     else:
         logger.info("QBR: skipping executive summary insert (manifest plan insert_executive_summary=false)")
@@ -913,7 +897,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
         "presentation_id": pres_id,
         "url": url,
         "manifest_sha16": mf_hash,
-        "insert_executive_summary": bool(plan.get("insert_executive_summary")),
+        "insert_executive_summary": False,
         "slides_hidden": len(hide_oids),
         "exec_slides_inserted": len(exec_ids),
         "exec_manifest_slides": exec_manifest_slides,
