@@ -280,3 +280,46 @@ def collect_hydrate_intake_presentations(
     ]
     log_intake_decks_for_run(merged, log_prefix=log_prefix)
     return merged, None
+
+
+def remove_intake_group_permission_from_file(drive_svc, file_id: str, group_email: str) -> int:
+    """Remove Drive ACL entries for ``group_email`` on ``file_id``."""
+    group = (group_email or "").strip().lower()
+    if not group:
+        return 0
+    removed = 0
+    try:
+        page_token: str | None = None
+        while True:
+            req = drive_svc.permissions().list(
+                fileId=file_id,
+                fields="nextPageToken, permissions(id,emailAddress,type,role)",
+                supportsAllDrives=True,
+                pageSize=100,
+                pageToken=page_token,
+            )
+            resp = req.execute()
+            for permission in resp.get("permissions", []):
+                addr = (permission.get("emailAddress") or "").strip().lower()
+                if addr != group:
+                    continue
+                permission_id = permission.get("id")
+                if not permission_id:
+                    continue
+                drive_svc.permissions().delete(
+                    fileId=file_id,
+                    permissionId=permission_id,
+                    supportsAllDrives=True,
+                ).execute()
+                removed += 1
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                break
+    except Exception as e:
+        logger.warning(
+            "hydrate: failed removing intake group %s from file %s: %s",
+            group_email,
+            file_id,
+            e,
+        )
+    return removed
