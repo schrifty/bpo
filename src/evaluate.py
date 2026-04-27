@@ -9,10 +9,8 @@ then regenerates the deck using live customer data from Pendo/Jira/CS Report.
 
 from __future__ import annotations
 
-import base64
 import datetime
 import functools
-import hashlib
 import json
 import re
 import secrets
@@ -50,6 +48,16 @@ from .hydrate_capabilities import (
     build_capability_context as _build_capability_context,
     builder_descriptions_text,
 )
+from .hydrate_cache import adapt_cache_key as _adapt_cache_key
+from .hydrate_cache import data_summary_fingerprint as _data_summary_fingerprint
+from .hydrate_cache import default_slide_cache_dir
+from .hydrate_cache import get_cached_adapt as _cache_get_adapt
+from .hydrate_cache import get_cached_classification as _cache_get_classification
+from .hydrate_cache import get_cached_slide_analysis as _cache_get_slide_analysis
+from .hydrate_cache import set_cached_adapt as _cache_set_adapt
+from .hydrate_cache import set_cached_classification as _cache_set_classification
+from .hydrate_cache import set_cached_slide_analysis as _cache_set_slide_analysis
+from .hydrate_cache import slide_content_hash as _slide_content_hash
 from .hydrate_extract import describe_elements as _describe_elements
 from .hydrate_extract import extract_text as _extract_text
 from .hydrate_thumbnails import download_thumbnail_b64 as _download_thumbnail_b64
@@ -66,26 +74,9 @@ from .slides_api import (
 )
 from .speaker_notes import set_speaker_notes, set_speaker_notes_batch
 
-# Slide analysis cache — avoid re-calling the LLM for the same slide content.
-# Bump CACHE_VERSION when the classification prompt or slide types change.
-_SLIDE_CACHE_VERSION = 2  # v2: classify title/cover/divider for hydrate skip
-
-
 def _slide_cache_dir() -> Path:
     """Directory for persisted slide analysis cache (classification, adapt)."""
-    root = Path(__file__).resolve().parent.parent
-    return root / ".slide_cache"
-
-
-def _slide_content_hash(thumb_b64: str | None, text_snapshot: str = "", page_id: str = "") -> str | None:
-    """Stable hash for cache key. Includes page_id so different slides never share cache (avoids wrong notes/replacements)."""
-    prefix = (page_id or "").encode("utf-8")
-    if thumb_b64:
-        raw = base64.b64decode(thumb_b64, validate=True)
-        return hashlib.sha256(prefix + raw).hexdigest()
-    if text_snapshot:
-        return hashlib.sha256(prefix + text_snapshot.encode("utf-8")).hexdigest()
-    return None
+    return default_slide_cache_dir()
 
 
 _BROAD_ANALYSIS_MAX_TOKENS = 8192
@@ -162,48 +153,22 @@ def _log_slide_visual_findings(pres_name: str, slide_num: int, total: int, chart
 
 def _get_cached_classification(cache_key: str) -> dict | None:
     """Return cached classification result if present and version matches."""
-    d = _slide_cache_dir() / "classification"
-    path = d / f"{cache_key}.json"
-    if not path.exists():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if data.get("_version") != _SLIDE_CACHE_VERSION:
-            return None
-        return {k: v for k, v in data.items() if not k.startswith("_")}
-    except Exception:
-        return None
+    return _cache_get_classification(_slide_cache_dir(), cache_key)
 
 
 def _set_cached_classification(cache_key: str, result: dict) -> None:
     """Persist classification result for this cache key."""
-    d = _slide_cache_dir() / "classification"
-    d.mkdir(parents=True, exist_ok=True)
-    out = {"_version": _SLIDE_CACHE_VERSION, **result}
-    (d / f"{cache_key}.json").write_text(json.dumps(out, indent=0), encoding="utf-8")
+    _cache_set_classification(_slide_cache_dir(), cache_key, result)
 
 
 def _get_cached_adapt(cache_key: str) -> list[dict] | None:
     """Return cached adapt replacements if present and version matches."""
-    d = _slide_cache_dir() / "adapt"
-    path = d / f"{cache_key}.json"
-    if not path.exists():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if data.get("_version") != _SLIDE_CACHE_VERSION:
-            return None
-        return data.get("replacements", [])
-    except Exception:
-        return None
+    return _cache_get_adapt(_slide_cache_dir(), cache_key)
 
 
 def _set_cached_adapt(cache_key: str, replacements: list[dict]) -> None:
     """Persist adapt replacements for this cache key (values are resolved at read time)."""
-    d = _slide_cache_dir() / "adapt"
-    d.mkdir(parents=True, exist_ok=True)
-    out = {"_version": _SLIDE_CACHE_VERSION, "replacements": replacements}
-    (d / f"{cache_key}.json").write_text(json.dumps(out, indent=0, default=str), encoding="utf-8")
+    _cache_set_adapt(_slide_cache_dir(), cache_key, replacements)
 
 
 def _log_slide_pipeline_done(slide_ref: str, src: str, replacements: list[dict]) -> None:
@@ -277,31 +242,14 @@ def _resolve_cached_replacements(
     return out
 
 
-# ── Broader slide analysis (data ask + purpose) for future-proof cache ─────────
-# Bump when we change the analysis schema so old entries are ignored.
-_SLIDE_ANALYSIS_CACHE_VERSION = 7  # v7: charts[].interpretation + visual_kind + explicit pipeline gaps for visuals
-
 def _get_cached_slide_analysis(cache_key: str) -> dict | None:
     """Return cached broad analysis (data_ask, purpose, slide_type) if present and version matches."""
-    d = _slide_cache_dir() / "analysis"
-    path = d / f"{cache_key}.json"
-    if not path.exists():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if data.get("_version") != _SLIDE_ANALYSIS_CACHE_VERSION:
-            return None
-        return {k: v for k, v in data.items() if not k.startswith("_")}
-    except Exception:
-        return None
+    return _cache_get_slide_analysis(_slide_cache_dir(), cache_key)
 
 
 def _set_cached_slide_analysis(cache_key: str, analysis: dict) -> None:
     """Persist broad slide analysis for this cache key."""
-    d = _slide_cache_dir() / "analysis"
-    d.mkdir(parents=True, exist_ok=True)
-    out = {"_version": _SLIDE_ANALYSIS_CACHE_VERSION, **analysis}
-    (d / f"{cache_key}.json").write_text(json.dumps(out, indent=0, default=str), encoding="utf-8")
+    _cache_set_slide_analysis(_slide_cache_dir(), cache_key, analysis)
 
 
 def _analyze_slide_broad(client, text: str, elements: dict, thumb_b64: str | None,
@@ -1384,21 +1332,6 @@ def _build_data_summary(report: dict) -> dict:
         s["supply_chain"] = cs_sc
 
     return s
-
-
-def _data_summary_fingerprint(data_summary: dict) -> str:
-    """Stable hash of the full data summary so adapt cache invalidates when report data changes."""
-    canonical = json.dumps(data_summary, sort_keys=True, default=str)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-def _adapt_cache_key(thumb_b64: str | None, page_id: str, data_summary: dict) -> str | None:
-    """Cache key for adapt replacements: slide pixels + current data fingerprint (unlike analysis-only cache)."""
-    base = _slide_content_hash(thumb_b64, page_id=page_id)
-    if not base:
-        return None
-    fp = _data_summary_fingerprint(data_summary)
-    return hashlib.sha256(f"{base}:{fp}".encode("utf-8")).hexdigest()
 
 
 # Max JSON chars for CURRENT DATA in the adapt system prompt (structured pruning before hard cut).
