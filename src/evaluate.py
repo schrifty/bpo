@@ -54,10 +54,9 @@ from .slides_client import (
     _get_service,
     _slide,
     _wrap_box,
-    set_speaker_notes,
-    set_speaker_notes_batch,
     slides_presentations_batch_update,
 )
+from .speaker_notes import set_speaker_notes, set_speaker_notes_batch
 
 # Slide analysis cache — avoid re-calling the LLM for the same slide content.
 # Bump CACHE_VERSION when the classification prompt or slide types change.

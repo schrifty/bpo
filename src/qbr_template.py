@@ -61,9 +61,9 @@ from .slides_client import (
     create_cohort_deck,
     create_health_deck,
     presentations_batch_update_chunked,
-    set_speaker_notes_batch,
     slides_presentations_batch_update,
 )
+from .speaker_notes import set_speaker_notes_batch
 
 # Drive layout under the QBR Generator folder (see get_qbr_generator_folder_id_for_drive_config)
 QBR_OUTPUT_SUBFOLDER = "Output"

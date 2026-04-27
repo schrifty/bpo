@@ -37,7 +37,8 @@ from .evaluate import (
     apply_synonym_resolution_to_replacements,
 )
 from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
-from .slides_client import set_speaker_notes, slides_presentations_batch_update
+from .speaker_notes import set_speaker_notes
+from .slides_client import slides_presentations_batch_update
 
 
 _QBR_AGENDA_REFINEMENT_RULES = """REFINEMENT PASS — prior thumbnail review reported issues:
