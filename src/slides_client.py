@@ -6,7 +6,6 @@ Dimensions, brand palette, and shared layout helpers live in ``slides_theme``.
 
 from __future__ import annotations
 
-import datetime
 import os
 import random
 import threading
@@ -144,6 +143,7 @@ from .slide_qbr_framing import (
     qbr_cover_slide as _qbr_cover_slide,
     qbr_divider_slide as _qbr_divider_slide,
 )
+from .slide_qbr_deployment import qbr_deployment_slide as _qbr_deployment_slide
 from .slide_utils import (
     blob_recent_tickets_window_days as _blob_recent_tickets_window_days,
     dedupe_keep_order as _dedupe_keep_order,
@@ -2509,84 +2509,6 @@ def _enhancement_requests_slide(reqs, sid, report, idx):
                 y += ROW_DEC
 
     return idx + len(pages), oids
-
-
-def _qbr_deployment_slide(reqs, sid, report, idx):
-    """Deployment overview: site count and status table from Pendo data."""
-    all_sites = report.get("sites", [])
-    if not all_sites:
-        return _missing_data_slide(reqs, sid, report, idx, "Pendo site list for deployment summary")
-
-    customer = report.get("customer", report.get("account", {}).get("customer", ""))
-    raw_gen = report.get("generated", "")
-    try:
-        generated = datetime.datetime.strptime(raw_gen, "%Y-%m-%d").strftime("%B %-d, %Y")
-    except (ValueError, TypeError):
-        generated = raw_gen or datetime.datetime.now().strftime("%B %-d, %Y")
-    subtitle = f"As of {generated}"
-
-    cs_health = get_csr_section(report).get("platform_health") or {}
-    site_health = {}
-    for row in cs_health.get("sites", []):
-        name = row.get("site", "")
-        status = row.get("health_status", "")
-        if name and status:
-            site_health[name.lower()] = status
-
-    customer_prefix = customer.strip()
-
-    def _short_site(name: str) -> str:
-        n = name
-        if customer_prefix and n.lower().startswith(customer_prefix.lower()):
-            n = n[len(customer_prefix):].lstrip(" -·")
-        return n[:25] if len(n) > 25 else n
-
-    headers = ["Site", "Users", "Status", "Last Active"]
-    col_widths = [220, 60, 80, 130]
-    ROW_H = 26
-    max_rows = max(1, (BODY_BOTTOM - (BODY_Y + 14)) // ROW_H - 1)
-    site_chunks = _cap_chunk_list(
-        [all_sites[i : i + max_rows] for i in range(0, len(all_sites), max_rows)]
-    )
-    status_colors = {
-        "GREEN": {"red": 0.1, "green": 0.6, "blue": 0.2},
-        "YELLOW": {"red": 0.9, "green": 0.7, "blue": 0.1},
-        "RED": {"red": 0.85, "green": 0.15, "blue": 0.15},
-    }
-    oids: list[str] = []
-
-    for pi, sites_to_show in enumerate(site_chunks):
-        page_sid = f"{sid}_p{pi}" if len(site_chunks) > 1 else sid
-        oids.append(page_sid)
-        _slide(reqs, page_sid, idx + pi)
-        ttl = "Deployment — Number of Sites" if len(site_chunks) == 1 else f"Deployment — Sites ({pi + 1} of {len(site_chunks)})"
-        _slide_title(reqs, page_sid, ttl)
-        _box(reqs, f"{page_sid}_sub", page_sid, MARGIN, BODY_Y - 10, CONTENT_W, 18, subtitle)
-        _style(reqs, f"{page_sid}_sub", 0, len(subtitle), size=10, color=GRAY, font=FONT)
-
-        rows_data = []
-        for s in sites_to_show:
-            site_name = _short_site(s.get("sitename", "?"))
-            visitors = str(s.get("visitors", 0))
-            health = site_health.get(s.get("sitename", "").lower(), "—")
-            last_active_raw = s.get("last_active", "—")
-            try:
-                last_active = datetime.datetime.strptime(
-                    str(last_active_raw)[:10], "%Y-%m-%d"
-                ).strftime("%b %-d, %Y")
-            except (ValueError, TypeError):
-                last_active = str(last_active_raw)[:10] if last_active_raw else "—"
-            rows_data.append([site_name, visitors, health, last_active])
-
-        tbl_id = f"{page_sid}_tbl"
-        _simple_table(reqs, tbl_id, page_sid, MARGIN, BODY_Y + 14,
-                      col_widths, ROW_H, headers, rows_data)
-        for ri, row in enumerate(rows_data):
-            status = row[2].upper() if len(row) > 2 else ""
-            if status in status_colors:
-                _table_cell_bg(reqs, tbl_id, ri + 1, 2, status_colors[status])
-
-    return idx + len(site_chunks), oids
 
 
 def _support_breakdown_slide(reqs, sid, report, idx):
