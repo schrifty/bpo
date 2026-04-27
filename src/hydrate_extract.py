@@ -48,3 +48,60 @@ def describe_elements(slide: dict[str, Any]) -> dict[str, int]:
         elif "elementGroup" in element:
             counts["shapes"] += 1
     return counts
+
+
+def extract_slide_text_elements(page_elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Extract text and visual-data markers from slide elements."""
+    items: list[dict[str, Any]] = []
+    for element in page_elements:
+        object_id = element.get("objectId", "")
+
+        if element.get("image"):
+            items.append({"type": "image", "element_id": object_id, "text": "(embedded image)"})
+            continue
+
+        if element.get("sheetsChart"):
+            items.append({
+                "type": "chart",
+                "element_id": object_id,
+                "text": "(embedded chart — contains data that cannot be auto-updated)",
+            })
+            continue
+
+        group = element.get("elementGroup", {})
+        if group:
+            items.extend(extract_slide_text_elements(group.get("children", [])))
+            continue
+
+        shape = element.get("shape", {})
+        shape_props = shape.get("shapeProperties", {})
+        if shape_props.get("shapeBackgroundFill", {}).get("propertyState") == "RENDERED":
+            bg_fill = shape_props.get("shapeBackgroundFill", {})
+            if bg_fill.get("stretchedPictureFill"):
+                items.append({"type": "image", "element_id": object_id, "text": "(image in shape)"})
+
+        text_body = shape.get("text", {})
+        full_text = ""
+        for text_element in text_body.get("textElements", []):
+            full_text += text_element.get("textRun", {}).get("content", "")
+        full_text = full_text.strip()
+        if full_text:
+            items.append({"type": "shape", "element_id": object_id, "text": full_text})
+
+        table = element.get("table", {})
+        if table:
+            for row_index, row in enumerate(table.get("tableRows", [])):
+                for col_index, cell in enumerate(row.get("tableCells", [])):
+                    cell_text = ""
+                    for text_element in cell.get("text", {}).get("textElements", []):
+                        cell_text += text_element.get("textRun", {}).get("content", "")
+                    cell_text = cell_text.strip()
+                    if cell_text:
+                        items.append({
+                            "type": "table_cell",
+                            "element_id": object_id,
+                            "row": row_index,
+                            "col": col_index,
+                            "text": cell_text,
+                        })
+    return items
