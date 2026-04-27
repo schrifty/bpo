@@ -53,11 +53,11 @@ from .signals_llm import extract_executive_signals_slide_prompt
 from .quarters import QuarterRange, resolve_quarter
 from .slides_client import (
     _build_slide_jql_speaker_notes,
-    _normalize_builder_return,
     _SLIDE_BUILDERS,
     apply_cohort_bundle_links_to_notable_signals,
     create_cohort_deck,
     create_health_deck,
+    normalize_builder_return,
 )
 from .slides_api import (
     _get_service,
@@ -562,7 +562,7 @@ def _insert_executive_summary_slides(
         report["_current_slide"] = entry
         sid = f"qbr_es_{entry['id']}_{idx}"
         ret = builder(reqs, sid, report, idx)
-        next_idx, page_ids = _normalize_builder_return(ret, sid)
+        next_idx, page_ids = normalize_builder_return(ret, sid)
         for nid in page_ids:
             exec_ids.append(nid)
             note_targets.append((nid, dict(entry)))

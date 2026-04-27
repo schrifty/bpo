@@ -34,6 +34,11 @@ from .slides_api import (
     presentations_batch_update_chunked,
     slides_presentations_batch_update,
 )
+from .slide_requests import (
+    append_slide as _slide,
+    append_text_box as _box,
+    append_wrapped_text_box as _wrap_box,
+)
 from .speaker_notes import (
     build_slide_jql_speaker_notes,
     get_speaker_notes_object_id,
@@ -188,10 +193,6 @@ def _support_title_includes_project(title: str, project: str) -> bool:
     return u.endswith(f"({p})".upper())
 
 
-def _slide(reqs, sid, idx):
-    reqs.append({"createSlide": {"objectId": sid, "insertionIndex": idx}})
-
-
 def _bg(reqs, sid, color):
     reqs.append({
         "updatePageProperties": {
@@ -200,37 +201,6 @@ def _bg(reqs, sid, color):
             "fields": "pageBackgroundFill",
         }
     })
-
-
-def _box(reqs, oid, sid, x, y, w, h, text):
-    reqs.append({
-        "createShape": {
-            "objectId": oid, "shapeType": "TEXT_BOX",
-            "elementProperties": {"pageObjectId": sid, "size": _sz(w, h), "transform": _tf(x, y)},
-        }
-    })
-    if text:
-        reqs.append({"insertText": {"objectId": oid, "text": text, "insertionIndex": 0}})
-
-
-def _wrap_box(reqs, oid, sid, x, y, w, h, text):
-    """Text box that clips content to its bounding box (prevents overflow onto neighbours)."""
-    reqs.append({
-        "createShape": {
-            "objectId": oid, "shapeType": "TEXT_BOX",
-            "elementProperties": {"pageObjectId": sid, "size": _sz(w, h), "transform": _tf(x, y)},
-        }
-    })
-    # Disable auto-fit so the box stays at the declared height and clips overflow
-    reqs.append({
-        "updateShapeProperties": {
-            "objectId": oid,
-            "shapeProperties": {"contentAlignment": "TOP"},
-            "fields": "contentAlignment",
-        }
-    })
-    if text:
-        reqs.append({"insertText": {"objectId": oid, "text": text, "insertionIndex": 0}})
 
 
 def _rect(reqs, oid, sid, x, y, w, h, fill):
@@ -408,12 +378,15 @@ def _dedupe_keep_order(items: list[str]) -> list[str]:
     return out
 
 
-def _normalize_builder_return(ret: Any, default_slide_id: str) -> tuple[int, list[str]]:
+def normalize_builder_return(ret: Any, default_slide_id: str) -> tuple[int, list[str]]:
     """Slide builders return ``next_idx`` (int) or ``(next_idx, [page_object_id, ...])`` for multi-page slides."""
     if isinstance(ret, tuple) and len(ret) == 2 and isinstance(ret[1], list):
         ids = [str(x) for x in ret[1] if x]
         return int(ret[0]), (ids if ids else [default_slide_id])
     return int(ret), [default_slide_id]
+
+
+_normalize_builder_return = normalize_builder_return
 
 
 def _health_snapshot_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:

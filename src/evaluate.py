@@ -47,12 +47,8 @@ from .drive_config import assert_qbr_prompts_ready_or_raise, get_deck_output_fol
 from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
 from . import matching_log
 from .slide_loader import get_slide_definition
-from .slides_client import (
-    SLIDE_DATA_REQUIREMENTS,
-    _box,
-    _slide,
-    _wrap_box,
-)
+from .slides_client import SLIDE_DATA_REQUIREMENTS
+from .slide_requests import append_slide, append_text_box, append_wrapped_text_box
 from .slides_api import (
     _build_slides_service_for_thread,
     _get_service,
@@ -3658,9 +3654,9 @@ def _append_hydrate_summary_slide(
     title_oid = f"{sid}_t"
     body_oid = f"{sid}_b"
     reqs: list[dict[str, Any]] = []
-    _slide(reqs, sid, insertion)
-    _box(reqs, title_oid, sid, 36, 36, 648, 56, "Hydrate run summary")
-    _wrap_box(reqs, body_oid, sid, 36, 108, 648, 360, body_text)
+    append_slide(reqs, sid, insertion)
+    append_text_box(reqs, title_oid, sid, 36, 36, 648, 56, "Hydrate run summary")
+    append_wrapped_text_box(reqs, body_oid, sid, 36, 108, 648, 360, body_text)
     try:
         slides_presentations_batch_update(slides_svc, pres_id, reqs)
     except HttpError as e:
