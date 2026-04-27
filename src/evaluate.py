@@ -43,7 +43,6 @@ from .data_field_synonyms import (
 from .drive_config import assert_qbr_prompts_ready_or_raise, get_deck_output_folder_id
 from .hydrate_capabilities import (
     AVAILABLE_DATA_KEYS as _AVAILABLE_DATA_KEYS,
-    BUILDER_DESCRIPTIONS as _BUILDER_DESCRIPTIONS,
     CANONICAL_DATA_KEYS,
     build_capability_context as _build_capability_context,
     builder_descriptions_text,
@@ -60,6 +59,8 @@ from .hydrate_cache import set_cached_slide_analysis as _cache_set_slide_analysi
 from .hydrate_cache import slide_content_hash as _slide_content_hash
 from .hydrate_extract import describe_elements as _describe_elements
 from .hydrate_extract import extract_text as _extract_text
+from .hydrate_reproducibility import cache_hit_rate_line as _cache_hit_rate_line
+from .hydrate_reproducibility import derive_reproducibility as _derive_reproducibility
 from .hydrate_thumbnails import download_thumbnail_b64 as _download_thumbnail_b64
 from .hydrate_thumbnails import get_slide_thumbnail_b64 as _get_slide_thumbnail_b64
 from .hydrate_thumbnails import get_slide_thumbnail_url as _get_slide_thumbnail_url
@@ -785,91 +786,6 @@ def _collect_hydrate_intake_presentations(
 
 
 # ── Main evaluation (data-centric: collect analysis, deduce reproducibility at render) ──
-
-
-def _cache_hit_rate_line(label: str, hits: int, total: int, **extra: int) -> str:
-    """Single log line for cache effectiveness."""
-    if total <= 0:
-        return f"{label}: no slides"
-    pct = 100.0 * hits / total
-    parts = [f"{hits}/{total} ({pct:.0f}%)"]
-    for k, v in sorted(extra.items()):
-        if v:
-            parts.append(f"{k}={v}")
-    return f"{label}: " + ", ".join(parts)
-
-
-def _derive_reproducibility(analysis: dict) -> dict:
-    """Derive feasibility, gaps, and summary from cached data_ask vs current available keys.
-
-    No LLM call — reproducibility is computed at report/render time from the same
-    analysis we use for hydrate.
-    """
-    data_ask = analysis.get("data_ask") or []
-    available_keys = _AVAILABLE_DATA_KEYS
-    data_needed: list[dict] = []
-    gaps: list[str] = []
-
-    for item in data_ask:
-        key = (item.get("key") or "").strip().replace(" ", "_").replace("-", "_").lower()
-        if not key:
-            continue
-        # Visual elements we cannot auto-fill (charts, static images)
-        if key.startswith("_embedded"):
-            data_needed.append({
-                "source": "slide",
-                "fields": key,
-                "available": False,
-                "note": "embedded visual — cannot auto-update",
-            })
-            gaps.append(f"Embedded visual ({key})")
-            continue
-        available = key in available_keys
-        data_needed.append({
-            "source": "report" if available else "—",
-            "fields": key,
-            "available": available,
-            "note": item.get("example_from_slide", ""),
-        })
-        if not available:
-            gaps.append(key)
-
-    n_total = len(data_ask)
-    n_available = sum(1 for d in data_needed if d.get("available"))
-    if n_total == 0:
-        feasibility = "fully reproducible"
-        summary = "Static slide; no data to fill."
-    elif n_available == n_total:
-        feasibility = "fully reproducible"
-        summary = f"Slide asks for {n_total} data item(s); we have all of them."
-    elif n_available > 0:
-        feasibility = "partially reproducible"
-        summary = f"Slide asks for {n_total} data item(s); we have {n_available}. Gaps: {', '.join(gaps[:5])}{'…' if len(gaps) > 5 else ''}."
-    else:
-        feasibility = "not reproducible"
-        summary = f"Slide asks for {n_total} data item(s); we have none yet. Gaps: {', '.join(gaps[:5])}{'…' if len(gaps) > 5 else ''}."
-
-    # Effort: rough heuristic from gap count and whether we have a builder
-    slide_type = analysis.get("slide_type") or "custom"
-    has_builder = slide_type in _BUILDER_DESCRIPTIONS and slide_type not in ("custom", "skip")
-    if n_total == 0:
-        effort_estimate = "trivial"
-    elif feasibility == "fully reproducible" and has_builder:
-        effort_estimate = "small"
-    elif feasibility == "fully reproducible":
-        effort_estimate = "medium"
-    else:
-        effort_estimate = "large" if len(gaps) > 3 else "medium"
-
-    return {
-        "feasibility": feasibility,
-        "confidence": 100,
-        "summary": summary,
-        "data_needed": data_needed,
-        "gaps": gaps,
-        "closest_existing": slide_type if slide_type != "custom" else None,
-        "effort_estimate": effort_estimate,
-    }
 
 
 def evaluate_new_slides(verbose: bool = False) -> list[dict[str, Any]]:
