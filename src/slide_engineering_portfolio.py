@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
+from .config import logger
 from .slide_primitives import background as _bg, missing_data_slide as _missing_data_slide, slide_title as _slide_title, style as _style
 from .slide_requests import append_slide as _slide, append_text_box as _box
 from .slides_theme import BODY_BOTTOM, BODY_Y, BLUE, CONTENT_W, FONT, GRAY, MARGIN, MONO, NAVY, SLIDE_H, WHITE
@@ -334,6 +335,152 @@ def eng_bug_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
             right_y += 17
 
     insights = (eng.get("insights") or {}).get("bug_health", [])
+    if insights:
+        bullet_y = BODY_BOTTOM - (len(insights) * 22) - 4
+        eng_insight_bullets(reqs, sid, insights, MARGIN, bullet_y, CONTENT_W)
+
+    return idx + 1
+
+
+def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Velocity & throughput: combo chart plus pipeline status."""
+    eng = report.get("eng_portfolio") or {}
+    if not eng:
+        return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
+
+    throughput = eng.get("throughput") or []
+    closed_count = eng.get("closed_count", 0)
+    in_flight = eng.get("in_flight_count", 0)
+
+    recent_throughput = throughput[-4:] if throughput else []
+    avg_closed = (
+        sum(week.get("resolved", 0) for week in recent_throughput) / len(recent_throughput)
+        if recent_throughput
+        else 0
+    )
+    avg_created = (
+        sum(week.get("created", 0) for week in recent_throughput) / len(recent_throughput)
+        if recent_throughput
+        else 0
+    )
+    net = avg_closed - avg_created
+    if net > 2:
+        title = f"Backlog Shrinking — {net:.0f} More Tickets Closed Than Created Per Week"
+    elif net < -2:
+        title = f"Backlog Growing — {abs(net):.0f} More Created Than Closed Per Week"
+    else:
+        title = f"Flow Balanced — Averaging {avg_closed:.0f} Tickets Closed Per Week"
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+
+    context = f"Open: {in_flight}   ·   Closed this period: {closed_count}   ·   Last 12 weeks"
+    _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
+    _style(reqs, f"{sid}_bar", 0, len(context), size=9, color=GRAY, font=FONT)
+
+    body_top = BODY_Y + 22
+    col_gap = 20
+    left_w = (CONTENT_W - col_gap) * 3 // 5
+    right_w = CONTENT_W - left_w - col_gap
+    left_x = MARGIN
+    right_x = MARGIN + left_w + col_gap
+
+    left_y = body_top
+    recent_weeks = throughput[-12:] if len(throughput) >= 12 else throughput
+    charts = report.get("_charts")
+    if recent_weeks and charts:
+        try:
+            from .charts import embed_chart
+
+            ss_id, chart_id = charts.add_combo_chart(
+                title="Weekly Throughput",
+                labels=[week.get("label", "") for week in recent_weeks],
+                bar_series={"Created": [week.get("created", 0) for week in recent_weeks]},
+                line_series={"Closed": [week.get("resolved", 0) for week in recent_weeks]},
+            )
+            embed_chart(reqs, f"{sid}_chart", sid, ss_id, chart_id, left_x, left_y, left_w, 170, linked=False)
+            left_y += 176
+        except Exception as exc:
+            logger.warning("Throughput chart embed failed: %s", exc)
+
+    if recent_weeks:
+        left_y += 4
+        header = "Week        Created  Closed"
+        _box(reqs, f"{sid}_wt_h", sid, left_x, left_y, left_w, 14, header)
+        _style(reqs, f"{sid}_wt_h", 0, len(header), bold=True, size=8, color=GRAY, font=MONO)
+        left_y += 14
+        for week in recent_weeks[-8:]:
+            row = f"{week['label']:<12}  {week.get('created', 0):>5}    {week.get('resolved', 0):>4}"
+            _box(reqs, f"{sid}_wr{week['week']}", sid, left_x, left_y, left_w, 12, row)
+            _style(reqs, f"{sid}_wr{week['week']}", 0, len(row), size=8, color=NAVY, font=MONO)
+            left_y += 12
+
+    right_y = body_top
+    _box(reqs, f"{sid}_qlh", sid, right_x, right_y, right_w, 16, "Quarterly Goal Tracking")
+    _style(reqs, f"{sid}_qlh", 0, 24, bold=True, size=11, color=NAVY, font=FONT)
+    right_y += 20
+
+    by_status = eng.get("by_status") or {}
+    status_items = sorted(by_status.items(), key=lambda item: -item[1])
+
+    _box(reqs, f"{sid}_sbh", sid, right_x, right_y, right_w, 14, "Pipeline Status")
+    _style(reqs, f"{sid}_sbh", 0, 15, bold=True, size=10, color=NAVY, font=FONT)
+    right_y += 16
+    total_in_flight = sum(by_status.values()) or 1
+    max_status = max(by_status.values()) if by_status else 1
+    pct_col_w = 30
+    bar_max_w = right_w - 76 - pct_col_w - 4
+    for status, count in status_items:
+        pct = int(count / total_in_flight * 100)
+        bar_w = max(3, int(count / max_status * bar_max_w))
+        safe_status = status.replace(" ", "_").replace("/", "_")[:10]
+        is_active = status in ("In Progress", "In Review")
+        bar_color = BLUE if is_active else {"red": 0.75, "green": 0.80, "blue": 0.90}
+        label = f"{count}  {status}"
+        _box(reqs, f"{sid}_sl_{safe_status}", sid, right_x, right_y, 70, 13, label)
+        _style(
+            reqs,
+            f"{sid}_sl_{safe_status}",
+            0,
+            len(str(count)),
+            bold=is_active,
+            size=8,
+            color=BLUE if is_active else NAVY,
+            font=FONT,
+        )
+        _style(
+            reqs,
+            f"{sid}_sl_{safe_status}",
+            len(str(count)) + 2,
+            len(label),
+            size=8,
+            color=GRAY,
+            font=FONT,
+        )
+        _box(reqs, f"{sid}_sb_{safe_status}", sid, right_x + 72, right_y + 3, bar_w, 8, "")
+        reqs.append(
+            {
+                "updateShapeProperties": {
+                    "objectId": f"{sid}_sb_{safe_status}",
+                    "shapeProperties": {
+                        "shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": bar_color}}},
+                        "outline": {
+                            "outlineFill": {"solidFill": {"color": {"rgbColor": NAVY}}},
+                            "weight": {"magnitude": 0.75, "unit": "PT"},
+                        },
+                    },
+                    "fields": "shapeBackgroundFill,outline.outlineFill,outline.weight",
+                }
+            }
+        )
+        pct_label = f"{pct}%"
+        pct_x = right_x + right_w - pct_col_w
+        _box(reqs, f"{sid}_sp_{safe_status}", sid, pct_x, right_y, pct_col_w, 13, pct_label)
+        _style(reqs, f"{sid}_sp_{safe_status}", 0, len(pct_label), size=8, color=GRAY, font=FONT)
+        right_y += 14
+
+    insights = (eng.get("insights") or {}).get("velocity", [])
     if insights:
         bullet_y = BODY_BOTTOM - (len(insights) * 22) - 4
         eng_insight_bullets(reqs, sid, insights, MARGIN, bullet_y, CONTENT_W)
