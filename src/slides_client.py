@@ -58,6 +58,7 @@ from .slide_platform_health import (
     HEALTH_BADGE as _HEALTH_BADGE,
     platform_health_slide as _platform_health_slide,
 )
+from .slide_platform_value import platform_value_slide as _platform_value_slide
 from .slides_api import (
     GOOGLE_API_TIMEOUT_S,
     SCOPES,
@@ -102,8 +103,6 @@ from .slide_pipeline_traces import (
     cohort_profiles_pipeline_traces as _cohort_profiles_pipeline_traces,
     cohort_summary_pipeline_traces as _cohort_summary_pipeline_traces,
     cs_notable_pipeline_traces as _cs_notable_pipeline_traces,
-    fmt_platform_value_count as _fmt_platform_value_count,
-    fmt_platform_value_dollar as _fmt_platform_value_dollar,
     health_snapshot_pipeline_traces as _health_snapshot_pipeline_traces,
     peer_benchmarks_pipeline_traces as _peer_benchmarks_pipeline_traces,
     platform_risk_pipeline_traces as _platform_risk_pipeline_traces,
@@ -2055,159 +2054,6 @@ _RED   = {"red": 0.85, "green": 0.15, "blue": 0.15}    # #d92626
 
 
 # ── CS Report slide builders ──
-
-def _platform_value_slide(reqs, sid, report, idx):
-    cs = get_csr_section(report).get("platform_value") or {}
-    total_savings = cs.get("total_savings", 0)
-    total_open = cs.get("total_open_ia_value", 0)
-    total_recs = cs.get("total_recs_created_30d", 0)
-    site_list = cs.get("sites", [])
-
-    total_pos = cs.get("total_pos_placed_30d", 0)
-    total_overdue = cs.get("total_overdue_tasks", 0)
-    ops = f"{total_pos:,} POs placed  ·  {total_overdue:,} overdue tasks"
-
-    _PV_CARD_H = 58
-    _PV_GAP = 18.0
-
-    def _render_kpi(page_sid: str) -> None:
-        row_y = BODY_Y + 8
-        cw = (CONTENT_W - 2 * _PV_GAP) / 3
-        _kpi_metric_card(
-            reqs, f"{page_sid}_k0", page_sid, MARGIN, row_y, cw, _PV_CARD_H,
-            "Savings achieved", _fmt_platform_value_dollar(total_savings), accent=BLUE, value_pt=22,
-        )
-        _kpi_metric_card(
-            reqs, f"{page_sid}_k1", page_sid, MARGIN + cw + _PV_GAP, row_y, cw, _PV_CARD_H,
-            "Open IA pipeline", _fmt_platform_value_dollar(total_open), accent=BLUE, value_pt=22,
-        )
-        _kpi_metric_card(
-            reqs, f"{page_sid}_k2", page_sid, MARGIN + 2 * (cw + _PV_GAP), row_y, cw, _PV_CARD_H,
-            "Recs created (30d)", _fmt_platform_value_count(total_recs), accent=BLUE, value_pt=22,
-        )
-        ops_y = row_y + _PV_CARD_H + 10
-        _box(reqs, f"{page_sid}_ops", page_sid, MARGIN, ops_y, CONTENT_W, 16, ops)
-        _style(reqs, f"{page_sid}_ops", 0, len(ops), size=9, color=GRAY, font=FONT)
-
-    factory_rows = [s for s in site_list if s.get("savings_current_period") or s.get("recs_created_30d")]
-    ROW_H = 28
-    tbl_y_kpi = BODY_Y + 8 + _PV_CARD_H + 10 + 16 + 12
-    max_rows_first = max(1, (BODY_BOTTOM - tbl_y_kpi) // ROW_H - 1)
-    tbl_y_cont = BODY_Y + 24
-    max_rows_cont = max(1, (BODY_BOTTOM - tbl_y_cont) // ROW_H - 1)
-
-    chunks_planned: list[list[Any]] = []
-    if factory_rows:
-        r = list(factory_rows)
-        chunks_planned.append(r[:max_rows_first])
-        r = r[max_rows_first:]
-        while r:
-            chunks_planned.append(r[:max_rows_cont])
-            r = r[max_rows_cont:]
-    chunks_planned = _cap_chunk_list(chunks_planned)
-
-    oids: list[str] = []
-    if not chunks_planned:
-        _slide(reqs, sid, idx)
-        _slide_title(reqs, sid, "Platform Value & ROI")
-        _render_kpi(sid)
-        return idx + 1, [sid]
-
-    for pi, show in enumerate(chunks_planned):
-        page_sid = f"{sid}_p{pi}" if len(chunks_planned) > 1 else sid
-        oids.append(page_sid)
-        _slide(reqs, page_sid, idx + pi)
-        if pi == 0:
-            _slide_title(reqs, page_sid, "Platform Value & ROI")
-            _render_kpi(page_sid)
-            tbl_y = tbl_y_kpi
-        else:
-            _slide_title(
-                reqs, page_sid,
-                f"Platform Value & ROI — factory detail ({pi + 1} of {len(chunks_planned)})",
-            )
-            tbl_y = tbl_y_cont
-
-        headers_list = ["Factory", "Savings", "Recs (30d)"]
-        col_widths = [180, 120, 80]
-        num_rows = 1 + len(show)
-        table_id = f"{page_sid}_tbl"
-        reqs.append({
-            "createTable": {
-                "objectId": table_id,
-                "elementProperties": {
-                    "pageObjectId": page_sid,
-                    "size": _sz(sum(col_widths), num_rows * ROW_H),
-                    "transform": _tf(MARGIN, tbl_y),
-                },
-                "rows": num_rows, "columns": len(headers_list),
-            }
-        })
-
-        def _ct(row, col, text):
-            if not text:
-                return
-            reqs.append({"insertText": {"objectId": table_id,
-                         "cellLocation": {"rowIndex": row, "columnIndex": col},
-                         "text": text, "insertionIndex": 0}})
-
-        def _cs(row, col, text_len, bold=False, color=None, size=8, align=None):
-            if text_len > 0:
-                s: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}, "fontFamily": FONT}
-                f = ["fontSize", "fontFamily"]
-                if bold:
-                    s["bold"] = True; f.append("bold")
-                if color:
-                    s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}; f.append("foregroundColor")
-                reqs.append({
-                    "updateTextStyle": {
-                        "objectId": table_id,
-                        "cellLocation": {"rowIndex": row, "columnIndex": col},
-                        "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
-                        "style": s, "fields": ",".join(f),
-                    }
-                })
-            if align:
-                reqs.append({
-                    "updateParagraphStyle": {
-                        "objectId": table_id,
-                        "cellLocation": {"rowIndex": row, "columnIndex": col},
-                        "textRange": {"type": "ALL"},
-                        "style": {"alignment": align}, "fields": "alignment",
-                    }
-                })
-
-        def _cbg(row, col, color):
-            reqs.append({
-                "updateTableCellProperties": {
-                    "objectId": table_id,
-                    "tableRange": {"location": {"rowIndex": row, "columnIndex": col}, "rowSpan": 1, "columnSpan": 1},
-                    "tableCellProperties": {"tableCellBackgroundFill": {"solidFill": {"color": {"rgbColor": color}}}},
-                    "fields": "tableCellBackgroundFill",
-                }
-            })
-
-        _clean_table(reqs, table_id, num_rows, len(headers_list))
-        for ci, h in enumerate(headers_list):
-            _ct(0, ci, h)
-            _cs(0, ci, len(h), bold=True, color=NAVY, size=9, align="END" if ci >= 1 else None)
-            _cbg(0, ci, WHITE)
-        for ri, s in enumerate(show):
-            row = ri + 1
-            sav_v = s.get("savings_current_period", 0)
-            recs_v = s.get("recs_created_30d", 0)
-            vals = [
-                s.get("factory", "?")[:24],
-                f"${sav_v:,.0f}" if sav_v else "-",
-                f"{recs_v:,}" if recs_v else "-",
-            ]
-            for ci, v in enumerate(vals):
-                _ct(row, ci, v)
-                _cs(row, ci, len(v), color=NAVY, size=8, align="END" if ci >= 1 else None)
-                _cbg(row, ci, WHITE)
-
-    return idx + len(chunks_planned), oids
-
 
 # ── Team roster slide ──
 
