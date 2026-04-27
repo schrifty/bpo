@@ -72,6 +72,10 @@ from .slide_salesforce import (
     sf_format_cell as _sf_format_cell,
     sf_records_to_table as _sf_records_to_table,
 )
+from .slide_usage import (
+    champions_slide as _champions_slide,
+    features_slide as _features_slide,
+)
 from .speaker_notes import (
     get_speaker_notes_object_id,
     set_speaker_notes,
@@ -164,7 +168,6 @@ from .slides_theme import (
     _cap_page_count,
     _date_range,
     _estimated_body_line_height_pt,
-    _list_data_rows_fit_span,
     _table_rows_fit_span,
     slide_type_may_paginate,
 )
@@ -730,128 +733,6 @@ def _sites_slide(reqs, sid, report, idx):
 
     slide_oids = [f"{sid}_p{i}" for i in range(num_pages)] if num_pages > 1 else [sid]
     return idx + num_pages, slide_oids
-
-
-def _features_slide(reqs, sid, report, idx):
-    pages = report["top_pages"]
-    features = report["top_features"]
-    if not pages and not features:
-        return _missing_data_slide(reqs, sid, report, idx, "top pages / feature adoption data")
-
-    font_body = 12
-    font_header = 14
-    col_gap = 24
-    col_w = (CONTENT_W - col_gap) // 2
-    left_x = MARGIN
-    right_x = MARGIN + col_w + col_gap
-    _ins = report.get("feature_adoption_insights") or {}
-    _ins_text = (_ins.get("narrative") or "").strip() if isinstance(_ins, dict) else ""
-    _ins_band = 74  # reserved height for usage-pattern footnote (pt)
-    # One vertical budget for all pages: tightest is slide 1 when footnote is shown.
-    _tight_bottom = BODY_BOTTOM - (_ins_band if _ins_text else 0)
-    max_items = _list_data_rows_fit_span(
-        y_top=BODY_Y,
-        y_bottom=_tight_bottom,
-        font_body_pt=font_body,
-        reserved_header_lines=1,
-        max_rows_cap=30,
-    )
-
-    def _render_column(page_sid, prefix, col_title, items, name_key, events_key, events_suffix, start_rank: int, box_h: int):
-        lines = [col_title]
-        slice_items = items[start_rank : start_rank + max_items]
-        for j, it in enumerate(slice_items, start=start_rank + 1):
-            nm = (it[name_key] or "")[:32]
-            if len(it.get(name_key) or "") > 32:
-                nm = nm.rstrip() + "…"
-            lines.append(f"  {j}. {nm}  ({it[events_key]:,} {events_suffix})")
-        if not slice_items and start_rank == 0:
-            lines.append("  No data")
-        text = "\n".join(lines)
-        oid = f"{page_sid}_{prefix}"
-        _box(reqs, oid, page_sid, left_x if prefix == "pg" else right_x, BODY_Y, col_w, box_h, text)
-        _style(reqs, oid, 0, len(text), size=font_body, color=NAVY, font=FONT)
-        _style(reqs, oid, 0, len(col_title), bold=True, size=font_header, color=BLUE)
-
-    n_pg = (len(pages) + max_items - 1) // max_items if pages else 0
-    n_ft = (len(features) + max_items - 1) // max_items if features else 0
-    num_pages = _cap_page_count(max(n_pg, n_ft, 1))
-    oids: list[str] = []
-    for p in range(num_pages):
-        page_sid = f"{sid}_p{p}" if num_pages > 1 else sid
-        oids.append(page_sid)
-        _slide(reqs, page_sid, idx + p)
-        st = "Feature Adoption" if num_pages == 1 else f"Feature Adoption ({p + 1} of {num_pages})"
-        _slide_title(reqs, page_sid, st)
-        foot = _ins_text if (p == 0 and _ins_text) else ""
-        col_bottom = BODY_BOTTOM - (_ins_band if foot else 0)
-        box_h = col_bottom - BODY_Y
-        _render_column(page_sid, "pg", "Top Pages", pages, "name", "events", "events", p * max_items, box_h)
-        _render_column(page_sid, "ft", "Top Features", features, "name", "events", "clicks", p * max_items, box_h)
-        if foot:
-            ins_oid = f"{page_sid}_usagepat"
-            _wrap_box(reqs, ins_oid, page_sid, MARGIN, col_bottom, CONTENT_W, _ins_band - 4, foot)
-            _style(reqs, ins_oid, 0, len(foot), size=10, color=GRAY, font=FONT)
-    return idx + num_pages, oids
-
-
-def _champions_slide(reqs, sid, report, idx):
-    all_champions = report["champions"]
-    all_at_risk = report["at_risk_users"]
-    if not all_champions and not all_at_risk:
-        return _missing_data_slide(reqs, sid, report, idx, "champion / at-risk user data")
-
-    _CHAMPIONS_COL_MAX = 5
-    _AT_RISK_COL_MAX = 5
-
-    def _days_inactive(u: dict) -> float:
-        d = u.get("days_inactive")
-        return float(d) if d is not None else 999.0
-
-    ch_sorted = sorted(all_champions, key=_days_inactive)[:_CHAMPIONS_COL_MAX]
-    ar_sorted = sorted(all_at_risk, key=_days_inactive)[:_AT_RISK_COL_MAX]
-
-    USER_H = 38
-    col_gap = 30
-    col_w = (CONTENT_W - col_gap) // 2
-    left_x = MARGIN
-    right_x = MARGIN + col_w + col_gap
-
-    def _render_users(page_sid, users, x, label, label_color, detail_fn, prefix, start_i: int):
-        y = BODY_Y
-        _box(reqs, f"{page_sid}_{prefix}h", page_sid, x, y, col_w, 22, label)
-        _style(reqs, f"{page_sid}_{prefix}h", 0, len(label), bold=True, size=14, color=label_color, font=FONT)
-        y += 28
-
-        if not users and start_i == 0:
-            empty = "No active users" if prefix == "c" else "All users active!"
-            _box(reqs, f"{page_sid}_{prefix}e", page_sid, x, y, col_w, 20, empty)
-            _style(reqs, f"{page_sid}_{prefix}e", 0, len(empty), size=12, color=GRAY, font=FONT, italic=True)
-            return
-
-        for ui, u in enumerate(users):
-            email = u["email"] or "unknown"
-            if len(email) > 28:
-                email = email[:25] + "..."
-            detail = detail_fn(u)
-            _box(reqs, f"{page_sid}_{prefix}{start_i + ui}", page_sid, x, y, col_w, 18, email)
-            _style(reqs, f"{page_sid}_{prefix}{start_i + ui}", 0, len(email), bold=True, size=12, color=NAVY, font=FONT)
-            _box(reqs, f"{page_sid}_{prefix}d{start_i + ui}", page_sid, x + 8, y + 18, col_w - 8, 16, detail)
-            _style(reqs, f"{page_sid}_{prefix}d{start_i + ui}", 0, len(detail), size=10, color=GRAY, font=FONT)
-            y += USER_H
-
-    def _champ_detail(u):
-        return f"{u['role']}  ·  last seen {u['last_visit']}"
-
-    def _risk_detail(u):
-        d = f"{int(u['days_inactive'])}d ago" if u["days_inactive"] < 999 else "never"
-        return f"{u['role']}  ·  {d}"
-
-    _slide(reqs, sid, idx)
-    _slide_title(reqs, sid, "Champions & At-Risk Users")
-    _render_users(sid, ch_sorted, left_x, "Champions", BLUE, _champ_detail, "c", 0)
-    _render_users(sid, ar_sorted, right_x, "At Risk  (2 wk – 6 mo inactive)", GRAY, _risk_detail, "r", 0)
-    return idx + 1, [sid]
 
 
 def _jira_slide(reqs, sid, report, idx):
