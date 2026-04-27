@@ -22,6 +22,7 @@ from .slide_loader import (
     benchmarks_min_peers_for_cohort_median,
     cohort_profiles_max_physical_slides,
 )
+from .slide_data_quality import data_quality_slide as _data_quality_slide
 from .slide_metadata import (
     DQ_SOURCE_LABEL_ORDER as _DQ_SOURCE_LABEL_ORDER,
     REPORT_KEY_TO_DQ_SOURCE as _REPORT_KEY_TO_DQ_SOURCE,
@@ -3711,111 +3712,7 @@ def _cohort_findings_slide(reqs, sid, report, idx):
 # ── Data Quality slide ──
 
 _GREEN = {"red": 0.13, "green": 0.65, "blue": 0.35}   # #21a659
-_AMBER = {"red": 0.9,  "green": 0.65, "blue": 0.0}    # #e6a600
 _RED   = {"red": 0.85, "green": 0.15, "blue": 0.15}    # #d92626
-
-_SEV_COLOR = {"ERROR": _RED, "WARNING": _AMBER, "INFO": GRAY}
-_SEV_DOT   = {"ERROR": "\u2716", "WARNING": "\u26a0", "INFO": "\u2139"}
-
-
-def _data_quality_slide(reqs, sid, report, idx):
-    from .qa import qa
-    sp = report.get("_slide_plan") or []
-    dq_order = _ordered_dq_data_sources_for_slide_plan(sp)
-    snap = qa.summary(report=report, data_source_order=dq_order)
-
-    max_rows = 10
-    flags = snap["flags"]
-    sorted_flags = sorted(flags, key=lambda f: {"ERROR": 0, "WARNING": 1, "INFO": 2}.get(f["severity"], 3))
-    flag_chunks = _cap_chunk_list(
-        [sorted_flags[i : i + max_rows] for i in range(0, len(sorted_flags), max_rows)]
-    )
-    if not flag_chunks:
-        flag_chunks = [[]]
-    num_pages = len(flag_chunks)
-    oids: list[str] = []
-
-    def _render_flag_row(page_sid: str, fi: int, f: dict, y_pos: float) -> None:
-        sev = f["severity"]
-        dot = _SEV_DOT.get(sev, "?")
-        dot_color = _SEV_COLOR.get(sev, GRAY)
-        msg = f["message"]
-        detail_parts = []
-        if f["expected"] is not None and f["actual"] is not None:
-            detail_parts.append(f"expected {f['expected']}, got {f['actual']}")
-        if f["sources"]:
-            detail_parts.append(" vs ".join(f["sources"]))
-        line = f"{dot}  {msg}"
-        detail = ""
-        if detail_parts:
-            detail = f"    {' · '.join(detail_parts)}"
-        full = line + detail
-        if len(full) > 120:
-            full = full[:117] + "..."
-        oid = f"{page_sid}_f{fi}"
-        _box(reqs, oid, page_sid, MARGIN, y_pos, CONTENT_W, 18, full)
-        _style(reqs, oid, 0, len(full), size=9, color=NAVY, font=FONT)
-        _style(reqs, oid, 0, len(dot), color=dot_color, size=10, bold=True)
-        if detail:
-            _style(reqs, oid, len(line), len(full), color=GRAY, size=8)
-
-    for pi, chunk in enumerate(flag_chunks):
-        page_sid = f"{sid}_p{pi}" if num_pages > 1 else sid
-        oids.append(page_sid)
-        _slide(reqs, page_sid, idx + pi)
-        _bg(reqs, page_sid, LIGHT)
-        if pi == 0:
-            _slide_title(reqs, page_sid, "Data Quality")
-            sources = snap.get("data_sources", {})
-            src_x = MARGIN
-            src_y = BODY_Y
-            for si, (name, status) in enumerate(sources.items()):
-                if status == "ok":
-                    icon, color = "\u2713", _GREEN
-                else:
-                    icon, color = "\u2717", _AMBER
-                label = f"{icon} {name}"
-                _pill(reqs, f"{page_sid}_src{si}", page_sid, src_x, src_y, 120, 22, label, WHITE, color)
-                src_x += 130
-            total_checks = snap["total_checks"]
-            total_flags = snap["total_flags"]
-            n_errors = snap["errors"]
-            n_warnings = snap["warnings"]
-            sum_y = src_y + 36
-            if total_flags == 0:
-                status = f"All {total_checks} cross-source checks passed"
-                status_color = _GREEN
-            elif n_errors > 0:
-                status = (
-                    f"{n_errors} error{'s' if n_errors != 1 else ''} and "
-                    f"{n_warnings} warning{'s' if n_warnings != 1 else ''} found"
-                )
-                status_color = _RED
-            else:
-                status = f"{n_warnings} finding{'s' if n_warnings != 1 else ''} to note"
-                status_color = _AMBER
-            _box(reqs, f"{page_sid}_st", page_sid, MARGIN, sum_y, CONTENT_W, 20, status)
-            _style(reqs, f"{page_sid}_st", 0, len(status), bold=True, size=12, color=status_color, font=FONT)
-            y = sum_y + 28
-        else:
-            ttl = f"Data Quality — findings ({pi + 1} of {num_pages})"
-            _slide_title(reqs, page_sid, ttl)
-            y = BODY_Y
-
-        for i, f in enumerate(chunk):
-            _render_flag_row(page_sid, pi * 100 + i, f, y)
-            y += 20
-
-        if pi == num_pages - 1:
-            note_y = max(y + 6, BODY_BOTTOM - 40)
-            note = (
-                "Single-source metrics (feature adoption, exports, guides, dollar values) "
-                "are not independently verified across sources."
-            )
-            _box(reqs, f"{page_sid}_note", page_sid, MARGIN, note_y, CONTENT_W, 28, note)
-            _style(reqs, f"{page_sid}_note", 0, len(note), size=7, color=GRAY, font=FONT, italic=True)
-
-    return idx + num_pages, oids
 
 
 # ── CS Report slide builders ──
