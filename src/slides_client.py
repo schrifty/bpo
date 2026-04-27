@@ -958,14 +958,17 @@ _SLIDE_CANONICAL_PIPELINE_TRACES: dict[str, Any] = {
 }
 
 
-def _build_slide_jql_speaker_notes(report: dict[str, Any], entry: dict[str, Any]) -> str:
-    """Compatibility wrapper around ``speaker_notes.build_slide_jql_speaker_notes``."""
+def build_slide_jql_speaker_notes_for_entry(report: dict[str, Any], entry: dict[str, Any]) -> str:
+    """Build speaker notes for one slide-plan entry using this module's slide registries."""
     return build_slide_jql_speaker_notes(
         report,
         entry,
         data_requirements=SLIDE_DATA_REQUIREMENTS,
         canonical_pipeline_traces=_SLIDE_CANONICAL_PIPELINE_TRACES,
     )
+
+
+_build_slide_jql_speaker_notes = build_slide_jql_speaker_notes_for_entry
 
 
 def _pill(reqs, oid, sid, x, y, w, h, text, bg, fg):
@@ -8325,6 +8328,23 @@ SLIDE_DATA_REQUIREMENTS = {
     "lean_projects_portfolio": ["leandna_lean_projects"],
     "lean_projects_savings": ["leandna_lean_projects"],
 }
+
+
+def get_slide_builder(slide_type: str):
+    """Return the registered builder for a slide type, or None if unknown."""
+    return _SLIDE_BUILDERS.get(slide_type)
+
+
+def slide_builder_names() -> list[str]:
+    """Return registered slide type names in registry order."""
+    return list(_SLIDE_BUILDERS)
+
+
+def get_slide_data_requirements(slide_type: str | None = None) -> list[str] | dict[str, list[str]]:
+    """Return data requirements for one slide type, or a shallow copy of all requirements."""
+    if slide_type is not None:
+        return list(SLIDE_DATA_REQUIREMENTS.get(slide_type, []))
+    return {key: list(value) for key, value in SLIDE_DATA_REQUIREMENTS.items()}
 
 
 # Pills on the Data Quality slide: canonical order; values match keys in ``qa`` source status

@@ -52,11 +52,11 @@ from .qbr_agenda_visual_refine import (
 from .signals_llm import extract_executive_signals_slide_prompt
 from .quarters import QuarterRange, resolve_quarter
 from .slides_client import (
-    _build_slide_jql_speaker_notes,
-    _SLIDE_BUILDERS,
     apply_cohort_bundle_links_to_notable_signals,
+    build_slide_jql_speaker_notes_for_entry,
     create_cohort_deck,
     create_health_deck,
+    get_slide_builder,
     normalize_builder_return,
 )
 from .slides_api import (
@@ -554,7 +554,7 @@ def _insert_executive_summary_slides(
 
     for entry in slide_plan:
         slide_type = entry.get("slide_type", entry["id"])
-        builder = _SLIDE_BUILDERS.get(slide_type)
+        builder = get_slide_builder(slide_type)
         if not builder:
             logger.warning("QBR: no builder for slide_type=%s, skipping", slide_type)
             continue
@@ -577,7 +577,7 @@ def _insert_executive_summary_slides(
 
     if note_targets:
         notes_items = [
-            (sid, _build_slide_jql_speaker_notes(report, entry))
+            (sid, build_slide_jql_speaker_notes_for_entry(report, entry))
             for sid, entry in note_targets
         ]
         n_notes = set_speaker_notes_batch(slides_svc, pres_id, notes_items)

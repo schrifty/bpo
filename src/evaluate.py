@@ -47,7 +47,7 @@ from .drive_config import assert_qbr_prompts_ready_or_raise, get_deck_output_fol
 from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
 from . import matching_log
 from .slide_loader import get_slide_definition
-from .slides_client import SLIDE_DATA_REQUIREMENTS
+from .slides_client import get_slide_data_requirements, slide_builder_names
 from .slide_requests import append_slide, append_text_box, append_wrapped_text_box
 from .slides_api import (
     _build_slides_service_for_thread,
@@ -622,7 +622,7 @@ KNOWN_LIMITATIONS: list[str] = [
     "No grouped/layered elements — every element is a flat shape on the slide.",
 ]
 
-EXISTING_SLIDE_TYPES: list[str] = sorted(SLIDE_DATA_REQUIREMENTS.keys())
+EXISTING_SLIDE_TYPES: list[str] = sorted(slide_builder_names())
 
 
 _print_context = "bpo"  # overridden per command
@@ -1009,7 +1009,7 @@ def _build_capability_context() -> str:
 
     lines.append("\n## Existing Slide Types")
     for st in EXISTING_SLIDE_TYPES:
-        reqs = SLIDE_DATA_REQUIREMENTS.get(st, [])
+        reqs = get_slide_data_requirements(st)
         lines.append(f"  - {st}: needs [{', '.join(reqs)}]")
 
     lines.append("\n## Known Limitations")
@@ -4371,7 +4371,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
     from .pendo_client import PendoClient
     from .quarters import resolve_quarter
     from .slides_api import _get_service
-    from .slides_client import _SLIDE_BUILDERS
+    from .slides_client import get_slide_builder
     from googleapiclient.errors import HttpError
 
     qr = resolve_quarter()
@@ -4642,7 +4642,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
             # data_quality is 100% mechanical (colored indicators, no editorial text);
             # rebuild it so current source health is always accurate.
             if st == "data_quality":
-                builder = _SLIDE_BUILDERS.get("data_quality")
+                builder = get_slide_builder("data_quality")
                 if builder and orig_oid:
                     report["_current_slide"] = {"id": st, "slide_type": st, "title": sp["title"]}
                     insert_idx = i + 1 + offset

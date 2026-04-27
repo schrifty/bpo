@@ -76,7 +76,7 @@ def test_insert_executive_summary_marks_slides_skipped(mock_resolve, mock_apply_
         "quarter_start": "2026-01-01",
         "quarter_end": "2026-03-31",
     }
-    with patch.object(qbr_template, "_SLIDE_BUILDERS", {"title": fake_title}):
+    with patch.object(qbr_template, "get_slide_builder", return_value=fake_title):
         ids, built, sig_pages = qbr_template._insert_executive_summary_slides(
             slides_svc, "pres123", report, "Acme"
         )
