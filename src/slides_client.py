@@ -122,7 +122,6 @@ from .slide_primitives import (
     background as _bg,
     bar_rect as _bar_rect,
     clean_table as _clean_table,
-    internal_footer as _internal_footer,
     kpi_metric_card as _kpi_metric_card,
     missing_data_slide as _missing_data_slide,
     omission_note as _omission_note,
@@ -144,6 +143,10 @@ from .slide_qbr_framing import (
     qbr_divider_slide as _qbr_divider_slide,
 )
 from .slide_qbr_deployment import qbr_deployment_slide as _qbr_deployment_slide
+from .slide_support_intro import (
+    support_deck_cover_slide as _support_deck_cover_slide,
+    support_intro_slide as _support_intro_slide,
+)
 from .slide_utils import (
     blob_recent_tickets_window_days as _blob_recent_tickets_window_days,
     dedupe_keep_order as _dedupe_keep_order,
@@ -3764,55 +3767,6 @@ def _lean_project_volume_trends_slide(reqs: list, sid: str, report: dict, idx: i
     return _render_project_volume_trends(
         reqs, sid, report, idx, trends=trends, project="LEAN", bg=_project_slide_bg("LEAN"),
     )
-
-
-def _support_deck_cover_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
-    """Title slide for support / supply-chain (scoped) decks: H1, customer, generated timestamp.
-
-    H1 text comes from the slide plan entry (``_current_slide.title``), defaulting to
-    ``Support Review`` when absent — same white cover + typography as the Support deck.
-    """
-    entry = report.get("_current_slide") or {}
-    c = (report.get("customer") or "").strip() or "All Customers"
-    gen = (report.get("support_deck_generated_at") or "").strip() or "—"
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
-    h1 = (entry.get("title") or "Support Review").strip() or "Support Review"
-    _box(reqs, f"{sid}_h1", sid, MARGIN, 100, CONTENT_W, 48, h1)
-    _style(reqs, f"{sid}_h1", 0, len(h1), bold=True, size=32, color=NAVY, font=FONT_SERIF)
-    _rect(reqs, f"{sid}_h1u", sid, MARGIN, 150, 64, 2.5, BLUE)
-    _box(reqs, f"{sid}_cust", sid, MARGIN, 170, CONTENT_W, 40, c)
-    _style(reqs, f"{sid}_cust", 0, len(c), size=20, color=NAVY, font=FONT, bold=True)
-    _box(reqs, f"{sid}_gen", sid, MARGIN, 220, CONTENT_W, 24, f"Generated {gen}")
-    _style(reqs, f"{sid}_gen", 0, len(f"Generated {gen}"), size=11, color=GRAY, font=FONT)
-    _internal_footer(reqs, sid)
-    return idx + 1
-
-
-def _support_intro_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
-    """First slide: deck title, audience/timeframe, and short context (Support Review)."""
-    entry = report.get("_current_slide") or {}
-    days = int(report.get("days") or 30)
-    dr = _date_range(
-        days, report.get("quarter"), report.get("quarter_start"), report.get("quarter_end"),
-    )
-    c_disp = report.get("customer") or "All Customers"
-    title = entry.get("title") or "Support Review"
-    blurb = (entry.get("intro_blurb") or "").strip() or (
-        "Jira ticket volume, backlog, response-time KPIs, and recent activity—organized by project "
-        "(HELP, CUSTOMER, LEAN) for operations and customer success."
-    )
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, title)
-    line1 = f"{c_disp}  ·  {dr}"
-    _box(reqs, f"{sid}_meta", sid, MARGIN, BODY_Y, CONTENT_W, 22, line1)
-    _style(reqs, f"{sid}_meta", 0, len(line1), size=10, color=GRAY, font=FONT)
-    y2 = BODY_Y + 28
-    h = max(64.0, float(BODY_BOTTOM) - y2 - 4.0)
-    _box(reqs, f"{sid}_b", sid, MARGIN, y2, CONTENT_W, h, blurb)
-    _style(reqs, f"{sid}_b", 0, len(blurb), size=12, color=NAVY, font=FONT)
-    return idx + 1
 
 
 def _cs_notable_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
