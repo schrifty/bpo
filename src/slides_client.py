@@ -139,6 +139,7 @@ from .slide_primitives import (
     support_title_includes_project as _support_title_includes_project,
     table_cell_bg as _table_cell_bg,
 )
+from .slide_qbr_framing import qbr_divider_slide as _qbr_divider_slide
 from .slide_utils import (
     blob_recent_tickets_window_days as _blob_recent_tickets_window_days,
     dedupe_keep_order as _dedupe_keep_order,
@@ -2609,40 +2610,6 @@ def _qbr_agenda_slide(reqs, sid, report, idx):
         _box(reqs, f"{sid}_i{i}", sid, x + 48, y, 280, line_h, label)
         _style(reqs, f"{sid}_i{i}", 0, len(label), size=font_sz, color=WHITE, font=FONT)
         y += line_h
-
-    return idx + 1
-
-
-def _qbr_divider_slide(reqs, sid, report, idx):
-    """Section divider slide with LeanDNA tagline and section title."""
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, NAVY)
-
-    # Read section title from the current slide definition
-    entry = report.get("_current_slide", {})
-    section_title = entry.get("title", entry.get("note", ""))
-
-    # Stacked tagline (left side, large)
-    lines = [
-        ("THE RIGHT PART.", 28, True),
-        ("In the right place.", 28, False),
-        ("AT THE RIGHT TIME.", 26, False),
-    ]
-    ty = SLIDE_H * 0.18
-    for li, (text, size, bold) in enumerate(lines):
-        _box(reqs, f"{sid}_tl{li}", sid, MARGIN, ty, 400, 36, text)
-        _style(reqs, f"{sid}_tl{li}", 0, len(text), size=size, color=WHITE, font=FONT, bold=bold)
-        ty += 40
-
-    # Section title (prominent, centered-lower)
-    if section_title:
-        _box(reqs, f"{sid}_sec", sid, MARGIN, SLIDE_H * 0.65, CONTENT_W, 50, section_title)
-        _style(reqs, f"{sid}_sec", 0, len(section_title), size=32, color=MINT, font=FONT_SERIF)
-
-    # Confidential footer
-    footer = "Proprietary & Confidential"
-    _box(reqs, f"{sid}_f", sid, SLIDE_W - 220, SLIDE_H - 28, 200, 16, footer)
-    _style(reqs, f"{sid}_f", 0, len(footer), size=8, color=GRAY, font=FONT)
 
     return idx + 1
 
