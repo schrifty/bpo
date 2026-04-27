@@ -35,12 +35,14 @@ from .slide_cohort_links import (
     apply_cohort_bundle_links_to_notable_signals,
 )
 from .slide_data_quality import data_quality_slide as _data_quality_slide
+from .slide_custom import custom_slide as _custom_slide
 from .slide_depth import depth_slide as _depth_slide
 from .slide_exports import exports_slide as _exports_slide
 from .slide_guides import (
     guides_no_usage_slide as _guides_no_usage_slide,
     guides_slide as _guides_slide,
 )
+from .slide_kei import kei_slide as _kei_slide
 from .slide_metadata import (
     DQ_SOURCE_LABEL_ORDER as _DQ_SOURCE_LABEL_ORDER,
     REPORT_KEY_TO_DQ_SOURCE as _REPORT_KEY_TO_DQ_SOURCE,
@@ -850,108 +852,6 @@ def _champions_slide(reqs, sid, report, idx):
     _render_users(sid, ch_sorted, left_x, "Champions", BLUE, _champ_detail, "c", 0)
     _render_users(sid, ar_sorted, right_x, "At Risk  (2 wk – 6 mo inactive)", GRAY, _risk_detail, "r", 0)
     return idx + 1, [sid]
-
-
-def _kei_slide(reqs, sid, report, idx):
-    kei = report.get("kei", report)
-    total_q = kei.get("total_queries", 0)
-
-    _slide(reqs, sid, idx)
-    title = "Kei AI Adoption" if total_q > 0 else "Kei AI Adoption — No Usage"
-    _slide_title(reqs, sid, title)
-
-    unique = kei.get("unique_users", 0)
-    adoption = kei.get("adoption_rate", 0)
-    exec_users = kei.get("executive_users", 0)
-    exec_queries = kei.get("executive_queries", 0)
-
-    _KEI_KPI_H = 58
-    _KEI_GAP = 18.0
-    krow = BODY_Y + 8
-    kcw = (CONTENT_W - 2 * _KEI_GAP) / 3
-    _kpi_metric_card(
-        reqs, f"{sid}_k0", sid, MARGIN, krow, kcw, _KEI_KPI_H,
-        "Total queries", f"{total_q:,}", accent=BLUE, value_pt=22,
-    )
-    _kpi_metric_card(
-        reqs, f"{sid}_k1", sid, MARGIN + kcw + _KEI_GAP, krow, kcw, _KEI_KPI_H,
-        "Adoption rate", f"{adoption}%", accent=BLUE, value_pt=22,
-    )
-    _kpi_metric_card(
-        reqs, f"{sid}_k2", sid, MARGIN + 2 * (kcw + _KEI_GAP), krow, kcw, _KEI_KPI_H,
-        "Users with queries", f"{unique}", accent=BLUE, value_pt=22,
-    )
-
-    exec_y = krow + _KEI_KPI_H + 10
-    # Executive highlight pill
-    if exec_users > 0:
-        exec_text = f"  {exec_users} executives ({exec_queries:,} queries)  "
-        _pill(reqs, f"{sid}_exec", sid, MARGIN, exec_y, 260, 22, exec_text, BLUE, WHITE)
-    else:
-        exec_text = "  No executive Kei usage detected  "
-        _pill(reqs, f"{sid}_exec", sid, MARGIN, exec_y, 260, 22, exec_text, GRAY, WHITE)
-
-    # User list
-    users = kei.get("users", [])
-    lines = ["Kei Users"]
-    users_top = exec_y + 28 + 8
-    for u in users[:8]:
-        email = u.get("email", "unknown")
-        if len(email) > 30:
-            email = email[:27] + "..."
-        role = u.get("role", "")
-        exec_flag = " *" if u.get("is_executive") else ""
-        lines.append(f"  {email}")
-        lines.append(f"    {role}{exec_flag}  ·  {u.get('queries', 0):,} queries")
-    if not users:
-        lines.append("  No Kei usage in this period")
-    text = "\n".join(lines)
-    users_h = max(120.0, BODY_BOTTOM - users_top - 4)
-    _box(reqs, f"{sid}_users", sid, MARGIN, users_top, CONTENT_W, users_h, text)
-    _style(reqs, f"{sid}_users", 0, len(text), size=10, color=NAVY, font=FONT)
-    _style(reqs, f"{sid}_users", 0, len("Kei Users"), bold=True, size=11, color=BLUE)
-
-    return idx + 1
-
-
-def _custom_slide(reqs, sid, report, idx):
-    """Flexible slide renderer for agent-composed content.
-
-    Expects data with:
-        title: str
-        sections: list of {header: str, body: str}
-    """
-    title = report.get("title", "")
-    sections = report.get("sections", [])
-    if not title and not sections:
-        return _missing_data_slide(reqs, sid, report, idx, "deck title / section list")
-
-    _slide(reqs, sid, idx)
-    if title:
-        _slide_title(reqs, sid, title)
-
-    y = BODY_Y
-    col_w = CONTENT_W
-    if len(sections) == 2:
-        col_w = 300
-    elif len(sections) >= 3:
-        col_w = 195
-
-    for i, sec in enumerate(sections[:3]):
-        header = sec.get("header", "")
-        body = sec.get("body", "")
-        x = MARGIN + i * (col_w + 16)
-
-        if header:
-            _box(reqs, f"{sid}_h{i}", sid, x, y, col_w, 18, header)
-            _style(reqs, f"{sid}_h{i}", 0, len(header), bold=True, size=11, color=BLUE, font=FONT)
-
-        if body:
-            body_y = y + (22 if header else 0)
-            _box(reqs, f"{sid}_b{i}", sid, x, body_y, col_w, 280, body)
-            _style(reqs, f"{sid}_b{i}", 0, len(body), size=10, color=NAVY, font=FONT)
-
-    return idx + 1
 
 
 def _jira_slide(reqs, sid, report, idx):
