@@ -7,11 +7,14 @@ from typing import Any
 
 from .config import logger
 from .slide_primitives import (
+    CHART_LEGEND_PT,
     background as _bg,
     kpi_metric_card as _kpi_metric_card,
     missing_data_slide as _missing_data_slide,
+    rect as _rect,
     slide_title as _slide_title,
     style as _style,
+    support_title_includes_project as _support_title_includes_project,
 )
 from .slide_requests import append_slide as _slide, append_text_box as _box
 from .slides_theme import (
@@ -33,6 +36,23 @@ from .slides_theme import (
 
 GREEN = {"red": 0.13, "green": 0.65, "blue": 0.35}
 RED = {"red": 0.85, "green": 0.15, "blue": 0.15}
+
+PROJECT_SLIDE_SUBTITLE = {
+    "HELP": "Support",
+    "CUSTOMER": "Implementation escalations",
+    "LEAN": "Engineering escalations",
+}
+
+
+def _project_slide_bg(project: str) -> dict[str, float]:
+    proj = (project or "").strip().upper()
+    if proj == "CUSTOMER":
+        return {"red": 0.95, "green": 0.98, "blue": 1.0}
+    if proj == "LEAN":
+        return {"red": 0.95, "green": 1.0, "blue": 0.97}
+    if proj == "HELP":
+        return {"red": 1.0, "green": 0.96, "blue": 0.96}
+    return WHITE
 
 
 def eng_insight_bullets(
@@ -809,3 +829,299 @@ def eng_support_pressure_slide(reqs: list[dict[str, Any]], sid: str, report: dic
         eng_insight_bullets(reqs, sid, insights, MARGIN, bullet_y, CONTENT_W)
 
     return idx + 1
+
+
+def eng_jira_project_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Per-project Jira snapshot with status and assignee bar charts."""
+    eng = report.get("eng_portfolio") or {}
+    entry = report.get("_current_slide") or {}
+    project_key = (entry.get("jira_project") or "HELP").strip().upper()
+    snapshots = eng.get("project_snapshots") or {}
+    snapshot = snapshots.get(project_key) or {}
+
+    if snapshot.get("error") and "open_count" not in snapshot:
+        return _missing_data_slide(
+            reqs,
+            sid,
+            report,
+            idx,
+            f"Jira project data ({project_key}): {snapshot.get('error', 'unavailable')}",
+        )
+
+    title = entry.get("title") or f"{project_key} — {PROJECT_SLIDE_SUBTITLE.get(project_key, project_key)}"
+    open_count = int(snapshot.get("open_count") or 0)
+    by_status = snapshot.get("by_status_open") or {}
+    median_open = snapshot.get("median_open_age_days")
+    avg_cycle = snapshot.get("avg_resolved_cycle_days")
+    resolved_six_months = int(snapshot.get("resolved_in_6mo_count") or 0)
+    assignee_rows = snapshot.get("assignee_resolved_table") or []
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+
+    open_label = (
+        f"Median age of open tickets: {median_open} d"
+        if median_open is not None
+        else "Median age of open tickets: —"
+    )
+    cycle_label = (
+        f"Avg open→resolved (6 mo): {avg_cycle} d"
+        if avg_cycle is not None
+        else "Avg open→resolved (6 mo): —"
+    )
+    meta = f"Total open: {open_count}   ·   {open_label}   ·   {cycle_label}   ·   Resolved (6 mo): {resolved_six_months}"
+    _box(reqs, f"{sid}_meta", sid, MARGIN, BODY_Y, CONTENT_W, 30, meta)
+    _style(reqs, f"{sid}_meta", 0, len(meta), size=10, color=GRAY, font=FONT)
+
+    body_top = BODY_Y + 32
+    col_gap = 24
+    left_w = (CONTENT_W - col_gap) // 2
+    right_w = CONTENT_W - left_w - col_gap
+    left_x = MARGIN
+    right_x = MARGIN + left_w + col_gap
+    charts = report.get("_charts")
+
+    left_y = body_top
+    status_header = "Open tickets by status"
+    _box(reqs, f"{sid}_hh", sid, left_x, left_y, left_w, 14, status_header)
+    _style(reqs, f"{sid}_hh", 0, len(status_header), bold=True, size=10, color=NAVY, font=FONT)
+    left_y += 22
+
+    status_items = list(by_status.items())[:8]
+    if status_items and charts:
+        try:
+            from .charts import embed_chart
+
+            ss_id, chart_id = charts.add_bar_chart(
+                title=f"{project_key} Open Tickets by Status",
+                labels=[status for status, _ in status_items],
+                series={"Open tickets": [count for _, count in status_items]},
+                horizontal=False,
+            )
+            embed_chart(reqs, f"{sid}_status_chart", sid, ss_id, chart_id, left_x, left_y, left_w, 188, linked=False)
+        except Exception as exc:
+            logger.warning("Jira project status chart failed (%s): %s", project_key, exc)
+
+    if not status_items:
+        empty = "No open tickets"
+        _box(reqs, f"{sid}_no_st", sid, left_x, left_y + 68, left_w, 14, empty)
+        _style(reqs, f"{sid}_no_st", 0, len(empty), size=9, color=GRAY, font=FONT)
+
+    right_y = body_top
+    assignee_header = "Resolved tickets by assignee (6 mo)"
+    _box(reqs, f"{sid}_th", sid, right_x, right_y, right_w, 14, assignee_header)
+    _style(reqs, f"{sid}_th", 0, len(assignee_header), bold=True, size=10, color=NAVY, font=FONT)
+    right_y += 22
+
+    if assignee_rows and charts:
+        try:
+            from .charts import embed_chart
+
+            assignee_items = assignee_rows[:8]
+            ss_id, chart_id = charts.add_bar_chart(
+                title=f"{project_key} Resolved Tickets by Assignee",
+                labels=[(row.get("assignee") or "Unassigned")[:24] for row in assignee_items],
+                series={"Resolved (6 mo)": [int(row.get("6m", 0)) for row in assignee_items]},
+                horizontal=True,
+            )
+            embed_chart(reqs, f"{sid}_assignee_chart", sid, ss_id, chart_id, right_x, right_y, right_w, 188, linked=False)
+        except Exception as exc:
+            logger.warning("Jira project assignee chart failed (%s): %s", project_key, exc)
+
+    if not assignee_rows:
+        empty = "No resolved tickets in last 6 months"
+        _box(reqs, f"{sid}_no_as", sid, right_x, right_y + 56, right_w, 14, empty)
+        _style(reqs, f"{sid}_no_as", 0, len(empty), size=8, color=GRAY, font=FONT)
+
+    note = "Assignee chart shows resolved tickets in the last 6 months."
+    _box(reqs, f"{sid}_fn", sid, MARGIN, BODY_BOTTOM - 12, CONTENT_W, 10, note)
+    _style(reqs, f"{sid}_fn", 0, len(note), size=6, color=GRAY, font=FONT)
+
+    return idx + 1
+
+
+def _render_project_volume_trends(
+    reqs: list[dict[str, Any]],
+    sid: str,
+    report: dict[str, Any],
+    idx: int,
+    *,
+    trends: dict[str, Any],
+    project: str,
+    bg: dict[str, float],
+) -> int:
+    """Shared layout: monthly created vs resolved, escalated and non-escalated."""
+    all_months = list(trends.get("all") or [])
+    escalated_months = list(trends.get("escalated") or [])
+    non_escalated_months = list(trends.get("non_escalated") or [])
+    charts = report.get("_charts")
+
+    if not all_months:
+        return _missing_data_slide(
+            reqs,
+            sid,
+            report,
+            idx,
+            f"{project} ticket volume trends — no monthly series (unexpected empty response)",
+        )
+    if not charts:
+        return _missing_data_slide(reqs, sid, report, idx, f"{project} ticket volume trends — chart embedding unavailable")
+
+    recent = all_months[-3:]
+    recent_created = sum(month.get("created", 0) for month in recent)
+    recent_resolved = sum(month.get("resolved", 0) for month in recent)
+    net = recent_created - recent_resolved
+    if net > 10:
+        headline = f"Volume Rising - {net} more tickets created than resolved in last 3 full months"
+    elif net < -10:
+        headline = f"Volume Easing - {abs(net)} more tickets resolved than created in last 3 full months"
+    else:
+        headline = "Last 3 full months: created and resolved within 10 tickets of each other"
+
+    entry = report.get("_current_slide") or {}
+    configured_title = (entry.get("title") or "").strip()
+    volume_title = configured_title if configured_title else f"{project} — Volume analysis"
+    title_has_project = _support_title_includes_project(volume_title, project)
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, bg)
+    _slide_title(reqs, sid, volume_title)
+
+    _box(reqs, f"{sid}_headline", sid, MARGIN, BODY_Y, CONTENT_W, 34, headline)
+    _style(reqs, f"{sid}_headline", 0, len(headline), bold=True, size=16, color=NAVY, font=FONT)
+
+    legend_y = BODY_Y + 40
+    _rect(reqs, f"{sid}_lg_created", sid, MARGIN, legend_y + 4, 20, 4, NAVY)
+    created_label = "Created"
+    _box(reqs, f"{sid}_lg_created_t", sid, MARGIN + 28, legend_y, 64, 14, created_label)
+    _style(reqs, f"{sid}_lg_created_t", 0, len(created_label), bold=True, size=CHART_LEGEND_PT, color=NAVY, font=FONT)
+    created_resolved = {"red": 0.90, "green": 0.40, "blue": 0.00}
+    _rect(reqs, f"{sid}_lg_resolved", sid, MARGIN + 100, legend_y + 4, 20, 4, created_resolved)
+    resolved_label = "Resolved"
+    _box(reqs, f"{sid}_lg_resolved_t", sid, MARGIN + 128, legend_y, 64, 14, resolved_label)
+    _style(reqs, f"{sid}_lg_resolved_t", 0, len(resolved_label), bold=True, size=CHART_LEGEND_PT, color=NAVY, font=FONT)
+
+    from .charts import embed_chart
+
+    top_y = legend_y + 16
+    top_gap = 16
+    top_chart_w = (CONTENT_W - top_gap) // 2
+    top_chart_h = 100
+    left_x = MARGIN
+    right_x = MARGIN + top_chart_w + top_gap
+
+    all_header = "All tickets" if title_has_project else f"All {project} tickets"
+    _box(reqs, f"{sid}_all_h", sid, left_x, top_y, top_chart_w, 14, all_header)
+    _style(reqs, f"{sid}_all_h", 0, len(all_header), bold=True, size=10, color=NAVY, font=FONT)
+    top_chart_y = top_y + 18
+    ss_id, chart_id = charts.add_line_chart(
+        title="",
+        labels=[month.get("label", "") for month in all_months],
+        series={
+            "Created": [month.get("created", 0) for month in all_months],
+            "Resolved": [month.get("resolved", 0) for month in all_months],
+        },
+        series_colors=[NAVY, created_resolved],
+        show_legend=False,
+        axis_font_size=12,
+        line_width=3,
+        background=bg,
+    )
+    embed_chart(reqs, f"{sid}_all_chart", sid, ss_id, chart_id, left_x, top_chart_y, top_chart_w, top_chart_h, linked=False)
+
+    escalated_header = "w/ jira_escalated" if title_has_project else f"{project} tickets with jira_escalated label"
+    _box(reqs, f"{sid}_esc_h", sid, right_x, top_y, top_chart_w, 14, escalated_header)
+    _style(reqs, f"{sid}_esc_h", 0, len(escalated_header), bold=True, size=10, color=NAVY, font=FONT)
+    esc_chart_y = top_y + 18
+    ss_id2, chart_id2 = charts.add_line_chart(
+        title="",
+        labels=[month.get("label", "") for month in escalated_months],
+        series={
+            "Created": [month.get("created", 0) for month in escalated_months],
+            "Resolved": [month.get("resolved", 0) for month in escalated_months],
+        },
+        series_colors=[NAVY, created_resolved],
+        show_legend=False,
+        axis_font_size=12,
+        line_width=3,
+        background=bg,
+    )
+    embed_chart(reqs, f"{sid}_esc_chart", sid, ss_id2, chart_id2, right_x, esc_chart_y, top_chart_w, top_chart_h, linked=False)
+
+    bottom_chart_w = 436
+    bottom_chart_h = 100
+    bottom_x = MARGIN + (CONTENT_W - bottom_chart_w) / 2
+    bottom_y = top_chart_y + top_chart_h + 18
+    non_header = "w/o jira_escalated" if title_has_project else f"{project} tickets excluding jira_escalated"
+    _box(reqs, f"{sid}_non_h", sid, bottom_x, bottom_y, bottom_chart_w, 14, non_header)
+    _style(reqs, f"{sid}_non_h", 0, len(non_header), bold=True, size=10, color=NAVY, font=FONT)
+    non_chart_y = bottom_y + 18
+    ss_id3, chart_id3 = charts.add_line_chart(
+        title="",
+        labels=[month.get("label", "") for month in non_escalated_months],
+        series={
+            "Created": [month.get("created", 0) for month in non_escalated_months],
+            "Resolved": [month.get("resolved", 0) for month in non_escalated_months],
+        },
+        series_colors=[NAVY, created_resolved],
+        show_legend=False,
+        axis_font_size=12,
+        line_width=3,
+        background=bg,
+    )
+    embed_chart(reqs, f"{sid}_non_chart", sid, ss_id3, chart_id3, bottom_x, non_chart_y, bottom_chart_w, bottom_chart_h, linked=False)
+
+    return idx + 1
+
+
+def eng_help_volume_trends_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """HELP monthly created vs resolved trends for all, escalated, and non-escalated tickets."""
+    eng = report.get("eng_portfolio") or {}
+    raw_trends = eng.get("help_ticket_trends")
+
+    if raw_trends is None:
+        try:
+            from .jira_client import get_shared_jira_client
+
+            raw_trends = get_shared_jira_client()._get_help_ticket_volume_trends()
+            eng["help_ticket_trends"] = raw_trends
+            report.setdefault("eng_portfolio", eng)
+            logger.debug("eng_help_volume_trends: fetched HELP trends on demand (no eng_portfolio)")
+        except Exception as exc:
+            logger.warning("eng_help_volume_trends: on-demand HELP trends fetch failed: %s", exc)
+            raw_trends = {"error": str(exc)}
+
+    trends = raw_trends if isinstance(raw_trends, dict) else {}
+    error = trends.get("error")
+    jql_block = trends.get("jql_queries") if isinstance(trends.get("jql_queries"), list) else []
+    report["eng_help_volume_jql_trace"] = {"jql_queries": jql_block}
+    if error:
+        return _missing_data_slide(reqs, sid, report, idx, f"HELP ticket volume trends — Jira error: {error}")
+    return _render_project_volume_trends(reqs, sid, report, idx, trends=trends, project="HELP", bg=_project_slide_bg("HELP"))
+
+
+def customer_project_volume_trends_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """CUSTOMER project monthly created vs resolved trends."""
+    jira = report.get("jira") or {}
+    trends = jira.get("customer_project_volume_trends") or {}
+    jql = trends.get("jql_queries") if isinstance(trends, dict) and isinstance(trends.get("jql_queries"), list) else []
+    report["customer_project_volume_jql_trace"] = {"jql_queries": jql}
+    if not isinstance(trends, dict):
+        return _missing_data_slide(reqs, sid, report, idx, "CUSTOMER volume trends (not in report)")
+    if trends.get("error"):
+        return _missing_data_slide(reqs, sid, report, idx, f"CUSTOMER ticket volume trends — Jira error: {trends.get('error')}")
+    return _render_project_volume_trends(reqs, sid, report, idx, trends=trends, project="CUSTOMER", bg=_project_slide_bg("CUSTOMER"))
+
+
+def lean_project_volume_trends_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """LEAN project monthly created vs resolved trends."""
+    jira = report.get("jira") or {}
+    trends = jira.get("lean_project_volume_trends") or {}
+    jql = trends.get("jql_queries") if isinstance(trends, dict) and isinstance(trends.get("jql_queries"), list) else []
+    report["lean_project_volume_jql_trace"] = {"jql_queries": jql}
+    if not isinstance(trends, dict):
+        return _missing_data_slide(reqs, sid, report, idx, "LEAN volume trends (not in report)")
+    if trends.get("error"):
+        return _missing_data_slide(reqs, sid, report, idx, f"LEAN ticket volume trends — Jira error: {trends.get('error')}")
+    return _render_project_volume_trends(reqs, sid, report, idx, trends=trends, project="LEAN", bg=_project_slide_bg("LEAN"))
