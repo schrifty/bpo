@@ -35,6 +35,7 @@ from .slide_cohort_links import (
     apply_cohort_bundle_links_to_notable_signals,
 )
 from .slide_data_quality import data_quality_slide as _data_quality_slide
+from .slide_depth import depth_slide as _depth_slide
 from .slide_exports import exports_slide as _exports_slide
 from .slide_guides import (
     guides_no_usage_slide as _guides_no_usage_slide,
@@ -162,7 +163,6 @@ from .slides_theme import (
     _date_range,
     _estimated_body_line_height_pt,
     _list_data_rows_fit_span,
-    _single_embedded_chart_layout,
     _table_rows_fit_span,
     slide_type_may_paginate,
 )
@@ -850,132 +850,6 @@ def _champions_slide(reqs, sid, report, idx):
     _render_users(sid, ch_sorted, left_x, "Champions", BLUE, _champ_detail, "c", 0)
     _render_users(sid, ar_sorted, right_x, "At Risk  (2 wk – 6 mo inactive)", GRAY, _risk_detail, "r", 0)
     return idx + 1, [sid]
-
-
-def _depth_slide(reqs, sid, report, idx):
-    depth = report.get("depth", report)
-    breakdown = depth.get("breakdown", [])
-    if not breakdown:
-        return _missing_data_slide(reqs, sid, report, idx, "depth-of-use breakdown data")
-
-    _slide(reqs, sid, idx)
-    _slide_title(reqs, sid, "Behavioral Depth")
-
-    write_ratio = depth.get("write_ratio", 0)
-    total = depth.get("total_feature_events", 0)
-    active = depth.get("active_users", 0)
-
-    _DP_KPI_H = 54
-    _DP_GAP = 16.0
-    _DP_CHART_GAP = 16.0
-    dpy = BODY_Y + 8
-    dpw = (CONTENT_W - 2 * _DP_GAP) / 3
-    _kpi_metric_card(
-        reqs, f"{sid}_dk0", sid, MARGIN, dpy, dpw, _DP_KPI_H,
-        "Feature interactions", f"{total:,}", accent=BLUE, value_pt=20,
-    )
-    _kpi_metric_card(
-        reqs, f"{sid}_dk1", sid, MARGIN + dpw + _DP_GAP, dpy, dpw, _DP_KPI_H,
-        "Active users", f"{active}", accent=BLUE, value_pt=20,
-    )
-    _kpi_metric_card(
-        reqs, f"{sid}_dk2", sid, MARGIN + 2 * (dpw + _DP_GAP), dpy, dpw, _DP_KPI_H,
-        "Write ratio", f"{write_ratio}%", accent=BLUE, value_pt=20,
-    )
-    chart_top = dpy + _DP_KPI_H + _DP_CHART_GAP
-
-    charts = report.get("_charts")
-    read_e = depth.get("read_events", 0)
-    write_e = depth.get("write_events", 0)
-    collab_e = depth.get("collab_events", 0)
-
-    if charts:
-        try:
-            from .charts import embed_chart
-            bottom_pad = 16
-            chart_h = BODY_BOTTOM - chart_top - bottom_pad
-
-            # Stacked bar: top categories by read/write/collab
-            top = breakdown[:8]
-            labels = [b["category"] for b in top]
-            read_vals = [b.get("read", 0) for b in top]
-            write_vals = [b.get("write", 0) for b in top]
-            collab_vals = [b.get("collab", 0) for b in top]
-            has_rwc = any(v > 0 for v in read_vals + write_vals + collab_vals)
-            pie_ok = read_e + write_e + collab_e > 0
-
-            if has_rwc and pie_ok:
-                from .charts import BRAND_SERIES_COLORS as _BSC
-                gap = 8.0
-                legend_h = 22
-                left_w = (CONTENT_W - gap) * 0.58
-                right_w = CONTENT_W - gap - left_w
-                vis_chart_h = chart_h - legend_h
-                rwc_labels = ["Read", "Write", "Collab"]
-                ss_id, chart_id = charts.add_bar_chart(
-                    title="Feature Category Depth",
-                    labels=labels,
-                    series={"Read": read_vals, "Write": write_vals, "Collab": collab_vals},
-                    horizontal=True,
-                    stacked=True,
-                    suppress_legend=True,
-                )
-                embed_chart(
-                    reqs, f"{sid}_chart", sid, ss_id, chart_id,
-                    MARGIN, chart_top, left_w, vis_chart_h,
-                )
-                legend_entries = [(l, _BSC[i]) for i, l in enumerate(rwc_labels) if i < len(_BSC)]
-                _slide_chart_legend(reqs, sid, f"{sid}_bleg", MARGIN, chart_top + vis_chart_h + 4, legend_entries)
-
-                ss_id2, pie_id = charts.add_pie_chart(
-                    title="Read / Write / Collab",
-                    labels=rwc_labels,
-                    values=[read_e, write_e, collab_e],
-                    donut=True,
-                )
-                pie_x = MARGIN + left_w + gap
-                embed_chart(
-                    reqs, f"{sid}_pie", sid, ss_id2, pie_id,
-                    pie_x, chart_top, right_w, vis_chart_h,
-                )
-            elif has_rwc:
-                from .charts import BRAND_SERIES_COLORS as _BSC
-                legend_h = 22
-                bx, by, bw, bh = _single_embedded_chart_layout(
-                    y_top=chart_top, bottom_pad=bottom_pad + legend_h, pie_or_donut=False,
-                )
-                rwc_labels = ["Read", "Write", "Collab"]
-                ss_id, chart_id = charts.add_bar_chart(
-                    title="Feature Category Depth",
-                    labels=labels,
-                    series={"Read": read_vals, "Write": write_vals, "Collab": collab_vals},
-                    horizontal=True,
-                    stacked=True,
-                    suppress_legend=True,
-                )
-                embed_chart(reqs, f"{sid}_chart", sid, ss_id, chart_id, bx, by, bw, bh)
-                legend_entries = [(l, _BSC[i]) for i, l in enumerate(rwc_labels) if i < len(_BSC)]
-                _slide_chart_legend(reqs, sid, f"{sid}_bleg", bx, by + bh + 4, legend_entries)
-            elif pie_ok:
-                from .charts import BRAND_SERIES_COLORS as _BSC
-                legend_h = 22
-                px, py, pw, ph = _single_embedded_chart_layout(
-                    y_top=chart_top, bottom_pad=bottom_pad + legend_h, pie_or_donut=True,
-                )
-                pie_labels = ["Read", "Write", "Collab"]
-                ss_id2, pie_id = charts.add_pie_chart(
-                    title="Read / Write / Collab",
-                    labels=pie_labels,
-                    values=[read_e, write_e, collab_e],
-                    donut=True,
-                )
-                embed_chart(reqs, f"{sid}_pie", sid, ss_id2, pie_id, px, py, pw, ph)
-                legend_entries = [(l, _BSC[i]) for i, l in enumerate(pie_labels) if i < len(_BSC)]
-                _slide_chart_legend(reqs, sid, f"{sid}_pleg", px, py + ph + 4, legend_entries)
-        except Exception as e:
-            logger.warning("Chart embed failed for depth slide: %s", e)
-
-    return idx + 1
 
 
 def _kei_slide(reqs, sid, report, idx):
