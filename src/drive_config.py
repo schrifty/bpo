@@ -50,6 +50,8 @@ _yaml_cache_lock = threading.Lock()
 # Merged from full loads and per-deck subset loads so a multi-deck run does not
 # re-walk the entire slides/ folder for every resolve_deck call.
 _slide_def_id_cache: dict[str, dict[str, Any]] = {}
+_drive_yaml_duplicate_log_lock = threading.Lock()
+_drive_yaml_duplicate_signatures_warned: set[tuple[str, tuple[tuple[str, str, tuple[str, ...]], ...]]] = set()
 
 # Set by ensure_drive_config_matches_repo (at most once per process).
 _drive_repo_sync_ran = False
@@ -223,7 +225,11 @@ def _get_config_folder_ids() -> tuple[str, str, str]:
     return qbr_gen, decks, slides
 
 
-def _dedupe_drive_yaml_files_by_name(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _dedupe_drive_yaml_files_by_name(
+    files: list[dict[str, Any]],
+    *,
+    folder_id: str = "",
+) -> list[dict[str, Any]]:
     """Drive allows multiple files with the same name in one folder; keep one per name (newest ``modifiedTime``)."""
     from collections import defaultdict
 
@@ -231,6 +237,7 @@ def _dedupe_drive_yaml_files_by_name(files: list[dict[str, Any]]) -> list[dict[s
     for f in files:
         groups[f["name"]].append(f)
     out: list[dict[str, Any]] = []
+    duplicate_details: list[tuple[str, str, str, tuple[str, ...], int]] = []
     for name in sorted(groups.keys()):
         g = groups[name]
         if len(g) == 1:
@@ -239,16 +246,39 @@ def _dedupe_drive_yaml_files_by_name(files: list[dict[str, Any]]) -> list[dict[s
         g.sort(key=lambda x: x.get("modifiedTime") or "", reverse=True)
         keeper = g[0]
         dup_ids = [x["id"] for x in g[1:]]
-        logger.warning(
-            "Drive YAML duplicate name %r (%d copies): keeping %s… (newest modifiedTime=%s); "
-            "delete extra file id(s) in Drive if desired: %s",
-            name,
-            len(g),
-            keeper["id"][:12],
-            keeper.get("modifiedTime", ""),
-            ", ".join(d[:12] + "…" for d in dup_ids),
+        duplicate_details.append(
+            (name, keeper["id"], keeper.get("modifiedTime", ""), tuple(dup_ids), len(g))
         )
         out.append(keeper)
+    if duplicate_details:
+        signature = (
+            folder_id,
+            tuple((name, keeper_id, dup_ids) for name, keeper_id, _mt, dup_ids, _count in duplicate_details),
+        )
+        with _drive_yaml_duplicate_log_lock:
+            first_seen = signature not in _drive_yaml_duplicate_signatures_warned
+            if first_seen:
+                _drive_yaml_duplicate_signatures_warned.add(signature)
+        names_preview = ", ".join(name for name, *_rest in duplicate_details[:8])
+        more = "" if len(duplicate_details) <= 8 else f", +{len(duplicate_details) - 8} more"
+        log = logger.warning if first_seen else logger.debug
+        log(
+            "Drive YAML folder has %d duplicate filename(s); keeping newest per name. "
+            "Clean extra Drive files if desired. Names: %s%s",
+            len(duplicate_details),
+            names_preview,
+            more,
+        )
+        for name, keeper_id, modified, dup_ids, count in duplicate_details:
+            logger.debug(
+                "Drive YAML duplicate name %r (%d copies): keeping %s… (newest modifiedTime=%s); "
+                "extra file id(s): %s",
+                name,
+                count,
+                keeper_id[:12],
+                modified,
+                ", ".join(d[:12] + "…" for d in dup_ids),
+            )
     return out
 
 
@@ -262,7 +292,7 @@ def _list_drive_files(folder_id: str) -> list[dict[str, Any]]:
             q = f"'{folder_id}' in parents and trashed = false and (name contains '.yaml' or name contains '.yml')"
             results = drive.files().list(q=q, fields="files(id, name, modifiedTime)", pageSize=200).execute()
             raw = results.get("files", [])
-        return _dedupe_drive_yaml_files_by_name(raw)
+        return _dedupe_drive_yaml_files_by_name(raw, folder_id=folder_id)
 
 
 def _read_drive_file(file_id: str) -> str:

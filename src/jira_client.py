@@ -1,5 +1,7 @@
 """JIRA Cloud client for fetching customer-related issues."""
 
+from __future__ import annotations
+
 import difflib
 import hashlib
 import os

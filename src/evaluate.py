@@ -2031,7 +2031,7 @@ def _sanitize_adapt_replacements_percent_semantics(
         if _adapt_text_has_percentage_semantics(nv.strip()):
             out.append(r)
             continue
-        logger.warning(
+        logger.debug(
             "hydrate: demoting replacement (percent context requires %% in new_value): "
             "original=%r new_value=%r",
             orig[:120],

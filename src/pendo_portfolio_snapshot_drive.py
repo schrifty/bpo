@@ -287,7 +287,7 @@ def ensure_data_field_synonyms_repo_on_drive() -> None:
         return
     local_path = local_data_field_synonyms_path()
     if not local_path.is_file():
-        logger.warning("data_field_synonyms: local file missing %s — skip Drive sync", local_path)
+        logger.debug("data_field_synonyms: local file missing %s — skip Drive sync", local_path)
         return
     try:
         local_text = local_path.read_text(encoding="utf-8")
