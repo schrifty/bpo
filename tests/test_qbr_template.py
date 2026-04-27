@@ -55,7 +55,7 @@ def test_resolve_hide_object_ids_skips_title():
     assert "t1" not in hide
 
 
-@patch.object(qbr_template, "set_speaker_notes", return_value=True)
+@patch.object(qbr_template, "set_speaker_notes_batch", return_value=1)
 @patch.object(qbr_template, "_apply_slide_skipped")
 @patch.object(qbr_template, "resolve_deck")
 def test_insert_executive_summary_marks_slides_skipped(mock_resolve, mock_apply_skip, _mock_notes):
@@ -88,6 +88,11 @@ def test_insert_executive_summary_marks_slides_skipped(mock_resolve, mock_apply_
     assert pres_id == "pres123"
     assert oids == {"qbr_es_title_1"}
     slides_svc.presentations.return_value.batchUpdate.assert_called()
+    _mock_notes.assert_called_once()
+    _svc, pres_id, notes_items = _mock_notes.call_args[0]
+    assert pres_id == "pres123"
+    assert len(notes_items) == 1
+    assert notes_items[0][0] == "qbr_es_title_1"
 
 
 def test_compute_adapt_page_ids_includes_hidden_template_excludes_exec_and_title():

@@ -61,7 +61,7 @@ from .slides_client import (
     create_cohort_deck,
     create_health_deck,
     presentations_batch_update_chunked,
-    set_speaker_notes,
+    set_speaker_notes_batch,
     slides_presentations_batch_update,
 )
 
@@ -573,10 +573,20 @@ def _insert_executive_summary_slides(
 
     presentations_batch_update_chunked(slides_svc, pres_id, reqs)
 
-    for sid, entry in note_targets:
-        notes = _build_slide_jql_speaker_notes(report, entry)
-        if not set_speaker_notes(slides_svc, pres_id, sid, notes):
-            logger.warning("QBR: could not set speaker notes on %s", sid[:16])
+    if note_targets:
+        notes_items = [
+            (sid, _build_slide_jql_speaker_notes(report, entry))
+            for sid, entry in note_targets
+        ]
+        n_notes = set_speaker_notes_batch(slides_svc, pres_id, notes_items)
+        if n_notes != len(notes_items):
+            logger.warning(
+                "QBR: wrote %d/%d executive-summary speaker notes",
+                n_notes,
+                len(notes_items),
+            )
+        else:
+            logger.info("QBR: wrote %d executive-summary speaker notes in single batchUpdate", n_notes)
 
     try:
         _apply_slide_skipped(slides_svc, pres_id, set(exec_ids))
