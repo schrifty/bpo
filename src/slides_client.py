@@ -35,6 +35,7 @@ from .slides_api import (
     slides_presentations_batch_update,
 )
 from .speaker_notes import (
+    build_slide_jql_speaker_notes,
     get_speaker_notes_object_id,
     set_speaker_notes,
     set_speaker_notes_batch,
@@ -394,102 +395,6 @@ def _slide_chart_legend_vertical(
         _style(reqs, lbl_oid, 0, len(disp), size=font_pt, color=NAVY, font=FONT)
         cursor_y += row_h
     return cursor_y
-
-
-def _collect_jql_soql_trace_entries(obj: Any) -> list[dict[str, str]]:
-    """Recursively collect Jira ``jql_queries`` and Salesforce ``soql_queries`` only."""
-    if obj is None:
-        return []
-    if isinstance(obj, dict):
-        entries: list[dict[str, str]] = []
-        jql_raw = obj.get("jql_queries")
-        if isinstance(jql_raw, list):
-            for item in jql_raw:
-                if isinstance(item, dict) and str(item.get("jql") or "").strip():
-                    entries.append({
-                        "description": str(item.get("description") or "Jira issue search").strip(),
-                        "source": "Jira",
-                        "query": str(item["jql"]).strip(),
-                    })
-                elif isinstance(item, str) and item.strip():
-                    entries.append({
-                        "description": "Jira issue search",
-                        "source": "Jira",
-                        "query": item.strip(),
-                    })
-        soql_raw = obj.get("soql_queries")
-        if isinstance(soql_raw, list):
-            for item in soql_raw:
-                if isinstance(item, dict):
-                    q = str(item.get("soql") or item.get("query") or "").strip()
-                    if q:
-                        entries.append({
-                            "description": str(item.get("description") or "Salesforce query").strip(),
-                            "source": "Salesforce",
-                            "query": q,
-                        })
-                elif isinstance(item, str) and item.strip():
-                    entries.append({
-                        "description": "Salesforce query",
-                        "source": "Salesforce",
-                        "query": item.strip(),
-                    })
-        for val in obj.values():
-            entries.extend(_collect_jql_soql_trace_entries(val))
-        return entries
-    if isinstance(obj, list):
-        return [e for item in obj for e in _collect_jql_soql_trace_entries(item)]
-    return []
-
-
-def _collect_declared_data_trace_entries(obj: Any) -> list[dict[str, str]]:
-    """Recursively collect ``data_traces`` (declared pipeline notes, not JQL/SOQL)."""
-    if obj is None:
-        return []
-    if isinstance(obj, dict):
-        entries: list[dict[str, str]] = []
-        dt_raw = obj.get("data_traces")
-        if isinstance(dt_raw, list):
-            for item in dt_raw:
-                if not isinstance(item, dict):
-                    continue
-                desc = str(item.get("description") or "").strip()
-                src = str(item.get("source") or "Report").strip()
-                q = str(item.get("query") or item.get("trace") or "").strip()
-                if desc and q:
-                    entries.append({"description": desc, "source": src, "query": q})
-        for val in obj.values():
-            entries.extend(_collect_declared_data_trace_entries(val))
-        return entries
-    if isinstance(obj, list):
-        return [e for item in obj for e in _collect_declared_data_trace_entries(item)]
-    return []
-
-
-def _collect_data_trace_entries(obj: Any) -> list[dict[str, str]]:
-    """All trace rows: Jira, Salesforce, and declared ``data_traces``."""
-    return _collect_jql_soql_trace_entries(obj) + _collect_declared_data_trace_entries(obj)
-
-
-def _dedupe_data_trace_entries(entries: list[dict[str, str]]) -> list[dict[str, str]]:
-    """Drop duplicate (source, query) pairs; keep first description."""
-    seen: set[tuple[str, str]] = set()
-    out: list[dict[str, str]] = []
-    for e in entries:
-        src = (e.get("source") or "Unknown").strip()
-        q = (e.get("query") or "").strip()
-        if not q:
-            continue
-        key = (src.casefold(), q)
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append({
-            "description": (e.get("description") or "Data").strip(),
-            "source": src,
-            "query": q,
-        })
-    return out
 
 
 def _dedupe_keep_order(items: list[str]) -> list[str]:
@@ -1081,73 +986,13 @@ _SLIDE_CANONICAL_PIPELINE_TRACES: dict[str, Any] = {
 
 
 def _build_slide_jql_speaker_notes(report: dict[str, Any], entry: dict[str, Any]) -> str:
-    """Speaker notes: header block; then one bullet per trace with query on its own line(s) and a blank line between items."""
-    from datetime import datetime
-
-    prev_sn_entry = report.get("_speaker_note_slide_entry")
-    report["_speaker_note_slide_entry"] = entry
-    try:
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        slide_type = entry.get("slide_type", entry.get("id", "slide"))
-        slide_title = entry.get("title", slide_type.replace("_", " ").title())
-        header = [
-            ts,
-            "",
-            f"Slide: {slide_title}",
-            f"Slide type: {slide_type}",
-        ]
-
-        required_keys = SLIDE_DATA_REQUIREMENTS.get(slide_type, [])
-        canon_fn = _SLIDE_CANONICAL_PIPELINE_TRACES.get(slide_type)
-
-        pipeline: list[dict[str, str]] = []
-        if canon_fn is not None:
-            pipeline = canon_fn(report)
-        elif required_keys:
-            for key in required_keys:
-                pipeline.extend(_collect_declared_data_trace_entries(report.get(key)))
-            pipeline = _dedupe_data_trace_entries(pipeline)
-        else:
-            pipeline = _dedupe_data_trace_entries(_collect_declared_data_trace_entries(report))
-
-        executable: list[dict[str, str]] = []
-        if required_keys:
-            for key in required_keys:
-                executable.extend(_collect_jql_soql_trace_entries(report.get(key)))
-        else:
-            executable = _collect_jql_soql_trace_entries(report)
-        executable = _dedupe_data_trace_entries(executable)
-
-        entries = _dedupe_data_trace_entries(pipeline + executable)
-
-        if not entries:
-            if slide_type in ("salesforce_comprehensive_cover", "salesforce_category"):
-                header.append("")
-                header.append(
-                    "Live Salesforce metrics: Salesforce - SOQL via REST API (per-object queries not recorded in this payload)"
-                )
-            return "\n".join(header)
-
-        header.append("")
-        n = len(entries)
-        for i, e in enumerate(entries):
-            desc = (e.get("description") or "Data").strip()
-            src = (e.get("source") or "Unknown").strip()
-            q = (e.get("query") or "").strip()
-            header.append(f"• {desc} — {src}")
-            if q:
-                for part in q.splitlines():
-                    p = part.strip()
-                    if p:
-                        header.append(f"  {p}")
-            if i < n - 1:
-                header.append("")
-        return "\n".join(header)
-    finally:
-        if prev_sn_entry is not None:
-            report["_speaker_note_slide_entry"] = prev_sn_entry
-        else:
-            report.pop("_speaker_note_slide_entry", None)
+    """Compatibility wrapper around ``speaker_notes.build_slide_jql_speaker_notes``."""
+    return build_slide_jql_speaker_notes(
+        report,
+        entry,
+        data_requirements=SLIDE_DATA_REQUIREMENTS,
+        canonical_pipeline_traces=_SLIDE_CANONICAL_PIPELINE_TRACES,
+    )
 
 
 def _pill(reqs, oid, sid, x, y, w, h, text, bg, fg):
