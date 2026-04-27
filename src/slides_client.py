@@ -42,6 +42,7 @@ from .slide_engineering_portfolio import (
     eng_insight_bullets as _eng_insight_bullets,
     eng_portfolio_title_slide as _eng_portfolio_title_slide,
     eng_sprint_snapshot_slide as _eng_sprint_snapshot_slide,
+    eng_support_pressure_slide as _eng_support_pressure_slide,
     eng_velocity_slide as _eng_velocity_slide,
 )
 from .slide_guides import (
@@ -2699,115 +2700,6 @@ def _support_breakdown_slide(reqs, sid, report, idx):
 
 
 # ── Engineering Portfolio Slides ──────────────────────────────────────────────
-
-
-def _eng_support_pressure_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
-    """Cross-customer support pressure feeding into engineering."""
-    eng = report.get("eng_portfolio") or {}
-    if not eng:
-        return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
-
-    sp = eng.get("support_pressure") or {}
-    total = sp.get("total", 0)
-    open_n = sp.get("open", 0)
-    esc = sp.get("escalated_to_eng", 0)
-    bugs = sp.get("open_bugs", 0)
-    days = eng.get("days", 30)
-
-    # Dynamic insight title
-    esc_pct = int(esc / total * 100) if total else 0
-    if esc_pct >= 30:
-        title = f"{esc_pct}% of Support Tickets Escalated to Engineering — High Pressure"
-    elif esc_pct >= 15:
-        title = f"{total} Support Tickets — {esc} Escalated to Engineering This Period"
-    elif total:
-        title = f"{total} Support Tickets — Engineering Escalation Rate at {esc_pct}%"
-    else:
-        title = "Support Pressure — No Ticket Data Available"
-
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, title)
-
-    ctx = f"Last {days} days   ·   Open: {open_n}   ·   Escalated to eng: {esc}   ·   Open bugs: {bugs}"
-    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, ctx)
-    _style(reqs, f"{sid}_ctx", 0, len(ctx), size=9, color=GRAY, font=FONT)
-
-    body_top = BODY_Y + 18
-    col_gap = 24
-    left_w = (CONTENT_W - col_gap) * 3 // 5
-    right_w = CONTENT_W - left_w - col_gap
-    left_x = MARGIN
-    right_x = MARGIN + left_w + col_gap
-
-    # ── LEFT: Priority breakdown as large horizontal bar chart ──
-    by_prio = sp.get("by_priority") or {}
-    left_y = body_top
-    _box(reqs, f"{sid}_ph", sid, left_x, left_y, left_w, 16, "Ticket Volume by Priority")
-    _style(reqs, f"{sid}_ph", 0, 26, bold=True, size=12, color=NAVY, font=FONT)
-    left_y += 22
-
-    prio_order = ["Blocker", "Critical", "Major", "Minor", "Unknown"]
-    prio_colors = {
-        "Blocker": {"red": 0.85, "green": 0.15, "blue": 0.15},
-        "Critical": {"red": 0.9, "green": 0.4, "blue": 0.0},
-        "Major": BLUE,
-        "Minor": {"red": 0.48, "green": 0.77, "blue": 0.98},
-        "Unknown": GRAY,
-    }
-    all_items = [(p, by_prio.get(p, 0)) for p in prio_order if by_prio.get(p, 0) > 0]
-    max_val = max(v for _, v in all_items) if all_items else 1
-    BAR_MAX_W = left_w - 100
-
-    for pi, (prio, cnt) in enumerate(all_items):
-        bar_w = max(6, int(cnt / max_val * BAR_MAX_W))
-        is_critical = prio in ("Blocker", "Critical")
-        _box(reqs, f"{sid}_pl{pi}", sid, left_x, left_y, 88, 26, prio)
-        _style(reqs, f"{sid}_pl{pi}", 0, len(prio), size=12, bold=is_critical,
-               color=prio_colors.get(prio, NAVY), font=FONT)
-        _box(reqs, f"{sid}_pb{pi}", sid, left_x + 92, left_y + 6, bar_w, 14, "")
-        reqs.append({"updateShapeProperties": {
-            "objectId": f"{sid}_pb{pi}",
-            "shapeProperties": {
-                "shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": prio_colors.get(prio, NAVY)}}},
-                "outline": {
-                    "outlineFill": {"solidFill": {"color": {"rgbColor": NAVY}}},
-                    "weight": {"magnitude": 0.75, "unit": "PT"},
-                },
-            },
-            "fields": "shapeBackgroundFill,outline.outlineFill,outline.weight",
-        }})
-        cnt_lbl = str(cnt)
-        _box(reqs, f"{sid}_pc{pi}", sid, left_x + 96 + bar_w, left_y + 4, 40, 18, cnt_lbl)
-        _style(reqs, f"{sid}_pc{pi}", 0, len(cnt_lbl), size=11, bold=is_critical,
-               color=prio_colors.get(prio, NAVY), font=FONT)
-        left_y += 30
-
-    # ── RIGHT: KPI cards (same chrome as all ``_kpi_metric_card`` tiles) ──
-    _ENG_SP_KPI_H = 52
-    _ENG_SP_KPI_GAP = 6
-    right_y = body_top
-    kpi_cards = [
-        ("Total", total, None),
-        ("Open", open_n, None),
-        ("Escalated to Eng", esc, _RED if esc > 5 else BLUE),
-        ("Open Bugs", bugs, _RED if bugs > 3 else BLUE),
-    ]
-    for i, (label, val, color) in enumerate(kpi_cards):
-        ac = color or BLUE
-        _kpi_metric_card(
-            reqs, f"{sid}_spk{i}", sid, right_x, right_y, right_w, _ENG_SP_KPI_H,
-            label, str(val), accent=ac, value_pt=22,
-        )
-        right_y += _ENG_SP_KPI_H + _ENG_SP_KPI_GAP
-
-    # ── INSIGHT BULLETS ──
-    insights = (eng.get("insights") or {}).get("support_pressure", [])
-    if insights:
-        bullet_y = BODY_BOTTOM - (len(insights) * 22) - 4
-        _eng_insight_bullets(reqs, sid, insights, MARGIN, bullet_y, CONTENT_W)
-
-    return idx + 1
 
 
 _PROJECT_SLIDE_SUBTITLE = {

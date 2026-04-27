@@ -6,7 +6,13 @@ from datetime import date, datetime
 from typing import Any
 
 from .config import logger
-from .slide_primitives import background as _bg, missing_data_slide as _missing_data_slide, slide_title as _slide_title, style as _style
+from .slide_primitives import (
+    background as _bg,
+    kpi_metric_card as _kpi_metric_card,
+    missing_data_slide as _missing_data_slide,
+    slide_title as _slide_title,
+    style as _style,
+)
 from .slide_requests import append_slide as _slide, append_text_box as _box
 from .slides_theme import (
     BODY_BOTTOM,
@@ -666,5 +672,140 @@ def eng_enhancements_shipped_slide(reqs: list[dict[str, Any]], sid: str, report:
             y += 42
 
         y += 4
+
+    return idx + 1
+
+
+def eng_support_pressure_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Cross-customer support pressure feeding into engineering."""
+    eng = report.get("eng_portfolio") or {}
+    if not eng:
+        return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
+
+    support_pressure = eng.get("support_pressure") or {}
+    total = support_pressure.get("total", 0)
+    open_count = support_pressure.get("open", 0)
+    escalated = support_pressure.get("escalated_to_eng", 0)
+    bugs = support_pressure.get("open_bugs", 0)
+    days = eng.get("days", 30)
+
+    escalated_pct = int(escalated / total * 100) if total else 0
+    if escalated_pct >= 30:
+        title = f"{escalated_pct}% of Support Tickets Escalated to Engineering — High Pressure"
+    elif escalated_pct >= 15:
+        title = f"{total} Support Tickets — {escalated} Escalated to Engineering This Period"
+    elif total:
+        title = f"{total} Support Tickets — Engineering Escalation Rate at {escalated_pct}%"
+    else:
+        title = "Support Pressure — No Ticket Data Available"
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+
+    context = f"Last {days} days   ·   Open: {open_count}   ·   Escalated to eng: {escalated}   ·   Open bugs: {bugs}"
+    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
+    _style(reqs, f"{sid}_ctx", 0, len(context), size=9, color=GRAY, font=FONT)
+
+    body_top = BODY_Y + 18
+    col_gap = 24
+    left_w = (CONTENT_W - col_gap) * 3 // 5
+    right_w = CONTENT_W - left_w - col_gap
+    left_x = MARGIN
+    right_x = MARGIN + left_w + col_gap
+
+    by_priority = support_pressure.get("by_priority") or {}
+    left_y = body_top
+    priority_header = "Ticket Volume by Priority"
+    _box(reqs, f"{sid}_ph", sid, left_x, left_y, left_w, 16, priority_header)
+    _style(reqs, f"{sid}_ph", 0, len(priority_header), bold=True, size=12, color=NAVY, font=FONT)
+    left_y += 22
+
+    priority_order = ["Blocker", "Critical", "Major", "Minor", "Unknown"]
+    priority_colors = {
+        "Blocker": {"red": 0.85, "green": 0.15, "blue": 0.15},
+        "Critical": {"red": 0.9, "green": 0.4, "blue": 0.0},
+        "Major": BLUE,
+        "Minor": {"red": 0.48, "green": 0.77, "blue": 0.98},
+        "Unknown": GRAY,
+    }
+    priority_items = [(priority, by_priority.get(priority, 0)) for priority in priority_order if by_priority.get(priority, 0) > 0]
+    max_value = max(value for _, value in priority_items) if priority_items else 1
+    bar_max_w = left_w - 100
+
+    for priority_index, (priority, count) in enumerate(priority_items):
+        bar_w = max(6, int(count / max_value * bar_max_w))
+        is_critical = priority in ("Blocker", "Critical")
+        _box(reqs, f"{sid}_pl{priority_index}", sid, left_x, left_y, 88, 26, priority)
+        _style(
+            reqs,
+            f"{sid}_pl{priority_index}",
+            0,
+            len(priority),
+            size=12,
+            bold=is_critical,
+            color=priority_colors.get(priority, NAVY),
+            font=FONT,
+        )
+        _box(reqs, f"{sid}_pb{priority_index}", sid, left_x + 92, left_y + 6, bar_w, 14, "")
+        reqs.append(
+            {
+                "updateShapeProperties": {
+                    "objectId": f"{sid}_pb{priority_index}",
+                    "shapeProperties": {
+                        "shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": priority_colors.get(priority, NAVY)}}},
+                        "outline": {
+                            "outlineFill": {"solidFill": {"color": {"rgbColor": NAVY}}},
+                            "weight": {"magnitude": 0.75, "unit": "PT"},
+                        },
+                    },
+                    "fields": "shapeBackgroundFill,outline.outlineFill,outline.weight",
+                }
+            }
+        )
+        count_label = str(count)
+        _box(reqs, f"{sid}_pc{priority_index}", sid, left_x + 96 + bar_w, left_y + 4, 40, 18, count_label)
+        _style(
+            reqs,
+            f"{sid}_pc{priority_index}",
+            0,
+            len(count_label),
+            size=11,
+            bold=is_critical,
+            color=priority_colors.get(priority, NAVY),
+            font=FONT,
+        )
+        left_y += 30
+
+    kpi_h = 52
+    kpi_gap = 6
+    right_y = body_top
+    kpi_cards = [
+        ("Total", total, None),
+        ("Open", open_count, None),
+        ("Escalated to Eng", escalated, RED if escalated > 5 else BLUE),
+        ("Open Bugs", bugs, RED if bugs > 3 else BLUE),
+    ]
+    for card_index, (label, value, color) in enumerate(kpi_cards):
+        accent = color or BLUE
+        _kpi_metric_card(
+            reqs,
+            f"{sid}_spk{card_index}",
+            sid,
+            right_x,
+            right_y,
+            right_w,
+            kpi_h,
+            label,
+            str(value),
+            accent=accent,
+            value_pt=22,
+        )
+        right_y += kpi_h + kpi_gap
+
+    insights = (eng.get("insights") or {}).get("support_pressure", [])
+    if insights:
+        bullet_y = BODY_BOTTOM - (len(insights) * 22) - 4
+        eng_insight_bullets(reqs, sid, insights, MARGIN, bullet_y, CONTENT_W)
 
     return idx + 1
