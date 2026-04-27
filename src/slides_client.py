@@ -34,6 +34,7 @@ from .slide_cohort_links import (
 from .slide_data_quality import data_quality_slide as _data_quality_slide
 from .slide_custom import custom_slide as _custom_slide
 from .slide_depth import depth_slide as _depth_slide
+from .slide_engagement import engagement_slide as _engagement_slide
 from .slide_exports import exports_slide as _exports_slide
 from .slide_guides import (
     guides_no_usage_slide as _guides_no_usage_slide,
@@ -124,7 +125,6 @@ from .slide_primitives import (
     red_banner as _red_banner,
     set_support_deck_corner_customer as _set_support_deck_corner_customer,
     simple_table as _simple_table,
-    slide_chart_legend as _slide_chart_legend,
     slide_chart_legend_vertical as _slide_chart_legend_vertical,
     slide_title as _slide_title,
     style as _style,
@@ -200,138 +200,6 @@ def build_slide_jql_speaker_notes_for_entry(report: dict[str, Any], entry: dict[
 
 
 _build_slide_jql_speaker_notes = build_slide_jql_speaker_notes_for_entry
-
-
-def _engagement_slide(reqs, sid, report, idx):
-    _slide(reqs, sid, idx)
-    _slide_title(reqs, sid, "Engagement Breakdown")
-
-    eng = report["engagement"]
-    total = report["account"]["total_visitors"]
-
-    _EG_KPI_H = 54
-    _EG_GAP = 16.0
-    kpy = BODY_Y + 8
-    egw = (CONTENT_W - 2 * _EG_GAP) / 3
-    tier_specs = [
-        ("Active (7d)", eng["active_7d"], BLUE),
-        ("Active (8–30d)", eng["active_30d"], BLUE),
-        ("Dormant (30d+)", eng["dormant"], BLUE),
-    ]
-    for j, (lbl, cnt, ac) in enumerate(tier_specs):
-        _kpi_metric_card(
-            reqs, f"{sid}_ek{j}", sid, MARGIN + j * (egw + _EG_GAP), kpy, egw, _EG_KPI_H,
-            lbl, f"{cnt}", accent=ac, value_pt=22,
-        )
-    content_top = kpy + _EG_KPI_H + 12
-
-    charts = report.get("_charts")
-    has_chart = False
-
-    # Try to embed a donut chart for the tier distribution
-    if charts and total > 0:
-        try:
-            from .charts import embed_chart, BRAND_SERIES_COLORS as _BSC
-            active_7d = eng["active_7d"]
-            active_30d = eng["active_30d"]
-            dormant = eng["dormant"]
-            donut_labels = ["Active (7d)", "Active (8–30d)", "Dormant (30d+)"]
-            ss_id, chart_id = charts.add_pie_chart(
-                title="User Engagement",
-                labels=donut_labels,
-                values=[active_7d, active_30d, dormant],
-                donut=True,
-            )
-            legend_h = 22
-            chart_w = 320
-            chart_h = max(120, int(BODY_BOTTOM - content_top - 8 - legend_h))
-            embed_chart(reqs, f"{sid}_donut", sid, ss_id, chart_id,
-                        MARGIN, content_top, chart_w, chart_h)
-            legend_entries = [(l, _BSC[i]) for i, l in enumerate(donut_labels) if i < len(_BSC)]
-            _slide_chart_legend(reqs, sid, f"{sid}_dleg", MARGIN, content_top + chart_h + 4, legend_entries)
-            has_chart = True
-        except Exception as e:
-            logger.warning("Chart embed failed for engagement slide: %s", e)
-
-    # Text column: right of chart when present, else full width
-    chart_used_w = 344 if has_chart else 0  # chart width + gap
-    text_x = MARGIN + chart_used_w if has_chart else MARGIN
-    text_w = CONTENT_W - chart_used_w if has_chart else CONTENT_W
-    col_gap = 40
-    col_w = (text_w - col_gap) // 2 if not has_chart else text_w
-
-    tot_r = f"{total:,} tracked users"
-    ry0 = content_top + 18
-    active_roles = list(eng["role_active"].items())[:6]
-    dormant_roles = list(eng["role_dormant"].items())[:6]
-
-    if has_chart:
-        _box(reqs, f"{sid}_tot", sid, text_x, content_top, text_w, 14, tot_r)
-        _style(reqs, f"{sid}_tot", 0, len(tot_r), size=9, color=GRAY, font=FONT)
-        ax = text_x
-        ry = ry0
-        if active_roles:
-            ah = "Active Roles"
-            _box(reqs, f"{sid}_ah", sid, ax, ry, col_w, 22, ah)
-            _style(reqs, f"{sid}_ah", 0, len(ah), bold=True, size=14, color=BLUE, font=FONT)
-            ry += 28
-            for ri, (role, count) in enumerate(active_roles):
-                if ry + 22 > BODY_BOTTOM:
-                    break
-                line = f"{count:>4}   {role}"
-                _box(reqs, f"{sid}_ar{ri}", sid, ax, ry, col_w, 18, line)
-                _style(reqs, f"{sid}_ar{ri}", 0, len(line), size=13, color=NAVY, font=FONT)
-                _style(reqs, f"{sid}_ar{ri}", 0, len(f"{count:>4}"), bold=True, size=13, color=BLUE, font=FONT)
-                ry += 22
-        if dormant_roles and ry + 50 < BODY_BOTTOM:
-            ry += 12
-            dh = "Dormant Roles"
-            _box(reqs, f"{sid}_dh", sid, ax, ry, col_w, 22, dh)
-            _style(reqs, f"{sid}_dh", 0, len(dh), bold=True, size=14, color=GRAY, font=FONT)
-            ry += 28
-            for ri, (role, count) in enumerate(dormant_roles):
-                if ry + 22 > BODY_BOTTOM:
-                    break
-                line = f"{count:>4}   {role}"
-                _box(reqs, f"{sid}_dr{ri}", sid, ax, ry, col_w, 18, line)
-                _style(reqs, f"{sid}_dr{ri}", 0, len(line), size=13, color=GRAY, font=FONT)
-                _style(reqs, f"{sid}_dr{ri}", 0, len(f"{count:>4}"), bold=True, size=13)
-                ry += 22
-    else:
-        _box(reqs, f"{sid}_tot", sid, MARGIN, content_top, CONTENT_W, 14, tot_r)
-        _style(reqs, f"{sid}_tot", 0, len(tot_r), size=9, color=GRAY, font=FONT)
-        lx = MARGIN
-        rx = MARGIN + col_w + col_gap
-        ry_l = ry0
-        if active_roles:
-            ah = "Active Roles"
-            _box(reqs, f"{sid}_ah", sid, lx, ry_l, col_w, 22, ah)
-            _style(reqs, f"{sid}_ah", 0, len(ah), bold=True, size=14, color=BLUE, font=FONT)
-            ry_l += 28
-            for ri, (role, count) in enumerate(active_roles):
-                if ry_l + 22 > BODY_BOTTOM:
-                    break
-                line = f"{count:>4}   {role}"
-                _box(reqs, f"{sid}_ar{ri}", sid, lx, ry_l, col_w, 18, line)
-                _style(reqs, f"{sid}_ar{ri}", 0, len(line), size=13, color=NAVY, font=FONT)
-                _style(reqs, f"{sid}_ar{ri}", 0, len(f"{count:>4}"), bold=True, size=13, color=BLUE, font=FONT)
-                ry_l += 22
-        ry_r = ry0
-        if dormant_roles and ry_r + 50 < BODY_BOTTOM:
-            dh = "Dormant Roles"
-            _box(reqs, f"{sid}_dh", sid, rx, ry_r, col_w, 22, dh)
-            _style(reqs, f"{sid}_dh", 0, len(dh), bold=True, size=14, color=GRAY, font=FONT)
-            ry_r += 28
-            for ri, (role, count) in enumerate(dormant_roles):
-                if ry_r + 22 > BODY_BOTTOM:
-                    break
-                line = f"{count:>4}   {role}"
-                _box(reqs, f"{sid}_dr{ri}", sid, rx, ry_r, col_w, 18, line)
-                _style(reqs, f"{sid}_dr{ri}", 0, len(line), size=13, color=GRAY, font=FONT)
-                _style(reqs, f"{sid}_dr{ri}", 0, len(f"{count:>4}"), bold=True, size=13)
-                ry_r += 22
-
-    return idx + 1
 
 
 def _sites_slide(reqs, sid, report, idx):
