@@ -59,6 +59,29 @@ from .slide_pipeline_traces import (
     salesforce_pipeline_traces as _salesforce_pipeline_traces,
     support_health_exec_pipeline_traces as _support_health_exec_pipeline_traces,
 )
+from .slide_primitives import (
+    CHART_LEGEND_PT,
+    align as _align,
+    background as _bg,
+    bar_rect as _bar_rect,
+    clean_table as _clean_table,
+    internal_footer as _internal_footer,
+    kpi_metric_card as _kpi_metric_card,
+    missing_data_slide as _missing_data_slide,
+    omission_note as _omission_note,
+    pill as _pill,
+    rect as _rect,
+    red_banner as _red_banner,
+    set_support_deck_corner_customer as _set_support_deck_corner_customer,
+    simple_table as _simple_table,
+    slide_chart_legend as _slide_chart_legend,
+    slide_chart_legend_vertical as _slide_chart_legend_vertical,
+    slide_title as _slide_title,
+    style as _style,
+    support_subtitle_matched_lead as _support_subtitle_matched_lead,
+    support_title_includes_project as _support_title_includes_project,
+    table_cell_bg as _table_cell_bg,
+)
 from .slide_utils import (
     blob_recent_tickets_window_days as _blob_recent_tickets_window_days,
     dedupe_keep_order as _dedupe_keep_order,
@@ -75,12 +98,10 @@ from .slide_text import (
     utf16_ranges_for_phrases as _utf16_ranges_for_phrases,
 )
 from .slides_theme import (
-    BLACK,
     BLUE,
     BODY_BOTTOM,
     BODY_Y,
     CONTENT_W,
-    DARK,
     FONT,
     FONT_SERIF,
     GRAY,
@@ -105,223 +126,14 @@ from .slides_theme import (
     _cohort_summary_metrics,
     _date_range,
     _estimated_body_line_height_pt,
-    _fit_kpi_label,
     _list_data_rows_fit_span,
     _single_embedded_chart_layout,
     _table_rows_fit_span,
     _truncate_kpi_card_label,
-    KPI_METRIC_LABEL_PT,
     slide_type_may_paginate,
 )
 
-# ── Primitives ──
-
-
-# When create_health_deck runs support + one customer, _slide_title shows this in the upper-right.
-_SUPPORT_DECK_CORNER_CUSTOMER: str | None = None
-
-
-def _set_support_deck_corner_customer(name: str | None) -> None:
-    global _SUPPORT_DECK_CORNER_CUSTOMER
-    _SUPPORT_DECK_CORNER_CUSTOMER = (name or "").strip() or None
-
-
-def _support_subtitle_matched_lead(report: dict, customer: str) -> str:
-    """Prefix for support table subtitles, or empty when the title/corner already shows the account."""
-    if report.get("support_deck_scoped_titles") and report.get("customer") is not None:
-        return ""
-    return f"Matched to {customer}  ·  "
-
-
-def _support_title_includes_project(title: str, project: str) -> bool:
-    """True when the slide title already names *project* (start or trailing (PROJECT)), so body copy can omit a repeat."""
-    t = (title or "").strip()
-    p = (project or "").strip().upper()
-    if not t or not p:
-        return False
-    u = t.upper()
-    if u.startswith(p + " "):
-        return True
-    for sep in ("—", "–", "-", ":"):
-        if u.startswith(p + sep):
-            return True
-    if f"({p})" in u:  # e.g. "Customer escalations (HELP)" from legacy titles
-        return True
-    return u.endswith(f"({p})".upper())
-
-
-def _bg(reqs, sid, color):
-    reqs.append({
-        "updatePageProperties": {
-            "objectId": sid,
-            "pageProperties": {"pageBackgroundFill": {"solidFill": {"color": {"rgbColor": color}}}},
-            "fields": "pageBackgroundFill",
-        }
-    })
-
-
-def _rect(reqs, oid, sid, x, y, w, h, fill):
-    reqs.append({
-        "createShape": {
-            "objectId": oid, "shapeType": "RECTANGLE",
-            "elementProperties": {"pageObjectId": sid, "size": _sz(w, h), "transform": _tf(x, y)},
-        }
-    })
-    reqs.append({
-        "updateShapeProperties": {
-            "objectId": oid,
-            "shapeProperties": {
-                "shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": fill}}},
-                "outline": {"propertyState": "NOT_RENDERED"},
-            },
-            "fields": "shapeBackgroundFill,outline",
-        }
-    })
-
-
-def _bar_rect(reqs, oid, sid, x, y, w, h, fill, outline=NAVY):
-    """Rectangle for chart bars with a visible outline."""
-    reqs.append({
-        "createShape": {
-            "objectId": oid, "shapeType": "RECTANGLE",
-            "elementProperties": {"pageObjectId": sid, "size": _sz(w, h), "transform": _tf(x, y)},
-        }
-    })
-    reqs.append({
-        "updateShapeProperties": {
-            "objectId": oid,
-            "shapeProperties": {
-                "shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": fill}}},
-                "outline": {
-                    "outlineFill": {"solidFill": {"color": {"rgbColor": outline}}},
-                    "weight": {"magnitude": 1, "unit": "PT"},
-                },
-            },
-            "fields": "shapeBackgroundFill,outline.outlineFill,outline.weight",
-        }
-    })
-
-
-def _kpi_metric_card(
-    reqs: list,
-    oid_base: str,
-    sid: str,
-    x: float,
-    y: float,
-    w: float,
-    h: float,
-    label: str,
-    value: str,
-    *,
-    accent: dict | None = None,
-    label_pt: float = KPI_METRIC_LABEL_PT,
-    value_pt: float = 18,
-) -> None:
-    """Outlined KPI tile for app-built slides; black label, bold accent value. See SLIDE_DESIGN_STANDARDS (app-built scope)."""
-    accent = accent or BLUE
-    _bar_rect(reqs, oid_base, sid, x, y, w, h, LIGHT, outline=GRAY)
-    pad = 10.0
-    inner_w = max(40.0, w - 2 * pad)
-    label, label_pt = _fit_kpi_label(label, inner_w, label_pt)
-    _box(reqs, f"{oid_base}_l", sid, x + pad, y + 8, inner_w, 12, label)
-    # Use ALL so styling covers the full text (Slides may reserve index 0 for a paragraph marker;
-    # FIXED_RANGE 0..len(label) often leaves the visible run in theme gray).
-    if label:
-        reqs.append({
-            "updateTextStyle": {
-                "objectId": f"{oid_base}_l",
-                "textRange": {"type": "ALL"},
-                "style": {
-                    "fontSize": {"magnitude": label_pt, "unit": "PT"},
-                    "foregroundColor": {"opaqueColor": {"rgbColor": BLACK}},
-                    "fontFamily": FONT,
-                },
-                "fields": "fontSize,foregroundColor,fontFamily",
-            }
-        })
-    val_h = max(22.0, h - 28.0)
-    _box(reqs, f"{oid_base}_v", sid, x + pad, y + 22, inner_w, val_h, value)
-    if value:
-        reqs.append({
-            "updateTextStyle": {
-                "objectId": f"{oid_base}_v",
-                "textRange": {"type": "ALL"},
-                "style": {
-                    "bold": True,
-                    "fontSize": {"magnitude": value_pt, "unit": "PT"},
-                    "foregroundColor": {"opaqueColor": {"rgbColor": accent}},
-                    "fontFamily": FONT,
-                },
-                "fields": "bold,fontSize,foregroundColor,fontFamily",
-            }
-        })
-
-
-# Slide-level swatch+label legend (replaces tiny Sheets chart legends). Must stay ≥11 pt for deck projection.
-CHART_LEGEND_PT = 12.0
-
-def _slide_chart_legend(
-    reqs: list,
-    sid: str,
-    oid_prefix: str,
-    x: float,
-    y: float,
-    entries: list[tuple[str, dict]],
-    *,
-    font_pt: float = CHART_LEGEND_PT,
-    swatch_size: float = 10.0,
-    gap: float = 6.0,
-    entry_gap: float = 18.0,
-) -> float:
-    """Render a horizontal slide-level chart legend and return y + height consumed.
-
-    *entries* is a list of ``(label, color_dict)`` pairs.  Each entry gets a
-    small filled square (swatch) followed by the label text.  This replaces
-    Sheets-rendered legends that are too small at presentation scale.
-    """
-    cursor_x = x
-    for i, (label, color) in enumerate(entries):
-        sw_oid = f"{oid_prefix}_sw{i}"
-        _rect(reqs, sw_oid, sid, cursor_x, y + 2, swatch_size, swatch_size, color)
-        cursor_x += swatch_size + gap
-        lbl_oid = f"{oid_prefix}_lt{i}"
-        _box(reqs, lbl_oid, sid, cursor_x, y, 120, swatch_size + 6, label)
-        _style(reqs, lbl_oid, 0, len(label), size=font_pt, color=NAVY, font=FONT)
-        cursor_x += len(label) * font_pt * 0.52 + entry_gap
-    return y + swatch_size + 8
-
-
-def _slide_chart_legend_vertical(
-    reqs: list,
-    sid: str,
-    oid_prefix: str,
-    x: float,
-    y: float,
-    max_w: float,
-    entries: list[tuple[str, dict]],
-    *,
-    font_pt: float = 10.0,
-    swatch_size: float = 8.0,
-    gap: float = 4.0,
-    row_h: float = 14.0,
-    max_label_chars: int = 22,
-) -> float:
-    """Render a vertical (stacked) slide-level chart legend; returns y + height consumed.
-
-    Used for pie charts where horizontal legends overflow. Renders compact rows
-    with swatch + truncated label.
-    """
-    cursor_y = y
-    for i, (label, color) in enumerate(entries):
-        # Truncate long labels
-        disp = label if len(label) <= max_label_chars else label[: max_label_chars - 1] + "…"
-        sw_oid = f"{oid_prefix}_sw{i}"
-        _rect(reqs, sw_oid, sid, x, cursor_y + 2, swatch_size, swatch_size, color)
-        lbl_oid = f"{oid_prefix}_lt{i}"
-        _box(reqs, lbl_oid, sid, x + swatch_size + gap, cursor_y, max_w - swatch_size - gap, row_h, disp)
-        _style(reqs, lbl_oid, 0, len(disp), size=font_pt, color=NAVY, font=FONT)
-        cursor_y += row_h
-    return cursor_y
+# ── Builder utilities ──
 
 
 def normalize_builder_return(ret: Any, default_slide_id: str) -> tuple[int, list[str]]:
@@ -345,293 +157,6 @@ def build_slide_jql_speaker_notes_for_entry(report: dict[str, Any], entry: dict[
 
 
 _build_slide_jql_speaker_notes = build_slide_jql_speaker_notes_for_entry
-
-
-def _pill(reqs, oid, sid, x, y, w, h, text, bg, fg):
-    reqs.append({
-        "createShape": {
-            "objectId": oid, "shapeType": "ROUND_RECTANGLE",
-            "elementProperties": {"pageObjectId": sid, "size": _sz(w, h), "transform": _tf(x, y)},
-        }
-    })
-    reqs.append({
-        "updateShapeProperties": {
-            "objectId": oid,
-            "shapeProperties": {
-                "shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": bg}}},
-                "outline": {"propertyState": "NOT_RENDERED"},
-            },
-            "fields": "shapeBackgroundFill,outline",
-        }
-    })
-    reqs.append({"insertText": {"objectId": oid, "text": text, "insertionIndex": 0}})
-    _style(reqs, oid, 0, len(text), bold=True, size=11, color=fg)
-    _align(reqs, oid, "CENTER")
-
-
-def _style(reqs, oid, start, end, bold=False, size=None, color=None, font=None, italic=False,
-           link=None):
-    if start >= end:
-        return
-    s: dict[str, Any] = {}
-    f = []
-    if bold:
-        s["bold"] = True; f.append("bold")
-    if italic:
-        s["italic"] = True; f.append("italic")
-    if size:
-        s["fontSize"] = {"magnitude": size, "unit": "PT"}; f.append("fontSize")
-    if color:
-        s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}; f.append("foregroundColor")
-    if font:
-        s["fontFamily"] = font; f.append("fontFamily")
-    if link:
-        s["link"] = {"url": link}; f.append("link")
-    if f:
-        reqs.append({
-            "updateTextStyle": {
-                "objectId": oid,
-                "textRange": {"type": "FIXED_RANGE", "startIndex": start, "endIndex": end},
-                "style": s, "fields": ",".join(f),
-            }
-        })
-
-
-def _align(reqs, oid, alignment):
-    reqs.append({
-        "updateParagraphStyle": {
-            "objectId": oid,
-            "textRange": {"type": "ALL"},
-            "style": {"alignment": alignment},
-            "fields": "alignment",
-        }
-    })
-
-
-# Red banner for "data not available" (also recorded in QA for Data Quality slide)
-_BANNER_RED = {"red": 0.9, "green": 0.2, "blue": 0.2}
-
-
-def _red_banner(reqs, oid, sid, x, y, w, h, text):
-    """Create a red rectangle with white bold centered text (data-missing banner)."""
-    reqs.append({
-        "createShape": {
-            "objectId": oid,
-            "shapeType": "ROUND_RECTANGLE",
-            "elementProperties": {"pageObjectId": sid, "size": _sz(w, h), "transform": _tf(x, y)},
-        }
-    })
-    reqs.append({
-        "updateShapeProperties": {
-            "objectId": oid,
-            "shapeProperties": {
-                "shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": _BANNER_RED}}},
-                "outline": {"propertyState": "NOT_RENDERED"},
-            },
-            "fields": "shapeBackgroundFill,outline",
-        }
-    })
-    reqs.append({"insertText": {"objectId": oid, "text": text, "insertionIndex": 0}})
-    _style(reqs, oid, 0, len(text), bold=True, size=12, color=WHITE, font=FONT)
-    _align(reqs, oid, "CENTER")
-
-
-def _missing_data_slide(reqs, sid, report, idx, missing_description):
-    """Render a slide with title + red banner when required data is unavailable; flag for Data Quality."""
-    from .qa import qa
-    entry = report.get("_current_slide") or {}
-    slide_type = entry.get("slide_type", entry.get("id", "slide"))
-    slide_title = entry.get("title", slide_type.replace("_", " ").title())
-
-    report.setdefault("_missing_slide_data", []).append({
-        "slide_type": slide_type,
-        "slide_title": slide_title,
-        "missing": missing_description,
-    })
-    qa.flag(
-        f"Slide \"{slide_title}\": {missing_description} not available",
-        severity="warning",
-        internal=False,
-    )
-
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, LIGHT)
-    _slide_title(reqs, sid, slide_title)
-    banner_text = f"Data not available: {missing_description}"
-    if len(banner_text) > 90:
-        banner_text = banner_text[:87] + "..."
-    _red_banner(reqs, f"{sid}_banner", sid, MARGIN, BODY_Y - 8, CONTENT_W, 28, banner_text)
-    return idx + 1
-
-
-def _internal_footer(reqs, sid):
-    label = "INTERNAL ONLY"
-    fid = f"{sid}_iof"
-    _box(reqs, fid, sid, SLIDE_W - MARGIN - 80, SLIDE_H - 16, 80, 12, label)
-    _style(reqs, fid, 0, len(label), size=6, color=GRAY, font=FONT)
-    reqs.append({
-        "updateParagraphStyle": {
-            "objectId": fid,
-            "textRange": {"type": "ALL"},
-            "style": {"alignment": "END"},
-            "fields": "alignment",
-        }
-    })
-
-
-def _clean_table(reqs, table_id, num_rows, num_cols):
-    """Strip all borders from a table, then add a thin blue header separator."""
-    reqs.append({
-        "updateTableBorderProperties": {
-            "objectId": table_id,
-            "tableRange": {
-                "location": {"rowIndex": 0, "columnIndex": 0},
-                "rowSpan": num_rows, "columnSpan": num_cols,
-            },
-            "borderPosition": "ALL",
-            "tableBorderProperties": {
-                "tableBorderFill": {"solidFill": {"color": {"rgbColor": WHITE}}},
-                "weight": {"magnitude": 0.01, "unit": "PT"},
-                "dashStyle": "SOLID",
-            },
-            "fields": "tableBorderFill,weight,dashStyle",
-        }
-    })
-    reqs.append({
-        "updateTableBorderProperties": {
-            "objectId": table_id,
-            "tableRange": {
-                "location": {"rowIndex": 0, "columnIndex": 0},
-                "rowSpan": 1, "columnSpan": num_cols,
-            },
-            "borderPosition": "BOTTOM",
-            "tableBorderProperties": {
-                "tableBorderFill": {"solidFill": {"color": {"rgbColor": BLUE}}},
-                "weight": {"magnitude": 1, "unit": "PT"},
-                "dashStyle": "SOLID",
-            },
-            "fields": "tableBorderFill,weight,dashStyle",
-        }
-    })
-
-
-def _simple_table(reqs, table_id, sid, x, y, col_widths, row_h, headers, rows):
-    """Create a styled table with headers and data rows.
-
-    Returns the total height consumed so callers can position elements below.
-    """
-    num_rows = 1 + len(rows)
-    num_cols = len(headers)
-    tbl_w = sum(col_widths)
-    reqs.append({
-        "createTable": {
-            "objectId": table_id,
-            "elementProperties": {
-                "pageObjectId": sid,
-                "size": _sz(tbl_w, num_rows * row_h),
-                "transform": _tf(x, y),
-            },
-            "rows": num_rows, "columns": num_cols,
-        }
-    })
-
-    def _ct(row, col, text):
-        if text:
-            reqs.append({"insertText": {
-                "objectId": table_id,
-                "cellLocation": {"rowIndex": row, "columnIndex": col},
-                "text": str(text), "insertionIndex": 0,
-            }})
-
-    def _cs(row, col, length, **kwargs):
-        if length > 0:
-            reqs.append({"updateTextStyle": {
-                "objectId": table_id,
-                "cellLocation": {"rowIndex": row, "columnIndex": col},
-                "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": length},
-                "style": {k: v for k, v in {
-                    "bold": kwargs.get("bold"), "fontSize": {"magnitude": kwargs.get("size", 9), "unit": "PT"},
-                    "foregroundColor": {"opaqueColor": {"rgbColor": kwargs.get("color", NAVY)}} if kwargs.get("color") else None,
-                    "fontFamily": kwargs.get("font", FONT),
-                }.items() if v is not None},
-                "fields": ",".join(f for f in ["bold", "fontSize", "foregroundColor", "fontFamily"] if kwargs.get(f.replace("fontSize", "size").replace("foregroundColor", "color").replace("fontFamily", "font"), None) is not None or f in ("fontSize", "fontFamily")),
-            }})
-
-    for ci, h in enumerate(headers):
-        _ct(0, ci, h)
-        _cs(0, ci, len(str(h)), bold=True, size=9, color=NAVY, font=FONT)
-
-    for ri, row in enumerate(rows):
-        for ci, val in enumerate(row):
-            _ct(ri + 1, ci, str(val))
-            _cs(ri + 1, ci, len(str(val)), size=9, color=NAVY, font=FONT)
-
-    for ci, w in enumerate(col_widths):
-        reqs.append({"updateTableColumnProperties": {
-            "objectId": table_id, "columnIndices": [ci],
-            "tableColumnProperties": {"columnWidth": {"magnitude": w, "unit": "PT"}},
-            "fields": "columnWidth",
-        }})
-
-    _clean_table(reqs, table_id, num_rows, num_cols)
-
-    return num_rows * row_h
-
-
-def _table_cell_bg(reqs, table_id, row, col, color):
-    """Set background color on a single table cell."""
-    reqs.append({"updateTableCellProperties": {
-        "objectId": table_id,
-        "tableRange": {"location": {"rowIndex": row, "columnIndex": col}, "rowSpan": 1, "columnSpan": 1},
-        "tableCellProperties": {"tableCellBackgroundFill": {"solidFill": {"color": {"rgbColor": color}}}},
-        "fields": "tableCellBackgroundFill",
-    }})
-
-
-def _omission_note(reqs, sid, omitted_names: list[str], label: str = "Not shown"):
-    """Add a small italic note near the bottom listing items omitted for space."""
-    if not omitted_names:
-        return
-    names = ", ".join(omitted_names[:8])
-    if len(omitted_names) > 8:
-        names += f", +{len(omitted_names) - 8} more"
-    note = f"{label}: {names}"
-    oid = f"{sid}_omit"
-    _box(reqs, oid, sid, MARGIN, BODY_BOTTOM - 2, CONTENT_W, 14, note)
-    _style(reqs, oid, 0, len(note), size=7, color=GRAY, font=FONT, italic=True)
-
-
-def _slide_title(reqs, sid, text):
-    """Standard content-slide title: navy text + teal underline + internal footer.
-
-    For support or supply_chain_review + single customer, reserves the upper right for the
-    account name (set via ``_set_support_deck_corner_customer``) so the title can omit it.
-    """
-    title_len = len(text or "")
-    if title_len > 100:
-        title_size = 12
-    elif title_len > 85:
-        title_size = 13
-    elif title_len > 72:
-        title_size = 14
-    elif title_len > 60:
-        title_size = 16
-    else:
-        title_size = 20
-    oid = f"{sid}_ttl"
-    corner = _SUPPORT_DECK_CORNER_CUSTOMER
-    corner_w = 200.0
-    title_w = (CONTENT_W - corner_w - 8) if corner else float(CONTENT_W)
-    _box(reqs, oid, sid, MARGIN, TITLE_Y, title_w, 36, text)
-    _style(reqs, oid, 0, len(text), bold=True, size=title_size, color=NAVY, font=FONT_SERIF)
-    _rect(reqs, f"{sid}_ul", sid, MARGIN, TITLE_Y + 38, 56, 2.5, BLUE)
-    if corner:
-        coid = f"{sid}_sdcorner"
-        cx = MARGIN + title_w + 8.0
-        _box(reqs, coid, sid, cx, TITLE_Y, corner_w, 40, corner)
-        _style(reqs, coid, 0, len(corner), size=12, color=NAVY, font=FONT, bold=True)
-        _align(reqs, coid, "END")
-    _internal_footer(reqs, sid)
 
 
 # ── Slide builders ──
