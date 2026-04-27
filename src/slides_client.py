@@ -85,6 +85,7 @@ from .slide_salesforce import (
 from .slide_signals import signals_slide as _signals_slide
 from .slide_sites import sites_slide as _sites_slide
 from .slide_supply_chain import supply_chain_slide as _supply_chain_slide
+from .slide_team import load_teams as _load_teams, team_slide as _team_slide
 from .slide_title_page import title_slide as _title_slide
 from .slide_usage import (
     champions_slide as _champions_slide,
@@ -2054,79 +2055,6 @@ _RED   = {"red": 0.85, "green": 0.15, "blue": 0.15}    # #d92626
 
 
 # ── CS Report slide builders ──
-
-# ── Team roster slide ──
-
-def _load_teams() -> dict[str, Any]:
-    """Load team rosters from teams.yaml (project root)."""
-    import yaml
-    path = Path(__file__).resolve().parent.parent / "teams.yaml"
-    if not path.exists():
-        return {}
-    try:
-        return yaml.safe_load(path.read_text()) or {}
-    except Exception:
-        return {}
-
-
-def _team_slide(reqs, sid, report, idx):
-    _slide(reqs, sid, idx)
-
-    customer = report.get("customer", "Customer")
-    teams = _load_teams()
-    team_data = teams.get(customer, {})
-    cust_members = [m.get("name", "") for m in team_data.get("customer_team", [])]
-    ldna_members = [m.get("name", "") for m in team_data.get("leandna_team", [])]
-
-    if not cust_members and not ldna_members:
-        cust_members = ["(no team roster configured)"]
-        ldna_members = ["(no team roster configured)"]
-
-    # Right panel: blue branded area
-    panel_x = 310
-    panel_w = SLIDE_W - panel_x
-    _rect(reqs, f"{sid}_rpanel", sid, panel_x, 0, panel_w, SLIDE_H, BLUE)
-
-    # Gradient overlay: darker navy strip at right edge
-    _rect(reqs, f"{sid}_rnav", sid, SLIDE_W - 80, 0, 80, SLIDE_H, NAVY)
-
-    # "LeanDNA.com" text on the blue panel
-    brand = "LeanDNA.com"
-    _box(reqs, f"{sid}_brand", sid, panel_x + 40, SLIDE_H - 60, 200, 30, brand)
-    _style(reqs, f"{sid}_brand", 0, len(brand), bold=True, size=16, color=WHITE, font=FONT)
-
-    # Left panel: white background (default), team rosters
-    left_w = panel_x - MARGIN
-    y = 30
-
-    # Customer team header
-    cust_hdr = f"{customer} Team"
-    _box(reqs, f"{sid}_ch", sid, MARGIN, y, left_w, 24, cust_hdr)
-    _style(reqs, f"{sid}_ch", 0, len(cust_hdr), bold=True, size=14, color=BLUE, font=FONT)
-    y += 30
-
-    # Customer team members
-    for i, name in enumerate(cust_members[:12]):
-        _box(reqs, f"{sid}_cm{i}", sid, MARGIN, y, left_w, 16, name)
-        _style(reqs, f"{sid}_cm{i}", 0, len(name), bold=True, size=10, color=NAVY, font=FONT)
-        y += 18
-
-    y += 14
-
-    # LeanDNA team header
-    ldna_hdr = "LeanDNA Team"
-    _box(reqs, f"{sid}_lh", sid, MARGIN, y, left_w, 24, ldna_hdr)
-    _style(reqs, f"{sid}_lh", 0, len(ldna_hdr), bold=True, size=14, color=BLUE, font=FONT)
-    y += 30
-
-    # LeanDNA team members
-    for i, name in enumerate(ldna_members[:12]):
-        _box(reqs, f"{sid}_lm{i}", sid, MARGIN, y, left_w, 16, name)
-        _style(reqs, f"{sid}_lm{i}", 0, len(name), bold=True, size=10, color=NAVY, font=FONT)
-        y += 18
-
-    return idx + 1
-
 
 # ── New slides: SLA Health, Cross-Validation, Engineering Pipeline, Enhancement Requests ──
 
