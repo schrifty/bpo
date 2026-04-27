@@ -142,7 +142,9 @@ def _score_jsm_org_candidate(query: str, organization_name: str) -> float:
 
 
 _JSM_ORG_ALIAS_FILE = Path(__file__).resolve().parent.parent / "jsm_organization_aliases.yaml"
+_COHORTS_FILE = Path(__file__).resolve().parent.parent / "cohorts.yaml"
 _jsm_org_alias_map: dict[str, list[str]] | None = None
+_cohort_customer_alias_map: dict[str, list[str]] | None = None
 
 
 def _load_jsm_org_alias_map() -> dict[str, list[str]]:
@@ -198,6 +200,115 @@ def _merge_jsm_customer_alias_terms(terms: list[str | None]) -> list[str]:
                 seen.add(el)
                 out.append(e)
     return out
+
+
+def _customer_name_variants(name: str) -> list[str]:
+    """Conservative Jira text-search variants for a customer/company label."""
+    raw = (name or "").strip()
+    if not raw:
+        return []
+    out = [raw]
+    # Common legal/geographic suffixes often appear in cohort canonical names but not Jira summaries.
+    trimmed = re.sub(
+        r"\s+(International|Corporation|Corp\.?|Incorporated|Inc\.?|LLC|Ltd\.?|Limited)$",
+        "",
+        raw,
+        flags=re.IGNORECASE,
+    ).strip()
+    if trimmed and len(trimmed) >= 5 and trimmed.lower() != raw.lower():
+        out.append(trimmed)
+    return out
+
+
+def _load_cohort_customer_alias_map() -> dict[str, list[str]]:
+    """Map any cohort key/name/alias to all known terms for Jira customer text searches."""
+    global _cohort_customer_alias_map
+    if _cohort_customer_alias_map is not None:
+        return _cohort_customer_alias_map
+    _cohort_customer_alias_map = {}
+    if not _COHORTS_FILE.is_file():
+        return _cohort_customer_alias_map
+    try:
+        import yaml
+
+        with open(_COHORTS_FILE, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except Exception as e:
+        logger.warning("cohorts aliases: could not load %s: %s", _COHORTS_FILE, e)
+        return _cohort_customer_alias_map
+    customers = data.get("customers") if isinstance(data, dict) else None
+    if not isinstance(customers, dict) and isinstance(data, dict):
+        customers = data.get("cohorts")
+    if not isinstance(customers, dict):
+        return _cohort_customer_alias_map
+    for key, row in customers.items():
+        terms: list[str] = []
+        for t in _customer_name_variants(str(key)):
+            terms.append(t)
+        if isinstance(row, dict):
+            for t in _customer_name_variants(str(row.get("name") or "")):
+                terms.append(t)
+            aliases = row.get("aliases") or []
+            if isinstance(aliases, str):
+                aliases = [aliases]
+            if isinstance(aliases, (list, tuple)):
+                for alias in aliases:
+                    for t in _customer_name_variants(str(alias)):
+                        terms.append(t)
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for t in terms:
+            clean = t.strip()
+            k = clean.lower()
+            if clean and k not in seen:
+                seen.add(k)
+                deduped.append(clean)
+        for t in deduped:
+            _cohort_customer_alias_map[t.lower()] = deduped
+    return _cohort_customer_alias_map
+
+
+def _safe_jira_customer_search_term(term: str) -> bool:
+    """Avoid broad one-word aliases that can over-match Jira text search."""
+    words = [w for w in re.split(r"\s+", (term or "").strip()) if w]
+    if not words:
+        return False
+    # Short account codes (JCI, GE, etc.) are intentional exact customer prefixes.
+    if len(words) == 1 and words[0].isupper():
+        return True
+    # Single natural-language words like "Johnson" are too broad for Jira summary/description search.
+    if len(words) == 1:
+        return False
+    return True
+
+
+def jira_customer_search_terms(customer_name: str) -> list[str]:
+    """Customer terms for Jira text fields, expanded via cohorts.yaml when available."""
+    base = [t for t in _customer_name_variants(customer_name) if t.strip()]
+    aliases = _load_cohort_customer_alias_map().get((customer_name or "").strip().lower(), [])
+    out: list[str] = []
+    seen: set[str] = set()
+    for t in base + aliases:
+        clean = t.strip()
+        k = clean.lower()
+        if clean and k not in seen and _safe_jira_customer_search_term(clean):
+            seen.add(k)
+            out.append(clean)
+    return out
+
+
+def _jql_text_match_any(fields: tuple[str, ...], terms: list[str]) -> str:
+    clauses: list[str] = []
+    for term in terms:
+        safe = _jql_escape_string(term)
+        for field in fields:
+            clauses.append(f'{field} ~ "{safe}"')
+    return "(" + " OR ".join(clauses) + ")" if clauses else "(summary ~ \"\")"
+
+
+def _jql_in_quoted_values(field: str, terms: list[str]) -> str:
+    vals = ", ".join(f'"{_jql_escape_string(t)}"' for t in terms if t.strip())
+    return f'{field} in ({vals})' if vals else f'{field} in ("")'
 
 
 def _fuzzy_pick_jsm_organizations(queries: list[str], candidates: list[str]) -> list[str]:
@@ -988,7 +1099,6 @@ class JiraClient:
         per-customer counts are not inflated by other orgs' tickets.
         """
         jql_start = self._jql_log_len()
-        safe_name = _jql_escape_string(customer_name)
         base_filter, resolved_jsm_orgs = self._help_project_customer_filter(customer_name)
         jql = f"project = HELP AND {base_filter} AND {_TRANSIENT_LABELS_EXCLUSION} AND created >= -{days}d ORDER BY created DESC"
         clause_bundle = (base_filter, resolved_jsm_orgs)
@@ -1027,8 +1137,8 @@ class JiraClient:
             with ThreadPoolExecutor(max_workers=_JIRA_PARALLEL_WORKERS) as pool:
                 f_body = pool.submit(_fetch_help_body)
                 f_met = pool.submit(_safe_metrics)
-                f_eng = pool.submit(self._get_engineering_tickets, safe_name)
-                f_er = pool.submit(self._get_enhancement_requests, safe_name)
+                f_eng = pool.submit(self._get_engineering_tickets, customer_name)
+                f_er = pool.submit(self._get_enhancement_requests, customer_name)
                 customer_ticket_metrics = f_met.result()
                 try:
                     eng = f_eng.result()
@@ -2410,14 +2520,16 @@ class JiraClient:
             "jql_queries": self._jql_since(jql_start),
         }
 
-    def _get_engineering_tickets(self, safe_name: str) -> dict[str, Any]:
+    def _get_engineering_tickets(self, customer_name: str) -> dict[str, Any]:
         """Fetch LEAN project tickets that reference a customer.
 
         Returns open/recent-closed tickets relevant to engineering work
         affecting this customer — useful for CS to know what's in flight.
         """
+        terms = jira_customer_search_terms(customer_name)
+        text_filter = _jql_text_match_any(("summary", "description"), terms)
         jql = (
-            f'project = LEAN AND (summary ~ "{safe_name}" OR description ~ "{safe_name}")'
+            f"project = LEAN AND {text_filter}"
             f" ORDER BY updated DESC"
         )
         try:
@@ -2427,7 +2539,7 @@ class JiraClient:
                 data_description="LEAN issues mentioning customer (engineering pipeline)",
             )
         except Exception as e:
-            logger.warning("LEAN search failed for %s: %s", safe_name, e)
+            logger.warning("LEAN search failed for %s: %s", customer_name, e)
             return {"total": 0, "open": [], "recent_closed": []}
 
         issues = [self._normalize_issue(i) for i in raw]
@@ -2467,15 +2579,17 @@ class JiraClient:
             "recent_closed": closed_fmted,
         }
 
-    def _get_enhancement_requests(self, safe_name: str) -> dict[str, Any]:
+    def _get_enhancement_requests(self, customer_name: str) -> dict[str, Any]:
         """Fetch ER project tickets for a customer.
 
         Returns open and recently shipped enhancement requests — shows
         the customer that their feedback drives product improvements.
         """
+        terms = jira_customer_search_terms(customer_name)
+        text_filter = _jql_text_match_any(("summary", "description"), terms)
+        customer_filter = _jql_in_quoted_values('"Customer"', terms)
         jql = (
-            f'project = ER AND (summary ~ "{safe_name}" OR description ~ "{safe_name}"'
-            f' OR "Customer" in ("{safe_name}"))'
+            f"project = ER AND ({text_filter} OR {customer_filter})"
             f" ORDER BY updated DESC"
         )
         try:
@@ -2485,7 +2599,7 @@ class JiraClient:
                 data_description="ER enhancement requests for customer",
             )
         except Exception as e:
-            logger.warning("ER search failed for %s: %s", safe_name, e)
+            logger.warning("ER search failed for %s: %s", customer_name, e)
             return {"total": 0, "open": [], "shipped": []}
 
         issues = [self._normalize_issue(i) for i in raw]

@@ -308,24 +308,24 @@ def test_build_data_summary_sites_capped():
 
 def test_detect_customer_match_in_list():
     """Customer name in title is matched from known list."""
-    known = ["Safran", "Bombardier"]
-    assert evaluate._detect_customer("Safran QBR 2025", known) == "Safran"
-    assert evaluate._detect_customer("Bombardier — Review", known) == "Bombardier"
+    known = ["ExampleCo", "Sample Industries"]
+    assert evaluate._detect_customer("ExampleCo QBR 2025", known) == "ExampleCo"
+    assert evaluate._detect_customer("Sample Industries — Review", known) == "Sample Industries"
 
 
 def test_detect_customer_company_name_excluded():
     """LeanDNA/Leandna is never chosen as customer when another candidate exists."""
-    known = ["Safran", "Leandna"]
-    # "Safran & Leandna" should return Safran (company name excluded from candidates)
-    assert evaluate._detect_customer("Safran & Leandna", known) == "Safran"
+    known = ["ExampleCo", "Leandna"]
+    # "ExampleCo & Leandna" should return ExampleCo (company name excluded from candidates)
+    assert evaluate._detect_customer("ExampleCo & Leandna", known) == "ExampleCo"
 
 
 def test_detect_customer_longest_match():
-    """Longest matching candidate is preferred (e.g. 'Safran Aerospace' vs 'Safran')."""
-    known = ["Safran", "Safran Aerospace"]
-    # sorted by len reverse: "Safran Aerospace" first, then "Safran"
-    # "Safran Aerospace QBR" matches "safran aerospace" first
-    assert evaluate._detect_customer("Safran Aerospace QBR", known) == "Safran Aerospace"
+    """Longest matching candidate is preferred (e.g. 'Example Aerospace' vs 'Example')."""
+    known = ["Example", "Example Aerospace"]
+    # sorted by len reverse: "Example Aerospace" first, then "Example"
+    # "Example Aerospace QBR" matches "example aerospace" first
+    assert evaluate._detect_customer("Example Aerospace QBR", known) == "Example Aerospace"
 
 
 # ── _resolve_data_ask_to_replacements (broad analysis) ────────────────────────

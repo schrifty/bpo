@@ -28,7 +28,3 @@ def test_customer_is_excluded_from_portfolio_env_extra():
         assert customer_is_excluded_from_portfolio("FooBar") is True
         assert customer_is_excluded_from_portfolio("Baz") is True
         assert customer_is_excluded_from_portfolio("NotListed") is False
-
-
-def test_customer_is_excluded_from_portfolio_real_customer_not_excluded():
-    assert customer_is_excluded_from_portfolio("Safran") is False

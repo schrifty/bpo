@@ -5,6 +5,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from src.deck_loader import resolve_deck
+from src.jira_client import JiraClient, jira_customer_search_terms
 from src.salesforce_client import (
     MAINSTREAM_OBJECT_FALLBACK_FIELDS,
     SalesforceClient,
@@ -503,7 +504,7 @@ def test_relationship_json_key_for_lookup_custom_field():
 
 
 def test_customer_name_matches_entity_account_parent_and_ultimate():
-    needle = "BOMBARDIER"
+    needle = "EXAMPLE"
     base = {
         "Name": "Other",
         "LeanDNA_Entity_Name__c": "",
@@ -513,9 +514,51 @@ def test_customer_name_matches_entity_account_parent_and_ultimate():
     assert not _customer_name_matches_entity_account(needle, base)
     assert _customer_name_matches_entity_account(
         needle,
-        {**base, "parent_name": "Bombardier Inc. Subsidiary"},
+        {**base, "parent_name": "Example Holdings Subsidiary"},
     )
     assert _customer_name_matches_entity_account(
         needle,
-        {**base, "ultimate_parent_name": "Bombardier Aerospace"},
+        {**base, "ultimate_parent_name": "Example Aerospace"},
     )
+
+
+def test_jira_customer_search_terms_include_safe_cohort_aliases():
+    with patch(
+        "src.jira_client._load_cohort_customer_alias_map",
+        return_value={
+            "abc": [
+                "ABC",
+                "Example Manufacturing International",
+                "Example Manufacturing",
+                "Example",
+            ]
+        },
+    ):
+        terms = jira_customer_search_terms("ABC")
+    assert "ABC" in terms
+    assert "Example Manufacturing International" in terms
+    assert "Example Manufacturing" in terms
+    assert "Example" not in terms
+
+
+def test_jira_engineering_search_uses_safe_cohort_aliases():
+    client = JiraClient()
+    captured: list[str] = []
+
+    def fake_search(jql: str, **_kwargs):
+        captured.append(jql)
+        return []
+
+    with patch(
+        "src.jira_client.jira_customer_search_terms",
+        return_value=["ABC", "Example Manufacturing International", "Example Manufacturing"],
+    ):
+        with patch.object(client, "_search", side_effect=fake_search):
+            out = client._get_engineering_tickets("ABC")
+
+    assert out["total"] == 0
+    assert captured
+    jql = captured[0]
+    assert 'summary ~ "ABC"' in jql
+    assert 'summary ~ "Example Manufacturing International"' in jql
+    assert 'summary ~ "Example Manufacturing"' in jql
