@@ -1,0 +1,13 @@
+---
+description: Keep Python module boundaries stable and refactor-friendly
+globs: **/*.py
+alwaysApply: false
+---
+
+# Python Module Boundaries
+
+- Do not add new cross-module imports of underscore-prefixed helpers (for example, `from .foo import _bar`) unless there is no reasonable public API and the change is narrowly scoped.
+- When a private helper is needed from another module, prefer first promoting a small public wrapper with a clear name and docstring.
+- Avoid expanding `slides_client.py` and `evaluate.py` with unrelated responsibilities. Prefer extracting cohesive helpers into smaller modules with explicit public functions.
+- Keep integration clients, slide rendering, hydrate reasoning, hydrate application, and speaker-note generation separated when adding new code.
+- For module-level caches or one-shot flags, add or update a `reset_for_tests()` helper so tests can run in isolation.

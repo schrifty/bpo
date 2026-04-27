@@ -329,6 +329,15 @@ def hydrate_hints_by_slide_id(slides_dir: str | Path | None = None) -> dict[str,
     return out
 
 
+def reset_for_tests() -> None:
+    """Clear slide definition metadata caches that can leak across tests."""
+    cohort_findings_rollup_params.cache_clear()
+    cohort_findings_metadata.cache_clear()
+    benchmarks_min_peers_for_cohort_median.cache_clear()
+    cohort_profiles_max_physical_slides.cache_clear()
+    hydrate_hints_by_slide_id.cache_clear()
+
+
 def get_slide_prompts(
     customer: str,
     slides_dir: str | Path | None = None,

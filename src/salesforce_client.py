@@ -42,6 +42,11 @@ def clear_salesforce_read_cache() -> None:
         _sf_read_cache.clear()
 
 
+def reset_for_tests() -> None:
+    """Reset module-level Salesforce state that can leak between tests."""
+    clear_salesforce_read_cache()
+
+
 def _sf_cache_key(kind: str, payload: str) -> str:
     return f"sf:{kind}:{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
 

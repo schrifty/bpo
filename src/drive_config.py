@@ -484,6 +484,16 @@ def clear_yaml_config_cache() -> None:
         pass
 
 
+def reset_for_tests() -> None:
+    """Reset Drive-backed module caches and one-shot sync guards for test isolation."""
+    global _drive_repo_sync_ran, _qbr_adapt_prompt_sync_ran
+    clear_yaml_config_cache()
+    with _drive_yaml_duplicate_log_lock:
+        _drive_yaml_duplicate_signatures_warned.clear()
+    _drive_repo_sync_ran = False
+    _qbr_adapt_prompt_sync_ran = False
+
+
 def list_obsolete_drive_config(
     decks_dir: str | Path | None = None,
     slides_dir: str | Path | None = None,

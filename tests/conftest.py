@@ -15,10 +15,16 @@ if str(_root) not in sys.path:
 
 
 @pytest.fixture(autouse=True)
-def _isolated_salesforce_read_cache():
-    """Module-level SF read cache must not leak mocked responses between tests."""
-    from src.salesforce_client import clear_salesforce_read_cache
+def _isolated_process_caches():
+    """Module-level integration/config caches must not leak mocked responses between tests."""
+    from src import drive_config, evaluate, salesforce_client, slide_loader
 
-    clear_salesforce_read_cache()
+    salesforce_client.reset_for_tests()
+    drive_config.reset_for_tests()
+    slide_loader.reset_for_tests()
+    evaluate.reset_for_tests()
     yield
-    clear_salesforce_read_cache()
+    salesforce_client.reset_for_tests()
+    drive_config.reset_for_tests()
+    slide_loader.reset_for_tests()
+    evaluate.reset_for_tests()

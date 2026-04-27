@@ -1918,6 +1918,12 @@ def _load_adapt_system_prompt_template() -> str:
     )
 
 
+def reset_for_tests() -> None:
+    """Clear hydrate/adapt process caches that can leak across tests."""
+    _load_adapt_template_slide_rule.cache_clear()
+    _load_adapt_system_prompt_template.cache_clear()
+
+
 def _element_may_contain_data(el: dict) -> bool:
     """Return True if this element is worth sending to GPT for data replacement.
 
