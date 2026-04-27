@@ -26,6 +26,7 @@ Thumbs.db
 
 # Generated deck artifacts
 decks/thumbnails/
+slides/qbr-template-authoring-cues.yaml
 
 # Hydrate / field-matching audit (see src/matching_log.py)
 matching.log
