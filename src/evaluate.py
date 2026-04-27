@@ -45,6 +45,7 @@ from .data_field_synonyms import (
 )
 from .drive_config import assert_qbr_prompts_ready_or_raise
 from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
+from . import matching_log
 from .slide_loader import get_slide_definition
 from .slides_client import (
     SLIDE_DATA_REQUIREMENTS,
@@ -198,7 +199,34 @@ def _set_cached_adapt(cache_key: str, replacements: list[dict]) -> None:
     (d / f"{cache_key}.json").write_text(json.dumps(out, indent=0, default=str), encoding="utf-8")
 
 
-def _resolve_cached_replacements(cached: list[dict], data_summary: dict) -> list[dict]:
+def _log_slide_pipeline_done(slide_ref: str, src: str, replacements: list[dict]) -> None:
+    """One summary line (JSON) per slide after LLM + synonym + sanitizers: counts + unmapped samples."""
+    if not matching_log.enabled():
+        return
+    n_map = sum(1 for r in replacements if r.get("mapped", True))
+    unmapped = [r for r in replacements if not r.get("mapped", True)]
+    unmapped_details = [
+        {
+            "original": (r.get("original") or "")[:200],
+            "field": (r.get("field") or "")[:160],
+            "new_value": (r.get("new_value") or "")[:120],
+        }
+        for r in unmapped[:24]
+    ]
+    matching_log.emit(
+        "slide_pipeline_summary",
+        slide_ref=slide_ref,
+        pipeline_source=src,
+        total_rows=len(replacements),
+        mapped_count=n_map,
+        unmapped_count=len(unmapped),
+        unmapped_rows_sample=unmapped_details,
+    )
+
+
+def _resolve_cached_replacements(
+    cached: list[dict], data_summary: dict, *, slide_ref: str = ""
+) -> list[dict]:
     """For cached replacements with mapped=true, set new_value from current data_summary.
     Tries to preserve format (e.g. "31 sites" -> "14 sites") when original has a trailing suffix.
     Supports dotted paths (e.g. ``platform_value.total_savings``).
@@ -220,6 +248,24 @@ def _resolve_cached_replacements(cached: list[dict], data_summary: dict) -> list
                     m = _re.match(r"^[\d.,\s$€£%]+", orig)
                     suffix = (orig[m.end():].strip() if m else "").strip()
                     r["new_value"] = f"{raw} {suffix}".strip() if suffix else raw
+                if matching_log.enabled():
+                    matching_log.emit(
+                        "cache_refresh_row",
+                        slide_ref=slide_ref,
+                        field=key,
+                        path_exists=True,
+                        original=(str(r.get("original", "")) or "")[:200],
+                        new_value=(r.get("new_value") or "")[:200],
+                    )
+            else:
+                if matching_log.enabled():
+                    matching_log.emit(
+                        "cache_row_path_missing",
+                        slide_ref=slide_ref,
+                        field=key,
+                        path_exists=False,
+                        original=(str(r.get("original", "")) or "")[:200],
+                    )
         out.append(r)
     return out
 
@@ -407,8 +453,13 @@ def _analyze_slide_broad(client, text: str, elements: dict, thumb_b64: str | Non
     assert False, "_analyze_slide_broad: unreachable"  # noqa: B011
 
 
-def _resolve_data_ask_to_replacements(data_ask: list[dict], data_summary: dict,
-                                       text_elements: list[dict]) -> list[dict]:
+def _resolve_data_ask_to_replacements(
+    data_ask: list[dict],
+    data_summary: dict,
+    text_elements: list[dict],
+    *,
+    slide_ref: str = "",
+) -> list[dict]:
     """Turn cached data_ask into replacement list using current data_summary and slide text.
 
     Matches data_ask items to text_elements by example_from_slide; resolves key to value from data_summary.
@@ -422,9 +473,24 @@ def _resolve_data_ask_to_replacements(data_ask: list[dict], data_summary: dict,
         key = (item.get("key") or "").strip().replace(" ", "_").replace("-", "_").lower()
         example = (item.get("example_from_slide") or "").strip()
         if not key:
+            if matching_log.enabled():
+                matching_log.emit(
+                    "data_ask_skip",
+                    slide_ref=slide_ref,
+                    reason="empty_key",
+                    item_key_snippet=repr(item)[:300],
+                )
             continue
         # Special keys: visual elements we cannot replace with data
         if key in ("_embedded_chart", "_embedded_image") or key.startswith("_embedded"):
+            if matching_log.enabled():
+                matching_log.emit(
+                    "data_ask_embedded_visual",
+                    slide_ref=slide_ref,
+                    key=key,
+                    example=(example or "")[:200],
+                    decision="static_visual_unmapped",
+                )
             replacements.append({
                 "original": example or f"({key})",
                 "new_value": "[CHART — data cannot be auto-updated]" if "chart" in key else "[STATIC IMAGE — contains data that cannot be auto-updated]",
@@ -453,6 +519,17 @@ def _resolve_data_ask_to_replacements(data_ask: list[dict], data_summary: dict,
                 m = _re.match(r"^[\d.,\s$€£%]+", original or "")
                 suffix = (original[m.end():].strip() if m and original else "").strip()
                 new_value = f"{raw} {suffix}".strip() if suffix else raw
+            if matching_log.enabled():
+                matching_log.emit(
+                    "data_ask_resolved",
+                    slide_ref=slide_ref,
+                    data_ask_key=key,
+                    path_exists=True,
+                    value_kind="container" if isinstance(val, (list, dict)) else "scalar",
+                    example_from_slide=(example or "")[:200],
+                    match_original=(str(original) if original else "")[:200],
+                    new_value=(new_value or "")[:200],
+                )
             replacements.append({
                 "original": original or example or key,
                 "new_value": new_value,
@@ -460,6 +537,16 @@ def _resolve_data_ask_to_replacements(data_ask: list[dict], data_summary: dict,
                 "field": key,
             })
         else:
+            if matching_log.enabled():
+                matching_log.emit(
+                    "data_ask_unmapped",
+                    slide_ref=slide_ref,
+                    data_ask_key=key,
+                    path_exists=False,
+                    decision="no_such_path_in_data_summary",
+                    example_from_slide=(example or "")[:200],
+                    match_original=(str(original) if original else "")[:200],
+                )
             # No current source for this key — generic on-slide placeholder (details in speaker notes)
             if original or example:
                 replacements.append({
@@ -1923,6 +2010,8 @@ def _adapt_placeholder_for_percent_mismatch(original: str) -> str:
 def _sanitize_adapt_replacements_percent_semantics(
     replacements: list[dict],
     text_elements: list[dict] | None,
+    *,
+    slide_ref: str = "",
 ) -> list[dict]:
     """Demote mapped rows where the slide shows a percent but new_value lost % (synonym/LLM bug)."""
     out: list[dict] = []
@@ -1949,6 +2038,15 @@ def _sanitize_adapt_replacements_percent_semantics(
             nv[:120],
         )
         field = str(r.get("field") or "")
+        if matching_log.enabled():
+            matching_log.emit(
+                "sanitize_percent_demote",
+                slide_ref=slide_ref,
+                original=orig[:200],
+                new_value=nv[:200],
+                field=field[:200],
+                reason="percent_context_but_new_value_missing_percent",
+            )
         out.append({
             "original": orig,
             "new_value": _adapt_placeholder_for_percent_mismatch(orig),
@@ -1998,7 +2096,9 @@ def _adapt_placeholder_for_years_context(original: str) -> str:
     return "[000]"
 
 
-def _sanitize_adapt_replacements_plausible_years(replacements: list[dict]) -> list[dict]:
+def _sanitize_adapt_replacements_plausible_years(
+    replacements: list[dict], *, slide_ref: str = ""
+) -> list[dict]:
     """Demote absurd \"years\" values (e.g. minutes/hours mistaken for years)."""
     out: list[dict] = []
     for r in replacements:
@@ -2025,6 +2125,16 @@ def _sanitize_adapt_replacements_plausible_years(replacements: list[dict]) -> li
                 nv[:120],
                 field[:120],
             )
+            if matching_log.enabled():
+                matching_log.emit(
+                    "sanitize_years_demote",
+                    slide_ref=slide_ref,
+                    original=orig[:200],
+                    new_value=nv[:200],
+                    field=field[:200],
+                    parsed_number=n,
+                    reason="abs_gt_150_or_time_unit_mismatch" if abs_n > 150 else "wrong_time_unit",
+                )
             out.append({
                 "original": orig,
                 "new_value": _adapt_placeholder_for_years_context(orig),
@@ -2143,6 +2253,23 @@ def _get_data_replacements(oai, text_elements: list[dict], data_summary: dict,
             )
         repl = _dedupe_replacements_by_original(_normalize_adapt_replacements(first + second))
 
+    if matching_log.enabled():
+        if not repl:
+            matching_log.emit(
+                "llm_no_replacements",
+                slide=slide_label,
+                num_candidate_elements=len(filtered),
+            )
+        else:
+            for r in repl:
+                matching_log.emit(
+                    "llm_mapping_row",
+                    slide=slide_label,
+                    original=(r.get("original") or "")[:300],
+                    new_value=(r.get("new_value") or "")[:300],
+                    mapped=bool(r.get("mapped", True)),
+                    field=(r.get("field") or "")[:200],
+                )
     return repl
 
 
@@ -3569,6 +3696,7 @@ def adapt_custom_slides(
     _ADAPT_OVERSIZE_WARN_EMITTED = False
     run_start = run_started_at or datetime.datetime.now(datetime.timezone.utc)
     data_summary = _build_data_summary(report)
+    t_adapt0 = time.perf_counter()
     stats = {
         "adapted": 0,
         "incomplete": 0,
@@ -3615,6 +3743,8 @@ def adapt_custom_slides(
                 logger.warning("hydrate: adapt slide %s thumbnail URL failed: %s", slide_num, e)
                 thumb_urls[page_id] = None
 
+    preflight_s = time.perf_counter() - t_adapt0
+
     def _fetch_and_reason(page_id: str) -> tuple[str, list[dict], list[dict], str, dict | None]:
         """Returns (page_id, text_elements, replacements, cache_source, analysis_or_none).
 
@@ -3623,9 +3753,17 @@ def adapt_custom_slides(
         """
         slide = slides_by_id.get(page_id)
         if not slide:
+            if matching_log.enabled():
+                sn = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
+                matching_log.emit(
+                    "slide_skip", slide_ref=str(sn), reason="slide_object_not_in_presentation"
+                )
             return page_id, [], [], "empty", None
         text_elements = _extract_slide_text_elements(slide.get("pageElements", []))
         if not text_elements:
+            if matching_log.enabled():
+                sn = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
+                matching_log.emit("slide_skip", slide_ref=str(sn), reason="no_text_elements")
             return page_id, [], [], "empty", None
         slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
         extra_agenda = _qbr_agenda_adapt_extra_rules(report, text_elements)
@@ -3645,16 +3783,22 @@ def adapt_custom_slides(
                 logger.debug("hydrate: adapt slide %s — analysis cache hit (resolving data ask)",
                              slide_num)
                 replacements = _resolve_data_ask_to_replacements(
-                    analysis["data_ask"], data_summary, text_elements
+                    analysis["data_ask"],
+                    data_summary,
+                    text_elements,
+                    slide_ref=str(slide_num),
                 )
                 replacements = apply_synonym_resolution_to_replacements(
-                    replacements, text_elements, data_summary
+                    replacements, text_elements, data_summary, slide_ref=str(slide_num)
                 )
-                replacements = _sanitize_adapt_replacements_plausible_years(replacements)
+                replacements = _sanitize_adapt_replacements_plausible_years(
+                    replacements, slide_ref=str(slide_num)
+                )
                 replacements = _sanitize_adapt_replacements_percent_semantics(
-                    replacements, text_elements
+                    replacements, text_elements, slide_ref=str(slide_num)
                 )
                 replacements = _ensure_charts_and_images_marked(text_elements, replacements)
+                _log_slide_pipeline_done(str(slide_num), "analysis_hit", replacements)
                 return page_id, text_elements, replacements, "analysis_hit", analysis
             if adapt_cache_key is not None and not (extra_agenda or "").strip():
                 cached = _get_cached_adapt(adapt_cache_key)
@@ -3662,15 +3806,20 @@ def adapt_custom_slides(
                 cached = None
             if cached is not None:
                 logger.debug("hydrate: adapt slide %s — adapt cache hit", slide_num)
-                replacements = _resolve_cached_replacements(cached, data_summary)
-                replacements = apply_synonym_resolution_to_replacements(
-                    replacements, text_elements, data_summary
+                replacements = _resolve_cached_replacements(
+                    cached, data_summary, slide_ref=str(slide_num)
                 )
-                replacements = _sanitize_adapt_replacements_plausible_years(replacements)
+                replacements = apply_synonym_resolution_to_replacements(
+                    replacements, text_elements, data_summary, slide_ref=str(slide_num)
+                )
+                replacements = _sanitize_adapt_replacements_plausible_years(
+                    replacements, slide_ref=str(slide_num)
+                )
                 replacements = _sanitize_adapt_replacements_percent_semantics(
-                    replacements, text_elements
+                    replacements, text_elements, slide_ref=str(slide_num)
                 )
                 replacements = _ensure_charts_and_images_marked(text_elements, replacements)
+                _log_slide_pipeline_done(str(slide_num), "adapt_hit", replacements)
                 return page_id, text_elements, replacements, "adapt_hit", analysis
         n_total = len(text_elements)
         n_data = sum(1 for el in text_elements if _element_may_contain_data(el))
@@ -3685,19 +3834,25 @@ def adapt_custom_slides(
             extra_system_rules=extra_agenda,
         )
         replacements = apply_synonym_resolution_to_replacements(
-            replacements, text_elements, data_summary
+            replacements, text_elements, data_summary, slide_ref=str(slide_num)
         )
-        replacements = _sanitize_adapt_replacements_plausible_years(replacements)
-        replacements = _sanitize_adapt_replacements_percent_semantics(replacements, text_elements)
+        replacements = _sanitize_adapt_replacements_plausible_years(
+            replacements, slide_ref=str(slide_num)
+        )
+        replacements = _sanitize_adapt_replacements_percent_semantics(
+            replacements, text_elements, slide_ref=str(slide_num)
+        )
         replacements = _ensure_charts_and_images_marked(text_elements, replacements)
         if adapt_cache_key and replacements and not (extra_agenda or "").strip():
             _set_cached_adapt(adapt_cache_key, replacements)
         if slide_cache_key and not analysis:
             analysis = _get_cached_slide_analysis(slide_cache_key)
+        _log_slide_pipeline_done(str(slide_num), "llm", replacements)
         return page_id, text_elements, replacements, "llm", analysis
 
     results: dict[str, tuple[list[dict], list[dict], dict | None]] = {}
     adapt_cache_counts: dict[str, int] = {}
+    t_a0 = time.perf_counter()
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(_fetch_and_reason, pid): pid for pid in page_ids}
         for fut in as_completed(futures):
@@ -3711,9 +3866,11 @@ def adapt_custom_slides(
                 logger.warning("hydrate: slide %s — fetch/GPT reasoning failed: %s", sn, e)
                 adapt_cache_counts["error"] = adapt_cache_counts.get("error", 0) + 1
                 results[pid] = ([], [], None)
+    phase_a_s = time.perf_counter() - t_a0
 
     # ── Phase B: sequential Slides API writes — clear per-slide notes; summary at end ─
     notes_updates: list[tuple[str, str]] = []
+    t_b0 = time.perf_counter()
     for page_id in page_ids:
         text_elements, replacements, analysis = results.get(page_id, ([], [], None))
         replacements = _merge_qbr_agenda_title_replacements(text_elements, replacements, report)
@@ -3823,10 +3980,15 @@ def adapt_custom_slides(
             )
         )
 
+    phase_b_slides_s = time.perf_counter() - t_b0
+
+    t_n0 = time.perf_counter()
     if notes_updates:
         n = set_speaker_notes_batch(slides_svc, pres_id, notes_updates)
         logger.info("hydrate: wrote speaker notes for %d/%d slides in single batchUpdate", n, len(notes_updates))
+    speaker_notes_s = time.perf_counter() - t_n0
 
+    t_tail0 = time.perf_counter()
     run_end = datetime.datetime.now(datetime.timezone.utc)
     src_label = (source_presentation_name or pres_id or "(unknown)")[:200]
 
@@ -3941,6 +4103,31 @@ def adapt_custom_slides(
             _cache_hit_rate_line("served_from_cache", cache_served, n_pages),
             ah, adh, llm_n, empty_n, err_n,
         )
+    tail_s = time.perf_counter() - t_tail0
+    total_adapt_s = time.perf_counter() - t_adapt0
+    stats["timing"] = {
+        "preflight_pres_and_thumb_urls_s": round(preflight_s, 3),
+        "phase_a_parallel_gpt_s": round(phase_a_s, 3),
+        "phase_b_sequential_slides_api_s": round(phase_b_slides_s, 3),
+        "speaker_notes_batch_s": round(speaker_notes_s, 3),
+        "tail_summary_slide_and_stats_s": round(tail_s, 3),
+        "total_adapt_s": round(total_adapt_s, 3),
+    }
+    _den = max(total_adapt_s, 0.01)
+    logger.info(
+        "hydrate: adapt wall time — total=%.1fs (preflight=%.1fs, phase_A_parallel_gpt=%.1fs, "
+        "phase_B_slides=%.1fs, speaker_notes=%.1fs, tail_summary+stats=%.1fs) — as %% of total: %s",
+        total_adapt_s,
+        preflight_s,
+        phase_a_s,
+        phase_b_slides_s,
+        speaker_notes_s,
+        tail_s,
+        "/".join(
+            f"{(x / _den) * 100.0:.0f}%"
+            for x in (preflight_s, phase_a_s, phase_b_slides_s, speaker_notes_s, tail_s)
+        ),
+    )
     return stats
 
 

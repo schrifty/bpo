@@ -9,6 +9,8 @@ Read responses (SOQL record lists, global sObject describe, COUNT totals) are ca
 in-process for ``BPO_SALESFORCE_CACHE_TTL_HOURS`` (default 48). JWT tokens are not cached here.
 """
 
+from __future__ import annotations
+
 import copy
 import hashlib
 import threading

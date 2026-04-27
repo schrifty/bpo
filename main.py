@@ -58,6 +58,28 @@ def main() -> None:
                     f"  [{label}] no URL in result (unexpected — see bpo logs for this companion)",
                     flush=True,
                 )
+        qt = result.get("qbr_timing_seconds") or {}
+        if qt:
+            top = sorted(
+                ((k, v) for k, v in qt.items() if k != "total_elapsed_s" and isinstance(v, (int, float))),
+                key=lambda x: -x[1],
+            )[:12]
+            parts = [f"{k}={v:.0f}s" for k, v in top if v >= 0.5]
+            if parts:
+                print("Time (QBR phases, top): " + ", ".join(parts), flush=True)
+        ha = (result.get("hydrate_adapt_stats") or {}).get("timing") or {}
+        if ha:
+            def _f(key: str) -> float:
+                v = ha.get(key)
+                return float(v) if v is not None else 0.0
+
+            print(
+                f"Time (main deck adapt): preflight={_f('preflight_pres_and_thumb_urls_s'):.0f}s "
+                f"phase_A_LLM={_f('phase_a_parallel_gpt_s'):.0f}s phase_B_Slides={_f('phase_b_sequential_slides_api_s'):.0f}s "
+                f"notes={_f('speaker_notes_batch_s'):.0f}s tail={_f('tail_summary_slide_and_stats_s'):.0f}s "
+                f"total={_f('total_adapt_s'):.0f}s",
+                flush=True,
+            )
         elapsed = _time.monotonic() - _qbr_t0
         mins, secs = divmod(int(elapsed), 60)
         logger.info("QBR complete in %dm %02ds", mins, secs)

@@ -545,11 +545,16 @@ def run_qbr_agenda_visual_refinement_loop(
             slide_label=f"qbr-agenda-refine-{refinements_used}",
             extra_system_rules=extra,
         )
+        _slab = f"qbr-agenda-refine-{refinements_used}"
         replacements = apply_synonym_resolution_to_replacements(
-            replacements, text_elements, data_summary
+            replacements, text_elements, data_summary, slide_ref=_slab
         )
-        replacements = _sanitize_adapt_replacements_plausible_years(replacements)
-        replacements = _sanitize_adapt_replacements_percent_semantics(replacements, text_elements)
+        replacements = _sanitize_adapt_replacements_plausible_years(
+            replacements, slide_ref=_slab
+        )
+        replacements = _sanitize_adapt_replacements_percent_semantics(
+            replacements, text_elements, slide_ref=_slab
+        )
         replacements = _ensure_charts_and_images_marked(text_elements, replacements)
         replacements = _merge_qbr_agenda_title_replacements(text_elements, replacements, report)
 

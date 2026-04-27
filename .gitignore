@@ -27,6 +27,9 @@ Thumbs.db
 # Generated deck artifacts
 decks/thumbnails/
 
+# Hydrate / field-matching audit (see src/matching_log.py)
+matching.log
+
 # Slide analysis cache (classification / adapt) — avoid re-calling LLM for same slide
 .slide_cache/
 

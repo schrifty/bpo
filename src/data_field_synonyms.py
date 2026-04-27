@@ -14,6 +14,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from . import matching_log
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_CONFIG = _REPO_ROOT / "config" / "data_field_synonyms.json"
 
@@ -27,6 +29,11 @@ _SYNONYM_TRIGGER_PLACEHOLDERS = frozenset(
 _cache_rows: list[tuple[int, str, str, str]] | None = None
 _cache_key: object | None = None
 _default_synonym_load_lock = threading.Lock()
+
+
+def _clip_for_log(s: str, n: int = 400) -> str:
+    t = (s or "").replace("\n", " ")
+    return t if len(t) <= n else t[: n - 1] + "…"
 
 
 def _normalize_context(s: str) -> str:
@@ -221,12 +228,73 @@ def try_resolve_phrase_in_text(
     return None
 
 
+def synonym_scan_diagnostics(
+    haystack: str,
+    data_summary: dict[str, Any],
+    *,
+    config_path: Path | None = None,
+) -> dict[str, Any]:
+    """Explain why :func:`try_resolve_phrase_in_text` may return None: phrase overlap vs empty values.
+
+    For every synonym config row whose phrase appears in the normalized haystack, records path and
+    whether a scalar value was available (non-falsy, not dict/list).
+    """
+    h = _normalize_context(haystack)
+    if len(h) < 4:
+        return {
+            "haystack_ok": False,
+            "reason": "haystack_too_short_after_normalization",
+            "normalized_len": len(h),
+            "candidates": [],
+        }
+    rows = _load_synonym_rows(config_path)
+    n_scanned = 0
+    in_text: list[dict[str, Any]] = []
+    for _neg, norm_phrase, path, raw_label in rows:
+        n_scanned += 1
+        if norm_phrase not in h:
+            continue
+        raw = data_summary_lookup(data_summary, path)
+        if not _value_present(raw):
+            in_text.append(
+                {
+                    "phrase": raw_label,
+                    "path": path,
+                    "outcome": "value_empty_or_missing",
+                }
+            )
+        elif isinstance(raw, (dict, list)):
+            in_text.append(
+                {
+                    "phrase": raw_label,
+                    "path": path,
+                    "outcome": "value_not_scalar_skipped",
+                }
+            )
+        else:
+            in_text.append(
+                {
+                    "phrase": raw_label,
+                    "path": path,
+                    "outcome": "would_resolve",
+                }
+            )
+    return {
+        "haystack_ok": True,
+        "normalized_haystack_len": len(h),
+        "config_rows_scanned": n_scanned,
+        "phrases_matched_in_haystack": len(in_text),
+        "candidates": in_text,
+    }
+
+
 def apply_synonym_resolution_to_replacements(
     replacements: list[dict],
     text_elements: list[dict],
     data_summary: dict[str, Any],
     *,
     config_path: Path | None = None,
+    slide_ref: str = "",
 ) -> list[dict]:
     """Fill unmapped / generic-placeholder rows when slide context matches a synonym phrase."""
     import re as _re
@@ -246,8 +314,33 @@ def apply_synonym_resolution_to_replacements(
             continue
         orig = str(r.get("original") or "")
         haystack = _narrow_synonym_haystack(orig, text_elements)
+        if matching_log.enabled():
+            _trig: list[str] = []
+            if not mapped:
+                _trig.append("unmapped")
+            if nv in _SYNONYM_TRIGGER_PLACEHOLDERS:
+                _trig.append("placeholder_token")
+            matching_log.emit(
+                "synonym_attempt",
+                slide_ref=slide_ref or "",
+                triggers=_trig,
+                original=_clip_for_log(orig),
+                field_before=fld,
+                mapped_before=mapped,
+                new_value_before=_clip_for_log(nv),
+                haystack_narrowed=_clip_for_log(haystack, 500),
+            )
         hit = try_resolve_phrase_in_text(haystack, data_summary, config_path=config_path)
         if not hit:
+            if matching_log.enabled():
+                diag = synonym_scan_diagnostics(haystack, data_summary, config_path=config_path)
+                matching_log.emit(
+                    "synonym_no_match",
+                    slide_ref=slide_ref or "",
+                    original=_clip_for_log(orig),
+                    field=fld,
+                    **diag,
+                )
             out.append(r)
             continue
         matched_phrase, path, _display_field, raw_val = hit
@@ -272,6 +365,15 @@ def apply_synonym_resolution_to_replacements(
             if _adapt_text_has_percentage_semantics(orig) or _adapt_original_reads_as_percent_on_slide(
                 orig, text_elements
             ):
+                if matching_log.enabled():
+                    matching_log.emit(
+                        "synonym_skipped_implausible_magnitude",
+                        slide_ref=slide_ref or "",
+                        original=_clip_for_log(orig),
+                        path=path,
+                        raw_value_sample=_clip_for_log(str(raw_val), 80),
+                        reason="value_abs>150_in_percent_context_left_unresolved",
+                    )
                 out.append(r)
                 continue
 
@@ -295,5 +397,14 @@ def apply_synonym_resolution_to_replacements(
         r["new_value"] = new_value
         r["synonym_phrase"] = matched_phrase
         r["synonym_path"] = path
+        if matching_log.enabled():
+            matching_log.emit(
+                "synonym_resolved",
+                slide_ref=slide_ref or "",
+                original=_clip_for_log(orig),
+                matched_phrase=matched_phrase,
+                path=path,
+                new_value=_clip_for_log(new_value, 200),
+            )
         out.append(r)
     return out

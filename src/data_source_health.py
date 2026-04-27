@@ -4,6 +4,8 @@ If Pendo, Salesforce (when configured), or CS Report is down, deck runs abort
 with a clear error instead of proceeding with partial data.
 """
 
+from __future__ import annotations
+
 from .config import (
     PENDO_INTEGRATION_KEY,
     SF_LOGIN_URL,

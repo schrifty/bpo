@@ -617,6 +617,16 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
 
     Returns a result dict with ``url``, ``bundle_folder_id``, ``companion_decks``, and logging fields.
     """
+    qbr_t0 = time.perf_counter()
+    qbr_t = qbr_t0
+    qbr_times: dict[str, float] = {}
+
+    def _qbr_time_segment(label: str) -> None:
+        nonlocal qbr_t
+        t1 = time.perf_counter()
+        qbr_times[label] = t1 - qbr_t
+        qbr_t = t1
+
     try:
         gen_id = get_qbr_generator_folder_id_for_drive_config()
     except RuntimeError as e:
@@ -632,6 +642,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
         template_id, manifest_text = resolve_qbr_template_and_manifest(gen_id)
     except FileNotFoundError as e:
         return {"error": str(e)}
+    _qbr_time_segment("resolve_template_and_manifest")
 
     mf_hash = hashlib.sha256(manifest_text.encode("utf-8", errors="replace")).hexdigest()[:16]
     logger.info("QBR: manifest loaded (%d chars, sha256[:16]=%s)", len(manifest_text), mf_hash)
@@ -645,8 +656,10 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
         known = sorted(c for c in partition.get("all_customer_stats", {}) if c != "?")
     except Exception as e:
         return {"error": f"Pendo preload / customer list failed: {e}"}
+    _qbr_time_segment("pendo_preload")
 
     ensure_daily_portfolio_snapshot_for_qbr(days, None)
+    _qbr_time_segment("portfolio_snapshot_ensure")
 
     customer = _detect_customer(customer_query, known)
     if not customer:
@@ -671,6 +684,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
     )
     if "error" in report:
         return {"error": report["error"], "customer_query": customer_query}
+    _qbr_time_segment("get_customer_health_report")
 
     report["quarter"] = qr.label
     report["quarter_start"] = qr.start.isoformat()
@@ -696,6 +710,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
         report = enrich_qbr_with_lean_projects(report, customer)
     except Exception as e:
         logger.warning("LeanDNA Lean Projects enrichment failed (non-fatal): %s", e)
+    _qbr_time_segment("leandna_enrichments")
 
     qbr_resolved = resolve_deck("qbr", customer)
     if qbr_resolved.get("error"):
@@ -708,6 +723,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
         report["_slide_plan"] = qbr_resolved.get("slides") or []
 
     report["_hydrate_slide_hints"] = hydrate_hints_by_slide_id()
+    _qbr_time_segment("resolve_deck_and_hydrate_hints")
 
     slides_svc, drive_svc, _google_creds = _get_service()
     output_folder = get_qbr_output_folder_id()
@@ -718,6 +734,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
         except Exception as e:
             logger.warning("QBR: could not create customer bundle subfolder under Output: %s", e)
     target_folder_id = bundle_folder_id or output_folder
+    _qbr_time_segment("drive_client_and_output_folder")
 
     out_title = f"{customer} — QBR ({qr.label})"
     copy_body: dict[str, Any] = {"name": out_title}
@@ -735,6 +752,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
 
     url = f"https://docs.google.com/presentation/d/{pres_id}/edit"
     logger.info("QBR: copied template → %s", url)
+    _qbr_time_segment("drive_copy_template")
 
     try:
         pres0 = slides_svc.presentations().get(presentationId=pres_id).execute()
@@ -748,9 +766,11 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
     inventory = build_slide_inventory(slides0)
     template_oids = frozenset(item["objectId"] for item in inventory)
     title_oid = slides0[0]["objectId"]
+    _qbr_time_segment("slides_read_template_copy")
 
     oai = llm_client()
     plan = call_manifest_planner(oai, manifest_text, customer, inventory)
+    _qbr_time_segment("manifest_planner_llm")
     logger.info(
         "QBR: manifest plan insert_executive_summary=%s notes=%s hide_indices=%s hide_titles=%s move_end=%s",
         plan.get("insert_executive_summary"),
@@ -796,6 +816,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
         logger.info("QBR: skipping executive summary insert (manifest plan insert_executive_summary=false)")
 
     exec_set = frozenset(exec_ids)
+    _qbr_time_segment("executive_summary_block")
 
     try:
         _apply_slide_skipped(slides_svc, pres_id, hide_oids)
@@ -815,10 +836,12 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
     except HttpError as e:
         return {"error": f"Failed to re-read presentation: {e}", "url": url, "customer": customer}
 
+    _qbr_time_segment("hide_move_slides_reread_presentation")
     adapt_ids = compute_adapt_page_ids(final_slides, title_oid, exec_set)
     logger.info("QBR: adapting %d template slides (excludes title and any inserted exec block; hidden included)", len(adapt_ids))
 
     qbr_agenda_visual: dict[str, Any] = {"enabled": False, "skipped": True}
+    adapt_hydrate_stats: dict[str, Any] = {}
     if adapt_ids:
         run_qbr_adapt_hints_phase(
             oai,
@@ -829,7 +852,8 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
             customer,
             manifest_sha16=mf_hash,
         )
-        adapt_custom_slides(
+        _qbr_time_segment("qbr_adapt_hints_llm")
+        adapt_hydrate_stats = adapt_custom_slides(
             slides_svc,
             pres_id,
             adapt_ids,
@@ -838,7 +862,8 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
             source_presentation_name=out_title,
             title_slide_object_id=title_oid,
             google_creds=_google_creds,
-        )
+        ) or {}
+        _qbr_time_segment("adapt_custom_slides_hydrate")
         agenda_page_id = find_qbr_agenda_page_id(slides_svc, pres_id, adapt_ids, report)
         if agenda_page_id:
             qbr_agenda_visual = run_qbr_agenda_visual_refinement_loop(
@@ -867,6 +892,9 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
             apply_qbr_template_style_strip_after_adapt(slides_svc, pres_id, adapt_ids)
         except Exception as e:
             logger.warning("QBR: post-adapt template style strip failed (slide may still show yellow/orange): %s", e)
+        _qbr_time_segment("qbr_agenda_refinement_and_post_adapt")
+    else:
+        _qbr_time_segment("no_adapt_ids_skip_adapt_path")
 
     result: dict[str, Any] = {
         "ok": True,
@@ -884,6 +912,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
         "plan_notes": plan.get("notes", ""),
         "qbr_output_folder_id": output_folder,
         "bundle_folder_id": bundle_folder_id,
+        "hydrate_adapt_stats": adapt_hydrate_stats,
     }
 
     if target_folder_id:
@@ -925,4 +954,17 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
             if n2:
                 result["cohort_links_on_exec_summary_deck"] = n2
 
+    _qbr_time_segment("companion_decks_and_cohort_links")
+
+    qbr_total = time.perf_counter() - qbr_t0
+    qbr_times["total_elapsed_s"] = qbr_total
+    result["qbr_timing_seconds"] = dict(qbr_times)
+    logger.info("QBR: timing — total wall clock %.1fs (per-phase; compare to sum of segments)", qbr_total)
+    _den = max(qbr_total, 0.01)
+    for _name, _sec in sorted(
+        ((k, v) for k, v in qbr_times.items() if k != "total_elapsed_s"), key=lambda x: -x[1]
+    ):
+        if _sec < 0.01:
+            continue
+        logger.info("QBR: timing — %5.1fs  %4.0f%%  %s", _sec, 100.0 * _sec / _den, _name)
     return result

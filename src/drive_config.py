@@ -47,6 +47,9 @@ drive_api_lock = threading.RLock()
 
 _yaml_cache: dict[str, list[dict[str, Any]]] = {}
 _yaml_cache_lock = threading.Lock()
+# Merged from full loads and per-deck subset loads so a multi-deck run does not
+# re-walk the entire slides/ folder for every resolve_deck call.
+_slide_def_id_cache: dict[str, dict[str, Any]] = {}
 
 # Set by ensure_drive_config_matches_repo (at most once per process).
 _drive_repo_sync_ran = False
@@ -441,6 +444,7 @@ def clear_yaml_config_cache() -> None:
     global _qbr_adapt_prompt_sync_ran
     with _yaml_cache_lock:
         _yaml_cache.clear()
+        _slide_def_id_cache.clear()
     _qbr_adapt_prompt_sync_ran = False
     try:
         from .evaluate import _load_adapt_system_prompt_template
@@ -831,6 +835,49 @@ def load_deck_yaml_from_drive(deck_id: str, local_dir: Path) -> dict[str, Any] |
     return None
 
 
+def _register_slides_in_id_cache(items: list[dict[str, Any]]) -> None:
+    for s in items:
+        lid = s.get("id")
+        if lid is not None:
+            _slide_def_id_cache[str(lid)] = s
+
+
+def _ordered_slides_from_id_cache(only_slide_ids: set[str]) -> list[dict[str, Any]]:
+    return [_slide_def_id_cache[i] for i in sorted(only_slide_ids)]
+
+
+def _filter_slides_to_ids(
+    full: list[dict[str, Any]],
+    only_ids: set[str],
+    local_dir: Path,
+    *,
+    kind: str = "slides",
+) -> list[dict[str, Any]]:
+    """Sublist of ``full`` in original list order, then local files for any id still missing."""
+    need = set(only_ids)
+    results = [s for s in full if s.get("id") is not None and str(s["id"]) in need]
+    have = {str(s.get("id")) for s in results if s.get("id")}
+    missing = need - have
+    if not missing:
+        return results
+    for f in sorted(local_dir.glob("*.yaml")):
+        if not missing:
+            break
+        local = _load_single_local(f)
+        lid = str(local.get("id")) if local and local.get("id") else ""
+        if local and lid in missing:
+            qa.flag(
+                f"Local {kind}/{f.name} for missing id {lid}",
+                sources=(f"local {kind}/{f.name}",),
+                severity="info",
+                auto_corrected=False,
+                internal=True,
+            )
+            results.append(local)
+            missing.discard(lid)
+    return results
+
+
 def load_yaml_from_drive(
     kind: str,
     local_dir: Path,
@@ -844,8 +891,10 @@ def load_yaml_from_drive(
     times during a batch run.
 
     When ``only_slide_ids`` is set (``kind == "slides"`` only), loads only those
-    slide definitions (stops after every id is found on Drive, then fills gaps
-    from local). That path is not cached (subset varies by deck).
+    slide definitions. The first such load walks Drive like before; later calls
+    reuse a process-wide per-id cache (or a prior full ``slides`` list) so
+    multi-deck runs (main + companions) do not repeat a full folder walk for
+    every deck.
 
     Args:
         kind: "decks" or "slides"
@@ -859,7 +908,42 @@ def load_yaml_from_drive(
     if only_slide_ids is not None and kind == "slides":
         if not only_slide_ids:
             return []
-        return _load_yaml_from_drive_uncached(kind, local_dir, only_slide_ids=only_slide_ids)
+        with _yaml_cache_lock:
+            if "slides" in _yaml_cache:
+                return _filter_slides_to_ids(
+                    _yaml_cache["slides"], only_slide_ids, local_dir, kind=kind
+                )
+            if only_slide_ids <= _slide_def_id_cache.keys():
+                return _ordered_slides_from_id_cache(only_slide_ids)
+            to_fetch = set(only_slide_ids) - set(_slide_def_id_cache.keys())
+        if not to_fetch:
+            with _yaml_cache_lock:
+                if "slides" in _yaml_cache:
+                    return _filter_slides_to_ids(
+                        _yaml_cache["slides"], only_slide_ids, local_dir, kind=kind
+                    )
+                if only_slide_ids <= _slide_def_id_cache.keys():
+                    return _ordered_slides_from_id_cache(only_slide_ids)
+        else:
+            new_items = _load_yaml_from_drive_uncached(
+                kind, local_dir, only_slide_ids=set(to_fetch)
+            )
+            with _yaml_cache_lock:
+                _register_slides_in_id_cache(new_items)
+                if "slides" in _yaml_cache:
+                    return _filter_slides_to_ids(
+                        _yaml_cache["slides"], only_slide_ids, local_dir, kind=kind
+                    )
+                if only_slide_ids <= _slide_def_id_cache.keys():
+                    return _ordered_slides_from_id_cache(only_slide_ids)
+        with _yaml_cache_lock:
+            if only_slide_ids <= _slide_def_id_cache.keys():
+                return _ordered_slides_from_id_cache(only_slide_ids)
+            return [
+                _slide_def_id_cache[i]
+                for i in sorted(only_slide_ids)
+                if i in _slide_def_id_cache
+            ]
 
     if kind in _yaml_cache:
         return _yaml_cache[kind]
@@ -869,6 +953,8 @@ def load_yaml_from_drive(
             return _yaml_cache[kind]
         result = _load_yaml_from_drive_uncached(kind, local_dir)
         _yaml_cache[kind] = result
+        if kind == "slides":
+            _register_slides_in_id_cache(result)
         return result
 
 
