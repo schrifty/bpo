@@ -2,11 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import random
-import threading
-import time
-from pathlib import Path
 from typing import Any
 
 from googleapiclient.errors import HttpError
@@ -26,6 +21,10 @@ from .slide_cs_notable import cs_notable_slide as _cs_notable_slide
 from .slide_leandna_shortage import (
     SLIDES_NEEDING_LEANDNA_SHORTAGE as _SLIDES_NEEDING_LEANDNA_SHORTAGE,
 )
+from .deck_legacy import (
+    create_deck_for_customer,
+    create_decks_for_all_customers,
+)
 from .slide_metadata import (
     DQ_SOURCE_LABEL_ORDER as _DQ_SOURCE_LABEL_ORDER,
     REPORT_KEY_TO_DQ_SOURCE as _REPORT_KEY_TO_DQ_SOURCE,
@@ -39,15 +38,11 @@ from .slide_registry import (
     slide_builder_names,
 )
 from .slides_api import (
-    GOOGLE_API_TIMEOUT_S,
-    SCOPES,
-    _build_slides_service_for_thread,
     _get_service,
     _google_api_unreachable_hint,
     presentations_batch_update_chunked,
     slides_presentations_batch_update,
 )
-from .slide_requests import append_text_box as _box
 from .slide_salesforce import (
     filter_salesforce_comprehensive_slide_plan as _filter_salesforce_comprehensive_slide_plan,
     sf_category_records as _sf_category_records,
@@ -71,6 +66,7 @@ from .slide_pipeline_traces import (
     support_health_exec_pipeline_traces as _support_health_exec_pipeline_traces,
 )
 from .slide_primitives import set_support_deck_corner_customer as _set_support_deck_corner_customer
+from .slide_thumbnail_export import export_slide_thumbnails
 from .slide_utils import slide_object_id_base as _slide_object_id_base
 from .slides_theme import _date_range
 
@@ -1021,105 +1017,4 @@ def create_health_decks_for_customers(
                 break
 
     return results
-
-
-# ── Legacy (backward compat) ──
-
-def create_deck_for_customer(customer, sites, days=30):
-    if not sites:
-        return {"error": f"No sites for '{customer}'"}
-    try:
-        slides_service, drive_service, _ = _get_service()
-    except (ValueError, FileNotFoundError) as e:
-        return {"error": str(e)}
-    title = f"{customer} - Usage Report ({_date_range(days)})"
-    try:
-        meta = {"name": title, "mimeType": "application/vnd.google-apps.presentation"}
-        output_folder = _get_deck_output_folder()
-        if output_folder:
-            meta["parents"] = [output_folder]
-        f = drive_service.files().create(body=meta).execute()
-        pid = f["id"]
-    except HttpError as e:
-        return {"error": str(e)}
-    r = []
-    ix = 1
-    for i, s in enumerate(sites):
-        sid = f"ls_{i}"
-        r.append({"createSlide": {"objectId": sid, "insertionIndex": ix}}); ix += 1
-        _box(r, f"lt_{i}", sid, 60, 40, 600, 50, s.get("sitename", "?"))
-        body = f"Page views: {s.get('page_views',0)}\nFeature clicks: {s.get('feature_clicks',0)}\nEvents: {s.get('total_events',0)}\nMinutes: {s.get('total_minutes',0)}"
-        _box(r, f"lb_{i}", sid, 60, 100, 600, 280, body)
-    try:
-        presentations_batch_update_chunked(slides_service, pid, r)
-    except HttpError as e:
-        return {"error": str(e), "presentation_id": pid}
-    return {"presentation_id": pid, "url": f"https://docs.google.com/presentation/d/{pid}/edit", "customer": customer, "slides_created": len(sites)}
-
-
-def create_decks_for_all_customers(by_customer, customer_list, days=30, delay_seconds=2.0, max_customers=None):
-    cs = customer_list[:max_customers] if max_customers else customer_list
-    results = []
-    for i, c in enumerate(cs):
-        if i > 0:
-            time.sleep(delay_seconds)
-        results.append(create_deck_for_customer(c, by_customer.get(c, []), days))
-        if "error" in results[-1] and "403" in str(results[-1].get("error", "")):
-            results.append({"error": "Stopped: 403.", "customers_attempted": i + 1}); break
-    return results
-
-
-# ── Slide thumbnail export ──
-
-def export_slide_thumbnails(
-    presentation_id: str,
-    output_dir: str | Path | None = None,
-    size: str = "LARGE",
-) -> list[Path]:
-    """Download PNG thumbnails for every slide in a presentation.
-
-    Args:
-        presentation_id: Google Slides presentation ID or full URL.
-        output_dir: Where to save PNGs. Defaults to a temp directory.
-        size: Thumbnail size — "SMALL" (default 200px) or "LARGE" (default 800px).
-
-    Returns:
-        List of saved PNG file paths.
-    """
-    import re
-    import tempfile
-    import urllib.request
-
-    match = re.search(r"/d/([a-zA-Z0-9_-]+)", presentation_id)
-    pres_id = match.group(1) if match else presentation_id
-
-    slides_service, _ds, _ = _get_service()
-    pres = slides_service.presentations().get(presentationId=pres_id).execute()
-    title = pres.get("title", pres_id)
-    slides = pres.get("slides", [])
-
-    if not slides:
-        logger.warning("Presentation %s has no slides", pres_id)
-        return []
-
-    if output_dir is None:
-        output_dir = Path(tempfile.mkdtemp(prefix=f"bpo-thumbs-{pres_id[:12]}-"))
-    out = Path(output_dir)
-    out.mkdir(parents=True, exist_ok=True)
-
-    saved: list[Path] = []
-    for i, slide in enumerate(slides):
-        page_id = slide["objectId"]
-        thumb = slides_service.presentations().pages().getThumbnail(
-            presentationId=pres_id,
-            pageObjectId=page_id,
-            thumbnailProperties_thumbnailSize=size,
-        ).execute()
-        url = thumb["contentUrl"]
-        dest = out / f"slide_{i + 1:02d}.png"
-        urllib.request.urlretrieve(url, str(dest))
-        saved.append(dest)
-
-    logger.info("Exported %d thumbnails for '%s' → %s", len(saved), title, out)
-    return saved
 
