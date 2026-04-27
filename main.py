@@ -4,7 +4,6 @@
 import argparse
 import sys
 
-from src.agent import create_pendo_agent, run_agent
 from src.config import logger
 
 
@@ -89,6 +88,8 @@ def main() -> None:
         help="Run in interactive mode",
     )
     args = parser.parse_args()
+
+    from src.agent import create_pendo_agent, run_agent
 
     logger.info("Starting agent (model=%s)", args.model)
     agent = create_pendo_agent(model=args.model)

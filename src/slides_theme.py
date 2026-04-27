@@ -1,5 +1,7 @@
 """Slide dimensions, brand palette, and layout helpers shared by slides_client and charts."""
 
+from __future__ import annotations
+
 import datetime
 from typing import Any
 

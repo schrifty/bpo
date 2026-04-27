@@ -1,5 +1,7 @@
 """Google Slides + Drive API: auth, batchUpdate throttling, chunked updates."""
 
+from __future__ import annotations
+
 import json
 import os
 import random

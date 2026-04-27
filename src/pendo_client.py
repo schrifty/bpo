@@ -1,5 +1,7 @@
 """Pendo API client for the aggregation endpoint."""
 
+from __future__ import annotations
+
 import datetime
 import json
 import os

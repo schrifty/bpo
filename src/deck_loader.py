@@ -8,6 +8,8 @@ If a Drive file fails to parse, the local version is used and a QA warning
 is raised so the discrepancy shows up on the Data Quality slide.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Any
 

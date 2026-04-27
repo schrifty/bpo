@@ -4,6 +4,8 @@ Auth, batchUpdate throttling, and chunked updates live in ``slides_api``.
 Dimensions, brand palette, and shared layout helpers live in ``slides_theme``.
 """
 
+from __future__ import annotations
+
 import datetime
 import hashlib
 import json
