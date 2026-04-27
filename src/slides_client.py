@@ -35,6 +35,7 @@ from .slide_cohort_links import (
     apply_cohort_bundle_links_to_notable_signals,
 )
 from .slide_data_quality import data_quality_slide as _data_quality_slide
+from .slide_exports import exports_slide as _exports_slide
 from .slide_guides import (
     guides_no_usage_slide as _guides_no_usage_slide,
     guides_slide as _guides_slide,
@@ -920,73 +921,6 @@ def _benchmarks_slide(reqs, sid, report, idx):
     _style(reqs, f"{sid}_ctx", 0, len(ctx), size=11, color=BLUE, font=FONT)
 
     return idx + 1
-
-
-def _exports_slide(reqs, sid, report, idx):
-    exports = report.get("exports", report)
-    by_feature = exports.get("by_feature", [])
-    top_exporters = exports.get("top_exporters", [])
-    total = exports.get("total_exports", 0)
-
-    if not by_feature and total == 0:
-        return _missing_data_slide(reqs, sid, report, idx, "export / benchmark data")
-
-    per_user = exports.get("exports_per_active_user", 0)
-    active = exports.get("active_users", 0)
-    header = f"{total:,} exports  ·  {per_user}/active user  ·  {active} active users"
-    _exp_list_top = BODY_Y + 24
-    # Use full body band so feature and exporter columns share one line budget (same box height).
-    _exp_list_bottom = min(_exp_list_top + 270, BODY_BOTTOM - 4)
-    _exp_list_h = max(120.0, float(_exp_list_bottom) - float(_exp_list_top))
-    line_budget = _list_data_rows_fit_span(
-        y_top=_exp_list_top,
-        y_bottom=_exp_list_top + _exp_list_h,
-        font_body_pt=10,
-        reserved_header_lines=1,
-        max_rows_cap=40,
-    )
-    # By Feature: one line per row. Top Exporters: two lines per user (email + detail).
-    max_features = line_budget
-    max_exporters = max(1, line_budget // 2)
-    n_fp = (len(by_feature) + max_features - 1) // max_features if by_feature else 0
-    n_ep = (len(top_exporters) + max_exporters - 1) // max_exporters if top_exporters else 0
-    num_pages = _cap_page_count(max(n_fp, n_ep, 1))
-    oids: list[str] = []
-    for p in range(num_pages):
-        page_sid = f"{sid}_p{p}" if num_pages > 1 else sid
-        oids.append(page_sid)
-        _slide(reqs, page_sid, idx + p)
-        st = "Export Behavior" if num_pages == 1 else f"Export Behavior ({p + 1} of {num_pages})"
-        _slide_title(reqs, page_sid, st)
-        _box(reqs, f"{page_sid}_hdr", page_sid, MARGIN, BODY_Y, CONTENT_W, 18, header)
-        _style(reqs, f"{page_sid}_hdr", 0, len(header), size=10, color=GRAY, font=FONT)
-        fl = ["By Feature"]
-        feat_slice = by_feature[p * max_features : (p + 1) * max_features]
-        start_i = p * max_features
-        for j, f in enumerate(feat_slice, start=start_i + 1):
-            name = f["feature"][:36] if len(f["feature"]) > 36 else f["feature"]
-            fl.append(f"  {j}. {name}  ({f['exports']:,})")
-        if not feat_slice and p == 0 and not by_feature:
-            fl.append("  No export data")
-        ft = "\n".join(fl)
-        _box(reqs, f"{page_sid}_bf", page_sid, MARGIN, BODY_Y + 24, 340, 270, ft)
-        _style(reqs, f"{page_sid}_bf", 0, len(ft), size=10, color=NAVY, font=FONT)
-        _style(reqs, f"{page_sid}_bf", 0, len("By Feature"), bold=True, size=11, color=BLUE)
-        el = ["Top Exporters"]
-        exp_slice = top_exporters[p * max_exporters : (p + 1) * max_exporters]
-        for u in exp_slice:
-            email = u["email"] or "unknown"
-            if len(email) > 32:
-                email = email[:29] + "..."
-            el.append(f"  {email}")
-            el.append(f"    {u['role']}  ·  {u['exports']:,} exports")
-        if not exp_slice and p == 0 and not top_exporters:
-            el.append("  No export users")
-        et = "\n".join(el)
-        _box(reqs, f"{page_sid}_te", page_sid, 400, BODY_Y + 24, 280, 270, et)
-        _style(reqs, f"{page_sid}_te", 0, len(et), size=10, color=NAVY, font=FONT)
-        _style(reqs, f"{page_sid}_te", 0, len("Top Exporters"), bold=True, size=11, color=BLUE)
-    return idx + num_pages, oids
 
 
 def _depth_slide(reqs, sid, report, idx):
