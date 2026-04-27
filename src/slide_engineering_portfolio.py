@@ -8,7 +8,21 @@ from typing import Any
 from .config import logger
 from .slide_primitives import background as _bg, missing_data_slide as _missing_data_slide, slide_title as _slide_title, style as _style
 from .slide_requests import append_slide as _slide, append_text_box as _box
-from .slides_theme import BODY_BOTTOM, BODY_Y, BLUE, CONTENT_W, FONT, GRAY, MARGIN, MONO, NAVY, SLIDE_H, WHITE
+from .slides_theme import (
+    BODY_BOTTOM,
+    BODY_Y,
+    BLUE,
+    CONTENT_W,
+    FONT,
+    GRAY,
+    MARGIN,
+    MAX_PAGINATED_SLIDE_PAGES,
+    MONO,
+    NAVY,
+    SLIDE_H,
+    WHITE,
+    _cap_chunk_list,
+)
 
 
 GREEN = {"red": 0.13, "green": 0.65, "blue": 0.35}
@@ -484,5 +498,173 @@ def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
     if insights:
         bullet_y = BODY_BOTTOM - (len(insights) * 22) - 4
         eng_insight_bullets(reqs, sid, insights, MARGIN, bullet_y, CONTENT_W)
+
+    return idx + 1
+
+
+def eng_enhancements_open_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Open enhancement requests, paginated with all tickets shown up to the slide cap."""
+    eng = report.get("eng_portfolio") or {}
+    if not eng:
+        return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
+
+    enhancements = eng.get("enhancements") or {}
+    open_tickets = enhancements.get("open", [])
+    open_count = enhancements.get("open_count", 0)
+    shipped_count = enhancements.get("shipped_count", 0)
+    declined_count = enhancements.get("declined_count", 0)
+    jira_base = eng.get("base_url", "")
+
+    tickets_per_page = 3
+    pages_all = [open_tickets[i : i + tickets_per_page] for i in range(0, max(1, len(open_tickets)), tickets_per_page)]
+    pages = _cap_chunk_list(pages_all)
+    num_pages = len(pages)
+    omitted_tickets = sum(len(page) for page in pages_all[len(pages) :])
+
+    for page_index, page_tickets in enumerate(pages):
+        page_sid = f"{sid}_p{page_index}"
+        if page_index == 0:
+            title = (
+                f"{open_count} Open Enhancement Request  ({page_index + 1} of {num_pages})"
+                if num_pages > 1
+                else (
+                    "1 Open Enhancement Request in Backlog"
+                    if open_count == 1
+                    else f"{open_count} Open Enhancement Requests in Backlog"
+                )
+            )
+        else:
+            title = f"Enhancement Requests — Open  ({page_index + 1} of {num_pages})"
+
+        _slide(reqs, page_sid, idx)
+        _bg(reqs, page_sid, WHITE)
+        _slide_title(reqs, page_sid, title)
+
+        bar = f"Open backlog: {open_count}   |   Recently shipped: {shipped_count}   |   Declined: {declined_count}"
+        _box(reqs, f"{page_sid}_bar", page_sid, MARGIN, BODY_Y, CONTENT_W, 18, bar)
+        _style(reqs, f"{page_sid}_bar", 0, len(bar), size=9, color=GRAY, font=FONT)
+
+        y = BODY_Y + 22
+        for row_index, ticket in enumerate(page_tickets):
+            key = ticket["key"]
+            link = f"{jira_base}/browse/{key}" if jira_base else None
+            raw_summary = ticket["summary"]
+            summary = raw_summary[:87] + "…" if len(raw_summary) > 87 else raw_summary
+            status = ticket.get("status", "Open")
+
+            raw_date = ticket.get("updated", "")
+            try:
+                updated = datetime.strptime(raw_date, "%Y-%m-%d").strftime("%b %-d, %Y") if raw_date else ""
+            except ValueError:
+                updated = raw_date
+
+            meta = f"{key}  [{status}]"
+            if updated:
+                meta += f"  ·  updated {updated}"
+            _box(reqs, f"{page_sid}_k{row_index}", page_sid, MARGIN, y, CONTENT_W, 14, meta)
+            _style(reqs, f"{page_sid}_k{row_index}", 0, len(key), bold=True, size=9, color=BLUE, font=MONO, link=link)
+            _style(reqs, f"{page_sid}_k{row_index}", len(key), len(meta), size=9, color=GRAY, font=FONT)
+            y += 14
+
+            _box(reqs, f"{page_sid}_s{row_index}", page_sid, MARGIN + 8, y, CONTENT_W - 8, 36, summary)
+            _style(reqs, f"{page_sid}_s{row_index}", 0, len(summary), size=9, color=NAVY, font=FONT)
+            y += 36
+
+            narrative = (ticket.get("narrative") or "").strip()
+            if narrative and y + 40 <= BODY_BOTTOM:
+                _box(reqs, f"{page_sid}_n{row_index}", page_sid, MARGIN + 8, y, CONTENT_W - 8, 40, narrative)
+                _style(reqs, f"{page_sid}_n{row_index}", 0, len(narrative), size=8, color=GRAY, font=FONT)
+                y += 42
+
+            y += 4
+
+        idx += 1
+
+    if omitted_tickets:
+        omit_sid = f"{sid}_omit"
+        _slide(reqs, omit_sid, idx)
+        _bg(reqs, omit_sid, WHITE)
+        _slide_title(reqs, omit_sid, "Enhancement Requests — Open (continued)")
+        note = (
+            f"{omitted_tickets} additional open enhancement requests not shown "
+            f"(pagination cap {MAX_PAGINATED_SLIDE_PAGES} pages). "
+            f"Full backlog: {open_count} open tickets. View in Jira for complete list."
+        )
+        _box(reqs, f"{omit_sid}_note", omit_sid, MARGIN, BODY_Y + 10, CONTENT_W, 40, note)
+        _style(reqs, f"{omit_sid}_note", 0, len(note), size=11, color=GRAY, font=FONT)
+        idx += 1
+
+    return idx
+
+
+def eng_enhancements_shipped_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Recently shipped enhancement requests."""
+    eng = report.get("eng_portfolio") or {}
+    if not eng:
+        return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
+
+    enhancements = eng.get("enhancements") or {}
+    shipped_count = enhancements.get("shipped_count", 0)
+    open_count = enhancements.get("open_count", 0)
+    declined_count = enhancements.get("declined_count", 0)
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, f"{shipped_count} Enhancement Requests Recently Shipped")
+
+    bar = f"Recently shipped: {shipped_count}   |   Open backlog: {open_count}   |   Declined: {declined_count}"
+    _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 18, bar)
+    _style(reqs, f"{sid}_bar", 0, len(bar), size=9, color=GRAY, font=FONT)
+
+    jira_base = eng.get("base_url", "")
+    ticket_h = 96
+    y = BODY_Y + 22
+
+    shipped = enhancements.get("shipped") or []
+    if not shipped:
+        msg = (
+            "No enhancement requests were marked as resolved in Jira in the last 12 months. "
+            "This may indicate that shipped work isn't being closed out in the ER project — "
+            "worth a quick audit of the Jira workflow."
+        )
+        _box(reqs, f"{sid}_empty", sid, MARGIN, y + 20, CONTENT_W, 60, msg)
+        _style(reqs, f"{sid}_empty", 0, len(msg), size=11, color=GRAY, font=FONT)
+        flag = "Action needed: update Jira ER tickets when shipping"
+        _box(reqs, f"{sid}_flag", sid, MARGIN, y + 90, CONTENT_W, 20, flag)
+        _style(reqs, f"{sid}_flag", 0, len(flag), bold=True, size=10, color=RED, font=FONT)
+        return idx + 1
+
+    for row_index, ticket in enumerate(shipped[:10]):
+        if y + ticket_h > BODY_BOTTOM:
+            break
+        key = ticket["key"]
+        link = f"{jira_base}/browse/{key}" if jira_base else None
+        raw_summary = ticket["summary"]
+        summary = raw_summary[:87] + "…" if len(raw_summary) > 87 else raw_summary
+        raw_date = ticket.get("updated", "")
+        try:
+            updated = datetime.strptime(raw_date, "%Y-%m-%d").strftime("%b %-d, %Y") if raw_date else ""
+        except ValueError:
+            updated = raw_date
+
+        meta = f"{key}  [Shipped]"
+        if updated:
+            meta += f"  ·  shipped {updated}"
+        _box(reqs, f"{sid}_k{row_index}", sid, MARGIN, y, CONTENT_W, 14, meta)
+        _style(reqs, f"{sid}_k{row_index}", 0, len(key), bold=True, size=9, color=GREEN, font=MONO, link=link)
+        _style(reqs, f"{sid}_k{row_index}", len(key), len(meta), size=9, color=GRAY, font=FONT)
+        y += 14
+
+        _box(reqs, f"{sid}_s{row_index}", sid, MARGIN + 8, y, CONTENT_W - 8, 36, summary)
+        _style(reqs, f"{sid}_s{row_index}", 0, len(summary), size=9, color=NAVY, font=FONT)
+        y += 36
+
+        narrative = (ticket.get("narrative") or "").strip()
+        if narrative and y + 40 <= BODY_BOTTOM:
+            _box(reqs, f"{sid}_n{row_index}", sid, MARGIN + 8, y, CONTENT_W - 8, 40, narrative)
+            _style(reqs, f"{sid}_n{row_index}", 0, len(narrative), size=8, color=GRAY, font=FONT)
+            y += 42
+
+        y += 4
 
     return idx + 1
