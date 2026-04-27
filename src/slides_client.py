@@ -139,7 +139,11 @@ from .slide_primitives import (
     support_title_includes_project as _support_title_includes_project,
     table_cell_bg as _table_cell_bg,
 )
-from .slide_qbr_framing import qbr_divider_slide as _qbr_divider_slide
+from .slide_qbr_framing import (
+    qbr_agenda_slide as _qbr_agenda_slide,
+    qbr_cover_slide as _qbr_cover_slide,
+    qbr_divider_slide as _qbr_divider_slide,
+)
 from .slide_utils import (
     blob_recent_tickets_window_days as _blob_recent_tickets_window_days,
     dedupe_keep_order as _dedupe_keep_order,
@@ -2505,113 +2509,6 @@ def _enhancement_requests_slide(reqs, sid, report, idx):
                 y += ROW_DEC
 
     return idx + len(pages), oids
-
-
-# ── QBR template slide builders (LeanDNA APEX styling) ──
-
-# Colors extracted from the Safran QBR template
-_BESPOKE_NAVY = {"red": 0.031, "green": 0.239, "blue": 0.471}   # #083d78 accent navy
-_BESPOKE_DARK = {"red": 0.031, "green": 0.110, "blue": 0.200}   # #081c33 deep bg
-
-def _qbr_cover_slide(reqs, sid, report, idx):
-    """Branded cover slide: customer name, deck title, date."""
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, NAVY)
-
-    customer = report.get("customer", report.get("account", {}).get("customer", ""))
-    days = report.get("days", 30)
-    quarter_label = report.get("quarter")
-    date_str = _date_range(days, quarter_label,
-                           report.get("quarter_start"), report.get("quarter_end"))
-    raw_date = report.get("generated", "")
-    try:
-        generated = datetime.datetime.strptime(raw_date, "%Y-%m-%d").strftime("%B %-d, %Y")
-    except (ValueError, TypeError):
-        generated = raw_date or datetime.datetime.now().strftime("%B %-d, %Y")
-
-    # Decorative tagline (faint, right side)
-    tagline = "THE RIGHT PART.\nIN THE RIGHT PLACE.\nAT THE RIGHT TIME."
-    _box(reqs, f"{sid}_tag", sid, SLIDE_W - 240, 30, 220, 120, tagline)
-    _style(reqs, f"{sid}_tag", 0, len(tagline), size=11, color=_BESPOKE_NAVY, font=FONT,
-           bold=True)
-
-    # Main title — generous height so wrapping doesn't overlap the customer name
-    title = "Executive business review"
-    title_top = SLIDE_H * 0.22
-    _box(reqs, f"{sid}_t", sid, MARGIN + 6, title_top, 560, 130, title)
-    _style(reqs, f"{sid}_t", 0, len(title), size=50, color=WHITE, font=FONT_SERIF)
-
-    # Customer name — well below the title block
-    cust_top = title_top + 140
-    _box(reqs, f"{sid}_c", sid, MARGIN + 6, cust_top, 500, 36, customer)
-    _style(reqs, f"{sid}_c", 0, len(customer), size=24, color=MINT, font=FONT, bold=True)
-
-    # Date
-    date_text = generated
-    _box(reqs, f"{sid}_d", sid, MARGIN + 6, cust_top + 42, 500, 28, date_text)
-    _style(reqs, f"{sid}_d", 0, len(date_text), size=19, color=MINT, font=FONT)
-
-    # Confidential footer
-    footer = "Proprietary & Confidential"
-    _box(reqs, f"{sid}_f", sid, SLIDE_W - 220, SLIDE_H - 28, 200, 16, footer)
-    _style(reqs, f"{sid}_f", 0, len(footer), size=8, color=GRAY, font=FONT)
-
-    return idx + 1
-
-
-def _qbr_agenda_slide(reqs, sid, report, idx):
-    """Numbered agenda slide generated from the deck's slide plan."""
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, NAVY)
-
-    # Accent rounded rectangle on the right half
-    _rect(reqs, f"{sid}_accent", sid, SLIDE_W * 0.48, 0, SLIDE_W * 0.52, SLIDE_H, _BESPOKE_NAVY)
-
-    # Title
-    _box(reqs, f"{sid}_t", sid, MARGIN, MARGIN, 300, 50, "Agenda")
-    _style(reqs, f"{sid}_t", 0, len("Agenda"), size=38, color=WHITE, font=FONT_SERIF)
-
-    # Build agenda items from the slide plan.
-    # Prefer divider titles (section headings). Fall back to non-structural slide titles.
-    slide_plan = report.get("_slide_plan", [])
-    divider_items = [
-        entry.get("title", "")
-        for entry in slide_plan
-        if entry.get("slide_type", entry.get("id", "")) == "qbr_divider"
-        and entry.get("title")
-    ]
-    if divider_items:
-        items = divider_items
-    else:
-        skip_types = {"qbr_cover", "qbr_agenda", "title", "data_quality", "skip"}
-        items = [
-            entry.get("title", entry.get("id", "").replace("_", " ").title())
-            for entry in slide_plan
-            if entry.get("slide_type", entry.get("id", "")) not in skip_types
-        ]
-
-    # Render numbered list — dynamically size to fit
-    x = SLIDE_W * 0.52
-    y_start = MARGIN + 20
-    avail_h = SLIDE_H - MARGIN * 2 - 20
-    n_items = len(items)
-    line_h = max(28, min(42, avail_h // max(n_items, 1)))
-    font_sz = 18 if n_items > 8 else 20
-    num_sz = 20 if n_items > 8 else 22
-    max_items = min(n_items, avail_h // line_h)
-
-    y = y_start
-    for i, item in enumerate(items[:max_items]):
-        num = f"{i + 1:02d}"
-        label = item[:50] + "…" if len(item) > 50 else item
-        _box(reqs, f"{sid}_n{i}", sid, x, y, 40, line_h, num)
-        _style(reqs, f"{sid}_n{i}", 0, len(num), size=num_sz, color=MINT, font=FONT, bold=True)
-
-        _box(reqs, f"{sid}_i{i}", sid, x + 48, y, 280, line_h, label)
-        _style(reqs, f"{sid}_i{i}", 0, len(label), size=font_sz, color=WHITE, font=FONT)
-        y += line_h
-
-    return idx + 1
 
 
 def _qbr_deployment_slide(reqs, sid, report, idx):
