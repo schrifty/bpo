@@ -20,7 +20,15 @@ from .config import GOOGLE_QBR_GENERATOR_FOLDER_ID, logger
 from .cs_report_client import get_csr_section
 from .slide_loader import (
     benchmarks_min_peers_for_cohort_median,
-    cohort_profiles_max_physical_slides,
+)
+from .slide_cohort import (
+    COHORT_FINDING_ROW_GAP_PT as _COHORT_FINDING_ROW_GAP_PT,
+    COHORT_FINDING_ROW_H_PT as _COHORT_FINDING_ROW_H_PT,
+    cohort_deck_title_slide as _cohort_deck_title_slide,
+    cohort_findings_rows_per_page as _cohort_findings_rows_per_page,
+    cohort_findings_slide as _cohort_findings_slide,
+    cohort_profiles_slide as _cohort_profiles_slide,
+    cohort_summary_slide as _cohort_summary_slide,
 )
 from .slide_data_quality import data_quality_slide as _data_quality_slide
 from .slide_metadata import (
@@ -138,12 +146,9 @@ from .slides_theme import (
     TEAL,
     TITLE_Y,
     WHITE,
-    _CohortProfileTraceLabels,
-    _CohortSummaryLabels,
     _HealthSnapshotLabels,
     _cap_chunk_list,
     _cap_page_count,
-    _cohort_summary_metrics,
     _date_range,
     _estimated_body_line_height_pt,
     _list_data_rows_fit_span,
@@ -3278,269 +3283,6 @@ def apply_cohort_bundle_links_to_notable_signals(
         pres_id[:12],
     )
     return len(reqs)
-
-
-def _cohort_summary_slide(reqs, sid, report, idx):
-    """Portfolio-wide cohort summary — aggregate KPIs across all cohorts."""
-    m = _cohort_summary_metrics(report)
-    if not m:
-        return _missing_data_slide(reqs, sid, report, idx, "cohort_digest (no cohort data)")
-
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
-
-    L = _CohortSummaryLabels
-    total_customers = m["total_customers"]
-    num_cohorts = m["num_cohorts"]
-    total_users = m["total_users"]
-    total_active = m["total_active"]
-    overall_active_pct = m["overall_active_pct"]
-    total_arr = m["total_arr"]
-    med_login = m["med_login"]
-    med_write = m["med_write"]
-    med_exports = m["med_exports"]
-    med_kei = m["med_kei"]
-    biggest_lbl = m["biggest_lbl"]
-
-    ttl = "Cohort Summary"
-    _slide_title(reqs, sid, ttl)
-
-    row1_y = BODY_Y + 8
-    card_h = 58
-    gap = 12
-    cards_per_row = 3
-    card_w = (CONTENT_W - gap * (cards_per_row - 1)) / cards_per_row
-
-    _kpi_metric_card(reqs, f"{sid}_c0", sid,
-                     MARGIN, row1_y, card_w, card_h,
-                     L.TOTAL_CUSTOMERS, str(total_customers), accent=BLUE)
-    _kpi_metric_card(reqs, f"{sid}_c1", sid,
-                     MARGIN + card_w + gap, row1_y, card_w, card_h,
-                     L.COHORTS, str(num_cohorts), accent=BLUE)
-    arr_str = _fmt_platform_value_dollar(total_arr) if total_arr > 0 else "—"
-    _kpi_metric_card(reqs, f"{sid}_c2", sid,
-                     MARGIN + 2 * (card_w + gap), row1_y, card_w, card_h,
-                     L.TOTAL_ARR, arr_str, accent=BLUE)
-
-    row2_y = row1_y + card_h + gap
-    _kpi_metric_card(reqs, f"{sid}_c3", sid,
-                     MARGIN, row2_y, card_w, card_h,
-                     L.TOTAL_USERS, f"{total_users:,}", accent=BLUE)
-    _kpi_metric_card(reqs, f"{sid}_c4", sid,
-                     MARGIN + card_w + gap, row2_y, card_w, card_h,
-                     L.ACTIVE_USERS_7D, f"{total_active:,}", accent=BLUE)
-    _kpi_metric_card(reqs, f"{sid}_c5", sid,
-                     MARGIN + 2 * (card_w + gap), row2_y, card_w, card_h,
-                     L.ACTIVE_RATE, f"{overall_active_pct}%", accent=BLUE)
-
-    row3_y = row2_y + card_h + gap
-    _kpi_metric_card(reqs, f"{sid}_c6", sid,
-                     MARGIN, row3_y, card_w, card_h,
-                     L.WEEKLY_ACTIVE_MEDIAN, f"{med_login}%" if med_login is not None else "—", accent=BLUE)
-    _kpi_metric_card(reqs, f"{sid}_c7", sid,
-                     MARGIN + card_w + gap, row3_y, card_w, card_h,
-                     L.WRITE_RATIO_MEDIAN, f"{med_write}%" if med_write is not None else "—", accent=BLUE)
-    _kpi_metric_card(reqs, f"{sid}_c8", sid,
-                     MARGIN + 2 * (card_w + gap), row3_y, card_w, card_h,
-                     L.KEI_ADOPTION_MEDIAN, f"{med_kei}%" if med_kei is not None else "—", accent=BLUE)
-
-    row4_y = row3_y + card_h + gap
-    cards_r4 = 2
-    card_w4 = (CONTENT_W - gap * (cards_r4 - 1)) / cards_r4
-    _kpi_metric_card(reqs, f"{sid}_c9", sid,
-                     MARGIN, row4_y, card_w4, card_h,
-                     L.EXPORTS_MEDIAN, f"{med_exports:.0f}" if med_exports is not None else "—", accent=BLUE)
-    _kpi_metric_card(reqs, f"{sid}_c10", sid,
-                     MARGIN + card_w4 + gap, row4_y, card_w4, card_h,
-                     L.LARGEST_COHORT, biggest_lbl, accent=BLUE, value_pt=14)
-
-    return idx + 1
-
-
-def _cohort_deck_title_slide(reqs, sid, report, idx):
-    """Title for manufacturing cohort deck (uses same portfolio report payload)."""
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, NAVY)
-
-    n = report.get("customer_count", 0)
-    days = report.get("days", 30)
-    ql = report.get("quarter")
-    title = "Manufacturing cohort review"
-    sub = f"{n} customers in scope  ·  {_date_range(days, ql, report.get('quarter_start'), report.get('quarter_end'))}"
-
-    _box(reqs, f"{sid}_t", sid, MARGIN, 100, CONTENT_W, 80, title)
-    _style(reqs, f"{sid}_t", 0, len(title), bold=True, size=32, color=WHITE, font=FONT_SERIF)
-
-    _box(reqs, f"{sid}_s", sid, MARGIN, 188, CONTENT_W, 36, sub)
-    _style(reqs, f"{sid}_s", 0, len(sub), size=14, color=LTBLUE, font=FONT)
-
-    note = "Cohorts from cohorts.yaml · see docs/CUSTOMER_COHORTS.md"
-    _box(reqs, f"{sid}_n", sid, MARGIN, 240, CONTENT_W, 20, note)
-    _style(reqs, f"{sid}_n", 0, len(note), size=10, color=GRAY, font=FONT)
-
-    gen = report.get("generated", "")
-    if gen:
-        _box(reqs, f"{sid}_d", sid, MARGIN, 340, CONTENT_W, 20, gen)
-        _style(reqs, f"{sid}_d", 0, len(gen), size=10, color=GRAY, font=FONT)
-
-    return idx + 1
-
-
-def _cohort_profiles_slide(reqs, sid, report, idx) -> int | tuple[int, list[str]]:
-    """Up to ``rollup_params.max_physical_slides`` cohort profile pages (see cohort-01-profiles.yaml)."""
-    digest = report.get("cohort_digest") or {}
-    cap = cohort_profiles_max_physical_slides()
-    rows = sorted(
-        [(k, v) for k, v in digest.items() if isinstance(v, dict) and int(v.get("n") or 0) > 0],
-        key=lambda x: (x[0] == "unclassified", -int(x[1].get("n") or 0)),
-    )[:cap]
-    if not rows:
-        return _missing_data_slide(reqs, sid, report, idx, "cohort_digest (no customers in cohort buckets)")
-
-    total_customers = report.get("customer_count", 0)
-    arr_map = report.get("_arr_by_customer") or {}
-    oids: list[str] = []
-    blocks_for_notes: list[dict[str, Any]] = []
-    num = len(rows)
-    for pi, (_cid, block) in enumerate(rows):
-        page_sid = f"{sid}_p{pi}" if num > 1 else sid
-        oids.append(page_sid)
-        blocks_for_notes.append(block)
-        _slide(reqs, page_sid, idx + pi)
-        _bg(reqs, page_sid, WHITE)
-        cohort_n = block["n"]
-        cohort_arr = sum(arr_map.get(c, 0) for c in (block.get("customers") or []))
-        ttl = f"{block['display_name']} ({cohort_n} of {total_customers} customers"
-        if cohort_arr > 0:
-            ttl += f", {_fmt_platform_value_dollar(cohort_arr)} ARR"
-        ttl += ")"
-        _slide_title(reqs, page_sid, ttl)
-
-        mlogin = block.get("median_login_pct")
-        mlogin_s = "—" if mlogin is None else f"{mlogin}%"
-        mw = block.get("median_write_ratio")
-        mw_s = "—" if mw is None else f"{mw}%"
-        me = block.get("median_exports")
-        me_s = "—" if me is None else f"{me:.0f}"
-
-        hdr = (
-            f"{block['total_active_users']:,} active (7d) / "
-            f"{block['total_users']:,} total users across cohort"
-        )
-        _box(reqs, f"{page_sid}_hdr", page_sid, MARGIN, BODY_Y, CONTENT_W, 20, hdr)
-        _style(reqs, f"{page_sid}_hdr", 0, len(hdr), size=12, color=GRAY, font=FONT)
-
-        kei_pct = block.get("kei_adoption_pct", 0)
-        stats = (
-            f"Weekly active rate (median) {mlogin_s}  ·  "
-            f"write-to-total ratio (median) {mw_s}  ·  "
-            f"Kei adopters (% of customers) {kei_pct}%  ·  "
-            f"exports per customer (median, 30d) {me_s}"
-        )
-        _box(reqs, f"{page_sid}_st", page_sid, MARGIN, BODY_Y + 24, CONTENT_W, 36, stats)
-        _style(reqs, f"{page_sid}_st", 0, len(stats), size=12, color=NAVY, font=FONT)
-
-        customers = block.get("customers") or []
-        arr_map = report.get("_arr_by_customer") or {}
-
-        def _fmt_arr(v: float) -> str:
-            av = abs(v)
-            if av >= 1_000_000:
-                return f"${v / 1_000_000:,.1f}M"
-            if av >= 1_000:
-                return f"${v / 1_000:,.0f}K"
-            return f"${v:,.0f}"
-
-        decorated = [(n, arr_map.get(n, 0.0)) for n in customers]
-        decorated.sort(key=lambda x: -x[1])
-
-        def _label(name: str, arr: float) -> str:
-            return f"• {name} — {_fmt_arr(arr)}" if arr else f"• {name}"
-
-        mid = (len(decorated) + 1) // 2
-        col_left = decorated[:mid]
-        col_right = decorated[mid:]
-
-        acc_y = BODY_Y + 66
-        acc_h = BODY_BOTTOM - acc_y - 8
-        col_w = (CONTENT_W - 24) // 2
-
-        has_arr = any(arr > 0 for _, arr in decorated)
-        left_hdr = "Accounts (by ARR)" if has_arr else "Accounts"
-        left_lines = [left_hdr] + [_label(n, a) for n, a in col_left]
-        left_body = "\n".join(left_lines)
-        _wrap_box(reqs, f"{page_sid}_accL", page_sid, MARGIN, acc_y, col_w, acc_h, left_body)
-        _style(reqs, f"{page_sid}_accL", 0, len(left_body), size=11, color=NAVY, font=FONT)
-        _style(reqs, f"{page_sid}_accL", 0, len(left_hdr), bold=True, size=12, color=BLUE, font=FONT)
-
-        if col_right:
-            right_lines = [""] + [_label(n, a) for n, a in col_right]
-            right_body = "\n".join(right_lines)
-            _wrap_box(reqs, f"{page_sid}_accR", page_sid, MARGIN + col_w + 24, acc_y, col_w, acc_h, right_body)
-            _style(reqs, f"{page_sid}_accR", 0, len(right_body), size=11, color=NAVY, font=FONT)
-
-    report["_cohort_profile_speaker_note_blocks"] = blocks_for_notes
-
-    if num == 1:
-        return idx + 1
-    return idx + num, oids
-
-
-# Vertical budget per numbered finding (body band — same idea as portfolio trends / signals rows).
-_COHORT_FINDING_ROW_H_PT = 38
-_COHORT_FINDING_ROW_GAP_PT = 6
-
-
-def _cohort_findings_rows_per_page() -> int:
-    """How many wrapped bullet rows fit between BODY_Y and BODY_BOTTOM (matches list pagination elsewhere)."""
-    avail = float(BODY_BOTTOM) - float(BODY_Y) - 8.0
-    step = float(_COHORT_FINDING_ROW_H_PT + _COHORT_FINDING_ROW_GAP_PT)
-    return max(1, int(avail // step))
-
-
-def _cohort_findings_slide(reqs, sid, report, idx):
-    bullets = list(report.get("cohort_findings_bullets") or [])
-    if not bullets:
-        return _missing_data_slide(reqs, sid, report, idx, "cohort_findings_bullets")
-
-    max_rows = _cohort_findings_rows_per_page()
-    max_rows = min(max_rows, 28)
-    chunks = _cap_chunk_list(
-        [bullets[i : i + max_rows] for i in range(0, len(bullets), max_rows)]
-    )
-    oids: list[str] = []
-    for pi, chunk in enumerate(chunks):
-        page_sid = f"{sid}_p{pi}" if len(chunks) > 1 else sid
-        oids.append(page_sid)
-        _slide(reqs, page_sid, idx + pi)
-        _bg(reqs, page_sid, LIGHT)
-        st = (
-            "Notable findings — cohort differences"
-            if len(chunks) == 1
-            else f"Notable findings — cohort differences ({pi + 1} of {len(chunks)})"
-        )
-        _slide_title(reqs, page_sid, st)
-        base = pi * max_rows
-        y = float(BODY_Y)
-        for i, raw in enumerate(chunk, start=base + 1):
-            line = raw if len(raw) <= 220 else raw[:217] + "…"
-            prefix = f"{i}.   "
-            full = f"{prefix}{line}"
-            oid_b = f"{page_sid}_cf{i}"
-            _wrap_box(
-                reqs,
-                oid_b,
-                page_sid,
-                MARGIN,
-                int(y),
-                CONTENT_W,
-                _COHORT_FINDING_ROW_H_PT,
-                full,
-            )
-            _style(reqs, oid_b, 0, len(full), size=12, color=NAVY, font=FONT)
-            _style(reqs, oid_b, 0, len(prefix), bold=True, color=BLUE)
-            y += float(_COHORT_FINDING_ROW_H_PT + _COHORT_FINDING_ROW_GAP_PT)
-    return idx + len(chunks), oids
 
 
 # ── Data Quality slide ──
