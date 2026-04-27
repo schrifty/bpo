@@ -30,6 +30,10 @@ from .slide_cohort import (
     cohort_profiles_slide as _cohort_profiles_slide,
     cohort_summary_slide as _cohort_summary_slide,
 )
+from .slide_cohort_links import (
+    COHORT_BUNDLE_SIGNAL_LINK_PHRASES as _COHORT_BUNDLE_SIGNAL_LINK_PHRASES,
+    apply_cohort_bundle_links_to_notable_signals,
+)
 from .slide_data_quality import data_quality_slide as _data_quality_slide
 from .slide_metadata import (
     DQ_SOURCE_LABEL_ORDER as _DQ_SOURCE_LABEL_ORDER,
@@ -3206,83 +3210,6 @@ def _signals_slide(reqs, sid, report, idx):
                 _style(reqs, oid, off, off + dot + 1, bold=True, color=BLUE)
             off += len(line) + 1
     return idx + len(chunks), oids
-
-
-# Substrings in auto-generated Notable Signals lines → hyperlink to the cohort review deck (QBR bundle).
-_COHORT_BUNDLE_SIGNAL_LINK_PHRASES: tuple[str, ...] = ("cohort median", "portfolio median")
-
-
-def apply_cohort_bundle_links_to_notable_signals(
-    slides_svc: Any,
-    pres_id: str,
-    cohort_deck_url: str,
-    *,
-    page_object_ids: list[str] | None = None,
-) -> int:
-    """Hyperlink cohort/portfolio median wording on Notable Signals to the cohort review deck.
-
-    Signal bodies are built by ``_signals_slide`` as shapes whose objectId ends with ``_sig``.
-    When ``page_object_ids`` is set (QBR exec-summary insert), only those slides are scanned;
-    when omitted or empty, every slide is scanned (standalone Executive Summary companion deck).
-    """
-    link_url = (cohort_deck_url or "").strip()
-    if not link_url:
-        return 0
-    if "/edit" not in link_url:
-        link_url = link_url.rstrip("/") + "/edit"
-
-    try:
-        pres = slides_svc.presentations().get(presentationId=pres_id).execute()
-    except HttpError as e:
-        logger.warning("apply_cohort_bundle_links: could not read presentation %s: %s", pres_id[:12], e)
-        return 0
-
-    by_id = {s["objectId"]: s for s in pres.get("slides", [])}
-    if page_object_ids:
-        slides_to_scan = [by_id[pid] for pid in page_object_ids if pid in by_id]
-    else:
-        slides_to_scan = list(by_id.values())
-
-    reqs: list[dict[str, Any]] = []
-    for slide in slides_to_scan:
-        for el in _iter_flat_page_elements(slide.get("pageElements")):
-            oid = el.get("objectId") or ""
-            if not oid.endswith("_sig"):
-                continue
-            shape = el.get("shape") or {}
-            tb = shape.get("text") or {}
-            full = _slides_shape_text_plain(tb)
-            if not full:
-                continue
-            for u0, u1 in _utf16_ranges_for_phrases(full, _COHORT_BUNDLE_SIGNAL_LINK_PHRASES):
-                if u0 >= u1:
-                    continue
-                reqs.append({
-                    "updateTextStyle": {
-                        "objectId": oid,
-                        "textRange": {
-                            "type": "FIXED_RANGE",
-                            "startIndex": u0,
-                            "endIndex": u1,
-                        },
-                        "style": {"link": {"url": link_url}},
-                        "fields": "link",
-                    }
-                })
-
-    if not reqs:
-        return 0
-    try:
-        presentations_batch_update_chunked(slides_svc, pres_id, reqs)
-    except HttpError as e:
-        logger.warning("apply_cohort_bundle_links: batchUpdate failed for %s: %s", pres_id[:12], e)
-        return 0
-    logger.info(
-        "Linked cohort/portfolio median text → cohort deck (%d span(s)) in presentation %s…",
-        len(reqs),
-        pres_id[:12],
-    )
-    return len(reqs)
 
 
 # ── Data Quality slide ──
