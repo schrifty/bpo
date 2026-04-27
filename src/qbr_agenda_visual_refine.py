@@ -38,7 +38,7 @@ from .evaluate import (
 )
 from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
 from .speaker_notes import set_speaker_notes
-from .slides_client import slides_presentations_batch_update
+from .slides_api import slides_presentations_batch_update
 
 
 _QBR_AGENDA_REFINEMENT_RULES = """REFINEMENT PASS — prior thumbnail review reported issues:

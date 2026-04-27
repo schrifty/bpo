@@ -33,7 +33,7 @@ import yaml
 from .config import LLM_MODEL_FAST, logger
 from .evaluate import _add_incomplete_banner, _extract_text
 from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
-from .slides_client import slides_presentations_batch_update
+from .slides_api import slides_presentations_batch_update
 
 YELLOW_FIELD_PLACEHOLDER = "[???]"
 

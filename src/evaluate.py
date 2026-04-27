@@ -43,17 +43,19 @@ from .data_field_synonyms import (
     data_summary_lookup,
     data_summary_path_exists,
 )
-from .drive_config import assert_qbr_prompts_ready_or_raise
+from .drive_config import assert_qbr_prompts_ready_or_raise, get_deck_output_folder_id
 from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
 from . import matching_log
 from .slide_loader import get_slide_definition
 from .slides_client import (
     SLIDE_DATA_REQUIREMENTS,
     _box,
-    _build_slides_service_for_thread,
-    _get_service,
     _slide,
     _wrap_box,
+)
+from .slides_api import (
+    _build_slides_service_for_thread,
+    _get_service,
     slides_presentations_batch_update,
 )
 from .speaker_notes import set_speaker_notes, set_speaker_notes_batch
@@ -4372,9 +4374,8 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
     # Load known customer names for auto-detection
     from .pendo_client import PendoClient
     from .quarters import resolve_quarter
-    from .slides_client import (
-        _get_service, _get_deck_output_folder, _SLIDE_BUILDERS,
-    )
+    from .slides_api import _get_service
+    from .slides_client import _SLIDE_BUILDERS
     from googleapiclient.errors import HttpError
 
     qr = resolve_quarter()
@@ -4550,7 +4551,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
 
         try:
             copy_body: dict[str, Any] = {"name": out_title}
-            output_folder = _get_deck_output_folder()
+            output_folder = get_deck_output_folder_id()
             if output_folder:
                 copy_body["parents"] = [output_folder]
             copied = drive_svc.files().copy(

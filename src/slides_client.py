@@ -8423,20 +8423,11 @@ def _ordered_dq_data_sources_for_slide_plan(
     return [x for x in _DQ_SOURCE_LABEL_ORDER if x in label_set]
 
 
-_output_folder_cache: str | None = None
-
-
 def _get_deck_output_folder() -> str | None:
     """Return the base QBR Generator folder ID for individual deck outputs."""
-    global _output_folder_cache
-    from .drive_config import get_qbr_generator_folder_id_for_drive_config
+    from .drive_config import get_deck_output_folder_id
 
-    if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
-        return None
-    if _output_folder_cache:
-        return _output_folder_cache
-    _output_folder_cache = get_qbr_generator_folder_id_for_drive_config()
-    return _output_folder_cache
+    return get_deck_output_folder_id()
 
 
 def create_empty_deck(customer: str, days: int = 30, deck_name: str | None = None) -> dict[str, Any]:

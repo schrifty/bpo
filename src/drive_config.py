@@ -52,6 +52,7 @@ _yaml_cache_lock = threading.Lock()
 _slide_def_id_cache: dict[str, dict[str, Any]] = {}
 _drive_yaml_duplicate_log_lock = threading.Lock()
 _drive_yaml_duplicate_signatures_warned: set[tuple[str, tuple[tuple[str, str, tuple[str, ...]], ...]]] = set()
+_deck_output_folder_cache: str | None = None
 
 # Set by ensure_drive_config_matches_repo (at most once per process).
 _drive_repo_sync_ran = False
@@ -215,6 +216,17 @@ def get_qbr_generator_folder_id_for_drive_config() -> str:
             "Prompts, decks/, and slides/."
         )
     return explicit
+
+
+def get_deck_output_folder_id() -> str | None:
+    """Return the base QBR Generator folder id for generated deck outputs."""
+    global _deck_output_folder_cache
+    if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
+        return None
+    if _deck_output_folder_cache:
+        return _deck_output_folder_cache
+    _deck_output_folder_cache = get_qbr_generator_folder_id_for_drive_config()
+    return _deck_output_folder_cache
 
 
 def _get_config_folder_ids() -> tuple[str, str, str]:
@@ -486,12 +498,13 @@ def clear_yaml_config_cache() -> None:
 
 def reset_for_tests() -> None:
     """Reset Drive-backed module caches and one-shot sync guards for test isolation."""
-    global _drive_repo_sync_ran, _qbr_adapt_prompt_sync_ran
+    global _drive_repo_sync_ran, _qbr_adapt_prompt_sync_ran, _deck_output_folder_cache
     clear_yaml_config_cache()
     with _drive_yaml_duplicate_log_lock:
         _drive_yaml_duplicate_signatures_warned.clear()
     _drive_repo_sync_ran = False
     _qbr_adapt_prompt_sync_ran = False
+    _deck_output_folder_cache = None
 
 
 def list_obsolete_drive_config(

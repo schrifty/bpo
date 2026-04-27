@@ -53,13 +53,15 @@ from .signals_llm import extract_executive_signals_slide_prompt
 from .quarters import QuarterRange, resolve_quarter
 from .slides_client import (
     _build_slide_jql_speaker_notes,
-    _get_service,
-    _google_api_unreachable_hint,
     _normalize_builder_return,
     _SLIDE_BUILDERS,
     apply_cohort_bundle_links_to_notable_signals,
     create_cohort_deck,
     create_health_deck,
+)
+from .slides_api import (
+    _get_service,
+    _google_api_unreachable_hint,
     presentations_batch_update_chunked,
     slides_presentations_batch_update,
 )
