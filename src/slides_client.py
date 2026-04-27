@@ -7,7 +7,6 @@ Dimensions, brand palette, and shared layout helpers live in ``slides_theme``.
 from __future__ import annotations
 
 import datetime
-import json
 import os
 import random
 import threading
@@ -36,6 +35,14 @@ from .slide_requests import (
     append_slide as _slide,
     append_text_box as _box,
     append_wrapped_text_box as _wrap_box,
+)
+from .slide_salesforce import (
+    filter_salesforce_comprehensive_slide_plan as _filter_salesforce_comprehensive_slide_plan,
+    salesforce_category_slide as _salesforce_category_slide,
+    salesforce_comprehensive_cover_slide as _salesforce_comprehensive_cover_slide,
+    sf_category_records as _sf_category_records,
+    sf_format_cell as _sf_format_cell,
+    sf_records_to_table as _sf_records_to_table,
 )
 from .speaker_notes import (
     get_speaker_notes_object_id,
@@ -6361,167 +6368,6 @@ def _cs_notable_slide(reqs: list, sid: str, report: dict, idx: int) -> int:
     _box(reqs, f"{sid}_li", sid, MARGIN, y, CONTENT_W, h, body)
     _style(reqs, f"{sid}_li", 0, len(body), size=10, color=NAVY, font=FONT)
     return idx + 1
-
-
-def _sf_format_cell(val: Any, max_len: int = 44) -> str:
-    if val is None:
-        return ""
-    if isinstance(val, (dict, list)):
-        s = json.dumps(val, default=str)
-    else:
-        s = str(val)
-    if len(s) > max_len:
-        return s[: max_len - 1] + "…"
-    return s
-
-
-def _sf_records_to_table(
-    records: list[dict[str, Any]],
-    *,
-    max_cols: int = 7,
-    max_rows: int = 12,
-) -> tuple[list[str], list[list[str]]]:
-    if not records:
-        return [], []
-    keys: list[str] = []
-    for rec in records[:40]:
-        for k in rec.keys():
-            if k not in keys:
-                keys.append(k)
-    keys = keys[:max_cols]
-    rows = [[_sf_format_cell(rec.get(k)) for k in keys] for rec in records[:max_rows]]
-    return keys, rows
-
-
-def _sf_category_records(sfc: dict[str, Any], category: str) -> list[dict[str, Any]]:
-    """Resolve records for a deck ``sf_category`` (must match ``_salesforce_category_slide``)."""
-    cat = (category or "").strip()
-    if cat == "entity_accounts":
-        return list(sfc.get("accounts") or [])
-    return list((sfc.get("categories") or {}).get(cat) or [])
-
-
-def _filter_salesforce_comprehensive_slide_plan(
-    slide_plan: list[dict[str, Any]],
-    sfc: dict[str, Any],
-) -> list[dict[str, Any]]:
-    """Drop ``salesforce_category`` entries with no rows (cover, data_quality, etc. stay)."""
-    out: list[dict[str, Any]] = []
-    for entry in slide_plan:
-        st = entry.get("slide_type", entry.get("id", ""))
-        if st != "salesforce_category":
-            out.append(entry)
-            continue
-        if _sf_category_records(sfc, entry.get("sf_category") or ""):
-            out.append(entry)
-    return out
-
-
-def _salesforce_comprehensive_cover_slide(reqs, sid, report, idx):
-    """Intro slide for the Salesforce comprehensive deck."""
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, LIGHT)
-    _slide_title(reqs, sid, "Salesforce — comprehensive export")
-    sfc = report.get("salesforce_comprehensive") or {}
-    customer = report.get("customer", "")
-    parts: list[str] = []
-    err = sfc.get("error")
-    if err:
-        parts.append(f"Setup: {err}")
-    if not sfc.get("matched"):
-        parts.append(f'No Customer Entity account matched for "{customer}".')
-    else:
-        n_acc = len(sfc.get("accounts") or [])
-        parts.append(f"Customer: {customer}")
-        parts.append(f"Matched {n_acc} Customer Entity account(s).")
-        exp = sfc.get("account_ids_expanded") or sfc.get("account_ids") or []
-        if len(exp) > n_acc:
-            parts.append(
-                f"Queries include {len(exp)} account Id(s) (entity row(s) plus child accounts via ParentId)."
-            )
-        elif exp:
-            parts.append(f"Queries scoped to {len(exp)} account Id(s).")
-        rl = sfc.get("row_limit", 75)
-        parts.append(
-            f"Each related object is capped at ~{rl} rows (API first page); not a full data warehouse export."
-        )
-    parts.append("Products and price books are org-wide samples (not filtered to this account).")
-    body = "\n".join(parts)
-    oid = f"{sid}_body"
-    body_h = max(80.0, BODY_BOTTOM - BODY_Y - 8)
-    _wrap_box(reqs, oid, sid, MARGIN, BODY_Y, CONTENT_W, body_h, body)
-    _style(reqs, oid, 0, len(body), size=11, color=NAVY, font=FONT)
-    return idx + 1
-
-
-def _salesforce_category_slide(reqs, sid, report, idx):
-    """One table per mainstream Salesforce category (see deck ``sf_category``)."""
-    entry = report.get("_current_slide") or {}
-    cat = (entry.get("sf_category") or "").strip()
-    title = (entry.get("title") or cat.replace("_", " ").title())[:100]
-    sfc = report.get("salesforce_comprehensive") or {}
-
-    if "salesforce_comprehensive" not in report:
-        return _missing_data_slide(reqs, sid, report, idx, "salesforce_comprehensive payload")
-
-    if not cat:
-        return _missing_data_slide(reqs, sid, report, idx, "sf_category not set on slide")
-
-    records = _sf_category_records(sfc, cat)
-
-    err_note = (sfc.get("category_errors") or {}).get(cat)
-
-    # Slides grows table rows when 9pt text wraps in narrow cells; 12pt nominal height underruns badly.
-    row_h = 28.0
-    y0 = BODY_Y + (38 if err_note else 0)
-    bottom_pad = 10.0
-    avail_h = BODY_BOTTOM - y0 - bottom_pad
-    # Table is 1 header row + N data rows, each row_h pt tall in API layout.
-    rows_per_page = max(2, int(avail_h // row_h) - 1)
-
-    if not records:
-        _slide(reqs, sid, idx)
-        _bg(reqs, sid, LIGHT)
-        _slide_title(reqs, sid, title)
-        y = BODY_Y
-        if err_note:
-            banner = f"Query error: {err_note[:140]}"
-            bid = f"{sid}_warn"
-            _box(reqs, bid, sid, MARGIN, y, CONTENT_W, 32, banner)
-            _style(reqs, bid, 0, len(banner), size=8, color=GRAY, font=FONT)
-            y += 38
-        msg = "No records for this category." + (" (see query error above)" if err_note else "")
-        eid = f"{sid}_empty"
-        _box(reqs, eid, sid, MARGIN, y, CONTENT_W, 36, msg)
-        _style(reqs, eid, 0, len(msg), size=11, color=NAVY, font=FONT)
-        return idx + 1
-
-    chunks = _cap_chunk_list(
-        [records[i : i + rows_per_page] for i in range(0, len(records), rows_per_page)]
-    )
-    oids: list[str] = []
-    for pi, chunk in enumerate(chunks):
-        page_sid = f"{sid}_p{pi}" if len(chunks) > 1 else sid
-        oids.append(page_sid)
-        _slide(reqs, page_sid, idx + pi)
-        _bg(reqs, page_sid, LIGHT)
-        page_title = title if len(chunks) == 1 else f"{title} ({pi + 1} of {len(chunks)})"
-        _slide_title(reqs, page_sid, page_title)
-        y = BODY_Y
-        if pi == 0 and err_note:
-            banner = f"Query error: {err_note[:140]}"
-            bid = f"{page_sid}_warn"
-            _box(reqs, bid, page_sid, MARGIN, y, CONTENT_W, 32, banner)
-            _style(reqs, bid, 0, len(banner), size=8, color=GRAY, font=FONT)
-            y += 38
-        headers, rows = _sf_records_to_table(chunk, max_rows=len(chunk))
-        if not headers:
-            continue
-        n = len(headers)
-        col_w = min(118.0, CONTENT_W / max(1, n))
-        col_widths = [col_w] * n
-        _simple_table(reqs, f"{page_sid}_tbl", page_sid, MARGIN, y, col_widths, row_h, headers, rows)
-    return idx + len(chunks), oids
 
 
 # ── LeanDNA Shortage Trends Slides ──
