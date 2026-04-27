@@ -54,6 +54,10 @@ from .slide_metadata import (
     SLIDE_DATA_REQUIREMENTS,
     ordered_dq_data_sources_for_slide_plan as _ordered_dq_data_sources_for_slide_plan,
 )
+from .slide_platform_health import (
+    HEALTH_BADGE as _HEALTH_BADGE,
+    platform_health_slide as _platform_health_slide,
+)
 from .slides_api import (
     GOOGLE_API_TIMEOUT_S,
     SCOPES,
@@ -2050,142 +2054,6 @@ _RED   = {"red": 0.85, "green": 0.15, "blue": 0.15}    # #d92626
 
 
 # ── CS Report slide builders ──
-
-_HEALTH_BADGE = {
-    "GREEN": ({"red": 0.10, "green": 0.55, "blue": 0.28}, "\u2705"),
-    "YELLOW": ({"red": 0.9, "green": 0.65, "blue": 0.0}, "\u26a0"),
-    "RED": ({"red": 0.78, "green": 0.18, "blue": 0.18}, "\u2716"),
-}
-
-
-def _platform_health_slide(reqs, sid, report, idx):
-    cs = get_csr_section(report).get("platform_health") or {}
-    site_list = cs.get("sites", [])
-    if not site_list:
-        err = (cs.get("error") or "").strip()
-        desc = err or "CS Report platform health / site list"
-        return _missing_data_slide(reqs, sid, report, idx, desc)
-
-    dist = cs.get("health_distribution", {})
-    total_short = cs.get("total_shortages", 0)
-    total_crit = cs.get("total_critical_shortages", 0)
-    
-    # LeanDNA enrichment: high-risk items badge
-    ldna = report.get("leandna_item_master") or {}
-    ldna_enabled = ldna.get("enabled", False)
-    high_risk_count = len(ldna.get("high_risk_items", [])) if ldna_enabled else 0
-    
-    parts = [f"{v} {k}" for k, v in dist.items() if v > 0]
-    parts.append(f"{total_short:,} shortages ({total_crit:,} critical)")
-    
-    if ldna_enabled and high_risk_count > 0:
-        parts.append(f"{high_risk_count} high-risk items")
-    
-    summary_hdr = "  ·  ".join(parts)
-
-    ROW_H = 28
-    max_rows = max(1, (BODY_BOTTOM - BODY_Y - 24) // ROW_H - 1)
-    headers_list = ["Factory", "Health", "CTB%", "CTC%", "Comp Avail%", "Shortages", "Critical"]
-    col_widths = [170, 60, 55, 55, 75, 65, 60]
-    chunks = _cap_chunk_list(
-        [site_list[i : i + max_rows] for i in range(0, len(site_list), max_rows)]
-    )
-    oids: list[str] = []
-
-    for pi, show in enumerate(chunks):
-        page_sid = f"{sid}_p{pi}" if len(chunks) > 1 else sid
-        oids.append(page_sid)
-        _slide(reqs, page_sid, idx + pi)
-        ttl = "Platform Health" if len(chunks) == 1 else f"Platform Health ({pi + 1} of {len(chunks)})"
-        _slide_title(reqs, page_sid, ttl)
-        _box(reqs, f"{page_sid}_hdr", page_sid, MARGIN, BODY_Y, CONTENT_W, 18, summary_hdr)
-        _style(reqs, f"{page_sid}_hdr", 0, len(summary_hdr), size=10, color=GRAY, font=FONT)
-
-        num_rows = 1 + len(show)
-        table_id = f"{page_sid}_tbl"
-        reqs.append({
-            "createTable": {
-                "objectId": table_id,
-                "elementProperties": {
-                    "pageObjectId": page_sid,
-                    "size": _sz(sum(col_widths), num_rows * ROW_H),
-                    "transform": _tf(MARGIN, BODY_Y + 24),
-                },
-                "rows": num_rows, "columns": len(headers_list),
-            }
-        })
-
-        def _ct(row, col, text):
-            if not text:
-                return
-            reqs.append({"insertText": {"objectId": table_id,
-                         "cellLocation": {"rowIndex": row, "columnIndex": col},
-                         "text": text, "insertionIndex": 0}})
-
-        def _cs(row, col, text_len, bold=False, color=None, size=8, align=None):
-            if text_len > 0:
-                s: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}, "fontFamily": FONT}
-                f = ["fontSize", "fontFamily"]
-                if bold:
-                    s["bold"] = True; f.append("bold")
-                if color:
-                    s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}; f.append("foregroundColor")
-                reqs.append({
-                    "updateTextStyle": {
-                        "objectId": table_id,
-                        "cellLocation": {"rowIndex": row, "columnIndex": col},
-                        "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
-                        "style": s, "fields": ",".join(f),
-                    }
-                })
-            if align:
-                reqs.append({
-                    "updateParagraphStyle": {
-                        "objectId": table_id,
-                        "cellLocation": {"rowIndex": row, "columnIndex": col},
-                        "textRange": {"type": "ALL"},
-                        "style": {"alignment": align}, "fields": "alignment",
-                    }
-                })
-
-        def _cbg(row, col, color):
-            reqs.append({
-                "updateTableCellProperties": {
-                    "objectId": table_id,
-                    "tableRange": {"location": {"rowIndex": row, "columnIndex": col}, "rowSpan": 1, "columnSpan": 1},
-                    "tableCellProperties": {"tableCellBackgroundFill": {"solidFill": {"color": {"rgbColor": color}}}},
-                    "fields": "tableCellBackgroundFill",
-                }
-            })
-
-        _clean_table(reqs, table_id, num_rows, len(headers_list))
-
-        for ci, h in enumerate(headers_list):
-            _ct(0, ci, h)
-            _cs(0, ci, len(h), bold=True, color=NAVY, size=9, align="END" if ci >= 2 else None)
-            _cbg(0, ci, WHITE)
-
-        for ri, s in enumerate(show):
-            row = ri + 1
-            hs = s.get("health_score") or "NONE"
-            badge_info = _HEALTH_BADGE.get(hs)
-            badge = badge_info[1] + " " + hs if badge_info else hs
-            vals = [
-                s.get("factory", "?")[:24],
-                badge,
-                f'{s.get("clear_to_build_pct", 0):.1f}' if "clear_to_build_pct" in s else "-",
-                f'{s.get("clear_to_commit_pct", 0):.1f}' if "clear_to_commit_pct" in s else "-",
-                f'{s.get("component_availability_pct", 0):.1f}' if "component_availability_pct" in s else "-",
-                f'{s.get("shortages", 0):,}' if "shortages" in s else "-",
-                f'{s.get("critical_shortages", 0):,}' if "critical_shortages" in s else "-",
-            ]
-            for ci, v in enumerate(vals):
-                _ct(row, ci, v)
-                _cs(row, ci, len(v), color=NAVY, size=8, align="END" if ci >= 2 else None)
-                _cbg(row, ci, WHITE)
-
-    return idx + len(chunks), oids
-
 
 def _supply_chain_slide(reqs, sid, report, idx):
     cs = get_csr_section(report).get("supply_chain") or {}
