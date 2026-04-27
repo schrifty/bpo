@@ -73,6 +73,12 @@ from .slide_pipeline_traces import (
     salesforce_pipeline_traces as _salesforce_pipeline_traces,
     support_health_exec_pipeline_traces as _support_health_exec_pipeline_traces,
 )
+from .slide_portfolio import (
+    portfolio_leaders_slide as _portfolio_leaders_slide,
+    portfolio_signals_slide as _portfolio_signals_slide,
+    portfolio_title_slide as _portfolio_title_slide,
+    portfolio_trends_slide as _portfolio_trends_slide,
+)
 from .slide_primitives import (
     CHART_LEGEND_PT,
     align as _align,
@@ -3272,178 +3278,6 @@ def apply_cohort_bundle_links_to_notable_signals(
         pres_id[:12],
     )
     return len(reqs)
-
-
-# ── Portfolio slide builders (cross-customer) ──
-
-
-def _portfolio_title_slide(reqs, sid, report, idx):
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, NAVY)
-
-    n = report.get("customer_count", 0)
-    days = report.get("days", 30)
-    ql = report.get("quarter")
-    title = "Book of Business Review"
-    sub = f"{n} customers  ·  {_date_range(days, ql, report.get('quarter_start'), report.get('quarter_end'))}"
-
-    _box(reqs, f"{sid}_t", sid, MARGIN, 100, CONTENT_W, 80, title)
-    _style(reqs, f"{sid}_t", 0, len(title), bold=True, size=36, color=WHITE, font=FONT_SERIF)
-
-    _box(reqs, f"{sid}_s", sid, MARGIN, 190, CONTENT_W, 30, sub)
-    _style(reqs, f"{sid}_s", 0, len(sub), size=15, color=LTBLUE, font=FONT)
-
-    gen = report.get("generated", "")
-    if gen:
-        _box(reqs, f"{sid}_d", sid, MARGIN, 340, CONTENT_W, 20, gen)
-        _style(reqs, f"{sid}_d", 0, len(gen), size=10, color=GRAY, font=FONT)
-
-    return idx + 1
-
-
-def _portfolio_signals_slide(reqs, sid, report, idx):
-    signals = report.get("portfolio_signals", [])
-    if not signals:
-        return _missing_data_slide(reqs, sid, report, idx, "portfolio action signals")
-
-    max_rows = 12
-    chunks = _cap_chunk_list(
-        [signals[i : i + max_rows] for i in range(0, len(signals), max_rows)]
-    )
-    oids: list[str] = []
-    for pi, chunk in enumerate(chunks):
-        page_sid = f"{sid}_p{pi}" if len(chunks) > 1 else sid
-        oids.append(page_sid)
-        _slide(reqs, page_sid, idx + pi)
-        _bg(reqs, page_sid, WHITE)
-        st = "Critical Signals Across Portfolio" if len(chunks) == 1 else f"Critical Signals ({pi + 1} of {len(chunks)})"
-        _slide_title(reqs, page_sid, st)
-        y = BODY_Y
-        for i, s in enumerate(chunk):
-            sev = s.get("severity", 0)
-            dot = "\u25cf "
-            dot_color = {"red": 0.85, "green": 0.15, "blue": 0.15} if sev >= 2 else \
-                        {"red": 0.9, "green": 0.65, "blue": 0.0}
-            cust = s["customer"]
-            sig = s["signal"]
-            line = f"{dot}{cust}:  {sig}"
-            _box(reqs, f"{page_sid}_r{i}", page_sid, MARGIN, y, CONTENT_W, 20, line)
-            _style(reqs, f"{page_sid}_r{i}", 0, len(line), size=9, color=NAVY, font=FONT)
-            _style(reqs, f"{page_sid}_r{i}", 0, len(dot), color=dot_color, size=10)
-            _style(reqs, f"{page_sid}_r{i}", len(dot), len(dot) + len(cust), bold=True, size=9)
-            y += 22
-    return idx + len(chunks), oids
-
-
-def _portfolio_trends_slide(reqs, sid, report, idx):
-    trends_data = report.get("portfolio_trends", {})
-    trends = trends_data.get("trends", [])
-    if not trends:
-        return _missing_data_slide(reqs, sid, report, idx, "portfolio trends")
-
-    type_colors = {
-        "concern": {"red": 0.85, "green": 0.15, "blue": 0.15},
-        "opportunity": BLUE,
-        "positive": {"red": 0.1, "green": 0.6, "blue": 0.2},
-        "insight": NAVY,
-    }
-
-    per_page = 8
-    trend_chunks = _cap_chunk_list(
-        [trends[i : i + per_page] for i in range(0, len(trends), per_page)]
-    )
-    oids: list[str] = []
-    for pi, tchunk in enumerate(trend_chunks):
-        page_sid = f"{sid}_p{pi}" if len(trend_chunks) > 1 else sid
-        oids.append(page_sid)
-        _slide(reqs, page_sid, idx + pi)
-        _bg(reqs, page_sid, LIGHT)
-        st = "Aggregate Trends" if len(trend_chunks) == 1 else f"Aggregate Trends ({pi + 1} of {len(trend_chunks)})"
-        _slide_title(reqs, page_sid, st)
-        total_active = trends_data.get("total_active_users", 0)
-        total_users = trends_data.get("total_users", 0)
-        login_pct = trends_data.get("overall_login_pct", 0)
-        header = f"{total_active:,} active users of {total_users:,} total  ·  {login_pct}% login rate"
-        _box(reqs, f"{page_sid}_hdr", page_sid, MARGIN, BODY_Y, CONTENT_W, 20, header)
-        _style(reqs, f"{page_sid}_hdr", 0, len(header), size=12, color=NAVY, font=FONT, bold=True)
-        y = BODY_Y + 36
-        for i, t in enumerate(tchunk):
-            trend_type = t.get("type", "insight")
-            badge = f"[{trend_type.upper()}]"
-            text = t["trend"]
-            custs = t.get("customers", "")
-            line = f"{badge}  {text}"
-            if custs:
-                line += f"\n     {custs}"
-            _box(reqs, f"{page_sid}_t{i}", page_sid, MARGIN, y, CONTENT_W, 34, line)
-            _style(reqs, f"{page_sid}_t{i}", 0, len(line), size=10, color=NAVY, font=FONT)
-            _style(reqs, f"{page_sid}_t{i}", 0, len(badge), bold=True, size=10,
-                   color=type_colors.get(trend_type, NAVY))
-            if custs:
-                cust_start = line.index(custs)
-                _style(reqs, f"{page_sid}_t{i}", cust_start, cust_start + len(custs),
-                       size=8, color=GRAY)
-            y += 38
-    return idx + len(trend_chunks), oids
-
-
-def _portfolio_leaders_slide(reqs, sid, report, idx):
-    leaders = report.get("portfolio_leaders", {})
-    if not leaders:
-        return _missing_data_slide(reqs, sid, report, idx, "portfolio leaders")
-
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, "Customer Leaders")
-
-    categories = [
-        ("kei_adoption", "Kei AI Adoption", "adoption_rate", "%"),
-        ("executive_engagement", "Executive Engagement", "executives", ""),
-        ("write_depth", "Write Depth", "write_ratio", "%"),
-        ("export_intensity", "Export Volume", "total_exports", ""),
-        ("login_rate", "Weekly Active Rate", "login_pct", "%"),
-    ]
-
-    col_w = (CONTENT_W - 20) // 3
-    col_h = 150
-    positions = [
-        (MARGIN, BODY_Y),
-        (MARGIN + col_w + 10, BODY_Y),
-        (MARGIN + 2 * (col_w + 10), BODY_Y),
-        (MARGIN, BODY_Y + col_h + 10),
-        (MARGIN + col_w + 10, BODY_Y + col_h + 10),
-        (MARGIN + 2 * (col_w + 10), BODY_Y + col_h + 10),
-    ]
-
-    for ci, (key, label, metric, unit) in enumerate(categories):
-        entries = leaders.get(key, [])
-        if not entries or ci >= len(positions):
-            continue
-        x, y = positions[ci]
-
-        _rect(reqs, f"{sid}_bg{ci}", sid, x, y, col_w, col_h, LIGHT)
-
-        _box(reqs, f"{sid}_cat{ci}", sid, x + 8, y + 6, col_w - 16, 18, label)
-        _style(reqs, f"{sid}_cat{ci}", 0, len(label), bold=True, size=10, color=BLUE, font=FONT)
-
-        lines = []
-        for e in entries[:5]:
-            val = e.get(metric, 0)
-            if isinstance(val, float):
-                val = round(val)
-            lines.append(f"{e['rank']}.  {e['customer']}  —  {val}{unit}")
-        text = "\n".join(lines)
-
-        _box(reqs, f"{sid}_ent{ci}", sid, x + 8, y + 28, col_w - 16, col_h - 34, text)
-        _style(reqs, f"{sid}_ent{ci}", 0, len(text), size=9, color=NAVY, font=FONT)
-
-        off = 0
-        for line in lines:
-            dot_end = line.index(".")
-            _style(reqs, f"{sid}_ent{ci}", off, off + dot_end + 1, bold=True, color=BLUE, size=9)
-            off += len(line) + 1
-
-    return idx + 1
 
 
 def _cohort_summary_slide(reqs, sid, report, idx):
