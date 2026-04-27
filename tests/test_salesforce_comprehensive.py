@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from src.deck_loader import resolve_deck
 from src.salesforce_client import (
+    MAINSTREAM_OBJECT_FALLBACK_FIELDS,
     SalesforceClient,
     _customer_name_matches_entity_account,
     _parse_salesforce_rest_errors,
@@ -104,6 +105,11 @@ def test_query_mainstream_object_retries_with_fallback_fields_on_400():
     assert g.call_count == 2
 
 
+def test_task_event_fallback_fields_omit_org_specific_activity_fields():
+    assert "ActivityDate" not in MAINSTREAM_OBJECT_FALLBACK_FIELDS["Task"]
+    assert "WhatId" not in MAINSTREAM_OBJECT_FALLBACK_FIELDS["Event"]
+
+
 def test_soql_like_literal_escapes_percent_and_quote():
     s = _soql_like_literal("O'Reilly 100%")
     assert "''" in s or "O''Reilly" in s
@@ -175,6 +181,59 @@ def test_get_customer_salesforce_comprehensive_skips_sobjects_not_queryable():
     assert "Case" in (out["category_errors"].get("cases") or "")
     assert out["categories"]["campaign_members"] == []
     assert "CampaignMember" in (out["category_errors"].get("campaign_members") or "")
+
+
+def test_salesforce_comprehensive_uses_account_id_when_event_what_id_hidden():
+    client = SalesforceClient()
+    base = {
+        "customer": "Acme",
+        "accounts": [{"Id": "001XX"}],
+        "account_ids": ["001XX"],
+        "matched": True,
+        "opportunity_count_this_year": 1,
+        "pipeline_arr": 1.0,
+    }
+    mocks = {
+        "query_contacts": MagicMock(return_value=[]),
+        "query_opportunities": MagicMock(return_value=[]),
+        "query_opportunity_line_items": MagicMock(return_value=[]),
+        "query_cases": MagicMock(return_value=[]),
+        "query_tasks": MagicMock(return_value=[]),
+        "query_events": MagicMock(return_value=[]),
+        "query_contracts": MagicMock(return_value=[]),
+        "query_orders": MagicMock(return_value=[]),
+        "query_quotes": MagicMock(return_value=[]),
+        "query_assets": MagicMock(return_value=[]),
+        "query_users": MagicMock(return_value=[]),
+        "query_campaign_members": MagicMock(return_value=[]),
+        "query_campaigns": MagicMock(return_value=[]),
+        "query_leads": MagicMock(return_value=[]),
+        "query_products": MagicMock(return_value=[]),
+        "query_pricebooks": MagicMock(return_value=[]),
+    }
+
+    def fields_for(obj: str) -> frozenset[str]:
+        if obj == "Task":
+            return frozenset({"WhatId"})
+        if obj == "Event":
+            return frozenset({"AccountId"})
+        return frozenset()
+
+    with patch.object(SalesforceClient, "get_customer_salesforce", return_value=base):
+        with patch.object(SalesforceClient, "expand_descendant_account_ids", return_value=["001XX"]):
+            with patch.object(SalesforceClient, "get_opportunity_creation_this_year", return_value=0):
+                with patch.object(SalesforceClient, "get_advanced_pipeline_arr", return_value=0.0):
+                    with patch.object(
+                        SalesforceClient,
+                        "get_queryable_sobject_names",
+                        return_value=_ALL_QUERYABLE_FOR_COMPREHENSIVE,
+                    ):
+                        with patch.object(SalesforceClient, "get_sobject_field_names", side_effect=fields_for):
+                            with patch.multiple(SalesforceClient, **mocks):
+                                client.get_customer_salesforce_comprehensive("Acme", row_limit=5)
+
+    assert mocks["query_tasks"].call_args.kwargs["where"] == "WhatId IN ('001XX')"
+    assert mocks["query_events"].call_args.kwargs["where"] == "AccountId IN ('001XX')"
 
 
 def test_get_customer_salesforce_comprehensive_isolates_query_errors():

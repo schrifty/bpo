@@ -226,10 +226,10 @@ MAINSTREAM_OBJECT_FALLBACK_FIELDS: dict[str, tuple[str, ...]] = {
         "Id", "CaseNumber", "Subject", "Status", "AccountId", "OwnerId", "CreatedDate",
     ),
     "Task": (
-        "Id", "Subject", "Status", "ActivityDate", "WhatId", "OwnerId", "CreatedDate",
+        "Id", "Subject", "Status", "OwnerId", "CreatedDate",
     ),
     "Event": (
-        "Id", "Subject", "StartDateTime", "EndDateTime", "WhatId", "OwnerId", "CreatedDate",
+        "Id", "Subject", "StartDateTime", "EndDateTime", "OwnerId", "CreatedDate",
     ),
     "Order": (
         "Id", "OrderNumber", "AccountId", "EffectiveDate", "Status", "OwnerId", "CreatedDate",
@@ -453,6 +453,42 @@ class SalesforceClient:
         objs = resp.json().get("sobjects", [])
         _sf_read_cache_set(key, objs)
         return objs
+
+    def describe_sobject(self, object_api_name: str) -> dict[str, Any]:
+        """Return field/object metadata for one sObject."""
+        obj = object_api_name.strip()
+        key = _sf_cache_key("describe_sobject", f"{SF_REST_API_VERSION}/sobjects/{obj}/describe")
+        cached = _sf_read_cache_get(key)
+        if cached is not None:
+            return cached
+        self._ensure_token()
+        url = f"{self._instance_url}/services/data/{SF_REST_API_VERSION}/sobjects/{obj}/describe"
+        resp = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {self._token}"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        _sf_read_cache_set(key, data)
+        return data
+
+    def get_sobject_field_names(self, object_api_name: str) -> frozenset[str]:
+        """Field API names visible to this integration user for one sObject."""
+        cached = getattr(self, "_sobject_field_names_cache", None)
+        if cached is None:
+            cached = {}
+            self._sobject_field_names_cache = cached
+        if object_api_name in cached:
+            return cached[object_api_name]
+        desc = self.describe_sobject(object_api_name)
+        names = frozenset(
+            str(f["name"])
+            for f in desc.get("fields", [])
+            if isinstance(f, dict) and f.get("name")
+        )
+        cached[object_api_name] = names
+        return names
 
     def get_queryable_sobject_names(self) -> frozenset[str]:
         """API names of sObjects the current user may query (``queryable`` on global describe).
@@ -856,6 +892,32 @@ class SalesforceClient:
                 logger.warning("Salesforce comprehensive %s failed: %s", label, e)
                 out["categories"][label] = []
 
+        def _account_activity_where(sobject: str) -> str | None:
+            """Best available relationship filter for Task/Event in orgs with restricted fields."""
+            try:
+                fields = self.get_sobject_field_names(sobject)
+            except Exception as e:
+                logger.debug(
+                    "Salesforce %s describe failed; using WhatId relationship filter: %s",
+                    sobject,
+                    e,
+                )
+                return f"WhatId IN ({ids_in})"
+            if "WhatId" in fields:
+                return f"WhatId IN ({ids_in})"
+            if "AccountId" in fields:
+                return f"AccountId IN ({ids_in})"
+            out["category_errors"][sobject.lower() + "s"] = (
+                f"SObject {sobject!r} is queryable, but neither WhatId nor AccountId is visible "
+                "to this integration user for account-scoped activity export."
+            )[:500]
+            out["categories"][sobject.lower() + "s"] = []
+            logger.info(
+                "Salesforce comprehensive skip %ss: no visible WhatId/AccountId field for account-scoped query",
+                sobject.lower(),
+            )
+            return None
+
         _run(
             "contacts",
             lambda: self.query_contacts(where=f"AccountId IN ({ids_in})", limit=cap),
@@ -879,16 +941,20 @@ class SalesforceClient:
             lambda: self.query_cases(where=f"AccountId IN ({ids_in})", limit=cap),
             sobject="Case",
         )
-        _run(
-            "tasks",
-            lambda: self.query_tasks(where=f"WhatId IN ({ids_in})", limit=cap),
-            sobject="Task",
-        )
-        _run(
-            "events",
-            lambda: self.query_events(where=f"WhatId IN ({ids_in})", limit=cap),
-            sobject="Event",
-        )
+        task_where = _account_activity_where("Task")
+        if task_where is not None:
+            _run(
+                "tasks",
+                lambda: self.query_tasks(where=task_where, limit=cap),
+                sobject="Task",
+            )
+        event_where = _account_activity_where("Event")
+        if event_where is not None:
+            _run(
+                "events",
+                lambda: self.query_events(where=event_where, limit=cap),
+                sobject="Event",
+            )
         _run(
             "contracts",
             lambda: self.query_contracts(where=f"AccountId IN ({ids_in})", limit=cap),
