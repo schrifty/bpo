@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from googleapiclient.errors import HttpError
-
 from .config import GOOGLE_QBR_GENERATOR_FOLDER_ID, logger
 from .cs_report_client import get_csr_section
 from .deck_builder_utils import (
@@ -51,8 +49,6 @@ from .slide_registry import (
 )
 from .slides_api import (
     _get_service,
-    _google_api_unreachable_hint,
-    presentations_batch_update_chunked,
 )
 from .slide_salesforce import sf_category_records as _sf_category_records
 from .slide_salesforce import sf_format_cell as _sf_format_cell
@@ -73,6 +69,11 @@ from .slide_pipeline_traces import (
     support_health_exec_pipeline_traces as _support_health_exec_pipeline_traces,
 )
 from .slide_primitives import set_support_deck_corner_customer as _set_support_deck_corner_customer
+from .deck_presentation_api import (
+    append_default_slide_delete_if_needed,
+    create_presentation,
+    submit_slide_requests,
+)
 from .deck_renderer import render_slide_plan
 from .deck_support_notable import insert_support_notable_slide
 from .slide_thumbnail_export import export_slide_thumbnails
@@ -157,31 +158,11 @@ def create_health_deck(
             "deck_id": deck_id,
         }
 
-    try:
-        import socket
-        old_timeout = socket.getdefaulttimeout()
-        try:
-            socket.setdefaulttimeout(30.0)  # 30 second timeout for Drive operations
-            
-            file_meta = {"name": title, "mimeType": "application/vnd.google-apps.presentation"}
-            output_folder = output_folder_id if output_folder_id else _get_deck_output_folder()
-            if output_folder:
-                file_meta["parents"] = [output_folder]
-            file = drive_service.files().create(body=file_meta).execute()
-            pres_id = file["id"]
-            logger.info("Created presentation %s: %s", pres_id, title)
-        finally:
-            socket.setdefaulttimeout(old_timeout)
-    except HttpError as e:
-        err_str = str(e)
-        if "rate" in err_str.lower() or "quota" in err_str.lower():
-            return {"error": f"Rate limit: {err_str}. Wait and retry."}
-        return {"error": err_str}
-    except Exception as e:
-        hint = _google_api_unreachable_hint(e)
-        if hint:
-            return {"error": str(e), "hint": hint, "customer": customer, "deck_id": deck_id}
-        raise
+    pres_id, create_error = create_presentation(drive_service, title, output_folder_id)
+    if create_error:
+        create_error.setdefault("customer", customer)
+        create_error.setdefault("deck_id", deck_id)
+        return create_error
 
     # Provide a DeckCharts instance for Slides embeds backed by Google Sheets.
     from .charts import DeckCharts
@@ -197,47 +178,20 @@ def create_health_deck(
         deck_id,
     )
 
-    try:
-        import socket
-        old_timeout = socket.getdefaulttimeout()
-        try:
-            socket.setdefaulttimeout(30.0)  # 30 second timeout for Slides API
-            pres = slides_service.presentations().get(presentationId=pres_id).execute()
-        finally:
-            socket.setdefaulttimeout(old_timeout)
-            
-        default_id = pres["slides"][0]["objectId"]
-        if slides_created > 0:
-            reqs.append({"deleteObject": {"objectId": default_id}})
-        else:
-            logger.error(
-                "create_health_deck: built 0 slides (deck_id=%s customer=%r plan_len=%d). "
-                "Leaving default slide; check warnings above for missing builders.",
-                deck_id,
-                customer,
-                len(slide_plan),
-            )
-    except Exception:
-        pass
+    append_default_slide_delete_if_needed(
+        slides_service,
+        pres_id,
+        reqs,
+        slides_created,
+        deck_id,
+        customer,
+        len(slide_plan),
+    )
 
-    try:
-        import socket
-        old_timeout = socket.getdefaulttimeout()
-        try:
-            socket.setdefaulttimeout(60.0)  # 60 second timeout for batchUpdate (can be large)
-            presentations_batch_update_chunked(slides_service, pres_id, reqs)
-        finally:
-            socket.setdefaulttimeout(old_timeout)
-    except HttpError as e:
-        logger.exception("Failed to build slides")
+    submit_error = submit_slide_requests(slides_service, pres_id, reqs, customer, deck_id)
+    if submit_error:
         _set_support_deck_corner_customer(None)
-        return {"error": str(e), "presentation_id": pres_id}
-    except Exception as e:
-        hint = _google_api_unreachable_hint(e)
-        if hint:
-            _set_support_deck_corner_customer(None)
-            return {"error": str(e), "hint": hint, "presentation_id": pres_id, "customer": customer, "deck_id": deck_id}
-        raise
+        return submit_error
 
     if slides_created == 0:
         _set_support_deck_corner_customer(None)
