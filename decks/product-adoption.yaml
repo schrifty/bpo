@@ -23,11 +23,15 @@ slides:
   - slide: title
   - slide: signals
   - slide: features
+  - slide: pendo_friction
   - slide: depth
+  - slide: pendo_sentiment
   - slide: kei
+  - slide: pendo_track_analytics
   - slide: exports
   - slide: guides
   - slide: engagement
+  - slide: pendo_localization
   - slide: benchmarks
   - slide: data_quality
 

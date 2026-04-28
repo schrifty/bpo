@@ -52,10 +52,11 @@ def sites_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], id
             "Feature clicks",
             "Events",
             "Minutes",
+            "Share",
             "Last active",
         ]
-        col_widths = [96, 72, 44, 56, 72, 48, 52, 64]
-        end_col_start, end_col_end = 2, 6
+        col_widths = [88, 68, 40, 52, 68, 44, 44, 36, 56]
+        end_col_start, end_col_end = 2, 7
     else:
         headers = [
             "Site",
@@ -64,12 +65,14 @@ def sites_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], id
             "Feature clicks",
             "Events",
             "Minutes",
+            "Share",
             "Last active",
         ]
-        col_widths = [128, 44, 56, 72, 48, 52, 64]
-        end_col_start, end_col_end = 1, 5
+        col_widths = [118, 40, 52, 68, 44, 44, 36, 56]
+        end_col_start, end_col_end = 1, 6
 
     num_cols = len(headers)
+    sum_site_events = sum(int(site.get("total_events") or 0) for site in all_sites)
     rows_per_page = _table_rows_fit_span(
         y_top=table_top,
         y_bottom=BODY_BOTTOM,
@@ -178,14 +181,17 @@ def sites_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], id
 
         for row_index, site in enumerate(sites_chunk):
             row = row_index + 1
+            total_events = int(site.get("total_events") or 0)
+            share_pct = (100.0 * total_events / sum_site_events) if sum_site_events else 0.0
             values = [
                 _short_site(site["sitename"]),
                 (site.get("entity", "") or "")[:14] if has_entity else None,
                 f'{site["visitors"]:,}',
                 f'{site["page_views"]:,}',
                 f'{site["feature_clicks"]:,}',
-                f'{site["total_events"]:,}',
+                f'{total_events:,}',
                 f'{site["total_minutes"]:,}',
+                f"{share_pct:.0f}%",
                 (site.get("last_active") or "")[:10],
             ]
             if not has_entity:
@@ -224,6 +230,7 @@ def sites_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], id
                 f'{sum(site["feature_clicks"] for site in all_sites):,}',
                 f'{sum(site["total_events"] for site in all_sites):,}',
                 f'{sum(site["total_minutes"] for site in all_sites):,}',
+                "100%" if sum_site_events else "",
                 "",
             ]
             if not has_entity:

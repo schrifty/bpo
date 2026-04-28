@@ -16,3 +16,5 @@ prompt: |
   ignoring. Split into two columns: top pages (where they spend time)
   and top features (what they click on). If key product capabilities are
   absent from the list, that's a coaching or enablement opportunity.
+  When frustration data exists, the footer ranks hotspots by combined
+  rage/dead/error/U-turn scores (see also slide pendo_friction).

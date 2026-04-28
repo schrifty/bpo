@@ -22,3 +22,7 @@ prompt: |
   reading dashboards — they may be at risk of seeing the product as
   optional. Collaboration events signal that teams are working together
   inside the product, which increases stickiness.
+
+  When frustration metrics exist, the slide adds a gray friction overlay;
+  low write ratio combined with high friction suggests prioritize workflows
+  over passive reads (pair with slide pendo_friction).

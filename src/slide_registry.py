@@ -70,6 +70,13 @@ from .slide_leandna_shortage import (
 from .slide_metadata import SLIDE_DATA_REQUIREMENTS
 from .slide_platform_health import platform_health_slide as _platform_health_slide
 from .slide_platform_value import platform_value_slide as _platform_value_slide
+from .slide_pendo import (
+    pendo_definitions_appendix_slide as _pendo_definitions_appendix_slide,
+    pendo_friction_slide as _pendo_friction_slide,
+    pendo_localization_slide as _pendo_localization_slide,
+    pendo_sentiment_slide as _pendo_sentiment_slide,
+    pendo_track_analytics_slide as _pendo_track_analytics_slide,
+)
 from .slide_portfolio import (
     portfolio_leaders_slide as _portfolio_leaders_slide,
     portfolio_signals_slide as _portfolio_signals_slide,
@@ -174,6 +181,11 @@ _SLIDE_BUILDERS = {
     "shortage_deliveries": _shortage_deliveries_slide,
     "lean_projects_portfolio": _lean_projects_portfolio_slide,
     "lean_projects_savings": _lean_projects_savings_slide,
+    "pendo_sentiment": _pendo_sentiment_slide,
+    "pendo_friction": _pendo_friction_slide,
+    "pendo_localization": _pendo_localization_slide,
+    "pendo_track_analytics": _pendo_track_analytics_slide,
+    "pendo_definitions_appendix": _pendo_definitions_appendix_slide,
 }
 
 

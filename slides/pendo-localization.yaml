@@ -1,0 +1,13 @@
+# Shared slide — localization / UI language distribution (Pendo visitor metadata).
+
+id: pendo_localization
+type: standard
+order: 425
+title: Localization & visitor languages
+slide_type: pendo_localization
+data_tools: [customer_visitor_languages]
+customers: all
+
+prompt: |
+  Show how many tracked users use each UI language (metadata.agent.language).
+  Helps CS spot multilingual rollouts, training gaps, or locale-specific issues.

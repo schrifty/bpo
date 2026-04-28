@@ -132,6 +132,11 @@ BUILDER_DESCRIPTIONS = {
         "rollup_params in slides YAML), unclassified count); auto text from portfolio rollup — "
         "not per-account profiles (that's cohort_profiles) or risk signals (that's signals)"
     ),
+    "pendo_sentiment": "Polls & NPS — response counts, medians, sample pollEvents",
+    "pendo_friction": "UX friction dashboard — rage/dead/error/U-turn totals and top pages/features",
+    "pendo_localization": "Visitor UI languages — distribution from metadata.agent.language",
+    "pendo_track_analytics": "Custom pendo.track events — names, events, unique users",
+    "pendo_definitions_appendix": "Appendix — sample segment/report/track type names (definitions only)",
 }
 
 

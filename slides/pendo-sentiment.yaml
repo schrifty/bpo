@@ -1,0 +1,13 @@
+# Shared slide — polls & NPS responses (Pendo pollEvents).
+
+id: pendo_sentiment
+type: standard
+order: 427
+title: Product sentiment & surveys
+slide_type: pendo_sentiment
+data_tools: [customer_poll_events]
+customers: all
+
+prompt: |
+  Summarize poll and NPS activity in the window: counts, medians when available,
+  and sample responses. Use alongside Notable Signals for executive-ready sentiment.

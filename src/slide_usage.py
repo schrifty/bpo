@@ -189,11 +189,17 @@ def champions_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any]
             y += user_h
 
     def _champ_detail(user: dict[str, Any]) -> str:
-        return f"{user['role']}  ·  last seen {user['last_visit']}"
+        language = (user.get("language") or "").strip()
+        role = user.get("role", "Unknown")
+        language_bit = f"{language}  ·  " if language else ""
+        return f"{language_bit}{role}  ·  last seen {user['last_visit']}"
 
     def _risk_detail(user: dict[str, Any]) -> str:
+        language = (user.get("language") or "").strip()
+        role = user.get("role", "Unknown")
+        language_bit = f"{language}  ·  " if language else ""
         days = f"{int(user['days_inactive'])}d ago" if user["days_inactive"] < 999 else "never"
-        return f"{user['role']}  ·  {days}"
+        return f"{language_bit}{role}  ·  {days}"
 
     _slide(reqs, sid, idx)
     _slide_title(reqs, sid, "Champions & At-Risk Users")

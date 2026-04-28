@@ -21,9 +21,12 @@ slides:
     title: Usage & engagement
   - slide: health
   - slide: engagement
+  - slide: pendo_localization
   - slide: sites
   - slide: features
+  - slide: pendo_friction
   - slide: depth
+  - slide: pendo_sentiment
   - slide: qbr_divider
     title: Support & engineering
   - slide: jira
@@ -43,6 +46,7 @@ slides:
   - slide: qbr_divider
     title: Summary & next steps
   - slide: signals
+  - slide: pendo_definitions_appendix
   - slide: data_quality
 
 overrides:

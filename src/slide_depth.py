@@ -88,6 +88,9 @@ def depth_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], id
                 f"Friction overlay: {rage:,} rage-click signals · {total_frustration:,} frustration signals total"
                 + (f" · busiest page: {top_page}" if top_page else "")
             )
+            write_ratio_value = float(write_ratio) if write_ratio is not None else 0
+            if write_ratio_value <= 18 and total_frustration >= 80:
+                hint += " Low write ratio with measurable friction — prioritize workflows over passive reads."
             hint = hint[:420]
             _wrap_box(reqs, f"{sid}_frhint", sid, MARGIN, chart_top, CONTENT_W, 36, hint)
             _style(reqs, f"{sid}_frhint", 0, len(hint), size=9, color=GRAY, font=FONT)

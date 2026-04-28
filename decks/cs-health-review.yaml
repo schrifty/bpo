@@ -13,19 +13,23 @@ purpose: |
   that drive action: churn risk, expansion opportunity, champion identification,
   and adoption gaps.
 
-# Slide YAML: slides/cs-health-01-title.yaml … cs-health-21-data-quality.yaml (ids cs_health_*).
+# Slide YAML: slides/cs-health-01-title.yaml … plus shared pendo-*.yaml (ids cs_health_* and pendo_*).
 
 slides:
   - slide: cs_health_title
   - slide: cs_health_health
   - slide: cs_health_engagement
+  - slide: pendo_localization
   - slide: cs_health_sites
   - slide: cs_health_features
+  - slide: pendo_friction
   - slide: cs_health_champions
   - slide: cs_health_benchmarks
   - slide: cs_health_depth
+  - slide: pendo_sentiment
   - slide: cs_health_exports
   - slide: cs_health_kei
+  - slide: pendo_track_analytics
   - slide: cs_health_guides
   - slide: cs_health_jira
   - slide: cs_health_sla_health
@@ -37,6 +41,7 @@ slides:
   - slide: cs_health_platform_value
   - slide: cs_health_cross_validation
   - slide: cs_health_signals
+  - slide: pendo_definitions_appendix
   - slide: cs_health_data_quality
 
 overrides:

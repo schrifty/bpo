@@ -491,7 +491,9 @@ class AddSlideTool(BaseTool):
         '{"deck_id": "...", "slide_type": "...", "data": {...}}. '
         "Slide types: title, health, engagement, sites, features, champions, benchmarks, "
         "exports, depth, kei, guides, custom, signals, team, jira, sla_health, engineering, "
-        "enhancements, cross_validation, platform_health, supply_chain, platform_value. "
+        "enhancements, cross_validation, platform_health, supply_chain, platform_value, "
+        "pendo_sentiment, pendo_friction, pendo_localization, pendo_track_analytics, "
+        "pendo_definitions_appendix. "
         "For standard types, pass the data tool output as the 'data' field. "
         "For 'custom' type, pass {\"title\": \"...\", \"sections\": [{\"header\": \"...\", \"body\": \"...\"}]}. "
         "Up to 3 sections are rendered as columns. "

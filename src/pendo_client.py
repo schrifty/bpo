@@ -1318,6 +1318,32 @@ class PendoClient:
         data = resp.json()
         return data if isinstance(data, dict) else {}
 
+    def get_pendo_catalog_appendix_summary(self, *, sample_n: int = 14) -> dict[str, Any]:
+        """Totals plus sample names from Track Type, Segment, and Report REST catalogs (definitions only)."""
+        try:
+            tt = self.get_tracktype_catalog_list()
+            seg = self.get_segment_catalog_list()
+            rep = self.get_report_catalog_list()
+        except Exception as e:
+            return {"error": str(e)}
+
+        def _sample_names(lst: list) -> list[str]:
+            out: list[str] = []
+            for x in (lst or [])[:sample_n]:
+                if isinstance(x, dict):
+                    nm = x.get("name") or x.get("trackTypeName") or x.get("id") or "?"
+                    out.append(str(nm)[:56])
+            return out
+
+        return {
+            "tracktype_total": len(tt),
+            "segment_total": len(seg),
+            "report_total": len(rep),
+            "tracktype_sample_names": _sample_names(tt),
+            "segment_sample_names": _sample_names(seg),
+            "report_sample_names": _sample_names(rep),
+        }
+
     # ── Catalog methods (for human-readable names) ──
 
     def get_page_catalog(self) -> dict[str, str]:
@@ -2167,6 +2193,7 @@ class PendoClient:
             users.append({
                 "email": agent.get("emailaddress", ""),
                 "role": agent.get("role", "Unknown"),
+                "language": (agent.get("language") or "").strip(),
                 "last_visit": datetime.datetime.fromtimestamp(lv / 1000).strftime("%Y-%m-%d") if lv else "Never",
                 "days_inactive": round(days_ago, 1),
             })
@@ -2675,6 +2702,12 @@ class PendoClient:
             qa.flag(f"CS Report data unavailable: {str(e)[:80]}",
                     sources=("CS Report / Data Exports",), severity="warning")
 
+        try:
+            pendo_catalog_appendix = self.get_pendo_catalog_appendix_summary()
+        except Exception as e:
+            logger.warning("Pendo catalog appendix: %s", e)
+            pendo_catalog_appendix = {"error": str(e)}
+
         merged = {
             **health,
             "sites": sites_data.get("sites", []),
@@ -2691,6 +2724,7 @@ class PendoClient:
             "frustration": frustration_data,
             "track_events_breakdown": track_events_breakdown_data,
             "visitor_languages": visitor_languages_data,
+            "pendo_catalog_appendix": pendo_catalog_appendix,
             "jira": jira_data,
             "salesforce": salesforce_data,
             "csr": {

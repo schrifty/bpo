@@ -1,0 +1,13 @@
+# Shared slide — custom track events (pendo.track), full breakdown.
+
+id: pendo_track_analytics
+type: standard
+order: 428
+title: Custom track events
+slide_type: pendo_track_analytics
+data_tools: [customer_track_events_breakdown]
+customers: all
+
+prompt: |
+  List custom track event names with events and unique users — behavior outside
+  tagged pages/features. Complements Kei AI slide (which focuses on chatbot queries).

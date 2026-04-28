@@ -1,0 +1,13 @@
+# Shared slide — UX friction dashboard (rage/dead/error/U-turn aggregates).
+
+id: pendo_friction
+type: standard
+order: 426
+title: UX friction dashboard
+slide_type: pendo_friction
+data_tools: [customer_frustration]
+customers: all
+
+prompt: |
+  Surface frustration signals from page and feature events: totals and top pages/features.
+  Pair with Feature Adoption for “what they use” vs “where they struggle.”

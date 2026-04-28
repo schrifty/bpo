@@ -80,6 +80,11 @@ SLIDE_DATA_REQUIREMENTS: dict[str, list[str]] = {
     "shortage_deliveries": ["leandna_shortage_trends"],
     "lean_projects_portfolio": ["leandna_lean_projects"],
     "lean_projects_savings": ["leandna_lean_projects"],
+    "pendo_sentiment": ["poll_events"],
+    "pendo_friction": ["frustration"],
+    "pendo_localization": ["visitor_languages"],
+    "pendo_track_analytics": ["track_events_breakdown"],
+    "pendo_definitions_appendix": ["pendo_catalog_appendix"],
 }
 
 
@@ -103,6 +108,7 @@ REPORT_KEY_TO_DQ_SOURCE: dict[str, str | None] = {
     "poll_events": "Pendo",
     "track_events_breakdown": "Pendo",
     "visitor_languages": "Pendo",
+    "pendo_catalog_appendix": "Pendo",
     "champions": "Pendo",
     "at_risk_users": "Pendo",
     "benchmarks": "Pendo",

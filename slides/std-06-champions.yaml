@@ -9,7 +9,8 @@ customers: all
 prompt: |
   Identify the people who matter most. Show the top 5 champions — users
   who are most recently and frequently active — with their email, role,
-  and last visit date. These are the people to protect during a renewal.
+  UI language when present, and last visit date. These are the people to
+  protect during a renewal.
   Also show up to 5 at-risk users inactive between 2 weeks and ~6 months,
   sorted by most recent activity first (smallest gap since last visit within
   the at-risk window). These are re-engagement targets. If an

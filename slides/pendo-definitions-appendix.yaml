@@ -1,0 +1,16 @@
+# Shared slide — sample names from Pendo REST catalogs (definitions only, not results).
+
+id: pendo_definitions_appendix
+type: standard
+order: 890
+title: Pendo definitions appendix
+slide_type: pendo_definitions_appendix
+data_tools: []
+customers: all
+
+# Populated from get_customer_health_report().pendo_catalog_appendix (three REST GETs at report build).
+
+prompt: |
+  Reference appendix: counts of track types, segments, and saved reports in the
+  subscription, plus short sample name lists. Does not include funnel/path/report *results*
+  (not exportable via this API). Place before Data Quality when included.
