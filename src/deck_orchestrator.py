@@ -6,11 +6,8 @@ from typing import Any
 
 from .config import GOOGLE_QBR_GENERATOR_FOLDER_ID, logger
 from .cs_report_client import get_csr_section
-from .deck_builder_utils import (
-    _build_slide_jql_speaker_notes,
-    build_slide_jql_speaker_notes_for_entry,
-    normalize_builder_return,
-)
+from .deck_builder_utils import build_slide_jql_speaker_notes_for_entry
+from .deck_builder_utils import normalize_builder_return
 from .deck_composable import (
     _get_deck_output_folder,
     _slide_counter,
@@ -53,7 +50,6 @@ from .slides_api import (
 from .slide_salesforce import sf_category_records as _sf_category_records
 from .slide_salesforce import sf_format_cell as _sf_format_cell
 from .slide_salesforce import sf_records_to_table as _sf_records_to_table
-from .speaker_notes import set_speaker_notes_batch
 from .slide_pipeline_traces import (
     CANONICAL_PIPELINE_TRACES as _SLIDE_CANONICAL_PIPELINE_TRACES,
     cohort_findings_pipeline_traces as _cohort_findings_pipeline_traces,
@@ -74,9 +70,9 @@ from .deck_presentation_api import (
     create_presentation,
     submit_slide_requests,
 )
+from .deck_finalizer import finalize_health_deck
 from .deck_renderer import render_slide_plan
 from .deck_support_notable import insert_support_notable_slide
-from .slide_thumbnail_export import export_slide_thumbnails
 from .slides_theme import _date_range
 
 # ── Monolith deck creation (deck-definition-driven) ──
@@ -221,27 +217,12 @@ def create_health_deck(
         return notable_error
 
     _set_support_deck_corner_customer(None)
-    notes_items = [(sid, _build_slide_jql_speaker_notes(report, entry)) for sid, entry in note_targets]
-    if notes_items:
-        n = set_speaker_notes_batch(slides_service, pres_id, notes_items)
-        logger.info("Speaker notes: wrote %d/%d slide notes in single batchUpdate", n, len(notes_items))
-
-    result = {
-        "presentation_id": pres_id,
-        "url": f"https://docs.google.com/presentation/d/{pres_id}/edit",
-        "customer": customer,
-        "slides_created": slides_created,
-    }
-    nsrc = report.get("support_notable_bullets_source")
-    if nsrc:
-        result["notable_bullets_source"] = nsrc
-
-    if thumbnails:
-        try:
-            thumbs = export_slide_thumbnails(pres_id)
-            result["thumbnails"] = [str(p) for p in thumbs]
-            logger.info("Saved %d slide thumbnails for %s", len(thumbs), customer)
-        except Exception as e:
-            logger.warning("Thumbnail export failed: %s", e)
-
-    return result
+    return finalize_health_deck(
+        slides_service,
+        pres_id,
+        report,
+        note_targets,
+        customer,
+        slides_created,
+        thumbnails=thumbnails,
+    )
