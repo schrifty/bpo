@@ -4,67 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from .config import GOOGLE_QBR_GENERATOR_FOLDER_ID, logger
-from .cs_report_client import get_csr_section
-from .deck_builder_utils import build_slide_jql_speaker_notes_for_entry
-from .deck_builder_utils import normalize_builder_return
-from .deck_composable import (
-    _get_deck_output_folder,
-    _slide_counter,
-    add_slide,
-    create_empty_deck,
-)
+from .config import logger
 from .deck_data_enrichment import enrich_deck_report_data
-from .slide_cohort import (
-    COHORT_FINDING_ROW_GAP_PT as _COHORT_FINDING_ROW_GAP_PT,
-    COHORT_FINDING_ROW_H_PT as _COHORT_FINDING_ROW_H_PT,
-    cohort_findings_rows_per_page as _cohort_findings_rows_per_page,
-)
-from .slide_cohort_links import (
-    COHORT_BUNDLE_SIGNAL_LINK_PHRASES as _COHORT_BUNDLE_SIGNAL_LINK_PHRASES,
-    apply_cohort_bundle_links_to_notable_signals,
-)
-from .deck_legacy import (
-    create_deck_for_customer,
-    create_decks_for_all_customers,
-)
-from .deck_variants import (
-    create_cohort_deck,
-    create_health_decks_for_customers,
-    create_portfolio_deck,
-)
-from .slide_metadata import (
-    DQ_SOURCE_LABEL_ORDER as _DQ_SOURCE_LABEL_ORDER,
-    REPORT_KEY_TO_DQ_SOURCE as _REPORT_KEY_TO_DQ_SOURCE,
-    ordered_dq_data_sources_for_slide_plan as _ordered_dq_data_sources_for_slide_plan,
-)
-from .slide_registry import (
-    SLIDE_DATA_REQUIREMENTS,
-    get_slide_builder,
-    get_slide_data_requirements,
-    slide_builder_names,
-)
-from .slides_api import (
-    _get_service,
-)
-from .slide_salesforce import sf_category_records as _sf_category_records
-from .slide_salesforce import sf_format_cell as _sf_format_cell
-from .slide_salesforce import sf_records_to_table as _sf_records_to_table
-from .slide_pipeline_traces import (
-    CANONICAL_PIPELINE_TRACES as _SLIDE_CANONICAL_PIPELINE_TRACES,
-    cohort_findings_pipeline_traces as _cohort_findings_pipeline_traces,
-    cohort_profile_pipeline_rows_for_block as _cohort_profile_pipeline_rows_for_block,
-    cohort_profiles_pipeline_traces as _cohort_profiles_pipeline_traces,
-    cohort_summary_pipeline_traces as _cohort_summary_pipeline_traces,
-    cs_notable_pipeline_traces as _cs_notable_pipeline_traces,
-    health_snapshot_pipeline_traces as _health_snapshot_pipeline_traces,
-    peer_benchmarks_pipeline_traces as _peer_benchmarks_pipeline_traces,
-    platform_risk_pipeline_traces as _platform_risk_pipeline_traces,
-    platform_value_pipeline_traces as _platform_value_pipeline_traces,
-    salesforce_pipeline_traces as _salesforce_pipeline_traces,
-    support_health_exec_pipeline_traces as _support_health_exec_pipeline_traces,
-)
-from .slide_primitives import set_support_deck_corner_customer as _set_support_deck_corner_customer
+from .slides_api import _get_service
 from .deck_presentation_api import (
     append_default_slide_delete_if_needed,
     create_presentation,
@@ -73,6 +15,7 @@ from .deck_presentation_api import (
 from .deck_finalizer import finalize_health_deck
 from .deck_renderer import render_slide_plan
 from .deck_support_notable import insert_support_notable_slide
+from .slide_primitives import set_support_deck_corner_customer as _set_support_deck_corner_customer
 from .slides_theme import _date_range
 
 # ── Monolith deck creation (deck-definition-driven) ──

@@ -245,24 +245,34 @@ from .slides_theme import (
     slide_type_may_paginate,
 )
 
-from .deck_orchestrator import (
-    _SLIDE_BUILDERS,
+from .deck_builder_utils import (
     _build_slide_jql_speaker_notes,
-    _get_deck_output_folder,
     _normalize_builder_return,
+    build_slide_jql_speaker_notes_for_entry,
+    normalize_builder_return,
+)
+from .deck_composable import (
+    _get_deck_output_folder,
     _slide_counter,
     add_slide,
-    build_slide_jql_speaker_notes_for_entry,
-    create_cohort_deck,
+    create_empty_deck,
+)
+from .deck_legacy import (
     create_deck_for_customer,
     create_decks_for_all_customers,
-    create_empty_deck,
+)
+from .deck_orchestrator import (
     create_health_deck,
+)
+from .deck_variants import (
+    create_cohort_deck,
     create_health_decks_for_customers,
     create_portfolio_deck,
-    export_slide_thumbnails,
+)
+from .slide_registry import (
+    _SLIDE_BUILDERS,
     get_slide_builder,
     get_slide_data_requirements,
-    normalize_builder_return,
     slide_builder_names,
 )
+from .slide_thumbnail_export import export_slide_thumbnails
