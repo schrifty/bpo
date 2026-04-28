@@ -47,7 +47,6 @@ from .slide_metadata import (
 )
 from .slide_registry import (
     SLIDE_DATA_REQUIREMENTS,
-    _SLIDE_BUILDERS,
     get_slide_builder,
     get_slide_data_requirements,
     slide_builder_names,
@@ -76,8 +75,8 @@ from .slide_pipeline_traces import (
     support_health_exec_pipeline_traces as _support_health_exec_pipeline_traces,
 )
 from .slide_primitives import set_support_deck_corner_customer as _set_support_deck_corner_customer
+from .deck_renderer import render_slide_plan
 from .slide_thumbnail_export import export_slide_thumbnails
-from .slide_utils import slide_object_id_base as _slide_object_id_base
 from .slides_theme import _date_range
 
 # ── Monolith deck creation (deck-definition-driven) ──
@@ -191,54 +190,13 @@ def create_health_deck(
 
     report["_slide_plan"] = slide_plan
 
-    # Build every slide except "Notable" on the first pass; fetches are already in ``report`` for support.
-    # The Notable slide (cs_notable) is inserted in a second batch at insertionIndex 1 after the LLM runs on a digest
-    # of the same in-memory Jira data (so we do not refetch; bullets reflect the same dataset as the rest of the deck).
-    plan_work: list[dict[str, Any]] = list(slide_plan)
-    notable_deferred: dict[str, Any] | None = None
-    if deck_id == "support":
-        kept2: list[dict[str, Any]] = []
-        for e in plan_work:
-            if (e.get("slide_type") or e.get("id", "")) == "cs_notable" and notable_deferred is None:
-                notable_deferred = e
-            else:
-                kept2.append(e)
-        plan_work = kept2
-
-    reqs: list[dict] = []
-    idx = 1
-    note_targets: list[tuple[str, dict[str, Any]]] = []
     if deck_id in ("support", "supply_chain_review") and customer:
         _set_support_deck_corner_customer(str(customer).strip())
-
-    for entry in plan_work:
-        slide_type = entry.get("slide_type", entry["id"])
-        builder = _SLIDE_BUILDERS.get(slide_type)
-        if not builder:
-            logger.warning(
-                "create_health_deck: no _SLIDE_BUILDERS entry for slide_type=%r (deck %s entry id=%r)",
-                slide_type,
-                deck_id,
-                entry.get("id"),
-            )
-            continue
-        report["_current_slide"] = entry
-        sid = _slide_object_id_base(str(entry["id"]), idx)
-        ret = builder(reqs, sid, report, idx)
-        next_idx, note_ids = _normalize_builder_return(ret, sid)
-        if slide_type == "cohort_profiles" and note_ids:
-            blks = report.get("_cohort_profile_speaker_note_blocks") or []
-            for i, nid in enumerate(note_ids):
-                note_entry = dict(entry)
-                if i < len(blks):
-                    note_entry["_cohort_profile_block"] = blks[i]
-                note_targets.append((nid, note_entry))
-        else:
-            for nid in note_ids:
-                note_targets.append((nid, dict(entry)))
-        idx = next_idx
-
-    slides_created = idx - 1
+    reqs, slides_created, note_targets, notable_deferred, plan_work = render_slide_plan(
+        report,
+        slide_plan,
+        deck_id,
+    )
 
     try:
         import socket
