@@ -40,6 +40,8 @@ from zoneinfo import ZoneInfo
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 from .config import (
+    BPO_PENDO_CACHE_FORCE_REFRESH,
+    BPO_PENDO_CACHE_TTL_SECONDS,
     BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
     BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID,
     GOOGLE_QBR_GENERATOR_FOLDER_ID,
@@ -410,6 +412,9 @@ def try_load_portfolio_snapshot_for_request(
     max_age_hours: float | None = None,
 ) -> dict[str, Any] | None:
     """Load a fresh portfolio snapshot from Drive if configured and valid; else None."""
+    if BPO_PENDO_CACHE_FORCE_REFRESH or BPO_PENDO_CACHE_TTL_SECONDS <= 0:
+        logger.info("Portfolio snapshot: bypass Drive read (Pendo cache disabled/force refresh)")
+        return None
     folder_id = resolve_portfolio_snapshot_folder_id()
     if not folder_id:
         logger.debug(

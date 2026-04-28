@@ -1,0 +1,13 @@
+# Optional: map health-report / Pendo customer name → Salesforce Account Id(s) (15 or 18 char).
+# Keys are matched case-insensitively. When set, Salesforce resolution uses Id first (stable joins).
+#
+# Single account:
+#   Acme Corporation:
+#     salesforce_account_id: "001XXXXXXXXXXXXXX"
+#
+# Multiple Customer Entity rows (e.g. regional entities); optional primary for reporting:
+#   Acme Corporation:
+#     salesforce_account_ids:
+#       - "001XXXXXXXXXXXXAA"
+#       - "001XXXXXXXXXXXXBB"
+#     salesforce_primary_account_id: "001XXXXXXXXXXXXAA"

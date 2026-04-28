@@ -19,7 +19,11 @@ from typing import Any
 
 from googleapiclient.http import MediaIoBaseUpload
 
-from .config import logger
+from .config import (
+    BPO_PENDO_CACHE_FORCE_REFRESH,
+    BPO_PENDO_CACHE_TTL_SECONDS,
+    logger,
+)
 from .drive_config import _get_drive, drive_api_lock, find_file_in_folder
 from .pendo_portfolio_snapshot_drive import (
     _drive_io_transient,
@@ -103,6 +107,9 @@ def _validate_envelope(raw: Any, kind: str, days: int | None) -> dict[str, Any] 
 def try_load_pendo_preload_payload(kind: str, days: int | None) -> Any | None:
     """Return cached *payload* if a fresh JSON exists on Drive; else None."""
     name = pendo_preload_cache_filename(kind, days)
+    if BPO_PENDO_CACHE_FORCE_REFRESH or BPO_PENDO_CACHE_TTL_SECONDS <= 0:
+        logger.info("Pendo preload cache: bypass read for %r (cache disabled/force refresh)", name)
+        return None
     folder_id = resolve_portfolio_snapshot_folder_id()
     if not folder_id:
         logger.info(
@@ -172,6 +179,12 @@ def try_load_pendo_preload_payload(kind: str, days: int | None) -> Any | None:
 
 def save_pendo_preload_payload(kind: str, days: int | None, payload: Any) -> None:
     """Write or replace a cache JSON on Drive (best-effort; logs failures)."""
+    if BPO_PENDO_CACHE_TTL_SECONDS <= 0:
+        logger.info(
+            "Pendo preload cache: skip write for %r (cache disabled)",
+            pendo_preload_cache_filename(kind, days),
+        )
+        return
     folder_id = resolve_portfolio_snapshot_folder_id()
     if not folder_id:
         return

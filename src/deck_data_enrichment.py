@@ -86,10 +86,17 @@ def enrich_salesforce_comprehensive(
     }
     if _salesforce_configured():
         try:
+            from .customer_identity import lookup_salesforce_identity
             from .salesforce_client import SalesforceClient
 
+            sf_ids, sf_prim = lookup_salesforce_identity(str(customer or "").strip())
+            sf_kwargs: dict[str, Any] = {}
+            if sf_ids:
+                sf_kwargs["preferred_account_ids"] = sf_ids
+                sf_kwargs["primary_account_id"] = sf_prim
             report["salesforce_comprehensive"] = SalesforceClient().get_customer_salesforce_comprehensive(
-                customer
+                customer,
+                **sf_kwargs,
             )
         except Exception as e:
             logger.warning("Salesforce comprehensive fetch failed: %s", e)
@@ -99,6 +106,16 @@ def enrich_salesforce_comprehensive(
             }
     else:
         report["salesforce_comprehensive"] = {**empty_sf, "error": "Salesforce not configured"}
+
+    sfc = report.get("salesforce_comprehensive") or {}
+    report["salesforce_primary_account_id"] = sfc.get("primary_account_id")
+    resolution = sfc.get("resolution")
+    if resolution == "salesforce_account_id":
+        report["customer_key_type"] = "salesforce_account_id"
+    elif resolution == "name":
+        report["customer_key_type"] = "name"
+    elif resolution == "none" or sfc.get("matched") is False:
+        report["customer_key_type"] = "none"
 
     return _filter_salesforce_comprehensive_slide_plan(
         slide_plan, report.get("salesforce_comprehensive") or {}

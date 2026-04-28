@@ -19,6 +19,8 @@ from requests.adapters import HTTPAdapter
 from tqdm.auto import tqdm
 
 from .config import (
+    BPO_PENDO_CACHE_FORCE_REFRESH,
+    BPO_PENDO_CACHE_TTL_SECONDS,
     BPO_SIGNALS_LLM,
     BPO_SIGNALS_TRENDS,
     FEATURE_ADOPTION_INSIGHTS,
@@ -1404,7 +1406,7 @@ class PendoClient:
 
     _visitor_cache: dict[str, Any] | None = None
     _visitor_cache_ts: float = 0
-    _CACHE_TTL = 120  # seconds; overridden by preload() for batch runs
+    _CACHE_TTL = BPO_PENDO_CACHE_TTL_SECONDS  # seconds; overridden by preload() for batch runs
     _page_events_cache: dict[str, Any] | None = None
     _page_events_cache_ts: float = 0
     _track_events_cache: dict[str, Any] | None = None
@@ -1422,6 +1424,8 @@ class PendoClient:
     _cache_lock = threading.Lock()
 
     def _cache_valid(self, ts: float) -> bool:
+        if BPO_PENDO_CACHE_FORCE_REFRESH or self._CACHE_TTL <= 0:
+            return False
         return (time.time() - ts) < self._CACHE_TTL
 
     @staticmethod
@@ -1439,7 +1443,11 @@ class PendoClient:
         redundant API calls when the agent invokes multiple tools in sequence."""
         with self._cache_lock:
             now = time.time()
-            if self._visitor_cache and (now - self._visitor_cache_ts) < self._CACHE_TTL:
+            if (
+                self._visitor_cache
+                and not BPO_PENDO_CACHE_FORCE_REFRESH
+                and (now - self._visitor_cache_ts) < self._CACHE_TTL
+            ):
                 cached_days = self._visitor_cache.get("days")
                 if cached_days == days:
                     return self._visitor_cache
@@ -1586,7 +1594,7 @@ class PendoClient:
 
     def _get_page_catalog_cached(self) -> dict[str, str]:
         with self._cache_lock:
-            if self._page_catalog_cache is not None:
+            if self._page_catalog_cache is not None and not BPO_PENDO_CACHE_FORCE_REFRESH and self._CACHE_TTL > 0:
                 return self._page_catalog_cache
         from .pendo_preload_cache_drive import (
             PRELOAD_KIND_PAGE_CATALOG,
@@ -1607,7 +1615,7 @@ class PendoClient:
 
     def _get_guide_catalog_cached(self) -> dict[str, str]:
         with self._cache_lock:
-            if self._guide_catalog_cache is not None:
+            if self._guide_catalog_cache is not None and not BPO_PENDO_CACHE_FORCE_REFRESH and self._CACHE_TTL > 0:
                 return self._guide_catalog_cache
         from .pendo_preload_cache_drive import (
             PRELOAD_KIND_GUIDE_CATALOG,
@@ -2223,7 +2231,7 @@ class PendoClient:
 
     def _get_categorized_features(self) -> dict[str, dict[str, str]]:
         """Categorize all features by behavior type. Returns {category: {fid: name}}."""
-        if self._categorized_features_cache is not None:
+        if self._categorized_features_cache is not None and not BPO_PENDO_CACHE_FORCE_REFRESH and self._CACHE_TTL > 0:
             return self._categorized_features_cache
         catalog = self.get_feature_catalog()
         result: dict[str, dict[str, str]] = {cat: {} for cat in self._BEHAVIOR_PATTERNS}
@@ -2249,7 +2257,11 @@ class PendoClient:
         """Cached feature events for reuse across all behavioral tools."""
         with self._cache_lock:
             now = time.time()
-            if self._feat_events_cache and (now - self._feat_events_cache_ts) < self._CACHE_TTL:
+            if (
+                self._feat_events_cache
+                and not BPO_PENDO_CACHE_FORCE_REFRESH
+                and (now - self._feat_events_cache_ts) < self._CACHE_TTL
+            ):
                 if self._feat_events_cache.get("days") == days:
                     return self._feat_events_cache["results"]
 
@@ -2666,10 +2678,27 @@ class PendoClient:
         # Salesforce — required when configured (preflight); skipped if not configured
         from .data_source_health import _salesforce_configured
         salesforce_data: dict = {}
+        salesforce_primary_account_id = None
+        customer_key_type = None
         if _salesforce_configured():
+            from .customer_identity import lookup_salesforce_identity
             from .salesforce_client import SalesforceClient
+
+            sf_ids, sf_prim = lookup_salesforce_identity(customer_name)
             sf = SalesforceClient()
-            salesforce_data = sf.get_customer_salesforce(customer_name)
+            salesforce_data = sf.get_customer_salesforce(
+                customer_name,
+                preferred_account_ids=sf_ids if sf_ids else None,
+                primary_account_id=sf_prim,
+            )
+            salesforce_primary_account_id = salesforce_data.get("primary_account_id")
+            res = salesforce_data.get("resolution")
+            if res == "salesforce_account_id":
+                customer_key_type = "salesforce_account_id"
+            elif res == "name":
+                customer_key_type = "name"
+            else:
+                customer_key_type = "none"
 
         # Cross-check: site count from health report vs detailed site list
         from .qa import qa
@@ -2727,6 +2756,8 @@ class PendoClient:
             "pendo_catalog_appendix": pendo_catalog_appendix,
             "jira": jira_data,
             "salesforce": salesforce_data,
+            "salesforce_primary_account_id": salesforce_primary_account_id,
+            "customer_key_type": customer_key_type,
             "csr": {
                 "platform_health": cs_platform_health,
                 "supply_chain": cs_supply_chain,

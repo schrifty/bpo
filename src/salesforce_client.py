@@ -753,13 +753,102 @@ class SalesforceClient:
                 active.add(name)
         return active
 
-    def get_customer_salesforce(self, customer_name: str) -> dict[str, Any]:
+    def _get_customer_salesforce_by_account_ids(
+        self, customer_name: str, account_ids: list[str]
+    ) -> dict[str, Any]:
+        """Load Customer Entity accounts by explicit Ids (no name scan)."""
+        seen: list[str] = []
+        for x in account_ids:
+            s = (x or "").strip()
+            if len(s) in (15, 18) and s not in seen:
+                seen.append(s)
+        if not seen:
+            return {
+                "customer": customer_name,
+                "accounts": [],
+                "account_ids": [],
+                "opportunity_count_this_year": 0,
+                "pipeline_arr": 0.0,
+                "matched": False,
+            }
+        fields = ", ".join(_entity_account_select_field_names())
+        matching: list[dict[str, Any]] = []
+        for chunk in _chunk_list(seen, 50):
+            ids_in = ", ".join(f"'{x}'" for x in chunk)
+            soql = (
+                f"SELECT {fields} FROM Account "
+                f"WHERE Id IN ({ids_in}) AND Type = 'Customer Entity'"
+            )
+            try:
+                raw = self._query(soql)
+            except Exception as e:
+                logger.warning("Salesforce account Id lookup failed: %s", e)
+                return {
+                    "customer": customer_name,
+                    "accounts": [],
+                    "account_ids": [],
+                    "opportunity_count_this_year": 0,
+                    "pipeline_arr": 0.0,
+                    "matched": False,
+                }
+            for r in raw:
+                matching.append(_normalize_entity_account_row(r))
+        if not matching:
+            return {
+                "customer": customer_name,
+                "accounts": [],
+                "account_ids": [],
+                "opportunity_count_this_year": 0,
+                "pipeline_arr": 0.0,
+                "matched": False,
+            }
+        out_ids = [a["Id"] for a in matching if a.get("Id")]
+        return {
+            "customer": customer_name,
+            "accounts": matching,
+            "account_ids": out_ids,
+            "opportunity_count_this_year": self.get_opportunity_creation_this_year(out_ids),
+            "pipeline_arr": self.get_advanced_pipeline_arr(out_ids),
+            "matched": True,
+        }
+
+    def get_customer_salesforce(
+        self,
+        customer_name: str,
+        *,
+        preferred_account_ids: list[str] | None = None,
+        primary_account_id: str | None = None,
+    ) -> dict[str, Any]:
         """Contract info, opportunity count (this year), and pipeline ARR for a customer.
 
-        Matches Entity Account by ``Name``, ``LeanDNA_Entity_Name__c``, Parent name, or
-        Ultimate Parent name (case-insensitive substring; Ultimate Parent requires
-        ``SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP``).
+        When ``preferred_account_ids`` is set (e.g. from ``customer_identity_map.yaml``), resolves
+        those Customer Entity accounts **by Id** first. Otherwise matches Entity Account by
+        ``Name``, ``LeanDNA_Entity_Name__c``, Parent name, or Ultimate Parent name (case-insensitive
+        substring; Ultimate Parent requires ``SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP``).
+
+        Response includes ``resolution`` — ``salesforce_account_id``, ``name``, or ``none`` — and
+        ``primary_account_id`` when it can be determined.
         """
+        pref = [x for x in (preferred_account_ids or []) if (x or "").strip()]
+        if pref:
+            by_id = self._get_customer_salesforce_by_account_ids(customer_name, pref)
+            if by_id.get("matched"):
+                ids_list = by_id.get("account_ids") or []
+                prim = (primary_account_id or "").strip()
+                if prim and prim in ids_list:
+                    by_id["primary_account_id"] = prim
+                elif len(ids_list) == 1:
+                    by_id["primary_account_id"] = ids_list[0]
+                else:
+                    by_id["primary_account_id"] = None
+                by_id["resolution"] = "salesforce_account_id"
+                return by_id
+            logger.info(
+                "Salesforce: mapped Account Id(s) did not resolve Customer Entity rows; "
+                "falling back to name match for %r",
+                customer_name,
+            )
+
         accounts = self.get_entity_accounts()
         name_upper = (customer_name or "").strip().upper()
         matching = [a for a in accounts if _customer_name_matches_entity_account(name_upper, a)]
@@ -771,8 +860,14 @@ class SalesforceClient:
                 "opportunity_count_this_year": 0,
                 "pipeline_arr": 0.0,
                 "matched": False,
+                "resolution": "none",
+                "primary_account_id": None,
             }
         account_ids = [a["Id"] for a in matching if a.get("Id")]
+        prim2 = (primary_account_id or "").strip()
+        primary_out = (
+            prim2 if prim2 and prim2 in account_ids else (account_ids[0] if len(account_ids) == 1 else None)
+        )
         return {
             "customer": customer_name,
             "accounts": matching,
@@ -780,6 +875,8 @@ class SalesforceClient:
             "opportunity_count_this_year": self.get_opportunity_creation_this_year(account_ids),
             "pipeline_arr": self.get_advanced_pipeline_arr(account_ids),
             "matched": True,
+            "resolution": "name",
+            "primary_account_id": primary_out,
         }
 
     def expand_descendant_account_ids(
@@ -832,17 +929,23 @@ class SalesforceClient:
         customer_name: str,
         *,
         row_limit: int = 75,
+        preferred_account_ids: list[str] | None = None,
+        primary_account_id: str | None = None,
     ) -> dict[str, Any]:
         """Fetch a wide slice of mainstream Salesforce objects scoped to matched Customer Entity accounts.
 
-        Reuses ``get_customer_salesforce`` matching (Name / LeanDNA_Entity_Name__c / Parent /
-        Ultimate Parent). Child accounts in the
-        standard hierarchy (``ParentId``) are included via ``expand_descendant_account_ids``; all SOQL
-        filters use that expanded Id set. Each object query is isolated: failures are recorded in
+        Reuses ``get_customer_salesforce`` matching — optional ``preferred_account_ids`` / ``primary_account_id``
+        (same as Id-first resolution). Otherwise Name / LeanDNA_Entity_Name__c / Parent / Ultimate Parent.
+        Child accounts in the standard hierarchy (``ParentId``) are included via ``expand_descendant_account_ids``;
+        all SOQL filters use that expanded Id set. Each object query is isolated: failures are recorded in
         ``category_errors`` without failing the whole call.
         ``products_org_sample`` and ``pricebooks_org_sample`` are org-wide samples (not account-filtered).
         """
-        base = self.get_customer_salesforce(customer_name)
+        base = self.get_customer_salesforce(
+            customer_name,
+            preferred_account_ids=preferred_account_ids,
+            primary_account_id=primary_account_id,
+        )
         out: dict[str, Any] = {
             **base,
             "row_limit": max(1, min(int(row_limit), 500)),

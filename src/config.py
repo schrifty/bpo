@@ -106,6 +106,17 @@ except ValueError:
 # Optional limits for tool output (0 = no limit, full dataset returned)
 PENDO_MAX_RESULTS = int(os.environ.get("PENDO_MAX_RESULTS", "0"))
 PENDO_MAX_OUTPUT_CHARS = int(os.environ.get("PENDO_MAX_OUTPUT_CHARS", "0"))
+# Pendo read/preload caches: in-process slices plus Drive JSON preload/portfolio snapshots.
+try:
+    _pendo_cache_seconds = int(os.environ.get("BPO_PENDO_CACHE_TTL_SECONDS", "120").strip())
+except ValueError:
+    _pendo_cache_seconds = 120
+BPO_PENDO_CACHE_TTL_SECONDS = max(0, _pendo_cache_seconds)
+_pendo_cache_disabled = os.environ.get("BPO_PENDO_CACHE_DISABLED", "").strip().lower()
+if _pendo_cache_disabled in ("1", "true", "yes", "on"):
+    BPO_PENDO_CACHE_TTL_SECONDS = 0
+_pendo_cache_force = os.environ.get("BPO_PENDO_CACHE_FORCE_REFRESH", "").strip().lower()
+BPO_PENDO_CACHE_FORCE_REFRESH = _pendo_cache_force in ("1", "true", "yes", "on")
 
 # Feature Adoption slide: half-over-half usage narrative (extra Pendo aggregations). Off by default — disable by unsetting or false.
 _fai = os.environ.get("BPO_FEATURE_ADOPTION_INSIGHTS", "").strip().lower()
