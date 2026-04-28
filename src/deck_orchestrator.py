@@ -10,7 +10,6 @@ from .config import GOOGLE_QBR_GENERATOR_FOLDER_ID, logger
 from .cs_report_client import get_csr_section
 from .deck_builder_utils import (
     _build_slide_jql_speaker_notes,
-    _normalize_builder_return,
     build_slide_jql_speaker_notes_for_entry,
     normalize_builder_return,
 )
@@ -30,7 +29,6 @@ from .slide_cohort_links import (
     COHORT_BUNDLE_SIGNAL_LINK_PHRASES as _COHORT_BUNDLE_SIGNAL_LINK_PHRASES,
     apply_cohort_bundle_links_to_notable_signals,
 )
-from .slide_cs_notable import cs_notable_slide as _cs_notable_slide
 from .deck_legacy import (
     create_deck_for_customer,
     create_decks_for_all_customers,
@@ -76,6 +74,7 @@ from .slide_pipeline_traces import (
 )
 from .slide_primitives import set_support_deck_corner_customer as _set_support_deck_corner_customer
 from .deck_renderer import render_slide_plan
+from .deck_support_notable import insert_support_notable_slide
 from .slide_thumbnail_export import export_slide_thumbnails
 from .slides_theme import _date_range
 
@@ -252,57 +251,20 @@ def create_health_deck(
             "slides_created": 0,
         }
 
-    if deck_id == "support" and notable_deferred and slides_created > 0:
-        from .support_notable_llm import (
-            NotableLlmError,
-            build_support_review_digest,
-            generate_notable_bullets_via_llm,
-        )
-
-        titles = [e.get("title", "") for e in plan_work]
-        try:
-            digest = build_support_review_digest(report, slide_titles=titles)
-        except Exception as e:
-            logger.warning("Notable: digest build failed; LLM may have thin context. %s", e)
-            digest = {}
-        ne = dict(notable_deferred)
-        try:
-            bullets, src = generate_notable_bullets_via_llm(digest, ne)
-        except NotableLlmError as e:
-            _set_support_deck_corner_customer(None)
-            url = f"https://docs.google.com/presentation/d/{pres_id}/edit"
-            return {
-                "error": str(e),
-                "presentation_id": pres_id,
-                "url": url,
-                "customer": customer,
-                "slides_created": slides_created,
-                "deck_id": deck_id,
-                "hint": "Notable slide was not added. The deck is otherwise complete. Set BPO_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true to insert generic bullets, or fix the Notable/LLM path and regenerate.",
-            }
-        ne["notable_items"] = bullets
-        report["support_notable_bullets"] = bullets
-        report["support_notable_bullets_source"] = src
-        report["_current_slide"] = ne
-        nreq: list[dict] = []
-        nsid = "s_snb1"
-        ret_n = _cs_notable_slide(nreq, nsid, report, 1)
-        _nidx, n_note_ids = _normalize_builder_return(ret_n, nsid)
-        del _nidx
-        try:
-            import socket
-            o2 = socket.getdefaulttimeout()
-            try:
-                socket.setdefaulttimeout(60.0)
-                presentations_batch_update_chunked(slides_service, pres_id, nreq)
-            finally:
-                socket.setdefaulttimeout(o2)
-        except HttpError as e:
-            logger.error("Notable: second batch (insert at index 1) failed: %s", e)
-        else:
-            slides_created += 1
-            for nid in n_note_ids:
-                note_targets.append((nid, ne))
+    slides_created, note_targets, notable_error = insert_support_notable_slide(
+        slides_service,
+        pres_id,
+        report,
+        notable_deferred,
+        plan_work,
+        note_targets,
+        slides_created,
+        customer,
+        deck_id,
+    )
+    if notable_error:
+        _set_support_deck_corner_customer(None)
+        return notable_error
 
     _set_support_deck_corner_customer(None)
     notes_items = [(sid, _build_slide_jql_speaker_notes(report, entry)) for sid, entry in note_targets]
