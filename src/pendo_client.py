@@ -97,6 +97,55 @@ def _merge_visitor_event_rows_by_dimension(
     return out
 
 
+_FRUSTRATION_FIELDS = ("rageClickCount", "deadClickCount", "errorClickCount", "uTurnCount")
+
+
+def _merge_visitor_event_rows_with_frustration(
+    results: list[dict],
+    dimension_key: str,
+) -> list[dict]:
+    """Merge day-bucket rows per (visitorId, dimension); sum frustration counters and events/minutes."""
+    merged: dict[tuple[str, str], dict[str, Any]] = {}
+    for ev in results:
+        if not isinstance(ev, dict):
+            continue
+        vid = ev.get("visitorId")
+        dim = ev.get(dimension_key)
+        key = (str(vid), str(dim))
+        ne = int(ev.get("numEvents") or 0)
+        nm = int(ev.get("numMinutes") or 0)
+        if key not in merged:
+            merged[key] = {
+                "visitorId": vid,
+                dimension_key: dim,
+                "numEvents": 0,
+                "numMinutes": 0,
+                "had_minutes": False,
+                **{k: 0 for k in _FRUSTRATION_FIELDS},
+            }
+        m = merged[key]
+        m["numEvents"] += ne
+        m["numMinutes"] += nm
+        if ev.get("numMinutes") is not None:
+            m["had_minutes"] = True
+        for fk in _FRUSTRATION_FIELDS:
+            m[fk] += int(ev.get(fk) or 0)
+    out: list[dict] = []
+    for m in merged.values():
+        row: dict[str, Any] = {
+            "visitorId": m["visitorId"],
+            dimension_key: m[dimension_key],
+            "numEvents": m["numEvents"],
+        }
+        for fk in _FRUSTRATION_FIELDS:
+            if m[fk]:
+                row[fk] = m[fk]
+        if m["had_minutes"] or m["numMinutes"] > 0:
+            row["numMinutes"] = m["numMinutes"]
+        out.append(row)
+    return out
+
+
 def _merge_guide_event_rows(results: list[dict]) -> list[dict]:
     """Merge guide event time buckets; preserve counts per (visitorId, guideId, type)."""
     merged: dict[tuple[str, str, str], dict[str, Any]] = {}
@@ -1012,6 +1061,262 @@ class PendoClient:
             }
         ]
         return self.aggregate(pipeline)
+
+    def list_accounts(self) -> dict[str, Any]:
+        """All accounts from aggregation ``accounts`` source (metadata per account)."""
+        pipeline = [{"source": {"accounts": None}}]
+        return self.aggregate(pipeline)
+
+    def get_customer_frustration_signals(self, customer_name: str, days: int = 30) -> dict[str, Any]:
+        """Rage/dead/error clicks and U-turns on page and feature events for a customer."""
+        partition = self._get_visitor_partition(days)
+        customer_visitors, _ = self._filter_customer_visitors(customer_name, partition)
+        if not customer_visitors:
+            return {"error": f"No visitors found matching '{customer_name}'"}
+        visitor_ids = {v.get("visitorId") for v in customer_visitors if v.get("visitorId")}
+        ts = _time_series(days)
+        try:
+            raw_page = self.aggregate([
+                {"source": {"pageEvents": None, "timeSeries": ts}},
+            ]).get("results") or []
+            page_rows = _merge_visitor_event_rows_with_frustration(raw_page, "pageId")
+            raw_feat = self.aggregate([
+                {"source": {"featureEvents": None, "timeSeries": ts}},
+            ]).get("results") or []
+            feat_rows = _merge_visitor_event_rows_with_frustration(raw_feat, "featureId")
+        except Exception as e:
+            return {"error": str(e), "customer": customer_name, "days": days}
+
+        page_catalog = self._get_page_catalog_cached()
+        feature_catalog = self._get_feature_catalog_cached()
+
+        totals = {k: 0 for k in _FRUSTRATION_FIELDS}
+        top_pages: list[dict[str, Any]] = []
+        top_features: list[dict[str, Any]] = []
+
+        page_scores: dict[str, dict[str, int]] = {}
+        for ev in page_rows:
+            if ev.get("visitorId") not in visitor_ids:
+                continue
+            pid = str(ev.get("pageId") or "")
+            if pid not in page_scores:
+                page_scores[pid] = {k: 0 for k in _FRUSTRATION_FIELDS}
+            for fk in _FRUSTRATION_FIELDS:
+                n = int(ev.get(fk) or 0)
+                page_scores[pid][fk] += n
+                totals[fk] += n
+
+        for pid, scores in sorted(
+            page_scores.items(),
+            key=lambda x: sum(x[1].values()),
+            reverse=True,
+        )[:12]:
+            if sum(scores.values()) <= 0:
+                continue
+            row = {"page": page_catalog.get(pid, pid), "page_id": pid}
+            row.update(scores)
+            top_pages.append(row)
+
+        feat_scores: dict[str, dict[str, int]] = {}
+        for ev in feat_rows:
+            if ev.get("visitorId") not in visitor_ids:
+                continue
+            fid = str(ev.get("featureId") or "")
+            if fid not in feat_scores:
+                feat_scores[fid] = {k: 0 for k in _FRUSTRATION_FIELDS}
+            for fk in _FRUSTRATION_FIELDS:
+                n = int(ev.get(fk) or 0)
+                feat_scores[fid][fk] += n
+                totals[fk] += n
+
+        for fid, scores in sorted(
+            feat_scores.items(),
+            key=lambda x: sum(x[1].values()),
+            reverse=True,
+        )[:12]:
+            if sum(scores.values()) <= 0:
+                continue
+            row = {"feature": feature_catalog.get(fid, fid), "feature_id": fid}
+            row.update(scores)
+            top_features.append(row)
+
+        total_signal = sum(totals.values())
+        return {
+            "customer": customer_name,
+            "days": days,
+            "totals": totals,
+            "total_frustration_signals": total_signal,
+            "top_pages": top_pages,
+            "top_features": top_features,
+        }
+
+    def get_customer_poll_events(self, customer_name: str, days: int = 30) -> dict[str, Any]:
+        """NPS and poll responses (``pollEvents``) for a customer."""
+        partition = self._get_visitor_partition(days)
+        customer_visitors, _ = self._filter_customer_visitors(customer_name, partition)
+        if not customer_visitors:
+            return {"error": f"No visitors found matching '{customer_name}'"}
+        visitor_ids = {v.get("visitorId") for v in customer_visitors if v.get("visitorId")}
+        ts = _time_series(days)
+        try:
+            raw = self.aggregate([
+                {"source": {"pollEvents": None, "timeSeries": ts}},
+            ]).get("results") or []
+        except Exception as e:
+            return {"error": str(e), "customer": customer_name, "days": days}
+
+        responses: list[dict[str, Any]] = []
+        by_type: dict[str, int] = {}
+        nps_scores: list[int] = []
+        for ev in raw:
+            if ev.get("visitorId") not in visitor_ids:
+                continue
+            poll_type = str(ev.get("pollType") or ev.get("type") or "?")
+            pr = ev.get("pollResponse")
+            by_type[poll_type] = by_type.get(poll_type, 0) + 1
+            row = {
+                "poll_id": ev.get("pollId"),
+                "poll_type": poll_type,
+                "poll_response": pr,
+            }
+            responses.append(row)
+            if poll_type == "NPSRating" and isinstance(pr, (int, float)):
+                nps_scores.append(int(pr))
+
+        out: dict[str, Any] = {
+            "customer": customer_name,
+            "days": days,
+            "response_count": len(responses),
+            "by_poll_type": dict(sorted(by_type.items(), key=lambda x: -x[1])),
+            "responses": responses[:50],
+        }
+        if nps_scores:
+            nps_scores.sort()
+            mid = len(nps_scores) // 2
+            median = (
+                nps_scores[mid]
+                if len(nps_scores) % 2
+                else (nps_scores[mid - 1] + nps_scores[mid]) / 2
+            )
+            out["nps"] = {
+                "count": len(nps_scores),
+                "median": float(median),
+                "avg": round(sum(nps_scores) / len(nps_scores), 2),
+            }
+        return out
+
+    def get_customer_track_events_breakdown(self, customer_name: str, days: int = 30) -> dict[str, Any]:
+        """Custom track events (``events`` source), grouped by track type name for a customer."""
+        partition = self._get_visitor_partition(days)
+        customer_visitors, _ = self._filter_customer_visitors(customer_name, partition)
+        if not customer_visitors:
+            return {"error": f"No visitors found matching '{customer_name}'"}
+        visitor_ids = {v.get("visitorId") for v in customer_visitors if v.get("visitorId")}
+        try:
+            rows = self._get_track_events_cached(days)
+        except Exception as e:
+            return {"error": str(e), "customer": customer_name, "days": days}
+
+        by_track: dict[str, dict[str, Any]] = {}
+        for ev in rows:
+            if ev.get("visitorId") not in visitor_ids:
+                continue
+            name = str(ev.get("pageId") or "(unknown)")
+            ne = int(ev.get("numEvents") or 0) or 0
+            nm = int(ev.get("numMinutes") or 0) or 0
+            if name not in by_track:
+                by_track[name] = {"events": 0, "minutes": 0, "users": set()}
+            by_track[name]["events"] += ne
+            by_track[name]["minutes"] += nm
+            by_track[name]["users"].add(ev.get("visitorId"))
+
+        breakdown = []
+        for name, info in sorted(by_track.items(), key=lambda x: -x[1]["events"])[:40]:
+            breakdown.append({
+                "track_name": name,
+                "events": info["events"],
+                "minutes": info["minutes"],
+                "unique_users": len(info["users"]),
+            })
+        return {
+            "customer": customer_name,
+            "days": days,
+            "distinct_track_types": len(by_track),
+            "breakdown": breakdown,
+        }
+
+    def get_customer_visitor_languages(self, customer_name: str, days: int = 30) -> dict[str, Any]:
+        """Language distribution from visitor ``metadata.agent.language`` for a customer."""
+        partition = self._get_visitor_partition(days)
+        customer_visitors, _ = self._filter_customer_visitors(customer_name, partition)
+        if not customer_visitors:
+            return {"error": f"No visitors found matching '{customer_name}'"}
+        counts: dict[str, int] = {}
+        for v in customer_visitors:
+            lang = (((v.get("metadata") or {}).get("agent") or {}).get("language") or "").strip() or "(unset)"
+            counts[lang] = counts.get(lang, 0) + 1
+        ranked = sorted(counts.items(), key=lambda x: -x[1])
+        return {
+            "customer": customer_name,
+            "days": days,
+            "total_visitors": len(customer_visitors),
+            "languages": [{"language": k, "users": v} for k, v in ranked],
+        }
+
+    def get_tracktype_catalog_list(self) -> list[dict[str, Any]]:
+        """REST ``GET /tracktype`` — track event type definitions."""
+        resp = self._http_session().get(
+            f"{self.base_url}/tracktype",
+            headers=self._headers(),
+            timeout=60,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data if isinstance(data, list) else []
+
+    def get_report_catalog_list(self) -> list[dict[str, Any]]:
+        """REST ``GET /report`` — saved report definitions (not computed results)."""
+        resp = self._http_session().get(
+            f"{self.base_url}/report",
+            headers=self._headers(),
+            timeout=60,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data if isinstance(data, list) else []
+
+    def get_segment_catalog_list(self) -> list[dict[str, Any]]:
+        """REST ``GET /segment`` — segment definitions."""
+        resp = self._http_session().get(
+            f"{self.base_url}/segment",
+            headers=self._headers(),
+            timeout=60,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data if isinstance(data, list) else []
+
+    def get_metadata_schema_visitor_raw(self) -> dict[str, Any]:
+        """REST ``GET /metadata/schema/visitor`` — configured visitor metadata fields."""
+        resp = self._http_session().get(
+            f"{self.base_url}/metadata/schema/visitor",
+            headers=self._headers(),
+            timeout=60,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data if isinstance(data, dict) else {}
+
+    def get_metadata_schema_account_raw(self) -> dict[str, Any]:
+        """REST ``GET /metadata/schema/account`` — configured account metadata fields."""
+        resp = self._http_session().get(
+            f"{self.base_url}/metadata/schema/account",
+            headers=self._headers(),
+            timeout=60,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data if isinstance(data, dict) else {}
 
     # ── Catalog methods (for human-readable names) ──
 

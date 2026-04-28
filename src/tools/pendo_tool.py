@@ -188,6 +188,176 @@ class CustomerGuidesTool(_PendoDataTool):
     _client_method = "get_customer_guides"
 
 
+class CustomerPollEventsTool(_PendoDataTool):
+    """NPS and poll responses from Pendo pollEvents."""
+
+    name: str = "customer_poll_events"
+    description: str = (
+        "Get NPS and poll/survey responses for a customer from Pendo pollEvents: "
+        "response counts, poll types, median/average NPS when available. "
+        "Input: customer name or 'customer,days'."
+    )
+    _client_method = "get_customer_poll_events"
+
+
+class CustomerFrustrationTool(_PendoDataTool):
+    """Rage clicks, dead clicks, error clicks, U-turns aggregated per page/feature."""
+
+    name: str = "customer_frustration"
+    description: str = (
+        "Get UX frustration signals for a customer: rage clicks, dead clicks, error clicks, "
+        "and U-turns summed from page and feature events, with top pages and features. "
+        "Input: customer name or 'customer,days'."
+    )
+    _client_method = "get_customer_frustration_signals"
+
+
+class CustomerTrackEventsBreakdownTool(_PendoDataTool):
+    """Custom track events (pendo.track) grouped by track type name."""
+
+    name: str = "customer_track_events_breakdown"
+    description: str = (
+        "Break down custom track events for a customer by track type name (web/ios/android "
+        "classes used in-app): events, minutes, unique users per track name. "
+        "Input: customer name or 'customer,days'."
+    )
+    _client_method = "get_customer_track_events_breakdown"
+
+
+class CustomerVisitorLanguagesTool(_PendoDataTool):
+    """Visitor UI language distribution from Pendo metadata."""
+
+    name: str = "customer_visitor_languages"
+    description: str = (
+        "Get distribution of visitor languages (metadata.agent.language) for a customer's "
+        "users. Input: customer name or 'customer,days'."
+    )
+    _client_method = "get_customer_visitor_languages"
+
+
+def _json_truncate_list(obj: Any, max_items: int = 40) -> Any:
+    """Truncate large lists in catalog payloads for LLM tool output."""
+    if isinstance(obj, list) and len(obj) > max_items:
+        return {"_truncated": True, "_total": len(obj), "items": obj[:max_items]}
+    return obj
+
+
+class PendoAccountsTool(BaseTool):
+    """Subscription account list from aggregation ``accounts`` source."""
+
+    name: str = "pendo_accounts"
+    description: str = (
+        "List all Pendo accounts (aggregation accounts source): account ids and metadata. "
+        "Input: empty string or 'list'."
+    )
+    integration_key: Optional[str] = Field(default=None, exclude=True)
+    base_url: Optional[str] = Field(default=None, exclude=True)
+
+    @_network_safe
+    def _run(self, query: str = "") -> str:
+        logger.info("Tool: pendo_accounts")
+        data = _client(self.integration_key, self.base_url).list_accounts()
+        results = data.get("results") if isinstance(data, dict) else None
+        if isinstance(results, list):
+            data = {
+                **data,
+                "results": _json_truncate_list(results, max_items=40),
+            }
+        return json.dumps(data, indent=2)
+
+    async def _arun(self, query: str = "") -> str:
+        raise NotImplementedError
+
+
+class _PendoCatalogListTool(BaseTool):
+    """Fetch a Pendo REST catalog list (track types, reports, or segments)."""
+
+    integration_key: Optional[str] = Field(default=None, exclude=True)
+    base_url: Optional[str] = Field(default=None, exclude=True)
+    _client_method: ClassVar[str]
+
+    @_network_safe
+    def _run(self, query: str = "") -> str:
+        logger.info("Tool: %s", self.name)
+        method = getattr(_client(self.integration_key, self.base_url), self._client_method)
+        data = method()
+        return json.dumps(_json_truncate_list(data, max_items=40), indent=2)
+
+    async def _arun(self, query: str = "") -> str:
+        raise NotImplementedError
+
+
+class PendoTracktypeCatalogTool(_PendoCatalogListTool):
+    """Track event type catalog (GET /tracktype)."""
+
+    name: str = "pendo_tracktype_catalog"
+    description: str = (
+        "List Pendo track event type definitions (names, ids, rules). Does not include usage counts. "
+        "Input: empty."
+    )
+    _client_method = "get_tracktype_catalog_list"
+
+
+class PendoReportCatalogTool(_PendoCatalogListTool):
+    """Saved report definitions (GET /report); not report results."""
+
+    name: str = "pendo_report_catalog"
+    description: str = (
+        "List saved Pendo report definitions (paths, funnels, etc.). API returns definitions only, "
+        "not computed results. Input: empty."
+    )
+    _client_method = "get_report_catalog_list"
+
+
+class PendoSegmentCatalogTool(_PendoCatalogListTool):
+    """Segment definitions (GET /segment)."""
+
+    name: str = "pendo_segment_catalog"
+    description: str = (
+        "List Pendo audience segment definitions. Input: empty."
+    )
+    _client_method = "get_segment_catalog_list"
+
+
+class _PendoSchemaTool(BaseTool):
+    """Visitor or account metadata schema from Pendo REST."""
+
+    integration_key: Optional[str] = Field(default=None, exclude=True)
+    base_url: Optional[str] = Field(default=None, exclude=True)
+    _client_method: ClassVar[str]
+
+    @_network_safe
+    def _run(self, query: str = "") -> str:
+        logger.info("Tool: %s", self.name)
+        method = getattr(_client(self.integration_key, self.base_url), self._client_method)
+        return json.dumps(method(), indent=2)
+
+    async def _arun(self, query: str = "") -> str:
+        raise NotImplementedError
+
+
+class PendoVisitorMetadataSchemaTool(_PendoSchemaTool):
+    """Configured visitor metadata field definitions."""
+
+    name: str = "pendo_visitor_metadata_schema"
+    description: str = (
+        "Get Pendo visitor metadata schema (groups, field types, display names). "
+        "Input: empty."
+    )
+    _client_method = "get_metadata_schema_visitor_raw"
+
+
+class PendoAccountMetadataSchemaTool(_PendoSchemaTool):
+    """Configured account metadata field definitions."""
+
+    name: str = "pendo_account_metadata_schema"
+    description: str = (
+        "Get Pendo account metadata schema (groups, field types, display names). "
+        "Input: empty."
+    )
+    _client_method = "get_metadata_schema_account_raw"
+
+
 class ListCustomersTool(_PendoDataTool):
     """Portfolio overview: all customers ranked with activity stats."""
 
@@ -464,6 +634,16 @@ def get_pendo_tools(
         CustomerExportsTool(**common),
         CustomerKeiTool(**common),
         CustomerGuidesTool(**common),
+        CustomerPollEventsTool(**common),
+        CustomerFrustrationTool(**common),
+        CustomerTrackEventsBreakdownTool(**common),
+        CustomerVisitorLanguagesTool(**common),
+        PendoAccountsTool(**common),
+        PendoTracktypeCatalogTool(**common),
+        PendoReportCatalogTool(**common),
+        PendoSegmentCatalogTool(**common),
+        PendoVisitorMetadataSchemaTool(**common),
+        PendoAccountMetadataSchemaTool(**common),
         ListCustomersTool(**common),
         JiraProjectSnapshotTool(),
         # Decks & slides
