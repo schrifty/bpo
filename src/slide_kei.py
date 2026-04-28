@@ -92,6 +92,20 @@ def kei_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx:
         lines.append(f"    {role}{exec_flag}  ·  {user.get('queries', 0):,} queries")
     if not users:
         lines.append("  No Kei usage in this period")
+
+    track_breakdown = report.get("track_events_breakdown") or {}
+    breakdown = track_breakdown.get("breakdown") if isinstance(track_breakdown, dict) else []
+    if isinstance(breakdown, list) and breakdown:
+        lines.append("")
+        lines.append("Other custom track events (pendo.track)")
+        for row in breakdown[:8]:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("track_name") or "")[:42]
+            events = int(row.get("events") or 0)
+            users_count = int(row.get("unique_users") or 0)
+            lines.append(f"  {name}  ·  {events:,} events  ·  {users_count} users")
+
     text = "\n".join(lines)
     users_h = max(120.0, BODY_BOTTOM - users_top - 4)
     _box(reqs, f"{sid}_users", sid, MARGIN, users_top, CONTENT_W, users_h, text)

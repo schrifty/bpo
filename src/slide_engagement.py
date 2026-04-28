@@ -11,7 +11,7 @@ from .slide_primitives import (
     slide_title as _slide_title,
     style as _style,
 )
-from .slide_requests import append_slide as _slide, append_text_box as _box
+from .slide_requests import append_slide as _slide, append_text_box as _box, append_wrapped_text_box as _wrap_box
 from .slides_theme import BLUE, BODY_BOTTOM, BODY_Y, CONTENT_W, FONT, GRAY, MARGIN, NAVY
 
 
@@ -151,5 +151,18 @@ def engagement_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any
                 _style(reqs, f"{sid}_dr{role_index}", 0, len(line), size=13, color=GRAY, font=FONT)
                 _style(reqs, f"{sid}_dr{role_index}", 0, len(f"{count:>4}"), bold=True, size=13)
                 right_y += 22
+
+    languages_payload = report.get("visitor_languages") or {}
+    if isinstance(languages_payload, dict) and not languages_payload.get("error"):
+        languages = languages_payload.get("languages") or []
+    else:
+        languages = []
+    if languages:
+        parts = [f"{row.get('language', '?')}: {row.get('users', 0)}" for row in languages[:8]]
+        language_text = "Visitor languages (UI):  " + "  ·  ".join(parts)
+        language_text = language_text[:480]
+        language_y = BODY_BOTTOM - 44
+        _wrap_box(reqs, f"{sid}_vlang", sid, MARGIN, language_y, CONTENT_W, 40, language_text)
+        _style(reqs, f"{sid}_vlang", 0, len(language_text), size=9, color=GRAY, font=FONT)
 
     return idx + 1

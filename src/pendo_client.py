@@ -2615,6 +2615,10 @@ class PendoClient:
         depth_data = self.get_customer_depth(customer_name, days)
         kei_data = self.get_customer_kei(customer_name, days)
         guides_data = self.get_customer_guides(customer_name, days)
+        poll_events_data = self.get_customer_poll_events(customer_name, days)
+        frustration_data = self.get_customer_frustration_signals(customer_name, days)
+        track_events_breakdown_data = self.get_customer_track_events_breakdown(customer_name, days)
+        visitor_languages_data = self.get_customer_visitor_languages(customer_name, days)
 
         health = self.get_customer_health(customer_name, days,
             _precomputed_signals={"depth": depth_data, "exports": exports_data,
@@ -2683,6 +2687,10 @@ class PendoClient:
             "depth": depth_data,
             "kei": kei_data,
             "guides": guides_data,
+            "poll_events": poll_events_data,
+            "frustration": frustration_data,
+            "track_events_breakdown": track_events_breakdown_data,
+            "visitor_languages": visitor_languages_data,
             "jira": jira_data,
             "salesforce": salesforce_data,
             "csr": {

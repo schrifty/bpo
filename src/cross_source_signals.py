@@ -235,6 +235,53 @@ def _collect_feature_signals(report: dict[str, Any]) -> list[str]:
     return [f"Product usage: {line}"]
 
 
+def _collect_pendo_poll_signals(report: dict[str, Any]) -> list[str]:
+    pe = report.get("poll_events")
+    if not isinstance(pe, dict) or pe.get("error"):
+        return []
+    out: list[str] = []
+    nps = pe.get("nps")
+    if isinstance(nps, dict) and int(nps.get("count") or 0) >= 1:
+        med = nps.get("median")
+        cnt = int(nps["count"])
+        if isinstance(med, (int, float)):
+            if med <= 6:
+                out.append(f"NPS (Pendo polls): median {med:g} over {cnt} score(s) — worth a follow-up")
+            elif med >= 9:
+                out.append(f"NPS (Pendo polls): strong median {med:g} ({cnt} score(s))")
+    rc = int(pe.get("response_count") or 0)
+    if rc >= 1 and not out:
+        out.append(f"Product feedback: {rc} poll response(s) recorded in Pendo this period")
+    return out
+
+
+def _collect_pendo_frustration_signals(report: dict[str, Any]) -> list[str]:
+    fr = report.get("frustration")
+    if not isinstance(fr, dict) or fr.get("error"):
+        return []
+    tot = int(fr.get("total_frustration_signals") or 0)
+    if tot <= 0:
+        return []
+    totals = fr.get("totals") if isinstance(fr.get("totals"), dict) else {}
+    rage = int(totals.get("rageClickCount") or 0)
+    dead = int(totals.get("deadClickCount") or 0)
+    err = int(totals.get("errorClickCount") or 0)
+    ut = int(totals.get("uTurnCount") or 0)
+    if rage >= 25:
+        top_pages = fr.get("top_pages") if isinstance(fr.get("top_pages"), list) else []
+        pname = ""
+        if top_pages and isinstance(top_pages[0], dict):
+            pname = str(top_pages[0].get("page") or "")[:44]
+        suf = f"; busiest surface: {pname}" if pname else ""
+        return [f"UX friction (Pendo): {rage:,} rage-click signals{suf}"]
+    if tot >= 80:
+        return [
+            f"UX friction (Pendo): {tot:,} frustration signals "
+            f"(rage {rage:,}, dead {dead:,}, error {err:,}, U-turn {ut:,})"
+        ]
+    return []
+
+
 def _ordered_cross_source_candidates(report: dict[str, Any]) -> list[str]:
     """Higher-priority signals first (support risk → ops → commercial → people → usage narrative)."""
     csr = get_csr_section(report)
@@ -246,6 +293,8 @@ def _ordered_cross_source_candidates(report: dict[str, Any]) -> list[str]:
         _collect_salesforce_signals(report.get("salesforce") or {}),
         _collect_people_signals(report),
         _collect_feature_signals(report),
+        _collect_pendo_poll_signals(report),
+        _collect_pendo_frustration_signals(report),
     ]
     out: list[str] = []
     for part in chunks:

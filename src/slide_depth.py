@@ -10,9 +10,10 @@ from .slide_primitives import (
     missing_data_slide as _missing_data_slide,
     slide_chart_legend as _slide_chart_legend,
     slide_title as _slide_title,
+    style as _style,
 )
-from .slide_requests import append_slide as _slide
-from .slides_theme import BLUE, BODY_BOTTOM, BODY_Y, CONTENT_W, MARGIN, _single_embedded_chart_layout
+from .slide_requests import append_slide as _slide, append_wrapped_text_box as _wrap_box
+from .slides_theme import BLUE, BODY_BOTTOM, BODY_Y, CONTENT_W, FONT, GRAY, MARGIN, _single_embedded_chart_layout
 
 
 def depth_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
@@ -73,6 +74,24 @@ def depth_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], id
         value_pt=20,
     )
     chart_top = kpi_y + kpi_h + chart_gap
+    frustration = report.get("frustration") or {}
+    if isinstance(frustration, dict) and not frustration.get("error"):
+        total_frustration = int(frustration.get("total_frustration_signals") or 0)
+        if total_frustration > 0:
+            totals = frustration.get("totals") if isinstance(frustration.get("totals"), dict) else {}
+            rage = int(totals.get("rageClickCount") or 0)
+            top_page = ""
+            top_pages = frustration.get("top_pages") if isinstance(frustration.get("top_pages"), list) else []
+            if top_pages and isinstance(top_pages[0], dict):
+                top_page = str(top_pages[0].get("page") or "")[:40]
+            hint = (
+                f"Friction overlay: {rage:,} rage-click signals · {total_frustration:,} frustration signals total"
+                + (f" · busiest page: {top_page}" if top_page else "")
+            )
+            hint = hint[:420]
+            _wrap_box(reqs, f"{sid}_frhint", sid, MARGIN, chart_top, CONTENT_W, 36, hint)
+            _style(reqs, f"{sid}_frhint", 0, len(hint), size=9, color=GRAY, font=FONT)
+            chart_top += 40
 
     charts = report.get("_charts")
     read_e = depth.get("read_events", 0)

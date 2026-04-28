@@ -42,8 +42,28 @@ def features_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any],
     right_x = MARGIN + col_w + col_gap
     insights = report.get("feature_adoption_insights") or {}
     insights_text = (insights.get("narrative") or "").strip() if isinstance(insights, dict) else ""
-    insights_band = 74
-    tight_bottom = BODY_BOTTOM - (insights_band if insights_text else 0)
+    frustration = report.get("frustration") or {}
+    frustration_note = ""
+    if isinstance(frustration, dict) and not frustration.get("error"):
+        total_frustration = int(frustration.get("total_frustration_signals") or 0)
+        if total_frustration > 0:
+            totals = frustration.get("totals") if isinstance(frustration.get("totals"), dict) else {}
+            rage = int(totals.get("rageClickCount") or 0)
+            top_features = frustration.get("top_features") if isinstance(frustration.get("top_features"), list) else []
+            hotspot = ""
+            if top_features and isinstance(top_features[0], dict):
+                hotspot = str(top_features[0].get("feature") or "")[:36]
+            suffix = f" — hotspot: {hotspot}" if hotspot else ""
+            frustration_note = f"UX friction (rage/dead/error/U-turn): {total_frustration:,} signals; rage {rage:,}{suffix}"
+    if insights_text and frustration_note:
+        insights_band = 120
+    elif insights_text:
+        insights_band = 74
+    elif frustration_note:
+        insights_band = 52
+    else:
+        insights_band = 0
+    tight_bottom = BODY_BOTTOM - insights_band
     max_items = _list_data_rows_fit_span(
         y_top=BODY_Y,
         y_bottom=tight_bottom,
@@ -88,7 +108,12 @@ def features_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any],
         _slide(reqs, page_sid, idx + page)
         title = "Feature Adoption" if num_pages == 1 else f"Feature Adoption ({page + 1} of {num_pages})"
         _slide_title(reqs, page_sid, title)
-        foot = insights_text if (page == 0 and insights_text) else ""
+        foot_parts: list[str] = []
+        if page == 0 and insights_text:
+            foot_parts.append(insights_text)
+        if page == 0 and frustration_note:
+            foot_parts.append(frustration_note)
+        foot = "\n\n".join(foot_parts)
         col_bottom = BODY_BOTTOM - (insights_band if foot else 0)
         box_h = col_bottom - BODY_Y
         _render_column(page_sid, "pg", "Top Pages", pages, "name", "events", "events", page * max_items, box_h)
