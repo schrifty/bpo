@@ -42,6 +42,8 @@ SLIDE_DATA_REQUIREMENTS: dict[str, list[str]] = {
     "platform_health": ["csr", "leandna_item_master"],
     "supply_chain": ["csr", "leandna_item_master"],
     "platform_value": ["csr"],
+    "platform_value_summary_cover": ["customer", "account"],
+    "platform_value_summary_toc": [],
     "sla_health": ["jira"],
     "cross_validation": ["csr", "sites", "engagement"],
     "engineering": ["jira"],

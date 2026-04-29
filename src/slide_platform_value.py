@@ -7,10 +7,30 @@ from typing import Any
 from .cs_report_client import get_csr_section
 from .slide_pipeline_traces import fmt_platform_value_count as _fmt_platform_value_count
 from .slide_pipeline_traces import fmt_platform_value_dollar as _fmt_platform_value_dollar
-from .slide_primitives import clean_table as _clean_table, kpi_metric_card as _kpi_metric_card, slide_title as _slide_title, style as _style
-from .slide_requests import append_slide as _slide, append_text_box as _box
+from .slide_primitives import (
+    background as _bg,
+    clean_table as _clean_table,
+    kpi_metric_card as _kpi_metric_card,
+    missing_data_slide as _missing_data_slide,
+    slide_title as _slide_title,
+    style as _style,
+)
+from .slide_requests import append_slide as _slide, append_text_box as _box, append_wrapped_text_box as _wrap_box
 from .slide_utils import slide_size as _sz, slide_transform as _tf
-from .slides_theme import BLUE, BODY_BOTTOM, BODY_Y, CONTENT_W, FONT, GRAY, MARGIN, NAVY, WHITE, _cap_chunk_list
+from .slides_theme import (
+    BLUE,
+    BODY_BOTTOM,
+    BODY_Y,
+    CONTENT_W,
+    FONT,
+    GRAY,
+    LIGHT,
+    MARGIN,
+    NAVY,
+    WHITE,
+    _cap_chunk_list,
+    _date_range,
+)
 
 
 def platform_value_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int | tuple[int, list[str]]:
@@ -216,3 +236,96 @@ def platform_value_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
                 _cbg(row, col_index, WHITE)
 
     return idx + len(chunks_planned), object_ids
+
+
+_SKIP_PV_SUMMARY_TOC_TYPES = frozenset({"platform_value_summary_cover", "platform_value_summary_toc"})
+
+
+def platform_value_summary_cover_slide(
+    reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int
+) -> int:
+    """Title slide for the Platform Value & ROI Summary companion deck."""
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, LIGHT)
+    entry = report.get("_current_slide") or {}
+    title = (entry.get("title") or "").strip() or "Platform Value & ROI Summary"
+    _slide_title(reqs, sid, title)
+    customer = (report.get("customer") or "").strip() or "Customer"
+    acct = report.get("account") or {}
+    days = int(report.get("days") or 90)
+    dr = _date_range(days, report.get("quarter"), report.get("quarter_start"), report.get("quarter_end"))
+    csm = acct.get("csm") or "—"
+    sites = acct.get("total_sites", "—")
+    visitors = acct.get("total_visitors", "—")
+    parts = [
+        customer,
+        "",
+        f"Reporting window: {dr}",
+        f"CSM: {csm}  ·  {sites} sites  ·  {visitors} users",
+        "",
+        "Hard-dollar ROI, supply chain metrics, Lean Projects savings (when applicable), "
+        "platform health, and data quality — from the Customer Success Report and related exports.",
+    ]
+    body = "\n".join(parts)
+    oid = f"{sid}_body"
+    body_h = max(80.0, BODY_BOTTOM - BODY_Y - 8)
+    _wrap_box(reqs, oid, sid, MARGIN, BODY_Y, CONTENT_W, body_h, body)
+    _style(reqs, oid, 0, len(body), size=11, color=NAVY, font=FONT)
+    return idx + 1
+
+
+def _pv_summary_toc_label(entry: dict[str, Any]) -> str:
+    t = str(entry.get("title") or "").strip()
+    return t or str(entry.get("slide_type") or entry.get("id") or "Section").replace("_", " ").title()
+
+
+def platform_value_summary_toc_slide(
+    reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int
+) -> int:
+    """Table of contents for the resolved Platform Value & ROI Summary slide plan."""
+    plan = list(report.get("_slide_plan") or [])
+    entries = [e for e in plan if e.get("slide_type") not in _SKIP_PV_SUMMARY_TOC_TYPES]
+    if not entries:
+        return _missing_data_slide(reqs, sid, report, idx, "Platform Value deck table of contents entries")
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, LIGHT)
+    entry = report.get("_current_slide") or {}
+    title = (entry.get("title") or "").strip() or "Table of Contents"
+    _slide_title(reqs, sid, title)
+    customer = (report.get("customer") or "").strip()
+    subtitle = (
+        f"Sections in this deck for {customer}."
+        if customer
+        else "Sections in this deck."
+    )
+    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 20, subtitle)
+    _style(reqs, f"{sid}_sub", 0, len(subtitle), size=10, color=GRAY, font=FONT)
+
+    max_items = 20
+    labels = [_pv_summary_toc_label(e) for e in entries[:max_items]]
+    left = labels[:10]
+    right = labels[10:]
+    col_gap = 28.0
+    col_w = (CONTENT_W - col_gap) / 2
+    y0 = BODY_Y + 38
+    row_h = 20.0
+
+    def _render_col(items: list[str], start_num: int, x: float) -> None:
+        for row_index, label in enumerate(items):
+            n = start_num + row_index
+            line = f"{n}.   {label}"
+            oid = f"{sid}_toc_{n}"
+            _box(reqs, oid, sid, x, y0 + row_index * row_h, col_w, row_h, line)
+            _style(reqs, oid, 0, len(line), size=11, color=NAVY, font=FONT)
+            _style(reqs, oid, 0, len(str(n)) + 1, bold=True)
+
+    _render_col(left, 1, MARGIN)
+    _render_col(right, 1 + len(left), MARGIN + col_w + col_gap)
+
+    if len(entries) > max_items:
+        note = f"{len(entries) - max_items} additional section(s) omitted from this contents slide."
+        _box(reqs, f"{sid}_more", sid, MARGIN, BODY_BOTTOM - 18, CONTENT_W, 16, note)
+        _style(reqs, f"{sid}_more", 0, len(note), size=8, color=GRAY, font=FONT)
+
+    return idx + 1

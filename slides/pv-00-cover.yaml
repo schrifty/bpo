@@ -1,0 +1,12 @@
+id: pv_summary_cover
+type: standard
+order: 0.5
+title: Platform Value & ROI Summary
+slide_type: platform_value_summary_cover
+data_tools: [customer_health]
+customers: all
+
+prompt: |
+  Cover slide for the Platform Value & ROI Summary deck: customer name,
+  reporting window, CSM / sites / users, and a one-line description of the
+  value narrative (CS Report ROI, supply chain, Lean Projects, platform health).

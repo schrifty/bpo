@@ -176,6 +176,12 @@ def build_slide_jql_speaker_notes(
                 header.append(
                     "Live Salesforce metrics: Salesforce - SOQL via REST API (per-object queries not recorded in this payload)"
                 )
+            elif slide_type in ("platform_value_summary_cover", "platform_value_summary_toc"):
+                header.append("")
+                header.append(
+                    "Platform Value & ROI Summary: CS Report / Pendo-backed metrics from the customer health report; "
+                    "TOC rows follow the resolved deck slide plan."
+                )
             return "\n".join(header)
 
         header.append("")

@@ -116,6 +116,8 @@ BUILDER_DESCRIPTIONS = {
     "platform_health": "Platform health — CS Report health status, CTB%, CTC%, shortages",
     "supply_chain": "Supply chain — inventory values, DOI, excess, late POs",
     "platform_value": "Platform value & ROI — savings, IA value, recs created, POs placed",
+    "platform_value_summary_cover": "Platform Value & ROI Summary — cover with customer, window, CSM/sites/users",
+    "platform_value_summary_toc": "Platform Value & ROI Summary — table of contents from resolved slide plan",
     "cross_validation": "Data cross-validation — Pendo vs CS Report engagement comparison",
     "signals": "Notable signals — auto-detected churn risk, expansion, adoption gaps",
     "team": "Team roster — CSM/AE assignments from teams.yaml",

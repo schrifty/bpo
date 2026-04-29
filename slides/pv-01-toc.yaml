@@ -1,0 +1,11 @@
+id: pv_summary_toc
+type: standard
+order: 0.6
+title: Table of Contents
+slide_type: platform_value_summary_toc
+data_tools: [customer_health]
+customers: all
+
+prompt: |
+  Numbered table of contents for the Platform Value & ROI Summary deck,
+  built from the resolved slide plan (same sections as will be generated).

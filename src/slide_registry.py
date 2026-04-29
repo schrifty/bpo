@@ -69,7 +69,11 @@ from .slide_leandna_shortage import (
 )
 from .slide_metadata import SLIDE_DATA_REQUIREMENTS
 from .slide_platform_health import platform_health_slide as _platform_health_slide
-from .slide_platform_value import platform_value_slide as _platform_value_slide
+from .slide_platform_value import (
+    platform_value_slide as _platform_value_slide,
+    platform_value_summary_cover_slide as _platform_value_summary_cover_slide,
+    platform_value_summary_toc_slide as _platform_value_summary_toc_slide,
+)
 from .slide_pendo import (
     pendo_definitions_appendix_slide as _pendo_definitions_appendix_slide,
     pendo_friction_slide as _pendo_friction_slide,
@@ -144,6 +148,8 @@ _SLIDE_BUILDERS = {
     "platform_health": _platform_health_slide,
     "supply_chain": _supply_chain_slide,
     "platform_value": _platform_value_slide,
+    "platform_value_summary_cover": _platform_value_summary_cover_slide,
+    "platform_value_summary_toc": _platform_value_summary_toc_slide,
     "data_quality": _data_quality_slide,
     "portfolio_title": _portfolio_title_slide,
     "portfolio_signals": _portfolio_signals_slide,

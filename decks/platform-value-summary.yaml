@@ -15,8 +15,9 @@ purpose: |
 # Slide YAML: focused subset emphasizing ROI and value metrics.
 
 slides:
-  - slide: std_title
+  - slide: pv_summary_cover
     title: Platform Value & ROI Summary
+  - slide: pv_summary_toc
   - slide: platform_value
     note: Total cost avoidance and efficiency gains (primary value slide)
   - slide: supply_chain
