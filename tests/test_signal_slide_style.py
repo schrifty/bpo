@@ -1,5 +1,6 @@
 """Notable/Critical Signals slides share the executive-summary visual pattern."""
 
+from src.slide_cs_notable import cs_notable_slide
 from src.slides_client import _portfolio_signals_slide, _signals_slide
 
 
@@ -35,6 +36,24 @@ def test_portfolio_signals_use_same_numbered_style_without_severity_dots():
     assert "1.   Acme:  Adoption risk" in rendered
     assert "2.   Beta:  Expansion opportunity" in rendered
     assert "\u25cf" not in rendered
+
+
+def test_cs_notable_uses_numbered_signals_layout_and_normalizes_notable_title():
+    report = {
+        "_current_slide": {
+            "title": "Notable",
+            "notable_items": ["Portfolio signal one", "Portfolio signal two"],
+        },
+    }
+    reqs: list[dict] = []
+
+    cs_notable_slide(reqs, "snb", report, 0)
+
+    rendered = str(reqs)
+    assert "Notable Signals" in rendered
+    assert "1.   Portfolio signal one" in rendered
+    assert "2.   Portfolio signal two" in rendered
+    assert "\u2022 " not in rendered
 
 
 def test_signal_slides_cap_at_eight_bullets_and_one_slide():

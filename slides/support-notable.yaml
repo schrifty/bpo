@@ -1,7 +1,7 @@
 id: support_notable
 type: standard
 order: 2
-title: Notable
+title: Notable Signals
 slide_type: cs_notable
 customers: all
 data_tools: []
@@ -18,4 +18,4 @@ prompt: |
   At deck build time, the app runs an LLM on a JSON digest of the same Jira data
   as the other support slides, then inserts this slide as position 2 (after the intro).
   If the LLM is off or keys are missing, ``notable_items`` below (or the built-in default)
-  is used. Reorder or edit the YAML list as a static fallback; keep to six for layout.
+  is used. Reorder or edit the YAML list as a static fallback; keep to eight lines for layout.

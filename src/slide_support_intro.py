@@ -7,19 +7,18 @@ from typing import Any
 from .slide_primitives import (
     background as _bg,
     internal_footer as _internal_footer,
-    rect as _rect,
     slide_title as _slide_title,
     style as _style,
 )
 from .slide_requests import append_slide as _slide, append_text_box as _box
 from .slides_theme import (
-    BLUE,
     BODY_BOTTOM,
     BODY_Y,
     CONTENT_W,
     FONT,
     FONT_SERIF,
     GRAY,
+    LTBLUE,
     MARGIN,
     NAVY,
     WHITE,
@@ -28,25 +27,32 @@ from .slides_theme import (
 
 
 def support_deck_cover_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
-    """Title slide for support / supply-chain scoped decks."""
+    """Title slide for support / supply-chain scoped decks (one shared hero layout)."""
     entry = report.get("_current_slide") or {}
     customer = (report.get("customer") or "").strip() or "All Customers"
     generated = (report.get("support_deck_generated_at") or "").strip() or "—"
 
     _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
+    _bg(reqs, sid, NAVY)
 
     title = (entry.get("title") or "Support Review").strip() or "Support Review"
-    _box(reqs, f"{sid}_h1", sid, MARGIN, 100, CONTENT_W, 48, title)
-    _style(reqs, f"{sid}_h1", 0, len(title), bold=True, size=32, color=NAVY, font=FONT_SERIF)
-    _rect(reqs, f"{sid}_h1u", sid, MARGIN, 150, 64, 2.5, BLUE)
+    days = int(report.get("days") or 30)
+    date_range = _date_range(
+        days,
+        report.get("quarter"),
+        report.get("quarter_start"),
+        report.get("quarter_end"),
+    )
+    subtitle = f"{customer}  ·  {date_range}"
 
-    _box(reqs, f"{sid}_cust", sid, MARGIN, 170, CONTENT_W, 40, customer)
-    _style(reqs, f"{sid}_cust", 0, len(customer), size=20, color=NAVY, font=FONT, bold=True)
-
+    _box(reqs, f"{sid}_h1", sid, MARGIN, 100, CONTENT_W, 80, title)
+    _style(reqs, f"{sid}_h1", 0, len(title), bold=True, size=36, color=WHITE, font=FONT_SERIF)
+    _box(reqs, f"{sid}_cust", sid, MARGIN, 190, CONTENT_W, 36, subtitle)
+    _style(reqs, f"{sid}_cust", 0, len(subtitle), size=15, color=LTBLUE, font=FONT)
     generated_text = f"Generated {generated}"
-    _box(reqs, f"{sid}_gen", sid, MARGIN, 220, CONTENT_W, 24, generated_text)
-    _style(reqs, f"{sid}_gen", 0, len(generated_text), size=11, color=GRAY, font=FONT)
+    _box(reqs, f"{sid}_gen", sid, MARGIN, 340, CONTENT_W, 24, generated_text)
+    _style(reqs, f"{sid}_gen", 0, len(generated_text), size=10, color=GRAY, font=FONT)
+
     _internal_footer(reqs, sid)
     return idx + 1
 

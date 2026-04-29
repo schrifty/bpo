@@ -4,15 +4,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from .slide_primitives import background as _bg, missing_data_slide as _missing_data_slide, slide_title as _slide_title, style as _style
-from .slide_requests import append_slide as _slide, append_text_box as _box
-from .slides_theme import BODY_BOTTOM, BODY_Y, CONTENT_W, FONT, GRAY, MARGIN, NAVY, WHITE
+from .slide_primitives import missing_data_slide as _missing_data_slide
+from .slide_signals import MAX_SIGNAL_BULLETS, render_signal_list_slide
+
+
+def _canonical_notable_signals_title(raw: str | None) -> str:
+    t = (raw or "").strip()
+    if not t or t.casefold() == "notable":
+        return "Notable Signals"
+    return t
 
 
 def cs_notable_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
-    """Six focus areas of interest to Customer Success leaders."""
+    """Support-review Notable slide — same layout as Notable Signals (exec summary)."""
     entry = report.get("_current_slide") or {}
-    title = entry.get("title") or "Notable"
+    title = _canonical_notable_signals_title(entry.get("title"))
     default_items = [
         "Adoption and depth: Are the right people using the product in the ways that matter for business outcomes?",
         "Account health and risk: Churn, renewal, adoption trends, and what would worry you on this account.",
@@ -23,26 +29,22 @@ def cs_notable_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any
     ]
     llm_bullets = report.get("support_notable_bullets")
     if isinstance(llm_bullets, list) and llm_bullets:
-        items = [str(item).strip() for item in llm_bullets if str(item).strip()][:6]
+        items = [str(item).strip() for item in llm_bullets if str(item).strip()][:MAX_SIGNAL_BULLETS]
     else:
-        items = list(entry.get("notable_items") or default_items)
-    items = [str(item).strip() for item in items if str(item).strip()][:6]
+        items = [str(x).strip() for x in (entry.get("notable_items") or default_items) if str(x).strip()][
+            :MAX_SIGNAL_BULLETS
+        ]
     if not items:
         return _missing_data_slide(reqs, sid, report, idx, "notable_items")
 
-    _slide(reqs, sid, idx)
-    _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, title)
-
-    y = float(BODY_Y)
     subtitle = (entry.get("notable_subtitle") or entry.get("subtitle") or "").strip()
-    if subtitle:
-        _box(reqs, f"{sid}_st", sid, MARGIN, y, CONTENT_W, 20, subtitle)
-        _style(reqs, f"{sid}_st", 0, len(subtitle), size=9, color=GRAY, font=FONT)
-        y += 24.0
-
-    body = "\n\n".join(f"• {item}" for item in items)
-    height = max(40.0, float(BODY_BOTTOM) - y - 4.0)
-    _box(reqs, f"{sid}_li", sid, MARGIN, y, CONTENT_W, height, body)
-    _style(reqs, f"{sid}_li", 0, len(body), size=10, color=NAVY, font=FONT)
-    return idx + 1
+    return render_signal_list_slide(
+        reqs,
+        sid,
+        report,
+        idx,
+        signals=items,
+        title=title,
+        missing_label="notable_items",
+        trend_banner=subtitle,
+    )

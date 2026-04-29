@@ -427,25 +427,32 @@ def project_recent_tickets_table_slide(
     _bg(reqs, sid, project_slide_bg(project))
     _slide_title(reqs, sid, title)
 
-    table_top = BODY_Y + 24
-    row_h = 19.0
+    # Subtitle can run 2–3 lines (portfolio scope, long customer names). Use a wrapped
+    # band so it does not spill into the table. Table row height must match rendered
+    # Slides rows (~22pt with 8pt body + padding); 19pt under-counts and the table
+    # overflows BODY_BOTTOM.
+    subtitle_h = 40.0
+    table_top = BODY_Y + subtitle_h + 6.0
+    row_h = 22.0
     max_data_rows = _table_rows_fit_span(y_top=table_top, y_bottom=BODY_BOTTOM, row_height_pt=row_h, reserved_table_rows=1, max_rows_cap=30)
     display_items = items[:max_data_rows]
     count_text = f"showing {len(display_items)} of {len(items)} tickets (most recent)" if len(items) > len(display_items) else f"{len(items)} ticket{'s' if len(items) != 1 else ''}"
     port_note = " ·  no org column (portfolio scope)" if is_all_customers else ""
     time_phrase = f"Most recently {kind.lower()}" if window_days is None else f"{kind} in the last {window_days} days"
     subtitle = f"{_support_subtitle_matched_lead(report, customer)}{time_phrase}  ·  {count_text}{port_note}"
-    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, subtitle)
+    _wrap_box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, subtitle_h, subtitle)
     _style(reqs, f"{sid}_sub", 0, len(subtitle), size=9, color=GRAY, font=FONT)
 
     if not items:
         empty = f"No matching {project} tickets."
-        _box(reqs, f"{sid}_empty", sid, MARGIN, BODY_Y + 30, CONTENT_W, 40, empty)
+        empty_y = BODY_Y + subtitle_h + 10.0
+        _box(reqs, f"{sid}_empty", sid, MARGIN, empty_y, CONTENT_W, 40, empty)
         _style(reqs, f"{sid}_empty", 0, len(empty), size=10, color=NAVY, font=FONT)
         return idx + 1
 
     headers = ["ID", "Title", "Status", "Priority", "Created", "Resolved"]
-    col_widths = [60, 236, 100, 100, 64, 64] if is_all_customers else [60, 200, 100, 100, 64, 64]
+    # Total width ≤ CONTENT_W so table borders do not clip past the body band.
+    col_widths = [60, 232, 100, 100, 64, 64] if is_all_customers else [60, 200, 100, 100, 64, 64]
     title_chars = _max_chars_one_line_for_table_col(float(col_widths[1]))
     status_chars = _max_chars_one_line_for_table_col(float(col_widths[2]))
     priority_chars = _max_chars_one_line_for_table_col(float(col_widths[3]))
@@ -504,8 +511,9 @@ def support_help_customer_escalations_slide(reqs: list, sid: str, report: dict, 
     _bg(reqs, sid, project_slide_bg("HELP"))
     _slide_title(reqs, sid, base_title)
 
-    table_top = BODY_Y + 24
-    row_h = 19.0
+    subtitle_h = 40.0
+    table_top = BODY_Y + subtitle_h + 6.0
+    row_h = 22.0
     max_data_rows = _table_rows_fit_span(
         y_top=table_top,
         y_bottom=BODY_BOTTOM,
@@ -525,12 +533,13 @@ def support_help_customer_escalations_slide(reqs: list, sid: str, report: dict, 
     sub = (
         f"{_lead}label customer_escalation · not Done · order by updated  ·  {count_text}{port_note}"
     )
-    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
+    _wrap_box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, subtitle_h, sub)
     _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
 
     if not items:
         empty_msg = "No open HELP tickets with label customer_escalation."
-        _box(reqs, f"{sid}_empty", sid, MARGIN, BODY_Y + 30, CONTENT_W, 40, empty_msg)
+        empty_y = BODY_Y + subtitle_h + 10.0
+        _box(reqs, f"{sid}_empty", sid, MARGIN, empty_y, CONTENT_W, 40, empty_msg)
         _style(reqs, f"{sid}_empty", 0, len(empty_msg), size=10, color=NAVY, font=FONT)
         return idx + 1
 
