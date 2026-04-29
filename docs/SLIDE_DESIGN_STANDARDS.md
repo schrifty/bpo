@@ -693,6 +693,16 @@ Example:
 
 `Inventory Turns (Monthly)`
 
+### Engineering portfolio deck: Jira ticket rows (LEAN bugs, ER enhancements)
+
+When a slide lists individual Jira issues (open bugs, blockers/criticals, open or shipped ER enhancements), use a **fixed three-band block per ticket** so readers get subject plus usable body context:
+
+1. **Meta line** (9 pt): issue key (linked), status / priority / assignee or dates — compact, monospace for the key where used today.
+2. **Subject** (9 pt, **bold**, navy): the Jira **summary** field, **one line**, width-truncated with `max_chars_one_line_for_table_col` for the content band (not a hard-coded character cap in the slide builder).
+3. **Description** (8 pt, gray): **exactly two lines** of plain text from **`description_text`** (ADF description flattened in `jira_client`). Split word-aware into two lines using the same width helper at 8 pt. If there is no description, show an em dash on the first line and leave the second empty.
+
+Do **not** stack a separate LLM “narrative” paragraph on these slides unless product asks for it; the Jira description is the source of truth for ticket body context. Pagination (e.g. open ER list) may reduce tickets per page so subject + two lines + meta fits above `BODY_BOTTOM`.
+
 ### Time units (minutes)
 
 - Use **`min`** for minutes in axis labels, KPI text, tables, and legends (e.g. `15 min`, `Median time to first response (min)`).

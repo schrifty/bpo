@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from typing import Any
 
@@ -32,7 +33,8 @@ from .slides_theme import (
     WHITE,
     _cap_chunk_list,
 )
-
+from .charts import CHART_AXIS_PT
+from .slide_utils import max_chars_one_line_for_table_col
 
 GREEN = {"red": 0.13, "green": 0.65, "blue": 0.35}
 RED = {"red": 0.85, "green": 0.15, "blue": 0.15}
@@ -42,6 +44,51 @@ PROJECT_SLIDE_SUBTITLE = {
     "CUSTOMER": "Implementation escalations",
     "LEAN": "Engineering escalations",
 }
+
+# Embedded column charts on small slide bands: axis/category text one step above CHART_AXIS_PT (12).
+_SPRINT_SNAPSHOT_CHART_AXIS_PT = CHART_AXIS_PT + 2
+
+
+def _format_sprint_name_for_display(name: str) -> str:
+    """Normalize Jira sprint labels (e.g. ``Sprint590`` → ``Sprint 590``)."""
+    s = (name or "").strip()
+    if not s:
+        return s
+    return re.sub(r"(?i)\b(Sprint)(\d+)", r"\1 \2", s)
+
+
+def _truncate_one_line(text: str, max_chars: int) -> str:
+    t = (text or "").strip()
+    if max_chars <= 0:
+        return ""
+    if len(t) <= max_chars:
+        return t
+    return t[: max_chars - 1].rstrip() + "…"
+
+
+def _first_two_description_lines(description: str, line_chars: int) -> tuple[str, str]:
+    """Plain-text Jira description as up to two lines (~*line_chars* each), word-aware."""
+    body = " ".join((description or "").split())
+    if not body or line_chars <= 0:
+        return "", ""
+
+    def _take_line(s: str) -> tuple[str, str]:
+        if len(s) <= line_chars:
+            return s, ""
+        chunk = s[:line_chars]
+        sp = chunk.rfind(" ")
+        split_at = sp if sp >= line_chars // 2 else line_chars
+        head = s[:split_at].rstrip()
+        tail = s[split_at:].strip() if split_at < len(s) else ""
+        return head, tail
+
+    line1, rest = _take_line(body)
+    if not rest:
+        return line1, ""
+    line2, tail = _take_line(rest)
+    if tail:
+        line2 = (line2 + "…").strip()
+    return line1, line2
 
 
 def _project_slide_bg(project: str) -> dict[str, float]:
@@ -86,7 +133,7 @@ def eng_portfolio_title_slide(reqs: list[dict[str, Any]], sid: str, report: dict
 
     eng = report.get("eng_portfolio") or {}
     sprint = eng.get("sprint") or {}
-    sprint_name = sprint.get("name", "")
+    sprint_name = _format_sprint_name_for_display(str(sprint.get("name", "") or ""))
     sprint_end = sprint.get("end", "")
     try:
         end_dt = datetime.strptime(sprint_end, "%Y-%m-%d")
@@ -113,7 +160,7 @@ def eng_sprint_snapshot_slide(reqs: list[dict[str, Any]], sid: str, report: dict
         return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
 
     sprint = eng.get("sprint") or {}
-    sprint_name = sprint.get("name", "Current Sprint")
+    sprint_name = _format_sprint_name_for_display(str(sprint.get("name", "") or "Current Sprint"))
     sprint_start = sprint.get("start", "")
     sprint_end = sprint.get("end", "")
     try:
@@ -170,7 +217,7 @@ def eng_sprint_snapshot_slide(reqs: list[dict[str, Any]], sid: str, report: dict
         label = f"{theme_name}"
         counts = f"{total_n}" + (f" ({active_n} act)" if active_n else "") + (f" {bugs_n}B" if bugs_n else "")
         _box(reqs, f"{sid}_tln{row_index}", sid, left_x, left_y, 96, row_h, label)
-        _style(reqs, f"{sid}_tln{row_index}", 0, len(label), size=8, color=NAVY, font=FONT)
+        _style(reqs, f"{sid}_tln{row_index}", 0, len(label), size=10, color=NAVY, font=FONT)
 
         bar_x = left_x + 100
         max_bar_w = left_w - 100 - 52 - 4
@@ -194,15 +241,16 @@ def eng_sprint_snapshot_slide(reqs: list[dict[str, Any]], sid: str, report: dict
         )
 
         _box(reqs, f"{sid}_tcnt{row_index}", sid, bar_x + bar_w_capped + 4, left_y, 48, row_h, counts)
-        _style(reqs, f"{sid}_tcnt{row_index}", 0, len(counts), size=8, color=RED if bugs_n else GRAY, font=FONT)
+        _style(reqs, f"{sid}_tcnt{row_index}", 0, len(counts), size=10, color=RED if bugs_n else GRAY, font=FONT)
         left_y += row_h
 
     charts = report.get("_charts")
 
     right_y = body_top
     if by_type:
-        _box(reqs, f"{sid}_typ_h", sid, right_x, right_y, right_w, 14, "Type Mix")
-        _style(reqs, f"{sid}_typ_h", 0, 8, bold=True, size=10, color=NAVY, font=FONT)
+        typ_title = "Type Mix"
+        _box(reqs, f"{sid}_typ_h", sid, right_x, right_y, right_w, 14, typ_title)
+        _style(reqs, f"{sid}_typ_h", 0, len(typ_title), bold=True, size=11, color=NAVY, font=FONT)
         right_y += 16
         if charts:
             from .charts import embed_chart
@@ -213,6 +261,8 @@ def eng_sprint_snapshot_slide(reqs: list[dict[str, Any]], sid: str, report: dict
                 labels=[ticket_type for ticket_type, _ in type_items],
                 series={"Open tickets": [count for _, count in type_items]},
                 horizontal=False,
+                show_title=False,
+                axis_font_size=_SPRINT_SNAPSHOT_CHART_AXIS_PT,
             )
             embed_chart(reqs, f"{sid}_type_mix", sid, ss_id, chart_id, right_x, right_y, right_w, 120, linked=False)
             right_y += 126
@@ -220,8 +270,9 @@ def eng_sprint_snapshot_slide(reqs: list[dict[str, Any]], sid: str, report: dict
     by_assignee = eng.get("by_assignee", {})
     top_assignees = sorted(by_assignee.items(), key=lambda item: -item[1])[:7]
     if top_assignees:
-        _box(reqs, f"{sid}_ass_h", sid, right_x, right_y, right_w, 14, "WIP by Engineer")
-        _style(reqs, f"{sid}_ass_h", 0, 15, bold=True, size=10, color=NAVY, font=FONT)
+        ass_title = "WIP by Engineer"
+        _box(reqs, f"{sid}_ass_h", sid, right_x, right_y, right_w, 14, ass_title)
+        _style(reqs, f"{sid}_ass_h", 0, len(ass_title), bold=True, size=11, color=NAVY, font=FONT)
         right_y += 16
         if charts:
             from .charts import embed_chart
@@ -231,6 +282,8 @@ def eng_sprint_snapshot_slide(reqs: list[dict[str, Any]], sid: str, report: dict
                 labels=[(name.split()[0] if name else "Unassigned") for name, _ in top_assignees],
                 series={"Open tickets": [count for _, count in top_assignees]},
                 horizontal=False,
+                show_title=False,
+                axis_font_size=_SPRINT_SNAPSHOT_CHART_AXIS_PT,
             )
             embed_chart(reqs, f"{sid}_wip_eng", sid, ss_id, chart_id, right_x, right_y, right_w, 120, linked=False)
             right_y += 126
@@ -244,7 +297,7 @@ def eng_sprint_snapshot_slide(reqs: list[dict[str, Any]], sid: str, report: dict
 
 
 def eng_bug_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
-    """Bug health: open bugs by priority, blocker/critical callout, trend."""
+    """Bug health: open bugs (full-width summaries), priority mix in subtitle, blockers under list."""
     eng = report.get("eng_portfolio") or {}
     if not eng:
         return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
@@ -265,7 +318,7 @@ def eng_bug_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
 
     jira_base = eng.get("base_url", "")
     bar = f"Open bugs: {len(open_bugs)}   |   Blocker / Critical: {len(blocker_crit)}"
-    _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 18, bar)
+    _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 16, bar)
     _style(reqs, f"{sid}_bar", 0, len(bar), size=9, color=GRAY, font=FONT)
     _style(
         reqs,
@@ -285,105 +338,157 @@ def eng_bug_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
         color=RED if blocker_crit else GREEN,
     )
 
-    body_top = BODY_Y + 22
-    col_gap = 20
-    left_w = (CONTENT_W - col_gap) * 2 // 3
-    right_w = CONTENT_W - left_w - col_gap
-    left_x = MARGIN
-    right_x = MARGIN + left_w + col_gap
-
-    left_y = body_top
-    _box(reqs, f"{sid}_bl_h", sid, left_x, left_y, left_w, 16, "Open Bugs")
-    _style(reqs, f"{sid}_bl_h", 0, 9, bold=True, size=11, color=NAVY, font=FONT)
-    left_y += 18
-
     prio_color = {
         "Blocker": {"red": 0.85, "green": 0.15, "blue": 0.15},
         "Critical": {"red": 0.9, "green": 0.4, "blue": 0.0},
         "Major": NAVY,
         "Minor": GRAY,
     }
-    ticket_h = 34
-    for bug_index, bug in enumerate(open_bugs[:12]):
-        if left_y + ticket_h > BODY_BOTTOM - 72:
-            break
-        key = bug["key"]
-        priority = bug["priority"]
-        prio_short = priority.split(":")[0] if ":" in priority else priority
-        assignee = bug.get("assignee") or ""
-        first_name = assignee.split()[0] if assignee else "—"
-        raw_summary = bug["summary"]
-        summary = raw_summary[:48] + "…" if len(raw_summary) > 48 else raw_summary
-
-        key_line = f"{key}  [{prio_short}]  {first_name}"
-        link = f"{jira_base}/browse/{key}" if jira_base else None
-        _box(reqs, f"{sid}_bk{bug_index}", sid, left_x, left_y, left_w, 16, key_line)
-        _style(
-            reqs,
-            f"{sid}_bk{bug_index}",
-            0,
-            len(key),
-            bold=True,
-            size=8,
-            color=prio_color.get(prio_short, RED),
-            font=MONO,
-            link=link,
-        )
-        _style(reqs, f"{sid}_bk{bug_index}", len(key), len(key_line), size=8, color=GRAY, font=FONT)
-        left_y += 16
-
-        _box(reqs, f"{sid}_bs{bug_index}", sid, left_x + 8, left_y, left_w - 8, 16, summary)
-        _style(reqs, f"{sid}_bs{bug_index}", 0, len(summary), size=8, color=NAVY, font=FONT)
-        left_y += 18
-
-    right_y = body_top
     by_priority: dict[str, int] = {}
     for bug in open_bugs:
         priority = bug["priority"]
         short = priority.split(":")[0] if ":" in priority else priority
         by_priority[short] = by_priority.get(short, 0) + 1
 
+    prio_order = ["Blocker", "Critical", "Major", "Minor"]
+    body_top = BODY_Y + 18
     if by_priority:
-        _box(reqs, f"{sid}_ph", sid, right_x, right_y, right_w, 16, "By Priority")
-        _style(reqs, f"{sid}_ph", 0, 11, bold=True, size=11, color=NAVY, font=FONT)
-        right_y += 18
-        prio_order = ["Blocker", "Critical", "Major", "Minor"]
-        for prio_index, (priority, count) in enumerate(
-            sorted(by_priority.items(), key=lambda item: prio_order.index(item[0]) if item[0] in prio_order else 99)
-        ):
-            line = f"{count:>4}  {priority}"
-            _box(reqs, f"{sid}_pp{prio_index}", sid, right_x, right_y, right_w, 13, line)
-            color = prio_color.get(priority, NAVY)
-            _style(reqs, f"{sid}_pp{prio_index}", 0, len(f"{count:>4}"), bold=True, size=10, color=color, font=FONT)
-            _style(reqs, f"{sid}_pp{prio_index}", len(f"{count:>4}"), len(line), size=10, color=NAVY, font=FONT)
-            right_y += 14
-        right_y += 10
+        prio_label = "By priority:  "
+        prio_chunks: list[tuple[int, int, dict[str, float]]] = []
+        line2 = prio_label
+        for pname in prio_order:
+            cnt = int(by_priority.get(pname, 0) or 0)
+            if cnt <= 0:
+                continue
+            sep = "  ·  " if line2 != prio_label else ""
+            line2 += sep
+            line2 += str(cnt)
+            c0, c1 = len(line2) - len(str(cnt)), len(line2)
+            prio_chunks.append((c0, c1, prio_color.get(pname, NAVY)))
+            line2 += f" {pname}"
+            n0, n1 = c1, len(line2)
+            prio_chunks.append((n0, n1, NAVY))
 
-    if blocker_crit:
-        _box(reqs, f"{sid}_bch", sid, right_x, right_y, right_w, 16, "Blockers & Criticals")
-        _style(reqs, f"{sid}_bch", 0, 20, bold=True, size=11, color=RED, font=FONT)
-        right_y += 18
-        for bug_index, bug in enumerate(blocker_crit[:6]):
-            key = bug["key"]
-            link = f"{jira_base}/browse/{key}" if jira_base else None
-            raw_summary = bug["summary"]
-            summary = raw_summary[:30] + "…" if len(raw_summary) > 30 else raw_summary
-            line = f"{key}  {summary}"
-            _box(reqs, f"{sid}_bc{bug_index}", sid, right_x, right_y, right_w, 16, line)
-            _style(reqs, f"{sid}_bc{bug_index}", 0, len(key), bold=True, size=9, color=RED, font=MONO, link=link)
-            _style(reqs, f"{sid}_bc{bug_index}", len(key), len(line), size=9, color=NAVY, font=FONT)
-            right_y += 17
+        bar2_y = BODY_Y + 17
+        _box(reqs, f"{sid}_bar2", sid, MARGIN, bar2_y, CONTENT_W, 16, line2)
+        _style(reqs, f"{sid}_bar2", 0, len(line2), size=9, color=GRAY, font=FONT)
+        _style(reqs, f"{sid}_bar2", 0, len(prio_label), bold=True, size=9, color=NAVY, font=FONT)
+        for a, b, rgb in prio_chunks:
+            _style(reqs, f"{sid}_bar2", a, b, bold=True, size=9, color=rgb, font=FONT)
+        body_top = bar2_y + 18
 
     insights = (eng.get("insights") or {}).get("bug_health", [])
+    insights_h = (len(insights) * 22 + 4) if insights else 0
+    blocker_rows = min(len(blocker_crit), 6) if blocker_crit else 0
+    # Per ticket: meta row + subject + 2 description lines + small gap
+    _bug_ticket_h = 16 + 16 + 15 + 15 + 4
+    blocker_section_h = 0
+    if blocker_crit:
+        blocker_section_h = 18 + 18 + blocker_rows * _bug_ticket_h + 8
+
+    list_bottom_cap = BODY_BOTTOM - insights_h - blocker_section_h - 8
+    left_x = MARGIN
+    list_w = CONTENT_W
+    desc_inner_w = float(CONTENT_W - 16)
+    subj_max = max_chars_one_line_for_table_col(desc_inner_w, 9.0)
+    desc_line_chars = max_chars_one_line_for_table_col(desc_inner_w, 8.0)
+
+    left_y = body_top
+    _box(reqs, f"{sid}_bl_h", sid, left_x, left_y, list_w, 16, "Open Bugs")
+    _style(reqs, f"{sid}_bl_h", 0, 9, bold=True, size=11, color=NAVY, font=FONT)
+    left_y += 18
+
+    ticket_h = _bug_ticket_h
+    for bug_index, bug in enumerate(open_bugs[:12]):
+        if left_y + ticket_h > list_bottom_cap:
+            break
+        key = bug["key"]
+        priority = bug["priority"]
+        prio_short = priority.split(":")[0] if ":" in priority else priority
+        assignee = bug.get("assignee") or ""
+        first_name = assignee.split()[0] if assignee else "—"
+        subject = _truncate_one_line(str(bug.get("summary") or ""), subj_max)
+        d1, d2 = _first_two_description_lines(str(bug.get("description_text") or ""), desc_line_chars)
+
+        key_line = f"{key}  [{prio_short}]  {first_name}"
+        link = f"{jira_base}/browse/{key}" if jira_base else None
+        _box(reqs, f"{sid}_bk{bug_index}", sid, left_x, left_y, list_w, 16, key_line)
+        _style(
+            reqs,
+            f"{sid}_bk{bug_index}",
+            0,
+            len(key),
+            bold=True,
+            size=9,
+            color=prio_color.get(prio_short, RED),
+            font=MONO,
+            link=link,
+        )
+        _style(reqs, f"{sid}_bk{bug_index}", len(key), len(key_line), size=9, color=GRAY, font=FONT)
+        left_y += 16
+
+        _box(reqs, f"{sid}_bsj{bug_index}", sid, left_x + 8, left_y, list_w - 8, 16, subject)
+        _style(reqs, f"{sid}_bsj{bug_index}", 0, len(subject), size=9, color=NAVY, font=FONT, bold=True)
+        left_y += 16
+        if not d1 and not d2:
+            d1 = "—"
+        _box(reqs, f"{sid}_bsd1{bug_index}", sid, left_x + 8, left_y, list_w - 8, 15, d1)
+        _style(reqs, f"{sid}_bsd1{bug_index}", 0, len(d1), size=8, color=GRAY, font=FONT)
+        left_y += 15
+        _box(reqs, f"{sid}_bsd2{bug_index}", sid, left_x + 8, left_y, list_w - 8, 15, d2)
+        _style(reqs, f"{sid}_bsd2{bug_index}", 0, len(d2), size=8, color=GRAY, font=FONT)
+        left_y += 15 + 4
+
+    if blocker_crit:
+        left_y += 6
+        bh = "Blockers & Criticals"
+        _box(reqs, f"{sid}_bch", sid, left_x, left_y, list_w, 16, bh)
+        _style(reqs, f"{sid}_bch", 0, len(bh), bold=True, size=11, color=RED, font=FONT)
+        left_y += 18
+        for bug_index, bug in enumerate(blocker_crit[:6]):
+            key = bug["key"]
+            priority = bug.get("priority") or ""
+            prio_short = priority.split(":")[0] if ":" in priority else (priority or "—")
+            assignee = bug.get("assignee") or ""
+            first_name = assignee.split()[0] if assignee else "—"
+            link = f"{jira_base}/browse/{key}" if jira_base else None
+            subject = _truncate_one_line(str(bug.get("summary") or ""), subj_max)
+            d1, d2 = _first_two_description_lines(str(bug.get("description_text") or ""), desc_line_chars)
+            key_line = f"{key}  [{prio_short}]  {first_name}"
+            _box(reqs, f"{sid}_bc{bug_index}", sid, left_x, left_y, list_w, 16, key_line)
+            _style(
+                reqs,
+                f"{sid}_bc{bug_index}",
+                0,
+                len(key),
+                bold=True,
+                size=9,
+                color=RED,
+                font=MONO,
+                link=link,
+            )
+            _style(reqs, f"{sid}_bc{bug_index}", len(key), len(key_line), size=9, color=GRAY, font=FONT)
+            left_y += 16
+            _box(reqs, f"{sid}_bcsj{bug_index}", sid, left_x + 8, left_y, list_w - 8, 16, subject)
+            _style(reqs, f"{sid}_bcsj{bug_index}", 0, len(subject), size=9, color=NAVY, font=FONT, bold=True)
+            left_y += 16
+            if not d1 and not d2:
+                d1 = "—"
+            _box(reqs, f"{sid}_bcsd1{bug_index}", sid, left_x + 8, left_y, list_w - 8, 15, d1)
+            _style(reqs, f"{sid}_bcsd1{bug_index}", 0, len(d1), size=8, color=GRAY, font=FONT)
+            left_y += 15
+            _box(reqs, f"{sid}_bcsd2{bug_index}", sid, left_x + 8, left_y, list_w - 8, 15, d2)
+            _style(reqs, f"{sid}_bcsd2{bug_index}", 0, len(d2), size=8, color=GRAY, font=FONT)
+            left_y += 15 + 4
+
     if insights:
-        bullet_y = BODY_BOTTOM - (len(insights) * 22) - 4
-        eng_insight_bullets(reqs, sid, insights, MARGIN, bullet_y, CONTENT_W)
+        eng_insight_bullets(reqs, sid, insights, MARGIN, left_y + 8, CONTENT_W)
 
     return idx + 1
 
 
 def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
-    """Velocity & throughput: combo chart plus pipeline status."""
+    """Velocity & throughput: combo chart, weekly table, pipeline bars, then insights (no overlap)."""
     eng = report.get("eng_portfolio") or {}
     if not eng:
         return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
@@ -426,9 +531,55 @@ def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
     left_x = MARGIN
     right_x = MARGIN + left_w + col_gap
 
-    left_y = body_top
+    insights_list = (eng.get("insights") or {}).get("velocity", [])
+    insight_bullets = insights_list[:3]
+    ins_h = len(insight_bullets) * 22
+    ins_gap = 12 if insight_bullets else 0
+    content_ceiling = BODY_BOTTOM - ins_h - ins_gap - 6
+
+    by_status = eng.get("by_status") or {}
+    status_items_all = sorted(by_status.items(), key=lambda item: -item[1])
+    status_items = status_items_all[:6]
+
+    right_header_h = 20 + 16
+    right_bottom_est = body_top + right_header_h + len(status_items) * 14
+
     recent_weeks = throughput[-12:] if len(throughput) >= 12 else throughput
     charts = report.get("_charts")
+
+    CHART_GAP = 6
+    TABLE_PRE = 4
+    TH = 14
+    ROW_H = 12
+
+    chosen_chart_h = 100
+    chosen_rows = 6
+    if recent_weeks and charts:
+        found = False
+        for chart_h in range(168, 72, -12):
+            for n_rows in range(8, 2, -1):
+                left_bottom = body_top + chart_h + CHART_GAP + TABLE_PRE + TH + n_rows * ROW_H
+                if max(left_bottom, right_bottom_est) <= content_ceiling:
+                    chosen_chart_h = chart_h
+                    chosen_rows = min(n_rows, len(recent_weeks))
+                    found = True
+                    break
+            if found:
+                break
+        if not found:
+            chosen_chart_h = 72
+            chosen_rows = min(3, len(recent_weeks) or 1)
+    elif recent_weeks:
+        chosen_chart_h = 0
+        chosen_rows = min(
+            8,
+            max(
+                1,
+                int((content_ceiling - body_top - TABLE_PRE - TH) // ROW_H),
+            ),
+        )
+
+    left_y = body_top
     if recent_weeks and charts:
         try:
             from .charts import embed_chart
@@ -438,34 +589,38 @@ def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
                 labels=[week.get("label", "") for week in recent_weeks],
                 bar_series={"Created": [week.get("created", 0) for week in recent_weeks]},
                 line_series={"Closed": [week.get("resolved", 0) for week in recent_weeks]},
+                show_title=False,
             )
-            embed_chart(reqs, f"{sid}_chart", sid, ss_id, chart_id, left_x, left_y, left_w, 170, linked=False)
-            left_y += 176
+            embed_chart(
+                reqs, f"{sid}_chart", sid, ss_id, chart_id,
+                left_x, left_y, left_w, chosen_chart_h, linked=False,
+            )
+            left_y += chosen_chart_h + CHART_GAP
         except Exception as exc:
             logger.warning("Throughput chart embed failed: %s", exc)
 
     if recent_weeks:
-        left_y += 4
+        left_y += TABLE_PRE
         header = "Week        Created  Closed"
-        _box(reqs, f"{sid}_wt_h", sid, left_x, left_y, left_w, 14, header)
+        _box(reqs, f"{sid}_wt_h", sid, left_x, left_y, left_w, TH, header)
         _style(reqs, f"{sid}_wt_h", 0, len(header), bold=True, size=8, color=GRAY, font=MONO)
-        left_y += 14
-        for week in recent_weeks[-8:]:
+        left_y += TH
+        tail = recent_weeks[-chosen_rows:] if chosen_rows > 0 else []
+        for week in tail:
             row = f"{week['label']:<12}  {week.get('created', 0):>5}    {week.get('resolved', 0):>4}"
-            _box(reqs, f"{sid}_wr{week['week']}", sid, left_x, left_y, left_w, 12, row)
-            _style(reqs, f"{sid}_wr{week['week']}", 0, len(row), size=8, color=NAVY, font=MONO)
-            left_y += 12
+            wk = str(week.get("week", week.get("label", "w")))
+            safe_wk = "".join(c if c.isalnum() else "_" for c in wk)[:24]
+            _box(reqs, f"{sid}_wr{safe_wk}", sid, left_x, left_y, left_w, ROW_H, row)
+            _style(reqs, f"{sid}_wr{safe_wk}", 0, len(row), size=8, color=NAVY, font=MONO)
+            left_y += ROW_H
 
     right_y = body_top
     _box(reqs, f"{sid}_qlh", sid, right_x, right_y, right_w, 16, "Quarterly Goal Tracking")
-    _style(reqs, f"{sid}_qlh", 0, 24, bold=True, size=11, color=NAVY, font=FONT)
+    _style(reqs, f"{sid}_qlh", 0, len("Quarterly Goal Tracking"), bold=True, size=11, color=NAVY, font=FONT)
     right_y += 20
 
-    by_status = eng.get("by_status") or {}
-    status_items = sorted(by_status.items(), key=lambda item: -item[1])
-
     _box(reqs, f"{sid}_sbh", sid, right_x, right_y, right_w, 14, "Pipeline Status")
-    _style(reqs, f"{sid}_sbh", 0, 15, bold=True, size=10, color=NAVY, font=FONT)
+    _style(reqs, f"{sid}_sbh", 0, len("Pipeline Status"), bold=True, size=10, color=NAVY, font=FONT)
     right_y += 16
     total_in_flight = sum(by_status.values()) or 1
     max_status = max(by_status.values()) if by_status else 1
@@ -520,10 +675,11 @@ def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
         _style(reqs, f"{sid}_sp_{safe_status}", 0, len(pct_label), size=8, color=GRAY, font=FONT)
         right_y += 14
 
-    insights = (eng.get("insights") or {}).get("velocity", [])
-    if insights:
-        bullet_y = BODY_BOTTOM - (len(insights) * 22) - 4
-        eng_insight_bullets(reqs, sid, insights, MARGIN, bullet_y, CONTENT_W)
+    content_bottom = max(left_y, right_y)
+    if insight_bullets:
+        eng_insight_bullets(
+            reqs, sid, insight_bullets, MARGIN, content_bottom + ins_gap, CONTENT_W,
+        )
 
     return idx + 1
 
@@ -541,7 +697,7 @@ def eng_enhancements_open_slide(reqs: list[dict[str, Any]], sid: str, report: di
     declined_count = enhancements.get("declined_count", 0)
     jira_base = eng.get("base_url", "")
 
-    tickets_per_page = 3
+    tickets_per_page = 2
     pages_all = [open_tickets[i : i + tickets_per_page] for i in range(0, max(1, len(open_tickets)), tickets_per_page)]
     pages = _cap_chunk_list(pages_all)
     num_pages = len(pages)
@@ -570,12 +726,14 @@ def eng_enhancements_open_slide(reqs: list[dict[str, Any]], sid: str, report: di
         _box(reqs, f"{page_sid}_bar", page_sid, MARGIN, BODY_Y, CONTENT_W, 18, bar)
         _style(reqs, f"{page_sid}_bar", 0, len(bar), size=9, color=GRAY, font=FONT)
 
+        inner_w = float(CONTENT_W - 16)
+        er_subj_max = max_chars_one_line_for_table_col(inner_w, 9.0)
+        er_desc_lc = max_chars_one_line_for_table_col(inner_w, 8.0)
+
         y = BODY_Y + 22
         for row_index, ticket in enumerate(page_tickets):
             key = ticket["key"]
             link = f"{jira_base}/browse/{key}" if jira_base else None
-            raw_summary = ticket["summary"]
-            summary = raw_summary[:87] + "…" if len(raw_summary) > 87 else raw_summary
             status = ticket.get("status", "Open")
 
             raw_date = ticket.get("updated", "")
@@ -592,17 +750,19 @@ def eng_enhancements_open_slide(reqs: list[dict[str, Any]], sid: str, report: di
             _style(reqs, f"{page_sid}_k{row_index}", len(key), len(meta), size=9, color=GRAY, font=FONT)
             y += 14
 
-            _box(reqs, f"{page_sid}_s{row_index}", page_sid, MARGIN + 8, y, CONTENT_W - 8, 36, summary)
-            _style(reqs, f"{page_sid}_s{row_index}", 0, len(summary), size=9, color=NAVY, font=FONT)
-            y += 36
-
-            narrative = (ticket.get("narrative") or "").strip()
-            if narrative and y + 40 <= BODY_BOTTOM:
-                _box(reqs, f"{page_sid}_n{row_index}", page_sid, MARGIN + 8, y, CONTENT_W - 8, 40, narrative)
-                _style(reqs, f"{page_sid}_n{row_index}", 0, len(narrative), size=8, color=GRAY, font=FONT)
-                y += 42
-
-            y += 4
+            subject = _truncate_one_line(str(ticket.get("summary") or ""), er_subj_max)
+            d1, d2 = _first_two_description_lines(str(ticket.get("description_text") or ""), er_desc_lc)
+            if not d1 and not d2:
+                d1 = "—"
+            _box(reqs, f"{page_sid}_sj{row_index}", page_sid, MARGIN + 8, y, CONTENT_W - 8, 16, subject)
+            _style(reqs, f"{page_sid}_sj{row_index}", 0, len(subject), size=9, color=NAVY, font=FONT, bold=True)
+            y += 16
+            _box(reqs, f"{page_sid}_d1{row_index}", page_sid, MARGIN + 8, y, CONTENT_W - 8, 15, d1)
+            _style(reqs, f"{page_sid}_d1{row_index}", 0, len(d1), size=8, color=GRAY, font=FONT)
+            y += 15
+            _box(reqs, f"{page_sid}_d2{row_index}", page_sid, MARGIN + 8, y, CONTENT_W - 8, 15, d2)
+            _style(reqs, f"{page_sid}_d2{row_index}", 0, len(d2), size=8, color=GRAY, font=FONT)
+            y += 15 + 8
 
         idx += 1
 
@@ -643,7 +803,10 @@ def eng_enhancements_shipped_slide(reqs: list[dict[str, Any]], sid: str, report:
     _style(reqs, f"{sid}_bar", 0, len(bar), size=9, color=GRAY, font=FONT)
 
     jira_base = eng.get("base_url", "")
-    ticket_h = 96
+    inner_w = float(CONTENT_W - 16)
+    er_subj_max = max_chars_one_line_for_table_col(inner_w, 9.0)
+    er_desc_lc = max_chars_one_line_for_table_col(inner_w, 8.0)
+    ticket_h = 14 + 16 + 15 + 15 + 10
     y = BODY_Y + 22
 
     shipped = enhancements.get("shipped") or []
@@ -665,8 +828,6 @@ def eng_enhancements_shipped_slide(reqs: list[dict[str, Any]], sid: str, report:
             break
         key = ticket["key"]
         link = f"{jira_base}/browse/{key}" if jira_base else None
-        raw_summary = ticket["summary"]
-        summary = raw_summary[:87] + "…" if len(raw_summary) > 87 else raw_summary
         raw_date = ticket.get("updated", "")
         try:
             updated = datetime.strptime(raw_date, "%Y-%m-%d").strftime("%b %-d, %Y") if raw_date else ""
@@ -681,17 +842,19 @@ def eng_enhancements_shipped_slide(reqs: list[dict[str, Any]], sid: str, report:
         _style(reqs, f"{sid}_k{row_index}", len(key), len(meta), size=9, color=GRAY, font=FONT)
         y += 14
 
-        _box(reqs, f"{sid}_s{row_index}", sid, MARGIN + 8, y, CONTENT_W - 8, 36, summary)
-        _style(reqs, f"{sid}_s{row_index}", 0, len(summary), size=9, color=NAVY, font=FONT)
-        y += 36
-
-        narrative = (ticket.get("narrative") or "").strip()
-        if narrative and y + 40 <= BODY_BOTTOM:
-            _box(reqs, f"{sid}_n{row_index}", sid, MARGIN + 8, y, CONTENT_W - 8, 40, narrative)
-            _style(reqs, f"{sid}_n{row_index}", 0, len(narrative), size=8, color=GRAY, font=FONT)
-            y += 42
-
-        y += 4
+        subject = _truncate_one_line(str(ticket.get("summary") or ""), er_subj_max)
+        d1, d2 = _first_two_description_lines(str(ticket.get("description_text") or ""), er_desc_lc)
+        if not d1 and not d2:
+            d1 = "—"
+        _box(reqs, f"{sid}_sj{row_index}", sid, MARGIN + 8, y, CONTENT_W - 8, 16, subject)
+        _style(reqs, f"{sid}_sj{row_index}", 0, len(subject), size=9, color=NAVY, font=FONT, bold=True)
+        y += 16
+        _box(reqs, f"{sid}_d1{row_index}", sid, MARGIN + 8, y, CONTENT_W - 8, 15, d1)
+        _style(reqs, f"{sid}_d1{row_index}", 0, len(d1), size=8, color=GRAY, font=FONT)
+        y += 15
+        _box(reqs, f"{sid}_d2{row_index}", sid, MARGIN + 8, y, CONTENT_W - 8, 15, d2)
+        _style(reqs, f"{sid}_d2{row_index}", 0, len(d2), size=8, color=GRAY, font=FONT)
+        y += 15 + 10
 
     return idx + 1
 

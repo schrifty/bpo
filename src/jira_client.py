@@ -2687,7 +2687,7 @@ class JiraClient:
         # ── In-flight LEAN tickets (all open) ──
         _eng_fields = [
             "summary", "status", "issuetype", "priority", "assignee",
-            "labels", "created", "updated", "resolution",
+            "labels", "created", "updated", "resolution", "description",
             SPRINT_FIELD, STORY_POINTS_FIELD,
         ]
         try:
@@ -2735,6 +2735,7 @@ class JiraClient:
             f = issue.get("fields", {})
             sp_list = f.get(SPRINT_FIELD) or []
             sprint_names = [s.get("name", "") for s in sp_list if s.get("state") != "future"]
+            desc_raw = _extract_adf_text(f.get("description"))
             return {
                 "key": issue["key"],
                 "summary": f.get("summary", ""),
@@ -2747,6 +2748,7 @@ class JiraClient:
                 "updated": (f.get("updated") or "")[:10],
                 "resolution": (f.get("resolution") or {}).get("name", "") if f.get("resolution") else "",
                 "sprints": sprint_names,
+                "description_text": (desc_raw or "")[:4000],
             }
 
         in_flight = [_lean_norm(i) for i in in_flight_raw]
@@ -2882,7 +2884,7 @@ class JiraClient:
             f = i["fields"]
             return {
                 "key": i["key"],
-                "summary": f.get("summary", "")[:100],
+                "summary": f.get("summary", "")[:500],
                 "status": f.get("status", {}).get("name", ""),
                 "priority": (f.get("priority") or {}).get("name", ""),
                 "labels": f.get("labels") or [],

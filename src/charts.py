@@ -467,8 +467,13 @@ class DeckCharts:
         line_series: dict[str, list[float | int]],
         *,
         background: dict[str, float] | None = None,
+        show_title: bool = True,
     ) -> tuple[str, int]:
-        """Create a combo chart (bars + lines). Returns (spreadsheet_id, chart_id)."""
+        """Create a combo chart (bars + lines). Returns (spreadsheet_id, chart_id).
+
+        Set *show_title* False when the slide already states the takeaway — the in-chart
+        title otherwise steals vertical space from the plot on tight layouts.
+        """
         sheet_id = self._add_sheet_tab(title)
         all_series_names = list(bar_series.keys()) + list(line_series.keys())
         headers = ["Label"] + all_series_names
@@ -516,9 +521,8 @@ class DeckCharts:
             chart_series.append(s)
             col += 1
 
-        spec = {
-            "title": title,
-            "titleTextFormat": _chart_text_format(CHART_TITLE_PT, NAVY, bold=True),
+        spec: dict[str, Any] = {
+            "title": title if show_title else "",
             "fontName": CHART_SPEC_FONT_NAME,
             "basicChart": {
                 "chartType": "COMBO",
@@ -537,6 +541,8 @@ class DeckCharts:
                 "headerCount": 1,
             },
         }
+        if show_title and (title or "").strip():
+            spec["titleTextFormat"] = _chart_text_format(CHART_TITLE_PT, NAVY, bold=True)
 
         if background is not None:
             spec["backgroundColorStyle"] = _rgb_to_sheets(background)
