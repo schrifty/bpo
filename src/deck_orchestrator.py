@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .config import logger
-from .deck_data_enrichment import enrich_deck_report_data
+from .deck_data_enrichment import SUPPORT_DECK_IDS, enrich_deck_report_data
 from .slides_api import _get_service
 from .deck_presentation_api import (
     append_default_slide_delete_if_needed,
@@ -44,6 +44,9 @@ def create_health_deck(
         customer = "Portfolio"
     else:
         customer = report.get("customer")  # Can be None for "all customers"
+    if deck_id == "support_review_portfolio":
+        customer = None
+        report["customer"] = None
     days = report.get("days", 30)
     quarter_label = report.get("quarter")
 
@@ -72,7 +75,9 @@ def create_health_deck(
     slide_plan: list[dict[str, Any]] = list(resolved.get("slides") or [])
     
     # For support deck without customer, include full support slide lineup with all-project scope.
-    if deck_id == "support" and not customer:
+    if deck_id == "support_review_portfolio":
+        title = f"{deck_name} ({date_str})"
+    elif deck_id == "support" and not customer:
         title = f"{deck_name} — All Customers ({date_str})"
     elif is_portfolio:
         title = f"{deck_name} ({date_str})"

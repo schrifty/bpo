@@ -8,6 +8,7 @@ from typing import Any
 from googleapiclient.errors import HttpError
 
 from .config import logger
+from .deck_data_enrichment import SUPPORT_DECK_IDS
 from .deck_builder_utils import _normalize_builder_return
 from .slide_cs_notable import cs_notable_slide as _cs_notable_slide
 from .slides_api import presentations_batch_update_chunked
@@ -28,7 +29,7 @@ def insert_support_notable_slide(
 
     Returns ``(slides_created, note_targets, error_result)``.
     """
-    if deck_id != "support" or not notable_deferred or slides_created <= 0:
+    if deck_id not in SUPPORT_DECK_IDS or not notable_deferred or slides_created <= 0:
         return slides_created, note_targets, None
 
     from .support_notable_llm import (

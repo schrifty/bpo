@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .config import logger
+from .deck_data_enrichment import SUPPORT_DECK_IDS
 from .deck_builder_utils import _normalize_builder_return
 from .slide_registry import _SLIDE_BUILDERS
 from .slide_utils import slide_object_id_base as _slide_object_id_base
@@ -21,7 +22,7 @@ def render_slide_plan(
     # of the same in-memory Jira data (so we do not refetch; bullets reflect the same dataset as the rest of the deck).
     plan_work: list[dict[str, Any]] = list(slide_plan)
     notable_deferred: dict[str, Any] | None = None
-    if deck_id == "support":
+    if deck_id in SUPPORT_DECK_IDS:
         kept2: list[dict[str, Any]] = []
         for e in plan_work:
             if (e.get("slide_type") or e.get("id", "")) == "cs_notable" and notable_deferred is None:

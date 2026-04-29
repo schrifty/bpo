@@ -63,9 +63,10 @@ Generate decks (natural language — LLM parses the prompt)
   Fixed phrases (no LLM — matched before parsing):
       engineering portfolio | eng portfolio | engineering review | ...
       support | support review | support deck | ...
+      support portfolio | support review portfolio  →  Support Review — Portfolio (all customers)
 
   Same Jira-backed decks can also be selected if the LLM returns deck_id
-  engineering-portfolio or support.
+  engineering-portfolio, support, or support_review_portfolio.
 """
 
 import json
@@ -189,6 +190,55 @@ def _run_support_deck() -> None:
     }
     
     result = create_health_deck(report, deck_id="support", thumbnails=False)
+    elapsed = time.time() - t0
+    print(f"\n{'=' * 60}")
+    print(f"Done in {elapsed:.0f}s")
+    print(f"{'=' * 60}")
+    if "error" in result:
+        print(f"  FAIL: {result['error'][:120]}")
+        sys.exit(1)
+    print(f"  OK   {result.get('url', '')}")
+
+
+def _run_support_review_portfolio_deck() -> None:
+    """All-customers support deck under id ``support_review_portfolio`` (explicit portfolio title)."""
+    import argparse
+    import sys
+    from src.data_source_health import check_all_required
+    from src.slides_client import create_health_deck
+
+    parser = argparse.ArgumentParser(description="Generate Support Review — Portfolio (all customers)")
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=None,
+        help="Jira lookback days (default: 365, same as support CLI)",
+    )
+    anchor_idx = -1
+    for token in ("support_review_portfolio", "support-review-portfolio", "support-portfolio"):
+        if token in sys.argv:
+            anchor_idx = max(anchor_idx, sys.argv.index(token))
+    if anchor_idx < 0 and "portfolio" in sys.argv and "support" in sys.argv:
+        anchor_idx = max(sys.argv.index("support"), sys.argv.index("portfolio"))
+    args_to_parse = sys.argv[anchor_idx + 1:] if anchor_idx >= 0 else []
+    args = parser.parse_args(args_to_parse)
+
+    preflight_errors = check_all_required()
+    if preflight_errors:
+        print("Data source check failed — not running:")
+        for msg in preflight_errors:
+            print(f"  • {msg}")
+        sys.exit(1)
+
+    days = int(args.days) if args.days is not None else 365
+    print("Generating Support Review — Portfolio (all customers)")
+    t0 = time.time()
+    report = {
+        "type": "support_review",
+        "customer": None,
+        "days": days,
+    }
+    result = create_health_deck(report, deck_id="support_review_portfolio", thumbnails=False)
     elapsed = time.time() - t0
     print(f"\n{'=' * 60}")
     print(f"Done in {elapsed:.0f}s")
@@ -332,10 +382,19 @@ def main():
     # Engineering portfolio — run before _parse_prompt so LLM is not required for this phrase
     _ep_triggers = ("engineering portfolio", "eng portfolio", "engineering review",
                     "generate the engineering", "generate engineering")
+    _support_portfolio_triggers = (
+        "support review portfolio",
+        "support portfolio",
+        "support-review-portfolio",
+        "support_review_portfolio",
+    )
     _support_triggers = ("support review", "support deck", "generate support")
     pl = prompt.lower()
     if any(t in pl for t in _ep_triggers):
         _run_engineering_portfolio_deck()
+        return
+    if any(t in pl for t in _support_portfolio_triggers):
+        _run_support_review_portfolio_deck()
         return
     # "support" alone, or "support <customer>..." (non-flag args only), or phrases like "support review"
     if pl.strip() == "support" or pl.startswith("support ") or any(t in pl for t in _support_triggers):
@@ -381,6 +440,9 @@ def main():
         return
     if deck_id == "support":
         _run_support_deck()
+        return
+    if deck_id == "support_review_portfolio":
+        _run_support_review_portfolio_deck()
         return
 
     days_override = params.get("days")

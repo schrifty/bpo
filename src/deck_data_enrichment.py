@@ -11,6 +11,9 @@ from .slide_salesforce import (
     filter_salesforce_comprehensive_slide_plan as _filter_salesforce_comprehensive_slide_plan,
 )
 
+# Decks that share support Jira enrichment, Notable second pass, and slide-plan rules.
+SUPPORT_DECK_IDS: frozenset[str] = frozenset({"support", "support_review_portfolio"})
+
 
 def enrich_deck_report_data(
     deck_id: str,
@@ -22,13 +25,13 @@ def enrich_deck_report_data(
     if deck_id == "supply_chain_review":
         _stamp_support_deck_generated_at(report)
 
-    if deck_id == "support":
+    if deck_id in SUPPORT_DECK_IDS:
         slide_plan = prepare_support_slide_plan(report, slide_plan, customer)
 
     if deck_id == "salesforce_comprehensive":
         slide_plan = enrich_salesforce_comprehensive(report, slide_plan, customer)
 
-    if deck_id == "support":
+    if deck_id in SUPPORT_DECK_IDS:
         enrich_support_jira_data(report, customer)
 
     if deck_id == "engineering-portfolio":
