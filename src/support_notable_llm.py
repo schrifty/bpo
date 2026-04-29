@@ -201,7 +201,7 @@ def build_support_review_digest(
             }
 
     eng = report.get("eng_portfolio") or {}
-    ht = eng.get("help_ticket_trends")
+    ht = j.get("help_ticket_volume_trends") or eng.get("help_ticket_trends")
     if isinstance(ht, dict) and not ht.get("error"):
         r["help_project_volume_trends"] = {
             "all_tail": _trend_row_summary(list(ht.get("all") or [])),

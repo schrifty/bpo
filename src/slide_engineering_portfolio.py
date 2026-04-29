@@ -1077,14 +1077,17 @@ def _render_project_volume_trends(
 
 def eng_help_volume_trends_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
     """HELP monthly created vs resolved trends for all, escalated, and non-escalated tickets."""
+    jira = report.get("jira") or {}
     eng = report.get("eng_portfolio") or {}
-    raw_trends = eng.get("help_ticket_trends")
+    raw_trends = jira.get("help_ticket_volume_trends") or eng.get("help_ticket_trends")
 
     if raw_trends is None:
         try:
             from .jira_client import get_shared_jira_client
 
-            raw_trends = get_shared_jira_client()._get_help_ticket_volume_trends()
+            raw_trends = get_shared_jira_client().get_help_ticket_volume_trends(
+                report.get("customer")
+            )
             eng["help_ticket_trends"] = raw_trends
             report.setdefault("eng_portfolio", eng)
             logger.debug("eng_help_volume_trends: fetched HELP trends on demand (no eng_portfolio)")

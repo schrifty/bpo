@@ -142,6 +142,12 @@ def enrich_support_jira_data(report: dict[str, Any], customer: str | None) -> No
             customer_ticket_metrics = jira_client.get_customer_ticket_metrics(customer)
             report["jira"]["customer_ticket_metrics"] = customer_ticket_metrics
 
+        if "help_ticket_volume_trends" not in report["jira"]:
+            logger.info("Support deck: fetching HELP volume trends for %s", customer_display)
+            report["jira"]["help_ticket_volume_trends"] = jira_client.get_help_ticket_volume_trends(
+                customer,
+            )
+
         if not customer and "help_orgs_by_opened" not in report["jira"]:
             logger.info("Support deck: fetching HELP org ranking (all customers) for %s", customer_display)
             report["jira"]["help_orgs_by_opened"] = jira_client.get_help_organizations_by_opened(
@@ -371,6 +377,13 @@ def _apply_support_jira_error_fallback(
         "customer": customer,
         "by_assignee": [],
         "total_resolved": 0,
+    }
+    report["jira"]["help_ticket_volume_trends"] = {
+        "error": error_text,
+        "customer": customer,
+        "all": [],
+        "escalated": [],
+        "non_escalated": [],
     }
     report["jira"]["customer_project_volume_trends"] = {
         "error": error_text,

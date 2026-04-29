@@ -51,3 +51,25 @@ def test_digest_project_metrics_use_same_key_shape():
     assert cp.get("project") == "CUSTOMER" and cp.get("sla_adherence_1y") == 0.91
     assert lp.get("project") == "LEAN" and lp.get("unresolved_count") == 3
     assert "jql_queries" not in cp and "jql_queries" not in lp
+
+
+def test_digest_prefers_customer_scoped_help_volume_trends():
+    d = build_support_review_digest(
+        {
+            "jira": {
+                "help_ticket_volume_trends": {
+                    "customer": "Acme",
+                    "all": [{"label": "Jan", "created": 2, "resolved": 1}],
+                },
+            },
+            "eng_portfolio": {
+                "help_ticket_trends": {
+                    "all": [{"label": "Jan", "created": 200, "resolved": 100}],
+                },
+            },
+        },
+        slide_titles=[],
+    )
+    assert d["help_project_volume_trends"]["all_tail"] == [
+        {"label": "Jan", "created": 2, "resolved": 1}
+    ]

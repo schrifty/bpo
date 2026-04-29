@@ -2480,11 +2480,19 @@ class JiraClient:
 
         return buckets
 
-    def _get_help_ticket_volume_trends(self) -> dict[str, Any]:
-        """Return 12-month HELP created vs resolved trends for all/escalated/non-escalated."""
+    def get_help_ticket_volume_trends(
+        self,
+        customer_name: str | None = None,
+        match_terms: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Return 12-month HELP created vs resolved trends for a customer or all customers."""
         jql_start = self._jql_log_len()
+        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
+            customer_name, match_terms
+        )
         jql = (
-            f"project = HELP AND {_TRANSIENT_LABELS_EXCLUSION} AND (created >= -365d OR resolved >= -365d) "
+            f"project = HELP AND {base_filter} AND {_TRANSIENT_LABELS_EXCLUSION} "
+            "AND (created >= -365d OR resolved >= -365d) "
             "ORDER BY created DESC"
         )
         try:
@@ -2498,6 +2506,8 @@ class JiraClient:
             logger.warning("HELP ticket trend fetch failed: %s", e)
             return {
                 "error": str(e),
+                "customer": customer_name,
+                "jsm_organizations_resolved": resolved_jsm_orgs,
                 "all": [],
                 "escalated": [],
                 "non_escalated": [],
@@ -2514,11 +2524,17 @@ class JiraClient:
             })
 
         return {
+            "customer": customer_name,
+            "jsm_organizations_resolved": resolved_jsm_orgs,
             "all": self._bucket_by_month(issues, escalated_only=False),
             "escalated": self._bucket_by_month(issues, escalated_only=True),
             "non_escalated": self._bucket_by_month(issues, exclude_escalated=True),
             "jql_queries": self._jql_since(jql_start),
         }
+
+    def _get_help_ticket_volume_trends(self) -> dict[str, Any]:
+        """Backward-compatible all-customer HELP volume trend helper."""
+        return self.get_help_ticket_volume_trends(None)
 
     def _get_engineering_tickets(self, customer_name: str) -> dict[str, Any]:
         """Fetch LEAN project tickets that reference a customer.
