@@ -19,7 +19,6 @@ from requests.adapters import HTTPAdapter
 from tqdm.auto import tqdm
 
 from .config import (
-    BPO_PENDO_CACHE_FORCE_REFRESH,
     BPO_PENDO_CACHE_TTL_SECONDS,
     BPO_SIGNALS_LLM,
     BPO_SIGNALS_TRENDS,
@@ -1424,7 +1423,7 @@ class PendoClient:
     _cache_lock = threading.Lock()
 
     def _cache_valid(self, ts: float) -> bool:
-        if BPO_PENDO_CACHE_FORCE_REFRESH or self._CACHE_TTL <= 0:
+        if self._CACHE_TTL <= 0:
             return False
         return (time.time() - ts) < self._CACHE_TTL
 
@@ -1442,11 +1441,9 @@ class PendoClient:
         """Fetch all visitors and partition by customer. Cached for 120s to avoid
         redundant API calls when the agent invokes multiple tools in sequence."""
         with self._cache_lock:
-            now = time.time()
             if (
                 self._visitor_cache
-                and not BPO_PENDO_CACHE_FORCE_REFRESH
-                and (now - self._visitor_cache_ts) < self._CACHE_TTL
+                and self._cache_valid(self._visitor_cache_ts)
             ):
                 cached_days = self._visitor_cache.get("days")
                 if cached_days == days:
@@ -1594,7 +1591,7 @@ class PendoClient:
 
     def _get_page_catalog_cached(self) -> dict[str, str]:
         with self._cache_lock:
-            if self._page_catalog_cache is not None and not BPO_PENDO_CACHE_FORCE_REFRESH and self._CACHE_TTL > 0:
+            if self._page_catalog_cache is not None and self._CACHE_TTL > 0:
                 return self._page_catalog_cache
         from .pendo_preload_cache_drive import (
             PRELOAD_KIND_PAGE_CATALOG,
@@ -1615,7 +1612,7 @@ class PendoClient:
 
     def _get_guide_catalog_cached(self) -> dict[str, str]:
         with self._cache_lock:
-            if self._guide_catalog_cache is not None and not BPO_PENDO_CACHE_FORCE_REFRESH and self._CACHE_TTL > 0:
+            if self._guide_catalog_cache is not None and self._CACHE_TTL > 0:
                 return self._guide_catalog_cache
         from .pendo_preload_cache_drive import (
             PRELOAD_KIND_GUIDE_CATALOG,
@@ -2231,7 +2228,7 @@ class PendoClient:
 
     def _get_categorized_features(self) -> dict[str, dict[str, str]]:
         """Categorize all features by behavior type. Returns {category: {fid: name}}."""
-        if self._categorized_features_cache is not None and not BPO_PENDO_CACHE_FORCE_REFRESH and self._CACHE_TTL > 0:
+        if self._categorized_features_cache is not None and self._CACHE_TTL > 0:
             return self._categorized_features_cache
         catalog = self.get_feature_catalog()
         result: dict[str, dict[str, str]] = {cat: {} for cat in self._BEHAVIOR_PATTERNS}
@@ -2256,11 +2253,9 @@ class PendoClient:
     def _get_feature_events_cached(self, days: int) -> list[dict]:
         """Cached feature events for reuse across all behavioral tools."""
         with self._cache_lock:
-            now = time.time()
             if (
                 self._feat_events_cache
-                and not BPO_PENDO_CACHE_FORCE_REFRESH
-                and (now - self._feat_events_cache_ts) < self._CACHE_TTL
+                and self._cache_valid(self._feat_events_cache_ts)
             ):
                 if self._feat_events_cache.get("days") == days:
                     return self._feat_events_cache["results"]

@@ -20,7 +20,6 @@ from typing import Any
 from googleapiclient.http import MediaIoBaseUpload
 
 from .config import (
-    BPO_PENDO_CACHE_FORCE_REFRESH,
     BPO_PENDO_CACHE_TTL_SECONDS,
     logger,
 )
@@ -107,8 +106,8 @@ def _validate_envelope(raw: Any, kind: str, days: int | None) -> dict[str, Any] 
 def try_load_pendo_preload_payload(kind: str, days: int | None) -> Any | None:
     """Return cached *payload* if a fresh JSON exists on Drive; else None."""
     name = pendo_preload_cache_filename(kind, days)
-    if BPO_PENDO_CACHE_FORCE_REFRESH or BPO_PENDO_CACHE_TTL_SECONDS <= 0:
-        logger.info("Pendo preload cache: bypass read for %r (cache disabled/force refresh)", name)
+    if BPO_PENDO_CACHE_TTL_SECONDS <= 0:
+        logger.info("Pendo preload cache: bypass read for %r (cache disabled)", name)
         return None
     folder_id = resolve_portfolio_snapshot_folder_id()
     if not folder_id:

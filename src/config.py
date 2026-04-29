@@ -81,8 +81,6 @@ BPO_SALESFORCE_CACHE_TTL_SECONDS = max(0, int(_sf_cache_hours * 3600))
 _sfc_off = os.environ.get("BPO_SALESFORCE_CACHE_DISABLED", "").strip().lower()
 if _sfc_off in ("1", "true", "yes", "on"):
     BPO_SALESFORCE_CACHE_TTL_SECONDS = 0
-_sfc_fr = os.environ.get("BPO_SALESFORCE_CACHE_FORCE_REFRESH", "").strip().lower()
-BPO_SALESFORCE_CACHE_FORCE_REFRESH = _sfc_fr in ("1", "true", "yes", "on")
 
 # LeanDNA Data API (optional; supply chain enrichment with Item Master Data and Shortage Trends)
 LEANDNA_DATA_API_BASE_URL = os.environ.get("LEANDNA_DATA_API_BASE_URL", "https://app.leandna.com/api").rstrip("/")
@@ -115,8 +113,6 @@ BPO_PENDO_CACHE_TTL_SECONDS = max(0, _pendo_cache_seconds)
 _pendo_cache_disabled = os.environ.get("BPO_PENDO_CACHE_DISABLED", "").strip().lower()
 if _pendo_cache_disabled in ("1", "true", "yes", "on"):
     BPO_PENDO_CACHE_TTL_SECONDS = 0
-_pendo_cache_force = os.environ.get("BPO_PENDO_CACHE_FORCE_REFRESH", "").strip().lower()
-BPO_PENDO_CACHE_FORCE_REFRESH = _pendo_cache_force in ("1", "true", "yes", "on")
 
 # Feature Adoption slide: half-over-half usage narrative (extra Pendo aggregations). Off by default — disable by unsetting or false.
 _fai = os.environ.get("BPO_FEATURE_ADOPTION_INSIGHTS", "").strip().lower()

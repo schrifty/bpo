@@ -61,7 +61,6 @@ def test_query_soql_hits_read_cache_second_call(monkeypatch):
     import src.salesforce_client as sfc
 
     monkeypatch.setattr(sfc, "BPO_SALESFORCE_CACHE_TTL_SECONDS", 86400)
-    monkeypatch.setattr(sfc, "BPO_SALESFORCE_CACHE_FORCE_REFRESH", False)
     clear_salesforce_read_cache()
     client = SalesforceClient()
     client._token = "t"

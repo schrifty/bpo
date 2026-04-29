@@ -204,7 +204,7 @@ def format_data_summary_for_adapt_prompt(data_summary: dict[str, Any]) -> str:
                     50,
                     128,
                 ):
-                    logger.info(
+                    logger.debug(
                         "hydrate: adapt prompt data_summary pruned to fit (%d chars, "
                         "site=%d cs=%d acct=%d, str=%d list=%d dict_keys=%d)",
                         len(compact),

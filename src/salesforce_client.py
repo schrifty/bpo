@@ -21,7 +21,6 @@ from typing import Any
 import requests
 
 from .config import (
-    BPO_SALESFORCE_CACHE_FORCE_REFRESH,
     BPO_SALESFORCE_CACHE_TTL_SECONDS,
     SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP,
     SF_LOGIN_URL,
@@ -52,7 +51,7 @@ def _sf_cache_key(kind: str, payload: str) -> str:
 
 
 def _sf_read_cache_get(key: str) -> Any | None:
-    if BPO_SALESFORCE_CACHE_FORCE_REFRESH or BPO_SALESFORCE_CACHE_TTL_SECONDS <= 0:
+    if BPO_SALESFORCE_CACHE_TTL_SECONDS <= 0:
         return None
     now = time.time()
     with _SF_READ_CACHE_LOCK:
@@ -67,7 +66,7 @@ def _sf_read_cache_get(key: str) -> Any | None:
 
 
 def _sf_read_cache_set(key: str, val: Any) -> None:
-    if BPO_SALESFORCE_CACHE_FORCE_REFRESH or BPO_SALESFORCE_CACHE_TTL_SECONDS <= 0:
+    if BPO_SALESFORCE_CACHE_TTL_SECONDS <= 0:
         return
     with _SF_READ_CACHE_LOCK:
         _sf_read_cache[key] = (time.time(), copy.deepcopy(val))
