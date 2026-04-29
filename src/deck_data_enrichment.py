@@ -31,8 +31,32 @@ def enrich_deck_report_data(
     if deck_id == "support":
         enrich_support_jira_data(report, customer)
 
+    if deck_id == "engineering-portfolio":
+        enrich_engineering_portfolio_if_needed(report)
+
     report = enrich_leandna_shortage_if_needed(report, slide_plan, customer)
     return report, slide_plan
+
+
+def enrich_engineering_portfolio_if_needed(report: dict[str, Any]) -> None:
+    """Populate ``eng_portfolio`` when absent (e.g. QBR bundle reuses a health report).
+
+    ``decks.py`` pre-fills this for the standalone CLI path; companion generation passes
+    a deep-copied customer report that does not include portfolio-wide LEAN/ER data.
+    """
+    if report.get("eng_portfolio"):
+        return
+    days = int(report.get("days") or 30)
+    try:
+        from .jira_client import get_shared_jira_client
+
+        logger.info(
+            "engineering-portfolio deck: fetching Jira portfolio snapshot (%d-day window)",
+            days,
+        )
+        report["eng_portfolio"] = get_shared_jira_client().get_engineering_portfolio(days=days)
+    except Exception as e:
+        logger.warning("engineering-portfolio: could not load eng_portfolio: %s", e)
 
 
 def prepare_support_slide_plan(
