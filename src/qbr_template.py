@@ -1,4 +1,4 @@
-"""QBR deck generator: copy Drive template, manifest-driven hide/reorder, optional exec summary, adapt."""
+"""QBR deck generator: copy Drive template, manifest-driven hide/reorder, adapt."""
 
 from __future__ import annotations
 
@@ -53,19 +53,14 @@ from .signals_llm import extract_executive_signals_slide_prompt
 from .quarters import QuarterRange, resolve_quarter
 from .slides_client import (
     apply_cohort_bundle_links_to_notable_signals,
-    build_slide_jql_speaker_notes_for_entry,
     create_cohort_deck,
     create_health_deck,
-    get_slide_builder,
-    normalize_builder_return,
 )
 from .slides_api import (
     _get_service,
     _google_api_unreachable_hint,
-    presentations_batch_update_chunked,
     slides_presentations_batch_update,
 )
-from .speaker_notes import set_speaker_notes_batch
 
 # Drive layout under the QBR Generator folder (see get_qbr_generator_folder_id_for_drive_config)
 QBR_OUTPUT_SUBFOLDER = "Output"
@@ -360,13 +355,7 @@ def _normalize_manifest_plan(raw: dict[str, Any] | None) -> dict[str, Any]:
     notes = raw.get("notes", "")
     if not isinstance(notes, str):
         notes = str(notes)
-    ins = raw.get("insert_executive_summary", False)
-    if isinstance(ins, str):
-        insert_es = ins.strip().lower() in ("true", "1", "yes")
-    else:
-        insert_es = bool(ins)
     return {
-        "insert_executive_summary": insert_es,
         "hide": {
             "title_contains": [str(x).strip() for x in tc if str(x).strip()],
             "indices": coerced_idx,
@@ -379,13 +368,12 @@ def _normalize_manifest_plan(raw: dict[str, Any] | None) -> dict[str, Any]:
 _MANIFEST_PLANNER_SYSTEM = """You configure a Google Slides QBR deck from a template.
 
 You receive:
-1) MANIFEST_RULES — organizational rules from the customer/org (read carefully: they govern hide, reorder, AND whether to insert an executive-summary block).
+1) MANIFEST_RULES — organizational rules from the customer/org (read carefully: they govern hide and reorder).
 2) CUSTOMER — the account name for this run (use for interpreting segment rules).
-3) SLIDES — JSON array of slides as copied from the template (no inserts yet). Each item: index (1-based), title (extracted text), objectId (opaque id).
+3) SLIDES — JSON array of slides as copied from the template. Each item: index (1-based), title (extracted text), objectId (opaque id).
 
 Return ONLY valid JSON with this exact shape:
 {
-  "insert_executive_summary": true or false,
   "hide": {
     "title_contains": ["substring to match slide title", ...],
     "indices": [3, 4]
@@ -395,7 +383,6 @@ Return ONLY valid JSON with this exact shape:
 }
 
 Rules:
-- insert_executive_summary: set true ONLY if MANIFEST_RULES say to add an executive-summary section (e.g. after the title slide). If the manifest says not to, or is silent, set false.
 - "indices" refer to 1-based positions in SLIDES as given (template as copied).
 - Prefer title_contains when the manifest names a slide by topic; use indices when the manifest uses explicit slide numbers.
 - Do not list index 1 in "indices" for hiding unless the manifest explicitly requires hiding the opening/title slide.
@@ -522,89 +509,12 @@ def _apply_move_template_slides_to_end(
     )
 
 
-def _insert_executive_summary_slides(
-    slides_svc: Any,
-    pres_id: str,
-    report: dict[str, Any],
-    customer: str,
-) -> tuple[list[str], int, list[str]]:
-    """Insert resolved executive_summary deck after template slide 1.
-
-    Returns ``(object_ids, manifest_slide_count, signals_page_ids)`` where
-    ``manifest_slide_count`` is how many deck entries had a builder (one per YAML slide row);
-    ``len(object_ids)`` may be larger when a slide type paginates into multiple pages.
-    ``signals_page_ids`` lists physical slide object IDs for ``slide_type == "signals"`` (for
-    post-linking to the cohort review deck in the QBR bundle).
-    """
-    resolved = resolve_deck("executive_summary", customer)
-    if resolved.get("error"):
-        raise RuntimeError(resolved["error"])
-    slide_plan = resolved.get("slides") or []
-    if not slide_plan:
-        raise RuntimeError("executive_summary deck has no slides")
-
-    reqs: list[dict] = []
-    idx = 1
-    exec_ids: list[str] = []
-    signals_page_ids: list[str] = []
-    manifest_built = 0
-    note_targets: list[tuple[str, dict[str, Any]]] = []
-    report = dict(report)
-    report["_slide_plan"] = slide_plan
-
-    for entry in slide_plan:
-        slide_type = entry.get("slide_type", entry["id"])
-        builder = get_slide_builder(slide_type)
-        if not builder:
-            logger.warning("QBR: no builder for slide_type=%s, skipping", slide_type)
-            continue
-        manifest_built += 1
-        report["_current_slide"] = entry
-        sid = f"qbr_es_{entry['id']}_{idx}"
-        ret = builder(reqs, sid, report, idx)
-        next_idx, page_ids = normalize_builder_return(ret, sid)
-        for nid in page_ids:
-            exec_ids.append(nid)
-            note_targets.append((nid, dict(entry)))
-        if slide_type == "signals":
-            signals_page_ids.extend(page_ids)
-        idx = next_idx
-
-    if not reqs:
-        raise RuntimeError("executive_summary: no slide requests generated")
-
-    presentations_batch_update_chunked(slides_svc, pres_id, reqs)
-
-    if note_targets:
-        notes_items = [
-            (sid, build_slide_jql_speaker_notes_for_entry(report, entry))
-            for sid, entry in note_targets
-        ]
-        n_notes = set_speaker_notes_batch(slides_svc, pres_id, notes_items)
-        if n_notes != len(notes_items):
-            logger.warning(
-                "QBR: wrote %d/%d executive-summary speaker notes",
-                n_notes,
-                len(notes_items),
-            )
-        else:
-            logger.info("QBR: wrote %d executive-summary speaker notes in single batchUpdate", n_notes)
-
-    try:
-        _apply_slide_skipped(slides_svc, pres_id, set(exec_ids))
-        logger.info("QBR: marked %d executive summary slide(s) as skipped for slideshow", len(exec_ids))
-    except HttpError as e:
-        logger.warning("QBR: could not mark executive summary slides skipped: %s", e)
-
-    return exec_ids, manifest_built, signals_page_ids
-
-
 def compute_adapt_page_ids(
     final_slides_ordered: list[dict],
     title_slide_object_id: str,
     exec_slide_object_ids: frozenset[str],
 ) -> list[str]:
-    """In-place adapt: all slides except template title and (if any) inserted exec-summary slides. Hidden slides included."""
+    """Slides to adapt: all except template title and any ids in ``exec_slide_object_ids`` (reserved; typically empty)."""
     out: list[str] = []
     for s in final_slides_ordered:
         oid = s["objectId"]
@@ -617,7 +527,7 @@ def compute_adapt_page_ids(
 
 
 def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
-    """End-to-end QBR: copy template, manifest plan (optional exec-summary insert), hide/move, adapt.
+    """End-to-end QBR: copy template, manifest plan (hide/move), adapt.
 
     Creates ``<QBR Generator>/Output/{date} - Output/{customer} — QBR bundle ({quarter})/`` (unless
     ``GOOGLE_QBR_OUTPUT_PARENT_ID`` overrides the parent of ``{date} - Output``), and places the hydrated QBR
@@ -784,8 +694,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
     plan = call_manifest_planner(oai, manifest_text, customer, inventory)
     _qbr_time_segment("manifest_planner_llm")
     logger.info(
-        "QBR: manifest plan insert_executive_summary=%s notes=%s hide_indices=%s hide_titles=%s move_end=%s",
-        plan.get("insert_executive_summary"),
+        "QBR: manifest plan notes=%s hide_indices=%s hide_titles=%s move_end=%s",
         plan.get("notes", "")[:200],
         plan["hide"]["indices"],
         plan["hide"]["title_contains"],
@@ -800,19 +709,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
     report["_slides_svc"] = slides_svc
     report["_drive_svc"] = drive_svc
 
-    exec_ids: list[str] = []
-    exec_manifest_slides = 0
-    exec_signals_page_ids: list[str] = []
-    if plan.get("insert_executive_summary"):
-        logger.info(
-            "QBR: manifest requested executive-summary insert, but main-deck insertion is disabled; "
-            "the executive_summary companion deck covers this section"
-        )
-    else:
-        logger.info("QBR: skipping executive summary insert (manifest plan insert_executive_summary=false)")
-
-    exec_set = frozenset(exec_ids)
-    _qbr_time_segment("executive_summary_block")
+    exec_set: frozenset[str] = frozenset()
 
     try:
         _apply_slide_skipped(slides_svc, pres_id, hide_oids)
@@ -834,7 +731,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
 
     _qbr_time_segment("hide_move_slides_reread_presentation")
     adapt_ids = compute_adapt_page_ids(final_slides, title_oid, exec_set)
-    logger.info("QBR: adapting %d template slides (excludes title and any inserted exec block; hidden included)", len(adapt_ids))
+    logger.info("QBR: adapting %d template slides (excludes title; hidden included)", len(adapt_ids))
 
     qbr_agenda_visual: dict[str, Any] = {"enabled": False, "skipped": True}
     adapt_hydrate_stats: dict[str, Any] = {}
@@ -899,10 +796,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
         "presentation_id": pres_id,
         "url": url,
         "manifest_sha16": mf_hash,
-        "insert_executive_summary": False,
         "slides_hidden": len(hide_oids),
-        "exec_slides_inserted": len(exec_ids),
-        "exec_manifest_slides": exec_manifest_slides,
         "adapt_slides": len(adapt_ids),
         "qbr_agenda_visual_refinement": qbr_agenda_visual,
         "plan_notes": plan.get("notes", ""),
@@ -929,12 +823,6 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
         None,
     )
     if cohort_url:
-        if exec_signals_page_ids:
-            n = apply_cohort_bundle_links_to_notable_signals(
-                slides_svc, pres_id, cohort_url, page_object_ids=exec_signals_page_ids
-            )
-            if n:
-                result["cohort_links_on_qbr_signals"] = n
         exec_companion_pid = next(
             (
                 c.get("presentation_id")

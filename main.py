@@ -32,15 +32,8 @@ def main() -> None:
             print(
                 f"Bundle folder: https://drive.google.com/drive/folders/{result['bundle_folder_id']}"
             )
-        em = result.get("exec_manifest_slides", 0)
-        ep = result.get("exec_slides_inserted", 0)
-        if em:
-            exec_line = f"Exec summary: {em} deck slide(s) → {ep} page(s)"
-        else:
-            exec_line = f"Exec summary: {ep} page(s)"
         print(
-            f"Slides — {exec_line}; "
-            f"hidden: {result.get('slides_hidden', 0)}; "
+            f"Slides — hidden: {result.get('slides_hidden', 0)}; "
             f"adapted: {result.get('adapt_slides', 0)}"
         )
         if result.get("plan_notes"):
