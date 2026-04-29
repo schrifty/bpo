@@ -52,8 +52,8 @@ def engagement_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any
 
     if charts and total > 0:
         try:
-            from .charts import BRAND_SERIES_COLORS as _BSC
             from .charts import embed_chart
+            from .charts import pie_chart_slide_legend_entries
 
             active_7d = eng["active_7d"]
             active_30d = eng["active_30d"]
@@ -69,7 +69,7 @@ def engagement_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any
             chart_w = 320
             chart_h = max(120, int(BODY_BOTTOM - content_top - 8 - legend_h))
             embed_chart(reqs, f"{sid}_donut", sid, ss_id, chart_id, MARGIN, content_top, chart_w, chart_h)
-            legend_entries = [(label, _BSC[i]) for i, label in enumerate(donut_labels) if i < len(_BSC)]
+            legend_entries = pie_chart_slide_legend_entries(donut_labels)
             _slide_chart_legend(reqs, sid, f"{sid}_dleg", MARGIN, content_top + chart_h + 4, legend_entries)
             has_chart = True
         except Exception as e:

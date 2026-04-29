@@ -104,7 +104,9 @@ def depth_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], id
     if charts:
         try:
             from .charts import BRAND_SERIES_COLORS as _BSC
+            from .charts import PIE_SLICE_COLORS
             from .charts import embed_chart
+            from .charts import pie_chart_slide_legend_entries
 
             bottom_pad = 16
             chart_h = BODY_BOTTOM - chart_top - bottom_pad
@@ -124,6 +126,7 @@ def depth_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], id
                 right_w = CONTENT_W - combined_gap - left_w
                 vis_chart_h = chart_h - legend_h
                 rwc_labels = ["Read", "Write", "Collab"]
+                rwc_pie_colors = list(PIE_SLICE_COLORS[: len(rwc_labels)])
                 ss_id, chart_id = charts.add_bar_chart(
                     title="Feature Category Depth",
                     labels=labels,
@@ -131,6 +134,7 @@ def depth_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], id
                     horizontal=True,
                     stacked=True,
                     suppress_legend=True,
+                    series_colors=rwc_pie_colors,
                 )
                 embed_chart(
                     reqs,
@@ -143,7 +147,7 @@ def depth_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], id
                     left_w,
                     vis_chart_h,
                 )
-                legend_entries = [(label, _BSC[i]) for i, label in enumerate(rwc_labels) if i < len(_BSC)]
+                legend_entries = pie_chart_slide_legend_entries(rwc_labels)
                 _slide_chart_legend(reqs, sid, f"{sid}_bleg", MARGIN, chart_top + vis_chart_h + 4, legend_entries)
 
                 ss_id2, pie_id = charts.add_pie_chart(
@@ -188,7 +192,7 @@ def depth_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], id
                     donut=True,
                 )
                 embed_chart(reqs, f"{sid}_pie", sid, ss_id2, pie_id, px, py, pw, ph)
-                legend_entries = [(label, _BSC[i]) for i, label in enumerate(pie_labels) if i < len(_BSC)]
+                legend_entries = pie_chart_slide_legend_entries(pie_labels)
                 _slide_chart_legend(reqs, sid, f"{sid}_pleg", px, py + ph + 4, legend_entries)
         except Exception as e:
             logger.warning("Chart embed failed for depth slide: %s", e)

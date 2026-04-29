@@ -65,6 +65,17 @@ PIE_SLICE_COLORS = [
 ]
 
 
+def pie_chart_slide_legend_entries(labels: list[str]) -> list[tuple[str, dict[str, float]]]:
+    """Build (label, color) rows for ``slide_chart_legend*`` next to an embedded Sheets ``pieChart``.
+
+    Sheets does not expose per-slice colors on ``PieChartSpec``; embedded pies use Google's
+    default palette in domain order. Use ``PIE_SLICE_COLORS`` — not ``BRAND_SERIES_COLORS`` —
+    or the swatches will not match the donut/pie slices (see behavioral depth, engagement).
+    """
+    n = len(PIE_SLICE_COLORS) or 1
+    return [(str(label), PIE_SLICE_COLORS[i % n]) for i, label in enumerate(labels)]
+
+
 def _rgb_to_sheets(c: dict) -> dict:
     """Convert our {red, green, blue} floats to Sheets colorStyle format."""
     return {"rgbColor": {"red": c["red"], "green": c["green"], "blue": c["blue"]}}
@@ -239,12 +250,17 @@ class DeckCharts:
         suppress_legend: bool = False,
         *,
         background: dict[str, float] | None = None,
+        series_colors: list[dict[str, float]] | None = None,
     ) -> tuple[str, int]:
         """Create a bar/column chart. Returns (spreadsheet_id, chart_id).
 
         When *suppress_legend* is True the Sheets-rendered legend is hidden;
         callers should render a slide-level legend via ``_slide_chart_legend``
         in ``slides_client`` so text is readable at presentation scale.
+
+        Optional *series_colors* (same order as *series* keys) overrides
+        ``BRAND_SERIES_COLORS`` per series — use a ``PIE_SLICE_COLORS`` prefix when a
+        stacked bar sits beside an embedded pie so one legend matches both charts.
         """
         sheet_id = self._add_sheet_tab(title or "Chart")
         series_names = list(series.keys())
@@ -264,7 +280,9 @@ class DeckCharts:
                 }]}},
                 "targetAxis": "BOTTOM_AXIS" if horizontal else "LEFT_AXIS",
             }
-            if ci < len(BRAND_SERIES_COLORS):
+            if series_colors is not None and ci < len(series_colors):
+                s["colorStyle"] = _rgb_to_sheets(series_colors[ci])
+            elif ci < len(BRAND_SERIES_COLORS):
                 s["colorStyle"] = _rgb_to_sheets(BRAND_SERIES_COLORS[ci])
             chart_series.append(s)
 
@@ -389,7 +407,8 @@ class DeckCharts:
         When *suppress_legend* is True (the default) the Sheets-rendered legend
         is hidden; callers should render a slide-level legend via
         ``_slide_chart_legend`` in ``slides_client`` so the text is readable
-        at presentation scale.
+        at presentation scale. Swatches must use ``pie_chart_slide_legend_entries``
+        (Sheets default slice colors), not ``BRAND_SERIES_COLORS``.
 
         *maximized* reduces padding in the chart object; larger overlay pixels
         (``CHART_PIE_OVERLAY_*_PX``) make embedded bitmaps sharper. There is
