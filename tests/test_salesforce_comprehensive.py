@@ -16,7 +16,14 @@ from src.salesforce_client import (
     _strip_sf_attributes,
     clear_salesforce_read_cache,
 )
-from src.slides_client import _build_slide_jql_speaker_notes, _filter_salesforce_comprehensive_slide_plan
+from src.slide_salesforce import sf_records_to_table
+from src.slides_theme import BODY_BOTTOM
+from src.slides_client import (
+    _build_slide_jql_speaker_notes,
+    _filter_salesforce_comprehensive_slide_plan,
+    _salesforce_category_slide,
+    _salesforce_comprehensive_toc_slide,
+)
 
 # Pretend all comprehensive categories are API-queryable so mocked tests never call real describe.
 _ALL_QUERYABLE_FOR_COMPREHENSIVE = frozenset(
@@ -290,6 +297,7 @@ def test_resolve_deck_salesforce_includes_sf_category_per_row():
     assert "contacts" in cats
     assert "entity_accounts" in cats
     assert plan["slides"][0].get("slide_type") == "salesforce_comprehensive_cover"
+    assert plan["slides"][1].get("slide_type") == "salesforce_comprehensive_toc"
 
 
 @pytest.mark.slow
@@ -311,7 +319,91 @@ def test_filter_salesforce_comprehensive_drops_empty_categories():
     assert "cases" in cats
     assert "opportunities" not in cats
     assert filtered[0].get("slide_type") == "salesforce_comprehensive_cover"
+    assert filtered[1].get("slide_type") == "salesforce_comprehensive_toc"
     assert any(s.get("slide_type") == "data_quality" for s in filtered)
+
+
+def test_salesforce_comprehensive_toc_lists_filtered_sections_only():
+    report = {
+        "customer": "Acme",
+        "_current_slide": {"title": "Table of Contents"},
+        "_slide_plan": [
+            {"slide_type": "salesforce_comprehensive_cover", "title": "Cover"},
+            {"slide_type": "salesforce_comprehensive_toc", "title": "Table of Contents"},
+            {
+                "slide_type": "salesforce_category",
+                "title": "Salesforce — Entity accounts",
+                "sf_category": "entity_accounts",
+            },
+            {
+                "slide_type": "salesforce_category",
+                "title": "Salesforce — Contacts",
+                "sf_category": "contacts",
+            },
+            {"slide_type": "data_quality", "title": "Data Quality"},
+        ],
+    }
+    reqs: list[dict] = []
+
+    _salesforce_comprehensive_toc_slide(reqs, "sf_toc", report, 1)
+
+    rendered = str(reqs)
+    assert "Table of Contents" in rendered
+    assert "1.   Entity accounts" in rendered
+    assert "2.   Contacts" in rendered
+    assert "3.   Data Quality" in rendered
+    assert "Cover" not in rendered
+
+
+def test_salesforce_table_cells_are_truncated_to_prevent_wrapping():
+    records = [
+        {
+            "VeryLongColumnNameThatWouldWrap": "This is a very long Salesforce value that should not wrap",
+            "AnotherLongColumnName": "Second long value that should be truncated",
+            "Third": "short",
+            "Fourth": "short",
+            "Fifth": "short",
+            "Sixth": "omitted",
+        }
+    ]
+
+    headers, rows = sf_records_to_table(records)
+
+    assert len(headers) == 5
+    assert all(len(header) <= 20 for header in headers)
+    assert all(len(cell) <= 24 for cell in rows[0])
+
+
+def test_salesforce_category_table_fits_with_long_values():
+    long_row = {
+        "VeryLongColumnNameThatWouldWrap": "This is a very long Salesforce value that should not wrap",
+        "AnotherLongColumnName": "Second long value that should be truncated",
+        "Third": "short",
+        "Fourth": "short",
+        "Fifth": "short",
+        "Sixth": "omitted",
+    }
+    report = {
+        "_current_slide": {
+            "title": "Salesforce — Contacts",
+            "sf_category": "contacts",
+        },
+        "salesforce_comprehensive": {
+            "categories": {"contacts": [dict(long_row, Id=f"003{i}") for i in range(20)]},
+        },
+    }
+    reqs: list[dict] = []
+
+    _salesforce_category_slide(reqs, "sf_contacts", report, 1)
+
+    tables = [req["createTable"] for req in reqs if "createTable" in req]
+    assert tables
+    for table in tables:
+        transform = table["elementProperties"]["transform"]
+        size = table["elementProperties"]["size"]
+        y = transform["translateY"]
+        height = size["height"]["magnitude"]
+        assert y + height <= BODY_BOTTOM - 20
 
 
 def test_expand_descendant_account_ids_walks_parent_id_chain():

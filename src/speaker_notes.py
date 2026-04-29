@@ -167,7 +167,11 @@ def build_slide_jql_speaker_notes(
         entries = dedupe_data_trace_entries(pipeline + executable)
 
         if not entries:
-            if slide_type in ("salesforce_comprehensive_cover", "salesforce_category"):
+            if slide_type in (
+                "salesforce_comprehensive_cover",
+                "salesforce_comprehensive_toc",
+                "salesforce_category",
+            ):
                 header.append("")
                 header.append(
                     "Live Salesforce metrics: Salesforce - SOQL via REST API (per-object queries not recorded in this payload)"

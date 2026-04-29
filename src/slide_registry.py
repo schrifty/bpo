@@ -92,6 +92,7 @@ from .slide_qbr_framing import (
 from .slide_salesforce import (
     salesforce_category_slide as _salesforce_category_slide,
     salesforce_comprehensive_cover_slide as _salesforce_comprehensive_cover_slide,
+    salesforce_comprehensive_toc_slide as _salesforce_comprehensive_toc_slide,
 )
 from .slide_signals import signals_slide as _signals_slide
 from .slide_sites import sites_slide as _sites_slide
@@ -171,6 +172,7 @@ _SLIDE_BUILDERS = {
     "support_intro": _support_intro_slide,
     "cs_notable": _cs_notable_slide,
     "salesforce_comprehensive_cover": _salesforce_comprehensive_cover_slide,
+    "salesforce_comprehensive_toc": _salesforce_comprehensive_toc_slide,
     "salesforce_category": _salesforce_category_slide,
     "cohort_deck_title": _cohort_deck_title_slide,
     "cohort_summary": _cohort_summary_slide,

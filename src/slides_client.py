@@ -134,6 +134,7 @@ from .slide_salesforce import (
     filter_salesforce_comprehensive_slide_plan as _filter_salesforce_comprehensive_slide_plan,
     salesforce_category_slide as _salesforce_category_slide,
     salesforce_comprehensive_cover_slide as _salesforce_comprehensive_cover_slide,
+    salesforce_comprehensive_toc_slide as _salesforce_comprehensive_toc_slide,
     sf_category_records as _sf_category_records,
     sf_format_cell as _sf_format_cell,
     sf_records_to_table as _sf_records_to_table,

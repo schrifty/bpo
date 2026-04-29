@@ -19,14 +19,20 @@ from .slide_requests import (
 )
 from .slides_theme import BODY_BOTTOM, BODY_Y, CONTENT_W, FONT, GRAY, LIGHT, MARGIN, NAVY, _cap_chunk_list
 
+SF_TABLE_MAX_COLS = 5
+SF_TABLE_MAX_CELL_CHARS = 24
+SF_TABLE_MAX_ROWS_PER_PAGE = 7
+SF_TABLE_ROW_H = 30.0
 
-def sf_format_cell(val: Any, max_len: int = 44) -> str:
+
+def sf_format_cell(val: Any, max_len: int = SF_TABLE_MAX_CELL_CHARS) -> str:
     if val is None:
         return ""
     if isinstance(val, (dict, list)):
         value = json.dumps(val, default=str)
     else:
         value = str(val)
+    value = " ".join(value.split())
     if len(value) > max_len:
         return value[: max_len - 1] + "…"
     return value
@@ -35,8 +41,8 @@ def sf_format_cell(val: Any, max_len: int = 44) -> str:
 def sf_records_to_table(
     records: list[dict[str, Any]],
     *,
-    max_cols: int = 7,
-    max_rows: int = 12,
+    max_cols: int = SF_TABLE_MAX_COLS,
+    max_rows: int = SF_TABLE_MAX_ROWS_PER_PAGE,
 ) -> tuple[list[str], list[list[str]]]:
     if not records:
         return [], []
@@ -47,7 +53,17 @@ def sf_records_to_table(
                 keys.append(key)
     keys = keys[:max_cols]
     rows = [[sf_format_cell(rec.get(key)) for key in keys] for rec in records[:max_rows]]
-    return keys, rows
+    headers = [sf_format_cell(key, max_len=20) for key in keys]
+    return headers, rows
+
+
+def _sf_record_keys(records: list[dict[str, Any]]) -> list[str]:
+    keys: list[str] = []
+    for rec in records[:40]:
+        for key in rec.keys():
+            if key not in keys:
+                keys.append(key)
+    return keys
 
 
 def sf_category_records(sfc: dict[str, Any], category: str) -> list[dict[str, Any]]:
@@ -78,7 +94,7 @@ def salesforce_comprehensive_cover_slide(reqs: list, sid: str, report: dict[str,
     """Intro slide for the Salesforce comprehensive deck."""
     _slide(reqs, sid, idx)
     _bg(reqs, sid, LIGHT)
-    _slide_title(reqs, sid, "Salesforce — comprehensive export")
+    _slide_title(reqs, sid, "Salesforce Comprehensive Export")
     sfc = report.get("salesforce_comprehensive") or {}
     customer = report.get("customer", "")
     parts: list[str] = []
@@ -111,6 +127,69 @@ def salesforce_comprehensive_cover_slide(reqs: list, sid: str, report: dict[str,
     return idx + 1
 
 
+def _salesforce_toc_label(entry: dict[str, Any]) -> str:
+    title = str(entry.get("title") or "").strip()
+    if title.lower().startswith("salesforce"):
+        title = title.split("—", 1)[-1].strip() if "—" in title else title
+        title = title.split("-", 1)[-1].strip() if title.lower().startswith("salesforce -") else title
+    return title or str(entry.get("sf_category") or entry.get("id") or "Section").replace("_", " ").title()
+
+
+def salesforce_comprehensive_toc_slide(reqs: list, sid: str, report: dict[str, Any], idx: int) -> int:
+    """Table of contents for categories retained in the comprehensive export."""
+    plan = list(report.get("_slide_plan") or [])
+    entries = [
+        entry
+        for entry in plan
+        if entry.get("slide_type") in ("salesforce_category", "data_quality")
+    ]
+    if not entries:
+        return _missing_data_slide(reqs, sid, report, idx, "Salesforce table of contents entries")
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, LIGHT)
+    entry = report.get("_current_slide") or {}
+    title = (entry.get("title") or "").strip() or "Table of Contents"
+    _slide_title(reqs, sid, title)
+
+    customer = (report.get("customer") or "").strip()
+    subtitle = (
+        f"Sections included for {customer} after empty Salesforce categories are omitted."
+        if customer
+        else "Sections included after empty Salesforce categories are omitted."
+    )
+    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 20, subtitle)
+    _style(reqs, f"{sid}_sub", 0, len(subtitle), size=10, color=GRAY, font=FONT)
+
+    max_items = 20
+    labels = [_salesforce_toc_label(e) for e in entries[:max_items]]
+    left = labels[:10]
+    right = labels[10:]
+    col_gap = 28.0
+    col_w = (CONTENT_W - col_gap) / 2
+    y0 = BODY_Y + 38
+    row_h = 20.0
+
+    def _render_col(items: list[str], start_num: int, x: float) -> None:
+        for row_index, label in enumerate(items):
+            n = start_num + row_index
+            line = f"{n}.   {label}"
+            oid = f"{sid}_toc_{n}"
+            _box(reqs, oid, sid, x, y0 + row_index * row_h, col_w, row_h, line)
+            _style(reqs, oid, 0, len(line), size=11, color=NAVY, font=FONT)
+            _style(reqs, oid, 0, len(str(n)) + 1, bold=True)
+
+    _render_col(left, 1, MARGIN)
+    _render_col(right, 1 + len(left), MARGIN + col_w + col_gap)
+
+    if len(entries) > max_items:
+        note = f"{len(entries) - max_items} additional section(s) omitted from this contents slide."
+        _box(reqs, f"{sid}_more", sid, MARGIN, BODY_BOTTOM - 18, CONTENT_W, 16, note)
+        _style(reqs, f"{sid}_more", 0, len(note), size=8, color=GRAY, font=FONT)
+
+    return idx + 1
+
+
 def salesforce_category_slide(reqs: list, sid: str, report: dict[str, Any], idx: int) -> int | tuple[int, list[str]]:
     """One table per mainstream Salesforce category."""
     entry = report.get("_current_slide") or {}
@@ -127,12 +206,12 @@ def salesforce_category_slide(reqs: list, sid: str, report: dict[str, Any], idx:
     records = sf_category_records(sfc, category)
     error_note = (sfc.get("category_errors") or {}).get(category)
 
-    # Slides grows table rows when 9pt text wraps in narrow cells; 12pt nominal height underruns badly.
-    row_h = 28.0
+    # Slides grows table rows when 9pt text wraps in narrow cells; keep this conservative.
+    row_h = SF_TABLE_ROW_H
     y0 = BODY_Y + (38 if error_note else 0)
-    bottom_pad = 10.0
+    bottom_pad = 34.0
     avail_h = BODY_BOTTOM - y0 - bottom_pad
-    rows_per_page = max(2, int(avail_h // row_h) - 1)
+    rows_per_page = min(SF_TABLE_MAX_ROWS_PER_PAGE, max(2, int(avail_h // row_h) - 1))
 
     if not records:
         _slide(reqs, sid, idx)
@@ -169,11 +248,24 @@ def salesforce_category_slide(reqs: list, sid: str, report: dict[str, Any], idx:
             _box(reqs, banner_id, page_sid, MARGIN, y, CONTENT_W, 32, banner)
             _style(reqs, banner_id, 0, len(banner), size=8, color=GRAY, font=FONT)
             y += 38
+        all_keys = _sf_record_keys(records)
         headers, rows = sf_records_to_table(chunk, max_rows=len(chunk))
         if not headers:
             continue
         column_count = len(headers)
-        col_w = min(118.0, CONTENT_W / max(1, column_count))
+        col_w = CONTENT_W / max(1, column_count)
         col_widths = [col_w] * column_count
         _simple_table(reqs, f"{page_sid}_tbl", page_sid, MARGIN, y, col_widths, row_h, headers, rows)
+        omitted_cols = max(0, len(all_keys) - len(headers))
+        omitted_rows = max(0, len(records) - (page_index * rows_per_page + len(chunk)))
+        note_parts: list[str] = []
+        if omitted_cols:
+            note_parts.append(f"{omitted_cols} column(s) omitted for fit")
+        if omitted_rows:
+            note_parts.append(f"{omitted_rows} additional row(s) continue on following page(s)")
+        if note_parts:
+            note = "; ".join(note_parts) + "."
+            note_y = min(BODY_BOTTOM - 18, y + (1 + len(rows)) * row_h + 6)
+            _box(reqs, f"{page_sid}_fit_note", page_sid, MARGIN, note_y, CONTENT_W, 14, note)
+            _style(reqs, f"{page_sid}_fit_note", 0, len(note), size=7, color=GRAY, font=FONT)
     return idx + len(chunks), object_ids

@@ -123,6 +123,7 @@ BUILDER_DESCRIPTIONS = {
     "custom": "Static content slide — reproduced text with title and body sections",
     "skip": "Skip this slide entirely (blank, transition, or not reproducible)",
     "salesforce_comprehensive_cover": "Salesforce export intro — match status, row limits, org-wide product note",
+    "salesforce_comprehensive_toc": "Salesforce export table of contents — retained object sections after empty categories are omitted",
     "salesforce_category": "Salesforce table — one object category (sf_category) from comprehensive fetch",
     "cohort_deck_title": "Cohort deck cover — portfolio period, customer count, cohorts.yaml reference",
     "cohort_profiles": "Per-cohort profile slides — medians and account list for each manufacturing cohort bucket",

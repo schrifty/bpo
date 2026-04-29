@@ -11,6 +11,7 @@ purpose: |
 
 slides:
   - slide: sf_comprehensive_cover
+  - slide: sf_comprehensive_toc
   - slide: sf_data_table
     title: Salesforce — Entity accounts
     sf_category: entity_accounts

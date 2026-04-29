@@ -74,6 +74,7 @@ SLIDE_DATA_REQUIREMENTS: dict[str, list[str]] = {
     "support_intro": [],
     "cs_notable": ["jira"],
     "salesforce_comprehensive_cover": ["salesforce_comprehensive"],
+    "salesforce_comprehensive_toc": ["salesforce_comprehensive"],
     "salesforce_category": ["salesforce_comprehensive"],
     "shortage_forecast": ["leandna_shortage_trends"],
     "critical_shortages_detail": ["leandna_shortage_trends"],

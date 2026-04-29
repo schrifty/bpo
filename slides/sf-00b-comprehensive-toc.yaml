@@ -1,0 +1,11 @@
+id: sf_comprehensive_toc
+type: standard
+order: 50.5
+title: Table of Contents
+slide_type: salesforce_comprehensive_toc
+data_tools: [customer_health]
+customers: all
+
+prompt: |
+  Table of contents for the Salesforce multi-object export deck. Lists the
+  Salesforce object sections that remain after empty categories are omitted.
