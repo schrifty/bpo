@@ -32,7 +32,7 @@ def enrich_deck_report_data(
         slide_plan = enrich_salesforce_comprehensive(report, slide_plan, customer)
 
     if deck_id in SUPPORT_DECK_IDS:
-        enrich_support_jira_data(report, customer)
+        enrich_support_jira_data(report, customer, slide_plan)
 
     if deck_id == "engineering-portfolio":
         enrich_engineering_portfolio_if_needed(report)
@@ -149,9 +149,53 @@ def enrich_salesforce_comprehensive(
     )
 
 
-def enrich_support_jira_data(report: dict[str, Any], customer: str | None) -> None:
-    """Fetch Jira-backed support deck data into ``report``."""
+def enrich_support_jira_data(
+    report: dict[str, Any],
+    customer: str | None,
+    slide_plan: list[dict[str, Any]] | None = None,
+) -> None:
+    """Fetch Jira-backed support deck data into ``report``.
+
+    When ``slide_plan`` is provided (normal ``create_health_deck`` path), only
+    Jira **products** required by those slides — plus Notable digest extras when
+    ``cs_notable`` is present — are fetched. Unknown ``slide_type`` values fall
+    back to the full legacy bundle. When ``slide_plan`` is omitted, the full
+    bundle is always fetched (tests and ad-hoc callers).
+    """
+    from .support_jira_data_products import (
+        JIRA_SUPPORT_PRODUCT_IDS,
+        collect_support_jira_product_ids,
+    )
+
     customer_display = "All Customers" if not customer else customer
+
+    if slide_plan is None:
+        need: frozenset[str] = JIRA_SUPPORT_PRODUCT_IDS
+    else:
+        products, use_fallback = collect_support_jira_product_ids(slide_plan, customer=customer)
+        need = JIRA_SUPPORT_PRODUCT_IDS if use_fallback else products
+        if use_fallback:
+            logger.info("Support deck: Jira enrichment mode=full (fallback) for %s", customer_display)
+        elif need:
+            logger.info(
+                "Support deck: Jira enrichment mode=selective (%d products) for %s",
+                len(need),
+                customer_display,
+            )
+        else:
+            logger.info("Support deck: Jira enrichment skipped (no products) for %s", customer_display)
+
+    if not need:
+        report.setdefault("jira", {})
+        jira = report["jira"]
+        if "base_url" not in jira:
+            try:
+                from .jira_client import get_shared_jira_client
+
+                jira["base_url"] = (get_shared_jira_client().base_url or "").rstrip("/")
+            except Exception:
+                jira.setdefault("base_url", "")
+        return
 
     try:
         from .jira_client import get_shared_jira_client
@@ -164,140 +208,149 @@ def enrich_support_jira_data(report: dict[str, Any], customer: str | None) -> No
         if "base_url" not in report["jira"]:
             report["jira"]["base_url"] = (jira_client.base_url or "").rstrip("/")
 
-        if "customer_ticket_metrics" not in report["jira"]:
+        if "customer_ticket_metrics" in need and "customer_ticket_metrics" not in report["jira"]:
             logger.info("Support deck: fetching customer ticket metrics for %s", customer_display)
-            customer_ticket_metrics = jira_client.get_customer_ticket_metrics(customer)
-            report["jira"]["customer_ticket_metrics"] = customer_ticket_metrics
+            report["jira"]["customer_ticket_metrics"] = jira_client.get_customer_ticket_metrics(customer)
 
-        if "help_ticket_volume_trends" not in report["jira"]:
+        if "help_ticket_volume_trends" in need and "help_ticket_volume_trends" not in report["jira"]:
             logger.info("Support deck: fetching HELP volume trends for %s", customer_display)
-            report["jira"]["help_ticket_volume_trends"] = jira_client.get_help_ticket_volume_trends(
-                customer,
-            )
+            report["jira"]["help_ticket_volume_trends"] = jira_client.get_help_ticket_volume_trends(customer)
 
-        if not customer and "help_orgs_by_opened" not in report["jira"]:
+        if (
+            "help_orgs_by_opened" in need
+            and not customer
+            and "help_orgs_by_opened" not in report["jira"]
+        ):
             logger.info("Support deck: fetching HELP org ranking (all customers) for %s", customer_display)
             report["jira"]["help_orgs_by_opened"] = jira_client.get_help_organizations_by_opened(
                 days=90, max_results=5000
             )
 
-        if "help_customer_escalations" not in report["jira"]:
+        if "help_customer_escalations" in need and "help_customer_escalations" not in report["jira"]:
             logger.info("Support deck: fetching HELP customer escalations for %s", customer_display)
-            report["jira"]["help_customer_escalations"] = jira_client.get_help_customer_escalations(
-                customer,
-            )
+            report["jira"]["help_customer_escalations"] = jira_client.get_help_customer_escalations(customer)
 
-        if "help_escalation_metrics" not in report["jira"]:
+        if "help_escalation_metrics" in need and "help_escalation_metrics" not in report["jira"]:
             logger.info("Support deck: fetching HELP escalation metrics for %s", customer_display)
-            report["jira"]["help_escalation_metrics"] = jira_client.get_help_escalation_metrics(
+            report["jira"]["help_escalation_metrics"] = jira_client.get_help_escalation_metrics(customer)
+
+        if "customer_help_recent" in need and "customer_help_recent" not in report["jira"]:
+            logger.info("Support deck: fetching recent HELP tickets for %s", customer_display)
+            report["jira"]["customer_help_recent"] = jira_client.get_customer_help_recent_tickets(
                 customer,
+                opened_within_days=None,
+                closed_within_days=None,
+                max_each=200,
             )
 
-        logger.info("Support deck: fetching recent HELP tickets for %s", customer_display)
-        customer_help_recent = jira_client.get_customer_help_recent_tickets(
-            customer,
-            opened_within_days=None,
-            closed_within_days=None,
-            max_each=200,
-        )
-        report["jira"]["customer_help_recent"] = customer_help_recent
+        if "help_resolved_by_assignee" in need and "help_resolved_by_assignee" not in report["jira"]:
+            logger.info("Support deck: fetching HELP resolved tickets by assignee for %s", customer_display)
+            report["jira"]["help_resolved_by_assignee"] = jira_client.get_resolved_tickets_by_assignee(
+                "HELP", customer, days=90
+            )
 
-        logger.info("Support deck: fetching HELP resolved tickets by assignee for %s", customer_display)
-        help_resolved_by_assignee = jira_client.get_resolved_tickets_by_assignee(
-            "HELP",
-            customer,
-            days=90,
-        )
-        report["jira"]["help_resolved_by_assignee"] = help_resolved_by_assignee
+        if "customer_project_recent" in need and "customer_project_recent" not in report["jira"]:
+            logger.info("Support deck: fetching recent CUSTOMER project tickets for %s", customer_display)
+            report["jira"]["customer_project_recent"] = jira_client.get_customer_project_recent_tickets(
+                "CUSTOMER",
+                customer,
+                opened_within_days=None,
+                closed_within_days=None,
+                max_each=200,
+            )
 
-        logger.info("Support deck: fetching recent CUSTOMER project tickets for %s", customer_display)
-        customer_project_recent = jira_client.get_customer_project_recent_tickets(
-            "CUSTOMER",
-            customer,
-            opened_within_days=None,
-            closed_within_days=None,
-            max_each=200,
-        )
-        report["jira"]["customer_project_recent"] = customer_project_recent
-        customer_project_open_breakdown = jira_client.get_customer_project_open_breakdown(
-            "CUSTOMER",
-            customer,
-        )
-        report["jira"]["customer_project_open_breakdown"] = customer_project_open_breakdown
-        logger.info("Support deck: fetching CUSTOMER volume trends for %s", customer_display)
-        report["jira"]["customer_project_volume_trends"] = jira_client.get_project_ticket_volume_trends(
-            "CUSTOMER", customer
-        )
-        logger.info("Support deck: fetching CUSTOMER ticket KPI metrics for %s", customer_display)
-        report["jira"]["customer_project_ticket_metrics"] = jira_client.get_project_ticket_metrics(
-            "CUSTOMER", customer
-        )
+        if "customer_project_open_breakdown" in need and "customer_project_open_breakdown" not in report["jira"]:
+            logger.info("Support deck: fetching CUSTOMER open breakdown for %s", customer_display)
+            report["jira"]["customer_project_open_breakdown"] = jira_client.get_customer_project_open_breakdown(
+                "CUSTOMER", customer
+            )
 
-        logger.info("Support deck: fetching recent LEAN project tickets for %s", customer_display)
-        lean_project_recent = jira_client.get_customer_project_recent_tickets(
-            "LEAN",
-            customer,
-            opened_within_days=None,
-            closed_within_days=None,
-            max_each=200,
-        )
-        report["jira"]["lean_project_recent"] = lean_project_recent
-        lean_project_open_breakdown = jira_client.get_customer_project_open_breakdown(
-            "LEAN",
-            customer,
-        )
-        report["jira"]["lean_project_open_breakdown"] = lean_project_open_breakdown
-        logger.info("Support deck: fetching LEAN volume trends for %s", customer_display)
-        report["jira"]["lean_project_volume_trends"] = jira_client.get_project_ticket_volume_trends(
-            "LEAN", customer
-        )
-        logger.info("Support deck: fetching LEAN ticket KPI metrics for %s", customer_display)
-        report["jira"]["lean_project_ticket_metrics"] = jira_client.get_project_ticket_metrics(
-            "LEAN", customer
-        )
+        if "customer_project_volume_trends" in need and "customer_project_volume_trends" not in report["jira"]:
+            logger.info("Support deck: fetching CUSTOMER volume trends for %s", customer_display)
+            report["jira"]["customer_project_volume_trends"] = jira_client.get_project_ticket_volume_trends(
+                "CUSTOMER", customer
+            )
 
-        logger.info("Support deck: fetching CUSTOMER resolved tickets by assignee for %s", customer_display)
-        customer_resolved_by_assignee = jira_client.get_resolved_tickets_by_assignee(
-            "CUSTOMER",
-            customer,
-            days=90,
-        )
-        report["jira"]["customer_resolved_by_assignee"] = customer_resolved_by_assignee
+        if "customer_project_ticket_metrics" in need and "customer_project_ticket_metrics" not in report["jira"]:
+            logger.info("Support deck: fetching CUSTOMER ticket KPI metrics for %s", customer_display)
+            report["jira"]["customer_project_ticket_metrics"] = jira_client.get_project_ticket_metrics(
+                "CUSTOMER", customer
+            )
 
-        logger.info("Support deck: fetching LEAN resolved tickets by assignee for %s", customer_display)
-        lean_resolved_by_assignee = jira_client.get_resolved_tickets_by_assignee(
-            "LEAN",
-            customer,
-            days=90,
-        )
-        report["jira"]["lean_resolved_by_assignee"] = lean_resolved_by_assignee
+        if "lean_project_recent" in need and "lean_project_recent" not in report["jira"]:
+            logger.info("Support deck: fetching recent LEAN project tickets for %s", customer_display)
+            report["jira"]["lean_project_recent"] = jira_client.get_customer_project_recent_tickets(
+                "LEAN",
+                customer,
+                opened_within_days=None,
+                closed_within_days=None,
+                max_each=200,
+            )
 
+        if "lean_project_open_breakdown" in need and "lean_project_open_breakdown" not in report["jira"]:
+            logger.info("Support deck: fetching LEAN open breakdown for %s", customer_display)
+            report["jira"]["lean_project_open_breakdown"] = jira_client.get_customer_project_open_breakdown(
+                "LEAN", customer
+            )
+
+        if "lean_project_volume_trends" in need and "lean_project_volume_trends" not in report["jira"]:
+            logger.info("Support deck: fetching LEAN volume trends for %s", customer_display)
+            report["jira"]["lean_project_volume_trends"] = jira_client.get_project_ticket_volume_trends(
+                "LEAN", customer
+            )
+
+        if "lean_project_ticket_metrics" in need and "lean_project_ticket_metrics" not in report["jira"]:
+            logger.info("Support deck: fetching LEAN ticket KPI metrics for %s", customer_display)
+            report["jira"]["lean_project_ticket_metrics"] = jira_client.get_project_ticket_metrics(
+                "LEAN", customer
+            )
+
+        if "customer_resolved_by_assignee" in need and "customer_resolved_by_assignee" not in report["jira"]:
+            logger.info("Support deck: fetching CUSTOMER resolved tickets by assignee for %s", customer_display)
+            report["jira"]["customer_resolved_by_assignee"] = jira_client.get_resolved_tickets_by_assignee(
+                "CUSTOMER", customer, days=90
+            )
+
+        if "lean_resolved_by_assignee" in need and "lean_resolved_by_assignee" not in report["jira"]:
+            logger.info("Support deck: fetching LEAN resolved tickets by assignee for %s", customer_display)
+            report["jira"]["lean_resolved_by_assignee"] = jira_client.get_resolved_tickets_by_assignee(
+                "LEAN", customer, days=90
+            )
+
+        j = report.get("jira") or {}
+        chr_ = j.get("customer_help_recent") or {}
+        cpr = j.get("customer_project_recent") or {}
+        lpr = j.get("lean_project_recent") or {}
+        hra = j.get("help_resolved_by_assignee") or {}
+        cra = j.get("customer_resolved_by_assignee") or {}
+        lra = j.get("lean_resolved_by_assignee") or {}
         logger.info(
-            "Support deck: fetched data for %s (HELP: %d/%d, CUSTOMER: %d/%d, LEAN: %d/%d, HELP/CUSTOMER/LEAN resolved: %d/%d/%d)",
+            "Support deck: fetched Jira slice for %s (HELP recent %d/%d, CUSTOMER %d/%d, LEAN %d/%d, resolved H/C/L %s/%s/%s)",
             customer_display,
-            len(customer_help_recent.get("recently_opened", [])),
-            len(customer_help_recent.get("recently_closed", [])),
-            len(customer_project_recent.get("recently_opened", [])),
-            len(customer_project_recent.get("recently_closed", [])),
-            len(lean_project_recent.get("recently_opened", [])),
-            len(lean_project_recent.get("recently_closed", [])),
-            help_resolved_by_assignee.get("total_resolved", 0),
-            customer_resolved_by_assignee.get("total_resolved", 0),
-            lean_resolved_by_assignee.get("total_resolved", 0),
+            len(chr_.get("recently_opened", [])),
+            len(chr_.get("recently_closed", [])),
+            len(cpr.get("recently_opened", [])),
+            len(cpr.get("recently_closed", [])),
+            len(lpr.get("recently_opened", [])),
+            len(lpr.get("recently_closed", [])),
+            hra.get("total_resolved", "—"),
+            cra.get("total_resolved", "—"),
+            lra.get("total_resolved", "—"),
         )
     except Exception as e:
         _apply_support_jira_error_fallback(report, customer, e)
 
-    hem_post = (report.get("jira") or {}).get("help_escalation_metrics")
-    if isinstance(hem_post, dict) and not hem_post.get("error"):
-        try:
-            from .support_notable_llm import generate_help_escalation_nature_quote_llm
+    if "help_escalation_metrics" in need:
+        hem_post = (report.get("jira") or {}).get("help_escalation_metrics")
+        if isinstance(hem_post, dict) and not hem_post.get("error"):
+            try:
+                from .support_notable_llm import generate_help_escalation_nature_quote_llm
 
-            enq = generate_help_escalation_nature_quote_llm(report)
-            if enq:
-                hem_post["llm_nature_summary"] = enq
-        except Exception as e:
-            logger.warning("Support deck: escalation nature quote LLM failed: %s", e)
+                enq = generate_help_escalation_nature_quote_llm(report)
+                if enq:
+                    hem_post["llm_nature_summary"] = enq
+            except Exception as e:
+                logger.warning("Support deck: escalation nature quote LLM failed: %s", e)
 
 
 def enrich_leandna_shortage_if_needed(
