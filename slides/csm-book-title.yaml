@@ -1,0 +1,12 @@
+id: csm_book_title
+type: standard
+order: 19
+title: Book of Business — Title
+slide_type: csm_book_title
+data_tools: []
+customers: all
+
+prompt: >
+  Title slide for a CSM-scoped book of business: shows the CSM filter, number of
+  matched customers, and the reporting window. Data is filtered from the full
+  portfolio using Pendo visitor ownername metadata before other slides run.

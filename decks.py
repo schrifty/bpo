@@ -64,6 +64,7 @@ Generate decks (natural language — LLM parses the prompt)
       engineering portfolio | eng portfolio | engineering review | ...
       support | support review | support deck | ...
       support portfolio | support review portfolio  →  Support Review — Portfolio (all customers)
+      csm book … --csm "<name>"  →  CSM Book of Business (Pendo ownername filter)
 
   Same Jira-backed decks can also be selected if the LLM returns deck_id
   engineering-portfolio, support, or support_review_portfolio.
@@ -94,10 +95,13 @@ def _parse_prompt(prompt: str) -> dict:
                 "Return a JSON object with exactly these keys:\n"
                 f"  deck_id   – one of {deck_ids}. Default \"cs_health_review\". "
                 "Use \"portfolio_review\" for cross-customer portfolio health requests. "
-                "Use \"cohort_review\" for manufacturing cohort comparison (cohorts.yaml).\n"
+                "Use \"cohort_review\" for manufacturing cohort comparison (cohorts.yaml). "
+                "Use \"csm_book_of_business\" for a CSM-scoped portfolio (requires csm_owner).\n"
                 "  quarter   – e.g. \"Q1 2026\", \"prev\", \"current\", or null to auto-detect.\n"
                 "  days      – integer lookback override, or null.\n"
                 "  customers – list of customer name strings, or null for all.\n"
+                "  csm_owner – string substring to match Pendo CSM/ownername when deck_id is "
+                "csm_book_of_business; null otherwise.\n"
                 "  max       – integer cap on customers, or null.\n"
                 "  workers   – integer threads, default 4.\n"
                 "  thumbnails – boolean, default false.\n\n"
@@ -196,6 +200,70 @@ def _run_support_deck() -> None:
     print(f"{'=' * 60}")
     if "error" in result:
         print(f"  FAIL: {result['error'][:120]}")
+        sys.exit(1)
+    print(f"  OK   {result.get('url', '')}")
+
+
+def _run_csm_book_deck() -> None:
+    """CSM book of business from ``decks csm book --csm \"Name\"`` (flags after ``book``)."""
+    import argparse
+
+    from src.data_source_health import check_all_required
+    from src.deck_variants import csm_book_cli_argv_anchor
+    from src.quarters import resolve_quarter
+    from src.slides_client import create_csm_book_of_business_deck
+
+    anchor = csm_book_cli_argv_anchor(sys.argv[1:])
+    rest = sys.argv[anchor + 1:] if anchor >= 0 else []
+
+    parser = argparse.ArgumentParser(description="CSM Book of Business (Pendo CSM / ownername filter)")
+    parser.add_argument("--csm", type=str, default=None, help="Substring to match Pendo visitor ownername (CSM)")
+    parser.add_argument("--days", type=int, default=None, help="Lookback days (default: quarter window)")
+    parser.add_argument("--max-customers", type=int, default=None, dest="max_customers")
+    parser.add_argument("--quarter", type=str, default=None, help='e.g. "Q1 2026", prev, current')
+    args = parser.parse_args(rest)
+
+    preflight_errors = check_all_required()
+    if preflight_errors:
+        print("Data source check failed — not running:")
+        for msg in preflight_errors:
+            print(f"  • {msg}")
+        sys.exit(1)
+
+    csm = (args.csm or "").strip()
+    if not csm:
+        print("Usage: decks csm book --csm \"<Pendo CSM name substring>\" [--days N] [--max-customers M] [--quarter Q1 2026]")
+        sys.exit(1)
+
+    if args.days is not None:
+        qr = None
+        days = int(args.days)
+        period_label = f"{days} days"
+    else:
+        qr = resolve_quarter(args.quarter)
+        days = qr.days
+        period_label = f"{qr.label} ({qr.start.strftime('%b %-d')} – {qr.end.strftime('%b %-d, %Y')}, {days}d)"
+
+    print("Deck:       csm_book_of_business")
+    print(f"CSM filter: {csm}")
+    print(f"Period:     {period_label}")
+    if args.max_customers:
+        print(f"Max cust:   {args.max_customers}")
+    print()
+    t0 = time.time()
+    result = create_csm_book_of_business_deck(
+        csm_owner=csm,
+        days=days,
+        max_customers=args.max_customers,
+        quarter=qr,
+        thumbnails=False,
+    )
+    elapsed = time.time() - t0
+    print(f"\n{'=' * 60}")
+    print(f"Done in {elapsed:.0f}s")
+    print(f"{'=' * 60}")
+    if "error" in result:
+        print(f"  FAIL: {result['error'][:200]}")
         sys.exit(1)
     print(f"  OK   {result.get('url', '')}")
 
@@ -401,6 +469,12 @@ def main():
         _run_support_deck()
         return
 
+    from src.deck_variants import csm_book_cli_argv_anchor
+
+    if csm_book_cli_argv_anchor(sys.argv[1:]) >= 0:
+        _run_csm_book_deck()
+        return
+
     _cohort_exact = (
         "cohort review", "cohorts review", "cohort deck", "cohorts deck",
         "manufacturing cohort", "manufacturing cohorts",
@@ -443,6 +517,58 @@ def main():
         return
     if deck_id == "support_review_portfolio":
         _run_support_review_portfolio_deck()
+        return
+    if deck_id == "csm_book_of_business":
+        _cust_ll = params.get("customers")
+        csm_owner = (params.get("csm_owner") or "").strip()
+        if not csm_owner and isinstance(_cust_ll, list) and len(_cust_ll) == 1:
+            csm_owner = str(_cust_ll[0]).strip()
+        if not csm_owner:
+            print("csm_book_of_business requires csm_owner (Pendo CSM substring), e.g.:")
+            print('  decks csm book --csm "Josh"')
+            print('  decks "book of business for Josh Fox"  # LLM must set csm_owner')
+            sys.exit(1)
+        from src.data_source_health import check_all_required
+        from src.quarters import resolve_quarter
+        from src.slides_client import create_csm_book_of_business_deck
+
+        preflight_errors = check_all_required()
+        if preflight_errors:
+            print("Data source check failed — not running:")
+            for msg in preflight_errors:
+                print(f"  • {msg}")
+            sys.exit(1)
+        days_override = params.get("days")
+        max_cust = params.get("max")
+        thumbnails = params.get("thumbnails", False)
+        if days_override:
+            qr = None
+            days = int(days_override)
+            period_label = f"{days} days"
+        else:
+            qr = resolve_quarter(params.get("quarter"))
+            days = qr.days
+            period_label = f"{qr.label} ({qr.start.strftime('%b %-d')} – {qr.end.strftime('%b %-d, %Y')}, {days}d)"
+        print(f"Deck:       {deck_id}")
+        print(f"CSM filter: {csm_owner}")
+        print(f"Period:     {period_label}")
+        print()
+        t0 = time.time()
+        result = create_csm_book_of_business_deck(
+            csm_owner=csm_owner,
+            days=days,
+            max_customers=max_cust,
+            quarter=qr,
+            thumbnails=thumbnails,
+        )
+        elapsed = time.time() - t0
+        print(f"\n{'=' * 60}")
+        print(f"Done in {elapsed:.0f}s")
+        print(f"{'=' * 60}")
+        if "error" in result:
+            print(f"  FAIL: {result['error'][:200]}")
+            sys.exit(1)
+        print(f"  OK   {result.get('url', '')}")
         return
 
     days_override = params.get("days")

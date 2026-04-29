@@ -44,7 +44,18 @@ def enrich_portfolio_report_with_revenue_book(report: dict[str, Any]) -> None:
         report["portfolio_revenue_book"] = {"configured": True, "error": str(e)}
 
 
-def _portfolio_row_matches_csm_owner(row: dict[str, Any], needle: str) -> bool:
+def csm_book_cli_argv_anchor(argv: list[str]) -> int:
+    """Index of anchor token for ``decks csm book …`` CLI parsing (see ``decks._run_csm_book_deck``)."""
+    for i, tok in enumerate(argv):
+        if str(tok).replace("-", "_") == "csm_book_of_business":
+            return i
+    for i in range(1, len(argv)):
+        if str(argv[i]).lower() == "book" and str(argv[i - 1]).lower() == "csm":
+            return i
+    return -1
+
+
+def portfolio_row_matches_csm_owner(row: dict[str, Any], needle: str) -> bool:
     """True if Pendo-derived CSM text on the portfolio row matches *needle* (case-insensitive).
 
     ``pendo_csm`` may list multiple owners (comma-separated). Unknown / empty never matches.
@@ -84,17 +95,24 @@ def create_csm_book_of_business_deck(
     from .pendo_portfolio_snapshot_drive import try_load_portfolio_snapshot_for_request
 
     report = try_load_portfolio_snapshot_for_request(days, max_customers)
-    if report is None:
-        from .pendo_client import PendoClient
-
-        report = PendoClient().get_portfolio_report(days=days, max_customers=max_customers)
-
-    rows = [r for r in (report.get("customers") or []) if isinstance(r, dict) and _portfolio_row_matches_csm_owner(r, owner)]
-    report["customers"] = rows
-    report["csm_owner"] = owner
     from .pendo_client import PendoClient
 
-    PendoClient().rebuild_portfolio_aggregates(report)
+    pendo = PendoClient()
+    probe = report.get("customers") if isinstance(report, dict) else None
+    if probe and isinstance(probe, list):
+        has_pendo_csm = any(isinstance(r, dict) and r.get("pendo_csm") for r in probe)
+        if not has_pendo_csm:
+            logger.info(
+                "csm_book_of_business: portfolio snapshot lacks pendo_csm — fetching live portfolio for CSM filter",
+            )
+            report = None
+    if report is None:
+        report = pendo.get_portfolio_report(days=days, max_customers=max_customers)
+
+    rows = [r for r in (report.get("customers") or []) if isinstance(r, dict) and portfolio_row_matches_csm_owner(r, owner)]
+    report["customers"] = rows
+    report["csm_owner"] = owner
+    pendo.rebuild_portfolio_aggregates(report)
 
     if not rows:
         return {

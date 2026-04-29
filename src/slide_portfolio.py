@@ -137,6 +137,39 @@ def portfolio_title_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str
     return idx + 1
 
 
+def csm_book_title_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Opening slide for CSM book-of-business (Pendo-owner–scoped portfolio)."""
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, NAVY)
+
+    customer_count = int(report.get("customer_count") or 0)
+    days = report.get("days", 30)
+    quarter_label = report.get("quarter")
+    csm = str(report.get("csm_owner") or "").strip() or "CSM"
+    title = "Book of Business"
+    subtitle = (
+        f"{csm}  ·  {customer_count} customer{'s' if customer_count != 1 else ''}  ·  "
+        f"{_date_range(days, quarter_label, report.get('quarter_start'), report.get('quarter_end'))}"
+    )
+
+    _box(reqs, f"{sid}_t", sid, MARGIN, 100, CONTENT_W, 80, title)
+    _style(reqs, f"{sid}_t", 0, len(title), bold=True, size=36, color=WHITE, font=FONT_SERIF)
+
+    _box(reqs, f"{sid}_s", sid, MARGIN, 190, CONTENT_W, 60, subtitle)
+    _style(reqs, f"{sid}_s", 0, len(subtitle), size=14, color=LTBLUE, font=FONT)
+
+    hint = "Scoped to accounts whose Pendo visitor owner (CSM) metadata matches the filter above."
+    _box(reqs, f"{sid}_h", sid, MARGIN, 280, CONTENT_W, 44, hint)
+    _style(reqs, f"{sid}_h", 0, len(hint), size=11, color=GRAY, font=FONT)
+
+    generated = report.get("generated", "")
+    if generated:
+        _box(reqs, f"{sid}_d", sid, MARGIN, 340, CONTENT_W, 20, generated)
+        _style(reqs, f"{sid}_d", 0, len(generated), size=10, color=GRAY, font=FONT)
+
+    return idx + 1
+
+
 def portfolio_signals_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int | tuple[int, list[str]]:
     signals = report.get("portfolio_signals", [])
     if not signals:

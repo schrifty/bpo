@@ -267,6 +267,7 @@ from .deck_orchestrator import (
 )
 from .deck_variants import (
     create_cohort_deck,
+    create_csm_book_of_business_deck,
     create_health_decks_for_customers,
     create_portfolio_deck,
 )

@@ -82,6 +82,7 @@ from .slide_pendo import (
     pendo_track_analytics_slide as _pendo_track_analytics_slide,
 )
 from .slide_portfolio import (
+    csm_book_title_slide as _csm_book_title_slide,
     portfolio_leaders_slide as _portfolio_leaders_slide,
     portfolio_revenue_book_slide as _portfolio_revenue_book_slide,
     portfolio_signals_slide as _portfolio_signals_slide,
@@ -153,6 +154,7 @@ _SLIDE_BUILDERS = {
     "platform_value_summary_toc": _platform_value_summary_toc_slide,
     "data_quality": _data_quality_slide,
     "portfolio_title": _portfolio_title_slide,
+    "csm_book_title": _csm_book_title_slide,
     "portfolio_revenue_book": _portfolio_revenue_book_slide,
     "portfolio_signals": _portfolio_signals_slide,
     "portfolio_trends": _portfolio_trends_slide,

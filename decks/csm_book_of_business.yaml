@@ -1,0 +1,27 @@
+id: csm_book_of_business
+name: CSM Book of Business
+audience: Customer Success Managers
+
+purpose: |
+  Portfolio-style deck filtered to customers whose Pendo visitor metadata owner
+  (CSM / ownername) matches a substring you supply. Reuses Salesforce revenue book,
+  portfolio signals, trends, and leaders — all recomputed on the filtered account
+  set. Generate via ``create_csm_book_of_business_deck(csm_owner=...)`` or
+  ``decks csm book --csm "Name"``.
+
+slides:
+  - slide: csm_book_title
+    title: Book of Business
+  - slide: portfolio_revenue_book
+  - slide: portfolio_signals
+  - slide: portfolio_trends
+  - slide: portfolio_leaders
+  - slide: data_quality
+
+overrides:
+  - slide: portfolio_signals
+    require: true
+    note: Action list for this CSM's accounts.
+  - slide: portfolio_leaders
+    require: true
+    note: Highlights within the scoped book.
