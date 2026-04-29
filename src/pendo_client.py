@@ -44,6 +44,32 @@ def _name_matches(query: str, text: str) -> bool:
     return bool(re.search(rf'\b{re.escape(query)}\b', text, re.IGNORECASE))
 
 
+_READ_HEAVY_PORTFOLIO_SIGNAL_RE = re.compile(r"read[-\s]?heavy", re.IGNORECASE)
+_MAX_READ_HEAVY_PORTFOLIO_SIGNALS = 4
+_MAX_PORTFOLIO_SIGNAL_LINES = 20
+
+
+def _take_portfolio_signals_capping_read_heavy(
+    ranked: list[dict[str, Any]],
+    *,
+    max_total: int = _MAX_PORTFOLIO_SIGNAL_LINES,
+    max_read_heavy: int = _MAX_READ_HEAVY_PORTFOLIO_SIGNALS,
+) -> list[dict[str, Any]]:
+    """After severity sort, cap repetitive read-heavy lines so other portfolio alarms can surface."""
+    out: list[dict[str, Any]] = []
+    rh_used = 0
+    for item in ranked:
+        if len(out) >= max_total:
+            break
+        sig = str(item.get("signal") or "")
+        if _READ_HEAVY_PORTFOLIO_SIGNAL_RE.search(sig):
+            if rh_used >= max_read_heavy:
+                continue
+            rh_used += 1
+        out.append(item)
+    return out
+
+
 def _time_series(days: int) -> dict[str, Any]:
     """Build timeSeries for aggregation pipeline."""
     return {
@@ -2916,9 +2942,10 @@ class PendoClient:
 
     def _compute_portfolio_signals(self, summaries: list[dict]) -> list[dict[str, Any]]:
         """Extract the most critical per-customer signals, ranked by severity."""
+        # Avoid "only" — it matches "only 0.0% write" and makes read-heavy lines dominate severity.
         alarm_keywords = [
             "no active users", "declining", "dropped", "no kei", "dismiss",
-            "read-heavy", "low guide reach", "only", "at risk", "churned",
+            "read-heavy", "low guide reach", "at risk", "churned",
         ]
         signals: list[dict[str, Any]] = []
         for s in summaries:
@@ -2936,7 +2963,7 @@ class PendoClient:
                         "score": s.get("score", 0),
                     })
         signals.sort(key=lambda x: (-x["severity"], x["score"]))
-        return signals[:20]
+        return _take_portfolio_signals_capping_read_heavy(signals)
 
     def _compute_portfolio_trends(self, summaries: list[dict]) -> dict[str, Any]:
         """Aggregate product-level trends across all customers."""

@@ -1,18 +1,20 @@
 id: portfolio_review
-name: 00 - Book of Business Review
+name: 00 - Portfolio Health Review
 audience: CS Leadership, VP Customer Success, CRO
 purpose: >
-  A portfolio-level view of the entire customer base. Instead of
+  A portfolio-level health view of the installed base. Instead of
   diving into a single account, this deck answers: where are the
   fires, what systemic trends should we act on, and who are our
-  strongest customers? The narrative arc moves from urgency (signals)
-  to patterns (trends) to bright spots (leaders). With Salesforce
-  ARR data, every signal and ranking gains revenue context — making
-  this the primary input for QBR prep, renewal forecasting, and
-  resource allocation decisions.
+  strongest customers? Opens with a Salesforce revenue book (ARR,
+  pipeline, churned vs active), then moves through urgency (signals),
+  patterns (trends), and bright spots (leaders). With Salesforce
+  ARR data, signals and rankings gain revenue context for
+  prioritization — supporting QBR prep, renewal conversations, and
+  resource allocation.
 
 slides:
   - slide: portfolio_title
+  - slide: portfolio_revenue_book
   - slide: portfolio_signals
   - slide: portfolio_trends
   - slide: portfolio_leaders

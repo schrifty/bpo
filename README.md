@@ -1,6 +1,6 @@
 # bpo
 
-Automated Customer Success deck generation powered by Pendo, JIRA, and Google Slides. Generates per-customer health reviews, executive summaries, product adoption reports, and portfolio-level book-of-business decks.
+Automated Customer Success deck generation powered by Pendo, JIRA, and Google Slides. Generates per-customer health reviews, executive summaries, product adoption reports, and portfolio-level health decks.
 
 ## Setup
 
@@ -56,7 +56,7 @@ decks product adoption for Carrier, 60 day lookback
 # Cap the run
 decks health review, max 5 customers
 
-# Portfolio (book of business — single cross-customer deck)
+# Portfolio health (single cross-customer deck)
 decks portfolio review
 
 # With thumbnails
@@ -153,7 +153,7 @@ bpo/
 | `engineering` | Engineering Review | Engineering / Product | 7 slides (`slides/eng-review-*.yaml`) |
 | `executive_summary` | Executive Summary | Leadership | 7 slides — high-signal only |
 | `product_adoption` | Product Adoption Review | Product | 10 slides — feature/behavioral focus |
-| `portfolio_review` | Book of Business Review | CS Leadership | 5 slides — cross-customer |
+| `portfolio_review` | Portfolio Health Review | CS Leadership | 6 slides — cross-customer |
 
 ## Data Quality
 

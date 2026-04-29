@@ -7,6 +7,43 @@ from typing import Any
 from .config import logger
 
 
+def enrich_portfolio_report_with_revenue_book(report: dict[str, Any]) -> None:
+    """Attach ``portfolio_revenue_book`` from Salesforce (mutates *report* in place)."""
+    from .data_source_health import _salesforce_configured
+
+    if not _salesforce_configured():
+        report["portfolio_revenue_book"] = {"configured": False}
+        return
+    customers = report.get("customers") or []
+    names = [str(s.get("customer") or "").strip() for s in customers if isinstance(s, dict) and s.get("customer")]
+    if not names:
+        report["portfolio_revenue_book"] = {
+            "configured": True,
+            "empty": True,
+            "pendo_customers": 0,
+            "salesforce_matched_customers": 0,
+            "salesforce_unmatched_customers": 0,
+            "total_arr": 0.0,
+            "active_installed_base_arr": 0.0,
+            "churned_contract_arr": 0.0,
+            "pipeline_arr": 0.0,
+            "opportunity_count_this_year": 0,
+            "active_customer_count": 0,
+            "churned_customer_count": 0,
+            "top_customers_by_arr": [],
+            "churned_customer_names_sample": [],
+        }
+        return
+    try:
+        from .salesforce_client import SalesforceClient
+
+        sf = SalesforceClient()
+        report["portfolio_revenue_book"] = sf.get_portfolio_revenue_book_metrics(names)
+    except Exception as e:
+        logger.warning("portfolio: Salesforce revenue book enrichment failed: %s", e)
+        report["portfolio_revenue_book"] = {"configured": True, "error": str(e)}
+
+
 def create_portfolio_deck(
     days: int = 30,
     max_customers: int | None = None,
@@ -26,6 +63,7 @@ def create_portfolio_deck(
         report["quarter"] = quarter.label
         report["quarter_start"] = quarter.start.isoformat()
         report["quarter_end"] = quarter.end.isoformat()
+    enrich_portfolio_report_with_revenue_book(report)
     return create_health_deck(report, deck_id="portfolio_review")
 
 

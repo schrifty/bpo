@@ -30,6 +30,89 @@ from .slides_theme import (
 )
 
 
+def _fmt_portfolio_usd(n: Any) -> str:
+    try:
+        v = float(n)
+    except (TypeError, ValueError):
+        v = 0.0
+    return f"${v:,.0f}"
+
+
+def portfolio_revenue_book_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Salesforce rollup: ARR, churn vs active, pipeline, opps, top accounts (portfolio window)."""
+    book = report.get("portfolio_revenue_book")
+    if not isinstance(book, dict):
+        book = {}
+    if not book.get("configured"):
+        return _missing_data_slide(
+            reqs, sid, report, idx, "Salesforce revenue book (credentials not configured)",
+        )
+    if book.get("error"):
+        return _missing_data_slide(reqs, sid, report, idx, str(book.get("error")))
+
+    entry = report.get("_current_slide") or {}
+    title = (entry.get("title") or "").strip() or "Revenue book (Salesforce)"
+
+    lines: list[str] = []
+    pc = int(book.get("pendo_customers") or 0)
+    sm = int(book.get("salesforce_matched_customers") or 0)
+    su = int(book.get("salesforce_unmatched_customers") or 0)
+    lines.append(f"Pendo customers in this window: {pc:,}")
+    lines.append(f"Salesforce matched (≥1 Customer Entity row): {sm:,}  ·  Unmatched names: {su:,}")
+    lines.append("")
+    lines.append(f"Contract ARR on matched Entity rows: {_fmt_portfolio_usd(book.get('total_arr'))}")
+    lines.append(
+        f"  → On active-status contracts: {_fmt_portfolio_usd(book.get('active_installed_base_arr'))} "
+        f"({int(book.get('active_customer_count') or 0):,} customers)"
+    )
+    lines.append(
+        f"  → On churned-status contracts: {_fmt_portfolio_usd(book.get('churned_contract_arr'))} "
+        f"({int(book.get('churned_customer_count') or 0):,} customers)"
+    )
+    lines.append("")
+    lines.append(f"Pipeline ARR (advanced stages, deduped accounts): {_fmt_portfolio_usd(book.get('pipeline_arr'))}")
+    lines.append(
+        f"Opportunities with CloseDate this fiscal year (matched accounts): "
+        f"{int(book.get('opportunity_count_this_year') or 0):,}"
+    )
+    top = book.get("top_customers_by_arr") or []
+    if isinstance(top, list) and top:
+        lines.append("")
+        lines.append("Top customers by contract ARR (matched):")
+        for i, row in enumerate(top[:8], start=1):
+            if not isinstance(row, dict):
+                continue
+            nm = str(row.get("customer") or "").strip() or "?"
+            arr = _fmt_portfolio_usd(row.get("arr"))
+            tag = "" if row.get("active") else "  [churned in SF]"
+            lines.append(f"  {i}. {nm} — {arr}{tag}")
+    churn_sample = book.get("churned_customer_names_sample") or []
+    if isinstance(churn_sample, list) and churn_sample:
+        lines.append("")
+        lines.append(f"Churned-status sample: {', '.join(str(x) for x in churn_sample[:8])}")
+    lines.append("")
+    lines.append(
+        "New logos / expansion vs prior periods are not computed here — use Salesforce reports for motion history."
+    )
+
+    body = "\n".join(lines)
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+    oid = f"{sid}_body"
+    _box(reqs, oid, sid, MARGIN, BODY_Y, CONTENT_W, 300, body)
+    _style(reqs, oid, 0, len(body), size=10, color=NAVY, font=FONT)
+    foot = (
+        "ARR and status from matched Customer Entity accounts; pipeline uses the same advanced-stage "
+        "definition as per-account decks."
+    )
+    fid = f"{sid}_foot"
+    _box(reqs, fid, sid, MARGIN, 400, CONTENT_W, 36, foot)
+    _style(reqs, fid, 0, len(foot), size=8, color=GRAY, font=FONT)
+    return idx + 1
+
+
 def portfolio_title_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
     _slide(reqs, sid, idx)
     _bg(reqs, sid, NAVY)
@@ -37,7 +120,7 @@ def portfolio_title_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str
     customer_count = report.get("customer_count", 0)
     days = report.get("days", 30)
     quarter_label = report.get("quarter")
-    title = "Book of Business Review"
+    title = "Portfolio Health Review"
     subtitle = f"{customer_count} customers  ·  {_date_range(days, quarter_label, report.get('quarter_start'), report.get('quarter_end'))}"
 
     _box(reqs, f"{sid}_t", sid, MARGIN, 100, CONTENT_W, 80, title)

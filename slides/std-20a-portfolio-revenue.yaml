@@ -1,0 +1,13 @@
+id: portfolio_revenue_book
+type: standard
+order: after portfolio_title
+title: Revenue book (Salesforce)
+slide_type: portfolio_revenue_book
+data_tools: []
+customers: all
+
+prompt: >
+  Commercial rollup across the same Pendo customer window: matched Customer Entity
+  contract ARR (split active vs churned status), deduped pipeline ARR in advanced stages,
+  opportunity count this fiscal year, and top accounts by ARR. Unmatched names flag CRM
+  hygiene gaps. Does not infer new-logo or expansion motion (use Salesforce reporting).

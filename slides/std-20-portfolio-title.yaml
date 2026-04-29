@@ -7,7 +7,7 @@ data_tools: []
 customers: all
 
 prompt: >
-  Opening slide for the book-of-business review.
+  Opening slide for the portfolio health review.
   Shows the total customer count and date range.
   Sets the stage for a portfolio-wide analysis
   rather than a single-customer deep dive.

@@ -267,11 +267,14 @@ def _build_companion_decks_for_qbr_bundle(
                 if portfolio_error:
                     raise portfolio_error
                 if deck_id == "portfolio_review":
+                    from .deck_variants import enrich_portfolio_report_with_revenue_book
+
                     pr = copy.deepcopy(portfolio_result)
                     if qr is not None:
                         pr["quarter"] = qr.label
                         pr["quarter_start"] = qr.start.isoformat()
                         pr["quarter_end"] = qr.end.isoformat()
+                    enrich_portfolio_report_with_revenue_book(pr)
                     cr = create_health_deck(
                         pr,
                         deck_id="portfolio_review",
@@ -532,8 +535,8 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
     Creates ``<QBR Generator>/Output/{date} - Output/{customer} — QBR bundle ({quarter})/`` (unless
     ``GOOGLE_QBR_OUTPUT_PARENT_ID`` overrides the parent of ``{date} - Output``), and places the hydrated QBR
     deck there together with companion decks listed in ``QBR_BUNDLE_COMPANION_DECKS`` (see that tuple for
-    the current set: single-customer reports, engineering portfolio, Salesforce export, book-of-business
-    portfolio, and cohort — portfolio-level decks share the Pendo portfolio rollup and quarter window).
+    the current set: single-customer reports, engineering portfolio, Salesforce export, portfolio health
+    review, and cohort — portfolio-level decks share the Pendo portfolio rollup and quarter window).
     After preload, may auto-build/upload the Drive
     portfolio snapshot once per calendar day (see ``ensure_daily_portfolio_snapshot_for_qbr``).
 

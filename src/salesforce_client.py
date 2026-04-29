@@ -752,6 +752,107 @@ class SalesforceClient:
                 active.add(name)
         return active
 
+    def get_portfolio_revenue_book_metrics(self, customer_names: list[str]) -> dict[str, Any]:
+        """Aggregate ARR, contract status, pipeline, and opps across portfolio customer labels.
+
+        Loads entity accounts once; name matching matches :meth:`get_arr_by_customer_names`.
+        Account Ids are deduplicated before pipeline / opportunity SOQL.
+        """
+        names_clean = [(n or "").strip() for n in customer_names if (n or "").strip()]
+        empty_out: dict[str, Any] = {
+            "configured": True,
+            "empty": True,
+            "pendo_customers": 0,
+            "salesforce_matched_customers": 0,
+            "salesforce_unmatched_customers": 0,
+            "total_arr": 0.0,
+            "active_installed_base_arr": 0.0,
+            "churned_contract_arr": 0.0,
+            "pipeline_arr": 0.0,
+            "opportunity_count_this_year": 0,
+            "active_customer_count": 0,
+            "churned_customer_count": 0,
+            "top_customers_by_arr": [],
+            "churned_customer_names_sample": [],
+        }
+        if not names_clean:
+            return empty_out
+
+        accounts = self.get_entity_accounts()
+        per_name: dict[str, list[dict[str, Any]]] = {n: [] for n in names_clean}
+        for name in names_clean:
+            upper = name.upper()
+            for a in accounts:
+                if _customer_name_matches_entity_account(upper, a):
+                    per_name[name].append(a)
+
+        matched_names = [n for n in names_clean if per_name[n]]
+        unmatched = len(names_clean) - len(matched_names)
+        seen_ids: set[str] = set()
+        dedup_ids: list[str] = []
+        for n in matched_names:
+            for a in per_name[n]:
+                aid = a.get("Id")
+                if isinstance(aid, str) and len(aid.strip()) >= 15 and aid not in seen_ids:
+                    seen_ids.add(aid)
+                    dedup_ids.append(aid)
+
+        top_rows: list[dict[str, Any]] = []
+        total_arr = 0.0
+        active_arr = 0.0
+        churned_arr = 0.0
+        churned_names: list[str] = []
+        active_cust = 0
+        churned_cust = 0
+        for name in names_clean:
+            matching = per_name[name]
+            if not matching:
+                continue
+            arr_sum = 0.0
+            for a in matching:
+                try:
+                    arr_sum += float(a.get("ARR__c") or 0)
+                except (TypeError, ValueError):
+                    pass
+            has_active_contract = False
+            for a in matching:
+                status = (a.get("Contract_Status__c") or "").strip().lower()
+                if status not in self._CHURNED_STATUSES:
+                    has_active_contract = True
+                    break
+            all_matched_churned = not has_active_contract
+            top_rows.append({"customer": name, "arr": round(arr_sum, 2), "active": not all_matched_churned})
+            total_arr += arr_sum
+            if all_matched_churned:
+                churned_arr += arr_sum
+                churned_cust += 1
+                if len(churned_names) < 12:
+                    churned_names.append(name)
+            else:
+                active_arr += arr_sum
+                active_cust += 1
+
+        top_rows.sort(key=lambda r: (-(float(r.get("arr") or 0)), str(r.get("customer") or "")))
+        top10 = top_rows[:10]
+        pipeline = self.get_advanced_pipeline_arr(dedup_ids) if dedup_ids else 0.0
+        opps = self.get_opportunity_creation_this_year(dedup_ids) if dedup_ids else 0
+        return {
+            "configured": True,
+            "empty": False,
+            "pendo_customers": len(names_clean),
+            "salesforce_matched_customers": len(matched_names),
+            "salesforce_unmatched_customers": unmatched,
+            "total_arr": round(total_arr, 2),
+            "active_installed_base_arr": round(active_arr, 2),
+            "churned_contract_arr": round(churned_arr, 2),
+            "pipeline_arr": round(pipeline, 2),
+            "opportunity_count_this_year": int(opps),
+            "active_customer_count": active_cust,
+            "churned_customer_count": churned_cust,
+            "top_customers_by_arr": top10,
+            "churned_customer_names_sample": churned_names,
+        }
+
     def _get_customer_salesforce_by_account_ids(
         self, customer_name: str, account_ids: list[str]
     ) -> dict[str, Any]:

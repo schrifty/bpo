@@ -92,7 +92,7 @@ def _parse_prompt(prompt: str) -> dict:
                 "Extract deck-generation parameters from the user's request. "
                 "Return a JSON object with exactly these keys:\n"
                 f"  deck_id   – one of {deck_ids}. Default \"cs_health_review\". "
-                "Use \"portfolio_review\" for portfolio / book of business requests. "
+                "Use \"portfolio_review\" for cross-customer portfolio health requests. "
                 "Use \"cohort_review\" for manufacturing cohort comparison (cohorts.yaml).\n"
                 "  quarter   – e.g. \"Q1 2026\", \"prev\", \"current\", or null to auto-detect.\n"
                 "  days      – integer lookback override, or null.\n"
@@ -513,21 +513,24 @@ def main():
     if customers_list and len(customers_list) <= 3:
         sys.exit(1 if fail else 0)
 
-    # Generate a portfolio (book of business) deck after per-customer decks
+    # Generate a portfolio health deck after per-customer decks
     # Brief cooldown to avoid Drive rate limits after chart/deck creation
-    print(f"\nGenerating Book of Business deck (pausing 10s for rate limit cooldown)...")
+    print(f"\nGenerating Portfolio Health deck (pausing 10s for rate limit cooldown)...")
     time.sleep(10)
     t1 = time.time()
     max_retries = 3
     for attempt in range(1, max_retries + 1):
         try:
+            from src.deck_variants import enrich_portfolio_report_with_revenue_book
             from src.slides_client import create_health_deck
+
             client = PendoClient()
             portfolio_report = client.get_portfolio_report(days=days, max_customers=max_cust)
             if qr:
                 portfolio_report["quarter"] = qr.label
                 portfolio_report["quarter_start"] = qr.start.isoformat()
                 portfolio_report["quarter_end"] = qr.end.isoformat()
+            enrich_portfolio_report_with_revenue_book(portfolio_report)
             portfolio_result = create_health_deck(portfolio_report, deck_id="portfolio_review", thumbnails=thumbnails)
             p_elapsed = time.time() - t1
             if "error" in portfolio_result and "rate" in portfolio_result["error"].lower():
