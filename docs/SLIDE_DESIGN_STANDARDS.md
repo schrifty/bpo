@@ -317,6 +317,20 @@ Layout:
 - next milestones
 - risks or blockers
 
+### Notable / Critical Signals Slide
+
+Purpose: summarize the highest-priority account or portfolio actions.
+
+Approved implementation:
+
+- customer/account slides titled **Notable Signals** use the shared `signals` slide builder
+- portfolio slides titled **Critical Signals** must use the same numbered-list visual treatment
+- use a light background, standard slide title, 12 pt navy body text, and bold blue numbering
+- show at most **8 numbered bullets** and emit **one slide only**; lower-priority signals are omitted from the slide body rather than continued
+- optional trend/context banner may appear under the title on customer/account signals slides
+
+Do not create alternate signal-list styles with severity dots, smaller 9 pt rows, or white-background dense lists unless the user explicitly asks for a different visual pattern.
+
 ---
 
 ## KPI Dashboard and Card Standards

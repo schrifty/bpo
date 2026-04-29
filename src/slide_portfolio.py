@@ -12,6 +12,7 @@ from .slide_primitives import (
     style as _style,
 )
 from .slide_requests import append_slide as _slide, append_text_box as _box
+from .slide_signals import render_signal_list_slide
 from .slides_theme import (
     BLUE,
     BODY_Y,
@@ -58,41 +59,22 @@ def portfolio_signals_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
     if not signals:
         return _missing_data_slide(reqs, sid, report, idx, "portfolio action signals")
 
-    max_rows = 12
-    chunks = _cap_chunk_list(
-        [signals[i: i + max_rows] for i in range(0, len(signals), max_rows)]
+    entry = report.get("_current_slide") or {}
+    title = (entry.get("title") or "").strip() or "Critical Signals"
+    lines = [
+        f"{str(signal.get('customer') or '').strip()}:  {str(signal.get('signal') or '').strip()}"
+        for signal in signals
+        if isinstance(signal, dict) and (signal.get("customer") or signal.get("signal"))
+    ]
+    return render_signal_list_slide(
+        reqs,
+        sid,
+        report,
+        idx,
+        signals=lines,
+        title=title,
+        missing_label="portfolio action signals",
     )
-    object_ids: list[str] = []
-    for page_index, chunk in enumerate(chunks):
-        page_sid = f"{sid}_p{page_index}" if len(chunks) > 1 else sid
-        object_ids.append(page_sid)
-        _slide(reqs, page_sid, idx + page_index)
-        _bg(reqs, page_sid, WHITE)
-        title = (
-            "Critical Signals Across Portfolio"
-            if len(chunks) == 1
-            else f"Critical Signals ({page_index + 1} of {len(chunks)})"
-        )
-        _slide_title(reqs, page_sid, title)
-        y = BODY_Y
-        for row_index, signal in enumerate(chunk):
-            severity = signal.get("severity", 0)
-            dot = "\u25cf "
-            dot_color = {"red": 0.85, "green": 0.15, "blue": 0.15} if severity >= 2 else {
-                "red": 0.9,
-                "green": 0.65,
-                "blue": 0.0,
-            }
-            customer = signal["customer"]
-            signal_text = signal["signal"]
-            line = f"{dot}{customer}:  {signal_text}"
-            object_id = f"{page_sid}_r{row_index}"
-            _box(reqs, object_id, page_sid, MARGIN, y, CONTENT_W, 20, line)
-            _style(reqs, object_id, 0, len(line), size=9, color=NAVY, font=FONT)
-            _style(reqs, object_id, 0, len(dot), color=dot_color, size=10)
-            _style(reqs, object_id, len(dot), len(dot) + len(customer), bold=True, size=9)
-            y += 22
-    return idx + len(chunks), object_ids
 
 
 def portfolio_trends_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int | tuple[int, list[str]]:
