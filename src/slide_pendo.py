@@ -10,7 +10,15 @@ from .slide_primitives import (
     style as _style,
 )
 from .slide_requests import append_slide as _slide, append_wrapped_text_box as _wrap_box
-from .slides_theme import BODY_BOTTOM, BODY_Y, CONTENT_W, FONT, MARGIN, NAVY
+from .slides_theme import (
+    BODY_BOTTOM,
+    BODY_Y,
+    CONTENT_W,
+    FONT,
+    MARGIN,
+    NAVY,
+    _list_data_rows_fit_span,
+)
 
 
 def pendo_sentiment_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
@@ -56,6 +64,33 @@ def pendo_friction_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
     _slide(reqs, sid, idx)
     _slide_title(reqs, sid, "UX friction dashboard")
     totals = frustration.get("totals") if isinstance(frustration.get("totals"), dict) else {}
+    # Fixed-height TEXT_BOX does not reliably clip in Slides; cap lines to the body span
+    # (previously up to 4 + 12 + 2 + 12 lines overflowed ~20 lines that fit at 11pt).
+    body_y = BODY_Y + 10
+    body_bottom = BODY_BOTTOM - 4
+    font_body_pt = 11
+    max_lines = _list_data_rows_fit_span(
+        y_top=body_y,
+        y_bottom=body_bottom,
+        font_body_pt=font_body_pt,
+        reserved_header_lines=0,
+        max_rows_cap=50,
+    )
+    # Lines before variable rows: summary, breakdown, blank, "Top pages:", blank, "Top features:".
+    static_lines = 6
+    avail = max(0, max_lines - static_lines)
+    raw_pages = [r for r in (frustration.get("top_pages") or []) if isinstance(r, dict)]
+    raw_features = [r for r in (frustration.get("top_features") or []) if isinstance(r, dict)]
+    if not raw_pages and not raw_features:
+        np, nf = 0, 0
+    elif not raw_pages:
+        np, nf = 0, min(12, len(raw_features), avail)
+    elif not raw_features:
+        np, nf = min(12, len(raw_pages), avail), 0
+    else:
+        np = min(12, len(raw_pages), max(0, (avail + 1) // 2))
+        nf = min(12, len(raw_features), max(0, avail - np))
+
     lines = [
         f"Total frustration signals: {total:,}",
         (
@@ -67,18 +102,16 @@ def pendo_friction_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
         "",
         "Top pages:",
     ]
-    for row in (frustration.get("top_pages") or [])[:12]:
-        if isinstance(row, dict):
-            lines.append(f"  · {str(row.get('page') or '?')[:44]}")
+    for row in raw_pages[:np]:
+        lines.append(f"  · {str(row.get('page') or '?')[:44]}")
     lines.append("")
     lines.append("Top features:")
-    for row in (frustration.get("top_features") or [])[:12]:
-        if isinstance(row, dict):
-            lines.append(f"  · {str(row.get('feature') or '?')[:44]}")
+    for row in raw_features[:nf]:
+        lines.append(f"  · {str(row.get('feature') or '?')[:44]}")
     text = "\n".join(lines)
     body = text[:5200]
-    body_h = BODY_BOTTOM - BODY_Y - 16
-    _wrap_box(reqs, f"{sid}_pf", sid, MARGIN, BODY_Y + 10, CONTENT_W, body_h, body)
+    body_h = body_bottom - body_y
+    _wrap_box(reqs, f"{sid}_pf", sid, MARGIN, body_y, CONTENT_W, body_h, body)
     _style(reqs, f"{sid}_pf", 0, len(body), size=11, color=NAVY, font=FONT)
     return idx + 1
 
