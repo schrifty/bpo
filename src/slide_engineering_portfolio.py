@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from .config import logger
@@ -872,13 +872,10 @@ def eng_support_pressure_slide(reqs: list[dict[str, Any]], sid: str, report: dic
     bugs = support_pressure.get("open_bugs", 0)
     days = eng.get("days", 30)
 
-    escalated_pct = int(escalated / total * 100) if total else 0
-    if escalated_pct >= 30:
-        title = f"{escalated_pct}% of Support Tickets Escalated to Engineering — High Pressure"
-    elif escalated_pct >= 15:
-        title = f"{total} Support Tickets — {escalated} Escalated to Engineering This Period"
+    if total == 1:
+        title = "1 Escalation from Support"
     elif total:
-        title = f"{total} Support Tickets — Engineering Escalation Rate at {escalated_pct}%"
+        title = f"{total:,} Escalations from Support"
     else:
         title = "Support Pressure — No Ticket Data Available"
 
@@ -886,7 +883,9 @@ def eng_support_pressure_slide(reqs: list[dict[str, Any]], sid: str, report: dic
     _bg(reqs, sid, WHITE)
     _slide_title(reqs, sid, title)
 
-    context = f"Last {days} days   ·   Open: {open_count}   ·   Escalated to eng: {escalated}   ·   Open bugs: {bugs}"
+    end_d = date.today()
+    start_d = end_d - timedelta(days=days)
+    context = f"{start_d.strftime('%b %-d')} – {end_d.strftime('%b %-d, %Y')}  ({days}d)"
     _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
     _style(reqs, f"{sid}_ctx", 0, len(context), size=9, color=GRAY, font=FONT)
 

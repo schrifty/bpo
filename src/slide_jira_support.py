@@ -1404,20 +1404,14 @@ def jira_slide(reqs, sid, report, idx):
     jira_base = jira.get("base_url", "")
 
     total = jira["total_issues"]
-    open_n = jira["open_issues"]
-    resolved = jira["resolved_issues"]
     esc = jira["escalated"]
-    bugs = jira["open_bugs"]
     days = jira.get("days", 90)
 
     from datetime import date, timedelta
     end = date.today()
     start = end - timedelta(days=days)
-    date_range = f"{start.strftime('%b %-d')} – {end.strftime('%b %-d, %Y')}"
-    header = (
-        f"{total} HELP tickets  ·  {date_range}  ·  {open_n} open  ·  {resolved} resolved  ·  "
-        f"{esc} escalated  ·  {bugs} open bugs"
-    )
+    date_range = f"{start.strftime('%b %-d')} – {end.strftime('%b %-d, %Y')}  ({days}d)"
+    header = date_range
 
     sla_lines = []
     ttfr = jira.get("ttfr", {})
@@ -1499,7 +1493,7 @@ def jira_slide(reqs, sid, report, idx):
             flat.append((
                 "n",
                 f"Together with slide 1, the breakdowns below account for all "
-                f"{reconcile_header_total} tickets in the header.",
+                f"{reconcile_header_total} tickets in this summary.",
             ))
         for sec_title, slines in sections:
             if not slines:
@@ -1687,7 +1681,7 @@ def jira_slide(reqs, sid, report, idx):
                 f"(All statuses total {sum_status} tickets.)"
             )
         elif sum_status != total:
-            st_footer = f"\nNote: status rows sum to {sum_status}; header shows {total} issues."
+            st_footer = f"\nNote: status rows sum to {sum_status}; total issues in scope: {total}."
         status_text = "By Status\n" + "\n".join(st_take) + st_footer
         st_h = sec_title_h + line_h * len(st_take) + 4 + st_footer_h
         _box(reqs, f"{page_sid0}_st", page_sid0, left_x, left_y, left_w, st_h, status_text)
@@ -1710,7 +1704,7 @@ def jira_slide(reqs, sid, report, idx):
                 f"(All priorities total {sum_priority} tickets.)"
             )
         elif sum_priority != total:
-            pr_footer = f"\nNote: priority rows sum to {sum_priority}; header shows {total} issues."
+            pr_footer = f"\nNote: priority rows sum to {sum_priority}; total issues in scope: {total}."
         prio_text = "By Priority\n" + "\n".join(pr_take) + pr_footer
         pr_h = sec_title_h + line_h * len(pr_take) + 4 + pr_footer_h
         _box(reqs, f"{page_sid0}_pr", page_sid0, left_x, left_y, left_w, pr_h, prio_text)
