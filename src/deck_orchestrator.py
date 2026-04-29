@@ -47,6 +47,9 @@ def create_health_deck(
     if deck_id == "support_review_portfolio":
         customer = None
         report["customer"] = None
+    if deck_id == "csm_book_of_business":
+        # Portfolio-shaped report; title uses CSM name, not the literal "Portfolio" label.
+        report["type"] = report.get("type") or "portfolio"
     days = report.get("days", 30)
     quarter_label = report.get("quarter")
 
@@ -77,6 +80,9 @@ def create_health_deck(
     # For support deck without customer, include full support slide lineup with all-project scope.
     if deck_id == "support_review_portfolio":
         title = f"{deck_name} ({date_str})"
+    elif deck_id == "csm_book_of_business":
+        csm_disp = str(report.get("csm_owner") or "").strip() or "CSM"
+        title = f"{csm_disp} — {deck_name} ({date_str})"
     elif deck_id == "support" and not customer:
         title = f"{deck_name} — All Customers ({date_str})"
     elif is_portfolio:

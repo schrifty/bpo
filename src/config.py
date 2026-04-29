@@ -62,6 +62,10 @@ JIRA_URL = os.environ.get("JIRA_URL")
 JIRA_EMAIL = os.environ.get("JIRA_EMAIL")
 JIRA_API_TOKEN = os.environ.get("JIRA_API_TOKEN")
 
+# GitHub (optional — PAT or fine-grained token for REST API preflight and future enrichment)
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "").strip() or None
+GITHUB_API_BASE_URL = os.environ.get("GITHUB_API_BASE_URL", "https://api.github.com").strip().rstrip("/") or "https://api.github.com"
+
 # Salesforce (JWT Bearer Flow: Connected App + private key)
 # SF_LOGIN_URL: https://login.salesforce.com (prod) or https://test.salesforce.com (sandbox)
 SF_LOGIN_URL = os.environ.get("SF_LOGIN_URL")

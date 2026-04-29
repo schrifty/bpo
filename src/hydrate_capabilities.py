@@ -14,6 +14,7 @@ CANONICAL_DATA_KEYS = (
     "total_shortages", "total_critical_shortages", "weekly_active_buyers_pct_avg",
     "site_details", "cs_health_sites", "support", "salesforce", "platform_value",
     "supply_chain",
+    "github",
 )
 
 AVAILABLE_DATA_KEYS = frozenset(CANONICAL_DATA_KEYS)
@@ -38,6 +39,9 @@ DATA_SOURCES: dict[str, list[str]] = {
         "request channel mix (portal/email/internal)",
         "LEAN project engineering pipeline (open/shipped by priority)",
         "ER project enhancement requests (open/shipped/declined, by priority)",
+    ],
+    "GitHub": [
+        "repository metadata, releases, and commit/issue activity (when wired into the health report)",
     ],
     "CS Report (Google Sheets export)": [
         "health status (GREEN/YELLOW/RED) per customer/site",

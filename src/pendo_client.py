@@ -2828,10 +2828,12 @@ class PendoClient:
         guides = self.get_customer_guides(name, days)
         exports = self.get_customer_exports(name, days)
         eng = h.get("engagement", {})
-        total_v = h.get("account", {}).get("total_visitors", 0)
+        acct = h.get("account") or {}
+        total_v = acct.get("total_visitors", 0)
         active_7d = eng.get("active_7d", 0)
         return {
             "customer": name,
+            "pendo_csm": str(acct.get("csm") or "").strip() or "Unknown",
             "engagement": eng,
             "benchmarks": h.get("benchmarks", {}),
             "signals": h.get("signals", []),
@@ -3042,6 +3044,18 @@ class PendoClient:
             "login_rate": _top(
                 lambda s: s.get("login_pct", 0), "login_pct"),
         }
+
+    def rebuild_portfolio_aggregates(self, report: dict[str, Any]) -> None:
+        """Recompute portfolio_signals, trends, leaders, and cohort rollup after filtering ``customers``."""
+        summaries = [s for s in (report.get("customers") or []) if isinstance(s, dict)]
+        report["customers"] = summaries
+        report["customer_count"] = len(summaries)
+        report["portfolio_signals"] = self._compute_portfolio_signals(summaries)
+        report["portfolio_trends"] = self._compute_portfolio_trends(summaries)
+        report["portfolio_leaders"] = self._compute_portfolio_leaders(summaries)
+        digest, findings = compute_cohort_portfolio_rollup(summaries)
+        report["cohort_digest"] = digest
+        report["cohort_findings_bullets"] = findings
 
     def save_usage_to_file(
         self,

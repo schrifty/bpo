@@ -1,7 +1,7 @@
 """Preflight checks for required data sources before running deck generation.
 
-If Pendo, Salesforce (when configured), or CS Report is down, deck runs abort
-with a clear error instead of proceeding with partial data.
+If Pendo, Salesforce (when configured), GitHub (when configured), or CS Report is down,
+deck runs abort with a clear error instead of proceeding with partial data.
 """
 
 from __future__ import annotations
@@ -66,8 +66,18 @@ def check_cs_report() -> tuple[bool, str | None]:
         return False, f"CS Report: {str(e)[:120]}"
 
 
+def check_github() -> tuple[bool, str | None]:
+    """Return (True, None) if GitHub is not configured or the API accepts the token."""
+    try:
+        from .github_client import check_github_api
+        return check_github_api()
+    except Exception as e:
+        logger.warning("GitHub preflight failed: %s", e)
+        return False, f"GitHub: {str(e)[:120]}"
+
+
 def check_all_required() -> list[str]:
-    """Run preflight on Pendo, Salesforce (if configured), and CS Report.
+    """Run preflight on Pendo, Salesforce (if configured), GitHub (if configured), and CS Report.
 
     Returns a list of error messages. If empty, all required sources are up; otherwise
     the caller should abort and print these messages.
@@ -76,6 +86,7 @@ def check_all_required() -> list[str]:
     for name, check_fn in (
         ("Pendo", check_pendo),
         ("Salesforce", check_salesforce),
+        ("GitHub", check_github),
         ("CS Report", check_cs_report),
     ):
         ok, msg = check_fn()

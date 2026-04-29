@@ -139,7 +139,7 @@ class QARegistry:
         are logged but excluded from the slide.
         report: optional health report to infer data source availability (e.g. Salesforce).
         data_source_order: if set, only these keys (in this order) appear in ``data_sources``;
-        if omitted, uses the legacy set (Pendo, CS Report, JIRA, Salesforce).
+        if omitted, uses the legacy set (Pendo, CS Report, JIRA, Salesforce, GitHub, LeanDNA).
         """
         visible = self.customer_flags
         all_flags = self.flags
@@ -147,7 +147,7 @@ class QARegistry:
         if data_source_order is not None:
             data_sources = {k: full_sources[k] for k in data_source_order if k in full_sources}
         else:
-            legacy = ("Pendo", "CS Report", "JIRA", "Salesforce")
+            legacy = ("Pendo", "CS Report", "JIRA", "Salesforce", "GitHub", "LeanDNA")
             data_sources = {k: full_sources[k] for k in legacy if k in full_sources}
         return {
             "customer": self._customer,
@@ -191,6 +191,17 @@ class QARegistry:
         return "unavailable"
 
     @staticmethod
+    def _github_source_status(report: dict | None) -> str:
+        if not report or not isinstance(report, dict):
+            return "unavailable"
+        g = report.get("github")
+        if not isinstance(g, dict) or not g:
+            return "unavailable"
+        if (g.get("error") or "").strip():
+            return "unavailable"
+        return "ok"
+
+    @staticmethod
     def _source_status(flags: list[QAFlag], report: dict | None = None) -> dict[str, str]:
         """Determine availability of each data source from the flags and optional report."""
         sources = {
@@ -198,6 +209,7 @@ class QARegistry:
             "CS Report": "ok",
             "JIRA": "ok",
             "Salesforce": "unavailable",
+            "GitHub": QARegistry._github_source_status(report),
             "LeanDNA": QARegistry._leandna_source_status(report),
         }
         for f in flags:
@@ -213,6 +225,7 @@ class QARegistry:
             if isinstance(sf, dict) and sf and "error" not in sf:
                 # Only mark ok if we actually got data back (non-empty, no error)
                 sources["Salesforce"] = "ok"
+        sources["GitHub"] = QARegistry._github_source_status(report)
         sources["LeanDNA"] = QARegistry._leandna_source_status(report)
         return sources
 

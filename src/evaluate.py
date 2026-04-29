@@ -1235,6 +1235,7 @@ DATA_SOURCE_BY_FIELD: dict[str, str] = {
     "salesforce": "Salesforce",
     "platform_value": "CS Report",
     "supply_chain": "CS Report",
+    "github": "GitHub",
 }
 
 

@@ -44,6 +44,79 @@ def enrich_portfolio_report_with_revenue_book(report: dict[str, Any]) -> None:
         report["portfolio_revenue_book"] = {"configured": True, "error": str(e)}
 
 
+def _portfolio_row_matches_csm_owner(row: dict[str, Any], needle: str) -> bool:
+    """True if Pendo-derived CSM text on the portfolio row matches *needle* (case-insensitive).
+
+    ``pendo_csm`` may list multiple owners (comma-separated). Unknown / empty never matches.
+    """
+    n = (needle or "").strip().lower()
+    if not n:
+        return False
+    csm = str(row.get("pendo_csm") or "").strip().lower()
+    if not csm or csm == "unknown":
+        return False
+    if n in csm:
+        return True
+    for part in csm.replace(";", ",").split(","):
+        token = part.strip()
+        if not token:
+            continue
+        if n in token or token in n:
+            return True
+    return False
+
+
+def create_csm_book_of_business_deck(
+    csm_owner: str,
+    days: int = 30,
+    max_customers: int | None = None,
+    quarter: "QuarterRange | None" = None,
+    thumbnails: bool = False,
+    output_folder_id: str | None = None,
+) -> dict[str, Any]:
+    """Portfolio-style deck scoped to customers whose Pendo visitor ownername matches *csm_owner*."""
+    from .deck_orchestrator import create_health_deck
+
+    owner = (csm_owner or "").strip()
+    if not owner:
+        return {"error": "csm_owner is required (Pendo CSM / ownername substring)."}
+
+    from .pendo_portfolio_snapshot_drive import try_load_portfolio_snapshot_for_request
+
+    report = try_load_portfolio_snapshot_for_request(days, max_customers)
+    if report is None:
+        from .pendo_client import PendoClient
+
+        report = PendoClient().get_portfolio_report(days=days, max_customers=max_customers)
+
+    rows = [r for r in (report.get("customers") or []) if isinstance(r, dict) and _portfolio_row_matches_csm_owner(r, owner)]
+    report["customers"] = rows
+    report["csm_owner"] = owner
+    from .pendo_client import PendoClient
+
+    PendoClient().rebuild_portfolio_aggregates(report)
+
+    if not rows:
+        return {
+            "error": f"No customers matched Pendo CSM filter {owner!r}. "
+            "Try a shorter substring of the owner name as shown in Pendo visitor metadata.",
+            "csm_owner": owner,
+        }
+
+    if quarter:
+        report["quarter"] = quarter.label
+        report["quarter_start"] = quarter.start.isoformat()
+        report["quarter_end"] = quarter.end.isoformat()
+
+    enrich_portfolio_report_with_revenue_book(report)
+    return create_health_deck(
+        report,
+        deck_id="csm_book_of_business",
+        thumbnails=thumbnails,
+        output_folder_id=output_folder_id,
+    )
+
+
 def create_portfolio_deck(
     days: int = 30,
     max_customers: int | None = None,

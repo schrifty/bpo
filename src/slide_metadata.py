@@ -51,6 +51,7 @@ SLIDE_DATA_REQUIREMENTS: dict[str, list[str]] = {
     "support_breakdown": ["jira"],
     "data_quality": [],
     "portfolio_title": ["customer_count", "days", "generated"],
+    "csm_book_title": ["customer_count", "days", "generated", "csm_owner"],
     "portfolio_revenue_book": ["portfolio_revenue_book"],
     "portfolio_signals": ["portfolio_signals"],
     "portfolio_trends": ["portfolio_trends"],
@@ -97,6 +98,7 @@ DQ_SOURCE_LABEL_ORDER: tuple[str, ...] = (
     "CS Report",
     "JIRA",
     "Salesforce",
+    "GitHub",
     "LeanDNA",
 )
 
@@ -123,6 +125,7 @@ REPORT_KEY_TO_DQ_SOURCE: dict[str, str | None] = {
     "signals": "Pendo",
     "customer": "Pendo",
     "customer_count": "Pendo",
+    "csm_owner": "Pendo",
     "portfolio_signals": "Pendo",
     "portfolio_revenue_book": "Salesforce",
     "portfolio_trends": "Pendo",
@@ -136,6 +139,7 @@ REPORT_KEY_TO_DQ_SOURCE: dict[str, str | None] = {
     "eng_help_volume_jql_trace": "JIRA",
     "eng_portfolio": "JIRA",
     "salesforce_comprehensive": "Salesforce",
+    "github": "GitHub",
     "leandna_shortage_trends": "LeanDNA",
     "leandna_item_master": "LeanDNA",
     "leandna_lean_projects": "LeanDNA",
