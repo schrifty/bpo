@@ -33,7 +33,6 @@ Comprehensive audit of all network operations in the codebase to prevent indefin
    - `_ensure_spreadsheet()`: Added timeout for Sheets creation and Drive file update
 
 7. **src/pendo_portfolio_snapshot_drive.py** ✅
-   - `_upload_data_field_synonyms_bytes()`: Added timeouts for Drive update/create
    - `load_and_parse_cohort_map_from_drive()`: Added timeout for Drive get metadata
    - `_save_snapshot_bytes_to_drive()`: Added timeouts for Drive update/create
 

@@ -1,8 +1,8 @@
 """Curated phrase → data_summary path mapping for QBR hydrate synonym resolution.
 
-When the portfolio snapshot Drive folder is configured, ``data_field_synonyms.json`` is
-synced there from the repo on first use (repo wins), then loaded from Drive with local
-fallback. Otherwise only the repo file is used.
+Synonyms are read only from the repo file ``config/data_field_synonyms.json`` (see
+``pendo_portfolio_snapshot_drive.load_data_field_synonyms_document``). Portfolio snapshot
+JSON caches on Drive are unrelated.
 """
 
 from __future__ import annotations

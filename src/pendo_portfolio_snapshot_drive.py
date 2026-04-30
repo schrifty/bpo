@@ -18,8 +18,8 @@ Other env (see ``config``):
 Cache age policy is fixed in code: 7d fresh, 14d max weekday stale reuse, Drive writes for large JSON on weekends
 (see module constants ``DRIVE_CACHE_*``).
 
-Also stores ``data_field_synonyms.json`` and ``pendo_preload_v1_*.json`` slice caches in the same folder.
-Synonyms: repo is pushed on first load per process; hydrate reads Drive first with local fallback.
+Also stores ``pendo_preload_v1_*.json`` slice caches in the same folder.
+Phrase synonyms for hydrate live only in the repo at ``config/data_field_synonyms.json`` (not in this Drive folder).
 If you previously used the folder name ``Portfolio cache``, rename it to ``Cache`` in Drive or set
 ``BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID`` to the old folder so existing files remain visible.
 """
@@ -49,17 +49,14 @@ from .config import (
 from .drive_config import (
     _find_or_create_folder,
     _get_drive,
-    config_text_matches_local,
     drive_api_lock,
     find_file_in_folder,
 )
-from .qa import qa
 
 PORTFOLIO_SNAPSHOT_SCHEMA_VERSION = 1
 _SNAPSHOT_PREFIX = f"portfolio_snapshot_v{PORTFOLIO_SNAPSHOT_SCHEMA_VERSION}"
 # Subfolder under GOOGLE_QBR_GENERATOR_FOLDER_ID when BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID is unset.
 PORTFOLIO_SNAPSHOT_CACHE_FOLDER_NAME = "Cache"
-DATA_FIELD_SYNONYMS_FILENAME = "data_field_synonyms.json"
 
 # Drive JSON cache policy (fixed; no env toggles): 7d fresh, 14d weekday stale cap, weekend refresh.
 DRIVE_CACHE_MAX_FRESH_AGE_HOURS = 168.0
@@ -264,143 +261,29 @@ def _read_drive_file_text_retrying(file_id: str, *, attempts: int = 6) -> str:
     raise AssertionError(last)  # pragma: no cover
 
 
-_data_field_synonyms_sync_ran = False
-
-
 def local_data_field_synonyms_path() -> Path:
     """Repo path to ``config/data_field_synonyms.json``."""
-    return Path(__file__).resolve().parent.parent / "config" / DATA_FIELD_SYNONYMS_FILENAME
-
-
-def ensure_data_field_synonyms_repo_on_drive() -> None:
-    """Once per process: ensure QBR Cache folder has the repo copy of ``data_field_synonyms.json``.
-
-    Same idea as ``ensure_drive_config_matches_repo`` for YAML: local repo wins when content
-    differs or the Drive file is missing. No-op when snapshot folder is not configured.
-    """
-    global _data_field_synonyms_sync_ran
-    if _data_field_synonyms_sync_ran:
-        return
-    _data_field_synonyms_sync_ran = True
-    folder_id = resolve_portfolio_snapshot_folder_id()
-    if not folder_id:
-        logger.debug("data_field_synonyms: no QBR cache folder — skip Drive sync")
-        return
-    local_path = local_data_field_synonyms_path()
-    if not local_path.is_file():
-        logger.debug("data_field_synonyms: local file missing %s — skip Drive sync", local_path)
-        return
-    try:
-        local_text = local_path.read_text(encoding="utf-8")
-    except OSError as e:
-        logger.warning("data_field_synonyms: cannot read local file: %s", e)
-        return
-    try:
-        fid = find_file_in_folder(DATA_FIELD_SYNONYMS_FILENAME, folder_id, mime_type=None)
-        if not fid:
-            _upload_data_field_synonyms_bytes(local_text.encode("utf-8"), folder_id, file_id=None)
-            logger.info(
-                "data_field_synonyms: uploaded %r to QBR cache folder",
-                DATA_FIELD_SYNONYMS_FILENAME,
-            )
-            return
-        drive_text = _read_drive_file_text_retrying(fid)
-        if config_text_matches_local(local_text, drive_text):
-            logger.debug("data_field_synonyms: Drive copy matches repo — no upload")
-            return
-        _upload_data_field_synonyms_bytes(local_text.encode("utf-8"), folder_id, file_id=fid)
-        logger.info(
-            "data_field_synonyms: replaced Drive copy from repo (%s)",
-            DATA_FIELD_SYNONYMS_FILENAME,
-        )
-    except Exception as e:
-        logger.warning("data_field_synonyms: Drive sync failed (continuing): %s", e)
-
-
-def _upload_data_field_synonyms_bytes(
-    payload: bytes,
-    folder_id: str,
-    *,
-    file_id: str | None,
-) -> str:
-    from .network_utils import network_timeout
-    
-    with drive_api_lock:
-        drive = _get_drive()
-        media = MediaIoBaseUpload(io.BytesIO(payload), mimetype="application/json")
-        if file_id:
-            with network_timeout(30.0, "Drive file update"):
-                f = drive.files().update(fileId=file_id, media_body=media, fields="id").execute()
-            return str(f["id"])
-        meta: dict[str, Any] = {"name": DATA_FIELD_SYNONYMS_FILENAME, "parents": [folder_id]}
-        with network_timeout(30.0, "Drive file creation"):
-            f = drive.files().create(body=meta, media_body=media, fields="id").execute()
-        return str(f["id"])
+    return Path(__file__).resolve().parent.parent / "config" / "data_field_synonyms.json"
 
 
 def load_data_field_synonyms_document(*, allow_drive: bool = True) -> tuple[dict[str, Any], str]:
-    """Load synonym JSON. After a one-time repo→Drive sync when configured, prefer Drive.
+    """Load synonym JSON from the repo ``config/`` file only.
 
-    Returns ``(data, source)`` where *source* is ``"drive"``, ``"local"``, or ``"missing"``.
+    *allow_drive* is retained for call-site compatibility; synonyms are not read from Drive.
+
+    Returns ``(data, source)`` where *source* is ``"local"`` or ``"missing"``.
     """
+    _ = allow_drive  # Drive Cache folder is for portfolio/preload JSON only, not synonyms.
     local_path = local_data_field_synonyms_path()
-    if allow_drive:
-        ensure_data_field_synonyms_repo_on_drive()
 
-    def _load_local() -> dict[str, Any] | None:
-        if not local_path.is_file():
-            return None
-        try:
-            raw = json.loads(local_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return None
-        return raw if isinstance(raw, dict) else None
-
-    if allow_drive:
-        folder_id = resolve_portfolio_snapshot_folder_id()
-        if folder_id:
-            try:
-                fid = find_file_in_folder(DATA_FIELD_SYNONYMS_FILENAME, folder_id, mime_type=None)
-                if fid:
-                    text = _read_drive_file_text_retrying(fid)
-                    try:
-                        data = json.loads(text)
-                    except json.JSONDecodeError as e:
-                        logger.warning(
-                            "data_field_synonyms: Drive JSON invalid — %s; using local",
-                            e,
-                        )
-                        qa.flag(
-                            f"Drive {DATA_FIELD_SYNONYMS_FILENAME} parse error — using local",
-                            expected="valid JSON",
-                            actual=str(e)[:120],
-                            sources=(f"Cache/{DATA_FIELD_SYNONYMS_FILENAME}", str(local_path)),
-                            internal=True,
-                            severity="error",
-                        )
-                        loc = _load_local()
-                        return (loc or {}, "local" if loc else "missing")
-                    if isinstance(data, dict) and isinstance(data.get("entries"), list):
-                        return data, "drive"
-                    logger.warning(
-                        "data_field_synonyms: Drive document missing entries list — using local",
-                    )
-                    qa.flag(
-                        f"Drive {DATA_FIELD_SYNONYMS_FILENAME} invalid shape — using local",
-                        expected="object with entries[]",
-                        actual=type(data).__name__,
-                        sources=(f"Cache/{DATA_FIELD_SYNONYMS_FILENAME}", str(local_path)),
-                        internal=True,
-                        severity="error",
-                    )
-                    loc_bad = _load_local()
-                    return (loc_bad or {}, "local" if loc_bad else "missing")
-            except Exception as e:
-                logger.warning("data_field_synonyms: Drive load failed — %s; using local", e)
-
-    loc = _load_local()
-    if loc is not None:
-        return loc, "local"
+    if not local_path.is_file():
+        return {}, "missing"
+    try:
+        raw = json.loads(local_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}, "missing"
+    if isinstance(raw, dict):
+        return raw, "local"
     return {}, "missing"
 
 

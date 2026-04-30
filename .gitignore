@@ -12,6 +12,7 @@ build/
 .env
 *.json
 !.vscode/*.json
+!config/data_field_synonyms.json
 # Private key for Salesforce JWT — never commit
 server.key
 *.key

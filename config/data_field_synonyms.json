@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "data_summary_paths_reference": [],
+  "entries": [
+    {
+      "path": "platform_value.total_savings",
+      "phrases": [
+        "cost avoidance",
+        "material cost avoidance",
+        "total cost avoidance"
+      ]
+    },
+    {
+      "path": "account_avg_weekly_hours",
+      "phrases": [
+        "average hours spent weekly on leandna",
+        "weekly on leandna for engagement metrics"
+      ]
+    }
+  ]
+}
