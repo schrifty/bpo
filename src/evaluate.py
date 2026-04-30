@@ -1,6 +1,6 @@
 """Evaluate and hydrate Google Slides shared with the configured intake Google Group.
 
-Evaluate: lists files shared with GOOGLE_HYDRATE_INTAKE_GROUP, exports thumbnails,
+Evaluate: lists files shared with GOOGLE_HYDRATE_INTAKE_GROUP, exports thumbnails (for QA / classification),
 extracts text/elements, and asks GPT-4o to assess reproducibility.
 
 Hydrate: classifies each slide in a source deck against our builder types,
@@ -1638,6 +1638,18 @@ def _append_hydrate_summary_slide(
     return False
 
 
+def _slide_text_snapshot_for_adapt_cache(text_elements: list[dict], *, max_chars: int = 12000) -> str:
+    """Stable, bounded text fingerprint for slide-level adapt / analysis disk cache (no thumbnail)."""
+    parts: list[str] = []
+    for el in text_elements:
+        eid = str(el.get("element_id") or "")
+        typ = str(el.get("type") or "")
+        text = str(el.get("text") or "")
+        parts.append(f"{eid}\t{typ}\t{text}")
+    raw = "\n".join(parts)
+    return raw[:max_chars] if len(raw) > max_chars else raw
+
+
 def adapt_custom_slides(
     slides_svc,
     pres_id: str,
@@ -1653,7 +1665,7 @@ def adapt_custom_slides(
     """Adapt slides by replacing data values with current data.
 
     Two-phase approach:
-      Phase A (parallel)  — thumbnail fetch + GPT-4o per slide (I/O bound, safe to parallelise)
+      Phase A (parallel)  — GPT-4o per slide from extracted text only (no slide thumbnails)
       Phase B (sequential) — Slides API batchUpdate per slide (mutates shared presentation state)
 
     Writes per-slide speaker notes (hydration QA: pipeline mapping, unmapped placeholders, slide copy);
@@ -1686,41 +1698,13 @@ def adapt_custom_slides(
     pres = slides_svc.presentations().get(presentationId=pres_id).execute()
     slides_by_id = {s["objectId"]: s for s in pres.get("slides", [])}
     ordered_ids = [s["objectId"] for s in pres.get("slides", [])]
+    preflight_s = time.perf_counter() - t_adapt0
+    logger.info(
+        "hydrate: adapt preflight %.2fs — text-only LLM input (no slide thumbnails); disk cache uses text snapshot",
+        preflight_s,
+    )
 
     # ── Phase A: parallel GPT reasoning ──────────────────────────────────────
-    # Fetch thumbnail URLs in parallel — each worker gets its own httplib2-backed
-    # Slides service so there is no shared mutable state.
-    thumb_urls: dict[str, str | None] = {}
-    if google_creds is not None and len(page_ids) > 1:
-        import threading as _thr
-        _thread_local = _thr.local()
-
-        def _thumb_worker(page_id: str) -> tuple[str, str | None]:
-            if not hasattr(_thread_local, "svc"):
-                _thread_local.svc = _build_slides_service_for_thread(google_creds)
-            try:
-                url = _get_slide_thumbnail_url(_thread_local.svc, pres_id, page_id)
-                return page_id, url
-            except Exception as e:
-                slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
-                logger.warning("hydrate: adapt slide %s thumbnail URL failed: %s", slide_num, e)
-                return page_id, None
-
-        logger.info("hydrate: fetching %d thumbnail URLs in parallel", len(page_ids))
-        with ThreadPoolExecutor(max_workers=min(4, len(page_ids))) as pool:
-            for page_id, url in pool.map(_thumb_worker, page_ids):
-                thumb_urls[page_id] = url
-    else:
-        for page_id in page_ids:
-            slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
-            logger.debug("hydrate: adapt slide %s — fetching thumbnail...", slide_num)
-            try:
-                thumb_urls[page_id] = _get_slide_thumbnail_url(slides_svc, pres_id, page_id)
-            except Exception as e:
-                logger.warning("hydrate: adapt slide %s thumbnail URL failed: %s", slide_num, e)
-                thumb_urls[page_id] = None
-
-    preflight_s = time.perf_counter() - t_adapt0
 
     def _fetch_and_reason(page_id: str) -> tuple[str, list[dict], list[dict], str, dict | None]:
         """Returns (page_id, text_elements, replacements, cache_source, analysis_or_none).
@@ -1759,15 +1743,16 @@ def adapt_custom_slides(
             )
 
         extra_agenda = _qbr_agenda_adapt_extra_rules(report, text_elements)
-        url = thumb_urls.get(page_id)
-        thumb_b64 = None
-        if url:
-            try:
-                thumb_b64 = _download_thumbnail_b64(url)
-            except Exception:
-                pass
-        slide_cache_key = _slide_content_hash(thumb_b64, page_id=page_id) if thumb_b64 else None
-        adapt_cache_key = _adapt_cache_key(thumb_b64, page_id, data_summary) if thumb_b64 else None
+        text_snapshot = _slide_text_snapshot_for_adapt_cache(text_elements)
+        slide_cache_key = (
+            _slide_content_hash(None, text_snapshot, page_id=page_id) if text_snapshot else None
+        )
+        adapt_cache_key = (
+            _adapt_cache_key(None, page_id, data_summary, text_snapshot=text_snapshot)
+            if text_snapshot
+            else None
+        )
+        thumb_b64: str | None = None
         analysis: dict | None = None
         if slide_cache_key:
             analysis = _get_cached_slide_analysis(slide_cache_key)
@@ -2092,7 +2077,7 @@ def adapt_custom_slides(
     tail_s = time.perf_counter() - t_tail0
     total_adapt_s = time.perf_counter() - t_adapt0
     stats["timing"] = {
-        "preflight_pres_and_thumb_urls_s": round(preflight_s, 3),
+        "preflight_pres_read_s": round(preflight_s, 3),
         "phase_a_parallel_gpt_s": round(phase_a_s, 3),
         "phase_b_sequential_slides_api_s": round(phase_b_slides_s, 3),
         "speaker_notes_batch_s": round(speaker_notes_s, 3),

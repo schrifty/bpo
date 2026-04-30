@@ -92,7 +92,7 @@ def main() -> None:
 
             print("Time (main deck adapt):", flush=True)
             for label, key in (
-                ("preflight", "preflight_pres_and_thumb_urls_s"),
+                ("preflight", "preflight_pres_read_s"),
                 ("phase_A_LLM", "phase_a_parallel_gpt_s"),
                 ("phase_B_Slides", "phase_b_sequential_slides_api_s"),
                 ("notes", "speaker_notes_batch_s"),

@@ -35,9 +35,15 @@ def data_summary_fingerprint(data_summary: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def adapt_cache_key(thumb_b64: str | None, page_id: str, data_summary: dict[str, Any]) -> str | None:
-    """Cache key for adapt replacements: slide pixels plus current data fingerprint."""
-    base = slide_content_hash(thumb_b64, page_id=page_id)
+def adapt_cache_key(
+    thumb_b64: str | None,
+    page_id: str,
+    data_summary: dict[str, Any],
+    *,
+    text_snapshot: str = "",
+) -> str | None:
+    """Cache key for adapt replacements: slide pixels or text snapshot plus data fingerprint."""
+    base = slide_content_hash(thumb_b64, text_snapshot, page_id=page_id)
     if not base:
         return None
     fp = data_summary_fingerprint(data_summary)
