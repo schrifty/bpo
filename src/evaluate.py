@@ -40,6 +40,7 @@ from .data_field_synonyms import (
     data_summary_path_exists,
 )
 from .qbr_hydrate_mappings import (
+    REPORT_KEY_EXPLICIT_QBR_MAPPINGS,
     apply_explicit_qbr_mappings,
     build_adapt_page_slide_type_by_page_id,
 )
@@ -1680,7 +1681,7 @@ def adapt_custom_slides(
     _reset_hydrate_data_summary_for_tests()
     run_start = run_started_at or datetime.datetime.now(datetime.timezone.utc)
     data_summary = _build_data_summary(report)
-    use_explicit_qbr = bool(report.get("_hydrate_explicit_qbr_mappings"))
+    use_explicit_qbr = bool(report.get(REPORT_KEY_EXPLICIT_QBR_MAPPINGS))
     explicit_slide_type_by_page: dict[str, str] = {}
     if use_explicit_qbr:
         explicit_slide_type_by_page = build_adapt_page_slide_type_by_page_id(report, page_ids)

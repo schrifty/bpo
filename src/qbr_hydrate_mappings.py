@@ -1,6 +1,6 @@
 """Explicit QBR hydrate mappings from ``config/qbr_mappings.yaml``.
 
-When ``report["_hydrate_explicit_qbr_mappings"]`` is true, :func:`adapt_custom_slides` uses
+When ``report[REPORT_KEY_EXPLICIT_QBR_MAPPINGS]`` is true, :func:`adapt_custom_slides` uses
 :func:`apply_explicit_qbr_mappings` instead of synonym-phrase resolution from ``data_field_synonyms``.
 """
 
@@ -14,6 +14,9 @@ from typing import Any
 import yaml
 
 from .config import logger
+
+# Report dict flag set by ``qbr_template`` before ``adapt_custom_slides`` (template QBR path only).
+REPORT_KEY_EXPLICIT_QBR_MAPPINGS = "_hydrate_explicit_qbr_mappings"
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_PATH = _REPO_ROOT / "config" / "qbr_mappings.yaml"
@@ -56,9 +59,11 @@ def build_adapt_page_slide_type_by_page_id(
 ) -> dict[str, str]:
     """Align ``adapt_page_ids`` order to ``report['_slide_plan']`` rows that receive text adapt.
 
-    Mirrors :data:`evaluate._HYDRATE_SKIP_TEXT_ADAPT_TYPES` — keep in sync.
+    Uses :data:`evaluate._HYDRATE_SKIP_TEXT_ADAPT_TYPES` (lazy import to avoid cycles at import time).
     """
-    skip = frozenset({"title", "qbr_cover", "qbr_divider"})
+    from .evaluate import _HYDRATE_SKIP_TEXT_ADAPT_TYPES
+
+    skip = _HYDRATE_SKIP_TEXT_ADAPT_TYPES
     plan = report.get("_slide_plan") or []
     seq: list[str] = []
     for sp in plan:

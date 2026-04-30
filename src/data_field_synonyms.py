@@ -1,5 +1,7 @@
-"""Curated phrase → data_summary path mapping for QBR hydrate synonym resolution.
+"""Curated phrase → data_summary path mapping for hydrate synonym resolution.
 
+Template QBR (``qbr_template`` → ``adapt_custom_slides`` with explicit flag) uses
+``config/qbr_mappings.yaml`` via ``qbr_hydrate_mappings`` instead of this table.
 Synonyms are read only from the repo file ``config/data_field_synonyms.json`` (see
 ``pendo_portfolio_snapshot_drive.load_data_field_synonyms_document``). Portfolio snapshot
 JSON caches on Drive are unrelated.

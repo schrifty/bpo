@@ -49,6 +49,7 @@ from .qbr_agenda_visual_refine import (
     find_qbr_agenda_page_id,
     run_qbr_agenda_visual_refinement_loop,
 )
+from .qbr_hydrate_mappings import REPORT_KEY_EXPLICIT_QBR_MAPPINGS
 from .signals_llm import extract_executive_signals_slide_prompt
 from .quarters import QuarterRange, resolve_quarter
 from .slides_client import (
@@ -757,7 +758,7 @@ def run_qbr_from_template(
         )
         _qbr_time_segment("qbr_adapt_hints_llm")
         # QBR deck: resolve placeholders via config/qbr_mappings.yaml instead of phrase synonym table.
-        report["_hydrate_explicit_qbr_mappings"] = True
+        report[REPORT_KEY_EXPLICIT_QBR_MAPPINGS] = True
         adapt_hydrate_stats = adapt_custom_slides(
             slides_svc,
             pres_id,
