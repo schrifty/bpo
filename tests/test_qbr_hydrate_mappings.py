@@ -10,6 +10,7 @@ from src.qbr_hydrate_mappings import (
     bootstrap_qbr_mappings_from_slides,
     build_adapt_page_slide_type_by_page_id,
     expand_mapping_rules,
+    mapping_source_is_visual_only,
     merge_discovered_sources_into_qbr_mappings,
 )
 
@@ -188,6 +189,27 @@ def test_merge_appends_unmapped_sources(tmp_path) -> None:
     )
     assert el.get("target") == ""
     assert str(el.get("name", "")).startswith("auto_s3_")
+
+
+def test_mapping_source_is_visual_only() -> None:
+    assert mapping_source_is_visual_only("(embedded image)")
+    assert mapping_source_is_visual_only("(image in shape)")
+    assert mapping_source_is_visual_only("(embedded chart — contains data that cannot be auto-updated)")
+    assert mapping_source_is_visual_only("[STATIC IMAGE — x")
+    assert mapping_source_is_visual_only("x", field="image")
+    assert not mapping_source_is_visual_only("Active users: 12")
+
+
+def test_merge_skips_visual_sources(tmp_path) -> None:
+    p = tmp_path / "qbr_mappings.yaml"
+    p.write_text("version: 2\nslides: []\nglobal_elements: []\n", encoding="utf-8")
+    n = merge_discovered_sources_into_qbr_mappings(
+        [{"slide_number": 2, "slide_id": None, "source": "(embedded image)", "field": None}],
+        path=p,
+    )
+    assert n == 0
+    cfg = yaml.safe_load(p.read_text(encoding="utf-8"))
+    assert not (cfg.get("slides") or [])
 
 
 def test_bootstrap_slide_walk_writes_when_yaml_missing(tmp_path) -> None:

@@ -277,6 +277,29 @@ def _bootstrap_source_text_ok(text: str) -> bool:
     return True
 
 
+# Slide extract types for raster / chart objects — never rows in qbr_mappings.
+_VISUAL_ELEMENT_TYPES = frozenset(("image", "chart"))
+
+
+def mapping_source_is_visual_only(source: str | None, field: str | None = None) -> bool:
+    """True if this source is an image/chart pipeline slot, not a text data element for YAML mapping."""
+    f = (field or "").strip().lower()
+    if f in ("chart", "image"):
+        return True
+    t = (source or "").strip()
+    if not t:
+        return True
+    if t in ("(embedded image)", "(image in shape)"):
+        return True
+    if t == "(embedded chart — contains data that cannot be auto-updated)":
+        return True
+    if t.startswith("[STATIC IMAGE"):
+        return True
+    if "CHART — data cannot be auto-updated" in t:
+        return True
+    return False
+
+
 def bootstrap_qbr_mappings_from_slides(
     slides_by_id: dict[str, Any],
     page_ids: list[str],
@@ -305,6 +328,8 @@ def bootstrap_qbr_mappings_from_slides(
         sn = ordered_ids.index(page_id) + 1
         sid_raw = (explicit_slide_type_by_page.get(page_id) or "").strip() or None
         for el in _extract_te(slide.get("pageElements") or []):
+            if el.get("type") in _VISUAL_ELEMENT_TYPES:
+                continue
             if not _element_may_contain_data(el):
                 continue
             raw = str(el.get("text") or "").strip()
@@ -352,6 +377,8 @@ def merge_discovered_sources_into_qbr_mappings(
         sn = d.get("slide_number")
         raw = str(d.get("source") or "").strip()
         if not isinstance(sn, int) or sn < 1 or not raw or len(raw) > 2000:
+            continue
+        if mapping_source_is_visual_only(raw, d.get("field")):
             continue
         key = (sn, _norm_source_key(raw))
         if key in seen:
