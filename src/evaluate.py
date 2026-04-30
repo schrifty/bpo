@@ -1732,12 +1732,14 @@ def adapt_custom_slides(
 
         def _post_llm_mapping(repls: list[dict]) -> list[dict]:
             if use_explicit_qbr:
+                sn = slide_num if isinstance(slide_num, int) else None
                 return apply_explicit_qbr_mappings(
                     repls,
                     text_elements,
                     data_summary,
                     slide_type=slide_type_for_explicit or None,
                     slide_ref=str(slide_num),
+                    slide_number=sn,
                 )
             return apply_synonym_resolution_to_replacements(
                 repls, text_elements, data_summary, slide_ref=str(slide_num)

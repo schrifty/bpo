@@ -1,22 +1,27 @@
-# Explicit QBR hydrate mappings (replaces phrase/synonym dictionary matching for QBR only).
+# Explicit QBR hydrate mappings (template QBR only; see REPORT_KEY_EXPLICIT_QBR_MAPPINGS).
 #
-# Schema (version 1):
-#   mappings: list of
-#     slide_id: optional logical slide id from decks/qbr.yaml / resolve_deck slide_type
-#               (e.g. health, engagement, qbr_agenda). Use null for rules that apply on every slide.
-#     source:   text to match — either a bracket placeholder exactly (e.g. "[000]") or a phrase
-#               substring matched in normalized text near the replacement (same narrowing as synonyms).
-#     target:   dotted path into hydrate data_summary (see hydrate_data_summary.build_data_summary).
-#               Leave empty "" for you to fill in later; blank targets are skipped at runtime.
+# Schema version 2 — organize by presentation slide number and logical element name so you can
+# audit coverage against the Slides filmstrip (hydrate logs use the same 1-based slide index).
 #
-# Discovered mapping sources (intuition / pipeline today — not an exhaustive template audit):
-#   - Bracket placeholders from adapt LLM prompt (evaluate._PLACEHOLDER_MARKERS and related copy).
-#   - Phrases migrated from config/data_field_synonyms.json (still used for non-QBR decks).
-#   - Top-level and nested keys produced by hydrate_data_summary.build_data_summary (targets for metrics).
+#   slides:
+#     - slide_number: N          # 1-based index in the Google Slides deck (title is slide 1)
+#       slide_id: health         # optional logical type from decks/qbr.yaml (filters like before)
+#       elements:
+#         - name: my_metric      # your label for validation / grep (stored on replacement as qbr_mapping_element)
+#           source: "phrase or [000]"   # phrase substring or exact bracket placeholder
+#           target: dotted.path   # hydrate data_summary path; "" skips rule
+#
+#   global_elements:              # optional; rules without a slide_number (any slide, still respect slide_id on row)
+#     - name: bracket_int
+#       source: "[000]"
+#       target: ""
+#
+# Legacy version 1 (flat ``mappings`` + ``bracket_placeholder_sources``) still loads if version is 1
+# and you omit ``slides`` / ``global_elements``.
 
-version: 1
+version: 2
 
-# Keys and paths available in data_summary today (for target hints). Nested dicts use dotted paths.
+# Keys and paths available in data_summary (reference only — not read by code).
 data_summary_reference_paths:
   - customer_name
   - report_date
@@ -52,36 +57,38 @@ data_summary_reference_paths:
   - salesforce.accounts
   - salesforce.opportunity_count_this_year
   - salesforce.pipeline_arr
-  - platform_value  # object; typical children depend on CS Report — fill as you learn them
-  - supply_chain    # object; children depend on CS Report
+  - platform_value
+  - supply_chain
 
-# Bracket-style placeholders the adapt LLM is steered toward (sources; set targets when you know the metric).
-bracket_placeholder_sources:
-  - source: "[000]"
-    target: ""
-  - source: "[$000]"
-    target: ""
-  - source: "[00/00/00]"
-    target: ""
-  - source: "[00%]"
-    target: ""
-  - source: "[???]"
-    target: ""
+# Example: set slide_number to match your template after a dry run; leave empty until filled.
+slides: []
 
-# Former config/data_field_synonyms.json entries (phrase → path). Extend per slide_id when needed.
-mappings:
-  - slide_id: null
+# Bracket placeholders used anywhere until you assign slide-specific rows under ``slides``.
+global_elements:
+  - name: bracket_integer
+    source: "[000]"
+    target: ""
+  - name: bracket_currency
+    source: "[$000]"
+    target: ""
+  - name: bracket_date
+    source: "[00/00/00]"
+    target: ""
+  - name: bracket_percent
+    source: "[00%]"
+    target: ""
+  - name: bracket_unknown
+    source: "[???]"
+    target: ""
+  - name: cost_avoidance_phrase
     source: "cost avoidance"
     target: platform_value.total_savings
-  - slide_id: null
+  - name: material_cost_avoidance_phrase
     source: "material cost avoidance"
     target: platform_value.total_savings
-  - slide_id: null
+  - name: total_cost_avoidance_phrase
     source: "total cost avoidance"
     target: platform_value.total_savings
-  - slide_id: null
-    source: "average hours spent weekly on leandna"
-    target: account_avg_weekly_hours
-  - slide_id: null
-    source: "weekly on leandna for engagement metrics"
+  - name: leandna_weekly_hours_phrase
+    source: "LeanDNA weekly hours"
     target: account_avg_weekly_hours

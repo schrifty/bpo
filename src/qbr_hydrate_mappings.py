@@ -37,7 +37,7 @@ def load_qbr_mappings(*, path: Path | None = None) -> dict[str, Any]:
     try:
         mtime = p.stat().st_mtime
     except OSError:
-        return {"version": 1, "mappings": [], "bracket_placeholder_sources": []}
+        return {"version": 2, "slides": [], "global_elements": []}
     with _LOAD_LOCK:
         if _cached is not None and _cached_mtime == mtime:
             return _cached
@@ -50,7 +50,7 @@ def load_qbr_mappings(*, path: Path | None = None) -> dict[str, Any]:
             raw = {}
         _cached = raw
         _cached_mtime = mtime
-        return raw
+        return _cached
 
 
 def build_adapt_page_slide_type_by_page_id(
@@ -82,6 +82,115 @@ def build_adapt_page_slide_type_by_page_id(
     return out
 
 
+def _normalize_slide_id(raw: Any) -> str | None:
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s or s.lower() in ("null", "none", "~"):
+        return None
+    return s
+
+
+def _coerce_slide_number(raw: Any) -> int | None:
+    """YAML may use int or string; null means rule applies on any slide (subject to slide_id)."""
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw if raw > 0 else None
+    s = str(raw).strip()
+    if not s or s.lower() in ("null", "none", "~"):
+        return None
+    try:
+        n = int(s)
+    except ValueError:
+        return None
+    return n if n > 0 else None
+
+
+def _row_from_element(
+    ent: dict[str, Any],
+    *,
+    slide_number: int | None,
+    parent_slide_id: str | None,
+) -> dict[str, Any]:
+    sid = _normalize_slide_id(ent.get("slide_id"))
+    if sid is None:
+        sid = parent_slide_id
+    name = ent.get("name") if ent.get("name") is not None else ent.get("data_element_name")
+    return {
+        "slide_number": slide_number,
+        "slide_id": sid,
+        "data_element_name": str(name).strip() if name is not None else "",
+        "source": str(ent.get("source") or "").strip(),
+        "target": str(ent.get("target") or "").strip(),
+    }
+
+
+def expand_mapping_rules(cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten YAML into rule dicts: slide_number, slide_id, data_element_name, source, target.
+
+    Supports:
+
+    * **version >= 2** (or presence of ``slides`` / ``global_elements``): structured
+      ``slides: [{ slide_number, slide_id?, elements: [{ name, source, target, slide_id? }] }]``
+      and ``global_elements: [{ name, source, target, slide_id? }]``.
+    * **version 1** (legacy): ``mappings`` + ``bracket_placeholder_sources`` flat lists with
+      optional ``slide_id``; no per-slide numbering.
+    """
+    rows: list[dict[str, Any]] = []
+    ver = cfg.get("version", 1)
+    try:
+        ver_int = int(ver)
+    except (TypeError, ValueError):
+        ver_int = 1
+    use_v2 = ver_int >= 2 or "slides" in cfg or "global_elements" in cfg
+
+    if use_v2:
+        for block in cfg.get("slides") or []:
+            if not isinstance(block, dict):
+                continue
+            block_sn = _coerce_slide_number(block.get("slide_number"))
+            block_sid = _normalize_slide_id(block.get("slide_id"))
+            for ent in block.get("elements") or []:
+                if isinstance(ent, dict):
+                    rows.append(_row_from_element(ent, slide_number=block_sn, parent_slide_id=block_sid))
+        for ent in cfg.get("global_elements") or []:
+            if isinstance(ent, dict):
+                rows.append(_row_from_element(ent, slide_number=None, parent_slide_id=None))
+        if rows or ver_int >= 2:
+            return rows
+
+    for ent in cfg.get("mappings") or []:
+        if isinstance(ent, dict):
+            rows.append(
+                {
+                    "slide_number": _coerce_slide_number(ent.get("slide_number")),
+                    "slide_id": _normalize_slide_id(ent.get("slide_id")),
+                    "data_element_name": str(
+                        ent.get("data_element_name") or ent.get("name") or ""
+                    ).strip(),
+                    "source": str(ent.get("source") or "").strip(),
+                    "target": str(ent.get("target") or "").strip(),
+                }
+            )
+    for ent in cfg.get("bracket_placeholder_sources") or []:
+        if isinstance(ent, dict):
+            rows.append(
+                {
+                    "slide_number": _coerce_slide_number(ent.get("slide_number")),
+                    "slide_id": _normalize_slide_id(ent.get("slide_id")),
+                    "data_element_name": str(
+                        ent.get("data_element_name") or ent.get("name") or ""
+                    ).strip(),
+                    "source": str(ent.get("source") or "").strip(),
+                    "target": str(ent.get("target") or "").strip(),
+                }
+            )
+    return rows
+
+
 def _normalize_context(s: str) -> str:
     t = (s or "").replace("\u00a0", " ").lower().strip()
     return re.sub(r"\s+", " ", t)
@@ -94,6 +203,7 @@ def apply_explicit_qbr_mappings(
     *,
     slide_type: str | None,
     slide_ref: str = "",
+    slide_number: int | None = None,
 ) -> list[dict]:
     """Apply ``config/qbr_mappings.yaml`` rules (phrase or exact placeholder → dotted path)."""
     from .data_field_synonyms import (
@@ -108,14 +218,7 @@ def apply_explicit_qbr_mappings(
     )
 
     cfg = load_qbr_mappings()
-    rows: list[dict[str, Any]] = []
-    for ent in cfg.get("mappings") or []:
-        if isinstance(ent, dict):
-            rows.append(ent)
-    for ent in cfg.get("bracket_placeholder_sources") or []:
-        if isinstance(ent, dict):
-            rows.append(ent)
-
+    rows = expand_mapping_rules(cfg)
     st_filter = (slide_type or "").strip()
     out: list[dict] = []
     for r in replacements:
@@ -135,13 +238,18 @@ def apply_explicit_qbr_mappings(
         for ent in rows:
             src = str(ent.get("source") or "").strip()
             tgt = str(ent.get("target") or "").strip()
-            slide_id = ent.get("slide_id")
-            if not src or not tgt:
-                continue
-            sid_raw = slide_id
+            rule_sn = ent.get("slide_number")
+            if rule_sn is not None:
+                if slide_number is None:
+                    continue
+                if int(rule_sn) != int(slide_number):
+                    continue
+            sid_raw = ent.get("slide_id")
             if sid_raw is not None and str(sid_raw).strip() not in ("", "null"):
                 if st_filter and str(sid_raw).strip() != st_filter:
                     continue
+            if not src or not tgt:
+                continue
             is_bracket = src.startswith("[") and src.endswith("]")
             if is_bracket:
                 if orig.strip() != src:
@@ -181,12 +289,17 @@ def apply_explicit_qbr_mappings(
             r["new_value"] = new_val
             r["synonym_phrase"] = src
             r["synonym_path"] = tgt
+            elem_label = ent.get("data_element_name") or ""
+            if elem_label:
+                r["qbr_mapping_element"] = elem_label
             applied = True
             logger.debug(
-                "qbr_mappings: slide %s applied %r → %s",
+                "qbr_mappings: slide %s%s applied %r → %s (element=%r)",
                 slide_ref,
+                f" n={slide_number}" if slide_number is not None else "",
                 src,
                 tgt,
+                elem_label or None,
             )
             break
         out.append(r)
