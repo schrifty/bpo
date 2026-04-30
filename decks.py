@@ -214,7 +214,8 @@ def _run_csm_book_deck() -> None:
     from src.slides_client import create_csm_book_of_business_deck
 
     anchor = csm_book_cli_argv_anchor(sys.argv[1:])
-    rest = sys.argv[anchor + 1:] if anchor >= 0 else []
+    # anchor is an index into sys.argv[1:]; flags start after that token (skip script + argv[1:][:anchor+1]).
+    rest = sys.argv[2 + anchor :] if anchor >= 0 else []
 
     parser = argparse.ArgumentParser(description="CSM Book of Business (Pendo CSM / ownername filter)")
     parser.add_argument("--csm", type=str, default=None, help="Substring to match Pendo visitor ownername (CSM)")
