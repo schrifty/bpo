@@ -39,6 +39,10 @@ from .data_field_synonyms import (
     data_summary_lookup,
     data_summary_path_exists,
 )
+from .qbr_hydrate_mappings import (
+    apply_explicit_qbr_mappings,
+    build_adapt_page_slide_type_by_page_id,
+)
 from .drive_config import assert_qbr_prompts_ready_or_raise, get_deck_output_folder_id
 from .hydrate_capabilities import (
     AVAILABLE_DATA_KEYS as _AVAILABLE_DATA_KEYS,
@@ -1664,6 +1668,11 @@ def adapt_custom_slides(
     _reset_hydrate_data_summary_for_tests()
     run_start = run_started_at or datetime.datetime.now(datetime.timezone.utc)
     data_summary = _build_data_summary(report)
+    use_explicit_qbr = bool(report.get("_hydrate_explicit_qbr_mappings"))
+    explicit_slide_type_by_page: dict[str, str] = {}
+    if use_explicit_qbr:
+        explicit_slide_type_by_page = build_adapt_page_slide_type_by_page_id(report, page_ids)
+        logger.info("hydrate: QBR explicit mappings enabled (config/qbr_mappings.yaml); synonym phrase table skipped")
     t_adapt0 = time.perf_counter()
     stats = {
         "adapted": 0,
@@ -1734,6 +1743,21 @@ def adapt_custom_slides(
                 matching_log.emit("slide_skip", slide_ref=str(sn), reason="no_text_elements")
             return page_id, [], [], "empty", None
         slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
+        slide_type_for_explicit = explicit_slide_type_by_page.get(page_id) if use_explicit_qbr else None
+
+        def _post_llm_mapping(repls: list[dict]) -> list[dict]:
+            if use_explicit_qbr:
+                return apply_explicit_qbr_mappings(
+                    repls,
+                    text_elements,
+                    data_summary,
+                    slide_type=slide_type_for_explicit or None,
+                    slide_ref=str(slide_num),
+                )
+            return apply_synonym_resolution_to_replacements(
+                repls, text_elements, data_summary, slide_ref=str(slide_num)
+            )
+
         extra_agenda = _qbr_agenda_adapt_extra_rules(report, text_elements)
         url = thumb_urls.get(page_id)
         thumb_b64 = None
@@ -1756,9 +1780,7 @@ def adapt_custom_slides(
                     text_elements,
                     slide_ref=str(slide_num),
                 )
-                replacements = apply_synonym_resolution_to_replacements(
-                    replacements, text_elements, data_summary, slide_ref=str(slide_num)
-                )
+                replacements = _post_llm_mapping(replacements)
                 replacements = _sanitize_adapt_replacements_plausible_years(
                     replacements, slide_ref=str(slide_num)
                 )
@@ -1777,9 +1799,7 @@ def adapt_custom_slides(
                 replacements = _resolve_cached_replacements(
                     cached, data_summary, slide_ref=str(slide_num)
                 )
-                replacements = apply_synonym_resolution_to_replacements(
-                    replacements, text_elements, data_summary, slide_ref=str(slide_num)
-                )
+                replacements = _post_llm_mapping(replacements)
                 replacements = _sanitize_adapt_replacements_plausible_years(
                     replacements, slide_ref=str(slide_num)
                 )
@@ -1801,9 +1821,7 @@ def adapt_custom_slides(
             slide_label=str(slide_num),
             extra_system_rules=extra_agenda,
         )
-        replacements = apply_synonym_resolution_to_replacements(
-            replacements, text_elements, data_summary, slide_ref=str(slide_num)
-        )
+        replacements = _post_llm_mapping(replacements)
         replacements = _sanitize_adapt_replacements_plausible_years(
             replacements, slide_ref=str(slide_num)
         )

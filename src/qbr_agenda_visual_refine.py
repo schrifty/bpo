@@ -36,6 +36,7 @@ from .evaluate import (
     _slide_metric_font_clamp_requests,
     apply_synonym_resolution_to_replacements,
 )
+from .qbr_hydrate_mappings import apply_explicit_qbr_mappings
 from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
 from .speaker_notes import set_speaker_notes
 from .slides_api import slides_presentations_batch_update
@@ -547,9 +548,18 @@ def run_qbr_agenda_visual_refinement_loop(
             extra_system_rules=extra,
         )
         _slab = f"qbr-agenda-refine-{refinements_used}"
-        replacements = apply_synonym_resolution_to_replacements(
-            replacements, text_elements, data_summary, slide_ref=_slab
-        )
+        if report.get("_hydrate_explicit_qbr_mappings"):
+            replacements = apply_explicit_qbr_mappings(
+                replacements,
+                text_elements,
+                data_summary,
+                slide_type="qbr_agenda",
+                slide_ref=_slab,
+            )
+        else:
+            replacements = apply_synonym_resolution_to_replacements(
+                replacements, text_elements, data_summary, slide_ref=_slab
+            )
         replacements = _sanitize_adapt_replacements_plausible_years(
             replacements, slide_ref=_slab
         )

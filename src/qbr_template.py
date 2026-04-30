@@ -756,6 +756,8 @@ def run_qbr_from_template(
             manifest_sha16=mf_hash,
         )
         _qbr_time_segment("qbr_adapt_hints_llm")
+        # QBR deck: resolve placeholders via config/qbr_mappings.yaml instead of phrase synonym table.
+        report["_hydrate_explicit_qbr_mappings"] = True
         adapt_hydrate_stats = adapt_custom_slides(
             slides_svc,
             pres_id,

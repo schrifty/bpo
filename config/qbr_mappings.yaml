@@ -1,0 +1,87 @@
+# Explicit QBR hydrate mappings (replaces phrase/synonym dictionary matching for QBR only).
+#
+# Schema (version 1):
+#   mappings: list of
+#     slide_id: optional logical slide id from decks/qbr.yaml / resolve_deck slide_type
+#               (e.g. health, engagement, qbr_agenda). Use null for rules that apply on every slide.
+#     source:   text to match — either a bracket placeholder exactly (e.g. "[000]") or a phrase
+#               substring matched in normalized text near the replacement (same narrowing as synonyms).
+#     target:   dotted path into hydrate data_summary (see hydrate_data_summary.build_data_summary).
+#               Leave empty "" for you to fill in later; blank targets are skipped at runtime.
+#
+# Discovered mapping sources (intuition / pipeline today — not an exhaustive template audit):
+#   - Bracket placeholders from adapt LLM prompt (evaluate._PLACEHOLDER_MARKERS and related copy).
+#   - Phrases migrated from config/data_field_synonyms.json (still used for non-QBR decks).
+#   - Top-level and nested keys produced by hydrate_data_summary.build_data_summary (targets for metrics).
+
+version: 1
+
+# Keys and paths available in data_summary today (for target hints). Nested dicts use dotted paths.
+data_summary_reference_paths:
+  - customer_name
+  - report_date
+  - quarter
+  - quarter_start
+  - quarter_end
+  - total_users
+  - total_visitors
+  - unique_visitors
+  - active_users
+  - total_sites
+  - active_sites
+  - health_score
+  - account_total_minutes
+  - account_avg_weekly_hours
+  - site_details[].name
+  - site_details[].visitors
+  - site_details[].pages_used
+  - site_details[].features_used
+  - site_details[].events
+  - site_details[].total_minutes
+  - site_details[].last_active
+  - total_shortages
+  - total_critical_shortages
+  - weekly_active_buyers_pct_avg
+  - cs_health_sites[].site
+  - cs_health_sites[].health
+  - cs_health_sites[].ctb
+  - cs_health_sites[].ctc
+  - support.total_tickets
+  - support.open
+  - support.resolved
+  - salesforce.accounts
+  - salesforce.opportunity_count_this_year
+  - salesforce.pipeline_arr
+  - platform_value  # object; typical children depend on CS Report — fill as you learn them
+  - supply_chain    # object; children depend on CS Report
+
+# Bracket-style placeholders the adapt LLM is steered toward (sources; set targets when you know the metric).
+bracket_placeholder_sources:
+  - source: "[000]"
+    target: ""
+  - source: "[$000]"
+    target: ""
+  - source: "[00/00/00]"
+    target: ""
+  - source: "[00%]"
+    target: ""
+  - source: "[???]"
+    target: ""
+
+# Former config/data_field_synonyms.json entries (phrase → path). Extend per slide_id when needed.
+mappings:
+  - slide_id: null
+    source: "cost avoidance"
+    target: platform_value.total_savings
+  - slide_id: null
+    source: "material cost avoidance"
+    target: platform_value.total_savings
+  - slide_id: null
+    source: "total cost avoidance"
+    target: platform_value.total_savings
+  - slide_id: null
+    source: "average hours spent weekly on leandna"
+    target: account_avg_weekly_hours
+  - slide_id: null
+    source: "weekly on leandna for engagement metrics"
+    target: account_avg_weekly_hours
