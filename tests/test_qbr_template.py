@@ -152,3 +152,154 @@ def test_run_qbr_from_template_smoke(
     _args, kwargs = mock_adapt.call_args
     adapt_ids = _args[2]
     assert adapt_ids == ["a1"]
+
+
+@pytest.mark.slow
+@patch.object(qbr_template, "apply_cohort_bundle_links_to_notable_signals", return_value=0)
+@patch.object(qbr_template, "create_cohort_deck")
+@patch.object(qbr_template, "create_health_deck")
+@patch.object(qbr_template, "_find_or_create_folder", return_value="bundlefold")
+@patch.object(qbr_template, "adapt_custom_slides")
+@patch.object(qbr_template, "_insert_executive_summary_slides")
+@patch.object(qbr_template, "call_manifest_planner")
+@patch.object(qbr_template, "llm_client")
+@patch.object(qbr_template, "PendoClient")
+@patch.object(qbr_template, "resolve_qbr_template_and_manifest", return_value=("tpl", "manifest"))
+@patch.object(qbr_template, "get_qbr_output_folder_id", return_value="outfold")
+def test_run_qbr_skips_exec_insert_when_manifest_false(
+    mock_out,
+    mock_resolve_assets,
+    mock_pendo_cls,
+    mock_llm,
+    mock_plan,
+    mock_insert,
+    mock_adapt,
+    mock_find_or_create,
+    mock_create_health_deck,
+    mock_create_cohort_deck,
+    mock_cohort_links,
+):
+    mock_create_health_deck.return_value = {"presentation_id": "x", "url": "https://x"}
+    mock_create_cohort_deck.return_value = {"presentation_id": "c", "url": "https://c"}
+    mock_pc = MagicMock()
+    mock_pc.get_sites_by_customer.return_value = {"customer_list": ["Acme Corp"]}
+    mock_pc.get_customer_health_report.return_value = {
+        "customer": "Acme Corp",
+        "account": {"csm": "x", "total_sites": 1, "total_visitors": 1},
+        "days": 30,
+    }
+    mock_pendo_cls.return_value = mock_pc
+
+    mock_plan.return_value = {
+        "insert_executive_summary": False,
+        "hide": {"title_contains": [], "indices": []},
+        "move_to_end_title_contains": [],
+        "notes": "no exec",
+    }
+
+    slides_svc = MagicMock()
+    drive_svc = MagicMock()
+    drive_svc.files().copy.return_value.execute.return_value = {"id": "presX"}
+    pres = {
+        "slides": [
+            {"objectId": "t0", "pageElements": []},
+            {"objectId": "a1", "pageElements": []},
+        ]
+    }
+    slides_svc.presentations().get.return_value.execute.side_effect = [pres, pres]
+
+    mock_gs = MagicMock(return_value=(slides_svc, drive_svc, None))
+    with patch.object(qbr_template, "get_qbr_generator_folder_id_for_drive_config", return_value="gen_folder"):
+        with patch.object(qbr_template, "_get_service", mock_gs):
+            with patch.object(qbr_template, "_detect_customer", return_value="Acme Corp"):
+                r = qbr_template.run_qbr_from_template("acme")
+
+    assert r.get("ok") is True
+    mock_insert.assert_not_called()
+    _args, _ = mock_adapt.call_args
+    assert _args[2] == ["a1"]
+
+
+@pytest.mark.slow
+@patch.object(qbr_template, "apply_qbr_template_style_strip_after_adapt")
+@patch.object(qbr_template, "find_qbr_agenda_page_id", return_value=None)
+@patch.object(qbr_template, "run_qbr_adapt_hints_phase")
+@patch.object(qbr_template, "resolve_deck", return_value={"slides": []})
+@patch.object(qbr_template, "apply_cohort_bundle_links_to_notable_signals", return_value=0)
+@patch.object(qbr_template, "create_cohort_deck")
+@patch.object(qbr_template, "create_health_deck")
+@patch.object(qbr_template, "_find_or_create_folder", return_value="bundlefold")
+@patch.object(qbr_template, "adapt_custom_slides")
+@patch.object(qbr_template, "_insert_executive_summary_slides", return_value=(["e1", "e2"], 2, []))
+@patch.object(qbr_template, "call_manifest_planner")
+@patch.object(qbr_template, "llm_client")
+@patch.object(qbr_template, "PendoClient")
+@patch.object(qbr_template, "resolve_qbr_template_and_manifest", return_value=("tpl", "manifest"))
+@patch.object(qbr_template, "get_qbr_output_folder_id", return_value="outfold")
+def test_run_qbr_from_template_main_only_skips_companions(
+    mock_out,
+    mock_resolve_assets,
+    mock_pendo_cls,
+    mock_llm,
+    mock_plan,
+    mock_insert,
+    mock_adapt,
+    mock_find_or_create,
+    mock_create_health_deck,
+    mock_create_cohort_deck,
+    mock_cohort_links,
+    mock_resolve_deck,
+    mock_hints,
+    mock_find_agenda,
+    mock_strip,
+):
+    mock_create_health_deck.return_value = {
+        "presentation_id": "companion1",
+        "url": "https://docs.example/companion",
+    }
+    mock_pc = MagicMock()
+    mock_pc.get_sites_by_customer.return_value = {"customer_list": ["Acme Corp", "Other"]}
+    mock_pc.get_customer_health_report.return_value = {
+        "customer": "Acme Corp",
+        "account": {"csm": "x", "total_sites": 1, "total_visitors": 1},
+        "days": 30,
+    }
+    mock_pendo_cls.return_value = mock_pc
+
+    mock_plan.return_value = {
+        "insert_executive_summary": True,
+        "hide": {"title_contains": [], "indices": []},
+        "move_to_end_title_contains": [],
+        "notes": "none",
+    }
+
+    slides_svc = MagicMock()
+    drive_svc = MagicMock()
+    drive_svc.files().copy.return_value.execute.return_value = {"id": "presNEW"}
+
+    pres_seq = {
+        "slides": [
+            {"objectId": "t0", "pageElements": []},
+            {"objectId": "a1", "pageElements": []},
+        ]
+    }
+    pres_final = {
+        "slides": [
+            {"objectId": "t0", "pageElements": []},
+            {"objectId": "a1", "pageElements": []},
+        ]
+    }
+    slides_svc.presentations().get.return_value.execute.side_effect = [pres_seq, pres_final]
+
+    mock_gs = MagicMock(return_value=(slides_svc, drive_svc, None))
+    with patch.object(qbr_template, "get_qbr_generator_folder_id_for_drive_config", return_value="gen_folder"):
+        with patch.object(qbr_template, "_get_service", mock_gs):
+            with patch.object(qbr_template, "_detect_customer", return_value="Acme Corp"):
+                r = qbr_template.run_qbr_from_template("acme", companion_bundle=False)
+
+    assert r.get("ok") is True
+    assert r.get("companion_bundle") is False
+    assert r.get("companion_decks") == []
+    mock_create_health_deck.assert_not_called()
+    mock_create_cohort_deck.assert_not_called()
+    mock_cohort_links.assert_not_called()

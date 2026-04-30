@@ -529,18 +529,25 @@ def compute_adapt_page_ids(
     return out
 
 
-def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
-    """End-to-end QBR: copy template, manifest plan (hide/move), adapt.
+def run_qbr_from_template(
+    customer_query: str,
+    *,
+    companion_bundle: bool = True,
+) -> dict[str, Any]:
+    """End-to-end QBR: copy template, manifest plan (optional exec-summary insert), hide/move, adapt.
 
     Creates ``<QBR Generator>/Output/{date} - Output/{customer} — QBR bundle ({quarter})/`` (unless
     ``GOOGLE_QBR_OUTPUT_PARENT_ID`` overrides the parent of ``{date} - Output``), and places the hydrated QBR
-    deck there together with companion decks listed in ``QBR_BUNDLE_COMPANION_DECKS`` (see that tuple for
-    the current set: single-customer reports, engineering portfolio, Salesforce export, portfolio health
-    review, and cohort — portfolio-level decks share the Pendo portfolio rollup and quarter window).
+    deck there. When *companion_bundle* is true (default), also builds companion decks listed in
+    ``QBR_BUNDLE_COMPANION_DECKS`` (single-customer reports, engineering portfolio, Salesforce export,
+    book-of-business portfolio, and cohort — portfolio-level decks share the Pendo portfolio rollup and
+    quarter window). When false, only the main QBR presentation is produced in the bundle folder (CLI:
+    ``python main.py qbr --main-only …``).
     After preload, may auto-build/upload the Drive
     portfolio snapshot once per calendar day (see ``ensure_daily_portfolio_snapshot_for_qbr``).
 
-    Returns a result dict with ``url``, ``bundle_folder_id``, ``companion_decks``, and logging fields.
+    Returns a result dict with ``url``, ``bundle_folder_id``, ``companion_decks``, ``companion_bundle``,
+    and logging fields.
     """
     qbr_t0 = time.perf_counter()
     qbr_t = qbr_t0
@@ -808,14 +815,18 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
         "hydrate_adapt_stats": adapt_hydrate_stats,
     }
 
-    if target_folder_id:
+    result["companion_bundle"] = bool(companion_bundle)
+    if target_folder_id and companion_bundle:
         result["companion_decks"] = _build_companion_decks_for_qbr_bundle(report, target_folder_id)
     else:
         result["companion_decks"] = []
-        logger.info(
-            "QBR: no Drive Output folder — skipping companion decks "
-            "(set GOOGLE_QBR_GENERATOR_FOLDER_ID; optional GOOGLE_QBR_OUTPUT_PARENT_ID overrides Output parent)"
-        )
+        if not companion_bundle:
+            logger.info("QBR: skipping companion bundle (main QBR deck only)")
+        else:
+            logger.info(
+                "QBR: no Drive Output folder — skipping companion decks "
+                "(set GOOGLE_QBR_GENERATOR_FOLDER_ID; optional GOOGLE_QBR_OUTPUT_PARENT_ID overrides Output parent)"
+            )
 
     cohort_url = next(
         (

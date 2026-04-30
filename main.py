@@ -10,17 +10,37 @@ from src.config import logger
 def main() -> None:
     argv = sys.argv[1:]
     if argv and argv[0] == "qbr":
-        customer = " ".join(argv[1:]).strip()
+        import argparse
+
+        qbr_ap = argparse.ArgumentParser(
+            prog="python main.py qbr",
+            description="Build QBR from the Drive template (see GOOGLE_QBR_GENERATOR_FOLDER_ID).",
+        )
+        qbr_ap.add_argument(
+            "--main-only",
+            action="store_true",
+            help="Only the main QBR Slides file; skip companion decks (cs_health_review, cohort, etc.)",
+        )
+        qbr_ap.add_argument(
+            "customer_words",
+            nargs="*",
+            help="Customer name or substring (must match a Pendo customer name)",
+        )
+        ns = qbr_ap.parse_args(argv[1:])
+        customer = " ".join(ns.customer_words).strip()
         if not customer:
-            print("Usage: python main.py qbr <customer>", file=sys.stderr)
-            print("  Builds a QBR deck from the Drive template (see GOOGLE_QBR_GENERATOR_FOLDER_ID).", file=sys.stderr)
+            qbr_ap.print_help()
             sys.exit(2)
         from src.qbr_template import run_qbr_from_template
 
         import time as _time
         _qbr_t0 = _time.monotonic()
-        logger.info("QBR run for customer query: %s", customer)
-        result = run_qbr_from_template(customer)
+        logger.info(
+            "QBR run for customer query: %s (companion_bundle=%s)",
+            customer,
+            not ns.main_only,
+        )
+        result = run_qbr_from_template(customer, companion_bundle=not ns.main_only)
         if result.get("error"):
             print(f"Error: {result['error']}", file=sys.stderr)
             if result.get("hint"):
@@ -28,6 +48,8 @@ def main() -> None:
             sys.exit(1)
         print(result.get("url", ""))
         print(f"Customer: {result.get('customer')}")
+        if ns.main_only:
+            print("Companion bundle: skipped (--main-only)")
         if result.get("bundle_folder_id"):
             print(
                 f"Bundle folder: https://drive.google.com/drive/folders/{result['bundle_folder_id']}"
@@ -145,7 +167,8 @@ def main() -> None:
         parser.print_help()
         print("\nExamples:")
         print("  python main.py 'Get usage data for customer acme-123'")
-        print("  python main.py qbr \"Acme Corp\"   # QBR from Drive template (see GOOGLE_QBR_GENERATOR_FOLDER_ID)")
+        print('  python main.py qbr "Acme Corp"   # QBR + full companion bundle')
+        print('  python main.py qbr --main-only "Acme Corp"   # Main QBR deck only')
 
 
 if __name__ == "__main__":
