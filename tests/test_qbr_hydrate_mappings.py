@@ -7,6 +7,7 @@ import yaml
 
 from src.qbr_hydrate_mappings import (
     apply_explicit_qbr_mappings,
+    bootstrap_qbr_mappings_from_slides,
     build_adapt_page_slide_type_by_page_id,
     expand_mapping_rules,
     merge_discovered_sources_into_qbr_mappings,
@@ -187,6 +188,44 @@ def test_merge_appends_unmapped_sources(tmp_path) -> None:
     )
     assert el.get("target") == ""
     assert str(el.get("name", "")).startswith("auto_s3_")
+
+
+def test_bootstrap_slide_walk_writes_when_yaml_missing(tmp_path) -> None:
+    p = tmp_path / "qbr_mappings.yaml"
+    assert not p.exists()
+    slides_by_id = {
+        "p1": {
+            "objectId": "p1",
+            "pageElements": [
+                {
+                    "objectId": "sh1",
+                    "shape": {
+                        "text": {
+                            "textElements": [
+                                {"textRun": {"content": "Revenue $1.2M\n"}},
+                            ]
+                        }
+                    },
+                }
+            ],
+        }
+    }
+    n = bootstrap_qbr_mappings_from_slides(
+        slides_by_id,
+        ["p1"],
+        ["p1"],
+        {"p1": "health"},
+        path=p,
+    )
+    assert n >= 1
+    assert p.exists()
+    assert bootstrap_qbr_mappings_from_slides(
+        slides_by_id,
+        ["p1"],
+        ["p1"],
+        {"p1": "health"},
+        path=p,
+    ) == 0
 
 
 def test_merge_skips_existing_source_on_same_slide(tmp_path) -> None:

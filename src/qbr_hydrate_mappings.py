@@ -2,6 +2,10 @@
 
 When ``report[REPORT_KEY_EXPLICIT_QBR_MAPPINGS]`` is true, :func:`adapt_custom_slides` uses
 :func:`apply_explicit_qbr_mappings` instead of synonym-phrase resolution from ``data_field_synonyms``.
+
+**Missing file:** If ``config/qbr_mappings.yaml`` is absent, :func:`bootstrap_qbr_mappings_from_slides`
+runs once at the start of adapt (before LLM) to walk template slides and append candidate data
+elements (``target: ""``). Deleting the file is the signal to remap after a template change.
 """
 
 from __future__ import annotations
@@ -21,6 +25,8 @@ REPORT_KEY_EXPLICIT_QBR_MAPPINGS = "_hydrate_explicit_qbr_mappings"
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_PATH = _REPO_ROOT / "config" / "qbr_mappings.yaml"
+# Public path for callers (e.g. ``adapt_custom_slides`` checks existence before bootstrap).
+QBR_MAPPINGS_DEFAULT_PATH = _DEFAULT_PATH
 
 _LOAD_LOCK = threading.Lock()
 _cached: dict[str, Any] | None = None
@@ -32,7 +38,11 @@ _SYNONYM_TRIGGER_PLACEHOLDERS = frozenset(
 
 
 def load_qbr_mappings(*, path: Path | None = None) -> dict[str, Any]:
-    """Load ``qbr_mappings.yaml`` (cached by mtime). Returns empty mappings if missing."""
+    """Load ``qbr_mappings.yaml`` (cached by mtime).
+
+    If the file is missing, returns an in-memory empty v2 shape (no disk write). Call
+    :func:`bootstrap_qbr_mappings_from_slides` before adapt to create the file from a slide walk.
+    """
     global _cached, _cached_mtime
     p = path or _DEFAULT_PATH
     try:
@@ -256,6 +266,65 @@ def _ensure_slide_block(slides: list[Any], slide_number: int, slide_id: str | No
         block["slide_id"] = slide_id
     slides.append(block)
     return block
+
+
+def _bootstrap_source_text_ok(text: str) -> bool:
+    t = (text or "").strip()
+    if not t or len(t) > 2000:
+        return False
+    if t.startswith("(embedded") or t.startswith("(image"):
+        return False
+    return True
+
+
+def bootstrap_qbr_mappings_from_slides(
+    slides_by_id: dict[str, Any],
+    page_ids: list[str],
+    ordered_ids: list[str],
+    explicit_slide_type_by_page: dict[str, str],
+    *,
+    path: Path | None = None,
+) -> int:
+    """If ``path`` (default ``config/qbr_mappings.yaml``) does not exist, walk ``page_ids`` and write rules.
+
+    Uses the same data-element heuristic as adapt (:func:`~hydrate_replacements.element_may_contain_data`).
+    Returns number of new elements written, or 0 if the file already exists or nothing matched.
+    """
+    from .hydrate_extract import extract_slide_text_elements as _extract_te
+    from .hydrate_replacements import element_may_contain_data as _element_may_contain_data
+
+    p = path or _DEFAULT_PATH
+    if p.exists():
+        return 0
+    discoveries: list[dict[str, Any]] = []
+    seen: set[tuple[int, str]] = set()
+    for page_id in page_ids:
+        slide = slides_by_id.get(page_id)
+        if not slide or page_id not in ordered_ids:
+            continue
+        sn = ordered_ids.index(page_id) + 1
+        sid_raw = (explicit_slide_type_by_page.get(page_id) or "").strip() or None
+        for el in _extract_te(slide.get("pageElements") or []):
+            if not _element_may_contain_data(el):
+                continue
+            raw = str(el.get("text") or "").strip()
+            if not _bootstrap_source_text_ok(raw):
+                continue
+            key = (int(sn), _norm_source_key(raw))
+            if key in seen:
+                continue
+            seen.add(key)
+            discoveries.append({"slide_number": int(sn), "slide_id": sid_raw, "source": raw})
+    if not discoveries:
+        return 0
+    n = merge_discovered_sources_into_qbr_mappings(discoveries, path=p)
+    if n:
+        logger.info(
+            "qbr_mappings: bootstrap from slide walk wrote %d element(s) to %s (fill targets and re-run)",
+            n,
+            p,
+        )
+    return n
 
 
 def invalidate_qbr_mappings_cache() -> None:

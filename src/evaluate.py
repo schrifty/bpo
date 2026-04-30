@@ -40,8 +40,10 @@ from .data_field_synonyms import (
     data_summary_path_exists,
 )
 from .qbr_hydrate_mappings import (
+    QBR_MAPPINGS_DEFAULT_PATH,
     REPORT_KEY_EXPLICIT_QBR_MAPPINGS,
     apply_explicit_qbr_mappings,
+    bootstrap_qbr_mappings_from_slides,
     build_adapt_page_slide_type_by_page_id,
     invalidate_qbr_mappings_cache,
     merge_discovered_sources_into_qbr_mappings,
@@ -1696,11 +1698,19 @@ def adapt_custom_slides(
         "skipped": 0,
         "notes_only": 0,
         "summary_slide_added": False,
+        "qbr_mappings_bootstrap_elements": 0,
     }
 
     pres = slides_svc.presentations().get(presentationId=pres_id).execute()
     slides_by_id = {s["objectId"]: s for s in pres.get("slides", [])}
     ordered_ids = [s["objectId"] for s in pres.get("slides", [])]
+    if use_explicit_qbr and not QBR_MAPPINGS_DEFAULT_PATH.exists():
+        nb = bootstrap_qbr_mappings_from_slides(
+            slides_by_id, page_ids, ordered_ids, explicit_slide_type_by_page
+        )
+        stats["qbr_mappings_bootstrap_elements"] = nb
+        if nb:
+            invalidate_qbr_mappings_cache()
     preflight_s = time.perf_counter() - t_adapt0
     logger.info(
         "hydrate: adapt preflight %.2fs — text-only LLM input (no slide thumbnails); disk cache uses text snapshot",
