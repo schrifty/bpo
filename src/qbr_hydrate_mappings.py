@@ -6,6 +6,7 @@ When ``report[REPORT_KEY_EXPLICIT_QBR_MAPPINGS]`` is true, :func:`adapt_custom_s
 
 from __future__ import annotations
 
+import hashlib
 import re
 import threading
 from pathlib import Path
@@ -159,6 +160,33 @@ def expand_mapping_rules(cfg: dict[str, Any]) -> list[dict[str, Any]]:
         for ent in cfg.get("global_elements") or []:
             if isinstance(ent, dict):
                 rows.append(_row_from_element(ent, slide_number=None, parent_slide_id=None))
+        # Optional legacy lists alongside v2 layout (e.g. transitional configs).
+        for ent in cfg.get("mappings") or []:
+            if isinstance(ent, dict):
+                rows.append(
+                    {
+                        "slide_number": _coerce_slide_number(ent.get("slide_number")),
+                        "slide_id": _normalize_slide_id(ent.get("slide_id")),
+                        "data_element_name": str(
+                            ent.get("data_element_name") or ent.get("name") or ""
+                        ).strip(),
+                        "source": str(ent.get("source") or "").strip(),
+                        "target": str(ent.get("target") or "").strip(),
+                    }
+                )
+        for ent in cfg.get("bracket_placeholder_sources") or []:
+            if isinstance(ent, dict):
+                rows.append(
+                    {
+                        "slide_number": _coerce_slide_number(ent.get("slide_number")),
+                        "slide_id": _normalize_slide_id(ent.get("slide_id")),
+                        "data_element_name": str(
+                            ent.get("data_element_name") or ent.get("name") or ""
+                        ).strip(),
+                        "source": str(ent.get("source") or "").strip(),
+                        "target": str(ent.get("target") or "").strip(),
+                    }
+                )
         if rows or ver_int >= 2:
             return rows
 
@@ -189,6 +217,151 @@ def expand_mapping_rules(cfg: dict[str, Any]) -> list[dict[str, Any]]:
                 }
             )
     return rows
+
+
+def _norm_source_key(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip())
+
+
+def existing_mapping_source_keys(cfg: dict[str, Any]) -> set[tuple[int | None, str]]:
+    """Keys (slide_number | None, normalized source) already present in config (any target)."""
+    keys: set[tuple[int | None, str]] = set()
+    for row in expand_mapping_rules(cfg):
+        sn = row.get("slide_number")
+        if sn is not None:
+            try:
+                sn = int(sn)
+            except (TypeError, ValueError):
+                sn = None
+        src = _norm_source_key(str(row.get("source") or ""))
+        if not src:
+            continue
+        keys.add((sn, src))
+    return keys
+
+
+def _auto_element_name(slide_number: int, source: str) -> str:
+    h = hashlib.sha256(f"{slide_number}:{source}".encode("utf-8")).hexdigest()[:10]
+    return f"auto_s{slide_number}_{h}"
+
+
+def _ensure_slide_block(slides: list[Any], slide_number: int, slide_id: str | None) -> dict[str, Any]:
+    for b in slides:
+        if isinstance(b, dict) and _coerce_slide_number(b.get("slide_number")) == slide_number:
+            if slide_id and not _normalize_slide_id(b.get("slide_id")):
+                b["slide_id"] = slide_id
+            return b
+    block: dict[str, Any] = {"slide_number": slide_number, "elements": []}
+    if slide_id:
+        block["slide_id"] = slide_id
+    slides.append(block)
+    return block
+
+
+def invalidate_qbr_mappings_cache() -> None:
+    """Force reload of ``qbr_mappings.yaml`` on next access (call after disk merge)."""
+    global _cached, _cached_mtime
+    with _LOAD_LOCK:
+        _cached = None
+        _cached_mtime = None
+
+
+def merge_discovered_sources_into_qbr_mappings(
+    discoveries: list[dict[str, Any]],
+    *,
+    path: Path | None = None,
+) -> int:
+    """Append ``slides[].elements`` rows (``target: ""``) for unmapped sources not already in the file.
+
+    Each discovery dict: ``slide_number`` (int), ``slide_id`` (optional str), ``source`` (str, verbatim).
+    Deduplicates by ``(slide_number, normalized source)``. Returns count of new elements appended.
+    """
+    p = path or _DEFAULT_PATH
+    seen: set[tuple[int, str]] = set()
+    uniq: list[dict[str, Any]] = []
+    for d in discoveries:
+        sn = d.get("slide_number")
+        raw = str(d.get("source") or "").strip()
+        if not isinstance(sn, int) or sn < 1 or not raw or len(raw) > 2000:
+            continue
+        key = (sn, _norm_source_key(raw))
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(
+            {
+                "slide_number": sn,
+                "slide_id": _normalize_slide_id(d.get("slide_id")),
+                "source": raw,
+            }
+        )
+    if not uniq:
+        return 0
+
+    try:
+        txt = p.read_text(encoding="utf-8")
+        cfg = yaml.safe_load(txt)
+    except (OSError, yaml.YAMLError):
+        cfg = {}
+    if not isinstance(cfg, dict):
+        cfg = {}
+
+    keys = existing_mapping_source_keys(cfg)
+    slides = cfg.setdefault("slides", [])
+    if not isinstance(slides, list):
+        cfg["slides"] = []
+        slides = cfg["slides"]
+    cfg.setdefault("global_elements", [])
+    if not isinstance(cfg["global_elements"], list):
+        cfg["global_elements"] = []
+
+    added = 0
+    for d in uniq:
+        sn = d["slide_number"]
+        raw = d["source"]
+        k = (sn, _norm_source_key(raw))
+        if k in keys:
+            continue
+        keys.add(k)
+        sid = d.get("slide_id")
+        block = _ensure_slide_block(slides, sn, sid)
+        els = block.setdefault("elements", [])
+        if not isinstance(els, list):
+            block["elements"] = []
+            els = block["elements"]
+        els.append(
+            {
+                "name": _auto_element_name(sn, raw),
+                "source": raw,
+                "target": "",
+            }
+        )
+        added += 1
+
+    if not added:
+        return 0
+
+    slides.sort(
+        key=lambda x: _coerce_slide_number(x.get("slide_number")) if isinstance(x, dict) else 10**9
+    )
+
+    try:
+        ver = int(cfg.get("version", 2))
+    except (TypeError, ValueError):
+        ver = 2
+    cfg["version"] = max(ver, 2)
+
+    p.parent.mkdir(parents=True, exist_ok=True)
+    out = yaml.dump(
+        cfg,
+        default_flow_style=False,
+        allow_unicode=True,
+        sort_keys=False,
+        width=120,
+    )
+    p.write_text(out, encoding="utf-8")
+    logger.info("qbr_mappings: wrote %d new element(s) with empty target to %s", added, p)
+    return added
 
 
 def _normalize_context(s: str) -> str:

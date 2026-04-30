@@ -43,6 +43,8 @@ from .qbr_hydrate_mappings import (
     REPORT_KEY_EXPLICIT_QBR_MAPPINGS,
     apply_explicit_qbr_mappings,
     build_adapt_page_slide_type_by_page_id,
+    invalidate_qbr_mappings_cache,
+    merge_discovered_sources_into_qbr_mappings,
 )
 from .drive_config import assert_qbr_prompts_ready_or_raise, get_deck_output_folder_id
 from .hydrate_capabilities import (
@@ -2102,6 +2104,41 @@ def adapt_custom_slides(
             for x in (preflight_s, phase_a_s, phase_b_slides_s, speaker_notes_s, tail_s)
         ),
     )
+
+    if use_explicit_qbr:
+        import os as _os
+
+        stats["qbr_mappings_sources_appended"] = 0
+        _aw = (_os.environ.get("BPO_QBR_MAPPINGS_AUTOWRITE") or "true").strip().lower()
+        if _aw not in ("0", "false", "no", "off"):
+            discoveries: list[dict[str, Any]] = []
+            for page_id in page_ids:
+                if page_id not in ordered_ids:
+                    continue
+                sn = ordered_ids.index(page_id) + 1
+                _te, reps, _an = results.get(page_id, ([], [], None))
+                sid_raw = (explicit_slide_type_by_page.get(page_id) or "").strip() or None
+                for r in reps or []:
+                    if str(r.get("field") or "").lower() in ("chart", "image"):
+                        continue
+                    if r.get("mapped", False):
+                        continue
+                    orig = str(r.get("original") or "").strip()
+                    if not orig or len(orig) > 2000:
+                        continue
+                    discoveries.append(
+                        {"slide_number": int(sn), "slide_id": sid_raw, "source": orig}
+                    )
+            if discoveries:
+                try:
+                    napp = merge_discovered_sources_into_qbr_mappings(discoveries)
+                except OSError as oe:
+                    logger.warning("qbr_mappings: auto-append to config failed — %s", oe)
+                    napp = 0
+                if napp:
+                    invalidate_qbr_mappings_cache()
+                stats["qbr_mappings_sources_appended"] = napp
+
     return stats
 
 

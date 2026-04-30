@@ -1,94 +1,10 @@
-# Explicit QBR hydrate mappings (template QBR only; see REPORT_KEY_EXPLICIT_QBR_MAPPINGS).
+# Explicit QBR hydrate mappings. After each template QBR adapt, unmapped replacement ``original``
+# strings are appended under ``slides`` with ``target: ""`` unless already present (set ``target`` manually).
+# Disable auto-append: BPO_QBR_MAPPINGS_AUTOWRITE=false
 #
-# Schema version 2 — organize by presentation slide number and logical element name so you can
-# audit coverage against the Slides filmstrip (hydrate logs use the same 1-based slide index).
-#
-#   slides:
-#     - slide_number: N          # 1-based index in the Google Slides deck (title is slide 1)
-#       slide_id: health         # optional logical type from decks/qbr.yaml (filters like before)
-#       elements:
-#         - name: my_metric      # your label for validation / grep (stored on replacement as qbr_mapping_element)
-#           source: "phrase or [000]"   # phrase substring or exact bracket placeholder
-#           target: dotted.path   # hydrate data_summary path; "" skips rule
-#
-#   global_elements:              # optional; rules without a slide_number (any slide, still respect slide_id on row)
-#     - name: bracket_int
-#       source: "[000]"
-#       target: ""
-#
-# Legacy version 1 (flat ``mappings`` + ``bracket_placeholder_sources``) still loads if version is 1
-# and you omit ``slides`` / ``global_elements``.
+# version 2: slides[].slide_number (1-based deck index) → elements[].name / source / target
+#             global_elements: any slide (optional per-row slide_id)
 
 version: 2
-
-# Keys and paths available in data_summary (reference only — not read by code).
-data_summary_reference_paths:
-  - customer_name
-  - report_date
-  - quarter
-  - quarter_start
-  - quarter_end
-  - total_users
-  - total_visitors
-  - unique_visitors
-  - active_users
-  - total_sites
-  - active_sites
-  - health_score
-  - account_total_minutes
-  - account_avg_weekly_hours
-  - site_details[].name
-  - site_details[].visitors
-  - site_details[].pages_used
-  - site_details[].features_used
-  - site_details[].events
-  - site_details[].total_minutes
-  - site_details[].last_active
-  - total_shortages
-  - total_critical_shortages
-  - weekly_active_buyers_pct_avg
-  - cs_health_sites[].site
-  - cs_health_sites[].health
-  - cs_health_sites[].ctb
-  - cs_health_sites[].ctc
-  - support.total_tickets
-  - support.open
-  - support.resolved
-  - salesforce.accounts
-  - salesforce.opportunity_count_this_year
-  - salesforce.pipeline_arr
-  - platform_value
-  - supply_chain
-
-# Example: set slide_number to match your template after a dry run; leave empty until filled.
 slides: []
-
-# Bracket placeholders used anywhere until you assign slide-specific rows under ``slides``.
-global_elements:
-  - name: bracket_integer
-    source: "[000]"
-    target: ""
-  - name: bracket_currency
-    source: "[$000]"
-    target: ""
-  - name: bracket_date
-    source: "[00/00/00]"
-    target: ""
-  - name: bracket_percent
-    source: "[00%]"
-    target: ""
-  - name: bracket_unknown
-    source: "[???]"
-    target: ""
-  - name: cost_avoidance_phrase
-    source: "cost avoidance"
-    target: platform_value.total_savings
-  - name: material_cost_avoidance_phrase
-    source: "material cost avoidance"
-    target: platform_value.total_savings
-  - name: total_cost_avoidance_phrase
-    source: "total cost avoidance"
-    target: platform_value.total_savings
-  - name: leandna_weekly_hours_phrase
-    source: "LeanDNA weekly hours"
-    target: account_avg_weekly_hours
+global_elements: []

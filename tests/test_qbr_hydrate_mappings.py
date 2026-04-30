@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import pytest
+import yaml
 
 from src.qbr_hydrate_mappings import (
     apply_explicit_qbr_mappings,
     build_adapt_page_slide_type_by_page_id,
     expand_mapping_rules,
+    merge_discovered_sources_into_qbr_mappings,
 )
 
 
@@ -148,3 +150,67 @@ def test_apply_explicit_respects_slide_number(monkeypatch: pytest.MonkeyPatch) -
     )
     assert out_ok[0]["mapped"] is True
     assert out_ok[0].get("qbr_mapping_element") == "only_99"
+
+
+def test_merge_appends_unmapped_sources(tmp_path) -> None:
+    p = tmp_path / "qbr_mappings.yaml"
+    p.write_text(
+        yaml.dump(
+            {
+                "version": 2,
+                "slides": [],
+                "global_elements": [{"name": "keep", "source": "[000]", "target": ""}],
+            },
+            default_flow_style=False,
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    n = merge_discovered_sources_into_qbr_mappings(
+        [
+            {"slide_number": 3, "slide_id": "health", "source": "Unique metric text"},
+            {"slide_number": 3, "slide_id": "health", "source": "Unique metric text"},
+        ],
+        path=p,
+    )
+    assert n == 1
+    cfg = yaml.safe_load(p.read_text(encoding="utf-8"))
+    blocks = [b for b in (cfg.get("slides") or []) if isinstance(b, dict)]
+    assert any(b.get("slide_number") == 3 for b in blocks)
+    el = next(
+        e
+        for b in blocks
+        if b.get("slide_number") == 3
+        for e in (b.get("elements") or [])
+        if isinstance(e, dict) and e.get("source") == "Unique metric text"
+    )
+    assert el.get("target") == ""
+    assert str(el.get("name", "")).startswith("auto_s3_")
+
+
+def test_merge_skips_existing_source_on_same_slide(tmp_path) -> None:
+    p = tmp_path / "qbr_mappings.yaml"
+    p.write_text(
+        yaml.dump(
+            {
+                "version": 2,
+                "slides": [
+                    {
+                        "slide_number": 2,
+                        "elements": [{"name": "x", "source": "already", "target": "total_users"}],
+                    }
+                ],
+                "global_elements": [],
+            },
+            default_flow_style=False,
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    n = merge_discovered_sources_into_qbr_mappings(
+        [{"slide_number": 2, "slide_id": None, "source": "already"}],
+        path=p,
+    )
+    assert n == 0
