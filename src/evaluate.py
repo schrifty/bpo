@@ -46,6 +46,7 @@ from .qbr_hydrate_mappings import (
     bootstrap_qbr_mappings_from_slides,
     build_adapt_page_slide_type_by_page_id,
     invalidate_qbr_mappings_cache,
+    mapping_source_is_recognizable_data,
     mapping_source_is_visual_only,
     merge_discovered_sources_into_qbr_mappings,
 )
@@ -2138,6 +2139,8 @@ def adapt_custom_slides(
                     if not orig or len(orig) > 2000:
                         continue
                     if mapping_source_is_visual_only(orig, r.get("field")):
+                        continue
+                    if not mapping_source_is_recognizable_data(orig, r.get("field")):
                         continue
                     discoveries.append(
                         {"slide_number": int(sn), "slide_id": sid_raw, "source": orig}

@@ -268,15 +268,6 @@ def _ensure_slide_block(slides: list[Any], slide_number: int, slide_id: str | No
     return block
 
 
-def _bootstrap_source_text_ok(text: str) -> bool:
-    t = (text or "").strip()
-    if not t or len(t) > 2000:
-        return False
-    if t.startswith("(embedded") or t.startswith("(image"):
-        return False
-    return True
-
-
 # Slide extract types for raster / chart objects — never rows in qbr_mappings.
 _VISUAL_ELEMENT_TYPES = frozenset(("image", "chart"))
 
@@ -296,6 +287,48 @@ def mapping_source_is_visual_only(source: str | None, field: str | None = None) 
     if t.startswith("[STATIC IMAGE"):
         return True
     if "CHART — data cannot be auto-updated" in t:
+        return True
+    return False
+
+
+# Bracketed placeholders: digits, currency, percent, dates, or unknown-slot markers.
+_RE_BRACKET_DATA = re.compile(
+    r"\[[^\]]*[\d$€£¥%/?][^\]]*\]|\[[^\]]*\d{4}[^\]]*\]",
+    re.I,
+)
+# Slash or ISO dates; month + year style fragments.
+_RE_DATE_LIKE = re.compile(
+    r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\b\d{4}-\d{2}-\d{2}\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,4}\b",
+    re.I,
+)
+_RE_PERCENT = re.compile(r"[\d,.\s]+\s*%|%\s*[\d,.\s]+|\[\s*00\s*%\s*\]", re.I)
+_RE_CURRENCY = re.compile(r"[\$€£¥]\s*[\d,.]+|[\d,.]+\s*[kmb]\b", re.I)
+# Phrase-style sources for synonym rules (not single-word section labels).
+_RE_LETTER_WORDS = re.compile(r"\b[^\W\d_]{2,}\b", re.UNICODE)
+
+
+def mapping_source_is_recognizable_data(source: str | None, field: str | None = None) -> bool:
+    """True if ``source`` looks like mappable slide data (bootstrap / merge / autowrite).
+
+    Includes: bracketed numbers or placeholders, dates, percents, currency, the same
+    letter/number heuristics as :func:`~hydrate_replacements.element_may_contain_data`,
+    and multiword strings (three or more letter-words) for explicit phrase mappings.
+    """
+    if mapping_source_is_visual_only(source, field):
+        return False
+    t = (source or "").strip()
+    if len(t) <= 2 or len(t) > 2000:
+        return False
+    if _RE_BRACKET_DATA.search(t) or _RE_DATE_LIKE.search(t):
+        return True
+    if _RE_PERCENT.search(t) or _RE_CURRENCY.search(t):
+        return True
+    from .hydrate_replacements import element_may_contain_data as _may_data
+
+    if _may_data({"text": t}):
+        return True
+    letter_words = _RE_LETTER_WORDS.findall(t)
+    if len(letter_words) >= 3:
         return True
     return False
 
@@ -333,7 +366,7 @@ def bootstrap_qbr_mappings_from_slides(
             if not _element_may_contain_data(el):
                 continue
             raw = str(el.get("text") or "").strip()
-            if not _bootstrap_source_text_ok(raw):
+            if not mapping_source_is_recognizable_data(raw):
                 continue
             key = (int(sn), _norm_source_key(raw))
             if key in seen:
@@ -379,6 +412,8 @@ def merge_discovered_sources_into_qbr_mappings(
         if not isinstance(sn, int) or sn < 1 or not raw or len(raw) > 2000:
             continue
         if mapping_source_is_visual_only(raw, d.get("field")):
+            continue
+        if not mapping_source_is_recognizable_data(raw, d.get("field")):
             continue
         key = (sn, _norm_source_key(raw))
         if key in seen:

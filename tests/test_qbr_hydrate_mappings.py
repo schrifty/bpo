@@ -10,6 +10,7 @@ from src.qbr_hydrate_mappings import (
     bootstrap_qbr_mappings_from_slides,
     build_adapt_page_slide_type_by_page_id,
     expand_mapping_rules,
+    mapping_source_is_recognizable_data,
     mapping_source_is_visual_only,
     merge_discovered_sources_into_qbr_mappings,
 )
@@ -189,6 +190,29 @@ def test_merge_appends_unmapped_sources(tmp_path) -> None:
     )
     assert el.get("target") == ""
     assert str(el.get("name", "")).startswith("auto_s3_")
+
+
+def test_mapping_source_is_recognizable_data() -> None:
+    assert mapping_source_is_recognizable_data("[000]")
+    assert mapping_source_is_recognizable_data("[???]")
+    assert mapping_source_is_recognizable_data("42%")
+    assert mapping_source_is_recognizable_data("$1.2M")
+    assert mapping_source_is_recognizable_data("Jan 2025")
+    assert mapping_source_is_recognizable_data("01/15/2025")
+    assert mapping_source_is_recognizable_data("Unique metric phrase")
+    assert not mapping_source_is_recognizable_data("Key metrics")
+    assert not mapping_source_is_recognizable_data("Section title")
+    assert not mapping_source_is_recognizable_data("")
+
+
+def test_merge_skips_non_recognizable_sources(tmp_path) -> None:
+    p = tmp_path / "qbr_mappings.yaml"
+    p.write_text("version: 2\nslides: []\nglobal_elements: []\n", encoding="utf-8")
+    n = merge_discovered_sources_into_qbr_mappings(
+        [{"slide_number": 2, "slide_id": None, "source": "Key metrics"}],
+        path=p,
+    )
+    assert n == 0
 
 
 def test_mapping_source_is_visual_only() -> None:
