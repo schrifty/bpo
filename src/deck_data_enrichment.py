@@ -92,6 +92,19 @@ def prepare_support_slide_plan(
     return slide_plan
 
 
+def _support_help_escalation_llm_post(report: dict[str, Any]) -> None:
+    hem_post = (report.get("jira") or {}).get("help_escalation_metrics")
+    if isinstance(hem_post, dict) and not hem_post.get("error"):
+        try:
+            from .support_notable_llm import generate_help_escalation_nature_quote_llm
+
+            enq = generate_help_escalation_nature_quote_llm(report)
+            if enq:
+                hem_post["llm_nature_summary"] = enq
+        except Exception as e:
+            logger.warning("Support deck: escalation nature quote LLM failed: %s", e)
+
+
 def enrich_salesforce_comprehensive(
     report: dict[str, Any],
     slide_plan: list[dict[str, Any]],
@@ -99,6 +112,20 @@ def enrich_salesforce_comprehensive(
 ) -> list[dict[str, Any]]:
     """Fetch Salesforce comprehensive data and filter Salesforce slides."""
     from .data_source_health import _salesforce_configured
+    from .integration_drive_cache import (
+        KIND_SALESFORCE_COMPREHENSIVE,
+        integration_drive_cache_reads_enabled,
+        save_integration_payload,
+        try_load_integration_payload,
+    )
+
+    if integration_drive_cache_reads_enabled():
+        cached = try_load_integration_payload(KIND_SALESFORCE_COMPREHENSIVE, customer)
+        if cached is not None and not cached.get("error"):
+            report["salesforce_comprehensive"] = cached
+            return _filter_salesforce_comprehensive_slide_plan(
+                slide_plan, report.get("salesforce_comprehensive") or {}
+            )
 
     empty_sf = {
         "customer": customer,
@@ -131,6 +158,10 @@ def enrich_salesforce_comprehensive(
                 **empty_sf,
                 "error": str(e)[:500],
             }
+        else:
+            pl = report.get("salesforce_comprehensive") or {}
+            if not pl.get("error"):
+                save_integration_payload(KIND_SALESFORCE_COMPREHENSIVE, customer, pl)
     else:
         report["salesforce_comprehensive"] = {**empty_sf, "error": "Salesforce not configured"}
 
@@ -152,6 +183,34 @@ def enrich_salesforce_comprehensive(
 def enrich_support_jira_data(report: dict[str, Any], customer: str | None) -> None:
     """Fetch Jira-backed support deck data into ``report``."""
     customer_display = "All Customers" if not customer else customer
+
+    from .integration_drive_cache import (
+        KIND_JIRA_SUPPORT,
+        integration_drive_cache_reads_enabled,
+        save_integration_payload,
+        try_load_integration_payload,
+    )
+
+    if integration_drive_cache_reads_enabled():
+        cached = try_load_integration_payload(KIND_JIRA_SUPPORT, customer)
+        if cached is not None:
+            report["jira"] = cached
+            try:
+                from .jira_client import get_shared_jira_client
+
+                jc = get_shared_jira_client()
+                report["jira"]["base_url"] = (jc.base_url or "").rstrip("/")
+            except Exception as e:
+                logger.warning(
+                    "Support deck: could not refresh Jira base_url after Drive cache hit: %s",
+                    e,
+                )
+            _support_help_escalation_llm_post(report)
+            logger.info(
+                "Support deck: using Drive cache for Jira data (%s)",
+                customer_display,
+            )
+            return
 
     try:
         from .jira_client import get_shared_jira_client
@@ -287,17 +346,11 @@ def enrich_support_jira_data(report: dict[str, Any], customer: str | None) -> No
         )
     except Exception as e:
         _apply_support_jira_error_fallback(report, customer, e)
+    else:
+        if isinstance(report.get("jira"), dict):
+            save_integration_payload(KIND_JIRA_SUPPORT, customer, report["jira"])
 
-    hem_post = (report.get("jira") or {}).get("help_escalation_metrics")
-    if isinstance(hem_post, dict) and not hem_post.get("error"):
-        try:
-            from .support_notable_llm import generate_help_escalation_nature_quote_llm
-
-            enq = generate_help_escalation_nature_quote_llm(report)
-            if enq:
-                hem_post["llm_nature_summary"] = enq
-        except Exception as e:
-            logger.warning("Support deck: escalation nature quote LLM failed: %s", e)
+    _support_help_escalation_llm_post(report)
 
 
 def enrich_leandna_shortage_if_needed(

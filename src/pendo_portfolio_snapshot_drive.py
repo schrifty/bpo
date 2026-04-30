@@ -18,7 +18,8 @@ Other env (see ``config``):
 Cache age policy is fixed in code: 7d fresh, 14d max weekday stale reuse, Drive writes for large JSON on weekends
 (see module constants ``DRIVE_CACHE_*``).
 
-Also stores ``pendo_preload_v1_*.json`` slice caches in the same folder.
+Also stores ``pendo_preload_v1_*.json`` slice caches and ``integration_*_v1_*.json`` (Jira/JSM support deck,
+Salesforce comprehensive) in the same folder.
 Phrase synonyms for hydrate live only in the repo at ``config/data_field_synonyms.json`` (not in this Drive folder).
 If you previously used the folder name ``Portfolio cache``, rename it to ``Cache`` in Drive or set
 ``BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID`` to the old folder so existing files remain visible.

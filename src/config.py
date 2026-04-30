@@ -86,6 +86,12 @@ _sfc_off = os.environ.get("BPO_SALESFORCE_CACHE_DISABLED", "").strip().lower()
 if _sfc_off in ("1", "true", "yes", "on"):
     BPO_SALESFORCE_CACHE_TTL_SECONDS = 0
 
+# Jira/JSM + Salesforce: optional JSON cache in the same Drive folder as Pendo portfolio (Cache).
+_idc = os.environ.get("BPO_INTEGRATION_DRIVE_CACHE_DISABLED", "").strip().lower()
+BPO_INTEGRATION_DRIVE_CACHE_DISABLED = _idc in ("1", "true", "yes", "on")
+_idc_fr = os.environ.get("BPO_INTEGRATION_DRIVE_CACHE_FORCE_REFRESH", "").strip().lower()
+BPO_INTEGRATION_DRIVE_CACHE_FORCE_REFRESH = _idc_fr in ("1", "true", "yes", "on")
+
 # LeanDNA Data API (optional; supply chain enrichment with Item Master Data and Shortage Trends)
 LEANDNA_DATA_API_BASE_URL = os.environ.get("LEANDNA_DATA_API_BASE_URL", "https://app.leandna.com/api").rstrip("/")
 LEANDNA_DATA_API_BEARER_TOKEN = os.environ.get("LEANDNA_DATA_API_BEARER_TOKEN")  # required for LeanDNA integration
