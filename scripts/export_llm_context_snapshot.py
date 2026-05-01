@@ -2,8 +2,8 @@
 """Export a single LLM-oriented data snapshot to Google Drive (QBR Generator).
 
 Pulls the same merged report as deck generation (:meth:`PendoClient.get_customer_health_report`)
-for one customer, or :meth:`PendoClient.get_portfolio_report` plus aggregated CS Report (week) and
-Jira HELP (all customers) when ``--all-customers`` is set.
+for one customer, or :meth:`PendoClient.get_portfolio_report` plus aggregated CS Report (week),
+portfolio Salesforce revenue book, and Jira HELP (all customers) when ``--all-customers`` is set.
 
 **Pendo** detail payloads are stripped (sites, pages, features, …); **Jira** includes counts,
 breakdowns, and SLA-style aggregates only — **no issue keys, summaries, or ticket rows.**
@@ -128,6 +128,19 @@ def _compact_salesforce(sf: dict[str, Any], *, account_cap: int) -> dict[str, An
             slim.append({k: a.get(k) for k in ("Id", "Name", "ARR__c", "Type") if k in a})
         out["accounts"] = slim
         out["accounts_total"] = len(accts)
+    if sf.get("resolution") == "portfolio_aggregate":
+        for k in (
+            "total_arr",
+            "active_installed_base_arr",
+            "churned_contract_arr",
+            "pendo_customers",
+            "salesforce_matched_customers",
+            "salesforce_unmatched_customers",
+            "active_customer_count",
+            "churned_customer_count",
+        ):
+            if k in sf:
+                out[k] = sf[k]
     return out
 
 
@@ -534,8 +547,50 @@ def _shrink_snapshot_params(
         doc.pop("signals_trend_context", None)
 
 
+def _salesforce_for_all_customers_report(report: dict[str, Any]) -> dict[str, Any]:
+    """Attach ``portfolio_revenue_book`` via :func:`enrich_portfolio_report_with_revenue_book` and map to ``salesforce`` shape."""
+    from src.data_source_health import _salesforce_configured
+    from src.deck_variants import enrich_portfolio_report_with_revenue_book
+
+    if not _salesforce_configured():
+        return {}
+    enrich_portfolio_report_with_revenue_book(report)
+    prb = report.get("portfolio_revenue_book") or {}
+    if prb.get("error"):
+        return {"error": str(prb.get("error")), "matched": False}
+    if prb.get("configured") is False:
+        return {}
+
+    matched_n = int(prb.get("salesforce_matched_customers") or 0)
+    accounts: list[dict[str, Any]] = []
+    for row in prb.get("top_customers_by_arr") or []:
+        cust = row.get("customer")
+        if not cust:
+            continue
+        accounts.append({"Name": cust, "ARR__c": row.get("arr"), "Type": "Customer Entity"})
+
+    return {
+        "customer": "All Customers",
+        "matched": matched_n > 0,
+        "resolution": "portfolio_aggregate",
+        "primary_account_id": None,
+        "accounts": accounts,
+        "account_ids": [],
+        "pipeline_arr": float(prb.get("pipeline_arr") or 0),
+        "opportunity_count_this_year": int(prb.get("opportunity_count_this_year") or 0),
+        "total_arr": prb.get("total_arr"),
+        "active_installed_base_arr": prb.get("active_installed_base_arr"),
+        "churned_contract_arr": prb.get("churned_contract_arr"),
+        "pendo_customers": prb.get("pendo_customers"),
+        "salesforce_matched_customers": matched_n,
+        "salesforce_unmatched_customers": prb.get("salesforce_unmatched_customers"),
+        "active_customer_count": prb.get("active_customer_count"),
+        "churned_customer_count": prb.get("churned_customer_count"),
+    }
+
+
 def _build_all_customers_report(pc: Any, *, days: int) -> dict[str, Any]:
-    """Pendo portfolio rollup + CS Report (all CSR customers, week) + Jira HELP; no Salesforce."""
+    """Pendo portfolio rollup + CS Report (week) + portfolio Salesforce + Jira HELP."""
     portfolio = pc.get_portfolio_report(days=days)
     if not isinstance(portfolio, dict):
         return {"error": "portfolio report returned non-dict"}
@@ -554,7 +609,7 @@ def _build_all_customers_report(pc: Any, *, days: int) -> dict[str, Any]:
             "supply_chain": dict(err),
             "platform_value": dict(err),
         }
-    report["salesforce"] = {}
+    report["salesforce"] = _salesforce_for_all_customers_report(report)
     report["signals"] = []
     try:
         from src.jira_client import get_shared_jira_client
@@ -576,7 +631,7 @@ def main() -> None:
     ap.add_argument(
         "--all-customers",
         action="store_true",
-        help="Portfolio Pendo rollup + aggregated CS Report (week) + Jira HELP; Salesforce omitted.",
+        help="Portfolio Pendo rollup + aggregated CS Report (week) + Salesforce revenue book + Jira HELP.",
     )
     ap.add_argument("--days", type=int, default=90, help="Lookback days for health report (default 90)")
     ap.add_argument(
