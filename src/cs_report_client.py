@@ -12,6 +12,7 @@ from __future__ import annotations
 import io
 import json
 import threading
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -489,6 +490,123 @@ def get_customer_platform_value(customer_name: str) -> dict[str, Any]:
         "total_overdue_tasks": total_overdue,
         "sites": sorted(site_data, key=lambda s: s.get("savings_current_period", 0), reverse=True),
     }
+
+
+def load_csr_all_customers_week() -> dict[str, Any]:
+    """Build CSR-shaped aggregates by merging ``delta=week`` CS Report rows for every distinct ``customer``.
+
+    Parses the latest XLSX once via :func:`_fetch_latest_report`, then reuses
+    :func:`get_customer_platform_health`, :func:`get_customer_supply_chain`, and
+    :func:`get_customer_platform_value` per customer. Site rows include ``csr_customer`` for provenance.
+    """
+    rows = _fetch_latest_report()
+    customers = sorted(
+        {
+            (r.get("customer") or "").strip()
+            for r in rows
+            if r.get("delta") == "week" and (r.get("customer") or "").strip()
+        }
+    )
+    err: dict[str, Any] = {"error": "No CS Report rows with delta=week", "source": "cs_report"}
+    if not customers:
+        return {"platform_health": dict(err), "supply_chain": dict(err), "platform_value": dict(err)}
+
+    ph_sites: list[dict[str, Any]] = []
+    health_distribution: dict[str, int] = {}
+    total_shortages = 0
+    total_critical_shortages = 0
+    ph_factory_count = 0
+
+    sc_sites: list[dict[str, Any]] = []
+    sc_totals: dict[str, float] = defaultdict(float)
+    sc_factory_count = 0
+
+    pv_sites: list[dict[str, Any]] = []
+    pv_factory_count = 0
+    total_savings = 0.0
+    total_open_ia_value = 0.0
+    total_potential_savings = 0.0
+    total_potential_to_sell = 0.0
+    total_recs = 0
+    total_pos = 0
+    total_overdue = 0
+
+    for cn in customers:
+        ph = get_customer_platform_health(cn)
+        if not ph.get("error"):
+            ph_factory_count += int(ph.get("factory_count") or 0)
+            total_shortages += int(ph.get("total_shortages") or 0)
+            total_critical_shortages += int(ph.get("total_critical_shortages") or 0)
+            for hk, hv in (ph.get("health_distribution") or {}).items():
+                health_distribution[hk] = health_distribution.get(hk, 0) + int(hv)
+            for s in ph.get("sites") or []:
+                row = dict(s)
+                row["csr_customer"] = cn
+                ph_sites.append(row)
+
+        sc = get_customer_supply_chain(cn)
+        if not sc.get("error"):
+            sc_factory_count += int(sc.get("factory_count") or 0)
+            for k, v in (sc.get("totals") or {}).items():
+                if isinstance(v, (int, float)):
+                    sc_totals[str(k)] += float(v)
+            for s in sc.get("sites") or []:
+                row = dict(s)
+                row["csr_customer"] = cn
+                sc_sites.append(row)
+
+        pv = get_customer_platform_value(cn)
+        if not pv.get("error"):
+            pv_factory_count += int(pv.get("factory_count") or 0)
+            total_savings += float(pv.get("total_savings") or 0)
+            total_open_ia_value += float(pv.get("total_open_ia_value") or 0)
+            total_potential_savings += float(pv.get("total_potential_savings") or 0)
+            total_potential_to_sell += float(pv.get("total_potential_to_sell") or 0)
+            total_recs += int(pv.get("total_recs_created_30d") or 0)
+            total_pos += int(pv.get("total_pos_placed_30d") or 0)
+            total_overdue += int(pv.get("total_overdue_tasks") or 0)
+            for s in pv.get("sites") or []:
+                row = dict(s)
+                row["csr_customer"] = cn
+                pv_sites.append(row)
+
+    label = "All Customers (CS Report aggregate)"
+    merged_ph: dict[str, Any] = {
+        "customer": label,
+        "source": "cs_report",
+        "aggregate_scope": "all_customers_week",
+        "distinct_csr_customers": len(customers),
+        "factory_count": ph_factory_count,
+        "health_distribution": health_distribution,
+        "total_shortages": total_shortages,
+        "total_critical_shortages": total_critical_shortages,
+        "sites": sorted(ph_sites, key=lambda s: s.get("shortages", 0), reverse=True),
+    }
+    merged_sc: dict[str, Any] = {
+        "customer": label,
+        "source": "cs_report",
+        "aggregate_scope": "all_customers_week",
+        "distinct_csr_customers": len(customers),
+        "factory_count": sc_factory_count,
+        "totals": {k: round(v) for k, v in sc_totals.items()},
+        "sites": sorted(sc_sites, key=lambda s: s.get("on_hand_value", 0), reverse=True),
+    }
+    merged_pv: dict[str, Any] = {
+        "customer": label,
+        "source": "cs_report",
+        "aggregate_scope": "all_customers_week",
+        "distinct_csr_customers": len(customers),
+        "factory_count": pv_factory_count,
+        "total_savings": round(total_savings),
+        "total_open_ia_value": round(total_open_ia_value),
+        "total_potential_savings": round(total_potential_savings),
+        "total_potential_to_sell": round(total_potential_to_sell),
+        "total_recs_created_30d": total_recs,
+        "total_pos_placed_30d": total_pos,
+        "total_overdue_tasks": total_overdue,
+        "sites": sorted(pv_sites, key=lambda s: s.get("savings_current_period", 0), reverse=True),
+    }
+    return {"platform_health": merged_ph, "supply_chain": merged_sc, "platform_value": merged_pv}
 
 
 def cross_validate_with_pendo(customer_name: str, pendo_health: dict[str, Any]) -> None:

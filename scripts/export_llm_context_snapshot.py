@@ -2,8 +2,8 @@
 """Export a single LLM-oriented data snapshot to Google Drive (QBR Generator).
 
 Pulls the same merged report as deck generation (:meth:`PendoClient.get_customer_health_report`)
-for one customer, or :meth:`PendoClient.get_portfolio_report` plus Jira HELP (all customers) when
-``--all-customers`` is set.
+for one customer, or :meth:`PendoClient.get_portfolio_report` plus aggregated CS Report (week) and
+Jira HELP (all customers) when ``--all-customers`` is set.
 
 **Pendo** detail payloads are stripped (sites, pages, features, …); **Jira** includes counts,
 breakdowns, and SLA-style aggregates only — **no issue keys, summaries, or ticket rows.**
@@ -535,7 +535,7 @@ def _shrink_snapshot_params(
 
 
 def _build_all_customers_report(pc: Any, *, days: int) -> dict[str, Any]:
-    """Pendo portfolio rollup + Jira HELP unscoped (all orgs), no per-account CS Report/Salesforce."""
+    """Pendo portfolio rollup + CS Report (all CSR customers, week) + Jira HELP; no Salesforce."""
     portfolio = pc.get_portfolio_report(days=days)
     if not isinstance(portfolio, dict):
         return {"error": "portfolio report returned non-dict"}
@@ -543,9 +543,17 @@ def _build_all_customers_report(pc: Any, *, days: int) -> dict[str, Any]:
         return dict(portfolio)
     report = dict(portfolio)
     report["customer"] = "All Customers"
-    report["csr"] = {
-        "note": "CS Report not loaded for all-customers snapshot (use a named customer export for CSR tabs).",
-    }
+    try:
+        from src.cs_report_client import load_csr_all_customers_week
+
+        report["csr"] = load_csr_all_customers_week()
+    except Exception as e:
+        err = {"error": str(e), "source": "cs_report"}
+        report["csr"] = {
+            "platform_health": dict(err),
+            "supply_chain": dict(err),
+            "platform_value": dict(err),
+        }
     report["salesforce"] = {}
     report["signals"] = []
     try:
@@ -568,7 +576,7 @@ def main() -> None:
     ap.add_argument(
         "--all-customers",
         action="store_true",
-        help="Portfolio Pendo rollup for all customers plus Jira HELP (all customers); no CSR/SF load.",
+        help="Portfolio Pendo rollup + aggregated CS Report (week) + Jira HELP; Salesforce omitted.",
     )
     ap.add_argument("--days", type=int, default=90, help="Lookback days for health report (default 90)")
     ap.add_argument(
