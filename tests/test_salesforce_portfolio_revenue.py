@@ -13,6 +13,8 @@ def test_get_portfolio_revenue_book_metrics_active_vs_churned_and_unmatched():
             "Name": "Acme Division East",
             "LeanDNA_Entity_Name__c": "",
             "Contract_Status__c": "Active",
+            "Contract_Contract_Start_Date__c": "2024-01-15",
+            "Contract_Contract_End_Date__c": "2027-06-01",
             "ARR__c": 100_000,
             "parent_name": "",
             "ultimate_parent_name": "",
@@ -22,6 +24,8 @@ def test_get_portfolio_revenue_book_metrics_active_vs_churned_and_unmatched():
             "Name": "BetaCo — former customer",
             "LeanDNA_Entity_Name__c": "",
             "Contract_Status__c": "Churned",
+            "Contract_Contract_Start_Date__c": "2023-01-01",
+            "Contract_Contract_End_Date__c": "2025-03-01",
             "ARR__c": 50_000,
             "parent_name": "",
             "ultimate_parent_name": "",
@@ -46,6 +50,11 @@ def test_get_portfolio_revenue_book_metrics_active_vs_churned_and_unmatched():
     assert m["active_customer_count"] == 1
     assert m["churned_customer_count"] == 1
     assert m["top_customers_by_arr"][0]["customer"] == "Acme"
+    assert len(m["matched_customer_contract_rollups"]) == 2
+    acme_row = next(r for r in m["matched_customer_contract_rollups"] if r["customer"] == "Acme")
+    assert acme_row["contract_end_date_nearest"] == "2027-06-01"
+    assert acme_row["contract_statuses_distinct"] == ["Active"]
+    assert acme_row["entity_row_count"] == 1
 
 
 def test_enrich_portfolio_revenue_book_when_salesforce_not_configured():

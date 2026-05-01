@@ -12,6 +12,7 @@ in-process for ``BPO_SALESFORCE_CACHE_TTL_HOURS`` (default 48). JWT tokens are n
 from __future__ import annotations
 
 import copy
+import datetime
 import hashlib
 import threading
 import time
@@ -145,6 +146,61 @@ def _customer_name_matches_entity_account(name_upper: str, a: dict[str, Any]) ->
     if un and name_upper in un.upper():
         return True
     return False
+
+
+# Align with SalesforceClient._CHURNED_STATUSES for renewal windows (module-level for helpers).
+_CHURNED_CONTRACT_STATUS_LOWER = frozenset({"churned", "cancelled", "terminated", "expired", "closed"})
+
+
+def _parse_sf_contract_date(raw: Any) -> datetime.date | None:
+    if raw is None:
+        return None
+    s = str(raw).strip()[:10]
+    if len(s) < 10:
+        return None
+    try:
+        return datetime.datetime.strptime(s, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _renewal_roll_up_fields(matching: list[dict[str, Any]]) -> dict[str, Any]:
+    """Contract status + end/start band across matched Customer Entity rows (one Pendo customer label)."""
+    today = datetime.date.today()
+    statuses: set[str] = set()
+    ends_active: list[datetime.date] = []
+    ends_all: list[datetime.date] = []
+    starts_active: list[datetime.date] = []
+    for a in matching:
+        st = (a.get("Contract_Status__c") or "").strip()
+        if st:
+            statuses.add(st)
+        churned = st.lower() in _CHURNED_CONTRACT_STATUS_LOWER if st else False
+        ed = _parse_sf_contract_date(a.get("Contract_Contract_End_Date__c"))
+        if ed:
+            ends_all.append(ed)
+            if not churned:
+                ends_active.append(ed)
+        sd = _parse_sf_contract_date(a.get("Contract_Contract_Start_Date__c"))
+        if sd and not churned:
+            starts_active.append(sd)
+    ends_use = ends_active or ends_all
+    nearest = min(ends_use) if ends_use else None
+    farthest = max(ends_use) if ends_use else None
+    days_nearest = (nearest - today).days if nearest else None
+    status_list = sorted(statuses, key=lambda x: x.lower())[:16]
+    out: dict[str, Any] = {
+        "contract_statuses_distinct": status_list,
+        "entity_row_count": len(matching),
+        "contract_end_date_nearest": nearest.isoformat() if nearest else None,
+        "contract_end_date_farthest": farthest.isoformat() if farthest else None,
+        "days_until_contract_end_nearest": days_nearest,
+        "contract_start_date_earliest_active": min(starts_active).isoformat() if starts_active else None,
+        "contract_start_date_latest_active": max(starts_active).isoformat() if starts_active else None,
+    }
+    return out
+
+
 # Opportunity types for creation and pipeline
 OPP_TYPES = ("New Business", "New Expansion Business", "Expansion Business", "POC")
 PIPELINE_STAGES = ("3-Business Validation", "4-Proposal", "5-Contracts")
@@ -773,6 +829,7 @@ class SalesforceClient:
             "active_customer_count": 0,
             "churned_customer_count": 0,
             "top_customers_by_arr": [],
+            "matched_customer_contract_rollups": [],
             "churned_customer_names_sample": [],
         }
         if not names_clean:
@@ -821,7 +878,13 @@ class SalesforceClient:
                     has_active_contract = True
                     break
             all_matched_churned = not has_active_contract
-            top_rows.append({"customer": name, "arr": round(arr_sum, 2), "active": not all_matched_churned})
+            row = {
+                "customer": name,
+                "arr": round(arr_sum, 2),
+                "active": not all_matched_churned,
+            }
+            row.update(_renewal_roll_up_fields(matching))
+            top_rows.append(row)
             total_arr += arr_sum
             if all_matched_churned:
                 churned_arr += arr_sum
@@ -834,6 +897,7 @@ class SalesforceClient:
 
         top_rows.sort(key=lambda r: (-(float(r.get("arr") or 0)), str(r.get("customer") or "")))
         top10 = top_rows[:10]
+        matched_customer_contract_rollups = list(top_rows)
         pipeline = self.get_advanced_pipeline_arr(dedup_ids) if dedup_ids else 0.0
         opps = self.get_opportunity_creation_this_year(dedup_ids) if dedup_ids else 0
         return {
@@ -850,6 +914,7 @@ class SalesforceClient:
             "active_customer_count": active_cust,
             "churned_customer_count": churned_cust,
             "top_customers_by_arr": top10,
+            "matched_customer_contract_rollups": matched_customer_contract_rollups,
             "churned_customer_names_sample": churned_names,
         }
 

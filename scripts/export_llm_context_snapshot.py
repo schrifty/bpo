@@ -164,6 +164,22 @@ def _compact_jira(j: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+_SF_ACCOUNT_EXPORT_KEYS = (
+    "Id",
+    "Name",
+    "ARR__c",
+    "Type",
+    "active_in_salesforce",
+    "contract_statuses_distinct",
+    "contract_end_date_nearest",
+    "contract_end_date_farthest",
+    "days_until_contract_end_nearest",
+    "contract_start_date_earliest_active",
+    "contract_start_date_latest_active",
+    "entity_row_count",
+)
+
+
 def _compact_salesforce(sf: dict[str, Any], *, account_cap: int) -> dict[str, Any]:
     if not sf or not isinstance(sf, dict):
         return {}
@@ -180,13 +196,24 @@ def _compact_salesforce(sf: dict[str, Any], *, account_cap: int) -> dict[str, An
         )
         if k in sf
     }
+    rollup_cap = max(account_cap * 6, 72)
+    rollups = sf.get("matched_customer_contract_rollups")
+    if isinstance(rollups, list):
+        out["matched_customer_contract_rollups"] = rollups[:rollup_cap]
+        out["matched_customer_contract_rollups_total"] = len(rollups)
+        out["salesforce_export_note"] = (
+            "Per-customer rollups use Customer Entity rows: ARR sum, distinct Contract_Status__c, "
+            "nearest/farthest Contract_Contract_End_Date__c among non-churned rows "
+            "(fallback: all rows if every matched row is churned). "
+            "days_until_contract_end_nearest is days from export date to nearest end date in that band."
+        )
     accts = sf.get("accounts")
     if isinstance(accts, list):
         slim = []
         for a in accts[:account_cap]:
             if not isinstance(a, dict):
                 continue
-            slim.append({k: a.get(k) for k in ("Id", "Name", "ARR__c", "Type") if k in a})
+            slim.append({k: a.get(k) for k in _SF_ACCOUNT_EXPORT_KEYS})
         out["accounts"] = slim
         out["accounts_total"] = len(accts)
     if sf.get("resolution") == "portfolio_aggregate":
@@ -313,7 +340,7 @@ def build_snapshot_document(
     *,
     csr_site_limit: int = 15,
     csr_string_cap: int = 400,
-    sf_accounts: int = 6,
+    sf_accounts: int = 24,
     signals_cap: int = 22,
     signal_line_max: int = 280,
 ) -> dict[str, Any]:
@@ -505,7 +532,7 @@ def main() -> None:
 
     _emit_integration_stderr_warnings(report)
 
-    csr_lim, csr_str, sf_acct, sig_cap = 15, 400, 6, 22
+    csr_lim, csr_str, sf_acct, sig_cap = 15, 400, 24, 22
     doc = build_snapshot_document(
         report,
         csr_site_limit=csr_lim,
@@ -523,10 +550,10 @@ def main() -> None:
     max_b = max(20_000, int(args.max_bytes))
 
     tiers = [
-        (10, 320, 4, 18),
-        (8, 260, 3, 14),
-        (6, 220, 2, 10),
-        (4, 180, 2, 8),
+        (10, 320, 16, 18),
+        (8, 260, 12, 14),
+        (6, 220, 8, 10),
+        (4, 180, 4, 8),
     ]
     while len(md.encode("utf-8")) > max_b and tiers:
         csr_lim, csr_str, sf_acct, sig_cap = tiers.pop(0)

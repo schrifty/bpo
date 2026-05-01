@@ -40,12 +40,47 @@ def salesforce_portfolio_aggregate_for_report(report: dict[str, Any]) -> dict[st
         }
 
     matched_n = int(prb.get("salesforce_matched_customers") or 0)
+    rollups: list[dict[str, Any]] = list(prb.get("matched_customer_contract_rollups") or [])
+    if not rollups:
+        for row in prb.get("top_customers_by_arr") or []:
+            cust = row.get("customer")
+            if not cust:
+                continue
+            rollups.append(
+                {
+                    "customer": cust,
+                    "arr": row.get("arr"),
+                    "active": row.get("active"),
+                    "contract_statuses_distinct": row.get("contract_statuses_distinct"),
+                    "contract_end_date_nearest": row.get("contract_end_date_nearest"),
+                    "contract_end_date_farthest": row.get("contract_end_date_farthest"),
+                    "days_until_contract_end_nearest": row.get("days_until_contract_end_nearest"),
+                    "contract_start_date_earliest_active": row.get("contract_start_date_earliest_active"),
+                    "contract_start_date_latest_active": row.get("contract_start_date_latest_active"),
+                    "entity_row_count": row.get("entity_row_count"),
+                }
+            )
+
     accounts: list[dict[str, Any]] = []
-    for row in prb.get("top_customers_by_arr") or []:
+    for row in rollups:
         cust = row.get("customer")
         if not cust:
             continue
-        accounts.append({"Name": cust, "ARR__c": row.get("arr"), "Type": "Customer Entity"})
+        accounts.append(
+            {
+                "Name": cust,
+                "ARR__c": row.get("arr"),
+                "Type": "Customer Entity",
+                "active_in_salesforce": row.get("active"),
+                "contract_statuses_distinct": row.get("contract_statuses_distinct"),
+                "contract_end_date_nearest": row.get("contract_end_date_nearest"),
+                "contract_end_date_farthest": row.get("contract_end_date_farthest"),
+                "days_until_contract_end_nearest": row.get("days_until_contract_end_nearest"),
+                "contract_start_date_earliest_active": row.get("contract_start_date_earliest_active"),
+                "contract_start_date_latest_active": row.get("contract_start_date_latest_active"),
+                "entity_row_count": row.get("entity_row_count"),
+            }
+        )
 
     return {
         "customer": "All Customers",
@@ -54,6 +89,7 @@ def salesforce_portfolio_aggregate_for_report(report: dict[str, Any]) -> dict[st
         "primary_account_id": None,
         "accounts": accounts,
         "account_ids": [],
+        "matched_customer_contract_rollups": rollups,
         "pipeline_arr": float(prb.get("pipeline_arr") or 0),
         "opportunity_count_this_year": int(prb.get("opportunity_count_this_year") or 0),
         "total_arr": prb.get("total_arr"),
