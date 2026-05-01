@@ -335,6 +335,53 @@ def mapping_source_is_recognizable_data(source: str | None, field: str | None = 
     return False
 
 
+# Each non-empty line of a shape starts with its own metric placeholder (not one blob with prose).
+_RE_LINE_LEADING_METRIC = re.compile(
+    r"(?is)^\s*(?:\[[^\]\n]{1,120}\]|[a-z]{2,4}\s*%|[$€£]\s*[\d,.]|[\d.,]+\s*%)",
+)
+
+
+def _line_is_own_standalone_metric_placeholder(line: str) -> bool:
+    """True when this single line is a template metric row (leading bracket, xx%%, digits%%, or currency)."""
+    s = (line or "").strip()
+    if len(s) < 4 or len(s) > 220:
+        return False
+    return bool(_RE_LINE_LEADING_METRIC.match(s))
+
+
+def _split_multiline_metric_placeholder_lines(text: str) -> list[str]:
+    """If every non-empty line is its own metric row, return those lines; else the whole string."""
+    t = (text or "").strip()
+    if "\n" not in t:
+        return [t]
+    segments = [s.strip() for s in re.split(r"\n+", t) if s.strip()]
+    if len(segments) < 2:
+        return [t]
+    if all(_line_is_own_standalone_metric_placeholder(s) for s in segments):
+        return segments
+    return [t]
+
+
+def expand_qbr_mapping_source_candidates(raw: str, *, field: str | None = None) -> list[str]:
+    """Expand one extracted/adapt ``original`` into 1+ YAML sources when one shape holds multiple metric lines."""
+    raw = (raw or "").strip()
+    if not raw:
+        return []
+    out: list[str] = []
+    for piece in _split_multiline_metric_placeholder_lines(raw):
+        p = piece.strip()
+        if not p or len(p) > 2000:
+            continue
+        if mapping_source_is_visual_only(p, field):
+            continue
+        if not mapping_source_is_recognizable_data(p, field):
+            continue
+        if not mapping_source_suitable_for_qbr_yaml_autowrite(p):
+            continue
+        out.append(p)
+    return out
+
+
 def mapping_source_suitable_for_qbr_yaml_autowrite(source: str | None) -> bool:
     """False for long multi-paragraph shapes; YAML ``source`` must match a replace key (e.g. ``XX%``), not whole coach copy.
 
@@ -383,15 +430,12 @@ def bootstrap_qbr_mappings_from_slides(
             if not _element_may_contain_data(el):
                 continue
             raw = str(el.get("text") or "").strip()
-            if not mapping_source_is_recognizable_data(raw):
-                continue
-            if not mapping_source_suitable_for_qbr_yaml_autowrite(raw):
-                continue
-            key = (int(sn), _norm_source_key(raw))
-            if key in seen:
-                continue
-            seen.add(key)
-            discoveries.append({"slide_number": int(sn), "slide_id": sid_raw, "source": raw})
+            for piece in expand_qbr_mapping_source_candidates(raw):
+                key = (int(sn), _norm_source_key(piece))
+                if key in seen:
+                    continue
+                seen.add(key)
+                discoveries.append({"slide_number": int(sn), "slide_id": sid_raw, "source": piece})
     if not discoveries:
         return 0
     n = merge_discovered_sources_into_qbr_mappings(discoveries, path=p)
@@ -430,23 +474,23 @@ def merge_discovered_sources_into_qbr_mappings(
         raw = str(d.get("source") or "").strip()
         if not isinstance(sn, int) or sn < 1 or not raw or len(raw) > 2000:
             continue
-        if mapping_source_is_visual_only(raw, d.get("field")):
+        pieces = expand_qbr_mapping_source_candidates(raw, field=d.get("field"))
+        if not pieces:
             continue
-        if not mapping_source_is_recognizable_data(raw, d.get("field")):
-            continue
-        if not mapping_source_suitable_for_qbr_yaml_autowrite(raw):
-            continue
-        key = (sn, _norm_source_key(raw))
-        if key in seen:
-            continue
-        seen.add(key)
-        uniq.append(
-            {
-                "slide_number": sn,
-                "slide_id": _normalize_slide_id(d.get("slide_id")),
-                "source": raw,
-            }
-        )
+        for piece in pieces:
+            if len(piece) > 2000:
+                continue
+            key = (sn, _norm_source_key(piece))
+            if key in seen:
+                continue
+            seen.add(key)
+            uniq.append(
+                {
+                    "slide_number": sn,
+                    "slide_id": _normalize_slide_id(d.get("slide_id")),
+                    "source": piece,
+                }
+            )
     if not uniq:
         return 0
 

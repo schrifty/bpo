@@ -45,10 +45,9 @@ from .qbr_hydrate_mappings import (
     apply_explicit_qbr_mappings,
     bootstrap_qbr_mappings_from_slides,
     build_adapt_page_slide_type_by_page_id,
+    expand_qbr_mapping_source_candidates,
     invalidate_qbr_mappings_cache,
-    mapping_source_is_recognizable_data,
     mapping_source_is_visual_only,
-    mapping_source_suitable_for_qbr_yaml_autowrite,
     merge_discovered_sources_into_qbr_mappings,
 )
 from .drive_config import assert_qbr_prompts_ready_or_raise, get_deck_output_folder_id
@@ -2141,13 +2140,10 @@ def adapt_custom_slides(
                         continue
                     if mapping_source_is_visual_only(orig, r.get("field")):
                         continue
-                    if not mapping_source_is_recognizable_data(orig, r.get("field")):
-                        continue
-                    if not mapping_source_suitable_for_qbr_yaml_autowrite(orig):
-                        continue
-                    discoveries.append(
-                        {"slide_number": int(sn), "slide_id": sid_raw, "source": orig}
-                    )
+                    for piece in expand_qbr_mapping_source_candidates(orig, field=r.get("field")):
+                        discoveries.append(
+                            {"slide_number": int(sn), "slide_id": sid_raw, "source": piece}
+                        )
             if discoveries:
                 try:
                     napp = merge_discovered_sources_into_qbr_mappings(discoveries)

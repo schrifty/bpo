@@ -10,6 +10,7 @@ from src.qbr_hydrate_mappings import (
     bootstrap_qbr_mappings_from_slides,
     build_adapt_page_slide_type_by_page_id,
     expand_mapping_rules,
+    expand_qbr_mapping_source_candidates,
     mapping_source_is_recognizable_data,
     mapping_source_is_visual_only,
     mapping_source_suitable_for_qbr_yaml_autowrite,
@@ -252,6 +253,40 @@ def test_mapping_source_suitable_for_qbr_yaml_autowrite() -> None:
     assert len(long_two_para) > 100
     assert not mapping_source_suitable_for_qbr_yaml_autowrite(long_two_para)
     assert not mapping_source_suitable_for_qbr_yaml_autowrite("x" * 501)
+
+
+def test_expand_qbr_mapping_source_candidates_two_placeholder_lines() -> None:
+    src = (
+        "xx% DOI (Backwards) improvement\n"
+        "yy% Clear to Build improvement (ideally we know resulting COTD improvement as well from our champion)"
+    )
+    parts = expand_qbr_mapping_source_candidates(src)
+    assert len(parts) == 2
+    assert parts[0].startswith("xx%")
+    assert parts[1].startswith("yy%")
+
+
+def test_expand_qbr_mapping_source_candidates_metric_plus_prose_one_row() -> None:
+    """Do not split when a line is coaching copy, not its own metric row."""
+    src = "xx% DOI (Backwards) improvement\nTry the feedback sandwich with more coaching copy on this line."
+    parts = expand_qbr_mapping_source_candidates(src)
+    assert len(parts) == 1
+    assert "feedback sandwich" in parts[0]
+
+
+def test_merge_splits_two_line_placeholder_shape(tmp_path) -> None:
+    p = tmp_path / "qbr_mappings.yaml"
+    p.write_text("version: 2\nslides: []\nglobal_elements: []\n", encoding="utf-8")
+    src = "xx% line one metric\nyy% line two metric"
+    n = merge_discovered_sources_into_qbr_mappings(
+        [{"slide_number": 6, "slide_id": "pendo_localization", "source": src}],
+        path=p,
+    )
+    assert n == 2
+    cfg = yaml.safe_load(p.read_text(encoding="utf-8"))
+    els = next(b["elements"] for b in cfg["slides"] if b.get("slide_number") == 6)
+    sources = {e["source"] for e in els if isinstance(e, dict)}
+    assert sources == {src.split("\n")[0].strip(), src.split("\n")[1].strip()}
 
 
 def test_merge_skips_long_multiline_prose(tmp_path) -> None:
