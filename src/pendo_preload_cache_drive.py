@@ -107,75 +107,83 @@ def _validate_envelope(raw: Any, kind: str, days: int | None) -> dict[str, Any] 
 
 def try_load_pendo_preload_payload(kind: str, days: int | None) -> Any | None:
     """Return cached *payload* if a fresh JSON exists on Drive; else None."""
+    from .drive_cache_stats import record_pendo_preload_load_attempt
+
     name = pendo_preload_cache_filename(kind, days)
     if BPO_PENDO_CACHE_TTL_SECONDS <= 0:
         logger.info("Pendo preload cache: bypass read for %r (cache disabled)", name)
         return None
-    folder_id = resolve_portfolio_snapshot_folder_id()
-    if not folder_id:
-        logger.info(
-            "Pendo preload cache: skip %r — no Drive cache folder (GOOGLE_QBR_GENERATOR_FOLDER_ID / "
-            "BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID unset, or folder resolve failed)",
-            name,
-        )
-        return None
+
+    hit = False
     try:
-        fid = find_file_in_folder(name, folder_id, mime_type=None)
-        if not fid:
+        folder_id = resolve_portfolio_snapshot_folder_id()
+        if not folder_id:
             logger.info(
-                "Pendo preload cache: skip %r — file not in Drive cache folder",
+                "Pendo preload cache: skip %r — no Drive cache folder (GOOGLE_QBR_GENERATOR_FOLDER_ID / "
+                "BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID unset, or folder resolve failed)",
                 name,
             )
             return None
-        with drive_api_lock:
-            drive = _get_drive()
-            from .network_utils import network_timeout
-            with network_timeout(30.0, "Drive file metadata get"):
-                meta = drive.files().get(fileId=fid, fields="modifiedTime").execute()
-        text = _read_drive_file_text_retrying(fid)
-        raw = json.loads(text)
-        env = _validate_envelope(raw, kind, days)
-        if env is None:
-            logger.info(
-                "Pendo preload cache: skip %r — JSON envelope invalid (schema/kind/days/payload)",
-                name,
-            )
-            return None
-        age_h = _envelope_age_hours(env.get("saved_at"), meta.get("modifiedTime"))
-        if age_h is None:
-            logger.info(
-                "Pendo preload cache: skip %r — could not determine age",
-                name,
-            )
-            return None
-        decision = classify_drive_cache_age(
-            age_h,
-            cache_name=name,
-            log_label="Pendo preload cache",
-        )
-        if decision == "reject":
-            return None
-        if decision == "fresh":
-            logger.info(
-                "Pendo preload cache: loaded %r from Drive (%.1fh old)",
-                name,
+        try:
+            fid = find_file_in_folder(name, folder_id, mime_type=None)
+            if not fid:
+                logger.info(
+                    "Pendo preload cache: skip %r — file not in Drive cache folder",
+                    name,
+                )
+                return None
+            with drive_api_lock:
+                drive = _get_drive()
+                from .network_utils import network_timeout
+                with network_timeout(30.0, "Drive file metadata get"):
+                    meta = drive.files().get(fileId=fid, fields="modifiedTime").execute()
+            text = _read_drive_file_text_retrying(fid)
+            raw = json.loads(text)
+            env = _validate_envelope(raw, kind, days)
+            if env is None:
+                logger.info(
+                    "Pendo preload cache: skip %r — JSON envelope invalid (schema/kind/days/payload)",
+                    name,
+                )
+                return None
+            age_h = _envelope_age_hours(env.get("saved_at"), meta.get("modifiedTime"))
+            if age_h is None:
+                logger.info(
+                    "Pendo preload cache: skip %r — could not determine age",
+                    name,
+                )
+                return None
+            decision = classify_drive_cache_age(
                 age_h,
+                cache_name=name,
+                log_label="Pendo preload cache",
             )
-        else:
-            logger.info(
-                "Pendo preload cache: loaded %r from Drive (stale weekday, %.1fh)",
+            if decision == "reject":
+                return None
+            if decision == "fresh":
+                logger.info(
+                    "Pendo preload cache: loaded %r from Drive (%.1fh old)",
+                    name,
+                    age_h,
+                )
+            else:
+                logger.info(
+                    "Pendo preload cache: loaded %r from Drive (stale weekday, %.1fh)",
+                    name,
+                    age_h,
+                )
+            hit = True
+            return env["payload"]
+        except Exception as e:
+            logger.warning(
+                "Pendo preload cache: read %r failed — %s: %s",
                 name,
-                age_h,
+                type(e).__name__,
+                e,
             )
-        return env["payload"]
-    except Exception as e:
-        logger.warning(
-            "Pendo preload cache: read %r failed — %s: %s",
-            name,
-            type(e).__name__,
-            e,
-        )
-        return None
+            return None
+    finally:
+        record_pendo_preload_load_attempt(hit=hit)
 
 
 def save_pendo_preload_payload(kind: str, days: int | None, payload: Any) -> None:

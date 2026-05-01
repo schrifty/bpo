@@ -95,75 +95,83 @@ def integration_drive_cache_reads_enabled() -> bool:
 
 def try_load_integration_payload(kind: str, customer: str | None) -> dict[str, Any] | None:
     """Return cached *payload* dict if a valid JSON exists on Drive and passes age policy."""
+    from .drive_cache_stats import record_integration_load_attempt
+
     if not integration_drive_cache_reads_enabled():
         return None
-    customer_key = integration_customer_key(customer)
-    name = integration_cache_filename(kind, customer_key)
-    folder_id = resolve_portfolio_snapshot_folder_id()
-    if not folder_id:
-        logger.debug(
-            "Integration Drive cache: skip %r — no snapshot folder",
-            name,
-        )
-        return None
-    try:
-        fid = find_file_in_folder(name, folder_id, mime_type=None)
-        if not fid:
-            logger.debug(
-                "Integration Drive cache: skip %r — file not in Drive cache folder",
-                name,
-            )
-            return None
-        with drive_api_lock:
-            drive = _get_drive()
-            from .network_utils import network_timeout
 
-            with network_timeout(30.0, "Drive file metadata get"):
-                meta = drive.files().get(fileId=fid, fields="modifiedTime").execute()
-        text = _read_drive_file_text_retrying(fid)
-        raw = json.loads(text)
-        env = _validate_envelope(raw, kind, customer_key)
-        if env is None:
-            logger.info(
-                "Integration Drive cache: skip %r — envelope invalid (schema/kind/customer/payload)",
+    hit = False
+    try:
+        customer_key = integration_customer_key(customer)
+        name = integration_cache_filename(kind, customer_key)
+        folder_id = resolve_portfolio_snapshot_folder_id()
+        if not folder_id:
+            logger.debug(
+                "Integration Drive cache: skip %r — no snapshot folder",
                 name,
             )
             return None
-        age_h = _envelope_age_hours(env.get("saved_at"), meta.get("modifiedTime"))
-        if age_h is None:
-            logger.info(
-                "Integration Drive cache: skip %r — could not determine age",
-                name,
-            )
-            return None
-        decision = classify_drive_cache_age(
-            age_h,
-            cache_name=name,
-            log_label="Integration Drive cache",
-        )
-        if decision == "reject":
-            return None
-        if decision == "fresh":
-            logger.info(
-                "Integration Drive cache: loaded %r (%.1fh old)",
-                name,
+        try:
+            fid = find_file_in_folder(name, folder_id, mime_type=None)
+            if not fid:
+                logger.debug(
+                    "Integration Drive cache: skip %r — file not in Drive cache folder",
+                    name,
+                )
+                return None
+            with drive_api_lock:
+                drive = _get_drive()
+                from .network_utils import network_timeout
+
+                with network_timeout(30.0, "Drive file metadata get"):
+                    meta = drive.files().get(fileId=fid, fields="modifiedTime").execute()
+            text = _read_drive_file_text_retrying(fid)
+            raw = json.loads(text)
+            env = _validate_envelope(raw, kind, customer_key)
+            if env is None:
+                logger.info(
+                    "Integration Drive cache: skip %r — envelope invalid (schema/kind/customer/payload)",
+                    name,
+                )
+                return None
+            age_h = _envelope_age_hours(env.get("saved_at"), meta.get("modifiedTime"))
+            if age_h is None:
+                logger.info(
+                    "Integration Drive cache: skip %r — could not determine age",
+                    name,
+                )
+                return None
+            decision = classify_drive_cache_age(
                 age_h,
+                cache_name=name,
+                log_label="Integration Drive cache",
             )
-        else:
-            logger.info(
-                "Integration Drive cache: loaded %r (stale weekday, %.1fh)",
+            if decision == "reject":
+                return None
+            if decision == "fresh":
+                logger.info(
+                    "Integration Drive cache: loaded %r (%.1fh old)",
+                    name,
+                    age_h,
+                )
+            else:
+                logger.info(
+                    "Integration Drive cache: loaded %r (stale weekday, %.1fh)",
+                    name,
+                    age_h,
+                )
+            hit = True
+            return dict(env["payload"])
+        except Exception as e:
+            logger.warning(
+                "Integration Drive cache: read %r failed — %s: %s",
                 name,
-                age_h,
+                type(e).__name__,
+                e,
             )
-        return dict(env["payload"])
-    except Exception as e:
-        logger.warning(
-            "Integration Drive cache: read %r failed — %s: %s",
-            name,
-            type(e).__name__,
-            e,
-        )
-        return None
+            return None
+    finally:
+        record_integration_load_attempt(hit=hit)
 
 
 def save_integration_payload(kind: str, customer: str | None, payload: dict[str, Any]) -> None:

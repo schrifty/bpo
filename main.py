@@ -100,6 +100,10 @@ def main() -> None:
                 ("total", "total_adapt_s"),
             ):
                 print(f"  {label}: {_f(key):.0f}s", flush=True)
+        from src.drive_cache_stats import format_drive_cache_load_summary
+
+        print(format_drive_cache_load_summary(), flush=True)
+
         elapsed = _time.monotonic() - _qbr_t0
         mins, secs = divmod(int(elapsed), 60)
         logger.info("QBR complete in %dm %02ds", mins, secs)

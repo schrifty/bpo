@@ -281,6 +281,8 @@ def _build_companion_decks_for_qbr_bundle(
                         deck_id="portfolio_review",
                         thumbnails=False,
                         output_folder_id=bundle_folder_id,
+                        reset_drive_cache_stats=False,
+                        log_drive_cache_stats=False,
                     )
                 else:
                     cr = create_cohort_deck(
@@ -297,6 +299,8 @@ def _build_companion_decks_for_qbr_bundle(
                     deck_id=deck_id,
                     thumbnails=False,
                     output_folder_id=bundle_folder_id,
+                    reset_drive_cache_stats=False,
+                    log_drive_cache_stats=False,
                 )
             entry: dict[str, Any] = {
                 "key": key,
@@ -582,6 +586,15 @@ def run_qbr_from_template(
 
     qr = resolve_quarter()
     days = qr.days
+
+    from .drive_cache_stats import (
+        drive_cache_load_stats_snapshot,
+        log_drive_cache_load_summary,
+        reset_drive_cache_load_stats,
+    )
+
+    reset_drive_cache_load_stats()
+
     pc = PendoClient()
     try:
         pc.preload(days)
@@ -860,6 +873,9 @@ def run_qbr_from_template(
     qbr_total = time.perf_counter() - qbr_t0
     qbr_times["total_elapsed_s"] = qbr_total
     result["qbr_timing_seconds"] = dict(qbr_times)
+
+    result["drive_cache_load_stats"] = drive_cache_load_stats_snapshot()
+
     logger.info("QBR: timing — total wall clock %.1fs (per-phase; compare to sum of segments)", qbr_total)
     _den = max(qbr_total, 0.01)
     for _name, _sec in sorted(
@@ -868,4 +884,5 @@ def run_qbr_from_template(
         if _sec < 0.01:
             continue
         logger.info("QBR: timing — %5.1fs  %4.0f%%  %s", _sec, 100.0 * _sec / _den, _name)
+    log_drive_cache_load_summary(label="QBR")
     return result
