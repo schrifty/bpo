@@ -20,7 +20,10 @@ def test_salesforce_all_customers_empty_when_not_configured(monkeypatch):
     mod = _export_mod()
     monkeypatch.setattr("src.data_source_health._salesforce_configured", lambda: False)
     report: dict = {"customers": [{"customer": "Acme"}]}
-    assert mod._salesforce_for_all_customers_report(report) == {}
+    sf = mod._salesforce_for_all_customers_report(report)
+    assert sf.get("error")
+    assert sf.get("matched") is False
+    assert sf.get("resolution") == "none"
 
 
 def test_salesforce_all_customers_maps_revenue_book(monkeypatch):

@@ -8,6 +8,9 @@ QBR slide YAML (cohort findings use built-in defaults).
 **Pendo** detail payloads are stripped (sites, pages, features, …); **Jira** includes counts,
 breakdowns, and SLA-style aggregates only — **no issue keys, summaries, or ticket rows.**
 
+The markdown names integrations planned for future export coverage (e.g. Aha, GitHub) under
+**Planned integrations (not in this snapshot yet)**.
+
 Usage:
   python scripts/export_llm_context_snapshot.py --days 90
   python scripts/export_llm_context_snapshot.py --out ./snapshot.md --skip-drive
@@ -27,6 +30,76 @@ from typing import Any
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+
+# Product roadmap: named here so the export explicitly sets reader expectations.
+_PLANNED_DATASOURCES_NOT_IN_EXPORT: tuple[str, ...] = ("Aha", "GitHub")
+
+_SF_NOT_CONFIGURED_MSG = (
+    "Salesforce not configured: set SF_LOGIN_URL, SF_CONSUMER_KEY, SF_USERNAME, "
+    "and SF_PRIVATE_KEY or SF_PRIVATE_KEY_PATH (JWT integration)."
+)
+
+
+def _integration_coverage_lines(*, salesforce: dict[str, Any], csr: dict[str, Any]) -> list[str]:
+    """Human-readable bullets for whether Salesforce and CS Report succeeded (pre-compaction)."""
+    lines: list[str] = []
+    if not salesforce:
+        lines.append(
+            "- **Salesforce:** **Not loaded** — empty payload (unexpected). "
+            "Regenerate after fixing credentials or report builder."
+        )
+    elif salesforce.get("error"):
+        lines.append(f"- **Salesforce:** **Not loaded** — {salesforce['error']}")
+    elif salesforce.get("resolution") == "portfolio_aggregate":
+        lines.append(
+            "- **Salesforce:** **Loaded** — portfolio revenue book (ARR, pipeline, opportunities)."
+        )
+    else:
+        lines.append("- **Salesforce:** **Loaded**.")
+
+    if not csr:
+        lines.append("- **CS Report:** **Not loaded** — no `csr` block on the merged report.")
+        return lines
+    errs: list[str] = []
+    ok_any = False
+    for key in ("platform_health", "supply_chain", "platform_value"):
+        block = csr.get(key)
+        if not isinstance(block, dict):
+            errs.append(f"{key}: missing")
+            continue
+        if block.get("error"):
+            errs.append(f"{key}: {block['error']}")
+        else:
+            ok_any = True
+    if ok_any:
+        lines.append(
+            "- **CS Report:** **Loaded** — see §4 for platform_health / supply_chain / platform_value "
+            "(sections with errors still list the error inline)."
+        )
+    else:
+        detail = "; ".join(errs) if errs else "no row-level errors parsed"
+        lines.append(f"- **CS Report:** **Not loaded** — {detail}")
+    return lines
+
+
+def _emit_integration_stderr_warnings(report: dict[str, Any]) -> None:
+    """Fail loud on stderr when SF or CSR did not produce usable data."""
+    sf = report.get("salesforce") if isinstance(report.get("salesforce"), dict) else {}
+    if not sf or sf.get("error"):
+        msg = sf.get("error") if sf else "Salesforce payload missing"
+        print(f"warning: LLM export — Salesforce: {msg}", file=sys.stderr)
+
+    csr = report.get("csr") if isinstance(report.get("csr"), dict) else {}
+    errs: list[str] = []
+    for key in ("platform_health", "supply_chain", "platform_value"):
+        b = csr.get(key)
+        if isinstance(b, dict) and b.get("error"):
+            errs.append(f"{key}: {b['error']}")
+    if len(errs) == 3:
+        print(
+            "warning: LLM export — CS Report: all sections failed — " + " | ".join(errs),
+            file=sys.stderr,
+        )
 
 
 def _compact_eng_enh_counts_only(blob: dict[str, Any] | None) -> dict[str, Any]:
@@ -201,7 +274,9 @@ def _compact_csr(csr: dict[str, Any], *, site_limit: int, string_cap: int) -> di
     from src.hydrate_data_summary import truncate_strings_in_obj
 
     if not csr:
-        return {}
+        return {
+            "note": "CS Report was not attached (empty csr). Check Drive CS Report export and openpyxl.",
+        }
     out: dict[str, Any] = {}
     if isinstance(csr.get("note"), str):
         out["note"] = csr["note"]
@@ -263,6 +338,17 @@ def build_snapshot_document(
         "salesforce": _compact_salesforce(report.get("salesforce") or {}, account_cap=sf_accounts),
         "cs_report": _compact_csr(csr, site_limit=csr_site_limit, string_cap=csr_string_cap),
         "notable_signals_lines": sig_lines,
+        "planned_data_sources": {
+            "not_in_snapshot_yet": list(_PLANNED_DATASOURCES_NOT_IN_EXPORT),
+            "note": (
+                "These vendor/product integrations are not included in this export yet; "
+                "snapshot coverage is planned."
+            ),
+        },
+        "integration_coverage_lines": _integration_coverage_lines(
+            salesforce=report.get("salesforce") if isinstance(report.get("salesforce"), dict) else {},
+            csr=csr,
+        ),
     }
     stc = report.get("signals_trend_context")
     if stc:
@@ -294,25 +380,54 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
         "",
         doc.get("document_purpose", ""),
         "",
-        "## 1. Pendo (headline metrics only)",
+        "## Integration coverage",
         "",
-        _json_compact(doc.get("pendo")),
-        "",
-        "## 2. Jira (HELP — scoped per deck rules)",
-        "",
-        _json_compact(doc.get("jira_help")),
-        "",
-        "## 3. Salesforce",
-        "",
-        _json_compact(doc.get("salesforce")),
-        "",
-        "## 4. CS Report (Data Exports Drive)",
-        "",
-        _json_compact(doc.get("cs_report")),
-        "",
-        "## 5. Notable signals (heuristic lines)",
+        "Whether Salesforce and CS Report produced usable data for this run (check §3 and §4 for payloads):",
         "",
     ]
+    for ln in doc.get("integration_coverage_lines") or []:
+        parts.append(ln)
+    parts.extend(
+        [
+            "",
+            "## Planned integrations (not in this snapshot yet)",
+            "",
+            "The following data sources are **not** represented in the numbered sections below; "
+            "including them in this export is **planned**:",
+            "",
+        ]
+    )
+    planned = doc.get("planned_data_sources") if isinstance(doc.get("planned_data_sources"), dict) else {}
+    names = planned.get("not_in_snapshot_yet")
+    if isinstance(names, list) and names:
+        for name in names:
+            parts.append(f"- **{name}**")
+    else:
+        for name in _PLANNED_DATASOURCES_NOT_IN_EXPORT:
+            parts.append(f"- **{name}**")
+    parts.extend(
+        [
+            "",
+            "## 1. Pendo (headline metrics only)",
+            "",
+            _json_compact(doc.get("pendo")),
+            "",
+            "## 2. Jira (HELP — scoped per deck rules)",
+            "",
+            _json_compact(doc.get("jira_help")),
+            "",
+            "## 3. Salesforce",
+            "",
+            _json_compact(doc.get("salesforce")),
+            "",
+            "## 4. CS Report (Data Exports Drive)",
+            "",
+            _json_compact(doc.get("cs_report")),
+            "",
+            "## 5. Notable signals (heuristic lines)",
+            "",
+        ]
+    )
     for line in doc.get("notable_signals_lines") or []:
         parts.append(f"- {line}")
     parts.append("")
@@ -355,6 +470,10 @@ def _shrink_snapshot_params(
         )
     if doc.get("signals_trend_context") and csr_string_cap < 280:
         doc.pop("signals_trend_context", None)
+    doc["integration_coverage_lines"] = _integration_coverage_lines(
+        salesforce=doc.get("_full_sf") or {},
+        csr=doc.get("_full_csr") or {},
+    )
 
 
 def _salesforce_for_all_customers_report(report: dict[str, Any]) -> dict[str, Any]:
@@ -363,13 +482,28 @@ def _salesforce_for_all_customers_report(report: dict[str, Any]) -> dict[str, An
     from src.deck_variants import enrich_portfolio_report_with_revenue_book
 
     if not _salesforce_configured():
-        return {}
+        return {
+            "error": _SF_NOT_CONFIGURED_MSG,
+            "matched": False,
+            "resolution": "none",
+            "source": "salesforce",
+        }
     enrich_portfolio_report_with_revenue_book(report)
     prb = report.get("portfolio_revenue_book") or {}
     if prb.get("error"):
-        return {"error": str(prb.get("error")), "matched": False}
+        return {
+            "error": str(prb.get("error")),
+            "matched": False,
+            "resolution": "none",
+            "source": "salesforce",
+        }
     if prb.get("configured") is False:
-        return {}
+        return {
+            "error": _SF_NOT_CONFIGURED_MSG,
+            "matched": False,
+            "resolution": "none",
+            "source": "salesforce",
+        }
 
     matched_n = int(prb.get("salesforce_matched_customers") or 0)
     accounts: list[dict[str, Any]] = []
@@ -460,6 +594,8 @@ def main() -> None:
     if report.get("error"):
         print(f"error: report failed: {report.get('error')}", file=sys.stderr)
         sys.exit(1)
+
+    _emit_integration_stderr_warnings(report)
 
     csr_lim, csr_str, sf_acct, sig_cap = 15, 400, 6, 22
     doc = build_snapshot_document(
