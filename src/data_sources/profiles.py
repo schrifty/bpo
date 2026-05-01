@@ -26,3 +26,13 @@ PROFILE_LEANDNA_QBR_ENRICHMENTS: frozenset[SourceId] = frozenset(
         SourceId.LEANDNA_LEAN_PROJECTS,
     )
 )
+
+# Single-customer health decks / QBR base report (Pendo health report + CSR week slice per customer).
+PROFILE_ID_SINGLE_CUSTOMER_HEALTH_CORE = "single_customer_health_core"
+
+PROFILE_SINGLE_CUSTOMER_HEALTH_CORE: frozenset[SourceId] = frozenset(
+    (
+        SourceId.PENDO_CUSTOMER_HEALTH,
+        SourceId.CS_REPORT_CUSTOMER_WEEK,
+    )
+)

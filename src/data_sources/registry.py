@@ -12,6 +12,15 @@ from enum import Enum
 class SourceId(str, Enum):
     """Stable ids for orchestration, logging, and provenance.
 
+    **Pendo (single customer):** Built through :meth:`pendo_client.PendoClient.get_customer_health_report`
+    (engagement, sites, features, guides, Jira/Salesforce attachments inside that pipeline, etc.).
+    Distinct from :attr:`PENDO_PORTFOLIO_ROLLUP`, which is all-customers portfolio rollup.
+
+    **CS Report (per customer):** Week delta rows for one customer via
+    ``cs_report_client.get_customer_platform_health``,
+    ``get_customer_supply_chain``, ``get_customer_platform_value`` — typically merged into
+    ``report["csr"]`` on health reports.
+
     LeanDNA Data API: implementations live under ``src/leandna_*_client.py`` and
     ``*_enrich.py``. Report dict keys match the value strings below.
 
@@ -27,7 +36,9 @@ class SourceId(str, Enum):
     """
 
     PENDO_PORTFOLIO_ROLLUP = "pendo_portfolio_rollup"
+    PENDO_CUSTOMER_HEALTH = "pendo_customer_health"
     CS_REPORT_ALL_CUSTOMERS_WEEK = "cs_report_all_customers_week"
+    CS_REPORT_CUSTOMER_WEEK = "cs_report_customer_week"
     SALESFORCE_PORTFOLIO_AGGREGATE = "salesforce_portfolio_aggregate"
     JIRA_HELP_PORTFOLIO = "jira_help_portfolio"
 
