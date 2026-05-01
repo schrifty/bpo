@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""Export a single LLM-oriented data snapshot to Google Drive (QBR Generator).
+"""Export an all-customers LLM-oriented data snapshot to Google Drive (QBR Generator).
 
-Pulls the same merged report as deck generation (:meth:`PendoClient.get_customer_health_report`)
-for one customer, or :meth:`PendoClient.get_portfolio_report` plus aggregated CS Report (week),
-portfolio Salesforce revenue book, and Jira HELP (all customers) when ``--all-customers`` is set.
+Builds :meth:`PendoClient.get_portfolio_report` plus aggregated CS Report (week), portfolio
+Salesforce revenue book, and Jira HELP (unscoped). The portfolio fetch does not read or sync
+QBR slide YAML (cohort findings use built-in defaults).
 
 **Pendo** detail payloads are stripped (sites, pages, features, …); **Jira** includes counts,
 breakdowns, and SLA-style aggregates only — **no issue keys, summaries, or ticket rows.**
 
 Usage:
-  python scripts/export_llm_context_snapshot.py "Customer Name"
-  python scripts/export_llm_context_snapshot.py --all-customers --days 90
-  python scripts/export_llm_context_snapshot.py "Customer Name" --out ./snapshot.md --skip-drive
+  python scripts/export_llm_context_snapshot.py --days 90
+  python scripts/export_llm_context_snapshot.py --out ./snapshot.md --skip-drive
 
 Requires ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` and credentials for Drive upload unless ``--skip-drive``.
 Drive upload **replaces** an existing file with the same name in the target folder by default.
@@ -21,7 +20,6 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
-import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -29,11 +27,6 @@ from typing import Any
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
-
-
-def _slug_customer(name: str) -> str:
-    s = re.sub(r"[^a-zA-Z0-9_-]+", "_", (name or "").strip()).strip("_")
-    return (s[:96] if s else "customer")
 
 
 def _compact_eng_enh_counts_only(blob: dict[str, Any] | None) -> dict[str, Any]:
@@ -144,164 +137,6 @@ def _compact_salesforce(sf: dict[str, Any], *, account_cap: int) -> dict[str, An
     return out
 
 
-def _pendo_topline(report: dict[str, Any]) -> dict[str, Any]:
-    """Headline Pendo fields only — omit lists used on definition / appendix slides."""
-    acct = report.get("account") if isinstance(report.get("account"), dict) else {}
-    eng = report.get("engagement") if isinstance(report.get("engagement"), dict) else {}
-    bench = report.get("benchmarks") if isinstance(report.get("benchmarks"), dict) else {}
-
-    slim_eng = {
-        k: eng.get(k)
-        for k in ("active_7d", "active_30d", "dormant", "active_rate_7d")
-        if k in eng
-    }
-
-    slim_acct = {
-        k: acct.get(k)
-        for k in (
-            "total_visitors",
-            "total_sites",
-            "active_visitors",
-            "active_sites",
-            "health_score",
-            "csm",
-        )
-        if k in acct
-    }
-
-    depth = report.get("depth") if isinstance(report.get("depth"), dict) else {}
-    slim_depth: dict[str, Any] = {}
-    if depth and not depth.get("error"):
-        slim_depth = {
-            k: depth.get(k)
-            for k in (
-                "total_feature_events",
-                "active_users",
-                "read_events",
-                "write_events",
-                "collab_events",
-                "write_ratio",
-                "error",
-            )
-            if k in depth
-        }
-
-    exports = report.get("exports") if isinstance(report.get("exports"), dict) else {}
-    slim_exports: dict[str, Any] = {}
-    if exports and not exports.get("error"):
-        slim_exports = {
-            k: exports.get(k)
-            for k in ("total_exports", "exports_per_active_user", "active_users", "error")
-            if k in exports
-        }
-
-    kei = report.get("kei") if isinstance(report.get("kei"), dict) else {}
-    slim_kei: dict[str, Any] = {}
-    if kei and not kei.get("error"):
-        slim_kei = {
-            k: kei.get(k)
-            for k in (
-                "total_queries",
-                "unique_users",
-                "active_users",
-                "adoption_rate",
-                "executive_users",
-                "executive_queries",
-                "error",
-            )
-            if k in kei
-        }
-
-    guides = report.get("guides") if isinstance(report.get("guides"), dict) else {}
-    slim_guides: dict[str, Any] = {}
-    if guides and not guides.get("error"):
-        slim_guides = {
-            k: guides.get(k)
-            for k in (
-                "total_guide_events",
-                "users_who_saw_guides",
-                "total_visitors",
-                "guide_reach",
-                "seen",
-                "advanced",
-                "dismissed",
-                "dismiss_rate",
-                "advance_rate",
-                "error",
-            )
-            if k in guides
-        }
-
-    pe = report.get("poll_events") if isinstance(report.get("poll_events"), dict) else {}
-    slim_poll: dict[str, Any] = {}
-    if pe and not pe.get("error"):
-        slim_poll["response_count"] = pe.get("response_count")
-        nps = pe.get("nps")
-        if isinstance(nps, dict):
-            slim_poll["nps"] = {k: nps.get(k) for k in ("count", "median", "avg") if k in nps}
-
-    fr = report.get("frustration") if isinstance(report.get("frustration"), dict) else {}
-    slim_fr: dict[str, Any] = {}
-    if fr and not fr.get("error"):
-        slim_fr["total_frustration_signals"] = fr.get("total_frustration_signals")
-        tot = fr.get("totals")
-        if isinstance(tot, dict):
-            slim_fr["totals"] = {
-                k: tot.get(k)
-                for k in ("rageClickCount", "deadClickCount", "errorClickCount", "uTurnCount")
-                if k in tot
-            }
-
-    te = report.get("track_events_breakdown") if isinstance(report.get("track_events_breakdown"), dict) else {}
-    slim_track: dict[str, Any] = {}
-    if te and not te.get("error"):
-        slim_track["distinct_track_types"] = te.get("distinct_track_types")
-        bd = te.get("breakdown")
-        ev_total = 0
-        users_total = 0
-        if isinstance(bd, list):
-            for row in bd:
-                if not isinstance(row, dict):
-                    continue
-                ev_total += int(row.get("events") or 0)
-                users_total += int(row.get("unique_users") or 0)
-        slim_track["custom_track_events_total"] = ev_total
-        slim_track["custom_track_unique_users_sum"] = users_total
-
-    sites = report.get("sites")
-    site_count = len(sites) if isinstance(sites, list) else None
-
-    # People: minimal, low PII — role + recency only
-    champs = report.get("champions") if isinstance(report.get("champions"), list) else []
-    at_risk = report.get("at_risk_users") if isinstance(report.get("at_risk_users"), list) else []
-    people_preview = []
-    for row in list(champs)[:4]:
-        if isinstance(row, dict):
-            people_preview.append(
-                {"role": row.get("role"), "days_inactive": row.get("days_inactive")}
-            )
-
-    return {
-        "note": (
-            "Pendo detail omitted by design: no per-site tables, page/feature rankings, "
-            "localization rows, poll transcripts, friction top-pages, track event names, or catalog appendix."
-        ),
-        "account": slim_acct,
-        "site_rows_in_report_excluded": site_count,
-        "engagement": slim_eng,
-        "benchmarks": bench,
-        "depth": slim_depth or None,
-        "exports": slim_exports or None,
-        "kei": slim_kei or None,
-        "guides": slim_guides or None,
-        "poll_events": slim_poll or None,
-        "frustration": slim_fr or None,
-        "track_events": slim_track or None,
-        "champions_preview_roles": people_preview,
-        "at_risk_users_count": len(at_risk) if at_risk else 0,
-    }
-
-
 def _pendo_portfolio_topline(portfolio: dict[str, Any], *, max_customer_rows: int = 200) -> dict[str, Any]:
     """Portfolio rollup + capped per-customer headline rows (no Pendo detail payloads)."""
     from src.hydrate_data_summary import truncate_strings_in_obj
@@ -386,20 +221,6 @@ def _compact_csr(csr: dict[str, Any], *, site_limit: int, string_cap: int) -> di
     return out
 
 
-def _signals_lines(report: dict[str, Any], *, cap: int, line_max: int) -> list[str]:
-    sigs = report.get("signals")
-    if not isinstance(sigs, list):
-        return []
-    out: list[str] = []
-    for s in sigs[:cap]:
-        line = s if isinstance(s, str) else json.dumps(s, default=str)
-        line = " ".join(line.split())
-        if len(line) > line_max:
-            line = line[: line_max - 1] + "…"
-        out.append(line)
-    return out
-
-
 def _portfolio_signal_lines(portfolio: dict[str, Any], *, cap: int, line_max: int) -> list[str]:
     items = portfolio.get("portfolio_signals") if isinstance(portfolio.get("portfolio_signals"), list) else []
     out: list[str] = []
@@ -427,13 +248,8 @@ def build_snapshot_document(
     signal_line_max: int = 280,
 ) -> dict[str, Any]:
     csr = report.get("csr") if isinstance(report.get("csr"), dict) else {}
-    is_portfolio = report.get("type") == "portfolio"
-    pendo_sec = _pendo_portfolio_topline(report) if is_portfolio else _pendo_topline(report)
-    sig_lines = (
-        _portfolio_signal_lines(report, cap=signals_cap, line_max=signal_line_max)
-        if is_portfolio
-        else _signals_lines(report, cap=signals_cap, line_max=signal_line_max)
-    )
+    pendo_sec = _pendo_portfolio_topline(report)
+    sig_lines = _portfolio_signal_lines(report, cap=signals_cap, line_max=signal_line_max)
     doc: dict[str, Any] = {
         "document_purpose": (
             "Structured facts from BPO integrations for LLM Q&A. Figures are snapshots from vendor APIs "
@@ -533,15 +349,9 @@ def _shrink_snapshot_params(
         account_cap=sf_accounts,
     )
     pr = doc.get("_portfolio_raw")
-    if isinstance(pr, dict) and pr.get("type") == "portfolio":
+    if isinstance(pr, dict):
         doc["notable_signals_lines"] = _portfolio_signal_lines(
             pr, cap=signals_cap, line_max=240
-        )
-    else:
-        doc["notable_signals_lines"] = _signals_lines(
-            {"signals": doc.get("_full_signals") or []},
-            cap=signals_cap,
-            line_max=240,
         )
     if doc.get("signals_trend_context") and csr_string_cap < 280:
         doc.pop("signals_trend_context", None)
@@ -589,9 +399,9 @@ def _salesforce_for_all_customers_report(report: dict[str, Any]) -> dict[str, An
     }
 
 
-def _build_all_customers_report(pc: Any, *, days: int) -> dict[str, Any]:
+def _build_snapshot_report(pc: Any, *, days: int) -> dict[str, Any]:
     """Pendo portfolio rollup + CS Report (week) + portfolio Salesforce + Jira HELP."""
-    portfolio = pc.get_portfolio_report(days=days)
+    portfolio = pc.get_portfolio_report(days=days, cohort_rollup_from_slide_yaml=False)
     if not isinstance(portfolio, dict):
         return {"error": "portfolio report returned non-dict"}
     if portfolio.get("error"):
@@ -621,19 +431,10 @@ def _build_all_customers_report(pc: Any, *, days: int) -> dict[str, Any]:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Export LLM-oriented data snapshot to QBR Generator Drive folder.")
-    ap.add_argument(
-        "customer",
-        nargs="?",
-        default=None,
-        help="Customer name (same as deck / Pendo match). Omit when using --all-customers.",
+    ap = argparse.ArgumentParser(
+        description="Export all-customers LLM data snapshot to QBR Generator Drive folder."
     )
-    ap.add_argument(
-        "--all-customers",
-        action="store_true",
-        help="Portfolio Pendo rollup + aggregated CS Report (week) + Salesforce revenue book + Jira HELP.",
-    )
-    ap.add_argument("--days", type=int, default=90, help="Lookback days for health report (default 90)")
+    ap.add_argument("--days", type=int, default=90, help="Lookback days for portfolio window (default 90)")
     ap.add_argument(
         "--max-bytes",
         type=int,
@@ -650,20 +451,12 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    if args.all_customers and args.customer:
-        ap.error("Pass either --all-customers or a customer name, not both.")
-    if not args.all_customers and not args.customer:
-        ap.error("Pass a customer name or use --all-customers.")
-
     exported_at = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     from src.pendo_client import PendoClient
 
     pc = PendoClient()
-    if args.all_customers:
-        report = _build_all_customers_report(pc, days=args.days)
-    else:
-        report = pc.get_customer_health_report(str(args.customer).strip(), days=args.days)
+    report = _build_snapshot_report(pc, days=args.days)
     if report.get("error"):
         print(f"error: report failed: {report.get('error')}", file=sys.stderr)
         sys.exit(1)
@@ -680,8 +473,7 @@ def main() -> None:
     doc["_full_jira"] = report.get("jira") or {}
     doc["_full_csr"] = report.get("csr") or {}
     doc["_full_sf"] = report.get("salesforce") or {}
-    doc["_full_signals"] = report.get("signals") or []
-    doc["_portfolio_raw"] = report if report.get("type") == "portfolio" else None
+    doc["_portfolio_raw"] = report
 
     md = render_markdown(doc, exported_at_utc=exported_at)
     max_b = max(20_000, int(args.max_bytes))
@@ -717,11 +509,7 @@ def main() -> None:
         if str(k).startswith("_"):
             doc.pop(k, None)
 
-    fname = (
-        f"LLM-Context-All_Customers-{dt.date.today().isoformat()}.md"
-        if args.all_customers
-        else f"LLM-Context-{_slug_customer(str(args.customer))}-{dt.date.today().isoformat()}.md"
-    )
+    fname = f"LLM-Context-All_Customers-{dt.date.today().isoformat()}.md"
 
     if args.out:
         path = args.out

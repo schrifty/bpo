@@ -406,9 +406,9 @@ def _cohort_findings_metadata_bullets(
     thin_n: int,
     singleton_n: int,
     un: dict[str, Any],
+    cfg: dict[str, Any],
 ) -> list[str]:
-    """Build cohort metadata lines from ``cohort_findings`` slide YAML ``metadata`` block."""
-    cfg = cohort_findings_metadata()
+    """Build cohort metadata lines from ``cohort_findings`` metadata (YAML or built-in defaults)."""
     t = cfg.get("templates") or {}
     try:
         max_b = max(1, int(cfg.get("max_bullets") or 1))
@@ -464,11 +464,16 @@ def _cohort_findings_metadata_bullets(
 
 def compute_cohort_portfolio_rollup(
     customer_summaries: list[dict[str, Any]],
+    *,
+    use_cohort_findings_slide_yaml: bool = True,
 ) -> tuple[dict[str, dict[str, Any]], list[str]]:
     """Bucket portfolio rows by ``cohorts.yaml`` classification (via ``get_customer_cohort``).
 
     Does not define cohorts — only reads ``cohort`` from existing customer records.
     Returns ``(cohort_digest, findings_bullets)``.
+
+    When ``use_cohort_findings_slide_yaml`` is False, cohort bullet tuning uses built-in defaults
+    only (no ``slides/`` or Drive slide reads). Deck generation keeps the default True.
     """
     buckets: dict[str, list[dict[str, Any]]] = {}
     for s in customer_summaries:
@@ -546,7 +551,14 @@ def compute_cohort_portfolio_rollup(
                 f"Next-largest: {second['display_name']} ({second['n']} customers, {s2}%).",
             )
 
-    rp = cohort_findings_rollup_params()
+    if use_cohort_findings_slide_yaml:
+        rp = cohort_findings_rollup_params()
+        meta_cfg = cohort_findings_metadata()
+    else:
+        from .slide_loader import cohort_findings_metadata_defaults, cohort_findings_rollup_defaults
+
+        rp = cohort_findings_rollup_defaults()
+        meta_cfg = cohort_findings_metadata_defaults()
     min_n_compare = max(1, rp["min_customers_for_cross_cohort_compare"])
     spread_min_pp = max(0, rp["min_login_spread_pp"])
     singleton_n = max(0, rp["singleton_n"])
@@ -606,6 +618,7 @@ def compute_cohort_portfolio_rollup(
             thin_n=thin_n,
             singleton_n=singleton_n,
             un=un,
+            cfg=meta_cfg,
         )
     )
 
@@ -2846,9 +2859,19 @@ class PendoClient:
             "exports": exports,
         }
 
-    def get_portfolio_report(self, days: int = 30, max_customers: int | None = None) -> dict[str, Any]:
+    def get_portfolio_report(
+        self,
+        days: int = 30,
+        max_customers: int | None = None,
+        *,
+        cohort_rollup_from_slide_yaml: bool = True,
+    ) -> dict[str, Any]:
         """Full portfolio report for the book-of-business deck.
-        Calls preload() then iterates all customers in parallel."""
+        Calls preload() then iterates all customers in parallel.
+
+        Set ``cohort_rollup_from_slide_yaml=False`` for callers that must not read slide definitions
+        from disk or Drive (cohort findings bullets use built-in defaults only).
+        """
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         self.preload(days)
@@ -2927,7 +2950,10 @@ class PendoClient:
             "Portfolio: computed %d customer summaries in %.1fs, building cohort rollup",
             len(customer_summaries), time.time() - t0,
         )
-        cohort_digest, cohort_findings_bullets = compute_cohort_portfolio_rollup(customer_summaries)
+        cohort_digest, cohort_findings_bullets = compute_cohort_portfolio_rollup(
+            customer_summaries,
+            use_cohort_findings_slide_yaml=cohort_rollup_from_slide_yaml,
+        )
 
         return {
             "type": "portfolio",

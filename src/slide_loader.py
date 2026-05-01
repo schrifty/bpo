@@ -221,6 +221,16 @@ _COHORT_FINDINGS_METADATA_DEFAULTS: dict[str, Any] = {
 }
 
 
+def cohort_findings_rollup_defaults() -> dict[str, int]:
+    """Built-in cohort rollup tuning without reading ``slides/*.yaml`` or Drive."""
+    return dict(_COHORT_FINDINGS_ROLLUP_DEFAULTS)
+
+
+def cohort_findings_metadata_defaults() -> dict[str, Any]:
+    """Built-in cohort findings templates/priority caps without reading slide YAML or Drive."""
+    return copy.deepcopy(_COHORT_FINDINGS_METADATA_DEFAULTS)
+
+
 @functools.lru_cache(maxsize=1)
 def cohort_findings_rollup_params() -> dict[str, int]:
     """Rollup tuning for :func:`compute_cohort_portfolio_rollup` (cohort findings slide).

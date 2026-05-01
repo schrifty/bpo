@@ -1,4 +1,4 @@
-"""Tests for Salesforce mapping on --all-customers LLM export."""
+"""Tests for Salesforce mapping on the all-customers LLM export script."""
 
 from __future__ import annotations
 

@@ -65,6 +65,26 @@ def test_compute_cohort_portfolio_rollup_empty():
     assert bullets and "No customers" in bullets[0]
 
 
+def test_compute_cohort_portfolio_rollup_without_slide_yaml_skips_slide_loader():
+    """Export / agents can disable YAML so Drive slide definitions are never read."""
+    summaries = [_row("SoloCo", login_pct=55)]
+
+    def fake_cohort(name: str):
+        return {"cohort": "solo_bucket"}
+
+    with patch("src.pendo_client.get_customer_cohort", side_effect=fake_cohort):
+        with patch(
+            "src.slide_loader._load_all_slides",
+            side_effect=AssertionError("cohort rollup should not load slide YAML"),
+        ):
+            digest, bullets = compute_cohort_portfolio_rollup(
+                summaries,
+                use_cohort_findings_slide_yaml=False,
+            )
+    assert digest["solo_bucket"]["n"] == 1
+    assert any("Portfolio (this window)" in b for b in bullets)
+
+
 def test_cohort_findings_median_comparisons_only_when_two_buckets_meet_yaml_threshold():
     """Cross-cohort bullets require n≥rollup_params.min_customers_for_cross_cohort_compare per cohort."""
     min_n = cohort_findings_min_customers_for_cross_cohort_compare()
