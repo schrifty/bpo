@@ -145,7 +145,13 @@ def _fetch_latest_report() -> list[dict[str, Any]]:
                     raise TimeoutError(f"CS Report download exceeded max chunks (100)")
 
         buf.seek(0)
-        import openpyxl
+        try:
+            import openpyxl
+        except ImportError as e:
+            raise ImportError(
+                "CS Report XLSX parsing requires openpyxl; add it to your environment "
+                "(e.g. pip install openpyxl or pip install -r requirements.txt)."
+            ) from e
         wb = openpyxl.load_workbook(buf, read_only=True)
         ws = wb[wb.sheetnames[0]]
 
