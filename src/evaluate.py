@@ -48,6 +48,7 @@ from .qbr_hydrate_mappings import (
     invalidate_qbr_mappings_cache,
     mapping_source_is_recognizable_data,
     mapping_source_is_visual_only,
+    mapping_source_suitable_for_qbr_yaml_autowrite,
     merge_discovered_sources_into_qbr_mappings,
 )
 from .drive_config import assert_qbr_prompts_ready_or_raise, get_deck_output_folder_id
@@ -2141,6 +2142,8 @@ def adapt_custom_slides(
                     if mapping_source_is_visual_only(orig, r.get("field")):
                         continue
                     if not mapping_source_is_recognizable_data(orig, r.get("field")):
+                        continue
+                    if not mapping_source_suitable_for_qbr_yaml_autowrite(orig):
                         continue
                     discoveries.append(
                         {"slide_number": int(sn), "slide_id": sid_raw, "source": orig}

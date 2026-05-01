@@ -333,6 +333,21 @@ def mapping_source_is_recognizable_data(source: str | None, field: str | None = 
     return False
 
 
+def mapping_source_suitable_for_qbr_yaml_autowrite(source: str | None) -> bool:
+    """False for long multi-paragraph shapes; YAML ``source`` must match a replace key (e.g. ``XX%``), not whole coach copy.
+
+    Unmapped adapt rows still use verbatim ``original``; when the model leaves an entire instruction
+    block unmapped, appending it as ``source`` produces unusable rules. Concise placeholders and
+    short phrases still pass.
+    """
+    t = (source or "").strip()
+    if len(t) > 500:
+        return False
+    if t.count("\n") >= 2 and len(t) > 100:
+        return False
+    return True
+
+
 def bootstrap_qbr_mappings_from_slides(
     slides_by_id: dict[str, Any],
     page_ids: list[str],
@@ -367,6 +382,8 @@ def bootstrap_qbr_mappings_from_slides(
                 continue
             raw = str(el.get("text") or "").strip()
             if not mapping_source_is_recognizable_data(raw):
+                continue
+            if not mapping_source_suitable_for_qbr_yaml_autowrite(raw):
                 continue
             key = (int(sn), _norm_source_key(raw))
             if key in seen:
@@ -414,6 +431,8 @@ def merge_discovered_sources_into_qbr_mappings(
         if mapping_source_is_visual_only(raw, d.get("field")):
             continue
         if not mapping_source_is_recognizable_data(raw, d.get("field")):
+            continue
+        if not mapping_source_suitable_for_qbr_yaml_autowrite(raw):
             continue
         key = (sn, _norm_source_key(raw))
         if key in seen:

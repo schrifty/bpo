@@ -12,6 +12,7 @@ from src.qbr_hydrate_mappings import (
     expand_mapping_rules,
     mapping_source_is_recognizable_data,
     mapping_source_is_visual_only,
+    mapping_source_suitable_for_qbr_yaml_autowrite,
     merge_discovered_sources_into_qbr_mappings,
 )
 
@@ -203,6 +204,32 @@ def test_mapping_source_is_recognizable_data() -> None:
     assert not mapping_source_is_recognizable_data("Key metrics")
     assert not mapping_source_is_recognizable_data("Section title")
     assert not mapping_source_is_recognizable_data("")
+
+
+def test_mapping_source_suitable_for_qbr_yaml_autowrite() -> None:
+    assert mapping_source_suitable_for_qbr_yaml_autowrite("XX%")
+    assert mapping_source_suitable_for_qbr_yaml_autowrite("Unique metric text")
+    long_two_para = (
+        "Para one with padding padding padding padding padding padding padding.\n\n"
+        "Para two with XX% and more padding to exceed one hundred characters in this autowrite probe."
+    )
+    assert len(long_two_para) > 100
+    assert not mapping_source_suitable_for_qbr_yaml_autowrite(long_two_para)
+    assert not mapping_source_suitable_for_qbr_yaml_autowrite("x" * 501)
+
+
+def test_merge_skips_long_multiline_prose(tmp_path) -> None:
+    p = tmp_path / "qbr_mappings.yaml"
+    p.write_text("version: 2\nslides: []\nglobal_elements: []\n", encoding="utf-8")
+    prose = (
+        "Intro line with enough padding to exceed the autowrite length threshold for prose.\n\n"
+        "Second paragraph with 12% in it and more padding here to pass one hundred chars total."
+    )
+    n = merge_discovered_sources_into_qbr_mappings(
+        [{"slide_number": 3, "slide_id": "qbr_deployment", "source": prose}],
+        path=p,
+    )
+    assert n == 0
 
 
 def test_merge_skips_non_recognizable_sources(tmp_path) -> None:
