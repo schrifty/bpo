@@ -5,6 +5,10 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+from src.data_sources.loaders.salesforce_portfolio_aggregate import (
+    salesforce_portfolio_aggregate_for_report,
+)
+
 
 def _export_mod():
     root = Path(__file__).resolve().parent.parent
@@ -20,7 +24,7 @@ def test_salesforce_all_customers_empty_when_not_configured(monkeypatch):
     mod = _export_mod()
     monkeypatch.setattr("src.data_source_health._salesforce_configured", lambda: False)
     report: dict = {"customers": [{"customer": "Acme"}]}
-    sf = mod._salesforce_for_all_customers_report(report)
+    sf = salesforce_portfolio_aggregate_for_report(report)
     assert sf.get("error")
     assert sf.get("matched") is False
     assert sf.get("resolution") == "none"
@@ -53,7 +57,7 @@ def test_salesforce_all_customers_maps_revenue_book(monkeypatch):
     monkeypatch.setattr("src.data_source_health._salesforce_configured", lambda: True)
     monkeypatch.setattr("src.deck_variants.enrich_portfolio_report_with_revenue_book", fake_enrich)
     report: dict = {"customers": [{"customer": "Acme"}, {"customer": "Beta"}]}
-    sf = mod._salesforce_for_all_customers_report(report)
+    sf = salesforce_portfolio_aggregate_for_report(report)
     assert sf["resolution"] == "portfolio_aggregate"
     assert sf["matched"] is True
     assert sf["pipeline_arr"] == 5.5

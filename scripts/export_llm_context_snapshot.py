@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Export an all-customers LLM-oriented data snapshot to Google Drive (QBR Generator).
 
-Builds :meth:`PendoClient.get_portfolio_report` plus aggregated CS Report (week), portfolio
-Salesforce revenue book, and Jira HELP (unscoped). The portfolio fetch does not read or sync
-QBR slide YAML (cohort findings use built-in defaults).
+Datasource bundle: :mod:`src.data_sources` profile ``llm_export_all_customers`` — Pendo portfolio
+rollup, CS Report (week), portfolio Salesforce revenue book, and Jira HELP (unscoped). The
+portfolio fetch does not read or sync QBR slide YAML (cohort findings use built-in defaults).
 
 **Pendo** detail payloads are stripped (sites, pages, features, …); **Jira** includes counts,
 breakdowns, and SLA-style aggregates only — **no issue keys, summaries, or ticket rows.**
@@ -33,11 +33,6 @@ if str(_ROOT) not in sys.path:
 
 # Product roadmap: named here so the export explicitly sets reader expectations.
 _PLANNED_DATASOURCES_NOT_IN_EXPORT: tuple[str, ...] = ("Aha", "GitHub")
-
-_SF_NOT_CONFIGURED_MSG = (
-    "Salesforce not configured: set SF_LOGIN_URL, SF_CONSUMER_KEY, SF_USERNAME, "
-    "and SF_PRIVATE_KEY or SF_PRIVATE_KEY_PATH (JWT integration)."
-)
 
 
 def _integration_coverage_lines(*, salesforce: dict[str, Any], csr: dict[str, Any]) -> list[str]:
@@ -476,94 +471,6 @@ def _shrink_snapshot_params(
     )
 
 
-def _salesforce_for_all_customers_report(report: dict[str, Any]) -> dict[str, Any]:
-    """Attach ``portfolio_revenue_book`` via :func:`enrich_portfolio_report_with_revenue_book` and map to ``salesforce`` shape."""
-    from src.data_source_health import _salesforce_configured
-    from src.deck_variants import enrich_portfolio_report_with_revenue_book
-
-    if not _salesforce_configured():
-        return {
-            "error": _SF_NOT_CONFIGURED_MSG,
-            "matched": False,
-            "resolution": "none",
-            "source": "salesforce",
-        }
-    enrich_portfolio_report_with_revenue_book(report)
-    prb = report.get("portfolio_revenue_book") or {}
-    if prb.get("error"):
-        return {
-            "error": str(prb.get("error")),
-            "matched": False,
-            "resolution": "none",
-            "source": "salesforce",
-        }
-    if prb.get("configured") is False:
-        return {
-            "error": _SF_NOT_CONFIGURED_MSG,
-            "matched": False,
-            "resolution": "none",
-            "source": "salesforce",
-        }
-
-    matched_n = int(prb.get("salesforce_matched_customers") or 0)
-    accounts: list[dict[str, Any]] = []
-    for row in prb.get("top_customers_by_arr") or []:
-        cust = row.get("customer")
-        if not cust:
-            continue
-        accounts.append({"Name": cust, "ARR__c": row.get("arr"), "Type": "Customer Entity"})
-
-    return {
-        "customer": "All Customers",
-        "matched": matched_n > 0,
-        "resolution": "portfolio_aggregate",
-        "primary_account_id": None,
-        "accounts": accounts,
-        "account_ids": [],
-        "pipeline_arr": float(prb.get("pipeline_arr") or 0),
-        "opportunity_count_this_year": int(prb.get("opportunity_count_this_year") or 0),
-        "total_arr": prb.get("total_arr"),
-        "active_installed_base_arr": prb.get("active_installed_base_arr"),
-        "churned_contract_arr": prb.get("churned_contract_arr"),
-        "pendo_customers": prb.get("pendo_customers"),
-        "salesforce_matched_customers": matched_n,
-        "salesforce_unmatched_customers": prb.get("salesforce_unmatched_customers"),
-        "active_customer_count": prb.get("active_customer_count"),
-        "churned_customer_count": prb.get("churned_customer_count"),
-    }
-
-
-def _build_snapshot_report(pc: Any, *, days: int) -> dict[str, Any]:
-    """Pendo portfolio rollup + CS Report (week) + portfolio Salesforce + Jira HELP."""
-    portfolio = pc.get_portfolio_report(days=days, cohort_rollup_from_slide_yaml=False)
-    if not isinstance(portfolio, dict):
-        return {"error": "portfolio report returned non-dict"}
-    if portfolio.get("error"):
-        return dict(portfolio)
-    report = dict(portfolio)
-    report["customer"] = "All Customers"
-    try:
-        from src.cs_report_client import load_csr_all_customers_week
-
-        report["csr"] = load_csr_all_customers_week()
-    except Exception as e:
-        err = {"error": str(e), "source": "cs_report"}
-        report["csr"] = {
-            "platform_health": dict(err),
-            "supply_chain": dict(err),
-            "platform_value": dict(err),
-        }
-    report["salesforce"] = _salesforce_for_all_customers_report(report)
-    report["signals"] = []
-    try:
-        from src.jira_client import get_shared_jira_client
-
-        report["jira"] = get_shared_jira_client().get_customer_jira(None, days=min(int(days), 365))
-    except Exception as e:
-        report["jira"] = {"error": str(e)}
-    return report
-
-
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Export all-customers LLM data snapshot to QBR Generator Drive folder."
@@ -587,10 +494,11 @@ def main() -> None:
 
     exported_at = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    from src.data_sources import build_llm_export_snapshot_report
     from src.pendo_client import PendoClient
 
     pc = PendoClient()
-    report = _build_snapshot_report(pc, days=args.days)
+    report = build_llm_export_snapshot_report(pc, days=args.days)
     if report.get("error"):
         print(f"error: report failed: {report.get('error')}", file=sys.stderr)
         sys.exit(1)
