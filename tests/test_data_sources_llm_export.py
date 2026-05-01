@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from src.data_sources import (
+    PROFILE_LEANDNA_QBR_ENRICHMENTS,
     PROFILE_ID_LLM_EXPORT_ALL_CUSTOMERS,
     PROFILE_LLM_EXPORT_ALL_CUSTOMERS,
     SourceId,
@@ -13,6 +14,13 @@ from src.data_sources import (
 def test_profile_llm_export_covers_four_sources():
     assert len(PROFILE_LLM_EXPORT_ALL_CUSTOMERS) == 4
     assert SourceId.PENDO_PORTFOLIO_ROLLUP in PROFILE_LLM_EXPORT_ALL_CUSTOMERS
+
+
+def test_profile_leandna_qbr_enrichments_lists_three_api_bundles():
+    assert len(PROFILE_LEANDNA_QBR_ENRICHMENTS) == 3
+    assert SourceId.LEANDNA_ITEM_MASTER in PROFILE_LEANDNA_QBR_ENRICHMENTS
+    assert SourceId.LEANDNA_SHORTAGE_TRENDS in PROFILE_LEANDNA_QBR_ENRICHMENTS
+    assert SourceId.LEANDNA_LEAN_PROJECTS in PROFILE_LEANDNA_QBR_ENRICHMENTS
 
 
 def test_build_llm_export_provenance_on_portfolio_failure():
