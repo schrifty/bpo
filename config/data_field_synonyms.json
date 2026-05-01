@@ -1,20 +1,343 @@
 {
   "version": 1,
-  "data_summary_paths_reference": [],
+  "data_summary_paths_reference": [
+    "customer_name",
+    "report_date",
+    "quarter",
+    "quarter_start",
+    "quarter_end",
+    "total_users",
+    "total_visitors",
+    "unique_visitors",
+    "active_users",
+    "total_sites",
+    "active_sites",
+    "health_score",
+    "account_total_minutes",
+    "account_avg_weekly_hours",
+    "total_shortages",
+    "total_critical_shortages",
+    "weekly_active_buyers_pct_avg",
+    "support.total_tickets",
+    "support.open",
+    "support.resolved",
+    "salesforce.opportunity_count_this_year",
+    "salesforce.pipeline_arr",
+    "platform_value.total_savings",
+    "platform_value.total_open_ia_value",
+    "platform_value.total_potential_savings",
+    "platform_value.total_potential_to_sell",
+    "platform_value.total_recs_created_30d",
+    "platform_value.total_pos_placed_30d",
+    "platform_value.total_overdue_tasks",
+    "platform_value.factory_count",
+    "supply_chain.factory_count",
+    "supply_chain.totals.on_hand",
+    "supply_chain.totals.on_order",
+    "supply_chain.totals.excess_on_hand",
+    "supply_chain.totals.excess_on_order",
+    "supply_chain.totals.past_due_po",
+    "supply_chain.totals.past_due_req"
+  ],
   "entries": [
     {
       "path": "platform_value.total_savings",
       "phrases": [
         "cost avoidance",
         "material cost avoidance",
-        "total cost avoidance"
+        "total cost avoidance",
+        "inventory action savings",
+        "savings achieved",
+        "total savings",
+        "realized savings"
       ]
     },
     {
       "path": "account_avg_weekly_hours",
       "phrases": [
         "average hours spent weekly on leandna",
-        "weekly on leandna for engagement metrics"
+        "weekly on leandna for engagement metrics",
+        "average weekly hours",
+        "hours per week on platform",
+        "time spent weekly"
+      ]
+    },
+    {
+      "path": "total_users",
+      "phrases": [
+        "total users",
+        "unique visitors",
+        "visitor count",
+        "licensed users",
+        "user count",
+        "all users"
+      ]
+    },
+    {
+      "path": "active_users",
+      "phrases": [
+        "active users",
+        "active visitors",
+        "weekly active users",
+        "engaged users",
+        "active user count"
+      ]
+    },
+    {
+      "path": "total_sites",
+      "phrases": [
+        "total sites",
+        "number of sites",
+        "site count",
+        "deployed sites",
+        "factory count"
+      ]
+    },
+    {
+      "path": "active_sites",
+      "phrases": [
+        "active sites",
+        "sites with activity"
+      ]
+    },
+    {
+      "path": "health_score",
+      "phrases": [
+        "health score",
+        "account health",
+        "pendo health score",
+        "overall health"
+      ]
+    },
+    {
+      "path": "total_shortages",
+      "phrases": [
+        "total shortages",
+        "shortage items",
+        "shortage count",
+        "shortage line items"
+      ]
+    },
+    {
+      "path": "total_critical_shortages",
+      "phrases": [
+        "critical shortages",
+        "total critical shortages",
+        "critical shortage count",
+        "critical shortage reduction"
+      ]
+    },
+    {
+      "path": "weekly_active_buyers_pct_avg",
+      "phrases": [
+        "weekly active buyers",
+        "active buyers percent",
+        "buyer weekly active rate",
+        "wab percentage"
+      ]
+    },
+    {
+      "path": "account_total_minutes",
+      "phrases": [
+        "total minutes",
+        "account total minutes",
+        "time on platform",
+        "minutes in leandna"
+      ]
+    },
+    {
+      "path": "customer_name",
+      "phrases": [
+        "customer name",
+        "account name",
+        "client name"
+      ]
+    },
+    {
+      "path": "report_date",
+      "phrases": [
+        "report date",
+        "generated date",
+        "as of date"
+      ]
+    },
+    {
+      "path": "quarter",
+      "phrases": [
+        "this quarter",
+        "reporting quarter",
+        "fiscal quarter",
+        "current quarter"
+      ]
+    },
+    {
+      "path": "quarter_start",
+      "phrases": [
+        "quarter start",
+        "period start date",
+        "window start"
+      ]
+    },
+    {
+      "path": "quarter_end",
+      "phrases": [
+        "quarter end",
+        "period end date",
+        "window end"
+      ]
+    },
+    {
+      "path": "support.total_tickets",
+      "phrases": [
+        "total tickets",
+        "help tickets total",
+        "jsm ticket count",
+        "all tickets"
+      ]
+    },
+    {
+      "path": "support.open",
+      "phrases": [
+        "open tickets",
+        "open issues",
+        "backlog tickets",
+        "open backlog"
+      ]
+    },
+    {
+      "path": "support.resolved",
+      "phrases": [
+        "resolved tickets",
+        "closed tickets",
+        "tickets resolved"
+      ]
+    },
+    {
+      "path": "salesforce.opportunity_count_this_year",
+      "phrases": [
+        "opportunities this year",
+        "open opportunities count",
+        "opportunity count",
+        "opportunities ytd"
+      ]
+    },
+    {
+      "path": "salesforce.pipeline_arr",
+      "phrases": [
+        "pipeline arr",
+        "open pipeline",
+        "opportunity pipeline",
+        "pipeline dollars"
+      ]
+    },
+    {
+      "path": "platform_value.total_open_ia_value",
+      "phrases": [
+        "open intelligent action value",
+        "open ia value",
+        "inventory action open value",
+        "open action value"
+      ]
+    },
+    {
+      "path": "platform_value.total_potential_savings",
+      "phrases": [
+        "potential savings",
+        "identified savings opportunity",
+        "savings opportunity"
+      ]
+    },
+    {
+      "path": "platform_value.total_potential_to_sell",
+      "phrases": [
+        "potential to sell",
+        "excess sell opportunity",
+        "sell through potential"
+      ]
+    },
+    {
+      "path": "platform_value.total_recs_created_30d",
+      "phrases": [
+        "recommendations created",
+        "recs created last 30 days",
+        "ia recommendations"
+      ]
+    },
+    {
+      "path": "platform_value.total_pos_placed_30d",
+      "phrases": [
+        "purchase orders placed",
+        "pos placed last 30 days",
+        "pos last thirty days"
+      ]
+    },
+    {
+      "path": "platform_value.total_overdue_tasks",
+      "phrases": [
+        "overdue tasks",
+        "workbench overdue tasks",
+        "overdue ia tasks"
+      ]
+    },
+    {
+      "path": "platform_value.factory_count",
+      "phrases": [
+        "platform value factory count",
+        "factories in platform value"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.on_hand",
+      "phrases": [
+        "on hand inventory value",
+        "total on hand value",
+        "inventory on hand",
+        "on hand dollars"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.on_order",
+      "phrases": [
+        "on order value",
+        "inventory on order",
+        "on order dollars"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.excess_on_hand",
+      "phrases": [
+        "excess on hand",
+        "excess inventory on hand",
+        "excess oh"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.excess_on_order",
+      "phrases": [
+        "excess on order",
+        "excess oo"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.past_due_po",
+      "phrases": [
+        "past due purchase orders",
+        "past due po value",
+        "late po value"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.past_due_req",
+      "phrases": [
+        "past due requirements",
+        "late pr value"
+      ]
+    },
+    {
+      "path": "supply_chain.factory_count",
+      "phrases": [
+        "supply chain factory count",
+        "factories in supply chain"
       ]
     }
   ]

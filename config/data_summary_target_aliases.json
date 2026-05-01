@@ -1,16 +1,372 @@
 {
   "version": 1,
-  "_comment": "Optional qbr_mappings target aliases: terms normalize to data_summary paths. Merged after data_field_synonyms.json; this file wins on duplicate keys.",
+  "_comment": "qbr_mappings target aliases; merged after data_field_synonyms.json (this file wins on key collision). data_summary_paths_reference is in data_field_synonyms.json.",
   "entries": [
+    {
+      "path": "customer_name",
+      "terms": [
+        "customer_name",
+        "customer name",
+        "Account",
+        "Client name",
+        "Customer"
+      ]
+    },
+    {
+      "path": "report_date",
+      "terms": [
+        "report_date",
+        "report date",
+        "Generated date",
+        "Report generated",
+        "As of date"
+      ]
+    },
+    {
+      "path": "quarter",
+      "terms": [
+        "quarter",
+        "QBR quarter",
+        "This quarter",
+        "Current quarter",
+        "Fiscal quarter"
+      ]
+    },
+    {
+      "path": "quarter_start",
+      "terms": [
+        "quarter_start",
+        "quarter start",
+        "Quarter start date",
+        "Period start"
+      ]
+    },
+    {
+      "path": "quarter_end",
+      "terms": [
+        "quarter_end",
+        "quarter end",
+        "Quarter end date",
+        "Period end"
+      ]
+    },
+    {
+      "path": "total_users",
+      "terms": [
+        "total_users",
+        "total users",
+        "User count",
+        "Licensed users",
+        "All users"
+      ]
+    },
+    {
+      "path": "total_visitors",
+      "terms": [
+        "total_visitors",
+        "total visitors",
+        "Visitors",
+        "Total visitor count"
+      ]
+    },
+    {
+      "path": "unique_visitors",
+      "terms": [
+        "unique_visitors",
+        "unique visitors",
+        "Distinct visitors",
+        "Unique visitor count"
+      ]
+    },
+    {
+      "path": "active_users",
+      "terms": [
+        "active_users",
+        "active users",
+        "Active user count",
+        "7 day active users",
+        "Active accounts"
+      ]
+    },
+    {
+      "path": "total_sites",
+      "terms": [
+        "total_sites",
+        "total sites",
+        "Sites",
+        "Number of factories",
+        "Deployment count"
+      ]
+    },
+    {
+      "path": "active_sites",
+      "terms": [
+        "active_sites",
+        "active sites",
+        "Sites with usage",
+        "Active factory count"
+      ]
+    },
+    {
+      "path": "health_score",
+      "terms": [
+        "health_score",
+        "health score",
+        "Pendo health",
+        "Overall health",
+        "Health band"
+      ]
+    },
+    {
+      "path": "account_total_minutes",
+      "terms": [
+        "account_total_minutes",
+        "account total minutes",
+        "Minutes in app",
+        "Total time on platform"
+      ]
+    },
+    {
+      "path": "account_avg_weekly_hours",
+      "terms": [
+        "account_avg_weekly_hours",
+        "account avg weekly hours",
+        "Weekly hours",
+        "Avg weekly hours",
+        "Hours per week"
+      ]
+    },
+    {
+      "path": "total_shortages",
+      "terms": [
+        "total_shortages",
+        "total shortages",
+        "Shortage items",
+        "All shortages"
+      ]
+    },
     {
       "path": "total_critical_shortages",
       "terms": [
+        "total_critical_shortages",
+        "total critical shortages",
         "Shortage Reduction",
         "shortage reduction",
         "Critical Shortage Reduction",
         "critical shortage reduction",
-        "total critical shortages",
-        "critical shortages (count)"
+        "critical shortages (count)",
+        "critical shortage count"
+      ]
+    },
+    {
+      "path": "weekly_active_buyers_pct_avg",
+      "terms": [
+        "weekly_active_buyers_pct_avg",
+        "weekly active buyers pct avg",
+        "WAB percent",
+        "Weekly active buyer rate",
+        "Buyer activity rate"
+      ]
+    },
+    {
+      "path": "support.total_tickets",
+      "terms": [
+        "support.total_tickets",
+        "support.total tickets",
+        "Support Total Tickets",
+        "All Jira tickets",
+        "HELP ticket total"
+      ]
+    },
+    {
+      "path": "support.open",
+      "terms": [
+        "support.open",
+        "Support Open",
+        "Open backlog",
+        "Open JSM tickets"
+      ]
+    },
+    {
+      "path": "support.resolved",
+      "terms": [
+        "support.resolved",
+        "Support Resolved",
+        "Resolved last period",
+        "Closed ticket count"
+      ]
+    },
+    {
+      "path": "salesforce.opportunity_count_this_year",
+      "terms": [
+        "salesforce.opportunity_count_this_year",
+        "salesforce.opportunity count this year",
+        "Salesforce Opportunity Count This Year",
+        "Opportunities YTD",
+        "Opp count"
+      ]
+    },
+    {
+      "path": "salesforce.pipeline_arr",
+      "terms": [
+        "salesforce.pipeline_arr",
+        "salesforce.pipeline arr",
+        "Salesforce Pipeline Arr",
+        "Open ARR",
+        "Pipeline dollars",
+        "SFDC pipeline"
+      ]
+    },
+    {
+      "path": "platform_value.total_savings",
+      "terms": [
+        "platform_value.total_savings",
+        "platform value.total savings",
+        "Platform Value Total Savings",
+        "Savings to date",
+        "Realized savings",
+        "IA savings"
+      ]
+    },
+    {
+      "path": "platform_value.total_open_ia_value",
+      "terms": [
+        "platform_value.total_open_ia_value",
+        "platform value.total open ia value",
+        "Platform Value Total Open Ia Value",
+        "Open IA dollars",
+        "Open action value"
+      ]
+    },
+    {
+      "path": "platform_value.total_potential_savings",
+      "terms": [
+        "platform_value.total_potential_savings",
+        "platform value.total potential savings",
+        "Platform Value Total Potential Savings",
+        "Identified savings",
+        "Savings opportunity"
+      ]
+    },
+    {
+      "path": "platform_value.total_potential_to_sell",
+      "terms": [
+        "platform_value.total_potential_to_sell",
+        "platform value.total potential to sell",
+        "Platform Value Total Potential To Sell",
+        "Sell-through potential",
+        "Excess sell value"
+      ]
+    },
+    {
+      "path": "platform_value.total_recs_created_30d",
+      "terms": [
+        "platform_value.total_recs_created_30d",
+        "platform value.total recs created 30d",
+        "Platform Value Total Recs Created 30d",
+        "Recommendations 30d",
+        "IA recs created"
+      ]
+    },
+    {
+      "path": "platform_value.total_pos_placed_30d",
+      "terms": [
+        "platform_value.total_pos_placed_30d",
+        "platform value.total pos placed 30d",
+        "Platform Value Total Pos Placed 30d",
+        "POs in 30 days",
+        "Purchase orders 30d"
+      ]
+    },
+    {
+      "path": "platform_value.total_overdue_tasks",
+      "terms": [
+        "platform_value.total_overdue_tasks",
+        "platform value.total overdue tasks",
+        "Platform Value Total Overdue Tasks",
+        "Workbench overdue",
+        "Overdue IA tasks"
+      ]
+    },
+    {
+      "path": "platform_value.factory_count",
+      "terms": [
+        "platform_value.factory_count",
+        "platform value.factory count",
+        "Platform Value Factory Count",
+        "PV factory count",
+        "ROI slide factory count"
+      ]
+    },
+    {
+      "path": "supply_chain.factory_count",
+      "terms": [
+        "supply_chain.factory_count",
+        "supply chain.factory count",
+        "Supply Chain Factory Count",
+        "SC factory count",
+        "Inventory factory count"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.on_hand",
+      "terms": [
+        "supply_chain.totals.on_hand",
+        "supply chain.totals.on hand",
+        "Supply Chain Totals On Hand",
+        "Inventory OH",
+        "On-hand dollars",
+        "OH value"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.on_order",
+      "terms": [
+        "supply_chain.totals.on_order",
+        "supply chain.totals.on order",
+        "Supply Chain Totals On Order",
+        "On order dollars",
+        "OO value"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.excess_on_hand",
+      "terms": [
+        "supply_chain.totals.excess_on_hand",
+        "supply chain.totals.excess on hand",
+        "Supply Chain Totals Excess On Hand",
+        "Excess inventory",
+        "Excess OH dollars"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.excess_on_order",
+      "terms": [
+        "supply_chain.totals.excess_on_order",
+        "supply chain.totals.excess on order",
+        "Supply Chain Totals Excess On Order",
+        "Excess on order",
+        "Excess OO"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.past_due_po",
+      "terms": [
+        "supply_chain.totals.past_due_po",
+        "supply chain.totals.past due po",
+        "Supply Chain Totals Past Due Po",
+        "Past due PO dollars",
+        "Late PO value"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.past_due_req",
+      "terms": [
+        "supply_chain.totals.past_due_req",
+        "supply chain.totals.past due req",
+        "Supply Chain Totals Past Due Req",
+        "Past due requisitions",
+        "Late PR value"
       ]
     }
   ]
