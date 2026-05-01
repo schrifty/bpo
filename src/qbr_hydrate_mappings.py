@@ -1,7 +1,9 @@
 """Explicit QBR hydrate mappings from ``config/qbr_mappings.yaml``.
 
 When ``report[REPORT_KEY_EXPLICIT_QBR_MAPPINGS]`` is true, :func:`adapt_custom_slides` uses
-:func:`apply_explicit_qbr_mappings` instead of synonym-phrase resolution from ``data_field_synonyms``.
+:func:`apply_explicit_qbr_mappings` instead of synonym-phrase resolution from ``data_field_synonyms``
+for slide text — but each rule's ``target`` is still resolved via
+:func:`data_field_synonyms.resolve_data_summary_target_path` (synonyms + ``data_summary_target_aliases.json``).
 
 **Missing file:** If ``config/qbr_mappings.yaml`` is absent, :func:`bootstrap_qbr_mappings_from_slides`
 runs once at the start of adapt (before LLM) to walk template slides and append candidate data
@@ -534,6 +536,7 @@ def apply_explicit_qbr_mappings(
         _narrow_synonym_haystack,
         _value_present,
         data_summary_lookup,
+        resolve_data_summary_target_path,
     )
     from .evaluate import (
         _adapt_original_reads_as_percent_on_slide,
@@ -582,7 +585,8 @@ def apply_explicit_qbr_mappings(
                 h = _normalize_context(hay)
                 if len(h) < 4 or _normalize_context(src) not in h:
                     continue
-            raw = data_summary_lookup(data_summary, tgt)
+            path_resolved = resolve_data_summary_target_path(tgt)
+            raw = data_summary_lookup(data_summary, path_resolved)
             if not _value_present(raw):
                 continue
             if isinstance(raw, (dict, list)):
@@ -594,7 +598,7 @@ def apply_explicit_qbr_mappings(
                 ):
                     continue
 
-            raw_s = _format_scalar_for_slide(raw, path=tgt)
+            raw_s = _format_scalar_for_slide(raw, path=path_resolved)
             m = re.match(r"^[\d.,\s$€£%]+", orig)
             suffix = (orig[m.end() :].strip() if m else "").strip()
             pct_in_prefix = bool(m and "%" in m.group())
@@ -608,10 +612,10 @@ def apply_explicit_qbr_mappings(
             new_val = f"{raw_s} {suffix}".strip() if suffix else raw_s
 
             r["mapped"] = True
-            r["field"] = tgt
+            r["field"] = path_resolved
             r["new_value"] = new_val
             r["synonym_phrase"] = src
-            r["synonym_path"] = tgt
+            r["synonym_path"] = path_resolved
             elem_label = ent.get("data_element_name") or ""
             if elem_label:
                 r["qbr_mapping_element"] = elem_label
@@ -621,7 +625,7 @@ def apply_explicit_qbr_mappings(
                 slide_ref,
                 f" n={slide_number}" if slide_number is not None else "",
                 src,
-                tgt,
+                path_resolved,
                 elem_label or None,
             )
             break

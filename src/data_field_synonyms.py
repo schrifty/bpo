@@ -1,10 +1,12 @@
 """Curated phrase → data_summary path mapping for hydrate synonym resolution.
 
 Template QBR (``qbr_template`` → ``adapt_custom_slides`` with explicit flag) uses
-``config/qbr_mappings.yaml`` via ``qbr_hydrate_mappings`` instead of this table.
-Synonyms are read only from the repo file ``config/data_field_synonyms.json`` (see
-``pendo_portfolio_snapshot_drive.load_data_field_synonyms_document``). Portfolio snapshot
-JSON caches on Drive are unrelated.
+``config/qbr_mappings.yaml`` via ``qbr_hydrate_mappings`` instead of the synonym
+phrase table for **slide text** — but ``qbr_mappings`` **target** strings still
+resolve through :func:`resolve_data_summary_target_path`, which merges
+``config/data_field_synonyms.json`` (``path`` + ``phrases``) with optional
+``config/data_summary_target_aliases.json`` (``path`` + ``terms``; later wins on
+key collision). Portfolio snapshot JSON caches on Drive are unrelated.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from . import matching_log
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_CONFIG = _REPO_ROOT / "config" / "data_field_synonyms.json"
+_TARGET_PATH_ALIAS_FILE = _REPO_ROOT / "config" / "data_summary_target_aliases.json"
 
 _WS_RE = re.compile(r"\s+")
 
@@ -31,6 +34,10 @@ _SYNONYM_TRIGGER_PLACEHOLDERS = frozenset(
 _cache_rows: list[tuple[int, str, str, str]] | None = None
 _cache_key: object | None = None
 _default_synonym_load_lock = threading.Lock()
+
+_target_path_alias_map: dict[str, str] | None = None
+_target_path_alias_ck: tuple[str, str] | None = None
+_target_path_alias_lock = threading.Lock()
 
 
 def _clip_for_log(s: str, n: int = 400) -> str:
@@ -156,6 +163,121 @@ def data_summary_path_exists(data_summary: dict[str, Any], path: str) -> bool:
             return False
         cur = cur[p]
     return True
+
+
+def _normalize_target_path_key(s: str) -> str:
+    """Same segment normalization as :func:`data_summary_lookup` applies to the full path string."""
+    return s.strip().replace(" ", "_").replace("-", "_").lower()
+
+
+def _alias_map_from_synonym_like_entries(
+    entries: Any,
+    *,
+    min_phrase_len: int,
+) -> dict[str, str]:
+    """``phrase``/``term`` (normalized) → canonical dotted path key (normalized)."""
+    out: dict[str, str] = {}
+    if not isinstance(entries, list):
+        return out
+    for ent in entries:
+        if not isinstance(ent, dict):
+            continue
+        path_raw = str(ent.get("path") or "").strip()
+        if not path_raw:
+            continue
+        path_key = _normalize_target_path_key(path_raw)
+        phrases = ent.get("phrases")
+        if phrases is None:
+            phrases = ent.get("terms") or []
+        if isinstance(phrases, str):
+            phrases = [phrases]
+        out[path_key] = path_key
+        for ph in phrases:
+            if not isinstance(ph, str):
+                continue
+            raw = ph.strip()
+            if len(raw) < min_phrase_len:
+                continue
+            k = _normalize_target_path_key(raw)
+            if k:
+                out[k] = path_key
+    return out
+
+
+def _target_path_alias_signatures() -> tuple[str, str]:
+    from .pendo_portfolio_snapshot_drive import local_data_field_synonyms_path
+
+    syn_p = local_data_field_synonyms_path()
+    try:
+        syn_sig = str(syn_p.stat().st_mtime_ns)
+    except OSError:
+        syn_sig = "0"
+    try:
+        alias_sig = str(_TARGET_PATH_ALIAS_FILE.stat().st_mtime_ns)
+    except OSError:
+        alias_sig = "0"
+    return syn_sig, alias_sig
+
+
+def _build_target_path_alias_map() -> dict[str, str]:
+    from .pendo_portfolio_snapshot_drive import load_data_field_synonyms_document
+
+    merged: dict[str, str] = {}
+    syn_data, _ = load_data_field_synonyms_document(allow_drive=True)
+    if isinstance(syn_data, dict):
+        merged.update(
+            _alias_map_from_synonym_like_entries(
+                syn_data.get("entries"),
+                min_phrase_len=4,
+            )
+        )
+    try:
+        raw_a = json.loads(_TARGET_PATH_ALIAS_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        raw_a = {}
+    if isinstance(raw_a, dict):
+        merged.update(
+            _alias_map_from_synonym_like_entries(
+                raw_a.get("entries"),
+                min_phrase_len=2,
+            )
+        )
+    return merged
+
+
+def invalidate_target_path_alias_cache() -> None:
+    """Drop cached target-alias map (tests or after editing JSON)."""
+    global _target_path_alias_map, _target_path_alias_ck
+    with _target_path_alias_lock:
+        _target_path_alias_map = None
+        _target_path_alias_ck = None
+
+
+def resolve_data_summary_target_path(target: str) -> str:
+    """Turn a ``qbr_mappings`` / human **target** string into a dotted ``data_summary`` path.
+
+    Keys are normalized like :func:`data_summary_lookup` (spaces and hyphens → ``_``,
+    lowercased). Sources, in merge order (later overrides earlier):
+
+    * ``entries[].path`` + ``entries[].phrases`` from ``config/data_field_synonyms.json``
+      (phrases shorter than 4 characters are skipped).
+    * ``entries[].path`` + ``entries[].terms`` from ``config/data_summary_target_aliases.json``
+      if present (terms shorter than 2 characters are skipped).
+
+    If nothing matches, returns ``target`` stripped (existing direct-path behavior).
+    """
+    t = (target or "").strip()
+    if not t:
+        return target or ""
+    global _target_path_alias_map, _target_path_alias_ck
+    sig = _target_path_alias_signatures()
+    with _target_path_alias_lock:
+        if _target_path_alias_map is None or _target_path_alias_ck != sig:
+            _target_path_alias_map = _build_target_path_alias_map()
+            _target_path_alias_ck = sig
+        m = _target_path_alias_map
+    key = _normalize_target_path_key(t)
+    return m.get(key, t)
 
 
 def _value_present(val: Any) -> bool:

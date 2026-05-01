@@ -66,6 +66,42 @@ def test_apply_explicit_bracket_exact_match(monkeypatch: pytest.MonkeyPatch) -> 
     assert "42" in str(out[0]["new_value"])
 
 
+def test_apply_explicit_resolves_human_target_via_alias_map(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``target`` can be a human label listed in data_summary_target_aliases.json."""
+    monkeypatch.setattr(
+        "src.qbr_hydrate_mappings.load_qbr_mappings",
+        lambda **_: {
+            "version": 1,
+            "mappings": [
+                {"slide_id": None, "source": "XX%", "target": "Shortage Reduction"},
+            ],
+            "bracket_placeholder_sources": [],
+        },
+    )
+    data_summary = {"total_critical_shortages": 12}
+    text_elements = [{"type": "shape", "text": "Critical shortage reduction (XX% vs prior quarter)"}]
+    repls = [
+        {
+            "original": "XX%",
+            "new_value": "[00%]",
+            "mapped": False,
+            "field": "",
+        }
+    ]
+    out = apply_explicit_qbr_mappings(
+        repls,
+        text_elements,
+        data_summary,
+        slide_type="health",
+        slide_ref="1",
+        slide_number=1,
+    )
+    assert out[0]["mapped"] is True
+    assert out[0]["field"] == "total_critical_shortages"
+    assert out[0]["synonym_path"] == "total_critical_shortages"
+    assert "12" in str(out[0]["new_value"])
+
+
 def test_apply_explicit_skips_blank_target(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "src.qbr_hydrate_mappings.load_qbr_mappings",

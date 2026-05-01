@@ -2,7 +2,8 @@
 #
 # Absence of config/qbr_mappings.yaml signals "remap this template": the next template QBR adapt
 # walks slides (data-like text boxes), writes this file with empty targets, then runs LLM adapt.
-# Fill ``target`` with dotted data_summary paths and re-run QBR to hydrate.
+# Fill ``target`` with dotted data_summary paths (or human labels from
+# config/data_summary_target_aliases.json / data_field_synonyms.json phrases) and re-run QBR.
 #
 # See src/qbr_hydrate_mappings.py (version 2 schema: slides[].slide_number → elements[].name / source / target).
 

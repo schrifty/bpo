@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "_comment": "Optional qbr_mappings target aliases: terms normalize to data_summary paths. Merged after data_field_synonyms.json; this file wins on duplicate keys.",
+  "entries": [
+    {
+      "path": "total_critical_shortages",
+      "terms": [
+        "Shortage Reduction",
+        "shortage reduction",
+        "Critical Shortage Reduction",
+        "critical shortage reduction",
+        "total critical shortages",
+        "critical shortages (count)"
+      ]
+    }
+  ]
+}
