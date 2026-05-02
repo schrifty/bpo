@@ -36,6 +36,25 @@ def test_take_portfolio_signals_caps_read_heavy():
     assert all("Low guide" in str(x.get("signal", "")) for x in out[:10])
 
 
+def test_compute_portfolio_signals_dedupes_case_only_customer_duplicates():
+    client = PendoClient(integration_key="test-key-for-unit-tests", base_url="https://example.invalid")
+    summaries = [
+        {
+            "customer": "MicroVention",
+            "score": 0,
+            "signals": ["No Kei AI usage detected — rollout opportunity"],
+        },
+        {
+            "customer": "Microvention",
+            "score": 0,
+            "signals": ["No Kei AI usage detected — rollout opportunity"],
+        },
+    ]
+    out = client._compute_portfolio_signals(summaries, max_lines=50, max_read_heavy=50)
+    assert len(out) == 1
+    assert out[0]["customer"] == "MicroVention"
+
+
 def test_compute_portfolio_signals_respects_max_lines_override():
     client = PendoClient(integration_key="test-key-for-unit-tests", base_url="https://example.invalid")
     summaries = []

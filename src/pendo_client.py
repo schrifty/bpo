@@ -70,6 +70,25 @@ def _take_portfolio_signals_capping_read_heavy(
     return out
 
 
+def _dedupe_portfolio_signal_rows(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Remove duplicate (customer, signal) pairs when customer names differ only by case/spacing.
+
+    Pendo sometimes returns the same account under near-duplicate names (e.g. ``MicroVention`` vs
+    ``Microvention``), which would otherwise emit identical portfolio signal lines twice.
+    """
+    seen: set[tuple[str, str]] = set()
+    out: list[dict[str, Any]] = []
+    for item in signals:
+        cust = str(item.get("customer") or "").strip()
+        sig = " ".join(str(item.get("signal") or "").split())
+        key = (cust.lower(), sig.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
+
+
 def _time_series(days: int) -> dict[str, Any]:
     """Build timeSeries for aggregation pipeline."""
     return {
@@ -3007,6 +3026,7 @@ class PendoClient:
                         "score": s.get("score", 0),
                     })
         signals.sort(key=lambda x: (-x["severity"], x["score"]))
+        signals = _dedupe_portfolio_signal_rows(signals)
         return _take_portfolio_signals_capping_read_heavy(
             signals, max_total=max_lines, max_read_heavy=max_read_heavy
         )
