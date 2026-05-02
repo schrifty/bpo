@@ -168,8 +168,9 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
     if not cov:
         return ["- *(Coverage manifest missing.)*"]
     lines: list[str] = [
-        "Use this block to see **what the exporter intentionally includes or excludes** and **numeric caps**. "
-        "When something is missing from the numbered JSON sections, check here first, then loader status below.",
+        "This block explains **what is in the snapshot**, **what is left out on purpose**, and **rough limits** "
+        "(how many rows, how much text). If a number looks wrong in §1–§6, check here first, then **Loader provenance** "
+        "below to see whether the upstream system returned an error.",
         "",
         "### Datasource profile",
         f"- **Profile id:** `{cov.get('profile_id', '')}`",
@@ -186,48 +187,70 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
     lines.extend(
         [
             "",
-            "### Per-section subset rules (this file)",
-            "- **§1 Pendo:** Portfolio rollup JSON only — no multi-GB Pendo Drive detail exports, sites, pages, or features. "
-            f"Per-customer `customers_headline` is capped at **{cov.get('pendo_export_constants', {}).get('customers_headline_max', 200)}** rows; "
-            "portfolio_signals / trends / leaders / cohort digest are further truncated (see exporter code).",
-            "- **§2 Jira:** Counts, breakdowns, and SLA-style aggregates only — **no issue keys, summaries, or ticket rows.**",
-            "- **§3 Salesforce:** Compact account rows (field allowlist) plus portfolio aggregate scalars; rollups list is capped (see compaction).",
-            "- **§4 CS Report:** Per-sheet sites truncated; long strings and nested structures truncated via `truncate_strings_in_obj`.",
-            "- **§5 Pendo usage signals:** Ranked lines from `portfolio_signals` (Pendo portfolio heuristics: Kei, "
-            "guide dismiss, read-heavy, etc.). Built with a **high** line ceiling for this export path in "
-            "``build_llm_export_snapshot_report``, not the deck default of 20. Optional `--signals-cap` can trim §5 in markdown only.",
-            "- **§6 Signals trend context:** Included only when the merged report carries `signals_trend_context` **and** the CS Report string cap after compaction is **≥ 280**; otherwise omitted to save bytes.",
+            "### Section-by-section: what you are looking at",
+            "The numbered sections are **JSON blocks** (machine-friendly). Here is what each one is meant to represent for CS conversations.",
             "",
-            "### Byte budget and compaction (this run)",
-            f"- **Target soft cap (`--max-bytes`):** {cov.get('markdown_soft_cap_bytes', '')} UTF-8 bytes on the markdown body. "
-            "If the body exceeds the cap, the exporter tightens CSR/SF compaction first; if still over budget, it may **truncate the markdown tail** (which can cut §5+). "
-            "Raise `--max-bytes` to keep full §5 when you include all signals.",
+            f"- **§1 — Pendo (all customers):** A **portfolio-level** snapshot: logins, adoption-style metrics, and short "
+            f"per-customer headline rows. It is **not** a full Pendo analytics export (no page/feature catalogs, no "
+            f"multi-gigabyte raw downloads). The headline customer list stops after **{cov.get('pendo_export_constants', {}).get('customers_headline_max', 200)}** rows; "
+            "cohort and “who is leading / lagging” style details are shortened so the file stays shareable.",
+            "",
+            "- **§2 — Jira (HELP):** **Workload and health of the queue** — counts by status, type, and similar rollups, "
+            "plus response-time style summaries. **Individual tickets are not listed** (no issue keys, titles, or customer notes in text).",
+            "",
+            "- **§3 — Salesforce:** **Revenue and renewal-oriented facts** tied to customers that appear in Pendo, plus a "
+            "limited set of account fields we export on purpose (not the whole CRM record). Account lists and per-customer "
+            "contract rollups are **capped**; exact counts appear under **Effective compaction** below.",
+            "",
+            "- **§4 — CS Report (weekly export):** The **all-customer** health / supply / value aggregate from the Data "
+            "Exports workbook. Only the **first slice of sites per worksheet** is kept when the file must shrink; long "
+            "cells are clipped so very long notes may end abruptly.",
+            "",
+            "- **§5 — Pendo usage signals:** A **ranked checklist** of product-side callouts (examples: Kei not used, "
+            "high guide dismiss rate, very read-only usage). This export asks for a **long** list so you can scan the "
+            "portfolio; the deck view still uses a shorter default. You can cap lines with `--signals-cap` if you need a smaller file.",
+            "",
+            "- **§6 — Signals trend context (optional):** **Extra timing / trend text** when the pipeline provides it "
+            "**and** we have not aggressively shortened the CS Report section; otherwise it is skipped so the file "
+            "fits the size budget.",
+            "",
+            "### File size budget (this run)",
+            f"- **Target size (`--max-bytes`):** about **{cov.get('markdown_soft_cap_bytes', '')}** bytes of UTF-8 for "
+            "the whole markdown file. If the export is still too large, it first **tightens CS Report and "
+            "Salesforce** (fewer sites, shorter text, fewer accounts). If it is **still** too large, the **end of the file "
+            "may be cut off** — raise `--max-bytes` if you need every section intact (especially with a long §5).",
         ]
     )
     c = cov.get("compaction") if isinstance(cov.get("compaction"), dict) else {}
     if c:
         sig_n = c.get("signals_cap")
         sig_part = (
-            "§5 Pendo usage — **all** `portfolio_signals` lines"
+            "§5 shows the **full** ranked Pendo usage signal list"
             if sig_n is None
-            else f"§5 Pendo usage — **{sig_n}** lines"
+            else f"§5 shows the **first {sig_n}** Pendo usage lines"
         )
         lines.append(
-            f"- **Effective compaction:** CS Report — first **{c.get('csr_site_limit', '')}** sites per sheet, "
-            f"strings **{c.get('csr_string_cap', '')}** chars max; Salesforce — **{c.get('sf_accounts', '')}** accounts, "
-            f"**{c.get('rollup_cap', '')}** `matched_customer_contract_rollups` rows; {sig_part} "
-            f"(**{c.get('signals_line_max_chars', '')}** chars max per line)."
+            f"- **Effective compaction (numbers for this run):** CS Report — up to **{c.get('csr_site_limit', '')}** sites "
+            f"per worksheet, text clipped to **{c.get('csr_string_cap', '')}** characters per field; Salesforce — "
+            f"**{c.get('sf_accounts', '')}** accounts and **{c.get('rollup_cap', '')}** renewal / contract rollup rows; "
+            f"{sig_part}, each line up to **{c.get('signals_line_max_chars', '')}** characters."
         )
     lines.extend(
         [
             "",
             "### Loader provenance (this run)",
+            "- **How to read this:** each line is **one integration** (Pendo, CS Report, Salesforce, Jira). "
+            "**ok** means we received data; **error** means that source failed — check the short message on the line. "
+            "Empty or error-heavy §3 / §4 often lines up with an **error** here.",
         ]
     )
     prov = cov.get("loader_provenance") if isinstance(cov.get("loader_provenance"), dict) else {}
     src_rows = prov.get("sources") if isinstance(prov.get("sources"), list) else []
     if not src_rows:
-        lines.append("- *(No `_data_source_provenance` on the merged report — unexpected for a successful run.)*")
+        lines.append(
+            "- *(Internal loader checklist is missing — treat the run as suspect and re-export after fixing credentials "
+            "or connectivity.)*"
+        )
     else:
         lines.append(f"- **Recorded profile id:** `{prov.get('profile_id', '')}`")
         for row in src_rows:
@@ -244,8 +267,8 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
         [
             "",
             "### Feedback",
-            "Reply with **which source or section** you need, **why** (use case), and **rough priority**. "
-            "Caps and omissions here are product/engineering choices — concrete feedback drives the next iteration.",
+            "Tell us **which section or customer story** you still cannot tell from this file, **what decision** you "
+            "need to make with it, and **how urgent** it is. We use that to tune what gets exported next.",
         ]
     )
     return lines

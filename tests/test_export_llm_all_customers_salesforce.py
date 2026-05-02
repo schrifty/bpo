@@ -101,7 +101,7 @@ def test_export_coverage_manifest_and_markdown_section():
     assert "## Snapshot coverage & omission rationale" in md
     assert "99999 bytes (`--max-bytes`)" in md
     assert "leandna_item_master" in md
-    assert "§5 Pendo usage — **all** `portfolio_signals` lines" in md
+    assert "§5 shows the **full** ranked Pendo usage signal list" in md
 
     doc["_full_sf"] = report["salesforce"]
     doc["_full_csr"] = report["csr"]
