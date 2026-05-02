@@ -76,7 +76,9 @@ def test_export_coverage_manifest_and_markdown_section():
         "customer": "All Customers",
         "generated": "2020-01-01T00:00:00Z",
         "days": 90,
-        "portfolio_signals": [],
+        "portfolio_signals": [
+            {"customer": "A", "signal": f"sig{i}"} for i in range(5)
+        ],
         "_data_source_provenance": {
             "profile_id": "llm_export_all_customers",
             "sources": [{"source": "pendo_portfolio_rollup", "status": "ok"}],
@@ -92,17 +94,33 @@ def test_export_coverage_manifest_and_markdown_section():
     assert len(cov["registry_excluded"]) == 5
     assert cov["markdown_soft_cap_bytes"] == 99_999
     assert cov["compaction"]["rollup_cap"] == max(cov["compaction"]["sf_accounts"] * 6, 72)
+    assert cov["compaction"]["signals_cap"] is None
+    assert len(doc["notable_signals_lines"]) == 5
 
     md = mod.render_markdown(doc, exported_at_utc="2020-01-01T00:00:00Z")
     assert "## Snapshot coverage & omission rationale" in md
     assert "99999 bytes (`--max-bytes`)" in md
     assert "leandna_item_master" in md
+    assert "§5 — **all** `portfolio_signals` lines" in md
 
     doc["_full_sf"] = report["salesforce"]
     doc["_full_csr"] = report["csr"]
     doc["_portfolio_raw"] = report
-    mod._shrink_snapshot_params(
-        doc, csr_site_limit=4, csr_string_cap=180, sf_accounts=4, signals_cap=8
-    )
+    mod._shrink_snapshot_params(doc, csr_site_limit=4, csr_string_cap=180, sf_accounts=4)
     assert doc["export_coverage"]["compaction"]["csr_site_limit"] == 4
     assert doc["export_coverage"]["compaction"]["rollup_cap"] == 72
+    assert doc["export_coverage"]["compaction"]["signals_cap"] is None
+    assert len(doc["notable_signals_lines"]) == 5
+
+
+def test_portfolio_signal_lines_respects_optional_cap():
+    mod = _export_mod()
+    portfolio = {
+        "portfolio_signals": [
+            {"customer": "X", "signal": "a"},
+            {"customer": "Y", "signal": "b"},
+            {"customer": "Z", "signal": "c"},
+        ]
+    }
+    assert len(mod._portfolio_signal_lines(portfolio, cap=None, line_max=200)) == 3
+    assert len(mod._portfolio_signal_lines(portfolio, cap=2, line_max=200)) == 2

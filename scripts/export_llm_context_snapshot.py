@@ -13,6 +13,7 @@ The markdown includes **Snapshot coverage & omission rationale** (profile source
 Usage:
   python scripts/export_llm_context_snapshot.py --days 90
   python scripts/export_llm_context_snapshot.py --out ./snapshot.md --skip-drive
+  python scripts/export_llm_context_snapshot.py --signals-cap 40 --out ./snapshot.md --skip-drive
 
 Requires ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` and credentials for Drive upload unless ``--skip-drive``.
 Drive upload **replaces** an existing file with the same name in the target folder by default.
@@ -108,7 +109,7 @@ def _build_export_coverage(
     csr_site_limit: int,
     csr_string_cap: int,
     sf_accounts: int,
-    signals_cap: int,
+    signals_cap: int | None,
     signals_line_max_chars: int,
 ) -> dict[str, Any]:
     """Structured manifest for markdown 'what is in / out' (also drives the coverage section)."""
@@ -192,20 +193,28 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
             "- **§2 Jira:** Counts, breakdowns, and SLA-style aggregates only — **no issue keys, summaries, or ticket rows.**",
             "- **§3 Salesforce:** Compact account rows (field allowlist) plus portfolio aggregate scalars; rollups list is capped (see compaction).",
             "- **§4 CS Report:** Per-sheet sites truncated; long strings and nested structures truncated via `truncate_strings_in_obj`.",
-            "- **§5 Notable signals:** Heuristic lines from `portfolio_signals`, count and line length capped.",
+            "- **§5 Notable signals:** Heuristic lines from full `portfolio_signals` (no line-count cap unless you pass "
+            "`--signals-cap`); each line length is capped.",
             "- **§6 Signals trend context:** Included only when the merged report carries `signals_trend_context` **and** the CS Report string cap after compaction is **≥ 280**; otherwise omitted to save bytes.",
             "",
             "### Byte budget and compaction (this run)",
             f"- **Target soft cap (`--max-bytes`):** {cov.get('markdown_soft_cap_bytes', '')} UTF-8 bytes on the markdown body. "
-            "If the body exceeds the cap, the exporter applies tiered shrink (fewer CSR sites/shorter strings, fewer SF accounts/signal lines) and may truncate the file tail as a last resort.",
+            "If the body exceeds the cap, the exporter tightens CSR/SF compaction first; if still over budget, it may **truncate the markdown tail** (which can cut §5+). "
+            "Raise `--max-bytes` to keep full §5 when you include all signals.",
         ]
     )
     c = cov.get("compaction") if isinstance(cov.get("compaction"), dict) else {}
     if c:
+        sig_n = c.get("signals_cap")
+        sig_part = (
+            "§5 — **all** `portfolio_signals` lines"
+            if sig_n is None
+            else f"§5 — **{sig_n}** signal lines"
+        )
         lines.append(
             f"- **Effective compaction:** CS Report — first **{c.get('csr_site_limit', '')}** sites per sheet, "
             f"strings **{c.get('csr_string_cap', '')}** chars max; Salesforce — **{c.get('sf_accounts', '')}** accounts, "
-            f"**{c.get('rollup_cap', '')}** `matched_customer_contract_rollups` rows; §5 — **{c.get('signals_cap', '')}** lines "
+            f"**{c.get('rollup_cap', '')}** `matched_customer_contract_rollups` rows; {sig_part} "
             f"(**{c.get('signals_line_max_chars', '')}** chars max per line)."
         )
     lines.extend(
@@ -484,10 +493,14 @@ def _compact_csr(csr: dict[str, Any], *, site_limit: int, string_cap: int) -> di
     return out
 
 
-def _portfolio_signal_lines(portfolio: dict[str, Any], *, cap: int, line_max: int) -> list[str]:
+def _portfolio_signal_lines(
+    portfolio: dict[str, Any], *, cap: int | None, line_max: int
+) -> list[str]:
+    """``cap`` ``None`` includes every ``portfolio_signals`` row (subject only to ``line_max``)."""
     items = portfolio.get("portfolio_signals") if isinstance(portfolio.get("portfolio_signals"), list) else []
+    chosen = items if cap is None else items[: max(0, int(cap))]
     out: list[str] = []
-    for item in items[:cap]:
+    for item in chosen:
         if isinstance(item, dict):
             cust = str(item.get("customer") or "").strip()
             sig = str(item.get("signal") or "").strip()
@@ -508,7 +521,7 @@ def build_snapshot_document(
     csr_site_limit: int = 15,
     csr_string_cap: int = 400,
     sf_accounts: int = 24,
-    signals_cap: int = 22,
+    signals_cap: int | None = None,
     signal_line_max: int = 280,
 ) -> dict[str, Any]:
     csr = report.get("csr") if isinstance(report.get("csr"), dict) else {}
@@ -664,9 +677,12 @@ def _shrink_snapshot_params(
     csr_site_limit: int,
     csr_string_cap: int,
     sf_accounts: int,
-    signals_cap: int,
+    signals_cap: int | None = None,
 ) -> None:
-    """Mutate ``doc`` in place for smaller serialization."""
+    """Mutate ``doc`` in place for smaller serialization.
+
+    ``signals_cap`` is not reduced by tiered shrink (only CSR/SF tighten under ``--max-bytes``).
+    """
     doc["jira_help"] = _compact_jira(doc.get("_full_jira") or {})
     csr = doc.get("_full_csr") or {}
     doc["cs_report"] = _compact_csr(
@@ -679,9 +695,15 @@ def _shrink_snapshot_params(
         account_cap=sf_accounts,
     )
     pr = doc.get("_portfolio_raw")
+    line_mx = 280
+    cov0 = doc.get("export_coverage")
+    if isinstance(cov0, dict):
+        c0 = cov0.get("compaction")
+        if isinstance(c0, dict) and c0.get("signals_line_max_chars") is not None:
+            line_mx = int(c0["signals_line_max_chars"])
     if isinstance(pr, dict):
         doc["notable_signals_lines"] = _portfolio_signal_lines(
-            pr, cap=signals_cap, line_max=240
+            pr, cap=signals_cap, line_max=line_mx
         )
     if doc.get("signals_trend_context") and csr_string_cap < 280:
         doc.pop("signals_trend_context", None)
@@ -702,7 +724,7 @@ def _shrink_snapshot_params(
                 "rollup_cap": rollup_cap,
             }
         )
-        comp.setdefault("signals_line_max_chars", 280)
+        comp.setdefault("signals_line_max_chars", line_mx)
 
 
 def main() -> None:
@@ -715,6 +737,13 @@ def main() -> None:
         type=int,
         default=100_000,
         help="Soft cap on UTF-8 body size; trims CSR/Jira samples if exceeded (default 100000)",
+    )
+    ap.add_argument(
+        "--signals-cap",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Max §5 notable signal lines from portfolio_signals (default: no cap — all signals).",
     )
     ap.add_argument("--out", "-o", metavar="FILE", help="Also write markdown locally")
     ap.add_argument("--skip-drive", action="store_true", help="Do not upload to Drive")
@@ -739,14 +768,14 @@ def main() -> None:
 
     _emit_integration_stderr_warnings(report)
 
-    csr_lim, csr_str, sf_acct, sig_cap = 15, 400, 24, 22
+    csr_lim, csr_str, sf_acct = 15, 400, 24
     doc = build_snapshot_document(
         report,
         markdown_soft_cap_bytes=int(args.max_bytes),
         csr_site_limit=csr_lim,
         csr_string_cap=csr_str,
         sf_accounts=sf_acct,
-        signals_cap=sig_cap,
+        signals_cap=args.signals_cap,
     )
     # Keep refs for iterative shrinking
     doc["_full_jira"] = report.get("jira") or {}
@@ -758,19 +787,19 @@ def main() -> None:
     max_b = max(20_000, int(args.max_bytes))
 
     tiers = [
-        (10, 320, 16, 18),
-        (8, 260, 12, 14),
-        (6, 220, 8, 10),
-        (4, 180, 4, 8),
+        (10, 320, 16),
+        (8, 260, 12),
+        (6, 220, 8),
+        (4, 180, 4),
     ]
     while len(md.encode("utf-8")) > max_b and tiers:
-        csr_lim, csr_str, sf_acct, sig_cap = tiers.pop(0)
+        csr_lim, csr_str, sf_acct = tiers.pop(0)
         _shrink_snapshot_params(
             doc,
             csr_site_limit=csr_lim,
             csr_string_cap=csr_str,
             sf_accounts=sf_acct,
-            signals_cap=sig_cap,
+            signals_cap=args.signals_cap,
         )
         md = render_markdown(
             {k: v for k, v in doc.items() if not str(k).startswith("_")},
