@@ -193,9 +193,9 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
             "- **§2 Jira:** Counts, breakdowns, and SLA-style aggregates only — **no issue keys, summaries, or ticket rows.**",
             "- **§3 Salesforce:** Compact account rows (field allowlist) plus portfolio aggregate scalars; rollups list is capped (see compaction).",
             "- **§4 CS Report:** Per-sheet sites truncated; long strings and nested structures truncated via `truncate_strings_in_obj`.",
-            "- **§5 Notable signals:** Lines from `portfolio_signals` on the merged report (built with a **high** "
-            "line ceiling for this export path in ``build_llm_export_snapshot_report``, not the deck default of 20). "
-            "Optional `--signals-cap` can trim §5 in markdown only.",
+            "- **§5 Pendo usage signals:** Ranked lines from `portfolio_signals` (Pendo portfolio heuristics: Kei, "
+            "guide dismiss, read-heavy, etc.). Built with a **high** line ceiling for this export path in "
+            "``build_llm_export_snapshot_report``, not the deck default of 20. Optional `--signals-cap` can trim §5 in markdown only.",
             "- **§6 Signals trend context:** Included only when the merged report carries `signals_trend_context` **and** the CS Report string cap after compaction is **≥ 280**; otherwise omitted to save bytes.",
             "",
             "### Byte budget and compaction (this run)",
@@ -208,9 +208,9 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
     if c:
         sig_n = c.get("signals_cap")
         sig_part = (
-            "§5 — **all** `portfolio_signals` lines"
+            "§5 Pendo usage — **all** `portfolio_signals` lines"
             if sig_n is None
-            else f"§5 — **{sig_n}** signal lines"
+            else f"§5 Pendo usage — **{sig_n}** lines"
         )
         lines.append(
             f"- **Effective compaction:** CS Report — first **{c.get('csr_site_limit', '')}** sites per sheet, "
@@ -653,7 +653,7 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
             "",
             _json_compact(doc.get("cs_report")),
             "",
-            "## 5. Notable signals (heuristic lines)",
+            "## 5. Pendo usage signals",
             "",
         ]
     )
@@ -744,7 +744,7 @@ def main() -> None:
         type=int,
         default=None,
         metavar="N",
-        help="Max §5 notable signal lines from portfolio_signals (default: no cap — all signals).",
+        help="Max §5 Pendo usage signal lines from portfolio_signals (default: no cap — all signals).",
     )
     ap.add_argument("--out", "-o", metavar="FILE", help="Also write markdown locally")
     ap.add_argument("--skip-drive", action="store_true", help="Do not upload to Drive")
