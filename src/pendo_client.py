@@ -2865,12 +2865,18 @@ class PendoClient:
         max_customers: int | None = None,
         *,
         cohort_rollup_from_slide_yaml: bool = True,
+        portfolio_signals_max_lines: int = _MAX_PORTFOLIO_SIGNAL_LINES,
+        portfolio_signals_max_read_heavy: int = _MAX_READ_HEAVY_PORTFOLIO_SIGNALS,
     ) -> dict[str, Any]:
         """Full portfolio report for the book-of-business deck.
         Calls preload() then iterates all customers in parallel.
 
         Set ``cohort_rollup_from_slide_yaml=False`` for callers that must not read slide definitions
         from disk or Drive (cohort findings bullets use built-in defaults only).
+
+        ``portfolio_signals_max_lines`` / ``portfolio_signals_max_read_heavy`` tune
+        :meth:`_compute_portfolio_signals` (deck defaults: 20 lines, 4 read-heavy). LLM exports
+        raise these so ``portfolio_signals`` is not deck-limited.
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -2961,14 +2967,24 @@ class PendoClient:
             "generated": datetime.datetime.now().strftime("%Y-%m-%d"),
             "customer_count": len(customer_summaries),
             "customers": customer_summaries,
-            "portfolio_signals": self._compute_portfolio_signals(customer_summaries),
+            "portfolio_signals": self._compute_portfolio_signals(
+                customer_summaries,
+                max_lines=portfolio_signals_max_lines,
+                max_read_heavy=portfolio_signals_max_read_heavy,
+            ),
             "portfolio_trends": self._compute_portfolio_trends(customer_summaries),
             "portfolio_leaders": self._compute_portfolio_leaders(customer_summaries),
             "cohort_digest": cohort_digest,
             "cohort_findings_bullets": cohort_findings_bullets,
         }
 
-    def _compute_portfolio_signals(self, summaries: list[dict]) -> list[dict[str, Any]]:
+    def _compute_portfolio_signals(
+        self,
+        summaries: list[dict],
+        *,
+        max_lines: int = _MAX_PORTFOLIO_SIGNAL_LINES,
+        max_read_heavy: int = _MAX_READ_HEAVY_PORTFOLIO_SIGNALS,
+    ) -> list[dict[str, Any]]:
         """Extract the most critical per-customer signals, ranked by severity."""
         # Avoid "only" — it matches "only 0.0% write" and makes read-heavy lines dominate severity.
         alarm_keywords = [
@@ -2991,7 +3007,9 @@ class PendoClient:
                         "score": s.get("score", 0),
                     })
         signals.sort(key=lambda x: (-x["severity"], x["score"]))
-        return _take_portfolio_signals_capping_read_heavy(signals)
+        return _take_portfolio_signals_capping_read_heavy(
+            signals, max_total=max_lines, max_read_heavy=max_read_heavy
+        )
 
     def _compute_portfolio_trends(self, summaries: list[dict]) -> dict[str, Any]:
         """Aggregate product-level trends across all customers."""

@@ -193,8 +193,9 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
             "- **§2 Jira:** Counts, breakdowns, and SLA-style aggregates only — **no issue keys, summaries, or ticket rows.**",
             "- **§3 Salesforce:** Compact account rows (field allowlist) plus portfolio aggregate scalars; rollups list is capped (see compaction).",
             "- **§4 CS Report:** Per-sheet sites truncated; long strings and nested structures truncated via `truncate_strings_in_obj`.",
-            "- **§5 Notable signals:** Heuristic lines from full `portfolio_signals` (no line-count cap unless you pass "
-            "`--signals-cap`); each line length is capped.",
+            "- **§5 Notable signals:** Lines from `portfolio_signals` on the merged report (built with a **high** "
+            "line ceiling for this export path in ``build_llm_export_snapshot_report``, not the deck default of 20). "
+            "Optional `--signals-cap` can trim §5 in markdown only.",
             "- **§6 Signals trend context:** Included only when the merged report carries `signals_trend_context` **and** the CS Report string cap after compaction is **≥ 280**; otherwise omitted to save bytes.",
             "",
             "### Byte budget and compaction (this run)",

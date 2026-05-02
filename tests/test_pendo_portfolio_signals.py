@@ -36,6 +36,23 @@ def test_take_portfolio_signals_caps_read_heavy():
     assert all("Low guide" in str(x.get("signal", "")) for x in out[:10])
 
 
+def test_compute_portfolio_signals_respects_max_lines_override():
+    client = PendoClient(integration_key="test-key-for-unit-tests", base_url="https://example.invalid")
+    summaries = []
+    for i in range(35):
+        summaries.append(
+            {
+                "customer": f"C{i}",
+                "score": 0,
+                "signals": [f"No Kei AI usage detected — customer {i}"],
+            }
+        )
+    out_default = client._compute_portfolio_signals(summaries)
+    out_big = client._compute_portfolio_signals(summaries, max_lines=100, max_read_heavy=100)
+    assert len(out_default) <= 20
+    assert len(out_big) == 35
+
+
 def test_compute_portfolio_signals_prefers_higher_severity_and_caps_read_heavy():
     client = PendoClient(integration_key="test-key-for-unit-tests", base_url="https://example.invalid")
     summaries: list[dict] = []
