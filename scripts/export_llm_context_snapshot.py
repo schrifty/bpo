@@ -8,8 +8,7 @@ portfolio fetch does not read or sync QBR slide YAML (cohort findings use built-
 **Pendo** detail payloads are stripped (sites, pages, features, …); **Jira** includes counts,
 breakdowns, and SLA-style aggregates only — **no issue keys, summaries, or ticket rows.**
 
-The markdown names integrations planned for future export coverage (e.g. Aha, GitHub) under
-**Planned integrations (not in this snapshot yet)**.
+The markdown includes **Snapshot coverage & omission rationale** (profile sources, registry ids not in this export and why, caps, loader provenance, feedback prompt) plus **Planned integrations (not in this snapshot yet)** (e.g. Aha, GitHub).
 
 Usage:
   python scripts/export_llm_context_snapshot.py --days 90
@@ -33,6 +32,9 @@ if str(_ROOT) not in sys.path:
 
 # Product roadmap: named here so the export explicitly sets reader expectations.
 _PLANNED_DATASOURCES_NOT_IN_EXPORT: tuple[str, ...] = ("Aha", "GitHub")
+
+# Pendo §1: max rows in ``customers_headline`` (see ``_pendo_portfolio_topline``).
+_PENDO_EXPORT_HEADLINE_CUSTOMER_CAP = 200
 
 
 def _integration_coverage_lines(*, salesforce: dict[str, Any], csr: dict[str, Any]) -> list[str]:
@@ -74,6 +76,168 @@ def _integration_coverage_lines(*, salesforce: dict[str, Any], csr: dict[str, An
     else:
         detail = "; ".join(errs) if errs else "no row-level errors parsed"
         lines.append(f"- **CS Report:** **Not loaded** — {detail}")
+    return lines
+
+
+_REGISTRY_EXCLUDED_RATIONALE: dict[str, str] = {
+    "pendo_customer_health": (
+        "Single-customer Pendo health payloads (sites, features, guides, etc.) power deck/QBR flows. "
+        "This snapshot uses **pendo_portfolio_rollup** in §1 only (headline counts per customer, no detail exports)."
+    ),
+    "cs_report_customer_week": (
+        "Per-customer CS Report week slices attach to single-customer health reports. "
+        "This export uses **cs_report_all_customers_week** in §4 instead."
+    ),
+    "leandna_item_master": (
+        "LeanDNA Data API (item master) is wired into QBR enrichment paths, not into "
+        "`build_llm_export_snapshot_report` / this markdown builder yet."
+    ),
+    "leandna_shortage_trends": (
+        "LeanDNA shortage trends are QBR/deck enrichments; not merged into this all-customers export yet."
+    ),
+    "leandna_lean_projects": (
+        "LeanDNA lean projects are QBR/deck enrichments; not merged into this all-customers export yet."
+    ),
+}
+
+
+def _build_export_coverage(
+    report: dict[str, Any],
+    *,
+    markdown_soft_cap_bytes: int,
+    csr_site_limit: int,
+    csr_string_cap: int,
+    sf_accounts: int,
+    signals_cap: int,
+    signals_line_max_chars: int,
+) -> dict[str, Any]:
+    """Structured manifest for markdown 'what is in / out' (also drives the coverage section)."""
+    from src.data_sources.profiles import PROFILE_ID_LLM_EXPORT_ALL_CUSTOMERS, PROFILE_LLM_EXPORT_ALL_CUSTOMERS
+    from src.data_sources.registry import SourceId
+
+    sources_in_profile = sorted(s.value for s in PROFILE_LLM_EXPORT_ALL_CUSTOMERS)
+    registry_excluded: list[dict[str, str]] = []
+    for sid in SourceId:
+        if sid in PROFILE_LLM_EXPORT_ALL_CUSTOMERS:
+            continue
+        sid_s = sid.value
+        registry_excluded.append(
+            {
+                "id": sid_s,
+                "rationale": _REGISTRY_EXCLUDED_RATIONALE.get(
+                    sid_s,
+                    "Not loaded by `build_llm_export_snapshot_report` for this profile; other flows or roadmap only.",
+                ),
+            }
+        )
+    registry_excluded.sort(key=lambda r: r["id"])
+    rollup_cap = max(sf_accounts * 6, 72)
+    prov = report.get("_data_source_provenance")
+    if not isinstance(prov, dict):
+        prov = None
+    return {
+        "profile_id": PROFILE_ID_LLM_EXPORT_ALL_CUSTOMERS,
+        "sources_in_profile": sources_in_profile,
+        "registry_excluded": registry_excluded,
+        "markdown_soft_cap_bytes": int(markdown_soft_cap_bytes),
+        "compaction": {
+            "csr_site_limit": csr_site_limit,
+            "csr_string_cap": csr_string_cap,
+            "sf_accounts": sf_accounts,
+            "signals_cap": signals_cap,
+            "signals_line_max_chars": signals_line_max_chars,
+            "rollup_cap": rollup_cap,
+        },
+        "loader_provenance": prov,
+        "pendo_export_constants": {
+            "customers_headline_max": _PENDO_EXPORT_HEADLINE_CUSTOMER_CAP,
+            "portfolio_signals_top_max_items": 28,
+            "portfolio_trends_max_list_items": 40,
+            "portfolio_leaders_max_list_items": 40,
+            "cohort_findings_bullets_max": 24,
+            "csr_nested_max_list_items": 48,
+            "csr_nested_max_dict_keys": 96,
+            "signals_trend_context_max_string_if_present": 320,
+        },
+    }
+
+
+def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
+    """Human-readable bullets for the snapshot coverage manifest."""
+    if not cov:
+        return ["- *(Coverage manifest missing.)*"]
+    lines: list[str] = [
+        "Use this block to see **what the exporter intentionally includes or excludes** and **numeric caps**. "
+        "When something is missing from the numbered JSON sections, check here first, then loader status below.",
+        "",
+        "### Datasource profile",
+        f"- **Profile id:** `{cov.get('profile_id', '')}`",
+        f"- **Canonical sources in this profile:** {', '.join(f'`{s}`' for s in (cov.get('sources_in_profile') or []))}",
+        "",
+        "### Registry sources not in this export (and why)",
+    ]
+    for row in cov.get("registry_excluded") or []:
+        if not isinstance(row, dict):
+            continue
+        rid = row.get("id", "")
+        why = row.get("rationale", "")
+        lines.append(f"- **`{rid}`** — {why}")
+    lines.extend(
+        [
+            "",
+            "### Per-section subset rules (this file)",
+            "- **§1 Pendo:** Portfolio rollup JSON only — no multi-GB Pendo Drive detail exports, sites, pages, or features. "
+            f"Per-customer `customers_headline` is capped at **{cov.get('pendo_export_constants', {}).get('customers_headline_max', 200)}** rows; "
+            "portfolio_signals / trends / leaders / cohort digest are further truncated (see exporter code).",
+            "- **§2 Jira:** Counts, breakdowns, and SLA-style aggregates only — **no issue keys, summaries, or ticket rows.**",
+            "- **§3 Salesforce:** Compact account rows (field allowlist) plus portfolio aggregate scalars; rollups list is capped (see compaction).",
+            "- **§4 CS Report:** Per-sheet sites truncated; long strings and nested structures truncated via `truncate_strings_in_obj`.",
+            "- **§5 Notable signals:** Heuristic lines from `portfolio_signals`, count and line length capped.",
+            "- **§6 Signals trend context:** Included only when the merged report carries `signals_trend_context` **and** the CS Report string cap after compaction is **≥ 280**; otherwise omitted to save bytes.",
+            "",
+            "### Byte budget and compaction (this run)",
+            f"- **Target soft cap (`--max-bytes`):** {cov.get('markdown_soft_cap_bytes', '')} UTF-8 bytes on the markdown body. "
+            "If the body exceeds the cap, the exporter applies tiered shrink (fewer CSR sites/shorter strings, fewer SF accounts/signal lines) and may truncate the file tail as a last resort.",
+        ]
+    )
+    c = cov.get("compaction") if isinstance(cov.get("compaction"), dict) else {}
+    if c:
+        lines.append(
+            f"- **Effective compaction:** CS Report — first **{c.get('csr_site_limit', '')}** sites per sheet, "
+            f"strings **{c.get('csr_string_cap', '')}** chars max; Salesforce — **{c.get('sf_accounts', '')}** accounts, "
+            f"**{c.get('rollup_cap', '')}** `matched_customer_contract_rollups` rows; §5 — **{c.get('signals_cap', '')}** lines "
+            f"(**{c.get('signals_line_max_chars', '')}** chars max per line)."
+        )
+    lines.extend(
+        [
+            "",
+            "### Loader provenance (this run)",
+        ]
+    )
+    prov = cov.get("loader_provenance") if isinstance(cov.get("loader_provenance"), dict) else {}
+    src_rows = prov.get("sources") if isinstance(prov.get("sources"), list) else []
+    if not src_rows:
+        lines.append("- *(No `_data_source_provenance` on the merged report — unexpected for a successful run.)*")
+    else:
+        lines.append(f"- **Recorded profile id:** `{prov.get('profile_id', '')}`")
+        for row in src_rows:
+            if not isinstance(row, dict):
+                continue
+            src = row.get("source", "?")
+            st = row.get("status", "?")
+            det = row.get("detail")
+            if det:
+                lines.append(f"- **`{src}`** — **{st}** — {det}")
+            else:
+                lines.append(f"- **`{src}`** — **{st}**")
+    lines.extend(
+        [
+            "",
+            "### Feedback",
+            "Reply with **which source or section** you need, **why** (use case), and **rough priority**. "
+            "Caps and omissions here are product/engineering choices — concrete feedback drives the next iteration.",
+        ]
+    )
     return lines
 
 
@@ -232,7 +396,9 @@ def _compact_salesforce(sf: dict[str, Any], *, account_cap: int) -> dict[str, An
     return out
 
 
-def _pendo_portfolio_topline(portfolio: dict[str, Any], *, max_customer_rows: int = 200) -> dict[str, Any]:
+def _pendo_portfolio_topline(
+    portfolio: dict[str, Any], *, max_customer_rows: int = _PENDO_EXPORT_HEADLINE_CUSTOMER_CAP
+) -> dict[str, Any]:
     """Portfolio rollup + capped per-customer headline rows (no Pendo detail payloads)."""
     from src.hydrate_data_summary import truncate_strings_in_obj
 
@@ -338,6 +504,7 @@ def _portfolio_signal_lines(portfolio: dict[str, Any], *, cap: int, line_max: in
 def build_snapshot_document(
     report: dict[str, Any],
     *,
+    markdown_soft_cap_bytes: int = 100_000,
     csr_site_limit: int = 15,
     csr_string_cap: int = 400,
     sf_accounts: int = 24,
@@ -371,6 +538,15 @@ def build_snapshot_document(
             salesforce=report.get("salesforce") if isinstance(report.get("salesforce"), dict) else {},
             csr=csr,
         ),
+        "export_coverage": _build_export_coverage(
+            report,
+            markdown_soft_cap_bytes=markdown_soft_cap_bytes,
+            csr_site_limit=csr_site_limit,
+            csr_string_cap=csr_string_cap,
+            sf_accounts=sf_accounts,
+            signals_cap=signals_cap,
+            signals_line_max_chars=signal_line_max,
+        ),
     }
     stc = report.get("signals_trend_context")
     if stc:
@@ -397,16 +573,33 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
         f"- **Customer:** {doc.get('customer')}",
         f"- **Report `days`:** {doc.get('lookback_days')}",
         f"- **Underlying `generated` stamp:** {doc.get('generated_report_timestamp')}",
+    ]
+    ec = doc.get("export_coverage") if isinstance(doc.get("export_coverage"), dict) else {}
+    cap_b = ec.get("markdown_soft_cap_bytes")
+    if cap_b is not None:
+        parts.append(f"- **Markdown soft cap (this run):** {cap_b} bytes (`--max-bytes`)")
+    parts.extend(
+        [
         "",
         "## Purpose",
         "",
         doc.get("document_purpose", ""),
         "",
-        "## Integration coverage",
+        "## Snapshot coverage & omission rationale",
         "",
-        "Whether Salesforce and CS Report produced usable data for this run (check §3 and §4 for payloads):",
-        "",
-    ]
+        ]
+    )
+    for ln in _export_coverage_markdown_lines(doc.get("export_coverage") or {}):
+        parts.append(ln)
+    parts.extend(
+        [
+            "",
+            "## Integration coverage",
+            "",
+            "Whether Salesforce and CS Report produced usable data for this run (check §3 and §4 for payloads):",
+            "",
+        ]
+    )
     for ln in doc.get("integration_coverage_lines") or []:
         parts.append(ln)
     parts.extend(
@@ -496,6 +689,20 @@ def _shrink_snapshot_params(
         salesforce=doc.get("_full_sf") or {},
         csr=doc.get("_full_csr") or {},
     )
+    cov = doc.get("export_coverage")
+    if isinstance(cov, dict):
+        comp = cov.setdefault("compaction", {})
+        rollup_cap = max(sf_accounts * 6, 72)
+        comp.update(
+            {
+                "csr_site_limit": csr_site_limit,
+                "csr_string_cap": csr_string_cap,
+                "sf_accounts": sf_accounts,
+                "signals_cap": signals_cap,
+                "rollup_cap": rollup_cap,
+            }
+        )
+        comp.setdefault("signals_line_max_chars", 280)
 
 
 def main() -> None:
@@ -506,8 +713,8 @@ def main() -> None:
     ap.add_argument(
         "--max-bytes",
         type=int,
-        default=140_000,
-        help="Soft cap on UTF-8 body size; trims CSR/Jira samples if exceeded (default 140000)",
+        default=100_000,
+        help="Soft cap on UTF-8 body size; trims CSR/Jira samples if exceeded (default 100000)",
     )
     ap.add_argument("--out", "-o", metavar="FILE", help="Also write markdown locally")
     ap.add_argument("--skip-drive", action="store_true", help="Do not upload to Drive")
@@ -535,6 +742,7 @@ def main() -> None:
     csr_lim, csr_str, sf_acct, sig_cap = 15, 400, 24, 22
     doc = build_snapshot_document(
         report,
+        markdown_soft_cap_bytes=int(args.max_bytes),
         csr_site_limit=csr_lim,
         csr_string_cap=csr_str,
         sf_accounts=sf_acct,

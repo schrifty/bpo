@@ -68,3 +68,41 @@ def test_salesforce_all_customers_maps_revenue_book(monkeypatch):
     compact = mod._compact_salesforce(sf, account_cap=6)
     assert compact.get("total_arr") == 100.0
     assert compact.get("salesforce_matched_customers") == 2
+
+
+def test_export_coverage_manifest_and_markdown_section():
+    mod = _export_mod()
+    report: dict = {
+        "customer": "All Customers",
+        "generated": "2020-01-01T00:00:00Z",
+        "days": 90,
+        "portfolio_signals": [],
+        "_data_source_provenance": {
+            "profile_id": "llm_export_all_customers",
+            "sources": [{"source": "pendo_portfolio_rollup", "status": "ok"}],
+        },
+        "csr": {},
+        "salesforce": {},
+        "jira": {},
+    }
+    doc = mod.build_snapshot_document(report, markdown_soft_cap_bytes=99_999)
+    cov = doc["export_coverage"]
+    assert cov["profile_id"] == "llm_export_all_customers"
+    assert len(cov["sources_in_profile"]) == 4
+    assert len(cov["registry_excluded"]) == 5
+    assert cov["markdown_soft_cap_bytes"] == 99_999
+    assert cov["compaction"]["rollup_cap"] == max(cov["compaction"]["sf_accounts"] * 6, 72)
+
+    md = mod.render_markdown(doc, exported_at_utc="2020-01-01T00:00:00Z")
+    assert "## Snapshot coverage & omission rationale" in md
+    assert "99999 bytes (`--max-bytes`)" in md
+    assert "leandna_item_master" in md
+
+    doc["_full_sf"] = report["salesforce"]
+    doc["_full_csr"] = report["csr"]
+    doc["_portfolio_raw"] = report
+    mod._shrink_snapshot_params(
+        doc, csr_site_limit=4, csr_string_cap=180, sf_accounts=4, signals_cap=8
+    )
+    assert doc["export_coverage"]["compaction"]["csr_site_limit"] == 4
+    assert doc["export_coverage"]["compaction"]["rollup_cap"] == 72
