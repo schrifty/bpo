@@ -62,7 +62,7 @@ decks portfolio review
 # With thumbnails
 decks health review for Bombardier, with thumbnails
 
-# See all available deck types
+# See all available deck types (grouped: customer-scoped, then portfolio)
 decks --list
 ```
 
@@ -144,16 +144,37 @@ bpo/
 └── main.py                   # CLI for interactive agent mode
 ```
 
-## Deck Types
+## Deck types
 
-| ID | Name | Audience | Slides |
-|----|------|----------|--------|
-| `qbr` | Quarterly Business Review | Customer Success — QBR | 22 slides (`decks/qbr.yaml`, `slides/qbr-*.yaml`) |
-| `cs_health_review` | Customer Success Health Review | CSMs | 21 slides — full account picture (`slides/cs-health-*.yaml`) |
-| `engineering` | Engineering Review | Engineering / Product | 7 slides (`slides/eng-review-*.yaml`) |
-| `executive_summary` | Executive Summary | Leadership | 7 slides — high-signal only |
-| `product_adoption` | Product Adoption Review | Product | 10 slides — feature/behavioral focus |
-| `portfolio_review` | Portfolio Health Review | CS Leadership | 6 slides — cross-customer |
+Definitions live in `decks/*.yaml` (Drive can override when `GOOGLE_QBR_GENERATOR_FOLDER_ID` is set). **`decks --list`** prints every id and name, **sorted into two groups** — customer-scoped first, then portfolio / cross-customer.
+
+### Customer-scoped decks
+
+One deck run is built around **named account(s)** using the customer health report (Pendo-led, plus CS Report / Salesforce / Jira where configured). You can pass one customer, several, or “all customers” to mean **many separate health narratives** — each deck is still per-customer in structure.
+
+| ID | Name |
+|----|------|
+| `cs_health_review` | Customer Success Health Review |
+| `engineering` | Engineering Review |
+| `executive_summary` | Executive Summary |
+| `platform_value_summary` | Platform Value & ROI Summary |
+| `product_adoption` | Product Adoption Review |
+| `qbr` | Quarterly Business Review |
+| `salesforce_comprehensive` | Salesforce Comprehensive Export |
+| `supply_chain_review` | Supply Chain & Operations Review |
+| `support` | Support Review (Jira HELP / related scope; see deck YAML for all-customer HELP options) |
+
+### Portfolio and cross-customer decks
+
+These use a **portfolio- or org-shaped** report (all customers, cohorts, CSM ownership slice, or Jira portfolio), not a single-account QBR arc.
+
+| ID | Name |
+|----|------|
+| `cohort_review` | Manufacturing cohort review (`cohorts.yaml`) |
+| `csm_book_of_business` | CSM Book of Business (Pendo owner filter) |
+| `engineering-portfolio` | Engineering Portfolio Review (Jira across projects) |
+| `portfolio_review` | Portfolio Health Review |
+| `support_review_portfolio` | Support Review — Portfolio |
 
 ## Data Quality
 

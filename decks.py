@@ -12,7 +12,8 @@ Flag commands (utilities)
       Show this text.
 
   decks --list
-      Print configured deck ids and display names (from local YAML).
+      Print configured deck ids and display names (from local YAML), grouped into
+      customer-scoped vs portfolio / cross-customer decks.
 
   decks --hydrate [customer]
   decks hydrate [customer]
@@ -336,8 +337,27 @@ def main():
 
     if "--list" in sys.argv:
         from src.deck_loader import list_decks
-        for m in list_decks():
-            print(f"  {m['id']:25s}  {m['name']}")
+
+        # Portfolio-shaped or org-wide narratives (not a single-account QBR story).
+        portfolio_scope_ids = frozenset(
+            {
+                "portfolio_review",
+                "cohort_review",
+                "engineering-portfolio",
+                "support_review_portfolio",
+                "csm_book_of_business",
+            }
+        )
+        rows = list_decks()
+        port = sorted((m for m in rows if m["id"] in portfolio_scope_ids), key=lambda m: m["id"])
+        cust = sorted((m for m in rows if m["id"] not in portfolio_scope_ids), key=lambda m: m["id"])
+        print("Customer-scoped (one or more named accounts)")
+        for m in cust:
+            print(f"  {m['id']:28s}  {m['name']}")
+        print()
+        print("Portfolio & cross-customer")
+        for m in port:
+            print(f"  {m['id']:28s}  {m['name']}")
         return
 
     if "--evaluate" in sys.argv:
