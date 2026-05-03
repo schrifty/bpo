@@ -2978,10 +2978,37 @@ class JiraClient:
             if i["fields"].get("issuetype", {}).get("name") == "Bug"
         )
         help_by_priority: dict[str, int] = {}
+        priority_to_full_name: dict[str, str] = {}
         for i in help_raw:
-            p = (i["fields"].get("priority") or {}).get("name", "Unknown")
-            short = p.split(":")[0] if ":" in p else p
+            pr = i["fields"].get("priority") or {}
+            full = (pr.get("name") or "").strip()
+            if not full:
+                short = "Unknown"
+            else:
+                short = full.split(":")[0] if ":" in full else full
             help_by_priority[short] = help_by_priority.get(short, 0) + 1
+            if short not in priority_to_full_name and full:
+                priority_to_full_name[short] = full
+
+        base_help_scope = (
+            f"project = HELP AND {_TRANSIENT_LABELS_EXCLUSION} AND created >= -{days}d"
+        )
+        aggregate_help_jql = f"{base_help_scope} ORDER BY created DESC"
+        jql_by_priority_short: dict[str, str] = {}
+        for short in help_by_priority:
+            if short == "Unknown":
+                jql_by_priority_short[short] = (
+                    f"{base_help_scope} AND priority is EMPTY ORDER BY created DESC"
+                )
+            else:
+                fulln = priority_to_full_name.get(short)
+                if fulln:
+                    jql_by_priority_short[short] = (
+                        f'{base_help_scope} AND priority = "{_jql_escape_string(fulln)}" '
+                        "ORDER BY created DESC"
+                    )
+                else:
+                    jql_by_priority_short[short] = aggregate_help_jql
 
         support_pressure = {
             "total": len(help_raw),
@@ -2989,6 +3016,8 @@ class JiraClient:
             "escalated_to_eng": help_escalated,
             "open_bugs": help_bugs,
             "by_priority": dict(sorted(help_by_priority.items(), key=lambda x: -x[1])),
+            "jql_by_priority_short": jql_by_priority_short,
+            "aggregate_jql": aggregate_help_jql,
         }
 
         # ── Weekly LEAN throughput ──

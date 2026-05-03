@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import urllib.parse
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -898,6 +899,11 @@ def eng_support_pressure_slide(reqs: list[dict[str, Any]], sid: str, report: dic
     right_x = MARGIN + left_w + col_gap
 
     by_priority = support_pressure.get("by_priority") or {}
+    jira_base = (eng.get("base_url") or "").rstrip("/")
+    jql_by_short = support_pressure.get("jql_by_priority_short")
+    if not isinstance(jql_by_short, dict):
+        jql_by_short = {}
+
     left_y = body_top
     priority_header = "Ticket Volume by Priority"
     _box(reqs, f"{sid}_ph", sid, left_x, left_y, left_w, 16, priority_header)
@@ -920,6 +926,13 @@ def eng_support_pressure_slide(reqs: list[dict[str, Any]], sid: str, report: dic
         bar_w = max(6, int(count / max_value * bar_max_w))
         is_critical = priority in ("Blocker", "Critical")
         _box(reqs, f"{sid}_pl{priority_index}", sid, left_x, left_y, 88, 26, priority)
+        prio_jql = jql_by_short.get(priority)
+        prio_link = (
+            f"{jira_base}/issues/?jql={urllib.parse.quote(str(prio_jql), safe='')}"
+            if jira_base and isinstance(prio_jql, str) and prio_jql.strip()
+            else None
+        )
+        label_color = priority_colors.get(priority, NAVY)
         _style(
             reqs,
             f"{sid}_pl{priority_index}",
@@ -927,8 +940,9 @@ def eng_support_pressure_slide(reqs: list[dict[str, Any]], sid: str, report: dic
             len(priority),
             size=12,
             bold=is_critical,
-            color=priority_colors.get(priority, NAVY),
+            color=label_color,
             font=FONT,
+            link=prio_link,
         )
         _box(reqs, f"{sid}_pb{priority_index}", sid, left_x + 92, left_y + 6, bar_w, 14, "")
         reqs.append(
