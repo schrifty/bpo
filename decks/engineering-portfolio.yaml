@@ -14,9 +14,6 @@ purpose: |
 slides:
   - slide: eng_portfolio_title
   - slide: eng_jira_project
-    jira_project: HELP
-    title: "HELP — Support"
-  - slide: eng_jira_project
     jira_project: CUSTOMER
     title: "CUSTOMER — Implementation escalations"
   - slide: eng_jira_project
