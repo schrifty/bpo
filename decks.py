@@ -44,8 +44,8 @@ Flag commands (utilities)
 
   decks --all-portfolio-decks [--days N] [--max-customers M] [--quarter …] [--thumbnails] [--csm "Name"]
       Run every **portfolio** deck: portfolio_review, cohort_review, engineering-portfolio,
-      support_review_portfolio. Optional ``--csm`` also runs ``csm_book_of_business`` for that
-      Pendo CSM substring. No customer name — these decks are org- or all-customer scoped.
+      implementations_review, support_review_portfolio. Optional ``--csm`` also runs ``csm_book_of_business``
+      for that Pendo CSM substring. No customer name — these decks are org- or all-customer scoped.
 
   decks --scan-fields [--db PATH] [--no-thumbnail] [--workers N] [--no-progress]
                       [-- <presentation-id-or-url> ...]
@@ -91,6 +91,7 @@ _PORTFOLIO_SCOPE_DECK_IDS: frozenset[str] = frozenset(
         "portfolio_review",
         "cohort_review",
         "engineering-portfolio",
+        "implementations_review",
         "support_review_portfolio",
         "csm_book_of_business",
     }
@@ -114,6 +115,7 @@ _PORTFOLIO_DECK_BATCH_ORDER: tuple[str, ...] = (
     "portfolio_review",
     "cohort_review",
     "engineering-portfolio",
+    "implementations_review",
     "support_review_portfolio",
 )
 
@@ -139,6 +141,7 @@ def _parse_prompt(prompt: str) -> dict:
                 f"  deck_id   – one of {deck_ids}. Default \"cs_health_review\". "
                 "Use \"portfolio_review\" for cross-customer portfolio health requests. "
                 "Use \"cohort_review\" for manufacturing cohort comparison (cohorts.yaml). "
+                "Use \"implementations_review\" for Jira CUSTOMER / implementation escalations only (org-wide). "
                 "Use \"csm_book_of_business\" for a CSM-scoped portfolio (requires csm_owner).\n"
                 "  quarter   – e.g. \"Q1 2026\", \"prev\", \"current\", or null to auto-detect.\n"
                 "  days      – integer lookback override, or null.\n"
@@ -193,6 +196,11 @@ def _run_jira_backed_deck(deck_id: str, label: str) -> None:
 def _run_engineering_portfolio_deck() -> None:
     """Single product-level deck from Jira — no LLM prompt parsing required."""
     _run_jira_backed_deck("engineering-portfolio", "Engineering portfolio")
+
+
+def _run_implementations_review_deck() -> None:
+    """Jira CUSTOMER project snapshot deck — same data slice as former eng-portfolio slide."""
+    _run_jira_backed_deck("implementations_review", "Implementations review")
 
 
 def _run_support_deck() -> None:
@@ -500,6 +508,7 @@ def _run_all_portfolio_decks() -> None:
 
     failures = 0
     pause_s = 8
+    eng_portfolio_cache: dict | None = None
 
     for deck_id in _PORTFOLIO_DECK_BATCH_ORDER:
         print(f"\n{'=' * 60}\nDeck: {deck_id}\n{'=' * 60}")
@@ -518,15 +527,28 @@ def _run_all_portfolio_decks() -> None:
             )
         elif deck_id == "engineering-portfolio":
             print("Fetching engineering portfolio data from Jira...")
-            eng_data = get_shared_jira_client().get_engineering_portfolio(days=30)
+            eng_portfolio_cache = get_shared_jira_client().get_engineering_portfolio(days=30)
             report = {
                 "type": "engineering_portfolio",
                 "customer": "Engineering",
                 "days": 30,
-                "eng_portfolio": eng_data,
+                "eng_portfolio": eng_portfolio_cache,
             }
             result = create_health_deck(
                 report, deck_id="engineering-portfolio", thumbnails=args.thumbnails
+            )
+        elif deck_id == "implementations_review":
+            if eng_portfolio_cache is None:
+                print("Fetching engineering portfolio data from Jira (implementations review)...")
+                eng_portfolio_cache = get_shared_jira_client().get_engineering_portfolio(days=30)
+            report = {
+                "type": "engineering_portfolio",
+                "customer": "Engineering",
+                "days": 30,
+                "eng_portfolio": eng_portfolio_cache,
+            }
+            result = create_health_deck(
+                report, deck_id="implementations_review", thumbnails=args.thumbnails
             )
         elif deck_id == "support_review_portfolio":
             report = {"type": "support_review", "customer": None, "days": 365}
@@ -716,6 +738,13 @@ def main():
     # Engineering portfolio — run before _parse_prompt so LLM is not required for this phrase
     _ep_triggers = ("engineering portfolio", "eng portfolio", "engineering review",
                     "generate the engineering", "generate engineering")
+    _impl_triggers = (
+        "implementations review",
+        "implementation review",
+        "implementations deck",
+        "implementation deck",
+        "customer implementation escalations",
+    )
     _support_portfolio_triggers = (
         "support review portfolio",
         "support portfolio",
@@ -726,6 +755,9 @@ def main():
     pl = prompt.lower()
     if any(t in pl for t in _ep_triggers):
         _run_engineering_portfolio_deck()
+        return
+    if any(t in pl for t in _impl_triggers):
+        _run_implementations_review_deck()
         return
     if any(t in pl for t in _support_portfolio_triggers):
         _run_support_review_portfolio_deck()
@@ -777,6 +809,9 @@ def main():
 
     if deck_id == "engineering-portfolio":
         _run_engineering_portfolio_deck()
+        return
+    if deck_id == "implementations_review":
+        _run_implementations_review_deck()
         return
     if deck_id == "support":
         _run_support_deck()

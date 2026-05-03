@@ -7,5 +7,6 @@ data_tools: []
 customers: all
 
 prompt: >
-  Cover slide for the engineering portfolio deck.
-  Shows the current sprint name and date range.
+  Cover slide for the engineering portfolio deck (and related decks that reuse it).
+  Shows the current sprint name and date range. Deck YAML may set ``cover_title``
+  (e.g. Implementations Review) to override the default main title.

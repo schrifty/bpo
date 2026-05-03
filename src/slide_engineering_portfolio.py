@@ -127,7 +127,8 @@ def eng_portfolio_title_slide(reqs: list[dict[str, Any]], sid: str, report: dict
     _slide(reqs, sid, idx)
     _bg(reqs, sid, NAVY)
 
-    title = "Engineering Review"
+    entry = report.get("_current_slide") or {}
+    title = (entry.get("cover_title") or "").strip() or "Engineering Review"
     _box(reqs, f"{sid}_t", sid, MARGIN, 100, CONTENT_W, 50, title)
     _style(reqs, f"{sid}_t", 0, len(title), bold=True, size=36, color=WHITE, font=FONT)
 

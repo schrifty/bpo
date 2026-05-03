@@ -14,6 +14,9 @@ from .slide_salesforce import (
 # Decks that share support Jira enrichment, Notable second pass, and slide-plan rules.
 SUPPORT_DECK_IDS: frozenset[str] = frozenset({"support", "support_review_portfolio"})
 
+# Decks that need ``eng_portfolio`` from ``get_engineering_portfolio`` when absent.
+_ENG_PORTFOLIO_DECK_IDS: frozenset[str] = frozenset({"engineering-portfolio", "implementations_review"})
+
 
 def enrich_deck_report_data(
     deck_id: str,
@@ -34,14 +37,14 @@ def enrich_deck_report_data(
     if deck_id in SUPPORT_DECK_IDS:
         enrich_support_jira_data(report, customer)
 
-    if deck_id == "engineering-portfolio":
-        enrich_engineering_portfolio_if_needed(report)
+    if deck_id in _ENG_PORTFOLIO_DECK_IDS:
+        enrich_engineering_portfolio_if_needed(report, deck_id=deck_id)
 
     report = enrich_leandna_shortage_if_needed(report, slide_plan, customer)
     return report, slide_plan
 
 
-def enrich_engineering_portfolio_if_needed(report: dict[str, Any]) -> None:
+def enrich_engineering_portfolio_if_needed(report: dict[str, Any], *, deck_id: str = "engineering-portfolio") -> None:
     """Populate ``eng_portfolio`` when absent (e.g. QBR bundle reuses a health report).
 
     ``decks.py`` pre-fills this for the standalone CLI path; companion generation passes
@@ -54,12 +57,13 @@ def enrich_engineering_portfolio_if_needed(report: dict[str, Any]) -> None:
         from .jira_client import get_shared_jira_client
 
         logger.info(
-            "engineering-portfolio deck: fetching Jira portfolio snapshot (%d-day window)",
+            "%s deck: fetching Jira portfolio snapshot (%d-day window)",
+            deck_id,
             days,
         )
         report["eng_portfolio"] = get_shared_jira_client().get_engineering_portfolio(days=days)
     except Exception as e:
-        logger.warning("engineering-portfolio: could not load eng_portfolio: %s", e)
+        logger.warning("%s: could not load eng_portfolio: %s", deck_id, e)
 
 
 def prepare_support_slide_plan(
