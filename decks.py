@@ -37,6 +37,16 @@ Flag commands (utilities)
       QBR may auto-refresh this snapshot on weekends when Drive needs an update (see
       ``pendo_portfolio_snapshot_drive.ensure_daily_portfolio_snapshot_for_qbr``).
 
+  decks --all-customer-decks "Customer Name" [--days N] [--quarter Q1 2026] [--thumbnails] [--workers N]
+      Run every **customer-scoped** deck id (see ``decks --list``) for one account, in sequence.
+      Uses the same health-report path as ``decks <natural language>``; pauses briefly between
+      decks to reduce Drive rate limits.
+
+  decks --all-portfolio-decks [--days N] [--max-customers M] [--quarter …] [--thumbnails] [--csm "Name"]
+      Run every **portfolio** deck: portfolio_review, cohort_review, engineering-portfolio,
+      support_review_portfolio. Optional ``--csm`` also runs ``csm_book_of_business`` for that
+      Pendo CSM substring. No customer name — these decks are org- or all-customer scoped.
+
   decks --scan-fields [--db PATH] [--no-thumbnail] [--workers N] [--no-progress]
                       [-- <presentation-id-or-url> ...]
       Scan slide fields into a local SQLite DB. If you omit IDs after --, uses
@@ -74,6 +84,38 @@ Generate decks (natural language — LLM parses the prompt)
 import json
 import sys
 import time
+
+# Same split as ``decks --list`` and batch commands (customer-scoped vs portfolio / cross-customer).
+_PORTFOLIO_SCOPE_DECK_IDS: frozenset[str] = frozenset(
+    {
+        "portfolio_review",
+        "cohort_review",
+        "engineering-portfolio",
+        "support_review_portfolio",
+        "csm_book_of_business",
+    }
+)
+
+# Order for ``--all-customer-decks`` (heavier / slower decks later is arbitrary; adjust if needed).
+_CUSTOMER_SCOPED_DECK_BATCH_ORDER: tuple[str, ...] = (
+    "cs_health_review",
+    "engineering",
+    "executive_summary",
+    "platform_value_summary",
+    "product_adoption",
+    "qbr",
+    "salesforce_comprehensive",
+    "supply_chain_review",
+    "support",
+)
+
+# Order for ``--all-portfolio-decks`` (Pendo-heavy first, then Jira-only).
+_PORTFOLIO_DECK_BATCH_ORDER: tuple[str, ...] = (
+    "portfolio_review",
+    "cohort_review",
+    "engineering-portfolio",
+    "support_review_portfolio",
+)
 
 
 def _parse_prompt(prompt: str) -> dict:
@@ -318,6 +360,213 @@ def _run_support_review_portfolio_deck() -> None:
     print(f"  OK   {result.get('url', '')}")
 
 
+def _run_all_customer_decks() -> None:
+    """CLI: ``--all-customer-decks CUSTOMER`` — every customer-scoped deck type, one account."""
+    import argparse
+
+    from src.data_source_health import check_all_required
+    from src.quarters import resolve_quarter
+    from src.slides_client import create_health_deck, create_health_decks_for_customers
+
+    ap = argparse.ArgumentParser(
+        prog="decks",
+        description="Run every customer-scoped deck for a single named account (see decks --list).",
+    )
+    ap.add_argument(
+        "--all-customer-decks",
+        nargs=1,
+        metavar="CUSTOMER",
+        required=True,
+        help="Pendo customer name (quoted if it contains spaces).",
+    )
+    ap.add_argument("--days", type=int, default=None, help="Lookback days (default: current quarter window)")
+    ap.add_argument("--quarter", type=str, default=None, help='Quarter label, e.g. "Q1 2026", prev, current')
+    ap.add_argument("--thumbnails", action="store_true", help="Request slide thumbnails for each deck")
+    ap.add_argument("--workers", type=int, default=2, help="Parallel workers per deck (default 2)")
+    args = ap.parse_args()
+
+    customer = str(args.all_customer_decks[0]).strip()
+    if not customer:
+        ap.error("CUSTOMER must be non-empty")
+
+    preflight_errors = check_all_required()
+    if preflight_errors:
+        print("Data source check failed — not running:")
+        for msg in preflight_errors:
+            print(f"  • {msg}")
+        sys.exit(1)
+
+    if args.days is not None:
+        qr = None
+        days = int(args.days)
+        period_label = f"{days} days"
+    else:
+        qr = resolve_quarter(args.quarter)
+        days = qr.days
+        period_label = f"{qr.label} ({qr.start.strftime('%b %-d')} – {qr.end.strftime('%b %-d, %Y')}, {days}d)"
+
+    print("Batch:      all customer-scoped decks")
+    print(f"Customer:   {customer}")
+    print(f"Period:     {period_label}")
+    print(f"Deck ids:   {', '.join(_CUSTOMER_SCOPED_DECK_BATCH_ORDER)}")
+    print()
+
+    failures = 0
+    pause_s = 8
+    for deck_id in _CUSTOMER_SCOPED_DECK_BATCH_ORDER:
+        print(f"\n{'=' * 60}\nDeck: {deck_id}\n{'=' * 60}")
+        t0 = time.time()
+        if deck_id == "support":
+            report = {"type": "support_review", "customer": customer, "days": 365}
+            result = create_health_deck(report, deck_id="support", thumbnails=args.thumbnails)
+        else:
+            results = create_health_decks_for_customers(
+                [customer],
+                days=days,
+                deck_id=deck_id,
+                workers=max(1, int(args.workers)),
+                thumbnails=args.thumbnails,
+                quarter=qr,
+            )
+            result = results[0] if results else {"error": "no result", "customer": customer}
+        elapsed = time.time() - t0
+        if "error" in result:
+            failures += 1
+            err = str(result.get("error", ""))[:200]
+            print(f"  FAIL ({elapsed:.0f}s)  {err}")
+        else:
+            print(f"  OK   ({elapsed:.0f}s)  {result.get('url', '')}")
+        time.sleep(pause_s)
+
+    sys.exit(1 if failures else 0)
+
+
+def _run_all_portfolio_decks() -> None:
+    """CLI: ``--all-portfolio-decks`` — every portfolio deck; optional ``--csm`` for CSM book."""
+    import argparse
+
+    from src.data_source_health import check_all_required
+    from src.jira_client import get_shared_jira_client
+    from src.quarters import resolve_quarter
+    from src.slides_client import (
+        create_cohort_deck,
+        create_csm_book_of_business_deck,
+        create_health_deck,
+        create_portfolio_deck,
+    )
+
+    ap = argparse.ArgumentParser(
+        prog="decks",
+        description="Run every portfolio / cross-customer deck (see decks --list).",
+    )
+    ap.add_argument("--all-portfolio-decks", action="store_true", required=True)
+    ap.add_argument("--days", type=int, default=None, help="Lookback days (default: current quarter window)")
+    ap.add_argument("--max-customers", type=int, default=None, dest="max_customers")
+    ap.add_argument("--quarter", type=str, default=None, help='Quarter label, e.g. "Q1 2026", prev, current')
+    ap.add_argument("--thumbnails", action="store_true")
+    ap.add_argument(
+        "--csm",
+        type=str,
+        default=None,
+        metavar="NAME",
+        help="If set, also run csm_book_of_business with this Pendo CSM / ownername substring",
+    )
+    args = ap.parse_args()
+
+    preflight_errors = check_all_required()
+    if preflight_errors:
+        print("Data source check failed — not running:")
+        for msg in preflight_errors:
+            print(f"  • {msg}")
+        sys.exit(1)
+
+    if args.days is not None:
+        qr = None
+        days = int(args.days)
+        period_label = f"{days} days"
+    else:
+        qr = resolve_quarter(args.quarter)
+        days = qr.days
+        period_label = f"{qr.label} ({qr.start.strftime('%b %-d')} – {qr.end.strftime('%b %-d, %Y')}, {days}d)"
+
+    print("Batch:      all portfolio decks")
+    print(f"Period:     {period_label}")
+    if args.max_customers is not None:
+        print(f"Max cust:   {args.max_customers}")
+    if args.csm:
+        print(f"Also CSM:   csm_book_of_business — filter {args.csm!r}")
+    print(f"Deck ids:   {', '.join(_PORTFOLIO_DECK_BATCH_ORDER)}" + (" + csm_book_of_business" if args.csm else ""))
+    print()
+
+    failures = 0
+    pause_s = 8
+
+    for deck_id in _PORTFOLIO_DECK_BATCH_ORDER:
+        print(f"\n{'=' * 60}\nDeck: {deck_id}\n{'=' * 60}")
+        t0 = time.time()
+        result: dict
+        if deck_id == "portfolio_review":
+            result = create_portfolio_deck(
+                days=days, max_customers=args.max_customers, quarter=qr
+            )
+        elif deck_id == "cohort_review":
+            result = create_cohort_deck(
+                days=days,
+                max_customers=args.max_customers,
+                quarter=qr,
+                thumbnails=args.thumbnails,
+            )
+        elif deck_id == "engineering-portfolio":
+            print("Fetching engineering portfolio data from Jira...")
+            eng_data = get_shared_jira_client().get_engineering_portfolio(days=30)
+            report = {
+                "type": "engineering_portfolio",
+                "customer": "Engineering",
+                "days": 30,
+                "eng_portfolio": eng_data,
+            }
+            result = create_health_deck(
+                report, deck_id="engineering-portfolio", thumbnails=args.thumbnails
+            )
+        elif deck_id == "support_review_portfolio":
+            report = {"type": "support_review", "customer": None, "days": 365}
+            result = create_health_deck(
+                report, deck_id="support_review_portfolio", thumbnails=args.thumbnails
+            )
+        else:
+            result = {"error": f"unknown portfolio batch id {deck_id!r}"}
+        elapsed = time.time() - t0
+        if "error" in result:
+            failures += 1
+            err = str(result.get("error", ""))[:200]
+            print(f"  FAIL ({elapsed:.0f}s)  {err}")
+        else:
+            print(f"  OK   ({elapsed:.0f}s)  {result.get('url', '')}")
+        time.sleep(pause_s)
+
+    if args.csm:
+        csm = str(args.csm).strip()
+        if csm:
+            print(f"\n{'=' * 60}\nDeck: csm_book_of_business\n{'=' * 60}")
+            t0 = time.time()
+            result = create_csm_book_of_business_deck(
+                csm_owner=csm,
+                days=days,
+                max_customers=args.max_customers,
+                quarter=qr,
+                thumbnails=args.thumbnails,
+            )
+            elapsed = time.time() - t0
+            if "error" in result:
+                failures += 1
+                err = str(result.get("error", ""))[:200]
+                print(f"  FAIL ({elapsed:.0f}s)  {err}")
+            else:
+                print(f"  OK   ({elapsed:.0f}s)  {result.get('url', '')}")
+
+    sys.exit(1 if failures else 0)
+
+
 def main():
     # Quick utility flags that don't need LLM parsing
     if "--list-fields" in sys.argv:
@@ -338,19 +587,9 @@ def main():
     if "--list" in sys.argv:
         from src.deck_loader import list_decks
 
-        # Portfolio-shaped or org-wide narratives (not a single-account QBR story).
-        portfolio_scope_ids = frozenset(
-            {
-                "portfolio_review",
-                "cohort_review",
-                "engineering-portfolio",
-                "support_review_portfolio",
-                "csm_book_of_business",
-            }
-        )
         rows = list_decks()
-        port = sorted((m for m in rows if m["id"] in portfolio_scope_ids), key=lambda m: m["id"])
-        cust = sorted((m for m in rows if m["id"] not in portfolio_scope_ids), key=lambda m: m["id"])
+        port = sorted((m for m in rows if m["id"] in _PORTFOLIO_SCOPE_DECK_IDS), key=lambda m: m["id"])
+        cust = sorted((m for m in rows if m["id"] not in _PORTFOLIO_SCOPE_DECK_IDS), key=lambda m: m["id"])
         print("Customer-scoped (one or more named accounts)")
         for m in cust:
             print(f"  {m['id']:28s}  {m['name']}")
@@ -449,6 +688,13 @@ def main():
 
     if "--help" in sys.argv or "-h" in sys.argv:
         print(__doc__.strip())
+        return
+
+    if "--all-customer-decks" in sys.argv:
+        _run_all_customer_decks()
+        return
+    if "--all-portfolio-decks" in sys.argv:
+        _run_all_portfolio_decks()
         return
 
     prompt = " ".join(a for a in sys.argv[1:] if not a.startswith("-")).strip()
