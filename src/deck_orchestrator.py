@@ -101,6 +101,11 @@ def create_health_deck(
 
         report, slide_plan = enrich_deck_report_data(deck_id, report, slide_plan, customer)
 
+        if deck_id in ("portfolio_review", "csm_book_of_business") and is_portfolio:
+            from .signals_llm import maybe_rewrite_portfolio_signals_with_llm
+
+            maybe_rewrite_portfolio_signals_with_llm(report, deck_id=deck_id)
+
         if not slide_plan:
             logger.error(
                 "create_health_deck: empty slide plan (deck_id=%s customer=%r). "

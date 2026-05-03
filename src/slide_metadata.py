@@ -126,7 +126,7 @@ REPORT_KEY_TO_DQ_SOURCE: dict[str, str | None] = {
     "customer": "Pendo",
     "customer_count": "Pendo",
     "csm_owner": "Pendo",
-    "portfolio_signals": "Pendo",
+    "portfolio_signals": "Pendo (+ LLM cross-source)",
     "portfolio_revenue_book": "Salesforce",
     "portfolio_trends": "Pendo",
     "portfolio_leaders": "Pendo",
