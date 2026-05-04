@@ -49,6 +49,7 @@ from .qbr_hydrate_mappings import (
     invalidate_qbr_mappings_cache,
     mapping_source_is_visual_only,
     merge_discovered_sources_into_qbr_mappings,
+    qbr_mappings_disk_write_enabled,
 )
 from .drive_config import assert_qbr_prompts_ready_or_raise, get_deck_output_folder_id
 from .hydrate_capabilities import (
@@ -2111,11 +2112,8 @@ def adapt_custom_slides(
     )
 
     if use_explicit_qbr:
-        import os as _os
-
         stats["qbr_mappings_sources_appended"] = 0
-        _aw = (_os.environ.get("BPO_QBR_MAPPINGS_AUTOWRITE") or "true").strip().lower()
-        if _aw not in ("0", "false", "no", "off"):
+        if qbr_mappings_disk_write_enabled():
             discoveries: list[dict[str, Any]] = []
             for page_id in page_ids:
                 if page_id not in ordered_ids:

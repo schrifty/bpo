@@ -5,14 +5,19 @@ When ``report[REPORT_KEY_EXPLICIT_QBR_MAPPINGS]`` is true, :func:`adapt_custom_s
 for slide text — but each rule's ``target`` is still resolved via
 :func:`data_field_synonyms.resolve_data_summary_target_path` (synonyms + ``data_summary_target_aliases.json``).
 
-**Missing file:** If ``config/qbr_mappings.yaml`` is absent, :func:`bootstrap_qbr_mappings_from_slides`
-runs once at the start of adapt (before LLM) to walk template slides and append candidate data
-elements (``target: ""``). Deleting the file is the signal to remap after a template change.
+**Disk writes are opt-in.** Hydrate **always reads** the YAML when present; it does **not** rewrite the
+file unless :func:`qbr_mappings_disk_write_enabled` is true (see ``BPO_QBR_MAPPINGS_WRITE``).
+
+**Bootstrap / auto-append:** When writes are enabled and ``config/qbr_mappings.yaml`` is absent,
+:func:`bootstrap_qbr_mappings_from_slides` can walk template slides and create stub rows
+(``target: ""``). With writes disabled and no file, copy ``config/qbr_mappings.example.yaml``
+manually.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import threading
 from pathlib import Path
@@ -37,6 +42,28 @@ _cached_mtime: float | None = None
 _SYNONYM_TRIGGER_PLACEHOLDERS = frozenset(
     ("[000]", "[$000]", "[00/00/00]", "[00%]", "[???]")
 )
+
+
+def qbr_mappings_disk_write_enabled() -> bool:
+    """Return True when bootstrap / merge may write ``config/qbr_mappings.yaml``.
+
+    Default is **false** (read-only): manual edits are never overwritten during QBR.
+
+    * Set ``BPO_QBR_MAPPINGS_WRITE`` to ``1``, ``true``, ``yes``, or ``on`` to allow writes.
+    * Set to ``0``, ``false``, ``no``, or ``off`` to disallow (explicit override).
+    * If ``BPO_QBR_MAPPINGS_WRITE`` is unset, ``BPO_QBR_MAPPINGS_AUTOWRITE=true`` still enables
+      writes (legacy; previously defaulted on in :mod:`evaluate`).
+    """
+    raw = os.environ.get("BPO_QBR_MAPPINGS_WRITE")
+    if raw is not None and str(raw).strip() != "":
+        s = str(raw).strip().lower()
+        if s in ("1", "true", "yes", "on"):
+            return True
+        if s in ("0", "false", "no", "off"):
+            return False
+        return False
+    aw = (os.environ.get("BPO_QBR_MAPPINGS_AUTOWRITE") or "").strip().lower()
+    return aw in ("1", "true", "yes", "on")
 
 
 def load_qbr_mappings(*, path: Path | None = None) -> dict[str, Any]:
@@ -416,6 +443,13 @@ def bootstrap_qbr_mappings_from_slides(
     p = path or _DEFAULT_PATH
     if p.exists():
         return 0
+    if not qbr_mappings_disk_write_enabled():
+        logger.info(
+            "qbr_mappings: bootstrap skipped — %s missing and disk writes are disabled "
+            "(set BPO_QBR_MAPPINGS_WRITE=1 to auto-create, or copy config/qbr_mappings.example.yaml)",
+            p,
+        )
+        return 0
     discoveries: list[dict[str, Any]] = []
     seen: set[tuple[int, str]] = set()
     for page_id in page_ids:
@@ -467,6 +501,13 @@ def merge_discovered_sources_into_qbr_mappings(
     Deduplicates by ``(slide_number, normalized source)``. Returns count of new elements appended.
     """
     p = path or _DEFAULT_PATH
+    if not qbr_mappings_disk_write_enabled():
+        logger.info(
+            "qbr_mappings: skip merge — disk writes disabled (set BPO_QBR_MAPPINGS_WRITE=1 to append "
+            "discovered sources to %s)",
+            p,
+        )
+        return 0
     seen: set[tuple[int, str]] = set()
     uniq: list[dict[str, Any]] = []
     for d in discoveries:

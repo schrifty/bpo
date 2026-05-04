@@ -15,7 +15,14 @@ from src.qbr_hydrate_mappings import (
     mapping_source_is_visual_only,
     mapping_source_suitable_for_qbr_yaml_autowrite,
     merge_discovered_sources_into_qbr_mappings,
+    qbr_mappings_disk_write_enabled,
 )
+
+
+@pytest.fixture(autouse=True)
+def _qbr_mappings_allow_disk_write(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests call merge/bootstrap on temp paths; opt into disk writes."""
+    monkeypatch.setenv("BPO_QBR_MAPPINGS_WRITE", "1")
 
 
 def test_build_adapt_page_slide_type_skips_structural_types():
@@ -334,6 +341,16 @@ def test_merge_skips_visual_sources(tmp_path) -> None:
     assert not (cfg.get("slides") or [])
 
 
+def test_bootstrap_skips_when_yaml_missing_and_writes_disabled(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("BPO_QBR_MAPPINGS_WRITE", raising=False)
+    monkeypatch.delenv("BPO_QBR_MAPPINGS_AUTOWRITE", raising=False)
+    p = tmp_path / "qbr_mappings.yaml"
+    assert not p.exists()
+    n = bootstrap_qbr_mappings_from_slides({}, [], [], {}, path=p)
+    assert n == 0
+    assert not p.exists()
+
+
 def test_bootstrap_slide_walk_writes_when_yaml_missing(tmp_path) -> None:
     p = tmp_path / "qbr_mappings.yaml"
     assert not p.exists()
@@ -397,3 +414,29 @@ def test_merge_skips_existing_source_on_same_slide(tmp_path) -> None:
         path=p,
     )
     assert n == 0
+
+
+def test_merge_noop_when_disk_writes_disabled(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("BPO_QBR_MAPPINGS_WRITE", raising=False)
+    monkeypatch.delenv("BPO_QBR_MAPPINGS_AUTOWRITE", raising=False)
+    p = tmp_path / "qbr_mappings.yaml"
+    before = "version: 2\nslides: []\nglobal_elements: []\n"
+    p.write_text(before, encoding="utf-8")
+    n = merge_discovered_sources_into_qbr_mappings(
+        [{"slide_number": 3, "slide_id": None, "source": "99%"}],
+        path=p,
+    )
+    assert n == 0
+    assert p.read_text(encoding="utf-8") == before
+
+
+def test_disk_write_enabled_respects_explicit_and_legacy_autowrite(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("BPO_QBR_MAPPINGS_WRITE", raising=False)
+    monkeypatch.delenv("BPO_QBR_MAPPINGS_AUTOWRITE", raising=False)
+    assert qbr_mappings_disk_write_enabled() is False
+    monkeypatch.setenv("BPO_QBR_MAPPINGS_AUTOWRITE", "true")
+    assert qbr_mappings_disk_write_enabled() is True
+    monkeypatch.setenv("BPO_QBR_MAPPINGS_WRITE", "0")
+    assert qbr_mappings_disk_write_enabled() is False
+    monkeypatch.setenv("BPO_QBR_MAPPINGS_WRITE", "1")
+    assert qbr_mappings_disk_write_enabled() is True
