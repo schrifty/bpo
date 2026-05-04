@@ -1394,7 +1394,7 @@ def _build_hydrate_speaker_notes(
     slide_title: str | None = None,
     slide_yaml_hint: str | None = None,
 ) -> str:
-    """Hydration speaker notes: timestamp + title, data context, Data Fields (arrow lines), visuals, checklist."""
+    """Hydration speaker notes: timestamp + title, data context, mapped values (arrow lines), visuals, checklist."""
     from datetime import datetime as _dt
     _ts = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
     ds: dict[str, Any] = {}
@@ -1436,15 +1436,8 @@ def _build_hydrate_speaker_notes(
 
     if slide_yaml_hint and str(slide_yaml_hint).strip():
         lines.append("Slide YAML: " + str(slide_yaml_hint).strip()[:2000])
-    else:
-        lines.append(
-            "YAML: Document each slide's field semantics in the deck YAML under `slides:` "
-            "(match template yellow/orange cues). Use a comment such as "
-            "`# HYDRATE_UNKNOWN: …` when a slot cannot be mapped reliably; otherwise note the "
-            "intended pipeline field so hydration stays deterministic."
-        )
 
-    lines.append("Data Fields:")
+    lines.append("Mapped values:")
     if replacements:
         for r in replacements:
             lines.append(_hydrate_data_field_line(r))

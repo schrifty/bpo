@@ -428,7 +428,7 @@ def test_build_hydrate_speaker_notes_generic_placeholder_one_liner():
         },
     ]
     out = evaluate._build_hydrate_speaker_notes(reps, [{"type": "shape", "text": "x"}])
-    assert "Data Fields:" in out
+    assert "Mapped values:" in out
     assert "generic placeholder — no pipeline mapping" in out
     assert "UNMAPPED / static visual" not in out
 
@@ -444,7 +444,7 @@ def test_build_hydrate_speaker_notes_lists_lines():
         {"type": "shape", "text": "[00%] reduction In Past Due PO's"},
     ]
     out = evaluate._build_hydrate_speaker_notes(reps, els)
-    assert "Data Fields:" in out and "total_sites" in out and "nps_score" in out
+    assert "Mapped values:" in out and "total_sites" in out and "nps_score" in out
     assert "`total_sites`" in out and "Pendo" in out and "[14]" in out
     assert "`nps_score` unmapped" in out and "[72]" in out
 
@@ -482,7 +482,8 @@ def test_build_hydrate_speaker_notes_narrative_no_replacements():
     out = evaluate._build_hydrate_speaker_notes([], els, report={"customer": "Acme"})
     assert "No automated data replacements" not in out
     assert "Slide copy (reference):" in out
-    assert "YAML:" in out
+    assert "HYDRATE_UNKNOWN" not in out
+    assert "Document each slide" not in out
     assert "Prior quarter" in out
     assert "Ship feature" in out
 
