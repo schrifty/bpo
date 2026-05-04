@@ -13,6 +13,7 @@ build/
 *.json
 !.vscode/*.json
 !config/data_field_synonyms.json
+!config/data_summary.json
 !config/data_summary_target_aliases.json
 # Private key for Salesforce JWT — never commit
 server.key
@@ -39,6 +40,4 @@ matching.log
 # Byte-compiled
 *.so
 src/pendo_client.py
-
-# Local QBR explicit mapping file (delete to remap a new template; copy from config/qbr_mappings.example.yaml).
-config/qbr_mappings.yaml
+config/data_summary.json.bak
