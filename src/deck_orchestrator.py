@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .config import logger
@@ -18,7 +19,54 @@ from .deck_support_notable import insert_support_notable_slide
 from .slide_primitives import set_support_deck_corner_customer as _set_support_deck_corner_customer
 from .slides_theme import _date_range
 
+_DECK_SORT_PREFIX_RE = re.compile(r"^\d+\s*-\s*")
+
+# Drive file titles for portfolio-class decks (installer base / aggregated). Uses a stable
+# ``Portfolio - …`` prefix regardless of YAML ``name`` (which may retain sort prefixes for CLI).
+_PORTFOLIO_DRIVE_TITLE_TAIL: dict[str, str] = {
+    "portfolio_review": "Health Review",
+    "cohort_review": "Cohort Review",
+    "engineering-portfolio": "Engineering Review",
+    "implementations_review": "Implementations Review",
+    "support_review_portfolio": "Support Review",
+}
+
+
+def _strip_deck_yaml_sort_prefix(name: str) -> str:
+    s = _DECK_SORT_PREFIX_RE.sub("", (name or "").strip()).strip()
+    return s or "Deck"
+
+
+def _health_deck_presentation_title(
+    *,
+    deck_id: str,
+    deck_name: str,
+    date_str: str,
+    customer: Any,
+    report: dict[str, Any],
+    is_portfolio: bool,
+) -> str:
+    """Build the Google Drive file name for ``create_health_deck``."""
+    if deck_id == "csm_book_of_business":
+        csm_disp = str(report.get("csm_owner") or "").strip() or "CSM"
+        return f"Portfolio - {csm_disp} — Book of Business ({date_str})"
+
+    tail = _PORTFOLIO_DRIVE_TITLE_TAIL.get(deck_id)
+    if tail is not None:
+        return f"Portfolio - {tail} ({date_str})"
+
+    if deck_id == "support" and not customer:
+        return f"{deck_name} — All Customers ({date_str})"
+
+    if is_portfolio:
+        suffix = _strip_deck_yaml_sort_prefix(deck_name)
+        return f"Portfolio - {suffix} ({date_str})"
+
+    return f"{customer} — {deck_name} ({date_str})"
+
+
 # ── Monolith deck creation (deck-definition-driven) ──
+
 
 def create_health_deck(
     report: dict[str, Any],
@@ -87,17 +135,14 @@ def create_health_deck(
         slide_plan: list[dict[str, Any]] = list(resolved.get("slides") or [])
 
         # For support deck without customer, include full support slide lineup with all-project scope.
-        if deck_id == "support_review_portfolio":
-            title = f"{deck_name} ({date_str})"
-        elif deck_id == "csm_book_of_business":
-            csm_disp = str(report.get("csm_owner") or "").strip() or "CSM"
-            title = f"{csm_disp} — {deck_name} ({date_str})"
-        elif deck_id == "support" and not customer:
-            title = f"{deck_name} — All Customers ({date_str})"
-        elif is_portfolio:
-            title = f"{deck_name} ({date_str})"
-        else:
-            title = f"{customer} — {deck_name} ({date_str})"
+        title = _health_deck_presentation_title(
+            deck_id=deck_id,
+            deck_name=str(deck_name),
+            date_str=date_str,
+            customer=customer,
+            report=report,
+            is_portfolio=is_portfolio,
+        )
 
         report, slide_plan = enrich_deck_report_data(deck_id, report, slide_plan, customer)
 
