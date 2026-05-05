@@ -50,6 +50,11 @@ Flag commands (utilities)
   decks --data
       Print canonical data element paths from ``config/comprehensive_data_element_list.json``.
 
+  decks --export [--days N] [--max-bytes N] [--signals-cap N] [-o FILE] [--skip-drive]
+      Build the all-customers LLM context markdown snapshot and upload it to today's
+      dated Drive Output folder (same destination as programmatic deck outputs). ``--out`` / ``-o``
+      also writes a local copy. Use ``--skip-drive`` for local-only.
+
 ────────────────────────────────────────────────────────────────
 Generate decks (natural language — LLM parses the prompt)
 ────────────────────────────────────────────────────────────────
@@ -629,6 +634,13 @@ def main():
     # Quick utility flags that don't need LLM parsing
     if "--data" in sys.argv:
         _run_data_catalog_cli()
+        return
+
+    if "--export" in sys.argv:
+        from src.export_llm_context_snapshot import export_main
+
+        rest = [a for a in sys.argv[1:] if a != "--export"]
+        export_main(rest, prog="decks --export")
         return
 
     if "--list" in sys.argv:

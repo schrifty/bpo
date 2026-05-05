@@ -11,12 +11,12 @@ breakdowns, and SLA-style aggregates only — **no issue keys, summaries, or tic
 The markdown includes **Snapshot coverage & omission rationale** (profile sources, registry ids not in this export and why, caps, loader provenance, feedback prompt) plus **Planned integrations (not in this snapshot yet)** (e.g. Aha, GitHub).
 
 Usage:
+  decks --export [--days N]
   python -m src.export_llm_context_snapshot --days 90
   python -m src.export_llm_context_snapshot --out ./snapshot.md --skip-drive
-  python -m src.export_llm_context_snapshot --signals-cap 40 --out ./snapshot.md --skip-drive
 
 Requires ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` and credentials for Drive upload unless ``--skip-drive``.
-Drive upload **replaces** an existing file with the same name in the target folder by default.
+Drive upload **replaces** an existing file with the same name in the dated Output folder by default (no configurable subfolder).
 """
 from __future__ import annotations
 
@@ -899,9 +899,10 @@ def _shrink_snapshot_params(
         comp.setdefault("signals_line_max_chars", line_mx)
 
 
-def main() -> None:
+def _build_export_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        description="Export all-customers LLM data snapshot to the dated Drive Output folder."
+        description="Export all-customers LLM data snapshot to the dated Drive Output folder.",
+        prog=prog or "python -m src.export_llm_context_snapshot",
     )
     ap.add_argument("--days", type=int, default=90, help="Lookback days for portfolio window (default 90)")
     ap.add_argument(
@@ -919,13 +920,11 @@ def main() -> None:
     )
     ap.add_argument("--out", "-o", metavar="FILE", help="Also write markdown locally")
     ap.add_argument("--skip-drive", action="store_true", help="Do not upload to Drive")
-    ap.add_argument(
-        "--drive-subfolder",
-        default="",
-        metavar="NAME",
-        help="Optional subfolder under the dated Output folder (created if missing).",
-    )
-    args = ap.parse_args()
+    return ap
+
+
+def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -> None:
+    args = _build_export_parser(prog=prog).parse_args(cli_args)
 
     exported_at = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -1003,28 +1002,24 @@ def main() -> None:
         print(f"Skipped Drive upload ({len(md.encode('utf-8'))} bytes)", file=sys.stderr)
         return
 
-    from src.drive_config import (
-        _find_or_create_folder,
-        get_deck_output_folder_id,
-        upload_text_file_to_drive_folder,
-    )
+    from src.drive_config import get_deck_output_folder_id, upload_text_file_to_drive_folder
 
-    root = get_deck_output_folder_id()
-    if not root:
+    folder_id = get_deck_output_folder_id()
+    if not folder_id:
         print(
             "error: could not resolve Drive Output folder (set GOOGLE_QBR_GENERATOR_FOLDER_ID "
             "and verify Drive access).",
             file=sys.stderr,
         )
         sys.exit(1)
-    folder_id = root
-    sub = (args.drive_subfolder or "").strip()
-    if sub:
-        folder_id = _find_or_create_folder(sub, root)
     fid = upload_text_file_to_drive_folder(fname, md, folder_id, mime_type="text/markdown")
     url = f"https://drive.google.com/file/d/{fid}/view"
     print(f"Uploaded Drive file id={fid} ({len(md.encode('utf-8'))} bytes)")
     print(url)
+
+
+def main() -> None:
+    export_main(None)
 
 
 if __name__ == "__main__":
