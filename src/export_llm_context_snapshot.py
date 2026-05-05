@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export an all-customers LLM-oriented data snapshot to Google Drive (QBR Generator).
+"""Export an all-customers LLM-oriented data snapshot to Google Drive (dated Output folder).
 
 Datasource bundle: :mod:`src.data_sources` profile ``llm_export_all_customers`` — Pendo portfolio
 rollup, CS Report (week), portfolio Salesforce revenue book, and Jira HELP (unscoped). The
@@ -901,7 +901,7 @@ def _shrink_snapshot_params(
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Export all-customers LLM data snapshot to QBR Generator Drive folder."
+        description="Export all-customers LLM data snapshot to the dated Drive Output folder."
     )
     ap.add_argument("--days", type=int, default=90, help="Lookback days for portfolio window (default 90)")
     ap.add_argument(
@@ -923,7 +923,7 @@ def main() -> None:
         "--drive-subfolder",
         default="",
         metavar="NAME",
-        help="Optional subfolder under QBR Generator (created if missing). Empty = generator root.",
+        help="Optional subfolder under the dated Output folder (created if missing).",
     )
     args = ap.parse_args()
 
@@ -1005,11 +1005,18 @@ def main() -> None:
 
     from src.drive_config import (
         _find_or_create_folder,
-        get_qbr_generator_folder_id_for_drive_config,
+        get_deck_output_folder_id,
         upload_text_file_to_drive_folder,
     )
 
-    root = get_qbr_generator_folder_id_for_drive_config()
+    root = get_deck_output_folder_id()
+    if not root:
+        print(
+            "error: could not resolve Drive Output folder (set GOOGLE_QBR_GENERATOR_FOLDER_ID "
+            "and verify Drive access).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     folder_id = root
     sub = (args.drive_subfolder or "").strip()
     if sub:
