@@ -1,6 +1,6 @@
 {
-  "version": 4,
-  "_comment": "Catalog paths with ``terms``; synonym phrases may be LLM-suggested (manufacturing / MRP-ERP context). Regenerate via scripts/generate_data_summary_catalog.py; edit ``terms`` in this file or config/data_field_synonyms.json as needed.",
+  "version": 6,
+  "_comment": "Catalog paths with ``terms`` for hydrate phrase matching, qbr_mappings target resolution, and LLM context. Regenerate skeleton via scripts/generate_data_summary_catalog.py; edit ``terms`` here.",
   "entries": [
     {
       "path": "_drive_svc",
@@ -126,54 +126,6 @@
         "Manufacturing Users",
         "Operations Staff",
         "User Base Size"
-      ]
-    },
-    {
-      "path": "account_avg_weekly_hours",
-      "terms": [
-        "account_avg_weekly_hours",
-        "[data_summary] derived",
-        "Average weekly use",
-        "Consistent plant engagement",
-        "Weekly operational time",
-        "Sustained platform use",
-        "Regular user hours"
-      ]
-    },
-    {
-      "path": "account_total_minutes",
-      "terms": [
-        "account_total_minutes",
-        "[data_summary] summed site minutes",
-        "Total user engagement",
-        "Plant user time",
-        "Operational hours",
-        "Collaboration minutes",
-        "Platform usage time"
-      ]
-    },
-    {
-      "path": "active_sites",
-      "terms": [
-        "active_sites",
-        "[data_summary]",
-        "Sites engaged",
-        "Plants online",
-        "Factories connected",
-        "Operations live",
-        "Shop floors active"
-      ]
-    },
-    {
-      "path": "active_users",
-      "terms": [
-        "active_users",
-        "[data_summary] from account.active_visitors if present",
-        "Active plant users",
-        "Engaged operators",
-        "Daily collaborators",
-        "Active supply chain",
-        "Regular system use"
       ]
     },
     {
@@ -772,19 +724,6 @@
       ]
     },
     {
-      "path": "customer_name",
-      "terms": [
-        "customer_name",
-        "[data_summary] mirrors report.customer",
-        "hydrate shorthand",
-        "Current Partner",
-        "Valued Client",
-        "Manufacturing Hub",
-        "Supply Chain Partner",
-        "Our Key Account"
-      ]
-    },
-    {
       "path": "days",
       "terms": [
         "days",
@@ -978,7 +917,9 @@
         "[QBR] config/qbr_mappings.yaml target for [Executive sponsor]",
         "Executive sponsor",
         "account executive sponsor",
-        "business sponsor"
+        "business sponsor",
+        "executive sponsor",
+        "sponsor name qbr"
       ]
     },
     {
@@ -1246,18 +1187,6 @@
         "Onboarded staff",
         "Feature adopters",
         "Engaged operators"
-      ]
-    },
-    {
-      "path": "health_score",
-      "terms": [
-        "health_score",
-        "[data_summary] from account",
-        "Overall account health",
-        "Supply chain vitality",
-        "Operational strength",
-        "Platform value realized",
-        "Manufacturing efficiency"
       ]
     },
     {
@@ -1637,7 +1566,10 @@
         "GET /data/DataShare",
         "Parquet bulk export",
         "ClearToBuild multi-level",
-        "supplier performance extract"
+        "supplier performance extract",
+        "data share parquet",
+        "bulk export lean dna",
+        "clear to build parquet"
       ]
     },
     {
@@ -1648,7 +1580,10 @@
         "GET /data/identity",
         "authorizedSites",
         "siteId siteName mapping",
-        "API user email"
+        "API user email",
+        "authorized sites lean dna",
+        "lean dna identity",
+        "site id mapping lean"
       ]
     },
     {
@@ -1658,7 +1593,10 @@
         "[LeanDNA Data API] not wired in BPO report yet",
         "GET /data/Inventory/Purchased",
         "on-hand by location",
-        "purchased stock state"
+        "purchased stock state",
+        "purchased inventory lean",
+        "on hand by location lean",
+        "inventory purchased endpoint"
       ]
     },
     {
@@ -1829,7 +1767,10 @@
         "leandna_data_api.metric.report",
         "[LeanDNA Data API] not wired in BPO report yet",
         "GET /data/MetricReport",
-        "fiscal year metricValues"
+        "fiscal year metricValues",
+        "metric report lean dna",
+        "fiscal year metrics lean",
+        "custom kpi lean"
       ]
     },
     {
@@ -1841,7 +1782,12 @@
         "open PO lines",
         "late PO cause",
         "supplier commit date",
-        "PPV purchase price variance"
+        "PPV purchase price variance",
+        "purchase order lean dna",
+        "open po lean",
+        "late delivery cause",
+        "po commit date",
+        "supplier lead time actual"
       ]
     },
     {
@@ -1869,7 +1815,10 @@
         "[QBR] qbr_mappings target for [Exec Sponsor]",
         "LeanDNA executive sponsor",
         "Exec Sponsor",
-        "program sponsor"
+        "program sponsor",
+        "exec sponsor",
+        "leandna exec sponsor",
+        "lean dna sponsor"
       ]
     },
     {
@@ -1881,7 +1830,13 @@
         "Master data quality",
         "ERP record health",
         "Material master updates",
-        "Part data integrity"
+        "Part data integrity",
+        "lean item master",
+        "item master data",
+        "lean dna item master",
+        "doi backward",
+        "aggregate risk score",
+        "abc classification"
       ]
     },
     {
@@ -1983,7 +1938,11 @@
         "Waste reduction focus",
         "Continuous improvement",
         "Lean project sponsor",
-        "sponsor.name API"
+        "sponsor.name API",
+        "lean projects portfolio",
+        "continuous improvement savings",
+        "project manager lean dna",
+        "kaizen savings"
       ]
     },
     {
@@ -2137,7 +2096,11 @@
         "Supply risk insights",
         "Critical part trends",
         "Production bottleneck view",
-        "Proactive shortage action"
+        "Proactive shortage action",
+        "material shortage forecast",
+        "shortage buckets",
+        "critical shortages timeline",
+        "scheduled deliveries lean"
       ]
     },
     {
@@ -2239,90 +2202,6 @@
         "Supply chain optimization",
         "Plant productivity boost",
         "Strategic platform impact"
-      ]
-    },
-    {
-      "path": "platform_value.factory_count",
-      "terms": [
-        "platform_value.factory_count",
-        "[CSR→summary]",
-        "Plants on the platform",
-        "Integrated manufacturing sites",
-        "Connected factory locations",
-        "Operational facilities",
-        "Production sites managed"
-      ]
-    },
-    {
-      "path": "platform_value.total_open_ia_value",
-      "terms": [
-        "platform_value.total_open_ia_value",
-        "[CSR→summary]",
-        "Open improvement value",
-        "Active project impact",
-        "Ongoing savings potential",
-        "Unrealized efficiency",
-        "Pending operational gains"
-      ]
-    },
-    {
-      "path": "platform_value.total_overdue_tasks",
-      "terms": [
-        "platform_value.total_overdue_tasks",
-        "[CSR→summary]",
-        "Pending operational actions",
-        "Delayed supply chain tasks",
-        "Unresolved planning items",
-        "Overdue production steps",
-        "Critical tasks awaiting"
-      ]
-    },
-    {
-      "path": "platform_value.total_pos_placed_30d",
-      "terms": [
-        "platform_value.total_pos_placed_30d",
-        "[CSR→summary]",
-        "New supplier commitments",
-        "Recent material orders",
-        "Procurement activity",
-        "Supply chain replenishment",
-        "Orders initiated"
-      ]
-    },
-    {
-      "path": "platform_value.total_potential_savings",
-      "terms": [
-        "platform_value.total_potential_savings",
-        "[CSR→summary]",
-        "Identified cost savings",
-        "Future efficiency gains",
-        "Supply chain savings",
-        "Inventory optimization",
-        "Reduced operational spend"
-      ]
-    },
-    {
-      "path": "platform_value.total_potential_to_sell",
-      "terms": [
-        "platform_value.total_potential_to_sell",
-        "[CSR→summary]",
-        "Excess inventory identified",
-        "Surplus material opportunities",
-        "Unlocked inventory value",
-        "Potential revenue from stock",
-        "Sellable excess parts"
-      ]
-    },
-    {
-      "path": "platform_value.total_recs_created_30d",
-      "terms": [
-        "platform_value.total_recs_created_30d",
-        "[CSR→summary]",
-        "New supply chain insights",
-        "Actionable inventory advice",
-        "Optimization suggestions",
-        "Planning recommendations",
-        "Fresh operational guidance"
       ]
     },
     {
@@ -2465,54 +2344,6 @@
       ]
     },
     {
-      "path": "quarter",
-      "terms": [
-        "quarter",
-        "[report] fiscal quarter label (QBR may set)",
-        "Current Quarter",
-        "Review Period",
-        "Fiscal Period",
-        "QBR Focus",
-        "This Quarter"
-      ]
-    },
-    {
-      "path": "quarter_end",
-      "terms": [
-        "quarter_end",
-        "[report] ISO date",
-        "Period End",
-        "Quarter Closes",
-        "Until This Date",
-        "Closing Point",
-        "Final Date"
-      ]
-    },
-    {
-      "path": "quarter_start",
-      "terms": [
-        "quarter_start",
-        "[report] ISO date",
-        "Period Start",
-        "Quarter Begins",
-        "From This Date",
-        "Starting Point",
-        "Initial Date"
-      ]
-    },
-    {
-      "path": "report_date",
-      "terms": [
-        "report_date",
-        "[data_summary] mirrors report.generated",
-        "Report Generated",
-        "Data Snapshot",
-        "Current View",
-        "As Of Today",
-        "Latest Update"
-      ]
-    },
-    {
       "path": "salesforce.account_ids",
       "terms": [
         "salesforce.account_ids",
@@ -2591,30 +2422,6 @@
         "Customer profile matched",
         "ERP record linked",
         "Supply chain data integrity"
-      ]
-    },
-    {
-      "path": "salesforce.opportunity_count_this_year",
-      "terms": [
-        "salesforce.opportunity_count_this_year",
-        "[SFDC]",
-        "New plant projects",
-        "Manufacturing expansion leads",
-        "Supply chain solution pursuits",
-        "Factory modernization bids",
-        "Production efficiency deals"
-      ]
-    },
-    {
-      "path": "salesforce.pipeline_arr",
-      "terms": [
-        "salesforce.pipeline_arr",
-        "[SFDC] pipeline ARR",
-        "Future manufacturing revenue",
-        "Projected plant solutions",
-        "Supply chain ARR outlook",
-        "Operations platform pipeline",
-        "Factory software forecast"
       ]
     },
     {
@@ -2806,126 +2613,6 @@
       ]
     },
     {
-      "path": "supply_chain.factory_count",
-      "terms": [
-        "supply_chain.factory_count",
-        "[CSR→summary]",
-        "Plants in the network",
-        "Integrated manufacturing sites",
-        "Connected factory locations",
-        "Operational facilities",
-        "Production sites managed"
-      ]
-    },
-    {
-      "path": "supply_chain.totals.excess_on_hand",
-      "terms": [
-        "supply_chain.totals.excess_on_hand",
-        "[CSR→summary]",
-        "Excess inventory on floor",
-        "Overstock in warehouse",
-        "Unused material volume",
-        "Inventory optimization need",
-        "Capital tied up"
-      ]
-    },
-    {
-      "path": "supply_chain.totals.excess_on_order",
-      "terms": [
-        "supply_chain.totals.excess_on_order",
-        "[CSR→summary]",
-        "Future excess orders",
-        "Incoming surplus stock",
-        "Unneeded future supply",
-        "POs for overstock",
-        "Preventing future waste"
-      ]
-    },
-    {
-      "path": "supply_chain.totals.on_hand",
-      "terms": [
-        "supply_chain.totals.on_hand",
-        "[CSR→summary]",
-        "Current physical stock",
-        "Available inventory levels",
-        "Material in warehouses",
-        "Parts ready for production",
-        "Existing component stock"
-      ]
-    },
-    {
-      "path": "supply_chain.totals.on_order",
-      "terms": [
-        "supply_chain.totals.on_order",
-        "[CSR→summary]",
-        "Incoming material orders",
-        "Pending supplier deliveries",
-        "Committed future stock",
-        "Materials in transit",
-        "Open purchase orders"
-      ]
-    },
-    {
-      "path": "supply_chain.totals.past_due_po",
-      "terms": [
-        "supply_chain.totals.past_due_po",
-        "[CSR→summary]",
-        "Late supplier deliveries",
-        "Delayed material receipts",
-        "Vendor performance issue",
-        "Production risk factor",
-        "Expedite POs needed"
-      ]
-    },
-    {
-      "path": "supply_chain.totals.past_due_req",
-      "terms": [
-        "supply_chain.totals.past_due_req",
-        "[CSR→summary]",
-        "Unfulfilled material needs",
-        "Delayed internal requests",
-        "Production line impact",
-        "Pending material actions",
-        "Requisition backlog"
-      ]
-    },
-    {
-      "path": "support.open",
-      "terms": [
-        "support.open",
-        "[data_summary] from jira.open_issues",
-        "Unresolved plant issues",
-        "Pending production support",
-        "Open supply chain tickets",
-        "Active factory requests",
-        "Outstanding operational tasks"
-      ]
-    },
-    {
-      "path": "support.resolved",
-      "terms": [
-        "support.resolved",
-        "[data_summary] from jira.resolved_issues",
-        "Plant issue closure",
-        "Operations support speed",
-        "Supply chain ticket resolution",
-        "Manufacturing process fixes",
-        "Production line issue handling"
-      ]
-    },
-    {
-      "path": "support.total_tickets",
-      "terms": [
-        "support.total_tickets",
-        "[data_summary] from jira.total_issues",
-        "Overall plant support volume",
-        "Total manufacturing inquiries",
-        "Supply chain issue count",
-        "Factory operations requests",
-        "Production system tickets"
-      ]
-    },
-    {
       "path": "teams_yaml.customer_team",
       "terms": [
         "teams_yaml.customer_team",
@@ -2971,66 +2658,6 @@
       ]
     },
     {
-      "path": "total_critical_shortages",
-      "terms": [
-        "total_critical_shortages",
-        "[data_summary]",
-        "Critical material gaps",
-        "High-impact shortages",
-        "Urgent supply issues",
-        "Production stoppers",
-        "Key component risks"
-      ]
-    },
-    {
-      "path": "total_shortages",
-      "terms": [
-        "total_shortages",
-        "[data_summary] from csr.platform_health",
-        "Material shortages",
-        "Parts unavailable",
-        "Supply gaps identified",
-        "Inventory shortfalls",
-        "Production risks"
-      ]
-    },
-    {
-      "path": "total_sites",
-      "terms": [
-        "total_sites",
-        "[data_summary]",
-        "Total factories",
-        "Plants managed",
-        "Operational sites",
-        "Manufacturing hubs",
-        "Facility count"
-      ]
-    },
-    {
-      "path": "total_users",
-      "terms": [
-        "total_users",
-        "[data_summary] alias of total_visitors",
-        "Total plant users",
-        "Supply chain team",
-        "Manufacturing staff",
-        "Operational logins",
-        "Collaborator count"
-      ]
-    },
-    {
-      "path": "total_visitors",
-      "terms": [
-        "total_visitors",
-        "[data_summary]",
-        "Total plant users",
-        "Supply chain team",
-        "Manufacturing staff",
-        "Operational logins",
-        "Collaborator count"
-      ]
-    },
-    {
       "path": "track_events_breakdown",
       "terms": [
         "track_events_breakdown",
@@ -3040,18 +2667,6 @@
         "Workflow step insights",
         "Custom process monitoring",
         "Manufacturing activity data"
-      ]
-    },
-    {
-      "path": "unique_visitors",
-      "terms": [
-        "unique_visitors",
-        "[data_summary] alias",
-        "Unique plant users",
-        "Distinct collaborators",
-        "Individual operators",
-        "Unique site logins",
-        "Distinct team members"
       ]
     },
     {
@@ -3067,6 +2682,300 @@
       ]
     },
     {
+      "path": "customer_name",
+      "terms": [
+        "customer_name",
+        "[data_summary] mirrors report.customer",
+        "hydrate shorthand",
+        "Current Partner",
+        "Valued Client",
+        "Manufacturing Hub",
+        "Supply Chain Partner",
+        "Our Key Account",
+        "customer name",
+        "account name",
+        "client name",
+        "Account",
+        "Client name",
+        "Customer"
+      ]
+    },
+    {
+      "path": "report_date",
+      "terms": [
+        "report_date",
+        "[data_summary] mirrors report.generated",
+        "Report Generated",
+        "Data Snapshot",
+        "Current View",
+        "As Of Today",
+        "Latest Update",
+        "report date",
+        "generated date",
+        "as of date",
+        "Generated date",
+        "Report generated",
+        "As of date"
+      ]
+    },
+    {
+      "path": "quarter",
+      "terms": [
+        "quarter",
+        "[report] fiscal quarter label (QBR may set)",
+        "Current Quarter",
+        "Review Period",
+        "Fiscal Period",
+        "QBR Focus",
+        "This Quarter",
+        "this quarter",
+        "reporting quarter",
+        "fiscal quarter",
+        "current quarter",
+        "QBR quarter",
+        "This quarter",
+        "Current quarter",
+        "Fiscal quarter"
+      ]
+    },
+    {
+      "path": "quarter_start",
+      "terms": [
+        "quarter_start",
+        "[report] ISO date",
+        "Period Start",
+        "Quarter Begins",
+        "From This Date",
+        "Starting Point",
+        "Initial Date",
+        "quarter start",
+        "period start date",
+        "window start",
+        "Quarter start date",
+        "Period start"
+      ]
+    },
+    {
+      "path": "quarter_end",
+      "terms": [
+        "quarter_end",
+        "[report] ISO date",
+        "Period End",
+        "Quarter Closes",
+        "Until This Date",
+        "Closing Point",
+        "Final Date",
+        "quarter end",
+        "period end date",
+        "window end",
+        "Quarter end date",
+        "Period end"
+      ]
+    },
+    {
+      "path": "total_users",
+      "terms": [
+        "total_users",
+        "[data_summary] alias of total_visitors",
+        "Total plant users",
+        "Supply chain team",
+        "Manufacturing staff",
+        "Operational logins",
+        "Collaborator count",
+        "total users",
+        "unique visitors",
+        "visitor count",
+        "licensed users",
+        "user count",
+        "all users",
+        "User count",
+        "Licensed users",
+        "All users"
+      ]
+    },
+    {
+      "path": "total_visitors",
+      "terms": [
+        "total_visitors",
+        "[data_summary]",
+        "Total plant users",
+        "Supply chain team",
+        "Manufacturing staff",
+        "Operational logins",
+        "Collaborator count",
+        "total visitors",
+        "Visitors",
+        "Total visitor count"
+      ]
+    },
+    {
+      "path": "unique_visitors",
+      "terms": [
+        "unique_visitors",
+        "[data_summary] alias",
+        "Unique plant users",
+        "Distinct collaborators",
+        "Individual operators",
+        "Unique site logins",
+        "Distinct team members",
+        "unique visitors",
+        "Distinct visitors",
+        "Unique visitor count"
+      ]
+    },
+    {
+      "path": "active_users",
+      "terms": [
+        "active_users",
+        "[data_summary] from account.active_visitors if present",
+        "Active plant users",
+        "Engaged operators",
+        "Daily collaborators",
+        "Active supply chain",
+        "Regular system use",
+        "active users",
+        "active visitors",
+        "weekly active users",
+        "engaged users",
+        "active user count",
+        "Active user count",
+        "7 day active users",
+        "Active accounts"
+      ]
+    },
+    {
+      "path": "total_sites",
+      "terms": [
+        "total_sites",
+        "[data_summary]",
+        "Total factories",
+        "Plants managed",
+        "Operational sites",
+        "Manufacturing hubs",
+        "Facility count",
+        "total sites",
+        "number of sites",
+        "site count",
+        "deployed sites",
+        "factory count",
+        "Sites",
+        "Number of factories",
+        "Deployment count"
+      ]
+    },
+    {
+      "path": "active_sites",
+      "terms": [
+        "active_sites",
+        "[data_summary]",
+        "Sites engaged",
+        "Plants online",
+        "Factories connected",
+        "Operations live",
+        "Shop floors active",
+        "active sites",
+        "sites with activity",
+        "Sites with usage",
+        "Active factory count"
+      ]
+    },
+    {
+      "path": "health_score",
+      "terms": [
+        "health_score",
+        "[data_summary] from account",
+        "Overall account health",
+        "Supply chain vitality",
+        "Operational strength",
+        "Platform value realized",
+        "Manufacturing efficiency",
+        "health score",
+        "account health",
+        "pendo health score",
+        "overall health",
+        "Pendo health",
+        "Overall health",
+        "Health band"
+      ]
+    },
+    {
+      "path": "account_total_minutes",
+      "terms": [
+        "account_total_minutes",
+        "[data_summary] summed site minutes",
+        "Total user engagement",
+        "Plant user time",
+        "Operational hours",
+        "Collaboration minutes",
+        "Platform usage time",
+        "total minutes",
+        "account total minutes",
+        "time on platform",
+        "minutes in leandna",
+        "Minutes in app",
+        "Total time on platform"
+      ]
+    },
+    {
+      "path": "account_avg_weekly_hours",
+      "terms": [
+        "account_avg_weekly_hours",
+        "[data_summary] derived",
+        "Average weekly use",
+        "Consistent plant engagement",
+        "Weekly operational time",
+        "Sustained platform use",
+        "Regular user hours",
+        "average hours spent weekly on leandna",
+        "weekly on leandna for engagement metrics",
+        "average weekly hours",
+        "hours per week on platform",
+        "time spent weekly",
+        "account avg weekly hours",
+        "Weekly hours",
+        "Avg weekly hours",
+        "Hours per week"
+      ]
+    },
+    {
+      "path": "total_shortages",
+      "terms": [
+        "total_shortages",
+        "[data_summary] from csr.platform_health",
+        "Material shortages",
+        "Parts unavailable",
+        "Supply gaps identified",
+        "Inventory shortfalls",
+        "Production risks",
+        "total shortages",
+        "shortage items",
+        "shortage count",
+        "shortage line items",
+        "Shortage items",
+        "All shortages"
+      ]
+    },
+    {
+      "path": "total_critical_shortages",
+      "terms": [
+        "total_critical_shortages",
+        "[data_summary]",
+        "Critical material gaps",
+        "High-impact shortages",
+        "Urgent supply issues",
+        "Production stoppers",
+        "Key component risks",
+        "critical shortages",
+        "total critical shortages",
+        "critical shortage count",
+        "critical shortage reduction",
+        "Shortage Reduction",
+        "shortage reduction",
+        "Critical Shortage Reduction",
+        "critical shortages (count)"
+      ]
+    },
+    {
       "path": "weekly_active_buyers_pct_avg",
       "terms": [
         "weekly_active_buyers_pct_avg",
@@ -3075,7 +2984,396 @@
         "Active procurement",
         "Weekly buyer use",
         "Purchasing team activity",
-        "Supply chain collaboration"
+        "Supply chain collaboration",
+        "weekly active buyers",
+        "active buyers percent",
+        "buyer weekly active rate",
+        "wab percentage",
+        "weekly active buyers pct avg",
+        "WAB percent",
+        "Weekly active buyer rate",
+        "Buyer activity rate"
+      ]
+    },
+    {
+      "path": "support.total_tickets",
+      "terms": [
+        "support.total_tickets",
+        "[data_summary] from jira.total_issues",
+        "Overall plant support volume",
+        "Total manufacturing inquiries",
+        "Supply chain issue count",
+        "Factory operations requests",
+        "Production system tickets",
+        "total tickets",
+        "help tickets total",
+        "jsm ticket count",
+        "all tickets",
+        "support.total tickets",
+        "Support Total Tickets",
+        "All Jira tickets",
+        "HELP ticket total"
+      ]
+    },
+    {
+      "path": "support.open",
+      "terms": [
+        "support.open",
+        "[data_summary] from jira.open_issues",
+        "Unresolved plant issues",
+        "Pending production support",
+        "Open supply chain tickets",
+        "Active factory requests",
+        "Outstanding operational tasks",
+        "open tickets",
+        "open issues",
+        "backlog tickets",
+        "open backlog",
+        "Support Open",
+        "Open backlog",
+        "Open JSM tickets"
+      ]
+    },
+    {
+      "path": "support.resolved",
+      "terms": [
+        "support.resolved",
+        "[data_summary] from jira.resolved_issues",
+        "Plant issue closure",
+        "Operations support speed",
+        "Supply chain ticket resolution",
+        "Manufacturing process fixes",
+        "Production line issue handling",
+        "resolved tickets",
+        "closed tickets",
+        "tickets resolved",
+        "Support Resolved",
+        "Resolved last period",
+        "Closed ticket count"
+      ]
+    },
+    {
+      "path": "salesforce.opportunity_count_this_year",
+      "terms": [
+        "salesforce.opportunity_count_this_year",
+        "[SFDC]",
+        "New plant projects",
+        "Manufacturing expansion leads",
+        "Supply chain solution pursuits",
+        "Factory modernization bids",
+        "Production efficiency deals",
+        "opportunities this year",
+        "open opportunities count",
+        "opportunity count",
+        "opportunities ytd",
+        "salesforce.opportunity count this year",
+        "Salesforce Opportunity Count This Year",
+        "Opportunities YTD",
+        "Opp count"
+      ]
+    },
+    {
+      "path": "salesforce.pipeline_arr",
+      "terms": [
+        "salesforce.pipeline_arr",
+        "[SFDC] pipeline ARR",
+        "Future manufacturing revenue",
+        "Projected plant solutions",
+        "Supply chain ARR outlook",
+        "Operations platform pipeline",
+        "Factory software forecast",
+        "pipeline arr",
+        "open pipeline",
+        "opportunity pipeline",
+        "pipeline dollars",
+        "salesforce.pipeline arr",
+        "Salesforce Pipeline Arr",
+        "Open ARR",
+        "Pipeline dollars",
+        "SFDC pipeline"
+      ]
+    },
+    {
+      "path": "platform_value.total_savings",
+      "terms": [
+        "platform_value.total_savings",
+        "cost avoidance",
+        "material cost avoidance",
+        "total cost avoidance",
+        "inventory action savings",
+        "savings achieved",
+        "total savings",
+        "realized savings",
+        "platform value.total savings",
+        "Platform Value Total Savings",
+        "Savings to date",
+        "Realized savings",
+        "IA savings"
+      ]
+    },
+    {
+      "path": "platform_value.total_open_ia_value",
+      "terms": [
+        "platform_value.total_open_ia_value",
+        "[CSR→summary]",
+        "Open improvement value",
+        "Active project impact",
+        "Ongoing savings potential",
+        "Unrealized efficiency",
+        "Pending operational gains",
+        "open intelligent action value",
+        "open ia value",
+        "inventory action open value",
+        "open action value",
+        "platform value.total open ia value",
+        "Platform Value Total Open Ia Value",
+        "Open IA dollars",
+        "Open action value"
+      ]
+    },
+    {
+      "path": "platform_value.total_potential_savings",
+      "terms": [
+        "platform_value.total_potential_savings",
+        "[CSR→summary]",
+        "Identified cost savings",
+        "Future efficiency gains",
+        "Supply chain savings",
+        "Inventory optimization",
+        "Reduced operational spend",
+        "potential savings",
+        "identified savings opportunity",
+        "savings opportunity",
+        "platform value.total potential savings",
+        "Platform Value Total Potential Savings",
+        "Identified savings",
+        "Savings opportunity"
+      ]
+    },
+    {
+      "path": "platform_value.total_potential_to_sell",
+      "terms": [
+        "platform_value.total_potential_to_sell",
+        "[CSR→summary]",
+        "Excess inventory identified",
+        "Surplus material opportunities",
+        "Unlocked inventory value",
+        "Potential revenue from stock",
+        "Sellable excess parts",
+        "potential to sell",
+        "excess sell opportunity",
+        "sell through potential",
+        "platform value.total potential to sell",
+        "Platform Value Total Potential To Sell",
+        "Sell-through potential",
+        "Excess sell value"
+      ]
+    },
+    {
+      "path": "platform_value.total_recs_created_30d",
+      "terms": [
+        "platform_value.total_recs_created_30d",
+        "[CSR→summary]",
+        "New supply chain insights",
+        "Actionable inventory advice",
+        "Optimization suggestions",
+        "Planning recommendations",
+        "Fresh operational guidance",
+        "recommendations created",
+        "recs created last 30 days",
+        "ia recommendations",
+        "platform value.total recs created 30d",
+        "Platform Value Total Recs Created 30d",
+        "Recommendations 30d",
+        "IA recs created"
+      ]
+    },
+    {
+      "path": "platform_value.total_pos_placed_30d",
+      "terms": [
+        "platform_value.total_pos_placed_30d",
+        "[CSR→summary]",
+        "New supplier commitments",
+        "Recent material orders",
+        "Procurement activity",
+        "Supply chain replenishment",
+        "Orders initiated",
+        "purchase orders placed",
+        "pos placed last 30 days",
+        "pos last thirty days",
+        "platform value.total pos placed 30d",
+        "Platform Value Total Pos Placed 30d",
+        "POs in 30 days",
+        "Purchase orders 30d"
+      ]
+    },
+    {
+      "path": "platform_value.total_overdue_tasks",
+      "terms": [
+        "platform_value.total_overdue_tasks",
+        "[CSR→summary]",
+        "Pending operational actions",
+        "Delayed supply chain tasks",
+        "Unresolved planning items",
+        "Overdue production steps",
+        "Critical tasks awaiting",
+        "overdue tasks",
+        "workbench overdue tasks",
+        "overdue ia tasks",
+        "platform value.total overdue tasks",
+        "Platform Value Total Overdue Tasks",
+        "Workbench overdue",
+        "Overdue IA tasks"
+      ]
+    },
+    {
+      "path": "platform_value.factory_count",
+      "terms": [
+        "platform_value.factory_count",
+        "[CSR→summary]",
+        "Plants on the platform",
+        "Integrated manufacturing sites",
+        "Connected factory locations",
+        "Operational facilities",
+        "Production sites managed",
+        "platform value factory count",
+        "factories in platform value",
+        "platform value.factory count",
+        "Platform Value Factory Count",
+        "PV factory count",
+        "ROI slide factory count"
+      ]
+    },
+    {
+      "path": "supply_chain.factory_count",
+      "terms": [
+        "supply_chain.factory_count",
+        "[CSR→summary]",
+        "Plants in the network",
+        "Integrated manufacturing sites",
+        "Connected factory locations",
+        "Operational facilities",
+        "Production sites managed",
+        "supply chain factory count",
+        "factories in supply chain",
+        "supply chain.factory count",
+        "Supply Chain Factory Count",
+        "SC factory count",
+        "Inventory factory count"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.on_hand",
+      "terms": [
+        "supply_chain.totals.on_hand",
+        "[CSR→summary]",
+        "Current physical stock",
+        "Available inventory levels",
+        "Material in warehouses",
+        "Parts ready for production",
+        "Existing component stock",
+        "on hand inventory value",
+        "total on hand value",
+        "inventory on hand",
+        "on hand dollars",
+        "supply chain.totals.on hand",
+        "Supply Chain Totals On Hand",
+        "Inventory OH",
+        "On-hand dollars",
+        "OH value"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.on_order",
+      "terms": [
+        "supply_chain.totals.on_order",
+        "[CSR→summary]",
+        "Incoming material orders",
+        "Pending supplier deliveries",
+        "Committed future stock",
+        "Materials in transit",
+        "Open purchase orders",
+        "on order value",
+        "inventory on order",
+        "on order dollars",
+        "supply chain.totals.on order",
+        "Supply Chain Totals On Order",
+        "On order dollars",
+        "OO value"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.excess_on_hand",
+      "terms": [
+        "supply_chain.totals.excess_on_hand",
+        "[CSR→summary]",
+        "Excess inventory on floor",
+        "Overstock in warehouse",
+        "Unused material volume",
+        "Inventory optimization need",
+        "Capital tied up",
+        "excess on hand",
+        "excess inventory on hand",
+        "excess oh",
+        "supply chain.totals.excess on hand",
+        "Supply Chain Totals Excess On Hand",
+        "Excess inventory",
+        "Excess OH dollars"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.excess_on_order",
+      "terms": [
+        "supply_chain.totals.excess_on_order",
+        "[CSR→summary]",
+        "Future excess orders",
+        "Incoming surplus stock",
+        "Unneeded future supply",
+        "POs for overstock",
+        "Preventing future waste",
+        "excess on order",
+        "excess oo",
+        "supply chain.totals.excess on order",
+        "Supply Chain Totals Excess On Order",
+        "Excess on order",
+        "Excess OO"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.past_due_po",
+      "terms": [
+        "supply_chain.totals.past_due_po",
+        "[CSR→summary]",
+        "Late supplier deliveries",
+        "Delayed material receipts",
+        "Vendor performance issue",
+        "Production risk factor",
+        "Expedite POs needed",
+        "past due purchase orders",
+        "past due po value",
+        "late po value",
+        "supply chain.totals.past due po",
+        "Supply Chain Totals Past Due Po",
+        "Past due PO dollars",
+        "Late PO value"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.past_due_req",
+      "terms": [
+        "supply_chain.totals.past_due_req",
+        "[CSR→summary]",
+        "Unfulfilled material needs",
+        "Delayed internal requests",
+        "Production line impact",
+        "Pending material actions",
+        "Requisition backlog",
+        "past due requirements",
+        "late pr value",
+        "supply chain.totals.past due req",
+        "Supply Chain Totals Past Due Req",
+        "Past due requisitions",
+        "Late PR value"
       ]
     }
   ]

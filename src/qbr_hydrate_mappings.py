@@ -3,7 +3,7 @@
 When ``report[REPORT_KEY_EXPLICIT_QBR_MAPPINGS]`` is true, :func:`adapt_custom_slides` uses
 :func:`apply_explicit_qbr_mappings` instead of synonym-phrase resolution from ``data_field_synonyms``
 for slide text — but each rule's ``target`` is still resolved via
-:func:`data_field_synonyms.resolve_data_summary_target_path` (synonyms + ``data_summary_target_aliases.json``).
+:func:`data_field_synonyms.resolve_data_summary_target_path` (``data_summary.json`` ``terms``).
 
 **Disk writes are opt-in.** Hydrate **always reads** the YAML when present; it does **not** rewrite the
 file unless :func:`qbr_mappings_disk_write_enabled` is true (see ``BPO_QBR_MAPPINGS_WRITE``).

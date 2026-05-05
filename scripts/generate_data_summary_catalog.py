@@ -27,7 +27,7 @@ def _e(path: str, *terms: str) -> dict[str, Any]:
 
 
 def build_entries() -> list[dict[str, Any]]:
-    """Human-facing catalog rows (same shape as data_summary_target_aliases.json entries)."""
+    """Human-facing catalog rows (``path`` + ``terms``)."""
     rows: list[dict[str, Any]] = []
 
     # ── Meta / identity ─────────────────────────────────────────────────────
@@ -412,11 +412,11 @@ def main() -> int:
     payload = {
         "version": 1,
         "_comment": (
-            "Catalog of data elements BPO can access for QBR / decks. Same JSON shape as "
-            "data_summary_target_aliases.json (path + terms). "
-            "Terms include the canonical dotted path plus human/source notes. "
+            "Catalog of data elements BPO can access for QBR / decks (path + terms). "
+            "Terms drive hydrate phrase matching and qbr_mappings target resolution (see "
+            "resolve_data_summary_target_path). "
             "Pendo per-page and per-feature detail rows are intentionally omitted (see sites/top_pages). "
-            "After regenerating, merge or adjust ``terms`` manually or edit config/data_field_synonyms.json."
+            "After regenerating from this script, re-merge any custom hydrate phrases into ``terms`` if needed."
         ),
         "entries": build_entries(),
     }

@@ -1,4 +1,4 @@
-"""Tests for config/data_field_synonyms.json resolution."""
+"""Tests for hydrate phrase resolution (config/data_summary.json + target aliases)."""
 from pathlib import Path
 
 from src import data_field_synonyms as dfs
@@ -115,7 +115,7 @@ def test_apply_synonym_to_unmapped_replacement():
 
 
 def test_config_file_exists():
-    assert (Path(__file__).resolve().parents[1] / "config" / "data_field_synonyms.json").is_file()
+    assert (Path(__file__).resolve().parents[1] / "config" / "data_summary.json").is_file()
 
 
 def test_resolve_data_summary_target_path_synonym_phrase():
@@ -124,7 +124,7 @@ def test_resolve_data_summary_target_path_synonym_phrase():
     assert dfs.resolve_data_summary_target_path("Platform_value.Total_Savings") == "platform_value.total_savings"
 
 
-def test_resolve_data_summary_target_path_aliases_file():
+def test_resolve_data_summary_target_path_qbr_style_labels():
     dfs.invalidate_target_path_alias_cache()
     assert dfs.resolve_data_summary_target_path("Shortage Reduction") == "total_critical_shortages"
     assert dfs.resolve_data_summary_target_path("critical shortage reduction") == "total_critical_shortages"

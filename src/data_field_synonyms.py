@@ -1,12 +1,12 @@
 """Curated phrase → data_summary path mapping for hydrate synonym resolution.
 
 Template QBR (``qbr_template`` → ``adapt_custom_slides`` with explicit flag) uses
-``config/qbr_mappings.yaml`` via ``qbr_hydrate_mappings`` instead of the synonym
-phrase table for **slide text** — but ``qbr_mappings`` **target** strings still
-resolve through :func:`resolve_data_summary_target_path`, which merges
-``config/data_field_synonyms.json`` (``path`` + ``phrases``) with optional
-``config/data_summary_target_aliases.json`` (``path`` + ``terms``; later wins on
-key collision). Portfolio snapshot JSON caches on Drive are unrelated.
+``config/qbr_mappings.yaml`` via ``qbr_hydrate_mappings`` instead of scanning slide
+copy for **phrase** matches — but ``qbr_mappings`` **target** strings still resolve
+through :func:`resolve_data_summary_target_path`, which reads
+``config/data_summary.json`` (``entries[].path`` + ``entries[].terms`` or legacy
+``phrases``). Later catalog rows win on duplicate normalized phrases. Portfolio
+snapshot JSON caches on Drive are unrelated.
 """
 
 from __future__ import annotations
@@ -21,8 +21,7 @@ from typing import Any
 from . import matching_log
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_DEFAULT_CONFIG = _REPO_ROOT / "config" / "data_field_synonyms.json"
-_TARGET_PATH_ALIAS_FILE = _REPO_ROOT / "config" / "data_summary_target_aliases.json"
+_DEFAULT_CONFIG = _REPO_ROOT / "config" / "data_summary.json"
 
 _WS_RE = re.compile(r"\s+")
 
@@ -59,7 +58,7 @@ def _rows_from_synonyms_data(data: dict[str, Any]) -> list[tuple[int, str, str, 
         path_str = str(ent.get("path") or "").strip().replace(" ", "_").replace("-", "_").lower()
         if not path_str:
             continue
-        phrases = ent.get("phrases") or []
+        phrases = ent.get("phrases") or ent.get("terms") or []
         if isinstance(phrases, str):
             phrases = [phrases]
         canonical = ""
@@ -204,45 +203,26 @@ def _alias_map_from_synonym_like_entries(
     return out
 
 
-def _target_path_alias_signatures() -> tuple[str, str]:
+def _target_path_alias_signature() -> str:
     from .pendo_portfolio_snapshot_drive import local_data_field_synonyms_path
 
-    syn_p = local_data_field_synonyms_path()
+    p = local_data_field_synonyms_path()
     try:
-        syn_sig = str(syn_p.stat().st_mtime_ns)
+        return str(p.stat().st_mtime_ns)
     except OSError:
-        syn_sig = "0"
-    try:
-        alias_sig = str(_TARGET_PATH_ALIAS_FILE.stat().st_mtime_ns)
-    except OSError:
-        alias_sig = "0"
-    return syn_sig, alias_sig
+        return "0"
 
 
 def _build_target_path_alias_map() -> dict[str, str]:
     from .pendo_portfolio_snapshot_drive import load_data_field_synonyms_document
 
-    merged: dict[str, str] = {}
-    syn_data, _ = load_data_field_synonyms_document(allow_drive=True)
-    if isinstance(syn_data, dict):
-        merged.update(
-            _alias_map_from_synonym_like_entries(
-                syn_data.get("entries"),
-                min_phrase_len=4,
-            )
-        )
-    try:
-        raw_a = json.loads(_TARGET_PATH_ALIAS_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        raw_a = {}
-    if isinstance(raw_a, dict):
-        merged.update(
-            _alias_map_from_synonym_like_entries(
-                raw_a.get("entries"),
-                min_phrase_len=2,
-            )
-        )
-    return merged
+    catalog, _ = load_data_field_synonyms_document(allow_drive=True)
+    if not isinstance(catalog, dict):
+        return {}
+    return _alias_map_from_synonym_like_entries(
+        catalog.get("entries"),
+        min_phrase_len=4,
+    )
 
 
 def invalidate_target_path_alias_cache() -> None:
@@ -257,12 +237,10 @@ def resolve_data_summary_target_path(target: str) -> str:
     """Turn a ``qbr_mappings`` / human **target** string into a dotted ``data_summary`` path.
 
     Keys are normalized like :func:`data_summary_lookup` (spaces and hyphens → ``_``,
-    lowercased). Sources, in merge order (later overrides earlier):
-
-    * ``entries[].path`` + ``entries[].phrases`` from ``config/data_field_synonyms.json``
-      (phrases shorter than 4 characters are skipped).
-    * ``entries[].path`` + ``entries[].terms`` from ``config/data_summary_target_aliases.json``
-      if present (terms shorter than 2 characters are skipped).
+    lowercased). Built from ``entries[].path`` + ``entries[].terms`` (or legacy
+    ``phrases``) in ``config/data_summary.json``; strings shorter than 4 characters
+    are skipped. **Later** rows in ``entries`` win when two rows share the same
+    normalized phrase.
 
     If nothing matches, returns ``target`` stripped (existing direct-path behavior).
     """
@@ -270,7 +248,7 @@ def resolve_data_summary_target_path(target: str) -> str:
     if not t:
         return target or ""
     global _target_path_alias_map, _target_path_alias_ck
-    sig = _target_path_alias_signatures()
+    sig = _target_path_alias_signature()
     with _target_path_alias_lock:
         if _target_path_alias_map is None or _target_path_alias_ck != sig:
             _target_path_alias_map = _build_target_path_alias_map()
