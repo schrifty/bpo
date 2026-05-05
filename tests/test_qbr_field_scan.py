@@ -41,5 +41,6 @@ def test_parse_presentation_id():
 
 
 def test_db_path_from_argv():
+    assert q.db_path_from_argv(["decks", "--data"]) == q.DEFAULT_SCAN_DB
     assert q.db_path_from_argv(["decks", "--list-fields"]) == q.DEFAULT_SCAN_DB
     assert q.db_path_from_argv(["decks", "--list-fields", "--db", "/tmp/x.db"]) == "/tmp/x.db"

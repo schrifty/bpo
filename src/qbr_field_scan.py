@@ -10,7 +10,7 @@ apply slide replacements.
 Usage:
     decks --scan-fields [--db PATH] [--no-thumbnail] [--workers N] [--no-progress]
                           [-- <presentation-id-or-url> ...]
-    decks --list-fields [--db PATH]
+    decks --data [--db PATH]
     decks --clear-fields [--db PATH]
 """
 
@@ -354,7 +354,7 @@ def db_path_from_argv(argv: list[str], default: str = DEFAULT_SCAN_DB) -> str:
 
 
 def run_list_fields_cli(argv: list[str]) -> None:
-    """CLI entry: ``decks --list-fields [--db PATH]``."""
+    """CLI entry: ``decks --data [--db PATH]`` (alias: ``--list-fields``)."""
     list_scan_db(db_path_from_argv(argv))
 
 

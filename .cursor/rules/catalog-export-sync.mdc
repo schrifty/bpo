@@ -1,0 +1,10 @@
+---
+description: Check exports when comprehensive catalog changes
+alwaysApply: true
+---
+
+# Catalog/Export Sync Rule
+
+- If `config/comprehensive_data_element_list.json` is updated, verify whether export artifacts or export-generating logic must also be updated in the same change.
+- At minimum, check for impacts to `src/export_llm_context_snapshot.py` and any generated export outputs that depend on catalog fields.
+- Do not treat catalog-only changes as complete when downstream exports are stale or inconsistent.

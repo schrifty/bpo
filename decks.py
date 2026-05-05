@@ -55,8 +55,9 @@ Flag commands (utilities)
       cache (charts/interpretation) for hydrate. Progress bar on stderr (disable
       with --no-progress for logs/CI).
 
-  decks --list-fields [--db PATH]
+  decks --data [--db PATH]
       Print field_name / field_type rows from the scan DB.
+      (Alias: ``--list-fields``)
 
   decks --clear-fields [--db PATH]
       Delete all rows in the scan DB.
@@ -104,7 +105,6 @@ _CUSTOMER_SCOPED_DECK_BATCH_ORDER: tuple[str, ...] = (
     "executive_summary",
     "platform_value_summary",
     "product_adoption",
-    "qbr",
     "salesforce_comprehensive",
     "supply_chain_review",
     "support",
@@ -591,7 +591,7 @@ def _run_all_portfolio_decks() -> None:
 
 def main():
     # Quick utility flags that don't need LLM parsing
-    if "--list-fields" in sys.argv:
+    if "--data" in sys.argv or "--list-fields" in sys.argv:
         from src.qbr_field_scan import run_list_fields_cli
         run_list_fields_cli(sys.argv)
         return
