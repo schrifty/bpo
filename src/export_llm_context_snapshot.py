@@ -31,7 +31,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-_DATA_SUMMARY_PATH = _ROOT / "config" / "data_summary.json"
+_DATA_SUMMARY_PATH = _ROOT / "config" / "comprehensive_data_element_list.json"
 
 # HTTP surfaces wired in code (see ``src/data_sources/registry.SourceId`` docstring).
 _LEANDNA_DATA_API_HTTP_SURFACES: tuple[str, ...] = (
@@ -177,7 +177,7 @@ _REGISTRY_EXCLUDED_RATIONALE: dict[str, str] = {
 
 
 def _leandna_rows_from_data_summary(path: Path) -> list[dict[str, Any]]:
-    """Return catalog rows for LeanDNA (paths + short terms) from ``data_summary.json``."""
+    """Return catalog rows for LeanDNA (paths + short terms) from the comprehensive data element list."""
     if not path.is_file():
         return []
     try:
@@ -774,7 +774,7 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
             "",
             "## LeanDNA Data API — data elements (reference)",
             "",
-            "Structured list of **catalog paths** (from `config/data_summary.json` when present), **typical QBR "
+            "Structured list of **catalog paths** (from `config/comprehensive_data_element_list.json` when present), **typical QBR "
             "report paths**, and **HTTP surfaces** used by BPO. No live LeanDNA values are included here.",
             "",
             _json_compact(doc.get("leandna_data_api_reference") or {}),

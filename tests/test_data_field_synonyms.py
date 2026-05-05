@@ -1,4 +1,4 @@
-"""Tests for hydrate phrase resolution (config/data_summary.json + target aliases)."""
+"""Tests for hydrate phrase resolution (config/comprehensive_data_element_list.json + target aliases)."""
 from pathlib import Path
 
 from src import data_field_synonyms as dfs
@@ -115,7 +115,9 @@ def test_apply_synonym_to_unmapped_replacement():
 
 
 def test_config_file_exists():
-    assert (Path(__file__).resolve().parents[1] / "config" / "data_summary.json").is_file()
+    assert (
+        Path(__file__).resolve().parents[1] / "config" / "comprehensive_data_element_list.json"
+    ).is_file()
 
 
 def test_resolve_data_summary_target_path_synonym_phrase():

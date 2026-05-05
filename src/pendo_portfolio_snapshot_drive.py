@@ -20,7 +20,7 @@ Cache age policy is fixed in code: 7d fresh, 14d max weekday stale reuse, Drive 
 
 Also stores ``pendo_preload_v1_*.json`` slice caches and ``integration_*_v1_*.json`` (Jira/JSM support deck,
 Salesforce comprehensive) in the same folder.
-Hydrate phrase catalog lives in the repo at ``config/data_summary.json`` (``entries[].terms``; not in this Drive folder).
+Hydrate phrase catalog lives in the repo at ``config/comprehensive_data_element_list.json`` (``entries[].terms``; not in this Drive folder).
 If you previously used the folder name ``Portfolio cache``, rename it to ``Cache`` in Drive or set
 ``BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID`` to the old folder so existing files remain visible.
 """
@@ -263,12 +263,12 @@ def _read_drive_file_text_retrying(file_id: str, *, attempts: int = 6) -> str:
 
 
 def local_data_field_synonyms_path() -> Path:
-    """Repo path to the hydrate phrase catalog: ``config/data_summary.json``."""
-    return Path(__file__).resolve().parent.parent / "config" / "data_summary.json"
+    """Repo path to the hydrate phrase catalog: ``config/comprehensive_data_element_list.json``."""
+    return Path(__file__).resolve().parent.parent / "config" / "comprehensive_data_element_list.json"
 
 
 def load_data_field_synonyms_document(*, allow_drive: bool = True) -> tuple[dict[str, Any], str]:
-    """Load hydrate phrase catalog from ``config/data_summary.json`` (repo only).
+    """Load hydrate phrase catalog from ``config/comprehensive_data_element_list.json`` (repo only).
 
     *allow_drive* is retained for call-site compatibility; the catalog is not read from Drive.
 

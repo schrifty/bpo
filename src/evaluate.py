@@ -1171,7 +1171,7 @@ def _unmapped_placeholder_descriptions_for_notes(oai, entries: list[dict]) -> li
 
 _PLACEHOLDER_MARKERS = ("[000]", "[$000]", "[00/00/00]", "[00%]", "[???]")
 
-# QBR template agenda: "Title #1" … "Title #N" labels → section titles from decks/qbr.yaml (via report["_slide_plan"]).
+# QBR template agenda: "Title #1" … "Title #N" labels → section titles from report["_slide_plan"].
 _TITLE_HASH_PLACEHOLDER_RE = re.compile(r"\bTitle\s*#\s*(\d+)\b", re.I)
 
 

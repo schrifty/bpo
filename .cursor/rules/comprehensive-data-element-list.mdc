@@ -1,0 +1,12 @@
+---
+description: Keep comprehensive data element catalog exhaustive and current
+alwaysApply: true
+---
+
+# Comprehensive Data Element Catalog
+
+- The canonical catalog is `config/comprehensive_data_element_list.json`.
+- Treat it as exhaustive across all source payloads BPO can read, including nested objects/arrays and Salesforce comprehensive category fields.
+- When adding/changing payload structures (Pendo, Jira, CSR, LeanDNA, Salesforce, portfolio), update the catalog in the same change.
+- Do not collapse a source to top-level blobs when field-level paths exist and are used by hydrate/mapping.
+- If a generated or derived dictionary/doc is incomplete, fix the catalog first, then regenerate/update docs.

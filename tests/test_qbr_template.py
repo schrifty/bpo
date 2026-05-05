@@ -158,7 +158,6 @@ def test_run_qbr_from_template_smoke(
 @patch.object(qbr_template, "apply_qbr_template_style_strip_after_adapt")
 @patch.object(qbr_template, "find_qbr_agenda_page_id", return_value=None)
 @patch.object(qbr_template, "run_qbr_adapt_hints_phase")
-@patch.object(qbr_template, "resolve_deck", return_value={"slides": []})
 @patch.object(qbr_template, "apply_cohort_bundle_links_to_notable_signals", return_value=0)
 @patch.object(qbr_template, "create_cohort_deck")
 @patch.object(qbr_template, "create_health_deck")
@@ -180,7 +179,6 @@ def test_run_qbr_from_template_main_only_skips_companions(
     mock_create_health_deck,
     mock_create_cohort_deck,
     mock_cohort_links,
-    mock_resolve_deck,
     mock_hints,
     mock_find_agenda,
     mock_strip,

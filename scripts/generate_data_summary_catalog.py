@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Emit ``config/data_summary.json`` — registry of data elements BPO can surface.
+"""Emit ``config/comprehensive_data_element_list.json`` — registry of data elements BPO can surface.
 
 Paths are logical dotted paths on the **single-customer health report** from
 ``PendoClient.get_customer_health_report`` unless prefixed ``portfolio.``, ``teams_yaml.``, or
@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "config" / "data_summary.json"
+OUT = ROOT / "config" / "comprehensive_data_element_list.json"
 
 
 def _e(path: str, *terms: str) -> dict[str, Any]:
@@ -210,6 +210,85 @@ def build_entries() -> list[dict[str, Any]]:
             _e("salesforce.category_errors", "[SFDC comprehensive] per-category fetch errors"),
         ]
     )
+    # Matched Customer Entity account fields.
+    rows.extend(
+        [
+            _e("salesforce.accounts[].Id", "[SFDC] Account Id"),
+            _e("salesforce.accounts[].Name", "[SFDC] Account name"),
+            _e("salesforce.accounts[].LeanDNA_Entity_Name__c", "[SFDC] LeanDNA entity name"),
+            _e("salesforce.accounts[].US_Persons_Only_Customer__c", "[SFDC] compliance flag"),
+            _e("salesforce.accounts[].Contract_Status__c", "[SFDC] account contract status"),
+            _e("salesforce.accounts[].Contract_Contract_Start_Date__c", "[SFDC] contract start date"),
+            _e("salesforce.accounts[].Contract_Contract_End_Date__c", "[SFDC] contract end date"),
+            _e("salesforce.accounts[].ARR__c", "[SFDC] account ARR custom field"),
+            _e("salesforce.accounts[].ParentId", "[SFDC] parent account id"),
+            _e("salesforce.accounts[].parent_name", "[SFDC] normalized parent account name"),
+            _e("salesforce.accounts[].ultimate_parent_name", "[SFDC] normalized ultimate parent name"),
+        ]
+    )
+    # Comprehensive category labels + field-level rows from salesforce_client MAINSTREAM_OBJECT_FIELDS.
+    sf_category_fields: dict[str, tuple[str, ...]] = {
+        "contacts": (
+            "Id", "FirstName", "LastName", "Email", "Phone", "AccountId", "Title",
+            "MailingCity", "MailingState", "MailingCountry", "OwnerId", "CreatedDate",
+        ),
+        "opportunities": (
+            "Id", "Name", "AccountId", "StageName", "Amount", "Probability", "CloseDate",
+            "Type", "ForecastCategoryName", "OwnerId", "CreatedDate", "LastModifiedDate",
+        ),
+        "opportunity_line_items": (
+            "Id", "OpportunityId", "Product2Id", "Quantity", "UnitPrice", "TotalPrice", "ServiceDate",
+        ),
+        "cases": (
+            "Id", "CaseNumber", "Subject", "Status", "Priority", "Origin",
+            "AccountId", "ContactId", "OwnerId", "CreatedDate", "ClosedDate",
+        ),
+        "tasks": (
+            "Id", "Subject", "Status", "Priority", "ActivityDate", "WhoId", "WhatId",
+            "OwnerId", "IsClosed", "CreatedDate",
+        ),
+        "events": (
+            "Id", "Subject", "StartDateTime", "EndDateTime", "Location", "WhoId",
+            "WhatId", "OwnerId", "CreatedDate",
+        ),
+        "contracts": (
+            "Id", "ContractNumber", "AccountId", "Status", "StartDate", "EndDate",
+            "ContractTerm", "OwnerId", "CreatedDate",
+        ),
+        "orders": (
+            "Id", "OrderNumber", "AccountId", "EffectiveDate", "Status", "TotalAmount",
+            "Type", "OwnerId", "CreatedDate",
+        ),
+        "quotes": (
+            "Id", "QuoteNumber", "Name", "OpportunityId", "AccountId", "Status",
+            "ExpirationDate", "GrandTotal", "OwnerId", "CreatedDate",
+        ),
+        "assets": (
+            "Id", "Name", "AccountId", "SerialNumber", "Status", "Product2Id", "InstallDate", "OwnerId",
+        ),
+        "owners_sample": ("Id", "Name", "Username", "Email", "IsActive", "ProfileId", "UserType"),
+        "campaign_members": ("Id", "CampaignId", "LeadId", "ContactId", "Status", "CreatedDate"),
+        "campaigns_related": (
+            "Id", "Name", "Status", "Type", "StartDate", "EndDate", "BudgetedCost", "ActualCost", "OwnerId",
+        ),
+        "leads_name_match": (
+            "Id", "FirstName", "LastName", "Company", "Email", "Phone", "Status", "LeadSource",
+            "OwnerId", "CreatedDate", "LastModifiedDate", "IsConverted",
+        ),
+        "products_org_sample": (
+            "Id", "Name", "ProductCode", "Description", "IsActive", "Family", "CreatedDate",
+        ),
+        "pricebooks_org_sample": ("Id", "Name", "IsActive", "IsStandard", "Description"),
+    }
+    for category, cols in sf_category_fields.items():
+        rows.append(_e(f"salesforce.categories.{category}", "[SFDC comprehensive] category table"))
+        for col in cols:
+            rows.append(
+                _e(
+                    f"salesforce.categories.{category}[].{col}",
+                    "[SFDC comprehensive] category row field",
+                )
+            )
 
     # ── CS Report (CSR) — full nested metrics ───────────────────────────────
     rows.extend(
@@ -316,6 +395,7 @@ def build_entries() -> list[dict[str, Any]]:
             _e("platform_value.total_recs_created_30d", "[CSR→summary]"),
             _e("platform_value.total_pos_placed_30d", "[CSR→summary]"),
             _e("platform_value.total_overdue_tasks", "[CSR→summary]"),
+            _e("platform_value.total_savings", "[CSR→summary]"),
             _e("platform_value.factory_count", "[CSR→summary]"),
         ]
     )

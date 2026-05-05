@@ -82,7 +82,7 @@ Bucket columns (`bucket1…` / `day1…`), `criticalityLevel`, `daysInShortage`,
 
 ---
 
-## 5. `config/data_summary.json` paths
+## 5. `config/comprehensive_data_element_list.json` paths
 
 Logical paths for hydrate / LLM catalog (not all exist on `report` until integrated):
 

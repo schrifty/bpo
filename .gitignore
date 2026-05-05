@@ -12,7 +12,7 @@ build/
 .env
 *.json
 !.vscode/*.json
-!config/data_summary.json
+!config/comprehensive_data_element_list.json
 # Private key for Salesforce JWT — never commit
 server.key
 *.key
@@ -38,4 +38,4 @@ matching.log
 # Byte-compiled
 *.so
 src/pendo_client.py
-config/data_summary.json.bak
+config/comprehensive_data_element_list.json.bak

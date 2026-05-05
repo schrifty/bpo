@@ -1,6 +1,6 @@
 {
-  "version": 6,
-  "_comment": "Catalog paths with ``terms`` for hydrate phrase matching, qbr_mappings target resolution, and LLM context. Regenerate skeleton via scripts/generate_data_summary_catalog.py; edit ``terms`` here.",
+  "version": 7,
+  "_comment": "Comprehensive catalog of data elements BPO can access for hydrate and deck mapping. Use entries[].terms for phrase resolution; keep this list exhaustive across source payloads, including nested Salesforce comprehensive categories.",
   "entries": [
     {
       "path": "_drive_svc",
@@ -3108,7 +3108,8 @@
         "Platform Value Total Savings",
         "Savings to date",
         "Realized savings",
-        "IA savings"
+        "IA savings",
+        "[CSR→summary] total savings roll-up"
       ]
     },
     {
@@ -3374,6 +3375,1196 @@
         "Supply Chain Totals Past Due Req",
         "Past due requisitions",
         "Late PR value"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].Id",
+      "terms": [
+        "salesforce.accounts[].Id",
+        "[Salesforce] matched customer-entity account row field"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].Name",
+      "terms": [
+        "salesforce.accounts[].Name",
+        "[Salesforce] matched customer-entity account row field"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].LeanDNA_Entity_Name__c",
+      "terms": [
+        "salesforce.accounts[].LeanDNA_Entity_Name__c",
+        "[Salesforce] matched customer-entity account row field"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].US_Persons_Only_Customer__c",
+      "terms": [
+        "salesforce.accounts[].US_Persons_Only_Customer__c",
+        "[Salesforce] matched customer-entity account row field"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].Contract_Status__c",
+      "terms": [
+        "salesforce.accounts[].Contract_Status__c",
+        "[Salesforce] matched customer-entity account row field"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].Contract_Contract_Start_Date__c",
+      "terms": [
+        "salesforce.accounts[].Contract_Contract_Start_Date__c",
+        "[Salesforce] matched customer-entity account row field"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].Contract_Contract_End_Date__c",
+      "terms": [
+        "salesforce.accounts[].Contract_Contract_End_Date__c",
+        "[Salesforce] matched customer-entity account row field"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].ARR__c",
+      "terms": [
+        "salesforce.accounts[].ARR__c",
+        "[Salesforce] matched customer-entity account row field"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].ParentId",
+      "terms": [
+        "salesforce.accounts[].ParentId",
+        "[Salesforce] matched customer-entity account row field"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].parent_name",
+      "terms": [
+        "salesforce.accounts[].parent_name",
+        "[Salesforce] matched customer-entity account row field"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].ultimate_parent_name",
+      "terms": [
+        "salesforce.accounts[].ultimate_parent_name",
+        "[Salesforce] matched customer-entity account row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts",
+      "terms": [
+        "salesforce.categories.contacts",
+        "[Salesforce] comprehensive category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities",
+      "terms": [
+        "salesforce.categories.opportunities",
+        "[Salesforce] comprehensive category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunity_line_items",
+      "terms": [
+        "salesforce.categories.opportunity_line_items",
+        "[Salesforce] comprehensive category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases",
+      "terms": [
+        "salesforce.categories.cases",
+        "[Salesforce] comprehensive category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks",
+      "terms": [
+        "salesforce.categories.tasks",
+        "[Salesforce] comprehensive category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.events",
+      "terms": [
+        "salesforce.categories.events",
+        "[Salesforce] comprehensive category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contracts",
+      "terms": [
+        "salesforce.categories.contracts",
+        "[Salesforce] comprehensive category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.orders",
+      "terms": [
+        "salesforce.categories.orders",
+        "[Salesforce] comprehensive category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes",
+      "terms": [
+        "salesforce.categories.quotes",
+        "[Salesforce] comprehensive category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.assets",
+      "terms": [
+        "salesforce.categories.assets",
+        "[Salesforce] comprehensive category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.owners_sample",
+      "terms": [
+        "salesforce.categories.owners_sample",
+        "[Salesforce] comprehensive category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaign_members",
+      "terms": [
+        "salesforce.categories.campaign_members",
+        "[Salesforce] comprehensive category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaigns_related",
+      "terms": [
+        "salesforce.categories.campaigns_related",
+        "[Salesforce] comprehensive category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match",
+      "terms": [
+        "salesforce.categories.leads_name_match",
+        "[Salesforce] comprehensive category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.products_org_sample",
+      "terms": [
+        "salesforce.categories.products_org_sample",
+        "[Salesforce] comprehensive category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.pricebooks_org_sample",
+      "terms": [
+        "salesforce.categories.pricebooks_org_sample",
+        "[Salesforce] comprehensive category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].Id",
+      "terms": [
+        "salesforce.categories.contacts[].Id",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].FirstName",
+      "terms": [
+        "salesforce.categories.contacts[].FirstName",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].LastName",
+      "terms": [
+        "salesforce.categories.contacts[].LastName",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].Email",
+      "terms": [
+        "salesforce.categories.contacts[].Email",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].Phone",
+      "terms": [
+        "salesforce.categories.contacts[].Phone",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].AccountId",
+      "terms": [
+        "salesforce.categories.contacts[].AccountId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].Title",
+      "terms": [
+        "salesforce.categories.contacts[].Title",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].MailingCity",
+      "terms": [
+        "salesforce.categories.contacts[].MailingCity",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].MailingState",
+      "terms": [
+        "salesforce.categories.contacts[].MailingState",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].MailingCountry",
+      "terms": [
+        "salesforce.categories.contacts[].MailingCountry",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].OwnerId",
+      "terms": [
+        "salesforce.categories.contacts[].OwnerId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].CreatedDate",
+      "terms": [
+        "salesforce.categories.contacts[].CreatedDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].Id",
+      "terms": [
+        "salesforce.categories.opportunities[].Id",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].Name",
+      "terms": [
+        "salesforce.categories.opportunities[].Name",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].AccountId",
+      "terms": [
+        "salesforce.categories.opportunities[].AccountId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].StageName",
+      "terms": [
+        "salesforce.categories.opportunities[].StageName",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].Amount",
+      "terms": [
+        "salesforce.categories.opportunities[].Amount",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].Probability",
+      "terms": [
+        "salesforce.categories.opportunities[].Probability",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].CloseDate",
+      "terms": [
+        "salesforce.categories.opportunities[].CloseDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].Type",
+      "terms": [
+        "salesforce.categories.opportunities[].Type",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].ForecastCategoryName",
+      "terms": [
+        "salesforce.categories.opportunities[].ForecastCategoryName",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].OwnerId",
+      "terms": [
+        "salesforce.categories.opportunities[].OwnerId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].CreatedDate",
+      "terms": [
+        "salesforce.categories.opportunities[].CreatedDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].LastModifiedDate",
+      "terms": [
+        "salesforce.categories.opportunities[].LastModifiedDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunity_line_items[].Id",
+      "terms": [
+        "salesforce.categories.opportunity_line_items[].Id",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunity_line_items[].OpportunityId",
+      "terms": [
+        "salesforce.categories.opportunity_line_items[].OpportunityId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunity_line_items[].Product2Id",
+      "terms": [
+        "salesforce.categories.opportunity_line_items[].Product2Id",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunity_line_items[].Quantity",
+      "terms": [
+        "salesforce.categories.opportunity_line_items[].Quantity",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunity_line_items[].UnitPrice",
+      "terms": [
+        "salesforce.categories.opportunity_line_items[].UnitPrice",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunity_line_items[].TotalPrice",
+      "terms": [
+        "salesforce.categories.opportunity_line_items[].TotalPrice",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunity_line_items[].ServiceDate",
+      "terms": [
+        "salesforce.categories.opportunity_line_items[].ServiceDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].Id",
+      "terms": [
+        "salesforce.categories.cases[].Id",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].CaseNumber",
+      "terms": [
+        "salesforce.categories.cases[].CaseNumber",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].Subject",
+      "terms": [
+        "salesforce.categories.cases[].Subject",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].Status",
+      "terms": [
+        "salesforce.categories.cases[].Status",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].Priority",
+      "terms": [
+        "salesforce.categories.cases[].Priority",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].Origin",
+      "terms": [
+        "salesforce.categories.cases[].Origin",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].AccountId",
+      "terms": [
+        "salesforce.categories.cases[].AccountId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].ContactId",
+      "terms": [
+        "salesforce.categories.cases[].ContactId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].OwnerId",
+      "terms": [
+        "salesforce.categories.cases[].OwnerId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].CreatedDate",
+      "terms": [
+        "salesforce.categories.cases[].CreatedDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].ClosedDate",
+      "terms": [
+        "salesforce.categories.cases[].ClosedDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks[].Id",
+      "terms": [
+        "salesforce.categories.tasks[].Id",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks[].Subject",
+      "terms": [
+        "salesforce.categories.tasks[].Subject",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks[].Status",
+      "terms": [
+        "salesforce.categories.tasks[].Status",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks[].Priority",
+      "terms": [
+        "salesforce.categories.tasks[].Priority",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks[].ActivityDate",
+      "terms": [
+        "salesforce.categories.tasks[].ActivityDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks[].WhoId",
+      "terms": [
+        "salesforce.categories.tasks[].WhoId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks[].WhatId",
+      "terms": [
+        "salesforce.categories.tasks[].WhatId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks[].OwnerId",
+      "terms": [
+        "salesforce.categories.tasks[].OwnerId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks[].IsClosed",
+      "terms": [
+        "salesforce.categories.tasks[].IsClosed",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks[].CreatedDate",
+      "terms": [
+        "salesforce.categories.tasks[].CreatedDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.events[].Id",
+      "terms": [
+        "salesforce.categories.events[].Id",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.events[].Subject",
+      "terms": [
+        "salesforce.categories.events[].Subject",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.events[].StartDateTime",
+      "terms": [
+        "salesforce.categories.events[].StartDateTime",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.events[].EndDateTime",
+      "terms": [
+        "salesforce.categories.events[].EndDateTime",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.events[].Location",
+      "terms": [
+        "salesforce.categories.events[].Location",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.events[].WhoId",
+      "terms": [
+        "salesforce.categories.events[].WhoId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.events[].WhatId",
+      "terms": [
+        "salesforce.categories.events[].WhatId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.events[].OwnerId",
+      "terms": [
+        "salesforce.categories.events[].OwnerId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.events[].CreatedDate",
+      "terms": [
+        "salesforce.categories.events[].CreatedDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contracts[].Id",
+      "terms": [
+        "salesforce.categories.contracts[].Id",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contracts[].ContractNumber",
+      "terms": [
+        "salesforce.categories.contracts[].ContractNumber",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contracts[].AccountId",
+      "terms": [
+        "salesforce.categories.contracts[].AccountId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contracts[].Status",
+      "terms": [
+        "salesforce.categories.contracts[].Status",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contracts[].StartDate",
+      "terms": [
+        "salesforce.categories.contracts[].StartDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contracts[].EndDate",
+      "terms": [
+        "salesforce.categories.contracts[].EndDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contracts[].ContractTerm",
+      "terms": [
+        "salesforce.categories.contracts[].ContractTerm",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contracts[].OwnerId",
+      "terms": [
+        "salesforce.categories.contracts[].OwnerId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contracts[].CreatedDate",
+      "terms": [
+        "salesforce.categories.contracts[].CreatedDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.orders[].Id",
+      "terms": [
+        "salesforce.categories.orders[].Id",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.orders[].OrderNumber",
+      "terms": [
+        "salesforce.categories.orders[].OrderNumber",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.orders[].AccountId",
+      "terms": [
+        "salesforce.categories.orders[].AccountId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.orders[].EffectiveDate",
+      "terms": [
+        "salesforce.categories.orders[].EffectiveDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.orders[].Status",
+      "terms": [
+        "salesforce.categories.orders[].Status",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.orders[].TotalAmount",
+      "terms": [
+        "salesforce.categories.orders[].TotalAmount",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.orders[].Type",
+      "terms": [
+        "salesforce.categories.orders[].Type",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.orders[].OwnerId",
+      "terms": [
+        "salesforce.categories.orders[].OwnerId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.orders[].CreatedDate",
+      "terms": [
+        "salesforce.categories.orders[].CreatedDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes[].Id",
+      "terms": [
+        "salesforce.categories.quotes[].Id",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes[].QuoteNumber",
+      "terms": [
+        "salesforce.categories.quotes[].QuoteNumber",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes[].Name",
+      "terms": [
+        "salesforce.categories.quotes[].Name",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes[].OpportunityId",
+      "terms": [
+        "salesforce.categories.quotes[].OpportunityId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes[].AccountId",
+      "terms": [
+        "salesforce.categories.quotes[].AccountId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes[].Status",
+      "terms": [
+        "salesforce.categories.quotes[].Status",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes[].ExpirationDate",
+      "terms": [
+        "salesforce.categories.quotes[].ExpirationDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes[].GrandTotal",
+      "terms": [
+        "salesforce.categories.quotes[].GrandTotal",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes[].OwnerId",
+      "terms": [
+        "salesforce.categories.quotes[].OwnerId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes[].CreatedDate",
+      "terms": [
+        "salesforce.categories.quotes[].CreatedDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.assets[].Id",
+      "terms": [
+        "salesforce.categories.assets[].Id",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.assets[].Name",
+      "terms": [
+        "salesforce.categories.assets[].Name",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.assets[].AccountId",
+      "terms": [
+        "salesforce.categories.assets[].AccountId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.assets[].SerialNumber",
+      "terms": [
+        "salesforce.categories.assets[].SerialNumber",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.assets[].Status",
+      "terms": [
+        "salesforce.categories.assets[].Status",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.assets[].Product2Id",
+      "terms": [
+        "salesforce.categories.assets[].Product2Id",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.assets[].InstallDate",
+      "terms": [
+        "salesforce.categories.assets[].InstallDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.assets[].OwnerId",
+      "terms": [
+        "salesforce.categories.assets[].OwnerId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.owners_sample[].Id",
+      "terms": [
+        "salesforce.categories.owners_sample[].Id",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.owners_sample[].Name",
+      "terms": [
+        "salesforce.categories.owners_sample[].Name",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.owners_sample[].Username",
+      "terms": [
+        "salesforce.categories.owners_sample[].Username",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.owners_sample[].Email",
+      "terms": [
+        "salesforce.categories.owners_sample[].Email",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.owners_sample[].IsActive",
+      "terms": [
+        "salesforce.categories.owners_sample[].IsActive",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.owners_sample[].ProfileId",
+      "terms": [
+        "salesforce.categories.owners_sample[].ProfileId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.owners_sample[].UserType",
+      "terms": [
+        "salesforce.categories.owners_sample[].UserType",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaign_members[].Id",
+      "terms": [
+        "salesforce.categories.campaign_members[].Id",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaign_members[].CampaignId",
+      "terms": [
+        "salesforce.categories.campaign_members[].CampaignId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaign_members[].LeadId",
+      "terms": [
+        "salesforce.categories.campaign_members[].LeadId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaign_members[].ContactId",
+      "terms": [
+        "salesforce.categories.campaign_members[].ContactId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaign_members[].Status",
+      "terms": [
+        "salesforce.categories.campaign_members[].Status",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaign_members[].CreatedDate",
+      "terms": [
+        "salesforce.categories.campaign_members[].CreatedDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaigns_related[].Id",
+      "terms": [
+        "salesforce.categories.campaigns_related[].Id",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaigns_related[].Name",
+      "terms": [
+        "salesforce.categories.campaigns_related[].Name",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaigns_related[].Status",
+      "terms": [
+        "salesforce.categories.campaigns_related[].Status",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaigns_related[].Type",
+      "terms": [
+        "salesforce.categories.campaigns_related[].Type",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaigns_related[].StartDate",
+      "terms": [
+        "salesforce.categories.campaigns_related[].StartDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaigns_related[].EndDate",
+      "terms": [
+        "salesforce.categories.campaigns_related[].EndDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaigns_related[].BudgetedCost",
+      "terms": [
+        "salesforce.categories.campaigns_related[].BudgetedCost",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaigns_related[].ActualCost",
+      "terms": [
+        "salesforce.categories.campaigns_related[].ActualCost",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaigns_related[].OwnerId",
+      "terms": [
+        "salesforce.categories.campaigns_related[].OwnerId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].Id",
+      "terms": [
+        "salesforce.categories.leads_name_match[].Id",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].FirstName",
+      "terms": [
+        "salesforce.categories.leads_name_match[].FirstName",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].LastName",
+      "terms": [
+        "salesforce.categories.leads_name_match[].LastName",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].Company",
+      "terms": [
+        "salesforce.categories.leads_name_match[].Company",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].Email",
+      "terms": [
+        "salesforce.categories.leads_name_match[].Email",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].Phone",
+      "terms": [
+        "salesforce.categories.leads_name_match[].Phone",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].Status",
+      "terms": [
+        "salesforce.categories.leads_name_match[].Status",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].LeadSource",
+      "terms": [
+        "salesforce.categories.leads_name_match[].LeadSource",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].OwnerId",
+      "terms": [
+        "salesforce.categories.leads_name_match[].OwnerId",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].CreatedDate",
+      "terms": [
+        "salesforce.categories.leads_name_match[].CreatedDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].LastModifiedDate",
+      "terms": [
+        "salesforce.categories.leads_name_match[].LastModifiedDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].IsConverted",
+      "terms": [
+        "salesforce.categories.leads_name_match[].IsConverted",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.products_org_sample[].Id",
+      "terms": [
+        "salesforce.categories.products_org_sample[].Id",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.products_org_sample[].Name",
+      "terms": [
+        "salesforce.categories.products_org_sample[].Name",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.products_org_sample[].ProductCode",
+      "terms": [
+        "salesforce.categories.products_org_sample[].ProductCode",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.products_org_sample[].Description",
+      "terms": [
+        "salesforce.categories.products_org_sample[].Description",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.products_org_sample[].IsActive",
+      "terms": [
+        "salesforce.categories.products_org_sample[].IsActive",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.products_org_sample[].Family",
+      "terms": [
+        "salesforce.categories.products_org_sample[].Family",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.products_org_sample[].CreatedDate",
+      "terms": [
+        "salesforce.categories.products_org_sample[].CreatedDate",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.pricebooks_org_sample[].Id",
+      "terms": [
+        "salesforce.categories.pricebooks_org_sample[].Id",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.pricebooks_org_sample[].Name",
+      "terms": [
+        "salesforce.categories.pricebooks_org_sample[].Name",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.pricebooks_org_sample[].IsActive",
+      "terms": [
+        "salesforce.categories.pricebooks_org_sample[].IsActive",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.pricebooks_org_sample[].IsStandard",
+      "terms": [
+        "salesforce.categories.pricebooks_org_sample[].IsStandard",
+        "[Salesforce] comprehensive category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.pricebooks_org_sample[].Description",
+      "terms": [
+        "salesforce.categories.pricebooks_org_sample[].Description",
+        "[Salesforce] comprehensive category row field"
       ]
     }
   ]

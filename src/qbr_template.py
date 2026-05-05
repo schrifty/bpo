@@ -24,7 +24,6 @@ from .config import (
     logger,
     llm_client,
 )
-from .deck_loader import resolve_deck
 from .slide_loader import hydrate_hints_by_slide_id
 from .drive_config import (
     ADAPT_SYSTEM_PROMPT_FILENAME,
@@ -72,6 +71,21 @@ QBR_SLIDE_LIST_DOC_NAME = "qbr_slide_list"
 _MIME_PRESENTATION = "application/vnd.google-apps.presentation"
 _MIME_FOLDER = "application/vnd.google-apps.folder"
 _MIME_DOC = "application/vnd.google-apps.document"
+
+
+def _template_qbr_slide_plan_for_agenda() -> list[dict[str, str]]:
+    """Agenda section labels for template-based QBR runs.
+
+    Template hydration uses ``report["_slide_plan"]`` only to replace
+    ``Title #N`` slots on the QBR agenda slide. Keep this list in template order.
+    """
+    return [
+        {"slide_type": "qbr_divider", "title": "Current deployment coverage"},
+        {"slide_type": "qbr_divider", "title": "Usage & engagement"},
+        {"slide_type": "qbr_divider", "title": "Support & engineering"},
+        {"slide_type": "qbr_divider", "title": "Platform health & value"},
+        {"slide_type": "qbr_divider", "title": "Summary & next steps"},
+    ]
 
 
 def _slide_title_text(slide: dict) -> str:
@@ -658,15 +672,8 @@ def run_qbr_from_template(
         logger.warning("LeanDNA Lean Projects enrichment failed (non-fatal): %s", e)
     _qbr_time_segment("leandna_enrichments")
 
-    qbr_resolved = resolve_deck("qbr", customer)
-    if qbr_resolved.get("error"):
-        logger.warning(
-            "QBR: resolve_deck('qbr') failed — on-slide agenda titles will not hydrate: %s",
-            qbr_resolved.get("error"),
-        )
-        report["_slide_plan"] = []
-    else:
-        report["_slide_plan"] = qbr_resolved.get("slides") or []
+    # Template workflow does not depend on deck YAML files; keep agenda labels local.
+    report["_slide_plan"] = _template_qbr_slide_plan_for_agenda()
 
     report["_hydrate_slide_hints"] = hydrate_hints_by_slide_id()
     _qbr_time_segment("resolve_deck_and_hydrate_hints")

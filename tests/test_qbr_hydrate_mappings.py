@@ -75,7 +75,7 @@ def test_apply_explicit_bracket_exact_match(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_apply_explicit_resolves_human_target_via_alias_map(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``target`` can be a human label listed in data_summary.json ``terms``."""
+    """``target`` can be a human label listed in comprehensive_data_element_list ``terms``."""
     monkeypatch.setattr(
         "src.qbr_hydrate_mappings.load_qbr_mappings",
         lambda **_: {

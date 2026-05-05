@@ -4,9 +4,9 @@ Template QBR (``qbr_template`` → ``adapt_custom_slides`` with explicit flag) u
 ``config/qbr_mappings.yaml`` via ``qbr_hydrate_mappings`` instead of scanning slide
 copy for **phrase** matches — but ``qbr_mappings`` **target** strings still resolve
 through :func:`resolve_data_summary_target_path`, which reads
-``config/data_summary.json`` (``entries[].path`` + ``entries[].terms`` or legacy
-``phrases``). Later catalog rows win on duplicate normalized phrases. Portfolio
-snapshot JSON caches on Drive are unrelated.
+``config/comprehensive_data_element_list.json`` (``entries[].path`` + ``entries[].terms``
+or legacy ``phrases``). Later catalog rows win on duplicate normalized phrases.
+Portfolio snapshot JSON caches on Drive are unrelated.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from typing import Any
 from . import matching_log
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_DEFAULT_CONFIG = _REPO_ROOT / "config" / "data_summary.json"
+_DEFAULT_CONFIG = _REPO_ROOT / "config" / "comprehensive_data_element_list.json"
 
 _WS_RE = re.compile(r"\s+")
 
@@ -238,7 +238,8 @@ def resolve_data_summary_target_path(target: str) -> str:
 
     Keys are normalized like :func:`data_summary_lookup` (spaces and hyphens → ``_``,
     lowercased). Built from ``entries[].path`` + ``entries[].terms`` (or legacy
-    ``phrases``) in ``config/data_summary.json``; strings shorter than 4 characters
+    ``phrases``) in ``config/comprehensive_data_element_list.json``; strings shorter than
+    4 characters
     are skipped. **Later** rows in ``entries`` win when two rows share the same
     normalized phrase.
 
