@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """decks — build Google Slides decks (CS health, portfolio, Jira) and run tooling.
 
-Two ways to run:
-  • A flag command (below) — no natural-language parsing.
-  • A sentence — an LLM turns it into deck type, quarter, customers, etc. (needs API keys in .env).
+All deck generation uses explicit flags or subcommands (no natural-language / LLM parsing).
 
 ────────────────────────────────────────────────────────────────
 Flag commands (utilities)
@@ -16,7 +14,6 @@ Flag commands (utilities)
       customer-scoped vs portfolio / cross-customer decks.
 
   decks --hydrate [customer]
-  decks hydrate [customer]
       Hydrate slide content for presentations shared with the intake group (see .env:
       GOOGLE_HYDRATE_INTAKE_GROUP). Optional customer name overrides detection.
 
@@ -39,8 +36,7 @@ Flag commands (utilities)
 
   decks --customer "Customer Name" [--days N] [--quarter Q1 2026] [--thumbnails] [--workers N]
       Run every **customer-scoped** deck id (see ``decks --list``) for one account, in sequence.
-      Uses the same health-report path as ``decks <natural language>``; pauses briefly between
-      decks to reduce Drive rate limits.
+      Pauses briefly between decks to reduce Drive rate limits.
 
   decks --portfolio [--days N] [--max-customers M] [--quarter …] [--thumbnails] [--csm "Name"]
       Run every **portfolio** deck: portfolio_review, cohort_review, engineering-portfolio,
@@ -54,30 +50,37 @@ Flag commands (utilities)
       Build the all-customers LLM context markdown snapshot and upload it to today's
       dated Drive Output folder (same destination as programmatic deck outputs). ``--out`` / ``-o``
       also writes a local copy. Use ``--skip-drive`` for local-only.
-      §7 LLM churn/account-risk insights are always appended to the export markdown.
+      Section 7 LLM churn/account-risk insights are always appended to the export markdown.
 
   decks qbr <customer name> [--main-only]
       Quarterly Business Review from the Drive QBR template (same as ``python main.py qbr …``).
       Customer must match a Pendo customer substring. ``--main-only`` skips companion decks.
 
 ────────────────────────────────────────────────────────────────
-Generate decks (natural language — LLM parses the prompt)
+Generate one deck (explicit)
 ────────────────────────────────────────────────────────────────
-  decks health review for all customers
-  decks product adoption for Bombardier and JCI, Q4 2025
-  decks portfolio review, max 5 customers
-  decks health review for Bombardier, 60 day lookback, with thumbnails
+  decks run --deck <id> [options]
+      ``--deck`` must be an id from ``decks --list``. Typical options:
+      ``--customer NAME`` (repeatable), ``--all-customers``, ``--quarter``, ``--days``,
+      ``--max-customers``, ``--workers``, ``--thumbnails``. For ``csm_book_of_business`` use ``--csm``.
+      Portfolio follow-on deck runs only when using ``--all-customers`` or more than three
+      explicit ``--customer`` values (same rule as the old batch behavior).
 
-  These flows need Pendo (and related) data sources; a preflight runs first.
+  decks cohort [--days N] [--quarter …] [--max-customers M] [--thumbnails]
+      Manufacturing cohort review only.
 
-  Fixed phrases (no LLM — matched before parsing):
-      engineering portfolio | eng portfolio | engineering review | ...
-      support | support review | support deck | ...
-      support portfolio | support review portfolio  →  Support Review Portfolio (all customers)
-      csm book … --csm "<name>"  →  CSM Book of Business (Pendo ownername filter)
+  decks engineering-portfolio
+  decks implementations-review
+      Jira-backed org decks (same payloads as ``--portfolio`` batch).
 
-  Same Jira-backed decks can also be selected if the LLM returns deck_id
-  engineering-portfolio, support, or support_review_portfolio.
+  decks support [--customer NAME]
+      Support review deck (single customer or all).
+
+  decks support-portfolio [--days N]
+      All-customers support portfolio deck.
+
+  decks csm book --csm "<name>" [--days N] [--max-customers M] [--quarter …]
+      CSM book of business (Pendo ownername filter).
 """
 
 import json
@@ -159,45 +162,361 @@ def _run_data_catalog_cli() -> None:
     print(f"{len(rows)} row(s)  {catalog_path}")
 
 
-def _parse_prompt(prompt: str) -> dict:
-    """Use a lightweight LLM call to extract structured parameters from a prompt.
+def _run_cohort_review_cli(rest: list[str]) -> None:
+    """``decks cohort …`` — cohort review only."""
+    import argparse
 
-    Uses the same provider as the rest of the app (Gemini or OpenAI from .env).
-    """
-    from src.config import LLM_MODEL_FAST, llm_client
+    from src.data_source_health import check_all_required
+    from src.quarters import resolve_quarter
+    from src.slides_client import create_cohort_deck
+
+    ap = argparse.ArgumentParser(prog="decks cohort", description="Manufacturing cohort review deck.")
+    ap.add_argument("--days", type=int, default=None, help="Lookback days (default: quarter window)")
+    ap.add_argument("--max-customers", type=int, default=None, dest="max_customers")
+    ap.add_argument("--quarter", type=str, default=None, help='e.g. "Q1 2026", prev, current')
+    ap.add_argument("--thumbnails", action="store_true")
+    args = ap.parse_args(rest)
+
+    preflight_errors = check_all_required()
+    if preflight_errors:
+        print("Data source check failed — not running:")
+        for msg in preflight_errors:
+            print(f"  • {msg}")
+        sys.exit(1)
+
+    if args.days is not None:
+        qr = None
+        days = int(args.days)
+        period_label = f"{days} days"
+    else:
+        qr = resolve_quarter(args.quarter)
+        days = qr.days
+        period_label = f"{qr.label} ({qr.start.strftime('%-d %b')} – {qr.end.strftime('%-d %b %Y')}, {days}d)"
+
+    print("Deck:       cohort_review")
+    print(f"Period:     {period_label}")
+    print()
+    t0 = time.time()
+    result = create_cohort_deck(
+        days=days,
+        max_customers=args.max_customers,
+        quarter=qr,
+        thumbnails=args.thumbnails,
+    )
+    elapsed = time.time() - t0
+    print(f"\n{'=' * 60}")
+    print(f"Done in {elapsed:.0f}s")
+    print(f"{'=' * 60}")
+    if "error" in result:
+        print(f"  FAIL: {result['error'][:80]}")
+        sys.exit(1)
+    print(f"  OK   {result.get('url', '')}")
+
+
+def _run_deck_run_cli(rest: list[str]) -> None:
+    """``decks run --deck ID …`` — one deck with explicit parameters."""
+    import argparse
+
+    ap = argparse.ArgumentParser(
+        prog="decks run",
+        description="Generate a single deck by id (see decks --list). No natural-language parsing.",
+    )
+    ap.add_argument("--deck", required=True, metavar="ID", help="Deck id from decks --list")
+    ap.add_argument("--customer", action="append", dest="customers", metavar="NAME", help="Repeat for multiple accounts")
+    ap.add_argument("--all-customers", action="store_true", dest="all_customers", help="Use full Pendo customer list")
+    ap.add_argument("--quarter", type=str, default=None)
+    ap.add_argument("--days", type=int, default=None)
+    ap.add_argument("--max-customers", type=int, default=None, dest="max_customers")
+    ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--thumbnails", action="store_true")
+    ap.add_argument(
+        "--csm",
+        type=str,
+        default=None,
+        metavar="NAME",
+        help="Pendo CSM / ownername substring (required when --deck is csm_book_of_business)",
+    )
+    args = ap.parse_args(rest)
+
+    from src.data_source_health import check_all_required
     from src.deck_loader import list_decks
+    from src.pendo_client import PendoClient
+    from src.portfolio_exclude_prefixes import is_skipped_customer_prefix
+    from src.quarters import resolve_quarter
+    from src.slides_client import (
+        create_cohort_deck,
+        create_csm_book_of_business_deck,
+        create_health_deck,
+        create_health_decks_for_customers,
+        create_portfolio_deck,
+    )
 
     deck_ids = [d["id"] for d in list_decks()]
-    client = llm_client()
-    resp = client.chat.completions.create(
-        model=LLM_MODEL_FAST,
-        temperature=0,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": (
-                "Extract deck-generation parameters from the user's request. "
-                "Return a JSON object with exactly these keys:\n"
-                f"  deck_id   – one of {deck_ids}. Default \"cs_health_review\". "
-                "Use \"portfolio_review\" for cross-customer portfolio health requests. "
-                "Use \"cohort_review\" for manufacturing cohort comparison (cohorts.yaml). "
-                "Use \"implementations_review\" for Jira CUSTOMER / implementation escalations only (org-wide). "
-                "Use \"csm_book_of_business\" for a CSM-scoped portfolio (requires csm_owner).\n"
-                "  quarter   – e.g. \"Q1 2026\", \"prev\", \"current\", or null to auto-detect.\n"
-                "  days      – integer lookback override, or null.\n"
-                "  customers – list of customer name strings, or null for all.\n"
-                "  csm_owner – string substring to match Pendo CSM/ownername when deck_id is "
-                "csm_book_of_business; null otherwise.\n"
-                "  max       – integer cap on customers, or null.\n"
-                "  workers   – integer threads, default 4.\n"
-                "  thumbnails – boolean, default false.\n\n"
-                "Interpret naturally: 'last quarter' → \"prev\", "
-                "'this quarter' → \"current\", 'all customers' → customers null, "
-                "'top 10' → max 10, 'with thumbnails' → thumbnails true."
-            )},
-            {"role": "user", "content": prompt},
-        ],
+    deck_id = args.deck
+    if deck_id not in deck_ids:
+        ap.error(f"unknown deck id {deck_id!r} (run decks --list)")
+
+    if args.all_customers and args.customers:
+        ap.error("use either --all-customers or one or more --customer, not both")
+
+    no_customer_flags = (
+        "portfolio_review",
+        "cohort_review",
+        "engineering-portfolio",
+        "implementations_review",
+        "support_review_portfolio",
     )
-    return json.loads(resp.choices[0].message.content)
+    if deck_id in no_customer_flags:
+        if args.all_customers or args.customers:
+            ap.error(f"--deck {deck_id} does not take --customer or --all-customers")
+
+    if deck_id == "csm_book_of_business":
+        csm_owner = (args.csm or "").strip()
+        if not csm_owner:
+            ap.error("--csm is required when --deck is csm_book_of_business")
+
+    preflight_errors = check_all_required()
+    if preflight_errors:
+        print("Data source check failed — not running:")
+        for msg in preflight_errors:
+            print(f"  • {msg}")
+        sys.exit(1)
+
+    days_override = args.days
+    max_cust = args.max_customers
+    workers = args.workers or 4
+    thumbnails = args.thumbnails
+
+    if days_override is not None:
+        qr = None
+        days = int(days_override)
+        period_label = f"{days} days"
+    else:
+        qr = resolve_quarter(args.quarter)
+        days = qr.days
+        period_label = f"{qr.label} ({qr.start.strftime('%b %-d')} – {qr.end.strftime('%b %-d, %Y')}, {days}d)"
+
+    if deck_id == "portfolio_review":
+        print(f"Deck:       {deck_id}")
+        print(f"Period:     {period_label}")
+        if max_cust:
+            print(f"Max cust:   {max_cust}")
+        print()
+        t0 = time.time()
+        result = create_portfolio_deck(days=days, max_customers=max_cust, quarter=qr)
+        elapsed = time.time() - t0
+        print(f"\n{'=' * 60}")
+        print(f"Done in {elapsed:.0f}s")
+        print(f"{'=' * 60}")
+        if "error" in result:
+            print(f"  FAIL: {result['error'][:80]}")
+            sys.exit(1)
+        print(f"  OK   {result.get('url', '')}")
+        return
+
+    if deck_id == "cohort_review":
+        print(f"Deck:       {deck_id}")
+        print(f"Period:     {period_label}")
+        if max_cust:
+            print(f"Max cust:   {max_cust}")
+        print()
+        t0 = time.time()
+        result = create_cohort_deck(
+            days=days,
+            max_customers=max_cust,
+            quarter=qr,
+            thumbnails=thumbnails,
+        )
+        elapsed = time.time() - t0
+        print(f"\n{'=' * 60}")
+        print(f"Done in {elapsed:.0f}s")
+        print(f"{'=' * 60}")
+        if "error" in result:
+            print(f"  FAIL: {result['error'][:80]}")
+            sys.exit(1)
+        print(f"  OK   {result.get('url', '')}")
+        return
+
+    if deck_id in ("engineering-portfolio", "implementations_review"):
+        _run_jira_backed_deck(deck_id, deck_id.replace("-", " ").title())
+        return
+
+    if deck_id == "support_review_portfolio":
+        days_sp = int(args.days) if args.days is not None else 365
+        print("Deck:       support_review_portfolio")
+        print(f"Period:     Jira lookback {days_sp}d")
+        t0 = time.time()
+        report = {"type": "support_review", "customer": None, "days": days_sp}
+        result = create_health_deck(report, deck_id="support_review_portfolio", thumbnails=thumbnails)
+        elapsed = time.time() - t0
+        print(f"\n{'=' * 60}")
+        print(f"Done in {elapsed:.0f}s")
+        print(f"{'=' * 60}")
+        if "error" in result:
+            print(f"  FAIL: {result['error'][:120]}")
+            sys.exit(1)
+        print(f"  OK   {result.get('url', '')}")
+        return
+
+    if deck_id == "csm_book_of_business":
+        csm_owner = (args.csm or "").strip()
+        print(f"Deck:       {deck_id}")
+        print(f"CSM filter: {csm_owner}")
+        print(f"Period:     {period_label}")
+        if max_cust:
+            print(f"Max cust:   {max_cust}")
+        print()
+        t0 = time.time()
+        result = create_csm_book_of_business_deck(
+            csm_owner=csm_owner,
+            days=days,
+            max_customers=max_cust,
+            quarter=qr,
+            thumbnails=thumbnails,
+        )
+        elapsed = time.time() - t0
+        print(f"\n{'=' * 60}")
+        print(f"Done in {elapsed:.0f}s")
+        print(f"{'=' * 60}")
+        if "error" in result:
+            print(f"  FAIL: {result['error'][:200]}")
+            sys.exit(1)
+        print(f"  OK   {result.get('url', '')}")
+        return
+
+    if deck_id == "support":
+        cust = None
+        if args.customers:
+            if len(args.customers) != 1:
+                ap.error("--deck support accepts at most one --customer")
+            cust = args.customers[0].strip() or None
+        if args.all_customers:
+            ap.error("--deck support does not support --all-customers (omit --customer for all)")
+        print(f"Deck:       support")
+        if cust:
+            print(f"Customer:   {cust}")
+        else:
+            print("Customer:   (all)")
+        t0 = time.time()
+        report = {"type": "support_review", "customer": cust, "days": 365}
+        result = create_health_deck(report, deck_id="support", thumbnails=thumbnails)
+        elapsed = time.time() - t0
+        print(f"\n{'=' * 60}")
+        print(f"Done in {elapsed:.0f}s")
+        print(f"{'=' * 60}")
+        if "error" in result:
+            print(f"  FAIL: {result['error'][:120]}")
+            sys.exit(1)
+        print(f"  OK   {result.get('url', '')}")
+        return
+
+    explicit_customers: list[str] | None = None
+    if args.customers:
+        explicit_customers = [str(c).strip() for c in args.customers if str(c).strip()]
+        if not explicit_customers:
+            explicit_customers = None
+
+    if args.all_customers:
+        explicit_customers = None
+
+    skip_portfolio_follow_on = explicit_customers is not None and len(explicit_customers) <= 3
+
+    if explicit_customers is None:
+        print("Fetching customer list from Pendo...")
+        customers = PendoClient().get_sites_by_customer(days)["customer_list"]
+        customers = [c for c in customers if not is_skipped_customer_prefix(c)]
+    else:
+        customers = list(explicit_customers)
+
+    if max_cust:
+        customers = customers[: int(max_cust)]
+
+    print(f"Deck:       {deck_id}")
+    print(f"Customers:  {len(customers)}")
+    print(f"Period:     {period_label}")
+    print(f"Workers:    {workers}")
+    print()
+
+    t0 = time.time()
+    results = create_health_decks_for_customers(
+        customers,
+        days=days,
+        max_customers=max_cust,
+        deck_id=deck_id,
+        workers=int(workers),
+        thumbnails=thumbnails,
+        quarter=qr,
+    )
+    elapsed = time.time() - t0
+
+    ok = [r for r in results if "error" not in r]
+    fail = [r for r in results if "error" in r]
+
+    print(f"\n{'=' * 60}")
+    print(f"Done in {elapsed:.0f}s  |  {len(ok)} succeeded  |  {len(fail)} failed")
+    print(f"{'=' * 60}")
+    for r in ok:
+        print(f"  OK   {r.get('customer', '?'):30s} {r.get('url', '')}")
+    for r in fail:
+        err = r.get("error", "")
+        customer = r.get("customer", "?")
+        print(f"  FAIL {customer:30s} {err[:120]}")
+
+    if fail:
+        failed_names = [r.get("customer", "?") for r in fail]
+        parts = ["decks", "run", "--deck", deck_id]
+        for n in failed_names:
+            parts.extend(["--customer", str(n)])
+        if qr:
+            parts.extend(["--quarter", qr.label])
+        else:
+            parts.extend(["--days", str(days)])
+        retry_cmd = " ".join(parts)
+        print(f"\nTo retry failed customers:\n  {retry_cmd}")
+
+    if skip_portfolio_follow_on:
+        sys.exit(1 if fail else 0)
+
+    print(f"\nGenerating Portfolio Health deck (pausing 10s for rate limit cooldown)...")
+    time.sleep(10)
+    t1 = time.time()
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            from src.deck_variants import enrich_portfolio_report_with_revenue_book
+
+            client = PendoClient()
+            portfolio_report = client.get_portfolio_report(days=days, max_customers=max_cust)
+            if qr:
+                portfolio_report["quarter"] = qr.label
+                portfolio_report["quarter_start"] = qr.start.isoformat()
+                portfolio_report["quarter_end"] = qr.end.isoformat()
+            enrich_portfolio_report_with_revenue_book(portfolio_report)
+            portfolio_result = create_health_deck(portfolio_report, deck_id="portfolio_review", thumbnails=thumbnails)
+            p_elapsed = time.time() - t1
+            if "error" in portfolio_result and "rate" in portfolio_result["error"].lower():
+                if attempt < max_retries:
+                    wait = 15 * attempt
+                    print(f"  Rate limited, retrying in {wait}s (attempt {attempt}/{max_retries})...")
+                    time.sleep(wait)
+                    continue
+            if "error" in portfolio_result:
+                print(f"  FAIL  {portfolio_result['error'][:120]}  ({p_elapsed:.0f}s)")
+            else:
+                print(f"  OK    {portfolio_result.get('url', '')}  ({p_elapsed:.0f}s)")
+            break
+        except Exception as e:
+            p_elapsed = time.time() - t1
+            err = str(e)
+            if "rate" in err.lower() and attempt < max_retries:
+                wait = 15 * attempt
+                print(f"  Rate limited, retrying in {wait}s (attempt {attempt}/{max_retries})...")
+                time.sleep(wait)
+            else:
+                print(f"  FAIL  {err[:120]}  ({p_elapsed:.0f}s)")
+                break
+
+    sys.exit(1 if fail else 0)
 
 
 def _run_jira_backed_deck(deck_id: str, label: str) -> None:
@@ -242,25 +561,21 @@ def _run_implementations_review_deck() -> None:
     _run_jira_backed_deck("implementations_review", "Implementations review")
 
 
-def _run_support_deck() -> None:
-    """Single support-focused deck from Jira — no LLM prompt parsing required."""
+def _run_support_deck(rest: list[str]) -> None:
+    """``decks support …`` — single support-focused deck from Jira."""
     import argparse
+
     from src.data_source_health import check_all_required
     from src.slides_client import create_health_deck
 
-    parser = argparse.ArgumentParser(description="Generate support review deck")
+    parser = argparse.ArgumentParser(prog="decks support", description="Generate support review deck")
     parser.add_argument(
         "--customer",
         type=str,
         default=None,
         help="Customer name to filter tickets (default: all customers across HELP/CUSTOMER/LEAN)",
     )
-    
-    # Parse only the args after 'support'
-    import sys
-    support_idx = sys.argv.index("support") if "support" in sys.argv else -1
-    args_to_parse = sys.argv[support_idx + 1:] if support_idx >= 0 else []
-    args = parser.parse_args(args_to_parse)
+    args = parser.parse_args(rest)
 
     preflight_errors = check_all_required()
     if preflight_errors:
@@ -358,28 +673,24 @@ def _run_csm_book_deck() -> None:
     print(f"  OK   {result.get('url', '')}")
 
 
-def _run_support_review_portfolio_deck() -> None:
-    """All-customers support deck under id ``support_review_portfolio`` (explicit portfolio title)."""
+def _run_support_review_portfolio_deck(rest: list[str]) -> None:
+    """``decks support-portfolio …`` — all-customers support deck."""
     import argparse
-    import sys
+
     from src.data_source_health import check_all_required
     from src.slides_client import create_health_deck
 
-    parser = argparse.ArgumentParser(description="Generate Support Review Portfolio (all customers)")
+    parser = argparse.ArgumentParser(
+        prog="decks support-portfolio",
+        description="Generate Support Review Portfolio (all customers)",
+    )
     parser.add_argument(
         "--days",
         type=int,
         default=None,
         help="Jira lookback days (default: 365, same as support CLI)",
     )
-    anchor_idx = -1
-    for token in ("support_review_portfolio", "support-review-portfolio", "support-portfolio"):
-        if token in sys.argv:
-            anchor_idx = max(anchor_idx, sys.argv.index(token))
-    if anchor_idx < 0 and "portfolio" in sys.argv and "support" in sys.argv:
-        anchor_idx = max(sys.argv.index("support"), sys.argv.index("portfolio"))
-    args_to_parse = sys.argv[anchor_idx + 1:] if anchor_idx >= 0 else []
-    args = parser.parse_args(args_to_parse)
+    args = parser.parse_args(rest)
 
     preflight_errors = check_all_required()
     if preflight_errors:
@@ -638,7 +949,7 @@ def _run_all_portfolio_decks() -> None:
 
 
 def main():
-    # Quick utility flags that don't need LLM parsing
+    # Utility flags and explicit subcommands (``run``, ``qbr``, ``cohort``, …)
     if "--data" in sys.argv:
         _run_data_catalog_cli()
         return
@@ -764,7 +1075,8 @@ def main():
         print(f"       customers in snapshot: {result.get('customer_count')}")
         return
 
-    if "--help" in sys.argv or "-h" in sys.argv:
+    # Top-level help only when the first argument is -h/--help (not ``decks run --help``).
+    if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help"):
         print(__doc__.strip())
         return
 
@@ -775,61 +1087,28 @@ def main():
         _run_all_portfolio_decks()
         return
 
-    prompt = " ".join(a for a in sys.argv[1:] if not a.startswith("-")).strip()
-    if not prompt:
+    if len(sys.argv) <= 1:
         print(__doc__.strip())
         sys.exit(1)
 
-    # Bare "help" looks like NL but skips --help handling → would call the LLM and often hang / hit Drive first.
-    pl0 = prompt.lower().strip()
-    if pl0 in ("help", "usage", "?"):
-        print(
-            "error: unrecognized command (use `--help`). Run: decks --help   or: decks -h",
-            file=sys.stderr,
-        )
-        sys.exit(2)
-
-    # "decks hydrate" or "decks hydrate Bombardier" / "decks hydrate for Safran" → group intake
-    # Hydrate only needs Drive access — no Pendo/SF/CSR preflight required
-    if prompt.lower() == "hydrate" or prompt.lower().startswith("hydrate "):
-        from src.evaluate import hydrate_new_slides
-        rest = prompt[7:].strip()  # after "hydrate"
-        if rest.lower().startswith("for "):
-            rest = rest[4:].strip()
-        override = rest if rest else None
-        hydrate_new_slides(customer_override=override)
+    sub = sys.argv[1]
+    if sub == "run":
+        _run_deck_run_cli(sys.argv[2:])
         return
-
-    # Engineering portfolio — run before _parse_prompt so LLM is not required for this phrase
-    _ep_triggers = ("engineering portfolio", "eng portfolio", "engineering review",
-                    "generate the engineering", "generate engineering")
-    _impl_triggers = (
-        "implementations review",
-        "implementation review",
-        "implementations deck",
-        "implementation deck",
-        "customer implementation escalations",
-    )
-    _support_portfolio_triggers = (
-        "support review portfolio",
-        "support portfolio",
-        "support-review-portfolio",
-        "support_review_portfolio",
-    )
-    _support_triggers = ("support review", "support deck", "generate support")
-    pl = prompt.lower()
-    if any(t in pl for t in _ep_triggers):
+    if sub == "cohort":
+        _run_cohort_review_cli(sys.argv[2:])
+        return
+    if sub == "engineering-portfolio":
         _run_engineering_portfolio_deck()
         return
-    if any(t in pl for t in _impl_triggers):
+    if sub == "implementations-review":
         _run_implementations_review_deck()
         return
-    if any(t in pl for t in _support_portfolio_triggers):
-        _run_support_review_portfolio_deck()
+    if sub == "support":
+        _run_support_deck(sys.argv[2:])
         return
-    # "support" alone, or "support <customer>..." (non-flag args only), or phrases like "support review"
-    if pl.strip() == "support" or pl.startswith("support ") or any(t in pl for t in _support_triggers):
-        _run_support_deck()
+    if sub in ("support-portfolio", "support_review_portfolio", "support-review-portfolio"):
+        _run_support_review_portfolio_deck(sys.argv[2:])
         return
 
     from src.deck_variants import csm_book_cli_argv_anchor
@@ -838,275 +1117,8 @@ def main():
         _run_csm_book_deck()
         return
 
-    _cohort_exact = (
-        "cohort review", "cohorts review", "cohort deck", "cohorts deck",
-        "manufacturing cohort", "manufacturing cohorts",
-    )
-    if pl.strip() in _cohort_exact:
-        from src.data_source_health import check_all_required
-        from src.quarters import resolve_quarter
-        from src.slides_client import create_cohort_deck
-
-        preflight_errors = check_all_required()
-        if preflight_errors:
-            print("Data source check failed — not running:")
-            for msg in preflight_errors:
-                print(f"  • {msg}")
-            sys.exit(1)
-        qr = resolve_quarter(None)
-        print("Deck:       cohort_review")
-        print(f"Period:     {qr.label} ({qr.start.strftime('%-d %b')} – {qr.end.strftime('%-d %b %Y')}, {qr.days}d)")
-        print()
-        t0 = time.time()
-        result = create_cohort_deck(days=qr.days, quarter=qr, thumbnails=False)
-        elapsed = time.time() - t0
-        print(f"\n{'=' * 60}")
-        print(f"Done in {elapsed:.0f}s")
-        print(f"{'=' * 60}")
-        if "error" in result:
-            print(f"  FAIL: {result['error'][:80]}")
-            sys.exit(1)
-        print(f"  OK   {result.get('url', '')}")
-        return
-
-    params = _parse_prompt(prompt)
-    deck_id = params.get("deck_id", "cs_health_review")
-
-    if deck_id == "engineering-portfolio":
-        _run_engineering_portfolio_deck()
-        return
-    if deck_id == "implementations_review":
-        _run_implementations_review_deck()
-        return
-    if deck_id == "support":
-        _run_support_deck()
-        return
-    if deck_id == "support_review_portfolio":
-        _run_support_review_portfolio_deck()
-        return
-    if deck_id == "csm_book_of_business":
-        _cust_ll = params.get("customers")
-        csm_owner = (params.get("csm_owner") or "").strip()
-        if not csm_owner and isinstance(_cust_ll, list) and len(_cust_ll) == 1:
-            csm_owner = str(_cust_ll[0]).strip()
-        if not csm_owner:
-            print("csm_book_of_business requires csm_owner (Pendo CSM substring), e.g.:")
-            print('  decks csm book --csm "Josh"')
-            print('  decks "book of business for Josh Fox"  # LLM must set csm_owner')
-            sys.exit(1)
-        from src.data_source_health import check_all_required
-        from src.quarters import resolve_quarter
-        from src.slides_client import create_csm_book_of_business_deck
-
-        preflight_errors = check_all_required()
-        if preflight_errors:
-            print("Data source check failed — not running:")
-            for msg in preflight_errors:
-                print(f"  • {msg}")
-            sys.exit(1)
-        days_override = params.get("days")
-        max_cust = params.get("max")
-        thumbnails = params.get("thumbnails", False)
-        if days_override:
-            qr = None
-            days = int(days_override)
-            period_label = f"{days} days"
-        else:
-            qr = resolve_quarter(params.get("quarter"))
-            days = qr.days
-            period_label = f"{qr.label} ({qr.start.strftime('%b %-d')} – {qr.end.strftime('%b %-d, %Y')}, {days}d)"
-        print(f"Deck:       {deck_id}")
-        print(f"CSM filter: {csm_owner}")
-        print(f"Period:     {period_label}")
-        print()
-        t0 = time.time()
-        result = create_csm_book_of_business_deck(
-            csm_owner=csm_owner,
-            days=days,
-            max_customers=max_cust,
-            quarter=qr,
-            thumbnails=thumbnails,
-        )
-        elapsed = time.time() - t0
-        print(f"\n{'=' * 60}")
-        print(f"Done in {elapsed:.0f}s")
-        print(f"{'=' * 60}")
-        if "error" in result:
-            print(f"  FAIL: {result['error'][:200]}")
-            sys.exit(1)
-        print(f"  OK   {result.get('url', '')}")
-        return
-
-    days_override = params.get("days")
-    customers_list = params.get("customers")
-    max_cust = params.get("max")
-    workers = params.get("workers", 4) or 4
-    thumbnails = params.get("thumbnails", False)
-
-    from src.quarters import resolve_quarter
-
-    if days_override:
-        qr = None
-        days = int(days_override)
-        period_label = f"{days} days"
-    else:
-        qr = resolve_quarter(params.get("quarter"))
-        days = qr.days
-        period_label = f"{qr.label} ({qr.start.strftime('%b %-d')} – {qr.end.strftime('%b %-d, %Y')}, {days}d)"
-
-    from src.deck_loader import list_decks
-    from src.pendo_client import PendoClient
-    from src.slides_client import (
-        create_cohort_deck,
-        create_health_decks_for_customers,
-        create_portfolio_deck,
-    )
-    from src.data_source_health import check_all_required
-
-    preflight_errors = check_all_required()
-    if preflight_errors:
-        print("Data source check failed — not running:")
-        for msg in preflight_errors:
-            print(f"  • {msg}")
-        sys.exit(1)
-
-    # Portfolio deck generates a single cross-customer deck
-    if deck_id == "portfolio_review":
-        print(f"Deck:       {deck_id}")
-        print(f"Period:     {period_label}")
-        if max_cust:
-            print(f"Max cust:   {max_cust}")
-        print()
-        t0 = time.time()
-        result = create_portfolio_deck(days=days, max_customers=max_cust, quarter=qr)
-        elapsed = time.time() - t0
-        print(f"\n{'=' * 60}")
-        print(f"Done in {elapsed:.0f}s")
-        print(f"{'=' * 60}")
-        if "error" in result:
-            print(f"  FAIL: {result['error'][:80]}")
-            sys.exit(1)
-        else:
-            print(f"  OK   {result.get('url', '')}")
-        return
-
-    if deck_id == "cohort_review":
-        print(f"Deck:       {deck_id}")
-        print(f"Period:     {period_label}")
-        if max_cust:
-            print(f"Max cust:   {max_cust}")
-        print()
-        t0 = time.time()
-        result = create_cohort_deck(
-            days=days,
-            max_customers=max_cust,
-            quarter=qr,
-            thumbnails=thumbnails,
-        )
-        elapsed = time.time() - t0
-        print(f"\n{'=' * 60}")
-        print(f"Done in {elapsed:.0f}s")
-        print(f"{'=' * 60}")
-        if "error" in result:
-            print(f"  FAIL: {result['error'][:80]}")
-            sys.exit(1)
-        print(f"  OK   {result.get('url', '')}")
-        return
-
-    from src.portfolio_exclude_prefixes import is_skipped_customer_prefix
-
-    if customers_list:
-        customers = customers_list
-    else:
-        print("Fetching customer list from Pendo...")
-        customers = PendoClient().get_sites_by_customer(days)["customer_list"]
-        customers = [c for c in customers if not is_skipped_customer_prefix(c)]
-
-    if max_cust:
-        customers = customers[: int(max_cust)]
-
-    print(f"Deck:       {deck_id}")
-    print(f"Customers:  {len(customers)}")
-    print(f"Period:     {period_label}")
-    print(f"Workers:    {workers}")
-    print()
-
-    t0 = time.time()
-    results = create_health_decks_for_customers(
-        customers, days=days, max_customers=max_cust,
-        deck_id=deck_id, workers=workers,
-        thumbnails=thumbnails,
-        quarter=qr,
-    )
-    elapsed = time.time() - t0
-
-    ok = [r for r in results if "error" not in r]
-    fail = [r for r in results if "error" in r]
-
-    print(f"\n{'=' * 60}")
-    print(f"Done in {elapsed:.0f}s  |  {len(ok)} succeeded  |  {len(fail)} failed")
-    print(f"{'=' * 60}")
-    for r in ok:
-        print(f"  OK   {r.get('customer', '?'):30s} {r.get('url', '')}")
-    for r in fail:
-        err = r.get("error", "")
-        customer = r.get("customer", "?")
-        print(f"  FAIL {customer:30s} {err[:120]}")
-
-    if fail:
-        failed_names = [r.get("customer", "?") for r in fail]
-        q_flag = f"--quarter {qr.label}" if qr else f"--days {days}"
-        retry_names = " and ".join(failed_names)
-        retry_cmd = f'decks {deck_id} for {retry_names}, {q_flag.lstrip("--")}'
-        print(f"\nTo retry failed customers:\n  {retry_cmd}")
-
-    # Only generate portfolio deck when running for multiple customers (not a targeted run)
-    if customers_list and len(customers_list) <= 3:
-        sys.exit(1 if fail else 0)
-
-    # Generate a portfolio health deck after per-customer decks
-    # Brief cooldown to avoid Drive rate limits after chart/deck creation
-    print(f"\nGenerating Portfolio Health deck (pausing 10s for rate limit cooldown)...")
-    time.sleep(10)
-    t1 = time.time()
-    max_retries = 3
-    for attempt in range(1, max_retries + 1):
-        try:
-            from src.deck_variants import enrich_portfolio_report_with_revenue_book
-            from src.slides_client import create_health_deck
-
-            client = PendoClient()
-            portfolio_report = client.get_portfolio_report(days=days, max_customers=max_cust)
-            if qr:
-                portfolio_report["quarter"] = qr.label
-                portfolio_report["quarter_start"] = qr.start.isoformat()
-                portfolio_report["quarter_end"] = qr.end.isoformat()
-            enrich_portfolio_report_with_revenue_book(portfolio_report)
-            portfolio_result = create_health_deck(portfolio_report, deck_id="portfolio_review", thumbnails=thumbnails)
-            p_elapsed = time.time() - t1
-            if "error" in portfolio_result and "rate" in portfolio_result["error"].lower():
-                if attempt < max_retries:
-                    wait = 15 * attempt
-                    print(f"  Rate limited, retrying in {wait}s (attempt {attempt}/{max_retries})...")
-                    time.sleep(wait)
-                    continue
-            if "error" in portfolio_result:
-                print(f"  FAIL  {portfolio_result['error'][:120]}  ({p_elapsed:.0f}s)")
-            else:
-                print(f"  OK    {portfolio_result.get('url', '')}  ({p_elapsed:.0f}s)")
-            break
-        except Exception as e:
-            p_elapsed = time.time() - t1
-            err = str(e)
-            if "rate" in err.lower() and attempt < max_retries:
-                wait = 15 * attempt
-                print(f"  Rate limited, retrying in {wait}s (attempt {attempt}/{max_retries})...")
-                time.sleep(wait)
-            else:
-                print(f"  FAIL  {err[:120]}  ({p_elapsed:.0f}s)")
-                break
-
-    sys.exit(1 if fail else 0)
+    print(f"error: unknown command {sub!r}. Use flags or subcommands — try: decks --help", file=sys.stderr)
+    sys.exit(2)
 
 
 if __name__ == "__main__":

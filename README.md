@@ -32,7 +32,7 @@ For the Support Summary slide (HELP tickets, SLAs, engineering pipeline):
 
 Add to `.env`: `JIRA_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`
 
-The engineering portfolio deck (`decks eng portfolio`) uses the shared Jira portfolio payload: **LEAN**-focused SDLC slides, a **LEAN** project snapshot (status and assignee charts), **Support Pressure** (HELP aggregates), and related metadata. The **implementations review** deck (`implementations_review`) is the **CUSTOMER** project snapshot only (same payload; dedicated deck). Agents can call the **`jira_project_snapshot`** tool with a project key for the same JSON payload.
+The engineering portfolio deck (`decks engineering-portfolio` or `decks run --deck engineering-portfolio`) uses the shared Jira portfolio payload: **LEAN**-focused SDLC slides, a **LEAN** project snapshot (status and assignee charts), **Support Pressure** (HELP aggregates), and related metadata. The **implementations review** deck (`implementations_review`) is the **CUSTOMER** project snapshot only (same payload; dedicated deck). Agents can call the **`jira_project_snapshot`** tool with a project key for the same JSON payload.
 
 ## Generating Decks
 
@@ -43,37 +43,33 @@ decks qbr "Customer Name"
 decks qbr --main-only "Customer Name"   # main QBR deck only
 ```
 
-The `decks` command also takes a natural-language prompt for other deck types:
+Other decks use **explicit** flags and subcommands (no LLM parsing). Some useful patterns:
 
 ```bash
-# Single customer
-decks health review for Carrier
-
-# Multiple specific customers
-decks health review for Carrier, Daikin, and Siemens
-
-# All active customers (default)
-decks health review for all customers
-
-# Quarter control
-decks health review, Q4 2025
-decks health review for last quarter
-decks product adoption for Carrier, 60 day lookback
-
-# Cap the run
-decks health review, max 5 customers
-
-# Portfolio health (single cross-customer deck)
-decks portfolio review
-
-# With thumbnails
-decks health review for Bombardier, with thumbnails
-
-# See all available deck types (grouped: customer-scoped, then portfolio)
+# List deck ids and display names
 decks --list
+
+# One customer-scoped deck type (id from --list) — one or many customers
+decks run --deck cs_health_review --customer Carrier
+decks run --deck cs_health_review --customer Carrier --customer Daikin
+decks run --deck product_adoption --all-customers
+decks run --deck cs_health_review --all-customers --max-customers 10 --quarter prev
+
+# Portfolio / cohort / Jira org decks
+decks run --deck portfolio_review
+decks cohort
+decks engineering-portfolio
+decks implementations-review
+decks support
+decks support-portfolio
+decks run --deck csm_book_of_business --csm "Josh"
+
+# Batch: every customer-scoped deck for one account, or every portfolio deck
+decks --customer "Carrier" --quarter "Q1 2026" --thumbnails
+decks --portfolio --max-customers 20
 ```
 
-The prompt is parsed by a lightweight LLM call (`gpt-4o-mini`) that extracts deck type, customers, quarter, lookback days, max, workers, and thumbnail preference. Anything not specified uses smart defaults (auto-detected quarter, all customers, 4 workers, no thumbnails).
+Use `decks --help` for the full command reference.
 
 ### Evaluating Custom Slides
 
