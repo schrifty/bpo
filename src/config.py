@@ -43,6 +43,10 @@ GOOGLE_QBR_OUTPUT_PARENT_ID = os.environ.get("GOOGLE_QBR_OUTPUT_PARENT_ID", "").
 BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID", "").strip() or None
 # IANA zone for weekend/weekday and calendar-day logic in ``pendo_portfolio_snapshot_drive`` (Drive cache refresh).
 BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ = os.environ.get("BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ", "UTC").strip() or "UTC"
+# Portfolio customer enumeration: auto | salesforce | pendo. auto uses Salesforce Customer Entity
+# rollup when SF credentials are set, otherwise Pendo sitename prefixes.
+_pcs = (os.environ.get("BPO_PORTFOLIO_CUSTOMER_SOURCE") or "auto").strip().lower()
+BPO_PORTFOLIO_CUSTOMER_SOURCE = _pcs if _pcs else "auto"
 # Optional: your email (folder owner) - transfer ownership so files count against your quota, not service account's
 GOOGLE_DRIVE_OWNER_EMAIL = os.environ.get("GOOGLE_DRIVE_OWNER_EMAIL")
 # Hydrate/evaluate: Google Group email (e.g. hydrate-deck@yourdomain.com). Must match Share exactly.

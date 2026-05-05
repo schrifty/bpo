@@ -19,6 +19,7 @@ from requests.adapters import HTTPAdapter
 from tqdm.auto import tqdm
 
 from .config import (
+    BPO_PORTFOLIO_CUSTOMER_SOURCE,
     BPO_PENDO_CACHE_TTL_SECONDS,
     BPO_SIGNALS_LLM,
     BPO_SIGNALS_TRENDS,
@@ -2898,17 +2899,70 @@ class PendoClient:
         by_customer = self.get_sites_by_customer(days)
         raw_list = [c for c in by_customer["customer_list"] if c != "(unknown)"]
         skipped_ex = [c for c in raw_list if customer_is_excluded_from_portfolio(c)]
-        all_names = [c for c in raw_list if c not in skipped_ex]
-        if skipped_ex:
-            preview = ", ".join(skipped_ex[:25])
-            if len(skipped_ex) > 25:
-                preview += ", …"
-            logger.info(
-                "Portfolio: skipping %d customer(s) (config/portfolio_exclude_prefixes.yaml "
-                "or BPO_PORTFOLIO_EXCLUDE_CUSTOMERS): %s",
-                len(skipped_ex),
-                preview,
+        pendo_prefixes_for_resolve = frozenset(raw_list)
+
+        from .data_source_health import _salesforce_configured
+
+        def _effective_portfolio_customer_source() -> str:
+            src = (BPO_PORTFOLIO_CUSTOMER_SOURCE or "auto").strip().lower()
+            if src in ("", "auto"):
+                return "salesforce" if _salesforce_configured() else "pendo"
+            if src in ("salesforce", "pendo"):
+                return src
+            logger.warning(
+                "Invalid BPO_PORTFOLIO_CUSTOMER_SOURCE %r — using pendo",
+                BPO_PORTFOLIO_CUSTOMER_SOURCE,
             )
+            return "pendo"
+
+        cust_src = _effective_portfolio_customer_source()
+        if cust_src == "salesforce" and not _salesforce_configured():
+            logger.warning(
+                "Portfolio: Salesforce customer source requested but Salesforce is not configured — using pendo",
+            )
+            cust_src = "pendo"
+
+        portfolio_salesforce_allowlist_meta: dict[str, Any] = {}
+        if cust_src == "salesforce":
+            from .portfolio_salesforce_allowlist import salesforce_allowlist_pendo_keys
+            from .salesforce_client import SalesforceClient
+
+            logger.info(
+                "Portfolio: customer list from Salesforce Customer Entity rollup (matching Pendo prefixes)",
+            )
+            sf = SalesforceClient()
+            rows = sf.get_entity_accounts()
+            all_names, portfolio_salesforce_allowlist_meta = salesforce_allowlist_pendo_keys(
+                entity_accounts=rows,
+                pendo_prefixes=pendo_prefixes_for_resolve,
+                is_excluded=customer_is_excluded_from_portfolio,
+            )
+            n_skip_ex = len(portfolio_salesforce_allowlist_meta.get("salesforce_labels_excluded_after_resolve") or [])
+            if n_skip_ex:
+                preview = portfolio_salesforce_allowlist_meta["salesforce_labels_excluded_after_resolve"][:12]
+                logger.info(
+                    "Portfolio: %d Salesforce label(s) resolved to excluded Pendo prefix(es) (portfolio denylist): %s",
+                    n_skip_ex,
+                    preview,
+                )
+            if rows and not all_names:
+                logger.warning(
+                    "Portfolio: Salesforce returned %d Customer Entity row(s) but none resolved to a "
+                    "non-excluded Pendo customer prefix — summaries will be empty (see prior warnings).",
+                    len(rows),
+                )
+        else:
+            all_names = [c for c in raw_list if c not in skipped_ex]
+            if skipped_ex:
+                preview = ", ".join(skipped_ex[:25])
+                if len(skipped_ex) > 25:
+                    preview += ", …"
+                logger.info(
+                    "Portfolio: skipping %d customer(s) (config/portfolio_exclude_prefixes.yaml "
+                    "or BPO_PORTFOLIO_EXCLUDE_CUSTOMERS): %s",
+                    len(skipped_ex),
+                    preview,
+                )
         if max_customers:
             all_names = all_names[:max_customers]
 
@@ -2975,7 +3029,7 @@ class PendoClient:
             use_cohort_findings_slide_yaml=cohort_rollup_from_slide_yaml,
         )
 
-        return {
+        out: dict[str, Any] = {
             "type": "portfolio",
             "days": days,
             "generated": datetime.datetime.now().strftime("%Y-%m-%d"),
@@ -2990,7 +3044,11 @@ class PendoClient:
             "portfolio_leaders": self._compute_portfolio_leaders(customer_summaries),
             "cohort_digest": cohort_digest,
             "cohort_findings_bullets": cohort_findings_bullets,
+            "portfolio_customer_source": cust_src,
         }
+        if portfolio_salesforce_allowlist_meta:
+            out["portfolio_salesforce_allowlist"] = portfolio_salesforce_allowlist_meta
+        return out
 
     def _compute_portfolio_signals(
         self,
