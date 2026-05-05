@@ -13,6 +13,7 @@ def enrich_portfolio_report_with_revenue_book(report: dict[str, Any]) -> None:
 
     if not _salesforce_configured():
         report["portfolio_revenue_book"] = {"configured": False}
+        report["portfolio_expansion_book"] = {"configured": False}
         return
     customers = report.get("customers") or []
     names = [str(s.get("customer") or "").strip() for s in customers if isinstance(s, dict) and s.get("customer")]
@@ -32,16 +33,22 @@ def enrich_portfolio_report_with_revenue_book(report: dict[str, Any]) -> None:
             "churned_customer_count": 0,
             "top_customers_by_arr": [],
             "churned_customer_names_sample": [],
+            "expansion_kpis": {"configured": True, "empty": True},
         }
+        report["portfolio_expansion_book"] = dict(report["portfolio_revenue_book"]["expansion_kpis"])
         return
     try:
         from .salesforce_client import SalesforceClient
 
         sf = SalesforceClient()
-        report["portfolio_revenue_book"] = sf.get_portfolio_revenue_book_metrics(names)
+        book = sf.get_portfolio_revenue_book_metrics(names)
+        report["portfolio_revenue_book"] = book
+        ex = book.get("expansion_kpis")
+        report["portfolio_expansion_book"] = dict(ex) if isinstance(ex, dict) else {}
     except Exception as e:
         logger.warning("portfolio: Salesforce revenue book enrichment failed: %s", e)
         report["portfolio_revenue_book"] = {"configured": True, "error": str(e)}
+        report["portfolio_expansion_book"] = {}
 
 
 def csm_book_cli_argv_anchor(argv: list[str]) -> int:

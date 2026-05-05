@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 8,
   "_comment": "Comprehensive catalog of data elements BPO can access for hydrate and deck mapping. Use entries[].terms for phrase resolution; keep this list exhaustive across source payloads, including nested Salesforce comprehensive categories.",
   "entries": [
     {
@@ -2348,6 +2348,23 @@
         "Strategic portfolio",
         "Production portfolio",
         "Inventory type"
+      ]
+    },
+    {
+      "path": "portfolio_expansion_book",
+      "terms": [
+        "portfolio_expansion_book",
+        "[report enrich Salesforce] closed-won expansion and new-logo KPIs for portfolio decks",
+        "pct_active_customers_expanding_cy",
+        "eligible_active_customer_count",
+        "active_customers_with_expansion_wins_cy"
+      ]
+    },
+    {
+      "path": "portfolio_revenue_book.expansion_kpis",
+      "terms": [
+        "portfolio_revenue_book.expansion_kpis",
+        "[Salesforce] duplicate of portfolio_expansion_book metrics nested under revenue rollup"
       ]
     },
     {

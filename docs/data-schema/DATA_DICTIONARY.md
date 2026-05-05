@@ -306,6 +306,22 @@
 ## portfolio row
 - `portfolio.customers[]`
 
+## report (Salesforce portfolio enrichments on deck report root)
+- `portfolio_expansion_book.active_customers_with_expansion_wins_cy`
+- `portfolio_expansion_book.active_customers_with_new_business_won_cy`
+- `portfolio_expansion_book.calendar_year`
+- `portfolio_expansion_book.closed_won_expansion_amount_sum_cy`
+- `portfolio_expansion_book.closed_won_expansion_deal_count_cy`
+- `portfolio_expansion_book.configured`
+- `portfolio_expansion_book.distinct_accounts_expansion_win_cy`
+- `portfolio_expansion_book.distinct_accounts_new_business_win_cy`
+- `portfolio_expansion_book.eligible_active_customer_count`
+- `portfolio_expansion_book.empty`
+- `portfolio_expansion_book.error`
+- `portfolio_expansion_book.expanding_customer_labels_sample`
+- `portfolio_expansion_book.pct_active_customers_expanding_cy`
+- `portfolio_revenue_book.expansion_kpis`
+
 ## QBR
 - `executive_sponsor`
 - `leandna_exec_sponsor`

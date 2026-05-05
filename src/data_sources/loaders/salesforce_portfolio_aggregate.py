@@ -100,4 +100,6 @@ def salesforce_portfolio_aggregate_for_report(report: dict[str, Any]) -> dict[st
         "salesforce_unmatched_customers": prb.get("salesforce_unmatched_customers"),
         "active_customer_count": prb.get("active_customer_count"),
         "churned_customer_count": prb.get("churned_customer_count"),
+        "expansion_kpis": prb.get("expansion_kpis"),
+        "portfolio_expansion_book": report.get("portfolio_expansion_book"),
     }

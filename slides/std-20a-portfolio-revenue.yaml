@@ -9,5 +9,4 @@ customers: all
 prompt: >
   Salesforce commercial rollup: Customer Entity contract ARR (split active vs churned
   status), deduped pipeline ARR in advanced stages, opportunity count this fiscal year,
-  and top accounts by ARR. Does not infer new-logo or expansion motion (use Salesforce
-  reporting).
+  and top accounts by ARR. Closed-won expansion / new-logo KPIs are on the following slide.

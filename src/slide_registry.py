@@ -83,6 +83,7 @@ from .slide_pendo import (
 )
 from .slide_portfolio import (
     csm_book_title_slide as _csm_book_title_slide,
+    portfolio_expansion_book_slide as _portfolio_expansion_book_slide,
     portfolio_leaders_slide as _portfolio_leaders_slide,
     portfolio_revenue_book_slide as _portfolio_revenue_book_slide,
     portfolio_signals_slide as _portfolio_signals_slide,
@@ -156,6 +157,7 @@ _SLIDE_BUILDERS = {
     "portfolio_title": _portfolio_title_slide,
     "csm_book_title": _csm_book_title_slide,
     "portfolio_revenue_book": _portfolio_revenue_book_slide,
+    "portfolio_expansion_book": _portfolio_expansion_book_slide,
     "portfolio_signals": _portfolio_signals_slide,
     "portfolio_trends": _portfolio_trends_slide,
     "portfolio_leaders": _portfolio_leaders_slide,

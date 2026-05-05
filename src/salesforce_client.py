@@ -204,6 +204,9 @@ def _renewal_roll_up_fields(matching: list[dict[str, Any]]) -> dict[str, Any]:
 # Opportunity types for creation and pipeline
 OPP_TYPES = ("New Business", "New Expansion Business", "Expansion Business", "POC")
 PIPELINE_STAGES = ("3-Business Validation", "4-Proposal", "5-Contracts")
+# Closed Won motion (calendar year on CloseDate); Expansion Business + New Expansion Business count as expansion.
+_EXPANSION_CLOSED_WON_TYPES = frozenset({"Expansion Business", "New Expansion Business"})
+_NEW_LOGO_CLOSED_WON_TYPES = frozenset({"New Business"})
 
 # REST API version used for query + sObject metadata (keep in sync across methods).
 SF_REST_API_VERSION = "v59.0"
@@ -778,6 +781,115 @@ class SalesforceClient:
                 lookup[name] = total_arr
         return lookup
 
+    def _portfolio_closed_won_opportunity_rows_cy(
+        self, account_ids: list[str], calendar_year: int
+    ) -> list[dict[str, Any]]:
+        """Return Opportunity rows (AccountId, Type, Amount) Won in *calendar_year*.
+
+        Uses ``IsWon`` and ``CloseDate`` (standard Salesforce). Types include expansion
+        motion (see ``_EXPANSION_CLOSED_WON_TYPES`` / ``_NEW_LOGO_CLOSED_WON_TYPES``).
+        Chunked IN lists to stay under REST query length limits.
+        """
+        if not account_ids:
+            return []
+        motion_types = tuple(sorted(_EXPANSION_CLOSED_WON_TYPES | _NEW_LOGO_CLOSED_WON_TYPES))
+        types_in = ", ".join(f"'{t}'" for t in motion_types)
+        out: list[dict[str, Any]] = []
+        chunk_size = 60
+        for i in range(0, len(account_ids), chunk_size):
+            chunk = account_ids[i : i + chunk_size]
+            ids_in = ", ".join(f"'{aid}'" for aid in chunk)
+            soql = (
+                f"SELECT AccountId, Type, Amount FROM Opportunity "
+                f"WHERE AccountId IN ({ids_in}) "
+                f"AND IsWon = true "
+                f"AND CALENDAR_YEAR(CloseDate) = {int(calendar_year)} "
+                f"AND Type IN ({types_in})"
+            )
+            out.extend(self._query(soql))
+        return out
+
+    @staticmethod
+    def _expansion_kpis_from_opportunities(
+        *,
+        per_name: dict[str, list[dict[str, Any]]],
+        names_clean: list[str],
+        closed_won_rows: list[dict[str, Any]],
+        calendar_year: int,
+    ) -> dict[str, Any]:
+        """Derive portfolio expansion / new-logo KPIs from closed-won opps + entity rollups."""
+        expansion_accounts: set[str] = set()
+        new_biz_accounts: set[str] = set()
+        expansion_amount = 0.0
+        expansion_opp_count = 0
+        for r in closed_won_rows:
+            if not isinstance(r, dict):
+                continue
+            aid = r.get("AccountId")
+            if not isinstance(aid, str) or len(aid.strip()) < 15:
+                continue
+            typ = str(r.get("Type") or "")
+            try:
+                amt = float(r.get("Amount") or 0)
+            except (TypeError, ValueError):
+                amt = 0.0
+            if typ in _EXPANSION_CLOSED_WON_TYPES:
+                expansion_accounts.add(aid)
+                expansion_amount += amt
+                expansion_opp_count += 1
+            elif typ in _NEW_LOGO_CLOSED_WON_TYPES:
+                new_biz_accounts.add(aid)
+
+        active_labels: list[str] = []
+        for name in names_clean:
+            matching = per_name.get(name) or []
+            if not matching:
+                continue
+            has_active = False
+            for a in matching:
+                st = (a.get("Contract_Status__c") or "").strip().lower()
+                if st not in SalesforceClient._CHURNED_STATUSES:
+                    has_active = True
+                    break
+            if has_active:
+                active_labels.append(name)
+
+        def _label_account_ids(label: str) -> set[str]:
+            return {
+                str(a.get("Id")).strip()
+                for a in (per_name.get(label) or [])
+                if isinstance(a.get("Id"), str) and len(str(a.get("Id")).strip()) >= 15
+            }
+
+        expanding_labels: list[str] = []
+        for label in active_labels:
+            if _label_account_ids(label) & expansion_accounts:
+                expanding_labels.append(label)
+
+        new_logo_labels: list[str] = []
+        for label in active_labels:
+            if _label_account_ids(label) & new_biz_accounts:
+                new_logo_labels.append(label)
+
+        denom = len(active_labels)
+        numer = len(expanding_labels)
+        pct = round(100.0 * numer / denom, 1) if denom else 0.0
+
+        return {
+            "configured": True,
+            "empty": False,
+            "calendar_year": int(calendar_year),
+            "eligible_active_customer_count": denom,
+            "active_customers_with_expansion_wins_cy": numer,
+            "pct_active_customers_expanding_cy": pct,
+            "closed_won_expansion_deal_count_cy": expansion_opp_count,
+            "closed_won_expansion_amount_sum_cy": round(expansion_amount, 2),
+            "distinct_accounts_expansion_win_cy": len(expansion_accounts),
+            "active_customers_with_new_business_won_cy": len(new_logo_labels),
+            "distinct_accounts_new_business_win_cy": len(new_biz_accounts),
+            "expanding_customer_labels_sample": sorted(expanding_labels)[:12],
+        }
+
     def get_active_customer_names(self, customer_names: list[str]) -> set[str]:
         """Return the subset of *customer_names* whose Contract_Status__c is NOT churned.
 
@@ -831,6 +943,11 @@ class SalesforceClient:
             "top_customers_by_arr": [],
             "matched_customer_contract_rollups": [],
             "churned_customer_names_sample": [],
+            "expansion_kpis": {
+                "configured": True,
+                "empty": True,
+                "calendar_year": time.gmtime().tm_year,
+            },
         }
         if not names_clean:
             return empty_out
@@ -900,6 +1017,28 @@ class SalesforceClient:
         matched_customer_contract_rollups = list(top_rows)
         pipeline = self.get_advanced_pipeline_arr(dedup_ids) if dedup_ids else 0.0
         opps = self.get_opportunity_creation_this_year(dedup_ids) if dedup_ids else 0
+
+        calendar_year = time.gmtime().tm_year
+        expansion_kpis: dict[str, Any]
+        if not dedup_ids:
+            expansion_kpis = {"configured": True, "empty": True, "calendar_year": calendar_year}
+        else:
+            try:
+                won_rows = self._portfolio_closed_won_opportunity_rows_cy(dedup_ids, calendar_year)
+                expansion_kpis = self._expansion_kpis_from_opportunities(
+                    per_name=per_name,
+                    names_clean=names_clean,
+                    closed_won_rows=won_rows,
+                    calendar_year=calendar_year,
+                )
+            except Exception as e:
+                logger.warning("Salesforce: portfolio expansion KPI rollup failed: %s", e)
+                expansion_kpis = {
+                    "configured": True,
+                    "calendar_year": calendar_year,
+                    "error": str(e)[:420],
+                }
+
         return {
             "configured": True,
             "empty": False,
@@ -916,6 +1055,7 @@ class SalesforceClient:
             "top_customers_by_arr": top10,
             "matched_customer_contract_rollups": matched_customer_contract_rollups,
             "churned_customer_names_sample": churned_names,
+            "expansion_kpis": expansion_kpis,
         }
 
     def _get_customer_salesforce_by_account_ids(
