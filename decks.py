@@ -47,6 +47,9 @@ Flag commands (utilities)
       implementations_review, support_review_portfolio. Optional ``--csm`` also runs ``csm_book_of_business``
       for that Pendo CSM substring. No customer name — these decks are org- or all-customer scoped.
 
+  decks --data
+      Print canonical data element paths from ``config/comprehensive_data_element_list.json``.
+
 ────────────────────────────────────────────────────────────────
 Generate decks (natural language — LLM parses the prompt)
 ────────────────────────────────────────────────────────────────
@@ -70,6 +73,7 @@ Generate decks (natural language — LLM parses the prompt)
 import json
 import sys
 import time
+from pathlib import Path
 
 # Same split as ``decks --list`` and batch commands (customer-scoped vs portfolio / cross-customer).
 _PORTFOLIO_SCOPE_DECK_IDS: frozenset[str] = frozenset(
@@ -103,6 +107,46 @@ _PORTFOLIO_DECK_BATCH_ORDER: tuple[str, ...] = (
     "implementations_review",
     "support_review_portfolio",
 )
+
+
+_CANONICAL_DATA_CATALOG_PATH = (
+    Path(__file__).resolve().parent / "config" / "comprehensive_data_element_list.json"
+)
+
+
+def _run_data_catalog_cli() -> None:
+    """Print canonical data element paths from comprehensive_data_element_list.json."""
+    catalog_path = _CANONICAL_DATA_CATALOG_PATH
+    try:
+        payload = json.loads(catalog_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        print(f"Missing canonical catalog: {catalog_path}")
+        sys.exit(1)
+    except json.JSONDecodeError as exc:
+        print(f"Invalid JSON in canonical catalog ({catalog_path}): {exc}")
+        sys.exit(1)
+
+    entries = payload.get("entries")
+    if not isinstance(entries, list):
+        print(f"Invalid catalog format in {catalog_path}: expected top-level 'entries' list")
+        sys.exit(1)
+
+    rows: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        path = entry.get("path")
+        if isinstance(path, str) and path.strip():
+            rows.append(path.strip())
+
+    if not rows:
+        print(f"0 fields  {catalog_path}")
+        return
+
+    width = max(len(path) for path in rows)
+    for path in rows:
+        print(f"{path:{width}s}")
+    print(f"{len(rows)} row(s)  {catalog_path}")
 
 
 def _parse_prompt(prompt: str) -> dict:
@@ -576,6 +620,10 @@ def _run_all_portfolio_decks() -> None:
 
 def main():
     # Quick utility flags that don't need LLM parsing
+    if "--data" in sys.argv:
+        _run_data_catalog_cli()
+        return
+
     if "--list" in sys.argv:
         from src.deck_loader import list_decks
 
