@@ -628,15 +628,21 @@ def main():
         from src.deck_loader import list_decks
 
         rows = list_decks()
-        port = sorted((m for m in rows if m["id"] in _PORTFOLIO_SCOPE_DECK_IDS), key=lambda m: m["id"])
-        cust = sorted((m for m in rows if m["id"] not in _PORTFOLIO_SCOPE_DECK_IDS), key=lambda m: m["id"])
+        port = sorted(
+            (m for m in rows if m["id"] in _PORTFOLIO_SCOPE_DECK_IDS),
+            key=lambda m: (m.get("name") or m["id"]).lower(),
+        )
+        cust = sorted(
+            (m for m in rows if m["id"] not in _PORTFOLIO_SCOPE_DECK_IDS),
+            key=lambda m: (m.get("name") or m["id"]).lower(),
+        )
         print("Customer-scoped (one or more named accounts)")
         for m in cust:
-            print(f"  {m['id']:28s}  {m['name']}")
+            print(f"  {m['name']}")
         print()
         print("Portfolio & cross-customer")
         for m in port:
-            print(f"  {m['id']:28s}  {m['name']}")
+            print(f"  {m['name']}")
         return
 
     if "--evaluate" in sys.argv:
