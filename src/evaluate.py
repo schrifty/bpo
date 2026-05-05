@@ -45,6 +45,7 @@ from .qbr_hydrate_mappings import (
     apply_explicit_qbr_mappings,
     bootstrap_qbr_mappings_from_slides,
     build_adapt_page_slide_type_by_page_id,
+    build_mapping_first_qbr_replacements,
     expand_qbr_mapping_source_candidates,
     invalidate_qbr_mappings_cache,
     mapping_source_is_visual_only,
@@ -1718,8 +1719,9 @@ def adapt_custom_slides(
     def _fetch_and_reason(page_id: str) -> tuple[str, list[dict], list[dict], str, dict | None]:
         """Returns (page_id, text_elements, replacements, cache_source, analysis_or_none).
 
-        cache_source: analysis_hit | adapt_hit | llm | empty | error
-        analysis is included when in cache (for speaker-notes rebuild spec).
+        cache_source: analysis_hit | adapt_hit | llm | qbr_mappings_first | empty | error
+        analysis is included when in cache (for speaker-notes rebuild spec); explicit QBR
+        mapping-first returns analysis None.
         """
         slide = slides_by_id.get(page_id)
         if not slide:
@@ -1737,6 +1739,25 @@ def adapt_custom_slides(
             return page_id, [], [], "empty", None
         slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
         slide_type_for_explicit = explicit_slide_type_by_page.get(page_id) if use_explicit_qbr else None
+
+        if use_explicit_qbr:
+            sn = slide_num if isinstance(slide_num, int) else None
+            replacements = build_mapping_first_qbr_replacements(
+                text_elements,
+                data_summary,
+                slide_type=slide_type_for_explicit or None,
+                slide_ref=str(slide_num),
+                slide_number=sn,
+            )
+            replacements = _sanitize_adapt_replacements_plausible_years(
+                replacements, slide_ref=str(slide_num)
+            )
+            replacements = _sanitize_adapt_replacements_percent_semantics(
+                replacements, text_elements, slide_ref=str(slide_num)
+            )
+            replacements = _ensure_charts_and_images_marked(text_elements, replacements)
+            _log_slide_pipeline_done(str(slide_num), "qbr_mappings_first", replacements)
+            return page_id, text_elements, replacements, "qbr_mappings_first", None
 
         def _post_llm_mapping(repls: list[dict]) -> list[dict]:
             if use_explicit_qbr:

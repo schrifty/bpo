@@ -9,6 +9,7 @@ from src.qbr_hydrate_mappings import (
     apply_explicit_qbr_mappings,
     bootstrap_qbr_mappings_from_slides,
     build_adapt_page_slide_type_by_page_id,
+    build_mapping_first_qbr_replacements,
     expand_mapping_rules,
     expand_qbr_mapping_source_candidates,
     mapping_source_is_recognizable_data,
@@ -38,6 +39,79 @@ def test_build_adapt_page_slide_type_skips_structural_types():
     out = build_adapt_page_slide_type_by_page_id(report, ["a", "b"])
     assert out["a"] == "health"
     assert out["b"] == "qbr_agenda"
+
+
+def test_mapping_first_bracket_when_placeholder_on_slide(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "src.qbr_hydrate_mappings.load_qbr_mappings",
+        lambda **_: {
+            "version": 1,
+            "mappings": [
+                {"slide_id": None, "source": "[000]", "target": "total_users"},
+            ],
+            "bracket_placeholder_sources": [],
+        },
+    )
+    text_elements = [{"type": "shape", "text": "[000]"}]
+    out = build_mapping_first_qbr_replacements(
+        text_elements,
+        {"total_users": 42},
+        slide_type="health",
+        slide_ref="1",
+        slide_number=1,
+    )
+    assert len(out) == 1
+    assert out[0]["mapped"] is True
+    assert out[0]["field"] == "total_users"
+    assert "42" in str(out[0]["new_value"])
+
+
+def test_mapping_first_skips_bracket_not_on_slide(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "src.qbr_hydrate_mappings.load_qbr_mappings",
+        lambda **_: {
+            "version": 1,
+            "mappings": [
+                {"slide_id": None, "source": "[000]", "target": "total_users"},
+            ],
+            "bracket_placeholder_sources": [],
+        },
+    )
+    text_elements = [{"type": "shape", "text": "No placeholder here"}]
+    out = build_mapping_first_qbr_replacements(
+        text_elements,
+        {"total_users": 42},
+        slide_type="health",
+        slide_ref="1",
+        slide_number=1,
+    )
+    assert out == []
+
+
+def test_mapping_first_phrase_same_as_post_llm(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "src.qbr_hydrate_mappings.load_qbr_mappings",
+        lambda **_: {
+            "version": 1,
+            "mappings": [
+                {"slide_id": None, "source": "XX%", "target": "Shortage Reduction"},
+            ],
+            "bracket_placeholder_sources": [],
+        },
+    )
+    data_summary = {"total_critical_shortages": 12}
+    text_elements = [{"type": "shape", "text": "Critical shortage reduction (XX% vs prior quarter)"}]
+    out = build_mapping_first_qbr_replacements(
+        text_elements,
+        data_summary,
+        slide_type="health",
+        slide_ref="1",
+        slide_number=1,
+    )
+    assert len(out) == 1
+    assert out[0]["mapped"] is True
+    assert out[0]["field"] == "total_critical_shortages"
+    assert "12" in str(out[0]["new_value"])
 
 
 def test_apply_explicit_bracket_exact_match(monkeypatch: pytest.MonkeyPatch) -> None:

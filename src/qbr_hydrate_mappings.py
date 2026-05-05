@@ -1,9 +1,13 @@
 """Explicit QBR hydrate mappings from ``config/qbr_mappings.yaml``.
 
-When ``report[REPORT_KEY_EXPLICIT_QBR_MAPPINGS]`` is true, :func:`adapt_custom_slides` uses
-:func:`apply_explicit_qbr_mappings` instead of synonym-phrase resolution from ``data_field_synonyms``
-for slide text — but each rule's ``target`` is still resolved via
-:func:`data_field_synonyms.resolve_data_summary_target_path`
+When ``report[REPORT_KEY_EXPLICIT_QBR_MAPPINGS]`` is true, :func:`adapt_custom_slides` runs a
+**mapping-first** path: replacements are built only from YAML rules (no adapt LLM). Phase B still
+uses :func:`~hydrate_slide_mutation.apply_adaptations` (page-scoped ``replaceAllText``).
+
+Legacy post-LLM behaviour remains available behind the same flag only for callers that still run the
+LLM adapt path; template QBR uses mapping-first exclusively.
+
+Each rule's ``target`` is resolved via :func:`data_field_synonyms.resolve_data_summary_target_path`
 (``comprehensive_data_element_list.json`` ``terms``).
 
 **Disk writes are opt-in.** Hydrate **always reads** the YAML when present; it does **not** rewrite the
@@ -607,6 +611,187 @@ def _normalize_context(s: str) -> str:
     return re.sub(r"\s+", " ", t)
 
 
+def _slide_matches_explicit_qbr_rule(
+    ent: dict[str, Any],
+    *,
+    slide_number: int | None,
+    slide_type: str | None,
+) -> bool:
+    """Same slide_number / slide_id gating as :func:`apply_explicit_qbr_mappings`."""
+    rule_sn = ent.get("slide_number")
+    if rule_sn is not None:
+        if slide_number is None:
+            return False
+        if int(rule_sn) != int(slide_number):
+            return False
+    st_filter = (slide_type or "").strip()
+    sid_raw = ent.get("slide_id")
+    if sid_raw is not None and str(sid_raw).strip() not in ("", "null"):
+        if st_filter and str(sid_raw).strip() != st_filter:
+            return False
+    return True
+
+
+def _slide_has_explicit_qbr_source(
+    src: str,
+    *,
+    is_bracket: bool,
+    text_elements: list[dict],
+) -> bool:
+    """True when slide text contains ``src`` per bracket vs phrase rules (aligned with explicit mapping)."""
+    from .data_field_synonyms import _narrow_synonym_haystack
+
+    src = (src or "").strip()
+    if not src:
+        return False
+    if is_bracket:
+        for el in text_elements:
+            full = el.get("text") or ""
+            if full.strip() == src:
+                return True
+            for line in full.splitlines():
+                if line.strip() == src:
+                    return True
+        return False
+    hay = _narrow_synonym_haystack(src, text_elements)
+    h = _normalize_context(hay)
+    if len(h) < 4:
+        return False
+    return _normalize_context(src) in h
+
+
+def _format_explicit_qbr_new_value(
+    orig: str,
+    raw: Any,
+    path_resolved: str,
+    text_elements: list[dict],
+) -> str:
+    """Format scalar for slide with suffix and percent semantics (shared explicit-mapping logic)."""
+    from .data_field_synonyms import _format_scalar_for_slide
+    from .evaluate import (
+        _adapt_original_reads_as_percent_on_slide,
+        _adapt_text_has_percentage_semantics,
+    )
+
+    raw_s = _format_scalar_for_slide(raw, path=path_resolved)
+    m = re.match(r"^[\d.,\s$€£%]+", orig)
+    suffix = (orig[m.end() :].strip() if m else "").strip()
+    pct_in_prefix = bool(m and "%" in m.group())
+    percent_slot = (
+        pct_in_prefix
+        or _adapt_text_has_percentage_semantics(orig)
+        or _adapt_original_reads_as_percent_on_slide(orig, text_elements)
+    )
+    if percent_slot and "%" not in raw_s and not raw_s.endswith("%"):
+        raw_s = f"{raw_s}%"
+    return f"{raw_s} {suffix}".strip() if suffix else raw_s
+
+
+def build_mapping_first_qbr_replacements(
+    text_elements: list[dict],
+    data_summary: dict[str, Any],
+    *,
+    slide_type: str | None,
+    slide_ref: str = "",
+    slide_number: int | None,
+) -> list[dict]:
+    """Build adapt replacement rows from ``qbr_mappings.yaml`` only (no LLM).
+
+    Warns when a rule's ``source`` is absent from slide text or the resolved value cannot be used.
+    When multiple rules share the same ``source`` string, the **last** matching rule in flattened
+    YAML order wins (one ``replaceAllText`` per distinct ``original``).
+    """
+    from .data_field_synonyms import (
+        _value_present,
+        data_summary_lookup,
+        resolve_data_summary_target_path,
+    )
+    from .evaluate import (
+        _adapt_original_reads_as_percent_on_slide,
+        _adapt_text_has_percentage_semantics,
+    )
+
+    cfg = load_qbr_mappings()
+    rows = expand_mapping_rules(cfg)
+    out_by_src: dict[str, dict[str, Any]] = {}
+    for ent in rows:
+        if not _slide_matches_explicit_qbr_rule(
+            ent, slide_number=slide_number, slide_type=slide_type
+        ):
+            continue
+        src = str(ent.get("source") or "").strip()
+        tgt = str(ent.get("target") or "").strip()
+        if not src or not tgt:
+            continue
+        is_bracket = src.startswith("[") and src.endswith("]")
+        if not _slide_has_explicit_qbr_source(src, is_bracket=is_bracket, text_elements=text_elements):
+            logger.warning(
+                "qbr_mappings: slide %s — mapping-first: source not found on slide: %r (target=%r)",
+                slide_ref,
+                src[:200],
+                tgt[:120],
+            )
+            continue
+        path_resolved = resolve_data_summary_target_path(tgt)
+        raw = data_summary_lookup(data_summary, path_resolved)
+        if not _value_present(raw):
+            logger.warning(
+                "qbr_mappings: slide %s — mapping-first: no data for target %r → %s",
+                slide_ref,
+                tgt,
+                path_resolved,
+            )
+            continue
+        if isinstance(raw, (dict, list)):
+            logger.warning(
+                "qbr_mappings: slide %s — mapping-first: target %r resolves to non-scalar (%s)",
+                slide_ref,
+                tgt,
+                path_resolved,
+            )
+            continue
+        fv = _float_scalar(raw)
+        if fv is not None and abs(fv) > 150:
+            if _adapt_text_has_percentage_semantics(src) or _adapt_original_reads_as_percent_on_slide(
+                src, text_elements
+            ):
+                logger.warning(
+                    "qbr_mappings: slide %s — mapping-first: skipped large scalar for percent-like slot "
+                    "(source=%r path=%s)",
+                    slide_ref,
+                    src[:120],
+                    path_resolved,
+                )
+                continue
+
+        new_val = _format_explicit_qbr_new_value(src, raw, path_resolved, text_elements)
+        elem_label = str(ent.get("data_element_name") or "").strip()
+        row: dict[str, Any] = {
+            "original": src,
+            "new_value": new_val,
+            "mapped": True,
+            "field": path_resolved,
+            "synonym_phrase": src,
+            "synonym_path": path_resolved,
+        }
+        if elem_label:
+            row["qbr_mapping_element"] = elem_label
+        if src in out_by_src:
+            logger.warning(
+                "qbr_mappings: slide %s — mapping-first: duplicate source %r; later rule wins",
+                slide_ref,
+                src[:120],
+            )
+        out_by_src[src] = row
+        logger.debug(
+            "qbr_mappings: slide %s mapping-first applied %r → %s",
+            slide_ref,
+            src,
+            path_resolved,
+        )
+    return list(out_by_src.values())
+
+
 def apply_explicit_qbr_mappings(
     replacements: list[dict],
     text_elements: list[dict],
@@ -618,7 +803,6 @@ def apply_explicit_qbr_mappings(
 ) -> list[dict]:
     """Apply ``config/qbr_mappings.yaml`` rules (phrase or exact placeholder → dotted path)."""
     from .data_field_synonyms import (
-        _format_scalar_for_slide,
         _narrow_synonym_haystack,
         _value_present,
         data_summary_lookup,
@@ -631,7 +815,6 @@ def apply_explicit_qbr_mappings(
 
     cfg = load_qbr_mappings()
     rows = expand_mapping_rules(cfg)
-    st_filter = (slide_type or "").strip()
     out: list[dict] = []
     for r in replacements:
         r = dict(r)
@@ -648,18 +831,12 @@ def apply_explicit_qbr_mappings(
         orig = str(r.get("original") or "")
         applied = False
         for ent in rows:
+            if not _slide_matches_explicit_qbr_rule(
+                ent, slide_number=slide_number, slide_type=slide_type
+            ):
+                continue
             src = str(ent.get("source") or "").strip()
             tgt = str(ent.get("target") or "").strip()
-            rule_sn = ent.get("slide_number")
-            if rule_sn is not None:
-                if slide_number is None:
-                    continue
-                if int(rule_sn) != int(slide_number):
-                    continue
-            sid_raw = ent.get("slide_id")
-            if sid_raw is not None and str(sid_raw).strip() not in ("", "null"):
-                if st_filter and str(sid_raw).strip() != st_filter:
-                    continue
             if not src or not tgt:
                 continue
             is_bracket = src.startswith("[") and src.endswith("]")
@@ -684,18 +861,7 @@ def apply_explicit_qbr_mappings(
                 ):
                     continue
 
-            raw_s = _format_scalar_for_slide(raw, path=path_resolved)
-            m = re.match(r"^[\d.,\s$€£%]+", orig)
-            suffix = (orig[m.end() :].strip() if m else "").strip()
-            pct_in_prefix = bool(m and "%" in m.group())
-            percent_slot = (
-                pct_in_prefix
-                or _adapt_text_has_percentage_semantics(orig)
-                or _adapt_original_reads_as_percent_on_slide(orig, text_elements)
-            )
-            if percent_slot and "%" not in raw_s and not raw_s.endswith("%"):
-                raw_s = f"{raw_s}%"
-            new_val = f"{raw_s} {suffix}".strip() if suffix else raw_s
+            new_val = _format_explicit_qbr_new_value(orig, raw, path_resolved, text_elements)
 
             r["mapped"] = True
             r["field"] = path_resolved
