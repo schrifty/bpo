@@ -54,13 +54,7 @@ def portfolio_revenue_book_slide(reqs: list[dict[str, Any]], sid: str, report: d
     title = (entry.get("title") or "").strip() or "Revenue book (Salesforce)"
 
     lines: list[str] = []
-    pc = int(book.get("pendo_customers") or 0)
-    sm = int(book.get("salesforce_matched_customers") or 0)
-    su = int(book.get("salesforce_unmatched_customers") or 0)
-    lines.append(f"Pendo customers in this window: {pc:,}")
-    lines.append(f"Salesforce matched (≥1 Customer Entity row): {sm:,}  ·  Unmatched names: {su:,}")
-    lines.append("")
-    lines.append(f"Contract ARR on matched Entity rows: {_fmt_portfolio_usd(book.get('total_arr'))}")
+    lines.append(f"Contract ARR (Customer Entity rollup): {_fmt_portfolio_usd(book.get('total_arr'))}")
     lines.append(
         f"  → On active-status contracts: {_fmt_portfolio_usd(book.get('active_installed_base_arr'))} "
         f"({int(book.get('active_customer_count') or 0):,} customers)"
@@ -104,8 +98,8 @@ def portfolio_revenue_book_slide(reqs: list[dict[str, Any]], sid: str, report: d
     _box(reqs, oid, sid, MARGIN, BODY_Y, CONTENT_W, 300, body)
     _style(reqs, oid, 0, len(body), size=10, color=NAVY, font=FONT)
     foot = (
-        "ARR and status from matched Customer Entity accounts; pipeline uses the same advanced-stage "
-        "definition as per-account decks."
+        "ARR and contract status from Salesforce Customer Entity accounts; pipeline uses the same "
+        "advanced-stage definition as per-account decks."
     )
     fid = f"{sid}_foot"
     _box(reqs, fid, sid, MARGIN, 400, CONTENT_W, 36, foot)

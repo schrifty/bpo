@@ -7,7 +7,7 @@ data_tools: []
 customers: all
 
 prompt: >
-  Commercial rollup across the same Pendo customer window: matched Customer Entity
-  contract ARR (split active vs churned status), deduped pipeline ARR in advanced stages,
-  opportunity count this fiscal year, and top accounts by ARR. Unmatched names flag CRM
-  hygiene gaps. Does not infer new-logo or expansion motion (use Salesforce reporting).
+  Salesforce commercial rollup: Customer Entity contract ARR (split active vs churned
+  status), deduped pipeline ARR in advanced stages, opportunity count this fiscal year,
+  and top accounts by ARR. Does not infer new-logo or expansion motion (use Salesforce
+  reporting).
