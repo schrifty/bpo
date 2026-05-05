@@ -31,6 +31,80 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+_DATA_SUMMARY_PATH = _ROOT / "config" / "data_summary.json"
+
+# HTTP surfaces wired in code (see ``src/data_sources/registry.SourceId`` docstring).
+_LEANDNA_DATA_API_HTTP_SURFACES: tuple[str, ...] = (
+    "GET /data/ItemMasterData",
+    "GET /data/MaterialShortages/ShortagesByItem/Weekly",
+    "GET /data/MaterialShortages/ShortagesByItem/Daily",
+    "GET /data/MaterialShortages/ShortagesByOrder",
+    "GET /data/MaterialShortages/ShortagesByItemWithScheduledDeliveries/Weekly",
+    "GET /data/LeanProject",
+    "GET /data/LeanProject/{projectIds}/Savings",
+)
+
+# Typical ``report`` dotted paths when QBR LeanDNA enrichments run (no live values in this export).
+_LEANDNA_QBR_ENRICHMENT_PATHS: tuple[str, ...] = (
+    "leandna_item_master",
+    "leandna_item_master.abc_distribution",
+    "leandna_item_master.doi_backwards",
+    "leandna_item_master.enabled",
+    "leandna_item_master.excess_breakdown",
+    "leandna_item_master.high_risk_items",
+    "leandna_item_master.item_count",
+    "leandna_item_master.lead_time_variance",
+    "leandna_item_master.sites_requested",
+    "leandna_lean_projects",
+    "leandna_lean_projects.active_projects",
+    "leandna_lean_projects.all_projects",
+    "leandna_lean_projects.best_practice_count",
+    "leandna_lean_projects.data_fetched_at",
+    "leandna_lean_projects.enabled",
+    "leandna_lean_projects.monthly_savings",
+    "leandna_lean_projects.project_savings",
+    "leandna_lean_projects.project_savings_project_ids",
+    "leandna_lean_projects.quarter_end",
+    "leandna_lean_projects.quarter_start",
+    "leandna_lean_projects.savings_achievement_pct",
+    "leandna_lean_projects.stage_distribution",
+    "leandna_lean_projects.state_distribution",
+    "leandna_lean_projects.top_projects",
+    "leandna_lean_projects.total_projects",
+    "leandna_lean_projects.total_savings_actual",
+    "leandna_lean_projects.total_savings_target",
+    "leandna_lean_projects.validated_results_count",
+    "leandna_shortage_trends",
+    "leandna_shortage_trends.critical_items",
+    "leandna_shortage_trends.critical_timeline",
+    "leandna_shortage_trends.data_fetched_at",
+    "leandna_shortage_trends.enabled",
+    "leandna_shortage_trends.forecast",
+    "leandna_shortage_trends.forecast.buckets",
+    "leandna_shortage_trends.forecast.peak_week",
+    "leandna_shortage_trends.forecast.total_shortage_value",
+    "leandna_shortage_trends.scheduled_deliveries",
+    "leandna_shortage_trends.total_items_in_shortage",
+    "leandna_shortage_trends.weeks_forward",
+)
+
+# Representative Item Master API fields (list endpoint); rows can include additional keys.
+_LEANDNA_TYPICAL_ITEM_MASTER_FIELDS: tuple[str, ...] = (
+    "abcRank",
+    "aggregateRiskScore",
+    "criticalityLevel",
+    "ctbShortageImpactedValue",
+    "daysOfInventoryBackward",
+    "daysOfInventoryForward",
+    "excessOnHandValue",
+    "itemCode",
+    "itemDescription",
+    "leadTime",
+    "observedLeadTime",
+    "riskLevel",
+    "site",
+)
+
 # Product roadmap: named here so the export explicitly sets reader expectations.
 _PLANNED_DATASOURCES_NOT_IN_EXPORT: tuple[str, ...] = ("Aha", "GitHub")
 
@@ -100,6 +174,68 @@ _REGISTRY_EXCLUDED_RATIONALE: dict[str, str] = {
         "LeanDNA lean projects are QBR/deck enrichments; not merged into this all-customers export yet."
     ),
 }
+
+
+def _leandna_rows_from_data_summary(path: Path) -> list[dict[str, Any]]:
+    """Return catalog rows for LeanDNA (paths + short terms) from ``data_summary.json``."""
+    if not path.is_file():
+        return []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    entries = raw.get("entries")
+    if not isinstance(entries, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for ent in entries:
+        if not isinstance(ent, dict):
+            continue
+        p = ent.get("path")
+        if not isinstance(p, str) or not p.strip():
+            continue
+        terms = ent.get("terms")
+        tlist = [str(x) for x in terms] if isinstance(terms, list) else []
+        lean_terms = any(
+            ("LeanDNA Data API" in x or x.startswith("[LeanDNA") or "leandna" in x.lower())
+            for x in tlist
+        )
+        if not (
+            p.startswith("leandna_")
+            or p.startswith("leandna_data_api.")
+            or lean_terms
+        ):
+            continue
+        out.append({"path": p, "terms": tlist[:5]})
+    out.sort(key=lambda r: r["path"])
+    return out
+
+
+def build_leandna_data_api_reference() -> dict[str, Any]:
+    """Reference material for LeanDNA Data API: catalog slice, QBR paths, HTTP surfaces."""
+    catalog = _leandna_rows_from_data_summary(_DATA_SUMMARY_PATH)
+    return {
+        "note": (
+            "LeanDNA Data API payloads attach to **single-customer** QBR/health reports when "
+            "`LEANDNA_DATA_API_BEARER_TOKEN` is set and enrichment runs. This all-customers file still "
+            "omits live §1–§6 values for those sources; use this block for **path and endpoint vocabulary**."
+        ),
+        "data_summary_catalog_path": str(_DATA_SUMMARY_PATH.relative_to(_ROOT)),
+        "catalog_entries": catalog,
+        "catalog_entry_count": len(catalog),
+        "qbr_enrichment_dotted_paths": list(_LEANDNA_QBR_ENRICHMENT_PATHS),
+        "http_surfaces": list(_LEANDNA_DATA_API_HTTP_SURFACES),
+        "typical_item_master_api_fields": list(_LEANDNA_TYPICAL_ITEM_MASTER_FIELDS),
+        "lean_project_row_notes": (
+            "`leandna_lean_projects.all_projects` and `.top_projects` rows are shallow copies of "
+            "`GET /data/LeanProject` objects plus aliases `savings_actual`, `savings_target`, "
+            "`project_manager`, `sponsor_name`."
+        ),
+        "project_savings_notes": (
+            "`project_savings` is the raw `GET /data/LeanProject/{ids}/Savings` list for the top "
+            "projects by savings only; `monthly_savings` is a derived rollup."
+        ),
+    }
 
 
 def _build_export_coverage(
@@ -213,6 +349,10 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
             "- **§6 — Signals trend context (optional):** **Extra timing / trend text** when the pipeline provides it "
             "**and** we have not aggressively shortened the CS Report section; otherwise it is skipped so the file "
             "fits the size budget.",
+            "",
+            "- **LeanDNA Data API (reference JSON):** The next section (**LeanDNA Data API — data elements**) "
+            "lists catalog paths, typical QBR dotted paths, and HTTP surfaces for Item Master, shortages, and "
+            "Lean Projects. **Not** live tenant data in this export — see single-customer QBR when enrichment runs.",
             "",
             "### File size budget (this run)",
             f"- **Target size (`--max-bytes`):** about **{cov.get('markdown_soft_cap_bytes', '')}** bytes of UTF-8 for "
@@ -584,6 +724,7 @@ def build_snapshot_document(
             signals_cap=signals_cap,
             signals_line_max_chars=signal_line_max,
         ),
+        "leandna_data_api_reference": build_leandna_data_api_reference(),
     }
     stc = report.get("signals_trend_context")
     if stc:
@@ -630,6 +771,13 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
         parts.append(ln)
     parts.extend(
         [
+            "",
+            "## LeanDNA Data API — data elements (reference)",
+            "",
+            "Structured list of **catalog paths** (from `config/data_summary.json` when present), **typical QBR "
+            "report paths**, and **HTTP surfaces** used by BPO. No live LeanDNA values are included here.",
+            "",
+            _json_compact(doc.get("leandna_data_api_reference") or {}),
             "",
             "## Integration coverage",
             "",

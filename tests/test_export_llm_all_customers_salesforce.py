@@ -76,6 +76,10 @@ def test_export_coverage_manifest_and_markdown_section():
         "jira": {},
     }
     doc = mod.build_snapshot_document(report, markdown_soft_cap_bytes=99_999)
+    assert "leandna_data_api_reference" in doc
+    lref = doc["leandna_data_api_reference"]
+    assert "leandna_item_master" in lref["qbr_enrichment_dotted_paths"]
+    assert lref["http_surfaces"]
     cov = doc["export_coverage"]
     assert cov["profile_id"] == "llm_export_all_customers"
     assert len(cov["sources_in_profile"]) == 4
@@ -87,6 +91,11 @@ def test_export_coverage_manifest_and_markdown_section():
 
     md = mod.render_markdown(doc, exported_at_utc="2020-01-01T00:00:00Z")
     assert "## Snapshot coverage & omission rationale" in md
+    assert "## LeanDNA Data API — data elements (reference)" in md
+    cov_i = md.index("## Snapshot coverage & omission rationale")
+    ldna_i = md.index("## LeanDNA Data API — data elements (reference)")
+    int_i = md.index("## Integration coverage")
+    assert cov_i < ldna_i < int_i
     assert "99999 bytes (`--max-bytes`)" in md
     assert "leandna_item_master" in md
     assert "§5 shows the **full** ranked Pendo usage signal list" in md
