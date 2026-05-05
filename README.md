@@ -36,11 +36,12 @@ The engineering portfolio deck (`decks engineering-portfolio` or `decks run --de
 
 ## Generating Decks
 
-**QBR (template + companion bundle)** — explicit subcommand (same pipeline as `python main.py qbr`):
+**QBR (Drive template)** — explicit subcommand:
 
 ```bash
-decks qbr "Customer Name"
-decks qbr --main-only "Customer Name"   # main QBR deck only
+decks qbr "Customer Name"              # main QBR deck only (no companion decks)
+python main.py qbr "Customer Name"     # main deck + companion bundle (cohort, cs_health_review, …)
+python main.py qbr --main-only "Customer Name"
 ```
 
 Other decks use **explicit** flags and subcommands (no LLM parsing). Some useful patterns:

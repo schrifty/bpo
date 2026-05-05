@@ -873,10 +873,18 @@ def run_qbr_from_template(
     return result
 
 
-def run_qbr_cli(args_after_qbr: list[str], *, prog: str) -> None:
+def run_qbr_cli(
+    args_after_qbr: list[str],
+    *,
+    prog: str,
+    companion_bundle: bool | None = None,
+) -> None:
     """Parse argv after the ``qbr`` token and run :func:`run_qbr_from_template`.
 
-    Used by ``python main.py qbr …`` and ``decks qbr …``. Calls :func:`sys.exit` on completion or error.
+    * ``python main.py qbr``: ``companion_bundle`` defaults from ``--main-only`` (companions on unless flag set).
+    * ``decks qbr``: pass ``companion_bundle=False`` so only the main QBR deck runs.
+
+    Calls :func:`sys.exit` on completion or error.
     """
     import argparse
     import sys
@@ -886,11 +894,12 @@ def run_qbr_cli(args_after_qbr: list[str], *, prog: str) -> None:
         prog=prog,
         description="Build QBR from the Drive template (see GOOGLE_QBR_GENERATOR_FOLDER_ID).",
     )
-    qbr_ap.add_argument(
-        "--main-only",
-        action="store_true",
-        help="Only the main QBR Slides file; skip companion decks (cs_health_review, cohort, etc.)",
-    )
+    if companion_bundle is None:
+        qbr_ap.add_argument(
+            "--main-only",
+            action="store_true",
+            help="Only the main QBR Slides file; skip companion decks (cs_health_review, cohort, etc.)",
+        )
     qbr_ap.add_argument(
         "customer_words",
         nargs="*",
@@ -902,13 +911,20 @@ def run_qbr_cli(args_after_qbr: list[str], *, prog: str) -> None:
         qbr_ap.print_help()
         sys.exit(2)
 
+    if companion_bundle is None:
+        run_companions = not ns.main_only
+        main_only_flag = bool(ns.main_only)
+    else:
+        run_companions = bool(companion_bundle)
+        main_only_flag = not run_companions
+
     _qbr_t0 = _time.monotonic()
     logger.info(
         "QBR run for customer query: %s (companion_bundle=%s)",
         customer,
-        not ns.main_only,
+        run_companions,
     )
-    result = run_qbr_from_template(customer, companion_bundle=not ns.main_only)
+    result = run_qbr_from_template(customer, companion_bundle=run_companions)
     if result.get("error"):
         print(f"Error: {result['error']}", file=sys.stderr)
         if result.get("hint"):
@@ -916,8 +932,11 @@ def run_qbr_cli(args_after_qbr: list[str], *, prog: str) -> None:
         sys.exit(1)
     print(result.get("url", ""))
     print(f"Customer: {result.get('customer')}")
-    if ns.main_only:
-        print("Companion bundle: skipped (--main-only)")
+    if main_only_flag:
+        if companion_bundle is None:
+            print("Companion bundle: skipped (--main-only)")
+        else:
+            print("Companion bundle: skipped (this entrypoint builds the main QBR deck only)")
     if result.get("bundle_folder_id"):
         print(f"Bundle folder: https://drive.google.com/drive/folders/{result['bundle_folder_id']}")
     print(
