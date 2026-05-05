@@ -84,14 +84,6 @@ def test_build_customer_risk_payloads_merges_domains(sample_report: dict, monkey
     assert acme["jira_help"].get("total_issues") == 3
 
 
-def test_risk_insights_enabled_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("BPO_LLM_EXPORT_RISK_INSIGHTS", raising=False)
-    assert eri.risk_insights_enabled(False) is False
-    monkeypatch.setenv("BPO_LLM_EXPORT_RISK_INSIGHTS", "1")
-    assert eri.risk_insights_enabled(False) is True
-    assert eri.risk_insights_enabled(True) is True
-
-
 def test_call_risk_llm_batch_parses_customers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GEMINI_API_KEY", "test")
     monkeypatch.setenv("LLM_PROVIDER", "openai")

@@ -50,11 +50,11 @@ Flag commands (utilities)
   decks --data
       Print canonical data element paths from ``config/comprehensive_data_element_list.json``.
 
-  decks --export [--days N] [--max-bytes N] [--signals-cap N] [--risk-insights] [-o FILE] [--skip-drive]
+  decks --export [--days N] [--max-bytes N] [--signals-cap N] [-o FILE] [--skip-drive]
       Build the all-customers LLM context markdown snapshot and upload it to today's
       dated Drive Output folder (same destination as programmatic deck outputs). ``--out`` / ``-o``
       also writes a local copy. Use ``--skip-drive`` for local-only.
-      ``--risk-insights`` (or ``BPO_LLM_EXPORT_RISK_INSIGHTS=1``) appends §7 LLM churn/account-risk insights.
+      §7 LLM churn/account-risk insights are always appended to the export markdown.
 
 ────────────────────────────────────────────────────────────────
 Generate decks (natural language — LLM parses the prompt)

@@ -11,15 +11,14 @@ breakdowns, and SLA-style aggregates only — **no issue keys, summaries, or tic
 The markdown includes **Snapshot coverage & omission rationale** (profile sources, registry ids not in this export and why, caps, loader provenance, feedback prompt) plus **Planned integrations (not in this snapshot yet)** (e.g. Aha, GitHub).
 
 Usage:
-  decks --export [--days N] [--risk-insights]
-  python -m src.export_llm_context_snapshot --days 90 [--risk-insights]
+  decks --export [--days N]
+  python -m src.export_llm_context_snapshot --days 90
   python -m src.export_llm_context_snapshot --out ./snapshot.md --skip-drive
 
 Requires ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` and credentials for Drive upload unless ``--skip-drive``.
 Drive upload **replaces** an existing file with the same name in the dated Output folder by default (no configurable subfolder).
 
-Optional **§7 Account & churn risk insights** (LLM): pass ``--risk-insights`` or set ``BPO_LLM_EXPORT_RISK_INSIGHTS=1``.
-Failures are printed inside that section; the export still completes unless the core datasource report fails earlier.
+Every export appends **§7 Account & churn risk insights** (LLM). Failures are printed inside that section; the export still completes unless the core datasource report fails earlier.
 """
 from __future__ import annotations
 
@@ -923,14 +922,6 @@ def _build_export_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
     )
     ap.add_argument("--out", "-o", metavar="FILE", help="Also write markdown locally")
     ap.add_argument("--skip-drive", action="store_true", help="Do not upload to Drive")
-    ap.add_argument(
-        "--risk-insights",
-        action="store_true",
-        help=(
-            "Append §7 LLM account/churn risk insights (two per customer). "
-            "Also enables when BPO_LLM_EXPORT_RISK_INSIGHTS is set truthy."
-        ),
-    )
     return ap
 
 
@@ -995,21 +986,20 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
             "or narrow integrations if needed. -->\n"
         )
 
-    from src.export_llm_risk_insights import render_risk_insights_section, risk_insights_enabled
+    from src.export_llm_risk_insights import render_risk_insights_section
 
-    if risk_insights_enabled(bool(args.risk_insights)):
-        try:
-            md = md.rstrip() + "\n" + render_risk_insights_section(
-                report,
-                jira_days=min(int(args.days), 365),
-            )
-        except Exception as exc:
-            md = (
-                md.rstrip()
-                + "\n\n## 7. Account & churn risk insights (LLM)\n\n### Error\n\n"
-                f"Section generation raised an unexpected error: {exc}\n\n"
-                + "*Export body above is unchanged; core snapshot completed.*\n"
-            )
+    try:
+        md = md.rstrip() + "\n" + render_risk_insights_section(
+            report,
+            jira_days=min(int(args.days), 365),
+        )
+    except Exception as exc:
+        md = (
+            md.rstrip()
+            + "\n\n## 7. Account & churn risk insights (LLM)\n\n### Error\n\n"
+            f"Section generation raised an unexpected error: {exc}\n\n"
+            + "*Export body above is unchanged; core snapshot completed.*\n"
+        )
 
     for k in list(doc.keys()):
         if str(k).startswith("_"):

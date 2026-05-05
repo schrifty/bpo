@@ -433,9 +433,3 @@ def render_risk_insights_section(
         lines.append(f"*Note: {missing_llm} customer block(s) lacked usable LLM output.*")
 
     return "\n".join(lines).rstrip() + "\n"
-
-
-def risk_insights_enabled(cli_flag: bool) -> bool:
-    env = (os.environ.get("BPO_LLM_EXPORT_RISK_INSIGHTS") or "").strip().lower()
-    env_on = env in ("1", "true", "yes", "on")
-    return cli_flag or env_on
