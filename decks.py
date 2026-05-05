@@ -42,7 +42,7 @@ Flag commands (utilities)
       Uses the same health-report path as ``decks <natural language>``; pauses briefly between
       decks to reduce Drive rate limits.
 
-  decks --all-portfolio-decks [--days N] [--max-customers M] [--quarter …] [--thumbnails] [--csm "Name"]
+  decks --portfolio [--days N] [--max-customers M] [--quarter …] [--thumbnails] [--csm "Name"]
       Run every **portfolio** deck: portfolio_review, cohort_review, engineering-portfolio,
       implementations_review, support_review_portfolio. Optional ``--csm`` also runs ``csm_book_of_business``
       for that Pendo CSM substring. No customer name — these decks are org- or all-customer scoped.
@@ -99,7 +99,7 @@ _CUSTOMER_SCOPED_DECK_BATCH_ORDER: tuple[str, ...] = (
     "support",
 )
 
-# Order for ``--all-portfolio-decks`` (Pendo-heavy first, then Jira-only).
+# Order for ``--portfolio`` (Pendo-heavy first, then Jira-only).
 _PORTFOLIO_DECK_BATCH_ORDER: tuple[str, ...] = (
     "portfolio_review",
     "cohort_review",
@@ -479,7 +479,7 @@ def _run_all_customer_decks() -> None:
 
 
 def _run_all_portfolio_decks() -> None:
-    """CLI: ``--all-portfolio-decks`` — every portfolio deck; optional ``--csm`` for CSM book."""
+    """CLI: ``--portfolio`` — every portfolio deck; optional ``--csm`` for CSM book."""
     import argparse
 
     from src.data_source_health import check_all_required
@@ -496,7 +496,14 @@ def _run_all_portfolio_decks() -> None:
         prog="decks",
         description="Run every portfolio / cross-customer deck (see decks --list).",
     )
-    ap.add_argument("--all-portfolio-decks", action="store_true", required=True)
+    ap.add_argument(
+        "--portfolio",
+        "--all-portfolio-decks",
+        dest="portfolio",
+        action="store_true",
+        required=True,
+        help="Run the full portfolio deck batch (`--all-portfolio-decks` kept as alias).",
+    )
     ap.add_argument("--days", type=int, default=None, help="Lookback days (default: current quarter window)")
     ap.add_argument("--max-customers", type=int, default=None, dest="max_customers")
     ap.add_argument("--quarter", type=str, default=None, help='Quarter label, e.g. "Q1 2026", prev, current')
@@ -739,7 +746,7 @@ def main():
     if "--all-customer-decks" in sys.argv:
         _run_all_customer_decks()
         return
-    if "--all-portfolio-decks" in sys.argv:
+    if "--portfolio" in sys.argv or "--all-portfolio-decks" in sys.argv:
         _run_all_portfolio_decks()
         return
 
