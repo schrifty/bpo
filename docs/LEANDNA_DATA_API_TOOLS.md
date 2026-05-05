@@ -5,7 +5,7 @@ This document analyzes the LeanDNA Data API swagger spec and outlines what tools
 ## API Overview
 
 **Base URL:** `https://app.leandna.com/api`  
-**Auth:** `Authorization: Bearer {token}` (from env `DATA_API_BEARER_TOKEN`)  
+**Auth:** `Authorization: Bearer {token}` (from env `LEANDNA_DATA_API_BEARER_TOKEN`)  
 **Scope Control:** `RequestedSites` header (comma-separated site IDs)  
 **Total Endpoints:** 40+ operations across 10 tag groups
 
@@ -360,12 +360,12 @@ Add fields to `docs/data-schema/DATA_REGISTRY.md`:
 
 ## Related Files
 
-- **Script:** `scripts/fetch_leandna_data_api_swagger.py` — fetch & parse swagger (already created)
-- **Client:** `src/leandna_data_client.py` — HTTP client for Data API (to be created)
-- **Tools:** `src/tools/leandna_tool.py` — LangChain tool wrappers (to be created)
-- **QBR enrich:** `src/leandna_qbr_enrich.py` — optional enrichment for QBR (to be created)
-- **Tests:** `tests/test_leandna_data_client.py` — unit tests with mocked responses (to be created)
-- **Docs:** This file + `DATA_REGISTRY.md` updates
+- **Script:** `scripts/fetch_leandna_swagger.py` — fetch OpenAPI JSON (authenticated)
+- **Schema doc:** `docs/data-schema/LEANDNA_DATA_API_SCHEMA.md`
+- **Registry:** `docs/data-schema/DATA_REGISTRY.md` (LeanDNA Data API section)
+- **Clients / enrich (batch QBR path):** `src/leandna_item_master_client.py`, `src/leandna_item_master_enrich.py`, `src/leandna_shortage_client.py`, `src/leandna_shortage_enrich.py`, `src/leandna_lean_projects_client.py`, `src/leandna_lean_projects_enrich.py`
+- **Tests:** `tests/test_leandna_item_master.py`, `tests/test_leandna_shortage.py`, `tests/test_leandna_lean_projects.py`
+- **Note:** There is no single `leandna_data_client.py` or LangChain `leandna_tool` module; this doc’s tool sketches are design reference. Interactive agent tooling may differ.
 
 ---
 
@@ -378,4 +378,4 @@ The **LeanDNA Data API is a high-value integration** for BPO. It provides:
 3. **Granularity:** Daily/weekly buckets, multi-level CTB, scheduled deliveries.
 4. **Extensibility:** Custom metrics, parquet bulk exports, write-back hooks (future).
 
-**Recommended first step:** Implement `leandna_item_master_tool` and `leandna_shortage_trends_tool` as proof-of-concept; validate schema and data quality with one pilot customer. If successful, roll out Lean Projects tool and evaluate CS Report replacement path via Data Share parquet.
+**In-repo status:** Item Master, Shortage, and Lean Projects clients and QBR enrichment are implemented (see Related Files). Further endpoints (e.g. Data Share parquet, write-back) remain optional follow-ons; validate live schema and site mapping per customer as needed.

@@ -50,8 +50,10 @@ Run the script when you want:
 
 ```bash
 # SSH into EC2, or run via SSM Run Command
-cd /opt/bpo && ./scripts/load_secrets.sh "health review for Carrier"
-cd /opt/bpo && ./scripts/load_secrets.sh hydrate
+# There is no committed load_secrets.sh; use your own wrapper that loads AWS Secrets Manager
+# (or .env), exports env vars, then runs the CLI, for example:
+cd /opt/bpo && python decks.py "health review for Carrier"
+cd /opt/bpo && python decks.py hydrate
 ```
 
 Optional: add a tiny API (e.g. Flask/FastAPI) that accepts `POST /run` with `{"prompt": "health review for all customers"}` and runs `decks.py` in a subprocess or background thread, so you can call it from your laptop without SSH.
@@ -61,7 +63,7 @@ Optional: add a tiny API (e.g. Flask/FastAPI) that accepts `POST /run` with `{"p
 ```bash
 crontab -e
 # Every night at 2am UTC
-0 2 * * * cd /opt/bpo && ./scripts/load_secrets.sh "health review for all customers" >> /var/log/bpo.log 2>&1
+0 2 * * * cd /opt/bpo && python decks.py "health review for all customers" >> /var/log/bpo.log 2>&1
 ```
 
 Or use **EventBridge** with a cron rule to trigger the same command (e.g. via SSM Run Command on the EC2 instance), so you keep scheduling in AWS.

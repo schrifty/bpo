@@ -3,6 +3,8 @@
 **Status:** Fully implemented  
 **Date:** 2026-04-21
 
+**Note (2026-05):** The bundle later gained additional companions (e.g. portfolio/cohort/Salesforce). Authoritative list: `QBR_BUNDLE_COMPANION_DECKS` in `src/qbr_template.py`. This doc describes the original 5→8 expansion.
+
 ---
 
 ## Summary

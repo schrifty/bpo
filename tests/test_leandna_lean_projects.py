@@ -202,11 +202,17 @@ def test_enrich_qbr_with_lean_projects_success(mock_savings, mock_projects, monk
             "name": "Test Project",
             "stage": "Execution",
             "state": "good",
+            "startDate": "2026-01-15",
+            "dueDate": "2026-06-01",
+            "siteId": "42",
+            "link": "https://example.com/project/1",
+            "customFieldValues": [{"id": "cf1", "value": "X"}],
             "totalActualSavingsForPeriod": 100000.0,
             "totalTargetSavingsForPeriod": 80000.0,
             "isBestPractice": True,
             "isProjectResultsValidated": True,
-            "projectManager": {"name": "Jane Doe"},
+            "projectManager": {"name": "Jane Doe", "email": "jane@example.com"},
+            "sponsor": {"name": "Pat Exec", "userId": "u9"},
         },
     ]
     
@@ -241,8 +247,19 @@ def test_enrich_qbr_with_lean_projects_success(mock_savings, mock_projects, monk
     assert enrichment["savings_achievement_pct"] == 125.0
     assert enrichment["best_practice_count"] == 1
     assert len(enrichment["top_projects"]) == 1
+    assert len(enrichment["all_projects"]) == 1
     assert len(enrichment["monthly_savings"]) == 3
-    
+    assert enrichment["project_savings"] == mock_savings.return_value
+    assert enrichment["project_savings_project_ids"] == ["PROJ-1"]
+
+    tp0 = enrichment["top_projects"][0]
+    assert tp0["sponsor"]["name"] == "Pat Exec"
+    assert tp0["sponsor_name"] == "Pat Exec"
+    assert tp0["project_manager"] == "Jane Doe"
+    assert tp0["projectManager"]["email"] == "jane@example.com"
+    assert tp0["link"] == "https://example.com/project/1"
+    assert tp0["customFieldValues"][0]["value"] == "X"
+
     mock_projects.assert_called_once()
     mock_savings.assert_called_once()
 

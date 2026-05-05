@@ -1,103 +1,83 @@
 {
-  "version": 2,
+  "version": 4,
   "_comment": "Catalog paths with ``terms``; synonym phrases may be LLM-suggested (manufacturing / MRP-ERP context). Regenerate skeleton via scripts/generate_data_summary_catalog.py; enrich via scripts/enrich_data_summary_synonyms.py.",
   "entries": [
     {
-      "path": "customer",
+      "path": "_drive_svc",
       "terms": [
-        "customer",
-        "[report] customer short name / query key",
-        "Pendo identity"
+        "_drive_svc",
+        "[internal] Drive service"
       ]
     },
     {
-      "path": "generated",
+      "path": "_hydrate_slide_hints",
       "terms": [
-        "generated",
-        "[report] generated date stamp",
-        "health report"
+        "_hydrate_slide_hints",
+        "[internal] hydrate hints map"
       ]
     },
     {
-      "path": "days",
+      "path": "_signals_llm_manifest_rules",
       "terms": [
-        "days",
-        "[report] Pendo lookback window days"
+        "_signals_llm_manifest_rules",
+        "[internal] LLM editorial manifest excerpt"
       ]
     },
     {
-      "path": "salesforce_primary_account_id",
+      "path": "_signals_llm_slide_prompt",
       "terms": [
-        "salesforce_primary_account_id",
-        "[report] resolved Salesforce Account Id"
+        "_signals_llm_slide_prompt",
+        "[internal] slide prompt excerpt"
       ]
     },
     {
-      "path": "customer_key_type",
+      "path": "_slide_plan",
       "terms": [
-        "customer_key_type",
-        "[report] identity resolution: salesforce_account_id | name | none"
+        "_slide_plan",
+        "[internal] resolved template slide plan"
       ]
     },
     {
-      "path": "customer_name",
+      "path": "_slides_svc",
       "terms": [
-        "customer_name",
-        "[data_summary] mirrors report.customer",
-        "hydrate shorthand",
-        "Current Partner",
-        "Valued Client",
-        "Manufacturing Hub",
-        "Supply Chain Partner",
-        "Our Key Account"
+        "_slides_svc",
+        "[internal] Google Slides service"
       ]
     },
     {
-      "path": "report_date",
+      "path": "account.account_id",
       "terms": [
-        "report_date",
-        "[data_summary] mirrors report.generated",
-        "Report Generated",
-        "Data Snapshot",
-        "Current View",
-        "As Of Today",
-        "Latest Update"
+        "account.account_id",
+        "[Pendo] subscription/account id",
+        "Account Identifier",
+        "Customer Reference",
+        "Unique Client ID",
+        "Subscription Record",
+        "Client Account"
       ]
     },
     {
-      "path": "quarter",
+      "path": "account.csm",
       "terms": [
-        "quarter",
-        "[report] fiscal quarter label (QBR may set)",
-        "Current Quarter",
-        "Review Period",
-        "Fiscal Period",
-        "QBR Focus",
-        "This Quarter"
+        "account.csm",
+        "[Pendo] CSM names joined",
+        "Your CSM Team",
+        "Account Manager",
+        "Client Success",
+        "Our Support Lead",
+        "Relationship Owner"
       ]
     },
     {
-      "path": "quarter_start",
+      "path": "account.internal_visitors",
       "terms": [
-        "quarter_start",
-        "[report] ISO date",
-        "Period Start",
-        "Quarter Begins",
-        "From This Date",
-        "Starting Point",
-        "Initial Date"
-      ]
-    },
-    {
-      "path": "quarter_end",
-      "terms": [
-        "quarter_end",
-        "[report] ISO date",
-        "Period End",
-        "Quarter Closes",
-        "Until This Date",
-        "Closing Point",
-        "Final Date"
+        "account.internal_visitors",
+        "[Pendo] LeanDNA staff visitors excluded from metrics",
+        "LeanDNA Team",
+        "Internal Support",
+        "Our Staff Access",
+        "Product Team",
+        "Support Visits"
       ]
     },
     {
@@ -125,27 +105,15 @@
       ]
     },
     {
-      "path": "account.csm",
+      "path": "account.total_sites",
       "terms": [
-        "account.csm",
-        "[Pendo] CSM names joined",
-        "Your CSM Team",
-        "Account Manager",
-        "Client Success",
-        "Our Support Lead",
-        "Relationship Owner"
-      ]
-    },
-    {
-      "path": "account.account_id",
-      "terms": [
-        "account.account_id",
-        "[Pendo] subscription/account id",
-        "Account Identifier",
-        "Customer Reference",
-        "Unique Client ID",
-        "Subscription Record",
-        "Client Account"
+        "account.total_sites",
+        "[Pendo] matched factory/site names",
+        "Factories Monitored",
+        "Plants Connected",
+        "Site Count",
+        "Operational Locations",
+        "Manufacturing Sites"
       ]
     },
     {
@@ -161,352 +129,51 @@
       ]
     },
     {
-      "path": "account.internal_visitors",
+      "path": "account_avg_weekly_hours",
       "terms": [
-        "account.internal_visitors",
-        "[Pendo] LeanDNA staff visitors excluded from metrics",
-        "LeanDNA Team",
-        "Internal Support",
-        "Our Staff Access",
-        "Product Team",
-        "Support Visits"
+        "account_avg_weekly_hours",
+        "[data_summary] derived",
+        "Average weekly use",
+        "Consistent plant engagement",
+        "Weekly operational time",
+        "Sustained platform use",
+        "Regular user hours"
       ]
     },
     {
-      "path": "account.total_sites",
+      "path": "account_total_minutes",
       "terms": [
-        "account.total_sites",
-        "[Pendo] matched factory/site names",
-        "Factories Monitored",
-        "Plants Connected",
-        "Site Count",
-        "Operational Locations",
-        "Manufacturing Sites"
+        "account_total_minutes",
+        "[data_summary] summed site minutes",
+        "Total user engagement",
+        "Plant user time",
+        "Operational hours",
+        "Collaboration minutes",
+        "Platform usage time"
       ]
     },
     {
-      "path": "engagement.active_7d",
+      "path": "active_sites",
       "terms": [
-        "engagement.active_7d",
-        "[Pendo] weekly active visitors",
-        "Weekly Plant Users",
-        "Active Operations",
-        "Weekly Engaged",
-        "Supply Chain Logins",
-        "Regular Users"
+        "active_sites",
+        "[data_summary]",
+        "Sites engaged",
+        "Plants online",
+        "Factories connected",
+        "Operations live",
+        "Shop floors active"
       ]
     },
     {
-      "path": "engagement.active_30d",
+      "path": "active_users",
       "terms": [
-        "engagement.active_30d",
-        "[Pendo] monthly active visitors",
-        "Monthly Plant Users",
-        "Active Operations",
-        "Monthly Engaged",
-        "Supply Chain Logins",
-        "Regular Users"
-      ]
-    },
-    {
-      "path": "engagement.dormant",
-      "terms": [
-        "engagement.dormant",
-        "[Pendo] dormant bucket",
-        "Inactive Users",
-        "Low Engagement",
-        "Needs Outreach",
-        "Dormant Accounts",
-        "Re-engagement Focus"
-      ]
-    },
-    {
-      "path": "engagement.active_rate_7d",
-      "terms": [
-        "engagement.active_rate_7d",
-        "[Pendo] active_7d / total_visitors %",
-        "Weekly Engagement",
-        "User Adoption Rate",
-        "Active User %",
-        "Plant User Activity",
-        "Operations Usage"
-      ]
-    },
-    {
-      "path": "engagement.role_active",
-      "terms": [
-        "engagement.role_active",
-        "[Pendo] dict role→count (active)",
-        "Key roles engaged",
-        "Plant users active",
-        "Supply chain collaboration",
-        "Operations team usage",
-        "Manufacturing floor adoption"
-      ]
-    },
-    {
-      "path": "engagement.role_dormant",
-      "terms": [
-        "engagement.role_dormant",
-        "[Pendo] dict role→count (dormant)",
-        "Roles needing activation",
-        "Inactive plant users",
-        "Potential for wider use",
-        "Engagement opportunities",
-        "Unused capacity"
-      ]
-    },
-    {
-      "path": "benchmarks.customer_active_rate",
-      "terms": [
-        "benchmarks.customer_active_rate",
-        "[Pendo] same as engagement rate %",
-        "Overall plant engagement",
-        "Manufacturing team adoption",
-        "Supply chain utilization",
-        "Operational user activity",
-        "Current usage rate"
-      ]
-    },
-    {
-      "path": "benchmarks.peer_median_rate",
-      "terms": [
-        "benchmarks.peer_median_rate",
-        "[Pendo] portfolio median active %",
-        "Industry median usage",
-        "Peer group average",
-        "Portfolio benchmark",
-        "Typical plant engagement",
-        "Cross-industry standard"
-      ]
-    },
-    {
-      "path": "benchmarks.peer_count",
-      "terms": [
-        "benchmarks.peer_count",
-        "[Pendo] peers in benchmark set",
-        "Peers in comparison",
-        "Benchmark group size",
-        "Comparable companies",
-        "Industry peer count",
-        "Dataset participants"
-      ]
-    },
-    {
-      "path": "benchmarks.cohort",
-      "terms": [
-        "benchmarks.cohort",
-        "[Pendo] cohorts.yaml cohort key",
-        "Specific peer group",
-        "Defined industry segment",
-        "Comparison cohort ID",
-        "Matching peer set",
-        "Segment identifier"
-      ]
-    },
-    {
-      "path": "benchmarks.cohort_name",
-      "terms": [
-        "benchmarks.cohort_name",
-        "[Pendo] display cohort name",
-        "Named peer group",
-        "Industry segment name",
-        "Comparison group label",
-        "Defined cohort title",
-        "Targeted peer set"
-      ]
-    },
-    {
-      "path": "benchmarks.cohort_median_rate",
-      "terms": [
-        "benchmarks.cohort_median_rate",
-        "[Pendo] cohort median active %",
-        "Cohort median usage",
-        "Segment average rate",
-        "Peer group benchmark",
-        "Targeted cohort activity",
-        "Specific segment median"
-      ]
-    },
-    {
-      "path": "benchmarks.cohort_count",
-      "terms": [
-        "benchmarks.cohort_count",
-        "[Pendo] cohort peer count",
-        "Peer group size",
-        "Industry comparison",
-        "Cohort participation",
-        "Benchmarking peers",
-        "Competitive landscape"
-      ]
-    },
-    {
-      "path": "signals",
-      "terms": [
-        "signals",
-        "[Pendo] list of signal strings (not enumerated per-line here)",
-        "Key operational alerts",
-        "Critical process indicators",
-        "Supply chain signals",
-        "Manufacturing insights",
-        "Actionable data points"
-      ]
-    },
-    {
-      "path": "sites",
-      "terms": [
-        "sites",
-        "[Pendo] array of site dicts — keys include sitename, visitors, pages_used, features_used, total_events, total_minutes, last_active",
-        "no per-page tables in this catalog",
-        "Plant activity overview",
-        "Manufacturing site engagement",
-        "Factory operational health",
-        "Site usage summary",
-        "Plant network performance"
-      ]
-    },
-    {
-      "path": "site_details",
-      "terms": [
-        "site_details",
-        "[data_summary] trimmed copy of sites for prompts",
-        "Detailed site insights",
-        "Specific plant metrics",
-        "Factory performance details",
-        "Site operational summary",
-        "Individual plant overview"
-      ]
-    },
-    {
-      "path": "site_details.name",
-      "terms": [
-        "site_details.name",
-        "[Pendo→summary] site display name",
-        "Plant identification",
-        "Facility designation",
-        "Manufacturing site name",
-        "Operational unit label",
-        "Factory location ID"
-      ]
-    },
-    {
-      "path": "site_details.visitors",
-      "terms": [
-        "site_details.visitors",
-        "[Pendo→summary] visitors at site",
-        "Plant user count",
-        "Active site personnel",
-        "Manufacturing team engagement",
-        "Shop floor users",
-        "Operational staff access"
-      ]
-    },
-    {
-      "path": "site_details.pages_used",
-      "terms": [
-        "site_details.pages_used",
-        "[Pendo→summary] pages used",
-        "Key report access",
-        "Operational screen views",
-        "MRP page usage",
-        "ERP module interaction",
-        "Supply chain dashboard views"
-      ]
-    },
-    {
-      "path": "site_details.features_used",
-      "terms": [
-        "site_details.features_used",
-        "[Pendo→summary] features used",
-        "Core functionality adoption",
-        "Manufacturing tool usage",
-        "Supply chain feature engagement",
-        "Work order module use",
-        "Inventory management features"
-      ]
-    },
-    {
-      "path": "site_details.events",
-      "terms": [
-        "site_details.events",
-        "[Pendo→summary] total_events",
-        "User interactions",
-        "System engagements",
-        "Operational activities",
-        "Supply chain actions",
-        "Platform usage"
-      ]
-    },
-    {
-      "path": "site_details.total_minutes",
-      "terms": [
-        "site_details.total_minutes",
-        "[Pendo→summary] minutes",
-        "Active work time",
-        "Operational focus",
-        "Planning system use",
-        "Daily platform time",
-        "Supply chain hours"
-      ]
-    },
-    {
-      "path": "site_details.last_active",
-      "terms": [
-        "site_details.last_active",
-        "[Pendo→summary] last active",
-        "Recent user activity",
-        "Latest plant engagement",
-        "Current system use",
-        "Active collaboration",
-        "Fresh operational data"
-      ]
-    },
-    {
-      "path": "top_pages",
-      "terms": [
-        "top_pages",
-        "[Pendo] ranked page list — omitting per-row catalog",
-        "Key operational views",
-        "Most visited screens",
-        "Frequent planning pages",
-        "Core workflow areas",
-        "High-traffic modules"
-      ]
-    },
-    {
-      "path": "top_features",
-      "terms": [
-        "top_features",
-        "[Pendo] ranked feature list — omitting per-row catalog",
-        "Core tool usage",
-        "Key function adoption",
-        "Valuable capabilities",
-        "Frequent feature use",
-        "Operational workflows"
-      ]
-    },
-    {
-      "path": "feature_adoption_insights",
-      "terms": [
-        "feature_adoption_insights",
-        "[Pendo] structured adoption insights object",
-        "Feature use trends",
-        "Adoption patterns",
-        "Operational impact",
-        "Workflow integration",
-        "Capability uptake"
-      ]
-    },
-    {
-      "path": "champions",
-      "terms": [
-        "champions",
-        "[Pendo] champion user rows",
-        "Power users identified",
-        "Key operational leaders",
-        "High-engagement users",
-        "System advocates",
-        "Workflow experts"
+        "active_users",
+        "[data_summary] from account.active_visitors if present",
+        "Active plant users",
+        "Engaged operators",
+        "Daily collaborators",
+        "Active supply chain",
+        "Regular system use"
       ]
     },
     {
@@ -522,945 +189,166 @@
       ]
     },
     {
-      "path": "depth.customer",
+      "path": "benchmarks.cohort",
       "terms": [
-        "depth.customer",
-        "[Pendo depth]",
-        "Customer engagement depth",
-        "Plant-level adoption",
-        "Deeper factory usage",
-        "Broader customer reach",
-        "Enhanced plant utilization"
+        "benchmarks.cohort",
+        "[Pendo] cohorts.yaml cohort key",
+        "Specific peer group",
+        "Defined industry segment",
+        "Comparison cohort ID",
+        "Matching peer set",
+        "Segment identifier"
       ]
     },
     {
-      "path": "depth.days",
+      "path": "benchmarks.cohort_count",
       "terms": [
-        "depth.days",
-        "[Pendo depth]",
-        "Daily plant engagement",
-        "Consistent daily usage",
-        "Frequent operational use",
-        "Regular planner activity",
-        "Sustained daily interaction"
+        "benchmarks.cohort_count",
+        "[Pendo] cohort peer count",
+        "Peer group size",
+        "Industry comparison",
+        "Cohort participation",
+        "Benchmarking peers",
+        "Competitive landscape"
       ]
     },
     {
-      "path": "depth.total_feature_events",
+      "path": "benchmarks.cohort_median_rate",
       "terms": [
-        "depth.total_feature_events",
-        "[Pendo depth]",
-        "Feature interaction volume",
-        "Total operational actions",
-        "Broad tool utilization",
-        "Comprehensive feature use",
-        "Overall system engagement"
+        "benchmarks.cohort_median_rate",
+        "[Pendo] cohort median active %",
+        "Cohort median usage",
+        "Segment average rate",
+        "Peer group benchmark",
+        "Targeted cohort activity",
+        "Specific segment median"
       ]
     },
     {
-      "path": "depth.active_users",
+      "path": "benchmarks.cohort_name",
       "terms": [
-        "depth.active_users",
-        "[Pendo depth]",
-        "Engaged plant users",
-        "Active planner base",
-        "Operational user growth",
-        "Supply chain collaborators",
-        "Manufacturing team adoption"
+        "benchmarks.cohort_name",
+        "[Pendo] display cohort name",
+        "Named peer group",
+        "Industry segment name",
+        "Comparison group label",
+        "Defined cohort title",
+        "Targeted peer set"
       ]
     },
     {
-      "path": "depth.read_events",
+      "path": "benchmarks.customer_active_rate",
       "terms": [
-        "depth.read_events",
-        "[Pendo depth]",
-        "Data review frequency",
-        "Information consumption",
-        "Planning data access",
-        "Report viewing trends",
-        "Insight gathering actions"
+        "benchmarks.customer_active_rate",
+        "[Pendo] same as engagement rate %",
+        "Overall plant engagement",
+        "Manufacturing team adoption",
+        "Supply chain utilization",
+        "Operational user activity",
+        "Current usage rate"
       ]
     },
     {
-      "path": "depth.write_events",
+      "path": "benchmarks.peer_count",
       "terms": [
-        "depth.write_events",
-        "[Pendo depth]",
-        "Data entry actions",
-        "Planning updates made",
-        "Operational changes",
-        "Work order creation",
-        "Purchase order edits"
+        "benchmarks.peer_count",
+        "[Pendo] peers in benchmark set",
+        "Peers in comparison",
+        "Benchmark group size",
+        "Comparable companies",
+        "Industry peer count",
+        "Dataset participants"
       ]
     },
     {
-      "path": "depth.collab_events",
+      "path": "benchmarks.peer_median_rate",
       "terms": [
-        "depth.collab_events",
-        "[Pendo depth]",
-        "Supply chain collaboration",
-        "Team communication flow",
-        "Cross-functional sync",
-        "Planner-buyer interaction",
-        "Joint problem solving"
+        "benchmarks.peer_median_rate",
+        "[Pendo] portfolio median active %",
+        "Industry median usage",
+        "Peer group average",
+        "Portfolio benchmark",
+        "Typical plant engagement",
+        "Cross-industry standard"
       ]
     },
     {
-      "path": "depth.write_ratio",
+      "path": "champions",
       "terms": [
-        "depth.write_ratio",
-        "[Pendo depth] read vs write %",
-        "Action-to-view ratio",
-        "Data modification rate",
-        "Operational impact",
-        "Active contribution",
-        "Planning execution focus"
+        "champions",
+        "[Pendo] champion user rows",
+        "Power users identified",
+        "Key operational leaders",
+        "High-engagement users",
+        "System advocates",
+        "Workflow experts"
       ]
     },
     {
-      "path": "depth.breakdown",
+      "path": "cohorts_yaml",
       "terms": [
-        "depth.breakdown",
-        "[Pendo depth] category breakdown rows",
-        "Deeper data dives",
-        "Granular analysis",
-        "Category insights",
-        "Detailed data views",
-        "Exploring breakdowns"
+        "cohorts_yaml",
+        "[config cohorts.yaml] cohort / exclude / vertical per customer (not nested under report)"
       ]
     },
     {
-      "path": "exports.customer",
+      "path": "cs_health_sites",
       "terms": [
-        "exports.customer",
-        "[Pendo exports]",
-        "Customer data sharing",
-        "Demand plan exports",
-        "Order book exports",
-        "Client report generation",
-        "Customer insights shared"
+        "cs_health_sites",
+        "[data_summary] CSR snippet for prompts",
+        "Healthy sites",
+        "Engaged plants",
+        "Satisfied operations",
+        "Successful deployments",
+        "Strong site health"
       ]
     },
     {
-      "path": "exports.days",
+      "path": "cs_health_sites.ctb",
       "terms": [
-        "exports.days",
-        "[Pendo exports]",
-        "Consistent data sharing",
-        "Regular data extracts",
-        "Daily report generation",
-        "Frequent data pulls",
-        "Export activity days"
+        "cs_health_sites.ctb",
+        "[data_summary] CTB %",
+        "Build commitment rate",
+        "Production plan adherence",
+        "Manufacturing readiness",
+        "Demand fulfillment capacity",
+        "Shop floor commitment"
       ]
     },
     {
-      "path": "exports.total_exports",
+      "path": "cs_health_sites.ctc",
       "terms": [
-        "exports.total_exports",
-        "[Pendo exports]",
-        "High data sharing",
-        "Extensive report pulls",
-        "Data extraction volume",
-        "Information dissemination",
-        "Total data extracts"
+        "cs_health_sites.ctc",
+        "[data_summary] CTC %",
+        "Customer commitment rate",
+        "On-time delivery potential",
+        "Order fulfillment outlook",
+        "Supply chain reliability",
+        "Delivery promise strength"
       ]
     },
     {
-      "path": "exports.exports_per_active_user",
+      "path": "cs_health_sites.health",
       "terms": [
-        "exports.exports_per_active_user",
-        "[Pendo exports]",
-        "User data sharing",
-        "Per-user report pulls",
-        "Individual data extracts",
-        "Active user exports",
-        "Data sharing intensity"
+        "cs_health_sites.health",
+        "[data_summary] CSR health bucket",
+        "Overall plant health",
+        "Supply chain vitality",
+        "Operational stability",
+        "Manufacturing resilience",
+        "Production line health"
       ]
     },
     {
-      "path": "exports.active_users",
+      "path": "cs_health_sites.site",
       "terms": [
-        "exports.active_users",
-        "[Pendo exports]",
-        "Engaged data sharers",
-        "Active report users",
-        "Plant floor analysts",
-        "Supply chain collaborators",
-        "Exporting user base"
-      ]
-    },
-    {
-      "path": "exports.by_feature",
-      "terms": [
-        "exports.by_feature",
-        "[Pendo exports] ranked export features",
-        "Key data exports",
-        "Critical report features",
-        "Most shared insights",
-        "Top data extracts",
-        "Valued export types"
-      ]
-    },
-    {
-      "path": "exports.top_exporters",
-      "terms": [
-        "exports.top_exporters",
-        "[Pendo exports] top users",
-        "Key data sharers",
-        "Top data analysts",
-        "Power report users",
-        "Frequent data pullers",
-        "Influential data users"
-      ]
-    },
-    {
-      "path": "kei.customer",
-      "terms": [
-        "kei.customer",
-        "[Pendo Kei]",
-        "Supply chain engagement",
-        "Manufacturing operations",
-        "Plant floor collaboration",
-        "Planning team adoption",
-        "Buyer team usage"
-      ]
-    },
-    {
-      "path": "kei.days",
-      "terms": [
-        "kei.days",
-        "[Pendo Kei]",
-        "Active usage days",
-        "Daily operational use",
-        "Continuous plant insights",
-        "Sustained planning support",
-        "Regular supply chain checks"
-      ]
-    },
-    {
-      "path": "kei.total_queries",
-      "terms": [
-        "kei.total_queries",
-        "[Pendo Kei] chat / Kei events",
-        "Supply chain inquiries",
-        "Operational data requests",
-        "Planning insights sought",
-        "Manufacturing questions",
-        "Inventory status checks"
-      ]
-    },
-    {
-      "path": "kei.unique_users",
-      "terms": [
-        "kei.unique_users",
-        "[Pendo Kei]",
-        "Distinct plant users",
-        "Unique planning staff",
-        "Supply chain personnel",
-        "Manufacturing team reach",
-        "Individual contributor base"
-      ]
-    },
-    {
-      "path": "kei.active_users",
-      "terms": [
-        "kei.active_users",
-        "[Pendo Kei]",
-        "Engaged plant users",
-        "Active planning staff",
-        "Daily operational users",
-        "Supply chain collaborators",
-        "Manufacturing team usage"
-      ]
-    },
-    {
-      "path": "kei.adoption_rate",
-      "terms": [
-        "kei.adoption_rate",
-        "[Pendo Kei] %",
-        "Plant user adoption",
-        "Supply chain integration",
-        "Operational workflow uptake",
-        "Planning team embrace",
-        "Manufacturing tool usage"
-      ]
-    },
-    {
-      "path": "kei.executive_users",
-      "terms": [
-        "kei.executive_users",
-        "[Pendo Kei] exec role count",
-        "Leadership engagement",
-        "Executive oversight",
-        "Strategic planning users",
-        "Decision-maker access",
-        "Senior management insights"
-      ]
-    },
-    {
-      "path": "kei.executive_queries",
-      "terms": [
-        "kei.executive_queries",
-        "[Pendo Kei] exec query volume",
-        "Leadership insights sought",
-        "Strategic query volume",
-        "Executive data requests",
-        "Management information",
-        "High-level planning queries"
-      ]
-    },
-    {
-      "path": "kei.users",
-      "terms": [
-        "kei.users",
-        "[Pendo Kei] top user rows (email, role, queries, is_executive)",
-        "Active planners",
-        "Key plant users",
-        "Executive engagement",
-        "Supply chain leaders",
-        "Frequent query users"
-      ]
-    },
-    {
-      "path": "guides.customer",
-      "terms": [
-        "guides.customer",
-        "[Pendo guides]",
-        "User guide views",
-        "Onboarding success",
-        "Feature adoption",
-        "Training effectiveness",
-        "Workflow guidance"
-      ]
-    },
-    {
-      "path": "guides.days",
-      "terms": [
-        "guides.days",
-        "[Pendo guides]",
-        "Guide active days",
-        "Training duration",
-        "Onboarding period",
-        "Feature learning time",
-        "Workflow adoption span"
-      ]
-    },
-    {
-      "path": "guides.total_guide_events",
-      "terms": [
-        "guides.total_guide_events",
-        "[Pendo guides]",
-        "Guide interactions",
-        "Training engagements",
-        "Feature walk-throughs",
-        "User learning steps",
-        "Onboarding activities"
-      ]
-    },
-    {
-      "path": "guides.users_who_saw_guides",
-      "terms": [
-        "guides.users_who_saw_guides",
-        "[Pendo guides]",
-        "Guided users",
-        "Trained personnel",
-        "Onboarded staff",
-        "Feature adopters",
-        "Engaged operators"
-      ]
-    },
-    {
-      "path": "guides.total_visitors",
-      "terms": [
-        "guides.total_visitors",
-        "[Pendo guides]",
-        "Total plant users",
-        "Active system users",
-        "Supply chain visitors",
-        "Manufacturing personnel",
-        "Overall user base"
-      ]
-    },
-    {
-      "path": "guides.guide_reach",
-      "terms": [
-        "guides.guide_reach",
-        "[Pendo guides] %",
-        "Guide visibility",
-        "User training reach",
-        "Onboarding coverage",
-        "Feature adoption rate",
-        "Engaged user ratio"
-      ]
-    },
-    {
-      "path": "guides.seen",
-      "terms": [
-        "guides.seen",
-        "[Pendo guides] guideSeen count",
-        "Guide views",
-        "Training module views",
-        "Feature tour plays",
-        "User guidance views",
-        "Onboarding step views"
-      ]
-    },
-    {
-      "path": "guides.advanced",
-      "terms": [
-        "guides.advanced",
-        "[Pendo guides] guideAdvanced count",
-        "Feature adoption progress",
-        "New process learning",
-        "User skill development",
-        "Workflow guide completion",
-        "Operational training uptake"
-      ]
-    },
-    {
-      "path": "guides.dismissed",
-      "terms": [
-        "guides.dismissed",
-        "[Pendo guides] guideDismissed count",
-        "Guide relevance issues",
-        "Interruption avoidance",
-        "Experienced user bypass",
-        "Content not needed",
-        "Workflow disruption"
-      ]
-    },
-    {
-      "path": "guides.dismiss_rate",
-      "terms": [
-        "guides.dismiss_rate",
-        "[Pendo guides] %",
-        "Guide engagement challenge",
-        "Content relevance metric",
-        "User distraction indicator",
-        "Training material effectiveness",
-        "Adoption friction point"
-      ]
-    },
-    {
-      "path": "guides.advance_rate",
-      "terms": [
-        "guides.advance_rate",
-        "[Pendo guides] %",
-        "Feature adoption success",
-        "New user onboarding",
-        "Process learning efficiency",
-        "Operational training impact",
-        "Workflow mastery progress"
-      ]
-    },
-    {
-      "path": "guides.top_guides",
-      "terms": [
-        "guides.top_guides",
-        "[Pendo guides] ranked guide rows",
-        "Most impactful training",
-        "Key feature walkthroughs",
-        "High-value process guides",
-        "Top operational learning",
-        "Frequent user reference"
-      ]
-    },
-    {
-      "path": "poll_events",
-      "terms": [
-        "poll_events",
-        "[Pendo] poll/survey engagement blob",
-        "User feedback collected",
-        "Operational insights gained",
-        "Supply chain input",
-        "Plant user sentiment",
-        "Feature request data"
-      ]
-    },
-    {
-      "path": "frustration",
-      "terms": [
-        "frustration",
-        "[Pendo] frustration signals blob",
-        "Workflow friction points",
-        "Operational pain points",
-        "User experience blockers",
-        "System usability issues",
-        "Process bottlenecks"
-      ]
-    },
-    {
-      "path": "track_events_breakdown",
-      "terms": [
-        "track_events_breakdown",
-        "[Pendo] track-type breakdown blob",
-        "Key action analysis",
-        "Operational event tracking",
-        "Workflow step insights",
-        "Custom process monitoring",
-        "Manufacturing activity data"
-      ]
-    },
-    {
-      "path": "visitor_languages",
-      "terms": [
-        "visitor_languages",
-        "[Pendo] language distribution blob",
-        "Global plant user base",
-        "Multilingual shop floor",
-        "Diverse user language",
-        "International team support",
-        "Localized user experience"
-      ]
-    },
-    {
-      "path": "pendo_catalog_appendix",
-      "terms": [
-        "pendo_catalog_appendix",
-        "[Pendo] catalog appendix summary",
-        "Feature adoption insights",
-        "Module usage trends",
-        "Documentation engagement",
-        "User guide review",
-        "Training material access"
-      ]
-    },
-    {
-      "path": "jira.customer",
-      "terms": [
-        "jira.customer",
-        "[Jira]",
-        "Plant team requests",
-        "Manufacturing support",
-        "Supply chain issues",
-        "Operations team tickets",
-        "Internal user support"
-      ]
-    },
-    {
-      "path": "jira.days",
-      "terms": [
-        "jira.days",
-        "[Jira] lookback",
-        "Recent issue trends",
-        "Past period analysis",
-        "Current reporting window",
-        "Lookback period scope",
-        "Service window duration"
-      ]
-    },
-    {
-      "path": "jira.total_issues",
-      "terms": [
-        "jira.total_issues",
-        "[Jira] HELP scope issue count in window",
-        "Total support requests",
-        "Manufacturing help tickets",
-        "Supply chain inquiries",
-        "Operations issue volume",
-        "Plant system support"
-      ]
-    },
-    {
-      "path": "jira.open_issues",
-      "terms": [
-        "jira.open_issues",
-        "[Jira]",
-        "Unresolved plant issues",
-        "Pending operations tasks",
-        "Active supply chain tickets",
-        "Open manufacturing requests",
-        "Unaddressed system needs"
-      ]
-    },
-    {
-      "path": "jira.resolved_issues",
-      "terms": [
-        "jira.resolved_issues",
-        "[Jira]",
-        "Resolved plant problems",
-        "Completed operations tasks",
-        "Closed supply chain tickets",
-        "Addressed manufacturing needs",
-        "System issues fixed"
-      ]
-    },
-    {
-      "path": "jira.escalated",
-      "terms": [
-        "jira.escalated",
-        "[Jira] escalated count",
-        "Critical plant issues",
-        "High-priority operations",
-        "Urgent supply chain needs",
-        "Escalated manufacturing tickets",
-        "Critical system alerts"
-      ]
-    },
-    {
-      "path": "jira.open_bugs",
-      "terms": [
-        "jira.open_bugs",
-        "[Jira]",
-        "System stability concerns",
-        "Impacts production tools",
-        "ERP module issues",
-        "Shop floor disruptions",
-        "Supply chain system glitches"
-      ]
-    },
-    {
-      "path": "jira.by_status",
-      "terms": [
-        "jira.by_status",
-        "[Jira] histogram",
-        "Issue resolution flow",
-        "Progress on plant issues",
-        "Supply chain ticket states",
-        "Work order system support",
-        "ERP support status"
-      ]
-    },
-    {
-      "path": "jira.by_type",
-      "terms": [
-        "jira.by_type",
-        "[Jira] histogram",
-        "Manufacturing system tasks",
-        "Plant floor requests",
-        "Supply chain enhancements",
-        "ERP bug reports",
-        "Operational support types"
-      ]
-    },
-    {
-      "path": "jira.by_priority",
-      "terms": [
-        "jira.by_priority",
-        "[Jira] histogram",
-        "Critical production issues",
-        "High-impact plant tickets",
-        "Urgent supply chain needs",
-        "ERP system priorities",
-        "Shop floor critical items"
-      ]
-    },
-    {
-      "path": "jira.by_sentiment",
-      "terms": [
-        "jira.by_sentiment",
-        "[Jira] histogram",
-        "User feedback trends",
-        "Plant user satisfaction",
-        "Supply chain team morale",
-        "System user sentiment",
-        "Operational feedback"
-      ]
-    },
-    {
-      "path": "jira.by_request_type",
-      "terms": [
-        "jira.by_request_type",
-        "[Jira] histogram",
-        "Manufacturing IT requests",
-        "Supply chain support needs",
-        "Plant system access",
-        "ERP feature requests",
-        "Shop floor tool support"
-      ]
-    },
-    {
-      "path": "jira.tickets_over_time",
-      "terms": [
-        "jira.tickets_over_time",
-        "[Jira] weekly buckets",
-        "Support load trends",
-        "Plant issue volume",
-        "Supply chain ticket flow",
-        "ERP system activity",
-        "Operational support demand"
-      ]
-    },
-    {
-      "path": "jira.recent_issues",
-      "terms": [
-        "jira.recent_issues",
-        "[Jira] sample rows (key/summary)",
-        "Latest system issues",
-        "Recent plant floor tickets",
-        "Current supply chain tasks",
-        "New ERP support items",
-        "Active operational issues"
-      ]
-    },
-    {
-      "path": "jira.escalated_issues",
-      "terms": [
-        "jira.escalated_issues",
-        "[Jira] sample escalations",
-        "Critical plant issues",
-        "Urgent production blockers",
-        "Supply chain disruptions",
-        "High-priority factory needs",
-        "Expedited material requests"
-      ]
-    },
-    {
-      "path": "jira.engineering",
-      "terms": [
-        "jira.engineering",
-        "[Jira] LEAN engineering slice",
-        "Lean process improvements",
-        "Manufacturing engineering tasks",
-        "Shop floor optimizations",
-        "Production line enhancements",
-        "Design for manufacturability"
-      ]
-    },
-    {
-      "path": "jira.enhancements",
-      "terms": [
-        "jira.enhancements",
-        "[Jira] ER slice",
-        "New factory capabilities",
-        "Manufacturing system upgrades",
-        "Supply chain tool improvements",
-        "Process automation requests",
-        "ERP module enhancements"
-      ]
-    },
-    {
-      "path": "jira.ttfr",
-      "terms": [
-        "jira.ttfr",
-        "[Jira] time-to-first-response SLA stats",
-        "Quick issue acknowledgment",
-        "Rapid plant support",
-        "Fast supply chain response",
-        "Prompt operational feedback",
-        "Timely shop floor help"
-      ]
-    },
-    {
-      "path": "jira.ttr",
-      "terms": [
-        "jira.ttr",
-        "[Jira] time-to-resolve SLA stats",
-        "Efficient issue resolution",
-        "Reduced production downtime",
-        "Swift supply chain fixes",
-        "Operational problem solving",
-        "Minimized factory disruptions"
-      ]
-    },
-    {
-      "path": "jira.customer_ticket_metrics",
-      "terms": [
-        "jira.customer_ticket_metrics",
-        "[Jira] pre-aggregated ticket metrics",
-        "Plant user support trends",
-        "Supply chain team tickets",
-        "Manufacturing operations issues",
-        "Factory floor requests",
-        "Production system inquiries"
-      ]
-    },
-    {
-      "path": "jira.jsm_organizations_resolved",
-      "terms": [
-        "jira.jsm_organizations_resolved",
-        "[Jira] org resolution trace"
-      ]
-    },
-    {
-      "path": "jira.help_scope",
-      "terms": [
-        "jira.help_scope",
-        "[Jira] scope description string"
-      ]
-    },
-    {
-      "path": "jira.jql_queries",
-      "terms": [
-        "jira.jql_queries",
-        "[Jira] JQL trace for QA"
-      ]
-    },
-    {
-      "path": "support.total_tickets",
-      "terms": [
-        "support.total_tickets",
-        "[data_summary] from jira.total_issues",
-        "Overall plant support volume",
-        "Total manufacturing inquiries",
-        "Supply chain issue count",
-        "Factory operations requests",
-        "Production system tickets"
-      ]
-    },
-    {
-      "path": "support.open",
-      "terms": [
-        "support.open",
-        "[data_summary] from jira.open_issues",
-        "Unresolved plant issues",
-        "Pending production support",
-        "Open supply chain tickets",
-        "Active factory requests",
-        "Outstanding operational tasks"
-      ]
-    },
-    {
-      "path": "support.resolved",
-      "terms": [
-        "support.resolved",
-        "[data_summary] from jira.resolved_issues",
-        "Plant issue closure",
-        "Operations support speed",
-        "Supply chain ticket resolution",
-        "Manufacturing process fixes",
-        "Production line issue handling"
-      ]
-    },
-    {
-      "path": "salesforce.customer",
-      "terms": [
-        "salesforce.customer",
-        "[SFDC]",
-        "Valued manufacturing partners",
-        "Key factory accounts",
-        "Strategic plant relationships",
-        "Discrete manufacturing clients",
-        "Supply chain collaborators"
-      ]
-    },
-    {
-      "path": "salesforce.accounts",
-      "terms": [
-        "salesforce.accounts",
-        "[SFDC] matched Account rows"
-      ]
-    },
-    {
-      "path": "salesforce.account_ids",
-      "terms": [
-        "salesforce.account_ids",
-        "[SFDC] Ids",
-        "Unique client identifiers",
-        "Distinct factory accounts",
-        "Partner ID count",
-        "Manufacturing site IDs",
-        "Supply chain entity count"
-      ]
-    },
-    {
-      "path": "salesforce.opportunity_count_this_year",
-      "terms": [
-        "salesforce.opportunity_count_this_year",
-        "[SFDC]",
-        "New plant projects",
-        "Manufacturing expansion leads",
-        "Supply chain solution pursuits",
-        "Factory modernization bids",
-        "Production efficiency deals"
-      ]
-    },
-    {
-      "path": "salesforce.pipeline_arr",
-      "terms": [
-        "salesforce.pipeline_arr",
-        "[SFDC] pipeline ARR",
-        "Future manufacturing revenue",
-        "Projected plant solutions",
-        "Supply chain ARR outlook",
-        "Operations platform pipeline",
-        "Factory software forecast"
-      ]
-    },
-    {
-      "path": "salesforce.matched",
-      "terms": [
-        "salesforce.matched",
-        "[SFDC] boolean",
-        "Account record aligned",
-        "Data synchronization success",
-        "Customer profile matched",
-        "ERP record linked",
-        "Supply chain data integrity"
-      ]
-    },
-    {
-      "path": "salesforce.resolution",
-      "terms": [
-        "salesforce.resolution",
-        "[SFDC] salesforce_account_id | name | none",
-        "Account identification method",
-        "Customer record clarity",
-        "Resolution by ID",
-        "Name-based matching",
-        "Data linking outcome"
-      ]
-    },
-    {
-      "path": "salesforce.primary_account_id",
-      "terms": [
-        "salesforce.primary_account_id",
-        "[SFDC]",
-        "Core client identifier",
-        "Main factory account",
-        "Primary partner ID",
-        "Key manufacturing entity",
-        "Central supply chain ID"
-      ]
-    },
-    {
-      "path": "salesforce.error",
-      "terms": [
-        "salesforce.error",
-        "[SFDC] when present",
-        "SFDC data sync issues",
-        "Integration error count",
-        "Supply chain data integrity",
-        "Critical data flow disruptions",
-        "Salesforce data health"
-      ]
-    },
-    {
-      "path": "salesforce.row_limit",
-      "terms": [
-        "salesforce.row_limit",
-        "[SFDC comprehensive] max rows per category",
-        "Data volume capacity",
-        "Record processing limits",
-        "Supply chain data scale",
-        "Max data set size",
-        "Data query constraints"
-      ]
-    },
-    {
-      "path": "salesforce.account_ids_expanded",
-      "terms": [
-        "salesforce.account_ids_expanded",
-        "[SFDC comprehensive] hierarchy-expanded Account Ids",
-        "Full customer visibility",
-        "Supply chain partner mapping",
-        "Expanded vendor network",
-        "Comprehensive account view",
-        "Tiered supplier relationships"
-      ]
-    },
-    {
-      "path": "salesforce.categories",
-      "terms": [
-        "salesforce.categories",
-        "[SFDC comprehensive] dict label→rows (wide SOQL bundles)"
-      ]
-    },
-    {
-      "path": "salesforce.category_errors",
-      "terms": [
-        "salesforce.category_errors",
-        "[SFDC comprehensive] per-category fetch errors"
+        "cs_health_sites.site",
+        "[data_summary] CSR site label",
+        "Manufacturing site focus",
+        "Plant performance review",
+        "Operational hub status",
+        "Factory output trends",
+        "Production facility insights"
       ]
     },
     {
@@ -1488,15 +376,15 @@
       ]
     },
     {
-      "path": "csr.platform_health.source",
+      "path": "csr.platform_health.error",
       "terms": [
-        "csr.platform_health.source",
-        "[CSR] cs_report",
-        "Data source reliability",
-        "Report generation health",
-        "Input data stream status",
-        "Source system integrity",
-        "Reporting data quality"
+        "csr.platform_health.error",
+        "[CSR] when load failed",
+        "Data load stability",
+        "Reliable data feeds",
+        "Accurate ERP sync",
+        "Smooth data ingestion",
+        "System uptime for plants"
       ]
     },
     {
@@ -1524,15 +412,34 @@
       ]
     },
     {
-      "path": "csr.platform_health.total_shortages",
+      "path": "csr.platform_health.sites",
       "terms": [
-        "csr.platform_health.total_shortages",
-        "[CSR]",
-        "Reduced material gaps",
-        "Fewer production halts",
-        "Improved inventory flow",
-        "Better supply visibility",
-        "Minimized stockouts"
+        "csr.platform_health.sites",
+        "[CSR] per-factory health rows",
+        "Factories monitored",
+        "Plants under watch",
+        "Operational sites",
+        "Manufacturing locations",
+        "Production facilities"
+      ]
+    },
+    {
+      "path": "csr.platform_health.sites[]",
+      "terms": [
+        "csr.platform_health.sites[]",
+        "[CSR site row] keys may include: factory health_score clear_to_build_pct clear_to_commit_pct component_availability_pct component_availability_projected_pct shortages critical_shortages weekly_active_buyers_pct buyer_mapping_quality high_risk_items site entity"
+      ]
+    },
+    {
+      "path": "csr.platform_health.source",
+      "terms": [
+        "csr.platform_health.source",
+        "[CSR] cs_report",
+        "Data source reliability",
+        "Report generation health",
+        "Input data stream status",
+        "Source system integrity",
+        "Reporting data quality"
       ]
     },
     {
@@ -1548,159 +455,15 @@
       ]
     },
     {
-      "path": "csr.platform_health.sites",
+      "path": "csr.platform_health.total_shortages",
       "terms": [
-        "csr.platform_health.sites",
-        "[CSR] per-factory health rows",
-        "Factories monitored",
-        "Plants under watch",
-        "Operational sites",
-        "Manufacturing locations",
-        "Production facilities"
-      ]
-    },
-    {
-      "path": "csr.platform_health.error",
-      "terms": [
-        "csr.platform_health.error",
-        "[CSR] when load failed",
-        "Data load stability",
-        "Reliable data feeds",
-        "Accurate ERP sync",
-        "Smooth data ingestion",
-        "System uptime for plants"
-      ]
-    },
-    {
-      "path": "csr.supply_chain.customer",
-      "terms": [
-        "csr.supply_chain.customer",
+        "csr.platform_health.total_shortages",
         "[CSR]",
-        "Serving more clients",
-        "Expanded customer base",
-        "Increased demand sources",
-        "Broader market reach",
-        "Customer order fulfillment"
-      ]
-    },
-    {
-      "path": "csr.supply_chain.source",
-      "terms": [
-        "csr.supply_chain.source",
-        "[CSR]",
-        "Diverse supplier base",
-        "New material vendors",
-        "Expanded sourcing options",
-        "Strengthened supplier ties",
-        "Reliable component origins"
-      ]
-    },
-    {
-      "path": "csr.supply_chain.factory_count",
-      "terms": [
-        "csr.supply_chain.factory_count",
-        "[CSR]",
-        "Factories managed",
-        "Plants in network",
-        "Production sites",
-        "Manufacturing hubs",
-        "Operational footprint"
-      ]
-    },
-    {
-      "path": "csr.supply_chain.totals.on_hand",
-      "terms": [
-        "csr.supply_chain.totals.on_hand",
-        "[CSR]",
-        "Current stock levels",
-        "Available inventory",
-        "Warehouse holdings",
-        "Physical stock count",
-        "Material availability"
-      ]
-    },
-    {
-      "path": "csr.supply_chain.totals.on_order",
-      "terms": [
-        "csr.supply_chain.totals.on_order",
-        "[CSR]",
-        "Open PO quantities",
-        "Incoming material volume",
-        "Future supply commitments",
-        "Pending deliveries",
-        "Ordered parts count"
-      ]
-    },
-    {
-      "path": "csr.supply_chain.totals.excess_on_hand",
-      "terms": [
-        "csr.supply_chain.totals.excess_on_hand",
-        "[CSR]",
-        "Surplus inventory at plants",
-        "Overstocked components",
-        "Excess parts in stock",
-        "Unused material volume",
-        "Stored surplus"
-      ]
-    },
-    {
-      "path": "csr.supply_chain.totals.excess_on_order",
-      "terms": [
-        "csr.supply_chain.totals.excess_on_order",
-        "[CSR]",
-        "Ordered surplus material",
-        "Future excess supply",
-        "Over-ordered components",
-        "Unneeded incoming parts",
-        "Pending excess deliveries"
-      ]
-    },
-    {
-      "path": "csr.supply_chain.totals.past_due_po",
-      "terms": [
-        "csr.supply_chain.totals.past_due_po",
-        "[CSR]",
-        "Late material deliveries",
-        "Overdue supplier shipments",
-        "Delayed purchase orders",
-        "Critical PO backlog",
-        "Supplier delivery issues"
-      ]
-    },
-    {
-      "path": "csr.supply_chain.totals.past_due_req",
-      "terms": [
-        "csr.supply_chain.totals.past_due_req",
-        "[CSR]",
-        "Overdue internal requests",
-        "Late material demands",
-        "Unfulfilled plant needs",
-        "Delayed part requisitions",
-        "Internal supply delays"
-      ]
-    },
-    {
-      "path": "csr.supply_chain.sites",
-      "terms": [
-        "csr.supply_chain.sites",
-        "[CSR] per-factory supply rows",
-        "Active factory locations",
-        "Connected plant count",
-        "Manufacturing site coverage",
-        "Operational facility count",
-        "Supply network nodes"
-      ]
-    },
-    {
-      "path": "csr.supply_chain.error",
-      "terms": [
-        "csr.supply_chain.error",
-        "[CSR]",
-        "Data integrity issues",
-        "Supply chain data errors",
-        "Process discrepancies",
-        "System integration faults",
-        "MRP run anomalies"
+        "Reduced material gaps",
+        "Fewer production halts",
+        "Improved inventory flow",
+        "Better supply visibility",
+        "Minimized stockouts"
       ]
     },
     {
@@ -1716,15 +479,15 @@
       ]
     },
     {
-      "path": "csr.platform_value.source",
+      "path": "csr.platform_value.error",
       "terms": [
-        "csr.platform_value.source",
+        "csr.platform_value.error",
         "[CSR]",
-        "Data integration points",
-        "Supply chain visibility",
-        "ERP data synchronization",
-        "Material flow insights",
-        "Production data source"
+        "Data discrepancies",
+        "System anomalies",
+        "Process failures",
+        "Integration issues",
+        "Operational glitches"
       ]
     },
     {
@@ -1740,15 +503,34 @@
       ]
     },
     {
-      "path": "csr.platform_value.total_savings",
+      "path": "csr.platform_value.sites",
       "terms": [
-        "csr.platform_value.total_savings",
+        "csr.platform_value.sites",
+        "[CSR] per-factory ROI rows",
+        "Factories onboarded",
+        "Plants connected",
+        "Operational sites",
+        "Manufacturing hubs",
+        "Facility coverage"
+      ]
+    },
+    {
+      "path": "csr.platform_value.sites[]",
+      "terms": [
+        "csr.platform_value.sites[]",
+        "[CSR site row] keys may include: factory savings_current_period open_ia_value recs_created_30d pos_placed_30d overdue_tasks current_fy_spend previous_fy_spend site entity"
+      ]
+    },
+    {
+      "path": "csr.platform_value.source",
+      "terms": [
+        "csr.platform_value.source",
         "[CSR]",
-        "Cost reductions achieved",
-        "Inventory optimization",
-        "Waste elimination",
-        "Procurement savings",
-        "Operational efficiency"
+        "Data integration points",
+        "Supply chain visibility",
+        "ERP data synchronization",
+        "Material flow insights",
+        "Production data source"
       ]
     },
     {
@@ -1761,6 +543,30 @@
         "Open action value",
         "Potential cost avoidance",
         "Unlocked inventory"
+      ]
+    },
+    {
+      "path": "csr.platform_value.total_overdue_tasks",
+      "terms": [
+        "csr.platform_value.total_overdue_tasks",
+        "[CSR]",
+        "Pending actions",
+        "Critical delays",
+        "Supply chain risks",
+        "Unresolved issues",
+        "Process bottlenecks"
+      ]
+    },
+    {
+      "path": "csr.platform_value.total_pos_placed_30d",
+      "terms": [
+        "csr.platform_value.total_pos_placed_30d",
+        "[CSR]",
+        "Procurement activity",
+        "Supplier orders placed",
+        "Material acquisition",
+        "Supply chain transactions",
+        "Replenishment orders"
       ]
     },
     {
@@ -1800,58 +606,63 @@
       ]
     },
     {
-      "path": "csr.platform_value.total_pos_placed_30d",
+      "path": "csr.platform_value.total_savings",
       "terms": [
-        "csr.platform_value.total_pos_placed_30d",
+        "csr.platform_value.total_savings",
         "[CSR]",
-        "Procurement activity",
-        "Supplier orders placed",
-        "Material acquisition",
-        "Supply chain transactions",
-        "Replenishment orders"
+        "Cost reductions achieved",
+        "Inventory optimization",
+        "Waste elimination",
+        "Procurement savings",
+        "Operational efficiency"
       ]
     },
     {
-      "path": "csr.platform_value.total_overdue_tasks",
+      "path": "csr.supply_chain.customer",
       "terms": [
-        "csr.platform_value.total_overdue_tasks",
+        "csr.supply_chain.customer",
         "[CSR]",
-        "Pending actions",
-        "Critical delays",
-        "Supply chain risks",
-        "Unresolved issues",
-        "Process bottlenecks"
+        "Serving more clients",
+        "Expanded customer base",
+        "Increased demand sources",
+        "Broader market reach",
+        "Customer order fulfillment"
       ]
     },
     {
-      "path": "csr.platform_value.sites",
+      "path": "csr.supply_chain.error",
       "terms": [
-        "csr.platform_value.sites",
-        "[CSR] per-factory ROI rows",
-        "Factories onboarded",
-        "Plants connected",
-        "Operational sites",
+        "csr.supply_chain.error",
+        "[CSR]",
+        "Data integrity issues",
+        "Supply chain data errors",
+        "Process discrepancies",
+        "System integration faults",
+        "MRP run anomalies"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.factory_count",
+      "terms": [
+        "csr.supply_chain.factory_count",
+        "[CSR]",
+        "Factories managed",
+        "Plants in network",
+        "Production sites",
         "Manufacturing hubs",
-        "Facility coverage"
+        "Operational footprint"
       ]
     },
     {
-      "path": "csr.platform_value.error",
+      "path": "csr.supply_chain.sites",
       "terms": [
-        "csr.platform_value.error",
-        "[CSR]",
-        "Data discrepancies",
-        "System anomalies",
-        "Process failures",
-        "Integration issues",
-        "Operational glitches"
-      ]
-    },
-    {
-      "path": "csr.platform_health.sites[]",
-      "terms": [
-        "csr.platform_health.sites[]",
-        "[CSR site row] keys may include: factory health_score clear_to_build_pct clear_to_commit_pct component_availability_pct component_availability_projected_pct shortages critical_shortages weekly_active_buyers_pct buyer_mapping_quality high_risk_items site entity"
+        "csr.supply_chain.sites",
+        "[CSR] per-factory supply rows",
+        "Active factory locations",
+        "Connected plant count",
+        "Manufacturing site coverage",
+        "Operational facility count",
+        "Supply network nodes"
       ]
     },
     {
@@ -1862,82 +673,579 @@
       ]
     },
     {
-      "path": "csr.platform_value.sites[]",
+      "path": "csr.supply_chain.source",
       "terms": [
-        "csr.platform_value.sites[]",
-        "[CSR site row] keys may include: factory savings_current_period open_ia_value recs_created_30d pos_placed_30d overdue_tasks current_fy_spend previous_fy_spend site entity"
+        "csr.supply_chain.source",
+        "[CSR]",
+        "Diverse supplier base",
+        "New material vendors",
+        "Expanded sourcing options",
+        "Strengthened supplier ties",
+        "Reliable component origins"
       ]
     },
     {
-      "path": "total_users",
+      "path": "csr.supply_chain.totals.excess_on_hand",
       "terms": [
-        "total_users",
-        "[data_summary] alias of total_visitors",
+        "csr.supply_chain.totals.excess_on_hand",
+        "[CSR]",
+        "Surplus inventory at plants",
+        "Overstocked components",
+        "Excess parts in stock",
+        "Unused material volume",
+        "Stored surplus"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.totals.excess_on_order",
+      "terms": [
+        "csr.supply_chain.totals.excess_on_order",
+        "[CSR]",
+        "Ordered surplus material",
+        "Future excess supply",
+        "Over-ordered components",
+        "Unneeded incoming parts",
+        "Pending excess deliveries"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.totals.on_hand",
+      "terms": [
+        "csr.supply_chain.totals.on_hand",
+        "[CSR]",
+        "Current stock levels",
+        "Available inventory",
+        "Warehouse holdings",
+        "Physical stock count",
+        "Material availability"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.totals.on_order",
+      "terms": [
+        "csr.supply_chain.totals.on_order",
+        "[CSR]",
+        "Open PO quantities",
+        "Incoming material volume",
+        "Future supply commitments",
+        "Pending deliveries",
+        "Ordered parts count"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.totals.past_due_po",
+      "terms": [
+        "csr.supply_chain.totals.past_due_po",
+        "[CSR]",
+        "Late material deliveries",
+        "Overdue supplier shipments",
+        "Delayed purchase orders",
+        "Critical PO backlog",
+        "Supplier delivery issues"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.totals.past_due_req",
+      "terms": [
+        "csr.supply_chain.totals.past_due_req",
+        "[CSR]",
+        "Overdue internal requests",
+        "Late material demands",
+        "Unfulfilled plant needs",
+        "Delayed part requisitions",
+        "Internal supply delays"
+      ]
+    },
+    {
+      "path": "customer",
+      "terms": [
+        "customer",
+        "[report] customer short name / query key",
+        "Pendo identity"
+      ]
+    },
+    {
+      "path": "customer_key_type",
+      "terms": [
+        "customer_key_type",
+        "[report] identity resolution: salesforce_account_id | name | none"
+      ]
+    },
+    {
+      "path": "customer_name",
+      "terms": [
+        "customer_name",
+        "[data_summary] mirrors report.customer",
+        "hydrate shorthand",
+        "Current Partner",
+        "Valued Client",
+        "Manufacturing Hub",
+        "Supply Chain Partner",
+        "Our Key Account"
+      ]
+    },
+    {
+      "path": "days",
+      "terms": [
+        "days",
+        "[report] Pendo lookback window days"
+      ]
+    },
+    {
+      "path": "depth.active_users",
+      "terms": [
+        "depth.active_users",
+        "[Pendo depth]",
+        "Engaged plant users",
+        "Active planner base",
+        "Operational user growth",
+        "Supply chain collaborators",
+        "Manufacturing team adoption"
+      ]
+    },
+    {
+      "path": "depth.breakdown",
+      "terms": [
+        "depth.breakdown",
+        "[Pendo depth] category breakdown rows",
+        "Deeper data dives",
+        "Granular analysis",
+        "Category insights",
+        "Detailed data views",
+        "Exploring breakdowns"
+      ]
+    },
+    {
+      "path": "depth.collab_events",
+      "terms": [
+        "depth.collab_events",
+        "[Pendo depth]",
+        "Supply chain collaboration",
+        "Team communication flow",
+        "Cross-functional sync",
+        "Planner-buyer interaction",
+        "Joint problem solving"
+      ]
+    },
+    {
+      "path": "depth.customer",
+      "terms": [
+        "depth.customer",
+        "[Pendo depth]",
+        "Customer engagement depth",
+        "Plant-level adoption",
+        "Deeper factory usage",
+        "Broader customer reach",
+        "Enhanced plant utilization"
+      ]
+    },
+    {
+      "path": "depth.days",
+      "terms": [
+        "depth.days",
+        "[Pendo depth]",
+        "Daily plant engagement",
+        "Consistent daily usage",
+        "Frequent operational use",
+        "Regular planner activity",
+        "Sustained daily interaction"
+      ]
+    },
+    {
+      "path": "depth.read_events",
+      "terms": [
+        "depth.read_events",
+        "[Pendo depth]",
+        "Data review frequency",
+        "Information consumption",
+        "Planning data access",
+        "Report viewing trends",
+        "Insight gathering actions"
+      ]
+    },
+    {
+      "path": "depth.total_feature_events",
+      "terms": [
+        "depth.total_feature_events",
+        "[Pendo depth]",
+        "Feature interaction volume",
+        "Total operational actions",
+        "Broad tool utilization",
+        "Comprehensive feature use",
+        "Overall system engagement"
+      ]
+    },
+    {
+      "path": "depth.write_events",
+      "terms": [
+        "depth.write_events",
+        "[Pendo depth]",
+        "Data entry actions",
+        "Planning updates made",
+        "Operational changes",
+        "Work order creation",
+        "Purchase order edits"
+      ]
+    },
+    {
+      "path": "depth.write_ratio",
+      "terms": [
+        "depth.write_ratio",
+        "[Pendo depth] read vs write %",
+        "Action-to-view ratio",
+        "Data modification rate",
+        "Operational impact",
+        "Active contribution",
+        "Planning execution focus"
+      ]
+    },
+    {
+      "path": "engagement.active_30d",
+      "terms": [
+        "engagement.active_30d",
+        "[Pendo] monthly active visitors",
+        "Monthly Plant Users",
+        "Active Operations",
+        "Monthly Engaged",
+        "Supply Chain Logins",
+        "Regular Users"
+      ]
+    },
+    {
+      "path": "engagement.active_7d",
+      "terms": [
+        "engagement.active_7d",
+        "[Pendo] weekly active visitors",
+        "Weekly Plant Users",
+        "Active Operations",
+        "Weekly Engaged",
+        "Supply Chain Logins",
+        "Regular Users"
+      ]
+    },
+    {
+      "path": "engagement.active_rate_7d",
+      "terms": [
+        "engagement.active_rate_7d",
+        "[Pendo] active_7d / total_visitors %",
+        "Weekly Engagement",
+        "User Adoption Rate",
+        "Active User %",
+        "Plant User Activity",
+        "Operations Usage"
+      ]
+    },
+    {
+      "path": "engagement.dormant",
+      "terms": [
+        "engagement.dormant",
+        "[Pendo] dormant bucket",
+        "Inactive Users",
+        "Low Engagement",
+        "Needs Outreach",
+        "Dormant Accounts",
+        "Re-engagement Focus"
+      ]
+    },
+    {
+      "path": "engagement.role_active",
+      "terms": [
+        "engagement.role_active",
+        "[Pendo] dict role→count (active)",
+        "Key roles engaged",
+        "Plant users active",
+        "Supply chain collaboration",
+        "Operations team usage",
+        "Manufacturing floor adoption"
+      ]
+    },
+    {
+      "path": "engagement.role_dormant",
+      "terms": [
+        "engagement.role_dormant",
+        "[Pendo] dict role→count (dormant)",
+        "Roles needing activation",
+        "Inactive plant users",
+        "Potential for wider use",
+        "Engagement opportunities",
+        "Unused capacity"
+      ]
+    },
+    {
+      "path": "executive_sponsor",
+      "terms": [
+        "executive_sponsor",
+        "[QBR] config/qbr_mappings.yaml target for [Executive sponsor]",
+        "Executive sponsor",
+        "account executive sponsor",
+        "business sponsor"
+      ]
+    },
+    {
+      "path": "exports.active_users",
+      "terms": [
+        "exports.active_users",
+        "[Pendo exports]",
+        "Engaged data sharers",
+        "Active report users",
+        "Plant floor analysts",
+        "Supply chain collaborators",
+        "Exporting user base"
+      ]
+    },
+    {
+      "path": "exports.by_feature",
+      "terms": [
+        "exports.by_feature",
+        "[Pendo exports] ranked export features",
+        "Key data exports",
+        "Critical report features",
+        "Most shared insights",
+        "Top data extracts",
+        "Valued export types"
+      ]
+    },
+    {
+      "path": "exports.customer",
+      "terms": [
+        "exports.customer",
+        "[Pendo exports]",
+        "Customer data sharing",
+        "Demand plan exports",
+        "Order book exports",
+        "Client report generation",
+        "Customer insights shared"
+      ]
+    },
+    {
+      "path": "exports.days",
+      "terms": [
+        "exports.days",
+        "[Pendo exports]",
+        "Consistent data sharing",
+        "Regular data extracts",
+        "Daily report generation",
+        "Frequent data pulls",
+        "Export activity days"
+      ]
+    },
+    {
+      "path": "exports.exports_per_active_user",
+      "terms": [
+        "exports.exports_per_active_user",
+        "[Pendo exports]",
+        "User data sharing",
+        "Per-user report pulls",
+        "Individual data extracts",
+        "Active user exports",
+        "Data sharing intensity"
+      ]
+    },
+    {
+      "path": "exports.top_exporters",
+      "terms": [
+        "exports.top_exporters",
+        "[Pendo exports] top users",
+        "Key data sharers",
+        "Top data analysts",
+        "Power report users",
+        "Frequent data pullers",
+        "Influential data users"
+      ]
+    },
+    {
+      "path": "exports.total_exports",
+      "terms": [
+        "exports.total_exports",
+        "[Pendo exports]",
+        "High data sharing",
+        "Extensive report pulls",
+        "Data extraction volume",
+        "Information dissemination",
+        "Total data extracts"
+      ]
+    },
+    {
+      "path": "feature_adoption_insights",
+      "terms": [
+        "feature_adoption_insights",
+        "[Pendo] structured adoption insights object",
+        "Feature use trends",
+        "Adoption patterns",
+        "Operational impact",
+        "Workflow integration",
+        "Capability uptake"
+      ]
+    },
+    {
+      "path": "frustration",
+      "terms": [
+        "frustration",
+        "[Pendo] frustration signals blob",
+        "Workflow friction points",
+        "Operational pain points",
+        "User experience blockers",
+        "System usability issues",
+        "Process bottlenecks"
+      ]
+    },
+    {
+      "path": "generated",
+      "terms": [
+        "generated",
+        "[report] generated date stamp",
+        "health report"
+      ]
+    },
+    {
+      "path": "github",
+      "terms": [
+        "github",
+        "[GitHub] blob when present on report — structure varies by wiring"
+      ]
+    },
+    {
+      "path": "guides.advance_rate",
+      "terms": [
+        "guides.advance_rate",
+        "[Pendo guides] %",
+        "Feature adoption success",
+        "New user onboarding",
+        "Process learning efficiency",
+        "Operational training impact",
+        "Workflow mastery progress"
+      ]
+    },
+    {
+      "path": "guides.advanced",
+      "terms": [
+        "guides.advanced",
+        "[Pendo guides] guideAdvanced count",
+        "Feature adoption progress",
+        "New process learning",
+        "User skill development",
+        "Workflow guide completion",
+        "Operational training uptake"
+      ]
+    },
+    {
+      "path": "guides.customer",
+      "terms": [
+        "guides.customer",
+        "[Pendo guides]",
+        "User guide views",
+        "Onboarding success",
+        "Feature adoption",
+        "Training effectiveness",
+        "Workflow guidance"
+      ]
+    },
+    {
+      "path": "guides.days",
+      "terms": [
+        "guides.days",
+        "[Pendo guides]",
+        "Guide active days",
+        "Training duration",
+        "Onboarding period",
+        "Feature learning time",
+        "Workflow adoption span"
+      ]
+    },
+    {
+      "path": "guides.dismiss_rate",
+      "terms": [
+        "guides.dismiss_rate",
+        "[Pendo guides] %",
+        "Guide engagement challenge",
+        "Content relevance metric",
+        "User distraction indicator",
+        "Training material effectiveness",
+        "Adoption friction point"
+      ]
+    },
+    {
+      "path": "guides.dismissed",
+      "terms": [
+        "guides.dismissed",
+        "[Pendo guides] guideDismissed count",
+        "Guide relevance issues",
+        "Interruption avoidance",
+        "Experienced user bypass",
+        "Content not needed",
+        "Workflow disruption"
+      ]
+    },
+    {
+      "path": "guides.guide_reach",
+      "terms": [
+        "guides.guide_reach",
+        "[Pendo guides] %",
+        "Guide visibility",
+        "User training reach",
+        "Onboarding coverage",
+        "Feature adoption rate",
+        "Engaged user ratio"
+      ]
+    },
+    {
+      "path": "guides.seen",
+      "terms": [
+        "guides.seen",
+        "[Pendo guides] guideSeen count",
+        "Guide views",
+        "Training module views",
+        "Feature tour plays",
+        "User guidance views",
+        "Onboarding step views"
+      ]
+    },
+    {
+      "path": "guides.top_guides",
+      "terms": [
+        "guides.top_guides",
+        "[Pendo guides] ranked guide rows",
+        "Most impactful training",
+        "Key feature walkthroughs",
+        "High-value process guides",
+        "Top operational learning",
+        "Frequent user reference"
+      ]
+    },
+    {
+      "path": "guides.total_guide_events",
+      "terms": [
+        "guides.total_guide_events",
+        "[Pendo guides]",
+        "Guide interactions",
+        "Training engagements",
+        "Feature walk-throughs",
+        "User learning steps",
+        "Onboarding activities"
+      ]
+    },
+    {
+      "path": "guides.total_visitors",
+      "terms": [
+        "guides.total_visitors",
+        "[Pendo guides]",
         "Total plant users",
-        "Supply chain team",
-        "Manufacturing staff",
-        "Operational logins",
-        "Collaborator count"
+        "Active system users",
+        "Supply chain visitors",
+        "Manufacturing personnel",
+        "Overall user base"
       ]
     },
     {
-      "path": "total_visitors",
+      "path": "guides.users_who_saw_guides",
       "terms": [
-        "total_visitors",
-        "[data_summary]",
-        "Total plant users",
-        "Supply chain team",
-        "Manufacturing staff",
-        "Operational logins",
-        "Collaborator count"
-      ]
-    },
-    {
-      "path": "unique_visitors",
-      "terms": [
-        "unique_visitors",
-        "[data_summary] alias",
-        "Unique plant users",
-        "Distinct collaborators",
-        "Individual operators",
-        "Unique site logins",
-        "Distinct team members"
-      ]
-    },
-    {
-      "path": "active_users",
-      "terms": [
-        "active_users",
-        "[data_summary] from account.active_visitors if present",
-        "Active plant users",
-        "Engaged operators",
-        "Daily collaborators",
-        "Active supply chain",
-        "Regular system use"
-      ]
-    },
-    {
-      "path": "total_sites",
-      "terms": [
-        "total_sites",
-        "[data_summary]",
-        "Total factories",
-        "Plants managed",
-        "Operational sites",
-        "Manufacturing hubs",
-        "Facility count"
-      ]
-    },
-    {
-      "path": "active_sites",
-      "terms": [
-        "active_sites",
-        "[data_summary]",
-        "Sites engaged",
-        "Plants online",
-        "Factories connected",
-        "Operations live",
-        "Shop floors active"
+        "guides.users_who_saw_guides",
+        "[Pendo guides]",
+        "Guided users",
+        "Trained personnel",
+        "Onboarded staff",
+        "Feature adopters",
+        "Engaged operators"
       ]
     },
     {
@@ -1953,123 +1261,972 @@
       ]
     },
     {
-      "path": "account_total_minutes",
+      "path": "jira.by_priority",
       "terms": [
-        "account_total_minutes",
-        "[data_summary] summed site minutes",
-        "Total user engagement",
-        "Plant user time",
-        "Operational hours",
-        "Collaboration minutes",
-        "Platform usage time"
+        "jira.by_priority",
+        "[Jira] histogram",
+        "Critical production issues",
+        "High-impact plant tickets",
+        "Urgent supply chain needs",
+        "ERP system priorities",
+        "Shop floor critical items"
       ]
     },
     {
-      "path": "account_avg_weekly_hours",
+      "path": "jira.by_request_type",
       "terms": [
-        "account_avg_weekly_hours",
-        "[data_summary] derived",
-        "Average weekly use",
-        "Consistent plant engagement",
-        "Weekly operational time",
-        "Sustained platform use",
-        "Regular user hours"
+        "jira.by_request_type",
+        "[Jira] histogram",
+        "Manufacturing IT requests",
+        "Supply chain support needs",
+        "Plant system access",
+        "ERP feature requests",
+        "Shop floor tool support"
       ]
     },
     {
-      "path": "total_shortages",
+      "path": "jira.by_sentiment",
       "terms": [
-        "total_shortages",
-        "[data_summary] from csr.platform_health",
-        "Material shortages",
-        "Parts unavailable",
-        "Supply gaps identified",
-        "Inventory shortfalls",
-        "Production risks"
+        "jira.by_sentiment",
+        "[Jira] histogram",
+        "User feedback trends",
+        "Plant user satisfaction",
+        "Supply chain team morale",
+        "System user sentiment",
+        "Operational feedback"
       ]
     },
     {
-      "path": "total_critical_shortages",
+      "path": "jira.by_status",
       "terms": [
-        "total_critical_shortages",
-        "[data_summary]",
-        "Critical material gaps",
-        "High-impact shortages",
-        "Urgent supply issues",
-        "Production stoppers",
-        "Key component risks"
+        "jira.by_status",
+        "[Jira] histogram",
+        "Issue resolution flow",
+        "Progress on plant issues",
+        "Supply chain ticket states",
+        "Work order system support",
+        "ERP support status"
       ]
     },
     {
-      "path": "weekly_active_buyers_pct_avg",
+      "path": "jira.by_type",
       "terms": [
-        "weekly_active_buyers_pct_avg",
-        "[data_summary] averaged CSR site rows",
-        "Buyer engagement rate",
-        "Active procurement",
-        "Weekly buyer use",
-        "Purchasing team activity",
-        "Supply chain collaboration"
+        "jira.by_type",
+        "[Jira] histogram",
+        "Manufacturing system tasks",
+        "Plant floor requests",
+        "Supply chain enhancements",
+        "ERP bug reports",
+        "Operational support types"
       ]
     },
     {
-      "path": "cs_health_sites",
+      "path": "jira.customer",
       "terms": [
-        "cs_health_sites",
-        "[data_summary] CSR snippet for prompts",
-        "Healthy sites",
-        "Engaged plants",
-        "Satisfied operations",
-        "Successful deployments",
-        "Strong site health"
+        "jira.customer",
+        "[Jira]",
+        "Plant team requests",
+        "Manufacturing support",
+        "Supply chain issues",
+        "Operations team tickets",
+        "Internal user support"
       ]
     },
     {
-      "path": "cs_health_sites.site",
+      "path": "jira.customer_ticket_metrics",
       "terms": [
-        "cs_health_sites.site",
-        "[data_summary] CSR site label",
-        "Manufacturing site focus",
-        "Plant performance review",
-        "Operational hub status",
-        "Factory output trends",
-        "Production facility insights"
+        "jira.customer_ticket_metrics",
+        "[Jira] pre-aggregated ticket metrics",
+        "Plant user support trends",
+        "Supply chain team tickets",
+        "Manufacturing operations issues",
+        "Factory floor requests",
+        "Production system inquiries"
       ]
     },
     {
-      "path": "cs_health_sites.health",
+      "path": "jira.days",
       "terms": [
-        "cs_health_sites.health",
-        "[data_summary] CSR health bucket",
-        "Overall plant health",
-        "Supply chain vitality",
-        "Operational stability",
-        "Manufacturing resilience",
-        "Production line health"
+        "jira.days",
+        "[Jira] lookback",
+        "Recent issue trends",
+        "Past period analysis",
+        "Current reporting window",
+        "Lookback period scope",
+        "Service window duration"
       ]
     },
     {
-      "path": "cs_health_sites.ctb",
+      "path": "jira.engineering",
       "terms": [
-        "cs_health_sites.ctb",
-        "[data_summary] CTB %",
-        "Build commitment rate",
-        "Production plan adherence",
-        "Manufacturing readiness",
-        "Demand fulfillment capacity",
-        "Shop floor commitment"
+        "jira.engineering",
+        "[Jira] LEAN engineering slice",
+        "Lean process improvements",
+        "Manufacturing engineering tasks",
+        "Shop floor optimizations",
+        "Production line enhancements",
+        "Design for manufacturability"
       ]
     },
     {
-      "path": "cs_health_sites.ctc",
+      "path": "jira.enhancements",
       "terms": [
-        "cs_health_sites.ctc",
-        "[data_summary] CTC %",
-        "Customer commitment rate",
-        "On-time delivery potential",
-        "Order fulfillment outlook",
-        "Supply chain reliability",
-        "Delivery promise strength"
+        "jira.enhancements",
+        "[Jira] ER slice",
+        "New factory capabilities",
+        "Manufacturing system upgrades",
+        "Supply chain tool improvements",
+        "Process automation requests",
+        "ERP module enhancements"
+      ]
+    },
+    {
+      "path": "jira.escalated",
+      "terms": [
+        "jira.escalated",
+        "[Jira] escalated count",
+        "Critical plant issues",
+        "High-priority operations",
+        "Urgent supply chain needs",
+        "Escalated manufacturing tickets",
+        "Critical system alerts"
+      ]
+    },
+    {
+      "path": "jira.escalated_issues",
+      "terms": [
+        "jira.escalated_issues",
+        "[Jira] sample escalations",
+        "Critical plant issues",
+        "Urgent production blockers",
+        "Supply chain disruptions",
+        "High-priority factory needs",
+        "Expedited material requests"
+      ]
+    },
+    {
+      "path": "jira.help_scope",
+      "terms": [
+        "jira.help_scope",
+        "[Jira] scope description string"
+      ]
+    },
+    {
+      "path": "jira.jql_queries",
+      "terms": [
+        "jira.jql_queries",
+        "[Jira] JQL trace for QA"
+      ]
+    },
+    {
+      "path": "jira.jsm_organizations_resolved",
+      "terms": [
+        "jira.jsm_organizations_resolved",
+        "[Jira] org resolution trace"
+      ]
+    },
+    {
+      "path": "jira.open_bugs",
+      "terms": [
+        "jira.open_bugs",
+        "[Jira]",
+        "System stability concerns",
+        "Impacts production tools",
+        "ERP module issues",
+        "Shop floor disruptions",
+        "Supply chain system glitches"
+      ]
+    },
+    {
+      "path": "jira.open_issues",
+      "terms": [
+        "jira.open_issues",
+        "[Jira]",
+        "Unresolved plant issues",
+        "Pending operations tasks",
+        "Active supply chain tickets",
+        "Open manufacturing requests",
+        "Unaddressed system needs"
+      ]
+    },
+    {
+      "path": "jira.recent_issues",
+      "terms": [
+        "jira.recent_issues",
+        "[Jira] sample rows (key/summary)",
+        "Latest system issues",
+        "Recent plant floor tickets",
+        "Current supply chain tasks",
+        "New ERP support items",
+        "Active operational issues"
+      ]
+    },
+    {
+      "path": "jira.resolved_issues",
+      "terms": [
+        "jira.resolved_issues",
+        "[Jira]",
+        "Resolved plant problems",
+        "Completed operations tasks",
+        "Closed supply chain tickets",
+        "Addressed manufacturing needs",
+        "System issues fixed"
+      ]
+    },
+    {
+      "path": "jira.tickets_over_time",
+      "terms": [
+        "jira.tickets_over_time",
+        "[Jira] weekly buckets",
+        "Support load trends",
+        "Plant issue volume",
+        "Supply chain ticket flow",
+        "ERP system activity",
+        "Operational support demand"
+      ]
+    },
+    {
+      "path": "jira.total_issues",
+      "terms": [
+        "jira.total_issues",
+        "[Jira] HELP scope issue count in window",
+        "Total support requests",
+        "Manufacturing help tickets",
+        "Supply chain inquiries",
+        "Operations issue volume",
+        "Plant system support"
+      ]
+    },
+    {
+      "path": "jira.ttfr",
+      "terms": [
+        "jira.ttfr",
+        "[Jira] time-to-first-response SLA stats",
+        "Quick issue acknowledgment",
+        "Rapid plant support",
+        "Fast supply chain response",
+        "Prompt operational feedback",
+        "Timely shop floor help"
+      ]
+    },
+    {
+      "path": "jira.ttr",
+      "terms": [
+        "jira.ttr",
+        "[Jira] time-to-resolve SLA stats",
+        "Efficient issue resolution",
+        "Reduced production downtime",
+        "Swift supply chain fixes",
+        "Operational problem solving",
+        "Minimized factory disruptions"
+      ]
+    },
+    {
+      "path": "kei.active_users",
+      "terms": [
+        "kei.active_users",
+        "[Pendo Kei]",
+        "Engaged plant users",
+        "Active planning staff",
+        "Daily operational users",
+        "Supply chain collaborators",
+        "Manufacturing team usage"
+      ]
+    },
+    {
+      "path": "kei.adoption_rate",
+      "terms": [
+        "kei.adoption_rate",
+        "[Pendo Kei] %",
+        "Plant user adoption",
+        "Supply chain integration",
+        "Operational workflow uptake",
+        "Planning team embrace",
+        "Manufacturing tool usage"
+      ]
+    },
+    {
+      "path": "kei.customer",
+      "terms": [
+        "kei.customer",
+        "[Pendo Kei]",
+        "Supply chain engagement",
+        "Manufacturing operations",
+        "Plant floor collaboration",
+        "Planning team adoption",
+        "Buyer team usage"
+      ]
+    },
+    {
+      "path": "kei.days",
+      "terms": [
+        "kei.days",
+        "[Pendo Kei]",
+        "Active usage days",
+        "Daily operational use",
+        "Continuous plant insights",
+        "Sustained planning support",
+        "Regular supply chain checks"
+      ]
+    },
+    {
+      "path": "kei.executive_queries",
+      "terms": [
+        "kei.executive_queries",
+        "[Pendo Kei] exec query volume",
+        "Leadership insights sought",
+        "Strategic query volume",
+        "Executive data requests",
+        "Management information",
+        "High-level planning queries"
+      ]
+    },
+    {
+      "path": "kei.executive_users",
+      "terms": [
+        "kei.executive_users",
+        "[Pendo Kei] exec role count",
+        "Leadership engagement",
+        "Executive oversight",
+        "Strategic planning users",
+        "Decision-maker access",
+        "Senior management insights"
+      ]
+    },
+    {
+      "path": "kei.total_queries",
+      "terms": [
+        "kei.total_queries",
+        "[Pendo Kei] chat / Kei events",
+        "Supply chain inquiries",
+        "Operational data requests",
+        "Planning insights sought",
+        "Manufacturing questions",
+        "Inventory status checks"
+      ]
+    },
+    {
+      "path": "kei.unique_users",
+      "terms": [
+        "kei.unique_users",
+        "[Pendo Kei]",
+        "Distinct plant users",
+        "Unique planning staff",
+        "Supply chain personnel",
+        "Manufacturing team reach",
+        "Individual contributor base"
+      ]
+    },
+    {
+      "path": "kei.users",
+      "terms": [
+        "kei.users",
+        "[Pendo Kei] top user rows (email, role, queries, is_executive)",
+        "Active planners",
+        "Key plant users",
+        "Executive engagement",
+        "Supply chain leaders",
+        "Frequent query users"
+      ]
+    },
+    {
+      "path": "leandna_data_api.data_share",
+      "terms": [
+        "leandna_data_api.data_share",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "GET /data/DataShare",
+        "Parquet bulk export",
+        "ClearToBuild multi-level",
+        "supplier performance extract"
+      ]
+    },
+    {
+      "path": "leandna_data_api.identity",
+      "terms": [
+        "leandna_data_api.identity",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "GET /data/identity",
+        "authorizedSites",
+        "siteId siteName mapping",
+        "API user email"
+      ]
+    },
+    {
+      "path": "leandna_data_api.inventory.purchased",
+      "terms": [
+        "leandna_data_api.inventory.purchased",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "GET /data/Inventory/Purchased",
+        "on-hand by location",
+        "purchased stock state"
+      ]
+    },
+    {
+      "path": "leandna_data_api.item_master",
+      "terms": [
+        "leandna_data_api.item_master",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "GET /data/ItemMasterData",
+        "item-level DOI risk CTB"
+      ]
+    },
+    {
+      "path": "leandna_data_api.lean_project.areas",
+      "terms": [
+        "leandna_data_api.lean_project.areas",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "GET /data/LeanProject/Areas",
+        "project area taxonomy"
+      ]
+    },
+    {
+      "path": "leandna_data_api.lean_project.categories",
+      "terms": [
+        "leandna_data_api.lean_project.categories",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "GET /data/LeanProject/Categories",
+        "project category taxonomy"
+      ]
+    },
+    {
+      "path": "leandna_data_api.lean_project.issues",
+      "terms": [
+        "leandna_data_api.lean_project.issues",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "GET /data/LeanProject/{id}/Issues",
+        "open project issues"
+      ]
+    },
+    {
+      "path": "leandna_data_api.lean_project.list",
+      "terms": [
+        "leandna_data_api.lean_project.list",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "GET /data/LeanProject",
+        "CI project roster",
+        "projectManager sponsor customFieldValues"
+      ]
+    },
+    {
+      "path": "leandna_data_api.lean_project.savings",
+      "terms": [
+        "leandna_data_api.lean_project.savings",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "GET /data/LeanProject/{ids}/Savings",
+        "savingsCategory savingsType"
+      ]
+    },
+    {
+      "path": "leandna_data_api.lean_project.sponsor",
+      "terms": [
+        "leandna_data_api.lean_project.sponsor",
+        "[LeanDNA API] project sponsor object / name",
+        "sponsor.name",
+        "executive sponsor lean project"
+      ]
+    },
+    {
+      "path": "leandna_data_api.lean_project.stage_history",
+      "terms": [
+        "leandna_data_api.lean_project.stage_history",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "GET /data/LeanProject/{ids}/Stage/History",
+        "stage transitions"
+      ]
+    },
+    {
+      "path": "leandna_data_api.lean_project.tasks",
+      "terms": [
+        "leandna_data_api.lean_project.tasks",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "GET /data/LeanProject/{id}/Tasks",
+        "project task health"
+      ]
+    },
+    {
+      "path": "leandna_data_api.lean_project.types",
+      "terms": [
+        "leandna_data_api.lean_project.types",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "GET /data/LeanProject/Types",
+        "project type taxonomy"
+      ]
+    },
+    {
+      "path": "leandna_data_api.material_shortages.by_order",
+      "terms": [
+        "leandna_data_api.material_shortages.by_order",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "ShortagesByOrder",
+        "shortage vs production order"
+      ]
+    },
+    {
+      "path": "leandna_data_api.material_shortages.daily_by_item",
+      "terms": [
+        "leandna_data_api.material_shortages.daily_by_item",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "ShortagesByItem Daily",
+        "45-day shortage buckets"
+      ]
+    },
+    {
+      "path": "leandna_data_api.material_shortages.monthly_by_item",
+      "terms": [
+        "leandna_data_api.material_shortages.monthly_by_item",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "ShortagesByItem Monthly",
+        "monthly shortage outlook"
+      ]
+    },
+    {
+      "path": "leandna_data_api.material_shortages.scheduled_deliveries_daily",
+      "terms": [
+        "leandna_data_api.material_shortages.scheduled_deliveries_daily",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "WithScheduledDeliveries Daily"
+      ]
+    },
+    {
+      "path": "leandna_data_api.material_shortages.scheduled_deliveries_monthly",
+      "terms": [
+        "leandna_data_api.material_shortages.scheduled_deliveries_monthly",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "WithScheduledDeliveries Monthly"
+      ]
+    },
+    {
+      "path": "leandna_data_api.material_shortages.scheduled_deliveries_weekly",
+      "terms": [
+        "leandna_data_api.material_shortages.scheduled_deliveries_weekly",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "WithScheduledDeliveries Weekly",
+        "PO delivery promise weekly"
+      ]
+    },
+    {
+      "path": "leandna_data_api.material_shortages.weekly_by_item",
+      "terms": [
+        "leandna_data_api.material_shortages.weekly_by_item",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "ShortagesByItem Weekly",
+        "32-week shortage buckets"
+      ]
+    },
+    {
+      "path": "leandna_data_api.metric.definitions",
+      "terms": [
+        "leandna_data_api.metric.definitions",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "GET /data/Metric",
+        "custom KPI catalog",
+        "value stream metrics"
+      ]
+    },
+    {
+      "path": "leandna_data_api.metric.report",
+      "terms": [
+        "leandna_data_api.metric.report",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "GET /data/MetricReport",
+        "fiscal year metricValues"
+      ]
+    },
+    {
+      "path": "leandna_data_api.supply_order.purchase_order",
+      "terms": [
+        "leandna_data_api.supply_order.purchase_order",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "GET /data/SupplyOrder/PurchaseOrder",
+        "open PO lines",
+        "late PO cause",
+        "supplier commit date",
+        "PPV purchase price variance"
+      ]
+    },
+    {
+      "path": "leandna_data_api.writeback.purchase_order_actions",
+      "terms": [
+        "leandna_data_api.writeback.purchase_order_actions",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "GET /data/WriteBack/v1/PurchaseOrderActions",
+        "pending ERP updates"
+      ]
+    },
+    {
+      "path": "leandna_data_api.writeback.transition_actions",
+      "terms": [
+        "leandna_data_api.writeback.transition_actions",
+        "[LeanDNA Data API] not wired in BPO report yet",
+        "PUT /data/WriteBack/v1/TransitionActions",
+        "write-back status"
+      ]
+    },
+    {
+      "path": "leandna_exec_sponsor",
+      "terms": [
+        "leandna_exec_sponsor",
+        "[QBR] qbr_mappings target for [Exec Sponsor]",
+        "LeanDNA executive sponsor",
+        "Exec Sponsor",
+        "program sponsor"
+      ]
+    },
+    {
+      "path": "leandna_item_master",
+      "terms": [
+        "leandna_item_master",
+        "[LeanDNA Data API] item master enrichment blob",
+        "Item data accuracy",
+        "Master data quality",
+        "ERP record health",
+        "Material master updates",
+        "Part data integrity"
+      ]
+    },
+    {
+      "path": "leandna_item_master.abc_distribution",
+      "terms": [
+        "leandna_item_master.abc_distribution",
+        "[LeanDNA] ABC class counts",
+        "ABC-XYZ mix",
+        "item criticality buckets"
+      ]
+    },
+    {
+      "path": "leandna_item_master.doi_backwards",
+      "terms": [
+        "leandna_item_master.doi_backwards",
+        "[LeanDNA] backward DOI summary",
+        "historical days of inventory",
+        "consumption-based DOI",
+        "DOI backward"
+      ]
+    },
+    {
+      "path": "leandna_item_master.enabled",
+      "terms": [
+        "leandna_item_master.enabled",
+        "[LeanDNA] enrichment on/off",
+        "Item master available"
+      ]
+    },
+    {
+      "path": "leandna_item_master.error",
+      "terms": [
+        "leandna_item_master.error",
+        "[LeanDNA] load error",
+        "Item master fetch failed"
+      ]
+    },
+    {
+      "path": "leandna_item_master.excess_breakdown",
+      "terms": [
+        "leandna_item_master.excess_breakdown",
+        "[LeanDNA] excess on hand highlights",
+        "slow-moving inventory value",
+        "overstock items"
+      ]
+    },
+    {
+      "path": "leandna_item_master.high_risk_items",
+      "terms": [
+        "leandna_item_master.high_risk_items",
+        "[LeanDNA] high aggregateRiskScore items",
+        "risky SKUs",
+        "critical parts"
+      ]
+    },
+    {
+      "path": "leandna_item_master.item_count",
+      "terms": [
+        "leandna_item_master.item_count",
+        "[LeanDNA] rows in Item Master pull",
+        "SKU count",
+        "item catalog size"
+      ]
+    },
+    {
+      "path": "leandna_item_master.lead_time_variance",
+      "terms": [
+        "leandna_item_master.lead_time_variance",
+        "[LeanDNA] planned vs observed lead time",
+        "supplier lead time drift",
+        "OTIF drivers"
+      ]
+    },
+    {
+      "path": "leandna_item_master.reason",
+      "terms": [
+        "leandna_item_master.reason",
+        "[LeanDNA] skip reason",
+        "bearer_token_not_configured"
+      ]
+    },
+    {
+      "path": "leandna_item_master.sites_requested",
+      "terms": [
+        "leandna_item_master.sites_requested",
+        "[LeanDNA] RequestedSites header value",
+        "site filter",
+        "plant scope"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects",
+      "terms": [
+        "leandna_lean_projects",
+        "[LeanDNA Data API] lean projects + savings enrichment",
+        "Lean initiative impact",
+        "Cost reduction efforts",
+        "Operational efficiency",
+        "Waste reduction focus",
+        "Continuous improvement",
+        "Lean project sponsor",
+        "sponsor.name API"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects.active_projects",
+      "terms": [
+        "leandna_lean_projects.active_projects",
+        "[LeanDNA] non-closed projects",
+        "active improvement work"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects.best_practice_count",
+      "terms": [
+        "leandna_lean_projects.best_practice_count",
+        "[LeanDNA] best-practice flagged projects"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects.data_fetched_at",
+      "terms": [
+        "leandna_lean_projects.data_fetched_at",
+        "[LeanDNA] projects snapshot time"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects.enabled",
+      "terms": [
+        "leandna_lean_projects.enabled",
+        "[LeanDNA] projects block active"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects.error",
+      "terms": [
+        "leandna_lean_projects.error",
+        "[LeanDNA] projects fetch error"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects.executive_sponsor",
+      "terms": [
+        "leandna_lean_projects.executive_sponsor",
+        "[LeanDNA] sponsor.name on LeanProject API",
+        "project executive sponsor",
+        "Lean project sponsor",
+        "not populated by enrich yet"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects.monthly_savings",
+      "terms": [
+        "leandna_lean_projects.monthly_savings",
+        "[LeanDNA] savings time series",
+        "monthly actual vs target"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects.quarter_end",
+      "terms": [
+        "leandna_lean_projects.quarter_end",
+        "[LeanDNA] project window end"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects.quarter_start",
+      "terms": [
+        "leandna_lean_projects.quarter_start",
+        "[LeanDNA] project window start"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects.reason",
+      "terms": [
+        "leandna_lean_projects.reason",
+        "[LeanDNA] projects skip reason"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects.savings_achievement_pct",
+      "terms": [
+        "leandna_lean_projects.savings_achievement_pct",
+        "[LeanDNA] actual vs target %",
+        "savings attainment"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects.stage_distribution",
+      "terms": [
+        "leandna_lean_projects.stage_distribution",
+        "[LeanDNA] stages Planning Execution Validation",
+        "project funnel"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects.state_distribution",
+      "terms": [
+        "leandna_lean_projects.state_distribution",
+        "[LeanDNA] good warn bad counts",
+        "project health mix"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects.top_projects",
+      "terms": [
+        "leandna_lean_projects.top_projects",
+        "[LeanDNA] top savings projects",
+        "project manager column",
+        "portfolio table rows",
+        "executive sponsor per project",
+        "sponsor name",
+        "project sponsor"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects.total_projects",
+      "terms": [
+        "leandna_lean_projects.total_projects",
+        "[LeanDNA] project count",
+        "CI initiative count"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects.total_savings_actual",
+      "terms": [
+        "leandna_lean_projects.total_savings_actual",
+        "[LeanDNA] realized savings",
+        "hard dollar benefits"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects.total_savings_target",
+      "terms": [
+        "leandna_lean_projects.total_savings_target",
+        "[LeanDNA] savings goal",
+        "target benefits"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects.validated_results_count",
+      "terms": [
+        "leandna_lean_projects.validated_results_count",
+        "[LeanDNA] validated project outcomes"
+      ]
+    },
+    {
+      "path": "leandna_shortage_trends",
+      "terms": [
+        "leandna_shortage_trends",
+        "[LeanDNA Data API] shortage trends enrichment",
+        "Shortage pattern analysis",
+        "Supply risk insights",
+        "Critical part trends",
+        "Production bottleneck view",
+        "Proactive shortage action"
+      ]
+    },
+    {
+      "path": "leandna_shortage_trends.critical_items",
+      "terms": [
+        "leandna_shortage_trends.critical_items",
+        "[LeanDNA] critical shortage count",
+        "red-line materials"
+      ]
+    },
+    {
+      "path": "leandna_shortage_trends.critical_timeline",
+      "terms": [
+        "leandna_shortage_trends.critical_timeline",
+        "[LeanDNA] first critical week timeline",
+        "when shortages go critical"
+      ]
+    },
+    {
+      "path": "leandna_shortage_trends.data_fetched_at",
+      "terms": [
+        "leandna_shortage_trends.data_fetched_at",
+        "[LeanDNA] shortage snapshot time"
+      ]
+    },
+    {
+      "path": "leandna_shortage_trends.enabled",
+      "terms": [
+        "leandna_shortage_trends.enabled",
+        "[LeanDNA] shortage block active"
+      ]
+    },
+    {
+      "path": "leandna_shortage_trends.error",
+      "terms": [
+        "leandna_shortage_trends.error",
+        "[LeanDNA] shortage fetch error"
+      ]
+    },
+    {
+      "path": "leandna_shortage_trends.forecast",
+      "terms": [
+        "leandna_shortage_trends.forecast",
+        "[LeanDNA] weekly shortage buckets",
+        "shortage projection",
+        "32-week buckets"
+      ]
+    },
+    {
+      "path": "leandna_shortage_trends.reason",
+      "terms": [
+        "leandna_shortage_trends.reason",
+        "[LeanDNA] shortage skip reason"
+      ]
+    },
+    {
+      "path": "leandna_shortage_trends.scheduled_deliveries",
+      "terms": [
+        "leandna_shortage_trends.scheduled_deliveries",
+        "[LeanDNA] PO delivery relief",
+        "incoming material dates",
+        "scheduled receipts"
+      ]
+    },
+    {
+      "path": "leandna_shortage_trends.total_items_in_shortage",
+      "terms": [
+        "leandna_shortage_trends.total_items_in_shortage",
+        "[LeanDNA] SKUs in shortage",
+        "short part count"
+      ]
+    },
+    {
+      "path": "leandna_shortage_trends.weeks_forward",
+      "terms": [
+        "leandna_shortage_trends.weeks_forward",
+        "[LeanDNA] forecast horizon weeks"
+      ]
+    },
+    {
+      "path": "pendo_catalog_appendix",
+      "terms": [
+        "pendo_catalog_appendix",
+        "[Pendo] catalog appendix summary",
+        "Feature adoption insights",
+        "Module usage trends",
+        "Documentation engagement",
+        "User guide review",
+        "Training material access"
       ]
     },
     {
@@ -2085,15 +2242,15 @@
       ]
     },
     {
-      "path": "supply_chain",
+      "path": "platform_value.factory_count",
       "terms": [
-        "supply_chain",
-        "[data_summary] copy of csr.supply_chain",
-        "Supply chain health",
-        "Logistics performance",
-        "Material flow status",
-        "Supplier network strength",
-        "Inventory pipeline view"
+        "platform_value.factory_count",
+        "[CSR→summary]",
+        "Plants on the platform",
+        "Integrated manufacturing sites",
+        "Connected factory locations",
+        "Operational facilities",
+        "Production sites managed"
       ]
     },
     {
@@ -2106,6 +2263,30 @@
         "Ongoing savings potential",
         "Unrealized efficiency",
         "Pending operational gains"
+      ]
+    },
+    {
+      "path": "platform_value.total_overdue_tasks",
+      "terms": [
+        "platform_value.total_overdue_tasks",
+        "[CSR→summary]",
+        "Pending operational actions",
+        "Delayed supply chain tasks",
+        "Unresolved planning items",
+        "Overdue production steps",
+        "Critical tasks awaiting"
+      ]
+    },
+    {
+      "path": "platform_value.total_pos_placed_30d",
+      "terms": [
+        "platform_value.total_pos_placed_30d",
+        "[CSR→summary]",
+        "New supplier commitments",
+        "Recent material orders",
+        "Procurement activity",
+        "Supply chain replenishment",
+        "Orders initiated"
       ]
     },
     {
@@ -2145,281 +2326,15 @@
       ]
     },
     {
-      "path": "platform_value.total_pos_placed_30d",
+      "path": "poll_events",
       "terms": [
-        "platform_value.total_pos_placed_30d",
-        "[CSR→summary]",
-        "New supplier commitments",
-        "Recent material orders",
-        "Procurement activity",
-        "Supply chain replenishment",
-        "Orders initiated"
-      ]
-    },
-    {
-      "path": "platform_value.total_overdue_tasks",
-      "terms": [
-        "platform_value.total_overdue_tasks",
-        "[CSR→summary]",
-        "Pending operational actions",
-        "Delayed supply chain tasks",
-        "Unresolved planning items",
-        "Overdue production steps",
-        "Critical tasks awaiting"
-      ]
-    },
-    {
-      "path": "platform_value.factory_count",
-      "terms": [
-        "platform_value.factory_count",
-        "[CSR→summary]",
-        "Plants on the platform",
-        "Integrated manufacturing sites",
-        "Connected factory locations",
-        "Operational facilities",
-        "Production sites managed"
-      ]
-    },
-    {
-      "path": "supply_chain.factory_count",
-      "terms": [
-        "supply_chain.factory_count",
-        "[CSR→summary]",
-        "Plants in the network",
-        "Integrated manufacturing sites",
-        "Connected factory locations",
-        "Operational facilities",
-        "Production sites managed"
-      ]
-    },
-    {
-      "path": "supply_chain.totals.on_hand",
-      "terms": [
-        "supply_chain.totals.on_hand",
-        "[CSR→summary]",
-        "Current physical stock",
-        "Available inventory levels",
-        "Material in warehouses",
-        "Parts ready for production",
-        "Existing component stock"
-      ]
-    },
-    {
-      "path": "supply_chain.totals.on_order",
-      "terms": [
-        "supply_chain.totals.on_order",
-        "[CSR→summary]",
-        "Incoming material orders",
-        "Pending supplier deliveries",
-        "Committed future stock",
-        "Materials in transit",
-        "Open purchase orders"
-      ]
-    },
-    {
-      "path": "supply_chain.totals.excess_on_hand",
-      "terms": [
-        "supply_chain.totals.excess_on_hand",
-        "[CSR→summary]",
-        "Excess inventory on floor",
-        "Overstock in warehouse",
-        "Unused material volume",
-        "Inventory optimization need",
-        "Capital tied up"
-      ]
-    },
-    {
-      "path": "supply_chain.totals.excess_on_order",
-      "terms": [
-        "supply_chain.totals.excess_on_order",
-        "[CSR→summary]",
-        "Future excess orders",
-        "Incoming surplus stock",
-        "Unneeded future supply",
-        "POs for overstock",
-        "Preventing future waste"
-      ]
-    },
-    {
-      "path": "supply_chain.totals.past_due_po",
-      "terms": [
-        "supply_chain.totals.past_due_po",
-        "[CSR→summary]",
-        "Late supplier deliveries",
-        "Delayed material receipts",
-        "Vendor performance issue",
-        "Production risk factor",
-        "Expedite POs needed"
-      ]
-    },
-    {
-      "path": "supply_chain.totals.past_due_req",
-      "terms": [
-        "supply_chain.totals.past_due_req",
-        "[CSR→summary]",
-        "Unfulfilled material needs",
-        "Delayed internal requests",
-        "Production line impact",
-        "Pending material actions",
-        "Requisition backlog"
-      ]
-    },
-    {
-      "path": "leandna_item_master",
-      "terms": [
-        "leandna_item_master",
-        "[LeanDNA Data API] item master enrichment blob",
-        "Item data accuracy",
-        "Master data quality",
-        "ERP record health",
-        "Material master updates",
-        "Part data integrity"
-      ]
-    },
-    {
-      "path": "leandna_shortage_trends",
-      "terms": [
-        "leandna_shortage_trends",
-        "[LeanDNA Data API] shortage trends enrichment",
-        "Shortage pattern analysis",
-        "Supply risk insights",
-        "Critical part trends",
-        "Production bottleneck view",
-        "Proactive shortage action"
-      ]
-    },
-    {
-      "path": "leandna_lean_projects",
-      "terms": [
-        "leandna_lean_projects",
-        "[LeanDNA Data API] lean projects + savings enrichment",
-        "Lean initiative impact",
-        "Cost reduction efforts",
-        "Operational efficiency",
-        "Waste reduction focus",
-        "Continuous improvement"
-      ]
-    },
-    {
-      "path": "signals_trend_context",
-      "terms": [
-        "signals_trend_context",
-        "[Pendo] optional trend context when BPO_SIGNALS_TRENDS",
-        "Operational trend insights",
-        "Manufacturing signal context",
-        "Plant performance drivers",
-        "Supply chain trend analysis",
-        "Production data clarity"
-      ]
-    },
-    {
-      "path": "_signals_llm_manifest_rules",
-      "terms": [
-        "_signals_llm_manifest_rules",
-        "[internal] LLM editorial manifest excerpt"
-      ]
-    },
-    {
-      "path": "_signals_llm_slide_prompt",
-      "terms": [
-        "_signals_llm_slide_prompt",
-        "[internal] slide prompt excerpt"
-      ]
-    },
-    {
-      "path": "portfolio.type",
-      "terms": [
-        "portfolio.type",
-        "[portfolio] discriminator",
-        "Portfolio classification",
-        "Asset grouping",
-        "Strategic portfolio",
-        "Production portfolio",
-        "Inventory type"
-      ]
-    },
-    {
-      "path": "portfolio.days",
-      "terms": [
-        "portfolio.days",
-        "[portfolio]",
-        "Portfolio duration",
-        "Planning horizon",
-        "Inventory days",
-        "Cycle time",
-        "Lead time"
-      ]
-    },
-    {
-      "path": "portfolio.generated",
-      "terms": [
-        "portfolio.generated",
-        "[portfolio]",
-        "Portfolio output",
-        "Value generated",
-        "New insights",
-        "Plans created",
-        "Forecasts produced"
-      ]
-    },
-    {
-      "path": "portfolio.customer_count",
-      "terms": [
-        "portfolio.customer_count",
-        "[portfolio]",
-        "Customer base",
-        "Served customers",
-        "Client count",
-        "Manufacturing partners",
-        "Supply chain partners"
-      ]
-    },
-    {
-      "path": "portfolio.customers",
-      "terms": [
-        "portfolio.customers",
-        "[portfolio] array of per-customer summary rows",
-        "Customer performance",
-        "Key accounts",
-        "Client engagement",
-        "Partner collaboration",
-        "Customer insights"
-      ]
-    },
-    {
-      "path": "portfolio.portfolio_signals",
-      "terms": [
-        "portfolio.portfolio_signals",
-        "[portfolio] ranked signal lines",
-        "Key indicators",
-        "Supply signals",
-        "Demand signals",
-        "Production alerts",
-        "Critical insights"
-      ]
-    },
-    {
-      "path": "portfolio.portfolio_trends",
-      "terms": [
-        "portfolio.portfolio_trends",
-        "[portfolio] trend aggregates",
-        "Market trends",
-        "Production trends",
-        "Inventory shifts",
-        "Demand patterns",
-        "Supply chain shifts"
-      ]
-    },
-    {
-      "path": "portfolio.portfolio_leaders",
-      "terms": [
-        "portfolio.portfolio_leaders",
-        "[portfolio] leader board",
-        "Top performers",
-        "Leading assets",
-        "Best practices",
-        "High impact",
-        "Key drivers"
+        "poll_events",
+        "[Pendo] poll/survey engagement blob",
+        "User feedback collected",
+        "Operational insights gained",
+        "Supply chain input",
+        "Plant user sentiment",
+        "Feature request data"
       ]
     },
     {
@@ -2447,6 +2362,30 @@
       ]
     },
     {
+      "path": "portfolio.customer_count",
+      "terms": [
+        "portfolio.customer_count",
+        "[portfolio]",
+        "Customer base",
+        "Served customers",
+        "Client count",
+        "Manufacturing partners",
+        "Supply chain partners"
+      ]
+    },
+    {
+      "path": "portfolio.customers",
+      "terms": [
+        "portfolio.customers",
+        "[portfolio] array of per-customer summary rows",
+        "Customer performance",
+        "Key accounts",
+        "Client engagement",
+        "Partner collaboration",
+        "Customer insights"
+      ]
+    },
+    {
       "path": "portfolio.customers[]",
       "terms": [
         "portfolio.customers[]",
@@ -2454,10 +2393,536 @@
       ]
     },
     {
-      "path": "github",
+      "path": "portfolio.days",
       "terms": [
-        "github",
-        "[GitHub] blob when present on report — structure varies by wiring"
+        "portfolio.days",
+        "[portfolio]",
+        "Portfolio duration",
+        "Planning horizon",
+        "Inventory days",
+        "Cycle time",
+        "Lead time"
+      ]
+    },
+    {
+      "path": "portfolio.generated",
+      "terms": [
+        "portfolio.generated",
+        "[portfolio]",
+        "Portfolio output",
+        "Value generated",
+        "New insights",
+        "Plans created",
+        "Forecasts produced"
+      ]
+    },
+    {
+      "path": "portfolio.portfolio_leaders",
+      "terms": [
+        "portfolio.portfolio_leaders",
+        "[portfolio] leader board",
+        "Top performers",
+        "Leading assets",
+        "Best practices",
+        "High impact",
+        "Key drivers"
+      ]
+    },
+    {
+      "path": "portfolio.portfolio_signals",
+      "terms": [
+        "portfolio.portfolio_signals",
+        "[portfolio] ranked signal lines",
+        "Key indicators",
+        "Supply signals",
+        "Demand signals",
+        "Production alerts",
+        "Critical insights"
+      ]
+    },
+    {
+      "path": "portfolio.portfolio_trends",
+      "terms": [
+        "portfolio.portfolio_trends",
+        "[portfolio] trend aggregates",
+        "Market trends",
+        "Production trends",
+        "Inventory shifts",
+        "Demand patterns",
+        "Supply chain shifts"
+      ]
+    },
+    {
+      "path": "portfolio.type",
+      "terms": [
+        "portfolio.type",
+        "[portfolio] discriminator",
+        "Portfolio classification",
+        "Asset grouping",
+        "Strategic portfolio",
+        "Production portfolio",
+        "Inventory type"
+      ]
+    },
+    {
+      "path": "quarter",
+      "terms": [
+        "quarter",
+        "[report] fiscal quarter label (QBR may set)",
+        "Current Quarter",
+        "Review Period",
+        "Fiscal Period",
+        "QBR Focus",
+        "This Quarter"
+      ]
+    },
+    {
+      "path": "quarter_end",
+      "terms": [
+        "quarter_end",
+        "[report] ISO date",
+        "Period End",
+        "Quarter Closes",
+        "Until This Date",
+        "Closing Point",
+        "Final Date"
+      ]
+    },
+    {
+      "path": "quarter_start",
+      "terms": [
+        "quarter_start",
+        "[report] ISO date",
+        "Period Start",
+        "Quarter Begins",
+        "From This Date",
+        "Starting Point",
+        "Initial Date"
+      ]
+    },
+    {
+      "path": "report_date",
+      "terms": [
+        "report_date",
+        "[data_summary] mirrors report.generated",
+        "Report Generated",
+        "Data Snapshot",
+        "Current View",
+        "As Of Today",
+        "Latest Update"
+      ]
+    },
+    {
+      "path": "salesforce.account_ids",
+      "terms": [
+        "salesforce.account_ids",
+        "[SFDC] Ids",
+        "Unique client identifiers",
+        "Distinct factory accounts",
+        "Partner ID count",
+        "Manufacturing site IDs",
+        "Supply chain entity count"
+      ]
+    },
+    {
+      "path": "salesforce.account_ids_expanded",
+      "terms": [
+        "salesforce.account_ids_expanded",
+        "[SFDC comprehensive] hierarchy-expanded Account Ids",
+        "Full customer visibility",
+        "Supply chain partner mapping",
+        "Expanded vendor network",
+        "Comprehensive account view",
+        "Tiered supplier relationships"
+      ]
+    },
+    {
+      "path": "salesforce.accounts",
+      "terms": [
+        "salesforce.accounts",
+        "[SFDC] matched Account rows"
+      ]
+    },
+    {
+      "path": "salesforce.categories",
+      "terms": [
+        "salesforce.categories",
+        "[SFDC comprehensive] dict label→rows (wide SOQL bundles)"
+      ]
+    },
+    {
+      "path": "salesforce.category_errors",
+      "terms": [
+        "salesforce.category_errors",
+        "[SFDC comprehensive] per-category fetch errors"
+      ]
+    },
+    {
+      "path": "salesforce.customer",
+      "terms": [
+        "salesforce.customer",
+        "[SFDC]",
+        "Valued manufacturing partners",
+        "Key factory accounts",
+        "Strategic plant relationships",
+        "Discrete manufacturing clients",
+        "Supply chain collaborators"
+      ]
+    },
+    {
+      "path": "salesforce.error",
+      "terms": [
+        "salesforce.error",
+        "[SFDC] when present",
+        "SFDC data sync issues",
+        "Integration error count",
+        "Supply chain data integrity",
+        "Critical data flow disruptions",
+        "Salesforce data health"
+      ]
+    },
+    {
+      "path": "salesforce.matched",
+      "terms": [
+        "salesforce.matched",
+        "[SFDC] boolean",
+        "Account record aligned",
+        "Data synchronization success",
+        "Customer profile matched",
+        "ERP record linked",
+        "Supply chain data integrity"
+      ]
+    },
+    {
+      "path": "salesforce.opportunity_count_this_year",
+      "terms": [
+        "salesforce.opportunity_count_this_year",
+        "[SFDC]",
+        "New plant projects",
+        "Manufacturing expansion leads",
+        "Supply chain solution pursuits",
+        "Factory modernization bids",
+        "Production efficiency deals"
+      ]
+    },
+    {
+      "path": "salesforce.pipeline_arr",
+      "terms": [
+        "salesforce.pipeline_arr",
+        "[SFDC] pipeline ARR",
+        "Future manufacturing revenue",
+        "Projected plant solutions",
+        "Supply chain ARR outlook",
+        "Operations platform pipeline",
+        "Factory software forecast"
+      ]
+    },
+    {
+      "path": "salesforce.primary_account_id",
+      "terms": [
+        "salesforce.primary_account_id",
+        "[SFDC]",
+        "Core client identifier",
+        "Main factory account",
+        "Primary partner ID",
+        "Key manufacturing entity",
+        "Central supply chain ID"
+      ]
+    },
+    {
+      "path": "salesforce.resolution",
+      "terms": [
+        "salesforce.resolution",
+        "[SFDC] salesforce_account_id | name | none",
+        "Account identification method",
+        "Customer record clarity",
+        "Resolution by ID",
+        "Name-based matching",
+        "Data linking outcome"
+      ]
+    },
+    {
+      "path": "salesforce.row_limit",
+      "terms": [
+        "salesforce.row_limit",
+        "[SFDC comprehensive] max rows per category",
+        "Data volume capacity",
+        "Record processing limits",
+        "Supply chain data scale",
+        "Max data set size",
+        "Data query constraints"
+      ]
+    },
+    {
+      "path": "salesforce_primary_account_id",
+      "terms": [
+        "salesforce_primary_account_id",
+        "[report] resolved Salesforce Account Id"
+      ]
+    },
+    {
+      "path": "signals",
+      "terms": [
+        "signals",
+        "[Pendo] list of signal strings (not enumerated per-line here)",
+        "Key operational alerts",
+        "Critical process indicators",
+        "Supply chain signals",
+        "Manufacturing insights",
+        "Actionable data points"
+      ]
+    },
+    {
+      "path": "signals_trend_context",
+      "terms": [
+        "signals_trend_context",
+        "[Pendo] optional trend context when BPO_SIGNALS_TRENDS",
+        "Operational trend insights",
+        "Manufacturing signal context",
+        "Plant performance drivers",
+        "Supply chain trend analysis",
+        "Production data clarity"
+      ]
+    },
+    {
+      "path": "site_details",
+      "terms": [
+        "site_details",
+        "[data_summary] trimmed copy of sites for prompts",
+        "Detailed site insights",
+        "Specific plant metrics",
+        "Factory performance details",
+        "Site operational summary",
+        "Individual plant overview"
+      ]
+    },
+    {
+      "path": "site_details.events",
+      "terms": [
+        "site_details.events",
+        "[Pendo→summary] total_events",
+        "User interactions",
+        "System engagements",
+        "Operational activities",
+        "Supply chain actions",
+        "Platform usage"
+      ]
+    },
+    {
+      "path": "site_details.features_used",
+      "terms": [
+        "site_details.features_used",
+        "[Pendo→summary] features used",
+        "Core functionality adoption",
+        "Manufacturing tool usage",
+        "Supply chain feature engagement",
+        "Work order module use",
+        "Inventory management features"
+      ]
+    },
+    {
+      "path": "site_details.last_active",
+      "terms": [
+        "site_details.last_active",
+        "[Pendo→summary] last active",
+        "Recent user activity",
+        "Latest plant engagement",
+        "Current system use",
+        "Active collaboration",
+        "Fresh operational data"
+      ]
+    },
+    {
+      "path": "site_details.name",
+      "terms": [
+        "site_details.name",
+        "[Pendo→summary] site display name",
+        "Plant identification",
+        "Facility designation",
+        "Manufacturing site name",
+        "Operational unit label",
+        "Factory location ID"
+      ]
+    },
+    {
+      "path": "site_details.pages_used",
+      "terms": [
+        "site_details.pages_used",
+        "[Pendo→summary] pages used",
+        "Key report access",
+        "Operational screen views",
+        "MRP page usage",
+        "ERP module interaction",
+        "Supply chain dashboard views"
+      ]
+    },
+    {
+      "path": "site_details.total_minutes",
+      "terms": [
+        "site_details.total_minutes",
+        "[Pendo→summary] minutes",
+        "Active work time",
+        "Operational focus",
+        "Planning system use",
+        "Daily platform time",
+        "Supply chain hours"
+      ]
+    },
+    {
+      "path": "site_details.visitors",
+      "terms": [
+        "site_details.visitors",
+        "[Pendo→summary] visitors at site",
+        "Plant user count",
+        "Active site personnel",
+        "Manufacturing team engagement",
+        "Shop floor users",
+        "Operational staff access"
+      ]
+    },
+    {
+      "path": "sites",
+      "terms": [
+        "sites",
+        "[Pendo] array of site dicts — keys include sitename, visitors, pages_used, features_used, total_events, total_minutes, last_active",
+        "no per-page tables in this catalog",
+        "Plant activity overview",
+        "Manufacturing site engagement",
+        "Factory operational health",
+        "Site usage summary",
+        "Plant network performance"
+      ]
+    },
+    {
+      "path": "supply_chain",
+      "terms": [
+        "supply_chain",
+        "[data_summary] copy of csr.supply_chain",
+        "Supply chain health",
+        "Logistics performance",
+        "Material flow status",
+        "Supplier network strength",
+        "Inventory pipeline view"
+      ]
+    },
+    {
+      "path": "supply_chain.factory_count",
+      "terms": [
+        "supply_chain.factory_count",
+        "[CSR→summary]",
+        "Plants in the network",
+        "Integrated manufacturing sites",
+        "Connected factory locations",
+        "Operational facilities",
+        "Production sites managed"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.excess_on_hand",
+      "terms": [
+        "supply_chain.totals.excess_on_hand",
+        "[CSR→summary]",
+        "Excess inventory on floor",
+        "Overstock in warehouse",
+        "Unused material volume",
+        "Inventory optimization need",
+        "Capital tied up"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.excess_on_order",
+      "terms": [
+        "supply_chain.totals.excess_on_order",
+        "[CSR→summary]",
+        "Future excess orders",
+        "Incoming surplus stock",
+        "Unneeded future supply",
+        "POs for overstock",
+        "Preventing future waste"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.on_hand",
+      "terms": [
+        "supply_chain.totals.on_hand",
+        "[CSR→summary]",
+        "Current physical stock",
+        "Available inventory levels",
+        "Material in warehouses",
+        "Parts ready for production",
+        "Existing component stock"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.on_order",
+      "terms": [
+        "supply_chain.totals.on_order",
+        "[CSR→summary]",
+        "Incoming material orders",
+        "Pending supplier deliveries",
+        "Committed future stock",
+        "Materials in transit",
+        "Open purchase orders"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.past_due_po",
+      "terms": [
+        "supply_chain.totals.past_due_po",
+        "[CSR→summary]",
+        "Late supplier deliveries",
+        "Delayed material receipts",
+        "Vendor performance issue",
+        "Production risk factor",
+        "Expedite POs needed"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.past_due_req",
+      "terms": [
+        "supply_chain.totals.past_due_req",
+        "[CSR→summary]",
+        "Unfulfilled material needs",
+        "Delayed internal requests",
+        "Production line impact",
+        "Pending material actions",
+        "Requisition backlog"
+      ]
+    },
+    {
+      "path": "support.open",
+      "terms": [
+        "support.open",
+        "[data_summary] from jira.open_issues",
+        "Unresolved plant issues",
+        "Pending production support",
+        "Open supply chain tickets",
+        "Active factory requests",
+        "Outstanding operational tasks"
+      ]
+    },
+    {
+      "path": "support.resolved",
+      "terms": [
+        "support.resolved",
+        "[data_summary] from jira.resolved_issues",
+        "Plant issue closure",
+        "Operations support speed",
+        "Supply chain ticket resolution",
+        "Manufacturing process fixes",
+        "Production line issue handling"
+      ]
+    },
+    {
+      "path": "support.total_tickets",
+      "terms": [
+        "support.total_tickets",
+        "[data_summary] from jira.total_issues",
+        "Overall plant support volume",
+        "Total manufacturing inquiries",
+        "Supply chain issue count",
+        "Factory operations requests",
+        "Production system tickets"
       ]
     },
     {
@@ -2468,13 +2933,6 @@
       ]
     },
     {
-      "path": "teams_yaml.leandna_team",
-      "terms": [
-        "teams_yaml.leandna_team",
-        "[config teams.yaml] list of {name, title} LeanDNA team"
-      ]
-    },
-    {
       "path": "teams_yaml.leandna_site_ids",
       "terms": [
         "teams_yaml.leandna_site_ids",
@@ -2482,38 +2940,142 @@
       ]
     },
     {
-      "path": "cohorts_yaml",
+      "path": "teams_yaml.leandna_team",
       "terms": [
-        "cohorts_yaml",
-        "[config cohorts.yaml] cohort / exclude / vertical per customer (not nested under report)"
+        "teams_yaml.leandna_team",
+        "[config teams.yaml] list of {name, title} LeanDNA team"
       ]
     },
     {
-      "path": "_slide_plan",
+      "path": "top_features",
       "terms": [
-        "_slide_plan",
-        "[internal] resolved template slide plan"
+        "top_features",
+        "[Pendo] ranked feature list — omitting per-row catalog",
+        "Core tool usage",
+        "Key function adoption",
+        "Valuable capabilities",
+        "Frequent feature use",
+        "Operational workflows"
       ]
     },
     {
-      "path": "_hydrate_slide_hints",
+      "path": "top_pages",
       "terms": [
-        "_hydrate_slide_hints",
-        "[internal] hydrate hints map"
+        "top_pages",
+        "[Pendo] ranked page list — omitting per-row catalog",
+        "Key operational views",
+        "Most visited screens",
+        "Frequent planning pages",
+        "Core workflow areas",
+        "High-traffic modules"
       ]
     },
     {
-      "path": "_slides_svc",
+      "path": "total_critical_shortages",
       "terms": [
-        "_slides_svc",
-        "[internal] Google Slides service"
+        "total_critical_shortages",
+        "[data_summary]",
+        "Critical material gaps",
+        "High-impact shortages",
+        "Urgent supply issues",
+        "Production stoppers",
+        "Key component risks"
       ]
     },
     {
-      "path": "_drive_svc",
+      "path": "total_shortages",
       "terms": [
-        "_drive_svc",
-        "[internal] Drive service"
+        "total_shortages",
+        "[data_summary] from csr.platform_health",
+        "Material shortages",
+        "Parts unavailable",
+        "Supply gaps identified",
+        "Inventory shortfalls",
+        "Production risks"
+      ]
+    },
+    {
+      "path": "total_sites",
+      "terms": [
+        "total_sites",
+        "[data_summary]",
+        "Total factories",
+        "Plants managed",
+        "Operational sites",
+        "Manufacturing hubs",
+        "Facility count"
+      ]
+    },
+    {
+      "path": "total_users",
+      "terms": [
+        "total_users",
+        "[data_summary] alias of total_visitors",
+        "Total plant users",
+        "Supply chain team",
+        "Manufacturing staff",
+        "Operational logins",
+        "Collaborator count"
+      ]
+    },
+    {
+      "path": "total_visitors",
+      "terms": [
+        "total_visitors",
+        "[data_summary]",
+        "Total plant users",
+        "Supply chain team",
+        "Manufacturing staff",
+        "Operational logins",
+        "Collaborator count"
+      ]
+    },
+    {
+      "path": "track_events_breakdown",
+      "terms": [
+        "track_events_breakdown",
+        "[Pendo] track-type breakdown blob",
+        "Key action analysis",
+        "Operational event tracking",
+        "Workflow step insights",
+        "Custom process monitoring",
+        "Manufacturing activity data"
+      ]
+    },
+    {
+      "path": "unique_visitors",
+      "terms": [
+        "unique_visitors",
+        "[data_summary] alias",
+        "Unique plant users",
+        "Distinct collaborators",
+        "Individual operators",
+        "Unique site logins",
+        "Distinct team members"
+      ]
+    },
+    {
+      "path": "visitor_languages",
+      "terms": [
+        "visitor_languages",
+        "[Pendo] language distribution blob",
+        "Global plant user base",
+        "Multilingual shop floor",
+        "Diverse user language",
+        "International team support",
+        "Localized user experience"
+      ]
+    },
+    {
+      "path": "weekly_active_buyers_pct_avg",
+      "terms": [
+        "weekly_active_buyers_pct_avg",
+        "[data_summary] averaged CSR site rows",
+        "Buyer engagement rate",
+        "Active procurement",
+        "Weekly buyer use",
+        "Purchasing team activity",
+        "Supply chain collaboration"
       ]
     }
   ]

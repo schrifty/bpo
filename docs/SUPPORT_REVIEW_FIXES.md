@@ -1,5 +1,7 @@
 # Support Review Fixes - Summary
 
+**Historical note:** This file records fixes from a specific change set. Line numbers and the exact function (`create_health_deck` in `slides_client.py`) may be outdated; HELP recent-ticket fetching for support flows now also involves `src/deck_data_enrichment.py`. Use the narrative below for *what* was wrong; use repo search for *where* the logic lives today.
+
 ## Issue 1: Missing "Recently opened HELP tickets (SED)" slide
 
 **Problem**: The Support Review deck slides "Recently opened HELP tickets (SED)" and "Recently closed HELP tickets (SED)" were showing as unavailable because the required data (`customer_help_recent`) was never being fetched.

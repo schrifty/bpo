@@ -24,7 +24,7 @@ class SourceId(str, Enum):
     LeanDNA Data API: implementations live under ``src/leandna_*_client.py`` and
     ``*_enrich.py``. Report dict keys match the value strings below.
 
-    HTTP surfaces (OpenAPI: fetch with ``scripts/fetch_leandna_data_api_swagger.py``):
+    HTTP surfaces (OpenAPI: fetch with authenticated ``scripts/fetch_leandna_swagger.py``):
 
     - **Item master:** ``GET /data/ItemMasterData``
     - **Shortages:** ``.../MaterialShortages/ShortagesByItem/Weekly``,

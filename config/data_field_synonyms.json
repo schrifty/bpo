@@ -1,43 +1,111 @@
 {
-  "version": 1,
+  "version": 3,
   "data_summary_paths_reference": [
-    "customer_name",
-    "report_date",
-    "quarter",
-    "quarter_start",
-    "quarter_end",
-    "total_users",
-    "total_visitors",
-    "unique_visitors",
-    "active_users",
-    "total_sites",
-    "active_sites",
-    "health_score",
-    "account_total_minutes",
     "account_avg_weekly_hours",
-    "total_shortages",
-    "total_critical_shortages",
-    "weekly_active_buyers_pct_avg",
-    "support.total_tickets",
-    "support.open",
-    "support.resolved",
-    "salesforce.opportunity_count_this_year",
-    "salesforce.pipeline_arr",
-    "platform_value.total_savings",
+    "account_total_minutes",
+    "active_sites",
+    "active_users",
+    "customer_name",
+    "executive_sponsor",
+    "health_score",
+    "leandna_data_api.data_share",
+    "leandna_data_api.identity",
+    "leandna_data_api.inventory.purchased",
+    "leandna_data_api.item_master",
+    "leandna_data_api.lean_project.areas",
+    "leandna_data_api.lean_project.categories",
+    "leandna_data_api.lean_project.issues",
+    "leandna_data_api.lean_project.list",
+    "leandna_data_api.lean_project.savings",
+    "leandna_data_api.lean_project.sponsor",
+    "leandna_data_api.lean_project.stage_history",
+    "leandna_data_api.lean_project.tasks",
+    "leandna_data_api.lean_project.types",
+    "leandna_data_api.material_shortages.by_order",
+    "leandna_data_api.material_shortages.daily_by_item",
+    "leandna_data_api.material_shortages.monthly_by_item",
+    "leandna_data_api.material_shortages.scheduled_deliveries_daily",
+    "leandna_data_api.material_shortages.scheduled_deliveries_monthly",
+    "leandna_data_api.material_shortages.scheduled_deliveries_weekly",
+    "leandna_data_api.material_shortages.weekly_by_item",
+    "leandna_data_api.metric.definitions",
+    "leandna_data_api.metric.report",
+    "leandna_data_api.supply_order.purchase_order",
+    "leandna_data_api.writeback.purchase_order_actions",
+    "leandna_data_api.writeback.transition_actions",
+    "leandna_exec_sponsor",
+    "leandna_item_master",
+    "leandna_item_master.abc_distribution",
+    "leandna_item_master.doi_backwards",
+    "leandna_item_master.enabled",
+    "leandna_item_master.error",
+    "leandna_item_master.excess_breakdown",
+    "leandna_item_master.high_risk_items",
+    "leandna_item_master.item_count",
+    "leandna_item_master.lead_time_variance",
+    "leandna_item_master.reason",
+    "leandna_item_master.sites_requested",
+    "leandna_lean_projects",
+    "leandna_lean_projects.active_projects",
+    "leandna_lean_projects.best_practice_count",
+    "leandna_lean_projects.data_fetched_at",
+    "leandna_lean_projects.enabled",
+    "leandna_lean_projects.error",
+    "leandna_lean_projects.executive_sponsor",
+    "leandna_lean_projects.monthly_savings",
+    "leandna_lean_projects.quarter_end",
+    "leandna_lean_projects.quarter_start",
+    "leandna_lean_projects.reason",
+    "leandna_lean_projects.savings_achievement_pct",
+    "leandna_lean_projects.stage_distribution",
+    "leandna_lean_projects.state_distribution",
+    "leandna_lean_projects.top_projects",
+    "leandna_lean_projects.total_projects",
+    "leandna_lean_projects.total_savings_actual",
+    "leandna_lean_projects.total_savings_target",
+    "leandna_lean_projects.validated_results_count",
+    "leandna_shortage_trends",
+    "leandna_shortage_trends.critical_items",
+    "leandna_shortage_trends.critical_timeline",
+    "leandna_shortage_trends.data_fetched_at",
+    "leandna_shortage_trends.enabled",
+    "leandna_shortage_trends.error",
+    "leandna_shortage_trends.forecast",
+    "leandna_shortage_trends.reason",
+    "leandna_shortage_trends.scheduled_deliveries",
+    "leandna_shortage_trends.total_items_in_shortage",
+    "leandna_shortage_trends.weeks_forward",
+    "platform_value.factory_count",
     "platform_value.total_open_ia_value",
+    "platform_value.total_overdue_tasks",
+    "platform_value.total_pos_placed_30d",
     "platform_value.total_potential_savings",
     "platform_value.total_potential_to_sell",
     "platform_value.total_recs_created_30d",
-    "platform_value.total_pos_placed_30d",
-    "platform_value.total_overdue_tasks",
-    "platform_value.factory_count",
+    "platform_value.total_savings",
+    "quarter",
+    "quarter_end",
+    "quarter_start",
+    "report_date",
+    "salesforce.opportunity_count_this_year",
+    "salesforce.pipeline_arr",
     "supply_chain.factory_count",
-    "supply_chain.totals.on_hand",
-    "supply_chain.totals.on_order",
     "supply_chain.totals.excess_on_hand",
     "supply_chain.totals.excess_on_order",
+    "supply_chain.totals.on_hand",
+    "supply_chain.totals.on_order",
     "supply_chain.totals.past_due_po",
-    "supply_chain.totals.past_due_req"
+    "supply_chain.totals.past_due_req",
+    "support.open",
+    "support.resolved",
+    "support.total_tickets",
+    "total_critical_shortages",
+    "total_shortages",
+    "total_sites",
+    "total_users",
+    "total_visitors",
+    "unique_visitors",
+    "weekly_active_buyers_pct_avg"
   ],
   "entries": [
     {
@@ -338,6 +406,93 @@
       "phrases": [
         "supply chain factory count",
         "factories in supply chain"
+      ]
+    },
+    {
+      "path": "leandna_item_master",
+      "phrases": [
+        "lean item master",
+        "item master data",
+        "lean dna item master",
+        "doi backward",
+        "aggregate risk score",
+        "abc classification"
+      ]
+    },
+    {
+      "path": "leandna_shortage_trends",
+      "phrases": [
+        "material shortage forecast",
+        "shortage buckets",
+        "critical shortages timeline",
+        "scheduled deliveries lean"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects",
+      "phrases": [
+        "lean projects portfolio",
+        "continuous improvement savings",
+        "project manager lean dna",
+        "kaizen savings"
+      ]
+    },
+    {
+      "path": "leandna_data_api.supply_order.purchase_order",
+      "phrases": [
+        "purchase order lean dna",
+        "open po lean",
+        "late delivery cause",
+        "po commit date",
+        "supplier lead time actual"
+      ]
+    },
+    {
+      "path": "leandna_data_api.inventory.purchased",
+      "phrases": [
+        "purchased inventory lean",
+        "on hand by location lean",
+        "inventory purchased endpoint"
+      ]
+    },
+    {
+      "path": "leandna_data_api.metric.report",
+      "phrases": [
+        "metric report lean dna",
+        "fiscal year metrics lean",
+        "custom kpi lean"
+      ]
+    },
+    {
+      "path": "leandna_data_api.data_share",
+      "phrases": [
+        "data share parquet",
+        "bulk export lean dna",
+        "clear to build parquet"
+      ]
+    },
+    {
+      "path": "leandna_data_api.identity",
+      "phrases": [
+        "authorized sites lean dna",
+        "lean dna identity",
+        "site id mapping lean"
+      ]
+    },
+    {
+      "path": "executive_sponsor",
+      "phrases": [
+        "executive sponsor",
+        "business sponsor",
+        "sponsor name qbr"
+      ]
+    },
+    {
+      "path": "leandna_exec_sponsor",
+      "phrases": [
+        "exec sponsor",
+        "leandna exec sponsor",
+        "lean dna sponsor"
       ]
     }
   ]

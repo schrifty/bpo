@@ -51,6 +51,7 @@ Examples:
 - [`JIRA_DATA_SCHEMA.md`](./JIRA_DATA_SCHEMA.md)
 - [`PENDO_DATA_SCHEMA.md`](./PENDO_DATA_SCHEMA.md)
 - [`CSR_DATA_SCHEMA.md`](./CSR_DATA_SCHEMA.md) — Customer Success Report (CS Report) export
+- [`LEANDNA_DATA_API_SCHEMA.md`](./LEANDNA_DATA_API_SCHEMA.md) — LeanDNA Data API (REST)
 - [`SALESFORCE_SETUP.md`](../SALESFORCE_SETUP.md)
 - [`USAGE_DATA_PRIORITIES.md`](../USAGE_DATA_PRIORITIES.md)
 - [`../../src/jira_client.py`](../../src/jira_client.py)
@@ -236,14 +237,30 @@ Column names, KPI JSON shape, and how BPO reads the workbook are documented in *
 
 ## LeanDNA Data API
 
-REST API for item-level supply chain data. Full swagger spec: [`docs/leandna-data-api-swagger.json`](../leandna-data-api-swagger.json). Implementation: `src/leandna_item_master_client.py`, `src/leandna_item_master_enrich.py`. Tool analysis: [`LEANDNA_DATA_API_TOOLS.md`](../LEANDNA_DATA_API_TOOLS.md).
+REST Data API (Bearer token, optional `RequestedSites` header). Schema reference: [`LEANDNA_DATA_API_SCHEMA.md`](./LEANDNA_DATA_API_SCHEMA.md). Clients: `src/leandna_*_client.py`, enrich: `src/leandna_*_enrich.py`. Tool analysis: [`LEANDNA_DATA_API_TOOLS.md`](../LEANDNA_DATA_API_TOOLS.md). OpenAPI: fetch with `scripts/fetch_leandna_swagger.py` when authenticated.
 
 ### Query Surfaces
 
 | Identifier | Description | Source field / query surface | Where used | Status note |
 |---|---|---|---|---|
 | `LEANDNA-ITEM-MASTER-DATA` | Item Master Data Report (comprehensive item-level metrics). | `GET /data/ItemMasterData` | `src/leandna_item_master_client.py`, supply chain/platform health slides | Core surface |
-| `LEANDNA-SESSION-IDENTITY` | Session info with authorized sites and user details. | `GET /data/identity` | `src/leandna_item_master_client.py` (future: site mapping) | Core surface |
+| `LEANDNA-SESSION-IDENTITY` | Session info with authorized sites and user details. | `GET /data/identity` | Preflight / site mapping (planned; not called in code yet) | `UNUSED` in code today |
+| `LEANDNA-SHORTAGE-BY-ITEM-MONTHLY` | Monthly shortage buckets by item. | `GET /data/MaterialShortages/ShortagesByItem/Monthly` | — | `UNUSED` — not in BPO client |
+| `LEANDNA-SHORTAGE-SCHEDULED-DELIVERIES-DAILY` | Shortages + scheduled deliveries (daily). | `GET /data/MaterialShortages/ShortagesByItemWithScheduledDeliveries/Daily` | — | `UNUSED` |
+| `LEANDNA-SHORTAGE-SCHEDULED-DELIVERIES-MONTHLY` | Shortages + scheduled deliveries (monthly). | `GET /data/MaterialShortages/ShortagesByItemWithScheduledDeliveries/Monthly` | — | `UNUSED` |
+| `LEANDNA-PURCHASE-ORDER-DATA` | Purchase order lines (commit dates, delays, lead time). | `GET /data/SupplyOrder/PurchaseOrder` | — | `UNUSED` |
+| `LEANDNA-INVENTORY-PURCHASED` | Purchased inventory positions. | `GET /data/Inventory/Purchased` | — | `UNUSED` |
+| `LEANDNA-METRIC-DEFINITIONS` | Metric catalog (manual/automatic/calculated). | `GET /data/Metric` | — | `UNUSED` |
+| `LEANDNA-METRIC-REPORT` | Fiscal-year metric time series. | `GET /data/MetricReport` | — | `UNUSED` |
+| `LEANDNA-DATA-SHARE` | Signed Parquet bulk export URLs. | `GET /data/DataShare` | — | `UNUSED` |
+| `LEANDNA-WRITEBACK-PO-ACTIONS` | Pending PO write-back actions (read). | `GET /data/WriteBack/v1/PurchaseOrderActions` | — | `UNUSED` (read-only recommended) |
+| `LEANDNA-WRITEBACK-TRANSITION` | Update write-back action status. | `PUT /data/WriteBack/v1/TransitionActions` | — | `UNUSED` (no auto-write in BPO) |
+| `LEANDNA-LEAN-PROJECT-TASKS` | Tasks for a project. | `GET /data/LeanProject/{projectId}/Tasks` | — | `UNUSED` |
+| `LEANDNA-LEAN-PROJECT-ISSUES` | Issues for a project. | `GET /data/LeanProject/{projectId}/Issues` | — | `UNUSED` |
+| `LEANDNA-LEAN-PROJECT-STAGE-HISTORY` | Stage change history. | `GET /data/LeanProject/{projectIds}/Stage/History` | — | `UNUSED` |
+| `LEANDNA-LEAN-PROJECT-AREAS` | Project area taxonomy. | `GET /data/LeanProject/Areas` | — | `UNUSED` |
+| `LEANDNA-LEAN-PROJECT-TYPES` | Project type taxonomy. | `GET /data/LeanProject/Types` | — | `UNUSED` |
+| `LEANDNA-LEAN-PROJECT-CATEGORIES` | Project category taxonomy. | `GET /data/LeanProject/Categories` | — | `UNUSED` |
 
 ### Registry Entries (Item Master Data)
 
@@ -269,30 +286,33 @@ REST API for item-level supply chain data. Full swagger spec: [`docs/leandna-dat
 
 ### Registry Entries (Material Shortages)
 
-|| Identifier | Description | Source field / query surface | Where used | Status note |
-||---|---|---|---|---|
-|| `SHORTAGE-BY-ITEM-WEEKLY` | Weekly shortage forecast (32 weeks forward). | `GET /data/MaterialShortages/ShortagesByItem/Weekly` | `src/leandna_shortage_client.py`, shortage forecast slide | Core shortage surface |
-|| `SHORTAGE-BY-ITEM-DAILY` | Daily shortage forecast (45 days forward). | `GET /data/MaterialShortages/ShortagesByItem/Daily` | `src/leandna_shortage_client.py` | Available for deep dive decks |
-|| `SHORTAGE-BY-ORDER` | Shortage-by-production-order mapping. | `GET /data/MaterialShortages/ShortagesByOrder` | `src/leandna_shortage_client.py` | Links shortages to customer orders |
-|| `SHORTAGE-WITH-DELIVERIES` | Weekly shortages + scheduled PO delivery tracking. | `GET /data/MaterialShortages/ShortagesByItemWithScheduledDeliveries/Weekly` | `src/leandna_shortage_client.py`, shortage deliveries slide | Delivery resolution tracking |
-|| `CRITICALITY-LEVEL-SHORTAGE` | Shortage criticality level (1-5 numeric or label). | `criticalityLevel` (ShortagesByItem) | `src/leandna_shortage_client.py`, critical shortages slide | Current shortage severity |
-|| `CTB-SHORTAGE-IMPACTED-VALUE` | Clear-to-build dollar impact from shortage. | `ctbShortageImpactedValue` (ShortagesByItem) | `src/leandna_shortage_client.py`, shortage forecast/critical slides | Production revenue at risk |
-|| `CTB-IMPACTED-ORDERS-COUNT` | Count of production orders impacted by this shortage. | `ctbImpactedOrdersSingleShortageCount` (ShortagesByItem) | `src/leandna_shortage_client.py` | Order impact breadth |
-|| `DAYS-IN-SHORTAGE` | Cumulative days item has been in shortage. | `daysInShortage` (ShortagesByItem) | `src/leandna_shortage_client.py`, critical shortages table | Historical shortage duration |
-|| `FIRST-CRITICAL-BUCKET-WEEK` | Date of first critical shortage bucket (week start). | `firstCriticalBucketWeek` (ShortagesByItem) | `src/leandna_shortage_client.py`, critical timeline | When shortage becomes critical |
-|| `FIRST-CRITICAL-BUCKET-DAY` | Date of first critical shortage bucket (daily). | `firstCriticalBucketDay` (ShortagesByItem/Daily) | `src/leandna_shortage_client.py` | Daily precision for near-term critical |
-|| `SHORTAGE-BUCKET-QUANTITY` | Shortage quantity for a given time bucket. | `bucket1quantity...bucket32quantity` (weekly), `day1quantity...day45quantity` (daily) | `src/leandna_shortage_client.py`, forecast aggregation | Time-series shortage qty |
-|| `SHORTAGE-BUCKET-CRITICALITY` | Criticality label for time bucket (Critical/High/Medium/Low). | `bucket1criticality...bucket32criticality` (weekly) | `src/leandna_shortage_client.py`, forecast stacked chart | Time-series criticality |
-|| `FIRST-PO-REQUESTED-DATE` | Requested delivery date for first impacted PO. | `firstPORequestedDate` (ShortagesByItem) | `src/leandna_shortage_client.py`, critical shortages | PO timing |
-|| `FIRST-PO-COMMIT-DATE` | Supplier commit date for first impacted PO. | `firstPOCommitDate` (ShortagesByItem) | `src/leandna_shortage_client.py`, critical shortages | Supplier promise |
-|| `FIRST-PO-STATUS` | Status of first impacted PO (Late/On-time/Unknown). | `firstPoStatus` (ShortagesByItem) | `src/leandna_shortage_client.py`, critical shortages table | PO health indicator |
-|| `FIRST-IMPACTED-ORDER` | Production order number first impacted by shortage. | `firstImpactedOrder` (ShortagesByItem) | `src/leandna_shortage_client.py` | Production impact link |
-|| `FIRST-IMPACTED-ORDER-DATE` | Due date of first impacted production order. | `firstImpactedOrderDate` (ShortagesByItem) | `src/leandna_shortage_client.py` | Customer delivery risk date |
-|| `SCHEDULED-DELIVERIES-COUNT` | Number of scheduled PO deliveries for this item. | `scheduledDeliveries` (WithScheduledDeliveries) | `src/leandna_shortage_client.py`, deliveries slide | Delivery tracking breadth |
-|| `SCHEDULED-QUANTITY` | Total quantity scheduled for delivery. | `scheduledQuantity` (WithScheduledDeliveries) | `src/leandna_shortage_client.py`, deliveries slide | Delivery resolution qty |
-|| `FIRST-DELIVERY-DATE` | Date of first scheduled delivery. | `firstDeliveryDate` (WithScheduledDeliveries) | `src/leandna_shortage_client.py`, deliveries slide | When shortage resolves |
-|| `FIRST-DELIVERY-QTY` | Quantity of first scheduled delivery. | `firstDeliveryQty` (WithScheduledDeliveries) | `src/leandna_shortage_client.py` | First delivery resolution |
-|| `FIRST-DELIVERY-TRACKING-NUMBER` | Tracking number for first scheduled delivery. | `firstDeliveryTrackingNumber` (WithScheduledDeliveries) | `src/leandna_shortage_client.py` | Shipment tracking |
+| Identifier | Description | Source field / query surface | Where used | Status note |
+|---|---|---|---|---|
+| `SHORTAGE-BY-ITEM-WEEKLY` | Weekly shortage forecast (32 weeks forward). | `GET /data/MaterialShortages/ShortagesByItem/Weekly` | `src/leandna_shortage_client.py`, shortage forecast slide | Core shortage surface |
+| `SHORTAGE-BY-ITEM-DAILY` | Daily shortage forecast (45 days forward). | `GET /data/MaterialShortages/ShortagesByItem/Daily` | `src/leandna_shortage_client.py` | `UNUSED` in QBR enrich; client available |
+| `SHORTAGE-BY-ITEM-MONTHLY` | Monthly shortage forecast by item. | `GET /data/MaterialShortages/ShortagesByItem/Monthly` | — | `UNUSED` — not in BPO client |
+| `SHORTAGE-BY-ORDER` | Shortage-by-production-order mapping. | `GET /data/MaterialShortages/ShortagesByOrder` | `src/leandna_shortage_client.py` | `UNUSED` in QBR enrich; client available |
+| `SHORTAGE-WITH-DELIVERIES-WEEKLY` | Weekly shortages + scheduled PO delivery tracking. | `GET /data/MaterialShortages/ShortagesByItemWithScheduledDeliveries/Weekly` | `src/leandna_shortage_client.py`, shortage deliveries slide | Core for scheduled deliveries |
+| `SHORTAGE-WITH-DELIVERIES-DAILY` | Daily + scheduled deliveries. | `GET .../ShortagesByItemWithScheduledDeliveries/Daily` | — | `UNUSED` |
+| `SHORTAGE-WITH-DELIVERIES-MONTHLY` | Monthly + scheduled deliveries. | `GET .../ShortagesByItemWithScheduledDeliveries/Monthly` | — | `UNUSED` |
+| `CRITICALITY-LEVEL-SHORTAGE` | Shortage criticality level (1-5 numeric or label). | `criticalityLevel` (ShortagesByItem) | `src/leandna_shortage_client.py`, critical shortages slide | Current shortage severity |
+| `CTB-SHORTAGE-IMPACTED-VALUE` | Clear-to-build dollar impact from shortage. | `ctbShortageImpactedValue` (ShortagesByItem) | `src/leandna_shortage_client.py`, shortage forecast/critical slides | Production revenue at risk |
+| `CTB-IMPACTED-ORDERS-COUNT` | Count of production orders impacted by this shortage. | `ctbImpactedOrdersSingleShortageCount` (ShortagesByItem) | `src/leandna_shortage_client.py` | Order impact breadth |
+| `DAYS-IN-SHORTAGE` | Cumulative days item has been in shortage. | `daysInShortage` (ShortagesByItem) | `src/leandna_shortage_client.py`, critical shortages table | Historical shortage duration |
+| `FIRST-CRITICAL-BUCKET-WEEK` | Date of first critical shortage bucket (week start). | `firstCriticalBucketWeek` (ShortagesByItem) | `src/leandna_shortage_client.py`, critical timeline | When shortage becomes critical |
+| `FIRST-CRITICAL-BUCKET-DAY` | Date of first critical shortage bucket (daily). | `firstCriticalBucketDay` (ShortagesByItem/Daily) | `src/leandna_shortage_client.py` | Daily precision for near-term critical |
+| `SHORTAGE-BUCKET-QUANTITY` | Shortage quantity for a given time bucket. | `bucket1quantity...bucket32quantity` (weekly), `day1quantity...day45quantity` (daily) | `src/leandna_shortage_client.py`, forecast aggregation | Time-series shortage qty |
+| `SHORTAGE-BUCKET-CRITICALITY` | Criticality label for time bucket (Critical/High/Medium/Low). | `bucket1criticality...bucket32criticality` (weekly) | `src/leandna_shortage_client.py`, forecast stacked chart | Time-series criticality |
+| `FIRST-PO-REQUESTED-DATE` | Requested delivery date for first impacted PO. | `firstPORequestedDate` (ShortagesByItem) | `src/leandna_shortage_client.py`, critical shortages | PO timing |
+| `FIRST-PO-COMMIT-DATE` | Supplier commit date for first impacted PO. | `firstPOCommitDate` (ShortagesByItem) | `src/leandna_shortage_client.py`, critical shortages | Supplier promise |
+| `FIRST-PO-STATUS` | Status of first impacted PO (Late/On-time/Unknown). | `firstPoStatus` (ShortagesByItem) | `src/leandna_shortage_client.py`, critical shortages table | PO health indicator |
+| `FIRST-IMPACTED-ORDER` | Production order number first impacted by shortage. | `firstImpactedOrder` (ShortagesByItem) | `src/leandna_shortage_client.py` | Production impact link |
+| `FIRST-IMPACTED-ORDER-DATE` | Due date of first impacted production order. | `firstImpactedOrderDate` (ShortagesByItem) | `src/leandna_shortage_client.py` | Customer delivery risk date |
+| `SCHEDULED-DELIVERIES-COUNT` | Number of scheduled PO deliveries for this item. | `scheduledDeliveries` (WithScheduledDeliveries) | `src/leandna_shortage_client.py`, deliveries slide | Delivery tracking breadth |
+| `SCHEDULED-QUANTITY` | Total quantity scheduled for delivery. | `scheduledQuantity` (WithScheduledDeliveries) | `src/leandna_shortage_client.py`, deliveries slide | Delivery resolution qty |
+| `FIRST-DELIVERY-DATE` | Date of first scheduled delivery. | `firstDeliveryDate` (WithScheduledDeliveries) | `src/leandna_shortage_client.py`, deliveries slide | When shortage resolves |
+| `FIRST-DELIVERY-QTY` | Quantity of first scheduled delivery. | `firstDeliveryQty` (WithScheduledDeliveries) | `src/leandna_shortage_client.py` | First delivery resolution |
+| `FIRST-DELIVERY-TRACKING-NUMBER` | Tracking number for first scheduled delivery. | `firstDeliveryTrackingNumber` (WithScheduledDeliveries) | `src/leandna_shortage_client.py` | Shipment tracking |
 
 **Note:** Shortage data is cached shorter (12h TTL default) than Item Master (24h) since shortage forecasts are more time-sensitive. Configuration: `LEANDNA_SHORTAGE_CACHE_TTL_HOURS`.
 
@@ -300,27 +320,110 @@ REST API for item-level supply chain data. Full swagger spec: [`docs/leandna-dat
 
 | Identifier | Description | Source field / query surface | Where used | Status note |
 |---|---|---|---|---|
-|| `LEAN-PROJECT-ID` | Unique project identifier. | `id` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Core identifier |
-|| `LEAN-PROJECT-NAME` | Project name. | `name` (/data/LeanProject) | `src/leandna_lean_projects_client.py`, portfolio slide | Core field |
-|| `LEAN-PROJECT-SITE-ID` | Site where project is managed. | `siteId` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Site join key |
-|| `LEAN-PROJECT-AREA` | Project area (e.g., Procurement, Production). | `area` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Categorization |
-|| `LEAN-PROJECT-TYPE` | Project type (e.g., Cost Reduction, Lead Time). | `type` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Categorization |
-|| `LEAN-PROJECT-STAGE` | Current project stage (Planning, Execution, Validation, Closed). | `stage` (/data/LeanProject) | `src/leandna_lean_projects_client.py`, portfolio slide | Core status field |
-|| `LEAN-PROJECT-STATE` | Health state indicator (good, warn, bad). | `state` (/data/LeanProject) | `src/leandna_lean_projects_client.py`, portfolio slide | Visual indicator |
-|| `LEAN-PROJECT-START-DATE` | Project start date. | `startDate` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Core timeline field |
-|| `LEAN-PROJECT-DUE-DATE` | Project due/target completion date. | `dueDate` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Core timeline field |
-|| `LEAN-PROJECT-MANAGER-NAME` | Name of project manager. | `projectManager.name` (/data/LeanProject) | `src/leandna_lean_projects_client.py`, portfolio slide | Core field |
-|| `LEAN-PROJECT-SPONSOR-NAME` | Name of executive sponsor. | `sponsor.name` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Core field |
-|| `LEAN-PROJECT-SAVINGS-ACTUAL` | Total actual savings for period. | `totalActualSavingsForPeriod` (/data/LeanProject) | `src/leandna_lean_projects_client.py`, portfolio slide | Core ROI metric |
-|| `LEAN-PROJECT-SAVINGS-TARGET` | Total target savings for period. | `totalTargetSavingsForPeriod` (/data/LeanProject) | `src/leandna_lean_projects_client.py`, portfolio slide | Core ROI metric |
-|| `LEAN-PROJECT-BEST-PRACTICE-FLAG` | Whether project is marked as best practice. | `isBestPractice` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Quality indicator |
-|| `LEAN-PROJECT-VALIDATED-FLAG` | Whether project results are validated. | `isProjectResultsValidated` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Quality indicator |
-|| `LEAN-PROJECT-MONTHLY-SAVINGS-ACTUAL` | Actual savings for a specific month. | `savings[].actual` (/data/LeanProject/{ids}/Savings) | `src/leandna_lean_projects_client.py`, savings slide | Time-series metric |
-|| `LEAN-PROJECT-MONTHLY-SAVINGS-TARGET` | Target savings for a specific month. | `savings[].target` (/data/LeanProject/{ids}/Savings) | `src/leandna_lean_projects_client.py`, savings slide | Time-series metric |
-|| `LEAN-PROJECT-SAVINGS-CATEGORY` | Category of savings (e.g., Inventory Reduction). | `savings[].savingsCategory` (/data/LeanProject/{ids}/Savings) | `src/leandna_lean_projects_client.py` | Categorization for breakdown |
-|| `LEAN-PROJECT-LINK` | Direct link to project in LeanDNA UI. | `link` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Navigation |
+| `LEAN-PROJECT-ID` | Unique project identifier. | `id` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Core identifier |
+| `LEAN-PROJECT-NAME` | Project name. | `name` (/data/LeanProject) | `src/leandna_lean_projects_client.py`, portfolio slide | Core field |
+| `LEAN-PROJECT-SITE-ID` | Site where project is managed. | `siteId` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Site join key |
+| `LEAN-PROJECT-AREA` | Project area (e.g., Procurement, Production). | `area` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Categorization |
+| `LEAN-PROJECT-TYPE` | Project type (e.g., Cost Reduction, Lead Time). | `type` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Categorization |
+| `LEAN-PROJECT-STAGE` | Current project stage (Planning, Execution, Validation, Closed). | `stage` (/data/LeanProject) | `src/leandna_lean_projects_client.py`, portfolio slide | Core status field |
+| `LEAN-PROJECT-STATE` | Health state indicator (good, warn, bad). | `state` (/data/LeanProject) | `src/leandna_lean_projects_client.py`, portfolio slide | Visual indicator |
+| `LEAN-PROJECT-START-DATE` | Project start date. | `startDate` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Core timeline field |
+| `LEAN-PROJECT-DUE-DATE` | Project due/target completion date. | `dueDate` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Core timeline field |
+| `LEAN-PROJECT-MANAGER-NAME` | Name of project manager. | `projectManager.name` (/data/LeanProject) | `src/leandna_lean_projects_client.py`, portfolio slide | Core field |
+| `LEAN-PROJECT-SPONSOR-NAME` | Name of executive sponsor. | `sponsor.name` (/data/LeanProject) | `src/leandna_lean_projects_enrich.py` (`all_projects` / `top_projects`, plus `sponsor_name` alias) | Slide wiring optional |
+| `LEAN-PROJECT-SAVINGS-ACTUAL` | Total actual savings for period. | `totalActualSavingsForPeriod` (/data/LeanProject) | `src/leandna_lean_projects_client.py`, portfolio slide | Core ROI metric |
+| `LEAN-PROJECT-SAVINGS-TARGET` | Total target savings for period. | `totalTargetSavingsForPeriod` (/data/LeanProject) | `src/leandna_lean_projects_client.py`, portfolio slide | Core ROI metric |
+| `LEAN-PROJECT-BEST-PRACTICE-FLAG` | Whether project is marked as best practice. | `isBestPractice` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Quality indicator |
+| `LEAN-PROJECT-VALIDATED-FLAG` | Whether project results are validated. | `isProjectResultsValidated` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Quality indicator |
+| `LEAN-PROJECT-MONTHLY-SAVINGS-ACTUAL` | Actual savings for a specific month. | `savings[].actual` (/data/LeanProject/{ids}/Savings) | `src/leandna_lean_projects_client.py`, savings slide | Time-series metric |
+| `LEAN-PROJECT-MONTHLY-SAVINGS-TARGET` | Target savings for a specific month. | `savings[].target` (/data/LeanProject/{ids}/Savings) | `src/leandna_lean_projects_client.py`, savings slide | Time-series metric |
+| `LEAN-PROJECT-SAVINGS-CATEGORY` | Category of savings (e.g., Inventory Reduction). | `savings[].savingsCategory` (/data/LeanProject/{ids}/Savings) | `src/leandna_lean_projects_client.py` | Categorization for breakdown |
+| `LEAN-PROJECT-SAVINGS-TYPE` | Savings type dimension. | `savings[].savingsType` | — | `UNUSED` in BPO enrich |
+| `LEAN-PROJECT-LINK` | Direct link to project in LeanDNA UI. | `link` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Navigation |
+| `LEAN-PROJECT-CUSTOM-FIELDS` | Extensible custom field values. | `customFieldValues` | — | `UNUSED` |
+| `LEAN-PROJECT-TASK-ROW` | Task on a project. | `GET /data/LeanProject/{id}/Tasks` | — | `UNUSED` |
+| `LEAN-PROJECT-ISSUE-ROW` | Issue on a project. | `GET /data/LeanProject/{id}/Issues` | — | `UNUSED` |
+| `LEAN-PROJECT-STAGE-HISTORY-ROW` | Stage transition history row. | `GET /data/LeanProject/{ids}/Stage/History` | — | `UNUSED` |
 
 **Note:** Lean Projects data is cached with 24h TTL (same as Item Master). Configuration: `LEANDNA_LEAN_PROJECTS_CACHE_TTL_HOURS`. Not all customers use the Lean Projects module, so enrichment gracefully skips if no projects are found for the quarter.
+
+### Registry Entries (Purchase orders — SupplyOrder)
+
+| Identifier | Description | Source field / query surface | Where used | Status note |
+|---|---|---|---|---|
+| `LEANDNA-PO-STATUS` | PO lifecycle status. | `poStatus` (`GET /data/SupplyOrder/PurchaseOrder`) | — | `UNUSED` |
+| `LEANDNA-PO-COMMIT-DATE` | Commit / promise date. | `poCommitDate` | — | `UNUSED` |
+| `LEANDNA-PO-CONFIRMATION-STATUS` | Supplier confirmation. | `confirmationStatus` | — | `UNUSED` |
+| `LEANDNA-PO-DELIVERY-STATUS` | Delivery status. | `deliveryStatus` | — | `UNUSED` |
+| `LEANDNA-PO-REQUESTED-DELIVERY-ORIGINAL` | Original requested delivery. | `originalRequestedDeliveryDate` | — | `UNUSED` |
+| `LEANDNA-PO-REQUESTED-DELIVERY-CURRENT` | Current requested delivery. | `currentRequestedDeliveryDate` | — | `UNUSED` |
+| `LEANDNA-PO-EXPECTED-DELIVERY` | Expected delivery. | `currentExpectedDeliveryDate` | — | `UNUSED` |
+| `LEANDNA-PO-DEPTH-OF-DELAY` | Lateness depth. | `depthOfDelay` | — | `UNUSED` |
+| `LEANDNA-PO-LATE-CAUSE` | Late delivery cause. | `lateDeliveryCause` | — | `UNUSED` |
+| `LEANDNA-PO-LATE-LIABILITY` | Liability assignment. | `lateDeliveryLiability` | — | `UNUSED` |
+| `LEANDNA-PO-SCHEDULED-DELIVERIES` | Scheduled delivery rows. | `scheduledDeliveries` | — | `UNUSED` |
+| `LEANDNA-PO-FIRST-DELIVERY-DATE` | First delivery date on PO. | `firstDeliveryDate` | — | `UNUSED` |
+| `LEANDNA-PO-FIRST-DELIVERY-TRACKING` | First delivery tracking number. | `firstDeliveryTrackingNumber` | — | `UNUSED` |
+| `LEANDNA-PO-OPEN-VALUE` | Open PO value. | `openPoValue` | — | `UNUSED` |
+| `LEANDNA-PO-FUTURE-PPV` | Future purchase price variance. | `futurePPV` | — | `UNUSED` |
+| `LEANDNA-PO-LEAD-TIME` | Planned / standard lead time fields. | `leadTime`, `poLeadTime` | — | `UNUSED` |
+| `LEANDNA-PO-ACTUAL-LEAD-TIME` | Observed lead time. | `actualLeadTime` | — | `UNUSED` |
+
+### Registry Entries (Inventory — Purchased)
+
+| Identifier | Description | Source field / query surface | Where used | Status note |
+|---|---|---|---|---|
+| `LEANDNA-INV-PURCHASED-QTY` | Quantity. | `quantity` (`GET /data/Inventory/Purchased`) | — | `UNUSED` |
+| `LEANDNA-INV-PURCHASED-VALUE` | Inventory value. | `value` | — | `UNUSED` |
+| `LEANDNA-INV-PURCHASED-UNIT-PRICE` | Unit price. | `unitPrice` | — | `UNUSED` |
+| `LEANDNA-INV-PURCHASED-STATE` | Stock state. | `state` | — | `UNUSED` |
+| `LEANDNA-INV-PURCHASED-LOCATION` | Storage location. | `location` | — | `UNUSED` |
+| `LEANDNA-INV-PURCHASED-AVAILABLE-DATE` | Available date. | `availableDate` | — | `UNUSED` |
+| `LEANDNA-INV-PURCHASED-ORDER-NUMBER` | Related order. | `orderNumber` | — | `UNUSED` |
+| `LEANDNA-INV-SPECIAL-STOCK` | Special stock indicator. | `specialStock` | — | `UNUSED` |
+| `LEANDNA-INV-MATERIAL-TYPE` | Material type. | `materialType` | — | `UNUSED` |
+| `LEANDNA-INV-MATERIAL-GROUP` | Material group. | `materialGroup` | — | `UNUSED` |
+
+### Registry Entries (Metrics)
+
+| Identifier | Description | Source field / query surface | Where used | Status note |
+|---|---|---|---|---|
+| `LEANDNA-METRIC-NAME` | Metric display name. | `name` (`GET /data/Metric`) | — | `UNUSED` |
+| `LEANDNA-METRIC-SITE-ID` | Site scope. | `siteId` | — | `UNUSED` |
+| `LEANDNA-METRIC-VALUE-STREAMS` | Applicable value streams. | `possibleValueStreams` | — | `UNUSED` |
+| `LEANDNA-METRIC-CATEGORIES` | Metric categories. | `currentCategories` | — | `UNUSED` |
+| `LEANDNA-METRIC-REPORT-FISCAL-YEAR` | Fiscal year for aggregated report. | `fiscalYear` (`GET /data/MetricReport`) | — | `UNUSED` |
+| `LEANDNA-METRIC-REPORT-VALUES` | Time-series cells. | `metricValues` | — | `UNUSED` |
+| `LEANDNA-METRIC-REPORT-CURRENCY` | Report currency. | `currency` | — | `UNUSED` |
+
+### Registry Entries (Data Share — Parquet)
+
+| Identifier | Description | Source field / query surface | Where used | Status note |
+|---|---|---|---|---|
+| `LEANDNA-DATASHARE-REPORT-TYPE` | Named bulk report (e.g. PurchaseOrders, ClearToBuild…). | `GET /data/DataShare` | — | `UNUSED` |
+| `LEANDNA-DATASHARE-DOWNLOAD-URL` | Time-limited signed URL for Parquet file. | Response payload (see OpenAPI) | — | `UNUSED` |
+
+### Registry Entries (Identity)
+
+| Identifier | Description | Source field / query surface | Where used | Status note |
+|---|---|---|---|---|
+| `LEANDNA-IDENTITY-USER-ID` | API user id. | `userId` (`GET /data/identity`) | — | `UNUSED` |
+| `LEANDNA-IDENTITY-CUSTOMER-ID` | Tenant customer id. | `customerId` | — | `UNUSED` |
+| `LEANDNA-IDENTITY-USER-NAME` | User display name. | `userName` | — | `UNUSED` |
+| `LEANDNA-IDENTITY-EMAIL` | User email. | `emailAddress` | — | `UNUSED` |
+| `LEANDNA-IDENTITY-SITE-ID` | Authorized site id. | `authorizedSites[].siteId` | — | `UNUSED` |
+| `LEANDNA-IDENTITY-SITE-NAME` | Authorized site name. | `authorizedSites[].siteName` | — | `UNUSED` |
+| `LEANDNA-IDENTITY-ENTITY` | Entity label on site. | `authorizedSites[].entity` | — | `UNUSED` |
+| `LEANDNA-IDENTITY-DIVISION` | Division. | `authorizedSites[].division` | — | `UNUSED` |
+| `LEANDNA-IDENTITY-BUSINESS-UNIT` | Business unit. | `authorizedSites[].businessUnit` | — | `UNUSED` |
+| `LEANDNA-IDENTITY-CURRENCY` | Site currency code. | `authorizedSites[].currencyCode` | — | `UNUSED` |
+
+### Registry Entries (Write-back)
+
+| Identifier | Description | Source field / query surface | Where used | Status note |
+|---|---|---|---|---|
+| `LEANDNA-WB-PO-ACTION` | Pending PO write-back action row. | `GET /data/WriteBack/v1/PurchaseOrderActions` | — | `UNUSED`; read-only recommended |
+| `LEANDNA-WB-ACTION-STATUS-UPDATE` | Transition action state. | `PUT /data/WriteBack/v1/TransitionActions` | — | `UNUSED`; no auto-write in BPO |
 
 ## Salesforce
 

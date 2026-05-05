@@ -4,6 +4,8 @@
 **Date:** 2026-04-21  
 **Total effort:** ~12-14 hours
 
+**Note (2026-05):** The QBR companion bundle list and slide counts have grown since this write-up. The source of truth is `QBR_BUNDLE_COMPANION_DECKS` in `src/qbr_template.py`. Counts and deck names below reflect the April 2026 milestone, not necessarily the current bundle.
+
 ---
 
 ## 🎯 Mission Accomplished
@@ -266,7 +268,7 @@ Live API fetch (180s timeout)
 ### **Environment Variables Required**
 ```bash
 # LeanDNA Data API (optional - gracefully skips if not set)
-DATA_API_BEARER_TOKEN=your_token_here
+LEANDNA_DATA_API_BEARER_TOKEN=your_token_here
 
 # Cache TTLs (optional, have sensible defaults)
 LEANDNA_ITEM_MASTER_CACHE_TTL_HOURS=24
