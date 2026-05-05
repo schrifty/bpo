@@ -1,0 +1,11 @@
+---
+description: Salesforce is canonical for customer/book-of-business enumeration
+alwaysApply: true
+---
+
+# Salesforce: canonical customer list
+
+- **Salesforce** (`Account` records with `Type = 'Customer Entity'`, via `SalesforceClient.get_entity_accounts()` and related helpers) is the **source of truth for which customers belong in the portfolio / book of business**, not raw Pendo sitename-prefix enumeration.
+- **Pendo** supplies product usage and visitor health for those customers. When joining SF labels to Pendo buckets, **warn** (do not silently skip) when there is no matching Pendo customer prefix; preserve or extend that pattern for new features.
+- Portfolio enumeration follows `BPO_PORTFOLIO_CUSTOMER_SOURCE` and the Salesforce allowlist path in `src/portfolio_salesforce_allowlist.py` / `PendoClient.get_portfolio_report`. Prefer extending that model over re-deriving “the customer set” from Pendo alone unless product explicitly requires Pendo-only discovery.
+- YAML maps (e.g. `customer_identity_map.yaml`, `cohorts.yaml`) are **adjuncts** for aliases and presentation—they do not override Salesforce as the authoritative customer inventory for CRM-backed flows.
