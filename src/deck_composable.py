@@ -25,7 +25,7 @@ from .speaker_notes import set_speaker_notes_batch
 
 
 def _get_deck_output_folder() -> str | None:
-    """Return the base QBR Generator folder ID for individual deck outputs."""
+    """Return the dated Output folder ID (same as QBR ``{ISO-date} - Output``)."""
     from .drive_config import get_deck_output_folder_id
 
     return get_deck_output_folder_id()

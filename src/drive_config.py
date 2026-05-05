@@ -26,6 +26,7 @@ The QBR Generator folder (``GOOGLE_QBR_GENERATOR_FOLDER_ID``) typically contains
 
 from __future__ import annotations
 
+import datetime
 import errno
 import io
 import threading
@@ -37,7 +38,7 @@ import yaml
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
-from .config import GOOGLE_QBR_GENERATOR_FOLDER_ID, logger
+from .config import GOOGLE_QBR_GENERATOR_FOLDER_ID, GOOGLE_QBR_OUTPUT_PARENT_ID, logger
 from .qa import qa
 
 _drive_service = None
@@ -52,8 +53,6 @@ _yaml_cache_lock = threading.Lock()
 _slide_def_id_cache: dict[str, dict[str, Any]] = {}
 _drive_yaml_duplicate_log_lock = threading.Lock()
 _drive_yaml_duplicate_signatures_warned: set[tuple[str, tuple[tuple[str, str, tuple[str, ...]], ...]]] = set()
-_deck_output_folder_cache: str | None = None
-
 # Set by ensure_drive_config_matches_repo (at most once per process).
 _drive_repo_sync_ran = False
 
@@ -61,6 +60,7 @@ _drive_repo_sync_ran = False
 _qbr_adapt_prompt_sync_ran = False
 
 # Same folder name as ``qbr_template.QBR_PROMPTS_SUBFOLDER`` (qbr_slide_list doc lives here).
+QBR_OUTPUT_SUBFOLDER = "Output"
 QBR_PROMPTS_FOLDER_NAME = "Prompts"
 ADAPT_SYSTEM_PROMPT_FILENAME = "adapt_system_prompt.yaml"
 _MIME_FOLDER = "application/vnd.google-apps.folder"
@@ -226,15 +226,33 @@ def get_qbr_generator_folder_id_for_drive_config() -> str:
     return explicit
 
 
+def get_qbr_output_folder_id() -> str | None:
+    """Return folder id for ``{ISO-date} - Output``, creating it if needed.
+
+    Default parent chain: ``<QBR Generator>/Output/``. Override with ``GOOGLE_QBR_OUTPUT_PARENT_ID``
+    (parent of the date-stamped folder only).
+    """
+    out_parent = (GOOGLE_QBR_OUTPUT_PARENT_ID or "").strip() or None
+    if out_parent:
+        parent = out_parent
+    else:
+        if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
+            logger.warning(
+                "QBR: GOOGLE_QBR_GENERATOR_FOLDER_ID not set — cannot create Output folder under generator",
+            )
+            return None
+        gen = get_qbr_generator_folder_id_for_drive_config()
+        parent = _find_or_create_folder(QBR_OUTPUT_SUBFOLDER, gen)
+    name = f"{datetime.date.today().isoformat()} - Output"
+    return _find_or_create_folder(name, parent)
+
+
 def get_deck_output_folder_id() -> str | None:
-    """Return the base QBR Generator folder id for generated deck outputs."""
-    global _deck_output_folder_cache
-    if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
-        return None
-    if _deck_output_folder_cache:
-        return _deck_output_folder_cache
-    _deck_output_folder_cache = get_qbr_generator_folder_id_for_drive_config()
-    return _deck_output_folder_cache
+    """Return dated folder under ``Output/`` for programmatic deck creation (Slides API copies).
+
+    Same path as QBR daily bundles: ``<generator>/Output/{ISO-date} - Output``, not the generator root.
+    """
+    return get_qbr_output_folder_id()
 
 
 def _get_config_folder_ids() -> tuple[str, str, str]:
@@ -713,13 +731,12 @@ def clear_yaml_config_cache() -> None:
 
 def reset_for_tests() -> None:
     """Reset Drive-backed module caches and one-shot sync guards for test isolation."""
-    global _drive_repo_sync_ran, _qbr_adapt_prompt_sync_ran, _deck_output_folder_cache
+    global _drive_repo_sync_ran, _qbr_adapt_prompt_sync_ran
     clear_yaml_config_cache()
     with _drive_yaml_duplicate_log_lock:
         _drive_yaml_duplicate_signatures_warned.clear()
     _drive_repo_sync_ran = False
     _qbr_adapt_prompt_sync_ran = False
-    _deck_output_folder_cache = None
 
 
 def list_obsolete_drive_config(

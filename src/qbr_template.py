@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import datetime
 import hashlib
 import json
 import time
@@ -17,7 +16,6 @@ from .config import (
     BPO_SIGNALS_LLM_EDITORIAL,
     BPO_SIGNALS_LLM_MANIFEST_MAX_CHARS,
     GOOGLE_QBR_GENERATOR_FOLDER_ID,
-    GOOGLE_QBR_OUTPUT_PARENT_ID,
     GOOGLE_QBR_TEMPLATE_FOLDER_ID,
     LLM_MODEL,
     QBR_TEMPLATE_FILE_NAME,
@@ -30,6 +28,7 @@ from .drive_config import (
     export_google_doc_as_plain_text,
     find_file_in_folder,
     get_qbr_generator_folder_id_for_drive_config,
+    get_qbr_output_folder_id,
     _find_or_create_folder,
 )
 from .evaluate import _detect_customer, _extract_text, adapt_custom_slides
@@ -63,7 +62,6 @@ from .slides_api import (
 )
 
 # Drive layout under the QBR Generator folder (see get_qbr_generator_folder_id_for_drive_config)
-QBR_OUTPUT_SUBFOLDER = "Output"
 # qbr_slide_list (Google Doc) + (via drive_config) repo ``prompts/adapt_system_prompt.yaml`` synced here for adapt
 QBR_PROMPTS_SUBFOLDER = "Prompts"
 QBR_SLIDE_LIST_DOC_NAME = "qbr_slide_list"
@@ -138,26 +136,6 @@ def resolve_qbr_template_and_manifest(generator_folder_id: str) -> tuple[str, st
         )
     text = export_google_doc_as_plain_text(mid)
     return tid, text
-
-
-def get_qbr_output_folder_id() -> str | None:
-    """Return folder id for ``{ISO-date} - Output``, creating it if needed.
-
-    Default parent chain: ``<QBR Generator>/Output/``. Override with ``GOOGLE_QBR_OUTPUT_PARENT_ID``
-    (parent of the date-stamped folder only).
-    """
-    if GOOGLE_QBR_OUTPUT_PARENT_ID:
-        parent = GOOGLE_QBR_OUTPUT_PARENT_ID
-    else:
-        if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
-            logger.warning(
-                "QBR: GOOGLE_QBR_GENERATOR_FOLDER_ID not set — cannot create Output folder under generator"
-            )
-            return None
-        gen = get_qbr_generator_folder_id_for_drive_config()
-        parent = _find_or_create_folder(QBR_OUTPUT_SUBFOLDER, gen)
-    name = f"{datetime.date.today().isoformat()} - Output"
-    return _find_or_create_folder(name, parent)
 
 
 def _drive_safe_folder_fragment(s: str, max_len: int = 120) -> str:
