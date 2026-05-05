@@ -47,21 +47,6 @@ Flag commands (utilities)
       implementations_review, support_review_portfolio. Optional ``--csm`` also runs ``csm_book_of_business``
       for that Pendo CSM substring. No customer name — these decks are org- or all-customer scoped.
 
-  decks --scan-fields [--db PATH] [--no-thumbnail] [--workers N] [--no-progress]
-                      [-- <presentation-id-or-url> ...]
-      Scan slide fields into a local SQLite DB. If you omit IDs after --, uses
-      presentations shared with GOOGLE_HYDRATE_INTAKE_GROUP. Slide cap matches
-      HYDRATE_MAX_SLIDES unless SCAN_MAX_SLIDES is set. Warms the slide analysis
-      cache (charts/interpretation) for hydrate. Progress bar on stderr (disable
-      with --no-progress for logs/CI).
-
-  decks --data [--db PATH]
-      Print field_name / field_type rows from the scan DB.
-      (Alias: ``--list-fields``)
-
-  decks --clear-fields [--db PATH]
-      Delete all rows in the scan DB.
-
 ────────────────────────────────────────────────────────────────
 Generate decks (natural language — LLM parses the prompt)
 ────────────────────────────────────────────────────────────────
@@ -591,21 +576,6 @@ def _run_all_portfolio_decks() -> None:
 
 def main():
     # Quick utility flags that don't need LLM parsing
-    if "--data" in sys.argv or "--list-fields" in sys.argv:
-        from src.qbr_field_scan import run_list_fields_cli
-        run_list_fields_cli(sys.argv)
-        return
-
-    if "--clear-fields" in sys.argv:
-        from src.qbr_field_scan import run_clear_fields_cli
-        run_clear_fields_cli(sys.argv)
-        return
-
-    if "--scan-fields" in sys.argv:
-        from src.qbr_field_scan import run_scan_cli
-        run_scan_cli(sys.argv)
-        return
-
     if "--list" in sys.argv:
         from src.deck_loader import list_decks
 
