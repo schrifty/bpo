@@ -47,9 +47,9 @@ Flag commands (utilities)
       Print canonical data element paths from ``config/comprehensive_data_element_list.json``.
 
   decks --export [--days N] [--max-bytes N] [--signals-cap N] [-o FILE] [--skip-drive]
-      Build the all-customers LLM context markdown snapshot and upload it to today's
-      dated Drive Output folder (same destination as programmatic deck outputs). ``--out`` / ``-o``
-      also writes a local copy. Use ``--skip-drive`` for local-only.
+      Build the all-customers LLM context markdown snapshot and upload it to
+      ``<QBR Generator>/Output/LLM-Context-All_Customers.md`` (stable path; overwrites on each run).
+      ``--out`` / ``-o`` also writes a local copy. Use ``--skip-drive`` for local-only.
       Section 7 LLM churn/account-risk insights are always appended to the export markdown.
 
   decks qbr <customer name>

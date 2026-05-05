@@ -11,6 +11,7 @@ Portfolio snapshot JSON caches on Drive are unrelated.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import re
@@ -19,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from . import matching_log
+from .config import logger
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_CONFIG = _REPO_ROOT / "config" / "comprehensive_data_element_list.json"
@@ -33,6 +35,11 @@ _SYNONYM_TRIGGER_PLACEHOLDERS = frozenset(
 _cache_rows: list[tuple[int, str, str, str]] | None = None
 _cache_key: object | None = None
 _default_synonym_load_lock = threading.Lock()
+
+# QBR-only overlay: repo ``comprehensive_data_element_list.json`` + champion-derived synonym rows.
+_qbr_catalog_session_lock = threading.Lock()
+_qbr_catalog_synonym_rows: list[tuple[int, str, str, str]] | None = None
+_qbr_catalog_alias_map: dict[str, str] | None = None
 
 _target_path_alias_map: dict[str, str] | None = None
 _target_path_alias_ck: tuple[str, str] | None = None
@@ -78,9 +85,116 @@ def _rows_from_synonyms_data(data: dict[str, Any]) -> list[tuple[int, str, str, 
     return rows
 
 
+def _champion_synonym_catalog_entries(champions: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Synthetic catalog rows so phrase resolution / target aliases can bind champion fields."""
+    out: list[dict[str, Any]] = []
+    if not champions:
+        return out
+    for i, ch in enumerate(champions):
+        if not isinstance(ch, dict):
+            continue
+        n = i + 1
+        base = [
+            f"Pendo champion {n}",
+            f"champion {n}",
+            f"pendo champion #{n}",
+        ]
+        email = str(ch.get("email") or "").strip()
+        role = str(ch.get("role") or "").strip()
+        lang = str(ch.get("language") or "").strip()
+        lv = str(ch.get("last_visit") or "").strip()
+        terms_email = [*base, f"Pendo champion {n} email", f"champion {n} email"]
+        if len(email) >= 4:
+            terms_email.append(email)
+        out.append({"path": f"pendo_champion_{n}.email", "terms": terms_email})
+        terms_role = [*base, f"Pendo champion {n} role", f"champion {n} role"]
+        if len(role) >= 4:
+            terms_role.append(role)
+        out.append({"path": f"pendo_champion_{n}.role", "terms": terms_role})
+        terms_lang = [*base, f"Pendo champion {n} language", f"champion {n} language"]
+        if len(lang) >= 4:
+            terms_lang.append(lang)
+        out.append({"path": f"pendo_champion_{n}.language", "terms": terms_lang})
+        terms_lv = [*base, f"Pendo champion {n} last visit", f"champion {n} last visit"]
+        if len(lv) >= 4:
+            terms_lv.append(lv)
+        out.append({"path": f"pendo_champion_{n}.last_visit", "terms": terms_lv})
+        out.append({
+            "path": f"pendo_champion_{n}.days_inactive",
+            "terms": [
+                *base,
+                f"Pendo champion {n} days inactive",
+                f"champion {n} days inactive",
+            ],
+        })
+    return out
+
+
+def begin_qbr_comprehensive_catalog_session(champions: list[dict[str, Any]] | None) -> None:
+    """Load ``comprehensive_data_element_list.json`` from disk into memory and merge champion synonyms.
+
+    Active for :func:`_load_synonym_rows` (``config_path is None``) and
+    :func:`resolve_data_summary_target_path` until :func:`end_qbr_comprehensive_catalog_session`
+    (typically the whole ``run_qbr_from_template`` tail: main adapt, agenda refinement, companion decks).
+    Uses the repo JSON only (not Drive) for this overlay.
+    """
+    global _qbr_catalog_synonym_rows, _qbr_catalog_alias_map
+    try:
+        raw_txt = _DEFAULT_CONFIG.read_text(encoding="utf-8")
+        data = json.loads(raw_txt)
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning(
+            "hydrate extra | qbr catalog | failed to load %s: %s — using empty base entries",
+            _DEFAULT_CONFIG,
+            e,
+        )
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    data = copy.deepcopy(data)
+    base_entries = list(data.get("entries") or [])
+    champ_entries = _champion_synonym_catalog_entries(champions)
+    data["entries"] = base_entries + champ_entries
+    rows = _rows_from_synonyms_data(data)
+    alias = _alias_map_from_synonym_like_entries(data.get("entries") or [], min_phrase_len=4)
+    with _qbr_catalog_session_lock:
+        _qbr_catalog_synonym_rows = rows
+        _qbr_catalog_alias_map = alias
+    n_ch = len(champions) if isinstance(champions, list) else 0
+    logger.info(
+        "hydrate extra | qbr catalog | loaded %s base_entries=%d champion_synonym_entries=%d "
+        "synonym_rows=%d alias_keys=%d champions=%d",
+        _DEFAULT_CONFIG.name,
+        len(base_entries),
+        len(champ_entries),
+        len(rows),
+        len(alias),
+        n_ch,
+    )
+
+
+def end_qbr_comprehensive_catalog_session() -> None:
+    """Clear QBR comprehensive-catalog overlay (call from ``finally`` at end of QBR run)."""
+    global _qbr_catalog_synonym_rows, _qbr_catalog_alias_map
+    had_active = False
+    with _qbr_catalog_session_lock:
+        had_active = (
+            _qbr_catalog_synonym_rows is not None or _qbr_catalog_alias_map is not None
+        )
+        _qbr_catalog_synonym_rows = None
+        _qbr_catalog_alias_map = None
+    if had_active:
+        logger.info("hydrate extra | qbr catalog | session ended")
+
+
 def _load_synonym_rows(config_path: Path | None = None) -> list[tuple[int, str, str, str]]:
     """Rows sorted for scan: (unused, normalized_phrase, path, canonical_label_for_notes)."""
     global _cache_rows, _cache_key
+    if config_path is None:
+        with _qbr_catalog_session_lock:
+            sess_rows = _qbr_catalog_synonym_rows
+        if sess_rows is not None:
+            return sess_rows
     if config_path is not None:
         path = config_path
         try:
@@ -248,6 +362,11 @@ def resolve_data_summary_target_path(target: str) -> str:
     t = (target or "").strip()
     if not t:
         return target or ""
+    with _qbr_catalog_session_lock:
+        sess_alias = _qbr_catalog_alias_map
+    if sess_alias is not None:
+        key = _normalize_target_path_key(t)
+        return sess_alias.get(key, t)
     global _target_path_alias_map, _target_path_alias_ck
     sig = _target_path_alias_signature()
     with _target_path_alias_lock:

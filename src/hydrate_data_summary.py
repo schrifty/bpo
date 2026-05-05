@@ -11,6 +11,32 @@ from .cs_report_client import get_csr_section
 ADAPT_PROMPT_DATA_MAX_CHARS = 12000
 _ADAPT_OVERSIZE_WARN_EMITTED = False
 
+_MAX_PENDO_CHAMPIONS_IN_SUMMARY = 12
+
+
+def _merge_pendo_champions_flat(summary: dict[str, Any], report: dict[str, Any]) -> None:
+    """Expose ``get_customer_people`` champions under ``pendo_champion_N.*`` for dotted lookups."""
+    raw = report.get("champions")
+    if not isinstance(raw, list) or not raw:
+        return
+    for i, ch in enumerate(raw[:_MAX_PENDO_CHAMPIONS_IN_SUMMARY]):
+        if not isinstance(ch, dict):
+            continue
+        n = i + 1
+        prefix = f"pendo_champion_{n}"
+        di_raw = ch.get("days_inactive")
+        try:
+            di_val = float(di_raw) if di_raw is not None else None
+        except (TypeError, ValueError):
+            di_val = None
+        summary[prefix] = {
+            "email": str(ch.get("email") or "").strip(),
+            "role": str(ch.get("role") or "").strip(),
+            "language": str(ch.get("language") or "").strip(),
+            "last_visit": str(ch.get("last_visit") or "").strip(),
+            "days_inactive": di_val if di_val is not None else di_raw,
+        }
+
 
 def build_data_summary(report: dict[str, Any]) -> dict[str, Any]:
     """Compact summary of all available current data for GPT matching."""
@@ -58,6 +84,8 @@ def build_data_summary(report: dict[str, Any]) -> dict[str, Any]:
         }
         for site in sites[:30]
     ]
+
+    _merge_pendo_champions_flat(summary, report)
 
     csr = get_csr_section(report)
     cs = csr.get("platform_health") or {}

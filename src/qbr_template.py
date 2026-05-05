@@ -33,6 +33,10 @@ from .drive_config import (
 )
 from .evaluate import _detect_customer, _extract_text, adapt_custom_slides
 from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
+from .data_field_synonyms import (
+    begin_qbr_comprehensive_catalog_session,
+    end_qbr_comprehensive_catalog_session,
+)
 from .pendo_client import PendoClient
 from .pendo_portfolio_snapshot_drive import (
     ensure_daily_portfolio_snapshot_for_qbr,
@@ -656,221 +660,226 @@ def run_qbr_from_template(
     report["_hydrate_slide_hints"] = hydrate_hints_by_slide_id()
     _qbr_time_segment("resolve_deck_and_hydrate_hints")
 
-    slides_svc, drive_svc, _google_creds = _get_service()
-    output_folder = get_qbr_output_folder_id()
-    bundle_folder_id: str | None = None
-    if output_folder:
+    begin_qbr_comprehensive_catalog_session(report.get("champions"))
+    try:
+        slides_svc, drive_svc, _google_creds = _get_service()
+        output_folder = get_qbr_output_folder_id()
+        bundle_folder_id: str | None = None
+        if output_folder:
+            try:
+                bundle_folder_id = ensure_qbr_customer_bundle_folder(output_folder, customer, qr.label)
+            except Exception as e:
+                logger.warning("QBR: could not create customer bundle subfolder under Output: %s", e)
+        target_folder_id = bundle_folder_id or output_folder
+        _qbr_time_segment("drive_client_and_output_folder")
+
+        out_title = f"{customer} — QBR ({qr.label})"
+        copy_body: dict[str, Any] = {"name": out_title}
+        if target_folder_id:
+            copy_body["parents"] = [target_folder_id]
+
         try:
-            bundle_folder_id = ensure_qbr_customer_bundle_folder(output_folder, customer, qr.label)
-        except Exception as e:
-            logger.warning("QBR: could not create customer bundle subfolder under Output: %s", e)
-    target_folder_id = bundle_folder_id or output_folder
-    _qbr_time_segment("drive_client_and_output_folder")
+            copied = drive_svc.files().copy(
+                fileId=template_id, body=copy_body, fields="id",
+            ).execute()
+            pres_id = copied["id"]
+        except HttpError as e:
+            logger.exception("QBR: copy template failed")
+            return {"error": f"Drive copy failed: {e}", "customer": customer}
 
-    out_title = f"{customer} — QBR ({qr.label})"
-    copy_body: dict[str, Any] = {"name": out_title}
-    if target_folder_id:
-        copy_body["parents"] = [target_folder_id]
+        url = f"https://docs.google.com/presentation/d/{pres_id}/edit"
+        logger.info("QBR: copied template → %s", url)
+        _qbr_time_segment("drive_copy_template")
 
-    try:
-        copied = drive_svc.files().copy(
-            fileId=template_id, body=copy_body, fields="id",
-        ).execute()
-        pres_id = copied["id"]
-    except HttpError as e:
-        logger.exception("QBR: copy template failed")
-        return {"error": f"Drive copy failed: {e}", "customer": customer}
+        try:
+            pres0 = slides_svc.presentations().get(presentationId=pres_id).execute()
+        except HttpError as e:
+            return {"error": f"Failed to read presentation: {e}", "presentation_id": pres_id, "customer": customer}
 
-    url = f"https://docs.google.com/presentation/d/{pres_id}/edit"
-    logger.info("QBR: copied template → %s", url)
-    _qbr_time_segment("drive_copy_template")
+        slides0 = pres0.get("slides", [])
+        if not slides0:
+            return {"error": "Template copy has no slides", "presentation_id": pres_id, "customer": customer}
 
-    try:
-        pres0 = slides_svc.presentations().get(presentationId=pres_id).execute()
-    except HttpError as e:
-        return {"error": f"Failed to read presentation: {e}", "presentation_id": pres_id, "customer": customer}
+        inventory = build_slide_inventory(slides0)
+        template_oids = frozenset(item["objectId"] for item in inventory)
+        title_oid = slides0[0]["objectId"]
+        _qbr_time_segment("slides_read_template_copy")
 
-    slides0 = pres0.get("slides", [])
-    if not slides0:
-        return {"error": "Template copy has no slides", "presentation_id": pres_id, "customer": customer}
-
-    inventory = build_slide_inventory(slides0)
-    template_oids = frozenset(item["objectId"] for item in inventory)
-    title_oid = slides0[0]["objectId"]
-    _qbr_time_segment("slides_read_template_copy")
-
-    oai = llm_client()
-    plan = call_manifest_planner(oai, manifest_text, customer, inventory)
-    _qbr_time_segment("manifest_planner_llm")
-    logger.info(
-        "QBR: manifest plan notes=%s hide_indices=%s hide_titles=%s move_end=%s",
-        plan.get("notes", "")[:200],
-        plan["hide"]["indices"],
-        plan["hide"]["title_contains"],
-        plan["move_to_end_title_contains"],
-    )
-
-    hide_oids = resolve_hide_object_ids(plan, inventory)
-
-    from .qa import qa
-
-    qa.begin(customer)
-    report["_slides_svc"] = slides_svc
-    report["_drive_svc"] = drive_svc
-
-    exec_set: frozenset[str] = frozenset()
-
-    try:
-        _apply_slide_skipped(slides_svc, pres_id, hide_oids)
-    except HttpError as e:
-        logger.warning("QBR: apply isSkipped failed (continuing): %s", e)
-
-    try:
-        _apply_move_template_slides_to_end(
-            slides_svc, pres_id, plan["move_to_end_title_contains"], template_oids
+        oai = llm_client()
+        plan = call_manifest_planner(oai, manifest_text, customer, inventory)
+        _qbr_time_segment("manifest_planner_llm")
+        logger.info(
+            "QBR: manifest plan notes=%s hide_indices=%s hide_titles=%s move_end=%s",
+            plan.get("notes", "")[:200],
+            plan["hide"]["indices"],
+            plan["hide"]["title_contains"],
+            plan["move_to_end_title_contains"],
         )
-    except HttpError as e:
-        logger.warning("QBR: move_to_end failed (continuing): %s", e)
 
-    try:
-        pres_final = slides_svc.presentations().get(presentationId=pres_id).execute()
-        final_slides = pres_final.get("slides", [])
-    except HttpError as e:
-        return {"error": f"Failed to re-read presentation: {e}", "url": url, "customer": customer}
+        hide_oids = resolve_hide_object_ids(plan, inventory)
 
-    _qbr_time_segment("hide_move_slides_reread_presentation")
-    adapt_ids = compute_adapt_page_ids(final_slides, title_oid, exec_set)
-    logger.info("QBR: adapting %d template slides (excludes title; hidden included)", len(adapt_ids))
+        from .qa import qa
 
-    qbr_agenda_visual: dict[str, Any] = {"enabled": False, "skipped": True}
-    adapt_hydrate_stats: dict[str, Any] = {}
-    if adapt_ids:
-        run_qbr_adapt_hints_phase(
-            oai,
-            slides_svc,
-            pres_id,
-            final_slides,
-            adapt_ids,
-            customer,
-            manifest_sha16=mf_hash,
-        )
-        _qbr_time_segment("qbr_adapt_hints_llm")
-        # QBR deck: resolve placeholders via config/qbr_mappings.yaml instead of phrase synonym table.
-        report[REPORT_KEY_EXPLICIT_QBR_MAPPINGS] = True
-        adapt_hydrate_stats = adapt_custom_slides(
-            slides_svc,
-            pres_id,
-            adapt_ids,
-            report,
-            oai,
-            source_presentation_name=out_title,
-            title_slide_object_id=title_oid,
-            google_creds=_google_creds,
-        ) or {}
-        _qbr_time_segment("adapt_custom_slides_hydrate")
-        agenda_page_id = find_qbr_agenda_page_id(slides_svc, pres_id, adapt_ids, report)
-        if agenda_page_id:
-            qbr_agenda_visual = run_qbr_agenda_visual_refinement_loop(
+        qa.begin(customer)
+        report["_slides_svc"] = slides_svc
+        report["_drive_svc"] = drive_svc
+
+        exec_set: frozenset[str] = frozenset()
+
+        try:
+            _apply_slide_skipped(slides_svc, pres_id, hide_oids)
+        except HttpError as e:
+            logger.warning("QBR: apply isSkipped failed (continuing): %s", e)
+
+        try:
+            _apply_move_template_slides_to_end(
+                slides_svc, pres_id, plan["move_to_end_title_contains"], template_oids
+            )
+        except HttpError as e:
+            logger.warning("QBR: move_to_end failed (continuing): %s", e)
+
+        try:
+            pres_final = slides_svc.presentations().get(presentationId=pres_id).execute()
+            final_slides = pres_final.get("slides", [])
+        except HttpError as e:
+            return {"error": f"Failed to re-read presentation: {e}", "url": url, "customer": customer}
+
+        _qbr_time_segment("hide_move_slides_reread_presentation")
+        adapt_ids = compute_adapt_page_ids(final_slides, title_oid, exec_set)
+        logger.info("QBR: adapting %d template slides (excludes title; hidden included)", len(adapt_ids))
+
+        qbr_agenda_visual: dict[str, Any] = {"enabled": False, "skipped": True}
+        adapt_hydrate_stats: dict[str, Any] = {}
+        if adapt_ids:
+            run_qbr_adapt_hints_phase(
+                oai,
                 slides_svc,
                 pres_id,
-                agenda_page_id,
+                final_slides,
+                adapt_ids,
+                customer,
+                manifest_sha16=mf_hash,
+            )
+            _qbr_time_segment("qbr_adapt_hints_llm")
+            # QBR deck: resolve placeholders via config/qbr_mappings.yaml instead of phrase synonym table.
+            report[REPORT_KEY_EXPLICIT_QBR_MAPPINGS] = True
+            adapt_hydrate_stats = adapt_custom_slides(
+                slides_svc,
+                pres_id,
+                adapt_ids,
                 report,
                 oai,
+                source_presentation_name=out_title,
                 title_slide_object_id=title_oid,
-            )
-            logger.info(
-                "QBR agenda visual refinement: %s",
-                qbr_agenda_visual,
-            )
+                google_creds=_google_creds,
+            ) or {}
+            _qbr_time_segment("adapt_custom_slides_hydrate")
+            agenda_page_id = find_qbr_agenda_page_id(slides_svc, pres_id, adapt_ids, report)
+            if agenda_page_id:
+                qbr_agenda_visual = run_qbr_agenda_visual_refinement_loop(
+                    slides_svc,
+                    pres_id,
+                    agenda_page_id,
+                    report,
+                    oai,
+                    title_slide_object_id=title_oid,
+                )
+                logger.info(
+                    "QBR agenda visual refinement: %s",
+                    qbr_agenda_visual,
+                )
+            else:
+                logger.warning(
+                    "QBR: no slide matched qbr_agenda hydrate (find_qbr_agenda_page_id returned None); "
+                    "QBR agenda visual refinement was not run."
+                )
+                qbr_agenda_visual = {
+                    "enabled": False,
+                    "skipped": True,
+                    "reason": "agenda_slide_not_found",
+                }
+            try:
+                apply_qbr_template_style_strip_after_adapt(slides_svc, pres_id, adapt_ids)
+            except Exception as e:
+                logger.warning("QBR: post-adapt template style strip failed (slide may still show yellow/orange): %s", e)
+            _qbr_time_segment("qbr_agenda_refinement_and_post_adapt")
         else:
-            logger.warning(
-                "QBR: no slide matched qbr_agenda hydrate (find_qbr_agenda_page_id returned None); "
-                "QBR agenda visual refinement was not run."
-            )
-            qbr_agenda_visual = {
-                "enabled": False,
-                "skipped": True,
-                "reason": "agenda_slide_not_found",
-            }
-        try:
-            apply_qbr_template_style_strip_after_adapt(slides_svc, pres_id, adapt_ids)
-        except Exception as e:
-            logger.warning("QBR: post-adapt template style strip failed (slide may still show yellow/orange): %s", e)
-        _qbr_time_segment("qbr_agenda_refinement_and_post_adapt")
-    else:
-        _qbr_time_segment("no_adapt_ids_skip_adapt_path")
+            _qbr_time_segment("no_adapt_ids_skip_adapt_path")
 
-    result: dict[str, Any] = {
-        "ok": True,
-        "customer": customer,
-        "customer_query": customer_query,
-        "presentation_id": pres_id,
-        "url": url,
-        "manifest_sha16": mf_hash,
-        "slides_hidden": len(hide_oids),
-        "adapt_slides": len(adapt_ids),
-        "qbr_agenda_visual_refinement": qbr_agenda_visual,
-        "plan_notes": plan.get("notes", ""),
-        "qbr_output_folder_id": output_folder,
-        "bundle_folder_id": bundle_folder_id,
-        "hydrate_adapt_stats": adapt_hydrate_stats,
-    }
+        result: dict[str, Any] = {
+            "ok": True,
+            "customer": customer,
+            "customer_query": customer_query,
+            "presentation_id": pres_id,
+            "url": url,
+            "manifest_sha16": mf_hash,
+            "slides_hidden": len(hide_oids),
+            "adapt_slides": len(adapt_ids),
+            "qbr_agenda_visual_refinement": qbr_agenda_visual,
+            "plan_notes": plan.get("notes", ""),
+            "qbr_output_folder_id": output_folder,
+            "bundle_folder_id": bundle_folder_id,
+            "hydrate_adapt_stats": adapt_hydrate_stats,
+        }
 
-    result["companion_bundle"] = bool(companion_bundle)
-    if target_folder_id and companion_bundle:
-        result["companion_decks"] = _build_companion_decks_for_qbr_bundle(report, target_folder_id)
-    else:
-        result["companion_decks"] = []
-        if not companion_bundle:
-            logger.info("QBR: skipping companion bundle (main QBR deck only)")
+        result["companion_bundle"] = bool(companion_bundle)
+        if target_folder_id and companion_bundle:
+            result["companion_decks"] = _build_companion_decks_for_qbr_bundle(report, target_folder_id)
         else:
-            logger.info(
-                "QBR: no Drive Output folder — skipping companion decks "
-                "(set GOOGLE_QBR_GENERATOR_FOLDER_ID; optional GOOGLE_QBR_OUTPUT_PARENT_ID overrides Output parent)"
-            )
+            result["companion_decks"] = []
+            if not companion_bundle:
+                logger.info("QBR: skipping companion bundle (main QBR deck only)")
+            else:
+                logger.info(
+                    "QBR: no Drive Output folder — skipping companion decks "
+                    "(set GOOGLE_QBR_GENERATOR_FOLDER_ID; optional GOOGLE_QBR_OUTPUT_PARENT_ID overrides Output parent)"
+                )
 
-    cohort_url = next(
-        (
-            c.get("url")
-            for c in result.get("companion_decks") or []
-            if c.get("deck_id") == "cohort_review" and c.get("url") and not c.get("error")
-        ),
-        None,
-    )
-    if cohort_url:
-        exec_companion_pid = next(
+        cohort_url = next(
             (
-                c.get("presentation_id")
+                c.get("url")
                 for c in result.get("companion_decks") or []
-                if c.get("deck_id") == "executive_summary" and c.get("presentation_id") and not c.get("error")
+                if c.get("deck_id") == "cohort_review" and c.get("url") and not c.get("error")
             ),
             None,
         )
-        if exec_companion_pid:
-            n2 = apply_cohort_bundle_links_to_notable_signals(
-                slides_svc, str(exec_companion_pid), cohort_url, page_object_ids=None
+        if cohort_url:
+            exec_companion_pid = next(
+                (
+                    c.get("presentation_id")
+                    for c in result.get("companion_decks") or []
+                    if c.get("deck_id") == "executive_summary" and c.get("presentation_id") and not c.get("error")
+                ),
+                None,
             )
-            if n2:
-                result["cohort_links_on_exec_summary_deck"] = n2
+            if exec_companion_pid:
+                n2 = apply_cohort_bundle_links_to_notable_signals(
+                    slides_svc, str(exec_companion_pid), cohort_url, page_object_ids=None
+                )
+                if n2:
+                    result["cohort_links_on_exec_summary_deck"] = n2
 
-    _qbr_time_segment("companion_decks_and_cohort_links")
+        _qbr_time_segment("companion_decks_and_cohort_links")
 
-    qbr_total = time.perf_counter() - qbr_t0
-    qbr_times["total_elapsed_s"] = qbr_total
-    result["qbr_timing_seconds"] = dict(qbr_times)
+        qbr_total = time.perf_counter() - qbr_t0
+        qbr_times["total_elapsed_s"] = qbr_total
+        result["qbr_timing_seconds"] = dict(qbr_times)
 
-    result["drive_cache_load_stats"] = drive_cache_load_stats_snapshot()
+        result["drive_cache_load_stats"] = drive_cache_load_stats_snapshot()
 
-    logger.info("QBR: timing — total wall clock %.1fs (per-phase; compare to sum of segments)", qbr_total)
-    _den = max(qbr_total, 0.01)
-    for _name, _sec in sorted(
-        ((k, v) for k, v in qbr_times.items() if k != "total_elapsed_s"), key=lambda x: -x[1]
-    ):
-        if _sec < 0.01:
-            continue
-        logger.info("QBR: timing — %5.1fs  %4.0f%%  %s", _sec, 100.0 * _sec / _den, _name)
-    log_drive_cache_load_summary(label="QBR")
-    return result
+        logger.info("QBR: timing — total wall clock %.1fs (per-phase; compare to sum of segments)", qbr_total)
+        _den = max(qbr_total, 0.01)
+        for _name, _sec in sorted(
+            ((k, v) for k, v in qbr_times.items() if k != "total_elapsed_s"), key=lambda x: -x[1]
+        ):
+            if _sec < 0.01:
+                continue
+            logger.info("QBR: timing — %5.1fs  %4.0f%%  %s", _sec, 100.0 * _sec / _den, _name)
+        log_drive_cache_load_summary(label="QBR")
+        return result
+    finally:
+        end_qbr_comprehensive_catalog_session()
+
 
 
 def run_qbr_cli(

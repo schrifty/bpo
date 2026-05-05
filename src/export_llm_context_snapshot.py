@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export an all-customers LLM-oriented data snapshot to Google Drive (dated Output folder).
+"""Export an all-customers LLM-oriented data snapshot to Google Drive under ``Output/``.
 
 Datasource bundle: :mod:`src.data_sources` profile ``llm_export_all_customers`` — Pendo portfolio
 rollup, CS Report (week), portfolio Salesforce revenue book, and Jira HELP (unscoped). The
@@ -16,7 +16,8 @@ Usage:
   python -m src.export_llm_context_snapshot --out ./snapshot.md --skip-drive
 
 Requires ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` and credentials for Drive upload unless ``--skip-drive``.
-Drive upload **replaces** an existing file with the same name in the dated Output folder by default (no configurable subfolder).
+Drive upload writes ``LLM-Context-All_Customers.md`` under ``<generator>/Output`` (same parent as
+the dated ``{ISO-date} - Output`` bundle folders) and **replaces** that file on each run so links stay stable.
 
 Every export appends **§7 Account & churn risk insights** (LLM). Failures are printed inside that section; the export still completes unless the core datasource report fails earlier.
 """
@@ -903,7 +904,7 @@ def _shrink_snapshot_params(
 
 def _build_export_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        description="Export all-customers LLM data snapshot to the dated Drive Output folder.",
+        description="Export all-customers LLM data snapshot to Drive Output/ (stable filename).",
         prog=prog or "python -m src.export_llm_context_snapshot",
     )
     ap.add_argument("--days", type=int, default=90, help="Lookback days for portfolio window (default 90)")
@@ -1005,7 +1006,7 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
         if str(k).startswith("_"):
             doc.pop(k, None)
 
-    fname = f"LLM-Context-All_Customers-{dt.date.today().isoformat()}.md"
+    fname = "LLM-Context-All_Customers.md"
 
     if args.out:
         path = args.out
@@ -1019,9 +1020,9 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
         print(f"Skipped Drive upload ({len(md.encode('utf-8'))} bytes)", file=sys.stderr)
         return
 
-    from src.drive_config import get_deck_output_folder_id, upload_text_file_to_drive_folder
+    from src.drive_config import get_qbr_output_root_folder_id, upload_text_file_to_drive_folder
 
-    folder_id = get_deck_output_folder_id()
+    folder_id = get_qbr_output_root_folder_id()
     if not folder_id:
         print(
             "error: could not resolve Drive Output folder (set GOOGLE_QBR_GENERATOR_FOLDER_ID "

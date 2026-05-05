@@ -226,23 +226,33 @@ def get_qbr_generator_folder_id_for_drive_config() -> str:
     return explicit
 
 
+def get_qbr_output_root_folder_id() -> str | None:
+    """Return folder id for stable outputs under QBR ``Output`` (not the dated bundle subfolder).
+
+    Default: ``<QBR Generator>/Output``. When ``GOOGLE_QBR_OUTPUT_PARENT_ID`` is set, returns that id —
+    the same parent used for ``{ISO-date} - Output`` dated folders (sibling of those bundles).
+    """
+    out_parent = (GOOGLE_QBR_OUTPUT_PARENT_ID or "").strip() or None
+    if out_parent:
+        return out_parent
+    if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
+        logger.warning(
+            "QBR: GOOGLE_QBR_GENERATOR_FOLDER_ID not set — cannot resolve Output folder under generator",
+        )
+        return None
+    gen = get_qbr_generator_folder_id_for_drive_config()
+    return _find_or_create_folder(QBR_OUTPUT_SUBFOLDER, gen)
+
+
 def get_qbr_output_folder_id() -> str | None:
     """Return folder id for ``{ISO-date} - Output``, creating it if needed.
 
     Default parent chain: ``<QBR Generator>/Output/``. Override with ``GOOGLE_QBR_OUTPUT_PARENT_ID``
     (parent of the date-stamped folder only).
     """
-    out_parent = (GOOGLE_QBR_OUTPUT_PARENT_ID or "").strip() or None
-    if out_parent:
-        parent = out_parent
-    else:
-        if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
-            logger.warning(
-                "QBR: GOOGLE_QBR_GENERATOR_FOLDER_ID not set — cannot create Output folder under generator",
-            )
-            return None
-        gen = get_qbr_generator_folder_id_for_drive_config()
-        parent = _find_or_create_folder(QBR_OUTPUT_SUBFOLDER, gen)
+    parent = get_qbr_output_root_folder_id()
+    if not parent:
+        return None
     name = f"{datetime.date.today().isoformat()} - Output"
     return _find_or_create_folder(name, parent)
 
