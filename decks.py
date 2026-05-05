@@ -37,7 +37,7 @@ Flag commands (utilities)
       QBR may auto-refresh this snapshot on weekends when Drive needs an update (see
       ``pendo_portfolio_snapshot_drive.ensure_daily_portfolio_snapshot_for_qbr``).
 
-  decks --all-customer-decks "Customer Name" [--days N] [--quarter Q1 2026] [--thumbnails] [--workers N]
+  decks --customer "Customer Name" [--days N] [--quarter Q1 2026] [--thumbnails] [--workers N]
       Run every **customer-scoped** deck id (see ``decks --list``) for one account, in sequence.
       Uses the same health-report path as ``decks <natural language>``; pauses briefly between
       decks to reduce Drive rate limits.
@@ -92,7 +92,7 @@ _PORTFOLIO_SCOPE_DECK_IDS: frozenset[str] = frozenset(
     }
 )
 
-# Order for ``--all-customer-decks`` (heavier / slower decks later is arbitrary; adjust if needed).
+# Order for ``--customer`` batch (heavier / slower decks later is arbitrary; adjust if needed).
 _CUSTOMER_SCOPED_DECK_BATCH_ORDER: tuple[str, ...] = (
     "cs_health_review",
     "engineering",
@@ -403,7 +403,7 @@ def _run_support_review_portfolio_deck() -> None:
 
 
 def _run_all_customer_decks() -> None:
-    """CLI: ``--all-customer-decks CUSTOMER`` — every customer-scoped deck type, one account."""
+    """CLI: ``--customer CUSTOMER`` — every customer-scoped deck type, one account."""
     import argparse
 
     from src.data_source_health import check_all_required
@@ -415,11 +415,13 @@ def _run_all_customer_decks() -> None:
         description="Run every customer-scoped deck for a single named account (see decks --list).",
     )
     ap.add_argument(
+        "--customer",
         "--all-customer-decks",
+        dest="customer_batch",
         nargs=1,
         metavar="CUSTOMER",
         required=True,
-        help="Pendo customer name (quoted if it contains spaces).",
+        help="Pendo customer name (quoted if it contains spaces). ``--all-customer-decks`` is a legacy alias.",
     )
     ap.add_argument("--days", type=int, default=None, help="Lookback days (default: current quarter window)")
     ap.add_argument("--quarter", type=str, default=None, help='Quarter label, e.g. "Q1 2026", prev, current')
@@ -427,7 +429,7 @@ def _run_all_customer_decks() -> None:
     ap.add_argument("--workers", type=int, default=2, help="Parallel workers per deck (default 2)")
     args = ap.parse_args()
 
-    customer = str(args.all_customer_decks[0]).strip()
+    customer = str(args.customer_batch[0]).strip()
     if not customer:
         ap.error("CUSTOMER must be non-empty")
 
@@ -755,7 +757,7 @@ def main():
         print(__doc__.strip())
         return
 
-    if "--all-customer-decks" in sys.argv:
+    if "--customer" in sys.argv or "--all-customer-decks" in sys.argv:
         _run_all_customer_decks()
         return
     if "--portfolio" in sys.argv or "--all-portfolio-decks" in sys.argv:
@@ -766,6 +768,15 @@ def main():
     if not prompt:
         print(__doc__.strip())
         sys.exit(1)
+
+    # Bare "help" looks like NL but skips --help handling → would call the LLM and often hang / hit Drive first.
+    pl0 = prompt.lower().strip()
+    if pl0 in ("help", "usage", "?"):
+        print(
+            "error: unrecognized command (use `--help`). Run: decks --help   or: decks -h",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     # "decks hydrate" or "decks hydrate Bombardier" / "decks hydrate for Safran" → group intake
     # Hydrate only needs Drive access — no Pendo/SF/CSR preflight required
