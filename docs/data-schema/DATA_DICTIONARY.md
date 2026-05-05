@@ -211,6 +211,11 @@
 - `account.total_sites`
 - `account.total_visitors`
 - `at_risk_users`
+- `at_risk_users[].days_inactive`
+- `at_risk_users[].email`
+- `at_risk_users[].language`
+- `at_risk_users[].last_visit`
+- `at_risk_users[].role`
 - `benchmarks.cohort`
 - `benchmarks.cohort_count`
 - `benchmarks.cohort_median_rate`
@@ -219,6 +224,11 @@
 - `benchmarks.peer_count`
 - `benchmarks.peer_median_rate`
 - `champions`
+- `champions[].days_inactive`
+- `champions[].email`
+- `champions[].language`
+- `champions[].last_visit`
+- `champions[].role`
 - `engagement.active_30d`
 - `engagement.active_7d`
 - `engagement.active_rate_7d`
@@ -228,6 +238,12 @@
 - `feature_adoption_insights`
 - `frustration`
 - `pendo_catalog_appendix`
+- `pendo.visitors[].metadata.agent.emailaddress`
+- `pendo.visitors[].metadata.agent.isinternaluser`
+- `pendo.visitors[].metadata.agent.language`
+- `pendo.visitors[].metadata.agent.role`
+- `pendo.visitors[].metadata.auto.lastvisit`
+- `pendo.visitors[].visitorId`
 - `poll_events`
 - `signals`
 - `signals_trend_context`

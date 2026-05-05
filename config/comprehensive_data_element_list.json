@@ -1,5 +1,5 @@
 {
-  "version": 8,
+  "version": 9,
   "_comment": "Comprehensive catalog of data elements BPO can access for hydrate and deck mapping. Use entries[].terms for phrase resolution; keep this list exhaustive across source payloads, including nested Salesforce comprehensive categories.",
   "entries": [
     {
@@ -141,6 +141,48 @@
       ]
     },
     {
+      "path": "at_risk_users[].days_inactive",
+      "terms": [
+        "at_risk_users[].days_inactive",
+        "[Pendo→report] derived days since last visit",
+        "Champions slide at-risk column",
+        "from metadata.auto.lastvisit vs snapshot now"
+      ]
+    },
+    {
+      "path": "at_risk_users[].email",
+      "terms": [
+        "at_risk_users[].email",
+        "[Pendo→report] visitor email",
+        "metadata.agent.emailaddress"
+      ]
+    },
+    {
+      "path": "at_risk_users[].language",
+      "terms": [
+        "at_risk_users[].language",
+        "[Pendo→report] UI language when set",
+        "metadata.agent.language",
+        "Champions slide detail line"
+      ]
+    },
+    {
+      "path": "at_risk_users[].last_visit",
+      "terms": [
+        "at_risk_users[].last_visit",
+        "[Pendo→report] last visit YYYY-MM-DD or Never",
+        "from metadata.auto.lastvisit"
+      ]
+    },
+    {
+      "path": "at_risk_users[].role",
+      "terms": [
+        "at_risk_users[].role",
+        "[Pendo→report] visitor role label",
+        "metadata.agent.role"
+      ]
+    },
+    {
       "path": "benchmarks.cohort",
       "terms": [
         "benchmarks.cohort",
@@ -234,6 +276,93 @@
         "High-engagement users",
         "System advocates",
         "Workflow experts"
+      ]
+    },
+    {
+      "path": "champions[].days_inactive",
+      "terms": [
+        "champions[].days_inactive",
+        "[Pendo→report] derived days since last visit",
+        "Champions slide champions column",
+        "from metadata.auto.lastvisit vs snapshot now"
+      ]
+    },
+    {
+      "path": "champions[].email",
+      "terms": [
+        "champions[].email",
+        "[Pendo→report] visitor email",
+        "metadata.agent.emailaddress"
+      ]
+    },
+    {
+      "path": "champions[].language",
+      "terms": [
+        "champions[].language",
+        "[Pendo→report] UI language when set",
+        "metadata.agent.language",
+        "Champions slide detail line"
+      ]
+    },
+    {
+      "path": "champions[].last_visit",
+      "terms": [
+        "champions[].last_visit",
+        "[Pendo→report] last visit YYYY-MM-DD or Never",
+        "from metadata.auto.lastvisit"
+      ]
+    },
+    {
+      "path": "champions[].role",
+      "terms": [
+        "champions[].role",
+        "[Pendo→report] visitor role label",
+        "metadata.agent.role"
+      ]
+    },
+    {
+      "path": "pendo.visitors[].metadata.agent.emailaddress",
+      "terms": [
+        "pendo.visitors[].metadata.agent.emailaddress",
+        "[Pendo API] visitor agent email → champions[].email / at_risk_users[].email",
+        "Visitor List / aggregate visitor records"
+      ]
+    },
+    {
+      "path": "pendo.visitors[].metadata.agent.isinternaluser",
+      "terms": [
+        "pendo.visitors[].metadata.agent.isinternaluser",
+        "[Pendo API] internal LeanDNA user flag — excluded from customer metrics",
+        "with role LeanDNAStaff"
+      ]
+    },
+    {
+      "path": "pendo.visitors[].metadata.agent.language",
+      "terms": [
+        "pendo.visitors[].metadata.agent.language",
+        "[Pendo API] browser UI language → champions[].language / at_risk_users[].language"
+      ]
+    },
+    {
+      "path": "pendo.visitors[].metadata.agent.role",
+      "terms": [
+        "pendo.visitors[].metadata.agent.role",
+        "[Pendo API] visitor role → champions[].role / at_risk_users[].role"
+      ]
+    },
+    {
+      "path": "pendo.visitors[].metadata.auto.lastvisit",
+      "terms": [
+        "pendo.visitors[].metadata.auto.lastvisit",
+        "[Pendo API] last visit epoch ms → last_visit and days_inactive in report",
+        "metadata.auto.lastvisit"
+      ]
+    },
+    {
+      "path": "pendo.visitors[].visitorId",
+      "terms": [
+        "pendo.visitors[].visitorId",
+        "[Pendo API] stable visitor id on visitor record"
       ]
     },
     {
