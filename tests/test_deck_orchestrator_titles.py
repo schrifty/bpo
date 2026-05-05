@@ -6,7 +6,7 @@ from src.deck_orchestrator import _health_deck_presentation_title
 def test_portfolio_review_title_uses_consistent_prefix():
     t = _health_deck_presentation_title(
         deck_id="portfolio_review",
-        deck_name="00 - Portfolio Health Review",
+        deck_name="Portfolio Health Review",
         date_str="Last 30 days",
         customer="Portfolio",
         report={"type": "portfolio"},
@@ -18,7 +18,7 @@ def test_portfolio_review_title_uses_consistent_prefix():
 def test_cohort_and_engineering_portfolio_prefix():
     cohort = _health_deck_presentation_title(
         deck_id="cohort_review",
-        deck_name="Manufacturing cohort review",
+        deck_name="Manufacturing Cohort Review",
         date_str="Q1 2026",
         customer="Portfolio",
         report={"type": "portfolio"},

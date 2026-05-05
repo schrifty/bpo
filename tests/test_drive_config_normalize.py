@@ -31,7 +31,7 @@ def test_config_text_matches_local_different_content() -> None:
 
 
 def test_normalize_config_text_three_way_duplicate_policy() -> None:
-    """Drive dedupe trashes extras only when all normalized bodies match keeper."""
+    """Same logical YAML can differ in line endings; differing titles stay distinct."""
     a = "id: slide_x\ntitle: \"Q\"\n"
     b = "id: slide_x\r\ntitle: \"Q\"  \n"
     c = "id: slide_x\ntitle: \"Different\"\n"

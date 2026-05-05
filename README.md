@@ -170,12 +170,12 @@ These use a **portfolio- or org-shaped** report (all customers, cohorts, CSM own
 
 | ID | Name |
 |----|------|
-| `cohort_review` | Manufacturing cohort review (`cohorts.yaml`) |
+| `cohort_review` | Manufacturing Cohort Review (`cohorts.yaml`) |
 | `csm_book_of_business` | CSM Book of Business (Pendo owner filter) |
 | `engineering-portfolio` | Engineering Portfolio Review (LEAN SDLC + HELP support pressure + LEAN snapshot) |
 | `implementations_review` | Implementations Review (Jira CUSTOMER escalations) |
 | `portfolio_review` | Portfolio Health Review |
-| `support_review_portfolio` | Support Review — Portfolio |
+| `support_review_portfolio` | Support Review Portfolio |
 
 ## Data Quality
 

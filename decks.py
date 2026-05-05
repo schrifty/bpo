@@ -29,12 +29,6 @@ Flag commands (utilities)
   decks --sync-config [--sync-overwrite]
       Upload deck/slide YAML config to Google Drive.
 
-  decks --dedupe-drive-yaml [--apply]
-      List duplicate-named YAML files under Drive ``decks/`` and ``slides/``.
-      Without ``--apply`` (dry-run): show which extra copies would be trashed **only**
-      when all copies have identical normalized text. Non-identical duplicates are skipped
-      so slide/deck definitions are never dropped silently.
-
   decks --upload-portfolio-snapshot [--days N] [--max-customers M]
       Run full Pendo portfolio crawl and upload JSON to the portfolio snapshot
       folder: BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID if set, else "Cache" under QBR generator
@@ -69,7 +63,7 @@ Generate decks (natural language — LLM parses the prompt)
   Fixed phrases (no LLM — matched before parsing):
       engineering portfolio | eng portfolio | engineering review | ...
       support | support review | support deck | ...
-      support portfolio | support review portfolio  →  Support Review — Portfolio (all customers)
+      support portfolio | support review portfolio  →  Support Review Portfolio (all customers)
       csm book … --csm "<name>"  →  CSM Book of Business (Pendo ownername filter)
 
   Same Jira-backed decks can also be selected if the LLM returns deck_id
@@ -361,7 +355,7 @@ def _run_support_review_portfolio_deck() -> None:
     from src.data_source_health import check_all_required
     from src.slides_client import create_health_deck
 
-    parser = argparse.ArgumentParser(description="Generate Support Review — Portfolio (all customers)")
+    parser = argparse.ArgumentParser(description="Generate Support Review Portfolio (all customers)")
     parser.add_argument(
         "--days",
         type=int,
@@ -385,7 +379,7 @@ def _run_support_review_portfolio_deck() -> None:
         sys.exit(1)
 
     days = int(args.days) if args.days is not None else 365
-    print("Generating Support Review — Portfolio (all customers)")
+    print("Generating Support Review Portfolio (all customers)")
     t0 = time.time()
     report = {
         "type": "support_review",
@@ -698,37 +692,6 @@ def main():
         print(f"Slides uploaded:    {stats['slides_uploaded']}")
         print(f"Skipped (exist):    {stats['skipped']}")
         return
-
-    if "--dedupe-drive-yaml" in sys.argv:
-        from src.drive_config import dedupe_drive_yaml_duplicate_names
-
-        dry_run = "--apply" not in sys.argv
-        stats = dedupe_drive_yaml_duplicate_names(dry_run=dry_run)
-        if stats.get("error"):
-            print(f"Error: {stats['error']}")
-            sys.exit(1)
-        mode = "DRY RUN" if stats.get("dry_run") else "APPLIED"
-        print(f"Drive YAML dedupe ({mode}):")
-        print(f"  decks trashed:     {stats.get('decks_trashed', 0)}")
-        print(f"  slides trashed:   {stats.get('slides_trashed', 0)}")
-        print(f"  would trash (dry-run): {stats.get('dry_run_would_trash', 0)}")
-        print(f"  identical groups: {stats.get('groups_identical', 0)}")
-        print(f"  content mismatch basenames skipped: {len(stats.get('content_mismatch') or [])}")
-        if stats.get("content_mismatch"):
-            print("Skipped (different file bodies — inspect in Drive):\n")
-            print(json.dumps(stats["content_mismatch"], indent=2))
-        if stats.get("read_errors"):
-            print("Read errors:\n")
-            print(json.dumps(stats["read_errors"], indent=2))
-        print(json.dumps(stats, indent=2, default=str))
-        if stats.get("fatal"):
-            print(f"Fatal: {stats['fatal']}")
-            sys.exit(1)
-        sys.exit(
-            2
-            if stats.get("content_mismatch") or stats.get("read_errors")
-            else 0
-        )
 
     if "--upload-portfolio-snapshot" in sys.argv:
         from src.pendo_portfolio_snapshot_drive import run_upload_portfolio_snapshot_cli
