@@ -56,6 +56,10 @@ Flag commands (utilities)
       also writes a local copy. Use ``--skip-drive`` for local-only.
       §7 LLM churn/account-risk insights are always appended to the export markdown.
 
+  decks qbr <customer name> [--main-only]
+      Quarterly Business Review from the Drive QBR template (same as ``python main.py qbr …``).
+      Customer must match a Pendo customer substring. ``--main-only`` skips companion decks.
+
 ────────────────────────────────────────────────────────────────
 Generate decks (natural language — LLM parses the prompt)
 ────────────────────────────────────────────────────────────────
@@ -644,6 +648,12 @@ def main():
 
         rest = [a for a in sys.argv[1:] if a != "--export"]
         export_main(rest, prog="decks --export")
+        return
+
+    if len(sys.argv) > 1 and sys.argv[1] == "qbr":
+        from src.qbr_template import run_qbr_cli
+
+        run_qbr_cli(sys.argv[2:], prog="decks qbr")
         return
 
     if "--list" in sys.argv:

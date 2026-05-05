@@ -10,103 +10,9 @@ from src.config import logger
 def main() -> None:
     argv = sys.argv[1:]
     if argv and argv[0] == "qbr":
-        import argparse
+        from src.qbr_template import run_qbr_cli
 
-        qbr_ap = argparse.ArgumentParser(
-            prog="python main.py qbr",
-            description="Build QBR from the Drive template (see GOOGLE_QBR_GENERATOR_FOLDER_ID).",
-        )
-        qbr_ap.add_argument(
-            "--main-only",
-            action="store_true",
-            help="Only the main QBR Slides file; skip companion decks (cs_health_review, cohort, etc.)",
-        )
-        qbr_ap.add_argument(
-            "customer_words",
-            nargs="*",
-            help="Customer name or substring (must match a Pendo customer name)",
-        )
-        ns = qbr_ap.parse_args(argv[1:])
-        customer = " ".join(ns.customer_words).strip()
-        if not customer:
-            qbr_ap.print_help()
-            sys.exit(2)
-        from src.qbr_template import run_qbr_from_template
-
-        import time as _time
-        _qbr_t0 = _time.monotonic()
-        logger.info(
-            "QBR run for customer query: %s (companion_bundle=%s)",
-            customer,
-            not ns.main_only,
-        )
-        result = run_qbr_from_template(customer, companion_bundle=not ns.main_only)
-        if result.get("error"):
-            print(f"Error: {result['error']}", file=sys.stderr)
-            if result.get("hint"):
-                print(result["hint"], file=sys.stderr)
-            sys.exit(1)
-        print(result.get("url", ""))
-        print(f"Customer: {result.get('customer')}")
-        if ns.main_only:
-            print("Companion bundle: skipped (--main-only)")
-        if result.get("bundle_folder_id"):
-            print(
-                f"Bundle folder: https://drive.google.com/drive/folders/{result['bundle_folder_id']}"
-            )
-        print(
-            f"Slides — hidden: {result.get('slides_hidden', 0)}; "
-            f"adapted: {result.get('adapt_slides', 0)}"
-        )
-        if result.get("plan_notes"):
-            print(f"Manifest plan: {result['plan_notes']}")
-        for row in result.get("companion_decks") or []:
-            label = row.get("key") or row.get("deck_id", "")
-            if row.get("error"):
-                print(f"  [{label}] skipped/failed: {row['error']}", flush=True)
-                if row.get("hint"):
-                    print(f"      {row['hint']}", flush=True)
-            elif row.get("url"):
-                print(f"  [{label}] {row['url']}", flush=True)
-            else:
-                print(
-                    f"  [{label}] no URL in result (unexpected — see bpo logs for this companion)",
-                    flush=True,
-                )
-        qt = result.get("qbr_timing_seconds") or {}
-        if qt:
-            top = sorted(
-                ((k, v) for k, v in qt.items() if k != "total_elapsed_s" and isinstance(v, (int, float))),
-                key=lambda x: -x[1],
-            )[:12]
-            rows = [(k, v) for k, v in top if v >= 0.5]
-            if rows:
-                print("Time (QBR phases, top):", flush=True)
-                for key, seconds in rows:
-                    print(f"  {key}: {seconds:.0f}s", flush=True)
-        ha = (result.get("hydrate_adapt_stats") or {}).get("timing") or {}
-        if ha:
-            def _f(key: str) -> float:
-                v = ha.get(key)
-                return float(v) if v is not None else 0.0
-
-            print("Time (main deck adapt):", flush=True)
-            for label, key in (
-                ("preflight", "preflight_pres_read_s"),
-                ("phase_A_LLM", "phase_a_parallel_gpt_s"),
-                ("phase_B_Slides", "phase_b_sequential_slides_api_s"),
-                ("notes", "speaker_notes_batch_s"),
-                ("tail", "tail_summary_slide_and_stats_s"),
-                ("total", "total_adapt_s"),
-            ):
-                print(f"  {label}: {_f(key):.0f}s", flush=True)
-        from src.drive_cache_stats import format_drive_cache_load_summary
-
-        print(format_drive_cache_load_summary(), flush=True)
-
-        elapsed = _time.monotonic() - _qbr_t0
-        mins, secs = divmod(int(elapsed), 60)
-        logger.info("QBR complete in %dm %02ds", mins, secs)
+        run_qbr_cli(argv[1:], prog="python main.py qbr")
         return
 
     parser = argparse.ArgumentParser(
@@ -173,6 +79,7 @@ def main() -> None:
         print("  python main.py 'Get usage data for customer acme-123'")
         print('  python main.py qbr "Acme Corp"   # QBR + full companion bundle')
         print('  python main.py qbr --main-only "Acme Corp"   # Main QBR deck only')
+        print('  decks qbr "Acme Corp"   # same pipeline via decks CLI')
 
 
 if __name__ == "__main__":

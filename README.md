@@ -36,7 +36,14 @@ The engineering portfolio deck (`decks eng portfolio`) uses the shared Jira port
 
 ## Generating Decks
 
-The `decks` command takes a natural-language prompt — no flags to memorize:
+**QBR (template + companion bundle)** — explicit subcommand (same pipeline as `python main.py qbr`):
+
+```bash
+decks qbr "Customer Name"
+decks qbr --main-only "Customer Name"   # main QBR deck only
+```
+
+The `decks` command also takes a natural-language prompt for other deck types:
 
 ```bash
 # Single customer
