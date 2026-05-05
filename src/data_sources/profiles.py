@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .registry import SourceId
 
-# All-customers markdown export (`scripts/export_llm_context_snapshot.py`).
+# All-customers markdown export (`src.export_llm_context_snapshot`).
 PROFILE_ID_LLM_EXPORT_ALL_CUSTOMERS = "llm_export_all_customers"
 
 PROFILE_LLM_EXPORT_ALL_CUSTOMERS: frozenset[SourceId] = frozenset(

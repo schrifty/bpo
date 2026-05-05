@@ -11,9 +11,9 @@ breakdowns, and SLA-style aggregates only — **no issue keys, summaries, or tic
 The markdown includes **Snapshot coverage & omission rationale** (profile sources, registry ids not in this export and why, caps, loader provenance, feedback prompt) plus **Planned integrations (not in this snapshot yet)** (e.g. Aha, GitHub).
 
 Usage:
-  python scripts/export_llm_context_snapshot.py --days 90
-  python scripts/export_llm_context_snapshot.py --out ./snapshot.md --skip-drive
-  python scripts/export_llm_context_snapshot.py --signals-cap 40 --out ./snapshot.md --skip-drive
+  python -m src.export_llm_context_snapshot --days 90
+  python -m src.export_llm_context_snapshot --out ./snapshot.md --skip-drive
+  python -m src.export_llm_context_snapshot --signals-cap 40 --out ./snapshot.md --skip-drive
 
 Requires ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` and credentials for Drive upload unless ``--skip-drive``.
 Drive upload **replaces** an existing file with the same name in the target folder by default.

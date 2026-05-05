@@ -1,27 +1,15 @@
-"""Tests for Salesforce mapping on the all-customers LLM export script."""
+"""Tests for Salesforce mapping on the all-customers LLM export module."""
 
 from __future__ import annotations
-
-import importlib.util
-from pathlib import Path
 
 from src.data_sources.loaders.salesforce_portfolio_aggregate import (
     salesforce_portfolio_aggregate_for_report,
 )
-
-
-def _export_mod():
-    root = Path(__file__).resolve().parent.parent
-    path = root / "scripts" / "export_llm_context_snapshot.py"
-    spec = importlib.util.spec_from_file_location("export_llm_context_snapshot_test", path)
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+from src import export_llm_context_snapshot as _export_mod
 
 
 def test_salesforce_all_customers_empty_when_not_configured(monkeypatch):
-    mod = _export_mod()
+    mod = _export_mod
     monkeypatch.setattr("src.data_source_health._salesforce_configured", lambda: False)
     report: dict = {"customers": [{"customer": "Acme"}]}
     sf = salesforce_portfolio_aggregate_for_report(report)
@@ -31,7 +19,7 @@ def test_salesforce_all_customers_empty_when_not_configured(monkeypatch):
 
 
 def test_salesforce_all_customers_maps_revenue_book(monkeypatch):
-    mod = _export_mod()
+    mod = _export_mod
 
     def fake_enrich(r: dict) -> None:
         r["portfolio_revenue_book"] = {
@@ -71,7 +59,7 @@ def test_salesforce_all_customers_maps_revenue_book(monkeypatch):
 
 
 def test_export_coverage_manifest_and_markdown_section():
-    mod = _export_mod()
+    mod = _export_mod
     report: dict = {
         "customer": "All Customers",
         "generated": "2020-01-01T00:00:00Z",
@@ -114,7 +102,7 @@ def test_export_coverage_manifest_and_markdown_section():
 
 
 def test_portfolio_signal_lines_respects_optional_cap():
-    mod = _export_mod()
+    mod = _export_mod
     portfolio = {
         "portfolio_signals": [
             {"customer": "X", "signal": "a"},

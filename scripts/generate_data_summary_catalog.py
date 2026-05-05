@@ -415,7 +415,8 @@ def main() -> int:
             "Catalog of data elements BPO can access for QBR / decks. Same JSON shape as "
             "data_summary_target_aliases.json (path + terms). "
             "Terms include the canonical dotted path plus human/source notes. "
-            "Pendo per-page and per-feature detail rows are intentionally omitted (see sites/top_pages)."
+            "Pendo per-page and per-feature detail rows are intentionally omitted (see sites/top_pages). "
+            "After regenerating, merge or adjust ``terms`` manually or edit config/data_field_synonyms.json."
         ),
         "entries": build_entries(),
     }

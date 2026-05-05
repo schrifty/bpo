@@ -1,6 +1,6 @@
 {
   "version": 4,
-  "_comment": "Catalog paths with ``terms``; synonym phrases may be LLM-suggested (manufacturing / MRP-ERP context). Regenerate skeleton via scripts/generate_data_summary_catalog.py; enrich via scripts/enrich_data_summary_synonyms.py.",
+  "_comment": "Catalog paths with ``terms``; synonym phrases may be LLM-suggested (manufacturing / MRP-ERP context). Regenerate via scripts/generate_data_summary_catalog.py; edit ``terms`` in this file or config/data_field_synonyms.json as needed.",
   "entries": [
     {
       "path": "_drive_svc",
