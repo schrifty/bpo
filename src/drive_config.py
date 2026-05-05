@@ -146,7 +146,10 @@ def find_file_in_folder(
     parent_id: str,
     mime_type: str | None = None,
 ) -> str | None:
-    """Return the file id of the first non-trashed file with exact ``name`` under ``parent_id``."""
+    """Return newest (``modifiedTime``) non-trashed file id matching exact ``name`` under ``parent_id``.
+
+    Queries up to 25 matches — enough for accidental duplicate uploads of the same basename.
+    """
     esc = _drive_q_escape(name)
     q = f"name = '{esc}' and '{parent_id}' in parents and trashed = false"
     if mime_type:
@@ -157,9 +160,14 @@ def find_file_in_folder(
         try:
             with drive_api_lock:
                 drive = _get_drive()
-                results = drive.files().list(q=q, fields="files(id, name)", pageSize=5).execute()
+                results = drive.files().list(
+                    q=q, fields="files(id, name, modifiedTime)", pageSize=25
+                ).execute()
                 files = results.get("files", [])
-                return files[0]["id"] if files else None
+                if not files:
+                    return None
+                files.sort(key=lambda x: x.get("modifiedTime") or "", reverse=True)
+                return files[0]["id"]
         except Exception as e:
             if not _drive_transport_retryable(e) or attempt >= max_attempts - 1:
                 raise
@@ -294,17 +302,41 @@ def _dedupe_drive_yaml_files_by_name(
     return out
 
 
+def _list_drive_yaml_raw_paginated(folder_id: str) -> list[dict[str, Any]]:
+    """List every non-trashed YAML in a folder (including duplicate basenames). Paginated."""
+    from .network_utils import network_timeout
+
+    q = (
+        f"'{folder_id}' in parents and trashed = false "
+        "and (name contains '.yaml' or name contains '.yml')"
+    )
+    out: list[dict[str, Any]] = []
+    page_token: str | None = None
+    with network_timeout(120.0, "Drive folder listing (paginated)"):
+        while True:
+            with drive_api_lock:
+                drive = _get_drive()
+                req = (
+                    drive.files()
+                    .list(
+                        q=q,
+                        fields="nextPageToken, files(id, name, modifiedTime)",
+                        pageSize=1000,
+                        pageToken=page_token,
+                    )
+                )
+                results = req.execute()
+            out.extend(results.get("files", []))
+            page_token = results.get("nextPageToken")
+            if not page_token:
+                break
+    return out
+
+
 def _list_drive_files(folder_id: str) -> list[dict[str, Any]]:
     """List YAML files in a Drive folder. Returns one file per basename (newest if duplicates exist)."""
-    from .network_utils import network_timeout
-    
-    with network_timeout(30.0, "Drive folder listing"):
-        with drive_api_lock:
-            drive = _get_drive()
-            q = f"'{folder_id}' in parents and trashed = false and (name contains '.yaml' or name contains '.yml')"
-            results = drive.files().list(q=q, fields="files(id, name, modifiedTime)", pageSize=200).execute()
-            raw = results.get("files", [])
-        return _dedupe_drive_yaml_files_by_name(raw, folder_id=folder_id)
+    raw = _list_drive_yaml_raw_paginated(folder_id)
+    return _dedupe_drive_yaml_files_by_name(raw, folder_id=folder_id)
 
 
 def _read_drive_file(file_id: str) -> str:
@@ -339,6 +371,158 @@ def _upload_file(name: str, content: str, folder_id: str, file_id: str | None = 
         meta: dict[str, Any] = {"name": name, "parents": [folder_id]}
         f = drive.files().create(body=meta, media_body=media, fields="id").execute()
         return f["id"]
+
+
+def _ensure_upload_yaml(name: str, content: str, folder_id: str, *, file_id: str | None = None) -> str:
+    """Upload YAML without creating a same-named duplicate when an untrashed file already exists."""
+    if file_id:
+        return _upload_file(name, content, folder_id, file_id=file_id)
+    existing_id = find_file_in_folder(name, folder_id)
+    if existing_id:
+        return _upload_file(name, content, folder_id, file_id=existing_id)
+    return _upload_file(name, content, folder_id, file_id=None)
+
+
+def _trash_drive_file(file_id: str) -> None:
+    with drive_api_lock:
+        drive = _get_drive()
+        drive.files().update(fileId=file_id, body={"trashed": True}).execute()
+
+
+def dedupe_drive_yaml_duplicate_names(*, dry_run: bool = True) -> dict[str, Any]:
+    """Trash extra Drive YAML files that share a basename **only when bodies match** (normalized).
+
+    Drive allows duplicate filenames; loaders keep newest by ``modifiedTime``. This routine
+    groups by ``name``, downloads each candidate, compares :func:`_normalize_config_text`, keeps
+    the newest file in each group and trashes older copies iff all copies are identical.
+    Groups that differ are reported in ``content_mismatch`` and **nothing is trashed** for that name.
+
+    Args:
+        dry_run: When True (default), only report planned trashes without calling Drive trash.
+
+    Returns:
+        Stats dict with counts and mismatch detail.
+    """
+    if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
+        return {"error": "GOOGLE_QBR_GENERATOR_FOLDER_ID must be set", "dry_run": dry_run}
+
+    try:
+        _, d_folder, s_folder = _get_config_folder_ids()
+    except Exception as e:
+        return {"error": str(e), "dry_run": dry_run}
+
+    from .network_utils import network_timeout
+
+    summary: dict[str, Any] = {
+        "dry_run": dry_run,
+        "decks_trashed": 0,
+        "slides_trashed": 0,
+        "dry_run_would_trash": 0,
+        "groups_identical": 0,
+        "files_trashed_detail": [],
+        "content_mismatch": [],
+    }
+
+    def process_folder(folder_id: str, label: str) -> None:
+        raw = _list_drive_yaml_raw_paginated(folder_id)
+        from collections import defaultdict
+
+        by_name: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for f in raw:
+            by_name[f["name"]].append(f)
+        for name in sorted(by_name.keys()):
+            group = by_name[name]
+            if len(group) < 2:
+                continue
+            group.sort(key=lambda x: x.get("modifiedTime") or "", reverse=True)
+            keeper = group[0]
+            rest = group[1:]
+            normalized: dict[str, str] = {}
+            try:
+                with network_timeout(60.0, f"Drive read {label}/{name} (keeper)"):
+                    normalized[keeper["id"]] = _normalize_config_text(_read_drive_file(keeper["id"]))
+                for f in rest:
+                    with network_timeout(60.0, f"Drive read {label}/{name} duplicate"):
+                        normalized[f["id"]] = _normalize_config_text(_read_drive_file(f["id"]))
+            except Exception as e:
+                logger.error(
+                    "Drive dedupe skipped %s/%s (%d copies): read failed (%s)",
+                    label,
+                    name,
+                    len(group),
+                    e,
+                )
+                summary.setdefault("read_errors", []).append(
+                    {"folder": label, "name": name, "error": str(e)}
+                )
+                continue
+            canon = normalized[keeper["id"]]
+            mismatched = [f for f in rest if normalized[f["id"]] != canon]
+            if mismatched:
+                summary["content_mismatch"].append(
+                    {
+                        "folder": label,
+                        "name": name,
+                        "keeper_id": keeper["id"],
+                        "keeper_modified": keeper.get("modifiedTime"),
+                        "differing_file_ids": [f["id"] for f in mismatched],
+                    }
+                )
+                matching = len(rest) - len(mismatched)
+                logger.warning(
+                    "Drive dedupe SKIP %s/%s: %d older duplicate(s) match keeper body, "
+                    "%d differing from keeper — not trashing any copy for this basename. Keeper=%s…",
+                    label,
+                    name,
+                    matching,
+                    len(mismatched),
+                    keeper["id"][:12],
+                )
+                continue
+
+            summary["groups_identical"] += 1
+            for f in rest:
+                detail = {"folder": label, "name": name, "trashed_id": f["id"], "keeper_id": keeper["id"]}
+                summary["files_trashed_detail"].append(detail)
+                if dry_run:
+                    summary["dry_run_would_trash"] += 1
+                    logger.info(
+                        "DRY-RUN Drive dedupe would trash %s/%s duplicate id=%s… (keeping %s…)",
+                        label,
+                        name,
+                        f["id"][:12],
+                        keeper["id"][:12],
+                    )
+                    continue
+                _trash_drive_file(f["id"])
+                if label == "decks":
+                    summary["decks_trashed"] += 1
+                else:
+                    summary["slides_trashed"] += 1
+                logger.info(
+                    "Drive dedupe trashed duplicate %s/%s id=%s… (keeping newest %s…)",
+                    label,
+                    name,
+                    f["id"][:12],
+                    keeper["id"][:12],
+                )
+
+    try:
+        with network_timeout(600.0, "Drive YAML dedupe (decks)"):
+            process_folder(d_folder, "decks")
+        with network_timeout(600.0, "Drive YAML dedupe (slides)"):
+            process_folder(s_folder, "slides")
+    except Exception as e:
+        summary["fatal"] = str(e)
+        logger.error("Drive YAML dedupe failed: %s", e)
+        return summary
+
+    if not dry_run and (summary["decks_trashed"] or summary["slides_trashed"]):
+        clear_yaml_config_cache()
+        with _drive_yaml_duplicate_log_lock:
+            _drive_yaml_duplicate_signatures_warned.clear()
+
+    return summary
 
 
 def upload_text_file_to_drive_folder(
@@ -712,9 +896,16 @@ def sync_obsolete_drive_config(
                     stats["slides_updated"] += 1
                     stats["updated_slide_files"].append(name)
                 continue
-            if fid:
-                _upload_file(name, content, drive_folder, file_id=fid)
-                logger.info("Drive %s/%s overwritten from repo (was obsolete)", label, name)
+            fid_use = fid or find_file_in_folder(name, drive_folder)
+            if not fid_use:
+                logger.warning(
+                    "Drive %s/%s marked stale but no Drive file id resolved — skip overwrite",
+                    label,
+                    name,
+                )
+                continue
+            _upload_file(name, content, drive_folder, file_id=fid_use)
+            logger.info("Drive %s/%s overwritten from repo (was obsolete)", label, name)
             if label == "decks":
                 stats["decks_updated"] += 1
                 stats["updated_deck_files"].append(name)
@@ -737,8 +928,12 @@ def sync_obsolete_drive_config(
                     stats["slides_uploaded_new"] += 1
                     stats["new_slide_files"].append(name)
                 continue
-            _upload_file(name, content, drive_folder, file_id=None)
-            logger.info("Drive %s/%s created from repo (was missing)", label, name)
+            _ensure_upload_yaml(name, content, drive_folder, file_id=None)
+            logger.info(
+                "Drive %s/%s synced from repo (was missing — create or merge into existing name)",
+                label,
+                name,
+            )
             if label == "decks":
                 stats["decks_uploaded_new"] += 1
                 stats["new_deck_files"].append(name)
@@ -867,7 +1062,7 @@ def sync_config_to_drive(
                 continue
             content = f.read_text()
             fid = existing.get(f.name) if overwrite else None
-            _upload_file(f.name, content, drive_folder, file_id=fid)
+            _ensure_upload_yaml(f.name, content, drive_folder, file_id=fid)
             stats[f"{label}_uploaded"] += 1
             logger.debug("Uploaded %s/%s to Drive", label, f.name)
 

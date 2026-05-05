@@ -30,6 +30,16 @@ def test_config_text_matches_local_different_content() -> None:
     assert not config_text_matches_local("a: 1\n", "a: 2\n")
 
 
+def test_normalize_config_text_three_way_duplicate_policy() -> None:
+    """Drive dedupe trashes extras only when all normalized bodies match keeper."""
+    a = "id: slide_x\ntitle: \"Q\"\n"
+    b = "id: slide_x\r\ntitle: \"Q\"  \n"
+    c = "id: slide_x\ntitle: \"Different\"\n"
+    na = _normalize_config_text(a)
+    assert na == _normalize_config_text(b)
+    assert na != _normalize_config_text(c)
+
+
 def test_dedupe_drive_yaml_files_by_name_keeps_newest() -> None:
     files = [
         {"id": "older", "name": "dup.yaml", "modifiedTime": "2024-01-01T00:00:00.000Z"},
