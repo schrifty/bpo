@@ -159,6 +159,8 @@ def test_adapt_custom_slides_integration(monkeypatch, tmp_path):
     report = {
         "customer": "Acme",
         "account": {"total_sites": 14, "total_visitors": 50},
+        # Same as mapping-first test: skip Drive-backed ``get_slide_definition("qbr_agenda")``.
+        "_hydrate_slide_hints": {"qbr_agenda": {}},
     }
 
     # Avoid real thumbnail fetch and LLM: inject fixed replacements
