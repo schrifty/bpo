@@ -966,17 +966,14 @@ def main():
         print(f"  OK   {result.get('url', '')}")
         return
 
-    _JUNK_CUSTOMERS = {
-        "(unknown)", "Automated", "Automatic", "By", "Customer", "LOB",
-        "LeanDNA", "Manual", "Override", "Prefixed", "Professional", "Test",
-    }
+    from src.portfolio_exclude_prefixes import is_skipped_customer_prefix
 
     if customers_list:
         customers = customers_list
     else:
         print("Fetching customer list from Pendo...")
         customers = PendoClient().get_sites_by_customer(days)["customer_list"]
-        customers = [c for c in customers if c not in _JUNK_CUSTOMERS]
+        customers = [c for c in customers if not is_skipped_customer_prefix(c)]
 
     if max_cust:
         customers = customers[: int(max_cust)]

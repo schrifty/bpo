@@ -367,20 +367,15 @@ def get_customer_cohort(customer_prefix: str) -> dict[str, Any]:
 
 
 def customer_is_excluded_from_portfolio(customer_prefix: str) -> bool:
-    """True if portfolio/cohort rollup should not fetch a summary for this Pendo customer prefix.
+    """True if portfolio parallel rollup should not fetch a summary for this Pendo customer prefix.
 
-    Uses the same **exclude: true** block in ``cohorts.yaml`` as benchmarking (see docs/CUSTOMER_COHORTS.md),
-    plus optional env ``BPO_PORTFOLIO_EXCLUDE_CUSTOMERS`` (comma-separated prefixes, e.g. ``Automated,Foo``).
-    Excluded names are dropped before ``get_customer_health`` so missing-visitor errors are not logged as ERROR.
+    Uses ``config/portfolio_exclude_prefixes.yaml`` plus optional env
+    ``BPO_PORTFOLIO_EXCLUDE_CUSTOMERS`` (comma-separated prefixes). Excluded names are
+    dropped before ``get_customer_health`` so missing-visitor errors are not logged as ERROR.
     """
-    raw = os.environ.get("BPO_PORTFOLIO_EXCLUDE_CUSTOMERS", "")
-    extras = {x.strip() for x in raw.split(",") if x.strip()}
-    if customer_prefix in extras:
-        return True
-    data = _load_cohorts()
-    canonical = _alias_map.get(customer_prefix, customer_prefix)
-    info = data.get(canonical, {})
-    return isinstance(info, dict) and bool(info.get("exclude"))
+    from .portfolio_exclude_prefixes import is_skipped_customer_prefix
+
+    return is_skipped_customer_prefix(customer_prefix)
 
 
 _COHORT_DISPLAY = {
@@ -2909,7 +2904,7 @@ class PendoClient:
             if len(skipped_ex) > 25:
                 preview += ", …"
             logger.info(
-                "Portfolio: skipping %d customer(s) excluded from portfolio (cohorts.yaml exclude "
+                "Portfolio: skipping %d customer(s) (config/portfolio_exclude_prefixes.yaml "
                 "or BPO_PORTFOLIO_EXCLUDE_CUSTOMERS): %s",
                 len(skipped_ex),
                 preview,

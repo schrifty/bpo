@@ -240,7 +240,14 @@
       "path": "cohorts_yaml",
       "terms": [
         "cohorts_yaml",
-        "[config cohorts.yaml] cohort / exclude / vertical per customer (not nested under report)"
+        "[config cohorts.yaml] cohort / optional exclude / vertical per customer; portfolio junk prefixes → portfolio_exclude_prefixes.yaml (not nested under report)"
+      ]
+    },
+    {
+      "path": "portfolio_exclude_prefixes_yaml",
+      "terms": [
+        "portfolio_exclude_prefixes_yaml",
+        "[config portfolio_exclude_prefixes.yaml] bogus Pendo-derived customer prefixes omitted from portfolio rollup (not nested under report)"
       ]
     },
     {

@@ -1,4 +1,4 @@
-"""Portfolio customer exclusion (cohorts.yaml exclude + env)."""
+"""Portfolio customer exclusion (config/portfolio_exclude_prefixes.yaml + env)."""
 
 import os
 from unittest.mock import patch
@@ -6,12 +6,16 @@ from unittest.mock import patch
 from src.pendo_client import customer_is_excluded_from_portfolio
 
 
-def test_customer_is_excluded_from_portfolio_support_in_yaml():
+def test_customer_is_excluded_from_portfolio_support_denylist():
     assert customer_is_excluded_from_portfolio("Support") is True
 
 
-def test_customer_is_excluded_from_portfolio_automated_in_yaml():
+def test_customer_is_excluded_from_portfolio_automated_denylist():
     assert customer_is_excluded_from_portfolio("Automated") is True
+
+
+def test_customer_is_excluded_from_portfolio_automatic_denylist():
+    assert customer_is_excluded_from_portfolio("Automatic") is True
 
 
 def test_customer_is_excluded_from_portfolio_by_false_prefix():

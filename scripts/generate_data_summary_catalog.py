@@ -471,7 +471,16 @@ def build_entries() -> list[dict[str, Any]]:
                 "[config teams.yaml] list of {name, title} LeanDNA team",
             ),
             _e("teams_yaml.leandna_site_ids", "[config teams.yaml] optional LeanDNA site ids per customer"),
-            _e("cohorts_yaml", "[config cohorts.yaml] cohort / exclude / vertical per customer (not nested under report)"),
+            _e(
+                "cohorts_yaml",
+                "[config cohorts.yaml] cohort / optional exclude / vertical per customer; "
+                "portfolio junk prefixes → portfolio_exclude_prefixes.yaml (not nested under report)",
+            ),
+            _e(
+                "portfolio_exclude_prefixes_yaml",
+                "[config portfolio_exclude_prefixes.yaml] bogus Pendo-derived customer prefixes "
+                "omitted from portfolio rollup (not nested under report)",
+            ),
         ]
     )
 

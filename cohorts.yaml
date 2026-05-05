@@ -9,7 +9,8 @@
 #   parent      – parent company (if a subsidiary with its own Pendo prefix)
 #   aliases     – other Pendo prefixes that map to the same company
 #   notes       – any useful context
-#   exclude     – true if this is a test/internal/duplicate account
+#   exclude     – rarely: true omits benchmarking for a real keyed account (portfolio junk uses
+#                 config/portfolio_exclude_prefixes.yaml instead)
 #   unverified  – true if classification needs confirmation (resolve via Salesforce)
 
 # ── Cohort definitions ──
@@ -800,99 +801,7 @@ cohorts:
     unverified: true
     notes: "Environmental services/systems. 'UCC' is a common acronym — confirm identity and cohort."
 
-  # ════════════════════════════════════════════════
-  # EXCLUDED — test, internal, duplicate, or ambiguous accounts
-  # ════════════════════════════════════════════════
-  By:
-    exclude: true
-    notes: "False customer prefix — Pendo sitename(s) whose first word is 'By' (e.g. 'By …'); not a real account key."
-  LOB:
-    exclude: true
-    notes: "False customer prefix — Pendo sitename first word is not a real account key (e.g. line-of-business label)."
-  Manual:
-    exclude: true
-    notes: "False customer prefix — Pendo sitename first word is not a real account key."
-  Override:
-    exclude: true
-    notes: "False customer prefix — Pendo sitename first word is not a real account key."
-  Prefixed:
-    exclude: true
-    notes: "False customer prefix — Pendo sitename first word is not a real account key."
-  Professional:
-    exclude: true
-    notes: "False customer prefix — Pendo sitename first word is not a real account key."
-  Automated:
-    exclude: true
-    notes: "Automation/internal account; often no matching Pendo visitors for portfolio."
-  Support:
-    exclude: true
-    notes: "Internal LeanDNA support/test account."
-  Training:
-    exclude: true
-    notes: "Training site."
-  LeanProjectRecovery:
-    exclude: true
-    notes: "Internal recovery account."
-  ISC:
-    exclude: true
-    notes: "Training site."
-  CI:
-    exclude: true
-    notes: "Strategic projects — internal."
-  USD:
-    exclude: true
-    notes: "Currency conversion placeholder."
-  Tijuana:
-    exclude: true
-    notes: "Orphan site name (no customer prefix)."
-  Jacksonville:
-    exclude: true
-    notes: "Orphan site name."
-  Buena:
-    exclude: true
-    notes: "Orphan site name (Buena Park)."
-  Primary:
-    exclude: true
-    notes: "Upload factory — internal."
-  SBO:
-    exclude: true
-    notes: "Demo account."
-  Stuart:
-    exclude: true
-    notes: "Orphan site — likely a Daher migration artifact."
-  Leach:
-    exclude: true
-    notes: "Training site."
-  TSA:
-    exclude: true
-    notes: "Ambiguous single-site account."
-  AWB:
-    exclude: true
-    notes: "Unknown single-site account."
-  AIP:
-    exclude: true
-    notes: "AIP Reladyne — industrial distribution, not manufacturing."
-  AST:
-    exclude: true
-    notes: "Unclear — AST McCay, AST PMSI. Likely internal/test."
-  L2:
-    exclude: true
-    notes: "Likely L2L software or internal test."
-  Beroun:
-    exclude: true
-    notes: "Carrier Czech Republic site listed separately."
-  Hyster-Yale:
-    exclude: true
-    notes: "Single EMEA site — likely pilot."
+  # Stanadyne: single-site note (still a keyed account; overlaps Blythewood prefix)
   Stanadyne:
     exclude: false
     notes: "Single site (Blythewood) — overlaps with Blythewood prefix."
-  Blythewood:
-    exclude: true
-    notes: "Orphan site name — likely Stanadyne."
-  Monogram:
-    exclude: true
-    notes: "Single site, very small."
-  CVI:
-    exclude: true
-    notes: "Part of IDEX — single site."

@@ -1,0 +1,42 @@
+# Customer name prefixes omitted from portfolio parallel rollup (Pendo sitename
+# first-token noise / internal rows). Moved from cohorts.yaml false-customer stubs.
+#
+# Ad-hoc additions: comma-separated ``BPO_PORTFOLIO_EXCLUDE_CUSTOMERS`` in .env
+# (still supported; merges with this list).
+---
+version: 1
+prefixes:
+  - "(unknown)"
+  - AIP
+  - AST
+  - AWB
+  - Automated
+  - Automatic
+  - Beroun
+  - Blythewood
+  - Buena
+  - By
+  - CI
+  - Customer
+  - CVI
+  - Hyster-Yale
+  - ISC
+  - Jacksonville
+  - L2
+  - Leach
+  - LeanDNA
+  - LeanProjectRecovery
+  - LOB
+  - Manual
+  - Override
+  - Prefixed
+  - Primary
+  - Professional
+  - SBO
+  - Stuart
+  - Support
+  - Test
+  - Training
+  - TSA
+  - Tijuana
+  - USD
