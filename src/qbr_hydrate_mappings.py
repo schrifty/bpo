@@ -15,8 +15,9 @@ file unless :func:`qbr_mappings_disk_write_enabled` is true (see ``BPO_QBR_MAPPI
 
 **Bootstrap / auto-append:** When writes are enabled and ``config/qbr_mappings.yaml`` is absent,
 :func:`bootstrap_qbr_mappings_from_slides` can walk template slides and create stub rows
-(``target: ""``). With writes disabled and no file, copy ``config/qbr_mappings.example.yaml``
-manually.
+(``target: ""``). With writes disabled and no file, add ``config/qbr_mappings.yaml`` manually
+(version 2 schema: ``slides`` / ``global_elements``; see :func:`bootstrap_qbr_mappings_from_slides`)
+or enable ``BPO_QBR_MAPPINGS_WRITE``.
 """
 
 from __future__ import annotations
@@ -451,7 +452,7 @@ def bootstrap_qbr_mappings_from_slides(
     if not qbr_mappings_disk_write_enabled():
         logger.info(
             "qbr_mappings: bootstrap skipped — %s missing and disk writes are disabled "
-            "(set BPO_QBR_MAPPINGS_WRITE=1 to auto-create, or copy config/qbr_mappings.example.yaml)",
+            "(set BPO_QBR_MAPPINGS_WRITE=1 to auto-create, or add config/qbr_mappings.yaml manually)",
             p,
         )
         return 0

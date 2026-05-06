@@ -100,4 +100,4 @@ These are **not** blocking for documenting intent but matter when coding:
 - `src/evaluate.py` — `adapt_custom_slides` (Phase A / Phase B split)
 - `src/qbr_hydrate_mappings.py` — `load_qbr_mappings`, `expand_mapping_rules`, `apply_explicit_qbr_mappings`
 - `src/data_field_synonyms.py` — `resolve_data_summary_target_path`, `data_summary_lookup`
-- `config/qbr_mappings.example.yaml` — schema pointer (version 2)
+- `config/qbr_mappings.yaml` — version 2 schema (`slides`, `global_elements`; see `bootstrap_qbr_mappings_from_slides` in `qbr_hydrate_mappings.py`)
