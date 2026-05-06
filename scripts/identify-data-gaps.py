@@ -26,10 +26,13 @@ Summary slide title: **CSM lookup — data to source**.
 See ``docs/SLIDE_DATA_GAP_ANALYSIS.md`` for methodology.
 
 Usage:
-  python scripts/scan_slide_data_gaps.py PRESENTATION_ID
-  python scripts/scan_slide_data_gaps.py URL --out gaps.json [--llm] [--no-write-summary-slide]
+  python scripts/identify-data-gaps.py
+  python scripts/identify-data-gaps.py --presentation PRES_OR_URL [--out gaps.json]
 
-Requires Google Slides credentials; ``--llm`` needs API keys per ``src.config``.
+By default resolves the Drive QBR Slides template (``QBR_TEMPLATE_FILE_NAME``, same as QBR runs).
+Append summary slides **only** when ``--presentation`` targets a deck copy (`--write-summary-slide`).
+
+Requires ``GOOGLE_QBR_GENERATOR_FOLDER_ID``, Google credentials; ``--llm`` needs API keys per ``src.config``.
 
 Default JSON is **compact**: only ``replacements[]`` with ``slide``, ``find``, ``replace.value``,
 ``replace.format``, optional ``replace.display``, optional ``source``. Use ``--verbose-json`` for
@@ -752,12 +755,24 @@ def main() -> None:
     ap = argparse.ArgumentParser(
         description=(
             "Find slide gaps that cost CSM lookup time (KPIs, exports); "
-            "append a summary table (skips roster/date/logo placeholders)."
+            "defaults to Drive QBR template; optional summary table append on copied decks."
         ),
     )
     ap.add_argument(
-        "presentation",
-        help="Google Slides presentation id or docs.google.com/presentation/d/... URL",
+        "--presentation",
+        metavar="ID_OR_URL",
+        help=(
+            "Scan this presentation instead of the canonical QBR template on Drive "
+            "(id or docs.google.com/presentation/d/... URL)"
+        ),
+    )
+    ap.add_argument(
+        "--write-summary-slide",
+        action="store_true",
+        help=(
+            "Append gap summary slide(s) at deck end "
+            "(only with --presentation; never mutates the canonical template)"
+        ),
     )
     ap.add_argument("--out", "-o", metavar="FILE", help="Write JSON report to file")
     ap.add_argument(
@@ -775,7 +790,7 @@ def main() -> None:
     ap.add_argument(
         "--no-write-summary-slide",
         action="store_true",
-        help="Do not append summary slide(s) to the presentation",
+        help="Do not append summary slide(s); with --presentation, overrides the default append",
     )
     ap.add_argument(
         "--verbose-json",
@@ -784,7 +799,28 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    pres_id = _presentation_id(args.presentation)
+    presentation_arg = (args.presentation or "").strip()
+    if presentation_arg:
+        pres_id = _presentation_id(presentation_arg)
+        template_scan = False
+    else:
+        from src.drive_config import resolve_qbr_template_presentation_id
+
+        pres_id = resolve_qbr_template_presentation_id()
+        template_scan = True
+
+    if template_scan:
+        write_summary_slides = False
+        if args.write_summary_slide:
+            raise SystemExit(
+                "Refusing to append summary slides to the canonical QBR template on Drive. "
+                "Use --presentation on a copied deck plus --write-summary-slide, "
+                "or omit --write-summary-slide for JSON-only output when scanning the template."
+            )
+    else:
+        if args.write_summary_slide and args.no_write_summary_slide:
+            raise SystemExit("Use either --write-summary-slide or --no-write-summary-slide, not both.")
+        write_summary_slides = args.write_summary_slide or not args.no_write_summary_slide
 
     from src.slides_api import _get_service
 
@@ -839,8 +875,10 @@ def main() -> None:
     elif args.llm:
         report["llm_model"] = LLM_MODEL
 
+    report["scan_root"] = "qbr_drive_template" if template_scan else "presentation_override"
+
     status_msgs: list[str] = []
-    if not args.no_write_summary_slide:
+    if write_summary_slides:
         n_added, status_msgs = _append_gap_inventory_slides(
             slides_svc,
             pres_id,

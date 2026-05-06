@@ -2,7 +2,7 @@
 
 This note explains **what “missing data” means** on customer-facing slides in **discrete manufacturing, inventory, supply chain, and ERP-adjacent** contexts, how to **isolate** requests per slide, and how to **prompt** models without fooling yourself or the reader.
 
-The companion tool is `scripts/scan_slide_data_gaps.py`: it extracts **text** from each Slides page, applies **heuristics** (brackets, lorem, hydrate-style tokens, embedded charts/images), and optionally runs an **LLM** pass framed for operations technology domains.
+The companion tool is `scripts/identify-data-gaps.py`: it extracts **text** from each Slides page, applies **heuristics** (brackets, lorem, hydrate-style tokens, embedded charts/images), and optionally runs an **LLM** pass framed for operations technology domains.
 
 ---
 
@@ -109,28 +109,31 @@ Provide:
 
 ---
 
-## Using `scripts/scan_slide_data_gaps.py`
+## Using `scripts/identify-data-gaps.py`
 
 ```bash
-# Heuristics only → stdout JSON; **appends** an inventory table slide at deck end (default)
-python scripts/scan_slide_data_gaps.py 'https://docs.google.com/presentation/d/PRES_ID/edit'
+# Default: resolves the canonical QBR template on Drive (same name as ``QBR_TEMPLATE_FILE_NAME`` / QBR flows).
+# JSON only — **never appends slides** (the template stays read-only on Drive).
+python scripts/identify-data-gaps.py
+python scripts/identify-data-gaps.py --out gap_report.json
 
-# Write report; cap slides while iterating prompts
-python scripts/scan_slide_data_gaps.py PRES_ID --out gap_report.json --max-slides 10
+# Scan an explicit presentation (e.g. a customer deck copy): **append** inventory table slides by default.
+python scripts/identify-data-gaps.py --presentation 'https://docs.google.com/presentation/d/PRES_ID/edit'
+python scripts/identify-data-gaps.py --presentation PRES_ID --out gap_report.json --max-slides 10
 
-# Add LLM interpretation (requires API keys per src/config)
-python scripts/scan_slide_data_gaps.py PRES_ID --llm --out gap_report.json
+# Explicit deck + JSON only (no mutation)
+python scripts/identify-data-gaps.py --presentation PRES_ID --no-write-summary-slide --out gap_report.json
 
-# JSON only — do not mutate the presentation
-python scripts/scan_slide_data_gaps.py PRES_ID --no-write-summary-slide --out gap_report.json
+# Add LLM interpretation (requires API keys per src/config); template scan
+python scripts/identify-data-gaps.py --llm --out gap_report.json
 
 # Verbose JSON (per-slide extracts + gap_inventory_rows) — default output is compact replacements only
-python scripts/scan_slide_data_gaps.py PRES_ID --verbose-json --no-write-summary-slide -o full.json
+python scripts/identify-data-gaps.py --presentation PRES_ID --verbose-json --no-write-summary-slide -o full.json
 ```
 
 **Default JSON shape** (time-saving focus): `replacement_count`, `replacements[]` where each item has `slide`, `find` (text to substitute), `replace: { value (usually null), format, display? }`, optional `source`. There is no populated `value` unless you extend the tool to bind live data; format/display carry how the replacement should read once sourced.
 
-**Slide mutation (default on):** The script adds one or more slides titled **CSM lookup — data to source** at the **end** of the deck. Rows intentionally **omit** placeholders a CSM can fill without lookups (today’s date, executive sponsor / CSM / AE / site roster, logos, housekeeping). The table highlights **performance and operations gaps** (KPI placeholders, hydrate tokens, vague metrics, consolidated chart/image cues). Columns: slide, field/signal, suggested datasource, data type, formatting, time/duration, accuracy/precision, context. Seven data rows per slide plus header; re-running appends another block unless `--no-write-summary-slide`.
+**Slide mutation:** When `--presentation` points at **your** deck (not the resolved canonical template default), the script **appends** one or more slides titled **CSM lookup — data to source** at the **end** by default (`--write-summary-slide` / omit `--no-write-summary-slide`). The canonical QBR template is never modified: default runs resolve that file but only emit JSON. Rows intentionally **omit** placeholders a CSM can fill without lookups (today’s date, executive sponsor / CSM / AE / site roster, logos, housekeeping). The table highlights **performance and operations gaps** (KPI placeholders, hydrate tokens, vague metrics, consolidated chart/image cues). Columns: slide, field/signal, suggested datasource, data type, formatting, time/duration, accuracy/precision, context. Seven data rows per slide plus header; re-running appends another block unless `--no-write-summary-slide`.
 
 **JSON output:**
 

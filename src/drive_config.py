@@ -64,6 +64,36 @@ QBR_OUTPUT_SUBFOLDER = "Output"
 QBR_PROMPTS_FOLDER_NAME = "Prompts"
 ADAPT_SYSTEM_PROMPT_FILENAME = "adapt_system_prompt.yaml"
 _MIME_FOLDER = "application/vnd.google-apps.folder"
+_MIME_PRESENTATION = "application/vnd.google-apps.presentation"
+
+
+def resolve_qbr_template_presentation_id() -> str:
+    """Return the Drive **file id** for the canonical QBR Slides template.
+
+    Matches :func:`~src.qbr_template.resolve_qbr_template_and_manifest` template lookup without
+    loading the manifest Doc.
+
+    Resolution:
+        - Parent folder: ``GOOGLE_QBR_TEMPLATE_FOLDER_ID`` if set, else the QBR generator folder.
+        - File name: ``config.QBR_TEMPLATE_FILE_NAME``.
+
+    Raises:
+        RuntimeError: generator folder env not set (same as :func:`get_qbr_generator_folder_id_for_drive_config`).
+        FileNotFoundError: no Slides file with that exact name under the folder.
+
+    Note:
+        Callers **must not** mutate this file (e.g. append inventory slides); use a copy or ``--presentation``.
+    """
+    from .config import GOOGLE_QBR_TEMPLATE_FOLDER_ID, QBR_TEMPLATE_FILE_NAME
+
+    gen_id = get_qbr_generator_folder_id_for_drive_config()
+    folder = (GOOGLE_QBR_TEMPLATE_FOLDER_ID or "").strip() or gen_id
+    tid = find_file_in_folder(QBR_TEMPLATE_FILE_NAME, folder, _MIME_PRESENTATION)
+    if not tid:
+        raise FileNotFoundError(
+            f"QBR template Slides file not found: {QBR_TEMPLATE_FILE_NAME!r} under Drive folder id {folder}",
+        )
+    return tid
 
 
 def _get_drive():
