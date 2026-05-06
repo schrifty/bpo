@@ -1891,17 +1891,18 @@
       "path": "leandna_data_api.metric.definitions",
       "terms": [
         "leandna_data_api.metric.definitions",
-        "[LeanDNA Data API] not wired in BPO report yet",
+        "[LeanDNA Data API] src/leandna_metrics_client.list_metric_definitions",
         "GET /data/Metric",
         "custom KPI catalog",
-        "value stream metrics"
+        "value stream metrics",
+        "Metrics OpenAPI tag"
       ]
     },
     {
       "path": "leandna_data_api.metric.report",
       "terms": [
         "leandna_data_api.metric.report",
-        "[LeanDNA Data API] not wired in BPO report yet",
+        "[LeanDNA Data API] src/leandna_metrics_client.fetch_metric_report",
         "GET /data/MetricReport",
         "fiscal year metricValues",
         "metric report lean dna",

@@ -4,7 +4,7 @@ LeanDNA **Data API** — REST JSON under `{LEANDNA_DATA_API_BASE_URL}` (default 
 
 Canonical registry identifiers: [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) (LeanDNA Data API section). Integration analysis: [`../LEANDNA_DATA_API_TOOLS.md`](../LEANDNA_DATA_API_TOOLS.md). OpenAPI: fetch with authenticated `scripts/fetch_leandna_swagger.py`.
 
-**BPO implementation today:** `src/leandna_item_master_client.py`, `src/leandna_shortage_client.py`, `src/leandna_lean_projects_client.py` and matching `*_enrich.py`; QBR wires enrichments in `src/qbr_template.py`.
+**BPO implementation today:** `src/leandna_item_master_client.py`, `src/leandna_shortage_client.py`, `src/leandna_lean_projects_client.py`, `src/leandna_metrics_client.py` (metrics HTTP only — no QBR `report[]` merge yet), and matching `*_enrich.py`; QBR wires enrichments in `src/qbr_template.py`.
 
 ---
 
@@ -28,6 +28,8 @@ Canonical registry identifiers: [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) (LeanDN
 | Shortages + deliveries | `GET /data/MaterialShortages/ShortagesByItemWithScheduledDeliveries/Weekly` | Same report key — `scheduled_deliveries` summary (best-effort) |
 | Lean projects | `GET /data/LeanProject` (+ query params for date range) | `report["leandna_lean_projects"]` |
 | Project savings | `GET /data/LeanProject/{projectIds}/Savings` | Monthly actual/target in enrichment |
+| Metric catalog | `GET /data/Metric` | Call via `leandna_metrics_client.list_metric_definitions` — not on `report` yet |
+| Metric report | `GET /data/MetricReport` | Call via `leandna_metrics_client.fetch_metric_report` — not on `report` yet |
 
 **Caching:** Drive + in-memory TTLs — `LEANDNA_ITEM_MASTER_CACHE_TTL_HOURS`, `LEANDNA_SHORTAGE_CACHE_TTL_HOURS`, `LEANDNA_LEAN_PROJECTS_CACHE_TTL_HOURS` in `src/config.py`.
 
@@ -44,8 +46,8 @@ Canonical registry identifiers: [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) (LeanDN
 | Shortages daily / by order | `.../ShortagesByItem/Daily`, `.../ShortagesByOrder` | **Client exists**; QBR enrich uses weekly only |
 | Purchase orders | `GET /data/SupplyOrder/PurchaseOrder` | Late PO / lead-time / PPV narratives |
 | Purchased inventory | `GET /data/Inventory/Purchased` | Location-level on-hand cross-check |
-| Metric catalog | `GET /data/Metric` | Custom KPI definitions |
-| Metric report | `GET /data/MetricReport` | Fiscal-year time series |
+| Metric catalog | `GET /data/Metric` | **`src/leandna_metrics_client.list_metric_definitions`** — not on `report` yet |
+| Metric report | `GET /data/MetricReport` | **`src/leandna_metrics_client.fetch_metric_report`** — not on `report` yet |
 | Data Share | `GET /data/DataShare` | Signed Parquet bulk exports (CTB multi-level, POs, supplier performance, …) |
 | Identity | `GET /data/identity` | User + `authorizedSites[]` for mapping |
 | Write-back | `GET .../WriteBack/v1/PurchaseOrderActions`, `PUT .../WriteBack/v1/TransitionActions` | Read-only recommended unless product explicitly allows updates |
@@ -80,6 +82,12 @@ Bucket columns (`bucket1…` / `day1…`), `criticalityLevel`, `daysInShortage`,
 
 `userId`, `customerId`, `userName`, `emailAddress`, `authorizedSites[]` with `siteId`, `siteName`, `entity`, `division`, `businessUnit`, `currencyCode`.
 
+### 4.6 Metrics (`/data/Metric`, `/data/MetricReport`)
+
+**Definitions:** tenant-dependent metadata (`name`, `siteId`, type, value streams/categories per swagger).
+
+**Report:** fiscal-year object often including `metrics`, `metricValues`, `fiscalYear`, timestamps, `currency` — confirm keys against OpenAPI.
+
 ---
 
 ## 5. `config/comprehensive_data_element_list.json` paths
@@ -101,4 +109,5 @@ Logical paths for hydrate / LLM catalog (not all exist on `report` until integra
 | `src/leandna_shortage_enrich.py` | QBR `leandna_shortage_trends` |
 | `src/leandna_lean_projects_client.py` | Projects + savings HTTP |
 | `src/leandna_lean_projects_enrich.py` | QBR `leandna_lean_projects` |
+| `src/leandna_metrics_client.py` | Metric definitions + MetricReport HTTP |
 | `src/data_sources/registry.py` | `SourceId` enum for LeanDNA surfaces |

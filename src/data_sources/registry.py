@@ -33,6 +33,7 @@ class SourceId(str, Enum):
       + scheduled-deliveries weekly in practice; Daily/ByOrder exist on the client)
     - **Lean projects:** ``GET /data/LeanProject``,
       ``GET /data/LeanProject/{{ids}}/Savings``
+    - **Metrics:** ``GET /data/Metric``, ``GET /data/MetricReport`` (see ``src/leandna_metrics_client.py``)
     """
 
     PENDO_PORTFOLIO_ROLLUP = "pendo_portfolio_rollup"

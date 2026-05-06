@@ -121,6 +121,8 @@ This document analyzes the LeanDNA Data API swagger spec and outlines what tools
 - `metricValues` — time-series data per metric/month
 - `fiscalYear`, `startTimestamp`, `endTimestamp`, `currency`
 
+**BPO client:** `src/leandna_metrics_client.py` — `list_metric_definitions()`, `fetch_metric_report(...)`. Not merged into QBR `report` yet; add an enrich step when a slide needs custom LeanDNA KPIs.
+
 **Tool idea:** Generic metric fetcher for custom KPIs → slides/charts. Example: if CSR lacks a field, customer can define a LeanDNA metric and BPO pulls it via this endpoint.
 
 ---

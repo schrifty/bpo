@@ -250,8 +250,8 @@ REST Data API (Bearer token, optional `RequestedSites` header). Schema reference
 | `LEANDNA-SHORTAGE-SCHEDULED-DELIVERIES-MONTHLY` | Shortages + scheduled deliveries (monthly). | `GET /data/MaterialShortages/ShortagesByItemWithScheduledDeliveries/Monthly` | — | `UNUSED` |
 | `LEANDNA-PURCHASE-ORDER-DATA` | Purchase order lines (commit dates, delays, lead time). | `GET /data/SupplyOrder/PurchaseOrder` | — | `UNUSED` |
 | `LEANDNA-INVENTORY-PURCHASED` | Purchased inventory positions. | `GET /data/Inventory/Purchased` | — | `UNUSED` |
-| `LEANDNA-METRIC-DEFINITIONS` | Metric catalog (manual/automatic/calculated). | `GET /data/Metric` | — | `UNUSED` |
-| `LEANDNA-METRIC-REPORT` | Fiscal-year metric time series. | `GET /data/MetricReport` | — | `UNUSED` |
+| `LEANDNA-METRIC-DEFINITIONS` | Metric catalog (manual/automatic/calculated). | `GET /data/Metric` | `src/leandna_metrics_client.py` | Client only — not merged into QBR `report` yet |
+| `LEANDNA-METRIC-REPORT` | Fiscal-year metric time series. | `GET /data/MetricReport` | `src/leandna_metrics_client.py` | Client only — not merged into QBR `report` yet |
 | `LEANDNA-DATA-SHARE` | Signed Parquet bulk export URLs. | `GET /data/DataShare` | — | `UNUSED` |
 | `LEANDNA-WRITEBACK-PO-ACTIONS` | Pending PO write-back actions (read). | `GET /data/WriteBack/v1/PurchaseOrderActions` | — | `UNUSED` (read-only recommended) |
 | `LEANDNA-WRITEBACK-TRANSITION` | Update write-back action status. | `PUT /data/WriteBack/v1/TransitionActions` | — | `UNUSED` (no auto-write in BPO) |

@@ -55,6 +55,8 @@ _LEANDNA_DATA_API_HTTP_SURFACES: tuple[str, ...] = (
     "GET /data/MaterialShortages/ShortagesByItemWithScheduledDeliveries/Weekly",
     "GET /data/LeanProject",
     "GET /data/LeanProject/{projectIds}/Savings",
+    "GET /data/Metric",
+    "GET /data/MetricReport",
 )
 
 # Typical ``report`` dotted paths when QBR LeanDNA enrichments run (no live values in this export).
