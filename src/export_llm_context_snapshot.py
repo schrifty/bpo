@@ -11,8 +11,17 @@ breakdowns, and SLA-style aggregates only — **no issue keys, summaries, or tic
 The markdown includes **Snapshot coverage & omission rationale** (profile sources, registry ids not in this export and why, caps, loader provenance, feedback prompt) plus **Planned integrations (not in this snapshot yet)** (e.g. Aha, GitHub).
 
 Usage:
-  decks --export [--days N]
+  decks --export [--days N] [--customers-sf-allowlist] [--customers-exclude-sf-churned] [--exclude-customer NAME ...]
   python -m src.export_llm_context_snapshot --days 90
+
+Optional portfolio row filters (after Pendo+Salesforce bundle, before markdown):
+
+- ``--customers-sf-allowlist`` — keep headline customers/signals mapped from Salesforce Customer
+  Entities to Pendo prefixes (matches cohort allowlist semantics). Requires Salesforce JWT env vars.
+- ``--customers-exclude-sf-churned`` — drop rows that **matched** Salesforce rollups with ``active``
+  false (contract-status churn rollup).
+- ``--exclude-customer`` — repeat to drop explicit Pendo customer labels (case-insensitive), or see
+  env ``BPO_LLM_EXPORT_EXCLUDE_CUSTOMERS`` / ``BPO_LLM_EXPORT_EXCLUDE_CUSTOMERS_FILE``.
 
 Requires ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` (and optional ``GOOGLE_QBR_OUTPUT_PARENT_ID``) plus
 Drive credentials. Each run uploads ``LLM-Context-All_Customers.md`` to **both**:
@@ -276,7 +285,7 @@ def _build_export_coverage(
     prov = report.get("_data_source_provenance")
     if not isinstance(prov, dict):
         prov = None
-    return {
+    out_cov: dict[str, Any] = {
         "profile_id": PROFILE_ID_LLM_EXPORT_ALL_CUSTOMERS,
         "sources_in_profile": sources_in_profile,
         "registry_excluded": registry_excluded,
@@ -301,6 +310,10 @@ def _build_export_coverage(
             "signals_trend_context_max_string_if_present": 320,
         },
     }
+    cf = report.get("_llm_export_customer_filter")
+    if isinstance(cf, dict) and cf.get("enabled"):
+        out_cov["customer_filter"] = cf
+    return out_cov
 
 
 def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
@@ -316,8 +329,45 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
         f"- **Profile id:** `{cov.get('profile_id', '')}`",
         f"- **Canonical sources in this profile:** {', '.join(f'`{s}`' for s in (cov.get('sources_in_profile') or []))}",
         "",
-        "### Registry sources not in this export (and why)",
     ]
+    cf_cov = cov.get("customer_filter")
+    if isinstance(cf_cov, dict) and cf_cov.get("enabled"):
+        lines.extend(
+            [
+                "### Customer filter (portfolio rows)",
+                "Per-customer Pendo headline rows (**§1**) and usage signal lines (**§5**) were **trimmed before** Salesforce §3 refresh.",
+                "",
+            ]
+        )
+        lines.append(
+            f"- **Salesforce allowlist intersect:** **`{bool(cf_cov.get('sf_allowlist'))}`** — dropped "
+            f"**{cf_cov.get('dropped_sf_allowlist', 0)}** row(s) not derived from SF Customer Entity mapping."
+        )
+        lines.append(
+            f"- **Exclude SF churn rollup (inactive matched):** **`{bool(cf_cov.get('exclude_sf_churned_matched'))}`** — dropped "
+            f"**{cf_cov.get('dropped_sf_churned_matched', 0)}** row(s)."
+        )
+        lines.append(
+            f"- **Explicit excludes:** dropped **{cf_cov.get('dropped_exclude_list', 0)}** row(s); "
+            f"labels (lower): `{', '.join(cf_cov.get('explicit_excludes_loaded') or [])}`"
+            if cf_cov.get("explicit_excludes_loaded")
+            else f"- **Explicit excludes:** dropped **{cf_cov.get('dropped_exclude_list', 0)}** row(s)."
+        )
+        lines.append(
+            f"- **Remainder:** **{cf_cov.get('before_customer_rows', '?')}** → **{cf_cov.get('after_customer_rows', '?')}** "
+            f"Pendo headline rows; **§5 signals** `{cf_cov.get('portfolio_signals_before')}` → "
+            f"`{cf_cov.get('portfolio_signals_after')}` lines."
+        )
+        for w in cf_cov.get("warnings") or []:
+            if isinstance(w, str) and w.strip():
+                lines.append(f"- **Warning:** {w.strip()}")
+        lines.append("")
+    lines.extend(
+        [
+            "",
+            "### Registry sources not in this export (and why)",
+        ]
+    )
     for row in cov.get("registry_excluded") or []:
         if not isinstance(row, dict):
             continue
@@ -922,6 +972,26 @@ def _build_export_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
         metavar="N",
         help="Max §5 Pendo usage signal lines from portfolio_signals (default: no cap — all signals).",
     )
+    ap.add_argument(
+        "--customers-sf-allowlist",
+        action="store_true",
+        help=(
+            "After the merge, intersect §1 headline customers and §5 signals with Salesforce "
+            "Customer Entity→Pendo keys (requires Salesforce JWT env vars)."
+        ),
+    )
+    ap.add_argument(
+        "--customers-exclude-sf-churned",
+        action="store_true",
+        help="Drop headline/signal rows for customers SF matched as inactive churn (contract rollup).",
+    )
+    ap.add_argument(
+        "--exclude-customer",
+        action="append",
+        default=None,
+        metavar="NAME",
+        help="Drop this Pendo customer label (repeatable). Also see BPO_LLM_EXPORT_EXCLUDE_CUSTOMERS (+ _FILE env).",
+    )
     return ap
 
 
@@ -938,6 +1008,28 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
     if report.get("error"):
         print(f"error: report failed: {report.get('error')}", file=sys.stderr)
         sys.exit(1)
+
+    from src.llm_export_customer_filter import (
+        LlmExportCustomerFilterConfig,
+        apply_llm_export_customer_filters,
+    )
+
+    fcfg = LlmExportCustomerFilterConfig.from_cli_and_env(
+        customers_sf_allowlist=bool(args.customers_sf_allowlist),
+        customers_exclude_sf_churned=bool(args.customers_exclude_sf_churned),
+        exclude_customer=list(args.exclude_customer) if args.exclude_customer else [],
+    )
+    if fcfg.any_enabled():
+        try:
+            filt = apply_llm_export_customer_filters(report, fcfg)
+            wrs = filt.get("warnings") or []
+            if wrs:
+                for w in wrs:
+                    if isinstance(w, str) and w.strip():
+                        print(f"warning: LLM export customer filter: {w.strip()}", file=sys.stderr)
+        except Exception as exc:
+            print(f"error: customer filter failed: {exc}", file=sys.stderr)
+            sys.exit(1)
 
     _emit_integration_stderr_warnings(report)
 

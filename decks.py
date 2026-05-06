@@ -47,6 +47,8 @@ Flag commands (utilities)
       Print canonical data element paths from ``config/comprehensive_data_element_list.json``.
 
   decks --export [--days N] [--max-bytes N] [--signals-cap N]
+      [--customers-sf-allowlist] [--customers-exclude-sf-churned]
+      [--exclude-customer LABEL ...]
       Build the all-customers LLM context markdown snapshot and upload it to Drive **twice**: under
       ``<QBR Generator>/Output/LLM-Context-All_Customers.md`` (stable) and under the dated folder
       ``Output/{ISO-date} - Output/LLM-Context-All_Customers.md`` (same calendar day).
