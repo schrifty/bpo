@@ -96,7 +96,7 @@ CHART_SPEC_FONT_NAME = "Roboto"
 # Pies are embedded at slide PT size; larger backing pixels + maximized spec improve the bitmap
 # when Slides downscales the chart. For ticket metrics breakdown slides, the in-chart legend is
 # off (NO_LEGEND) and readable copy lives in _slide_chart_legend_vertical — see
-# docs/SLIDE_DESIGN_STANDARDS.md (Pie charts: Jira ticket metrics breakdown).
+# docs/PRESENTATION/SLIDE_DESIGN_STANDARDS.md (Pie charts: Jira ticket metrics breakdown).
 CHART_PIE_OVERLAY_W_PX = 2560
 CHART_PIE_OVERLAY_H_PX = 1600
 

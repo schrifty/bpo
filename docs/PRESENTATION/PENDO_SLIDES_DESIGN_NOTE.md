@@ -1,6 +1,6 @@
 # Pendo slides — design note
 
-This note describes how **Pendo-backed slides** fit the deck narrative, what data each slide uses, and how **existing** usage slides were extended. It complements [`DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md`](./DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md) and the slide YAML under `slides/`.
+This note describes how **Pendo-backed slides** fit the deck narrative, what data each slide uses, and how **existing** usage slides were extended. It complements [`../DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md`](../DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md) and the slide YAML under `slides/`.
 
 ---
 
@@ -50,4 +50,4 @@ Deck YAML references these by **slide id** (e.g. `pendo_localization`). Shared d
 
 ## Related identifiers
 
-See [`DATA-GOVERNANCE/DATA_REGISTRY.md`](./DATA-GOVERNANCE/DATA_REGISTRY.md) (Pendo section) for registry IDs such as `PENDO-POLL-EVENTS-SOURCE` and frustration fields.
+See [`../DATA-GOVERNANCE/DATA_REGISTRY.md`](../DATA-GOVERNANCE/DATA_REGISTRY.md) (Pendo section) for registry IDs such as `PENDO-POLL-EVENTS-SOURCE` and frustration fields.

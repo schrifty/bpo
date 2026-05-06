@@ -19,4 +19,4 @@ Start with **[`DATA_REGISTRY.md`](./DATA_REGISTRY.md)** for the cross-system ide
 | [`CUSTOMER_COHORTS.md`](./CUSTOMER_COHORTS.md) | Manufacturing cohort classifications (`cohorts.yaml`) |
 | [`SLIDE_DATA_GAP_ANALYSIS.md`](./SLIDE_DATA_GAP_ANALYSIS.md) | Slide ↔ data coverage methodology / findings |
 
-**Operational setup** (credentials, env vars) lives under [`../SETUP/`](../SETUP/). **Pendo slide builders / deck narrative:** [`../PENDO_SLIDES_DESIGN_NOTE.md`](../PENDO_SLIDES_DESIGN_NOTE.md). Other deck/product docs remain at [`../`](../).
+**Operational setup** (credentials, env vars) lives under [`../SETUP/`](../SETUP/). **Slide design & Pendo builders:** [`../PRESENTATION/`](../PRESENTATION/). Other deck/product docs remain at [`../`](../).

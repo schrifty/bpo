@@ -130,6 +130,7 @@ bpo/
 ├── cohorts.yaml              # Customer manufacturing cohort classifications
 ├── docs/
 │   ├── DATA-GOVERNANCE/     # Data governance: DATA_REGISTRY.md, DATA_DICTIONARY.md, per-source schemas, …
+│   ├── PRESENTATION/        # Slide design standards, Pendo slide-builder narrative
 │   ├── SETUP/               # Connection guides (e.g. Salesforce, LeanDNA Data API)
 │   └── …                    # Other product / deck docs at docs root
 ├── src/
