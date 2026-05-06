@@ -34,6 +34,23 @@ def _bearer() -> str:
     return token
 
 
+def _raise_for_status(resp: requests.Response) -> None:
+    """Raise on HTTP error; log 401 hints (staging vs prod base URL)."""
+    if resp.ok:
+        return
+    snippet = (resp.text or "").strip().replace("\n", " ")[:500]
+    if resp.status_code == 401:
+        logger.error(
+            "LeanDNA Data API 401 — token invalid/expired, or LEANDNA_DATA_API_BASE_URL does not "
+            "match the environment where the token was issued (production "
+            "`https://app.leandna.com/api` vs staging, often `https://app.staging.leandna.com/api`). "
+            "URL=%s body_prefix=%r",
+            resp.url,
+            snippet,
+        )
+    resp.raise_for_status()
+
+
 def _headers(requested_sites: str | None) -> dict[str, str]:
     h = {
         "Authorization": f"Bearer {_bearer()}",
@@ -73,7 +90,7 @@ def list_metric_definitions(
     params = dict(extra_query or {})
     logger.info("LeanDNA Metric: GET %s (sites=%s)", url, requested_sites or "all")
     r = requests.get(url, headers=_headers(requested_sites), params=params, timeout=timeout_seconds)
-    r.raise_for_status()
+    _raise_for_status(r)
     return _unwrap_metric_definition_rows(r.json())
 
 
@@ -114,7 +131,7 @@ def fetch_metric_report(
         requested_sites or "all",
     )
     r = requests.get(url, headers=_headers(requested_sites), params=params, timeout=timeout_seconds)
-    r.raise_for_status()
+    _raise_for_status(r)
     body = r.json()
     if not isinstance(body, dict):
         logger.warning("LeanDNA MetricReport: expected object, got %s", type(body).__name__)
