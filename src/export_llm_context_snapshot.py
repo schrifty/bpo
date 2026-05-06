@@ -13,11 +13,12 @@ The markdown includes **Snapshot coverage & omission rationale** (profile source
 Usage:
   decks --export [--days N]
   python -m src.export_llm_context_snapshot --days 90
-  python -m src.export_llm_context_snapshot --out ./snapshot.md --skip-drive
 
-Requires ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` and credentials for Drive upload unless ``--skip-drive``.
-Drive upload writes ``LLM-Context-All_Customers.md`` under ``<generator>/Output`` (same parent as
-the dated ``{ISO-date} - Output`` bundle folders) and **replaces** that file on each run so links stay stable.
+Requires ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` (and optional ``GOOGLE_QBR_OUTPUT_PARENT_ID``) plus
+Drive credentials. Each run uploads ``LLM-Context-All_Customers.md`` to **both**:
+
+1. ``<generator>/Output/`` (stable path for bookmarks)
+2. ``<generator>/Output/{ISO-date} - Output/`` (same-day bundle folder; filename replaced if present)
 
 Every export appends **§7 Account & churn risk insights** (LLM). Failures are printed inside that section; the export still completes unless the core datasource report fails earlier.
 """
@@ -921,8 +922,6 @@ def _build_export_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
         metavar="N",
         help="Max §5 Pendo usage signal lines from portfolio_signals (default: no cap — all signals).",
     )
-    ap.add_argument("--out", "-o", metavar="FILE", help="Also write markdown locally")
-    ap.add_argument("--skip-drive", action="store_true", help="Do not upload to Drive")
     return ap
 
 
@@ -1007,33 +1006,32 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
             doc.pop(k, None)
 
     fname = "LLM-Context-All_Customers.md"
+    nbytes = len(md.encode("utf-8"))
 
-    if args.out:
-        path = args.out
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(md)
-        print(f"Wrote local {path} ({len(md.encode('utf-8'))} bytes)")
+    from src.drive_config import (
+        get_qbr_output_folder_id,
+        get_qbr_output_root_folder_id,
+        upload_text_file_to_drive_folder,
+    )
 
-    if args.skip_drive:
-        if not args.out:
-            sys.stdout.write(md)
-        print(f"Skipped Drive upload ({len(md.encode('utf-8'))} bytes)", file=sys.stderr)
-        return
-
-    from src.drive_config import get_qbr_output_root_folder_id, upload_text_file_to_drive_folder
-
-    folder_id = get_qbr_output_root_folder_id()
-    if not folder_id:
+    root_id = get_qbr_output_root_folder_id()
+    dated_id = get_qbr_output_folder_id()
+    if not root_id or not dated_id:
         print(
-            "error: could not resolve Drive Output folder (set GOOGLE_QBR_GENERATOR_FOLDER_ID "
+            "error: could not resolve Drive Output folders (set GOOGLE_QBR_GENERATOR_FOLDER_ID "
             "and verify Drive access).",
             file=sys.stderr,
         )
         sys.exit(1)
-    fid = upload_text_file_to_drive_folder(fname, md, folder_id, mime_type="text/markdown")
-    url = f"https://drive.google.com/file/d/{fid}/view"
-    print(f"Uploaded Drive file id={fid} ({len(md.encode('utf-8'))} bytes)")
-    print(url)
+
+    dated_label = f"{dt.date.today().isoformat()} - Output"
+    fid_root = upload_text_file_to_drive_folder(fname, md, root_id, mime_type="text/markdown")
+    fid_dated = upload_text_file_to_drive_folder(fname, md, dated_id, mime_type="text/markdown")
+
+    print(f"Exported {nbytes} bytes → Drive Output/{fname} (id={fid_root})", file=sys.stderr)
+    print(f"Exported {nbytes} bytes → Drive Output/{dated_label}/{fname} (id={fid_dated})", file=sys.stderr)
+    print(f"Output/ (stable): https://drive.google.com/file/d/{fid_root}/view")
+    print(f"Output/{dated_label}/: https://drive.google.com/file/d/{fid_dated}/view")
 
 
 def main() -> None:
