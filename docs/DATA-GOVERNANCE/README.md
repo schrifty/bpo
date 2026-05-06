@@ -10,7 +10,6 @@ Start with **[`DATA_REGISTRY.md`](./DATA_REGISTRY.md)** for the cross-system ide
 | [`DATA_DICTIONARY.md`](./DATA_DICTIONARY.md) | Human-readable mirror of the comprehensive data-element catalog (by source path) |
 | [`JIRA_DATA_SCHEMA.md`](./JIRA_DATA_SCHEMA.md) | Jira / JSM fields, APIs, and custom fields |
 | [`PENDO_DATA_SCHEMA.md`](./PENDO_DATA_SCHEMA.md) | Pendo aggregation sources, metadata, and events |
-| [`PENDO_SLIDES_DESIGN_NOTE.md`](./PENDO_SLIDES_DESIGN_NOTE.md) | How Pendo-backed slide types use report data |
 | [`CSR_DATA_SCHEMA.md`](./CSR_DATA_SCHEMA.md) | Customer Success Report (Drive XLSX) columns and KPI JSON |
 | [`LEANDNA_DATA_API_SCHEMA.md`](./LEANDNA_DATA_API_SCHEMA.md) | LeanDNA Data API (REST): Item Master, shortages, Lean Projects, metrics, unused surfaces |
 | [`LEANDNA_DATA_API_TOOLS.md`](./LEANDNA_DATA_API_TOOLS.md) | LeanDNA API integration opportunities and tooling notes |
@@ -20,4 +19,4 @@ Start with **[`DATA_REGISTRY.md`](./DATA_REGISTRY.md)** for the cross-system ide
 | [`CUSTOMER_COHORTS.md`](./CUSTOMER_COHORTS.md) | Manufacturing cohort classifications (`cohorts.yaml`) |
 | [`SLIDE_DATA_GAP_ANALYSIS.md`](./SLIDE_DATA_GAP_ANALYSIS.md) | Slide ↔ data coverage methodology / findings |
 
-**Operational setup** (credentials, env vars) lives under [`../SETUP/`](../SETUP/). Other deck/product docs remain at [`../`](../).
+**Operational setup** (credentials, env vars) lives under [`../SETUP/`](../SETUP/). **Pendo slide builders / deck narrative:** [`../PENDO_SLIDES_DESIGN_NOTE.md`](../PENDO_SLIDES_DESIGN_NOTE.md). Other deck/product docs remain at [`../`](../).
