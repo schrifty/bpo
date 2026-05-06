@@ -2769,21 +2769,21 @@
       "path": "teams_yaml.customer_team",
       "terms": [
         "teams_yaml.customer_team",
-        "[config teams.yaml] list of {name, title} customer-facing team"
+        "[config/teams.yaml] list of {name, title} customer-facing team"
       ]
     },
     {
       "path": "teams_yaml.leandna_site_ids",
       "terms": [
         "teams_yaml.leandna_site_ids",
-        "[config teams.yaml] optional LeanDNA site ids per customer"
+        "[config/teams.yaml] optional LeanDNA site ids per customer"
       ]
     },
     {
       "path": "teams_yaml.leandna_team",
       "terms": [
         "teams_yaml.leandna_team",
-        "[config teams.yaml] list of {name, title} LeanDNA team"
+        "[config/teams.yaml] list of {name, title} LeanDNA team"
       ]
     },
     {

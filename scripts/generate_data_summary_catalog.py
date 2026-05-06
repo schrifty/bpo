@@ -459,18 +459,18 @@ def build_entries() -> list[dict[str, Any]]:
         ]
     )
 
-    # ── teams.yaml (not on report dict — config by customer key) ────────────
+    # ── config/teams.yaml (not on report dict — config by customer key) ─────
     rows.extend(
         [
             _e(
                 "teams_yaml.customer_team",
-                "[config teams.yaml] list of {name, title} customer-facing team",
+                "[config/teams.yaml] list of {name, title} customer-facing team",
             ),
             _e(
                 "teams_yaml.leandna_team",
-                "[config teams.yaml] list of {name, title} LeanDNA team",
+                "[config/teams.yaml] list of {name, title} LeanDNA team",
             ),
-            _e("teams_yaml.leandna_site_ids", "[config teams.yaml] optional LeanDNA site ids per customer"),
+            _e("teams_yaml.leandna_site_ids", "[config/teams.yaml] optional LeanDNA site ids per customer"),
             _e(
                 "cohorts_yaml",
                 "[config cohorts.yaml] cohort / optional exclude / vertical per customer; "

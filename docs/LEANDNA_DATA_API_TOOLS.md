@@ -312,7 +312,7 @@ def enrich_supply_chain_with_leandna(report: dict, customer: str) -> dict:
         return report  # skip if not configured
     
     from .leandna_data_client import get_item_master_data
-    # Map customer → site IDs (from teams.yaml or identity endpoint)
+    # Map customer → site IDs (from config/teams.yaml or identity endpoint)
     sites = _resolve_customer_sites(customer)
     items = get_item_master_data(sites=sites)
     
@@ -351,7 +351,7 @@ Add fields to `docs/data-schema/DATA_REGISTRY.md`:
 
 ## Open Questions
 
-1. **Site mapping:** How to resolve BPO `customer` → LeanDNA `siteId` list? (via `/data/identity` + `teams.yaml` or new mapping file?)
+1. **Site mapping:** How to resolve BPO `customer` → LeanDNA `siteId` list? (via `/data/identity` + `config/teams.yaml` or new mapping file?)
 2. **Rate limits:** Swagger doesn't document rate limits; confirm with LeanDNA support before production.
 3. **Field coverage:** Does `daysOfInventoryBackward` exist in real API responses? (User asked about it; schema shows it, but validate with live call.)
 4. **Write-back scope:** Should BPO ever auto-update POs via `/data/WriteBack/v1/TransitionActions`, or strictly read-only? (Recommend read-only for now.)

@@ -28,14 +28,14 @@ def _resolve_customer_sites(customer: str) -> str | None:
         Comma-separated site IDs or None for all authorized sites.
     
     TODO: Implement site mapping logic. Options:
-      1. Add `leandna_site_ids` to teams.yaml per customer
+      1. Add `leandna_site_ids` to `config/teams.yaml` per customer
       2. Call /data/identity API and fuzzy-match siteName
       3. Use customer-specific env var LEANDNA_SITES_{customer}
     
     For now: return None (all sites) and rely on RequestedSites header behavior.
     """
     # Placeholder: no mapping yet
-    # Future: load from teams.yaml or identity API
+    # Future: load from config/teams.yaml or identity API
     return None
 
 

@@ -53,7 +53,7 @@ DATA_SOURCES: dict[str, list[str]] = {
         "recommendations created, POs placed",
         "daily & weekly active buyer counts & percentages",
     ],
-    "teams.yaml (local config)": [
+    "`config/teams.yaml` (local roster)": [
         "CSM / AE / SE team roster per customer (manually maintained)",
     ],
     "cohorts.yaml (local config)": [
@@ -124,7 +124,7 @@ BUILDER_DESCRIPTIONS = {
     "platform_value_summary_toc": "Platform Value & ROI Summary — table of contents from resolved slide plan",
     "cross_validation": "Data cross-validation — Pendo vs CS Report engagement comparison",
     "signals": "Notable signals — auto-detected churn risk, expansion, adoption gaps",
-    "team": "Team roster — CSM/AE assignments from teams.yaml",
+        "team": "Team roster — CSM/AE assignments from `config/teams.yaml`",
     "data_quality": "Data quality — cross-source validation results",
     "custom": "Static content slide — reproduced text with title and body sections",
     "skip": "Skip this slide entirely (blank, transition, or not reproducible)",

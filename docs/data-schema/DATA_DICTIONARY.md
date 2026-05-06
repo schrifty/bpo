@@ -6,7 +6,7 @@
 ## config portfolio_exclude_prefixes.yaml
 - `portfolio_exclude_prefixes_yaml`
 
-## config teams.yaml
+## config/teams.yaml
 - `teams_yaml.customer_team`
 - `teams_yaml.leandna_site_ids`
 - `teams_yaml.leandna_team`
