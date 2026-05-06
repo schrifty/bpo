@@ -11,11 +11,15 @@
 # Lean/value line items, Jira/Support rollups, CS Report KPIs — anything normally pulled from
 # analytics, ERP/MRP snapshots, spreadsheets, or BPO hydrate mappings rather than memory.
 #
+# **Text-only:** raster screenshots/images are ignored (no OCR); embedded Slides **charts** stay in scope.
 # The appended summary slide(s) and gap_inventory_rows use **time_saving_hits** (filtered +
 # collapsed). Raw **heuristic_hits** remain in JSON for debugging. Use --llm to infer gaps
 # the heuristics miss; the model is instructed to ignore clerical placeholders.
 # -----------------------------------------------------------------------------
 """Scan slides for **CSM lookup / data-integration** gaps (time savings).
+
+**Text-only scan:** screenshots and other raster images are skipped (no gap rows). Embedded
+charts remain flagged.
 
 Heuristics + optional LLM classify missing **performance & operations** content (supply
 chain, inventory, ERP/MRP-era metrics, adoption). Clerical placeholders (dates, contacts,
@@ -23,7 +27,7 @@ logos, meeting logistics) are excluded from the report table and inventory JSON 
 
 Summary slide title: **CSM lookup — data to source**.
 
-See ``docs/SLIDE_DATA_GAP_ANALYSIS.md`` for methodology.
+See ``docs/DATA-GOVERNANCE/SLIDE_DATA_GAP_ANALYSIS.md`` for methodology.
 
 Usage:
   python scripts/identify-data-gaps.py
@@ -91,14 +95,16 @@ def _is_clerical_bracket_placeholder(span: str) -> bool:
 
 
 def _time_saving_hits(all_hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Filter/collapse hits for the report: drop clerical noise; one row per slide for N images/charts."""
+    """Filter/collapse hits for the report: drop clerical noise; one row per slide for N embedded charts.
+
+    Raster images/screenshots are not represented in ``all_hits`` (text-only focus).
+    """
     out: list[dict[str, Any]] = []
-    n_img = sum(1 for h in all_hits if h.get("kind") == "image_or_screenshot")
     n_cht = sum(1 for h in all_hits if h.get("kind") == "embedded_chart")
 
     for h in all_hits:
         k = h.get("kind")
-        if k in ("image_or_screenshot", "embedded_chart"):
+        if k == "embedded_chart":
             continue
         if k == "bracket_placeholder" and _is_clerical_bracket_placeholder(str(h.get("span") or "")):
             continue
@@ -114,14 +120,6 @@ def _time_saving_hits(all_hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "kind": "embedded_charts_collapsed",
                 "count": n_cht,
                 "detail": f"{n_cht} embedded chart(s) — underlying series may need refresh from BI/Sheets/export.",
-            }
-        )
-    if n_img:
-        out.append(
-            {
-                "kind": "images_collapsed",
-                "count": n_img,
-                "detail": f"{n_img} image(s)/screenshots — may hide KPIs needing re-export or OCR.",
             }
         )
     return out
@@ -210,6 +208,7 @@ def _heuristic_hits(text: str) -> list[dict[str, Any]]:
 
 
 def _structural_flags(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Non-text elements: only embedded charts are flagged; raster images are skipped (text-only scan)."""
     flags: list[dict[str, Any]] = []
     for it in items:
         t = it.get("type")
@@ -218,14 +217,6 @@ def _structural_flags(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 {
                     "kind": "embedded_chart",
                     "detail": "Linked/static chart — underlying numbers may not match live ERP/report exports.",
-                    "element_id": it.get("element_id"),
-                }
-            )
-        elif t == "image":
-            flags.append(
-                {
-                    "kind": "image_or_screenshot",
-                    "detail": "Raster/image — metrics inside may be unreadable to this scan.",
                     "element_id": it.get("element_id"),
                 }
             )
@@ -258,7 +249,6 @@ def _slide_bundle(slide: dict[str, Any], slide_index: int) -> dict[str, Any]:
                 "hydrate_token",
                 "generic_metric",
                 "embedded_charts_collapsed",
-                "images_collapsed",
             )
             for h in ts_hits
         )
@@ -280,18 +270,6 @@ def _heuristic_table_row(slide_idx: int, hit: dict[str, Any]) -> list[str]:
             _tc("Match axis labels & units from source feed"),
             _tc("Same fiscal window as adjacent KPI slides"),
             _tc("Refresh linkage or paste from governed export"),
-            _tc(hit.get("detail", "")),
-        ]
-    if kind == "images_collapsed":
-        n = int(hit.get("count") or 0)
-        return [
-            str(slide_idx),
-            _tc(f"Images/screenshots (×{n})"),
-            _tc("Upstream screenshot source (ERP, analytics, deck library)"),
-            _tc("Raster — often hides metrics"),
-            _tc("Prefer live chart or citation of export date"),
-            _tc("As-of capture vs quarter under review"),
-            _tc("Re-capture if numbers are authoritative"),
             _tc(hit.get("detail", "")),
         ]
     if kind == "bracket_placeholder":
@@ -325,17 +303,6 @@ def _heuristic_table_row(slide_idx: int, hit: dict[str, Any]) -> list[str]:
             _tc("Recreate or refresh chart; label axes & units"),
             _tc("Align period with deck quarter"),
             _tc("Prefer automated refresh over static PNG"),
-            _tc(hit.get("detail", "")),
-        ]
-    if kind == "image_or_screenshot":
-        return [
-            str(slide_idx),
-            _tc("Image / screenshot"),
-            _tc("Source system shown in capture (ERP, analytics)"),
-            _tc("Raster — may encode KPI screen grabs"),
-            _tc("Replace with live chart or cite export snapshot date"),
-            _tc("As-of capture vs quarter reviewed"),
-            _tc("Re-source if treated as authoritative"),
             _tc(hit.get("detail", "")),
         ]
     if kind == "empty_text":
@@ -503,16 +470,6 @@ def _compact_from_heuristic(slide_idx: int, h: dict[str, Any]) -> dict[str, Any]
             "replace": _compact_replace(None, "chart", "Refresh data series or reconnect Sheet/BI"),
             "source": "sheets_bi_or_manual",
         }
-    if kind == "images_collapsed":
-        n = int(h.get("count") or 0)
-        find = f"Images/screenshots (×{n})"
-        return {
-            "slide": slide_idx,
-            "find": find,
-            "replace": _compact_replace(None, "raster_visual", "Re-export KPIs from system of record if authoritative"),
-            "source": "screenshot_upstream",
-        }
-
     rf = _compact_replace(None, kind or "unknown", _tc(h.get("detail") or "", 200))
     return {"slide": slide_idx, "find": find, "replace": rf, "source": None}
 
@@ -620,8 +577,10 @@ def _llm_analyze_slide(
     from src.llm_utils import _llm_create_with_retry, _strip_json_code_fence
 
     system = (
-        "You analyze Google Slides **text extracts** from B2B customer QBR/deck content (discrete "
-        "manufacturing, inventory, supply chain, ERP/MRP-era operations).\n\n"
+        "You analyze Google Slides **text extracts only** from B2B customer QBR/deck content (discrete "
+        "manufacturing, inventory, supply chain, ERP/MRP-era operations). **Ignore** screenshots, "
+        "photos, and other raster images — this pipeline does not OCR them; do **not** emit "
+        "missing_data_items for image-only gaps.\n\n"
         "**Goal — CSM *time savings*:** Only surface gaps where gathering **performance or operations "
         "data** requires lookups, exports, or integrations (things the CSM cannot reliably type from "
         "memory).\n\n"
@@ -633,7 +592,7 @@ def _llm_analyze_slide(
         "metrics, Lean or value-line savings, adoption & depth (including product analytics/chatbot/KPI "
         "usage if implied), CSR/Data Export platform health rows, SF ARR-style facts when hinted, Jira "
         "portfolio counts, hydrate-style `[???]`/`[00%]` tokens adjacent to KPI language, unresolved "
-        "charts/images that likely carry KPIs.\n\n"
+        "embedded charts that likely carry KPIs.\n\n"
         "For **each retained** gap, specify:\n"
         "- **suggested_datasource**: ERP, MRP, WMS, IBP/planning, CS Report export, Salesforce, LeanDNA, "
         "Pendo/analytics, Jira aggregates, Sheets/BI linkage, etc.\n"

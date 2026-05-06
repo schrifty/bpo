@@ -1,8 +1,8 @@
 # LeanDNA Data API schema (BPO)
 
-LeanDNA **Data API** — REST JSON under `{LEANDNA_DATA_API_BASE_URL}` (default `https://app.leandna.com/api`). **Auth:** `Authorization: Bearer {LEANDNA_DATA_API_BEARER_TOKEN}`. **Optional site scope:** `RequestedSites: <comma-separated site ids>`.
+LeanDNA **Data API** — REST JSON under `{LEANDNA_DATA_API_BASE_URL}` (default `https://app.leandna.com/api`). **Auth:** Bearer (`LEANDNA_DATA_API_BEARER_TOKEN`) and/or browser **Cookie** (`LEANDNA_DATA_API_COOKIE`) plus optional `Origin`/`Referer` — see **[`../SETUP/LEANDNA_SETUP.md`](../SETUP/LEANDNA_SETUP.md)**. **Optional site scope:** `RequestedSites: <comma-separated site ids>`.
 
-Canonical registry identifiers: [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) (LeanDNA Data API section). Integration analysis: [`../LEANDNA_DATA_API_TOOLS.md`](../LEANDNA_DATA_API_TOOLS.md). OpenAPI: fetch with authenticated `scripts/fetch_leandna_swagger.py`.
+Canonical registry identifiers: [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) (LeanDNA Data API section). Integration analysis: [`LEANDNA_DATA_API_TOOLS.md`](./LEANDNA_DATA_API_TOOLS.md). OpenAPI: fetch with authenticated `scripts/fetch_leandna_swagger.py`.
 
 **BPO implementation today:** `src/leandna_item_master_client.py`, `src/leandna_shortage_client.py`, `src/leandna_lean_projects_client.py`, `src/leandna_metrics_client.py` (metrics HTTP only — no QBR `report[]` merge yet), and matching `*_enrich.py`; QBR wires enrichments in `src/qbr_template.py`.
 
@@ -13,9 +13,9 @@ Canonical registry identifiers: [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) (LeanDN
 | Concern | Detail |
 |--------|--------|
 | Base | `LEANDNA_DATA_API_BASE_URL` from `src/config.py` |
-| Token | `LEANDNA_DATA_API_BEARER_TOKEN` (required for all calls below) |
+| Auth | At least one of `LEANDNA_DATA_API_BEARER_TOKEN`, `LEANDNA_DATA_API_COOKIE` (optional `LEANDNA_DATA_API_ORIGIN`, `LEANDNA_DATA_API_REFERER`) — see [`../SETUP/LEANDNA_SETUP.md`](../SETUP/LEANDNA_SETUP.md) |
 | JSON | Responses are JSON unless noted (Data Share returns URL metadata for Parquet) |
-| Errors | Typical HTTP 401 without token; field shapes vary by tenant — validate with live calls |
+| Errors | Typical HTTP 401 without valid Bearer/cookie or wrong base URL; field shapes vary by tenant — validate with live calls |
 
 ---
 
@@ -76,7 +76,7 @@ Bucket columns (`bucket1…` / `day1…`), `criticalityLevel`, `daysInShortage`,
 
 ### 4.4 Purchase Order (unused)
 
-`poStatus`, commit and delivery dates, `depthOfDelay`, `lateDeliveryCause`, `openPoValue`, `futurePPV`, lead time fields — see [`LEANDNA_DATA_API_TOOLS.md`](../LEANDNA_DATA_API_TOOLS.md).
+`poStatus`, commit and delivery dates, `depthOfDelay`, `lateDeliveryCause`, `openPoValue`, `futurePPV`, lead time fields — see [`LEANDNA_DATA_API_TOOLS.md`](./LEANDNA_DATA_API_TOOLS.md).
 
 ### 4.5 Identity (unused)
 

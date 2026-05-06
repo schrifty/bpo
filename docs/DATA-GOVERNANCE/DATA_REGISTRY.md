@@ -1,10 +1,32 @@
 # Data Registry
 
-Cross-system registry of data items known to BPO as of March 2026.
+Master list of **stable identifiers** for data BPO reads or may read: where each item comes from, where the codebase uses it, and short governance flags (`UNUSED`, `MISSING`, `DUPLICATE?`, …).
 
-This document is a living governance artifact. Its first purpose is to make
-missing data visible. Later passes can add canonical-source decisions,
-duplication cleanup, stewardship, and review history.
+**File:** `docs/DATA-GOVERNANCE/DATA_REGISTRY.md` (this document).
+
+| If you need… | Use… |
+|---------------|------|
+| Jump straight to a source system | [Contents](#contents) below |
+| Field shapes, endpoints, columns | Linked `*_DATA_SCHEMA.md` files in this folder and [Related docs](#related-docs) |
+| Paths aligned to hydrate / exports | `config/comprehensive_data_element_list.json` and [`DATA_DICTIONARY.md`](./DATA_DICTIONARY.md) |
+
+Treat this as a **living governance artifact**: prioritize making gaps and overlaps visible; later passes can record canonical-source decisions and stewardship.
+
+## Contents
+
+- [Purpose](#purpose)
+- [Scope rules (v1)](#scope-rules-for-v1)
+- [Identifier convention](#identifier-convention)
+- [Status vocabulary](#status-note-vocabulary)
+- [Related docs](#related-docs)
+- [Atlassian / Jira](#atlassian--jira)
+- [Pendo](#pendo)
+- [CS Report](#cs-report)
+- [LeanDNA Data API](#leandna-data-api)
+- [Salesforce](#salesforce)
+- [Internal / derived](#internal--derived)
+- [Governance observations (v1)](#governance-observations-v1)
+- [Next steps](#next-steps)
 
 ## Purpose
 
@@ -52,8 +74,8 @@ Examples:
 - [`PENDO_DATA_SCHEMA.md`](./PENDO_DATA_SCHEMA.md)
 - [`CSR_DATA_SCHEMA.md`](./CSR_DATA_SCHEMA.md) — Customer Success Report (CS Report) export
 - [`LEANDNA_DATA_API_SCHEMA.md`](./LEANDNA_DATA_API_SCHEMA.md) — LeanDNA Data API (REST)
-- [`SALESFORCE_SETUP.md`](../SALESFORCE_SETUP.md)
-- [`USAGE_DATA_PRIORITIES.md`](../USAGE_DATA_PRIORITIES.md)
+- [`SETUP/SALESFORCE_SETUP.md`](../SETUP/SALESFORCE_SETUP.md)
+- [`USAGE_DATA_PRIORITIES.md`](./USAGE_DATA_PRIORITIES.md)
 - [`../../src/jira_client.py`](../../src/jira_client.py)
 - [`../../src/pendo_client.py`](../../src/pendo_client.py)
 - [`../../src/cs_report_client.py`](../../src/cs_report_client.py)
@@ -65,9 +87,9 @@ Examples:
 
 | Identifier | Description | Source field / query surface | Where used | Status note |
 |---|---|---|---|---|
-| `JIRA-JQL-ISSUE-SEARCH` | Primary issue retrieval surface for customer, project, and trend reporting. | `POST /rest/api/3/search/jql` | `docs/data-schema/JIRA_DATA_SCHEMA.md`, `src/jira_client.py` | Core surface |
-| `JIRA-SERVICE-DESK-ORGANIZATIONS` | JSM organization objects used for customer matching. | `customfield_10502`, JSM organization records | `docs/data-schema/JIRA_DATA_SCHEMA.md`, `src/jira_client.py` | Core surface |
-| `JIRA-ASSET-SITE-ENTITY-REFERENCE` | CMDB object references for site and entity on issues. | `customfield_11121`, `customfield_11154` | `docs/data-schema/JIRA_DATA_SCHEMA.md`, `src/jira_client.py` | `UNUSED` in most slide logic |
+| `JIRA-JQL-ISSUE-SEARCH` | Primary issue retrieval surface for customer, project, and trend reporting. | `POST /rest/api/3/search/jql` | `docs/DATA-GOVERNANCE/JIRA_DATA_SCHEMA.md`, `src/jira_client.py` | Core surface |
+| `JIRA-SERVICE-DESK-ORGANIZATIONS` | JSM organization objects used for customer matching. | `customfield_10502`, JSM organization records | `docs/DATA-GOVERNANCE/JIRA_DATA_SCHEMA.md`, `src/jira_client.py` | Core surface |
+| `JIRA-ASSET-SITE-ENTITY-REFERENCE` | CMDB object references for site and entity on issues. | `customfield_11121`, `customfield_11154` | `docs/DATA-GOVERNANCE/JIRA_DATA_SCHEMA.md`, `src/jira_client.py` | `UNUSED` in most slide logic |
 
 ### Registry Entries
 
@@ -110,11 +132,11 @@ Examples:
 | `JIRA-ENGINEERING-CLOSED-TICKETS-30-DAYS` | LEAN tickets recently closed in the reporting period. | JQL `project = LEAN AND status = Closed AND updated >= -<days>d` | `src/jira_client.py`, engineering slides | Core metric |
 | `JIRA-ENHANCEMENT-REQUESTS-OPEN` | Open ER tickets in last year. | ER JQL in `get_engineering_portfolio()` | `src/jira_client.py`, engineering slides | Core metric |
 | `JIRA-ENHANCEMENT-REQUESTS-SHIPPED` | Shipped ER tickets in last year. | ER JQL in `get_engineering_portfolio()` | `src/jira_client.py`, engineering slides | Core metric |
-| `JIRA-SATISFACTION-SCORE` | JSM customer satisfaction score. | `customfield_10609` | `docs/data-schema/JIRA_DATA_SCHEMA.md` | `UNUSED` |
-| `JIRA-TIME-TO-DONE` | Additional SLA metric available in the instance. | `customfield_10815` | `docs/data-schema/JIRA_DATA_SCHEMA.md` | `UNUSED` |
-| `JIRA-PENDING-REASON` | Reason a ticket is waiting. | `customfield_10641` | `docs/data-schema/JIRA_DATA_SCHEMA.md` | `UNUSED` |
-| `JIRA-RESOLUTION-TYPE` | How a ticket was resolved. | `customfield_10679` | `docs/data-schema/JIRA_DATA_SCHEMA.md` | `UNUSED` |
-| `JIRA-CSM-FREE-TEXT` | Free-text CSM field on Jira issues. | `customfield_11220` | `docs/data-schema/JIRA_DATA_SCHEMA.md` | `UNUSED`, `WRONG-SOURCE?` |
+| `JIRA-SATISFACTION-SCORE` | JSM customer satisfaction score. | `customfield_10609` | `docs/DATA-GOVERNANCE/JIRA_DATA_SCHEMA.md` | `UNUSED` |
+| `JIRA-TIME-TO-DONE` | Additional SLA metric available in the instance. | `customfield_10815` | `docs/DATA-GOVERNANCE/JIRA_DATA_SCHEMA.md` | `UNUSED` |
+| `JIRA-PENDING-REASON` | Reason a ticket is waiting. | `customfield_10641` | `docs/DATA-GOVERNANCE/JIRA_DATA_SCHEMA.md` | `UNUSED` |
+| `JIRA-RESOLUTION-TYPE` | How a ticket was resolved. | `customfield_10679` | `docs/DATA-GOVERNANCE/JIRA_DATA_SCHEMA.md` | `UNUSED` |
+| `JIRA-CSM-FREE-TEXT` | Free-text CSM field on Jira issues. | `customfield_11220` | `docs/DATA-GOVERNANCE/JIRA_DATA_SCHEMA.md` | `UNUSED`, `WRONG-SOURCE?` |
 
 ## Pendo
 
@@ -122,19 +144,19 @@ Examples:
 
 | Identifier | Description | Source field / query surface | Where used | Status note |
 |---|---|---|---|---|
-| `PENDO-VISITORS-SOURCE` | Visitor metadata source for account, role, site, and activity. | Aggregation source `visitors` | `docs/data-schema/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Core surface |
-| `PENDO-ACCOUNTS-SOURCE` | Account metadata source. | Aggregation source `accounts` | `docs/data-schema/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Core surface |
-| `PENDO-PAGE-EVENTS-SOURCE` | Page interaction event stream. | Aggregation source `pageEvents` | `docs/data-schema/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Core surface |
-| `PENDO-FEATURE-EVENTS-SOURCE` | Feature interaction event stream. | Aggregation source `featureEvents` | `docs/data-schema/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Core surface |
-| `PENDO-GUIDE-EVENTS-SOURCE` | Guide lifecycle events such as seen, advanced, dismissed. | Aggregation source `guideEvents` | `docs/data-schema/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Core surface |
-| `PENDO-POLL-EVENTS-SOURCE` | Poll and NPS response event stream. | Aggregation source `pollEvents` | `docs/data-schema/PENDO_DATA_SCHEMA.md` | `UNUSED` by app today |
-| `PENDO-TRACK-EVENTS-SOURCE` | Custom app track events. | Aggregation source `events` | `docs/data-schema/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Used for Kei fallback |
-| `PENDO-PAGE-CATALOG` | Page catalog used to map page IDs to readable names. | `GET /page` | `docs/data-schema/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Core surface |
-| `PENDO-FEATURE-CATALOG` | Feature catalog used to map feature IDs to readable names. | `GET /feature` | `docs/data-schema/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Core surface |
-| `PENDO-GUIDE-CATALOG` | Guide catalog used to map guide IDs to readable names. | `GET /guide` | `docs/data-schema/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Core surface |
-| `PENDO-TRACK-TYPE-CATALOG` | Track-event type catalog. | `GET /tracktype` | `docs/data-schema/PENDO_DATA_SCHEMA.md` | `UNUSED` |
-| `PENDO-REPORT-CATALOG` | Saved report catalog. | `GET /report` | `docs/data-schema/PENDO_DATA_SCHEMA.md` | `UNUSED` |
-| `PENDO-SEGMENT-CATALOG` | Segment catalog. | `GET /segment` | `docs/data-schema/PENDO_DATA_SCHEMA.md` | `UNUSED` |
+| `PENDO-VISITORS-SOURCE` | Visitor metadata source for account, role, site, and activity. | Aggregation source `visitors` | `docs/DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Core surface |
+| `PENDO-ACCOUNTS-SOURCE` | Account metadata source. | Aggregation source `accounts` | `docs/DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Core surface |
+| `PENDO-PAGE-EVENTS-SOURCE` | Page interaction event stream. | Aggregation source `pageEvents` | `docs/DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Core surface |
+| `PENDO-FEATURE-EVENTS-SOURCE` | Feature interaction event stream. | Aggregation source `featureEvents` | `docs/DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Core surface |
+| `PENDO-GUIDE-EVENTS-SOURCE` | Guide lifecycle events such as seen, advanced, dismissed. | Aggregation source `guideEvents` | `docs/DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Core surface |
+| `PENDO-POLL-EVENTS-SOURCE` | Poll and NPS response event stream. | Aggregation source `pollEvents` | `docs/DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md` | `UNUSED` by app today |
+| `PENDO-TRACK-EVENTS-SOURCE` | Custom app track events. | Aggregation source `events` | `docs/DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Used for Kei fallback |
+| `PENDO-PAGE-CATALOG` | Page catalog used to map page IDs to readable names. | `GET /page` | `docs/DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Core surface |
+| `PENDO-FEATURE-CATALOG` | Feature catalog used to map feature IDs to readable names. | `GET /feature` | `docs/DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Core surface |
+| `PENDO-GUIDE-CATALOG` | Guide catalog used to map guide IDs to readable names. | `GET /guide` | `docs/DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Core surface |
+| `PENDO-TRACK-TYPE-CATALOG` | Track-event type catalog. | `GET /tracktype` | `docs/DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md` | `UNUSED` |
+| `PENDO-REPORT-CATALOG` | Saved report catalog. | `GET /report` | `docs/DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md` | `UNUSED` |
+| `PENDO-SEGMENT-CATALOG` | Segment catalog. | `GET /segment` | `docs/DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md` | `UNUSED` |
 
 ### Registry Entries
 
@@ -144,15 +166,15 @@ Examples:
 | `PENDO-ACCOUNT-ID` | Stable Pendo account identifier. | `accountId`, `metadata.auto.accountid` | `src/pendo_client.py` | `DUPLICATE?` with Salesforce account identity |
 | `PENDO-ACCOUNT-NAME` | Account name from Pendo account metadata. | `accounts.metadata.agent.name` | `src/pendo_client.py` | `DUPLICATE?`, `WRONG-SOURCE?` for CRM governance |
 | `PENDO-SITE-NAME` | Site name associated with a visitor or event. | `metadata.agent.sitename`, `sitenames`, event snapshot property | `src/pendo_client.py` | `DUPLICATE?` with CS Report factory and Jira site refs |
-| `PENDO-SITE-ID` | Site identifier attached to a visitor. | `metadata.agent.siteid`, `siteids` | `docs/data-schema/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Core field |
+| `PENDO-SITE-ID` | Site identifier attached to a visitor. | `metadata.agent.siteid`, `siteids` | `docs/DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Core field |
 | `PENDO-ENTITY-NAME` | Entity attached to a visitor or event. | `metadata.agent.entity` | `src/pendo_client.py` | `DUPLICATE?` with Jira/CS Report entity naming |
 | `PENDO-CSM-NAME` | Account owner / CSM from visitor metadata. | `metadata.agent.ownername` | `src/pendo_client.py`, health deck | `WRONG-SOURCE?` probably operational, not canonical CRM |
 | `PENDO-USER-EMAIL` | User email from visitor metadata. | `metadata.agent.emailaddress` | `src/pendo_client.py` | Core field |
 | `PENDO-USER-ROLE` | User role from visitor metadata. | `metadata.agent.role` | `src/pendo_client.py`, health/people slides | Core field |
 | `PENDO-PROFILE-TYPE` | User profile type from visitor metadata. | `metadata.agent.profiletype` | `src/pendo_client.py` | Core field |
-| `PENDO-LANGUAGE` | User language setting. | `metadata.agent.language` | `docs/data-schema/PENDO_DATA_SCHEMA.md` | `UNUSED` |
+| `PENDO-LANGUAGE` | User language setting. | `metadata.agent.language` | `docs/DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md` | `UNUSED` |
 | `PENDO-INTERNAL-USER-FLAG` | Whether the visitor is internal LeanDNA staff. | `metadata.agent.isinternaluser` | `src/pendo_client.py` | Core field |
-| `PENDO-FIRST-VISIT-TIMESTAMP` | First visit timestamp for visitor/account. | `metadata.auto.firstvisit` | `docs/data-schema/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Core field |
+| `PENDO-FIRST-VISIT-TIMESTAMP` | First visit timestamp for visitor/account. | `metadata.auto.firstvisit` | `docs/DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md`, `src/pendo_client.py` | Core field |
 | `PENDO-LAST-VISIT-TIMESTAMP` | Last visit timestamp for visitor/account. | `metadata.auto.lastvisit` | `src/pendo_client.py` | Core field |
 | `ACTIVE-USERS-7-DAYS` | Count of visitors active within the last 7 days. | Derived from `lastvisit` | `src/pendo_client.py`, health deck | `DERIVED` |
 | `ACTIVE-USERS-30-DAYS` | Count of visitors active within the last 30 days but not 7-day active. | Derived from `lastvisit` | `src/pendo_client.py`, health deck | `DERIVED` |
@@ -177,11 +199,11 @@ Examples:
 | `GUIDE-REACH-30-DAYS` | Percent of visitors who saw at least one guide. | `users_with_guides / total_visitors` | `src/pendo_client.py`, guides slide | `DERIVED` |
 | `CHAMPION-USERS` | Most recently active users for a customer. | Derived from visitor activity list | `src/pendo_client.py`, champions slide | `DERIVED` |
 | `AT-RISK-USERS` | Users inactive ≥14 days and <183 days (~2 wk–6 mo). | Derived from visitor activity list | `src/pendo_client.py`, champions slide | `DERIVED` |
-| `PENDO-NPS-SCORE` | NPS response data from polls. | `pollEvents.pollResponse`, `pollType` | `docs/data-schema/PENDO_DATA_SCHEMA.md`, `docs/USAGE_DATA_PRIORITIES.md` | `UNUSED`, `MISSING` from current deck outputs |
-| `PENDO-FRUSTRATION-SIGNALS` | Rage clicks, dead clicks, error clicks, U-turns by page/feature/account. | Event fields `rageClickCount`, `deadClickCount`, `errorClickCount`, `uTurnCount` | `docs/data-schema/PENDO_DATA_SCHEMA.md`, `docs/USAGE_DATA_PRIORITIES.md` | `UNUSED`, high-value candidate |
-| `LICENSED-SEATS` | Licensed-seat denominator for seat utilization. | Not available in Pendo | `docs/USAGE_DATA_PRIORITIES.md` | `MISSING`, likely CRM/billing |
-| `RENEWAL-DATE` | Contract/renewal timing for account risk and QBRs. | Not available in Pendo | `docs/USAGE_DATA_PRIORITIES.md` | `MISSING`, likely Salesforce |
-| `EXECUTIVE-SPONSOR` | Executive sponsor or key commercial contact. | Not available in Pendo | `docs/USAGE_DATA_PRIORITIES.md` | `MISSING`, likely Salesforce |
+| `PENDO-NPS-SCORE` | NPS response data from polls. | `pollEvents.pollResponse`, `pollType` | `docs/DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md`, `docs/DATA-GOVERNANCE/USAGE_DATA_PRIORITIES.md` | `UNUSED`, `MISSING` from current deck outputs |
+| `PENDO-FRUSTRATION-SIGNALS` | Rage clicks, dead clicks, error clicks, U-turns by page/feature/account. | Event fields `rageClickCount`, `deadClickCount`, `errorClickCount`, `uTurnCount` | `docs/DATA-GOVERNANCE/PENDO_DATA_SCHEMA.md`, `docs/DATA-GOVERNANCE/USAGE_DATA_PRIORITIES.md` | `UNUSED`, high-value candidate |
+| `LICENSED-SEATS` | Licensed-seat denominator for seat utilization. | Not available in Pendo | `docs/DATA-GOVERNANCE/USAGE_DATA_PRIORITIES.md` | `MISSING`, likely CRM/billing |
+| `RENEWAL-DATE` | Contract/renewal timing for account risk and QBRs. | Not available in Pendo | `docs/DATA-GOVERNANCE/USAGE_DATA_PRIORITIES.md` | `MISSING`, likely Salesforce |
+| `EXECUTIVE-SPONSOR` | Executive sponsor or key commercial contact. | Not available in Pendo | `docs/DATA-GOVERNANCE/USAGE_DATA_PRIORITIES.md` | `MISSING`, likely Salesforce |
 
 ## CS Report
 
@@ -191,7 +213,7 @@ Column names, KPI JSON shape, and how BPO reads the workbook are documented in *
 
 | Identifier | Description | Source field / query surface | Where used | Status note |
 |---|---|---|---|---|
-| `CSR-LATEST-EXPORT-FILE` | Latest XLSX export from the shared drive. | Google Drive export of newest file in Data Exports folder | `docs/data-schema/CSR_DATA_SCHEMA.md`, `src/cs_report_client.py` | Core surface |
+| `CSR-LATEST-EXPORT-FILE` | Latest XLSX export from the shared drive. | Google Drive export of newest file in Data Exports folder | `docs/DATA-GOVERNANCE/CSR_DATA_SCHEMA.md`, `src/cs_report_client.py` | Core surface |
 | `CSR-CUSTOMER-WEEK-ROW` | Per-customer weekly row selection in the CS Report workbook. | Workbook columns `customer`, `delta = week` | `src/cs_report_client.py` | Core surface |
 
 ### Registry Entries
@@ -237,7 +259,7 @@ Column names, KPI JSON shape, and how BPO reads the workbook are documented in *
 
 ## LeanDNA Data API
 
-REST Data API (Bearer token, optional `RequestedSites` header). Schema reference: [`LEANDNA_DATA_API_SCHEMA.md`](./LEANDNA_DATA_API_SCHEMA.md). Clients: `src/leandna_*_client.py`, enrich: `src/leandna_*_enrich.py`. Tool analysis: [`LEANDNA_DATA_API_TOOLS.md`](../LEANDNA_DATA_API_TOOLS.md). OpenAPI: fetch with `scripts/fetch_leandna_swagger.py` when authenticated.
+REST Data API (auth: Bearer and/or session cookie — [`../SETUP/LEANDNA_SETUP.md`](../SETUP/LEANDNA_SETUP.md); optional `RequestedSites` header). Schema: [`LEANDNA_DATA_API_SCHEMA.md`](./LEANDNA_DATA_API_SCHEMA.md). Clients: `src/leandna_*_client.py`, enrich: `src/leandna_*_enrich.py`. Tool notes: [`LEANDNA_DATA_API_TOOLS.md`](./LEANDNA_DATA_API_TOOLS.md). OpenAPI: `scripts/fetch_leandna_swagger.py` when authenticated.
 
 ### Query Surfaces
 
@@ -282,7 +304,7 @@ REST Data API (Bearer token, optional `RequestedSites` header). Schema reference
 | `WEEKLY-DEMAND-STD-DEV` | Weekly demand standard deviation (volatility). | `weeklyDemandStdDev` (ItemMasterData) | `src/leandna_item_master_client.py` | **NEW** — forecasting/planning |
 | `FUTURE-DEMAND-DAILY` | Forecast daily demand. | `futureDemandDaily` (ItemMasterData) | `src/leandna_item_master_client.py` | **NEW** |
 
-**Note:** LeanDNA fields are **optional** and only available when `LEANDNA_DATA_API_BEARER_TOKEN` is configured. QBR slides gracefully degrade if enrichment is disabled or fails.
+**Note:** LeanDNA fields are **optional** and only available when at least one of `LEANDNA_DATA_API_BEARER_TOKEN` or `LEANDNA_DATA_API_COOKIE` is configured (see [`../SETUP/LEANDNA_SETUP.md`](../SETUP/LEANDNA_SETUP.md)). QBR slides gracefully degrade if enrichment is disabled or fails.
 
 ### Registry Entries (Material Shortages)
 
@@ -470,7 +492,7 @@ Field-level schema and HTTP surfaces: [`SALESFORCE_DATA_SCHEMA.md`](./SALESFORCE
 
 | Identifier | Description | Source field / query surface | Where used | Status note |
 |---|---|---|---|---|
-| `CUSTOMER-COHORT` | Manufacturing cohort assigned to a customer. | `cohorts.yaml` classification | `src/pendo_client.py`, `docs/CUSTOMER_COHORTS.md` | Internal reference data |
+| `CUSTOMER-COHORT` | Manufacturing cohort assigned to a customer. | `cohorts.yaml` classification | `src/pendo_client.py`, `docs/DATA-GOVERNANCE/CUSTOMER_COHORTS.md` | Internal reference data |
 | `PEER-MEDIAN-ACTIVE-RATE` | Median weekly active rate across all peers. | Derived from Pendo customer list | `src/pendo_client.py`, health/benchmark slides | `DERIVED` |
 | `COHORT-MEDIAN-ACTIVE-RATE` | Median weekly active rate across the customer's cohort. | Derived from Pendo + cohort mapping | `src/pendo_client.py`, health/benchmark slides | `DERIVED` |
 | `DATA-QUALITY-CHECK` | Runtime governance check flag produced by BPO. | `src/qa.py` registry entries | `src/qa.py`, data-quality slide | Internal governance artifact |

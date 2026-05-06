@@ -18,7 +18,6 @@ import requests
 from .config import (
     logger,
     LEANDNA_DATA_API_BASE_URL,
-    LEANDNA_DATA_API_BEARER_TOKEN,
 )
 
 # Thread-safe in-memory cache
@@ -27,23 +26,15 @@ _projects_cache: dict[str, Any] = {}
 _savings_cache: dict[str, Any] = {}
 
 
-def _get_bearer_token() -> str:
-    """Return the LeanDNA API bearer token from config."""
-    token = LEANDNA_DATA_API_BEARER_TOKEN
-    if not token:
-        raise ValueError("LEANDNA_DATA_API_BEARER_TOKEN not configured in .env")
-    return token
-
-
 def _headers(sites: str | None = None) -> dict[str, str]:
     """Build request headers with auth and optional site filter."""
-    h = {
-        "Authorization": f"Bearer {_get_bearer_token()}",
-        "Content-Type": "application/json",
-    }
-    if sites:
-        h["RequestedSites"] = sites
-    return h
+    from .leandna_data_api_http import build_leandna_data_api_headers
+
+    return build_leandna_data_api_headers(
+        requested_sites=sites,
+        user_agent_suffix="leandna-lean-projects-client/1.0",
+        content_type_json=True,
+    )
 
 
 def _get_cache_key(sites: str | None, date_from: str | None, date_to: str | None) -> str:

@@ -143,7 +143,9 @@ def test_get_excess_items_filters_positive_only():
 
 @patch("src.leandna_item_master_enrich.get_item_master_data")
 def test_enrich_qbr_with_item_master_adds_enrichment(mock_get_data, mock_items, monkeypatch):
-    monkeypatch.setattr("src.leandna_item_master_enrich.LEANDNA_DATA_API_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr(
+        "src.leandna_item_master_enrich.leandna_data_api_credentials_configured", lambda: True
+    )
     mock_get_data.return_value = mock_items
     
     report = {"customer": "Test Customer"}
@@ -159,7 +161,9 @@ def test_enrich_qbr_with_item_master_adds_enrichment(mock_get_data, mock_items, 
 
 
 def test_enrich_qbr_with_item_master_skips_if_not_configured(monkeypatch):
-    monkeypatch.setattr("src.leandna_item_master_enrich.LEANDNA_DATA_API_BEARER_TOKEN", None)
+    monkeypatch.setattr(
+        "src.leandna_item_master_enrich.leandna_data_api_credentials_configured", lambda: False
+    )
     report = {"customer": "Test"}
     result = enrich.enrich_qbr_with_item_master(report, "Test")
     
@@ -170,7 +174,9 @@ def test_enrich_qbr_with_item_master_skips_if_not_configured(monkeypatch):
 
 @patch("src.leandna_item_master_enrich.get_item_master_data")
 def test_enrich_qbr_handles_api_error_gracefully(mock_get_data, monkeypatch):
-    monkeypatch.setattr("src.leandna_item_master_enrich.LEANDNA_DATA_API_BEARER_TOKEN", "test-token")
+    monkeypatch.setattr(
+        "src.leandna_item_master_enrich.leandna_data_api_credentials_configured", lambda: True
+    )
     mock_get_data.side_effect = Exception("API timeout")
     
     report = {"customer": "Test"}

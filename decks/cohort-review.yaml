@@ -4,7 +4,7 @@ audience: CS Leadership, Strategy
 
 purpose: |
   Cross-customer view grouped by manufacturing cohort as defined in cohorts.yaml
-  (documented in docs/CUSTOMER_COHORTS.md). After the portfolio summary, one slide
+  (documented in docs/DATA-GOVERNANCE/CUSTOMER_COHORTS.md). After the portfolio summary, one slide
   states notable cohort differences; then up to ten slides profile the largest
   cohorts by customer count. Does not redefine cohorts.
 

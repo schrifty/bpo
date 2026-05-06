@@ -214,7 +214,7 @@ _COHORT_FINDINGS_METADATA_DEFAULTS: dict[str, Any] = {
             "{n} customer(s) are unclassified — add or alias them in cohorts.yaml to benchmark by industry cohort."
         ),
         "provenance": (
-            "Cohort labels and membership come from cohorts.yaml and docs/CUSTOMER_COHORTS.md — "
+            "Cohort labels and membership come from cohorts.yaml and docs/DATA-GOVERNANCE/CUSTOMER_COHORTS.md — "
             "not redefined in this deck."
         ),
     },

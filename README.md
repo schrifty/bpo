@@ -129,8 +129,9 @@ bpo/
 │   (other prefixes: std-*, cohort-*, eng-*, … for non-QBR decks)
 ├── cohorts.yaml              # Customer manufacturing cohort classifications
 ├── docs/
-│   ├── data-schema/          # Data registry + per-source schemas (Jira, Pendo, CS Report, …)
-│   └── CUSTOMER_COHORTS.md   # Cohort research documentation
+│   ├── DATA-GOVERNANCE/     # Data governance: DATA_REGISTRY.md, DATA_DICTIONARY.md, per-source schemas, …
+│   ├── SETUP/               # Connection guides (e.g. Salesforce, LeanDNA Data API)
+│   └── …                    # Other product / deck docs at docs root
 ├── src/
 │   ├── config.py             # Environment config
 │   ├── pendo_client.py       # Pendo API client (health, engagement, features, benchmarks)
@@ -199,4 +200,4 @@ When all checks pass, the slide shows a green "All checks passed" message. Discr
 
 ## Cohort Benchmarking
 
-Customers are classified into manufacturing cohorts in `cohorts.yaml` for peer benchmarking. The system computes cohort-specific median active rates (minimum 3 members) and falls back to all-customer medians. See `docs/CUSTOMER_COHORTS.md` for the full classification.
+Customers are classified into manufacturing cohorts in `cohorts.yaml` for peer benchmarking. The system computes cohort-specific median active rates (minimum 3 members) and falls back to all-customer medians. See `docs/DATA-GOVERNANCE/CUSTOMER_COHORTS.md` for the full classification.

@@ -146,7 +146,7 @@ Bundle folder: https://drive.google.com/drive/folders/18byciPI3QegHyeSxnfqQzYJik
 - `src/cs_report_client.py` - Added socket timeouts (hang fix)
 - `decks/qbr.yaml` - Added 5 new slides
 - `decks/cs-health-review.yaml` - Added shortage_forecast
-- `docs/data-schema/DATA_REGISTRY.md` - Added 55 new field identifiers
+- `docs/DATA-GOVERNANCE/DATA_REGISTRY.md` - Added 55 new field identifiers
 - `.env.example` - Added LeanDNA config examples
 
 ---
@@ -238,14 +238,14 @@ Live API fetch (180s timeout)
 
 | Document | Purpose |
 |----------|---------|
-| `LEANDNA_DATA_API_TOOLS.md` | Original API analysis & prioritization |
+| `docs/DATA-GOVERNANCE/LEANDNA_DATA_API_TOOLS.md` | Original API analysis & prioritization |
 | `LEANDNA_TOOL_1_COMPLETE.md` | Item Master implementation summary |
 | `LEANDNA_TOOL_2_COMPLETE.md` | Shortage Trends implementation summary |
 | `LEANDNA_TOOL_3_COMPLETE.md` | Lean Projects implementation summary |
 | `LEANDNA_TOOL_3_CHECKPOINT.md` | Mid-implementation checkpoint guide |
 | `LEANDNA_TOOLS_1_2_TESTING_GUIDE.md` | Testing guide for Tools 1-2 |
 | `QBR_BUNDLE_EXPANSION.md` | Companion decks expansion summary |
-| `DATA_REGISTRY.md` | Updated with 55 LeanDNA fields |
+| `docs/DATA-GOVERNANCE/DATA_REGISTRY.md` | Updated with 55 LeanDNA fields |
 
 ---
 

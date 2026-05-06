@@ -119,12 +119,12 @@ def test_get_top_projects_by_savings():
 
 
 @patch("src.leandna_lean_projects_client.requests.get")
-@patch("src.leandna_lean_projects_client._get_bearer_token")
-def test_get_lean_projects_success(mock_token, mock_get):
+@patch("src.leandna_lean_projects_client._headers")
+def test_get_lean_projects_success(mock_headers, mock_get):
     """Test successful projects fetch."""
     from src.leandna_lean_projects_client import get_lean_projects
     
-    mock_token.return_value = "fake_token"
+    mock_headers.return_value = {"Authorization": "Bearer fake_token"}
     mock_response = MagicMock()
     mock_response.status_code = 200
     mock_response.json.return_value = [
@@ -144,12 +144,12 @@ def test_get_lean_projects_success(mock_token, mock_get):
 
 
 @patch("src.leandna_lean_projects_client.requests.get")
-@patch("src.leandna_lean_projects_client._get_bearer_token")
-def test_get_project_savings_success(mock_token, mock_get):
+@patch("src.leandna_lean_projects_client._headers")
+def test_get_project_savings_success(mock_headers, mock_get):
     """Test successful savings fetch."""
     from src.leandna_lean_projects_client import get_project_savings
     
-    mock_token.return_value = "fake_token"
+    mock_headers.return_value = {"Authorization": "Bearer fake_token"}
     mock_response = MagicMock()
     mock_response.status_code = 200
     mock_response.json.return_value = [
@@ -170,13 +170,13 @@ def test_get_project_savings_success(mock_token, mock_get):
 
 
 @patch("src.leandna_lean_projects_client.requests.get")
-@patch("src.leandna_lean_projects_client._get_bearer_token")
-def test_get_lean_projects_api_error(mock_token, mock_get):
+@patch("src.leandna_lean_projects_client._headers")
+def test_get_lean_projects_api_error(mock_headers, mock_get):
     """Test graceful handling of API errors."""
     from src.leandna_lean_projects_client import get_lean_projects
     import requests
     
-    mock_token.return_value = "fake_token"
+    mock_headers.return_value = {"Authorization": "Bearer fake_token"}
     mock_get.side_effect = requests.RequestException("Network error")
     
     result = get_lean_projects(force_refresh=True)
@@ -192,8 +192,9 @@ def test_enrich_qbr_with_lean_projects_success(mock_savings, mock_projects, monk
     """Test successful QBR enrichment with Lean Projects."""
     from src.leandna_lean_projects_enrich import enrich_qbr_with_lean_projects
     
-    # Mock token
-    monkeypatch.setattr("src.leandna_lean_projects_enrich.LEANDNA_DATA_API_BEARER_TOKEN", "fake_token")
+    monkeypatch.setattr(
+        "src.leandna_lean_projects_enrich.leandna_data_api_credentials_configured", lambda: True
+    )
     
     # Mock projects
     mock_projects.return_value = [
@@ -268,8 +269,9 @@ def test_enrich_qbr_without_token(monkeypatch):
     """Test enrichment skips when token is not configured."""
     from src.leandna_lean_projects_enrich import enrich_qbr_with_lean_projects
     
-    # Mock token as None
-    monkeypatch.setattr("src.leandna_lean_projects_enrich.LEANDNA_DATA_API_BEARER_TOKEN", None)
+    monkeypatch.setattr(
+        "src.leandna_lean_projects_enrich.leandna_data_api_credentials_configured", lambda: False
+    )
     
     report = {"customer": "TestCorp"}
     
@@ -285,7 +287,9 @@ def test_enrich_qbr_no_projects_found(mock_projects, monkeypatch):
     """Test enrichment when no projects are found."""
     from src.leandna_lean_projects_enrich import enrich_qbr_with_lean_projects
     
-    monkeypatch.setattr("src.leandna_lean_projects_enrich.LEANDNA_DATA_API_BEARER_TOKEN", "fake_token")
+    monkeypatch.setattr(
+        "src.leandna_lean_projects_enrich.leandna_data_api_credentials_configured", lambda: True
+    )
     mock_projects.return_value = []
     
     report = {

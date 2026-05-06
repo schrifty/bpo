@@ -5,7 +5,7 @@ This document analyzes the LeanDNA Data API swagger spec and outlines what tools
 ## API Overview
 
 **Base URL:** `https://app.leandna.com/api`  
-**Auth:** `Authorization: Bearer {token}` (from env `LEANDNA_DATA_API_BEARER_TOKEN`)  
+**Auth:** Bearer (`LEANDNA_DATA_API_BEARER_TOKEN`) and/or browser cookie (`LEANDNA_DATA_API_COOKIE`) — see [`../SETUP/LEANDNA_SETUP.md`](../SETUP/LEANDNA_SETUP.md).  
 **Scope Control:** `RequestedSites` header (comma-separated site IDs)  
 **Total Endpoints:** 40+ operations across 10 tag groups
 
@@ -331,7 +331,7 @@ def enrich_supply_chain_with_leandna(report: dict, customer: str) -> dict:
 
 ## Schema Documentation
 
-Add fields to `docs/data-schema/DATA_REGISTRY.md`:
+Add fields to `docs/DATA-GOVERNANCE/DATA_REGISTRY.md`:
 
 | Identifier | Description | Source field | Where used | Status |
 |------------|-------------|--------------|------------|--------|
@@ -363,8 +363,8 @@ Add fields to `docs/data-schema/DATA_REGISTRY.md`:
 ## Related Files
 
 - **Script:** `scripts/fetch_leandna_swagger.py` — fetch OpenAPI JSON (authenticated)
-- **Schema doc:** `docs/data-schema/LEANDNA_DATA_API_SCHEMA.md`
-- **Registry:** `docs/data-schema/DATA_REGISTRY.md` (LeanDNA Data API section)
+- **Schema doc:** `docs/DATA-GOVERNANCE/LEANDNA_DATA_API_SCHEMA.md`
+- **Registry:** `docs/DATA-GOVERNANCE/DATA_REGISTRY.md` (LeanDNA Data API section)
 - **Clients / enrich (batch QBR path):** `src/leandna_item_master_client.py`, `src/leandna_item_master_enrich.py`, `src/leandna_shortage_client.py`, `src/leandna_shortage_enrich.py`, `src/leandna_lean_projects_client.py`, `src/leandna_lean_projects_enrich.py`
 - **Tests:** `tests/test_leandna_item_master.py`, `tests/test_leandna_shortage.py`, `tests/test_leandna_lean_projects.py`
 - **Note:** There is no single `leandna_data_client.py` or LangChain `leandna_tool` module; this doc’s tool sketches are design reference. Interactive agent tooling may differ.

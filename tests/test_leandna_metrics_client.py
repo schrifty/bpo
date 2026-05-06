@@ -6,7 +6,8 @@ from unittest.mock import MagicMock, patch
 
 
 def test_list_metric_definitions_raw_list(monkeypatch):
-    monkeypatch.setattr("src.leandna_metrics_client.LEANDNA_DATA_API_BEARER_TOKEN", "tok")
+    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "tok")
+    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", "")
     with patch("src.leandna_metrics_client.requests.get") as mock_get:
         mock_get.return_value = MagicMock()
         mock_get.return_value.json.return_value = [{"id": "1", "name": "OTIF"}]
@@ -23,7 +24,8 @@ def test_list_metric_definitions_raw_list(monkeypatch):
 
 
 def test_list_metric_definitions_wrapped(monkeypatch):
-    monkeypatch.setattr("src.leandna_metrics_client.LEANDNA_DATA_API_BEARER_TOKEN", "tok")
+    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "tok")
+    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", "")
     with patch("src.leandna_metrics_client.requests.get") as mock_get:
         mock_get.return_value = MagicMock()
         mock_get.return_value.json.return_value = {"metrics": [{"id": "a"}]}
@@ -35,7 +37,8 @@ def test_list_metric_definitions_wrapped(monkeypatch):
 
 
 def test_fetch_metric_report_query(monkeypatch):
-    monkeypatch.setattr("src.leandna_metrics_client.LEANDNA_DATA_API_BEARER_TOKEN", "tok")
+    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "tok")
+    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", "")
     with patch("src.leandna_metrics_client.requests.get") as mock_get:
         mock_get.return_value = MagicMock()
         mock_get.return_value.json.return_value = {
@@ -60,12 +63,13 @@ def test_fetch_metric_report_query(monkeypatch):
 
 
 def test_missing_token_raises(monkeypatch):
-    monkeypatch.setattr("src.leandna_metrics_client.LEANDNA_DATA_API_BEARER_TOKEN", "")
+    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "")
+    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", "")
     from src.leandna_metrics_client import list_metric_definitions
 
     try:
         list_metric_definitions()
     except ValueError as e:
-        assert "LEANDNA_DATA_API_BEARER_TOKEN" in str(e)
+        assert "LEANDNA_DATA_API_COOKIE" in str(e) or "LEANDNA_DATA_API_BEARER_TOKEN" in str(e)
     else:
         raise AssertionError("expected ValueError")

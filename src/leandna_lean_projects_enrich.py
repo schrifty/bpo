@@ -24,7 +24,8 @@ from __future__ import annotations
 from typing import Any
 from datetime import datetime, timezone
 
-from .config import logger, LEANDNA_DATA_API_BEARER_TOKEN
+from .config import logger
+from .leandna_data_api_http import leandna_data_api_credentials_configured
 from .leandna_lean_projects_client import (
     get_lean_projects,
     get_project_savings,
@@ -126,8 +127,10 @@ def enrich_qbr_with_lean_projects(
     logger.info("LeanDNA Lean Projects enrichment: starting for customer=%s", customer)
     
     # Check if LeanDNA is configured
-    if not LEANDNA_DATA_API_BEARER_TOKEN:
-        logger.debug("LeanDNA Lean Projects skipped: LEANDNA_DATA_API_BEARER_TOKEN not set")
+    if not leandna_data_api_credentials_configured():
+        logger.debug(
+            "LeanDNA Lean Projects skipped: no LEANDNA_DATA_API_BEARER_TOKEN or LEANDNA_DATA_API_COOKIE",
+        )
         report.setdefault("leandna_lean_projects", {
             "enabled": False,
             "reason": "bearer_token_not_configured",

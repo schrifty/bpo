@@ -20,12 +20,15 @@ def leandna_shortage_unavailable_message(ldna: dict[str, Any]) -> str:
     if not ldna:
         return (
             "LeanDNA Material Shortage — data not in report; regenerating the deck will fetch "
-            "trends if LEANDNA_DATA_API_BEARER_TOKEN is set"
+            "trends if LEANDNA Data API credentials are set (Bearer and/or browser Cookie)"
         )
     if not ldna.get("enabled"):
         reason = (ldna.get("reason") or "").strip()
         if reason == "bearer_token_not_configured":
-            return "LeanDNA Material Shortage — set LEANDNA_DATA_API_BEARER_TOKEN (Data API access)"
+            return (
+                "LeanDNA Material Shortage — set LEANDNA_DATA_API_BEARER_TOKEN or LEANDNA_DATA_API_COOKIE "
+                "(see src/leandna_data_api_http.py)"
+            )
         if reason:
             return f"LeanDNA Material Shortage — {reason[:85]}"
     error = (ldna.get("error") or "").strip()

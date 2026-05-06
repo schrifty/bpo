@@ -1,6 +1,6 @@
 # Salesforce Data Schema
 
-BPO uses the Salesforce **REST API** with **JWT Bearer** auth. Implementation: [`src/salesforce_client.py`](../../src/salesforce_client.py). Setup: [`../SALESFORCE_SETUP.md`](../SALESFORCE_SETUP.md). Registry: [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) (Salesforce section).
+BPO uses the Salesforce **REST API** with **JWT Bearer** auth. Implementation: [`src/salesforce_client.py`](../../src/salesforce_client.py). Setup: [`../SETUP/SALESFORCE_SETUP.md`](../SETUP/SALESFORCE_SETUP.md). Registry: [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) (Salesforce section).
 
 ## 1. HTTP
 
@@ -344,6 +344,6 @@ Formal **price quote** (often CPQ) linked to an **Opportunity** and **Account**;
 
 ## 8. Related
 
-- [`../SALESFORCE_SETUP.md`](../SALESFORCE_SETUP.md)
+- [`../SETUP/SALESFORCE_SETUP.md`](../SETUP/SALESFORCE_SETUP.md)
 - [`DATA_REGISTRY.md`](./DATA_REGISTRY.md)
 - **[`SALESFORCE_REVENUE_AND_ARR.md`](./SALESFORCE_REVENUE_AND_ARR.md)** — ARR/MRR, `Contract` vs contract value, CPQ (`SBQQ__`), Orders, admin checklist

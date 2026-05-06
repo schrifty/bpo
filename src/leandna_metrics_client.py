@@ -5,8 +5,8 @@ Surfaces from the OpenAPI **Metrics** group (same host as Item Master / Lean Pro
 - ``GET /data/Metric`` — list metric definitions (Manual, Automatic, ProcurementLog, Calculated).
 - ``GET /data/MetricReport`` — fiscal-year metric report (monthly aggregates), optionally filtered.
 
-Auth: ``Authorization: Bearer {LEANDNA_DATA_API_BEARER_TOKEN}``. Optional site scope:
-``RequestedSites: <comma-separated site ids>``.
+Auth: see :mod:`leandna_data_api_http` — **Bearer** and/or **browser session cookie**
+(``LEANDNA_DATA_API_COOKIE``). Optional ``RequestedSites`` header.
 
 Exact query parameter names can vary by LeanDNA release — defaults use camelCase
 (``fiscalYear``, ``metrics``, ``valueStreams``). If the API returns **400**, confirm names in
@@ -20,18 +20,12 @@ from typing import Any
 
 import requests
 
-from .config import LEANDNA_DATA_API_BASE_URL, LEANDNA_DATA_API_BEARER_TOKEN, logger
+from .config import LEANDNA_DATA_API_BASE_URL, logger
+from .leandna_data_api_http import build_leandna_data_api_headers
 
 
 def _base_url() -> str:
     return (LEANDNA_DATA_API_BASE_URL or "https://app.leandna.com/api").rstrip("/")
-
-
-def _bearer() -> str:
-    token = (LEANDNA_DATA_API_BEARER_TOKEN or "").strip()
-    if not token:
-        raise ValueError("LEANDNA_DATA_API_BEARER_TOKEN not configured in .env")
-    return token
 
 
 def _raise_for_status(resp: requests.Response) -> None:
@@ -41,25 +35,13 @@ def _raise_for_status(resp: requests.Response) -> None:
     snippet = (resp.text or "").strip().replace("\n", " ")[:500]
     if resp.status_code == 401:
         logger.error(
-            "LeanDNA Data API 401 — token invalid/expired, or LEANDNA_DATA_API_BASE_URL does not "
-            "match the environment where the token was issued (production "
-            "`https://app.leandna.com/api` vs staging, often `https://app.staging.leandna.com/api`). "
-            "URL=%s body_prefix=%r",
+            "LeanDNA Data API 401 — invalid/expired Bearer, wrong LEANDNA_DATA_API_BASE_URL, or session "
+            "expired. Try LEANDNA_DATA_API_COOKIE from the browser while logged in (see "
+            "src/leandna_data_api_http.py). URL=%s body_prefix=%r",
             resp.url,
             snippet,
         )
     resp.raise_for_status()
-
-
-def _headers(requested_sites: str | None) -> dict[str, str]:
-    h = {
-        "Authorization": f"Bearer {_bearer()}",
-        "Accept": "application/json",
-        "User-Agent": "bpo-leandna-metrics-client/1.0",
-    }
-    if requested_sites:
-        h["RequestedSites"] = requested_sites.strip()
-    return h
 
 
 def _unwrap_metric_definition_rows(data: Any) -> list[dict[str, Any]]:
@@ -89,7 +71,15 @@ def list_metric_definitions(
     url = f"{_base_url()}/data/Metric"
     params = dict(extra_query or {})
     logger.info("LeanDNA Metric: GET %s (sites=%s)", url, requested_sites or "all")
-    r = requests.get(url, headers=_headers(requested_sites), params=params, timeout=timeout_seconds)
+    r = requests.get(
+        url,
+        headers=build_leandna_data_api_headers(
+            requested_sites=requested_sites,
+            user_agent_suffix="leandna-metrics-client/1.0",
+        ),
+        params=params,
+        timeout=timeout_seconds,
+    )
     _raise_for_status(r)
     return _unwrap_metric_definition_rows(r.json())
 
@@ -130,7 +120,15 @@ def fetch_metric_report(
         fiscal_year,
         requested_sites or "all",
     )
-    r = requests.get(url, headers=_headers(requested_sites), params=params, timeout=timeout_seconds)
+    r = requests.get(
+        url,
+        headers=build_leandna_data_api_headers(
+            requested_sites=requested_sites,
+            user_agent_suffix="leandna-metrics-client/1.0",
+        ),
+        params=params,
+        timeout=timeout_seconds,
+    )
     _raise_for_status(r)
     body = r.json()
     if not isinstance(body, dict):

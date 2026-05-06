@@ -28,12 +28,6 @@ def _get_base_url() -> str:
     return LEANDNA_DATA_API_BASE_URL or "https://app.leandna.com/api"
 
 
-def _get_bearer_token() -> str | None:
-    """Get LeanDNA bearer token from config."""
-    from .config import LEANDNA_DATA_API_BEARER_TOKEN
-    return LEANDNA_DATA_API_BEARER_TOKEN
-
-
 def _get_cache_ttl_hours() -> int:
     """Get cache TTL in hours from config (default 12h for shortage data)."""
     from .config import LEANDNA_SHORTAGE_CACHE_TTL_HOURS
@@ -42,18 +36,12 @@ def _get_cache_ttl_hours() -> int:
 
 def _headers(requested_sites: str | None = None) -> dict[str, str]:
     """Build request headers with auth and optional site scoping."""
-    token = _get_bearer_token()
-    if not token:
-        raise ValueError("LEANDNA_DATA_API_BEARER_TOKEN not configured in .env")
-    
-    h = {
-        "Authorization": f"Bearer {token.strip()}",
-        "Accept": "application/json",
-        "User-Agent": "bpo-leandna-shortage-client/1.0",
-    }
-    if requested_sites:
-        h["RequestedSites"] = requested_sites.strip()
-    return h
+    from .leandna_data_api_http import build_leandna_data_api_headers
+
+    return build_leandna_data_api_headers(
+        requested_sites=requested_sites,
+        user_agent_suffix="leandna-shortage-client/1.0",
+    )
 
 
 def _cache_key(endpoint: str, sites: str | None) -> str:

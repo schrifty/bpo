@@ -2,7 +2,7 @@
 
 This note explains **what “missing data” means** on customer-facing slides in **discrete manufacturing, inventory, supply chain, and ERP-adjacent** contexts, how to **isolate** requests per slide, and how to **prompt** models without fooling yourself or the reader.
 
-The companion tool is `scripts/identify-data-gaps.py`: it extracts **text** from each Slides page, applies **heuristics** (brackets, lorem, hydrate-style tokens, embedded charts/images), and optionally runs an **LLM** pass framed for operations technology domains.
+The companion tool is `scripts/identify-data-gaps.py`: it extracts **text** from each Slides page, applies **heuristics** (brackets, lorem, hydrate-style tokens, embedded **charts** only — raster screenshots/images are **ignored**, no OCR), and optionally runs an **LLM** pass framed for operations technology domains.
 
 ---
 
@@ -133,7 +133,7 @@ python scripts/identify-data-gaps.py --presentation PRES_ID --verbose-json --no-
 
 **Default JSON shape** (time-saving focus): `replacement_count`, `replacements[]` where each item has `slide`, `find` (text to substitute), `replace: { value (usually null), format, display? }`, optional `source`. There is no populated `value` unless you extend the tool to bind live data; format/display carry how the replacement should read once sourced.
 
-**Slide mutation:** When `--presentation` points at **your** deck (not the resolved canonical template default), the script **appends** one or more slides titled **CSM lookup — data to source** at the **end** by default (`--write-summary-slide` / omit `--no-write-summary-slide`). The canonical QBR template is never modified: default runs resolve that file but only emit JSON. Rows intentionally **omit** placeholders a CSM can fill without lookups (today’s date, executive sponsor / CSM / AE / site roster, logos, housekeeping). The table highlights **performance and operations gaps** (KPI placeholders, hydrate tokens, vague metrics, consolidated chart/image cues). Columns: slide, field/signal, suggested datasource, data type, formatting, time/duration, accuracy/precision, context. Seven data rows per slide plus header; re-running appends another block unless `--no-write-summary-slide`.
+**Slide mutation:** When `--presentation` points at **your** deck (not the resolved canonical template default), the script **appends** one or more slides titled **CSM lookup — data to source** at the **end** by default (`--write-summary-slide` / omit `--no-write-summary-slide`). The canonical QBR template is never modified: default runs resolve that file but only emit JSON. Rows intentionally **omit** placeholders a CSM can fill without lookups (today’s date, executive sponsor / CSM / AE / site roster, logos, housekeeping). The table highlights **performance and operations gaps** (KPI placeholders, hydrate tokens, vague metrics, consolidated **chart** cues; raster screenshots are not flagged). Columns: slide, field/signal, suggested datasource, data type, formatting, time/duration, accuracy/precision, context. Seven data rows per slide plus header; re-running appends another block unless `--no-write-summary-slide`.
 
 **JSON output:**
 
