@@ -77,8 +77,7 @@ def main() -> None:
         parser.print_help()
         print("\nExamples:")
         print("  python main.py 'Get usage data for customer acme-123'")
-        print('  python main.py qbr "Acme Corp"   # QBR + full companion bundle')
-        print('  python main.py qbr --main-only "Acme Corp"   # Main QBR deck only')
+        print('  python main.py qbr "Acme Corp"   # QBR deck from Drive template')
         print('  decks qbr "Acme Corp"   # same pipeline via decks CLI')
 
 

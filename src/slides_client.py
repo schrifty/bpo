@@ -26,10 +26,6 @@ from .slide_cohort import (
     cohort_profiles_slide as _cohort_profiles_slide,
     cohort_summary_slide as _cohort_summary_slide,
 )
-from .slide_cohort_links import (
-    COHORT_BUNDLE_SIGNAL_LINK_PHRASES as _COHORT_BUNDLE_SIGNAL_LINK_PHRASES,
-    apply_cohort_bundle_links_to_notable_signals,
-)
 from .slide_data_quality import data_quality_slide as _data_quality_slide
 from .slide_custom import custom_slide as _custom_slide
 from .slide_cs_notable import cs_notable_slide as _cs_notable_slide

@@ -257,10 +257,10 @@ def get_qbr_generator_folder_id_for_drive_config() -> str:
 
 
 def get_qbr_output_root_folder_id() -> str | None:
-    """Return folder id for stable outputs under QBR ``Output`` (not the dated bundle subfolder).
+    """Return folder id for stable outputs under QBR ``Output`` (not the date-stamped subfolder).
 
     Default: ``<QBR Generator>/Output``. When ``GOOGLE_QBR_OUTPUT_PARENT_ID`` is set, returns that id —
-    the same parent used for ``{ISO-date} - Output`` dated folders (sibling of those bundles).
+    the same parent used for ``{ISO-date} - Output`` dated folders (siblings under ``Output``).
     """
     out_parent = (GOOGLE_QBR_OUTPUT_PARENT_ID or "").strip() or None
     if out_parent:
@@ -290,7 +290,7 @@ def get_qbr_output_folder_id() -> str | None:
 def get_deck_output_folder_id() -> str | None:
     """Return dated folder under ``Output/`` for programmatic deck creation (Slides API copies).
 
-    Same path as QBR daily bundles: ``<generator>/Output/{ISO-date} - Output``, not the generator root.
+    Same path as the QBR dated Output folder: ``<generator>/Output/{ISO-date} - Output``, not the generator root.
     """
     return get_qbr_output_folder_id()
 
@@ -1087,8 +1087,7 @@ def load_yaml_from_drive(
     When ``only_slide_ids`` is set (``kind == "slides"`` only), loads only those
     slide definitions. The first such load walks Drive like before; later calls
     reuse a process-wide per-id cache (or a prior full ``slides`` list) so
-    multi-deck runs (main + companions) do not repeat a full folder walk for
-    every deck.
+    batched multi-deck runs do not repeat a full folder walk for every deck.
 
     Args:
         kind: "decks" or "slides"

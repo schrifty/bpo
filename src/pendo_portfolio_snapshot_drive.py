@@ -1,12 +1,10 @@
 """Google Drive cache for the Pendo portfolio crawl (cohort / portfolio decks).
 
-**Wall clock:** Skipping ``get_portfolio_report`` saves Pendo/API time, but QBR bundle runs
-several single-customer companion Slides decks *before* portfolio and cohort. Those decks usually take longer than the
-portfolio crawl, and the crawl previously ran *in parallel* with them—so end-to-end
-bundle time may barely change until Slides work shrinks (or you tune
-``BPO_SLIDES_WRITE_INTERVAL_SEC`` / chunk size). The filename **must** match the QBR
-``days`` value (quarter length), e.g. ``decks --upload-portfolio-snapshot`` with no
-``--days`` uses ``resolve_quarter().days``.
+**Wall clock:** Snapshot refresh overlaps with deck generation pipelines that reuse the crawl;
+Slides-side work usually dominates elapsed time unless you tune
+``BPO_SLIDES_WRITE_INTERVAL_SEC`` / chunk size.
+The cached filename **must** match the QBR ``days`` value (quarter length), e.g.
+``decks --upload-portfolio-snapshot`` with no ``--days`` uses ``resolve_quarter().days``.
 
 Snapshot folder resolution:
   1. ``BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID`` if set — explicit Drive folder id.

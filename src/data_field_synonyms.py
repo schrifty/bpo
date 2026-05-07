@@ -135,7 +135,7 @@ def begin_qbr_comprehensive_catalog_session(champions: list[dict[str, Any]] | No
 
     Active for :func:`_load_synonym_rows` (``config_path is None``) and
     :func:`resolve_data_summary_target_path` until :func:`end_qbr_comprehensive_catalog_session`
-    (typically the whole ``run_qbr_from_template`` tail: main adapt, agenda refinement, companion decks).
+    (typically the whole ``run_qbr_from_template`` tail: adapt, agenda refinement).
     Uses the repo JSON only (not Drive) for this overlay.
     """
     global _qbr_catalog_synonym_rows, _qbr_catalog_alias_map

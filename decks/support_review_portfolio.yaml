@@ -8,8 +8,7 @@ purpose: |
   LEAN volume, KPIs, org ranking on HELP, escalation metrics, customer
   escalations, recent activity, and resolved-by-assignee tables.
   Use this deck id when you want an explicit portfolio artifact (title and
-  ``decks --list``) distinct from per-account ``support`` runs. Not added to
-  the QBR companion deck list unless product asks for it.
+  ``decks --list``) distinct from per-account ``support`` runs.
 
 # Slide order matches ``decks/support.yaml`` (shared slide YAML ids).
 slides:

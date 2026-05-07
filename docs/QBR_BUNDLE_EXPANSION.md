@@ -3,7 +3,11 @@
 **Status:** Fully implemented  
 **Date:** 2026-04-21
 
-**Note (2026-05):** The bundle later gained additional companions (e.g. portfolio/cohort/Salesforce). The live ordering is the `companion_specs` tuple inside `_build_companion_decks_for_qbr_bundle()` in `src/qbr_template.py`. This doc describes the original 5→8 expansion.
+**Superseded (2026-05):** QBR runs no longer spawn companion decks. Build health, cohort, portfolio, and other decks via `decks --customer`, `decks run --deck …`, or `decks --portfolio`. The sections below describe the historical QBR-bundle design only.
+
+---
+
+**Note (historical 2026-05):** The bundle later gained additional companions (e.g. portfolio/cohort/Salesforce). Companion ordering referred to `_build_companion_decks_for_qbr_bundle()` in `src/qbr_template.py`, since removed.
 
 ---
 

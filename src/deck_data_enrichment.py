@@ -45,10 +45,10 @@ def enrich_deck_report_data(
 
 
 def enrich_engineering_portfolio_if_needed(report: dict[str, Any], *, deck_id: str = "engineering-portfolio") -> None:
-    """Populate ``eng_portfolio`` when absent (e.g. QBR bundle reuses a health report).
+    """Populate ``eng_portfolio`` when absent (e.g. health report lacked Jira portfolio data).
 
-    ``decks.py`` pre-fills this for the standalone CLI path; companion generation passes
-    a deep-copied customer report that does not include portfolio-wide LEAN/ER data.
+    ``decks.py`` usually pre-fills this for programmatic deck builds; callers with a trimmed
+    report may rely on this fetch instead.
     """
     if report.get("eng_portfolio"):
         return

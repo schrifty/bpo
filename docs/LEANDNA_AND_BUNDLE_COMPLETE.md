@@ -4,7 +4,9 @@
 **Date:** 2026-04-21  
 **Total effort:** ~12-14 hours
 
-**Note (2026-05):** The QBR companion bundle list and slide counts have grown since this write-up. The current companion sequence lives in `_build_companion_decks_for_qbr_bundle()` in `src/qbr_template.py`. Counts and deck names below reflect the April 2026 milestone, not necessarily the current bundle.
+**Superseded (2026-05):** QBR runs no longer create a multi-deck “bundle”; use explicit `decks` commands for companion-style decks.
+
+**Note (historical 2026-05):** Companion ordering was defined in `_build_companion_decks_for_qbr_bundle()` in `src/qbr_template.py`, since removed. Counts and deck names below reflect the April 2026 milestone only.
 
 ---
 

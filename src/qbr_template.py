@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
 import time
@@ -38,11 +37,7 @@ from .data_field_synonyms import (
     end_qbr_comprehensive_catalog_session,
 )
 from .pendo_client import PendoClient
-from .pendo_portfolio_snapshot_drive import (
-    ensure_daily_portfolio_snapshot_for_qbr,
-    portfolio_snapshot_filename,
-    try_load_portfolio_snapshot_for_request,
-)
+from .pendo_portfolio_snapshot_drive import ensure_daily_portfolio_snapshot_for_qbr
 from .qbr_adapt_hints import (
     apply_qbr_template_style_strip_after_adapt,
     run_qbr_adapt_hints_phase,
@@ -53,12 +48,7 @@ from .qbr_agenda_visual_refine import (
 )
 from .qbr_hydrate_mappings import REPORT_KEY_EXPLICIT_QBR_MAPPINGS
 from .signals_llm import extract_executive_signals_slide_prompt
-from .quarters import QuarterRange, resolve_quarter
-from .slides_client import (
-    apply_cohort_bundle_links_to_notable_signals,
-    create_cohort_deck,
-    create_health_deck,
-)
+from .quarters import resolve_quarter
 from .slides_api import (
     _get_service,
     _google_api_unreachable_hint,
@@ -150,182 +140,16 @@ def _drive_safe_folder_fragment(s: str, max_len: int = 120) -> str:
     return t or "customer"
 
 
-def ensure_qbr_customer_bundle_folder(
+def ensure_qbr_customer_folder(
     output_folder_id: str,
     customer: str,
     quarter_label: str,
 ) -> str:
-    """Create ``{customer} — QBR bundle ({quarter})`` under the date Output folder."""
+    """Create ``{customer} — QBR ({quarter})`` under the date Output folder."""
     c = _drive_safe_folder_fragment(customer)
     q = _drive_safe_folder_fragment(quarter_label, max_len=48)
-    name = f"{c} — QBR bundle ({q})"
+    name = f"{c} — QBR ({q})"
     return _find_or_create_folder(name, output_folder_id)
-
-
-def _quarter_range_from_health_report(report: dict[str, Any]) -> QuarterRange | None:
-    """Rebuild ``QuarterRange`` from fields set on QBR / health reports (for cohort portfolio window)."""
-    from datetime import date
-
-    label = report.get("quarter")
-    qs = report.get("quarter_start")
-    qe = report.get("quarter_end")
-    if not label or not qs or not qe:
-        return None
-    try:
-        start = date.fromisoformat(str(qs)[:10])
-        end = date.fromisoformat(str(qe)[:10])
-        return QuarterRange(label=str(label), start=start, end=end)
-    except ValueError:
-        return None
-
-
-def _build_companion_decks_for_qbr_bundle(
-    report: dict[str, Any],
-    bundle_folder_id: str,
-) -> list[dict[str, Any]]:
-    """Generate companion decks (single-account + cross-account) into the bundle folder.
-
-    When a fresh JSON portfolio snapshot exists on Drive (folder from
-    ``resolve_portfolio_snapshot_folder_id`` in ``pendo_portfolio_snapshot_drive``),
-    ``portfolio_review`` and ``cohort_review`` use it and no background Pendo
-    thread runs. Otherwise the portfolio report is computed in a background thread
-    while earlier companion decks build so the two phases overlap.
-    """
-    import threading
-
-    base = copy.deepcopy(report)
-    for k in ("_slide_plan", "_current_slide", "_charts", "_slides_svc", "_drive_svc"):
-        base.pop(k, None)
-
-    days = int(base.get("days") or 30)
-    qr = _quarter_range_from_health_report(base)
-
-    portfolio_result: dict[str, Any] = {}
-    portfolio_error: BaseException | None = None
-    portfolio_thread: threading.Thread | None = None
-
-    # (deck_id, result key) — standalone decks placed next to the hydrated QBR file for CSM context.
-    companion_specs: tuple[tuple[str, str], ...] = (
-        ("cs_health_review", "health_review"),
-        ("executive_summary", "executive_summary"),
-        ("support", "support"),
-        ("product_adoption", "product_adoption"),
-        ("supply_chain_review", "supply_chain"),
-        ("platform_value_summary", "platform_value"),
-        ("engineering", "engineering"),
-        ("engineering-portfolio", "engineering_portfolio"),
-        ("salesforce_comprehensive", "salesforce"),
-        ("portfolio_review", "portfolio_review"),
-        ("cohort_review", "cohort_review"),
-    )
-
-    snap = try_load_portfolio_snapshot_for_request(days, None)
-    if snap is not None:
-        portfolio_result = snap
-        logger.info(
-            "QBR bundle: cohort_review will use Drive portfolio snapshot (%d customers); "
-            "skipping background Pendo precompute",
-            portfolio_result.get("customer_count", 0),
-        )
-    else:
-        logger.info(
-            "QBR bundle: no usable portfolio snapshot — portfolio_review and cohort_review "
-            "wait on live Pendo after earlier companions (they usually dominate wall time; "
-            "snapshot skips work that overlapped with them). Expected Drive file: %s",
-            portfolio_snapshot_filename(days, None),
-        )
-
-        def _precompute_portfolio() -> None:
-            nonlocal portfolio_result, portfolio_error
-            try:
-                logger.info(
-                    "QBR bundle: starting portfolio precompute for cohort_review "
-                    "(runs in background while other companions build)"
-                )
-                pc = PendoClient()
-                portfolio_result = pc.get_portfolio_report(days=days)
-            except BaseException as e:
-                portfolio_error = e
-                logger.warning("QBR bundle: portfolio precompute failed: %s", e)
-
-        portfolio_thread = threading.Thread(target=_precompute_portfolio, daemon=True)
-        portfolio_thread.start()
-
-    out: list[dict[str, Any]] = []
-    t_bundle0 = time.perf_counter()
-    for deck_id, key in companion_specs:
-        sub = copy.deepcopy(base)
-        t_deck0 = time.perf_counter()
-        try:
-            if deck_id in ("portfolio_review", "cohort_review"):
-                if portfolio_thread is not None:
-                    portfolio_thread.join()
-                if portfolio_error:
-                    raise portfolio_error
-                if deck_id == "portfolio_review":
-                    from .deck_variants import enrich_portfolio_report_with_revenue_book
-
-                    pr = copy.deepcopy(portfolio_result)
-                    if qr is not None:
-                        pr["quarter"] = qr.label
-                        pr["quarter_start"] = qr.start.isoformat()
-                        pr["quarter_end"] = qr.end.isoformat()
-                    enrich_portfolio_report_with_revenue_book(pr)
-                    cr = create_health_deck(
-                        pr,
-                        deck_id="portfolio_review",
-                        thumbnails=False,
-                        output_folder_id=bundle_folder_id,
-                        reset_drive_cache_stats=False,
-                        log_drive_cache_stats=False,
-                    )
-                else:
-                    cr = create_cohort_deck(
-                        days=days,
-                        max_customers=None,
-                        quarter=qr,
-                        thumbnails=False,
-                        output_folder_id=bundle_folder_id,
-                        portfolio_report=portfolio_result,
-                    )
-            else:
-                cr = create_health_deck(
-                    sub,
-                    deck_id=deck_id,
-                    thumbnails=False,
-                    output_folder_id=bundle_folder_id,
-                    reset_drive_cache_stats=False,
-                    log_drive_cache_stats=False,
-                )
-            entry: dict[str, Any] = {
-                "key": key,
-                "deck_id": deck_id,
-                "presentation_id": cr.get("presentation_id"),
-                "url": cr.get("url"),
-            }
-            if cr.get("error"):
-                entry["error"] = cr["error"]
-                if cr.get("hint"):
-                    entry["hint"] = cr["hint"]
-                logger.warning("QBR bundle companion %s failed: %s", deck_id, cr["error"])
-            else:
-                logger.info("QBR bundle companion %s → %s", deck_id, cr.get("url", ""))
-            out.append(entry)
-        except Exception as e:
-            logger.warning("QBR bundle companion %s failed: %s", deck_id, e)
-            row = {"key": key, "deck_id": deck_id, "error": str(e)[:500]}
-            gh = _google_api_unreachable_hint(e)
-            if gh:
-                row["hint"] = gh
-            out.append(row)
-        finally:
-            logger.info(
-                "QBR bundle companion %s wall time %.1fs (running total %.1fs)",
-                deck_id,
-                time.perf_counter() - t_deck0,
-                time.perf_counter() - t_bundle0,
-            )
-    return out
 
 
 def _normalize_manifest_plan(raw: dict[str, Any] | None) -> dict[str, Any]:
@@ -529,25 +353,19 @@ def compute_adapt_page_ids(
     return out
 
 
-def run_qbr_from_template(
-    customer_query: str,
-    *,
-    companion_bundle: bool = True,
-) -> dict[str, Any]:
-    """End-to-end QBR: copy template, manifest plan (optional exec-summary insert), hide/move, adapt.
+def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
+    """End-to-end QBR: copy template, manifest plan, hide/move, adapt.
 
-    Creates ``<QBR Generator>/Output/{date} - Output/{customer} — QBR bundle ({quarter})/`` (unless
-    ``GOOGLE_QBR_OUTPUT_PARENT_ID`` overrides the parent of ``{date} - Output``), and places the hydrated QBR
-    deck there. When *companion_bundle* is true (default), also builds companion decks defined in
-    ``_build_companion_decks_for_qbr_bundle`` (single-customer reports, engineering portfolio, Salesforce export,
-    book-of-business portfolio, and cohort — portfolio-level decks share the Pendo portfolio rollup and
-    quarter window). When false, only the main QBR presentation is produced in the bundle folder (CLI:
-    ``python main.py qbr --main-only …``).
-    After preload, may auto-build/upload the Drive
-    portfolio snapshot once per calendar day (see ``ensure_daily_portfolio_snapshot_for_qbr``).
+    Creates ``<QBR Generator>/Output/{date} - Output/{customer} — QBR ({quarter})/`` (unless
+    ``GOOGLE_QBR_OUTPUT_PARENT_ID`` overrides the parent of ``{date} - Output``), and places the hydrated
+    QBR presentation there. Other decks (health review, portfolio, cohort, etc.) are generated separately via
+    ``decks.py`` / ``create_health_deck`` as needed.
 
-    Returns a result dict with ``url``, ``bundle_folder_id``, ``companion_decks``, ``companion_bundle``,
-    and logging fields.
+    After preload, may auto-build/upload the Drive portfolio snapshot once per calendar day (see
+    ``ensure_daily_portfolio_snapshot_for_qbr``) for portfolio-style runs that consume it.
+
+    Returns a result dict with ``url``, ``presentation_id``, ``qbr_folder_id`` (Drive parent of the new deck,
+    if created), and timing / logging fields.
     """
     qbr_t0 = time.perf_counter()
     qbr_t = qbr_t0
@@ -663,13 +481,13 @@ def run_qbr_from_template(
     try:
         slides_svc, drive_svc, _google_creds = _get_service()
         output_folder = get_qbr_output_folder_id()
-        bundle_folder_id: str | None = None
+        qbr_folder_id: str | None = None
         if output_folder:
             try:
-                bundle_folder_id = ensure_qbr_customer_bundle_folder(output_folder, customer, qr.label)
+                qbr_folder_id = ensure_qbr_customer_folder(output_folder, customer, qr.label)
             except Exception as e:
-                logger.warning("QBR: could not create customer bundle subfolder under Output: %s", e)
-        target_folder_id = bundle_folder_id or output_folder
+                logger.warning("QBR: could not create customer QBR subfolder under Output: %s", e)
+        target_folder_id = qbr_folder_id or output_folder
         _qbr_time_segment("drive_client_and_output_folder")
 
         out_title = f"{customer} — QBR ({qr.label})"
@@ -817,48 +635,15 @@ def run_qbr_from_template(
             "qbr_agenda_visual_refinement": qbr_agenda_visual,
             "plan_notes": plan.get("notes", ""),
             "qbr_output_folder_id": output_folder,
-            "bundle_folder_id": bundle_folder_id,
+            "qbr_folder_id": qbr_folder_id,
             "hydrate_adapt_stats": adapt_hydrate_stats,
         }
 
-        result["companion_bundle"] = bool(companion_bundle)
-        if target_folder_id and companion_bundle:
-            result["companion_decks"] = _build_companion_decks_for_qbr_bundle(report, target_folder_id)
-        else:
-            result["companion_decks"] = []
-            if not companion_bundle:
-                logger.info("QBR: skipping companion bundle (main QBR deck only)")
-            else:
-                logger.info(
-                    "QBR: no Drive Output folder — skipping companion decks "
-                    "(set GOOGLE_QBR_GENERATOR_FOLDER_ID; optional GOOGLE_QBR_OUTPUT_PARENT_ID overrides Output parent)"
-                )
-
-        cohort_url = next(
-            (
-                c.get("url")
-                for c in result.get("companion_decks") or []
-                if c.get("deck_id") == "cohort_review" and c.get("url") and not c.get("error")
-            ),
-            None,
-        )
-        if cohort_url:
-            exec_companion_pid = next(
-                (
-                    c.get("presentation_id")
-                    for c in result.get("companion_decks") or []
-                    if c.get("deck_id") == "executive_summary" and c.get("presentation_id") and not c.get("error")
-                ),
-                None,
+        if not target_folder_id:
+            logger.info(
+                "QBR: no Drive Output folder — presentation parent may be Drive default "
+                "(set GOOGLE_QBR_GENERATOR_FOLDER_ID; optional GOOGLE_QBR_OUTPUT_PARENT_ID overrides Output parent)"
             )
-            if exec_companion_pid:
-                n2 = apply_cohort_bundle_links_to_notable_signals(
-                    slides_svc, str(exec_companion_pid), cohort_url, page_object_ids=None
-                )
-                if n2:
-                    result["cohort_links_on_exec_summary_deck"] = n2
-
-        _qbr_time_segment("companion_decks_and_cohort_links")
 
         qbr_total = time.perf_counter() - qbr_t0
         qbr_times["total_elapsed_s"] = qbr_total
@@ -885,12 +670,8 @@ def run_qbr_cli(
     args_after_qbr: list[str],
     *,
     prog: str,
-    companion_bundle: bool | None = None,
 ) -> None:
     """Parse argv after the ``qbr`` token and run :func:`run_qbr_from_template`.
-
-    * ``python main.py qbr``: ``companion_bundle`` defaults from ``--main-only`` (companions on unless flag set).
-    * ``decks qbr``: pass ``companion_bundle=False`` so only the main QBR deck runs.
 
     Calls :func:`sys.exit` on completion or error.
     """
@@ -902,12 +683,6 @@ def run_qbr_cli(
         prog=prog,
         description="Build QBR from the Drive template (see GOOGLE_QBR_GENERATOR_FOLDER_ID).",
     )
-    if companion_bundle is None:
-        qbr_ap.add_argument(
-            "--main-only",
-            action="store_true",
-            help="Only the main QBR Slides file; skip companion decks (cs_health_review, cohort, etc.)",
-        )
     qbr_ap.add_argument(
         "customer_words",
         nargs="*",
@@ -919,20 +694,12 @@ def run_qbr_cli(
         qbr_ap.print_help()
         sys.exit(2)
 
-    if companion_bundle is None:
-        run_companions = not ns.main_only
-        main_only_flag = bool(ns.main_only)
-    else:
-        run_companions = bool(companion_bundle)
-        main_only_flag = not run_companions
-
     _qbr_t0 = _time.monotonic()
     logger.info(
-        "QBR run for customer query: %s (companion_bundle=%s)",
+        "QBR run for customer query: %s",
         customer,
-        run_companions,
     )
-    result = run_qbr_from_template(customer, companion_bundle=run_companions)
+    result = run_qbr_from_template(customer)
     if result.get("error"):
         print(f"Error: {result['error']}", file=sys.stderr)
         if result.get("hint"):
@@ -940,32 +707,14 @@ def run_qbr_cli(
         sys.exit(1)
     print(result.get("url", ""))
     print(f"Customer: {result.get('customer')}")
-    if main_only_flag:
-        if companion_bundle is None:
-            print("Companion bundle: skipped (--main-only)")
-        else:
-            print("Companion bundle: skipped (this entrypoint builds the main QBR deck only)")
-    if result.get("bundle_folder_id"):
-        print(f"Bundle folder: https://drive.google.com/drive/folders/{result['bundle_folder_id']}")
+    if result.get("qbr_folder_id"):
+        print(f"QBR folder: https://drive.google.com/drive/folders/{result['qbr_folder_id']}")
     print(
         f"Slides — hidden: {result.get('slides_hidden', 0)}; "
         f"adapted: {result.get('adapt_slides', 0)}"
     )
     if result.get("plan_notes"):
         print(f"Manifest plan: {result['plan_notes']}")
-    for row in result.get("companion_decks") or []:
-        label = row.get("key") or row.get("deck_id", "")
-        if row.get("error"):
-            print(f"  [{label}] skipped/failed: {row['error']}", flush=True)
-            if row.get("hint"):
-                print(f"      {row['hint']}", flush=True)
-        elif row.get("url"):
-            print(f"  [{label}] {row['url']}", flush=True)
-        else:
-            print(
-                f"  [{label}] no URL in result (unexpected — see bpo logs for this companion)",
-                flush=True,
-            )
     qt = result.get("qbr_timing_seconds") or {}
     if qt:
         top = sorted(

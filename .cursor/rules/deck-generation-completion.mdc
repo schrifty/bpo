@@ -5,11 +5,11 @@ alwaysApply: true
 
 # Deck generation completion report
 
-When the user asks to **generate one or more decks** (QBR, companion bundles, or similar CLI/pipeline runs), **after the job finishes** (success or failure):
+When the user asks to **generate one or more decks** (QBR, portfolio batch, `--customer`, or similar CLI/pipeline runs), **after the job finishes** (success or failure):
 
 1. **State outcome clearly** — success vs failure; exit code or error if the tool exposes it; approximate wall time if logged.
-2. **Give clickable links** — **main presentation** edit URL; **Drive bundle/output folder** when the pipeline creates one.
-3. **List companion or related decks** — name/key and full edit URL for each (table or bullet list is fine); do not omit URLs that appear in terminal output.
+2. **Give clickable links** — **main presentation** edit URL(s); **Drive output folder(s)** when the pipeline creates them.
+3. **List related decks** when the run emits more than one URL — name/key and full edit URL each; do not omit URLs that appear in terminal output.
 4. **Surface actionable warnings** — e.g. config parse errors, missing Drive snapshots, skipped customers, LLM retries — in short bullets so they can fix without hunting logs.
 
 Do **not** end with only “done” or a single URL when multiple artifacts were produced. Match the level of wrap-up the user valued: concise, scannable, complete.
