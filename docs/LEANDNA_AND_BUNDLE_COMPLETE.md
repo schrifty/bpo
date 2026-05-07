@@ -4,7 +4,7 @@
 **Date:** 2026-04-21  
 **Total effort:** ~12-14 hours
 
-**Note (2026-05):** The QBR companion bundle list and slide counts have grown since this write-up. The source of truth is `QBR_BUNDLE_COMPANION_DECKS` in `src/qbr_template.py`. Counts and deck names below reflect the April 2026 milestone, not necessarily the current bundle.
+**Note (2026-05):** The QBR companion bundle list and slide counts have grown since this write-up. The current companion sequence lives in `_build_companion_decks_for_qbr_bundle()` in `src/qbr_template.py`. Counts and deck names below reflect the April 2026 milestone, not necessarily the current bundle.
 
 ---
 

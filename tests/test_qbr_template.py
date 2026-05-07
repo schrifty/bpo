@@ -142,7 +142,8 @@ def test_run_qbr_from_template_smoke(
     assert "insert_executive_summary" not in r
     assert "exec_slides_inserted" not in r
     assert r.get("bundle_folder_id") == "bundlefold"
-    assert len(r.get("companion_decks", [])) == len(qbr_template.QBR_BUNDLE_COMPANION_DECKS)
+    # Must match tuple length ``companion_specs`` in ``_build_companion_decks_for_qbr_bundle``.
+    assert len(r.get("companion_decks", [])) == 11
     assert mock_cohort_links.call_count >= 1
     mock_create_health_deck.assert_called()
     assert mock_create_health_deck.call_args.kwargs.get("output_folder_id") == "bundlefold"

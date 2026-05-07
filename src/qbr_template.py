@@ -162,22 +162,6 @@ def ensure_qbr_customer_bundle_folder(
     return _find_or_create_folder(name, output_folder_id)
 
 
-# (deck_id, result key) — standalone decks placed next to the hydrated QBR file for CSM context.
-QBR_BUNDLE_COMPANION_DECKS: tuple[tuple[str, str], ...] = (
-    ("cs_health_review", "health_review"),
-    ("executive_summary", "executive_summary"),
-    ("support", "support"),
-    ("product_adoption", "product_adoption"),
-    ("supply_chain_review", "supply_chain"),
-    ("platform_value_summary", "platform_value"),
-    ("engineering", "engineering"),
-    ("engineering-portfolio", "engineering_portfolio"),
-    ("salesforce_comprehensive", "salesforce"),
-    ("portfolio_review", "portfolio_review"),
-    ("cohort_review", "cohort_review"),
-)
-
-
 def _quarter_range_from_health_report(report: dict[str, Any]) -> QuarterRange | None:
     """Rebuild ``QuarterRange`` from fields set on QBR / health reports (for cohort portfolio window)."""
     from datetime import date
@@ -220,6 +204,21 @@ def _build_companion_decks_for_qbr_bundle(
     portfolio_error: BaseException | None = None
     portfolio_thread: threading.Thread | None = None
 
+    # (deck_id, result key) — standalone decks placed next to the hydrated QBR file for CSM context.
+    companion_specs: tuple[tuple[str, str], ...] = (
+        ("cs_health_review", "health_review"),
+        ("executive_summary", "executive_summary"),
+        ("support", "support"),
+        ("product_adoption", "product_adoption"),
+        ("supply_chain_review", "supply_chain"),
+        ("platform_value_summary", "platform_value"),
+        ("engineering", "engineering"),
+        ("engineering-portfolio", "engineering_portfolio"),
+        ("salesforce_comprehensive", "salesforce"),
+        ("portfolio_review", "portfolio_review"),
+        ("cohort_review", "cohort_review"),
+    )
+
     snap = try_load_portfolio_snapshot_for_request(days, None)
     if snap is not None:
         portfolio_result = snap
@@ -254,7 +253,7 @@ def _build_companion_decks_for_qbr_bundle(
 
     out: list[dict[str, Any]] = []
     t_bundle0 = time.perf_counter()
-    for deck_id, key in QBR_BUNDLE_COMPANION_DECKS:
+    for deck_id, key in companion_specs:
         sub = copy.deepcopy(base)
         t_deck0 = time.perf_counter()
         try:
@@ -539,8 +538,8 @@ def run_qbr_from_template(
 
     Creates ``<QBR Generator>/Output/{date} - Output/{customer} — QBR bundle ({quarter})/`` (unless
     ``GOOGLE_QBR_OUTPUT_PARENT_ID`` overrides the parent of ``{date} - Output``), and places the hydrated QBR
-    deck there. When *companion_bundle* is true (default), also builds companion decks listed in
-    ``QBR_BUNDLE_COMPANION_DECKS`` (single-customer reports, engineering portfolio, Salesforce export,
+    deck there. When *companion_bundle* is true (default), also builds companion decks defined in
+    ``_build_companion_decks_for_qbr_bundle`` (single-customer reports, engineering portfolio, Salesforce export,
     book-of-business portfolio, and cohort — portfolio-level decks share the Pendo portfolio rollup and
     quarter window). When false, only the main QBR presentation is produced in the bundle folder (CLI:
     ``python main.py qbr --main-only …``).

@@ -3,7 +3,7 @@
 **Status:** Fully implemented  
 **Date:** 2026-04-21
 
-**Note (2026-05):** The bundle later gained additional companions (e.g. portfolio/cohort/Salesforce). Authoritative list: `QBR_BUNDLE_COMPANION_DECKS` in `src/qbr_template.py`. This doc describes the original 5→8 expansion.
+**Note (2026-05):** The bundle later gained additional companions (e.g. portfolio/cohort/Salesforce). The live ordering is the `companion_specs` tuple inside `_build_companion_decks_for_qbr_bundle()` in `src/qbr_template.py`. This doc describes the original 5→8 expansion.
 
 ---
 
@@ -64,8 +64,10 @@ Expanded the QBR bundle from **5 companion decks** to **8 companion decks**, add
 ## 🎯 Updated QBR Bundle Structure
 
 ### **Before (5 companion decks):**
+*(Illustrative — April 2026 milestone.)*
 ```python
-QBR_BUNDLE_COMPANION_DECKS = (
+# historical companion ordering (conceptual)
+(
     ("cs_health_review", "health_review"),
     ("executive_summary", "executive_summary"),
     ("support", "support"),
@@ -75,8 +77,10 @@ QBR_BUNDLE_COMPANION_DECKS = (
 ```
 
 ### **After (8 companion decks):**
+*(Illustrative — April 2026 milestone; more companions were added later.)*
 ```python
-QBR_BUNDLE_COMPANION_DECKS = (
+# historical companion ordering (conceptual)
+(
     ("cs_health_review", "health_review"),
     ("executive_summary", "executive_summary"),
     ("support", "support"),
@@ -253,7 +257,7 @@ engineering.yaml: ✅ Valid YAML (7 slides)
 ```
 
 **Integration test:**
-- ✅ All decks registered in `QBR_BUNDLE_COMPANION_DECKS`
+- ✅ All decks registered in `_build_companion_decks_for_qbr_bundle` (`companion_specs`)
 - ✅ No syntax errors in qbr_template.py
 - ⏳ Next Bombardier QBR run will validate full generation
 
@@ -282,7 +286,7 @@ run_qbr_from_template()
 2. Generate main QBR deck
 3. _build_companion_decks_for_qbr_bundle()
    ↓
-   For each deck in QBR_BUNDLE_COMPANION_DECKS:
+   For each deck in `companion_specs` inside `_build_companion_decks_for_qbr_bundle`:
      - resolve_deck(deck_id, customer)
      - build_deck_from_report(...)
      - Upload to bundle folder
@@ -328,7 +332,7 @@ if not in_renewal_quarter(customer):
 - [x] Supply Chain Review deck created (10 slides)
 - [x] Platform Value Summary deck created (7 slides)
 - [x] Engineering Review added to bundle
-- [x] QBR_BUNDLE_COMPANION_DECKS updated in qbr_template.py
+- [x] Companion list updated in `_build_companion_decks_for_qbr_bundle()` (`qbr_template.py`)
 - [x] All deck YAMLs validated (proper syntax)
 - [x] No breaking changes to existing QBR generation
 - [x] Documentation complete
