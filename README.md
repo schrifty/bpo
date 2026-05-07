@@ -110,7 +110,7 @@ python main.py -m "anthropic:claude-sonnet-4" "Generate a health review for Daik
 
 ## Deploying to AWS
 
-To run on AWS (EC2, Lambda, or ECS Fargate), see **[docs/AWS_DEPLOYMENT.md](docs/AWS_DEPLOYMENT.md)** for options, secrets setup, and scheduling.
+For a proposed cloud architecture on AWS (EC2, Lambda, or ECS Fargate), plus secrets and scheduling, see **[docs/DESIGN/PROPOSED_CLOUD_ARCH.md](docs/DESIGN/PROPOSED_CLOUD_ARCH.md)**.
 
 ## Structure
 
@@ -130,6 +130,7 @@ bpo/
 ├── cohorts.yaml              # Customer manufacturing cohort classifications
 ├── docs/
 │   ├── DATA-GOVERNANCE/     # Data governance: DATA_REGISTRY.md, DATA_DICTIONARY.md, per-source schemas, …
+│   ├── DESIGN/              # Architecture / design notes (e.g. proposed cloud)
 │   ├── PRESENTATION/        # Slide design standards, Pendo slide-builder narrative
 │   ├── SETUP/               # Connection guides (e.g. Salesforce, LeanDNA Data API)
 │   └── …                    # Other product / deck docs at docs root

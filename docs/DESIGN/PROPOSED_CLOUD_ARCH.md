@@ -1,4 +1,6 @@
-# Running BPO on AWS
+# Proposed cloud architecture (AWS)
+
+Design note for running BPO in the cloud — not deployed production topology today.
 
 BPO today only responds to **synchronous** requests (you run the script). Soon it will also:
 
