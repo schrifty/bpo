@@ -80,4 +80,3 @@ Use this when the **web app** loads data successfully but standalone Bearer fail
 
 - [`DATA-GOVERNANCE/LEANDNA_DATA_API_SCHEMA.md`](../DATA-GOVERNANCE/LEANDNA_DATA_API_SCHEMA.md) — endpoints BPO uses vs available.
 - [`DATA-GOVERNANCE/LEANDNA_DATA_API_TOOLS.md`](../DATA-GOVERNANCE/LEANDNA_DATA_API_TOOLS.md) — broader integration ideas (not setup-focused).
-- [`LEANDNA_AND_BUNDLE_COMPLETE.md`](../LEANDNA_AND_BUNDLE_COMPLETE.md) — historical milestone notes; bundle/slide counts may be stale.
