@@ -453,6 +453,25 @@ def cohort_findings_pipeline_traces(report: dict[str, Any]) -> list[dict[str, st
     }]
 
 
+def help_factory_start_buckets_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Speaker-note rows for HELP factory-start day bucket slide (five summed windows)."""
+    blob = (report.get("jira") or {}).get("help_factory_start_day_buckets") or {}
+    rows: list[dict[str, str]] = []
+    for item in blob.get("jql_queries") or []:
+        if not isinstance(item, dict):
+            continue
+        desc = str(item.get("description") or "").strip()
+        jql = str(item.get("jql") or "").strip()
+        raw_tot = item.get("total")
+        try:
+            tot_s = f"{int(raw_tot):,} tickets"
+        except (TypeError, ValueError):
+            tot_s = "unknown tickets"
+        qtext = f"{jql} ({tot_s})" if jql else f"({tot_s})"
+        rows.append({"description": desc, "source": "Jira", "query": qtext})
+    return rows
+
+
 def cs_notable_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
     source = (report.get("support_notable_bullets_source") or "").strip() or "static"
     return [{
@@ -466,6 +485,7 @@ CANONICAL_PIPELINE_TRACES: dict[str, Any] = {
     "health": health_snapshot_pipeline_traces,
     "benchmarks": peer_benchmarks_pipeline_traces,
     "platform_value": platform_value_pipeline_traces,
+    "support_help_factory_start_buckets": help_factory_start_buckets_pipeline_traces,
     "support_health_exec": support_health_exec_pipeline_traces,
     "salesforce_pipeline": salesforce_pipeline_traces,
     "platform_risk": platform_risk_pipeline_traces,

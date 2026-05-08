@@ -470,6 +470,7 @@ Field-level schema and HTTP surfaces: [`SALESFORCE_DATA_SCHEMA.md`](./SALESFORCE
 | `SALESFORCE-US-PERSONS-ONLY-CUSTOMER-FLAG` | Compliance-related customer flag. | `Account.US_Persons_Only_Customer__c` | `src/salesforce_client.py` | `UNUSED` in current deck outputs |
 | `SALESFORCE-CONTRACT-STATUS` | Contract status for matched customer account. | `Account.Contract_Status__c` | `src/salesforce_client.py`, account reporting | Core field |
 | `SALESFORCE-CONTRACT-START-DATE` | Contract start date. | `Account.Contract_Contract_Start_Date__c` | `src/salesforce_client.py` | Core field |
+| `SALESFORCE-FACTORY-START-DATE` | Operational / factory go-live proxy on Entity Account. | `Account.{SF_ACCOUNT_FACTORY_START_DATE_FIELD}` (default `Effective_Date_of_Order__c`), normalized as `factory_start_date` | `src/salesforce_client.py`, `scripts/export_entity_contract_help_180d.py` | Core field for analytics; distinct from contract start |
 | `SALESFORCE-CONTRACT-END-DATE` | Contract end date. | `Account.Contract_Contract_End_Date__c` | `src/salesforce_client.py` | Core field, likely renewal proxy |
 | `SALESFORCE-ARR` | Annual recurring revenue on the customer entity account. | `Account.ARR__c` | `src/salesforce_client.py` | Core field |
 | `SALESFORCE-OPPORTUNITY-TYPE` | Opportunity type used in creation/pipeline filters. | `Opportunity.Type` | `src/salesforce_client.py` | Core field |

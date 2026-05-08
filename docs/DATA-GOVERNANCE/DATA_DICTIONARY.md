@@ -113,6 +113,7 @@
 - `jira.by_type`
 - `jira.customer`
 - `jira.customer_ticket_metrics`
+- `jira.help_factory_start_day_buckets`
 - `jira.days`
 - `jira.engineering`
 - `jira.enhancements`
@@ -369,6 +370,7 @@
 - `salesforce.accounts[].LeanDNA_Entity_Name__c`
 - `salesforce.accounts[].US_Persons_Only_Customer__c`
 - `salesforce.accounts[].Contract_Status__c`
+- `salesforce.accounts[].factory_start_date` (from `SF_ACCOUNT_FACTORY_START_DATE_FIELD`, default `Effective_Date_of_Order__c`)
 - `salesforce.accounts[].Contract_Contract_Start_Date__c`
 - `salesforce.accounts[].Contract_Contract_End_Date__c`
 - `salesforce.accounts[].ARR__c`

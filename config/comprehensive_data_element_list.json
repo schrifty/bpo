@@ -1410,6 +1410,15 @@
       ]
     },
     {
+      "path": "jira.help_factory_start_day_buckets",
+      "terms": [
+        "jira.help_factory_start_day_buckets",
+        "[Jira] HELP tickets after factory start day buckets",
+        "Post go-live support volume windows",
+        "Factory start HELP ticket tranches"
+      ]
+    },
+    {
       "path": "jira.days",
       "terms": [
         "jira.days",
@@ -3564,6 +3573,17 @@
       "terms": [
         "salesforce.accounts[].Contract_Status__c",
         "[Salesforce] matched customer-entity account row field"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].factory_start_date",
+      "terms": [
+        "salesforce.accounts[].factory_start_date",
+        "[Salesforce] factory start date",
+        "Effective Date of Order",
+        "SF_ACCOUNT_FACTORY_START_DATE_FIELD",
+        "operational go-live",
+        "factory go-live date"
       ]
     },
     {

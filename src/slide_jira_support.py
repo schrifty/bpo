@@ -348,6 +348,94 @@ def customer_ticket_metrics_charts_slide(reqs: list[dict[str, Any]], sid: str, r
     return project_ticket_metrics_breakdown_slide(reqs, sid, report, idx, snap_key="customer_ticket_metrics", project="HELP", default_title="Ticket Metrics Breakdown")
 
 
+def help_factory_start_day_buckets_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Horizontal bar chart: HELP tickets created in 40-day windows after factory start (per SF entities)."""
+    jira = report.get("jira") or {}
+    blob = jira.get("help_factory_start_day_buckets")
+    charts = report.get("_charts")
+    if not isinstance(blob, dict):
+        return _missing_data_slide(
+            reqs,
+            sid,
+            report,
+            idx,
+            "HELP factory start day buckets (not in report — support deck data fetch)",
+        )
+    if blob.get("error"):
+        return _missing_data_slide(reqs, sid, report, idx, f"HELP factory start buckets: {blob.get('error')}")
+    if not charts:
+        return _missing_data_slide(reqs, sid, report, idx, "HELP factory start buckets and chart service")
+
+    labels = blob.get("bucket_labels") or []
+    counts_raw = blob.get("counts") or []
+    try:
+        counts = [int(x) for x in counts_raw]
+    except (TypeError, ValueError):
+        counts = []
+    if len(labels) != len(counts) or not labels:
+        return _missing_data_slide(reqs, sid, report, idx, "HELP factory start buckets: malformed snapshot")
+
+    customer = report.get("customer") or blob.get("customer") or "All Customers"
+    entry = report.get("_current_slide") or {}
+    configured_title = (entry.get("title") or "").strip()
+    if configured_title:
+        title = configured_title
+    elif report.get("support_deck_scoped_titles") and report.get("customer"):
+        title = "HELP After Factory Start (40-Day Windows)"
+    elif blob.get("portfolio_aggregate"):
+        title = "HELP After Factory Start — Portfolio (40-Day Windows)"
+    else:
+        title = f"{customer} — HELP After Factory Start (40-Day Windows)"
+
+    fs_field = (blob.get("factory_start_date_field") or "factory_start_date").strip()
+    scope_phrase = (
+        "Portfolio aggregate: summed across all Salesforce Customer Entity rows"
+        if blob.get("portfolio_aggregate")
+        else "Summed across Salesforce Customer Entity rows for this customer"
+    )
+    meta_bits: list[str] = [
+        f"{scope_phrase} (factory field: {fs_field}). "
+        "Scoped with JSM Organizations plus site phrases when available (same as entity HELP export)."
+    ]
+    ent_matched = blob.get("entity_rows_matched")
+    ent_used = blob.get("entities_with_factory_and_org")
+    if ent_matched is not None:
+        meta_bits.append(f"Entities matched: {int(ent_matched)}; counted (factory date + org): {int(ent_used or 0)}.")
+    if int(blob.get("skipped_no_factory_start") or 0):
+        meta_bits.append(f"No factory start date: {int(blob['skipped_no_factory_start'])} rows skipped.")
+    if int(blob.get("skipped_no_jsm_org") or 0):
+        meta_bits.append(f"No JSM org match: {int(blob['skipped_no_jsm_org'])} rows skipped.")
+    if blob.get("jira_count_partial_failure"):
+        meta_bits.append("Some Jira approximate counts failed; totals may be incomplete.")
+
+    _slide(reqs, sid, idx)
+    slide_bg = project_slide_bg("HELP")
+    _bg(reqs, sid, slide_bg)
+    _slide_title(reqs, sid, title)
+    subtitle = " ".join(meta_bits)
+    sub_y = BODY_Y + 6
+    _box(reqs, f"{sid}_sub", sid, MARGIN, sub_y, CONTENT_W, 36, subtitle)
+    _style(reqs, f"{sid}_sub", 0, len(subtitle), size=9, color=GRAY, font=FONT)
+
+    from .charts import embed_chart
+
+    chart_top = sub_y + 40
+    chart_h = float(BODY_BOTTOM) - chart_top - 12.0
+    chart_h = max(chart_h, 120.0)
+    vals = [max(0, c) for c in counts]
+    ss_id, chart_id = charts.add_bar_chart(
+        title="",
+        labels=[_truncate_table_cell(str(lbl), 52) for lbl in labels],
+        series={"Tickets opened": vals},
+        horizontal=True,
+        show_title=False,
+        suppress_legend=True,
+        background=slide_bg,
+    )
+    embed_chart(reqs, f"{sid}_bar", sid, ss_id, chart_id, MARGIN, chart_top, CONTENT_W, chart_h, linked=True)
+    return idx + 1
+
+
 def customer_project_ticket_metrics_breakdown_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
     return project_ticket_metrics_breakdown_slide(reqs, sid, report, idx, snap_key="customer_project_open_breakdown", project="CUSTOMER", default_title="CUSTOMER Ticket Metrics Breakdown")
 

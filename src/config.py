@@ -80,6 +80,10 @@ SF_PRIVATE_KEY_PATH = os.environ.get("SF_PRIVATE_KEY_PATH")  # Path to server.ke
 # Optional: API name of the Account lookup to Ultimate Parent (e.g. Ultimate_Parent_Account__c).
 # When set, entity Account SOQL also selects Parent + Ultimate Parent names for matching ARR.
 SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP = os.environ.get("SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP", "").strip()
+# Customer Entity: operational / factory go-live date (date field API name on Account).
+# Default matches common LeanDNA org ("Effective Date of Order"); override if you use e.g. Factory_Start_Date__c.
+_sf_fs = (os.environ.get("SF_ACCOUNT_FACTORY_START_DATE_FIELD") or "").strip()
+SF_ACCOUNT_FACTORY_START_DATE_FIELD = _sf_fs or "Effective_Date_of_Order__c"
 # Salesforce read cache: SOQL results, global sObject describe, COUNT() totals. Default 48h.
 try:
     _sf_cache_hours = float(os.environ.get("BPO_SALESFORCE_CACHE_TTL_HOURS", "48").strip())

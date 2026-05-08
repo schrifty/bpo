@@ -19,6 +19,7 @@ SLIDE_DATA_REQUIREMENTS: dict[str, list[str]] = {
     "jira": ["jira"],
     "customer_ticket_metrics": ["jira"],
     "customer_ticket_metrics_charts": ["jira"],
+    "support_help_factory_start_buckets": ["jira"],
     "support_help_orgs_by_opened": ["jira"],
     "support_help_customer_escalations": ["jira"],
     "support_help_escalation_metrics": ["jira"],

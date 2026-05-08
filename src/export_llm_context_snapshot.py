@@ -549,6 +549,26 @@ def _compact_jira(j: dict[str, Any]) -> dict[str, Any]:
         bso = tick.get("by_status_open")
         if isinstance(bso, dict):
             out["customer_ticket_metrics"]["by_status_open"] = dict(list(bso.items())[:12])
+    fsb = j.get("help_factory_start_day_buckets")
+    if isinstance(fsb, dict) and fsb:
+        out["help_factory_start_day_buckets"] = {
+            k: fsb.get(k)
+            for k in (
+                "error",
+                "customer",
+                "factory_start_date_field",
+                "bucket_labels",
+                "counts",
+                "entity_rows_matched",
+                "entities_with_factory_and_org",
+                "skipped_no_factory_start",
+                "skipped_no_jsm_org",
+                "jira_count_partial_failure",
+                "portfolio_aggregate",
+                "jql_queries",
+            )
+            if k in fsb
+        }
     out["engineering"] = _compact_eng_enh_counts_only(j.get("engineering"))
     out["enhancements"] = _compact_eng_enh_counts_only(j.get("enhancements"))
     tow = j.get("tickets_over_time")

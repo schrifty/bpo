@@ -54,7 +54,28 @@ STORY_POINTS_FIELD = "customfield_10202" # "Story Points"
 
 # Exclude transient/infrastructure tickets (Outage, Healthcheck) from support metrics.
 # These are typically caused by customer IT and don't reflect actionable support issues.
-_TRANSIENT_LABELS_EXCLUSION = "(labels IS EMPTY OR labels NOT IN (Outage, Healthcheck))"
+# Explicit NOT (...): multi-label issues still drop if either label is present (same as NOT IN for HELP).
+_TRANSIENT_LABELS_EXCLUSION = 'NOT (labels = Outage OR labels = Healthcheck)'
+
+# Inclusive day offsets from Salesforce ``factory_start_date`` (calendar days). Fourth element is a
+# slide-facing label. Keys align with ``HELP_TICKET_DAY_BUCKETS`` in
+# ``scripts/export_entity_contract_help_180d.py`` (that script imports this tuple).
+HELP_FACTORY_START_DAY_BUCKETS: tuple[tuple[int, int, str, str], ...] = (
+    (0, 40, "help_tickets_days_0_to_40", "Days 0–40 after factory start"),
+    (41, 80, "help_tickets_days_41_to_80", "Days 41–80"),
+    (81, 120, "help_tickets_days_81_to_120", "Days 81–120"),
+    (121, 160, "help_tickets_days_121_to_160", "Days 121–160"),
+    (161, 200, "help_tickets_days_161_to_200", "Days 161–200"),
+)
+
+# Speaker notes (one line each; index aligns with HELP_FACTORY_START_DAY_BUCKETS).
+_HELP_FACTORY_BUCKET_SPEAKER_DESCRIPTIONS: tuple[str, ...] = (
+    "Sum HELP tickets created days 0–40 after each entity's factory start (site-scoped JSM org + text).",
+    "Sum HELP tickets created days 41–80 after factory start (same scope).",
+    "Sum HELP tickets created days 81–120 after factory start (same scope).",
+    "Sum HELP tickets created days 121–160 after factory start (same scope).",
+    "Sum HELP tickets created days 161–200 after factory start (same scope).",
+)
 
 # CUSTOMER/LEAN support slides: exclude portfolio / utility work items (see JIRA_DATA_SCHEMA issue types).
 _CUSTOMER_LEAN_ISSUETYPE_EXCLUSION = "issuetype not in (Epic, SUT)"
@@ -304,6 +325,70 @@ def _jql_text_match_any(fields: tuple[str, ...], terms: list[str]) -> str:
         for field in fields:
             clauses.append(f'{field} ~ "{safe}"')
     return "(" + " OR ".join(clauses) + ")" if clauses else "(summary ~ \"\")"
+
+
+def _salesforce_entity_customer_primary_and_extras(entity_row: dict[str, Any]) -> tuple[str, list[str] | None]:
+    """Match strings for JSM org resolution (same idea as Salesforce export scripts)."""
+    name = (entity_row.get("Name") or "").strip()
+    lean = (entity_row.get("LeanDNA_Entity_Name__c") or "").strip()
+    if lean and name and lean.lower() != name.lower():
+        return lean, [name]
+    if lean:
+        return lean, None
+    return name, None
+
+
+# Single-token labels that are too broad for HELP summary/description site narrowing (shared org noise).
+_HELP_SITE_TEXT_SINGLETON_STOPWORDS = frozenset(
+    {
+        "carrier",
+        "commercial",
+        "refrigeration",
+        "pending",
+        "hvac",
+        "customer",
+        "entity",
+    }
+)
+
+
+def _help_site_text_terms_from_salesforce_entity(entity_row: dict[str, Any]) -> list[str]:
+    """Phrases for ``summary`` / ``description`` JQL to narrow HELP to one Customer Entity (site).
+
+    JSM ``Organizations`` alone often resolves to a broad parent (e.g. ``Carrier``). AND-ing OR'd
+    text clauses reduces double-counting across sites under the same org when ticket bodies mention
+    the site / entity string.
+    """
+    seen_lower: set[str] = set()
+    out: list[str] = []
+
+    def push(term: str) -> None:
+        t = (term or "").strip()
+        if len(t) < 8:
+            return
+        wl = t.lower()
+        if wl in seen_lower:
+            return
+        words = [w for w in re.split(r"\s+", t) if w]
+        if len(words) == 1 and words[0].lower() in _HELP_SITE_TEXT_SINGLETON_STOPWORDS:
+            return
+        # Very short “words-only” tokens are usually noise unless acronym-heavy.
+        if len(words) == 1 and len(words[0]) < 10 and not words[0].isupper():
+            return
+        seen_lower.add(wl)
+        out.append(t)
+
+    name = (entity_row.get("Name") or "").strip()
+    if name:
+        push(name)
+
+    lean = (entity_row.get("LeanDNA_Entity_Name__c") or "").strip()
+    if lean:
+        for part in re.split(r"\s*:\s*", lean):
+            push(part.strip())
+
+    out.sort(key=len, reverse=True)
+    return out
 
 
 def _jql_in_quoted_values(field: str, terms: list[str]) -> str:
@@ -593,23 +678,23 @@ class JiraClient:
         return out
 
     def _jql_match_total(self, jql: str) -> int | None:
-        """Return Jira's match count for JQL without fetching issue bodies (maxResults=0)."""
+        """Return Jira's match count for JQL without fetching issue bodies.
+
+        Uses ``POST /rest/api/3/search/approximate-count`` (Atlassian requires bounded JQL for some
+        tenants; counts may lag slightly vs live search — see Jira docs).
+        """
         try:
-            body: dict[str, Any] = {
-                "jql": jql.strip(),
-                "maxResults": 0,
-                "fields": ["summary"],
-            }
+            body: dict[str, Any] = {"jql": jql.strip()}
             resp = requests.post(
-                f"{self.base_url}/rest/api/3/search/jql",
+                f"{self.base_url}/rest/api/3/search/approximate-count",
                 headers=self._headers,
                 json=body,
                 timeout=30,
             )
             resp.raise_for_status()
             data = resp.json()
-            t = data.get("total")
-            return int(t) if t is not None else None
+            c = data.get("count")
+            return int(c) if c is not None else None
         except Exception as e:
             logger.debug("JIRA jql match total failed: %s", e)
             return None
@@ -824,6 +909,48 @@ class JiraClient:
         return self._customer_match_clause(
             customer_name, match_terms, organizations_only=True
         )
+
+    def help_salesforce_entity_site_scoped_clause(
+        self,
+        entity_row: dict[str, Any],
+    ) -> tuple[str, dict[str, Any]]:
+        """HELP filter: JSM ``Organizations`` AND site-ish ``summary``/``description`` tokens.
+
+        Use for **per-entity** Salesforce exports where a broad org (e.g. ``Carrier``) would otherwise
+        attribute every org ticket to each site row.
+
+        Returns ``(jql_fragment, meta)`` where ``meta`` includes ``resolved_jsm_orgs``, ``site_terms``,
+        and ``site_text_scoped`` (whether non-empty text narrowing was applied).
+        """
+        primary, extras = _salesforce_entity_customer_primary_and_extras(entity_row)
+        org_clause, resolved_orgs = self._help_project_customer_filter(primary, extras)
+        meta: dict[str, Any] = {
+            "resolved_jsm_orgs": resolved_orgs,
+            "site_terms": [],
+            "site_text_scoped": False,
+        }
+        if "___BPO_NO_ORG_MATCH___" in org_clause:
+            return org_clause, meta
+
+        site_terms = _help_site_text_terms_from_salesforce_entity(entity_row)
+        nm = (entity_row.get("Name") or "").strip()
+        if not site_terms and len(nm) >= 8:
+            site_terms = [nm]
+
+        if not site_terms:
+            meta["site_terms"] = []
+            meta["site_text_scoped"] = False
+            logger.debug(
+                "HELP site scope: no summary/description terms for entity %r — org-only clause",
+                nm[:80],
+            )
+            return org_clause, meta
+
+        meta["site_terms"] = list(site_terms)
+        meta["site_text_scoped"] = True
+        text_clause = _jql_text_match_any(("summary", "description"), site_terms)
+        combined = f"({org_clause}) AND {text_clause}"
+        return combined, meta
 
     def _customer_project_text_match_clause(
         self,
@@ -2479,6 +2606,137 @@ class JiraClient:
                     month_index[resolved_key]["resolved"] += 1
 
         return buckets
+
+    def get_help_factory_start_day_buckets(
+        self,
+        customer_name: str | None,
+        _match_terms: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """HELP ticket counts in fixed day windows after each entity's Salesforce factory start date.
+
+        With a customer name: sums counts across Customer Entity rows matching that account (same rule
+        as ARR rollups). With *customer_name* empty/None: **portfolio** mode — all Customer Entity
+        rows in Salesforce (installed-base aggregate).
+
+        Each entity uses :meth:`help_salesforce_entity_site_scoped_clause` and
+        :data:`HELP_FACTORY_START_DAY_BUCKETS` (see export script). Excludes Outage/Healthcheck labels.
+        """
+        from .config import SF_ACCOUNT_FACTORY_START_DATE_FIELD
+        from .salesforce_client import SalesforceClient, _customer_name_matches_entity_account, _parse_sf_contract_date
+
+        cn = (customer_name or "").strip()
+        portfolio = not bool(cn)
+        fs_field = (SF_ACCOUNT_FACTORY_START_DATE_FIELD or "").strip() or "factory_start_date"
+        labels = [tup[3] for tup in HELP_FACTORY_START_DAY_BUCKETS]
+        keys = [tup[2] for tup in HELP_FACTORY_START_DAY_BUCKETS]
+        empty_base: dict[str, Any] = {
+            "customer": cn or None,
+            "factory_start_date_field": fs_field,
+            "bucket_keys": keys,
+            "bucket_labels": labels,
+            "counts": [0] * len(HELP_FACTORY_START_DAY_BUCKETS),
+            "portfolio_aggregate": portfolio,
+        }
+
+        all_accounts = SalesforceClient().get_entity_accounts()
+        if portfolio:
+            entities = list(all_accounts)
+            if entities:
+                logger.info(
+                    "HELP factory start buckets: portfolio aggregate over %d Customer Entity rows",
+                    len(entities),
+                )
+        else:
+            name_upper = cn.upper()
+            entities = [a for a in all_accounts if _customer_name_matches_entity_account(name_upper, a)]
+
+        if not entities:
+            return {
+                **empty_base,
+                "error": (
+                    "No Salesforce Customer Entity rows returned."
+                    if portfolio
+                    else "No Salesforce Customer Entity matched this customer."
+                ),
+                "entity_rows_matched": 0,
+                "jql_queries": [
+                    {
+                        "description": _HELP_FACTORY_BUCKET_SPEAKER_DESCRIPTIONS[bi],
+                        "jql": "(No JQL — no Salesforce Customer Entity rows in scope.)",
+                        "total": 0,
+                    }
+                    for bi in range(len(HELP_FACTORY_START_DAY_BUCKETS))
+                ],
+            }
+
+        totals = [0] * len(HELP_FACTORY_START_DAY_BUCKETS)
+        example_jql_by_bucket: list[str | None] = [None] * len(HELP_FACTORY_START_DAY_BUCKETS)
+        jira_failed = False
+        skipped_no_factory = 0
+        skipped_no_org = 0
+        entities_counted = 0
+
+        for row in entities:
+            start = _parse_sf_contract_date(row.get("factory_start_date"))
+            if not start:
+                skipped_no_factory += 1
+                continue
+            scope_clause, _scope_meta = self.help_salesforce_entity_site_scoped_clause(row)
+            if "___BPO_NO_ORG_MATCH___" in scope_clause:
+                skipped_no_org += 1
+                continue
+            entities_counted += 1
+            for bi, (lo, hi, _key, _lbl) in enumerate(HELP_FACTORY_START_DAY_BUCKETS):
+                d0 = start + timedelta(days=lo)
+                d1 = start + timedelta(days=hi + 1)
+                jql = (
+                    f"project = HELP AND {scope_clause} AND {_TRANSIENT_LABELS_EXCLUSION} "
+                    f'AND created >= "{d0:%Y-%m-%d}" AND created < "{d1:%Y-%m-%d}"'
+                )
+                if example_jql_by_bucket[bi] is None:
+                    example_jql_by_bucket[bi] = jql
+                total = self._jql_match_total(jql)
+                if total is None:
+                    jira_failed = True
+                else:
+                    totals[bi] += int(total)
+
+        jql_queries: list[dict[str, Any]] = []
+        for bi, (_lo, _hi, _key, lbl) in enumerate(HELP_FACTORY_START_DAY_BUCKETS):
+            desc = _HELP_FACTORY_BUCKET_SPEAKER_DESCRIPTIONS[bi]
+            ex_jql = example_jql_by_bucket[bi]
+            tot_i = int(totals[bi])
+            if ex_jql is None:
+                ex_jql = (
+                    f"(No sample JQL — no entity had both factory start date and JSM org resolution.) "
+                    f"Bucket: {lbl}"
+                )
+            note = (
+                " Example JQL from the first counted entity; chart value sums approximate-count across all counted entities."
+                if entities_counted > 1 or portfolio
+                else ""
+            )
+            jql_queries.append({
+                "description": desc,
+                "jql": (ex_jql + note).strip(),
+                "total": tot_i,
+            })
+
+        out: dict[str, Any] = {
+            **empty_base,
+            "counts": totals,
+            "entity_rows_matched": len(entities),
+            "entities_with_factory_and_org": entities_counted,
+            "skipped_no_factory_start": skipped_no_factory,
+            "skipped_no_jsm_org": skipped_no_org,
+            "jira_count_partial_failure": jira_failed,
+            "jql_queries": jql_queries,
+        }
+        if entities_counted == 0:
+            out["error"] = (
+                "No matching entities had both a factory start date and a resolved JSM organization."
+            )
+        return out
 
     def get_help_ticket_volume_trends(
         self,

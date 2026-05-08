@@ -209,6 +209,24 @@ def enrich_support_jira_data(report: dict[str, Any], customer: str | None) -> No
                     "Support deck: could not refresh Jira base_url after Drive cache hit: %s",
                     e,
                 )
+            if isinstance(report.get("jira"), dict) and "help_factory_start_day_buckets" not in report["jira"]:
+                try:
+                    from .jira_client import get_shared_jira_client as _get_jira
+
+                    jc = _get_jira()
+                    report["jira"]["help_factory_start_day_buckets"] = jc.get_help_factory_start_day_buckets(
+                        customer,
+                    )
+                    save_integration_payload(KIND_JIRA_SUPPORT, customer, report["jira"])
+                except Exception as e2:
+                    logger.warning(
+                        "Support deck: factory start HELP buckets fetch failed after cache: %s",
+                        e2,
+                    )
+                    report["jira"]["help_factory_start_day_buckets"] = {
+                        "error": str(e2)[:500],
+                        "customer": customer,
+                    }
             _support_help_escalation_llm_post(report)
             logger.info(
                 "Support deck: using Drive cache for Jira data (%s)",
@@ -231,6 +249,15 @@ def enrich_support_jira_data(report: dict[str, Any], customer: str | None) -> No
             logger.info("Support deck: fetching customer ticket metrics for %s", customer_display)
             customer_ticket_metrics = jira_client.get_customer_ticket_metrics(customer)
             report["jira"]["customer_ticket_metrics"] = customer_ticket_metrics
+
+        if "help_factory_start_day_buckets" not in report["jira"]:
+            logger.info(
+                "Support deck: fetching HELP factory start day buckets for %s",
+                customer_display,
+            )
+            report["jira"]["help_factory_start_day_buckets"] = jira_client.get_help_factory_start_day_buckets(
+                customer,
+            )
 
         if "help_ticket_volume_trends" not in report["jira"]:
             logger.info("Support deck: fetching HELP volume trends for %s", customer_display)
@@ -508,4 +535,9 @@ def _apply_support_jira_error_fallback(
         "not_done_escalation_count": 0,
         "escalations_opened_90d": 0,
         "escalations_closed_90d": 0,
+    }
+    report["jira"]["help_factory_start_day_buckets"] = {
+        "error": error_text,
+        "customer": customer,
+        "jql_queries": [],
     }

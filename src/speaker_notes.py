@@ -10,6 +10,11 @@ from googleapiclient.errors import HttpError
 from .config import logger
 from .slides_api import slides_presentations_batch_update
 
+# Slides with a canonical trace builder should not also merge every JQL under report[jira].
+_SLIDE_TYPES_SPEAKER_NOTES_CANONICAL_ONLY: frozenset[str] = frozenset({
+    "support_help_factory_start_buckets",
+})
+
 __all__ = [
     "build_slide_jql_speaker_notes",
     "collect_data_trace_entries",
@@ -140,7 +145,6 @@ def build_slide_jql_speaker_notes(
             ts,
             "",
             f"Slide: {slide_title}",
-            f"Slide type: {slide_type}",
         ]
 
         required_keys = data_requirements.get(slide_type, [])
@@ -164,7 +168,10 @@ def build_slide_jql_speaker_notes(
             executable = collect_jql_soql_trace_entries(report)
         executable = dedupe_data_trace_entries(executable)
 
-        entries = dedupe_data_trace_entries(pipeline + executable)
+        if canon_fn is not None and slide_type in _SLIDE_TYPES_SPEAKER_NOTES_CANONICAL_ONLY:
+            entries = dedupe_data_trace_entries(pipeline)
+        else:
+            entries = dedupe_data_trace_entries(pipeline + executable)
 
         if not entries:
             if slide_type in (

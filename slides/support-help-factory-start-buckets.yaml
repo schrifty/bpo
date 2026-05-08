@@ -1,0 +1,13 @@
+id: support_help_factory_start_buckets
+type: standard
+order: 24.25
+title: HELP After Factory Start (40-Day Windows)
+slide_type: support_help_factory_start_buckets
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Single horizontal bar chart: HELP tickets created in each 40-ish calendar-day window after
+  Salesforce factory start (site-scoped org + text where configured). Subtitle summarizes entity
+  coverage and Salesforce field name.

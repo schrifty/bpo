@@ -218,6 +218,7 @@ def build_entries() -> list[dict[str, Any]]:
             _e("salesforce.accounts[].LeanDNA_Entity_Name__c", "[SFDC] LeanDNA entity name"),
             _e("salesforce.accounts[].US_Persons_Only_Customer__c", "[SFDC] compliance flag"),
             _e("salesforce.accounts[].Contract_Status__c", "[SFDC] account contract status"),
+            _e("salesforce.accounts[].factory_start_date", "[SFDC] factory/operational start (SF_ACCOUNT_FACTORY_START_DATE_FIELD)"),
             _e("salesforce.accounts[].Contract_Contract_Start_Date__c", "[SFDC] contract start date"),
             _e("salesforce.accounts[].Contract_Contract_End_Date__c", "[SFDC] contract end date"),
             _e("salesforce.accounts[].ARR__c", "[SFDC] account ARR custom field"),

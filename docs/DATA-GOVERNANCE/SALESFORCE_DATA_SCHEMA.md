@@ -22,6 +22,7 @@ Version: `SF_REST_API_VERSION` in code (e.g. `v59.0`). Not used here: Bulk/Compo
 | `Name`, `LeanDNA_Entity_Name__c` | Match to deck customer (substring, case-insensitive) |
 | `US_Persons_Only_Customer__c` | Loaded; not on slides |
 | `Contract_Status__c`, `Contract_Contract_Start_Date__c`, `Contract_Contract_End_Date__c`, `ARR__c` | Contract / ARR **on the Account row** (not the standard **Contract** sObject) |
+| Factory / operational start | Normalized as **`factory_start_date`** on Customer Entity rows — sourced from **`SF_ACCOUNT_FACTORY_START_DATE_FIELD`** (default `Effective_Date_of_Order__c`; override in `.env`). Distinct from **`Contract_Contract_Start_Date__c`**. |
 
 **Portfolio / cohort “Total ARR”** — `get_arr_by_customer_names` sums **`Account.ARR__c`** on matched Customer Entity accounts only. It does **not** read the standard **`Contract`** object or roll up contract line amounts. For standard Contract fields BPO can query, see **§7 Contract** and **`query_contracts`** / comprehensive category **`contracts`**.
 

@@ -23,6 +23,7 @@ import requests
 
 from .config import (
     BPO_SALESFORCE_CACHE_TTL_SECONDS,
+    SF_ACCOUNT_FACTORY_START_DATE_FIELD,
     SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP,
     SF_LOGIN_URL,
     SF_CONSUMER_KEY,
@@ -97,13 +98,18 @@ def _relationship_json_key_for_lookup(lookup_field: str) -> str:
 
 
 def _entity_account_select_field_names() -> tuple[str, ...]:
-    """Columns for Customer Entity accounts: core + Parent + optional Ultimate Parent + ARR."""
+    """Columns for Customer Entity accounts: core + Parent + optional Ultimate Parent + factory-start date."""
+    cols = list(_ACCOUNT_ENTITY_CORE_FIELDS)
     ult = (SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP or "").strip()
-    if not ult:
-        return _ACCOUNT_ENTITY_CORE_FIELDS
-    if ult.endswith("__c"):
-        return _ACCOUNT_ENTITY_CORE_FIELDS + (ult, ult[:-3] + "__r.Name")
-    return _ACCOUNT_ENTITY_CORE_FIELDS + (ult, ult + ".Name")
+    if ult:
+        if ult.endswith("__c"):
+            cols.extend([ult, ult[:-3] + "__r.Name"])
+        else:
+            cols.extend([ult, ult + ".Name"])
+    fs = (SF_ACCOUNT_FACTORY_START_DATE_FIELD or "").strip()
+    if fs and fs not in cols:
+        cols.append(fs)
+    return tuple(cols)
 
 
 def _normalize_entity_account_row(r: dict[str, Any]) -> dict[str, Any]:
@@ -116,6 +122,8 @@ def _normalize_entity_account_row(r: dict[str, Any]) -> dict[str, Any]:
         uo = r.get(_relationship_json_key_for_lookup(lf))
         if isinstance(uo, dict):
             ult_name = (uo.get("Name") or "").strip()
+    fs_field = (SF_ACCOUNT_FACTORY_START_DATE_FIELD or "").strip()
+    factory_start = r.get(fs_field) if fs_field else None
     return {
         "Id": r.get("Id"),
         "Name": r.get("Name"),
@@ -124,6 +132,7 @@ def _normalize_entity_account_row(r: dict[str, Any]) -> dict[str, Any]:
         "Contract_Status__c": r.get("Contract_Status__c"),
         "Contract_Contract_Start_Date__c": r.get("Contract_Contract_Start_Date__c"),
         "Contract_Contract_End_Date__c": r.get("Contract_Contract_End_Date__c"),
+        "factory_start_date": factory_start,
         "ARR__c": r.get("ARR__c"),
         "ParentId": r.get("ParentId"),
         "parent_name": parent_name,
