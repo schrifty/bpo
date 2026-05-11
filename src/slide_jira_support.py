@@ -5,12 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 from .cs_report_client import get_csr_section
+from .jira_client import HELP_FACTORY_START_DAY_BUCKETS
 from .slide_primitives import (
     CHART_LEGEND_PT,
     align as _align,
     background as _bg,
     bar_rect as _bar_rect,
     clean_table as _clean_table,
+    rect as _solid_rect,
     kpi_metric_card as _kpi_metric_card,
     missing_data_slide as _missing_data_slide,
     pill as _pill,
@@ -349,7 +351,7 @@ def customer_ticket_metrics_charts_slide(reqs: list[dict[str, Any]], sid: str, r
 
 
 def help_factory_start_day_buckets_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
-    """Horizontal bar chart: HELP tickets created in 40-day windows after factory start (per SF entities)."""
+    """Column chart: HELP tickets created in factory-start day windows (per SF entities), with hypercare cutoff overlay."""
     jira = report.get("jira") or {}
     blob = jira.get("help_factory_start_day_buckets")
     charts = report.get("_charts")
@@ -381,11 +383,11 @@ def help_factory_start_day_buckets_slide(reqs: list[dict[str, Any]], sid: str, r
     if configured_title:
         title = configured_title
     elif report.get("support_deck_scoped_titles") and report.get("customer"):
-        title = "HELP After Factory Start (40-Day Windows)"
+        title = "Post-Implementation Ticket Volumes"
     elif blob.get("portfolio_aggregate"):
-        title = "HELP After Factory Start — Portfolio (40-Day Windows)"
+        title = "Post-Implementation Ticket Volumes"
     else:
-        title = f"{customer} — HELP After Factory Start (40-Day Windows)"
+        title = f"{customer} — Post-Implementation Ticket Volumes"
 
     fs_field = (blob.get("factory_start_date_field") or "factory_start_date").strip()
     scope_phrase = (
@@ -427,12 +429,43 @@ def help_factory_start_day_buckets_slide(reqs: list[dict[str, Any]], sid: str, r
         title="",
         labels=[_truncate_table_cell(str(lbl), 52) for lbl in labels],
         series={"Tickets opened": vals},
-        horizontal=True,
+        horizontal=False,
         show_title=False,
         suppress_legend=True,
         background=slide_bg,
     )
     embed_chart(reqs, f"{sid}_bar", sid, ss_id, chart_id, MARGIN, chart_top, CONTENT_W, chart_h, linked=True)
+
+    # Hypercare cutoff: vertical marker at calendar day 42 (interpolated within equal-width category bands).
+    n = len(HELP_FACTORY_START_DAY_BUCKETS)
+    if n == len(labels):
+        plot_left = MARGIN + 56.0
+        plot_right = MARGIN + CONTENT_W - 20.0
+        cat_w = (plot_right - plot_left) / float(n)
+        hypercare_day = 42
+
+        def _x_for_calendar_day(day: int) -> float:
+            for i, (lo, hi, _k, _l) in enumerate(HELP_FACTORY_START_DAY_BUCKETS):
+                if lo <= day <= hi:
+                    span = max(1, hi - lo + 1)
+                    frac = (day - lo) / float(span)
+                    return plot_left + (i + frac) * cat_w
+            if day < HELP_FACTORY_START_DAY_BUCKETS[0][0]:
+                return plot_left
+            return plot_right
+
+        x_line = _x_for_calendar_day(hypercare_day)
+        line_w = 1.5
+        axis_reserve = 36.0
+        line_top = chart_top + 8.0
+        line_h = max(40.0, chart_h - axis_reserve - 8.0)
+        _solid_rect(reqs, f"{sid}_hcut", sid, x_line - line_w / 2.0, line_top, line_w, line_h, RED)
+        lbl = "Hypercare Cutoff"
+        lbl_w = 120.0
+        lbl_x = min(x_line + 5.0, plot_right - lbl_w)
+        _box(reqs, f"{sid}_hcut_lbl", sid, lbl_x, line_top + 2.0, lbl_w, 16.0, lbl)
+        _style(reqs, f"{sid}_hcut_lbl", 0, len(lbl), size=9, color=RED, bold=True, font=FONT)
+
     return idx + 1
 
 

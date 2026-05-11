@@ -1,13 +1,13 @@
 id: support_help_factory_start_buckets
 type: standard
 order: 24.25
-title: HELP After Factory Start (40-Day Windows)
+title: Post-Implementation Ticket Volumes
 slide_type: support_help_factory_start_buckets
 data_tools:
   - customer_jira
 customers: all
 
 prompt: >
-  Single horizontal bar chart: HELP tickets created in each 40-ish calendar-day window after
-  Salesforce factory start (site-scoped org + text where configured). Subtitle summarizes entity
-  coverage and Salesforce field name.
+  Single column chart: HELP tickets created in each calendar-day window after Salesforce factory
+  start (site-scoped org + text where configured). A red vertical slide overlay marks the hypercare
+  cutoff at day 42 (“Hypercare Cutoff”). Subtitle summarizes entity coverage and Salesforce field name.

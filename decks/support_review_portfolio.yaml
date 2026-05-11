@@ -24,7 +24,7 @@ slides:
   - slide: support_ticket_metrics_breakdown
     title: "HELP Ticket Metrics Breakdown"
   - slide: support_help_factory_start_buckets
-    title: "HELP After Factory Start — Portfolio (40-Day Windows)"
+    title: "Post-Implementation Ticket Volumes"
   - slide: support_help_orgs_by_opened
     title: "HELP — Tickets Opened by Organization (90 Days)"
   - slide: support_help_escalation_metrics

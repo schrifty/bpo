@@ -636,6 +636,7 @@ Rules:
 - if horizontal bar charts are shown side by side, keep each chart to roughly **5–7 bars**
 - all bar charts must have a visible border or outline
 - highlight top or bottom performers when relevant
+- **Post-implementation HELP volumes** (factory-start day buckets): use a **column** chart so time reads left to right; add a thin red slide-overlay line at the **hypercare cutoff day (42)**, labeled *Hypercare Cutoff*, with horizontal position interpolated inside equal-width category bands per `HELP_FACTORY_START_DAY_BUCKETS` day bounds (not the bar height axis).
 
 ### Stacked bar charts
 
