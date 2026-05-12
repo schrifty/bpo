@@ -1082,10 +1082,12 @@ def main():
         print(__doc__.strip())
         return
 
-    if "--customer" in sys.argv or "--all-customer-decks" in sys.argv:
+    # Batch shortcuts only when the *first* argument is the flag (not ``support --customer X`` or
+    # ``run --deck … --customer X``, which also contain ``--customer``).
+    if len(sys.argv) >= 2 and sys.argv[1] in ("--customer", "--all-customer-decks"):
         _run_all_customer_decks()
         return
-    if "--portfolio" in sys.argv or "--all-portfolio-decks" in sys.argv:
+    if len(sys.argv) >= 2 and sys.argv[1] in ("--portfolio", "--all-portfolio-decks"):
         _run_all_portfolio_decks()
         return
 
