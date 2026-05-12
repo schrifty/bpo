@@ -910,10 +910,28 @@ class JiraClient:
         customer_name: str | None,
         match_terms: list[str] | None = None,
     ) -> tuple[str, list[str]]:
-        """HELP + customer scope: JSM ``Organizations`` only (no ``summary`` / ``description``)."""
-        return self._customer_match_clause(
+        """HELP + customer scope: prefer JSM ``Organizations`` literals only (metrics-safe).
+
+        If no directory label can be derived for the account (spelling differs from JSM,
+        aliases missing, fuzzy/LLM empty), fall back to ``summary`` / ``description`` OR-clauses
+        so single-customer support decks still populate instead of silently returning no issues.
+        """
+        org_only_clause, orgs = self._customer_match_clause(
             customer_name, match_terms, organizations_only=True
         )
+        if (
+            customer_name
+            and isinstance(org_only_clause, str)
+            and "___BPO_NO_ORG_MATCH___" in org_only_clause
+        ):
+            logger.warning(
+                "HELP scope: no JSM Organizations match for %r; using summary/description fallback",
+                (customer_name or "").strip(),
+            )
+            return self._customer_match_clause(
+                customer_name, match_terms, organizations_only=False
+            )
+        return org_only_clause, orgs
 
     def help_salesforce_entity_site_scoped_clause(
         self,

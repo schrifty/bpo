@@ -93,6 +93,27 @@ def test_customer_match_llm_adds_resolved_directory_name(
     mock_llm.assert_called_once()
 
 
+def test_help_project_customer_filter_falls_back_to_text_when_no_org_literal():
+    """HELP deck: avoid dead JQL when JSM directory has no match for the account name."""
+    jc = JiraClient.__new__(JiraClient)
+    calls: list[bool] = []
+
+    def fake_customer_match_clause(
+        customer_name, match_terms=None, *, organizations_only=False
+    ):
+        calls.append(organizations_only)
+        if organizations_only:
+            return ('summary ~ "___BPO_NO_ORG_MATCH___"', [])
+        return ("(summary ~ \"Safran\" OR description ~ \"Safran\")", [])
+
+    jc._customer_match_clause = fake_customer_match_clause  # type: ignore[method-assign]
+    frag, orgs = jc._help_project_customer_filter("Safran")
+    assert calls == [True, False]
+    assert "___BPO_NO_ORG_MATCH___" not in frag
+    assert "summary ~" in frag
+    assert orgs == []
+
+
 def test_customer_project_text_match_clause_uses_summary_description_not_orgs():
     """CUSTOMER/LEAN: customer scope is summary+description, not JSM Organizations."""
     jc = JiraClient.__new__(JiraClient)  # no Jira __init__ / API
