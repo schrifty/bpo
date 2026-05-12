@@ -114,7 +114,7 @@
 - `jira.customer`
 - `jira.customer_ticket_metrics`
 - `jira.help_factory_start_day_buckets`
-- `jira.help_monthly_operational_metrics`
+- `jira.help_monthly_operational_metrics` (monthly rows include HELP vs Outage/Healthcheck bands; `outage_resolved` and `outage_delta` for HC slice)
 - `jira.days`
 - `jira.engineering`
 - `jira.enhancements`

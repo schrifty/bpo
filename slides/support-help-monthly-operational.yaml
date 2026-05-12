@@ -8,7 +8,6 @@ data_tools:
 customers: all
 
 prompt: >
-  Table of last 12 calendar months of HELP: backlog snapshots at month start/end (excluding
-  Outage/Healthcheck labels for main columns), opened and resolved in month (Done, same label rule),
-  delta and tickets-per-day; parallel columns for Outage+Healthcheck only. Current month may be
-  partial. Counts from Jira approximate-count API per scoped query.
+  Wide monthly table: column bands (month | HELP ex-Outage/Healthcheck | Outage+Healthcheck).
+  Two header rows with merged section titles; metrics Rate = opened ÷ days in month. Outage block
+  includes opened, resolved (closed), and delta. Counts from Jira approximate-count API.

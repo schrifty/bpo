@@ -2879,6 +2879,12 @@ class JiraClient:
                 f'AND resolved >= "{s_iso}" AND resolved < "{e_iso}"'
             )
 
+        def _jql_resolved_outage_in_range(s_iso: str, e_iso: str) -> str:
+            return (
+                f"{scope} AND {_HELP_MONTHLY_OUTAGE_ONLY_LABELS} AND statusCategory = Done "
+                f'AND resolved >= "{s_iso}" AND resolved < "{e_iso}"'
+            )
+
         tasks: list[tuple[str, str]] = []
         for iso in boundaries_iso:
             tasks.append((f"snap_main:{iso}", _jql_open_snapshot(iso, outage_only=False)))
@@ -2888,6 +2894,7 @@ class JiraClient:
             tasks.append((f"opened_main:{k}", _jql_opened_in_range(s_iso, e_iso, outage_only=False)))
             tasks.append((f"resolved_main:{k}", _jql_resolved_in_range(s_iso, e_iso)))
             tasks.append((f"opened_ot:{k}", _jql_opened_in_range(s_iso, e_iso, outage_only=True)))
+            tasks.append((f"resolved_ot:{k}", _jql_resolved_outage_in_range(s_iso, e_iso)))
 
         counts: dict[str, int | None] = {}
         partial_failure = False
@@ -2923,6 +2930,10 @@ class JiraClient:
                 "description": "HELP monthly — outage opened in month example",
                 "jql": _jql_opened_in_range(boundaries_iso[0], boundaries_iso[1], outage_only=True),
             },
+            {
+                "description": "HELP monthly — outage resolved in month example",
+                "jql": _jql_resolved_outage_in_range(boundaries_iso[0], boundaries_iso[1]),
+            },
         ]
 
         for k, (y_, m_) in enumerate(months):
@@ -2931,6 +2942,7 @@ class JiraClient:
             opened_main = _n(f"opened_main:{k}")
             resolved_main = _n(f"resolved_main:{k}")
             opened_ot = _n(f"opened_ot:{k}")
+            resolved_ot = _n(f"resolved_ot:{k}")
             open_som_main = _n(f"snap_main:{s_iso}")
             open_eom_main = _n(f"snap_main:{e_iso}")
             open_som_ot = _n(f"snap_ot:{s_iso}")
@@ -2938,6 +2950,7 @@ class JiraClient:
             delta = opened_main - resolved_main
             tix_day = round(opened_main / float(dm), 1) if dm else 0.0
             ot_tix_day = round(opened_ot / float(dm), 1) if dm else 0.0
+            outage_delta = opened_ot - resolved_ot
             partial = y_ == y_end and m_ == m_end
             label = f"{datetime(y_, m_, 1, tzinfo=timezone.utc).strftime('%b %Y')}"
             if partial:
@@ -2957,6 +2970,8 @@ class JiraClient:
                 "delta": delta,
                 "outage_tix_per_day": ot_tix_day,
                 "outage_opened": opened_ot,
+                "outage_resolved": resolved_ot,
+                "outage_delta": outage_delta,
                 "outage_open_start": open_som_ot,
                 "outage_open_eom": open_eom_ot,
             })

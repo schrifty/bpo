@@ -1424,7 +1424,8 @@
         "jira.help_monthly_operational_metrics",
         "[Jira] HELP monthly operational ticket table",
         "HELP opened resolved per month outage healthcheck",
-        "Support deck monthly HELP backlog snapshots"
+        "Support deck monthly HELP backlog snapshots",
+        "outage_resolved outage_delta Outage Healthcheck resolved in month"
       ]
     },
     {

@@ -463,7 +463,7 @@ def help_factory_start_day_buckets_slide(reqs: list[dict[str, Any]], sid: str, r
 
 
 def help_monthly_operational_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
-    """Table: HELP monthly opened/resolved, backlog snapshots, and outage slice (Jira approximate counts)."""
+    """Table: HELP monthly ops in banded sections (month | HELP ex-outage | Outage/HC)."""
     jira = report.get("jira") or {}
     blob = jira.get("help_monthly_operational_metrics")
     if not isinstance(blob, dict):
@@ -487,11 +487,11 @@ def help_monthly_operational_slide(reqs: list[dict[str, Any]], sid: str, report:
     _bg(reqs, sid, project_slide_bg("HELP"))
     _slide_title(reqs, sid, title)
 
-    sub_h = 34.0
+    sub_h = 32.0
     foot = (
-        "Open (EoM): non-Outage/Healthcheck HELP open at end of month. "
-        "Open (SoM): same at month start. O columns: Outage + Healthcheck only. "
-        "Trailing * on month = partial current month. Counts: Jira approximate-count API."
+        "HELP: Open = backlog at month end (excl. Outage/Healthcheck). Rate = opened ÷ days in month. "
+        "Outage/HC: Open = backlog at month start; Delta = opened − closed in month. "
+        "Trailing * = partial month. Counts: Jira approximate-count."
     )
     if blob.get("jira_count_partial_failure"):
         foot += " Some counts may be incomplete."
@@ -503,26 +503,25 @@ def help_monthly_operational_slide(reqs: list[dict[str, Any]], sid: str, report:
         _style(reqs, f"{sid}_empty", 0, len("No monthly rows returned."), size=10, color=NAVY, font=FONT)
         return idx + 1
 
-    table_top = BODY_Y + sub_h + 4.0
-    row_h = 16.0
-    max_rows = max(1, int((float(BODY_BOTTOM) - table_top - 6.0) // row_h) - 1)
-    display_rows = rows_in[-max_rows:] if len(rows_in) > max_rows else rows_in
+    # Section backgrounds (column bands): month | HELP (ex-outage) | Outage/HC
+    bg_month = {"red": 0.90, "green": 0.91, "blue": 0.95}
+    bg_help = {"red": 0.88, "green": 0.94, "blue": 1.0}
+    bg_out = {"red": 1.0, "green": 0.95, "blue": 0.90}
 
-    headers = [
-        "Month",
-        "Open (EoM)",
-        "Tix/day",
-        "Opened",
-        "Closed",
-        "Open (SoM)",
-        "Delta",
-        "O Tix/day",
-        "O Opened",
-        "O Open SoM",
-    ]
-    col_widths = [88, 82, 46, 58, 58, 66, 40, 48, 56, 66]
-    num_rows = 1 + len(display_rows)
-    table_id = f"{sid}_tbl"
+    table_top = BODY_Y + sub_h + 4.0
+    row_h = 15.0
+    header_rows = 2
+    max_body = max(1, int((float(BODY_BOTTOM) - table_top - 8.0) // row_h) - header_rows)
+    display_rows = rows_in[-max_body:] if len(rows_in) > max_body else rows_in
+
+    num_cols = 10
+    col_widths = [56, 62, 54, 62, 62, 56, 48, 54, 62, 62]
+    adj = int(CONTENT_W) - sum(col_widths)
+    if adj:
+        col_widths[-1] = col_widths[-1] + adj
+
+    num_rows = header_rows + len(display_rows)
+    table_id = f"{sid}_mtbl"
     reqs.append({
         "createTable": {
             "objectId": table_id,
@@ -532,9 +531,42 @@ def help_monthly_operational_slide(reqs: list[dict[str, Any]], sid: str, report:
                 "transform": _tf(MARGIN, table_top),
             },
             "rows": num_rows,
-            "columns": len(headers),
+            "columns": num_cols,
         }
     })
+
+    def _merge(r: int, c: int, rs: int, cs: int) -> None:
+        reqs.append({
+            "mergeTableCells": {
+                "objectId": table_id,
+                "tableRange": {
+                    "location": {"rowIndex": r, "columnIndex": c},
+                    "rowSpan": rs,
+                    "columnSpan": cs,
+                },
+            },
+        })
+
+    # Row 0: section titles; row 1: metric subheaders; data from row 2.
+    _merge(0, 0, 2, 1)
+    _merge(0, 1, 1, 4)
+    _merge(0, 5, 1, 5)
+
+    def _band_fill(r0: int, c0: int, rs: int, cs: int, fill_rgb: dict[str, float]) -> None:
+        reqs.append({
+            "updateTableCellProperties": {
+                "objectId": table_id,
+                "tableRange": {
+                    "location": {"rowIndex": r0, "columnIndex": c0},
+                    "rowSpan": rs,
+                    "columnSpan": cs,
+                },
+                "tableCellProperties": {
+                    "tableCellBackgroundFill": {"solidFill": {"color": {"rgbColor": fill_rgb}}},
+                },
+                "fields": "tableCellBackgroundFill",
+            },
+        })
 
     def _ct(row: int, col: int, text: str) -> None:
         if not text:
@@ -545,10 +577,10 @@ def help_monthly_operational_slide(reqs: list[dict[str, Any]], sid: str, report:
                 "cellLocation": {"rowIndex": row, "columnIndex": col},
                 "text": str(text),
                 "insertionIndex": 0,
-            }
+            },
         })
 
-    def _cs(row: int, col: int, text_len: int, *, bold: bool = False, size: float = 8.0) -> None:
+    def _cs(row: int, col: int, text_len: int, *, bold: bool = False, size: float = 8.0, color: Any = None) -> None:
         if text_len <= 0:
             return
         from typing import Any
@@ -561,6 +593,9 @@ def help_monthly_operational_slide(reqs: list[dict[str, Any]], sid: str, report:
         if bold:
             s["bold"] = True
             fields += ",bold"
+        if color is not None:
+            s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}
+            fields += ",foregroundColor"
         reqs.append({
             "updateTextStyle": {
                 "objectId": table_id,
@@ -568,16 +603,70 @@ def help_monthly_operational_slide(reqs: list[dict[str, Any]], sid: str, report:
                 "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
                 "style": s,
                 "fields": fields,
-            }
+            },
         })
 
-    _clean_table(reqs, table_id, num_rows, len(headers))
+    def _pc(row: int, col: int, alignment: str) -> None:
+        reqs.append({
+            "updateParagraphStyle": {
+                "objectId": table_id,
+                "cellLocation": {"rowIndex": row, "columnIndex": col},
+                "textRange": {"type": "ALL"},
+                "style": {"alignment": alignment},
+                "fields": "alignment",
+            },
+        })
 
-    for ci, h in enumerate(headers):
-        _ct(0, ci, h)
-        _cs(0, ci, len(h), bold=True, size=8.0)
+    # Section backgrounds: month column (rows 0–1 merged), then column bands per row.
+    _band_fill(0, 0, 2, 1, bg_month)
+    _band_fill(0, 1, 1, 4, bg_help)
+    _band_fill(0, 5, 1, 5, bg_out)
+    _band_fill(1, 1, 1, 4, bg_help)
+    _band_fill(1, 5, 1, 5, bg_out)
+    for rr in range(2, num_rows):
+        _band_fill(rr, 0, 1, 1, bg_month)
+        _band_fill(rr, 1, 1, 4, bg_help)
+        _band_fill(rr, 5, 1, 5, bg_out)
 
-    def _fmt_tix(v: Any) -> str:
+    _clean_table(reqs, table_id, num_rows, num_cols)
+    reqs.append({
+        "updateTableBorderProperties": {
+            "objectId": table_id,
+            "tableRange": {
+                "location": {"rowIndex": 1, "columnIndex": 0},
+                "rowSpan": 1,
+                "columnSpan": num_cols,
+            },
+            "borderPosition": "BOTTOM",
+            "tableBorderProperties": {
+                "tableBorderFill": {"solidFill": {"color": {"rgbColor": BLUE}}},
+                "weight": {"magnitude": 1, "unit": "PT"},
+                "dashStyle": "SOLID",
+            },
+            "fields": "tableBorderFill,weight,dashStyle",
+        },
+    })
+
+    sec_help = "HELP tickets (excl. Outage / Healthcheck)"
+    sec_out = "Outage / Healthcheck tickets"
+    _ct(0, 0, "Month")
+    _cs(0, 0, len("Month"), bold=True, size=8.0, color=NAVY)
+    _pc(0, 0, "CENTER")
+    _ct(0, 1, sec_help)
+    _cs(0, 1, len(sec_help), bold=True, size=8.0, color=NAVY)
+    _pc(0, 1, "CENTER")
+    _ct(0, 5, sec_out)
+    _cs(0, 5, len(sec_out), bold=True, size=8.0, color=NAVY)
+    _pc(0, 5, "CENTER")
+
+    sub_h1 = ["Open", "Rate", "Opened", "Closed", "Open", "Delta", "Rate", "Opened", "Closed"]
+    for j, h in enumerate(sub_h1):
+        ci = 1 + j
+        _ct(1, ci, h)
+        _cs(1, ci, len(h), bold=True, size=7.5, color=NAVY)
+        _pc(1, ci, "END")
+
+    def _fmt_rate(v: Any) -> str:
         try:
             x = float(v)
         except (TypeError, ValueError):
@@ -586,22 +675,32 @@ def help_monthly_operational_slide(reqs: list[dict[str, Any]], sid: str, report:
             return str(int(round(x)))
         return f"{x:.1f}"
 
-    for ri, row in enumerate(display_rows, start=1):
+    for ri, row in enumerate(display_rows, start=2):
+        opened_ot = int(row.get("outage_opened") or 0)
+        resolved_ot = int(row.get("outage_resolved") or 0)
+        delta_ot = row.get("outage_delta")
+        if delta_ot is None:
+            delta_ot = opened_ot - resolved_ot
         vals = [
             str(row.get("label") or row.get("month_key") or ""),
             _format_count(row.get("total_open_eom")),
-            _fmt_tix(row.get("tix_per_day")),
+            _fmt_rate(row.get("tix_per_day")),
             _format_count(row.get("opened")),
             _format_count(row.get("resolved")),
-            _format_count(row.get("open_start_of_month")),
-            _format_count(row.get("delta")),
-            _fmt_tix(row.get("outage_tix_per_day")),
-            _format_count(row.get("outage_opened")),
             _format_count(row.get("outage_open_start")),
+            _format_count(delta_ot),
+            _fmt_rate(row.get("outage_tix_per_day")),
+            _format_count(opened_ot),
+            _format_count(resolved_ot),
         ]
         for ci, v in enumerate(vals):
             _ct(ri, ci, v)
-            _cs(ri, ci, len(v), bold=False, size=7.5 if ci == 0 else 8.0)
+            size = 7.5 if ci == 0 else 7.75
+            _cs(ri, ci, len(v), bold=False, size=size, color=None)
+            if ci == 0:
+                _pc(ri, 0, "START")
+            else:
+                _pc(ri, ci, "END")
 
     return idx + 1
 
