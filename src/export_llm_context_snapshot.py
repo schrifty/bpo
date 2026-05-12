@@ -569,6 +569,21 @@ def _compact_jira(j: dict[str, Any]) -> dict[str, Any]:
             )
             if k in fsb
         }
+    hom = j.get("help_monthly_operational_metrics")
+    if isinstance(hom, dict) and hom:
+        rows = hom.get("rows")
+        out["help_monthly_operational_metrics"] = {
+            k: hom.get(k)
+            for k in (
+                "error",
+                "customer",
+                "jira_count_partial_failure",
+                "jql_queries",
+            )
+            if k in hom
+        }
+        if isinstance(rows, list) and rows:
+            out["help_monthly_operational_metrics"]["rows"] = rows[-6:]
     out["engineering"] = _compact_eng_enh_counts_only(j.get("engineering"))
     out["enhancements"] = _compact_eng_enh_counts_only(j.get("enhancements"))
     tow = j.get("tickets_over_time")

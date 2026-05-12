@@ -227,6 +227,24 @@ def enrich_support_jira_data(report: dict[str, Any], customer: str | None) -> No
                         "error": str(e2)[:500],
                         "customer": customer,
                     }
+            if isinstance(report.get("jira"), dict) and "help_monthly_operational_metrics" not in report["jira"]:
+                try:
+                    from .jira_client import get_shared_jira_client as _get_jira2
+
+                    jc2 = _get_jira2()
+                    report["jira"]["help_monthly_operational_metrics"] = jc2.get_help_monthly_operational_table(
+                        customer,
+                    )
+                    save_integration_payload(KIND_JIRA_SUPPORT, customer, report["jira"])
+                except Exception as e3:
+                    logger.warning(
+                        "Support deck: HELP monthly operational table fetch failed after cache: %s",
+                        e3,
+                    )
+                    report["jira"]["help_monthly_operational_metrics"] = {
+                        "error": str(e3)[:500],
+                        "customer": customer,
+                    }
             _support_help_escalation_llm_post(report)
             logger.info(
                 "Support deck: using Drive cache for Jira data (%s)",
@@ -256,6 +274,15 @@ def enrich_support_jira_data(report: dict[str, Any], customer: str | None) -> No
                 customer_display,
             )
             report["jira"]["help_factory_start_day_buckets"] = jira_client.get_help_factory_start_day_buckets(
+                customer,
+            )
+
+        if "help_monthly_operational_metrics" not in report["jira"]:
+            logger.info(
+                "Support deck: fetching HELP monthly operational table for %s",
+                customer_display,
+            )
+            report["jira"]["help_monthly_operational_metrics"] = jira_client.get_help_monthly_operational_table(
                 customer,
             )
 

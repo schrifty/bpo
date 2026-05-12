@@ -1,0 +1,14 @@
+id: support_help_monthly_operational
+type: standard
+order: 24.3
+title: HELP — Monthly Ticket Operations
+slide_type: support_help_monthly_operational
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Table of last 12 calendar months of HELP: backlog snapshots at month start/end (excluding
+  Outage/Healthcheck labels for main columns), opened and resolved in month (Done, same label rule),
+  delta and tickets-per-day; parallel columns for Outage+Healthcheck only. Current month may be
+  partial. Counts from Jira approximate-count API per scoped query.

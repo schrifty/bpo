@@ -9,7 +9,8 @@ purpose: |
   Three parallel blocks — HELP, CUSTOMER, and LEAN — each with the same six
   core slides: volume trends, KPI ticket metrics, open-ticket breakdown (pies),
   recently opened, recently closed, and resolved by assignee (90 days), plus
-  HELP-only rows where listed below (factory-start 40-day HELP buckets support single-customer and portfolio aggregate).
+  HELP-only rows where listed below (factory-start 40-day HELP buckets support single-customer and portfolio aggregate;
+  monthly HELP operational table after post-implementation volumes).
   All-customer runs also include a ranking of JSM organizations by HELP tickets
   opened in the last ~90 days (before the recently opened/closed tables). Every
   run includes a Customer Escalations table: open HELP issues with the
@@ -40,6 +41,8 @@ slides:
     title: "HELP Ticket Metrics Breakdown"
   - slide: support_help_factory_start_buckets
     title: "Post-Implementation Ticket Volumes"
+  - slide: support_help_monthly_operational
+    title: "HELP — Monthly Ticket Operations"
   - slide: support_help_orgs_by_opened
     title: "HELP — Tickets Opened by Organization (90 Days)"
   - slide: support_help_escalation_metrics

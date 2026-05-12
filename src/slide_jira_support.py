@@ -469,6 +469,150 @@ def help_factory_start_day_buckets_slide(reqs: list[dict[str, Any]], sid: str, r
     return idx + 1
 
 
+def help_monthly_operational_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Table: HELP monthly opened/resolved, backlog snapshots, and outage slice (Jira approximate counts)."""
+    jira = report.get("jira") or {}
+    blob = jira.get("help_monthly_operational_metrics")
+    if not isinstance(blob, dict):
+        return _missing_data_slide(
+            reqs,
+            sid,
+            report,
+            idx,
+            "HELP monthly operational metrics (not in report — support deck data fetch)",
+        )
+    if blob.get("error"):
+        return _missing_data_slide(reqs, sid, report, idx, f"HELP monthly operational: {blob.get('error')}")
+
+    rows_in = list(blob.get("rows") or [])
+
+    customer = report.get("customer") or blob.get("customer") or "All Customers"
+    entry = report.get("_current_slide") or {}
+    title = (entry.get("title") or "").strip() or "HELP — Monthly Ticket Operations"
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, project_slide_bg("HELP"))
+    _slide_title(reqs, sid, title)
+
+    sub_h = 34.0
+    foot = (
+        "Open (EoM): non-Outage/Healthcheck HELP open at end of month. "
+        "Open (SoM): same at month start. O columns: Outage + Healthcheck only. "
+        "Trailing * on month = partial current month. Counts: Jira approximate-count API."
+    )
+    if blob.get("jira_count_partial_failure"):
+        foot += " Some counts may be incomplete."
+    _wrap_box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, sub_h, foot)
+    _style(reqs, f"{sid}_sub", 0, len(foot), size=7, color=GRAY, font=FONT)
+
+    if not rows_in:
+        _box(reqs, f"{sid}_empty", sid, MARGIN, BODY_Y + sub_h + 8, CONTENT_W, 28, "No monthly rows returned.")
+        _style(reqs, f"{sid}_empty", 0, len("No monthly rows returned."), size=10, color=NAVY, font=FONT)
+        return idx + 1
+
+    table_top = BODY_Y + sub_h + 4.0
+    row_h = 16.0
+    max_rows = max(1, int((float(BODY_BOTTOM) - table_top - 6.0) // row_h) - 1)
+    display_rows = rows_in[-max_rows:] if len(rows_in) > max_rows else rows_in
+
+    headers = [
+        "Month",
+        "Open (EoM)",
+        "Tix/day",
+        "Opened",
+        "Closed",
+        "Open (SoM)",
+        "Delta",
+        "O Tix/day",
+        "O Opened",
+        "O Open SoM",
+    ]
+    col_widths = [88, 82, 46, 58, 58, 66, 40, 48, 56, 66]
+    num_rows = 1 + len(display_rows)
+    table_id = f"{sid}_tbl"
+    reqs.append({
+        "createTable": {
+            "objectId": table_id,
+            "elementProperties": {
+                "pageObjectId": sid,
+                "size": _sz(sum(col_widths), num_rows * row_h),
+                "transform": _tf(MARGIN, table_top),
+            },
+            "rows": num_rows,
+            "columns": len(headers),
+        }
+    })
+
+    def _ct(row: int, col: int, text: str) -> None:
+        if not text:
+            return
+        reqs.append({
+            "insertText": {
+                "objectId": table_id,
+                "cellLocation": {"rowIndex": row, "columnIndex": col},
+                "text": str(text),
+                "insertionIndex": 0,
+            }
+        })
+
+    def _cs(row: int, col: int, text_len: int, *, bold: bool = False, size: float = 8.0) -> None:
+        if text_len <= 0:
+            return
+        from typing import Any
+
+        s: dict[str, Any] = {
+            "fontSize": {"magnitude": size, "unit": "PT"},
+            "fontFamily": FONT,
+        }
+        fields = "fontSize,fontFamily"
+        if bold:
+            s["bold"] = True
+            fields += ",bold"
+        reqs.append({
+            "updateTextStyle": {
+                "objectId": table_id,
+                "cellLocation": {"rowIndex": row, "columnIndex": col},
+                "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
+                "style": s,
+                "fields": fields,
+            }
+        })
+
+    _clean_table(reqs, table_id, num_rows, len(headers))
+
+    for ci, h in enumerate(headers):
+        _ct(0, ci, h)
+        _cs(0, ci, len(h), bold=True, size=8.0)
+
+    def _fmt_tix(v: Any) -> str:
+        try:
+            x = float(v)
+        except (TypeError, ValueError):
+            return "—"
+        if abs(x - round(x)) < 0.05:
+            return str(int(round(x)))
+        return f"{x:.1f}"
+
+    for ri, row in enumerate(display_rows, start=1):
+        vals = [
+            str(row.get("label") or row.get("month_key") or ""),
+            _format_count(row.get("total_open_eom")),
+            _fmt_tix(row.get("tix_per_day")),
+            _format_count(row.get("opened")),
+            _format_count(row.get("resolved")),
+            _format_count(row.get("open_start_of_month")),
+            _format_count(row.get("delta")),
+            _fmt_tix(row.get("outage_tix_per_day")),
+            _format_count(row.get("outage_opened")),
+            _format_count(row.get("outage_open_start")),
+        ]
+        for ci, v in enumerate(vals):
+            _ct(ri, ci, v)
+            _cs(ri, ci, len(v), bold=False, size=7.5 if ci == 0 else 8.0)
+
+    return idx + 1
+
+
 def customer_project_ticket_metrics_breakdown_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
     return project_ticket_metrics_breakdown_slide(reqs, sid, report, idx, snap_key="customer_project_open_breakdown", project="CUSTOMER", default_title="CUSTOMER Ticket Metrics Breakdown")
 

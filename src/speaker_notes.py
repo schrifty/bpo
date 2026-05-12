@@ -13,6 +13,7 @@ from .slides_api import slides_presentations_batch_update
 # Slides with a canonical trace builder should not also merge every JQL under report[jira].
 _SLIDE_TYPES_SPEAKER_NOTES_CANONICAL_ONLY: frozenset[str] = frozenset({
     "support_help_factory_start_buckets",
+    "support_help_monthly_operational",
 })
 
 __all__ = [

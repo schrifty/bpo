@@ -56,6 +56,11 @@ STORY_POINTS_FIELD = "customfield_10202" # "Story Points"
 # These are typically caused by customer IT and don't reflect actionable support issues.
 # Explicit NOT (...): multi-label issues still drop if either label is present (same as NOT IN for HELP).
 _TRANSIENT_LABELS_EXCLUSION = 'NOT (labels = Outage OR labels = Healthcheck)'
+# HELP monthly operational slide: match common label casings (Jira labels are case-sensitive).
+_HELP_MONTHLY_NON_OUTAGE_LABELS = (
+    "(labels is EMPTY OR labels not in (Outage, Healthcheck, outage, healthcheck))"
+)
+_HELP_MONTHLY_OUTAGE_ONLY_LABELS = "(labels in (Outage, Healthcheck, outage, healthcheck))"
 
 # Inclusive day offsets from Salesforce ``factory_start_date`` (calendar days). Fourth element is a
 # slide-facing label. Keys align with ``HELP_TICKET_DAY_BUCKETS`` in
@@ -2788,6 +2793,162 @@ class JiraClient:
             "escalated": self._bucket_by_month(issues, escalated_only=True),
             "non_escalated": self._bucket_by_month(issues, exclude_escalated=True),
             "jql_queries": self._jql_since(jql_start),
+        }
+
+    def get_help_monthly_operational_table(
+        self,
+        customer_name: str | None = None,
+        match_terms: list[str] | None = None,
+        *,
+        num_months: int = 12,
+    ) -> dict[str, Any]:
+        """Monthly HELP counts aligned with operational spreadsheet (non-outage vs outage/healthcheck).
+
+        Uses Jira approximate-count per query. Snapshots treat an issue as open at instant *T* when
+        ``created < T`` and (``resolution IS EMPTY`` or ``resolved >= T``). *Open (EoM)* for month *M*
+        equals the snapshot at the first instant of the month after *M*.
+
+        ``num_months`` includes the current calendar month (may be partial vs closed months).
+        """
+        from calendar import monthrange
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
+            customer_name, match_terms
+        )
+        scope = f"project = HELP AND ({base_filter})"
+        now = datetime.now(timezone.utc)
+        y_end, m_end = now.year, now.month
+
+        months: list[tuple[int, int]] = []
+        y, m = y_end, m_end
+        for _ in range(num_months):
+            months.append((y, m))
+            m -= 1
+            if m == 0:
+                m = 12
+                y -= 1
+        months.reverse()
+
+        def _iso(y_: int, m_: int) -> str:
+            return f"{y_:04d}-{m_:02d}-01"
+
+        boundaries_iso: list[str] = []
+        for y_, m_ in months:
+            boundaries_iso.append(_iso(y_, m_))
+        yn, mn = months[-1][0], months[-1][1]
+        if mn == 12:
+            boundaries_iso.append(_iso(yn + 1, 1))
+        else:
+            boundaries_iso.append(_iso(yn, mn + 1))
+
+        def _jql_open_snapshot(iso: str, *, outage_only: bool) -> str:
+            lab = _HELP_MONTHLY_OUTAGE_ONLY_LABELS if outage_only else _HELP_MONTHLY_NON_OUTAGE_LABELS
+            return (
+                f'{scope} AND {lab} AND created < "{iso}" '
+                f'AND (resolution IS EMPTY OR resolved >= "{iso}")'
+            )
+
+        def _jql_opened_in_range(s_iso: str, e_iso: str, *, outage_only: bool) -> str:
+            lab = _HELP_MONTHLY_OUTAGE_ONLY_LABELS if outage_only else _HELP_MONTHLY_NON_OUTAGE_LABELS
+            return (
+                f'{scope} AND {lab} AND created >= "{s_iso}" AND created < "{e_iso}"'
+            )
+
+        def _jql_resolved_in_range(s_iso: str, e_iso: str) -> str:
+            return (
+                f"{scope} AND {_HELP_MONTHLY_NON_OUTAGE_LABELS} AND statusCategory = Done "
+                f'AND resolved >= "{s_iso}" AND resolved < "{e_iso}"'
+            )
+
+        tasks: list[tuple[str, str]] = []
+        for iso in boundaries_iso:
+            tasks.append((f"snap_main:{iso}", _jql_open_snapshot(iso, outage_only=False)))
+            tasks.append((f"snap_ot:{iso}", _jql_open_snapshot(iso, outage_only=True)))
+        for k in range(len(months)):
+            s_iso, e_iso = boundaries_iso[k], boundaries_iso[k + 1]
+            tasks.append((f"opened_main:{k}", _jql_opened_in_range(s_iso, e_iso, outage_only=False)))
+            tasks.append((f"resolved_main:{k}", _jql_resolved_in_range(s_iso, e_iso)))
+            tasks.append((f"opened_ot:{k}", _jql_opened_in_range(s_iso, e_iso, outage_only=True)))
+
+        counts: dict[str, int | None] = {}
+        partial_failure = False
+        max_workers = max(1, min(10, _JIRA_PARALLEL_WORKERS * 3))
+
+        def _run_one(item: tuple[str, str]) -> tuple[str, int | None]:
+            key, jql = item
+            return key, self._jql_match_total(jql)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [pool.submit(_run_one, t) for t in tasks]
+            for fut in as_completed(futures):
+                key, val = fut.result()
+                counts[key] = val
+                if val is None:
+                    partial_failure = True
+
+        def _n(key: str) -> int:
+            v = counts.get(key)
+            return int(v) if v is not None else 0
+
+        rows: list[dict[str, Any]] = []
+        sample_jql: list[dict[str, str]] = [
+            {
+                "description": "HELP monthly — open snapshot (non-outage) example",
+                "jql": _jql_open_snapshot(boundaries_iso[0], outage_only=False),
+            },
+            {
+                "description": "HELP monthly — resolved in month (non-outage) example",
+                "jql": _jql_resolved_in_range(boundaries_iso[0], boundaries_iso[1]),
+            },
+            {
+                "description": "HELP monthly — outage opened in month example",
+                "jql": _jql_opened_in_range(boundaries_iso[0], boundaries_iso[1], outage_only=True),
+            },
+        ]
+
+        for k, (y_, m_) in enumerate(months):
+            s_iso, e_iso = boundaries_iso[k], boundaries_iso[k + 1]
+            dm = monthrange(y_, m_)[1]
+            opened_main = _n(f"opened_main:{k}")
+            resolved_main = _n(f"resolved_main:{k}")
+            opened_ot = _n(f"opened_ot:{k}")
+            open_som_main = _n(f"snap_main:{s_iso}")
+            open_eom_main = _n(f"snap_main:{e_iso}")
+            open_som_ot = _n(f"snap_ot:{s_iso}")
+            open_eom_ot = _n(f"snap_ot:{e_iso}")
+            delta = opened_main - resolved_main
+            tix_day = round(opened_main / float(dm), 1) if dm else 0.0
+            ot_tix_day = round(opened_ot / float(dm), 1) if dm else 0.0
+            partial = y_ == y_end and m_ == m_end
+            label = f"{datetime(y_, m_, 1, tzinfo=timezone.utc).strftime('%b %Y')}"
+            if partial:
+                label = f"{label} *"
+            rows.append({
+                "month_key": f"{y_}-{m_:02d}",
+                "label": label,
+                "year": y_,
+                "month": m_,
+                "days_in_month": dm,
+                "partial": partial,
+                "total_open_eom": open_eom_main,
+                "tix_per_day": tix_day,
+                "opened": opened_main,
+                "resolved": resolved_main,
+                "open_start_of_month": open_som_main,
+                "delta": delta,
+                "outage_tix_per_day": ot_tix_day,
+                "outage_opened": opened_ot,
+                "outage_open_start": open_som_ot,
+                "outage_open_eom": open_eom_ot,
+            })
+
+        return {
+            "customer": customer_name,
+            "jsm_organizations_resolved": resolved_jsm_orgs,
+            "rows": rows,
+            "jql_queries": sample_jql,
+            "jira_count_partial_failure": partial_failure,
         }
 
     def _get_help_ticket_volume_trends(self) -> dict[str, Any]:

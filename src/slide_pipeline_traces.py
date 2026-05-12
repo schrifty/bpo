@@ -472,6 +472,20 @@ def help_factory_start_buckets_pipeline_traces(report: dict[str, Any]) -> list[d
     return rows
 
 
+def help_monthly_operational_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Speaker-note rows for HELP monthly operational table (representative JQL samples)."""
+    blob = (report.get("jira") or {}).get("help_monthly_operational_metrics") or {}
+    rows: list[dict[str, str]] = []
+    for item in blob.get("jql_queries") or []:
+        if not isinstance(item, dict):
+            continue
+        desc = str(item.get("description") or "").strip()
+        jql = str(item.get("jql") or "").strip()
+        if jql:
+            rows.append({"description": desc or "Jira", "source": "Jira", "query": jql})
+    return rows
+
+
 def cs_notable_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
     source = (report.get("support_notable_bullets_source") or "").strip() or "static"
     return [{
@@ -486,6 +500,7 @@ CANONICAL_PIPELINE_TRACES: dict[str, Any] = {
     "benchmarks": peer_benchmarks_pipeline_traces,
     "platform_value": platform_value_pipeline_traces,
     "support_help_factory_start_buckets": help_factory_start_buckets_pipeline_traces,
+    "support_help_monthly_operational": help_monthly_operational_pipeline_traces,
     "support_health_exec": support_health_exec_pipeline_traces,
     "salesforce_pipeline": salesforce_pipeline_traces,
     "platform_risk": platform_risk_pipeline_traces,
