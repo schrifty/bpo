@@ -436,25 +436,18 @@ def help_factory_start_day_buckets_slide(reqs: list[dict[str, Any]], sid: str, r
     )
     embed_chart(reqs, f"{sid}_bar", sid, ss_id, chart_id, MARGIN, chart_top, CONTENT_W, chart_h, linked=True)
 
-    # Hypercare cutoff: vertical marker at calendar day 42 (interpolated within equal-width category bands).
+    # Hypercare cutoff: vertical marker at calendar day 42 on a 0–200 day factory-start timeline.
+    # Embedded Sheets charts reserve substantial width for the Y-axis; use fractional insets of
+    # CONTENT_W (the chart object width) so the overlay tracks the category plot band.
     n = len(HELP_FACTORY_START_DAY_BUCKETS)
     if n == len(labels):
-        plot_left = MARGIN + 56.0
-        plot_right = MARGIN + CONTENT_W - 20.0
-        cat_w = (plot_right - plot_left) / float(n)
+        chart_w = float(CONTENT_W)
+        # Empirical: ~15–16% leading for value axis + ticks; trailing ~3.5% for padding.
+        plot_left = MARGIN + chart_w * 0.155
+        plot_right = MARGIN + chart_w * 0.965
         hypercare_day = 42
-
-        def _x_for_calendar_day(day: int) -> float:
-            for i, (lo, hi, _k, _l) in enumerate(HELP_FACTORY_START_DAY_BUCKETS):
-                if lo <= day <= hi:
-                    span = max(1, hi - lo + 1)
-                    frac = (day - lo) / float(span)
-                    return plot_left + (i + frac) * cat_w
-            if day < HELP_FACTORY_START_DAY_BUCKETS[0][0]:
-                return plot_left
-            return plot_right
-
-        x_line = _x_for_calendar_day(hypercare_day)
+        axis_day_max = float(HELP_FACTORY_START_DAY_BUCKETS[-1][1] or 200)
+        x_line = plot_left + (hypercare_day / axis_day_max) * (plot_right - plot_left)
         line_w = 1.5
         axis_reserve = 36.0
         line_top = chart_top + 8.0
