@@ -2,7 +2,8 @@
 
 Supports the same auth modes as the LeanDNA web app:
 
-- **Bearer** — ``LEANDNA_DATA_API_BEARER_TOKEN`` (integration token).
+- **Bearer** — ``LEANDNA_DATA_API_BEARER_TOKEN`` (integration token: paste the **raw token** only;
+  a leading ``Bearer `` prefix in the env value is stripped automatically).
 - **Session cookie** — ``LEANDNA_DATA_API_COOKIE`` copied from the browser while logged in
   (DevTools → Network → any ``/api/data/...`` request → **Request Headers** → ``Cookie``).
   Optional ``Origin`` / ``Referer`` are sent with cookie auth so the API sees a browser-like request.
@@ -41,6 +42,19 @@ def _default_origin_for_cookie() -> str:
     return ""
 
 
+def _normalize_bearer_token(raw: str) -> str:
+    """Strip surrounding whitespace and a redundant ``Bearer `` prefix from env values.
+
+    Some people paste ``Authorization: Bearer …`` or ``Bearer …`` into ``.env``; we always
+    emit ``Authorization: Bearer <token>`` ourselves.
+    """
+    t = (raw or "").strip()
+    lower = t.lower()
+    if lower.startswith("bearer "):
+        return t[7:].lstrip()
+    return t
+
+
 def build_leandna_data_api_headers(
     *,
     requested_sites: str | None = None,
@@ -52,7 +66,7 @@ def build_leandna_data_api_headers(
     Raises:
         ValueError: if neither bearer token nor session cookie is configured.
     """
-    bearer = (LEANDNA_DATA_API_BEARER_TOKEN or "").strip()
+    bearer = _normalize_bearer_token(LEANDNA_DATA_API_BEARER_TOKEN or "")
     cookie = (LEANDNA_DATA_API_COOKIE or "").strip()
     if not bearer and not cookie:
         raise ValueError(

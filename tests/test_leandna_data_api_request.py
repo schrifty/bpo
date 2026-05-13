@@ -31,6 +31,20 @@ def test_normalize_allows_lean_project_path_template_chars() -> None:
     assert normalize_data_api_relative_path("LeanProject/1,2/Savings") == "LeanProject/1,2/Savings"
 
 
+def test_build_leandna_data_api_headers_strips_redundant_bearer_prefix() -> None:
+    from unittest.mock import patch
+
+    from src.leandna_data_api_http import build_leandna_data_api_headers
+
+    with patch.multiple(
+        "src.leandna_data_api_http",
+        LEANDNA_DATA_API_BEARER_TOKEN="Bearer  abc123",
+        LEANDNA_DATA_API_COOKIE="",
+    ):
+        h = build_leandna_data_api_headers()
+    assert h["Authorization"] == "Bearer abc123"
+
+
 def test_data_api_get_json_missing_credentials_envelope() -> None:
     from src.leandna_data_api_request import data_api_get_json
 
