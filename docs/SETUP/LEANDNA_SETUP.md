@@ -78,7 +78,8 @@ Use this when the **web app** loads data successfully but standalone Bearer fail
 
 ## Optional live integration test
 
-After Bearer and/or Cookie is configured, you can verify end-to-end reads:
+After Bearer and/or Cookie is configured, you can verify end-to-end reads against the **Metrics list**
+endpoint (``GET …/data/Metric``):
 
 ```bash
 BPO_LEANDNA_DATA_API_INTEGRATION=1 pytest tests/test_integration_leandna_data_api.py -v

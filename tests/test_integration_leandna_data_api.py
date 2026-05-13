@@ -7,8 +7,9 @@ Default CI and ``pytest`` runs **skip** these tests. To exercise real HTTP:
 
      BPO_LEANDNA_DATA_API_INTEGRATION=1 pytest tests/test_integration_leandna_data_api.py -v
 
-Uses ``GET /data/Metric`` via :func:`src.leandna_metrics_client.list_metric_definitions` — small
-payload, same auth stack as item master / shortages / lean projects.
+Uses the OpenAPI **Metrics** catalog list — ``GET {LEANDNA_DATA_API_BASE_URL}/data/Metric`` — same
+path as :func:`src.leandna_metrics_client.list_metric_definitions`, with the same auth headers as
+item master / shortages / lean projects.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import os
 from pathlib import Path
 
 import pytest
+import requests
 
 _ROOT = Path(__file__).resolve().parents[1]
 
@@ -32,8 +34,8 @@ def _integration_enabled() -> bool:
     not _integration_enabled(),
     reason="Set BPO_LEANDNA_DATA_API_INTEGRATION=1 to run live LeanDNA Data API tests",
 )
-def test_list_metric_definitions_live() -> None:
-    """GET /data/Metric succeeds with configured credentials."""
+def test_leandna_metrics_list_endpoint_live() -> None:
+    """GET /data/Metric (metrics definitions list) returns 200 and JSON the client can parse."""
     try:
         from dotenv import load_dotenv
     except ImportError:
@@ -52,7 +54,7 @@ def test_list_metric_definitions_live() -> None:
 
     importlib.reload(_ld_metrics)
     leandna_data_api_credentials_configured = _ld_http.leandna_data_api_credentials_configured
-    list_metric_definitions = _ld_metrics.list_metric_definitions
+    unwrap_rows = _ld_metrics._unwrap_metric_definition_rows  # noqa: SLF001 — keep parse logic in sync
 
     if not leandna_data_api_credentials_configured():
         pytest.skip(
@@ -60,7 +62,23 @@ def test_list_metric_definitions_live() -> None:
             "and/or LEANDNA_DATA_API_COOKIE"
         )
 
-    rows = list_metric_definitions(timeout_seconds=90.0)
+    base = (_config.LEANDNA_DATA_API_BASE_URL or "https://app.leandna.com/api").rstrip("/")
+    metrics_list_url = f"{base}/data/Metric"
+    resp = requests.get(
+        metrics_list_url,
+        headers=_ld_http.build_leandna_data_api_headers(
+            requested_sites=None,
+            user_agent_suffix="leandna-integration-test/1.0",
+        ),
+        timeout=90.0,
+    )
+    try:
+        resp.raise_for_status()
+    except requests.HTTPError as e:
+        snippet = (resp.text or "").strip().replace("\n", " ")[:500]
+        pytest.fail(f"GET {metrics_list_url} failed: {e!s} body_prefix={snippet!r}")
+
+    rows = unwrap_rows(resp.json())
     assert isinstance(rows, list)
     # Tenants may return an empty catalog; HTTP 200 + parseable body is the contract we assert.
     for row in rows[:5]:
