@@ -110,7 +110,9 @@ def _fmt_money(value: float) -> str:
     return f"${value:,.0f}" if value > 0 else "-"
 
 
-def critical_shortages_detail_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> list[str]:
+def critical_shortages_detail_slide(
+    reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int
+) -> int | tuple[int, list[str]]:
     """Critical Material Shortages table."""
     ldna_shortage = report.get("leandna_shortage_trends") or {}
     if not ldna_shortage.get("enabled"):
@@ -169,10 +171,12 @@ def critical_shortages_detail_slide(reqs: list[dict[str, Any]], sid: str, report
                 _table_cell_bg(reqs, table_id, row_index, col_index, cell_color)
             _table_cell_style(reqs, table_id, row_index, col_index, len(value), size=7, align="END" if col_index >= 3 else None)
 
-    return [sid]
+    return idx + 1, [sid]
 
 
-def shortage_forecast_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> list[str]:
+def shortage_forecast_slide(
+    reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int
+) -> int | tuple[int, list[str]]:
     """Shortage Forecast slide with chart placeholder and KPI cards."""
     ldna_shortage = report.get("leandna_shortage_trends") or {}
     if not ldna_shortage.get("enabled"):
@@ -210,10 +214,12 @@ def shortage_forecast_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
     _kpi_metric_card(reqs, f"{sid}_k1", sid, MARGIN + kpi_w + kpi_gap, kpi_y, kpi_w, kpi_h, "Critical Items", f"{critical_items:,}", accent=ORANGE if critical_items > 10 else BLUE, value_pt=18)
     _kpi_metric_card(reqs, f"{sid}_k2", sid, MARGIN + 2 * (kpi_w + kpi_gap), kpi_y, kpi_w, kpi_h, "Peak Week", peak_week_display, accent=BLUE, value_pt=18)
     _kpi_metric_card(reqs, f"{sid}_k3", sid, MARGIN + 3 * (kpi_w + kpi_gap), kpi_y, kpi_w, kpi_h, "Shortage Value", _fmt_money(float(total_value)).replace("-", "$0"), accent=BLUE, value_pt=18)
-    return [sid]
+    return idx + 1, [sid]
 
 
-def shortage_deliveries_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> list[str]:
+def shortage_deliveries_slide(
+    reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int
+) -> int | tuple[int, list[str]]:
     """Shortage Resolution scheduled deliveries slide."""
     ldna_shortage = report.get("leandna_shortage_trends") or {}
     if not ldna_shortage.get("enabled"):
@@ -233,4 +239,4 @@ def shortage_deliveries_slide(reqs: list[dict[str, Any]], sid: str, report: dict
     _kpi_metric_card(reqs, f"{sid}_k0", sid, MARGIN, kpi_y, kpi_w, kpi_h, "Items with Schedules", f"{deliveries.get('items_with_schedules', 0):,}", accent=BLUE, value_pt=18)
     _kpi_metric_card(reqs, f"{sid}_k1", sid, MARGIN + kpi_w + kpi_gap, kpi_y, kpi_w, kpi_h, "Avg Deliveries/Item", f"{deliveries.get('avg_deliveries_per_item', 0):.1f}", accent=BLUE, value_pt=18)
     _kpi_metric_card(reqs, f"{sid}_k2", sid, MARGIN + 2 * (kpi_w + kpi_gap), kpi_y, kpi_w, kpi_h, "Next 7 Days Qty", f"{deliveries.get('next_n_days_scheduled_qty', 0):,.0f}", accent=BLUE, value_pt=18)
-    return [sid]
+    return idx + 1, [sid]
