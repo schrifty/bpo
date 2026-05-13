@@ -13,6 +13,7 @@ payload, same auth stack as item master / shortages / lean projects.
 
 from __future__ import annotations
 
+import importlib
 import os
 from pathlib import Path
 
@@ -39,8 +40,19 @@ def test_list_metric_definitions_live() -> None:
         pytest.skip("dotenv not installed")
     load_dotenv(_ROOT / ".env", override=False)
 
-    from src.leandna_data_api_http import leandna_data_api_credentials_configured
-    from src.leandna_metrics_client import list_metric_definitions
+    # conftest (and plugins) may import ``src.config`` before ``load_dotenv`` runs; config
+    # snapshots env at import time. Reload so LEANDNA_* from .env are visible to HTTP clients.
+    import src.config as _config
+
+    importlib.reload(_config)
+    import src.leandna_data_api_http as _ld_http
+
+    importlib.reload(_ld_http)
+    import src.leandna_metrics_client as _ld_metrics
+
+    importlib.reload(_ld_metrics)
+    leandna_data_api_credentials_configured = _ld_http.leandna_data_api_credentials_configured
+    list_metric_definitions = _ld_metrics.list_metric_definitions
 
     if not leandna_data_api_credentials_configured():
         pytest.skip(
