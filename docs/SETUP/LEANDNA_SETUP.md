@@ -76,6 +76,16 @@ Use this when the **web app** loads data successfully but standalone Bearer fail
 
 ---
 
+## Optional live integration test
+
+After Bearer and/or Cookie is configured, you can verify end-to-end reads:
+
+```bash
+BPO_LEANDNA_DATA_API_INTEGRATION=1 pytest tests/test_integration_leandna_data_api.py -v
+```
+
+Without ``BPO_LEANDNA_DATA_API_INTEGRATION=1``, the test is skipped so CI stays offline.
+
 ## Related docs
 
 - [`DATA-GOVERNANCE/LEANDNA_DATA_API_SCHEMA.md`](../DATA-GOVERNANCE/LEANDNA_DATA_API_SCHEMA.md) — endpoints BPO uses vs available.
