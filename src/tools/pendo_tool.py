@@ -4,6 +4,8 @@ Tool design: each tool returns data at a level the agent can interpret and
 reason about, while leaving narrative/sequencing decisions to the agent.
 """
 
+from __future__ import annotations
+
 import functools
 import json
 from typing import Any, ClassVar, Optional
@@ -15,6 +17,7 @@ from requests.exceptions import ConnectionError as ReqConnectionError, Timeout
 from ..config import PENDO_BASE_URL, PENDO_INTEGRATION_KEY, logger
 from ..pendo_client import PendoClient
 from .jira_tool import JiraProjectSnapshotTool
+from .leandna_data_api_tool import get_leandna_tools
 
 
 def _client(integration_key: str | None = None, base_url: str | None = None) -> PendoClient:
@@ -648,6 +651,8 @@ def get_pendo_tools(
         PendoAccountMetadataSchemaTool(**common),
         ListCustomersTool(**common),
         JiraProjectSnapshotTool(),
+        # LeanDNA Data API (GET /data/... — optional credentials)
+        *get_leandna_tools(),
         # Decks & slides
         ListDeckTypesTool(),
         GetDeckDefinitionTool(),

@@ -144,7 +144,8 @@ bpo/
 │   ├── qa.py                 # Data quality registry (cross-source validation)
 │   ├── agent.py              # LangChain agent factory
 │   └── tools/
-│       ├── pendo_tool.py     # LangChain tools (Pendo, decks, CS report, …)
+│       ├── pendo_tool.py     # LangChain tools (Pendo, decks, CS report, LeanDNA Data API, …)
+│       ├── leandna_data_api_tool.py  # LeanDNA GET /data/... catalog + generic fetch
 │       └── jira_tool.py      # `jira_project_snapshot` (HELP / CUSTOMER / LEAN metrics)
 ├── decks.py              # CLI for batch deck generation
 └── main.py                   # CLI for interactive agent mode

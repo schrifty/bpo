@@ -4,7 +4,7 @@ LeanDNA **Data API** — REST JSON under `{LEANDNA_DATA_API_BASE_URL}` (default 
 
 Canonical registry identifiers: [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) (LeanDNA Data API section). Integration analysis: [`LEANDNA_DATA_API_TOOLS.md`](./LEANDNA_DATA_API_TOOLS.md). OpenAPI: fetch with authenticated `scripts/fetch_leandna_swagger.py`.
 
-**BPO implementation today:** `src/leandna_item_master_client.py`, `src/leandna_shortage_client.py`, `src/leandna_lean_projects_client.py`, `src/leandna_metrics_client.py` (metrics HTTP only — no QBR `report[]` merge yet), and matching `*_enrich.py`; QBR wires enrichments in `src/qbr_template.py`.
+**BPO implementation today:** `src/leandna_item_master_client.py`, `src/leandna_shortage_client.py`, `src/leandna_lean_projects_client.py`, `src/leandna_metrics_client.py` (metrics HTTP only — no QBR `report[]` merge yet), matching `*_enrich.py`, and **LangChain** ``GET /data/...`` helpers: `src/leandna_data_api_request.py`, `src/tools/leandna_data_api_tool.py` (wired via ``get_pendo_tools``); QBR wires enrichments in `src/qbr_template.py`.
 
 ---
 

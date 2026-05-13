@@ -45,7 +45,12 @@ def create_pendo_agent(
         "CS REPORT TOOLS (platform metrics from Data Exports — supply chain context):\n"
         "- customer_platform_health: Health scores (GREEN/YELLOW/RED), CTB%, CTC%, component availability, shortages per site\n"
         "- customer_supply_chain: Inventory values, DOI, excess, late POs — the dollar context behind usage\n"
-        "- customer_platform_value: ROI proof — savings achieved, open IA value, recs created, POs placed\n"
+        "- customer_platform_value: ROI proof — savings achieved, open IA value, recs created, POs placed\n\n"
+        "LEANDNA DATA API (optional — set LEANDNA_DATA_API_BEARER_TOKEN and/or LEANDNA_DATA_API_COOKIE):\n"
+        "- leandna_data_api_catalog: Curated list of GET /data/... resources + OpenAPI UI link (no network)\n"
+        "- leandna_data_api_get: Authenticated GET for any validated path — input JSON "
+        '{"path":"Metric"} or {"path":"LeanProject","query":{"dateFrom":"...","dateTo":"..."}}; '
+        "returns {ok, body} or {ok:false, error}. Read-only (no PUT/write-back).\n"
         "NOTE: Pendo tracks app engagement (page views, logins). CS Report tracks buyer workflow engagement\n"
         "(daily/weekly active buyers). These measure different things and may differ — flag via data quality.\n\n"
         "DECK & SLIDE TOOLS:\n"

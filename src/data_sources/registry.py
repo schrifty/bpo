@@ -34,6 +34,8 @@ class SourceId(str, Enum):
     - **Lean projects:** ``GET /data/LeanProject``,
       ``GET /data/LeanProject/{{ids}}/Savings``
     - **Metrics:** ``GET /data/Metric``, ``GET /data/MetricReport`` (see ``src/leandna_metrics_client.py``)
+    - **Agent / ad-hoc:** any validated ``GET /data/...`` via ``src/leandna_data_api_request.data_api_get_json``
+      and LangChain tools ``leandna_data_api_catalog`` / ``leandna_data_api_get`` (``src/tools/leandna_data_api_tool.py``)
     """
 
     PENDO_PORTFOLIO_ROLLUP = "pendo_portfolio_rollup"
