@@ -61,7 +61,7 @@ def build_leandna_data_api_headers(
     user_agent_suffix: str = "leandna-data-api/1.0",
     content_type_json: bool = False,
 ) -> dict[str, str]:
-    """Headers for ``GET``/``POST`` to ``{LEANDNA_DATA_API_BASE_URL}/data/...``.
+    """Headers for ``GET`` / ``POST`` / ``PUT`` / ``DELETE`` to ``{LEANDNA_DATA_API_BASE_URL}/data/...``.
 
     Raises:
         ValueError: if neither bearer token nor session cookie is configured.

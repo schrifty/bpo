@@ -57,6 +57,16 @@ _LEANDNA_DATA_API_HTTP_SURFACES: tuple[str, ...] = (
     "GET /data/LeanProject/{projectIds}/Savings",
     "GET /data/Metric",
     "GET /data/MetricReport",
+    "GET /data/Metric/{metricId}/MetricDataPoint",
+    "POST /data/Metric/{metricId}/MetricDataPoint",
+    "DELETE /data/Metric/{metricId}/MetricDataPoint",
+    "POST /data/LeanProject",
+    "PUT /data/LeanProject/{projectId}",
+    "POST /data/LeanProject/{projectId}/Task",
+    "PUT /data/LeanProject/{projectId}/Task/{taskId}",
+    "POST /data/LeanProject/{projectId}/Issue",
+    "PUT /data/LeanProject/{projectId}/Issue/{issueId}",
+    "PUT /data/WriteBack/v1/TransitionActions",
 )
 
 # Typical ``report`` dotted paths when QBR LeanDNA enrichments run (no live values in this export).

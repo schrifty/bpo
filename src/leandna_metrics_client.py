@@ -4,6 +4,7 @@ Surfaces from the OpenAPI **Metrics** group (same host as Item Master / Lean Pro
 
 - ``GET /data/Metric`` — list metric definitions (Manual, Automatic, ProcurementLog, Calculated).
 - ``GET /data/MetricReport`` — fiscal-year metric report (monthly aggregates), optionally filtered.
+- :func:`format_first_kpi_line_from_metric_report` — one-line summary of the first ``metricValues`` row (for logs / smoke tests).
 
 Auth: see :mod:`leandna_data_api_http` — **Bearer** and/or **browser session cookie**
 (``LEANDNA_DATA_API_COOKIE``). Optional ``RequestedSites`` header.
@@ -135,3 +136,50 @@ def fetch_metric_report(
         logger.warning("LeanDNA MetricReport: expected object, got %s", type(body).__name__)
         return {"raw": body}
     return body
+
+
+def format_first_kpi_line_from_metric_report(report: dict[str, Any]) -> str:
+    """Format one human-readable KPI line from a ``MetricReport`` JSON body.
+
+    Uses the first row of ``metricValues`` and matches ``metricId`` to ``metrics`` for a label.
+    Percent-style metric names (label ending with ``%``) render the value with a ``%`` suffix.
+    """
+    meta_rows = report.get("metrics") or []
+    id_to_label: dict[str, str] = {}
+    if isinstance(meta_rows, list):
+        for m in meta_rows:
+            if not isinstance(m, dict):
+                continue
+            mid = m.get("id")
+            if mid is None:
+                continue
+            label = m.get("name") or m.get("crossSiteName") or str(mid)
+            id_to_label[str(mid)] = str(label)
+
+    values_block = report.get("metricValues")
+    if not isinstance(values_block, list) or not values_block:
+        return "KPI: (no metricValues)"
+
+    row = values_block[0]
+    if not isinstance(row, dict):
+        return "KPI: (metricValues[0] is not an object)"
+
+    mid = row.get("metricId", row.get("id"))
+    label = id_to_label.get(str(mid), str(mid) if mid is not None else "metric")
+
+    val: Any = row.get("value")
+    if val is None:
+        for k, v in row.items():
+            if k in ("metricId", "id", "dataPointDate"):
+                continue
+            if isinstance(v, (int, float)):
+                val = v
+                break
+        if val is None:
+            val = next((v for k, v in row.items() if k not in ("metricId", "id")), None)
+
+    fy = report.get("fiscalYear", "")
+    suffix = f" (FY{fy})" if fy != "" else ""
+    if isinstance(val, (int, float)) and str(label).rstrip().endswith("%"):
+        return f"KPI: {label} = {val}%{suffix}"
+    return f"KPI: {label} = {val!r}{suffix}"

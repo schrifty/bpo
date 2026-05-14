@@ -1,7 +1,9 @@
-"""Low-level authenticated GET for LeanDNA Data API paths under ``/data/``.
+"""Authenticated HTTP for LeanDNA Data API paths under ``/data/``.
 
-Used by LangChain tools and ad-hoc callers. Paths are normalized and validated
-before concatenation with ``LEANDNA_DATA_API_BASE_URL`` — no arbitrary hosts.
+``data_api_get_json`` performs validated ``GET`` requests.
+``data_api_mutate_json`` performs validated ``POST``, ``PUT``, or ``DELETE`` (mutations).
+
+Paths are normalized before concatenation with ``LEANDNA_DATA_API_BASE_URL`` — no arbitrary hosts.
 
 See ``docs/DATA-GOVERNANCE/LEANDNA_DATA_API_SCHEMA.md`` for resource inventory;
 per-field contracts follow tenant OpenAPI (``scripts/fetch_leandna_swagger.py``).
@@ -48,6 +50,47 @@ def data_api_base_url() -> str:
     return (LEANDNA_DATA_API_BASE_URL or "https://app.leandna.com/api").rstrip("/")
 
 
+def _response_envelope(
+    r: requests.Response,
+    *,
+    url: str,
+    max_response_chars: int,
+) -> dict[str, Any]:
+    """Map a finished ``requests.Response`` to a JSON-serializable tool/client envelope."""
+    text = r.text or ""
+    if not r.ok:
+        snippet = text.strip().replace("\n", " ")[:800]
+        return {
+            "ok": False,
+            "status": r.status_code,
+            "error": r.reason or "HTTP error",
+            "body_preview": snippet,
+            "url": url,
+        }
+
+    truncated = False
+    if len(text) > max_response_chars:
+        truncated = True
+        text = text[:max_response_chars]
+
+    if not text.strip():
+        return {"ok": True, "status": r.status_code, "truncated": truncated, "url": url, "body": None}
+
+    try:
+        body: Any = json.loads(text)
+    except json.JSONDecodeError:
+        return {
+            "ok": True,
+            "status": r.status_code,
+            "truncated": truncated,
+            "non_json": True,
+            "text_preview": text[:2000],
+            "url": url,
+        }
+
+    return {"ok": True, "status": r.status_code, "truncated": truncated, "url": url, "body": body}
+
+
 def data_api_get_json(
     path: str,
     *,
@@ -84,38 +127,58 @@ def data_api_get_json(
     except requests.RequestException as e:
         return {"ok": False, "error": f"request failed: {e}", "url": url}
 
-    text = r.text or ""
-    if not r.ok:
-        snippet = text.strip().replace("\n", " ")[:800]
-        return {
-            "ok": False,
-            "status": r.status_code,
-            "error": r.reason or "HTTP error",
-            "body_preview": snippet,
-            "url": url,
-        }
+    return _response_envelope(r, url=url, max_response_chars=max_response_chars)
 
-    truncated = False
-    if len(text) > max_response_chars:
-        truncated = True
-        text = text[:max_response_chars]
+
+def data_api_mutate_json(
+    method: str,
+    path: str,
+    *,
+    query: dict[str, Any] | None = None,
+    json_body: Any | None = None,
+    requested_sites: str | None = None,
+    timeout_seconds: float = 120.0,
+    max_response_chars: int = 500_000,
+    user_agent_suffix: str = "leandna-data-api-request/1.0",
+) -> dict[str, Any]:
+    """Perform ``POST`` / ``PUT`` / ``DELETE`` on ``{base}/data/{path}`` with LeanDNA auth.
+
+    ``json_body``: sent as JSON for ``POST`` and ``PUT`` when not ``None``. Omitted when ``None``
+    (empty body). Ignored for ``DELETE``.
+
+    Returns the same envelope shape as :func:`data_api_get_json` (``ok``, ``body`` or error fields).
+    """
+    m = (method or "").strip().upper()
+    if m not in ("POST", "PUT", "DELETE"):
+        return {"ok": False, "error": f"method must be POST, PUT, or DELETE, not {method!r}"}
 
     try:
-        body: Any = json.loads(text)
-    except json.JSONDecodeError:
-        return {
-            "ok": True,
-            "status": r.status_code,
-            "truncated": truncated,
-            "non_json": True,
-            "text_preview": text[:2000],
-            "url": url,
-        }
+        rel = normalize_data_api_relative_path(path)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
 
-    return {
-        "ok": True,
-        "status": r.status_code,
-        "truncated": truncated,
-        "url": url,
-        "body": body,
-    }
+    url = f"{data_api_base_url()}/data/{rel}"
+    params = {k: v for k, v in (query or {}).items() if v is not None and v != ""}
+
+    try:
+        headers = build_leandna_data_api_headers(
+            requested_sites=requested_sites,
+            user_agent_suffix=user_agent_suffix,
+            content_type_json=m in ("POST", "PUT") and json_body is not None,
+        )
+    except ValueError as e:
+        return {"ok": False, "error": str(e), "hint": "Set LEANDNA_DATA_API_BEARER_TOKEN and/or LEANDNA_DATA_API_COOKIE"}
+
+    kw: dict[str, Any] = {"headers": headers, "timeout": timeout_seconds}
+    if params:
+        kw["params"] = params
+    if m in ("POST", "PUT") and json_body is not None:
+        kw["json"] = json_body
+
+    logger.info("LeanDNA Data API %s %s params=%s has_json_body=%s", m, url, list(params.keys()) if params else "none", json_body is not None)
+    try:
+        r = requests.request(m, url, **kw)
+    except requests.RequestException as e:
+        return {"ok": False, "error": f"request failed: {e}", "url": url}
+
+    return _response_envelope(r, url=url, max_response_chars=max_response_chars)

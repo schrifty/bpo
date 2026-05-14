@@ -76,16 +76,17 @@ Use this when the **web app** loads data successfully but standalone Bearer fail
 
 ---
 
-## Optional live integration test
+## Optional live integration tests
 
-After Bearer and/or Cookie is configured, you can verify end-to-end reads against the **Metrics list**
-endpoint (``GET …/data/Metric``):
+After Bearer and/or Cookie is in ``.env``, verify end-to-end reads (no export flags required):
 
 ```bash
-BPO_LEANDNA_DATA_API_INTEGRATION=1 pytest tests/test_integration_leandna_data_api.py -v
+python3 -m pytest tests/test_integration_leandna_data_api.py -v
 ```
 
-Without ``BPO_LEANDNA_DATA_API_INTEGRATION=1``, the test is skipped so CI stays offline.
+Tests **skip** when credentials are missing so CI stays offline unless ``.env`` (or the job) supplies them.
+
+Metric **display** (read-only): ``tests/test_integration_leandna_metric_datapoint_mutation.py`` — prints ``MetricDataPoint`` for the catalog metric whose name matches **Data on-time rate** (substring list in the test file; last 90 days).
 
 ## Related docs
 

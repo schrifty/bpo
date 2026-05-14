@@ -30,6 +30,10 @@ Canonical registry identifiers: [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) (LeanDN
 | Project savings | `GET /data/LeanProject/{projectIds}/Savings` | Monthly actual/target in enrichment |
 | Metric catalog | `GET /data/Metric` | Call via `leandna_metrics_client.list_metric_definitions` — not on `report` yet |
 | Metric report | `GET /data/MetricReport` | Call via `leandna_metrics_client.fetch_metric_report` — not on `report` yet |
+| Metric data points | `GET` / `POST` / `DELETE /data/Metric/{metricId}/MetricDataPoint` | Raw result rows (date range on GET/DELETE); **mutations** via `data_api_mutate_json` / tool `leandna_data_api_mutate` |
+| Lean project create/update | `POST /data/LeanProject`, `PUT /data/LeanProject/{projectId}` | **Mutations** — `RequestedSites` single site on POST per OpenAPI |
+| Lean project tasks/issues | `POST`/`PUT` `.../Task`, `.../Issue` | **Mutations** — bodies per OpenAPI definitions |
+| Write-back transitions | `PUT /data/WriteBack/v1/TransitionActions` | **Mutation** — array of `WriteBackTransition` |
 
 **Caching:** Drive + in-memory TTLs — `LEANDNA_ITEM_MASTER_CACHE_TTL_HOURS`, `LEANDNA_SHORTAGE_CACHE_TTL_HOURS`, `LEANDNA_LEAN_PROJECTS_CACHE_TTL_HOURS` in `src/config.py`.
 
@@ -50,7 +54,7 @@ Canonical registry identifiers: [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) (LeanDN
 | Metric report | `GET /data/MetricReport` | **`src/leandna_metrics_client.fetch_metric_report`** — not on `report` yet |
 | Data Share | `GET /data/DataShare` | Signed Parquet bulk exports (CTB multi-level, POs, supplier performance, …) |
 | Identity | `GET /data/identity` | User + `authorizedSites[]` for mapping |
-| Write-back | `GET .../WriteBack/v1/PurchaseOrderActions`, `PUT .../WriteBack/v1/TransitionActions` | Read-only recommended unless product explicitly allows updates |
+| Write-back | `GET .../WriteBack/v1/PurchaseOrderActions`; `PUT .../WriteBack/v1/TransitionActions` | GET pending actions; **PUT** transitions via `data_api_mutate_json` / `leandna_data_api_mutate` |
 | Lean project tasks | `GET /data/LeanProject/{projectId}/Tasks` | Project health |
 | Lean project issues | `GET /data/LeanProject/{projectId}/Issues` | Open issue counts |
 | Stage history | `GET /data/LeanProject/{projectIds}/Stage/History` | Audit of stage changes |
@@ -87,6 +91,8 @@ Bucket columns (`bucket1…` / `day1…`), `criticalityLevel`, `daysInShortage`,
 **Definitions:** tenant-dependent metadata (`name`, `siteId`, type, value streams/categories per swagger).
 
 **Report:** fiscal-year object often including `metrics`, `metricValues`, `fiscalYear`, timestamps, `currency` — confirm keys against OpenAPI.
+
+**Data points:** ``GET|POST|DELETE /data/Metric/{metricId}/MetricDataPoint`` — raw metric result rows; ``MetricDataPoint`` body fields include ``dataPointDate``, ``valueStreamId``, ``category``, ``value``, ``numeratorValue``, ``denominatorValue`` (see OpenAPI). Mutations use ``leandna_data_api_mutate`` / ``data_api_mutate_json``.
 
 ---
 

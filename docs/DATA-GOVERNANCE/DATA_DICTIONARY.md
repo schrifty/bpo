@@ -197,6 +197,8 @@
 - `leandna_data_api.material_shortages.weekly_by_item`
 - `leandna_data_api.metric.definitions`
 - `leandna_data_api.metric.report`
+- `leandna_data_api.metric.metric_data_point`
+- `leandna_data_api.lean_project.mutations`
 - `leandna_data_api.supply_order.purchase_order`
 - `leandna_data_api.writeback.purchase_order_actions`
 - `leandna_data_api.writeback.transition_actions`

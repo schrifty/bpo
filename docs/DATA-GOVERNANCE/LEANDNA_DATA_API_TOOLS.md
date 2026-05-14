@@ -366,9 +366,9 @@ Add fields to `docs/DATA-GOVERNANCE/DATA_REGISTRY.md`:
 - **Schema doc:** `docs/DATA-GOVERNANCE/LEANDNA_DATA_API_SCHEMA.md`
 - **Registry:** `docs/DATA-GOVERNANCE/DATA_REGISTRY.md` (LeanDNA Data API section)
 - **Clients / enrich (batch QBR path):** `src/leandna_item_master_client.py`, `src/leandna_item_master_enrich.py`, `src/leandna_shortage_client.py`, `src/leandna_shortage_enrich.py`, `src/leandna_lean_projects_client.py`, `src/leandna_lean_projects_enrich.py`
-- **Generic GET + agent tools:** `src/leandna_data_api_request.py`, `src/tools/leandna_data_api_tool.py` (registered in `get_pendo_tools`)
+- **Generic HTTP + agent tools:** `src/leandna_data_api_request.py` (`data_api_get_json`, `data_api_mutate_json`), `src/tools/leandna_data_api_tool.py` (`leandna_data_api_get`, `leandna_data_api_mutate`, catalog; registered in `get_pendo_tools`)
 - **Tests:** `tests/test_leandna_item_master.py`, `tests/test_leandna_shortage.py`, `tests/test_leandna_lean_projects.py`, `tests/test_leandna_data_api_request.py`
-- **Note:** Per-path LangChain wrappers from older “tool sketches” below are partly superseded by `leandna_data_api_get` + catalog; specialized clients remain for QBR/deck pipelines.
+- **Note:** Per-path LangChain wrappers from older “tool sketches” below are partly superseded by `leandna_data_api_get` / `leandna_data_api_mutate` + catalog; specialized clients remain for QBR/deck pipelines.
 
 ---
 

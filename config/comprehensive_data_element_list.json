@@ -1930,6 +1930,28 @@
       ]
     },
     {
+      "path": "leandna_data_api.metric.metric_data_point",
+      "terms": [
+        "leandna_data_api.metric.metric_data_point",
+        "[LeanDNA Data API] GET POST DELETE /data/Metric/{metricId}/MetricDataPoint",
+        "MetricDataPoint",
+        "addMetricResults",
+        "deleteMetricResults",
+        "leandna_data_api_mutate"
+      ]
+    },
+    {
+      "path": "leandna_data_api.lean_project.mutations",
+      "terms": [
+        "leandna_data_api.lean_project.mutations",
+        "[LeanDNA Data API] POST /data/LeanProject PUT project task issue",
+        "createLeanProject",
+        "updateLeanProject",
+        "createLeanProjectTask",
+        "leandna_data_api_mutate"
+      ]
+    },
+    {
       "path": "leandna_data_api.supply_order.purchase_order",
       "terms": [
         "leandna_data_api.supply_order.purchase_order",
@@ -1959,9 +1981,10 @@
       "path": "leandna_data_api.writeback.transition_actions",
       "terms": [
         "leandna_data_api.writeback.transition_actions",
-        "[LeanDNA Data API] not wired in BPO report yet",
-        "PUT /data/WriteBack/v1/TransitionActions",
-        "write-back status"
+        "[LeanDNA Data API] PUT /data/WriteBack/v1/TransitionActions",
+        "WriteBackTransition",
+        "transitionWriteBackActions",
+        "leandna_data_api_mutate"
       ]
     },
     {

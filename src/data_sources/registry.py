@@ -33,9 +33,13 @@ class SourceId(str, Enum):
       + scheduled-deliveries weekly in practice; Daily/ByOrder exist on the client)
     - **Lean projects:** ``GET /data/LeanProject``,
       ``GET /data/LeanProject/{{ids}}/Savings``
-    - **Metrics:** ``GET /data/Metric``, ``GET /data/MetricReport`` (see ``src/leandna_metrics_client.py``)
-    - **Agent / ad-hoc:** any validated ``GET /data/...`` via ``src/leandna_data_api_request.data_api_get_json``
-      and LangChain tools ``leandna_data_api_catalog`` / ``leandna_data_api_get`` (``src/tools/leandna_data_api_tool.py``)
+    - **Metrics:** ``GET /data/Metric``, ``GET /data/MetricReport``,
+      ``GET|POST|DELETE /data/Metric/{{id}}/MetricDataPoint`` (see ``src/leandna_metrics_client.py``;
+      mutations via ``data_api_mutate_json`` / ``leandna_data_api_mutate``)
+    - **Agent / ad-hoc:** validated ``GET`` via ``src/leandna_data_api_request.data_api_get_json``;
+      ``POST``/``PUT``/``DELETE`` via ``data_api_mutate_json``;
+      LangChain tools ``leandna_data_api_catalog``, ``leandna_data_api_get``, ``leandna_data_api_mutate``
+      (``src/tools/leandna_data_api_tool.py``)
     """
 
     PENDO_PORTFOLIO_ROLLUP = "pendo_portfolio_rollup"

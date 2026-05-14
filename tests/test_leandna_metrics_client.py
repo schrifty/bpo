@@ -2,7 +2,45 @@
 
 from __future__ import annotations
 
+import sys
+from typing import Any
+
 from unittest.mock import MagicMock, patch
+
+
+def test_displays_single_kpi_value_from_metric_report(monkeypatch, capsys) -> None:
+    """HTTP is **mocked** — no LeanDNA call. Exercises ``format_first_kpi_line_from_metric_report`` + terminal display."""
+    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "tok")
+    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", "")
+    report_body: dict[str, Any] = {
+        "fiscalYear": 2026,
+        "metrics": [{"id": 501, "name": "Supplier On-Time %", "siteId": 1}],
+        "metricValues": [
+            {
+                "metricId": 501,
+                "dataPointDate": "2026-04-01",
+                "value": 94.25,
+                "valueStreamId": 10,
+            }
+        ],
+    }
+    with patch("src.leandna_metrics_client.requests.get") as mock_get:
+        mock_get.return_value = MagicMock()
+        mock_get.return_value.json.return_value = report_body
+        mock_get.return_value.raise_for_status = MagicMock()
+
+        from src.leandna_metrics_client import fetch_metric_report, format_first_kpi_line_from_metric_report
+
+        report = fetch_metric_report(2026, metric_ids=["501"])
+
+    line = format_first_kpi_line_from_metric_report(report)
+    assert line == "KPI: Supplier On-Time % = 94.25% (FY2026)"
+    # Bypass pytest capture so the KPI line appears in the IDE / terminal without ``-s``.
+    with capsys.disabled():
+        sys.stdout.write("\n--- LeanDNA KPI (test display) ---\n")
+        sys.stdout.write(f"{line}\n")
+        sys.stdout.write("---------------------------------\n")
+        sys.stdout.flush()
 
 
 def test_list_metric_definitions_raw_list(monkeypatch):

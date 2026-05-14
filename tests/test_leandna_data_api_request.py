@@ -62,6 +62,7 @@ def test_leandna_data_api_catalog_tool_json() -> None:
     raw = LeanDNADataApiCatalogTool()._run("")
     doc = json.loads(raw)
     assert doc["get_resources"]
+    assert doc["mutation_operations"]
     assert "openapi_ui" in doc
 
 
@@ -69,5 +70,49 @@ def test_leandna_data_api_get_tool_invalid_json() -> None:
     from src.tools.leandna_data_api_tool import LeanDNADataApiGetTool
 
     raw = LeanDNADataApiGetTool()._run("not json")
+    err = json.loads(raw)
+    assert "error" in err
+
+
+def test_data_api_mutate_json_invalid_method() -> None:
+    from src.leandna_data_api_request import data_api_mutate_json
+
+    out = data_api_mutate_json("PATCH", "Metric/1/MetricDataPoint")
+    assert out["ok"] is False
+    assert "POST" in out.get("error", "")
+
+
+def test_data_api_mutate_json_missing_credentials_envelope() -> None:
+    from src.leandna_data_api_request import data_api_mutate_json
+
+    with patch("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", ""), patch(
+        "src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", ""
+    ):
+        out = data_api_mutate_json("POST", "LeanProject", json_body={"name": "x"})
+    assert out["ok"] is False
+    assert "error" in out
+
+
+def test_data_api_mutate_json_post_success_envelope() -> None:
+    from unittest.mock import MagicMock, patch
+
+    from src.leandna_data_api_request import data_api_mutate_json
+
+    resp = MagicMock()
+    resp.ok = True
+    resp.status_code = 200
+    resp.text = '{"created": true}'
+    resp.reason = "OK"
+
+    with patch("src.leandna_data_api_request.requests.request", return_value=resp):
+        out = data_api_mutate_json("POST", "LeanProject", json_body={"name": "Test"}, requested_sites="172")
+    assert out["ok"] is True
+    assert out["body"] == {"created": True}
+
+
+def test_leandna_data_api_mutate_tool_rejects_non_object_body() -> None:
+    from src.tools.leandna_data_api_tool import LeanDNADataApiMutateTool
+
+    raw = LeanDNADataApiMutateTool()._run('{"method":"POST","path":"LeanProject","body":"nope"}')
     err = json.loads(raw)
     assert "error" in err

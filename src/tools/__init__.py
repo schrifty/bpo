@@ -4,6 +4,7 @@ from .jira_tool import JiraProjectSnapshotTool
 from .leandna_data_api_tool import (
     LeanDNADataApiCatalogTool,
     LeanDNADataApiGetTool,
+    LeanDNADataApiMutateTool,
     get_leandna_tools,
 )
 from .pendo_tool import (
@@ -71,5 +72,6 @@ __all__ = [
     "get_leandna_tools",
     "LeanDNADataApiCatalogTool",
     "LeanDNADataApiGetTool",
+    "LeanDNADataApiMutateTool",
     "JiraProjectSnapshotTool",
 ]
