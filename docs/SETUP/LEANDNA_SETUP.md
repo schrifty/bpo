@@ -86,7 +86,7 @@ python3 -m pytest tests/test_integration_leandna_data_api.py -v
 
 Tests **skip** when credentials are missing so CI stays offline unless ``.env`` (or the job) supplies them.
 
-Metric **display** (integration): ``tests/test_integration_leandna_metric_datapoint_mutation.py`` — chart + field dump for metric **id 638**; **POST** then **DELETE** ``2026-05-12`` (POST failure ignored if row exists); DELETE must succeed.
+Metric **display** (integration): ``tests/test-metrics.py`` — chart + field dump for metric **id 638**; **POST** then **DELETE** ``2026-05-12`` (POST failure ignored if row exists); DELETE must succeed.
 
 ## Related docs
 

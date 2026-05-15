@@ -18,7 +18,7 @@ for mutations). **POST JSON** matches the working Data API shape: ``dataPointDat
 
 Run::
 
-    python3 -m pytest tests/test_integration_leandna_metric_datapoint_mutation.py -v
+    python3 -m pytest tests/test-metrics.py -v
 """
 
 from __future__ import annotations
