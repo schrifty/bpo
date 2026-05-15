@@ -59,6 +59,7 @@ def test_list_metric_definitions_raw_list(monkeypatch):
         args, kwargs = mock_get.call_args
         assert args[0].endswith("/data/Metric")
         assert kwargs["headers"]["Authorization"] == "Bearer tok"
+        assert kwargs["timeout"] == (15.0, 120.0)
 
 
 def test_list_metric_definitions_wrapped(monkeypatch):
@@ -98,6 +99,7 @@ def test_fetch_metric_report_query(monkeypatch):
         assert kwargs["params"]["fiscalYear"] == 2026
         assert kwargs["params"]["metrics"] == "m1,m2"
         assert kwargs["params"]["valueStreams"] == "vsA"
+        assert kwargs["timeout"] == (15.0, 180.0)
 
 
 def test_missing_token_raises(monkeypatch):

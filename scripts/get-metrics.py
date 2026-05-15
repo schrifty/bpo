@@ -137,6 +137,21 @@ def main() -> int:
         action="store_true",
         help="Enable INFO logging from BPO clients (default: warnings only)",
     )
+    ap.add_argument(
+        "--connect-timeout",
+        type=float,
+        default=15.0,
+        metavar="SEC",
+        help="TCP/TLS connect timeout for LeanDNA GET (default: 15)",
+    )
+    ap.add_argument(
+        "--timeout",
+        type=float,
+        default=120.0,
+        dest="read_timeout",
+        metavar="SEC",
+        help="Read timeout after connect for LeanDNA GET (default: 120)",
+    )
     argv_mod, leading_metric_id = _pop_leading_numeric_metric_id(list(sys.argv))
     ns = ap.parse_args(argv_mod[1:])
 
@@ -169,9 +184,17 @@ def main() -> int:
     try:
         rows = list_metric_definitions(
             requested_sites=ns.requested_sites,
-            timeout_seconds=120.0,
+            connect_timeout_seconds=ns.connect_timeout,
+            timeout_seconds=ns.read_timeout,
             extra_query=None,
         )
+    except requests.Timeout as e:
+        print(f"LeanDNA request timed out: {e}", file=sys.stderr)
+        print(
+            "Try --connect-timeout / --timeout, or check VPN, DNS, and LEANDNA base URL (EXECUTION_ENV + ST_/PR_*).",
+            file=sys.stderr,
+        )
+        return 1
     except requests.HTTPError as e:
         print(f"Failed to fetch metrics: {e}", file=sys.stderr)
         code = getattr(e.response, "status_code", None) if e.response is not None else None
@@ -222,4 +245,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        print("\nInterrupted.", file=sys.stderr)
+        raise SystemExit(130)

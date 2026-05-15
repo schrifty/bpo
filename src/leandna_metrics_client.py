@@ -26,6 +26,15 @@ from .config import logger
 from .leandna_data_api_http import build_leandna_data_api_headers
 
 
+def _connect_read_timeout(connect_seconds: float, read_seconds: float) -> float | tuple[float, float]:
+    """``requests`` timeout: separate connect vs read when ``connect_seconds`` > 0."""
+    c = float(connect_seconds)
+    r = float(read_seconds)
+    if c <= 0:
+        return r
+    return (c, r)
+
+
 def _base_url() -> str:
     return data_api_base_url()
 
@@ -62,6 +71,7 @@ def _unwrap_metric_definition_rows(data: Any) -> list[dict[str, Any]]:
 def list_metric_definitions(
     requested_sites: str | None = None,
     *,
+    connect_timeout_seconds: float = 15.0,
     timeout_seconds: float = 120.0,
     extra_query: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
@@ -69,6 +79,9 @@ def list_metric_definitions(
 
     Typical fields (tenant-dependent): ``id``, ``name``, ``siteId``, ``metricType``,
     ``possibleValueStreams``, ``currentCategories``.
+
+    ``connect_timeout_seconds`` bounds TCP/TLS handshake (default 15s); ``timeout_seconds``
+    bounds time waiting for the response body after connect (default 120s).
     """
     url = f"{_base_url()}/data/Metric"
     params = dict(extra_query or {})
@@ -80,7 +93,7 @@ def list_metric_definitions(
             user_agent_suffix="leandna-metrics-client/1.0",
         ),
         params=params,
-        timeout=timeout_seconds,
+        timeout=_connect_read_timeout(connect_timeout_seconds, timeout_seconds),
     )
     _raise_for_status(r)
     return _unwrap_metric_definition_rows(r.json())
@@ -92,6 +105,7 @@ def fetch_metric_report(
     requested_sites: str | None = None,
     metric_ids: list[str] | None = None,
     value_streams: list[str] | None = None,
+    connect_timeout_seconds: float = 15.0,
     timeout_seconds: float = 180.0,
     extra_query: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -129,7 +143,7 @@ def fetch_metric_report(
             user_agent_suffix="leandna-metrics-client/1.0",
         ),
         params=params,
-        timeout=timeout_seconds,
+        timeout=_connect_read_timeout(connect_timeout_seconds, timeout_seconds),
     )
     _raise_for_status(r)
     body = r.json()
