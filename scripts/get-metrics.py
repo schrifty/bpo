@@ -40,7 +40,9 @@ load_dotenv(ROOT / ".env")
 
 import requests  # noqa: E402
 
+from src.config import BPO_LEANDNA_DATA_API_EXECUTION_BUCKET  # noqa: E402
 from src.leandna_data_api_http import leandna_data_api_credentials_configured  # noqa: E402
+from src.leandna_data_api_request import data_api_base_url  # noqa: E402
 from src.leandna_metrics_client import list_metric_definitions  # noqa: E402
 
 
@@ -180,6 +182,17 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+
+    try:
+        _base = data_api_base_url()
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    print(
+        f"LeanDNA target: GET {_base}/data/Metric  "
+        f"(EXECUTION_ENV bucket: {BPO_LEANDNA_DATA_API_EXECUTION_BUCKET})",
+        file=sys.stderr,
+    )
 
     try:
         rows = list_metric_definitions(
