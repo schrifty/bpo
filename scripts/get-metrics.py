@@ -214,6 +214,10 @@ def main() -> int:
         payload: Any = rows[0] if single_object else rows
         print(json.dumps(payload, indent=2, default=str, ensure_ascii=False))
 
+    n = len(rows)
+    summary = f"Displayed {n} metric{'s' if n != 1 else ''}."
+    print(summary, file=sys.stderr)
+
     return 0
 
 
