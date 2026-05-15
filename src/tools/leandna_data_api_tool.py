@@ -163,11 +163,16 @@ class LeanDNADataApiCatalogTool(BaseTool):
     def _run(self, query: str) -> str:  # noqa: ARG002
         from ..leandna_data_api_request import data_api_base_url
 
+        try:
+            base_eff = data_api_base_url()
+        except ValueError as e:
+            base_eff = f"(misconfigured: {e})"
+
         doc = {
             "openapi_ui": (
                 "https://app.leandna.com/application/apidocs/dist/index.html?urls.primaryName=Data#/"
             ),
-            "base_url_effective": data_api_base_url(),
+            "base_url_effective": base_eff,
             "get_resources": list(_DATA_API_GET_CATALOG),
             "mutation_operations": list(_DATA_API_MUTATION_CATALOG),
             "usage_get": (

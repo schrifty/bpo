@@ -23,9 +23,9 @@ _cache_lock = threading.Lock()
 
 
 def _get_base_url() -> str:
-    """Get LeanDNA Data API base URL from config."""
-    from .config import LEANDNA_DATA_API_BASE_URL
-    return LEANDNA_DATA_API_BASE_URL or "https://app.leandna.com/api"
+    from .leandna_data_api_request import data_api_base_url
+
+    return data_api_base_url()
 
 
 def _get_cache_ttl_hours() -> int:

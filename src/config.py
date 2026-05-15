@@ -101,12 +101,71 @@ _idc_fr = os.environ.get("BPO_INTEGRATION_DRIVE_CACHE_FORCE_REFRESH", "").strip(
 BPO_INTEGRATION_DRIVE_CACHE_FORCE_REFRESH = _idc_fr in ("1", "true", "yes", "on")
 
 # LeanDNA Data API (optional; supply chain enrichment with Item Master Data and Shortage Trends)
-LEANDNA_DATA_API_BASE_URL = os.environ.get("LEANDNA_DATA_API_BASE_URL", "https://app.leandna.com/api").rstrip("/")
-LEANDNA_DATA_API_BEARER_TOKEN = os.environ.get("LEANDNA_DATA_API_BEARER_TOKEN")  # integration token (optional if cookie set)
-# Browser session: paste full Cookie header from DevTools while logged into LeanDNA web app (do not commit).
-LEANDNA_DATA_API_COOKIE = (os.environ.get("LEANDNA_DATA_API_COOKIE") or "").strip()
-LEANDNA_DATA_API_ORIGIN = (os.environ.get("LEANDNA_DATA_API_ORIGIN") or "").strip()
-LEANDNA_DATA_API_REFERER = (os.environ.get("LEANDNA_DATA_API_REFERER") or "").strip()
+# When EXECUTION_ENV is unset, read unprefixed LEANDNA_DATA_API_* (legacy).
+# When EXECUTION_ENV is Staging (case-insensitive), read ST_LEANDNA_DATA_API_* only.
+# When Production or CI, read PR_LEANDNA_DATA_API_* only.
+# Any other non-empty EXECUTION_ENV clears LeanDNA Data API settings so calls fail until fixed.
+
+
+def _leandna_data_api_execution_bucket() -> str:
+    raw = (os.environ.get("EXECUTION_ENV") or "").strip()
+    if not raw:
+        return "legacy"
+    low = raw.lower()
+    if low == "staging":
+        return "staging"
+    if low in ("production", "ci", "production (ci)", "production(ci)", "production/ci"):
+        return "production"
+    return "none"
+
+
+BPO_LEANDNA_DATA_API_EXECUTION_BUCKET = _leandna_data_api_execution_bucket()
+
+if BPO_LEANDNA_DATA_API_EXECUTION_BUCKET == "legacy":
+    LEANDNA_DATA_API_BASE_URL = os.environ.get("LEANDNA_DATA_API_BASE_URL", "https://app.leandna.com/api").rstrip("/")
+    LEANDNA_DATA_API_BEARER_TOKEN = os.environ.get("LEANDNA_DATA_API_BEARER_TOKEN")
+    LEANDNA_DATA_API_COOKIE = (os.environ.get("LEANDNA_DATA_API_COOKIE") or "").strip()
+    LEANDNA_DATA_API_ORIGIN = (os.environ.get("LEANDNA_DATA_API_ORIGIN") or "").strip()
+    LEANDNA_DATA_API_REFERER = (os.environ.get("LEANDNA_DATA_API_REFERER") or "").strip()
+elif BPO_LEANDNA_DATA_API_EXECUTION_BUCKET == "staging":
+    _LD_PRE = "ST_"
+    LEANDNA_DATA_API_BASE_URL = (os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_BASE_URL") or "").strip().rstrip("/")
+    LEANDNA_DATA_API_BEARER_TOKEN = os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_BEARER_TOKEN")
+    LEANDNA_DATA_API_COOKIE = (os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_COOKIE") or "").strip()
+    LEANDNA_DATA_API_ORIGIN = (os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_ORIGIN") or "").strip()
+    LEANDNA_DATA_API_REFERER = (os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_REFERER") or "").strip()
+elif BPO_LEANDNA_DATA_API_EXECUTION_BUCKET == "production":
+    _LD_PRE = "PR_"
+    LEANDNA_DATA_API_BASE_URL = (os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_BASE_URL") or "").strip().rstrip("/")
+    LEANDNA_DATA_API_BEARER_TOKEN = os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_BEARER_TOKEN")
+    LEANDNA_DATA_API_COOKIE = (os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_COOKIE") or "").strip()
+    LEANDNA_DATA_API_ORIGIN = (os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_ORIGIN") or "").strip()
+    LEANDNA_DATA_API_REFERER = (os.environ.get(f"{_LD_PRE}LEANDNA_DATA_API_REFERER") or "").strip()
+else:
+    LEANDNA_DATA_API_BASE_URL = ""
+    LEANDNA_DATA_API_BEARER_TOKEN = None
+    LEANDNA_DATA_API_COOKIE = ""
+    LEANDNA_DATA_API_ORIGIN = ""
+    LEANDNA_DATA_API_REFERER = ""
+
+
+def resolve_leandna_data_api_base_url() -> str:
+    """Return the Data API base URL (no trailing slash) or raise if misconfigured.
+
+    Legacy mode (empty configured base) falls back to production host. Staging, production,
+    and unknown ``EXECUTION_ENV`` buckets require an explicit base URL.
+    """
+    raw = (LEANDNA_DATA_API_BASE_URL or "").strip().rstrip("/")
+    if raw:
+        return raw
+    if BPO_LEANDNA_DATA_API_EXECUTION_BUCKET == "legacy":
+        return "https://app.leandna.com/api".rstrip("/")
+    raise ValueError(
+        "LEANDNA_DATA_API_BASE_URL is not set for this EXECUTION_ENV. "
+        "Set ST_LEANDNA_DATA_API_BASE_URL when EXECUTION_ENV=Staging, "
+        "PR_LEANDNA_DATA_API_BASE_URL when EXECUTION_ENV is Production or CI, "
+        "or unset EXECUTION_ENV to use LEANDNA_DATA_API_BASE_URL."
+    )
 try:
     _ldna_cache_hours = int(os.environ.get("LEANDNA_ITEM_MASTER_CACHE_TTL_HOURS", "24").strip())
     LEANDNA_ITEM_MASTER_CACHE_TTL_HOURS = max(1, min(168, _ldna_cache_hours))  # 1h-7d range

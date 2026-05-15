@@ -4,6 +4,8 @@ Supports the same auth modes as the LeanDNA web app:
 
 - **Bearer** — ``LEANDNA_DATA_API_BEARER_TOKEN`` (integration token: paste the **raw token** only;
   a leading ``Bearer `` prefix in the env value is stripped automatically).
+  With ``EXECUTION_ENV=Staging`` / ``Production`` / ``CI``, values come from ``ST_*`` / ``PR_*``
+  prefixed vars in ``src.config`` (see ``resolve_leandna_data_api_base_url``).
 - **Session cookie** — ``LEANDNA_DATA_API_COOKIE`` copied from the browser while logged in
   (DevTools → Network → any ``/api/data/...`` request → **Request Headers** → ``Cookie``).
   Optional ``Origin`` / ``Referer`` are sent with cookie auth so the API sees a browser-like request.
@@ -18,7 +20,6 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 from .config import (
-    LEANDNA_DATA_API_BASE_URL,
     LEANDNA_DATA_API_BEARER_TOKEN,
     LEANDNA_DATA_API_COOKIE,
     LEANDNA_DATA_API_ORIGIN,
@@ -32,8 +33,14 @@ def leandna_data_api_credentials_configured() -> bool:
 
 
 def _default_origin_for_cookie() -> str:
-    """``https://host`` derived from ``LEANDNA_DATA_API_BASE_URL``."""
-    raw = (LEANDNA_DATA_API_BASE_URL or "https://app.leandna.com/api").strip()
+    """``https://host`` derived from the resolved Data API base URL (or empty)."""
+    from .config import resolve_leandna_data_api_base_url
+
+    try:
+        raw = resolve_leandna_data_api_base_url()
+    except ValueError:
+        return ""
+    raw = raw.strip()
     if "://" not in raw:
         raw = "https://" + raw.lstrip("/")
     p = urlparse(raw)
@@ -61,7 +68,7 @@ def build_leandna_data_api_headers(
     user_agent_suffix: str = "leandna-data-api/1.0",
     content_type_json: bool = False,
 ) -> dict[str, str]:
-    """Headers for ``GET`` / ``POST`` / ``PUT`` / ``DELETE`` to ``{LEANDNA_DATA_API_BASE_URL}/data/...``.
+    """Headers for ``GET`` / ``POST`` / ``PUT`` / ``DELETE`` to ``{base}/data/...``.
 
     Raises:
         ValueError: if neither bearer token nor session cookie is configured.

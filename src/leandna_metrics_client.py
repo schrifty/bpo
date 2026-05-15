@@ -21,12 +21,13 @@ from typing import Any
 
 import requests
 
-from .config import LEANDNA_DATA_API_BASE_URL, logger
+from .leandna_data_api_request import data_api_base_url
+from .config import logger
 from .leandna_data_api_http import build_leandna_data_api_headers
 
 
 def _base_url() -> str:
-    return (LEANDNA_DATA_API_BASE_URL or "https://app.leandna.com/api").rstrip("/")
+    return data_api_base_url()
 
 
 def _raise_for_status(resp: requests.Response) -> None:

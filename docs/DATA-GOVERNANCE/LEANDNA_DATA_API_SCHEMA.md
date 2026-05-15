@@ -1,6 +1,6 @@
 # LeanDNA Data API schema (BPO)
 
-LeanDNA **Data API** — REST JSON under `{LEANDNA_DATA_API_BASE_URL}` (default `https://app.leandna.com/api`). **Auth:** Bearer (`LEANDNA_DATA_API_BEARER_TOKEN`) and/or browser **Cookie** (`LEANDNA_DATA_API_COOKIE`) plus optional `Origin`/`Referer` — see **[`../SETUP/LEANDNA_SETUP.md`](../SETUP/LEANDNA_SETUP.md)**. **Optional site scope:** `RequestedSites: <comma-separated site ids>`.
+LeanDNA **Data API** — REST JSON under the resolved base URL (`resolve_leandna_data_api_base_url()` in `src/config.py`; optional `EXECUTION_ENV` with `ST_*` / `PR_*` — see **[`../SETUP/LEANDNA_SETUP.md`](../SETUP/LEANDNA_SETUP.md)**). **Auth:** Bearer (`LEANDNA_DATA_API_BEARER_TOKEN`) and/or browser **Cookie** (`LEANDNA_DATA_API_COOKIE`) plus optional `Origin`/`Referer` — same setup doc. **Optional site scope:** `RequestedSites: <comma-separated site ids>`.
 
 Canonical registry identifiers: [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) (LeanDNA Data API section). Integration analysis: [`LEANDNA_DATA_API_TOOLS.md`](./LEANDNA_DATA_API_TOOLS.md). OpenAPI: fetch with authenticated `scripts/fetch_leandna_swagger.py`.
 
@@ -12,7 +12,7 @@ Canonical registry identifiers: [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) (LeanDN
 
 | Concern | Detail |
 |--------|--------|
-| Base | `LEANDNA_DATA_API_BASE_URL` from `src/config.py` |
+| Base | `resolve_leandna_data_api_base_url()` / `LEANDNA_DATA_API_BASE_URL` in `src/config.py` (see `EXECUTION_ENV` + `ST_*` / `PR_*` in setup doc) |
 | Auth | At least one of `LEANDNA_DATA_API_BEARER_TOKEN`, `LEANDNA_DATA_API_COOKIE` (optional `LEANDNA_DATA_API_ORIGIN`, `LEANDNA_DATA_API_REFERER`) — see [`../SETUP/LEANDNA_SETUP.md`](../SETUP/LEANDNA_SETUP.md) |
 | JSON | Responses are JSON unless noted (Data Share returns URL metadata for Parquet) |
 | Errors | Typical HTTP 401 without valid Bearer/cookie or wrong base URL; field shapes vary by tenant — validate with live calls |

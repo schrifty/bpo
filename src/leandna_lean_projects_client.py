@@ -15,10 +15,8 @@ from typing import Any
 
 import requests
 
-from .config import (
-    logger,
-    LEANDNA_DATA_API_BASE_URL,
-)
+from .config import logger
+from .leandna_data_api_request import data_api_base_url
 
 # Thread-safe in-memory cache
 _cache_lock = threading.Lock()
@@ -144,7 +142,7 @@ def get_lean_projects(
             return cached
     
     # Fetch from API
-    url = f"{LEANDNA_DATA_API_BASE_URL}/data/LeanProject"
+    url = f"{data_api_base_url()}/data/LeanProject"
     params: dict[str, Any] = {}
     if date_from:
         params["dateFrom"] = date_from
@@ -210,7 +208,7 @@ def get_project_savings(
             return cached
     
     # Fetch from API
-    url = f"{LEANDNA_DATA_API_BASE_URL}/data/LeanProject/{','.join(project_ids)}/Savings"
+    url = f"{data_api_base_url()}/data/LeanProject/{','.join(project_ids)}/Savings"
     
     try:
         logger.info("LeanDNA Project Savings: fetching for %d projects", len(project_ids))
@@ -350,7 +348,7 @@ def check_reachable(sites: str | None = None) -> bool:
     Returns:
         True if API responds with 200 (or 401 if token is invalid).
     """
-    url = f"{LEANDNA_DATA_API_BASE_URL}/data/LeanProject"
+    url = f"{data_api_base_url()}/data/LeanProject"
     params = {"dateFrom": "2026-01-01", "dateTo": "2026-01-01"}  # minimal query
     
     try:

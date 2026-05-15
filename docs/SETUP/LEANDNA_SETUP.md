@@ -31,6 +31,21 @@ Implementation: shared headers in [`src/leandna_data_api_http.py`](../../src/lea
 | `LEANDNA_DATA_API_ORIGIN` | No | e.g. `https://app.leandna.com`. With cookie auth, defaults from the API base URL if unset. |
 | `LEANDNA_DATA_API_REFERER` | No | Defaults to `{origin}/application/` if unset (browser-like request). |
 
+### `EXECUTION_ENV` (optional): prefixed credentials
+
+When **`EXECUTION_ENV`** is set, BPO reads **only** the matching prefixed variables (unprefixed `LEANDNA_DATA_API_*` values are **ignored** for that process):
+
+| `EXECUTION_ENV` (case-insensitive) | Prefix | Example vars |
+|-----------------------------------|--------|----------------|
+| `Staging` | `ST_` | `ST_LEANDNA_DATA_API_BASE_URL`, `ST_LEANDNA_DATA_API_BEARER_TOKEN`, `ST_LEANDNA_DATA_API_COOKIE`, `ST_LEANDNA_DATA_API_ORIGIN`, `ST_LEANDNA_DATA_API_REFERER` |
+| `Production` or `CI` (also `Production (CI)`, `production/ci`, etc.) | `PR_` | `PR_LEANDNA_DATA_API_BASE_URL`, … |
+
+Any **other** non-empty value (e.g. `dev`) clears LeanDNA Data API settings so connections fail until you fix `EXECUTION_ENV` or switch to prefixed + valid staging/production.
+
+When **`EXECUTION_ENV` is unset**, behavior is **unchanged**: use the unprefixed `LEANDNA_DATA_API_*` variables (legacy).
+
+Implementation: [`src/config.py`](../../src/config.py) (`BPO_LEANDNA_DATA_API_EXECUTION_BUCKET`, `resolve_leandna_data_api_base_url`).
+
 **Caching (optional):**
 
 - `LEANDNA_ITEM_MASTER_CACHE_TTL_HOURS` (default 24)

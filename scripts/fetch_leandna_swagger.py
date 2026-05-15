@@ -27,11 +27,11 @@ from dotenv import load_dotenv
 
 load_dotenv(ROOT / ".env")
 
-from src.config import LEANDNA_DATA_API_BASE_URL, LEANDNA_DATA_API_BEARER_TOKEN, logger  # noqa: E402
+from src.config import LEANDNA_DATA_API_BEARER_TOKEN, logger, resolve_leandna_data_api_base_url  # noqa: E402
 
 
 def _default_swagger_url() -> str:
-    base = (LEANDNA_DATA_API_BASE_URL or "https://app.leandna.com/api").rstrip("/")
+    base = resolve_leandna_data_api_base_url()
     return f"{base}/swagger.json"
 
 
@@ -40,7 +40,7 @@ def main() -> int:
     ap.add_argument(
         "--url",
         default=_default_swagger_url(),
-        help="Swagger document URL (default: LEANDNA_DATA_API_BASE_URL + /swagger.json)",
+        help="Swagger document URL (default: resolved Data API base + /swagger.json)",
     )
     ap.add_argument(
         "-o",

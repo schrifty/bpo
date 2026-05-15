@@ -3,7 +3,8 @@
 ``data_api_get_json`` performs validated ``GET`` requests.
 ``data_api_mutate_json`` performs validated ``POST``, ``PUT``, or ``DELETE`` (mutations).
 
-Paths are normalized before concatenation with ``LEANDNA_DATA_API_BASE_URL`` — no arbitrary hosts.
+Paths are normalized before concatenation with the resolved Data API base URL
+(``resolve_leandna_data_api_base_url()`` / ``EXECUTION_ENV`` — see ``src.config``) — no arbitrary hosts.
 
 See ``docs/DATA-GOVERNANCE/LEANDNA_DATA_API_SCHEMA.md`` for resource inventory;
 per-field contracts follow tenant OpenAPI (``scripts/fetch_leandna_swagger.py``).
@@ -17,7 +18,7 @@ from typing import Any
 
 import requests
 
-from .config import LEANDNA_DATA_API_BASE_URL, logger
+from .config import logger, resolve_leandna_data_api_base_url
 from .leandna_data_api_http import build_leandna_data_api_headers
 
 # Path under /data/ — letters, digits, slashes, hyphens, underscores, dots,
@@ -47,7 +48,7 @@ def normalize_data_api_relative_path(path: str) -> str:
 
 
 def data_api_base_url() -> str:
-    return (LEANDNA_DATA_API_BASE_URL or "https://app.leandna.com/api").rstrip("/")
+    return resolve_leandna_data_api_base_url()
 
 
 def _response_envelope(
@@ -110,7 +111,12 @@ def data_api_get_json(
     except ValueError as e:
         return {"ok": False, "error": str(e)}
 
-    url = f"{data_api_base_url()}/data/{rel}"
+    try:
+        base = data_api_base_url()
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+
+    url = f"{base}/data/{rel}"
     params = {k: v for k, v in (query or {}).items() if v is not None and v != ""}
 
     try:
@@ -157,7 +163,12 @@ def data_api_mutate_json(
     except ValueError as e:
         return {"ok": False, "error": str(e)}
 
-    url = f"{data_api_base_url()}/data/{rel}"
+    try:
+        base = data_api_base_url()
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+
+    url = f"{base}/data/{rel}"
     params = {k: v for k, v in (query or {}).items() if v is not None and v != ""}
 
     try:
