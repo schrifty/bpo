@@ -8,6 +8,7 @@ for each owned metric over a date window (same auth / ``EXECUTION_ENV`` rules as
 Examples::
 
   python3 scripts/get-my-metrics.py
+  python3 scripts/get-my-metrics.py --format json
   python3 scripts/get-my-metrics.py --format brief
   python3 scripts/get-my-metrics.py --no-data
   python3 scripts/get-my-metrics.py --requested-sites 416
@@ -45,6 +46,10 @@ from src.leandna_metrics_client import (  # noqa: E402
     list_metric_definitions,
     resolve_metric_datapoint_window,
     slim_metric_datapoint_rows,
+)
+from src.leandna_metrics_display import (  # noqa: E402
+    print_metrics_datapoint_table,
+    print_metrics_grouped_display,
 )
 
 
@@ -215,9 +220,14 @@ def main() -> int:
     )
     ap.add_argument(
         "--format",
-        choices=("json", "brief"),
-        default="json",
-        help="json: array of metric objects (default); brief: tab-separated summary lines",
+        choices=("display", "json", "brief", "table"),
+        default="display",
+        help=(
+            "display: JSON metric definition + datapoint table per metric (default); "
+            "json: single machine-readable payload; "
+            "brief: one TSV summary line per metric; "
+            "table: one TSV row per datapoint"
+        ),
     )
     ap.add_argument(
         "--no-data",
@@ -384,7 +394,16 @@ def main() -> int:
             read_timeout_seconds=ns.read_timeout,
         )
 
-    if ns.format == "brief":
+    if ns.format == "display":
+        if ns.no_data:
+            for block in rows:
+                print(
+                    json.dumps(block, indent=2, default=str, ensure_ascii=False),
+                )
+                print()
+        else:
+            print_metrics_grouped_display(rows, values_key="dataSeries")
+    elif ns.format == "brief":
         header = (
             "id\tname\tmetricType\tsiteId\townerId\tpoints\tlatest\tlatest_value\t"
             "categories\tvalueStreams"
@@ -394,6 +413,11 @@ def main() -> int:
         print(header)
         for ln in _brief_lines(rows):
             print(ln)
+    elif ns.format == "table":
+        if ns.no_data:
+            print("table format requires MetricDataPoint data (omit --no-data).", file=sys.stderr)
+            return 1
+        print_metrics_datapoint_table(rows, values_key="dataSeries")
     else:
         payload: Any = rows
         if not ns.no_data and window_meta is not None:

@@ -46,6 +46,10 @@ from src.leandna_metrics_client import (  # noqa: E402
     resolve_metric_datapoint_window,
     slim_metric_datapoint_rows,
 )
+from src.leandna_metrics_display import (  # noqa: E402
+    print_metrics_datapoint_table,
+    print_metrics_grouped_display,
+)
 
 
 def _pop_leading_numeric_metric_id(argv: list[str]) -> tuple[list[str], str | None]:
@@ -112,34 +116,6 @@ def _requested_sites_for_metric(metric: dict[str, Any], cli_sites: str | None) -
         return None
     s = str(sid).strip()
     return s or None
-
-
-def _print_brief_grouped(results: list[dict[str, Any]]) -> None:
-    for block in results:
-        mid = block.get("id", "")
-        name = block.get("name", "")
-        pts = block.get("values") or []
-        print(f"=== {name} (id={mid}) ===")
-        if not pts:
-            print("(no datapoints in window)")
-        else:
-            print("dataPointDate\tvalue")
-            for p in pts:
-                d = str(p.get("dataPointDate") or "")
-                v = p.get("value")
-                print(f"{d}\t{v}")
-        print()
-
-
-def _print_brief_table(results: list[dict[str, Any]]) -> None:
-    print("metric_id\tmetric_name\tdataPointDate\tvalue")
-    for block in results:
-        mid = block.get("id", "")
-        name = str(block.get("name", "")).replace("\t", " ")
-        for p in block.get("values") or []:
-            d = str(p.get("dataPointDate") or "")
-            v = p.get("value")
-            print(f"{mid}\t{name}\t{d}\t{v}")
 
 
 def main() -> int:
@@ -350,9 +326,13 @@ def main() -> int:
     if ns.format == "json":
         print(json.dumps(results, indent=2, default=str, ensure_ascii=False))
     elif ns.format == "table":
-        _print_brief_table(results)
+        print_metrics_datapoint_table(results, values_key="values")
     else:
-        _print_brief_grouped(results)
+        print_metrics_grouped_display(
+            results,
+            values_key="values",
+            include_json_definition=False,
+        )
 
     total_points = sum(len(r.get("values") or []) for r in results)
     print(

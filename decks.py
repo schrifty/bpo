@@ -87,7 +87,7 @@ Generate one deck (explicit)
   decks kpi [get-my-metrics options]
       List LeanDNA metrics owned by the current API user (``GET /data/identity`` +
       ``GET /data/Metric`` filtered by ``ownerId``). Forwards flags to ``scripts/get-my-metrics.py``
-      (e.g. ``--format brief``, ``--requested-sites 416``, ``--user-id ID``).
+      (e.g. ``--format json``, ``--requested-sites 416``, ``--user-id ID``).
 """
 
 import json
