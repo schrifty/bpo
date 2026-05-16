@@ -6,6 +6,7 @@ from src.llm_export_salesforce_universe import (
     attach_churned_salesforce_segment_for_llm_export,
     merge_active_salesforce_customers_for_llm_export,
     merge_salesforce_universe_for_llm_export,
+    strip_churned_customers_from_active_export,
 )
 
 
@@ -77,6 +78,44 @@ def test_attach_churned_segment_separate_from_active(monkeypatch):
     assert [r["customer"] for r in report["customers"]] == ["Active Co"]
 
 
+def test_strip_removes_churned_from_active_pendo_sections():
+    report = {
+        "customers": [
+            {"customer": "ActiveCo", "total_users": 10},
+            {"customer": "GonePendo", "total_users": 5},
+        ],
+        "portfolio_signals": [
+            {"customer": "ActiveCo", "signal": "ok"},
+            {"customer": "GonePendo", "signal": "read-heavy"},
+        ],
+        "salesforce_churned_segment": {
+            "customers_headline": [{"customer": "Gone LLC"}],
+            "salesforce": {
+                "matched_customer_contract_rollups": [{"customer": "Gone LLC", "active": False}],
+            },
+        },
+    }
+
+    def fake_resolve(label, prefixes):
+        if label == "Gone LLC" and "GonePendo" in prefixes:
+            return "GonePendo"
+        return None
+
+    import src.llm_export_salesforce_universe as mod
+
+    orig = mod.resolve_sf_label_to_pendo_prefix
+    mod.resolve_sf_label_to_pendo_prefix = fake_resolve
+    try:
+        summary = strip_churned_customers_from_active_export(report)
+    finally:
+        mod.resolve_sf_label_to_pendo_prefix = orig
+
+    assert summary["removed_customer_rows"] == 1
+    assert summary["removed_portfolio_signals"] == 1
+    assert [r["customer"] for r in report["customers"]] == ["ActiveCo"]
+    assert report["portfolio_signals"][0]["customer"] == "ActiveCo"
+
+
 def test_merge_universe_calls_active_and_churn(monkeypatch):
     calls: list[str] = []
 
@@ -92,5 +131,9 @@ def test_merge_universe_calls_active_and_churn(monkeypatch):
         "src.llm_export_salesforce_universe.attach_churned_salesforce_segment_for_llm_export",
         lambda _r: calls.append("churn") or {},
     )
+    monkeypatch.setattr(
+        "src.llm_export_salesforce_universe.strip_churned_customers_from_active_export",
+        lambda _r: calls.append("strip") or {},
+    )
     merge_salesforce_universe_for_llm_export({})
-    assert calls == ["active", "churn"]
+    assert calls == ["active", "churn", "strip"]

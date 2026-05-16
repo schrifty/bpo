@@ -386,7 +386,7 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
             [
                 "### Salesforce churned segment (§3b — separate from active book)",
                 f"- **Churned Customer Entity count:** **{n_churn or 0}**",
-                "- **Do not merge** §3b churn rollups with §1/§3/§5 active installed-base or Pendo usage metrics.",
+                "- **Do not merge** §3b with §1/§3/§5. Churned SF accounts are **Salesforce-only** here (no Pendo or Jira).",
                 "",
             ]
         )
@@ -451,8 +451,9 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
             "- **§3 — Salesforce (active installed base):** **Revenue and renewal-oriented facts** for **active "
             "(non-churned) Customer Entity** labels. Pendo usage in §1 is merged when a prefix matches, but **Pendo is "
             "not required** for a customer to appear (see ``salesforce_only`` rows in §1). **Do not combine** with §3b.",
-            "- **§3b — Salesforce (churned):** **Inactive / churned contract rollups** only — useful for retention "
-            "post-mortems and historical ARR, but **not** part of the active portfolio book. No §5 Pendo signals.",
+            "- **§3b — Salesforce (churned):** **Salesforce-only** inactive / churned contract rollups — useful for "
+            "retention post-mortems and historical ARR. **No Pendo**, **no Jira/Atlassian**, and **no §5** "
+            "signals for these accounts (they are removed from the active segment when SF marks them churned).",
             "",
             "- **§4 — CS Report (weekly export):** The **all-customer** health / supply / value aggregate from the Data "
             "Exports workbook. Only the **first slice of sites per worksheet** is kept when the file must shrink; long "
@@ -1002,8 +1003,9 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
             "",
             "## 3b. Salesforce (churned — do not merge with §1–§3 active book)",
             "",
-            "> **Segment boundary:** Churned / inactive contract customers only. Do not add these ARR "
-            "figures to §3 totals, pipeline ARR, or §5 Pendo signals.",
+            "> **Segment boundary:** Salesforce churn / inactive contract customers only. "
+            "No Pendo or Jira/Atlassian data for these accounts. Do not add these ARR figures to §3 totals, "
+            "pipeline ARR, or §5.",
             "",
             _json_compact(doc.get("salesforce_churned_segment")),
             "",

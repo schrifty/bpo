@@ -86,6 +86,91 @@ def active_salesforce_portfolio_rollups() -> tuple[list[dict[str, Any]], list[st
     return active, labels, book
 
 
+def churned_sf_excluded_customer_keys(
+    report: dict[str, Any],
+    *,
+    pendo_prefixes: frozenset[str] | None = None,
+) -> frozenset[str]:
+    """Lowercase names to omit from active §1/§5 (and §7): churned SF labels + mapped Pendo keys."""
+    seg = report.get("salesforce_churned_segment")
+    if not isinstance(seg, dict):
+        return frozenset()
+    sf_labels: list[str] = []
+    excluded: set[str] = set()
+    for r in seg.get("customers_headline") or []:
+        if not isinstance(r, dict):
+            continue
+        c = str(r.get("customer") or "").strip()
+        if c:
+            sf_labels.append(c)
+            excluded.add(c.lower())
+    sf = seg.get("salesforce") if isinstance(seg, dict) else {}
+    for r in sf.get("matched_customer_contract_rollups") or []:
+        if not isinstance(r, dict):
+            continue
+        c = str(r.get("customer") or "").strip()
+        if c:
+            sf_labels.append(c)
+            excluded.add(c.lower())
+    prefixes = pendo_prefixes if pendo_prefixes is not None else _pendo_prefixes_from_rows(_customer_rows(report))
+    for label in sf_labels:
+        mapped = resolve_sf_label_to_pendo_prefix(label, prefixes)
+        if mapped:
+            excluded.add(mapped.strip().lower())
+    return frozenset(excluded)
+
+
+def strip_churned_customers_from_active_export(report: dict[str, Any]) -> dict[str, Any]:
+    """Remove Salesforce-churned customers from active Pendo sections (§1, §5, §7 inputs).
+
+    Churned accounts appear only in ``salesforce_churned_segment`` (§3b) with Salesforce facts —
+    no Pendo headline metrics, usage signals, or per-customer Jira slices.
+    """
+    summary: dict[str, Any] = {
+        "excluded_customer_keys": 0,
+        "removed_customer_rows": 0,
+        "removed_portfolio_signals": 0,
+    }
+    excluded = churned_sf_excluded_customer_keys(report)
+    summary["excluded_customer_keys"] = len(excluded)
+    if not excluded:
+        return summary
+
+    before_c = _customer_rows(report)
+    kept = [r for r in before_c if str(r.get("customer") or "").strip().lower() not in excluded]
+    summary["removed_customer_rows"] = len(before_c) - len(kept)
+    report["customers"] = kept
+    report["customer_count"] = len(kept)
+
+    sigs = report.get("portfolio_signals")
+    if isinstance(sigs, list):
+        kept_sig = []
+        removed_sig = 0
+        for item in sigs:
+            if not isinstance(item, dict):
+                kept_sig.append(item)
+                continue
+            cust = str(item.get("customer") or "").strip().lower()
+            if cust and cust in excluded:
+                removed_sig += 1
+                continue
+            kept_sig.append(item)
+        report["portfolio_signals"] = kept_sig
+        summary["removed_portfolio_signals"] = removed_sig
+
+    if summary["removed_customer_rows"] or summary["removed_portfolio_signals"]:
+        logger.info(
+            "LLM export: removed %d active customer row(s) and %d Pendo signal line(s) for "
+            "Salesforce-churned accounts (see §3b only)",
+            summary["removed_customer_rows"],
+            summary["removed_portfolio_signals"],
+        )
+    report.setdefault("_llm_export_salesforce_universe", {})
+    if isinstance(report["_llm_export_salesforce_universe"], dict):
+        report["_llm_export_salesforce_universe"]["churn_exclusion_from_active"] = summary
+    return summary
+
+
 def _churned_headline_rows(churned_rollups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for r in sorted(churned_rollups, key=lambda x: str(x.get("customer") or "").lower()):
@@ -145,9 +230,12 @@ def attach_churned_salesforce_segment_for_llm_export(report: dict[str, Any]) -> 
         "segment": "churned",
         "do_not_merge_with_active_book": True,
         "usage_note": (
-            "Churned Customer Entity rollups (inactive contract status). Do not sum with §1/§3 active "
-            "installed-base metrics, pipeline ARR, or §5 Pendo signals."
+            "Salesforce-only churn segment: inactive Customer Entity contract rollups. "
+            "No Pendo product usage, no Jira/Atlassian HELP slices, and no §5 signals — "
+            "do not sum with §1/§3 active installed-base metrics or pipeline ARR."
         ),
+        "data_sources_included": ["salesforce"],
+        "data_sources_excluded": ["pendo", "jira", "cs_report"],
         "customer_count": len(churned),
         "customers_headline": _churned_headline_rows(churned),
         "salesforce": sf_churned,
@@ -229,10 +317,15 @@ def merge_active_salesforce_customers_for_llm_export(report: dict[str, Any]) -> 
 
 
 def merge_salesforce_universe_for_llm_export(report: dict[str, Any]) -> dict[str, Any]:
-    """Merge active customers into §1 and attach a separate churned segment."""
+    """Merge active customers into §1, attach Salesforce-only §3b churn, strip churn from active Pendo."""
     active_summary = merge_active_salesforce_customers_for_llm_export(report)
     churn_summary = attach_churned_salesforce_segment_for_llm_export(report)
-    return {"active": active_summary, "churned": churn_summary}
+    exclusion_summary = strip_churned_customers_from_active_export(report)
+    return {
+        "active": active_summary,
+        "churned": churn_summary,
+        "churn_exclusion_from_active": exclusion_summary,
+    }
 
 
 def active_sf_allowlist_lower() -> tuple[frozenset[str], list[str], dict[str, Any]]:
