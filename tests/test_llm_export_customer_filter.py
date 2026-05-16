@@ -71,23 +71,16 @@ def test_sf_allowlist_intersect(monkeypatch):
         lambda: True,
     )
 
-    class _FakeSf:
-        def get_entity_accounts(self):
-            return [{"Name": "Alpha Parent", "ARR__c": 1}]
-
-    monkeypatch.setattr("src.salesforce_client.SalesforceClient", _FakeSf)
-
-    def fake_allowlist(**kwargs):
-        pendo_prefixes = kwargs["pendo_prefixes"]
-        return (["Alpha"], {})
+    def fake_active_allowlist():
+        return (
+            frozenset({"alpha", "gamma llc"}),
+            ["Alpha Parent", "Gamma LLC"],
+            {"configured": True},
+        )
 
     monkeypatch.setattr(
-        "src.llm_export_customer_filter.salesforce_allowlist_pendo_keys",
-        fake_allowlist,
-    )
-    monkeypatch.setattr(
-        "src.llm_export_customer_filter._resolve_portfolio_exclude",
-        lambda: (lambda _k: False),
+        "src.llm_export_customer_filter.active_sf_allowlist_lower",
+        fake_active_allowlist,
     )
 
     def _capture_aggregate(rep):
@@ -100,17 +93,22 @@ def test_sf_allowlist_intersect(monkeypatch):
     )
 
     report = {
-        "customers": [{"customer": "Alpha"}, {"customer": "Beta"}],
+        "customers": [
+            {"customer": "Alpha"},
+            {"customer": "Beta"},
+            {"customer": "Gamma LLC", "salesforce_only": True},
+        ],
         "portfolio_signals": [
             {"customer": "Beta", "signal": "noise"},
             {"customer": "Alpha", "signal": "sig"},
+            {"customer": "Gamma LLC", "signal": "sf only"},
         ],
     }
     cfg = LlmExportCustomerFilterConfig(sf_allowlist=True)
     apply_llm_export_customer_filters(report, cfg)
-    assert [r["customer"] for r in report["customers"]] == ["Alpha"]
-    assert len(report["portfolio_signals"]) == 1
-    assert report["portfolio_signals"][0]["customer"] == "Alpha"
+    assert [r["customer"] for r in report["customers"]] == ["Alpha", "Gamma LLC"]
+    assert len(report["portfolio_signals"]) == 2
+    assert {s["customer"] for s in report["portfolio_signals"]} == {"Alpha", "Gamma LLC"}
 
 
 def test_sf_allowlist_requires_salesforce(monkeypatch):

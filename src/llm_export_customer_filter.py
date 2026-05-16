@@ -1,8 +1,8 @@
 """Post-process all-customers LLM export portfolio rows (Pendo-derived) before markdown.
 
 Supports:
-    - Intersect headline customers / §5 signals with Salesforce Customer Entity→Pendo keys
-      (same mapping as cohort portfolio ``salesforce_allowlist_pendo_keys``).
+    - Intersect headline customers / §5 signals with **active** Salesforce Customer Entity
+      portfolio labels (Pendo match optional; see ``merge_active_salesforce_customers_for_llm_export``).
     - Drop customers that **matched** Salesforce rollups but are **inactive** (`active` False on
       contract status rollup — churned-style entities only).
     - Explicit name excludes (CLI, env comma-list, optional UTF-8 file of names).
@@ -29,7 +29,10 @@ import yaml
 
 from .config import logger
 from .data_source_health import _salesforce_configured
-from .portfolio_salesforce_allowlist import salesforce_allowlist_pendo_keys
+from .llm_export_salesforce_universe import (
+    active_sf_allowlist_lower,
+    customer_matches_active_sf_label,
+)
 
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 
@@ -223,34 +226,34 @@ def apply_llm_export_customer_filters(
                 "(set JWT env vars per docs).Unset BPO_LLM_EXPORT_CUSTOMERS_SF_ALLOWLIST / omit "
                 "`--customers-sf-allowlist`.",
             )
-        from src.salesforce_client import SalesforceClient
-
-        entity_accounts = SalesforceClient().get_entity_accounts()
-        pendo_prefixes = _pendo_prefix_set(rows)
-        is_excluded = _resolve_portfolio_exclude()
-        ordered_keys, meta = salesforce_allowlist_pendo_keys(
-            entity_accounts=entity_accounts,
-            pendo_prefixes=pendo_prefixes,
-            is_excluded=is_excluded,
-        )
-        allowed_lower = frozenset(k.strip().lower() for k in ordered_keys if k.strip())
-        summary["salesforce_allowlist_meta"] = {
-            k: meta[k]
-            for k in (
-                "salesforce_entity_row_count",
-                "salesforce_labels_unmatched",
-                "salesforce_labels_excluded_after_resolve",
-                "pendo_key_to_salesforce_label",
+        active_lower, sf_labels, book = active_sf_allowlist_lower()
+        if not active_lower:
+            summary["warnings"].append(
+                "Salesforce allowlist enabled but no active (non-churned) Customer Entity labels were resolved."
             )
-            if k in meta
+        pendo_prefixes = _pendo_prefix_set(rows)
+        summary["salesforce_allowlist_meta"] = {
+            "salesforce_active_labels": len(active_lower),
+            "salesforce_portfolio_label_count": len(sf_labels),
+            "pendo_prefix_count": len(pendo_prefixes),
         }
         before_allow = len(rows)
         rows = [
             r
             for r in rows
-            if str(r.get("customer") or "").strip().lower() in allowed_lower
+            if customer_matches_active_sf_label(
+                str(r.get("customer") or ""),
+                active_sf_labels_lower=active_lower,
+                pendo_prefixes=pendo_prefixes,
+                sf_portfolio_labels=sf_labels,
+            )
         ]
         summary["dropped_sf_allowlist"] = max(0, before_allow - len(rows))
+        allowed_lower = active_lower
+        sf_allowlist_labels = sf_labels
+        _ = book  # revenue book retained for possible diagnostics
+    else:
+        sf_allowlist_labels = None
 
     # 3) Inactive Salesforce matches (explicit churn rollup)
     inactive: frozenset[str] | None = None
@@ -277,7 +280,6 @@ def apply_llm_export_customer_filters(
 
     # Write back headline customers
     report["customers"] = rows
-    lc_allowed = allowed_lower if allowed_lower is not None else None
     if isinstance(report.get("portfolio_signals"), list):
         filtered_sig: list[Any] = []
         for item in report["portfolio_signals"]:
@@ -285,12 +287,20 @@ def apply_llm_export_customer_filters(
                 filtered_sig.append(item)
                 continue
             cust = str(item.get("customer") or "").strip()
-            cust_l = cust.lower()
             if not cust:
                 filtered_sig.append(item)
                 continue
-            if lc_allowed is not None and cust_l not in lc_allowed:
+            if cfg.sf_allowlist and sf_allowlist_labels is not None:
+                if not customer_matches_active_sf_label(
+                    cust,
+                    active_sf_labels_lower=allowed_lower or frozenset(),
+                    pendo_prefixes=_pendo_prefix_set(rows),
+                    sf_portfolio_labels=sf_allowlist_labels,
+                ):
+                    continue
+            elif allowed_lower is not None and cust.lower() not in allowed_lower:
                 continue
+            cust_l = cust.lower()
             if inactive is not None and cust_l in inactive:
                 continue
             if cust_l and cust_l in cfg.exclude_names_lower:

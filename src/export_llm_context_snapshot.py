@@ -16,8 +16,9 @@ Usage:
 
 Optional portfolio row filters (after Pendo+Salesforce bundle, before markdown):
 
-- ``--customers-sf-allowlist`` — keep headline customers/signals mapped from Salesforce Customer
-  Entities to Pendo prefixes (matches cohort allowlist semantics). Requires Salesforce JWT env vars.
+- ``--customers-sf-allowlist`` — keep headline customers/signals that match an **active** (non-churned)
+  Salesforce Customer Entity label; Pendo metrics are included when present but not required.
+  Requires Salesforce JWT env vars.
 - ``--customers-exclude-sf-churned`` — drop rows that **matched** Salesforce rollups with ``active``
   false (contract-status churn rollup).
 - ``--exclude-customer`` — repeat to drop explicit Pendo customer labels (case-insensitive), or see
@@ -329,6 +330,9 @@ def _build_export_coverage(
     cf = report.get("_llm_export_customer_filter")
     if isinstance(cf, dict) and cf.get("enabled"):
         out_cov["customer_filter"] = cf
+    sf_uni = report.get("_llm_export_salesforce_universe")
+    if isinstance(sf_uni, dict):
+        out_cov["salesforce_universe"] = sf_uni
     return out_cov
 
 
@@ -346,18 +350,37 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
         f"- **Canonical sources in this profile:** {', '.join(f'`{s}`' for s in (cov.get('sources_in_profile') or []))}",
         "",
     ]
+    sf_uni = cov.get("salesforce_universe")
+    if isinstance(sf_uni, dict) and sf_uni.get("salesforce_configured"):
+        lines.extend(
+            [
+                "### Salesforce customer universe (this run)",
+                f"- **Active Customer Entity labels in Salesforce:** **{sf_uni.get('salesforce_active_entities', 0)}**",
+                f"- **§1 rows added with Salesforce only (no Pendo headline metrics):** "
+                f"**{sf_uni.get('added_salesforce_only_rows', 0)}**",
+            ]
+        )
+        without = sf_uni.get("salesforce_labels_without_pendo") or []
+        if without:
+            preview = ", ".join(str(x) for x in without[:12])
+            if len(without) > 12:
+                preview += ", …"
+            lines.append(
+                f"- **Active SF labels with no Pendo prefix match (still in §1/§3):** {preview}"
+            )
+        lines.append("")
     cf_cov = cov.get("customer_filter")
     if isinstance(cf_cov, dict) and cf_cov.get("enabled"):
         lines.extend(
             [
                 "### Customer filter (portfolio rows)",
-                "Per-customer Pendo headline rows (**§1**) and usage signal lines (**§5**) were **trimmed before** Salesforce §3 refresh.",
+                "Per-customer headline rows (**§1**) and usage signal lines (**§5**) may have been **trimmed** before Salesforce §3 refresh.",
                 "",
             ]
         )
         lines.append(
-            f"- **Salesforce allowlist intersect:** **`{bool(cf_cov.get('sf_allowlist'))}`** — dropped "
-            f"**{cf_cov.get('dropped_sf_allowlist', 0)}** row(s) not derived from SF Customer Entity mapping."
+            f"- **Salesforce allowlist (active entities):** **`{bool(cf_cov.get('sf_allowlist'))}`** — dropped "
+            f"**{cf_cov.get('dropped_sf_allowlist', 0)}** row(s) not on the active SF Customer Entity book."
         )
         lines.append(
             f"- **Exclude SF churn rollup (inactive matched):** **`{bool(cf_cov.get('exclude_sf_churned_matched'))}`** — dropped "
@@ -404,8 +427,9 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
             "- **§2 — Jira (HELP):** **Workload and health of the queue** — counts by status, type, and similar rollups, "
             "plus response-time style summaries. **Individual tickets are not listed** (no issue keys, titles, or customer notes in text).",
             "",
-            "- **§3 — Salesforce:** **Revenue and renewal-oriented facts** tied to customers that appear in Pendo, plus a "
-            "limited set of account fields we export on purpose (not the whole CRM record). Account lists and per-customer "
+            "- **§3 — Salesforce:** **Revenue and renewal-oriented facts** for **active (non-churned) Customer Entity** "
+            "portfolio labels from Salesforce. Pendo usage in §1 is merged when a prefix matches, but **Pendo is not "
+            "required** for a customer to appear (see ``salesforce_only`` rows in §1). Account lists and per-customer "
             "contract rollups are **capped**; exact counts appear under **Effective compaction** below.",
             "",
             "- **§4 — CS Report (weekly export):** The **all-customer** health / supply / value aggregate from the Data "
@@ -697,8 +721,8 @@ def _pendo_portfolio_topline(
             }
         )
     note_parts = [
-        "Portfolio rollup: per-customer rows are headline engagement counts only "
-        "(no sites/pages/features/tickets)."
+        "Portfolio rollup: per-customer rows are headline engagement counts when Pendo data exists "
+        "(``salesforce_only`` rows carry Salesforce identity without Pendo metrics)."
     ]
     raw_n = len(raw_customers)
     if raw_n > max_customer_rows:
@@ -1029,8 +1053,8 @@ def _build_export_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
         "--customers-sf-allowlist",
         action="store_true",
         help=(
-            "After the merge, intersect §1 headline customers and §5 signals with Salesforce "
-            "Customer Entity→Pendo keys (requires Salesforce JWT env vars)."
+            "After the merge, keep §1/§5 rows for active (non-churned) Salesforce Customer Entity "
+            "labels; Pendo metrics are optional (requires Salesforce JWT env vars)."
         ),
     )
     ap.add_argument(

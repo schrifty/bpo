@@ -9,6 +9,8 @@ from .profiles import PROFILE_ID_LLM_EXPORT_ALL_CUSTOMERS, PROFILE_LLM_EXPORT_AL
 from .registry import SourceId
 from .loaders.salesforce_portfolio_aggregate import salesforce_portfolio_aggregate_for_report
 
+from ..llm_export_salesforce_universe import merge_active_salesforce_customers_for_llm_export
+
 
 # Deck ``get_portfolio_report`` defaults to 20 lines / 4 read-heavy in ``pendo_client``; LLM export
 # raises both so ``portfolio_signals`` is not slide-limited (still ranked / de-duped by that layer).
@@ -97,6 +99,7 @@ def build_llm_export_snapshot_report(pc: Any, *, days: int) -> dict[str, Any]:
             _provenance_row(SourceId.CS_REPORT_ALL_CUSTOMERS_WEEK, status="error", detail=str(e))
         )
 
+    merge_active_salesforce_customers_for_llm_export(report)
     report["salesforce"] = salesforce_portfolio_aggregate_for_report(report)
     if report["salesforce"].get("error"):
         provenance.append(
