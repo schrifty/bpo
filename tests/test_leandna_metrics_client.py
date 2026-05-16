@@ -179,6 +179,34 @@ def test_slim_metric_datapoint_rows() -> None:
     ) == [{"dataPointDate": "2026-01-01", "value": 1.5}]
 
 
+def test_find_similar_metric_definitions_ranks_ttr() -> None:
+    from src.leandna_metrics_client import find_similar_metric_definitions
+
+    catalog = [
+        {"id": 1, "name": "Job success rate"},
+        {"id": 2, "name": "Time-To-Resolution (30d)"},
+        {"id": 3, "name": "Time to first response"},
+    ]
+    hits = find_similar_metric_definitions(catalog, "time to resolution", window_days=30)
+    assert hits
+    assert hits[0]["id"] == 2
+    assert hits[0]["match_score"] >= 0.9
+
+
+def test_summarize_metric_datapoint_values() -> None:
+    from src.leandna_metrics_client import summarize_metric_datapoint_values
+
+    s = summarize_metric_datapoint_values(
+        [
+            {"dataPointDate": "2026-01-01", "value": 4.0},
+            {"dataPointDate": "2026-01-15", "value": 8.0},
+        ]
+    )
+    assert s["measured"] == 2
+    assert s["median"] == 6.0
+    assert s["latest"] == 8.0
+
+
 def test_missing_token_raises(monkeypatch):
     monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "")
     monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", "")

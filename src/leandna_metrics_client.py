@@ -17,6 +17,9 @@ the tenant swagger (``scripts/fetch_leandna_swagger.py``) and use ``extra_query`
 
 from __future__ import annotations
 
+import difflib
+import re
+import statistics
 from datetime import date, timedelta
 from typing import Any
 
@@ -269,3 +272,85 @@ def slim_metric_datapoint_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any
         for p in rows
         if isinstance(p, dict)
     ]
+
+
+def metric_definition_label(metric: dict[str, Any]) -> str:
+    return str(metric.get("name") or metric.get("crossSiteName") or metric.get("id") or "").strip()
+
+
+def _normalize_metric_search_text(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
+
+def score_metric_name_similarity(query: str, metric: dict[str, Any], *, window_days: int | None = None) -> float:
+    """Similarity in [0, 1] between *query* and a metric definition name."""
+    q_norm = _normalize_metric_search_text(query)
+    if not q_norm:
+        return 0.0
+    label = metric_definition_label(metric)
+    blob_norm = _normalize_metric_search_text(f"{label} {metric.get('crossSiteName', '')}")
+    if not blob_norm:
+        return 0.0
+    if q_norm in blob_norm or blob_norm in q_norm:
+        score = 0.92
+    else:
+        score = difflib.SequenceMatcher(None, q_norm, blob_norm).ratio()
+    if window_days is not None and window_days > 0:
+        day_tokens = (f"{window_days}d", f"{window_days} d", f"last {window_days}")
+        if any(tok.replace(" ", "") in blob_norm.replace(" ", "") for tok in day_tokens):
+            score = min(1.0, score + 0.08)
+    return score
+
+
+def find_similar_metric_definitions(
+    catalog: list[dict[str, Any]],
+    query: str,
+    *,
+    window_days: int | None = None,
+    min_score: float = 0.45,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    """Rank catalog metrics by name similarity to *query* (best first)."""
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for m in catalog:
+        if not isinstance(m, dict):
+            continue
+        s = score_metric_name_similarity(query, m, window_days=window_days)
+        if s >= min_score:
+            scored.append((s, m))
+    scored.sort(key=lambda x: (-x[0], metric_definition_label(x[1]).lower()))
+    out: list[dict[str, Any]] = []
+    for s, m in scored[: max(1, limit)]:
+        row = dict(m)
+        row["match_score"] = round(s, 4)
+        out.append(row)
+    return out
+
+
+def summarize_metric_datapoint_values(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate numeric ``value`` fields from MetricDataPoint rows."""
+    nums: list[float] = []
+    dates: list[str] = []
+    for p in rows:
+        if not isinstance(p, dict):
+            continue
+        v = p.get("value")
+        if isinstance(v, bool):
+            continue
+        if isinstance(v, (int, float)):
+            nums.append(float(v))
+            dates.append(str(p.get("dataPointDate") or ""))
+    if not nums:
+        return {"points": len(rows), "measured": 0}
+    nums_sorted = sorted(nums)
+    latest_date = dates[-1] if dates else ""
+    return {
+        "points": len(rows),
+        "measured": len(nums),
+        "latest": nums[-1],
+        "latest_date": latest_date[:10] if latest_date else "",
+        "avg": sum(nums) / len(nums),
+        "median": statistics.median(nums_sorted),
+        "min": nums_sorted[0],
+        "max": nums_sorted[-1],
+    }

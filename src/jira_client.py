@@ -36,6 +36,8 @@ HELP_METRICS_MERGED_MAX_RESULTS = int(os.environ.get("BPO_HELP_JIRA_METRICS_MAX"
 HELP_ESCALATION_LLM_MAX_ISSUES = int(os.environ.get("BPO_HELP_ESCALATION_LLM_MAX_ISSUES", "200"))
 # HELP trend fetch cap (created/resolved monthly trend series).
 HELP_TRENDS_MAX_RESULTS = int(os.environ.get("BPO_HELP_TRENDS_MAX", "12000"))
+# HELP resolved-window TTR (JSM SLA ``Time to resolution``, customfield_10665).
+HELP_TTR_RESOLVED_MAX_RESULTS = int(os.environ.get("BPO_HELP_TTR_RESOLVED_MAX", "2000"))
 # Parallel Jira fetches (rate-limit aware).
 _JIRA_PARALLEL_WORKERS = max(1, min(4, int(os.environ.get("BPO_JIRA_PARALLEL_WORKERS", "3"))))
 
@@ -1606,6 +1608,41 @@ class JiraClient:
             "pct": pct,
         }
 
+    @staticmethod
+    def _compute_ttr_sla_adherence_pct(
+        issues: list[dict],
+        *,
+        project_key: str = "HELP",
+    ) -> dict[str, Any]:
+        """Percent of tickets with completed **Time to resolution** SLA that did not breach.
+
+        Aligns with LeanDNA metric *TTR % (Trailing 30 Days)* / *Support Time to Resolution*:
+        only ``ttr_ms`` / ``ttr_breached`` count; TTFR is ignored. Tickets without a completed
+        TTR SLA cycle are excluded from ``measured``.
+        """
+        scoped = [i for i in issues if i.get("project") == project_key]
+        measured = 0
+        met = 0
+        waiting = 0
+        for issue in scoped:
+            if issue.get("ttr_waiting"):
+                waiting += 1
+            if issue.get("ttr_ms") is None:
+                continue
+            measured += 1
+            if not issue.get("ttr_breached"):
+                met += 1
+        breached = measured - met
+        pct = round(100 * met / measured, 1) if measured else None
+        return {
+            "tickets": len(scoped),
+            "measured": measured,
+            "met": met,
+            "breached": breached,
+            "waiting": waiting,
+            "pct": pct,
+        }
+
     def _partition_help_metrics_merged(
         self,
         merged_raw: list[dict],
@@ -2257,6 +2294,115 @@ class JiraClient:
             "by_assignee": [{"assignee": name, "count": count} for name, count in sorted_assignees],
             "jql_queries": self._jql_since(jql_start),
         }
+
+    def get_help_time_to_resolution(
+        self,
+        *,
+        days: int = 30,
+        customer_name: str | None = None,
+        match_terms: list[str] | None = None,
+        max_results: int | None = None,
+        include_tickets: bool = False,
+    ) -> dict[str, Any]:
+        """HELP **TTR SLA adherence %** for tickets resolved in the last *days* (LeanDNA metric 1911-style).
+
+        JQL: ``project = HELP``, customer scope (all customers when ``customer_name`` is None),
+        transient label exclusion (Outage, Healthcheck), ``resolution is not EMPTY``, and
+        ``resolved >= -{days}d``.
+
+        Primary aggregate: :meth:`_compute_ttr_sla_adherence_pct` — among issues with a completed
+        **Time to resolution** SLA (``customfield_10665``), the percent where ``breached`` is false.
+        Tickets resolved in the window but without a completed TTR SLA are in
+        ``resolved_in_window`` but not in ``ttr_sla_adherence.measured``.
+
+        Returns ``ttr_sla_adherence`` (``pct``, ``met``, ``measured``, ``breached``) plus optional
+        per-issue rows.
+        """
+        jql_start = self._jql_log_len()
+        if days < 1:
+            return {"error": "days must be >= 1", "days": days, "project": "HELP"}
+
+        cap = max_results if max_results is not None else HELP_TTR_RESOLVED_MAX_RESULTS
+        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
+            customer_name, match_terms
+        )
+        jql = (
+            f"project = HELP AND {base_filter} AND {_TRANSIENT_LABELS_EXCLUSION} "
+            f"AND resolution is not EMPTY AND resolved >= -{int(days)}d "
+            "ORDER BY resolved DESC"
+        )
+        jql_total = self._jql_match_total(jql)
+
+        try:
+            raw = self._search(
+                jql,
+                max_results=cap,
+                fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
+                data_description=(
+                    f"HELP Time to resolution SLA (resolved in last {int(days)}d"
+                    + (f", customer {customer_name!r}" if customer_name else ", portfolio")
+                    + ")"
+                ),
+            )
+        except Exception as e:
+            logger.warning(
+                "HELP time-to-resolution fetch failed (days=%s customer=%r): %s",
+                days,
+                customer_name,
+                e,
+            )
+            return {
+                "error": str(e),
+                "project": "HELP",
+                "metric": "time_to_resolution",
+                "window_days": int(days),
+                "customer": customer_name,
+                "jsm_organizations_resolved": resolved_jsm_orgs,
+                "jql_queries": self._jql_since(jql_start),
+            }
+
+        issues = [self._normalize_issue(i) for i in raw]
+        adherence = self._compute_ttr_sla_adherence_pct(issues, project_key="HELP")
+
+        out: dict[str, Any] = {
+            "project": "HELP",
+            "metric": "ttr_sla_adherence_pct",
+            "definition": (
+                "Percent of resolved HELP tickets (trailing window) with Time to resolution "
+                "SLA completed and not breached"
+            ),
+            "sla_field": TTR_FIELD,
+            "window_days": int(days),
+            "customer": customer_name,
+            "jsm_organizations_resolved": resolved_jsm_orgs,
+            "resolved_in_window": len(issues),
+            "jql_total": jql_total,
+            "fetch_cap": cap,
+            "truncated": jql_total is not None and jql_total > len(issues),
+            "ttr_sla_adherence": adherence,
+            "jql_queries": self._jql_since(jql_start),
+        }
+        if include_tickets:
+            slim: list[dict[str, Any]] = []
+            for issue, norm in zip(raw, issues):
+                rd = (issue.get("fields") or {}).get("resolutiondate") or ""
+                has_ttr = norm.get("ttr_ms") is not None
+                slim.append(
+                    {
+                        "key": norm["key"],
+                        "summary": (norm.get("summary") or "")[:120],
+                        "status": norm.get("status"),
+                        "resolution": norm.get("resolution"),
+                        "resolutiondate": rd[:10] if isinstance(rd, str) and rd else "",
+                        "organizations": norm.get("organizations") or [],
+                        "ttr_sla_measured": has_ttr,
+                        "ttr_sla_met": has_ttr and not norm.get("ttr_breached"),
+                        "ttr_breached": norm.get("ttr_breached"),
+                        "ttr_waiting": norm.get("ttr_waiting"),
+                    }
+                )
+            out["tickets"] = slim
+        return out
 
     def get_help_organizations_by_opened(
         self,
