@@ -10,6 +10,72 @@ _SF_NOT_CONFIGURED_MSG = (
 )
 
 
+def salesforce_aggregate_from_rollups(
+    rollups: list[dict[str, Any]],
+    *,
+    book: dict[str, Any] | None = None,
+    segment: str = "active",
+) -> dict[str, Any]:
+    """Map pre-filtered contract rollups to the export ``salesforce`` JSON shape."""
+    book = book if isinstance(book, dict) else {}
+    accounts: list[dict[str, Any]] = []
+    for row in rollups:
+        cust = row.get("customer")
+        if not cust:
+            continue
+        accounts.append(
+            {
+                "Name": cust,
+                "ARR__c": row.get("arr"),
+                "Type": "Customer Entity",
+                "active_in_salesforce": row.get("active"),
+                "contract_statuses_distinct": row.get("contract_statuses_distinct"),
+                "contract_end_date_nearest": row.get("contract_end_date_nearest"),
+                "contract_end_date_farthest": row.get("contract_end_date_farthest"),
+                "days_until_contract_end_nearest": row.get("days_until_contract_end_nearest"),
+                "contract_start_date_earliest_active": row.get("contract_start_date_earliest_active"),
+                "contract_start_date_latest_active": row.get("contract_start_date_latest_active"),
+                "entity_row_count": row.get("entity_row_count"),
+            }
+        )
+    arr_sum = 0.0
+    for row in rollups:
+        try:
+            arr_sum += float(row.get("arr") or 0)
+        except (TypeError, ValueError):
+            pass
+    out: dict[str, Any] = {
+        "customer": "All Customers",
+        "matched": bool(rollups),
+        "resolution": "portfolio_aggregate",
+        "primary_account_id": None,
+        "accounts": accounts,
+        "account_ids": [],
+        "matched_customer_contract_rollups": list(rollups),
+        "customer_segment": segment,
+        "segment_customer_count": len(rollups),
+        "segment_contract_arr": round(arr_sum, 2),
+    }
+    if segment == "active":
+        out["pipeline_arr"] = float(book.get("pipeline_arr") or 0)
+        out["opportunity_count_this_year"] = int(book.get("opportunity_count_this_year") or 0)
+        out["total_arr"] = book.get("total_arr")
+        out["active_installed_base_arr"] = book.get("active_installed_base_arr")
+        out["churned_contract_arr"] = book.get("churned_contract_arr")
+        out["pendo_customers"] = book.get("pendo_customers")
+        out["salesforce_matched_customers"] = book.get("salesforce_matched_customers")
+        out["salesforce_unmatched_customers"] = book.get("salesforce_unmatched_customers")
+        out["active_customer_count"] = book.get("active_customer_count")
+        out["churned_customer_count"] = book.get("churned_customer_count")
+        out["expansion_kpis"] = book.get("expansion_kpis")
+    else:
+        out["portfolio_book_note"] = (
+            "Pipeline, opportunity, and expansion KPI fields are portfolio-wide (active book) "
+            "and are omitted here so churn rows are not mixed with installed-base totals."
+        )
+    return out
+
+
 def salesforce_portfolio_aggregate_for_report(report: dict[str, Any]) -> dict[str, Any]:
     """Attach ``portfolio_revenue_book`` via :func:`enrich_portfolio_report_with_revenue_book` and map to ``salesforce`` shape."""
     from src.data_source_health import _salesforce_configured
@@ -39,7 +105,6 @@ def salesforce_portfolio_aggregate_for_report(report: dict[str, Any]) -> dict[st
             "source": "salesforce",
         }
 
-    matched_n = int(prb.get("salesforce_matched_customers") or 0)
     rollups: list[dict[str, Any]] = list(prb.get("matched_customer_contract_rollups") or [])
     if not rollups:
         for row in prb.get("top_customers_by_arr") or []:
@@ -60,46 +125,9 @@ def salesforce_portfolio_aggregate_for_report(report: dict[str, Any]) -> dict[st
                     "entity_row_count": row.get("entity_row_count"),
                 }
             )
-
-    accounts: list[dict[str, Any]] = []
-    for row in rollups:
-        cust = row.get("customer")
-        if not cust:
-            continue
-        accounts.append(
-            {
-                "Name": cust,
-                "ARR__c": row.get("arr"),
-                "Type": "Customer Entity",
-                "active_in_salesforce": row.get("active"),
-                "contract_statuses_distinct": row.get("contract_statuses_distinct"),
-                "contract_end_date_nearest": row.get("contract_end_date_nearest"),
-                "contract_end_date_farthest": row.get("contract_end_date_farthest"),
-                "days_until_contract_end_nearest": row.get("days_until_contract_end_nearest"),
-                "contract_start_date_earliest_active": row.get("contract_start_date_earliest_active"),
-                "contract_start_date_latest_active": row.get("contract_start_date_latest_active"),
-                "entity_row_count": row.get("entity_row_count"),
-            }
-        )
-
-    return {
-        "customer": "All Customers",
-        "matched": matched_n > 0,
-        "resolution": "portfolio_aggregate",
-        "primary_account_id": None,
-        "accounts": accounts,
-        "account_ids": [],
-        "matched_customer_contract_rollups": rollups,
-        "pipeline_arr": float(prb.get("pipeline_arr") or 0),
-        "opportunity_count_this_year": int(prb.get("opportunity_count_this_year") or 0),
-        "total_arr": prb.get("total_arr"),
-        "active_installed_base_arr": prb.get("active_installed_base_arr"),
-        "churned_contract_arr": prb.get("churned_contract_arr"),
-        "pendo_customers": prb.get("pendo_customers"),
-        "salesforce_matched_customers": matched_n,
-        "salesforce_unmatched_customers": prb.get("salesforce_unmatched_customers"),
-        "active_customer_count": prb.get("active_customer_count"),
-        "churned_customer_count": prb.get("churned_customer_count"),
-        "expansion_kpis": prb.get("expansion_kpis"),
-        "portfolio_expansion_book": report.get("portfolio_expansion_book"),
-    }
+    active_rollups = [r for r in rollups if isinstance(r, dict) and r.get("active") is not False]
+    out = salesforce_aggregate_from_rollups(active_rollups, book=prb, segment="active")
+    matched_n = int(prb.get("salesforce_matched_customers") or 0)
+    out["matched"] = matched_n > 0
+    out["portfolio_expansion_book"] = report.get("portfolio_expansion_book")
+    return out

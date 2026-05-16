@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from src.llm_export_salesforce_universe import merge_active_salesforce_customers_for_llm_export
+from src.llm_export_salesforce_universe import (
+    attach_churned_salesforce_segment_for_llm_export,
+    merge_active_salesforce_customers_for_llm_export,
+    merge_salesforce_universe_for_llm_export,
+)
 
 
 def test_merge_adds_active_salesforce_only_customers(monkeypatch):
@@ -39,3 +43,54 @@ def test_merge_adds_active_salesforce_only_customers(monkeypatch):
     assert summary["added_salesforce_only_rows"] == 1
     sf_only = next(r for r in report["customers"] if r["customer"] == "NoPendo Parent")
     assert sf_only.get("salesforce_only") is True
+    assert sf_only.get("customer_segment") == "active"
+
+
+def test_attach_churned_segment_separate_from_active(monkeypatch):
+    monkeypatch.setattr(
+        "src.llm_export_salesforce_universe._salesforce_configured",
+        lambda: True,
+    )
+
+    def fake_split():
+        return (
+            [{"customer": "Active Co", "active": True, "arr": 100.0}],
+            [{"customer": "Gone LLC", "active": False, "arr": 5.0}],
+            ["Active Co", "Gone LLC"],
+            {"configured": True, "pipeline_arr": 999.0},
+        )
+
+    monkeypatch.setattr(
+        "src.llm_export_salesforce_universe.salesforce_portfolio_rollups_split",
+        fake_split,
+    )
+
+    report = {"customers": [{"customer": "Active Co", "total_users": 1}]}
+    attach_churned_salesforce_segment_for_llm_export(report)
+    seg = report["salesforce_churned_segment"]
+    assert seg["do_not_merge_with_active_book"] is True
+    assert seg["customer_count"] == 1
+    assert seg["customers_headline"][0]["customer"] == "Gone LLC"
+    assert seg["customers_headline"][0]["customer_segment"] == "churned"
+    assert seg["salesforce"]["customer_segment"] == "churned"
+    assert "pipeline_arr" not in seg["salesforce"]
+    assert [r["customer"] for r in report["customers"]] == ["Active Co"]
+
+
+def test_merge_universe_calls_active_and_churn(monkeypatch):
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        "src.llm_export_salesforce_universe._salesforce_configured",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "src.llm_export_salesforce_universe.merge_active_salesforce_customers_for_llm_export",
+        lambda _r: calls.append("active") or {},
+    )
+    monkeypatch.setattr(
+        "src.llm_export_salesforce_universe.attach_churned_salesforce_segment_for_llm_export",
+        lambda _r: calls.append("churn") or {},
+    )
+    merge_salesforce_universe_for_llm_export({})
+    assert calls == ["active", "churn"]

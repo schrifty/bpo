@@ -333,6 +333,15 @@ def _build_export_coverage(
     sf_uni = report.get("_llm_export_salesforce_universe")
     if isinstance(sf_uni, dict):
         out_cov["salesforce_universe"] = sf_uni
+    sf_churn = report.get("_llm_export_salesforce_churned")
+    if isinstance(sf_churn, dict):
+        out_cov["salesforce_churned"] = sf_churn
+    churn_seg_cov = report.get("salesforce_churned_segment")
+    if isinstance(churn_seg_cov, dict):
+        out_cov["salesforce_churned_segment"] = {
+            "customer_count": churn_seg_cov.get("customer_count"),
+            "do_not_merge_with_active_book": churn_seg_cov.get("do_not_merge_with_active_book"),
+        }
     return out_cov
 
 
@@ -369,6 +378,18 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
                 f"- **Active SF labels with no Pendo prefix match (still in §1/§3):** {preview}"
             )
         lines.append("")
+    sf_churn_cov = cov.get("salesforce_churned")
+    if isinstance(sf_churn_cov, dict) and sf_churn_cov.get("salesforce_configured"):
+        seg = cov.get("salesforce_churned_segment")
+        n_churn = seg.get("customer_count") if isinstance(seg, dict) else sf_churn_cov.get("salesforce_churned_entities")
+        lines.extend(
+            [
+                "### Salesforce churned segment (§3b — separate from active book)",
+                f"- **Churned Customer Entity count:** **{n_churn or 0}**",
+                "- **Do not merge** §3b churn rollups with §1/§3/§5 active installed-base or Pendo usage metrics.",
+                "",
+            ]
+        )
     cf_cov = cov.get("customer_filter")
     if isinstance(cf_cov, dict) and cf_cov.get("enabled"):
         lines.extend(
@@ -427,10 +448,11 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
             "- **§2 — Jira (HELP):** **Workload and health of the queue** — counts by status, type, and similar rollups, "
             "plus response-time style summaries. **Individual tickets are not listed** (no issue keys, titles, or customer notes in text).",
             "",
-            "- **§3 — Salesforce:** **Revenue and renewal-oriented facts** for **active (non-churned) Customer Entity** "
-            "portfolio labels from Salesforce. Pendo usage in §1 is merged when a prefix matches, but **Pendo is not "
-            "required** for a customer to appear (see ``salesforce_only`` rows in §1). Account lists and per-customer "
-            "contract rollups are **capped**; exact counts appear under **Effective compaction** below.",
+            "- **§3 — Salesforce (active installed base):** **Revenue and renewal-oriented facts** for **active "
+            "(non-churned) Customer Entity** labels. Pendo usage in §1 is merged when a prefix matches, but **Pendo is "
+            "not required** for a customer to appear (see ``salesforce_only`` rows in §1). **Do not combine** with §3b.",
+            "- **§3b — Salesforce (churned):** **Inactive / churned contract rollups** only — useful for retention "
+            "post-mortems and historical ARR, but **not** part of the active portfolio book. No §5 Pendo signals.",
             "",
             "- **§4 — CS Report (weekly export):** The **all-customer** health / supply / value aggregate from the Data "
             "Exports workbook. Only the **first slice of sites per worksheet** is kept when the file must shrink; long "
@@ -669,12 +691,19 @@ def _compact_salesforce(sf: dict[str, Any], *, account_cap: int) -> dict[str, An
     if isinstance(rollups, list):
         out["matched_customer_contract_rollups"] = rollups[:rollup_cap]
         out["matched_customer_contract_rollups_total"] = len(rollups)
-        out["salesforce_export_note"] = (
-            "Per-customer rollups use Customer Entity rows: ARR sum, distinct Contract_Status__c, "
-            "nearest/farthest Contract_Contract_End_Date__c among non-churned rows "
-            "(fallback: all rows if every matched row is churned). "
-            "days_until_contract_end_nearest is days from export date to nearest end date in that band."
-        )
+        seg = sf.get("customer_segment") or "active"
+        if seg == "churned":
+            out["salesforce_export_note"] = (
+                "Churned Customer Entity rollups (inactive contract status). "
+                "Do not combine with §3 active installed-base totals or §5 Pendo signals."
+            )
+        else:
+            out["salesforce_export_note"] = (
+                "Active installed-base rollups: ARR sum, distinct Contract_Status__c, "
+                "nearest/farthest Contract_Contract_End_Date__c among non-churned rows "
+                "(fallback: all rows if every matched row is churned). "
+                "Churned customers are in §3b only."
+            )
     accts = sf.get("accounts")
     if isinstance(accts, list):
         slim = []
@@ -822,10 +851,22 @@ def build_snapshot_document(
     csr = report.get("csr") if isinstance(report.get("csr"), dict) else {}
     pendo_sec = _pendo_portfolio_topline(report)
     sig_lines = _portfolio_signal_lines(report, cap=signals_cap, line_max=signal_line_max)
+    churn_seg = report.get("salesforce_churned_segment")
+    churn_sf = {}
+    churn_headline: list[dict[str, Any]] = []
+    if isinstance(churn_seg, dict):
+        raw_sf = churn_seg.get("salesforce")
+        if isinstance(raw_sf, dict):
+            churn_sf = _compact_salesforce(raw_sf, account_cap=sf_accounts)
+        raw_rows = churn_seg.get("customers_headline")
+        if isinstance(raw_rows, list):
+            churn_headline = [r for r in raw_rows if isinstance(r, dict)][: max(sf_accounts, 1)]
+
     doc: dict[str, Any] = {
         "document_purpose": (
             "Structured facts from BPO integrations for LLM Q&A. Figures are snapshots from vendor APIs "
-            "and internal exports; verify in source systems before contractual or financial use."
+            "and internal exports; verify in source systems before contractual or financial use. "
+            "Active installed-base customers (§1, §3, §5) are separate from churned Salesforce-only facts (§3b)."
         ),
         "customer": report.get("customer"),
         "generated_report_timestamp": report.get("generated"),
@@ -833,6 +874,14 @@ def build_snapshot_document(
         "pendo": pendo_sec,
         "jira_help": _compact_jira(report.get("jira") or {}),
         "salesforce": _compact_salesforce(report.get("salesforce") or {}, account_cap=sf_accounts),
+        "salesforce_churned_segment": {
+            "segment": "churned",
+            "do_not_merge_with_active_book": True,
+            "usage_note": (churn_seg or {}).get("usage_note") if isinstance(churn_seg, dict) else None,
+            "customer_count": (churn_seg or {}).get("customer_count") if isinstance(churn_seg, dict) else 0,
+            "customers_headline": churn_headline,
+            "salesforce": churn_sf,
+        },
         "cs_report": _compact_csr(csr, site_limit=csr_site_limit, string_cap=csr_string_cap),
         "notable_signals_lines": sig_lines,
         "planned_data_sources": {
@@ -947,9 +996,16 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
             "",
             _json_compact(doc.get("jira_help")),
             "",
-            "## 3. Salesforce",
+            "## 3. Salesforce (active installed base)",
             "",
             _json_compact(doc.get("salesforce")),
+            "",
+            "## 3b. Salesforce (churned — do not merge with §1–§3 active book)",
+            "",
+            "> **Segment boundary:** Churned / inactive contract customers only. Do not add these ARR "
+            "figures to §3 totals, pipeline ARR, or §5 Pendo signals.",
+            "",
+            _json_compact(doc.get("salesforce_churned_segment")),
             "",
             "## 4. CS Report (Data Exports Drive)",
             "",

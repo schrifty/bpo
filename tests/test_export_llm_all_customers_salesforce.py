@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from src.data_sources.loaders.salesforce_portfolio_aggregate import (
+    salesforce_aggregate_from_rollups,
     salesforce_portfolio_aggregate_for_report,
 )
 from src import export_llm_context_snapshot as _export_mod
@@ -48,10 +49,17 @@ def test_salesforce_all_customers_maps_revenue_book(monkeypatch):
     sf = salesforce_portfolio_aggregate_for_report(report)
     assert sf["resolution"] == "portfolio_aggregate"
     assert sf["matched"] is True
+    assert sf["customer_segment"] == "active"
     assert sf["pipeline_arr"] == 5.5
     assert sf["opportunity_count_this_year"] == 7
-    assert len(sf["accounts"]) == 2
+    assert len(sf["accounts"]) == 1
     assert sf["accounts"][0]["Name"] == "Acme"
+    churned = salesforce_aggregate_from_rollups(
+        [{"customer": "Beta", "arr": 40.0, "active": False}],
+        segment="churned",
+    )
+    assert churned["customer_segment"] == "churned"
+    assert churned["accounts"][0]["Name"] == "Beta"
 
     compact = mod._compact_salesforce(sf, account_cap=6)
     assert compact.get("total_arr") == 100.0
