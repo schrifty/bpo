@@ -10,7 +10,18 @@ from typing import Any
 from dotenv import load_dotenv
 
 # Load .env from project root (parent of src/)
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(_PROJECT_ROOT / ".env")
+
+
+def _resolve_path_from_project_root(value: str | None) -> str | None:
+    """Expand ``~`` and resolve relative paths against the BPO repo root."""
+    if not value or not (raw := value.strip()):
+        return None
+    p = Path(raw).expanduser()
+    if not p.is_absolute():
+        p = (_PROJECT_ROOT / p).resolve()
+    return str(p)
 
 # Logging: console shows INFO+ only. DEBUG only when running with debugger (LOG_LEVEL=DEBUG in launch.json)
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -27,8 +38,10 @@ logger = _bpo_logger
 PENDO_BASE_URL = os.environ.get("PENDO_BASE_URL", "https://app.pendo.io/api/v1")
 PENDO_INTEGRATION_KEY = os.environ.get("PENDO_INTEGRATION_KEY")
 
-# Google Slides API (service account JSON path)
-GOOGLE_APPLICATION_CREDENTIALS = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+# Google Slides API (service account JSON path; relative paths are under the repo root)
+GOOGLE_APPLICATION_CREDENTIALS = _resolve_path_from_project_root(
+    os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+)
 # QBR Generator folder id (Prompts, decks/, slides/, chart-data/, individual deck outputs, Output/, etc.).
 # Required for hydrate/QBR and Drive-backed YAML.
 GOOGLE_QBR_GENERATOR_FOLDER_ID = os.environ.get("GOOGLE_QBR_GENERATOR_FOLDER_ID", "").strip() or None
