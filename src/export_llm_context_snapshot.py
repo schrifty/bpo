@@ -44,6 +44,10 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from src.cli_warning_filters import apply_cli_warning_filters
+
+apply_cli_warning_filters()
+
 _DATA_SUMMARY_PATH = _ROOT / "config" / "comprehensive_data_element_list.json"
 
 # HTTP surfaces wired in code (see ``src/data_sources/registry.SourceId`` docstring).

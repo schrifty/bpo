@@ -96,6 +96,10 @@ import sys
 import time
 from pathlib import Path
 
+from src.cli_warning_filters import apply_cli_warning_filters
+
+apply_cli_warning_filters()
+
 # Same split as ``decks --list`` and batch commands (customer-scoped vs portfolio / cross-customer).
 _PORTFOLIO_SCOPE_DECK_IDS: frozenset[str] = frozenset(
     {
