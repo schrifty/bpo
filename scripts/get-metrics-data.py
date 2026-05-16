@@ -20,7 +20,6 @@ import argparse
 import json
 import logging
 import sys
-from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -40,8 +39,13 @@ import requests  # noqa: E402
 
 from src.config import BPO_LEANDNA_DATA_API_EXECUTION_BUCKET  # noqa: E402
 from src.leandna_data_api_http import leandna_data_api_credentials_configured  # noqa: E402
-from src.leandna_data_api_request import data_api_base_url, data_api_get_json  # noqa: E402
-from src.leandna_metrics_client import list_metric_definitions  # noqa: E402
+from src.leandna_data_api_request import data_api_base_url  # noqa: E402
+from src.leandna_metrics_client import (  # noqa: E402
+    fetch_metric_datapoints,
+    list_metric_definitions,
+    resolve_metric_datapoint_window,
+    slim_metric_datapoint_rows,
+)
 
 
 def _pop_leading_numeric_metric_id(argv: list[str]) -> tuple[list[str], str | None]:
@@ -108,58 +112,6 @@ def _requested_sites_for_metric(metric: dict[str, Any], cli_sites: str | None) -
         return None
     s = str(sid).strip()
     return s or None
-
-
-def _unwrap_list_body(body: Any) -> list[dict[str, Any]]:
-    if isinstance(body, list):
-        return [x for x in body if isinstance(x, dict)]
-    if isinstance(body, dict):
-        for key in ("data", "items", "results", "metricDataPoints"):
-            block = body.get(key)
-            if isinstance(block, list):
-                return [x for x in block if isinstance(x, dict)]
-    return []
-
-
-def _resolve_date_window(
-    *,
-    lookback_days: int,
-    start_date: str | None,
-    end_date: str | None,
-) -> tuple[str, str]:
-    if start_date and end_date:
-        return start_date.strip(), end_date.strip()
-    end_d = date.today()
-    if end_date:
-        end_d = date.fromisoformat(end_date.strip())
-    start_d = end_d - timedelta(days=max(1, lookback_days))
-    if start_date:
-        start_d = date.fromisoformat(start_date.strip())
-    return start_d.isoformat(), end_d.isoformat()
-
-
-def _fetch_datapoints(
-    metric_id: Any,
-    *,
-    start_s: str,
-    end_s: str,
-    requested_sites: str | None,
-    read_timeout_seconds: float,
-) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
-    """Return (rows sorted by date, error envelope if GET failed)."""
-    path = f"Metric/{metric_id}/MetricDataPoint"
-    env = data_api_get_json(
-        path,
-        query={"startDate": start_s, "endDate": end_s},
-        requested_sites=requested_sites,
-        timeout_seconds=read_timeout_seconds,
-        user_agent_suffix="get-metrics-data/1.0",
-    )
-    if not env.get("ok"):
-        return [], env
-    rows = _unwrap_list_body(env.get("body"))
-    rows.sort(key=lambda r: str(r.get("dataPointDate") or ""))
-    return rows, None
 
 
 def _print_brief_grouped(results: list[dict[str, Any]]) -> None:
@@ -289,7 +241,7 @@ def main() -> int:
         return 1
 
     try:
-        start_s, end_s = _resolve_date_window(
+        start_s, end_s = resolve_metric_datapoint_window(
             lookback_days=ns.lookback_days,
             start_date=ns.start_date,
             end_date=ns.end_date,
@@ -364,12 +316,12 @@ def main() -> int:
         mid = m.get("id")
         name = _metric_name(m)
         sites = _requested_sites_for_metric(m, ns.requested_sites)
-        points, err = _fetch_datapoints(
+        points, err = fetch_metric_datapoints(
             mid,
-            start_s=start_s,
-            end_s=end_s,
+            start_date=start_s,
+            end_date=end_s,
             requested_sites=sites,
-            read_timeout_seconds=ns.read_timeout,
+            timeout_seconds=ns.read_timeout,
         )
         if err is not None:
             fetch_errors += 1
@@ -380,10 +332,7 @@ def main() -> int:
             if ns.verbose:
                 print(f"  detail: {err!r}", file=sys.stderr)
             continue
-        slim_points = [
-            {"dataPointDate": p.get("dataPointDate"), "value": p.get("value")}
-            for p in points
-        ]
+        slim_points = slim_metric_datapoint_rows(points)
         results.append(
             {
                 "id": mid,

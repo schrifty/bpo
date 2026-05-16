@@ -17,6 +17,7 @@ the tenant swagger (``scripts/fetch_leandna_swagger.py``) and use ``extra_query`
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Any
 
 import requests
@@ -198,3 +199,73 @@ def format_first_kpi_line_from_metric_report(report: dict[str, Any]) -> str:
     if isinstance(val, (int, float)) and str(label).rstrip().endswith("%"):
         return f"KPI: {label} = {val}%{suffix}"
     return f"KPI: {label} = {val!r}{suffix}"
+
+
+def unwrap_metric_datapoint_rows(body: Any) -> list[dict[str, Any]]:
+    """Normalize ``GET /data/Metric/{id}/MetricDataPoint`` body to a list of point dicts."""
+    if isinstance(body, list):
+        return [x for x in body if isinstance(x, dict)]
+    if isinstance(body, dict):
+        for key in ("data", "items", "results", "metricDataPoints"):
+            block = body.get(key)
+            if isinstance(block, list):
+                return [x for x in block if isinstance(x, dict)]
+    return []
+
+
+def resolve_metric_datapoint_window(
+    *,
+    lookback_days: int = 90,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> tuple[str, str]:
+    """Return ``(startDate, endDate)`` ISO date strings for MetricDataPoint queries."""
+    if start_date and end_date:
+        return start_date.strip(), end_date.strip()
+    end_d = date.today()
+    if end_date:
+        end_d = date.fromisoformat(end_date.strip())
+    start_d = end_d - timedelta(days=max(1, lookback_days))
+    if start_date:
+        start_d = date.fromisoformat(start_date.strip())
+    return start_d.isoformat(), end_d.isoformat()
+
+
+def fetch_metric_datapoints(
+    metric_id: Any,
+    *,
+    start_date: str,
+    end_date: str,
+    requested_sites: str | None = None,
+    connect_timeout_seconds: float = 15.0,
+    timeout_seconds: float = 120.0,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    """Fetch ``GET /data/Metric/{id}/MetricDataPoint`` for a date window.
+
+    Returns ``(rows sorted by dataPointDate, None)`` on success, or ``([], error_envelope)``
+    when the Data API GET fails (same envelope shape as ``data_api_get_json``).
+    """
+    from .leandna_data_api_request import data_api_get_json
+
+    path = f"Metric/{metric_id}/MetricDataPoint"
+    env = data_api_get_json(
+        path,
+        query={"startDate": start_date, "endDate": end_date},
+        requested_sites=requested_sites,
+        timeout_seconds=timeout_seconds,
+        user_agent_suffix="leandna-metrics-client/1.0",
+    )
+    if not env.get("ok"):
+        return [], env
+    rows = unwrap_metric_datapoint_rows(env.get("body"))
+    rows.sort(key=lambda r: str(r.get("dataPointDate") or ""))
+    return rows, None
+
+
+def slim_metric_datapoint_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep only date + value for CLI / export payloads."""
+    return [
+        {"dataPointDate": p.get("dataPointDate"), "value": p.get("value")}
+        for p in rows
+        if isinstance(p, dict)
+    ]

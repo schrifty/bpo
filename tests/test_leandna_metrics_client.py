@@ -102,6 +102,83 @@ def test_fetch_metric_report_query(monkeypatch):
         assert kwargs["timeout"] == (15.0, 180.0)
 
 
+def test_unwrap_metric_datapoint_rows_list_and_wrapped() -> None:
+    from src.leandna_metrics_client import unwrap_metric_datapoint_rows
+
+    assert unwrap_metric_datapoint_rows([{"dataPointDate": "2026-01-01", "value": 1}]) == [
+        {"dataPointDate": "2026-01-01", "value": 1}
+    ]
+    assert unwrap_metric_datapoint_rows(
+        {"metricDataPoints": [{"dataPointDate": "2026-02-01", "value": 2}]}
+    ) == [{"dataPointDate": "2026-02-01", "value": 2}]
+    assert unwrap_metric_datapoint_rows({}) == []
+
+
+def test_resolve_metric_datapoint_window_explicit_and_lookback() -> None:
+    from datetime import date, timedelta
+
+    from src.leandna_metrics_client import resolve_metric_datapoint_window
+
+    assert resolve_metric_datapoint_window(
+        start_date="2026-01-01", end_date="2026-03-31", lookback_days=7
+    ) == ("2026-01-01", "2026-03-31")
+
+    start_s, end_s = resolve_metric_datapoint_window(
+        lookback_days=10,
+        end_date="2026-05-01",
+    )
+    assert end_s == "2026-05-01"
+    assert start_s == (date.fromisoformat("2026-05-01") - timedelta(days=10)).isoformat()
+
+
+def test_fetch_metric_datapoints_sorts_and_error(monkeypatch) -> None:
+    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "tok")
+    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", "")
+
+    from src.leandna_metrics_client import fetch_metric_datapoints
+
+    with patch("src.leandna_data_api_request.data_api_get_json") as mock_get:
+        mock_get.return_value = {
+            "ok": True,
+            "body": [
+                {"dataPointDate": "2026-03-01", "value": 3},
+                {"dataPointDate": "2026-01-15", "value": 1},
+            ],
+        }
+        rows, err = fetch_metric_datapoints(
+            99,
+            start_date="2026-01-01",
+            end_date="2026-03-31",
+            requested_sites="416",
+        )
+        assert err is None
+        assert [r["dataPointDate"] for r in rows] == ["2026-01-15", "2026-03-01"]
+        mock_get.assert_called_once()
+        assert mock_get.call_args.args[0] == "Metric/99/MetricDataPoint"
+        assert mock_get.call_args.kwargs["query"] == {
+            "startDate": "2026-01-01",
+            "endDate": "2026-03-31",
+        }
+        assert mock_get.call_args.kwargs["requested_sites"] == "416"
+
+    with patch("src.leandna_data_api_request.data_api_get_json") as mock_get:
+        mock_get.return_value = {"ok": False, "status": 403, "error": "forbidden"}
+        rows, err = fetch_metric_datapoints(1, start_date="2026-01-01", end_date="2026-01-31")
+        assert rows == []
+        assert err == {"ok": False, "status": 403, "error": "forbidden"}
+
+
+def test_slim_metric_datapoint_rows() -> None:
+    from src.leandna_metrics_client import slim_metric_datapoint_rows
+
+    assert slim_metric_datapoint_rows(
+        [
+            {"dataPointDate": "2026-01-01", "value": 1.5, "extra": "drop"},
+            "skip",
+        ]
+    ) == [{"dataPointDate": "2026-01-01", "value": 1.5}]
+
+
 def test_missing_token_raises(monkeypatch):
     monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "")
     monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", "")
