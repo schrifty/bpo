@@ -11,6 +11,9 @@ from .portfolio_salesforce_allowlist import (
     resolve_sf_label_to_pendo_prefix,
 )
 
+# (active rollups, churned rollups, portfolio labels, revenue book)
+SfPortfolioSplit = tuple[list[dict[str, Any]], list[dict[str, Any]], list[str], dict[str, Any]]
+
 
 def _customer_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
     raw = report.get("customers")
@@ -196,7 +199,11 @@ def _churned_headline_rows(churned_rollups: list[dict[str, Any]]) -> list[dict[s
     return rows
 
 
-def attach_churned_salesforce_segment_for_llm_export(report: dict[str, Any]) -> dict[str, Any]:
+def attach_churned_salesforce_segment_for_llm_export(
+    report: dict[str, Any],
+    *,
+    sf_split: SfPortfolioSplit | None = None,
+) -> dict[str, Any]:
     """Populate ``report[\"salesforce_churned_segment\"]`` — separate from the active book (§1/§3)."""
     summary: dict[str, Any] = {
         "salesforce_configured": _salesforce_configured(),
@@ -210,7 +217,10 @@ def attach_churned_salesforce_segment_for_llm_export(report: dict[str, Any]) -> 
         }
         return summary
 
-    _active, churned, _labels, book = salesforce_portfolio_rollups_split()
+    if sf_split is None:
+        _active, churned, _labels, book = salesforce_portfolio_rollups_split()
+    else:
+        _active, churned, _labels, book = sf_split
     summary["salesforce_churned_entities"] = len(churned)
     if not churned:
         report["salesforce_churned_segment"] = {
@@ -245,7 +255,11 @@ def attach_churned_salesforce_segment_for_llm_export(report: dict[str, Any]) -> 
     return summary
 
 
-def merge_active_salesforce_customers_for_llm_export(report: dict[str, Any]) -> dict[str, Any]:
+def merge_active_salesforce_customers_for_llm_export(
+    report: dict[str, Any],
+    *,
+    sf_split: SfPortfolioSplit | None = None,
+) -> dict[str, Any]:
     """Add active §1 rows so §3 active book includes non-churned SF entities without Pendo."""
     summary: dict[str, Any] = {
         "salesforce_configured": _salesforce_configured(),
@@ -258,7 +272,10 @@ def merge_active_salesforce_customers_for_llm_export(report: dict[str, Any]) -> 
         report["_llm_export_salesforce_universe"] = summary
         return summary
 
-    rollups, sf_labels, book = active_salesforce_portfolio_rollups()
+    if sf_split is None:
+        rollups, sf_labels, book = active_salesforce_portfolio_rollups()
+    else:
+        rollups, _churned, sf_labels, book = sf_split
     summary["salesforce_portfolio_labels"] = len(sf_labels)
     summary["salesforce_active_entities"] = len(rollups)
 
@@ -318,8 +335,11 @@ def merge_active_salesforce_customers_for_llm_export(report: dict[str, Any]) -> 
 
 def merge_salesforce_universe_for_llm_export(report: dict[str, Any]) -> dict[str, Any]:
     """Merge active customers into §1, attach Salesforce-only §3b churn, strip churn from active Pendo."""
-    active_summary = merge_active_salesforce_customers_for_llm_export(report)
-    churn_summary = attach_churned_salesforce_segment_for_llm_export(report)
+    sf_split: SfPortfolioSplit | None = None
+    if _salesforce_configured():
+        sf_split = salesforce_portfolio_rollups_split()
+    active_summary = merge_active_salesforce_customers_for_llm_export(report, sf_split=sf_split)
+    churn_summary = attach_churned_salesforce_segment_for_llm_export(report, sf_split=sf_split)
     exclusion_summary = strip_churned_customers_from_active_export(report)
     return {
         "active": active_summary,

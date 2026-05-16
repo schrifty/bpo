@@ -116,6 +116,34 @@ def test_strip_removes_churned_from_active_pendo_sections():
     assert report["portfolio_signals"][0]["customer"] == "ActiveCo"
 
 
+def test_merge_universe_fetches_salesforce_rollups_once(monkeypatch):
+    split_calls = 0
+
+    def fake_split():
+        nonlocal split_calls
+        split_calls += 1
+        return (
+            [{"customer": "Active Co", "active": True}],
+            [{"customer": "Gone LLC", "active": False}],
+            ["Active Co", "Gone LLC"],
+            {"configured": True},
+        )
+
+    monkeypatch.setattr(
+        "src.llm_export_salesforce_universe._salesforce_configured",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "src.llm_export_salesforce_universe.salesforce_portfolio_rollups_split",
+        fake_split,
+    )
+
+    report = {"customers": [{"customer": "Active Co", "total_users": 1}], "portfolio_signals": []}
+    merge_salesforce_universe_for_llm_export(report)
+    assert split_calls == 1
+    assert report["salesforce_churned_segment"]["customer_count"] == 1
+
+
 def test_merge_universe_calls_active_and_churn(monkeypatch):
     calls: list[str] = []
 
@@ -125,11 +153,11 @@ def test_merge_universe_calls_active_and_churn(monkeypatch):
     )
     monkeypatch.setattr(
         "src.llm_export_salesforce_universe.merge_active_salesforce_customers_for_llm_export",
-        lambda _r: calls.append("active") or {},
+        lambda _r, **_: calls.append("active") or {},
     )
     monkeypatch.setattr(
         "src.llm_export_salesforce_universe.attach_churned_salesforce_segment_for_llm_export",
-        lambda _r: calls.append("churn") or {},
+        lambda _r, **_: calls.append("churn") or {},
     )
     monkeypatch.setattr(
         "src.llm_export_salesforce_universe.strip_churned_customers_from_active_export",
