@@ -481,11 +481,13 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
 
 
 def _emit_integration_stderr_warnings(report: dict[str, Any]) -> None:
-    """Fail loud on stderr when SF or CSR did not produce usable data."""
+    """Record when SF or CSR did not produce usable data (recap at end of export)."""
+    from .export_run_diagnostics import collect_export_warning
+
     sf = report.get("salesforce") if isinstance(report.get("salesforce"), dict) else {}
     if not sf or sf.get("error"):
         msg = sf.get("error") if sf else "Salesforce payload missing"
-        print(f"warning: LLM export — Salesforce: {msg}", file=sys.stderr)
+        collect_export_warning(f"Salesforce: {msg}", llm_export=True)
 
     csr = report.get("csr") if isinstance(report.get("csr"), dict) else {}
     errs: list[str] = []
@@ -494,9 +496,9 @@ def _emit_integration_stderr_warnings(report: dict[str, Any]) -> None:
         if isinstance(b, dict) and b.get("error"):
             errs.append(f"{key}: {b['error']}")
     if len(errs) == 3:
-        print(
-            "warning: LLM export — CS Report: all sections failed — " + " | ".join(errs),
-            file=sys.stderr,
+        collect_export_warning(
+            "CS Report: all sections failed — " + " | ".join(errs),
+            llm_export=True,
         )
 
 
@@ -1043,134 +1045,154 @@ def _build_export_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
 
 
 def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -> None:
+    from .export_run_diagnostics import collect_export_warning, export_diagnostics_scope, export_phase
+
     args = _build_export_parser(prog=prog).parse_args(cli_args)
 
     exported_at = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    from src.data_sources import build_llm_export_snapshot_report
-    from src.pendo_client import PendoClient
+    with export_diagnostics_scope() as diag:
+        from src.data_sources import build_llm_export_snapshot_report
+        from src.pendo_client import PendoClient
 
-    pc = PendoClient()
-    report = build_llm_export_snapshot_report(pc, days=args.days)
-    if report.get("error"):
-        print(f"error: report failed: {report.get('error')}", file=sys.stderr)
-        sys.exit(1)
-
-    from src.llm_export_customer_filter import (
-        LlmExportCustomerFilterConfig,
-        apply_llm_export_customer_filters,
-    )
-
-    fcfg = LlmExportCustomerFilterConfig.from_cli_and_env(
-        customers_sf_allowlist=bool(args.customers_sf_allowlist),
-        customers_exclude_sf_churned=bool(args.customers_exclude_sf_churned),
-        exclude_customer=list(args.exclude_customer) if args.exclude_customer else [],
-    )
-    if fcfg.any_enabled():
-        try:
-            filt = apply_llm_export_customer_filters(report, fcfg)
-            wrs = filt.get("warnings") or []
-            if wrs:
-                for w in wrs:
-                    if isinstance(w, str) and w.strip():
-                        print(f"warning: LLM export customer filter: {w.strip()}", file=sys.stderr)
-        except Exception as exc:
-            print(f"error: customer filter failed: {exc}", file=sys.stderr)
+        with export_phase(diag, "portfolio snapshot (Pendo preload + summaries)"):
+            pc = PendoClient()
+            report = build_llm_export_snapshot_report(pc, days=args.days)
+        if report.get("error"):
+            print(f"error: report failed: {report.get('error')}", file=sys.stderr)
             sys.exit(1)
 
-    _emit_integration_stderr_warnings(report)
-
-    csr_lim, csr_str, sf_acct = 15, 400, 24
-    doc = build_snapshot_document(
-        report,
-        markdown_soft_cap_bytes=int(args.max_bytes),
-        csr_site_limit=csr_lim,
-        csr_string_cap=csr_str,
-        sf_accounts=sf_acct,
-        signals_cap=args.signals_cap,
-    )
-    # Keep refs for iterative shrinking
-    doc["_full_jira"] = report.get("jira") or {}
-    doc["_full_csr"] = report.get("csr") or {}
-    doc["_full_sf"] = report.get("salesforce") or {}
-    doc["_portfolio_raw"] = report
-
-    md = render_markdown(doc, exported_at_utc=exported_at)
-    max_b = max(20_000, int(args.max_bytes))
-
-    tiers = [
-        (10, 320, 16),
-        (8, 260, 12),
-        (6, 220, 8),
-        (4, 180, 4),
-    ]
-    while len(md.encode("utf-8")) > max_b and tiers:
-        csr_lim, csr_str, sf_acct = tiers.pop(0)
-        _shrink_snapshot_params(
-            doc,
-            csr_site_limit=csr_lim,
-            csr_string_cap=csr_str,
-            sf_accounts=sf_acct,
-            signals_cap=args.signals_cap,
-        )
-        md = render_markdown(
-            {k: v for k, v in doc.items() if not str(k).startswith("_")},
-            exported_at_utc=exported_at,
+        from src.llm_export_customer_filter import (
+            LlmExportCustomerFilterConfig,
+            apply_llm_export_customer_filters,
         )
 
-    raw = md.encode("utf-8")
-    if len(raw) > max_b:
-        md = raw[:max_b].decode("utf-8", errors="ignore").rstrip() + (
-            "\n\n<!-- Document truncated to --max-bytes; re-run with a higher limit "
-            "or narrow integrations if needed. -->\n"
+        with export_phase(diag, "customer filters"):
+            fcfg = LlmExportCustomerFilterConfig.from_cli_and_env(
+                customers_sf_allowlist=bool(args.customers_sf_allowlist),
+                customers_exclude_sf_churned=bool(args.customers_exclude_sf_churned),
+                exclude_customer=list(args.exclude_customer) if args.exclude_customer else [],
+            )
+            if fcfg.any_enabled():
+                try:
+                    filt = apply_llm_export_customer_filters(report, fcfg)
+                    wrs = filt.get("warnings") or []
+                    for w in wrs:
+                        if isinstance(w, str) and w.strip():
+                            collect_export_warning(
+                                f"customer filter: {w.strip()}",
+                                llm_export=True,
+                            )
+                except Exception as exc:
+                    print(f"error: customer filter failed: {exc}", file=sys.stderr)
+                    sys.exit(1)
+
+        _emit_integration_stderr_warnings(report)
+
+        csr_lim, csr_str, sf_acct = 15, 400, 24
+        with export_phase(diag, "markdown build"):
+            doc = build_snapshot_document(
+                report,
+                markdown_soft_cap_bytes=int(args.max_bytes),
+                csr_site_limit=csr_lim,
+                csr_string_cap=csr_str,
+                sf_accounts=sf_acct,
+                signals_cap=args.signals_cap,
+            )
+            # Keep refs for iterative shrinking
+            doc["_full_jira"] = report.get("jira") or {}
+            doc["_full_csr"] = report.get("csr") or {}
+            doc["_full_sf"] = report.get("salesforce") or {}
+            doc["_portfolio_raw"] = report
+
+            md = render_markdown(doc, exported_at_utc=exported_at)
+            max_b = max(20_000, int(args.max_bytes))
+
+            tiers = [
+                (10, 320, 16),
+                (8, 260, 12),
+                (6, 220, 8),
+                (4, 180, 4),
+            ]
+            while len(md.encode("utf-8")) > max_b and tiers:
+                csr_lim, csr_str, sf_acct = tiers.pop(0)
+                _shrink_snapshot_params(
+                    doc,
+                    csr_site_limit=csr_lim,
+                    csr_string_cap=csr_str,
+                    sf_accounts=sf_acct,
+                    signals_cap=args.signals_cap,
+                )
+                md = render_markdown(
+                    {k: v for k, v in doc.items() if not str(k).startswith("_")},
+                    exported_at_utc=exported_at,
+                )
+
+            raw = md.encode("utf-8")
+            if len(raw) > max_b:
+                collect_export_warning(
+                    f"markdown truncated to --max-bytes ({max_b}); raise limit if needed",
+                    llm_export=True,
+                )
+                md = raw[:max_b].decode("utf-8", errors="ignore").rstrip() + (
+                    "\n\n<!-- Document truncated to --max-bytes; re-run with a higher limit "
+                    "or narrow integrations if needed. -->\n"
+                )
+
+        from src.export_llm_risk_insights import render_risk_insights_section
+
+        with export_phase(diag, "risk insights (LLM §7)"):
+            try:
+                md = md.rstrip() + "\n" + render_risk_insights_section(
+                    report,
+                    jira_days=min(int(args.days), 365),
+                )
+            except Exception as exc:
+                collect_export_warning(
+                    f"risk insights section failed: {exc}",
+                    llm_export=True,
+                )
+                md = (
+                    md.rstrip()
+                    + "\n\n## 7. Account & churn risk insights (LLM)\n\n### Error\n\n"
+                    f"Section generation raised an unexpected error: {exc}\n\n"
+                    + "*Export body above is unchanged; core snapshot completed.*\n"
+                )
+
+        for k in list(doc.keys()):
+            if str(k).startswith("_"):
+                doc.pop(k, None)
+
+        fname = "LLM-Context-All_Customers.md"
+        nbytes = len(md.encode("utf-8"))
+
+        from src.drive_config import (
+            get_qbr_output_folder_id,
+            get_qbr_output_root_folder_id,
+            upload_text_file_to_drive_folder,
         )
 
-    from src.export_llm_risk_insights import render_risk_insights_section
+        root_id = get_qbr_output_root_folder_id()
+        dated_id = get_qbr_output_folder_id()
+        if not root_id or not dated_id:
+            print(
+                "error: could not resolve Drive Output folders (set GOOGLE_QBR_GENERATOR_FOLDER_ID "
+                "and verify Drive access).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
-    try:
-        md = md.rstrip() + "\n" + render_risk_insights_section(
-            report,
-            jira_days=min(int(args.days), 365),
-        )
-    except Exception as exc:
-        md = (
-            md.rstrip()
-            + "\n\n## 7. Account & churn risk insights (LLM)\n\n### Error\n\n"
-            f"Section generation raised an unexpected error: {exc}\n\n"
-            + "*Export body above is unchanged; core snapshot completed.*\n"
-        )
+        dated_label = f"{dt.date.today().isoformat()} - Output"
+        with export_phase(diag, "Drive upload"):
+            fid_root = upload_text_file_to_drive_folder(fname, md, root_id, mime_type="text/markdown")
+            fid_dated = upload_text_file_to_drive_folder(fname, md, dated_id, mime_type="text/markdown")
 
-    for k in list(doc.keys()):
-        if str(k).startswith("_"):
-            doc.pop(k, None)
+        print(f"Exported {nbytes} bytes → Drive Output/{fname} (id={fid_root})", file=sys.stderr)
+        print(f"Exported {nbytes} bytes → Drive Output/{dated_label}/{fname} (id={fid_dated})", file=sys.stderr)
+        print(f"Output/ (stable): https://drive.google.com/file/d/{fid_root}/view")
+        print(f"Output/{dated_label}/: https://drive.google.com/file/d/{fid_dated}/view")
 
-    fname = "LLM-Context-All_Customers.md"
-    nbytes = len(md.encode("utf-8"))
-
-    from src.drive_config import (
-        get_qbr_output_folder_id,
-        get_qbr_output_root_folder_id,
-        upload_text_file_to_drive_folder,
-    )
-
-    root_id = get_qbr_output_root_folder_id()
-    dated_id = get_qbr_output_folder_id()
-    if not root_id or not dated_id:
-        print(
-            "error: could not resolve Drive Output folders (set GOOGLE_QBR_GENERATOR_FOLDER_ID "
-            "and verify Drive access).",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    dated_label = f"{dt.date.today().isoformat()} - Output"
-    fid_root = upload_text_file_to_drive_folder(fname, md, root_id, mime_type="text/markdown")
-    fid_dated = upload_text_file_to_drive_folder(fname, md, dated_id, mime_type="text/markdown")
-
-    print(f"Exported {nbytes} bytes → Drive Output/{fname} (id={fid_root})", file=sys.stderr)
-    print(f"Exported {nbytes} bytes → Drive Output/{dated_label}/{fname} (id={fid_dated})", file=sys.stderr)
-    print(f"Output/ (stable): https://drive.google.com/file/d/{fid_root}/view")
-    print(f"Output/{dated_label}/: https://drive.google.com/file/d/{fid_dated}/view")
+        diag.emit_stderr_summary()
 
 
 def main() -> None:

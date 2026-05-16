@@ -342,8 +342,11 @@ def render_risk_insights_section(
     ]
 
     payloads, warns = build_customer_risk_payloads(report, jira_days=jira_days)
+    from .export_run_diagnostics import collect_export_warning
+
     for w in warns:
         lines.append(f"- *(Warning: {w})*")
+        collect_export_warning(f"risk insights: {w}", llm_export=True)
     if warns:
         lines.append("")
 
@@ -377,6 +380,7 @@ def render_risk_insights_section(
         lines.append("")
         for e in batch_errors:
             lines.append(f"- {e}")
+            collect_export_warning(f"risk insights: {e}", llm_export=True)
         lines.append("")
         lines.append("*Successful batches (if any) are still printed below.*")
         lines.append("")
