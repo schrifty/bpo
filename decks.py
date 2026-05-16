@@ -83,9 +83,15 @@ Generate one deck (explicit)
 
   decks csm book --csm "<name>" [--days N] [--max-customers M] [--quarter …]
       CSM book of business (Pendo ownername filter).
+
+  decks kpi [get-my-metrics options]
+      List LeanDNA metrics owned by the current API user (``GET /data/identity`` +
+      ``GET /data/Metric`` filtered by ``ownerId``). Forwards flags to ``scripts/get-my-metrics.py``
+      (e.g. ``--format brief``, ``--requested-sites 416``, ``--user-id ID``).
 """
 
 import json
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -611,6 +617,20 @@ def _run_support_deck(rest: list[str]) -> None:
     print(f"  OK   {result.get('url', '')}")
 
 
+def _run_kpi_cli(rest: list[str]) -> None:
+    """Run ``scripts/get-my-metrics.py`` with the same argv tail (LeanDNA metrics for session user)."""
+    root = Path(__file__).resolve().parent
+    script = root / "scripts" / "get-my-metrics.py"
+    if not script.is_file():
+        print(f"error: missing {script}", file=sys.stderr)
+        sys.exit(1)
+    rc = subprocess.run(
+        [sys.executable, str(script), *rest],
+        cwd=str(root),
+    ).returncode
+    raise SystemExit(rc)
+
+
 def _run_csm_book_deck() -> None:
     """CSM book of business from ``decks csm book --csm \"Name\"`` (flags after ``book``)."""
     import argparse
@@ -1113,6 +1133,9 @@ def main():
         return
     if sub in ("support-portfolio", "support_review_portfolio", "support-review-portfolio"):
         _run_support_review_portfolio_deck(sys.argv[2:])
+        return
+    if sub == "kpi":
+        _run_kpi_cli(sys.argv[2:])
         return
 
     from src.deck_variants import csm_book_cli_argv_anchor
