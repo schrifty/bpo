@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -129,6 +130,45 @@ def test_call_risk_llm_batch_parses_customers(monkeypatch: pytest.MonkeyPatch) -
     assert err is None
     assert len(rows) == 1
     assert len(rows[0]["insights"]) == 2
+
+
+def test_build_customer_risk_payloads_jira_timeout(sample_report: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(eri, "_risk_jira_customer_timeout_seconds", lambda: 0.05)
+
+    class _SlowJira:
+        def get_customer_jira(self, name: str, days: int) -> dict:
+            time.sleep(0.2)
+            return {"total_issues": 1}
+
+    monkeypatch.setattr("src.jira_client.get_shared_jira_client", lambda: _SlowJira())
+
+    payloads, warns = eri.build_customer_risk_payloads(sample_report, jira_days=30, jira_workers=1)
+    assert len(payloads) == 2
+    timed = [p for p in payloads if (p.get("jira_help") or {}).get("error", "").startswith("jira prefetch timed out")]
+    assert len(timed) == 2
+    assert any("timed out" in w for w in warns)
+
+
+def test_call_risk_llm_batch_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test")
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    def _slow_retry(_client: MagicMock, **_kwargs: object) -> MagicMock:
+        time.sleep(0.5)
+        return MagicMock()
+
+    monkeypatch.setattr("src.config.llm_client", lambda: MagicMock())
+    monkeypatch.setattr("src.llm_utils._llm_create_with_retry", _slow_retry)
+
+    rows, err = eri._call_risk_llm_batch(
+        [{"customer": "Acme", "pendo": {}, "salesforce": {}}],
+        model="gpt-4o-mini",
+        timeout_seconds=0.05,
+    )
+    assert rows == []
+    assert err is not None
+    assert "timed out" in err
 
 
 def test_render_section_surfaces_batch_error(sample_report: dict, monkeypatch: pytest.MonkeyPatch) -> None:

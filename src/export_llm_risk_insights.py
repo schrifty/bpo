@@ -9,7 +9,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import Any
 
 logger = logging.getLogger("bpo")
@@ -18,6 +20,10 @@ logger = logging.getLogger("bpo")
 _DEFAULT_CUSTOMER_CAP = 40
 # Customers per LLM request (bounded JSON size).
 _DEFAULT_BATCH_SIZE = 10
+# Per-customer Jira prefetch cap (get_customer_jira may issue many HELP queries).
+_DEFAULT_JIRA_CUSTOMER_TIMEOUT_SECONDS = 120.0
+# Single LLM batch (OpenAI/Gemini chat completion).
+_DEFAULT_LLM_BATCH_TIMEOUT_SECONDS = 180.0
 
 
 def _env_int(name: str, default: int) -> int:
@@ -28,6 +34,30 @@ def _env_int(name: str, default: int) -> int:
         return max(1, int(raw))
     except ValueError:
         return default
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return max(1.0, float(raw))
+    except ValueError:
+        return default
+
+
+def _risk_jira_customer_timeout_seconds() -> float:
+    return _env_float(
+        "BPO_LLM_EXPORT_RISK_JIRA_CUSTOMER_TIMEOUT_SECONDS",
+        _DEFAULT_JIRA_CUSTOMER_TIMEOUT_SECONDS,
+    )
+
+
+def _risk_llm_batch_timeout_seconds() -> float:
+    return _env_float(
+        "BPO_LLM_EXPORT_RISK_LLM_BATCH_TIMEOUT_SECONDS",
+        _DEFAULT_LLM_BATCH_TIMEOUT_SECONDS,
+    )
 
 
 def _compact_jira_slice(j: dict[str, Any] | None) -> dict[str, Any]:
@@ -198,6 +228,12 @@ def build_customer_risk_payloads(
     chosen = sorted_rows[:cap]
 
     names = [str(r["customer"]) for r in chosen]
+    jira_timeout = _risk_jira_customer_timeout_seconds()
+    logger.info(
+        "LLM export §7: building risk payloads for %d customer(s) (portfolio cap %d)",
+        len(names),
+        cap,
+    )
     csr = report.get("csr") if isinstance(report.get("csr"), dict) else {}
     ph = csr.get("platform_health") if isinstance(csr.get("platform_health"), dict) else {}
     sc = csr.get("supply_chain") if isinstance(csr.get("supply_chain"), dict) else {}
@@ -213,17 +249,59 @@ def build_customer_risk_payloads(
         jc = get_shared_jira_client()
 
         def _one_jira(nm: str) -> tuple[str, dict[str, Any]]:
-            try:
+            """Run get_customer_jira in a nested worker so result(timeout=…) can interrupt slow calls."""
+
+            def _fetch() -> dict[str, Any]:
                 raw = jc.get_customer_jira(nm, days=min(int(jira_days), 365))
-                return nm, _compact_jira_slice(raw if isinstance(raw, dict) else {})
+                return _compact_jira_slice(raw if isinstance(raw, dict) else {})
+
+            try:
+                with ThreadPoolExecutor(max_workers=1) as inner:
+                    fut = inner.submit(_fetch)
+                    return nm, fut.result(timeout=jira_timeout)
+            except FuturesTimeoutError:
+                msg = f"jira prefetch timed out after {jira_timeout:.0f}s"
+                return nm, {"error": msg}
             except Exception as e:
                 return nm, {"error": str(e)}
 
+        logger.info(
+            "LLM export §7: prefetching Jira HELP for %d customer(s) "
+            "(%d workers, %.1fs timeout per customer)",
+            len(names),
+            max(1, jira_workers),
+            jira_timeout,
+        )
+        t_jira = time.monotonic()
+        done_jira = 0
         with ThreadPoolExecutor(max_workers=max(1, jira_workers)) as pool:
             futs = {pool.submit(_one_jira, n): n for n in names}
             for fut in as_completed(futs):
                 nm, blob = fut.result()
+                if isinstance(blob, dict) and str(blob.get("error") or "").startswith("jira prefetch timed out"):
+                    logger.warning(
+                        "LLM export §7: Jira prefetch timed out for %r (%d/%d, %.1fs elapsed)",
+                        nm,
+                        done_jira + 1,
+                        len(names),
+                        time.monotonic() - t_jira,
+                    )
+                    warnings.append(f"{nm}: {blob['error']}")
                 jira_by_name[nm] = blob
+                done_jira += 1
+                logger.info(
+                    "LLM export §7: Jira prefetch %d/%d (%.1fs) — %r",
+                    done_jira,
+                    len(names),
+                    time.monotonic() - t_jira,
+                    nm,
+                )
+        logger.info(
+            "LLM export §7: Jira prefetch finished (%d/%d customers, %.1fs)",
+            done_jira,
+            len(names),
+            time.monotonic() - t_jira,
+        )
     except Exception as e:
         warnings.append(f"jira prefetch failed ({e}); omitting per-customer jira slices")
         for nm in names:
@@ -261,63 +339,86 @@ def _call_risk_llm_batch(
     batch: list[dict[str, Any]],
     *,
     model: str,
+    timeout_seconds: float | None = None,
 ) -> tuple[list[dict[str, Any]], str | None]:
     """Returns (parsed customer rows from model, error string or None)."""
-    from src.config import llm_client
-
-    system = (
-        "You are a cautious customer success strategist. Output JSON only.\n\n"
-        "TASK: For each object in input.customers[], output EXACTLY two insights focused on "
-        "**account retention, contraction, or churn risk**. Use ONLY fields present under that "
-        "customer entry (pendo, salesforce, cs_report samples, portfolio signals, jira_help counts).\n\n"
-        "RULES:\n"
-        "- Do NOT invent numbers, vendors, conversations, or missing fields.\n"
-        "- Do NOT cite individual Jira ticket titles, keys, or descriptions (counts and buckets only).\n"
-        "- If data is insufficient for a strong claim, write a conservative insight naming the gap.\n"
-        "- Prefer signals that combine domains (adoption + contract timing + HELP load + operational health).\n\n"
-        "Return one JSON object: { \"customers\": [ ... ] }. Each item has "
-        '"customer" (exact string from input) and "insights" '
-        "(array of **exactly** two objects). "
-        'Each insight object: "title", "detail", "risk_level" (low|medium|high), '
-        '"evidence" (array of short field labels you used).\n'
+    timeout = (
+        timeout_seconds
+        if timeout_seconds is not None
+        else _risk_llm_batch_timeout_seconds()
     )
 
-    body = {"customers": batch}
-    payload_json = json.dumps(body, separators=(",", ":"), default=str)
+    def _invoke() -> tuple[list[dict[str, Any]], str | None]:
+        from src.config import llm_client
+        from src.llm_utils import _llm_create_with_retry
 
-    client = llm_client()
-    try:
-        resp = client.chat.completions.create(
-            model=model,
-            temperature=0,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": system},
-                {
-                    "role": "user",
-                    "content": (
-                        "Data JSON (facts only):\n```json\n"
-                        + payload_json[:240_000]
-                        + ("\n```" if len(payload_json) <= 240_000 else "\n```\n(truncated)")
-                    ),
-                },
-            ],
+        system = (
+            "You are a cautious customer success strategist. Output JSON only.\n\n"
+            "TASK: For each object in input.customers[], output EXACTLY two insights focused on "
+            "**account retention, contraction, or churn risk**. Use ONLY fields present under that "
+            "customer entry (pendo, salesforce, cs_report samples, portfolio signals, jira_help counts).\n\n"
+            "RULES:\n"
+            "- Do NOT invent numbers, vendors, conversations, or missing fields.\n"
+            "- Do NOT cite individual Jira ticket titles, keys, or descriptions (counts and buckets only).\n"
+            "- If data is insufficient for a strong claim, write a conservative insight naming the gap.\n"
+            "- Prefer signals that combine domains (adoption + contract timing + HELP load + operational health).\n\n"
+            "Return one JSON object: { \"customers\": [ ... ] }. Each item has "
+            '"customer" (exact string from input) and "insights" '
+            "(array of **exactly** two objects). "
+            'Each insight object: "title", "detail", "risk_level" (low|medium|high), '
+            '"evidence" (array of short field labels you used).\n'
         )
-        raw_txt = (resp.choices[0].message.content or "").strip()
-        data = json.loads(raw_txt)
-    except Exception as e:
-        logger.warning("risk insights LLM batch failed: %s", e)
-        return [], str(e)
 
-    rows_out: list[dict[str, Any]] = []
-    try:
-        for row in data.get("customers") or []:
-            if isinstance(row, dict) and row.get("customer"):
-                rows_out.append(row)
-    except Exception:
-        return [], "LLM returned JSON but customers[] was not parseable"
+        body = {"customers": batch}
+        payload_json = json.dumps(body, separators=(",", ":"), default=str)
 
-    return rows_out, None
+        client = llm_client()
+        try:
+            resp = _llm_create_with_retry(
+                client,
+                model=model,
+                temperature=0,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": system},
+                    {
+                        "role": "user",
+                        "content": (
+                            "Data JSON (facts only):\n```json\n"
+                            + payload_json[:240_000]
+                            + ("\n```" if len(payload_json) <= 240_000 else "\n```\n(truncated)")
+                        ),
+                    },
+                ],
+            )
+            raw_txt = (resp.choices[0].message.content or "").strip()
+            data = json.loads(raw_txt)
+        except Exception as e:
+            logger.warning("risk insights LLM batch failed: %s", e)
+            return [], str(e)
+
+        rows_out: list[dict[str, Any]] = []
+        try:
+            for row in data.get("customers") or []:
+                if isinstance(row, dict) and row.get("customer"):
+                    rows_out.append(row)
+        except Exception:
+            return [], "LLM returned JSON but customers[] was not parseable"
+
+        return rows_out, None
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        fut = pool.submit(_invoke)
+        try:
+            return fut.result(timeout=timeout)
+        except FuturesTimeoutError:
+            names = [str(p.get("customer") or "") for p in batch if isinstance(p, dict)]
+            logger.warning(
+                "risk insights LLM batch timed out after %.0fs (customers: %s)",
+                timeout,
+                ", ".join(names[:5]) + ("…" if len(names) > 5 else ""),
+            )
+            return [], f"LLM batch timed out after {timeout:.0f}s"
 
 
 def render_risk_insights_section(
@@ -341,6 +442,8 @@ def render_risk_insights_section(
         "",
     ]
 
+    logger.info("LLM export §7: starting account & churn risk insights")
+    t_section = time.monotonic()
     payloads, warns = build_customer_risk_payloads(report, jira_days=jira_days)
     from .export_run_diagnostics import collect_export_warning
 
@@ -362,15 +465,56 @@ def render_risk_insights_section(
         return "\n".join(lines)
 
     batch_n = _env_int("BPO_LLM_EXPORT_RISK_BATCH_SIZE", _DEFAULT_BATCH_SIZE)
+    llm_timeout = _risk_llm_batch_timeout_seconds()
+    total_batches = (len(payloads) + batch_n - 1) // batch_n
     all_parsed: list[dict[str, Any]] = []
     batch_errors: list[str] = []
 
-    for i in range(0, len(payloads), batch_n):
+    logger.info(
+        "LLM export §7: running %d LLM batch(es) (%d customers, batch size %d, %.0fs timeout per batch)",
+        total_batches,
+        len(payloads),
+        batch_n,
+        llm_timeout,
+    )
+
+    for batch_idx, i in enumerate(range(0, len(payloads), batch_n), start=1):
         batch = payloads[i : i + batch_n]
-        parsed, err = _call_risk_llm_batch(batch, model=model_name)
+        batch_names = [str(p.get("customer") or "") for p in batch if isinstance(p, dict)]
+        preview = ", ".join(batch_names[:3])
+        if len(batch_names) > 3:
+            preview += ", …"
+        logger.info(
+            "LLM export §7: LLM batch %d/%d starting (%d customers: %s)",
+            batch_idx,
+            total_batches,
+            len(batch),
+            preview,
+        )
+        t_batch = time.monotonic()
+        parsed, err = _call_risk_llm_batch(
+            batch,
+            model=model_name,
+            timeout_seconds=llm_timeout,
+        )
+        elapsed = time.monotonic() - t_batch
         if err:
-            batch_errors.append(f"batch {i // batch_n + 1} ({len(batch)} customers): {err}")
+            logger.warning(
+                "LLM export §7: LLM batch %d/%d failed in %.1fs — %s",
+                batch_idx,
+                total_batches,
+                elapsed,
+                err,
+            )
+            batch_errors.append(f"batch {batch_idx} ({len(batch)} customers): {err}")
             continue
+        logger.info(
+            "LLM export §7: LLM batch %d/%d OK in %.1fs (%d customer row(s) parsed)",
+            batch_idx,
+            total_batches,
+            elapsed,
+            len(parsed),
+        )
         all_parsed.extend(parsed)
 
     name_to_llm = {str(r["customer"]).strip(): r for r in all_parsed if isinstance(r, dict) and r.get("customer")}
@@ -436,4 +580,11 @@ def render_risk_insights_section(
         lines.append("")
         lines.append(f"*Note: {missing_llm} customer block(s) lacked usable LLM output.*")
 
+    logger.info(
+        "LLM export §7: finished in %.1fs (%d payloads, %d LLM rows, %d batch error(s))",
+        time.monotonic() - t_section,
+        len(payloads),
+        len(all_parsed),
+        len(batch_errors),
+    )
     return "\n".join(lines).rstrip() + "\n"

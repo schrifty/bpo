@@ -11,7 +11,7 @@ breakdowns, and SLA-style aggregates only — **no issue keys, summaries, or tic
 The markdown includes **Snapshot coverage & omission rationale** (profile sources, registry ids not in this export and why, caps, loader provenance, feedback prompt) plus **Planned integrations (not in this snapshot yet)** (e.g. Aha, GitHub).
 
 Usage:
-  decks --export [--days N] [--customers-sf-allowlist] [--customers-exclude-sf-churned] [--exclude-customer NAME ...]
+  decks --export [--days N] [--skip-risk-insights] [--customers-sf-allowlist] [--customers-exclude-sf-churned] [--exclude-customer NAME ...]
   python -m src.export_llm_context_snapshot --days 90
 
 Optional portfolio row filters (after Pendo+Salesforce bundle, before markdown):
@@ -1127,6 +1127,11 @@ def _build_export_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
         metavar="NAME",
         help="Drop this Pendo customer label (repeatable). Also see BPO_LLM_EXPORT_EXCLUDE_CUSTOMERS (+ _FILE env).",
     )
+    ap.add_argument(
+        "--skip-risk-insights",
+        action="store_true",
+        help="Omit §7 Account & churn risk insights (LLM + per-customer Jira prefetch).",
+    )
     return ap
 
 
@@ -1225,25 +1230,32 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
                     "or narrow integrations if needed. -->\n"
                 )
 
-        from src.export_llm_risk_insights import render_risk_insights_section
+        if args.skip_risk_insights:
+            import logging
 
-        with export_phase(diag, "risk insights (LLM §7)"):
-            try:
-                md = md.rstrip() + "\n" + render_risk_insights_section(
-                    report,
-                    jira_days=min(int(args.days), 365),
-                )
-            except Exception as exc:
-                collect_export_warning(
-                    f"risk insights section failed: {exc}",
-                    llm_export=True,
-                )
-                md = (
-                    md.rstrip()
-                    + "\n\n## 7. Account & churn risk insights (LLM)\n\n### Error\n\n"
-                    f"Section generation raised an unexpected error: {exc}\n\n"
-                    + "*Export body above is unchanged; core snapshot completed.*\n"
-                )
+            logging.getLogger("bpo").info(
+                "LLM export: skipping §7 risk insights (--skip-risk-insights)"
+            )
+        else:
+            from src.export_llm_risk_insights import render_risk_insights_section
+
+            with export_phase(diag, "risk insights (LLM §7)"):
+                try:
+                    md = md.rstrip() + "\n" + render_risk_insights_section(
+                        report,
+                        jira_days=min(int(args.days), 365),
+                    )
+                except Exception as exc:
+                    collect_export_warning(
+                        f"risk insights section failed: {exc}",
+                        llm_export=True,
+                    )
+                    md = (
+                        md.rstrip()
+                        + "\n\n## 7. Account & churn risk insights (LLM)\n\n### Error\n\n"
+                        f"Section generation raised an unexpected error: {exc}\n\n"
+                        + "*Export body above is unchanged; core snapshot completed.*\n"
+                    )
 
         for k in list(doc.keys()):
             if str(k).startswith("_"):
