@@ -1,8 +1,11 @@
 """BPO configuration. Pendo settings are read from environment variables."""
 
+from __future__ import annotations
+
 import logging
 import os
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -166,6 +169,51 @@ def resolve_leandna_data_api_base_url() -> str:
         "PR_LEANDNA_DATA_API_BASE_URL when EXECUTION_ENV is Production or CI, "
         "or unset EXECUTION_ENV to use LEANDNA_DATA_API_BASE_URL."
     )
+
+
+def execution_env_disallows_http_mutations() -> bool:
+    """True when ``EXECUTION_ENV`` is Production or CI (``PR_*`` credential bucket)."""
+    return BPO_LEANDNA_DATA_API_EXECUTION_BUCKET == "production"
+
+
+def _production_http_mutations_explicitly_allowed() -> bool:
+    raw = os.environ.get("BPO_ALLOW_PRODUCTION_MUTATIONS", "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+def leandna_http_mutations_allowed() -> bool:
+    """Whether LeanDNA Data API POST/PUT/DELETE are permitted for the current process."""
+    if not execution_env_disallows_http_mutations():
+        return True
+    return _production_http_mutations_explicitly_allowed()
+
+
+def leandna_http_mutation_blocked_envelope(*, method: str, path: str = "") -> dict[str, Any] | None:
+    """Return a tool/client error envelope when production mode blocks mutations; else ``None``."""
+    if leandna_http_mutations_allowed():
+        if execution_env_disallows_http_mutations() and _production_http_mutations_explicitly_allowed():
+            logger.warning(
+                "BPO_ALLOW_PRODUCTION_MUTATIONS is set; allowing LeanDNA %s %s despite production EXECUTION_ENV",
+                method,
+                path or "(no path yet)",
+            )
+        return None
+    env_label = (os.environ.get("EXECUTION_ENV") or "").strip() or "Production/CI"
+    return {
+        "ok": False,
+        "error": (
+            "LeanDNA Data API mutations (POST, PUT, DELETE) are disabled when "
+            f"EXECUTION_ENV is {env_label!r} (production / PR_* credentials)."
+        ),
+        "hint": (
+            "Use EXECUTION_ENV=Staging for writes, unset EXECUTION_ENV for legacy dev, "
+            "or set BPO_ALLOW_PRODUCTION_MUTATIONS=true to opt in explicitly."
+        ),
+        "method": method,
+        "path": path,
+    }
+
+
 try:
     _ldna_cache_hours = int(os.environ.get("LEANDNA_ITEM_MASTER_CACHE_TTL_HOURS", "24").strip())
     LEANDNA_ITEM_MASTER_CACHE_TTL_HOURS = max(1, min(168, _ldna_cache_hours))  # 1h-7d range

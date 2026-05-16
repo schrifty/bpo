@@ -104,10 +104,24 @@ def test_data_api_mutate_json_post_success_envelope() -> None:
     resp.text = '{"created": true}'
     resp.reason = "OK"
 
-    with patch("src.leandna_data_api_request.requests.request", return_value=resp):
+    with patch("src.leandna_data_api_request.leandna_http_mutation_blocked_envelope", return_value=None), patch(
+        "src.leandna_data_api_request.requests.request", return_value=resp
+    ):
         out = data_api_mutate_json("POST", "LeanProject", json_body={"name": "Test"}, requested_sites="172")
     assert out["ok"] is True
     assert out["body"] == {"created": True}
+
+
+def test_data_api_mutate_json_blocked_when_production_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.config as cfg
+    from src.leandna_data_api_request import data_api_mutate_json
+
+    monkeypatch.setattr(cfg, "BPO_LEANDNA_DATA_API_EXECUTION_BUCKET", "production")
+    monkeypatch.delenv("BPO_ALLOW_PRODUCTION_MUTATIONS", raising=False)
+    out = data_api_mutate_json("DELETE", "Metric/1/MetricDataPoint")
+    assert out["ok"] is False
+    assert "disabled" in out["error"].lower()
+    assert out["method"] == "DELETE"
 
 
 def test_leandna_data_api_mutate_tool_rejects_non_object_body() -> None:

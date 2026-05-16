@@ -30,7 +30,7 @@ Canonical registry identifiers: [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) (LeanDN
 | Project savings | `GET /data/LeanProject/{projectIds}/Savings` | Monthly actual/target in enrichment |
 | Metric catalog | `GET /data/Metric` | Call via `leandna_metrics_client.list_metric_definitions` — not on `report` yet |
 | Metric report | `GET /data/MetricReport` | Call via `leandna_metrics_client.fetch_metric_report` — not on `report` yet |
-| Metric data points | `GET` / `POST` / `DELETE /data/Metric/{metricId}/MetricDataPoint` | Raw result rows (date range on GET/DELETE); **mutations** via `data_api_mutate_json` / tool `leandna_data_api_mutate` |
+| Metric data points | `GET` / `POST` / `DELETE /data/Metric/{metricId}/MetricDataPoint` | Raw result rows (date range on GET/DELETE); **mutations** via `data_api_mutate_json` / tool `leandna_data_api_mutate` (blocked when `EXECUTION_ENV` is Production/CI — see setup doc) |
 | Lean project create/update | `POST /data/LeanProject`, `PUT /data/LeanProject/{projectId}` | **Mutations** — `RequestedSites` single site on POST per OpenAPI |
 | Lean project tasks/issues | `POST`/`PUT` `.../Task`, `.../Issue` | **Mutations** — bodies per OpenAPI definitions |
 | Write-back transitions | `PUT /data/WriteBack/v1/TransitionActions` | **Mutation** — array of `WriteBackTransition` |

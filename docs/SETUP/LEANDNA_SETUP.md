@@ -46,6 +46,8 @@ When **`EXECUTION_ENV` is unset**, behavior is **unchanged**: use the unprefixed
 
 Implementation: [`src/config.py`](../../src/config.py) (`BPO_LEANDNA_DATA_API_EXECUTION_BUCKET`, `resolve_leandna_data_api_base_url`).
 
+**Production / CI is read-only for LeanDNA mutations:** When `EXECUTION_ENV` is `Production` or `CI`, all Data API **POST**, **PUT**, and **DELETE** calls are rejected in-process (`data_api_mutate_json`, agent tool `leandna_data_api_mutate`). **GET** remains allowed. To run integration tests or emergency writes against prod, set `BPO_ALLOW_PRODUCTION_MUTATIONS=true` (logged; not recommended for routine use). Use `EXECUTION_ENV=Staging` for normal write testing.
+
 **Caching (optional):**
 
 - `LEANDNA_ITEM_MASTER_CACHE_TTL_HOURS` (default 24)

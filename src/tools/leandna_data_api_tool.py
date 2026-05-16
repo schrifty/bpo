@@ -264,7 +264,8 @@ class LeanDNADataApiMutateTool(BaseTool):
         "Optional: \"query\" (object), \"body\" (JSON object or array sent as request body for POST/PUT), "
         "\"requested_sites\" (comma-separated site ids), \"max_response_chars\" (int). "
         "Substitute path literals for swagger {placeholders}. "
-        "Returns same envelope as leandna_data_api_get: {ok, body, url} or {ok: false, error, ...}."
+        "Returns same envelope as leandna_data_api_get: {ok, body, url} or {ok: false, error, ...}. "
+        "Blocked when EXECUTION_ENV is Production or CI unless BPO_ALLOW_PRODUCTION_MUTATIONS=true."
     )
 
     @_network_safe

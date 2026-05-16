@@ -18,7 +18,7 @@ from typing import Any
 
 import requests
 
-from .config import logger, resolve_leandna_data_api_base_url
+from .config import leandna_http_mutation_blocked_envelope, logger, resolve_leandna_data_api_base_url
 from .leandna_data_api_http import build_leandna_data_api_headers
 
 # Path under /data/ — letters, digits, slashes, hyphens, underscores, dots,
@@ -157,6 +157,10 @@ def data_api_mutate_json(
     m = (method or "").strip().upper()
     if m not in ("POST", "PUT", "DELETE"):
         return {"ok": False, "error": f"method must be POST, PUT, or DELETE, not {method!r}"}
+
+    blocked = leandna_http_mutation_blocked_envelope(method=m, path=path)
+    if blocked is not None:
+        return blocked
 
     try:
         rel = normalize_data_api_relative_path(path)

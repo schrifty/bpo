@@ -53,7 +53,8 @@ def create_pendo_agent(
         "returns {ok, body} or {ok:false, error}. Read-only.\n"
         "- leandna_data_api_mutate: Authenticated POST, PUT, or DELETE — input JSON "
         '{"method":"POST","path":"Metric/123/MetricDataPoint","body":{...}}; '
-        "mutates tenant data (Lean projects, metric data points, write-back transitions).\n"
+        "mutates tenant data (Lean projects, metric data points, write-back transitions). "
+        "Disabled when EXECUTION_ENV is Production or CI unless BPO_ALLOW_PRODUCTION_MUTATIONS=true.\n"
         "NOTE: Pendo tracks app engagement (page views, logins). CS Report tracks buyer workflow engagement\n"
         "(daily/weekly active buyers). These measure different things and may differ — flag via data quality.\n\n"
         "DECK & SLIDE TOOLS:\n"

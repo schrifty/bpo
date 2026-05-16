@@ -261,6 +261,14 @@ def test_leandna_displays_single_metric_datapoint_value(capsys) -> None:
     load_dotenv(_ROOT / ".env", override=True)
     _ld_http, _ld_req, _ld_metrics = _reload_leandna_clients()
 
+    import src.config as _config
+
+    if _config.execution_env_disallows_http_mutations() and not _config.leandna_http_mutations_allowed():
+        pytest.skip(
+            "LeanDNA mutations disabled for EXECUTION_ENV=Production/CI — use Staging, "
+            "unset EXECUTION_ENV, or set BPO_ALLOW_PRODUCTION_MUTATIONS=true"
+        )
+
     if not _ld_http.leandna_data_api_credentials_configured():
         pytest.skip(
             "LeanDNA credentials missing — set LEANDNA_DATA_API_BEARER_TOKEN and/or "
