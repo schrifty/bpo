@@ -6,10 +6,10 @@ Auth: browser session — ``LEANDNA_APP_SESSION_ID`` or cookie containing ``LDNA
 
 Examples::
 
-  python3 scripts/get-metrics-app.py
-  python3 scripts/get-metrics-app.py --format brief
-  python3 scripts/get-metrics-app.py 638
-  python3 scripts/get-metrics-app.py --factory-ndx 416
+  python3 scripts/get-metrics.py
+  python3 scripts/get-metrics.py --format brief
+  python3 scripts/get-metrics.py 638
+  python3 scripts/get-metrics.py --factory-ndx 416
 """
 from __future__ import annotations
 

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Show LeanDNA app session info and metricOwner labels (to configure get-my-metrics-app).
+"""Show LeanDNA app session info and metricOwner labels (to configure get-my-metrics).
 
 The classic app API does not expose ``GET /api/data/identity`` with session-only auth (401).
 Use the ``metricOwner`` display name from this output in ``LEANDNA_APP_METRIC_OWNER``.
 
 Examples::
 
-  python3 scripts/whoami-app.py
+  python3 scripts/whoami.py
 """
 from __future__ import annotations
 

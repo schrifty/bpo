@@ -3,8 +3,8 @@
 
 Examples::
 
-  python3 scripts/set-metric-entry-app.py --metric-ndx 638 --date 2026-05-12 --numerator 33 --denominator 1
-  python3 scripts/set-metric-entry-app.py --metric-ndx 638 --date 2026-05-12 --numerator 10 --denominator 0
+  python3 scripts/set-metric-entry.py --metric-ndx 638 --date 2026-05-12 --numerator 33 --denominator 1
+  python3 scripts/set-metric-entry.py --metric-ndx 638 --date 2026-05-12 --numerator 10 --denominator 0
 """
 from __future__ import annotations
 

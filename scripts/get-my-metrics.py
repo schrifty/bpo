@@ -4,13 +4,13 @@
 Uses ``metricOwner`` on ``GET …/Metrics/View`` (usually your **display name**, e.g.
 ``Marc Schriftman`` — not the numeric kpi ``userNdx``).
 
-Set ``LEANDNA_APP_METRIC_OWNER`` in ``.env``, or run ``whoami-app`` to see owner labels.
+Set ``LEANDNA_APP_METRIC_OWNER`` in ``.env``, or run ``whoami`` to see owner labels.
 
 Examples::
 
-  python3 scripts/get-my-metrics-app.py
-  python3 scripts/get-my-metrics-app.py --format brief
-  python3 scripts/get-my-metrics-app.py --metric-owner "Marc Schriftman"
+  python3 scripts/get-my-metrics.py
+  python3 scripts/get-my-metrics.py --format brief
+  python3 scripts/get-my-metrics.py --metric-owner "Marc Schriftman"
 """
 from __future__ import annotations
 
@@ -114,7 +114,7 @@ def main() -> int:
     if not owner:
         print(
             "Could not determine metric owner — set LEANDNA_APP_METRIC_OWNER in .env "
-            '(your name as shown in the app, e.g. "Marc Schriftman") or run whoami-app.',
+            '(your name as shown in the app, e.g. "Marc Schriftman") or run whoami.',
             file=sys.stderr,
         )
         return 1
@@ -123,7 +123,7 @@ def main() -> int:
         print(
             f"Warning: using numeric LEANDNA_APP_USER_NDX={owner!r}. "
             "App Metrics/View usually expects metricOwner as your display name. "
-            "Run whoami-app or set LEANDNA_APP_METRIC_OWNER.",
+            "Run whoami or set LEANDNA_APP_METRIC_OWNER.",
             file=sys.stderr,
         )
 

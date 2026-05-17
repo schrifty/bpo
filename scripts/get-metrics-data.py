@@ -8,10 +8,10 @@ Auth: ``LEANDNA_APP_SESSION_ID`` or cookie with ``LDNASESSIONID=`` — no Data A
 
 Examples::
 
-  python3 scripts/get-metrics-data-app.py 638
-  python3 scripts/get-metrics-data-app.py "job success"
-  python3 scripts/get-metrics-data-app.py --max-metrics 5
-  python3 scripts/get-metrics-data-app.py 638 --start-date 2026-01-01 --end-date 2026-03-31
+  python3 scripts/get-metrics-data.py 638
+  python3 scripts/get-metrics-data.py "job success"
+  python3 scripts/get-metrics-data.py --max-metrics 5
+  python3 scripts/get-metrics-data.py 638 --start-date 2026-01-01 --end-date 2026-03-31
 """
 from __future__ import annotations
 
