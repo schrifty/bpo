@@ -114,6 +114,32 @@ def test_help_project_customer_filter_falls_back_to_text_when_no_org_literal():
     assert orgs == []
 
 
+def test_help_fallback_warning_includes_salesforce_activity(caplog, monkeypatch):
+    import logging
+
+    from src import jira_client as jc
+
+    jc_client = jc.JiraClient.__new__(jc.JiraClient)
+
+    def fake_customer_match_clause(
+        customer_name, match_terms=None, *, organizations_only=False
+    ):
+        if organizations_only:
+            return ('summary ~ "___BPO_NO_ORG_MATCH___"', [])
+        return ('(summary ~ "Industrial")', [])
+
+    jc_client._customer_match_clause = fake_customer_match_clause  # type: ignore[method-assign]
+    monkeypatch.setattr(jc, "_salesforce_activity_hint_for_customer_scope", lambda _n: (
+        "Salesforce: active/non-churned (2 entity row(s), ARR $80,000 active of $80,000 total, "
+        "statuses: Active; SF portfolio label(s): Industrial US)"
+    ))
+    with caplog.at_level(logging.WARNING):
+        jc_client._help_project_customer_filter("Industrial")
+    assert "no JSM Organizations match" in caplog.text
+    assert "active/non-churned" in caplog.text
+    assert "Industrial US" in caplog.text
+
+
 def test_customer_project_text_match_clause_uses_summary_description_not_orgs():
     """CUSTOMER/LEAN: customer scope is summary+description, not JSM Organizations."""
     jc = JiraClient.__new__(JiraClient)  # no Jira __init__ / API

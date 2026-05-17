@@ -99,11 +99,14 @@ def test_export_coverage_manifest_and_markdown_section():
 
     md = mod.render_markdown(doc, exported_at_utc="2020-01-01T00:00:00Z")
     assert "## Snapshot coverage & omission rationale" in md
+    assert "## Data Governance" in md
     assert "## LeanDNA Data API — data elements (reference)" in md
     cov_i = md.index("## Snapshot coverage & omission rationale")
+    dg_i = md.index("## Data Governance")
     ldna_i = md.index("## LeanDNA Data API — data elements (reference)")
     int_i = md.index("## Integration coverage")
-    assert cov_i < ldna_i < int_i
+    assert cov_i < dg_i < ldna_i < int_i
+    assert "No data-governance warnings were recorded" in md
     assert "99999 bytes (`--max-bytes`)" in md
     assert "leandna_item_master" in md
     assert "§5 shows the **full** ranked Pendo usage signal list" in md

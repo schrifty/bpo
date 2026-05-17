@@ -848,6 +848,7 @@ def build_snapshot_document(
     sf_accounts: int = 24,
     signals_cap: int | None = None,
     signal_line_max: int = 280,
+    export_diag: Any | None = None,
 ) -> dict[str, Any]:
     csr = report.get("csr") if isinstance(report.get("csr"), dict) else {}
     pendo_sec = _pendo_portfolio_topline(report)
@@ -906,6 +907,7 @@ def build_snapshot_document(
             signals_line_max_chars=signal_line_max,
         ),
         "leandna_data_api_reference": build_leandna_data_api_reference(),
+        "data_governance_warnings": [],
     }
     stc = report.get("signals_trend_context")
     if stc:
@@ -914,6 +916,12 @@ def build_snapshot_document(
         doc["signals_trend_context"] = truncate_strings_in_obj(
             stc, max_str=320, max_list_items=24, max_dict_keys=48
         )
+    from .data_governance_warnings import build_data_governance_warning_entries
+
+    doc["data_governance_warnings"] = build_data_governance_warning_entries(
+        report,
+        export_diag,
+    )
     return doc
 
 
@@ -949,6 +957,17 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
         ]
     )
     for ln in _export_coverage_markdown_lines(doc.get("export_coverage") or {}):
+        parts.append(ln)
+    parts.extend(
+        [
+            "",
+            "## Data Governance",
+            "",
+        ]
+    )
+    from .data_governance_warnings import render_data_governance_markdown_lines
+
+    for ln in render_data_governance_markdown_lines(doc.get("data_governance_warnings") or []):
         parts.append(ln)
     parts.extend(
         [
@@ -1189,6 +1208,7 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
                 csr_string_cap=csr_str,
                 sf_accounts=sf_acct,
                 signals_cap=args.signals_cap,
+                export_diag=diag,
             )
             # Keep refs for iterative shrinking
             doc["_full_jira"] = report.get("jira") or {}

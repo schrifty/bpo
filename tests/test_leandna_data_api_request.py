@@ -45,6 +45,23 @@ def test_build_leandna_data_api_headers_strips_redundant_bearer_prefix() -> None
     assert h["Authorization"] == "Bearer abc123"
 
 
+def test_format_data_api_error_envelope_parses_json_reason() -> None:
+    from src.leandna_data_api_request import format_data_api_error_envelope
+
+    msg = format_data_api_error_envelope(
+        {
+            "ok": False,
+            "status": 401,
+            "error": "Unauthorized",
+            "body_preview": '{"status":401,"reason":"Session not found"}',
+        },
+        cred_prefix="PR_",
+    )
+    assert "401" in msg
+    assert "Session not found" in msg
+    assert "PR_LEANDNA_DATA_API_BEARER_TOKEN" in msg
+
+
 def test_data_api_get_json_missing_credentials_envelope() -> None:
     from src.leandna_data_api_request import data_api_get_json
 

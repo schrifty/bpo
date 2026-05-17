@@ -51,6 +51,47 @@ def data_api_base_url() -> str:
     return resolve_leandna_data_api_base_url()
 
 
+def _detail_from_error_body(text: str) -> str:
+    """Best-effort message from a failed Data API response body."""
+    snippet = (text or "").strip().replace("\n", " ")[:800]
+    if not snippet:
+        return ""
+    if snippet.startswith("{"):
+        try:
+            parsed = json.loads(snippet)
+            if isinstance(parsed, dict):
+                for key in ("reason", "message", "error", "detail"):
+                    val = parsed.get(key)
+                    if val is not None and str(val).strip():
+                        return str(val).strip()
+        except json.JSONDecodeError:
+            pass
+    return snippet[:200]
+
+
+def format_data_api_error_envelope(
+    env: dict[str, Any],
+    *,
+    cred_prefix: str | None = None,
+) -> str:
+    """Human-readable error from ``data_api_get_json`` / ``env_get_json`` failure envelopes."""
+    if env.get("ok"):
+        return ""
+    status = env.get("status")
+    preview = (env.get("body_preview") or "").strip()
+    detail = _detail_from_error_body(preview) or (env.get("error") or "").strip() or "request failed"
+    if status is not None:
+        line = f"LeanDNA Data API {status}: {detail}"
+    else:
+        line = f"LeanDNA Data API: {detail}"
+    if status == 401 and cred_prefix:
+        line += (
+            f" — refresh {cred_prefix}LEANDNA_DATA_API_BEARER_TOKEN or set "
+            f"{cred_prefix}LEANDNA_DATA_API_COOKIE from browser DevTools while logged into app.leandna.com"
+        )
+    return line
+
+
 def _response_envelope(
     r: requests.Response,
     *,
@@ -61,10 +102,11 @@ def _response_envelope(
     text = r.text or ""
     if not r.ok:
         snippet = text.strip().replace("\n", " ")[:800]
+        detail = _detail_from_error_body(text) or (r.reason or "").strip() or "HTTP error"
         return {
             "ok": False,
             "status": r.status_code,
-            "error": r.reason or "HTTP error",
+            "error": detail,
             "body_preview": snippet,
             "url": url,
         }

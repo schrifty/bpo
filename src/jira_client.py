@@ -248,6 +248,34 @@ def _customer_name_variants(name: str) -> list[str]:
     return out
 
 
+def _salesforce_activity_hint_for_customer_scope(customer_name: str | None) -> str:
+    """One-line Salesforce active/churn context for HELP scope warnings (lazy SF load)."""
+    query = (customer_name or "").strip()
+    if not query:
+        return ""
+    try:
+        from .data_source_health import _salesforce_configured
+
+        if not _salesforce_configured():
+            return ""
+        from .portfolio_salesforce_allowlist import (
+            format_salesforce_label_activity_hint,
+            summarize_salesforce_customer_query_activity,
+        )
+        from .salesforce_client import SalesforceClient
+
+        accounts = SalesforceClient().get_entity_accounts()
+        activity = summarize_salesforce_customer_query_activity(query, accounts)
+        return format_salesforce_label_activity_hint(activity)
+    except Exception as e:
+        logger.debug(
+            "HELP scope: could not load Salesforce activity hint for %r: %s",
+            query,
+            e,
+        )
+        return ""
+
+
 def _load_cohort_customer_alias_map() -> dict[str, list[str]]:
     """Map any cohort key/name/alias to all known terms for Jira customer text searches."""
     global _cohort_customer_alias_map
@@ -926,10 +954,29 @@ class JiraClient:
             and isinstance(org_only_clause, str)
             and "___BPO_NO_ORG_MATCH___" in org_only_clause
         ):
-            logger.warning(
-                "HELP scope: no JSM Organizations match for %r; using summary/description fallback",
-                (customer_name or "").strip(),
-            )
+            cust = (customer_name or "").strip()
+            sf_hint = _salesforce_activity_hint_for_customer_scope(cust)
+            if sf_hint:
+                warn_msg = (
+                    f"HELP scope: no JSM Organizations match for {cust!r}; using summary/description "
+                    f"fallback. {sf_hint}"
+                )
+            else:
+                warn_msg = (
+                    f"HELP scope: no JSM Organizations match for {cust!r}; using summary/description "
+                    "fallback"
+                )
+            logger.warning("%s", warn_msg)
+            try:
+                from .data_governance_warnings import record_data_governance_warning
+
+                record_data_governance_warning(
+                    "help_jsm_org_fallback",
+                    warn_msg,
+                    context={"customer_name": cust},
+                )
+            except Exception:
+                pass
             return self._customer_match_clause(
                 customer_name, match_terms, organizations_only=False
             )

@@ -6,11 +6,13 @@ import logging
 from typing import Any
 
 from .leandna_data_api_env import (
+    LeanDNAEnvBucket,
     LeanDNAEnvConfig,
     env_get_json,
     env_mutate_json,
     load_leandna_env_config,
 )
+from .leandna_data_api_request import format_data_api_error_envelope
 from .leandna_metrics_client import (
     _unwrap_metric_definition_rows,
     metric_definition_label,
@@ -19,6 +21,13 @@ from .leandna_metrics_client import (
 )
 
 logger = logging.getLogger("bpo")
+
+_CRED_PREFIX = {"production": "PR_", "staging": "ST_"}
+
+
+def _format_env_api_error(env: dict[str, Any], bucket: LeanDNAEnvBucket) -> str:
+    return format_data_api_error_envelope(env, cred_prefix=_CRED_PREFIX[bucket])
+
 
 # Fields omitted when POSTing a new metric definition (server assigns id / owner).
 _METRIC_CREATE_OMIT = frozenset({"id", "ownerId", "match_score"})
@@ -39,22 +48,79 @@ def find_metric_by_id(catalog: list[dict[str, Any]], metric_id: Any) -> dict[str
     return None
 
 
+# Full-portfolio ``GET /data/Metric`` JSON can exceed 500k; truncation breaks ``json.loads``.
+_METRIC_CATALOG_MAX_RESPONSE_CHARS = 10_000_000
+
+
 def list_metrics_for_env(
     config: LeanDNAEnvConfig,
     *,
     requested_sites: str | None = None,
     timeout_seconds: float = 120.0,
+    max_response_chars: int = _METRIC_CATALOG_MAX_RESPONSE_CHARS,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     env = env_get_json(
         config,
         "Metric",
         requested_sites=requested_sites,
         timeout_seconds=timeout_seconds,
+        max_response_chars=max_response_chars,
         user_agent_suffix="leandna-metrics-copy/1.0",
     )
     if not env.get("ok"):
         return [], env
-    return _unwrap_metric_definition_rows(env.get("body")), None
+    body = env.get("body")
+    if body is None:
+        if env.get("non_json") or env.get("truncated"):
+            sites_hint = (
+                f" Retry with --requested-sites {requested_sites!r}."
+                if requested_sites
+                else " Pass --requested-sites <siteId> to scope the catalog (smaller response)."
+            )
+            return [], {
+                "ok": False,
+                "status": env.get("status"),
+                "error": f"GET /data/Metric response too large to parse.{sites_hint}",
+                "url": env.get("url"),
+                "truncated": env.get("truncated"),
+                "non_json": env.get("non_json"),
+            }
+        return [], {
+            "ok": False,
+            "status": env.get("status"),
+            "error": "GET /data/Metric returned an empty body.",
+            "url": env.get("url"),
+        }
+    return _unwrap_metric_definition_rows(body), None
+
+
+def fetch_metric_definition_for_env(
+    config: LeanDNAEnvConfig,
+    metric_id: Any,
+    *,
+    requested_sites: str | None = None,
+    timeout_seconds: float = 120.0,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Resolve one metric row from ``GET /data/Metric`` (by id)."""
+    catalog, err = list_metrics_for_env(
+        config,
+        requested_sites=requested_sites,
+        timeout_seconds=timeout_seconds,
+    )
+    if err is not None:
+        return None, err
+    found = find_metric_by_id(catalog, metric_id)
+    if found is not None:
+        return found, None
+    return None, {
+        "ok": False,
+        "error": (
+            f"Metric id={metric_id!r} not found in catalog "
+            f"({len(catalog)} definition(s)"
+            + (f", RequestedSites={requested_sites!r}" if requested_sites else ", all sites")
+            + ")."
+        ),
+    }
 
 
 def build_metric_create_body(
@@ -211,6 +277,7 @@ def copy_metric_production_to_staging(
     end_date: str | None = None,
     staging_site_id: Any | None = None,
     requested_sites: str | None = None,
+    staging_requested_sites: str | None = None,
     copy_datapoints: bool = True,
     reuse_staging_by_name: bool = True,
     dry_run: bool = False,
@@ -230,36 +297,35 @@ def copy_metric_production_to_staging(
         else (None, None)
     )
 
-    prod_catalog, cat_err = list_metrics_for_env(
+    source, cat_err = fetch_metric_definition_for_env(
         production,
+        production_metric_id,
         requested_sites=requested_sites,
         timeout_seconds=timeout_seconds,
     )
     if cat_err is not None:
+        msg = cat_err.get("error") or "production GET /data/Metric failed"
+        if cat_err.get("body_preview") or (
+            cat_err.get("status") is not None and not str(msg).startswith("Metric id=")
+        ):
+            msg = _format_env_api_error(cat_err, "production")
         return {
             "ok": False,
-            "error": "production GET /data/Metric failed",
+            "error": msg,
             "detail": cat_err,
             "production_metric_id": production_metric_id,
         }
+    assert source is not None
 
-    source = find_metric_by_id(prod_catalog, production_metric_id)
-    if source is None:
-        return {
-            "ok": False,
-            "error": f"Production metric id={production_metric_id!r} not found in catalog.",
-            "production_catalog_size": len(prod_catalog),
-        }
-
+    # Production reads may scope to prod siteId; staging uses its own header (prod site ids
+    # are often unauthorized on staging — e.g. 403 Unauthorized Site in Request).
     prod_sites = requested_sites
     if prod_sites is None and source.get("siteId") is not None:
         prod_sites = str(source.get("siteId")).strip() or None
 
-    stg_sites = requested_sites
+    stg_sites = staging_requested_sites
     if stg_sites is None and staging_site_id is not None:
         stg_sites = str(staging_site_id).strip() or None
-    elif stg_sites is None and source.get("siteId") is not None:
-        stg_sites = str(source.get("siteId")).strip() or None
 
     create_body = build_metric_create_body(source, staging_site_id=staging_site_id)
     result: dict[str, Any] = {
@@ -285,7 +351,14 @@ def copy_metric_production_to_staging(
     create_env: dict[str, Any] | None = None
 
     if dry_run:
-        stg_catalog, _ = list_metrics_for_env(staging, requested_sites=stg_sites, timeout_seconds=timeout_seconds)
+        stg_catalog, stg_cat_err = list_metrics_for_env(
+            staging, requested_sites=stg_sites, timeout_seconds=timeout_seconds
+        )
+        if stg_cat_err is not None:
+            result["ok"] = False
+            result["error"] = _format_env_api_error(stg_cat_err, "staging")
+            result["detail"] = stg_cat_err
+            return result
         name_matches = find_staging_metric_by_name(stg_catalog, source, staging_site_id=staging_site_id)
         result["staging"]["would_create_via"] = "POST /data/Metric"
         result["staging"]["existing_name_matches"] = [
@@ -312,7 +385,7 @@ def copy_metric_production_to_staging(
             )
             if stg_cat_err is not None:
                 result["ok"] = False
-                result["error"] = "staging GET /data/Metric failed after create attempt"
+                result["error"] = _format_env_api_error(stg_cat_err, "staging")
                 result["detail"] = stg_cat_err
                 return result
             name_matches = find_staging_metric_by_name(
@@ -337,8 +410,12 @@ def copy_metric_production_to_staging(
                 return result
         if staging_metric_id is None:
             result["ok"] = False
-            result["error"] = "Could not create or resolve staging metric id."
-            result["staging"]["create_envelope"] = create_env
+            if create_env is not None and not create_env.get("ok"):
+                result["error"] = _format_env_api_error(create_env, "staging")
+                result["detail"] = create_env
+            else:
+                result["error"] = "Could not create or resolve staging metric id."
+                result["staging"]["create_envelope"] = create_env
             return result
 
     result["staging"]["metric_id"] = staging_metric_id
@@ -358,7 +435,7 @@ def copy_metric_production_to_staging(
     )
     if dp_err is not None:
         result["ok"] = False
-        result["error"] = "production MetricDataPoint fetch failed"
+        result["error"] = _format_env_api_error(dp_err, "production")
         result["detail"] = dp_err
         return result
 

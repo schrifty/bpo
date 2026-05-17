@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Copy a LeanDNA metric from production (PR_*) to staging (ST_*).
 
-Reads the production metric definition by id, creates a new metric on staging (new id),
-then copies ``MetricDataPoint`` rows over a date window.
+Reads the production metric definition by id, creates a **new** metric on staging (new id),
+then copies production ``MetricDataPoint`` values into that staging metric.
+
+Uses ``PR_*`` and ``ST_*`` from ``.env`` only — **``EXECUTION_ENV`` is ignored**.
+Unrelated to ``get-help-ttr`` (Jira-only).
 
 Requires in ``.env``:
   ``PR_LEANDNA_DATA_API_BASE_URL`` + ``PR_LEANDNA_DATA_API_BEARER_TOKEN`` and/or ``PR_LEANDNA_DATA_API_COOKIE``
@@ -10,9 +13,10 @@ Requires in ``.env``:
 
 Examples::
 
-  copy-metric-prod-to-staging 2171
-  copy-metric-prod-to-staging 2171 --dry-run
-  copy-metric-prod-to-staging 2171 --lookback-days 90 --no-datapoints
+  copy-metric-prod-to-staging 1911
+  copy-metric-prod-to-staging 1911 --requested-sites 416
+  copy-metric-prod-to-staging 1911 --dry-run
+  copy-metric-prod-to-staging 2171 --lookback-days 90
   copy-metric-prod-to-staging 2171 --staging-site-id 416
 """
 from __future__ import annotations
@@ -41,6 +45,18 @@ from src.leandna_metrics_copy import copy_metric_production_to_staging  # noqa: 
 
 
 def _print_brief(result: dict[str, Any]) -> None:
+    if not result.get("ok"):
+        if result.get("error"):
+            print(f"Error: {result['error']}", file=sys.stderr)
+        prod = result.get("production") or {}
+        if prod.get("metric_id") is not None or prod.get("name"):
+            print(
+                f"Production metric: {prod.get('name')} "
+                f"(id={prod.get('metric_id')}, siteId={prod.get('siteId')})"
+            )
+            print(f"  {prod.get('base_url')}")
+        return
+
     prod = result.get("production") or {}
     stg = result.get("staging") or {}
     print(f"Production metric: {prod.get('name')} (id={prod.get('metric_id')}, siteId={prod.get('siteId')})")
@@ -63,13 +79,14 @@ def _print_brief(result: dict[str, Any]) -> None:
             f"Datapoints: {dp.get('posted', 0)} posted, {dp.get('failed', 0)} failed "
             f"(from {dp.get('source_count', 0)} production points)"
         )
-    if result.get("error"):
-        print(f"Error: {result['error']}", file=sys.stderr)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="Copy a LeanDNA metric from production (PR_*) to staging (ST_*); staging gets a new id.",
+        description=(
+            "Copy a LeanDNA metric definition and MetricDataPoint values from production (PR_*) "
+            "to a new metric on staging (ST_*)."
+        ),
     )
     ap.add_argument(
         "metric_id",
@@ -94,7 +111,13 @@ def main() -> int:
         "--requested-sites",
         default=None,
         metavar="ID",
-        help="RequestedSites header for both environments",
+        help="RequestedSites for production reads only (catalog + datapoints); defaults to metric siteId",
+    )
+    ap.add_argument(
+        "--staging-requested-sites",
+        default=None,
+        metavar="ID",
+        help="RequestedSites for staging only (omit unless your ST_* user has that site)",
     )
     ap.add_argument(
         "--no-datapoints",
@@ -140,6 +163,7 @@ def main() -> int:
         end_date=ns.end_date,
         staging_site_id=staging_site,
         requested_sites=ns.requested_sites,
+        staging_requested_sites=ns.staging_requested_sites,
         copy_datapoints=not ns.no_datapoints,
         reuse_staging_by_name=not ns.no_reuse_by_name,
         dry_run=ns.dry_run,

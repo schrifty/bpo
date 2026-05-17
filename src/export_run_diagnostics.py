@@ -103,6 +103,12 @@ def export_diagnostics_scope() -> Iterator[ExportRunDiagnostics]:
     from .drive_cache_stats import reset_drive_cache_load_stats
 
     reset_drive_cache_load_stats()
+    try:
+        from .data_governance_warnings import clear_data_governance_warnings
+
+        clear_data_governance_warnings()
+    except Exception:
+        pass
     diag = ExportRunDiagnostics()
     token = _export_diag.set(diag)
     handler = _ExportWarningLogHandler(diag)

@@ -75,8 +75,8 @@ def test_copy_metric_production_to_staging_happy_path(env_configs) -> None:
     datapoints = [{"dataPointDate": "2026-01-01", "value": 1.0, "category": ""}]
 
     with patch("src.leandna_metrics_copy.load_leandna_env_config") as load_env, patch(
-        "src.leandna_metrics_copy.list_metrics_for_env"
-    ) as list_metrics, patch(
+        "src.leandna_metrics_copy.fetch_metric_definition_for_env"
+    ) as fetch_def, patch(
         "src.leandna_metrics_copy.create_metric_definition"
     ) as create_def, patch(
         "src.leandna_metrics_copy.fetch_datapoints_for_env"
@@ -84,7 +84,7 @@ def test_copy_metric_production_to_staging_happy_path(env_configs) -> None:
         "src.leandna_metrics_copy.post_datapoint_for_env"
     ) as post_dp:
         load_env.side_effect = lambda b: prod if b == "production" else stg
-        list_metrics.return_value = ([source_metric], None)
+        fetch_def.return_value = (source_metric, None)
         create_def.return_value = (2001, {"ok": True, "status": 201})
         fetch_dp.return_value = (datapoints, None)
         post_dp.return_value = {"ok": True, "status": 201}
@@ -93,6 +93,7 @@ def test_copy_metric_production_to_staging_happy_path(env_configs) -> None:
             100,
             lookback_days=30,
             copy_datapoints=True,
+            requested_sites="416",
         )
 
     assert out["ok"] is True
@@ -100,7 +101,51 @@ def test_copy_metric_production_to_staging_happy_path(env_configs) -> None:
     assert out["staging"]["metric_id"] == 2001
     assert out["datapoints"]["posted"] == 1
     create_def.assert_called_once()
+    assert create_def.call_args.kwargs.get("requested_sites") is None
+    fetch_def.assert_called_once()
+    assert fetch_def.call_args.kwargs.get("requested_sites") == "416"
     post_dp.assert_called_once()
+
+
+def test_list_metrics_for_env_truncated_catalog(env_configs) -> None:
+    prod, _ = env_configs
+    with patch("src.leandna_metrics_copy.env_get_json") as get_json:
+        get_json.return_value = {
+            "ok": True,
+            "status": 200,
+            "truncated": True,
+            "non_json": True,
+            "body": None,
+            "url": "https://prod.example/api/data/Metric",
+        }
+        from src.leandna_metrics_copy import list_metrics_for_env
+
+        rows, err = list_metrics_for_env(prod)
+    assert rows == []
+    assert err is not None
+    assert "too large" in (err.get("error") or "").lower()
+
+
+def test_copy_metric_catalog_auth_failure(env_configs) -> None:
+    prod, stg = env_configs
+    with patch("src.leandna_metrics_copy.load_leandna_env_config") as load_env, patch(
+        "src.leandna_metrics_copy.list_metrics_for_env",
+        return_value=(
+            [],
+            {
+                "ok": False,
+                "status": 401,
+                "error": "Unauthorized",
+                "body_preview": '{"status":401,"reason":"Session not found"}',
+            },
+        ),
+    ):
+        load_env.side_effect = lambda b: prod if b == "production" else stg
+        out = copy_metric_production_to_staging(1911)
+    assert out["ok"] is False
+    assert "401" in out["error"]
+    assert "Session not found" in out["error"]
+    assert "PR_LEANDNA_DATA_API_BEARER_TOKEN" in out["error"]
 
 
 def test_copy_metric_not_found(env_configs) -> None:
