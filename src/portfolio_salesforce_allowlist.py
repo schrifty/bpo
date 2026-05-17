@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, AbstractSet
 
 from .config import logger
@@ -12,6 +13,11 @@ from .salesforce_client import (
     _customer_name_matches_entity_account,
     _renewal_roll_up_fields,
 )
+
+_SF_PORTFOLIO_PENDO_ALIAS_FILE = (
+    Path(__file__).resolve().parent.parent / "config" / "sf_portfolio_pendo_aliases.yaml"
+)
+_sf_portfolio_pendo_alias_map: dict[str, list[str]] | None = None
 
 
 def _name_matches_word_boundary(query: str, text: str) -> bool:
@@ -202,11 +208,90 @@ def format_salesforce_label_activity_hint(activity: dict[str, Any]) -> str:
     )
 
 
+def invalidate_sf_portfolio_pendo_alias_cache_for_tests() -> None:
+    """Clear cached YAML (for tests)."""
+    global _sf_portfolio_pendo_alias_map
+    _sf_portfolio_pendo_alias_map = None
+
+
+def _load_sf_portfolio_pendo_alias_map() -> dict[str, list[str]]:
+    """Lowercased Salesforce portfolio label → ordered Pendo prefix candidates."""
+    global _sf_portfolio_pendo_alias_map
+    if _sf_portfolio_pendo_alias_map is not None:
+        return _sf_portfolio_pendo_alias_map
+    out: dict[str, list[str]] = {}
+    if not _SF_PORTFOLIO_PENDO_ALIAS_FILE.is_file():
+        _sf_portfolio_pendo_alias_map = out
+        return out
+    try:
+        import yaml
+
+        with open(_SF_PORTFOLIO_PENDO_ALIAS_FILE, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except Exception as e:
+        logger.warning(
+            "SF portfolio Pendo aliases: could not load %s: %s",
+            _SF_PORTFOLIO_PENDO_ALIAS_FILE,
+            e,
+        )
+        _sf_portfolio_pendo_alias_map = out
+        return out
+    if not isinstance(data, dict):
+        _sf_portfolio_pendo_alias_map = out
+        return out
+    for k, v in data.items():
+        if k is None or str(k).strip().startswith("#"):
+            continue
+        key = str(k).strip().lower()
+        if not key:
+            continue
+        targets: list[str] = []
+        if isinstance(v, str):
+            targets = [v.strip()] if v.strip() else []
+        elif isinstance(v, (list, tuple)):
+            targets = [str(x).strip() for x in v if str(x).strip()]
+        if targets:
+            out[key] = targets
+    _sf_portfolio_pendo_alias_map = out
+    return out
+
+
+def _resolve_sf_label_via_pendo_alias_file(
+    sf_label: str,
+    *,
+    canon: dict[str, str],
+) -> str | None:
+    """Return canonical Pendo prefix when ``config/sf_portfolio_pendo_aliases.yaml`` maps *sf_label*."""
+    sl = (sf_label or "").strip()
+    if not sl:
+        return None
+    candidates = _load_sf_portfolio_pendo_alias_map().get(sl.lower())
+    if not candidates:
+        return None
+    for target in candidates:
+        hit = canon.get(target.lower())
+        if hit:
+            logger.info(
+                "Portfolio: Salesforce label %r → Pendo prefix %r "
+                "(config/sf_portfolio_pendo_aliases.yaml)",
+                sl,
+                hit,
+            )
+            return hit
+    logger.warning(
+        "Portfolio: sf_portfolio_pendo_aliases.yaml maps %r → %s but none of those prefixes "
+        "appear in the current Pendo customer list",
+        sl,
+        candidates,
+    )
+    return None
+
+
 def resolve_sf_label_to_pendo_prefix(sf_label: str, pendo_prefixes: AbstractSet[str]) -> str | None:
     """Map a Salesforce-derived label to a Pendo sitename first-token / visitor bucket.
 
-    Uses the same word-boundary rule as visitor matching so multi-word SF names can still
-    resolve to a short Pendo prefix (e.g. ``Spirit`` inside ``Spirit AeroSystems``).
+    Checks ``config/sf_portfolio_pendo_aliases.yaml`` first, then word-boundary / first-token
+    rules (same as visitor matching; e.g. ``Spirit`` inside ``Spirit AeroSystems``).
     """
     if not pendo_prefixes:
         return None
@@ -215,6 +300,9 @@ def resolve_sf_label_to_pendo_prefix(sf_label: str, pendo_prefixes: AbstractSet[
     if not sl:
         return None
     low = sl.lower()
+    via_alias = _resolve_sf_label_via_pendo_alias_file(sl, canon=canon)
+    if via_alias:
+        return via_alias
     if low in canon:
         return canon[low]
 

@@ -4,12 +4,15 @@ import logging
 
 from src.portfolio_salesforce_allowlist import (
     format_salesforce_label_activity_hint,
+    invalidate_sf_portfolio_pendo_alias_cache_for_tests,
     portfolio_labels_from_entity_accounts,
     resolve_sf_label_to_pendo_prefix,
     salesforce_allowlist_pendo_keys,
     summarize_salesforce_customer_query_activity,
     summarize_salesforce_label_activity,
 )
+
+_PSG_SF_LABEL = "Pump Solutions Group (Oakbrook Terrace, IL)"
 
 
 def test_portfolio_labels_rollup_dedupes_case():
@@ -32,6 +35,46 @@ def test_resolve_sf_label_exact_and_word_boundary():
 def test_resolve_sf_label_first_token():
     prefix = {"ACME"}
     assert resolve_sf_label_to_pendo_prefix("ACME North America Region", prefix) == "ACME"
+
+
+def test_resolve_sf_label_pump_solutions_group_alias_to_dover():
+    invalidate_sf_portfolio_pendo_alias_cache_for_tests()
+    pendo = {"Dover", "Spirit"}
+    assert resolve_sf_label_to_pendo_prefix(_PSG_SF_LABEL, pendo) == "Dover"
+
+
+def test_resolve_sf_label_alias_missing_pendo_prefix_falls_through(monkeypatch, caplog):
+    invalidate_sf_portfolio_pendo_alias_cache_for_tests()
+    monkeypatch.setattr(
+        "src.portfolio_salesforce_allowlist._load_sf_portfolio_pendo_alias_map",
+        lambda: {_PSG_SF_LABEL.lower(): ["Dover"]},
+    )
+    with caplog.at_level(logging.WARNING):
+        assert resolve_sf_label_to_pendo_prefix(_PSG_SF_LABEL, {"OtherCo"}) is None
+    assert "sf_portfolio_pendo_aliases.yaml maps" in caplog.text
+
+
+def test_salesforce_allowlist_resolves_pump_solutions_via_alias(caplog):
+    invalidate_sf_portfolio_pendo_alias_cache_for_tests()
+    rows = [
+        {
+            "Name": "Dover: Dover PSG Cincinnati",
+            "parent_name": "",
+            "ultimate_parent_name": _PSG_SF_LABEL,
+            "Contract_Status__c": "Activated",
+            "ARR__c": 50000,
+        },
+    ]
+    with caplog.at_level(logging.INFO):
+        ordered, meta = salesforce_allowlist_pendo_keys(
+            entity_accounts=rows,
+            pendo_prefixes={"Dover"},
+            is_excluded=lambda _k: False,
+        )
+    assert ordered == ["Dover"]
+    assert meta["salesforce_labels_unmatched"] == []
+    assert meta["pendo_key_to_salesforce_label"]["Dover"] == _PSG_SF_LABEL
+    assert "sf_portfolio_pendo_aliases.yaml" in caplog.text
 
 
 def test_salesforce_allowlist_skips_unmatched_and_excluded():
