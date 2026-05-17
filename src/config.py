@@ -165,6 +165,24 @@ else:
     LEANDNA_DATA_API_REFERER = ""
 
 
+# LeanDNA classic app API (session cookie — kpi/update-kpi style; not Data API Bearer).
+LEANDNA_APP_API_SERVER = (os.environ.get("LEANDNA_APP_API_SERVER") or "https://app.leandna.com").strip().rstrip("/")
+LEANDNA_APP_SESSION_ID = (os.environ.get("LEANDNA_APP_SESSION_ID") or "").strip()
+LEANDNA_APP_COOKIE = (os.environ.get("LEANDNA_APP_COOKIE") or "").strip()
+try:
+    LEANDNA_APP_FACTORY_NDX = int((os.environ.get("LEANDNA_APP_FACTORY_NDX") or "416").strip())
+except ValueError:
+    LEANDNA_APP_FACTORY_NDX = 416
+LEANDNA_APP_METRICS_VIEW_QUERY = (
+    os.environ.get("LEANDNA_APP_METRICS_VIEW_QUERY")
+    or "category=Engineering%2CData%20Integration&entryType=Manual&activated=active"
+).strip()
+# Optional overrides when GET /api/data/identity returns 401 (common with session-only auth).
+# App Metrics/View uses display names for metricOwner (e.g. "Marc Schriftman"), not always numeric ndx.
+LEANDNA_APP_METRIC_OWNER = (os.environ.get("LEANDNA_APP_METRIC_OWNER") or "").strip()
+LEANDNA_APP_USER_NDX = (os.environ.get("LEANDNA_APP_USER_NDX") or "").strip()
+
+
 def resolve_leandna_data_api_base_url() -> str:
     """Return the Data API base URL (no trailing slash) or raise if misconfigured.
 

@@ -84,10 +84,10 @@ Generate one deck (explicit)
   decks csm book --csm "<name>" [--days N] [--max-customers M] [--quarter …]
       CSM book of business (Pendo ownername filter).
 
-  decks kpi [get-my-metrics options]
-      List LeanDNA metrics owned by the current API user (``GET /data/identity`` +
-      ``GET /data/Metric`` filtered by ``ownerId``). Forwards flags to ``scripts/get-my-metrics.py``
-      (e.g. ``--format json``, ``--requested-sites 416``, ``--user-id ID``).
+  decks kpi [get-my-metrics-app options]
+      List LeanDNA metrics owned by you (app session auth). Forwards flags to
+      ``scripts/get-my-metrics-app.py``
+      (e.g. ``--format brief``, ``--metric-owner "Your Name"``).
 """
 
 import json
@@ -622,9 +622,9 @@ def _run_support_deck(rest: list[str]) -> None:
 
 
 def _run_kpi_cli(rest: list[str]) -> None:
-    """Run ``scripts/get-my-metrics.py`` with the same argv tail (LeanDNA metrics for session user)."""
+    """Run ``scripts/get-my-metrics-app.py`` with the same argv tail (LeanDNA metrics for session user)."""
     root = Path(__file__).resolve().parent
-    script = root / "scripts" / "get-my-metrics.py"
+    script = root / "scripts" / "get-my-metrics-app.py"
     if not script.is_file():
         print(f"error: missing {script}", file=sys.stderr)
         sys.exit(1)
