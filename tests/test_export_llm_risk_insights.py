@@ -83,6 +83,51 @@ def test_build_customer_risk_payloads_merges_domains(sample_report: dict, monkey
     assert "leandna_data_api" in acme and "note" in acme["leandna_data_api"]
     assert set(called) == {"Acme", "Beta"}
     assert acme["jira_help"].get("total_issues") == 3
+    assert "risk_assessment" in acme
+    assert isinstance(acme["risk_assessment"]["risk_score"], int)
+    assert acme["risk_assessment"]["risk_score"] >= payloads[1]["risk_assessment"]["risk_score"]
+    assert payloads[0]["customer"] == "Acme"
+
+
+def test_render_section_includes_risk_score_line(sample_report: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(eri, "_env_int", lambda _name, default: 40)
+
+    class _FakeJira:
+        def get_customer_jira(self, name: str, days: int) -> dict:
+            return {"open_issues": 0, "escalated": 0}
+
+    monkeypatch.setattr("src.jira_client.get_shared_jira_client", lambda: _FakeJira())
+    monkeypatch.setattr(
+        eri,
+        "_call_risk_llm_batch",
+        lambda batch, **_k: (
+            [
+                {
+                    "customer": "Acme",
+                    "insights": [
+                        {
+                            "title": "T",
+                            "detail": "D",
+                            "risk_level": "high",
+                            "evidence": ["pendo.login_pct"],
+                        },
+                        {
+                            "title": "T2",
+                            "detail": "D2",
+                            "risk_level": "medium",
+                            "evidence": [],
+                        },
+                    ],
+                }
+            ],
+            None,
+        ),
+    )
+
+    md = eri.render_risk_insights_section(sample_report, jira_days=30, model="gpt-4o-mini")
+    assert "**Risk score:" in md
+    assert "Top driver:" in md
+    assert "sorted by composite **risk score**" in md
 
 
 def test_call_risk_llm_batch_parses_customers(monkeypatch: pytest.MonkeyPatch) -> None:

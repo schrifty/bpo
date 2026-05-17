@@ -154,6 +154,22 @@ def _slim_pendo_summary(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _all_csr_sites_for_customer(
+    csr: dict[str, Any],
+    pendo_customer: str,
+    *,
+    limit_per_slice: int,
+) -> list[dict[str, Any]]:
+    """Merge CSR site samples across platform_health, supply_chain, platform_value."""
+    ph = csr.get("platform_health") if isinstance(csr.get("platform_health"), dict) else {}
+    sc = csr.get("supply_chain") if isinstance(csr.get("supply_chain"), dict) else {}
+    pv = csr.get("platform_value") if isinstance(csr.get("platform_value"), dict) else {}
+    out: list[dict[str, Any]] = []
+    for block in (ph, sc, pv):
+        out.extend(_csr_sites_for_customer(block, pendo_customer, limit=limit_per_slice))
+    return out
+
+
 def _sf_row_for_customer(sf: dict[str, Any], customer: str) -> dict[str, Any]:
     accounts = sf.get("accounts") if isinstance(sf.get("accounts"), list) else []
     cust_l = customer.strip().lower()
@@ -214,18 +230,26 @@ def build_customer_risk_payloads(
     if not rows:
         return [], ["no portfolio customers on report; skipping risk payloads"]
 
-    def _risk_rank(row: dict[str, Any]) -> tuple[float, str]:
-        name = str(row.get("customer") or "")
-        # Lower login first → higher churn discussion priority; tie-break alphabetically.
-        login = row.get("login_pct")
-        try:
-            lg = float(login) if login is not None else 999.0
-        except (TypeError, ValueError):
-            lg = 999.0
-        return (lg, name.lower())
+    from .customer_risk_score import compute_customer_risk_score, portfolio_signals_for_customer
 
-    sorted_rows = sorted((r for r in rows if isinstance(r, dict) and r.get("customer")), key=_risk_rank)
-    chosen = sorted_rows[:cap]
+    csr = report.get("csr") if isinstance(report.get("csr"), dict) else {}
+    signals = report.get("portfolio_signals") if isinstance(report.get("portfolio_signals"), list) else []
+    sf = report.get("salesforce") if isinstance(report.get("salesforce"), dict) else {}
+
+    def _pre_cap_rank(row: dict[str, Any]) -> tuple[float, str]:
+        cname = str(row.get("customer") or "").strip()
+        assessment = compute_customer_risk_score(
+            pendo=_slim_pendo_summary(row),
+            salesforce=_sf_row_for_customer(sf, cname),
+            portfolio_signals=portfolio_signals_for_customer(signals, cname),
+            csr_sites=_all_csr_sites_for_customer(csr, cname, limit_per_slice=csr_site_limit),
+            jira_help=None,
+            include_jira=False,
+        )
+        return (-float(assessment["risk_score"]), cname.lower())
+
+    valid_rows = [r for r in rows if isinstance(r, dict) and r.get("customer")]
+    chosen = sorted(valid_rows, key=_pre_cap_rank)[:cap]
 
     names = [str(r["customer"]) for r in chosen]
     jira_timeout = _risk_jira_customer_timeout_seconds()
@@ -234,13 +258,9 @@ def build_customer_risk_payloads(
         len(names),
         cap,
     )
-    csr = report.get("csr") if isinstance(report.get("csr"), dict) else {}
     ph = csr.get("platform_health") if isinstance(csr.get("platform_health"), dict) else {}
     sc = csr.get("supply_chain") if isinstance(csr.get("supply_chain"), dict) else {}
     pv = csr.get("platform_value") if isinstance(csr.get("platform_value"), dict) else {}
-
-    signals = report.get("portfolio_signals") if isinstance(report.get("portfolio_signals"), list) else []
-    sf = report.get("salesforce") if isinstance(report.get("salesforce"), dict) else {}
 
     jira_by_name: dict[str, dict[str, Any]] = {}
     try:
@@ -322,6 +342,7 @@ def build_customer_risk_payloads(
                 "platform_value_sites_sample": _csr_sites_for_customer(pv, cname, limit=csr_site_limit),
             },
             "pendo_portfolio_signals_sample": _signals_for_customer(signals, cname, limit=signal_lines_per_customer),
+            "portfolio_signals_structured": portfolio_signals_for_customer(signals, cname),
             "jira_help": jira_by_name.get(cname, {}),
             "leandna_data_api": {
                 "note": (
@@ -330,8 +351,22 @@ def build_customer_risk_payloads(
                 ),
             },
         }
+        payload["risk_assessment"] = compute_customer_risk_score(
+            pendo=payload["pendo"],
+            salesforce=payload["salesforce"],
+            portfolio_signals=payload.get("portfolio_signals_structured") or [],
+            csr_sites=_all_csr_sites_for_customer(csr, cname, limit_per_slice=csr_site_limit),
+            jira_help=payload["jira_help"],
+            include_jira=True,
+        )
         payloads.append(payload)
 
+    payloads.sort(
+        key=lambda p: (
+            -int((p.get("risk_assessment") or {}).get("risk_score") or 0),
+            str(p.get("customer") or "").lower(),
+        )
+    )
     return payloads, warnings
 
 
@@ -356,7 +391,9 @@ def _call_risk_llm_batch(
             "You are a cautious customer success strategist. Output JSON only.\n\n"
             "TASK: For each object in input.customers[], output EXACTLY two insights focused on "
             "**account retention, contraction, or churn risk**. Use ONLY fields present under that "
-            "customer entry (pendo, salesforce, cs_report samples, portfolio signals, jira_help counts).\n\n"
+            "customer entry (pendo, salesforce, cs_report samples, portfolio signals, jira_help counts). "
+            "Each customer may include ``risk_assessment`` (composite score 0–100, tier, top_influencer) — "
+            "treat as a prior; your insights may align or note tension with it.\n\n"
             "RULES:\n"
             "- Do NOT invent numbers, vendors, conversations, or missing fields.\n"
             "- Do NOT cite individual Jira ticket titles, keys, or descriptions (counts and buckets only).\n"
@@ -439,6 +476,8 @@ def render_risk_insights_section(
         "- **Scope:** Two insights per customer from Pendo, Salesforce, CS Report samples, "
         "portfolio signal lines, and Jira HELP **aggregate** counts only. "
         "LeanDNA Data API is **not** in the export payload (see per-customer `leandna_data_api.note`).",
+        "- **Ordering:** Customers sorted by composite **risk score** (0–100, higher = worse); "
+        "each block shows score, tier, and top weighted driver before LLM insights.",
         "",
     ]
 
@@ -529,7 +568,7 @@ def render_risk_insights_section(
         lines.append("*Successful batches (if any) are still printed below.*")
         lines.append("")
 
-    # Render in original payload order so output matches portfolio ordering.
+    # Payloads already sorted by risk_assessment.risk_score descending.
     missing_llm = 0
     for payload in payloads:
         cname = str(payload["customer"])
@@ -537,6 +576,16 @@ def render_risk_insights_section(
 
         lines.append(f"### {cname}")
         lines.append("")
+        ra = payload.get("risk_assessment") if isinstance(payload.get("risk_assessment"), dict) else {}
+        score = ra.get("risk_score")
+        tier = ra.get("risk_tier")
+        influencer = str(ra.get("top_influencer") or "").strip()
+        if score is not None and tier:
+            score_line = f"**Risk score: {score} ({tier})**"
+            if influencer:
+                score_line += f" — Top driver: {influencer}"
+            lines.append(score_line)
+            lines.append("")
 
         if not llm_row:
             missing_llm += 1
