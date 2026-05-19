@@ -48,6 +48,7 @@ class SourceId(str, Enum):
     CS_REPORT_CUSTOMER_WEEK = "cs_report_customer_week"
     SALESFORCE_PORTFOLIO_AGGREGATE = "salesforce_portfolio_aggregate"
     SALESFORCE_COMPREHENSIVE_PORTFOLIO = "salesforce_comprehensive_portfolio"
+    # All-customers LLM export: per-customer HELP for top ARR labels (not portfolio-wide ``None`` scope).
     JIRA_HELP_PORTFOLIO = "jira_help_portfolio"
     SLACK_CUSTOMER_CONVERSATIONS = "slack_customer_conversations"
 

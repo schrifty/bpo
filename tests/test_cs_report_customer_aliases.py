@@ -37,3 +37,53 @@ def test_cs_report_customer_name_candidates_order(mock_fetch: object) -> None:
     with patch.object(cs_report_client, "_load_cs_report_alias_map", return_value={"abc": ["B", "A"]}):
         c = cs_report_client.cs_report_customer_name_candidates("ABC")
     assert c == ["ABC", "B", "A"]
+
+
+@patch.object(cs_report_client, "_fetch_latest_report")
+def test_sites_for_customer_lookup_tries_salesforce_label_and_aliases(mock_fetch: object) -> None:
+    """SF rollup 'Johnson' should resolve when CS export uses a legal name via aliases."""
+    mock_fetch.return_value = [
+        {
+            "customer": "Johnson Controls",
+            "delta": "week",
+            "factoryName": "Plant 1",
+            "healthScore": "GREEN",
+        },
+    ]
+    alias_map = {
+        "johnson": ["Johnson Controls", "Johnson Controls International", "JCI"],
+        "jci": ["Johnson Controls", "Johnson Controls International"],
+    }
+    with patch.object(cs_report_client, "_load_cs_report_alias_map", return_value=alias_map):
+        with patch.object(cs_report_client, "_load_cohort_customer_alias_map", return_value={}):
+            rows, matched, tried = cs_report_client._sites_for_customer_lookup(
+                "Johnson",
+                lookup_keys=["Johnson", "JCI"],
+            )
+    assert len(rows) == 1
+    assert matched == "Johnson"
+    assert "Johnson Controls" in tried
+
+
+@patch.object(cs_report_client, "_fetch_latest_report")
+def test_load_csr_top_customers_uses_sf_label_lookup_keys(mock_fetch: object) -> None:
+    mock_fetch.return_value = [
+        {"customer": "Johnson Controls", "delta": "week", "factoryName": "F1", "healthScore": "GREEN"},
+    ]
+    alias_map = {"johnson": ["Johnson Controls"], "jci": ["Johnson Controls"]}
+    with patch.object(cs_report_client, "_load_cs_report_alias_map", return_value=alias_map):
+        with patch.object(cs_report_client, "_load_cohort_customer_alias_map", return_value={}):
+            out = cs_report_client.load_csr_top_customers_by_arr(
+                [
+                    {
+                        "salesforce_label": "Johnson",
+                        "arr": 1_500_000.0,
+                        "pendo_customer_key": "JCI",
+                        "csr_lookup_name": "JCI",
+                    }
+                ]
+            )
+    assert "Johnson" in out["customers"]
+    block = out["customers"]["Johnson"]
+    assert block["csr_matched_lookup_key"] == "Johnson"
+    assert not block["platform_health"].get("error")

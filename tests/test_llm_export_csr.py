@@ -30,13 +30,13 @@ def test_top_active_customers_by_arr_for_csr():
 def test_load_csr_top_customers_by_arr(monkeypatch):
     from src import cs_report_client as m
 
-    def ph(name: str):
+    def ph(name: str, **kwargs):
         return {"customer": name, "sites": [{"factory": "f1"}]}
 
-    def sc(name: str):
+    def sc(name: str, **kwargs):
         return {"customer": name, "sites": []}
 
-    def pv(name: str):
+    def pv(name: str, **kwargs):
         return {"customer": name, "sites": []}
 
     monkeypatch.setattr(m, "get_customer_platform_health", ph)

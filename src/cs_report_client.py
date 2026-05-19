@@ -30,8 +30,11 @@ _cache_lock = threading.Lock()
 
 # Optional: project-root YAML — map Pendo customer → exact CS Report `customer` values
 _CSR_ALIAS_FILE = Path(__file__).resolve().parent.parent / "cs_report_customer_aliases.yaml"
+_COHORTS_FILE = Path(__file__).resolve().parent.parent / "cohorts.yaml"
 _cs_report_alias_map: dict[str, list[str]] | None = None
 _cs_report_alias_lock = threading.Lock()
+_cohort_customer_alias_map: dict[str, list[str]] | None = None
+_cohort_customer_alias_lock = threading.Lock()
 
 
 def _get_drive():
@@ -207,6 +210,73 @@ def _load_cs_report_alias_map() -> dict[str, list[str]]:
         return out
 
 
+def _load_cohort_customer_alias_map() -> dict[str, list[str]]:
+    """Map cohort key / name / alias → all related account labels (for CSR lookup expansion)."""
+    global _cohort_customer_alias_map
+    if _cohort_customer_alias_map is not None:
+        return _cohort_customer_alias_map
+    with _cohort_customer_alias_lock:
+        if _cohort_customer_alias_map is not None:
+            return _cohort_customer_alias_map
+        out: dict[str, list[str]] = {}
+        if _COHORTS_FILE.is_file():
+            try:
+                data = yaml.safe_load(_COHORTS_FILE.read_text()) or {}
+            except Exception as e:
+                logger.warning("cohorts aliases (CS Report): could not load %s: %s", _COHORTS_FILE, e)
+                data = {}
+            customers = data.get("customers") if isinstance(data, dict) else None
+            if not isinstance(customers, dict) and isinstance(data, dict):
+                customers = data.get("cohorts")
+            if isinstance(customers, dict):
+                for key, row in customers.items():
+                    terms: list[str] = [str(key).strip()]
+                    if isinstance(row, dict):
+                        name = str(row.get("name") or "").strip()
+                        if name:
+                            terms.append(name)
+                        aliases = row.get("aliases") or []
+                        if isinstance(aliases, str):
+                            aliases = [aliases]
+                        if isinstance(aliases, (list, tuple)):
+                            terms.extend(str(a).strip() for a in aliases if str(a).strip())
+                    deduped: list[str] = []
+                    seen: set[str] = set()
+                    for t in terms:
+                        if t and t.lower() not in seen:
+                            seen.add(t.lower())
+                            deduped.append(t)
+                    for t in deduped:
+                        out[t.lower()] = deduped
+        _cohort_customer_alias_map = out
+        return out
+
+
+def cs_report_lookup_keys_for_account(
+    *,
+    salesforce_label: str = "",
+    pendo_customer_key: str | None = None,
+) -> list[str]:
+    """Ordered lookup keys for CS Report row matching (SF label, Pendo prefix, cohort aliases)."""
+    keys: list[str] = []
+
+    def add(term: str) -> None:
+        s = (term or "").strip()
+        if not s:
+            return
+        if s.lower() in {k.lower() for k in keys}:
+            return
+        keys.append(s)
+
+    add(salesforce_label)
+    add(pendo_customer_key or "")
+    cohort = _load_cohort_customer_alias_map()
+    for seed in list(keys):
+        for term in cohort.get(seed.lower(), []):
+            add(term)
+    return keys
+
+
 def cs_report_customer_name_candidates(pendo_name: str) -> list[str]:
     """Return distinct names to try for CS `customer` matching: pendo name first, then aliases."""
     raw = (pendo_name or "").strip()
@@ -228,30 +298,57 @@ def cs_report_customer_name_candidates(pendo_name: str) -> list[str]:
 
 
 def _customer_rows(customer_name: str, delta: str = "week") -> list[dict[str, Any]]:
-    """Get rows for a customer filtered to a specific time delta.
+    """Get rows for one lookup key (plus ``cs_report_customer_aliases.yaml`` candidates)."""
+    sites, _matched, _tried = _sites_for_customer_lookup(customer_name, delta=delta)
+    return sites
 
-    Tries the given name, then any entries in ``cs_report_customer_aliases.yaml`` for
-    the same Pendo/health-report name, since the CS export often uses a legal name.
-    """
+
+def _sites_for_customer_lookup(
+    primary_name: str,
+    *,
+    lookup_keys: list[str] | None = None,
+    delta: str = "week",
+) -> tuple[list[dict[str, Any]], str | None, list[str]]:
+    """Try *lookup_keys* in order; each key expands via CSR aliases. Returns (rows, matched_key, tried)."""
     rows = _fetch_latest_report()
-    cands = cs_report_customer_name_candidates(customer_name)
-    pendo_lower = (customer_name or "").strip().lower()
-    for name in cands:
-        matched = [
-            r for r in rows
-            if (r.get("customer") or "").strip().lower() == name.lower()
-            and r.get("delta") == delta
-        ]
-        if matched:
-            if name.lower() != pendo_lower:
-                logger.info(
-                    "CS Report: matched %d row(s) for %r using `customer`=%r",
-                    len(matched),
-                    customer_name,
-                    name,
-                )
-            return matched
-    return []
+    keys: list[str] = []
+    for k in lookup_keys or []:
+        s = (k or "").strip()
+        if s and s.lower() not in {x.lower() for x in keys}:
+            keys.append(s)
+    primary = (primary_name or "").strip()
+    if primary and primary.lower() not in {x.lower() for x in keys}:
+        keys.insert(0, primary)
+    if not keys and primary:
+        keys = [primary]
+
+    all_tried: list[str] = []
+    seen_tried: set[str] = set()
+
+    for key in keys:
+        cands = cs_report_customer_name_candidates(key)
+        key_lower = key.lower()
+        for name in cands:
+            nl = name.lower()
+            if nl in seen_tried:
+                continue
+            seen_tried.add(nl)
+            all_tried.append(name)
+            matched = [
+                r
+                for r in rows
+                if (r.get("customer") or "").strip().lower() == nl and r.get("delta") == delta
+            ]
+            if matched:
+                if nl != key_lower:
+                    logger.info(
+                        "CS Report: matched %d row(s) for lookup key %r using `customer`=%r",
+                        len(matched),
+                        key,
+                        name,
+                    )
+                return matched, key, all_tried
+    return [], None, all_tried
 
 
 def _add_site_entity_from_row(row: dict[str, Any], entry: dict[str, Any]) -> None:
@@ -269,15 +366,24 @@ def _add_site_entity_from_row(row: dict[str, Any], entry: dict[str, Any]) -> Non
 # ── Public API ──
 
 
-def get_customer_platform_health(customer_name: str) -> dict[str, Any]:
+def get_customer_platform_health(
+    customer_name: str,
+    *,
+    lookup_keys: list[str] | None = None,
+) -> dict[str, Any]:
     """Health scores, component availability, CTB/CTC, and shortage summary per site."""
-    sites = _customer_rows(customer_name, "week")
+    sites, matched_key, tried = _sites_for_customer_lookup(
+        customer_name, lookup_keys=lookup_keys, delta="week"
+    )
     if not sites:
-        tried = cs_report_customer_name_candidates(customer_name)
         return {
-            "error": f"No CS Report data for {customer_name!r} (tried `customer`={tried!r}, delta=week)",
+            "error": (
+                f"No CS Report data for {customer_name!r} "
+                f"(lookup_keys={lookup_keys!r}, tried `customer`={tried!r}, delta=week)"
+            ),
             "source": "cs_report",
         }
+    display_name = matched_key or customer_name
 
     site_health: list[dict[str, Any]] = []
     total_shortages = 0
@@ -330,7 +436,7 @@ def get_customer_platform_health(customer_name: str) -> dict[str, Any]:
     qa.check("CS Report platform health loaded")
 
     return {
-        "customer": customer_name,
+        "customer": display_name,
         "source": "cs_report",
         "factory_count": len(sites),
         "health_distribution": health_colors,
@@ -340,15 +446,24 @@ def get_customer_platform_health(customer_name: str) -> dict[str, Any]:
     }
 
 
-def get_customer_supply_chain(customer_name: str) -> dict[str, Any]:
+def get_customer_supply_chain(
+    customer_name: str,
+    *,
+    lookup_keys: list[str] | None = None,
+) -> dict[str, Any]:
     """Inventory values, DOI, excess, and shortage trends per site."""
-    sites = _customer_rows(customer_name, "week")
+    sites, matched_key, tried = _sites_for_customer_lookup(
+        customer_name, lookup_keys=lookup_keys, delta="week"
+    )
     if not sites:
-        tried = cs_report_customer_name_candidates(customer_name)
         return {
-            "error": f"No CS Report data for {customer_name!r} (tried `customer`={tried!r}, delta=week)",
+            "error": (
+                f"No CS Report data for {customer_name!r} "
+                f"(lookup_keys={lookup_keys!r}, tried `customer`={tried!r}, delta=week)"
+            ),
             "source": "cs_report",
         }
+    display_name = matched_key or customer_name
 
     site_data: list[dict[str, Any]] = []
     totals = {
@@ -408,7 +523,7 @@ def get_customer_supply_chain(customer_name: str) -> dict[str, Any]:
     qa.check("CS Report supply chain loaded")
 
     return {
-        "customer": customer_name,
+        "customer": display_name,
         "source": "cs_report",
         "factory_count": len(sites),
         "totals": {k: round(v) for k, v in totals.items()},
@@ -416,15 +531,24 @@ def get_customer_supply_chain(customer_name: str) -> dict[str, Any]:
     }
 
 
-def get_customer_platform_value(customer_name: str) -> dict[str, Any]:
+def get_customer_platform_value(
+    customer_name: str,
+    *,
+    lookup_keys: list[str] | None = None,
+) -> dict[str, Any]:
     """ROI metrics: savings, open IA value, recs created, PO activity."""
-    sites = _customer_rows(customer_name, "week")
+    sites, matched_key, tried = _sites_for_customer_lookup(
+        customer_name, lookup_keys=lookup_keys, delta="week"
+    )
     if not sites:
-        tried = cs_report_customer_name_candidates(customer_name)
         return {
-            "error": f"No CS Report data for {customer_name!r} (tried `customer`={tried!r}, delta=week)",
+            "error": (
+                f"No CS Report data for {customer_name!r} "
+                f"(lookup_keys={lookup_keys!r}, tried `customer`={tried!r}, delta=week)"
+            ),
             "source": "cs_report",
         }
+    display_name = matched_key or customer_name
 
     site_data: list[dict[str, Any]] = []
     total_savings = 0.0
@@ -484,7 +608,7 @@ def get_customer_platform_value(customer_name: str) -> dict[str, Any]:
     qa.check("CS Report platform value loaded")
 
     return {
-        "customer": customer_name,
+        "customer": display_name,
         "source": "cs_report",
         "factory_count": len(sites),
         "total_savings": round(total_savings),
@@ -644,15 +768,23 @@ def load_csr_top_customers_by_arr(
         sf_label = str(row.get("salesforce_label") or row.get("customer") or "").strip()
         if not sf_label:
             continue
-        lookup = str(row.get("csr_lookup_name") or sf_label).strip()
-        ph = get_customer_platform_health(lookup)
-        sc = get_customer_supply_chain(lookup)
-        pv = get_customer_platform_value(lookup)
+        lookup_keys = cs_report_lookup_keys_for_account(
+            salesforce_label=sf_label,
+            pendo_customer_key=row.get("pendo_customer_key"),
+        )
+        ph = get_customer_platform_health(sf_label, lookup_keys=lookup_keys)
+        sc = get_customer_supply_chain(sf_label, lookup_keys=lookup_keys)
+        pv = get_customer_platform_value(sf_label, lookup_keys=lookup_keys)
+        matched = None
+        if isinstance(ph, dict) and not ph.get("error"):
+            matched = ph.get("customer")
         customers[sf_label] = {
             "salesforce_label": sf_label,
             "arr": row.get("arr"),
             "pendo_customer_key": row.get("pendo_customer_key"),
-            "csr_lookup_name": lookup,
+            "csr_lookup_keys": lookup_keys,
+            "csr_matched_lookup_key": matched,
+            "csr_lookup_name": matched or (lookup_keys[0] if lookup_keys else sf_label),
             "platform_health": ph,
             "supply_chain": sc,
             "platform_value": pv,
@@ -661,7 +793,8 @@ def load_csr_top_customers_by_arr(
             {
                 "salesforce_label": sf_label,
                 "arr": row.get("arr"),
-                "csr_lookup_name": lookup,
+                "csr_lookup_keys": lookup_keys,
+                "csr_matched_lookup_key": matched,
                 "csr_loaded": not all(
                     isinstance(block, dict) and block.get("error")
                     for block in (ph, sc, pv)

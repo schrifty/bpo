@@ -643,6 +643,43 @@ def _compact_eng_enh_counts_only(blob: dict[str, Any] | None) -> dict[str, Any]:
 def _compact_jira(j: dict[str, Any], *, size_caps_enabled: bool = True) -> dict[str, Any]:
     if not j or not isinstance(j, dict):
         return {}
+    if j.get("scope") == "top_customers_by_arr":
+        customers_in = j.get("customers")
+        customers_out: dict[str, Any] = {}
+        if isinstance(customers_in, dict):
+            for label, entry in customers_in.items():
+                if not isinstance(entry, dict):
+                    continue
+                slim: dict[str, Any] = {
+                    k: entry.get(k)
+                    for k in (
+                        "salesforce_label",
+                        "arr",
+                        "pendo_customer_key",
+                        "jira_lookup_name",
+                    )
+                    if k in entry
+                }
+                jb = entry.get("jira")
+                if isinstance(jb, dict):
+                    slim["jira"] = _compact_jira_block(
+                        jb, size_caps_enabled=size_caps_enabled
+                    )
+                customers_out[label] = slim
+        return {
+            "scope": j.get("scope"),
+            "top_n": j.get("top_n"),
+            "lookback_days": j.get("lookback_days"),
+            "note": j.get("note"),
+            "selection_ranked": j.get("selection_ranked"),
+            "customers": customers_out,
+        }
+    return _compact_jira_block(j, size_caps_enabled=size_caps_enabled)
+
+
+def _compact_jira_block(j: dict[str, Any], *, size_caps_enabled: bool = True) -> dict[str, Any]:
+    if not j or not isinstance(j, dict):
+        return {}
     if j.get("error"):
         return {"error": j.get("error")}
     keys_keep = (
@@ -1536,7 +1573,7 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
             "",
             _json_compact(doc.get("pendo")),
             "",
-            "## 2. Jira (HELP — scoped per deck rules)",
+            "## 2. Jira (HELP — per customer, top by ARR)",
             "",
             _json_compact(doc.get("jira_help")),
             "",

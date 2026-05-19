@@ -237,21 +237,41 @@ def build_llm_export_snapshot_report(pc: Any, *, days: int) -> dict[str, Any]:
 
     report["signals"] = []
     try:
-        from src.jira_client import get_shared_jira_client
+        from src.llm_export_jira import attach_jira_top_customers_for_llm_export
 
-        report["jira"] = get_shared_jira_client().get_customer_jira(None, days=min(int(days), 365))
-        if report["jira"].get("error"):
+        jira_summary = attach_jira_top_customers_for_llm_export(report)
+        n_sel = int(jira_summary.get("customers_selected") or 0)
+        n_ok = int(jira_summary.get("customers_with_jira_data") or 0)
+        if n_sel == 0:
             provenance.append(
                 _provenance_row(
                     SourceId.JIRA_HELP_PORTFOLIO,
-                    status="error",
-                    detail=str(report["jira"].get("error")),
+                    status="skipped",
+                    detail="no_salesforce_rollups_for_top_arr_selection",
+                )
+            )
+        elif int(jira_summary.get("customers_jira_errors") or 0) > 0:
+            provenance.append(
+                _provenance_row(
+                    SourceId.JIRA_HELP_PORTFOLIO,
+                    status="partial",
+                    detail=f"top_{n_sel}_by_arr with_data={n_ok}",
                 )
             )
         else:
-            provenance.append(_provenance_row(SourceId.JIRA_HELP_PORTFOLIO, status="ok"))
+            provenance.append(
+                _provenance_row(
+                    SourceId.JIRA_HELP_PORTFOLIO,
+                    status="ok",
+                    detail=f"top_{n_sel}_by_arr",
+                )
+            )
     except Exception as e:
-        report["jira"] = {"error": str(e)}
+        report["jira"] = {
+            "scope": "top_customers_by_arr",
+            "error": str(e)[:500],
+            "customers": {},
+        }
         provenance.append(_provenance_row(SourceId.JIRA_HELP_PORTFOLIO, status="error", detail=str(e)))
 
     report["_data_source_provenance"] = {

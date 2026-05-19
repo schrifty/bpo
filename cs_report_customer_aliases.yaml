@@ -1,7 +1,10 @@
-# Map Pendo / `get_customer_health_report` customer names to exact strings in the
-# CS Report spreadsheet `customer` column (rows also need `delta: week`).
-# Same spirit as jsm_organization_aliases — use when the Pendo account name and CS
-# export name differ. Keys are case-insensitive.
+# Map Pendo / health-report / Salesforce rollup labels to exact strings in the CS Report
+# `customer` column (rows also need `delta: week`). Keys are case-insensitive.
+# Salesforce often uses short rollup labels (e.g. Johnson) while CS Report uses legal names.
 JCI:
   - Johnson Controls
   - Johnson Controls International
+Johnson:
+  - Johnson Controls
+  - Johnson Controls International
+  - JCI
