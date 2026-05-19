@@ -1078,6 +1078,9 @@ class SalesforceClient:
         active_arr = 0.0
         churned_arr = 0.0
         churned_names: list[str] = []
+        renewal_in_flight_arr = 0.0
+        renewal_in_flight_cust = 0
+        renewal_in_flight_names: list[str] = []
         active_cust = 0
         churned_cust = 0
         for name in names_clean:
@@ -1111,10 +1114,16 @@ class SalesforceClient:
             top_rows.append(row)
             total_arr += arr_sum
             if all_matched_churned:
-                churned_arr += arr_sum
-                churned_cust += 1
-                if len(churned_names) < 12:
-                    churned_names.append(name)
+                if row.get("renewal_in_flight") is True:
+                    renewal_in_flight_arr += arr_sum
+                    renewal_in_flight_cust += 1
+                    if len(renewal_in_flight_names) < 12:
+                        renewal_in_flight_names.append(name)
+                else:
+                    churned_arr += arr_sum
+                    churned_cust += 1
+                    if len(churned_names) < 12:
+                        churned_names.append(name)
             else:
                 active_arr += arr_sum
                 active_cust += 1
@@ -1164,6 +1173,9 @@ class SalesforceClient:
             "opportunity_count_this_year": int(opps),
             "active_customer_count": active_cust,
             "churned_customer_count": churned_cust,
+            "renewal_in_flight_customer_count": renewal_in_flight_cust,
+            "renewal_in_flight_contract_arr": round(renewal_in_flight_arr, 2),
+            "renewal_in_flight_customer_names_sample": renewal_in_flight_names,
             "top_customers_by_arr": top10,
             "matched_customer_contract_rollups": matched_customer_contract_rollups,
             "churned_customer_names_sample": churned_names,

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from src.llm_export_salesforce_universe import (
     attach_churned_salesforce_segment_for_llm_export,
+    attach_renewal_negotiation_segment_for_llm_export,
     merge_active_salesforce_customers_for_llm_export,
     merge_salesforce_universe_for_llm_export,
+    partition_inactive_sf_rollups,
     strip_churned_customers_from_active_export,
 )
 
@@ -59,6 +61,7 @@ def test_attach_churned_segment_separate_from_active(monkeypatch):
             [{"customer": "Gone LLC", "active": False, "arr": 5.0}],
             ["Active Co", "Gone LLC"],
             {"configured": True, "pipeline_arr": 999.0},
+            [],
         )
 
     monkeypatch.setattr(
@@ -127,6 +130,7 @@ def test_merge_universe_fetches_salesforce_rollups_once(monkeypatch):
             [{"customer": "Gone LLC", "active": False}],
             ["Active Co", "Gone LLC"],
             {"configured": True},
+            [],
         )
 
     monkeypatch.setattr(
@@ -160,8 +164,53 @@ def test_merge_universe_calls_active_and_churn(monkeypatch):
         lambda _r, **_: calls.append("churn") or {},
     )
     monkeypatch.setattr(
+        "src.llm_export_salesforce_universe.attach_renewal_negotiation_segment_for_llm_export",
+        lambda _r, **_: calls.append("renewal") or {},
+    )
+    monkeypatch.setattr(
         "src.llm_export_salesforce_universe.strip_churned_customers_from_active_export",
         lambda _r: calls.append("strip") or {},
     )
     merge_salesforce_universe_for_llm_export({})
-    assert calls == ["active", "churn", "strip"]
+    assert calls == ["active", "churn", "renewal", "strip"]
+
+
+def test_partition_inactive_splits_renewal_from_churned_lost():
+    rollups = [
+        {"customer": "Ford", "active": False, "renewal_in_flight": True},
+        {"customer": "Gone", "active": False, "renewal_in_flight": False},
+        {"customer": "Active", "active": True},
+    ]
+    lost, renewal = partition_inactive_sf_rollups(rollups)
+    assert [r["customer"] for r in lost] == ["Gone"]
+    assert [r["customer"] for r in renewal] == ["Ford"]
+
+
+def test_renewal_negotiation_segment_separate_from_churned(monkeypatch):
+    monkeypatch.setattr(
+        "src.llm_export_salesforce_universe._salesforce_configured",
+        lambda: True,
+    )
+
+    def fake_split():
+        return (
+            [],
+            [{"customer": "Gone LLC", "active": False}],
+            [],
+            {"configured": True},
+            [{"customer": "Ford Motor Company", "active": False, "renewal_in_flight": True}],
+        )
+
+    monkeypatch.setattr(
+        "src.llm_export_salesforce_universe.salesforce_portfolio_rollups_split",
+        fake_split,
+    )
+    report: dict = {}
+    attach_churned_salesforce_segment_for_llm_export(report)
+    attach_renewal_negotiation_segment_for_llm_export(report)
+    assert report["salesforce_churned_segment"]["customer_count"] == 1
+    assert report["salesforce_churned_segment"]["customers_headline"][0]["customer"] == "Gone LLC"
+    ren = report["salesforce_renewal_negotiation_segment"]
+    assert ren["customer_count"] == 1
+    assert ren["customers_headline"][0]["customer"] == "Ford Motor Company"
+    assert ren["customers_headline"][0]["customer_segment"] == "renewal_negotiation"

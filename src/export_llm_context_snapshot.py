@@ -405,6 +405,12 @@ def _build_export_coverage(
             "customer_count": churn_seg_cov.get("customer_count"),
             "do_not_merge_with_active_book": churn_seg_cov.get("do_not_merge_with_active_book"),
         }
+    renewal_seg_cov = report.get("salesforce_renewal_negotiation_segment")
+    if isinstance(renewal_seg_cov, dict):
+        out_cov["salesforce_renewal_negotiation_segment"] = {
+            "customer_count": renewal_seg_cov.get("customer_count"),
+            "do_not_merge_with_active_book": renewal_seg_cov.get("do_not_merge_with_active_book"),
+        }
     return out_cov
 
 
@@ -447,12 +453,27 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
         n_churn = seg.get("customer_count") if isinstance(seg, dict) else sf_churn_cov.get("salesforce_churned_entities")
         lines.extend(
             [
-                "### Salesforce churned segment (§3b — separate from active book)",
-                f"- **Churned Customer Entity count:** **{n_churn or 0}**",
-                "- **Do not merge** §3b with §1/§3/§5. Churned SF accounts are **Salesforce-only** here (no Pendo or Jira).",
+                "### Salesforce churned segment (§3b — lost / no renewal pipeline)",
+                f"- **Churned-lost Customer Entity count:** **{n_churn or 0}**",
+                "- **Do not merge** §3b with §1/§3/§5. True churn is **Salesforce-only** here (no Pendo or Jira).",
                 "",
             ]
         )
+        ren_seg = cov.get("salesforce_renewal_negotiation_segment")
+        n_renewal = (
+            ren_seg.get("customer_count")
+            if isinstance(ren_seg, dict)
+            else sf_churn_cov.get("salesforce_renewal_negotiation_entities")
+        )
+        if n_renewal:
+            lines.extend(
+                [
+                    "### Salesforce renewal negotiation (§3b-renewal)",
+                    f"- **Expired contracts with open renewal pipeline:** **{n_renewal}**",
+                    "- These accounts may still appear in §1 when Pendo matches; they are **not** counted in §3b churn.",
+                    "",
+                ]
+            )
     cf_cov = cov.get("customer_filter")
     if isinstance(cf_cov, dict) and cf_cov.get("enabled"):
         lines.extend(
@@ -514,9 +535,9 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
             "- **§3 — Salesforce (active installed base):** **Revenue and renewal-oriented facts** for **active "
             "(non-churned) Customer Entity** labels. Pendo usage in §1 is merged when a prefix matches, but **Pendo is "
             "not required** for a customer to appear (see ``salesforce_only`` rows in §1). **Do not combine** with §3b.",
-            "- **§3b — Salesforce (churned):** **Salesforce-only** inactive / churned contract rollups — useful for "
-            "retention post-mortems and historical ARR. **No Pendo**, **no Jira/Atlassian**, and **no §5** "
-            "signals for these accounts (they are removed from the active segment when SF marks them churned).",
+            "- **§3b — Salesforce (churned / lost):** **Salesforce-only** inactive contracts **without** open "
+            "parent-account renewal pipeline. **§3b-renewal** holds expired contracts **with** renewal pipeline "
+            "(negotiation, not churn). **No Pendo/Jira** in either inactive segment; true churn is stripped from §1/§5.",
             "",
             "- **§4 — CS Report (weekly export):** Per-customer **platform_health**, **supply_chain**, and "
             "**platform_value** for the **top Salesforce labels by ARR** (not an all-customer site merge). When size "
@@ -815,12 +836,11 @@ def _compact_salesforce(sf: dict[str, Any], *, account_cap: int = 0) -> dict[str
             out["matched_customer_contract_rollups"] = list(rollups)
         out["matched_customer_contract_rollups_total"] = len(rollups)
         seg = sf.get("customer_segment") or "active"
-        if seg == "churned":
+        if seg in ("churned", "renewal_negotiation"):
             out["salesforce_export_note"] = (
-                "Churned Customer Entity rollups (inactive contract status). "
-                "Do not combine with §3 active installed-base totals or §5 Pendo signals. "
-                "renewal_in_flight + pipeline_arr_including_parent_accounts flag renewal "
-                "negotiation when parent-account Opportunities are open."
+                "Inactive Customer Entity rollups (not active installed base). "
+                "Do not combine with §3 active totals or §5 Pendo signals. "
+                "renewal_negotiation = expired contracts with open parent-account pipeline."
             )
         else:
             out["salesforce_export_note"] = (
@@ -1277,11 +1297,29 @@ def build_snapshot_document(
             else:
                 churn_headline = churn_rows
 
+    renewal_seg = report.get("salesforce_renewal_negotiation_segment")
+    renewal_sf = {}
+    renewal_headline: list[dict[str, Any]] = []
+    if isinstance(renewal_seg, dict):
+        raw_sf = renewal_seg.get("salesforce")
+        if isinstance(raw_sf, dict):
+            renewal_sf = _compact_salesforce(
+                raw_sf, account_cap=sf_accounts if size_caps_enabled else _LLM_EXPORT_NO_CAP
+            )
+        raw_rows = renewal_seg.get("customers_headline")
+        if isinstance(raw_rows, list):
+            renewal_rows = [r for r in raw_rows if isinstance(r, dict)]
+            if size_caps_enabled and _export_cap_active(sf_accounts):
+                renewal_headline = renewal_rows[: max(sf_accounts, 1)]
+            else:
+                renewal_headline = renewal_rows
+
     doc: dict[str, Any] = {
         "document_purpose": (
             "Structured facts from BPO integrations for LLM Q&A. Figures are snapshots from vendor APIs "
             "and internal exports; verify in source systems before contractual or financial use. "
-            "Active installed-base customers (§1, §3, §5) are separate from churned Salesforce-only facts (§3b)."
+            "Active installed-base customers (§1, §3, §5) are separate from inactive SF segments (§3b churned-lost, "
+            "§3b-renewal negotiation)."
         ),
         "customer": report.get("customer"),
         "generated_report_timestamp": report.get("generated"),
@@ -1301,6 +1339,14 @@ def build_snapshot_document(
             "customer_count": (churn_seg or {}).get("customer_count") if isinstance(churn_seg, dict) else 0,
             "customers_headline": churn_headline,
             "salesforce": churn_sf,
+        },
+        "salesforce_renewal_negotiation_segment": {
+            "segment": "renewal_negotiation",
+            "do_not_merge_with_active_book": True,
+            "usage_note": (renewal_seg or {}).get("usage_note") if isinstance(renewal_seg, dict) else None,
+            "customer_count": (renewal_seg or {}).get("customer_count") if isinstance(renewal_seg, dict) else 0,
+            "customers_headline": renewal_headline,
+            "salesforce": renewal_sf,
         },
         "salesforce_comprehensive_portfolio": (
             _compact_salesforce_comprehensive_portfolio(
@@ -1428,6 +1474,7 @@ def _doc_payload_component_bytes(doc: dict[str, Any]) -> list[tuple[str, int]]:
     add("jira_help", doc.get("jira_help"))
     add("salesforce", doc.get("salesforce"))
     add("salesforce_churned_segment", doc.get("salesforce_churned_segment"))
+    add("salesforce_renewal_negotiation_segment", doc.get("salesforce_renewal_negotiation_segment"))
     add("salesforce_comprehensive_portfolio", doc.get("salesforce_comprehensive_portfolio"))
     add("cs_report", doc.get("cs_report"))
     add("slack", doc.get("slack"))
@@ -1607,13 +1654,19 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
             "",
             _json_compact(doc.get("salesforce")),
             "",
-            "## 3b. Salesforce (churned — do not merge with §1–§3 active book)",
+            "## 3b. Salesforce (churned / lost — do not merge with §1–§3 active book)",
             "",
-            "> **Segment boundary:** Salesforce churn / inactive contract customers only. "
-            "No Pendo or Jira/Atlassian data for these accounts. Do not add these ARR figures to §3 totals, "
-            "pipeline ARR, or §5.",
+            "> **Segment boundary:** Inactive contracts **without** open parent-account renewal pipeline. "
+            "No Pendo or Jira for these accounts. Do not add ARR to §3 active totals or §5.",
             "",
             _json_compact(doc.get("salesforce_churned_segment")),
+            "",
+            "## 3b-renewal. Salesforce (renewal negotiation — not churn)",
+            "",
+            "> **Segment boundary:** Expired/churned entity contracts with **open renewal pipeline** on parent "
+            "accounts. Not churn risk; may still appear in §1 when Pendo matches.",
+            "",
+            _json_compact(doc.get("salesforce_renewal_negotiation_segment")),
             "",
             "## 3c. Salesforce comprehensive (per customer + entity accounts)",
             "",

@@ -74,15 +74,20 @@ def salesforce_aggregate_from_rollups(
         out["churned_customer_count"] = book.get("churned_customer_count")
         out["expansion_kpis"] = book.get("expansion_kpis")
     else:
-        renewal_n = sum(1 for r in rollups if r.get("renewal_in_flight") is True)
         out["portfolio_book_note"] = (
-            "Portfolio-wide pipeline totals are omitted here so churn rows are not mixed with "
-            "installed-base totals. Per-row pipeline_arr_including_parent_accounts and "
-            "renewal_in_flight reflect open Opportunities on parent accounts when entity "
-            "contracts are churned/expired."
+            "Portfolio-wide pipeline totals are omitted here so inactive-contract rows are not "
+            "mixed with installed-base totals. Per-row pipeline_arr_including_parent_accounts "
+            "reflects open Opportunities on parent accounts."
         )
-        if renewal_n:
-            out["renewal_in_flight_customer_count"] = renewal_n
+        if segment == "renewal_negotiation":
+            out["segment_note"] = (
+                "Expired entity contracts with open parent-account renewal pipeline (stages 3–5). "
+                "Not churned-lost; see §3b-renewal."
+            )
+        elif segment == "churned":
+            out["segment_note"] = (
+                "Inactive contracts with no qualifying open parent-account pipeline (true churn / lost)."
+            )
     return out
 
 

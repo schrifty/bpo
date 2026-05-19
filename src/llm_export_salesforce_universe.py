@@ -11,8 +11,30 @@ from .portfolio_salesforce_allowlist import (
     resolve_sf_label_to_pendo_prefix,
 )
 
-# (active rollups, churned rollups, portfolio labels, revenue book)
-SfPortfolioSplit = tuple[list[dict[str, Any]], list[dict[str, Any]], list[str], dict[str, Any]]
+# active rollups, churned-lost rollups, portfolio labels, revenue book, renewal-negotiation rollups
+SfPortfolioSplit = tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[str],
+    dict[str, Any],
+    list[dict[str, Any]],
+]
+
+
+def partition_inactive_sf_rollups(
+    rollups: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split inactive contract rollups into churned-lost vs renewal-in-negotiation."""
+    churned_lost: list[dict[str, Any]] = []
+    renewal_negotiation: list[dict[str, Any]] = []
+    for r in rollups:
+        if not isinstance(r, dict) or r.get("active") is not False:
+            continue
+        if r.get("renewal_in_flight") is True:
+            renewal_negotiation.append(r)
+        else:
+            churned_lost.append(r)
+    return churned_lost, renewal_negotiation
 
 
 def _customer_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
@@ -56,22 +78,17 @@ def customer_matches_active_sf_label(
     return False
 
 
-def salesforce_portfolio_rollups_split() -> tuple[
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[str],
-    dict[str, Any],
-]:
-    """Return (active rollups, churned rollups, portfolio labels, revenue book)."""
+def salesforce_portfolio_rollups_split() -> SfPortfolioSplit:
+    """Return (active, churned-lost, labels, book, renewal-negotiation rollups)."""
     if not _salesforce_configured():
-        return [], [], [], {"configured": False}
+        return [], [], [], {"configured": False}, []
     from src.salesforce_client import SalesforceClient
 
     sf = SalesforceClient()
     entity_accounts = sf.get_entity_accounts()
     labels = portfolio_labels_from_entity_accounts(entity_accounts)
     if not labels:
-        return [], [], [], {"configured": True, "empty": True}
+        return [], [], [], {"configured": True, "empty": True}, []
     book = sf.get_portfolio_revenue_book_metrics(labels)
     rollups = [
         r
@@ -79,13 +96,13 @@ def salesforce_portfolio_rollups_split() -> tuple[
         if isinstance(r, dict) and r.get("customer")
     ]
     active = [r for r in rollups if r.get("active") is not False]
-    churned = [r for r in rollups if r.get("active") is False]
-    return active, churned, labels, book
+    churned_lost, renewal_neg = partition_inactive_sf_rollups(rollups)
+    return active, churned_lost, labels, book, renewal_neg
 
 
 def active_salesforce_portfolio_rollups() -> tuple[list[dict[str, Any]], list[str], dict[str, Any]]:
     """Return (active rollups, portfolio labels, revenue book dict). Empty when SF unavailable."""
-    active, _churned, labels, book = salesforce_portfolio_rollups_split()
+    active, _churned, labels, book, _renewal = salesforce_portfolio_rollups_split()
     return active, labels, book
 
 
@@ -133,9 +150,9 @@ def churned_sf_excluded_customer_keys(
 def strip_churned_customers_from_active_export(report: dict[str, Any]) -> dict[str, Any]:
     """Remove Salesforce-churned customers from active Pendo sections (§1, §5, §7 inputs).
 
-    Churned accounts appear in ``salesforce_churned_segment`` (§3b) with Salesforce facts.
-    Accounts with ``renewal_in_flight`` stay in the active book (not treated as churn risk)
-    while §3b still records expired entity contracts and open parent-account pipeline.
+    True churn appears in ``salesforce_churned_segment`` (§3b); renewal negotiation in
+    ``salesforce_renewal_negotiation_segment`` (§3b-renewal). Neither is stripped from §1
+    when ``renewal_in_flight`` is true.
     """
     summary: dict[str, Any] = {
         "excluded_customer_keys": 0,
@@ -182,19 +199,24 @@ def strip_churned_customers_from_active_export(report: dict[str, Any]) -> dict[s
     return summary
 
 
-def _churned_headline_rows(churned_rollups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _inactive_sf_headline_rows(
+    rollups: list[dict[str, Any]],
+    *,
+    customer_segment: str,
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for r in sorted(churned_rollups, key=lambda x: str(x.get("customer") or "").lower()):
+    for r in sorted(rollups, key=lambda x: str(x.get("customer") or "").lower()):
         label = str(r.get("customer") or "").strip()
         if not label:
             continue
         rows.append(
             {
                 "customer": label,
-                "customer_segment": "churned",
+                "customer_segment": customer_segment,
                 "salesforce_only": True,
                 "pendo_metrics_available": False,
                 "active_in_salesforce": False,
+                "churn_risk": r.get("churn_risk"),
                 "arr": r.get("arr"),
                 "contract_statuses_distinct": r.get("contract_statuses_distinct"),
                 "contract_end_date_nearest": r.get("contract_end_date_nearest"),
@@ -231,10 +253,11 @@ def attach_churned_salesforce_segment_for_llm_export(
         return summary
 
     if sf_split is None:
-        _active, churned, _labels, book = salesforce_portfolio_rollups_split()
+        _active, churned, _labels, book, _renewal = salesforce_portfolio_rollups_split()
     else:
-        _active, churned, _labels, book = sf_split
+        _active, churned, _labels, book, _renewal = sf_split
     summary["salesforce_churned_entities"] = len(churned)
+    summary["salesforce_renewal_negotiation_entities"] = len(_renewal)
     if not churned:
         report["salesforce_churned_segment"] = {
             "segment": "churned",
@@ -243,37 +266,97 @@ def attach_churned_salesforce_segment_for_llm_export(
             "customers_headline": [],
             "salesforce": {"matched": False, "resolution": "portfolio_aggregate", "customer_segment": "churned"},
         }
-        report["_llm_export_salesforce_churned"] = summary
+    else:
+        from src.data_sources.loaders.salesforce_portfolio_aggregate import (
+            salesforce_aggregate_from_rollups,
+        )
+
+        sf_churned = salesforce_aggregate_from_rollups(churned, book=book, segment="churned")
+        report["salesforce_churned_segment"] = {
+            "segment": "churned",
+            "do_not_merge_with_active_book": True,
+            "usage_note": (
+                "Salesforce-only **churned / lost** segment: inactive Customer Entity contracts with "
+                "no open parent-account pipeline in stages 3–5. No Pendo, Jira, or §5 signals — "
+                "do not sum with §1/§3 active installed-base metrics."
+            ),
+            "data_sources_included": ["salesforce"],
+            "data_sources_excluded": ["pendo", "jira", "cs_report"],
+            "customer_count": len(churned),
+            "customers_headline": _inactive_sf_headline_rows(churned, customer_segment="churned"),
+            "salesforce": sf_churned,
+        }
+        logger.info(
+            "LLM export: attached churned-lost Salesforce segment with %d customer(s)",
+            len(churned),
+        )
+    report["_llm_export_salesforce_churned"] = summary
+    return summary
+
+
+def attach_renewal_negotiation_segment_for_llm_export(
+    report: dict[str, Any],
+    *,
+    sf_split: SfPortfolioSplit | None = None,
+) -> dict[str, Any]:
+    """Populate ``report['salesforce_renewal_negotiation_segment']`` (§3b-renewal)."""
+    summary: dict[str, Any] = {
+        "salesforce_configured": _salesforce_configured(),
+        "salesforce_renewal_negotiation_entities": 0,
+    }
+    if not summary["salesforce_configured"]:
+        report["salesforce_renewal_negotiation_segment"] = {
+            "segment": "renewal_negotiation",
+            "do_not_merge_with_active_book": True,
+            "skipped": "salesforce_not_configured",
+        }
+        return summary
+
+    if sf_split is None:
+        _active, _churned, _labels, book, renewal = salesforce_portfolio_rollups_split()
+    else:
+        _active, _churned, _labels, book, renewal = sf_split
+    summary["salesforce_renewal_negotiation_entities"] = len(renewal)
+    if not renewal:
+        report["salesforce_renewal_negotiation_segment"] = {
+            "segment": "renewal_negotiation",
+            "do_not_merge_with_active_book": True,
+            "customer_count": 0,
+            "customers_headline": [],
+            "salesforce": {
+                "matched": False,
+                "resolution": "portfolio_aggregate",
+                "customer_segment": "renewal_negotiation",
+            },
+        }
         return summary
 
     from src.data_sources.loaders.salesforce_portfolio_aggregate import salesforce_aggregate_from_rollups
 
-    sf_churned = salesforce_aggregate_from_rollups(churned, book=book, segment="churned")
-    renewal_labels = [
-        str(r.get("customer") or "").strip()
-        for r in churned
-        if r.get("renewal_in_flight") is True and str(r.get("customer") or "").strip()
-    ]
-    usage_note = (
-        "Salesforce-only churn segment: inactive Customer Entity contract rollups. "
-        "No Pendo product usage, no Jira/Atlassian HELP slices, and no §5 signals — "
-        "do not sum with §1/§3 active installed-base metrics or portfolio-wide pipeline ARR. "
-        "When renewal_in_flight is true, open parent-account Opportunities indicate renewal "
-        "negotiation rather than a lost account."
+    sf_renewal = salesforce_aggregate_from_rollups(
+        renewal, book=book, segment="renewal_negotiation"
     )
-    report["salesforce_churned_segment"] = {
-        "segment": "churned",
+    report["salesforce_renewal_negotiation_segment"] = {
+        "segment": "renewal_negotiation",
         "do_not_merge_with_active_book": True,
-        "usage_note": usage_note,
-        "renewal_in_flight_customers": renewal_labels,
+        "usage_note": (
+            "Expired/churned Customer Entity contracts with **open renewal pipeline** on parent "
+            "accounts (stages 3–5, including Renewal type). Not churn risk — treat as contract "
+            "negotiation. May still appear in §1 when Pendo data exists. Do not sum ARR into §3 "
+            "active installed-base totals."
+        ),
         "data_sources_included": ["salesforce"],
         "data_sources_excluded": ["pendo", "jira", "cs_report"],
-        "customer_count": len(churned),
-        "customers_headline": _churned_headline_rows(churned),
-        "salesforce": sf_churned,
+        "customer_count": len(renewal),
+        "customers_headline": _inactive_sf_headline_rows(
+            renewal, customer_segment="renewal_negotiation"
+        ),
+        "salesforce": sf_renewal,
     }
-    report["_llm_export_salesforce_churned"] = summary
-    logger.info("LLM export: attached churned Salesforce segment with %d customer(s)", len(churned))
+    logger.info(
+        "LLM export: attached renewal-negotiation segment with %d customer(s)",
+        len(renewal),
+    )
     return summary
 
 
@@ -297,7 +380,7 @@ def merge_active_salesforce_customers_for_llm_export(
     if sf_split is None:
         rollups, sf_labels, book = active_salesforce_portfolio_rollups()
     else:
-        rollups, _churned, sf_labels, book = sf_split
+        rollups, _churned, sf_labels, book, _renewal = sf_split
     summary["salesforce_portfolio_labels"] = len(sf_labels)
     summary["salesforce_active_entities"] = len(rollups)
 
@@ -356,16 +439,18 @@ def merge_active_salesforce_customers_for_llm_export(
 
 
 def merge_salesforce_universe_for_llm_export(report: dict[str, Any]) -> dict[str, Any]:
-    """Merge active customers into §1, attach Salesforce-only §3b churn, strip churn from active Pendo."""
+    """Merge active §1, attach §3b churn + §3b-renewal segments, strip true churn from active Pendo."""
     sf_split: SfPortfolioSplit | None = None
     if _salesforce_configured():
         sf_split = salesforce_portfolio_rollups_split()
     active_summary = merge_active_salesforce_customers_for_llm_export(report, sf_split=sf_split)
     churn_summary = attach_churned_salesforce_segment_for_llm_export(report, sf_split=sf_split)
+    renewal_summary = attach_renewal_negotiation_segment_for_llm_export(report, sf_split=sf_split)
     exclusion_summary = strip_churned_customers_from_active_export(report)
     return {
         "active": active_summary,
         "churned": churn_summary,
+        "renewal_negotiation": renewal_summary,
         "churn_exclusion_from_active": exclusion_summary,
     }
 

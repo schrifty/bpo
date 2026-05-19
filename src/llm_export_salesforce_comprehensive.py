@@ -97,7 +97,12 @@ def _rollup_labels_with_segment(report: dict[str, Any]) -> list[tuple[str, str]]
             label = str(r.get("customer") or "").strip()
             if not label:
                 continue
-            seg = "churned" if r.get("active") is False else "active"
+            if r.get("active") is not False:
+                seg = "active"
+            elif r.get("renewal_in_flight") is True:
+                seg = "renewal_negotiation"
+            else:
+                seg = "churned"
             key = label.lower()
             if key in seen:
                 continue
@@ -109,6 +114,11 @@ def _rollup_labels_with_segment(report: dict[str, Any]) -> list[tuple[str, str]]
         sf = churn_seg.get("salesforce")
         if isinstance(sf, dict):
             _add(sf.get("matched_customer_contract_rollups") or [], "churned")
+    renewal_seg = report.get("salesforce_renewal_negotiation_segment")
+    if isinstance(renewal_seg, dict):
+        sf = renewal_seg.get("salesforce")
+        if isinstance(sf, dict):
+            _add(sf.get("matched_customer_contract_rollups") or [], "renewal_negotiation")
 
     return ordered
 
