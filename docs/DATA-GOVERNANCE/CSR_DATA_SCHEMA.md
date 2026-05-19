@@ -69,7 +69,8 @@ Below, “KPI” means a JSON-encoded column as in §3.
 
 | Spreadsheet column | Notes |
 |--------------------|--------|
-| `healthScore` | String bucket (e.g. GREEN / YELLOW / RED) |
+| `healthScore` | String bucket (e.g. GREEN / YELLOW / RED / NONE). When `NONE`, BPO may fall back to `automatedHealthScores[0].healthScore` (0–100 composite) or `override`. |
+| `automatedHealthScores` | JSON array of per-factory automated health breakdown (composite score, pillar scores, optional color override) |
 | `shortageItemCount` | KPI |
 | `criticalShortages` | KPI |
 | `clearToBuildPercent` | KPI |

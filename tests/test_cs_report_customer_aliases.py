@@ -10,6 +10,43 @@ def test_normalize_health_score_from_json_kpi() -> None:
     assert cs_report_client._normalize_health_score(raw) == "GREEN"
 
 
+def test_health_score_none_column_uses_automated_composite() -> None:
+    row = {
+        "healthScore": "NONE",
+        "automatedHealthScores": json.dumps(
+            [{"healthScore": 100.0, "override": None, "siteName": "Plant A"}]
+        ),
+    }
+    assert cs_report_client._health_score_from_row(row) == "GREEN"
+
+
+def test_health_score_none_without_automated_stays_none() -> None:
+    row = {"healthScore": "NONE", "factoryName": "JCI USD Conversion"}
+    assert cs_report_client._health_score_from_row(row) == "NONE"
+
+
+@patch.object(cs_report_client, "_fetch_latest_report")
+def test_johnson_health_distribution_resolves_none_via_automated(mock_fetch: object) -> None:
+    """Johnson Controls export often has healthScore=NONE with automated composite present."""
+    mock_fetch.return_value = [
+        {"customer": "Johnson Controls", "delta": "week", "factoryName": "Scored", "healthScore": "GREEN"},
+        {
+            "customer": "Johnson Controls",
+            "delta": "week",
+            "factoryName": "Auto only",
+            "healthScore": "NONE",
+            "automatedHealthScores": json.dumps([{"healthScore": 85.0, "override": None}]),
+        },
+        {"customer": "Johnson Controls", "delta": "week", "factoryName": "Conversion", "healthScore": "NONE"},
+    ]
+    with patch.object(cs_report_client, "_load_cs_report_alias_map", return_value={"jci": ["Johnson Controls"]}):
+        with patch.object(cs_report_client, "_load_cohort_customer_alias_map", return_value={}):
+            ph = cs_report_client.get_customer_platform_health("JCI", lookup_keys=["JCI"])
+    dist = ph.get("health_distribution") or {}
+    assert dist.get("NONE", 0) == 1
+    assert dist.get("GREEN", 0) == 2
+
+
 @patch.object(cs_report_client, "_fetch_latest_report")
 def test_customer_rows_matches_alias(mock_fetch: object) -> None:
     """When Pendo/customer name differs from CS export name, alias rows resolve."""

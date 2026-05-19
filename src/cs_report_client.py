@@ -67,6 +67,43 @@ def _kpi_end(raw) -> float | None:
     return float(v) if v is not None else None
 
 
+_HEALTH_SCORE_COLORS = frozenset({"GREEN", "YELLOW", "RED", "NONE"})
+
+
+def _health_bucket_from_numeric(score: float) -> str:
+    """Map CSR automated composite 0–100 to display bucket (when export column is NONE)."""
+    if score >= 80.0:
+        return "GREEN"
+    if score >= 60.0:
+        return "YELLOW"
+    return "RED"
+
+
+def _health_bucket_from_automated_row(row: dict[str, Any]) -> str | None:
+    """Read ``automatedHealthScores`` JSON when the export ``healthScore`` cell is NONE."""
+    raw = row.get("automatedHealthScores")
+    if not raw or not isinstance(raw, str) or not raw.strip().startswith("["):
+        return None
+    try:
+        payload = json.loads(raw)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(payload, list) or not payload:
+        return None
+    item = payload[0]
+    if not isinstance(item, dict):
+        return None
+    override = item.get("override")
+    if isinstance(override, str):
+        ov = override.strip().upper()
+        if ov in _HEALTH_SCORE_COLORS and ov != "NONE":
+            return ov
+    composite = item.get("healthScore")
+    if isinstance(composite, (int, float)):
+        return _health_bucket_from_numeric(float(composite))
+    return None
+
+
 def _normalize_health_score(raw: Any) -> str:
     """CSR health bucket (GREEN/YELLOW/RED/NONE); accepts plain strings or JSON KPI cells."""
     if raw is None:
@@ -93,12 +130,26 @@ def _normalize_health_score(raw: Any) -> str:
 
 
 def _health_score_from_row(row: dict[str, Any]) -> str:
+    """Resolve site health: ``healthScore`` column, else ``automatedHealthScores`` composite."""
+    column_val: Any = None
     for col in ("healthScore", "health_score", "Health Score"):
         if col in row:
-            return _normalize_health_score(row.get(col))
-    for k, v in row.items():
-        if str(k).strip().lower() == "healthscore":
-            return _normalize_health_score(v)
+            column_val = row.get(col)
+            break
+    if column_val is None:
+        for k, v in row.items():
+            if str(k).strip().lower() == "healthscore":
+                column_val = v
+                break
+    if column_val is not None:
+        bucket = _normalize_health_score(column_val)
+        if bucket != "NONE":
+            return bucket
+    fallback = _health_bucket_from_automated_row(row)
+    if fallback:
+        return fallback
+    if column_val is not None:
+        return _normalize_health_score(column_val)
     return "NONE"
 
 
@@ -515,8 +566,10 @@ def get_customer_platform_health(
         "total_critical_shortages": total_critical,
         "sites_sort": "shortages_desc",
         "sites_note": (
-            "Per-factory list is sorted by shortages (highest first). High-shortage sites often "
-            "show NONE/RED health; use health_distribution for the full account mix."
+            "Per-factory list is sorted by shortages (highest first). When the export "
+            "``healthScore`` cell is NONE but ``automatedHealthScores`` is present, health uses "
+            "the automated composite (same signal CSR uses for scored sites). Conversion / "
+            "project-only rows may remain NONE."
         ),
         "sites": sorted(site_health, key=lambda s: s.get("shortages", 0), reverse=True),
     }

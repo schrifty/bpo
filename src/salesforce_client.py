@@ -1385,6 +1385,8 @@ class SalesforceClient:
         if not base.get("matched") or not account_ids:
             return out
 
+        matching = [a for a in (base.get("accounts") or []) if isinstance(a, dict)]
+
         try:
             expanded = self.expand_descendant_account_ids(account_ids)
         except Exception as e:
