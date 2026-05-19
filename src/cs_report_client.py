@@ -615,6 +615,74 @@ def load_csr_all_customers_week() -> dict[str, Any]:
     return {"platform_health": merged_ph, "supply_chain": merged_sc, "platform_value": merged_pv}
 
 
+def load_csr_top_customers_by_arr(
+    selection: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Load per-customer CS Report week slices for a ranked ARR selection (LLM export §4).
+
+    *selection* rows should include ``salesforce_label``, ``arr``, and ``csr_lookup_name``
+    (Pendo prefix or Salesforce label used for :func:`get_customer_platform_health` alias resolution).
+    """
+    if not selection:
+        err: dict[str, Any] = {"error": "empty selection", "source": "cs_report"}
+        return {
+            "scope": "top_customers_by_arr",
+            "top_n": 0,
+            "selection_ranked": [],
+            "customers": {},
+            "platform_health": dict(err),
+            "supply_chain": dict(err),
+            "platform_value": dict(err),
+        }
+
+    customers: dict[str, Any] = {}
+    selection_ranked: list[dict[str, Any]] = []
+
+    for row in selection:
+        if not isinstance(row, dict):
+            continue
+        sf_label = str(row.get("salesforce_label") or row.get("customer") or "").strip()
+        if not sf_label:
+            continue
+        lookup = str(row.get("csr_lookup_name") or sf_label).strip()
+        ph = get_customer_platform_health(lookup)
+        sc = get_customer_supply_chain(lookup)
+        pv = get_customer_platform_value(lookup)
+        customers[sf_label] = {
+            "salesforce_label": sf_label,
+            "arr": row.get("arr"),
+            "pendo_customer_key": row.get("pendo_customer_key"),
+            "csr_lookup_name": lookup,
+            "platform_health": ph,
+            "supply_chain": sc,
+            "platform_value": pv,
+        }
+        selection_ranked.append(
+            {
+                "salesforce_label": sf_label,
+                "arr": row.get("arr"),
+                "csr_lookup_name": lookup,
+                "csr_loaded": not all(
+                    isinstance(block, dict) and block.get("error")
+                    for block in (ph, sc, pv)
+                ),
+            }
+        )
+
+    return {
+        "scope": "top_customers_by_arr",
+        "top_n": len(selection_ranked),
+        "aggregate_scope": "top_customers_by_arr",
+        "note": (
+            "Per-customer CS Report (delta=week) for the highest-ARR active Salesforce Customer Entity "
+            "labels. Each entry under ``customers`` has platform_health, supply_chain, and "
+            "platform_value for that account (not a portfolio-wide merge)."
+        ),
+        "selection_ranked": selection_ranked,
+        "customers": customers,
+    }
+
+
 def cross_validate_with_pendo(customer_name: str, pendo_health: dict[str, Any]) -> None:
     """Compare CS Report data with Pendo data and flag discrepancies via QA."""
     sites = _customer_rows(customer_name, "week")

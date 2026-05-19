@@ -342,6 +342,18 @@
 - `portfolio_expansion_book.pct_active_customers_expanding_cy`
 - `portfolio_revenue_book.expansion_kpis`
 
+## LLM export CS Report (`csr`, §4 — top customers by ARR)
+- `csr.scope`
+- `csr.top_n`
+- `csr.selection_ranked`
+- `csr.customers`
+- `csr.customers[].salesforce_label`
+- `csr.customers[].arr`
+- `csr.customers[].csr_lookup_name`
+- `csr.customers[].platform_health`
+- `csr.customers[].supply_chain`
+- `csr.customers[].platform_value`
+
 ## LLM export (`salesforce_comprehensive_portfolio`, §3c)
 - `salesforce_comprehensive_portfolio`
 - `salesforce_comprehensive_portfolio.by_customer`

@@ -9,6 +9,7 @@ from .profiles import PROFILE_ID_LLM_EXPORT_ALL_CUSTOMERS, PROFILE_LLM_EXPORT_AL
 from .registry import SourceId
 from .loaders.salesforce_portfolio_aggregate import salesforce_portfolio_aggregate_for_report
 
+from ..llm_export_csr import attach_csr_top_customers_for_llm_export
 from ..llm_export_salesforce_comprehensive import attach_salesforce_comprehensive_for_llm_export
 from ..llm_export_salesforce_universe import merge_salesforce_universe_for_llm_export
 
@@ -84,22 +85,6 @@ def build_llm_export_snapshot_report(pc: Any, *, days: int) -> dict[str, Any]:
     report = dict(portfolio)
     report["customer"] = "All Customers"
 
-    try:
-        from src.cs_report_client import load_csr_all_customers_week
-
-        report["csr"] = load_csr_all_customers_week()
-        provenance.append(_provenance_row(SourceId.CS_REPORT_ALL_CUSTOMERS_WEEK, status="ok"))
-    except Exception as e:
-        err = {"error": str(e), "source": "cs_report"}
-        report["csr"] = {
-            "platform_health": dict(err),
-            "supply_chain": dict(err),
-            "platform_value": dict(err),
-        }
-        provenance.append(
-            _provenance_row(SourceId.CS_REPORT_ALL_CUSTOMERS_WEEK, status="error", detail=str(e))
-        )
-
     merge_salesforce_universe_for_llm_export(report)
     report["salesforce"] = salesforce_portfolio_aggregate_for_report(report)
     if report["salesforce"].get("error"):
@@ -112,6 +97,47 @@ def build_llm_export_snapshot_report(pc: Any, *, days: int) -> dict[str, Any]:
         )
     else:
         provenance.append(_provenance_row(SourceId.SALESFORCE_PORTFOLIO_AGGREGATE, status="ok"))
+
+    try:
+        csr_summary = attach_csr_top_customers_for_llm_export(report)
+        n_sel = int(csr_summary.get("customers_selected") or 0)
+        n_ok = int(csr_summary.get("customers_with_csr_data") or 0)
+        if n_sel == 0:
+            provenance.append(
+                _provenance_row(
+                    SourceId.CS_REPORT_ALL_CUSTOMERS_WEEK,
+                    status="skipped",
+                    detail="no_salesforce_rollups_for_top_arr_selection",
+                )
+            )
+        elif n_ok < n_sel:
+            provenance.append(
+                _provenance_row(
+                    SourceId.CS_REPORT_ALL_CUSTOMERS_WEEK,
+                    status="partial",
+                    detail=f"top_{n_sel}_by_arr with_data={n_ok}",
+                )
+            )
+        else:
+            provenance.append(
+                _provenance_row(
+                    SourceId.CS_REPORT_ALL_CUSTOMERS_WEEK,
+                    status="ok",
+                    detail=f"top_{n_sel}_by_arr",
+                )
+            )
+    except Exception as e:
+        err = {"error": str(e), "source": "cs_report"}
+        report["csr"] = {
+            "scope": "top_customers_by_arr",
+            "customers": {},
+            "platform_health": dict(err),
+            "supply_chain": dict(err),
+            "platform_value": dict(err),
+        }
+        provenance.append(
+            _provenance_row(SourceId.CS_REPORT_ALL_CUSTOMERS_WEEK, status="error", detail=str(e))
+        )
 
     try:
         sf_comp_summary = attach_salesforce_comprehensive_for_llm_export(report)

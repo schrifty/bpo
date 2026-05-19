@@ -2,7 +2,7 @@
 """Export an all-customers LLM-oriented data snapshot to Google Drive under ``Output/``.
 
 Datasource bundle: :mod:`src.data_sources` profile ``llm_export_all_customers`` — Pendo portfolio
-rollup, CS Report (week), portfolio Salesforce revenue book, per-customer Salesforce comprehensive
+rollup, CS Report (top customers by ARR), portfolio Salesforce revenue book, per-customer Salesforce comprehensive
 (multi-object CRM categories), and Jira HELP (unscoped). The portfolio fetch does not read or sync
 QBR slide YAML (cohort findings use built-in defaults).
 
@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -139,8 +140,15 @@ _LEANDNA_TYPICAL_ITEM_MASTER_FIELDS: tuple[str, ...] = (
 # Product roadmap: named here so the export explicitly sets reader expectations.
 _PLANNED_DATASOURCES_NOT_IN_EXPORT: tuple[str, ...] = ("Aha", "GitHub")
 
-# Pendo §1: max rows in ``customers_headline`` (see ``_pendo_portfolio_topline``).
+# Pendo §1: max rows in ``customers_headline`` when size caps are enabled (see ``_pendo_portfolio_topline``).
 _PENDO_EXPORT_HEADLINE_CUSTOMER_CAP = 200
+
+# ``--max-bytes`` / compaction caps: 0 means no limit (full payloads in export).
+_LLM_EXPORT_NO_CAP = 0
+
+
+def _export_cap_active(cap: int | None) -> bool:
+    return cap is not None and int(cap) > 0
 
 
 def _integration_coverage_lines(*, salesforce: dict[str, Any], csr: dict[str, Any]) -> list[str]:
@@ -163,6 +171,32 @@ def _integration_coverage_lines(*, salesforce: dict[str, Any], csr: dict[str, An
 
     if not csr:
         lines.append("- **CS Report:** **Not loaded** — no `csr` block on the merged report.")
+        return lines
+    if csr.get("scope") == "top_customers_by_arr":
+        customers = csr.get("customers") if isinstance(csr.get("customers"), dict) else {}
+        n = len(customers)
+        n_ok = sum(
+            1
+            for block in customers.values()
+            if isinstance(block, dict)
+            and not all(
+                isinstance(block.get(k), dict) and block.get(k, {}).get("error")
+                for k in ("platform_health", "supply_chain", "platform_value")
+            )
+        )
+        if n and n_ok:
+            lines.append(
+                f"- **CS Report:** **Loaded** — per-customer week slices for top {n} label(s) by ARR "
+                f"({n_ok} with at least one section; see §4 ``customers``)."
+            )
+        elif n:
+            lines.append(
+                f"- **CS Report:** **Partial** — top {n} by ARR selected; all sections errored or missing "
+                "for every customer (check CS Report export and name aliases)."
+            )
+        else:
+            note = csr.get("note") or "no customers selected"
+            lines.append(f"- **CS Report:** **Not loaded** — {note}")
         return lines
     errs: list[str] = []
     ok_any = False
@@ -193,7 +227,7 @@ _REGISTRY_EXCLUDED_RATIONALE: dict[str, str] = {
     ),
     "cs_report_customer_week": (
         "Per-customer CS Report week slices attach to single-customer health reports. "
-        "This export uses **cs_report_all_customers_week** in §4 instead."
+        "The all-customers LLM export uses the same per-customer APIs for the top N labels by ARR in §4."
     ),
     "leandna_item_master": (
         "LeanDNA Data API (item master) is wired into QBR enrichment paths, not into "
@@ -279,6 +313,7 @@ def _build_export_coverage(
     sf_accounts: int,
     signals_cap: int | None,
     signals_line_max_chars: int,
+    size_caps_enabled: bool = False,
 ) -> dict[str, Any]:
     """Structured manifest for markdown 'what is in / out' (also drives the coverage section)."""
     from src.data_sources.profiles import PROFILE_ID_LLM_EXPORT_ALL_CUSTOMERS, PROFILE_LLM_EXPORT_ALL_CUSTOMERS
@@ -300,7 +335,9 @@ def _build_export_coverage(
             }
         )
     registry_excluded.sort(key=lambda r: r["id"])
-    rollup_cap = max(sf_accounts * 6, 72)
+    rollup_cap = (
+        max(sf_accounts * 6, 72) if _export_cap_active(sf_accounts) else None
+    )
     prov = report.get("_data_source_provenance")
     if not isinstance(prov, dict):
         prov = None
@@ -309,6 +346,7 @@ def _build_export_coverage(
         "sources_in_profile": sources_in_profile,
         "registry_excluded": registry_excluded,
         "markdown_soft_cap_bytes": int(markdown_soft_cap_bytes),
+        "size_caps_enabled": size_caps_enabled,
         "compaction": {
             "csr_site_limit": csr_site_limit,
             "csr_string_cap": csr_string_cap,
@@ -338,6 +376,9 @@ def _build_export_coverage(
     sf_churn = report.get("_llm_export_salesforce_churned")
     if isinstance(sf_churn, dict):
         out_cov["salesforce_churned"] = sf_churn
+    csr_meta = report.get("_llm_export_csr")
+    if isinstance(csr_meta, dict):
+        out_cov["csr_top_by_arr"] = csr_meta
     sf_comp = report.get("_llm_export_salesforce_comprehensive")
     if isinstance(sf_comp, dict):
         out_cov["salesforce_comprehensive"] = sf_comp
@@ -460,9 +501,9 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
             "retention post-mortems and historical ARR. **No Pendo**, **no Jira/Atlassian**, and **no §5** "
             "signals for these accounts (they are removed from the active segment when SF marks them churned).",
             "",
-            "- **§4 — CS Report (weekly export):** The **all-customer** health / supply / value aggregate from the Data "
-            "Exports workbook. Only the **first slice of sites per worksheet** is kept when the file must shrink; long "
-            "cells are clipped so very long notes may end abruptly.",
+            "- **§4 — CS Report (weekly export):** Per-customer **platform_health**, **supply_chain**, and "
+            "**platform_value** for the **top Salesforce labels by ARR** (not an all-customer site merge). When size "
+            "caps are enabled, site rows and long text fields may be truncated.",
             "",
             "- **§5 — Pendo usage signals:** A **ranked checklist** of product-side callouts (examples: Kei not used, "
             "high guide dismiss rate, very read-only usage). This export asks for a **long** list so you can scan the "
@@ -477,14 +518,23 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
             "Lean Projects. **Not** live tenant data in this export — see single-customer QBR when enrichment runs.",
             "",
             "### File size budget (this run)",
+        ]
+    )
+    if cov.get("size_caps_enabled"):
+        lines.append(
             f"- **Target size (`--max-bytes`):** about **{cov.get('markdown_soft_cap_bytes', '')}** bytes of UTF-8 for "
             "the whole markdown file. If the export is still too large, it first **tightens CS Report and "
             "Salesforce** (fewer sites, shorter text, fewer accounts). If it is **still** too large, the **end of the file "
-            "may be cut off** — raise `--max-bytes` if you need every section intact (especially with a long §5).",
-        ]
-    )
+            "may be cut off** — raise `--max-bytes` if you need every section intact (especially with a long §5)."
+        )
+    else:
+        lines.append(
+            "- **Size caps:** **disabled** for this run (`--max-bytes 0`, default). Full CS Report site rows, "
+            "Salesforce rollups, Pendo headlines, and §3c comprehensive payloads are included without markdown "
+            "truncation or tiered compaction. Pass `--max-bytes N` with **N > 0** to re-enable limits."
+        )
     c = cov.get("compaction") if isinstance(cov.get("compaction"), dict) else {}
-    if c:
+    if c and cov.get("size_caps_enabled"):
         sig_n = c.get("signals_cap")
         sig_part = (
             "§5 shows the **full** ranked Pendo usage signal list"
@@ -572,7 +622,7 @@ def _compact_eng_enh_counts_only(blob: dict[str, Any] | None) -> dict[str, Any]:
     return out
 
 
-def _compact_jira(j: dict[str, Any]) -> dict[str, Any]:
+def _compact_jira(j: dict[str, Any], *, size_caps_enabled: bool = True) -> dict[str, Any]:
     if not j or not isinstance(j, dict):
         return {}
     if j.get("error"):
@@ -610,13 +660,18 @@ def _compact_jira(j: dict[str, Any]) -> dict[str, Any]:
             )
             if k in tick
         }
-        # Small pies only — cap categories
         bto = tick.get("by_type_open")
         if isinstance(bto, dict):
-            out["customer_ticket_metrics"]["by_type_open"] = dict(list(bto.items())[:12])
+            items = list(bto.items())
+            out["customer_ticket_metrics"]["by_type_open"] = (
+                dict(items[:12]) if size_caps_enabled else dict(items)
+            )
         bso = tick.get("by_status_open")
         if isinstance(bso, dict):
-            out["customer_ticket_metrics"]["by_status_open"] = dict(list(bso.items())[:12])
+            items = list(bso.items())
+            out["customer_ticket_metrics"]["by_status_open"] = (
+                dict(items[:12]) if size_caps_enabled else dict(items)
+            )
     fsb = j.get("help_factory_start_day_buckets")
     if isinstance(fsb, dict) and fsb:
         out["help_factory_start_day_buckets"] = {
@@ -651,12 +706,16 @@ def _compact_jira(j: dict[str, Any]) -> dict[str, Any]:
             if k in hom
         }
         if isinstance(rows, list) and rows:
-            out["help_monthly_operational_metrics"]["rows"] = rows[-6:]
+            out["help_monthly_operational_metrics"]["rows"] = (
+                rows[-6:] if size_caps_enabled and len(rows) > 6 else rows
+            )
     out["engineering"] = _compact_eng_enh_counts_only(j.get("engineering"))
     out["enhancements"] = _compact_eng_enh_counts_only(j.get("enhancements"))
     tow = j.get("tickets_over_time")
     if isinstance(tow, list):
-        out["tickets_over_time"] = tow[-24:] if len(tow) > 24 else tow
+        out["tickets_over_time"] = (
+            tow[-24:] if size_caps_enabled and len(tow) > 24 else tow
+        )
     return out
 
 
@@ -676,7 +735,7 @@ _SF_ACCOUNT_EXPORT_KEYS = (
 )
 
 
-def _compact_salesforce(sf: dict[str, Any], *, account_cap: int) -> dict[str, Any]:
+def _compact_salesforce(sf: dict[str, Any], *, account_cap: int = 0) -> dict[str, Any]:
     if not sf or not isinstance(sf, dict):
         return {}
     if sf.get("error") or "error" in sf:
@@ -692,10 +751,13 @@ def _compact_salesforce(sf: dict[str, Any], *, account_cap: int) -> dict[str, An
         )
         if k in sf
     }
-    rollup_cap = max(account_cap * 6, 72)
     rollups = sf.get("matched_customer_contract_rollups")
     if isinstance(rollups, list):
-        out["matched_customer_contract_rollups"] = rollups[:rollup_cap]
+        if _export_cap_active(account_cap):
+            rollup_cap = max(account_cap * 6, 72)
+            out["matched_customer_contract_rollups"] = rollups[:rollup_cap]
+        else:
+            out["matched_customer_contract_rollups"] = list(rollups)
         out["matched_customer_contract_rollups_total"] = len(rollups)
         seg = sf.get("customer_segment") or "active"
         if seg == "churned":
@@ -713,7 +775,8 @@ def _compact_salesforce(sf: dict[str, Any], *, account_cap: int) -> dict[str, An
     accts = sf.get("accounts")
     if isinstance(accts, list):
         slim = []
-        for a in accts[:account_cap]:
+        acct_iter = accts[:account_cap] if _export_cap_active(account_cap) else accts
+        for a in acct_iter:
             if not isinstance(a, dict):
                 continue
             slim.append({k: a.get(k) for k in _SF_ACCOUNT_EXPORT_KEYS})
@@ -738,14 +801,22 @@ def _compact_salesforce(sf: dict[str, Any], *, account_cap: int) -> dict[str, An
 
 
 def _pendo_portfolio_topline(
-    portfolio: dict[str, Any], *, max_customer_rows: int = _PENDO_EXPORT_HEADLINE_CUSTOMER_CAP
+    portfolio: dict[str, Any],
+    *,
+    max_customer_rows: int = _PENDO_EXPORT_HEADLINE_CUSTOMER_CAP,
+    size_caps_enabled: bool = True,
 ) -> dict[str, Any]:
     """Portfolio rollup + capped per-customer headline rows (no Pendo detail payloads)."""
     from src.hydrate_data_summary import truncate_strings_in_obj
 
     raw_customers = portfolio.get("customers") if isinstance(portfolio.get("customers"), list) else []
+    cap_rows = (
+        raw_customers[:max_customer_rows]
+        if size_caps_enabled and _export_cap_active(max_customer_rows)
+        else raw_customers
+    )
     rows: list[dict[str, Any]] = []
-    for row in raw_customers[:max_customer_rows]:
+    for row in cap_rows:
         if not isinstance(row, dict):
             continue
         rows.append(
@@ -762,8 +833,24 @@ def _pendo_portfolio_topline(
         "(``salesforce_only`` rows carry Salesforce identity without Pendo metrics)."
     ]
     raw_n = len(raw_customers)
-    if raw_n > max_customer_rows:
+    if size_caps_enabled and _export_cap_active(max_customer_rows) and raw_n > max_customer_rows:
         note_parts.append(f"customers_headline truncated to {max_customer_rows} of {raw_n}.")
+    sig_items = portfolio.get("portfolio_signals") or []
+    if size_caps_enabled:
+        sig_items = sig_items[:28]
+    trunc_kw = (
+        dict(max_str=240, max_list_items=28, max_dict_keys=16)
+        if size_caps_enabled
+        else dict(max_str=50_000, max_list_items=100_000, max_dict_keys=10_000)
+    )
+    cohort_bullets = portfolio.get("cohort_findings_bullets") or []
+    if size_caps_enabled:
+        cohort_bullets = cohort_bullets[:24]
+    digest_kw = (
+        dict(max_str=400, max_list_items=36, max_dict_keys=48)
+        if size_caps_enabled
+        else dict(max_str=50_000, max_list_items=100_000, max_dict_keys=10_000)
+    )
     return {
         "scope": "portfolio_all_customers",
         "note": " ".join(note_parts),
@@ -772,36 +859,60 @@ def _pendo_portfolio_topline(
         "generated": portfolio.get("generated"),
         "customers_headline": rows,
         "portfolio_signals_top": truncate_strings_in_obj(
-            (portfolio.get("portfolio_signals") or [])[:28],
-            max_str=240,
-            max_list_items=28,
-            max_dict_keys=16,
+            sig_items,
+            **trunc_kw,
         ),
         "portfolio_trends": truncate_strings_in_obj(
             portfolio.get("portfolio_trends") or {},
-            max_str=400,
-            max_list_items=40,
-            max_dict_keys=48,
+            **(
+                dict(max_str=400, max_list_items=40, max_dict_keys=48)
+                if size_caps_enabled
+                else dict(max_str=50_000, max_list_items=100_000, max_dict_keys=10_000)
+            ),
         ),
         "portfolio_leaders": truncate_strings_in_obj(
             portfolio.get("portfolio_leaders") or {},
-            max_str=400,
-            max_list_items=40,
-            max_dict_keys=48,
+            **(
+                dict(max_str=400, max_list_items=40, max_dict_keys=48)
+                if size_caps_enabled
+                else dict(max_str=50_000, max_list_items=100_000, max_dict_keys=10_000)
+            ),
         ),
-        "cohort_findings_bullets": list((portfolio.get("cohort_findings_bullets") or [])[:24]),
+        "cohort_findings_bullets": list(cohort_bullets),
         "cohort_digest": truncate_strings_in_obj(
             portfolio.get("cohort_digest") or {},
-            max_str=400,
-            max_list_items=36,
-            max_dict_keys=48,
+            **digest_kw,
         ),
     }
 
 
-def _compact_csr(csr: dict[str, Any], *, site_limit: int, string_cap: int) -> dict[str, Any]:
+def _compact_csr_section_block(
+    block: dict[str, Any], *, site_limit: int, string_cap: int, size_caps_enabled: bool = True
+) -> dict[str, Any]:
     from src.hydrate_data_summary import truncate_strings_in_obj
 
+    if block.get("error"):
+        return {"error": block.get("error")}
+    pruned = dict(block)
+    sites = pruned.get("sites")
+    if isinstance(sites, list):
+        if size_caps_enabled and _export_cap_active(site_limit):
+            pruned["sites"] = sites[:site_limit]
+        else:
+            pruned["sites"] = list(sites)
+        pruned["sites_total"] = len(sites)
+    if size_caps_enabled and _export_cap_active(string_cap):
+        return truncate_strings_in_obj(
+            pruned, max_str=string_cap, max_list_items=48, max_dict_keys=96
+        )
+    return truncate_strings_in_obj(
+        pruned, max_str=50_000, max_list_items=100_000, max_dict_keys=10_000
+    )
+
+
+def _compact_csr(
+    csr: dict[str, Any], *, site_limit: int, string_cap: int, size_caps_enabled: bool = True
+) -> dict[str, Any]:
     if not csr:
         return {
             "note": "CS Report was not attached (empty csr). Check Drive CS Report export and openpyxl.",
@@ -809,24 +920,48 @@ def _compact_csr(csr: dict[str, Any], *, site_limit: int, string_cap: int) -> di
     out: dict[str, Any] = {}
     if isinstance(csr.get("note"), str):
         out["note"] = csr["note"]
+    if csr.get("scope") == "top_customers_by_arr":
+        out["scope"] = csr["scope"]
+        if csr.get("top_n") is not None:
+            out["top_n"] = csr["top_n"]
+        if isinstance(csr.get("selection_ranked"), list):
+            out["selection_ranked"] = csr["selection_ranked"]
+        customers = csr.get("customers")
+        if isinstance(customers, dict):
+            out["customers"] = {}
+            for label, block in customers.items():
+                if not isinstance(block, dict):
+                    continue
+                slim: dict[str, Any] = {
+                    k: block[k]
+                    for k in ("salesforce_label", "arr", "pendo_customer_key", "csr_lookup_name")
+                    if k in block
+                }
+                for key in ("platform_health", "supply_chain", "platform_value"):
+                    sec = block.get(key)
+                    if isinstance(sec, dict):
+                        slim[key] = _compact_csr_section_block(
+                            sec,
+                            site_limit=site_limit,
+                            string_cap=string_cap,
+                            size_caps_enabled=size_caps_enabled,
+                        )
+                out["customers"][label] = slim
+        return out
     for key in ("platform_health", "supply_chain", "platform_value"):
         block = csr.get(key)
-        if isinstance(block, dict) and block.get("error"):
-            out[key] = {"error": block.get("error")}
-        elif isinstance(block, dict):
-            pruned = dict(block)
-            sites = pruned.get("sites")
-            if isinstance(sites, list):
-                pruned["sites"] = sites[:site_limit]
-                pruned["sites_total"] = len(sites)
-            out[key] = truncate_strings_in_obj(
-                pruned, max_str=string_cap, max_list_items=48, max_dict_keys=96
+        if isinstance(block, dict):
+            out[key] = _compact_csr_section_block(
+                block,
+                site_limit=site_limit,
+                string_cap=string_cap,
+                size_caps_enabled=size_caps_enabled,
             )
     return out
 
 
 def _portfolio_signal_lines(
-    portfolio: dict[str, Any], *, cap: int | None, line_max: int
+    portfolio: dict[str, Any], *, cap: int | None, line_max: int, size_caps_enabled: bool = True
 ) -> list[str]:
     """``cap`` ``None`` includes every ``portfolio_signals`` row (subject only to ``line_max``)."""
     items = portfolio.get("portfolio_signals") if isinstance(portfolio.get("portfolio_signals"), list) else []
@@ -840,7 +975,7 @@ def _portfolio_signal_lines(
         else:
             line = str(item)
         line = " ".join(line.split())
-        if len(line) > line_max:
+        if size_caps_enabled and _export_cap_active(line_max) and len(line) > line_max:
             line = line[: line_max - 1] + "…"
         out.append(line)
     return out
@@ -849,27 +984,39 @@ def _portfolio_signal_lines(
 def build_snapshot_document(
     report: dict[str, Any],
     *,
-    markdown_soft_cap_bytes: int = 100_000,
-    csr_site_limit: int = 15,
-    csr_string_cap: int = 400,
-    sf_accounts: int = 24,
+    markdown_soft_cap_bytes: int = _LLM_EXPORT_NO_CAP,
+    csr_site_limit: int = _LLM_EXPORT_NO_CAP,
+    csr_string_cap: int = _LLM_EXPORT_NO_CAP,
+    sf_accounts: int = _LLM_EXPORT_NO_CAP,
     signals_cap: int | None = None,
-    signal_line_max: int = 280,
+    signal_line_max: int = _LLM_EXPORT_NO_CAP,
+    size_caps_enabled: bool = False,
     export_diag: Any | None = None,
 ) -> dict[str, Any]:
     csr = report.get("csr") if isinstance(report.get("csr"), dict) else {}
-    pendo_sec = _pendo_portfolio_topline(report)
-    sig_lines = _portfolio_signal_lines(report, cap=signals_cap, line_max=signal_line_max)
+    pendo_sec = _pendo_portfolio_topline(report, size_caps_enabled=size_caps_enabled)
+    sig_lines = _portfolio_signal_lines(
+        report,
+        cap=signals_cap,
+        line_max=signal_line_max,
+        size_caps_enabled=size_caps_enabled,
+    )
     churn_seg = report.get("salesforce_churned_segment")
     churn_sf = {}
     churn_headline: list[dict[str, Any]] = []
     if isinstance(churn_seg, dict):
         raw_sf = churn_seg.get("salesforce")
         if isinstance(raw_sf, dict):
-            churn_sf = _compact_salesforce(raw_sf, account_cap=sf_accounts)
+            churn_sf = _compact_salesforce(
+                raw_sf, account_cap=sf_accounts if size_caps_enabled else _LLM_EXPORT_NO_CAP
+            )
         raw_rows = churn_seg.get("customers_headline")
         if isinstance(raw_rows, list):
-            churn_headline = [r for r in raw_rows if isinstance(r, dict)][: max(sf_accounts, 1)]
+            churn_rows = [r for r in raw_rows if isinstance(r, dict)]
+            if size_caps_enabled and _export_cap_active(sf_accounts):
+                churn_headline = churn_rows[: max(sf_accounts, 1)]
+            else:
+                churn_headline = churn_rows
 
     doc: dict[str, Any] = {
         "document_purpose": (
@@ -881,8 +1028,13 @@ def build_snapshot_document(
         "generated_report_timestamp": report.get("generated"),
         "lookback_days": report.get("days"),
         "pendo": pendo_sec,
-        "jira_help": _compact_jira(report.get("jira") or {}),
-        "salesforce": _compact_salesforce(report.get("salesforce") or {}, account_cap=sf_accounts),
+        "jira_help": _compact_jira(
+            report.get("jira") or {}, size_caps_enabled=size_caps_enabled
+        ),
+        "salesforce": _compact_salesforce(
+            report.get("salesforce") or {},
+            account_cap=sf_accounts if size_caps_enabled else _LLM_EXPORT_NO_CAP,
+        ),
         "salesforce_churned_segment": {
             "segment": "churned",
             "do_not_merge_with_active_book": True,
@@ -896,7 +1048,12 @@ def build_snapshot_document(
             if isinstance(report.get("salesforce_comprehensive_portfolio"), dict)
             else {}
         ),
-        "cs_report": _compact_csr(csr, site_limit=csr_site_limit, string_cap=csr_string_cap),
+        "cs_report": _compact_csr(
+            csr,
+            site_limit=csr_site_limit,
+            string_cap=csr_string_cap,
+            size_caps_enabled=size_caps_enabled,
+        ),
         "notable_signals_lines": sig_lines,
         "planned_data_sources": {
             "not_in_snapshot_yet": list(_PLANNED_DATASOURCES_NOT_IN_EXPORT),
@@ -917,6 +1074,7 @@ def build_snapshot_document(
             sf_accounts=sf_accounts,
             signals_cap=signals_cap,
             signals_line_max_chars=signal_line_max,
+            size_caps_enabled=size_caps_enabled,
         ),
         "leandna_data_api_reference": build_leandna_data_api_reference(),
         "data_governance_warnings": [],
@@ -925,9 +1083,14 @@ def build_snapshot_document(
     if stc:
         from src.hydrate_data_summary import truncate_strings_in_obj
 
-        doc["signals_trend_context"] = truncate_strings_in_obj(
-            stc, max_str=320, max_list_items=24, max_dict_keys=48
-        )
+        if size_caps_enabled:
+            doc["signals_trend_context"] = truncate_strings_in_obj(
+                stc, max_str=320, max_list_items=24, max_dict_keys=48
+            )
+        else:
+            doc["signals_trend_context"] = truncate_strings_in_obj(
+                stc, max_str=50_000, max_list_items=100_000, max_dict_keys=10_000
+            )
     from .data_governance_warnings import build_data_governance_warning_entries
 
     doc["data_governance_warnings"] = build_data_governance_warning_entries(
@@ -939,6 +1102,125 @@ def build_snapshot_document(
 
 def _json_compact(obj: Any) -> str:
     return json.dumps(obj, separators=(",", ":"), sort_keys=True, default=str)
+
+
+def _utf8_byte_len(text: str) -> int:
+    return len(text.encode("utf-8"))
+
+
+def _format_utf8_bytes(n: int) -> str:
+    n = max(0, int(n))
+    if n >= 1_048_576:
+        return f"{n / 1_048_576:.2f} MiB ({n:,} B)"
+    if n >= 1024:
+        return f"{n / 1024:.1f} KiB ({n:,} B)"
+    return f"{n:,} B"
+
+
+def _markdown_section_byte_breakdown(md: str) -> list[tuple[str, int]]:
+    """UTF-8 size per ``## …`` section in the uploaded markdown."""
+    text = md or ""
+    if not text.strip():
+        return [("(empty)", 0)]
+    parts = re.split(r"\n(?=## )", text.lstrip("\n"))
+    out: list[tuple[str, int]] = []
+    for part in parts:
+        block = part.strip("\n")
+        if not block:
+            continue
+        first = block.split("\n", 1)[0]
+        if first.startswith("## "):
+            label = first[3:].strip()
+        else:
+            label = "header / preamble"
+        out.append((label, _utf8_byte_len(block)))
+    return out
+
+
+def _doc_payload_component_bytes(doc: dict[str, Any]) -> list[tuple[str, int]]:
+    """Compact-JSON byte sizes for major export document fields (pre-upload doc)."""
+    rows: list[tuple[str, int]] = []
+
+    def add(label: str, value: Any) -> None:
+        if value is None:
+            return
+        if isinstance(value, str):
+            rows.append((label, _utf8_byte_len(value)))
+        elif isinstance(value, list) and label == "notable_signals_lines":
+            body = "\n".join(f"- {ln}" for ln in value if ln is not None)
+            rows.append((label, _utf8_byte_len(body)))
+        else:
+            rows.append((label, _utf8_byte_len(_json_compact(value))))
+
+    add("pendo", doc.get("pendo"))
+    add("jira_help", doc.get("jira_help"))
+    add("salesforce", doc.get("salesforce"))
+    add("salesforce_churned_segment", doc.get("salesforce_churned_segment"))
+    add("salesforce_comprehensive_portfolio", doc.get("salesforce_comprehensive_portfolio"))
+    add("cs_report", doc.get("cs_report"))
+    add("notable_signals_lines", doc.get("notable_signals_lines"))
+    add("signals_trend_context", doc.get("signals_trend_context"))
+    add("leandna_data_api_reference", doc.get("leandna_data_api_reference"))
+    add("export_coverage", doc.get("export_coverage"))
+    add("data_governance_warnings", doc.get("data_governance_warnings"))
+    add("planned_data_sources", doc.get("planned_data_sources"))
+    add("integration_coverage_lines", doc.get("integration_coverage_lines"))
+    return sorted(rows, key=lambda x: (-x[1], x[0]))
+
+
+def emit_export_size_breakdown_stderr(
+    md: str,
+    doc: dict[str, Any],
+    *,
+    max_bytes_cap: int | None = None,
+    truncated: bool = False,
+    pre_truncation_bytes: int | None = None,
+    body_before_section7_bytes: int | None = None,
+) -> None:
+    """Print UTF-8 size totals and per-section / per-component contribution (stderr)."""
+    total = _utf8_byte_len(md)
+    print("", file=sys.stderr)
+    print("=" * 60, file=sys.stderr)
+    print("Export size breakdown (UTF-8):", file=sys.stderr)
+    print(f"  total uploaded: {_format_utf8_bytes(total)}", file=sys.stderr)
+    if truncated and pre_truncation_bytes is not None:
+        print(
+            f"  body before --max-bytes cut: {_format_utf8_bytes(pre_truncation_bytes)} "
+            f"(cap {_format_utf8_bytes(max_bytes_cap or 0)})",
+            file=sys.stderr,
+        )
+    if body_before_section7_bytes is not None and total > body_before_section7_bytes:
+        s7 = total - body_before_section7_bytes
+        print(
+            f"  §7 risk insights (appended after cap): {_format_utf8_bytes(s7)}",
+            file=sys.stderr,
+        )
+
+    sections = _markdown_section_byte_breakdown(md)
+    if sections:
+        print("  --- markdown sections (uploaded file) ---", file=sys.stderr)
+        for label, size in sorted(sections, key=lambda x: (-x[1], x[0])):
+            pct = (100.0 * size / total) if total else 0.0
+            print(
+                f"    {pct:5.1f}%  {_format_utf8_bytes(size):>18}  {label}",
+                file=sys.stderr,
+            )
+
+    components = _doc_payload_component_bytes(doc)
+    comp_total = sum(n for _, n in components)
+    if components:
+        print("  --- document payloads (compact JSON in snapshot) ---", file=sys.stderr)
+        for label, size in components:
+            pct = (100.0 * size / comp_total) if comp_total else 0.0
+            print(
+                f"    {pct:5.1f}%  {_format_utf8_bytes(size):>18}  {label}",
+                file=sys.stderr,
+            )
+        print(
+            f"  payload subtotal (excludes markdown framing): {_format_utf8_bytes(comp_total)}",
+            file=sys.stderr,
+        )
+    print("=" * 60, file=sys.stderr)
 
 
 def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
@@ -955,8 +1237,10 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
     ]
     ec = doc.get("export_coverage") if isinstance(doc.get("export_coverage"), dict) else {}
     cap_b = ec.get("markdown_soft_cap_bytes")
-    if cap_b is not None:
+    if ec.get("size_caps_enabled") and cap_b is not None and int(cap_b) > 0:
         parts.append(f"- **Markdown soft cap (this run):** {cap_b} bytes (`--max-bytes`)")
+    elif not ec.get("size_caps_enabled"):
+        parts.append("- **Markdown soft cap (this run):** none (`--max-bytes 0`, default)")
     parts.extend(
         [
         "",
@@ -1049,7 +1333,10 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
             "",
             _json_compact(doc.get("salesforce_comprehensive_portfolio") or {}),
             "",
-            "## 4. CS Report (Data Exports Drive)",
+            "## 4. CS Report (top customers by ARR — per-customer week)",
+            "",
+            "Per-customer ``platform_health``, ``supply_chain``, and ``platform_value`` for the "
+            "highest-ARR active Salesforce labels (not an all-customers site merge).",
             "",
             _json_compact(doc.get("cs_report")),
             "",
@@ -1079,17 +1366,21 @@ def _shrink_snapshot_params(
     csr_string_cap: int,
     sf_accounts: int,
     signals_cap: int | None = None,
+    size_caps_enabled: bool = True,
 ) -> None:
     """Mutate ``doc`` in place for smaller serialization.
 
     ``signals_cap`` is not reduced by tiered shrink (only CSR/SF tighten under ``--max-bytes``).
     """
-    doc["jira_help"] = _compact_jira(doc.get("_full_jira") or {})
+    doc["jira_help"] = _compact_jira(
+        doc.get("_full_jira") or {}, size_caps_enabled=size_caps_enabled
+    )
     csr = doc.get("_full_csr") or {}
     doc["cs_report"] = _compact_csr(
         csr,
         site_limit=csr_site_limit,
         string_cap=csr_string_cap,
+        size_caps_enabled=size_caps_enabled,
     )
     doc["salesforce"] = _compact_salesforce(
         doc.get("_full_sf") or {},
@@ -1138,8 +1429,10 @@ def _build_export_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
     ap.add_argument(
         "--max-bytes",
         type=int,
-        default=100_000,
-        help="Soft cap on UTF-8 body size; trims CSR/Jira samples if exceeded (default 100000)",
+        default=_LLM_EXPORT_NO_CAP,
+        help=(
+            "Soft cap on UTF-8 body size; 0 = no cap (default). When N>0, trims CSR/SF and may truncate markdown."
+        ),
     )
     ap.add_argument(
         "--signals-cap",
@@ -1221,7 +1514,13 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
 
         _emit_integration_stderr_warnings(report)
 
-        csr_lim, csr_str, sf_acct = 15, 400, 24
+        size_caps_enabled = int(args.max_bytes) > 0
+        csr_lim = 15 if size_caps_enabled else _LLM_EXPORT_NO_CAP
+        csr_str = 400 if size_caps_enabled else _LLM_EXPORT_NO_CAP
+        sf_acct = 24 if size_caps_enabled else _LLM_EXPORT_NO_CAP
+        pre_truncation_bytes = None
+        markdown_truncated = False
+        md_body_before_section7_bytes: int | None = None
         with export_phase(diag, "markdown build"):
             doc = build_snapshot_document(
                 report,
@@ -1230,6 +1529,7 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
                 csr_string_cap=csr_str,
                 sf_accounts=sf_acct,
                 signals_cap=args.signals_cap,
+                size_caps_enabled=size_caps_enabled,
                 export_diag=diag,
             )
             # Keep refs for iterative shrinking
@@ -1240,38 +1540,43 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
             doc["_portfolio_raw"] = report
 
             md = render_markdown(doc, exported_at_utc=exported_at)
-            max_b = max(20_000, int(args.max_bytes))
+            max_b = max(20_000, int(args.max_bytes)) if size_caps_enabled else 0
 
-            tiers = [
-                (10, 320, 16),
-                (8, 260, 12),
-                (6, 220, 8),
-                (4, 180, 4),
-            ]
-            while len(md.encode("utf-8")) > max_b and tiers:
-                csr_lim, csr_str, sf_acct = tiers.pop(0)
-                _shrink_snapshot_params(
-                    doc,
-                    csr_site_limit=csr_lim,
-                    csr_string_cap=csr_str,
-                    sf_accounts=sf_acct,
-                    signals_cap=args.signals_cap,
-                )
-                md = render_markdown(
-                    {k: v for k, v in doc.items() if not str(k).startswith("_")},
-                    exported_at_utc=exported_at,
-                )
+            if size_caps_enabled:
+                tiers = [
+                    (10, 320, 16),
+                    (8, 260, 12),
+                    (6, 220, 8),
+                    (4, 180, 4),
+                ]
+                while len(md.encode("utf-8")) > max_b and tiers:
+                    csr_lim, csr_str, sf_acct = tiers.pop(0)
+                    _shrink_snapshot_params(
+                        doc,
+                        csr_site_limit=csr_lim,
+                        csr_string_cap=csr_str,
+                        sf_accounts=sf_acct,
+                        signals_cap=args.signals_cap,
+                        size_caps_enabled=True,
+                    )
+                    md = render_markdown(
+                        {k: v for k, v in doc.items() if not str(k).startswith("_")},
+                        exported_at_utc=exported_at,
+                    )
 
-            raw = md.encode("utf-8")
-            if len(raw) > max_b:
-                collect_export_warning(
-                    f"markdown truncated to --max-bytes ({max_b}); raise limit if needed",
-                    llm_export=True,
-                )
-                md = raw[:max_b].decode("utf-8", errors="ignore").rstrip() + (
-                    "\n\n<!-- Document truncated to --max-bytes; re-run with a higher limit "
-                    "or narrow integrations if needed. -->\n"
-                )
+                raw = md.encode("utf-8")
+                if len(raw) > max_b:
+                    pre_truncation_bytes = len(raw)
+                    markdown_truncated = True
+                    collect_export_warning(
+                        f"markdown truncated to --max-bytes ({max_b}); raise limit if needed",
+                        llm_export=True,
+                    )
+                    md = raw[:max_b].decode("utf-8", errors="ignore").rstrip() + (
+                        "\n\n<!-- Document truncated to --max-bytes; re-run with a higher limit "
+                        "or narrow integrations if needed. -->\n"
+                    )
+            md_body_before_section7_bytes = _utf8_byte_len(md)
 
         if args.skip_risk_insights:
             import logging
@@ -1333,6 +1638,14 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
         print(f"Output/ (stable): https://drive.google.com/file/d/{fid_root}/view")
         print(f"Output/{dated_label}/: https://drive.google.com/file/d/{fid_dated}/view")
 
+        emit_export_size_breakdown_stderr(
+            md,
+            doc,
+            max_bytes_cap=max_b,
+            truncated=markdown_truncated,
+            pre_truncation_bytes=pre_truncation_bytes,
+            body_before_section7_bytes=md_body_before_section7_bytes,
+        )
         diag.emit_stderr_summary()
 
 

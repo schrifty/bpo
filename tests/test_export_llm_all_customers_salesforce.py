@@ -83,7 +83,15 @@ def test_export_coverage_manifest_and_markdown_section():
         "salesforce": {},
         "jira": {},
     }
-    doc = mod.build_snapshot_document(report, markdown_soft_cap_bytes=99_999)
+    doc = mod.build_snapshot_document(
+        report,
+        markdown_soft_cap_bytes=99_999,
+        size_caps_enabled=True,
+        csr_site_limit=15,
+        csr_string_cap=400,
+        sf_accounts=24,
+        signal_line_max=280,
+    )
     assert "leandna_data_api_reference" in doc
     lref = doc["leandna_data_api_reference"]
     assert "leandna_item_master" in lref["qbr_enrichment_dotted_paths"]

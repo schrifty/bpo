@@ -440,6 +440,34 @@
       ]
     },
     {
+      "path": "csr.scope",
+      "terms": [
+        "csr.scope",
+        "[LLM export CSR] top_customers_by_arr vs legacy all-customers merge"
+      ]
+    },
+    {
+      "path": "csr.top_n",
+      "terms": [
+        "csr.top_n",
+        "[LLM export CSR] count of top-ARR customers included"
+      ]
+    },
+    {
+      "path": "csr.selection_ranked",
+      "terms": [
+        "csr.selection_ranked",
+        "[LLM export CSR] ranked ARR selection metadata"
+      ]
+    },
+    {
+      "path": "csr.customers",
+      "terms": [
+        "csr.customers",
+        "[LLM export CSR] map Salesforce label → per-customer platform_health / supply_chain / platform_value"
+      ]
+    },
+    {
       "path": "csr.platform_health",
       "terms": [
         "csr.platform_health",
