@@ -51,6 +51,44 @@ def drive_cache_load_stats_snapshot() -> dict[str, Any]:
         }
 
 
+def _cache_hit_miss_row(label: str, hits: int, attempts: int) -> str | None:
+    if attempts <= 0:
+        return None
+    misses = max(0, attempts - hits)
+    pct = (100.0 * hits / attempts) if attempts else 0.0
+    return f"    {pct:5.1f}%  {hits:4d} hit  {misses:4d} miss  ({attempts:4d} loads)  {label}"
+
+
+def drive_cache_breakdown_lines(
+    *,
+    sf_comprehensive_summary: dict[str, Any] | None = None,
+) -> list[str]:
+    """Multi-line cache hit/miss stats for export run summary (stderr)."""
+    rows: list[str] = []
+    snap = drive_cache_load_stats_snapshot()
+    for key, label in (
+        ("pendo_preload", "pendo_preload (Drive)"),
+        ("integration", "integration (Drive JSON)"),
+    ):
+        bucket = snap[key]
+        row = _cache_hit_miss_row(label, int(bucket["hits"]), int(bucket["attempts"]))
+        if row:
+            rows.append(row)
+
+    if isinstance(sf_comprehensive_summary, dict):
+        fetched = int(sf_comprehensive_summary.get("customers_fetched") or 0)
+        if fetched > 0:
+            hits = int(sf_comprehensive_summary.get("customers_drive_cache_hit") or 0)
+            misses = int(sf_comprehensive_summary.get("customers_salesforce_fetch") or 0)
+            row = _cache_hit_miss_row("salesforce_comprehensive (per customer)", hits, hits + misses)
+            if row:
+                rows.append(row)
+
+    if not rows:
+        return []
+    return ["  --- cache hit/miss ---", *rows]
+
+
 def format_drive_cache_load_summary() -> str:
     """Single-line summary for logs."""
     snap = drive_cache_load_stats_snapshot()

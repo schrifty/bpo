@@ -1171,17 +1171,19 @@ def _doc_payload_component_bytes(doc: dict[str, Any]) -> list[tuple[str, int]]:
 def emit_export_size_breakdown_stderr(
     md: str,
     doc: dict[str, Any],
+    diag: Any | None = None,
     *,
     max_bytes_cap: int | None = None,
     truncated: bool = False,
     pre_truncation_bytes: int | None = None,
     body_before_section7_bytes: int | None = None,
 ) -> None:
-    """Print UTF-8 size totals and per-section / per-component contribution (stderr)."""
+    """Print UTF-8 size totals, per-section contribution, and phase timing (stderr)."""
     total = _utf8_byte_len(md)
     print("", file=sys.stderr)
     print("=" * 60, file=sys.stderr)
-    print("Export size breakdown (UTF-8):", file=sys.stderr)
+    print("Export run summary:", file=sys.stderr)
+    print("  --- size (UTF-8) ---", file=sys.stderr)
     print(f"  total uploaded: {_format_utf8_bytes(total)}", file=sys.stderr)
     if truncated and pre_truncation_bytes is not None:
         print(
@@ -1220,6 +1222,22 @@ def emit_export_size_breakdown_stderr(
             f"  payload subtotal (excludes markdown framing): {_format_utf8_bytes(comp_total)}",
             file=sys.stderr,
         )
+    if diag is not None and getattr(diag, "timings", None):
+        for line in diag.timing_breakdown_lines():
+            print(line, file=sys.stderr)
+
+    from .drive_cache_stats import drive_cache_breakdown_lines
+
+    portfolio_raw = doc.get("_portfolio_raw")
+    sf_comp_summary = None
+    if isinstance(portfolio_raw, dict):
+        raw_sf = portfolio_raw.get("_llm_export_salesforce_comprehensive")
+        if isinstance(raw_sf, dict):
+            sf_comp_summary = raw_sf
+    cache_lines = drive_cache_breakdown_lines(sf_comprehensive_summary=sf_comp_summary)
+    for line in cache_lines:
+        print(line, file=sys.stderr)
+
     print("=" * 60, file=sys.stderr)
 
 
@@ -1641,6 +1659,7 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
         emit_export_size_breakdown_stderr(
             md,
             doc,
+            diag,
             max_bytes_cap=max_b,
             truncated=markdown_truncated,
             pre_truncation_bytes=pre_truncation_bytes,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from src.drive_cache_stats import record_pendo_preload_load_attempt, reset_drive_cache_load_stats
 from src.export_llm_context_snapshot import (
     _doc_payload_component_bytes,
     _markdown_section_byte_breakdown,
@@ -29,12 +30,35 @@ def test_doc_payload_component_bytes_orders_by_size() -> None:
 
 
 def test_emit_export_size_breakdown_stderr(capsys) -> None:
+    from src.export_run_diagnostics import ExportRunDiagnostics
+
+    reset_drive_cache_load_stats()
+    record_pendo_preload_load_attempt(hit=True)
     md = "## 1. Pendo\n\n{}\n\n## 7. Risk\n\nline\n"
-    doc = {"pendo": {"x": 1}, "jira_help": {}}
-    emit_export_size_breakdown_stderr(md, doc)
+    doc = {
+        "pendo": {"x": 1},
+        "jira_help": {},
+        "_portfolio_raw": {
+            "_llm_export_salesforce_comprehensive": {
+                "customers_fetched": 5,
+                "customers_drive_cache_hit": 4,
+                "customers_salesforce_fetch": 1,
+            },
+        },
+    }
+    diag = ExportRunDiagnostics()
+    diag.record_phase("portfolio snapshot", 12.5)
+    diag.record_phase("Drive upload", 3.2)
+    emit_export_size_breakdown_stderr(md, doc, diag)
     err = capsys.readouterr().err
-    assert "Export size breakdown" in err
+    assert "Export run summary" in err
     assert "total uploaded" in err
     assert "markdown sections" in err
     assert "document payloads" in err
+    assert "wall-clock timing" in err
+    assert "portfolio snapshot" in err
+    assert "00:00:13" in err  # 12.5s rounded
+    assert "cache hit/miss" in err
+    assert "pendo_preload" in err
+    assert "salesforce_comprehensive" in err
     assert "Pendo" in err

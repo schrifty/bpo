@@ -12,6 +12,14 @@ from typing import Iterator
 _export_diag: ContextVar["ExportRunDiagnostics | None"] = ContextVar("export_run_diagnostics", default=None)
 
 
+def format_elapsed_hms(seconds: float) -> str:
+    """Format elapsed seconds as HH:mm:ss (hours may exceed 23 for long runs)."""
+    total = int(max(0.0, float(seconds)) + 0.5)
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
 class ExportRunDiagnostics:
     """Per-export warning list and wall-clock phase timings."""
 
@@ -42,18 +50,26 @@ class ExportRunDiagnostics:
     def total_elapsed_s(self) -> float:
         return time.monotonic() - self._t0
 
-    def emit_stderr_summary(self) -> None:
-        """Print timing stats, Drive cache summary, then all collected warnings."""
-        from .drive_cache_stats import format_drive_cache_load_summary
-
+    def timing_breakdown_lines(self) -> list[str]:
+        """Lines for phase wall times with share of total elapsed (for export footer)."""
+        if not self._timings:
+            return []
         total = self.total_elapsed_s()
-        print("", file=sys.stderr)
-        print("=" * 60, file=sys.stderr)
-        print("Export timing:", file=sys.stderr)
+        measured = sum(secs for _, secs in self._timings)
+        lines = ["  --- wall-clock timing ---"]
         for label, secs in self._timings:
-            print(f"  {label}: {secs:.1f}s", file=sys.stderr)
-        print(f"  total: {total:.1f}s", file=sys.stderr)
-        print(format_drive_cache_load_summary(), file=sys.stderr)
+            pct = (100.0 * secs / total) if total else 0.0
+            lines.append(f"    {pct:5.1f}%  {format_elapsed_hms(secs):>8}  {label}")
+        overhead = max(0.0, total - measured)
+        if overhead >= 0.5:
+            pct = (100.0 * overhead / total) if total else 0.0
+            lines.append(f"    {pct:5.1f}%  {format_elapsed_hms(overhead):>8}  (unphased overhead)")
+        lines.append(f"  total wall time: {format_elapsed_hms(total)}")
+        return lines
+
+    def emit_stderr_summary(self) -> None:
+        """Print warnings (size, timing, and cache stats are in the export run summary)."""
+        print("", file=sys.stderr)
         print("=" * 60, file=sys.stderr)
         if self._warnings:
             print(f"Warnings ({len(self._warnings)}):", file=sys.stderr)
