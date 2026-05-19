@@ -24,22 +24,49 @@ def llm_export_sf_comprehensive_enabled() -> bool:
 def llm_export_sf_comprehensive_row_limit() -> int:
     raw = (os.environ.get("BPO_LLM_EXPORT_SF_COMPREHENSIVE_ROW_LIMIT") or "").strip()
     if not raw:
-        return 75
+        return 8
     try:
         return max(1, min(int(raw), 500))
     except ValueError:
-        return 75
+        return 8
 
 
 def llm_export_sf_comprehensive_customer_cap() -> int | None:
-    """Optional max customers to fetch (active labels first, then churned). ``None`` = no cap."""
+    """Max customers to fetch. Default 12 (top active by ARR). ``0``/``all`` = no cap."""
     raw = (os.environ.get("BPO_LLM_EXPORT_SF_COMPREHENSIVE_CUSTOMER_CAP") or "").strip()
     if not raw:
+        return 12
+    if raw.lower() in ("0", "all", "none", "unlimited"):
         return None
     try:
         return max(1, int(raw))
     except ValueError:
-        return None
+        return 12
+
+
+def _labels_for_comprehensive_fetch(
+    report: dict[str, Any],
+    *,
+    cap: int | None,
+) -> tuple[list[tuple[str, str]], dict[str, Any]]:
+    """Choose Customer Entity labels for §3c fetch (CSM: top active book by ARR when capped)."""
+    if cap is None:
+        labels = _rollup_labels_with_segment(report)
+        return labels, {"selection": "all_portfolio_labels", "top_n": None}
+
+    from .llm_export_csr import top_active_customers_by_arr_for_csr
+
+    ranked = top_active_customers_by_arr_for_csr(report, top_n=cap)
+    labels = [
+        (str(row.get("salesforce_label") or "").strip(), "active")
+        for row in ranked
+        if str(row.get("salesforce_label") or "").strip()
+    ]
+    return labels, {
+        "selection": "top_active_by_arr",
+        "top_n": cap,
+        "selection_ranked": ranked,
+    }
 
 
 def _rollup_labels_with_segment(report: dict[str, Any]) -> list[tuple[str, str]]:
@@ -91,7 +118,8 @@ def attach_salesforce_comprehensive_for_llm_export(report: dict[str, Any]) -> di
 
     Fetches the same multi-object slice as the ``salesforce_comprehensive`` deck
     (:meth:`SalesforceClient.get_customer_salesforce_comprehensive`) for each portfolio
-    Customer Entity label (active + churned). Also attaches all Customer Entity account
+    Customer Entity labels (by default top active accounts by ARR; churned only when uncapped).
+    Also attaches all Customer Entity account
     rows and portfolio expansion KPIs when available.
     """
     summary: dict[str, Any] = {
@@ -123,11 +151,9 @@ def attach_salesforce_comprehensive_for_llm_export(report: dict[str, Any]) -> di
         report["_llm_export_salesforce_comprehensive"] = summary
         return summary
 
-    labels = _rollup_labels_with_segment(report)
     cap = summary["customer_cap"]
-    if cap is not None and len(labels) > cap:
-        labels = labels[:cap]
-        summary["customers_truncated"] = True
+    labels, selection_meta = _labels_for_comprehensive_fetch(report, cap=cap)
+    summary.update(selection_meta)
     summary["customers_requested"] = len(labels)
 
     from src.customer_identity import lookup_salesforce_identity
@@ -195,11 +221,11 @@ def attach_salesforce_comprehensive_for_llm_export(report: dict[str, Any]) -> di
         "entity_accounts_count": len(entity_accounts),
         "portfolio_expansion_book": expansion,
         "note": (
-            "Per-customer payloads mirror the salesforce_comprehensive deck: mainstream object "
-            "categories (contacts, opportunities, cases, tasks, events, contracts, orders, quotes, "
-            "assets, campaigns, leads, products/pricebooks samples) scoped to matched Customer "
-            "Entity accounts and ParentId hierarchy expansion. Each label is loaded from Drive "
-            "integration cache when fresh (same files as salesforce_comprehensive decks)."
+            "Per-customer payloads mirror the salesforce_comprehensive deck (mainstream object "
+            "categories scoped to matched Customer Entity accounts). When "
+            "BPO_LLM_EXPORT_SF_COMPREHENSIVE_CUSTOMER_CAP is set (default 12), only the top "
+            "active Salesforce labels by ARR are fetched — same ranking as §4 CS Report top-N. "
+            "Set CUSTOMER_CAP=0 or all to fetch every active+churned portfolio label."
         ),
     }
     report["_llm_export_salesforce_comprehensive"] = summary

@@ -49,6 +49,7 @@ class SourceId(str, Enum):
     SALESFORCE_PORTFOLIO_AGGREGATE = "salesforce_portfolio_aggregate"
     SALESFORCE_COMPREHENSIVE_PORTFOLIO = "salesforce_comprehensive_portfolio"
     JIRA_HELP_PORTFOLIO = "jira_help_portfolio"
+    SLACK_CUSTOMER_CONVERSATIONS = "slack_customer_conversations"
 
     LEANDNA_ITEM_MASTER = "leandna_item_master"
     LEANDNA_SHORTAGE_TRENDS = "leandna_shortage_trends"

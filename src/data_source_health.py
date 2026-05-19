@@ -76,8 +76,18 @@ def check_github() -> tuple[bool, str | None]:
         return False, f"GitHub: {str(e)[:120]}"
 
 
+def check_slack() -> tuple[bool, str | None]:
+    """Return (True, None) if Slack is not configured or ``auth.test`` succeeds."""
+    try:
+        from .slack_client import check_slack_api
+        return check_slack_api()
+    except Exception as e:
+        logger.warning("Slack preflight failed: %s", e)
+        return False, f"Slack: {str(e)[:120]}"
+
+
 def check_all_required() -> list[str]:
-    """Run preflight on Pendo, Salesforce (if configured), GitHub (if configured), and CS Report.
+    """Run preflight on Pendo, Salesforce (if configured), GitHub/Slack (if configured), and CS Report.
 
     Returns a list of error messages. If empty, all required sources are up; otherwise
     the caller should abort and print these messages.
@@ -87,6 +97,7 @@ def check_all_required() -> list[str]:
         ("Pendo", check_pendo),
         ("Salesforce", check_salesforce),
         ("GitHub", check_github),
+        ("Slack", check_slack),
         ("CS Report", check_cs_report),
     ):
         ok, msg = check_fn()

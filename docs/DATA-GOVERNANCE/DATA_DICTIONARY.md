@@ -97,6 +97,23 @@
 ## GitHub
 - `github`
 
+## Slack
+- `slack.source`
+- `slack.customer`
+- `slack.days`
+- `slack.configured`
+- `slack.channels_matched`
+- `slack.conversation_summaries`
+- `slack.conversation_summaries[].channel_id`
+- `slack.conversation_summaries[].channel_name`
+- `slack.conversation_summaries[].message_count`
+- `slack.conversation_summaries[].summary_lines`
+- `slack.conversation_summaries[].summary_text`
+- `slack.combined_summary_markdown`
+- `slack.note`
+- `slack.error`
+- `slack.skipped`
+
 ## internal
 - `_drive_svc`
 - `_hydrate_slide_hints`

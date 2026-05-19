@@ -13,6 +13,7 @@ PROFILE_LLM_EXPORT_ALL_CUSTOMERS: frozenset[SourceId] = frozenset(
         SourceId.CS_REPORT_ALL_CUSTOMERS_WEEK,
         SourceId.SALESFORCE_PORTFOLIO_AGGREGATE,
         SourceId.SALESFORCE_COMPREHENSIVE_PORTFOLIO,
+        SourceId.SLACK_CUSTOMER_CONVERSATIONS,
         SourceId.JIRA_HELP_PORTFOLIO,
     )
 )
@@ -35,5 +36,6 @@ PROFILE_SINGLE_CUSTOMER_HEALTH_CORE: frozenset[SourceId] = frozenset(
     (
         SourceId.PENDO_CUSTOMER_HEALTH,
         SourceId.CS_REPORT_CUSTOMER_WEEK,
+        SourceId.SLACK_CUSTOMER_CONVERSATIONS,
     )
 )

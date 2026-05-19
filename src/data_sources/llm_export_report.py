@@ -10,6 +10,7 @@ from .registry import SourceId
 from .loaders.salesforce_portfolio_aggregate import salesforce_portfolio_aggregate_for_report
 
 from ..llm_export_csr import attach_csr_top_customers_for_llm_export
+from ..llm_export_slack import attach_slack_top_customers_for_llm_export
 from ..llm_export_salesforce_comprehensive import attach_salesforce_comprehensive_for_llm_export
 from ..llm_export_salesforce_universe import merge_salesforce_universe_for_llm_export
 
@@ -137,6 +138,58 @@ def build_llm_export_snapshot_report(pc: Any, *, days: int) -> dict[str, Any]:
         }
         provenance.append(
             _provenance_row(SourceId.CS_REPORT_ALL_CUSTOMERS_WEEK, status="error", detail=str(e))
+        )
+
+    try:
+        slack_summary = attach_slack_top_customers_for_llm_export(report)
+        if not slack_summary.get("enabled"):
+            provenance.append(
+                _provenance_row(
+                    SourceId.SLACK_CUSTOMER_CONVERSATIONS,
+                    status="skipped",
+                    detail="BPO_LLM_EXPORT_SLACK disabled",
+                )
+            )
+        elif not slack_summary.get("slack_configured"):
+            provenance.append(
+                _provenance_row(
+                    SourceId.SLACK_CUSTOMER_CONVERSATIONS,
+                    status="skipped",
+                    detail="slack_not_configured",
+                )
+            )
+        elif int(slack_summary.get("customers_selected") or 0) == 0:
+            provenance.append(
+                _provenance_row(
+                    SourceId.SLACK_CUSTOMER_CONVERSATIONS,
+                    status="skipped",
+                    detail="no_salesforce_rollups_for_top_arr_selection",
+                )
+            )
+        elif int(slack_summary.get("customers_slack_errors") or 0) > 0:
+            provenance.append(
+                _provenance_row(
+                    SourceId.SLACK_CUSTOMER_CONVERSATIONS,
+                    status="partial",
+                    detail=(
+                        f"top_{slack_summary.get('customers_selected')} "
+                        f"with_data={slack_summary.get('customers_with_slack_data')} "
+                        f"errors={slack_summary.get('customers_slack_errors')}"
+                    ),
+                )
+            )
+        else:
+            provenance.append(
+                _provenance_row(
+                    SourceId.SLACK_CUSTOMER_CONVERSATIONS,
+                    status="ok",
+                    detail=f"top_{slack_summary.get('customers_selected')}_by_arr",
+                )
+            )
+    except Exception as e:
+        report["slack"] = {"scope": "top_customers_by_arr", "error": str(e)[:500], "customers": {}}
+        provenance.append(
+            _provenance_row(SourceId.SLACK_CUSTOMER_CONVERSATIONS, status="error", detail=str(e))
         )
 
     try:

@@ -145,6 +145,20 @@ _PENDO_EXPORT_HEADLINE_CUSTOMER_CAP = 200
 
 # ``--max-bytes`` / compaction caps: 0 means no limit (full payloads in export).
 _LLM_EXPORT_NO_CAP = 0
+_LLM_EXPORT_DEFAULT_MAX_BYTES = 500_000
+
+
+def llm_export_default_max_bytes() -> int:
+    """Default UTF-8 soft cap for all-customers export (``BPO_LLM_EXPORT_MAX_BYTES``; 0 = unlimited)."""
+    import os
+
+    raw = (os.environ.get("BPO_LLM_EXPORT_MAX_BYTES") or "").strip()
+    if not raw:
+        return _LLM_EXPORT_DEFAULT_MAX_BYTES
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return _LLM_EXPORT_DEFAULT_MAX_BYTES
 
 
 def _export_cap_active(cap: int | None) -> bool:
@@ -382,6 +396,9 @@ def _build_export_coverage(
     sf_comp = report.get("_llm_export_salesforce_comprehensive")
     if isinstance(sf_comp, dict):
         out_cov["salesforce_comprehensive"] = sf_comp
+    slack_meta = report.get("_llm_export_slack")
+    if isinstance(slack_meta, dict):
+        out_cov["slack_top_by_arr"] = slack_meta
     churn_seg_cov = report.get("salesforce_churned_segment")
     if isinstance(churn_seg_cov, dict):
         out_cov["salesforce_churned_segment"] = {
@@ -523,15 +540,16 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
     if cov.get("size_caps_enabled"):
         lines.append(
             f"- **Target size (`--max-bytes`):** about **{cov.get('markdown_soft_cap_bytes', '')}** bytes of UTF-8 for "
-            "the whole markdown file. If the export is still too large, it first **tightens CS Report and "
-            "Salesforce** (fewer sites, shorter text, fewer accounts). If it is **still** too large, the **end of the file "
-            "may be cut off** — raise `--max-bytes` if you need every section intact (especially with a long §5)."
+            "the whole markdown file. §3c Salesforce comprehensive is exported in **headline** form (per-customer "
+            "KPIs + capped category samples, top customers by ARR). If the export is still too large, CSR and §3 "
+            "rollup tighten further; the **end of the file may be cut off** — raise `--max-bytes` or set "
+            "`BPO_LLM_EXPORT_SF_COMPREHENSIVE=false` for a smaller run."
         )
     else:
         lines.append(
-            "- **Size caps:** **disabled** for this run (`--max-bytes 0`, default). Full CS Report site rows, "
+            "- **Size caps:** **disabled** for this run (`--max-bytes 0`). Full CS Report site rows, "
             "Salesforce rollups, Pendo headlines, and §3c comprehensive payloads are included without markdown "
-            "truncation or tiered compaction. Pass `--max-bytes N` with **N > 0** to re-enable limits."
+            "truncation or tiered compaction."
         )
     c = cov.get("compaction") if isinstance(cov.get("compaction"), dict) else {}
     if c and cov.get("size_caps_enabled"):
@@ -960,6 +978,184 @@ def _compact_csr(
     return out
 
 
+def _compact_slack(slack: dict[str, Any], *, size_caps_enabled: bool = True) -> dict[str, Any]:
+    if not slack:
+        return {
+            "note": "Slack was not attached (empty slack). Set SLACK_BOT_TOKEN and BPO_LLM_EXPORT_SLACK.",
+        }
+    max_lines = 30 if size_caps_enabled else 500
+    out: dict[str, Any] = {}
+    for key in ("scope", "top_n", "lookback_days", "note", "skipped", "error"):
+        if key in slack and slack[key] is not None:
+            out[key] = slack[key]
+    if isinstance(slack.get("selection_ranked"), list):
+        out["selection_ranked"] = slack["selection_ranked"]
+    customers = slack.get("customers")
+    if isinstance(customers, dict):
+        out["customers"] = {}
+        for label, block in customers.items():
+            if not isinstance(block, dict):
+                continue
+            slim: dict[str, Any] = {
+                k: block[k]
+                for k in ("salesforce_label", "lookup_name", "arr")
+                if k in block
+            }
+            payload = block.get("slack") if isinstance(block.get("slack"), dict) else {}
+            summaries = payload.get("conversation_summaries") if isinstance(payload.get("conversation_summaries"), list) else []
+            slim_summaries: list[dict[str, Any]] = []
+            for s in summaries:
+                if not isinstance(s, dict):
+                    continue
+                lines = s.get("summary_lines") if isinstance(s.get("summary_lines"), list) else []
+                slim_summaries.append(
+                    {
+                        "channel_id": s.get("channel_id"),
+                        "channel_name": s.get("channel_name"),
+                        "message_count": s.get("message_count"),
+                        "summary_lines": lines[-max_lines:] if max_lines else lines,
+                        "error": s.get("error"),
+                    }
+                )
+            slim["slack"] = {
+                "source": payload.get("source"),
+                "days": payload.get("days"),
+                "channels_matched": payload.get("channels_matched"),
+                "conversation_summaries": slim_summaries,
+                "combined_summary_markdown": payload.get("combined_summary_markdown"),
+                "note": payload.get("note"),
+                "error": payload.get("error"),
+            }
+            out["customers"][label] = slim
+        return out
+    payload = slack
+    summaries = payload.get("conversation_summaries") if isinstance(payload.get("conversation_summaries"), list) else []
+    slim_summaries = []
+    for s in summaries:
+        if not isinstance(s, dict):
+            continue
+        lines = s.get("summary_lines") if isinstance(s.get("summary_lines"), list) else []
+        slim_summaries.append(
+            {
+                "channel_id": s.get("channel_id"),
+                "channel_name": s.get("channel_name"),
+                "message_count": s.get("message_count"),
+                "summary_lines": lines[-max_lines:] if max_lines else lines,
+                "error": s.get("error"),
+            }
+        )
+    return {
+        "source": payload.get("source"),
+        "customer": payload.get("customer"),
+        "days": payload.get("days"),
+        "channels_matched": payload.get("channels_matched"),
+        "conversation_summaries": slim_summaries,
+        "combined_summary_markdown": payload.get("combined_summary_markdown"),
+        "note": payload.get("note"),
+        "error": payload.get("error"),
+        "skipped": payload.get("skipped"),
+    }
+
+
+def _compact_salesforce_comprehensive_portfolio(
+    block: dict[str, Any],
+    *,
+    report: dict[str, Any] | None = None,
+    top_customers: int = 25,
+    rows_per_category: int = 5,
+    entity_account_cap: int = 48,
+) -> dict[str, Any]:
+    """Shrink §3c for LLM export: top ARR customers, KPIs, and capped category row samples."""
+    if not block or not isinstance(block, dict):
+        return {}
+    out: dict[str, Any] = {
+        k: block[k]
+        for k in (
+            "configured",
+            "row_limit",
+            "customer_count",
+            "portfolio_expansion_book",
+            "note",
+            "error",
+            "skipped",
+        )
+        if k in block
+    }
+    out["export_compaction"] = {
+        "mode": "headline",
+        "top_customers": top_customers,
+        "rows_per_category": rows_per_category,
+        "entity_account_cap": entity_account_cap,
+    }
+    by_customer = block.get("by_customer") if isinstance(block.get("by_customer"), dict) else {}
+    priority: list[str] = []
+    if report is not None:
+        try:
+            from .llm_export_csr import top_active_customers_by_arr_for_csr
+
+            for row in top_active_customers_by_arr_for_csr(report, top_n=max(1, top_customers)):
+                label = str(row.get("salesforce_label") or "").strip()
+                if label and label not in priority:
+                    priority.append(label)
+        except Exception:
+            pass
+    for label in sorted(by_customer.keys()):
+        if label not in priority:
+            priority.append(label)
+    chosen = priority[: max(0, int(top_customers))]
+    slim_by: dict[str, Any] = {}
+    rows_cap = max(0, int(rows_per_category))
+    for label in chosen:
+        payload = by_customer.get(label)
+        if not isinstance(payload, dict):
+            continue
+        slim: dict[str, Any] = {
+            k: payload[k]
+            for k in (
+                "customer",
+                "matched",
+                "resolution",
+                "primary_account_id",
+                "pipeline_arr",
+                "opportunity_count_this_year",
+                "row_limit",
+                "customer_segment",
+                "error",
+            )
+            if k in payload
+        }
+        aids = payload.get("account_ids")
+        if isinstance(aids, list):
+            slim["account_ids_count"] = len(aids)
+        cats = payload.get("categories") if isinstance(payload.get("categories"), dict) else {}
+        slim_cats: dict[str, Any] = {}
+        cat_errors = payload.get("category_errors") if isinstance(payload.get("category_errors"), dict) else {}
+        for cat, rows in cats.items():
+            if not isinstance(rows, list):
+                continue
+            slim_cats[str(cat)] = {
+                "row_count": len(rows),
+                "sample": rows[:rows_cap] if rows_cap else [],
+            }
+        slim["categories"] = slim_cats
+        if cat_errors:
+            slim["category_errors"] = cat_errors
+        slim_by[label] = slim
+    out["by_customer"] = slim_by
+    out["by_customer_exported"] = len(slim_by)
+    out["by_customer_total"] = len(by_customer)
+    entities = block.get("entity_accounts") if isinstance(block.get("entity_accounts"), list) else []
+    cap_e = max(0, int(entity_account_cap))
+    if cap_e and len(entities) > cap_e:
+        out["entity_accounts"] = entities[:cap_e]
+        out["entity_accounts_count"] = len(entities)
+        out["entity_accounts_truncated"] = True
+    else:
+        out["entity_accounts"] = entities
+        out["entity_accounts_count"] = len(entities)
+    return out
+
+
 def _portfolio_signal_lines(
     portfolio: dict[str, Any], *, cap: int | None, line_max: int, size_caps_enabled: bool = True
 ) -> list[str]:
@@ -1044,14 +1240,27 @@ def build_snapshot_document(
             "salesforce": churn_sf,
         },
         "salesforce_comprehensive_portfolio": (
-            report.get("salesforce_comprehensive_portfolio")
-            if isinstance(report.get("salesforce_comprehensive_portfolio"), dict)
-            else {}
+            _compact_salesforce_comprehensive_portfolio(
+                report.get("salesforce_comprehensive_portfolio")
+                if isinstance(report.get("salesforce_comprehensive_portfolio"), dict)
+                else {},
+                report=report,
+            )
+            if size_caps_enabled
+            else (
+                report.get("salesforce_comprehensive_portfolio")
+                if isinstance(report.get("salesforce_comprehensive_portfolio"), dict)
+                else {}
+            )
         ),
         "cs_report": _compact_csr(
             csr,
             site_limit=csr_site_limit,
             string_cap=csr_string_cap,
+            size_caps_enabled=size_caps_enabled,
+        ),
+        "slack": _compact_slack(
+            report.get("slack") if isinstance(report.get("slack"), dict) else {},
             size_caps_enabled=size_caps_enabled,
         ),
         "notable_signals_lines": sig_lines,
@@ -1158,6 +1367,7 @@ def _doc_payload_component_bytes(doc: dict[str, Any]) -> list[tuple[str, int]]:
     add("salesforce_churned_segment", doc.get("salesforce_churned_segment"))
     add("salesforce_comprehensive_portfolio", doc.get("salesforce_comprehensive_portfolio"))
     add("cs_report", doc.get("cs_report"))
+    add("slack", doc.get("slack"))
     add("notable_signals_lines", doc.get("notable_signals_lines"))
     add("signals_trend_context", doc.get("signals_trend_context"))
     add("leandna_data_api_reference", doc.get("leandna_data_api_reference"))
@@ -1258,7 +1468,7 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
     if ec.get("size_caps_enabled") and cap_b is not None and int(cap_b) > 0:
         parts.append(f"- **Markdown soft cap (this run):** {cap_b} bytes (`--max-bytes`)")
     elif not ec.get("size_caps_enabled"):
-        parts.append("- **Markdown soft cap (this run):** none (`--max-bytes 0`, default)")
+        parts.append("- **Markdown soft cap (this run):** none (`--max-bytes 0`)")
     parts.extend(
         [
         "",
@@ -1358,6 +1568,13 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
             "",
             _json_compact(doc.get("cs_report")),
             "",
+            "## 4b. Slack (top customers by ARR — recent channel conversations)",
+            "",
+            "Recent human messages from Slack channels matched to each customer name "
+            "(and ``slack_customer_aliases.yaml``). Not Slack AI-generated summaries.",
+            "",
+            _json_compact(doc.get("slack") or {}),
+            "",
             "## 5. Pendo usage signals",
             "",
         ]
@@ -1385,10 +1602,12 @@ def _shrink_snapshot_params(
     sf_accounts: int,
     signals_cap: int | None = None,
     size_caps_enabled: bool = True,
+    sf_comp_top_customers: int = 25,
+    sf_comp_rows_per_category: int = 5,
 ) -> None:
     """Mutate ``doc`` in place for smaller serialization.
 
-    ``signals_cap`` is not reduced by tiered shrink (only CSR/SF tighten under ``--max-bytes``).
+    ``signals_cap`` is not reduced by tiered shrink (only CSR/SF/§3c tighten under ``--max-bytes``).
     """
     doc["jira_help"] = _compact_jira(
         doc.get("_full_jira") or {}, size_caps_enabled=size_caps_enabled
@@ -1404,8 +1623,13 @@ def _shrink_snapshot_params(
         doc.get("_full_sf") or {},
         account_cap=sf_accounts,
     )
-    doc["salesforce_comprehensive_portfolio"] = doc.get("_full_sf_comprehensive") or {}
     pr = doc.get("_portfolio_raw")
+    doc["salesforce_comprehensive_portfolio"] = _compact_salesforce_comprehensive_portfolio(
+        doc.get("_full_sf_comprehensive") or {},
+        report=pr if isinstance(pr, dict) else None,
+        top_customers=sf_comp_top_customers,
+        rows_per_category=sf_comp_rows_per_category,
+    )
     line_mx = 280
     cov0 = doc.get("export_coverage")
     if isinstance(cov0, dict):
@@ -1433,6 +1657,8 @@ def _shrink_snapshot_params(
                 "sf_accounts": sf_accounts,
                 "signals_cap": signals_cap,
                 "rollup_cap": rollup_cap,
+                "sf_comp_top_customers": sf_comp_top_customers,
+                "sf_comp_rows_per_category": sf_comp_rows_per_category,
             }
         )
         comp.setdefault("signals_line_max_chars", line_mx)
@@ -1447,9 +1673,10 @@ def _build_export_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
     ap.add_argument(
         "--max-bytes",
         type=int,
-        default=_LLM_EXPORT_NO_CAP,
+        default=llm_export_default_max_bytes(),
         help=(
-            "Soft cap on UTF-8 body size; 0 = no cap (default). When N>0, trims CSR/SF and may truncate markdown."
+            f"Soft cap on UTF-8 body size (default {llm_export_default_max_bytes():,} from "
+            "BPO_LLM_EXPORT_MAX_BYTES). 0 = no cap. When N>0, compacts §3c/CSR/SF and may truncate markdown."
         ),
     )
     ap.add_argument(
@@ -1562,13 +1789,13 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
 
             if size_caps_enabled:
                 tiers = [
-                    (10, 320, 16),
-                    (8, 260, 12),
-                    (6, 220, 8),
-                    (4, 180, 4),
+                    (10, 320, 16, 20, 4),
+                    (8, 260, 12, 15, 3),
+                    (6, 220, 8, 10, 2),
+                    (4, 180, 4, 6, 1),
                 ]
                 while len(md.encode("utf-8")) > max_b and tiers:
-                    csr_lim, csr_str, sf_acct = tiers.pop(0)
+                    csr_lim, csr_str, sf_acct, sf_top, sf_rows = tiers.pop(0)
                     _shrink_snapshot_params(
                         doc,
                         csr_site_limit=csr_lim,
@@ -1576,6 +1803,8 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
                         sf_accounts=sf_acct,
                         signals_cap=args.signals_cap,
                         size_caps_enabled=True,
+                        sf_comp_top_customers=sf_top,
+                        sf_comp_rows_per_category=sf_rows,
                     )
                     md = render_markdown(
                         {k: v for k, v in doc.items() if not str(k).startswith("_")},

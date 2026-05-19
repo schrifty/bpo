@@ -291,6 +291,27 @@ def build_entries() -> list[dict[str, Any]]:
                 )
             )
 
+    # ── Slack (customer channel conversation digests) ─────────────────────────
+    rows.extend(
+        [
+            _e("slack.source", "[Slack]"),
+            _e("slack.customer", "[Slack] customer or lookup name"),
+            _e("slack.days", "[Slack] lookback window"),
+            _e("slack.configured", "[Slack] token present"),
+            _e("slack.channels_matched", "[Slack] matched channel id/name list"),
+            _e("slack.conversation_summaries", "[Slack] per-channel digest blocks"),
+            _e("slack.conversation_summaries[].channel_id", "[Slack]"),
+            _e("slack.conversation_summaries[].channel_name", "[Slack]"),
+            _e("slack.conversation_summaries[].message_count", "[Slack]"),
+            _e("slack.conversation_summaries[].summary_lines", "[Slack] recent human messages"),
+            _e("slack.conversation_summaries[].summary_text", "[Slack] bullet markdown"),
+            _e("slack.combined_summary_markdown", "[Slack] all channels for customer"),
+            _e("slack.note", "[Slack] when no channels matched"),
+            _e("slack.error", "[Slack] when fetch failed"),
+            _e("slack.skipped", "[Slack] not configured or disabled"),
+        ]
+    )
+
     # ── CS Report (CSR) — full nested metrics ───────────────────────────────
     rows.extend(
         [

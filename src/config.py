@@ -86,6 +86,25 @@ JIRA_API_TOKEN = os.environ.get("JIRA_API_TOKEN")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "").strip() or None
 GITHUB_API_BASE_URL = os.environ.get("GITHUB_API_BASE_URL", "https://api.github.com").strip().rstrip("/") or "https://api.github.com"
 
+# Slack (optional — bot token for customer channel conversation digests)
+SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "").strip() or None
+SLACK_API_BASE_URL = (
+    os.environ.get("SLACK_API_BASE_URL", "https://slack.com/api").strip().rstrip("/")
+    or "https://slack.com/api"
+)
+try:
+    BPO_SLACK_LOOKBACK_DAYS = max(1, min(int(os.environ.get("BPO_SLACK_LOOKBACK_DAYS", "30").strip()), 90))
+except ValueError:
+    BPO_SLACK_LOOKBACK_DAYS = 30
+try:
+    BPO_SLACK_MAX_CHANNELS_PER_CUSTOMER = max(1, min(int(os.environ.get("BPO_SLACK_MAX_CHANNELS_PER_CUSTOMER", "5").strip()), 20))
+except ValueError:
+    BPO_SLACK_MAX_CHANNELS_PER_CUSTOMER = 5
+try:
+    BPO_SLACK_MAX_MESSAGES_PER_CHANNEL = max(5, min(int(os.environ.get("BPO_SLACK_MAX_MESSAGES_PER_CHANNEL", "50").strip()), 200))
+except ValueError:
+    BPO_SLACK_MAX_MESSAGES_PER_CHANNEL = 50
+
 # Salesforce (JWT Bearer Flow: Connected App + private key)
 # SF_LOGIN_URL: https://login.salesforce.com (prod) or https://test.salesforce.com (sandbox)
 SF_LOGIN_URL = os.environ.get("SF_LOGIN_URL")

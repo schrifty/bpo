@@ -2780,6 +2780,19 @@ class PendoClient:
             qa.flag(f"CS Report data unavailable: {str(e)[:80]}",
                     sources=("CS Report / Data Exports",), severity="warning")
 
+        slack_data: dict[str, Any] = {}
+        try:
+            from .slack_client import get_customer_slack_conversations, slack_enabled_for_reports
+
+            if slack_enabled_for_reports():
+                slack_data = get_customer_slack_conversations(customer_name, days=min(int(days), 90))
+        except Exception as e:
+            qa.flag(
+                f"Slack data unavailable: {str(e)[:80]}",
+                sources=("Slack API",),
+                severity="warning",
+            )
+
         try:
             pendo_catalog_appendix = self.get_pendo_catalog_appendix_summary()
         except Exception as e:
@@ -2812,6 +2825,7 @@ class PendoClient:
                 "supply_chain": cs_supply_chain,
                 "platform_value": cs_platform_value,
             },
+            "slack": slack_data,
         }
         if BPO_SIGNALS_TRENDS:
             try:
