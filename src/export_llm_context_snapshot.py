@@ -941,6 +941,29 @@ def _pendo_portfolio_topline(
     }
 
 
+def _sample_csr_sites_for_export(sites: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    """Prefer a health mix when capping site rows (avoid all high-shortage NONE factories)."""
+    if limit <= 0 or len(sites) <= limit:
+        return list(sites)
+    order = ("GREEN", "YELLOW", "RED", "NONE")
+    buckets: dict[str, list[dict[str, Any]]] = {k: [] for k in order}
+    other: list[dict[str, Any]] = []
+    for s in sites:
+        hs = str(s.get("health_score") or "NONE").strip().upper()
+        if hs in buckets:
+            buckets[hs].append(s)
+        else:
+            other.append(s)
+    per_bucket = max(1, limit // len(order))
+    out: list[dict[str, Any]] = []
+    for k in order:
+        out.extend(buckets[k][:per_bucket])
+    if len(out) < limit:
+        remainder = [s for s in sites if s not in out]
+        out.extend(remainder[: max(0, limit - len(out))])
+    return out[:limit]
+
+
 def _compact_csr_section_block(
     block: dict[str, Any], *, site_limit: int, string_cap: int, size_caps_enabled: bool = True
 ) -> dict[str, Any]:
@@ -952,7 +975,8 @@ def _compact_csr_section_block(
     sites = pruned.get("sites")
     if isinstance(sites, list):
         if size_caps_enabled and _export_cap_active(site_limit):
-            pruned["sites"] = sites[:site_limit]
+            pruned["sites"] = _sample_csr_sites_for_export(sites, site_limit)
+            pruned["sites_sample_strategy"] = "health_mix_then_shortage_bias"
         else:
             pruned["sites"] = list(sites)
         pruned["sites_total"] = len(sites)

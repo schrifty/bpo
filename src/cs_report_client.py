@@ -67,6 +67,51 @@ def _kpi_end(raw) -> float | None:
     return float(v) if v is not None else None
 
 
+def _normalize_health_score(raw: Any) -> str:
+    """CSR health bucket (GREEN/YELLOW/RED/NONE); accepts plain strings or JSON KPI cells."""
+    if raw is None:
+        return "NONE"
+    if isinstance(raw, (int, float)):
+        return "NONE"
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s:
+            return "NONE"
+        if s.startswith("{"):
+            d = _parse_kpi(s)
+            if d:
+                v = d.get("endValue")
+                if v is None:
+                    v = d.get("startValue")
+                if v is not None:
+                    s = str(v).strip()
+        upper = s.upper()
+        if upper in ("GREEN", "YELLOW", "RED", "NONE"):
+            return upper
+        return s
+    return "NONE"
+
+
+def _health_score_from_row(row: dict[str, Any]) -> str:
+    for col in ("healthScore", "health_score", "Health Score"):
+        if col in row:
+            return _normalize_health_score(row.get(col))
+    for k, v in row.items():
+        if str(k).strip().lower() == "healthscore":
+            return _normalize_health_score(v)
+    return "NONE"
+
+
+def _csr_row_dedupe_key(row: dict[str, Any]) -> str:
+    parts = [
+        (row.get("customer") or "").strip().lower(),
+        (row.get("factoryName") or "").strip().lower(),
+        (row.get("entity") or row.get("Entity") or "").strip().lower(),
+        (row.get("site") or row.get("Site") or "").strip().lower(),
+    ]
+    return "|".join(parts)
+
+
 def _kpi_delta_pct(raw) -> float | None:
     """Extract the delta percentage from a KPI cell."""
     d = _parse_kpi(raw)
@@ -299,7 +344,7 @@ def cs_report_customer_name_candidates(pendo_name: str) -> list[str]:
 
 def _customer_rows(customer_name: str, delta: str = "week") -> list[dict[str, Any]]:
     """Get rows for one lookup key (plus ``cs_report_customer_aliases.yaml`` candidates)."""
-    sites, _matched, _tried = _sites_for_customer_lookup(customer_name, delta=delta)
+    sites, _matched, _tried, _merged = _sites_for_customer_lookup(customer_name, delta=delta)
     return sites
 
 
@@ -308,8 +353,11 @@ def _sites_for_customer_lookup(
     *,
     lookup_keys: list[str] | None = None,
     delta: str = "week",
-) -> tuple[list[dict[str, Any]], str | None, list[str]]:
-    """Try *lookup_keys* in order; each key expands via CSR aliases. Returns (rows, matched_key, tried)."""
+) -> tuple[list[dict[str, Any]], str | None, list[str], list[str]]:
+    """Merge week rows for every CSR ``customer`` resolved from *lookup_keys* and aliases.
+
+    Returns ``(rows, matched_lookup_key, tried_customer_values, matched_csr_customers)``.
+    """
     rows = _fetch_latest_report()
     keys: list[str] = []
     for k in lookup_keys or []:
@@ -324,6 +372,10 @@ def _sites_for_customer_lookup(
 
     all_tried: list[str] = []
     seen_tried: set[str] = set()
+    merged: list[dict[str, Any]] = []
+    seen_row_keys: set[str] = set()
+    matched_csr_customers: list[str] = []
+    matched_lookup_key: str | None = None
 
     for key in keys:
         cands = cs_report_customer_name_candidates(key)
@@ -339,16 +391,34 @@ def _sites_for_customer_lookup(
                 for r in rows
                 if (r.get("customer") or "").strip().lower() == nl and r.get("delta") == delta
             ]
-            if matched:
-                if nl != key_lower:
-                    logger.info(
-                        "CS Report: matched %d row(s) for lookup key %r using `customer`=%r",
-                        len(matched),
-                        key,
-                        name,
-                    )
-                return matched, key, all_tried
-    return [], None, all_tried
+            if not matched:
+                continue
+            if matched_lookup_key is None:
+                matched_lookup_key = key
+            if name not in matched_csr_customers:
+                matched_csr_customers.append(name)
+            if nl != key_lower:
+                logger.info(
+                    "CS Report: matched %d row(s) for lookup key %r using `customer`=%r",
+                    len(matched),
+                    key,
+                    name,
+                )
+            for r in matched:
+                rk = _csr_row_dedupe_key(r)
+                if rk in seen_row_keys:
+                    continue
+                seen_row_keys.add(rk)
+                merged.append(r)
+
+    if merged and len(matched_csr_customers) > 1:
+        logger.info(
+            "CS Report: merged %d row(s) across CSR customer values %r for account %r",
+            len(merged),
+            matched_csr_customers,
+            primary_name or matched_lookup_key,
+        )
+    return merged, matched_lookup_key, all_tried, matched_csr_customers
 
 
 def _add_site_entity_from_row(row: dict[str, Any], entry: dict[str, Any]) -> None:
@@ -372,7 +442,7 @@ def get_customer_platform_health(
     lookup_keys: list[str] | None = None,
 ) -> dict[str, Any]:
     """Health scores, component availability, CTB/CTC, and shortage summary per site."""
-    sites, matched_key, tried = _sites_for_customer_lookup(
+    sites, matched_key, tried, matched_csr_customers = _sites_for_customer_lookup(
         customer_name, lookup_keys=lookup_keys, delta="week"
     )
     if not sites:
@@ -392,7 +462,7 @@ def get_customer_platform_health(
 
     for r in sites:
         factory = r.get("factoryName", "Unknown")
-        health = r.get("healthScore", "NONE")
+        health = _health_score_from_row(r)
         health_colors[health] = health_colors.get(health, 0) + 1
 
         shortages = _kpi_end(r.get("shortageItemCount"))
@@ -439,9 +509,15 @@ def get_customer_platform_health(
         "customer": display_name,
         "source": "cs_report",
         "factory_count": len(sites),
+        "csr_customer_names_merged": matched_csr_customers,
         "health_distribution": health_colors,
         "total_shortages": total_shortages,
         "total_critical_shortages": total_critical,
+        "sites_sort": "shortages_desc",
+        "sites_note": (
+            "Per-factory list is sorted by shortages (highest first). High-shortage sites often "
+            "show NONE/RED health; use health_distribution for the full account mix."
+        ),
         "sites": sorted(site_health, key=lambda s: s.get("shortages", 0), reverse=True),
     }
 
@@ -452,7 +528,7 @@ def get_customer_supply_chain(
     lookup_keys: list[str] | None = None,
 ) -> dict[str, Any]:
     """Inventory values, DOI, excess, and shortage trends per site."""
-    sites, matched_key, tried = _sites_for_customer_lookup(
+    sites, matched_key, tried, _matched_csr = _sites_for_customer_lookup(
         customer_name, lookup_keys=lookup_keys, delta="week"
     )
     if not sites:
@@ -537,7 +613,7 @@ def get_customer_platform_value(
     lookup_keys: list[str] | None = None,
 ) -> dict[str, Any]:
     """ROI metrics: savings, open IA value, recs created, PO activity."""
-    sites, matched_key, tried = _sites_for_customer_lookup(
+    sites, matched_key, tried, _matched_csr = _sites_for_customer_lookup(
         customer_name, lookup_keys=lookup_keys, delta="week"
     )
     if not sites:
@@ -776,14 +852,19 @@ def load_csr_top_customers_by_arr(
         sc = get_customer_supply_chain(sf_label, lookup_keys=lookup_keys)
         pv = get_customer_platform_value(sf_label, lookup_keys=lookup_keys)
         matched = None
+        merged_csr_names: list[str] = []
         if isinstance(ph, dict) and not ph.get("error"):
             matched = ph.get("customer")
+            raw_merged = ph.get("csr_customer_names_merged")
+            if isinstance(raw_merged, list):
+                merged_csr_names = [str(x) for x in raw_merged if str(x).strip()]
         customers[sf_label] = {
             "salesforce_label": sf_label,
             "arr": row.get("arr"),
             "pendo_customer_key": row.get("pendo_customer_key"),
             "csr_lookup_keys": lookup_keys,
             "csr_matched_lookup_key": matched,
+            "csr_customer_names_merged": merged_csr_names,
             "csr_lookup_name": matched or (lookup_keys[0] if lookup_keys else sf_label),
             "platform_health": ph,
             "supply_chain": sc,

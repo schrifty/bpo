@@ -1,7 +1,13 @@
 """CS Report customer column alias matching (Pendo name vs export `customer`)."""
+import json
 from unittest.mock import patch
 
 from src import cs_report_client
+
+
+def test_normalize_health_score_from_json_kpi() -> None:
+    raw = json.dumps({"endValue": "GREEN", "empty": False})
+    assert cs_report_client._normalize_health_score(raw) == "GREEN"
 
 
 @patch.object(cs_report_client, "_fetch_latest_report")
@@ -56,13 +62,35 @@ def test_sites_for_customer_lookup_tries_salesforce_label_and_aliases(mock_fetch
     }
     with patch.object(cs_report_client, "_load_cs_report_alias_map", return_value=alias_map):
         with patch.object(cs_report_client, "_load_cohort_customer_alias_map", return_value={}):
-            rows, matched, tried = cs_report_client._sites_for_customer_lookup(
+            rows, matched, tried, merged = cs_report_client._sites_for_customer_lookup(
                 "Johnson",
                 lookup_keys=["Johnson", "JCI"],
             )
     assert len(rows) == 1
     assert matched == "Johnson"
     assert "Johnson Controls" in tried
+    assert merged == ["Johnson Controls"]
+
+
+@patch.object(cs_report_client, "_fetch_latest_report")
+def test_sites_for_customer_lookup_merges_multiple_csr_customer_names(mock_fetch: object) -> None:
+    mock_fetch.return_value = [
+        {"customer": "Johnson Controls", "delta": "week", "factoryName": "A", "healthScore": "GREEN"},
+        {
+            "customer": "Johnson Controls International",
+            "delta": "week",
+            "factoryName": "B",
+            "healthScore": "GREEN",
+        },
+    ]
+    alias_map = {
+        "johnson": ["Johnson Controls", "Johnson Controls International"],
+    }
+    with patch.object(cs_report_client, "_load_cs_report_alias_map", return_value=alias_map):
+        with patch.object(cs_report_client, "_load_cohort_customer_alias_map", return_value={}):
+            rows, matched, tried, merged = cs_report_client._sites_for_customer_lookup("Johnson")
+    assert len(rows) == 2
+    assert set(merged) == {"Johnson Controls", "Johnson Controls International"}
 
 
 @patch.object(cs_report_client, "_fetch_latest_report")
