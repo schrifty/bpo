@@ -2540,6 +2540,55 @@
       ]
     },
     {
+      "path": "salesforce_comprehensive_portfolio",
+      "terms": [
+        "salesforce_comprehensive_portfolio",
+        "[LLM export §3c] per-customer Salesforce comprehensive payloads for all portfolio labels"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.by_customer",
+      "terms": [
+        "salesforce_comprehensive_portfolio.by_customer",
+        "[LLM export] map Customer Entity label → comprehensive salesforce dict (categories, accounts)"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.entity_accounts",
+      "terms": [
+        "salesforce_comprehensive_portfolio.entity_accounts",
+        "[LLM export] all Customer Entity Account rows (full entity field set)"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.portfolio_expansion_book",
+      "terms": [
+        "salesforce_comprehensive_portfolio.portfolio_expansion_book",
+        "[LLM export] closed-won expansion / new-logo KPIs (portfolio-wide)"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.row_limit",
+      "terms": [
+        "salesforce_comprehensive_portfolio.row_limit",
+        "[LLM export] per-category SOQL row cap for comprehensive fetches"
+      ]
+    },
+    {
+      "path": "salesforce.expansion_kpis",
+      "terms": [
+        "salesforce.expansion_kpis",
+        "[SFDC LLM export §3] portfolio expansion KPI block on active aggregate"
+      ]
+    },
+    {
+      "path": "salesforce.portfolio_expansion_book",
+      "terms": [
+        "salesforce.portfolio_expansion_book",
+        "[SFDC LLM export §3] alias of portfolio_expansion_book on salesforce aggregate"
+      ]
+    },
+    {
       "path": "salesforce.account_ids",
       "terms": [
         "salesforce.account_ids",

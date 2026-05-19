@@ -9,6 +9,7 @@ from .profiles import PROFILE_ID_LLM_EXPORT_ALL_CUSTOMERS, PROFILE_LLM_EXPORT_AL
 from .registry import SourceId
 from .loaders.salesforce_portfolio_aggregate import salesforce_portfolio_aggregate_for_report
 
+from ..llm_export_salesforce_comprehensive import attach_salesforce_comprehensive_for_llm_export
 from ..llm_export_salesforce_universe import merge_salesforce_universe_for_llm_export
 
 
@@ -111,6 +112,49 @@ def build_llm_export_snapshot_report(pc: Any, *, days: int) -> dict[str, Any]:
         )
     else:
         provenance.append(_provenance_row(SourceId.SALESFORCE_PORTFOLIO_AGGREGATE, status="ok"))
+
+    try:
+        sf_comp_summary = attach_salesforce_comprehensive_for_llm_export(report)
+        if sf_comp_summary.get("enabled") is False:
+            provenance.append(
+                _provenance_row(
+                    SourceId.SALESFORCE_COMPREHENSIVE_PORTFOLIO,
+                    status="skipped",
+                    detail="BPO_LLM_EXPORT_SF_COMPREHENSIVE disabled",
+                )
+            )
+        elif not sf_comp_summary.get("salesforce_configured"):
+            provenance.append(
+                _provenance_row(
+                    SourceId.SALESFORCE_COMPREHENSIVE_PORTFOLIO,
+                    status="skipped",
+                    detail="salesforce_not_configured",
+                )
+            )
+        elif sf_comp_summary.get("customers_errors"):
+            provenance.append(
+                _provenance_row(
+                    SourceId.SALESFORCE_COMPREHENSIVE_PORTFOLIO,
+                    status="partial",
+                    detail=(
+                        f"matched={sf_comp_summary.get('customers_matched')}/"
+                        f"{sf_comp_summary.get('customers_requested')} "
+                        f"errors={sf_comp_summary.get('customers_errors')}"
+                    ),
+                )
+            )
+        else:
+            provenance.append(
+                _provenance_row(SourceId.SALESFORCE_COMPREHENSIVE_PORTFOLIO, status="ok")
+            )
+    except Exception as e:
+        report["salesforce_comprehensive_portfolio"] = {
+            "configured": False,
+            "error": str(e)[:500],
+        }
+        provenance.append(
+            _provenance_row(SourceId.SALESFORCE_COMPREHENSIVE_PORTFOLIO, status="error", detail=str(e))
+        )
 
     report["signals"] = []
     try:

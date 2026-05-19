@@ -166,7 +166,9 @@ else:
 
 
 # LeanDNA classic app API (session cookie — kpi/update-kpi style; not Data API Bearer).
-LEANDNA_APP_API_SERVER = (os.environ.get("LEANDNA_APP_API_SERVER") or "https://app.leandna.com").strip().rstrip("/")
+LEANDNA_APP_API_SERVER = (
+    os.environ.get("LEANDNA_APP_API_SERVER") or "https://app.staging.leandna.com"
+).strip().rstrip("/")
 LEANDNA_APP_SESSION_ID = (os.environ.get("LEANDNA_APP_SESSION_ID") or "").strip()
 LEANDNA_APP_COOKIE = (os.environ.get("LEANDNA_APP_COOKIE") or "").strip()
 try:

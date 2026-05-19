@@ -2,8 +2,9 @@
 """Export an all-customers LLM-oriented data snapshot to Google Drive under ``Output/``.
 
 Datasource bundle: :mod:`src.data_sources` profile ``llm_export_all_customers`` — Pendo portfolio
-rollup, CS Report (week), portfolio Salesforce revenue book, and Jira HELP (unscoped). The
-portfolio fetch does not read or sync QBR slide YAML (cohort findings use built-in defaults).
+rollup, CS Report (week), portfolio Salesforce revenue book, per-customer Salesforce comprehensive
+(multi-object CRM categories), and Jira HELP (unscoped). The portfolio fetch does not read or sync
+QBR slide YAML (cohort findings use built-in defaults).
 
 **Pendo** detail payloads are stripped (sites, pages, features, …); **Jira** includes counts,
 breakdowns, and SLA-style aggregates only — **no issue keys, summaries, or ticket rows.**
@@ -154,7 +155,8 @@ def _integration_coverage_lines(*, salesforce: dict[str, Any], csr: dict[str, An
         lines.append(f"- **Salesforce:** **Not loaded** — {salesforce['error']}")
     elif salesforce.get("resolution") == "portfolio_aggregate":
         lines.append(
-            "- **Salesforce:** **Loaded** — portfolio revenue book (ARR, pipeline, opportunities)."
+            "- **Salesforce:** **Loaded** — portfolio revenue book (ARR, pipeline, opportunities, "
+            "expansion KPIs) plus per-customer comprehensive CRM categories in §3c when configured."
         )
     else:
         lines.append("- **Salesforce:** **Loaded**.")
@@ -336,6 +338,9 @@ def _build_export_coverage(
     sf_churn = report.get("_llm_export_salesforce_churned")
     if isinstance(sf_churn, dict):
         out_cov["salesforce_churned"] = sf_churn
+    sf_comp = report.get("_llm_export_salesforce_comprehensive")
+    if isinstance(sf_comp, dict):
+        out_cov["salesforce_comprehensive"] = sf_comp
     churn_seg_cov = report.get("salesforce_churned_segment")
     if isinstance(churn_seg_cov, dict):
         out_cov["salesforce_churned_segment"] = {
@@ -724,6 +729,8 @@ def _compact_salesforce(sf: dict[str, Any], *, account_cap: int) -> dict[str, An
             "salesforce_unmatched_customers",
             "active_customer_count",
             "churned_customer_count",
+            "expansion_kpis",
+            "portfolio_expansion_book",
         ):
             if k in sf:
                 out[k] = sf[k]
@@ -884,6 +891,11 @@ def build_snapshot_document(
             "customers_headline": churn_headline,
             "salesforce": churn_sf,
         },
+        "salesforce_comprehensive_portfolio": (
+            report.get("salesforce_comprehensive_portfolio")
+            if isinstance(report.get("salesforce_comprehensive_portfolio"), dict)
+            else {}
+        ),
         "cs_report": _compact_csr(csr, site_limit=csr_site_limit, string_cap=csr_string_cap),
         "notable_signals_lines": sig_lines,
         "planned_data_sources": {
@@ -1028,6 +1040,15 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
             "",
             _json_compact(doc.get("salesforce_churned_segment")),
             "",
+            "## 3c. Salesforce comprehensive (per customer + entity accounts)",
+            "",
+            "Full mainstream-object categories (contacts, opportunities, cases, tasks, events, "
+            "contracts, orders, quotes, assets, campaigns, leads, product/pricebook samples) per "
+            "portfolio Customer Entity label, plus all Customer Entity account rows and portfolio "
+            "expansion KPIs. Row counts per category respect ``row_limit`` on each payload.",
+            "",
+            _json_compact(doc.get("salesforce_comprehensive_portfolio") or {}),
+            "",
             "## 4. CS Report (Data Exports Drive)",
             "",
             _json_compact(doc.get("cs_report")),
@@ -1074,6 +1095,7 @@ def _shrink_snapshot_params(
         doc.get("_full_sf") or {},
         account_cap=sf_accounts,
     )
+    doc["salesforce_comprehensive_portfolio"] = doc.get("_full_sf_comprehensive") or {}
     pr = doc.get("_portfolio_raw")
     line_mx = 280
     cov0 = doc.get("export_coverage")
@@ -1214,6 +1236,7 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
             doc["_full_jira"] = report.get("jira") or {}
             doc["_full_csr"] = report.get("csr") or {}
             doc["_full_sf"] = report.get("salesforce") or {}
+            doc["_full_sf_comprehensive"] = report.get("salesforce_comprehensive_portfolio") or {}
             doc["_portfolio_raw"] = report
 
             md = render_markdown(doc, exported_at_utc=exported_at)

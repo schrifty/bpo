@@ -16,9 +16,13 @@ Examples::
 
   get-dev-cycle-times
   get-dev-cycle-times --days 90 --format json
-  get-dev-cycle-times --months 6
-  get-dev-cycle-times --months 6 --format json --output cycle-times-6mo.json
-  get-dev-cycle-times --board 44 --include-issues
+  get-dev-cycle-times
+  get-dev-cycle-times --months 12 --format json --output cycle-times-12mo.json
+  get-dev-cycle-times --snapshot --days 30
+  get-dev-cycle-times --months 12 --include-issues --csv cycle-times.csv
+  get-dev-cycle-times --board 44
+  get-dev-cycle-times --board-id 36 --board-id 46
+  get-dev-cycle-times --board 44 --snapshot --days 30
   discover-dev-teams --project CUSTOMER
 """
 from __future__ import annotations
@@ -43,7 +47,11 @@ from dotenv import load_dotenv  # noqa: E402
 load_dotenv(ROOT / ".env")
 
 from src.jira_client import get_shared_jira_client  # noqa: E402
-from src.jira_cycle_time import DEV_CYCLE_TIME_BOARDS, get_dev_team_cycle_times  # noqa: E402
+from src.jira_cycle_time import (  # noqa: E402
+    DEV_CYCLE_TIME_BOARDS,
+    history_fetch_cap,
+    get_dev_team_cycle_times,
+)
 
 
 def _print_filter_legend(payload: dict[str, Any]) -> None:
@@ -84,7 +92,10 @@ def _print_history_brief(payload: dict[str, Any]) -> None:
                 f"mean {overall.get('mean_days')}d  "
                 f"n={team.get('measured_total')}"
             )
-        print(f"   {'Period':<10} {'Done':>6} {'Meas':>6} {'Median':>8} {'Mean':>8} {'P85':>8}")
+        print(
+            f"   {'Period':<10} {'Done':>6} {'Meas':>6} {'Outl':>5} "
+            f"{'Median':>8} {'Mean':>8} {'P85':>8}"
+        )
         for row in team.get("history") or []:
             med = row.get("median_days")
             med_s = f"{med}d" if med is not None else "—"
@@ -94,10 +105,21 @@ def _print_history_brief(payload: dict[str, Any]) -> None:
                 f"   {row.get('period', ''):<10} "
                 f"{row.get('completed', 0):>6} "
                 f"{row.get('measured', 0):>6} "
+                f"{row.get('outliers_dropped', 0):>5} "
                 f"{med_s:>8} "
                 f"{mean_s:>8} "
                 f"{p85_s:>8}"
             )
+        by_type = team.get("by_issue_type") or []
+        if by_type:
+            print("   By issue type (after outlier trim):")
+            for row in by_type[:8]:
+                med = row.get("median_days")
+                med_s = f"{med}d" if med is not None else "—"
+                print(
+                    f"     {row.get('issue_type', '?'):<28} "
+                    f"n={row.get('count', 0):>4}  median={med_s}"
+                )
         print()
 
 
@@ -150,25 +172,83 @@ def _print_brief(payload: dict[str, Any]) -> None:
         print()
 
 
+def _write_csv(payload: dict[str, Any], path: Path) -> None:
+    """Monthly history rows (one line per team per month)."""
+    import csv
+
+    rows: list[dict[str, Any]] = []
+    for team in payload.get("teams") or []:
+        if team.get("error"):
+            continue
+        base = {
+            "team": team.get("team"),
+            "board_id": team.get("board_id"),
+            "project_key": team.get("project_key"),
+        }
+        for h in team.get("history") or []:
+            rows.append({**base, **h})
+    if not rows:
+        return
+    fieldnames = list(rows[0].keys())
+    with path.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+
+
+def _write_issues_csv(payload: dict[str, Any], path: Path) -> None:
+    import csv
+
+    rows: list[dict[str, Any]] = []
+    for team in payload.get("teams") or []:
+        if team.get("error"):
+            continue
+        for iss in team.get("issues") or []:
+            rows.append(
+                {
+                    "team": team.get("team"),
+                    "board_id": team.get("board_id"),
+                    **iss,
+                }
+            )
+    if not rows:
+        return
+    fieldnames = list(rows[0].keys())
+    with path.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="Cycle time per development board (default: 44, 36, 46, 322).",
     )
-    ap.add_argument("--days", type=int, default=30, metavar="N", help="Trailing window for snapshot mode (default: 30)")
+    ap.add_argument("--days", type=int, default=30, metavar="N", help="Trailing window for --snapshot mode (default: 30)")
     ap.add_argument(
         "--months",
         type=int,
-        default=None,
+        default=12,
         metavar="N",
-        help="Monthly history for last N calendar months (e.g. 6); fetches once per board",
+        help="Monthly history for last N calendar months (default: 12)",
+    )
+    ap.add_argument(
+        "--snapshot",
+        action="store_true",
+        help="30-day snapshot instead of monthly history (ignores --months)",
     )
     ap.add_argument(
         "--board",
+        "--board-id",
         action="append",
         type=int,
+        dest="board",
         default=[],
         metavar="ID",
-        help="Board id (repeatable; default: all DEV_CYCLE_TIME_BOARDS)",
+        help=(
+            "Jira board id (repeatable). Default boards: 44 (LEAN), 36, 46, 322. "
+            "Omit to run all configured boards."
+        ),
     )
     ap.add_argument(
         "--max-issues",
@@ -182,7 +262,19 @@ def main() -> int:
     ap.add_argument(
         "--include-issues",
         action="store_true",
-        help="Include per-issue cycle times in JSON snapshot mode (up to 50 per board)",
+        help="Include per-issue rows in JSON (and --issues-csv when set)",
+    )
+    ap.add_argument(
+        "--csv",
+        default=None,
+        metavar="FILE",
+        help="Write monthly summary CSV (team × month)",
+    )
+    ap.add_argument(
+        "--issues-csv",
+        default=None,
+        metavar="FILE",
+        help="Write per-issue CSV (requires --include-issues)",
     )
     ap.add_argument(
         "--all-issue-types",
@@ -220,13 +312,15 @@ def main() -> int:
         return 1
 
     board_ids = ns.board if ns.board else None
-    if ns.months is not None and ns.months < 1:
+    months = None if ns.snapshot else ns.months
+    if months is not None and months < 1:
         print("--months must be >= 1", file=sys.stderr)
         return 1
-    if ns.months is not None:
+    if months is not None:
+        cap = history_fetch_cap(months, ns.max_issues)
         print(
-            f"Fetching up to {max(ns.max_issues, 2000)} issues/board for "
-            f"{ns.months}-month history (changelog per issue; may take several minutes)…",
+            f"Fetching up to {cap} issues/board for {months}-month history "
+            f"(~{history_fetch_cap(months, 0)} default cap; changelog per issue; may take 30–90+ min)…",
             file=sys.stderr,
         )
     try:
@@ -234,13 +328,14 @@ def main() -> int:
             jira,
             board_ids=board_ids,
             days=ns.days,
-            months=ns.months,
+            months=months,
             max_issues_per_board=ns.max_issues,
             workers=ns.workers,
             timeout=ns.timeout,
             include_all_issue_types=ns.all_issue_types,
             outlier_sigma=ns.outlier_sigma,
             disable_outlier_filter=ns.no_outlier_filter,
+            include_issues=ns.include_issues,
         )
     except Exception as e:
         print(f"Cycle time fetch failed: {e}", file=sys.stderr)
@@ -250,6 +345,16 @@ def main() -> int:
         for team in payload.get("teams") or []:
             if isinstance(team, dict):
                 team.pop("issues", None)
+
+    if ns.csv and payload.get("mode") == "history":
+        _write_csv(payload, Path(ns.csv))
+        print(f"Wrote monthly CSV {ns.csv}", file=sys.stderr)
+    if ns.issues_csv:
+        if not ns.include_issues:
+            print("--issues-csv requires --include-issues", file=sys.stderr)
+            return 1
+        _write_issues_csv(payload, Path(ns.issues_csv))
+        print(f"Wrote issues CSV {ns.issues_csv}", file=sys.stderr)
 
     if ns.output:
         out_path = Path(ns.output)

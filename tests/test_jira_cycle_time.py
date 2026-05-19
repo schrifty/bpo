@@ -10,6 +10,7 @@ from src.jira_cycle_time import (
     active_cycle_days_from_changelog,
     build_done_issues_jql,
     drop_upper_outliers,
+    history_fetch_cap,
     history_window_days,
     summarize_cycle_times,
     trailing_month_periods,
@@ -85,6 +86,12 @@ def test_trailing_month_periods_count() -> None:
 
 def test_history_window_days_covers_six_months() -> None:
     assert history_window_days(6) >= 150
+
+
+def test_history_fetch_cap_scales_with_months() -> None:
+    assert history_fetch_cap(6, 500) == 2400
+    assert history_fetch_cap(12, 500) == 4800
+    assert history_fetch_cap(12, 8000) == 8000
 
 
 def test_build_done_issues_jql_excludes_types() -> None:

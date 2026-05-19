@@ -1,3 +1,6 @@
+# LeanDNA automated SSO session cache (Playwright)
+.cache/
+
 # Python
 __pycache__/
 *.py[cod]

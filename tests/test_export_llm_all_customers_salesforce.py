@@ -90,7 +90,7 @@ def test_export_coverage_manifest_and_markdown_section():
     assert lref["http_surfaces"]
     cov = doc["export_coverage"]
     assert cov["profile_id"] == "llm_export_all_customers"
-    assert len(cov["sources_in_profile"]) == 4
+    assert len(cov["sources_in_profile"]) == 5
     assert len(cov["registry_excluded"]) == 5
     assert cov["markdown_soft_cap_bytes"] == 99_999
     assert cov["compaction"]["rollup_cap"] == max(cov["compaction"]["sf_accounts"] * 6, 72)

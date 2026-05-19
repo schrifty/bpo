@@ -9,7 +9,9 @@ Configure ``LEANDNA_APP_SESSION_ID`` or a cookie string (``LEANDNA_APP_COOKIE`` 
 
 from __future__ import annotations
 
+import os
 import re
+from urllib.parse import urlparse
 
 from .config import (
     LEANDNA_APP_COOKIE,
@@ -18,6 +20,10 @@ from .config import (
 )
 
 _LDNA_SESSION_RE = re.compile(r"(?:^|;\s*)LDNASESSIONID=([^;]+)", re.IGNORECASE)
+
+
+class LeanDNAAppSessionError(ConnectionError):
+    """App session cookie rejected (typically wrong host or expired)."""
 
 
 def parse_ldna_session_id(cookie_header: str) -> str | None:
@@ -33,6 +39,9 @@ def parse_ldna_session_id(cookie_header: str) -> str | None:
 
 def resolve_leandna_app_session_id() -> str | None:
     """Session id for app API calls: dedicated env, then app cookie, then Data API cookie."""
+    live = (os.environ.get("LEANDNA_APP_SESSION_ID") or "").strip()
+    if live:
+        return live
     if LEANDNA_APP_SESSION_ID:
         return LEANDNA_APP_SESSION_ID
     for blob in (LEANDNA_APP_COOKIE, LEANDNA_DATA_API_COOKIE):
@@ -53,7 +62,7 @@ def build_leandna_app_api_headers(*, user_agent_suffix: str = "leandna-app-metri
         raise ValueError(
             "LeanDNA app session not configured — set LEANDNA_APP_SESSION_ID, or "
             "LEANDNA_APP_COOKIE / LEANDNA_DATA_API_COOKIE containing LDNASESSIONID= "
-            "(from DevTools while logged into app.leandna.com)."
+            "(from DevTools while logged into the same host as LEANDNA_APP_API_SERVER)."
         )
     return {
         "XSRF-TOKEN": "LDNA",
@@ -62,3 +71,16 @@ def build_leandna_app_api_headers(*, user_agent_suffix: str = "leandna-app-metri
         "Cookie": f"LDNASESSIONID={sid}",
         "User-Agent": f"bpo/{user_agent_suffix}",
     }
+
+
+def session_401_message(*, url: str, app_server: str | None = None) -> str:
+    """Actionable hint when ``LDNASESSIONID`` is rejected."""
+    host = urlparse(url).netloc or (app_server or "").replace("https://", "").replace("http://", "")
+    base = (app_server or "").strip().rstrip("/") or f"https://{host}"
+    return (
+        f"LeanDNA app session rejected (401) at {host}. "
+        "LDNASESSIONID is valid only for the host where you signed in "
+        "(production app.leandna.com vs staging app.staging.leandna.com are separate). "
+        f"Run: bin/test-script --login  (SSO at {base}/application/sso.html) "
+        "then set LEANDNA_APP_SESSION_ID in .env."
+    )

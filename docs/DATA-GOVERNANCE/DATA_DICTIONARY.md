@@ -342,6 +342,20 @@
 - `portfolio_expansion_book.pct_active_customers_expanding_cy`
 - `portfolio_revenue_book.expansion_kpis`
 
+## LLM export (`salesforce_comprehensive_portfolio`, §3c)
+- `salesforce_comprehensive_portfolio`
+- `salesforce_comprehensive_portfolio.by_customer`
+- `salesforce_comprehensive_portfolio.entity_accounts`
+- `salesforce_comprehensive_portfolio.entity_accounts_count`
+- `salesforce_comprehensive_portfolio.portfolio_expansion_book`
+- `salesforce_comprehensive_portfolio.row_limit`
+- `salesforce_comprehensive_portfolio.customer_count`
+- `salesforce_comprehensive_portfolio.configured`
+- `salesforce.expansion_kpis`
+- `salesforce.portfolio_expansion_book`
+
+Per-customer values under `by_customer` reuse the same element paths as `salesforce.*` comprehensive payloads (`salesforce.categories`, `salesforce.accounts`, etc.).
+
 ## QBR
 - `executive_sponsor`
 - `leandna_exec_sponsor`

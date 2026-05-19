@@ -346,11 +346,18 @@ def history_window_days(months: int) -> int:
     return (end - start).days + 1
 
 
+def history_fetch_cap(months: int, max_issues_per_board: int) -> int:
+    """Raise fetch cap for longer histories (~400 issues/month, floor 2000, ceiling 10000)."""
+    scaled = max(2000, int(months) * 400)
+    return min(10_000, max(int(max_issues_per_board), scaled))
+
+
 @dataclass
 class IssueCycleRow:
     key: str
     cycle_days: float | None
     resolved_month: str | None
+    issue_type: str
     skipped_no_active: bool
 
 
@@ -381,6 +388,7 @@ def _issue_cycle_row(
         key=key,
         cycle_days=days,
         resolved_month=_resolution_month(fields),
+        issue_type=_issue_type_name(fields) or "Unknown",
         skipped_no_active=days is None,
     )
 
@@ -581,11 +589,27 @@ def board_cycle_time_summary(
     }
 
 
+def _summarize_by_issue_type(
+    rows: list[tuple[str, float, str]],
+) -> list[dict[str, Any]]:
+    """Median cycle time per ``issue_type`` from ``(type, days, month)`` tuples."""
+    by_type: dict[str, list[float]] = defaultdict(list)
+    for itype, days, _month in rows:
+        by_type[itype].append(days)
+    out: list[dict[str, Any]] = []
+    for itype in sorted(by_type.keys()):
+        vals = by_type[itype]
+        stats = summarize_cycle_times(vals)
+        out.append({"issue_type": itype, "count": len(vals), **stats})
+    out.sort(key=lambda x: int(x.get("count") or 0), reverse=True)
+    return out
+
+
 def board_cycle_time_history(
     client: JiraClient,
     board: dict[str, Any],
     *,
-    months: int = 6,
+    months: int = 12,
     max_issues: int = 2000,
     workers: int = 6,
     timeout: float = 60.0,
@@ -593,6 +617,7 @@ def board_cycle_time_history(
     excluded_issue_types: tuple[str, ...] | None = None,
     outlier_sigma: float | None = None,
     disable_outlier_filter: bool = False,
+    include_issues: bool = False,
 ) -> dict[str, Any]:
     """Monthly median/mean cycle time for issues resolved in the last *months* calendar months."""
     board_id = int(board["board_id"])
@@ -623,7 +648,7 @@ def board_cycle_time_history(
     period_set = set(periods)
     completed_by_month: dict[str, int] = defaultdict(int)
     skipped_by_month: dict[str, int] = defaultdict(int)
-    measured_raw: list[tuple[str, float, str]] = []
+    measured_raw: list[tuple[str, float, str, str]] = []
 
     for row in issue_rows:
         month = row.resolved_month
@@ -634,23 +659,36 @@ def board_cycle_time_history(
             skipped_by_month[month] += 1
             continue
         if row.cycle_days is not None:
-            measured_raw.append((row.key, row.cycle_days, month))
+            measured_raw.append((row.key, row.cycle_days, month, row.issue_type))
 
-    pairs = [(k, d) for k, d, _m in measured_raw]
+    pairs = [(k, d) for k, d, _m, _t in measured_raw]
     kept_pairs, outliers, cutoff = drop_upper_outliers(pairs, sigma=sigma)
     kept_keys = {k for k, _ in kept_pairs}
+    outlier_keys = {o["key"] for o in outliers}
     outlier_by_month: dict[str, int] = defaultdict(int)
-    for o in outliers:
-        for k, _d, m in measured_raw:
-            if k == o["key"]:
-                outlier_by_month[m] += 1
-                break
+    for key, _d, month, _t in measured_raw:
+        if key in outlier_keys:
+            outlier_by_month[month] += 1
 
     cycle_by_month: dict[str, list[float]] = defaultdict(list)
-    for key, days, month in measured_raw:
+    kept_for_type: list[tuple[str, float, str]] = []
+    issues_detail: list[dict[str, Any]] = []
+    for key, days, month, itype in measured_raw:
+        is_outlier = key in outlier_keys
+        if include_issues or is_outlier:
+            issues_detail.append(
+                {
+                    "key": key,
+                    "cycle_days": round(days, 2),
+                    "resolved_month": month,
+                    "issue_type": itype,
+                    "outlier": is_outlier,
+                }
+            )
         if key not in kept_keys:
             continue
         cycle_by_month[month].append(days)
+        kept_for_type.append((itype, days, month))
 
     history: list[dict[str, Any]] = []
     for period in periods:
@@ -689,8 +727,11 @@ def board_cycle_time_history(
         "reported_total": reported_total,
         "truncated": reported_total is not None and reported_total > len(issues),
         "measured_total": len(all_measured),
+        "by_issue_type": _summarize_by_issue_type(kept_for_type),
         "history": history,
         "overall": overall,
+        "issues": issues_detail if include_issues else None,
+        "outlier_issues_full": outliers if not include_issues else None,
         "cycle_time_definition": (
             "Calendar days summed while status category is In Progress "
             f"({_ACTIVE_CATEGORY}) until first Done; bucketed by resolution month"
@@ -712,6 +753,7 @@ def get_dev_team_cycle_times(
     include_all_issue_types: bool = False,
     outlier_sigma: float | None = None,
     disable_outlier_filter: bool = False,
+    include_issues: bool = False,
 ) -> dict[str, Any]:
     """Cycle-time payload for default or selected development boards."""
     boards = list(DEV_CYCLE_TIME_BOARDS)
@@ -739,7 +781,7 @@ def get_dev_team_cycle_times(
         return {"error": f"failed to load Jira statuses: {e}", "teams": []}
 
     if months is not None and int(months) > 0:
-        hist_max = max(max_issues_per_board, 2000)
+        hist_max = history_fetch_cap(int(months), max_issues_per_board)
         teams_hist: list[dict[str, Any]] = []
         for board in boards:
             try:
@@ -755,6 +797,7 @@ def get_dev_team_cycle_times(
                         excluded_issue_types=excluded,
                         outlier_sigma=outlier_sigma,
                         disable_outlier_filter=disable_outlier_filter,
+                        include_issues=include_issues,
                     )
                 )
             except Exception as e:
@@ -772,6 +815,7 @@ def get_dev_team_cycle_times(
             "window_days": history_window_days(int(months)),
             "excluded_issue_types": list(excluded),
             "outlier_sigma": sigma if sigma > 0 else None,
+            "max_issues_per_board": hist_max,
             "boards": [b["board_id"] for b in boards],
             "teams": teams_hist,
         }

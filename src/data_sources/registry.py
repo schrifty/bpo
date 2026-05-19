@@ -47,6 +47,7 @@ class SourceId(str, Enum):
     CS_REPORT_ALL_CUSTOMERS_WEEK = "cs_report_all_customers_week"
     CS_REPORT_CUSTOMER_WEEK = "cs_report_customer_week"
     SALESFORCE_PORTFOLIO_AGGREGATE = "salesforce_portfolio_aggregate"
+    SALESFORCE_COMPREHENSIVE_PORTFOLIO = "salesforce_comprehensive_portfolio"
     JIRA_HELP_PORTFOLIO = "jira_help_portfolio"
 
     LEANDNA_ITEM_MASTER = "leandna_item_master"

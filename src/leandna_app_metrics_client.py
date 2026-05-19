@@ -27,7 +27,12 @@ from .config import (
     leandna_http_mutation_blocked_envelope,
     logger,
 )
-from .leandna_app_metrics_http import build_leandna_app_api_headers, leandna_app_session_configured
+from .leandna_app_metrics_http import (
+    LeanDNAAppSessionError,
+    build_leandna_app_api_headers,
+    leandna_app_session_configured,
+    session_401_message,
+)
 from .leandna_metrics_client import resolve_metric_datapoint_window
 
 _log = logging.getLogger("bpo")
@@ -50,6 +55,7 @@ def _api_call(
 ) -> requests.Response:
     """HTTP to app API with retries (same pattern as kpi ``metric_management._api_call``)."""
     url = full_url or f"{LEANDNA_APP_API_SERVER.rstrip('/')}{_factory_base_path(factory_ndx)}{end_point}"
+    log_target = url if full_url else (end_point or url)
     headers = build_leandna_app_api_headers(user_agent_suffix=user_agent_suffix)
     method = (request_type or "get").lower()
     cumulative_retry_duration = 0
@@ -67,10 +73,19 @@ def _api_call(
                 resp = requests.get(url, json=body, headers=headers, timeout=timeout)
             if resp.status_code in (200, 201, 204, 409):
                 return resp
-            _log.warning("LeanDNA app API %s %s responded %s", method.upper(), end_point, resp.status_code)
+            if resp.status_code == 401:
+                raise LeanDNAAppSessionError(session_401_message(url=url))
+            _log.warning(
+                "LeanDNA app API %s %s responded %s",
+                method.upper(),
+                log_target,
+                resp.status_code,
+            )
+        except LeanDNAAppSessionError:
+            raise
         except Exception as e:
             last_exc = e
-            _log.exception("LeanDNA app API %s %s error", method.upper(), end_point)
+            _log.exception("LeanDNA app API %s %s error", method.upper(), log_target)
         time.sleep(next_retry_time)
         cumulative_retry_duration += next_retry_time
         next_retry_time *= 2
