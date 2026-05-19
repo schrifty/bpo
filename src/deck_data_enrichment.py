@@ -115,21 +115,9 @@ def enrich_salesforce_comprehensive(
     customer: str | None,
 ) -> list[dict[str, Any]]:
     """Fetch Salesforce comprehensive data and filter Salesforce slides."""
+    from .customer_identity import lookup_salesforce_identity
     from .data_source_health import _salesforce_configured
-    from .integration_drive_cache import (
-        KIND_SALESFORCE_COMPREHENSIVE,
-        integration_drive_cache_reads_enabled,
-        save_integration_payload,
-        try_load_integration_payload,
-    )
-
-    if integration_drive_cache_reads_enabled():
-        cached = try_load_integration_payload(KIND_SALESFORCE_COMPREHENSIVE, customer)
-        if cached is not None and not cached.get("error"):
-            report["salesforce_comprehensive"] = cached
-            return _filter_salesforce_comprehensive_slide_plan(
-                slide_plan, report.get("salesforce_comprehensive") or {}
-            )
+    from .salesforce_comprehensive_cache import load_or_fetch_salesforce_comprehensive
 
     empty_sf = {
         "customer": customer,
@@ -143,29 +131,16 @@ def enrich_salesforce_comprehensive(
         "category_errors": {},
     }
     if _salesforce_configured():
-        try:
-            from .customer_identity import lookup_salesforce_identity
-            from .salesforce_client import SalesforceClient
-
-            sf_ids, sf_prim = lookup_salesforce_identity(str(customer or "").strip())
-            sf_kwargs: dict[str, Any] = {}
-            if sf_ids:
-                sf_kwargs["preferred_account_ids"] = sf_ids
-                sf_kwargs["primary_account_id"] = sf_prim
-            report["salesforce_comprehensive"] = SalesforceClient().get_customer_salesforce_comprehensive(
-                customer,
-                **sf_kwargs,
-            )
-        except Exception as e:
-            logger.warning("Salesforce comprehensive fetch failed: %s", e)
-            report["salesforce_comprehensive"] = {
-                **empty_sf,
-                "error": str(e)[:500],
-            }
-        else:
-            pl = report.get("salesforce_comprehensive") or {}
-            if not pl.get("error"):
-                save_integration_payload(KIND_SALESFORCE_COMPREHENSIVE, customer, pl)
+        sf_ids, sf_prim = lookup_salesforce_identity(str(customer or "").strip())
+        sf_kwargs: dict[str, Any] = {}
+        if sf_ids:
+            sf_kwargs["preferred_account_ids"] = sf_ids
+            sf_kwargs["primary_account_id"] = sf_prim
+        report["salesforce_comprehensive"], _src = load_or_fetch_salesforce_comprehensive(
+            str(customer or "").strip(),
+            row_limit=75,
+            **sf_kwargs,
+        )
     else:
         report["salesforce_comprehensive"] = {**empty_sf, "error": "Salesforce not configured"}
 

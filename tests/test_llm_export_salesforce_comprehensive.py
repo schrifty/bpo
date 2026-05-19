@@ -35,16 +35,28 @@ def test_attach_comprehensive_fetches_per_label(monkeypatch):
         "src.llm_export_salesforce_comprehensive._salesforce_configured",
         lambda: True,
     )
+    monkeypatch.setattr(
+        "src.customer_identity.lookup_salesforce_identity",
+        lambda _label: ([], None),
+    )
 
-    class FakeSf:
-        def get_customer_salesforce_comprehensive(self, name: str, *, row_limit: int = 75):
-            return {
+    def fake_load(name: str, *, row_limit: int = 75, **_kw):
+        return (
+            {
                 "customer": name,
                 "matched": True,
                 "categories": {"contacts": [{"Id": "c1"}]},
                 "row_limit": row_limit,
-            }
+            },
+            "salesforce",
+        )
 
+    monkeypatch.setattr(
+        "src.salesforce_comprehensive_cache.load_or_fetch_salesforce_comprehensive",
+        fake_load,
+    )
+
+    class FakeSf:
         def get_entity_accounts(self):
             return [{"Id": "a1", "Name": "Entity", "ARR__c": 1.0}]
 

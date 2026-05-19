@@ -101,8 +101,11 @@ def attach_salesforce_comprehensive_for_llm_export(report: dict[str, Any]) -> di
         "customers_fetched": 0,
         "customers_matched": 0,
         "customers_errors": 0,
+        "customers_drive_cache_hit": 0,
+        "customers_salesforce_fetch": 0,
         "row_limit": llm_export_sf_comprehensive_row_limit(),
         "customer_cap": llm_export_sf_comprehensive_customer_cap(),
+        "integration_cache_kind": "salesforce_comprehensive",
     }
     if not summary["enabled"]:
         report["salesforce_comprehensive_portfolio"] = {
@@ -127,33 +130,44 @@ def attach_salesforce_comprehensive_for_llm_export(report: dict[str, Any]) -> di
         summary["customers_truncated"] = True
     summary["customers_requested"] = len(labels)
 
+    from src.customer_identity import lookup_salesforce_identity
     from src.salesforce_client import SalesforceClient
+    from src.salesforce_comprehensive_cache import load_or_fetch_salesforce_comprehensive
 
     sf = SalesforceClient()
     row_limit = int(summary["row_limit"])
     by_customer: dict[str, Any] = {}
+    total = len(labels)
 
-    for label, segment in labels:
-        try:
-            payload = sf.get_customer_salesforce_comprehensive(label, row_limit=row_limit)
-            if isinstance(payload, dict):
-                payload = dict(payload)
-                payload["customer_segment"] = segment
-            by_customer[label] = payload
-            summary["customers_fetched"] += 1
-            if isinstance(payload, dict) and payload.get("matched"):
-                summary["customers_matched"] += 1
-            if isinstance(payload, dict) and payload.get("error"):
-                summary["customers_errors"] += 1
-        except Exception as e:
-            logger.warning("LLM export Salesforce comprehensive failed for %s: %s", label, e)
-            by_customer[label] = {
-                "customer": label,
-                "customer_segment": segment,
-                "matched": False,
-                "error": str(e)[:500],
-            }
-            summary["customers_fetched"] += 1
+    for idx, (label, segment) in enumerate(labels, 1):
+        logger.info(
+            "LLM export: SF comprehensive %d/%d — %s (%s)",
+            idx,
+            total,
+            label,
+            segment,
+        )
+        sf_ids, sf_prim = lookup_salesforce_identity(label)
+        sf_kwargs: dict[str, Any] = {}
+        if sf_ids:
+            sf_kwargs["preferred_account_ids"] = sf_ids
+            sf_kwargs["primary_account_id"] = sf_prim
+        payload, source = load_or_fetch_salesforce_comprehensive(
+            label,
+            row_limit=row_limit,
+            **sf_kwargs,
+        )
+        payload = dict(payload)
+        payload["customer_segment"] = segment
+        by_customer[label] = payload
+        summary["customers_fetched"] += 1
+        if source == "drive_cache":
+            summary["customers_drive_cache_hit"] += 1
+        else:
+            summary["customers_salesforce_fetch"] += 1
+        if payload.get("matched"):
+            summary["customers_matched"] += 1
+        if payload.get("error"):
             summary["customers_errors"] += 1
 
     entity_accounts: list[dict[str, Any]] = []
@@ -184,15 +198,18 @@ def attach_salesforce_comprehensive_for_llm_export(report: dict[str, Any]) -> di
             "Per-customer payloads mirror the salesforce_comprehensive deck: mainstream object "
             "categories (contacts, opportunities, cases, tasks, events, contracts, orders, quotes, "
             "assets, campaigns, leads, products/pricebooks samples) scoped to matched Customer "
-            "Entity accounts and ParentId hierarchy expansion."
+            "Entity accounts and ParentId hierarchy expansion. Each label is loaded from Drive "
+            "integration cache when fresh (same files as salesforce_comprehensive decks)."
         ),
     }
     report["_llm_export_salesforce_comprehensive"] = summary
     logger.info(
         "LLM export: attached Salesforce comprehensive for %d customer label(s) "
-        "(%d matched, row_limit=%d)",
+        "(%d matched, %d Drive cache hit(s), %d Salesforce fetch(es), row_limit=%d)",
         len(labels),
         summary["customers_matched"],
+        summary["customers_drive_cache_hit"],
+        summary["customers_salesforce_fetch"],
         row_limit,
     )
     return summary
