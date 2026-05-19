@@ -496,11 +496,11 @@ def build_entries() -> list[dict[str, Any]]:
             _e(
                 "cohorts_yaml",
                 "[config cohorts.yaml] cohort / optional exclude / vertical per customer; "
-                "portfolio junk prefixes → portfolio_exclude_prefixes.yaml (not nested under report)",
+                "Pendo orphans → pendo_orphans.yaml (not nested under report)",
             ),
             _e(
-                "portfolio_exclude_prefixes_yaml",
-                "[config portfolio_exclude_prefixes.yaml] bogus Pendo-derived customer prefixes "
+                "pendo_orphans_yaml",
+                "[config pendo_orphans.yaml] Pendo sitename prefixes with no SF Customer Entity match, "
                 "omitted from portfolio rollup (not nested under report)",
             ),
         ]

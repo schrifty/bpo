@@ -1,4 +1,4 @@
-"""Portfolio customer exclusion (config/portfolio_exclude_prefixes.yaml + env)."""
+"""Portfolio customer exclusion (config/pendo_orphans.yaml + env)."""
 
 import os
 from unittest.mock import patch

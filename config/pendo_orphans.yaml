@@ -1,5 +1,6 @@
-# Customer name prefixes omitted from portfolio parallel rollup (Pendo sitename
-# first-token noise / internal rows). Moved from cohorts.yaml false-customer stubs.
+# Pendo sitename first-token prefixes with no Salesforce Customer Entity match
+# (noise / internal / training rows). Omitted from portfolio parallel rollup.
+# Formerly config/portfolio_exclude_prefixes.yaml.
 #
 # Ad-hoc additions: comma-separated ``BPO_PORTFOLIO_EXCLUDE_CUSTOMERS`` in .env
 # (still supported; merges with this list).

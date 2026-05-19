@@ -1,4 +1,4 @@
-"""Bogus Pendo-derived customer prefixes — skip portfolio rollup and coarse deck lists."""
+"""Pendo orphan prefixes (config/pendo_orphans.yaml) — skip portfolio rollup and coarse deck lists."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import yaml
 from .config import logger
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_CFG_PATH = _REPO_ROOT / "config" / "portfolio_exclude_prefixes.yaml"
+_CFG_PATH = _REPO_ROOT / "config" / "pendo_orphans.yaml"
 
 
 def _parse_env_extra() -> frozenset[str]:
@@ -23,7 +23,7 @@ def _parse_env_extra() -> frozenset[str]:
 def _yaml_prefix_set() -> frozenset[str]:
     if not _CFG_PATH.exists():
         raise RuntimeError(
-            "Missing portfolio denylist; restore config/portfolio_exclude_prefixes.yaml "
+            "Missing Pendo orphans list; restore config/pendo_orphans.yaml "
             f"(expected at {_CFG_PATH})"
         )
     data = yaml.safe_load(_CFG_PATH.read_text(encoding="utf-8")) or {}
@@ -58,5 +58,5 @@ def is_skipped_customer_prefix(prefix: str) -> bool:
     try:
         return prefix in _yaml_prefix_set()
     except Exception as exc:
-        logger.exception("portfolio exclude config failed: %s", exc)
+        logger.exception("pendo_orphans config failed: %s", exc)
         raise

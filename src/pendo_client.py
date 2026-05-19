@@ -370,7 +370,7 @@ def get_customer_cohort(customer_prefix: str) -> dict[str, Any]:
 def customer_is_excluded_from_portfolio(customer_prefix: str) -> bool:
     """True if portfolio parallel rollup should not fetch a summary for this Pendo customer prefix.
 
-    Uses ``config/portfolio_exclude_prefixes.yaml`` plus optional env
+    Uses ``config/pendo_orphans.yaml`` plus optional env
     ``BPO_PORTFOLIO_EXCLUDE_CUSTOMERS`` (comma-separated prefixes). Excluded names are
     dropped before ``get_customer_health`` so missing-visitor errors are not logged as ERROR.
     """
@@ -2972,7 +2972,7 @@ class PendoClient:
                 if len(skipped_ex) > 25:
                     preview += ", …"
                 logger.info(
-                    "Portfolio: skipping %d customer(s) (config/portfolio_exclude_prefixes.yaml "
+                    "Portfolio: skipping %d customer(s) (config/pendo_orphans.yaml "
                     "or BPO_PORTFOLIO_EXCLUDE_CUSTOMERS): %s",
                     len(skipped_ex),
                     preview,

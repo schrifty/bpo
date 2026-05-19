@@ -3,8 +3,8 @@
 ## config cohorts.yaml
 - `cohorts_yaml`
 
-## config portfolio_exclude_prefixes.yaml
-- `portfolio_exclude_prefixes_yaml`
+## config pendo_orphans.yaml
+- `pendo_orphans_yaml`
 
 ## config/teams.yaml
 - `teams_yaml.customer_team`

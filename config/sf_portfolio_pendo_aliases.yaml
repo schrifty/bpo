@@ -16,9 +16,16 @@ Foodmate:
 "Hartzell Aviation":
   - Signia
 
+# Signia subsidiary; Pendo usage is under Signia prefix (not ACE sitename token).
+ACE Thermal Systems:
+  - Signia
+
 # Salesforce portfolio rollup label (Customer Entity ultimate/parent) → Pendo prefix.
 Johnson:
   - JCI
 
 Ford:
   - Ford Motor Company
+
+"Ag Growth International Inc":
+  - AGI

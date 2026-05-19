@@ -43,6 +43,16 @@ def test_resolve_sf_label_pump_solutions_group_alias_to_dover():
     assert resolve_sf_label_to_pendo_prefix(_PSG_SF_LABEL, pendo) == "Dover"
 
 
+def test_resolve_ace_thermal_systems_alias_to_signia():
+    invalidate_sf_portfolio_pendo_alias_cache_for_tests()
+    assert resolve_sf_label_to_pendo_prefix("ACE Thermal Systems", {"Signia", "Spirit"}) == "Signia"
+
+
+def test_resolve_ag_growth_international_inc_alias_to_agi():
+    invalidate_sf_portfolio_pendo_alias_cache_for_tests()
+    assert resolve_sf_label_to_pendo_prefix("Ag Growth International Inc", {"AGI", "Spirit"}) == "AGI"
+
+
 def test_resolve_sf_label_alias_missing_pendo_prefix_falls_through(monkeypatch, caplog):
     invalidate_sf_portfolio_pendo_alias_cache_for_tests()
     monkeypatch.setattr(

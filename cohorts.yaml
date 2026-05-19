@@ -10,7 +10,7 @@
 #   aliases     – other Pendo prefixes that map to the same company
 #   notes       – any useful context
 #   exclude     – rarely: true omits benchmarking for a real keyed account (portfolio junk uses
-#                 config/portfolio_exclude_prefixes.yaml instead)
+#                 config/pendo_orphans.yaml instead)
 #   unverified  – true if classification needs confirmation (resolve via Salesforce)
 
 # ── Cohort definitions ──
@@ -115,7 +115,7 @@ cohorts:
     cohort: aerospace_defense
     sub_cohort: aerostructures_systems
     size: smb
-    notes: "Aerospace components. Montgomery, Piqua. Includes Onboard Systems (cargo hooks)."
+    notes: "Aerospace components. Montgomery, Piqua. Includes Onboard Systems (cargo hooks); ACE Thermal Systems (SF portfolio label) maps here via sf_portfolio_pendo_aliases.yaml."
 
   Enjet:
     name: Enjet Aero
