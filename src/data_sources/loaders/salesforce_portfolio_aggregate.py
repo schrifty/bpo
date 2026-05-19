@@ -36,6 +36,11 @@ def salesforce_aggregate_from_rollups(
                 "contract_start_date_earliest_active": row.get("contract_start_date_earliest_active"),
                 "contract_start_date_latest_active": row.get("contract_start_date_latest_active"),
                 "entity_row_count": row.get("entity_row_count"),
+                "renewal_in_flight": row.get("renewal_in_flight"),
+                "pipeline_arr_including_parent_accounts": row.get(
+                    "pipeline_arr_including_parent_accounts"
+                ),
+                "open_pipeline_opportunities_sample": row.get("open_pipeline_opportunities_sample"),
             }
         )
     arr_sum = 0.0
@@ -69,10 +74,15 @@ def salesforce_aggregate_from_rollups(
         out["churned_customer_count"] = book.get("churned_customer_count")
         out["expansion_kpis"] = book.get("expansion_kpis")
     else:
+        renewal_n = sum(1 for r in rollups if r.get("renewal_in_flight") is True)
         out["portfolio_book_note"] = (
-            "Pipeline, opportunity, and expansion KPI fields are portfolio-wide (active book) "
-            "and are omitted here so churn rows are not mixed with installed-base totals."
+            "Portfolio-wide pipeline totals are omitted here so churn rows are not mixed with "
+            "installed-base totals. Per-row pipeline_arr_including_parent_accounts and "
+            "renewal_in_flight reflect open Opportunities on parent accounts when entity "
+            "contracts are churned/expired."
         )
+        if renewal_n:
+            out["renewal_in_flight_customer_count"] = renewal_n
     return out
 
 

@@ -256,6 +256,40 @@ def _load_sf_portfolio_pendo_alias_map() -> dict[str, list[str]]:
     return out
 
 
+def matching_entity_accounts_for_customer_label(
+    customer_label: str,
+    entity_accounts: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Match Customer Entity rows for a portfolio/Pendo label (name scan, rollup label, SF aliases)."""
+    name = (customer_label or "").strip()
+    if not name or not entity_accounts:
+        return []
+    rows = _entity_rows_for_portfolio_label(name, entity_accounts)
+    if rows:
+        return rows
+    low = name.lower()
+    alias_map = _load_sf_portfolio_pendo_alias_map()
+    if low in alias_map:
+        for label in alias_map[low] + [name]:
+            rows = _entity_rows_for_portfolio_label(label, entity_accounts)
+            if rows:
+                return rows
+    for _sf_label, targets in alias_map.items():
+        if low in {t.lower() for t in targets}:
+            for label in targets:
+                rows = _entity_rows_for_portfolio_label(label, entity_accounts)
+                if rows:
+                    return rows
+    # Skip word-boundary for explicit SF alias keys (e.g. Ford → Branford false positives).
+    if low in alias_map:
+        return []
+    upper = name.upper()
+    matching = [a for a in entity_accounts if _customer_name_matches_entity_account(upper, a)]
+    if matching:
+        return matching
+    return []
+
+
 def _resolve_sf_label_via_pendo_alias_file(
     sf_label: str,
     *,

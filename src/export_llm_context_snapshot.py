@@ -818,7 +818,9 @@ def _compact_salesforce(sf: dict[str, Any], *, account_cap: int = 0) -> dict[str
         if seg == "churned":
             out["salesforce_export_note"] = (
                 "Churned Customer Entity rollups (inactive contract status). "
-                "Do not combine with §3 active installed-base totals or §5 Pendo signals."
+                "Do not combine with §3 active installed-base totals or §5 Pendo signals. "
+                "renewal_in_flight + pipeline_arr_including_parent_accounts flag renewal "
+                "negotiation when parent-account Opportunities are open."
             )
         else:
             out["salesforce_export_note"] = (

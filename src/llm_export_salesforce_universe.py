@@ -100,16 +100,23 @@ def churned_sf_excluded_customer_keys(
         return frozenset()
     sf_labels: list[str] = []
     excluded: set[str] = set()
+    def _skip_active_exclusion(row: dict[str, Any]) -> bool:
+        return row.get("renewal_in_flight") is True
+
     for r in seg.get("customers_headline") or []:
         if not isinstance(r, dict):
+            continue
+        if _skip_active_exclusion(r):
             continue
         c = str(r.get("customer") or "").strip()
         if c:
             sf_labels.append(c)
             excluded.add(c.lower())
-    sf = seg.get("salesforce") if isinstance(seg, dict) else {}
+    sf = seg.get("salesforce") if isinstance(seg.get("salesforce"), dict) else {}
     for r in sf.get("matched_customer_contract_rollups") or []:
         if not isinstance(r, dict):
+            continue
+        if _skip_active_exclusion(r):
             continue
         c = str(r.get("customer") or "").strip()
         if c:
@@ -126,8 +133,9 @@ def churned_sf_excluded_customer_keys(
 def strip_churned_customers_from_active_export(report: dict[str, Any]) -> dict[str, Any]:
     """Remove Salesforce-churned customers from active Pendo sections (§1, §5, §7 inputs).
 
-    Churned accounts appear only in ``salesforce_churned_segment`` (§3b) with Salesforce facts —
-    no Pendo headline metrics, usage signals, or per-customer Jira slices.
+    Churned accounts appear in ``salesforce_churned_segment`` (§3b) with Salesforce facts.
+    Accounts with ``renewal_in_flight`` stay in the active book (not treated as churn risk)
+    while §3b still records expired entity contracts and open parent-account pipeline.
     """
     summary: dict[str, Any] = {
         "excluded_customer_keys": 0,
@@ -190,6 +198,11 @@ def _churned_headline_rows(churned_rollups: list[dict[str, Any]]) -> list[dict[s
                 "arr": r.get("arr"),
                 "contract_statuses_distinct": r.get("contract_statuses_distinct"),
                 "contract_end_date_nearest": r.get("contract_end_date_nearest"),
+                "renewal_in_flight": r.get("renewal_in_flight"),
+                "pipeline_arr_including_parent_accounts": r.get(
+                    "pipeline_arr_including_parent_accounts"
+                ),
+                "open_pipeline_opportunities_sample": r.get("open_pipeline_opportunities_sample"),
                 "total_users": None,
                 "active_users": None,
                 "login_pct": None,
@@ -236,14 +249,23 @@ def attach_churned_salesforce_segment_for_llm_export(
     from src.data_sources.loaders.salesforce_portfolio_aggregate import salesforce_aggregate_from_rollups
 
     sf_churned = salesforce_aggregate_from_rollups(churned, book=book, segment="churned")
+    renewal_labels = [
+        str(r.get("customer") or "").strip()
+        for r in churned
+        if r.get("renewal_in_flight") is True and str(r.get("customer") or "").strip()
+    ]
+    usage_note = (
+        "Salesforce-only churn segment: inactive Customer Entity contract rollups. "
+        "No Pendo product usage, no Jira/Atlassian HELP slices, and no §5 signals — "
+        "do not sum with §1/§3 active installed-base metrics or portfolio-wide pipeline ARR. "
+        "When renewal_in_flight is true, open parent-account Opportunities indicate renewal "
+        "negotiation rather than a lost account."
+    )
     report["salesforce_churned_segment"] = {
         "segment": "churned",
         "do_not_merge_with_active_book": True,
-        "usage_note": (
-            "Salesforce-only churn segment: inactive Customer Entity contract rollups. "
-            "No Pendo product usage, no Jira/Atlassian HELP slices, and no §5 signals — "
-            "do not sum with §1/§3 active installed-base metrics or pipeline ARR."
-        ),
+        "usage_note": usage_note,
+        "renewal_in_flight_customers": renewal_labels,
         "data_sources_included": ["salesforce"],
         "data_sources_excluded": ["pendo", "jira", "cs_report"],
         "customer_count": len(churned),

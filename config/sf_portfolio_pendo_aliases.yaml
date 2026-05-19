@@ -19,3 +19,6 @@ Foodmate:
 # Salesforce portfolio rollup label (Customer Entity ultimate/parent) → Pendo prefix.
 Johnson:
   - JCI
+
+Ford:
+  - Ford Motor Company

@@ -131,6 +131,16 @@ def _pendo_subscores(pendo: dict[str, Any]) -> tuple[float, list[tuple[str, floa
 def _sf_contract_subscore(sf: dict[str, Any]) -> tuple[float, list[tuple[str, float, float]]]:
     leaves: list[tuple[str, float, float]] = []
 
+    if sf.get("renewal_in_flight") is True:
+        pipe = sf.get("pipeline_arr_including_parent_accounts")
+        detail = (
+            f"open renewal pipeline on parent account (${pipe:,.0f} ARR)"
+            if isinstance(pipe, (int, float)) and pipe
+            else "open renewal pipeline on parent account"
+        )
+        leaves.append((f"Salesforce renewal in flight ({detail})", 25.0, 1.0))
+        return 25.0, leaves
+
     active = sf.get("active_in_salesforce")
     if active is False or sf.get("active") is False:
         leaves.append(("Salesforce contract status", 100.0, 1.0))

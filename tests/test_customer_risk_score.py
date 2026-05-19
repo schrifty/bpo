@@ -61,6 +61,29 @@ def test_contract_churn_maxes_salesforce_pillar():
     assert "salesforce" in churned["top_influencer"].lower()
 
 
+def test_renewal_in_flight_lowers_salesforce_churn_risk():
+    renewal = compute_customer_risk_score(
+        pendo={"login_pct": 80.0},
+        salesforce={
+            "active": False,
+            "renewal_in_flight": True,
+            "pipeline_arr_including_parent_accounts": 1_455_000.0,
+        },
+        portfolio_signals=[],
+        csr_sites=[],
+        include_jira=False,
+    )
+    churned = compute_customer_risk_score(
+        pendo={"login_pct": 80.0},
+        salesforce={"active": False, "renewal_in_flight": False},
+        portfolio_signals=[],
+        csr_sites=[],
+        include_jira=False,
+    )
+    assert renewal["risk_score"] < churned["risk_score"]
+    assert renewal["pillars"]["salesforce"] < churned["pillars"]["salesforce"]
+
+
 def test_portfolio_signals_for_customer_filters():
     rows = portfolio_signals_for_customer(
         [

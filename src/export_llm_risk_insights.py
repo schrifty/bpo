@@ -182,6 +182,9 @@ def _sf_row_for_customer(sf: dict[str, Any], customer: str) -> dict[str, Any]:
             "contract_end_date_nearest",
             "days_until_contract_end_nearest",
             "entity_row_count",
+            "renewal_in_flight",
+            "pipeline_arr_including_parent_accounts",
+            "churn_risk",
         }
     )
     for a in accounts:
@@ -207,6 +210,9 @@ def _sf_row_for_customer(sf: dict[str, Any], customer: str) -> dict[str, Any]:
                         "contract_end_date_nearest",
                         "days_until_contract_end_nearest",
                         "entity_row_count",
+                        "renewal_in_flight",
+                        "pipeline_arr_including_parent_accounts",
+                        "churn_risk",
                     }
                 )
                 return {k: r.get(k) for k in rk if k in r}

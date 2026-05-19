@@ -37,6 +37,12 @@ def test_get_portfolio_revenue_book_metrics_active_vs_churned_and_unmatched():
         patch.object(SalesforceClient, "get_entity_accounts", return_value=accounts),
         patch.object(SalesforceClient, "get_advanced_pipeline_arr", return_value=12_345.0),
         patch.object(SalesforceClient, "get_opportunity_creation_this_year", return_value=7),
+        patch.object(SalesforceClient, "get_open_pipeline_opportunities", return_value=[]),
+        patch.object(
+            SalesforceClient,
+            "renewal_in_flight_fields_for_entities",
+            return_value={"renewal_in_flight": False},
+        ),
         patch.object(SalesforceClient, "_portfolio_closed_won_opportunity_rows_cy", return_value=[]),
     ):
         sf = SalesforceClient()
