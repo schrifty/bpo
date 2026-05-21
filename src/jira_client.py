@@ -8,7 +8,6 @@ import os
 import re
 import threading
 import time
-from base64 import b64encode
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
@@ -17,7 +16,8 @@ from typing import Any
 
 import requests
 
-from .config import JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN, LLM_MODEL_FAST, llm_client, logger
+from .config import LLM_MODEL_FAST, llm_client, logger
+from .jira_connection import build_jira_connection_settings
 
 # ── Performance: shared JSM org directory (paginated API) ─────────────────
 _JSM_ORG_GLOBAL_LOCK = threading.Lock()
@@ -668,18 +668,15 @@ def _generate_eng_insights(eng: dict) -> dict[str, list[str]]:
 
 class JiraClient:
     def __init__(self):
-        if not all([JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN]):
-            raise ValueError("JIRA_URL, JIRA_EMAIL, and JIRA_API_TOKEN must be set in .env")
-        self.base_url = JIRA_URL.rstrip("/")
-        auth = b64encode(f"{JIRA_EMAIL}:{JIRA_API_TOKEN}".encode()).decode()
-        self._headers = {
-            "Authorization": f"Basic {auth}",
-            "Content-Type": "application/json",
-        }
+        conn = build_jira_connection_settings()
+        self._connection = conn
+        self.api_base_url = conn.api_base_url.rstrip("/")
+        self.base_url = conn.browse_base_url.rstrip("/")
+        self._headers = dict(conn.headers)
         self._jql_log: list[dict[str, str]] = []
         self._jql_lock = threading.Lock()
         self._jsm_cache_key = hashlib.sha256(
-            f"{self.base_url}\0{self._headers.get('Authorization', '')}".encode()
+            f"{self.api_base_url}\0{self._headers.get('Authorization', '')}".encode()
         ).hexdigest()
         # One LLM resolution per (tenant, request terms) per JiraClient lifetime (avoids 15+ calls per support deck)
         self._jsm_llm_org_resolve_cache: dict[str, list[str]] = {}
@@ -721,7 +718,7 @@ class JiraClient:
         try:
             body: dict[str, Any] = {"jql": jql.strip()}
             resp = requests.post(
-                f"{self.base_url}/rest/api/3/search/approximate-count",
+                f"{self.api_base_url}/rest/api/3/search/approximate-count",
                 headers=self._headers,
                 json=body,
                 timeout=30,
@@ -755,7 +752,7 @@ class JiraClient:
             if next_token:
                 body["nextPageToken"] = next_token
             resp = requests.post(
-                f"{self.base_url}/rest/api/3/search/jql",
+                f"{self.api_base_url}/rest/api/3/search/jql",
                 headers=self._headers, json=body, timeout=30,
             )
             resp.raise_for_status()
@@ -792,7 +789,7 @@ class JiraClient:
         try:
             while True:
                 url = (
-                    f"{self.base_url}/rest/servicedeskapi/organization"
+                    f"{self.api_base_url}/rest/servicedeskapi/organization"
                     f"?start={start}&limit={limit}"
                 )
                 resp = requests.get(url, headers=self._headers, timeout=45)
@@ -3298,7 +3295,7 @@ class JiraClient:
         recent_sprints: list[dict] = []
         try:
             resp = _req.get(
-                f"{self.base_url}/rest/agile/1.0/board/44/sprint?state=active",
+                f"{self.api_base_url}/rest/agile/1.0/board/44/sprint?state=active",
                 headers=self._headers, timeout=10,
             )
             if resp.ok:
@@ -3315,7 +3312,7 @@ class JiraClient:
                     }
             # Last 4 closed sprints for velocity
             resp2 = _req.get(
-                f"{self.base_url}/rest/agile/1.0/board/44/sprint?state=closed&maxResults=4",
+                f"{self.api_base_url}/rest/agile/1.0/board/44/sprint?state=closed&maxResults=4",
                 headers=self._headers, timeout=10,
             )
             if resp2.ok:
@@ -3346,7 +3343,7 @@ class JiraClient:
                 description="LEAN in-flight engineering work (Open / In Progress / In Review / Reopened)",
             )
             resp_if = _req.post(
-                f"{self.base_url}/rest/api/3/search/jql",
+                f"{self.api_base_url}/rest/api/3/search/jql",
                 headers=self._headers, json=body_inflight, timeout=30,
             )
             resp_if.raise_for_status()
@@ -3367,7 +3364,7 @@ class JiraClient:
                 description=f"LEAN issues closed or updated in last {days} days",
             )
             resp_c = _req.post(
-                f"{self.base_url}/rest/api/3/search/jql",
+                f"{self.api_base_url}/rest/api/3/search/jql",
                 headers=self._headers, json=body_closed, timeout=30,
             )
             resp_c.raise_for_status()
@@ -3468,7 +3465,7 @@ class JiraClient:
                 description="ER open enhancement backlog (last year)",
             )
             resp_er_open = _req.post(
-                f"{self.base_url}/rest/api/3/search/jql",
+                f"{self.api_base_url}/rest/api/3/search/jql",
                 headers=self._headers, json=body_er_open, timeout=30,
             )
             resp_er_open.raise_for_status()
@@ -3495,7 +3492,7 @@ class JiraClient:
                 description="ER shipped or Done enhancements (last year)",
             )
             resp_er_shipped = _req.post(
-                f"{self.base_url}/rest/api/3/search/jql",
+                f"{self.api_base_url}/rest/api/3/search/jql",
                 headers=self._headers, json=body_er_shipped, timeout=30,
             )
             resp_er_shipped.raise_for_status()
@@ -3516,7 +3513,7 @@ class JiraClient:
                 description="ER declined / won't do / not taken (count query)",
             )
             resp_er_dec = _req.post(
-                f"{self.base_url}/rest/api/3/search/jql",
+                f"{self.api_base_url}/rest/api/3/search/jql",
                 headers=self._headers, json=body_er_dec, timeout=30,
             )
             resp_er_dec.raise_for_status()
@@ -3603,7 +3600,7 @@ class JiraClient:
                 description=f"HELP aggregate desk load (created last {days} days)",
             )
             resp_h = _req.post(
-                f"{self.base_url}/rest/api/3/search/jql",
+                f"{self.api_base_url}/rest/api/3/search/jql",
                 headers=self._headers, json=body_help, timeout=30,
             )
             resp_h.raise_for_status()
@@ -3772,6 +3769,13 @@ class JiraClient:
                         expected=f"<= {tickets}", actual=measured + waiting,
                         sources=(f"{label} SLA data", "HELP issue count"),
                         severity="warning")
+
+
+def reset_shared_jira_client() -> None:
+    """Clear the process-wide singleton (tests and after .env changes)."""
+    global _shared_jira_client
+    with _SHARED_JIRA_CLIENT_LOCK:
+        _shared_jira_client = None
 
 
 def get_shared_jira_client() -> JiraClient:
