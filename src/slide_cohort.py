@@ -105,7 +105,7 @@ def cohort_deck_title_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
     _box(reqs, f"{sid}_s", sid, MARGIN, 188, CONTENT_W, 36, subtitle)
     _style(reqs, f"{sid}_s", 0, len(subtitle), size=14, color=LTBLUE, font=FONT)
 
-    note = "Cohorts from cohorts.yaml · see docs/DATA-GOVERNANCE/CUSTOMER_COHORTS.md"
+    note = "Cohorts from config/cohorts.yaml · see docs/DATA-GOVERNANCE/CUSTOMER_COHORTS.md"
     _box(reqs, f"{sid}_n", sid, MARGIN, 240, CONTENT_W, 20, note)
     _style(reqs, f"{sid}_n", 0, len(note), size=10, color=GRAY, font=FONT)
 

@@ -1,8 +1,0 @@
-# Map Pendo / Salesforce / health-report customer names to Slack channel name fragments.
-# Keys are case-insensitive. Values are strings matched against channel names (substring,
-# word-boundary aware in code). Add explicit channel names when auto-match is too broad.
-#
-# Example:
-# JCI:
-#   - johnson-controls
-#   - jci-support

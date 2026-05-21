@@ -12,6 +12,7 @@ from typing import Any
 import requests
 import yaml
 
+from .config_paths import SLACK_CUSTOMER_ALIASES_FILE
 from .config import (
     BPO_SLACK_MAX_CHANNELS_PER_CUSTOMER,
     BPO_SLACK_MAX_MESSAGES_PER_CHANNEL,
@@ -21,7 +22,7 @@ from .config import (
     logger,
 )
 
-_SLACK_ALIAS_FILE = Path(__file__).resolve().parent.parent / "slack_customer_aliases.yaml"
+_SLACK_ALIAS_FILE = SLACK_CUSTOMER_ALIASES_FILE
 _alias_map: dict[str, list[str]] | None = None
 _alias_lock = threading.Lock()
 
@@ -328,7 +329,7 @@ def get_customer_slack_conversations(
     empty["channels_matched"] = [{"id": c.get("id"), "name": c.get("name")} for c in channels]
     if not channels:
         empty["note"] = (
-            "No Slack channels matched this customer name or slack_customer_aliases.yaml entries. "
+            "No Slack channels matched this customer name or config/slack_customer_aliases.yaml entries. "
             "Add aliases or ensure the bot is in customer channels."
         )
         return empty

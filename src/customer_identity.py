@@ -1,6 +1,6 @@
 """Optional mapping from health-report customer name to Salesforce Account Ids.
 
-See ``customer_identity_map.yaml`` at the project root. Keys are matched case-insensitively
+See ``config/customer_identity_map.yaml``. Keys are matched case-insensitively
 against ``customer_name`` passed to ``get_customer_health_report`` / deck generation.
 
 When one or more Ids are present, ``SalesforceClient`` resolves the customer by Id first
@@ -16,8 +16,9 @@ from typing import Any
 import yaml
 
 from .config import logger
+from .config_paths import CUSTOMER_IDENTITY_MAP_FILE
 
-_IDENTITY_FILE = Path(__file__).resolve().parent.parent / "customer_identity_map.yaml"
+_IDENTITY_FILE = CUSTOMER_IDENTITY_MAP_FILE
 _map_lock = threading.Lock()
 _map_cache: dict[str, Any] | None = None
 

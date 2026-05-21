@@ -191,7 +191,7 @@
       "path": "benchmarks.cohort",
       "terms": [
         "benchmarks.cohort",
-        "[Pendo] cohorts.yaml cohort key"
+        "[config/cohorts.yaml] Pendo prefix cohort key"
       ]
     },
     {

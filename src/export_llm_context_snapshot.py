@@ -1687,7 +1687,7 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
             "## 4b. Slack (top customers by ARR — recent channel conversations)",
             "",
             "Recent human messages from Slack channels matched to each customer name "
-            "(and ``slack_customer_aliases.yaml``). Not Slack AI-generated summaries.",
+            "(and ``config/slack_customer_aliases.yaml``). Not Slack AI-generated summaries.",
             "",
             _json_compact(doc.get("slack") or {}),
             "",

@@ -88,7 +88,7 @@ def health_snapshot_pipeline_traces(report: dict[str, Any]) -> list[dict[str, st
             "source": "Pendo",
             "query": (
                 f"Same % as row above; {abs(vs):.0f}pp {direction} {bench_label} "
-                f"(cohort from cohorts.yaml when n≥{min_peers}; slides/std-07-benchmarks.yaml rollup_params)"
+                f"(cohort from config/cohorts.yaml when n≥{min_peers}; slides/std-07-benchmarks.yaml rollup_params)"
             ),
         },
         {
@@ -98,8 +98,8 @@ def health_snapshot_pipeline_traces(report: dict[str, Any]) -> list[dict[str, st
         },
         {
             "description": labels.COHORT,
-            "source": "Pendo + cohorts.yaml",
-            "query": "Label from get_customer_cohort / cohorts.yaml (shows Unclassified when missing)",
+            "source": "Pendo + config/cohorts.yaml",
+            "query": "Label from get_customer_cohort / config/cohorts.yaml (shows Unclassified when missing)",
         },
     ]
     internal = int(acct.get("internal_visitors") or 0)
@@ -133,7 +133,7 @@ def peer_benchmarks_pipeline_traces(report: dict[str, Any]) -> list[dict[str, st
     )
     q_cohort_median = (
         "Median among accounts in the same manufacturing cohort "
-        f"(get_customer_cohort / cohorts.yaml); shown when cohort n≥{min_peers} "
+        f"(get_customer_cohort / config/cohorts.yaml); shown when cohort n≥{min_peers} "
         "(rollup_params on slides/std-07-benchmarks.yaml)"
     )
     q_delta = "Customer weekly active rate minus comparison median (percentage points vs peer/cohort on slide)"
@@ -315,7 +315,7 @@ def cohort_summary_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str
     med_kei = metrics["med_kei"]
     return [
         {"description": labels.TOTAL_CUSTOMERS, "source": "Pendo", "query": f"On-slide value {metrics['total_customers']} — customer_count in portfolio report (cohort_digest scope)"},
-        {"description": labels.COHORTS, "source": "Pendo", "query": f"On-slide value {metrics['num_cohorts']} — cohort buckets with ≥1 customer (get_customer_cohort / cohorts.yaml)"},
+        {"description": labels.COHORTS, "source": "Pendo", "query": f"On-slide value {metrics['num_cohorts']} — cohort buckets with ≥1 customer (get_customer_cohort / config/cohorts.yaml)"},
         {
             "description": labels.TOTAL_ARR,
             "source": "Salesforce",
@@ -373,7 +373,7 @@ def cohort_profile_pipeline_rows_for_block(
     median_exports_os = "On-slide —" if median_exports is None else f"On-slide {median_exports:.0f}"
 
     rows = [
-        {"description": f"Cohort profile: {name} ({n} customers)", "source": "Pendo", "query": f"Bucket {cohort_label!r} in cohort_digest — get_customer_cohort / cohorts.yaml; portfolio rollup customer summaries"},
+        {"description": f"Cohort profile: {name} ({n} customers)", "source": "Pendo", "query": f"Bucket {cohort_label!r} in cohort_digest — get_customer_cohort / config/cohorts.yaml; portfolio rollup customer summaries"},
         {"description": labels.ACTIVE_USERS_7D, "source": "Pendo", "query": f"On-slide cohort total {total_active:,} — cohort_digest.total_active_users ({name})"},
         {"description": labels.TOTAL_USERS, "source": "Pendo", "query": f"On-slide cohort total {total_users:,} — cohort_digest.total_users ({name})"},
         {"description": labels.WEEKLY_ACTIVE_MEDIAN, "source": "Pendo", "query": f"{median_login_os} — median of engagement.active_rate_7d across customers in this cohort ({name})"},

@@ -36,9 +36,9 @@ metadata:
     thin_sample: >-
       Thin samples (exactly {thin_n} customers): {names}{ellipsis} — medians are fragile.
     unclassified: >-
-      {n} customer(s) are unclassified — add or alias them in cohorts.yaml to benchmark by industry cohort.
+      {n} customer(s) are unclassified — add or alias them in config/cohorts.yaml to benchmark by industry cohort.
     provenance: >-
-      Cohort labels and membership come from cohorts.yaml and docs/DATA-GOVERNANCE/CUSTOMER_COHORTS.md — not redefined in this deck.
+      Cohort labels and membership come from config/cohorts.yaml and docs/DATA-GOVERNANCE/CUSTOMER_COHORTS.md — not redefined in this deck.
 
 prompt: |
   **Audience & job:** Portfolio / QBR readers who need a fast, honest read on how
@@ -55,7 +55,7 @@ prompt: |
 
   **Data contract:** Requires report["cohort_findings_bullets"] (list of strings).
   Upstream: customer summaries in the portfolio window, cohort labels from
-  get_customer_cohort / cohorts.yaml (see docs/DATA-GOVERNANCE/CUSTOMER_COHORTS.md). Related keys:
+  get_customer_cohort / config/cohorts.yaml (see docs/DATA-GOVERNANCE/CUSTOMER_COHORTS.md). Related keys:
   cohort_digest (per-bucket medians and customer lists) feeds the rollup logic;
   this slide does not render the digest table — that is cohort_profiles and
   cohort_summary.

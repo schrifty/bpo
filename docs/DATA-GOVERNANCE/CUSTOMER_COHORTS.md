@@ -1,6 +1,6 @@
 # Customer Manufacturing Cohorts
 
-Classification of LeanDNA customer accounts into manufacturing cohorts for benchmarking. The canonical source is `cohorts.yaml` at the project root; this document provides the research context and rationale.
+Classification of LeanDNA customer accounts into manufacturing cohorts for benchmarking. The canonical source is `config/cohorts.yaml`; this document provides the research context and rationale.
 
 Last updated: March 2026
 
@@ -280,7 +280,7 @@ Several companies appear under multiple Pendo prefixes due to typos, currency-co
 
 ## How Benchmarking Uses Cohorts
 
-1. When generating a report for a customer, the system looks up their cohort from `cohorts.yaml`
+1. When generating a report for a customer, the system looks up their cohort from `config/cohorts.yaml`
 2. It computes **cohort-specific median** active rates using only companies in the same cohort (minimum 3 members required)
 3. Slides show the cohort median as the primary benchmark, with the all-customer median as secondary context
 4. Excluded accounts are filtered out of all benchmark calculations
@@ -311,8 +311,8 @@ Several companies appear under multiple Pendo prefixes due to typos, currency-co
 
 ## Maintenance
 
-- **Adding a new customer**: Add an entry to `cohorts.yaml` under the appropriate cohort
-- **Reclassifying**: Change the `cohort` field in `cohorts.yaml`
+- **Adding a new customer**: Add an entry to `config/cohorts.yaml` under the appropriate cohort
+- **Reclassifying**: Change the `cohort` field in `config/cohorts.yaml`
 - **Clearing unverified flags**: Once confirmed via Salesforce, remove `unverified: true` and update `notes`
 - **New cohorts**: Add the cohort ID to `_COHORT_DISPLAY` in `src/pendo_client.py` for a clean display name
 - The YAML is loaded once per process and cached; restart to pick up changes

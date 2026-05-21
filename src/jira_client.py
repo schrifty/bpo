@@ -17,6 +17,7 @@ from typing import Any
 import requests
 
 from .config import LLM_MODEL_FAST, llm_client, logger
+from .config_paths import COHORTS_FILE, JSM_ORGANIZATION_ALIASES_FILE
 from .jira_connection import build_jira_connection_settings
 
 # ── Performance: shared JSM org directory (paginated API) ─────────────────
@@ -169,8 +170,8 @@ def _score_jsm_org_candidate(query: str, organization_name: str) -> float:
     return difflib.SequenceMatcher(None, q, o).ratio()
 
 
-_JSM_ORG_ALIAS_FILE = Path(__file__).resolve().parent.parent / "jsm_organization_aliases.yaml"
-_COHORTS_FILE = Path(__file__).resolve().parent.parent / "cohorts.yaml"
+_JSM_ORG_ALIAS_FILE = JSM_ORGANIZATION_ALIASES_FILE
+_COHORTS_FILE = COHORTS_FILE
 _jsm_org_alias_map: dict[str, list[str]] | None = None
 _cohort_customer_alias_map: dict[str, list[str]] | None = None
 
@@ -203,7 +204,7 @@ def _load_jsm_org_alias_map() -> dict[str, list[str]]:
 
 
 def _merge_jsm_customer_alias_terms(terms: list[str | None]) -> list[str]:
-    """Append alias strings for any term that appears as a key in jsm_organization_aliases.yaml."""
+    """Append alias strings for any term that appears as a key in config/jsm_organization_aliases.yaml."""
     am = _load_jsm_org_alias_map()
     if not am:
         return [t for t in terms if t and str(t).strip()]
@@ -339,7 +340,7 @@ def _safe_jira_customer_search_term(term: str) -> bool:
 
 
 def jira_customer_search_terms(customer_name: str) -> list[str]:
-    """Customer terms for Jira text fields, expanded via cohorts.yaml when available."""
+    """Customer terms for Jira text fields, expanded via config/cohorts.yaml when available."""
     base = [t for t in _customer_name_variants(customer_name) if t.strip()]
     aliases = _load_cohort_customer_alias_map().get((customer_name or "").strip().lower(), [])
     out: list[str] = []
@@ -840,7 +841,7 @@ class JiraClient:
         JSM ``Organizations`` is the authoritative link to a customer, but JQL requires
         the exact directory string. We list organizations via the Service Desk API and
         fuzzy-match the customer name plus any extra terms from
-        ``jsm_organization_aliases.yaml`` (e.g. JCI → "Johnson Controls") to those labels, then OR
+        ``config/jsm_organization_aliases.yaml`` (e.g. JCI → "Johnson Controls") to those labels, then OR
         ``Organizations = "<resolved>"`` together. By default we also OR ``summary`` /
         ``description`` matches for tickets that lack org metadata (QBR / discovery lists).
 

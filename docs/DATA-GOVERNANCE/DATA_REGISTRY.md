@@ -493,7 +493,7 @@ Field-level schema and HTTP surfaces: [`SALESFORCE_DATA_SCHEMA.md`](./SALESFORCE
 
 | Identifier | Description | Source field / query surface | Where used | Status note |
 |---|---|---|---|---|
-| `CUSTOMER-COHORT` | Manufacturing cohort assigned to a customer. | `cohorts.yaml` classification | `src/pendo_client.py`, `docs/DATA-GOVERNANCE/CUSTOMER_COHORTS.md` | Internal reference data |
+| `CUSTOMER-COHORT` | Manufacturing cohort assigned to a customer. | `config/cohorts.yaml` classification | `src/pendo_client.py`, `docs/DATA-GOVERNANCE/CUSTOMER_COHORTS.md` | Internal reference data |
 | `PEER-MEDIAN-ACTIVE-RATE` | Median weekly active rate across all peers. | Derived from Pendo customer list | `src/pendo_client.py`, health/benchmark slides | `DERIVED` |
 | `COHORT-MEDIAN-ACTIVE-RATE` | Median weekly active rate across the customer's cohort. | Derived from Pendo + cohort mapping | `src/pendo_client.py`, health/benchmark slides | `DERIVED` |
 | `DATA-QUALITY-CHECK` | Runtime governance check flag produced by BPO. | `src/qa.py` registry entries | `src/qa.py`, data-quality slide | Internal governance artifact |

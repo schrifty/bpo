@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
-from pathlib import Path
 
 import yaml
 
 from .config import logger
+from .config_paths import PENDO_ORPHANS_FILE
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_CFG_PATH = _REPO_ROOT / "config" / "pendo_orphans.yaml"
+_CFG_PATH = PENDO_ORPHANS_FILE
 
 
 def _parse_env_extra() -> frozenset[str]:

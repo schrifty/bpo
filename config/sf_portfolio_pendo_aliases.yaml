@@ -1,8 +1,7 @@
-# Map Salesforce portfolio rollup labels → Pendo sitename first-token prefixes.
-# Keys match case-insensitively. Values: one prefix string, or a list (first prefix present in Pendo wins).
-#
-# Use when CRM ultimate/parent portfolio labels (e.g. business units) do not appear in Pendo
-# sitenames but a known corporate prefix does (see cohorts.yaml / Pendo customer_list).
+# BPO list alias map — config/sf_portfolio_pendo_aliases.yaml
+# Schema: { "<SF portfolio label>": "<pendo_prefix>" | [ "<prefix>", ... ] }  (keys case-insensitive)
+# Used by: portfolio SF → Pendo prefix resolution. See CONFIG_ALIASES.md.
+# Use when CRM rollup labels do not appear in Pendo sitenames (see config/cohorts.yaml).
 
 "Pump Solutions Group (Oakbrook Terrace, IL)":
   - Dover

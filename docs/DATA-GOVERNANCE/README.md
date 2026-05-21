@@ -16,7 +16,8 @@ Start with **[`DATA_REGISTRY.md`](./DATA_REGISTRY.md)** for the cross-system ide
 | [`SALESFORCE_DATA_SCHEMA.md`](./SALESFORCE_DATA_SCHEMA.md) | Salesforce REST query surfaces, SOQL, Account, Opportunity, Contract list, comprehensive categories |
 | [`SALESFORCE_REVENUE_AND_ARR.md`](./SALESFORCE_REVENUE_AND_ARR.md) | ARR/MRR storage patterns, CPQ `SBQQ__`, Orders, Revenue Cloud, multi-currency |
 | [`USAGE_DATA_PRIORITIES.md`](./USAGE_DATA_PRIORITIES.md) | Usage data priorities and gaps |
-| [`CUSTOMER_COHORTS.md`](./CUSTOMER_COHORTS.md) | Manufacturing cohort classifications (`cohorts.yaml`) |
+| [`CUSTOMER_COHORTS.md`](./CUSTOMER_COHORTS.md) | Manufacturing cohort classifications (`config/cohorts.yaml`) |
+| [`CONFIG_ALIASES.md`](./CONFIG_ALIASES.md) | Customer alias maps under `config/` |
 | [`SLIDE_DATA_GAP_ANALYSIS.md`](./SLIDE_DATA_GAP_ANALYSIS.md) | Slide ↔ data coverage methodology / findings |
 
 **Operational setup** (credentials, env vars) lives under [`../SETUP/`](../SETUP/). **Slide design & Pendo builders:** [`../PRESENTATION/`](../PRESENTATION/). Other deck/product docs remain at [`../`](../).

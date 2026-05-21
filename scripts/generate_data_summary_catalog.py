@@ -69,7 +69,7 @@ def build_entries() -> list[dict[str, Any]]:
             _e("benchmarks.customer_active_rate", "[Pendo] same as engagement rate %"),
             _e("benchmarks.peer_median_rate", "[Pendo] portfolio median active %"),
             _e("benchmarks.peer_count", "[Pendo] peers in benchmark set"),
-            _e("benchmarks.cohort", "[Pendo] cohorts.yaml cohort key"),
+            _e("benchmarks.cohort", "[config/cohorts.yaml] Pendo prefix cohort key"),
             _e("benchmarks.cohort_name", "[Pendo] display cohort name"),
             _e("benchmarks.cohort_median_rate", "[Pendo] cohort median active %"),
             _e("benchmarks.cohort_count", "[Pendo] cohort peer count"),

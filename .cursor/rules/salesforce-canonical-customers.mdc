@@ -11,7 +11,7 @@ alwaysApply: true
 
 - Use Salesforce `Account` records with `Type = 'Customer Entity'` (`SalesforceClient.get_entity_accounts()` and related helpers) as the source of truth for which customers belong in the portfolio / book of business—not raw Pendo sitename-prefix enumeration.
 - Portfolio enumeration follows `BPO_PORTFOLIO_CUSTOMER_SOURCE` and `src/portfolio_salesforce_allowlist.py` / `PendoClient.get_portfolio_report`. Prefer extending that model over re-deriving the customer set from Pendo alone unless product explicitly requires Pendo-only discovery.
-- YAML maps (e.g. `customer_identity_map.yaml`, `cohorts.yaml`) are **adjuncts** for aliases and presentation—they do not override Salesforce.
+- YAML maps under `config/` (e.g. `customer_identity_map.yaml`, `cohorts.yaml`, alias maps in `docs/DATA-GOVERNANCE/CONFIG_ALIASES.md`) are **adjuncts** for aliases and presentation—they do not override Salesforce.
 
 ## Customer status (active vs churned)
 

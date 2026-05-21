@@ -1250,7 +1250,7 @@ class SalesforceClient:
     ) -> dict[str, Any]:
         """Contract info, opportunity count (this year), and pipeline ARR for a customer.
 
-        When ``preferred_account_ids`` is set (e.g. from ``customer_identity_map.yaml``), resolves
+        When ``preferred_account_ids`` is set (e.g. from ``config/customer_identity_map.yaml``), resolves
         those Customer Entity accounts **by Id** first. Otherwise matches Entity Account by
         ``Name``, ``LeanDNA_Entity_Name__c``, Parent name, or Ultimate Parent name (case-insensitive
         substring; Ultimate Parent requires ``SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP``).

@@ -56,7 +56,7 @@ DATA_SOURCES: dict[str, list[str]] = {
     "`config/teams.yaml` (local roster)": [
         "CSM / AE / SE team roster per customer (manually maintained)",
     ],
-    "cohorts.yaml (local config)": [
+    "config/cohorts.yaml (local config)": [
         "manufacturing cohort classification per customer (e.g. Aerospace, Automotive)",
     ],
 }
@@ -131,7 +131,7 @@ BUILDER_DESCRIPTIONS = {
     "salesforce_comprehensive_cover": "Salesforce export intro — match status, row limits, org-wide product note",
     "salesforce_comprehensive_toc": "Salesforce export table of contents — retained object sections after empty categories are omitted",
     "salesforce_category": "Salesforce table — one object category (sf_category) from comprehensive fetch",
-    "cohort_deck_title": "Cohort deck cover — portfolio period, customer count, cohorts.yaml reference",
+    "cohort_deck_title": "Cohort deck cover — portfolio period, customer count, config/cohorts.yaml reference",
     "cohort_profiles": "Per-cohort profile slides — medians and account list for each manufacturing cohort bucket",
     "cohort_findings": (
         "Single slide — bullet list comparing cohort buckets (sample sizes, median login/write, "

@@ -18,6 +18,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from tqdm.auto import tqdm
 
+from .config_paths import COHORTS_FILE
 from .config import (
     BPO_PORTFOLIO_CUSTOMER_SOURCE,
     BPO_PENDO_CACHE_TTL_SECONDS,
@@ -341,8 +342,8 @@ def _load_cohorts() -> dict[str, Any]:
     global _cohort_data, _alias_map
     if _cohort_data is not None:
         return _cohort_data
-    p = Path(__file__).resolve().parent.parent / "cohorts.yaml"
-    if not p.exists():
+    p = COHORTS_FILE
+    if not p.is_file():
         _cohort_data = {}
         return _cohort_data
     import yaml
@@ -482,7 +483,7 @@ def compute_cohort_portfolio_rollup(
     *,
     use_cohort_findings_slide_yaml: bool = True,
 ) -> tuple[dict[str, dict[str, Any]], list[str]]:
-    """Bucket portfolio rows by ``cohorts.yaml`` classification (via ``get_customer_cohort``).
+    """Bucket portfolio rows by ``config/cohorts.yaml`` classification (via ``get_customer_cohort``).
 
     Does not define cohorts — only reads ``cohort`` from existing customer records.
     Returns ``(cohort_digest, findings_bullets)``.
@@ -502,7 +503,7 @@ def compute_cohort_portfolio_rollup(
     digest: dict[str, dict[str, Any]] = {}
     for cid, rows in buckets.items():
         if cid == "unclassified":
-            display = "Unclassified / not in cohorts.yaml"
+            display = "Unclassified / not in config/cohorts.yaml"
         else:
             display = _COHORT_DISPLAY.get(cid, cid.replace("_", " ").title())
         logins = [float(r.get("login_pct") or 0) for r in rows]
@@ -2023,20 +2024,20 @@ class PendoClient:
                     sources=("computed rate", "reported rate"),
                     severity="error")
 
-        # Customer should exist in cohorts.yaml
+        # Customer should exist in config/cohorts.yaml
         if cohort_info.get("cohort"):
             qa.check()
         elif cohort_info.get("exclude"):
             qa.check()
         else:
-            qa.flag(f"Customer '{customer_name}' not found in cohorts.yaml",
-                    sources=("Pendo customer list", "cohorts.yaml"),
+            qa.flag(f"Customer '{customer_name}' not found in config/cohorts.yaml",
+                    sources=("Pendo customer list", "config/cohorts.yaml"),
                     severity="warning")
 
         # Flag unverified cohort classifications
         if cohort_info.get("unverified"):
             qa.flag(f"Cohort classification unverified for '{customer_name}' ({cohort_info.get('cohort', '?')})",
-                    sources=("cohorts.yaml",),
+                    sources=("config/cohorts.yaml",),
                     severity="info")
 
         # Cohort median should exist if customer has a cohort with enough peers

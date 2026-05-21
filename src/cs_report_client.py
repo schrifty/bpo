@@ -19,6 +19,7 @@ from typing import Any
 import yaml
 
 from .config import logger
+from .config_paths import COHORTS_FILE, CS_REPORT_CUSTOMER_ALIASES_FILE
 from .qa import qa
 
 # Shared Drive ID and folder for the CS Report
@@ -29,8 +30,8 @@ _cache: dict[str, Any] | None = None
 _cache_lock = threading.Lock()
 
 # Optional: project-root YAML — map Pendo customer → exact CS Report `customer` values
-_CSR_ALIAS_FILE = Path(__file__).resolve().parent.parent / "cs_report_customer_aliases.yaml"
-_COHORTS_FILE = Path(__file__).resolve().parent.parent / "cohorts.yaml"
+_CSR_ALIAS_FILE = CS_REPORT_CUSTOMER_ALIASES_FILE
+_COHORTS_FILE = COHORTS_FILE
 _cs_report_alias_map: dict[str, list[str]] | None = None
 _cs_report_alias_lock = threading.Lock()
 _cohort_customer_alias_map: dict[str, list[str]] | None = None
@@ -394,7 +395,7 @@ def cs_report_customer_name_candidates(pendo_name: str) -> list[str]:
 
 
 def _customer_rows(customer_name: str, delta: str = "week") -> list[dict[str, Any]]:
-    """Get rows for one lookup key (plus ``cs_report_customer_aliases.yaml`` candidates)."""
+    """Get rows for one lookup key (plus ``config/cs_report_customer_aliases.yaml`` candidates)."""
     sites, _matched, _tried, _merged = _sites_for_customer_lookup(customer_name, delta=delta)
     return sites
 

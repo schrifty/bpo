@@ -126,7 +126,7 @@ bpo/
 │   ├── ...
 │   └── qbr-18-data-quality.yaml
 │   (other prefixes: std-*, cohort-*, eng-*, … for non-QBR decks)
-├── cohorts.yaml              # Customer manufacturing cohort classifications
+├── config/                   # cohorts, customer alias maps, pendo_orphans (see CONFIG_ALIASES.md)
 ├── docs/
 │   ├── DATA-GOVERNANCE/     # Data governance: DATA_REGISTRY.md, DATA_DICTIONARY.md, per-source schemas, …
 │   ├── DESIGN/              # Architecture / design notes (e.g. proposed cloud)
@@ -177,7 +177,7 @@ These use a **portfolio- or org-shaped** report (all customers, cohorts, CSM own
 
 | ID | Name |
 |----|------|
-| `cohort_review` | Manufacturing Cohort Review (`cohorts.yaml`) |
+| `cohort_review` | Manufacturing Cohort Review (`config/cohorts.yaml`) |
 | `csm_book_of_business` | CSM Book of Business (Pendo owner filter) |
 | `engineering-portfolio` | Engineering Portfolio Review (LEAN SDLC + HELP support pressure + LEAN snapshot) |
 | `implementations_review` | Implementations Review (Jira CUSTOMER escalations) |
@@ -193,7 +193,7 @@ Every deck ends with a Data Quality slide that reports the results of automated 
 - SLA measured + waiting <= HELP ticket count
 - Pendo engagement buckets sum to total visitors
 - Active rate consistent with raw numbers
-- Customer exists in cohorts.yaml (warns if missing)
+- Customer exists in config/cohorts.yaml (warns if missing)
 - Unverified cohort classifications flagged
 - Site count consistency between health summary and detail
 - Drive config parse failures with local fallback
@@ -202,4 +202,4 @@ When all checks pass, the slide shows a green "All checks passed" message. Discr
 
 ## Cohort Benchmarking
 
-Customers are classified into manufacturing cohorts in `cohorts.yaml` for peer benchmarking. The system computes cohort-specific median active rates (minimum 3 members) and falls back to all-customer medians. See `docs/DATA-GOVERNANCE/CUSTOMER_COHORTS.md` for the full classification.
+Customers are classified into manufacturing cohorts in `config/cohorts.yaml` for peer benchmarking. The system computes cohort-specific median active rates (minimum 3 members) and falls back to all-customer medians. See `docs/DATA-GOVERNANCE/CUSTOMER_COHORTS.md` for the full classification.

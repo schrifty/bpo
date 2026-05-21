@@ -14,9 +14,9 @@ from .salesforce_client import (
     _renewal_roll_up_fields,
 )
 
-_SF_PORTFOLIO_PENDO_ALIAS_FILE = (
-    Path(__file__).resolve().parent.parent / "config" / "sf_portfolio_pendo_aliases.yaml"
-)
+from .config_paths import SF_PORTFOLIO_PENDO_ALIASES_FILE
+
+_SF_PORTFOLIO_PENDO_ALIAS_FILE = SF_PORTFOLIO_PENDO_ALIASES_FILE
 _sf_portfolio_pendo_alias_map: dict[str, list[str]] | None = None
 
 

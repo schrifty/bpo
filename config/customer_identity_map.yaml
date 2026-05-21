@@ -1,5 +1,6 @@
-# Optional: map health-report / Pendo customer name → Salesforce Account Id(s) (15 or 18 char).
-# Keys are matched case-insensitively. When set, Salesforce resolution uses Id first (stable joins).
+# BPO identity map — config/customer_identity_map.yaml
+# Schema: per customer key (case-insensitive): salesforce_account_id OR salesforce_account_ids
+# (+ optional salesforce_primary_account_id). See CONFIG_ALIASES.md.
 #
 # Single account:
 #   Acme Corporation:

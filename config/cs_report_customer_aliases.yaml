@@ -1,0 +1,10 @@
+# BPO list alias map — config/cs_report_customer_aliases.yaml
+# Schema: { "<customer_key>": [ "<CS Report customer column value>", ... ] }  (keys case-insensitive)
+# Used by: CS Report row lookup. See docs/DATA-GOVERNANCE/CONFIG_ALIASES.md.
+JCI:
+  - Johnson Controls
+  - Johnson Controls International
+Johnson:
+  - Johnson Controls
+  - Johnson Controls International
+  - JCI

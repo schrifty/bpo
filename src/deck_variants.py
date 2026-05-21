@@ -173,7 +173,7 @@ def create_cohort_deck(
     output_folder_id: str | None = None,
     portfolio_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Single deck: cohort buckets from cohorts.yaml + portfolio metrics."""
+    """Single deck: cohort buckets from config/cohorts.yaml + portfolio metrics."""
     from .deck_orchestrator import create_health_deck
 
     if portfolio_report is not None:

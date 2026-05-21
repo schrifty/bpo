@@ -1,0 +1,8 @@
+# BPO list alias map — config/slack_customer_aliases.yaml
+# Schema: { "<customer_key>": [ "<channel name fragment>", ... ] }  (keys case-insensitive)
+# Used by: Slack channel matching (substring + word boundaries). See CONFIG_ALIASES.md.
+#
+# Example:
+# JCI:
+#   - johnson-controls
+#   - jci-support

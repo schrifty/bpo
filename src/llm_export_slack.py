@@ -101,7 +101,7 @@ def attach_slack_top_customers_for_llm_export(report: dict[str, Any]) -> dict[st
         "customers": by_customer,
         "note": (
             "Per-customer Slack channel digests for the highest-ARR active Salesforce labels. "
-            "Channels are matched by name and slack_customer_aliases.yaml; messages are recent "
+            "Channels are matched by name and config/slack_customer_aliases.yaml; messages are recent "
             "human posts (not Slack AI summaries)."
         ),
     }

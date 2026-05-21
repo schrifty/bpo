@@ -211,10 +211,10 @@ _COHORT_FINDINGS_METADATA_DEFAULTS: dict[str, Any] = {
             "Thin samples (exactly {thin_n} customers): {names}{ellipsis} — medians are fragile."
         ),
         "unclassified": (
-            "{n} customer(s) are unclassified — add or alias them in cohorts.yaml to benchmark by industry cohort."
+            "{n} customer(s) are unclassified — add or alias them in config/cohorts.yaml to benchmark by industry cohort."
         ),
         "provenance": (
-            "Cohort labels and membership come from cohorts.yaml and docs/DATA-GOVERNANCE/CUSTOMER_COHORTS.md — "
+            "Cohort labels and membership come from config/cohorts.yaml and docs/DATA-GOVERNANCE/CUSTOMER_COHORTS.md — "
             "not redefined in this deck."
         ),
     },
