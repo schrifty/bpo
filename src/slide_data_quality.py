@@ -66,7 +66,8 @@ def data_quality_slide(reqs: list[dict], sid: str, report: dict, idx: int) -> tu
         page_sid = f"{sid}_p{page_index}" if num_pages > 1 else sid
         object_ids.append(page_sid)
         _slide(reqs, page_sid, idx + page_index)
-        _bg(reqs, page_sid, LIGHT)
+        page_bg = WHITE if (report.get("type") or "") == "support_kpis" else LIGHT
+        _bg(reqs, page_sid, page_bg)
         if page_index == 0:
             _slide_title(reqs, page_sid, "Data Quality")
             sources = snap.get("data_sources", {})

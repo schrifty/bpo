@@ -33,7 +33,8 @@ def support_deck_cover_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     generated = (report.get("support_deck_generated_at") or "").strip() or "—"
 
     _slide(reqs, sid, idx)
-    _bg(reqs, sid, NAVY)
+    white_cover = (report.get("type") or "") == "support_kpis"
+    _bg(reqs, sid, WHITE if white_cover else NAVY)
 
     title = (entry.get("title") or "Support Review").strip() or "Support Review"
     days = int(report.get("days") or 30)
@@ -45,10 +46,13 @@ def support_deck_cover_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     )
     subtitle = f"{customer}  ·  {date_range}"
 
+    title_color = NAVY if white_cover else WHITE
+    subtitle_color = GRAY if white_cover else LTBLUE
+
     _box(reqs, f"{sid}_h1", sid, MARGIN, 100, CONTENT_W, 80, title)
-    _style(reqs, f"{sid}_h1", 0, len(title), bold=True, size=36, color=WHITE, font=FONT_SERIF)
+    _style(reqs, f"{sid}_h1", 0, len(title), bold=True, size=36, color=title_color, font=FONT_SERIF)
     _box(reqs, f"{sid}_cust", sid, MARGIN, 190, CONTENT_W, 36, subtitle)
-    _style(reqs, f"{sid}_cust", 0, len(subtitle), size=15, color=LTBLUE, font=FONT)
+    _style(reqs, f"{sid}_cust", 0, len(subtitle), size=15, color=subtitle_color, font=FONT)
     generated_text = f"Generated {generated}"
     _box(reqs, f"{sid}_gen", sid, MARGIN, 340, CONTENT_W, 24, generated_text)
     _style(reqs, f"{sid}_gen", 0, len(generated_text), size=10, color=GRAY, font=FONT)

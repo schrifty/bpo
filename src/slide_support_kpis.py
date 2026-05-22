@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from .slide_jira_support import project_slide_bg
 from .slide_primitives import (
     background as _bg,
     kpi_metric_card as _kpi_metric_card,
@@ -12,7 +11,7 @@ from .slide_primitives import (
     slide_title as _slide_title,
     style as _style,
 )
-from .slide_requests import append_slide as _slide, append_text_box as _box
+from .slide_requests import append_slide as _slide, append_text_box as _box, append_wrapped_text_box as _wrap_box
 from .slide_utils import (
     max_chars_one_line_for_table_col as _max_chars_one_line_for_table_col,
     slide_size as _sz,
@@ -28,12 +27,72 @@ from .slides_theme import (
     GRAY,
     MARGIN,
     NAVY,
+    WHITE,
     _table_rows_fit_span,
 )
 from .slide_jira_support import _clean_table, _table_cell_style, _table_cell_text
 
 GREEN = {"red": 0.13, "green": 0.65, "blue": 0.35}
 RED = {"red": 0.85, "green": 0.15, "blue": 0.15}
+
+# Layout: business meaning under title; operational scope at bottom.
+_BUSINESS_BAND_H = 38.0
+_CONTENT_TOP = BODY_Y + _BUSINESS_BAND_H
+_SCOPE_FOOTER_H = 22.0
+_SCOPE_FOOTER_Y = BODY_BOTTOM - _SCOPE_FOOTER_H
+_CONTENT_BOTTOM = _SCOPE_FOOTER_Y - 6.0
+_CHART_TOP_GAP = 4.0
+_CHART_BOTTOM_GAP = 8.0
+_INTAKE_SIDE_COL_GAP = 16.0
+_INTAKE_CHART_WIDTH_RATIO = 0.62
+
+# CEO-facing line under the slide title (slide_type → copy).
+_BUSINESS_MEANING: dict[str, str] = {
+    "support_kpis_intake": (
+        "Shows how fast new customer issues are entering support—an early signal of "
+        "rising demand, rollout pain, or accounts under stress."
+    ),
+    "support_kpis_flow": (
+        "Compares tickets opened vs closed each week—when closes lag opens, backlog and "
+        "customer wait times grow even if the team feels busy."
+    ),
+    "support_kpis_backlog": (
+        "How long open work has been waiting—concentration in older buckets means "
+        "customers are waiting longer and escalation risk is rising."
+    ),
+    "support_kpis_tail_risk": (
+        "The oldest issues still open—these are the tickets most likely to erode trust, "
+        "delay outcomes, or surface in executive conversations."
+    ),
+    "support_kpis_sla": (
+        "Whether we are meeting committed response and resolution targets on closed "
+        "work—direct read on contractual service performance."
+    ),
+    "support_kpis_ttfr": (
+        "How quickly customers receive a first meaningful response after opening a "
+        "ticket—perceived responsiveness before the issue is fully solved."
+    ),
+    "support_kpis_resolution": (
+        "How long issues actually take to close by type—sets realistic expectations with "
+        "customers and highlights where process or dependencies slow delivery."
+    ),
+    "support_kpis_engineering_dependency": (
+        "Support work waiting on engineering—each item here is customer-visible delay "
+        "that support alone cannot clear."
+    ),
+    "support_kpis_customer_health": (
+        "Accounts with enough open or aged tickets to warrant proactive outreach before "
+        "they become escalations or renewal risk."
+    ),
+    "support_kpis_csat": (
+        "Directional view of customer tone on tickets—useful context alongside formal "
+        "satisfaction programs, not a replacement for survey CSAT."
+    ),
+    "support_kpis_aging_thresholds": (
+        "Tickets that have crossed service time commitments—these need management "
+        "attention because promises to customers may already be at risk."
+    ),
+}
 
 
 def _kpis(report: dict[str, Any]) -> dict[str, Any]:
@@ -54,27 +113,60 @@ def _kpis_or_missing(
     return payload
 
 
-def _slide_header(
-    reqs: list[dict[str, Any]],
-    sid: str,
-    report: dict[str, Any],
-    idx: int,
-) -> str:
+def _current_slide_type(report: dict[str, Any]) -> str:
+    entry = report.get("_current_slide") or {}
+    return str(entry.get("slide_type") or entry.get("id") or "")
+
+
+def _window_scope(payload: dict[str, Any]) -> str:
+    days = payload.get("window_days") or 90
+    open_n = payload.get("open_count")
+    parts = [f"Trailing {days}d · HELP project"]
+    if open_n is not None:
+        parts.append(f"{open_n} open tickets")
+    return "  ·  ".join(parts)
+
+
+def _slide_header(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> str:
     entry = report.get("_current_slide") or {}
     title = (entry.get("title") or "Support KPI").strip()
     _slide(reqs, sid, idx)
-    _bg(reqs, sid, project_slide_bg("HELP"))
+    _bg(reqs, sid, WHITE)
     _slide_title(reqs, sid, title)
     return title
 
 
-def _window_subtitle(payload: dict[str, Any]) -> str:
-    days = payload.get("window_days") or 90
-    open_n = payload.get("open_count")
-    parts = [f"Trailing {days}d window · HELP project"]
-    if open_n is not None:
-        parts.append(f"{open_n} open tickets")
-    return "  ·  ".join(parts)
+def _max_single_chart_height(content_y: float, *, reserve_below: float = 0.0) -> float:
+    """Height for a lone chart: fill the band between business line and scope footer."""
+    available = (
+        _CONTENT_BOTTOM - float(content_y) - _CHART_TOP_GAP - _CHART_BOTTOM_GAP - float(reserve_below)
+    )
+    return max(80.0, available)
+
+
+def _place_framing(
+    reqs: list[dict[str, Any]],
+    sid: str,
+    report: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    scope_detail: str = "",
+    business: str | None = None,
+) -> float:
+    """Business line under title; scope/metadata at bottom. Returns y for main content."""
+    slide_type = _current_slide_type(report)
+    biz = (business or _BUSINESS_MEANING.get(slide_type) or "").strip()
+    if biz:
+        _wrap_box(reqs, f"{sid}_biz", sid, MARGIN, BODY_Y, CONTENT_W, _BUSINESS_BAND_H, biz)
+        _style(reqs, f"{sid}_biz", 0, len(biz), size=11, color=NAVY, font=FONT)
+
+    scope_parts = [_window_scope(payload)]
+    if scope_detail.strip():
+        scope_parts.append(scope_detail.strip())
+    scope_text = "  ·  ".join(p for p in scope_parts if p)
+    _wrap_box(reqs, f"{sid}_scope", sid, MARGIN, _SCOPE_FOOTER_Y, CONTENT_W, _SCOPE_FOOTER_H, scope_text)
+    _style(reqs, f"{sid}_scope", 0, len(scope_text), size=8, color=GRAY, font=FONT)
+    return _CONTENT_TOP
 
 
 def _render_table(
@@ -89,7 +181,15 @@ def _render_table(
     link_col: int | None = 0,
 ) -> None:
     row_h = 22.0
-    display = rows[: _table_rows_fit_span(y_top=y_top, y_bottom=BODY_BOTTOM, row_height_pt=row_h, reserved_table_rows=1, max_rows_cap=25)]
+    display = rows[
+        : _table_rows_fit_span(
+            y_top=y_top,
+            y_bottom=_CONTENT_BOTTOM,
+            row_height_pt=row_h,
+            reserved_table_rows=1,
+            max_rows_cap=25,
+        )
+    ]
     if not display:
         return
     table_id = f"{sid}_tbl"
@@ -140,6 +240,8 @@ def _weekly_line_chart(
     series: dict[str, list[int]],
     chart_y: float,
     chart_h: float,
+    chart_x: float = MARGIN,
+    chart_w: float = CONTENT_W,
 ) -> None:
     charts = report.get("_charts")
     if not charts or not weeks:
@@ -148,7 +250,36 @@ def _weekly_line_chart(
 
     labels = [w.get("label", w.get("week", "")) for w in weeks]
     ss_id, chart_id = charts.add_line_chart(title="", labels=labels, series=series)
-    embed_chart(reqs, f"{sid}_chart", sid, ss_id, chart_id, MARGIN, chart_y, CONTENT_W, chart_h, linked=False)
+    embed_chart(reqs, f"{sid}_chart", sid, ss_id, chart_id, chart_x, chart_y, chart_w, chart_h, linked=False)
+
+
+def _render_intake_top_customers_panel(
+    reqs: list[dict[str, Any]],
+    sid: str,
+    *,
+    by_customer: dict[str, int],
+    panel_x: float,
+    panel_y: float,
+    panel_w: float,
+    panel_h: float,
+    max_rows: int = 8,
+) -> None:
+    """Numbered ranked list beside the intake chart."""
+    title = "Top customers (opens in window)"
+    _box(reqs, f"{sid}_tc_t", sid, panel_x, panel_y, panel_w, 18, title)
+    _style(reqs, f"{sid}_tc_t", 0, len(title), bold=True, size=10, color=NAVY, font=FONT)
+    lines: list[str] = []
+    name_chars = _max_chars_one_line_for_table_col(max(80.0, panel_w - 36.0))
+    for rank, (name, count) in enumerate(list(by_customer.items())[:max_rows], start=1):
+        label = _truncate_table_cell(name, name_chars)
+        lines.append(f"{rank}. {label} — {count}")
+    if not lines:
+        lines.append("No opens in window.")
+    body = "\n".join(lines)
+    body_y = panel_y + 22.0
+    body_h = max(40.0, panel_h - 24.0)
+    _wrap_box(reqs, f"{sid}_tc_list", sid, panel_x, body_y, panel_w, body_h, body)
+    _style(reqs, f"{sid}_tc_list", 0, len(body), size=10, color=NAVY, font=FONT)
 
 
 def support_kpis_intake_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
@@ -156,29 +287,47 @@ def support_kpis_intake_slide(reqs: list[dict[str, Any]], sid: str, report: dict
     if isinstance(got, int):
         return got
     _slide_header(reqs, sid, report, idx)
-    sub = _window_subtitle(got) + "  ·  New tickets opened per ISO week"
-    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
-    _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
+    content_y = _place_framing(reqs, sid, report, got, scope_detail="New tickets opened per ISO week")
     weeks = list(got.get("intake_weekly") or [])
-    chart_y = BODY_Y + 22
-    _weekly_line_chart(
-        reqs,
-        sid,
-        report,
-        weeks=weeks,
-        series={"Opened": [w.get("created", 0) for w in weeks]},
-        chart_y=chart_y,
-        chart_h=140,
-    )
     breakdown = got.get("intake_breakdown") or {}
     by_cust = breakdown.get("by_customer") or {}
+    chart_y = content_y + _CHART_TOP_GAP
+    chart_h = _max_single_chart_height(content_y)
     if by_cust:
-        lines = ["Top customers (opens in window):"]
-        for name, count in list(by_cust.items())[:6]:
-            lines.append(f"  {name}: {count}")
-        text = "\n".join(lines)
-        _box(reqs, f"{sid}_bd", sid, MARGIN, chart_y + 148, CONTENT_W, 80, text)
-        _style(reqs, f"{sid}_bd", 0, len(text), size=9, color=NAVY, font=FONT)
+        gap = _INTAKE_SIDE_COL_GAP
+        chart_w = int((CONTENT_W - gap) * _INTAKE_CHART_WIDTH_RATIO)
+        panel_x = MARGIN + chart_w + gap
+        panel_w = CONTENT_W - chart_w - gap
+        _weekly_line_chart(
+            reqs,
+            sid,
+            report,
+            weeks=weeks,
+            series={"Opened": [w.get("created", 0) for w in weeks]},
+            chart_y=chart_y,
+            chart_h=chart_h,
+            chart_x=MARGIN,
+            chart_w=float(chart_w),
+        )
+        _render_intake_top_customers_panel(
+            reqs,
+            sid,
+            by_customer=by_cust,
+            panel_x=float(panel_x),
+            panel_y=chart_y,
+            panel_w=float(panel_w),
+            panel_h=chart_h,
+        )
+    else:
+        _weekly_line_chart(
+            reqs,
+            sid,
+            report,
+            weeks=weeks,
+            series={"Opened": [w.get("created", 0) for w in weeks]},
+            chart_y=chart_y,
+            chart_h=chart_h,
+        )
     return idx + 1
 
 
@@ -187,10 +336,10 @@ def support_kpis_flow_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
     if isinstance(got, int):
         return got
     _slide_header(reqs, sid, report, idx)
-    sub = _window_subtitle(got) + "  ·  Resolved vs opened per week"
-    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
-    _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
+    content_y = _place_framing(reqs, sid, report, got, scope_detail="Resolved vs opened per week")
     weeks = list(got.get("flow_weekly") or [])
+    chart_y = content_y + _CHART_TOP_GAP
+    chart_h = _max_single_chart_height(content_y)
     _weekly_line_chart(
         reqs,
         sid,
@@ -200,8 +349,8 @@ def support_kpis_flow_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
             "Opened": [w.get("created", 0) for w in weeks],
             "Resolved": [w.get("resolved", 0) for w in weeks],
         },
-        chart_y=BODY_Y + 22,
-        chart_h=200,
+        chart_y=chart_y,
+        chart_h=chart_h,
     )
     return idx + 1
 
@@ -211,22 +360,22 @@ def support_kpis_backlog_slide(reqs: list[dict[str, Any]], sid: str, report: dic
     if isinstance(got, int):
         return got
     _slide_header(reqs, sid, report, idx)
+    content_y = _place_framing(reqs, sid, report, got, scope_detail="Open tickets by age (days since created)")
     buckets = got.get("backlog_age_buckets") or {}
-    sub = _window_subtitle(got) + "  ·  Open tickets by age (days since created)"
-    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
-    _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
     charts = report.get("_charts")
     labels = ["0–7", "8–14", "15–30", "30+"]
     keys = ["0-7", "8-14", "15-30", "30+"]
     values = [int(buckets.get(k, 0)) for k in keys]
+    chart_y = content_y + _CHART_TOP_GAP
+    chart_h = _max_single_chart_height(content_y)
     if charts and any(values):
         from .charts import embed_chart
 
         ss_id, chart_id = charts.add_bar_chart(title="", labels=labels, series={"Open": values})
-        embed_chart(reqs, f"{sid}_chart", sid, ss_id, chart_id, MARGIN, BODY_Y + 28, CONTENT_W, 200, linked=False)
+        embed_chart(reqs, f"{sid}_chart", sid, ss_id, chart_id, MARGIN, chart_y, CONTENT_W, chart_h, linked=False)
     else:
         summary = "  ·  ".join(f"{lb}: {v}" for lb, v in zip(labels, values))
-        _box(reqs, f"{sid}_sum", sid, MARGIN, BODY_Y + 40, CONTENT_W, 40, summary or "No open tickets")
+        _box(reqs, f"{sid}_sum", sid, MARGIN, content_y + 8, CONTENT_W, 40, summary or "No open tickets")
         _style(reqs, f"{sid}_sum", 0, len(summary or "No open tickets"), size=12, color=NAVY, font=FONT)
     return idx + 1
 
@@ -236,9 +385,13 @@ def support_kpis_tail_risk_slide(reqs: list[dict[str, Any]], sid: str, report: d
     if isinstance(got, int):
         return got
     _slide_header(reqs, sid, report, idx)
-    sub = "Oldest 10 active (not Done) HELP tickets — owner and status/blocker hint"
-    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
-    _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
+    content_y = _place_framing(
+        reqs,
+        sid,
+        report,
+        got,
+        scope_detail="Oldest 10 active (not Done) tickets · owner and status",
+    )
     jira_base = ((report.get("jira") or {}).get("base_url") or "").rstrip("/")
     rows_data = got.get("tail_risk") or []
     headers = ["Key", "Age (d)", "Assignee", "Status", "Blocker", "Summary"]
@@ -255,7 +408,7 @@ def support_kpis_tail_risk_slide(reqs: list[dict[str, Any]], sid: str, report: d
         ]
         for r in rows_data
     ]
-    _render_table(reqs, sid, y_top=BODY_Y + 24, headers=headers, col_widths=col_widths, rows=rows, jira_base=jira_base)
+    _render_table(reqs, sid, y_top=content_y + 4, headers=headers, col_widths=col_widths, rows=rows, jira_base=jira_base)
     return idx + 1
 
 
@@ -267,10 +420,14 @@ def support_kpis_sla_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
     sla = got.get("sla") or {}
     ttfr = sla.get("ttfr") or {}
     ttr = sla.get("ttr") or {}
-    sub = _window_subtitle(got) + "  ·  % of resolved tickets with completed SLA not breached"
-    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
-    _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
-    row_y = BODY_Y + 36
+    content_y = _place_framing(
+        reqs,
+        sid,
+        report,
+        got,
+        scope_detail="% of resolved tickets with completed SLA not breached",
+    )
+    row_y = content_y + 8
     card_w = (CONTENT_W - 24) // 2
     for i, (label, blob) in enumerate((("First response SLA %", ttfr), ("Resolution SLA %", ttr))):
         pct = blob.get("pct")
@@ -290,10 +447,15 @@ def support_kpis_ttfr_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
         return got
     _slide_header(reqs, sid, report, idx)
     ttfr = got.get("ttfr") or {}
-    sub = _window_subtitle(got) + "  ·  Time to first response (JSM SLA, resolved in window)"
-    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
-    _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
-    row_y = BODY_Y + 32
+    measured = ttfr.get("measured", 0)
+    content_y = _place_framing(
+        reqs,
+        sid,
+        report,
+        got,
+        scope_detail=f"JSM first-response SLA on resolved tickets · {measured} measured",
+    )
+    row_y = content_y + 8
     card_w = (CONTENT_W - 36) // 3
     items = [
         ("Median", ttfr.get("median", "—")),
@@ -302,10 +464,6 @@ def support_kpis_ttfr_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
     ]
     for i, (label, val) in enumerate(items):
         _kpi_metric_card(reqs, f"{sid}_t{i}", sid, MARGIN + i * (card_w + 18), row_y, card_w, 64, label, str(val), accent=BLUE)
-    measured = ttfr.get("measured", 0)
-    foot = f"Measured on {measured} resolved tickets with completed first-response SLA"
-    _box(reqs, f"{sid}_ft", sid, MARGIN, row_y + 72, CONTENT_W, 16, foot)
-    _style(reqs, f"{sid}_ft", 0, len(foot), size=9, color=GRAY, font=FONT)
     return idx + 1
 
 
@@ -314,9 +472,13 @@ def support_kpis_resolution_slide(reqs: list[dict[str, Any]], sid: str, report: 
     if isinstance(got, int):
         return got
     _slide_header(reqs, sid, report, idx)
-    sub = _window_subtitle(got) + "  ·  Calendar time to resolution — median and p90 by ticket type"
-    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
-    _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
+    content_y = _place_framing(
+        reqs,
+        sid,
+        report,
+        got,
+        scope_detail="Calendar time to resolution · median and p90 by ticket type",
+    )
     rows = [
         [r.get("type", "—"), str(r.get("count", 0)), r.get("median", "—"), r.get("p90", "—")]
         for r in (got.get("resolution_by_type") or [])
@@ -324,7 +486,7 @@ def support_kpis_resolution_slide(reqs: list[dict[str, Any]], sid: str, report: 
     _render_table(
         reqs,
         sid,
-        y_top=BODY_Y + 24,
+        y_top=content_y + 4,
         headers=["Type", "Count", "Median TTR", "p90 TTR"],
         col_widths=[200, 80, 120, 120],
         rows=rows,
@@ -343,10 +505,14 @@ def support_kpis_engineering_dependency_slide(
     eng = got.get("engineering_dependency") or {}
     count = eng.get("count", 0)
     avg_age = eng.get("avg_age_days")
-    avg_s = f"{avg_age:.1f}d" if avg_age is not None else "—"
-    sub = f"Open HELP tickets blocked by / in Engineering — {count} tickets · avg age {avg_s}"
-    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
-    _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
+    avg_s = f"{avg_age:.1f}d avg age" if avg_age is not None else "avg age —"
+    content_y = _place_framing(
+        reqs,
+        sid,
+        report,
+        got,
+        scope_detail=f"{count} open tickets in engineering-related statuses · {avg_s}",
+    )
     jira_base = ((report.get("jira") or {}).get("base_url") or "").rstrip("/")
     rows = [
         [
@@ -361,7 +527,7 @@ def support_kpis_engineering_dependency_slide(
     _render_table(
         reqs,
         sid,
-        y_top=BODY_Y + 24,
+        y_top=content_y + 4,
         headers=["Key", "Age (d)", "Status", "Assignee", "Summary"],
         col_widths=[56, 48, 110, 100, 246],
         rows=rows,
@@ -375,9 +541,13 @@ def support_kpis_customer_health_slide(reqs: list[dict[str, Any]], sid: str, rep
     if isinstance(got, int):
         return got
     _slide_header(reqs, sid, report, idx)
-    sub = "Customers (JSM org) with 3+ open HELP tickets or any ticket open 30+ days"
-    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 16, sub)
-    _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
+    content_y = _place_framing(
+        reqs,
+        sid,
+        report,
+        got,
+        scope_detail="JSM orgs with 3+ open tickets or any ticket open 30+ days",
+    )
     rows = [
         [
             _truncate_table_cell(r.get("organization"), 40),
@@ -389,7 +559,7 @@ def support_kpis_customer_health_slide(reqs: list[dict[str, Any]], sid: str, rep
     _render_table(
         reqs,
         sid,
-        y_top=BODY_Y + 24,
+        y_top=content_y + 4,
         headers=["Organization", "Open", "Oldest (d)"],
         col_widths=[360, 80, 100],
         rows=rows,
@@ -404,18 +574,19 @@ def support_kpis_csat_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
         return got
     _slide_header(reqs, sid, report, idx)
     csat = got.get("csat") or {}
-    note = csat.get("note") or ""
-    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 28, note)
-    _style(reqs, f"{sid}_sub", 0, len(note), size=9, color=GRAY, font=FONT)
+    note = (csat.get("note") or "Jira AI sentiment on HELP tickets").strip()
+    content_y = _place_framing(reqs, sid, report, got, scope_detail=note)
     by_sent = csat.get("by_sentiment") or {}
-    y = BODY_Y + 36
+    y = content_y + 8
     if not by_sent:
-        msg = "No Jira sentiment labels on HELP tickets in this scope."
+        msg = "No sentiment labels on tickets in this scope."
         _box(reqs, f"{sid}_empty", sid, MARGIN, y, CONTENT_W, 24, msg)
         _style(reqs, f"{sid}_empty", 0, len(msg), size=10, color=NAVY, font=FONT)
         return idx + 1
     total = sum(by_sent.values()) or 1
     for name, count in by_sent.items():
+        if y + 22 >= _SCOPE_FOOTER_Y:
+            break
         pct = round(100 * count / total)
         line = f"{name}: {count} ({pct}%)"
         _box(reqs, f"{sid}_s{hash(name) % 9999}", sid, MARGIN, y, CONTENT_W, 18, line)
@@ -432,12 +603,16 @@ def support_kpis_aging_thresholds_slide(reqs: list[dict[str, Any]], sid: str, re
     aging = got.get("aging_beyond_thresholds") or {}
     ttfr_h = aging.get("ttfr_goal_hours", 48)
     ttr_h = aging.get("ttr_goal_hours", 160)
-    sub = (
-        f"Open tickets beyond service thresholds "
-        f"(no first response >{ttfr_h}h and/or open >{ttr_h}h) — {aging.get('count', 0)} total"
+    content_y = _place_framing(
+        reqs,
+        sid,
+        report,
+        got,
+        scope_detail=(
+            f"{aging.get('count', 0)} open beyond thresholds "
+            f"(no first response >{ttfr_h}h and/or open >{ttr_h}h)"
+        ),
     )
-    _box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, 20, sub)
-    _style(reqs, f"{sid}_sub", 0, len(sub), size=9, color=GRAY, font=FONT)
     jira_base = ((report.get("jira") or {}).get("base_url") or "").rstrip("/")
     rows = [
         [
@@ -452,7 +627,7 @@ def support_kpis_aging_thresholds_slide(reqs: list[dict[str, Any]], sid: str, re
     _render_table(
         reqs,
         sid,
-        y_top=BODY_Y + 28,
+        y_top=content_y + 4,
         headers=["Key", "Age (d)", "Threshold", "Assignee", "Summary"],
         col_widths=[56, 48, 160, 100, 216],
         rows=rows,

@@ -171,7 +171,9 @@ A full-sentence takeaway.
 
 ### Context line (optional)
 
-A short subtitle explaining scope.
+A short **business-facing** line directly under the title: what the slide means for an executive audience (trend, risk, or decision), not operational JQL or field names.
+
+When a slide also needs **scope** (time window, project, filters, column definitions), put that in the **footer** band—not in the context line. See **Single chart on a slide** below.
 
 ### Metric / context bar (optional)
 
@@ -187,7 +189,34 @@ The content area must fit within the safe body bounds with explicit padding betw
 
 ### Footer
 
-Source, timeframe, or dataset description when relevant.
+Source, timeframe, dataset description, or operational scope when relevant.
+
+Use approximately **8–9 pt** gray text in a dedicated band above the slide’s physical bottom margin (do not overlap charts or tables). Typical content: trailing window, project key, open-ticket counts, and slide-specific methodology (e.g. “per ISO week”, “median and p90 by type”).
+
+---
+
+## Single-chart slides (business line + footer)
+
+Many app-built slides use a **three-band** body:
+
+1. **Business context** — under the title (`BODY_Y`, ≈38 pt band, ≈11 pt navy text).
+2. **Primary visual** — one embedded chart or graph (line, bar, column).
+3. **Scope footer** — bottom band (≈22 pt above `BODY_BOTTOM`, ≈8 pt gray text).
+
+### Maximize the chart
+
+When the slide is **centered on one chart** and nothing else competes in the body (no second chart, table, or dense list):
+
+- Use **full content width** (`CONTENT_W`) for bar, column, and line charts.
+- Set chart **height** to the largest value that fits between the business band and the scope footer:
+  - top: `content_y + 4 pt` (small gap below business line)
+  - bottom: `scope_footer_y − 6 pt − 8 pt` (clearance above footer)
+- Do **not** cap lone charts at an arbitrary short height (e.g. 130–200 pt) when vertical space is available.
+- If a **secondary block** complements the chart (e.g. a ranked “top customers” list), prefer placing it in a **right column** (~38% width) so the chart keeps full height; number ranked rows (`1.`, `2.`, …). Only stack below the chart when horizontal space is insufficient.
+
+**Reference implementation:** `_max_single_chart_height()` and `_render_intake_top_customers_panel()` in `src/slide_support_kpis.py` (Support KPIs intake / flow / backlog).
+
+When two charts share a slide, split width instead of maximizing one—see **Embedded Chart Standards → Single chart on a slide** (two-chart case).
 
 ---
 
@@ -453,7 +482,7 @@ Slides should guide the viewer’s eye in this order:
 ### Chart dominance rules
 
 - When multiple elements share a slide, the primary chart should typically occupy approximately **60% of the slide body area**.
-- When a slide contains **one sole embedded chart**, that chart should dominate the body band.
+- When a slide contains **one sole embedded chart**, that chart should dominate the body band between the subtitle and footer (use `_max_single_chart_height`-style sizing when applicable).
 - Do not leave a lone chart undersized with large unused whitespace around it.
 
 ---
@@ -484,7 +513,9 @@ When a slide shows exactly one embedded Sheets chart and no second chart, table,
 - use the full content width for bar, column, or line charts
 - use the largest square that fits for pie or donut charts
 - center the chart horizontally in the content area
-- extend the chart vertically from just below the title or metric bar through `BODY_BOTTOM` minus a small bottom pad of about **10 pt**
+- extend the chart vertically to fill the space between the **business context line** (under the title) and the **scope footer** (bottom band)—see **Single-chart slides (business line + footer)** above
+- if only a title metric bar exists (no separate business line), extend from just below that bar through the content bottom minus footer clearance (about **6–8 pt** above the scope footer, **8 pt** below the top of the chart band)
+- do not leave a lone chart undersized when unused whitespace remains in that band
 
 When two charts share a slide:
 
