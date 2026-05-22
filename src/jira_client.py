@@ -1114,6 +1114,7 @@ class JiraClient:
             "labels": f.get("labels", []),
             "created": f.get("created", "")[:10],
             "updated": f.get("updated", "")[:10],
+            "resolutiondate": (f.get("resolutiondate") or "")[:10],
             "resolution": f.get("resolution", {}).get("name", "") if f.get("resolution") else "",
             "assignee": f.get("assignee", {}).get("displayName", "") if f.get("assignee") else "",
             "reporter": f.get("reporter", {}).get("displayName", "") if f.get("reporter") else "",
@@ -1450,25 +1451,27 @@ class JiraClient:
         """
         from datetime import datetime, timedelta
         buckets: dict[str, dict] = {}
+
+        def _inc(col: str, raw: str) -> None:
+            if not raw:
+                return
+            try:
+                dt = datetime.strptime(raw[:10], "%Y-%m-%d")
+            except ValueError:
+                return
+            iso = dt.isocalendar()
+            key = f"{iso[0]}-W{iso[1]:02d}"
+            monday = dt - timedelta(days=dt.weekday())
+            if key not in buckets:
+                buckets[key] = {"week": key, "label": monday.strftime("%b %-d"), "created": 0, "resolved": 0}
+            buckets[key][col] += 1
+
         for i in issues:
-            for field, col in (("created", "created"), ("updated", "resolved")):
-                raw = i.get(field, "")
-                if not raw:
-                    continue
-                if col == "resolved" and i.get("resolution") == "":
-                    continue
-                try:
-                    dt = datetime.strptime(raw[:10], "%Y-%m-%d")
-                except ValueError:
-                    continue
-                # ISO week key
-                iso = dt.isocalendar()
-                key = f"{iso[0]}-W{iso[1]:02d}"
-                # Monday of that week for the label
-                monday = dt - timedelta(days=dt.weekday())
-                if key not in buckets:
-                    buckets[key] = {"week": key, "label": monday.strftime("%b %-d"), "created": 0, "resolved": 0}
-                buckets[key][col] += 1
+            _inc("created", i.get("created") or "")
+            if not i.get("resolution"):
+                continue
+            resolved_raw = i.get("resolutiondate") or i.get("updated") or ""
+            _inc("resolved", resolved_raw)
 
         return sorted(buckets.values(), key=lambda b: b["week"])
 
@@ -2576,6 +2579,7 @@ class JiraClient:
         flow_issues = [
             {
                 "created": i.get("created", ""),
+                "updated": i.get("updated", ""),
                 "resolutiondate": i.get("resolutiondate", ""),
                 "resolution": i.get("resolution", ""),
             }

@@ -35,6 +35,32 @@ def test_sla_field_adherence_pct():
     assert out["pct"] == 50.0
 
 
+def test_bucket_by_week_resolved_uses_resolutiondate():
+    """Flow slide resolved series buckets by resolution date, not last updated."""
+    issues = [
+        {
+            "created": "2026-01-06",
+            "updated": "2026-02-01",
+            "resolutiondate": "2026-01-20",
+            "resolution": "Done",
+        },
+        {
+            "created": "2026-01-08",
+            "updated": "2026-01-08",
+            "resolutiondate": "",
+            "resolution": "",
+        },
+    ]
+    weeks = JiraClient._bucket_by_week(issues)
+    assert len(weeks) >= 2
+    created_total = sum(w["created"] for w in weeks)
+    resolved_total = sum(w["resolved"] for w in weeks)
+    assert created_total == 2
+    assert resolved_total == 1
+    resolved_weeks = [w for w in weeks if w["resolved"] > 0]
+    assert resolved_weeks[0]["week"] == "2026-W04"  # 2026-01-20
+
+
 def test_open_age_days_and_backlog_buckets_logic():
     from datetime import datetime, timedelta, timezone
 
