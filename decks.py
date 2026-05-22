@@ -255,7 +255,7 @@ def _run_deck_run_cli(rest: list[str]) -> None:
     args = ap.parse_args(rest)
 
     from src.data_source_health import check_all_required
-    from src.deck_loader import list_decks
+    from src.deck_loader import load_deck
     from src.pendo_client import PendoClient
     from src.portfolio_exclude_prefixes import is_skipped_customer_prefix
     from src.quarters import resolve_quarter
@@ -267,9 +267,8 @@ def _run_deck_run_cli(rest: list[str]) -> None:
         create_portfolio_deck,
     )
 
-    deck_ids = [d["id"] for d in list_decks()]
     deck_id = args.deck
-    if deck_id not in deck_ids:
+    if not load_deck(deck_id):
         ap.error(f"unknown deck id {deck_id!r} (run decks --list)")
 
     if args.all_customers and args.customers:

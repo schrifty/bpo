@@ -1035,26 +1035,23 @@ def load_deck_yaml_from_drive(deck_id: str, local_dir: Path) -> dict[str, Any] |
     try:
         ensure_drive_config_matches_repo()
         _, d_folder, _s = _get_config_folder_ids()
-        for df in _list_drive_files(d_folder):
-            if df.get("name") == basename:
-                t_read = time.perf_counter()
-                try:
-                    text = _read_drive_file(df["id"])
-                    raw = yaml.safe_load(text)
-                    if isinstance(raw, dict) and raw.get("id") == deck_id:
-                        raw["_source"] = "drive"
-                        raw["_file"] = basename
-                        dt = time.perf_counter() - t_read
-                        logger.info(
-                            "Drive decks: single-file load %s in %.2fs (folder_id=%s…)",
-                            basename,
-                            dt,
-                            (d_folder or "")[:12],
-                        )
-                        return raw
-                except Exception as e:
-                    logger.debug("load_deck_yaml_from_drive: %s: %s", basename, e)
-                break
+        file_id = find_file_in_folder(basename, d_folder)
+        if not file_id:
+            return None
+        t_read = time.perf_counter()
+        text = _read_drive_file(file_id)
+        raw = yaml.safe_load(text)
+        if isinstance(raw, dict) and raw.get("id") == deck_id:
+            raw["_source"] = "drive"
+            raw["_file"] = basename
+            dt = time.perf_counter() - t_read
+            logger.info(
+                "Drive decks: single-file load %s in %.2fs (folder_id=%s…)",
+                basename,
+                dt,
+                (d_folder or "")[:12],
+            )
+            return raw
     except Exception as e:
         logger.debug("load_deck_yaml_from_drive: %s", e)
     return None
