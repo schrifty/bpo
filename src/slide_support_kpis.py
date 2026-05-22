@@ -274,6 +274,7 @@ def _project_flow_chart(
             "Opened": [w.get("created", 0) for w in weeks],
             "Resolved": [w.get("resolved", 0) for w in weeks],
         },
+        chart_oid=f"{sid}_{oid_prefix}_chart",
         chart_x=chart_x,
         chart_y=chart_y,
         chart_w=chart_w,
@@ -292,6 +293,7 @@ def _weekly_line_chart(
     chart_h: float,
     chart_x: float = MARGIN,
     chart_w: float = CONTENT_W,
+    chart_oid: str | None = None,
 ) -> None:
     charts = report.get("_charts")
     if not charts or not weeks:
@@ -300,7 +302,8 @@ def _weekly_line_chart(
 
     labels = [w.get("label", w.get("week", "")) for w in weeks]
     ss_id, chart_id = charts.add_line_chart(title="", labels=labels, series=series)
-    embed_chart(reqs, f"{sid}_chart", sid, ss_id, chart_id, chart_x, chart_y, chart_w, chart_h, linked=False)
+    oid = chart_oid or f"{sid}_chart"
+    embed_chart(reqs, oid, sid, ss_id, chart_id, chart_x, chart_y, chart_w, chart_h, linked=False)
 
 
 def _render_intake_top_customers_panel(
