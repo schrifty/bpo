@@ -10,7 +10,7 @@ from .support_notable_llm import SUPPORT_KPIS_NOTABLE_BULLET_COUNT
 
 
 def support_kpis_notable_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
-    """Executive findings list — same layout as Notable Signals, up to 10 bullets."""
+    """Executive findings list — same layout as Notable Signals, up to five bullets."""
     entry = report.get("_current_slide") or {}
     title = (entry.get("title") or "").strip() or "Notable Findings"
     llm_bullets = report.get("support_kpis_notable_bullets")

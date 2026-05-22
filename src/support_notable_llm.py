@@ -856,7 +856,7 @@ def generate_notable_bullets_via_llm(
         return _fallback_items(entry), "yaml_fallback"
 
 
-SUPPORT_KPIS_NOTABLE_BULLET_COUNT = 10
+SUPPORT_KPIS_NOTABLE_BULLET_COUNT = 5
 
 
 def _trim_support_kpis_payload(kpis: dict[str, Any]) -> dict[str, Any]:
@@ -944,14 +944,9 @@ def _fallback_support_kpis_items(entry: dict[str, Any]) -> list[str]:
         return [str(x).strip() for x in ni if str(x).strip()][:SUPPORT_KPIS_NOTABLE_BULLET_COUNT]
     return [
         "INTAKE: Review weekly ticket creation in the analysis window — spikes may signal product friction or onboarding gaps.",
-        "FLOW: Compare created vs resolved weekly flow; sustained imbalance increases backlog pressure.",
         "BACKLOG: Inspect age buckets and whether tickets sit with support, waiting on customer, or engineering.",
-        "TAIL RISK: Prioritize the oldest open tickets — long age with stagnant status is executive tail risk.",
         "SLA: Check TTFR/TTR adherence across 30d, 90d, and 1y windows; persistent misses need leadership review.",
-        "TTFR: Median and distribution of time to first response for resolved tickets in the window.",
-        "RESOLUTION: Resolution time by issue type — which categories drive the longest median or p90 TTR?",
         "ESCALATIONS: LEAN (Engineering) vs CUSTOMER (Data Integration) jira_escalated flow and open escalation backlog.",
-        "CUSTOMER HEALTH: Organizations with elevated open counts or tickets aged 30+ days.",
         "AGING: Tickets beyond first-response or resolution service thresholds — assign and unblock proactively.",
     ]
 
@@ -1027,7 +1022,7 @@ def _heuristic_support_kpis_bullets(
     return out
 
 
-def _pad_support_kpis_notable_to_ten(
+def _pad_support_kpis_notable_bullets(
     out: list[str],
     digest: dict[str, Any],
     entry: dict[str, Any],
@@ -1073,7 +1068,7 @@ def generate_support_kpis_notable_bullets_via_llm(
     digest: dict[str, Any],
     entry: dict[str, Any],
 ) -> tuple[list[str], str]:
-    """Return (bullets, source) for the support-kpis Notable Findings slide (10 bullets)."""
+    """Return (bullets, source) for the support-kpis Notable Findings slide (five bullets)."""
     if not _flag_use_llm():
         return _fallback_support_kpis_items(entry), "env_off"
     allow_fb = _allow_notable_llm_fallback()
@@ -1159,7 +1154,7 @@ def generate_support_kpis_notable_bullets_via_llm(
         out = [str(b).strip() for b in out if str(b).strip()][:n]
         if not out:
             raise ValueError("no bullet strings after parse")
-        out = _pad_support_kpis_notable_to_ten(out, digest, entry)
+        out = _pad_support_kpis_notable_bullets(out, digest, entry)
         return out, "llm"
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
         if not allow_fb:

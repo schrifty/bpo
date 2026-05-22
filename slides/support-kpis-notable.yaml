@@ -7,14 +7,9 @@ customers: all
 data_tools: []
 notable_items:
   - "INTAKE: Review weekly ticket creation in the analysis window — spikes may signal product friction or onboarding gaps."
-  - "FLOW: Compare created vs resolved weekly flow; sustained imbalance increases backlog pressure."
   - "BACKLOG: Inspect age buckets and whether tickets sit with support, waiting on customer, or engineering."
-  - "TAIL RISK: Prioritize the oldest open tickets — long age with stagnant status is executive tail risk."
   - "SLA: Check TTFR/TTR adherence across 30d, 90d, and 1y windows; persistent misses need leadership review."
-  - "TTFR: Median and distribution of time to first response for resolved tickets in the window."
-  - "RESOLUTION: Resolution time by issue type — which categories drive the longest median or p90 TTR?"
   - "ESCALATIONS: LEAN (Engineering) vs CUSTOMER (Data Integration) jira_escalated flow and open escalation backlog."
-  - "CUSTOMER HEALTH: Organizations with elevated open counts or tickets aged 30+ days."
   - "AGING: Tickets beyond first-response or resolution service thresholds — assign and unblock proactively."
 notable_subtitle: "LLM synthesis of the same HELP KPI data as the rest of this deck"
 
