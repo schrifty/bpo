@@ -77,14 +77,14 @@ except ValueError:
 # After hydrate: remove GOOGLE_HYDRATE_INTAKE_GROUP from the **source** deck's sharing (Drive permission).
 _rm = os.environ.get("HYDRATE_REMOVE_INTAKE_GROUP_PERMISSION", "true").strip().lower()
 HYDRATE_REMOVE_INTAKE_GROUP_PERMISSION = _rm in ("1", "true", "yes", "on")
-# JIRA Cloud — REST always via https://api.atlassian.com/ex/jira/{JIRA_CLOUD_ID}; JIRA_URL = browse links only
+# JIRA Cloud — default site REST (JIRA_URL); optional gateway via JIRA_AUTH_MODE=gateway
 JIRA_URL = os.environ.get("JIRA_URL")
 JIRA_EMAIL = os.environ.get("JIRA_EMAIL")
 JIRA_API_TOKEN = os.environ.get("JIRA_API_TOKEN")
 JIRA_CLOUD_ID = (os.environ.get("JIRA_CLOUD_ID") or "").strip() or None
-# JIRA_SERVICE_ACCOUNT_AUTH: bearer (default) | basic — basic requires JIRA_EMAIL
-# JIRA_CLOUD_ID_AUTO: true — resolve JIRA_CLOUD_ID from JIRA_URL via accessible-resources
-# JIRA_AUTH_MODE=site is rejected (legacy); do not set JIRA_AUTH_MODE unless migrating configs
+# JIRA_AUTH_MODE: site (default) | gateway
+# JIRA_SERVICE_ACCOUNT_AUTH: bearer (default) | basic — gateway only; basic requires JIRA_EMAIL
+# JIRA_CLOUD_ID_AUTO: true — resolve JIRA_CLOUD_ID for gateway mode
 
 # GitHub (optional — PAT or fine-grained token for REST API preflight and future enrichment)
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "").strip() or None

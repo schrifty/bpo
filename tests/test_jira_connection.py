@@ -1,17 +1,64 @@
-"""Jira Atlassian API gateway connection (no direct site REST)."""
+"""Jira connection — site REST (default) and optional API gateway."""
 
 from __future__ import annotations
 
 import pytest
 
 
+def _site_env(monkeypatch) -> None:
+    monkeypatch.setenv("JIRA_AUTH_MODE", "site")
+    monkeypatch.setenv("JIRA_URL", "https://acme.atlassian.net")
+    monkeypatch.setenv("JIRA_EMAIL", "user@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "api-token")
+    monkeypatch.delenv("JIRA_CLOUD_ID", raising=False)
+    monkeypatch.delenv("JIRA_CLOUD_ID_AUTO", raising=False)
+
+
 def _gateway_env(monkeypatch, *, cloud_id: str = "cloud-uuid-123") -> None:
-    monkeypatch.delenv("JIRA_AUTH_MODE", raising=False)
+    monkeypatch.setenv("JIRA_AUTH_MODE", "gateway")
     monkeypatch.setenv("JIRA_CLOUD_ID", cloud_id)
     monkeypatch.setenv("JIRA_URL", "https://acme.atlassian.net")
     monkeypatch.setenv("JIRA_API_TOKEN", "scoped-token")
     monkeypatch.setenv("JIRA_SERVICE_ACCOUNT_AUTH", "bearer")
     monkeypatch.delenv("JIRA_EMAIL", raising=False)
+
+
+def test_site_basic_auth_default(monkeypatch):
+    monkeypatch.delenv("JIRA_AUTH_MODE", raising=False)
+    monkeypatch.setenv("JIRA_URL", "https://acme.atlassian.net")
+    monkeypatch.setenv("JIRA_EMAIL", "user@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "api-token")
+
+    from src.jira_connection import build_jira_connection_settings
+
+    s = build_jira_connection_settings()
+    assert s.auth_mode == "site"
+    assert s.api_base_url == "https://acme.atlassian.net"
+    assert s.browse_base_url == "https://acme.atlassian.net"
+    assert s.headers["Authorization"].startswith("Basic ")
+    assert s.cloud_id == ""
+
+
+def test_site_mode_explicit(monkeypatch):
+    _site_env(monkeypatch)
+
+    from src.jira_connection import build_jira_connection_settings
+
+    s = build_jira_connection_settings()
+    assert s.auth_mode == "site"
+    assert s.api_base_url == "https://acme.atlassian.net"
+
+
+def test_site_requires_email(monkeypatch):
+    monkeypatch.setenv("JIRA_AUTH_MODE", "site")
+    monkeypatch.setenv("JIRA_URL", "https://acme.atlassian.net")
+    monkeypatch.setenv("JIRA_API_TOKEN", "tok")
+    monkeypatch.delenv("JIRA_EMAIL", raising=False)
+
+    from src.jira_connection import build_jira_connection_settings
+
+    with pytest.raises(ValueError, match="JIRA_EMAIL"):
+        build_jira_connection_settings()
 
 
 def test_gateway_bearer_auth(monkeypatch):
@@ -20,23 +67,15 @@ def test_gateway_bearer_auth(monkeypatch):
     from src.jira_connection import build_jira_connection_settings
 
     s = build_jira_connection_settings()
+    assert s.auth_mode == "gateway"
     assert s.api_base_url == "https://api.atlassian.com/ex/jira/cloud-uuid-123"
     assert s.browse_base_url == "https://acme.atlassian.net"
     assert s.headers["Authorization"] == "Bearer scoped-token"
     assert s.cloud_id == "cloud-uuid-123"
 
 
-def test_site_mode_rejected(monkeypatch):
-    _gateway_env(monkeypatch)
-    monkeypatch.setenv("JIRA_AUTH_MODE", "site")
-
-    from src.jira_connection import build_jira_connection_settings
-
-    with pytest.raises(ValueError, match="no longer supported"):
-        build_jira_connection_settings()
-
-
-def test_requires_cloud_id_without_auto(monkeypatch):
+def test_gateway_requires_cloud_id_without_auto(monkeypatch):
+    monkeypatch.setenv("JIRA_AUTH_MODE", "gateway")
     monkeypatch.setenv("JIRA_URL", "https://acme.atlassian.net")
     monkeypatch.setenv("JIRA_API_TOKEN", "tok")
     monkeypatch.delenv("JIRA_CLOUD_ID", raising=False)
@@ -82,9 +121,6 @@ def test_cloud_id_auto_falls_back_to_tenant_info_on_401(monkeypatch):
 
             raise requests.HTTPError(response=self.response)
 
-    def _accessible(*a, **k):
-        return _Unauthorized()
-
     def _tenant_info(*a, **k):
         class _Ok:
             def raise_for_status(self):
@@ -95,9 +131,10 @@ def test_cloud_id_auto_falls_back_to_tenant_info_on_401(monkeypatch):
 
         return _Ok()
 
-    monkeypatch.setattr("src.jira_connection.requests.get", lambda url, **kw: (
-        _tenant_info() if "tenant_info" in url else _accessible()
-    ))
+    monkeypatch.setattr(
+        "src.jira_connection.requests.get",
+        lambda url, **kw: _tenant_info() if "tenant_info" in url else _Unauthorized(),
+    )
 
     from src.jira_connection import build_jira_connection_settings
 
@@ -105,7 +142,21 @@ def test_cloud_id_auto_falls_back_to_tenant_info_on_401(monkeypatch):
     assert s.cloud_id == "from-tenant-info"
 
 
-def test_jira_client_uses_api_base_for_search(monkeypatch):
+def test_jira_client_uses_site_api_base_by_default(monkeypatch):
+    _site_env(monkeypatch)
+
+    import importlib
+
+    import src.jira_client as jc_mod
+
+    importlib.reload(jc_mod)
+    jc_mod.reset_shared_jira_client()
+    jc = jc_mod.JiraClient()
+    assert jc.api_base_url == "https://acme.atlassian.net"
+    assert jc.base_url == "https://acme.atlassian.net"
+
+
+def test_jira_client_uses_gateway_api_base_when_configured(monkeypatch):
     _gateway_env(monkeypatch, cloud_id="cid")
 
     import importlib

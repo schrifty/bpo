@@ -822,6 +822,14 @@ class JiraClient:
             if k not in seen_ci:
                 seen_ci.add(k)
                 unique.append(n)
+        if not unique:
+            logger.warning(
+                "JSM organization directory returned HTTP 200 with 0 organizations "
+                "(tenant has ~186 orgs when an agent calls this API). Service account token "
+                "needs scope read:organization:jira-service-management (UI: View organizations) "
+                "and the account must be a JSM agent on HELP — not only Jira issue read. "
+                "GET /rest/servicedeskapi/servicedesk often returns 401 until Service Desk scopes are added."
+            )
         with _JSM_ORG_GLOBAL_LOCK:
             _JSM_ORG_GLOBAL_CACHE[self._jsm_cache_key] = (now, unique)
         return unique

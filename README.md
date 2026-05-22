@@ -30,7 +30,7 @@ To create slide decks in your Drive (using your quota instead of the service acc
 
 For the Support Summary slide (HELP tickets, SLAs, engineering pipeline):
 
-Add to `.env`: `JIRA_CLOUD_ID` (or `JIRA_CLOUD_ID_AUTO=true`), `JIRA_API_TOKEN`, `JIRA_URL` (browse links). REST uses the Atlassian gateway `api.atlassian.com/ex/jira/{cloudId}` only. See `.env.example`.
+Add to `.env`: `JIRA_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` (site REST, default). For Atlassian API gateway + service account token, set `JIRA_AUTH_MODE=gateway` and `JIRA_CLOUD_ID` (or `JIRA_CLOUD_ID_AUTO=true`). See `.env.example`.
 
 The engineering portfolio deck (`decks engineering-portfolio` or `decks run --deck engineering-portfolio`) uses the shared Jira portfolio payload: **LEAN**-focused SDLC slides, a **LEAN** project snapshot (status and assignee charts), **Support Pressure** (HELP aggregates), and related metadata. The **implementations review** deck (`implementations_review`) is the **CUSTOMER** project snapshot only (same payload; dedicated deck). Agents can call the **`jira_project_snapshot`** tool with a project key for the same JSON payload.
 

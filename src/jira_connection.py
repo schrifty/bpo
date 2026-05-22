@@ -1,4 +1,4 @@
-"""Jira Cloud connection via Atlassian API gateway (never direct site REST host)."""
+"""Jira Cloud connection — site REST (default) or Atlassian API gateway (opt-in)."""
 
 from __future__ import annotations
 
@@ -24,27 +24,39 @@ def _env(name: str) -> str | None:
     return s or None
 
 
+def _auth_mode() -> str:
+    """``site`` (default): ``{JIRA_URL}/rest/...`` with email+token Basic. ``gateway``: API gateway."""
+    raw = (_env("JIRA_AUTH_MODE") or "site").strip().lower()
+    if raw in ("gateway", "atlassian", "cloud"):
+        return "gateway"
+    if raw in ("site", "legacy", "classic", ""):
+        return "site"
+    raise ValueError(
+        f"Invalid JIRA_AUTH_MODE={raw!r}; use site (default) or gateway"
+    )
+
+
 @dataclass(frozen=True)
 class JiraConnectionSettings:
-    """Gateway REST base, browse host for issue links, and Authorization headers."""
+    """REST base URL, browse host (issue links), Authorization headers, and auth mode."""
 
     api_base_url: str
     browse_base_url: str
     headers: dict[str, str]
     cloud_id: str
+    auth_mode: str
 
 
-def _reject_legacy_site_mode() -> None:
-    raw = (_env("JIRA_AUTH_MODE") or "").lower()
-    if raw in ("site", "legacy", "classic"):
+def _site_base_url() -> str:
+    site = (_env("JIRA_URL") or "").rstrip("/")
+    if not site:
         raise ValueError(
-            "JIRA_AUTH_MODE=site is no longer supported. BPO always calls Jira through "
-            "https://api.atlassian.com/ex/jira/{cloudId}. Set JIRA_CLOUD_ID (or "
-            "JIRA_CLOUD_ID_AUTO=true), JIRA_API_TOKEN, and JIRA_URL for browse links."
+            "JIRA_URL must be set (e.g. https://yourorg.atlassian.net)"
         )
+    return site
 
 
-def _auth_header(*, token: str, email: str | None) -> dict[str, str]:
+def _gateway_auth_header(*, token: str, email: str | None) -> dict[str, str]:
     sa_auth = (os.environ.get("JIRA_SERVICE_ACCOUNT_AUTH") or "bearer").strip().lower()
     if sa_auth in ("basic", "email"):
         em = (email or "").strip()
@@ -59,16 +71,6 @@ def _auth_header(*, token: str, email: str | None) -> dict[str, str]:
         return {"Authorization": f"Bearer {token}"}
     raise ValueError(
         f"Invalid JIRA_SERVICE_ACCOUNT_AUTH={sa_auth!r}; use bearer or basic"
-    )
-
-
-def _browse_base_url() -> str:
-    site = (_env("JIRA_URL") or "").rstrip("/")
-    if site:
-        return site
-    raise ValueError(
-        "JIRA_URL must be set (e.g. https://yourorg.atlassian.net) for issue browse links in decks; "
-        "REST calls use the Atlassian API gateway, not this hostname"
     )
 
 
@@ -88,7 +90,7 @@ def fetch_cloud_id_for_site(
     if not want_host:
         raise ValueError(f"Could not parse hostname from JIRA_URL={site_url!r}")
 
-    headers = {**_auth_header(token=token, email=email), "Accept": "application/json"}
+    headers = {**_gateway_auth_header(token=token, email=email), "Accept": "application/json"}
     resp = requests.get(_ACCESSIBLE_RESOURCES_URL, headers=headers, timeout=timeout)
     resp.raise_for_status()
     resources = resp.json()
@@ -149,7 +151,7 @@ def fetch_cloud_id_from_tenant_info(site_url: str, *, timeout: float = 30.0) -> 
 
 
 def resolve_jira_cloud_id(*, token: str, email: str | None) -> str:
-    """``JIRA_CLOUD_ID`` or resolve from ``JIRA_URL`` when ``JIRA_CLOUD_ID_AUTO=true``."""
+    """``JIRA_CLOUD_ID`` or resolve from ``JIRA_URL`` when ``JIRA_CLOUD_ID_AUTO=true`` (gateway only)."""
     explicit = _env("JIRA_CLOUD_ID")
     if explicit:
         return explicit
@@ -160,7 +162,7 @@ def resolve_jira_cloud_id(*, token: str, email: str | None) -> str:
         "on",
     )
     if auto:
-        browse = _browse_base_url()
+        browse = _site_base_url()
         logger.info("Jira: resolving JIRA_CLOUD_ID (JIRA_CLOUD_ID_AUTO)")
         try:
             return fetch_cloud_id_for_site(token=token, site_url=browse, email=email)
@@ -174,26 +176,44 @@ def resolve_jira_cloud_id(*, token: str, email: str | None) -> str:
                 return fetch_cloud_id_from_tenant_info(browse)
             raise
     raise ValueError(
-        "JIRA_CLOUD_ID is required (REST uses https://api.atlassian.com/ex/jira/{cloudId}). "
-        "Set JIRA_CLOUD_ID in .env or JIRA_CLOUD_ID_AUTO=true with JIRA_URL to resolve it."
+        "JIRA_CLOUD_ID is required for JIRA_AUTH_MODE=gateway "
+        "(https://api.atlassian.com/ex/jira/{cloudId}). "
+        "Set JIRA_CLOUD_ID in .env, JIRA_CLOUD_ID_AUTO=true, or use JIRA_AUTH_MODE=site."
     )
 
 
-def build_jira_connection_settings() -> JiraConnectionSettings:
-    """Build gateway API base URL and Authorization headers from environment."""
-    _reject_legacy_site_mode()
+def _build_site_settings(*, token: str) -> JiraConnectionSettings:
+    email = (_env("JIRA_EMAIL") or "").strip()
+    if not email:
+        raise ValueError(
+            "JIRA_EMAIL and JIRA_API_TOKEN must be set in .env for site auth "
+            "(JIRA_AUTH_MODE=site, the default)"
+        )
+    site = _site_base_url()
+    encoded = b64encode(f"{email}:{token}".encode()).decode()
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": f"Basic {encoded}",
+    }
+    logger.info("Jira: site REST (%s)", site)
+    return JiraConnectionSettings(
+        api_base_url=site,
+        browse_base_url=site,
+        headers=headers,
+        cloud_id="",
+        auth_mode="site",
+    )
 
-    token = _env("JIRA_API_TOKEN") or ""
-    if not token:
-        raise ValueError("JIRA_API_TOKEN must be set in .env")
 
-    browse = _browse_base_url()
+def _build_gateway_settings(*, token: str) -> JiraConnectionSettings:
+    browse = _site_base_url()
     cloud_id = resolve_jira_cloud_id(token=token, email=_env("JIRA_EMAIL"))
     api_base = f"{_ATLASSIAN_GATEWAY}/ex/jira/{cloud_id}"
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
-        **_auth_header(token=token, email=_env("JIRA_EMAIL")),
+        **_gateway_auth_header(token=token, email=_env("JIRA_EMAIL")),
     }
     logger.info(
         "Jira: API gateway (cloud_id=%s…, browse=%s)",
@@ -205,14 +225,28 @@ def build_jira_connection_settings() -> JiraConnectionSettings:
         browse_base_url=browse,
         headers=headers,
         cloud_id=cloud_id,
+        auth_mode="gateway",
     )
+
+
+def build_jira_connection_settings() -> JiraConnectionSettings:
+    """Build REST base URL and Authorization headers from environment."""
+    token = _env("JIRA_API_TOKEN") or ""
+    if not token:
+        raise ValueError("JIRA_API_TOKEN must be set in .env")
+
+    if _auth_mode() == "site":
+        return _build_site_settings(token=token)
+    return _build_gateway_settings(token=token)
 
 
 def jira_connection_summary(settings: JiraConnectionSettings) -> dict[str, Any]:
     """Non-secret summary for logs / diagnostics."""
-    return {
-        "auth_mode": "gateway",
+    out: dict[str, Any] = {
+        "auth_mode": settings.auth_mode,
         "api_base_url": settings.api_base_url,
         "browse_base_url": settings.browse_base_url,
-        "cloud_id": settings.cloud_id,
     }
+    if settings.cloud_id:
+        out["cloud_id"] = settings.cloud_id
+    return out

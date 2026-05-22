@@ -38,10 +38,10 @@ def _issue(key: str, ttr_ms: int | None, *, breached: bool = False) -> dict:
 
 @pytest.fixture
 def jira_client(monkeypatch):
-    monkeypatch.setenv("JIRA_CLOUD_ID", "test-cloud-id")
+    monkeypatch.setenv("JIRA_AUTH_MODE", "site")
     monkeypatch.setenv("JIRA_URL", "https://example.atlassian.net")
+    monkeypatch.setenv("JIRA_EMAIL", "u@example.com")
     monkeypatch.setenv("JIRA_API_TOKEN", "tok")
-    monkeypatch.setenv("JIRA_SERVICE_ACCOUNT_AUTH", "bearer")
     from src.jira_client import JiraClient, reset_shared_jira_client
 
     reset_shared_jira_client()

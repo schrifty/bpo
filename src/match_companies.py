@@ -54,6 +54,60 @@ def _jsm_organization_names() -> list[str]:
     return get_shared_jira_client()._list_jsm_organization_names()
 
 
+def diagnose_jsm_org_directory() -> list[str]:
+    """Explain empty JSM org directory (HTTP 200 with size=0 vs scope errors)."""
+    import requests
+
+    lines: list[str] = []
+    try:
+        from .jira_client import get_shared_jira_client
+
+        jc = get_shared_jira_client()
+    except Exception as e:
+        return [f"Jira not available: {e}"]
+
+    org_url = f"{jc.api_base_url}/rest/servicedeskapi/organization?start=0&limit=5"
+    try:
+        resp = requests.get(org_url, headers=jc._headers, timeout=30)
+        if resp.ok:
+            data = resp.json()
+            size = data.get("size", len(data.get("values") or []))
+            lines.append(
+                f"GET /rest/servicedeskapi/organization → HTTP 200, size={size} "
+                f"(empty list means the token is not seeing orgs as a JSM agent)"
+            )
+        else:
+            lines.append(
+                f"GET /rest/servicedeskapi/organization → HTTP {resp.status_code}: "
+                f"{(resp.text or '')[:120]}"
+            )
+    except Exception as e:
+        lines.append(f"GET /rest/servicedeskapi/organization failed: {e}")
+
+    desk_url = f"{jc.api_base_url}/rest/servicedeskapi/servicedesk?limit=5"
+    try:
+        resp = requests.get(desk_url, headers=jc._headers, timeout=30)
+        if resp.status_code == 401:
+            lines.append(
+                "GET /rest/servicedeskapi/servicedesk → HTTP 401 (scope does not match). "
+                "Add JSM scopes: View Jira Service Desk request data + View organizations."
+            )
+        elif resp.ok:
+            n = len(resp.json().get("values") or [])
+            lines.append(f"GET /rest/servicedeskapi/servicedesk → HTTP 200 ({n} desk(s) visible)")
+        else:
+            lines.append(f"GET /rest/servicedeskapi/servicedesk → HTTP {resp.status_code}")
+    except Exception as e:
+        lines.append(f"GET /rest/servicedeskapi/servicedesk failed: {e}")
+
+    lines.append(
+        "In Atlassian Administration: grant the service account JSM agent on project HELP "
+        "and token scope read:organization:jira-service-management (granular) or "
+        "manage:servicedesk-customer (classic)."
+    )
+    return lines
+
+
 def resolve_pendo_name(
     sf_label: str,
     pendo_prefixes: frozenset[str],
@@ -238,6 +292,11 @@ def build_company_match_report(
         try:
             jsm_orgs = _jsm_organization_names()
             out["jsm_org_count"] = len(jsm_orgs)
+            if not jsm_orgs:
+                out["jsm_org_diagnostic"] = diagnose_jsm_org_directory()
+                out["errors"].extend(
+                    f"JSM org directory: {line}" for line in out["jsm_org_diagnostic"]
+                )
         except Exception as e:
             out["errors"].append(f"Jira: {e}")
 
@@ -300,9 +359,15 @@ def render_match_report_text(report: dict[str, Any]) -> str:
     """Human-readable report."""
     lines: list[str] = []
     if report.get("errors"):
-        lines.append("Warnings / errors:")
+        lines.append("Warnings / diagnostics:")
         for e in report["errors"]:
             lines.append(f"  - {e}")
+        lines.append("")
+    jsm_diag = report.get("jsm_org_diagnostic")
+    if jsm_diag and not report.get("errors"):
+        lines.append("JSM organization directory (diagnostic):")
+        for line in jsm_diag:
+            lines.append(f"  - {line}")
         lines.append("")
 
     if not report.get("salesforce_configured"):
