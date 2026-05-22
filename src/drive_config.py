@@ -472,6 +472,37 @@ def upload_text_file_to_drive_folder(
         return f["id"]
 
 
+def upload_to_qbr_output_folders(
+    name: str,
+    content: str,
+    *,
+    mime_type: str = "text/markdown",
+) -> dict[str, str]:
+    """Upload to QBR ``Output/`` and today's ``{ISO-date} - Output/`` (replace same filename).
+
+    Same layout as LLM context export and dated deck outputs under the QBR Generator tree.
+    Raises ``RuntimeError`` when Drive output folders cannot be resolved.
+    """
+    root_id = get_qbr_output_root_folder_id()
+    dated_id = get_qbr_output_folder_id()
+    if not root_id or not dated_id:
+        raise RuntimeError(
+            "Could not resolve Drive Output folders (set GOOGLE_QBR_GENERATOR_FOLDER_ID "
+            "and verify Drive access)."
+        )
+    fid_root = upload_text_file_to_drive_folder(name, content, root_id, mime_type=mime_type)
+    fid_dated = upload_text_file_to_drive_folder(name, content, dated_id, mime_type=mime_type)
+    dated_label = f"{datetime.date.today().isoformat()} - Output"
+    return {
+        "filename": name,
+        "dated_label": dated_label,
+        "file_id_root": fid_root,
+        "file_id_dated": fid_dated,
+        "root_folder_id": root_id,
+        "dated_folder_id": dated_id,
+    }
+
+
 def _normalize_config_text(text: str) -> str:
     """Normalize YAML text for equality checks (line endings, trailing whitespace)."""
     s = text.replace("\r\n", "\n").replace("\r", "\n")

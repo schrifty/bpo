@@ -31,11 +31,13 @@ JCI:
 
 Salesforce remains the system of record for customer inventory and churn; these files are adjuncts for cross-system joins and presentation.
 
-## CLI: `match-companies`
+## CLI: `match-customer-names`
 
 ```bash
-./bin/match-companies
-./bin/match-companies --format json --out output/match-companies.json
+./bin/match-customer-names
+# default: Drive Output/match-customer-names.txt + Output/{date} - Output/ (replace if present)
+./bin/match-customer-names --format json
+./bin/match-customer-names --no-drive -o output/match-customer-names.txt
 ```
 
 Lists every Salesforce portfolio label grouped by contract status (active, churned, renewal in negotiation) and shows resolved Pendo, CS Report, and JSM names plus alias provenance when a match used a YAML map.
