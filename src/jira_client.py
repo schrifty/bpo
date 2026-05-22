@@ -106,6 +106,8 @@ _TREND_FIELDS = [
     "created", "resolutiondate", "labels",
 ]
 
+JIRA_ESCALATED_LABEL = "jira_escalated"
+
 _CUSTOMER_TICKET_SLIDE_FIELDS = [
     "summary", "status", "issuetype", "project", "priority", "created", "updated",
     "resolution", "resolutiondate", "labels", ORG_FIELD, TTFR_FIELD, TTR_FIELD,
@@ -1476,6 +1478,109 @@ class JiraClient:
         return sorted(buckets.values(), key=lambda b: b["week"])
 
     @staticmethod
+    def _flow_weekly_in_window(
+        issues: list[dict[str, Any]],
+        *,
+        window_days: int,
+        now: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        """Weekly opened/resolved counts for issues in the trailing *window_days* (last ~13 ISO weeks)."""
+        ref = now or datetime.now(timezone.utc)
+        cutoff = ref - timedelta(days=max(1, int(window_days)))
+
+        def _created_in_window(issue: dict[str, Any]) -> bool:
+            cre = JiraClient._parse_jira_datetime(issue.get("created"))
+            return cre is not None and cre >= cutoff
+
+        flow_issues = [
+            issue
+            for issue in issues
+            if _created_in_window(issue)
+            or (
+                (rd := JiraClient._parse_jira_datetime(issue.get("resolutiondate"))) is not None
+                and rd >= cutoff
+            )
+        ]
+        return JiraClient._bucket_by_week(flow_issues)[-13:]
+
+    def fetch_project_jira_escalated_flow_weekly(
+        self,
+        project: str,
+        customer_name: str | None,
+        match_terms: list[str] | None = None,
+        *,
+        window_days: int = 90,
+    ) -> dict[str, Any]:
+        """Weekly opened vs resolved for ``jira_escalated`` tickets in CUSTOMER or LEAN."""
+        jql_start = self._jql_log_len()
+        try:
+            proj = _validate_project_key(project)
+        except ValueError as e:
+            return {"error": str(e), "project": project, "flow_weekly": []}
+        if proj not in ("CUSTOMER", "LEAN"):
+            return {
+                "error": "fetch_project_jira_escalated_flow_weekly supports CUSTOMER and LEAN only",
+                "project": proj,
+                "flow_weekly": [],
+            }
+
+        base_filter, _resolved_orgs = self._customer_project_text_match_clause(
+            customer_name, match_terms
+        )
+        jql = (
+            f"project = {proj} AND labels = \"{JIRA_ESCALATED_LABEL}\" AND {base_filter} "
+            f"AND {_CUSTOMER_LEAN_ISSUETYPE_EXCLUSION} AND ("
+            "statusCategory != Done OR "
+            "(resolution is not EMPTY AND resolved >= -365d) OR "
+            "created >= -365d"
+            ") ORDER BY updated DESC"
+        )
+        try:
+            raw = self._search(
+                jql,
+                max_results=HELP_TRENDS_MAX_RESULTS,
+                fields=_TREND_FIELDS,
+                data_description=(
+                    f"{proj} jira_escalated volume ({int(window_days)}d window; excl. Epic, SUT)"
+                ),
+            )
+        except Exception as e:
+            logger.warning("%s jira_escalated flow fetch failed: %s", proj, e)
+            return {
+                "error": str(e),
+                "project": proj,
+                "flow_weekly": [],
+                "jql_queries": self._jql_since(jql_start),
+            }
+
+        issues: list[dict[str, Any]] = []
+        for issue in raw:
+            f = issue.get("fields") or {}
+            labels = f.get("labels") or []
+            if JIRA_ESCALATED_LABEL not in labels:
+                continue
+            resolution = f.get("resolution")
+            res_name = (
+                resolution.get("name", "")
+                if isinstance(resolution, dict)
+                else (resolution or "")
+            )
+            issues.append(
+                {
+                    "created": (f.get("created") or "")[:10],
+                    "updated": (f.get("updated") or "")[:10],
+                    "resolutiondate": (f.get("resolutiondate") or "")[:10],
+                    "resolution": res_name,
+                }
+            )
+
+        return {
+            "project": proj,
+            "flow_weekly": self._flow_weekly_in_window(issues, window_days=window_days),
+            "jql_queries": self._jql_since(jql_start),
+        }
+
+    @staticmethod
     def _compute_sla(
         issues: list[dict],
         prefix: str,
@@ -2576,7 +2681,7 @@ class JiraClient:
 
         # Weekly intake / flow (last ~13 ISO weeks from windowed issues)
         intake_issues = [{"created": i.get("created", ""), "resolution": i.get("resolution", "")} for i in created_window]
-        flow_issues = [
+        flow_issue_dicts = [
             {
                 "created": i.get("created", ""),
                 "updated": i.get("updated", ""),
@@ -2584,14 +2689,9 @@ class JiraClient:
                 "resolution": i.get("resolution", ""),
             }
             for i in year_issues
-            if _created_in_window(i)
-            or (
-                (rd := self._parse_jira_datetime(i.get("resolutiondate"))) is not None
-                and rd >= cutoff_window
-            )
         ]
         intake_weekly = self._bucket_by_week(intake_issues)[-13:]
-        flow_weekly = self._bucket_by_week(flow_issues)[-13:]
+        flow_weekly = self._flow_weekly_in_window(flow_issue_dicts, window_days=int(window_days), now=now)
 
         # Intake breakdowns (window)
         by_priority: Counter[str] = Counter()
@@ -2605,20 +2705,18 @@ class JiraClient:
             org = orgs[0] if orgs else "(No organization)"
             by_customer[org] += 1
 
-        # Backlog age buckets (open)
-        buckets = {"0-7": 0, "8-14": 0, "15-30": 0, "30+": 0}
-        for issue in open_issues:
-            age = self._open_age_days(issue)
-            if age is None:
-                continue
-            if age <= 7:
-                buckets["0-7"] += 1
-            elif age <= 14:
-                buckets["8-14"] += 1
-            elif age <= 30:
-                buckets["15-30"] += 1
-            else:
-                buckets["30+"] += 1
+        backlog_open = sorted(
+            [
+                {
+                    "customer": (issue.get("organizations") or ["(No organization)"])[0],
+                    "summary": (issue.get("summary") or "").strip(),
+                    "created": issue.get("created") or "—",
+                    "key": issue.get("key"),
+                }
+                for issue in open_issues
+            ],
+            key=lambda r: (r.get("created") or "", r.get("key") or ""),
+        )
 
         def _tail_row(issue: dict) -> dict[str, Any]:
             age = self._open_age_days(issue)
@@ -2676,28 +2774,31 @@ class JiraClient:
                 }
             )
 
-        eng_statuses = ("in engineering queue", "waiting for engineering")
-        eng_open = [
-            i
-            for i in open_issues
-            if any(s in (i.get("status") or "").lower() for s in eng_statuses)
-            or "engineering" in (i.get("status") or "").lower()
-        ]
-        eng_ages = [self._open_age_days(i) for i in eng_open if self._open_age_days(i) is not None]
-        eng_dependency = {
-            "count": len(eng_open),
-            "avg_age_days": round(sum(eng_ages) / len(eng_ages), 1) if eng_ages else None,
-            "tickets": [
-                {
-                    "key": i.get("key"),
-                    "summary": (i.get("summary") or "")[:80],
-                    "status": i.get("status"),
-                    "age_days": round(self._open_age_days(i) or 0, 1),
-                    "assignee": i.get("assignee") or "Unassigned",
-                }
-                for i in sorted(eng_open, key=lambda x: self._open_age_days(x) or 0, reverse=True)[:15]
-            ],
-        }
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        escalation_flow: dict[str, Any] = {}
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            fut_to_proj = {
+                pool.submit(
+                    self.fetch_project_jira_escalated_flow_weekly,
+                    proj,
+                    customer_name,
+                    match_terms,
+                    window_days=int(window_days),
+                ): proj
+                for proj in ("LEAN", "CUSTOMER")
+            }
+            for fut in as_completed(fut_to_proj):
+                proj = fut_to_proj[fut]
+                try:
+                    escalation_flow[proj] = fut.result()
+                except Exception as exc:
+                    logger.warning("Escalation flow fetch failed for %s: %s", proj, exc)
+                    escalation_flow[proj] = {
+                        "project": proj,
+                        "error": str(exc),
+                        "flow_weekly": [],
+                    }
 
         # Customer health: orgs with 3+ open or any ticket 30+ days
         org_open: dict[str, list[dict]] = {}
@@ -2764,12 +2865,12 @@ class JiraClient:
                 "by_type": dict(by_type.most_common(8)),
                 "by_customer": dict(by_customer.most_common(10)),
             },
-            "backlog_age_buckets": buckets,
+            "backlog_open": backlog_open,
             "tail_risk": tail_risk,
             "sla": {"ttfr": ttfr_sla, "ttr": ttr_sla},
             "ttfr": ttfr_stats,
             "resolution_by_type": resolution_by_type,
-            "engineering_dependency": eng_dependency,
+            "escalation_flow": escalation_flow,
             "customer_health": customer_health[:25],
             "csat": {
                 "by_sentiment": dict(sentiment_counts.most_common()),

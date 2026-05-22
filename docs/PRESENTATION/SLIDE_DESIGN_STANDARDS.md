@@ -191,7 +191,18 @@ The content area must fit within the safe body bounds with explicit padding betw
 
 Source, timeframe, dataset description, or operational scope when relevant.
 
-Use approximately **8–9 pt** gray text in a dedicated band above the slide’s physical bottom margin (do not overlap charts or tables). Typical content: trailing window, project key, open-ticket counts, and slide-specific methodology (e.g. “per ISO week”, “median and p90 by type”).
+Use approximately **8–9 pt** gray text in a dedicated band at the **bottom of the physical slide** (do not overlap charts or tables). Typical content: trailing window, project key, open-ticket counts, and slide-specific methodology (e.g. “per ISO week”, “median and p90 by type”).
+
+#### Scope footer placement (app-built decks)
+
+When automation renders a **business line** under the title plus a **scope/metadata footer** (Support KPIs and similar app-built slides):
+
+1. **Anchor the scope line to the slide bottom**, not to `BODY_BOTTOM` alone. Use a small fixed margin from the physical slide edge (typically **~10 pt**), then a **~22 pt** gray text band. Example: `scope_footer_y = SLIDE_H − 10 − 22` on a 720×405 pt deck.
+2. **Reserve a hard stop for body content** above that band: `content_bottom = scope_footer_y − 8 pt` (gap so tables/charts do not touch the footer text).
+3. **Tables and charts must be sized to end at or above `content_bottom`** — use row-fit helpers (e.g. `_table_rows_fit_span`) with the table’s rendered row height, not just font size. Never place the scope footer and then grow a table into the same vertical band; the footer will be covered.
+4. Prefer **one line** of scope when possible; wrap only inside the footer band width.
+
+**Reference implementation:** `_place_framing()`, `_SCOPE_FOOTER_Y`, `_CONTENT_BOTTOM`, and `_render_table()` in `src/slide_support_kpis.py`.
 
 ---
 
@@ -201,7 +212,7 @@ Many app-built slides use a **three-band** body:
 
 1. **Business context** — under the title (`BODY_Y`, ≈38 pt band, ≈11 pt navy text).
 2. **Primary visual** — one embedded chart or graph (line, bar, column).
-3. **Scope footer** — bottom band (≈22 pt above `BODY_BOTTOM`, ≈8 pt gray text).
+3. **Scope footer** — bottom band (~10 pt above the physical slide bottom, ≈8 pt gray text); see **Scope footer placement** under **Footer** above.
 
 ### Maximize the chart
 
@@ -242,7 +253,7 @@ Use explicit block spacing between vertically stacked elements.
 
 - Reserve clear separation between title area and body content.
 - When a slide mixes KPI cards with charts, reserve at least **12–18 pt** between vertical blocks.
-- When a slide includes a footer, leave enough clearance that footer content does not visually merge with the body.
+- When a slide includes a scope footer, anchor it near the physical slide bottom and leave **≥8 pt** clearance so body content (tables, charts) does not overlap or cover the footer text.
 
 ### Block boundary rule
 

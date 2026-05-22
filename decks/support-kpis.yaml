@@ -4,7 +4,7 @@ audience: Support / Engineering Leadership
 
 purpose: |
   HELP operational KPI deck: intake, flow, backlog aging, tail risk, SLA adherence,
-  TTFR, resolution time by type, engineering dependency, customer health, sentiment
+  TTFR, resolution time by type, LEAN/CUSTOMER jira_escalated flow, customer health, sentiment
   (supplementary), and tickets beyond first-response / resolution service thresholds.
   Scoped to the HELP Jira project (JSM Organizations for per-customer runs).
   Single-customer runs omit the account name in slide titles (cover + corner badge).
@@ -27,7 +27,7 @@ slides:
   - slide: support_kpis_resolution
     title: Resolution
   - slide: support_kpis_engineering_dependency
-    title: Engineering Dependency
+    title: Engineering Escalations
   - slide: support_kpis_customer_health
     title: Customer Health
   - slide: support_kpis_csat

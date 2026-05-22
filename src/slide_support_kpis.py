@@ -20,27 +20,30 @@ from .slide_utils import (
 )
 from .slides_theme import (
     BLUE,
-    BODY_BOTTOM,
     BODY_Y,
     CONTENT_W,
     FONT,
     GRAY,
     MARGIN,
     NAVY,
+    SLIDE_H,
     WHITE,
     _table_rows_fit_span,
 )
+from .jira_client import JIRA_ESCALATED_LABEL
 from .slide_jira_support import _clean_table, _table_cell_style, _table_cell_text
 
 GREEN = {"red": 0.13, "green": 0.65, "blue": 0.35}
 RED = {"red": 0.85, "green": 0.15, "blue": 0.15}
-
-# Layout: business meaning under title; operational scope at bottom.
+# Layout: business meaning under title; scope footer anchored to physical slide bottom.
 _BUSINESS_BAND_H = 38.0
 _CONTENT_TOP = BODY_Y + _BUSINESS_BAND_H
+_SCOPE_FOOTER_MARGIN_BOTTOM = 10.0
 _SCOPE_FOOTER_H = 22.0
-_SCOPE_FOOTER_Y = BODY_BOTTOM - _SCOPE_FOOTER_H
-_CONTENT_BOTTOM = _SCOPE_FOOTER_Y - 6.0
+_SCOPE_FOOTER_Y = float(SLIDE_H) - _SCOPE_FOOTER_MARGIN_BOTTOM - _SCOPE_FOOTER_H
+_CONTENT_BOTTOM = _SCOPE_FOOTER_Y - 8.0
+_TABLE_ROW_H = 21.0
+_TABLE_BOTTOM_PAD = 6.0
 _CHART_TOP_GAP = 4.0
 _CHART_BOTTOM_GAP = 8.0
 _INTAKE_SIDE_COL_GAP = 16.0
@@ -57,8 +60,7 @@ _BUSINESS_MEANING: dict[str, str] = {
         "customer wait times grow even if the team feels busy."
     ),
     "support_kpis_backlog": (
-        "How long open work has been waiting—concentration in older buckets means "
-        "customers are waiting longer and escalation risk is rising."
+        "Open requests still in the queue—who raised each issue, what they need, and when it was logged."
     ),
     "support_kpis_tail_risk": (
         "The oldest issues still open—these are the tickets most likely to erode trust, "
@@ -77,8 +79,9 @@ _BUSINESS_MEANING: dict[str, str] = {
         "customers and highlights where process or dependencies slow delivery."
     ),
     "support_kpis_engineering_dependency": (
-        "Support work waiting on engineering—each item here is customer-visible delay "
-        "that support alone cannot clear."
+        "Tickets escalated from support into engineering work (LEAN and CUSTOMER projects, "
+        "jira_escalated label)—opened vs resolved each week shows whether engineering "
+        "throughput is keeping up with new escalations."
     ),
     "support_kpis_customer_health": (
         "Accounts with enough open or aged tickets to warrant proactive outreach before "
@@ -179,12 +182,15 @@ def _render_table(
     rows: list[list[str]],
     jira_base: str = "",
     link_col: int | None = 0,
+    y_bottom: float | None = None,
 ) -> None:
-    row_h = 22.0
+    """Render a table that must not extend into the scope footer band."""
+    bottom = float(y_bottom if y_bottom is not None else _CONTENT_BOTTOM - _TABLE_BOTTOM_PAD)
+    row_h = _TABLE_ROW_H
     display = rows[
         : _table_rows_fit_span(
             y_top=y_top,
-            y_bottom=_CONTENT_BOTTOM,
+            y_bottom=bottom,
             row_height_pt=row_h,
             reserved_table_rows=1,
             max_rows_cap=25,
@@ -229,6 +235,50 @@ def _render_table(
                 size=8,
                 link=link,
             )
+
+
+def _project_flow_chart(
+    reqs: list[dict[str, Any]],
+    sid: str,
+    report: dict[str, Any],
+    *,
+    project: str,
+    flow_block: dict[str, Any],
+    chart_x: float,
+    chart_y: float,
+    chart_w: float,
+    chart_h: float,
+    oid_prefix: str,
+) -> None:
+    """One LEAN or CUSTOMER opened/resolved weekly chart with a project subhead."""
+    header_y = chart_y - 14.0
+    _box(reqs, f"{sid}_{oid_prefix}_h", sid, chart_x, header_y, chart_w, 12, project)
+    _style(reqs, f"{sid}_{oid_prefix}_h", 0, len(project), bold=True, size=10, color=NAVY, font=FONT)
+    weeks = list(flow_block.get("flow_weekly") or [])
+    if flow_block.get("error"):
+        msg = str(flow_block["error"])[:120]
+        _box(reqs, f"{sid}_{oid_prefix}_err", sid, chart_x, chart_y + 8, chart_w, 36, msg)
+        _style(reqs, f"{sid}_{oid_prefix}_err", 0, len(msg), size=9, color=NAVY, font=FONT)
+        return
+    if not weeks:
+        msg = f"No {JIRA_ESCALATED_LABEL} tickets in window"
+        _box(reqs, f"{sid}_{oid_prefix}_empty", sid, chart_x, chart_y + 8, chart_w, 24, msg)
+        _style(reqs, f"{sid}_{oid_prefix}_empty", 0, len(msg), size=9, color=NAVY, font=FONT)
+        return
+    _weekly_line_chart(
+        reqs,
+        sid,
+        report,
+        weeks=weeks,
+        series={
+            "Opened": [w.get("created", 0) for w in weeks],
+            "Resolved": [w.get("resolved", 0) for w in weeks],
+        },
+        chart_x=chart_x,
+        chart_y=chart_y,
+        chart_w=chart_w,
+        chart_h=chart_h,
+    )
 
 
 def _weekly_line_chart(
@@ -360,23 +410,42 @@ def support_kpis_backlog_slide(reqs: list[dict[str, Any]], sid: str, report: dic
     if isinstance(got, int):
         return got
     _slide_header(reqs, sid, report, idx)
-    content_y = _place_framing(reqs, sid, report, got, scope_detail="Open tickets by age (days since created)")
-    buckets = got.get("backlog_age_buckets") or {}
-    charts = report.get("_charts")
-    labels = ["0–7", "8–14", "15–30", "30+"]
-    keys = ["0-7", "8-14", "15-30", "30+"]
-    values = [int(buckets.get(k, 0)) for k in keys]
-    chart_y = content_y + _CHART_TOP_GAP
-    chart_h = _max_single_chart_height(content_y)
-    if charts and any(values):
-        from .charts import embed_chart
-
-        ss_id, chart_id = charts.add_bar_chart(title="", labels=labels, series={"Open": values})
-        embed_chart(reqs, f"{sid}_chart", sid, ss_id, chart_id, MARGIN, chart_y, CONTENT_W, chart_h, linked=False)
-    else:
-        summary = "  ·  ".join(f"{lb}: {v}" for lb, v in zip(labels, values))
-        _box(reqs, f"{sid}_sum", sid, MARGIN, content_y + 8, CONTENT_W, 40, summary or "No open tickets")
-        _style(reqs, f"{sid}_sum", 0, len(summary or "No open tickets"), size=12, color=NAVY, font=FONT)
+    open_n = got.get("open_count")
+    scope_extra = f"{open_n} open" if open_n is not None else ""
+    content_y = _place_framing(
+        reqs,
+        sid,
+        report,
+        got,
+        scope_detail=scope_extra or "Open HELP tickets",
+    )
+    rows_data = got.get("backlog_open") or []
+    if not rows_data:
+        msg = "No open tickets in scope."
+        _box(reqs, f"{sid}_empty", sid, MARGIN, content_y + 8, CONTENT_W, 24, msg)
+        _style(reqs, f"{sid}_empty", 0, len(msg), size=10, color=NAVY, font=FONT)
+        return idx + 1
+    col_customer = 132
+    col_created = 76
+    col_subject = int(CONTENT_W) - col_customer - col_created
+    sub_max = _max_chars_one_line_for_table_col(float(col_subject))
+    rows = [
+        [
+            _truncate_table_cell(r.get("customer"), 22),
+            _truncate_table_cell(r.get("summary"), sub_max),
+            r.get("created") or "—",
+        ]
+        for r in rows_data
+    ]
+    _render_table(
+        reqs,
+        sid,
+        y_top=content_y + 4,
+        headers=["Customer", "Subject", "Created"],
+        col_widths=[col_customer, col_subject, col_created],
+        rows=rows,
+        link_col=None,
+    )
     return idx + 1
 
 
@@ -502,36 +571,48 @@ def support_kpis_engineering_dependency_slide(
     if isinstance(got, int):
         return got
     _slide_header(reqs, sid, report, idx)
-    eng = got.get("engineering_dependency") or {}
-    count = eng.get("count", 0)
-    avg_age = eng.get("avg_age_days")
-    avg_s = f"{avg_age:.1f}d avg age" if avg_age is not None else "avg age —"
+    esc = got.get("escalation_flow") or {}
     content_y = _place_framing(
         reqs,
         sid,
         report,
         got,
-        scope_detail=f"{count} open tickets in engineering-related statuses · {avg_s}",
+        scope_detail=f"LEAN & CUSTOMER · label {JIRA_ESCALATED_LABEL} · opened vs resolved per week",
     )
-    jira_base = ((report.get("jira") or {}).get("base_url") or "").rstrip("/")
-    rows = [
-        [
-            t.get("key") or "—",
-            str(t.get("age_days", "—")),
-            _truncate_table_cell(t.get("status"), 22),
-            _truncate_table_cell(t.get("assignee"), 18),
-            _truncate_table_cell(t.get("summary"), 44),
-        ]
-        for t in (eng.get("tickets") or [])
-    ]
-    _render_table(
+    gap = _INTAKE_SIDE_COL_GAP
+    half_w = (CONTENT_W - gap) / 2.0
+    subhead_h = 14.0
+    chart_y = content_y + _CHART_TOP_GAP + subhead_h
+    chart_h = _max_single_chart_height(content_y) - subhead_h
+    charts = report.get("_charts")
+    if not charts:
+        msg = "Charts unavailable."
+        _box(reqs, f"{sid}_nochart", sid, MARGIN, content_y + 8, CONTENT_W, 24, msg)
+        _style(reqs, f"{sid}_nochart", 0, len(msg), size=10, color=NAVY, font=FONT)
+        return idx + 1
+    _project_flow_chart(
         reqs,
         sid,
-        y_top=content_y + 4,
-        headers=["Key", "Age (d)", "Status", "Assignee", "Summary"],
-        col_widths=[56, 48, 110, 100, 246],
-        rows=rows,
-        jira_base=jira_base,
+        report,
+        project="LEAN",
+        flow_block=esc.get("LEAN") or {},
+        chart_x=MARGIN,
+        chart_y=chart_y,
+        chart_w=half_w,
+        chart_h=chart_h,
+        oid_prefix="lean",
+    )
+    _project_flow_chart(
+        reqs,
+        sid,
+        report,
+        project="CUSTOMER",
+        flow_block=esc.get("CUSTOMER") or {},
+        chart_x=MARGIN + half_w + gap,
+        chart_y=chart_y,
+        chart_w=half_w,
+        chart_h=chart_h,
+        oid_prefix="cust",
     )
     return idx + 1
 

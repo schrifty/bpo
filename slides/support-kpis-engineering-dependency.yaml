@@ -1,11 +1,11 @@
 id: support_kpis_engineering_dependency
 type: standard
 order: 17
-title: Engineering Dependency
+title: Engineering Escalations
 slide_type: support_kpis_engineering_dependency
 data_tools:
   - customer_jira
 customers: all
 
 prompt: >
-  Open HELP tickets in engineering-related statuses — count, average age, and detail table.
+  Weekly opened vs resolved for jira_escalated tickets in LEAN and CUSTOMER (side-by-side flow charts).

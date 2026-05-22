@@ -8,4 +8,4 @@ data_tools:
 customers: all
 
 prompt: >
-  Open HELP backlog by age bucket (0–7, 8–14, 15–30, 30+ days).
+  Open HELP backlog: requesting customer (JSM org), ticket subject, and creation date.

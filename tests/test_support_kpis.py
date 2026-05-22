@@ -61,6 +61,27 @@ def test_bucket_by_week_resolved_uses_resolutiondate():
     assert resolved_weeks[0]["week"] == "2026-W04"  # 2026-01-20
 
 
+def test_flow_weekly_in_window_counts_created_and_resolved():
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    issues = [
+        {
+            "created": "2026-02-10",
+            "resolutiondate": "2026-02-20",
+            "resolution": "Done",
+        },
+        {
+            "created": "2026-02-15",
+            "resolutiondate": "",
+            "resolution": "",
+        },
+    ]
+    weeks = JiraClient._flow_weekly_in_window(issues, window_days=90, now=now)
+    assert sum(w["created"] for w in weeks) == 2
+    assert sum(w["resolved"] for w in weeks) == 1
+
+
 def test_open_age_days_and_backlog_buckets_logic():
     from datetime import datetime, timedelta, timezone
 
