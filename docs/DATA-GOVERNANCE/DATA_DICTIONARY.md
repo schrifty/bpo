@@ -130,6 +130,7 @@
 - `jira.by_type`
 - `jira.customer`
 - `jira.customer_ticket_metrics`
+- `jira.support_kpis` (HELP operational KPI bundle: intake, flow, backlog, SLA, tail risk, customer health, aging thresholds)
 - `jira.help_factory_start_day_buckets`
 - `jira.help_monthly_operational_metrics` (monthly rows include HELP vs Outage/Healthcheck bands; `outage_resolved` and `outage_delta` for HC slice)
 - `jira.days`

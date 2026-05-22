@@ -1,0 +1,11 @@
+id: support_kpis_tail_risk
+type: standard
+order: 13
+title: Tail Risk
+slide_type: support_kpis_tail_risk
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Oldest 10 active HELP tickets with assignee and status/blocker hint.

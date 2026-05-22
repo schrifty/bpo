@@ -18,6 +18,7 @@ sys.modules["match_customer_names"] = match_customer_names
 _SPEC.loader.exec_module(match_customer_names)
 
 NO_MATCH_LABEL = match_customer_names.NO_MATCH_LABEL
+customers_missing_by_source = match_customer_names.customers_missing_by_source
 customers_with_missing_matches = match_customer_names.customers_with_missing_matches
 render_match_report_text = match_customer_names.render_match_report_text
 resolve_pendo_name = match_customer_names.resolve_pendo_name
@@ -144,14 +145,24 @@ def test_partial_matches_summary_lists_customers_at_end() -> None:
         },
     }
     text = render_match_report_text(report)
-    assert "=== Customers with at least one missing match (1) ===" in text
-    assert "  Acme  [active]  — no match: CSR" in text
-    assert "Zebra" not in text.split("=== Customers with at least one missing match")[1]
+    assert "=== Pendo Missing (0) ===" in text
+    assert "=== CSR Missing (1) ===" in text
+    assert "=== Atlassian Missing (0) ===" in text
+    assert "  Acme  [active]" in text
+    csr_block = text.split("=== CSR Missing")[1].split("=== Atlassian Missing")[0]
+    assert "Acme" in csr_block
+    assert "Zebra" not in csr_block
+
+    by_source = customers_missing_by_source(report)
+    assert len(by_source["pendo"]) == 0
+    assert len(by_source["csr"]) == 1
+    assert by_source["csr"][0]["salesforce_label"] == "Acme"
+    assert len(by_source["jsm"]) == 0
 
     summary = customers_with_missing_matches(report)
     assert len(summary) == 1
     assert summary[0]["salesforce_label"] == "Acme"
-    assert summary[0]["missing"] == ["CSR"]
+    assert summary[0]["missing"] == ["csr"]
 
 
 def test_pendo_stale_alias_lists_no_match(monkeypatch) -> None:

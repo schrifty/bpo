@@ -662,63 +662,89 @@ def _missing_sources_for_row(
     row: dict[str, Any],
     sources_queried: dict[str, bool],
 ) -> list[str]:
-    """Return labels (Pendo, CSR, JSM) that were queried but have no match."""
+    """Return source keys (pendo, csr, jsm) that were queried but have no match."""
     missing: list[str] = []
     if sources_queried.get("pendo") and not (row.get("pendo_name") or "").strip():
-        missing.append("Pendo")
+        missing.append("pendo")
     if sources_queried.get("csr") and not (row.get("csr_names") or []):
-        missing.append("CSR")
+        missing.append("csr")
     if sources_queried.get("jsm") and not (row.get("jsm_names") or []):
-        missing.append("JSM")
+        missing.append("jsm")
     return missing
 
 
-def customers_with_missing_matches(report: dict[str, Any]) -> list[dict[str, Any]]:
-    """Customers missing at least one queried Pendo / CSR / JSM match (sorted by SF label)."""
-    sq = report.get("sources_queried") or {}
-    if not any(sq.get(k) for k in ("pendo", "csr", "jsm")):
-        return []
+_STATUS_TITLES = {
+    "active": "active",
+    "churned": "churned",
+    "renewal_in_negotiation": "renewal in negotiation",
+}
 
-    out: list[dict[str, Any]] = []
+_MISSING_SUMMARY_SECTIONS = (
+    ("pendo", "Pendo Missing"),
+    ("csr", "CSR Missing"),
+    ("jsm", "Atlassian Missing"),
+)
+
+
+def customers_missing_by_source(report: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """SF customers with no match per queried source (each row appears only under missing sources)."""
+    sq = report.get("sources_queried") or {}
+    out: dict[str, list[dict[str, Any]]] = {key: [] for key, _ in _MISSING_SUMMARY_SECTIONS}
+    if not any(sq.get(k) for k in out):
+        return out
+
     by_status = report.get("by_status") or {}
     for status_key in ("active", "churned", "renewal_in_negotiation"):
         for row in by_status.get(status_key) or []:
-            missing = _missing_sources_for_row(row, sq)
-            if not missing:
-                continue
-            out.append(
-                {
-                    "salesforce_label": row.get("salesforce_label") or "",
-                    "status": status_key,
-                    "missing": missing,
-                }
-            )
+            entry = {
+                "salesforce_label": row.get("salesforce_label") or "",
+                "status": status_key,
+            }
+            for source_key in _missing_sources_for_row(row, sq):
+                if source_key in out:
+                    out[source_key].append(entry)
+    for entries in out.values():
+        entries.sort(key=lambda x: (x.get("salesforce_label") or "").lower())
+    return out
+
+
+def customers_with_missing_matches(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """Customers missing at least one queried source (flat list with ``missing`` key list)."""
+    by_source = customers_missing_by_source(report)
+    merged: dict[tuple[str, str], set[str]] = {}
+    for source_key, entries in by_source.items():
+        for entry in entries:
+            key = (entry.get("salesforce_label") or "", entry.get("status") or "")
+            merged.setdefault(key, set()).add(source_key)
+    out = [
+        {
+            "salesforce_label": sf,
+            "status": st,
+            "missing": sorted(missing),
+        }
+        for (sf, st), missing in merged.items()
+    ]
     out.sort(key=lambda x: (x.get("salesforce_label") or "").lower())
     return out
 
 
 def _format_partial_matches_summary(report: dict[str, Any]) -> list[str]:
-    """Trailing section: customers with no match on at least one queried datasource."""
-    entries = customers_with_missing_matches(report)
-    lines = [
-        f"=== Customers with at least one missing match ({len(entries)}) ===",
-    ]
-    if not entries:
-        lines.append("(none — every queried customer matched Pendo, CSR, and JSM)")
+    """Trailing sections grouped by missing source: Pendo, CSR, Atlassian (JSM)."""
+    by_source = customers_missing_by_source(report)
+    lines: list[str] = []
+    for source_key, title in _MISSING_SUMMARY_SECTIONS:
+        if not (report.get("sources_queried") or {}).get(source_key):
+            continue
+        entries = by_source.get(source_key) or []
+        lines.append(f"=== {title} ({len(entries)}) ===")
+        if not entries:
+            lines.append("(none)")
+        else:
+            for entry in entries:
+                sf = entry.get("salesforce_label") or ""
+                st = _STATUS_TITLES.get(entry.get("status") or "", entry.get("status") or "")
+                lines.append(f"  {sf}  [{st}]")
         lines.append("")
-        return lines
-
-    titles = {
-        "active": "active",
-        "churned": "churned",
-        "renewal_in_negotiation": "renewal in negotiation",
-    }
-    for entry in entries:
-        sf = entry.get("salesforce_label") or ""
-        st = titles.get(entry.get("status") or "", entry.get("status") or "")
-        miss = ", ".join(entry.get("missing") or [])
-        lines.append(f"  {sf}  [{st}]  — no match: {miss}")
-    lines.append("")
     return lines
 
 
@@ -873,6 +899,7 @@ def _print_drive_upload_messages(meta: dict[str, str], *, nbytes: int) -> None:
 def _render_cli_report(report: dict[str, Any], fmt: str) -> str:
     if fmt == "json":
         payload = dict(report)
+        payload["customers_missing_by_source"] = customers_missing_by_source(report)
         payload["customers_with_missing_matches"] = customers_with_missing_matches(report)
         return json.dumps(payload, indent=2, default=str)
     return render_match_report_text(report)

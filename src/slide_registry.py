@@ -110,6 +110,19 @@ from .slide_support_intro import (
     support_deck_cover_slide as _support_deck_cover_slide,
     support_intro_slide as _support_intro_slide,
 )
+from .slide_support_kpis import (
+    support_kpis_aging_thresholds_slide as _support_kpis_aging_thresholds_slide,
+    support_kpis_backlog_slide as _support_kpis_backlog_slide,
+    support_kpis_csat_slide as _support_kpis_csat_slide,
+    support_kpis_customer_health_slide as _support_kpis_customer_health_slide,
+    support_kpis_engineering_dependency_slide as _support_kpis_engineering_dependency_slide,
+    support_kpis_flow_slide as _support_kpis_flow_slide,
+    support_kpis_intake_slide as _support_kpis_intake_slide,
+    support_kpis_resolution_slide as _support_kpis_resolution_slide,
+    support_kpis_sla_slide as _support_kpis_sla_slide,
+    support_kpis_tail_risk_slide as _support_kpis_tail_risk_slide,
+    support_kpis_ttfr_slide as _support_kpis_ttfr_slide,
+)
 from .slide_team import team_slide as _team_slide
 from .slide_title_page import title_slide as _title_slide
 from .slide_usage import champions_slide as _champions_slide, features_slide as _features_slide
@@ -186,6 +199,17 @@ _SLIDE_BUILDERS = {
     "eng_help_volume_trends": _eng_help_volume_trends_slide,
     "support_deck_cover": _support_deck_cover_slide,
     "support_intro": _support_intro_slide,
+    "support_kpis_intake": _support_kpis_intake_slide,
+    "support_kpis_flow": _support_kpis_flow_slide,
+    "support_kpis_backlog": _support_kpis_backlog_slide,
+    "support_kpis_tail_risk": _support_kpis_tail_risk_slide,
+    "support_kpis_sla": _support_kpis_sla_slide,
+    "support_kpis_ttfr": _support_kpis_ttfr_slide,
+    "support_kpis_resolution": _support_kpis_resolution_slide,
+    "support_kpis_engineering_dependency": _support_kpis_engineering_dependency_slide,
+    "support_kpis_customer_health": _support_kpis_customer_health_slide,
+    "support_kpis_csat": _support_kpis_csat_slide,
+    "support_kpis_aging_thresholds": _support_kpis_aging_thresholds_slide,
     "cs_notable": _cs_notable_slide,
     "salesforce_comprehensive_cover": _salesforce_comprehensive_cover_slide,
     "salesforce_comprehensive_toc": _salesforce_comprehensive_toc_slide,

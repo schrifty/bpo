@@ -1,0 +1,11 @@
+id: support_kpis_sla
+type: standard
+order: 14
+title: SLA
+slide_type: support_kpis_sla
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  First-response and resolution SLA adherence % on resolved HELP tickets in the window.

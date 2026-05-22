@@ -14,6 +14,9 @@ from .slide_salesforce import (
 # Decks that share support Jira enrichment, Notable second pass, and slide-plan rules.
 SUPPORT_DECK_IDS: frozenset[str] = frozenset({"support", "support_review_portfolio"})
 
+# HELP KPI deck — lighter Jira fetch (``support_kpis`` blob only).
+SUPPORT_KPI_DECK_IDS: frozenset[str] = frozenset({"support-kpis"})
+
 # Decks that need ``eng_portfolio`` from ``get_engineering_portfolio`` when absent.
 _ENG_PORTFOLIO_DECK_IDS: frozenset[str] = frozenset({"engineering-portfolio", "implementations_review"})
 
@@ -28,7 +31,7 @@ def enrich_deck_report_data(
     if deck_id == "supply_chain_review":
         _stamp_support_deck_generated_at(report)
 
-    if deck_id in SUPPORT_DECK_IDS:
+    if deck_id in SUPPORT_DECK_IDS or deck_id in SUPPORT_KPI_DECK_IDS:
         slide_plan = prepare_support_slide_plan(report, slide_plan, customer)
 
     if deck_id == "salesforce_comprehensive":
@@ -36,6 +39,9 @@ def enrich_deck_report_data(
 
     if deck_id in SUPPORT_DECK_IDS:
         enrich_support_jira_data(report, customer)
+
+    if deck_id in SUPPORT_KPI_DECK_IDS:
+        enrich_support_kpis_jira_data(report, customer)
 
     if deck_id in _ENG_PORTFOLIO_DECK_IDS:
         enrich_engineering_portfolio_if_needed(report, deck_id=deck_id)
@@ -157,6 +163,38 @@ def enrich_salesforce_comprehensive(
     return _filter_salesforce_comprehensive_slide_plan(
         slide_plan, report.get("salesforce_comprehensive") or {}
     )
+
+
+def enrich_support_kpis_jira_data(report: dict[str, Any], customer: str | None) -> None:
+    """Fetch HELP KPI bundle for ``support-kpis`` deck."""
+    customer_display = customer or "All Customers"
+    window_days = int(report.get("days") or 90)
+    try:
+        from .jira_client import get_shared_jira_client
+
+        jira_client = get_shared_jira_client()
+        if "jira" not in report:
+            report["jira"] = {}
+        if "base_url" not in report["jira"]:
+            report["jira"]["base_url"] = (jira_client.base_url or "").rstrip("/")
+        if "support_kpis" not in report["jira"]:
+            logger.info(
+                "Support KPIs deck: fetching HELP KPIs for %s (%dd window)",
+                customer_display,
+                window_days,
+            )
+            report["jira"]["support_kpis"] = jira_client.get_support_kpis(
+                customer,
+                window_days=window_days,
+            )
+    except Exception as e:
+        logger.warning("Support KPIs deck: Jira fetch failed for %s: %s", customer_display, e)
+        report.setdefault("jira", {})
+        report["jira"]["support_kpis"] = {
+            "error": str(e)[:500],
+            "customer": customer,
+            "window_days": window_days,
+        }
 
 
 def enrich_support_jira_data(report: dict[str, Any], customer: str | None) -> None:

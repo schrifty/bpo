@@ -55,7 +55,7 @@ def _health_deck_presentation_title(
     if tail is not None:
         return f"Portfolio - {tail} ({date_str})"
 
-    if deck_id == "support" and not customer:
+    if deck_id in ("support", "support-kpis") and not customer:
         return f"{deck_name} — All Customers ({date_str})"
 
     if is_portfolio:
@@ -179,7 +179,7 @@ def create_health_deck(
 
         report["_slide_plan"] = slide_plan
 
-        if deck_id in ("support", "supply_chain_review") and customer:
+        if deck_id in ("support", "support-kpis", "supply_chain_review") and customer:
             _set_support_deck_corner_customer(str(customer).strip())
         reqs, slides_created, note_targets, notable_deferred, plan_work = render_slide_plan(
             report,

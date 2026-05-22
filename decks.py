@@ -81,6 +81,9 @@ Generate one deck (explicit)
   decks support-portfolio [--days N]
       All-customers support portfolio deck.
 
+  decks support-kpis [--customer NAME] [--days N]
+      HELP operational KPI deck (intake, flow, backlog, SLA, etc.).
+
   decks csm book --csm "<name>" [--days N] [--max-customers M] [--quarter …]
       CSM book of business (Pendo ownername filter).
 
@@ -122,6 +125,7 @@ _CUSTOMER_SCOPED_DECK_BATCH_ORDER: tuple[str, ...] = (
     "salesforce_comprehensive",
     "supply_chain_review",
     "support",
+    "support-kpis",
 )
 
 # Order for ``--portfolio`` (Pendo-heavy first, then Jira-only).
@@ -422,6 +426,34 @@ def _run_deck_run_cli(rest: list[str]) -> None:
         print(f"  OK   {result.get('url', '')}")
         return
 
+    if deck_id == "support-kpis":
+        cust = None
+        if args.customers:
+            if len(args.customers) != 1:
+                ap.error("--deck support-kpis accepts at most one --customer")
+            cust = args.customers[0].strip() or None
+        if args.all_customers:
+            ap.error("--deck support-kpis does not support --all-customers (omit --customer for all)")
+        days_kpi = int(args.days) if args.days is not None else 90
+        print("Deck:       support-kpis")
+        if cust:
+            print(f"Customer:   {cust}")
+        else:
+            print("Customer:   (all)")
+        print(f"Period:     Jira lookback {days_kpi}d")
+        t0 = time.time()
+        report = {"type": "support_kpis", "customer": cust, "days": days_kpi}
+        result = create_health_deck(report, deck_id="support-kpis", thumbnails=thumbnails)
+        elapsed = time.time() - t0
+        print(f"\n{'=' * 60}")
+        print(f"Done in {elapsed:.0f}s")
+        print(f"{'=' * 60}")
+        if "error" in result:
+            print(f"  FAIL: {result['error'][:120]}")
+            sys.exit(1)
+        print(f"  OK   {result.get('url', '')}")
+        return
+
     explicit_customers: list[str] | None = None
     if args.customers:
         explicit_customers = [str(c).strip() for c in args.customers if str(c).strip()]
@@ -621,6 +653,44 @@ def _run_support_deck(rest: list[str]) -> None:
     print(f"  OK   {result.get('url', '')}")
 
 
+def _run_support_kpis_deck(rest: list[str]) -> None:
+    """``decks support-kpis …`` — HELP operational KPI deck."""
+    import argparse
+
+    from src.data_source_health import check_all_required
+    from src.slides_client import create_health_deck
+
+    parser = argparse.ArgumentParser(
+        prog="decks support-kpis",
+        description="Generate HELP operational KPI deck",
+    )
+    parser.add_argument("--customer", type=str, default=None, help="Scope to one JSM customer/org")
+    parser.add_argument("--days", type=int, default=90, help="Trailing window for KPIs (default: 90)")
+    args = parser.parse_args(rest)
+
+    preflight_errors = check_all_required()
+    if preflight_errors:
+        print("Data source check failed — not running:")
+        for msg in preflight_errors:
+            print(f"  • {msg}")
+        sys.exit(1)
+
+    customer = args.customer
+    print(f"Generating support-kpis deck for: {customer or 'All Customers'}")
+    print(f"Window: {args.days} days")
+    t0 = time.time()
+    report = {"type": "support_kpis", "customer": customer, "days": int(args.days)}
+    result = create_health_deck(report, deck_id="support-kpis", thumbnails=False)
+    elapsed = time.time() - t0
+    print(f"\n{'=' * 60}")
+    print(f"Done in {elapsed:.0f}s")
+    print(f"{'=' * 60}")
+    if "error" in result:
+        print(f"  FAIL: {result['error'][:120]}")
+        sys.exit(1)
+    print(f"  OK   {result.get('url', '')}")
+
+
 def _run_kpi_cli(rest: list[str]) -> None:
     """Run ``scripts/get-my-metrics.py`` with the same argv tail (LeanDNA metrics for session user)."""
     root = Path(__file__).resolve().parent
@@ -805,6 +875,10 @@ def _run_all_customer_decks() -> None:
         if deck_id == "support":
             report = {"type": "support_review", "customer": customer, "days": 365}
             result = create_health_deck(report, deck_id="support", thumbnails=args.thumbnails)
+        elif deck_id == "support-kpis":
+            days_kpi = int(args.days) if args.days is not None else 90
+            report = {"type": "support_kpis", "customer": customer, "days": days_kpi}
+            result = create_health_deck(report, deck_id="support-kpis", thumbnails=args.thumbnails)
         else:
             results = create_health_decks_for_customers(
                 [customer],
@@ -1137,6 +1211,9 @@ def main():
         return
     if sub in ("support-portfolio", "support_review_portfolio", "support-review-portfolio"):
         _run_support_review_portfolio_deck(sys.argv[2:])
+        return
+    if sub in ("support-kpis", "support_kpis"):
+        _run_support_kpis_deck(sys.argv[2:])
         return
     if sub == "kpi":
         _run_kpi_cli(sys.argv[2:])

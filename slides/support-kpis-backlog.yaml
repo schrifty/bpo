@@ -1,0 +1,11 @@
+id: support_kpis_backlog
+type: standard
+order: 12
+title: Backlog
+slide_type: support_kpis_backlog
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Open HELP backlog by age bucket (0–7, 8–14, 15–30, 30+ days).

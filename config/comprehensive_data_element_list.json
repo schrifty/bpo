@@ -756,6 +756,13 @@
       ]
     },
     {
+      "path": "jira.support_kpis",
+      "terms": [
+        "jira.support_kpis",
+        "[Jira] HELP operational KPI bundle for support-kpis deck"
+      ]
+    },
+    {
       "path": "jira.jsm_organizations_resolved",
       "terms": [
         "jira.jsm_organizations_resolved",

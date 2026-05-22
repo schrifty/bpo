@@ -2457,6 +2457,329 @@ class JiraClient:
             out["tickets"] = slim
         return out
 
+    @staticmethod
+    def _compute_sla_field_adherence_pct(
+        issues: list[dict],
+        prefix: str,
+        *,
+        project_key: str = "HELP",
+    ) -> dict[str, Any]:
+        """Percent of scoped tickets with completed *prefix* SLA (ttfr/ttr) that did not breach."""
+        scoped = [i for i in issues if i.get("project") == project_key]
+        measured = 0
+        met = 0
+        waiting = 0
+        for issue in scoped:
+            if issue.get(f"{prefix}_waiting"):
+                waiting += 1
+            if issue.get(f"{prefix}_ms") is None:
+                continue
+            measured += 1
+            if not issue.get(f"{prefix}_breached"):
+                met += 1
+        breached = measured - met
+        pct = round(100 * met / measured, 1) if measured else None
+        return {
+            "tickets": len(scoped),
+            "measured": measured,
+            "met": met,
+            "breached": breached,
+            "waiting": waiting,
+            "pct": pct,
+        }
+
+    @staticmethod
+    def _open_age_days(issue: dict) -> float | None:
+        created_dt = JiraClient._parse_jira_datetime(issue.get("created"))
+        if created_dt is None:
+            return None
+        return (datetime.now(timezone.utc) - created_dt).total_seconds() / 86400.0
+
+    @staticmethod
+    def _calendar_resolution_ms(issue: dict) -> int | None:
+        created_dt = JiraClient._parse_jira_datetime(issue.get("created"))
+        resolved_dt = JiraClient._parse_jira_datetime(issue.get("resolutiondate"))
+        if created_dt is None or resolved_dt is None:
+            return None
+        elapsed_ms = int((resolved_dt - created_dt).total_seconds() * 1000)
+        return elapsed_ms if elapsed_ms >= 0 else None
+
+    @staticmethod
+    def _percentile_ms(values: list[int], pct: float) -> int | None:
+        if not values:
+            return None
+        ordered = sorted(values)
+        idx = min(len(ordered) - 1, max(0, int(round((pct / 100.0) * (len(ordered) - 1)))))
+        return ordered[idx]
+
+    def get_support_kpis(
+        self,
+        customer_name: str | None,
+        match_terms: list[str] | None = None,
+        *,
+        window_days: int = 90,
+    ) -> dict[str, Any]:
+        """HELP operational KPI bundle for the ``support-kpis`` deck (single merged Jira fetch)."""
+        jql_start = self._jql_log_len()
+        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
+            customer_name, match_terms
+        )
+        union_jql = (
+            "project = HELP AND "
+            f"{base_filter} AND {_TRANSIENT_LABELS_EXCLUSION} AND ("
+            "statusCategory != Done OR "
+            "(resolution is not EMPTY AND resolved >= -365d) OR "
+            "created >= -365d"
+            ") ORDER BY updated DESC"
+        )
+        try:
+            merged_raw = self._search(
+                union_jql,
+                max_results=HELP_METRICS_MERGED_MAX_RESULTS,
+                fields=list(dict.fromkeys(_CUSTOMER_TICKET_SLIDE_FIELDS + ["assignee"])),
+                data_description="HELP support KPIs (merged open / 365d resolved / 365d created)",
+            )
+        except Exception as e:
+            logger.warning("Support KPIs fetch failed for %s: %s", customer_name, e)
+            return {
+                "error": str(e),
+                "customer": customer_name,
+                "window_days": window_days,
+                "jsm_organizations_resolved": resolved_jsm_orgs,
+                "jql_queries": self._jql_since(jql_start),
+            }
+
+        open_raw, _resolved_6mo, year_raw, resolved_year_raw = self._partition_help_metrics_merged(
+            merged_raw
+        )
+        open_issues = [self._normalize_issue(i) for i in open_raw]
+        year_issues = [self._normalize_issue(i) for i in year_raw]
+        resolved_year = [self._normalize_issue(i) for i in resolved_year_raw]
+
+        now = datetime.now(timezone.utc)
+        cutoff_window = now - timedelta(days=max(1, int(window_days)))
+
+        def _created_in_window(issue: dict) -> bool:
+            cre = self._parse_jira_datetime(issue.get("created"))
+            return cre is not None and cre >= cutoff_window
+
+        created_window = [i for i in year_issues if _created_in_window(i)]
+        resolved_window = [
+            i
+            for i in resolved_year
+            if (rd := self._parse_jira_datetime(i.get("resolutiondate"))) is not None
+            and rd >= cutoff_window
+        ]
+
+        # Weekly intake / flow (last ~13 ISO weeks from windowed issues)
+        intake_issues = [{"created": i.get("created", ""), "resolution": i.get("resolution", "")} for i in created_window]
+        flow_issues = [
+            {
+                "created": i.get("created", ""),
+                "resolutiondate": i.get("resolutiondate", ""),
+                "resolution": i.get("resolution", ""),
+            }
+            for i in year_issues
+            if _created_in_window(i)
+            or (
+                (rd := self._parse_jira_datetime(i.get("resolutiondate"))) is not None
+                and rd >= cutoff_window
+            )
+        ]
+        intake_weekly = self._bucket_by_week(intake_issues)[-13:]
+        flow_weekly = self._bucket_by_week(flow_issues)[-13:]
+
+        # Intake breakdowns (window)
+        by_priority: Counter[str] = Counter()
+        by_type: Counter[str] = Counter()
+        by_customer: Counter[str] = Counter()
+        for issue in created_window:
+            pr = (issue.get("priority") or "—").split(":")[0]
+            by_priority[pr] += 1
+            by_type[issue.get("type") or "Unknown"] += 1
+            orgs = issue.get("organizations") or []
+            org = orgs[0] if orgs else "(No organization)"
+            by_customer[org] += 1
+
+        # Backlog age buckets (open)
+        buckets = {"0-7": 0, "8-14": 0, "15-30": 0, "30+": 0}
+        for issue in open_issues:
+            age = self._open_age_days(issue)
+            if age is None:
+                continue
+            if age <= 7:
+                buckets["0-7"] += 1
+            elif age <= 14:
+                buckets["8-14"] += 1
+            elif age <= 30:
+                buckets["15-30"] += 1
+            else:
+                buckets["30+"] += 1
+
+        def _tail_row(issue: dict) -> dict[str, Any]:
+            age = self._open_age_days(issue)
+            status = issue.get("status") or ""
+            blocker = status if "engineering" in status.lower() else ""
+            return {
+                "key": issue.get("key"),
+                "summary": (issue.get("summary") or "")[:100],
+                "age_days": round(age, 1) if age is not None else None,
+                "assignee": issue.get("assignee") or "Unassigned",
+                "status": status,
+                "blocker": blocker or "—",
+                "organizations": ", ".join(issue.get("organizations") or [])[:60],
+            }
+
+        open_by_age = sorted(
+            open_issues,
+            key=lambda i: self._open_age_days(i) or 0.0,
+            reverse=True,
+        )
+        tail_risk = [_tail_row(i) for i in open_by_age[:10]]
+
+        ttfr_sla = self._compute_sla_field_adherence_pct(resolved_window, "ttfr")
+        ttr_sla = self._compute_sla_field_adherence_pct(resolved_window, "ttr")
+        ttfr_stats = self._compute_sla(resolved_window, "ttfr")
+
+        # Resolution median / p90 calendar TTR by type (resolved in window)
+        by_type_ms: dict[str, list[int]] = {}
+        for issue in resolved_window:
+            ms = self._calendar_resolution_ms(issue)
+            if ms is None:
+                continue
+            tname = issue.get("type") or "Unknown"
+            by_type_ms.setdefault(tname, []).append(ms)
+
+        def _fmt_ms(ms: int) -> str:
+            mins = ms / 60_000
+            if mins < 60:
+                return f"{mins:.0f} min"
+            hrs = mins / 60
+            if hrs < 24:
+                return f"{hrs:.1f}h"
+            return f"{hrs / 24:.1f}d"
+
+        resolution_by_type: list[dict[str, Any]] = []
+        for tname, values in sorted(by_type_ms.items(), key=lambda x: (-len(x[1]), x[0])):
+            med = self._percentile_ms(values, 50)
+            p90 = self._percentile_ms(values, 90)
+            resolution_by_type.append(
+                {
+                    "type": tname,
+                    "count": len(values),
+                    "median": _fmt_ms(med) if med is not None else "—",
+                    "p90": _fmt_ms(p90) if p90 is not None else "—",
+                }
+            )
+
+        eng_statuses = ("in engineering queue", "waiting for engineering")
+        eng_open = [
+            i
+            for i in open_issues
+            if any(s in (i.get("status") or "").lower() for s in eng_statuses)
+            or "engineering" in (i.get("status") or "").lower()
+        ]
+        eng_ages = [self._open_age_days(i) for i in eng_open if self._open_age_days(i) is not None]
+        eng_dependency = {
+            "count": len(eng_open),
+            "avg_age_days": round(sum(eng_ages) / len(eng_ages), 1) if eng_ages else None,
+            "tickets": [
+                {
+                    "key": i.get("key"),
+                    "summary": (i.get("summary") or "")[:80],
+                    "status": i.get("status"),
+                    "age_days": round(self._open_age_days(i) or 0, 1),
+                    "assignee": i.get("assignee") or "Unassigned",
+                }
+                for i in sorted(eng_open, key=lambda x: self._open_age_days(x) or 0, reverse=True)[:15]
+            ],
+        }
+
+        # Customer health: orgs with 3+ open or any ticket 30+ days
+        org_open: dict[str, list[dict]] = {}
+        for issue in open_issues:
+            orgs = issue.get("organizations") or ["(No organization)"]
+            primary = orgs[0] if orgs else "(No organization)"
+            org_open.setdefault(primary, []).append(issue)
+        customer_health: list[dict[str, Any]] = []
+        for org, tickets in org_open.items():
+            ages = [self._open_age_days(t) for t in tickets if self._open_age_days(t) is not None]
+            oldest = max(ages) if ages else 0.0
+            if len(tickets) >= 3 or oldest >= 30:
+                customer_health.append(
+                    {
+                        "organization": org,
+                        "open_count": len(tickets),
+                        "oldest_days": round(oldest, 1),
+                    }
+                )
+        customer_health.sort(key=lambda r: (-r["open_count"], -r["oldest_days"]))
+
+        sentiment_counts: Counter[str] = Counter()
+        for issue in resolved_window + open_issues:
+            s = (issue.get("sentiment") or "").strip()
+            if s:
+                sentiment_counts[s] += 1
+
+        ttfr_goal_h = 48
+        ttr_goal_h = 160
+        ttfr_goal_days = ttfr_goal_h / 24.0
+        ttr_goal_days = ttr_goal_h / 24.0
+        aging_rows: list[dict[str, Any]] = []
+        for issue in open_issues:
+            age = self._open_age_days(issue)
+            if age is None:
+                continue
+            reasons: list[str] = []
+            if age > ttfr_goal_days and issue.get("ttfr_ms") is None:
+                reasons.append(f"No first response >{ttfr_goal_h}h")
+            if age > ttr_goal_days:
+                reasons.append(f"Open >{ttr_goal_h}h")
+            if reasons:
+                aging_rows.append(
+                    {
+                        "key": issue.get("key"),
+                        "summary": (issue.get("summary") or "")[:80],
+                        "age_days": round(age, 1),
+                        "status": issue.get("status"),
+                        "reasons": "; ".join(reasons),
+                        "assignee": issue.get("assignee") or "Unassigned",
+                    }
+                )
+        aging_rows.sort(key=lambda r: r["age_days"], reverse=True)
+
+        return {
+            "customer": customer_name,
+            "window_days": int(window_days),
+            "jsm_organizations_resolved": resolved_jsm_orgs,
+            "open_count": len(open_issues),
+            "intake_weekly": intake_weekly,
+            "flow_weekly": flow_weekly,
+            "intake_breakdown": {
+                "by_priority": dict(by_priority.most_common(8)),
+                "by_type": dict(by_type.most_common(8)),
+                "by_customer": dict(by_customer.most_common(10)),
+            },
+            "backlog_age_buckets": buckets,
+            "tail_risk": tail_risk,
+            "sla": {"ttfr": ttfr_sla, "ttr": ttr_sla},
+            "ttfr": ttfr_stats,
+            "resolution_by_type": resolution_by_type,
+            "engineering_dependency": eng_dependency,
+            "customer_health": customer_health[:25],
+            "csat": {
+                "by_sentiment": dict(sentiment_counts.most_common()),
+                "note": "Jira AI sentiment on HELP tickets — supplementary; not a formal CSAT survey.",
+            },
+            "aging_beyond_thresholds": {
+                "ttfr_goal_hours": ttfr_goal_h,
+                "ttr_goal_hours": ttr_goal_h,
+                "count": len(aging_rows),
+                "tickets": aging_rows[:20],
+            },
+            "jql_queries": self._jql_since(jql_start),
+        }
+
     def get_help_organizations_by_opened(
         self,
         *,
