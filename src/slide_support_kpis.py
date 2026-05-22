@@ -58,7 +58,7 @@ _CHART_TOP_GAP = 4.0
 _CHART_BOTTOM_GAP = 8.0
 _INTAKE_SIDE_COL_GAP = 16.0
 _INTAKE_CHART_WIDTH_RATIO = 0.62
-# Oldest open HELP tickets on tail-risk table (must match jira_client cap).
+# Max rows on tail-risk and aging-thresholds tables (must match jira_client caps).
 _KPI_OPEN_TABLE_MAX_ROWS = 5
 # Tail-risk table: narrow age/status/org; summary uses the remainder of CONTENT_W.
 _KPI_COL_AGE_PT = 44
@@ -107,6 +107,18 @@ _BUSINESS_MEANING: dict[str, str] = {
         "Engineering and Data Integration escalations from HELP—opened vs resolved each week. "
         "Mapping tickets route to Data Integration (CUSTOMER project); other escalated work "
         "routes to Engineering (LEAN project)."
+    ),
+    "support_kpis_escalation_backlog_engineering": (
+        "Open escalated work sitting in the Engineering (LEAN) queue—how long tickets have "
+        "waited and whether the customer or engineering team is holding progress."
+    ),
+    "support_kpis_data_integration_escalations": (
+        "Mapping and Data Integration escalations from HELP—opened vs resolved each week "
+        "for tickets routed to the CUSTOMER (Data Integration) project."
+    ),
+    "support_kpis_escalation_backlog_data_integration": (
+        "Open escalated mapping work in the Data Integration (CUSTOMER) queue—how long "
+        "tickets have waited and who is holding progress."
     ),
     "support_kpis_customer_health": (
         "Accounts with enough open or aged tickets to warrant proactive outreach before "
@@ -191,6 +203,69 @@ def _sla_by_window_payload(payload: dict[str, Any]) -> dict[str, dict[str, Any]]
     if legacy:
         return {"90": legacy}
     return {}
+
+
+def _render_stacked_age_backlog_chart(
+    reqs: list[dict[str, Any]],
+    sid: str,
+    report: dict[str, Any],
+    content_y: float,
+    *,
+    backlog_age_stacked: dict[str, Any],
+    backlog_age_buckets: dict[str, int],
+) -> None:
+    """Stacked column chart by age band (shared by HELP backlog and LEAN escalation backlog)."""
+    stacked = backlog_age_stacked or {}
+    labels = list(stacked.get("labels") or ["0–7", "8–14", "15–30", "30+"])
+    raw_series = stacked.get("series") or {}
+    buckets = backlog_age_buckets or {}
+    keys = ["0-7", "8-14", "15-30", "30+"]
+    total_open = sum(int(buckets.get(k, 0)) for k in keys)
+    charts = report.get("_charts")
+    chart_y = content_y + _CHART_TOP_GAP
+    legend_h = 24.0
+    chart_h = _max_single_chart_height(content_y) - legend_h
+
+    chart_series: dict[str, list[int]] = {}
+    legend_entries: list[tuple[str, dict[str, float]]] = []
+    series_colors: list[dict[str, float]] = []
+    for title, key, color in _BACKLOG_STACK_SERIES:
+        vals = [int(x) for x in (raw_series.get(key) or [0, 0, 0, 0])[: len(labels)]]
+        while len(vals) < len(labels):
+            vals.append(0)
+        if sum(vals) > 0:
+            chart_series[title] = vals
+            legend_entries.append((title, color))
+            series_colors.append(color)
+
+    if charts and total_open > 0 and chart_series:
+        from .charts import embed_chart
+
+        ss_id, chart_id = charts.add_bar_chart(
+            title=f"Backlog_{sid}"[:100],
+            labels=labels,
+            series=chart_series,
+            stacked=True,
+            suppress_legend=True,
+            show_title=False,
+            series_colors=series_colors,
+        )
+        embed_chart(reqs, f"{sid}_chart", sid, ss_id, chart_id, MARGIN, chart_y, CONTENT_W, chart_h, linked=False)
+        _render_backlog_stack_legend(
+            reqs,
+            sid,
+            f"{sid}_bleg",
+            MARGIN,
+            chart_y + chart_h + 4,
+            CONTENT_W,
+            legend_entries,
+        )
+    else:
+        values = [int(buckets.get(k, 0)) for k in keys]
+        summary = "  ·  ".join(f"{lb}: {v}" for lb, v in zip(labels, values))
+        msg = summary or "No open tickets in scope."
+        _box(reqs, f"{sid}_sum", sid, MARGIN, content_y + 8, CONTENT_W, 40, msg)
+        _style(reqs, f"{sid}_sum", 0, len(msg), size=12, color=NAVY, font=FONT)
 
 
 def _render_backlog_stack_legend(
@@ -499,56 +574,14 @@ def support_kpis_backlog_slide(reqs: list[dict[str, Any]], sid: str, report: dic
             "waiting on customer vs engineering"
         ),
     )
-    stacked = got.get("backlog_age_stacked") or {}
-    labels = list(stacked.get("labels") or ["0–7", "8–14", "15–30", "30+"])
-    raw_series = stacked.get("series") or {}
-    buckets = got.get("backlog_age_buckets") or {}
-    keys = ["0-7", "8-14", "15-30", "30+"]
-    total_open = sum(int(buckets.get(k, 0)) for k in keys)
-    charts = report.get("_charts")
-    chart_y = content_y + _CHART_TOP_GAP
-    legend_h = 24.0
-    chart_h = _max_single_chart_height(content_y) - legend_h
-
-    chart_series: dict[str, list[int]] = {}
-    legend_entries: list[tuple[str, dict[str, float]]] = []
-    series_colors: list[dict[str, float]] = []
-    for title, key, color in _BACKLOG_STACK_SERIES:
-        vals = [int(x) for x in (raw_series.get(key) or [0, 0, 0, 0])[: len(labels)]]
-        while len(vals) < len(labels):
-            vals.append(0)
-        if sum(vals) > 0:
-            chart_series[title] = vals
-            legend_entries.append((title, color))
-            series_colors.append(color)
-
-    if charts and total_open > 0 and chart_series:
-        from .charts import embed_chart
-
-        ss_id, chart_id = charts.add_bar_chart(
-            title="",
-            labels=labels,
-            series=chart_series,
-            stacked=True,
-            suppress_legend=True,
-            series_colors=series_colors,
-        )
-        embed_chart(reqs, f"{sid}_chart", sid, ss_id, chart_id, MARGIN, chart_y, CONTENT_W, chart_h, linked=False)
-        _render_backlog_stack_legend(
-            reqs,
-            sid,
-            f"{sid}_bleg",
-            MARGIN,
-            chart_y + chart_h + 4,
-            CONTENT_W,
-            legend_entries,
-        )
-    else:
-        values = [int(buckets.get(k, 0)) for k in keys]
-        summary = "  ·  ".join(f"{lb}: {v}" for lb, v in zip(labels, values))
-        msg = summary or "No open tickets in scope."
-        _box(reqs, f"{sid}_sum", sid, MARGIN, content_y + 8, CONTENT_W, 40, msg)
-        _style(reqs, f"{sid}_sum", 0, len(msg), size=12, color=NAVY, font=FONT)
+    _render_stacked_age_backlog_chart(
+        reqs,
+        sid,
+        report,
+        content_y,
+        backlog_age_stacked=got.get("backlog_age_stacked") or {},
+        backlog_age_buckets=got.get("backlog_age_buckets") or {},
+    )
     return idx + 1
 
 
@@ -762,6 +795,137 @@ def support_kpis_engineering_dependency_slide(
     return idx + 1
 
 
+def support_kpis_escalation_backlog_engineering_slide(
+    reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int
+) -> int:
+    got = _kpis_or_missing(reqs, sid, report, idx)
+    if isinstance(got, int):
+        return got
+    blob = got.get("escalation_backlog_engineering") or {}
+    if blob.get("error"):
+        return _missing_data_slide(
+            reqs,
+            sid,
+            report,
+            idx,
+            f"LEAN escalation backlog: {blob['error']}",
+        )
+    _slide_header(reqs, sid, report, idx)
+    open_n = blob.get("open_count")
+    scope_extra = f"{open_n} open LEAN escalations" if open_n is not None else "Open LEAN escalations"
+    content_y = _place_framing(
+        reqs,
+        sid,
+        report,
+        got,
+        scope_detail=(
+            f"{scope_extra} · {JIRA_ESCALATED_LABEL} · by age (days since created) · "
+            "stacked: with support vs waiting on customer vs engineering"
+        ),
+    )
+    _render_stacked_age_backlog_chart(
+        reqs,
+        sid,
+        report,
+        content_y,
+        backlog_age_stacked=blob.get("backlog_age_stacked") or {},
+        backlog_age_buckets=blob.get("backlog_age_buckets") or {},
+    )
+    return idx + 1
+
+
+def support_kpis_data_integration_escalations_slide(
+    reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int
+) -> int:
+    got = _kpis_or_missing(reqs, sid, report, idx)
+    if isinstance(got, int):
+        return got
+    _slide_header(reqs, sid, report, idx)
+    esc = got.get("escalation_flow") or {}
+    flow_block = esc.get("CUSTOMER") or {}
+    if flow_block.get("error"):
+        return _missing_data_slide(
+            reqs,
+            sid,
+            report,
+            idx,
+            f"Data Integration escalations: {flow_block['error']}",
+        )
+    content_y = _place_framing(
+        reqs,
+        sid,
+        report,
+        got,
+        scope_detail=(
+            f"CUSTOMER project · {JIRA_ESCALATED_LABEL} · mapping tickets from HELP · "
+            "opened vs resolved per week"
+        ),
+    )
+    subhead_h = 14.0
+    chart_y = content_y + _CHART_TOP_GAP + subhead_h
+    chart_h = _max_single_chart_height(content_y) - subhead_h
+    charts = report.get("_charts")
+    if not charts:
+        msg = "Charts unavailable."
+        _box(reqs, f"{sid}_nochart", sid, MARGIN, content_y + 8, CONTENT_W, 24, msg)
+        _style(reqs, f"{sid}_nochart", 0, len(msg), size=10, color=NAVY, font=FONT)
+        return idx + 1
+    _project_flow_chart(
+        reqs,
+        sid,
+        report,
+        project="Data Integration (CUSTOMER)",
+        flow_block=flow_block,
+        chart_x=MARGIN,
+        chart_y=chart_y,
+        chart_w=CONTENT_W,
+        chart_h=chart_h,
+        oid_prefix="di",
+    )
+    return idx + 1
+
+
+def support_kpis_escalation_backlog_data_integration_slide(
+    reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int
+) -> int:
+    got = _kpis_or_missing(reqs, sid, report, idx)
+    if isinstance(got, int):
+        return got
+    blob = got.get("escalation_backlog_data_integration") or {}
+    if blob.get("error"):
+        return _missing_data_slide(
+            reqs,
+            sid,
+            report,
+            idx,
+            f"Data Integration escalation backlog: {blob['error']}",
+        )
+    _slide_header(reqs, sid, report, idx)
+    open_n = blob.get("open_count")
+    scope_extra = (
+        f"{open_n} open CUSTOMER escalations" if open_n is not None else "Open CUSTOMER escalations"
+    )
+    content_y = _place_framing(
+        reqs,
+        sid,
+        report,
+        got,
+        scope_detail=(
+            f"{scope_extra} · {JIRA_ESCALATED_LABEL} · mapping tickets · by age (days since created) · "
+            "stacked: with support vs waiting on customer vs engineering"
+        ),
+    )
+    _render_stacked_age_backlog_chart(
+        reqs,
+        sid,
+        report,
+        content_y,
+        backlog_age_stacked=blob.get("backlog_age_stacked") or {},
+        backlog_age_buckets=blob.get("backlog_age_buckets") or {},
+    )
+    return idx + 1
+
+
 def support_kpis_customer_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
     got = _kpis_or_missing(reqs, sid, report, idx)
     if isinstance(got, int):
@@ -829,17 +993,31 @@ def support_kpis_aging_thresholds_slide(reqs: list[dict[str, Any]], sid: str, re
     aging = got.get("aging_beyond_thresholds") or {}
     ttfr_h = aging.get("ttfr_goal_hours", 48)
     ttr_h = aging.get("ttr_goal_hours", 160)
+    total = int(aging.get("count") or 0)
+    if total > _KPI_OPEN_TABLE_MAX_ROWS:
+        aging_scope = (
+            f"Showing {_KPI_OPEN_TABLE_MAX_ROWS} of {total} open beyond thresholds "
+            f"(oldest by age · no first response >{ttfr_h}h and/or open >{ttr_h}h)"
+        )
+    else:
+        aging_scope = (
+            f"{total} open beyond thresholds "
+            f"(no first response >{ttfr_h}h and/or open >{ttr_h}h)"
+        )
     content_y = _place_framing(
         reqs,
         sid,
         report,
         got,
-        scope_detail=(
-            f"{aging.get('count', 0)} open beyond thresholds "
-            f"(no first response >{ttfr_h}h and/or open >{ttr_h}h)"
-        ),
+        scope_detail=aging_scope,
     )
     jira_base = ((report.get("jira") or {}).get("base_url") or "").rstrip("/")
+    rows_data = (aging.get("tickets") or [])[:_KPI_OPEN_TABLE_MAX_ROWS]
+    if not rows_data:
+        msg = "No open tickets beyond service thresholds."
+        _box(reqs, f"{sid}_empty", sid, MARGIN, content_y + 8, CONTENT_W, 24, msg)
+        _style(reqs, f"{sid}_empty", 0, len(msg), size=10, color=NAVY, font=FONT)
+        return idx + 1
     rows = [
         [
             t.get("key") or "—",
@@ -848,7 +1026,7 @@ def support_kpis_aging_thresholds_slide(reqs: list[dict[str, Any]], sid: str, re
             _truncate_table_cell(t.get("assignee"), 16),
             _truncate_table_cell(t.get("summary"), 40),
         ]
-        for t in (aging.get("tickets") or [])
+        for t in rows_data
     ]
     _render_table(
         reqs,
@@ -858,5 +1036,6 @@ def support_kpis_aging_thresholds_slide(reqs: list[dict[str, Any]], sid: str, re
         col_widths=[56, 48, 160, 100, 216],
         rows=rows,
         jira_base=jira_base,
+        max_rows_cap=_KPI_OPEN_TABLE_MAX_ROWS,
     )
     return idx + 1

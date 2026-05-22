@@ -1,0 +1,12 @@
+id: support_kpis_escalation_backlog_data_integration
+type: standard
+order: 20
+title: Escalation Backlog - Data Integration
+slide_type: support_kpis_escalation_backlog_data_integration
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Stacked column chart of open CUSTOMER jira_escalated (mapping) tickets by age bucket,
+  split by with support vs waiting on customer vs waiting on engineering.

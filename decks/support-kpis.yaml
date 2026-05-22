@@ -28,6 +28,12 @@ slides:
     title: Resolution
   - slide: support_kpis_engineering_dependency
     title: Engineering Escalations
+  - slide: support_kpis_escalation_backlog_engineering
+    title: Escalation Backlog - Engineering
+  - slide: support_kpis_data_integration_escalations
+    title: Data Integration Escalations
+  - slide: support_kpis_escalation_backlog_data_integration
+    title: Escalation Backlog - Data Integration
   - slide: support_kpis_customer_health
     title: Customer Health
   - slide: support_kpis_csat

@@ -171,7 +171,8 @@ class DeckCharts:
         ss_id = self._ensure_spreadsheet()
         self._sheet_counter += 1
         sheet_id = self._sheet_counter
-        clean_title = title[:100].replace("/", "-")
+        raw = (title or "").strip()
+        clean_title = (raw if raw else f"Chart{sheet_id}")[:100].replace("/", "-")
 
         self._sheets_svc.spreadsheets().batchUpdate(
             spreadsheetId=ss_id,
@@ -262,7 +263,7 @@ class DeckCharts:
         ``BRAND_SERIES_COLORS`` per series — use a ``PIE_SLICE_COLORS`` prefix when a
         stacked bar sits beside an embedded pie so one legend matches both charts.
         """
-        sheet_id = self._add_sheet_tab(title or "Chart")
+        sheet_id = self._add_sheet_tab(title)
         series_names = list(series.keys())
         headers = ["Label"] + series_names
         rows = [[labels[i]] + [s[i] for s in series.values()] for i in range(len(labels))]

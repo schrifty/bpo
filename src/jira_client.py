@@ -1580,6 +1580,64 @@ class JiraClient:
             "jql_queries": self._jql_since(jql_start),
         }
 
+    def fetch_project_jira_escalated_open_backlog(
+        self,
+        project: str,
+        customer_name: str | None,
+        match_terms: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Open ``jira_escalated`` backlog for CUSTOMER or LEAN (age buckets + status stacks)."""
+        jql_start = self._jql_log_len()
+        try:
+            proj = _validate_project_key(project)
+        except ValueError as e:
+            return {"error": str(e), "project": project}
+        if proj not in ("CUSTOMER", "LEAN"):
+            return {
+                "error": "fetch_project_jira_escalated_open_backlog supports CUSTOMER and LEAN only",
+                "project": proj,
+            }
+
+        base_filter, _resolved_orgs = self._customer_project_text_match_clause(
+            customer_name, match_terms
+        )
+        jql = (
+            f"project = {proj} AND labels = \"{JIRA_ESCALATED_LABEL}\" AND {base_filter} "
+            f"AND {_CUSTOMER_LEAN_ISSUETYPE_EXCLUSION} AND statusCategory != Done "
+            f"ORDER BY created ASC"
+        )
+        try:
+            raw = self._search(
+                jql,
+                max_results=HELP_TRENDS_MAX_RESULTS,
+                fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
+                data_description=f"{proj} open jira_escalated backlog (excl. Epic, SUT)",
+            )
+        except Exception as e:
+            logger.warning("%s jira_escalated open backlog fetch failed: %s", proj, e)
+            return {
+                "error": str(e),
+                "project": proj,
+                "jql_queries": self._jql_since(jql_start),
+            }
+
+        open_issues: list[dict] = []
+        for issue in raw:
+            f = issue.get("fields") or {}
+            labels = f.get("labels") or []
+            if JIRA_ESCALATED_LABEL not in labels:
+                continue
+            open_issues.append(self._normalize_issue(issue))
+
+        buckets, stacked = self._backlog_age_breakdown(open_issues)
+        return {
+            "project": proj,
+            "open_count": len(open_issues),
+            "backlog_age_buckets": buckets,
+            "backlog_age_stacked": stacked,
+            "jql_queries": self._jql_since(jql_start),
+        }
+
     @staticmethod
     def _compute_sla(
         issues: list[dict],
@@ -2850,6 +2908,34 @@ class JiraClient:
                         "flow_weekly": [],
                     }
 
+        try:
+            escalation_backlog_engineering = self.fetch_project_jira_escalated_open_backlog(
+                "LEAN", customer_name, match_terms
+            )
+        except Exception as exc:
+            logger.warning("LEAN jira_escalated open backlog fetch failed: %s", exc)
+            escalation_backlog_engineering = {
+                "project": "LEAN",
+                "error": str(exc),
+                "open_count": 0,
+                "backlog_age_buckets": {},
+                "backlog_age_stacked": {"labels": [], "series": {}},
+            }
+
+        try:
+            escalation_backlog_data_integration = self.fetch_project_jira_escalated_open_backlog(
+                "CUSTOMER", customer_name, match_terms
+            )
+        except Exception as exc:
+            logger.warning("CUSTOMER jira_escalated open backlog fetch failed: %s", exc)
+            escalation_backlog_data_integration = {
+                "project": "CUSTOMER",
+                "error": str(exc),
+                "open_count": 0,
+                "backlog_age_buckets": {},
+                "backlog_age_stacked": {"labels": [], "series": {}},
+            }
+
         # Customer health: orgs with 3+ open or any ticket 30+ days
         org_open: dict[str, list[dict]] = {}
         for issue in open_issues:
@@ -2923,6 +3009,8 @@ class JiraClient:
             "ttfr": ttfr_stats,
             "resolution_by_type": resolution_by_type,
             "escalation_flow": escalation_flow,
+            "escalation_backlog_engineering": escalation_backlog_engineering,
+            "escalation_backlog_data_integration": escalation_backlog_data_integration,
             "customer_health": customer_health[:25],
             "csat": {
                 "by_sentiment": dict(sentiment_counts.most_common()),
@@ -2932,7 +3020,7 @@ class JiraClient:
                 "ttfr_goal_hours": ttfr_goal_h,
                 "ttr_goal_hours": ttr_goal_h,
                 "count": len(aging_rows),
-                "tickets": aging_rows[:20],
+                "tickets": aging_rows[:5],
             },
             "jql_queries": self._jql_since(jql_start),
         }
