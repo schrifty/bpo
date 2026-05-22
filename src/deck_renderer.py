@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .config import logger
-from .deck_data_enrichment import SUPPORT_DECK_IDS
+from .deck_data_enrichment import SUPPORT_DECK_IDS, SUPPORT_KPI_DECK_IDS
 from .deck_builder_utils import _normalize_builder_return
 from .slide_registry import _SLIDE_BUILDERS
 from .slide_utils import slide_object_id_base as _slide_object_id_base
@@ -18,14 +18,20 @@ def render_slide_plan(
 ) -> tuple[list[dict], int, list[tuple[str, dict[str, Any]]], dict[str, Any] | None, list[dict[str, Any]]]:
     """Build batchUpdate requests and speaker-note targets for a resolved slide plan."""
     # Build every slide except "Notable" on the first pass; fetches are already in ``report`` for support.
-    # The Notable slide (cs_notable) is inserted in a second batch at insertionIndex 1 after the LLM runs on a digest
-    # of the same in-memory Jira data (so we do not refetch; bullets reflect the same dataset as the rest of the deck).
+    # Notable slides are inserted in a second batch at insertionIndex 1 after the LLM runs on a digest
+    # of the same in-memory data (no refetch; bullets reflect the same dataset as the rest of the deck).
     plan_work: list[dict[str, Any]] = list(slide_plan)
     notable_deferred: dict[str, Any] | None = None
+    deferred_types: frozenset[str] | None = None
     if deck_id in SUPPORT_DECK_IDS:
+        deferred_types = frozenset({"cs_notable"})
+    elif deck_id in SUPPORT_KPI_DECK_IDS:
+        deferred_types = frozenset({"support_kpis_notable"})
+    if deferred_types:
         kept2: list[dict[str, Any]] = []
         for e in plan_work:
-            if (e.get("slide_type") or e.get("id", "")) == "cs_notable" and notable_deferred is None:
+            st = e.get("slide_type") or e.get("id", "")
+            if st in deferred_types and notable_deferred is None:
                 notable_deferred = e
             else:
                 kept2.append(e)

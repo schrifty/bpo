@@ -27,12 +27,14 @@ def render_signal_list_slide(
     title: str,
     missing_label: str,
     trend_banner: str = "",
+    max_bullets: int | None = None,
 ) -> int | tuple[int, list[str]]:
     """Render the canonical Notable/Critical Signals numbered-list layout."""
     if not signals:
         return _missing_data_slide(reqs, sid, report, idx, missing_label)
 
-    shown = signals[:MAX_SIGNAL_BULLETS]
+    cap = max_bullets if max_bullets is not None else MAX_SIGNAL_BULLETS
+    shown = signals[:cap]
     _slide(reqs, sid, idx)
     _bg(reqs, sid, LIGHT)
     _slide_title(reqs, sid, title)
@@ -49,9 +51,10 @@ def render_signal_list_slide(
     text = "\n".join(lines)
     oid = f"{sid}_sig"
     body_top = BODY_Y + trend_h
-    body_h = max(120, 290 - trend_h)
+    body_h = max(120, (330 if cap > 8 else 290) - trend_h)
+    font_size = 11 if cap > 8 else 12
     _box(reqs, oid, sid, MARGIN, body_top, CONTENT_W, body_h, text)
-    _style(reqs, oid, 0, len(text), size=12, color=NAVY, font=FONT)
+    _style(reqs, oid, 0, len(text), size=font_size, color=NAVY, font=FONT)
     offset = 0
     for line in lines:
         if line and line[0].isdigit():

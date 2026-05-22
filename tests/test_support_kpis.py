@@ -17,17 +17,17 @@ def test_support_kpis_resolves_slide_plan():
     slides = r.get("slides") or []
     types = [s.get("slide_type") or s.get("id") for s in slides]
     assert "support_deck_cover" in types
+    assert "support_kpis_notable" in types
+    assert types.index("support_kpis_notable") == types.index("support_deck_cover") + 1
     assert "support_kpis_intake" in types
     assert "support_kpis_aging_thresholds" in types
     assert "data_quality" in types
     assert types.index("support_kpis_flow") == types.index("support_kpis_intake") + 1
     assert "support_kpis_escalation_backlog_engineering" in types
-    assert "support_kpis_data_integration_escalations" in types
     assert "support_kpis_escalation_backlog_data_integration" in types
     eng_idx = types.index("support_kpis_engineering_dependency")
     assert types.index("support_kpis_escalation_backlog_engineering") == eng_idx + 1
-    assert types.index("support_kpis_data_integration_escalations") == eng_idx + 2
-    assert types.index("support_kpis_escalation_backlog_data_integration") == eng_idx + 3
+    assert types.index("support_kpis_escalation_backlog_data_integration") == eng_idx + 2
 
 
 def test_support_kpis_sla_by_window_keys():

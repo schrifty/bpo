@@ -12,6 +12,8 @@ purpose: |
 slides:
   - slide: support_deck_cover
     title: Support KPIs
+  - slide: support_kpis_notable
+    title: Notable Findings
   - slide: support_kpis_intake
     title: Intake
   - slide: support_kpis_flow
@@ -30,8 +32,6 @@ slides:
     title: Engineering Escalations
   - slide: support_kpis_escalation_backlog_engineering
     title: Escalation Backlog - Engineering
-  - slide: support_kpis_data_integration_escalations
-    title: Data Integration Escalations
   - slide: support_kpis_escalation_backlog_data_integration
     title: Escalation Backlog - Data Integration
   - slide: support_kpis_customer_health

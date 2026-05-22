@@ -10,6 +10,7 @@ from .slide_cohort import (
     cohort_summary_slide as _cohort_summary_slide,
 )
 from .slide_cs_notable import cs_notable_slide as _cs_notable_slide
+from .slide_support_kpis_notable import support_kpis_notable_slide as _support_kpis_notable_slide
 from .slide_custom import custom_slide as _custom_slide
 from .slide_data_quality import data_quality_slide as _data_quality_slide
 from .slide_depth import depth_slide as _depth_slide
@@ -117,7 +118,6 @@ from .slide_support_kpis import (
     support_kpis_customer_health_slide as _support_kpis_customer_health_slide,
     support_kpis_engineering_dependency_slide as _support_kpis_engineering_dependency_slide,
     support_kpis_escalation_backlog_engineering_slide as _support_kpis_escalation_backlog_engineering_slide,
-    support_kpis_data_integration_escalations_slide as _support_kpis_data_integration_escalations_slide,
     support_kpis_escalation_backlog_data_integration_slide as _support_kpis_escalation_backlog_data_integration_slide,
     support_kpis_flow_slide as _support_kpis_flow_slide,
     support_kpis_intake_slide as _support_kpis_intake_slide,
@@ -211,11 +211,11 @@ _SLIDE_BUILDERS = {
     "support_kpis_resolution": _support_kpis_resolution_slide,
     "support_kpis_engineering_dependency": _support_kpis_engineering_dependency_slide,
     "support_kpis_escalation_backlog_engineering": _support_kpis_escalation_backlog_engineering_slide,
-    "support_kpis_data_integration_escalations": _support_kpis_data_integration_escalations_slide,
     "support_kpis_escalation_backlog_data_integration": _support_kpis_escalation_backlog_data_integration_slide,
     "support_kpis_customer_health": _support_kpis_customer_health_slide,
     "support_kpis_csat": _support_kpis_csat_slide,
     "support_kpis_aging_thresholds": _support_kpis_aging_thresholds_slide,
+    "support_kpis_notable": _support_kpis_notable_slide,
     "cs_notable": _cs_notable_slide,
     "salesforce_comprehensive_cover": _salesforce_comprehensive_cover_slide,
     "salesforce_comprehensive_toc": _salesforce_comprehensive_toc_slide,

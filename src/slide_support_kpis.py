@@ -112,10 +112,6 @@ _BUSINESS_MEANING: dict[str, str] = {
         "Open escalated work sitting in the Engineering (LEAN) queue—how long tickets have "
         "waited and whether the customer or engineering team is holding progress."
     ),
-    "support_kpis_data_integration_escalations": (
-        "Mapping and Data Integration escalations from HELP—opened vs resolved each week "
-        "for tickets routed to the CUSTOMER (Data Integration) project."
-    ),
     "support_kpis_escalation_backlog_data_integration": (
         "Open escalated mapping work in the Data Integration (CUSTOMER) queue—how long "
         "tickets have waited and who is holding progress."
@@ -830,57 +826,6 @@ def support_kpis_escalation_backlog_engineering_slide(
         content_y,
         backlog_age_stacked=blob.get("backlog_age_stacked") or {},
         backlog_age_buckets=blob.get("backlog_age_buckets") or {},
-    )
-    return idx + 1
-
-
-def support_kpis_data_integration_escalations_slide(
-    reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int
-) -> int:
-    got = _kpis_or_missing(reqs, sid, report, idx)
-    if isinstance(got, int):
-        return got
-    _slide_header(reqs, sid, report, idx)
-    esc = got.get("escalation_flow") or {}
-    flow_block = esc.get("CUSTOMER") or {}
-    if flow_block.get("error"):
-        return _missing_data_slide(
-            reqs,
-            sid,
-            report,
-            idx,
-            f"Data Integration escalations: {flow_block['error']}",
-        )
-    content_y = _place_framing(
-        reqs,
-        sid,
-        report,
-        got,
-        scope_detail=(
-            f"CUSTOMER project · {JIRA_ESCALATED_LABEL} · mapping tickets from HELP · "
-            "opened vs resolved per week"
-        ),
-    )
-    subhead_h = 14.0
-    chart_y = content_y + _CHART_TOP_GAP + subhead_h
-    chart_h = _max_single_chart_height(content_y) - subhead_h
-    charts = report.get("_charts")
-    if not charts:
-        msg = "Charts unavailable."
-        _box(reqs, f"{sid}_nochart", sid, MARGIN, content_y + 8, CONTENT_W, 24, msg)
-        _style(reqs, f"{sid}_nochart", 0, len(msg), size=10, color=NAVY, font=FONT)
-        return idx + 1
-    _project_flow_chart(
-        reqs,
-        sid,
-        report,
-        project="Data Integration (CUSTOMER)",
-        flow_block=flow_block,
-        chart_x=MARGIN,
-        chart_y=chart_y,
-        chart_w=CONTENT_W,
-        chart_h=chart_h,
-        oid_prefix="di",
     )
     return idx + 1
 
