@@ -2603,6 +2603,54 @@ class JiraClient:
             return None
         return (datetime.now(timezone.utc) - created_dt).total_seconds() / 86400.0
 
+    _BACKLOG_AGE_BUCKET_KEYS = ("0-7", "8-14", "15-30", "30+")
+
+    @staticmethod
+    def _backlog_age_bucket_key(age_days: float) -> str:
+        if age_days <= 7:
+            return "0-7"
+        if age_days <= 14:
+            return "8-14"
+        if age_days <= 30:
+            return "15-30"
+        return "30+"
+
+    @staticmethod
+    def _backlog_bottleneck(status: str) -> str:
+        """Classify open-ticket status for backlog stack: support vs customer vs engineering."""
+        s = (status or "").strip().lower()
+        if "customer" in s and ("waiting" in s or "awaiting" in s):
+            return "waiting_on_customer"
+        if "engineering" in s:
+            return "waiting_on_engineering"
+        return "with_support"
+
+    @staticmethod
+    def _backlog_age_breakdown(open_issues: list[dict]) -> tuple[dict[str, int], dict[str, Any]]:
+        """Open tickets by age bucket, with counts stacked by who's holding progress."""
+        keys = JiraClient._BACKLOG_AGE_BUCKET_KEYS
+        buckets = {k: 0 for k in keys}
+        stacked_by_age: dict[str, dict[str, int]] = {
+            k: {"with_support": 0, "waiting_on_customer": 0, "waiting_on_engineering": 0}
+            for k in keys
+        }
+        for issue in open_issues:
+            age = JiraClient._open_age_days(issue)
+            if age is None:
+                continue
+            bk = JiraClient._backlog_age_bucket_key(age)
+            buckets[bk] += 1
+            owner = JiraClient._backlog_bottleneck(issue.get("status") or "")
+            stacked_by_age[bk][owner] += 1
+        stacked = {
+            "labels": ["0–7", "8–14", "15–30", "30+"],
+            "series": {
+                owner: [stacked_by_age[k][owner] for k in keys]
+                for owner in ("with_support", "waiting_on_customer", "waiting_on_engineering")
+            },
+        }
+        return buckets, stacked
+
     @staticmethod
     def _calendar_resolution_ms(issue: dict) -> int | None:
         created_dt = JiraClient._parse_jira_datetime(issue.get("created"))
@@ -2625,7 +2673,7 @@ class JiraClient:
         customer_name: str | None,
         match_terms: list[str] | None = None,
         *,
-        window_days: int = 90,
+        window_days: int = 180,
     ) -> dict[str, Any]:
         """HELP operational KPI bundle for the ``support-kpis`` deck (single merged Jira fetch)."""
         jql_start = self._jql_log_len()
@@ -2705,31 +2753,16 @@ class JiraClient:
             org = orgs[0] if orgs else "(No organization)"
             by_customer[org] += 1
 
-        backlog_open = sorted(
-            [
-                {
-                    "customer": (issue.get("organizations") or ["(No organization)"])[0],
-                    "summary": (issue.get("summary") or "").strip(),
-                    "created": issue.get("created") or "—",
-                    "key": issue.get("key"),
-                }
-                for issue in open_issues
-            ],
-            key=lambda r: (r.get("created") or "", r.get("key") or ""),
-        )
+        backlog_age_buckets, backlog_age_stacked = self._backlog_age_breakdown(open_issues)
 
         def _tail_row(issue: dict) -> dict[str, Any]:
             age = self._open_age_days(issue)
-            status = issue.get("status") or ""
-            blocker = status if "engineering" in status.lower() else ""
+            orgs = issue.get("organizations") or []
             return {
-                "key": issue.get("key"),
-                "summary": (issue.get("summary") or "")[:100],
+                "organization": orgs[0] if orgs else "(No organization)",
+                "status": (issue.get("status") or "").strip(),
+                "summary": (issue.get("summary") or "").strip(),
                 "age_days": round(age, 1) if age is not None else None,
-                "assignee": issue.get("assignee") or "Unassigned",
-                "status": status,
-                "blocker": blocker or "—",
-                "organizations": ", ".join(issue.get("organizations") or [])[:60],
             }
 
         open_by_age = sorted(
@@ -2737,10 +2770,27 @@ class JiraClient:
             key=lambda i: self._open_age_days(i) or 0.0,
             reverse=True,
         )
-        tail_risk = [_tail_row(i) for i in open_by_age[:10]]
+        tail_risk = [_tail_row(i) for i in open_by_age[:5]]
 
-        ttfr_sla = self._compute_sla_field_adherence_pct(resolved_window, "ttfr")
-        ttr_sla = self._compute_sla_field_adherence_pct(resolved_window, "ttr")
+        def _resolved_since(days: int) -> list[dict]:
+            cutoff = now - timedelta(days=max(1, int(days)))
+            return [
+                issue
+                for issue in resolved_year
+                if (rd := self._parse_jira_datetime(issue.get("resolutiondate"))) is not None
+                and rd >= cutoff
+            ]
+
+        sla_by_window: dict[str, dict[str, Any]] = {}
+        for days in (30, 90, 365):
+            rw = _resolved_since(days)
+            sla_by_window[str(days)] = {
+                "ttfr": self._compute_sla_field_adherence_pct(rw, "ttfr"),
+                "ttr": self._compute_sla_field_adherence_pct(rw, "ttr"),
+                "resolved_count": len(rw),
+            }
+        ttfr_sla = sla_by_window["90"]["ttfr"]
+        ttr_sla = sla_by_window["90"]["ttr"]
         ttfr_stats = self._compute_sla(resolved_window, "ttfr")
 
         # Resolution median / p90 calendar TTR by type (resolved in window)
@@ -2865,9 +2915,11 @@ class JiraClient:
                 "by_type": dict(by_type.most_common(8)),
                 "by_customer": dict(by_customer.most_common(10)),
             },
-            "backlog_open": backlog_open,
+            "backlog_age_buckets": backlog_age_buckets,
+            "backlog_age_stacked": backlog_age_stacked,
             "tail_risk": tail_risk,
             "sla": {"ttfr": ttfr_sla, "ttr": ttr_sla},
+            "sla_by_window": sla_by_window,
             "ttfr": ttfr_stats,
             "resolution_by_type": resolution_by_type,
             "escalation_flow": escalation_flow,

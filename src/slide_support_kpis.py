@@ -8,6 +8,7 @@ from .slide_primitives import (
     background as _bg,
     kpi_metric_card as _kpi_metric_card,
     missing_data_slide as _missing_data_slide,
+    rect as _rect,
     slide_title as _slide_title,
     style as _style,
 )
@@ -35,6 +36,15 @@ from .slide_jira_support import _clean_table, _table_cell_style, _table_cell_tex
 
 GREEN = {"red": 0.13, "green": 0.65, "blue": 0.35}
 RED = {"red": 0.85, "green": 0.15, "blue": 0.15}
+_AMBER = {"red": 0.96, "green": 0.71, "blue": 0.00}
+_BACKLOG_STACK_SERIES: tuple[tuple[str, str, dict[str, float]], ...] = (
+    ("With support", "with_support", BLUE),
+    ("Waiting on engineering", "waiting_on_engineering", NAVY),
+    ("Waiting on customer", "waiting_on_customer", _AMBER),
+)
+_BACKLOG_LEGEND_ROW_H = 16.0
+_BACKLOG_LEGEND_SWATCH = 10.0
+_BACKLOG_LEGEND_COL_GAP = 20.0
 # Layout: business meaning under title; scope footer anchored to physical slide bottom.
 _BUSINESS_BAND_H = 38.0
 _CONTENT_TOP = BODY_Y + _BUSINESS_BAND_H
@@ -48,6 +58,20 @@ _CHART_TOP_GAP = 4.0
 _CHART_BOTTOM_GAP = 8.0
 _INTAKE_SIDE_COL_GAP = 16.0
 _INTAKE_CHART_WIDTH_RATIO = 0.62
+# Oldest open HELP tickets on tail-risk table (must match jira_client cap).
+_KPI_OPEN_TABLE_MAX_ROWS = 5
+# Tail-risk table: narrow age/status/org; summary uses the remainder of CONTENT_W.
+_KPI_COL_AGE_PT = 44
+_KPI_COL_STATUS_PT = 108
+_KPI_COL_ORG_PT = 120
+_SLA_WINDOW_ROWS: tuple[tuple[str, str], ...] = (
+    ("30 days", "30"),
+    ("90 days", "90"),
+    ("1 year", "365"),
+)
+_SLA_LABEL_COL_W = 72.0
+_SLA_BAND_H = 56.0
+_SLA_BAND_GAP = 8.0
 
 # CEO-facing line under the slide title (slide_type → copy).
 _BUSINESS_MEANING: dict[str, str] = {
@@ -60,11 +84,12 @@ _BUSINESS_MEANING: dict[str, str] = {
         "customer wait times grow even if the team feels busy."
     ),
     "support_kpis_backlog": (
-        "Open requests still in the queue—who raised each issue, what they need, and when it was logged."
+        "How long open work has been waiting—and whether support, the customer, or "
+        "engineering is holding each ticket (stacked by age band)."
     ),
     "support_kpis_tail_risk": (
-        "The oldest issues still open—these are the tickets most likely to erode trust, "
-        "delay outcomes, or surface in executive conversations."
+        "The oldest open requests by age—which customers are waiting longest and what "
+        "each ticket is about."
     ),
     "support_kpis_sla": (
         "Whether we are meeting committed response and resolution targets on closed "
@@ -79,9 +104,9 @@ _BUSINESS_MEANING: dict[str, str] = {
         "customers and highlights where process or dependencies slow delivery."
     ),
     "support_kpis_engineering_dependency": (
-        "Tickets escalated from support into engineering work (LEAN and CUSTOMER projects, "
-        "jira_escalated label)—opened vs resolved each week shows whether engineering "
-        "throughput is keeping up with new escalations."
+        "Engineering and Data Integration escalations from HELP—opened vs resolved each week. "
+        "Mapping tickets route to Data Integration (CUSTOMER project); other escalated work "
+        "routes to Engineering (LEAN project)."
     ),
     "support_kpis_customer_health": (
         "Accounts with enough open or aged tickets to warrant proactive outreach before "
@@ -122,7 +147,7 @@ def _current_slide_type(report: dict[str, Any]) -> str:
 
 
 def _window_scope(payload: dict[str, Any]) -> str:
-    days = payload.get("window_days") or 90
+    days = payload.get("window_days") or 180
     open_n = payload.get("open_count")
     parts = [f"Trailing {days}d · HELP project"]
     if open_n is not None:
@@ -145,6 +170,56 @@ def _max_single_chart_height(content_y: float, *, reserve_below: float = 0.0) ->
         _CONTENT_BOTTOM - float(content_y) - _CHART_TOP_GAP - _CHART_BOTTOM_GAP - float(reserve_below)
     )
     return max(80.0, available)
+
+
+def _sla_accent(pct: float | None) -> dict[str, float]:
+    if pct is None:
+        return BLUE
+    if pct >= 90:
+        return GREEN
+    if pct < 75:
+        return RED
+    return BLUE
+
+
+def _sla_by_window_payload(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Normalize SLA windows; fall back to legacy single ``sla`` blob (90d)."""
+    by_win = payload.get("sla_by_window")
+    if isinstance(by_win, dict) and by_win:
+        return by_win
+    legacy = payload.get("sla") or {}
+    if legacy:
+        return {"90": legacy}
+    return {}
+
+
+def _render_backlog_stack_legend(
+    reqs: list[dict[str, Any]],
+    sid: str,
+    oid_prefix: str,
+    x: float,
+    y: float,
+    width: float,
+    entries: list[tuple[str, dict[str, float]]],
+) -> None:
+    """Equal-width legend columns so long labels stay on one line and swatches align."""
+    if not entries:
+        return
+    n = len(entries)
+    gaps = _BACKLOG_LEGEND_COL_GAP * max(0, n - 1)
+    col_w = max(80.0, (float(width) - gaps) / n)
+    sw = _BACKLOG_LEGEND_SWATCH
+    row_h = _BACKLOG_LEGEND_ROW_H
+    swatch_y = y + (row_h - sw) / 2.0
+    font_pt = 10.0
+    for index, (label, color) in enumerate(entries):
+        col_x = x + index * (col_w + _BACKLOG_LEGEND_COL_GAP)
+        _rect(reqs, f"{oid_prefix}_sw{index}", sid, col_x, swatch_y, sw, sw, color)
+        label_x = col_x + sw + 6.0
+        label_w = col_w - sw - 6.0
+        label_id = f"{oid_prefix}_lt{index}"
+        _box(reqs, label_id, sid, label_x, y, label_w, row_h, label)
+        _style(reqs, label_id, 0, len(label), size=font_pt, color=NAVY, font=FONT)
 
 
 def _place_framing(
@@ -183,6 +258,7 @@ def _render_table(
     jira_base: str = "",
     link_col: int | None = 0,
     y_bottom: float | None = None,
+    max_rows_cap: int = 25,
 ) -> None:
     """Render a table that must not extend into the scope footer band."""
     bottom = float(y_bottom if y_bottom is not None else _CONTENT_BOTTOM - _TABLE_BOTTOM_PAD)
@@ -193,7 +269,7 @@ def _render_table(
             y_bottom=bottom,
             row_height_pt=row_h,
             reserved_table_rows=1,
-            max_rows_cap=25,
+            max_rows_cap=max_rows_cap,
         )
     ]
     if not display:
@@ -413,42 +489,66 @@ def support_kpis_backlog_slide(reqs: list[dict[str, Any]], sid: str, report: dic
     if isinstance(got, int):
         return got
     _slide_header(reqs, sid, report, idx)
-    open_n = got.get("open_count")
-    scope_extra = f"{open_n} open" if open_n is not None else ""
     content_y = _place_framing(
         reqs,
         sid,
         report,
         got,
-        scope_detail=scope_extra or "Open HELP tickets",
+        scope_detail=(
+            "Open tickets by age (days since created) · stacked: with support vs "
+            "waiting on customer vs engineering"
+        ),
     )
-    rows_data = got.get("backlog_open") or []
-    if not rows_data:
-        msg = "No open tickets in scope."
-        _box(reqs, f"{sid}_empty", sid, MARGIN, content_y + 8, CONTENT_W, 24, msg)
-        _style(reqs, f"{sid}_empty", 0, len(msg), size=10, color=NAVY, font=FONT)
-        return idx + 1
-    col_customer = 132
-    col_created = 76
-    col_subject = int(CONTENT_W) - col_customer - col_created
-    sub_max = _max_chars_one_line_for_table_col(float(col_subject))
-    rows = [
-        [
-            _truncate_table_cell(r.get("customer"), 22),
-            _truncate_table_cell(r.get("summary"), sub_max),
-            r.get("created") or "—",
-        ]
-        for r in rows_data
-    ]
-    _render_table(
-        reqs,
-        sid,
-        y_top=content_y + 4,
-        headers=["Customer", "Subject", "Created"],
-        col_widths=[col_customer, col_subject, col_created],
-        rows=rows,
-        link_col=None,
-    )
+    stacked = got.get("backlog_age_stacked") or {}
+    labels = list(stacked.get("labels") or ["0–7", "8–14", "15–30", "30+"])
+    raw_series = stacked.get("series") or {}
+    buckets = got.get("backlog_age_buckets") or {}
+    keys = ["0-7", "8-14", "15-30", "30+"]
+    total_open = sum(int(buckets.get(k, 0)) for k in keys)
+    charts = report.get("_charts")
+    chart_y = content_y + _CHART_TOP_GAP
+    legend_h = 24.0
+    chart_h = _max_single_chart_height(content_y) - legend_h
+
+    chart_series: dict[str, list[int]] = {}
+    legend_entries: list[tuple[str, dict[str, float]]] = []
+    series_colors: list[dict[str, float]] = []
+    for title, key, color in _BACKLOG_STACK_SERIES:
+        vals = [int(x) for x in (raw_series.get(key) or [0, 0, 0, 0])[: len(labels)]]
+        while len(vals) < len(labels):
+            vals.append(0)
+        if sum(vals) > 0:
+            chart_series[title] = vals
+            legend_entries.append((title, color))
+            series_colors.append(color)
+
+    if charts and total_open > 0 and chart_series:
+        from .charts import embed_chart
+
+        ss_id, chart_id = charts.add_bar_chart(
+            title="",
+            labels=labels,
+            series=chart_series,
+            stacked=True,
+            suppress_legend=True,
+            series_colors=series_colors,
+        )
+        embed_chart(reqs, f"{sid}_chart", sid, ss_id, chart_id, MARGIN, chart_y, CONTENT_W, chart_h, linked=False)
+        _render_backlog_stack_legend(
+            reqs,
+            sid,
+            f"{sid}_bleg",
+            MARGIN,
+            chart_y + chart_h + 4,
+            CONTENT_W,
+            legend_entries,
+        )
+    else:
+        values = [int(buckets.get(k, 0)) for k in keys]
+        summary = "  ·  ".join(f"{lb}: {v}" for lb, v in zip(labels, values))
+        msg = summary or "No open tickets in scope."
+        _box(reqs, f"{sid}_sum", sid, MARGIN, content_y + 8, CONTENT_W, 40, msg)
+        _style(reqs, f"{sid}_sum", 0, len(msg), size=12, color=NAVY, font=FONT)
     return idx + 1
 
 
@@ -457,30 +557,55 @@ def support_kpis_tail_risk_slide(reqs: list[dict[str, Any]], sid: str, report: d
     if isinstance(got, int):
         return got
     _slide_header(reqs, sid, report, idx)
+    open_n = got.get("open_count")
+    if open_n is not None and int(open_n) > _KPI_OPEN_TABLE_MAX_ROWS:
+        tail_scope = (
+            f"Showing {_KPI_OPEN_TABLE_MAX_ROWS} of {open_n} open HELP tickets "
+            f"(oldest by age, days since created)"
+        )
+    else:
+        tail_scope = (
+            f"{_KPI_OPEN_TABLE_MAX_ROWS} oldest open HELP tickets by age (days since created)"
+        )
     content_y = _place_framing(
         reqs,
         sid,
         report,
         got,
-        scope_detail="Oldest 10 active (not Done) tickets · owner and status",
+        scope_detail=tail_scope,
     )
-    jira_base = ((report.get("jira") or {}).get("base_url") or "").rstrip("/")
-    rows_data = got.get("tail_risk") or []
-    headers = ["Key", "Age (d)", "Assignee", "Status", "Blocker", "Summary"]
-    col_widths = [56, 48, 100, 100, 80, 236]
-    t_sum = _max_chars_one_line_for_table_col(float(col_widths[5]))
+    rows_data = (got.get("tail_risk") or [])[:_KPI_OPEN_TABLE_MAX_ROWS]
+    if not rows_data:
+        msg = "No open tickets in scope."
+        _box(reqs, f"{sid}_empty", sid, MARGIN, content_y + 8, CONTENT_W, 24, msg)
+        _style(reqs, f"{sid}_empty", 0, len(msg), size=10, color=NAVY, font=FONT)
+        return idx + 1
+    col_age = _KPI_COL_AGE_PT
+    col_status = _KPI_COL_STATUS_PT
+    col_org = _KPI_COL_ORG_PT
+    col_summary = int(CONTENT_W) - col_org - col_age - col_status
+    org_max = _max_chars_one_line_for_table_col(float(col_org))
+    status_max = _max_chars_one_line_for_table_col(float(col_status))
+    sub_max = _max_chars_one_line_for_table_col(float(col_summary))
     rows = [
         [
-            r.get("key") or "—",
+            _truncate_table_cell(r.get("organization"), org_max),
             str(r.get("age_days") if r.get("age_days") is not None else "—"),
-            _truncate_table_cell(r.get("assignee"), 20),
-            _truncate_table_cell(r.get("status"), 18),
-            _truncate_table_cell(r.get("blocker"), 14),
-            _truncate_table_cell(r.get("summary"), t_sum),
+            _truncate_table_cell(r.get("status"), status_max),
+            _truncate_table_cell(r.get("summary"), sub_max),
         ]
         for r in rows_data
     ]
-    _render_table(reqs, sid, y_top=content_y + 4, headers=headers, col_widths=col_widths, rows=rows, jira_base=jira_base)
+    _render_table(
+        reqs,
+        sid,
+        y_top=content_y + 4,
+        headers=["Organization", "Age (d)", "Status", "Summary"],
+        col_widths=[col_org, col_age, col_status, col_summary],
+        rows=rows,
+        link_col=None,
+        max_rows_cap=_KPI_OPEN_TABLE_MAX_ROWS,
+    )
     return idx + 1
 
 
@@ -489,27 +614,41 @@ def support_kpis_sla_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
     if isinstance(got, int):
         return got
     _slide_header(reqs, sid, report, idx)
-    sla = got.get("sla") or {}
-    ttfr = sla.get("ttfr") or {}
-    ttr = sla.get("ttr") or {}
+    sla_by_window = _sla_by_window_payload(got)
     content_y = _place_framing(
         reqs,
         sid,
         report,
         got,
-        scope_detail="% of resolved tickets with completed SLA not breached",
+        scope_detail=(
+            "Resolved HELP tickets · % with completed first-response and resolution SLA not breached"
+        ),
     )
-    row_y = content_y + 8
-    card_w = (CONTENT_W - 24) // 2
-    for i, (label, blob) in enumerate((("First response SLA %", ttfr), ("Resolution SLA %", ttr))):
-        pct = blob.get("pct")
-        val = "—" if pct is None else f"{pct:.0f}%"
-        accent = GREEN if pct is not None and pct >= 90 else RED if pct is not None and pct < 75 else BLUE
-        detail = f"{blob.get('met', 0)} met / {blob.get('measured', 0)} measured"
-        x = MARGIN + i * (card_w + 24)
-        _kpi_metric_card(reqs, f"{sid}_sla{i}", sid, x, row_y, card_w, 72, label, val, accent=accent)
-        _box(reqs, f"{sid}_sla{i}d", sid, x, row_y + 76, card_w, 18, detail)
-        _style(reqs, f"{sid}_sla{i}d", 0, len(detail), size=9, color=GRAY, font=FONT)
+    row_y = content_y + 6
+    label_w = _SLA_LABEL_COL_W
+    gap = 16.0
+    card_w = int((CONTENT_W - label_w - gap) // 2)
+    card_h = 48
+    for ri, (win_label, win_key) in enumerate(_SLA_WINDOW_ROWS):
+        band_y = row_y + ri * (_SLA_BAND_H + _SLA_BAND_GAP)
+        win_sla = sla_by_window.get(win_key) or {}
+        _box(reqs, f"{sid}_wl{ri}", sid, MARGIN, band_y + 14, label_w, 16, win_label)
+        _style(reqs, f"{sid}_wl{ri}", 0, len(win_label), bold=True, size=10, color=NAVY, font=FONT)
+        metrics_x = MARGIN + label_w + gap
+        for mi, (metric_label, blob_key) in enumerate(
+            (("First response SLA %", "ttfr"), ("Resolution SLA %", "ttr"))
+        ):
+            blob = win_sla.get(blob_key) or {}
+            pct = blob.get("pct")
+            val = "—" if pct is None else f"{pct:.0f}%"
+            detail = f"{blob.get('met', 0)} met / {blob.get('measured', 0)} measured"
+            x = metrics_x + mi * (card_w + gap)
+            oid = f"{sid}_sla{ri}_{mi}"
+            _kpi_metric_card(
+                reqs, oid, sid, x, band_y, card_w, card_h, metric_label, val, accent=_sla_accent(pct)
+            )
+            _box(reqs, f"{oid}d", sid, x, band_y + card_h + 2, card_w, 14, detail)
+            _style(reqs, f"{oid}d", 0, len(detail), size=8, color=GRAY, font=FONT)
     return idx + 1
 
 
@@ -580,7 +719,10 @@ def support_kpis_engineering_dependency_slide(
         sid,
         report,
         got,
-        scope_detail=f"LEAN & CUSTOMER · label {JIRA_ESCALATED_LABEL} · opened vs resolved per week",
+        scope_detail=(
+            f"HELP {JIRA_ESCALATED_LABEL} · mapping → CUSTOMER (Data Integration); "
+            f"other escalations → LEAN (Engineering) · opened vs resolved per week"
+        ),
     )
     gap = _INTAKE_SIDE_COL_GAP
     half_w = (CONTENT_W - gap) / 2.0
@@ -597,7 +739,7 @@ def support_kpis_engineering_dependency_slide(
         reqs,
         sid,
         report,
-        project="LEAN",
+        project="Engineering (LEAN)",
         flow_block=esc.get("LEAN") or {},
         chart_x=MARGIN,
         chart_y=chart_y,
@@ -609,7 +751,7 @@ def support_kpis_engineering_dependency_slide(
         reqs,
         sid,
         report,
-        project="CUSTOMER",
+        project="Data Integration (CUSTOMER)",
         flow_block=esc.get("CUSTOMER") or {},
         chart_x=MARGIN + half_w + gap,
         chart_y=chart_y,

@@ -8,4 +8,4 @@ data_tools:
 customers: all
 
 prompt: >
-  Oldest 10 active HELP tickets with assignee and status/blocker hint.
+  Five oldest open HELP tickets: organization, age (days), status, and summary (summary column widest).

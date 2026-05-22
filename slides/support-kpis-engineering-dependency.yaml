@@ -8,4 +8,5 @@ data_tools:
 customers: all
 
 prompt: >
-  Weekly opened vs resolved for jira_escalated tickets in LEAN and CUSTOMER (side-by-side flow charts).
+  Engineering and Data Integration escalations: weekly opened vs resolved for jira_escalated
+  tickets. Mapping work → CUSTOMER (DI); other escalations → LEAN (Engineering).

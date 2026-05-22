@@ -168,7 +168,7 @@ def enrich_salesforce_comprehensive(
 def enrich_support_kpis_jira_data(report: dict[str, Any], customer: str | None) -> None:
     """Fetch HELP KPI bundle for ``support-kpis`` deck."""
     customer_display = customer or "All Customers"
-    window_days = int(report.get("days") or 90)
+    window_days = int(report.get("days") or 180)
     try:
         from .jira_client import get_shared_jira_client
 

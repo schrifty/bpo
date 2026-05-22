@@ -433,7 +433,7 @@ def _run_deck_run_cli(rest: list[str]) -> None:
             cust = args.customers[0].strip() or None
         if args.all_customers:
             ap.error("--deck support-kpis does not support --all-customers (omit --customer for all)")
-        days_kpi = int(args.days) if args.days is not None else 90
+        days_kpi = int(args.days) if args.days is not None else 180
         print("Deck:       support-kpis")
         if cust:
             print(f"Customer:   {cust}")
@@ -664,7 +664,7 @@ def _run_support_kpis_deck(rest: list[str]) -> None:
         description="Generate HELP operational KPI deck",
     )
     parser.add_argument("--customer", type=str, default=None, help="Scope to one JSM customer/org")
-    parser.add_argument("--days", type=int, default=90, help="Trailing window for KPIs (default: 90)")
+    parser.add_argument("--days", type=int, default=180, help="Trailing window for KPIs (default: 180)")
     args = parser.parse_args(rest)
 
     preflight_errors = check_all_required()
@@ -875,7 +875,7 @@ def _run_all_customer_decks() -> None:
             report = {"type": "support_review", "customer": customer, "days": 365}
             result = create_health_deck(report, deck_id="support", thumbnails=args.thumbnails)
         elif deck_id == "support-kpis":
-            days_kpi = int(args.days) if args.days is not None else 90
+            days_kpi = int(args.days) if args.days is not None else 180
             report = {"type": "support_kpis", "customer": customer, "days": days_kpi}
             result = create_health_deck(report, deck_id="support-kpis", thumbnails=args.thumbnails)
         else:

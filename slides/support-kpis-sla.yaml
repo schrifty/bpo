@@ -8,4 +8,5 @@ data_tools:
 customers: all
 
 prompt: >
-  First-response and resolution SLA adherence % on resolved HELP tickets in the window.
+  First-response and resolution SLA adherence % on resolved HELP tickets for 30 days,
+  90 days, and 1 year (three rows, two metrics each).
