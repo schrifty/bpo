@@ -189,10 +189,45 @@ else:
 
 
 # LeanDNA classic app API (session cookie — kpi/update-kpi style; not Data API Bearer).
-LEANDNA_APP_API_SERVER = (
-    os.environ.get("LEANDNA_APP_API_SERVER") or "https://app.staging.leandna.com"
-).strip().rstrip("/")
-LEANDNA_APP_SESSION_ID = (os.environ.get("LEANDNA_APP_SESSION_ID") or "").strip()
+def _default_leandna_app_api_server() -> str:
+    explicit = (os.environ.get("LEANDNA_APP_API_SERVER") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    if BPO_LEANDNA_DATA_API_EXECUTION_BUCKET == "staging":
+        return "https://app.staging.leandna.com"
+    return "https://app.leandna.com"
+
+
+def resolve_leandna_app_session_id() -> str:
+    """Resolve ``LDNASESSIONID`` for classic app API (``/api/2/factndx/...``).
+
+    Order: ``LEANDNA_APP_SESSION_ID``, bucket-prefixed app session, then the matching
+    Data API bearer token (often the same cookie value in LeanDNA setups).
+    """
+    direct = (os.environ.get("LEANDNA_APP_SESSION_ID") or "").strip()
+    if direct:
+        return direct
+
+    bucket = BPO_LEANDNA_DATA_API_EXECUTION_BUCKET
+    if bucket == "staging":
+        for key in ("ST_LEANDNA_APP_SESSION_ID", "ST_LEANDNA_DATA_API_BEARER_TOKEN"):
+            v = (os.environ.get(key) or "").strip()
+            if v:
+                return v
+    elif bucket == "production":
+        for key in ("PR_LEANDNA_APP_SESSION_ID", "PR_LEANDNA_DATA_API_BEARER_TOKEN"):
+            v = (os.environ.get(key) or "").strip()
+            if v:
+                return v
+    elif bucket == "legacy":
+        v = (os.environ.get("LEANDNA_DATA_API_BEARER_TOKEN") or "").strip()
+        if v:
+            return v
+    return ""
+
+
+LEANDNA_APP_API_SERVER = _default_leandna_app_api_server()
+LEANDNA_APP_SESSION_ID = resolve_leandna_app_session_id()
 LEANDNA_APP_COOKIE = (os.environ.get("LEANDNA_APP_COOKIE") or "").strip()
 try:
     LEANDNA_APP_FACTORY_NDX = int((os.environ.get("LEANDNA_APP_FACTORY_NDX") or "416").strip())

@@ -15,8 +15,8 @@ from urllib.parse import urlparse
 
 from .config import (
     LEANDNA_APP_COOKIE,
-    LEANDNA_APP_SESSION_ID,
     LEANDNA_DATA_API_COOKIE,
+    resolve_leandna_app_session_id as _config_app_session_id,
 )
 
 _LDNA_SESSION_RE = re.compile(r"(?:^|;\s*)LDNASESSIONID=([^;]+)", re.IGNORECASE)
@@ -38,16 +38,14 @@ def parse_ldna_session_id(cookie_header: str) -> str | None:
 
 
 def resolve_leandna_app_session_id() -> str | None:
-    """Session id for app API calls: dedicated env, then app cookie, then Data API cookie."""
-    live = (os.environ.get("LEANDNA_APP_SESSION_ID") or "").strip()
-    if live:
-        return live
-    if LEANDNA_APP_SESSION_ID:
-        return LEANDNA_APP_SESSION_ID
+    """Session id for app API calls (env, EXECUTION_ENV bucket, cookies)."""
+    sid = _config_app_session_id()
+    if sid:
+        return sid
     for blob in (LEANDNA_APP_COOKIE, LEANDNA_DATA_API_COOKIE):
-        sid = parse_ldna_session_id(blob)
-        if sid:
-            return sid
+        parsed = parse_ldna_session_id(blob)
+        if parsed:
+            return parsed
     return None
 
 
@@ -60,8 +58,9 @@ def build_leandna_app_api_headers(*, user_agent_suffix: str = "leandna-app-metri
     sid = resolve_leandna_app_session_id()
     if not sid:
         raise ValueError(
-            "LeanDNA app session not configured — set LEANDNA_APP_SESSION_ID, or "
-            "LEANDNA_APP_COOKIE / LEANDNA_DATA_API_COOKIE containing LDNASESSIONID= "
+            "LeanDNA app session not configured — set LEANDNA_APP_SESSION_ID, "
+            "PR_LEANDNA_DATA_API_BEARER_TOKEN / ST_LEANDNA_DATA_API_BEARER_TOKEN (when EXECUTION_ENV is set), "
+            "or LEANDNA_APP_COOKIE / LEANDNA_DATA_API_COOKIE containing LDNASESSIONID= "
             "(from DevTools while logged into the same host as LEANDNA_APP_API_SERVER)."
         )
     return {
@@ -81,6 +80,6 @@ def session_401_message(*, url: str, app_server: str | None = None) -> str:
         f"LeanDNA app session rejected (401) at {host}. "
         "LDNASESSIONID is valid only for the host where you signed in "
         "(production app.leandna.com vs staging app.staging.leandna.com are separate). "
-        f"Run: bin/test-script --login  (SSO at {base}/application/sso.html) "
+        f"Run: bin/test-script --show-session  (SSO at {base}/application/sso.html) "
         "then set LEANDNA_APP_SESSION_ID in .env."
     )
