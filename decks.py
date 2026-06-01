@@ -90,6 +90,11 @@ Generate one deck (explicit)
   decks kpi [--values]
       List LeanDNA metrics owned by you (``metrics-get-mine``; configured via ``.env``).
       Pass ``--values`` for per-metric datapoint charts.
+
+  decks metrics-upsert [--date YYYY-MM-DD] [--dry-run] [--metric NAME] [--requested-sites ID]
+      For each row in ``config/metrics.yaml`` with ``metric-generator`` set, call the generator
+      and upsert ``MetricDataPoint`` for that date via the Data API. Rows without a generator
+      are skipped.
 """
 
 import json
@@ -707,6 +712,16 @@ def _run_kpi_cli(rest: list[str]) -> None:
     raise SystemExit(rc)
 
 
+def _run_metrics_upsert_cli(rest: list[str]) -> None:
+    """``decks metrics-upsert`` — generate registry metrics and upsert via Data API."""
+    from dotenv import load_dotenv
+
+    from src.metrics_upsert import run_metrics_upsert_cli
+
+    load_dotenv(Path(__file__).resolve().parent / ".env")
+    raise SystemExit(run_metrics_upsert_cli(rest, prog="decks metrics-upsert"))
+
+
 def _run_csm_book_deck() -> None:
     """CSM book of business from ``decks csm book --csm \"Name\"`` (flags after ``book``)."""
     import argparse
@@ -1219,6 +1234,9 @@ def main():
         return
     if sub == "kpi":
         _run_kpi_cli(sys.argv[2:])
+        return
+    if sub == "metrics-upsert":
+        _run_metrics_upsert_cli(sys.argv[2:])
         return
 
     from src.deck_variants import csm_book_cli_argv_anchor

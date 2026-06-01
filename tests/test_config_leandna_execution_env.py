@@ -71,26 +71,6 @@ def test_production_mutations_override(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.leandna_http_mutation_blocked_envelope(method="POST") is None
 
 
-def test_app_api_server_follows_execution_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    import src.config as cfg
-
-    monkeypatch.delenv("LEANDNA_APP_API_SERVER", raising=False)
-    monkeypatch.setattr(cfg, "BPO_LEANDNA_DATA_API_EXECUTION_BUCKET", "production")
-    assert cfg._default_leandna_app_api_server() == "https://app.leandna.com"
-    monkeypatch.setattr(cfg, "BPO_LEANDNA_DATA_API_EXECUTION_BUCKET", "staging")
-    assert cfg._default_leandna_app_api_server() == "https://app.staging.leandna.com"
-
-
-def test_app_session_id_does_not_fall_back_to_pr_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
-    import src.config as cfg
-
-    monkeypatch.delenv("LEANDNA_APP_SESSION_ID", raising=False)
-    monkeypatch.delenv("PR_LEANDNA_APP_SESSION_ID", raising=False)
-    monkeypatch.setenv("PR_LEANDNA_DATA_API_BEARER_TOKEN", "prod-bearer-not-session")
-    monkeypatch.setattr(cfg, "BPO_LEANDNA_DATA_API_EXECUTION_BUCKET", "production")
-    assert cfg.resolve_leandna_app_session_id() == ""
-
-
 def test_data_api_get_json_returns_envelope_when_base_unresolved(monkeypatch: pytest.MonkeyPatch) -> None:
     from src.leandna_data_api_request import data_api_get_json
 

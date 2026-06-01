@@ -188,61 +188,6 @@ else:
     LEANDNA_DATA_API_REFERER = ""
 
 
-# LeanDNA classic app API (session cookie — kpi/update-kpi style; not Data API Bearer).
-def _default_leandna_app_api_server() -> str:
-    explicit = (os.environ.get("LEANDNA_APP_API_SERVER") or "").strip().rstrip("/")
-    if explicit:
-        return explicit
-    if BPO_LEANDNA_DATA_API_EXECUTION_BUCKET == "staging":
-        return "https://app.staging.leandna.com"
-    return "https://app.leandna.com"
-
-
-def resolve_leandna_app_session_id() -> str:
-    """Resolve ``LDNASESSIONID`` for classic app API (``/api/2/factndx/...``).
-
-    Order: ``LEANDNA_APP_SESSION_ID``, bucket-prefixed app session, then the matching
-    Data API bearer token (often the same cookie value in LeanDNA setups).
-    """
-    direct = (os.environ.get("LEANDNA_APP_SESSION_ID") or "").strip()
-    if direct:
-        return direct
-
-    bucket = BPO_LEANDNA_DATA_API_EXECUTION_BUCKET
-    if bucket == "staging":
-        for key in ("ST_LEANDNA_APP_SESSION_ID",):
-            v = (os.environ.get(key) or "").strip()
-            if v:
-                return v
-    elif bucket == "production":
-        for key in ("PR_LEANDNA_APP_SESSION_ID",):
-            v = (os.environ.get(key) or "").strip()
-            if v:
-                return v
-    elif bucket == "legacy":
-        v = (os.environ.get("LEANDNA_DATA_API_BEARER_TOKEN") or "").strip()
-        if v:
-            return v
-    return ""
-
-
-LEANDNA_APP_API_SERVER = _default_leandna_app_api_server()
-LEANDNA_APP_SESSION_ID = resolve_leandna_app_session_id()
-LEANDNA_APP_COOKIE = (os.environ.get("LEANDNA_APP_COOKIE") or "").strip()
-try:
-    LEANDNA_APP_FACTORY_NDX = int((os.environ.get("LEANDNA_APP_FACTORY_NDX") or "416").strip())
-except ValueError:
-    LEANDNA_APP_FACTORY_NDX = 416
-LEANDNA_APP_METRICS_VIEW_QUERY = (
-    os.environ.get("LEANDNA_APP_METRICS_VIEW_QUERY")
-    or "category=Engineering%2CData%20Integration&entryType=Manual&activated=active"
-).strip()
-# Optional overrides when GET /api/data/identity returns 401 (common with session-only auth).
-# App Metrics/View uses display names for metricOwner (e.g. "Marc Schriftman"), not always numeric ndx.
-LEANDNA_APP_METRIC_OWNER = (os.environ.get("LEANDNA_APP_METRIC_OWNER") or "").strip()
-LEANDNA_APP_USER_NDX = (os.environ.get("LEANDNA_APP_USER_NDX") or "").strip()
-
-
 def resolve_leandna_data_api_base_url() -> str:
     """Return the Data API base URL (no trailing slash) or raise if misconfigured.
 

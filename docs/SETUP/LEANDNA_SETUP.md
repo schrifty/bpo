@@ -50,23 +50,17 @@ Implementation: [`src/config.py`](../../src/config.py) (`BPO_LEANDNA_DATA_API_EX
 
 The same mutation guard applies to **Data API** writes (`entry-insert`, `entry-upsert`, `entry-delete` via `src/leandna_metrics_write.py`).
 
-### Classic app API (session auth — no Data API Bearer)
-
-Same auth as `kpi/update-kpi`: log into the **web app** (`https://app.leandna.com` or staging), copy **`LDNASESSIONID`** from DevTools → Cookies (or set `LEANDNA_APP_SESSION_ID`).
-
-| Variable | Purpose |
-|----------|---------|
-| `LEANDNA_APP_SESSION_ID` | Raw session id value |
-| `LEANDNA_APP_COOKIE` | Full `Cookie` header (parsed for `LDNASESSIONID=`) |
-| `LEANDNA_APP_API_SERVER` | Default `https://app.leandna.com` |
-| `LEANDNA_APP_FACTORY_NDX` | Site context for `/api/2/factndx/{ndx}/…` (default `416`) |
-| `LEANDNA_APP_METRICS_VIEW_QUERY` | Query string for `GET …/Metrics/View` |
-
-CLI (from repo root, with `.env` loaded): `metrics-get`, `metrics-get-mine`, `metric-get-with-data`, `entry-insert`, `entry-upsert`, `entry-delete`, `whoami-app` (see `bin/` wrappers; scripts live under `scripts/`).
+CLI (from repo root, with `.env` loaded): `metrics-get`, `metrics-get-mine`, `metric-get-with-data`, `entry-insert`, `entry-upsert`, `entry-delete`, `metrics-upsert`, and **`decks metrics-upsert`** (see `bin/` wrappers; scripts live under `scripts/`).
 
 `metrics-get-mine` resolves your user via Data API `GET /data/identity`, then filters `GET /data/Metric` by `ownerId`.
 
-Metric **`ndx`** from the app API may differ from Data API catalog **`id`**.
+**Automated daily values:** ``config/metrics.yaml`` lists owned metrics. Rows with a non-null ``metric-generator`` are updated by::
+
+```bash
+decks metrics-upsert --dry-run          # generate only
+decks metrics-upsert                    # upsert for today (use EXECUTION_ENV=Staging for writes)
+decks metrics-upsert --metric "KPI Automation %"
+```
 
 **Caching (optional):**
 
