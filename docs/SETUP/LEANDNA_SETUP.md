@@ -48,7 +48,7 @@ Implementation: [`src/config.py`](../../src/config.py) (`BPO_LEANDNA_DATA_API_EX
 
 **Production / CI is read-only for LeanDNA mutations:** When `EXECUTION_ENV` is `Production` or `CI`, all Data API **POST**, **PUT**, and **DELETE** calls are rejected in-process (`data_api_mutate_json`, agent tool `leandna_data_api_mutate`). **GET** remains allowed. To run integration tests or emergency writes against prod, set `BPO_ALLOW_PRODUCTION_MUTATIONS=true` (logged; not recommended for routine use). Use `EXECUTION_ENV=Staging` for normal write testing.
 
-The same mutation guard applies to **classic app API** writes (`set-metric`, `delete-metric-entry` via `src/leandna_app_metrics_client.py` when using the app fallback path).
+The same mutation guard applies to **classic app API** writes (`entry-insert` / `entry-upsert` app fallback, `entry-delete` via `src/leandna_app_metrics_client.py`).
 
 ### Classic app API (session auth — no Data API Bearer)
 
@@ -62,7 +62,7 @@ Same auth as `kpi/update-kpi`: log into the **web app** (`https://app.leandna.co
 | `LEANDNA_APP_FACTORY_NDX` | Site context for `/api/2/factndx/{ndx}/…` (default `416`) |
 | `LEANDNA_APP_METRICS_VIEW_QUERY` | Query string for `GET …/Metrics/View` |
 
-CLI (from repo root, with `.env` loaded): `get-metrics-app`, `get-my-metrics-app`, `get-metrics-data-app`, `set-metric`, `delete-metric-entry-app`, `whoami-app` (see `bin/` wrappers; scripts live under `scripts/`).
+CLI (from repo root, with `.env` loaded): `get-metrics-app`, `get-my-metrics-app`, `get-metrics-data-app`, `entry-insert`, `entry-upsert`, `entry-delete`, `whoami-app` (see `bin/` wrappers; scripts live under `scripts/`).
 
 `get-my-metrics-app` (script: `scripts/get-my-metrics.py`) resolves your user via `GET /api/data/identity` (session cookie), then `Metrics/View?metricOwner=…`.
 

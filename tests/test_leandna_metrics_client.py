@@ -250,3 +250,61 @@ def test_post_metric_datapoint_calls_mutate(monkeypatch) -> None:
         assert mock_mutate.call_args.args == ("POST", "Metric/2076/MetricDataPoint")
         assert mock_mutate.call_args.kwargs["json_body"] == body
         assert mock_mutate.call_args.kwargs["requested_sites"] == "416"
+
+
+def test_delete_metric_datapoint_calls_mutate(monkeypatch) -> None:
+    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "tok")
+    with patch("src.leandna_data_api_request.data_api_mutate_json") as mock_mutate:
+        mock_mutate.return_value = {"ok": True, "status": 200}
+        from src.leandna_metrics_client import delete_metric_datapoint
+
+        env = delete_metric_datapoint(2076, data_point_date="2026-05-22", requested_sites="416")
+        assert env["ok"] is True
+        mock_mutate.assert_called_once()
+        assert mock_mutate.call_args.args == ("DELETE", "Metric/2076/MetricDataPoint")
+        assert mock_mutate.call_args.kwargs["query"] == {
+            "startDate": "2026-05-22",
+            "endDate": "2026-05-22",
+        }
+
+
+def test_run_upsert_deletes_then_inserts(monkeypatch) -> None:
+    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "tok")
+    monkeypatch.setattr("src.leandna_metric_write_cli.leandna_data_api_credentials_configured", lambda: True)
+    monkeypatch.setattr("src.leandna_metric_write_cli.leandna_app_session_configured", lambda: False)
+    monkeypatch.setattr("src.leandna_metric_write_cli.misconfigured_app_session_message", lambda: None)
+    monkeypatch.setattr("src.leandna_metric_write_cli._resolve_data_api_metadata", lambda _a: ("416", "", None))
+    monkeypatch.setattr("src.leandna_metric_write_cli.metric_datapoint_exists_for_date", lambda *a, **k: True)
+
+    from src.leandna_metric_write_cli import MetricWriteArgs, run_upsert
+
+    calls: list[str] = []
+
+    def _delete(_args, *, sites):
+        calls.append("delete")
+        return {"ok": True, "status": 200}
+
+    def _insert(_args):
+        calls.append("insert")
+        return {"ok": True, "status": 201}
+
+    monkeypatch.setattr("src.leandna_metric_write_cli._delete_via_data_api", _delete)
+    monkeypatch.setattr("src.leandna_metric_write_cli._insert_via_data_api", _insert)
+
+    args = MetricWriteArgs(
+        metric_id=2076,
+        entry_date="2026-05-22",
+        numerator=1,
+        denominator=100,
+        requested_sites=None,
+        category=None,
+        skip_catalog=False,
+        timeout_seconds=30,
+        value_stream_ndx=None,
+        factory_ndx=416,
+        verbose=False,
+    )
+    code, env = run_upsert(args)
+    assert code == 0
+    assert env["deleted"] is True
+    assert calls == ["delete", "insert"]

@@ -436,6 +436,44 @@ def post_metric_datapoint(
     )
 
 
+def delete_metric_datapoint(
+    metric_id: Any,
+    *,
+    data_point_date: str,
+    requested_sites: str | None = None,
+    timeout_seconds: float = 120.0,
+) -> dict[str, Any]:
+    """``DELETE /data/Metric/{id}/MetricDataPoint`` for a single ``dataPointDate``."""
+    from .leandna_data_api_request import data_api_mutate_json
+
+    return data_api_mutate_json(
+        "DELETE",
+        f"Metric/{metric_id}/MetricDataPoint",
+        query={"startDate": data_point_date, "endDate": data_point_date},
+        requested_sites=requested_sites,
+        timeout_seconds=timeout_seconds,
+        user_agent_suffix="leandna-metrics-client/1.0",
+    )
+
+
+def metric_datapoint_exists_for_date(
+    metric_id: Any,
+    data_point_date: str,
+    *,
+    requested_sites: str | None = None,
+    timeout_seconds: float = 60.0,
+) -> bool:
+    """True when at least one datapoint exists for *data_point_date*."""
+    rows, err = fetch_metric_datapoints(
+        metric_id,
+        start_date=data_point_date,
+        end_date=data_point_date,
+        requested_sites=requested_sites,
+        timeout_seconds=timeout_seconds,
+    )
+    return err is None and bool(rows)
+
+
 def fetch_identity_authorized_site_ids(*, timeout_seconds: float = 30.0) -> list[int]:
     """Site ids from ``GET /data/identity`` → ``authorizedSites[].siteId``."""
     from .leandna_data_api_request import data_api_get_json

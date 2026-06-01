@@ -7,8 +7,8 @@ numerator/denominator/value-stream (to match the row you want removed).
 
 Examples::
 
-  python3 scripts/delete-metric-entry.py --metric-ndx 638 --date 2026-05-12 --from-existing
-  python3 scripts/delete-metric-entry.py --metric-ndx 638 --date 2026-05-12 \\
+  entry-delete --metric-ndx 638 --date 2026-05-12 --from-existing
+  entry-delete --metric-ndx 638 --date 2026-05-12 \\
       --value-stream-ndx 0 --numerator 33 --denominator 1
 """
 from __future__ import annotations
