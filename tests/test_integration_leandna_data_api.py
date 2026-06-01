@@ -3,10 +3,10 @@
 **This file logs secrets in full** (Bearer token, Cookie, curl replay) when a test runs — intended
 for disposable sandbox tokens only.
 
-Tests **skip** when LeanDNA credentials are missing. No ``BPO_*`` export flags: put
-``LEANDNA_DATA_API_*`` in ``.env`` and run::
+Tests **skip** when LeanDNA credentials are missing. **Fail** when ``EXECUTION_ENV=Production`` or
+``CI``. Require ``EXECUTION_ENV=Staging`` with ``ST_LEANDNA_DATA_API_*`` in ``.env``::
 
-    python3 -m pytest tests/test_integration_leandna_data_api.py -v
+    python3 -m pytest tests/test_integration_leandna_data_api.py -v -m leandna_data_api
 
 Each test loads ``.env`` with ``override=True`` so values there replace any ``LEANDNA_*`` already
 set in the process environment (stale exports otherwise win with ``override=False``).

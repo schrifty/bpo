@@ -270,13 +270,11 @@ def test_delete_metric_datapoint_calls_mutate(monkeypatch) -> None:
 
 def test_run_upsert_deletes_then_inserts(monkeypatch) -> None:
     monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "tok")
-    monkeypatch.setattr("src.leandna_metric_write_cli.leandna_data_api_credentials_configured", lambda: True)
-    monkeypatch.setattr("src.leandna_metric_write_cli.leandna_app_session_configured", lambda: False)
-    monkeypatch.setattr("src.leandna_metric_write_cli.misconfigured_app_session_message", lambda: None)
-    monkeypatch.setattr("src.leandna_metric_write_cli._resolve_data_api_metadata", lambda _a: ("416", "", None))
-    monkeypatch.setattr("src.leandna_metric_write_cli.metric_datapoint_exists_for_date", lambda *a, **k: True)
+    monkeypatch.setattr("src.leandna_metrics_write.leandna_data_api_credentials_configured", lambda: True)
+    monkeypatch.setattr("src.leandna_metrics_write.resolve_write_sites_and_category", lambda _a: ("416", "", None))
+    monkeypatch.setattr("src.leandna_metrics_write.metric_datapoint_exists_for_date", lambda *a, **k: True)
 
-    from src.leandna_metric_write_cli import MetricWriteArgs, run_upsert
+    from src.leandna_metrics_write import MetricWriteArgs, upsert_metric_datapoint
 
     calls: list[str] = []
 
@@ -288,8 +286,8 @@ def test_run_upsert_deletes_then_inserts(monkeypatch) -> None:
         calls.append("insert")
         return {"ok": True, "status": 201}
 
-    monkeypatch.setattr("src.leandna_metric_write_cli._delete_via_data_api", _delete)
-    monkeypatch.setattr("src.leandna_metric_write_cli._insert_via_data_api", _insert)
+    monkeypatch.setattr("src.leandna_metrics_write.delete_metric_datapoint_for_date", _delete)
+    monkeypatch.setattr("src.leandna_metrics_write.insert_metric_datapoint", _insert)
 
     args = MetricWriteArgs(
         metric_id=2076,
@@ -300,11 +298,9 @@ def test_run_upsert_deletes_then_inserts(monkeypatch) -> None:
         category=None,
         skip_catalog=False,
         timeout_seconds=30,
-        value_stream_ndx=None,
-        factory_ndx=416,
         verbose=False,
     )
-    code, env = run_upsert(args)
-    assert code == 0
+    env = upsert_metric_datapoint(args)
+    assert env["ok"] is True
     assert env["deleted"] is True
     assert calls == ["delete", "insert"]

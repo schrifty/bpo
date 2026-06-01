@@ -48,7 +48,7 @@ Implementation: [`src/config.py`](../../src/config.py) (`BPO_LEANDNA_DATA_API_EX
 
 **Production / CI is read-only for LeanDNA mutations:** When `EXECUTION_ENV` is `Production` or `CI`, all Data API **POST**, **PUT**, and **DELETE** calls are rejected in-process (`data_api_mutate_json`, agent tool `leandna_data_api_mutate`). **GET** remains allowed. To run integration tests or emergency writes against prod, set `BPO_ALLOW_PRODUCTION_MUTATIONS=true` (logged; not recommended for routine use). Use `EXECUTION_ENV=Staging` for normal write testing.
 
-The same mutation guard applies to **classic app API** writes (`entry-insert` / `entry-upsert` app fallback, `entry-delete` via `src/leandna_app_metrics_client.py`).
+The same mutation guard applies to **Data API** writes (`entry-insert`, `entry-upsert`, `entry-delete` via `src/leandna_metrics_write.py`).
 
 ### Classic app API (session auth — no Data API Bearer)
 
@@ -62,9 +62,9 @@ Same auth as `kpi/update-kpi`: log into the **web app** (`https://app.leandna.co
 | `LEANDNA_APP_FACTORY_NDX` | Site context for `/api/2/factndx/{ndx}/…` (default `416`) |
 | `LEANDNA_APP_METRICS_VIEW_QUERY` | Query string for `GET …/Metrics/View` |
 
-CLI (from repo root, with `.env` loaded): `metrics-get`, `get-metrics-app`, `metrics-get-mine`, `metric-get-with-data`, `entry-insert`, `entry-upsert`, `entry-delete`, `whoami-app` (see `bin/` wrappers; scripts live under `scripts/`).
+CLI (from repo root, with `.env` loaded): `metrics-get`, `metrics-get-mine`, `metric-get-with-data`, `entry-insert`, `entry-upsert`, `entry-delete`, `whoami-app` (see `bin/` wrappers; scripts live under `scripts/`).
 
-`metrics-get-mine` (script: `scripts/metrics-get-mine.py`) resolves your user via Data API `GET /data/identity` or app `Metrics/View?metricOwner=…`.
+`metrics-get-mine` resolves your user via Data API `GET /data/identity`, then filters `GET /data/Metric` by `ownerId`.
 
 Metric **`ndx`** from the app API may differ from Data API catalog **`id`**.
 
@@ -115,15 +115,15 @@ Use this when the **web app** loads data successfully but standalone Bearer fail
 
 ## Optional live integration tests
 
-After Bearer and/or Cookie is in ``.env``, verify end-to-end reads (no export flags required):
+Tests **skip** when credentials are missing and **fail** when ``EXECUTION_ENV=Production`` (or CI).
+Set ``EXECUTION_ENV=Staging`` with ``ST_LEANDNA_DATA_API_*`` in ``.env`` so CI stays offline unless
+configured for staging.
 
 ```bash
-python3 -m pytest tests/test_integration_leandna_data_api.py -v
+python3 -m pytest tests/test_integration_leandna_data_api.py tests/test-metrics.py -v -m leandna_data_api
 ```
 
-Tests **skip** when credentials are missing so CI stays offline unless ``.env`` (or the job) supplies them.
-
-Metric **display** (integration): ``tests/test-metrics.py`` — chart + field dump for metric **id 638**; **POST** then **DELETE** ``2026-05-12`` (POST failure ignored if row exists); DELETE must succeed.
+Metric **display** (integration): ``tests/test-metrics.py`` — chart + field dump for metric **id 638**; **POST** then **DELETE** ``2026-05-12`` (POST failure ignored if row exists); DELETE must succeed. Mutations run on staging without ``BPO_ALLOW_PRODUCTION_MUTATIONS``.
 
 ## Related docs
 

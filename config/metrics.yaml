@@ -1,0 +1,52 @@
+# LeanDNA metric registry — config/metrics.yaml
+#
+# Keys are LeanDNA metric display names (owner: marc.schriftman@leandna.com, siteId 416).
+# Populated from metrics-get-mine (Data API GET /data/identity + /data/Metric).
+#
+# Fields:
+#   metric-id         — Data API catalog id (same as app ndx for these metrics)
+#   metric-generator  — Python function that computes the daily value when wired in BPO;
+#                       null when no generator exists in this repo yet
+#
+# Generator names refer to functions under src/ (e.g. jira_cycle_time.get_dev_team_cycle_times).
+
+metrics:
+  "Time to Value":
+    metric-id: 2021
+    metric-generator: null
+
+  "Engineering Cycle Time":
+    metric-id: 2024
+    metric-generator: get_dev_team_cycle_times
+
+  "Data Sync Failures (Month)":
+    metric-id: 2029
+    metric-generator: null
+
+  "Data Sync Failures (YTD)":
+    metric-id: 2031
+    metric-generator: null
+
+  "Services % of New ARR":
+    metric-id: 2070
+    metric-generator: null
+
+  "KPI Automation %":
+    metric-id: 2076
+    metric-generator: get_kpi_automation_pct
+
+  "QBR Automation %":
+    metric-id: 2077
+    metric-generator: null
+
+  "Team Performance (Onshore vs. Offshore)":
+    metric-id: 2085
+    metric-generator: null
+
+  "Sprint Delivery %":
+    metric-id: 2086
+    metric-generator: null
+
+  "AI Usage/Effectiveness":
+    metric-id: 2087
+    metric-generator: null

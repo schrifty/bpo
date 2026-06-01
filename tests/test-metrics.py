@@ -10,15 +10,15 @@ A **narrow GET** (``startDate`` = ``endDate`` = ``_TARGET_POST_DATAPOINT_DATE``)
 row was already present, POST is skipped and **DELETE** still removes it. **DELETE** must succeed
 (2xx); **404** is not treated as success here because a row is always expected before DELETE.
 
-**Credentials:** ``LEANDNA_DATA_API_BEARER_TOKEN`` and/or ``LEANDNA_DATA_API_COOKIE`` in ``.env``.
-``RequestedSites`` is set to the metric’s ``siteId`` when the catalog provides it (often required
-for mutations). **POST JSON** matches the working Data API shape: ``dataPointDate``, ``metricId``
+**Credentials:** ``EXECUTION_ENV=Staging`` with ``ST_LEANDNA_DATA_API_*`` in ``.env`` (live tests
+**fail** if ``EXECUTION_ENV=Production``). ``RequestedSites`` is set to the metric’s ``siteId`` when
+the catalog provides it (often required for mutations). **POST JSON** matches the working Data API shape: ``dataPointDate``, ``metricId``
 (catalog id, same as path), ``category``, ``value``, ``numeratorValue``, ``denominatorValue`` (no
 ``valueStreamId`` in the body). POST **403/401** fails the test with ``OUTCOME: FAILURE`` (no silent skip).
 
-Run::
+Run (requires ``EXECUTION_ENV=Staging`` in ``.env``)::
 
-    python3 -m pytest tests/test-metrics.py -v
+    python3 -m pytest tests/test-metrics.py -v -m leandna_data_api
 """
 
 from __future__ import annotations
@@ -260,14 +260,6 @@ def test_leandna_displays_single_metric_datapoint_value(capsys) -> None:
 
     load_dotenv(_ROOT / ".env", override=True)
     _ld_http, _ld_req, _ld_metrics = _reload_leandna_clients()
-
-    import src.config as _config
-
-    if _config.execution_env_disallows_http_mutations() and not _config.leandna_http_mutations_allowed():
-        pytest.skip(
-            "LeanDNA mutations disabled for EXECUTION_ENV=Production/CI — use Staging, "
-            "unset EXECUTION_ENV, or set BPO_ALLOW_PRODUCTION_MUTATIONS=true"
-        )
 
     if not _ld_http.leandna_data_api_credentials_configured():
         pytest.skip(

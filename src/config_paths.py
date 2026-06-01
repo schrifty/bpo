@@ -8,6 +8,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = _REPO_ROOT / "config"
 
 COHORTS_FILE = CONFIG_DIR / "cohorts.yaml"
+METRICS_FILE = CONFIG_DIR / "metrics.yaml"
 JSM_ORGANIZATION_ALIASES_FILE = CONFIG_DIR / "jsm_organization_aliases.yaml"
 CS_REPORT_CUSTOMER_ALIASES_FILE = CONFIG_DIR / "cs_report_customer_aliases.yaml"
 SLACK_CUSTOMER_ALIASES_FILE = CONFIG_DIR / "slack_customer_aliases.yaml"

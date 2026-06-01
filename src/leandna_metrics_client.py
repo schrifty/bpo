@@ -359,12 +359,36 @@ def summarize_metric_datapoint_values(rows: list[dict[str, Any]]) -> dict[str, A
 def pick_metric_by_id(catalog: list[dict[str, Any]], metric_id: Any) -> dict[str, Any] | None:
     """Return the catalog row whose ``id`` matches *metric_id*."""
     want = str(metric_id).strip()
+    if not want:
+        return None
     for row in catalog:
-        if not isinstance(row, dict) or row.get("id") is None:
+        if not isinstance(row, dict):
             continue
-        if str(row["id"]).strip() == want:
+        if metric_id_matches(row.get("id"), want):
             return row
     return None
+
+
+def metric_id_matches(raw_id: Any, want: str) -> bool:
+    """True when catalog row ``id`` equals *want* (numeric or string match)."""
+    w = (want or "").strip()
+    if not w:
+        return False
+    try:
+        return int(raw_id) == int(w)
+    except (TypeError, ValueError):
+        return str(raw_id).strip() == w
+
+
+def sort_metrics_by_id(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def key(r: dict[str, Any]) -> tuple:
+        raw = r.get("id")
+        try:
+            return (0, int(raw))
+        except (TypeError, ValueError):
+            return (1, str(raw or ""))
+
+    return sorted(rows, key=key)
 
 
 def metric_requested_sites(metric: dict[str, Any], cli_sites: str | None = None) -> str | None:

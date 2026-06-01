@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""Replace one daily metric value (delete existing date row, then insert).
-
-If a datapoint already exists for ``--date``, deletes it first, then inserts the new
-value. If no row exists, inserts only.
+"""Replace one daily metric value via Data API (delete existing date row, then insert).
 
 Examples::
 
@@ -29,21 +26,20 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(ROOT / ".env")
 
-from src.leandna_metric_write_cli import (  # noqa: E402
+from src.leandna_metrics_cli import (  # noqa: E402
     add_metric_write_arguments,
     metric_write_args_from_namespace,
     print_result_env,
-    run_upsert,
 )
+from src.leandna_metrics_write import run_upsert  # noqa: E402
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="Upsert one metric value (DELETE existing date row when present, then POST/PUT).",
+        description="Upsert one metric value (DELETE existing date row when present, then POST).",
     )
     add_metric_write_arguments(ap)
-    ns = ap.parse_args()
-    code, env = run_upsert(metric_write_args_from_namespace(ns))
+    code, env = run_upsert(metric_write_args_from_namespace(ap.parse_args()))
     print_result_env(env)
     return code
 

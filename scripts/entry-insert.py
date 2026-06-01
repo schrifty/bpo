@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Insert one daily metric value (fails if the date already exists).
-
-Uses **Data API** ``POST /data/Metric/{id}/MetricDataPoint`` when bearer/cookie is
-configured (preferred). Falls back to app API ``PUT …/MetricEntries`` when only
-``LEANDNA_APP_SESSION_ID`` is available. Use ``entry-upsert`` to replace an existing date.
+"""Insert one daily metric value via Data API (409 if the date already exists).
 
 Examples::
 
@@ -30,12 +26,12 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(ROOT / ".env")
 
-from src.leandna_metric_write_cli import (  # noqa: E402
+from src.leandna_metrics_cli import (  # noqa: E402
     add_metric_write_arguments,
     metric_write_args_from_namespace,
     print_result_env,
-    run_insert,
 )
+from src.leandna_metrics_write import run_insert  # noqa: E402
 
 
 def main() -> int:
@@ -43,8 +39,7 @@ def main() -> int:
         description="Insert one metric value (409 if date already exists; use entry-upsert to replace).",
     )
     add_metric_write_arguments(ap)
-    ns = ap.parse_args()
-    code, env = run_insert(metric_write_args_from_namespace(ns))
+    code, env = run_insert(metric_write_args_from_namespace(ap.parse_args()))
     print_result_env(env)
     return code
 
