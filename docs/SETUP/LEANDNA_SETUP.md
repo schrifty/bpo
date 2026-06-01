@@ -62,7 +62,7 @@ Same auth as `kpi/update-kpi`: log into the **web app** (`https://app.leandna.co
 | `LEANDNA_APP_FACTORY_NDX` | Site context for `/api/2/factndx/{ndx}/…` (default `416`) |
 | `LEANDNA_APP_METRICS_VIEW_QUERY` | Query string for `GET …/Metrics/View` |
 
-CLI (from repo root, with `.env` loaded): `get-metrics-app`, `get-my-metrics-app`, `get-metrics-data-app`, `entry-insert`, `entry-upsert`, `entry-delete`, `whoami-app` (see `bin/` wrappers; scripts live under `scripts/`).
+CLI (from repo root, with `.env` loaded): `get-metrics-app`, `get-my-metrics-app`, `metric-get-with-data`, `entry-insert`, `entry-upsert`, `entry-delete`, `whoami-app` (see `bin/` wrappers; scripts live under `scripts/`).
 
 `get-my-metrics-app` (script: `scripts/get-my-metrics.py`) resolves your user via `GET /api/data/identity` (session cookie), then `Metrics/View?metricOwner=…`.
 

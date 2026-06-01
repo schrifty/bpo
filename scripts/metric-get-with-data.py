@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
-"""Show LeanDNA metric names with ``MetricDataPoint`` values over a date window.
+"""Fetch metric definitions and ``MetricDataPoint`` values over a date window (Data API).
 
 Resolves metrics via ``GET /data/Metric`` (optional id / name filter), then for each metric
 ``GET /data/Metric/{id}/MetricDataPoint`` with ``startDate`` / ``endDate``.
 
-Uses the same auth and ``EXECUTION_ENV`` rules as ``get-metrics.py``.
+Auth: ``PR_LEANDNA_DATA_API_BEARER_TOKEN`` / ``LEANDNA_DATA_API_COOKIE`` (same as ``entry-insert``).
 
 Examples::
 
-  python3 scripts/get-metrics-data.py 2171
-  python3 scripts/get-metrics-data.py "median ttr" --format brief
-  python3 scripts/get-metrics-data.py
-  python3 scripts/get-metrics-data.py --max-metrics 10
-  python3 scripts/get-metrics-data.py 638 --start-date 2026-01-01 --end-date 2026-03-31
+  metric-get-with-data 2076 --start-date 2026-05-23 --end-date 2026-05-23 --requested-sites 416
+  metric-get-with-data "job success" --format brief
+  metric-get-with-data --max-metrics 10
 """
 from __future__ import annotations
 
@@ -23,7 +21,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -43,6 +41,7 @@ from src.leandna_data_api_request import data_api_base_url  # noqa: E402
 from src.leandna_metrics_client import (  # noqa: E402
     fetch_metric_datapoints,
     list_metric_definitions,
+    metric_requested_sites,
     resolve_metric_datapoint_window,
     slim_metric_datapoint_rows,
 )
@@ -106,16 +105,6 @@ def _sort_metrics(rows: list[dict]) -> list[dict]:
 
 def _metric_name(m: dict[str, Any]) -> str:
     return str(m.get("name") or m.get("crossSiteName") or m.get("id") or "").strip()
-
-
-def _requested_sites_for_metric(metric: dict[str, Any], cli_sites: str | None) -> str | None:
-    if cli_sites is not None and str(cli_sites).strip():
-        return str(cli_sites).strip()
-    sid = metric.get("siteId")
-    if sid is None:
-        return None
-    s = str(sid).strip()
-    return s or None
 
 
 def main() -> int:
@@ -204,7 +193,7 @@ def main() -> int:
 
     if not leandna_data_api_credentials_configured():
         print(
-            "Missing LeanDNA Data API credentials — set LEANDNA_DATA_API_BEARER_TOKEN and/or "
+            "Missing LeanDNA Data API credentials — set PR_LEANDNA_DATA_API_BEARER_TOKEN and/or "
             "LEANDNA_DATA_API_COOKIE in .env.",
             file=sys.stderr,
         )
@@ -291,7 +280,7 @@ def main() -> int:
     for m in metrics:
         mid = m.get("id")
         name = _metric_name(m)
-        sites = _requested_sites_for_metric(m, ns.requested_sites)
+        sites = metric_requested_sites(m, ns.requested_sites)
         points, err = fetch_metric_datapoints(
             mid,
             start_date=start_s,

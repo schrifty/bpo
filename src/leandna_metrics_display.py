@@ -110,7 +110,7 @@ def print_metric_datapoint_table(
     out: TextIO | None = None,
     empty_message: str = "(no datapoints in window)",
 ) -> None:
-    """Print ``dataPointDate`` / ``value`` rows (same layout as ``get-metrics-data`` brief)."""
+    """Print ``dataPointDate`` / ``value`` rows (same layout as ``metric-get-with-data`` brief)."""
     sink = out or sys.stdout
     if not points:
         sink.write(f"{empty_message}\n")
