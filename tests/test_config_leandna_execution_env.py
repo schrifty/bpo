@@ -81,14 +81,14 @@ def test_app_api_server_follows_execution_env(monkeypatch: pytest.MonkeyPatch) -
     assert cfg._default_leandna_app_api_server() == "https://app.staging.leandna.com"
 
 
-def test_app_session_id_falls_back_to_pr_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_app_session_id_does_not_fall_back_to_pr_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
     import src.config as cfg
 
     monkeypatch.delenv("LEANDNA_APP_SESSION_ID", raising=False)
     monkeypatch.delenv("PR_LEANDNA_APP_SESSION_ID", raising=False)
-    monkeypatch.setenv("PR_LEANDNA_DATA_API_BEARER_TOKEN", "prod-bearer-as-session")
+    monkeypatch.setenv("PR_LEANDNA_DATA_API_BEARER_TOKEN", "prod-bearer-not-session")
     monkeypatch.setattr(cfg, "BPO_LEANDNA_DATA_API_EXECUTION_BUCKET", "production")
-    assert cfg.resolve_leandna_app_session_id() == "prod-bearer-as-session"
+    assert cfg.resolve_leandna_app_session_id() == ""
 
 
 def test_data_api_get_json_returns_envelope_when_base_unresolved(monkeypatch: pytest.MonkeyPatch) -> None:

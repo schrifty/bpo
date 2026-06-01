@@ -354,3 +354,117 @@ def summarize_metric_datapoint_values(rows: list[dict[str, Any]]) -> dict[str, A
         "min": nums_sorted[0],
         "max": nums_sorted[-1],
     }
+
+
+def pick_metric_by_id(catalog: list[dict[str, Any]], metric_id: Any) -> dict[str, Any] | None:
+    """Return the catalog row whose ``id`` matches *metric_id*."""
+    want = str(metric_id).strip()
+    for row in catalog:
+        if not isinstance(row, dict) or row.get("id") is None:
+            continue
+        if str(row["id"]).strip() == want:
+            return row
+    return None
+
+
+def metric_requested_sites(metric: dict[str, Any], cli_sites: str | None = None) -> str | None:
+    """``RequestedSites`` header value for a metric definition row."""
+    if cli_sites is not None and str(cli_sites).strip():
+        return str(cli_sites).strip()
+    sid = metric.get("siteId")
+    if sid is None:
+        return None
+    s = str(sid).strip()
+    return s or None
+
+
+def default_datapoint_category(metric: dict[str, Any]) -> str:
+    """Best-effort category string from a metric definition."""
+    cats = metric.get("currentCategories")
+    if isinstance(cats, list) and cats:
+        return str(cats[0] or "").strip()
+    if isinstance(cats, str):
+        return cats.strip()
+    return ""
+
+
+def compute_metric_datapoint_value(numerator: int | float, denominator: int | float) -> float:
+    """Display ``value`` for ``POST …/MetricDataPoint`` (percentage when denominator ≠ 0)."""
+    if denominator == 0:
+        return float(numerator)
+    return round((float(numerator) / float(denominator)) * 100, 3)
+
+
+def build_metric_datapoint_post_body(
+    *,
+    metric_id: int,
+    data_point_date: str,
+    numerator: int | float,
+    denominator: int | float = 1.0,
+    category: str = "",
+) -> dict[str, Any]:
+    """Body for ``POST /data/Metric/{id}/MetricDataPoint``."""
+    value = compute_metric_datapoint_value(numerator, denominator)
+    denom = 1 if denominator == 0 else denominator
+    return {
+        "dataPointDate": data_point_date,
+        "metricId": int(metric_id),
+        "category": category,
+        "value": value,
+        "numeratorValue": numerator,
+        "denominatorValue": denom,
+    }
+
+
+def post_metric_datapoint(
+    metric_id: Any,
+    body: dict[str, Any],
+    *,
+    requested_sites: str | None = None,
+    timeout_seconds: float = 120.0,
+) -> dict[str, Any]:
+    """``POST /data/Metric/{id}/MetricDataPoint`` using Data API bearer/cookie auth."""
+    from .leandna_data_api_request import data_api_mutate_json
+
+    return data_api_mutate_json(
+        "POST",
+        f"Metric/{metric_id}/MetricDataPoint",
+        json_body=body,
+        requested_sites=requested_sites,
+        timeout_seconds=timeout_seconds,
+        user_agent_suffix="leandna-metrics-client/1.0",
+    )
+
+
+def fetch_identity_authorized_site_ids(*, timeout_seconds: float = 30.0) -> list[int]:
+    """Site ids from ``GET /data/identity`` → ``authorizedSites[].siteId``."""
+    from .leandna_data_api_request import data_api_get_json
+
+    env = data_api_get_json("identity", timeout_seconds=timeout_seconds)
+    if not env.get("ok"):
+        return []
+    body = env.get("body")
+    if not isinstance(body, dict):
+        return []
+    rows = body.get("authorizedSites")
+    if not isinstance(rows, list):
+        return []
+    out: list[int] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        raw = row.get("siteId")
+        try:
+            out.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def resolve_metric_catalog_row(
+    metric_id: Any,
+    *,
+    timeout_seconds: float = 60.0,
+) -> dict[str, Any] | None:
+    """Find one metric row via ``GET /data/Metric`` (no ``RequestedSites`` — fast tenant catalog)."""
+    return pick_metric_by_id(list_metric_definitions(timeout_seconds=timeout_seconds), metric_id)

@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 
 from .config import (
     LEANDNA_APP_COOKIE,
+    LEANDNA_DATA_API_BEARER_TOKEN,
     LEANDNA_DATA_API_COOKIE,
     resolve_leandna_app_session_id as _config_app_session_id,
 )
@@ -53,13 +54,33 @@ def leandna_app_session_configured() -> bool:
     return bool(resolve_leandna_app_session_id())
 
 
+def misconfigured_app_session_message() -> str | None:
+    """Return a hint when the resolved app session is the Data API bearer token."""
+    sid = (resolve_leandna_app_session_id() or "").strip()
+    bearer = (LEANDNA_DATA_API_BEARER_TOKEN or "").strip()
+    if not sid or not bearer or sid != bearer:
+        return None
+    direct = (os.environ.get("LEANDNA_APP_SESSION_ID") or "").strip()
+    if direct == bearer:
+        detail = "LEANDNA_APP_SESSION_ID matches PR_LEANDNA_DATA_API_BEARER_TOKEN"
+    else:
+        detail = (
+            "LEANDNA_APP_SESSION_ID is not set — app API is using PR_LEANDNA_DATA_API_BEARER_TOKEN"
+        )
+    return (
+        f"{detail}. Those are different credentials. App writes need the LDNASESSIONID cookie "
+        "from DevTools → Application → Cookies → app.leandna.com, not the Authorization Bearer "
+        "token. Run: bin/test-script --show-session"
+    )
+
+
 def build_leandna_app_api_headers(*, user_agent_suffix: str = "leandna-app-metrics/1.0") -> dict[str, str]:
     """Headers for ``/api/2/factndx/...`` (session cookie + XSRF token)."""
     sid = resolve_leandna_app_session_id()
     if not sid:
         raise ValueError(
             "LeanDNA app session not configured — set LEANDNA_APP_SESSION_ID, "
-            "PR_LEANDNA_DATA_API_BEARER_TOKEN / ST_LEANDNA_DATA_API_BEARER_TOKEN (when EXECUTION_ENV is set), "
+            "PR_LEANDNA_APP_SESSION_ID (when EXECUTION_ENV is set), "
             "or LEANDNA_APP_COOKIE / LEANDNA_DATA_API_COOKIE containing LDNASESSIONID= "
             "(from DevTools while logged into the same host as LEANDNA_APP_API_SERVER)."
         )

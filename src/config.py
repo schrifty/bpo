@@ -210,12 +210,12 @@ def resolve_leandna_app_session_id() -> str:
 
     bucket = BPO_LEANDNA_DATA_API_EXECUTION_BUCKET
     if bucket == "staging":
-        for key in ("ST_LEANDNA_APP_SESSION_ID", "ST_LEANDNA_DATA_API_BEARER_TOKEN"):
+        for key in ("ST_LEANDNA_APP_SESSION_ID",):
             v = (os.environ.get(key) or "").strip()
             if v:
                 return v
     elif bucket == "production":
-        for key in ("PR_LEANDNA_APP_SESSION_ID", "PR_LEANDNA_DATA_API_BEARER_TOKEN"):
+        for key in ("PR_LEANDNA_APP_SESSION_ID",):
             v = (os.environ.get(key) or "").strip()
             if v:
                 return v

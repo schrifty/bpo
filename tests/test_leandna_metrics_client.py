@@ -218,3 +218,35 @@ def test_missing_token_raises(monkeypatch):
         assert "LEANDNA_DATA_API_COOKIE" in str(e) or "LEANDNA_DATA_API_BEARER_TOKEN" in str(e)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_build_metric_datapoint_post_body_percentage() -> None:
+    from src.leandna_metrics_client import build_metric_datapoint_post_body
+
+    body = build_metric_datapoint_post_body(
+        metric_id=2076,
+        data_point_date="2026-05-22",
+        numerator=1,
+        denominator=100,
+        category="Engineering",
+    )
+    assert body["value"] == 1.0
+    assert body["numeratorValue"] == 1
+    assert body["denominatorValue"] == 100
+    assert body["metricId"] == 2076
+    assert body["category"] == "Engineering"
+
+
+def test_post_metric_datapoint_calls_mutate(monkeypatch) -> None:
+    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "tok")
+    with patch("src.leandna_data_api_request.data_api_mutate_json") as mock_mutate:
+        mock_mutate.return_value = {"ok": True, "status": 201, "body": {"id": 1}}
+        from src.leandna_metrics_client import post_metric_datapoint
+
+        body = {"dataPointDate": "2026-05-22", "value": 1.0}
+        env = post_metric_datapoint(2076, body, requested_sites="416")
+        assert env["ok"] is True
+        mock_mutate.assert_called_once()
+        assert mock_mutate.call_args.args == ("POST", "Metric/2076/MetricDataPoint")
+        assert mock_mutate.call_args.kwargs["json_body"] == body
+        assert mock_mutate.call_args.kwargs["requested_sites"] == "416"
