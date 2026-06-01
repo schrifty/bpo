@@ -3,17 +3,17 @@
 
 Calls ``GET /data/identity`` for ``userId``, then ``GET /data/Metric`` and keeps rows
 whose ``ownerId`` matches that user. By default, also fetches ``GET /data/Metric/{id}/MetricDataPoint``
-for each owned metric over a date window (same auth / ``EXECUTION_ENV`` rules as ``get-metrics.py``).
+for each owned metric over a date window (same auth / ``EXECUTION_ENV`` rules as ``metrics-get``).
 
 Examples::
 
-  python3 scripts/get-my-metrics.py
-  python3 scripts/get-my-metrics.py --format json
-  python3 scripts/get-my-metrics.py --format brief
-  python3 scripts/get-my-metrics.py --no-data
-  python3 scripts/get-my-metrics.py --requested-sites 416
-  python3 scripts/get-my-metrics.py --lookback-days 30
-  python3 scripts/get-my-metrics.py --user-id 75321
+  metrics-get-mine
+  metrics-get-mine --format json
+  metrics-get-mine --format brief
+  metrics-get-mine --no-data
+  metrics-get-mine --requested-sites 416
+  metrics-get-mine --lookback-days 30
+  metrics-get-mine --user-id 75321
 """
 from __future__ import annotations
 
@@ -159,7 +159,7 @@ def _fetch_identity(
         "identity",
         requested_sites=requested_sites,
         timeout_seconds=read_timeout_seconds,
-        user_agent_suffix="get-my-metrics/1.0",
+        user_agent_suffix="metrics-get-mine/1.0",
     )
     if not env.get("ok"):
         raise RuntimeError(f"GET /data/identity failed: {env!r}")

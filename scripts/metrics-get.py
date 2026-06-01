@@ -6,12 +6,12 @@ Uses the same auth as the rest of BPO: ``LEANDNA_DATA_API_BEARER_TOKEN`` and/or
 
 Examples::
 
-  python3 scripts/get-metrics.py
-  python3 scripts/get-metrics.py --format brief
-  python3 scripts/get-metrics.py --requested-sites 416
-  python3 scripts/get-metrics.py 638
-  python3 scripts/get-metrics.py 638 --format brief
-  python3 scripts/get-metrics.py --metric-id 638
+  metrics-get
+  metrics-get --format brief
+  metrics-get --requested-sites 416
+  metrics-get 638
+  metrics-get 638 --format brief
+  metrics-get --metric-id 638
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -108,7 +108,7 @@ def _brief_lines(rows: list[dict]) -> list[str]:
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="List LeanDNA metrics (GET /data/Metric).",
-        epilog="If the first argument is all digits (e.g. get-metrics 638), it is treated as --metric-id.",
+        epilog="If the first argument is all digits (e.g. metrics-get 638), it is treated as --metric-id.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ap.add_argument(

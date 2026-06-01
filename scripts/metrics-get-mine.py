@@ -8,8 +8,8 @@ Output: auth line, full JSON payload, and (with ``--values``) per-KPI charts.
 
 Run::
 
-  get-my-metrics
-  get-my-metrics --values
+  metrics-get-mine
+  metrics-get-mine --values
 """
 from __future__ import annotations
 

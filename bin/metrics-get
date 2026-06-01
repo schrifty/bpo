@@ -7,4 +7,4 @@ while [ -L "$SOURCE" ]; do
   [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
 done
 ROOT="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
-exec python3 "$ROOT/scripts/get-my-metrics.py" "$@"
+exec python3 "$ROOT/scripts/metrics-get.py" "$@"

@@ -6,7 +6,7 @@ If the argument is **all digits**, it selects the catalog row with that **id** (
 Otherwise the argument is a **case-insensitive substring** match on ``name`` and
 ``crossSiteName``; **all** matching metrics are returned (sorted by id).
 
-Uses the same auth as ``get-metrics.py``: ``LEANDNA_DATA_API_BEARER_TOKEN`` and/or
+Uses the same auth as ``metrics-get``: ``LEANDNA_DATA_API_BEARER_TOKEN`` and/or
 ``LEANDNA_DATA_API_COOKIE`` in the repo ``.env``.
 
 Examples::

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Show LeanDNA app session info and metricOwner labels (to configure get-my-metrics).
+"""Show LeanDNA app session info and metricOwner labels (to configure metrics-get-mine).
 
 The classic app API does not expose ``GET /api/data/identity`` with session-only auth (401).
 Use the ``metricOwner`` display name from this output in ``LEANDNA_APP_METRIC_OWNER``.

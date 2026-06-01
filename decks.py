@@ -88,7 +88,7 @@ Generate one deck (explicit)
       CSM book of business (Pendo ownername filter).
 
   decks kpi [--values]
-      List LeanDNA metrics owned by you (``get-my-metrics``; configured via ``.env``).
+      List LeanDNA metrics owned by you (``metrics-get-mine``; configured via ``.env``).
       Pass ``--values`` for per-metric datapoint charts.
 """
 
@@ -690,7 +690,7 @@ def _run_support_kpis_deck(rest: list[str]) -> None:
 
 
 def _run_kpi_cli(rest: list[str]) -> None:
-    """Run ``scripts/get-my-metrics.py`` (optional ``--values`` only)."""
+    """Run ``scripts/metrics-get-mine.py`` (optional ``--values`` only)."""
     allowed = {"--values"}
     if rest and not all(a in allowed for a in rest):
         print(
@@ -699,7 +699,7 @@ def _run_kpi_cli(rest: list[str]) -> None:
         )
         sys.exit(2)
     root = Path(__file__).resolve().parent
-    script = root / "scripts" / "get-my-metrics.py"
+    script = root / "scripts" / "metrics-get-mine.py"
     if not script.is_file():
         print(f"error: missing {script}", file=sys.stderr)
         sys.exit(1)

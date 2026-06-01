@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Log into LeanDNA app, print ``LDNASESSIONID``, and call Metrics/View (like get-my-metrics).
+"""Log into LeanDNA app, print ``LDNASESSIONID``, and call Metrics/View (like metrics-get-mine).
 
 Opens a browser for LeanDNA SSO, submits ``LEANDNA_APP_EMAIL``, then you finish Google
 sign-in/MFA in that window (does not auto-type your password or ping laptop MFA by default).
