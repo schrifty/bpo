@@ -17,6 +17,7 @@ from src.leandna_metrics_client import (
     default_datapoint_category,
     delete_metric_datapoint,
     fetch_identity_authorized_site_ids,
+    fetch_metric_datapoints,
     metric_datapoint_exists_for_date,
     metric_requested_sites,
     post_metric_datapoint,
@@ -162,13 +163,39 @@ def delete_metric_datapoint_for_date(args: MetricDeleteArgs, *, sites: str | Non
 def upsert_metric_datapoint(args: MetricWriteArgs) -> dict[str, Any]:
     result: dict[str, Any] = {"upsert": True, "deleted": False}
     sites, _cat, _metric = resolve_write_sites_and_category(args)
+    category = args.category if args.category is not None else None
+    lookup_timeout = min(args.timeout_seconds, CATALOG_LOOKUP_TIMEOUT_S)
     exists = metric_datapoint_exists_for_date(
         args.metric_id,
         args.entry_date,
         requested_sites=sites,
-        timeout_seconds=min(args.timeout_seconds, CATALOG_LOOKUP_TIMEOUT_S),
+        category=category,
+        timeout_seconds=lookup_timeout,
     )
     if exists:
+        rows, err = fetch_metric_datapoints(
+            args.metric_id,
+            start_date=args.entry_date,
+            end_date=args.entry_date,
+            requested_sites=sites,
+            timeout_seconds=lookup_timeout,
+        )
+        sibling_categories = (
+            len(rows) > 1
+            if err is None and category is not None and str(category).strip()
+            else False
+        )
+        if sibling_categories:
+            insert_env = insert_metric_datapoint(args)
+            result["insert"] = insert_env
+            result["ok"] = bool(insert_env.get("ok"))
+            if not result["ok"] and insert_env.get("status") == 409:
+                result["hint"] = (
+                    f"Datapoint already exists for category {category!r} on {args.entry_date!r}. "
+                    "LeanDNA DELETE is date-scoped and cannot replace one team row when others "
+                    "share the same date — delete that category manually or use entry-delete."
+                )
+            return result
         del_args = MetricDeleteArgs(
             metric_id=args.metric_id,
             entry_date=args.entry_date,

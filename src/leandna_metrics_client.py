@@ -485,9 +485,10 @@ def metric_datapoint_exists_for_date(
     data_point_date: str,
     *,
     requested_sites: str | None = None,
+    category: str | None = None,
     timeout_seconds: float = 60.0,
 ) -> bool:
-    """True when at least one datapoint exists for *data_point_date*."""
+    """True when a datapoint exists for *data_point_date* (optionally matching *category*)."""
     rows, err = fetch_metric_datapoints(
         metric_id,
         start_date=data_point_date,
@@ -495,7 +496,12 @@ def metric_datapoint_exists_for_date(
         requested_sites=requested_sites,
         timeout_seconds=timeout_seconds,
     )
-    return err is None and bool(rows)
+    if err is not None or not rows:
+        return False
+    if category is None:
+        return True
+    want = str(category).strip()
+    return any(str(r.get("category") or "").strip() == want for r in rows if isinstance(r, dict))
 
 
 def fetch_identity_authorized_site_ids(*, timeout_seconds: float = 30.0) -> list[int]:

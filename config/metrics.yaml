@@ -45,7 +45,7 @@ metrics:
 
   "Sprint Delivery %":
     metric-id: 2086
-    metric-generator: null
+    metric-generator: get_sprint_delivery_by_team
 
   "AI Usage/Effectiveness":
     metric-id: 2087

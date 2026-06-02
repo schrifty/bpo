@@ -71,6 +71,13 @@ def test_parse_cycle_time_payload_median_of_teams() -> None:
     assert parts.denominator == 1.0
 
 
+def test_parse_sprint_delivery_metric_value() -> None:
+    raw = {"numerator": 85.0, "denominator": 100}
+    parts = parse_generator_parts(raw, metric_name="Sprint Delivery %", registry={})
+    assert parts.numerator == 85.0
+    assert parts.denominator == 100.0
+
+
 def test_dry_run_does_not_call_data_api(tmp_path: Path) -> None:
     path = tmp_path / "metrics.yaml"
     path.write_text(

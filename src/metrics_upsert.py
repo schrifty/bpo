@@ -120,9 +120,22 @@ def _invoke_get_dev_team_cycle_times(ctx: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _invoke_get_sprint_delivery_by_team(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.jira_client import get_shared_jira_client
+    from src.jira_sprint_delivery import get_sprint_delivery_metric_value
+
+    jira = get_shared_jira_client()
+    return get_sprint_delivery_metric_value(
+        jira,
+        max_issues_per_board=int(ctx.get("max_issues_per_board") or 500),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
 _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_kpi_automation_pct": lambda ctx: get_kpi_automation_pct(registry=ctx["registry"]),
     "get_dev_team_cycle_times": _invoke_get_dev_team_cycle_times,
+    "get_sprint_delivery_by_team": _invoke_get_sprint_delivery_by_team,
 }
 
 
@@ -286,7 +299,10 @@ def print_metrics_upsert_summary(summary: dict[str, Any], *, as_json: bool = Fal
             num = row.get("numerator")
             den = row.get("denominator")
             suffix = " (dry run)" if row.get("dry_run") else ""
-            print(f"  OK   {name} id={row.get('metric_id')} {num}/{den}{suffix}")
+            if den == 100 or den == 100.0:
+                print(f"  OK   {name} id={row.get('metric_id')} {num}%{suffix}")
+            else:
+                print(f"  OK   {name} id={row.get('metric_id')} {num}/{den}{suffix}")
         else:
             print(f"  FAIL {name}: {row.get('error')}", file=sys.stderr)
 

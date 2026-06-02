@@ -31,3 +31,46 @@ def test_format_metric_brief_lines() -> None:
 def test_registry_fully_defined() -> None:
     assert is_fully_defined_metric({"metric-id": 1, "metric-generator": "fn"}) is True
     assert is_fully_defined_metric({"metric-id": 1, "metric-generator": None}) is False
+
+
+def test_resolve_effective_requested_sites() -> None:
+    from src.leandna_metrics_catalog import resolve_effective_requested_sites
+
+    assert resolve_effective_requested_sites("416") == "416"
+    assert resolve_effective_requested_sites(None, identity_body={"authorizedSites": [{"siteId": 416}]}) == "416"
+    assert resolve_effective_requested_sites(None, identity_body={"authorizedSites": []}) is None
+    assert (
+        resolve_effective_requested_sites(
+            None,
+            identity_body={"authorizedSites": [{"siteId": 416}, {"siteId": 99}]},
+        )
+        is None
+    )
+
+
+def test_fetch_my_metric_definitions_filters_by_owner(monkeypatch) -> None:
+    from src.leandna_metrics_catalog import fetch_my_metric_definitions
+
+    monkeypatch.setattr(
+        "src.leandna_metrics_catalog.fetch_data_api_identity",
+        lambda **_: type(
+            "I",
+            (),
+            {
+                "user_id": "42",
+                "owner_label": "Marc",
+                "body": {"userId": "42", "authorizedSites": [{"siteId": 416}]},
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        "src.leandna_metrics_catalog.list_metric_definitions",
+        lambda requested_sites=None, **__: [
+            {"id": 1, "ownerId": "42", "siteId": 416},
+            {"id": 2, "ownerId": "99", "siteId": 416},
+        ],
+    )
+    rows, identity, sites = fetch_my_metric_definitions()
+    assert identity.user_id == "42"
+    assert sites == "416"
+    assert [r["id"] for r in rows] == [1]

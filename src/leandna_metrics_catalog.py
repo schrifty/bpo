@@ -40,6 +40,38 @@ def require_data_api_credentials() -> None:
         )
 
 
+def authorized_site_ids_from_identity_body(body: dict[str, Any]) -> list[int]:
+    """Parse ``authorizedSites[].siteId`` from ``GET /data/identity``."""
+    rows = body.get("authorizedSites")
+    if not isinstance(rows, list):
+        return []
+    out: list[int] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        raw = row.get("siteId")
+        try:
+            out.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def resolve_effective_requested_sites(
+    cli_sites: str | None,
+    *,
+    identity_body: dict[str, Any] | None = None,
+) -> str | None:
+    """``RequestedSites`` header: CLI override, else sole authorized site from identity."""
+    if cli_sites is not None and str(cli_sites).strip():
+        return str(cli_sites).strip()
+    if isinstance(identity_body, dict):
+        site_ids = authorized_site_ids_from_identity_body(identity_body)
+        if len(site_ids) == 1:
+            return str(site_ids[0])
+    return None
+
+
 def is_catalog_id_token(token: str | None) -> bool:
     t = (token or "").strip()
     return bool(t) and t.isdigit()
@@ -116,9 +148,18 @@ def format_metric_brief_lines(rows: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
-def fetch_data_api_identity(*, timeout_seconds: float = 60.0) -> MetricIdentity:
+def fetch_data_api_identity(
+    *,
+    requested_sites: str | None = None,
+    timeout_seconds: float = 60.0,
+) -> MetricIdentity:
     require_data_api_credentials()
-    env = data_api_get_json("identity", timeout_seconds=timeout_seconds)
+    env = data_api_get_json(
+        "identity",
+        requested_sites=requested_sites,
+        timeout_seconds=timeout_seconds,
+        user_agent_suffix="leandna-metrics-catalog/1.0",
+    )
     if not env.get("ok"):
         raise MetricsCatalogError(f"GET /data/identity failed: {env.get('error') or env}")
     body = env.get("body")
@@ -174,11 +215,22 @@ def fetch_my_metric_definitions(
     *,
     requested_sites: str | None = None,
     timeout_seconds: float = 60.0,
-) -> tuple[list[dict[str, Any]], MetricIdentity]:
-    """Metrics owned by the bearer token user (``ownerId`` = ``identity.userId``)."""
-    identity = fetch_data_api_identity(timeout_seconds=timeout_seconds)
-    catalog = list_metric_definitions(
+) -> tuple[list[dict[str, Any]], MetricIdentity, str | None]:
+    """Metrics owned by the bearer token user (``ownerId`` = ``identity.userId``).
+
+    Returns ``(rows, identity, effective_requested_sites)`` for follow-on datapoint GETs.
+    All HTTP uses the Data API only (``/data/identity``, ``/data/Metric``, ``/data/Metric/…/MetricDataPoint``).
+    """
+    identity = fetch_data_api_identity(
         requested_sites=requested_sites,
+        timeout_seconds=timeout_seconds,
+    )
+    effective_sites = resolve_effective_requested_sites(
+        requested_sites,
+        identity_body=identity.body,
+    )
+    catalog = list_metric_definitions(
+        requested_sites=effective_sites,
         timeout_seconds=timeout_seconds,
         extra_query=None,
     )
@@ -187,7 +239,7 @@ def fetch_my_metric_definitions(
         for m in catalog
         if isinstance(m, dict) and str(m.get("ownerId") or "").strip() == identity.user_id
     ]
-    return sort_metrics_by_id(rows), identity
+    return sort_metrics_by_id(rows), identity, effective_sites
 
 
 def fetch_metric_datapoint_series(
@@ -295,10 +347,13 @@ def fetch_metrics_with_datapoints(
 def build_my_metrics_payload(
     rows: list[dict[str, Any]],
     identity: MetricIdentity,
+    *,
+    requested_sites: str | None = None,
 ) -> dict[str, Any]:
     return {
         "source": "data_api",
         "ownerLabel": identity.owner_label,
+        "requestedSites": requested_sites,
         "metrics": rows,
         "identity": identity.body,
     }

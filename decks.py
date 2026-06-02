@@ -87,8 +87,8 @@ Generate one deck (explicit)
   decks csm book --csm "<name>" [--days N] [--max-customers M] [--quarter …]
       CSM book of business (Pendo ownername filter).
 
-  decks kpi [--values]
-      List LeanDNA metrics owned by you (``metrics-get-mine``; configured via ``.env``).
+  decks kpi [--values] [--requested-sites ID]
+      List LeanDNA metrics owned by you (``metrics-get-mine``; Data API only).
       Pass ``--values`` for per-metric datapoint charts.
 
   decks metrics-upsert [--date YYYY-MM-DD] [--dry-run] [--metric NAME] [--requested-sites ID]
@@ -695,14 +695,7 @@ def _run_support_kpis_deck(rest: list[str]) -> None:
 
 
 def _run_kpi_cli(rest: list[str]) -> None:
-    """Run ``scripts/metrics-get-mine.py`` (optional ``--values`` only)."""
-    allowed = {"--values"}
-    if rest and not all(a in allowed for a in rest):
-        print(
-            "error: decks kpi accepts only --values (other options: configure via .env)",
-            file=sys.stderr,
-        )
-        sys.exit(2)
+    """Run ``scripts/metrics-get-mine.py`` (Data API owned-metrics list)."""
     root = Path(__file__).resolve().parent
     script = root / "scripts" / "metrics-get-mine.py"
     if not script.is_file():
