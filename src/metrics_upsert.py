@@ -11,8 +11,17 @@ from pathlib import Path
 from statistics import median
 from typing import Any, Callable, Sequence
 
+from src.leandna_metric_registry_resolve import (
+    MetricRegistryResolveError,
+    resolve_registry_metric_id,
+)
 from src.leandna_metrics_write import MetricWriteArgs, run_upsert
-from src.metrics_registry import get_kpi_automation_pct, load_metrics_registry
+from src.metrics_registry import (
+    get_kpi_automation_pct,
+    is_upsertable_metric,
+    load_metrics_registry,
+    metric_registry_skip_reason,
+)
 
 
 class MetricUpsertError(Exception):
@@ -132,10 +141,23 @@ def _invoke_get_sprint_delivery_by_team(ctx: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _invoke_get_sprint_story_points_by_team(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.jira_client import get_shared_jira_client
+    from src.jira_sprint_story_points import get_sprint_story_points_metric_value
+
+    jira = get_shared_jira_client()
+    return get_sprint_story_points_metric_value(
+        jira,
+        max_issues_per_board=int(ctx.get("max_issues_per_board") or 500),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
 _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_kpi_automation_pct": lambda ctx: get_kpi_automation_pct(registry=ctx["registry"]),
     "get_dev_team_cycle_times": _invoke_get_dev_team_cycle_times,
     "get_sprint_delivery_by_team": _invoke_get_sprint_delivery_by_team,
+    "get_sprint_story_points_by_team": _invoke_get_sprint_story_points_by_team,
 }
 
 
@@ -168,8 +190,7 @@ def iter_metrics_to_upsert(
     for name, entry in metrics.items():
         if not isinstance(entry, dict):
             continue
-        gen = entry.get("metric-generator")
-        if gen is None or (isinstance(gen, str) and not gen.strip()):
+        if not is_upsertable_metric(entry):
             continue
         if want and name.casefold() != want:
             continue
@@ -183,13 +204,24 @@ def upsert_one_registry_metric(
     *,
     registry: dict[str, Any],
     ctx: MetricUpsertContext,
+    registry_path: Path | None = None,
 ) -> dict[str, Any]:
     """Generate value and upsert one registry metric."""
     gen_name = str(entry.get("metric-generator") or "").strip()
-    mid_raw = entry.get("metric-id")
-    if mid_raw is None:
-        raise MetricUpsertError("missing metric-id")
-    metric_id = int(mid_raw)
+
+    try:
+        resolution = resolve_registry_metric_id(
+            metric_name,
+            entry,
+            requested_sites=ctx.requested_sites,
+            dry_run=ctx.dry_run,
+            timeout_seconds=ctx.timeout_seconds,
+            registry_path=registry_path,
+        )
+    except MetricRegistryResolveError as e:
+        raise MetricUpsertError(str(e)) from e
+
+    metric_id = resolution.metric_id
 
     raw = invoke_metric_generator(gen_name, registry=registry, ctx=ctx)
     parts = parse_generator_parts(raw, metric_name=metric_name, registry=registry)
@@ -201,7 +233,10 @@ def upsert_one_registry_metric(
         "date": ctx.entry_date,
         "numerator": parts.numerator,
         "denominator": parts.denominator,
+        "metric_id_source": resolution.source,
     }
+    if resolution.detail:
+        row["metric_id_detail"] = resolution.detail
 
     if ctx.dry_run:
         row["ok"] = True
@@ -228,27 +263,88 @@ def upsert_one_registry_metric(
     return row
 
 
+def _registry_metric_entry(
+    registry: dict[str, Any],
+    metric_name: str,
+) -> tuple[str, dict[str, Any]] | None:
+    """Exact registry name match (case-sensitive key in YAML)."""
+    metrics = registry.get("metrics")
+    if not isinstance(metrics, dict):
+        return None
+    entry = metrics.get(metric_name)
+    if isinstance(entry, dict):
+        return metric_name, entry
+    return None
+
+
+def _collect_skipped_metrics(registry: dict[str, Any]) -> dict[str, list[str]]:
+    """Group skipped registry names by reason."""
+    buckets: dict[str, list[str]] = {
+        "no_generator": [],
+        "other": [],
+    }
+    metrics = registry.get("metrics")
+    if not isinstance(metrics, dict):
+        return buckets
+    for name, entry in metrics.items():
+        if not isinstance(entry, dict):
+            buckets["other"].append(name)
+            continue
+        reason = metric_registry_skip_reason(entry)
+        if reason is None:
+            continue
+        if reason == "no generator":
+            buckets["no_generator"].append(name)
+        else:
+            buckets["other"].append(name)
+    return buckets
+
+
 def run_metrics_upsert(ctx: MetricUpsertContext, *, registry_path: Path | None = None) -> dict[str, Any]:
     """Run all configured generators and upsert datapoints for today's (or chosen) date."""
     registry = load_metrics_registry(path=registry_path)
 
+    if ctx.metric_name_filter:
+        want = ctx.metric_name_filter.strip()
+        hit = _registry_metric_entry(registry, want)
+        if hit is None:
+            return {
+                "ok": False,
+                "error": f"metric {want!r} not found in config/metrics.yaml",
+                "date": ctx.entry_date,
+                "dry_run": ctx.dry_run,
+                "attempted": 0,
+                "results": [],
+            }
+        _name, entry = hit
+        skip = metric_registry_skip_reason(entry)
+        if skip:
+            return {
+                "ok": False,
+                "error": f"metric {want!r} cannot upsert: {skip}",
+                "date": ctx.entry_date,
+                "dry_run": ctx.dry_run,
+                "attempted": 0,
+                "results": [],
+            }
+
     candidates = iter_metrics_to_upsert(registry, metric_name_filter=ctx.metric_name_filter)
-    skipped = []
-    metrics_block = registry.get("metrics")
-    if isinstance(metrics_block, dict):
-        for name, entry in metrics_block.items():
-            if not isinstance(entry, dict):
-                continue
-            gen = entry.get("metric-generator")
-            if gen is None or (isinstance(gen, str) and not gen.strip()):
-                skipped.append(name)
+    skipped_buckets = _collect_skipped_metrics(registry)
 
     results: list[dict[str, Any]] = []
     failures: list[str] = []
 
     for name, entry in candidates:
         try:
-            results.append(upsert_one_registry_metric(name, entry, registry=registry, ctx=ctx))
+            results.append(
+                upsert_one_registry_metric(
+                    name,
+                    entry,
+                    registry=registry,
+                    ctx=ctx,
+                    registry_path=registry_path,
+                )
+            )
         except (MetricUpsertError, ValueError) as e:
             failures.append(name)
             results.append(
@@ -277,7 +373,8 @@ def run_metrics_upsert(ctx: MetricUpsertContext, *, registry_path: Path | None =
         "date": ctx.entry_date,
         "dry_run": ctx.dry_run,
         "attempted": len(candidates),
-        "skipped_no_generator": skipped,
+        "skipped_no_generator": skipped_buckets["no_generator"],
+        "skipped_other": skipped_buckets["other"],
         "results": results,
     }
     if failures:
@@ -290,9 +387,14 @@ def print_metrics_upsert_summary(summary: dict[str, Any], *, as_json: bool = Fal
         print(json.dumps(summary, indent=2, default=str))
         return
     print(f"metrics-upsert date={summary.get('date')} dry_run={summary.get('dry_run')}")
-    skipped = summary.get("skipped_no_generator") or []
-    if skipped:
-        print(f"Skipped (no generator): {', '.join(skipped)}")
+    if summary.get("error"):
+        print(f"Error: {summary['error']}", file=sys.stderr)
+    skipped_gen = summary.get("skipped_no_generator") or []
+    skipped_other = summary.get("skipped_other") or []
+    if skipped_gen:
+        print(f"Skipped (no generator): {', '.join(skipped_gen)}")
+    if skipped_other:
+        print(f"Skipped: {', '.join(skipped_other)}")
     for row in summary.get("results") or []:
         name = row.get("metric")
         if row.get("ok"):
@@ -308,6 +410,8 @@ def print_metrics_upsert_summary(summary: dict[str, Any], *, as_json: bool = Fal
 
 
 def metrics_upsert_exit_code(summary: dict[str, Any]) -> int:
+    if summary.get("error"):
+        return 1
     return 0 if summary.get("ok") else 1
 
 

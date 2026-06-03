@@ -5,10 +5,13 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from src.jira_sprint_delivery import (
+    SprintSelector,
     _issue_is_done,
     _pick_latest_closed_sprint,
     board_sprint_delivery,
     get_sprint_delivery_by_team,
+    get_sprint_delivery_history,
+    sprint_matches_selector,
 )
 
 
@@ -61,16 +64,16 @@ def test_board_sprint_delivery_counts_done_issues() -> None:
 
     board = {"board_id": 44, "team_label": "LEAN Engineering", "name": "LEAN board", "project_key": "LEAN"}
 
-    with patch("src.jira_sprint_delivery._fetch_board_sprints", return_value={"recent_closed": [sprint]}):
-        with patch("src.jira_sprint_delivery.requests.get", side_effect=fake_get):
-            result = board_sprint_delivery(
-                client,
-                board,
-                status_map={},
-                excluded_issue_types=(),
-                max_issues=100,
-                timeout=5.0,
-            )
+    with patch("src.jira_sprint_delivery.requests.get", side_effect=fake_get):
+        result = board_sprint_delivery(
+            client,
+            board,
+            status_map={},
+            excluded_issue_types=(),
+            max_issues=100,
+            timeout=5.0,
+            sprint=sprint,
+        )
 
     assert result["committed"] == 3
     assert result["delivered"] == 2
@@ -125,3 +128,35 @@ def test_get_sprint_delivery_metric_value_minimal() -> None:
     ):
         out = get_sprint_delivery_metric_value(client)
     assert out == {"numerator": 85.0, "denominator": 100.0}
+
+
+def test_sprint_matches_selector() -> None:
+    sprint = {"id": 1, "name": "Sprint595", "state": "closed"}
+    assert sprint_matches_selector(sprint, SprintSelector(sprint_number=595)) is True
+    assert sprint_matches_selector(sprint, SprintSelector(sprint_number=594)) is False
+    week = {"id": 2, "name": "Week 14", "state": "closed"}
+    assert sprint_matches_selector(week, SprintSelector(week="14")) is True
+    assert sprint_matches_selector(sprint, SprintSelector(sprint_id=1)) is True
+
+
+def test_get_sprint_delivery_history_groups_by_board() -> None:
+    client = MagicMock()
+    row = {
+        "team": "LEAN Engineering",
+        "board_id": 44,
+        "sprint": {"name": "Sprint 1"},
+        "delivered": 5,
+        "committed": 5,
+        "delivery_pct": 100.0,
+    }
+    with patch("src.jira_sprint_delivery.load_status_category_map", return_value={}):
+        with patch(
+            "src.jira_sprint_delivery.list_board_sprints",
+            return_value=[{"id": 1, "name": "Sprint 1", "state": "closed", "end": "2026-05-01"}],
+        ):
+            with patch("src.jira_sprint_delivery.board_sprint_delivery", return_value=row):
+                out = get_sprint_delivery_history(client, board_ids=[44], history_count=2)
+    assert out["mode"] == "history"
+    assert len(out["boards"]) == 1
+    assert len(out["boards"][0]["sprints"]) == 1
+    assert out["boards"][0]["sprints"][0]["delivery_pct"] == 100.0

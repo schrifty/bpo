@@ -23,6 +23,16 @@ def load_metrics_registry(*, path: Path | None = None) -> dict[str, Any]:
     return data
 
 
+def has_metric_generator(entry: Any) -> bool:
+    """True when *entry* has a non-empty ``metric-generator``."""
+    if not isinstance(entry, dict):
+        return False
+    gen = entry.get("metric-generator")
+    if gen is None:
+        return False
+    return not (isinstance(gen, str) and not gen.strip())
+
+
 def is_fully_defined_metric(entry: Any) -> bool:
     """True when *entry* has ``metric-id`` and a non-empty ``metric-generator``."""
     if not isinstance(entry, dict):
@@ -30,12 +40,23 @@ def is_fully_defined_metric(entry: Any) -> bool:
     mid = entry.get("metric-id")
     if mid is None or str(mid).strip() == "":
         return False
-    gen = entry.get("metric-generator")
-    if gen is None:
-        return False
-    if isinstance(gen, str) and not gen.strip():
-        return False
-    return True
+    return has_metric_generator(entry)
+
+
+def is_upsertable_metric(entry: Any) -> bool:
+    """True when ``metrics-upsert`` can run the generator (requires ``metric-id`` or catalog lookup)."""
+    return has_metric_generator(entry)
+
+
+def metric_registry_skip_reason(entry: Any) -> str | None:
+    """Why *entry* is omitted from ``metrics-upsert`` (``None`` when upsertable)."""
+    if not isinstance(entry, dict):
+        return "invalid registry row"
+    if is_upsertable_metric(entry):
+        return None
+    if entry.get("metric-id") is not None and str(entry.get("metric-id")).strip() != "":
+        return "no generator"
+    return "no generator"
 
 
 def count_fully_defined_metrics(*, registry: dict[str, Any] | None = None) -> int:

@@ -78,6 +78,24 @@ def test_parse_sprint_delivery_metric_value() -> None:
     assert parts.denominator == 100.0
 
 
+def test_parse_sprint_story_points_metric_value() -> None:
+    raw = {"numerator": 240.0, "denominator": 1.0}
+    parts = parse_generator_parts(raw, metric_name="Sprint Story Points Delivered", registry={})
+    assert parts.numerator == 240.0
+    assert parts.denominator == 1.0
+
+
+def test_iter_metrics_to_upsert_includes_generator_without_metric_id() -> None:
+    registry = {
+        "metrics": {
+            "Ready": {"metric-id": 1, "metric-generator": "gen_a"},
+            "Pending id": {"metric-id": None, "metric-generator": "gen_b"},
+        }
+    }
+    names = [n for n, _ in iter_metrics_to_upsert(registry)]
+    assert names == ["Ready", "Pending id"]
+
+
 def test_dry_run_does_not_call_data_api(tmp_path: Path) -> None:
     path = tmp_path / "metrics.yaml"
     path.write_text(
@@ -106,6 +124,38 @@ def test_upsert_one_unknown_generator_fails() -> None:
             registry={"metrics": {}},
             ctx=_ctx(dry_run=True),
         )
+
+
+def test_run_metrics_upsert_filtered_metric_missing_id(tmp_path: Path) -> None:
+    path = tmp_path / "metrics.yaml"
+    path.write_text(
+        """
+metrics:
+  "Sprint Story Points Delivered":
+    metric-id: null
+    metric-generator: get_sprint_story_points_by_team
+""".strip(),
+        encoding="utf-8",
+    )
+    with patch(
+        "src.metrics_upsert.resolve_registry_metric_id",
+        return_value=type(
+            "R",
+            (),
+            {"metric_id": 2099, "source": "catalog", "detail": "found in catalog"},
+        )(),
+    ), patch(
+        "src.metrics_upsert.invoke_metric_generator",
+        return_value={"numerator": 240.0, "denominator": 1.0},
+    ):
+        summary = run_metrics_upsert(
+            _ctx(dry_run=True, metric_name_filter="Sprint Story Points Delivered"),
+            registry_path=path,
+        )
+    assert summary["ok"] is True
+    assert summary["attempted"] == 1
+    assert summary["results"][0]["metric_id"] == 2099
+    assert summary["results"][0]["numerator"] == 240.0
 
 
 def test_run_metrics_upsert_reports_generator_failure(tmp_path: Path) -> None:

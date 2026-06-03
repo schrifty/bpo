@@ -4,7 +4,8 @@
 # Populated from metrics-get-mine (Data API GET /data/identity + /data/Metric).
 #
 # Fields:
-#   metric-id         — Data API catalog id (same as app ndx for these metrics)
+#   metric-id         — Data API catalog id (same as app ndx); required before upsert unless
+#                       already present in GET /data/Metric (create metrics in LeanDNA UI)
 #   metric-generator  — Python function that computes the daily value when wired in BPO;
 #                       null when no generator exists in this repo yet
 #
@@ -46,6 +47,10 @@ metrics:
   "Sprint Delivery %":
     metric-id: 2086
     metric-generator: get_sprint_delivery_by_team
+
+  "Sprint Story Points Delivered":
+    metric-id: null
+    metric-generator: get_sprint_story_points_by_team
 
   "AI Usage/Effectiveness":
     metric-id: 2087

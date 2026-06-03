@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
-"""Per-team sprint delivery % from configured Jira scrum boards.
+"""Per-team sprint story points delivered (Done) from configured Jira scrum boards.
 
-Default: each board's **latest closed sprint**. Use flags to pick active sprint,
-a specific sprint number/week/name, or **historical** closed sprints.
+Default: each board's **latest closed sprint**. Uses Jira ``Story Points`` on issues
+in Done status. Same sprint flags as ``get-sprint-delivery``.
 
 Requires ``JIRA_*`` in ``.env``.
 
 Examples::
 
-  get-sprint-delivery
-  get-sprint-delivery --active
-  get-sprint-delivery --board 44 --sprint-number 595
-  get-sprint-delivery --board 36 --week 14
-  get-sprint-delivery --sprint-name "Week of Jun 1"
-  get-sprint-delivery --history 10 --board 44
-  get-sprint-delivery --format json --history 5
+  get-sprint-story-points
+  get-sprint-story-points --active
+  get-sprint-story-points --board 44 --sprint-number 595
+  get-sprint-story-points --history 10 --board 44
+  get-sprint-story-points --format json
 """
 from __future__ import annotations
 
@@ -37,15 +35,15 @@ from dotenv import load_dotenv  # noqa: E402
 load_dotenv(ROOT / ".env")
 
 from src.jira_client import get_shared_jira_client  # noqa: E402
-from src.jira_sprint_delivery import (  # noqa: E402
-    SPRINT_DELIVERY_BOARDS,
-    SprintSelector,
-    get_sprint_delivery_by_team,
-    get_sprint_delivery_history,
+from src.jira_sprint_delivery import SprintSelector  # noqa: E402
+from src.jira_sprint_story_points import (  # noqa: E402
+    SPRINT_STORY_POINTS_BOARDS,
+    get_sprint_story_points_by_team,
+    get_sprint_story_points_history,
 )
 
 
-def _format_sprint_label(sprint: dict[str, Any] | None, *, ended: bool = True) -> str:
+def _format_sprint_label(sprint: dict[str, Any] | None) -> str:
     if not isinstance(sprint, dict):
         return "(unknown sprint)"
     name = str(sprint.get("name") or "").strip() or "(unnamed)"
@@ -55,7 +53,7 @@ def _format_sprint_label(sprint: dict[str, Any] | None, *, ended: bool = True) -
     if start and end:
         range_s = f"{start} → {end}"
     elif end:
-        range_s = f"ended {end}" if ended else str(end)
+        range_s = f"ended {end}"
     elif start:
         range_s = f"from {start}"
     else:
@@ -64,16 +62,22 @@ def _format_sprint_label(sprint: dict[str, Any] | None, *, ended: bool = True) -
     return f"{name}  ({range_s}){suffix}".strip()
 
 
-def _print_truncation_warning(team_row: dict[str, Any]) -> None:
-    if not team_row.get("truncated"):
+def _print_truncation_warning(row: dict[str, Any]) -> None:
+    if not row.get("truncated"):
         return
-    total = team_row.get("reported_total")
-    committed = team_row.get("committed")
+    total = row.get("reported_total")
+    fetched = row.get("committed_issues")
     print(
-        f"           warning: sprint has {total} issues but only {committed} were fetched "
-        f"(rate may be overstated; raise --max-issues)",
+        f"           warning: sprint has {total} issues but only {fetched} were fetched "
+        f"(totals may be low; raise --max-issues)",
         file=sys.stderr,
     )
+
+
+def _sp_line(row: dict[str, Any]) -> str:
+    delivered = row.get("story_points_delivered")
+    committed = row.get("story_points_committed")
+    return f"{delivered} SP delivered ({committed} SP in sprint)"
 
 
 def _print_team_row(team: dict[str, Any], *, indent: str = "  ") -> None:
@@ -81,11 +85,8 @@ def _print_team_row(team: dict[str, Any], *, indent: str = "  ") -> None:
     if team.get("error"):
         print(f"{indent}{label}: ERROR — {team['error']}")
         return
-    sprint = _format_sprint_label(team.get("sprint"), ended=team.get("sprint", {}).get("state") == "closed")
-    delivered = team.get("delivered")
-    committed = team.get("committed")
-    pct = team.get("delivery_pct")
-    print(f"{indent}{label}: {delivered}/{committed} ({pct}%)  —  {sprint}")
+    sprint = _format_sprint_label(team.get("sprint"))
+    print(f"{indent}{label}: {_sp_line(team)}  —  {sprint}")
     _print_truncation_warning(team)
 
 
@@ -94,7 +95,7 @@ def _print_brief(payload: dict[str, Any]) -> None:
         print(f"Error: {payload['error']}", file=sys.stderr)
         return
 
-    print(payload.get("definition") or "Sprint delivery % by board")
+    print(payload.get("definition") or "Sprint story points delivered by board")
     excluded = payload.get("excluded_issue_types") or []
     if excluded:
         print(f"Excluded issue types: {', '.join(excluded)}")
@@ -114,9 +115,7 @@ def _print_brief(payload: dict[str, Any]) -> None:
                     print(f"  {sprint}: ERROR — {row['error']}")
                     continue
                 sprint = _format_sprint_label(row.get("sprint"))
-                print(
-                    f"  {sprint}: {row.get('delivered')}/{row.get('committed')} ({row.get('delivery_pct')}%)"
-                )
+                print(f"  {sprint}: {_sp_line(row)}")
                 _print_truncation_warning(row)
             print()
         return
@@ -124,15 +123,10 @@ def _print_brief(payload: dict[str, Any]) -> None:
     for team in payload.get("teams") or []:
         _print_team_row(team)
 
-    average = payload.get("average_delivery_pct")
+    total = payload.get("total_story_points_delivered")
     print()
-    if average is not None:
-        print(f"Average (metrics-upsert value): {average}%")
-        if payload.get("mode") == "snapshot" and not payload.get("sprint_selector"):
-            print(
-                "(unweighted mean of per-board delivery %; "
-                "LeanDNA POST uses numerator={0}, denominator=100)".format(average)
-            )
+    if total is not None:
+        print(f"Total story points delivered (all boards): {total} SP")
 
 
 def _build_selector(ns: argparse.Namespace) -> SprintSelector | None:
@@ -160,11 +154,11 @@ def _build_selector(ns: argparse.Namespace) -> SprintSelector | None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="Sprint delivery % per development board.",
+        description="Sprint story points delivered (Done) per development board.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Board ids: "
-            + ", ".join(f"{b['board_id']}={b['team_label']}" for b in SPRINT_DELIVERY_BOARDS)
+            + ", ".join(f"{b['board_id']}={b['team_label']}" for b in SPRINT_STORY_POINTS_BOARDS)
         ),
     )
     ap.add_argument("--format", choices=("brief", "json"), default="brief")
@@ -174,7 +168,7 @@ def main() -> int:
         action="append",
         dest="board_ids",
         metavar="ID",
-        help=f"Board id (default: {[b['board_id'] for b in SPRINT_DELIVERY_BOARDS]})",
+        help=f"Board id (default: {[b['board_id'] for b in SPRINT_STORY_POINTS_BOARDS]})",
     )
     ap.add_argument(
         "--history",
@@ -182,11 +176,7 @@ def main() -> int:
         metavar="N",
         help="Show last N closed sprints per board (newest first)",
     )
-    ap.add_argument(
-        "--active",
-        action="store_true",
-        help="Use the active sprint instead of latest closed",
-    )
+    ap.add_argument("--active", action="store_true", help="Use the active sprint")
     ap.add_argument("--sprint-id", type=int, metavar="ID", help="Jira sprint id")
     ap.add_argument(
         "--sprint-number",
@@ -197,7 +187,7 @@ def main() -> int:
     ap.add_argument(
         "--week",
         metavar="LABEL",
-        help='Match week sprint name (e.g. 14 → "Week 14", or "Week of Jun 1")',
+        help='Match week sprint name (e.g. 14 → "Week 14")',
     )
     ap.add_argument(
         "--sprint-name",
@@ -227,13 +217,9 @@ def main() -> int:
     )
 
     if ns.history is not None:
-        payload = get_sprint_delivery_history(
-            jira,
-            history_count=ns.history,
-            **common,
-        )
+        payload = get_sprint_story_points_history(jira, history_count=ns.history, **common)
     else:
-        payload = get_sprint_delivery_by_team(
+        payload = get_sprint_story_points_by_team(
             jira,
             sprint_selector=_build_selector(ns),
             **common,

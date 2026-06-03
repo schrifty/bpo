@@ -146,7 +146,7 @@ def build_metric_create_body(
     return body
 
 
-def _parse_created_metric_id(body: Any) -> Any | None:
+def parse_created_metric_id(body: Any) -> Any | None:
     if isinstance(body, dict):
         for key in ("id", "metricId"):
             if body.get(key) is not None:
@@ -176,7 +176,7 @@ def create_metric_definition(
     )
     if not env.get("ok"):
         return None, env
-    new_id = _parse_created_metric_id(env.get("body"))
+    new_id = parse_created_metric_id(env.get("body"))
     return new_id, env
 
 
