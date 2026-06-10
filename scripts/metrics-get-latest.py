@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Latest MetricDataPoint for each ``config/my-metrics.yaml`` row with a ``metric-id``.
+"""Recent MetricDataPoint values for each ``config/my-metrics.yaml`` row with a ``metric-id``.
 
 Examples::
 
   metrics-get-latest
   metrics-get-latest --requested-sites 416
-  metrics-get-latest --names-only
+  metrics-get-latest --recent-count 5
 """
 from __future__ import annotations
 
@@ -30,8 +30,9 @@ from src.leandna_data_api_request import data_api_base_url  # noqa: E402
 from src.leandna_metric_registry_resolve import METRICS_REGISTRY_DEFAULT_SITE_ID  # noqa: E402
 from src.leandna_metrics_cli import configure_bpo_logging  # noqa: E402
 from src.metrics_latest import (  # noqa: E402
-    fetch_registry_latest_datapoints,
-    format_latest_datapoint_line,
+    DEFAULT_RECENT_DATAPOINT_COUNT,
+    fetch_registry_recent_datapoints,
+    format_metric_recent_block,
 )
 
 _DEFAULT_LOOKBACK_DAYS = 365
@@ -40,7 +41,7 @@ _READ_TIMEOUT_S = 60.0
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="Latest MetricDataPoint date/value for my-metrics.yaml rows with metric-id.",
+        description="Recent MetricDataPoint date/value rows for my-metrics.yaml entries with metric-id.",
     )
     ap.add_argument(
         "--requested-sites",
@@ -56,9 +57,16 @@ def main() -> int:
         help=f"Search window ending today (default: {_DEFAULT_LOOKBACK_DAYS})",
     )
     ap.add_argument(
+        "--recent-count",
+        type=int,
+        default=DEFAULT_RECENT_DATAPOINT_COUNT,
+        metavar="N",
+        help=f"Number of newest datapoints to show per metric (default: {DEFAULT_RECENT_DATAPOINT_COUNT})",
+    )
+    ap.add_argument(
         "--names-only",
         action="store_true",
-        help="Print only {date}: {value} lines (omit metric name prefix)",
+        help="Print only indented {date}: {value} lines (omit metric headers)",
     )
     ap.add_argument("--timeout", type=float, default=_READ_TIMEOUT_S, metavar="SEC")
     ap.add_argument("-v", "--verbose", action="store_true")
@@ -74,33 +82,37 @@ def main() -> int:
 
     print(
         f"LeanDNA target: GET /data/Metric/{{id}}/MetricDataPoint  "
-        f"(lookback={ns.lookback_days}d, requestedSites={ns.requested_sites!r}, "
+        f"(lookback={ns.lookback_days}d, recent={ns.recent_count}, "
+        f"requestedSites={ns.requested_sites!r}, "
         f"EXECUTION_ENV bucket={BPO_LEANDNA_DATA_API_EXECUTION_BUCKET})",
         file=sys.stderr,
     )
 
-    rows = fetch_registry_latest_datapoints(
+    rows = fetch_registry_recent_datapoints(
         requested_sites=ns.requested_sites,
         lookback_days=ns.lookback_days,
         timeout_seconds=ns.timeout,
+        limit=ns.recent_count,
     )
     if not rows:
         print("No metrics with metric-id in config/my-metrics.yaml.", file=sys.stderr)
         return 1
 
     failures = 0
-    for row in rows:
-        if row.error:
+    for index, row in enumerate(rows):
+        if row.error and not row.recent:
             failures += 1
-            line = f"(error: {row.error})"
-        else:
-            line = format_latest_datapoint_line(date=row.date, value=row.value)
+        block = format_metric_recent_block(row)
         if ns.names_only:
-            print(line)
-        else:
-            print(f"{row.metric_name}: {line}")
+            block = [line for line in block if line.startswith("  ")]
+        if index and block:
+            print()
+        print("\n".join(block))
 
-    print(f"Fetched latest datapoint for {len(rows)} metric(s).", file=sys.stderr)
+    print(
+        f"Fetched up to {ns.recent_count} datapoint(s) for {len(rows)} metric(s).",
+        file=sys.stderr,
+    )
     return 1 if failures == len(rows) else 0
 
 

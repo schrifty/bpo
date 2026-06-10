@@ -8,9 +8,14 @@ from typing import Any
 import pytest
 
 from src.metrics_latest import (
+    DEFAULT_RECENT_DATAPOINT_COUNT,
     fetch_latest_datapoint_for_metric_id,
-    format_latest_datapoint_line,
+    fetch_latest_datapoint_with_fallbacks,
+    fetch_recent_datapoints_for_metric_id,
+    format_datapoint_line,
+    format_metric_recent_block,
     latest_datapoint_from_rows,
+    recent_datapoints_from_rows,
 )
 from src.metrics_registry import (
     datapoint_metric_ids_for_entry,
@@ -69,9 +74,49 @@ def test_latest_datapoint_from_rows_empty() -> None:
     assert latest_datapoint_from_rows([]) == (None, None)
 
 
-def test_format_latest_datapoint_line() -> None:
-    assert format_latest_datapoint_line(date="2026-06-10", value=85.0) == "2026-06-10: 85.0"
-    assert format_latest_datapoint_line(date=None, value=None) == "(no datapoints)"
+def test_recent_datapoints_from_rows_returns_newest_first() -> None:
+    rows = [
+        {"dataPointDate": "2026-06-01", "value": 1},
+        {"dataPointDate": "2026-06-10", "value": 99},
+        {"dataPointDate": "2026-06-05", "value": 50},
+        {"dataPointDate": "2026-05-20", "value": 25},
+    ]
+    rows.sort(key=lambda r: str(r.get("dataPointDate") or ""))
+    recent = recent_datapoints_from_rows(rows, limit=3)
+    assert [(p.date, p.value) for p in recent] == [
+        ("2026-06-10", 99),
+        ("2026-06-05", 50),
+        ("2026-06-01", 1),
+    ]
+
+
+def test_recent_datapoints_from_rows_empty() -> None:
+    assert recent_datapoints_from_rows([]) == ()
+
+
+def test_format_metric_recent_block() -> None:
+    from src.metrics_latest import DatapointValue, MetricRecentDatapointsRow
+
+    block = format_metric_recent_block(
+        MetricRecentDatapointsRow(
+            metric_name="Time to Value",
+            metric_id=1860,
+            recent=(
+                DatapointValue(date="2026-06-01", value=166.5),
+                DatapointValue(date="2026-05-25", value=170.0),
+            ),
+        )
+    )
+    assert block == [
+        "Time to Value:",
+        "  2026-06-01: 166.5",
+        "  2026-05-25: 170.0",
+    ]
+
+
+def test_format_datapoint_line() -> None:
+    assert format_datapoint_line(date="2026-06-10", value=85.0) == "2026-06-10: 85.0"
+    assert format_datapoint_line(date=None, value=None) == "(no datapoints)"
 
 
 def test_registry_datapoint_metric_id() -> None:
@@ -85,6 +130,8 @@ def test_datapoint_metric_ids_for_entry() -> None:
 
 
 def test_fetch_latest_datapoint_with_fallbacks(monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.metrics_latest import DatapointValue, fetch_latest_datapoint_with_fallbacks
+
     calls: list[int] = []
 
     def fake_fetch(
@@ -93,17 +140,16 @@ def test_fetch_latest_datapoint_with_fallbacks(monkeypatch: pytest.MonkeyPatch) 
         requested_sites: str | None = None,
         lookback_days: int = 365,
         timeout_seconds: float = 60.0,
-    ) -> tuple[str | None, Any, str | None]:
+        limit: int = 1,
+    ) -> tuple[tuple[DatapointValue, ...], str | None]:
         calls.append(metric_id)
         if metric_id == 2021:
-            return None, None, None
+            return (), None
         if metric_id == 1860:
-            return "2026-06-01", 166.5, None
-        return None, None, "unexpected"
+            return (DatapointValue(date="2026-06-01", value=166.5),), None
+        return (), "unexpected"
 
-    from src.metrics_latest import fetch_latest_datapoint_with_fallbacks
-
-    monkeypatch.setattr("src.metrics_latest.fetch_latest_datapoint_for_metric_id", fake_fetch)
+    monkeypatch.setattr("src.metrics_latest.fetch_recent_datapoints_for_metric_id", fake_fetch)
     date, value, error = fetch_latest_datapoint_with_fallbacks([2021, 1860])
     assert calls == [2021, 1860]
     assert error is None

@@ -6,8 +6,6 @@
 # Fields:
 #   metric-id         — Data API catalog id (same as app ndx); required before upsert unless
 #                       already present in GET /data/Metric (create metrics in LeanDNA UI)
-#   datapoint-metric-id — optional; when the registry metric has no MetricDataPoint rows
-#                       (e.g. Control Tower tiles), fetch latest values from this catalog id
 #   metric-generator  — Python function that computes the daily value when wired in BPO;
 #                       null when no generator exists in this repo yet
 #
@@ -19,92 +17,91 @@ metrics:
     metric-id: 1860
     metric-generator: null
 
-  # On-Time Performance - UNMAPPED - NOT AUTOMATABLE
+  # On-Time Performance - NOT AUTOMATABLE
   "On Time Performance":
     metric-id: 1745
     metric-generator: null
 
-  # Customer-Reported Bugs - UNMAPPED - AUTOMATABLE
+  # Customer-Reported Bugs - AUTOMATABLE
   "Customer-Reported Bugs":
     metric-id: 2035
     metric-generator: null
 
-  # Tickets Beyond Service Thresholds - UNMAPPED - AUTOMATABLE
+  # Tickets Beyond Service Thresholds - AUTOMATABLE
   "Tickets Beyond Service Thresholds":
     metric-id: 2028
     metric-generator: null
 
- # Site Uptime % - UNMAPPED - NOT AUTOMATABLE
+  # Site Uptime % - NOT AUTOMATABLE
   "Site Uptime %":
-    metric-id: 
+    metric-id: 1769
     metric-generator: null
 
-# AI TOKEN USAGE - UNMAPPED - AUTOMATABLE
+  # AI Token Usage - AUTOMATABLE
   "AI Token Usage":
-    metric-id: 
+    metric-id: null
     metric-generator: null
 
-# Median Time to Complete SUT (Weeks) - UNMAPPED - NOT AUTOMATABLE
+  # Median Time to Complete SUT (Weeks) - NOT AUTOMATABLE
   "Median Time to Complete SUT (Weeks)":
-    metric-id: 
+    metric-id: 2175
     metric-generator: null
 
-# Sprint Delivery % - UNMAPPED - AUTOMATABLE
+  # Sprint Delivery % - AUTOMATABLE
   "Sprint Delivery %":
-    metric-id: 
+    metric-id: null
     metric-generator: null
 
-# TTFR (30 Days) - UNMAPPED - AUTOMATABLE 
+  # TTFR (30 Days) - AUTOMATABLE
   "TTFR (30 Days)":
-    metric-id: 
+    metric-id: null
     metric-generator: null
 
-# SLA Adherence (30 Days) - UNMAPPED - AUTOMATABLE 
+  # SLA Adherence (30 Days) - AUTOMATABLE
   "SLA Adherence (30 Days)":
-    metric-id: 
+    metric-id: null
     metric-generator: null
 
-# Automated - 2024
+  # Automated - 2024
   "Engineering Cycle Time (Sprint)":
-    metric-id:
+    metric-id: null
     metric-generator: get_dev_team_cycle_times
 
-  # Data Sync Failures (Month) - 2029Unmapped - 
+  # Data Sync Failures (Month) - 2029
   "Data Sync Failures (Month)":
-    metric-id:
+    metric-id: null
     metric-generator: null
 
   # Data Sync Failures (YTD) - 2031
   "Data Sync Failures (YTD)":
-    metric-id:
+    metric-id: null
     metric-generator: null
 
   # 2076
   "Engagement Automation %":
-    metric-id:
+    metric-id: null
     metric-generator: get_kpi_automation_pct
 
   # 2077
   "QBR Automation %":
-    metric-id:
+    metric-id: null
     metric-generator: null
 
   # 2085
   "Team Performance (Onshore vs. Offshore)":
-    metric-id:
+    metric-id: null
     metric-generator: null
 
   # 2086
   "Sprint Delivery %":
-    metric-id:
+    metric-id: null
     metric-generator: get_sprint_delivery_by_team
 
-  # 
   "Sprint Story Points Delivered":
     metric-id: null
     metric-generator: get_sprint_story_points_by_team
 
-  #2087
+  # 2087
   "AI Usage/Effectiveness":
-    metric-id: 
+    metric-id: null
     metric-generator: null
