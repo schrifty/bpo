@@ -1,4 +1,4 @@
-"""Tests for config/metrics.yaml registry helpers."""
+"""Tests for config/my-metrics.yaml registry helpers."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def test_get_kpi_automation_pct_on_repo_registry() -> None:
 
 
 def test_count_fully_defined_metrics_with_temp_registry(tmp_path: Path) -> None:
-    path = tmp_path / "metrics.yaml"
+    path = tmp_path / "my-metrics.yaml"
     path.write_text(
         """
 metrics:

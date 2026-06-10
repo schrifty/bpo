@@ -1,4 +1,4 @@
-"""Run metric generators from ``config/metrics.yaml`` and upsert LeanDNA datapoints."""
+"""Run metric generators from ``config/my-metrics.yaml`` and upsert LeanDNA datapoints."""
 
 from __future__ import annotations
 
@@ -310,7 +310,7 @@ def run_metrics_upsert(ctx: MetricUpsertContext, *, registry_path: Path | None =
         if hit is None:
             return {
                 "ok": False,
-                "error": f"metric {want!r} not found in config/metrics.yaml",
+                "error": f"metric {want!r} not found in config/my-metrics.yaml",
                 "date": ctx.entry_date,
                 "dry_run": ctx.dry_run,
                 "attempted": 0,
@@ -456,7 +456,7 @@ def metrics_upsert_context_from_namespace(ns: argparse.Namespace) -> MetricUpser
 def run_metrics_upsert_cli(argv: Sequence[str] | None = None, *, prog: str = "metrics-upsert") -> int:
     ap = argparse.ArgumentParser(
         prog=prog,
-        description="Run metrics.yaml generators and upsert LeanDNA MetricDataPoint rows.",
+        description="Run my-metrics.yaml generators and upsert LeanDNA MetricDataPoint rows.",
     )
     add_metrics_upsert_arguments(ap)
     ns = ap.parse_args(list(argv) if argv is not None else None)

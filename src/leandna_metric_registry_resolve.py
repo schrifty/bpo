@@ -1,4 +1,4 @@
-"""Resolve LeanDNA metric catalog ids for ``config/metrics.yaml`` upserts (lookup only)."""
+"""Resolve LeanDNA metric catalog ids for ``config/my-metrics.yaml`` upserts (lookup only)."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from src.leandna_metrics_catalog import (
 )
 from src.leandna_metrics_client import metric_definition_label
 
-# Portfolio metrics in ``config/metrics.yaml`` are owned on this LeanDNA site.
+# Portfolio metrics in ``config/my-metrics.yaml`` are owned on this LeanDNA site.
 METRICS_REGISTRY_DEFAULT_SITE_ID = 416
 
 
@@ -34,7 +34,7 @@ class MetricIdResolution:
 def _missing_metric_hint(metric_name: str, *, site_id: int) -> str:
     return (
         f"metric {metric_name!r} is not in GET /data/Metric (siteId={site_id}). "
-        "Create the metric in the LeanDNA app UI, set metric-id in config/metrics.yaml "
+        "Create the metric in the LeanDNA app UI, set metric-id in config/my-metrics.yaml "
         f"(or run metrics-get-mine --requested-sites {site_id} after creation), "
         "then re-run metrics-upsert."
     )
@@ -180,7 +180,7 @@ def resolve_registry_metric_id(
     if len(matches) > 1:
         ids = ", ".join(str(m.get("id")) for m in matches[:5])
         raise MetricRegistryResolveError(
-            f"multiple owned metrics named {metric_name!r} (ids: {ids}) — set metric-id in config/metrics.yaml"
+            f"multiple owned metrics named {metric_name!r} (ids: {ids}) — set metric-id in config/my-metrics.yaml"
         )
     if len(matches) == 1:
         mid = int(matches[0]["id"])

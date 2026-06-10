@@ -50,11 +50,11 @@ Implementation: [`src/config.py`](../../src/config.py) (`BPO_LEANDNA_DATA_API_EX
 
 The same mutation guard applies to **Data API** writes (`entry-insert`, `entry-upsert`, `entry-delete` via `src/leandna_metrics_write.py`).
 
-CLI (from repo root, with `.env` loaded): `metrics-get`, `metrics-get-mine`, `metric-get-with-data`, `entry-insert`, `entry-upsert`, `entry-delete`, `metrics-upsert`, and **`decks metrics-upsert`** (see `bin/` wrappers; scripts live under `scripts/`).
+CLI (from repo root, with `.env` loaded): `metrics-get`, `metrics-get-mine`, `metrics-get-latest`, `metric-get-with-data`, `entry-insert`, `entry-upsert`, `entry-delete`, `metrics-upsert`, and **`decks metrics-upsert`** (see `bin/` wrappers; scripts live under `scripts/`).
 
 `metrics-get-mine` resolves your user via Data API `GET /data/identity`, then filters `GET /data/Metric` by `ownerId`.
 
-**Automated daily values:** ``config/metrics.yaml`` lists owned metrics. Rows with a non-null ``metric-generator`` are updated by::
+**Automated daily values:** ``config/my-metrics.yaml`` lists owned metrics. Rows with a non-null ``metric-generator`` are updated by::
 
 ```bash
 decks metrics-upsert --dry-run          # generate only

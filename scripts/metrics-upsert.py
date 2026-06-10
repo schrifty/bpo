@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run ``config/metrics.yaml`` generators and upsert LeanDNA MetricDataPoint rows.
+"""Run ``config/my-metrics.yaml`` generators and upsert LeanDNA MetricDataPoint rows.
 
 For each registry row with ``metric-generator`` set, call the generator and upsert
 the value for ``--date`` (default today). Rows without a generator are skipped.

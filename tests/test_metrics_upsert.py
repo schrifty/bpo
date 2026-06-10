@@ -1,4 +1,4 @@
-"""Tests for metrics.yaml generator → LeanDNA upsert orchestration."""
+"""Tests for my-metrics.yaml generator → LeanDNA upsert orchestration."""
 
 from __future__ import annotations
 
@@ -97,7 +97,7 @@ def test_iter_metrics_to_upsert_includes_generator_without_metric_id() -> None:
 
 
 def test_dry_run_does_not_call_data_api(tmp_path: Path) -> None:
-    path = tmp_path / "metrics.yaml"
+    path = tmp_path / "my-metrics.yaml"
     path.write_text(
         """
 metrics:
@@ -127,7 +127,7 @@ def test_upsert_one_unknown_generator_fails() -> None:
 
 
 def test_run_metrics_upsert_filtered_metric_missing_id(tmp_path: Path) -> None:
-    path = tmp_path / "metrics.yaml"
+    path = tmp_path / "my-metrics.yaml"
     path.write_text(
         """
 metrics:
@@ -159,7 +159,7 @@ metrics:
 
 
 def test_run_metrics_upsert_reports_generator_failure(tmp_path: Path) -> None:
-    path = tmp_path / "metrics.yaml"
+    path = tmp_path / "my-metrics.yaml"
     path.write_text(
         """
 metrics:

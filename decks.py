@@ -92,7 +92,7 @@ Generate one deck (explicit)
       Pass ``--values`` for per-metric datapoint charts.
 
   decks metrics-upsert [--date YYYY-MM-DD] [--dry-run] [--metric NAME] [--requested-sites ID]
-      For each row in ``config/metrics.yaml`` with ``metric-generator`` set, call the generator
+      For each row in ``config/my-metrics.yaml`` with ``metric-generator`` set, call the generator
       and upsert ``MetricDataPoint`` for that date via the Data API. Rows without a generator
       are skipped.
 """
