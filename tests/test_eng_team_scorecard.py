@@ -54,6 +54,46 @@ def test_merge_team_scorecard_rows_combines_sources() -> None:
     assert lean["sprint_name"] == "Sprint 590"
 
 
+def test_merge_threads_lead_time_and_dedupes_shared_sprints() -> None:
+    # Boards 36 and 46 share sprint 2939; the global sprint-issue endpoint returns the
+    # same issues for both, so the merge must count that sprint once (no double count).
+    delivery = {
+        "teams": [
+            {"team": "CUSTOMER Active Scrum", "board_id": 36, "delivery_pct": 30.0,
+             "delivered": 34, "committed": 113, "sprint": {"name": "Week of Jun 1", "id": 2939}},
+            {"team": "Data Integration", "board_id": 46, "delivery_pct": 30.0,
+             "delivered": 34, "committed": 113, "sprint": {"name": "Week of Jun 1", "id": 2939}},
+            {"team": "LEAN Engineering", "board_id": 44, "delivery_pct": 100.0,
+             "delivered": 59, "committed": 59, "sprint": {"name": "Sprint595", "id": 2598}},
+        ]
+    }
+    story_points = {
+        "teams": [
+            {"board_id": 36, "story_points_delivered": 218.0, "story_points_committed": 525.0},
+            {"board_id": 46, "story_points_delivered": 218.0, "story_points_committed": 525.0},
+            {"board_id": 44, "story_points_delivered": 0.0, "story_points_committed": 0.0},
+        ]
+    }
+    cycle_time = {
+        "teams": [
+            {"board_id": 36, "median_days": 0.83, "lead_time_median_days": 7.56, "lead_time_measured": 145},
+            {"board_id": 46, "median_days": 0.83, "lead_time_median_days": 7.56, "lead_time_measured": 143},
+            {"board_id": 44, "median_days": 0.82, "lead_time_median_days": 4.87, "lead_time_measured": 33},
+        ]
+    }
+    rows = merge_team_scorecard_rows(delivery=delivery, story_points=story_points, cycle_time=cycle_time)
+    sprint_ids = [(r.get("sprint") or {}).get("id") for r in rows]
+    assert sprint_ids.count(2939) == 1, "shared sprint collapsed to one row"
+    customer = next(r for r in rows if (r.get("sprint") or {}).get("id") == 2939)
+    assert customer["shared_board_ids"] == [36, 46]
+    assert "Data Integration" in customer["team"]
+    assert customer["median_lead_days"] == 7.56
+
+    summary = summarize_team_scorecard(rows)
+    assert summary["total_story_points_delivered"] == 218.0  # not 436 (no double count)
+    assert summary["average_median_lead_days"] == round((7.56 + 4.87) / 2, 1)
+
+
 def test_summarize_team_scorecard() -> None:
     summary = summarize_team_scorecard(
         [

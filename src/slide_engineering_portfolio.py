@@ -235,7 +235,7 @@ def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     window_days = scorecard.get("window_days") or eng.get("days") or 30
     avg_delivery = summary.get("average_delivery_pct")
     total_sp = summary.get("total_story_points_delivered")
-    avg_cycle = summary.get("average_median_cycle_days")
+    avg_lead = summary.get("average_median_lead_days")
 
     if avg_delivery is not None and float(avg_delivery) >= 85:
         title = f"Teams On Track — {avg_delivery:.0f}% Avg Sprint Delivery"
@@ -250,7 +250,7 @@ def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
 
     # Business context line under the title (what this means, not JQL).
     context = (
-        "Sprint delivery, throughput, and cycle time across all development scrum teams "
+        "Sprint delivery, throughput, and lead time across all development scrum teams "
         "for the most recently closed sprint on each board."
     )
     _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 30, context)
@@ -264,7 +264,7 @@ def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     cards = [
         ("Avg sprint delivery", _format_scorecard_pct(avg_delivery)),
         ("Story points delivered", "—" if total_sp is None else f"{float(total_sp):.0f}"),
-        ("Avg median cycle time", _format_scorecard_days(avg_cycle)),
+        ("Avg lead time", _format_scorecard_days(avg_lead)),
     ]
     for card_index, (label, value) in enumerate(cards):
         _kpi_metric_card(
@@ -283,7 +283,7 @@ def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     # ── Native team table ────────────────────────────────────────────────────
     table_top = card_y + card_h + 18
     col_widths = list(_SCORECARD_COL_WIDTHS)
-    headers = ["Team", "Latest sprint", "Delivery", "Story pts", "Cycle", "Done"]
+    headers = ["Team", "Latest sprint", "Delivery", "Story pts", "Lead time", "Done"]
     # Left-align text columns; right-align the four numeric columns.
     aligns = ["START", "START", "END", "END", "END", "END"]
 
@@ -332,7 +332,7 @@ def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
             team.get("story_points_delivered"),
             team.get("story_points_committed"),
         )
-        cycle = _format_scorecard_days(team.get("median_cycle_days"))
+        cycle = _format_scorecard_days(team.get("median_lead_days"))
         delivered = team.get("delivered")
         committed = team.get("committed")
         done_text = "—"
@@ -364,7 +364,7 @@ def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
 
     # ── Scope footer anchored to the slide bottom ─────────────────────────────
     scope_parts = [
-        f"Latest closed sprint per board · {window_days}d median cycle window",
+        f"Latest closed sprint per board · lead time = created→resolved, {window_days}d window",
         "Story pts & Done = delivered / committed",
     ]
     errors = scorecard.get("errors")
@@ -720,6 +720,8 @@ def eng_backlog_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     median_age = snapshot.get("median_open_age_days")
     avg_cycle = snapshot.get("avg_resolved_cycle_days")
     resolved_6mo = int(snapshot.get("resolved_in_6mo_count") or 0)
+    resolved_capped = bool(snapshot.get("resolved_in_6mo_capped"))
+    resolved_label = f"{resolved_6mo:,}+" if resolved_capped else f"{resolved_6mo:,}"
     over_90 = int(snapshot.get("open_over_90_count") or 0)
     by_status = snapshot.get("by_status_open") or {}
     age_buckets = snapshot.get("open_age_buckets") or {}
@@ -745,7 +747,7 @@ def eng_backlog_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
             ("Open tickets", str(open_count)),
             ("Median open age", _fmt_days(median_age)),
             ("Avg resolve cycle", _fmt_days(avg_cycle)),
-            ("Resolved (6 mo)", str(resolved_6mo)),
+            ("Resolved (6 mo)", resolved_label),
         ],
         y=BODY_Y + 22,
     )
@@ -778,9 +780,11 @@ def eng_backlog_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
         series_name="Open",
     )
 
+    cap_note = "  ·  resolved capped at fetch limit (actual is higher)" if resolved_capped else ""
     _eng_scope_footer(
         reqs, sid,
-        "Open = unresolved LEAN tickets  ·  age measured from created date  ·  cycle = open→resolved over last 6 mo",
+        "Open = unresolved LEAN tickets  ·  age measured from created date  ·  "
+        f"cycle = open→resolved over last 6 mo{cap_note}",
     )
     return idx + 1
 
@@ -820,34 +824,37 @@ def eng_capacity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
     engineers_active = sum(1 for r in rows if r["wip"] > 0)
 
     if total_wip and top3_share >= 60:
-        title = f"Capacity Concentrated — Top 3 Engineers Hold {top3_share}% of Open WIP"
+        title = f"Capacity Concentrated — Top 3 Engineers Hold {top3_share}% of Assigned WIP"
     elif total_wip:
-        title = f"Engineering Load — {total_wip} Open Items Across {engineers_active} Engineers"
+        title = f"Engineering Load — {total_wip} Assigned In-Flight Items Across {engineers_active} Engineers"
     else:
-        title = "Engineering Capacity — No Open WIP On LEAN Board"
+        title = "Engineering Capacity — No Assigned WIP On LEAN Board"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
     _slide_title(reqs, sid, title)
 
-    context = "Where engineering effort sits now (open WIP) versus recent throughput (resolved)."
+    context = (
+        "Per-engineer in-flight WIP (assigned, active sprint statuses) versus recent "
+        "throughput — not the full escalation backlog."
+    )
     _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
     _style(reqs, f"{sid}_ctx", 0, len(context), size=11, color=NAVY, font=FONT)
 
     cards_y = _eng_kpi_row(
         reqs, sid,
         [
-            ("Engineers with open WIP", str(engineers_active)),
-            ("Total open WIP", str(total_wip)),
+            ("Engineers with WIP", str(engineers_active)),
+            ("Assigned in-flight WIP", str(total_wip)),
             ("Top 3 share of WIP", f"{top3_share}%" if total_wip else "—"),
         ],
         y=BODY_Y + 22,
     )
 
-    # Native table: Engineer | Open WIP | Resolved 30d | Resolved 90d.
+    # Native table: Engineer | WIP now | Resolved 30d | Resolved 90d.
     table_top = cards_y + 18
     col_widths = [288.0, 112.0, 112.0, 112.0]
-    headers = ["Engineer", "Open WIP", "Resolved 30d", "Resolved 90d"]
+    headers = ["Engineer", "WIP now", "Resolved 30d", "Resolved 90d"]
     aligns = ["START", "END", "END", "END"]
     max_rows = max(1, int((_ENG_CONTENT_BOTTOM - table_top) // 24) - 1)
     display = rows[:max_rows]
@@ -887,7 +894,8 @@ def eng_capacity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
 
     _eng_scope_footer(
         reqs, sid,
-        "Open WIP = unresolved LEAN tickets assigned now  ·  Resolved 30d/90d = tickets closed in trailing window",
+        "WIP now = in-flight LEAN tickets (Open/In Progress/In Review) assigned to an engineer — "
+        "distinct from the full escalation backlog  ·  Resolved 30d/90d = tickets closed in trailing window",
     )
     return idx + 1
 

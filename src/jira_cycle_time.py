@@ -523,6 +523,20 @@ def board_cycle_time_summary(
         timeout=timeout,
     )
 
+    # Lead time = calendar days from created to resolved for issues completed in the
+    # window. This is the intuitive "cycle time" execs expect and what portfolio
+    # backlog slides report — distinct from the active in-progress time below.
+    lead_days: list[float] = []
+    for issue in issues:
+        f = issue.get("fields") or {}
+        if not isinstance(f, dict):
+            continue
+        created_dt = _parse_jira_dt(f.get("created"))
+        resolved_dt = _parse_jira_dt(f.get("resolutiondate"))
+        if created_dt and resolved_dt and resolved_dt >= created_dt:
+            lead_days.append((resolved_dt - created_dt).total_seconds() / 86400.0)
+    lead_median = round(statistics.median(lead_days), 2) if lead_days else None
+
     issue_rows = _compute_issue_cycle_rows(
         client, issues, status_map=smap, workers=workers, timeout=timeout
     )
@@ -579,6 +593,11 @@ def board_cycle_time_summary(
         "p85_days": summary.p85_days,
         "min_days": summary.min_days,
         "max_days": summary.max_days,
+        "lead_time_median_days": lead_median,
+        "lead_time_measured": len(lead_days),
+        "lead_time_definition": (
+            "Calendar days from created to resolved for issues completed in the window"
+        ),
         "cycle_time_definition": (
             "Calendar days summed while status category is In Progress "
             f"({ _ACTIVE_CATEGORY }) until first Done"

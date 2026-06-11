@@ -30,6 +30,36 @@ def _index_teams_by_board(payload: dict[str, Any] | None) -> dict[int, dict[str,
     return out
 
 
+def _dedupe_shared_sprint_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse boards that resolve to the same sprint into one row.
+
+    Some boards (e.g. multiple CUSTOMER scrum boards) share a single sprint, so the
+    Agile sprint-issue endpoint returns the same issues for each. Counting both rows
+    would double-count delivery and story points, so we keep the first board per
+    sprint id, fold the other board's team label into it, and drop the duplicate.
+    """
+    out: list[dict[str, Any]] = []
+    by_sprint: dict[Any, dict[str, Any]] = {}
+    for row in rows:
+        sid = (row.get("sprint") or {}).get("id")
+        if sid is None:
+            out.append(row)
+            continue
+        keep = by_sprint.get(sid)
+        if keep is None:
+            by_sprint[sid] = row
+            out.append(row)
+            continue
+        shared = keep.setdefault("shared_board_ids", [keep.get("board_id")])
+        if row.get("board_id") not in shared:
+            shared.append(row.get("board_id"))
+        keep_team = str(keep.get("team") or "")
+        row_team = str(row.get("team") or "")
+        if row_team and row_team not in keep_team:
+            keep["team"] = f"{keep_team} + {row_team}"
+    return out
+
+
 def merge_team_scorecard_rows(
     *,
     delivery: dict[str, Any] | None,
@@ -79,11 +109,13 @@ def merge_team_scorecard_rows(
                 "story_points_delivered": story_row.get("story_points_delivered"),
                 "story_points_committed": story_row.get("story_points_committed"),
                 "median_cycle_days": cycle_row.get("median_days"),
+                "median_lead_days": cycle_row.get("lead_time_median_days"),
                 "measured_cycle_issues": cycle_row.get("measured"),
+                "measured_lead_issues": cycle_row.get("lead_time_measured"),
                 "errors": errors or None,
             }
         )
-    return rows
+    return _dedupe_shared_sprint_rows(rows)
 
 
 def summarize_team_scorecard(teams: list[dict[str, Any]]) -> dict[str, Any]:
@@ -98,13 +130,20 @@ def summarize_team_scorecard(teams: list[dict[str, Any]]) -> dict[str, Any]:
         for row in teams
         if row.get("median_cycle_days") is not None
     ]
+    median_leads = [
+        float(row["median_lead_days"])
+        for row in teams
+        if row.get("median_lead_days") is not None
+    ]
     total_sp = sum(float(row.get("story_points_delivered") or 0) for row in teams)
     return {
         "average_delivery_pct": round(statistics.mean(delivery_pcts), 1) if delivery_pcts else None,
         "average_median_cycle_days": round(statistics.mean(median_cycles), 1) if median_cycles else None,
+        "average_median_lead_days": round(statistics.mean(median_leads), 1) if median_leads else None,
         "total_story_points_delivered": round(total_sp, 1) if total_sp else None,
         "teams_with_delivery": len(delivery_pcts),
         "teams_with_cycle_time": len(median_cycles),
+        "teams_with_lead_time": len(median_leads),
     }
 
 
@@ -149,6 +188,12 @@ def build_eng_team_scorecard(
         story_points=story_points,
         cycle_time=cycle_time,
     )
+    for row in teams:
+        shared = row.get("shared_board_ids")
+        if shared and len(shared) > 1:
+            errors.append(
+                f"boards {shared} share one sprint; counted once as '{row.get('team')}'"
+            )
     summary = summarize_team_scorecard(teams)
 
     return {

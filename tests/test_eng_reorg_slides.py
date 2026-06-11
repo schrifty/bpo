@@ -83,6 +83,21 @@ def test_backlog_health_title_flags_aging() -> None:
     assert "Over 90d" in title and "28" in title
 
 
+def test_backlog_health_marks_capped_resolved() -> None:
+    report = _report()
+    snap = report["eng_portfolio"]["project_snapshots"]["LEAN"]
+    snap["resolved_in_6mo_count"] = 1500
+    snap["resolved_in_6mo_capped"] = True
+    reqs: list = []
+    eng_backlog_health_slide(reqs, "sid_bh2", report, 0)
+    texts = [
+        r["insertText"]["text"]
+        for r in reqs
+        if isinstance(r, dict) and "insertText" in r
+    ]
+    assert any("1,500+" in t for t in texts), "capped resolved count should render with a + suffix"
+
+
 def test_capacity_table_justifies_and_right_aligns() -> None:
     from src.slides_theme import CONTENT_W
 
