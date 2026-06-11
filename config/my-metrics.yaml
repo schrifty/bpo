@@ -4,6 +4,8 @@
 # Populated from metrics-get-mine (Data API GET /data/identity + /data/Metric).
 #
 # Fields:
+#   description       — Human-readable summary of what the metric measures; filled in for
+#                       entries with a generator, null when not yet defined
 #   metric-id         — Data API catalog id (same as app ndx); required before upsert unless
 #                       already present in GET /data/Metric (create metrics in LeanDNA UI)
 #   metric-generator  — Python function that computes the daily value when wired in BPO;
@@ -14,93 +16,122 @@
 metrics:
   # Control Tower
   "Time to Value":
+    description: null
     metric-id: 1860
     metric-generator: null
 
   # On-Time Performance
   "On Time Performance":
+    description: null
     metric-id: 1745
     metric-generator: null
 
   # Customer-Reported Bugs
   "Customer-Reported Bugs":
+    description: null
     metric-id: 2035
     metric-generator: null
 
   # Tickets Beyond Service Thresholds
   "Tickets Beyond Service Thresholds":
+    description: null
     metric-id: 2028
     metric-generator: null
 
   # Site Uptime %
   "Site Uptime %":
+    description: null
     metric-id: 1769
     metric-generator: null
 
   # AI Token Usage
   "AI Token Usage":
+    description: null
     metric-id: null
     metric-generator: null
 
   # Median Time to Complete SUT (Weeks)
   "Median Time to Complete SUT (Weeks)":
+    description: null
     metric-id: 2175
     metric-generator: null
 
   # Sprint Delivery % - AUTOMATABLE
   "Sprint Delivery %":
+    description: null
     metric-id: 2086
     metric-generator: null
 
   # TTFR (30 Days) - AUTOMATABLE
   "TTFR (30 Days)":
+    description: null
     metric-id: null
     metric-generator: null
 
   # SLA Adherence (30 Days) - AUTOMATABLE
   "SLA Adherence (30 Days)":
+    description: null
     metric-id: null
     metric-generator: null
 
   "Engineering Cycle Time (Sprint)":
+    description: >-
+      Median active in-progress cycle time across development boards, in days —
+      time issues spend in working statuses (e.g. In Progress, In Review), not
+      counting backlog wait. Computed from Jira changelogs by get_dev_team_cycle_times.
     metric-id: 2024
     metric-generator: get_dev_team_cycle_times
 
-  # Median lead time (created->resolved) across dev boards.
   "Engineering Lead Time (Days)":
+    description: >-
+      Median lead time across development boards, in days — calendar time from
+      issue created to resolved. Reported as the median of each board's median
+      lead time by get_dev_team_lead_time.
     metric-id: 2179
     metric-generator: get_dev_team_lead_time
 
   # Data Sync Failures (Month) - 2029
   "Data Sync Failures (Month)":
+    description: null
     metric-id: null
     metric-generator: null
 
   # Data Sync Failures (YTD) - 2031
   "Data Sync Failures (YTD)":
+    description: null
     metric-id: null
     metric-generator: null
 
   # 2076
   "KPI Automation %":
+    description: >-
+      Count of fully-defined metrics in this registry (those having both a
+      metric-id and a metric-generator), produced by get_kpi_automation_pct as
+      the KPI automation numerator.
     metric-id: null
     metric-generator: get_kpi_automation_pct
 
   # 2077
   "QBR Automation %":
+    description: null
     metric-id: null
     metric-generator: null
 
   # 2085
   "Team Performance (Onshore vs. Offshore)":
+    description: null
     metric-id: null
     metric-generator: null
 
   "Sprint Story Points Delivered":
+    description: >-
+      Total story points completed in the most recent sprint across development
+      boards, aggregated from Jira by get_sprint_story_points_by_team.
     metric-id: null
     metric-generator: get_sprint_story_points_by_team
 
   # 2087
   "AI Usage/Effectiveness":
+    description: null
     metric-id: null
     metric-generator: null
