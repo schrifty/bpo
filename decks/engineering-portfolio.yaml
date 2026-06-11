@@ -13,10 +13,13 @@ purpose: |
 
 slides:
   - slide: eng_portfolio_title
+  - slide: eng_exec_summary
   - slide: eng_team_scorecard
   - slide: eng_current_sprint
+  - slide: eng_flow_bottlenecks
   - slide: eng_backlog_health
   - slide: eng_capacity
+  - slide: eng_work_split
   - slide: eng_bug_health
   - slide: eng_velocity
   - slide: eng_enhancements

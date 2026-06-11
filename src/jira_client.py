@@ -10,7 +10,7 @@ import threading
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -555,6 +555,152 @@ def _extract_comments(comment_field: Any) -> list[str]:
         if t:
             texts.append(t)
     return texts
+
+
+_ACTIVE_WIP_STATUSES = ("In Progress", "In Review")
+# Labels / issue types that mark reactive (unplanned) work rather than roadmap.
+_REACTIVE_LABELS = (
+    "customer_escalation", "escalation", "escalated", "incident",
+    "hotfix", "support", "production", "outage", "sev1", "sev2",
+)
+_REACTIVE_TYPES = ("Bug", "Incident", "Escalation", "Support", "Problem")
+
+
+def _eng_parse_day(value: Any) -> "date | None":
+    try:
+        return date.fromisoformat(str(value or "")[:10])
+    except (ValueError, TypeError):
+        return None
+
+
+def _eng_median(values: list[float]) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return round(ordered[mid], 1)
+    return round((ordered[mid - 1] + ordered[mid]) / 2, 1)
+
+
+def _is_reactive_ticket(ticket: dict) -> bool:
+    """Classify a LEAN ticket as reactive/unplanned (bug, escalation, incident)."""
+    if (ticket.get("type") or "") in _REACTIVE_TYPES:
+        return True
+    labels = {str(label).lower() for label in (ticket.get("labels") or [])}
+    return any(reactive in labels for reactive in _REACTIVE_LABELS)
+
+
+def compute_eng_flow(in_flight: list[dict], closed: list[dict], *, today: "date | None" = None) -> dict[str, Any]:
+    """Derive flow / bottleneck signals from in-flight and recently closed LEAN tickets.
+
+    Surfaces where work is piling up (active WIP by status), where it is stalling
+    (items idle past a freshness threshold), how old active work is, and whether
+    delivery cycle time is trending up or down over recent closed weeks.
+
+    ``updated`` is used as an idle proxy (full per-status durations need changelog
+    history, which this payload does not carry).
+    """
+    today = today or date.today()
+    active = [t for t in in_flight if (t.get("status") or "") in _ACTIVE_WIP_STATUSES]
+
+    def _idle_days(ticket: dict) -> int | None:
+        d = _eng_parse_day(ticket.get("updated"))
+        return (today - d).days if d else None
+
+    def _age_days(ticket: dict) -> int | None:
+        d = _eng_parse_day(ticket.get("created"))
+        return (today - d).days if d else None
+
+    active_ages = [a for a in (_age_days(t) for t in active) if a is not None]
+    stale_gt5 = 0
+    stale_gt10 = 0
+    stale_rows: list[dict[str, Any]] = []
+    for ticket in active:
+        idle = _idle_days(ticket)
+        if idle is None:
+            continue
+        if idle > 5:
+            stale_gt5 += 1
+        if idle > 10:
+            stale_gt10 += 1
+        if idle > 5:
+            stale_rows.append({
+                "key": ticket.get("key", ""),
+                "summary": (ticket.get("summary") or "")[:70],
+                "status": ticket.get("status", ""),
+                "assignee": ticket.get("assignee", "") or "Unassigned",
+                "idle_days": idle,
+                "age_days": _age_days(ticket),
+            })
+    stale_rows.sort(key=lambda r: -(r["idle_days"] or 0))
+
+    # Cycle-time trend: median (resolved - created) of closed tickets bucketed by
+    # the ISO week they closed in, oldest → newest (updated ≈ resolved for closed).
+    week_cycles: dict[str, list[float]] = {}
+    for ticket in closed:
+        created = _eng_parse_day(ticket.get("created"))
+        resolved = _eng_parse_day(ticket.get("updated"))
+        if not (created and resolved) or resolved < created:
+            continue
+        iso = resolved.isocalendar()
+        wk = f"{iso[0]}-W{iso[1]:02d}"
+        week_cycles.setdefault(wk, []).append((resolved - created).days)
+    cycle_trend = [
+        {"week": wk, "median_cycle_days": _eng_median(vals), "closed": len(vals)}
+        for wk, vals in sorted(week_cycles.items())
+    ][-6:]
+    cycle_delta = None
+    medians = [p["median_cycle_days"] for p in cycle_trend if p["median_cycle_days"] is not None]
+    if len(medians) >= 2:
+        cycle_delta = round(medians[-1] - medians[0], 1)
+
+    return {
+        "active_count": len(active),
+        "in_progress": sum(1 for t in active if (t.get("status") or "") == "In Progress"),
+        "in_review": sum(1 for t in active if (t.get("status") or "") == "In Review"),
+        "stale_gt5": stale_gt5,
+        "stale_gt10": stale_gt10,
+        "median_active_age_days": _eng_median([float(a) for a in active_ages]),
+        "oldest_active_age_days": max(active_ages) if active_ages else None,
+        "stale_items": stale_rows[:6],
+        "cycle_trend": cycle_trend,
+        "cycle_delta_days": cycle_delta,
+    }
+
+
+def compute_eng_work_split(
+    in_flight: list[dict],
+    closed: list[dict],
+    *,
+    escalated_to_eng: int = 0,
+) -> dict[str, Any]:
+    """Split engineering work into planned (roadmap) vs unplanned (reactive) load.
+
+    Reactive = bugs, escalations, incidents, or escalation-labeled tickets.  Returns
+    current WIP split, trailing closed-period split, and the reactive share of each,
+    so a VP can see how much capacity keep-the-lights-on work is consuming.
+    """
+    def _split(tickets: list[dict]) -> dict[str, int]:
+        reactive = sum(1 for t in tickets if _is_reactive_ticket(t))
+        return {"planned": len(tickets) - reactive, "unplanned": reactive, "total": len(tickets)}
+
+    wip = _split(in_flight)
+    closed_split = _split(closed)
+    bugs_wip = sum(1 for t in in_flight if (t.get("type") or "") == "Bug")
+    return {
+        "wip": wip,
+        "closed": closed_split,
+        "reactive_wip_pct": round(wip["unplanned"] / wip["total"] * 100) if wip["total"] else 0,
+        "reactive_closed_pct": (
+            round(closed_split["unplanned"] / closed_split["total"] * 100) if closed_split["total"] else 0
+        ),
+        "unplanned_breakdown": {
+            "Bugs": bugs_wip,
+            "Escalations / other": max(0, wip["unplanned"] - bugs_wip),
+        },
+        "escalated_to_eng": int(escalated_to_eng or 0),
+    }
 
 
 def _generate_eng_insights(eng: dict) -> dict[str, list[str]]:
@@ -4292,6 +4438,12 @@ class JiraClient:
             logger.warning("Sprint story-point velocity fetch failed: %s", e)
             sprint_velocity = {"error": str(e), "boards": []}
 
+        # ── Flow / bottleneck and planned-vs-unplanned signals (derived) ──
+        flow = compute_eng_flow(in_flight, closed)
+        work_split = compute_eng_work_split(
+            in_flight, closed, escalated_to_eng=support_pressure.get("escalated_to_eng", 0)
+        )
+
         eng_data = {
             "base_url": self.base_url,
             "days": days,
@@ -4313,6 +4465,8 @@ class JiraClient:
             "help_ticket_trends": help_ticket_trends,
             "team_scorecard": team_scorecard,
             "sprint_velocity": sprint_velocity,
+            "flow": flow,
+            "work_split": work_split,
             "jql_queries": self._jql_since(jql_start),
         }
 

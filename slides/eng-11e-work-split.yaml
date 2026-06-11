@@ -1,0 +1,15 @@
+id: eng_work_split
+type: standard
+order: 85
+title: Planned vs. Unplanned Work
+slide_type: eng_work_split
+data_tools: []
+customers: all
+
+prompt: >
+  How engineering capacity splits between planned roadmap work and unplanned
+  reactive work (bugs, escalations, incidents). KPI cards show planned WIP,
+  unplanned WIP, and the reactive share of both open and recently-closed work.
+  Two charts compare planned vs unplanned open WIP and break the unplanned
+  portion into bugs versus escalations. Single question: how much capacity is
+  keep-the-lights-on work consuming instead of the roadmap?

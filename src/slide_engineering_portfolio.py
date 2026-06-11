@@ -892,6 +892,342 @@ def eng_capacity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
     return idx + 1
 
 
+# ── VP-level synthesis slides (executive summary / flow / planned-vs-unplanned) ──
+
+def _eng_callout_column(
+    reqs: list[dict[str, Any]],
+    sid: str,
+    oid: str,
+    x: float,
+    y: float,
+    w: float,
+    heading: str,
+    items: list[tuple[str, dict[str, float]]],
+    *,
+    max_items: int = 6,
+    row_h: float = 30.0,
+) -> float:
+    """Titled column of color-bulleted, prescriptive lines. Returns y below the list."""
+    _box(reqs, f"{sid}_{oid}_h", sid, x, y, w, 16, heading)
+    _style(reqs, f"{sid}_{oid}_h", 0, len(heading), bold=True, size=12, color=NAVY, font=FONT)
+    cy = y + 22
+    if not items:
+        empty = "Nothing flagged."
+        _box(reqs, f"{sid}_{oid}_e", sid, x, cy, w, 16, empty)
+        _style(reqs, f"{sid}_{oid}_e", 0, len(empty), size=10, color=GRAY, font=FONT)
+        return cy + 20
+    for i, (text, color) in enumerate(items[:max_items]):
+        bullet = f"\u25cf  {text}"
+        _box(reqs, f"{sid}_{oid}_b{i}", sid, x, cy, w, row_h, bullet)
+        _style(reqs, f"{sid}_{oid}_b{i}", 0, 1, bold=True, size=10, color=color, font=FONT)
+        _style(reqs, f"{sid}_{oid}_b{i}", 1, len(bullet), size=10, color=NAVY, font=FONT)
+        cy += row_h
+    return cy
+
+
+def _trend_arrow(delta: float | None, *, good_is_down: bool = False) -> tuple[str, dict[str, float]]:
+    """Return (glyph, color) for a delta. ``good_is_down`` flips the semantic color."""
+    if delta is None or abs(delta) < 1e-9:
+        return "\u2192", GRAY
+    rising = delta > 0
+    glyph = "\u25b2" if rising else "\u25bc"
+    favorable = (not rising) if good_is_down else rising
+    return glyph, (GREEN if favorable else RED)
+
+
+def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Bottom-line-up-front: headline KPIs, a risk watch-list, and decisions needed."""
+    eng = report.get("eng_portfolio") or {}
+    if not eng:
+        return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
+
+    sprint = eng.get("sprint") or {}
+    sprint_name = _format_sprint_name_for_display(str(sprint.get("name", "") or "Current Sprint"))
+
+    summary = (eng.get("team_scorecard") or {}).get("summary") or {}
+    avg_delivery = summary.get("average_delivery_pct")
+    lean = (eng.get("project_snapshots") or {}).get("LEAN") or {}
+    open_esc = int(lean.get("open_count") or 0)
+    over_90 = int(lean.get("open_over_90_count") or 0)
+    oldest = lean.get("oldest_open_age_days")
+    flow = eng.get("flow") or {}
+    stale5 = int(flow.get("stale_gt5") or 0)
+    cycle_delta = flow.get("cycle_delta_days")
+    split = eng.get("work_split") or {}
+    reactive_wip_pct = int(split.get("reactive_wip_pct") or 0)
+    blockers = eng.get("blocker_critical") or []
+    by_assignee = eng.get("by_assignee") or {}
+
+    series = build_sprint_velocity_series(eng.get("sprint_velocity"))
+    sp_total = series.get("sp_total") or []
+    vel_now = sp_total[-1] if sp_total else None
+    vel_prev = sp_total[-2] if len(sp_total) >= 2 else None
+    vel_delta = (vel_now - vel_prev) if (vel_now is not None and vel_prev is not None) else None
+    vel_arrow, _ = _trend_arrow(vel_delta)
+
+    # Capacity concentration (key-person risk).
+    wip_values = sorted((int(v) for v in by_assignee.values()), reverse=True)
+    total_wip = sum(wip_values)
+    top3_share = int(round(sum(wip_values[:3]) / total_wip * 100)) if total_wip else 0
+
+    # ── Build risk watch-list and paired actions (deterministic, threshold-driven) ──
+    risks: list[tuple[str, dict[str, float]]] = []
+    actions: list[tuple[str, dict[str, float]]] = []
+    if blockers:
+        n = len(blockers)
+        risks.append((f"{n} blocker/critical item{'s' if n != 1 else ''} in flight", RED))
+        actions.append((f"Assign owners and clear the {n} blocker/critical item{'s' if n != 1 else ''} this sprint", RED))
+    if avg_delivery is not None and float(avg_delivery) < 70:
+        risks.append((f"Sprint delivery at {float(avg_delivery):.0f}% — commitments slipping", RED))
+        actions.append(("Right-size sprint commitments to restore predictability", RED))
+    if over_90:
+        oldest_txt = f", oldest {float(oldest):.0f}d" if oldest is not None else ""
+        risks.append((f"{over_90} escalation{'s' if over_90 != 1 else ''} open >90 days{oldest_txt}", AMBER))
+        actions.append((f"Run a backlog scrub on the {over_90} escalation{'s' if over_90 != 1 else ''} aging past 90 days", AMBER))
+    if stale5:
+        risks.append((f"{stale5} active item{'s' if stale5 != 1 else ''} idle >5 days — flow stalling", AMBER))
+        actions.append((f"Unblock or re-assign the {stale5} stalled item{'s' if stale5 != 1 else ''}", AMBER))
+    if reactive_wip_pct >= 40:
+        risks.append((f"{reactive_wip_pct}% of WIP is unplanned/reactive work", AMBER))
+        actions.append((f"Protect roadmap capacity — {reactive_wip_pct}% is going to reactive work", AMBER))
+    if total_wip and top3_share >= 60:
+        risks.append((f"Top 3 engineers hold {top3_share}% of open WIP — key-person risk", AMBER))
+        actions.append(("Rebalance WIP off the top 3 engineers to reduce key-person risk", AMBER))
+    if cycle_delta is not None and cycle_delta > 1:
+        risks.append((f"Cycle time up {cycle_delta:.0f}d over recent weeks", AMBER))
+    if not risks:
+        risks.append(("No critical risks flagged this period", GREEN))
+    if not actions:
+        actions.append(("Maintain current cadence; no urgent interventions needed", GREEN))
+
+    red_count = sum(1 for _, c in risks if c is RED)
+    if red_count:
+        title = f"Engineering Review — {red_count} Item{'s' if red_count != 1 else ''} Need Attention"
+    elif any(c is AMBER for _, c in risks):
+        title = "Engineering Review — Watch Items, No Blockers"
+    else:
+        title = "Engineering Review — On Track"
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+
+    context = f"Bottom line for {sprint_name}: where things stand, what to watch, and what to decide."
+    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
+    _style(reqs, f"{sid}_ctx", 0, len(context), size=11, color=NAVY, font=FONT)
+
+    vel_value = "—" if vel_now is None else f"{float(vel_now):.0f} SP {vel_arrow}"
+    cards_y = _eng_kpi_row(
+        reqs, sid,
+        [
+            ("Avg sprint delivery", "—" if avg_delivery is None else f"{float(avg_delivery):.0f}%"),
+            ("Story-pt velocity", vel_value),
+            ("Open escalations", str(open_esc)),
+            ("Reactive load", f"{reactive_wip_pct}%"),
+        ],
+        y=BODY_Y + 22,
+    )
+
+    col_top = cards_y + 18
+    col_gap = 28
+    col_w = (CONTENT_W - col_gap) / 2
+    right_x = MARGIN + col_w + col_gap
+    _eng_callout_column(reqs, sid, "risk", MARGIN, col_top, col_w, "What to worry about", risks)
+    _eng_callout_column(reqs, sid, "act", right_x, col_top, col_w, "Decisions needed", actions)
+
+    _eng_scope_footer(
+        reqs, sid,
+        f"Synthesis of this deck  ·  {sprint_name}  ·  \u25b2/\u25bc vs prior sprint where data allows  ·  Source: Jira",
+    )
+    return idx + 1
+
+
+def eng_flow_bottlenecks_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Where work stalls: active WIP by stage, idle items, and cycle-time trend."""
+    eng = report.get("eng_portfolio") or {}
+    flow = eng.get("flow") or {}
+    if not eng or not flow:
+        return _missing_data_slide(reqs, sid, report, idx, "Engineering flow data (Jira LEAN in-flight tickets)")
+
+    active = int(flow.get("active_count") or 0)
+    in_review = int(flow.get("in_review") or 0)
+    stale5 = int(flow.get("stale_gt5") or 0)
+    median_age = flow.get("median_active_age_days")
+    cycle_delta = flow.get("cycle_delta_days")
+    cycle_trend = [p for p in (flow.get("cycle_trend") or []) if p.get("median_cycle_days") is not None]
+    stale_items = flow.get("stale_items") or []
+
+    if stale5:
+        title = f"Flow Bottleneck — {stale5} Active Item{'s' if stale5 != 1 else ''} Stalled (>5d Idle)"
+    elif active:
+        title = f"Flow Healthy — {active} Active Item{'s' if active != 1 else ''} Moving"
+    else:
+        title = "Flow & Bottlenecks — No Active Work"
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+
+    context = "Where in-flight work is moving versus stalling, and whether delivery cycle time is trending up."
+    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
+    _style(reqs, f"{sid}_ctx", 0, len(context), size=11, color=NAVY, font=FONT)
+
+    cycle_now = cycle_trend[-1]["median_cycle_days"] if cycle_trend else None
+    cycle_arrow, _ = _trend_arrow(cycle_delta, good_is_down=True)
+    cards_y = _eng_kpi_row(
+        reqs, sid,
+        [
+            ("Active WIP", str(active)),
+            ("In review (chokepoint)", str(in_review)),
+            ("Idle >5 days", str(stale5)),
+            ("Cycle time (median)", "—" if cycle_now is None else f"{float(cycle_now):.0f}d {cycle_arrow}"),
+        ],
+        y=BODY_Y + 22,
+    )
+
+    charts = report.get("_charts")
+    body_top = cards_y + 18
+    col_gap = 24
+    left_w = (CONTENT_W - col_gap) // 2
+    right_w = CONTENT_W - left_w - col_gap
+    right_x = MARGIN + left_w + col_gap
+    chart_h = _ENG_CONTENT_BOTTOM - body_top - 20
+
+    _eng_simple_bar_chart(
+        reqs, sid, charts, oid="cycle",
+        header="Median cycle time by close-week (days)",
+        labels=[str(p.get("week", "")).split("-W")[-1] for p in cycle_trend],
+        values=[float(p["median_cycle_days"]) for p in cycle_trend],
+        x=MARGIN, y=body_top, w=left_w, chart_h=chart_h,
+        series_name="Days",
+    )
+
+    # Right column: the worst-stalled active items (idle longest).
+    _box(reqs, f"{sid}_stale_h", sid, right_x, body_top, right_w, 14, "Most-stalled active items")
+    _style(reqs, f"{sid}_stale_h", 0, len("Most-stalled active items"), bold=True, size=10, color=NAVY, font=FONT)
+    if stale_items:
+        col_widths = [right_w * 0.18, right_w * 0.46, right_w * 0.18, right_w * 0.18]
+        headers = ["Key", "Status", "Idle", "Age"]
+        aligns = ["START", "START", "END", "END"]
+        num_rows = 1 + len(stale_items[:6])
+        table_id = f"{sid}_stbl"
+        reqs.append({
+            "createTable": {
+                "objectId": table_id,
+                "elementProperties": {
+                    "pageObjectId": sid,
+                    "size": _sz(sum(col_widths), num_rows * 22.0),
+                    "transform": _tf(right_x, body_top + 20),
+                },
+                "rows": num_rows,
+                "columns": len(headers),
+            }
+        })
+        _clean_table(reqs, table_id, num_rows, len(headers))
+        _table_column_widths(reqs, table_id, col_widths)
+        for ci, h in enumerate(headers):
+            _table_cell_text(reqs, table_id, 0, ci, h)
+            _table_cell_style(reqs, table_id, 0, ci, len(h), bold=True, color=GRAY, size=8, font=FONT, align=aligns[ci])
+        status_chars = max_chars_one_line_for_table_col(col_widths[1], 8.5)
+        for ri, item in enumerate(stale_items[:6], start=1):
+            idle = int(item.get("idle_days") or 0)
+            age = item.get("age_days")
+            cells = [
+                (str(item.get("key", "")), NAVY, MONO, "START"),
+                (_truncate_one_line(str(item.get("status", "")), status_chars), GRAY, FONT, "START"),
+                (f"{idle}d", RED if idle > 10 else AMBER, MONO, "END"),
+                ("—" if age is None else f"{int(age)}d", NAVY, MONO, "END"),
+            ]
+            for ci, (text, color, font, align) in enumerate(cells):
+                _table_cell_text(reqs, table_id, ri, ci, text)
+                _table_cell_style(reqs, table_id, ri, ci, len(text), color=color, size=8.5, font=font, align=align)
+    else:
+        msg = "No active items idle beyond 5 days."
+        _box(reqs, f"{sid}_stale_e", sid, right_x, body_top + 22, right_w, 14, msg)
+        _style(reqs, f"{sid}_stale_e", 0, len(msg), size=9, color=GRAY, font=FONT)
+
+    median_txt = f"median active age {float(median_age):.0f}d" if median_age is not None else "median active age n/a"
+    _eng_scope_footer(
+        reqs, sid,
+        f"Active = In Progress / In Review  ·  idle = days since last update  ·  {median_txt}  ·  cycle = created→resolved",
+    )
+    return idx + 1
+
+
+def eng_work_split_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Planned (roadmap) vs unplanned (reactive) engineering load — where capacity goes."""
+    eng = report.get("eng_portfolio") or {}
+    split = eng.get("work_split") or {}
+    if not eng or not split:
+        return _missing_data_slide(reqs, sid, report, idx, "Engineering work-split data (Jira LEAN tickets)")
+
+    wip = split.get("wip") or {}
+    closed = split.get("closed") or {}
+    reactive_wip_pct = int(split.get("reactive_wip_pct") or 0)
+    reactive_closed_pct = int(split.get("reactive_closed_pct") or 0)
+    breakdown = split.get("unplanned_breakdown") or {}
+    planned_wip = int(wip.get("planned") or 0)
+    unplanned_wip = int(wip.get("unplanned") or 0)
+
+    if reactive_wip_pct >= 40:
+        title = f"Reactive Work Dominating — {reactive_wip_pct}% of WIP Is Unplanned"
+    elif (planned_wip + unplanned_wip) > 0:
+        title = f"Roadmap-Focused — {100 - reactive_wip_pct}% of WIP Is Planned"
+    else:
+        title = "Planned vs. Unplanned — No Open Work"
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+
+    context = "How much engineering capacity goes to roadmap work versus reactive bugs and escalations."
+    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
+    _style(reqs, f"{sid}_ctx", 0, len(context), size=11, color=NAVY, font=FONT)
+
+    cards_y = _eng_kpi_row(
+        reqs, sid,
+        [
+            ("Planned WIP", str(planned_wip)),
+            ("Unplanned WIP", str(unplanned_wip)),
+            ("Reactive share (WIP)", f"{reactive_wip_pct}%"),
+            ("Reactive share (closed)", f"{reactive_closed_pct}%"),
+        ],
+        y=BODY_Y + 22,
+    )
+
+    charts = report.get("_charts")
+    body_top = cards_y + 18
+    col_gap = 24
+    left_w = (CONTENT_W - col_gap) // 2
+    right_w = CONTENT_W - left_w - col_gap
+    right_x = MARGIN + left_w + col_gap
+    chart_h = _ENG_CONTENT_BOTTOM - body_top - 20
+
+    _eng_simple_bar_chart(
+        reqs, sid, charts, oid="split",
+        header="Open WIP: planned vs unplanned",
+        labels=["Planned", "Unplanned"],
+        values=[planned_wip, unplanned_wip],
+        x=MARGIN, y=body_top, w=left_w, chart_h=chart_h,
+        series_name="Tickets",
+    )
+    bd_items = [(k, int(v)) for k, v in breakdown.items() if int(v or 0) > 0]
+    _eng_simple_bar_chart(
+        reqs, sid, charts, oid="rx",
+        header="Unplanned work breakdown",
+        labels=[k for k, _ in bd_items],
+        values=[v for _, v in bd_items],
+        x=right_x, y=body_top, w=right_w, chart_h=chart_h,
+        series_name="Tickets",
+    )
+
+    _eng_scope_footer(
+        reqs, sid,
+        "Unplanned = bugs, escalations, incidents, escalation-labeled tickets  ·  WIP = open now, closed = trailing window",
+    )
+    return idx + 1
+
+
 def eng_bug_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
     """Bug health: open bugs (full-width summaries), priority mix in subtitle, blockers under list."""
     eng = report.get("eng_portfolio") or {}
