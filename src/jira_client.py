@@ -4261,6 +4261,14 @@ class JiraClient:
 
         help_ticket_trends = self._get_help_ticket_volume_trends()
 
+        try:
+            from .eng_team_scorecard import build_eng_team_scorecard
+
+            team_scorecard = build_eng_team_scorecard(self, days=days)
+        except Exception as e:
+            logger.warning("Team scorecard fetch failed: %s", e)
+            team_scorecard = {"error": str(e), "teams": [], "summary": {}}
+
         eng_data = {
             "base_url": self.base_url,
             "days": days,
@@ -4280,6 +4288,7 @@ class JiraClient:
             "support_pressure": support_pressure,
             "project_snapshots": project_snapshots,
             "help_ticket_trends": help_ticket_trends,
+            "team_scorecard": team_scorecard,
             "jql_queries": self._jql_since(jql_start),
         }
 

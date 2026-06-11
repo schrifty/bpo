@@ -155,6 +155,166 @@ def eng_portfolio_title_slide(reqs: list[dict[str, Any]], sid: str, report: dict
     return idx + 1
 
 
+def _format_scorecard_pct(value: Any) -> str:
+    if value is None:
+        return "—"
+    try:
+        return f"{float(value):.0f}%"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _format_scorecard_sp(delivered: Any, committed: Any) -> str:
+    if delivered is None and committed is None:
+        return "—"
+    try:
+        d = float(delivered or 0)
+        c = float(committed or 0)
+        if c <= 0 and d <= 0:
+            return "—"
+        return f"{d:.0f} / {c:.0f}"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _format_scorecard_days(value: Any) -> str:
+    if value is None:
+        return "—"
+    try:
+        return f"{float(value):.1f}d"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Per-team sprint delivery, story points, and cycle time on one table."""
+    eng = report.get("eng_portfolio") or {}
+    scorecard = eng.get("team_scorecard") or {}
+    teams = scorecard.get("teams") or []
+    if not teams:
+        detail = scorecard.get("error") or "Team scorecard (Jira boards 44, 36, 46)"
+        return _missing_data_slide(reqs, sid, report, idx, detail)
+
+    summary = scorecard.get("summary") or {}
+    window_days = scorecard.get("window_days") or eng.get("days") or 30
+    avg_delivery = summary.get("average_delivery_pct")
+    total_sp = summary.get("total_story_points_delivered")
+    avg_cycle = summary.get("average_median_cycle_days")
+
+    if avg_delivery is not None and float(avg_delivery) >= 85:
+        title = f"Teams On Track — {avg_delivery:.0f}% Avg Sprint Delivery"
+    elif avg_delivery is not None:
+        title = f"Sprint Delivery Mixed — {avg_delivery:.0f}% Portfolio Average"
+    else:
+        title = "Development Team Scorecard"
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+
+    context = (
+        f"Latest closed sprint per board  ·  {window_days}d median cycle time window"
+    )
+    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
+    _style(reqs, f"{sid}_ctx", 0, len(context), size=9, color=GRAY, font=FONT)
+
+    card_y = BODY_Y + 18
+    card_h = 52
+    card_gap = 12
+    card_w = (CONTENT_W - 2 * card_gap) / 3
+    cards = [
+        ("Avg delivery", _format_scorecard_pct(avg_delivery)),
+        ("SP delivered", "—" if total_sp is None else f"{float(total_sp):.0f}"),
+        ("Avg cycle time", _format_scorecard_days(avg_cycle)),
+    ]
+    for card_index, (label, value) in enumerate(cards):
+        _kpi_metric_card(
+            reqs,
+            f"{sid}_kpi{card_index}",
+            sid,
+            MARGIN + card_index * (card_w + card_gap),
+            card_y,
+            card_w,
+            card_h,
+            label,
+            value,
+            accent=BLUE,
+        )
+
+    table_top = card_y + card_h + 16
+    col_team = MARGIN
+    col_sprint = MARGIN + 150
+    col_delivery = MARGIN + 270
+    col_sp = MARGIN + 340
+    col_cycle = MARGIN + 420
+    col_done = MARGIN + 490
+    row_h = 18
+    header_h = 16
+
+    headers = [
+        (col_team, "Team"),
+        (col_sprint, "Sprint"),
+        (col_delivery, "Delivery"),
+        (col_sp, "Story pts"),
+        (col_cycle, "Cycle"),
+        (col_done, "Done"),
+    ]
+    for header_index, (x_pos, label) in enumerate(headers):
+        box_id = f"{sid}_h{header_index}"
+        _box(reqs, box_id, sid, x_pos, table_top, 96, header_h, label)
+        _style(reqs, box_id, 0, len(label), bold=True, size=9, color=GRAY, font=FONT)
+
+    y = table_top + header_h + 4
+    for row_index, team in enumerate(teams):
+        if y + row_h > BODY_BOTTOM - 8:
+            break
+        team_name = _truncate_one_line(str(team.get("team") or ""), 22)
+        sprint_name = _format_sprint_name_for_display(str(team.get("sprint_name") or ""))
+        sprint_name = _truncate_one_line(sprint_name, 20)
+        delivery = _format_scorecard_pct(team.get("delivery_pct"))
+        story_pts = _format_scorecard_sp(
+            team.get("story_points_delivered"),
+            team.get("story_points_committed"),
+        )
+        cycle = _format_scorecard_days(team.get("median_cycle_days"))
+        delivered = team.get("delivered")
+        committed = team.get("committed")
+        done_text = "—"
+        if delivered is not None and committed is not None:
+            done_text = f"{delivered}/{committed}"
+
+        cells = [
+            (col_team, team_name, NAVY, FONT, False),
+            (col_sprint, sprint_name, GRAY, FONT, False),
+            (col_delivery, delivery, BLUE if delivery not in ("—", "0%") else GRAY, MONO, True),
+            (col_sp, story_pts, NAVY, MONO, False),
+            (col_cycle, cycle, NAVY, MONO, False),
+            (col_done, done_text, GRAY, MONO, False),
+        ]
+        for cell_index, (x_pos, text, color, font, bold) in enumerate(cells):
+            box_id = f"{sid}_r{row_index}c{cell_index}"
+            _box(reqs, box_id, sid, x_pos, y, 96, row_h, text)
+            _style(
+                reqs,
+                box_id,
+                0,
+                len(text),
+                bold=bold,
+                size=10,
+                color=color,
+                font=font,
+            )
+        y += row_h
+
+    errors = scorecard.get("errors")
+    if errors:
+        note = "Data gaps: " + "; ".join(str(e) for e in errors[:2])
+        _box(reqs, f"{sid}_err", sid, MARGIN, BODY_BOTTOM - 14, CONTENT_W, 12, note)
+        _style(reqs, f"{sid}_err", 0, len(note), size=8, color=GRAY, font=FONT)
+
+    return idx + 1
+
+
 def eng_sprint_snapshot_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
     """Sprint snapshot: current sprint state, type mix, active work by theme."""
     eng = report.get("eng_portfolio") or {}

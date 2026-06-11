@@ -13,6 +13,7 @@ purpose: |
 
 slides:
   - slide: eng_portfolio_title
+  - slide: eng_team_scorecard
   - slide: eng_jira_project
     jira_project: LEAN
     title: "LEAN — Engineering escalations"

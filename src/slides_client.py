@@ -41,6 +41,7 @@ from .slide_engineering_portfolio import (
     eng_insight_bullets as _eng_insight_bullets,
     eng_jira_project_slide as _eng_jira_project_slide,
     eng_portfolio_title_slide as _eng_portfolio_title_slide,
+    eng_team_scorecard_slide as _eng_team_scorecard_slide,
     eng_sprint_snapshot_slide as _eng_sprint_snapshot_slide,
     eng_support_pressure_slide as _eng_support_pressure_slide,
     eng_velocity_slide as _eng_velocity_slide,
