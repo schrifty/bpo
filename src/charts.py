@@ -469,11 +469,17 @@ class DeckCharts:
         *,
         background: dict[str, float] | None = None,
         show_title: bool = True,
+        suppress_legend: bool = False,
     ) -> tuple[str, int]:
         """Create a combo chart (bars + lines). Returns (spreadsheet_id, chart_id).
 
         Set *show_title* False when the slide already states the takeaway — the in-chart
         title otherwise steals vertical space from the plot on tight layouts.
+
+        Set *suppress_legend* True for multi-series combos and render a readable
+        slide-level legend via ``slide_chart_legend`` (the embedded Sheets legend is
+        unreadably small once scaled into a slide); colors follow ``BRAND_SERIES_COLORS``
+        in ``bar_series`` then ``line_series`` order.
         """
         sheet_id = self._add_sheet_tab(title)
         all_series_names = list(bar_series.keys()) + list(line_series.keys())
@@ -527,7 +533,7 @@ class DeckCharts:
             "fontName": CHART_SPEC_FONT_NAME,
             "basicChart": {
                 "chartType": "COMBO",
-                "legendPosition": "BOTTOM_LEGEND",
+                "legendPosition": "NO_LEGEND" if suppress_legend else "BOTTOM_LEGEND",
                 "axis": [
                     {"position": "BOTTOM_AXIS"},
                     {"position": "LEFT_AXIS"},

@@ -1,0 +1,14 @@
+id: eng_capacity
+type: standard
+order: 83
+title: Engineering Capacity & Load
+slide_type: eng_capacity
+data_tools: []
+customers: all
+
+prompt: >
+  Engineering capacity and load for the LEAN team. Consolidates the two "who is doing
+  what" views into one table: per engineer, open WIP now versus tickets resolved in the
+  trailing 30 and 90 days, sorted by current load. KPI cards summarize engineers with
+  open WIP, total open WIP, and the share of WIP held by the top three engineers.
+  Single question: where is engineering effort going and is load balanced?

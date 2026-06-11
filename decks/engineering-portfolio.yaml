@@ -14,10 +14,9 @@ purpose: |
 slides:
   - slide: eng_portfolio_title
   - slide: eng_team_scorecard
-  - slide: eng_jira_project
-    jira_project: LEAN
-    title: "LEAN — Engineering escalations"
-  - slide: eng_sprint_snapshot
+  - slide: eng_current_sprint
+  - slide: eng_backlog_health
+  - slide: eng_capacity
   - slide: eng_bug_health
   - slide: eng_velocity
   - slide: eng_enhancements

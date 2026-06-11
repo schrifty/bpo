@@ -1,0 +1,13 @@
+id: eng_current_sprint
+type: standard
+order: 81
+title: Current Sprint
+slide_type: eng_current_sprint
+data_tools: []
+customers: all
+
+prompt: >
+  Current-sprint health for the LEAN engineering team. KPI cards summarize open,
+  active (in progress / in review), bugs in flight, and closed this period, followed
+  by a "what we're working on" breakdown of active work by theme ([bracket] prefix).
+  Single question: is the active sprint on track and what is it focused on?

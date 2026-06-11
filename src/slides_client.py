@@ -34,7 +34,10 @@ from .slide_engagement import engagement_slide as _engagement_slide
 from .slide_exports import exports_slide as _exports_slide
 from .slide_engineering_portfolio import (
     customer_project_volume_trends_slide as _customer_project_volume_trends_slide,
+    eng_backlog_health_slide as _eng_backlog_health_slide,
     eng_bug_health_slide as _eng_bug_health_slide,
+    eng_capacity_slide as _eng_capacity_slide,
+    eng_current_sprint_slide as _eng_current_sprint_slide,
     eng_enhancements_open_slide as _eng_enhancements_open_slide,
     eng_enhancements_shipped_slide as _eng_enhancements_shipped_slide,
     eng_help_volume_trends_slide as _eng_help_volume_trends_slide,

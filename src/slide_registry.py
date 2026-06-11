@@ -17,7 +17,10 @@ from .slide_depth import depth_slide as _depth_slide
 from .slide_engagement import engagement_slide as _engagement_slide
 from .slide_engineering_portfolio import (
     customer_project_volume_trends_slide as _customer_project_volume_trends_slide,
+    eng_backlog_health_slide as _eng_backlog_health_slide,
     eng_bug_health_slide as _eng_bug_health_slide,
+    eng_capacity_slide as _eng_capacity_slide,
+    eng_current_sprint_slide as _eng_current_sprint_slide,
     eng_enhancements_open_slide as _eng_enhancements_open_slide,
     eng_enhancements_shipped_slide as _eng_enhancements_shipped_slide,
     eng_help_volume_trends_slide as _eng_help_volume_trends_slide,
@@ -194,6 +197,9 @@ _SLIDE_BUILDERS = {
     "qbr_deployment": _qbr_deployment_slide,
     "eng_portfolio_title": _eng_portfolio_title_slide,
     "eng_team_scorecard": _eng_team_scorecard_slide,
+    "eng_current_sprint": _eng_current_sprint_slide,
+    "eng_backlog_health": _eng_backlog_health_slide,
+    "eng_capacity": _eng_capacity_slide,
     "eng_sprint_snapshot": _eng_sprint_snapshot_slide,
     "eng_bug_health": _eng_bug_health_slide,
     "eng_velocity": _eng_velocity_slide,

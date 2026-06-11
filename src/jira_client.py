@@ -1286,6 +1286,18 @@ class JiraClient:
                 return round(ordered[mid], 1)
             return round((ordered[mid - 1] + ordered[mid]) / 2, 1)
 
+        # Open-ticket aging buckets (backlog health: is old work piling up?).
+        open_age_buckets = {"0-7d": 0, "8-30d": 0, "31-90d": 0, "90d+": 0}
+        for age in open_ages_days:
+            if age <= 7:
+                open_age_buckets["0-7d"] += 1
+            elif age <= 30:
+                open_age_buckets["8-30d"] += 1
+            elif age <= 90:
+                open_age_buckets["31-90d"] += 1
+            else:
+                open_age_buckets["90d+"] += 1
+
         return {
             "project_key": pk,
             "base_url": self.base_url,
@@ -1295,6 +1307,9 @@ class JiraClient:
             "avg_resolved_cycle_days": _avg(cycle_days),
             "resolved_in_6mo_count": len(resolved_issues),
             "assignee_resolved_table": assignee_table,
+            "open_age_buckets": open_age_buckets,
+            "open_over_90_count": open_age_buckets["90d+"],
+            "oldest_open_age_days": round(max(open_ages_days), 1) if open_ages_days else None,
             "jql_queries": self._jql_since(jql_start),
         }
 
@@ -4269,6 +4284,14 @@ class JiraClient:
             logger.warning("Team scorecard fetch failed: %s", e)
             team_scorecard = {"error": str(e), "teams": [], "summary": {}}
 
+        try:
+            from .jira_sprint_story_points import get_sprint_story_points_history
+
+            sprint_velocity = get_sprint_story_points_history(self, history_count=6, timeout=60.0)
+        except Exception as e:
+            logger.warning("Sprint story-point velocity fetch failed: %s", e)
+            sprint_velocity = {"error": str(e), "boards": []}
+
         eng_data = {
             "base_url": self.base_url,
             "days": days,
@@ -4289,6 +4312,7 @@ class JiraClient:
             "project_snapshots": project_snapshots,
             "help_ticket_trends": help_ticket_trends,
             "team_scorecard": team_scorecard,
+            "sprint_velocity": sprint_velocity,
             "jql_queries": self._jql_since(jql_start),
         }
 

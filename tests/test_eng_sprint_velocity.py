@@ -1,0 +1,77 @@
+"""Tests for the sprint story-point velocity series builder."""
+
+from __future__ import annotations
+
+from src.eng_sprint_velocity import build_sprint_velocity_series
+
+
+def _board(team: str, board_id: int, sprints_newest_first: list[dict]) -> dict:
+    return {"team": team, "board_id": board_id, "board_name": team, "sprints": sprints_newest_first}
+
+
+def _sprint(name: str, sp: float, tickets: int, *, error: str | None = None) -> dict:
+    if error:
+        return {"error": error}
+    return {
+        "sprint": {"name": name},
+        "story_points_delivered": sp,
+        "delivered_issues": tickets,
+    }
+
+
+def test_builds_aligned_series_newest_to_right() -> None:
+    history = {
+        "boards": [
+            # newest-first per list_board_sprints
+            _board("LEAN Engineering", 44, [
+                _sprint("Sprint 592", 30, 10),
+                _sprint("Sprint 591", 20, 8),
+                _sprint("Sprint 590", 25, 9),
+            ]),
+            _board("Data Integration", 46, [
+                _sprint("DI 12", 12, 4),
+                _sprint("DI 11", 8, 3),
+            ]),
+        ],
+    }
+    series = build_sprint_velocity_series(history, slots=6)
+
+    assert series["error"] is None
+    assert series["used_slots"] == 3
+    # Labels prefer the primary (LEAN) board's sprint names, oldest -> newest.
+    assert series["labels"] == ["Sprint 590", "Sprint 591", "Sprint 592"]
+    assert series["teams"] == ["LEAN Engineering", "Data Integration"]
+    # Latest sprint aligns to the rightmost slot for every board.
+    assert series["sp_by_team"]["LEAN Engineering"] == [25.0, 20.0, 30.0]
+    # Data Integration has only 2 sprints -> oldest slot is 0.
+    assert series["sp_by_team"]["Data Integration"] == [0.0, 8.0, 12.0]
+    # Totals combine boards per slot.
+    assert series["sp_total"] == [25.0, 28.0, 42.0]
+    assert series["tickets_total"] == [9, 11, 14]
+
+
+def test_respects_slot_cap() -> None:
+    sprints = [_sprint(f"S{i}", float(i), i) for i in range(8, 0, -1)]
+    history = {"boards": [_board("LEAN Engineering", 44, sprints)]}
+    series = build_sprint_velocity_series(history, slots=4)
+    assert series["used_slots"] == 4
+    assert len(series["labels"]) == 4
+    # Newest sprint (S8) sits at the rightmost slot.
+    assert series["sp_by_team"]["LEAN Engineering"][-1] == 8.0
+
+
+def test_drops_error_sprints_and_reports_when_empty() -> None:
+    history = {
+        "boards": [_board("LEAN Engineering", 44, [_sprint("x", 0, 0, error="boom")])],
+        "error": None,
+    }
+    series = build_sprint_velocity_series(history, slots=6)
+    assert series["used_slots"] == 0
+    assert series["labels"] == []
+    assert series["error"]
+
+
+def test_handles_missing_payload() -> None:
+    series = build_sprint_velocity_series(None, slots=6)
+    assert series["error"]
+    assert series["labels"] == []

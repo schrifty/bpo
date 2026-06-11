@@ -15,6 +15,7 @@ from .slide_primitives import (
     kpi_metric_card as _kpi_metric_card,
     missing_data_slide as _missing_data_slide,
     rect as _rect,
+    slide_chart_legend as _slide_chart_legend,
     slide_title as _slide_title,
     style as _style,
     support_title_includes_project as _support_title_includes_project,
@@ -22,6 +23,7 @@ from .slide_primitives import (
     table_cell_text as _table_cell_text,
     table_column_widths as _table_column_widths,
 )
+from .eng_sprint_velocity import build_sprint_velocity_series
 from .slide_requests import append_slide as _slide, append_text_box as _box
 from .slide_utils import (
     max_chars_one_line_for_table_col,
@@ -43,7 +45,7 @@ from .slides_theme import (
     WHITE,
     _cap_chunk_list,
 )
-from .charts import CHART_AXIS_PT
+from .charts import BRAND_SERIES_COLORS, CHART_AXIS_PT
 
 GREEN = {"red": 0.13, "green": 0.65, "blue": 0.35}
 RED = {"red": 0.85, "green": 0.15, "blue": 0.15}
@@ -518,6 +520,378 @@ def eng_sprint_snapshot_slide(reqs: list[dict[str, Any]], sid: str, report: dict
     return idx + 1
 
 
+# ── Reorganized engineering team slides (current sprint / backlog / capacity) ──
+# Shared geometry: bottom-anchored scope footer per SLIDE_DESIGN_STANDARDS.
+_ENG_FOOTER_H = 22.0
+_ENG_FOOTER_Y = float(SLIDE_H) - 10.0 - _ENG_FOOTER_H
+_ENG_CONTENT_BOTTOM = _ENG_FOOTER_Y - 8.0
+
+
+def _eng_scope_footer(reqs: list[dict[str, Any]], sid: str, text: str) -> None:
+    _box(reqs, f"{sid}_scope", sid, MARGIN, _ENG_FOOTER_Y, CONTENT_W, _ENG_FOOTER_H, text)
+    _style(reqs, f"{sid}_scope", 0, len(text), size=8, color=GRAY, font=FONT)
+
+
+def _eng_kpi_row(
+    reqs: list[dict[str, Any]],
+    sid: str,
+    cards: list[tuple[str, str]],
+    *,
+    y: float,
+    h: float = 54.0,
+    gap: float = 16.0,
+    accent: dict[str, float] = BLUE,
+) -> float:
+    """Render a justified row of KPI cards across CONTENT_W. Returns y below the row."""
+    n = max(1, len(cards))
+    card_w = (CONTENT_W - (n - 1) * gap) / n
+    for i, (label, value) in enumerate(cards):
+        _kpi_metric_card(
+            reqs, f"{sid}_kpi{i}", sid,
+            MARGIN + i * (card_w + gap), y, card_w, h,
+            label, value, accent=accent,
+        )
+    return y + h
+
+
+def _fmt_days(value: Any) -> str:
+    if value is None:
+        return "—"
+    try:
+        return f"{float(value):.0f} d"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _eng_simple_bar_chart(
+    reqs: list[dict[str, Any]],
+    sid: str,
+    charts: Any,
+    *,
+    oid: str,
+    header: str,
+    labels: list[str],
+    values: list[float | int],
+    x: float,
+    y: float,
+    w: float,
+    chart_h: float,
+    series_name: str = "Tickets",
+    horizontal: bool = False,
+) -> None:
+    """Section header + embedded single-series bar chart."""
+    _box(reqs, f"{sid}_{oid}_h", sid, x, y, w, 14, header)
+    _style(reqs, f"{sid}_{oid}_h", 0, len(header), bold=True, size=10, color=NAVY, font=FONT)
+    if not (labels and charts):
+        empty = "No data"
+        _box(reqs, f"{sid}_{oid}_e", sid, x, y + 20, w, 14, empty)
+        _style(reqs, f"{sid}_{oid}_e", 0, len(empty), size=9, color=GRAY, font=FONT)
+        return
+    try:
+        from .charts import embed_chart
+
+        ss_id, chart_id = charts.add_bar_chart(
+            title=header,
+            labels=labels,
+            series={series_name: list(values)},
+            horizontal=horizontal,
+            show_title=False,
+        )
+        embed_chart(reqs, f"{sid}_{oid}", sid, ss_id, chart_id, x, y + 18, w, chart_h, linked=False)
+    except Exception as exc:
+        logger.warning("Eng bar chart %s failed: %s", oid, exc)
+
+
+def eng_current_sprint_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Current sprint health: commitment KPIs + what the team is working on, by theme."""
+    eng = report.get("eng_portfolio") or {}
+    if not eng:
+        return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
+
+    sprint = eng.get("sprint") or {}
+    sprint_name = _format_sprint_name_for_display(str(sprint.get("name", "") or "Current Sprint"))
+    sprint_start = sprint.get("start", "")
+    sprint_end = sprint.get("end", "")
+    try:
+        start_dt = datetime.strptime(sprint_start, "%Y-%m-%d")
+        end_dt = datetime.strptime(sprint_end, "%Y-%m-%d")
+        date_range = f"{start_dt.strftime('%b %-d')} – {end_dt.strftime('%b %-d, %Y')}"
+    except Exception:
+        date_range = f"{sprint_start} – {sprint_end}".strip(" –")
+
+    in_flight = int(eng.get("in_flight_count", 0) or 0)
+    closed = int(eng.get("closed_count", 0) or 0)
+    by_status = eng.get("by_status", {}) or {}
+    active = int(by_status.get("In Progress", 0) or 0) + int(by_status.get("In Review", 0) or 0)
+    by_type = eng.get("by_type", {}) or {}
+    bugs = int(by_type.get("Bug", 0) or 0)
+
+    if bugs and in_flight:
+        title = f"{sprint_name} — {active} Active, {bugs} Bug{'s' if bugs != 1 else ''} In Flight"
+    elif in_flight:
+        title = f"{sprint_name} — {active} of {in_flight} Items Active"
+    else:
+        title = f"{sprint_name} — No Open Work In Sprint"
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+
+    context = "What the LEAN engineering team is working on in the active sprint."
+    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
+    _style(reqs, f"{sid}_ctx", 0, len(context), size=11, color=NAVY, font=FONT)
+
+    card_y = BODY_Y + 24
+    cards_y = _eng_kpi_row(
+        reqs, sid,
+        [
+            ("Open in sprint", str(in_flight)),
+            ("Active (in progress/review)", str(active)),
+            ("Bugs in flight", str(bugs)),
+            ("Closed this period", str(closed)),
+        ],
+        y=card_y,
+    )
+
+    insights = (eng.get("insights") or {}).get("sprint_snapshot", [])
+    insights = insights[:2]
+    insights_h = len(insights) * 20
+    theme_top = cards_y + 18
+    theme_bottom = _ENG_CONTENT_BOTTOM - (insights_h + 8 if insights else 0)
+
+    themes = [t for t in (eng.get("themes") or []) if int(t.get("total") or 0) > 0][:8]
+    header = "Active work by theme"
+    _box(reqs, f"{sid}_tht", sid, MARGIN, theme_top, CONTENT_W, 16, header)
+    _style(reqs, f"{sid}_tht", 0, len(header), bold=True, size=11, color=NAVY, font=FONT)
+    y = theme_top + 20
+
+    if themes:
+        max_total = max(int(t.get("total") or 0) for t in themes) or 1
+        label_w = 150.0
+        count_w = 70.0
+        bar_x = MARGIN + label_w
+        bar_max = CONTENT_W - label_w - count_w - 6
+        avail_rows = max(1, int((theme_bottom - y) // 22))
+        for ri, theme in enumerate(themes[:avail_rows]):
+            total_n = int(theme.get("total") or 0)
+            active_n = int(theme.get("in_progress") or 0)
+            bugs_n = int(theme.get("bugs") or 0)
+            name = _truncate_one_line(str(theme.get("theme") or "—"), 22)
+            _box(reqs, f"{sid}_tl{ri}", sid, MARGIN, y, label_w, 18, name)
+            _style(reqs, f"{sid}_tl{ri}", 0, len(name), size=10, color=NAVY, font=FONT)
+            bar_w = max(4, int(total_n / max_total * bar_max))
+            bar_color = {"red": 0.9, "green": 0.4, "blue": 0.0} if bugs_n else BLUE
+            _box(reqs, f"{sid}_tb{ri}", sid, bar_x, y + 4, bar_w, 9, "")
+            reqs.append({
+                "updateShapeProperties": {
+                    "objectId": f"{sid}_tb{ri}",
+                    "shapeProperties": {
+                        "shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": bar_color}}},
+                        "outline": {"outlineFill": {"solidFill": {"color": {"rgbColor": NAVY}}}, "weight": {"magnitude": 0.75, "unit": "PT"}},
+                    },
+                    "fields": "shapeBackgroundFill,outline.outlineFill,outline.weight",
+                }
+            })
+            counts = f"{total_n}" + (f" · {active_n} act" if active_n else "") + (f" · {bugs_n}B" if bugs_n else "")
+            _box(reqs, f"{sid}_tc{ri}", sid, bar_x + bar_w + 6, y, count_w + 40, 18, counts)
+            _style(reqs, f"{sid}_tc{ri}", 0, len(counts), size=9, color=RED if bugs_n else GRAY, font=FONT)
+            y += 22
+    else:
+        msg = "No themed work in flight (LEAN summaries need a [Theme] prefix)."
+        _box(reqs, f"{sid}_tnone", sid, MARGIN, y, CONTENT_W, 16, msg)
+        _style(reqs, f"{sid}_tnone", 0, len(msg), size=10, color=GRAY, font=FONT)
+
+    if insights:
+        eng_insight_bullets(reqs, sid, insights, MARGIN, _ENG_CONTENT_BOTTOM - insights_h, CONTENT_W)
+
+    _eng_scope_footer(reqs, sid, f"Active sprint: {sprint_name}  ·  {date_range}  ·  Source: Jira LEAN board")
+    return idx + 1
+
+
+def eng_backlog_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Escalation backlog health: queue size, aging, and status composition for LEAN."""
+    eng = report.get("eng_portfolio") or {}
+    snapshot = (eng.get("project_snapshots") or {}).get("LEAN") or {}
+    if not snapshot or (snapshot.get("error") and "open_count" not in snapshot):
+        detail = snapshot.get("error") if snapshot else "LEAN project snapshot"
+        return _missing_data_slide(reqs, sid, report, idx, f"Escalation backlog (LEAN): {detail or 'unavailable'}")
+
+    open_count = int(snapshot.get("open_count") or 0)
+    median_age = snapshot.get("median_open_age_days")
+    avg_cycle = snapshot.get("avg_resolved_cycle_days")
+    resolved_6mo = int(snapshot.get("resolved_in_6mo_count") or 0)
+    over_90 = int(snapshot.get("open_over_90_count") or 0)
+    by_status = snapshot.get("by_status_open") or {}
+    age_buckets = snapshot.get("open_age_buckets") or {}
+
+    if over_90 > 0 and median_age is not None:
+        title = f"Escalation Backlog Aging — Median {median_age:.0f}d, {over_90} Over 90d"
+    elif median_age is not None:
+        title = f"Escalation Backlog Healthy — Median {median_age:.0f}d, None Over 90d"
+    else:
+        title = f"Escalation Backlog — {open_count} Open"
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+
+    context = "Health of the LEAN engineering escalation queue: how much is open and how old it is."
+    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
+    _style(reqs, f"{sid}_ctx", 0, len(context), size=11, color=NAVY, font=FONT)
+
+    cards_y = _eng_kpi_row(
+        reqs, sid,
+        [
+            ("Open tickets", str(open_count)),
+            ("Median open age", _fmt_days(median_age)),
+            ("Avg resolve cycle", _fmt_days(avg_cycle)),
+            ("Resolved (6 mo)", str(resolved_6mo)),
+        ],
+        y=BODY_Y + 22,
+    )
+
+    charts = report.get("_charts")
+    body_top = cards_y + 18
+    col_gap = 24
+    left_w = (CONTENT_W - col_gap) // 2
+    right_w = CONTENT_W - left_w - col_gap
+    right_x = MARGIN + left_w + col_gap
+    chart_h = _ENG_CONTENT_BOTTOM - body_top - 20
+
+    status_items = list(by_status.items())[:8]
+    _eng_simple_bar_chart(
+        reqs, sid, charts, oid="status",
+        header="Open tickets by status",
+        labels=[s for s, _ in status_items],
+        values=[c for _, c in status_items],
+        x=MARGIN, y=body_top, w=left_w, chart_h=chart_h,
+        series_name="Open",
+    )
+    bucket_order = ["0-7d", "8-30d", "31-90d", "90d+"]
+    bucket_labels = [b for b in bucket_order if b in age_buckets]
+    _eng_simple_bar_chart(
+        reqs, sid, charts, oid="aging",
+        header="Open tickets by age",
+        labels=bucket_labels,
+        values=[int(age_buckets.get(b, 0)) for b in bucket_labels],
+        x=right_x, y=body_top, w=right_w, chart_h=chart_h,
+        series_name="Open",
+    )
+
+    _eng_scope_footer(
+        reqs, sid,
+        "Open = unresolved LEAN tickets  ·  age measured from created date  ·  cycle = open→resolved over last 6 mo",
+    )
+    return idx + 1
+
+
+def eng_capacity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Engineering capacity & load: open WIP now vs resolved throughput per engineer."""
+    eng = report.get("eng_portfolio") or {}
+    if not eng:
+        return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
+
+    by_assignee = eng.get("by_assignee", {}) or {}
+    snapshot = (eng.get("project_snapshots") or {}).get("LEAN") or {}
+    resolved_table = snapshot.get("assignee_resolved_table") or []
+    resolved_by_name = {str(r.get("assignee") or ""): r for r in resolved_table}
+
+    names = {n for n in by_assignee if n and n != "Unassigned"}
+    names.update(n for n in resolved_by_name if n and n != "Unassigned")
+
+    rows: list[dict[str, Any]] = []
+    for name in names:
+        wip = int(by_assignee.get(name, 0) or 0)
+        r = resolved_by_name.get(name, {})
+        rows.append({
+            "name": name,
+            "wip": wip,
+            "r30": int(r.get("1m", 0) or 0),
+            "r90": int(r.get("3m", 0) or 0),
+        })
+    rows.sort(key=lambda x: (-x["wip"], -x["r90"]))
+
+    if not rows:
+        return _missing_data_slide(reqs, sid, report, idx, "Engineering capacity (no assignee data on LEAN board)")
+
+    total_wip = sum(r["wip"] for r in rows)
+    top3_wip = sum(r["wip"] for r in rows[:3])
+    top3_share = int(round(top3_wip / total_wip * 100)) if total_wip else 0
+    engineers_active = sum(1 for r in rows if r["wip"] > 0)
+
+    if total_wip and top3_share >= 60:
+        title = f"Capacity Concentrated — Top 3 Engineers Hold {top3_share}% of Open WIP"
+    elif total_wip:
+        title = f"Engineering Load — {total_wip} Open Items Across {engineers_active} Engineers"
+    else:
+        title = "Engineering Capacity — No Open WIP On LEAN Board"
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+
+    context = "Where engineering effort sits now (open WIP) versus recent throughput (resolved)."
+    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
+    _style(reqs, f"{sid}_ctx", 0, len(context), size=11, color=NAVY, font=FONT)
+
+    cards_y = _eng_kpi_row(
+        reqs, sid,
+        [
+            ("Engineers with open WIP", str(engineers_active)),
+            ("Total open WIP", str(total_wip)),
+            ("Top 3 share of WIP", f"{top3_share}%" if total_wip else "—"),
+        ],
+        y=BODY_Y + 22,
+    )
+
+    # Native table: Engineer | Open WIP | Resolved 30d | Resolved 90d.
+    table_top = cards_y + 18
+    col_widths = [288.0, 112.0, 112.0, 112.0]
+    headers = ["Engineer", "Open WIP", "Resolved 30d", "Resolved 90d"]
+    aligns = ["START", "END", "END", "END"]
+    max_rows = max(1, int((_ENG_CONTENT_BOTTOM - table_top) // 24) - 1)
+    display = rows[:max_rows]
+    num_rows = 1 + len(display)
+    table_id = f"{sid}_tbl"
+    reqs.append({
+        "createTable": {
+            "objectId": table_id,
+            "elementProperties": {
+                "pageObjectId": sid,
+                "size": _sz(sum(col_widths), num_rows * 24.0),
+                "transform": _tf(MARGIN, table_top),
+            },
+            "rows": num_rows,
+            "columns": len(headers),
+        }
+    })
+    _clean_table(reqs, table_id, num_rows, len(headers))
+    _table_column_widths(reqs, table_id, col_widths)
+    for ci, h in enumerate(headers):
+        _table_cell_text(reqs, table_id, 0, ci, h)
+        _table_cell_style(reqs, table_id, 0, ci, len(h), bold=True, color=GRAY, size=9, font=FONT, align=aligns[ci])
+    name_chars = max_chars_one_line_for_table_col(col_widths[0], 10.0)
+    for ri, row in enumerate(display, start=1):
+        cells = [
+            (_truncate_one_line(row["name"], name_chars), NAVY, FONT),
+            (str(row["wip"]), BLUE if row["wip"] else GRAY, MONO),
+            (str(row["r30"]), NAVY, MONO),
+            (str(row["r90"]), NAVY, MONO),
+        ]
+        for ci, (text, color, font) in enumerate(cells):
+            _table_cell_text(reqs, table_id, ri, ci, text)
+            _table_cell_style(
+                reqs, table_id, ri, ci, len(text),
+                bold=(ci == 0), color=color, size=10, font=font, align=aligns[ci],
+            )
+
+    _eng_scope_footer(
+        reqs, sid,
+        "Open WIP = unresolved LEAN tickets assigned now  ·  Resolved 30d/90d = tickets closed in trailing window",
+    )
+    return idx + 1
+
+
 def eng_bug_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
     """Bug health: open bugs (full-width summaries), priority mix in subtitle, blockers under list."""
     eng = report.get("eng_portfolio") or {}
@@ -709,8 +1083,151 @@ def eng_bug_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
     return idx + 1
 
 
+def _short_team_label(team: str) -> str:
+    """Compact board label for the velocity chart legend."""
+    t = (team or "").strip()
+    upper = t.upper()
+    if upper.startswith("LEAN"):
+        return "LEAN"
+    if "DATA INTEG" in upper:
+        return "Data Integ."
+    if upper.startswith("CUSTOMER"):
+        return "CUSTOMER"
+    return _truncate_one_line(t, 12)
+
+
+_VELOCITY_TABLE_HEADER_H = 14
+_VELOCITY_TABLE_ROW_H = 12
+_VELOCITY_LEGEND_H = 18
+
+
+def _render_sp_velocity(
+    reqs: list[dict[str, Any]],
+    sid: str,
+    velocity: dict[str, Any],
+    charts: Any,
+    *,
+    x: float,
+    y: float,
+    w: float,
+    ceiling: float,
+) -> float:
+    """Story-points-per-sprint combo (bars per board + tickets line), legend, and a per-sprint table."""
+    labels = velocity.get("labels") or []
+    teams = velocity.get("teams") or []
+    sp_by_team = velocity.get("sp_by_team") or {}
+    tickets_total = velocity.get("tickets_total") or []
+    sp_total = velocity.get("sp_total") or []
+
+    table_rows = min(5, len(labels))
+    table_h = 4 + _VELOCITY_TABLE_HEADER_H + table_rows * _VELOCITY_TABLE_ROW_H
+    legend_h = _VELOCITY_LEGEND_H if charts else 0
+    avail = ceiling - y
+    chart_h = 0
+    if charts:
+        chart_h = int(max(90, min(160, avail - legend_h - table_h - 8)))
+
+    cur_y = y
+    if charts and chart_h > 0:
+        try:
+            from .charts import embed_chart
+
+            axis_labels = [_truncate_one_line(_format_sprint_name_for_display(s), 12) for s in labels]
+            bar_series = {team: list(sp_by_team.get(team) or []) for team in teams}
+            ss_id, chart_id = charts.add_combo_chart(
+                title="Sprint Velocity",
+                labels=axis_labels,
+                bar_series=bar_series,
+                line_series={"Tickets delivered": list(tickets_total)},
+                show_title=False,
+                suppress_legend=True,
+            )
+            embed_chart(reqs, f"{sid}_spchart", sid, ss_id, chart_id, x, cur_y, w, chart_h, linked=False)
+            cur_y += chart_h + 4
+
+            entries: list[tuple[str, dict[str, float]]] = []
+            for i, team in enumerate(teams):
+                entries.append((_short_team_label(team), BRAND_SERIES_COLORS[i % len(BRAND_SERIES_COLORS)]))
+            entries.append(("Tickets", BRAND_SERIES_COLORS[len(teams) % len(BRAND_SERIES_COLORS)]))
+            cur_y = _slide_chart_legend(
+                reqs, sid, f"{sid}_splgd", x, cur_y, entries,
+                font_pt=9, swatch_size=9, entry_gap=14,
+            )
+        except Exception as exc:
+            logger.warning("Sprint velocity chart embed failed: %s", exc)
+
+    cur_y += 4
+    header = f"{'Sprint':<14}{'SP':>5}{'Tix':>6}"
+    _box(reqs, f"{sid}_spt_h", sid, x, cur_y, w, _VELOCITY_TABLE_HEADER_H, header)
+    _style(reqs, f"{sid}_spt_h", 0, len(header), bold=True, size=8, color=GRAY, font=MONO)
+    cur_y += _VELOCITY_TABLE_HEADER_H
+    start = max(0, len(labels) - table_rows)
+    for slot in range(start, len(labels)):
+        name = _truncate_one_line(_format_sprint_name_for_display(labels[slot]), 13)
+        sp = float(sp_total[slot]) if slot < len(sp_total) else 0.0
+        tix = int(tickets_total[slot]) if slot < len(tickets_total) else 0
+        row = f"{name:<14}{sp:>5.0f}{tix:>6}"
+        _box(reqs, f"{sid}_spt{slot}", sid, x, cur_y, w, _VELOCITY_TABLE_ROW_H, row)
+        _style(reqs, f"{sid}_spt{slot}", 0, len(row), size=8, color=NAVY, font=MONO)
+        cur_y += _VELOCITY_TABLE_ROW_H
+    return cur_y
+
+
+def _render_weekly_throughput_fallback(
+    reqs: list[dict[str, Any]],
+    sid: str,
+    throughput: list[dict[str, Any]],
+    charts: Any,
+    *,
+    x: float,
+    y: float,
+    w: float,
+    ceiling: float,
+) -> float:
+    """Legacy weekly created-vs-closed combo + table, used when sprint velocity is unavailable."""
+    recent_weeks = throughput[-12:] if len(throughput) >= 12 else throughput
+    if not recent_weeks:
+        return y
+    TH = _VELOCITY_TABLE_HEADER_H
+    ROW_H = _VELOCITY_TABLE_ROW_H
+    table_rows = min(6, len(recent_weeks))
+    table_h = 4 + TH + table_rows * ROW_H
+    chart_h = int(max(0, min(150, (ceiling - y) - table_h - 8))) if charts else 0
+
+    cur_y = y
+    if charts and chart_h > 0:
+        try:
+            from .charts import embed_chart
+
+            ss_id, chart_id = charts.add_combo_chart(
+                title="Weekly Throughput",
+                labels=[week.get("label", "") for week in recent_weeks],
+                bar_series={"Created": [week.get("created", 0) for week in recent_weeks]},
+                line_series={"Closed": [week.get("resolved", 0) for week in recent_weeks]},
+                show_title=False,
+            )
+            embed_chart(reqs, f"{sid}_chart", sid, ss_id, chart_id, x, cur_y, w, chart_h, linked=False)
+            cur_y += chart_h + 6
+        except Exception as exc:
+            logger.warning("Throughput chart embed failed: %s", exc)
+
+    cur_y += 4
+    header = "Week        Created  Closed"
+    _box(reqs, f"{sid}_wt_h", sid, x, cur_y, w, TH, header)
+    _style(reqs, f"{sid}_wt_h", 0, len(header), bold=True, size=8, color=GRAY, font=MONO)
+    cur_y += TH
+    for week in recent_weeks[-table_rows:]:
+        row = f"{week['label']:<12}  {week.get('created', 0):>5}    {week.get('resolved', 0):>4}"
+        wk = str(week.get("week", week.get("label", "w")))
+        safe_wk = "".join(c if c.isalnum() else "_" for c in wk)[:24]
+        _box(reqs, f"{sid}_wr{safe_wk}", sid, x, cur_y, w, ROW_H, row)
+        _style(reqs, f"{sid}_wr{safe_wk}", 0, len(row), size=8, color=NAVY, font=MONO)
+        cur_y += ROW_H
+    return cur_y
+
+
 def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
-    """Velocity & throughput: combo chart, weekly table, pipeline bars, then insights (no overlap)."""
+    """Sprint velocity in story points (per board) with ticket throughput as a secondary line."""
     eng = report.get("eng_portfolio") or {}
     if not eng:
         return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
@@ -719,34 +1236,53 @@ def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
     closed_count = eng.get("closed_count", 0)
     in_flight = eng.get("in_flight_count", 0)
 
-    recent_throughput = throughput[-4:] if throughput else []
-    avg_closed = (
-        sum(week.get("resolved", 0) for week in recent_throughput) / len(recent_throughput)
-        if recent_throughput
-        else 0
-    )
-    avg_created = (
-        sum(week.get("created", 0) for week in recent_throughput) / len(recent_throughput)
-        if recent_throughput
-        else 0
-    )
-    net = avg_closed - avg_created
-    if net > 2:
-        title = f"Backlog Shrinking — {net:.0f} More Tickets Closed Than Created Per Week"
-    elif net < -2:
-        title = f"Backlog Growing — {abs(net):.0f} More Created Than Closed Per Week"
+    velocity = build_sprint_velocity_series(eng.get("sprint_velocity"), slots=6)
+    sp_labels = velocity.get("labels") or []
+    has_sp = bool(sp_labels)
+
+    if has_sp:
+        sp_total = velocity["sp_total"]
+        latest = float(sp_total[-1])
+        prev = float(sp_total[-2]) if len(sp_total) >= 2 else None
+        if prev and prev > 0 and latest >= prev * 1.05:
+            title = f"Velocity Up — {latest:.0f} Story Points Delivered Last Sprint"
+        elif prev and prev > 0 and latest <= prev * 0.95:
+            title = f"Velocity Down — {latest:.0f} Story Points Last Sprint vs {prev:.0f} Prior"
+        else:
+            title = f"Sprint Velocity — {latest:.0f} Story Points Delivered Last Sprint"
+        context = (
+            "Story points delivered per closed sprint by board · tickets delivered shown as the "
+            "secondary line · sprints aligned by recency (axis: LEAN Engineering)"
+        )
     else:
-        title = f"Flow Balanced — Averaging {avg_closed:.0f} Tickets Closed Per Week"
+        recent_throughput = throughput[-4:] if throughput else []
+        avg_closed = (
+            sum(week.get("resolved", 0) for week in recent_throughput) / len(recent_throughput)
+            if recent_throughput
+            else 0
+        )
+        avg_created = (
+            sum(week.get("created", 0) for week in recent_throughput) / len(recent_throughput)
+            if recent_throughput
+            else 0
+        )
+        net = avg_closed - avg_created
+        if net > 2:
+            title = f"Backlog Shrinking — {net:.0f} More Tickets Closed Than Created Per Week"
+        elif net < -2:
+            title = f"Backlog Growing — {abs(net):.0f} More Created Than Closed Per Week"
+        else:
+            title = f"Flow Balanced — Averaging {avg_closed:.0f} Tickets Closed Per Week"
+        context = f"Open: {in_flight}   ·   Closed this period: {closed_count}   ·   Last 12 weeks"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
     _slide_title(reqs, sid, title)
 
-    context = f"Open: {in_flight}   ·   Closed this period: {closed_count}   ·   Last 12 weeks"
-    _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
+    _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 24, context)
     _style(reqs, f"{sid}_bar", 0, len(context), size=9, color=GRAY, font=FONT)
 
-    body_top = BODY_Y + 22
+    body_top = BODY_Y + 30
     col_gap = 20
     left_w = (CONTENT_W - col_gap) * 3 // 5
     right_w = CONTENT_W - left_w - col_gap
@@ -763,78 +1299,18 @@ def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
     status_items_all = sorted(by_status.items(), key=lambda item: -item[1])
     status_items = status_items_all[:6]
 
-    right_header_h = 20 + 16
-    right_bottom_est = body_top + right_header_h + len(status_items) * 14
-
-    recent_weeks = throughput[-12:] if len(throughput) >= 12 else throughput
     charts = report.get("_charts")
-
-    CHART_GAP = 6
-    TABLE_PRE = 4
-    TH = 14
-    ROW_H = 12
-
-    chosen_chart_h = 100
-    chosen_rows = 6
-    if recent_weeks and charts:
-        found = False
-        for chart_h in range(168, 72, -12):
-            for n_rows in range(8, 2, -1):
-                left_bottom = body_top + chart_h + CHART_GAP + TABLE_PRE + TH + n_rows * ROW_H
-                if max(left_bottom, right_bottom_est) <= content_ceiling:
-                    chosen_chart_h = chart_h
-                    chosen_rows = min(n_rows, len(recent_weeks))
-                    found = True
-                    break
-            if found:
-                break
-        if not found:
-            chosen_chart_h = 72
-            chosen_rows = min(3, len(recent_weeks) or 1)
-    elif recent_weeks:
-        chosen_chart_h = 0
-        chosen_rows = min(
-            8,
-            max(
-                1,
-                int((content_ceiling - body_top - TABLE_PRE - TH) // ROW_H),
-            ),
-        )
-
     left_y = body_top
-    if recent_weeks and charts:
-        try:
-            from .charts import embed_chart
-
-            ss_id, chart_id = charts.add_combo_chart(
-                title="Weekly Throughput",
-                labels=[week.get("label", "") for week in recent_weeks],
-                bar_series={"Created": [week.get("created", 0) for week in recent_weeks]},
-                line_series={"Closed": [week.get("resolved", 0) for week in recent_weeks]},
-                show_title=False,
-            )
-            embed_chart(
-                reqs, f"{sid}_chart", sid, ss_id, chart_id,
-                left_x, left_y, left_w, chosen_chart_h, linked=False,
-            )
-            left_y += chosen_chart_h + CHART_GAP
-        except Exception as exc:
-            logger.warning("Throughput chart embed failed: %s", exc)
-
-    if recent_weeks:
-        left_y += TABLE_PRE
-        header = "Week        Created  Closed"
-        _box(reqs, f"{sid}_wt_h", sid, left_x, left_y, left_w, TH, header)
-        _style(reqs, f"{sid}_wt_h", 0, len(header), bold=True, size=8, color=GRAY, font=MONO)
-        left_y += TH
-        tail = recent_weeks[-chosen_rows:] if chosen_rows > 0 else []
-        for week in tail:
-            row = f"{week['label']:<12}  {week.get('created', 0):>5}    {week.get('resolved', 0):>4}"
-            wk = str(week.get("week", week.get("label", "w")))
-            safe_wk = "".join(c if c.isalnum() else "_" for c in wk)[:24]
-            _box(reqs, f"{sid}_wr{safe_wk}", sid, left_x, left_y, left_w, ROW_H, row)
-            _style(reqs, f"{sid}_wr{safe_wk}", 0, len(row), size=8, color=NAVY, font=MONO)
-            left_y += ROW_H
+    if has_sp:
+        left_y = _render_sp_velocity(
+            reqs, sid, velocity, charts,
+            x=left_x, y=body_top, w=left_w, ceiling=content_ceiling,
+        )
+    else:
+        left_y = _render_weekly_throughput_fallback(
+            reqs, sid, throughput, charts,
+            x=left_x, y=body_top, w=left_w, ceiling=content_ceiling,
+        )
 
     right_y = body_top
     _box(reqs, f"{sid}_qlh", sid, right_x, right_y, right_w, 16, "Quarterly Goal Tracking")

@@ -1,12 +1,18 @@
 id: eng_velocity
 type: standard
 order: 83
-title: Velocity & Flow
+title: Sprint Velocity
 slide_type: eng_velocity
 data_tools: []
 customers: all
 
 prompt: >
-  Velocity and flow slide for the engineering portfolio deck.
-  Shows a weekly throughput sparkline (last 12 weeks),
-  pipeline status breakdown, and created-vs-closed trend table.
+  Sprint velocity slide for the engineering portfolio deck. Primary chart is
+  story points delivered per closed sprint, grouped by development board (LEAN
+  Engineering, Data Integration, CUSTOMER), with tickets delivered shown as a
+  secondary line so reviewers can compare throughput in points vs raw ticket
+  count. Sprints are aligned by recency across boards (axis labeled from the
+  LEAN Engineering cadence). A per-sprint table lists total story points and
+  tickets, and a pipeline status breakdown sits alongside. Falls back to the
+  legacy weekly created-vs-closed throughput view when sprint story-point data
+  is unavailable.
