@@ -240,6 +240,8 @@ from .slides_theme import (
     _cap_page_count,
     _date_range,
     _estimated_body_line_height_pt,
+    _list_data_rows_fit_span,
+    _single_embedded_chart_layout,
     slide_type_may_paginate,
 )
 
