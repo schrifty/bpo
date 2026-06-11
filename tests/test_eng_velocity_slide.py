@@ -48,7 +48,7 @@ def test_velocity_slide_renders_story_points_without_charts() -> None:
         for r in reqs
         if isinstance(r, dict) and "insertText" in r and r["insertText"].get("objectId") == "sid_v_ttl"
     ]
-    assert title_inserts and "Story Points" in title_inserts[0]
+    assert title_inserts and "SP" in title_inserts[0]
 
     all_text = " ".join(
         r["insertText"]["text"] for r in reqs if isinstance(r, dict) and "insertText" in r

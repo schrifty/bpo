@@ -6,8 +6,18 @@ import statistics
 from typing import Any
 
 from .jira_client import JiraClient
-from .jira_cycle_time import get_dev_team_cycle_times
-from .jira_sprint_delivery import SPRINT_DELIVERY_BOARDS, get_sprint_delivery_by_team
+from .jira_cycle_time import (
+    get_dev_team_cycle_times,
+    load_status_category_map,
+    parse_excluded_issue_types,
+)
+from .jira_sprint_delivery import (
+    LEAN_SCORECARD_BOARD_ID,
+    SPRINT_DELIVERY_BOARDS,
+    board_sprint_report,
+    get_sprint_delivery_by_team,
+    lean_sprint_delivery_by_agile_team,
+)
 from .jira_sprint_story_points import get_sprint_story_points_by_team
 
 SCORECARD_BOARD_IDS: tuple[int, ...] = tuple(int(b["board_id"]) for b in SPRINT_DELIVERY_BOARDS)
@@ -65,6 +75,7 @@ def merge_team_scorecard_rows(
     delivery: dict[str, Any] | None,
     story_points: dict[str, Any] | None,
     cycle_time: dict[str, Any] | None,
+    boards: tuple[dict[str, Any], ...] | list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Merge sprint delivery, story points, and cycle time by board id."""
     delivery_by_board = _index_teams_by_board(delivery)
@@ -72,7 +83,7 @@ def merge_team_scorecard_rows(
     cycle_by_board = _index_teams_by_board(cycle_time)
 
     rows: list[dict[str, Any]] = []
-    for board in SPRINT_DELIVERY_BOARDS:
+    for board in (boards if boards is not None else SPRINT_DELIVERY_BOARDS):
         board_id = int(board["board_id"])
         delivery_row = delivery_by_board.get(board_id) or {}
         story_row = story_by_board.get(board_id) or {}
@@ -136,8 +147,33 @@ def summarize_team_scorecard(teams: list[dict[str, Any]]) -> dict[str, Any]:
         if row.get("median_lead_days") is not None
     ]
     total_sp = sum(float(row.get("story_points_delivered") or 0) for row in teams)
+    # Commitment-weighted delivery is the honest say/do number, and only counts rows
+    # that actually run committed sprints (rows with a ``committed`` value). LEAN rows
+    # have ``committed=None`` (continuous flow) and are excluded — they contribute to
+    # throughput instead. ``delivered`` is paired with ``committed`` so both come from
+    # the same authoritative sprint report.
+    total_delivered = sum(
+        float(row["delivered"])
+        for row in teams
+        if row.get("committed") is not None and row.get("delivered") is not None
+    )
+    total_committed = sum(
+        float(row["committed"]) for row in teams if row.get("committed") is not None
+    )
+    weighted_delivery_pct = (
+        round(total_delivered / total_committed * 100, 1) if total_committed else None
+    )
+    # Throughput = issues actually closed in the sprint, summed across all teams
+    # (the only org-wide delivery number that is meaningful for LEAN + sprint boards).
+    total_throughput = sum(
+        int(row["throughput"]) for row in teams if row.get("throughput") is not None
+    )
     return {
         "average_delivery_pct": round(statistics.mean(delivery_pcts), 1) if delivery_pcts else None,
+        "weighted_delivery_pct": weighted_delivery_pct,
+        "total_delivered": int(total_delivered) if total_committed else None,
+        "total_committed": int(total_committed) if total_committed else None,
+        "total_throughput": total_throughput or None,
         "average_median_cycle_days": round(statistics.mean(median_cycles), 1) if median_cycles else None,
         "average_median_lead_days": round(statistics.mean(median_leads), 1) if median_leads else None,
         "total_story_points_delivered": round(total_sp, 1) if total_sp else None,
@@ -154,46 +190,90 @@ def build_eng_team_scorecard(
     timeout: float = 60.0,
     board_ids: list[int] | None = None,
 ) -> dict[str, Any]:
-    """Fetch and merge per-team sprint delivery, story points, and cycle time."""
+    """Fetch and merge per-team sprint delivery, story points, and cycle time.
+
+    The LEAN board (44) hosts the whole LEAN engineering org on a single board, so it
+    is segmented into per-team rows by the Agile Team field (ticket-count delivery; LEAN
+    does not estimate in story points). The remaining scrum boards (CUSTOMER / Data
+    Integration) keep their board-level rows with story-point delivery.
+    """
     ids = board_ids if board_ids is not None else list(SCORECARD_BOARD_IDS)
     errors: list[str] = []
 
-    delivery = get_sprint_delivery_by_team(
-        client,
-        board_ids=ids,
-        timeout=timeout,
+    # ── LEAN board → per-Agile-Team rows (ticket-count delivery, no story points) ──
+    lean_rows: list[dict[str, Any]] = []
+    lean_board = next(
+        (b for b in SPRINT_DELIVERY_BOARDS if int(b["board_id"]) == LEAN_SCORECARD_BOARD_ID),
+        None,
     )
-    if delivery.get("error"):
-        errors.append(str(delivery["error"]))
-
-    story_points = get_sprint_story_points_by_team(
-        client,
-        board_ids=ids,
-        timeout=timeout,
-    )
-    if story_points.get("error"):
-        errors.append(str(story_points["error"]))
-
-    cycle_time = get_dev_team_cycle_times(
-        client,
-        board_ids=ids,
-        days=days,
-        timeout=timeout,
-    )
-    if cycle_time.get("error"):
-        errors.append(str(cycle_time["error"]))
-
-    teams = merge_team_scorecard_rows(
-        delivery=delivery,
-        story_points=story_points,
-        cycle_time=cycle_time,
-    )
-    for row in teams:
-        shared = row.get("shared_board_ids")
-        if shared and len(shared) > 1:
-            errors.append(
-                f"boards {shared} share one sprint; counted once as '{row.get('team')}'"
+    if lean_board is not None and LEAN_SCORECARD_BOARD_ID in {int(i) for i in ids}:
+        try:
+            status_map = load_status_category_map(client, timeout=timeout)
+            lean_rows = lean_sprint_delivery_by_agile_team(
+                client,
+                lean_board,
+                status_map=status_map,
+                excluded_issue_types=parse_excluded_issue_types(),
+                timeout=timeout,
             )
+        except Exception as e:  # noqa: BLE001 — surface, don't crash the deck
+            errors.append(f"LEAN agile-team split failed: {e}")
+
+    # ── Remaining scrum boards → board-level rows (with story points) ──
+    other_ids = [int(i) for i in ids if int(i) != LEAN_SCORECARD_BOARD_ID]
+    other_boards = [
+        b for b in SPRINT_DELIVERY_BOARDS if int(b["board_id"]) in set(other_ids)
+    ]
+    other_rows: list[dict[str, Any]] = []
+    if other_ids:
+        delivery = get_sprint_delivery_by_team(client, board_ids=other_ids, timeout=timeout)
+        if delivery.get("error"):
+            errors.append(str(delivery["error"]))
+
+        story_points = get_sprint_story_points_by_team(client, board_ids=other_ids, timeout=timeout)
+        if story_points.get("error"):
+            errors.append(str(story_points["error"]))
+
+        cycle_time = get_dev_team_cycle_times(client, board_ids=other_ids, days=days, timeout=timeout)
+        if cycle_time.get("error"):
+            errors.append(str(cycle_time["error"]))
+
+        other_rows = merge_team_scorecard_rows(
+            delivery=delivery,
+            story_points=story_points,
+            cycle_time=cycle_time,
+            boards=other_boards,
+        )
+        for row in other_rows:
+            shared = row.get("shared_board_ids")
+            if shared and len(shared) > 1:
+                errors.append(
+                    f"boards {shared} share one sprint; counted once as '{row.get('team')}'"
+                )
+            # Replace the agile-endpoint counts (current membership, over-counts delivery)
+            # with Jira's authoritative sprint report: completed vs committed at close.
+            sprint_id = (row.get("sprint") or {}).get("id")
+            if sprint_id is not None:
+                rep = board_sprint_report(client, int(row["board_id"]), int(sprint_id), timeout=timeout)
+                if rep is not None:
+                    row["delivery_pct"] = rep["delivery_pct"]
+                    row["delivered"] = rep["completed"]
+                    row["committed"] = rep["committed"]
+                    row["throughput"] = rep["completed"]
+                    row["delivery_basis"] = "sprint_report"
+                    row["punted"] = rep["punted"]
+                    if rep["completed_sp"] is not None:
+                        row["story_points_delivered"] = rep["completed_sp"]
+                    if rep["committed_sp"] is not None:
+                        row["story_points_committed"] = rep["committed_sp"]
+                else:
+                    errors.append(
+                        f"sprint report unavailable for board {row['board_id']}; "
+                        "delivery falls back to current-membership count"
+                    )
+                    row["throughput"] = row.get("delivered")
+
+    teams = lean_rows + other_rows
     summary = summarize_team_scorecard(teams)
 
     return {
@@ -201,10 +281,13 @@ def build_eng_team_scorecard(
         "board_ids": ids,
         "teams": teams,
         "summary": summary,
+        "lean_agile_team_count": len(lean_rows),
         "sources": {
-            "delivery_definition": delivery.get("definition"),
-            "story_points_definition": story_points.get("definition"),
-            "cycle_time_mode": cycle_time.get("mode"),
+            "delivery_definition": (
+                "LEAN: ticket-count delivery per Agile Team for the latest closed sprint; "
+                "other boards: sprint delivery % per board"
+            ),
+            "cycle_time_mode": "lead time (created→resolved) for delivered issues",
         },
         "errors": errors or None,
     }

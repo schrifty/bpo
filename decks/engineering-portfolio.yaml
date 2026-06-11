@@ -5,15 +5,16 @@ audience: VP / Director of Engineering
 purpose: |
   A product-level engineering review — not per customer, but across the entire
   LEAN project. Covers what's in flight this sprint, bug health, weekly velocity,
-  enhancement pipeline, and the aggregate support burden coming in from customers.
+  and the aggregate support burden coming in from customers.
 
   The narrative arc: "Here's what the team is working on, how fast we're shipping,
-  where the bugs are, what customers have asked for, and how much unplanned support
-  work is competing for engineering capacity."
+  where the bugs are, and how much unplanned support work is competing for
+  engineering capacity."
 
 slides:
   - slide: eng_portfolio_title
   - slide: eng_exec_summary
+  - slide: eng_team_roster
   - slide: eng_team_scorecard
   - slide: eng_current_sprint
   - slide: eng_flow_bottlenecks
@@ -22,7 +23,5 @@ slides:
   - slide: eng_work_split
   - slide: eng_bug_health
   - slide: eng_velocity
-  - slide: eng_enhancements
-  - slide: eng_enhancements_shipped
   - slide: eng_support_pressure
   - slide: data_quality

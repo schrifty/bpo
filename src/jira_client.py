@@ -989,6 +989,162 @@ def _generate_eng_insights(eng: dict) -> dict[str, list[str]]:
     return insights
 
 
+def _generate_eng_takeaways(eng: dict) -> dict[str, str]:
+    """Generate one "what this means" implication sentence per content slide.
+
+    Returns ``{slide_key: sentence}``. Each value is a single, plain-text sentence
+    that states the implication / decision the slide drives — rendered in the slide's
+    bottom takeaway band (replacing the old per-slide scope/methodology footer). Runs
+    all calls in parallel; any failure yields an empty string (band is then skipped).
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    _oai = llm_client()
+
+    def _call(slide_key: str, prompt: str) -> tuple[str, str]:
+        try:
+            resp = _oai.chat.completions.create(
+                model=LLM_MODEL_FAST,
+                messages=[
+                    {"role": "system", "content": (
+                        "You write the single-sentence 'so what' takeaway at the bottom of an "
+                        "engineering-review slide for a VP of Engineering. Rules:\n"
+                        "- Output EXACTLY one sentence, 12-26 words, plain text only\n"
+                        "- State the implication or the decision it forces, not a restatement of the numbers\n"
+                        "- You may cite one key number for weight, but lead with the meaning\n"
+                        "- No markdown, no leading bullet/dash, no label, no preamble\n"
+                        "- Tone: direct, analytical, board-room; never salesy or hedging"
+                    )},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.3,
+                # LLM_MODEL_FAST (gemini-2.5-flash) is a thinking model where max_tokens
+                # is the TOTAL budget (reasoning + visible); a low cap leaves only a few
+                # output tokens and truncates the sentence mid-word. Give ample headroom.
+                max_tokens=1024,
+            )
+            text = " ".join((resp.choices[0].message.content or "").split()).strip()
+            text = text.lstrip("•-–—* ").strip()
+            return slide_key, text
+        except Exception as e:
+            logger.warning("Takeaway generation failed for %s: %s", slide_key, e)
+            return slide_key, ""
+
+    # ── Pull the same derived structures the slides render from ──
+    scard = (eng.get("team_scorecard") or {}).get("summary") or {}
+    flow = eng.get("flow") or {}
+    sflow = flow.get("status_flow") or {}
+    lean = (eng.get("project_snapshots") or {}).get("LEAN") or {}
+    split = eng.get("work_split") or {}
+    sp = eng.get("support_pressure") or {}
+
+    sprint = eng.get("sprint") or {}
+    sprint_name = sprint.get("name", "current sprint")
+    in_flight = eng.get("in_flight_count", 0)
+    closed = eng.get("closed_count", 0)
+    by_status = eng.get("by_status") or {}
+    active = int(by_status.get("In Progress", 0) or 0) + int(by_status.get("In Review", 0) or 0)
+    by_type = eng.get("by_type") or {}
+    bugs_if = by_type.get("Bug", 0)
+    themes = eng.get("themes") or []
+    top_themes = ", ".join(
+        f"{t.get('theme')} ({t.get('total')})" for t in themes[:4] if t.get("theme")
+    )
+
+    open_bugs = eng.get("open_bugs") or []
+    blockers = eng.get("blocker_critical") or []
+    bug_prio: dict[str, int] = {}
+    for b in open_bugs:
+        p = str(b.get("priority", "Unknown")).split(":")[0]
+        bug_prio[p] = bug_prio.get(p, 0) + 1
+
+    by_assignee = eng.get("by_assignee") or {}
+    wip_vals = sorted((int(v) for v in by_assignee.values()), reverse=True)
+    total_wip = sum(wip_vals)
+    top3_share = int(round(sum(wip_vals[:3]) / total_wip * 100)) if total_wip else 0
+    engineers = sum(1 for v in wip_vals if v > 0)
+
+    median_by_status = sflow.get("by_status_median") or {}
+    stage_str = ", ".join(f"{k} {v:.0f}d" for k, v in list(median_by_status.items())[:4])
+
+    try:
+        from .eng_sprint_velocity import build_sprint_velocity_series
+        vseries = build_sprint_velocity_series(eng.get("sprint_velocity"))
+        sp_total = vseries.get("sp_total") or []
+        sp_teams = ", ".join(vseries.get("teams") or []) or "scrum boards"
+        zero_sp = ", ".join(vseries.get("zero_sp_teams") or [])
+    except Exception:
+        sp_total, sp_teams, zero_sp = [], "scrum boards", ""
+
+    days = eng.get("days", 30)
+
+    tasks = [
+        ("team_scorecard", (
+            f"Last sprint the teams closed {scard.get('total_throughput')} issues total (throughput). "
+            f"The CUSTOMER/Data Integration boards run committed sprints and delivered "
+            f"{scard.get('weighted_delivery_pct')}% of commitment "
+            f"({scard.get('total_delivered')}/{scard.get('total_committed')} items, {scard.get('total_story_points_delivered')} SP). "
+            f"LEAN runs continuous flow (no fixed sprint commitment) and is shown by throughput per Agile team. "
+            f"Avg lead time: {scard.get('average_median_lead_days')}d. "
+            "Implication for predictability — distinguish the committed-sprint miss from LEAN flow; do not call LEAN a delivery miss."
+        )),
+        ("current_sprint", (
+            f"Sprint {sprint_name}: {in_flight} open items, {active} actively in progress/review, "
+            f"{bugs_if} bugs in flight, {closed} closed this period. Top themes: {top_themes}. "
+            "Implication about focus and how much is truly moving vs sitting in backlog?"
+        )),
+        ("flow_bottlenecks", (
+            f"Active WIP {flow.get('active_count')}, in review {flow.get('in_review')}, "
+            f"flagged blocked {flow.get('blocked_count')}, carried over 2+ sprints {flow.get('carryover_count')}, "
+            f"stalled >10 days in stage {flow.get('stale_gt10')}. Median time in stage: {stage_str}. "
+            "Implication about where flow is breaking and what to unblock first?"
+        )),
+        ("backlog_health", (
+            f"Open LEAN queue {lean.get('open_count')} tickets, median age {lean.get('median_open_age_days')}d, "
+            f"{lean.get('open_over_90_count')} open >90 days, oldest {lean.get('oldest_open_age_days')}d, "
+            f"avg resolve cycle {lean.get('avg_resolved_cycle_days')}d. "
+            "Implication about queue hygiene and whether the backlog is being worked or just aging?"
+        )),
+        ("capacity", (
+            f"{total_wip} assigned in-flight items across {engineers} engineers; "
+            f"top 3 hold {top3_share}% of WIP. "
+            "Implication about load balance, key-person risk, or spare capacity?"
+        )),
+        ("work_split", (
+            f"Reactive share of WIP {split.get('reactive_wip_pct')}%, reactive share of closed "
+            f"{split.get('reactive_closed_pct')}%; unplanned breakdown {split.get('unplanned_breakdown')}. "
+            "Implication about how much roadmap capacity reactive work is consuming?"
+        )),
+        ("bug_health", (
+            f"Open bugs {len(open_bugs)}, blocker/critical {len(blockers)}, priority mix {bug_prio}. "
+            f"Top blockers: {', '.join(b.get('key','') for b in blockers[:3])}. "
+            "Implication about severity and what demands attention this sprint?"
+        )),
+        ("velocity", (
+            f"Story points delivered per recent sprint (oldest to newest): {sp_total}. "
+            f"SP-estimating boards: {sp_teams}. Boards without story points: {zero_sp or 'none'}. "
+            "Implication about the delivery trend and what it signals — avoid over-reading a one-sprint move?"
+        )),
+        ("support_pressure", (
+            f"Support tickets last {days} days: {sp.get('total')} total, {sp.get('escalated_to_eng')} escalated to engineering, "
+            f"{sp.get('open_bugs')} open support bugs, priority mix {sp.get('by_priority')}. "
+            "Implication about inbound pressure on engineering capacity?"
+        )) if sp.get("total") else (
+            "support_pressure",
+            f"No support ticket data for the last {days} days. State that inbound support volume is unavailable.",
+        ),
+    ]
+
+    takeaways: dict[str, str] = {}
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futures = [pool.submit(_call, key, prompt) for key, prompt in tasks]
+        for f in futures:
+            key, sentence = f.result()
+            takeaways[key] = sentence
+
+    return takeaways
+
+
 class JiraClient:
     def __init__(self):
         conn = build_jira_connection_settings()
@@ -4282,6 +4438,14 @@ class JiraClient:
         ]
         if not active_keys:
             return {}, {}, set()
+        # One changelog GET per active item; cap so a large WIP set can't explode the
+        # fetch. in_flight is ``ORDER BY updated DESC`` so this keeps the freshest work.
+        _CHANGELOG_FETCH_CAP = 300
+        if len(active_keys) > _CHANGELOG_FETCH_CAP:
+            active_keys = active_keys[:_CHANGELOG_FETCH_CAP]
+            active_key_set = set(active_keys)
+        else:
+            active_key_set = None
         flagged_field_id = self._get_flagged_field_id()
         changelogs = self._fetch_issue_changelogs(active_keys, flagged_field_id=flagged_field_id)
         if not changelogs:
@@ -4289,6 +4453,8 @@ class JiraClient:
         active_for_flow: list[dict] = []
         for t in in_flight:
             if (t.get("status") or "") not in _ACTIVE_WIP_STATUSES:
+                continue
+            if active_key_set is not None and t["key"] not in active_key_set:
                 continue
             cl = changelogs.get(t["key"]) or {}
             active_for_flow.append({
@@ -4360,43 +4526,28 @@ class JiraClient:
             "labels", "created", "updated", "resolution", "description",
             SPRINT_FIELD, STORY_POINTS_FIELD,
         ]
+        # ``/rest/api/3/search/jql`` caps each page at ~100 issues regardless of
+        # ``maxResults``; ``_search`` follows ``nextPageToken`` so we get the full set
+        # (in-flight LEAN WIP is ~1k issues, not the 100 a single page returns).
         try:
-            body_inflight = {
-                "jql": "project = LEAN AND status in (\"In Progress\", \"In Review\", \"Open\", \"Reopened\") ORDER BY updated DESC",
-                "maxResults": 200,
-                "fields": _eng_fields,
-            }
-            self._record_jql(
-                body_inflight["jql"],
-                description="LEAN in-flight engineering work (Open / In Progress / In Review / Reopened)",
+            in_flight_raw = self._search(
+                "project = LEAN AND status in (\"In Progress\", \"In Review\", \"Open\", \"Reopened\") ORDER BY updated DESC",
+                max_results=3000,
+                fields=_eng_fields,
+                data_description="LEAN in-flight engineering work (Open / In Progress / In Review / Reopened)",
             )
-            resp_if = _req.post(
-                f"{self.api_base_url}/rest/api/3/search/jql",
-                headers=self._headers, json=body_inflight, timeout=30,
-            )
-            resp_if.raise_for_status()
-            in_flight_raw = resp_if.json().get("issues", [])
         except Exception as e:
             logger.warning("LEAN in-flight fetch failed: %s", e)
             in_flight_raw = []
 
         # ── Recent closed LEAN tickets ──
         try:
-            body_closed = {
-                "jql": f"project = LEAN AND status = Closed AND updated >= -{days}d ORDER BY updated DESC",
-                "maxResults": 200,
-                "fields": _eng_fields,
-            }
-            self._record_jql(
-                body_closed["jql"],
-                description=f"LEAN issues closed or updated in last {days} days",
+            closed_raw = self._search(
+                f"project = LEAN AND status = Closed AND updated >= -{days}d ORDER BY updated DESC",
+                max_results=2000,
+                fields=_eng_fields,
+                data_description=f"LEAN issues closed or updated in last {days} days",
             )
-            resp_c = _req.post(
-                f"{self.api_base_url}/rest/api/3/search/jql",
-                headers=self._headers, json=body_closed, timeout=30,
-            )
-            resp_c.raise_for_status()
-            closed_raw = resp_c.json().get("issues", [])
         except Exception as e:
             logger.warning("LEAN closed fetch failed: %s", e)
             closed_raw = []
@@ -4484,78 +4635,51 @@ class JiraClient:
                               "start": sp["start"], "end": sp["end"]})
 
         # ── Enhancement requests (all, no customer filter) ──
-        # Open tickets — updated in the last year, most recent first
+        # Open tickets — the full open backlog, most recently updated first. We do NOT
+        # filter on ``updated`` here: the ER backlog is large but stale (only ~1 of
+        # ~248 open ERs is touched in a year), so a recency filter collapses a real
+        # backlog to a single row and hides the hygiene story.
+        _er_fields = ["summary", "status", "issuetype", "priority",
+                      "labels", "created", "updated", "resolution",
+                      "description", "comment"]
         try:
-            body_er_open = {
-                "jql": (
+            er_open_raw = self._search(
+                (
                     "project = ER AND resolution is EMPTY "
                     "AND status not in (Done, Closed, \"Not Taken\") "
-                    "AND updated >= -365d "
                     "ORDER BY updated DESC"
                 ),
-                "maxResults": 200,
-                "fields": ["summary", "status", "issuetype", "priority",
-                           "labels", "created", "updated", "resolution",
-                           "description", "comment"],
-            }
-            self._record_jql(
-                body_er_open["jql"],
-                description="ER open enhancement backlog (last year)",
+                max_results=500,
+                fields=_er_fields,
+                data_description="ER open enhancement backlog (all open)",
             )
-            resp_er_open = _req.post(
-                f"{self.api_base_url}/rest/api/3/search/jql",
-                headers=self._headers, json=body_er_open, timeout=30,
-            )
-            resp_er_open.raise_for_status()
-            er_open_raw = resp_er_open.json().get("issues", [])
         except Exception as e:
             logger.warning("ER open fetch failed: %s", e)
             er_open_raw = []
 
         # Shipped tickets — resolved in the last year, most recently updated first
         try:
-            body_er_shipped = {
-                "jql": (
+            er_shipped_raw = self._search(
+                (
                     "project = ER AND resolution in (Fixed, Done) "
                     "AND updated >= -365d "
                     "ORDER BY updated DESC"
                 ),
-                "maxResults": 50,
-                "fields": ["summary", "status", "issuetype", "priority",
-                           "labels", "created", "updated", "resolution",
-                           "description", "comment"],
-            }
-            self._record_jql(
-                body_er_shipped["jql"],
-                description="ER shipped or Done enhancements (last year)",
+                max_results=100,
+                fields=_er_fields,
+                data_description="ER shipped or Done enhancements (last year)",
             )
-            resp_er_shipped = _req.post(
-                f"{self.api_base_url}/rest/api/3/search/jql",
-                headers=self._headers, json=body_er_shipped, timeout=30,
-            )
-            resp_er_shipped.raise_for_status()
-            er_shipped_raw = resp_er_shipped.json().get("issues", [])
         except Exception as e:
             logger.warning("ER shipped fetch failed: %s", e)
             er_shipped_raw = []
 
-        # Declined count only — no need for full fetch
+        # Declined count only — the enhanced search endpoint no longer returns a
+        # ``total``, so use the dedicated count endpoint (a body fetch would page).
         try:
-            body_er_dec = {
-                "jql": "project = ER AND resolution in (\"Won't Do\", \"Won't Fix\", Declined, \"Future Consideration\", \"Not Taken\")",
-                "maxResults": 1,
-                "fields": ["summary"],
-            }
-            self._record_jql(
-                body_er_dec["jql"],
-                description="ER declined / won't do / not taken (count query)",
-            )
-            resp_er_dec = _req.post(
-                f"{self.api_base_url}/rest/api/3/search/jql",
-                headers=self._headers, json=body_er_dec, timeout=30,
-            )
-            resp_er_dec.raise_for_status()
-            er_declined_count = resp_er_dec.json().get("total", 0) or 0
+            er_declined_count = self.jql_match_count(
+                "project = ER AND resolution in (\"Won't Do\", \"Won't Fix\", Declined, \"Future Consideration\", \"Not Taken\")",
+                data_description="ER declined / won't do / not taken (count query)",
+            ) or 0
         except Exception as e:
             logger.warning("ER declined fetch failed: %s", e)
             er_declined_count = 0
@@ -4627,22 +4751,13 @@ class JiraClient:
 
         # ── Aggregate support pressure (HELP tickets across all customers) ──
         try:
-            body_help = {
-                "jql": f"project = HELP AND {_TRANSIENT_LABELS_EXCLUSION} AND created >= -{days}d ORDER BY created DESC",
-                "maxResults": 500,
-                "fields": ["summary", "status", "issuetype", "priority",
-                           "created", "resolution", "labels"],
-            }
-            self._record_jql(
-                body_help["jql"],
-                description=f"HELP aggregate desk load (created last {days} days)",
+            help_raw = self._search(
+                f"project = HELP AND {_TRANSIENT_LABELS_EXCLUSION} AND created >= -{days}d ORDER BY created DESC",
+                max_results=2000,
+                fields=["summary", "status", "issuetype", "priority",
+                        "created", "resolution", "labels"],
+                data_description=f"HELP aggregate desk load (created last {days} days)",
             )
-            resp_h = _req.post(
-                f"{self.api_base_url}/rest/api/3/search/jql",
-                headers=self._headers, json=body_help, timeout=30,
-            )
-            resp_h.raise_for_status()
-            help_raw = resp_h.json().get("issues", [])
         except Exception as e:
             logger.warning("HELP global fetch failed: %s", e)
             help_raw = []
@@ -4731,6 +4846,14 @@ class JiraClient:
             team_scorecard = {"error": str(e), "teams": [], "summary": {}}
 
         try:
+            from .eng_team_roster import build_eng_team_roster
+
+            team_roster = build_eng_team_roster(self, timeout=60.0)
+        except Exception as e:
+            logger.warning("Team roster fetch failed: %s", e)
+            team_roster = {"error": str(e), "teams": [], "total_engineers": 0}
+
+        try:
             from .jira_sprint_story_points import get_sprint_story_points_history
 
             sprint_velocity = get_sprint_story_points_history(self, history_count=6, timeout=60.0)
@@ -4781,14 +4904,15 @@ class JiraClient:
             "project_snapshots": project_snapshots,
             "help_ticket_trends": help_ticket_trends,
             "team_scorecard": team_scorecard,
+            "team_roster": team_roster,
             "sprint_velocity": sprint_velocity,
             "flow": flow,
             "work_split": work_split,
             "jql_queries": self._jql_since(jql_start),
         }
 
-        # ── Generate slide-level insights in parallel ──
-        eng_data["insights"] = _generate_eng_insights(eng_data)
+        # ── Generate per-slide "what this means" takeaways in parallel ──
+        eng_data["takeaways"] = _generate_eng_takeaways(eng_data)
         return eng_data
 
     @staticmethod

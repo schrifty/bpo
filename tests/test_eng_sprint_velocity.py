@@ -50,6 +50,32 @@ def test_builds_aligned_series_newest_to_right() -> None:
     assert series["tickets_total"] == [9, 11, 14]
 
 
+def test_drops_zero_story_point_boards_but_keeps_labels() -> None:
+    """A board that does not estimate in SP (e.g. LEAN) must not draw a flat-zero
+    series, but its sprint names still label the recency axis."""
+    history = {
+        "boards": [
+            _board("LEAN Engineering", 44, [
+                _sprint("Sprint 595", 0, 59),
+                _sprint("Sprint 594", 0, 50),
+            ]),
+            _board("CUSTOMER", 36, [
+                _sprint("Wk Jun 1", 218, 34),
+                _sprint("Wk May 25", 300, 40),
+            ]),
+        ],
+    }
+    series = build_sprint_velocity_series(history, slots=6)
+    # LEAN (all-zero SP) dropped from SP bars, CUSTOMER kept.
+    assert series["teams"] == ["CUSTOMER"]
+    assert "LEAN Engineering" not in series["sp_by_team"]
+    assert series["zero_sp_teams"] == ["LEAN Engineering"]
+    # Labels still come from the primary (LEAN) board.
+    assert series["labels"] == ["Sprint 594", "Sprint 595"]
+    # Totals still account for all boards (LEAN contributes 0).
+    assert series["sp_total"] == [300.0, 218.0]
+
+
 def test_respects_slot_cap() -> None:
     sprints = [_sprint(f"S{i}", float(i), i) for i in range(8, 0, -1)]
     history = {"boards": [_board("LEAN Engineering", 44, sprints)]}

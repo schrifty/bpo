@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import statistics
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -11,7 +12,7 @@ from typing import Any
 import requests
 
 from .jira_agile_discovery import _paginate_agile
-from .jira_client import JiraClient
+from .jira_client import JiraClient, _parse_jira_dt
 from .jira_cycle_time import (
     DEV_CYCLE_TIME_BOARDS,
     _issue_excluded,
@@ -29,6 +30,12 @@ SPRINT_DELIVERY_BOARDS: tuple[dict[str, Any], ...] = tuple(
 )
 
 _PERCENT_DENOMINATOR = 100.0
+
+# "Agile Team" custom field on the LEAN board — the LEAN engineering org runs many
+# teams on a single board (44), distinguished by this field rather than by separate
+# Jira boards. Used to segment the scorecard into per-team rows.
+AGILE_TEAM_FIELD = "customfield_10633"
+LEAN_SCORECARD_BOARD_ID = 44
 
 
 @dataclass(frozen=True)
@@ -186,6 +193,7 @@ def _fetch_sprint_issues(
     max_issues: int,
     excluded_issue_types: tuple[str, ...],
     timeout: float,
+    fields: str = "summary,status,issuetype",
 ) -> tuple[list[dict[str, Any]], int | None]:
     issues: list[dict[str, Any]] = []
     start_at = 0
@@ -199,7 +207,7 @@ def _fetch_sprint_issues(
             params={
                 "startAt": start_at,
                 "maxResults": min(page_size, max_issues - len(issues)),
-                "fields": "summary,status,issuetype",
+                "fields": fields,
             },
             timeout=timeout,
         )
@@ -346,6 +354,202 @@ def board_sprint_delivery(
         excluded_issue_types=excluded_issue_types,
         elapsed_seconds=time.time() - t0,
     )
+
+
+def _estimate_sum(node: Any) -> float | None:
+    if isinstance(node, dict):
+        v = node.get("value")
+        if isinstance(v, (int, float)):
+            return float(v)
+    return None
+
+
+def board_sprint_report(
+    client: JiraClient,
+    board_id: int,
+    sprint_id: int,
+    *,
+    timeout: float = 60.0,
+) -> dict[str, Any] | None:
+    """Authoritative completed-vs-committed for one sprint, from Jira's sprint report.
+
+    Uses the greenhopper sprint report that powers Jira's velocity chart — the only
+    source that knows the sprint's state *at close* (what was completed, what was left
+    incomplete, what was punted/removed). The agile sprint-issue endpoint only returns
+    current membership, which over-counts delivery for boards that punt incomplete work
+    out at close (e.g. LEAN reads as ~100%). Returns ``None`` on failure.
+
+    ``committed`` is the count of issues present at close (completed + not completed);
+    punted/removed issues are excluded from the say/do ratio.
+    """
+    try:
+        resp = requests.get(
+            f"{client.base_url}/rest/greenhopper/1.0/rapid/charts/sprintreport",
+            headers=client._headers,
+            params={"rapidViewId": int(board_id), "sprintId": int(sprint_id)},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logger.warning("sprint report failed (board=%s sprint=%s): %s", board_id, sprint_id, e)
+        return None
+
+    contents = (resp.json() or {}).get("contents") or {}
+    completed = len(contents.get("completedIssues") or [])
+    not_completed = len(contents.get("issuesNotCompletedInCurrentSprint") or [])
+    punted = len(contents.get("puntedIssues") or [])
+    committed = completed + not_completed
+
+    completed_sp = _estimate_sum(contents.get("completedIssuesEstimateSum"))
+    not_completed_sp = _estimate_sum(contents.get("issuesNotCompletedEstimateSum"))
+    committed_sp = None
+    if completed_sp is not None or not_completed_sp is not None:
+        committed_sp = (completed_sp or 0.0) + (not_completed_sp or 0.0)
+
+    return {
+        "completed": completed,
+        "not_completed": not_completed,
+        "punted": punted,
+        "committed": committed,
+        "delivery_pct": round(completed / committed * 100, 3) if committed else None,
+        "completed_sp": completed_sp,
+        "committed_sp": committed_sp,
+    }
+
+
+def _agile_team_name(value: Any) -> str | None:
+    """Normalize the Agile Team field (select object, entity, list, or string)."""
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return (value.get("value") or value.get("name") or value.get("title") or "").strip() or None
+    if isinstance(value, list):
+        for v in value:
+            n = _agile_team_name(v)
+            if n:
+                return n
+        return None
+    s = str(value).strip()
+    return s or None
+
+
+def _lead_time_days(created: Any, resolved: Any) -> float | None:
+    start = _parse_jira_dt(created)
+    end = _parse_jira_dt(resolved)
+    if not (start and end) or end < start:
+        return None
+    return (end - start).total_seconds() / 86400.0
+
+
+def lean_sprint_delivery_by_agile_team(
+    client: JiraClient,
+    board: dict[str, Any],
+    *,
+    status_map: dict[str, str],
+    excluded_issue_types: tuple[str, ...],
+    max_issues: int = 1000,
+    timeout: float = 60.0,
+    sprint: dict[str, Any] | None = None,
+    sprint_selector: SprintSelector | None = None,
+    min_committed: int = 1,
+) -> list[dict[str, Any]]:
+    """Per-Agile-Team delivery rows for one board's sprint (latest closed by default).
+
+    The LEAN board hosts several engineering teams on one board, tagged by the Agile
+    Team field. This returns one scorecard row per team (ticket-count delivery + lead
+    time; no story points, since LEAN does not estimate in SP), newest sprint resolved
+    per ``sprint_selector``. Returns ``[]`` when no sprint or no issues are found.
+    """
+    board_id = int(board["board_id"])
+    if sprint is None:
+        try:
+            sprint = resolve_board_sprint(client, board_id, sprint_selector, timeout=timeout)
+        except requests.RequestException as e:
+            logger.warning("LEAN agile-team sprint resolve failed: %s", e)
+            return []
+    if sprint is None:
+        return []
+
+    sprint_id = int(sprint["id"])
+    win_start = _parse_jira_dt(sprint.get("start"))
+    win_end = _parse_jira_dt(sprint.get("end"))
+    # End date parses to midnight; include the whole final day of the sprint.
+    if win_end is not None:
+        from datetime import timedelta
+        win_end = win_end + timedelta(days=1)
+
+    def _resolved_in_window(resolved: Any) -> bool:
+        rd = _parse_jira_dt(resolved)
+        if rd is None:
+            return False
+        if win_start and rd < win_start:
+            return False
+        if win_end and rd > win_end:
+            return False
+        return True
+
+    fields = f"status,issuetype,created,resolutiondate,{AGILE_TEAM_FIELD}"
+    try:
+        issues, _ = _fetch_sprint_issues(
+            client, sprint_id,
+            max_issues=max_issues,
+            excluded_issue_types=excluded_issue_types,
+            timeout=timeout,
+            fields=fields,
+        )
+    except requests.RequestException as e:
+        logger.warning("LEAN agile-team sprint issues failed: %s", e)
+        return []
+
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for issue in issues:
+        f = issue.get("fields") or {}
+        if not isinstance(f, dict):
+            continue
+        team = _agile_team_name(f.get(AGILE_TEAM_FIELD)) or "Unassigned"
+        groups.setdefault(team, []).append(f)
+
+    rows: list[dict[str, Any]] = []
+    for team, fs in groups.items():
+        # LEAN punts incomplete work out of a sprint at close, so a "committed vs
+        # delivered" ratio is not meaningful here — we report throughput instead:
+        # issues actually resolved inside the sprint window. Fall back to done-status
+        # count if no resolution dates are available.
+        in_window = sum(1 for f in fs if _resolved_in_window(f.get("resolutiondate")))
+        done_count = sum(1 for f in fs if _issue_is_done(f, status_map))
+        throughput = in_window or done_count
+        if throughput < min_committed:
+            continue
+        leads = [
+            d for f in fs
+            if _issue_is_done(f, status_map)
+            and (d := _lead_time_days(f.get("created"), f.get("resolutiondate"))) is not None
+        ]
+        median_lead = round(statistics.median(leads), 2) if leads else None
+        rows.append({
+            "team": team,
+            "board_id": board_id,
+            "board_name": board.get("name"),
+            "project_key": board.get("project_key"),
+            "sprint": sprint,
+            "sprint_name": sprint.get("name"),
+            # Delivery % is intentionally absent — LEAN runs continuous flow, not
+            # committed sprints (see board_sprint_report); throughput is the honest metric.
+            "delivery_pct": None,
+            "delivered": throughput,
+            "committed": None,
+            "throughput": throughput,
+            "delivery_basis": "throughput",
+            # LEAN does not estimate in story points.
+            "story_points_delivered": None,
+            "story_points_committed": None,
+            "median_cycle_days": None,
+            "median_lead_days": median_lead,
+            "agile_team": True,
+        })
+    # "Unassigned" (no team tag) sinks to the bottom; real teams by throughput volume.
+    rows.sort(key=lambda r: (r["team"] == "Unassigned", -r["throughput"]))
+    return rows
 
 
 def _resolve_boards(board_ids: list[int] | None) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:

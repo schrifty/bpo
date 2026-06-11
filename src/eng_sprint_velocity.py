@@ -107,10 +107,20 @@ def build_sprint_velocity_series(
         chosen = primary_labels[slot] or label_sources[slot]
         labels.append(_sprint_label(chosen) or f"S-{used_slots - 1 - slot}")
 
+    # Boards that do not estimate in story points (e.g. LEAN runs on ticket
+    # throughput) contribute all-zero rows. Drop them from the SP bars — a flat-zero
+    # series implies "delivered nothing" rather than "does not use story points" — but
+    # keep their sprint names for the recency axis (computed above) and keep them in
+    # ``tickets_total``/``sp_total`` accounting.
+    sp_teams = [t for t in teams if any(v for v in sp_by_team.get(t, []))]
+    zero_sp_teams = [t for t in teams if t not in sp_teams]
+    sp_by_team_nonzero = {t: sp_by_team[t] for t in sp_teams}
+
     return {
         "labels": labels,
-        "teams": teams,
-        "sp_by_team": sp_by_team,
+        "teams": sp_teams or teams,
+        "sp_by_team": sp_by_team_nonzero or sp_by_team,
+        "zero_sp_teams": zero_sp_teams,
         "tickets_total": tickets_total,
         "sp_total": [round(v, 1) for v in sp_total],
         "used_slots": used_slots,
@@ -123,6 +133,7 @@ def _empty_series(*, error: str | None) -> dict[str, Any]:
         "labels": [],
         "teams": [],
         "sp_by_team": {},
+        "zero_sp_teams": [],
         "tickets_total": [],
         "sp_total": [],
         "used_slots": 0,

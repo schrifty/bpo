@@ -6,13 +6,105 @@ from unittest.mock import MagicMock, patch
 
 from src.jira_sprint_delivery import (
     SprintSelector,
+    _agile_team_name,
     _issue_is_done,
+    _lead_time_days,
     _pick_latest_closed_sprint,
     board_sprint_delivery,
     get_sprint_delivery_by_team,
     get_sprint_delivery_history,
+    lean_sprint_delivery_by_agile_team,
     sprint_matches_selector,
 )
+
+
+def test_agile_team_name_handles_shapes() -> None:
+    assert _agile_team_name({"value": "Supply Insights"}) == "Supply Insights"
+    assert _agile_team_name({"name": "Infrastructure"}) == "Infrastructure"
+    assert _agile_team_name([{"value": "Data Pipeline"}]) == "Data Pipeline"
+    assert _agile_team_name("Procurement Management") == "Procurement Management"
+    assert _agile_team_name(None) is None
+    assert _agile_team_name("") is None
+
+
+def test_lead_time_days_created_to_resolved() -> None:
+    days = _lead_time_days("2026-06-01T00:00:00.000+0000", "2026-06-06T00:00:00.000+0000")
+    assert days is not None and round(days, 1) == 5.0
+    # End before start is rejected.
+    assert _lead_time_days("2026-06-06T00:00:00.000+0000", "2026-06-01T00:00:00.000+0000") is None
+    assert _lead_time_days(None, "2026-06-06T00:00:00.000+0000") is None
+
+
+def test_lean_sprint_delivery_by_agile_team_groups_and_counts() -> None:
+    board = {"board_id": 44, "name": "LEAN Scrum", "team_label": "LEAN Engineering"}
+    sprint = {"id": 2598, "name": "Sprint 595"}
+    done = {"status": {"statusCategory": {"key": "done"}, "name": "Closed"}}
+    open_ = {"status": {"statusCategory": {"key": "indeterminate"}, "name": "In Progress"}}
+
+    def _issue(team, base):
+        f = dict(base)
+        f["customfield_10633"] = {"value": team} if team else None
+        f["created"] = "2026-06-01T00:00:00.000+0000"
+        f["resolutiondate"] = "2026-06-05T00:00:00.000+0000" if base is done else None
+        return {"fields": f}
+
+    issues = [
+        _issue("Supply Insights", done),
+        _issue("Supply Insights", done),
+        _issue("Supply Insights", open_),
+        _issue("Infrastructure", done),
+        _issue(None, done),  # -> Unassigned
+    ]
+
+    with patch(
+        "src.jira_sprint_delivery._fetch_sprint_issues",
+        return_value=(issues, len(issues)),
+    ):
+        rows = lean_sprint_delivery_by_agile_team(
+            MagicMock(),
+            board,
+            status_map={},
+            excluded_issue_types=(),
+            sprint=sprint,
+        )
+
+    by_team = {r["team"]: r for r in rows}
+    si = by_team["Supply Insights"]
+    # LEAN reports throughput (issues resolved), not a say/do ratio.
+    assert si["throughput"] == 2
+    assert si["delivered"] == 2
+    assert si["committed"] is None
+    assert si["delivery_pct"] is None
+    assert si["story_points_delivered"] is None
+    assert round(si["median_lead_days"]) == 4
+    # Real teams sort by throughput volume; "Unassigned" sinks to the bottom.
+    assert rows[0]["team"] == "Supply Insights"
+    assert rows[-1]["team"] == "Unassigned"
+
+
+def test_board_sprint_report_parses_completed_vs_committed() -> None:
+    payload = {
+        "contents": {
+            "completedIssues": [{}, {}, {}],
+            "issuesNotCompletedInCurrentSprint": [{}, {}, {}, {}, {}, {}, {}],
+            "puntedIssues": [{}],
+            "completedIssuesEstimateSum": {"value": 12.0},
+            "issuesNotCompletedEstimateSum": {"value": 28.0},
+        }
+    }
+    resp = MagicMock()
+    resp.ok = True
+    resp.raise_for_status.return_value = None
+    resp.json.return_value = payload
+    with patch("src.jira_sprint_delivery.requests.get", return_value=resp):
+        from src.jira_sprint_delivery import board_sprint_report
+        rep = board_sprint_report(MagicMock(base_url="https://x", _headers={}), 36, 2939)
+    assert rep is not None
+    assert rep["completed"] == 3
+    assert rep["committed"] == 10  # 3 completed + 7 not completed (punted excluded)
+    assert round(rep["delivery_pct"]) == 30
+    assert rep["completed_sp"] == 12.0
+    assert rep["committed_sp"] == 40.0
 
 
 def test_pick_latest_closed_sprint() -> None:
