@@ -108,10 +108,38 @@ def test_format_metric_recent_block() -> None:
         )
     )
     assert block == [
-        "Time to Value:",
+        "Time to Value [manual]:",
         "  2026-06-01: 166.5",
         "  2026-05-25: 170.0",
     ]
+
+
+def test_format_metric_recent_block_marks_automated() -> None:
+    from src.metrics_latest import DatapointValue, MetricRecentDatapointsRow
+
+    block = format_metric_recent_block(
+        MetricRecentDatapointsRow(
+            metric_name="Engineering Cycle Time (Sprint)",
+            metric_id=2024,
+            recent=(DatapointValue(date="2026-06-01", value=4.5),),
+            automated=True,
+        )
+    )
+    assert block[0] == "Engineering Cycle Time (Sprint) [automated]:"
+
+
+def test_count_automated_metrics() -> None:
+    from src.metrics_registry import count_automated_metrics
+
+    reg = {
+        "metrics": {
+            "A": {"automated": True, "metric-id": 1},
+            "B": {"automated": False, "metric-id": None},
+            "C": {"metric-id": 2},
+            "D": {"automated": True},
+        }
+    }
+    assert count_automated_metrics(registry=reg) == (2, 4)
 
 
 def test_format_datapoint_line() -> None:

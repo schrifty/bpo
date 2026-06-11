@@ -11,7 +11,11 @@ from src.leandna_metrics_client import (
     resolve_metric_catalog_row,
     resolve_metric_datapoint_window,
 )
-from src.metrics_registry import datapoint_metric_ids_for_entry, iter_metrics_with_id
+from src.metrics_registry import (
+    datapoint_metric_ids_for_entry,
+    is_automated_metric,
+    iter_metrics_with_id,
+)
 
 DEFAULT_RECENT_DATAPOINT_COUNT = 3
 
@@ -28,6 +32,7 @@ class MetricRecentDatapointsRow:
     metric_id: int
     recent: tuple[DatapointValue, ...]
     error: str | None = None
+    automated: bool = False
 
 
 def datapoint_value_from_row(row: dict[str, Any]) -> DatapointValue | None:
@@ -75,11 +80,13 @@ def format_metric_recent_block(
     indent: str = "  ",
 ) -> list[str]:
     """Human-readable lines for one metric and its recent datapoints."""
+    tag = "[automated]" if row.automated else "[manual]"
+    header = f"{row.metric_name} {tag}:"
     if row.error:
-        return [f"{row.metric_name}:", f"{indent}(error: {row.error})"]
+        return [header, f"{indent}(error: {row.error})"]
     if not row.recent:
-        return [f"{row.metric_name}:", f"{indent}(no datapoints)"]
-    lines = [f"{row.metric_name}:"]
+        return [header, f"{indent}(no datapoints)"]
+    lines = [header]
     lines.extend(f"{indent}{format_datapoint_line(date=p.date, value=p.value)}" for p in row.recent)
     return lines
 
@@ -201,6 +208,7 @@ def fetch_registry_recent_datapoints(
                 metric_id=metric_id,
                 recent=recent,
                 error=error,
+                automated=is_automated_metric(entry),
             )
         )
     return rows

@@ -70,6 +70,24 @@ def iter_metrics_with_id(
     return out
 
 
+def is_automated_metric(entry: Any) -> bool:
+    """True when *entry* is flagged ``automated: true`` in the registry."""
+    if not isinstance(entry, dict):
+        return False
+    return bool(entry.get("automated"))
+
+
+def count_automated_metrics(*, registry: dict[str, Any] | None = None) -> tuple[int, int]:
+    """``(automated, total)`` metric counts across the registry."""
+    reg = registry if registry is not None else load_metrics_registry()
+    metrics = reg.get("metrics")
+    if not isinstance(metrics, dict):
+        return 0, 0
+    entries = [entry for entry in metrics.values() if isinstance(entry, dict)]
+    automated = sum(1 for entry in entries if is_automated_metric(entry))
+    return automated, len(entries)
+
+
 def has_metric_generator(entry: Any) -> bool:
     """True when *entry* has a non-empty ``metric-generator``."""
     if not isinstance(entry, dict):

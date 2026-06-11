@@ -34,6 +34,7 @@ from src.metrics_latest import (  # noqa: E402
     fetch_registry_recent_datapoints,
     format_metric_recent_block,
 )
+from src.metrics_registry import count_automated_metrics  # noqa: E402
 
 _DEFAULT_LOOKBACK_DAYS = 365
 _READ_TIMEOUT_S = 60.0
@@ -99,9 +100,12 @@ def main() -> int:
         return 1
 
     failures = 0
+    shown_automated = 0
     for index, row in enumerate(rows):
         if row.error and not row.recent:
             failures += 1
+        if row.automated:
+            shown_automated += 1
         block = format_metric_recent_block(row)
         if ns.names_only:
             block = [line for line in block if line.startswith("  ")]
@@ -109,8 +113,11 @@ def main() -> int:
             print()
         print("\n".join(block))
 
+    automated_total, registry_total = count_automated_metrics()
     print(
-        f"Fetched up to {ns.recent_count} datapoint(s) for {len(rows)} metric(s).",
+        f"Fetched up to {ns.recent_count} datapoint(s) for {len(rows)} metric(s) with a metric-id "
+        f"({shown_automated} automated). "
+        f"Registry automation: {automated_total} of {registry_total} KPI(s) automated.",
         file=sys.stderr,
     )
     return 1 if failures == len(rows) else 0
