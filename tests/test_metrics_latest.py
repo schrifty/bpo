@@ -133,10 +133,10 @@ def test_count_automated_metrics() -> None:
 
     reg = {
         "metrics": {
-            "A": {"automated": True, "metric-id": 1},
-            "B": {"automated": False, "metric-id": None},
+            "A": {"metric-id": 1, "metric-generator": "gen_a"},
+            "B": {"metric-id": None, "metric-generator": None},
             "C": {"metric-id": 2},
-            "D": {"automated": True},
+            "D": {"metric-id": None, "metric-generator": "gen_d"},
         }
     }
     assert count_automated_metrics(registry=reg) == (2, 4)

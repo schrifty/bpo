@@ -874,3 +874,51 @@ def get_dev_team_cycle_times(
         "boards": [b["board_id"] for b in boards],
         "teams": teams,
     }
+
+
+def lead_time_metric_value_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """``{numerator, denominator}`` = median per-board lead time, for metrics-upsert."""
+    if not isinstance(payload, dict):
+        return {"error": "cycle-time payload missing"}
+    if payload.get("error"):
+        return {"error": str(payload["error"])}
+    leads: list[float] = []
+    for team in payload.get("teams") or []:
+        if not isinstance(team, dict) or team.get("error"):
+            continue
+        raw = team.get("lead_time_median_days")
+        if raw is not None:
+            leads.append(float(raw))
+    if not leads:
+        return {"error": "no lead_time_median_days from development cycle time teams"}
+    return {"numerator": round(statistics.median(leads), 2), "denominator": 1.0}
+
+
+def get_dev_team_lead_time_metric_value(
+    client: JiraClient,
+    *,
+    board_ids: list[int] | None = None,
+    days: int = 30,
+    max_issues_per_board: int = 500,
+    workers: int = 6,
+    timeout: float = 60.0,
+    excluded_issue_types: tuple[str, ...] | None = None,
+    include_all_issue_types: bool = False,
+) -> dict[str, Any]:
+    """Portfolio median lead time (created→resolved days) for ``metrics-upsert``.
+
+    Numerator is the median of each development board's median lead time; denominator
+    is 1.0. Lead time is the intuitive "how long from request to done" measure, distinct
+    from the active in-progress cycle time tracked separately.
+    """
+    payload = get_dev_team_cycle_times(
+        client,
+        board_ids=board_ids,
+        days=days,
+        max_issues_per_board=max_issues_per_board,
+        workers=workers,
+        timeout=timeout,
+        excluded_issue_types=excluded_issue_types,
+        include_all_issue_types=include_all_issue_types,
+    )
+    return lead_time_metric_value_from_payload(payload)

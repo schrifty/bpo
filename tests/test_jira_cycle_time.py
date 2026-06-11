@@ -12,6 +12,7 @@ from src.jira_cycle_time import (
     drop_upper_outliers,
     history_fetch_cap,
     history_window_days,
+    lead_time_metric_value_from_payload,
     summarize_cycle_times,
     trailing_month_periods,
 )
@@ -117,3 +118,37 @@ def test_drop_upper_outliers_removes_extreme_tail() -> None:
     assert dropped[0]["key"] == "T-outlier"
     assert cutoff is not None
     assert len(kept) == 20
+
+
+def test_lead_time_metric_value_medians_per_board() -> None:
+    payload = {
+        "teams": [
+            {"board_id": 44, "lead_time_median_days": 3.91},
+            {"board_id": 36, "lead_time_median_days": 7.57},
+            {"board_id": 46, "lead_time_median_days": 7.57},
+            {"board_id": 322, "lead_time_median_days": 9.3},
+        ]
+    }
+    assert lead_time_metric_value_from_payload(payload) == {
+        "numerator": 7.57,
+        "denominator": 1.0,
+    }
+
+
+def test_lead_time_metric_value_skips_errored_teams() -> None:
+    payload = {
+        "teams": [
+            {"board_id": 44, "lead_time_median_days": 4.0},
+            {"board_id": 36, "error": "boom"},
+            {"board_id": 46, "lead_time_median_days": 6.0},
+        ]
+    }
+    assert lead_time_metric_value_from_payload(payload) == {
+        "numerator": 5.0,
+        "denominator": 1.0,
+    }
+
+
+def test_lead_time_metric_value_propagates_error() -> None:
+    assert lead_time_metric_value_from_payload({"error": "no data"}) == {"error": "no data"}
+    assert "error" in lead_time_metric_value_from_payload({"teams": []})

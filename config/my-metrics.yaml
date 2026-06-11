@@ -12,44 +12,44 @@
 # Generator names refer to functions under src/ (e.g. jira_cycle_time.get_dev_team_cycle_times).
 
 metrics:
-  # Control Tower - NOT AUTOMATABLE
+  # Control Tower
   "Time to Value":
     metric-id: 1860
     metric-generator: null
 
-  # On-Time Performance - NOT AUTOMATABLE
+  # On-Time Performance
   "On Time Performance":
     metric-id: 1745
     metric-generator: null
 
-  # Customer-Reported Bugs - AUTOMATABLE
+  # Customer-Reported Bugs
   "Customer-Reported Bugs":
     metric-id: 2035
     metric-generator: null
 
-  # Tickets Beyond Service Thresholds - AUTOMATABLE
+  # Tickets Beyond Service Thresholds
   "Tickets Beyond Service Thresholds":
     metric-id: 2028
     metric-generator: null
 
-  # Site Uptime % - NOT AUTOMATABLE
+  # Site Uptime %
   "Site Uptime %":
     metric-id: 1769
     metric-generator: null
 
-  # AI Token Usage - AUTOMATABLE
+  # AI Token Usage
   "AI Token Usage":
     metric-id: null
     metric-generator: null
 
-  # Median Time to Complete SUT (Weeks) - NOT AUTOMATABLE
+  # Median Time to Complete SUT (Weeks)
   "Median Time to Complete SUT (Weeks)":
     metric-id: 2175
     metric-generator: null
 
   # Sprint Delivery % - AUTOMATABLE
   "Sprint Delivery %":
-    metric-id: null
+    metric-id: 2086
     metric-generator: null
 
   # TTFR (30 Days) - AUTOMATABLE
@@ -62,10 +62,14 @@ metrics:
     metric-id: null
     metric-generator: null
 
-  # Automated - 2024
   "Engineering Cycle Time (Sprint)":
-    metric-id: null
+    metric-id: 2024
     metric-generator: get_dev_team_cycle_times
+
+  # Median lead time (created->resolved) across dev boards.
+  "Engineering Lead Time (Days)":
+    metric-id: 2179
+    metric-generator: get_dev_team_lead_time
 
   # Data Sync Failures (Month) - 2029
   "Data Sync Failures (Month)":
@@ -78,7 +82,7 @@ metrics:
     metric-generator: null
 
   # 2076
-  "Engagement Automation %":
+  "KPI Automation %":
     metric-id: null
     metric-generator: get_kpi_automation_pct
 
@@ -91,11 +95,6 @@ metrics:
   "Team Performance (Onshore vs. Offshore)":
     metric-id: null
     metric-generator: null
-
-  # 2086
-  "Sprint Delivery %":
-    metric-id: null
-    metric-generator: get_sprint_delivery_by_team
 
   "Sprint Story Points Delivered":
     metric-id: null

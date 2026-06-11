@@ -71,10 +71,8 @@ def iter_metrics_with_id(
 
 
 def is_automated_metric(entry: Any) -> bool:
-    """True when *entry* is flagged ``automated: true`` in the registry."""
-    if not isinstance(entry, dict):
-        return False
-    return bool(entry.get("automated"))
+    """True when *entry* has a ``metric-generator`` (a generator means it is automated)."""
+    return has_metric_generator(entry)
 
 
 def count_automated_metrics(*, registry: dict[str, Any] | None = None) -> tuple[int, int]:
