@@ -704,7 +704,7 @@ def eng_current_sprint_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     if insights:
         eng_insight_bullets(reqs, sid, insights, MARGIN, _ENG_CONTENT_BOTTOM - insights_h, CONTENT_W)
 
-    _eng_scope_footer(reqs, sid, f"Active sprint: {sprint_name}  ·  {date_range}  ·  Source: Jira LEAN board")
+    _eng_scope_footer(reqs, sid, f"Active sprint: {sprint_name}  ·  {date_range}  ·  Source: Jira LEAN Engineering board")
     return idx + 1
 
 
@@ -783,7 +783,7 @@ def eng_backlog_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     cap_note = "  ·  resolved capped at fetch limit (actual is higher)" if resolved_capped else ""
     _eng_scope_footer(
         reqs, sid,
-        "Open = unresolved LEAN tickets  ·  age measured from created date  ·  "
+        "Scope: LEAN Engineering board  ·  open = unresolved tickets  ·  age from created date  ·  "
         f"cycle = open→resolved over last 6 mo{cap_note}",
     )
     return idx + 1
@@ -835,8 +835,8 @@ def eng_capacity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
     _slide_title(reqs, sid, title)
 
     context = (
-        "Per-engineer in-flight WIP (assigned, active sprint statuses) versus recent "
-        "throughput — not the full escalation backlog."
+        "LEAN Engineering board: per-engineer in-flight WIP (assigned, active sprint statuses) "
+        "versus recent throughput — not the full escalation backlog."
     )
     _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
     _style(reqs, f"{sid}_ctx", 0, len(context), size=11, color=NAVY, font=FONT)
@@ -894,7 +894,7 @@ def eng_capacity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
 
     _eng_scope_footer(
         reqs, sid,
-        "WIP now = in-flight LEAN tickets (Open/In Progress/In Review) assigned to an engineer — "
+        "Scope: LEAN Engineering board  ·  WIP now = in-flight tickets (Open/In Progress/In Review) assigned to an engineer — "
         "distinct from the full escalation backlog  ·  Resolved 30d/90d = tickets closed in trailing window",
     )
     return idx + 1
@@ -1051,7 +1051,12 @@ def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
 
 
 def eng_flow_bottlenecks_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
-    """Where work stalls: active WIP by stage, idle items, and cycle-time trend."""
+    """Where work stalls: WIP, the review chokepoint, and a ranked needs-attention list.
+
+    Attention rows lead with carried-over items (in ≥2 sprints — a strong stall
+    signal) then idle items, each with owner, priority, story points, and age so a
+    VP can act without opening Jira.
+    """
     eng = report.get("eng_portfolio") or {}
     flow = eng.get("flow") or {}
     if not eng or not flow:
@@ -1059,14 +1064,18 @@ def eng_flow_bottlenecks_slide(reqs: list[dict[str, Any]], sid: str, report: dic
 
     active = int(flow.get("active_count") or 0)
     in_review = int(flow.get("in_review") or 0)
-    stale5 = int(flow.get("stale_gt5") or 0)
-    median_age = flow.get("median_active_age_days")
+    stale10 = int(flow.get("stale_gt10") or 0)
+    carry = int(flow.get("carryover_count") or 0)
+    carry_pts = float(flow.get("carryover_points") or 0.0)
     cycle_delta = flow.get("cycle_delta_days")
     cycle_trend = [p for p in (flow.get("cycle_trend") or []) if p.get("median_cycle_days") is not None]
-    stale_items = flow.get("stale_items") or []
+    attention_items = flow.get("attention_items") or flow.get("stale_items") or []
+    jira_base = (eng.get("base_url") or "").rstrip("/")
 
-    if stale5:
-        title = f"Flow Bottleneck — {stale5} Active Item{'s' if stale5 != 1 else ''} Stalled (>5d Idle)"
+    if carry:
+        title = f"Flow Risk — {carry} Active Item{'s' if carry != 1 else ''} Carried Across Sprints"
+    elif stale10:
+        title = f"Flow Bottleneck — {stale10} Active Item{'s' if stale10 != 1 else ''} Stalled >10 Days"
     elif active:
         title = f"Flow Healthy — {active} Active Item{'s' if active != 1 else ''} Moving"
     else:
@@ -1076,88 +1085,110 @@ def eng_flow_bottlenecks_slide(reqs: list[dict[str, Any]], sid: str, report: dic
     _bg(reqs, sid, WHITE)
     _slide_title(reqs, sid, title)
 
-    context = "Where in-flight work is moving versus stalling, and whether delivery cycle time is trending up."
+    context = (
+        "LEAN Engineering board: where active work is piling up or stalling, and which "
+        "items need attention first."
+    )
     _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
     _style(reqs, f"{sid}_ctx", 0, len(context), size=11, color=NAVY, font=FONT)
 
     cycle_now = cycle_trend[-1]["median_cycle_days"] if cycle_trend else None
     cycle_arrow, _ = _trend_arrow(cycle_delta, good_is_down=True)
+    carry_value = str(carry) + (f"  ·  {carry_pts:.0f} SP" if carry_pts else "")
     cards_y = _eng_kpi_row(
         reqs, sid,
         [
             ("Active WIP", str(active)),
             ("In review (chokepoint)", str(in_review)),
-            ("Idle >5 days", str(stale5)),
-            ("Cycle time (median)", "—" if cycle_now is None else f"{float(cycle_now):.0f}d {cycle_arrow}"),
+            ("Carried over (≥2 sprints)", carry_value),
+            ("Cycle/lead time (median)", "—" if cycle_now is None else f"{float(cycle_now):.0f}d {cycle_arrow}"),
         ],
         y=BODY_Y + 22,
     )
 
-    charts = report.get("_charts")
-    body_top = cards_y + 18
-    col_gap = 24
-    left_w = (CONTENT_W - col_gap) // 2
-    right_w = CONTENT_W - left_w - col_gap
-    right_x = MARGIN + left_w + col_gap
-    chart_h = _ENG_CONTENT_BOTTOM - body_top - 20
+    # ── Full-width "needs attention" table ───────────────────────────────────
+    header = "Needs attention — carried-over & stalled active items"
+    table_hdr_y = cards_y + 18
+    _box(reqs, f"{sid}_att_h", sid, MARGIN, table_hdr_y, CONTENT_W, 14, header)
+    _style(reqs, f"{sid}_att_h", 0, len(header), bold=True, size=11, color=NAVY, font=FONT)
+    table_top = table_hdr_y + 20
 
-    _eng_simple_bar_chart(
-        reqs, sid, charts, oid="cycle",
-        header="Median cycle time by close-week (days)",
-        labels=[str(p.get("week", "")).split("-W")[-1] for p in cycle_trend],
-        values=[float(p["median_cycle_days"]) for p in cycle_trend],
-        x=MARGIN, y=body_top, w=left_w, chart_h=chart_h,
-        series_name="Days",
-    )
+    if not attention_items:
+        msg = "No carried-over or stalled active items — flow is healthy this sprint."
+        _box(reqs, f"{sid}_att_e", sid, MARGIN, table_top, CONTENT_W, 16, msg)
+        _style(reqs, f"{sid}_att_e", 0, len(msg), size=10, color=GREEN, font=FONT)
+        _eng_scope_footer(
+            reqs, sid,
+            "Scope: LEAN Engineering board  ·  active = In Progress / In Review  ·  "
+            "carried over = present in ≥2 sprints  ·  idle = days since last Jira update (proxy)",
+        )
+        return idx + 1
 
-    # Right column: the worst-stalled active items (idle longest).
-    _box(reqs, f"{sid}_stale_h", sid, right_x, body_top, right_w, 14, "Most-stalled active items")
-    _style(reqs, f"{sid}_stale_h", 0, len("Most-stalled active items"), bold=True, size=10, color=NAVY, font=FONT)
-    if stale_items:
-        col_widths = [right_w * 0.18, right_w * 0.46, right_w * 0.18, right_w * 0.18]
-        headers = ["Key", "Status", "Idle", "Age"]
-        aligns = ["START", "START", "END", "END"]
-        num_rows = 1 + len(stale_items[:6])
-        table_id = f"{sid}_stbl"
-        reqs.append({
-            "createTable": {
-                "objectId": table_id,
-                "elementProperties": {
-                    "pageObjectId": sid,
-                    "size": _sz(sum(col_widths), num_rows * 22.0),
-                    "transform": _tf(right_x, body_top + 20),
-                },
-                "rows": num_rows,
-                "columns": len(headers),
-            }
-        })
-        _clean_table(reqs, table_id, num_rows, len(headers))
-        _table_column_widths(reqs, table_id, col_widths)
-        for ci, h in enumerate(headers):
-            _table_cell_text(reqs, table_id, 0, ci, h)
-            _table_cell_style(reqs, table_id, 0, ci, len(h), bold=True, color=GRAY, size=8, font=FONT, align=aligns[ci])
-        status_chars = max_chars_one_line_for_table_col(col_widths[1], 8.5)
-        for ri, item in enumerate(stale_items[:6], start=1):
-            idle = int(item.get("idle_days") or 0)
-            age = item.get("age_days")
-            cells = [
-                (str(item.get("key", "")), NAVY, MONO, "START"),
-                (_truncate_one_line(str(item.get("status", "")), status_chars), GRAY, FONT, "START"),
-                (f"{idle}d", RED if idle > 10 else AMBER, MONO, "END"),
-                ("—" if age is None else f"{int(age)}d", NAVY, MONO, "END"),
-            ]
-            for ci, (text, color, font, align) in enumerate(cells):
-                _table_cell_text(reqs, table_id, ri, ci, text)
-                _table_cell_style(reqs, table_id, ri, ci, len(text), color=color, size=8.5, font=font, align=align)
-    else:
-        msg = "No active items idle beyond 5 days."
-        _box(reqs, f"{sid}_stale_e", sid, right_x, body_top + 22, right_w, 14, msg)
-        _style(reqs, f"{sid}_stale_e", 0, len(msg), size=9, color=GRAY, font=FONT)
+    # Key | Summary | Owner | Pri | Idle | Spr | SP  (sums to CONTENT_W = 624;
+    # every column ≥ 32pt per Google Slides' minimum table-column width).
+    col_widths = [84.0, 280.0, 92.0, 44.0, 40.0, 40.0, 44.0]
+    headers = ["Key", "Summary", "Owner", "Pri", "Idle", "Spr", "SP"]
+    aligns = ["START", "START", "START", "START", "END", "END", "END"]
+    row_h = 22.0
+    max_rows = max(1, int((_ENG_CONTENT_BOTTOM - table_top) // row_h) - 1)
+    display = attention_items[:max_rows]
+    num_rows = 1 + len(display)
+    table_id = f"{sid}_atbl"
+    reqs.append({
+        "createTable": {
+            "objectId": table_id,
+            "elementProperties": {
+                "pageObjectId": sid,
+                "size": _sz(sum(col_widths), num_rows * row_h),
+                "transform": _tf(MARGIN, table_top),
+            },
+            "rows": num_rows,
+            "columns": len(headers),
+        }
+    })
+    _clean_table(reqs, table_id, num_rows, len(headers))
+    _table_column_widths(reqs, table_id, col_widths)
+    for ci, h in enumerate(headers):
+        _table_cell_text(reqs, table_id, 0, ci, h)
+        _table_cell_style(reqs, table_id, 0, ci, len(h), bold=True, color=GRAY, size=8, font=FONT, align=aligns[ci])
 
-    median_txt = f"median active age {float(median_age):.0f}d" if median_age is not None else "median active age n/a"
+    summary_chars = max_chars_one_line_for_table_col(col_widths[1], 9.0)
+    owner_chars = max_chars_one_line_for_table_col(col_widths[2], 9.0)
+    for ri, item in enumerate(display, start=1):
+        idle = item.get("idle_days")
+        spr = int(item.get("sprint_count") or 0)
+        is_carry = bool(item.get("carryover"))
+        sp = item.get("story_points")
+        prio = str(item.get("priority") or "")
+        prio_short = prio.split(":")[0] if ":" in prio else prio
+        owner = str(item.get("assignee") or "")
+        owner_first = owner.split()[0] if owner and owner != "Unassigned" else (owner or "—")
+        idle_color = RED if (idle or 0) > 10 else (AMBER if (idle or 0) > 5 else GRAY)
+        key = str(item.get("key", ""))
+        link = f"{jira_base}/browse/{key}" if jira_base and key else None
+        cells = [
+            (key, BLUE, MONO, "START", link),
+            (_truncate_one_line(str(item.get("summary") or ""), summary_chars), NAVY, FONT, "START", None),
+            (_truncate_one_line(owner_first, owner_chars), GRAY, FONT, "START", None),
+            (prio_short or "—", NAVY, FONT, "START", None),
+            ("—" if idle is None else f"{int(idle)}d", idle_color, MONO, "END", None),
+            (str(spr), RED if is_carry else GRAY, MONO, "END", None),
+            ("—" if sp is None else f"{float(sp):.0f}", NAVY, MONO, "END", None),
+        ]
+        for ci, (text, color, font, align, cell_link) in enumerate(cells):
+            _table_cell_text(reqs, table_id, ri, ci, text)
+            _table_cell_style(
+                reqs, table_id, ri, ci, len(text),
+                bold=(ci == 0), color=color, size=9, font=font, align=align, link=cell_link,
+            )
+
+    overflow = len(attention_items) - len(display)
+    overflow_txt = f"  ·  +{overflow} more not shown" if overflow > 0 else ""
     _eng_scope_footer(
         reqs, sid,
-        f"Active = In Progress / In Review  ·  idle = days since last update  ·  {median_txt}  ·  cycle = created→resolved",
+        "Scope: LEAN Engineering board  ·  ranked: carried-over first, then most idle  ·  "
+        "carried over = in ≥2 sprints  ·  idle = days since last Jira update (proxy)"
+        + overflow_txt,
     )
     return idx + 1
 
@@ -1188,7 +1219,7 @@ def eng_work_split_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
     _bg(reqs, sid, WHITE)
     _slide_title(reqs, sid, title)
 
-    context = "How much engineering capacity goes to roadmap work versus reactive bugs and escalations."
+    context = "LEAN Engineering board: how much capacity goes to roadmap work versus reactive bugs and escalations."
     _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
     _style(reqs, f"{sid}_ctx", 0, len(context), size=11, color=NAVY, font=FONT)
 
@@ -1231,7 +1262,7 @@ def eng_work_split_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
 
     _eng_scope_footer(
         reqs, sid,
-        "Unplanned = bugs, escalations, incidents, escalation-labeled tickets  ·  WIP = open now, closed = trailing window",
+        "Scope: LEAN Engineering board  ·  unplanned = bugs, escalations, incidents, escalation-labeled tickets  ·  WIP = open now, closed = trailing window",
     )
     return idx + 1
 

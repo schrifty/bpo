@@ -1,13 +1,13 @@
 id: eng_flow_bottlenecks
 type: standard
 order: 84
-title: Flow & Bottlenecks
+title: Flow & Bottlenecks (LEAN Engineering)
 slide_type: eng_flow_bottlenecks
 data_tools: []
 customers: all
 
 prompt: >
-  Where engineering work moves versus stalls. KPI cards show active WIP, items
+  Where work moves versus stalls for the LEAN engineering board. KPI cards show active WIP, items
   in review (the common chokepoint), items idle more than five days, and median
   cycle time with an up/down trend arrow. A median-cycle-time-by-week chart sits
   beside a table of the most-stalled active items (key, status, days idle, age).

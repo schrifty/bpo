@@ -615,24 +615,48 @@ def compute_eng_flow(in_flight: list[dict], closed: list[dict], *, today: "date 
     active_ages = [a for a in (_age_days(t) for t in active) if a is not None]
     stale_gt5 = 0
     stale_gt10 = 0
-    stale_rows: list[dict[str, Any]] = []
+    carryover_count = 0
+    carryover_points = 0.0
+    # "Needs attention" = active items that are either carried over across a sprint
+    # boundary (sprint_count ≥ 2) or idle past the freshness threshold. Carryover is
+    # the stronger signal, so rows are ranked by it first, then by idle days.
+    attention_rows: list[dict[str, Any]] = []
     for ticket in active:
         idle = _idle_days(ticket)
-        if idle is None:
-            continue
-        if idle > 5:
+        sprint_count = int(ticket.get("sprint_count") or len(ticket.get("sprints") or []))
+        is_carryover = sprint_count >= 2
+        sp = ticket.get("story_points")
+        if is_carryover:
+            carryover_count += 1
+            carryover_points += float(sp) if sp is not None else 0.0
+        if idle is not None and idle > 5:
             stale_gt5 += 1
-        if idle > 10:
+        if idle is not None and idle > 10:
             stale_gt10 += 1
-        if idle > 5:
-            stale_rows.append({
+        if is_carryover or (idle is not None and idle > 5):
+            attention_rows.append({
                 "key": ticket.get("key", ""),
-                "summary": (ticket.get("summary") or "")[:70],
+                "summary": (ticket.get("summary") or "")[:90],
                 "status": ticket.get("status", ""),
+                "priority": ticket.get("priority", "") or "",
                 "assignee": ticket.get("assignee", "") or "Unassigned",
+                "story_points": sp,
+                "sprint_count": sprint_count,
+                "carryover": is_carryover,
                 "idle_days": idle,
                 "age_days": _age_days(ticket),
             })
+    # Rank: carried-over first, then most idle, then oldest.
+    attention_rows.sort(
+        key=lambda r: (
+            0 if r["carryover"] else 1,
+            -(r["sprint_count"] or 0),
+            -(r["idle_days"] or 0),
+            -(r["age_days"] or 0),
+        )
+    )
+    # Backward-compatible alias: ``stale_items`` historically meant idle>5 rows.
+    stale_rows = [r for r in attention_rows if (r["idle_days"] or 0) > 5]
     stale_rows.sort(key=lambda r: -(r["idle_days"] or 0))
 
     # Cycle-time trend: median (resolved - created) of closed tickets bucketed by
@@ -661,9 +685,12 @@ def compute_eng_flow(in_flight: list[dict], closed: list[dict], *, today: "date 
         "in_review": sum(1 for t in active if (t.get("status") or "") == "In Review"),
         "stale_gt5": stale_gt5,
         "stale_gt10": stale_gt10,
+        "carryover_count": carryover_count,
+        "carryover_points": round(carryover_points, 1) if carryover_points else 0.0,
         "median_active_age_days": _eng_median([float(a) for a in active_ages]),
         "oldest_active_age_days": max(active_ages) if active_ages else None,
         "stale_items": stale_rows[:6],
+        "attention_items": attention_rows[:12],
         "cycle_trend": cycle_trend,
         "cycle_delta_days": cycle_delta,
     }
@@ -4117,7 +4144,15 @@ class JiraClient:
         def _lean_norm(issue: dict) -> dict:
             f = issue.get("fields", {})
             sp_list = f.get(SPRINT_FIELD) or []
+            # Non-future sprints this issue has belonged to. len > 1 ⇒ carried over
+            # across sprint boundaries (spillover) — a stronger stall signal than
+            # the ``updated`` idle proxy.
             sprint_names = [s.get("name", "") for s in sp_list if s.get("state") != "future"]
+            sp_raw = f.get(STORY_POINTS_FIELD)
+            try:
+                story_points = float(sp_raw) if sp_raw is not None else None
+            except (TypeError, ValueError):
+                story_points = None
             desc_raw = _extract_adf_text(f.get("description"))
             return {
                 "key": issue["key"],
@@ -4131,6 +4166,8 @@ class JiraClient:
                 "updated": (f.get("updated") or "")[:10],
                 "resolution": (f.get("resolution") or {}).get("name", "") if f.get("resolution") else "",
                 "sprints": sprint_names,
+                "sprint_count": len(sprint_names),
+                "story_points": story_points,
                 "description_text": (desc_raw or "")[:4000],
             }
 
