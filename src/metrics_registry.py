@@ -31,6 +31,17 @@ def has_metric_id(entry: Any) -> bool:
     return mid is not None and str(mid).strip() != ""
 
 
+def registry_metric_description(entry: Any) -> str | None:
+    """Optional human-readable ``description`` for a registry entry."""
+    if not isinstance(entry, dict):
+        return None
+    raw = entry.get("description")
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    return text or None
+
+
 def registry_datapoint_metric_id(entry: Any) -> int | None:
     """Optional ``datapoint-metric-id`` when series data lives on another catalog row."""
     if not isinstance(entry, dict):

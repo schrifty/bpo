@@ -15,6 +15,7 @@ from src.metrics_registry import (
     datapoint_metric_ids_for_entry,
     is_automated_metric,
     iter_metrics_with_id,
+    registry_metric_description,
 )
 
 DEFAULT_RECENT_DATAPOINT_COUNT = 3
@@ -33,6 +34,7 @@ class MetricRecentDatapointsRow:
     recent: tuple[DatapointValue, ...]
     error: str | None = None
     automated: bool = False
+    description: str | None = None
 
 
 def datapoint_value_from_row(row: dict[str, Any]) -> DatapointValue | None:
@@ -81,7 +83,9 @@ def format_metric_recent_block(
 ) -> list[str]:
     """Human-readable lines for one metric and its recent datapoints."""
     tag = "[automated]" if row.automated else "[manual]"
-    header = f"{row.metric_name} {tag}:"
+    description = (row.description or "").strip()
+    name_and_description = f"{row.metric_name} - {description}" if description else row.metric_name
+    header = f"{name_and_description} {tag}:"
     if row.error:
         return [header, f"{indent}(error: {row.error})"]
     if not row.recent:
@@ -209,6 +213,7 @@ def fetch_registry_recent_datapoints(
                 recent=recent,
                 error=error,
                 automated=is_automated_metric(entry),
+                description=registry_metric_description(entry),
             )
         )
     return rows
