@@ -907,6 +907,14 @@ class JiraClient:
             logger.debug("JIRA jql match total failed: %s", e)
             return None
 
+    def jql_match_count(self, jql: str, *, data_description: str | None = None) -> int | None:
+        """Public wrapper: Jira's match count for *jql* without fetching issue bodies.
+
+        Returns ``None`` when the count endpoint is unavailable so callers can fail loud.
+        """
+        self._record_jql(jql, description=data_description or "Jira issue count")
+        return self._jql_match_total(jql)
+
     def _search(
         self,
         jql: str,

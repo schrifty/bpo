@@ -34,9 +34,13 @@ metrics:
 
   # Tickets Beyond Service Thresholds
   "Tickets Beyond Service Thresholds":
-    description: null
+    description: >-
+      Count of open HELP (JSM) tickets at high priority (Critical, Blocker, or
+      Major) that are not yet resolved, excluding operational noise labelled
+      Outage or healthcheck. Computed from a Jira JQL count by
+      get_service_threshold_tickets.
     metric-id: 2028
-    metric-generator: null
+    metric-generator: get_service_threshold_tickets
 
   # Site Uptime %
   "Site Uptime %":
