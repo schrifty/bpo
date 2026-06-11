@@ -429,6 +429,81 @@ def clean_table(reqs: list[dict[str, Any]], table_id: str, num_rows: int, num_co
     })
 
 
+def table_cell_text(reqs: list[dict[str, Any]], table_id: str, row: int, col: int, text: str) -> None:
+    """Insert text into a single table cell (no-op for empty strings)."""
+    if not text:
+        return
+    reqs.append({
+        "insertText": {
+            "objectId": table_id,
+            "cellLocation": {"rowIndex": row, "columnIndex": col},
+            "text": str(text),
+            "insertionIndex": 0,
+        }
+    })
+
+
+def table_cell_style(
+    reqs: list[dict[str, Any]],
+    table_id: str,
+    row: int,
+    col: int,
+    text_len: int,
+    *,
+    bold: bool = False,
+    color: dict[str, float] | None = None,
+    size: float = 9,
+    font: str = FONT,
+    align: str | None = None,
+    link: str | None = None,
+) -> None:
+    """Style one table cell's text and (optionally) its paragraph alignment."""
+    if text_len > 0:
+        style_body: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}, "fontFamily": font}
+        fields = ["fontSize", "fontFamily"]
+        if bold:
+            style_body["bold"] = True
+            fields.append("bold")
+        if color:
+            style_body["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}
+            fields.append("foregroundColor")
+        if link:
+            style_body["link"] = {"url": link}
+            fields.append("link")
+        reqs.append({
+            "updateTextStyle": {
+                "objectId": table_id,
+                "cellLocation": {"rowIndex": row, "columnIndex": col},
+                "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
+                "style": style_body,
+                "fields": ",".join(fields),
+            }
+        })
+    if align:
+        reqs.append({
+            "updateParagraphStyle": {
+                "objectId": table_id,
+                "cellLocation": {"rowIndex": row, "columnIndex": col},
+                "textRange": {"type": "ALL"},
+                "style": {"alignment": align},
+                "fields": "alignment",
+            }
+        })
+
+
+def table_column_widths(reqs: list[dict[str, Any]], table_id: str, col_widths: list[float]) -> None:
+    """Set explicit column widths (pt) so a table justifies to its intended span."""
+    for col_index, width in enumerate(col_widths):
+        reqs.append({
+            "updateTableColumnProperties": {
+                "objectId": table_id,
+                "columnIndices": [col_index],
+                "tableColumnProperties": {"columnWidth": {"magnitude": width, "unit": "PT"}},
+                "fields": "columnWidth",
+            }
+        })
+
+
 def simple_table(
     reqs: list[dict[str, Any]],
     table_id: str,

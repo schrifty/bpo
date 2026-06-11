@@ -11,14 +11,23 @@ from .config import logger
 from .slide_primitives import (
     CHART_LEGEND_PT,
     background as _bg,
+    clean_table as _clean_table,
     kpi_metric_card as _kpi_metric_card,
     missing_data_slide as _missing_data_slide,
     rect as _rect,
     slide_title as _slide_title,
     style as _style,
     support_title_includes_project as _support_title_includes_project,
+    table_cell_style as _table_cell_style,
+    table_cell_text as _table_cell_text,
+    table_column_widths as _table_column_widths,
 )
 from .slide_requests import append_slide as _slide, append_text_box as _box
+from .slide_utils import (
+    max_chars_one_line_for_table_col,
+    slide_size as _sz,
+    slide_transform as _tf,
+)
 from .slides_theme import (
     BODY_BOTTOM,
     BODY_Y,
@@ -35,10 +44,10 @@ from .slides_theme import (
     _cap_chunk_list,
 )
 from .charts import CHART_AXIS_PT
-from .slide_utils import max_chars_one_line_for_table_col
 
 GREEN = {"red": 0.13, "green": 0.65, "blue": 0.35}
 RED = {"red": 0.85, "green": 0.15, "blue": 0.15}
+AMBER = {"red": 0.85, "green": 0.6, "blue": 0.13}
 
 PROJECT_SLIDE_SUBTITLE = {
     "HELP": "Support",
@@ -186,8 +195,33 @@ def _format_scorecard_days(value: Any) -> str:
         return "—"
 
 
+def _delivery_color(value: Any) -> dict[str, float]:
+    """Semantic color for a sprint-delivery %: green ≥ 85, amber 70–84, red < 70."""
+    try:
+        pct = float(value)
+    except (TypeError, ValueError):
+        return GRAY
+    if pct >= 85:
+        return GREEN
+    if pct >= 70:
+        return AMBER
+    return RED
+
+
+# Scorecard table geometry. Column widths sum to CONTENT_W so the table justifies
+# edge to edge; numeric columns are right-aligned for clean decimal/percent stacking.
+_SCORECARD_COL_WIDTHS: tuple[float, ...] = (152.0, 120.0, 92.0, 104.0, 80.0, 76.0)
+_SCORECARD_BODY_PT = 10.0
+_SCORECARD_HEADER_PT = 9.0
+_SCORECARD_ROW_H = 26.0
+# Scope footer anchored to the physical slide bottom (see SLIDE_DESIGN_STANDARDS).
+_SCORECARD_FOOTER_H = 22.0
+_SCORECARD_FOOTER_Y = float(SLIDE_H) - 10.0 - _SCORECARD_FOOTER_H
+_SCORECARD_CONTENT_BOTTOM = _SCORECARD_FOOTER_Y - 8.0
+
+
 def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
-    """Per-team sprint delivery, story points, and cycle time on one table."""
+    """Per-team sprint delivery, story points, and cycle time on one native table."""
     eng = report.get("eng_portfolio") or {}
     scorecard = eng.get("team_scorecard") or {}
     teams = scorecard.get("teams") or []
@@ -212,20 +246,23 @@ def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     _bg(reqs, sid, WHITE)
     _slide_title(reqs, sid, title)
 
+    # Business context line under the title (what this means, not JQL).
     context = (
-        f"Latest closed sprint per board  ·  {window_days}d median cycle time window"
+        "Sprint delivery, throughput, and cycle time across all development scrum teams "
+        "for the most recently closed sprint on each board."
     )
-    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
-    _style(reqs, f"{sid}_ctx", 0, len(context), size=9, color=GRAY, font=FONT)
+    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 30, context)
+    _style(reqs, f"{sid}_ctx", 0, len(context), size=11, color=NAVY, font=FONT)
 
-    card_y = BODY_Y + 18
-    card_h = 52
-    card_gap = 12
+    # KPI summary row — equal cards justified across the full content width.
+    card_y = BODY_Y + 36
+    card_h = 54
+    card_gap = 16
     card_w = (CONTENT_W - 2 * card_gap) / 3
     cards = [
-        ("Avg delivery", _format_scorecard_pct(avg_delivery)),
-        ("SP delivered", "—" if total_sp is None else f"{float(total_sp):.0f}"),
-        ("Avg cycle time", _format_scorecard_days(avg_cycle)),
+        ("Avg sprint delivery", _format_scorecard_pct(avg_delivery)),
+        ("Story points delivered", "—" if total_sp is None else f"{float(total_sp):.0f}"),
+        ("Avg median cycle time", _format_scorecard_days(avg_cycle)),
     ]
     for card_index, (label, value) in enumerate(cards):
         _kpi_metric_card(
@@ -241,36 +278,53 @@ def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
             accent=BLUE,
         )
 
-    table_top = card_y + card_h + 16
-    col_team = MARGIN
-    col_sprint = MARGIN + 150
-    col_delivery = MARGIN + 270
-    col_sp = MARGIN + 340
-    col_cycle = MARGIN + 420
-    col_done = MARGIN + 490
-    row_h = 18
-    header_h = 16
+    # ── Native team table ────────────────────────────────────────────────────
+    table_top = card_y + card_h + 18
+    col_widths = list(_SCORECARD_COL_WIDTHS)
+    headers = ["Team", "Latest sprint", "Delivery", "Story pts", "Cycle", "Done"]
+    # Left-align text columns; right-align the four numeric columns.
+    aligns = ["START", "START", "END", "END", "END", "END"]
 
-    headers = [
-        (col_team, "Team"),
-        (col_sprint, "Sprint"),
-        (col_delivery, "Delivery"),
-        (col_sp, "Story pts"),
-        (col_cycle, "Cycle"),
-        (col_done, "Done"),
-    ]
-    for header_index, (x_pos, label) in enumerate(headers):
-        box_id = f"{sid}_h{header_index}"
-        _box(reqs, box_id, sid, x_pos, table_top, 96, header_h, label)
-        _style(reqs, box_id, 0, len(label), bold=True, size=9, color=GRAY, font=FONT)
+    max_rows = max(1, int((_SCORECARD_CONTENT_BOTTOM - table_top) // _SCORECARD_ROW_H) - 1)
+    display_teams = teams[:max_rows]
+    num_rows = 1 + len(display_teams)
+    table_id = f"{sid}_tbl"
+    reqs.append({
+        "createTable": {
+            "objectId": table_id,
+            "elementProperties": {
+                "pageObjectId": sid,
+                "size": _sz(sum(col_widths), num_rows * _SCORECARD_ROW_H),
+                "transform": _tf(MARGIN, table_top),
+            },
+            "rows": num_rows,
+            "columns": len(headers),
+        }
+    })
+    _clean_table(reqs, table_id, num_rows, len(headers))
+    _table_column_widths(reqs, table_id, col_widths)
 
-    y = table_top + header_h + 4
-    for row_index, team in enumerate(teams):
-        if y + row_h > BODY_BOTTOM - 8:
-            break
-        team_name = _truncate_one_line(str(team.get("team") or ""), 22)
+    for col_index, header in enumerate(headers):
+        _table_cell_text(reqs, table_id, 0, col_index, header)
+        _table_cell_style(
+            reqs,
+            table_id,
+            0,
+            col_index,
+            len(header),
+            bold=True,
+            color=GRAY,
+            size=_SCORECARD_HEADER_PT,
+            font=FONT,
+            align=aligns[col_index],
+        )
+
+    team_chars = max_chars_one_line_for_table_col(col_widths[0], _SCORECARD_BODY_PT)
+    sprint_chars = max_chars_one_line_for_table_col(col_widths[1], _SCORECARD_BODY_PT)
+    for row_index, team in enumerate(display_teams, start=1):
+        team_name = _truncate_one_line(str(team.get("team") or ""), team_chars)
         sprint_name = _format_sprint_name_for_display(str(team.get("sprint_name") or ""))
-        sprint_name = _truncate_one_line(sprint_name, 20)
+        sprint_name = _truncate_one_line(sprint_name, sprint_chars)
         delivery = _format_scorecard_pct(team.get("delivery_pct"))
         story_pts = _format_scorecard_sp(
             team.get("story_points_delivered"),
@@ -281,36 +335,42 @@ def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
         committed = team.get("committed")
         done_text = "—"
         if delivered is not None and committed is not None:
-            done_text = f"{delivered}/{committed}"
+            done_text = f"{delivered} / {committed}"
 
-        cells = [
-            (col_team, team_name, NAVY, FONT, False),
-            (col_sprint, sprint_name, GRAY, FONT, False),
-            (col_delivery, delivery, BLUE if delivery not in ("—", "0%") else GRAY, MONO, True),
-            (col_sp, story_pts, NAVY, MONO, False),
-            (col_cycle, cycle, NAVY, MONO, False),
-            (col_done, done_text, GRAY, MONO, False),
+        row_cells = [
+            (team_name, NAVY, FONT, True),
+            (sprint_name, GRAY, FONT, False),
+            (delivery, _delivery_color(team.get("delivery_pct")), MONO, True),
+            (story_pts, NAVY, MONO, False),
+            (cycle, NAVY, MONO, False),
+            (done_text, GRAY, MONO, False),
         ]
-        for cell_index, (x_pos, text, color, font, bold) in enumerate(cells):
-            box_id = f"{sid}_r{row_index}c{cell_index}"
-            _box(reqs, box_id, sid, x_pos, y, 96, row_h, text)
-            _style(
+        for col_index, (text, color, font, bold) in enumerate(row_cells):
+            _table_cell_text(reqs, table_id, row_index, col_index, text)
+            _table_cell_style(
                 reqs,
-                box_id,
-                0,
+                table_id,
+                row_index,
+                col_index,
                 len(text),
                 bold=bold,
-                size=10,
                 color=color,
+                size=_SCORECARD_BODY_PT,
                 font=font,
+                align=aligns[col_index],
             )
-        y += row_h
 
+    # ── Scope footer anchored to the slide bottom ─────────────────────────────
+    scope_parts = [
+        f"Latest closed sprint per board · {window_days}d median cycle window",
+        "Story pts & Done = delivered / committed",
+    ]
     errors = scorecard.get("errors")
     if errors:
-        note = "Data gaps: " + "; ".join(str(e) for e in errors[:2])
-        _box(reqs, f"{sid}_err", sid, MARGIN, BODY_BOTTOM - 14, CONTENT_W, 12, note)
-        _style(reqs, f"{sid}_err", 0, len(note), size=8, color=GRAY, font=FONT)
+        scope_parts.append("Data gaps: " + "; ".join(str(e) for e in errors[:2]))
+    scope_text = "  ·  ".join(scope_parts)
+    _box(reqs, f"{sid}_scope", sid, MARGIN, _SCORECARD_FOOTER_Y, CONTENT_W, _SCORECARD_FOOTER_H, scope_text)
+    _style(reqs, f"{sid}_scope", 0, len(scope_text), size=8, color=GRAY, font=FONT)
 
     return idx + 1
 

@@ -1,5 +1,5 @@
 # LeanDNA Slide Design and Data Visualization Standards
-Version 1.5 (Internal Use)
+Version 1.6 (Internal Use)
 
 ## Purpose
 
@@ -83,7 +83,7 @@ The following rules are mandatory for automated generation.
 
 ### KPI cards
 
-- Any outlined KPI metric tile must be rendered only through `_kpi_metric_card` in `src/slides_client.py`.
+- Any outlined KPI metric tile must be rendered only through `_kpi_metric_card` (defined in `src/slide_primitives.py`, re-exported by `src/slides_client.py`).
 - KPI labels inside cards must remain single-line.
 - KPI values in the same row must use the same accent color unless a semantic exception is explicitly intended.
 
@@ -377,7 +377,7 @@ Do not create alternate signal-list styles with severity dots, smaller 9 pt rows
 
 ### Universal card rule
 
-Any automated slide that shows an outlined KPI metric tile must render it only via `_kpi_metric_card` in `src/slides_client.py`.
+Any automated slide that shows an outlined KPI metric tile must render it only via `_kpi_metric_card` (defined in `src/slide_primitives.py`, re-exported by `src/slides_client.py`).
 
 Do not hand-roll separate label and value text boxes.
 
@@ -446,6 +446,47 @@ Put caveats, denominators, or definitions in:
 - speaker notes
 - a context bar under the title
 - a separate plain-text callout
+
+---
+
+## Table and Scorecard Standards
+
+Structured comparisons (per-team, per-site, per-ticket rows) must use a **native Google Slides table** (`createTable`), not a grid of individually positioned text boxes.
+
+### Why native tables
+
+Hand-rolled tables (one `TEXT_BOX` per cell at hardcoded `x` offsets and a shared fixed width) are the most common source of "shoddy" layout:
+
+- columns silently **overlap** when a box's width exceeds the gap to the next column;
+- numeric values are **left-aligned**, so digits/percent signs do not line up;
+- the table fails to **justify** to `CONTENT_W`, leaving a large dead margin on one side.
+
+Native tables let Slides own cell padding, vertical centering, and clipping, and they align cleanly when column widths and paragraph alignment are set explicitly.
+
+### Hard rules
+
+- **Justify to the content width.** Column widths must sum to `CONTENT_W` (set via `updateTableColumnProperties`) so the table spans margin to margin. Do not leave an unintentional gap on the right.
+- **Right-align numeric columns.** Counts, percentages, story points, durations, and ratios use `alignment: END`. Text columns (name, sprint, status) use `START`. Set this per cell with `updateParagraphStyle`.
+- **One row height, derived from font.** Use a single body row height (~26 pt at 10 pt text accounts for Slides cell padding); compute the row budget from `(content_bottom − table_top) // row_h` rather than a magic row count.
+- **Strip borders, keep one header rule.** Use `clean_table` (white hairline borders + a single blue bottom border under the header row). Do not draw full gridlines.
+- **Truncate per column.** Truncate each text cell with `max_chars_one_line_for_table_col(col_width_pt, font_pt)` so cells never wrap and grow the row past its budget (wrapped rows overflow even when row-count math looks correct).
+- **Numeric font.** Render numeric columns in the mono-ish brand face (`MONO`) so values stack visually; keep names in `FONT`.
+
+### Recommended structure for a scorecard / dashboard table slide
+
+A scorecard slide (e.g. the engineering **Development Team Scorecard**) should use a consistent four-band layout:
+
+1. **Title** — full-sentence takeaway (e.g. "Teams On Track — 88% Avg Sprint Delivery"), not just "Team Scorecard".
+2. **Business context line** — one ~11 pt navy sentence under the title (`BODY_Y`) explaining what the table means for a leader.
+3. **KPI summary row** — 3–4 equal `_kpi_metric_card` tiles **justified across `CONTENT_W`** (equal width, ~16 pt gaps), one shared accent (`BLUE`). These are the portfolio rollups (e.g. average delivery, total story points, average cycle time).
+4. **Native table** — one row per entity, justified to `CONTENT_W`, numeric columns right-aligned.
+5. **Scope footer** — anchored to the **physical slide bottom** (~10 pt margin, ~22 pt band, 8 pt gray), holding the window, column definitions (e.g. "Story pts = delivered / committed"), and any data-gap notes. Reserve a hard content bottom ~8 pt above it; the table must end above that line.
+
+### Semantic cell color
+
+Table cells are not KPI tiles, so a single cell may carry a **semantic** color when it encodes status (e.g. sprint delivery %: green ≥ 85, amber 70–84, red < 70). Keep the rest of the row neutral (`NAVY` / `GRAY`); do not rainbow every column.
+
+**Reference implementation:** `eng_team_scorecard_slide` in `src/slide_engineering_portfolio.py`, using the shared table helpers (`clean_table`, `table_cell_text`, `table_cell_style`, `table_column_widths`) in `src/slide_primitives.py`. The Jira "recent opened / closed" tables in `src/slide_support_kpis.py` (`_render_table`) are the canonical paginating-table example.
 
 ---
 

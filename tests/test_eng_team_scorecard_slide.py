@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from src.slide_engineering_portfolio import eng_team_scorecard_slide
+from src.slides_theme import CONTENT_W
 
 
 def test_eng_team_scorecard_slide_renders_table() -> None:
@@ -45,11 +46,36 @@ def test_eng_team_scorecard_slide_renders_table() -> None:
         }
     }
     eng_team_scorecard_slide(reqs, "sid_sc", report, 0)
-    assert any(
-        r.get("createSlide") or r.get("createShape") or r.get("insertText")
-        for r in reqs
-        if isinstance(r, dict)
-    )
+
+    create_tables = [r["createTable"] for r in reqs if isinstance(r, dict) and "createTable" in r]
+    assert len(create_tables) == 1, "scorecard should render exactly one native table"
+    table = create_tables[0]
+    assert table["rows"] == 3, "header row + two team rows"
+    assert table["columns"] == 6
+
+    # Column widths must justify the table to the full content width (no left-shifted gap).
+    widths = [
+        req["updateTableColumnProperties"]["tableColumnProperties"]["columnWidth"]["magnitude"]
+        for req in reqs
+        if isinstance(req, dict) and "updateTableColumnProperties" in req
+    ]
+    assert len(widths) == 6
+    assert abs(sum(widths) - CONTENT_W) < 1.0, "table should span CONTENT_W edge to edge"
+
+    # Numeric columns (Delivery/Story pts/Cycle/Done) right-aligned; text columns left.
+    alignments = {
+        (
+            req["updateParagraphStyle"]["cellLocation"]["rowIndex"],
+            req["updateParagraphStyle"]["cellLocation"]["columnIndex"],
+        ): req["updateParagraphStyle"]["style"]["alignment"]
+        for req in reqs
+        if isinstance(req, dict)
+        and "updateParagraphStyle" in req
+        and "cellLocation" in req["updateParagraphStyle"]
+    }
+    assert alignments[(1, 0)] == "START"
+    assert alignments[(1, 2)] == "END"
+    assert alignments[(1, 5)] == "END"
 
 
 def test_eng_team_scorecard_slide_missing_data() -> None:
