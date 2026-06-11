@@ -591,17 +591,146 @@ def _is_reactive_ticket(ticket: dict) -> bool:
     return any(reactive in labels for reactive in _REACTIVE_LABELS)
 
 
-def compute_eng_flow(in_flight: list[dict], closed: list[dict], *, today: "date | None" = None) -> dict[str, Any]:
+def _parse_jira_dt(value: Any) -> "datetime | None":
+    """Parse a Jira timestamp into an aware datetime (date-only strings → UTC midnight)."""
+    s = str(value or "").strip()
+    if not s:
+        return None
+    # Normalize "+00:00" → "+0000" so %z parses consistently.
+    s = re.sub(r"([+-]\d{2}):(\d{2})$", r"\1\2", s)
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z"):
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    d = _eng_parse_day(s)
+    if d:
+        return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+    return None
+
+
+def compute_status_timeline(
+    histories: list[dict],
+    *,
+    created: Any,
+    current_status: str,
+    now: "datetime | None" = None,
+) -> dict[str, Any]:
+    """Derive time-in-status from a Jira changelog (``expand=changelog`` histories).
+
+    Returns total days spent in each status, days in the *current* status (the
+    precise "stalled" measure that replaces the noisy ``updated`` proxy), and a
+    reopen count. ``histories`` is the raw ``changelog.histories`` list; each entry
+    carries a ``created`` timestamp and ``items`` with ``field == 'status'``
+    transitions (``fromString`` / ``toString``).
+    """
+    now = now or datetime.now(timezone.utc)
+    created_dt = _parse_jira_dt(created)
+
+    transitions: list[tuple[datetime, str, str]] = []  # (when, from, to)
+    for h in histories or []:
+        when = _parse_jira_dt(h.get("created"))
+        if not when:
+            continue
+        for it in h.get("items") or []:
+            if (it.get("field") or "").lower() == "status":
+                transitions.append((when, it.get("fromString") or "", it.get("toString") or ""))
+    transitions.sort(key=lambda t: t[0])
+
+    time_in_status: dict[str, float] = {}
+
+    def _add(status: str, start: "datetime | None", end: "datetime | None") -> None:
+        if not status or not start or not end:
+            return
+        days = (end - start).total_seconds() / 86400.0
+        if days > 0:
+            time_in_status[status] = round(time_in_status.get(status, 0.0) + days, 2)
+
+    # Initial segment status = first transition's "from", else the current status.
+    seg_start = created_dt
+    seg_status = transitions[0][1] if transitions else current_status
+    reopened = 0
+    _DONE_STATES = ("closed", "done", "resolved")
+    for when, frm, to in transitions:
+        _add(seg_status, seg_start, when)
+        if (to or "").lower() == "reopened" or (frm or "").lower() in _DONE_STATES:
+            reopened += 1
+        seg_start = when
+        seg_status = to
+    _add(seg_status, seg_start, now)
+
+    last_change = transitions[-1][0] if transitions else created_dt
+    days_in_current = (
+        round((now - last_change).total_seconds() / 86400.0, 1) if last_change else None
+    )
+    return {
+        "time_in_status": time_in_status,
+        "days_in_current_status": days_in_current,
+        "reopened": reopened,
+        "transitions": len(transitions),
+    }
+
+
+def summarize_status_flow(active_items: list[dict], *, now: "datetime | None" = None) -> dict[str, Any]:
+    """Aggregate changelog-derived flow across active items, mutating each in place.
+
+    Each item should carry ``status``, ``created``, ``changelog`` (histories list),
+    and optionally ``flagged`` (bool). Sets ``days_in_status`` / ``time_in_status`` /
+    ``reopened`` on each item and returns per-status median current-occupancy (so the
+    real chokepoint is visible), an overall median, and a blocked (flagged) count.
+    """
+    now = now or datetime.now(timezone.utc)
+    by_status_days: dict[str, list[float]] = {}
+    all_days: list[float] = []
+    blocked = 0
+    enriched = 0
+    for it in active_items:
+        if it.get("flagged"):
+            blocked += 1
+        tl = compute_status_timeline(
+            it.get("changelog") or [],
+            created=it.get("created"),
+            current_status=it.get("status") or "",
+            now=now,
+        )
+        d = tl.get("days_in_current_status")
+        it["days_in_status"] = d
+        it["time_in_status"] = tl.get("time_in_status")
+        it["reopened"] = tl.get("reopened")
+        if d is not None:
+            enriched += 1
+            all_days.append(d)
+            by_status_days.setdefault(it.get("status") or "—", []).append(d)
+    return {
+        "source": "changelog",
+        "by_status_median_days": {s: _eng_median(v) for s, v in by_status_days.items()},
+        "median_days_in_status": _eng_median(all_days),
+        "blocked_count": blocked,
+        "enriched_count": enriched,
+    }
+
+
+def compute_eng_flow(
+    in_flight: list[dict],
+    closed: list[dict],
+    *,
+    today: "date | None" = None,
+    stage_age_by_key: "dict[str, float] | None" = None,
+    flagged_keys: "set[str] | None" = None,
+) -> dict[str, Any]:
     """Derive flow / bottleneck signals from in-flight and recently closed LEAN tickets.
 
-    Surfaces where work is piling up (active WIP by status), where it is stalling
-    (items idle past a freshness threshold), how old active work is, and whether
-    delivery cycle time is trending up or down over recent closed weeks.
+    Surfaces where work is piling up (active WIP by status), where it is stalling,
+    how old active work is, and whether cycle time is trending up.
 
-    ``updated`` is used as an idle proxy (full per-status durations need changelog
-    history, which this payload does not carry).
+    The stall measure prefers ``stage_age_by_key`` — changelog-derived days in the
+    current status — when supplied; otherwise it falls back to a ``updated`` idle
+    proxy. ``flagged_keys`` marks items flagged as blocked/impediment in Jira. Both
+    feed the stale counts, attention selection, ranking, and the slide headline.
     """
     today = today or date.today()
+    stage_age_by_key = stage_age_by_key or {}
+    flagged_set = set(flagged_keys or ())
     active = [t for t in in_flight if (t.get("status") or "") in _ACTIVE_WIP_STATUSES]
 
     def _idle_days(ticket: dict) -> int | None:
@@ -617,25 +746,33 @@ def compute_eng_flow(in_flight: list[dict], closed: list[dict], *, today: "date 
     stale_gt10 = 0
     carryover_count = 0
     carryover_points = 0.0
-    # "Needs attention" = active items that are either carried over across a sprint
-    # boundary (sprint_count ≥ 2) or idle past the freshness threshold. Carryover is
-    # the stronger signal, so rows are ranked by it first, then by idle days.
+    blocked_count = 0
+    # "Needs attention" = active items that are flagged blocked, carried over across a
+    # sprint boundary (sprint_count ≥ 2), or stalled past the freshness threshold.
+    # Stall uses changelog days-in-status when available, else the ``updated`` proxy.
     attention_rows: list[dict[str, Any]] = []
     for ticket in active:
+        key = ticket.get("key", "")
         idle = _idle_days(ticket)
+        stage_age = stage_age_by_key.get(key)
+        # Effective stall measure: changelog stage age beats the noisy update proxy.
+        eff_stall = stage_age if stage_age is not None else idle
         sprint_count = int(ticket.get("sprint_count") or len(ticket.get("sprints") or []))
         is_carryover = sprint_count >= 2
+        is_flagged = key in flagged_set
         sp = ticket.get("story_points")
+        if is_flagged:
+            blocked_count += 1
         if is_carryover:
             carryover_count += 1
             carryover_points += float(sp) if sp is not None else 0.0
-        if idle is not None and idle > 5:
+        if eff_stall is not None and eff_stall > 5:
             stale_gt5 += 1
-        if idle is not None and idle > 10:
+        if eff_stall is not None and eff_stall > 10:
             stale_gt10 += 1
-        if is_carryover or (idle is not None and idle > 5):
+        if is_flagged or is_carryover or (eff_stall is not None and eff_stall > 5):
             attention_rows.append({
-                "key": ticket.get("key", ""),
+                "key": key,
                 "summary": (ticket.get("summary") or "")[:90],
                 "status": ticket.get("status", ""),
                 "priority": ticket.get("priority", "") or "",
@@ -643,21 +780,30 @@ def compute_eng_flow(in_flight: list[dict], closed: list[dict], *, today: "date 
                 "story_points": sp,
                 "sprint_count": sprint_count,
                 "carryover": is_carryover,
+                "flagged": is_flagged,
                 "idle_days": idle,
+                "days_in_status": stage_age,
                 "age_days": _age_days(ticket),
             })
-    # Rank: carried-over first, then most idle, then oldest.
+
+    def _eff(row: dict) -> float:
+        v = row.get("days_in_status")
+        if v is None:
+            v = row.get("idle_days")
+        return v or 0
+
+    # Rank: flagged first, then carried-over, then longest stalled, then oldest.
     attention_rows.sort(
         key=lambda r: (
+            0 if r["flagged"] else 1,
             0 if r["carryover"] else 1,
-            -(r["sprint_count"] or 0),
-            -(r["idle_days"] or 0),
+            -_eff(r),
             -(r["age_days"] or 0),
         )
     )
-    # Backward-compatible alias: ``stale_items`` historically meant idle>5 rows.
-    stale_rows = [r for r in attention_rows if (r["idle_days"] or 0) > 5]
-    stale_rows.sort(key=lambda r: -(r["idle_days"] or 0))
+    # Backward-compatible alias: ``stale_items`` historically meant stalled>5 rows.
+    stale_rows = [r for r in attention_rows if _eff(r) > 5]
+    stale_rows.sort(key=lambda r: -_eff(r))
 
     # Cycle-time trend: median (resolved - created) of closed tickets bucketed by
     # the ISO week they closed in, oldest → newest (updated ≈ resolved for closed).
@@ -687,6 +833,7 @@ def compute_eng_flow(in_flight: list[dict], closed: list[dict], *, today: "date 
         "stale_gt10": stale_gt10,
         "carryover_count": carryover_count,
         "carryover_points": round(carryover_points, 1) if carryover_points else 0.0,
+        "blocked_count": blocked_count,
         "median_active_age_days": _eng_median([float(a) for a in active_ages]),
         "oldest_active_age_days": max(active_ages) if active_ages else None,
         "stale_items": stale_rows[:6],
@@ -4055,6 +4202,111 @@ class JiraClient:
             "declined": [_fmt(i) for i in declined[:5]],
         }
 
+    def _get_flagged_field_id(self) -> "str | None":
+        """Discover the Jira "Flagged" (impediment) custom-field id, cached per client."""
+        cached = getattr(self, "_flagged_field_id_cache", "__unset__")
+        if cached != "__unset__":
+            return cached
+        field_id: str | None = None
+        try:
+            resp = requests.get(
+                f"{self.api_base_url}/rest/api/3/field", headers=self._headers, timeout=15
+            )
+            if resp.ok:
+                for f in resp.json():
+                    if (f.get("name") or "").strip().lower() == "flagged":
+                        field_id = f.get("id")
+                        break
+        except Exception as e:
+            logger.warning("Flagged field discovery failed: %s", e)
+        self._flagged_field_id_cache = field_id
+        return field_id
+
+    def _fetch_issue_changelogs(
+        self,
+        keys: list[str],
+        *,
+        flagged_field_id: "str | None" = None,
+        max_workers: int = 6,
+    ) -> dict[str, dict]:
+        """Fetch changelog histories (+ created, flagged) for issue keys.
+
+        Returns ``{key: {"histories": [...], "created": iso, "flagged": bool}}``;
+        keys that fail are omitted (callers fall back to the ``updated`` proxy).
+        """
+        out: dict[str, dict] = {}
+        if not keys:
+            return out
+        fields = "status,created"
+        if flagged_field_id:
+            fields += f",{flagged_field_id}"
+
+        def _one(key: str) -> tuple[str, dict | None]:
+            try:
+                resp = requests.get(
+                    f"{self.api_base_url}/rest/api/3/issue/{key}",
+                    headers=self._headers,
+                    params={"expand": "changelog", "fields": fields},
+                    timeout=20,
+                )
+                if not resp.ok:
+                    return key, None
+                data = resp.json()
+                f = data.get("fields") or {}
+                flagged = bool(f.get(flagged_field_id)) if flagged_field_id else False
+                return key, {
+                    "histories": (data.get("changelog") or {}).get("histories") or [],
+                    "created": f.get("created"),
+                    "flagged": flagged,
+                }
+            except Exception as e:
+                logger.debug("changelog fetch failed for %s: %s", key, e)
+                return key, None
+
+        with ThreadPoolExecutor(max_workers=max(1, min(max_workers, _JIRA_PARALLEL_WORKERS * 2))) as pool:
+            for key, val in pool.map(_one, keys):
+                if val is not None:
+                    out[key] = val
+        return out
+
+    def _compute_changelog_signals(
+        self, in_flight: list[dict]
+    ) -> "tuple[dict[str, Any], dict[str, float], set[str]]":
+        """Fetch changelogs for active items and derive time-in-status + flagged signals.
+
+        Returns ``(status_flow, stage_age_by_key, flagged_keys)``; empty values when
+        there is nothing active or the fetch fails (callers fall back to the proxy).
+        """
+        active_keys = [
+            t["key"] for t in in_flight if (t.get("status") or "") in _ACTIVE_WIP_STATUSES
+        ]
+        if not active_keys:
+            return {}, {}, set()
+        flagged_field_id = self._get_flagged_field_id()
+        changelogs = self._fetch_issue_changelogs(active_keys, flagged_field_id=flagged_field_id)
+        if not changelogs:
+            return {}, {}, set()
+        active_for_flow: list[dict] = []
+        for t in in_flight:
+            if (t.get("status") or "") not in _ACTIVE_WIP_STATUSES:
+                continue
+            cl = changelogs.get(t["key"]) or {}
+            active_for_flow.append({
+                "key": t["key"],
+                "status": t.get("status"),
+                "created": cl.get("created") or t.get("created"),
+                "changelog": cl.get("histories") or [],
+                "flagged": cl.get("flagged", False),
+            })
+        status_flow = summarize_status_flow(active_for_flow)
+        stage_age_by_key = {
+            a["key"]: a["days_in_status"]
+            for a in active_for_flow
+            if a.get("days_in_status") is not None
+        }
+        flagged_keys = {a["key"] for a in active_for_flow if a.get("flagged")}
+        return status_flow, stage_age_by_key, flagged_keys
+
     def get_engineering_portfolio(self, days: int = 30) -> dict[str, Any]:
         """Fetch a product/engineering-wide SDLC snapshot — not per-customer.
 
@@ -4487,7 +4739,24 @@ class JiraClient:
             sprint_velocity = {"error": str(e), "boards": []}
 
         # ── Flow / bottleneck and planned-vs-unplanned signals (derived) ──
-        flow = compute_eng_flow(in_flight, closed)
+        # Tier 2: changelog-based time-in-status + Flagged signals feed the flow
+        # computation directly (counts, selection, ranking, headline). Degrades to the
+        # ``updated`` proxy if the changelog fetch fails.
+        stage_age_by_key: dict[str, float] = {}
+        flagged_keys: set[str] = set()
+        status_flow: dict[str, Any] = {}
+        try:
+            status_flow, stage_age_by_key, flagged_keys = self._compute_changelog_signals(in_flight)
+        except Exception as e:
+            logger.warning("Flow changelog enrichment failed: %s", e)
+        flow = compute_eng_flow(
+            in_flight, closed,
+            stage_age_by_key=stage_age_by_key or None,
+            flagged_keys=flagged_keys or None,
+        )
+        if status_flow:
+            flow["status_flow"] = status_flow
+            flow["blocked_count"] = status_flow.get("blocked_count", flow.get("blocked_count", 0))
         work_split = compute_eng_work_split(
             in_flight, closed, escalated_to_eng=support_pressure.get("escalated_to_eng", 0)
         )

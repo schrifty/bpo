@@ -959,7 +959,13 @@ def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
     over_90 = int(lean.get("open_over_90_count") or 0)
     oldest = lean.get("oldest_open_age_days")
     flow = eng.get("flow") or {}
+    status_flow = flow.get("status_flow") or {}
+    flow_changelog_on = (
+        status_flow.get("source") == "changelog" and int(status_flow.get("enriched_count") or 0) > 0
+    )
     stale5 = int(flow.get("stale_gt5") or 0)
+    stale10 = int(flow.get("stale_gt10") or 0)
+    blocked = int(flow.get("blocked_count") or status_flow.get("blocked_count") or 0)
     cycle_delta = flow.get("cycle_delta_days")
     split = eng.get("work_split") or {}
     reactive_wip_pct = int(split.get("reactive_wip_pct") or 0)
@@ -985,6 +991,9 @@ def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
         n = len(blockers)
         risks.append((f"{n} blocker/critical item{'s' if n != 1 else ''} in flight", RED))
         actions.append((f"Assign owners and clear the {n} blocker/critical item{'s' if n != 1 else ''} this sprint", RED))
+    if blocked:
+        risks.append((f"{blocked} active item{'s' if blocked != 1 else ''} flagged blocked in Jira", RED))
+        actions.append((f"Clear the {blocked} flagged blocker{'s' if blocked != 1 else ''} or escalate ownership", RED))
     if avg_delivery is not None and float(avg_delivery) < 70:
         risks.append((f"Sprint delivery at {float(avg_delivery):.0f}% — commitments slipping", RED))
         actions.append(("Right-size sprint commitments to restore predictability", RED))
@@ -992,9 +1001,11 @@ def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
         oldest_txt = f", oldest {float(oldest):.0f}d" if oldest is not None else ""
         risks.append((f"{over_90} escalation{'s' if over_90 != 1 else ''} open >90 days{oldest_txt}", AMBER))
         actions.append((f"Run a backlog scrub on the {over_90} escalation{'s' if over_90 != 1 else ''} aging past 90 days", AMBER))
-    if stale5:
-        risks.append((f"{stale5} active item{'s' if stale5 != 1 else ''} idle >5 days — flow stalling", AMBER))
-        actions.append((f"Unblock or re-assign the {stale5} stalled item{'s' if stale5 != 1 else ''}", AMBER))
+    stall_n = stale10 if flow_changelog_on else stale5
+    if stall_n:
+        stall_word = "stalled >10 days in stage" if flow_changelog_on else "idle >5 days"
+        risks.append((f"{stall_n} active item{'s' if stall_n != 1 else ''} {stall_word} — flow stalling", AMBER))
+        actions.append((f"Unblock or re-assign the {stall_n} stalled item{'s' if stall_n != 1 else ''}", AMBER))
     if reactive_wip_pct >= 40:
         risks.append((f"{reactive_wip_pct}% of WIP is unplanned/reactive work", AMBER))
         actions.append((f"Protect roadmap capacity — {reactive_wip_pct}% is going to reactive work", AMBER))
@@ -1067,15 +1078,22 @@ def eng_flow_bottlenecks_slide(reqs: list[dict[str, Any]], sid: str, report: dic
     stale10 = int(flow.get("stale_gt10") or 0)
     carry = int(flow.get("carryover_count") or 0)
     carry_pts = float(flow.get("carryover_points") or 0.0)
-    cycle_delta = flow.get("cycle_delta_days")
-    cycle_trend = [p for p in (flow.get("cycle_trend") or []) if p.get("median_cycle_days") is not None]
     attention_items = flow.get("attention_items") or flow.get("stale_items") or []
     jira_base = (eng.get("base_url") or "").rstrip("/")
 
-    if carry:
+    # Tier 2: changelog-derived time-in-status + flagged signals (when available).
+    status_flow = flow.get("status_flow") or {}
+    changelog_on = status_flow.get("source") == "changelog" and int(status_flow.get("enriched_count") or 0) > 0
+    blocked = int(flow.get("blocked_count") or status_flow.get("blocked_count") or 0)
+    by_status_median = status_flow.get("by_status_median_days") or {}
+
+    if blocked:
+        title = f"Flow Risk — {blocked} Active Item{'s' if blocked != 1 else ''} Flagged Blocked"
+    elif carry:
         title = f"Flow Risk — {carry} Active Item{'s' if carry != 1 else ''} Carried Across Sprints"
     elif stale10:
-        title = f"Flow Bottleneck — {stale10} Active Item{'s' if stale10 != 1 else ''} Stalled >10 Days"
+        stalled_suffix = "Stalled >10 Days In Stage" if changelog_on else "Stalled >10 Days"
+        title = f"Flow Bottleneck — {stale10} Active Item{'s' if stale10 != 1 else ''} {stalled_suffix}"
     elif active:
         title = f"Flow Healthy — {active} Active Item{'s' if active != 1 else ''} Moving"
     else:
@@ -1092,23 +1110,43 @@ def eng_flow_bottlenecks_slide(reqs: list[dict[str, Any]], sid: str, report: dic
     _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
     _style(reqs, f"{sid}_ctx", 0, len(context), size=11, color=NAVY, font=FONT)
 
-    cycle_now = cycle_trend[-1]["median_cycle_days"] if cycle_trend else None
-    cycle_arrow, _ = _trend_arrow(cycle_delta, good_is_down=True)
     carry_value = str(carry) + (f"  ·  {carry_pts:.0f} SP" if carry_pts else "")
     cards_y = _eng_kpi_row(
         reqs, sid,
         [
             ("Active WIP", str(active)),
             ("In review (chokepoint)", str(in_review)),
+            ("Blocked (flagged)", str(blocked)),
             ("Carried over (≥2 sprints)", carry_value),
-            ("Cycle/lead time (median)", "—" if cycle_now is None else f"{float(cycle_now):.0f}d {cycle_arrow}"),
         ],
         y=BODY_Y + 22,
     )
 
+    # ── Median time in current stage (changelog) — reveals the real chokepoint ──
+    stage_y = cards_y + 10
+    if changelog_on and by_status_median:
+        ordered = [
+            (s, by_status_median[s])
+            for s in ("In Progress", "In Review")
+            if by_status_median.get(s) is not None
+        ]
+        if ordered:
+            worst = max(ordered, key=lambda kv: kv[1])[0]
+            label = "Median time in current stage:  "
+            line = label + "   ".join(f"{s} {v:.0f}d" for s, v in ordered)
+            _box(reqs, f"{sid}_stage", sid, MARGIN, stage_y, CONTENT_W, 14, line)
+            _style(reqs, f"{sid}_stage", 0, len(line), size=10, color=GRAY, font=FONT)
+            _style(reqs, f"{sid}_stage", 0, len(label), bold=True, size=10, color=NAVY, font=FONT)
+            # Bold + red the chokepoint stage segment.
+            seg = f"{worst} {dict(ordered)[worst]:.0f}d"
+            at = line.find(seg)
+            if at >= 0:
+                _style(reqs, f"{sid}_stage", at, at + len(seg), bold=True, size=10, color=RED, font=FONT)
+            stage_y += 16
+
     # ── Full-width "needs attention" table ───────────────────────────────────
-    header = "Needs attention — carried-over & stalled active items"
-    table_hdr_y = cards_y + 18
+    header = "Needs attention — flagged, carried-over & stalled active items"
+    table_hdr_y = stage_y + 8
     _box(reqs, f"{sid}_att_h", sid, MARGIN, table_hdr_y, CONTENT_W, 14, header)
     _style(reqs, f"{sid}_att_h", 0, len(header), bold=True, size=11, color=NAVY, font=FONT)
     table_top = table_hdr_y + 20
@@ -1124,10 +1162,10 @@ def eng_flow_bottlenecks_slide(reqs: list[dict[str, Any]], sid: str, report: dic
         )
         return idx + 1
 
-    # Key | Summary | Owner | Pri | Idle | Spr | SP  (sums to CONTENT_W = 624;
+    # Key | Summary | Owner | Pri | In stage | Spr | SP  (sums to CONTENT_W = 624;
     # every column ≥ 32pt per Google Slides' minimum table-column width).
-    col_widths = [84.0, 280.0, 92.0, 44.0, 40.0, 40.0, 44.0]
-    headers = ["Key", "Summary", "Owner", "Pri", "Idle", "Spr", "SP"]
+    col_widths = [84.0, 264.0, 92.0, 44.0, 56.0, 40.0, 44.0]
+    headers = ["Key", "Summary", "Owner", "Pri", "In stage", "Spr", "SP"]
     aligns = ["START", "START", "START", "START", "END", "END", "END"]
     row_h = 22.0
     max_rows = max(1, int((_ENG_CONTENT_BOTTOM - table_top) // row_h) - 1)
@@ -1155,23 +1193,30 @@ def eng_flow_bottlenecks_slide(reqs: list[dict[str, Any]], sid: str, report: dic
     summary_chars = max_chars_one_line_for_table_col(col_widths[1], 9.0)
     owner_chars = max_chars_one_line_for_table_col(col_widths[2], 9.0)
     for ri, item in enumerate(display, start=1):
-        idle = item.get("idle_days")
+        # Prefer precise changelog days-in-current-status; fall back to the proxy.
+        stage_days = item.get("days_in_status")
+        if stage_days is None:
+            stage_days = item.get("idle_days")
         spr = int(item.get("sprint_count") or 0)
         is_carry = bool(item.get("carryover"))
+        is_flagged = bool(item.get("flagged"))
         sp = item.get("story_points")
         prio = str(item.get("priority") or "")
         prio_short = prio.split(":")[0] if ":" in prio else prio
         owner = str(item.get("assignee") or "")
         owner_first = owner.split()[0] if owner and owner != "Unassigned" else (owner or "—")
-        idle_color = RED if (idle or 0) > 10 else (AMBER if (idle or 0) > 5 else GRAY)
+        stage_color = RED if (stage_days or 0) > 10 else (AMBER if (stage_days or 0) > 5 else GRAY)
+        summary_text = _truncate_one_line(str(item.get("summary") or ""), summary_chars)
+        if is_flagged:
+            summary_text = _truncate_one_line("\u2691 " + str(item.get("summary") or ""), summary_chars)
         key = str(item.get("key", ""))
         link = f"{jira_base}/browse/{key}" if jira_base and key else None
         cells = [
-            (key, BLUE, MONO, "START", link),
-            (_truncate_one_line(str(item.get("summary") or ""), summary_chars), NAVY, FONT, "START", None),
+            (key, RED if is_flagged else BLUE, MONO, "START", link),
+            (summary_text, RED if is_flagged else NAVY, FONT, "START", None),
             (_truncate_one_line(owner_first, owner_chars), GRAY, FONT, "START", None),
             (prio_short or "—", NAVY, FONT, "START", None),
-            ("—" if idle is None else f"{int(idle)}d", idle_color, MONO, "END", None),
+            ("—" if stage_days is None else f"{int(round(stage_days))}d", stage_color, MONO, "END", None),
             (str(spr), RED if is_carry else GRAY, MONO, "END", None),
             ("—" if sp is None else f"{float(sp):.0f}", NAVY, MONO, "END", None),
         ]
@@ -1184,10 +1229,20 @@ def eng_flow_bottlenecks_slide(reqs: list[dict[str, Any]], sid: str, report: dic
 
     overflow = len(attention_items) - len(display)
     overflow_txt = f"  ·  +{overflow} more not shown" if overflow > 0 else ""
+    stage_src = (
+        "in stage = days in current Jira status (changelog)"
+        if changelog_on
+        else "in stage = days since last Jira update (proxy)"
+    )
+    rank_note = (
+        "ranked: flagged, then carried-over, then longest in stage"
+        if changelog_on
+        else "ranked: carried-over first, then most idle"
+    )
     _eng_scope_footer(
         reqs, sid,
-        "Scope: LEAN Engineering board  ·  ranked: carried-over first, then most idle  ·  "
-        "carried over = in ≥2 sprints  ·  idle = days since last Jira update (proxy)"
+        f"Scope: LEAN Engineering board  ·  {rank_note}  ·  "
+        f"carried over = in ≥2 sprints  ·  {stage_src}"
         + overflow_txt,
     )
     return idx + 1
@@ -1688,10 +1743,6 @@ def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
         )
 
     right_y = body_top
-    _box(reqs, f"{sid}_qlh", sid, right_x, right_y, right_w, 16, "Quarterly Goal Tracking")
-    _style(reqs, f"{sid}_qlh", 0, len("Quarterly Goal Tracking"), bold=True, size=11, color=NAVY, font=FONT)
-    right_y += 20
-
     _box(reqs, f"{sid}_sbh", sid, right_x, right_y, right_w, 14, "Pipeline Status")
     _style(reqs, f"{sid}_sbh", 0, len("Pipeline Status"), bold=True, size=10, color=NAVY, font=FONT)
     right_y += 16
