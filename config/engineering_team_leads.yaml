@@ -1,16 +1,14 @@
-# Optional: map each engineering Agile Team to its team lead's display name.
+# Optional: map each engineering team to its team lead's display name.
 # Used by the Engineering Portfolio "Teams" slide (slide_type: eng_team_roster).
 #
-# - Team names (keys) must match the Jira "Agile Team" field values exactly.
+# - Keys are the team display names. For Atlassian "Dev - X" teams the key is "X"
+#   (the prefix is stripped); "Dev - IOP" is shown as "Inventory Optimization".
 # - Leave a value blank ("") if the lead is unknown — the slide simply omits it.
-# - Jira has no team-lead field, so this file is the source of truth for leads.
+# - Atlassian Teams has no team-lead role, so this file is the source of truth for leads.
 teams:
   Supply Insights: "Mykyta Roilian"
   Data Pipeline: "Abubakr Ijaz"
   Procurement Management: "Brandan Fairchild"
   Infrastructure: "Paul Coppinger"
-  Inventory Optimization: "Matt Potts""
+  Inventory Optimization: "Matt Potts"
   "5 Rivers": "Zunaira Uzair"
-  App Dev: "First Last"
-  Workflows: "First Last"
-  Analytics: "First Last"

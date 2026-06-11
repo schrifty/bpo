@@ -66,6 +66,56 @@ def test_roster_applies_configured_lead(monkeypatch) -> None:
     assert roster["leads_configured"] is True
 
 
+def test_roster_prefers_atlassian_dev_teams(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.eng_team_roster._load_team_leads",
+        lambda: {"Supply Insights": "Grace Hopper", "Inventory Optimization": "Ada"},
+    )
+
+    class _TeamsClient:
+        atlassian_org_id = "org-1"
+
+        def get_atlassian_teams(self, timeout=60.0):
+            return {
+                "error": None,
+                "teams": [
+                    {"name": "Dev - Supply Insights", "member_count": 2,
+                     "members": ["Alice", "Bob"]},
+                    {"name": "Dev - IOP", "member_count": 1, "members": ["Bob"]},
+                    # Non-dev team is ignored.
+                    {"name": "Product", "member_count": 3,
+                     "members": ["X", "Y", "Z"]},
+                ],
+            }
+
+    roster = build_eng_team_roster(_TeamsClient())
+    assert roster["source"] == "atlassian_teams"
+    by_team = {t["team"]: t for t in roster["teams"]}
+    assert set(by_team) == {"Supply Insights", "Inventory Optimization"}  # "Dev - IOP" aliased
+    assert by_team["Supply Insights"]["lead"] == "Grace Hopper"
+    assert by_team["Inventory Optimization"]["lead"] == "Ada"
+    # Unique members across teams (Bob counted once).
+    assert roster["total_engineers"] == 2
+
+
+def test_roster_falls_back_when_no_dev_teams(monkeypatch) -> None:
+    monkeypatch.setattr("src.eng_team_roster._load_team_leads", lambda: {})
+
+    class _NoDevTeamsClient:
+        atlassian_org_id = "org-1"
+
+        def get_atlassian_teams(self, timeout=60.0):
+            return {"error": None, "teams": [{"name": "Product", "member_count": 1,
+                                              "members": ["X"]}]}
+
+        def _search(self, *a, **k):
+            return [_issue("Alice", "Supply Insights")]
+
+    roster = build_eng_team_roster(_NoDevTeamsClient())
+    assert roster["source"] == "jira_activity"
+    assert roster["teams"][0]["team"] == "Supply Insights"
+
+
 def test_roster_handles_fetch_error() -> None:
     class _BoomClient:
         def _search(self, *a, **k):

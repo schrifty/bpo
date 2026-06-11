@@ -1159,6 +1159,12 @@ class JiraClient:
         ).hexdigest()
         # One LLM resolution per (tenant, request terms) per JiraClient lifetime (avoids 15+ calls per support deck)
         self._jsm_llm_org_resolve_cache: dict[str, list[str]] = {}
+        # Atlassian Teams (org-level rosters). orgId is required for the API path; the
+        # admin API key (if present) is the preferred Bearer credential, with the site
+        # gateway + Jira auth as a fallback. See get_atlassian_teams().
+        self.atlassian_org_id = (os.environ.get("ATLASSIAN_ORG_ID") or "").strip() or None
+        self.atlassian_api_key = (os.environ.get("ATLASSIAN_API_KEY") or "").strip() or None
+        self._atlassian_user_name_cache: dict[str, str] = {}
 
     def _jql_log_len(self) -> int:
         with self._jql_lock:
@@ -1187,6 +1193,174 @@ class JiraClient:
             desc = (entry.get("description") or "Jira issue search").strip()
             out.append({"description": desc, "jql": jql})
         return out
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Atlassian Teams (org rosters)
+    # ──────────────────────────────────────────────────────────────────────────
+    def _atlassian_teams_routes(self) -> list[tuple[str, dict[str, str]]]:
+        """Candidate (base_url, headers) pairs for the Atlassian Teams public API.
+
+        Prefer the public api.atlassian.com endpoint with the org admin key (Bearer);
+        fall back to the site gateway, which is reachable with the existing Jira auth.
+        Both require the real Atlassian orgId in the path (not the cloudId).
+        """
+        routes: list[tuple[str, dict[str, str]]] = []
+        org = self.atlassian_org_id
+        if self.atlassian_api_key:
+            routes.append((
+                f"https://api.atlassian.com/public/teams/v1/org/{org}",
+                {
+                    "Authorization": f"Bearer {self.atlassian_api_key}",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+            ))
+        routes.append((
+            f"{self.base_url}/gateway/api/public/teams/v1/org/{org}",
+            {**self._headers, "Content-Type": "application/json"},
+        ))
+        return routes
+
+    def _resolve_account_names(self, account_ids: set[str], *, timeout: float = 30.0) -> dict[str, str]:
+        """Resolve Atlassian accountIds → display names via Jira's bulk user API (cached)."""
+        todo = [a for a in account_ids if a and a not in self._atlassian_user_name_cache]
+        for i in range(0, len(todo), 90):
+            chunk = todo[i:i + 90]
+            try:
+                # ``/user/bulk`` defaults to maxResults=10 — must request the full chunk
+                # size or only the first 10 accountIds resolve.
+                params = [("accountId", a) for a in chunk]
+                params.append(("maxResults", str(len(chunk))))
+                resp = requests.get(
+                    f"{self.api_base_url}/rest/api/3/user/bulk",
+                    headers=self._headers,
+                    params=params,
+                    timeout=timeout,
+                )
+                if resp.status_code != 200:
+                    continue
+                for user in resp.json().get("values") or []:
+                    aid = user.get("accountId")
+                    name = user.get("displayName")
+                    if aid and name and user.get("accountType") == "atlassian":
+                        self._atlassian_user_name_cache[aid] = name
+            except requests.RequestException as e:
+                logger.warning("Atlassian user bulk lookup failed: %s", e)
+        return {a: self._atlassian_user_name_cache[a] for a in account_ids if a in self._atlassian_user_name_cache}
+
+    def _atlassian_team_member_ids(
+        self, base: str, headers: dict[str, str], team_id: str, *, timeout: float = 30.0
+    ) -> list[str]:
+        """All member accountIds for one team (paginated via POST .../members)."""
+        ids: list[str] = []
+        after: str | None = None
+        for _ in range(100):  # hard page cap
+            body: dict[str, Any] = {"first": 50}
+            if after:
+                body["after"] = after
+            try:
+                resp = requests.post(
+                    f"{base}/teams/{team_id}/members", headers=headers, json=body, timeout=timeout
+                )
+            except requests.RequestException as e:
+                logger.warning("Atlassian team members fetch failed (%s): %s", team_id, e)
+                break
+            if resp.status_code != 200:
+                break
+            data = resp.json()
+            for member in data.get("results") or []:
+                aid = member.get("accountId")
+                if aid:
+                    ids.append(aid)
+            page = data.get("pageInfo") or {}
+            if page.get("hasNextPage") and page.get("endCursor"):
+                after = page["endCursor"]
+            else:
+                break
+        return ids
+
+    def get_atlassian_teams(
+        self,
+        *,
+        with_members: bool = True,
+        resolve_names: bool = True,
+        max_teams: int = 500,
+        timeout: float = 30.0,
+    ) -> dict[str, Any]:
+        """Fetch org Teams (and members) from the Atlassian Teams API.
+
+        Requires ``ATLASSIAN_ORG_ID``; uses ``ATLASSIAN_API_KEY`` when present, else the
+        site gateway with the existing Jira auth. Returns ``{"teams": [...], "error": ...}``
+        where each team has ``team_id``, ``name``, ``members`` (display names), and counts.
+        Fails loud with an ``error`` string rather than silently returning empty.
+        """
+        if not self.atlassian_org_id:
+            return {"error": "ATLASSIAN_ORG_ID is not set", "teams": []}
+
+        chosen: tuple[str, dict[str, str]] | None = None
+        last_err: str | None = None
+        for base, headers in self._atlassian_teams_routes():
+            try:
+                resp = requests.get(f"{base}/teams", headers=headers, params={"size": 50}, timeout=timeout)
+                if resp.status_code == 200:
+                    chosen = (base, headers)
+                    break
+                last_err = f"{resp.status_code}: {(resp.text or '')[:160]}"
+            except requests.RequestException as e:
+                last_err = str(e)
+        if not chosen:
+            return {"error": f"Atlassian Teams API unreachable: {last_err}", "teams": []}
+
+        base, headers = chosen
+        raw_teams: list[dict[str, Any]] = []
+        cursor: str | None = None
+        while len(raw_teams) < max_teams:
+            params = {"size": 50}
+            if cursor:
+                params["cursor"] = cursor
+            try:
+                resp = requests.get(f"{base}/teams", headers=headers, params=params, timeout=timeout)
+                resp.raise_for_status()
+            except requests.RequestException as e:
+                if raw_teams:
+                    logger.warning("Atlassian teams pagination stopped early: %s", e)
+                    break
+                return {"error": f"Atlassian teams list failed: {e}", "teams": []}
+            data = resp.json()
+            entities = data.get("entities") or []
+            raw_teams.extend(entities)
+            cursor = data.get("cursor")
+            if not cursor or not entities:
+                break
+
+        member_ids_by_team: dict[str, list[str]] = {}
+        all_ids: set[str] = set()
+        if with_members:
+            for team in raw_teams:
+                tid = team.get("teamId")
+                if not tid:
+                    continue
+                ids = self._atlassian_team_member_ids(base, headers, tid, timeout=timeout)
+                member_ids_by_team[tid] = ids
+                all_ids.update(ids)
+
+        names = self._resolve_account_names(all_ids, timeout=timeout) if (with_members and resolve_names) else {}
+
+        teams: list[dict[str, Any]] = []
+        for team in raw_teams:
+            tid = team.get("teamId")
+            ids = member_ids_by_team.get(tid, [])
+            member_names = [names[a] for a in ids if a in names] if resolve_names else []
+            teams.append({
+                "team_id": tid,
+                "name": team.get("displayName"),
+                "description": team.get("description") or "",
+                "state": team.get("state"),
+                "member_account_ids": ids,
+                "members": member_names,
+                "member_count": len(member_names) if resolve_names else len(ids),
+            })
+        return {"org_id": self.atlassian_org_id, "route": base, "teams": teams, "error": None}
 
     def _jql_match_total(self, jql: str) -> int | None:
         """Return Jira's match count for JQL without fetching issue bodies.

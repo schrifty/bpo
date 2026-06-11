@@ -55,6 +55,68 @@ def _agile_team_value(value: Any) -> str | None:
     return None
 
 
+# Atlassian Teams for the engineering org are named with this prefix (e.g.
+# "Dev - Supply Insights"); we strip it for display.
+_DEV_TEAM_PREFIX = "dev - "
+
+# Friendlier display names for abbreviated Atlassian team names.
+_TEAM_DISPLAY_ALIASES = {
+    "IOP": "Inventory Optimization",
+}
+
+
+def _roster_from_atlassian_teams(
+    client: JiraClient, leads: dict[str, str], *, window_days: int, timeout: float
+) -> dict[str, Any] | None:
+    """Build the roster from Atlassian Teams (authoritative). Returns None to fall back.
+
+    Only teams whose name starts with ``Dev - `` are included (the engineering squads);
+    the prefix is stripped for display. Membership and headcount come straight from the
+    Teams API, so the slide stays accurate as the org maintains team membership.
+    """
+    if not getattr(client, "atlassian_org_id", None):
+        return None
+    try:
+        payload = client.get_atlassian_teams(timeout=timeout)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Atlassian Teams fetch failed, falling back to activity roster: %s", e)
+        return None
+    if payload.get("error"):
+        logger.warning("Atlassian Teams error, falling back to activity roster: %s", payload["error"])
+        return None
+
+    dev_teams = [
+        t for t in (payload.get("teams") or [])
+        if str(t.get("name") or "").lower().startswith(_DEV_TEAM_PREFIX)
+    ]
+    if not dev_teams:
+        return None
+
+    rows: list[dict[str, Any]] = []
+    unique_members: set[str] = set()
+    for team in dev_teams:
+        name = str(team.get("name") or "")
+        raw_display = name[len(_DEV_TEAM_PREFIX):].strip() or name
+        display = _TEAM_DISPLAY_ALIASES.get(raw_display, raw_display)
+        members = [str(m) for m in (team.get("members") or [])]
+        unique_members.update(members)
+        rows.append({
+            "team": display,
+            "headcount": int(team.get("member_count") or len(members)),
+            "members": members,
+            "lead": leads.get(display, "") or leads.get(raw_display, "") or leads.get(name, ""),
+        })
+    rows.sort(key=lambda r: -r["headcount"])
+    return {
+        "window_days": window_days,
+        "total_engineers": len(unique_members),
+        "teams": rows,
+        "leads_configured": bool(leads),
+        "source": "atlassian_teams",
+        "error": None,
+    }
+
+
 def build_eng_team_roster(
     client: JiraClient,
     *,
@@ -62,14 +124,21 @@ def build_eng_team_roster(
     timeout: float = 60.0,
     min_team_size: int = 1,
 ) -> dict[str, Any]:
-    """Roster of engineers per Agile Team on the LEAN board.
+    """Roster of engineers per engineering team.
 
-    Each engineer is assigned to the team where they have the most issues over the
-    trailing ``window_days`` (plus any current non-done work), so headcount and member
-    lists do not double-count people who occasionally cross teams. Teams are sorted by
-    headcount descending; members by activity descending.
+    Prefers **Atlassian Teams** (the ``Dev - *`` squads) as the authoritative source of
+    membership. If those are unavailable, falls back to a Jira-activity heuristic: each
+    engineer is assigned to the Agile Team where they did the most work over the trailing
+    window, so people who cross teams are not double-counted. Teams sort by headcount.
     """
     leads = _load_team_leads()
+
+    from_teams = _roster_from_atlassian_teams(
+        client, leads, window_days=window_days, timeout=timeout
+    )
+    if from_teams is not None:
+        return from_teams
+
     try:
         issues = client._search(
             f"project = LEAN AND (statusCategory != Done OR updated >= -{window_days}d)",
@@ -119,5 +188,6 @@ def build_eng_team_roster(
         "total_engineers": sum(r["headcount"] for r in rows),
         "teams": rows,
         "leads_configured": bool(leads),
+        "source": "jira_activity",
         "error": None,
     }
