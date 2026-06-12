@@ -99,9 +99,13 @@ def build_eng_bug_flow(
     except Exception as e:  # noqa: BLE001
         logger.warning("Open bug count failed: %s", e)
 
-    if net_total > 5:
+    # A handful of bugs either way over 12 weeks is noise, not a trend. Treat a net
+    # within ~8% of inflow (floor of 10) as "treading water" so a marginal -9 on 145
+    # created doesn't get oversold as "shrinking".
+    flat_band = max(10, round(0.08 * created_total))
+    if net_total > flat_band:
         trend = "growing"
-    elif net_total < -5:
+    elif net_total < -flat_band:
         trend = "shrinking"
     else:
         trend = "flat"

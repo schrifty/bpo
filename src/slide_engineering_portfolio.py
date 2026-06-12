@@ -12,6 +12,7 @@ from .slide_primitives import (
     CHART_LEGEND_PT,
     background as _bg,
     clean_table as _clean_table,
+    internal_footer as _internal_footer,
     kpi_metric_card as _kpi_metric_card,
     missing_data_slide as _missing_data_slide,
     rect as _rect,
@@ -36,12 +37,15 @@ from .slides_theme import (
     BLUE,
     CONTENT_W,
     FONT,
+    FONT_SERIF,
     GRAY,
     MARGIN,
     MAX_PAGINATED_SLIDE_PAGES,
     MONO,
     NAVY,
     SLIDE_H,
+    SLIDE_W,
+    TITLE_Y,
     WHITE,
     _cap_chunk_list,
 )
@@ -112,6 +116,61 @@ def _project_slide_bg(project: str) -> dict[str, float]:
     if proj == "HELP":
         return {"red": 1.0, "green": 0.96, "blue": 0.96}
     return WHITE
+
+
+def _eng_title(
+    reqs: list[dict[str, Any]],
+    sid: str,
+    title: str,
+    subtitle: str | None = None,
+) -> None:
+    """High-impact short title + a story subtitle.
+
+    The title is a stable, short section label (TOC-friendly); the subtitle carries
+    the dynamic one-line story that used to be crammed into the title. This keeps the
+    headline scannable while preserving the per-period narrative.
+    """
+    tid = f"{sid}_ttl"
+    _box(reqs, tid, sid, MARGIN, TITLE_Y - 4, CONTENT_W, 28, title)
+    _style(reqs, tid, 0, len(title), bold=True, size=22, color=NAVY, font=FONT_SERIF)
+    if subtitle:
+        sub = " ".join(subtitle.split()).strip()
+        sub = _truncate_one_line(sub, 130)
+        sub_id = f"{sid}_sub"
+        _box(reqs, sub_id, sid, MARGIN, TITLE_Y + 26, CONTENT_W, 18, sub)
+        _style(reqs, sub_id, 0, len(sub), size=11.5, color=GRAY, font=FONT)
+    _rect(reqs, f"{sid}_ul", sid, MARGIN, TITLE_Y + 48, 56, 2.5, BLUE)
+    _internal_footer(reqs, sid)
+
+
+def eng_toc_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Agenda / table of contents grouped by the deck's narrative sections."""
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _eng_title(reqs, sid, "Agenda", "What this review covers, in order")
+
+    sections: list[tuple[str, str]] = [
+        ("1  Executive Summary", "Bottom line — what to watch and decide"),
+        ("2  Team & Org", "Squads, headcount, and the delivery scorecard"),
+        ("3  Outcomes", "Initiative progress and delivery velocity"),
+        ("4  Operational Health", "Current sprint, flow & bottlenecks, load, work mix"),
+        ("5  Quality", "Bug health and bug inflow vs. outflow"),
+        ("6  Backlog & Support", "Escalation aging and inbound support pressure"),
+        ("7  Appendix", "Data quality and sourcing"),
+    ]
+
+    row_h = 46.0
+    y = BODY_Y + 18
+    for i, (head, desc) in enumerate(sections):
+        num_id = f"{sid}_s{i}h"
+        _box(reqs, num_id, sid, MARGIN, y, CONTENT_W, 20, head)
+        _style(reqs, num_id, 0, len(head), bold=True, size=15, color=NAVY, font=FONT_SERIF)
+        desc_id = f"{sid}_s{i}d"
+        _box(reqs, desc_id, sid, MARGIN + 14, y + 20, CONTENT_W - 14, 16, desc)
+        _style(reqs, desc_id, 0, len(desc), size=10.5, color=GRAY, font=FONT)
+        y += row_h
+
+    return idx + 1
 
 
 def eng_insight_bullets(
@@ -205,13 +264,13 @@ def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
 
     # Lead with throughput — the one delivery number that is meaningful org-wide.
     if total_throughput:
-        title = f"Team Scorecard — {total_throughput} Issues Closed Last Sprint"
+        subtitle = f"{total_throughput} issues closed last sprint across {len(teams)} squads"
     else:
-        title = "Development Team Scorecard"
+        subtitle = f"{len(teams)} development squads"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, title)
+    _eng_title(reqs, sid, "Team Scorecard", subtitle)
 
     # Business context: define throughput and lead time; note the two operating models.
     context = (
@@ -332,10 +391,10 @@ def eng_team_roster_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str
     total = int(roster.get("total_engineers") or sum(int(t.get("headcount") or 0) for t in teams))
     window_days = int(roster.get("window_days") or 90)
 
-    title = f"Engineering Teams — {total} Engineers Across {len(teams)} Squads"
+    subtitle = f"{total} engineers across {len(teams)} squads"
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, title)
+    _eng_title(reqs, sid, "Engineering Teams", subtitle)
 
     context = (
         f"Each engineer is shown on the team where they did most of their work over the last "
@@ -376,7 +435,10 @@ def eng_team_roster_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str
         _box(reqs, f"{sid}_bc{i}", sid, bar_x + bar_w + 6, y0, count_w, 16, count_txt)
         _style(reqs, f"{sid}_bc{i}", 0, len(count_txt), bold=True, size=10.5, color=NAVY, font=MONO)
 
-        # Members line, with optional bold "Lead: <name>" prefix.
+        # Members line, with optional bold "Lead: <name>" prefix. The lead is shown in
+        # the prefix, so drop them from the member list to avoid repeating the name.
+        if lead:
+            members = [m for m in members if m.strip().casefold() != lead.casefold()]
         prefix = f"Lead: {lead} — " if lead else ""
         line = _truncate_one_line(prefix + ", ".join(members), mem_chars)
         if line:
@@ -415,10 +477,10 @@ def eng_sprint_snapshot_slide(reqs: list[dict[str, Any]], sid: str, report: dict
     by_type = eng.get("by_type", {})
     bugs_in_flight = by_type.get("Bug", 0)
 
-    title = f"{sprint_name}: {in_flight} Open, {active} Active, {bugs_in_flight} Bugs"
+    subtitle = f"{in_flight} open, {active} active, {bugs_in_flight} bugs in flight"
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, title)
+    _eng_title(reqs, sid, sprint_name, subtitle)
 
     context = f"{date_range}   ·   Closed this period: {closed}"
     _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
@@ -659,15 +721,15 @@ def eng_current_sprint_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     bugs = int(by_type.get("Bug", 0) or 0)
 
     if bugs and in_flight:
-        title = f"{sprint_name} — {active} Active, {bugs} Bug{'s' if bugs != 1 else ''} In Flight"
+        subtitle = f"{sprint_name}: {active} active, {bugs} bug{'s' if bugs != 1 else ''} in flight"
     elif in_flight:
-        title = f"{sprint_name} — {active} of {in_flight} Items Active"
+        subtitle = f"{sprint_name}: {active} of {in_flight} items active"
     else:
-        title = f"{sprint_name} — No Open Work In Sprint"
+        subtitle = f"{sprint_name}: no open work in sprint"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, title)
+    _eng_title(reqs, sid, "Current Sprint", subtitle)
 
     context = "What the LEAN engineering team is working on in the active sprint."
     _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
@@ -689,13 +751,37 @@ def eng_current_sprint_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
         y=card_y,
     )
 
+    # Backlog hygiene callout: most "open" items are abandoned, not active work.
+    staleness = eng.get("backlog_staleness") or {}
+    abandoned_open = int(staleness.get("abandoned_open") or 0)
+    abandoned_pct = int(staleness.get("abandoned_pct") or 0)
+    abandoned_days = int(staleness.get("abandoned_days") or 180)
     theme_top = cards_y + 18
+    if abandoned_open:
+        note = (
+            f"\u26a0  {abandoned_open} of {in_flight} open items ({abandoned_pct}%) untouched in "
+            f">{abandoned_days}d — backlog needs triage; only {active} are actively in progress/review."
+        )
+        _box(reqs, f"{sid}_stale", sid, MARGIN, cards_y + 8, CONTENT_W, 14, note)
+        _style(reqs, f"{sid}_stale", 0, len(note), size=9.5, color=AMBER, font=FONT)
+        theme_top = cards_y + 28
     theme_bottom = _ENG_CONTENT_BOTTOM
 
-    themes = [t for t in (eng.get("themes") or []) if int(t.get("total") or 0) > 0][:8]
+    # Surface real areas of work; "Untagged" (no [theme] prefix or epic link) would
+    # otherwise dominate the bars and hide them, so report it as a hygiene caption.
+    themes_all = [t for t in (eng.get("themes") or []) if int(t.get("total") or 0) > 0]
+    untagged = next((t for t in themes_all if t.get("theme") == "Untagged"), None)
+    themes = [t for t in themes_all if t.get("theme") != "Untagged"][:8]
+    untagged_n = int(untagged.get("total") or 0) if untagged else 0
+    hdr_extra = ""
+    if untagged_n:
+        u_pct = round(100 * untagged_n / in_flight) if in_flight else 0
+        hdr_extra = f"   (+{untagged_n} untagged, {u_pct}% — need a [theme] prefix or epic link)"
     header = "Active work by theme"
-    _box(reqs, f"{sid}_tht", sid, MARGIN, theme_top, CONTENT_W, 16, header)
-    _style(reqs, f"{sid}_tht", 0, len(header), bold=True, size=11, color=NAVY, font=FONT)
+    _box(reqs, f"{sid}_tht", sid, MARGIN, theme_top, CONTENT_W, 16, header + hdr_extra)
+    _style(reqs, f"{sid}_tht", 0, len(header) + len(hdr_extra), bold=True, size=11, color=NAVY, font=FONT)
+    if hdr_extra:
+        _style(reqs, f"{sid}_tht", len(header), len(header) + len(hdr_extra), bold=False, size=9, color=GRAY, font=FONT)
     y = theme_top + 20
 
     if themes:
@@ -763,15 +849,15 @@ def eng_backlog_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     age_buckets = snapshot.get("open_age_buckets") or {}
 
     if over_90 > 0 and median_age is not None:
-        title = f"Escalation Backlog Aging — Median {median_age:.0f}d, {over_90} Over 90d"
+        subtitle = f"Aging — median {median_age:.0f}d, {over_90} open over 90d"
     elif median_age is not None:
-        title = f"Escalation Backlog Healthy — Median {median_age:.0f}d, None Over 90d"
+        subtitle = f"Healthy — median {median_age:.0f}d, none over 90d"
     else:
-        title = f"Escalation Backlog — {open_count} Open"
+        subtitle = f"{open_count} open"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, title)
+    _eng_title(reqs, sid, "Escalation Backlog", subtitle)
 
     context = "Health of the LEAN engineering escalation queue: how much is open and how old it is."
     _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
@@ -827,6 +913,11 @@ def eng_capacity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
         return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
 
     by_assignee = eng.get("by_assignee", {}) or {}
+    active_by = eng.get("by_assignee_active", {}) or {}
+    stale_by = eng.get("by_assignee_stale", {}) or {}
+    staleness = eng.get("backlog_staleness") or {}
+    abandoned_days = int(staleness.get("abandoned_days") or 180)
+    active_days = int(staleness.get("active_days") or 30)
     snapshot = (eng.get("project_snapshots") or {}).get("LEAN") or {}
     resolved_table = snapshot.get("assignee_resolved_table") or []
     resolved_by_name = {str(r.get("assignee") or ""): r for r in resolved_table}
@@ -841,44 +932,39 @@ def eng_capacity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
         rows.append({
             "name": name,
             "wip": wip,
+            "active": int(active_by.get(name, 0) or 0),
+            "stale": int(stale_by.get(name, 0) or 0),
             "r30": int(r.get("1m", 0) or 0),
             "r90": int(r.get("3m", 0) or 0),
         })
-    rows.sort(key=lambda x: (-x["wip"], -x["r90"]))
+    # Rank by *active* WIP (real load) so stale-assignment hoarders sink, not surface.
+    rows.sort(key=lambda x: (-x["active"], -x["r90"], -x["wip"]))
 
     if not rows:
         return _missing_data_slide(reqs, sid, report, idx, "Engineering capacity (no assignee data on LEAN board)")
 
+    total_active = sum(r["active"] for r in rows)
     total_wip = sum(r["wip"] for r in rows)
-    top3_wip = sum(r["wip"] for r in rows[:3])
-    top3_share = int(round(top3_wip / total_wip * 100)) if total_wip else 0
-    engineers_active = sum(1 for r in rows if r["wip"] > 0)
+    total_stale = int(staleness.get("abandoned_open") or sum(r["stale"] for r in rows))
+    top3_active = sum(r["active"] for r in rows[:3])
+    top3_share = int(round(top3_active / total_active * 100)) if total_active else 0
+    engineers_active = sum(1 for r in rows if r["active"] > 0)
 
-    if total_wip and top3_share >= 60:
-        title = f"Capacity Concentrated — Top 3 Engineers Hold {top3_share}% of Assigned WIP"
-    elif total_wip:
-        title = f"Engineering Load — {total_wip} Assigned In-Flight Items Across {engineers_active} Engineers"
+    if total_active and top3_share >= 60:
+        subtitle = f"Concentrated — top 3 engineers hold {top3_share}% of active WIP"
+    elif total_active:
+        subtitle = f"{total_active} active WIP ({total_wip} assigned, {total_stale} stale >{abandoned_days}d)"
     else:
-        title = "Engineering Capacity — No Assigned WIP On LEAN Board"
+        subtitle = "No active WIP on LEAN board"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, title)
+    _eng_title(reqs, sid, "Engineering Load", subtitle)
 
-    # Reconcile with the Teams slide: this counts anyone with assigned LEAN work, which
-    # is broader than the engineers mapped to squads (cross-team helpers, leads, etc.).
-    roster = eng.get("team_roster") or {}
-    roster_total = roster.get("total_engineers")
-    squad_n = len(roster.get("teams") or [])
-    reconcile = ""
-    if roster_total and squad_n and int(roster_total) != engineers_active:
-        reconcile = (
-            f" Counts anyone with assigned LEAN work ({engineers_active}) — broader than the "
-            f"{int(roster_total)} engineers mapped to the {squad_n} squads on the Teams slide."
-        )
     context = (
-        "LEAN Engineering board: per-engineer in-flight WIP (assigned, active sprint statuses) "
-        "versus recent throughput — not the full escalation backlog." + reconcile
+        f"LEAN board WIP per engineer. Active = touched in the last {active_days}d (real load); "
+        f"Total = all assigned open items, many of which are stale (>{abandoned_days}d untouched). "
+        "High Total with near-zero Active and 0 resolved = stale assignment, not load."
     )
     _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 26, context)
     _style(reqs, f"{sid}_ctx", 0, len(context), size=9.5, color=NAVY, font=FONT)
@@ -886,18 +972,19 @@ def eng_capacity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
     cards_y = _eng_kpi_row(
         reqs, sid,
         [
-            ("Engineers with WIP", str(engineers_active)),
-            ("Assigned in-flight WIP", str(total_wip)),
-            ("Top 3 share of WIP", f"{top3_share}%" if total_wip else "—"),
+            ("Engineers (active WIP)", str(engineers_active)),
+            (f"Active WIP (\u2264{active_days}d)", str(total_active)),
+            (f"Stale WIP (>{abandoned_days}d)", str(total_stale)),
+            ("Top 3 active share", f"{top3_share}%" if total_active else "—"),
         ],
-        y=BODY_Y + 22,
+        y=BODY_Y + 30,
     )
 
-    # Native table: Engineer | WIP now | Resolved 30d | Resolved 90d.
+    # Native table: Engineer | Active WIP | Total WIP | Resolved 30d | Resolved 90d.
     table_top = cards_y + 18
-    col_widths = [288.0, 112.0, 112.0, 112.0]
-    headers = ["Engineer", "WIP now", "Resolved 30d", "Resolved 90d"]
-    aligns = ["START", "END", "END", "END"]
+    col_widths = [216.0, 102.0, 102.0, 102.0, 102.0]
+    headers = ["Engineer", f"Active (\u2264{active_days}d)", "Total WIP", "Resolved 30d", "Resolved 90d"]
+    aligns = ["START", "END", "END", "END", "END"]
     max_rows = max(1, int((_ENG_CONTENT_BOTTOM - table_top) // 24) - 1)
     display = rows[:max_rows]
     num_rows = 1 + len(display)
@@ -921,9 +1008,13 @@ def eng_capacity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
         _table_cell_style(reqs, table_id, 0, ci, len(h), bold=True, color=GRAY, size=9, font=FONT, align=aligns[ci])
     name_chars = max_chars_one_line_for_table_col(col_widths[0], 10.0)
     for ri, row in enumerate(display, start=1):
+        # Stale assignment: meaningful assigned WIP but nothing active and no throughput.
+        stale_assignment = row["wip"] >= 15 and row["active"] <= 1 and row["r90"] == 0
+        name_color = AMBER if stale_assignment else NAVY
         cells = [
-            (_truncate_one_line(row["name"], name_chars), NAVY, FONT),
-            (str(row["wip"]), BLUE if row["wip"] else GRAY, MONO),
+            (_truncate_one_line(row["name"], name_chars), name_color, FONT),
+            (str(row["active"]), BLUE if row["active"] else GRAY, MONO),
+            (str(row["wip"]), GRAY, MONO),
             (str(row["r30"]), NAVY, MONO),
             (str(row["r90"]), NAVY, MONO),
         ]
@@ -998,11 +1089,9 @@ def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
     oldest = lean.get("oldest_open_age_days")
     flow = eng.get("flow") or {}
     status_flow = flow.get("status_flow") or {}
-    flow_changelog_on = (
-        status_flow.get("source") == "changelog" and int(status_flow.get("enriched_count") or 0) > 0
-    )
-    stale5 = int(flow.get("stale_gt5") or 0)
-    stale10 = int(flow.get("stale_gt10") or 0)
+    stale_recent = int(flow.get("stale_recent") or 0)
+    abandoned = int(flow.get("abandoned_in_stage") or 0)
+    abandoned_days = int(flow.get("abandoned_days") or 180)
     blocked = int(flow.get("blocked_count") or status_flow.get("blocked_count") or 0)
     cycle_delta = flow.get("cycle_delta_days")
     split = eng.get("work_split") or {}
@@ -1039,6 +1128,17 @@ def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
     if blocked:
         risks.append((f"{blocked} active item{'s' if blocked != 1 else ''} flagged blocked in Jira", RED))
         actions.append((f"Clear the {blocked} flagged blocker{'s' if blocked != 1 else ''} or escalate ownership", RED))
+    # Initiative delivery risk: epics with open work but no recent movement (from the
+    # Initiative Progress slide) — the "big rocks" that have quietly stopped.
+    epic_progress = eng.get("epic_progress") or {}
+    epics_at_risk = int(epic_progress.get("at_risk_count") or 0)
+    if epics_at_risk:
+        stalled_keys = ", ".join(
+            str(e.get("key")) for e in (epic_progress.get("epics") or []) if e.get("at_risk")
+        )[:60]
+        n = epics_at_risk
+        risks.append((f"{n} initiative{'s' if n != 1 else ''} stalled — open work, no activity in 30d ({stalled_keys})", AMBER))
+        actions.append((f"Re-engage or re-scope the {n} stalled initiative{'s' if n != 1 else ''}", AMBER))
     # Sprint hygiene, NOT a delivery miss: the CUSTOMER/Data Integration boards park a
     # large standing backlog inside each weekly sprint, so most of it carries over. This
     # is a scoping problem to fix, not "commitments slipping" (see Team Scorecard).
@@ -1056,11 +1156,12 @@ def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
         oldest_txt = f", oldest {float(oldest):.0f}d" if oldest is not None else ""
         risks.append((f"{over_90} escalation{'s' if over_90 != 1 else ''} open >90 days{oldest_txt}", AMBER))
         actions.append((f"Run a backlog scrub on the {over_90} escalation{'s' if over_90 != 1 else ''} aging past 90 days", AMBER))
-    stall_n = stale10 if flow_changelog_on else stale5
-    if stall_n:
-        stall_word = "stalled >10 days in stage" if flow_changelog_on else "idle >5 days"
-        risks.append((f"{stall_n} active item{'s' if stall_n != 1 else ''} {stall_word} — flow stalling", AMBER))
-        actions.append((f"Unblock or re-assign the {stall_n} stalled item{'s' if stall_n != 1 else ''}", AMBER))
+    if stale_recent:
+        risks.append((f"{stale_recent} active item{'s' if stale_recent != 1 else ''} stalled 10–{abandoned_days}d in stage — flow stalling", AMBER))
+        actions.append((f"Unblock or re-assign the {stale_recent} stalled item{'s' if stale_recent != 1 else ''}", AMBER))
+    if abandoned:
+        risks.append((f"{abandoned} active item{'s' if abandoned != 1 else ''} abandoned in stage >{abandoned_days}d — backlog hygiene", AMBER))
+        actions.append((f"Triage the {abandoned} abandoned in-progress item{'s' if abandoned != 1 else ''} — close or re-engage", AMBER))
     if reactive_wip_pct >= 40:
         risks.append((f"{reactive_wip_pct}% of WIP is unplanned/reactive work", AMBER))
         actions.append((f"Protect roadmap capacity — {reactive_wip_pct}% is going to reactive work", AMBER))
@@ -1079,29 +1180,27 @@ def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
     red_count = sum(1 for _, c in risks if c is RED)
     amber_count = sum(1 for _, c in risks if c is AMBER)
     if red_count and amber_count:
-        title = f"Engineering Review — {red_count} Critical, {amber_count} to Watch"
+        verdict = f"{red_count} critical, {amber_count} to watch"
     elif red_count:
-        verb = "Needs" if red_count == 1 else "Need"
-        title = f"Engineering Review — {red_count} Critical Item{'' if red_count == 1 else 's'} {verb} Attention"
+        verb = "needs" if red_count == 1 else "need"
+        verdict = f"{red_count} critical item{'' if red_count == 1 else 's'} {verb} attention"
     elif amber_count:
-        title = f"Engineering Review — {amber_count} Watch Item{'' if amber_count == 1 else 's'}, No Blockers"
+        verdict = f"{amber_count} watch item{'' if amber_count == 1 else 's'}, no blockers"
     else:
-        title = "Engineering Review — On Track"
+        verdict = "on track"
+
+    subtitle = f"{sprint_name}: {verdict} — what to watch and what to decide"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, title)
-
-    context = f"Bottom line for {sprint_name}: where things stand, what to watch, and what to decide."
-    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
-    _style(reqs, f"{sid}_ctx", 0, len(context), size=11, color=NAVY, font=FONT)
+    _eng_title(reqs, sid, "Executive Summary", subtitle)
 
     vel_value = "—" if vel_now is None else f"{float(vel_now):.0f} SP {vel_arrow}"
     cards_y = _eng_kpi_row(
         reqs, sid,
         [
-            ("Closed last sprint", "—" if sprint_throughput is None else str(int(sprint_throughput))),
-            ("Story-pt velocity", vel_value),
+            ("Closed last sprint (all teams)", "—" if sprint_throughput is None else str(int(sprint_throughput))),
+            ("Velocity (CUSTOMER SP)", vel_value),
             ("Open escalations", str(open_esc)),
             ("Reactive load", f"{reactive_wip_pct}%"),
         ],
@@ -1136,9 +1235,10 @@ def eng_flow_bottlenecks_slide(reqs: list[dict[str, Any]], sid: str, report: dic
 
     active = int(flow.get("active_count") or 0)
     in_review = int(flow.get("in_review") or 0)
-    stale10 = int(flow.get("stale_gt10") or 0)
+    stale_recent = int(flow.get("stale_recent") or 0)
+    abandoned = int(flow.get("abandoned_in_stage") or 0)
+    abandoned_days = int(flow.get("abandoned_days") or 180)
     carry = int(flow.get("carryover_count") or 0)
-    carry_pts = float(flow.get("carryover_points") or 0.0)
     attention_items = flow.get("attention_items") or flow.get("stale_items") or []
     jira_base = (eng.get("base_url") or "").rstrip("/")
 
@@ -1146,41 +1246,44 @@ def eng_flow_bottlenecks_slide(reqs: list[dict[str, Any]], sid: str, report: dic
     status_flow = flow.get("status_flow") or {}
     changelog_on = status_flow.get("source") == "changelog" and int(status_flow.get("enriched_count") or 0) > 0
     blocked = int(flow.get("blocked_count") or status_flow.get("blocked_count") or 0)
-    by_status_median = status_flow.get("by_status_median_days") or {}
+    # Prefer stage medians computed on non-abandoned items — the all-items median is
+    # dragged to years by zombies parked in-stage and misrepresents the real chokepoint.
+    by_status_median = flow.get("by_status_median_active") or status_flow.get("by_status_median_days") or {}
 
     if blocked:
-        title = f"Flow Risk — {blocked} Active Item{'s' if blocked != 1 else ''} Flagged Blocked"
+        subtitle = f"Risk — {blocked} active item{'s' if blocked != 1 else ''} flagged blocked"
     elif carry:
-        title = f"Flow Risk — {carry} Active Item{'s' if carry != 1 else ''} Carried Across Sprints"
-    elif stale10:
-        stalled_suffix = "Stalled >10 Days In Stage" if changelog_on else "Stalled >10 Days"
-        title = f"Flow Bottleneck — {stale10} Active Item{'s' if stale10 != 1 else ''} {stalled_suffix}"
+        subtitle = f"Risk — {carry} active item{'s' if carry != 1 else ''} carried across sprints"
+    elif stale_recent:
+        subtitle = f"Bottleneck — {stale_recent} active item{'s' if stale_recent != 1 else ''} stalled 10–{abandoned_days}d"
+    elif abandoned:
+        subtitle = f"Hygiene — {abandoned} active items abandoned in stage >{abandoned_days}d"
     elif active:
-        title = f"Flow Healthy — {active} Active Item{'s' if active != 1 else ''} Moving"
+        subtitle = f"Healthy — {active} active item{'s' if active != 1 else ''} moving"
     else:
-        title = "Flow & Bottlenecks — No Active Work"
+        subtitle = "No active work"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, title)
+    _eng_title(reqs, sid, "Flow & Bottlenecks", subtitle)
 
     context = (
-        "LEAN Engineering board: where active work is piling up or stalling, and which "
-        "items need attention first."
+        "LEAN Engineering board: where active work is piling up or stalling. Recent stalls "
+        f"are actionable; items parked in-stage >{abandoned_days}d are counted separately as "
+        "abandoned (close or re-engage)."
     )
-    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
-    _style(reqs, f"{sid}_ctx", 0, len(context), size=11, color=NAVY, font=FONT)
+    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 26, context)
+    _style(reqs, f"{sid}_ctx", 0, len(context), size=9.5, color=NAVY, font=FONT)
 
-    carry_value = str(carry) + (f"  ·  {carry_pts:.0f} SP" if carry_pts else "")
     cards_y = _eng_kpi_row(
         reqs, sid,
         [
             ("Active WIP", str(active)),
             ("In review (chokepoint)", str(in_review)),
-            ("Blocked (flagged)", str(blocked)),
-            ("Carried over (≥2 sprints)", carry_value),
+            (f"Stalled 10–{abandoned_days}d", str(stale_recent)),
+            (f"Abandoned >{abandoned_days}d", str(abandoned)),
         ],
-        y=BODY_Y + 22,
+        y=BODY_Y + 30,
     )
 
     # ── Median time in current stage (changelog) — reveals the real chokepoint ──
@@ -1193,7 +1296,7 @@ def eng_flow_bottlenecks_slide(reqs: list[dict[str, Any]], sid: str, report: dic
         ]
         if ordered:
             worst = max(ordered, key=lambda kv: kv[1])[0]
-            label = "Median time in current stage:  "
+            label = "Median time in stage (active, excl. abandoned):  "
             line = label + "   ".join(f"{s} {v:.0f}d" for s, v in ordered)
             _box(reqs, f"{sid}_stage", sid, MARGIN, stage_y, CONTENT_W, 14, line)
             _style(reqs, f"{sid}_stage", 0, len(line), size=10, color=GRAY, font=FONT)
@@ -1206,7 +1309,10 @@ def eng_flow_bottlenecks_slide(reqs: list[dict[str, Any]], sid: str, report: dic
             stage_y += 16
 
     # ── Full-width "needs attention" table ───────────────────────────────────
-    header = "Needs attention — flagged, carried-over & stalled active items"
+    header = (
+        f"Needs attention — recent stalls & carry-overs (excludes {abandoned} abandoned >{abandoned_days}d)"
+        if abandoned else "Needs attention — flagged, carried-over & stalled active items"
+    )
     table_hdr_y = stage_y + 8
     _box(reqs, f"{sid}_att_h", sid, MARGIN, table_hdr_y, CONTENT_W, 14, header)
     _style(reqs, f"{sid}_att_h", 0, len(header), bold=True, size=11, color=NAVY, font=FONT)
@@ -1304,15 +1410,15 @@ def eng_work_split_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
     unplanned_wip = int(wip.get("unplanned") or 0)
 
     if reactive_wip_pct >= 40:
-        title = f"Reactive Work Dominating — {reactive_wip_pct}% of WIP Is Unplanned"
+        subtitle = f"Reactive work dominating — {reactive_wip_pct}% of WIP is unplanned"
     elif (planned_wip + unplanned_wip) > 0:
-        title = f"Roadmap-Focused — {100 - reactive_wip_pct}% of WIP Is Planned"
+        subtitle = f"Roadmap-focused — {100 - reactive_wip_pct}% of WIP is planned"
     else:
-        title = "Planned vs. Unplanned — No Open Work"
+        subtitle = "No open work"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, title)
+    _eng_title(reqs, sid, "Planned vs. Unplanned", subtitle)
 
     context = "LEAN Engineering board: how much capacity goes to roadmap work versus reactive bugs and escalations."
     _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
@@ -1369,15 +1475,15 @@ def eng_bug_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
     blocker_crit = eng.get("blocker_critical") or []
 
     if blocker_crit:
-        title = f"{len(open_bugs)} Open Bugs — {len(blocker_crit)} Blocker/Critical Need Attention"
+        subtitle = f"{len(open_bugs)} open bugs — {len(blocker_crit)} blocker/critical need attention"
     elif open_bugs:
-        title = f"{len(open_bugs)} Open Bugs — No Blockers Currently Active"
+        subtitle = f"{len(open_bugs)} open bugs — no blockers currently active"
     else:
-        title = "Bug Backlog Clear — No Open Bugs"
+        subtitle = "Backlog clear — no open bugs"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, title)
+    _eng_title(reqs, sid, "Bug Health", subtitle)
 
     jira_base = eng.get("base_url", "")
     bar = f"Open bugs: {len(open_bugs)}   |   Blocker / Critical: {len(blocker_crit)}"
@@ -1706,15 +1812,15 @@ def eng_bug_flow_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
     trend = bf.get("trend") or "flat"
 
     if trend == "growing":
-        title = f"Bug Backlog Growing — Net +{net} Over {wk_n} Weeks"
+        subtitle = f"Backlog growing — net +{net} over {wk_n} weeks"
     elif trend == "shrinking":
-        title = f"Bug Backlog Shrinking — Net {abs(net)} Resolved Over {wk_n} Weeks"
+        subtitle = f"Backlog shrinking — net {abs(net)} resolved over {wk_n} weeks"
     else:
-        title = f"Bug Inflow ≈ Outflow — {created_total} In / {resolved_total} Out Over {wk_n} Weeks"
+        subtitle = f"Inflow \u2248 outflow — {created_total} in / {resolved_total} out over {wk_n} weeks"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, title)
+    _eng_title(reqs, sid, "Bug Inflow vs. Outflow", subtitle)
 
     context = (
         f"LEAN bugs created vs. resolved per week (last {wk_n} weeks). Net = created − resolved; "
@@ -1786,28 +1892,31 @@ def eng_epic_progress_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
         detail = ep.get("error") or "Epic progress (LEAN active epics)"
         return _missing_data_slide(reqs, sid, report, idx, detail)
 
-    median_pct = ep.get("median_pct")
     total_remaining = int(ep.get("total_remaining") or 0)
-    jira_base = eng.get("base_url", "")
+    early_stage = int(ep.get("early_stage_count") or 0)
+    at_risk = int(ep.get("at_risk_count") or 0)
 
-    if median_pct is not None:
-        title = f"Initiative Progress — {len(epics)} Active Epics, {int(median_pct)}% Median Complete"
-    else:
-        title = f"Initiative Progress — {len(epics)} Active Epics"
+    subtitle = f"{len(epics)} in-flight epics, {total_remaining} issues remaining"
+    if at_risk:
+        subtitle += f", {at_risk} at risk"
+    elif early_stage:
+        subtitle += f", {early_stage} early-stage"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, title)
+    _eng_title(reqs, sid, "Initiative Progress", subtitle)
 
+    proj_scope = " + ".join(ep.get("projects") or ["LEAN", "CUSTOMER"])
     context = (
-        f"Largest in-flight LEAN epics by size · bar = % of child issues done · "
-        f"{total_remaining} child issues still open across these initiatives."
-        + ("" if ep.get("has_due_dates") else " (Epics have no due dates set in Jira, so target dates aren't shown.)")
+        f"In-flight initiatives across {proj_scope} (same scope as the scorecard), ranked by remaining "
+        "open work — near-done and oversized maintenance epics excluded · bar = % of child issues done · "
+        "updated/30d = child issues touched in the last 30 days (movement signal)."
+        + ("" if ep.get("has_due_dates") else " No due dates are set in Jira, so risk uses movement, not dates.")
     )
     _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 26, context)
     _style(reqs, f"{sid}_ctx", 0, len(context), size=9.5, color=NAVY, font=FONT)
 
-    top = BODY_Y + 30
+    top = BODY_Y + 32
     n = len(epics)
     row_h = min(44.0, max(30.0, (_ENG_CONTENT_BOTTOM - top) / n))
 
@@ -1821,11 +1930,14 @@ def eng_epic_progress_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
         key = str(epic.get("key") or "")
         summary = str(epic.get("summary") or "")
         status = str(epic.get("status") or "")
+        owner = str(epic.get("owner") or "")
+        project = str(epic.get("project") or "")
         pct = int(epic.get("pct") or 0)
         done = int(epic.get("done") or 0)
         total = int(epic.get("total") or 0)
+        active = int(epic.get("active_30d") or 0)
         overdue = bool(epic.get("overdue"))
-        stale = bool(epic.get("stale"))
+        stalled = bool(epic.get("stalled"))
 
         name_chars = max_chars_one_line_for_table_col(name_w, 10.5)
         name = _truncate_one_line(f"{key}  {summary}", name_chars)
@@ -1833,8 +1945,9 @@ def eng_epic_progress_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
         _style(reqs, f"{sid}_en{i}", 0, len(name), size=10.5, color=NAVY, font=FONT)
         _style(reqs, f"{sid}_en{i}", 0, len(key), bold=True, size=10.5, color=BLUE, font=FONT)
 
-        # Completion bar: light track + fill (green when near done, blue otherwise).
-        fill = GREEN if pct >= 80 else BLUE
+        # Completion bar: light track + fill. Amber when at risk, green near done, else blue.
+        risk = bool(overdue or stalled)
+        fill = AMBER if risk else (GREEN if pct >= 80 else BLUE)
         bar_w = max(3.0, pct / 100.0 * max_bar)
         _rect(reqs, f"{sid}_et{i}", sid, bar_x, y0 + 2, max_bar, 11, _EPIC_TRACK_FILL)
         _rect(reqs, f"{sid}_ef{i}", sid, bar_x, y0 + 2, bar_w, 11, fill)
@@ -1842,17 +1955,28 @@ def eng_epic_progress_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
         _box(reqs, f"{sid}_ep{i}", sid, bar_x + max_bar + 6, y0, pct_w, 16, pct_txt)
         _style(reqs, f"{sid}_ep{i}", 0, len(pct_txt), bold=True, size=9.5, color=NAVY, font=MONO)
 
-        # Status / risk line under the name.
-        flags = []
+        # Meta line under the name: project · owner · status · activity · risk flags.
+        parts: list[str] = []
+        if project:
+            parts.append(project)
+        if owner:
+            parts.append(owner.split()[0] if owner else owner)
+        if status:
+            parts.append(status)
+        parts.append(f"{active} updated/30d")
+        flags: list[str] = []
         if overdue:
             flags.append("overdue")
-        if stale:
-            flags.append("no recent update")
-        meta = status + (f" · {' · '.join(flags)}" if flags else "")
-        if meta:
-            _box(reqs, f"{sid}_es{i}", sid, MARGIN + 12, y0 + 16, name_w, 13, meta)
-            risk = bool(overdue or stale)
-            _style(reqs, f"{sid}_es{i}", 0, len(meta), size=8.5, color=(RED if risk else GRAY), font=FONT)
+        if stalled:
+            flags.append("stalled")
+        meta = " · ".join(parts) + (f"  ·  {' · '.join(flags)}" if flags else "")
+        _box(reqs, f"{sid}_es{i}", sid, MARGIN + 12, y0 + 16, name_w + max_bar, 13, meta)
+        _style(reqs, f"{sid}_es{i}", 0, len(meta), size=8.5, color=GRAY, font=FONT)
+        if project:
+            _style(reqs, f"{sid}_es{i}", 0, len(project), bold=True, size=8.5, color=NAVY, font=FONT)
+        if flags:
+            fstart = meta.index(flags[0])
+            _style(reqs, f"{sid}_es{i}", fstart, len(meta), bold=True, size=8.5, color=RED, font=FONT)
 
     _eng_takeaway_bar(reqs, sid, report, "epic_progress")
     return idx + 1
@@ -1880,12 +2004,12 @@ def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
         prior = [float(v) for v in sp_total[:-1] if v]
         baseline = (sum(prior) / len(prior)) if prior else None
         if baseline and latest >= baseline * 1.05:
-            title = f"Velocity Up — {latest:.0f} SP Last Sprint, Above {baseline:.0f} Recent Avg"
+            subtitle = f"Up — {latest:.0f} SP last sprint, above {baseline:.0f} recent avg"
         elif baseline and latest <= baseline * 0.95:
-            title = f"Velocity Down — {latest:.0f} SP Last Sprint, Below {baseline:.0f} Recent Avg"
+            subtitle = f"Down — {latest:.0f} SP last sprint, below {baseline:.0f} recent avg"
         else:
-            title = f"Sprint Velocity — {latest:.0f} SP Last Sprint (~{baseline:.0f} Avg)" if baseline \
-                else f"Sprint Velocity — {latest:.0f} SP Delivered Last Sprint"
+            subtitle = f"{latest:.0f} SP last sprint (~{baseline:.0f} avg)" if baseline \
+                else f"{latest:.0f} SP delivered last sprint"
         sp_team_names = ", ".join(velocity.get("teams") or []) or "scrum boards"
         zero_sp = velocity.get("zero_sp_teams") or []
         no_sp_note = (
@@ -1924,16 +2048,16 @@ def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
         )
         net = avg_closed - avg_created
         if net > 2:
-            title = f"Backlog Shrinking — {net:.0f} More Tickets Closed Than Created Per Week"
+            subtitle = f"Backlog shrinking — {net:.0f} more tickets closed than created per week"
         elif net < -2:
-            title = f"Backlog Growing — {abs(net):.0f} More Created Than Closed Per Week"
+            subtitle = f"Backlog growing — {abs(net):.0f} more created than closed per week"
         else:
-            title = f"Flow Balanced — Averaging {avg_closed:.0f} Tickets Closed Per Week"
+            subtitle = f"Flow balanced — averaging {avg_closed:.0f} tickets closed per week"
         context = f"Open: {in_flight}   ·   Closed this period: {closed_count}   ·   Last 12 weeks"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, title)
+    _eng_title(reqs, sid, "Velocity", subtitle)
 
     _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 24, context)
     _style(reqs, f"{sid}_bar", 0, len(context), size=9, color=GRAY, font=FONT)
@@ -2214,15 +2338,15 @@ def eng_support_pressure_slide(reqs: list[dict[str, Any]], sid: str, report: dic
     days = eng.get("days", 30)
 
     if total == 1:
-        title = "1 Escalation from Support"
+        subtitle = "1 escalation from support"
     elif total:
-        title = f"{total:,} Escalations from Support"
+        subtitle = f"{total:,} escalations from support"
     else:
-        title = "Support Pressure — No Ticket Data Available"
+        subtitle = "No ticket data available"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _slide_title(reqs, sid, title)
+    _eng_title(reqs, sid, "Support Pressure", subtitle)
 
     end_d = date.today()
     start_d = end_d - timedelta(days=days)

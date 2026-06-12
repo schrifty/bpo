@@ -1,0 +1,13 @@
+id: eng_toc
+type: standard
+order: 79
+title: Agenda
+slide_type: eng_toc
+data_tools: []
+customers: all
+
+prompt: >
+  Table of contents / agenda for the engineering portfolio deck. Lists the deck's
+  narrative sections in order (Executive Summary, Team & Org, Outcomes, Operational
+  Health, Quality, Backlog & Support, Appendix) with a one-line description of each.
+  Static content — no Jira data required.

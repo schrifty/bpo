@@ -8,9 +8,11 @@ customers: all
 
 prompt: >
   Initiative ("big rock") progress slide for the engineering portfolio deck. Shows
-  the largest in-flight LEAN epics by size, with a completion bar (done vs. total
-  child issues), the done/total counts and percent, epic status, and risk flags
-  (overdue when a due date exists, or no-recent-update staleness). Epics with no
-  remaining open work are excluded so catch-all/effectively-done epics do not crowd
-  out the active initiatives. Gives a VP line of sight from day-to-day activity to
-  whether the major initiatives are actually moving and where delivery risk sits.
+  the in-flight epics across the LEAN and CUSTOMER projects (the same scope as the
+  team scorecard and velocity slides), ranked by remaining open child work, with a
+  completion bar (done vs. total child issues), done/total and percent, project tag,
+  owner, status, a movement signal (child issues updated in the last 30 days), and
+  risk flags. Near-done epics, trivially-small remainders, and oversized maintenance
+  umbrellas are excluded so real initiatives surface. Without due dates in Jira, risk
+  is "stalled" = open work but no child activity in 30 days. Gives a VP line of sight
+  to whether the major initiatives are actually moving and where delivery risk sits.

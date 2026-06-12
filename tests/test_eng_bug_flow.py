@@ -54,11 +54,12 @@ def test_bug_flow_buckets_and_trend_growing() -> None:
 
 def test_bug_flow_trend_shrinking() -> None:
     # Created well before the 84-day window (so they don't count as inflow), all
-    # resolved this week -> pure outflow.
-    issues = [_bug(f"2026-01-0{i}", "2026-06-10") for i in range(1, 9)]
+    # resolved this week -> pure outflow well past the relative flat band.
+    issues = [_bug(f"2026-01-{i:02d}", "2026-06-10") for i in range(1, 16)]
     flow = build_eng_bug_flow(_FakeClient(issues), window_days=84, now=_NOW)
-    assert flow["resolved_total"] == 8
-    assert flow["net_total"] < -5
+    assert flow["resolved_total"] == 15
+    assert flow["created_total"] == 0
+    assert flow["net_total"] == -15
     assert flow["trend"] == "shrinking"
 
 

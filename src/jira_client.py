@@ -710,6 +710,14 @@ def summarize_status_flow(active_items: list[dict], *, now: "datetime | None" = 
     }
 
 
+# Backlog staleness thresholds. The LEAN "open" set is dominated by abandoned work
+# (~80% untouched in 30d, ~60% in 180d), which inflates WIP, stall, and queue numbers
+# across the deck. We separate genuinely-active work from the zombie tail so the slides
+# stay actionable and add an explicit hygiene number a VP can act on.
+ENG_ABANDONED_DAYS = 180   # no movement in this long → abandoned/zombie, not real WIP
+ENG_ACTIVE_WIP_DAYS = 30   # touched within this window → actively being worked
+
+
 def compute_eng_flow(
     in_flight: list[dict],
     closed: list[dict],
@@ -717,6 +725,7 @@ def compute_eng_flow(
     today: "date | None" = None,
     stage_age_by_key: "dict[str, float] | None" = None,
     flagged_keys: "set[str] | None" = None,
+    abandoned_days: int = ENG_ABANDONED_DAYS,
 ) -> dict[str, Any]:
     """Derive flow / bottleneck signals from in-flight and recently closed LEAN tickets.
 
@@ -744,13 +753,21 @@ def compute_eng_flow(
     active_ages = [a for a in (_age_days(t) for t in active) if a is not None]
     stale_gt5 = 0
     stale_gt10 = 0
+    stale_recent = 0          # genuinely stalled but still actionable (10d < stall ≤ abandoned_days)
+    abandoned_in_stage = 0    # parked in the same stage longer than abandoned_days (zombie WIP)
     carryover_count = 0
     carryover_points = 0.0
     blocked_count = 0
+    # Active stage ages for items that are NOT abandoned — used to report honest stage
+    # medians (the all-items median is dragged to years by zombies parked in-stage).
+    active_status_eff: dict[str, list[float]] = {}
     # "Needs attention" = active items that are flagged blocked, carried over across a
-    # sprint boundary (sprint_count ≥ 2), or stalled past the freshness threshold.
+    # sprint boundary (sprint_count ≥ 2), or stalled past the freshness threshold —
+    # but NOT items abandoned in-stage past ``abandoned_days`` (those are a hygiene
+    # problem, surfaced separately, and would otherwise drown the actionable list).
     # Stall uses changelog days-in-status when available, else the ``updated`` proxy.
     attention_rows: list[dict[str, Any]] = []
+    abandoned_rows: list[dict[str, Any]] = []
     for ticket in active:
         key = ticket.get("key", "")
         idle = _idle_days(ticket)
@@ -760,6 +777,7 @@ def compute_eng_flow(
         sprint_count = int(ticket.get("sprint_count") or len(ticket.get("sprints") or []))
         is_carryover = sprint_count >= 2
         is_flagged = key in flagged_set
+        is_abandoned = eff_stall is not None and eff_stall > abandoned_days
         sp = ticket.get("story_points")
         if is_flagged:
             blocked_count += 1
@@ -770,21 +788,30 @@ def compute_eng_flow(
             stale_gt5 += 1
         if eff_stall is not None and eff_stall > 10:
             stale_gt10 += 1
+        if eff_stall is not None and 10 < eff_stall <= abandoned_days:
+            stale_recent += 1
+        if eff_stall is not None and not is_abandoned:
+            active_status_eff.setdefault(ticket.get("status") or "—", []).append(float(eff_stall))
+        row = {
+            "key": key,
+            "summary": (ticket.get("summary") or "")[:90],
+            "status": ticket.get("status", ""),
+            "priority": ticket.get("priority", "") or "",
+            "assignee": ticket.get("assignee", "") or "Unassigned",
+            "story_points": sp,
+            "sprint_count": sprint_count,
+            "carryover": is_carryover,
+            "flagged": is_flagged,
+            "idle_days": idle,
+            "days_in_status": stage_age,
+            "age_days": _age_days(ticket),
+        }
+        if is_abandoned and not is_flagged:
+            abandoned_in_stage += 1
+            abandoned_rows.append(row)
+            continue
         if is_flagged or is_carryover or (eff_stall is not None and eff_stall > 5):
-            attention_rows.append({
-                "key": key,
-                "summary": (ticket.get("summary") or "")[:90],
-                "status": ticket.get("status", ""),
-                "priority": ticket.get("priority", "") or "",
-                "assignee": ticket.get("assignee", "") or "Unassigned",
-                "story_points": sp,
-                "sprint_count": sprint_count,
-                "carryover": is_carryover,
-                "flagged": is_flagged,
-                "idle_days": idle,
-                "days_in_status": stage_age,
-                "age_days": _age_days(ticket),
-            })
+            attention_rows.append(row)
 
     def _eff(row: dict) -> float:
         v = row.get("days_in_status")
@@ -804,6 +831,7 @@ def compute_eng_flow(
     # Backward-compatible alias: ``stale_items`` historically meant stalled>5 rows.
     stale_rows = [r for r in attention_rows if _eff(r) > 5]
     stale_rows.sort(key=lambda r: -_eff(r))
+    abandoned_rows.sort(key=lambda r: -_eff(r))
 
     # Cycle-time trend: median (resolved - created) of closed tickets bucketed by
     # the ISO week they closed in, oldest → newest (updated ≈ resolved for closed).
@@ -831,13 +859,20 @@ def compute_eng_flow(
         "in_review": sum(1 for t in active if (t.get("status") or "") == "In Review"),
         "stale_gt5": stale_gt5,
         "stale_gt10": stale_gt10,
+        "stale_recent": stale_recent,
+        "abandoned_in_stage": abandoned_in_stage,
+        "abandoned_days": abandoned_days,
         "carryover_count": carryover_count,
         "carryover_points": round(carryover_points, 1) if carryover_points else 0.0,
         "blocked_count": blocked_count,
         "median_active_age_days": _eng_median([float(a) for a in active_ages]),
         "oldest_active_age_days": max(active_ages) if active_ages else None,
+        "by_status_median_active": {
+            s: _eng_median(v) for s, v in active_status_eff.items() if v
+        },
         "stale_items": stale_rows[:6],
         "attention_items": attention_rows[:12],
+        "abandoned_items": abandoned_rows[:6],
         "cycle_trend": cycle_trend,
         "cycle_delta_days": cycle_delta,
     }
@@ -922,7 +957,7 @@ def _generate_eng_insights(eng: dict) -> dict[str, list[str]]:
     in_flight = eng.get("in_flight_count", 0)
     closed = eng.get("closed_count", 0)
     active = eng.get("by_status", {}).get("In Progress", 0)
-    themes = eng.get("themes") or []
+    themes = [t for t in (eng.get("themes") or []) if t.get("theme") != "Untagged"]
     top_theme = themes[0]["theme"] if themes else "unknown"
     by_type = eng.get("by_type") or {}
     bugs_if = by_type.get("Bug", 0)
@@ -1039,8 +1074,9 @@ def _generate_eng_takeaways(eng: dict) -> dict[str, str]:
     sp = eng.get("support_pressure") or {}
     bug_flow = eng.get("bug_flow") or {}
     epic_progress = eng.get("epic_progress") or {}
-    epic_top = ", ".join(
-        f"{r.get('key')} {r.get('pct')}%" for r in (epic_progress.get("epics") or [])[:3]
+    epic_top = "; ".join(
+        f"{r.get('key')} {r.get('pct')}% ({r.get('remaining')} left, {r.get('active_30d')} act/30d)"
+        for r in (epic_progress.get("epics") or [])[:3]
     ) or "none"
 
     sprint = eng.get("sprint") or {}
@@ -1051,7 +1087,7 @@ def _generate_eng_takeaways(eng: dict) -> dict[str, str]:
     active = int(by_status.get("In Progress", 0) or 0) + int(by_status.get("In Review", 0) or 0)
     by_type = eng.get("by_type") or {}
     bugs_if = by_type.get("Bug", 0)
-    themes = eng.get("themes") or []
+    themes = [t for t in (eng.get("themes") or []) if t.get("theme") != "Untagged"]
     top_themes = ", ".join(
         f"{t.get('theme')} ({t.get('total')})" for t in themes[:4] if t.get("theme")
     )
@@ -1066,11 +1102,14 @@ def _generate_eng_takeaways(eng: dict) -> dict[str, str]:
     by_assignee = eng.get("by_assignee") or {}
     wip_vals = sorted((int(v) for v in by_assignee.values()), reverse=True)
     total_wip = sum(wip_vals)
-    top3_share = int(round(sum(wip_vals[:3]) / total_wip * 100)) if total_wip else 0
-    engineers = sum(1 for v in wip_vals if v > 0)
+    active_vals = sorted((int(v) for v in (eng.get("by_assignee_active") or {}).values()), reverse=True)
+    total_active = sum(active_vals)
+    top3_share = int(round(sum(active_vals[:3]) / total_active * 100)) if total_active else 0
+    engineers = sum(1 for v in active_vals if v > 0)
+    staleness = eng.get("backlog_staleness") or {}
 
-    median_by_status = sflow.get("by_status_median") or {}
-    stage_str = ", ".join(f"{k} {v:.0f}d" for k, v in list(median_by_status.items())[:4])
+    median_by_status = flow.get("by_status_median_active") or sflow.get("by_status_median_days") or {}
+    stage_str = ", ".join(f"{k} {v:.0f}d" for k, v in list(median_by_status.items())[:4] if v is not None)
 
     try:
         from .eng_sprint_velocity import build_sprint_velocity_series
@@ -1097,13 +1136,16 @@ def _generate_eng_takeaways(eng: dict) -> dict[str, str]:
         ("current_sprint", (
             f"Sprint {sprint_name}: {in_flight} open items, {active} actively in progress/review, "
             f"{bugs_if} bugs in flight, {closed} closed this period. Top themes: {top_themes}. "
-            "Implication about focus and how much is truly moving vs sitting in backlog?"
+            f"{staleness.get('abandoned_open')} open items ({staleness.get('abandoned_pct')}%) untouched "
+            f">{staleness.get('abandoned_days')}d. "
+            "Implication about focus and how much is truly moving vs sitting in an abandoned backlog?"
         )),
         ("flow_bottlenecks", (
             f"Active WIP {flow.get('active_count')}, in review {flow.get('in_review')}, "
-            f"flagged blocked {flow.get('blocked_count')}, carried over 2+ sprints {flow.get('carryover_count')}, "
-            f"stalled >10 days in stage {flow.get('stale_gt10')}. Median time in stage: {stage_str}. "
-            "Implication about where flow is breaking and what to unblock first?"
+            f"recently stalled (10–{flow.get('abandoned_days')}d in stage) {flow.get('stale_recent')}, "
+            f"abandoned in stage >{flow.get('abandoned_days')}d {flow.get('abandoned_in_stage')} (zombie WIP). "
+            f"Stage medians on active (non-abandoned) items: {stage_str}. "
+            "Implication: separate the actionable recent stalls to unblock from the abandoned backlog to triage/close?"
         )),
         ("backlog_health", (
             f"Open LEAN queue {lean.get('open_count')} tickets, median age {lean.get('median_open_age_days')}d, "
@@ -1112,9 +1154,10 @@ def _generate_eng_takeaways(eng: dict) -> dict[str, str]:
             "Implication about queue hygiene and whether the backlog is being worked or just aging?"
         )),
         ("capacity", (
-            f"{total_wip} assigned in-flight items across {engineers} engineers; "
-            f"top 3 hold {top3_share}% of WIP. "
-            "Implication about load balance, key-person risk, or spare capacity?"
+            f"{total_active} actively-worked WIP items (touched ≤{staleness.get('active_days')}d) across {engineers} engineers; "
+            f"top 3 hold {top3_share}% of active WIP. Total assigned is {total_wip} but "
+            f"{staleness.get('abandoned_open')} of those are stale (>{staleness.get('abandoned_days')}d untouched). "
+            "Implication about real load balance and key-person risk — and stale-assignment cleanup?"
         )),
         ("work_split", (
             f"Reactive share of WIP {split.get('reactive_wip_pct')}%, reactive share of closed "
@@ -1133,9 +1176,10 @@ def _generate_eng_takeaways(eng: dict) -> dict[str, str]:
             "Implication: is the team out-pacing incoming bugs or falling behind — and what does the trend demand?"
         )),
         ("epic_progress", (
-            f"{epic_progress.get('epic_count')} active initiatives (epics), median {epic_progress.get('median_pct')}% complete, "
-            f"{epic_progress.get('total_remaining')} child issues still open. "
-            f"Largest: {epic_top}. "
+            f"{epic_progress.get('epic_count')} in-flight initiatives (epics) ranked by remaining work; "
+            f"{epic_progress.get('total_remaining')} child issues still open, "
+            f"{epic_progress.get('early_stage_count')} early-stage (<50%), {epic_progress.get('at_risk_count')} at risk "
+            f"(stalled = open work but no child activity in 30d). Top by remaining work: {epic_top}. "
             "Implication about whether the big rocks are actually moving and where delivery risk concentrates?"
         )),
         ("velocity", (
@@ -4717,7 +4761,7 @@ class JiraClient:
         # ── In-flight LEAN tickets (all open) ──
         _eng_fields = [
             "summary", "status", "issuetype", "priority", "assignee",
-            "labels", "created", "updated", "resolution", "description",
+            "labels", "created", "updated", "resolution", "description", "parent",
             SPRINT_FIELD, STORY_POINTS_FIELD,
         ]
         # ``/rest/api/3/search/jql`` caps each page at ~100 issues regardless of
@@ -4759,9 +4803,12 @@ class JiraClient:
             except (TypeError, ValueError):
                 story_points = None
             desc_raw = _extract_adf_text(f.get("description"))
+            parent = f.get("parent") or {}
+            parent_summary = (parent.get("fields") or {}).get("summary", "") if parent else ""
             return {
                 "key": issue["key"],
                 "summary": f.get("summary", ""),
+                "parent_summary": parent_summary,
                 "status": f.get("status", {}).get("name", ""),
                 "type": f.get("issuetype", {}).get("name", ""),
                 "priority": (f.get("priority") or {}).get("name", ""),
@@ -4779,16 +4826,26 @@ class JiraClient:
         in_flight = [_lean_norm(i) for i in in_flight_raw]
         closed = [_lean_norm(i) for i in closed_raw]
 
-        # ── Theme extraction from bracket-prefixed summaries ──
+        # ── Theme extraction: bracket-prefix → parent epic → untagged ──
+        # Only ~40% of in-flight summaries carry a [Theme] prefix, so a summary-only
+        # rule dumps the majority into "Other". Falling back to the parent epic name
+        # recovers a real area for most of the rest; what's left is genuinely untagged.
         _theme_re = re.compile(r"^\[([^\]]+)\]")
 
-        def _theme(summary: str) -> str:
-            m = _theme_re.match(summary)
-            return m.group(1) if m else "Other"
+        def _theme(t: dict) -> str:
+            m = _theme_re.match(t.get("summary") or "")
+            if m:
+                return m.group(1).strip()
+            parent = (t.get("parent_summary") or "").strip()
+            if parent:
+                parent = _theme_re.sub("", parent).strip()
+                if parent:
+                    return parent[:28]
+            return "Untagged"
 
         themes: dict[str, list[dict]] = {}
         for t in in_flight:
-            th = _theme(t["summary"])
+            th = _theme(t)
             themes.setdefault(th, []).append(t)
 
         theme_summary = [
@@ -4814,6 +4871,42 @@ class JiraClient:
             by_status[t["status"]] = by_status.get(t["status"], 0) + 1
             if t["assignee"]:
                 by_assignee[t["assignee"]] = by_assignee.get(t["assignee"], 0) + 1
+
+        # ── Backlog staleness: split active vs abandoned WIP by last-update age ──
+        # The "open" set is dominated by zombie tickets (untouched for months/years),
+        # which inflates per-engineer WIP and the queue headline numbers. Split it so
+        # the load/flow/sprint slides can show real WIP and an explicit hygiene number.
+        _today_eng = date.today()
+
+        def _eng_idle_days(t: dict) -> int | None:
+            d = _eng_parse_day(t.get("updated"))
+            return (_today_eng - d).days if d else None
+
+        by_assignee_active: dict[str, int] = {}
+        by_assignee_stale: dict[str, int] = {}
+        abandoned_open = 0
+        fresh_open = 0
+        for t in in_flight:
+            idle = _eng_idle_days(t)
+            if idle is None:
+                continue
+            nm = t.get("assignee") or ""
+            if idle <= ENG_ACTIVE_WIP_DAYS:
+                fresh_open += 1
+                if nm:
+                    by_assignee_active[nm] = by_assignee_active.get(nm, 0) + 1
+            if idle > ENG_ABANDONED_DAYS:
+                abandoned_open += 1
+                if nm:
+                    by_assignee_stale[nm] = by_assignee_stale.get(nm, 0) + 1
+        backlog_staleness = {
+            "open_total": len(in_flight),
+            "abandoned_days": ENG_ABANDONED_DAYS,
+            "active_days": ENG_ACTIVE_WIP_DAYS,
+            "abandoned_open": abandoned_open,
+            "abandoned_pct": round(100 * abandoned_open / len(in_flight)) if in_flight else 0,
+            "fresh_open": fresh_open,
+        }
 
         open_bugs = [t for t in in_flight if t["type"] == "Bug"]
         blocker_critical = [
@@ -5104,6 +5197,9 @@ class JiraClient:
             "by_type": dict(sorted(by_type.items(), key=lambda x: -x[1])),
             "by_status": dict(sorted(by_status.items(), key=lambda x: -x[1])),
             "by_assignee": dict(sorted(by_assignee.items(), key=lambda x: -x[1])),
+            "by_assignee_active": dict(sorted(by_assignee_active.items(), key=lambda x: -x[1])),
+            "by_assignee_stale": dict(sorted(by_assignee_stale.items(), key=lambda x: -x[1])),
+            "backlog_staleness": backlog_staleness,
             "themes": theme_summary,
             "open_bugs": open_bugs,
             "blocker_critical": blocker_critical,

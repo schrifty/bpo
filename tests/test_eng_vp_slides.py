@@ -8,6 +8,7 @@ from src.jira_client import compute_eng_flow, compute_eng_work_split
 from src.slide_engineering_portfolio import (
     eng_exec_summary_slide,
     eng_flow_bottlenecks_slide,
+    eng_toc_slide,
     eng_work_split_slide,
 )
 from src.slide_metadata import SLIDE_DATA_REQUIREMENTS
@@ -44,6 +45,23 @@ def test_compute_eng_flow_identifies_active_and_stalled() -> None:
     assert flow["cycle_delta_days"] is not None
 
 
+def test_compute_eng_flow_separates_abandoned_from_recent_stalls() -> None:
+    in_flight = [
+        {"key": "R1", "summary": "recent stall", "status": "In Progress", "type": "Story", "labels": [], "created": "2026-01-01", "updated": "2026-05-01"},
+        {"key": "Z1", "summary": "zombie", "status": "In Progress", "type": "Story", "labels": [], "created": "2020-01-01", "updated": "2020-02-01"},
+        {"key": "F1", "summary": "fresh", "status": "In Review", "type": "Story", "labels": [], "created": "2026-06-08", "updated": "2026-06-09"},
+    ]
+    stage = {"R1": 30.0, "Z1": 800.0, "F1": 2.0}
+    flow = compute_eng_flow(in_flight, [], today=_TODAY, stage_age_by_key=stage, abandoned_days=180)
+    assert flow["stale_recent"] == 1            # R1 only (10 < 30 <= 180)
+    assert flow["abandoned_in_stage"] == 1      # Z1 (800d in stage)
+    keys = [r["key"] for r in flow["attention_items"]]
+    assert "R1" in keys and "Z1" not in keys    # zombie excluded from actionable list
+    assert flow["abandoned_items"][0]["key"] == "Z1"
+    # Stage median computed only on non-abandoned items (excludes the 800d zombie).
+    assert flow["by_status_median_active"].get("In Progress") == 30.0
+
+
 def test_compute_eng_work_split_classifies_reactive() -> None:
     ws = compute_eng_work_split(_IN_FLIGHT, _CLOSED, escalated_to_eng=7)
     assert ws["wip"] == {"planned": 3, "unplanned": 2, "total": 5}
@@ -77,7 +95,13 @@ def _report() -> dict:
             "flow": {
                 "active_count": 4, "in_progress": 2, "in_review": 2,
                 "stale_gt5": 2, "stale_gt10": 1,
+                "stale_recent": 2, "abandoned_in_stage": 3, "abandoned_days": 180,
+                "by_status_median_active": {"In Progress": 6.0, "In Review": 12.0},
                 "median_active_age_days": 24.5, "oldest_active_age_days": 70,
+                "attention_items": [
+                    {"key": "L-C", "summary": "C", "status": "In Review", "assignee": "Bob", "idle_days": 21, "age_days": 70, "days_in_status": 21, "sprint_count": 1, "carryover": False, "flagged": False, "priority": "Major"},
+                    {"key": "L-B", "summary": "B", "status": "In Review", "assignee": "Alice", "idle_days": 9, "age_days": 40, "days_in_status": 9, "sprint_count": 1, "carryover": False, "flagged": False, "priority": "Major"},
+                ],
                 "stale_items": [
                     {"key": "L-C", "summary": "C", "status": "In Review", "assignee": "Bob", "idle_days": 21, "age_days": 70},
                     {"key": "L-B", "summary": "B", "status": "In Review", "assignee": "Alice", "idle_days": 9, "age_days": 40},
@@ -108,6 +132,17 @@ def _title(reqs: list, sid: str) -> str:
     )
 
 
+def _subtitle(reqs: list, sid: str) -> str:
+    return next(
+        (
+            r["insertText"]["text"]
+            for r in reqs
+            if isinstance(r, dict) and "insertText" in r and r["insertText"].get("objectId") == f"{sid}_sub"
+        ),
+        "",
+    )
+
+
 def _has_obj(reqs: list, oid: str) -> bool:
     return any(
         isinstance(r, dict) and "insertText" in r and r["insertText"].get("objectId") == oid
@@ -132,10 +167,11 @@ def _all_text(reqs: list) -> str:
 def test_exec_summary_flags_attention_and_renders_callouts() -> None:
     reqs: list = []
     eng_exec_summary_slide(reqs, "sid_es", _report(), 0)
-    title = _title(reqs, "sid_es")
-    # Blockers are the one critical (red) item; the rest are amber watch items. The title
-    # must reflect both counts, not just the reds, so it never undercounts the bullets.
-    assert "Critical" in title and "Watch" in title
+    assert _title(reqs, "sid_es") == "Executive Summary"
+    sub = _subtitle(reqs, "sid_es")
+    # Blockers are the one critical (red) item; the rest are amber watch items. The subtitle
+    # verdict must reflect both counts, not just the reds, so it never undercounts the bullets.
+    assert "critical" in sub and "watch" in sub
     assert _has_obj(reqs, "sid_es_kpi3_v")  # four headline KPI cards
     assert _has_obj(reqs, "sid_es_risk_b0")  # watch-list bullet
     assert _has_obj(reqs, "sid_es_act_b0")  # decisions-needed bullet
@@ -146,10 +182,28 @@ def test_exec_summary_flags_attention_and_renders_callouts() -> None:
     assert "delivery" not in body.lower()
 
 
+def test_exec_summary_feeds_initiative_risk() -> None:
+    report = _report()
+    report["eng_portfolio"]["epic_progress"] = {
+        "at_risk_count": 2,
+        "epics": [
+            {"key": "LEAN-100", "at_risk": True},
+            {"key": "LEAN-200", "at_risk": True},
+            {"key": "LEAN-300", "at_risk": False},
+        ],
+    }
+    reqs: list = []
+    eng_exec_summary_slide(reqs, "sid_ir", report, 0)
+    body = _all_text(reqs)
+    assert "2 initiatives stalled" in body
+    assert "LEAN-100" in body and "LEAN-200" in body
+
+
 def test_flow_slide_titles_bottleneck_and_lists_stalled() -> None:
     reqs: list = []
     eng_flow_bottlenecks_slide(reqs, "sid_fl", _report(), 0)
-    assert "Stalled" in _title(reqs, "sid_fl")
+    assert _title(reqs, "sid_fl") == "Flow & Bottlenecks"
+    assert "stalled" in _subtitle(reqs, "sid_fl")
     assert _has_obj(reqs, "sid_fl_kpi3_v")
     # Stalled-items table created with worst offender first.
     tables = [r["createTable"] for r in reqs if isinstance(r, dict) and "createTable" in r]
@@ -164,9 +218,22 @@ def test_flow_slide_titles_bottleneck_and_lists_stalled() -> None:
     assert first_cell == "L-C"
 
 
+def test_toc_slide_registered_and_renders_sections() -> None:
+    assert "eng_toc" in _SLIDE_BUILDERS
+    assert SLIDE_DATA_REQUIREMENTS["eng_toc"] == []
+    reqs: list = []
+    nxt = eng_toc_slide(reqs, "sid_toc", {}, 3)
+    assert nxt == 4
+    assert _title(reqs, "sid_toc") == "Agenda"
+    body = _all_text(reqs)
+    for section in ("Executive Summary", "Outcomes", "Operational Health", "Quality"):
+        assert section in body
+
+
 def test_work_split_titles_reactive_dominance() -> None:
     reqs: list = []
     eng_work_split_slide(reqs, "sid_ws", _report(), 0)
-    assert "Reactive Work Dominating" in _title(reqs, "sid_ws")
-    assert "50%" in _title(reqs, "sid_ws")
+    assert _title(reqs, "sid_ws") == "Planned vs. Unplanned"
+    assert "Reactive work dominating" in _subtitle(reqs, "sid_ws")
+    assert "50%" in _subtitle(reqs, "sid_ws")
     assert _has_obj(reqs, "sid_ws_kpi3_v")

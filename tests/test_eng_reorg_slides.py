@@ -57,12 +57,17 @@ def test_new_slides_registered() -> None:
 def test_current_sprint_renders_kpis_and_takeaway_title() -> None:
     reqs: list = []
     eng_current_sprint_slide(reqs, "sid_cs", _report(), 0)
-    title = next(
+    assert next(
         r["insertText"]["text"]
         for r in reqs
         if isinstance(r, dict) and "insertText" in r and r["insertText"].get("objectId") == "sid_cs_ttl"
+    ) == "Current Sprint"
+    subtitle = next(
+        r["insertText"]["text"]
+        for r in reqs
+        if isinstance(r, dict) and "insertText" in r and r["insertText"].get("objectId") == "sid_cs_sub"
     )
-    assert "Sprint 592" in title and "Bug" in title
+    assert "Sprint 592" in subtitle and "bug" in subtitle.lower()
     # Four KPI cards (value boxes _kpi0_v .. _kpi3_v).
     kpi_values = {
         r["insertText"]["objectId"]
@@ -75,12 +80,12 @@ def test_current_sprint_renders_kpis_and_takeaway_title() -> None:
 def test_backlog_health_title_flags_aging() -> None:
     reqs: list = []
     eng_backlog_health_slide(reqs, "sid_bh", _report(), 0)
-    title = next(
+    subtitle = next(
         r["insertText"]["text"]
         for r in reqs
-        if isinstance(r, dict) and "insertText" in r and r["insertText"].get("objectId") == "sid_bh_ttl"
+        if isinstance(r, dict) and "insertText" in r and r["insertText"].get("objectId") == "sid_bh_sub"
     )
-    assert "Over 90d" in title and "28" in title
+    assert "over 90d" in subtitle.lower() and "28" in subtitle
 
 
 def test_backlog_health_marks_capped_resolved() -> None:
@@ -106,7 +111,7 @@ def test_capacity_table_justifies_and_right_aligns() -> None:
 
     tables = [r["createTable"] for r in reqs if isinstance(r, dict) and "createTable" in r]
     assert len(tables) == 1
-    assert tables[0]["columns"] == 4
+    assert tables[0]["columns"] == 5
 
     widths = [
         req["updateTableColumnProperties"]["tableColumnProperties"]["columnWidth"]["magnitude"]

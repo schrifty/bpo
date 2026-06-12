@@ -3,6 +3,36 @@
 from __future__ import annotations
 
 from src.eng_team_roster import build_eng_team_roster
+from src.slide_engineering_portfolio import eng_team_roster_slide
+
+
+def test_roster_slide_does_not_repeat_lead_in_members() -> None:
+    report = {
+        "eng_portfolio": {
+            "team_roster": {
+                "total_engineers": 4,
+                "window_days": 90,
+                "teams": [
+                    {
+                        "team": "Supply Insights",
+                        "headcount": 4,
+                        "lead": "Kevin Cua",
+                        "members": ["Khubaib Khan", "David Henry", "Kevin Cua", "Muneeb Ahmed"],
+                    }
+                ],
+            }
+        }
+    }
+    reqs: list = []
+    eng_team_roster_slide(reqs, "sid_r", report, 0)
+    members_line = next(
+        r["insertText"]["text"]
+        for r in reqs
+        if isinstance(r, dict) and "insertText" in r and r["insertText"].get("objectId") == "sid_r_mm0"
+    )
+    assert members_line.startswith("Lead: Kevin Cua —")
+    # Name appears once (in the prefix), not again in the member list.
+    assert members_line.count("Kevin Cua") == 1
 
 
 def _issue(assignee: str | None, team: str | None, done: bool = False):
