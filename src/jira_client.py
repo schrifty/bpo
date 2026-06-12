@@ -1080,13 +1080,13 @@ def _generate_eng_takeaways(eng: dict) -> dict[str, str]:
 
     tasks = [
         ("team_scorecard", (
-            f"Last sprint the teams closed {scard.get('total_throughput')} issues total (throughput). "
-            f"The CUSTOMER/Data Integration boards run committed sprints and delivered "
-            f"{scard.get('weighted_delivery_pct')}% of commitment "
-            f"({scard.get('total_delivered')}/{scard.get('total_committed')} items, {scard.get('total_story_points_delivered')} SP). "
-            f"LEAN runs continuous flow (no fixed sprint commitment) and is shown by throughput per Agile team. "
-            f"Avg lead time: {scard.get('average_median_lead_days')}d. "
-            "Implication for predictability — distinguish the committed-sprint miss from LEAN flow; do not call LEAN a delivery miss."
+            f"Last sprint the engineering teams closed {scard.get('total_throughput')} issues total (throughput) "
+            f"at an average lead time of {scard.get('average_median_lead_days')}d (created to resolved). "
+            "Six LEAN squads run continuous flow with no fixed sprint commitment. The CUSTOMER 'Active Scrum' "
+            "board parks a large standing backlog inside each weekly sprint (~100 issues roll over week to week), "
+            "so its commit-vs-complete ratio is a sprint-hygiene artifact, not a true delivery rate. "
+            "Implication: compare teams on throughput and lead time; flag the CUSTOMER board's bloated in-sprint "
+            "scope as a backlog-hygiene issue to fix. Do NOT frame it as a delivery or predictability failure."
         )),
         ("current_sprint", (
             f"Sprint {sprint_name}: {in_flight} open items, {active} actively in progress/review, "

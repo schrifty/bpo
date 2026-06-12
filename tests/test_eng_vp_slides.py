@@ -59,7 +59,11 @@ def _report() -> dict:
         "eng_portfolio": {
             "days": 30,
             "sprint": {"name": "Sprint 592", "start": "2026-05-28", "end": "2026-06-10"},
-            "team_scorecard": {"summary": {"average_delivery_pct": 62}},
+            "team_scorecard": {"summary": {
+                "total_throughput": 89,
+                "total_committed": 130,
+                "total_delivered": 30,
+            }},
             "by_assignee": {"Alice": 9, "Bob": 7, "Carol": 5, "Dan": 1},
             "blocker_critical": [{"key": "LEAN-1"}, {"key": "LEAN-2"}],
             "project_snapshots": {
@@ -117,14 +121,29 @@ def test_new_vp_slides_registered() -> None:
         assert SLIDE_DATA_REQUIREMENTS[key] == ["eng_portfolio"]
 
 
+def _all_text(reqs: list) -> str:
+    return " ".join(
+        r["insertText"]["text"]
+        for r in reqs
+        if isinstance(r, dict) and "insertText" in r
+    )
+
+
 def test_exec_summary_flags_attention_and_renders_callouts() -> None:
     reqs: list = []
     eng_exec_summary_slide(reqs, "sid_es", _report(), 0)
-    # Two RED risks (low delivery + blockers) drive the "Need Attention" headline.
-    assert "Need Attention" in _title(reqs, "sid_es")
+    title = _title(reqs, "sid_es")
+    # Blockers are the one critical (red) item; the rest are amber watch items. The title
+    # must reflect both counts, not just the reds, so it never undercounts the bullets.
+    assert "Critical" in title and "Watch" in title
     assert _has_obj(reqs, "sid_es_kpi3_v")  # four headline KPI cards
     assert _has_obj(reqs, "sid_es_risk_b0")  # watch-list bullet
     assert _has_obj(reqs, "sid_es_act_b0")  # decisions-needed bullet
+    # Sprint backlog is framed as hygiene/carryover, not a delivery miss.
+    body = _all_text(reqs)
+    assert "unfinished issues" in body
+    assert "commitments slipping" not in body
+    assert "delivery" not in body.lower()
 
 
 def test_flow_slide_titles_bottleneck_and_lists_stalled() -> None:

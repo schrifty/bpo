@@ -166,28 +166,6 @@ def eng_portfolio_title_slide(reqs: list[dict[str, Any]], sid: str, report: dict
     return idx + 1
 
 
-def _format_scorecard_pct(value: Any) -> str:
-    if value is None:
-        return "—"
-    try:
-        return f"{float(value):.0f}%"
-    except (TypeError, ValueError):
-        return "—"
-
-
-def _format_scorecard_sp(delivered: Any, committed: Any) -> str:
-    if delivered is None and committed is None:
-        return "—"
-    try:
-        d = float(delivered or 0)
-        c = float(committed or 0)
-        if c <= 0 and d <= 0:
-            return "—"
-        return f"{d:.0f} / {c:.0f}"
-    except (TypeError, ValueError):
-        return "—"
-
-
 def _format_scorecard_days(value: Any) -> str:
     if value is None:
         return "—"
@@ -197,22 +175,12 @@ def _format_scorecard_days(value: Any) -> str:
         return "—"
 
 
-def _delivery_color(value: Any) -> dict[str, float]:
-    """Semantic color for a sprint-delivery %: green ≥ 85, amber 70–84, red < 70."""
-    try:
-        pct = float(value)
-    except (TypeError, ValueError):
-        return GRAY
-    if pct >= 85:
-        return GREEN
-    if pct >= 70:
-        return AMBER
-    return RED
-
-
 # Scorecard table geometry. Column widths sum to CONTENT_W so the table justifies
 # edge to edge; numeric columns are right-aligned for clean decimal/percent stacking.
-_SCORECARD_COL_WIDTHS: tuple[float, ...] = (160.0, 120.0, 84.0, 76.0, 104.0, 80.0)
+# Delivery %/Story-pts columns were dropped: neither board commitment is trustworthy
+# (LEAN punts incomplete work; the CUSTOMER board hoards a standing backlog in-sprint),
+# so the honest, cross-team-comparable columns are throughput (Closed) and lead time.
+_SCORECARD_COL_WIDTHS: tuple[float, ...] = (300.0, 150.0, 90.0, 84.0)
 _SCORECARD_BODY_PT = 10.0
 _SCORECARD_HEADER_PT = 9.0
 _SCORECARD_ROW_H = 24.0
@@ -228,22 +196,16 @@ def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
         return _missing_data_slide(reqs, sid, report, idx, detail)
 
     summary = scorecard.get("summary") or {}
-    # Delivery % comes from Jira's authoritative sprint report (completed vs committed
-    # at close) and only exists for boards that run committed sprints. LEAN runs
-    # continuous flow, so its honest metric is throughput (issues closed in the sprint).
-    weighted_delivery = summary.get("weighted_delivery_pct")
-    avg_delivery = weighted_delivery if weighted_delivery is not None else summary.get("average_delivery_pct")
-    total_committed = summary.get("total_committed")
-    total_delivered = summary.get("total_delivered")
+    # Throughput (issues closed in the sprint) and lead time are the honest,
+    # cross-team-comparable metrics. Delivery % was removed because no board's
+    # "commitment" is trustworthy: LEAN punts incomplete work (reads ~100%) and the
+    # CUSTOMER board parks a standing backlog in each sprint (reads ~23%).
     total_throughput = summary.get("total_throughput")
-    total_sp = summary.get("total_story_points_delivered")
     avg_lead = summary.get("average_median_lead_days")
 
     # Lead with throughput — the one delivery number that is meaningful org-wide.
     if total_throughput:
         title = f"Team Scorecard — {total_throughput} Issues Closed Last Sprint"
-    elif avg_delivery is not None:
-        title = f"Sprint Delivery — {avg_delivery:.0f}% Delivered vs Committed"
     else:
         title = "Development Team Scorecard"
 
@@ -251,12 +213,12 @@ def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     _bg(reqs, sid, WHITE)
     _slide_title(reqs, sid, title)
 
-    # Business context: define the two delivery measures so neither is misread.
+    # Business context: define throughput and lead time; note the two operating models.
     context = (
-        "Closed = issues resolved in the sprint (throughput). Delivery % = completed ÷ "
-        "committed from Jira's sprint report — only for boards that run committed sprints. "
-        "LEAN runs continuous flow (incomplete work rolls forward), so it shows throughput, "
-        "split by Agile Team."
+        "Closed = issues resolved in the latest sprint (throughput). Lead time = median "
+        "days from created to resolved. The six LEAN squads run continuous flow; the "
+        "CUSTOMER board runs weekly sprints. Sprint commit-vs-complete % is omitted — it "
+        "is not comparable across these models."
     )
     _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 28, context)
     _style(reqs, f"{sid}_ctx", 0, len(context), size=9.5, color=NAVY, font=FONT)
@@ -264,20 +226,15 @@ def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     # One-line portfolio rollup (replaces the old 3 KPI cards so every team row fits).
     summary_bits: list[str] = []
     if total_throughput:
-        summary_bits.append(f"{total_throughput} closed in sprint")
-    if avg_delivery is not None:
-        dc = f" ({total_delivered}/{total_committed})" if total_committed else ""
-        summary_bits.append(f"{float(avg_delivery):.0f}% delivered{dc} on committed boards")
-    if total_sp:
-        summary_bits.append(f"{float(total_sp):.0f} SP")
+        summary_bits.append(f"{total_throughput} closed last sprint")
     if avg_lead is not None:
         summary_bits.append(f"avg lead {_format_scorecard_days(avg_lead)}")
     # ── Native team table ────────────────────────────────────────────────────
     table_top = BODY_Y + 50
     col_widths = list(_SCORECARD_COL_WIDTHS)
-    headers = ["Team", "Latest sprint", "Delivery", "Closed", "Story pts", "Lead time"]
-    # Left-align text columns; right-align the four numeric columns.
-    aligns = ["START", "START", "END", "END", "END", "END"]
+    headers = ["Team", "Latest sprint", "Closed", "Lead time"]
+    # Left-align text columns; right-align the two numeric columns.
+    aligns = ["START", "START", "END", "END"]
 
     max_rows = max(1, int((_ENG_CONTENT_BOTTOM - table_top) // _SCORECARD_ROW_H) - 1)
     display_teams = teams[:max_rows]
@@ -328,11 +285,6 @@ def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
         team_name = _truncate_one_line(str(team.get("team") or ""), team_chars)
         sprint_name = _format_sprint_name_for_display(str(team.get("sprint_name") or ""))
         sprint_name = _truncate_one_line(sprint_name, sprint_chars)
-        delivery = _format_scorecard_pct(team.get("delivery_pct"))
-        story_pts = _format_scorecard_sp(
-            team.get("story_points_delivered"),
-            team.get("story_points_committed"),
-        )
         cycle = _format_scorecard_days(team.get("median_lead_days"))
         throughput = team.get("throughput")
         if throughput is None:
@@ -342,9 +294,7 @@ def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
         row_cells = [
             (team_name, NAVY, FONT, True),
             (sprint_name, GRAY, FONT, False),
-            (delivery, _delivery_color(team.get("delivery_pct")), MONO, True),
             (closed_text, NAVY, MONO, True),
-            (story_pts, NAVY, MONO, False),
             (cycle, NAVY, MONO, False),
         ]
         for col_index, (text, color, font, bold) in enumerate(row_cells):
@@ -723,6 +673,10 @@ def eng_current_sprint_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
     _style(reqs, f"{sid}_ctx", 0, len(context), size=11, color=NAVY, font=FONT)
 
+    legend = "Per theme: open items · active (in progress/review) · bugs (B, shown in red)."
+    _box(reqs, f"{sid}_lgd", sid, MARGIN, BODY_Y + 13, CONTENT_W, 12, legend)
+    _style(reqs, f"{sid}_lgd", 0, len(legend), size=8.5, color=GRAY, font=FONT)
+
     card_y = BODY_Y + 24
     cards_y = _eng_kpi_row(
         reqs, sid,
@@ -759,21 +713,27 @@ def eng_current_sprint_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
             _box(reqs, f"{sid}_tl{ri}", sid, MARGIN, y, label_w, 18, name)
             _style(reqs, f"{sid}_tl{ri}", 0, len(name), size=10, color=NAVY, font=FONT)
             bar_w = max(4, int(total_n / max_total * bar_max))
-            bar_color = {"red": 0.9, "green": 0.4, "blue": 0.0} if bugs_n else BLUE
+            # Bar length encodes total volume; bug load is shown by the red bug count,
+            # so keep every bar the same neutral blue (a red bar over-signals one bug).
             _box(reqs, f"{sid}_tb{ri}", sid, bar_x, y + 4, bar_w, 9, "")
             reqs.append({
                 "updateShapeProperties": {
                     "objectId": f"{sid}_tb{ri}",
                     "shapeProperties": {
-                        "shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": bar_color}}},
+                        "shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": BLUE}}},
                         "outline": {"outlineFill": {"solidFill": {"color": {"rgbColor": NAVY}}}, "weight": {"magnitude": 0.75, "unit": "PT"}},
                     },
                     "fields": "shapeBackgroundFill,outline.outlineFill,outline.weight",
                 }
             })
-            counts = f"{total_n}" + (f" · {active_n} act" if active_n else "") + (f" · {bugs_n}B" if bugs_n else "")
+            # Color only the bug segment red so "red" unambiguously means bugs.
+            base = f"{total_n}" + (f" · {active_n} act" if active_n else "")
+            bug_seg = f" · {bugs_n}B" if bugs_n else ""
+            counts = base + bug_seg
             _box(reqs, f"{sid}_tc{ri}", sid, bar_x + bar_w + 6, y, count_w + 40, 18, counts)
-            _style(reqs, f"{sid}_tc{ri}", 0, len(counts), size=9, color=RED if bugs_n else GRAY, font=FONT)
+            _style(reqs, f"{sid}_tc{ri}", 0, len(counts), size=9, color=GRAY, font=FONT)
+            if bug_seg:
+                _style(reqs, f"{sid}_tc{ri}", len(base), len(counts), bold=True, size=9, color=RED, font=FONT)
             y += 22
     else:
         msg = "No themed work in flight (LEAN summaries need a [Theme] prefix)."
@@ -1020,8 +980,6 @@ def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
     sprint_name = _format_sprint_name_for_display(str(sprint.get("name", "") or "Current Sprint"))
 
     summary = (eng.get("team_scorecard") or {}).get("summary") or {}
-    _weighted_delivery = summary.get("weighted_delivery_pct")
-    avg_delivery = _weighted_delivery if _weighted_delivery is not None else summary.get("average_delivery_pct")
     sprint_throughput = summary.get("total_throughput")
     lean = (eng.get("project_snapshots") or {}).get("LEAN") or {}
     open_esc = int(lean.get("open_count") or 0)
@@ -1043,9 +1001,16 @@ def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
 
     series = build_sprint_velocity_series(eng.get("sprint_velocity"))
     sp_total = series.get("sp_total") or []
-    vel_now = sp_total[-1] if sp_total else None
-    vel_prev = sp_total[-2] if len(sp_total) >= 2 else None
-    vel_delta = (vel_now - vel_prev) if (vel_now is not None and vel_prev is not None) else None
+    vel_now = float(sp_total[-1]) if sp_total else None
+    # Trend vs a multi-sprint baseline (not just the prior sprint), with the same ±5%
+    # band the velocity slide uses — otherwise a one-sprint bounce off a low point reads
+    # as "up" here while the velocity slide says "down".
+    _vel_prior = [float(v) for v in sp_total[:-1] if v]
+    vel_baseline = (sum(_vel_prior) / len(_vel_prior)) if _vel_prior else None
+    vel_delta = None
+    if vel_now is not None and vel_baseline:
+        if vel_now >= vel_baseline * 1.05 or vel_now <= vel_baseline * 0.95:
+            vel_delta = vel_now - vel_baseline
     vel_arrow, _ = _trend_arrow(vel_delta)
 
     # Capacity concentration (key-person risk).
@@ -1063,9 +1028,19 @@ def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
     if blocked:
         risks.append((f"{blocked} active item{'s' if blocked != 1 else ''} flagged blocked in Jira", RED))
         actions.append((f"Clear the {blocked} flagged blocker{'s' if blocked != 1 else ''} or escalate ownership", RED))
-    if avg_delivery is not None and float(avg_delivery) < 70:
-        risks.append((f"Committed-sprint delivery at {float(avg_delivery):.0f}% (CUSTOMER/Data Integration) — commitments slipping", RED))
-        actions.append(("Right-size CUSTOMER/Data Integration sprint commitments to restore predictability", RED))
+    # Sprint hygiene, NOT a delivery miss: the CUSTOMER/Data Integration boards park a
+    # large standing backlog inside each weekly sprint, so most of it carries over. This
+    # is a scoping problem to fix, not "commitments slipping" (see Team Scorecard).
+    _committed = summary.get("total_committed")
+    _delivered = summary.get("total_delivered")
+    carryover = (
+        int(_committed) - int(_delivered)
+        if _committed is not None and _delivered is not None
+        else None
+    )
+    if carryover is not None and carryover >= 25:
+        risks.append((f"CUSTOMER/Data Integration sprints carry ~{carryover} unfinished issues week to week — sprint scope inflated", AMBER))
+        actions.append((f"Trim CUSTOMER/Data Integration sprint scope to a realistic weekly commitment (clear the ~{carryover}-issue standing backlog)", AMBER))
     if over_90:
         oldest_txt = f", oldest {float(oldest):.0f}d" if oldest is not None else ""
         risks.append((f"{over_90} escalation{'s' if over_90 != 1 else ''} open >90 days{oldest_txt}", AMBER))
@@ -1088,11 +1063,17 @@ def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
     if not actions:
         actions.append(("Maintain current cadence; no urgent interventions needed", GREEN))
 
+    # Title counts must match the visible bullets: distinguish critical (red) from watch
+    # (amber) so the headline never reads "2 items" over a list of five.
     red_count = sum(1 for _, c in risks if c is RED)
-    if red_count:
-        title = f"Engineering Review — {red_count} Item{'s' if red_count != 1 else ''} Need Attention"
-    elif any(c is AMBER for _, c in risks):
-        title = "Engineering Review — Watch Items, No Blockers"
+    amber_count = sum(1 for _, c in risks if c is AMBER)
+    if red_count and amber_count:
+        title = f"Engineering Review — {red_count} Critical, {amber_count} to Watch"
+    elif red_count:
+        verb = "Needs" if red_count == 1 else "Need"
+        title = f"Engineering Review — {red_count} Critical Item{'' if red_count == 1 else 's'} {verb} Attention"
+    elif amber_count:
+        title = f"Engineering Review — {amber_count} Watch Item{'' if amber_count == 1 else 's'}, No Blockers"
     else:
         title = "Engineering Review — On Track"
 

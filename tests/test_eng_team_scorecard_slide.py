@@ -14,32 +14,23 @@ def test_eng_team_scorecard_slide_renders_table() -> None:
             "team_scorecard": {
                 "window_days": 30,
                 "summary": {
-                    "average_delivery_pct": 88.0,
-                    "total_story_points_delivered": 24.0,
-                    "average_median_cycle_days": 5.2,
+                    "total_throughput": 15,
+                    "average_median_lead_days": 5.2,
                 },
                 "teams": [
                     {
-                        "team": "LEAN Engineering",
+                        "team": "Supply Insights",
                         "board_id": 44,
                         "sprint_name": "Sprint 590",
-                        "delivery_pct": 90.0,
-                        "story_points_delivered": 12.0,
-                        "story_points_committed": 20.0,
-                        "median_cycle_days": 4.5,
-                        "delivered": 9,
-                        "committed": 10,
+                        "median_lead_days": 4.5,
+                        "throughput": 9,
                     },
                     {
                         "team": "Data Integration",
                         "board_id": 46,
                         "sprint_name": "Sprint 12",
-                        "delivery_pct": 86.0,
-                        "story_points_delivered": 12.0,
-                        "story_points_committed": 14.0,
-                        "median_cycle_days": 5.8,
-                        "delivered": 6,
-                        "committed": 7,
+                        "median_lead_days": 5.8,
+                        "throughput": 6,
                     },
                 ],
             },
@@ -51,7 +42,7 @@ def test_eng_team_scorecard_slide_renders_table() -> None:
     assert len(create_tables) == 1, "scorecard should render exactly one native table"
     table = create_tables[0]
     assert table["rows"] == 3, "header row + two team rows"
-    assert table["columns"] == 6
+    assert table["columns"] == 4, "Team, Latest sprint, Closed, Lead time"
 
     # Column widths must justify the table to the full content width (no left-shifted gap).
     widths = [
@@ -59,10 +50,10 @@ def test_eng_team_scorecard_slide_renders_table() -> None:
         for req in reqs
         if isinstance(req, dict) and "updateTableColumnProperties" in req
     ]
-    assert len(widths) == 6
+    assert len(widths) == 4
     assert abs(sum(widths) - CONTENT_W) < 1.0, "table should span CONTENT_W edge to edge"
 
-    # Numeric columns (Delivery/Story pts/Cycle/Done) right-aligned; text columns left.
+    # Text columns (Team, Latest sprint) left; numeric columns (Closed, Lead time) right.
     alignments = {
         (
             req["updateParagraphStyle"]["cellLocation"]["rowIndex"],
@@ -75,7 +66,7 @@ def test_eng_team_scorecard_slide_renders_table() -> None:
     }
     assert alignments[(1, 0)] == "START"
     assert alignments[(1, 2)] == "END"
-    assert alignments[(1, 5)] == "END"
+    assert alignments[(1, 3)] == "END"
 
 
 def test_eng_team_scorecard_slide_missing_data() -> None:
