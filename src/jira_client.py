@@ -1046,7 +1046,10 @@ def _generate_eng_takeaways(eng: dict) -> dict[str, str]:
                         "engineering-review slide for a VP of Engineering. Rules:\n"
                         "- Output EXACTLY one sentence, 12-26 words, plain text only\n"
                         "- State the implication or the decision it forces, not a restatement of the numbers\n"
-                        "- You may cite one key number for weight, but lead with the meaning\n"
+                        "- Cite one concrete number for weight, and name a specific, actionable next step "
+                        "(who/what to do), not a vague gesture\n"
+                        "- BANNED vague filler: 'strategic review', 'root causes', 'investigate', 'demands attention', "
+                        "'requires immediate action', 'closely monitor', 'reassess' — say the concrete action instead\n"
                         "- No markdown, no leading bullet/dash, no label, no preamble\n"
                         "- Tone: direct, analytical, board-room; never salesy or hedging"
                     )},
@@ -1074,9 +1077,15 @@ def _generate_eng_takeaways(eng: dict) -> dict[str, str]:
     sp = eng.get("support_pressure") or {}
     bug_flow = eng.get("bug_flow") or {}
     epic_progress = eng.get("epic_progress") or {}
+
+    def _epic_line(r: dict) -> str:
+        base = f"{r.get('key')} {r.get('pct')}% complete with {r.get('remaining')} issues remaining"
+        if r.get("stalled"):
+            return base + " (STALLED, no activity 30d)"
+        return base + f", {r.get('active_30d')} updated/30d"
+
     epic_top = "; ".join(
-        f"{r.get('key')} {r.get('pct')}% ({r.get('remaining')} left, {r.get('active_30d')} act/30d)"
-        for r in (epic_progress.get("epics") or [])[:3]
+        _epic_line(r) for r in (epic_progress.get("epics") or [])[:3]
     ) or "none"
 
     sprint = eng.get("sprint") or {}
@@ -1106,6 +1115,7 @@ def _generate_eng_takeaways(eng: dict) -> dict[str, str]:
     total_active = sum(active_vals)
     top3_share = int(round(sum(active_vals[:3]) / total_active * 100)) if total_active else 0
     engineers = sum(1 for v in active_vals if v > 0)
+    assigned_stale = sum(int(v) for v in (eng.get("by_assignee_stale") or {}).values())
     staleness = eng.get("backlog_staleness") or {}
 
     median_by_status = flow.get("by_status_median_active") or sflow.get("by_status_median_days") or {}
@@ -1155,8 +1165,8 @@ def _generate_eng_takeaways(eng: dict) -> dict[str, str]:
         )),
         ("capacity", (
             f"{total_active} actively-worked WIP items (touched ≤{staleness.get('active_days')}d) across {engineers} engineers; "
-            f"top 3 hold {top3_share}% of active WIP. Total assigned is {total_wip} but "
-            f"{staleness.get('abandoned_open')} of those are stale (>{staleness.get('abandoned_days')}d untouched). "
+            f"top 3 hold {top3_share}% of active WIP. Of {total_wip} total assigned open items, "
+            f"{assigned_stale} are stale (assigned but untouched >{staleness.get('abandoned_days')}d). "
             "Implication about real load balance and key-person risk — and stale-assignment cleanup?"
         )),
         ("work_split", (
@@ -1176,11 +1186,14 @@ def _generate_eng_takeaways(eng: dict) -> dict[str, str]:
             "Implication: is the team out-pacing incoming bugs or falling behind — and what does the trend demand?"
         )),
         ("epic_progress", (
-            f"{epic_progress.get('epic_count')} in-flight initiatives (epics) ranked by remaining work; "
-            f"{epic_progress.get('total_remaining')} child issues still open, "
-            f"{epic_progress.get('early_stage_count')} early-stage (<50%), {epic_progress.get('at_risk_count')} at risk "
+            f"{epic_progress.get('epic_count')} in-flight initiatives (epics) ranked by remaining work. "
+            "Percentages are % of child issues COMPLETE (so a high % means nearly done, NOT a lot left); "
+            "'remaining' is the count of open child issues. "
+            f"{epic_progress.get('total_remaining')} child issues still open across all epics, "
+            f"{epic_progress.get('early_stage_count')} early-stage (<50% complete), {epic_progress.get('at_risk_count')} at risk "
             f"(stalled = open work but no child activity in 30d). Top by remaining work: {epic_top}. "
-            "Implication about whether the big rocks are actually moving and where delivery risk concentrates?"
+            "Implication about whether the big rocks are actually moving and where delivery risk concentrates? "
+            "Do not confuse % complete with % remaining."
         )),
         ("velocity", (
             f"Story points delivered per recent sprint (oldest to newest): {sp_total}. "

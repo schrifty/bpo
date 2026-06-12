@@ -218,7 +218,7 @@ def eng_portfolio_title_slide(reqs: list[dict[str, Any]], sid: str, report: dict
         _box(reqs, f"{sid}_sp", sid, MARGIN, 160, CONTENT_W, 24, sub)
         _style(reqs, f"{sid}_sp", 0, len(sub), size=14, color={"red": 0.6, "green": 0.8, "blue": 1.0}, font=FONT)
 
-    generated = date.today().strftime("%B %-d, %Y")
+    generated = datetime.now().strftime("%B %-d, %Y at %-I:%M %p")
     gen_text = f"Generated {generated}"
     _box(reqs, f"{sid}_g", sid, MARGIN, SLIDE_H - 60, CONTENT_W, 18, gen_text)
     _style(reqs, f"{sid}_g", 0, len(gen_text), size=10, color={"red": 0.5, "green": 0.6, "blue": 0.7}, font=FONT)
@@ -396,10 +396,16 @@ def eng_team_roster_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str
     _bg(reqs, sid, WHITE)
     _eng_title(reqs, sid, "Engineering Teams", subtitle)
 
-    context = (
-        f"Each engineer is shown on the team where they did most of their work over the last "
-        f"{window_days} days · bar length = team headcount · bold name = team lead (where known)."
-    )
+    if roster.get("source") == "atlassian_teams":
+        context = (
+            "Membership and headcount from Atlassian Teams (the Dev squads) · bar length = team "
+            "headcount · bold name = team lead · an engineer may belong to more than one squad."
+        )
+    else:
+        context = (
+            f"Each engineer is shown on the team where they did most of their work over the last "
+            f"{window_days} days · bar length = team headcount · bold name = team lead (where known)."
+        )
     _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
     _style(reqs, f"{sid}_ctx", 0, len(context), size=9.5, color=GRAY, font=FONT)
 
@@ -743,7 +749,7 @@ def eng_current_sprint_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     cards_y = _eng_kpi_row(
         reqs, sid,
         [
-            ("Open in sprint", str(in_flight)),
+            ("Open (LEAN total)", str(in_flight)),
             ("Active (in progress/review)", str(active)),
             ("Bugs in flight", str(bugs)),
             ("Closed this period", str(closed)),
@@ -866,7 +872,7 @@ def eng_backlog_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     cards_y = _eng_kpi_row(
         reqs, sid,
         [
-            ("Open tickets", str(open_count)),
+            ("Open escalations", str(open_count)),
             ("Median open age", _fmt_days(median_age)),
             ("Avg resolve cycle", _fmt_days(avg_cycle)),
             ("Resolved (6 mo)", resolved_label),
@@ -945,7 +951,13 @@ def eng_capacity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
 
     total_active = sum(r["active"] for r in rows)
     total_wip = sum(r["wip"] for r in rows)
-    total_stale = int(staleness.get("abandoned_open") or sum(r["stale"] for r in rows))
+    # Keep every number on this slide assigned-scoped (it is a per-engineer view), so
+    # stale is a subset of assigned WIP — never larger than it. The all-open stale count
+    # (which also includes unassigned items) lives in the Current Sprint backlog-hygiene
+    # callout, with the matching open-backlog denominator.
+    total_stale = sum(r["stale"] for r in rows)
+    all_open_stale = int(staleness.get("abandoned_open") or 0)
+    unassigned_stale = max(0, all_open_stale - total_stale)
     top3_active = sum(r["active"] for r in rows[:3])
     top3_share = int(round(top3_active / total_active * 100)) if total_active else 0
     engineers_active = sum(1 for r in rows if r["active"] > 0)
@@ -961,10 +973,15 @@ def eng_capacity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
     _bg(reqs, sid, WHITE)
     _eng_title(reqs, sid, "Engineering Load", subtitle)
 
+    unassigned_note = (
+        f" {unassigned_stale} more stale items are unassigned (in the backlog-hygiene total)."
+        if unassigned_stale else ""
+    )
     context = (
-        f"LEAN board WIP per engineer. Active = touched in the last {active_days}d (real load); "
-        f"Total = all assigned open items, many of which are stale (>{abandoned_days}d untouched). "
-        "High Total with near-zero Active and 0 resolved = stale assignment, not load."
+        f"LEAN board WIP per assignee. Active = touched in the last {active_days}d (real load); "
+        f"Total = all assigned open items; Stale = assigned but untouched >{abandoned_days}d "
+        f"(a subset of Total).{unassigned_note} High Total with near-zero Active and 0 resolved = "
+        "stale assignment, not load."
     )
     _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 26, context)
     _style(reqs, f"{sid}_ctx", 0, len(context), size=9.5, color=NAVY, font=FONT)
@@ -1199,7 +1216,7 @@ def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
     cards_y = _eng_kpi_row(
         reqs, sid,
         [
-            ("Closed last sprint (all teams)", "—" if sprint_throughput is None else str(int(sprint_throughput))),
+            ("Closed (all teams)", "—" if sprint_throughput is None else str(int(sprint_throughput))),
             ("Velocity (CUSTOMER SP)", vel_value),
             ("Open escalations", str(open_esc)),
             ("Reactive load", f"{reactive_wip_pct}%"),
@@ -2089,8 +2106,9 @@ def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
         )
 
     right_y = body_top
-    _box(reqs, f"{sid}_sbh", sid, right_x, right_y, right_w, 14, "Pipeline Status")
-    _style(reqs, f"{sid}_sbh", 0, len("Pipeline Status"), bold=True, size=10, color=NAVY, font=FONT)
+    _pipeline_hdr = "LEAN pipeline (by status)"
+    _box(reqs, f"{sid}_sbh", sid, right_x, right_y, right_w, 14, _pipeline_hdr)
+    _style(reqs, f"{sid}_sbh", 0, len(_pipeline_hdr), bold=True, size=10, color=NAVY, font=FONT)
     right_y += 16
     total_in_flight = sum(by_status.values()) or 1
     max_status = max(by_status.values()) if by_status else 1

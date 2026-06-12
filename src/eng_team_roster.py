@@ -99,12 +99,18 @@ def _roster_from_atlassian_teams(
         raw_display = name[len(_DEV_TEAM_PREFIX):].strip() or name
         display = _TEAM_DISPLAY_ALIASES.get(raw_display, raw_display)
         members = [str(m) for m in (team.get("members") or [])]
+        lead = leads.get(display, "") or leads.get(raw_display, "") or leads.get(name, "")
+        # A team's lead should sit on their own team. If the configured lead is not in the
+        # Atlassian membership (config/membership drift), add them so the roster never shows
+        # someone leading a team they are not listed on.
+        if lead and not any(m.strip().casefold() == lead.casefold() for m in members):
+            members.append(lead)
         unique_members.update(members)
         rows.append({
             "team": display,
-            "headcount": int(team.get("member_count") or len(members)),
+            "headcount": len(members),
             "members": members,
-            "lead": leads.get(display, "") or leads.get(raw_display, "") or leads.get(name, ""),
+            "lead": lead,
         })
     rows.sort(key=lambda r: -r["headcount"])
     return {

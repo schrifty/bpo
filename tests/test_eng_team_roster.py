@@ -97,9 +97,10 @@ def test_roster_applies_configured_lead(monkeypatch) -> None:
 
 
 def test_roster_prefers_atlassian_dev_teams(monkeypatch) -> None:
+    # Leads are existing members so the unique-engineer count is unaffected.
     monkeypatch.setattr(
         "src.eng_team_roster._load_team_leads",
-        lambda: {"Supply Insights": "Grace Hopper", "Inventory Optimization": "Ada"},
+        lambda: {"Supply Insights": "Alice", "Inventory Optimization": "Bob"},
     )
 
     class _TeamsClient:
@@ -122,10 +123,35 @@ def test_roster_prefers_atlassian_dev_teams(monkeypatch) -> None:
     assert roster["source"] == "atlassian_teams"
     by_team = {t["team"]: t for t in roster["teams"]}
     assert set(by_team) == {"Supply Insights", "Inventory Optimization"}  # "Dev - IOP" aliased
-    assert by_team["Supply Insights"]["lead"] == "Grace Hopper"
-    assert by_team["Inventory Optimization"]["lead"] == "Ada"
+    assert by_team["Supply Insights"]["lead"] == "Alice"
+    assert by_team["Inventory Optimization"]["lead"] == "Bob"
     # Unique members across teams (Bob counted once).
     assert roster["total_engineers"] == 2
+
+
+def test_roster_adds_configured_lead_missing_from_membership(monkeypatch) -> None:
+    # A configured lead not present in Atlassian membership is added to their own team
+    # so the roster never shows someone leading a team they aren't listed on.
+    monkeypatch.setattr(
+        "src.eng_team_roster._load_team_leads",
+        lambda: {"Supply Insights": "Grace Hopper"},
+    )
+
+    class _TeamsClient:
+        atlassian_org_id = "org-1"
+
+        def get_atlassian_teams(self, timeout=60.0):
+            return {
+                "error": None,
+                "teams": [
+                    {"name": "Dev - Supply Insights", "member_count": 2, "members": ["Alice", "Bob"]},
+                ],
+            }
+
+    roster = build_eng_team_roster(_TeamsClient())
+    team = roster["teams"][0]
+    assert "Grace Hopper" in team["members"]
+    assert team["headcount"] == 3
 
 
 def test_roster_falls_back_when_no_dev_teams(monkeypatch) -> None:
