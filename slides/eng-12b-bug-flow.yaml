@@ -1,0 +1,15 @@
+id: eng_bug_flow
+type: standard
+order: 87
+title: Bug Inflow vs. Outflow
+slide_type: eng_bug_flow
+data_tools: []
+customers: all
+
+prompt: >
+  Bug inflow-vs-outflow slide for the engineering portfolio deck. Plots LEAN bugs
+  created vs. resolved per week over the trailing ~12 weeks as a combo chart (created
+  and resolved bars plus a net created-minus-resolved line), with KPI cards for open
+  bugs now, created and resolved totals, and net change. Answers whether the bug
+  backlog is growing or shrinking over time rather than reporting a single static
+  open-bug count.

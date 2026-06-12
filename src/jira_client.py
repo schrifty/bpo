@@ -1037,6 +1037,11 @@ def _generate_eng_takeaways(eng: dict) -> dict[str, str]:
     lean = (eng.get("project_snapshots") or {}).get("LEAN") or {}
     split = eng.get("work_split") or {}
     sp = eng.get("support_pressure") or {}
+    bug_flow = eng.get("bug_flow") or {}
+    epic_progress = eng.get("epic_progress") or {}
+    epic_top = ", ".join(
+        f"{r.get('key')} {r.get('pct')}%" for r in (epic_progress.get("epics") or [])[:3]
+    ) or "none"
 
     sprint = eng.get("sprint") or {}
     sprint_name = sprint.get("name", "current sprint")
@@ -1120,6 +1125,18 @@ def _generate_eng_takeaways(eng: dict) -> dict[str, str]:
             f"Open bugs {len(open_bugs)}, blocker/critical {len(blockers)}, priority mix {bug_prio}. "
             f"Top blockers: {', '.join(b.get('key','') for b in blockers[:3])}. "
             "Implication about severity and what demands attention this sprint?"
+        )),
+        ("bug_flow", (
+            f"Bug backlog flow over the last {bug_flow.get('weeks_count')} weeks: "
+            f"{bug_flow.get('created_total')} bugs created vs {bug_flow.get('resolved_total')} resolved "
+            f"(net {bug_flow.get('net_total')}, trend {bug_flow.get('trend')}); {bug_flow.get('open_now')} open now. "
+            "Implication: is the team out-pacing incoming bugs or falling behind — and what does the trend demand?"
+        )),
+        ("epic_progress", (
+            f"{epic_progress.get('epic_count')} active initiatives (epics), median {epic_progress.get('median_pct')}% complete, "
+            f"{epic_progress.get('total_remaining')} child issues still open. "
+            f"Largest: {epic_top}. "
+            "Implication about whether the big rocks are actually moving and where delivery risk concentrates?"
         )),
         ("velocity", (
             f"Story points delivered per recent sprint (oldest to newest): {sp_total}. "
@@ -5038,6 +5055,22 @@ class JiraClient:
             logger.warning("Sprint story-point velocity fetch failed: %s", e)
             sprint_velocity = {"error": str(e), "boards": []}
 
+        try:
+            from .eng_bug_flow import build_eng_bug_flow
+
+            bug_flow = build_eng_bug_flow(self, window_days=84, timeout=60.0)
+        except Exception as e:
+            logger.warning("Bug flow fetch failed: %s", e)
+            bug_flow = {"error": str(e), "weeks": []}
+
+        try:
+            from .eng_epic_progress import build_eng_epic_progress
+
+            epic_progress = build_eng_epic_progress(self, max_epics=8, timeout=60.0)
+        except Exception as e:
+            logger.warning("Epic progress fetch failed: %s", e)
+            epic_progress = {"error": str(e), "epics": []}
+
         # ── Flow / bottleneck and planned-vs-unplanned signals (derived) ──
         # Tier 2: changelog-based time-in-status + Flagged signals feed the flow
         # computation directly (counts, selection, ranking, headline). Degrades to the
@@ -5083,6 +5116,8 @@ class JiraClient:
             "team_scorecard": team_scorecard,
             "team_roster": team_roster,
             "sprint_velocity": sprint_velocity,
+            "bug_flow": bug_flow,
+            "epic_progress": epic_progress,
             "flow": flow,
             "work_split": work_split,
             "jql_queries": self._jql_since(jql_start),

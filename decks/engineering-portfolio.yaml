@@ -21,7 +21,9 @@ slides:
   - slide: eng_backlog_health
   - slide: eng_capacity
   - slide: eng_work_split
+  - slide: eng_epic_progress
   - slide: eng_bug_health
+  - slide: eng_bug_flow
   - slide: eng_velocity
   - slide: eng_support_pressure
   - slide: data_quality

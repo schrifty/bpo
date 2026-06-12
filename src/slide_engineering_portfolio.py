@@ -1689,6 +1689,175 @@ def _render_weekly_throughput_fallback(
     return cur_y
 
 
+def eng_bug_flow_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Bug inflow vs. outflow: weekly created-vs-resolved bugs and the backlog trend."""
+    eng = report.get("eng_portfolio") or {}
+    bf = eng.get("bug_flow") or {}
+    weeks = bf.get("weeks") or []
+    if not weeks:
+        detail = bf.get("error") or "Bug flow (LEAN bugs created vs resolved)"
+        return _missing_data_slide(reqs, sid, report, idx, detail)
+
+    created_total = int(bf.get("created_total") or 0)
+    resolved_total = int(bf.get("resolved_total") or 0)
+    net = int(bf.get("net_total") or 0)
+    open_now = bf.get("open_now")
+    wk_n = int(bf.get("weeks_count") or len(weeks))
+    trend = bf.get("trend") or "flat"
+
+    if trend == "growing":
+        title = f"Bug Backlog Growing — Net +{net} Over {wk_n} Weeks"
+    elif trend == "shrinking":
+        title = f"Bug Backlog Shrinking — Net {abs(net)} Resolved Over {wk_n} Weeks"
+    else:
+        title = f"Bug Inflow ≈ Outflow — {created_total} In / {resolved_total} Out Over {wk_n} Weeks"
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+
+    context = (
+        f"LEAN bugs created vs. resolved per week (last {wk_n} weeks). Net = created − resolved; "
+        "a backlog only shrinks when the resolved line sits above the created bars."
+    )
+    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
+    _style(reqs, f"{sid}_ctx", 0, len(context), size=9.5, color=NAVY, font=FONT)
+
+    net_txt = f"+{net}" if net > 0 else str(net)
+    cards_y = _eng_kpi_row(
+        reqs, sid,
+        [
+            ("Open bugs now", "—" if open_now is None else str(int(open_now))),
+            (f"Created ({wk_n}w)", str(created_total)),
+            (f"Resolved ({wk_n}w)", str(resolved_total)),
+            ("Net change", net_txt),
+        ],
+        y=BODY_Y + 22,
+    )
+
+    charts = report.get("_charts")
+    chart_top = cards_y + 16
+    labels = [_truncate_one_line(str(w.get("label") or ""), 8) for w in weeks]
+    created = [int(w.get("created") or 0) for w in weeks]
+    resolved = [int(w.get("resolved") or 0) for w in weeks]
+    net_series = [int(w.get("net") or 0) for w in weeks]
+
+    if charts:
+        try:
+            from .charts import embed_chart, BRAND_SERIES_COLORS
+            from .charts import LINE_SERIES_COLORS
+
+            chart_h = int(max(120, _ENG_CONTENT_BOTTOM - chart_top - _ENG_TAKEAWAY_H))
+            ss_id, chart_id = charts.add_combo_chart(
+                title="Bug flow",
+                labels=labels,
+                bar_series={"Created": created, "Resolved": resolved},
+                line_series={"Net (created−resolved)": net_series},
+                show_title=False,
+                suppress_legend=True,
+            )
+            embed_chart(reqs, f"{sid}_bfchart", sid, ss_id, chart_id, MARGIN, chart_top, CONTENT_W, chart_h, linked=False)
+            entries = [
+                ("Created", BRAND_SERIES_COLORS[0]),
+                ("Resolved", BRAND_SERIES_COLORS[1]),
+                ("Net (created−resolved)", LINE_SERIES_COLORS[0]),
+            ]
+            _slide_chart_legend(
+                reqs, sid, f"{sid}_bflgd", MARGIN, chart_top + chart_h + 2, entries,
+                font_pt=9, swatch_size=9, entry_gap=16,
+            )
+        except Exception as exc:
+            logger.warning("Bug flow chart embed failed: %s", exc)
+
+    _eng_takeaway_bar(reqs, sid, report, "bug_flow")
+    return idx + 1
+
+
+# Epic progress bar track (unfilled rail behind each completion bar).
+_EPIC_TRACK_FILL = {"red": 0.90, "green": 0.93, "blue": 0.97}
+
+
+def eng_epic_progress_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Active initiative (epic) progress: completion bar + done/total per big rock."""
+    eng = report.get("eng_portfolio") or {}
+    ep = eng.get("epic_progress") or {}
+    epics = ep.get("epics") or []
+    if not epics:
+        detail = ep.get("error") or "Epic progress (LEAN active epics)"
+        return _missing_data_slide(reqs, sid, report, idx, detail)
+
+    median_pct = ep.get("median_pct")
+    total_remaining = int(ep.get("total_remaining") or 0)
+    jira_base = eng.get("base_url", "")
+
+    if median_pct is not None:
+        title = f"Initiative Progress — {len(epics)} Active Epics, {int(median_pct)}% Median Complete"
+    else:
+        title = f"Initiative Progress — {len(epics)} Active Epics"
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+
+    context = (
+        f"Largest in-flight LEAN epics by size · bar = % of child issues done · "
+        f"{total_remaining} child issues still open across these initiatives."
+        + ("" if ep.get("has_due_dates") else " (Epics have no due dates set in Jira, so target dates aren't shown.)")
+    )
+    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 26, context)
+    _style(reqs, f"{sid}_ctx", 0, len(context), size=9.5, color=NAVY, font=FONT)
+
+    top = BODY_Y + 30
+    n = len(epics)
+    row_h = min(44.0, max(30.0, (_ENG_CONTENT_BOTTOM - top) / n))
+
+    name_w = 250.0
+    bar_x = MARGIN + name_w + 8
+    pct_w = 96.0
+    max_bar = CONTENT_W - name_w - 8 - pct_w - 6
+
+    for i, epic in enumerate(epics):
+        y0 = top + i * row_h
+        key = str(epic.get("key") or "")
+        summary = str(epic.get("summary") or "")
+        status = str(epic.get("status") or "")
+        pct = int(epic.get("pct") or 0)
+        done = int(epic.get("done") or 0)
+        total = int(epic.get("total") or 0)
+        overdue = bool(epic.get("overdue"))
+        stale = bool(epic.get("stale"))
+
+        name_chars = max_chars_one_line_for_table_col(name_w, 10.5)
+        name = _truncate_one_line(f"{key}  {summary}", name_chars)
+        _box(reqs, f"{sid}_en{i}", sid, MARGIN, y0, name_w, 16, name)
+        _style(reqs, f"{sid}_en{i}", 0, len(name), size=10.5, color=NAVY, font=FONT)
+        _style(reqs, f"{sid}_en{i}", 0, len(key), bold=True, size=10.5, color=BLUE, font=FONT)
+
+        # Completion bar: light track + fill (green when near done, blue otherwise).
+        fill = GREEN if pct >= 80 else BLUE
+        bar_w = max(3.0, pct / 100.0 * max_bar)
+        _rect(reqs, f"{sid}_et{i}", sid, bar_x, y0 + 2, max_bar, 11, _EPIC_TRACK_FILL)
+        _rect(reqs, f"{sid}_ef{i}", sid, bar_x, y0 + 2, bar_w, 11, fill)
+        pct_txt = f"{pct}%  ({done}/{total})"
+        _box(reqs, f"{sid}_ep{i}", sid, bar_x + max_bar + 6, y0, pct_w, 16, pct_txt)
+        _style(reqs, f"{sid}_ep{i}", 0, len(pct_txt), bold=True, size=9.5, color=NAVY, font=MONO)
+
+        # Status / risk line under the name.
+        flags = []
+        if overdue:
+            flags.append("overdue")
+        if stale:
+            flags.append("no recent update")
+        meta = status + (f" · {' · '.join(flags)}" if flags else "")
+        if meta:
+            _box(reqs, f"{sid}_es{i}", sid, MARGIN + 12, y0 + 16, name_w, 13, meta)
+            risk = bool(overdue or stale)
+            _style(reqs, f"{sid}_es{i}", 0, len(meta), size=8.5, color=(RED if risk else GRAY), font=FONT)
+
+    _eng_takeaway_bar(reqs, sid, report, "epic_progress")
+    return idx + 1
+
+
 def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
     """Sprint velocity in story points (per board) with ticket throughput as a secondary line."""
     eng = report.get("eng_portfolio") or {}
