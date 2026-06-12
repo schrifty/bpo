@@ -76,6 +76,37 @@ def test_drops_zero_story_point_boards_but_keeps_labels() -> None:
     assert series["sp_total"] == [300.0, 218.0]
 
 
+def _sprint_with_id(name: str, sprint_id: int, sp: float, tickets: int) -> dict:
+    return {
+        "sprint": {"name": name, "id": sprint_id},
+        "story_points_delivered": sp,
+        "delivered_issues": tickets,
+    }
+
+
+def test_dedupes_boards_sharing_sprint_ids() -> None:
+    """CUSTOMER Active Scrum and Data Integration are two boards over the same project,
+    so they report the *same* Jira sprints. Each sprint must count once, not twice."""
+    def shared() -> list[dict]:
+        return [
+            _sprint_with_id("Wk Jun 1", 2939, 239, 31),
+            _sprint_with_id("Wk May 25", 2930, 176, 28),
+        ]
+
+    history = {
+        "boards": [
+            _board("CUSTOMER Active Scrum", 36, shared()),
+            _board("Data Integration", 46, shared()),
+        ],
+    }
+    series = build_sprint_velocity_series(history, slots=6)
+    # The duplicate board is dropped from the bars (no two identical series).
+    assert series["teams"] == ["CUSTOMER Active Scrum"]
+    # Totals count each shared sprint once — not doubled.
+    assert series["sp_total"] == [176.0, 239.0]
+    assert series["tickets_total"] == [28, 31]
+
+
 def test_respects_slot_cap() -> None:
     sprints = [_sprint(f"S{i}", float(i), i) for i in range(8, 0, -1)]
     history = {"boards": [_board("LEAN Engineering", 44, sprints)]}

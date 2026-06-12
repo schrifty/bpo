@@ -74,6 +74,10 @@ def build_sprint_velocity_series(
     sp_total = [0.0 for _ in range(used_slots)]
     label_sources: list[dict[str, Any] | None] = [None for _ in range(used_slots)]
     primary_labels: list[dict[str, Any] | None] = [None for _ in range(used_slots)]
+    # Two boards over the same project (e.g. CUSTOMER Active Scrum and Data Integration)
+    # share the same Jira sprints, so each sprint's issues would otherwise be summed
+    # twice — doubling both SP and ticket totals. Count each sprint id at most once.
+    counted_sprint_ids: set[Any] = set()
 
     for board in boards:
         rows = board_rows[id(board)]
@@ -85,19 +89,28 @@ def build_sprint_velocity_series(
         recent = rows[-used_slots:]
         offset = used_slots - len(recent)
         is_primary = int(board.get("board_id") or -1) == PRIMARY_VELOCITY_BOARD_ID
+        contributed_unique = False
         for i, sprint in enumerate(recent):
             slot = offset + i
             sp = float(sprint.get("story_points_delivered") or 0.0)
             tickets = int(sprint.get("delivered_issues") or 0)
             per_slot[slot] = sp
-            sp_total[slot] += sp
-            tickets_total[slot] += tickets
+            sprint_id = (sprint.get("sprint") or {}).get("id") if isinstance(sprint.get("sprint"), dict) else None
+            if sprint_id is None or sprint_id not in counted_sprint_ids:
+                if sprint_id is not None:
+                    counted_sprint_ids.add(sprint_id)
+                sp_total[slot] += sp
+                tickets_total[slot] += tickets
+                contributed_unique = True
             if label_sources[slot] is None:
                 label_sources[slot] = sprint
             if is_primary:
                 primary_labels[slot] = sprint
-        teams.append(team)
-        sp_by_team[team] = per_slot
+        # Skip boards that only re-report sprints another board already covered, so the
+        # chart doesn't show two identical bar series for the same underlying sprints.
+        if contributed_unique:
+            teams.append(team)
+            sp_by_team[team] = per_slot
 
     if not teams:
         return _empty_series(error="no closed sprints with story points")

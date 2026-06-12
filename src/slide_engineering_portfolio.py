@@ -865,12 +865,23 @@ def eng_capacity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
     _bg(reqs, sid, WHITE)
     _slide_title(reqs, sid, title)
 
+    # Reconcile with the Teams slide: this counts anyone with assigned LEAN work, which
+    # is broader than the engineers mapped to squads (cross-team helpers, leads, etc.).
+    roster = eng.get("team_roster") or {}
+    roster_total = roster.get("total_engineers")
+    squad_n = len(roster.get("teams") or [])
+    reconcile = ""
+    if roster_total and squad_n and int(roster_total) != engineers_active:
+        reconcile = (
+            f" Counts anyone with assigned LEAN work ({engineers_active}) — broader than the "
+            f"{int(roster_total)} engineers mapped to the {squad_n} squads on the Teams slide."
+        )
     context = (
         "LEAN Engineering board: per-engineer in-flight WIP (assigned, active sprint statuses) "
-        "versus recent throughput — not the full escalation backlog."
+        "versus recent throughput — not the full escalation backlog." + reconcile
     )
-    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
-    _style(reqs, f"{sid}_ctx", 0, len(context), size=11, color=NAVY, font=FONT)
+    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 26, context)
+    _style(reqs, f"{sid}_ctx", 0, len(context), size=9.5, color=NAVY, font=FONT)
 
     cards_y = _eng_kpi_row(
         reqs, sid,
@@ -1712,9 +1723,23 @@ def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
             f" · {', '.join(zero_sp)} run on ticket throughput (no story points)"
             if zero_sp else ""
         )
+        # Surface the ticket-throughput trend too — it can fall even when SP looks flat,
+        # and tickets/sprint is the more reliable signal across estimating styles.
+        tix = [int(v) for v in (velocity.get("tickets_total") or [])]
+        tix_note = ""
+        if len(tix) >= 2:
+            tix_now = tix[-1]
+            tix_prior = [v for v in tix[:-1] if v]
+            tix_base = (sum(tix_prior) / len(tix_prior)) if tix_prior else None
+            if tix_base and tix_now <= tix_base * 0.9:
+                tix_note = f" · tickets/sprint DOWN to {tix_now} (from ~{tix_base:.0f} avg)"
+            elif tix_base and tix_now >= tix_base * 1.1:
+                tix_note = f" · tickets/sprint UP to {tix_now} (from ~{tix_base:.0f} avg)"
+            else:
+                tix_note = f" · ~{tix_now} tickets/sprint"
         context = (
-            f"Story points delivered per closed sprint · SP-estimating boards: {sp_team_names}"
-            f"{no_sp_note} · tickets delivered = secondary line · aligned by recency"
+            f"Bars = story points per closed sprint (per SP-estimating board: {sp_team_names}); "
+            f"line = total tickets delivered{no_sp_note}{tix_note}. Aligned by recency."
         )
     else:
         recent_throughput = throughput[-4:] if throughput else []

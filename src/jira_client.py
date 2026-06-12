@@ -1071,10 +1071,11 @@ def _generate_eng_takeaways(eng: dict) -> dict[str, str]:
         from .eng_sprint_velocity import build_sprint_velocity_series
         vseries = build_sprint_velocity_series(eng.get("sprint_velocity"))
         sp_total = vseries.get("sp_total") or []
+        tickets_total = vseries.get("tickets_total") or []
         sp_teams = ", ".join(vseries.get("teams") or []) or "scrum boards"
         zero_sp = ", ".join(vseries.get("zero_sp_teams") or [])
     except Exception:
-        sp_total, sp_teams, zero_sp = [], "scrum boards", ""
+        sp_total, tickets_total, sp_teams, zero_sp = [], [], "scrum boards", ""
 
     days = eng.get("days", 30)
 
@@ -1122,8 +1123,10 @@ def _generate_eng_takeaways(eng: dict) -> dict[str, str]:
         )),
         ("velocity", (
             f"Story points delivered per recent sprint (oldest to newest): {sp_total}. "
+            f"Tickets delivered per sprint (oldest to newest): {tickets_total}. "
             f"SP-estimating boards: {sp_teams}. Boards without story points: {zero_sp or 'none'}. "
-            "Implication about the delivery trend and what it signals — avoid over-reading a one-sprint move?"
+            "Implication about the delivery trend — consider BOTH story points and ticket throughput "
+            "(ticket count can fall even when SP looks flat); avoid over-reading a one-sprint move?"
         )),
         ("support_pressure", (
             f"Support tickets last {days} days: {sp.get('total')} total, {sp.get('escalated_to_eng')} escalated to engineering, "
