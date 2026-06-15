@@ -11,6 +11,7 @@ from .config import logger
 from .slide_primitives import (
     CHART_LEGEND_PT,
     background as _bg,
+    bar_rect as _bar_rect,
     clean_table as _clean_table,
     internal_footer as _internal_footer,
     kpi_metric_card as _kpi_metric_card,
@@ -2316,13 +2317,57 @@ def _cursor_section_header(reqs: list[dict[str, Any]], sid: str, oid: str, x: fl
     return y + 16
 
 
+_CURSOR_CHART_PAD = 6.0
+_CURSOR_CHART_LEGEND_GAP = 4.0
+
+
+def _cursor_embed_chart_panel(
+    reqs: list[dict[str, Any]],
+    *,
+    sid: str,
+    oid: str,
+    x: float,
+    y: float,
+    w: float,
+    chart_h: float,
+    spreadsheet_id: str,
+    chart_id: int,
+    legend: list[tuple[str, dict[str, float]]] | None = None,
+    legend_font_pt: float = 9,
+    legend_swatch: float = 9,
+    legend_entry_gap: float = 14,
+) -> float:
+    """Embed a Sheets chart in a bordered panel with an in-chart title and slide-level legend.
+
+    The chart title lives in the embedded image (``show_title=True`` at build time); callers
+    should not also render a slide-level section header above the panel — that duplicated the
+    title and visually overwrote the chart's own title area.
+    """
+    from .charts import embed_chart
+
+    legend_h = 16.0 if legend else 0.0
+    panel_h = _CURSOR_CHART_PAD * 2 + chart_h + (_CURSOR_CHART_LEGEND_GAP + legend_h if legend else 0)
+    _bar_rect(reqs, f"{sid}_{oid}_pnl", sid, x, y, w, panel_h, WHITE, outline=GRAY)
+    chart_x = x + _CURSOR_CHART_PAD
+    chart_y = y + _CURSOR_CHART_PAD
+    chart_w = w - 2 * _CURSOR_CHART_PAD
+    embed_chart(
+        reqs, f"{sid}_{oid}", sid, spreadsheet_id, chart_id,
+        chart_x, chart_y, chart_w, chart_h, linked=False,
+    )
+    if legend:
+        _slide_chart_legend(
+            reqs, sid, f"{sid}_{oid}lgd", chart_x, chart_y + chart_h + _CURSOR_CHART_LEGEND_GAP,
+            legend, font_pt=legend_font_pt, swatch_size=legend_swatch, entry_gap=legend_entry_gap,
+        )
+    return y + panel_h + 8
+
+
 def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
     """AI coding-assistant COST for a VP of Engineering.
 
-    KPI cards (cycle spend, usage-based cost in window, active engineers, cost per active
-    engineer), a cost-over-time combo chart (daily $ bars + active-users line), and a
-    'where the spend goes' model-cost mix. Answers: is spend growing, and is it ROI-positive
-    per engineer or leaking into idle seats?
+    KPI cards: org-wide 30-day run rate and billing-cycle included usage; engineer-scoped
+    cost per active engineer and active engineer count. Charts/tables stay dev-* scoped.
     """
     cu = _cursor_blob(report)
     if not cu.get("configured"):
@@ -2335,50 +2380,32 @@ def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
             "Engineer-scoped cost (set ATLASSIAN_ORG_ID and dev-* Atlassian teams)",
         )
 
-    totals = cost.get("totals") or {}
+    org_totals = cu.get("totals") or {}
+    eng_totals = cost.get("totals") or {}
     daily = cost.get("daily") or []
     model_mix = cost.get("model_mix") or []
     window_days = int(cu.get("window_days") or 30)
 
-    # Engineer-scoped slide: seat count is not meaningful here (the denominator is an
-    # email-matched subset of dev-* team members), so report on active engineers and the
-    # cost they generate — not adoption/idle against a partial seat base.
+    # Org-wide headline KPIs; engineer-scoped denominator for cost/active and active count.
+    run_rate_cents = org_totals.get("charged_cents_window")
+    included_cents = org_totals.get("included_spend_cents_cycle")
     active = int(cost.get("active_window") or 0)
-    spend_cents = totals.get("spend_cents_cycle")
-    window_cents = totals.get("charged_cents_window")
-    cost_per_active = (float(window_cents) / active) if (window_cents is not None and active) else None
-    # /teams/spend returns 0 when usage is included in seats (no overage), so lead with
-    # the usage-based cost and treat cycle spend as overage only.
-    has_overage = spend_cents not in (None, 0)
-
-    bits = []
-    if window_cents is not None:
-        bits.append(f"{_fmt_cents(window_cents)} usage cost ({window_days}d)")
-    if cost_per_active is not None:
-        bits.append(f"{_fmt_cents(cost_per_active)}/active engineer")
-    if has_overage:
-        bits.append(f"{_fmt_cents(spend_cents)} cycle overage")
-    else:
-        bits.append("no cycle overage")
-        if active:
-            bits.append(f"{active} active engineers")
-    errors = cu.get("errors") or []
-    if errors:
-        bits.append(f"partial data: {len(errors)} section(s) unavailable")
-    subtitle = " · ".join(bits) if bits else "Cursor team spend"
+    eng_window_cents = eng_totals.get("charged_cents_window")
+    cost_per_active = (
+        (float(eng_window_cents) / active) if (eng_window_cents is not None and active) else None
+    )
 
     _slide(reqs, sid, idx)
     _cursor_bg(reqs, sid)
-    _eng_title(reqs, sid, "Cursor AI Coding Spend", subtitle)
+    _eng_title(reqs, sid, "Cursor AI Coding Spend")
 
-    overage_val = _fmt_cents(spend_cents) if spend_cents is not None else "—"
     kpi_y = _eng_kpi_row(
         reqs, sid,
         [
-            (f"Usage cost ({window_days}d)", _fmt_cents(window_cents)),
+            (f"30d run rate", _fmt_cents(run_rate_cents)),
             ("Cost / active eng", _fmt_cents(cost_per_active)),
             ("Active engineers", str(active)),
-            ("Cycle overage", overage_val),
+            ("Total included usage", _fmt_cents(included_cents)),
         ],
         y=BODY_Y,
     )
@@ -2393,31 +2420,26 @@ def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
     charts = report.get("_charts")
 
     # ── Left: daily cost ($) bars + active-users line ─────────────────────────
-    left_y = _cursor_section_header(
-        reqs, sid, "ch", left_x, body_top, left_w,
-        f"Cost over time (daily $, dev-* engineers, {window_days}d)",
-    )
+    left_y = body_top
     if daily and charts:
         try:
-            from .charts import embed_chart
-
+            chart_title = f"Cost over time (daily $, dev-* engineers, {window_days}d)"
             labels = [str(d.get("label") or d.get("date") or "") for d in daily]
             cost_series = [round(float(d.get("cents") or 0) / 100.0, 2) for d in daily]
             users_series = [int(d.get("active_users") or 0) for d in daily]
-            chart_h = int(max(120, min(190, content_ceiling - left_y - 6 - 18)))
+            chart_h = int(max(120, min(190, content_ceiling - left_y - 28)))
             ss_id, chart_id = charts.add_combo_chart(
-                title="Cost over time",
+                title=chart_title,
                 labels=labels,
                 bar_series={"Daily cost ($)": cost_series},
                 line_series={"Active users": users_series},
-                show_title=False,
+                show_title=True,
+                suppress_legend=True,
             )
-            embed_chart(reqs, f"{sid}_cchart", sid, ss_id, chart_id, left_x, left_y, left_w, chart_h, linked=False)
-            left_y += chart_h + 4
-            left_y = _slide_chart_legend(
-                reqs, sid, f"{sid}_clgd", left_x, left_y,
-                [("Daily cost ($)", BRAND_SERIES_COLORS[0]), ("Active users", BRAND_SERIES_COLORS[1])],
-                font_pt=9, swatch_size=9, entry_gap=14,
+            left_y = _cursor_embed_chart_panel(
+                reqs, sid=sid, oid="cchart", x=left_x, y=left_y, w=left_w, chart_h=chart_h,
+                spreadsheet_id=ss_id, chart_id=chart_id,
+                legend=[("Daily cost ($)", BRAND_SERIES_COLORS[0]), ("Active users", BRAND_SERIES_COLORS[1])],
             )
         except Exception as exc:
             logger.warning("Cursor cost chart embed failed: %s", exc)
@@ -2489,9 +2511,6 @@ def _render_cursor_usage_slide(
     totals = scope.get("totals") or {}
     daily = scope.get("daily") or []
     window_days = int(cu.get("window_days") or 30)
-    # Audience-scoped slide: seat count is not meaningful (denominator is a partial,
-    # email-matched subset), so report the active count, not adoption vs. seats.
-    active = int(scope.get("active_window") or 0)
     total_tokens = int(totals.get("total_tokens") or 0)
     input_tokens = int(totals.get("input_tokens") or 0)
     output_tokens = int(totals.get("output_tokens") or 0)
@@ -2500,23 +2519,11 @@ def _render_cursor_usage_slide(
     is_engineers = audience == "engineers"
     title = "Cursor AI Token Usage" if is_engineers else "Cursor AI Token Usage — Non-Engineering"
     takeaway_focus = "usage" if is_engineers else "usage_non_engineers"
-    user_label = "engineers" if is_engineers else "users"
     scope_label = "dev-* engineers" if is_engineers else "non-engineering users"
-
-    io_ratio = f"{input_tokens / output_tokens:.1f}:1 in/out" if output_tokens else ""
-    bits = [f"{_fmt_tokens(total_tokens)} tokens in {window_days}d"]
-    if io_ratio:
-        bits.append(io_ratio)
-    if active:
-        bits.append(f"{active} active {user_label}")
-    errors = cu.get("errors") or []
-    if errors:
-        bits.append(f"partial data: {len(errors)} section(s) unavailable")
-    subtitle = " · ".join(bits)
 
     _slide(reqs, sid, idx)
     _cursor_bg(reqs, sid)
-    _eng_title(reqs, sid, title, subtitle)
+    _eng_title(reqs, sid, title)
 
     kpi_y = _eng_kpi_row(
         reqs, sid,
@@ -2537,38 +2544,28 @@ def _render_cursor_usage_slide(
 
     # Single full-width column: the daily tokens-over-time chart now owns the body.
     # The per-model mix moved to the dedicated Cursor Model Usage slide (both audiences).
-    chart_y = _cursor_section_header(
-        reqs, sid, "th", content_x, body_top, content_w,
-        f"Tokens over time ({scope_label}, daily input + output, {window_days}d)",
-    )
+    chart_y = body_top
     if daily and charts:
         try:
-            from .charts import embed_chart
-
+            chart_title = f"Tokens over time ({scope_label}, daily input + output, {window_days}d)"
             labels = [str(d.get("label") or d.get("date") or "") for d in daily]
             in_series = [int(d.get("input_tokens") or 0) for d in daily]
             out_series = [int(d.get("output_tokens") or 0) for d in daily]
-            chart_h = int(max(150, content_ceiling - chart_y - 6 - 18))
+            chart_h = int(max(150, content_ceiling - chart_y - 28))
             ss_id, chart_id = charts.add_bar_chart(
-                # The title becomes the backing sheet-tab name; scope it per audience so the
-                # eng / non-eng slides never collide on a duplicate Sheets tab title.
-                title=f"Tokens over time ({audience})",
+                title=chart_title,
                 labels=labels,
                 series={"Input": in_series, "Output": out_series},
                 stacked=True,
-                show_title=False,
+                show_title=True,
                 suppress_legend=True,
-                # Match the wide full-width box aspect so the embedded chart fills it
-                # (createSheetsChart fits-to-box preserving the chart's native ratio).
                 width_pixels=int(content_w * 2),
                 height_pixels=int(chart_h * 2),
             )
-            embed_chart(reqs, f"{sid}_tchart", sid, ss_id, chart_id, content_x, chart_y, content_w, chart_h, linked=False)
-            chart_y += chart_h + 4
-            chart_y = _slide_chart_legend(
-                reqs, sid, f"{sid}_tlgd", content_x, chart_y,
-                [("Input", BRAND_SERIES_COLORS[0]), ("Output", BRAND_SERIES_COLORS[1])],
-                font_pt=9, swatch_size=9, entry_gap=14,
+            chart_y = _cursor_embed_chart_panel(
+                reqs, sid=sid, oid="tchart", x=content_x, y=chart_y, w=content_w, chart_h=chart_h,
+                spreadsheet_id=ss_id, chart_id=chart_id,
+                legend=[("Input", BRAND_SERIES_COLORS[0]), ("Output", BRAND_SERIES_COLORS[1])],
             )
         except Exception as exc:
             logger.warning("Cursor tokens chart embed failed: %s", exc)
@@ -2663,21 +2660,10 @@ def cursor_model_usage_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
         )
 
     window_days = int(cu.get("window_days") or 30)
-    eng_tokens = int((eng.get("totals") or {}).get("total_tokens") or 0)
-    non_tokens = int((non.get("totals") or {}).get("total_tokens") or 0)
-    total = eng_tokens + non_tokens
-    eng_share = int(round(eng_tokens / total * 100)) if total else 0
-    bits = [f"{_fmt_tokens(total)} tokens in {window_days}d"]
-    if total:
-        bits.append(f"engineering {eng_share}%  ·  non-engineering {100 - eng_share}%")
-    errors = cu.get("errors") or []
-    if errors:
-        bits.append(f"partial data: {len(errors)} section(s) unavailable")
-    subtitle = " · ".join(bits)
 
     _slide(reqs, sid, idx)
     _cursor_bg(reqs, sid)
-    _eng_title(reqs, sid, "Cursor AI Model Usage", subtitle)
+    _eng_title(reqs, sid, "Cursor AI Model Usage")
 
     section_y = _cursor_section_header(
         reqs, sid, "msh", MARGIN, BODY_Y, CONTENT_W,
@@ -2794,19 +2780,9 @@ def cursor_efficiency_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
     kept_pct = f"{int(round(float(lines_kept) * 100))}%" if lines_kept is not None else "—"
     per_1k_str = f"{per_1k:g}" if isinstance(per_1k, (int, float)) else "—"
 
-    bits = [f"{_fmt_tokens(accepted)} lines accepted ({window_days}d)"]
-    if lines_kept is not None:
-        bits.append(f"{kept_pct} kept")
-    if cents_per_line is not None:
-        bits.append(f"{_fmt_cents_per_line(cents_per_line)}/accepted line")
-    errors = cu.get("errors") or []
-    if errors:
-        bits.append(f"partial data: {len(errors)} section(s) unavailable")
-    subtitle = " · ".join(bits)
-
     _slide(reqs, sid, idx)
     _cursor_bg(reqs, sid)
-    _eng_title(reqs, sid, "Cursor AI Coding Efficiency", subtitle)
+    _eng_title(reqs, sid, "Cursor AI Coding Efficiency")
 
     kpi_y = _eng_kpi_row(
         reqs, sid,
@@ -2829,31 +2805,26 @@ def cursor_efficiency_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
     charts = report.get("_charts")
 
     # ── Left: accepted lines (bars) vs. usage cost (line) over time ────────────
-    left_y = _cursor_section_header(
-        reqs, sid, "eh", left_x, body_top, left_w,
-        f"Output vs. cost over time ({window_days}d)",
-    )
+    left_y = body_top
     if daily and charts:
         try:
-            from .charts import embed_chart
-
+            chart_title = f"Output vs. cost over time ({window_days}d)"
             labels = [str(d.get("label") or d.get("date") or "") for d in daily]
             lines_series = [int(d.get("accepted_lines") or 0) for d in daily]
             cost_series = [round(float(d.get("cents") or 0) / 100.0, 2) for d in daily]
-            chart_h = int(max(120, min(190, content_ceiling - left_y - 6 - 18)))
+            chart_h = int(max(120, min(190, content_ceiling - left_y - 28)))
             ss_id, chart_id = charts.add_combo_chart(
-                title="Output vs. cost over time",
+                title=chart_title,
                 labels=labels,
                 bar_series={"Accepted lines": lines_series},
                 line_series={"Cost ($)": cost_series},
-                show_title=False,
+                show_title=True,
+                suppress_legend=True,
             )
-            embed_chart(reqs, f"{sid}_echart", sid, ss_id, chart_id, left_x, left_y, left_w, chart_h, linked=False)
-            left_y += chart_h + 4
-            left_y = _slide_chart_legend(
-                reqs, sid, f"{sid}_elgd", left_x, left_y,
-                [("Accepted lines", BRAND_SERIES_COLORS[0]), ("Cost ($)", BRAND_SERIES_COLORS[1])],
-                font_pt=9, swatch_size=9, entry_gap=14,
+            left_y = _cursor_embed_chart_panel(
+                reqs, sid=sid, oid="echart", x=left_x, y=left_y, w=left_w, chart_h=chart_h,
+                spreadsheet_id=ss_id, chart_id=chart_id,
+                legend=[("Accepted lines", BRAND_SERIES_COLORS[0]), ("Cost ($)", BRAND_SERIES_COLORS[1])],
             )
         except Exception as exc:
             logger.warning("Cursor efficiency chart embed failed: %s", exc)
@@ -2943,25 +2914,12 @@ def _render_cursor_users_slide(
     is_engineers = audience == "engineers"
     title = "Cursor AI Power Users" if is_engineers else "Cursor AI Power Users — Non-Engineering"
     takeaway_focus = "users" if is_engineers else "users_non_engineers"
-    user_label = "engineers" if is_engineers else "users"
     active_kpi = "Active engineers" if is_engineers else "Active users"
     scope_label = "dev-* engineers" if is_engineers else "non-engineering users"
 
-    bits = []
-    if active:
-        bits.append(f"{active} active {user_label}")
-    if top_share:
-        bits.append(f"top user = {top_share}% of tokens")
-    if top3_share:
-        bits.append(f"top 3 = {top3_share}%")
-    errors = cu.get("errors") or []
-    if errors:
-        bits.append(f"partial data: {len(errors)} section(s) unavailable")
-    subtitle = " · ".join(bits) if bits else "Cursor user behavior"
-
     _slide(reqs, sid, idx)
     _cursor_bg(reqs, sid)
-    _eng_title(reqs, sid, title, subtitle)
+    _eng_title(reqs, sid, title)
 
     kpi_y = _eng_kpi_row(
         reqs, sid,
@@ -2983,39 +2941,32 @@ def _render_cursor_users_slide(
     content_ceiling = _ENG_CONTENT_BOTTOM - 6
     charts = report.get("_charts")
 
-    left_y = _cursor_section_header(
-        reqs, sid, "mh", left_x, body_top, left_w,
-        f"Model usage by user ({scope_label}, tokens, {window_days}d)",
-    )
+    left_y = body_top
     m_users = matrix.get("users") or []
     m_models = matrix.get("models") or []
     m_series = matrix.get("series") or {}
     if m_users and m_models and charts:
         try:
-            from .charts import embed_chart
-
+            chart_title = f"Model usage by user ({scope_label}, tokens, {window_days}d)"
             labels = [_short_email(u, 14) for u in m_users]
             series = {model: [int(v) for v in (m_series.get(model) or [])] for model in m_models}
-            chart_h = int(max(120, min(190, content_ceiling - left_y - 6 - 18)))
+            chart_h = int(max(120, min(190, content_ceiling - left_y - 28)))
             ss_id, chart_id = charts.add_bar_chart(
-                # Title becomes the backing sheet-tab name, so scope it per audience to
-                # avoid a duplicate-sheet collision between the eng / non-eng slides.
-                title=f"Model usage by user ({audience})",
+                title=chart_title,
                 labels=labels,
                 series=series,
                 stacked=True,
-                show_title=False,
+                show_title=True,
                 suppress_legend=True,
             )
-            embed_chart(reqs, f"{sid}_uchart", sid, ss_id, chart_id, left_x, left_y, left_w, chart_h, linked=False)
-            left_y += chart_h + 4
             legend_entries = [
                 (_truncate_one_line(m, 16), BRAND_SERIES_COLORS[i % len(BRAND_SERIES_COLORS)])
                 for i, m in enumerate(m_models)
             ]
-            left_y = _slide_chart_legend(
-                reqs, sid, f"{sid}_ulgd", left_x, left_y, legend_entries,
-                font_pt=8, swatch_size=8, entry_gap=8,
+            left_y = _cursor_embed_chart_panel(
+                reqs, sid=sid, oid="uchart", x=left_x, y=left_y, w=left_w, chart_h=chart_h,
+                spreadsheet_id=ss_id, chart_id=chart_id,
+                legend=legend_entries, legend_font_pt=8, legend_swatch=8, legend_entry_gap=8,
             )
         except Exception as exc:
             logger.warning("Cursor user-model chart embed failed: %s", exc)

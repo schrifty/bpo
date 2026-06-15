@@ -1,4 +1,4 @@
-# Integration metadata for deck Data Sources & Quality slides.
+# Integration metadata for deck Data Governance slides.
 # Display names and env hints are stable; runtime status/lineage come from report["_governance"].
 
 sources:

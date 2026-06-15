@@ -104,6 +104,8 @@
 - `cursor_usage.window_days`
 - `cursor_usage.warnings`
 - `cursor_usage.errors`
+- `cursor_usage.totals.included_spend_cents_cycle`
+- `cursor_usage.cost_engineers.totals.included_spend_cents_cycle`
 
 ## Deck governance
 - `_governance`

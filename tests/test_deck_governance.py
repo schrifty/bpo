@@ -1,4 +1,4 @@
-"""Tests for deck governance assembly and Data Sources & Quality slide."""
+"""Tests for deck governance assembly and Data Governance slide."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ def _eng_portfolio_plan() -> list[dict]:
         {"slide_type": "eng_exec_summary", "title": "Exec"},
         {"slide_type": "cursor_cost", "title": "Cursor Spend"},
         {"slide_type": "cursor_usage", "title": "Cursor Usage"},
-        {"slide_type": "data_quality", "title": "Data Sources & Quality"},
+        {"slide_type": "data_quality", "title": "Data Governance"},
     ]
 
 
@@ -80,7 +80,7 @@ def test_data_quality_slide_renders_governance_sections() -> None:
         if isinstance(r, dict) and "insertText" in r:
             texts.append(r["insertText"].get("text", ""))
     blob = "\n".join(texts)
-    assert "Data Sources & Quality" in blob
+    assert "Data Governance" in blob
     assert "Scope & filters" in blob
     assert "Lineage" in blob
     assert "Cursor" in blob

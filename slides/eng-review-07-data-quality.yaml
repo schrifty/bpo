@@ -4,7 +4,7 @@
 id: eng_review_data_quality
 type: standard
 order: 99
-title: Data Sources & Quality
+title: Data Governance
 slide_type: data_quality
 data_tools: []
 customers: all

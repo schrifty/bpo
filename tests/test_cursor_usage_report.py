@@ -40,9 +40,9 @@ class _FakeClient:
 
     def get_spend(self, **k):
         return [
-            {"email": "u1@x.com", "overallSpendCents": 4200},
-            {"email": "u2@x.com", "overallSpendCents": 3100},
-            {"email": "u3@x.com", "overallSpendCents": 100},
+            {"email": "u1@x.com", "overallSpendCents": 4200, "includedSpendCents": 3000},
+            {"email": "u2@x.com", "overallSpendCents": 3100, "includedSpendCents": 2500},
+            {"email": "u3@x.com", "overallSpendCents": 100, "includedSpendCents": 100},
         ]
 
 
@@ -53,6 +53,7 @@ def test_build_report_aggregates_all_sections() -> None:
     # u1 (450+550=... ) tokens across two events, u2 225 → totals 550+225=... check sum
     assert rep["totals"]["total_tokens"] == 100 + 50 + 200 + 25 + 300 + 100 + 10 + 5
     assert rep["totals"]["spend_cents_cycle"] == 7400.0
+    assert rep["totals"]["included_spend_cents_cycle"] == 5600.0
     # Two months present, ordered.
     assert [m["label"] for m in rep["monthly"]] == ["Mar", "Apr"]
     # Top user is u1 (most tokens), carries spend.
@@ -251,6 +252,24 @@ def test_build_report_section_failure_is_collected() -> None:
     # Other sections still populated.
     assert rep["totals"]["total_tokens"] > 0
     assert rep["totals"]["spend_cents_cycle"] is None
+
+
+def test_included_spend_absent_when_api_omits_field() -> None:
+    class _NoIncluded(_FakeClient):
+        def get_spend(self, **k):
+            return [{"email": "u1@x.com", "overallSpendCents": 4200}]
+
+    rep = build_cursor_usage_report(client=_NoIncluded())
+    assert rep["totals"]["included_spend_cents_cycle"] is None
+
+
+def test_included_spend_zero_when_field_present() -> None:
+    class _ZeroIncluded(_FakeClient):
+        def get_spend(self, **k):
+            return [{"email": "u1@x.com", "overallSpendCents": 0, "includedSpendCents": 0}]
+
+    rep = build_cursor_usage_report(client=_ZeroIncluded())
+    assert rep["totals"]["included_spend_cents_cycle"] == 0.0
 
 
 class _RemovedUserClient(_FakeClient):

@@ -496,7 +496,7 @@ def cs_notable_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def data_quality_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
-    """Deck-scoped provenance for the Data Sources & Quality slide (not whole-report JQL dump)."""
+    """Deck-scoped provenance for the Data Governance slide (not whole-report JQL dump)."""
     gov = report.get("_governance") or {}
     if not isinstance(gov, dict):
         return []
@@ -528,7 +528,7 @@ def data_quality_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]
     rows.append({
         "description": "Full provenance",
         "source": "Slide",
-        "query": "See Data Sources & Quality slide sections (scope, freshness, lineage, discrepancies)",
+        "query": "See Data Governance slide sections (scope, freshness, lineage, discrepancies)",
     })
     return rows
 

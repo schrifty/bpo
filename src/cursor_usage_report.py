@@ -317,6 +317,7 @@ def _build_engineer_cost_scope(
     engineer_emails: set[str],
     engineer_headcount: int,
     spend_by_email: dict[str, float],
+    included_by_email: dict[str, float] | None,
     cursor_members: list[dict[str, Any]],
     org_charged_cents: float | None,
 ) -> dict[str, Any]:
@@ -333,6 +334,12 @@ def _build_engineer_cost_scope(
         )
         if spend_by_email else None
     )
+    eng_included: float | None = None
+    if included_by_email is not None:
+        eng_included = sum(
+            cents for email, cents in included_by_email.items()
+            if str(email).strip().casefold() in engineer_emails
+        )
     active = len(eng_roll.get("_top_users") or [])
     seats = len(member_emails & engineer_emails)
     out = {
@@ -343,6 +350,7 @@ def _build_engineer_cost_scope(
         "totals": {
             "charged_cents_window": eng_roll.get("charged_cents"),
             "spend_cents_cycle": eng_spend,
+            "included_spend_cents_cycle": eng_included,
         },
         "daily": eng_roll.get("daily", []),
         "model_mix": eng_roll.get("model_mix", []),
@@ -650,21 +658,20 @@ def _focus_prompt(report: dict[str, Any], focus: str) -> str:
 
     if focus == "cost":
         cost_eng = report.get("cost_engineers") or {}
+        org_totals = report.get("totals") or {}
+        run_rate = _cents_to_dollars(org_totals.get("charged_cents_window"))
+        included_usage = _cents_to_dollars(org_totals.get("included_spend_cents_cycle"))
         if cost_eng.get("configured"):
             eng_totals = cost_eng.get("totals") or {}
             daily = cost_eng.get("daily") or []
             active = int(cost_eng.get("active_window") or 0)
             seats = int(cost_eng.get("seats") or 0)
-            window_cost = _cents_to_dollars(eng_totals.get("charged_cents_window"))
-            cycle_spend = _cents_to_dollars(eng_totals.get("spend_cents_cycle"))
             charged_window = eng_totals.get("charged_cents_window")
             scope = "dev-* team members only"
         else:
             active = int(members.get("active_window") or 0)
             seats = int(members.get("total") or 0)
-            window_cost = _cents_to_dollars(totals.get("charged_cents_window"))
-            cycle_spend = _cents_to_dollars(totals.get("spend_cents_cycle"))
-            charged_window = totals.get("charged_cents_window")
+            charged_window = org_totals.get("charged_cents_window")
             scope = "all Cursor seats"
         cost_per_active = (
             _cents_to_dollars((charged_window or 0) / active) if active else "unknown"
@@ -705,7 +712,8 @@ def _focus_prompt(report: dict[str, Any], focus: str) -> str:
         return (
             f"Cursor AI coding-assistant COST for the engineering org over the last {window_days} days "
             f"({scope}). "
-            f"Usage-based cost in window: {window_cost}; billing-cycle overage: {cycle_spend}; "
+            f"30-day run rate (org-wide usage cost): {run_rate}; "
+            f"total included usage this billing cycle (org-wide): {included_usage}; "
             f"{seat_phrase}; cost per active engineer: {cost_per_active}. "
             f"Cost trend: {trend_note}. "
             + implication
@@ -943,15 +951,22 @@ def build_cursor_usage_report(
     # source failed; the slide is omitted/blank rather than showing misleading numbers).
     efficiency = _build_efficiency(lines_rollup, events_rollup, window_days=window_days)
 
-    # Spend (current billing cycle).
+    # Spend (current billing cycle): overallSpendCents (total), includedSpendCents (seat-included
+    # consumption), spendCents (overage beyond included — usually $0 early in cycle).
     spend_rows: list[dict[str, Any]] = []
     spend_by_email: dict[str, float] = {}
+    included_by_email: dict[str, float] | None = None
     try:
         spend_rows = client.get_spend()
+        included_rows: dict[str, float] = {}
         for r in spend_rows:
             email = r.get("email")
             if email:
                 spend_by_email[email] = float(r.get("overallSpendCents") or 0)
+                if "includedSpendCents" in r:
+                    if included_by_email is None:
+                        included_by_email = included_rows
+                    included_rows[email] = float(r.get("includedSpendCents") or 0)
     except CursorClientError as e:
         errors.append(f"spend: {e}")
 
@@ -966,6 +981,9 @@ def build_cursor_usage_report(
     top_users, bottom_users = _volume_user_rows(top_users_src, spend_by_email)
 
     total_spend_cents = sum(spend_by_email.values()) if spend_by_email else None
+    total_included_spend_cents = (
+        sum(included_by_email.values()) if included_by_email is not None else None
+    )
 
     warnings: list[str] = []
 
@@ -992,6 +1010,7 @@ def build_cursor_usage_report(
                     engineer_emails=engineer_emails,
                     engineer_headcount=engineer_headcount,
                     spend_by_email=spend_by_email,
+                    included_by_email=included_by_email,
                     cursor_members=members,
                     org_charged_cents=events_rollup.get("charged_cents"),
                 )
@@ -1088,6 +1107,7 @@ def build_cursor_usage_report(
             "event_count": events_rollup.get("event_count", 0),
             "charged_cents_window": events_rollup.get("charged_cents"),
             "spend_cents_cycle": total_spend_cents,
+            "included_spend_cents_cycle": total_included_spend_cents,
         },
         "monthly": monthly,
         "daily": events_rollup.get("daily", []),

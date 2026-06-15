@@ -493,7 +493,7 @@ def test_speaker_notes_data_quality_uses_deck_scoped_governance_traces():
             ],
         },
     }
-    entry = {"slide_type": "data_quality", "title": "Data Sources & Quality"}
+    entry = {"slide_type": "data_quality", "title": "Data Governance"}
     notes = _build_slide_jql_speaker_notes(report, entry)
     assert "engineering-portfolio" in notes
     assert "Scope" in notes
@@ -510,7 +510,7 @@ def test_speaker_notes_jql_structured_description_trace_format():
             ],
         },
     }
-    entry = {"slide_type": "data_quality", "title": "Data Sources & Quality"}
+    entry = {"slide_type": "data_quality", "title": "Data Governance"}
     notes = _build_slide_jql_speaker_notes(report, entry)
     assert "• HELP test slice — Atlassian Jira" in notes
     assert "  project = HELP ORDER BY created DESC" in notes

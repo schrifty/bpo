@@ -1,4 +1,4 @@
-"""Data Sources & Quality slide — governance, lineage, and cross-check findings."""
+"""Data Governance slide — sourcing, lineage, and cross-check findings."""
 
 from __future__ import annotations
 
@@ -21,12 +21,19 @@ _RED = {"red": 0.85, "green": 0.15, "blue": 0.15}
 _SEV_COLOR = {"ERROR": _RED, "WARNING": _AMBER, "INFO": GRAY}
 _SEV_DOT = {"ERROR": "\u2716", "WARNING": "\u26a0", "INFO": "\u2139"}
 
+_SLIDE_TITLE = "Data Governance"
+
+# One sans family (FONT) across the slide; title uses FONT_SERIF via slide_title().
+_SECTION_PT = 10.0
+_BODY_PT = 9.0
+_DETAIL_PT = 8.5
+_FOOTNOTE_PT = 8.0
+_PILL_PT = 9.0
+
 _PILL_W = 118.0
 _PILL_H = 20.0
 _PILL_GAP = 6.0
-_SECTION_PT = 9.0
-_BODY_PT = 8.0
-_LINE_H = 11.0
+_LINE_H = 12.0
 
 
 def _status_icon_color(status: str) -> tuple[str, dict[str, float]]:
@@ -62,13 +69,13 @@ def _render_bullet_lines(
     lines: list[str],
     *,
     color: dict[str, float] = NAVY,
-    size: float = _BODY_PT,
 ) -> float:
     for i, line in enumerate(lines):
         text = _truncate(line, 120)
         oid = f"{page_sid}_{oid_prefix}{i}"
-        _box(reqs, oid, page_sid, MARGIN + 4, y, CONTENT_W - 4, _LINE_H, f"· {text}")
-        _style(reqs, oid, 0, len(text) + 2, size=size, color=color, font=FONT)
+        full = f"· {text}"
+        _box(reqs, oid, page_sid, MARGIN + 4, y, CONTENT_W - 4, _LINE_H, full)
+        _style(reqs, oid, 0, len(full), size=_BODY_PT, color=color, font=FONT)
         y += _LINE_H
     return y
 
@@ -90,7 +97,9 @@ def _render_source_pills(
         if x + _PILL_W > max_x and x > MARGIN:
             x = MARGIN
             row_y += _PILL_H + _PILL_GAP
-        _pill(reqs, f"{page_sid}_src{idx}", page_sid, x, row_y, _PILL_W, _PILL_H, label, WHITE, color)
+        pill_id = f"{page_sid}_src{idx}"
+        _pill(reqs, pill_id, page_sid, x, row_y, _PILL_W, _PILL_H, label, WHITE, color)
+        _style(reqs, pill_id, 0, len(label), bold=True, size=_PILL_PT, color=color, font=FONT)
         x += _PILL_W + _PILL_GAP
     return row_y + _PILL_H + 8
 
@@ -114,10 +123,10 @@ def _render_flag_row(page_sid: str, flag_index: int, flag: dict, y_pos: float, r
         full = full[:117] + "..."
     object_id = f"{page_sid}_f{flag_index}"
     _box(reqs, object_id, page_sid, MARGIN, y_pos, CONTENT_W, 18, full)
-    _style(reqs, object_id, 0, len(full), size=9, color=NAVY, font=FONT)
-    _style(reqs, object_id, 0, len(dot), color=dot_color, size=10, bold=True)
+    _style(reqs, object_id, 0, len(full), size=_BODY_PT, color=NAVY, font=FONT)
+    _style(reqs, object_id, 0, len(dot), color=dot_color, size=_BODY_PT, bold=True, font=FONT)
     if detail:
-        _style(reqs, object_id, len(line), len(full), color=GRAY, size=8)
+        _style(reqs, object_id, len(line), len(full), color=GRAY, size=_DETAIL_PT, font=FONT)
 
 
 def data_quality_slide(reqs: list[dict], sid: str, report: dict, idx: int) -> tuple[int, list[str]]:
@@ -169,7 +178,7 @@ def data_quality_slide(reqs: list[dict], sid: str, report: dict, idx: int) -> tu
         _bg(reqs, page_sid, page_bg)
 
         if page_index == 0:
-            _slide_title(reqs, page_sid, "Data Sources & Quality")
+            _slide_title(reqs, page_sid, _SLIDE_TITLE)
             y = _render_source_pills(reqs, page_sid, sources, BODY_Y)
 
             if isinstance(gov, dict):
@@ -190,7 +199,7 @@ def data_quality_slide(reqs: list[dict], sid: str, report: dict, idx: int) -> tu
                         f"{row.get('description', 'Data')} — {row.get('source', '?')}: {row.get('query', '')}"
                         for row in lineage[:6]
                     ]
-                    y = _render_bullet_lines(reqs, page_sid, "ln", y, lineage_lines, color=GRAY, size=7.5)
+                    y = _render_bullet_lines(reqs, page_sid, "ln", y, lineage_lines, color=GRAY)
 
             if total_flags == 0:
                 status = f"All {total_checks} cross-source checks passed"
@@ -208,14 +217,14 @@ def data_quality_slide(reqs: list[dict], sid: str, report: dict, idx: int) -> tu
             if chunk:
                 y = _render_section_header(reqs, page_sid, "dc_h", y, "Known gaps & discrepancies")
                 _box(reqs, f"{page_sid}_st", page_sid, MARGIN, y, CONTENT_W, 14, status)
-                _style(reqs, f"{page_sid}_st", 0, len(status), bold=True, size=10, color=status_color, font=FONT)
+                _style(reqs, f"{page_sid}_st", 0, len(status), bold=True, size=_BODY_PT, color=status_color, font=FONT)
                 y += 18
             else:
                 _box(reqs, f"{page_sid}_st", page_sid, MARGIN, y, CONTENT_W, 14, status)
-                _style(reqs, f"{page_sid}_st", 0, len(status), bold=True, size=10, color=status_color, font=FONT)
+                _style(reqs, f"{page_sid}_st", 0, len(status), bold=True, size=_BODY_PT, color=status_color, font=FONT)
                 y += 18
         else:
-            title = f"Data Sources & Quality — findings ({page_index + 1} of {num_pages})"
+            title = f"{_SLIDE_TITLE} — findings ({page_index + 1} of {num_pages})"
             _slide_title(reqs, page_sid, title)
             y = BODY_Y
 
@@ -235,6 +244,6 @@ def data_quality_slide(reqs: list[dict], sid: str, report: dict, idx: int) -> tu
             )
             note_y = max(y + 4, BODY_BOTTOM - 32)
             _box(reqs, f"{page_sid}_note", page_sid, MARGIN, note_y, CONTENT_W, 24, footnote)
-            _style(reqs, f"{page_sid}_note", 0, len(footnote), size=7, color=GRAY, font=FONT, italic=True)
+            _style(reqs, f"{page_sid}_note", 0, len(footnote), size=_FOOTNOTE_PT, color=GRAY, font=FONT, italic=True)
 
     return idx + num_pages, object_ids

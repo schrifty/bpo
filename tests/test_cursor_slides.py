@@ -1,10 +1,12 @@
-"""Render tests for the three Cursor AI-coding slides (cost / usage / users).
+"""Render tests for Cursor AI-coding slides (cost / usage / users / efficiency).
 
-Charts are skipped (no ``_charts`` in the report), so these assert the text surfaces:
-title, subtitle, KPI cards, share bars, and tables.
+Without ``_charts`` in the report, chart panels are omitted. Chart-specific tests use a
+MagicMock ``_charts`` and assert embed requests plus bordered panel shapes.
 """
 
 from __future__ import annotations
+
+from unittest.mock import MagicMock
 
 from src.slide_engineering_portfolio import (
     cursor_cost_slide,
@@ -27,8 +29,9 @@ def _cursor_report() -> dict:
             "input_tokens": 900_000,
             "output_tokens": 300_000,
             "event_count": 5_000,
-            "charged_cents_window": 25_000,
+            "charged_cents_window": 978_700,
             "spend_cents_cycle": 41_000,
+            "included_spend_cents_cycle": 500_000,
         },
         "daily": [
             {"date": "2026-04-01", "label": "4/1", "input_tokens": 400_000, "output_tokens": 120_000,
@@ -48,6 +51,7 @@ def _cursor_report() -> dict:
             "totals": {
                 "charged_cents_window": 25_000,
                 "spend_cents_cycle": 41_000,
+                "included_spend_cents_cycle": 400_000,
             },
             "daily": [
                 {"date": "2026-04-01", "label": "4/1", "cents": 11_000, "active_users": 4},
@@ -196,45 +200,64 @@ def _title(reqs: list, sid: str) -> str:
     return ""
 
 
-def _subtitle(reqs: list, sid: str) -> str:
-    for r in reqs:
-        if isinstance(r, dict) and "insertText" in r and r["insertText"].get("objectId") == f"{sid}_sub":
-            return r["insertText"]["text"]
-    return ""
+def _chart_embeds(reqs: list) -> list[dict]:
+    return [r["createSheetsChart"] for r in reqs if isinstance(r, dict) and "createSheetsChart" in r]
+
+
+def _chart_panel_ids(reqs: list, sid: str) -> list[str]:
+    return [
+        r["createShape"]["objectId"]
+        for r in reqs
+        if isinstance(r, dict)
+        and r.get("createShape", {}).get("shapeType") == "RECTANGLE"
+        and str(r["createShape"].get("objectId", "")).startswith(f"{sid}_")
+        and str(r["createShape"]["objectId"]).endswith("_pnl")
+    ]
+
+
+def _mock_charts() -> MagicMock:
+    charts = MagicMock()
+    charts.add_bar_chart.return_value = ("spreadsheet_id", 101)
+    charts.add_combo_chart.return_value = ("spreadsheet_id", 102)
+    return charts
 
 
 def test_cost_slide_renders_spend_and_model_cost() -> None:
+    rep = _cursor_report()
+    rep["_charts"] = _mock_charts()
     reqs: list = []
-    cursor_cost_slide(reqs, "sid_c", _cursor_report(), 0)
+    cursor_cost_slide(reqs, "sid_c", rep, 0)
     assert _title(reqs, "sid_c") == "Cursor AI Coding Spend"
-    sub = _subtitle(reqs, "sid_c")
-    # Leads with usage cost ($250 = 25,000 cents); overage ($410) shown as overage.
-    assert "$250" in sub and "$410" in sub
     text = _texts(reqs)
-    assert "Usage cost" in text
+    assert "30d run rate" in text
     assert "Cost / active eng" in text
     assert "Active engineers" in text
-    assert "Cycle overage" in text
+    assert "Total included usage" in text
+    assert "$9,787" in text  # org-wide 30d run rate (978_700 cents)
+    assert "$5,000" in text  # org-wide included usage (500_000 cents)
+    assert "Usage cost" not in text
+    assert "Cycle overage" not in text
     # Engineer-scoped slide must not show seat-based metrics.
     assert "Idle" not in text
-    assert "dev-* engineers" in text
     assert "30d" in text
     assert "Spend by model" in text
+    combo_title = rep["_charts"].add_combo_chart.call_args.kwargs["title"]
+    assert "Cost over time" in combo_title
+    assert "dev-* engineers" in combo_title
+    assert len(_chart_embeds(reqs)) == 1
+    assert _chart_panel_ids(reqs, "sid_c")
     # Per-model cost dollar value appears.
     assert "$180" in text  # claude cost (18,000 cents)
 
 
-def test_cost_slide_no_overage_leads_with_usage_cost() -> None:
+def test_cost_slide_missing_included_usage_shows_dash() -> None:
     rep = _cursor_report()
-    rep["cursor_usage"]["totals"]["spend_cents_cycle"] = 0
-    rep["cursor_usage"]["cost_engineers"]["totals"]["spend_cents_cycle"] = 0
+    rep["cursor_usage"]["totals"]["included_spend_cents_cycle"] = None
     reqs: list = []
     cursor_cost_slide(reqs, "sid_c0", rep, 0)
-    sub = _subtitle(reqs, "sid_c0")
-    assert "$250" in sub  # usage cost still leads
     text = _texts(reqs)
-    # Subtitle states there is no overage rather than a bare $0 spend card.
-    assert "no cycle overage" in _subtitle(reqs, "sid_c0")
+    assert "Total included usage" in text
+    assert "—" in text  # missing includedSpendCents → dash on KPI card
 
 
 def test_users_slide_renders_token_volume_columns() -> None:
@@ -251,36 +274,37 @@ def test_users_slide_renders_token_volume_columns() -> None:
 
 
 def test_usage_slide_renders_tokens_and_chart_only() -> None:
+    rep = _cursor_report()
+    rep["_charts"] = _mock_charts()
     reqs: list = []
-    cursor_usage_slide(reqs, "sid_u", _cursor_report(), 0)
+    cursor_usage_slide(reqs, "sid_u", rep, 0)
     assert _title(reqs, "sid_u") == "Cursor AI Token Usage"
     text = _texts(reqs)
     assert "Input tokens" in text and "Output tokens" in text
-    assert "Tokens over time" in text
-    assert "dev-* engineers" in text
     assert "30d" in text
+    # Chart title is in the embedded Sheets chart, not a duplicate slide-level header.
+    title_arg = rep["_charts"].add_bar_chart.call_args.kwargs["title"]
+    assert "Tokens over time" in title_arg
+    assert "dev-* engineers" in title_arg
+    assert len(_chart_embeds(reqs)) == 1
+    assert _chart_panel_ids(reqs, "sid_u")
     # The per-model mix panel moved to the dedicated model-usage slide.
     assert "Model usage (by tokens)" not in text
-    # input/output ratio in subtitle.
-    assert "in/out" in _subtitle(reqs, "sid_u")
 
 
 def test_usage_non_engineers_slide_renders_scoped_tokens() -> None:
+    rep = _cursor_report()
+    rep["_charts"] = _mock_charts()
     reqs: list = []
-    cursor_usage_non_engineers_slide(reqs, "sid_un", _cursor_report(), 0)
+    cursor_usage_non_engineers_slide(reqs, "sid_un", rep, 0)
     assert _title(reqs, "sid_un") == "Cursor AI Token Usage — Non-Engineering"
     text = _texts(reqs)
     assert "Input tokens" in text and "Output tokens" in text
-    assert "non-engineering users" in text
     assert "30d" in text
-    assert "Tokens over time" in text
-    # The per-model mix panel moved to the dedicated model-usage slide.
-    assert "Model usage (by tokens)" not in text
-    sub = _subtitle(reqs, "sid_un")
-    assert "200K" in sub or "200" in sub
-    assert "active users" in sub
-    # No seat-based "of N seats" framing on a scoped slide.
-    assert "seats" not in sub
+    title_arg = rep["_charts"].add_bar_chart.call_args.kwargs["title"]
+    assert "Tokens over time" in title_arg
+    assert "non-engineering users" in title_arg
+    assert len(_chart_embeds(reqs)) == 1
 
 
 def test_model_usage_slide_renders_both_audiences_and_percentages() -> None:
@@ -305,8 +329,10 @@ def test_model_usage_slide_renders_both_audiences_and_percentages() -> None:
 
 
 def test_users_slide_renders_power_users_and_concentration() -> None:
+    rep = _cursor_report()
+    rep["_charts"] = _mock_charts()
     reqs: list = []
-    cursor_users_slide(reqs, "sid_w", _cursor_report(), 0)
+    cursor_users_slide(reqs, "sid_w", rep, 0)
     assert _title(reqs, "sid_w") == "Cursor AI Power Users"
     text = _texts(reqs)
     assert "Top-user share" in text
@@ -316,41 +342,46 @@ def test_users_slide_renders_power_users_and_concentration() -> None:
     assert "Idle" not in text
     assert "Highest volume" in text
     assert "Lowest volume" in text
-    assert "dev-* engineers" in text
     assert "30d" in text
+    title_arg = rep["_charts"].add_bar_chart.call_args.kwargs["title"]
+    assert "dev-* engineers" in title_arg
+    assert len(_chart_embeds(reqs)) == 1
     assert "ada" in text  # short email of top user
     assert "grace" in text  # short email of low-volume user
-    # Subtitle reports active count and concentration, not seats.
-    sub = _subtitle(reqs, "sid_w")
-    assert "active engineers" in sub
-    assert "seats" not in sub
 
 
 def test_users_non_engineers_slide_renders_scoped_power_users() -> None:
+    rep = _cursor_report()
+    rep["_charts"] = _mock_charts()
     reqs: list = []
-    cursor_users_non_engineers_slide(reqs, "sid_wn", _cursor_report(), 0)
+    cursor_users_non_engineers_slide(reqs, "sid_wn", rep, 0)
     assert _title(reqs, "sid_wn") == "Cursor AI Power Users — Non-Engineering"
     text = _texts(reqs)
     assert "Active users" in text
-    assert "non-engineering users" in text
     assert "30d" in text
+    title_arg = rep["_charts"].add_bar_chart.call_args.kwargs["title"]
+    assert "non-engineering users" in title_arg
+    assert len(_chart_embeds(reqs)) == 1
     assert "pm" in text
     assert "Highest volume" in text
 
 
 def test_efficiency_slide_renders_ratios_and_engineers() -> None:
+    rep = _cursor_report()
+    rep["_charts"] = _mock_charts()
     reqs: list = []
-    cursor_efficiency_slide(reqs, "sid_e", _cursor_report(), 0)
+    cursor_efficiency_slide(reqs, "sid_e", rep, 0)
     assert _title(reqs, "sid_e") == "Cursor AI Coding Efficiency"
     text = _texts(reqs)
     assert "Lines kept" in text
     assert "Lines / 1K tokens" in text
     assert "Most efficient engineers" in text
     assert "30d" in text
+    combo_title = rep["_charts"].add_combo_chart.call_args.kwargs["title"]
+    assert "Output vs. cost over time" in combo_title
+    assert len(_chart_embeds(reqs)) == 1
     assert "ada" in text  # short email of most-efficient engineer
     assert "0.21" in text  # cost per accepted line shown in cents (0.21¢)
-    # Subtitle leads with accepted lines and lines-kept ratio.
-    assert "kept" in _subtitle(reqs, "sid_e")
 
 
 def test_cursor_slides_emit_missing_data_when_unconfigured() -> None:

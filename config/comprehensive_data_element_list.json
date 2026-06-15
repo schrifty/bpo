@@ -2891,10 +2891,24 @@
       ]
     },
     {
+      "path": "cursor_usage.totals.included_spend_cents_cycle",
+      "terms": [
+        "cursor_usage.totals.included_spend_cents_cycle",
+        "[report] org-wide seat-included usage cents this billing cycle (sum of includedSpendCents from /teams/spend)"
+      ]
+    },
+    {
+      "path": "cursor_usage.cost_engineers.totals.included_spend_cents_cycle",
+      "terms": [
+        "cursor_usage.cost_engineers.totals.included_spend_cents_cycle",
+        "[report] dev-* engineer subset of includedSpendCents this billing cycle"
+      ]
+    },
+    {
       "path": "_governance",
       "terms": [
         "_governance",
-        "[report] deck-scoped data governance blob for Data Sources & Quality slide"
+        "[report] deck-scoped data governance blob for Data Governance slide"
       ]
     },
     {
