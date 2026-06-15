@@ -228,7 +228,9 @@ def test_focus_takeaways_return_per_slide_keys(monkeypatch) -> None:
     monkeypatch.setattr("src.config.llm_client", lambda: _Client())
     rep = build_cursor_usage_report(client=_RichClient())
     out = generate_cursor_usage_takeaways(rep)
-    assert set(out.keys()) == {"cost", "usage", "users", "efficiency"}
+    assert set(out.keys()) == {
+        "cost", "usage", "usage_non_engineers", "users", "users_non_engineers", "efficiency",
+    }
     assert all(v for v in out.values())
 
 

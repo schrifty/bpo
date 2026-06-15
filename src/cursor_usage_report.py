@@ -152,19 +152,25 @@ def _build_monthly_trend(client: CursorClient, *, months: int, end: datetime) ->
     ]
 
 
-def _build_events_rollup(
-    client: CursorClient, *, window_days: int, end: datetime
+def _email_in_filter(email: Any, email_filter: set[str] | None) -> bool:
+    if email_filter is None:
+        return True
+    if not email:
+        return False
+    return str(email).strip().casefold() in email_filter
+
+
+def _rollup_usage_events(
+    events: list[dict[str, Any]],
+    *,
+    email_filter: set[str] | None = None,
+    email_exclude: set[str] | None = None,
 ) -> dict[str, Any]:
-    """Token totals, cost, model mix, daily trend, and per-user behavior from events.
+    """Aggregate usage events into cost/token rollups, optionally scoped by email.
 
-    Usage events are the only source carrying token-level and authoritative cost detail
-    (``chargedCents``), so all three Cursor slides — cost, usage, and user behavior —
-    are driven from this one paginated pull.
+    *email_filter* keeps only matching users; *email_exclude* drops matching users and
+    events with no ``userEmail`` (so engineer / non-engineer partitions stay disjoint).
     """
-    start = end - timedelta(days=max(1, window_days))
-    # Large page size keeps the request count (and thus rate-limit pressure) low.
-    events = client.get_usage_events(start, end, page_size=500, max_events=_MAX_EVENTS)
-
     input_tokens = output_tokens = 0
     charged_cents = 0.0
     by_model_events: dict[str, int] = defaultdict(int)
@@ -184,15 +190,20 @@ def _build_events_rollup(
     day_events: dict[str, int] = defaultdict(int)
     day_users: dict[str, set] = defaultdict(set)
 
-    # Cursor drops ``userEmail`` on events for since-removed members (and the numeric
-    # userId filter rejects the string member IDs), so those tokens cannot be attributed
-    # to a user. Track the unattributed slice so the report can warn instead of silently
-    # understating per-user/top-user totals.
     unattributed_events = 0
     unattributed_tokens = 0
     unattributed_cents = 0.0
+    event_count = 0
 
     for e in events:
+        email = e.get("userEmail")
+        if email_filter is not None and not _email_in_filter(email, email_filter):
+            continue
+        if email_exclude is not None:
+            if not email or _email_in_filter(email, email_exclude):
+                continue
+
+        event_count += 1
         in_t, out_t = _event_io_tokens(e)
         input_tokens += in_t
         output_tokens += out_t
@@ -204,7 +215,6 @@ def _build_events_rollup(
         by_model_tokens[model] += toks
         by_model_cents[model] += cents
 
-        email = e.get("userEmail")
         if email:
             user_tokens[email] += toks
             user_input[email] += in_t
@@ -212,7 +222,7 @@ def _build_events_rollup(
             user_events[email] += 1
             user_cents[email] += cents
             user_model_tokens[email][model] += toks
-        else:
+        elif email_filter is None:
             unattributed_events += 1
             unattributed_tokens += toks
             unattributed_cents += cents
@@ -258,7 +268,6 @@ def _build_events_rollup(
         for email in sorted(user_tokens, key=lambda k: user_tokens[k], reverse=True)
     ]
 
-    # Daily time series (chronological) for cost-/tokens-over-time charts.
     day_keys = sorted(day_input.keys() | day_output.keys() | day_cents.keys() | day_users.keys())
     daily = [
         {
@@ -274,12 +283,10 @@ def _build_events_rollup(
         for k in day_keys
     ]
 
-    # Model-usage-by-user matrix for the behavior slide: top users × top models,
-    # with everything outside the top models folded into "Other".
     matrix = _build_user_model_matrix(top_users, user_model_tokens)
 
     return {
-        "event_count": len(events),
+        "event_count": event_count,
         "truncated": len(events) >= _MAX_EVENTS,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
@@ -292,6 +299,166 @@ def _build_events_rollup(
         "unattributed_tokens": unattributed_tokens,
         "unattributed_cents": round(unattributed_cents, 2),
         "_top_users": top_users,
+    }
+
+
+def _build_events_rollup(
+    client: CursorClient, *, window_days: int, end: datetime
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Fetch usage events and aggregate rollups. Returns ``(events, rollup)``."""
+    start = end - timedelta(days=max(1, window_days))
+    events = client.get_usage_events(start, end, page_size=500, max_events=_MAX_EVENTS)
+    return events, _rollup_usage_events(events)
+
+
+def _build_engineer_cost_scope(
+    events: list[dict[str, Any]],
+    *,
+    engineer_emails: set[str],
+    engineer_headcount: int,
+    spend_by_email: dict[str, float],
+    cursor_members: list[dict[str, Any]],
+    org_charged_cents: float | None,
+) -> dict[str, Any]:
+    """Engineering-squad-only cost metrics for the AI Coding Spend slide."""
+    eng_roll = _rollup_usage_events(events, email_filter=engineer_emails)
+    member_emails = {
+        str(m.get("email") or "").strip().casefold()
+        for m in cursor_members if m.get("email")
+    }
+    eng_spend = (
+        sum(
+            cents for email, cents in spend_by_email.items()
+            if str(email).strip().casefold() in engineer_emails
+        )
+        if spend_by_email else None
+    )
+    active = len(eng_roll.get("_top_users") or [])
+    seats = len(member_emails & engineer_emails)
+    out = {
+        "configured": True,
+        "headcount": engineer_headcount,
+        "seats": seats,
+        "active_window": active,
+        "totals": {
+            "charged_cents_window": eng_roll.get("charged_cents"),
+            "spend_cents_cycle": eng_spend,
+        },
+        "daily": eng_roll.get("daily", []),
+        "model_mix": eng_roll.get("model_mix", []),
+    }
+    if org_charged_cents and float(org_charged_cents) > 0:
+        eng_cents = float(eng_roll.get("charged_cents") or 0)
+        out["excluded_cents"] = round(float(org_charged_cents) - eng_cents, 2)
+    return out
+
+
+def _build_usage_scope(
+    events: list[dict[str, Any]],
+    *,
+    engineer_emails: set[str],
+    cursor_members: list[dict[str, Any]],
+    audience: str,
+) -> dict[str, Any]:
+    """Token-usage metrics scoped to engineers or non-engineers for the usage slides."""
+    member_emails = {
+        str(m.get("email") or "").strip().casefold()
+        for m in cursor_members if m.get("email")
+    }
+    if audience == "engineers":
+        roll = _rollup_usage_events(events, email_filter=engineer_emails)
+        seats = len(member_emails & engineer_emails)
+        label = "engineers"
+    else:
+        roll = _rollup_usage_events(events, email_exclude=engineer_emails)
+        seats = len(member_emails - engineer_emails)
+        label = "non_engineers"
+    active = len(roll.get("_top_users") or [])
+    return {
+        "configured": True,
+        "audience": label,
+        "seats": seats,
+        "active_window": active,
+        "totals": {
+            "total_tokens": roll.get("total_tokens", 0),
+            "input_tokens": roll.get("input_tokens", 0),
+            "output_tokens": roll.get("output_tokens", 0),
+            "event_count": roll.get("event_count", 0),
+            "charged_cents_window": roll.get("charged_cents"),
+        },
+        "daily": roll.get("daily", []),
+        "model_mix": roll.get("model_mix", []),
+    }
+
+
+def _volume_user_rows(
+    top_users_src: list[dict[str, Any]],
+    spend_by_email: dict[str, float],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Top/bottom user lists with spend joined, for the power-users slides."""
+
+    def _volume_user_row(u: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "email": u["email"],
+            "tokens": u["tokens"],
+            "input_tokens": u.get("input_tokens", 0),
+            "output_tokens": u.get("output_tokens", 0),
+            "events": u["events"],
+            "window_cents": u.get("cents"),
+            "models": u.get("models", []),
+            "spend_cents": spend_by_email.get(u["email"]),
+        }
+
+    top_users = [_volume_user_row(u) for u in top_users_src[:TOP_USERS_LIMIT]]
+    top_emails = {u["email"] for u in top_users}
+    bottom_src = sorted(top_users_src, key=lambda u: int(u.get("tokens") or 0))
+    bottom_users = [
+        _volume_user_row(u)
+        for u in bottom_src
+        if u.get("email") and u["email"] not in top_emails
+    ][:VOLUME_USER_LIST_LIMIT]
+    return top_users, bottom_users
+
+
+def _build_users_scope(
+    events: list[dict[str, Any]],
+    *,
+    engineer_emails: set[str],
+    cursor_members: list[dict[str, Any]],
+    spend_by_email: dict[str, float],
+    audience: str,
+) -> dict[str, Any]:
+    """Power-user metrics scoped to engineers or non-engineers for the users slides."""
+    member_emails = {
+        str(m.get("email") or "").strip().casefold()
+        for m in cursor_members if m.get("email")
+    }
+    if audience == "engineers":
+        roll = _rollup_usage_events(events, email_filter=engineer_emails)
+        seats = len(member_emails & engineer_emails)
+        label = "engineers"
+    else:
+        roll = _rollup_usage_events(events, email_exclude=engineer_emails)
+        seats = len(member_emails - engineer_emails)
+        label = "non_engineers"
+    top_users_src = roll.get("_top_users") or []
+    active = len(top_users_src)
+    top_users, bottom_users = _volume_user_rows(top_users_src, spend_by_email)
+    return {
+        "configured": True,
+        "audience": label,
+        "seats": seats,
+        "active_window": active,
+        "totals": {
+            "total_tokens": roll.get("total_tokens", 0),
+            "input_tokens": roll.get("input_tokens", 0),
+            "output_tokens": roll.get("output_tokens", 0),
+            "event_count": roll.get("event_count", 0),
+            "charged_cents_window": roll.get("charged_cents"),
+        },
+        "top_users": top_users,
+        "bottom_users": bottom_users,
+        "user_model_matrix": roll.get("user_model_matrix", {"users": [], "models": [], "series": {}}),
     }
 
 
@@ -482,8 +649,25 @@ def _focus_prompt(report: dict[str, Any], focus: str) -> str:
     window_cost = _cents_to_dollars(totals.get("charged_cents_window"))
 
     if focus == "cost":
+        cost_eng = report.get("cost_engineers") or {}
+        if cost_eng.get("configured"):
+            eng_totals = cost_eng.get("totals") or {}
+            daily = cost_eng.get("daily") or []
+            active = int(cost_eng.get("active_window") or 0)
+            seats = int(cost_eng.get("seats") or 0)
+            window_cost = _cents_to_dollars(eng_totals.get("charged_cents_window"))
+            cycle_spend = _cents_to_dollars(eng_totals.get("spend_cents_cycle"))
+            charged_window = eng_totals.get("charged_cents_window")
+            scope = "dev-* team members only"
+        else:
+            active = int(members.get("active_window") or 0)
+            seats = int(members.get("total") or 0)
+            window_cost = _cents_to_dollars(totals.get("charged_cents_window"))
+            cycle_spend = _cents_to_dollars(totals.get("spend_cents_cycle"))
+            charged_window = totals.get("charged_cents_window")
+            scope = "all Cursor seats"
         cost_per_active = (
-            _cents_to_dollars((totals.get("charged_cents_window") or 0) / active) if active else "unknown"
+            _cents_to_dollars((charged_window or 0) / active) if active else "unknown"
         )
         # Half-over-half average daily cost is far more robust than first->last day,
         # whose endpoints are noisy and often partial.
@@ -503,11 +687,13 @@ def _focus_prompt(report: dict[str, Any], focus: str) -> str:
                 )
             elif avg2 > 0:
                 trend_note = f"avg daily cost ramped to {_cents_to_dollars(avg2)}/day in the second half"
-        idle = max(0, seats - active)
+        idle = max(0, seats - active) if seats else 0
         return (
-            f"Cursor AI coding-assistant COST for the engineering org over the last {window_days} days. "
+            f"Cursor AI coding-assistant COST for the engineering org over the last {window_days} days "
+            f"({scope}). "
             f"Usage-based cost in window: {window_cost}; billing-cycle overage: {cycle_spend}; "
-            f"active engineers: {active} of {seats} seats ({idle} idle); cost per active engineer: {cost_per_active}. "
+            f"active engineers: {active} of {seats} engineer seats ({idle} idle); "
+            f"cost per active engineer: {cost_per_active}. "
             f"Cost trend: {trend_note}. "
             "Implication for a VP of Engineering about cost trajectory, ROI per active engineer, "
             "or idle paid seats — and the concrete next step. Do not invent a spend cap or a number "
@@ -536,43 +722,100 @@ def _focus_prompt(report: dict[str, Any], focus: str) -> str:
             "token/dollar or where efficiency is trending — and the concrete next step. Do not invent "
             "numbers not given above."
         )
-    if focus == "users":
+    if focus in ("users", "users_non_engineers"):
+        if focus == "users_non_engineers":
+            scope = report.get("users_non_engineers") or {}
+            scope_label = "non-engineering Atlassian team members (outside dev-* teams)"
+            user_noun = "users"
+        else:
+            scope = report.get("users_engineers") or {}
+            scope_label = "dev-* Atlassian team members"
+            user_noun = "engineers"
+        if scope.get("configured"):
+            top_users = scope.get("top_users") or []
+            bottom = scope.get("bottom_users") or []
+            active = int(scope.get("active_window") or 0)
+            seats = int(scope.get("seats") or 0)
+        else:
+            top_users = report.get("top_users") or []
+            bottom = report.get("bottom_users") or []
+            active = int(members.get("active_window") or 0)
+            seats = int(members.get("total") or 0)
+            scope_label = "all Cursor seats"
+            user_noun = "users"
         top_str = ", ".join(
             f"{(u.get('email') or '').split('@')[0]} ({int(u.get('tokens') or 0)} tok, "
             f"{(u.get('models') or [{}])[0].get('model', '?')})"
             for u in top_users[:4]
         ) or "none"
-        bottom = report.get("bottom_users") or []
         low_str = ", ".join(
             f"{(u.get('email') or '').split('@')[0]} ({int(u.get('tokens') or 0)} tok)"
             for u in bottom[:3]
         ) or "none"
-        return (
-            f"Cursor AI coding-assistant USER BEHAVIOR for the engineering org over the last {window_days} days. "
-            f"Active engineers: {active} of {seats} seats. Highest-volume users (tokens, top model): {top_str}. "
-            f"Lowest-volume active users: {low_str}. "
+        audience_note = (
             "Implication for a VP of Engineering about usage concentration among a few power users, "
             "under-adopted seats, idle seats, or uneven adoption — and the concrete next step?"
         )
-    # default: usage (tokens + models)
-    in_t = int(totals.get("input_tokens") or 0)
-    out_t = int(totals.get("output_tokens") or 0)
-    model_str = ", ".join(
-        f"{m.get('model')} {int(round(float(m.get('share') or 0) * 100))}%" for m in model_mix[:3]
-    ) or "none"
-    return (
-        f"Cursor AI coding-assistant USAGE for the engineering org over the last {window_days} days. "
-        f"Total tokens: {in_t + out_t} ({in_t} input / {out_t} output); "
-        f"active engineers: {active} of {seats}. Model mix by tokens: {model_str}. "
-        "Implication for a VP of Engineering about workload mix (input vs output), model concentration, "
-        "or cost-efficiency of model choice — and the concrete next step?"
-    )
+        if focus == "users_non_engineers":
+            audience_note = (
+                "Implication for a VP of Engineering about non-engineering power users, "
+                "under-adopted seats outside engineering, or whether these seats belong in "
+                "the engineering budget — and the concrete next step?"
+            )
+        return (
+            f"Cursor AI coding-assistant USER BEHAVIOR ({scope_label}) over the last {window_days} days. "
+            f"Active {user_noun}: {active} of {seats} seats. "
+            f"Highest-volume users (tokens, top model): {top_str}. "
+            f"Lowest-volume active users: {low_str}. "
+            + audience_note
+        )
+    if focus in ("usage", "usage_non_engineers"):
+        if focus == "usage_non_engineers":
+            scope = report.get("usage_non_engineers") or {}
+            scope_label = "non-engineering Atlassian team members (outside dev-* teams)"
+        else:
+            scope = report.get("usage_engineers") or {}
+            scope_label = "dev-* Atlassian team members"
+        if scope.get("configured"):
+            st = scope.get("totals") or {}
+            active = int(scope.get("active_window") or 0)
+            seats = int(scope.get("seats") or 0)
+            model_mix = scope.get("model_mix") or []
+            in_t = int(st.get("input_tokens") or 0)
+            out_t = int(st.get("output_tokens") or 0)
+        else:
+            active = int(members.get("active_window") or 0)
+            seats = int(members.get("total") or 0)
+            model_mix = report.get("model_mix") or []
+            in_t = int(totals.get("input_tokens") or 0)
+            out_t = int(totals.get("output_tokens") or 0)
+            scope_label = "all Cursor seats"
+        model_str = ", ".join(
+            f"{m.get('model')} {int(round(float(m.get('share') or 0) * 100))}%" for m in model_mix[:3]
+        ) or "none"
+        audience_note = (
+            "Implication for a VP of Engineering about workload mix (input vs output), model concentration, "
+            "or cost-efficiency of model choice — and the concrete next step?"
+        )
+        if focus == "usage_non_engineers":
+            audience_note = (
+                "Implication for a VP of Engineering about non-engineering Cursor adoption, model choice, "
+                "or whether this spend belongs in the engineering budget — and the concrete next step?"
+            )
+        return (
+            f"Cursor AI coding-assistant USAGE ({scope_label}) over the last {window_days} days. "
+            f"Total tokens: {in_t + out_t} ({in_t} input / {out_t} output); "
+            f"active users: {active} of {seats} seats. Model mix by tokens: {model_str}. "
+            + audience_note
+        )
+    raise ValueError(f"unknown cursor takeaway focus: {focus}")
 
 
 def generate_cursor_usage_takeaway(report: dict[str, Any], focus: str = "usage") -> str:
     """One-sentence VP 'what this means' implication for a Cursor slide.
 
-    *focus* selects the angle: ``"cost"``, ``"usage"``, or ``"users"``.
+    *focus* selects the angle: ``"cost"``, ``"usage"``, ``"usage_non_engineers"``,
+    ``"users"``, ``"users_non_engineers"``, or ``"efficiency"``.
     Mirrors the engineering portfolio takeaway pattern: LLM-written, single sentence.
     Returns ``""`` on any failure so the slide simply omits the band (no placeholder,
     consistent with the other engineering slides).
@@ -614,16 +857,18 @@ def generate_cursor_usage_takeaway(report: dict[str, Any], focus: str = "usage")
 
 
 def generate_cursor_usage_takeaways(report: dict[str, Any]) -> dict[str, str]:
-    """Per-slide takeaways for the four Cursor slides (cost, usage, efficiency, users).
-
-    Returns a dict keyed by focus; each value is ``""`` on failure so the slide
-    omits the band rather than rendering a placeholder.
-    """
+    """Per-slide takeaways for the Cursor slides (cost, usage ×2, users ×2, efficiency)."""
     if not report or not report.get("configured"):
-        return {"cost": "", "usage": "", "users": "", "efficiency": ""}
+        return {
+            "cost": "", "usage": "", "usage_non_engineers": "",
+            "users": "", "users_non_engineers": "", "efficiency": "",
+        }
     return {
         focus: generate_cursor_usage_takeaway(report, focus)
-        for focus in ("cost", "usage", "users", "efficiency")
+        for focus in (
+            "cost", "usage", "usage_non_engineers",
+            "users", "users_non_engineers", "efficiency",
+        )
     }
 
 
@@ -664,9 +909,10 @@ def build_cursor_usage_report(
         errors.append(f"daily-usage: {e}")
 
     # Token / model / per-user rollup from events.
+    events: list[dict[str, Any]] = []
     events_rollup: dict[str, Any] = {}
     try:
-        events_rollup = _build_events_rollup(client, window_days=window_days, end=end)
+        events, events_rollup = _build_events_rollup(client, window_days=window_days, end=end)
     except CursorClientError as e:
         errors.append(f"usage-events: {e}")
 
@@ -700,33 +946,72 @@ def build_cursor_usage_report(
         active_window = int(monthly[-1].get("active_users") or 0)
 
     # Join top / bottom users (by tokens) with spend. Bottom list excludes anyone already
-    # in the top list so the two columns never duplicate the same engineer.
-    def _volume_user_row(u: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "email": u["email"],
-            "tokens": u["tokens"],
-            "input_tokens": u.get("input_tokens", 0),
-            "output_tokens": u.get("output_tokens", 0),
-            "events": u["events"],
-            "window_cents": u.get("cents"),
-            "models": u.get("models", []),
-            "spend_cents": spend_by_email.get(u["email"]),
-        }
-
-    top_users = [_volume_user_row(u) for u in top_users_src[:TOP_USERS_LIMIT]]
-    top_emails = {u["email"] for u in top_users}
-    bottom_src = sorted(top_users_src, key=lambda u: int(u.get("tokens") or 0))
-    bottom_users = [
-        _volume_user_row(u)
-        for u in bottom_src
-        if u.get("email") and u["email"] not in top_emails
-    ][:VOLUME_USER_LIST_LIMIT]
+    # in the top list so the two columns never duplicate the same user.
+    top_users, bottom_users = _volume_user_rows(top_users_src, spend_by_email)
 
     total_spend_cents = sum(spend_by_email.values()) if spend_by_email else None
 
+    warnings: list[str] = []
+
+    # Engineer / non-engineer scoped blocks (unique names on dev-* vs other Atlassian teams).
+    cost_engineers: dict[str, Any] = {"configured": False}
+    usage_engineers: dict[str, Any] = {"configured": False}
+    usage_non_engineers: dict[str, Any] = {"configured": False}
+    users_engineers: dict[str, Any] = {"configured": False}
+    users_non_engineers: dict[str, Any] = {"configured": False}
+    if events:
+        try:
+            from .eng_team_roster import build_engineer_audience_scope
+            from .jira_client import JiraClient
+
+            jira = JiraClient()
+            scope = build_engineer_audience_scope(jira, timeout=60.0)
+            if scope.get("error"):
+                warnings.append(f"engineer/non-engineer scope: {scope['error']}")
+            elif scope.get("engineer_names"):
+                engineer_emails = scope["emails"]
+                engineer_headcount = int(scope.get("headcount") or 0)
+                cost_engineers = _build_engineer_cost_scope(
+                    events,
+                    engineer_emails=engineer_emails,
+                    engineer_headcount=engineer_headcount,
+                    spend_by_email=spend_by_email,
+                    cursor_members=members,
+                    org_charged_cents=events_rollup.get("charged_cents"),
+                )
+                usage_engineers = _build_usage_scope(
+                    events, engineer_emails=engineer_emails, cursor_members=members, audience="engineers",
+                )
+                usage_non_engineers = _build_usage_scope(
+                    events, engineer_emails=engineer_emails, cursor_members=members, audience="non_engineers",
+                )
+                users_engineers = _build_users_scope(
+                    events,
+                    engineer_emails=engineer_emails,
+                    cursor_members=members,
+                    spend_by_email=spend_by_email,
+                    audience="engineers",
+                )
+                users_non_engineers = _build_users_scope(
+                    events,
+                    engineer_emails=engineer_emails,
+                    cursor_members=members,
+                    spend_by_email=spend_by_email,
+                    audience="non_engineers",
+                )
+                excluded = cost_engineers.get("excluded_cents")
+                org_cents = float(events_rollup.get("charged_cents") or 0)
+                if excluded and org_cents > 0 and float(excluded) / org_cents >= 0.05:
+                    pct = round(float(excluded) / org_cents * 100, 1)
+                    warnings.append(
+                        f"AI Coding Spend excludes non-engineering usage "
+                        f"({pct}% of org window cost omitted; dev-* team members only)."
+                    )
+        except Exception as e:
+            warnings.append(f"engineer/non-engineer scope: {e}")
+
     # Surface (don't swallow) data-attribution gaps. These are warnings, not errors:
     # the totals are still correct in aggregate; only the per-user breakdown is affected.
-    warnings: list[str] = []
     unattributed_events = int(events_rollup.get("unattributed_events") or 0)
     unattributed_tokens = int(events_rollup.get("unattributed_tokens") or 0)
     if unattributed_events:
@@ -791,6 +1076,11 @@ def build_cursor_usage_report(
         "monthly": monthly,
         "daily": events_rollup.get("daily", []),
         "efficiency": efficiency,
+        "cost_engineers": cost_engineers,
+        "usage_engineers": usage_engineers,
+        "usage_non_engineers": usage_non_engineers,
+        "users_engineers": users_engineers,
+        "users_non_engineers": users_non_engineers,
         "top_users": top_users,
         "bottom_users": bottom_users,
         "model_mix": events_rollup.get("model_mix", []),
