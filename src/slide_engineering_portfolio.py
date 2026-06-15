@@ -631,6 +631,15 @@ def _eng_takeaway_bar(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
     """
     eng = report.get("eng_portfolio") or {}
     text = ((eng.get("takeaways") or {}).get(key) or "").strip()
+    _render_takeaway_band(reqs, sid, text)
+
+
+def _render_takeaway_band(reqs: list[dict[str, Any]], sid: str, text: str) -> None:
+    """Render the bottom 'what this means' band for a single implication sentence.
+
+    No-ops when *text* is empty so a slide never shows an orphan label.
+    """
+    text = (text or "").strip()
     if not text:
         return
     _rect(reqs, f"{sid}_tkdiv", sid, MARGIN, _ENG_TAKEAWAY_Y - 3.0, CONTENT_W, 1.2, _ENG_DIVIDER_FILL)
@@ -2164,6 +2173,478 @@ def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
         right_y += 14
 
     _eng_takeaway_bar(reqs, sid, report, "velocity")
+    return idx + 1
+
+
+def _fmt_tokens(value: Any) -> str:
+    """Compact token count: 3,200,000 → '3.2M', 12,400 → '12K'."""
+    try:
+        n = int(value or 0)
+    except (TypeError, ValueError):
+        return "—"
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.0f}K"
+    return str(n)
+
+
+def _fmt_cents(value: Any) -> str:
+    """Dollar amount from cents (whole dollars): 184029 → '$1,840'."""
+    if value is None:
+        return "—"
+    try:
+        return f"${float(value) / 100:,.0f}"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _short_email(email: str, max_chars: int = 22) -> str:
+    """Local-part only (drop the domain) for a consistent, compact user column."""
+    e = (email or "").strip()
+    local = e.split("@", 1)[0] if "@" in e else e
+    return _truncate_one_line(local, max_chars)
+
+
+def _eng_share_bar(
+    reqs: list[dict[str, Any]],
+    sid: str,
+    oid: str,
+    *,
+    label: str,
+    value_label: str,
+    fraction: float,
+    x: float,
+    y: float,
+    w: float,
+    bar_max_w: float,
+    color: dict[str, float],
+) -> None:
+    """One labelled horizontal share bar (model mix row)."""
+    _box(reqs, f"{sid}_{oid}_l", sid, x, y, w - bar_max_w - 8, 13, label)
+    _style(reqs, f"{sid}_{oid}_l", 0, len(label), size=8.5, color=NAVY, font=FONT)
+    bar_w = max(3.0, float(fraction) * bar_max_w)
+    bar_x = x + (w - bar_max_w)
+    _box(reqs, f"{sid}_{oid}_b", sid, bar_x, y + 3, bar_w, 8, "")
+    reqs.append(
+        {
+            "updateShapeProperties": {
+                "objectId": f"{sid}_{oid}_b",
+                "shapeProperties": {
+                    "shapeBackgroundFill": {"solidFill": {"color": {"rgbColor": color}}},
+                    "outline": {
+                        "outlineFill": {"solidFill": {"color": {"rgbColor": NAVY}}},
+                        "weight": {"magnitude": 0.75, "unit": "PT"},
+                    },
+                },
+                "fields": "shapeBackgroundFill,outline.outlineFill,outline.weight",
+            }
+        }
+    )
+    _box(reqs, f"{sid}_{oid}_v", sid, bar_x + bar_max_w + 2, y, 34, 13, value_label)
+    _style(reqs, f"{sid}_{oid}_v", 0, len(value_label), size=8, color=GRAY, font=FONT)
+
+
+def _cursor_blob(report: dict[str, Any]) -> dict[str, Any]:
+    return report.get("cursor_usage") or {}
+
+
+def _cursor_takeaway(cu: dict[str, Any], focus: str) -> str:
+    """Per-slide takeaway, falling back to the legacy single ``takeaway`` field."""
+    takeaways = cu.get("takeaways") or {}
+    return str(takeaways.get(focus) or cu.get("takeaway") or "").strip()
+
+
+def _cursor_context(reqs: list[dict[str, Any]], sid: str, cu: dict[str, Any], detail: str) -> None:
+    """Shared sourcing/context line under the title for the Cursor slides."""
+    window_days = int(cu.get("window_days") or 30)
+    errors = cu.get("errors") or []
+    context = f"Cursor Admin API  ·  {detail.format(window_days=window_days)}"
+    if errors:
+        context += f"  ·  partial data: {len(errors)} section(s) unavailable"
+    context = _truncate_one_line(context, 150)
+    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 12, context)
+    _style(reqs, f"{sid}_ctx", 0, len(context), size=9, color=GRAY, font=FONT)
+
+
+def _cursor_section_header(reqs: list[dict[str, Any]], sid: str, oid: str, x: float, y: float, w: float, text: str) -> float:
+    _box(reqs, f"{sid}_{oid}", sid, x, y, w, 14, text)
+    _style(reqs, f"{sid}_{oid}", 0, len(text), bold=True, size=10, color=NAVY, font=FONT)
+    return y + 16
+
+
+def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """AI coding-assistant COST for a VP of Engineering.
+
+    KPI cards (cycle spend, usage-based cost in window, active engineers, cost per active
+    engineer), a cost-over-time combo chart (daily $ bars + active-users line), and a
+    'where the spend goes' model-cost mix. Answers: is spend growing, and is it ROI-positive
+    per engineer or leaking into idle seats?
+    """
+    cu = _cursor_blob(report)
+    if not cu.get("configured"):
+        return _missing_data_slide(reqs, sid, report, idx, "Cursor usage (set CURSOR_ADMIN_API_KEY)")
+
+    members = cu.get("members") or {}
+    totals = cu.get("totals") or {}
+    daily = cu.get("daily") or []
+    model_mix = cu.get("model_mix") or []
+    window_days = int(cu.get("window_days") or 30)
+
+    seats = int(members.get("total") or 0)
+    active = int(members.get("active_window") or 0)
+    spend_cents = totals.get("spend_cents_cycle")
+    window_cents = totals.get("charged_cents_window")
+    cost_per_active = (float(window_cents) / active) if (window_cents is not None and active) else None
+
+    bits = []
+    if spend_cents is not None:
+        bits.append(f"{_fmt_cents(spend_cents)} this cycle")
+    if cost_per_active is not None:
+        bits.append(f"{_fmt_cents(cost_per_active)}/active engineer")
+    if seats:
+        bits.append(f"{active} of {seats} seats active")
+    subtitle = " · ".join(bits) if bits else "Cursor team spend"
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _eng_title(reqs, sid, "AI Coding Spend", subtitle)
+    _cursor_context(
+        reqs, sid, cu,
+        "cycle spend reconciles with billing  ·  daily cost is usage-based over the last {window_days} days",
+    )
+
+    kpi_y = _eng_kpi_row(
+        reqs, sid,
+        [
+            ("Spend (cycle)", _fmt_cents(spend_cents)),
+            (f"Usage cost ({window_days}d)", _fmt_cents(window_cents)),
+            ("Active engineers", f"{active} / {seats}" if seats else str(active)),
+            ("Cost / active eng", _fmt_cents(cost_per_active)),
+        ],
+        y=BODY_Y + 20,
+    )
+
+    body_top = kpi_y + 12
+    col_gap = 20
+    left_w = (CONTENT_W - col_gap) * 3 // 5
+    right_w = CONTENT_W - left_w - col_gap
+    left_x = MARGIN
+    right_x = MARGIN + left_w + col_gap
+    content_ceiling = _ENG_CONTENT_BOTTOM - 6
+    charts = report.get("_charts")
+
+    # ── Left: daily cost ($) bars + active-users line ─────────────────────────
+    left_y = _cursor_section_header(reqs, sid, "ch", left_x, body_top, left_w, "Cost over time (daily $)")
+    if daily and charts:
+        try:
+            from .charts import embed_chart
+
+            labels = [str(d.get("label") or d.get("date") or "") for d in daily]
+            cost_series = [round(float(d.get("cents") or 0) / 100.0, 2) for d in daily]
+            users_series = [int(d.get("active_users") or 0) for d in daily]
+            chart_h = int(max(120, min(190, content_ceiling - left_y - 6 - 18)))
+            ss_id, chart_id = charts.add_combo_chart(
+                title="Cost over time",
+                labels=labels,
+                bar_series={"Daily cost ($)": cost_series},
+                line_series={"Active users": users_series},
+                show_title=False,
+            )
+            embed_chart(reqs, f"{sid}_cchart", sid, ss_id, chart_id, left_x, left_y, left_w, chart_h, linked=False)
+            left_y += chart_h + 4
+            left_y = _slide_chart_legend(
+                reqs, sid, f"{sid}_clgd", left_x, left_y,
+                [("Daily cost ($)", BRAND_SERIES_COLORS[0]), ("Active users", BRAND_SERIES_COLORS[1])],
+                font_pt=9, swatch_size=9, entry_gap=14,
+            )
+        except Exception as exc:
+            logger.warning("Cursor cost chart embed failed: %s", exc)
+    else:
+        empty = "No usage-based cost in window"
+        _box(reqs, f"{sid}_ce", sid, left_x, left_y, left_w, 14, empty)
+        _style(reqs, f"{sid}_ce", 0, len(empty), size=9, color=GRAY, font=FONT)
+
+    # ── Right: where the spend goes (model cost mix) ──────────────────────────
+    right_y = _cursor_section_header(reqs, sid, "mch", right_x, body_top, right_w, "Where the spend goes (by model)")
+    model_cost = [m for m in model_mix if (m.get("cents") or 0) > 0]
+    total_cents = sum(float(m.get("cents") or 0) for m in model_cost)
+    if model_cost and total_cents > 0:
+        bar_max_w = 70.0
+        for i, m in enumerate(model_cost):
+            if right_y + 15 > content_ceiling:
+                break
+            frac = float(m.get("cents") or 0) / total_cents
+            label = _truncate_one_line(str(m.get("model") or "unknown"), 20)
+            _eng_share_bar(
+                reqs, sid, f"mc{i}",
+                label=label, value_label=_fmt_cents(m.get("cents")),
+                fraction=frac, x=right_x, y=right_y, w=right_w,
+                bar_max_w=bar_max_w, color=BRAND_SERIES_COLORS[i % len(BRAND_SERIES_COLORS)],
+            )
+            right_y += 15
+    else:
+        empty = "No model cost data in window"
+        _box(reqs, f"{sid}_mce", sid, right_x, right_y, right_w, 13, empty)
+        _style(reqs, f"{sid}_mce", 0, len(empty), size=9, color=GRAY, font=FONT)
+
+    _render_takeaway_band(reqs, sid, _cursor_takeaway(cu, "cost"))
+    return idx + 1
+
+
+def cursor_usage_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """AI coding-assistant USAGE (tokens + models) for a VP of Engineering.
+
+    KPI cards (total / input / output tokens, requests), a tokens-over-time combo chart
+    (daily input & output bars + active-users line), and a model-usage-by-tokens mix.
+    Answers: how much are we using it, what is the input/output workload shape, and which
+    models carry the volume?
+    """
+    cu = _cursor_blob(report)
+    if not cu.get("configured"):
+        return _missing_data_slide(reqs, sid, report, idx, "Cursor usage (set CURSOR_ADMIN_API_KEY)")
+
+    members = cu.get("members") or {}
+    totals = cu.get("totals") or {}
+    daily = cu.get("daily") or []
+    model_mix = cu.get("model_mix") or []
+    window_days = int(cu.get("window_days") or 30)
+
+    seats = int(members.get("total") or 0)
+    active = int(members.get("active_window") or 0)
+    total_tokens = int(totals.get("total_tokens") or 0)
+    input_tokens = int(totals.get("input_tokens") or 0)
+    output_tokens = int(totals.get("output_tokens") or 0)
+    events = int(totals.get("event_count") or 0)
+
+    io_ratio = f"{input_tokens / output_tokens:.1f}:1 in/out" if output_tokens else ""
+    bits = [f"{_fmt_tokens(total_tokens)} tokens in {window_days}d"]
+    if io_ratio:
+        bits.append(io_ratio)
+    if seats:
+        bits.append(f"{active} of {seats} engineers active")
+    subtitle = " · ".join(bits)
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _eng_title(reqs, sid, "AI Token Usage", subtitle)
+    _cursor_context(
+        reqs, sid, cu,
+        "token volume and model mix reflect usage events over the last {window_days} days",
+    )
+
+    kpi_y = _eng_kpi_row(
+        reqs, sid,
+        [
+            (f"Tokens ({window_days}d)", _fmt_tokens(total_tokens)),
+            ("Input tokens", _fmt_tokens(input_tokens)),
+            ("Output tokens", _fmt_tokens(output_tokens)),
+            ("Requests", _fmt_tokens(events)),
+        ],
+        y=BODY_Y + 20,
+    )
+
+    body_top = kpi_y + 12
+    col_gap = 20
+    left_w = (CONTENT_W - col_gap) * 3 // 5
+    right_w = CONTENT_W - left_w - col_gap
+    left_x = MARGIN
+    right_x = MARGIN + left_w + col_gap
+    content_ceiling = _ENG_CONTENT_BOTTOM - 6
+    charts = report.get("_charts")
+
+    # ── Left: tokens over time (input & output bars + active-users line) ──────
+    left_y = _cursor_section_header(reqs, sid, "th", left_x, body_top, left_w, "Tokens over time (daily)")
+    if daily and charts:
+        try:
+            from .charts import embed_chart
+
+            labels = [str(d.get("label") or d.get("date") or "") for d in daily]
+            in_series = [int(d.get("input_tokens") or 0) for d in daily]
+            out_series = [int(d.get("output_tokens") or 0) for d in daily]
+            users_series = [int(d.get("active_users") or 0) for d in daily]
+            chart_h = int(max(120, min(190, content_ceiling - left_y - 6 - 18)))
+            ss_id, chart_id = charts.add_combo_chart(
+                title="Tokens over time",
+                labels=labels,
+                bar_series={"Input": in_series, "Output": out_series},
+                line_series={"Active users": users_series},
+                show_title=False,
+            )
+            embed_chart(reqs, f"{sid}_tchart", sid, ss_id, chart_id, left_x, left_y, left_w, chart_h, linked=False)
+            left_y += chart_h + 4
+            left_y = _slide_chart_legend(
+                reqs, sid, f"{sid}_tlgd", left_x, left_y,
+                [("Input", BRAND_SERIES_COLORS[0]), ("Output", BRAND_SERIES_COLORS[1]),
+                 ("Active users", BRAND_SERIES_COLORS[2])],
+                font_pt=9, swatch_size=9, entry_gap=14,
+            )
+        except Exception as exc:
+            logger.warning("Cursor tokens chart embed failed: %s", exc)
+    else:
+        empty = "No token usage in window"
+        _box(reqs, f"{sid}_te", sid, left_x, left_y, left_w, 14, empty)
+        _style(reqs, f"{sid}_te", 0, len(empty), size=9, color=GRAY, font=FONT)
+
+    # ── Right: model usage (by tokens) ────────────────────────────────────────
+    right_y = _cursor_section_header(reqs, sid, "mmh", right_x, body_top, right_w, "Model usage (by tokens)")
+    if model_mix:
+        bar_max_w = 70.0
+        for i, m in enumerate(model_mix):
+            if right_y + 15 > content_ceiling:
+                break
+            share = float(m.get("share") or 0.0)
+            label = _truncate_one_line(str(m.get("model") or "unknown"), 20)
+            _eng_share_bar(
+                reqs, sid, f"mm{i}",
+                label=label, value_label=f"{int(round(share * 100))}%",
+                fraction=share, x=right_x, y=right_y, w=right_w,
+                bar_max_w=bar_max_w, color=BRAND_SERIES_COLORS[i % len(BRAND_SERIES_COLORS)],
+            )
+            right_y += 15
+    else:
+        empty = "No model data in window"
+        _box(reqs, f"{sid}_mme", sid, right_x, right_y, right_w, 13, empty)
+        _style(reqs, f"{sid}_mme", 0, len(empty), size=9, color=GRAY, font=FONT)
+
+    _render_takeaway_band(reqs, sid, _cursor_takeaway(cu, "usage"))
+    return idx + 1
+
+
+def cursor_users_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """AI coding-assistant USER BEHAVIOR for a VP of Engineering.
+
+    KPI cards (active engineers, adoption, top-user concentration, idle seats), a
+    model-usage-by-user stacked bar (who uses what), and a highest-volume users table
+    (tokens, cost, top model). Answers: is usage concentrated in a few power users, who
+    are they, and are paid seats sitting idle?
+    """
+    cu = _cursor_blob(report)
+    if not cu.get("configured"):
+        return _missing_data_slide(reqs, sid, report, idx, "Cursor usage (set CURSOR_ADMIN_API_KEY)")
+
+    members = cu.get("members") or {}
+    totals = cu.get("totals") or {}
+    top_users = cu.get("top_users") or []
+    matrix = cu.get("user_model_matrix") or {}
+    window_days = int(cu.get("window_days") or 30)
+
+    seats = int(members.get("total") or 0)
+    active = int(members.get("active_window") or 0)
+    total_tokens = int(totals.get("total_tokens") or 0)
+    adoption_pct = int(round(active / seats * 100)) if seats else 0
+    idle = max(0, seats - active) if seats else 0
+    top_share = (
+        int(round(int(top_users[0].get("tokens") or 0) / total_tokens * 100))
+        if top_users and total_tokens else 0
+    )
+
+    bits = []
+    if seats:
+        bits.append(f"{active} of {seats} engineers active ({adoption_pct}%)")
+    if top_share:
+        bits.append(f"top user = {top_share}% of tokens")
+    if idle:
+        bits.append(f"{idle} idle seats")
+    subtitle = " · ".join(bits) if bits else "Cursor user behavior"
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _eng_title(reqs, sid, "AI Power Users", subtitle)
+    _cursor_context(
+        reqs, sid, cu,
+        "per-user volume and model choice from usage events over the last {window_days} days",
+    )
+
+    kpi_y = _eng_kpi_row(
+        reqs, sid,
+        [
+            ("Active engineers", f"{active} / {seats}" if seats else str(active)),
+            ("Adoption", f"{adoption_pct}%" if seats else "—"),
+            ("Top-user share", f"{top_share}%" if top_share else "—"),
+            ("Idle seats", str(idle) if seats else "—"),
+        ],
+        y=BODY_Y + 20,
+    )
+
+    body_top = kpi_y + 12
+    col_gap = 20
+    left_w = (CONTENT_W - col_gap) * 3 // 5
+    right_w = CONTENT_W - left_w - col_gap
+    left_x = MARGIN
+    right_x = MARGIN + left_w + col_gap
+    content_ceiling = _ENG_CONTENT_BOTTOM - 6
+    charts = report.get("_charts")
+
+    # ── Left: model usage by user (stacked tokens) ────────────────────────────
+    left_y = _cursor_section_header(reqs, sid, "mh", left_x, body_top, left_w, "Model usage by user (tokens)")
+    m_users = matrix.get("users") or []
+    m_models = matrix.get("models") or []
+    m_series = matrix.get("series") or {}
+    if m_users and m_models and charts:
+        try:
+            from .charts import embed_chart
+
+            labels = [_short_email(u, 14) for u in m_users]
+            series = {model: [int(v) for v in (m_series.get(model) or [])] for model in m_models}
+            chart_h = int(max(120, min(190, content_ceiling - left_y - 6 - 18)))
+            ss_id, chart_id = charts.add_bar_chart(
+                title="Model usage by user",
+                labels=labels,
+                series=series,
+                stacked=True,
+                show_title=False,
+                suppress_legend=True,
+            )
+            embed_chart(reqs, f"{sid}_uchart", sid, ss_id, chart_id, left_x, left_y, left_w, chart_h, linked=False)
+            left_y += chart_h + 4
+            legend_entries = [
+                (m, BRAND_SERIES_COLORS[i % len(BRAND_SERIES_COLORS)]) for i, m in enumerate(m_models)
+            ]
+            left_y = _slide_chart_legend(
+                reqs, sid, f"{sid}_ulgd", left_x, left_y, legend_entries,
+                font_pt=8.5, swatch_size=9, entry_gap=12,
+            )
+        except Exception as exc:
+            logger.warning("Cursor user-model chart embed failed: %s", exc)
+    else:
+        empty = "No per-user model data in window"
+        _box(reqs, f"{sid}_ue", sid, left_x, left_y, left_w, 14, empty)
+        _style(reqs, f"{sid}_ue", 0, len(empty), size=9, color=GRAY, font=FONT)
+
+    # ── Right: highest-volume users table ─────────────────────────────────────
+    right_y = _cursor_section_header(reqs, sid, "th", right_x, body_top, right_w, "Highest-volume users")
+    header = f"{'User':<16}{'Tokens':>7}{'Cost':>7}"
+    _box(reqs, f"{sid}_tuh", sid, right_x, right_y, right_w, 13, header)
+    _style(reqs, f"{sid}_tuh", 0, len(header), bold=True, size=8, color=GRAY, font=MONO)
+    right_y += 14
+    if top_users:
+        for i, u in enumerate(top_users[:6]):
+            if right_y + 13 > content_ceiling:
+                break
+            name = _short_email(str(u.get("email") or ""), 16)
+            tok = _fmt_tokens(u.get("tokens"))
+            cost = (
+                _fmt_cents(u.get("spend_cents")) if u.get("spend_cents") is not None
+                else _fmt_cents(u.get("window_cents"))
+            )
+            row = f"{name:<16}{tok:>7}{cost:>7}"
+            _box(reqs, f"{sid}_tu{i}", sid, right_x, right_y, right_w, 13, row)
+            _style(reqs, f"{sid}_tu{i}", 0, len(row), size=8, color=NAVY, font=MONO)
+            right_y += 13
+            models = u.get("models") or []
+            if models:
+                top_model = _truncate_one_line(str(models[0].get("model") or ""), 28)
+                sub = f"  └ {top_model}"
+                _box(reqs, f"{sid}_tm{i}", sid, right_x, right_y, right_w, 11, sub)
+                _style(reqs, f"{sid}_tm{i}", 0, len(sub), size=7.5, color=GRAY, font=MONO)
+                right_y += 11
+    else:
+        empty = "No usage events in window"
+        _box(reqs, f"{sid}_tue", sid, right_x, right_y, right_w, 13, empty)
+        _style(reqs, f"{sid}_tue", 0, len(empty), size=9, color=GRAY, font=FONT)
+
+    _render_takeaway_band(reqs, sid, _cursor_takeaway(cu, "users"))
     return idx + 1
 
 

@@ -45,9 +45,60 @@ def enrich_deck_report_data(
 
     if deck_id in _ENG_PORTFOLIO_DECK_IDS:
         enrich_engineering_portfolio_if_needed(report, deck_id=deck_id)
+        slide_plan = enrich_cursor_usage_if_needed(report, slide_plan, deck_id=deck_id)
 
     report = enrich_leandna_shortage_if_needed(report, slide_plan, customer)
     return report, slide_plan
+
+
+def enrich_cursor_usage_if_needed(
+    report: dict[str, Any],
+    slide_plan: list[dict[str, Any]],
+    *,
+    deck_id: str = "engineering-portfolio",
+) -> list[dict[str, Any]]:
+    """Populate ``cursor_usage`` for eng decks; drop Cursor slides when unconfigured.
+
+    The Cursor slides (cost / usage / user behavior) are optional infrastructure — teams
+    without a ``CURSOR_ADMIN_API_KEY`` should not get empty/missing-data slides, so they
+    are filtered out of the plan instead. All three share the one ``cursor_usage`` blob.
+    """
+    cursor_slide_types = {"cursor_cost", "cursor_usage", "cursor_users"}
+
+    def _drop_cursor(plan: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [e for e in plan if e.get("slide_type") not in cursor_slide_types]
+
+    has_cursor_slide = any(e.get("slide_type") in cursor_slide_types for e in slide_plan)
+    if not has_cursor_slide:
+        return slide_plan
+
+    from .cursor_client import cursor_configured
+
+    if not cursor_configured():
+        logger.info("%s deck: CURSOR_ADMIN_API_KEY not set — omitting Cursor slides", deck_id)
+        return _drop_cursor(slide_plan)
+
+    if not report.get("cursor_usage"):
+        days = int(report.get("days") or 30)
+        try:
+            from .cursor_usage_report import (
+                build_cursor_usage_report,
+                generate_cursor_usage_takeaways,
+            )
+
+            logger.info("%s deck: building Cursor usage report", deck_id)
+            cursor_usage = build_cursor_usage_report(window_days=days)
+            if cursor_usage.get("configured"):
+                cursor_usage["takeaways"] = generate_cursor_usage_takeaways(cursor_usage)
+            report["cursor_usage"] = cursor_usage
+        except Exception as e:
+            logger.warning("%s: could not load cursor_usage: %s", deck_id, e)
+            report["cursor_usage"] = {"configured": True, "errors": [str(e)]}
+
+    # If the report came back unconfigured for any reason, drop the slides.
+    if not (report.get("cursor_usage") or {}).get("configured", False):
+        return _drop_cursor(slide_plan)
+    return slide_plan
 
 
 def enrich_engineering_portfolio_if_needed(report: dict[str, Any], *, deck_id: str = "engineering-portfolio") -> None:

@@ -28,4 +28,7 @@ slides:
   - slide: eng_bug_flow
   - slide: eng_backlog_health
   - slide: eng_support_pressure
+  - slide: cursor_cost
+  - slide: cursor_usage
+  - slide: cursor_users
   - slide: data_quality

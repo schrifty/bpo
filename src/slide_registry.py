@@ -16,6 +16,9 @@ from .slide_data_quality import data_quality_slide as _data_quality_slide
 from .slide_depth import depth_slide as _depth_slide
 from .slide_engagement import engagement_slide as _engagement_slide
 from .slide_engineering_portfolio import (
+    cursor_cost_slide as _cursor_cost_slide,
+    cursor_usage_slide as _cursor_usage_slide,
+    cursor_users_slide as _cursor_users_slide,
     customer_project_volume_trends_slide as _customer_project_volume_trends_slide,
     eng_backlog_health_slide as _eng_backlog_health_slide,
     eng_bug_flow_slide as _eng_bug_flow_slide,
@@ -218,6 +221,9 @@ _SLIDE_BUILDERS = {
     "eng_support_pressure": _eng_support_pressure_slide,
     "eng_jira_project": _eng_jira_project_slide,
     "eng_help_volume_trends": _eng_help_volume_trends_slide,
+    "cursor_cost": _cursor_cost_slide,
+    "cursor_usage": _cursor_usage_slide,
+    "cursor_users": _cursor_users_slide,
     "support_deck_cover": _support_deck_cover_slide,
     "support_intro": _support_intro_slide,
     "support_kpis_intake": _support_kpis_intake_slide,

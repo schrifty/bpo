@@ -1,0 +1,18 @@
+id: cursor_cost
+type: standard
+order: 84
+title: AI Coding Spend
+slide_type: cursor_cost
+data_tools: []
+customers: all
+
+prompt: >
+  AI coding-assistant (Cursor) cost slide for the engineering portfolio deck, aimed at a
+  VP of Engineering. Bottom-line subtitle states spend this billing cycle, cost per active
+  engineer, and how many seats are active. Four KPI cards cover cycle spend (reconciles
+  with billing), usage-based cost over the recent window, active engineers, and cost per
+  active engineer. A cost-over-time combo chart shows daily usage-based cost in dollars
+  (bars) with active users (line) so reviewers can see whether spend is growing and tracks
+  with adoption. A 'where the spend goes' panel ranks cost by model. Data comes from the
+  Cursor Team Admin API (chargedCents on usage events plus /teams/spend); the slide is
+  omitted when no CURSOR_ADMIN_API_KEY is configured.

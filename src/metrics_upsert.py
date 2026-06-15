@@ -143,6 +143,18 @@ def _invoke_get_dev_team_lead_time(ctx: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _invoke_get_ai_token_usage(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.cursor_ai_usage_metrics import get_ai_token_usage_value
+    from src.cursor_client import get_shared_cursor_client
+
+    client = get_shared_cursor_client()
+    return get_ai_token_usage_value(
+        client,
+        days=int(ctx.get("days") or 30),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
 def _invoke_get_service_threshold_tickets(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.jira_client import get_shared_jira_client
     from src.jira_service_threshold_tickets import get_service_threshold_ticket_count
@@ -182,6 +194,7 @@ _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_kpi_automation_pct": lambda ctx: get_kpi_automation_pct(registry=ctx["registry"]),
     "get_dev_team_cycle_times": _invoke_get_dev_team_cycle_times,
     "get_dev_team_lead_time": _invoke_get_dev_team_lead_time,
+    "get_ai_token_usage": _invoke_get_ai_token_usage,
     "get_service_threshold_tickets": _invoke_get_service_threshold_tickets,
     "get_sprint_delivery_by_team": _invoke_get_sprint_delivery_by_team,
     "get_sprint_story_points_by_team": _invoke_get_sprint_story_points_by_team,

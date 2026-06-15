@@ -1,0 +1,17 @@
+id: cursor_usage
+type: standard
+order: 86
+title: AI Token Usage
+slide_type: cursor_usage
+data_tools: []
+customers: all
+
+prompt: >
+  AI coding-assistant (Cursor) usage slide for the engineering portfolio deck, aimed at a
+  VP of Engineering. Bottom-line subtitle states total tokens over the recent window, the
+  input/output workload ratio, and how many engineers are active. Four KPI cards cover
+  total tokens, input tokens, output tokens, and request count. A tokens-over-time combo
+  chart shows daily input and output tokens (bars) with active users (line) so reviewers
+  can see volume trend and workload shape. A model-usage-by-tokens mix shows which models
+  carry the volume. Data comes from the Cursor Team Admin API usage events over the last
+  ~30 days; the slide is omitted when no CURSOR_ADMIN_API_KEY is configured.

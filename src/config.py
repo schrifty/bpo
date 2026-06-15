@@ -90,6 +90,24 @@ JIRA_CLOUD_ID = (os.environ.get("JIRA_CLOUD_ID") or "").strip() or None
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "").strip() or None
 GITHUB_API_BASE_URL = os.environ.get("GITHUB_API_BASE_URL", "https://api.github.com").strip().rstrip("/") or "https://api.github.com"
 
+# Rippling Platform API (optional — Bearer API key for HR org / employee / team rosters).
+# Create the token in the Rippling developer portal with employee:read, company:teams:read,
+# and company:departments:read scopes. Header-based versioning (Rippling-Api-Version) is optional.
+RIPPLING_API_KEY = os.environ.get("RIPPLING_API_KEY", "").strip() or None
+RIPPLING_API_BASE_URL = (
+    os.environ.get("RIPPLING_API_BASE_URL", "https://api.rippling.com/platform/api").strip().rstrip("/")
+    or "https://api.rippling.com/platform/api"
+)
+RIPPLING_API_VERSION = os.environ.get("RIPPLING_API_VERSION", "").strip() or None
+
+# Cursor Admin API (optional — Team Admin API key for AI coding usage / spend metrics)
+# Key is used as the HTTP Basic username (empty password). Create in Cursor dashboard → Settings.
+CURSOR_ADMIN_API_KEY = os.environ.get("CURSOR_ADMIN_API_KEY", "").strip() or None
+CURSOR_API_BASE_URL = (
+    os.environ.get("CURSOR_API_BASE_URL", "https://api.cursor.com").strip().rstrip("/")
+    or "https://api.cursor.com"
+)
+
 # Slack (optional — bot token for customer channel conversation digests)
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "").strip() or None
 SLACK_API_BASE_URL = (

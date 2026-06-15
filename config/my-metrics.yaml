@@ -50,9 +50,12 @@ metrics:
 
   # AI Token Usage
   "AI Token Usage":
-    description: null
+    description: >-
+      Total AI tokens (input + output) consumed by the team's Cursor usage over a
+      trailing 30-day window, summed from Cursor Admin API usage events by
+      get_ai_token_usage.
     metric-id: null
-    metric-generator: null
+    metric-generator: get_ai_token_usage
 
   # Median Time to Complete SUT (Weeks)
   "Median Time to Complete SUT (Weeks)":

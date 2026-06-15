@@ -1,0 +1,18 @@
+id: cursor_users
+type: standard
+order: 88
+title: AI Power Users
+slide_type: cursor_users
+data_tools: []
+customers: all
+
+prompt: >
+  AI coding-assistant (Cursor) user-behavior slide for the engineering portfolio deck,
+  aimed at a VP of Engineering. Bottom-line subtitle states adoption, how concentrated
+  usage is in the top user, and how many seats are idle. Four KPI cards cover active
+  engineers, adoption rate, top-user share of tokens, and idle seats. A model-usage-by-user
+  stacked bar chart shows who uses what (tokens by model per power user), and a
+  highest-volume users table lists the power users with their tokens, cost, and top model.
+  Built to answer whether usage is concentrated in a few power users, who they are, and
+  whether paid seats are sitting idle. Data comes from the Cursor Team Admin API usage
+  events over the last ~30 days; the slide is omitted when no CURSOR_ADMIN_API_KEY is set.

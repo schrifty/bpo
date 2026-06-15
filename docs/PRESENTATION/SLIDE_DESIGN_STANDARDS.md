@@ -1,5 +1,5 @@
 # LeanDNA Slide Design and Data Visualization Standards
-Version 1.6 (Internal Use)
+Version 1.7 (Internal Use)
 
 ## Purpose
 
@@ -93,6 +93,12 @@ The following rules are mandatory for automated generation.
 - Continuation slides must be labeled clearly, e.g. `Section Name (2 of 3)`.
 - Pagination must be bounded by a small fixed maximum, typically ten slides.
 
+### Optional / integration-gated slides
+
+- When a slide's **only** data source is an optional integration (one that may be unconfigured in a given environment — e.g. the Cursor Admin API behind `CURSOR_ADMIN_API_KEY`), **omit the slide from the plan** when that integration is unconfigured. Do **not** render an empty or "missing data" placeholder slide for optional infrastructure.
+- This is distinct from the **fail-loud** rule for *required* data: if the integration is configured but the call fails, surface the error (and, where applicable, a partial-data note) rather than silently dropping the slide.
+- Filter the slide out during deck enrichment, before layout — see `enrich_cursor_usage_if_needed` in `src/deck_data_enrichment.py`, which drops the `cursor_usage` slide when `cursor_configured()` is false and otherwise builds the report and its takeaway.
+
 ---
 
 ## Global Slide Philosophy
@@ -175,6 +181,14 @@ A short **business-facing** line directly under the title: what the slide means 
 
 When a slide also needs **scope** (time window, project, filters, column definitions), put that in the **footer** band—not in the context line. See **Single chart on a slide** below.
 
+**Keep the context line to one rendered line.** When the context line sits at `BODY_Y` directly above a KPI row (a common dashboard layout, e.g. `kpi_y = BODY_Y + 20`), a line that wraps to a second row will **collide with the KPI cards** — Slides text boxes overflow downward, so a too-long string silently grows into the band below it. Rules:
+
+- Write the context as a single short sentence/clause set (`A · B · C` with spaced separators reads well), not a paragraph that restates the subtitle.
+- Apply a one-line truncation guard (`_truncate_one_line(text, max_chars)`) sized to the box width so an unexpectedly long value can never overflow.
+- Do not duplicate what the subtitle already says (adoption %, spend, MoM). The context line adds *definition/scope* the subtitle omits.
+
+**Reference regression:** the engineering **AI Coding Assistant** (`cursor_usage`) slide originally carried a ~180-character context paragraph that wrapped onto the KPI cards; it was trimmed to one `A · B · C` line with a truncation guard. See `cursor_usage_slide` in `src/slide_engineering_portfolio.py`.
+
 ### Metric / context bar (optional)
 
 A single-line summary directly below the title for scope, KPI totals, or timeframe.
@@ -203,6 +217,29 @@ When automation renders a **business line** under the title plus a **scope/metad
 4. Prefer **one line** of scope when possible; wrap only inside the footer band width.
 
 **Reference implementation:** `_place_framing()`, `_SCOPE_FOOTER_Y`, `_CONTENT_BOTTOM`, and `_render_table()` in `src/slide_support_kpis.py`.
+
+---
+
+## Bottom takeaway band ("What this means")
+
+Engineering-portfolio slides replace the illegible gray scope footer on the slide face with a **bottom takeaway band**: a single LLM-written "so what" sentence under a labeled rule. This is the standard closing element for analytical app-built slides where a one-line implication adds more value than a methodology footer.
+
+### Structure
+
+1. A thin horizontal **divider rule** (`_ENG_DIVIDER_FILL`, ~1.2 pt) spanning `CONTENT_W`.
+2. A small **`WHAT THIS MEANS`** label — ~7.5 pt **bold**, `BLUE`.
+3. One **implication sentence** — ~10 pt `NAVY`, wrapping within a two-line box so it is never truncated mid-word.
+
+The band is anchored to the **physical slide bottom** via `_ENG_TAKEAWAY_Y` (= `SLIDE_H − 4 − _ENG_TAKEAWAY_H`, with `_ENG_TAKEAWAY_H ≈ 40 pt`). Body content must stop above `_ENG_CONTENT_BOTTOM` (= `_ENG_TAKEAWAY_Y − 8 pt`); size charts/tables/columns to that hard stop just as you would for a scope footer.
+
+### Rules
+
+- **One sentence, implication not restatement.** The sentence states the decision the numbers force (with one concrete figure for weight and a specific next step), not a re-read of the KPI cards.
+- **LLM-generated, fail-loud-aware.** The sentence is produced by the project LLM with a system prompt that **bans vague filler** ("strategic review", "investigate", "demands attention", "closely monitor", etc.). Keep the banned-filler rule identical across every takeaway prompt so slides read consistently.
+- **No orphan label.** Render the band **only when the sentence is non-empty** — never draw the divider + `WHAT THIS MEANS` label with no sentence beneath it. The shared helper no-ops on empty text.
+- **A slide has at most one takeaway band**, and it is the lowest element on the slide (it stands in for the scope footer; do not use both on the same slide).
+
+**Reference implementation:** `_render_takeaway_band` in `src/slide_engineering_portfolio.py` (used by `_eng_takeaway_bar` for portfolio slides and directly by `cursor_usage_slide`). Takeaway text is generated alongside report enrichment (e.g. `generate_cursor_usage_takeaway` in `src/cursor_usage_report.py`).
 
 ---
 
@@ -488,6 +525,17 @@ Table cells are not KPI tiles, so a single cell may carry a **semantic** color w
 
 **Reference implementation:** `eng_team_scorecard_slide` in `src/slide_engineering_portfolio.py`, using the shared table helpers (`clean_table`, `table_cell_text`, `table_cell_style`, `table_column_widths`) in `src/slide_primitives.py`. The Jira "recent opened / closed" tables in `src/slide_support_kpis.py` (`_render_table`) are the canonical paginating-table example.
 
+### Small monospace aligned lists (side-column "mini tables")
+
+A short, fixed ranked list in a side column (e.g. "highest-volume users" with Tokens / Spend columns) may be rendered as **monospace (`MONO`) text rows** with column widths set by `str.format` padding instead of a full native table. When you do:
+
+- **Derive every cell's display value with the *same* formatting function.** Do **not** switch formats based on the value's length or content — e.g. showing a full email when it happens to fit but the local-part when it does not. Mixed formats break monospace alignment: one full `user@domain.com` row shoves its numeric columns out of line with the local-part rows above it. Pick one rule (e.g. *always* local-part) and apply it to every row.
+- **Cap the list to a small fixed count** (≈5 rows) so the column has room for whatever sits below it (e.g. a model-mix block) without the rows running into the next section or the takeaway band.
+- Right-pad text columns and right-align numeric columns within the format string, mirroring the native-table alignment rules above.
+- Promote to a **native table** the moment the list needs pagination, wrapping cells, or per-cell semantic color — monospace text rows are only for small, stable, single-line lists.
+
+**Reference regression:** the `cursor_usage` "Highest-volume users" column showed full addresses for short emails and local-parts for long ones, misaligning the Tokens/Spend columns; `_short_email` was changed to **always** return the local-part. See `src/slide_engineering_portfolio.py`.
+
 ---
 
 ## Pagination and Continuation Slides
@@ -595,6 +643,7 @@ Therefore:
 - **Other pie / donut charts** (e.g. single pie, engagement): use `suppress_legend=True` in `add_pie_chart` when the embedded legend would be unreadable, and a slide-level swatch legend via `_slide_chart_legend` (horizontal) or vertical stacking where needed. Use **`CHART_PIE_OVERLAY_W_PX` / `CHART_PIE_OVERLAY_H_PX`** and **`maximized: true`** on the `ChartSpec` for sharp embeds. Do not rely on a shallow `embed_chart` box with `RIGHT_LEGEND` or `BOTTOM_LEGEND` for audience-facing slides.
 - **Line / trend charts** (e.g. monthly created vs resolved): the **embedded box height** must not be very short (on the order of **80 pt** is too small—axis and month labels shrink to unreadable). Target roughly **100 pt** or more per chart in the support volume layout, with `show_legend=False` and a slide-level Created/Resolved key when needed.
 - For slide-level legends, reserve about **24–28 pt** of vertical space below the chart (more for **stacked** pie legends; see below); label text at **`CHART_LEGEND_PT` (12 pt by default)** for default horizontal legends, with swatches at least **10×10 pt** where that helper is used.
+- **Subtract the legend band from the chart-height budget — do not size the chart to the content bottom and then append the legend.** When a slide-level legend is drawn **below** an embedded chart on a multi-band slide, compute the chart height as `content_bottom − chart_top − legend_band − gap` (the legend band is ~16–18 pt for a horizontal key). If you instead size the chart all the way to `content_bottom` and then place the legend afterward, the legend lands **on top of the next band** (typically the bottom takeaway band or scope footer). **Reference regression:** the engineering **AI Coding Assistant** (`cursor_usage`) month chart sized its column to the content ceiling and then added the `Requests / Active users` legend below, so the legend overlapped the `WHAT THIS MEANS` band until ~18 pt was reserved in the chart-height calc (`cursor_usage_slide` in `src/slide_engineering_portfolio.py`).
 - **Single-series** bar/column charts have no series legend; axis/category labels are handled separately.
 - `ChartSpec.fontName` is set in `src/charts.py` to **`CHART_SPEC_FONT_NAME`** (Roboto) so chart text scales as a system font where the API applies it to titles/axes/legends.
 
