@@ -9,6 +9,7 @@ from googleapiclient.errors import HttpError
 
 from .config import logger
 from .slides_api import slides_presentations_batch_update
+from .speaker_notes_llm import enrich_speaker_notes_with_management_guidance
 
 # Slides with a canonical trace builder should not also merge every JQL under report[jira].
 _SLIDE_TYPES_SPEAKER_NOTES_CANONICAL_ONLY: frozenset[str] = frozenset({
@@ -190,7 +191,12 @@ def build_slide_jql_speaker_notes(
                     "Platform Value & ROI Summary: CS Report / Pendo-backed metrics from the customer health report; "
                     "TOC rows follow the resolved deck slide plan."
                 )
-            return "\n".join(header)
+            base = "\n".join(header)
+            return enrich_speaker_notes_with_management_guidance(
+                base,
+                report=report,
+                entry=entry,
+            )
 
         header.append("")
         n = len(entries)
@@ -206,7 +212,12 @@ def build_slide_jql_speaker_notes(
                         header.append(f"  {p}")
             if i < n - 1:
                 header.append("")
-        return "\n".join(header)
+        base = "\n".join(header)
+        return enrich_speaker_notes_with_management_guidance(
+            base,
+            report=report,
+            entry=entry,
+        )
     finally:
         if prev_sn_entry is not None:
             report["_speaker_note_slide_entry"] = prev_sn_entry

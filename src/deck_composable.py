@@ -127,6 +127,7 @@ def add_slide(deck_id: str, slide_type: str, data: dict[str, Any]) -> dict[str, 
     }
     note_payload = dict(data)
     note_payload["_current_slide"] = note_entry
+    note_payload["_deck_id"] = deck_id
     notes = _build_slide_jql_speaker_notes(note_payload, note_entry)
     if note_ids:
         n = set_speaker_notes_batch(slides_service, deck_id, [(nid, notes) for nid in note_ids])

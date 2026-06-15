@@ -27,6 +27,12 @@ def _leandna_data_api_staging_only(request: pytest.FixtureRequest):
 
 
 @pytest.fixture(autouse=True)
+def _disable_speaker_notes_llm_by_default(monkeypatch):
+    """Existing speaker-notes tests expect deterministic output without live LLM calls."""
+    monkeypatch.setenv("BPO_SPEAKER_NOTES_LLM", "false")
+
+
+@pytest.fixture(autouse=True)
 def _isolated_process_caches():
     """Module-level integration/config caches must not leak mocked responses between tests."""
     from src import drive_config, evaluate, salesforce_client, slide_loader

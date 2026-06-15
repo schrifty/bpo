@@ -139,6 +139,7 @@ from .slides_api import (
     slides_presentations_batch_update,
 )
 from .speaker_notes import set_speaker_notes, set_speaker_notes_batch
+from .speaker_notes_llm import enrich_speaker_notes_with_management_guidance
 
 def _slide_cache_dir() -> Path:
     """Directory for persisted slide analysis cache (classification, adapt)."""
@@ -1607,7 +1608,31 @@ def _build_hydrate_speaker_notes(
     body = "\n".join(lines)
     if len(body) > 12000:
         body = body[:11900] + "\n\n… (truncated)"
-    return body
+
+    slide_copy_parts: list[str] = []
+    seen_copy: set[str] = set()
+    for el in text_elements:
+        for part in (el.get("text") or "").split("\n"):
+            s = part.strip()
+            if len(s) < 2 or s in seen_copy or _hydrate_line_is_qbr_banner_noise(s):
+                continue
+            seen_copy.add(s)
+            slide_copy_parts.append(s[:200])
+            if len(slide_copy_parts) >= 12:
+                break
+        if len(slide_copy_parts) >= 12:
+            break
+
+    return enrich_speaker_notes_with_management_guidance(
+        body,
+        report=report,
+        slide_title=title_guess,
+        slide_type=(analysis or {}).get("slide_type") or "",
+        slide_yaml_hint=slide_yaml_hint,
+        hydrate_analysis=analysis,
+        hydrate_replacements=replacements,
+        slide_copy_excerpt="\n".join(slide_copy_parts),
+    )
 
 
 def _replacement_is_visual(r: dict) -> bool:

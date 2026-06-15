@@ -121,6 +121,7 @@ def create_health_deck(
         # Make services accessible to slide builders via the report dict
         report["_slides_svc"] = slides_service
         report["_drive_svc"] = drive_service
+        report["_deck_id"] = deck_id
 
         from .deck_loader import resolve_deck
 
