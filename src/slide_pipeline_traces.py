@@ -495,6 +495,44 @@ def cs_notable_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
     }]
 
 
+def data_quality_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Deck-scoped provenance for the Data Sources & Quality slide (not whole-report JQL dump)."""
+    gov = report.get("_governance") or {}
+    if not isinstance(gov, dict):
+        return []
+    rows: list[dict[str, str]] = []
+    deck_id = str(gov.get("deck_id") or report.get("_deck_id") or "").strip()
+    if deck_id:
+        rows.append({
+            "description": "Deck",
+            "source": "BPO",
+            "query": f"deck_id={deck_id}",
+        })
+    if gov.get("assembled_at"):
+        rows.append({
+            "description": "Governance assembled",
+            "source": "BPO",
+            "query": str(gov["assembled_at"]),
+        })
+    for line in (gov.get("scope") or [])[:4]:
+        rows.append({"description": "Scope", "source": "BPO", "query": str(line)})
+    for line in (gov.get("freshness") or [])[:3]:
+        rows.append({"description": "Freshness", "source": "BPO", "query": str(line)})
+    for item in (gov.get("lineage") or [])[:8]:
+        if isinstance(item, dict):
+            rows.append({
+                "description": str(item.get("description") or "Lineage"),
+                "source": str(item.get("source") or "Report"),
+                "query": str(item.get("query") or ""),
+            })
+    rows.append({
+        "description": "Full provenance",
+        "source": "Slide",
+        "query": "See Data Sources & Quality slide sections (scope, freshness, lineage, discrepancies)",
+    })
+    return rows
+
+
 CANONICAL_PIPELINE_TRACES: dict[str, Any] = {
     "health": health_snapshot_pipeline_traces,
     "benchmarks": peer_benchmarks_pipeline_traces,
@@ -508,6 +546,7 @@ CANONICAL_PIPELINE_TRACES: dict[str, Any] = {
     "cohort_profiles": cohort_profiles_pipeline_traces,
     "cohort_findings": cohort_findings_pipeline_traces,
     "cs_notable": cs_notable_pipeline_traces,
+    "data_quality": data_quality_pipeline_traces,
 }
 
 

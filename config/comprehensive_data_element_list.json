@@ -2849,6 +2849,118 @@
       ]
     },
     {
+      "path": "cursor_usage",
+      "terms": [
+        "cursor_usage",
+        "[report] Cursor Admin API usage / spend rollup for engineering deck slides"
+      ]
+    },
+    {
+      "path": "cursor_usage.configured",
+      "terms": [
+        "cursor_usage.configured",
+        "[report] Cursor integration loaded for this run"
+      ]
+    },
+    {
+      "path": "cursor_usage.generated_at",
+      "terms": [
+        "cursor_usage.generated_at",
+        "[report] ISO timestamp of Cursor API pull"
+      ]
+    },
+    {
+      "path": "cursor_usage.window_days",
+      "terms": [
+        "cursor_usage.window_days",
+        "[report] Cursor usage window days"
+      ]
+    },
+    {
+      "path": "cursor_usage.warnings",
+      "terms": [
+        "cursor_usage.warnings",
+        "[report] Cursor attribution / scope warnings"
+      ]
+    },
+    {
+      "path": "cursor_usage.errors",
+      "terms": [
+        "cursor_usage.errors",
+        "[report] Cursor API section errors"
+      ]
+    },
+    {
+      "path": "_governance",
+      "terms": [
+        "_governance",
+        "[report] deck-scoped data governance blob for Data Sources & Quality slide"
+      ]
+    },
+    {
+      "path": "_governance.deck_id",
+      "terms": [
+        "_governance.deck_id",
+        "[report] deck id for governance receipt"
+      ]
+    },
+    {
+      "path": "_governance.assembled_at",
+      "terms": [
+        "_governance.assembled_at",
+        "[report] ISO timestamp when governance blob was assembled"
+      ]
+    },
+    {
+      "path": "_governance.source_status",
+      "terms": [
+        "_governance.source_status",
+        "[report] per-integration pill status for this deck"
+      ]
+    },
+    {
+      "path": "_governance.scope",
+      "terms": [
+        "_governance.scope",
+        "[report] scope and filter bullets for governance slide"
+      ]
+    },
+    {
+      "path": "_governance.freshness",
+      "terms": [
+        "_governance.freshness",
+        "[report] data freshness bullets for governance slide"
+      ]
+    },
+    {
+      "path": "_governance.lineage",
+      "terms": [
+        "_governance.lineage",
+        "[report] deck-scoped lineage trace rows"
+      ]
+    },
+    {
+      "path": "_governance.discrepancies",
+      "terms": [
+        "_governance.discrepancies",
+        "[report] merged qa and integration warnings for governance slide"
+      ]
+    },
+    {
+      "path": "_governance.cross_checks",
+      "terms": [
+        "_governance.cross_checks",
+        "[report] cross-source validation summary counts"
+      ]
+    },
+    {
+      "path": "_governance.authority_footnote",
+      "terms": [
+        "_governance.authority_footnote",
+        "[report] system-of-record authority note for governance slide"
+      ]
+    },
+    {
       "path": "_hydrate_slide_hints",
       "terms": [
         "_hydrate_slide_hints",

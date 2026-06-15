@@ -125,7 +125,7 @@ BUILDER_DESCRIPTIONS = {
     "cross_validation": "Data cross-validation — Pendo vs CS Report engagement comparison",
     "signals": "Notable signals — auto-detected churn risk, expansion, adoption gaps",
         "team": "Team roster — CSM/AE assignments from `config/teams.yaml`",
-    "data_quality": "Data quality — cross-source validation results",
+    "data_quality": "Data sources & quality — governance receipt and cross-check findings",
     "custom": "Static content slide — reproduced text with title and body sections",
     "skip": "Skip this slide entirely (blank, transition, or not reproducible)",
     "salesforce_comprehensive_cover": "Salesforce export intro — match status, row limits, org-wide product note",

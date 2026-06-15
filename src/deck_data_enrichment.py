@@ -28,6 +28,7 @@ def enrich_deck_report_data(
     customer: str | None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Apply deck-specific enrichment and slide-plan filtering before rendering."""
+    report["_slide_plan"] = slide_plan
     if deck_id == "supply_chain_review":
         _stamp_support_deck_generated_at(report)
 
@@ -48,6 +49,10 @@ def enrich_deck_report_data(
         slide_plan = enrich_cursor_usage_if_needed(report, slide_plan, deck_id=deck_id)
 
     report = enrich_leandna_shortage_if_needed(report, slide_plan, customer)
+
+    from .deck_governance import attach_deck_governance
+
+    attach_deck_governance(report, slide_plan, deck_id=deck_id)
     return report, slide_plan
 
 

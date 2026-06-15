@@ -129,8 +129,10 @@ SLIDE_DATA_REQUIREMENTS: dict[str, list[str]] = {
 DQ_SOURCE_LABEL_ORDER: tuple[str, ...] = (
     "Pendo",
     "CS Report",
-    "JIRA",
+    "Atlassian Jira",
+    "Atlassian Teams",
     "Salesforce",
+    "Cursor",
     "GitHub",
     "LeanDNA",
 )
@@ -166,12 +168,13 @@ REPORT_KEY_TO_DQ_SOURCE: dict[str, str | None] = {
     "portfolio_leaders": "Pendo",
     "cohort_digest": "Pendo",
     "cohort_findings_bullets": "Pendo",
-    "jira": "JIRA",
+    "jira": "Atlassian Jira",
     "csr": "CS Report",
-    "customer_project_volume_jql_trace": "JIRA",
-    "lean_project_volume_jql_trace": "JIRA",
-    "eng_help_volume_jql_trace": "JIRA",
-    "eng_portfolio": "JIRA",
+    "customer_project_volume_jql_trace": "Atlassian Jira",
+    "lean_project_volume_jql_trace": "Atlassian Jira",
+    "eng_help_volume_jql_trace": "Atlassian Jira",
+    "eng_portfolio": "Atlassian Jira",
+    "cursor_usage": "Cursor",
     "salesforce_comprehensive": "Salesforce",
     "github": "GitHub",
     "leandna_shortage_trends": "LeanDNA",
@@ -186,6 +189,12 @@ REPORT_KEY_TO_DQ_SOURCE: dict[str, str | None] = {
 
 def ordered_dq_data_sources_for_slide_plan(slide_plan: list[dict[str, Any]] | None) -> list[str] | None:
     """Data sources to show as pills for this deck, deduped, in a stable order."""
+    from .deck_governance import ordered_dq_display_names_for_slide_plan
+
+    labels = ordered_dq_display_names_for_slide_plan(slide_plan)
+    if labels:
+        return labels
+    # Legacy fallback when registry is unavailable.
     req_keys: set[str] = set()
     for entry in slide_plan or ():
         slide_type = (entry.get("slide_type") or "").strip()

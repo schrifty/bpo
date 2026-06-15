@@ -147,8 +147,17 @@ class QARegistry:
         if data_source_order is not None:
             data_sources = {k: full_sources[k] for k in data_source_order if k in full_sources}
         else:
-            legacy = ("Pendo", "CS Report", "JIRA", "Salesforce", "GitHub", "LeanDNA")
+            legacy = (
+                "Pendo", "CS Report", "Atlassian Jira", "Atlassian Teams",
+                "Salesforce", "Cursor", "GitHub", "LeanDNA",
+            )
             data_sources = {k: full_sources[k] for k in legacy if k in full_sources}
+        gov = (report or {}).get("_governance") or {}
+        gov_status = gov.get("source_status") if isinstance(gov, dict) else None
+        if isinstance(gov_status, dict) and gov_status:
+            for name, status in gov_status.items():
+                if data_source_order is None or name in data_source_order:
+                    data_sources[name] = status
         return {
             "customer": self._customer,
             "total_checks": self.total_checks,
@@ -204,18 +213,21 @@ class QARegistry:
     @staticmethod
     def _source_status(flags: list[QAFlag], report: dict | None = None) -> dict[str, str]:
         """Determine availability of each data source from the flags and optional report."""
+        slide_plan = (report or {}).get("_slide_plan") if report else None
         sources = {
             "Pendo": "ok",
             "CS Report": "ok",
-            "JIRA": "ok",
+            "Atlassian Jira": "ok",
+            "Atlassian Teams": "unavailable",
             "Salesforce": "unavailable",
+            "Cursor": "unavailable",
             "GitHub": QARegistry._github_source_status(report),
             "LeanDNA": QARegistry._leandna_source_status(report),
         }
         for f in flags:
             msg = f.message.lower()
             if "jira data unavailable" in msg:
-                sources["JIRA"] = "unavailable"
+                sources["Atlassian Jira"] = "unavailable"
             elif "cs report data unavailable" in msg:
                 sources["CS Report"] = "unavailable"
             elif "salesforce data unavailable" in msg:
@@ -223,8 +235,17 @@ class QARegistry:
         if report:
             sf = report.get("salesforce") or {}
             if isinstance(sf, dict) and sf and "error" not in sf:
-                # Only mark ok if we actually got data back (non-empty, no error)
                 sources["Salesforce"] = "ok"
+            try:
+                from .deck_governance import (
+                    _atlassian_teams_source_status,
+                    _cursor_source_status,
+                )
+
+                sources["Cursor"] = _cursor_source_status(report, slide_plan)
+                sources["Atlassian Teams"] = _atlassian_teams_source_status(report, slide_plan)
+            except Exception:
+                pass
         sources["GitHub"] = QARegistry._github_source_status(report)
         sources["LeanDNA"] = QARegistry._leandna_source_status(report)
         return sources

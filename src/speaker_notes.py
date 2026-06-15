@@ -41,13 +41,13 @@ def collect_jql_soql_trace_entries(obj: Any) -> list[dict[str, str]]:
                 if isinstance(item, dict) and str(item.get("jql") or "").strip():
                     entries.append({
                         "description": str(item.get("description") or "Jira issue search").strip(),
-                        "source": "Jira",
+                        "source": "Atlassian Jira",
                         "query": str(item["jql"]).strip(),
                     })
                 elif isinstance(item, str) and item.strip():
                     entries.append({
                         "description": "Jira issue search",
-                        "source": "Jira",
+                        "source": "Atlassian Jira",
                         "query": item.strip(),
                     })
         soql_raw = obj.get("soql_queries")

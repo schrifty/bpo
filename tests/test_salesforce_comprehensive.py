@@ -480,13 +480,26 @@ def test_speaker_notes_salesforce_slide_does_not_list_unrelated_jql():
     assert "Salesforce" in notes and "SOQL" in notes
 
 
-def test_speaker_notes_data_quality_still_lists_deck_jql_when_scoped_empty():
-    report = {"jira": {"jql_queries": ["project = LEAN"]}}
-    entry = {"slide_type": "data_quality", "title": "Data Quality"}
+def test_speaker_notes_data_quality_uses_deck_scoped_governance_traces():
+    report = {
+        "jira": {"jql_queries": ["project = LEAN"]},
+        "_governance": {
+            "deck_id": "engineering-portfolio",
+            "assembled_at": "2026-06-15T12:00:00",
+            "scope": ["Window: 30-day lookback"],
+            "freshness": ["Report assembled: 2026-06-15"],
+            "lineage": [
+                {"description": "LEAN open", "source": "Atlassian Jira", "query": "project = LEAN"},
+            ],
+        },
+    }
+    entry = {"slide_type": "data_quality", "title": "Data Sources & Quality"}
     notes = _build_slide_jql_speaker_notes(report, entry)
-    assert "LEAN" in notes
-    assert "• Jira issue search — Jira" in notes
-    assert "  project = LEAN" in notes
+    assert "engineering-portfolio" in notes
+    assert "Scope" in notes
+    assert "project = LEAN" in notes
+    # Deck-scoped: does not dump unrelated whole-report JQL as primary content.
+    assert "• Deck — BPO" in notes or "Deck" in notes
 
 
 def test_speaker_notes_jql_structured_description_trace_format():
@@ -497,9 +510,9 @@ def test_speaker_notes_jql_structured_description_trace_format():
             ],
         },
     }
-    entry = {"slide_type": "data_quality", "title": "Data Quality"}
+    entry = {"slide_type": "data_quality", "title": "Data Sources & Quality"}
     notes = _build_slide_jql_speaker_notes(report, entry)
-    assert "• HELP test slice — Jira" in notes
+    assert "• HELP test slice — Atlassian Jira" in notes
     assert "  project = HELP ORDER BY created DESC" in notes
 
 

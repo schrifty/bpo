@@ -1,0 +1,117 @@
+# Integration metadata for deck Data Sources & Quality slides.
+# Display names and env hints are stable; runtime status/lineage come from report["_governance"].
+
+sources:
+  pendo:
+    display_name: Pendo
+    authority: enrichment
+    env_required: []
+    env_optional: [PENDO_API_KEY, PENDO_SUBSCRIPTION_ID]
+  cs_report:
+    display_name: CS Report
+    authority: enrichment
+    env_required: []
+    env_optional: [CSR_SHEET_ID]
+  atlassian_jira:
+    display_name: Atlassian Jira
+    authority: enrichment
+    aliases: [JIRA, Jira]
+    env_required: [JIRA_URL, JIRA_API_TOKEN]
+    env_optional: [JIRA_EMAIL, JIRA_CLOUD_ID, ATLASSIAN_ORG_ID]
+  atlassian_teams:
+    display_name: Atlassian Teams
+    authority: enrichment
+    used_for: [engineer_roster, cursor_audience_scope]
+    env_required: [ATLASSIAN_ORG_ID]
+    env_optional: [ATLASSIAN_API_KEY]
+  salesforce:
+    display_name: Salesforce
+    authority: system_of_record
+    env_required: []
+    env_optional: [SF_CLIENT_ID, SF_USERNAME, BPO_SALESFORCE_CACHE_TTL_HOURS]
+    cache_ttl_env: BPO_SALESFORCE_CACHE_TTL_HOURS
+    default_cache_hours: 48
+  cursor:
+    display_name: Cursor
+    authority: enrichment
+    env_required: [CURSOR_ADMIN_API_KEY]
+    env_optional: [CURSOR_API_BASE_URL, BPO_CURSOR_CACHE_TTL_HOURS]
+    cache_ttl_env: BPO_CURSOR_CACHE_TTL_HOURS
+    default_cache_hours: 1
+    endpoints:
+      - name: team_members
+        method: GET
+        path: /teams/members
+      - name: filtered_usage_events
+        method: POST
+        path: /teams/filtered-usage-events
+      - name: daily_usage_data
+        method: GET
+        path: /teams/daily-usage-data
+      - name: team_spend
+        method: GET
+        path: /teams/spend
+  github:
+    display_name: GitHub
+    authority: enrichment
+    env_required: []
+    env_optional: [GITHUB_TOKEN, GITHUB_API_BASE_URL]
+  leandna:
+    display_name: LeanDNA
+    authority: enrichment
+    env_required: []
+    env_optional: [LEANDNA_API_BASE_URL, LEANDNA_API_KEY]
+
+report_key_to_source_id:
+  engagement: pendo
+  account: pendo
+  sites: pendo
+  top_pages: pendo
+  top_features: pendo
+  feature_adoption_insights: pendo
+  frustration: pendo
+  poll_events: pendo
+  track_events_breakdown: pendo
+  visitor_languages: pendo
+  pendo_catalog_appendix: pendo
+  champions: pendo
+  at_risk_users: pendo
+  benchmarks: pendo
+  exports: pendo
+  depth: pendo
+  kei: pendo
+  guides: pendo
+  signals: pendo
+  customer: pendo
+  customer_count: pendo
+  csm_owner: pendo
+  portfolio_signals: pendo
+  portfolio_signals: pendo
+  portfolio_trends: pendo
+  portfolio_leaders: pendo
+  cohort_digest: pendo
+  cohort_findings_bullets: pendo
+  jira: atlassian_jira
+  csr: cs_report
+  customer_project_volume_jql_trace: atlassian_jira
+  lean_project_volume_jql_trace: atlassian_jira
+  eng_help_volume_jql_trace: atlassian_jira
+  eng_portfolio: atlassian_jira
+  salesforce_comprehensive: salesforce
+  portfolio_revenue_book: salesforce
+  portfolio_expansion_book: salesforce
+  github: github
+  leandna_shortage_trends: leandna
+  leandna_item_master: leandna
+  leandna_lean_projects: leandna
+  cursor_usage: cursor
+
+source_display_order:
+  - pendo
+  - cs_report
+  - atlassian_jira
+  - atlassian_teams
+  - salesforce
+  - cursor
+  - github
+  - leandna

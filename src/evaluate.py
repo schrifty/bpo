@@ -2634,6 +2634,16 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
             {"id": sp["slide_type"], "slide_type": sp["slide_type"], "title": sp["title"]}
             for sp in slide_plan if sp["slide_type"] != "skip"
         ]
+        try:
+            from .deck_governance import attach_deck_governance
+
+            attach_deck_governance(
+                report,
+                report["_slide_plan"],
+                deck_id=str(report.get("_deck_id") or ""),
+            )
+        except Exception as exc:
+            logger.warning("hydrate: attach_deck_governance failed: %s", exc)
         # Phase 2: Delete slides classified as "skip", and rebuild the one purely-mechanical
         # slide type (data_quality — color-coded boxes, no editorial content).
         # All other slides are kept exactly as-is; their data values will be updated

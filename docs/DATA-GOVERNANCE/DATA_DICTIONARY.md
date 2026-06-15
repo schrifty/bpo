@@ -97,6 +97,26 @@
 ## GitHub
 - `github`
 
+## Cursor (Admin API)
+- `cursor_usage`
+- `cursor_usage.configured`
+- `cursor_usage.generated_at`
+- `cursor_usage.window_days`
+- `cursor_usage.warnings`
+- `cursor_usage.errors`
+
+## Deck governance
+- `_governance`
+- `_governance.deck_id`
+- `_governance.assembled_at`
+- `_governance.source_status`
+- `_governance.scope`
+- `_governance.freshness`
+- `_governance.lineage`
+- `_governance.discrepancies`
+- `_governance.cross_checks`
+- `_governance.authority_footnote`
+
 ## Slack
 - `slack.source`
 - `slack.customer`
