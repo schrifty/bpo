@@ -34,12 +34,15 @@ class _FakeClient:
              "tokenUsage": {"inputTokens": 200, "outputTokens": 25}},
             {"timestamp": str(_ms(2026, 4, 2)), "userEmail": "u1@x.com", "model": "claude-4.5-sonnet",
              "tokenUsage": {"inputTokens": 300, "outputTokens": 100}},
+            {"timestamp": str(_ms(2026, 4, 2)), "userEmail": "u3@x.com", "model": "gpt-5",
+             "tokenUsage": {"inputTokens": 10, "outputTokens": 5}},
         ]
 
     def get_spend(self, **k):
         return [
             {"email": "u1@x.com", "overallSpendCents": 4200},
             {"email": "u2@x.com", "overallSpendCents": 3100},
+            {"email": "u3@x.com", "overallSpendCents": 100},
         ]
 
 
@@ -48,13 +51,17 @@ def test_build_report_aggregates_all_sections() -> None:
     assert rep["configured"] is True
     assert rep["members"]["total"] == 10
     # u1 (450+550=... ) tokens across two events, u2 225 → totals 550+225=... check sum
-    assert rep["totals"]["total_tokens"] == 100 + 50 + 200 + 25 + 300 + 100
-    assert rep["totals"]["spend_cents_cycle"] == 7300.0
+    assert rep["totals"]["total_tokens"] == 100 + 50 + 200 + 25 + 300 + 100 + 10 + 5
+    assert rep["totals"]["spend_cents_cycle"] == 7400.0
     # Two months present, ordered.
     assert [m["label"] for m in rep["monthly"]] == ["Mar", "Apr"]
     # Top user is u1 (most tokens), carries spend.
     assert rep["top_users"][0]["email"] == "u1@x.com"
     assert rep["top_users"][0]["spend_cents"] == 4200
+    assert all(
+        u["email"] not in {t["email"] for t in rep["top_users"]}
+        for u in rep["bottom_users"]
+    )
     # Model mix sorted by tokens desc; shares sum ~1.
     assert rep["model_mix"][0]["model"] == "claude-4.5-sonnet"
     assert abs(sum(m["share"] for m in rep["model_mix"]) - 1.0) < 1e-6
@@ -75,6 +82,29 @@ class _RichClient(_FakeClient):
             {"timestamp": str(_ms(2026, 4, 2)), "userEmail": "u1@x.com", "model": "gpt-5",
              "tokenUsage": {"inputTokens": 50, "outputTokens": 10}, "chargedCents": 5.0},
         ]
+
+
+def test_bottom_users_are_lowest_and_exclude_top() -> None:
+    class _WideClient(_FakeClient):
+        def get_usage_events(self, start, end, **k):
+            rows = []
+            for i, toks in enumerate((9000, 8000, 7000, 6000, 5000, 4000, 3000, 2000, 1000, 500), start=1):
+                rows.append(
+                    {"timestamp": str(_ms(2026, 4, 1)), "userEmail": f"u{i}@x.com", "model": "gpt-5",
+                     "tokenUsage": {"inputTokens": toks, "outputTokens": 0}}
+                )
+            return rows
+
+        def get_spend(self, **k):
+            return [{"email": f"u{i}@x.com", "overallSpendCents": i * 100} for i in range(1, 11)]
+
+    rep = build_cursor_usage_report(client=_WideClient())
+    top = rep["top_users"]
+    bottom = rep["bottom_users"]
+    assert len(top) == 6
+    assert len(bottom) == 4
+    assert bottom[0]["tokens"] <= bottom[-1]["tokens"] <= top[-1]["tokens"]
+    assert {u["email"] for u in bottom}.isdisjoint({u["email"] for u in top})
 
 
 def test_build_report_includes_cost_daily_and_matrix() -> None:

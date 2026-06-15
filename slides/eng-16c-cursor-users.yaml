@@ -11,8 +11,9 @@ prompt: >
   aimed at a VP of Engineering. Bottom-line subtitle states adoption, how concentrated
   usage is in the top user, and how many seats are idle. Four KPI cards cover active
   engineers, adoption rate, top-user share of tokens, and idle seats. A model-usage-by-user
-  stacked bar chart shows who uses what (tokens by model per power user), and a
-  highest-volume users table lists the power users with their tokens, cost, and top model.
-  Built to answer whether usage is concentrated in a few power users, who they are, and
-  whether paid seats are sitting idle. Data comes from the Cursor Team Admin API usage
+  stacked bar chart shows who uses what (tokens by model per power user). Side-by-side
+  highest- and lowest-volume lists show token volume per engineer (top model on power
+  users only); lowest list excludes anyone already in the highest list to surface
+  under-adopted seats. Built to answer whether usage is concentrated in a few power
+  users, who they are, who is barely using paid seats, and whether seats are sitting idle. Data comes from the Cursor Team Admin API usage
   events over the last ~30 days; the slide is omitted when no CURSOR_ADMIN_API_KEY is set.

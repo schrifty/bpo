@@ -45,6 +45,12 @@ def _cursor_report() -> dict:
              "events": 2_000, "window_cents": 10_000, "spend_cents": 19_000,
              "models": [{"model": "gpt-5", "tokens": 400_000, "share": 0.8}]},
         ],
+        "bottom_users": [
+            {"email": "grace@x.com", "tokens": 12_000, "events": 40,
+             "models": [{"model": "gpt-5", "tokens": 12_000, "share": 1.0}]},
+            {"email": "dan@x.com", "tokens": 8_500, "events": 22,
+             "models": [{"model": "Auto (default)", "tokens": 8_500, "share": 1.0}]},
+        ],
         "user_model_matrix": {
             "users": ["ada@x.com", "linus@x.com"],
             "models": ["claude-4.5-sonnet", "gpt-5"],
@@ -124,15 +130,17 @@ def test_cost_slide_no_overage_leads_with_usage_cost() -> None:
     assert "no cycle overage" in text
 
 
-def test_users_slide_falls_back_to_window_cost_when_spend_zero() -> None:
+def test_users_slide_renders_token_volume_columns() -> None:
     rep = _cursor_report()
     for u in rep["cursor_usage"]["top_users"]:
         u["spend_cents"] = 0
     reqs: list = []
     cursor_users_slide(reqs, "sid_w0", rep, 0)
     text = _texts(reqs)
-    # ada window_cents=15,000 -> $150 (not $0) via fallback.
-    assert "$150" in text
+    # Tokens still render; cost column was removed from the volume lists.
+    assert "700K" in text or "700" in text
+    assert "grace" in text
+    assert "dan" in text
 
 
 def test_usage_slide_renders_tokens_and_models() -> None:
@@ -154,8 +162,10 @@ def test_users_slide_renders_power_users_and_concentration() -> None:
     text = _texts(reqs)
     assert "Top-user share" in text
     assert "Idle seats" in text
-    assert "Highest-volume users" in text
+    assert "Highest volume" in text
+    assert "Lowest volume" in text
     assert "ada" in text  # short email of top user
+    assert "grace" in text  # short email of low-volume user
     # idle seats = 10 - 4 = 6
     assert "6" in _subtitle(reqs, "sid_w") or "idle" in _subtitle(reqs, "sid_w")
 

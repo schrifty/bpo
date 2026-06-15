@@ -35,6 +35,7 @@ logger = logging.getLogger("bpo")
 DEFAULT_EVENTS_WINDOW_DAYS = 30
 DEFAULT_TREND_MONTHS = 6
 TOP_USERS_LIMIT = 6
+VOLUME_USER_LIST_LIMIT = 4  # per-column cap on the users slide (highest + lowest side by side)
 MODEL_MIX_LIMIT = 5
 # Safety cap so a very active team cannot make the deck build pull unbounded pages.
 _MAX_EVENTS = 20000
@@ -541,11 +542,17 @@ def _focus_prompt(report: dict[str, Any], focus: str) -> str:
             f"{(u.get('models') or [{}])[0].get('model', '?')})"
             for u in top_users[:4]
         ) or "none"
+        bottom = report.get("bottom_users") or []
+        low_str = ", ".join(
+            f"{(u.get('email') or '').split('@')[0]} ({int(u.get('tokens') or 0)} tok)"
+            for u in bottom[:3]
+        ) or "none"
         return (
             f"Cursor AI coding-assistant USER BEHAVIOR for the engineering org over the last {window_days} days. "
             f"Active engineers: {active} of {seats} seats. Highest-volume users (tokens, top model): {top_str}. "
+            f"Lowest-volume active users: {low_str}. "
             "Implication for a VP of Engineering about usage concentration among a few power users, "
-            "idle seats, or uneven adoption — and the concrete next step?"
+            "under-adopted seats, idle seats, or uneven adoption — and the concrete next step?"
         )
     # default: usage (tokens + models)
     in_t = int(totals.get("input_tokens") or 0)
@@ -692,9 +699,10 @@ def build_cursor_usage_report(
     if not active_window and monthly:
         active_window = int(monthly[-1].get("active_users") or 0)
 
-    # Join top users (by tokens) with spend.
-    top_users = [
-        {
+    # Join top / bottom users (by tokens) with spend. Bottom list excludes anyone already
+    # in the top list so the two columns never duplicate the same engineer.
+    def _volume_user_row(u: dict[str, Any]) -> dict[str, Any]:
+        return {
             "email": u["email"],
             "tokens": u["tokens"],
             "input_tokens": u.get("input_tokens", 0),
@@ -704,8 +712,15 @@ def build_cursor_usage_report(
             "models": u.get("models", []),
             "spend_cents": spend_by_email.get(u["email"]),
         }
-        for u in top_users_src[:TOP_USERS_LIMIT]
-    ]
+
+    top_users = [_volume_user_row(u) for u in top_users_src[:TOP_USERS_LIMIT]]
+    top_emails = {u["email"] for u in top_users}
+    bottom_src = sorted(top_users_src, key=lambda u: int(u.get("tokens") or 0))
+    bottom_users = [
+        _volume_user_row(u)
+        for u in bottom_src
+        if u.get("email") and u["email"] not in top_emails
+    ][:VOLUME_USER_LIST_LIMIT]
 
     total_spend_cents = sum(spend_by_email.values()) if spend_by_email else None
 
@@ -777,6 +792,7 @@ def build_cursor_usage_report(
         "daily": events_rollup.get("daily", []),
         "efficiency": efficiency,
         "top_users": top_users,
+        "bottom_users": bottom_users,
         "model_mix": events_rollup.get("model_mix", []),
         "user_model_matrix": events_rollup.get("user_model_matrix", {"users": [], "models": [], "series": {}}),
         "errors": errors,

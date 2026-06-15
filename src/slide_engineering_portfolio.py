@@ -2206,6 +2206,48 @@ def _short_email(email: str, max_chars: int = 22) -> str:
     return _truncate_one_line(local, max_chars)
 
 
+def _render_cursor_volume_user_list(
+    reqs: list[dict[str, Any]],
+    sid: str,
+    *,
+    users: list[dict[str, Any]],
+    x: float,
+    y: float,
+    w: float,
+    content_ceiling: float,
+    oid_prefix: str,
+    limit: int = 4,
+    show_models: bool = False,
+    row_color: str = NAVY,
+) -> float:
+    """Compact name + tokens list for the users slide. Returns y below the last row."""
+    cur_y = y
+    if not users:
+        empty = "No usage in window"
+        _box(reqs, f"{sid}_{oid_prefix}e", sid, x, cur_y, w, 13, empty)
+        _style(reqs, f"{sid}_{oid_prefix}e", 0, len(empty), size=8, color=GRAY, font=FONT)
+        return cur_y + 13
+
+    for i, u in enumerate(users[:limit]):
+        models = u.get("models") or []
+        block_h = 13 + (11 if show_models and models else 0)
+        if cur_y + block_h > content_ceiling:
+            break
+        name = _short_email(str(u.get("email") or ""), 11)
+        tok = _fmt_tokens(u.get("tokens"))
+        row = f"{name:<11}{tok:>6}"
+        _box(reqs, f"{sid}_{oid_prefix}{i}", sid, x, cur_y, w, 13, row)
+        _style(reqs, f"{sid}_{oid_prefix}{i}", 0, len(row), size=8, color=row_color, font=MONO)
+        cur_y += 13
+        if show_models and models:
+            top_model = _truncate_one_line(str(models[0].get("model") or ""), 16)
+            sub = f"  └ {top_model}"
+            _box(reqs, f"{sid}_{oid_prefix}m{i}", sid, x, cur_y, w, 11, sub)
+            _style(reqs, f"{sid}_{oid_prefix}m{i}", 0, len(sub), size=7.5, color=GRAY, font=MONO)
+            cur_y += 11
+    return cur_y
+
+
 def _eng_share_bar(
     reqs: list[dict[str, Any]],
     sid: str,
@@ -2668,9 +2710,9 @@ def cursor_users_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
     """AI coding-assistant USER BEHAVIOR for a VP of Engineering.
 
     KPI cards (active engineers, adoption, top-user concentration, idle seats), a
-    model-usage-by-user stacked bar (who uses what), and a highest-volume users table
-    (tokens, cost, top model). Answers: is usage concentrated in a few power users, who
-    are they, and are paid seats sitting idle?
+    model-usage-by-user stacked bar (who uses what), and side-by-side highest- / lowest-
+    volume user lists (tokens; top model on power users only). Answers: is usage
+    concentrated in a few power users, who is barely using paid seats, and are seats idle?
     """
     cu = _cursor_blob(report)
     if not cu.get("configured"):
@@ -2679,6 +2721,7 @@ def cursor_users_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
     members = cu.get("members") or {}
     totals = cu.get("totals") or {}
     top_users = cu.get("top_users") or []
+    bottom_users = cu.get("bottom_users") or []
     matrix = cu.get("user_model_matrix") or {}
     window_days = int(cu.get("window_days") or 30)
 
@@ -2768,38 +2811,24 @@ def cursor_users_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
         _box(reqs, f"{sid}_ue", sid, left_x, left_y, left_w, 14, empty)
         _style(reqs, f"{sid}_ue", 0, len(empty), size=9, color=GRAY, font=FONT)
 
-    # ── Right: highest-volume users table ─────────────────────────────────────
-    right_y = _cursor_section_header(reqs, sid, "th", right_x, body_top, right_w, "Highest-volume users")
-    header = f"{'User':<16}{'Tokens':>7}{'Cost':>7}"
-    _box(reqs, f"{sid}_tuh", sid, right_x, right_y, right_w, 13, header)
-    _style(reqs, f"{sid}_tuh", 0, len(header), bold=True, size=8, color=GRAY, font=MONO)
-    right_y += 14
-    if top_users:
-        for i, u in enumerate(top_users[:6]):
-            if right_y + 13 > content_ceiling:
-                break
-            name = _short_email(str(u.get("email") or ""), 16)
-            tok = _fmt_tokens(u.get("tokens"))
-            # Prefer billed spend, but fall back to usage-based cost when spend is 0/None
-            # (seat-included plans report $0 overage per user).
-            spend = u.get("spend_cents")
-            cost_val = spend if spend not in (None, 0) else u.get("window_cents")
-            cost = _fmt_cents(cost_val)
-            row = f"{name:<16}{tok:>7}{cost:>7}"
-            _box(reqs, f"{sid}_tu{i}", sid, right_x, right_y, right_w, 13, row)
-            _style(reqs, f"{sid}_tu{i}", 0, len(row), size=8, color=NAVY, font=MONO)
-            right_y += 13
-            models = u.get("models") or []
-            if models:
-                top_model = _truncate_one_line(str(models[0].get("model") or ""), 28)
-                sub = f"  └ {top_model}"
-                _box(reqs, f"{sid}_tm{i}", sid, right_x, right_y, right_w, 11, sub)
-                _style(reqs, f"{sid}_tm{i}", 0, len(sub), size=7.5, color=GRAY, font=MONO)
-                right_y += 11
-    else:
-        empty = "No usage events in window"
-        _box(reqs, f"{sid}_tue", sid, right_x, right_y, right_w, 13, empty)
-        _style(reqs, f"{sid}_tue", 0, len(empty), size=9, color=GRAY, font=FONT)
+    # ── Right: highest- and lowest-volume users (two compact columns) ─────────
+    list_gap = 10.0
+    list_w = (right_w - list_gap) / 2.0
+    high_x = right_x
+    low_x = right_x + list_w + list_gap
+    list_limit = 4
+    row_y = _cursor_section_header(reqs, sid, "th", high_x, body_top, list_w, "Highest volume")
+    _cursor_section_header(reqs, sid, "tl", low_x, body_top, list_w, "Lowest volume")
+    _render_cursor_volume_user_list(
+        reqs, sid,
+        users=top_users, x=high_x, y=row_y, w=list_w, content_ceiling=content_ceiling,
+        oid_prefix="tu", limit=list_limit, show_models=True, row_color=NAVY,
+    )
+    _render_cursor_volume_user_list(
+        reqs, sid,
+        users=bottom_users, x=low_x, y=row_y, w=list_w, content_ceiling=content_ceiling,
+        oid_prefix="lu", limit=list_limit, show_models=False, row_color=GRAY,
+    )
 
     _render_takeaway_band(reqs, sid, _cursor_takeaway(cu, "users"))
     return idx + 1
