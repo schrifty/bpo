@@ -10,7 +10,9 @@ from src.slide_engineering_portfolio import (
     cursor_cost_slide,
     cursor_efficiency_slide,
     cursor_users_slide,
+    cursor_users_non_engineers_slide,
     cursor_usage_slide,
+    cursor_usage_non_engineers_slide,
 )
 
 
@@ -37,6 +39,103 @@ def _cursor_report() -> dict:
             {"model": "claude-4.5-sonnet", "tokens": 800_000, "cents": 18_000, "share": 0.6667},
             {"model": "gpt-5", "tokens": 400_000, "cents": 7_000, "share": 0.3333},
         ],
+        "cost_engineers": {
+            "configured": True,
+            "headcount": 8,
+            "seats": 8,
+            "active_window": 4,
+            "totals": {
+                "charged_cents_window": 25_000,
+                "spend_cents_cycle": 41_000,
+            },
+            "daily": [
+                {"date": "2026-04-01", "label": "4/1", "cents": 11_000, "active_users": 4},
+                {"date": "2026-04-02", "label": "4/2", "cents": 14_000, "active_users": 3},
+            ],
+            "model_mix": [
+                {"model": "claude-4.5-sonnet", "tokens": 800_000, "cents": 18_000, "share": 0.6667},
+                {"model": "gpt-5", "tokens": 400_000, "cents": 7_000, "share": 0.3333},
+            ],
+        },
+        "usage_engineers": {
+            "configured": True,
+            "seats": 8,
+            "active_window": 4,
+            "totals": {
+                "total_tokens": 1_000_000,
+                "input_tokens": 750_000,
+                "output_tokens": 250_000,
+                "event_count": 4_200,
+            },
+            "daily": [
+                {"date": "2026-04-01", "label": "4/1", "input_tokens": 350_000, "output_tokens": 100_000},
+                {"date": "2026-04-02", "label": "4/2", "input_tokens": 400_000, "output_tokens": 150_000},
+            ],
+            "model_mix": [
+                {"model": "claude-4.5-sonnet", "tokens": 700_000, "share": 0.7},
+                {"model": "gpt-5", "tokens": 300_000, "share": 0.3},
+            ],
+        },
+        "usage_non_engineers": {
+            "configured": True,
+            "seats": 2,
+            "active_window": 2,
+            "totals": {
+                "total_tokens": 200_000,
+                "input_tokens": 150_000,
+                "output_tokens": 50_000,
+                "event_count": 800,
+            },
+            "daily": [
+                {"date": "2026-04-01", "label": "4/1", "input_tokens": 50_000, "output_tokens": 20_000},
+                {"date": "2026-04-02", "label": "4/2", "input_tokens": 100_000, "output_tokens": 30_000},
+            ],
+            "model_mix": [
+                {"model": "gpt-5", "tokens": 120_000, "share": 0.6},
+                {"model": "Auto (default)", "tokens": 80_000, "share": 0.4},
+            ],
+        },
+        "users_engineers": {
+            "configured": True,
+            "seats": 8,
+            "active_window": 4,
+            "totals": {"total_tokens": 1_000_000},
+            "top_users": [
+                {"email": "ada@x.com", "tokens": 700_000, "events": 3_000,
+                 "models": [{"model": "claude-4.5-sonnet", "tokens": 600_000, "share": 0.86}]},
+                {"email": "linus@x.com", "tokens": 300_000, "events": 2_000,
+                 "models": [{"model": "gpt-5", "tokens": 300_000, "share": 1.0}]},
+            ],
+            "bottom_users": [
+                {"email": "grace@x.com", "tokens": 12_000, "events": 40},
+                {"email": "dan@x.com", "tokens": 8_500, "events": 22},
+            ],
+            "user_model_matrix": {
+                "users": ["ada@x.com", "linus@x.com"],
+                "models": ["claude-4.5-sonnet", "gpt-5"],
+                "series": {"claude-4.5-sonnet": [600_000, 0], "gpt-5": [100_000, 300_000]},
+            },
+        },
+        "users_non_engineers": {
+            "configured": True,
+            "seats": 2,
+            "active_window": 2,
+            "totals": {"total_tokens": 200_000},
+            "top_users": [
+                {"email": "pm@x.com", "tokens": 120_000, "events": 400,
+                 "models": [{"model": "gpt-5", "tokens": 120_000, "share": 1.0}]},
+                {"email": "cs@x.com", "tokens": 80_000, "events": 300,
+                 "models": [{"model": "Auto (default)", "tokens": 80_000, "share": 1.0}]},
+            ],
+            "bottom_users": [
+                {"email": "cs@x.com", "tokens": 80_000, "events": 300},
+            ],
+            "user_model_matrix": {
+                "users": ["pm@x.com", "cs@x.com"],
+                "models": ["gpt-5", "Auto (default)"],
+                "series": {"gpt-5": [120_000, 0], "Auto (default)": [0, 80_000]},
+            },
+        },
         "top_users": [
             {"email": "ada@x.com", "tokens": 700_000, "input_tokens": 520_000, "output_tokens": 180_000,
              "events": 3_000, "window_cents": 15_000, "spend_cents": 22_000,
@@ -75,7 +174,8 @@ def _cursor_report() -> dict:
                  "cents": 10_000, "lines_per_1k_tokens": 80.0, "cents_per_line": 0.25},
             ],
         },
-        "takeaways": {"cost": "Cost up.", "usage": "Tokens up.", "users": "Concentrated.",
+        "takeaways": {"cost": "Cost up.", "usage": "Tokens up.", "usage_non_engineers": "Non-eng tokens up.",
+                      "users": "Concentrated.", "users_non_engineers": "Non-eng concentrated.",
                       "efficiency": "Efficient."},
         "errors": [],
     }
@@ -105,14 +205,15 @@ def _subtitle(reqs: list, sid: str) -> str:
 def test_cost_slide_renders_spend_and_model_cost() -> None:
     reqs: list = []
     cursor_cost_slide(reqs, "sid_c", _cursor_report(), 0)
-    assert _title(reqs, "sid_c") == "AI Coding Spend"
+    assert _title(reqs, "sid_c") == "Cursor AI Coding Spend"
     sub = _subtitle(reqs, "sid_c")
     # Leads with usage cost ($250 = 25,000 cents); overage ($410) shown as overage.
     assert "$250" in sub and "$410" in sub
     text = _texts(reqs)
     assert "Usage cost" in text
     assert "Cost / active eng" in text
-    assert "Idle seats" in text
+    assert "Idle eng seats" in text
+    assert "dev-* team members only" in text
     assert "Where the spend goes" in text
     # Per-model cost dollar value appears.
     assert "$180" in text  # claude cost (18,000 cents)
@@ -121,6 +222,7 @@ def test_cost_slide_renders_spend_and_model_cost() -> None:
 def test_cost_slide_no_overage_leads_with_usage_cost() -> None:
     rep = _cursor_report()
     rep["cursor_usage"]["totals"]["spend_cents_cycle"] = 0
+    rep["cursor_usage"]["cost_engineers"]["totals"]["spend_cents_cycle"] = 0
     reqs: list = []
     cursor_cost_slide(reqs, "sid_c0", rep, 0)
     sub = _subtitle(reqs, "sid_c0")
@@ -132,7 +234,7 @@ def test_cost_slide_no_overage_leads_with_usage_cost() -> None:
 
 def test_users_slide_renders_token_volume_columns() -> None:
     rep = _cursor_report()
-    for u in rep["cursor_usage"]["top_users"]:
+    for u in rep["cursor_usage"]["users_engineers"]["top_users"]:
         u["spend_cents"] = 0
     reqs: list = []
     cursor_users_slide(reqs, "sid_w0", rep, 0)
@@ -146,34 +248,60 @@ def test_users_slide_renders_token_volume_columns() -> None:
 def test_usage_slide_renders_tokens_and_models() -> None:
     reqs: list = []
     cursor_usage_slide(reqs, "sid_u", _cursor_report(), 0)
-    assert _title(reqs, "sid_u") == "AI Token Usage"
+    assert _title(reqs, "sid_u") == "Cursor AI Token Usage"
     text = _texts(reqs)
     assert "Input tokens" in text and "Output tokens" in text
     assert "Model usage (by tokens)" in text
     assert "claude-4.5-sonnet" in text
+    assert "dev-* team members only" in text
     # input/output ratio in subtitle.
     assert "in/out" in _subtitle(reqs, "sid_u")
+
+
+def test_usage_non_engineers_slide_renders_scoped_tokens() -> None:
+    reqs: list = []
+    cursor_usage_non_engineers_slide(reqs, "sid_un", _cursor_report(), 0)
+    assert _title(reqs, "sid_un") == "Cursor AI Token Usage — Non-Engineering"
+    text = _texts(reqs)
+    assert "Input tokens" in text and "Output tokens" in text
+    assert "outside dev-* teams" in text
+    assert "Auto (default)" in text
+    sub = _subtitle(reqs, "sid_un")
+    assert "200K" in sub or "200" in sub
+    assert "users active" in sub
 
 
 def test_users_slide_renders_power_users_and_concentration() -> None:
     reqs: list = []
     cursor_users_slide(reqs, "sid_w", _cursor_report(), 0)
-    assert _title(reqs, "sid_w") == "AI Power Users"
+    assert _title(reqs, "sid_w") == "Cursor AI Power Users"
     text = _texts(reqs)
     assert "Top-user share" in text
     assert "Idle seats" in text
     assert "Highest volume" in text
     assert "Lowest volume" in text
+    assert "dev-* team members only" in text
     assert "ada" in text  # short email of top user
     assert "grace" in text  # short email of low-volume user
-    # idle seats = 10 - 4 = 6
-    assert "6" in _subtitle(reqs, "sid_w") or "idle" in _subtitle(reqs, "sid_w")
+    # idle seats = 8 - 4 = 4
+    assert "4" in _subtitle(reqs, "sid_w") or "idle" in _subtitle(reqs, "sid_w")
+
+
+def test_users_non_engineers_slide_renders_scoped_power_users() -> None:
+    reqs: list = []
+    cursor_users_non_engineers_slide(reqs, "sid_wn", _cursor_report(), 0)
+    assert _title(reqs, "sid_wn") == "Cursor AI Power Users — Non-Engineering"
+    text = _texts(reqs)
+    assert "Active users" in text
+    assert "outside dev-* teams" in text
+    assert "pm" in text
+    assert "Highest volume" in text
 
 
 def test_efficiency_slide_renders_ratios_and_engineers() -> None:
     reqs: list = []
     cursor_efficiency_slide(reqs, "sid_e", _cursor_report(), 0)
-    assert _title(reqs, "sid_e") == "AI Coding Efficiency"
+    assert _title(reqs, "sid_e") == "Cursor AI Coding Efficiency"
     text = _texts(reqs)
     assert "Lines kept" in text
     assert "Lines / 1K tokens" in text
@@ -186,7 +314,10 @@ def test_efficiency_slide_renders_ratios_and_engineers() -> None:
 
 def test_cursor_slides_emit_missing_data_when_unconfigured() -> None:
     rep = {"cursor_usage": {"configured": False}}
-    for builder in (cursor_cost_slide, cursor_usage_slide, cursor_efficiency_slide, cursor_users_slide):
+    for builder in (
+        cursor_cost_slide, cursor_usage_slide, cursor_usage_non_engineers_slide,
+        cursor_efficiency_slide, cursor_users_slide, cursor_users_non_engineers_slide,
+    ):
         reqs: list = []
         builder(reqs, "sid_x", rep, 0)
         assert _texts(reqs)  # renders a missing-data slide rather than crashing

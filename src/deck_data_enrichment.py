@@ -63,7 +63,10 @@ def enrich_cursor_usage_if_needed(
     without a ``CURSOR_ADMIN_API_KEY`` should not get empty/missing-data slides, so they
     are filtered out of the plan instead. All three share the one ``cursor_usage`` blob.
     """
-    cursor_slide_types = {"cursor_cost", "cursor_usage", "cursor_efficiency", "cursor_users"}
+    cursor_slide_types = {
+        "cursor_cost", "cursor_usage", "cursor_usage_non_engineers",
+        "cursor_efficiency", "cursor_users", "cursor_users_non_engineers",
+    }
 
     def _drop_cursor(plan: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [e for e in plan if e.get("slide_type") not in cursor_slide_types]

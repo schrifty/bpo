@@ -29,7 +29,9 @@ slides:
   - slide: eng_backlog_health
   - slide: eng_support_pressure
   - slide: cursor_cost
-  - slide: cursor_usage
   - slide: cursor_efficiency
+  - slide: cursor_usage
+  - slide: cursor_usage_non_engineers
   - slide: cursor_users
+  - slide: cursor_users_non_engineers
   - slide: data_quality

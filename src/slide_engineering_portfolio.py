@@ -2334,14 +2334,20 @@ def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
     if not cu.get("configured"):
         return _missing_data_slide(reqs, sid, report, idx, "Cursor usage (set CURSOR_ADMIN_API_KEY)")
 
-    members = cu.get("members") or {}
-    totals = cu.get("totals") or {}
-    daily = cu.get("daily") or []
-    model_mix = cu.get("model_mix") or []
+    cost = cu.get("cost_engineers") or {}
+    if not cost.get("configured"):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            "Engineer-scoped cost (set ATLASSIAN_ORG_ID and dev-* Atlassian teams)",
+        )
+
+    totals = cost.get("totals") or {}
+    daily = cost.get("daily") or []
+    model_mix = cost.get("model_mix") or []
     window_days = int(cu.get("window_days") or 30)
 
-    seats = int(members.get("total") or 0)
-    active = int(members.get("active_window") or 0)
+    seats = int(cost.get("seats") or 0)
+    active = int(cost.get("active_window") or 0)
     spend_cents = totals.get("spend_cents_cycle")
     window_cents = totals.get("charged_cents_window")
     cost_per_active = (float(window_cents) / active) if (window_cents is not None and active) else None
@@ -2358,18 +2364,19 @@ def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
     if has_overage:
         bits.append(f"{_fmt_cents(spend_cents)} cycle overage")
     elif seats:
-        bits.append(f"{active} of {seats} seats active")
+        bits.append(f"{active} of {seats} engineer seats active")
     subtitle = " · ".join(bits) if bits else "Cursor team spend"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _eng_title(reqs, sid, "AI Coding Spend", subtitle)
+    _eng_title(reqs, sid, "Cursor AI Coding Spend", subtitle)
     cycle_note = (
         f"cycle overage billed: {_fmt_cents(spend_cents)}" if has_overage
         else "no cycle overage — usage included in seats"
     )
     _cursor_context(
         reqs, sid, cu,
+        "dev-* team members only  ·  "
         "usage-based cost over the last {window_days} days  ·  " + cycle_note,
     )
 
@@ -2379,7 +2386,7 @@ def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
             (f"Usage cost ({window_days}d)", _fmt_cents(window_cents)),
             ("Cost / active eng", _fmt_cents(cost_per_active)),
             ("Active engineers", f"{active} / {seats}" if seats else str(active)),
-            ("Idle seats", str(idle) if seats else "—"),
+            ("Idle eng seats", str(idle) if seats else "—"),
         ],
         y=BODY_Y + 20,
     )
@@ -2455,45 +2462,67 @@ def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
     return idx + 1
 
 
-def cursor_usage_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
-    """AI coding-assistant USAGE (tokens + models) for a VP of Engineering.
+def _cursor_usage_scope(cu: dict[str, Any], audience: str) -> dict[str, Any]:
+    if audience == "engineers":
+        return cu.get("usage_engineers") or {}
+    return cu.get("usage_non_engineers") or {}
 
-    KPI cards (total / input / output tokens, requests), a tokens-over-time combo chart
-    (daily input & output bars + active-users line), and a model-usage-by-tokens mix.
-    Answers: how much are we using it, what is the input/output workload shape, and which
-    models carry the volume?
-    """
+
+def _render_cursor_usage_slide(
+    reqs: list[dict[str, Any]],
+    sid: str,
+    report: dict[str, Any],
+    idx: int,
+    *,
+    audience: str,
+) -> int:
     cu = _cursor_blob(report)
     if not cu.get("configured"):
         return _missing_data_slide(reqs, sid, report, idx, "Cursor usage (set CURSOR_ADMIN_API_KEY)")
 
-    members = cu.get("members") or {}
-    totals = cu.get("totals") or {}
-    daily = cu.get("daily") or []
-    model_mix = cu.get("model_mix") or []
-    window_days = int(cu.get("window_days") or 30)
+    scope = _cursor_usage_scope(cu, audience)
+    if not scope.get("configured"):
+        label = "Engineer-scoped" if audience == "engineers" else "Non-engineer"
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            f"{label} usage (set ATLASSIAN_ORG_ID and dev-* Atlassian teams)",
+        )
 
-    seats = int(members.get("total") or 0)
-    active = int(members.get("active_window") or 0)
+    totals = scope.get("totals") or {}
+    daily = scope.get("daily") or []
+    model_mix = scope.get("model_mix") or []
+    window_days = int(cu.get("window_days") or 30)
+    seats = int(scope.get("seats") or 0)
+    active = int(scope.get("active_window") or 0)
     total_tokens = int(totals.get("total_tokens") or 0)
     input_tokens = int(totals.get("input_tokens") or 0)
     output_tokens = int(totals.get("output_tokens") or 0)
     events = int(totals.get("event_count") or 0)
+
+    is_engineers = audience == "engineers"
+    title = "Cursor AI Token Usage" if is_engineers else "Cursor AI Token Usage — Non-Engineering"
+    takeaway_focus = "usage" if is_engineers else "usage_non_engineers"
+    user_label = "engineers" if is_engineers else "users"
+    context_scope = (
+        "dev-* team members only"
+        if is_engineers else
+        "Atlassian team members outside dev-* teams"
+    )
 
     io_ratio = f"{input_tokens / output_tokens:.1f}:1 in/out" if output_tokens else ""
     bits = [f"{_fmt_tokens(total_tokens)} tokens in {window_days}d"]
     if io_ratio:
         bits.append(io_ratio)
     if seats:
-        bits.append(f"{active} of {seats} engineers active")
+        bits.append(f"{active} of {seats} {user_label} active")
     subtitle = " · ".join(bits)
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _eng_title(reqs, sid, "AI Token Usage", subtitle)
+    _eng_title(reqs, sid, title, subtitle)
     _cursor_context(
         reqs, sid, cu,
-        "token volume and model mix reflect usage events over the last {window_days} days",
+        context_scope + "  ·  token volume and model mix over the last {window_days} days",
     )
 
     kpi_y = _eng_kpi_row(
@@ -2516,9 +2545,6 @@ def cursor_usage_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
     content_ceiling = _ENG_CONTENT_BOTTOM - 6
     charts = report.get("_charts")
 
-    # ── Left: tokens over time (input + output stacked = total per day) ───────
-    # Stacked (not combo) so the much-smaller output series stays visible as the top
-    # of each daily column rather than vanishing next to input.
     left_y = _cursor_section_header(reqs, sid, "th", left_x, body_top, left_w, "Tokens over time (daily, input + output)")
     if daily and charts:
         try:
@@ -2550,7 +2576,6 @@ def cursor_usage_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
         _box(reqs, f"{sid}_te", sid, left_x, left_y, left_w, 14, empty)
         _style(reqs, f"{sid}_te", 0, len(empty), size=9, color=GRAY, font=FONT)
 
-    # ── Right: model usage (by tokens) ────────────────────────────────────────
     right_y = _cursor_section_header(reqs, sid, "mmh", right_x, body_top, right_w, "Model usage (by tokens)")
     if model_mix:
         bar_max_w = 70.0
@@ -2571,8 +2596,18 @@ def cursor_usage_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
         _box(reqs, f"{sid}_mme", sid, right_x, right_y, right_w, 13, empty)
         _style(reqs, f"{sid}_mme", 0, len(empty), size=9, color=GRAY, font=FONT)
 
-    _render_takeaway_band(reqs, sid, _cursor_takeaway(cu, "usage"))
+    _render_takeaway_band(reqs, sid, _cursor_takeaway(cu, takeaway_focus))
     return idx + 1
+
+
+def cursor_usage_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """AI Token Usage for dev-* Atlassian team members."""
+    return _render_cursor_usage_slide(reqs, sid, report, idx, audience="engineers")
+
+
+def cursor_usage_non_engineers_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """AI Token Usage for non-engineering Cursor users."""
+    return _render_cursor_usage_slide(reqs, sid, report, idx, audience="non_engineers")
 
 
 def _fmt_cents_per_line(cents: Any) -> str:
@@ -2617,7 +2652,7 @@ def cursor_efficiency_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _eng_title(reqs, sid, "AI Coding Efficiency", subtitle)
+    _eng_title(reqs, sid, "Cursor AI Coding Efficiency", subtitle)
     _cursor_context(
         reqs, sid, cu,
         "accepted AI-written lines vs. token cost over the last {window_days} days  ·  "
@@ -2706,27 +2741,40 @@ def cursor_efficiency_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
     return idx + 1
 
 
-def cursor_users_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
-    """AI coding-assistant USER BEHAVIOR for a VP of Engineering.
+def _cursor_users_scope(cu: dict[str, Any], audience: str) -> dict[str, Any]:
+    if audience == "engineers":
+        return cu.get("users_engineers") or {}
+    return cu.get("users_non_engineers") or {}
 
-    KPI cards (active engineers, adoption, top-user concentration, idle seats), a
-    model-usage-by-user stacked bar (who uses what), and side-by-side highest- / lowest-
-    volume user lists (tokens; top model on power users only). Answers: is usage
-    concentrated in a few power users, who is barely using paid seats, and are seats idle?
-    """
+
+def _render_cursor_users_slide(
+    reqs: list[dict[str, Any]],
+    sid: str,
+    report: dict[str, Any],
+    idx: int,
+    *,
+    audience: str,
+) -> int:
     cu = _cursor_blob(report)
     if not cu.get("configured"):
         return _missing_data_slide(reqs, sid, report, idx, "Cursor usage (set CURSOR_ADMIN_API_KEY)")
 
-    members = cu.get("members") or {}
-    totals = cu.get("totals") or {}
-    top_users = cu.get("top_users") or []
-    bottom_users = cu.get("bottom_users") or []
-    matrix = cu.get("user_model_matrix") or {}
+    scope = _cursor_users_scope(cu, audience)
+    if not scope.get("configured"):
+        label = "Engineer-scoped" if audience == "engineers" else "Non-engineer"
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            f"{label} power users (set ATLASSIAN_ORG_ID and dev-* Atlassian teams)",
+        )
+
+    totals = scope.get("totals") or {}
+    top_users = scope.get("top_users") or []
+    bottom_users = scope.get("bottom_users") or []
+    matrix = scope.get("user_model_matrix") or {}
     window_days = int(cu.get("window_days") or 30)
 
-    seats = int(members.get("total") or 0)
-    active = int(members.get("active_window") or 0)
+    seats = int(scope.get("seats") or 0)
+    active = int(scope.get("active_window") or 0)
     total_tokens = int(totals.get("total_tokens") or 0)
     adoption_pct = int(round(active / seats * 100)) if seats else 0
     idle = max(0, seats - active) if seats else 0
@@ -2735,9 +2783,20 @@ def cursor_users_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
         if top_users and total_tokens else 0
     )
 
+    is_engineers = audience == "engineers"
+    title = "Cursor AI Power Users" if is_engineers else "Cursor AI Power Users — Non-Engineering"
+    takeaway_focus = "users" if is_engineers else "users_non_engineers"
+    user_label = "engineers" if is_engineers else "users"
+    active_kpi = "Active engineers" if is_engineers else "Active users"
+    context_scope = (
+        "dev-* team members only"
+        if is_engineers else
+        "Atlassian team members outside dev-* teams"
+    )
+
     bits = []
     if seats:
-        bits.append(f"{active} of {seats} engineers active ({adoption_pct}%)")
+        bits.append(f"{active} of {seats} {user_label} active ({adoption_pct}%)")
     if top_share:
         bits.append(f"top user = {top_share}% of tokens")
     if idle:
@@ -2746,16 +2805,16 @@ def cursor_users_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _eng_title(reqs, sid, "AI Power Users", subtitle)
+    _eng_title(reqs, sid, title, subtitle)
     _cursor_context(
         reqs, sid, cu,
-        "per-user volume and model choice from usage events over the last {window_days} days",
+        context_scope + "  ·  per-user volume and model choice over the last {window_days} days",
     )
 
     kpi_y = _eng_kpi_row(
         reqs, sid,
         [
-            ("Active engineers", f"{active} / {seats}" if seats else str(active)),
+            (active_kpi, f"{active} / {seats}" if seats else str(active)),
             ("Adoption", f"{adoption_pct}%" if seats else "—"),
             ("Top-user share", f"{top_share}%" if top_share else "—"),
             ("Idle seats", str(idle) if seats else "—"),
@@ -2772,7 +2831,6 @@ def cursor_users_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
     content_ceiling = _ENG_CONTENT_BOTTOM - 6
     charts = report.get("_charts")
 
-    # ── Left: model usage by user (stacked tokens) ────────────────────────────
     left_y = _cursor_section_header(reqs, sid, "mh", left_x, body_top, left_w, "Model usage by user (tokens)")
     m_users = matrix.get("users") or []
     m_models = matrix.get("models") or []
@@ -2794,8 +2852,6 @@ def cursor_users_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
             )
             embed_chart(reqs, f"{sid}_uchart", sid, ss_id, chart_id, left_x, left_y, left_w, chart_h, linked=False)
             left_y += chart_h + 4
-            # Truncate long model names so the horizontal legend stays within the left
-            # column and never overflows into the users table on the right.
             legend_entries = [
                 (_truncate_one_line(m, 16), BRAND_SERIES_COLORS[i % len(BRAND_SERIES_COLORS)])
                 for i, m in enumerate(m_models)
@@ -2811,7 +2867,6 @@ def cursor_users_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
         _box(reqs, f"{sid}_ue", sid, left_x, left_y, left_w, 14, empty)
         _style(reqs, f"{sid}_ue", 0, len(empty), size=9, color=GRAY, font=FONT)
 
-    # ── Right: highest- and lowest-volume users (two compact columns) ─────────
     list_gap = 10.0
     list_w = (right_w - list_gap) / 2.0
     high_x = right_x
@@ -2830,8 +2885,18 @@ def cursor_users_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
         oid_prefix="lu", limit=list_limit, show_models=False, row_color=GRAY,
     )
 
-    _render_takeaway_band(reqs, sid, _cursor_takeaway(cu, "users"))
+    _render_takeaway_band(reqs, sid, _cursor_takeaway(cu, takeaway_focus))
     return idx + 1
+
+
+def cursor_users_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """AI Power Users for dev-* Atlassian team members."""
+    return _render_cursor_users_slide(reqs, sid, report, idx, audience="engineers")
+
+
+def cursor_users_non_engineers_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """AI Power Users for non-engineering Cursor users."""
+    return _render_cursor_users_slide(reqs, sid, report, idx, audience="non_engineers")
 
 
 def eng_enhancements_open_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
