@@ -2533,6 +2533,137 @@ def cursor_usage_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
     return idx + 1
 
 
+def _fmt_cents_per_line(cents: Any) -> str:
+    """Format a per-accepted-line cost. Sub-dollar values read better in cents."""
+    if not isinstance(cents, (int, float)):
+        return "—"
+    c = float(cents)
+    return f"{c:.2f}\u00a2" if c < 100 else _fmt_cents(c)
+
+
+def cursor_efficiency_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """AI coding-assistant EFFICIENCY / ROI for a VP of Engineering.
+
+    KPI cards (accepted lines, lines kept %, accepted lines per 1K tokens, cost per accepted
+    line), an accepted-lines-vs-cost combo chart over the window, and a most-efficient-engineers
+    panel (accepted lines per 1K tokens). Answers: what did the spend actually produce, and is
+    output-per-token/dollar improving? Framed as efficiency, not a productivity ranking.
+    """
+    cu = _cursor_blob(report)
+    if not cu.get("configured"):
+        return _missing_data_slide(reqs, sid, report, idx, "Cursor usage (set CURSOR_ADMIN_API_KEY)")
+
+    eff = cu.get("efficiency") or {}
+    window_days = int(cu.get("window_days") or 30)
+
+    accepted = int(eff.get("accepted_lines") or 0)
+    lines_kept = eff.get("lines_kept")
+    per_1k = eff.get("accepted_lines_per_1k_tokens")
+    cents_per_line = eff.get("cost_per_accepted_line_cents")
+    daily = eff.get("daily") or []
+    top_eff = eff.get("top_efficiency") or []
+
+    kept_pct = f"{int(round(float(lines_kept) * 100))}%" if lines_kept is not None else "—"
+    per_1k_str = f"{per_1k:g}" if isinstance(per_1k, (int, float)) else "—"
+
+    bits = [f"{_fmt_tokens(accepted)} lines accepted ({window_days}d)"]
+    if lines_kept is not None:
+        bits.append(f"{kept_pct} kept")
+    if cents_per_line is not None:
+        bits.append(f"{_fmt_cents_per_line(cents_per_line)}/accepted line")
+    subtitle = " · ".join(bits)
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _eng_title(reqs, sid, "AI Coding Efficiency", subtitle)
+    _cursor_context(
+        reqs, sid, cu,
+        "accepted AI-written lines vs. token cost over the last {window_days} days  ·  "
+        "efficiency proxy (accepted lines span Tab + agent; cost is model-API usage)",
+    )
+
+    kpi_y = _eng_kpi_row(
+        reqs, sid,
+        [
+            (f"Lines accepted ({window_days}d)", _fmt_tokens(accepted)),
+            ("Lines kept", kept_pct),
+            ("Lines / 1K tokens", per_1k_str),
+            ("Cost / accepted line", _fmt_cents_per_line(cents_per_line)),
+        ],
+        y=BODY_Y + 20,
+    )
+
+    body_top = kpi_y + 12
+    col_gap = 20
+    left_w = (CONTENT_W - col_gap) * 3 // 5
+    right_w = CONTENT_W - left_w - col_gap
+    left_x = MARGIN
+    right_x = MARGIN + left_w + col_gap
+    content_ceiling = _ENG_CONTENT_BOTTOM - 6
+    charts = report.get("_charts")
+
+    # ── Left: accepted lines (bars) vs. usage cost (line) over time ────────────
+    left_y = _cursor_section_header(reqs, sid, "eh", left_x, body_top, left_w, "Output vs. cost over time")
+    if daily and charts:
+        try:
+            from .charts import embed_chart
+
+            labels = [str(d.get("label") or d.get("date") or "") for d in daily]
+            lines_series = [int(d.get("accepted_lines") or 0) for d in daily]
+            cost_series = [round(float(d.get("cents") or 0) / 100.0, 2) for d in daily]
+            chart_h = int(max(120, min(190, content_ceiling - left_y - 6 - 18)))
+            ss_id, chart_id = charts.add_combo_chart(
+                title="Output vs. cost over time",
+                labels=labels,
+                bar_series={"Accepted lines": lines_series},
+                line_series={"Cost ($)": cost_series},
+                show_title=False,
+            )
+            embed_chart(reqs, f"{sid}_echart", sid, ss_id, chart_id, left_x, left_y, left_w, chart_h, linked=False)
+            left_y += chart_h + 4
+            left_y = _slide_chart_legend(
+                reqs, sid, f"{sid}_elgd", left_x, left_y,
+                [("Accepted lines", BRAND_SERIES_COLORS[0]), ("Cost ($)", BRAND_SERIES_COLORS[1])],
+                font_pt=9, swatch_size=9, entry_gap=14,
+            )
+        except Exception as exc:
+            logger.warning("Cursor efficiency chart embed failed: %s", exc)
+    else:
+        empty = "No accepted-line data in window"
+        _box(reqs, f"{sid}_ee", sid, left_x, left_y, left_w, 14, empty)
+        _style(reqs, f"{sid}_ee", 0, len(empty), size=9, color=GRAY, font=FONT)
+
+    # ── Right: most efficient engineers (accepted lines per 1K tokens) ─────────
+    right_y = _cursor_section_header(reqs, sid, "meh", right_x, body_top, right_w, "Most efficient engineers")
+    if top_eff:
+        max_ratio = max(float(u.get("lines_per_1k_tokens") or 0) for u in top_eff) or 1.0
+        bar_max_w = 60.0
+        for i, u in enumerate(top_eff):
+            if right_y + 15 > content_ceiling:
+                break
+            ratio = float(u.get("lines_per_1k_tokens") or 0)
+            label = _short_email(str(u.get("email") or ""), 16)
+            _eng_share_bar(
+                reqs, sid, f"ef{i}",
+                label=label, value_label=f"{ratio:g}",
+                fraction=ratio / max_ratio, x=right_x, y=right_y, w=right_w,
+                bar_max_w=bar_max_w, color=BRAND_SERIES_COLORS[i % len(BRAND_SERIES_COLORS)],
+                value_w=40.0,
+            )
+            right_y += 15
+        if right_y + 11 <= content_ceiling:
+            note = "lines accepted per 1K tokens"
+            _box(reqs, f"{sid}_efn", sid, right_x, right_y, right_w, 11, note)
+            _style(reqs, f"{sid}_efn", 0, len(note), size=7.5, color=GRAY, font=FONT)
+    else:
+        empty = "No per-engineer efficiency data"
+        _box(reqs, f"{sid}_efe", sid, right_x, right_y, right_w, 13, empty)
+        _style(reqs, f"{sid}_efe", 0, len(empty), size=9, color=GRAY, font=FONT)
+
+    _render_takeaway_band(reqs, sid, _cursor_takeaway(cu, "efficiency"))
+    return idx + 1
+
+
 def cursor_users_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
     """AI coding-assistant USER BEHAVIOR for a VP of Engineering.
 

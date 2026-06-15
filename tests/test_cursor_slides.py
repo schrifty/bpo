@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from src.slide_engineering_portfolio import (
     cursor_cost_slide,
+    cursor_efficiency_slide,
     cursor_users_slide,
     cursor_usage_slide,
 )
@@ -49,7 +50,27 @@ def _cursor_report() -> dict:
             "models": ["claude-4.5-sonnet", "gpt-5"],
             "series": {"claude-4.5-sonnet": [600_000, 100_000], "gpt-5": [100_000, 400_000]},
         },
-        "takeaways": {"cost": "Cost up.", "usage": "Tokens up.", "users": "Concentrated."},
+        "efficiency": {
+            "accepted_lines": 120_000,
+            "total_lines": 150_000,
+            "lines_kept": 0.8,
+            "total_tokens": 1_200_000,
+            "charged_cents_window": 25_000,
+            "accepted_lines_per_1k_tokens": 100.0,
+            "cost_per_accepted_line_cents": 0.21,
+            "daily": [
+                {"date": "2026-04-01", "label": "4/1", "accepted_lines": 60_000, "total_lines": 75_000, "cents": 11_000},
+                {"date": "2026-04-02", "label": "4/2", "accepted_lines": 60_000, "total_lines": 75_000, "cents": 14_000},
+            ],
+            "top_efficiency": [
+                {"email": "ada@x.com", "accepted_lines": 70_000, "tokens": 700_000,
+                 "cents": 15_000, "lines_per_1k_tokens": 100.0, "cents_per_line": 0.21},
+                {"email": "linus@x.com", "accepted_lines": 40_000, "tokens": 500_000,
+                 "cents": 10_000, "lines_per_1k_tokens": 80.0, "cents_per_line": 0.25},
+            ],
+        },
+        "takeaways": {"cost": "Cost up.", "usage": "Tokens up.", "users": "Concentrated.",
+                      "efficiency": "Efficient."},
         "errors": [],
     }
     return {"cursor_usage": cu}
@@ -139,9 +160,23 @@ def test_users_slide_renders_power_users_and_concentration() -> None:
     assert "6" in _subtitle(reqs, "sid_w") or "idle" in _subtitle(reqs, "sid_w")
 
 
+def test_efficiency_slide_renders_ratios_and_engineers() -> None:
+    reqs: list = []
+    cursor_efficiency_slide(reqs, "sid_e", _cursor_report(), 0)
+    assert _title(reqs, "sid_e") == "AI Coding Efficiency"
+    text = _texts(reqs)
+    assert "Lines kept" in text
+    assert "Lines / 1K tokens" in text
+    assert "Most efficient engineers" in text
+    assert "ada" in text  # short email of most-efficient engineer
+    assert "0.21" in text  # cost per accepted line shown in cents (0.21¢)
+    # Subtitle leads with accepted lines and lines-kept ratio.
+    assert "kept" in _subtitle(reqs, "sid_e")
+
+
 def test_cursor_slides_emit_missing_data_when_unconfigured() -> None:
     rep = {"cursor_usage": {"configured": False}}
-    for builder in (cursor_cost_slide, cursor_usage_slide, cursor_users_slide):
+    for builder in (cursor_cost_slide, cursor_usage_slide, cursor_efficiency_slide, cursor_users_slide):
         reqs: list = []
         builder(reqs, "sid_x", rep, 0)
         assert _texts(reqs)  # renders a missing-data slide rather than crashing

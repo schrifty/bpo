@@ -38,6 +38,10 @@ TOP_USERS_LIMIT = 6
 MODEL_MIX_LIMIT = 5
 # Safety cap so a very active team cannot make the deck build pull unbounded pages.
 _MAX_EVENTS = 20000
+# Below this token floor a per-engineer efficiency ratio (lines per 1K tokens) is noise —
+# a couple of accepted lines divided by a tiny token count produces a meaningless spike — so
+# such engineers are excluded from the efficiency ranking (aggregate totals still count them).
+_EFFICIENCY_MIN_TOKENS = 1000
 
 
 def _month_key(dt: datetime) -> str:
@@ -324,6 +328,140 @@ def _build_user_model_matrix(
     return {"users": users, "models": models, "series": series}
 
 
+def _build_accepted_lines_rollup(
+    client: CursorClient, *, window_days: int, end: datetime
+) -> dict[str, Any]:
+    """Accepted/total AI-written lines per day and per user from daily-usage-data.
+
+    This is the "what did we keep" signal: ``acceptedLinesAdded`` and ``totalLinesAdded``
+    are reported per user-day by ``/teams/daily-usage-data``. Pulled over the *same* window
+    as the usage events (not the longer monthly-trend window) so it can be joined by email
+    against token cost to produce efficiency ratios. ``all_members=True`` keeps idle and
+    low-volume engineers in the denominator rather than only active ones.
+    """
+    start = end - timedelta(days=max(1, window_days))
+    rows = client.get_daily_usage(start, end, all_members=True)
+
+    accepted_total = total_total = accepts_total = rejects_total = 0
+    user_accepted: dict[str, int] = defaultdict(int)
+    user_total: dict[str, int] = defaultdict(int)
+    day_accepted: dict[str, int] = defaultdict(int)
+    day_total: dict[str, int] = defaultdict(int)
+    # Daily-usage rows for since-removed members can arrive without an email; their lines
+    # still count in the aggregate but cannot be attributed to a per-user efficiency row.
+    unattributed_accepted = 0
+
+    for r in rows:
+        acc = int(r.get("acceptedLinesAdded") or 0)
+        tot = int(r.get("totalLinesAdded") or 0)
+        accepted_total += acc
+        total_total += tot
+        accepts_total += int(r.get("totalAccepts") or 0)
+        rejects_total += int(r.get("totalRejects") or 0)
+        email = r.get("email")
+        if email:
+            user_accepted[email] += acc
+            user_total[email] += tot
+        elif acc:
+            unattributed_accepted += acc
+        ts = r.get("date")
+        try:
+            dt = datetime.fromtimestamp(int(ts) / 1000, tz=timezone.utc)
+        except (TypeError, ValueError, OverflowError, OSError):
+            continue
+        key = _day_key(dt)
+        day_accepted[key] += acc
+        day_total[key] += tot
+
+    day_keys = sorted(day_accepted.keys() | day_total.keys())
+    daily = [
+        {
+            "date": k,
+            "label": _day_label(k),
+            "accepted_lines": int(day_accepted.get(k, 0)),
+            "total_lines": int(day_total.get(k, 0)),
+        }
+        for k in day_keys
+    ]
+    return {
+        "accepted_lines": accepted_total,
+        "total_lines": total_total,
+        "total_accepts": accepts_total,
+        "total_rejects": rejects_total,
+        "unattributed_accepted_lines": unattributed_accepted,
+        "user_accepted": dict(user_accepted),
+        "user_total": dict(user_total),
+        "daily": daily,
+    }
+
+
+def _build_efficiency(
+    lines: dict[str, Any], events_rollup: dict[str, Any], *, window_days: int
+) -> dict[str, Any]:
+    """Join accepted lines (daily-usage) with token cost (events) into efficiency ratios.
+
+    Team-level: lines-kept ratio, accepted lines per 1K tokens, and cost per accepted line.
+    Per-engineer: the same throughput ratio, joined by email and filtered to a token floor.
+
+    Caveat baked into the labels (see slide): ``acceptedLinesAdded`` spans all surfaces
+    including Tab/autocomplete, while token cost is model-API (agent/chat/composer) usage, so
+    "cost per accepted line" is a *blended* efficiency proxy, not a clean unit cost.
+    """
+    accepted = int(lines.get("accepted_lines") or 0)
+    total_lines = int(lines.get("total_lines") or 0)
+    total_tokens = int(events_rollup.get("total_tokens") or 0)
+    charged_cents = float(events_rollup.get("charged_cents") or 0.0)
+
+    lines_kept = round(accepted / total_lines, 4) if total_lines else None
+    lines_per_1k = round(accepted / (total_tokens / 1000), 2) if total_tokens else None
+    cents_per_line = round(charged_cents / accepted, 4) if accepted else None
+
+    user_accepted = lines.get("user_accepted") or {}
+    top_users_src = events_rollup.get("_top_users") or []
+    tokens_by_email = {u["email"]: int(u.get("tokens") or 0) for u in top_users_src}
+    cents_by_email = {u["email"]: float(u.get("cents") or 0.0) for u in top_users_src}
+
+    per_user: list[dict[str, Any]] = []
+    for email, acc in user_accepted.items():
+        toks = tokens_by_email.get(email, 0)
+        if acc <= 0 or toks < _EFFICIENCY_MIN_TOKENS:
+            continue
+        cents = cents_by_email.get(email, 0.0)
+        per_user.append(
+            {
+                "email": email,
+                "accepted_lines": int(acc),
+                "tokens": toks,
+                "cents": round(cents, 2),
+                "lines_per_1k_tokens": round(acc / (toks / 1000), 2),
+                "cents_per_line": round(cents / acc, 4) if acc else None,
+            }
+        )
+    per_user.sort(key=lambda u: u["lines_per_1k_tokens"], reverse=True)
+
+    # Merge per-day cost (events) onto the per-day accepted-lines series so the slide can draw
+    # accepted-lines bars against a cost line without re-joining at render time.
+    events_daily_cents = {
+        d.get("date"): float(d.get("cents") or 0.0) for d in (events_rollup.get("daily") or [])
+    }
+    daily = [
+        {**d, "cents": round(events_daily_cents.get(d.get("date"), 0.0), 2)}
+        for d in (lines.get("daily") or [])
+    ]
+
+    return {
+        "accepted_lines": accepted,
+        "total_lines": total_lines,
+        "lines_kept": lines_kept,
+        "total_tokens": total_tokens,
+        "charged_cents_window": round(charged_cents, 2),
+        "accepted_lines_per_1k_tokens": lines_per_1k,
+        "cost_per_accepted_line_cents": cents_per_line,
+        "daily": daily,
+        "top_efficiency": per_user[:TOP_USERS_LIMIT],
+    }
+
+
 def _cents_to_dollars(cents: Any) -> str:
     return f"${float(cents) / 100:,.0f}" if isinstance(cents, (int, float)) else "unknown"
 
@@ -373,6 +511,29 @@ def _focus_prompt(report: dict[str, Any], focus: str) -> str:
             "Implication for a VP of Engineering about cost trajectory, ROI per active engineer, "
             "or idle paid seats — and the concrete next step. Do not invent a spend cap or a number "
             "not given above."
+        )
+    if focus == "efficiency":
+        eff = report.get("efficiency") or {}
+        accepted = int(eff.get("accepted_lines") or 0)
+        kept = eff.get("lines_kept")
+        per1k = eff.get("accepted_lines_per_1k_tokens")
+        cpl = eff.get("cost_per_accepted_line_cents")
+        kept_str = (
+            f"{int(round(float(kept) * 100))}% of AI-written lines kept"
+            if kept is not None else "lines-kept unknown"
+        )
+        per1k_str = (
+            f"{per1k} accepted lines per 1K tokens" if per1k is not None else "throughput unknown"
+        )
+        cpl_str = f"{float(cpl):.2f}\u00a2 per accepted line" if cpl is not None else "cost-per-line unknown"
+        return (
+            f"Cursor AI coding-assistant EFFICIENCY (output kept per token and per dollar) for the "
+            f"engineering org over the last {window_days} days. {accepted} AI-written lines accepted; "
+            f"{kept_str}; {per1k_str}; {cpl_str}; usage cost {window_cost} across {active} active engineers. "
+            "This is an efficiency/ROI correlation, NOT a per-engineer productivity ranking — do not imply "
+            "a low-token engineer is less productive. Implication for a VP of Engineering about ROI per "
+            "token/dollar or where efficiency is trending — and the concrete next step. Do not invent "
+            "numbers not given above."
         )
     if focus == "users":
         top_str = ", ".join(
@@ -446,14 +607,17 @@ def generate_cursor_usage_takeaway(report: dict[str, Any], focus: str = "usage")
 
 
 def generate_cursor_usage_takeaways(report: dict[str, Any]) -> dict[str, str]:
-    """Per-slide takeaways for the three Cursor slides (cost, usage, users).
+    """Per-slide takeaways for the four Cursor slides (cost, usage, efficiency, users).
 
     Returns a dict keyed by focus; each value is ``""`` on failure so the slide
     omits the band rather than rendering a placeholder.
     """
     if not report or not report.get("configured"):
-        return {"cost": "", "usage": "", "users": ""}
-    return {focus: generate_cursor_usage_takeaway(report, focus) for focus in ("cost", "usage", "users")}
+        return {"cost": "", "usage": "", "users": "", "efficiency": ""}
+    return {
+        focus: generate_cursor_usage_takeaway(report, focus)
+        for focus in ("cost", "usage", "users", "efficiency")
+    }
 
 
 def build_cursor_usage_report(
@@ -498,6 +662,17 @@ def build_cursor_usage_report(
         events_rollup = _build_events_rollup(client, window_days=window_days, end=end)
     except CursorClientError as e:
         errors.append(f"usage-events: {e}")
+
+    # Accepted/total AI-written lines (efficiency numerator), same window as events.
+    lines_rollup: dict[str, Any] = {}
+    try:
+        lines_rollup = _build_accepted_lines_rollup(client, window_days=window_days, end=end)
+    except CursorClientError as e:
+        errors.append(f"daily-usage-lines: {e}")
+
+    # Efficiency = accepted lines joined to token cost (degrades to empty ratios if either
+    # source failed; the slide is omitted/blank rather than showing misleading numbers).
+    efficiency = _build_efficiency(lines_rollup, events_rollup, window_days=window_days)
 
     # Spend (current billing cycle).
     spend_rows: list[dict[str, Any]] = []
@@ -549,6 +724,26 @@ def build_cursor_usage_report(
             f"{tok_pct}% of tokens) had no userEmail — likely removed accounts; per-user and "
             "top-user totals understate their usage (aggregate totals are unaffected)."
         )
+    # Efficiency join coverage: engineers with token spend but no accepted-line attribution
+    # (or vice versa) understate the per-engineer efficiency ranking — warn, do not drop.
+    user_accepted = lines_rollup.get("user_accepted") or {}
+    if user_accepted and top_users_src:
+        token_emails = {u.get("email") for u in top_users_src if u.get("email")}
+        line_emails = {e for e, acc in user_accepted.items() if acc}
+        tokens_no_lines = token_emails - line_emails
+        if tokens_no_lines:
+            warnings.append(
+                f"{len(tokens_no_lines)} engineer(s) had token usage but no accepted-line data "
+                f"({', '.join(sorted(e.split('@')[0] for e in tokens_no_lines)[:5])}"
+                f"{'…' if len(tokens_no_lines) > 5 else ''}); excluded from the efficiency ranking."
+            )
+    unattributed_lines = int(lines_rollup.get("unattributed_accepted_lines") or 0)
+    if unattributed_lines:
+        warnings.append(
+            f"{unattributed_lines} accepted line(s) had no engineer email (likely removed "
+            "accounts); counted in team totals but not per-engineer efficiency."
+        )
+
     # Top users that carry no current-cycle spend row (removed user, or no spend yet).
     if spend_by_email:
         spend_misses = [u["email"] for u in top_users if u.get("spend_cents") is None]
@@ -580,6 +775,7 @@ def build_cursor_usage_report(
         },
         "monthly": monthly,
         "daily": events_rollup.get("daily", []),
+        "efficiency": efficiency,
         "top_users": top_users,
         "model_mix": events_rollup.get("model_mix", []),
         "user_model_matrix": events_rollup.get("user_model_matrix", {"users": [], "models": [], "series": {}}),

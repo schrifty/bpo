@@ -88,6 +88,7 @@ SLIDE_DATA_REQUIREMENTS: dict[str, list[str]] = {
     "eng_help_volume_trends": ["eng_help_volume_jql_trace"],
     "cursor_cost": ["cursor_usage"],
     "cursor_usage": ["cursor_usage"],
+    "cursor_efficiency": ["cursor_usage"],
     "cursor_users": ["cursor_usage"],
     "support_deck_cover": [],
     "support_intro": [],

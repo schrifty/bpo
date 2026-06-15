@@ -30,5 +30,6 @@ slides:
   - slide: eng_support_pressure
   - slide: cursor_cost
   - slide: cursor_usage
+  - slide: cursor_efficiency
   - slide: cursor_users
   - slide: data_quality

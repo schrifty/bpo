@@ -17,6 +17,7 @@ from .slide_depth import depth_slide as _depth_slide
 from .slide_engagement import engagement_slide as _engagement_slide
 from .slide_engineering_portfolio import (
     cursor_cost_slide as _cursor_cost_slide,
+    cursor_efficiency_slide as _cursor_efficiency_slide,
     cursor_usage_slide as _cursor_usage_slide,
     cursor_users_slide as _cursor_users_slide,
     customer_project_volume_trends_slide as _customer_project_volume_trends_slide,
@@ -223,6 +224,7 @@ _SLIDE_BUILDERS = {
     "eng_help_volume_trends": _eng_help_volume_trends_slide,
     "cursor_cost": _cursor_cost_slide,
     "cursor_usage": _cursor_usage_slide,
+    "cursor_efficiency": _cursor_efficiency_slide,
     "cursor_users": _cursor_users_slide,
     "support_deck_cover": _support_deck_cover_slide,
     "support_intro": _support_intro_slide,

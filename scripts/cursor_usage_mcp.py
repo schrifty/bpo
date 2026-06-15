@@ -137,6 +137,32 @@ def cursor_token_usage(days: int = 30) -> dict[str, Any]:
 
 
 @mcp.tool()
+def cursor_efficiency(window_days: int = 30) -> dict[str, Any]:
+    """AI coding efficiency: accepted AI-written lines vs. token cost over a window.
+
+    Returns team totals (accepted lines, lines-kept ratio, accepted lines per 1K tokens,
+    cost per accepted line), a daily accepted-lines-vs-cost series, and a per-engineer
+    efficiency ranking (joined by email). This is an efficiency/ROI correlation — accepted
+    lines span Tab and agent surfaces while cost is model-API usage, so cost-per-line is a
+    blended proxy, not a clean unit cost. Read-only; the heavy reads are hourly-cached.
+    """
+    try:
+        from src.cursor_usage_report import build_cursor_usage_report
+
+        report = build_cursor_usage_report(window_days=max(1, window_days))
+    except CursorClientError as e:
+        return _err(str(e))
+    if not report.get("configured"):
+        return _err("; ".join(report.get("errors") or ["Cursor usage report unavailable"]))
+    return {
+        "window_days": report.get("window_days"),
+        "efficiency": report.get("efficiency") or {},
+        "warnings": report.get("warnings") or [],
+        "errors": report.get("errors") or [],
+    }
+
+
+@mcp.tool()
 def cursor_usage_report(window_days: int = 30, trend_months: int = 6) -> dict[str, Any]:
     """Full slide-ready Cursor usage report: adoption, spend, model mix, top users, trend.
 

@@ -109,6 +109,70 @@ def test_build_report_includes_cost_daily_and_matrix() -> None:
         assert len(series) == len(matrix["users"])
 
 
+class _EffClient(_FakeClient):
+    """Client with per-user accepted lines (daily-usage) and tokens above the floor."""
+
+    def get_daily_usage(self, start, end, **k):
+        return [
+            {"date": _ms(2026, 4, 1), "userId": 1, "email": "u1@x.com", "isActive": True,
+             "agentRequests": 5, "acceptedLinesAdded": 180, "totalLinesAdded": 200,
+             "totalAccepts": 40, "totalRejects": 4},
+            {"date": _ms(2026, 4, 2), "userId": 1, "email": "u1@x.com", "isActive": True,
+             "acceptedLinesAdded": 120, "totalLinesAdded": 150},
+            {"date": _ms(2026, 4, 1), "userId": 2, "email": "u2@x.com", "isActive": True,
+             "acceptedLinesAdded": 60, "totalLinesAdded": 100},
+        ]
+
+    def get_usage_events(self, start, end, **k):
+        return [
+            {"timestamp": str(_ms(2026, 4, 1)), "userEmail": "u1@x.com", "model": "claude-4.5-sonnet",
+             "tokenUsage": {"inputTokens": 4000, "outputTokens": 1000}, "chargedCents": 50.0},
+            {"timestamp": str(_ms(2026, 4, 2)), "userEmail": "u1@x.com", "model": "claude-4.5-sonnet",
+             "tokenUsage": {"inputTokens": 3000, "outputTokens": 1000}, "chargedCents": 40.0},
+            {"timestamp": str(_ms(2026, 4, 1)), "userEmail": "u2@x.com", "model": "gpt-5",
+             "tokenUsage": {"inputTokens": 1500, "outputTokens": 500}, "chargedCents": 20.0},
+        ]
+
+
+def test_efficiency_block_joins_lines_and_tokens() -> None:
+    rep = build_cursor_usage_report(client=_EffClient())
+    eff = rep["efficiency"]
+    # Team totals: accepted 300+60=360, total 350+100=450 -> 80% kept.
+    assert eff["accepted_lines"] == 360
+    assert eff["total_lines"] == 450
+    assert eff["lines_kept"] == 0.8
+    # Tokens 9000 (u1) + 2000 (u2) = 11000; cost 90 + 20 = 110.
+    assert eff["total_tokens"] == 11000
+    assert eff["cost_per_accepted_line_cents"] == round(110 / 360, 4)
+    assert eff["accepted_lines_per_1k_tokens"] == round(360 / 11, 2)
+    # Per-engineer ranking by lines per 1K tokens: u1 (33.33) before u2 (30).
+    ranked = eff["top_efficiency"]
+    assert [u["email"] for u in ranked] == ["u1@x.com", "u2@x.com"]
+    assert ranked[0]["lines_per_1k_tokens"] == round(300 / 9, 2)
+    # Daily series merges accepted lines with per-day cost.
+    assert any(d.get("cents") for d in eff["daily"])
+    assert any(d.get("accepted_lines") for d in eff["daily"])
+
+
+class _EffJoinMissClient(_EffClient):
+    """Adds an engineer with token usage but no accepted-line row (join miss)."""
+
+    def get_usage_events(self, start, end, **k):
+        base = _EffClient.get_usage_events(self, start, end, **k)
+        base.append(
+            {"timestamp": str(_ms(2026, 4, 1)), "userEmail": "u3@x.com", "model": "gpt-5",
+             "tokenUsage": {"inputTokens": 2000, "outputTokens": 500}, "chargedCents": 15.0}
+        )
+        return base
+
+
+def test_efficiency_warns_on_token_only_engineer() -> None:
+    rep = build_cursor_usage_report(client=_EffJoinMissClient())
+    assert any("no accepted-line data" in w for w in rep["warnings"])
+    # u3 has tokens but no accepted lines -> excluded from the efficiency ranking.
+    assert "u3@x.com" not in [u["email"] for u in rep["efficiency"]["top_efficiency"]]
+
+
 def test_focus_takeaways_return_per_slide_keys(monkeypatch) -> None:
     from src.cursor_usage_report import generate_cursor_usage_takeaways
 
@@ -134,7 +198,7 @@ def test_focus_takeaways_return_per_slide_keys(monkeypatch) -> None:
     monkeypatch.setattr("src.config.llm_client", lambda: _Client())
     rep = build_cursor_usage_report(client=_RichClient())
     out = generate_cursor_usage_takeaways(rep)
-    assert set(out.keys()) == {"cost", "usage", "users"}
+    assert set(out.keys()) == {"cost", "usage", "users", "efficiency"}
     assert all(v for v in out.values())
 
 
