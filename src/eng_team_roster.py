@@ -56,8 +56,17 @@ def _agile_team_value(value: Any) -> str | None:
 
 
 # Atlassian Teams for the engineering org are named with this prefix (e.g.
-# "Dev - Supply Insights"); we strip it for display.
+# "Dev - Supply Insights"); we strip it for display. Matching is case-insensitive.
 _DEV_TEAM_PREFIX = "dev - "
+
+
+def _is_dev_team(team_name: Any) -> bool:
+    return str(team_name or "").lower().startswith(_DEV_TEAM_PREFIX)
+
+
+def _normalize_person_name(name: Any) -> str | None:
+    s = str(name or "").strip()
+    return s.casefold() if s else None
 
 # Friendlier display names for abbreviated Atlassian team names.
 _TEAM_DISPLAY_ALIASES = {
@@ -85,10 +94,7 @@ def _roster_from_atlassian_teams(
         logger.warning("Atlassian Teams error, falling back to activity roster: %s", payload["error"])
         return None
 
-    dev_teams = [
-        t for t in (payload.get("teams") or [])
-        if str(t.get("name") or "").lower().startswith(_DEV_TEAM_PREFIX)
-    ]
+    dev_teams = [t for t in (payload.get("teams") or []) if _is_dev_team(t.get("name"))]
     if not dev_teams:
         return None
 
@@ -120,6 +126,120 @@ def _roster_from_atlassian_teams(
         "leads_configured": bool(leads),
         "source": "atlassian_teams",
         "error": None,
+    }
+
+
+def build_engineer_audience_scope(
+    client: JiraClient, *, timeout: float = 60.0
+) -> dict[str, Any]:
+    """Engineer vs non-engineer audience for Cursor slides.
+
+    **Engineers** = unique display names on Atlassian ``dev-*`` teams (``Dev - *`` prefix).
+    **Non-engineers** = unique display names on other teams that are not engineers.
+
+    Cursor usage is joined by resolving those names to corporate email via the Atlassian
+    Teams membership API. Returns normalized name sets plus email sets for filtering.
+    """
+    empty: dict[str, Any] = {
+        "error": None,
+        "engineer_names": set(),
+        "non_engineer_names": set(),
+        "emails": set(),
+        "non_engineer_emails": set(),
+        "headcount": 0,
+        "non_engineer_headcount": 0,
+    }
+    if not getattr(client, "atlassian_org_id", None):
+        return {**empty, "error": "ATLASSIAN_ORG_ID is not set"}
+    try:
+        payload = client.get_atlassian_teams(timeout=timeout)
+    except Exception as e:  # noqa: BLE001
+        return {**empty, "error": str(e)}
+    if payload.get("error"):
+        return {**empty, "error": str(payload["error"])}
+
+    teams = payload.get("teams") or []
+    dev_teams = [t for t in teams if _is_dev_team(t.get("name"))]
+    if not dev_teams:
+        return {**empty, "error": "no dev-* Atlassian teams found"}
+
+    engineer_names: set[str] = set()
+    all_names: set[str] = set()
+    dev_account_ids: set[str] = set()
+    all_account_ids: set[str] = set()
+
+    for team in teams:
+        ids = team.get("member_account_ids") or []
+        all_account_ids.update(ids)
+        if _is_dev_team(team.get("name")):
+            dev_account_ids.update(ids)
+            for raw in team.get("members") or []:
+                norm = _normalize_person_name(raw)
+                if norm:
+                    engineer_names.add(norm)
+        for raw in team.get("members") or []:
+            norm = _normalize_person_name(raw)
+            if norm:
+                all_names.add(norm)
+
+    id_to_name = client.resolve_account_names(all_account_ids, timeout=timeout)
+    id_to_email = client.resolve_account_emails(all_account_ids, timeout=timeout)
+
+    for aid in dev_account_ids:
+        norm = _normalize_person_name(id_to_name.get(aid))
+        if norm:
+            engineer_names.add(norm)
+
+    non_engineer_names = all_names - engineer_names
+
+    engineer_emails: set[str] = set()
+    for aid in dev_account_ids:
+        email = id_to_email.get(aid)
+        if email and str(email).strip():
+            engineer_emails.add(str(email).strip().casefold())
+    for aid, email in id_to_email.items():
+        norm = _normalize_person_name(id_to_name.get(aid))
+        if norm and norm in engineer_names and email and str(email).strip():
+            engineer_emails.add(str(email).strip().casefold())
+
+    non_engineer_emails = {
+        str(email).strip().casefold()
+        for aid, email in id_to_email.items()
+        if email and str(email).strip()
+        and (norm := _normalize_person_name(id_to_name.get(aid)))
+        and norm in non_engineer_names
+    }
+
+    return {
+        "error": None,
+        "engineer_names": engineer_names,
+        "non_engineer_names": non_engineer_names,
+        "emails": engineer_emails,
+        "non_engineer_emails": non_engineer_emails,
+        "headcount": len(engineer_names),
+        "non_engineer_headcount": len(non_engineer_names),
+        "source": "atlassian_teams",
+    }
+
+
+def build_engineer_email_set(
+    client: JiraClient, *, timeout: float = 60.0
+) -> dict[str, Any]:
+    """Legacy alias — prefer :func:`build_engineer_audience_scope`."""
+    scope = build_engineer_audience_scope(client, timeout=timeout)
+    if scope.get("error"):
+        return {
+            "error": scope["error"],
+            "emails": set(),
+            "headcount": 0,
+        }
+    return {
+        "error": None,
+        "emails": scope["emails"],
+        "headcount": scope["headcount"],
+        "engineer_names": scope["engineer_names"],
+        "non_engineer_names": scope["non_engineer_names"],
+        "source": scope.get("source"),
     }
 
 

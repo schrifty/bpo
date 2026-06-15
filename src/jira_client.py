@@ -1242,6 +1242,7 @@ class JiraClient:
         self.atlassian_org_id = (os.environ.get("ATLASSIAN_ORG_ID") or "").strip() or None
         self.atlassian_api_key = (os.environ.get("ATLASSIAN_API_KEY") or "").strip() or None
         self._atlassian_user_name_cache: dict[str, str] = {}
+        self._atlassian_user_email_cache: dict[str, str] = {}
 
     def _jql_log_len(self) -> int:
         with self._jql_lock:
@@ -1300,7 +1301,10 @@ class JiraClient:
 
     def _resolve_account_names(self, account_ids: set[str], *, timeout: float = 30.0) -> dict[str, str]:
         """Resolve Atlassian accountIds → display names via Jira's bulk user API (cached)."""
-        todo = [a for a in account_ids if a and a not in self._atlassian_user_name_cache]
+        todo = [
+            a for a in account_ids
+            if a and (a not in self._atlassian_user_name_cache or a not in self._atlassian_user_email_cache)
+        ]
         for i in range(0, len(todo), 90):
             chunk = todo[i:i + 90]
             try:
@@ -1321,9 +1325,28 @@ class JiraClient:
                     name = user.get("displayName")
                     if aid and name and user.get("accountType") == "atlassian":
                         self._atlassian_user_name_cache[aid] = name
+                    email = (user.get("emailAddress") or "").strip()
+                    if aid and email and user.get("accountType") == "atlassian":
+                        self._atlassian_user_email_cache[aid] = email
             except requests.RequestException as e:
                 logger.warning("Atlassian user bulk lookup failed: %s", e)
         return {a: self._atlassian_user_name_cache[a] for a in account_ids if a in self._atlassian_user_name_cache}
+
+    def resolve_account_names(
+        self, account_ids: set[str] | list[str], *, timeout: float = 30.0
+    ) -> dict[str, str]:
+        """Resolve Atlassian accountIds → display names (via Jira bulk user API, cached)."""
+        return self._resolve_account_names({a for a in account_ids if a}, timeout=timeout)
+
+    def resolve_account_emails(
+        self, account_ids: set[str] | list[str], *, timeout: float = 30.0
+    ) -> dict[str, str]:
+        """Resolve Atlassian accountIds → corporate email (via Jira bulk user API, cached)."""
+        ids = {a for a in account_ids if a}
+        if not ids:
+            return {}
+        self._resolve_account_names(ids, timeout=timeout)
+        return {a: self._atlassian_user_email_cache[a] for a in ids if a in self._atlassian_user_email_cache}
 
     def _atlassian_team_member_ids(
         self, base: str, headers: dict[str, str], team_id: str, *, timeout: float = 30.0
