@@ -48,8 +48,9 @@ def _truncate(text: str, limit: int) -> str:
 
 
 def _render_section_header(reqs: list[dict], page_sid: str, oid: str, y: float, text: str) -> float:
-    _box(reqs, oid, page_sid, MARGIN, y, CONTENT_W, 12, text)
-    _style(reqs, oid, 0, len(text), bold=True, size=_SECTION_PT, color=NAVY, font=FONT)
+    box_id = f"{page_sid}_{oid}"
+    _box(reqs, box_id, page_sid, MARGIN, y, CONTENT_W, 12, text)
+    _style(reqs, box_id, 0, len(text), bold=True, size=_SECTION_PT, color=NAVY, font=FONT)
     return y + 14
 
 
