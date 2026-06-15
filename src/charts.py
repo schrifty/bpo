@@ -263,6 +263,8 @@ class DeckCharts:
         *,
         background: dict[str, float] | None = None,
         series_colors: list[dict[str, float]] | None = None,
+        width_pixels: int = 800,
+        height_pixels: int = 400,
     ) -> tuple[str, int]:
         """Create a bar/column chart. Returns (spreadsheet_id, chart_id).
 
@@ -333,7 +335,9 @@ class DeckCharts:
         if show_title and (title or "").strip():
             spec["titleTextFormat"] = _chart_text_format(CHART_TITLE_PT, NAVY, bold=True)
 
-        chart_id = self._create_chart(sheet_id, spec, num_rows)
+        chart_id = self._create_chart(
+            sheet_id, spec, num_rows, width_pixels=width_pixels, height_pixels=height_pixels,
+        )
         logger.debug("Created %s chart '%s' (sheet=%d, chart=%d)", chart_type, title, sheet_id, chart_id)
         return self._ss_id, chart_id
 

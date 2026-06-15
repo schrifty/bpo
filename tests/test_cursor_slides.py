@@ -217,8 +217,9 @@ def test_cost_slide_renders_spend_and_model_cost() -> None:
     assert "Cycle overage" in text
     # Engineer-scoped slide must not show seat-based metrics.
     assert "Idle" not in text
-    assert "dev-* team members only" in text
-    assert "Where the spend goes" in text
+    assert "dev-* engineers" in text
+    assert "30d" in text
+    assert "Spend by model" in text
     # Per-model cost dollar value appears.
     assert "$180" in text  # claude cost (18,000 cents)
 
@@ -232,8 +233,8 @@ def test_cost_slide_no_overage_leads_with_usage_cost() -> None:
     sub = _subtitle(reqs, "sid_c0")
     assert "$250" in sub  # usage cost still leads
     text = _texts(reqs)
-    # Context states there is no overage rather than a bare $0 spend card.
-    assert "no cycle overage" in text
+    # Subtitle states there is no overage rather than a bare $0 spend card.
+    assert "no cycle overage" in _subtitle(reqs, "sid_c0")
 
 
 def test_users_slide_renders_token_volume_columns() -> None:
@@ -256,7 +257,8 @@ def test_usage_slide_renders_tokens_and_chart_only() -> None:
     text = _texts(reqs)
     assert "Input tokens" in text and "Output tokens" in text
     assert "Tokens over time" in text
-    assert "dev-* team members only" in text
+    assert "dev-* engineers" in text
+    assert "30d" in text
     # The per-model mix panel moved to the dedicated model-usage slide.
     assert "Model usage (by tokens)" not in text
     # input/output ratio in subtitle.
@@ -269,7 +271,8 @@ def test_usage_non_engineers_slide_renders_scoped_tokens() -> None:
     assert _title(reqs, "sid_un") == "Cursor AI Token Usage — Non-Engineering"
     text = _texts(reqs)
     assert "Input tokens" in text and "Output tokens" in text
-    assert "outside dev-* teams" in text
+    assert "non-engineering users" in text
+    assert "30d" in text
     assert "Tokens over time" in text
     # The per-model mix panel moved to the dedicated model-usage slide.
     assert "Model usage (by tokens)" not in text
@@ -285,9 +288,11 @@ def test_model_usage_slide_renders_both_audiences_and_percentages() -> None:
     cursor_model_usage_slide(reqs, "sid_m", _cursor_report(), 0)
     assert _title(reqs, "sid_m") == "Cursor AI Model Usage"
     text = _texts(reqs)
-    # Both audience tables are labeled.
-    assert "Engineering — dev-* teams" in text
-    assert "Non-Engineering" in text
+    assert "Model mix by audience" in text
+    assert "30d" in text
+    # Both audiences are labeled (grouped in the combined table's Audience column).
+    assert "Engineering" in text
+    assert "Non-engineering" in text
     # Model names appear (engineering + non-engineering, friendly relabel kept).
     assert "claude-4.5-sonnet" in text
     assert "Auto (default)" in text
@@ -297,8 +302,6 @@ def test_model_usage_slide_renders_both_audiences_and_percentages() -> None:
     # Token share (70% of 1.0M) and request-volume share (3,000 / 4,200 = 71%) both render.
     assert "70%" in text  # claude tokens / total tokens
     assert "71%" in text  # claude requests / total requests
-    # Totals row present.
-    assert "All models" in text
 
 
 def test_users_slide_renders_power_users_and_concentration() -> None:
@@ -313,7 +316,8 @@ def test_users_slide_renders_power_users_and_concentration() -> None:
     assert "Idle" not in text
     assert "Highest volume" in text
     assert "Lowest volume" in text
-    assert "dev-* team members only" in text
+    assert "dev-* engineers" in text
+    assert "30d" in text
     assert "ada" in text  # short email of top user
     assert "grace" in text  # short email of low-volume user
     # Subtitle reports active count and concentration, not seats.
@@ -328,7 +332,8 @@ def test_users_non_engineers_slide_renders_scoped_power_users() -> None:
     assert _title(reqs, "sid_wn") == "Cursor AI Power Users — Non-Engineering"
     text = _texts(reqs)
     assert "Active users" in text
-    assert "outside dev-* teams" in text
+    assert "non-engineering users" in text
+    assert "30d" in text
     assert "pm" in text
     assert "Highest volume" in text
 
@@ -341,6 +346,7 @@ def test_efficiency_slide_renders_ratios_and_engineers() -> None:
     assert "Lines kept" in text
     assert "Lines / 1K tokens" in text
     assert "Most efficient engineers" in text
+    assert "30d" in text
     assert "ada" in text  # short email of most-efficient engineer
     assert "0.21" in text  # cost per accepted line shown in cents (0.21¢)
     # Subtitle leads with accepted lines and lines-kept ratio.
