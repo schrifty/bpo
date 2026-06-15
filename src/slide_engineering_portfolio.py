@@ -2219,12 +2219,19 @@ def _eng_share_bar(
     w: float,
     bar_max_w: float,
     color: dict[str, float],
+    value_w: float = 34.0,
 ) -> None:
-    """One labelled horizontal share bar (model mix row)."""
-    _box(reqs, f"{sid}_{oid}_l", sid, x, y, w - bar_max_w - 8, 13, label)
+    """One labelled horizontal share bar (model mix row).
+
+    *value_w* widens the right-hand value column so multi-digit dollar amounts
+    (e.g. ``$2,135``) render on a single line instead of wrapping.
+    """
+    # Reserve room for the bar and the value column so the label never collides.
+    label_w = max(20.0, w - bar_max_w - value_w - 10)
+    _box(reqs, f"{sid}_{oid}_l", sid, x, y, label_w, 13, label)
     _style(reqs, f"{sid}_{oid}_l", 0, len(label), size=8.5, color=NAVY, font=FONT)
     bar_w = max(3.0, float(fraction) * bar_max_w)
-    bar_x = x + (w - bar_max_w)
+    bar_x = x + (w - bar_max_w - value_w - 2)
     _box(reqs, f"{sid}_{oid}_b", sid, bar_x, y + 3, bar_w, 8, "")
     reqs.append(
         {
@@ -2241,7 +2248,7 @@ def _eng_share_bar(
             }
         }
     )
-    _box(reqs, f"{sid}_{oid}_v", sid, bar_x + bar_max_w + 2, y, 34, 13, value_label)
+    _box(reqs, f"{sid}_{oid}_v", sid, bar_x + bar_max_w + 4, y, value_w, 13, value_label)
     _style(reqs, f"{sid}_{oid}_v", 0, len(value_label), size=8, color=GRAY, font=FONT)
 
 
@@ -2296,31 +2303,41 @@ def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
     spend_cents = totals.get("spend_cents_cycle")
     window_cents = totals.get("charged_cents_window")
     cost_per_active = (float(window_cents) / active) if (window_cents is not None and active) else None
+    idle = max(0, seats - active) if seats else 0
+    # /teams/spend returns 0 when usage is included in seats (no overage), so lead with
+    # the usage-based cost and treat cycle spend as overage only.
+    has_overage = spend_cents not in (None, 0)
 
     bits = []
-    if spend_cents is not None:
-        bits.append(f"{_fmt_cents(spend_cents)} this cycle")
+    if window_cents is not None:
+        bits.append(f"{_fmt_cents(window_cents)} usage cost ({window_days}d)")
     if cost_per_active is not None:
         bits.append(f"{_fmt_cents(cost_per_active)}/active engineer")
-    if seats:
+    if has_overage:
+        bits.append(f"{_fmt_cents(spend_cents)} cycle overage")
+    elif seats:
         bits.append(f"{active} of {seats} seats active")
     subtitle = " · ".join(bits) if bits else "Cursor team spend"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
     _eng_title(reqs, sid, "AI Coding Spend", subtitle)
+    cycle_note = (
+        f"cycle overage billed: {_fmt_cents(spend_cents)}" if has_overage
+        else "no cycle overage — usage included in seats"
+    )
     _cursor_context(
         reqs, sid, cu,
-        "cycle spend reconciles with billing  ·  daily cost is usage-based over the last {window_days} days",
+        "usage-based cost over the last {window_days} days  ·  " + cycle_note,
     )
 
     kpi_y = _eng_kpi_row(
         reqs, sid,
         [
-            ("Spend (cycle)", _fmt_cents(spend_cents)),
             (f"Usage cost ({window_days}d)", _fmt_cents(window_cents)),
-            ("Active engineers", f"{active} / {seats}" if seats else str(active)),
             ("Cost / active eng", _fmt_cents(cost_per_active)),
+            ("Active engineers", f"{active} / {seats}" if seats else str(active)),
+            ("Idle seats", str(idle) if seats else "—"),
         ],
         y=BODY_Y + 20,
     )
@@ -2365,22 +2382,26 @@ def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
         _box(reqs, f"{sid}_ce", sid, left_x, left_y, left_w, 14, empty)
         _style(reqs, f"{sid}_ce", 0, len(empty), size=9, color=GRAY, font=FONT)
 
-    # ── Right: where the spend goes (model cost mix) ──────────────────────────
+    # ── Right: where the spend goes (model cost mix, ranked by cost) ───────────
     right_y = _cursor_section_header(reqs, sid, "mch", right_x, body_top, right_w, "Where the spend goes (by model)")
-    model_cost = [m for m in model_mix if (m.get("cents") or 0) > 0]
+    model_cost = sorted(
+        (m for m in model_mix if (m.get("cents") or 0) > 0),
+        key=lambda m: float(m.get("cents") or 0), reverse=True,
+    )
     total_cents = sum(float(m.get("cents") or 0) for m in model_cost)
     if model_cost and total_cents > 0:
-        bar_max_w = 70.0
+        bar_max_w = 56.0
         for i, m in enumerate(model_cost):
             if right_y + 15 > content_ceiling:
                 break
             frac = float(m.get("cents") or 0) / total_cents
-            label = _truncate_one_line(str(m.get("model") or "unknown"), 20)
+            label = _truncate_one_line(str(m.get("model") or "unknown"), 18)
             _eng_share_bar(
                 reqs, sid, f"mc{i}",
                 label=label, value_label=_fmt_cents(m.get("cents")),
                 fraction=frac, x=right_x, y=right_y, w=right_w,
                 bar_max_w=bar_max_w, color=BRAND_SERIES_COLORS[i % len(BRAND_SERIES_COLORS)],
+                value_w=48.0,
             )
             right_y += 15
     else:
@@ -2453,8 +2474,10 @@ def cursor_usage_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
     content_ceiling = _ENG_CONTENT_BOTTOM - 6
     charts = report.get("_charts")
 
-    # ── Left: tokens over time (input & output bars + active-users line) ──────
-    left_y = _cursor_section_header(reqs, sid, "th", left_x, body_top, left_w, "Tokens over time (daily)")
+    # ── Left: tokens over time (input + output stacked = total per day) ───────
+    # Stacked (not combo) so the much-smaller output series stays visible as the top
+    # of each daily column rather than vanishing next to input.
+    left_y = _cursor_section_header(reqs, sid, "th", left_x, body_top, left_w, "Tokens over time (daily, input + output)")
     if daily and charts:
         try:
             from .charts import embed_chart
@@ -2462,21 +2485,20 @@ def cursor_usage_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
             labels = [str(d.get("label") or d.get("date") or "") for d in daily]
             in_series = [int(d.get("input_tokens") or 0) for d in daily]
             out_series = [int(d.get("output_tokens") or 0) for d in daily]
-            users_series = [int(d.get("active_users") or 0) for d in daily]
             chart_h = int(max(120, min(190, content_ceiling - left_y - 6 - 18)))
-            ss_id, chart_id = charts.add_combo_chart(
+            ss_id, chart_id = charts.add_bar_chart(
                 title="Tokens over time",
                 labels=labels,
-                bar_series={"Input": in_series, "Output": out_series},
-                line_series={"Active users": users_series},
+                series={"Input": in_series, "Output": out_series},
+                stacked=True,
                 show_title=False,
+                suppress_legend=True,
             )
             embed_chart(reqs, f"{sid}_tchart", sid, ss_id, chart_id, left_x, left_y, left_w, chart_h, linked=False)
             left_y += chart_h + 4
             left_y = _slide_chart_legend(
                 reqs, sid, f"{sid}_tlgd", left_x, left_y,
-                [("Input", BRAND_SERIES_COLORS[0]), ("Output", BRAND_SERIES_COLORS[1]),
-                 ("Active users", BRAND_SERIES_COLORS[2])],
+                [("Input", BRAND_SERIES_COLORS[0]), ("Output", BRAND_SERIES_COLORS[1])],
                 font_pt=9, swatch_size=9, entry_gap=14,
             )
         except Exception as exc:
@@ -2598,12 +2620,15 @@ def cursor_users_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
             )
             embed_chart(reqs, f"{sid}_uchart", sid, ss_id, chart_id, left_x, left_y, left_w, chart_h, linked=False)
             left_y += chart_h + 4
+            # Truncate long model names so the horizontal legend stays within the left
+            # column and never overflows into the users table on the right.
             legend_entries = [
-                (m, BRAND_SERIES_COLORS[i % len(BRAND_SERIES_COLORS)]) for i, m in enumerate(m_models)
+                (_truncate_one_line(m, 16), BRAND_SERIES_COLORS[i % len(BRAND_SERIES_COLORS)])
+                for i, m in enumerate(m_models)
             ]
             left_y = _slide_chart_legend(
                 reqs, sid, f"{sid}_ulgd", left_x, left_y, legend_entries,
-                font_pt=8.5, swatch_size=9, entry_gap=12,
+                font_pt=8, swatch_size=8, entry_gap=8,
             )
         except Exception as exc:
             logger.warning("Cursor user-model chart embed failed: %s", exc)
@@ -2624,10 +2649,11 @@ def cursor_users_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
                 break
             name = _short_email(str(u.get("email") or ""), 16)
             tok = _fmt_tokens(u.get("tokens"))
-            cost = (
-                _fmt_cents(u.get("spend_cents")) if u.get("spend_cents") is not None
-                else _fmt_cents(u.get("window_cents"))
-            )
+            # Prefer billed spend, but fall back to usage-based cost when spend is 0/None
+            # (seat-included plans report $0 overage per user).
+            spend = u.get("spend_cents")
+            cost_val = spend if spend not in (None, 0) else u.get("window_cents")
+            cost = _fmt_cents(cost_val)
             row = f"{name:<16}{tok:>7}{cost:>7}"
             _box(reqs, f"{sid}_tu{i}", sid, right_x, right_y, right_w, 13, row)
             _style(reqs, f"{sid}_tu{i}", 0, len(row), size=8, color=NAVY, font=MONO)

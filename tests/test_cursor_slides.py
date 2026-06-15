@@ -80,13 +80,38 @@ def test_cost_slide_renders_spend_and_model_cost() -> None:
     cursor_cost_slide(reqs, "sid_c", _cursor_report(), 0)
     assert _title(reqs, "sid_c") == "AI Coding Spend"
     sub = _subtitle(reqs, "sid_c")
-    assert "$410" in sub  # cycle spend (41,000 cents)
+    # Leads with usage cost ($250 = 25,000 cents); overage ($410) shown as overage.
+    assert "$250" in sub and "$410" in sub
     text = _texts(reqs)
-    assert "Spend (cycle)" in text
+    assert "Usage cost" in text
     assert "Cost / active eng" in text
+    assert "Idle seats" in text
     assert "Where the spend goes" in text
     # Per-model cost dollar value appears.
     assert "$180" in text  # claude cost (18,000 cents)
+
+
+def test_cost_slide_no_overage_leads_with_usage_cost() -> None:
+    rep = _cursor_report()
+    rep["cursor_usage"]["totals"]["spend_cents_cycle"] = 0
+    reqs: list = []
+    cursor_cost_slide(reqs, "sid_c0", rep, 0)
+    sub = _subtitle(reqs, "sid_c0")
+    assert "$250" in sub  # usage cost still leads
+    text = _texts(reqs)
+    # Context states there is no overage rather than a bare $0 spend card.
+    assert "no cycle overage" in text
+
+
+def test_users_slide_falls_back_to_window_cost_when_spend_zero() -> None:
+    rep = _cursor_report()
+    for u in rep["cursor_usage"]["top_users"]:
+        u["spend_cents"] = 0
+    reqs: list = []
+    cursor_users_slide(reqs, "sid_w0", rep, 0)
+    text = _texts(reqs)
+    # ada window_cents=15,000 -> $150 (not $0) via fallback.
+    assert "$150" in text
 
 
 def test_usage_slide_renders_tokens_and_models() -> None:

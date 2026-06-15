@@ -153,6 +153,35 @@ def test_build_report_section_failure_is_collected() -> None:
     assert rep["totals"]["spend_cents_cycle"] is None
 
 
+class _RemovedUserClient(_FakeClient):
+    """Events where some rows lack userEmail (since-removed accounts)."""
+
+    def get_usage_events(self, start, end, **k):
+        return [
+            {"timestamp": str(_ms(2026, 4, 1)), "userEmail": "u1@x.com", "model": "gpt-5",
+             "tokenUsage": {"inputTokens": 100, "outputTokens": 50}},
+            # Removed user: Cursor drops userEmail but the tokens still count in aggregate.
+            {"timestamp": str(_ms(2026, 4, 1)), "model": "gpt-5",
+             "tokenUsage": {"inputTokens": 400, "outputTokens": 0}},
+        ]
+
+
+def test_unattributed_events_emit_warning_but_keep_totals() -> None:
+    rep = build_cursor_usage_report(client=_RemovedUserClient())
+    # Aggregate token total includes the unattributed (removed-user) event.
+    assert rep["totals"]["total_tokens"] == 100 + 50 + 400
+    # A warning is surfaced (not an error) about the unattributable slice.
+    assert rep["errors"] == []
+    assert any("no userEmail" in w for w in rep["warnings"])
+    # Only the attributed user shows up in top_users.
+    assert [u["email"] for u in rep["top_users"]] == ["u1@x.com"]
+
+
+def test_no_warning_when_all_events_attributed() -> None:
+    rep = build_cursor_usage_report(client=_FakeClient())
+    assert all("no userEmail" not in w for w in rep["warnings"])
+
+
 def test_enrich_drops_slide_when_unconfigured(monkeypatch) -> None:
     monkeypatch.setattr("src.cursor_client.cursor_configured", lambda: False)
     plan = [{"slide_type": "eng_velocity"}, {"slide_type": "cursor_usage"}, {"slide_type": "data_quality"}]

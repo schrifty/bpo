@@ -89,6 +89,16 @@ def _event_cost_cents(event: dict[str, Any]) -> float:
     return 0.0
 
 
+# Cursor reports its auto-select pseudo-model as the literal "default"; relabel it so a
+# reviewer does not mistake it for an unset/error value.
+_MODEL_DISPLAY = {"default": "Auto (default)"}
+
+
+def _friendly_model(name: Any) -> str:
+    n = str(name or "unknown")
+    return _MODEL_DISPLAY.get(n, n)
+
+
 def _day_key(dt: datetime) -> str:
     return dt.date().isoformat()
 
@@ -169,6 +179,14 @@ def _build_events_rollup(
     day_events: dict[str, int] = defaultdict(int)
     day_users: dict[str, set] = defaultdict(set)
 
+    # Cursor drops ``userEmail`` on events for since-removed members (and the numeric
+    # userId filter rejects the string member IDs), so those tokens cannot be attributed
+    # to a user. Track the unattributed slice so the report can warn instead of silently
+    # understating per-user/top-user totals.
+    unattributed_events = 0
+    unattributed_tokens = 0
+    unattributed_cents = 0.0
+
     for e in events:
         in_t, out_t = _event_io_tokens(e)
         input_tokens += in_t
@@ -176,7 +194,7 @@ def _build_events_rollup(
         toks = in_t + out_t
         cents = _event_cost_cents(e)
         charged_cents += cents
-        model = str(e.get("model") or "unknown")
+        model = _friendly_model(e.get("model"))
         by_model_events[model] += 1
         by_model_tokens[model] += toks
         by_model_cents[model] += cents
@@ -189,6 +207,10 @@ def _build_events_rollup(
             user_events[email] += 1
             user_cents[email] += cents
             user_model_tokens[email][model] += toks
+        else:
+            unattributed_events += 1
+            unattributed_tokens += toks
+            unattributed_cents += cents
 
         dt = _event_dt(e)
         if dt is not None:
@@ -261,6 +283,9 @@ def _build_events_rollup(
         "model_mix": model_mix,
         "daily": daily,
         "user_model_matrix": matrix,
+        "unattributed_events": unattributed_events,
+        "unattributed_tokens": unattributed_tokens,
+        "unattributed_cents": round(unattributed_cents, 2),
         "_top_users": top_users,
     }
 
@@ -270,7 +295,7 @@ def _build_user_model_matrix(
     user_model_tokens: dict[str, dict[str, int]],
     *,
     user_limit: int = 6,
-    model_limit: int = 4,
+    model_limit: int = 3,
 ) -> dict[str, Any]:
     """Stacked-bar-ready matrix: top users (x) × top models (series) by tokens."""
     users = [u["email"] for u in top_users[:user_limit]]
@@ -318,18 +343,36 @@ def _focus_prompt(report: dict[str, Any], focus: str) -> str:
     window_cost = _cents_to_dollars(totals.get("charged_cents_window"))
 
     if focus == "cost":
-        first = daily[0].get("cents", 0) if daily else 0
-        last = daily[-1].get("cents", 0) if daily else 0
         cost_per_active = (
             _cents_to_dollars((totals.get("charged_cents_window") or 0) / active) if active else "unknown"
         )
+        # Half-over-half average daily cost is far more robust than first->last day,
+        # whose endpoints are noisy and often partial.
+        trend_note = "trend: insufficient data"
+        if len(daily) >= 4:
+            mid = len(daily) // 2
+            first_half = [float(d.get("cents") or 0) for d in daily[:mid]]
+            second_half = [float(d.get("cents") or 0) for d in daily[mid:]]
+            avg1 = sum(first_half) / len(first_half) if first_half else 0.0
+            avg2 = sum(second_half) / len(second_half) if second_half else 0.0
+            if avg1 > 0:
+                pct = int(round((avg2 - avg1) / avg1 * 100))
+                direction = "up" if pct > 0 else ("down" if pct < 0 else "flat")
+                trend_note = (
+                    f"avg daily cost {direction} {abs(pct)}% in the second half of the window "
+                    f"({_cents_to_dollars(avg1)}/day -> {_cents_to_dollars(avg2)}/day)"
+                )
+            elif avg2 > 0:
+                trend_note = f"avg daily cost ramped to {_cents_to_dollars(avg2)}/day in the second half"
+        idle = max(0, seats - active)
         return (
             f"Cursor AI coding-assistant COST for the engineering org over the last {window_days} days. "
-            f"Spend this billing cycle: {cycle_spend}; usage-based cost in window: {window_cost}; "
-            f"active engineers in window: {active} of {seats} seats; cost per active engineer: {cost_per_active}. "
-            f"Daily cost start->end (cents): {first}->{last}. "
+            f"Usage-based cost in window: {window_cost}; billing-cycle overage: {cycle_spend}; "
+            f"active engineers: {active} of {seats} seats ({idle} idle); cost per active engineer: {cost_per_active}. "
+            f"Cost trend: {trend_note}. "
             "Implication for a VP of Engineering about cost trajectory, ROI per active engineer, "
-            "or idle paid seats — and the concrete next step?"
+            "or idle paid seats — and the concrete next step. Do not invent a spend cap or a number "
+            "not given above."
         )
     if focus == "users":
         top_str = ", ".join(
@@ -491,6 +534,33 @@ def build_cursor_usage_report(
 
     total_spend_cents = sum(spend_by_email.values()) if spend_by_email else None
 
+    # Surface (don't swallow) data-attribution gaps. These are warnings, not errors:
+    # the totals are still correct in aggregate; only the per-user breakdown is affected.
+    warnings: list[str] = []
+    unattributed_events = int(events_rollup.get("unattributed_events") or 0)
+    unattributed_tokens = int(events_rollup.get("unattributed_tokens") or 0)
+    if unattributed_events:
+        total_events = int(events_rollup.get("event_count") or 0)
+        total_tokens_all = int(events_rollup.get("total_tokens") or 0)
+        evt_pct = round(unattributed_events / total_events * 100, 1) if total_events else 0.0
+        tok_pct = round(unattributed_tokens / total_tokens_all * 100, 1) if total_tokens_all else 0.0
+        warnings.append(
+            f"{unattributed_events} usage event(s) ({evt_pct}%, {unattributed_tokens} tokens, "
+            f"{tok_pct}% of tokens) had no userEmail — likely removed accounts; per-user and "
+            "top-user totals understate their usage (aggregate totals are unaffected)."
+        )
+    # Top users that carry no current-cycle spend row (removed user, or no spend yet).
+    if spend_by_email:
+        spend_misses = [u["email"] for u in top_users if u.get("spend_cents") is None]
+        if spend_misses:
+            warnings.append(
+                f"{len(spend_misses)} top user(s) had no current-cycle spend row "
+                f"({', '.join(e.split('@')[0] for e in spend_misses[:5])}"
+                f"{'…' if len(spend_misses) > 5 else ''}); spend column shows blank for them."
+            )
+    for w in warnings:
+        logger.warning("Cursor usage report: %s", w)
+
     report = {
         "configured": True,
         "generated_at": end.isoformat(),
@@ -514,10 +584,11 @@ def build_cursor_usage_report(
         "model_mix": events_rollup.get("model_mix", []),
         "user_model_matrix": events_rollup.get("user_model_matrix", {"users": [], "models": [], "series": {}}),
         "errors": errors,
+        "warnings": warnings,
     }
     logger.info(
-        "Cursor usage report: %s seats, %s active, %s tokens, %s model(s), %s error(s)",
+        "Cursor usage report: %s seats, %s active, %s tokens, %s model(s), %s error(s), %s warning(s)",
         report["members"]["total"], active_window,
-        report["totals"]["total_tokens"], len(report["model_mix"]), len(errors),
+        report["totals"]["total_tokens"], len(report["model_mix"]), len(errors), len(warnings),
     )
     return report
