@@ -28,8 +28,10 @@ class _Resp:
 
 
 def _client(**kw) -> CursorClient:
-    # Disable client-side pacing so tests don't sleep between paginated calls.
+    # Disable client-side pacing so tests don't sleep between paginated calls, and
+    # disable the on-disk cache so tests stay hermetic (no disk I/O / cross-test reuse).
     kw.setdefault("min_request_interval", 0)
+    kw.setdefault("cache_ttl_seconds", 0)
     return CursorClient(api_key="test-key", base_url="https://api.cursor.test", **kw)
 
 
@@ -168,6 +170,40 @@ def test_5xx_retries(monkeypatch) -> None:
     monkeypatch.setattr(c._session, "request", flaky)
     assert c.get_team_members() == []
     assert calls["n"] == 2
+
+
+def test_cache_short_circuits_second_call(monkeypatch, tmp_path) -> None:
+    # With caching on, an identical daily-usage call within the TTL serves from disk
+    # and does not hit the network a second time.
+    monkeypatch.setattr("src.cursor_client._CACHE_DIR", tmp_path)
+    c = _client(cache_ttl_seconds=3600)
+    calls = {"n": 0}
+
+    def fake(method, url, *, json=None, params=None, timeout=None):
+        calls["n"] += 1
+        return _Resp(200, {"data": [{"userId": 1, "isActive": True}],
+                           "pagination": {"hasNextPage": False}})
+
+    monkeypatch.setattr(c._session, "request", fake)
+    first = c.get_daily_usage(date(2024, 1, 1), date(2024, 1, 2))
+    second = c.get_daily_usage(date(2024, 1, 1), date(2024, 1, 2))
+    assert first == second
+    assert calls["n"] == 1  # second call short-circuited by cache
+
+
+def test_cache_disabled_always_requests(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("src.cursor_client._CACHE_DIR", tmp_path)
+    c = _client(cache_ttl_seconds=0)  # caching off
+    calls = {"n": 0}
+
+    def fake(method, url, *, json=None, params=None, timeout=None):
+        calls["n"] += 1
+        return _Resp(200, {"data": [], "pagination": {"hasNextPage": False}})
+
+    monkeypatch.setattr(c._session, "request", fake)
+    c.get_daily_usage(date(2024, 1, 1), date(2024, 1, 2))
+    c.get_daily_usage(date(2024, 1, 1), date(2024, 1, 2))
+    assert calls["n"] == 2  # no caching → both calls hit the network
 
 
 def test_throttle_paces_requests(monkeypatch) -> None:

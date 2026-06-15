@@ -107,6 +107,16 @@ CURSOR_API_BASE_URL = (
     os.environ.get("CURSOR_API_BASE_URL", "https://api.cursor.com").strip().rstrip("/")
     or "https://api.cursor.com"
 )
+# Cursor read cache: daily-usage + usage-events are aggregated hourly server-side, so
+# Cursor advises polling at most once/hour. Default 1h on-disk cache (keyed by hour) so
+# repeated deck builds reuse data instead of re-paginating under the 20 req/min ceiling.
+try:
+    _cursor_cache_hours = float(os.environ.get("BPO_CURSOR_CACHE_TTL_HOURS", "1").strip())
+except ValueError:
+    _cursor_cache_hours = 1.0
+BPO_CURSOR_CACHE_TTL_SECONDS = max(0, int(_cursor_cache_hours * 3600))
+if os.environ.get("BPO_CURSOR_CACHE_DISABLED", "").strip().lower() in ("1", "true", "yes", "on"):
+    BPO_CURSOR_CACHE_TTL_SECONDS = 0
 
 # Slack (optional — bot token for customer channel conversation digests)
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "").strip() or None

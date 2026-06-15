@@ -12,28 +12,105 @@ Authentication is HTTP Basic with ``CURSOR_ADMIN_API_KEY`` as the username and a
 empty password (per Cursor docs). Only read endpoints are implemented; member,
 spend-limit, and billing-group mutations are intentionally omitted.
 
+Caching: ``daily-usage-data`` and ``filtered-usage-events`` are aggregated hourly
+server-side (Cursor advises polling at most once/hour), so the fully-assembled result
+of those two reads is cached on disk for ``BPO_CURSOR_CACHE_TTL_HOURS`` (default 1h),
+keyed by the request shape with timestamps floored to the hour. This keeps repeated
+deck builds well under the 20 req/min ceiling. Disable with ``BPO_CURSOR_CACHE_DISABLED``.
+
 Fails loud: any non-2xx response raises :class:`CursorClientError` rather than
 returning placeholder data, so callers (and metric generators) surface the issue.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import random
 import threading
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 import requests
 
-from .config import CURSOR_ADMIN_API_KEY, CURSOR_API_BASE_URL, logger
+from .config import (
+    BPO_CURSOR_CACHE_TTL_SECONDS,
+    CURSOR_ADMIN_API_KEY,
+    CURSOR_API_BASE_URL,
+    logger,
+)
 
 # Cursor caps daily-usage / audit-log ranges at 30 days per request.
 _MAX_RANGE_DAYS = 30
 _DEFAULT_TIMEOUT_S = 60.0
 _DEFAULT_PAGE_SIZE = 1000
+
+# On-disk read cache. Cursor aggregates daily-usage and usage-events hourly and advises
+# polling at most once/hour, so we persist the fully-assembled (paginated, chunked) result
+# keyed by the request shape with timestamps floored to the hour. This survives across
+# separate CLI runs (decks.py, metrics-upsert), which an in-process cache cannot.
+_CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache" / "cursor"
+_CACHE_LOCK = threading.Lock()
+_HOUR_MS = 3_600_000
+
+
+def _floor_hour_ms(ms: int) -> int:
+    """Floor an epoch-ms value to the top of its hour (stable cache key within the hour)."""
+    return (int(ms) // _HOUR_MS) * _HOUR_MS
+
+
+def _cache_key(name: str, params: dict[str, Any]) -> str:
+    blob = json.dumps({"name": name, "params": params}, sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:32]
+
+
+def _cache_get(key: str, ttl_seconds: int) -> Any | None:
+    """Return cached data for *key* when present and younger than *ttl_seconds*, else None."""
+    if ttl_seconds <= 0:
+        return None
+    path = _CACHE_DIR / f"{key}.json"
+    with _CACHE_LOCK:
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except (FileNotFoundError, OSError):
+            return None
+    try:
+        payload = json.loads(raw)
+        if time.time() - float(payload.get("ts") or 0) > ttl_seconds:
+            return None
+        return payload.get("data")
+    except (ValueError, TypeError):
+        return None
+
+
+def _cache_set(key: str, data: Any, ttl_seconds: int) -> None:
+    """Persist *data* under *key* (atomic write). No-op when caching is disabled."""
+    if ttl_seconds <= 0:
+        return
+    with _CACHE_LOCK:
+        try:
+            _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            tmp = _CACHE_DIR / f"{key}.json.tmp"
+            tmp.write_text(json.dumps({"ts": time.time(), "data": data}), encoding="utf-8")
+            tmp.replace(_CACHE_DIR / f"{key}.json")
+        except OSError as e:  # cache is best-effort; never fail a real request over it
+            logger.debug("Cursor cache write failed (%s); continuing without cache", e)
+
+
+def clear_cursor_cache() -> None:
+    """Delete all on-disk Cursor cache entries (manual refresh / test isolation)."""
+    with _CACHE_LOCK:
+        if not _CACHE_DIR.exists():
+            return
+        for f in _CACHE_DIR.glob("*.json*"):
+            try:
+                f.unlink()
+            except OSError:
+                pass
 
 # Rate limiting: the Admin API allows 20 requests/min/team. We (a) pace requests
 # client-side so a multi-call deck build stays under that ceiling, and (b) retry
@@ -134,6 +211,7 @@ class CursorClient:
         timeout: float = _DEFAULT_TIMEOUT_S,
         min_request_interval: float | None = None,
         max_retries: int | None = None,
+        cache_ttl_seconds: int | None = None,
     ) -> None:
         key = (api_key or CURSOR_ADMIN_API_KEY or "").strip()
         if not key:
@@ -144,6 +222,9 @@ class CursorClient:
         self._api_key = key
         self.base_url = (base_url or CURSOR_API_BASE_URL or "https://api.cursor.com").rstrip("/")
         self.timeout = timeout
+        self._cache_ttl = (
+            BPO_CURSOR_CACHE_TTL_SECONDS if cache_ttl_seconds is None else max(0, int(cache_ttl_seconds))
+        )
         self._min_request_interval = (
             _default_min_request_interval() if min_request_interval is None
             else max(0.0, float(min_request_interval))
@@ -257,6 +338,15 @@ class CursorClient:
         """
         start_ms = _to_epoch_ms(start_date)
         end_ms = _to_epoch_ms(end_date)
+        key = _cache_key("daily_usage", {
+            "start": _floor_hour_ms(start_ms), "end": _floor_hour_ms(end_ms),
+            "all_members": all_members, "page_size": page_size,
+        })
+        cached = _cache_get(key, self._cache_ttl)
+        if cached is not None:
+            logger.debug("Cursor cache hit: daily-usage-data (%d row(s))", len(cached))
+            return cached
+
         rows: list[dict[str, Any]] = []
         for lo, hi in _chunk_ranges(start_ms, end_ms):
             if all_members:
@@ -267,6 +357,7 @@ class CursorClient:
                     json_body={"startDate": lo, "endDate": hi},
                 )
                 rows.extend(data.get("data") or [])
+        _cache_set(key, rows, self._cache_ttl)
         return rows
 
     def _paginated_daily_usage(self, lo: int, hi: int, *, page_size: int) -> list[dict[str, Any]]:
@@ -331,6 +422,15 @@ class CursorClient:
         """
         start_ms = _to_epoch_ms(start_date)
         end_ms = _to_epoch_ms(end_date)
+        key = _cache_key("usage_events", {
+            "start": _floor_hour_ms(start_ms), "end": _floor_hour_ms(end_ms),
+            "email": email, "user_id": user_id, "page_size": page_size, "max_events": max_events,
+        })
+        cached = _cache_get(key, self._cache_ttl)
+        if cached is not None:
+            logger.debug("Cursor cache hit: filtered-usage-events (%d event(s))", len(cached))
+            return cached
+
         out: list[dict[str, Any]] = []
         page = 1
         while True:
@@ -348,11 +448,13 @@ class CursorClient:
             events = data.get("usageEvents") or []
             out.extend(events)
             if max_events is not None and len(out) >= max_events:
-                return out[:max_events]
+                out = out[:max_events]
+                break
             pagination = data.get("pagination") or {}
             if not pagination.get("hasNextPage"):
                 break
             page += 1
+        _cache_set(key, out, self._cache_ttl)
         return out
 
     # ── convenience aggregate ────────────────────────────────────────────────
