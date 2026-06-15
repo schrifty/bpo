@@ -687,17 +687,29 @@ def _focus_prompt(report: dict[str, Any], focus: str) -> str:
                 )
             elif avg2 > 0:
                 trend_note = f"avg daily cost ramped to {_cents_to_dollars(avg2)}/day in the second half"
-        idle = max(0, seats - active) if seats else 0
+        # Engineer-scoped slide: seat count is a partial, email-matched subset, so do not
+        # frame this as adoption/idle vs. seats. The all-Cursor-seats fallback keeps seats.
+        if cost_eng.get("configured"):
+            seat_phrase = f"active engineers in window: {active}"
+            implication = (
+                "Implication for a VP of Engineering about cost trajectory or ROI per active "
+                "engineer — and the concrete next step."
+            )
+        else:
+            idle = max(0, seats - active) if seats else 0
+            seat_phrase = f"active users: {active} of {seats} seats ({idle} idle)"
+            implication = (
+                "Implication for a VP of Engineering about cost trajectory, ROI per active user, "
+                "or idle paid seats — and the concrete next step."
+            )
         return (
             f"Cursor AI coding-assistant COST for the engineering org over the last {window_days} days "
             f"({scope}). "
             f"Usage-based cost in window: {window_cost}; billing-cycle overage: {cycle_spend}; "
-            f"active engineers: {active} of {seats} engineer seats ({idle} idle); "
-            f"cost per active engineer: {cost_per_active}. "
+            f"{seat_phrase}; cost per active engineer: {cost_per_active}. "
             f"Cost trend: {trend_note}. "
-            "Implication for a VP of Engineering about cost trajectory, ROI per active engineer, "
-            "or idle paid seats — and the concrete next step. Do not invent a spend cap or a number "
-            "not given above."
+            + implication
+            + " Do not invent a spend cap or a number not given above."
         )
     if focus == "efficiency":
         eff = report.get("efficiency") or {}
@@ -731,11 +743,13 @@ def _focus_prompt(report: dict[str, Any], focus: str) -> str:
             scope = report.get("users_engineers") or {}
             scope_label = "dev-* Atlassian team members"
             user_noun = "engineers"
-        if scope.get("configured"):
+        # Audience-scoped: report active count, not seats (partial email-matched subset).
+        scoped = scope.get("configured")
+        if scoped:
             top_users = scope.get("top_users") or []
             bottom = scope.get("bottom_users") or []
             active = int(scope.get("active_window") or 0)
-            seats = int(scope.get("seats") or 0)
+            active_phrase = f"Active {user_noun}: {active}"
         else:
             top_users = report.get("top_users") or []
             bottom = report.get("bottom_users") or []
@@ -743,6 +757,7 @@ def _focus_prompt(report: dict[str, Any], focus: str) -> str:
             seats = int(members.get("total") or 0)
             scope_label = "all Cursor seats"
             user_noun = "users"
+            active_phrase = f"Active {user_noun}: {active} of {seats} seats"
         top_str = ", ".join(
             f"{(u.get('email') or '').split('@')[0]} ({int(u.get('tokens') or 0)} tok, "
             f"{(u.get('models') or [{}])[0].get('model', '?')})"
@@ -753,18 +768,17 @@ def _focus_prompt(report: dict[str, Any], focus: str) -> str:
             for u in bottom[:3]
         ) or "none"
         audience_note = (
-            "Implication for a VP of Engineering about usage concentration among a few power users, "
-            "under-adopted seats, idle seats, or uneven adoption — and the concrete next step?"
+            "Implication for a VP of Engineering about usage concentration among a few power users "
+            "or uneven usage across the active team — and the concrete next step?"
         )
         if focus == "users_non_engineers":
             audience_note = (
-                "Implication for a VP of Engineering about non-engineering power users, "
-                "under-adopted seats outside engineering, or whether these seats belong in "
-                "the engineering budget — and the concrete next step?"
+                "Implication for a VP of Engineering about non-engineering power users or whether "
+                "this Cursor usage belongs in the engineering budget — and the concrete next step?"
             )
         return (
             f"Cursor AI coding-assistant USER BEHAVIOR ({scope_label}) over the last {window_days} days. "
-            f"Active {user_noun}: {active} of {seats} seats. "
+            f"{active_phrase}. "
             f"Highest-volume users (tokens, top model): {top_str}. "
             f"Lowest-volume active users: {low_str}. "
             + audience_note
@@ -776,13 +790,14 @@ def _focus_prompt(report: dict[str, Any], focus: str) -> str:
         else:
             scope = report.get("usage_engineers") or {}
             scope_label = "dev-* Atlassian team members"
+        # Audience-scoped: report active count, not seats (partial email-matched subset).
         if scope.get("configured"):
             st = scope.get("totals") or {}
             active = int(scope.get("active_window") or 0)
-            seats = int(scope.get("seats") or 0)
             model_mix = scope.get("model_mix") or []
             in_t = int(st.get("input_tokens") or 0)
             out_t = int(st.get("output_tokens") or 0)
+            active_phrase = f"active users: {active}"
         else:
             active = int(members.get("active_window") or 0)
             seats = int(members.get("total") or 0)
@@ -790,6 +805,7 @@ def _focus_prompt(report: dict[str, Any], focus: str) -> str:
             in_t = int(totals.get("input_tokens") or 0)
             out_t = int(totals.get("output_tokens") or 0)
             scope_label = "all Cursor seats"
+            active_phrase = f"active users: {active} of {seats} seats"
         model_str = ", ".join(
             f"{m.get('model')} {int(round(float(m.get('share') or 0) * 100))}%" for m in model_mix[:3]
         ) or "none"
@@ -805,7 +821,7 @@ def _focus_prompt(report: dict[str, Any], focus: str) -> str:
         return (
             f"Cursor AI coding-assistant USAGE ({scope_label}) over the last {window_days} days. "
             f"Total tokens: {in_t + out_t} ({in_t} input / {out_t} output); "
-            f"active users: {active} of {seats} seats. Model mix by tokens: {model_str}. "
+            f"{active_phrase}. Model mix by tokens: {model_str}. "
             + audience_note
         )
     raise ValueError(f"unknown cursor takeaway focus: {focus}")

@@ -2346,12 +2346,13 @@ def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
     model_mix = cost.get("model_mix") or []
     window_days = int(cu.get("window_days") or 30)
 
-    seats = int(cost.get("seats") or 0)
+    # Engineer-scoped slide: seat count is not meaningful here (the denominator is an
+    # email-matched subset of dev-* team members), so report on active engineers and the
+    # cost they generate — not adoption/idle against a partial seat base.
     active = int(cost.get("active_window") or 0)
     spend_cents = totals.get("spend_cents_cycle")
     window_cents = totals.get("charged_cents_window")
     cost_per_active = (float(window_cents) / active) if (window_cents is not None and active) else None
-    idle = max(0, seats - active) if seats else 0
     # /teams/spend returns 0 when usage is included in seats (no overage), so lead with
     # the usage-based cost and treat cycle spend as overage only.
     has_overage = spend_cents not in (None, 0)
@@ -2363,8 +2364,8 @@ def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
         bits.append(f"{_fmt_cents(cost_per_active)}/active engineer")
     if has_overage:
         bits.append(f"{_fmt_cents(spend_cents)} cycle overage")
-    elif seats:
-        bits.append(f"{active} of {seats} engineer seats active")
+    elif active:
+        bits.append(f"{active} active engineers")
     subtitle = " · ".join(bits) if bits else "Cursor team spend"
 
     _slide(reqs, sid, idx)
@@ -2380,13 +2381,14 @@ def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
         "usage-based cost over the last {window_days} days  ·  " + cycle_note,
     )
 
+    overage_val = _fmt_cents(spend_cents) if spend_cents is not None else "—"
     kpi_y = _eng_kpi_row(
         reqs, sid,
         [
             (f"Usage cost ({window_days}d)", _fmt_cents(window_cents)),
             ("Cost / active eng", _fmt_cents(cost_per_active)),
-            ("Active engineers", f"{active} / {seats}" if seats else str(active)),
-            ("Idle eng seats", str(idle) if seats else "—"),
+            ("Active engineers", str(active)),
+            ("Cycle overage", overage_val),
         ],
         y=BODY_Y + 20,
     )
@@ -2490,9 +2492,9 @@ def _render_cursor_usage_slide(
 
     totals = scope.get("totals") or {}
     daily = scope.get("daily") or []
-    model_mix = scope.get("model_mix") or []
     window_days = int(cu.get("window_days") or 30)
-    seats = int(scope.get("seats") or 0)
+    # Audience-scoped slide: seat count is not meaningful (denominator is a partial,
+    # email-matched subset), so report the active count, not adoption vs. seats.
     active = int(scope.get("active_window") or 0)
     total_tokens = int(totals.get("total_tokens") or 0)
     input_tokens = int(totals.get("input_tokens") or 0)
@@ -2513,8 +2515,8 @@ def _render_cursor_usage_slide(
     bits = [f"{_fmt_tokens(total_tokens)} tokens in {window_days}d"]
     if io_ratio:
         bits.append(io_ratio)
-    if seats:
-        bits.append(f"{active} of {seats} {user_label} active")
+    if active:
+        bits.append(f"{active} active {user_label}")
     subtitle = " · ".join(bits)
 
     _slide(reqs, sid, idx)
@@ -2537,15 +2539,17 @@ def _render_cursor_usage_slide(
     )
 
     body_top = kpi_y + 12
-    col_gap = 20
-    left_w = (CONTENT_W - col_gap) * 3 // 5
-    right_w = CONTENT_W - left_w - col_gap
-    left_x = MARGIN
-    right_x = MARGIN + left_w + col_gap
+    content_x = MARGIN
+    content_w = CONTENT_W
     content_ceiling = _ENG_CONTENT_BOTTOM - 6
     charts = report.get("_charts")
 
-    left_y = _cursor_section_header(reqs, sid, "th", left_x, body_top, left_w, "Tokens over time (daily, input + output)")
+    # Single full-width column: the daily tokens-over-time chart now owns the body.
+    # The per-model mix moved to the dedicated Cursor Model Usage slide (both audiences).
+    chart_y = _cursor_section_header(
+        reqs, sid, "th", content_x, body_top, content_w,
+        "Tokens over time (daily, input + output)",
+    )
     if daily and charts:
         try:
             from .charts import embed_chart
@@ -2553,19 +2557,21 @@ def _render_cursor_usage_slide(
             labels = [str(d.get("label") or d.get("date") or "") for d in daily]
             in_series = [int(d.get("input_tokens") or 0) for d in daily]
             out_series = [int(d.get("output_tokens") or 0) for d in daily]
-            chart_h = int(max(120, min(190, content_ceiling - left_y - 6 - 18)))
+            chart_h = int(max(150, content_ceiling - chart_y - 6 - 18))
             ss_id, chart_id = charts.add_bar_chart(
-                title="Tokens over time",
+                # The title becomes the backing sheet-tab name; scope it per audience so the
+                # eng / non-eng slides never collide on a duplicate Sheets tab title.
+                title=f"Tokens over time ({audience})",
                 labels=labels,
                 series={"Input": in_series, "Output": out_series},
                 stacked=True,
                 show_title=False,
                 suppress_legend=True,
             )
-            embed_chart(reqs, f"{sid}_tchart", sid, ss_id, chart_id, left_x, left_y, left_w, chart_h, linked=False)
-            left_y += chart_h + 4
-            left_y = _slide_chart_legend(
-                reqs, sid, f"{sid}_tlgd", left_x, left_y,
+            embed_chart(reqs, f"{sid}_tchart", sid, ss_id, chart_id, content_x, chart_y, content_w, chart_h, linked=False)
+            chart_y += chart_h + 4
+            chart_y = _slide_chart_legend(
+                reqs, sid, f"{sid}_tlgd", content_x, chart_y,
                 [("Input", BRAND_SERIES_COLORS[0]), ("Output", BRAND_SERIES_COLORS[1])],
                 font_pt=9, swatch_size=9, entry_gap=14,
             )
@@ -2573,28 +2579,8 @@ def _render_cursor_usage_slide(
             logger.warning("Cursor tokens chart embed failed: %s", exc)
     else:
         empty = "No token usage in window"
-        _box(reqs, f"{sid}_te", sid, left_x, left_y, left_w, 14, empty)
+        _box(reqs, f"{sid}_te", sid, content_x, chart_y, content_w, 14, empty)
         _style(reqs, f"{sid}_te", 0, len(empty), size=9, color=GRAY, font=FONT)
-
-    right_y = _cursor_section_header(reqs, sid, "mmh", right_x, body_top, right_w, "Model usage (by tokens)")
-    if model_mix:
-        bar_max_w = 70.0
-        for i, m in enumerate(model_mix):
-            if right_y + 15 > content_ceiling:
-                break
-            share = float(m.get("share") or 0.0)
-            label = _truncate_one_line(str(m.get("model") or "unknown"), 20)
-            _eng_share_bar(
-                reqs, sid, f"mm{i}",
-                label=label, value_label=f"{int(round(share * 100))}%",
-                fraction=share, x=right_x, y=right_y, w=right_w,
-                bar_max_w=bar_max_w, color=BRAND_SERIES_COLORS[i % len(BRAND_SERIES_COLORS)],
-            )
-            right_y += 15
-    else:
-        empty = "No model data in window"
-        _box(reqs, f"{sid}_mme", sid, right_x, right_y, right_w, 13, empty)
-        _style(reqs, f"{sid}_mme", 0, len(empty), size=9, color=GRAY, font=FONT)
 
     _render_takeaway_band(reqs, sid, _cursor_takeaway(cu, takeaway_focus))
     return idx + 1
@@ -2608,6 +2594,178 @@ def cursor_usage_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
 def cursor_usage_non_engineers_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
     """AI Token Usage for non-engineering Cursor users."""
     return _render_cursor_usage_slide(reqs, sid, report, idx, audience="non_engineers")
+
+
+# Native model-usage table geometry (sums to CONTENT_W = 624).
+_MODEL_TABLE_COL_WIDTHS: tuple[float, ...] = (212.0, 116.0, 100.0, 102.0, 94.0)
+_MODEL_TABLE_HEADER_PT = 9.0
+_MODEL_TABLE_BODY_PT = 9.5
+_MODEL_TABLE_ROW_H = 16.0
+
+
+def _pct_label(part: float, whole: float) -> str:
+    """Whole-percent share, guarding divide-by-zero (renders '—' when undefined)."""
+    if not whole:
+        return "—"
+    return f"{part / whole * 100:.0f}%"
+
+
+def _render_cursor_model_table(
+    reqs: list[dict[str, Any]],
+    sid: str,
+    oid: str,
+    *,
+    header: str,
+    scope: dict[str, Any],
+    x: float,
+    y: float,
+    max_bottom: float,
+    row_h: float = _MODEL_TABLE_ROW_H,
+) -> float:
+    """Render one audience's model-usage table (Model / Tokens / % tokens / Requests / % volume).
+
+    Rows are sorted by tokens descending and capped so the table (header + models + totals)
+    fits above *max_bottom*. The totals row reflects the audience-wide scope totals, so the
+    two percent columns read 100% even when only the top models are listed. Returns the y
+    below the rendered table.
+    """
+    seg_w = sum(_MODEL_TABLE_COL_WIDTHS)
+    y = _cursor_section_header(reqs, sid, f"{oid}h", x, y, seg_w, header)
+
+    model_mix = scope.get("model_mix") or []
+    totals = scope.get("totals") or {}
+    if not (scope.get("configured") and model_mix):
+        empty = "No model usage in window"
+        _box(reqs, f"{sid}_{oid}e", sid, x, y, seg_w, 13, empty)
+        _style(reqs, f"{sid}_{oid}e", 0, len(empty), size=9, color=GRAY, font=FONT)
+        return y + 14
+
+    total_tokens = float(totals.get("total_tokens") or 0) or sum(float(m.get("tokens") or 0) for m in model_mix)
+    total_events = float(totals.get("event_count") or 0) or sum(float(m.get("events") or 0) for m in model_mix)
+
+    ranked = sorted(model_mix, key=lambda m: float(m.get("tokens") or 0), reverse=True)
+    # Cap models so header + model rows + totals row fit above max_bottom.
+    avail_rows = max(3, int((max_bottom - y) / row_h))
+    shown = ranked[: max(1, avail_rows - 2)]
+
+    headers = ["Model", "Tokens", "% of tokens", "Requests", "% of volume"]
+    aligns = ["START", "END", "END", "END", "END"]
+    col_widths = list(_MODEL_TABLE_COL_WIDTHS)
+    num_rows = 1 + len(shown) + 1  # header + models + totals
+
+    table_id = f"{sid}_{oid}_tbl"
+    reqs.append({
+        "createTable": {
+            "objectId": table_id,
+            "elementProperties": {
+                "pageObjectId": sid,
+                "size": _sz(sum(col_widths), num_rows * row_h),
+                "transform": _tf(x, y),
+            },
+            "rows": num_rows,
+            "columns": len(headers),
+        }
+    })
+    _clean_table(reqs, table_id, num_rows, len(headers))
+    _table_column_widths(reqs, table_id, col_widths)
+
+    for ci, head in enumerate(headers):
+        _table_cell_text(reqs, table_id, 0, ci, head)
+        _table_cell_style(
+            reqs, table_id, 0, ci, len(head),
+            bold=True, color=GRAY, size=_MODEL_TABLE_HEADER_PT, font=FONT, align=aligns[ci],
+        )
+
+    model_chars = max_chars_one_line_for_table_col(col_widths[0], _MODEL_TABLE_BODY_PT)
+    for ri, m in enumerate(shown, start=1):
+        tokens = float(m.get("tokens") or 0)
+        evs = float(m.get("events") or 0)
+        row_cells = [
+            (_truncate_one_line(str(m.get("model") or "unknown"), model_chars), NAVY, FONT),
+            (_fmt_tokens(tokens), NAVY, MONO),
+            (_pct_label(tokens, total_tokens), NAVY, MONO),
+            (_fmt_tokens(evs), NAVY, MONO),
+            (_pct_label(evs, total_events), NAVY, MONO),
+        ]
+        for ci, (text, color, font) in enumerate(row_cells):
+            _table_cell_text(reqs, table_id, ri, ci, text)
+            _table_cell_style(
+                reqs, table_id, ri, ci, len(text),
+                bold=False, color=color, size=_MODEL_TABLE_BODY_PT, font=font, align=aligns[ci],
+            )
+
+    total_row = 1 + len(shown)
+    total_cells = [
+        ("All models", NAVY, FONT),
+        (_fmt_tokens(total_tokens), NAVY, MONO),
+        (_pct_label(total_tokens, total_tokens), NAVY, MONO),
+        (_fmt_tokens(total_events), NAVY, MONO),
+        (_pct_label(total_events, total_events), NAVY, MONO),
+    ]
+    for ci, (text, color, font) in enumerate(total_cells):
+        _table_cell_text(reqs, table_id, total_row, ci, text)
+        _table_cell_style(
+            reqs, table_id, total_row, ci, len(text),
+            bold=True, color=color, size=_MODEL_TABLE_BODY_PT, font=font, align=aligns[ci],
+        )
+
+    return y + num_rows * row_h
+
+
+def cursor_model_usage_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Per-model token & request mix for engineering vs non-engineering, as native tables.
+
+    Two stacked Google Slides tables (engineering dev-* teams; everyone else) each list the
+    top models by tokens with both a token share and a request-volume share, so a VP can see
+    which models carry the spend and whether request volume tracks token volume per audience.
+    """
+    cu = _cursor_blob(report)
+    if not cu.get("configured"):
+        return _missing_data_slide(reqs, sid, report, idx, "Cursor usage (set CURSOR_ADMIN_API_KEY)")
+
+    eng = _cursor_usage_scope(cu, "engineers")
+    non = _cursor_usage_scope(cu, "non_engineers")
+    if not (eng.get("configured") or non.get("configured")):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            "Audience-scoped model usage (set ATLASSIAN_ORG_ID and dev-* Atlassian teams)",
+        )
+
+    window_days = int(cu.get("window_days") or 30)
+    eng_tokens = int((eng.get("totals") or {}).get("total_tokens") or 0)
+    non_tokens = int((non.get("totals") or {}).get("total_tokens") or 0)
+    total = eng_tokens + non_tokens
+    eng_share = int(round(eng_tokens / total * 100)) if total else 0
+    bits = [f"{_fmt_tokens(total)} tokens in {window_days}d"]
+    if total:
+        bits.append(f"engineering {eng_share}%  ·  non-engineering {100 - eng_share}%")
+    subtitle = " · ".join(bits)
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _eng_title(reqs, sid, "Cursor AI Model Usage", subtitle)
+    _cursor_context(
+        reqs, sid, cu,
+        "dev-* engineers vs. other Atlassian team members  ·  "
+        "token volume and request share by model over the last {window_days} days",
+    )
+
+    # No takeaway band on this slide, so the two tables use the full body height.
+    body_top = BODY_Y + 26
+    content_bottom = float(SLIDE_H) - 24.0
+    gap = 12.0
+    half = (content_bottom - body_top - gap) / 2.0
+    _render_cursor_model_table(
+        reqs, sid, "me",
+        header="Engineering — dev-* teams",
+        scope=eng, x=MARGIN, y=body_top, max_bottom=body_top + half,
+    )
+    _render_cursor_model_table(
+        reqs, sid, "mn",
+        header="Non-Engineering — other Atlassian teams",
+        scope=non, x=MARGIN, y=body_top + half + gap, max_bottom=content_bottom,
+    )
+    return idx + 1
 
 
 def _fmt_cents_per_line(cents: Any) -> str:
@@ -2773,15 +2931,17 @@ def _render_cursor_users_slide(
     matrix = scope.get("user_model_matrix") or {}
     window_days = int(cu.get("window_days") or 30)
 
-    seats = int(scope.get("seats") or 0)
+    # Audience-scoped slide: seat count / adoption / idle seats are not meaningful (the
+    # denominator is a partial, email-matched subset), so focus on who the active users
+    # are and how concentrated usage is among them.
     active = int(scope.get("active_window") or 0)
     total_tokens = int(totals.get("total_tokens") or 0)
-    adoption_pct = int(round(active / seats * 100)) if seats else 0
-    idle = max(0, seats - active) if seats else 0
     top_share = (
         int(round(int(top_users[0].get("tokens") or 0) / total_tokens * 100))
         if top_users and total_tokens else 0
     )
+    top3_tokens = sum(int(u.get("tokens") or 0) for u in top_users[:3])
+    top3_share = int(round(top3_tokens / total_tokens * 100)) if total_tokens else 0
 
     is_engineers = audience == "engineers"
     title = "Cursor AI Power Users" if is_engineers else "Cursor AI Power Users — Non-Engineering"
@@ -2795,12 +2955,12 @@ def _render_cursor_users_slide(
     )
 
     bits = []
-    if seats:
-        bits.append(f"{active} of {seats} {user_label} active ({adoption_pct}%)")
+    if active:
+        bits.append(f"{active} active {user_label}")
     if top_share:
         bits.append(f"top user = {top_share}% of tokens")
-    if idle:
-        bits.append(f"{idle} idle seats")
+    if top3_share:
+        bits.append(f"top 3 = {top3_share}%")
     subtitle = " · ".join(bits) if bits else "Cursor user behavior"
 
     _slide(reqs, sid, idx)
@@ -2814,10 +2974,10 @@ def _render_cursor_users_slide(
     kpi_y = _eng_kpi_row(
         reqs, sid,
         [
-            (active_kpi, f"{active} / {seats}" if seats else str(active)),
-            ("Adoption", f"{adoption_pct}%" if seats else "—"),
+            (active_kpi, str(active)),
+            ("Tokens (window)", _fmt_tokens(total_tokens)),
             ("Top-user share", f"{top_share}%" if top_share else "—"),
-            ("Idle seats", str(idle) if seats else "—"),
+            ("Top-3 share", f"{top3_share}%" if top3_share else "—"),
         ],
         y=BODY_Y + 20,
     )
@@ -2843,7 +3003,9 @@ def _render_cursor_users_slide(
             series = {model: [int(v) for v in (m_series.get(model) or [])] for model in m_models}
             chart_h = int(max(120, min(190, content_ceiling - left_y - 6 - 18)))
             ss_id, chart_id = charts.add_bar_chart(
-                title="Model usage by user",
+                # Title becomes the backing sheet-tab name, so scope it per audience to
+                # avoid a duplicate-sheet collision between the eng / non-eng slides.
+                title=f"Model usage by user ({audience})",
                 labels=labels,
                 series=series,
                 stacked=True,

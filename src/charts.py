@@ -129,6 +129,7 @@ class DeckCharts:
         self._folder_id = folder_id or _get_chart_folder()
         self._ss_id: str | None = None
         self._sheet_counter = 0
+        self._used_titles: set[str] = set()
         self._deck_name = deck_name
 
     @property
@@ -172,7 +173,17 @@ class DeckCharts:
         self._sheet_counter += 1
         sheet_id = self._sheet_counter
         raw = (title or "").strip()
-        clean_title = (raw if raw else f"Chart{sheet_id}")[:100].replace("/", "-")
+        base_title = (raw if raw else f"Chart{sheet_id}")[:100].replace("/", "-")
+        # Google Sheets rejects duplicate sheet titles. Decks reuse chart titles across
+        # slides (e.g. the engineer- and non-engineer-scoped usage slides both create a
+        # "Tokens over time" chart), so dedupe by suffixing the unique sheet counter.
+        # The sheet-tab name is internal only — the chart's visible title comes from the
+        # chart spec — so the suffix never appears on a slide.
+        clean_title = base_title
+        if clean_title in self._used_titles:
+            suffix = f" ({sheet_id})"
+            clean_title = base_title[: 100 - len(suffix)] + suffix
+        self._used_titles.add(clean_title)
 
         self._sheets_svc.spreadsheets().batchUpdate(
             spreadsheetId=ss_id,

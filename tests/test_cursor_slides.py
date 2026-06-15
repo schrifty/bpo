@@ -9,6 +9,7 @@ from __future__ import annotations
 from src.slide_engineering_portfolio import (
     cursor_cost_slide,
     cursor_efficiency_slide,
+    cursor_model_usage_slide,
     cursor_users_slide,
     cursor_users_non_engineers_slide,
     cursor_usage_slide,
@@ -72,8 +73,8 @@ def _cursor_report() -> dict:
                 {"date": "2026-04-02", "label": "4/2", "input_tokens": 400_000, "output_tokens": 150_000},
             ],
             "model_mix": [
-                {"model": "claude-4.5-sonnet", "tokens": 700_000, "share": 0.7},
-                {"model": "gpt-5", "tokens": 300_000, "share": 0.3},
+                {"model": "claude-4.5-sonnet", "tokens": 700_000, "events": 3_000, "cents": 18_000, "share": 0.7},
+                {"model": "gpt-5", "tokens": 300_000, "events": 1_200, "cents": 7_000, "share": 0.3},
             ],
         },
         "usage_non_engineers": {
@@ -91,8 +92,8 @@ def _cursor_report() -> dict:
                 {"date": "2026-04-02", "label": "4/2", "input_tokens": 100_000, "output_tokens": 30_000},
             ],
             "model_mix": [
-                {"model": "gpt-5", "tokens": 120_000, "share": 0.6},
-                {"model": "Auto (default)", "tokens": 80_000, "share": 0.4},
+                {"model": "gpt-5", "tokens": 120_000, "events": 500, "cents": 4_000, "share": 0.6},
+                {"model": "Auto (default)", "tokens": 80_000, "events": 300, "cents": 2_000, "share": 0.4},
             ],
         },
         "users_engineers": {
@@ -212,7 +213,10 @@ def test_cost_slide_renders_spend_and_model_cost() -> None:
     text = _texts(reqs)
     assert "Usage cost" in text
     assert "Cost / active eng" in text
-    assert "Idle eng seats" in text
+    assert "Active engineers" in text
+    assert "Cycle overage" in text
+    # Engineer-scoped slide must not show seat-based metrics.
+    assert "Idle" not in text
     assert "dev-* team members only" in text
     assert "Where the spend goes" in text
     # Per-model cost dollar value appears.
@@ -245,15 +249,16 @@ def test_users_slide_renders_token_volume_columns() -> None:
     assert "dan" in text
 
 
-def test_usage_slide_renders_tokens_and_models() -> None:
+def test_usage_slide_renders_tokens_and_chart_only() -> None:
     reqs: list = []
     cursor_usage_slide(reqs, "sid_u", _cursor_report(), 0)
     assert _title(reqs, "sid_u") == "Cursor AI Token Usage"
     text = _texts(reqs)
     assert "Input tokens" in text and "Output tokens" in text
-    assert "Model usage (by tokens)" in text
-    assert "claude-4.5-sonnet" in text
+    assert "Tokens over time" in text
     assert "dev-* team members only" in text
+    # The per-model mix panel moved to the dedicated model-usage slide.
+    assert "Model usage (by tokens)" not in text
     # input/output ratio in subtitle.
     assert "in/out" in _subtitle(reqs, "sid_u")
 
@@ -265,10 +270,35 @@ def test_usage_non_engineers_slide_renders_scoped_tokens() -> None:
     text = _texts(reqs)
     assert "Input tokens" in text and "Output tokens" in text
     assert "outside dev-* teams" in text
-    assert "Auto (default)" in text
+    assert "Tokens over time" in text
+    # The per-model mix panel moved to the dedicated model-usage slide.
+    assert "Model usage (by tokens)" not in text
     sub = _subtitle(reqs, "sid_un")
     assert "200K" in sub or "200" in sub
-    assert "users active" in sub
+    assert "active users" in sub
+    # No seat-based "of N seats" framing on a scoped slide.
+    assert "seats" not in sub
+
+
+def test_model_usage_slide_renders_both_audiences_and_percentages() -> None:
+    reqs: list = []
+    cursor_model_usage_slide(reqs, "sid_m", _cursor_report(), 0)
+    assert _title(reqs, "sid_m") == "Cursor AI Model Usage"
+    text = _texts(reqs)
+    # Both audience tables are labeled.
+    assert "Engineering — dev-* teams" in text
+    assert "Non-Engineering" in text
+    # Model names appear (engineering + non-engineering, friendly relabel kept).
+    assert "claude-4.5-sonnet" in text
+    assert "Auto (default)" in text
+    # Both percentage columns are present.
+    assert "% of tokens" in text
+    assert "% of volume" in text
+    # Token share (70% of 1.0M) and request-volume share (3,000 / 4,200 = 71%) both render.
+    assert "70%" in text  # claude tokens / total tokens
+    assert "71%" in text  # claude requests / total requests
+    # Totals row present.
+    assert "All models" in text
 
 
 def test_users_slide_renders_power_users_and_concentration() -> None:
@@ -277,14 +307,19 @@ def test_users_slide_renders_power_users_and_concentration() -> None:
     assert _title(reqs, "sid_w") == "Cursor AI Power Users"
     text = _texts(reqs)
     assert "Top-user share" in text
-    assert "Idle seats" in text
+    assert "Top-3 share" in text
+    # Scoped slide must not surface seat-based adoption/idle metrics.
+    assert "Adoption" not in text
+    assert "Idle" not in text
     assert "Highest volume" in text
     assert "Lowest volume" in text
     assert "dev-* team members only" in text
     assert "ada" in text  # short email of top user
     assert "grace" in text  # short email of low-volume user
-    # idle seats = 8 - 4 = 4
-    assert "4" in _subtitle(reqs, "sid_w") or "idle" in _subtitle(reqs, "sid_w")
+    # Subtitle reports active count and concentration, not seats.
+    sub = _subtitle(reqs, "sid_w")
+    assert "active engineers" in sub
+    assert "seats" not in sub
 
 
 def test_users_non_engineers_slide_renders_scoped_power_users() -> None:
@@ -316,7 +351,8 @@ def test_cursor_slides_emit_missing_data_when_unconfigured() -> None:
     rep = {"cursor_usage": {"configured": False}}
     for builder in (
         cursor_cost_slide, cursor_usage_slide, cursor_usage_non_engineers_slide,
-        cursor_efficiency_slide, cursor_users_slide, cursor_users_non_engineers_slide,
+        cursor_model_usage_slide, cursor_efficiency_slide,
+        cursor_users_slide, cursor_users_non_engineers_slide,
     ):
         reqs: list = []
         builder(reqs, "sid_x", rep, 0)

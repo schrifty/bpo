@@ -65,6 +65,10 @@ def test_build_report_aggregates_all_sections() -> None:
     # Model mix sorted by tokens desc; shares sum ~1.
     assert rep["model_mix"][0]["model"] == "claude-4.5-sonnet"
     assert abs(sum(m["share"] for m in rep["model_mix"]) - 1.0) < 1e-6
+    # Each model carries per-model request count (events) so the model-usage slide can
+    # compute "% of volume" (events share) alongside "% of tokens".
+    assert all("events" in m and "tokens" in m for m in rep["model_mix"])
+    assert sum(m["events"] for m in rep["model_mix"]) == rep["totals"]["event_count"]
     assert rep["errors"] == []
 
 

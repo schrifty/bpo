@@ -1,0 +1,20 @@
+id: cursor_model_usage
+type: standard
+order: 88
+title: Cursor AI Model Usage
+slide_type: cursor_model_usage
+data_tools: []
+customers: all
+
+prompt: >
+  AI coding-assistant (Cursor) model-usage slide for the engineering portfolio deck,
+  aimed at a VP of Engineering. Compares which Cursor models carry the volume for
+  engineering (Dev - * Atlassian teams) versus non-engineering users (everyone else),
+  side by side as two native tables. Each table lists models ranked by tokens with
+  columns for Model, Tokens, % of tokens, Requests (volume), and % of volume, plus a
+  totals row; friendly model names are used (e.g. "Auto (default)"). The bottom-line
+  subtitle states total tokens over the window and the engineering vs non-engineering
+  split. Pairs with the two Token Usage slides (which now show only the daily
+  tokens-over-time trend). Data comes from the Cursor Team Admin API joined to
+  Atlassian Teams; omitted when CURSOR_ADMIN_API_KEY or ATLASSIAN_ORG_ID is not
+  configured.
