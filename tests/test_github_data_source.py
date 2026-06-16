@@ -1,9 +1,9 @@
 """GitHub optional datasource — preflight and QA source status."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from src.data_source_health import check_github
-from src.github_client import check_github_api
+from src.github_client import GitHubClient, GitHubError, check_github_api
 from src.qa import QARegistry
 
 
@@ -14,25 +14,17 @@ def test_github_preflight_skipped_when_not_configured():
 
 
 def test_github_preflight_ok_on_200():
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.text = "{}"
-    with patch("src.github_client.GITHUB_TOKEN", "ghp_testtoken"), patch(
-        "src.github_client.requests.get", return_value=mock_resp
-    ) as rg:
+    with patch("src.github_client.GITHUB_TOKEN", "ghp_testtoken"), patch.object(
+        GitHubClient, "get_authenticated_user", return_value={"login": "bot"}
+    ):
         ok, msg = check_github_api()
     assert ok is True
     assert msg is None
-    rg.assert_called_once()
-    assert "Authorization" in rg.call_args[1]["headers"]
 
 
 def test_github_preflight_fails_on_http_error():
-    mock_resp = MagicMock()
-    mock_resp.status_code = 401
-    mock_resp.text = "Bad credentials"
-    with patch("src.github_client.GITHUB_TOKEN", "bad"), patch(
-        "src.github_client.requests.get", return_value=mock_resp
+    with patch("src.github_client.GITHUB_TOKEN", "bad"), patch.object(
+        GitHubClient, "get_authenticated_user", side_effect=GitHubError("GitHub API HTTP 401")
     ):
         ok, msg = check_github_api()
     assert ok is False

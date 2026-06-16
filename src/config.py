@@ -86,9 +86,25 @@ JIRA_CLOUD_ID = (os.environ.get("JIRA_CLOUD_ID") or "").strip() or None
 # JIRA_SERVICE_ACCOUNT_AUTH: bearer (default) | basic — gateway only; basic requires JIRA_EMAIL
 # JIRA_CLOUD_ID_AUTO: true — resolve JIRA_CLOUD_ID for gateway mode
 
-# GitHub (optional — PAT or fine-grained token for REST API preflight and future enrichment)
+# GitHub (optional — PAT or fine-grained token for REST API preflight and activity enrichment)
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "").strip() or None
 GITHUB_API_BASE_URL = os.environ.get("GITHUB_API_BASE_URL", "https://api.github.com").strip().rstrip("/") or "https://api.github.com"
+GITHUB_ORG = os.environ.get("GITHUB_ORG", "").strip() or None
+GITHUB_REPOS = os.environ.get("GITHUB_REPOS", "").strip() or None
+try:
+    BPO_GITHUB_LOOKBACK_DAYS = max(1, min(int(os.environ.get("BPO_GITHUB_LOOKBACK_DAYS", "30").strip()), 365))
+except ValueError:
+    BPO_GITHUB_LOOKBACK_DAYS = 30
+try:
+    BPO_GITHUB_MAX_REPOS = max(1, min(int(os.environ.get("BPO_GITHUB_MAX_REPOS", "10").strip()), 50))
+except ValueError:
+    BPO_GITHUB_MAX_REPOS = 10
+try:
+    BPO_GITHUB_MAX_COMMITS_PER_REPO = max(
+        10, min(int(os.environ.get("BPO_GITHUB_MAX_COMMITS_PER_REPO", "500").strip()), 5000)
+    )
+except ValueError:
+    BPO_GITHUB_MAX_COMMITS_PER_REPO = 500
 
 # Rippling Platform API (optional — Bearer API key for HR org / employee / team rosters).
 # Create the token in the Rippling developer portal with employee:read, company:teams:read,
