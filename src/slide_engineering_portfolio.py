@@ -18,6 +18,7 @@ from .slide_primitives import (
     missing_data_slide as _missing_data_slide,
     rect as _rect,
     slide_chart_legend as _slide_chart_legend,
+    slide_chart_legend_vertical as _slide_chart_legend_vertical,
     slide_title as _slide_title,
     style as _style,
     support_title_includes_project as _support_title_includes_project,
@@ -641,7 +642,7 @@ def _render_takeaway_band(reqs: list[dict[str, Any]], sid: str, text: str) -> No
 
     No-ops when *text* is empty so a slide never shows an orphan label.
     """
-    text = (text or "").strip()
+    text = _clamp_eng_takeaway(text)
     if not text:
         return
     _rect(reqs, f"{sid}_tkdiv", sid, MARGIN, _ENG_TAKEAWAY_Y - 3.0, CONTENT_W, 1.2, _ENG_DIVIDER_FILL)
@@ -649,6 +650,24 @@ def _render_takeaway_band(reqs: list[dict[str, Any]], sid: str, text: str) -> No
     _style(reqs, f"{sid}_tklbl", 0, len(_ENG_TAKEAWAY_LABEL), bold=True, size=7.5, color=BLUE, font=FONT)
     _box(reqs, f"{sid}_tktxt", sid, MARGIN, _ENG_TAKEAWAY_Y + 12, CONTENT_W, 28, text)
     _style(reqs, f"{sid}_tktxt", 0, len(text), size=10, color=NAVY, font=FONT)
+
+
+def _clamp_eng_takeaway(text: str, *, max_lines: int = 2, font_pt: float = 10.0) -> str:
+    """Keep takeaway copy within the fixed band so it does not overflow or wrap badly."""
+    text = " ".join((text or "").split()).strip()
+    if not text:
+        return ""
+    # Strip a lone stray quote the LLM sometimes appends.
+    if text.endswith('"') and not text.endswith('""'):
+        text = text[:-1].rstrip()
+    if text.startswith('"') and text.count('"') == 1:
+        text = text[1:].strip()
+    chars_per_line = max(40, int(CONTENT_W / (font_pt * 0.52)))
+    max_chars = chars_per_line * max_lines
+    if len(text) <= max_chars:
+        return text
+    cut = text[: max_chars - 1].rsplit(" ", 1)[0]
+    return (cut or text[: max_chars - 1]).rstrip(",.;:") + "…"
 
 
 def _eng_kpi_row(
@@ -809,6 +828,8 @@ def eng_current_sprint_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
         bar_max = CONTENT_W - label_w - count_w - 6
         avail_rows = max(1, int((theme_bottom - y) // 22))
         for ri, theme in enumerate(themes[:avail_rows]):
+            if y + 22 > theme_bottom:
+                break
             total_n = int(theme.get("total") or 0)
             active_n = int(theme.get("in_progress") or 0)
             bugs_n = int(theme.get("bugs") or 0)
@@ -2319,6 +2340,9 @@ def _cursor_section_header(reqs: list[dict[str, Any]], sid: str, oid: str, x: fl
 
 _CURSOR_CHART_PAD = 6.0
 _CURSOR_CHART_LEGEND_GAP = 4.0
+_CURSOR_CHART_TITLE_H = 14.0
+_CURSOR_CHART_TITLE_GAP = 2.0
+_CURSOR_CHART_LEGEND_ROW_H = 12.0
 
 
 def _cursor_embed_chart_panel(
@@ -2332,35 +2356,75 @@ def _cursor_embed_chart_panel(
     chart_h: float,
     spreadsheet_id: str,
     chart_id: int,
+    title: str | None = None,
     legend: list[tuple[str, dict[str, float]]] | None = None,
+    legend_vertical: bool = False,
     legend_font_pt: float = 9,
     legend_swatch: float = 9,
     legend_entry_gap: float = 14,
 ) -> float:
-    """Embed a Sheets chart in a bordered panel with an in-chart title and slide-level legend.
+    """Embed a Sheets chart in a bordered panel with a slide-level title and legend.
 
-    The chart title lives in the embedded image (``show_title=True`` at build time); callers
-    should not also render a slide-level section header above the panel — that duplicated the
-    title and visually overwrote the chart's own title area.
+    Chart titles render as native slide text above the plot (``show_title=False`` on the
+    Sheets chart) so they stay readable when the embed is scaled — in-chart titles were
+    clipped or illegible at presentation size.
     """
     from .charts import embed_chart
 
-    legend_h = 16.0 if legend else 0.0
-    panel_h = _CURSOR_CHART_PAD * 2 + chart_h + (_CURSOR_CHART_LEGEND_GAP + legend_h if legend else 0)
+    title_block = (_CURSOR_CHART_TITLE_H + _CURSOR_CHART_TITLE_GAP) if title else 0.0
+    if legend:
+        if legend_vertical:
+            legend_h = len(legend) * _CURSOR_CHART_LEGEND_ROW_H
+        else:
+            legend_h = 16.0
+    else:
+        legend_h = 0.0
+    panel_h = (
+        _CURSOR_CHART_PAD * 2 + title_block + chart_h
+        + (_CURSOR_CHART_LEGEND_GAP + legend_h if legend else 0)
+    )
     _bar_rect(reqs, f"{sid}_{oid}_pnl", sid, x, y, w, panel_h, WHITE, outline=GRAY)
-    chart_x = x + _CURSOR_CHART_PAD
-    chart_y = y + _CURSOR_CHART_PAD
-    chart_w = w - 2 * _CURSOR_CHART_PAD
+    inner_x = x + _CURSOR_CHART_PAD
+    inner_y = y + _CURSOR_CHART_PAD
+    inner_w = w - 2 * _CURSOR_CHART_PAD
+    if title:
+        display = _truncate_one_line(title, max(24, int(inner_w / 5.5)))
+        _box(reqs, f"{sid}_{oid}_ttl", sid, inner_x, inner_y, inner_w, _CURSOR_CHART_TITLE_H, display)
+        _style(reqs, f"{sid}_{oid}_ttl", 0, len(display), bold=True, size=10, color=NAVY, font=FONT)
+        inner_y += title_block
     embed_chart(
         reqs, f"{sid}_{oid}", sid, spreadsheet_id, chart_id,
-        chart_x, chart_y, chart_w, chart_h, linked=False,
+        inner_x, inner_y, inner_w, chart_h, linked=False,
     )
     if legend:
-        _slide_chart_legend(
-            reqs, sid, f"{sid}_{oid}lgd", chart_x, chart_y + chart_h + _CURSOR_CHART_LEGEND_GAP,
-            legend, font_pt=legend_font_pt, swatch_size=legend_swatch, entry_gap=legend_entry_gap,
-        )
+        legend_y = inner_y + chart_h + _CURSOR_CHART_LEGEND_GAP
+        if legend_vertical:
+            _slide_chart_legend_vertical(
+                reqs, sid, f"{sid}_{oid}lgd", inner_x, legend_y, inner_w, legend,
+                font_pt=legend_font_pt, swatch_size=legend_swatch, row_h=_CURSOR_CHART_LEGEND_ROW_H,
+                max_label_chars=max(18, int(inner_w / 7)),
+            )
+        else:
+            _slide_chart_legend(
+                reqs, sid, f"{sid}_{oid}lgd", inner_x, legend_y,
+                legend, font_pt=legend_font_pt, swatch_size=legend_swatch, entry_gap=legend_entry_gap,
+            )
     return y + panel_h + 8
+
+
+def _cursor_chart_panel_reserve(
+    *,
+    content_ceiling: float,
+    start_y: float,
+    title: bool = True,
+    legend_rows: int = 0,
+    legend_vertical: bool = False,
+) -> float:
+    """Compute chart plot height that fits title, legend, and panel padding under *content_ceiling*."""
+    title_block = (_CURSOR_CHART_TITLE_H + _CURSOR_CHART_TITLE_GAP) if title else 0.0
+    legend_h = (legend_rows * _CURSOR_CHART_LEGEND_ROW_H if legend_vertical else 16.0) if legend_rows else 0.0
+    overhead = _CURSOR_CHART_PAD * 2 + title_block + (legend_h + _CURSOR_CHART_LEGEND_GAP if legend_rows else 0) + 14
+    return max(100.0, content_ceiling - start_y - overhead)
 
 
 def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
@@ -2427,18 +2491,21 @@ def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
             labels = [str(d.get("label") or d.get("date") or "") for d in daily]
             cost_series = [round(float(d.get("cents") or 0) / 100.0, 2) for d in daily]
             users_series = [int(d.get("active_users") or 0) for d in daily]
-            chart_h = int(max(120, min(190, content_ceiling - left_y - 28)))
+            chart_h = int(_cursor_chart_panel_reserve(
+                content_ceiling=content_ceiling, start_y=left_y, legend_rows=2,
+            ))
             ss_id, chart_id = charts.add_combo_chart(
                 title=chart_title,
                 labels=labels,
                 bar_series={"Daily cost ($)": cost_series},
                 line_series={"Active users": users_series},
-                show_title=True,
+                show_title=False,
                 suppress_legend=True,
             )
             left_y = _cursor_embed_chart_panel(
                 reqs, sid=sid, oid="cchart", x=left_x, y=left_y, w=left_w, chart_h=chart_h,
                 spreadsheet_id=ss_id, chart_id=chart_id,
+                title=chart_title,
                 legend=[("Daily cost ($)", BRAND_SERIES_COLORS[0]), ("Active users", BRAND_SERIES_COLORS[1])],
             )
         except Exception as exc:
@@ -2551,13 +2618,15 @@ def _render_cursor_usage_slide(
             labels = [str(d.get("label") or d.get("date") or "") for d in daily]
             in_series = [int(d.get("input_tokens") or 0) for d in daily]
             out_series = [int(d.get("output_tokens") or 0) for d in daily]
-            chart_h = int(max(150, content_ceiling - chart_y - 28))
+            chart_h = int(_cursor_chart_panel_reserve(
+                content_ceiling=content_ceiling, start_y=chart_y, legend_rows=2,
+            ))
             ss_id, chart_id = charts.add_bar_chart(
                 title=chart_title,
                 labels=labels,
                 series={"Input": in_series, "Output": out_series},
                 stacked=True,
-                show_title=True,
+                show_title=False,
                 suppress_legend=True,
                 width_pixels=int(content_w * 2),
                 height_pixels=int(chart_h * 2),
@@ -2565,6 +2634,7 @@ def _render_cursor_usage_slide(
             chart_y = _cursor_embed_chart_panel(
                 reqs, sid=sid, oid="tchart", x=content_x, y=chart_y, w=content_w, chart_h=chart_h,
                 spreadsheet_id=ss_id, chart_id=chart_id,
+                title=chart_title,
                 legend=[("Input", BRAND_SERIES_COLORS[0]), ("Output", BRAND_SERIES_COLORS[1])],
             )
         except Exception as exc:
@@ -2812,18 +2882,21 @@ def cursor_efficiency_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
             labels = [str(d.get("label") or d.get("date") or "") for d in daily]
             lines_series = [int(d.get("accepted_lines") or 0) for d in daily]
             cost_series = [round(float(d.get("cents") or 0) / 100.0, 2) for d in daily]
-            chart_h = int(max(120, min(190, content_ceiling - left_y - 28)))
+            chart_h = int(_cursor_chart_panel_reserve(
+                content_ceiling=content_ceiling, start_y=left_y, legend_rows=2,
+            ))
             ss_id, chart_id = charts.add_combo_chart(
                 title=chart_title,
                 labels=labels,
                 bar_series={"Accepted lines": lines_series},
                 line_series={"Cost ($)": cost_series},
-                show_title=True,
+                show_title=False,
                 suppress_legend=True,
             )
             left_y = _cursor_embed_chart_panel(
                 reqs, sid=sid, oid="echart", x=left_x, y=left_y, w=left_w, chart_h=chart_h,
                 spreadsheet_id=ss_id, chart_id=chart_id,
+                title=chart_title,
                 legend=[("Accepted lines", BRAND_SERIES_COLORS[0]), ("Cost ($)", BRAND_SERIES_COLORS[1])],
             )
         except Exception as exc:
@@ -2950,23 +3023,28 @@ def _render_cursor_users_slide(
             chart_title = f"Model usage by user ({scope_label}, tokens, {window_days}d)"
             labels = [_short_email(u, 14) for u in m_users]
             series = {model: [int(v) for v in (m_series.get(model) or [])] for model in m_models}
-            chart_h = int(max(120, min(190, content_ceiling - left_y - 28)))
+            legend_entries = [
+                (str(m), BRAND_SERIES_COLORS[i % len(BRAND_SERIES_COLORS)])
+                for i, m in enumerate(m_models)
+            ]
+            chart_h = int(_cursor_chart_panel_reserve(
+                content_ceiling=content_ceiling, start_y=left_y,
+                legend_rows=len(legend_entries), legend_vertical=True,
+            ))
             ss_id, chart_id = charts.add_bar_chart(
                 title=chart_title,
                 labels=labels,
                 series=series,
                 stacked=True,
-                show_title=True,
+                show_title=False,
                 suppress_legend=True,
             )
-            legend_entries = [
-                (_truncate_one_line(m, 16), BRAND_SERIES_COLORS[i % len(BRAND_SERIES_COLORS)])
-                for i, m in enumerate(m_models)
-            ]
             left_y = _cursor_embed_chart_panel(
                 reqs, sid=sid, oid="uchart", x=left_x, y=left_y, w=left_w, chart_h=chart_h,
                 spreadsheet_id=ss_id, chart_id=chart_id,
-                legend=legend_entries, legend_font_pt=8, legend_swatch=8, legend_entry_gap=8,
+                title=chart_title,
+                legend=legend_entries, legend_vertical=True,
+                legend_font_pt=8, legend_swatch=8,
             )
         except Exception as exc:
             logger.warning("Cursor user-model chart embed failed: %s", exc)

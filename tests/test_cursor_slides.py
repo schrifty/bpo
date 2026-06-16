@@ -9,6 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from src.slide_engineering_portfolio import (
+    _clamp_eng_takeaway,
     cursor_cost_slide,
     cursor_efficiency_slide,
     cursor_model_usage_slide,
@@ -222,6 +223,14 @@ def _mock_charts() -> MagicMock:
     return charts
 
 
+def test_clamp_eng_takeaway_strips_stray_quote_and_truncates() -> None:
+    assert _clamp_eng_takeaway('Assign a team to clear bugs."') == "Assign a team to clear bugs."
+    long = "word " * 80
+    clipped = _clamp_eng_takeaway(long)
+    assert clipped.endswith("…")
+    assert len(clipped) < len(long)
+
+
 def test_cost_slide_renders_spend_and_model_cost() -> None:
     rep = _cursor_report()
     rep["_charts"] = _mock_charts()
@@ -244,6 +253,7 @@ def test_cost_slide_renders_spend_and_model_cost() -> None:
     combo_title = rep["_charts"].add_combo_chart.call_args.kwargs["title"]
     assert "Cost over time" in combo_title
     assert "dev-* engineers" in combo_title
+    assert "Cost over time" in text
     assert len(_chart_embeds(reqs)) == 1
     assert _chart_panel_ids(reqs, "sid_c")
     # Per-model cost dollar value appears.
@@ -286,6 +296,7 @@ def test_usage_slide_renders_tokens_and_chart_only() -> None:
     title_arg = rep["_charts"].add_bar_chart.call_args.kwargs["title"]
     assert "Tokens over time" in title_arg
     assert "dev-* engineers" in title_arg
+    assert "Tokens over time" in text  # slide-level panel title
     assert len(_chart_embeds(reqs)) == 1
     assert _chart_panel_ids(reqs, "sid_u")
     # The per-model mix panel moved to the dedicated model-usage slide.
