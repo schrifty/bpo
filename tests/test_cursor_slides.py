@@ -10,9 +10,11 @@ from unittest.mock import MagicMock
 
 from src.slide_engineering_portfolio import (
     _clamp_eng_takeaway,
+    _cursor_cost_model_rows,
     cursor_cost_slide,
     cursor_cost_models_slide,
     cursor_efficiency_slide,
+    cursor_efficiency_engineers_slide,
     cursor_model_usage_slide,
     cursor_users_slide,
     cursor_users_non_engineers_slide,
@@ -183,7 +185,7 @@ def _cursor_report() -> dict:
         },
         "takeaways": {"cost": "Cost up.", "usage": "Tokens up.", "usage_non_engineers": "Non-eng tokens up.",
                       "users": "Concentrated.", "users_non_engineers": "Non-eng concentrated.",
-                      "efficiency": "Efficient."},
+                      "efficiency": "Efficient.", "efficiency_engineers": "Ranked."},
         "errors": [],
     }
     return {"cursor_usage": cu}
@@ -260,11 +262,62 @@ def test_cost_models_slide_renders_table() -> None:
     cursor_cost_models_slide(reqs, "sid_cm", rep, 0)
     assert _title(reqs, "sid_cm") == "Cursor AI Spend by Model"
     text = _texts(reqs)
-    assert "Spend by model" in text
-    assert "Engineer spend" in text
-    assert "Models with spend" in text
+    assert "Model spend cannot be linked to commits or productivity" in text
+    assert "Spend (last 30d)" in text
+    assert "Cost / 1K tok" in text
+    assert "Spend by model" not in text
+    assert "Engineer spend" not in text
     assert "$180" in text  # claude cost (18,000 cents)
+    assert "800K" in text
+    assert "22.50¢" in text
     assert any(r.get("createTable") for r in reqs)
+
+
+def test_cost_models_slide_table_fits_content_area() -> None:
+    """Table panel stays above the takeaway band with room for padding."""
+    from src.slide_engineering_portfolio import (
+        _COST_MODEL_PANEL_PAD,
+        _COST_MODEL_TABLE_ROW_H,
+        _ENG_CONTENT_BOTTOM,
+    )
+    from src.slides_theme import BODY_Y
+
+    rep = _cursor_report()
+    rep["cursor_usage"]["cost_engineers"]["model_mix"] = [
+        {"model": f"model-{i}", "cents": 1000 * (i + 1)} for i in range(20)
+    ]
+    reqs: list = []
+    cursor_cost_models_slide(reqs, "sid_cm", rep, 0)
+    table_req = next(r for r in reqs if r.get("createTable"))
+    num_rows = table_req["createTable"]["rows"]
+    panel_top = float(BODY_Y)
+    panel_bottom = panel_top + 2 * _COST_MODEL_PANEL_PAD + num_rows * _COST_MODEL_TABLE_ROW_H
+    assert panel_bottom <= _ENG_CONTENT_BOTTOM + 1
+    assert any(
+        r.get("createShape", {}).get("objectId") == "sid_cm_cpnl"
+        for r in reqs
+    )
+    assert "Other (" in _texts(reqs)
+
+
+def test_cost_model_rows_other_aggregates_remainder() -> None:
+    models = [{"model": f"model-{i}", "cents": 1000 * (i + 1), "tokens": 10_000 * (i + 1)} for i in range(6)]
+    total_cents = sum(m["cents"] for m in models)
+    rows = _cursor_cost_model_rows(models, total_cents, cap=4)
+    assert len(rows) == 4
+    assert rows[-1][0] == "Other (3 models)"
+    assert rows[-1][2] == "$150"  # 4000 + 5000 + 6000 cents
+    assert rows[-1][1] == "150K"  # 40K + 50K + 60K tokens
+    displayed_cents = sum((i + 1) * 1000 for i in range(3))
+    other_cents = sum((i + 1) * 1000 for i in range(3, 6))
+    assert displayed_cents + other_cents == total_cents
+
+
+def test_cost_model_rows_cost_per_1k_tokens() -> None:
+    models = [{"model": "claude-4.5-sonnet", "cents": 18_000, "tokens": 800_000}]
+    rows = _cursor_cost_model_rows(models, 18_000, cap=5)
+    assert rows[0][1] == "800K"
+    assert rows[0][3] == "22.50¢"
 
 
 def test_cost_slide_missing_included_usage_shows_dash() -> None:
@@ -384,29 +437,40 @@ def test_users_non_engineers_slide_renders_scoped_power_users() -> None:
     assert "Highest volume" in text
 
 
-def test_efficiency_slide_renders_ratios_and_engineers() -> None:
+def test_efficiency_output_slide_renders_chart() -> None:
     rep = _cursor_report()
     rep["_charts"] = _mock_charts()
     reqs: list = []
     cursor_efficiency_slide(reqs, "sid_e", rep, 0)
-    assert _title(reqs, "sid_e") == "Cursor AI Coding Efficiency"
+    assert _title(reqs, "sid_e") == "Cursor AI Coding Efficiency - Engineering"
     text = _texts(reqs)
     assert "Lines kept" in text
     assert "Lines / 1K tokens" in text
-    assert "Most efficient engineers" in text
+    assert "Most efficient engineers" not in text
     assert "30d" in text
     combo_title = rep["_charts"].add_combo_chart.call_args.kwargs["title"]
     assert "Output vs. cost over time" in combo_title
     assert len(_chart_embeds(reqs)) == 1
-    assert "ada" in text  # short email of most-efficient engineer
     assert "0.21" in text  # cost per accepted line shown in cents (0.21¢)
+
+
+def test_efficiency_engineers_slide_renders_ranking() -> None:
+    rep = _cursor_report()
+    reqs: list = []
+    cursor_efficiency_engineers_slide(reqs, "sid_ee", rep, 0)
+    assert _title(reqs, "sid_ee") == "Cursor AI Coding Efficiency - Non-Engineers"
+    text = _texts(reqs)
+    assert "Most efficient engineers" in text
+    assert "ada" in text
+    assert "Lines kept" not in text
+    assert len(_chart_embeds(reqs)) == 0
 
 
 def test_cursor_slides_emit_missing_data_when_unconfigured() -> None:
     rep = {"cursor_usage": {"configured": False}}
     for builder in (
         cursor_cost_slide, cursor_usage_slide, cursor_usage_non_engineers_slide,
-        cursor_model_usage_slide, cursor_efficiency_slide,
+        cursor_model_usage_slide, cursor_efficiency_slide, cursor_efficiency_engineers_slide,
         cursor_users_slide, cursor_users_non_engineers_slide,
     ):
         reqs: list = []

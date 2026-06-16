@@ -485,6 +485,8 @@ class DeckCharts:
         background: dict[str, float] | None = None,
         show_title: bool = True,
         suppress_legend: bool = False,
+        width_pixels: int = 800,
+        height_pixels: int = 400,
     ) -> tuple[str, int]:
         """Create a combo chart (bars + lines). Returns (spreadsheet_id, chart_id).
 
@@ -569,7 +571,11 @@ class DeckCharts:
         if background is not None:
             spec["backgroundColorStyle"] = _rgb_to_sheets(background)
 
-        chart_id = self._create_chart(sheet_id, spec, num_rows)
+        chart_id = self._create_chart(
+            sheet_id, spec, num_rows,
+            width_pixels=width_pixels,
+            height_pixels=height_pixels,
+        )
         logger.debug("Created COMBO chart '%s' (sheet=%d, chart=%d)", title, sheet_id, chart_id)
         return self._ss_id, chart_id
 

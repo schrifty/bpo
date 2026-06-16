@@ -23,7 +23,7 @@ _REGISTRY_PATH = Path(__file__).resolve().parent.parent / "config" / "data_sourc
 
 _CURSOR_SLIDE_TYPES = frozenset({
     "cursor_cost", "cursor_cost_models", "cursor_usage", "cursor_usage_non_engineers",
-    "cursor_model_usage", "cursor_efficiency", "cursor_users", "cursor_users_non_engineers",
+    "cursor_model_usage", "cursor_efficiency", "cursor_efficiency_engineers", "cursor_users", "cursor_users_non_engineers",
 })
 
 _GITHUB_PRODUCTIVITY_SLIDE_TYPES = frozenset({

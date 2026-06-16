@@ -20,7 +20,8 @@ from .speaker_notes import set_speaker_notes_batch
 _SLIDE_TYPE_TITLES: dict[str, str] = {
     "cursor_cost": "Cursor AI Coding Spend",
     "cursor_cost_models": "Cursor AI Spend by Model",
-    "cursor_efficiency": "Cursor AI Coding Efficiency",
+    "cursor_efficiency": "Cursor AI Coding Efficiency - Engineering",
+    "cursor_efficiency_engineers": "Cursor AI Coding Efficiency - Non-Engineers",
     "cursor_usage": "Cursor AI Token Usage",
     "cursor_usage_non_engineers": "Cursor AI Token Usage — Non-Engineering",
     "cursor_model_usage": "Cursor AI Model Usage",

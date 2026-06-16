@@ -165,6 +165,8 @@ def _rollup_usage_events(
     *,
     email_filter: set[str] | None = None,
     email_exclude: set[str] | None = None,
+    model_mix_limit: int | None = MODEL_MIX_LIMIT,
+    model_mix_sort: str = "tokens",
 ) -> dict[str, Any]:
     """Aggregate usage events into cost/token rollups, optionally scoped by email.
 
@@ -238,16 +240,26 @@ def _rollup_usage_events(
                 day_users[key].add(email)
 
     total_tokens = input_tokens + output_tokens
+    if model_mix_sort == "cents":
+        ranked_models = sorted(by_model_cents, key=lambda k: by_model_cents[k], reverse=True)
+        share_of = charged_cents
+        share_for = by_model_cents
+    else:
+        ranked_models = sorted(by_model_tokens, key=lambda k: by_model_tokens[k], reverse=True)
+        share_of = total_tokens
+        share_for = by_model_tokens
+    if model_mix_limit is not None:
+        ranked_models = ranked_models[:model_mix_limit]
     model_mix = [
         {
             "model": m,
             "events": by_model_events[m],
             "tokens": by_model_tokens[m],
             "cents": round(by_model_cents[m], 2),
-            "share": round(by_model_tokens[m] / total_tokens, 4) if total_tokens else 0.0,
+            "share": round(share_for[m] / share_of, 4) if share_of else 0.0,
         }
-        for m in sorted(by_model_tokens, key=lambda k: by_model_tokens[k], reverse=True)
-    ][:MODEL_MIX_LIMIT]
+        for m in ranked_models
+    ]
 
     def _user_models(email: str, limit: int = 3) -> list[dict[str, Any]]:
         mt = user_model_tokens.get(email, {})
@@ -322,7 +334,12 @@ def _build_engineer_cost_scope(
     org_charged_cents: float | None,
 ) -> dict[str, Any]:
     """Engineering-squad-only cost metrics for the AI Coding Spend slide."""
-    eng_roll = _rollup_usage_events(events, email_filter=engineer_emails)
+    eng_roll = _rollup_usage_events(
+        events,
+        email_filter=engineer_emails,
+        model_mix_limit=None,
+        model_mix_sort="cents",
+    )
     member_emails = {
         str(m.get("email") or "").strip().casefold()
         for m in cursor_members if m.get("email")
@@ -769,6 +786,21 @@ def _focus_prompt(report: dict[str, Any], focus: str) -> str:
             "token/dollar or where efficiency is trending — and the concrete next step. Do not invent "
             "numbers not given above."
         )
+    if focus == "efficiency_engineers":
+        eff = report.get("efficiency") or {}
+        ranked = eff.get("top_efficiency") or []
+        top = ranked[:5]
+        rank_str = ", ".join(
+            f"{u.get('email')} {u.get('lines_per_1k_tokens')} lines/1K tok"
+            for u in top
+        ) or "no ranked engineers"
+        return (
+            f"Cursor AI coding-assistant EFFICIENCY RANKING (accepted lines per 1K tokens) for "
+            f"the engineering org over the last {window_days} days. Top engineers by throughput "
+            f"ratio: {rank_str}. This ranks Tab+agent accepted lines against model-API token cost — "
+            "NOT git commits or productivity. Implication for a VP of Engineering about coaching, "
+            "model choice, or outliers — and the concrete next step. Do not invent numbers not given."
+        )
     if focus in ("users", "users_non_engineers"):
         if focus == "users_non_engineers":
             scope = report.get("users_non_engineers") or {}
@@ -912,13 +944,13 @@ def generate_cursor_usage_takeaways(report: dict[str, Any]) -> dict[str, str]:
     if not report or not report.get("configured"):
         return {
             "cost": "", "cost_models": "", "usage": "", "usage_non_engineers": "",
-            "users": "", "users_non_engineers": "", "efficiency": "",
+            "users": "", "users_non_engineers": "", "efficiency": "", "efficiency_engineers": "",
         }
     return {
         focus: generate_cursor_usage_takeaway(report, focus)
         for focus in (
             "cost", "cost_models", "usage", "usage_non_engineers",
-            "users", "users_non_engineers", "efficiency",
+            "users", "users_non_engineers", "efficiency", "efficiency_engineers",
         )
     }
 

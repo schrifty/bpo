@@ -2222,6 +2222,21 @@ def _fmt_cents(value: Any) -> str:
         return "—"
 
 
+def _fmt_cost_per_1k_tokens(cents: Any, tokens: Any) -> str:
+    """Model cost in cents per 1K tokens (compact ¢ label for sub-dollar rates)."""
+    try:
+        c = float(cents or 0)
+        toks = int(tokens or 0)
+    except (TypeError, ValueError):
+        return "—"
+    if toks <= 0:
+        return "—"
+    per_1k = c / toks * 1000.0
+    if per_1k < 100:
+        return f"{per_1k:.2f}¢"
+    return _fmt_cents(per_1k)
+
+
 def _short_email(email: str, max_chars: int = 22) -> str:
     """Local-part only (drop the domain) for a consistent, compact user column."""
     e = (email or "").strip()
@@ -2359,6 +2374,7 @@ def _cursor_embed_chart_panel(
     title: str | None = None,
     legend: list[tuple[str, dict[str, float]]] | None = None,
     legend_vertical: bool = False,
+    legend_above: bool = False,
     legend_font_pt: float = 9,
     legend_swatch: float = 9,
     legend_entry_gap: float = 14,
@@ -2392,11 +2408,17 @@ def _cursor_embed_chart_panel(
         _box(reqs, f"{sid}_{oid}_ttl", sid, inner_x, inner_y, inner_w, _CURSOR_CHART_TITLE_H, display)
         _style(reqs, f"{sid}_{oid}_ttl", 0, len(display), bold=True, size=10, color=NAVY, font=FONT)
         inner_y += title_block
+    if legend and legend_above and not legend_vertical:
+        _slide_chart_legend(
+            reqs, sid, f"{sid}_{oid}lgd", inner_x, inner_y,
+            legend, font_pt=legend_font_pt, swatch_size=legend_swatch, entry_gap=legend_entry_gap,
+        )
+        inner_y += legend_h + _CURSOR_CHART_LEGEND_GAP
     embed_chart(
         reqs, f"{sid}_{oid}", sid, spreadsheet_id, chart_id,
         inner_x, inner_y, inner_w, chart_h, linked=False,
     )
-    if legend:
+    if legend and not (legend_above and not legend_vertical):
         legend_y = inner_y + chart_h + _CURSOR_CHART_LEGEND_GAP
         if legend_vertical:
             _slide_chart_legend_vertical(
@@ -2489,6 +2511,7 @@ def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
             chart_h = int(_cursor_chart_panel_reserve(
                 content_ceiling=content_ceiling, start_y=chart_y, legend_rows=2,
             ))
+            chart_inner_w = content_w - 2 * _CURSOR_CHART_PAD
             ss_id, chart_id = charts.add_combo_chart(
                 title=chart_title,
                 labels=labels,
@@ -2496,12 +2519,15 @@ def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
                 line_series={"Active users": users_series},
                 show_title=False,
                 suppress_legend=True,
+                width_pixels=int(chart_inner_w * 2),
+                height_pixels=int(chart_h * 2),
             )
             _cursor_embed_chart_panel(
                 reqs, sid=sid, oid="cchart", x=content_x, y=chart_y, w=content_w, chart_h=chart_h,
                 spreadsheet_id=ss_id, chart_id=chart_id,
                 title=chart_title,
                 legend=[("Daily cost ($)", BRAND_SERIES_COLORS[0]), ("Active users", BRAND_SERIES_COLORS[1])],
+                legend_above=True,
             )
         except Exception as exc:
             logger.warning("Cursor cost chart embed failed: %s", exc)
@@ -2535,48 +2561,48 @@ def cursor_cost_models_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
         key=lambda m: float(m.get("cents") or 0),
         reverse=True,
     )
-    total_cents = sum(float(m.get("cents") or 0) for m in model_cost)
+    kpi_total_cents = float(eng_totals.get("charged_cents_window") or 0)
+    mix_total_cents = sum(float(m.get("cents") or 0) for m in model_cost)
+    total_cents = kpi_total_cents if kpi_total_cents > 0 else mix_total_cents
 
     if not model_cost or total_cents <= 0:
         return _missing_data_slide(reqs, sid, report, idx, "Engineer-scoped model cost (no spend in window)")
 
     _slide(reqs, sid, idx)
     _cursor_bg(reqs, sid)
-    _eng_title(reqs, sid, "Cursor AI Spend by Model")
-
-    kpi_y = _eng_kpi_row(
-        reqs, sid,
-        [
-            (f"Engineer spend ({window_days}d)", _fmt_cents(eng_totals.get("charged_cents_window"))),
-            ("Models with spend", str(len(model_cost))),
-            ("Top model share", _pct_label(float(model_cost[0].get("cents") or 0), total_cents) if model_cost else "—"),
-            ("Active engineers", str(int(cost.get("active_window") or 0))),
-        ],
-        y=BODY_Y,
+    _eng_title(
+        reqs,
+        sid,
+        "Cursor AI Spend by Model",
+        "Model spend cannot be linked to commits or productivity — usage is not attributed per commit.",
     )
 
-    section_y = _cursor_section_header(
-        reqs, sid, "mch", MARGIN, kpi_y + 12, CONTENT_W,
-        f"Spend by model (dev-* engineers, {window_days}d)",
-    )
-
-    col_widths = _COST_MODEL_TABLE_COL_WIDTHS
-    headers = _COST_MODEL_TABLE_HEADERS
+    col_widths_base = _COST_MODEL_TABLE_COL_WIDTHS
+    headers = ("Model", "Tokens", f"Spend (last {window_days}d)", "Cost / 1K tok", "% of spend")
     aligns = _COST_MODEL_TABLE_ALIGNS
-    row_h = _MODEL_TABLE_ROW_H
-    table_top = section_y + 4
-    content_bottom = _ENG_CONTENT_BOTTOM - 20
-    max_rows = max(3, int((content_bottom - table_top) / row_h))
-    body_rows = _cursor_cost_model_rows(model_cost, total_cents, max_rows - 1)
+    row_h = _COST_MODEL_TABLE_ROW_H
+    panel_x = MARGIN
+    panel_y = BODY_Y
+    panel_w = CONTENT_W
+    panel_pad = _COST_MODEL_PANEL_PAD
+    inner_w = panel_w - 2 * panel_pad
+    col_widths = _scale_col_widths(col_widths_base, inner_w)
+    table_x = panel_x + panel_pad
+    table_top = panel_y + panel_pad
+    content_ceiling = _ENG_CONTENT_BOTTOM - panel_pad
+    max_body_rows = max(1, int((content_ceiling - table_top) / row_h) - 1)
+    body_rows = _cursor_cost_model_rows(model_cost, total_cents, max_body_rows)
     num_rows = 1 + len(body_rows)
+    panel_h = 2 * panel_pad + num_rows * row_h
+    _bar_rect(reqs, f"{sid}_cpnl", sid, panel_x, panel_y, panel_w, panel_h, WHITE, outline=GRAY)
     table_id = f"{sid}_ctbl"
     reqs.append({
         "createTable": {
             "objectId": table_id,
             "elementProperties": {
                 "pageObjectId": sid,
-                "size": _sz(sum(col_widths), num_rows * row_h),
-                "transform": _tf(MARGIN, table_top),
+                "size": _sz(inner_w, num_rows * row_h),
+                "transform": _tf(table_x, table_top),
             },
             "rows": num_rows,
             "columns": len(headers),
@@ -2738,10 +2764,21 @@ _MODEL_TABLE_BODY_PT = 9.5
 # the last rows fall off the slide.
 _MODEL_TABLE_ROW_H = 31.0
 
-# Spend-by-model table (engineer-scoped cost mix).
-_COST_MODEL_TABLE_COL_WIDTHS: tuple[float, ...] = (320.0, 160.0, 144.0)
-_COST_MODEL_TABLE_HEADERS = ("Model", "Spend", "% of spend")
-_COST_MODEL_TABLE_ALIGNS = ("START", "END", "END")
+# Spend-by-model table (engineer-scoped cost mix). Spend column header is built per slide
+# from ``window_days``; base column widths are scaled to the bordered panel inner width.
+_COST_MODEL_PANEL_PAD = 4.0
+_COST_MODEL_TABLE_ROW_H = 36.0
+_COST_MODEL_TABLE_COL_WIDTHS: tuple[float, ...] = (210.0, 76.0, 110.0, 84.0, 144.0)
+_COST_MODEL_TABLE_ALIGNS = ("START", "END", "END", "END", "END")
+
+
+def _scale_col_widths(base: tuple[float, ...], total: float) -> tuple[float, ...]:
+    """Scale column width proportions to *total* pt, fixing rounding on the last column."""
+    denom = sum(base) or 1.0
+    scaled = [w / denom * total for w in base]
+    if len(scaled) > 1:
+        scaled[-1] = max(1.0, total - sum(scaled[:-1]))
+    return tuple(scaled)
 
 
 def _cursor_cost_model_rows(
@@ -2749,13 +2786,33 @@ def _cursor_cost_model_rows(
     total_cents: float,
     cap: int,
 ) -> list[list[str]]:
+    """Table rows for spend-by-model, reserving one row for an Other aggregate when truncated."""
+    cap = max(1, cap)
+    show_other = len(model_cost) > cap
+    display_cap = cap - 1 if show_other else cap
     rows: list[list[str]] = []
-    for m in model_cost[: max(1, cap)]:
+    for m in model_cost[:display_cap]:
         cents = float(m.get("cents") or 0)
+        tokens = m.get("tokens")
         rows.append([
             str(m.get("model") or "unknown"),
+            _fmt_tokens(tokens),
             _fmt_cents(cents),
+            _fmt_cost_per_1k_tokens(cents, tokens),
             _pct_label(cents, total_cents),
+        ])
+    if show_other:
+        other_models = model_cost[display_cap:]
+        other_cents = sum(float(m.get("cents") or 0) for m in other_models)
+        other_tokens = sum(int(m.get("tokens") or 0) for m in other_models)
+        n = len(other_models)
+        label = f"Other ({n} models)" if n != 1 else "Other (1 model)"
+        rows.append([
+            label,
+            _fmt_tokens(other_tokens),
+            _fmt_cents(other_cents),
+            _fmt_cost_per_1k_tokens(other_cents, other_tokens),
+            _pct_label(other_cents, total_cents),
         ])
     return rows
 
@@ -2914,13 +2971,19 @@ def _fmt_cents_per_line(cents: Any) -> str:
 
 
 def cursor_efficiency_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
-    """AI coding-assistant EFFICIENCY / ROI for a VP of Engineering.
+    """Output vs. cost combo chart for engineering Cursor efficiency."""
+    return _render_cursor_efficiency_output_slide(reqs, sid, report, idx)
 
-    KPI cards (accepted lines, lines kept %, accepted lines per 1K tokens, cost per accepted
-    line), an accepted-lines-vs-cost combo chart over the window, and a most-efficient-engineers
-    panel (accepted lines per 1K tokens). Answers: what did the spend actually produce, and is
-    output-per-token/dollar improving? Framed as efficiency, not a productivity ranking.
-    """
+
+def cursor_efficiency_engineers_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Most-efficient-engineers ranking for Cursor efficiency."""
+    return _render_cursor_efficiency_engineers_slide(reqs, sid, report, idx)
+
+
+def _render_cursor_efficiency_output_slide(
+    reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int,
+) -> int:
+    """Accepted lines vs. usage cost over time (engineering org)."""
     cu = _cursor_blob(report)
     if not cu.get("configured"):
         return _missing_data_slide(reqs, sid, report, idx, "Cursor usage (set CURSOR_ADMIN_API_KEY)")
@@ -2933,14 +2996,13 @@ def cursor_efficiency_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
     per_1k = eff.get("accepted_lines_per_1k_tokens")
     cents_per_line = eff.get("cost_per_accepted_line_cents")
     daily = eff.get("daily") or []
-    top_eff = eff.get("top_efficiency") or []
 
     kept_pct = f"{int(round(float(lines_kept) * 100))}%" if lines_kept is not None else "—"
     per_1k_str = f"{per_1k:g}" if isinstance(per_1k, (int, float)) else "—"
 
     _slide(reqs, sid, idx)
     _cursor_bg(reqs, sid)
-    _eng_title(reqs, sid, "Cursor AI Coding Efficiency")
+    _eng_title(reqs, sid, "Cursor AI Coding Efficiency - Engineering")
 
     kpi_y = _eng_kpi_row(
         reqs, sid,
@@ -2954,16 +3016,12 @@ def cursor_efficiency_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
     )
 
     body_top = kpi_y + 12
-    col_gap = 20
-    left_w = (CONTENT_W - col_gap) * 3 // 5
-    right_w = CONTENT_W - left_w - col_gap
-    left_x = MARGIN
-    right_x = MARGIN + left_w + col_gap
+    content_x = MARGIN
+    content_w = CONTENT_W
     content_ceiling = _ENG_CONTENT_BOTTOM - 6
     charts = report.get("_charts")
 
-    # ── Left: accepted lines (bars) vs. usage cost (line) over time ────────────
-    left_y = body_top
+    chart_y = body_top
     if daily and charts:
         try:
             chart_title = f"Output vs. cost over time ({window_days}d)"
@@ -2971,8 +3029,9 @@ def cursor_efficiency_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
             lines_series = [int(d.get("accepted_lines") or 0) for d in daily]
             cost_series = [round(float(d.get("cents") or 0) / 100.0, 2) for d in daily]
             chart_h = int(_cursor_chart_panel_reserve(
-                content_ceiling=content_ceiling, start_y=left_y, legend_rows=2,
+                content_ceiling=content_ceiling, start_y=chart_y, legend_rows=2,
             ))
+            chart_inner_w = content_w - 2 * _CURSOR_CHART_PAD
             ss_id, chart_id = charts.add_combo_chart(
                 title=chart_title,
                 labels=labels,
@@ -2980,39 +3039,65 @@ def cursor_efficiency_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
                 line_series={"Cost ($)": cost_series},
                 show_title=False,
                 suppress_legend=True,
+                width_pixels=int(chart_inner_w * 2),
+                height_pixels=int(chart_h * 2),
             )
-            left_y = _cursor_embed_chart_panel(
-                reqs, sid=sid, oid="echart", x=left_x, y=left_y, w=left_w, chart_h=chart_h,
+            _cursor_embed_chart_panel(
+                reqs, sid=sid, oid="echart", x=content_x, y=chart_y, w=content_w, chart_h=chart_h,
                 spreadsheet_id=ss_id, chart_id=chart_id,
                 title=chart_title,
                 legend=[("Accepted lines", BRAND_SERIES_COLORS[0]), ("Cost ($)", BRAND_SERIES_COLORS[1])],
+                legend_above=True,
             )
         except Exception as exc:
             logger.warning("Cursor efficiency chart embed failed: %s", exc)
     else:
         empty = "No accepted-line data in window"
-        _box(reqs, f"{sid}_ee", sid, left_x, left_y, left_w, 14, empty)
+        _box(reqs, f"{sid}_ee", sid, content_x, chart_y, content_w, 14, empty)
         _style(reqs, f"{sid}_ee", 0, len(empty), size=9, color=GRAY, font=FONT)
 
-    # ── Right: most efficient engineers (accepted lines per 1K tokens) ─────────
-    right_y = _cursor_section_header(
-        reqs, sid, "meh", right_x, body_top, right_w,
+    _render_takeaway_band(reqs, sid, _cursor_takeaway(cu, "efficiency"))
+    return idx + 1
+
+
+def _render_cursor_efficiency_engineers_slide(
+    reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int,
+) -> int:
+    """Rank engineers by accepted lines per 1K tokens."""
+    cu = _cursor_blob(report)
+    if not cu.get("configured"):
+        return _missing_data_slide(reqs, sid, report, idx, "Cursor usage (set CURSOR_ADMIN_API_KEY)")
+
+    eff = cu.get("efficiency") or {}
+    top_eff = eff.get("top_efficiency") or []
+
+    _slide(reqs, sid, idx)
+    _cursor_bg(reqs, sid)
+    _eng_title(reqs, sid, "Cursor AI Coding Efficiency - Non-Engineers")
+
+    section_y = _cursor_section_header(
+        reqs, sid, "meh", MARGIN, BODY_Y, CONTENT_W,
         "Most efficient engineers (lines / 1K tokens)",
     )
+    content_ceiling = _ENG_CONTENT_BOTTOM - 6
+    right_x = MARGIN
+    right_w = CONTENT_W
+    right_y = section_y + 4
+
     if top_eff:
         max_ratio = max(float(u.get("lines_per_1k_tokens") or 0) for u in top_eff) or 1.0
-        bar_max_w = 60.0
+        bar_max_w = min(420.0, right_w - 120.0)
         for i, u in enumerate(top_eff):
             if right_y + 15 > content_ceiling:
                 break
             ratio = float(u.get("lines_per_1k_tokens") or 0)
-            label = _short_email(str(u.get("email") or ""), 16)
+            label = _short_email(str(u.get("email") or ""), 22)
             _eng_share_bar(
                 reqs, sid, f"ef{i}",
                 label=label, value_label=f"{ratio:g}",
                 fraction=ratio / max_ratio, x=right_x, y=right_y, w=right_w,
                 bar_max_w=bar_max_w, color=BRAND_SERIES_COLORS[i % len(BRAND_SERIES_COLORS)],
-                value_w=40.0,
+                value_w=48.0,
             )
             right_y += 15
         if right_y + 11 <= content_ceiling:
@@ -3033,7 +3118,7 @@ def cursor_efficiency_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
         _box(reqs, f"{sid}_efe", sid, right_x, right_y, right_w, 13, empty)
         _style(reqs, f"{sid}_efe", 0, len(empty), size=9, color=GRAY, font=FONT)
 
-    _render_takeaway_band(reqs, sid, _cursor_takeaway(cu, "efficiency"))
+    _render_takeaway_band(reqs, sid, _cursor_takeaway(cu, "efficiency_engineers"))
     return idx + 1
 
 

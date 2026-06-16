@@ -92,6 +92,7 @@ SLIDE_DATA_REQUIREMENTS: dict[str, list[str]] = {
     "cursor_usage_non_engineers": ["cursor_usage"],
     "cursor_model_usage": ["cursor_usage"],
     "cursor_efficiency": ["cursor_usage"],
+    "cursor_efficiency_engineers": ["cursor_usage"],
     "cursor_users": ["cursor_usage"],
     "cursor_users_non_engineers": ["cursor_usage"],
     "github_engineering_output": ["github_productivity"],

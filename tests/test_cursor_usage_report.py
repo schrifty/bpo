@@ -5,6 +5,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from src.cursor_usage_report import (
+    MODEL_MIX_LIMIT,
+    _build_engineer_cost_scope,
+    _rollup_usage_events,
     build_cursor_usage_report,
     generate_cursor_usage_takeaway,
 )
@@ -144,6 +147,34 @@ def test_build_report_includes_cost_daily_and_matrix() -> None:
         assert len(series) == len(matrix["users"])
 
 
+def test_engineer_cost_scope_includes_all_models_by_spend() -> None:
+    events = [
+        {"userEmail": "eng@x.com", "model": f"model-{i}", "chargedCents": float(i + 1)}
+        for i in range(8)
+    ]
+    eng_roll = _rollup_usage_events(
+        events,
+        email_filter={"eng@x.com"},
+        model_mix_limit=MODEL_MIX_LIMIT,
+        model_mix_sort="tokens",
+    )
+    assert len(eng_roll["model_mix"]) == MODEL_MIX_LIMIT
+
+    cost = _build_engineer_cost_scope(
+        events,
+        engineer_emails={"eng@x.com"},
+        engineer_headcount=1,
+        spend_by_email={},
+        included_by_email=None,
+        cursor_members=[{"email": "eng@x.com"}],
+        org_charged_cents=sum(i + 1 for i in range(8)),
+    )
+    mix = cost["model_mix"]
+    assert len(mix) == 8
+    assert [m["model"] for m in mix] == [f"model-{i}" for i in reversed(range(8))]
+    assert sum(m["cents"] for m in mix) == cost["totals"]["charged_cents_window"]
+
+
 class _EffClient(_FakeClient):
     """Client with per-user accepted lines (daily-usage) and tokens above the floor."""
 
@@ -234,7 +265,8 @@ def test_focus_takeaways_return_per_slide_keys(monkeypatch) -> None:
     rep = build_cursor_usage_report(client=_RichClient())
     out = generate_cursor_usage_takeaways(rep)
     assert set(out.keys()) == {
-        "cost", "cost_models", "usage", "usage_non_engineers", "users", "users_non_engineers", "efficiency",
+        "cost", "cost_models", "usage", "usage_non_engineers", "users", "users_non_engineers",
+        "efficiency", "efficiency_engineers",
     }
     assert all(v for v in out.values())
 

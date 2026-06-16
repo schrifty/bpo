@@ -31,6 +31,7 @@ slides:
   - slide: cursor_cost
   - slide: cursor_cost_models
   - slide: cursor_efficiency
+  - slide: cursor_efficiency_engineers
   - slide: cursor_usage
   - slide: cursor_usage_non_engineers
   - slide: cursor_model_usage
