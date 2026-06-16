@@ -1,0 +1,8 @@
+# Repos excluded from GitHub productivity rollups (infra / docs-only).
+# Each entry is a repo slug (under GITHUB_ORG) or full owner/repo.
+#
+# repos:
+#   - policy-documents
+#   - terraform-aws-eks-lb-controller
+
+repos: []

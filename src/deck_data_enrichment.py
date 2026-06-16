@@ -47,6 +47,7 @@ def enrich_deck_report_data(
     if deck_id in _ENG_PORTFOLIO_DECK_IDS:
         enrich_engineering_portfolio_if_needed(report, deck_id=deck_id)
         slide_plan = enrich_cursor_usage_if_needed(report, slide_plan, deck_id=deck_id)
+        enrich_github_productivity_if_needed(report, deck_id=deck_id)
 
     report = enrich_leandna_shortage_if_needed(report, slide_plan, customer)
 
@@ -107,6 +108,52 @@ def enrich_cursor_usage_if_needed(
     if not (report.get("cursor_usage") or {}).get("configured", False):
         return _drop_cursor(slide_plan)
     return slide_plan
+
+
+def enrich_github_productivity_if_needed(
+    report: dict[str, Any],
+    *,
+    deck_id: str = "engineering-portfolio",
+) -> None:
+    """Populate ``github_productivity``, ``ai_productivity``, and QA ``github`` for eng decks."""
+    if deck_id not in _ENG_PORTFOLIO_DECK_IDS:
+        return
+
+    from .github_client import GitHubClient, _github_org, github_configured
+
+    if not github_configured():
+        return
+
+    days = int(report.get("days") or 30)
+    try:
+        from .ai_productivity_correlation import build_ai_productivity_correlation
+        from .engineer_identity_map import build_engineer_identity_map
+        from .github_productivity_report import build_github_productivity_report, github_qa_blob
+        from .jira_client import JiraClient
+
+        gh = GitHubClient()
+        org = _github_org()
+        identity = build_engineer_identity_map(
+            jira_client=JiraClient(),
+            github_client=gh,
+            github_org=org,
+        )
+        gh_prod = build_github_productivity_report(
+            window_days=days,
+            client=gh,
+            identity=identity,
+        )
+        if not gh_prod:
+            return
+        report["engineer_identity"] = identity
+        report["github_productivity"] = gh_prod
+        report["github"] = github_qa_blob(gh_prod)
+        cu = report.get("cursor_usage")
+        if cu and cu.get("configured"):
+            report["ai_productivity"] = build_ai_productivity_correlation(cu, gh_prod, identity)
+    except Exception as e:
+        logger.warning("%s: github/ai productivity enrichment failed: %s", deck_id, e)
+        report["github_productivity"] = {"configured": False, "error": str(e)[:200]}
 
 
 def enrich_engineering_portfolio_if_needed(report: dict[str, Any], *, deck_id: str = "engineering-portfolio") -> None:

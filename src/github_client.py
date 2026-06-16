@@ -33,6 +33,11 @@ from .config import (
     GITHUB_TOKEN,
     logger,
 )
+from .config_paths import GITHUB_REPO_DENYLIST_FILE
+
+_NOREPLY_LOGIN_RE = re.compile(
+    r"^(?:\d+\+)?([a-z0-9-]+)@users\.noreply\.github\.com$", re.IGNORECASE
+)
 
 _DEFAULT_TIMEOUT_S = 30.0
 _DEFAULT_PAGE_SIZE = 100
@@ -112,6 +117,60 @@ def _parse_link_next(link_header: str | None) -> str | None:
     return None
 
 
+def parse_github_noreply_login(email: str | None) -> str | None:
+    """Extract GitHub login from ``{id}+login@users.noreply.github.com`` addresses."""
+    raw = str(email or "").strip().lower()
+    if not raw:
+        return None
+    m = _NOREPLY_LOGIN_RE.match(raw)
+    return m.group(1) if m else None
+
+
+def _load_repo_denylist(org: str | None) -> set[str]:
+    """Return lowercased repo slugs or full ``owner/repo`` names to exclude."""
+    denied: set[str] = set()
+    if GITHUB_REPO_DENYLIST_FILE.is_file():
+        try:
+            import yaml
+
+            raw = yaml.safe_load(GITHUB_REPO_DENYLIST_FILE.read_text(encoding="utf-8")) or {}
+            items = raw.get("repos") if isinstance(raw, dict) else raw
+            if isinstance(items, list):
+                for item in items:
+                    s = str(item or "").strip().lower()
+                    if s:
+                        denied.add(s)
+        except Exception as e:
+            logger.warning("GitHub repo denylist unreadable: %s", e)
+    org_slug = (org or "").strip().lower()
+    out: set[str] = set()
+    for item in denied:
+        if "/" in item:
+            out.add(item)
+        elif org_slug:
+            out.add(f"{org_slug}/{item}")
+            out.add(item)
+        else:
+            out.add(item)
+    return out
+
+
+def _repo_is_denied(owner: str, repo: str, denied: set[str]) -> bool:
+    full = f"{owner}/{repo}".lower()
+    return full in denied or repo.lower() in denied
+
+
+def _filter_repo_specs(
+    specs: list[tuple[str, str]], *, org: str | None, denied: set[str]
+) -> list[tuple[str, str]]:
+    if not denied:
+        return specs
+    kept = [(o, r) for o, r in specs if not _repo_is_denied(o, r, denied)]
+    if not kept and specs:
+        raise GitHubError("All configured GitHub repos are on the denylist")
+    return kept
+
+
 def _resolve_repo_specs(
     *,
     org: str | None,
@@ -147,7 +206,8 @@ def _resolve_repo_specs(
                 )
 
     if specs:
-        return specs[:cap]
+        denied = _load_repo_denylist(org)
+        return _filter_repo_specs(specs, org=org, denied=denied)[:cap]
 
     if not org:
         raise GitHubError(
@@ -165,7 +225,8 @@ def _resolve_repo_specs(
             break
     if not specs:
         raise GitHubError(f"No repositories found for org {org!r}")
-    return specs
+    denied = _load_repo_denylist(org)
+    return _filter_repo_specs(specs, org=org, denied=denied)
 
 
 class GitHubClient:
@@ -396,6 +457,49 @@ class GitHubClient:
             f"/repos/{owner}/{repo}/pulls",
             params={"state": state, "sort": "updated", "direction": "desc"},
             max_items=cap,
+        )
+
+    def list_org_members(self, org: str, *, max_members: int = 500) -> list[dict[str, Any]]:
+        org_name = (org or "").strip()
+        if not org_name:
+            raise GitHubError("org name is required")
+        return self._paginate(
+            f"/orgs/{org_name}/members",
+            params={"per_page": _DEFAULT_PAGE_SIZE},
+            max_items=max(1, int(max_members)),
+        )
+
+    def get_contributor_stats(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        max_wait_s: float = 45.0,
+        poll_s: float = 2.0,
+    ) -> list[dict[str, Any]]:
+        """Weekly contributor stats (additions/deletions/commits). GitHub may return 202 while computing."""
+        url = f"{self.base_url}/repos/{owner}/{repo}/stats/contributors"
+        deadline = time.time() + float(max_wait_s)
+        while time.time() < deadline:
+            resp = self._session.request(
+                "GET",
+                url,
+                headers=self._headers(),
+                timeout=self.timeout,
+            )
+            if resp.status_code == 202:
+                time.sleep(poll_s)
+                continue
+            self._raise_for_status(resp, url)
+            try:
+                data = resp.json()
+            except ValueError as e:
+                raise GitHubError(f"GitHub API returned non-JSON from {url}: {e}") from e
+            if not isinstance(data, list):
+                raise GitHubError(f"GitHub contributor stats expected list from {url}")
+            return [x for x in data if isinstance(x, dict)]
+        raise GitHubError(
+            f"GitHub contributor stats for {owner}/{repo} still computing after {max_wait_s:.0f}s"
         )
 
 

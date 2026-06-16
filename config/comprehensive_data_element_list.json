@@ -2807,6 +2807,62 @@
       ]
     },
     {
+      "path": "github_productivity",
+      "terms": [
+        "github_productivity",
+        "[report] GitHub engineering output rollup (commits, PRs, lines) for productivity joins"
+      ]
+    },
+    {
+      "path": "github_productivity.by_email",
+      "terms": [
+        "github_productivity.by_email",
+        "[report] per-canonical-email GitHub output in the lookback window"
+      ]
+    },
+    {
+      "path": "github_productivity.company_engineers",
+      "terms": [
+        "github_productivity.company_engineers",
+        "[report] engineer-scoped GitHub totals for the lookback window"
+      ]
+    },
+    {
+      "path": "engineer_identity",
+      "terms": [
+        "engineer_identity",
+        "[report] canonical engineer email map for GitHub ↔ Cursor joins"
+      ]
+    },
+    {
+      "path": "ai_productivity",
+      "terms": [
+        "ai_productivity",
+        "[report] Cursor token spend correlated with GitHub output (company + individual)"
+      ]
+    },
+    {
+      "path": "ai_productivity.company",
+      "terms": [
+        "ai_productivity.company",
+        "[report] company-level tokens/commits/spend KPIs for engineers"
+      ]
+    },
+    {
+      "path": "ai_productivity.by_email",
+      "terms": [
+        "ai_productivity.by_email",
+        "[report] per-engineer Cursor × GitHub productivity metrics"
+      ]
+    },
+    {
+      "path": "cursor_usage.engineer_usage_by_email",
+      "terms": [
+        "cursor_usage.engineer_usage_by_email",
+        "[report] per-engineer Cursor tokens/spend for dev-* scope"
+      ]
+    },
+    {
       "path": "teams_yaml.customer_team",
       "terms": [
         "teams_yaml.customer_team",

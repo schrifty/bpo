@@ -96,6 +96,13 @@
 
 ## GitHub
 - `github`
+- `github_productivity`
+- `github_productivity.by_email`
+- `github_productivity.company_engineers`
+- `engineer_identity`
+- `ai_productivity`
+- `ai_productivity.company`
+- `ai_productivity.by_email`
 
 ## Cursor (Admin API)
 - `cursor_usage`
@@ -106,6 +113,7 @@
 - `cursor_usage.errors`
 - `cursor_usage.totals.included_spend_cents_cycle`
 - `cursor_usage.cost_engineers.totals.included_spend_cents_cycle`
+- `cursor_usage.engineer_usage_by_email`
 
 ## Deck governance
 - `_governance`

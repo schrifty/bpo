@@ -993,6 +993,8 @@ def build_cursor_usage_report(
     usage_non_engineers: dict[str, Any] = {"configured": False}
     users_engineers: dict[str, Any] = {"configured": False}
     users_non_engineers: dict[str, Any] = {"configured": False}
+    engineer_scope: dict[str, Any] = {"configured": False}
+    engineer_usage_by_email: dict[str, dict[str, Any]] = {}
     if events:
         try:
             from .eng_team_roster import build_engineer_audience_scope
@@ -1034,6 +1036,23 @@ def build_cursor_usage_report(
                     spend_by_email=spend_by_email,
                     audience="non_engineers",
                 )
+                eng_roll = _rollup_usage_events(events, email_filter=engineer_emails)
+                engineer_usage_by_email = {
+                    u["email"]: {
+                        "tokens": int(u.get("tokens") or 0),
+                        "input_tokens": int(u.get("input_tokens") or 0),
+                        "output_tokens": int(u.get("output_tokens") or 0),
+                        "events": int(u.get("events") or 0),
+                        "cents": round(float(u.get("cents") or 0.0), 2),
+                    }
+                    for u in (eng_roll.get("_top_users") or [])
+                    if u.get("email")
+                }
+                engineer_scope = {
+                    "configured": True,
+                    "headcount": engineer_headcount,
+                    "emails": sorted(engineer_emails),
+                }
                 excluded = cost_engineers.get("excluded_cents")
                 org_cents = float(events_rollup.get("charged_cents") or 0)
                 if excluded and org_cents > 0 and float(excluded) / org_cents >= 0.05:
@@ -1117,6 +1136,8 @@ def build_cursor_usage_report(
         "usage_non_engineers": usage_non_engineers,
         "users_engineers": users_engineers,
         "users_non_engineers": users_non_engineers,
+        "engineer_scope": engineer_scope,
+        "engineer_usage_by_email": engineer_usage_by_email,
         "top_users": top_users,
         "bottom_users": bottom_users,
         "model_mix": events_rollup.get("model_mix", []),
