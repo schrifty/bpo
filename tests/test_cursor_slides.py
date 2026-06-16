@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 from src.slide_engineering_portfolio import (
     _clamp_eng_takeaway,
     cursor_cost_slide,
+    cursor_cost_models_slide,
     cursor_efficiency_slide,
     cursor_model_usage_slide,
     cursor_users_slide,
@@ -231,7 +232,7 @@ def test_clamp_eng_takeaway_strips_stray_quote_and_truncates() -> None:
     assert len(clipped) < len(long)
 
 
-def test_cost_slide_renders_spend_and_model_cost() -> None:
+def test_cost_slide_renders_spend_chart_only() -> None:
     rep = _cursor_report()
     rep["_charts"] = _mock_charts()
     reqs: list = []
@@ -244,20 +245,26 @@ def test_cost_slide_renders_spend_and_model_cost() -> None:
     assert "Total included usage" in text
     assert "$9,787" in text  # org-wide 30d run rate (978_700 cents)
     assert "$5,000" in text  # org-wide included usage (500_000 cents)
-    assert "Usage cost" not in text
-    assert "Cycle overage" not in text
-    # Engineer-scoped slide must not show seat-based metrics.
-    assert "Idle" not in text
-    assert "30d" in text
-    assert "Spend by model" in text
+    assert "Spend by model" not in text
     combo_title = rep["_charts"].add_combo_chart.call_args.kwargs["title"]
     assert "Cost over time" in combo_title
     assert "dev-* engineers" in combo_title
     assert "Cost over time" in text
     assert len(_chart_embeds(reqs)) == 1
     assert _chart_panel_ids(reqs, "sid_c")
-    # Per-model cost dollar value appears.
+
+
+def test_cost_models_slide_renders_table() -> None:
+    rep = _cursor_report()
+    reqs: list = []
+    cursor_cost_models_slide(reqs, "sid_cm", rep, 0)
+    assert _title(reqs, "sid_cm") == "Cursor AI Spend by Model"
+    text = _texts(reqs)
+    assert "Spend by model" in text
+    assert "Engineer spend" in text
+    assert "Models with spend" in text
     assert "$180" in text  # claude cost (18,000 cents)
+    assert any(r.get("createTable") for r in reqs)
 
 
 def test_cost_slide_missing_included_usage_shows_dash() -> None:

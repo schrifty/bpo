@@ -87,6 +87,7 @@ SLIDE_DATA_REQUIREMENTS: dict[str, list[str]] = {
     "eng_jira_project": ["eng_portfolio"],
     "eng_help_volume_trends": ["eng_help_volume_jql_trace"],
     "cursor_cost": ["cursor_usage"],
+    "cursor_cost_models": ["cursor_usage"],
     "cursor_usage": ["cursor_usage"],
     "cursor_usage_non_engineers": ["cursor_usage"],
     "cursor_model_usage": ["cursor_usage"],

@@ -2447,7 +2447,6 @@ def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
     org_totals = cu.get("totals") or {}
     eng_totals = cost.get("totals") or {}
     daily = cost.get("daily") or []
-    model_mix = cost.get("model_mix") or []
     window_days = int(cu.get("window_days") or 30)
 
     # Org-wide headline KPIs; engineer-scoped denominator for cost/active and active count.
@@ -2475,16 +2474,12 @@ def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
     )
 
     body_top = kpi_y + 12
-    col_gap = 20
-    left_w = (CONTENT_W - col_gap) * 3 // 5
-    right_w = CONTENT_W - left_w - col_gap
-    left_x = MARGIN
-    right_x = MARGIN + left_w + col_gap
+    content_x = MARGIN
+    content_w = CONTENT_W
     content_ceiling = _ENG_CONTENT_BOTTOM - 6
     charts = report.get("_charts")
 
-    # ── Left: daily cost ($) bars + active-users line ─────────────────────────
-    left_y = body_top
+    chart_y = body_top
     if daily and charts:
         try:
             chart_title = f"Cost over time (daily $, dev-* engineers, {window_days}d)"
@@ -2492,7 +2487,7 @@ def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
             cost_series = [round(float(d.get("cents") or 0) / 100.0, 2) for d in daily]
             users_series = [int(d.get("active_users") or 0) for d in daily]
             chart_h = int(_cursor_chart_panel_reserve(
-                content_ceiling=content_ceiling, start_y=left_y, legend_rows=2,
+                content_ceiling=content_ceiling, start_y=chart_y, legend_rows=2,
             ))
             ss_id, chart_id = charts.add_combo_chart(
                 title=chart_title,
@@ -2502,8 +2497,8 @@ def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
                 show_title=False,
                 suppress_legend=True,
             )
-            left_y = _cursor_embed_chart_panel(
-                reqs, sid=sid, oid="cchart", x=left_x, y=left_y, w=left_w, chart_h=chart_h,
+            _cursor_embed_chart_panel(
+                reqs, sid=sid, oid="cchart", x=content_x, y=chart_y, w=content_w, chart_h=chart_h,
                 spreadsheet_id=ss_id, chart_id=chart_id,
                 title=chart_title,
                 legend=[("Daily cost ($)", BRAND_SERIES_COLORS[0]), ("Active users", BRAND_SERIES_COLORS[1])],
@@ -2512,40 +2507,112 @@ def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
             logger.warning("Cursor cost chart embed failed: %s", exc)
     else:
         empty = "No usage-based cost in window"
-        _box(reqs, f"{sid}_ce", sid, left_x, left_y, left_w, 14, empty)
+        _box(reqs, f"{sid}_ce", sid, content_x, chart_y, content_w, 14, empty)
         _style(reqs, f"{sid}_ce", 0, len(empty), size=9, color=GRAY, font=FONT)
 
-    # ── Right: where the spend goes (model cost mix, ranked by cost) ───────────
-    right_y = _cursor_section_header(
-        reqs, sid, "mch", right_x, body_top, right_w,
-        f"Spend by model (dev-* engineers, {window_days}d)",
-    )
+    _render_takeaway_band(reqs, sid, _cursor_takeaway(cu, "cost"))
+    return idx + 1
+
+
+def cursor_cost_models_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Engineer-scoped Cursor spend ranked by model (native table)."""
+    cu = _cursor_blob(report)
+    if not cu.get("configured"):
+        return _missing_data_slide(reqs, sid, report, idx, "Cursor usage (set CURSOR_ADMIN_API_KEY)")
+
+    cost = cu.get("cost_engineers") or {}
+    if not cost.get("configured"):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            "Engineer-scoped cost (set ATLASSIAN_ORG_ID and dev-* Atlassian teams)",
+        )
+
+    model_mix = cost.get("model_mix") or []
+    eng_totals = cost.get("totals") or {}
+    window_days = int(cu.get("window_days") or 30)
     model_cost = sorted(
         (m for m in model_mix if (m.get("cents") or 0) > 0),
-        key=lambda m: float(m.get("cents") or 0), reverse=True,
+        key=lambda m: float(m.get("cents") or 0),
+        reverse=True,
     )
     total_cents = sum(float(m.get("cents") or 0) for m in model_cost)
-    if model_cost and total_cents > 0:
-        bar_max_w = 56.0
-        for i, m in enumerate(model_cost):
-            if right_y + 15 > content_ceiling:
-                break
-            frac = float(m.get("cents") or 0) / total_cents
-            label = _truncate_one_line(str(m.get("model") or "unknown"), 18)
-            _eng_share_bar(
-                reqs, sid, f"mc{i}",
-                label=label, value_label=_fmt_cents(m.get("cents")),
-                fraction=frac, x=right_x, y=right_y, w=right_w,
-                bar_max_w=bar_max_w, color=BRAND_SERIES_COLORS[i % len(BRAND_SERIES_COLORS)],
-                value_w=48.0,
-            )
-            right_y += 15
-    else:
-        empty = "No model cost data in window"
-        _box(reqs, f"{sid}_mce", sid, right_x, right_y, right_w, 13, empty)
-        _style(reqs, f"{sid}_mce", 0, len(empty), size=9, color=GRAY, font=FONT)
 
-    _render_takeaway_band(reqs, sid, _cursor_takeaway(cu, "cost"))
+    if not model_cost or total_cents <= 0:
+        return _missing_data_slide(reqs, sid, report, idx, "Engineer-scoped model cost (no spend in window)")
+
+    _slide(reqs, sid, idx)
+    _cursor_bg(reqs, sid)
+    _eng_title(reqs, sid, "Cursor AI Spend by Model")
+
+    kpi_y = _eng_kpi_row(
+        reqs, sid,
+        [
+            (f"Engineer spend ({window_days}d)", _fmt_cents(eng_totals.get("charged_cents_window"))),
+            ("Models with spend", str(len(model_cost))),
+            ("Top model share", _pct_label(float(model_cost[0].get("cents") or 0), total_cents) if model_cost else "—"),
+            ("Active engineers", str(int(cost.get("active_window") or 0))),
+        ],
+        y=BODY_Y,
+    )
+
+    section_y = _cursor_section_header(
+        reqs, sid, "mch", MARGIN, kpi_y + 12, CONTENT_W,
+        f"Spend by model (dev-* engineers, {window_days}d)",
+    )
+
+    col_widths = _COST_MODEL_TABLE_COL_WIDTHS
+    headers = _COST_MODEL_TABLE_HEADERS
+    aligns = _COST_MODEL_TABLE_ALIGNS
+    row_h = _MODEL_TABLE_ROW_H
+    table_top = section_y + 4
+    content_bottom = _ENG_CONTENT_BOTTOM - 20
+    max_rows = max(3, int((content_bottom - table_top) / row_h))
+    body_rows = _cursor_cost_model_rows(model_cost, total_cents, max_rows - 1)
+    num_rows = 1 + len(body_rows)
+    table_id = f"{sid}_ctbl"
+    reqs.append({
+        "createTable": {
+            "objectId": table_id,
+            "elementProperties": {
+                "pageObjectId": sid,
+                "size": _sz(sum(col_widths), num_rows * row_h),
+                "transform": _tf(MARGIN, table_top),
+            },
+            "rows": num_rows,
+            "columns": len(headers),
+        }
+    })
+    _clean_table(reqs, table_id, num_rows, len(headers))
+    _table_column_widths(reqs, table_id, col_widths)
+
+    for ci, head in enumerate(headers):
+        _table_cell_text(reqs, table_id, 0, ci, head)
+        _table_cell_style(
+            reqs, table_id, 0, ci, len(head),
+            bold=True, color=GRAY, size=_MODEL_TABLE_HEADER_PT, font=FONT, align=aligns[ci],
+        )
+
+    model_chars = max_chars_one_line_for_table_col(col_widths[0], _MODEL_TABLE_BODY_PT)
+    for ri, cells in enumerate(body_rows, start=1):
+        cells = list(cells)
+        cells[0] = _truncate_one_line(cells[0], model_chars)
+        for ci, text in enumerate(cells):
+            if not text:
+                continue
+            _table_cell_text(reqs, table_id, ri, ci, text)
+            color = NAVY if ci == 0 else NAVY
+            font = FONT if ci == 0 else MONO
+            _table_cell_style(
+                reqs, table_id, ri, ci, len(text),
+                bold=False, color=color, size=_MODEL_TABLE_BODY_PT, font=font, align=aligns[ci],
+            )
+
+    top_parts = [
+        f"{_truncate_one_line(str(m.get('model') or 'unknown'), 24)} {_fmt_cents(m.get('cents'))}"
+        for m in model_cost[:3]
+    ]
+    fallback = f"Top spend: {'; '.join(top_parts)}." if top_parts else ""
+    _render_takeaway_band(reqs, sid, _cursor_takeaway(cu, "cost_models") or fallback)
     return idx + 1
 
 
@@ -2670,6 +2737,27 @@ _MODEL_TABLE_BODY_PT = 9.5
 # match what the renderer actually produces — otherwise the table grows past its box and
 # the last rows fall off the slide.
 _MODEL_TABLE_ROW_H = 31.0
+
+# Spend-by-model table (engineer-scoped cost mix).
+_COST_MODEL_TABLE_COL_WIDTHS: tuple[float, ...] = (320.0, 160.0, 144.0)
+_COST_MODEL_TABLE_HEADERS = ("Model", "Spend", "% of spend")
+_COST_MODEL_TABLE_ALIGNS = ("START", "END", "END")
+
+
+def _cursor_cost_model_rows(
+    model_cost: list[dict[str, Any]],
+    total_cents: float,
+    cap: int,
+) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for m in model_cost[: max(1, cap)]:
+        cents = float(m.get("cents") or 0)
+        rows.append([
+            str(m.get("model") or "unknown"),
+            _fmt_cents(cents),
+            _pct_label(cents, total_cents),
+        ])
+    return rows
 
 
 def _pct_label(part: float, whole: float) -> str:

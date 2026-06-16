@@ -719,6 +719,33 @@ def _focus_prompt(report: dict[str, Any], focus: str) -> str:
             + implication
             + " Do not invent a spend cap or a number not given above."
         )
+    if focus == "cost_models":
+        cost_eng = report.get("cost_engineers") or {}
+        model_mix = cost_eng.get("model_mix") or []
+        ranked = sorted(
+            (m for m in model_mix if (m.get("cents") or 0) > 0),
+            key=lambda m: float(m.get("cents") or 0),
+            reverse=True,
+        )
+        total = sum(float(m.get("cents") or 0) for m in ranked)
+        top = ranked[:5]
+
+        def _share(cents: float) -> str:
+            if not total:
+                return "—"
+            return f"{cents / total * 100:.0f}%"
+
+        mix_str = ", ".join(
+            f"{m.get('model')} {_cents_to_dollars(m.get('cents'))} ({_share(float(m.get('cents') or 0))})"
+            for m in top
+        ) or "no model spend"
+        return (
+            f"Cursor AI coding-assistant SPEND BY MODEL for dev-* engineers over the last {window_days} days. "
+            f"Total engineer-scoped spend: {_cents_to_dollars(total)} across {len(ranked)} model(s). "
+            f"Ranked by spend: {mix_str}. "
+            "Implication for a VP of Engineering about model concentration, cost drivers, or "
+            "whether expensive models are justified — and the concrete next step."
+        )
     if focus == "efficiency":
         eff = report.get("efficiency") or {}
         accepted = int(eff.get("accepted_lines") or 0)
@@ -838,7 +865,7 @@ def _focus_prompt(report: dict[str, Any], focus: str) -> str:
 def generate_cursor_usage_takeaway(report: dict[str, Any], focus: str = "usage") -> str:
     """One-sentence VP 'what this means' implication for a Cursor slide.
 
-    *focus* selects the angle: ``"cost"``, ``"usage"``, ``"usage_non_engineers"``,
+    *focus* selects the angle: ``"cost"``, ``"cost_models"``, ``"usage"``, ``"usage_non_engineers"``,
     ``"users"``, ``"users_non_engineers"``, or ``"efficiency"``.
     Mirrors the engineering portfolio takeaway pattern: LLM-written, single sentence.
     Returns ``""`` on any failure so the slide simply omits the band (no placeholder,
@@ -884,13 +911,13 @@ def generate_cursor_usage_takeaways(report: dict[str, Any]) -> dict[str, str]:
     """Per-slide takeaways for the Cursor slides (cost, usage ×2, users ×2, efficiency)."""
     if not report or not report.get("configured"):
         return {
-            "cost": "", "usage": "", "usage_non_engineers": "",
+            "cost": "", "cost_models": "", "usage": "", "usage_non_engineers": "",
             "users": "", "users_non_engineers": "", "efficiency": "",
         }
     return {
         focus: generate_cursor_usage_takeaway(report, focus)
         for focus in (
-            "cost", "usage", "usage_non_engineers",
+            "cost", "cost_models", "usage", "usage_non_engineers",
             "users", "users_non_engineers", "efficiency",
         )
     }

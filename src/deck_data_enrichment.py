@@ -77,7 +77,7 @@ def enrich_cursor_usage_if_needed(
     are filtered out of the plan instead. All three share the one ``cursor_usage`` blob.
     """
     cursor_slide_types = {
-        "cursor_cost", "cursor_usage", "cursor_usage_non_engineers",
+        "cursor_cost", "cursor_cost_models", "cursor_usage", "cursor_usage_non_engineers",
         "cursor_efficiency", "cursor_users", "cursor_users_non_engineers",
     }
 

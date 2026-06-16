@@ -17,6 +17,7 @@ from .slide_depth import depth_slide as _depth_slide
 from .slide_engagement import engagement_slide as _engagement_slide
 from .slide_engineering_portfolio import (
     cursor_cost_slide as _cursor_cost_slide,
+    cursor_cost_models_slide as _cursor_cost_models_slide,
     cursor_efficiency_slide as _cursor_efficiency_slide,
     cursor_usage_slide as _cursor_usage_slide,
     cursor_usage_non_engineers_slide as _cursor_usage_non_engineers_slide,
@@ -229,6 +230,7 @@ _SLIDE_BUILDERS = {
     "eng_jira_project": _eng_jira_project_slide,
     "eng_help_volume_trends": _eng_help_volume_trends_slide,
     "cursor_cost": _cursor_cost_slide,
+    "cursor_cost_models": _cursor_cost_models_slide,
     "cursor_usage": _cursor_usage_slide,
     "cursor_usage_non_engineers": _cursor_usage_non_engineers_slide,
     "cursor_model_usage": _cursor_model_usage_slide,
