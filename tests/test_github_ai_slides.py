@@ -98,6 +98,22 @@ def test_ai_productivity_matrix_slide_renders_table():
     assert any(r.get("createShape") for r in reqs)
 
 
+def test_filter_cursor_only_slide_plan(monkeypatch):
+    from src.deck_data_enrichment import filter_cursor_only_slide_plan
+
+    plan = [
+        {"slide_type": "eng_exec_summary"},
+        {"slide_type": "cursor_cost"},
+        {"slide_type": "cursor_efficiency"},
+        {"slide_type": "data_quality"},
+    ]
+    assert filter_cursor_only_slide_plan(plan, deck_id="engineering-portfolio") == plan
+
+    monkeypatch.setattr("src.deck_data_enrichment.BPO_CURSOR_SLIDES_ONLY", True)
+    filtered = filter_cursor_only_slide_plan(plan, deck_id="engineering-portfolio")
+    assert [e["slide_type"] for e in filtered] == ["cursor_cost", "cursor_efficiency"]
+
+
 def test_filter_github_productivity_slides_drops_when_unconfigured():
     plan = [
         {"slide_type": "github_engineering_output"},

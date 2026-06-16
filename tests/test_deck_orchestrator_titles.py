@@ -37,6 +37,19 @@ def test_cohort_and_engineering_portfolio_prefix():
     assert eng == "Portfolio - Engineering Review (Last 14 days)"
 
 
+def test_engineering_portfolio_cursor_only_title(monkeypatch):
+    monkeypatch.setattr("src.config.BPO_CURSOR_SLIDES_ONLY", True)
+    t = _health_deck_presentation_title(
+        deck_id="engineering-portfolio",
+        deck_name="Engineering Portfolio Review",
+        date_str="Last 14 days",
+        customer="Engineering",
+        report={"customer": "Engineering", "days": 14},
+        is_portfolio=False,
+    )
+    assert t == "Portfolio - Engineering Review — Cursor (Last 14 days)"
+
+
 def test_csm_book_prefix_includes_owner():
     t = _health_deck_presentation_title(
         deck_id="csm_book_of_business",

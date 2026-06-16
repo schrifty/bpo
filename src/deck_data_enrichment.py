@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from .config import logger
+from .config import BPO_CURSOR_SLIDES_ONLY, logger
 from .slide_leandna_shortage import SLIDES_NEEDING_LEANDNA_SHORTAGE as _SLIDES_NEEDING_LEANDNA_SHORTAGE
 from .slide_salesforce import (
     filter_salesforce_comprehensive_slide_plan as _filter_salesforce_comprehensive_slide_plan,
@@ -51,10 +51,13 @@ def enrich_deck_report_data(
         enrich_support_kpis_jira_data(report, customer)
 
     if deck_id in _ENG_PORTFOLIO_DECK_IDS:
-        enrich_engineering_portfolio_if_needed(report, deck_id=deck_id)
+        slide_plan = filter_cursor_only_slide_plan(slide_plan, deck_id=deck_id)
+        if not BPO_CURSOR_SLIDES_ONLY:
+            enrich_engineering_portfolio_if_needed(report, deck_id=deck_id)
         slide_plan = enrich_cursor_usage_if_needed(report, slide_plan, deck_id=deck_id)
-        enrich_github_productivity_if_needed(report, deck_id=deck_id)
-        slide_plan = filter_github_productivity_slides(report, slide_plan, deck_id=deck_id)
+        if not BPO_CURSOR_SLIDES_ONLY:
+            enrich_github_productivity_if_needed(report, deck_id=deck_id)
+            slide_plan = filter_github_productivity_slides(report, slide_plan, deck_id=deck_id)
 
     report = enrich_leandna_shortage_if_needed(report, slide_plan, customer)
 
@@ -62,6 +65,25 @@ def enrich_deck_report_data(
 
     attach_deck_governance(report, slide_plan, deck_id=deck_id)
     return report, slide_plan
+
+
+def filter_cursor_only_slide_plan(
+    slide_plan: list[dict[str, Any]],
+    *,
+    deck_id: str = "engineering-portfolio",
+) -> list[dict[str, Any]]:
+    """When ``BPO_CURSOR_SLIDES_ONLY`` is set, keep only Cursor slide types in the plan."""
+    if not BPO_CURSOR_SLIDES_ONLY or deck_id not in _ENG_PORTFOLIO_DECK_IDS:
+        return slide_plan
+    from .deck_governance import _CURSOR_SLIDE_TYPES
+
+    filtered = [e for e in slide_plan if (e.get("slide_type") or "") in _CURSOR_SLIDE_TYPES]
+    logger.info(
+        "%s deck: BPO_CURSOR_SLIDES_ONLY — building %d cursor slide(s) only",
+        deck_id,
+        len(filtered),
+    )
+    return filtered
 
 
 def enrich_cursor_usage_if_needed(
@@ -76,10 +98,9 @@ def enrich_cursor_usage_if_needed(
     without a ``CURSOR_ADMIN_API_KEY`` should not get empty/missing-data slides, so they
     are filtered out of the plan instead. All three share the one ``cursor_usage`` blob.
     """
-    cursor_slide_types = {
-        "cursor_cost", "cursor_cost_models", "cursor_usage", "cursor_usage_non_engineers",
-        "cursor_efficiency", "cursor_users", "cursor_users_non_engineers",
-    }
+    from .deck_governance import _CURSOR_SLIDE_TYPES
+
+    cursor_slide_types = set(_CURSOR_SLIDE_TYPES)
 
     def _drop_cursor(plan: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [e for e in plan if e.get("slide_type") not in cursor_slide_types]

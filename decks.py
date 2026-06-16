@@ -571,6 +571,7 @@ def _run_deck_run_cli(rest: list[str]) -> None:
 
 def _run_jira_backed_deck(deck_id: str, label: str) -> None:
     """Generate a Jira-backed single deck using engineering portfolio data."""
+    from src.config import BPO_CURSOR_SLIDES_ONLY
     from src.data_source_health import check_all_required
     from src.jira_client import get_shared_jira_client
     from src.slides_client import create_health_deck
@@ -581,15 +582,23 @@ def _run_jira_backed_deck(deck_id: str, label: str) -> None:
         for msg in preflight_errors:
             print(f"  • {msg}")
         sys.exit(1)
-    print(f"Fetching {label.lower()} data from Jira...")
     t0 = time.time()
-    eng_data = get_shared_jira_client().get_engineering_portfolio(days=30)
-    report = {
-        "type": "engineering_portfolio",
-        "customer": "Engineering",
-        "days": 30,
-        "eng_portfolio": eng_data,
-    }
+    if BPO_CURSOR_SLIDES_ONLY and deck_id == "engineering-portfolio":
+        print("BPO_CURSOR_SLIDES_ONLY set — skipping Jira portfolio fetch")
+        report = {
+            "type": "engineering_portfolio",
+            "customer": "Engineering",
+            "days": 30,
+        }
+    else:
+        print(f"Fetching {label.lower()} data from Jira...")
+        eng_data = get_shared_jira_client().get_engineering_portfolio(days=30)
+        report = {
+            "type": "engineering_portfolio",
+            "customer": "Engineering",
+            "days": 30,
+            "eng_portfolio": eng_data,
+        }
     result = create_health_deck(report, deck_id=deck_id, thumbnails=False)
     elapsed = time.time() - t0
     print(f"\n{'=' * 60}")
@@ -1075,14 +1084,24 @@ def _run_all_portfolio_decks() -> None:
                 thumbnails=args.thumbnails,
             )
         elif deck_id == "engineering-portfolio":
-            print("Fetching engineering portfolio data from Jira...")
-            eng_portfolio_cache = get_shared_jira_client().get_engineering_portfolio(days=30)
-            report = {
-                "type": "engineering_portfolio",
-                "customer": "Engineering",
-                "days": 30,
-                "eng_portfolio": eng_portfolio_cache,
-            }
+            from src.config import BPO_CURSOR_SLIDES_ONLY
+
+            if BPO_CURSOR_SLIDES_ONLY:
+                print("BPO_CURSOR_SLIDES_ONLY set — skipping Jira portfolio fetch")
+                report = {
+                    "type": "engineering_portfolio",
+                    "customer": "Engineering",
+                    "days": 30,
+                }
+            else:
+                print("Fetching engineering portfolio data from Jira...")
+                eng_portfolio_cache = get_shared_jira_client().get_engineering_portfolio(days=30)
+                report = {
+                    "type": "engineering_portfolio",
+                    "customer": "Engineering",
+                    "days": 30,
+                    "eng_portfolio": eng_portfolio_cache,
+                }
             result = create_health_deck(
                 report, deck_id="engineering-portfolio", thumbnails=args.thumbnails
             )

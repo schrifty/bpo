@@ -140,6 +140,8 @@ except ValueError:
 BPO_CURSOR_CACHE_TTL_SECONDS = max(0, int(_cursor_cache_hours * 3600))
 if os.environ.get("BPO_CURSOR_CACHE_DISABLED", "").strip().lower() in ("1", "true", "yes", "on"):
     BPO_CURSOR_CACHE_TTL_SECONDS = 0
+_cursor_slides_only = os.environ.get("BPO_CURSOR_SLIDES_ONLY", "").strip().lower()
+BPO_CURSOR_SLIDES_ONLY = _cursor_slides_only in ("1", "true", "yes", "on")
 
 # Slack (optional — bot token for customer channel conversation digests)
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "").strip() or None
