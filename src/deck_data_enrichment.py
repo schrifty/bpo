@@ -20,6 +20,12 @@ SUPPORT_KPI_DECK_IDS: frozenset[str] = frozenset({"support-kpis"})
 # Decks that need ``eng_portfolio`` from ``get_engineering_portfolio`` when absent.
 _ENG_PORTFOLIO_DECK_IDS: frozenset[str] = frozenset({"engineering-portfolio", "implementations_review"})
 
+_GITHUB_PRODUCTIVITY_SLIDE_TYPES = frozenset({
+    "github_engineering_output",
+    "ai_output_correlation",
+    "ai_productivity_matrix",
+})
+
 
 def enrich_deck_report_data(
     deck_id: str,
@@ -48,6 +54,7 @@ def enrich_deck_report_data(
         enrich_engineering_portfolio_if_needed(report, deck_id=deck_id)
         slide_plan = enrich_cursor_usage_if_needed(report, slide_plan, deck_id=deck_id)
         enrich_github_productivity_if_needed(report, deck_id=deck_id)
+        slide_plan = filter_github_productivity_slides(report, slide_plan, deck_id=deck_id)
 
     report = enrich_leandna_shortage_if_needed(report, slide_plan, customer)
 
@@ -110,6 +117,59 @@ def enrich_cursor_usage_if_needed(
     return slide_plan
 
 
+def filter_github_productivity_slides(
+    report: dict[str, Any],
+    slide_plan: list[dict[str, Any]],
+    *,
+    deck_id: str = "engineering-portfolio",
+) -> list[dict[str, Any]]:
+    """Drop GitHub/AI productivity slides when report blobs are missing."""
+    if deck_id not in _ENG_PORTFOLIO_DECK_IDS:
+        return slide_plan
+    gp_ok = bool((report.get("github_productivity") or {}).get("configured"))
+    ai_ok = bool((report.get("ai_productivity") or {}).get("configured"))
+
+    def _keep(entry: dict[str, Any]) -> bool:
+        st = (entry.get("slide_type") or "").strip()
+        if st == "github_engineering_output" and not gp_ok:
+            return False
+        if st in ("ai_output_correlation", "ai_productivity_matrix") and not ai_ok:
+            return False
+        return True
+
+    return [e for e in slide_plan if _keep(e)]
+
+
+def _attach_productivity_takeaways(
+    github_productivity: dict[str, Any] | None,
+    ai_productivity: dict[str, Any] | None,
+) -> None:
+    if github_productivity and github_productivity.get("configured"):
+        ce = github_productivity.get("company_engineers") or {}
+        days = int(github_productivity.get("window_days") or 30)
+        github_productivity["takeaways"] = {
+            "github_output": (
+                f"{int(ce.get('commits') or 0)} commits and {int(ce.get('merged_prs') or 0)} merged PRs "
+                f"across {len(github_productivity.get('repos') or [])} repos ({days}d, dev-* engineers)."
+            ),
+        }
+    if ai_productivity and ai_productivity.get("configured"):
+        co = ai_productivity.get("company") or {}
+        days = int(ai_productivity.get("window_days") or 30)
+        corr = co.get("token_commit_correlation")
+        corr_txt = f"{corr:.2f}" if isinstance(corr, (int, float)) else "n/a"
+        ai_productivity["takeaways"] = {
+            "correlation": (
+                f"{int(co.get('commits') or 0)} GitHub commits vs "
+                f"{int(co.get('total_tokens') or 0):,} Cursor tokens ({days}d); "
+                f"token↔commit r={corr_txt}."
+            ),
+            "matrix": (
+                "Yield ranks commits per 1K tokens; high-token/low-output quadrant flags coaching candidates."
+            ),
+        }
+
+
 def enrich_github_productivity_if_needed(
     report: dict[str, Any],
     *,
@@ -149,8 +209,16 @@ def enrich_github_productivity_if_needed(
         report["github_productivity"] = gh_prod
         report["github"] = github_qa_blob(gh_prod)
         cu = report.get("cursor_usage")
+        ai_prod = None
         if cu and cu.get("configured"):
-            report["ai_productivity"] = build_ai_productivity_correlation(cu, gh_prod, identity)
+            ai_prod = build_ai_productivity_correlation(cu, gh_prod, identity)
+            report["ai_productivity"] = ai_prod
+        _attach_productivity_takeaways(gh_prod, ai_prod)
+        if identity.get("stats", {}).get("engineer_count") and identity.get("stats", {}).get("with_github_login") == 0:
+            logger.warning(
+                "%s: GitHub productivity loaded but no engineer GitHub logins mapped — check aliases",
+                deck_id,
+            )
     except Exception as e:
         logger.warning("%s: github/ai productivity enrichment failed: %s", deck_id, e)
         report["github_productivity"] = {"configured": False, "error": str(e)[:200]}

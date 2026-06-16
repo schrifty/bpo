@@ -26,6 +26,10 @@ _CURSOR_SLIDE_TYPES = frozenset({
     "cursor_model_usage", "cursor_efficiency", "cursor_users", "cursor_users_non_engineers",
 })
 
+_GITHUB_PRODUCTIVITY_SLIDE_TYPES = frozenset({
+    "github_engineering_output", "ai_output_correlation", "ai_productivity_matrix",
+})
+
 _TEAMS_SLIDE_TYPES = frozenset({"eng_team_roster"}) | _CURSOR_SLIDE_TYPES
 
 _LINEAGE_CAP = 10
@@ -111,6 +115,23 @@ def ingest_report_integration_warnings(report: dict[str, Any], slide_plan: list[
                 msg = str(warn).strip()
                 if msg:
                     qa.flag(msg, severity="warning", sources=("Cursor",))
+
+    if "github" in source_ids:
+        gp = report.get("github_productivity") or {}
+        if isinstance(gp, dict):
+            err = str(gp.get("error") or "").strip()
+            if err:
+                qa.flag(f"GitHub productivity: {err}", severity="error", sources=("GitHub",))
+            for warn in gp.get("warnings") or []:
+                msg = str(warn).strip()
+                if msg:
+                    qa.flag(msg, severity="warning", sources=("GitHub",))
+        ai = report.get("ai_productivity") or {}
+        if isinstance(ai, dict):
+            for warn in ai.get("warnings") or []:
+                msg = str(warn).strip()
+                if msg:
+                    qa.flag(msg, severity="warning", sources=("GitHub",))
 
     if "atlassian_teams" in source_ids:
         roster = (report.get("eng_portfolio") or {}).get("team_roster") or {}

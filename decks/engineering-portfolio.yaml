@@ -35,4 +35,7 @@ slides:
   - slide: cursor_model_usage
   - slide: cursor_users
   - slide: cursor_users_non_engineers
+  - slide: github_engineering_output
+  - slide: ai_output_correlation
+  - slide: ai_productivity_matrix
   - slide: data_quality

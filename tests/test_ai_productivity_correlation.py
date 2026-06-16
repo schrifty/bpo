@@ -52,3 +52,45 @@ def test_correlation_builds_company_and_individual_rows():
 
 def test_correlation_returns_none_without_cursor():
     assert build_ai_productivity_correlation(None, {"configured": True}) is None
+
+
+def test_correlation_weekly_trend_and_quadrants():
+    cursor = {
+        "configured": True,
+        "window_days": 30,
+        "usage_engineers": {
+            "configured": True,
+            "active_window": 2,
+            "totals": {"total_tokens": 10_000, "charged_cents_window": 500.0},
+            "daily": [
+                {"date": "2026-05-05", "total_tokens": 4000},
+                {"date": "2026-05-12", "total_tokens": 6000},
+            ],
+        },
+        "engineer_usage_by_email": {
+            "high@leandna.com": {"tokens": 7000, "cents": 350.0, "events": 20},
+            "low@leandna.com": {"tokens": 3000, "cents": 150.0, "events": 8},
+        },
+    }
+    github = {
+        "configured": True,
+        "window_days": 30,
+        "since": "2026-05-01T00:00:00+00:00",
+        "generated_at": "2026-06-01T00:00:00+00:00",
+        "company_engineers": {"commits": 15, "merged_prs": 3, "lines_added": 800},
+        "by_email": {
+            "high@leandna.com": {"commits": 12, "merged_prs": 2, "lines_added": 600},
+            "low@leandna.com": {"commits": 3, "merged_prs": 1, "lines_added": 200},
+        },
+        "weekly": [
+            {"week": "2026-W19", "commits": 5, "engineer_commits": 5},
+            {"week": "2026-W20", "commits": 10, "engineer_commits": 10},
+        ],
+        "warnings": [],
+    }
+    out = build_ai_productivity_correlation(cursor, github, {"configured": True, "canonical_emails": []})
+    assert out is not None
+    assert out["weekly_trend"]
+    assert sum(out["quadrant_counts"].values()) >= 1
+    assert out["top_yield"]
+    assert out["quadrants"]["high_tokens_high_output"]

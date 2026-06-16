@@ -75,6 +75,9 @@ Generate one deck (explicit)
   decks implementations-review
       Jira-backed org decks (same payloads as ``--portfolio`` batch).
 
+  decks regenerate-slides --deck engineering-portfolio --cursor [--presentation-id ID|URL]
+      Rebuild Cursor slides in the latest (or specified) Engineering Review presentation in Drive.
+
   decks support [--customer NAME]
       Support review deck (single customer or all).
 
@@ -596,6 +599,83 @@ def _run_jira_backed_deck(deck_id: str, label: str) -> None:
         print(f"  FAIL: {result['error'][:120]}")
         sys.exit(1)
     print(f"  OK   {result.get('url', '')}")
+
+
+def _run_regenerate_slides_cli(rest: list[str]) -> None:
+    """``decks regenerate-slides …`` — rebuild selected slides in an existing presentation."""
+    import argparse
+    import sys
+    import time
+
+    from src.deck_governance import _CURSOR_SLIDE_TYPES
+    from src.deck_slide_regenerate import find_latest_presentation_for_deck, regenerate_deck_slides
+
+    ap = argparse.ArgumentParser(
+        prog="decks regenerate-slides",
+        description="Rebuild specific slides in an existing Google Slides deck (in place).",
+    )
+    ap.add_argument("--deck", default="engineering-portfolio", help="Deck id (default: engineering-portfolio)")
+    ap.add_argument(
+        "--presentation-id",
+        metavar="ID_OR_URL",
+        default=None,
+        help="Presentation to patch (default: newest matching deck in Drive Output)",
+    )
+    ap.add_argument("--days", type=int, default=30, help="Cursor lookback window (default: 30)")
+    ap.add_argument(
+        "--cursor",
+        action="store_true",
+        help="Rebuild all Cursor slide types (cost, usage, efficiency, users, model mix)",
+    )
+    ap.add_argument(
+        "--slide-type",
+        action="append",
+        dest="slide_types",
+        metavar="TYPE",
+        help="Repeat to rebuild specific slide_type values (e.g. cursor_efficiency)",
+    )
+    args = ap.parse_args(rest)
+
+    slide_types: set[str] = set(args.slide_types or [])
+    if args.cursor:
+        slide_types |= set(_CURSOR_SLIDE_TYPES)
+    if not slide_types:
+        ap.error("Pass --cursor and/or one or more --slide-type values")
+
+    pres_id = (args.presentation_id or "").strip()
+    if not pres_id:
+        from src.slides_api import _get_service
+
+        _, drive_service, _ = _get_service()
+        found = find_latest_presentation_for_deck(drive_service, deck_id=args.deck)
+        if not found:
+            print("No matching presentation found in Drive Output — pass --presentation-id")
+            sys.exit(1)
+        pres_id = found["id"]
+        print(f"Target: {found.get('name')} ({pres_id})")
+
+    print(f"Regenerating {len(slide_types)} slide type(s) in {args.deck}…")
+    t0 = time.time()
+    result = regenerate_deck_slides(
+        pres_id,
+        deck_id=args.deck,
+        slide_types=slide_types,
+        days=int(args.days),
+    )
+    elapsed = time.time() - t0
+    print(f"\n{'=' * 60}")
+    print(f"Done in {elapsed:.0f}s")
+    print(f"{'=' * 60}")
+    if result.get("error"):
+        print(f"  FAIL: {result['error']}")
+        if result.get("rebuilt"):
+            print(f"  Partial: rebuilt {', '.join(result['rebuilt'])}")
+        sys.exit(1)
+    print(f"  OK   {result.get('url', '')}")
+    print(f"  Rebuilt: {', '.join(result.get('rebuilt') or [])}")
+    skipped = result.get("skipped") or []
+    if skipped:
+        print(f"  Skipped (not found on deck): {', '.join(skipped)}")
 
 
 def _run_engineering_portfolio_deck() -> None:
@@ -1215,6 +1295,9 @@ def main():
         return
     if sub == "implementations-review":
         _run_implementations_review_deck()
+        return
+    if sub == "regenerate-slides":
+        _run_regenerate_slides_cli(sys.argv[2:])
         return
     if sub == "support":
         _run_support_deck(sys.argv[2:])

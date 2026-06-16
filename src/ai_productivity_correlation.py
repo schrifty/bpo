@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import statistics
+from collections import defaultdict
+from datetime import datetime
 from typing import Any
 
 logger = logging.getLogger("bpo")
@@ -79,6 +81,54 @@ def _pearson(xs: list[float], ys: list[float]) -> float | None:
         return round(statistics.correlation(xs, ys), 4)
     except (statistics.StatisticsError, ValueError):
         return None
+
+
+def _iso_week_key_from_day_key(day_key: str) -> str | None:
+    raw = (day_key or "").strip()
+    if not raw:
+        return None
+    try:
+        if len(raw) == 10 and raw[4] == "-":
+            dt = datetime.strptime(raw, "%Y-%m-%d")
+        else:
+            dt = datetime.strptime(raw, "%m/%d/%y")
+        iso = dt.isocalendar()
+        return f"{iso.year}-W{iso.week:02d}"
+    except ValueError:
+        return None
+
+
+def _build_weekly_trend(
+    cursor_usage: dict[str, Any],
+    github_productivity: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Merge engineer-scoped Cursor tokens and GitHub commits by ISO week."""
+    tokens_by_week: dict[str, int] = defaultdict(int)
+    daily = (cursor_usage.get("usage_engineers") or {}).get("daily") or []
+    for row in daily:
+        wk = _iso_week_key_from_day_key(str(row.get("date") or row.get("label") or ""))
+        if not wk:
+            continue
+        tokens_by_week[wk] += int(row.get("total_tokens") or row.get("tokens") or 0)
+
+    gh_weekly = {
+        str(row.get("week") or ""): int(row.get("engineer_commits") or row.get("commits") or 0)
+        for row in (github_productivity.get("weekly") or [])
+        if isinstance(row, dict) and row.get("week")
+    }
+    weeks = sorted(set(tokens_by_week.keys()) | set(gh_weekly.keys()))
+    out: list[dict[str, Any]] = []
+    for wk in weeks:
+        label = wk.split("-W")[-1] if "-W" in wk else wk
+        out.append(
+            {
+                "week": wk,
+                "label": f"W{int(label)}" if label.isdigit() else label,
+                "tokens": tokens_by_week.get(wk, 0),
+                "commits": gh_weekly.get(wk, 0),
+            }
+        )
+    return out
 
 
 def build_ai_productivity_correlation(
@@ -187,6 +237,16 @@ def build_ai_productivity_correlation(
         reverse=True,
     )
 
+    ranked = [r for r in individuals if int(r.get("tokens") or 0) >= _MIN_TOKENS_FOR_RANK]
+    top_yield = ranked[:6]
+    review = sorted(
+        [r for r in ranked if r["email"] in quadrants[_QUADRANT_LABELS[1]]],
+        key=lambda r: int(r.get("tokens") or 0),
+        reverse=True,
+    )[:6]
+    quadrant_counts = {label: len(quadrants.get(label) or []) for label in _QUADRANT_LABELS}
+    weekly_trend = _build_weekly_trend(cursor_usage, github_productivity)
+
     return {
         "configured": True,
         "generated_at": github_productivity.get("generated_at"),
@@ -195,7 +255,11 @@ def build_ai_productivity_correlation(
         "company": company,
         "by_email": {row["email"]: row for row in individuals},
         "individuals": individuals,
+        "top_yield": top_yield,
+        "review": review,
         "quadrants": quadrants,
+        "quadrant_counts": quadrant_counts,
+        "weekly_trend": weekly_trend,
         "medians": {"tokens": med_tokens, "commits": med_commits},
         "identity": {
             "engineer_count": len(canonical_emails),

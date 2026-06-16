@@ -69,3 +69,24 @@ def test_github_qa_blob():
     blob = github_qa_blob({"configured": True, "api": "rest", "user_login": "bot"})
     assert blob["configured"] is True
     assert blob["user_login"] == "bot"
+
+
+def test_build_productivity_report_uses_cache(monkeypatch):
+    monkeypatch.setattr("src.github_productivity_report.github_configured", lambda: True)
+    cached = {"configured": True, "company_engineers": {"commits": 99}}
+    calls = {"get": 0, "set": 0}
+
+    def _get(key, ttl_seconds=None):
+        calls["get"] += 1
+        return cached
+
+    def _set(key, data, ttl_seconds=None):
+        calls["set"] += 1
+
+    monkeypatch.setattr("src.github_productivity_report.cache_get", _get)
+    monkeypatch.setattr("src.github_productivity_report.cache_set", _set)
+
+    report = build_github_productivity_report(window_days=7, identity=_identity())
+    assert report == cached
+    assert calls["get"] == 1
+    assert calls["set"] == 0

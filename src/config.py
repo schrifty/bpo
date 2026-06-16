@@ -105,6 +105,13 @@ try:
     )
 except ValueError:
     BPO_GITHUB_MAX_COMMITS_PER_REPO = 500
+try:
+    _github_cache_hours = float(os.environ.get("BPO_GITHUB_CACHE_TTL_HOURS", "1").strip())
+except ValueError:
+    _github_cache_hours = 1.0
+BPO_GITHUB_CACHE_TTL_SECONDS = max(0, int(_github_cache_hours * 3600))
+if os.environ.get("BPO_GITHUB_CACHE_DISABLED", "").strip().lower() in ("1", "true", "yes", "on"):
+    BPO_GITHUB_CACHE_TTL_SECONDS = 0
 
 # Rippling Platform API (optional — Bearer API key for HR org / employee / team rosters).
 # Create the token in the Rippling developer portal with employee:read, company:teams:read,

@@ -1,0 +1,15 @@
+id: ai_productivity_matrix
+type: standard
+order: 92
+title: AI Productivity Matrix
+slide_type: ai_productivity_matrix
+data_tools: []
+customers: all
+
+prompt: >
+  Per-engineer AI productivity matrix for the engineering portfolio deck. KPI cards summarize
+  quadrant counts (high/low tokens × high/low GitHub output) using medians among engineers
+  with meaningful Cursor usage. A monospace table ranks highest-yield engineers by commits per
+  1K tokens. Highlights coaching candidates in the high-token/low-output quadrant via the
+  review list in the report blob. Requires ai_productivity correlation data; omitted when
+  GitHub or Cursor enrichment is unavailable.

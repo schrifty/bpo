@@ -1,0 +1,15 @@
+id: ai_output_correlation
+type: standard
+order: 91
+title: AI Spend vs. GitHub Output
+slide_type: ai_output_correlation
+data_tools: []
+customers: all
+
+prompt: >
+  Company-level correlation slide joining Cursor engineer-scoped token spend with GitHub
+  engineering output (commits, merged PRs). KPI cards cover tokens per commit, cost per merged
+  PR, commits per 1K tokens, and Pearson r between tokens and commits. A combo chart plots
+  weekly commits (bars) against tokens scaled to thousands (line) when chart embedding is
+  available. Framed as diagnostic spend-vs-output signal, not causal proof. Requires both Cursor
+  Admin API and GitHub productivity data; omitted when ai_productivity is not configured.

@@ -203,6 +203,9 @@ class QARegistry:
     def _github_source_status(report: dict | None) -> str:
         if not report or not isinstance(report, dict):
             return "unavailable"
+        gp = report.get("github_productivity")
+        if isinstance(gp, dict) and gp.get("configured") and not (gp.get("error") or "").strip():
+            return "ok"
         g = report.get("github")
         if not isinstance(g, dict) or not g:
             return "unavailable"

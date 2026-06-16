@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .engineer_identity_map import canonicalize_email, load_github_email_aliases
+from .github_cache import cache_get, cache_key, cache_set
 from .github_client import (
     GitHubClient,
     GitHubError,
@@ -30,6 +32,18 @@ _EMPTY_PERSON = {
     "repos_touched": [],
     "avg_pr_cycle_hours": None,
 }
+
+
+def _iso_week_key(dt: datetime) -> str:
+    iso = dt.isocalendar()
+    return f"{iso.year}-W{iso.week:02d}"
+
+
+def _week_label(key: str) -> str:
+    if "-W" in key:
+        year, week = key.split("-W", 1)
+        return f"W{int(week)}"
+    return key
 
 
 def _blank_person() -> dict[str, Any]:
@@ -127,6 +141,7 @@ def build_github_productivity_report(
     window_days: int | None = None,
     client: GitHubClient | None = None,
     identity: dict[str, Any] | None = None,
+    use_cache: bool = True,
 ) -> dict[str, Any] | None:
     """Aggregate GitHub output metrics keyed by canonical engineer email."""
     if not github_configured():
@@ -136,6 +151,18 @@ def build_github_productivity_report(
     repos_raw = repos_env if repos_env is not None else _github_repos_env()
     days = window_days if window_days is not None else 30
     days = max(1, min(int(days), 365))
+
+    cache_storage_key: str | None = None
+    if use_cache:
+        cache_storage_key = cache_key(
+            "productivity_report",
+            {"org": org_name, "repos": repos_raw, "days": days, "identity": bool(identity)},
+        )
+        cached = cache_get(cache_storage_key)
+        if cached is not None:
+            logger.debug("GitHub cache hit: productivity report")
+            return cached
+
     since = datetime.now(timezone.utc) - timedelta(days=days)
 
     gh = client or GitHubClient()
@@ -155,6 +182,8 @@ def build_github_productivity_report(
     company_engineers = _blank_person()
     company_open_prs = 0
     company_releases = 0
+    weekly_commits: dict[str, int] = defaultdict(int)
+    weekly_engineer_commits: dict[str, int] = defaultdict(int)
     repos_summary: list[dict[str, Any]] = []
     warnings: list[str] = list(identity.get("warnings") or []) if identity else []
 
@@ -183,6 +212,9 @@ def build_github_productivity_report(
                 )
             repo_all["commits"] += 1
             company_all["commits"] += 1
+            if when:
+                wk = _iso_week_key(when)
+                weekly_commits[wk] += 1
             if canonical:
                 if login and login not in login_to_email:
                     login_to_email[login] = canonical
@@ -197,6 +229,8 @@ def build_github_productivity_report(
                         eng["repos_touched"].append(full_name)
                     repo_engineers["commits"] += 1
                     company_engineers["commits"] += 1
+                    if when:
+                        weekly_engineer_commits[_iso_week_key(when)] += 1
 
         for pull in gh.list_pull_requests(owner, repo, state="all"):
             canonical, cycle, state = _attribute_pull(
@@ -282,7 +316,17 @@ def build_github_productivity_report(
 
     unmatched_github = sorted(set(all_by_email.keys()) - engineer_emails) if engineer_emails else []
 
-    return {
+    weekly = [
+        {
+            "week": wk,
+            "label": _week_label(wk),
+            "commits": weekly_commits[wk],
+            "engineer_commits": weekly_engineer_commits.get(wk, 0),
+        }
+        for wk in sorted(weekly_commits.keys())
+    ]
+
+    result = {
         "configured": True,
         "api": "rest",
         "user_login": user.get("login"),
@@ -295,6 +339,7 @@ def build_github_productivity_report(
         "company_engineers": company_engineers,
         "by_email": engineer_by_email if engineer_emails else all_by_email,
         "by_email_all": all_by_email,
+        "weekly": weekly,
         "repos_summary": repos_summary,
         "identity": {
             "matched_engineers": len(engineer_by_email),
@@ -303,6 +348,9 @@ def build_github_productivity_report(
         },
         "warnings": warnings,
     }
+    if cache_storage_key:
+        cache_set(cache_storage_key, result)
+    return result
 
 
 def github_qa_blob(productivity: dict[str, Any] | None) -> dict[str, Any]:

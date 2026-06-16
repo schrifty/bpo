@@ -2929,6 +2929,15 @@ def cursor_efficiency_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
             right_y += 15
         if right_y + 11 <= content_ceiling:
             note = "Tab + agent accepted lines vs. model-API cost"
+            ai = _ai_productivity_blob(report)
+            if ai.get("configured"):
+                co = ai.get("company") or {}
+                corr = co.get("token_commit_correlation")
+                corr_txt = f"{corr:.2f}" if isinstance(corr, (int, float)) else "n/a"
+                note += (
+                    f" · GitHub: {int(co.get('commits') or 0)} commits; "
+                    f"token↔commit r={corr_txt} (accepted lines ≠ git commits)"
+                )
             _box(reqs, f"{sid}_efn", sid, right_x, right_y, right_w, 11, note)
             _style(reqs, f"{sid}_efn", 0, len(note), size=7.5, color=GRAY, font=FONT)
     else:
@@ -3085,6 +3094,199 @@ def cursor_users_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
 def cursor_users_non_engineers_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
     """AI Power Users for non-engineering Cursor users."""
     return _render_cursor_users_slide(reqs, sid, report, idx, audience="non_engineers")
+
+
+def _github_productivity_blob(report: dict[str, Any]) -> dict[str, Any]:
+    return report.get("github_productivity") or {}
+
+
+def _ai_productivity_blob(report: dict[str, Any]) -> dict[str, Any]:
+    return report.get("ai_productivity") or {}
+
+
+def _productivity_takeaway(blob: dict[str, Any], key: str, fallback: str = "") -> str:
+    takeaways = blob.get("takeaways") or {}
+    return str(takeaways.get(key) or fallback).strip()
+
+
+def github_engineering_output_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """GitHub engineering output for dev-* engineers (commits, PRs, lines, repos)."""
+    gp = _github_productivity_blob(report)
+    if not gp.get("configured"):
+        return _missing_data_slide(reqs, sid, report, idx, "GitHub productivity (set GITHUB_TOKEN and GITHUB_ORG)")
+
+    company = gp.get("company_engineers") or {}
+    window_days = int(gp.get("window_days") or 30)
+    repos = gp.get("repos_summary") or []
+
+    _slide(reqs, sid, idx)
+    _cursor_bg(reqs, sid)
+    _eng_title(reqs, sid, "GitHub Engineering Output")
+
+    kpi_y = _eng_kpi_row(
+        reqs, sid,
+        [
+            (f"Commits ({window_days}d)", str(int(company.get("commits") or 0))),
+            ("Merged PRs", str(int(company.get("merged_prs") or 0))),
+            ("Lines added", _fmt_tokens(int(company.get("lines_added") or 0))),
+            ("Repos tracked", str(len(gp.get("repos") or []))),
+        ],
+        y=BODY_Y,
+    )
+
+    body_top = kpi_y + 12
+    section_y = _cursor_section_header(
+        reqs, sid, "ghr", MARGIN, body_top, CONTENT_W,
+        f"Top repositories by commits ({window_days}d)",
+    )
+    y = section_y + 4
+    sorted_repos = sorted(repos, key=lambda r: int(r.get("commits") or 0), reverse=True)
+    for i, row in enumerate(sorted_repos[:8]):
+        if y + 14 > _ENG_CONTENT_BOTTOM:
+            break
+        name = str(row.get("full_name") or "")[:42]
+        commits = int(row.get("commits") or 0)
+        prs = int(row.get("merged_prs") or 0)
+        line = f"{name}  —  {commits} commits, {prs} merged PRs"
+        _box(reqs, f"{sid}_gr{i}", sid, MARGIN, y, CONTENT_W, 13, line)
+        _style(reqs, f"{sid}_gr{i}", 0, len(line), size=8.5, color=NAVY, font=FONT)
+        y += 14
+
+    takeaway = _productivity_takeaway(
+        gp,
+        "github_output",
+        f"{int(company.get('commits') or 0)} commits across {len(gp.get('repos') or [])} repos in {window_days}d.",
+    )
+    _render_takeaway_band(reqs, sid, takeaway)
+    return idx + 1
+
+
+def ai_output_correlation_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Company-level Cursor token spend vs GitHub output correlation."""
+    ai = _ai_productivity_blob(report)
+    if not ai.get("configured"):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            "AI productivity correlation (requires Cursor + GitHub productivity data)",
+        )
+
+    company = ai.get("company") or {}
+    window_days = int(ai.get("window_days") or 30)
+    weekly = ai.get("weekly_trend") or []
+
+    corr = company.get("token_commit_correlation")
+    corr_str = f"{corr:.2f}" if isinstance(corr, (int, float)) else "—"
+    tpc = company.get("tokens_per_commit")
+    cpm = company.get("cents_per_merged_pr")
+    cpt = company.get("commits_per_1k_tokens")
+
+    _slide(reqs, sid, idx)
+    _cursor_bg(reqs, sid)
+    _eng_title(reqs, sid, "AI Spend vs. GitHub Output")
+
+    kpi_y = _eng_kpi_row(
+        reqs, sid,
+        [
+            ("Tokens / commit", f"{tpc:g}" if isinstance(tpc, (int, float)) else "—"),
+            ("Cost / merged PR", _fmt_cents(cpm) if cpm is not None else "—"),
+            ("Commits / 1K tokens", f"{cpt:g}" if isinstance(cpt, (int, float)) else "—"),
+            ("Token↔commit r", corr_str),
+        ],
+        y=BODY_Y,
+    )
+
+    body_top = kpi_y + 12
+    charts = report.get("_charts")
+    if weekly and charts:
+        try:
+            chart_title = f"Tokens vs commits by week ({window_days}d)"
+            labels = [str(w.get("label") or w.get("week") or "") for w in weekly]
+            token_series = [int(w.get("tokens") or 0) for w in weekly]
+            commit_series = [int(w.get("commits") or 0) for w in weekly]
+            chart_h = int(_cursor_chart_panel_reserve(
+                content_ceiling=_ENG_CONTENT_BOTTOM - 6, start_y=body_top, legend_rows=2,
+            ))
+            ss_id, chart_id = charts.add_combo_chart(
+                title=chart_title,
+                labels=labels,
+                bar_series={"Commits": commit_series},
+                line_series={"Tokens (÷1K)": [round(t / 1000.0, 1) for t in token_series]},
+                show_title=False,
+                suppress_legend=True,
+            )
+            _cursor_embed_chart_panel(
+                reqs, sid=sid, oid="aich", x=MARGIN, y=body_top, w=CONTENT_W, chart_h=chart_h,
+                spreadsheet_id=ss_id, chart_id=chart_id,
+                title=chart_title,
+                legend=[("Commits", BRAND_SERIES_COLORS[0]), ("Tokens (÷1K)", BRAND_SERIES_COLORS[1])],
+            )
+        except Exception as exc:
+            logger.warning("AI correlation chart embed failed: %s", exc)
+
+    takeaway = _productivity_takeaway(
+        ai,
+        "correlation",
+        f"Engineer-scoped: {int(company.get('commits') or 0)} commits vs "
+        f"{_fmt_tokens(int(company.get('total_tokens') or 0))} tokens; correlation is diagnostic, not causal.",
+    )
+    _render_takeaway_band(reqs, sid, takeaway)
+    return idx + 1
+
+
+def ai_productivity_matrix_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Per-engineer yield table and quadrant summary (tokens × GitHub output)."""
+    ai = _ai_productivity_blob(report)
+    if not ai.get("configured"):
+        return _missing_data_slide(reqs, sid, report, idx, "AI productivity matrix (requires correlation data)")
+
+    window_days = int(ai.get("window_days") or 30)
+    counts = ai.get("quadrant_counts") or {}
+    rows = ai.get("top_yield") or ai.get("individuals") or []
+
+    _slide(reqs, sid, idx)
+    _cursor_bg(reqs, sid)
+    _eng_title(reqs, sid, "AI Productivity Matrix")
+
+    kpi_y = _eng_kpi_row(
+        reqs, sid,
+        [
+            ("High tok / high out", str(int(counts.get("high_tokens_high_output") or 0))),
+            ("High tok / low out", str(int(counts.get("high_tokens_low_output") or 0))),
+            ("Low tok / high out", str(int(counts.get("low_tokens_high_output") or 0))),
+            ("Low tok / low out", str(int(counts.get("low_tokens_low_output") or 0))),
+        ],
+        y=BODY_Y,
+    )
+
+    section_y = _cursor_section_header(
+        reqs, sid, "aim", MARGIN, kpi_y + 12, CONTENT_W,
+        f"Highest yield engineers (commits / 1K tokens, {window_days}d)",
+    )
+    y = section_y + 4
+    hdr = f"{'Engineer':<28} {'Tokens':>10} {'Commits':>8} {'C/1K tok':>10}"
+    _box(reqs, f"{sid}_mh", sid, MARGIN, y, CONTENT_W, 12, hdr)
+    _style(reqs, f"{sid}_mh", 0, len(hdr), bold=True, size=8, color=GRAY, font=FONT)
+    y += 14
+    for i, row in enumerate(rows[:8]):
+        if y + 13 > _ENG_CONTENT_BOTTOM - 20:
+            break
+        email = _short_email(str(row.get("email") or ""), 22)
+        tokens = _fmt_tokens(int(row.get("tokens") or 0))
+        commits = str(int(row.get("commits") or 0))
+        cpt = row.get("commits_per_1k_tokens")
+        cpt_str = f"{cpt:g}" if isinstance(cpt, (int, float)) else "—"
+        line = f"{email:<28} {tokens:>10} {commits:>8} {cpt_str:>10}"
+        _box(reqs, f"{sid}_mr{i}", sid, MARGIN, y, CONTENT_W, 12, line)
+        _style(reqs, f"{sid}_mr{i}", 0, len(line), size=8.5, color=NAVY, font=MONO)
+        y += 13
+
+    takeaway = _productivity_takeaway(
+        ai,
+        "matrix",
+        "Quadrants split on median tokens and commits among engineers with meaningful AI usage.",
+    )
+    _render_takeaway_band(reqs, sid, takeaway)
+    return idx + 1
 
 
 def eng_enhancements_open_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:

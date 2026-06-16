@@ -1,0 +1,116 @@
+"""Render and enrichment tests for GitHub × Cursor productivity slides."""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+
+from src.deck_data_enrichment import filter_github_productivity_slides
+from src.slide_engineering_portfolio import (
+    ai_output_correlation_slide,
+    ai_productivity_matrix_slide,
+    github_engineering_output_slide,
+)
+
+
+def _github_report() -> dict:
+    return {
+        "github_productivity": {
+            "configured": True,
+            "window_days": 30,
+            "repos": ["acme/web", "acme/api"],
+            "company_engineers": {
+                "commits": 42,
+                "merged_prs": 8,
+                "lines_added": 3200,
+            },
+            "repos_summary": [
+                {"full_name": "acme/web", "commits": 25, "merged_prs": 5},
+                {"full_name": "acme/api", "commits": 17, "merged_prs": 3},
+            ],
+            "takeaways": {
+                "github_output": "42 commits and 8 merged PRs across 2 repos (30d, dev-* engineers).",
+            },
+        },
+    }
+
+
+def _ai_report() -> dict:
+    base = _github_report()
+    base["ai_productivity"] = {
+        "configured": True,
+        "window_days": 30,
+        "company": {
+            "total_tokens": 500_000,
+            "commits": 42,
+            "tokens_per_commit": 11904.76,
+            "cents_per_merged_pr": 125.0,
+            "commits_per_1k_tokens": 0.084,
+            "token_commit_correlation": 0.72,
+        },
+        "weekly_trend": [
+            {"week": "2026-W20", "label": "W20", "tokens": 120_000, "commits": 10},
+            {"week": "2026-W21", "label": "W21", "tokens": 180_000, "commits": 15},
+        ],
+        "quadrant_counts": {
+            "high_tokens_high_output": 2,
+            "high_tokens_low_output": 1,
+            "low_tokens_high_output": 1,
+            "low_tokens_low_output": 0,
+        },
+        "top_yield": [
+            {
+                "email": "dev@leandna.com",
+                "tokens": 50_000,
+                "commits": 12,
+                "commits_per_1k_tokens": 0.24,
+            },
+        ],
+        "takeaways": {
+            "correlation": "42 GitHub commits vs 500,000 Cursor tokens (30d); token↔commit r=0.72.",
+            "matrix": "Yield ranks commits per 1K tokens; high-token/low-output quadrant flags coaching candidates.",
+        },
+    }
+    return base
+
+
+def test_github_engineering_output_slide_renders():
+    reqs: list = []
+    idx = github_engineering_output_slide(reqs, "gh1", _github_report(), 0)
+    assert idx == 1
+    assert any(r.get("createSlide") for r in reqs)
+
+
+def test_ai_output_correlation_slide_renders_with_chart():
+    report = _ai_report()
+    charts = MagicMock()
+    charts.add_combo_chart.return_value = ("ss", "chart1")
+    report["_charts"] = charts
+    reqs: list = []
+    idx = ai_output_correlation_slide(reqs, "ai1", report, 0)
+    assert idx == 1
+    charts.add_combo_chart.assert_called_once()
+
+
+def test_ai_productivity_matrix_slide_renders_table():
+    reqs: list = []
+    idx = ai_productivity_matrix_slide(reqs, "mx1", _ai_report(), 0)
+    assert idx == 1
+    assert any(r.get("createShape") for r in reqs)
+
+
+def test_filter_github_productivity_slides_drops_when_unconfigured():
+    plan = [
+        {"slide_type": "github_engineering_output"},
+        {"slide_type": "ai_output_correlation"},
+        {"slide_type": "ai_productivity_matrix"},
+        {"slide_type": "data_quality"},
+    ]
+    filtered = filter_github_productivity_slides({}, plan, deck_id="engineering-portfolio")
+    assert filtered == [{"slide_type": "data_quality"}]
+
+    partial = filter_github_productivity_slides(
+        {"github_productivity": {"configured": True}},
+        plan,
+        deck_id="engineering-portfolio",
+    )
+    assert [e["slide_type"] for e in partial] == ["github_engineering_output", "data_quality"]

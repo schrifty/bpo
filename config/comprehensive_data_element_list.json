@@ -2828,6 +2828,20 @@
       ]
     },
     {
+      "path": "github_productivity.weekly",
+      "terms": [
+        "github_productivity.weekly",
+        "[report] ISO-week commit buckets (all vs engineer-scoped)"
+      ]
+    },
+    {
+      "path": "github_productivity.takeaways",
+      "terms": [
+        "github_productivity.takeaways",
+        "[report] slide takeaway strings for GitHub output slides"
+      ]
+    },
+    {
       "path": "engineer_identity",
       "terms": [
         "engineer_identity",
@@ -2853,6 +2867,41 @@
       "terms": [
         "ai_productivity.by_email",
         "[report] per-engineer Cursor × GitHub productivity metrics"
+      ]
+    },
+    {
+      "path": "ai_productivity.weekly_trend",
+      "terms": [
+        "ai_productivity.weekly_trend",
+        "[report] merged ISO-week Cursor tokens vs GitHub commits"
+      ]
+    },
+    {
+      "path": "ai_productivity.quadrant_counts",
+      "terms": [
+        "ai_productivity.quadrant_counts",
+        "[report] engineer counts per tokens×output quadrant"
+      ]
+    },
+    {
+      "path": "ai_productivity.top_yield",
+      "terms": [
+        "ai_productivity.top_yield",
+        "[report] highest commits-per-1K-tokens engineers"
+      ]
+    },
+    {
+      "path": "ai_productivity.review",
+      "terms": [
+        "ai_productivity.review",
+        "[report] high-token/low-output engineers for coaching review"
+      ]
+    },
+    {
+      "path": "ai_productivity.takeaways",
+      "terms": [
+        "ai_productivity.takeaways",
+        "[report] slide takeaway strings for AI productivity slides"
       ]
     },
     {

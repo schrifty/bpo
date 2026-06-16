@@ -55,7 +55,22 @@ sources:
     display_name: GitHub
     authority: enrichment
     env_required: []
-    env_optional: [GITHUB_TOKEN, GITHUB_API_BASE_URL]
+    env_optional: [GITHUB_TOKEN, GITHUB_ORG, GITHUB_REPOS, GITHUB_API_BASE_URL]
+    cache_ttl_env: BPO_GITHUB_CACHE_TTL_HOURS
+    default_cache_hours: 1
+    endpoints:
+      - name: org_repos
+        method: GET
+        path: /orgs/{org}/repos
+      - name: commits
+        method: GET
+        path: /repos/{owner}/{repo}/commits
+      - name: pulls
+        method: GET
+        path: /repos/{owner}/{repo}/pulls
+      - name: contributor_stats
+        method: GET
+        path: /repos/{owner}/{repo}/stats/contributors
   leandna:
     display_name: LeanDNA
     authority: enrichment
@@ -101,6 +116,9 @@ report_key_to_source_id:
   portfolio_revenue_book: salesforce
   portfolio_expansion_book: salesforce
   github: github
+  github_productivity: github
+  ai_productivity: github
+  engineer_identity: github
   leandna_shortage_trends: leandna
   leandna_item_master: leandna
   leandna_lean_projects: leandna

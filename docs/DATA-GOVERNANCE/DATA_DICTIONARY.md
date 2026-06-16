@@ -99,10 +99,17 @@
 - `github_productivity`
 - `github_productivity.by_email`
 - `github_productivity.company_engineers`
+- `github_productivity.weekly`
+- `github_productivity.takeaways`
 - `engineer_identity`
 - `ai_productivity`
 - `ai_productivity.company`
 - `ai_productivity.by_email`
+- `ai_productivity.weekly_trend`
+- `ai_productivity.quadrant_counts`
+- `ai_productivity.top_yield`
+- `ai_productivity.review`
+- `ai_productivity.takeaways`
 
 ## Cursor (Admin API)
 - `cursor_usage`
