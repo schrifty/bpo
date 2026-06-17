@@ -1425,23 +1425,10 @@ class PendoClient:
         with self._cache_lock:
             if self._feature_catalog_cache is not None and self._cache_valid(self._feature_catalog_cache_ts):
                 return self._feature_catalog_cache
-        from .pendo_preload_cache_drive import (
-            PRELOAD_KIND_FEATURE_CATALOG,
-            save_pendo_preload_payload,
-            try_load_pendo_preload_payload,
-        )
-
-        blob = try_load_pendo_preload_payload(PRELOAD_KIND_FEATURE_CATALOG, None)
-        if isinstance(blob, dict):
-            with self._cache_lock:
-                self._feature_catalog_cache = blob
-                self._feature_catalog_cache_ts = time.time()
-            return blob
         result = self.get_feature_catalog()
         with self._cache_lock:
             self._feature_catalog_cache = result
             self._feature_catalog_cache_ts = time.time()
-        save_pendo_preload_payload(PRELOAD_KIND_FEATURE_CATALOG, None, result)
         return result
 
     def get_account_info(self, account_id: str) -> dict[str, Any]:
@@ -1504,20 +1491,6 @@ class PendoClient:
                 if cached_days == days:
                     return self._visitor_cache
 
-        from .pendo_preload_cache_drive import (
-            PRELOAD_KIND_VISITORS,
-            save_pendo_preload_payload,
-            try_load_pendo_preload_payload,
-        )
-
-        blob = try_load_pendo_preload_payload(PRELOAD_KIND_VISITORS, days)
-        if isinstance(blob, dict) and "all_visitors" in blob and "all_customer_stats" in blob:
-            result = self._visitor_partition_attach_callable(blob)
-            with self._cache_lock:
-                self._visitor_cache = result
-                self._visitor_cache_ts = time.time()
-            return result
-
         now_ms = int(time.time() * 1000)
         all_visitors = self.get_visitors(days=days).get("results", [])
 
@@ -1548,8 +1521,6 @@ class PendoClient:
         with self._cache_lock:
             self._visitor_cache = result
             self._visitor_cache_ts = time.time()
-        store = {k: v for k, v in result.items() if k != "_is_internal"}
-        save_pendo_preload_payload(PRELOAD_KIND_VISITORS, days, store)
         return result
 
     def _get_page_events_cached(self, days: int) -> list[dict]:
@@ -1557,18 +1528,6 @@ class PendoClient:
             if self._page_events_cache and self._cache_valid(self._page_events_cache_ts):
                 if self._page_events_cache.get("days") == days:
                     return self._page_events_cache["results"]
-        from .pendo_preload_cache_drive import (
-            PRELOAD_KIND_PAGE_EVENTS,
-            save_pendo_preload_payload,
-            try_load_pendo_preload_payload,
-        )
-
-        blob = try_load_pendo_preload_payload(PRELOAD_KIND_PAGE_EVENTS, days)
-        if isinstance(blob, list):
-            with self._cache_lock:
-                self._page_events_cache = {"days": days, "results": blob}
-                self._page_events_cache_ts = time.time()
-            return blob
         ts = _time_series(days)
         raw = self.aggregate([
             {"source": {"pageEvents": None, "timeSeries": ts}},
@@ -1577,7 +1536,6 @@ class PendoClient:
         with self._cache_lock:
             self._page_events_cache = {"days": days, "results": results}
             self._page_events_cache_ts = time.time()
-        save_pendo_preload_payload(PRELOAD_KIND_PAGE_EVENTS, days, results)
         return results
 
     def _get_track_events_cached(self, days: int) -> list[dict]:
@@ -1585,18 +1543,6 @@ class PendoClient:
             if self._track_events_cache and self._cache_valid(self._track_events_cache_ts):
                 if self._track_events_cache.get("days") == days:
                     return self._track_events_cache["results"]
-        from .pendo_preload_cache_drive import (
-            PRELOAD_KIND_TRACK_EVENTS,
-            save_pendo_preload_payload,
-            try_load_pendo_preload_payload,
-        )
-
-        blob = try_load_pendo_preload_payload(PRELOAD_KIND_TRACK_EVENTS, days)
-        if isinstance(blob, list):
-            with self._cache_lock:
-                self._track_events_cache = {"days": days, "results": blob}
-                self._track_events_cache_ts = time.time()
-            return blob
         # Only *get_customer_kei* uses this list — it keeps rows with "kei" in pageId. A full
         # subscription extract with ``events: None`` is enormous and slow; restrict to the
         # platform classes Kei can fire on (same spirit as get_track_events, but multi-surface).
@@ -1613,7 +1559,6 @@ class PendoClient:
         with self._cache_lock:
             self._track_events_cache = {"days": days, "results": results}
             self._track_events_cache_ts = time.time()
-        save_pendo_preload_payload(PRELOAD_KIND_TRACK_EVENTS, days, results)
         return results
 
     def _get_guide_events_cached(self, days: int) -> list[dict]:
@@ -1621,18 +1566,6 @@ class PendoClient:
             if self._guide_events_cache and self._cache_valid(self._guide_events_cache_ts):
                 if self._guide_events_cache.get("days") == days:
                     return self._guide_events_cache["results"]
-        from .pendo_preload_cache_drive import (
-            PRELOAD_KIND_GUIDE_EVENTS,
-            save_pendo_preload_payload,
-            try_load_pendo_preload_payload,
-        )
-
-        blob = try_load_pendo_preload_payload(PRELOAD_KIND_GUIDE_EVENTS, days)
-        if isinstance(blob, list):
-            with self._cache_lock:
-                self._guide_events_cache = {"days": days, "results": blob}
-                self._guide_events_cache_ts = time.time()
-            return blob
         ts = _time_series(days)
         raw = self.aggregate([
             {"source": {"guideEvents": None, "timeSeries": ts}},
@@ -1641,45 +1574,21 @@ class PendoClient:
         with self._cache_lock:
             self._guide_events_cache = {"days": days, "results": results}
             self._guide_events_cache_ts = time.time()
-        save_pendo_preload_payload(PRELOAD_KIND_GUIDE_EVENTS, days, results)
         return results
 
     def _get_page_catalog_cached(self) -> dict[str, str]:
         with self._cache_lock:
             if self._page_catalog_cache is not None and self._CACHE_TTL > 0:
                 return self._page_catalog_cache
-        from .pendo_preload_cache_drive import (
-            PRELOAD_KIND_PAGE_CATALOG,
-            save_pendo_preload_payload,
-            try_load_pendo_preload_payload,
-        )
-
-        blob = try_load_pendo_preload_payload(PRELOAD_KIND_PAGE_CATALOG, None)
-        if isinstance(blob, dict):
-            with self._cache_lock:
-                self._page_catalog_cache = blob
-            return blob
         result = self.get_page_catalog()
         with self._cache_lock:
             self._page_catalog_cache = result
-        save_pendo_preload_payload(PRELOAD_KIND_PAGE_CATALOG, None, result)
         return result
 
     def _get_guide_catalog_cached(self) -> dict[str, str]:
         with self._cache_lock:
             if self._guide_catalog_cache is not None and self._CACHE_TTL > 0:
                 return self._guide_catalog_cache
-        from .pendo_preload_cache_drive import (
-            PRELOAD_KIND_GUIDE_CATALOG,
-            save_pendo_preload_payload,
-            try_load_pendo_preload_payload,
-        )
-
-        blob = try_load_pendo_preload_payload(PRELOAD_KIND_GUIDE_CATALOG, None)
-        if isinstance(blob, dict):
-            with self._cache_lock:
-                self._guide_catalog_cache = blob
-            return blob
         try:
             resp = self._http_session().get(
                 f"{self.base_url}/guide",
@@ -1691,7 +1600,6 @@ class PendoClient:
             result = {}
         with self._cache_lock:
             self._guide_catalog_cache = result
-        save_pendo_preload_payload(PRELOAD_KIND_GUIDE_CATALOG, None, result)
         return result
 
     def _get_usage_by_site_cached(self, days: int) -> dict[str, Any]:
@@ -1699,24 +1607,11 @@ class PendoClient:
             if self._usage_by_site_cache and self._cache_valid(self._usage_by_site_cache_ts):
                 if self._usage_by_site_cache.get("days") == days:
                     return self._usage_by_site_cache
-        from .pendo_preload_cache_drive import (
-            PRELOAD_KIND_USAGE_BY_SITE,
-            save_pendo_preload_payload,
-            try_load_pendo_preload_payload,
-        )
-
-        blob = try_load_pendo_preload_payload(PRELOAD_KIND_USAGE_BY_SITE, days)
-        if isinstance(blob, dict) and blob.get("days") == days:
-            with self._cache_lock:
-                self._usage_by_site_cache = blob
-                self._usage_by_site_cache_ts = time.time()
-            return blob
         result = self.get_usage_by_site(days=days)
         result["days"] = days
         with self._cache_lock:
             self._usage_by_site_cache = result
             self._usage_by_site_cache_ts = time.time()
-        save_pendo_preload_payload(PRELOAD_KIND_USAGE_BY_SITE, days, result)
         return result
 
     def _get_usage_by_site_entity_cached(self, days: int) -> dict[str, Any]:
@@ -2315,19 +2210,6 @@ class PendoClient:
                 if self._feat_events_cache.get("days") == days:
                     return self._feat_events_cache["results"]
 
-        from .pendo_preload_cache_drive import (
-            PRELOAD_KIND_FEATURE_EVENTS,
-            save_pendo_preload_payload,
-            try_load_pendo_preload_payload,
-        )
-
-        blob = try_load_pendo_preload_payload(PRELOAD_KIND_FEATURE_EVENTS, days)
-        if isinstance(blob, list):
-            with self._cache_lock:
-                self._feat_events_cache = {"days": days, "results": blob}
-                self._feat_events_cache_ts = time.time()
-            return blob
-
         ts = _time_series(days)
         raw = self.aggregate([
             {"source": {"featureEvents": None, "timeSeries": ts}},
@@ -2337,7 +2219,6 @@ class PendoClient:
         with self._cache_lock:
             self._feat_events_cache = {"days": days, "results": results}
             self._feat_events_cache_ts = time.time()
-        save_pendo_preload_payload(PRELOAD_KIND_FEATURE_EVENTS, days, results)
         return results
 
     def _visitor_info_map(self, visitors: list[dict]) -> dict[str, dict]:

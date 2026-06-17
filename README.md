@@ -11,6 +11,35 @@ cp .env.example .env   # then edit with your keys
 
 Config is in `src/config.py` (reads from env).
 
+### AWS nightly runs (ECS Fargate)
+
+Batch jobs are defined in `config/jobs/*.yaml` and executed via:
+
+```bash
+python3 decks.py run-job --job nightly-core          # local
+python3 decks.py run-job --job engineering-portfolio --dry-run
+```
+
+On AWS, build and run the container (see `Dockerfile`, `infra/` templates):
+
+```bash
+docker build -t bpo .
+docker run --rm -v "$PWD/.env:/app/.env:ro" -v "$PWD/.cache:/var/bpo/cache" \
+  -e BPO_SKIP_DOTENV=0 -e BPO_CACHE_DIR=/var/bpo/cache bpo engineering-portfolio
+```
+
+Production uses `scripts/run_job.sh` → `bootstrap_aws_env.py` (when `BPO_SECRETS_ARN` is set) → `decks run-job`.
+Set `BPO_LOG_FORMAT=json` (auto on ECS) for CloudWatch filters; stdout includes `BPO_RUN_SUMMARY={…}` and EMF metrics.
+
+| Job | Schedule (example) | YAML |
+|-----|-------------------|------|
+| Engineering portfolio | Daily 02:00 UTC | `engineering-portfolio` |
+| Portfolio batch | Daily 03:00 UTC | `portfolio-batch` |
+| Full nightly chain | — | `nightly-core` |
+| LLM export | Sunday 06:00 UTC | `export-weekly` |
+
+See `docs/DESIGN/PROPOSED_CLOUD_ARCH.md` for IAM, EFS cache mount, and alarm setup.
+
 **Required:** `PENDO_INTEGRATION_KEY`, `OPENAI_API_KEY`
 
 **Optional:** `PENDO_BASE_URL`, `PENDO_MAX_RESULTS`, `PENDO_MAX_OUTPUT_CHARS`, `LOG_LEVEL`

@@ -1,0 +1,54 @@
+{
+  "family": "bpo-decks",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "2048",
+  "memory": "4096",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/bpo-ecs-execution",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/bpo-ecs-task",
+  "containerDefinitions": [
+    {
+      "name": "bpo-decks",
+      "image": "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/bpo-decks:latest",
+      "essential": true,
+      "entryPoint": ["/app/scripts/run_job.sh"],
+      "command": ["nightly-core"],
+      "environment": [
+        {"name": "BPO_SKIP_DOTENV", "value": "1"},
+        {"name": "BPO_CACHE_DIR", "value": "/var/bpo/cache"},
+        {"name": "BPO_LOG_FORMAT", "value": "json"},
+        {"name": "BPO_FAIL_ON_INTEGRATION_WARNINGS", "value": "1"},
+        {"name": "BPO_JOB_TIMEOUT_SECONDS", "value": "7200"},
+        {"name": "BPO_SECRETS_ARN", "value": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:bpo/prod/env"}
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/bpo/decks",
+          "awslogs-region": "REGION",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "mountPoints": [
+        {
+          "sourceVolume": "bpo-cache",
+          "containerPath": "/var/bpo/cache",
+          "readOnly": false
+        }
+      ]
+    }
+  ],
+  "volumes": [
+    {
+      "name": "bpo-cache",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "fs-REPLACE",
+        "transitEncryption": "ENABLED",
+        "authorizationConfig": {
+          "accessPointId": "fsap-REPLACE",
+          "iam": "ENABLED"
+        }
+      }
+    }
+  ]
+}

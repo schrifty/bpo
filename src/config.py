@@ -2,16 +2,40 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 
-# Load .env from project root (parent of src/)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(_PROJECT_ROOT / ".env")
+
+
+def _truthy_env(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _is_aws_runtime() -> bool:
+    return bool(
+        os.environ.get("AWS_EXECUTION_ENV")
+        or os.environ.get("ECS_CONTAINER_METADATA_URI")
+        or os.environ.get("ECS_CONTAINER_METADATA_URI_V4")
+    )
+
+
+def _should_skip_dotenv() -> bool:
+    if _truthy_env("BPO_SKIP_DOTENV"):
+        return True
+    if os.environ.get("BPO_SKIP_DOTENV", "").strip().lower() in ("0", "false", "no", "off"):
+        return False
+    return _is_aws_runtime()
+
+
+if not _should_skip_dotenv():
+    load_dotenv(_PROJECT_ROOT / ".env")
 
 
 def _resolve_path_from_project_root(value: str | None) -> str | None:
@@ -34,16 +58,68 @@ def resolve_bpo_cache_root() -> Path:
 
 BPO_CACHE_ROOT = resolve_bpo_cache_root()
 
-# Logging: console shows INFO+ only. DEBUG only when running with debugger (LOG_LEVEL=DEBUG in launch.json)
+# Scheduled / unattended runs
+BPO_FAIL_ON_INTEGRATION_WARNINGS = _truthy_env("BPO_FAIL_ON_INTEGRATION_WARNINGS")
+try:
+    _job_timeout_raw = os.environ.get("BPO_JOB_TIMEOUT_SECONDS", "").strip()
+    BPO_JOB_TIMEOUT_SECONDS = max(0, int(_job_timeout_raw)) if _job_timeout_raw else 0
+except ValueError:
+    BPO_JOB_TIMEOUT_SECONDS = 0
+
+
+class _RunContextLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        from .run_context import enrich_log_record
+
+        enrich_log_record(record)
+        return True
+
+
+class _JsonLogFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        payload: dict[str, Any] = {
+            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        for key in ("run_id", "job_name", "deck_id", "customer", "phase", "event", "success"):
+            val = getattr(record, key, None)
+            if val is not None and val != "":
+                payload[key] = val
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+        return json.dumps(payload, default=str)
+
+
+def _resolve_log_format() -> str:
+    raw = os.environ.get("BPO_LOG_FORMAT", "").strip().lower()
+    if raw in ("json", "text"):
+        return raw
+    return "json" if _is_aws_runtime() else "text"
+
+
+def _configure_bpo_logger() -> logging.Logger:
+    log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+    bpo_logger = logging.getLogger("bpo")
+    bpo_logger.setLevel(getattr(logging, log_level, logging.INFO))
+    if not bpo_logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setLevel(bpo_logger.level)
+        handler.addFilter(_RunContextLogFilter())
+        if _resolve_log_format() == "json":
+            handler.setFormatter(_JsonLogFormatter())
+        else:
+            handler.setFormatter(
+                logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S")
+            )
+        bpo_logger.addHandler(handler)
+    return bpo_logger
+
+
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
-_bpo_logger = logging.getLogger("bpo")
-_bpo_logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
-if not _bpo_logger.handlers:
-    _handler = logging.StreamHandler()
-    _handler.setLevel(_bpo_logger.level)
-    _handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S"))
-    _bpo_logger.addHandler(_handler)
-logger = _bpo_logger
+BPO_LOG_FORMAT = _resolve_log_format()
+logger = _configure_bpo_logger()
 
 # Pendo API
 PENDO_BASE_URL = os.environ.get("PENDO_BASE_URL", "https://app.pendo.io/api/v1")

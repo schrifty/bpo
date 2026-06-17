@@ -1,0 +1,6 @@
+name: portfolio-batch
+stop_on_failure: true
+steps:
+  - name: portfolio-batch
+    command: portfolio
+    days: 30

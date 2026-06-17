@@ -1,0 +1,40 @@
+[
+  {
+    "AlarmName": "bpo-decks-run-failed",
+    "AlarmDescription": "BPO deck job emitted RunSuccess=0 (EMF metric)",
+    "Namespace": "BPO",
+    "MetricName": "RunSuccess",
+    "Dimensions": [{"Name": "Job", "Value": "nightly-core"}],
+    "Statistic": "Minimum",
+    "Period": 300,
+    "EvaluationPeriods": 1,
+    "Threshold": 1,
+    "ComparisonOperator": "LessThanThreshold",
+    "TreatMissingData": "breaching",
+    "AlarmActions": ["arn:aws:sns:REGION:ACCOUNT_ID:bpo-oncall"]
+  },
+  {
+    "AlarmName": "bpo-decks-log-errors",
+    "AlarmDescription": "ERROR lines in /bpo/decks log group",
+    "Metrics": [
+      {
+        "Id": "errors",
+        "MetricStat": {
+          "Metric": {
+            "Namespace": "AWS/Logs",
+            "MetricName": "IncomingLogEvents",
+            "Dimensions": [{"Name": "LogGroupName", "Value": "/bpo/decks"}]
+          },
+          "Period": 300,
+          "Stat": "Sum"
+        },
+        "ReturnData": false
+      }
+    ],
+    "EvaluationPeriods": 1,
+    "Threshold": 1,
+    "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+    "TreatMissingData": "notBreaching",
+    "AlarmActions": ["arn:aws:sns:REGION:ACCOUNT_ID:bpo-oncall"]
+  }
+]

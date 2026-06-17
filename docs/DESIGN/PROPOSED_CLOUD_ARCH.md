@@ -1,6 +1,43 @@
 # Proposed cloud architecture (AWS)
 
-Design note for running BPO in the cloud — not deployed production topology today.
+Design note for running BPO in the cloud. **Operational artifacts** live in `Dockerfile`, `scripts/run_job.sh`, `scripts/bootstrap_aws_env.py`, and `infra/` (ECS task definition, EventBridge, CloudWatch alarm templates).
+
+## Operational runbook (nightly decks)
+
+### Local parity
+
+```bash
+cp .env.example .env   # fill keys
+python3 decks.py run-job --job nightly-core --dry-run
+python3 decks.py run-job --job engineering-portfolio
+```
+
+Optional unattended strictness (matches AWS default):
+
+```bash
+export BPO_FAIL_ON_INTEGRATION_WARNINGS=1
+export BPO_LOG_FORMAT=json
+python3 decks.py run-job --job export-weekly
+```
+
+### AWS (ECS Fargate + EventBridge)
+
+1. Build/push image to ECR; register `infra/ecs-task-definition.json` (replace `ACCOUNT_ID`, `REGION`, EFS ids).
+2. Create Secrets Manager secret (JSON keys mirror `.env.example`; include `GOOGLE_SERVICE_ACCOUNT_JSON`).
+3. Mount EFS at `/var/bpo/cache`; set `BPO_CACHE_DIR=/var/bpo/cache`.
+4. CloudWatch log group `/bpo/decks` with `awslogs` driver (see task definition).
+5. EventBridge rules in `infra/eventbridge-rules.json` — **one rule per job** so failures are isolated.
+6. Alarms on `BPO.RunSuccess` EMF metric or log filter `{ $.event = "run_complete" && $.success = false }`.
+
+Each task emits:
+
+- JSON logs (`BPO_LOG_FORMAT=json`, automatic when `ECS_CONTAINER_METADATA_URI` is set)
+- `BPO_RUN_SUMMARY={"success":…,"failures":[…],…}` on stdout
+- EMF line with `BPO.RunSuccess`, `BPO.RunDurationSeconds`, `BPO.DeckFailures`, `BPO.IntegrationWarnings`
+
+On failure, `failures-<job>-<run_id>.json` is uploaded to Drive Output when configured.
+
+---
 
 BPO today only responds to **synchronous** requests (you run the script). Soon it will also:
 

@@ -1,0 +1,13 @@
+name: nightly-core
+stop_on_failure: true
+fail_on_warnings: false
+steps:
+  - name: engineering-portfolio
+    command: deck
+    deck_id: engineering-portfolio
+  - name: portfolio-batch
+    command: portfolio
+    days: 30
+  - name: upload-pendo-snapshot
+    command: upload-portfolio-snapshot
+    days: 90

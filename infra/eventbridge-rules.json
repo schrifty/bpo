@@ -1,0 +1,83 @@
+[
+  {
+    "Name": "bpo-engineering-portfolio-nightly",
+    "Description": "Engineering portfolio deck — daily 02:00 UTC",
+    "ScheduleExpression": "cron(0 2 * * ? *)",
+    "State": "ENABLED",
+    "Targets": [
+      {
+        "Id": "bpo-eng-portfolio",
+        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/bpo",
+        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/bpo-eventbridge-ecs",
+        "EcsParameters": {
+          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/bpo-decks",
+          "LaunchType": "FARGATE",
+          "PlatformVersion": "LATEST",
+          "NetworkConfiguration": {
+            "awsvpcConfiguration": {
+              "Subnets": ["subnet-REPLACE"],
+              "SecurityGroups": ["sg-REPLACE"],
+              "AssignPublicIp": "DISABLED"
+            }
+          },
+          "TaskCount": 1
+        },
+        "Input": "{\"containerOverrides\":[{\"name\":\"bpo-decks\",\"command\":[\"engineering-portfolio\"]}]}"
+      }
+    ]
+  },
+  {
+    "Name": "bpo-portfolio-batch-nightly",
+    "Description": "Portfolio deck batch — daily 03:00 UTC",
+    "ScheduleExpression": "cron(0 3 * * ? *)",
+    "State": "ENABLED",
+    "Targets": [
+      {
+        "Id": "bpo-portfolio-batch",
+        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/bpo",
+        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/bpo-eventbridge-ecs",
+        "EcsParameters": {
+          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/bpo-decks",
+          "LaunchType": "FARGATE",
+          "PlatformVersion": "LATEST",
+          "NetworkConfiguration": {
+            "awsvpcConfiguration": {
+              "Subnets": ["subnet-REPLACE"],
+              "SecurityGroups": ["sg-REPLACE"],
+              "AssignPublicIp": "DISABLED"
+            }
+          },
+          "TaskCount": 1
+        },
+        "Input": "{\"containerOverrides\":[{\"name\":\"bpo-decks\",\"command\":[\"portfolio-batch\"]}]}"
+      }
+    ]
+  },
+  {
+    "Name": "bpo-export-weekly",
+    "Description": "LLM context export — Sunday 06:00 UTC",
+    "ScheduleExpression": "cron(0 6 ? * SUN *)",
+    "State": "ENABLED",
+    "Targets": [
+      {
+        "Id": "bpo-export-weekly",
+        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/bpo",
+        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/bpo-eventbridge-ecs",
+        "EcsParameters": {
+          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/bpo-decks",
+          "LaunchType": "FARGATE",
+          "PlatformVersion": "LATEST",
+          "NetworkConfiguration": {
+            "awsvpcConfiguration": {
+              "Subnets": ["subnet-REPLACE"],
+              "SecurityGroups": ["sg-REPLACE"],
+              "AssignPublicIp": "DISABLED"
+            }
+          },
+          "TaskCount": 1
+        },
+        "Input": "{\"containerOverrides\":[{\"name\":\"bpo-decks\",\"command\":[\"export-weekly\"]}]}"
+      }
+    ]
+  }
+]

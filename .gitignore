@@ -16,6 +16,7 @@ build/
 *.json
 !.vscode/*.json
 !config/comprehensive_data_element_list.json
+!infra/*.json
 # Private key for Salesforce JWT — never commit
 server.key
 *.key

@@ -54,6 +54,10 @@ Flag commands (utilities)
       ``Output/{ISO-date} - Output/LLM-Context-All_Customers.md`` (same calendar day).
       Section 7 LLM churn/account-risk insights are always appended to the export markdown.
 
+  decks run-job --job <name> [--dry-run] [--no-json-summary]
+      Run a declarative batch job from ``config/jobs/<name>.yaml`` (or ``BPO_JOB=<name>``).
+      Steps invoke ``decks.py`` subcommands sequentially; emits ``BPO_RUN_SUMMARY=…`` on stdout.
+
   decks qbr <customer name>
       Quarterly Business Review from the Drive QBR template (single Slides file). Other decks are built with
       ``decks --customer``, ``decks run --deck …``, or ``decks --portfolio`` as needed — not as part of ``qbr``.
@@ -101,6 +105,7 @@ Generate one deck (explicit)
 """
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -531,6 +536,7 @@ def _run_deck_run_cli(rest: list[str]) -> None:
     time.sleep(10)
     t1 = time.time()
     max_retries = 3
+    portfolio_failed = False
     for attempt in range(1, max_retries + 1):
         try:
             from src.deck_variants import enrich_portfolio_report_with_revenue_book
@@ -551,6 +557,7 @@ def _run_deck_run_cli(rest: list[str]) -> None:
                     time.sleep(wait)
                     continue
             if "error" in portfolio_result:
+                portfolio_failed = True
                 print(f"  FAIL  {portfolio_result['error'][:120]}  ({p_elapsed:.0f}s)")
             else:
                 print(f"  OK    {portfolio_result.get('url', '')}  ({p_elapsed:.0f}s)")
@@ -563,10 +570,11 @@ def _run_deck_run_cli(rest: list[str]) -> None:
                 print(f"  Rate limited, retrying in {wait}s (attempt {attempt}/{max_retries})...")
                 time.sleep(wait)
             else:
+                portfolio_failed = True
                 print(f"  FAIL  {err[:120]}  ({p_elapsed:.0f}s)")
                 break
 
-    sys.exit(1 if fail else 0)
+    sys.exit(1 if (fail or portfolio_failed) else 0)
 
 
 def _run_jira_backed_deck(deck_id: str, label: str) -> None:
@@ -1163,6 +1171,27 @@ def _run_all_portfolio_decks() -> None:
     sys.exit(1 if failures else 0)
 
 
+def _run_run_job_cli(rest: list[str]) -> None:
+    import argparse
+
+    from src.job_runner import run_job
+
+    ap = argparse.ArgumentParser(prog="decks run-job", description="Run a declarative YAML batch job.")
+    ap.add_argument("--job", default=os.environ.get("BPO_JOB", "").strip() or None, help="Job name or path")
+    ap.add_argument("--dry-run", action="store_true", help="Print steps without executing")
+    ap.add_argument("--no-json-summary", action="store_true", help="Omit EMF metrics line from summary")
+    args = ap.parse_args(rest)
+    if not args.job:
+        ap.error("--job is required (or set BPO_JOB)")
+    sys.exit(
+        run_job(
+            args.job,
+            dry_run=bool(args.dry_run),
+            json_summary=not args.no_json_summary,
+        )
+    )
+
+
 def main():
     # Utility flags and explicit subcommands (``run``, ``qbr``, ``cohort``, …)
     if "--data" in sys.argv:
@@ -1311,6 +1340,9 @@ def main():
     sub = sys.argv[1]
     if sub == "run":
         _run_deck_run_cli(sys.argv[2:])
+        return
+    if sub == "run-job":
+        _run_run_job_cli(sys.argv[2:])
         return
     if sub == "cohort":
         _run_cohort_review_cli(sys.argv[2:])

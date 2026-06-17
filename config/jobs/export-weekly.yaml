@@ -1,0 +1,7 @@
+name: export-weekly
+stop_on_failure: true
+fail_on_warnings: true
+steps:
+  - name: llm-export
+    command: export
+    days: 90

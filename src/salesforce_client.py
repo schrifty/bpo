@@ -43,6 +43,17 @@ def clear_salesforce_read_cache() -> None:
         _sf_read_cache.clear()
 
 
+def salesforce_read_cache_age_hours() -> float | None:
+    """Age in hours of the oldest in-process Salesforce read cache entry, if any."""
+    if not _sf_read_cache:
+        return None
+    with _SF_READ_CACHE_LOCK:
+        if not _sf_read_cache:
+            return None
+        oldest = min(ts for ts, _ in _sf_read_cache.values())
+    return max(0.0, (time.time() - oldest) / 3600.0)
+
+
 def reset_for_tests() -> None:
     """Reset module-level Salesforce state that can leak between tests."""
     clear_salesforce_read_cache()

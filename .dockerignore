@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+.cache/
+.git/
+.pytest_cache/
+__pycache__/
+*.pyc
+.cursor/
+terminals/
+output/
+*.pem
+*.key

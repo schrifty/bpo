@@ -2011,6 +2011,13 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
             body_before_section7_bytes=md_body_before_section7_bytes,
         )
         diag.emit_stderr_summary()
+        from .config import BPO_FAIL_ON_INTEGRATION_WARNINGS
+        from .data_source_health import integration_freshness_metadata
+
+        diag.set_integration_meta(integration_freshness_metadata())
+        summary = diag.emit_run_summary(job_name="export", fail_on_warnings=BPO_FAIL_ON_INTEGRATION_WARNINGS)
+        if not summary.get("success"):
+            sys.exit(1)
 
 
 def main() -> None:
