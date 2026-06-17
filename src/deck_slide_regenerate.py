@@ -25,8 +25,12 @@ _SLIDE_TYPE_TITLES: dict[str, str | tuple[str, ...]] = {
     "cursor_usage": "Cursor AI Token Usage - Engineering",
     "cursor_usage_non_engineers": "Cursor AI Token Usage — Non-Engineering",
     "cursor_model_usage": "Cursor AI Model Usage",
+    "cursor_users_volume": "Cursor AI User Volume",
     "cursor_users": "Cursor AI Power Users",
+    "cursor_users_light": "Cursor AI Light Usage",
+    "cursor_users_non_engineers_volume": "Cursor AI User Volume — Non-Engineering",
     "cursor_users_non_engineers": "Cursor AI Power Users — Non-Engineering",
+    "cursor_users_non_engineers_light": "Cursor AI Light Usage — Non-Engineering",
     "ai_productivity_matrix": (
         "AI Productivity Matrix - Engineering",
         "AI Productivity Matrix",

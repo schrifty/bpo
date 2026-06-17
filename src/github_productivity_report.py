@@ -259,7 +259,7 @@ def build_github_productivity_report(
                 "repos": repos_raw,
                 "days": days,
                 "identity": bool(identity),
-                "schema": 2,
+                "schema": 3,
             },
         )
         cached = cache_get(cache_storage_key)
@@ -343,7 +343,7 @@ def build_github_productivity_report(
                     if when:
                         weekly_engineer_commits[_iso_week_key(when)] += 1
 
-        for pull in gh.list_pull_requests(owner, repo, state="all"):
+        for pull in gh.list_pull_requests(owner, repo, state="open", max_pulls=200):
             canonical, cycle, state = _attribute_pull(
                 pull,
                 since=since,
@@ -354,10 +354,21 @@ def build_github_productivity_report(
             if state == "open":
                 repo_open_prs += 1
                 company_open_prs += 1
-                continue
-            if state != "merged":
-                continue
+
+        for pull in gh.list_merged_pulls_since(owner, repo, since=since):
             merged_at = _parse_iso_dt(pull.get("merged_at"))
+            user_obj = pull.get("user") if isinstance(pull.get("user"), dict) else {}
+            login = str(user_obj.get("login") or "").strip().lower()
+            canonical = _resolve_contributor_login(
+                login,
+                login_to_email=login_to_email,
+                email_aliases=email_aliases,
+                engineer_emails=engineer_emails,
+            )
+            created = _parse_iso_dt(pull.get("created_at"))
+            cycle = None
+            if created and merged_at:
+                cycle = round((merged_at - created).total_seconds() / 3600, 2)
             if merged_at and merged_at >= since:
                 wk = _iso_week_key(merged_at)
                 weekly_merged_prs[wk] += 1
@@ -589,6 +600,145 @@ def compute_github_delivery_insights(productivity: dict[str, Any] | None) -> dic
     speaker_guidance = " ".join(speaker_parts)[:1200].rstrip()
 
     return {"takeaway": takeaway, "speaker_guidance": speaker_guidance}
+
+
+def compute_github_output_insights(productivity: dict[str, Any] | None) -> str:
+    """Actionable takeaway for the GitHub Engineering Output slide."""
+    if not productivity or not productivity.get("configured"):
+        return ""
+    ce = productivity.get("company_engineers") or {}
+    days = int(productivity.get("window_days") or 30)
+    commits = int(ce.get("commits") or 0)
+    merged = int(ce.get("merged_prs") or 0)
+    repos = productivity.get("repos_summary") or []
+    active = [r for r in repos if int(r.get("commits") or 0) >= 1]
+    zero_pr = [r for r in active if int(r.get("merged_prs") or 0) == 0]
+
+    signals: list[str] = []
+    if commits >= 20 and merged == 0:
+        signals.append(
+            f"{commits} commits landed but no PR merges recorded in {days}d—"
+            "audit branch policy, fork workflows, and GitHub login mapping before trusting throughput KPIs."
+        )
+    elif commits > 0 and merged > 0 and commits > merged * 4:
+        signals.append(
+            f"Commit volume ({commits}) is far ahead of merges ({merged})—"
+            "check for direct-to-main pushes or PRs opened outside tracked repos."
+        )
+    elif merged >= 5 and commits:
+        top = sorted(active, key=lambda r: int(r.get("commits") or 0), reverse=True)
+        top_share = int(top[0].get("commits") or 0) / commits * 100 if top else 0
+        if top_share >= 40:
+            short = _github_repo_short_name(top[0].get("full_name") or "")
+            signals.append(
+                f"Roughly {top_share:.0f}% of commits concentrate in {short}—"
+                "confirm reviewer staffing matches where code actually ships."
+            )
+
+    if zero_pr and len(zero_pr) <= 4:
+        names = ", ".join(_github_repo_short_name(r.get("full_name") or "") for r in zero_pr[:3])
+        extra = f" (+{len(zero_pr) - 3} more)" if len(zero_pr) > 3 else ""
+        signals.append(
+            f"{len(zero_pr)} repo(s) with commits but no merges ({names}{extra})—"
+            "verify those services use PR review rather than direct pushes."
+        )
+
+    if not signals:
+        signals.append(
+            f"{commits} commits and {merged} merged PRs across {len(active)} active repos in {days}d—"
+            "scan the repo list for uneven delivery before changing staffing."
+        )
+    return signals[0][:320].rstrip()
+
+
+def compute_github_contribution_insights(productivity: dict[str, Any] | None) -> str:
+    """Actionable takeaway for the engineer contribution slide."""
+    if not productivity or not productivity.get("configured"):
+        return ""
+    ce = productivity.get("company_engineers") or {}
+    days = int(productivity.get("window_days") or 30)
+    contributors = productivity.get("top_contributors") or []
+    merged = int(ce.get("merged_prs") or 0)
+    count = int(ce.get("contributor_count") or 0)
+
+    signals: list[str] = []
+    if count <= 0:
+        return (
+            f"No dev-* engineer PR activity mapped in {days}d—"
+            "fix GitHub login aliases before using this chart for staffing decisions."
+        )
+    if merged >= 8 and contributors:
+        top = contributors[0]
+        top_prs = int(top.get("merged_prs") or 0)
+        top_share = top_prs / merged * 100 if merged else 0
+        if top_share >= 35:
+            who = str(top.get("email") or "").split("@", 1)[0]
+            signals.append(
+                f"{who} merged {top_prs} of {merged} PRs ({top_share:.0f}%)—"
+                "rotate review load so merge throughput does not depend on one engineer."
+            )
+    if count >= 6 and merged >= 10:
+        tail = [c for c in contributors if int(c.get("merged_prs") or 0) == 0]
+        if len(tail) >= max(2, count // 3):
+            signals.append(
+                f"{len(tail)} mapped engineers show zero merges despite org activity—"
+                "coaching or identity gaps may be hiding who is actually shipping."
+            )
+
+    if not signals:
+        signals.append(
+            f"{count} active contributors merged {merged} PRs in {days}d—"
+            "use the chart to spot uneven load, not just total volume."
+        )
+    return signals[0][:320].rstrip()
+
+
+def _github_repo_short_name(full_name: str) -> str:
+    name = str(full_name or "").strip()
+    return name.split("/", 1)[1] if "/" in name else name
+
+
+def compute_github_change_insights(productivity: dict[str, Any] | None) -> str:
+    """Actionable takeaway for the GitHub Change Profile slide."""
+    if not productivity or not productivity.get("configured"):
+        return ""
+    ce = productivity.get("company_engineers") or {}
+    days = int(productivity.get("window_days") or 30)
+    adds = int(ce.get("lines_added") or 0)
+    dels = int(ce.get("lines_deleted") or 0)
+    if adds <= 0:
+        return f"No line churn recorded for dev-* engineers in {days}d."
+
+    del_pct = dels / adds * 100 if adds else 0
+    signals: list[str] = []
+    if del_pct >= 45:
+        signals.append(
+            f"Delete ratio is {del_pct:.0f}% in {days}d—"
+            "heavy churn may mean refactors or revert cycles; spot-check the noisiest repos before celebrating net lines."
+        )
+    elif del_pct <= 12 and adds >= 20_000:
+        signals.append(
+            f"Mostly additive changes ({del_pct:.0f}% deletes)—"
+            "confirm new code is covered by tests and review, not accumulating silent debt."
+        )
+
+    repos = productivity.get("repos_summary") or []
+    heavy = sorted(repos, key=lambda r: int(r.get("lines_added") or 0), reverse=True)
+    if heavy and adds:
+        top_share = int(heavy[0].get("lines_added") or 0) / adds * 100
+        if top_share >= 50:
+            short = _github_repo_short_name(heavy[0].get("full_name") or "")
+            signals.append(
+                f"Over half of added lines land in {short}—"
+                "balance reviewer attention with breadth across services."
+            )
+
+    if not signals:
+        signals.append(
+            f"{adds:,} lines added / {dels:,} deleted in {days}d—"
+            "use delete ratio and repo table to separate healthy refactors from thrash."
+        )
+    return signals[0][:320].rstrip()
 
 
 def github_qa_blob(productivity: dict[str, Any] | None) -> dict[str, Any]:

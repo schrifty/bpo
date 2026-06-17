@@ -45,6 +45,10 @@ slides:
   - slide: cursor_usage
   - slide: cursor_usage_non_engineers
   - slide: cursor_model_usage
+  - slide: cursor_users_volume
   - slide: cursor_users
+  - slide: cursor_users_light
+  - slide: cursor_users_non_engineers_volume
   - slide: cursor_users_non_engineers
+  - slide: cursor_users_non_engineers_light
   - slide: data_quality

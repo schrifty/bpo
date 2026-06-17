@@ -144,7 +144,8 @@ def _eng_title(
         sub_id = f"{sid}_sub"
         _box(reqs, sub_id, sid, MARGIN, TITLE_Y + 26, CONTENT_W, 18, sub)
         _style(reqs, sub_id, 0, len(sub), size=11.5, color=GRAY, font=FONT)
-    _rect(reqs, f"{sid}_ul", sid, MARGIN, TITLE_Y + 48, 56, 2.5, BLUE)
+    ul_y = TITLE_Y + 48 if subtitle else TITLE_Y + 26
+    _rect(reqs, f"{sid}_ul", sid, MARGIN, ul_y, 56, 2.5, BLUE)
     _internal_footer(reqs, sid)
 
 
@@ -807,11 +808,7 @@ def eng_current_sprint_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
     _style(reqs, f"{sid}_ctx", 0, len(context), size=11, color=NAVY, font=FONT)
 
-    legend = "Per theme: open items · active (in progress/review) · bugs (B, shown in red)."
-    _box(reqs, f"{sid}_lgd", sid, MARGIN, BODY_Y + 13, CONTENT_W, 12, legend)
-    _style(reqs, f"{sid}_lgd", 0, len(legend), size=8.5, color=GRAY, font=FONT)
-
-    card_y = BODY_Y + 24
+    card_y = BODY_Y + 16
     cards_y = _eng_kpi_row(
         reqs, sid,
         [
@@ -823,20 +820,25 @@ def eng_current_sprint_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
         y=card_y,
     )
 
+    legend = "Per theme: open items · active (in progress/review) · bugs (B, shown in red)."
+    legend_y = cards_y + 10
+    _box(reqs, f"{sid}_lgd", sid, MARGIN, legend_y, CONTENT_W, 12, legend)
+    _style(reqs, f"{sid}_lgd", 0, len(legend), size=8.5, color=GRAY, font=FONT)
+    theme_top = legend_y + 16
+
     # Backlog hygiene callout: most "open" items are abandoned, not active work.
     staleness = eng.get("backlog_staleness") or {}
     abandoned_open = int(staleness.get("abandoned_open") or 0)
     abandoned_pct = int(staleness.get("abandoned_pct") or 0)
     abandoned_days = int(staleness.get("abandoned_days") or 180)
-    theme_top = cards_y + 18
     if abandoned_open:
         note = (
             f"\u26a0  {abandoned_open} of {in_flight} open items ({abandoned_pct}%) untouched in "
             f">{abandoned_days}d — backlog needs triage; only {active} are actively in progress/review."
         )
-        _box(reqs, f"{sid}_stale", sid, MARGIN, cards_y + 8, CONTENT_W, 14, note)
+        _box(reqs, f"{sid}_stale", sid, MARGIN, theme_top, CONTENT_W, 14, note)
         _style(reqs, f"{sid}_stale", 0, len(note), size=9.5, color=AMBER, font=FONT)
-        theme_top = cards_y + 28
+        theme_top += 18
     theme_bottom = _ENG_CONTENT_BOTTOM
 
     # Surface real areas of work; "Untagged" (no [theme] prefix or epic link) would
@@ -858,10 +860,11 @@ def eng_current_sprint_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
 
     if themes:
         max_total = max(int(t.get("total") or 0) for t in themes) or 1
-        label_w = 150.0
+        label_w = 172.0
         count_w = 70.0
         bar_x = MARGIN + label_w
         bar_max = CONTENT_W - label_w - count_w - 6
+        theme_label_chars = max_chars_one_line_for_table_col(label_w - 4, 10.0)
         avail_rows = max(1, int((theme_bottom - y) // 22))
         for ri, theme in enumerate(themes[:avail_rows]):
             if y + 22 > theme_bottom:
@@ -869,7 +872,7 @@ def eng_current_sprint_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
             total_n = int(theme.get("total") or 0)
             active_n = int(theme.get("in_progress") or 0)
             bugs_n = int(theme.get("bugs") or 0)
-            name = _truncate_one_line(str(theme.get("theme") or "—"), 22)
+            name = _truncate_one_line(str(theme.get("theme") or "—"), theme_label_chars)
             _box(reqs, f"{sid}_tl{ri}", sid, MARGIN, y, label_w, 18, name)
             _style(reqs, f"{sid}_tl{ri}", 0, len(name), size=10, color=NAVY, font=FONT)
             bar_w = max(4, int(total_n / max_total * bar_max))
@@ -1635,10 +1638,12 @@ def eng_bug_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
     # Per ticket: meta row + subject + 2 description lines + small gap
     _bug_ticket_h = 16 + 16 + 15 + 15 + 4
     blocker_section_h = 0
+    blocker_start_y: float | None = None
     if blocker_crit:
         blocker_section_h = 18 + 18 + blocker_rows * _bug_ticket_h + 8
+        blocker_start_y = _ENG_CONTENT_BOTTOM - blocker_section_h
 
-    list_bottom_cap = _ENG_CONTENT_BOTTOM - blocker_section_h - 8
+    list_bottom_cap = (blocker_start_y - 8) if blocker_start_y is not None else _ENG_CONTENT_BOTTOM
     left_x = MARGIN
     list_w = CONTENT_W
     desc_inner_w = float(CONTENT_W - 16)
@@ -1691,8 +1696,8 @@ def eng_bug_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
         _style(reqs, f"{sid}_bsd2{bug_index}", 0, len(d2), size=8, color=GRAY, font=FONT)
         left_y += 15 + 4
 
-    if blocker_crit:
-        left_y += 6
+    if blocker_crit and blocker_start_y is not None:
+        left_y = blocker_start_y
         bh = "Blockers & Criticals"
         _box(reqs, f"{sid}_bch", sid, left_x, left_y, list_w, 16, bh)
         _style(reqs, f"{sid}_bch", 0, len(bh), bold=True, size=11, color=RED, font=FONT)
@@ -1748,6 +1753,20 @@ def _short_team_label(team: str) -> str:
     if upper.startswith("CUSTOMER"):
         return "CUSTOMER"
     return _truncate_one_line(t, 12)
+
+
+_VELOCITY_PIPELINE_LABEL_W = 86.0
+_VELOCITY_PIPELINE_ROW_H = 16.0
+_PIPELINE_STATUS_SHORT = {
+    "In Progress": "In Prog.",
+    "In Review": "Review",
+    "Selected for Development": "Selected",
+    "To Do": "To Do",
+}
+
+
+def _short_pipeline_status(status: str) -> str:
+    return _PIPELINE_STATUS_SHORT.get(status, _truncate_one_line(status, 14))
 
 
 _VELOCITY_TABLE_HEADER_H = 14
@@ -2181,15 +2200,18 @@ def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
     total_in_flight = sum(by_status.values()) or 1
     max_status = max(by_status.values()) if by_status else 1
     pct_col_w = 30
-    bar_max_w = right_w - 76 - pct_col_w - 4
+    label_w = _VELOCITY_PIPELINE_LABEL_W
+    bar_x = right_x + label_w + 4
+    bar_max_w = max(20.0, right_w - label_w - pct_col_w - 8)
     for status, count in status_items:
         pct = int(count / total_in_flight * 100)
         bar_w = max(3, int(count / max_status * bar_max_w))
         safe_status = status.replace(" ", "_").replace("/", "_")[:10]
         is_active = status in ("In Progress", "In Review")
         bar_color = BLUE if is_active else {"red": 0.75, "green": 0.80, "blue": 0.90}
-        label = f"{count}  {status}"
-        _box(reqs, f"{sid}_sl_{safe_status}", sid, right_x, right_y, 70, 13, label)
+        status_label = _short_pipeline_status(status)
+        label = f"{count}  {status_label}"
+        _box(reqs, f"{sid}_sl_{safe_status}", sid, right_x, right_y, label_w, 13, label)
         _style(
             reqs,
             f"{sid}_sl_{safe_status}",
@@ -2209,7 +2231,7 @@ def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
             color=GRAY,
             font=FONT,
         )
-        _box(reqs, f"{sid}_sb_{safe_status}", sid, right_x + 72, right_y + 3, bar_w, 8, "")
+        _box(reqs, f"{sid}_sb_{safe_status}", sid, bar_x, right_y + 3, bar_w, 8, "")
         reqs.append(
             {
                 "updateShapeProperties": {
@@ -2229,7 +2251,7 @@ def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
         pct_x = right_x + right_w - pct_col_w
         _box(reqs, f"{sid}_sp_{safe_status}", sid, pct_x, right_y, pct_col_w, 13, pct_label)
         _style(reqs, f"{sid}_sp_{safe_status}", 0, len(pct_label), size=8, color=GRAY, font=FONT)
-        right_y += 14
+        right_y += _VELOCITY_PIPELINE_ROW_H
 
     _eng_takeaway_bar(reqs, sid, report, "velocity")
     return idx + 1
@@ -3210,6 +3232,108 @@ def _cursor_users_scope(cu: dict[str, Any], audience: str) -> dict[str, Any]:
     return cu.get("users_non_engineers") or {}
 
 
+def _matrix_from_volume_users(
+    users: list[dict[str, Any]],
+    *,
+    user_limit: int = 6,
+    model_limit: int = 3,
+) -> dict[str, Any]:
+    """Stacked-bar matrix from volume-user rows (email + models[])."""
+    picked = users[:user_limit]
+    emails = [str(u.get("email") or "") for u in picked if u.get("email")]
+    if not emails:
+        return {"users": [], "models": [], "series": {}}
+
+    user_model_tokens: dict[str, dict[str, int]] = {}
+    model_totals: dict[str, int] = {}
+    for u in picked:
+        email = str(u.get("email") or "")
+        if not email:
+            continue
+        mt = {
+            str(m.get("model") or ""): int(m.get("tokens") or 0)
+            for m in (u.get("models") or [])
+            if m.get("model")
+        }
+        user_model_tokens[email] = mt
+        for model, toks in mt.items():
+            model_totals[model] = model_totals.get(model, 0) + toks
+
+    top_models = [
+        m for m, _ in sorted(model_totals.items(), key=lambda kv: kv[1], reverse=True)[:model_limit]
+    ]
+    has_other = len(model_totals) > len(top_models)
+    series: dict[str, list[int]] = {m: [] for m in top_models}
+    if has_other:
+        series["Other"] = []
+    for email in emails:
+        mt = user_model_tokens.get(email, {})
+        for m in top_models:
+            series[m].append(int(mt.get(m, 0)))
+        if has_other:
+            other = sum(t for mm, t in mt.items() if mm not in top_models)
+            series["Other"].append(int(other))
+    models = top_models + (["Other"] if has_other else [])
+    return {"users": emails, "models": models, "series": series}
+
+
+def _render_cursor_user_model_chart(
+    reqs: list[dict[str, Any]],
+    sid: str,
+    *,
+    matrix: dict[str, Any],
+    charts: Any,
+    x: float,
+    y: float,
+    w: float,
+    content_ceiling: float,
+    chart_title: str,
+    oid: str,
+) -> float:
+    """Embed a per-user model stacked bar chart; returns y below the panel."""
+    m_users = matrix.get("users") or []
+    m_models = matrix.get("models") or []
+    m_series = matrix.get("series") or {}
+    if not (m_users and m_models and charts):
+        empty = "No per-user model data in window"
+        _box(reqs, f"{sid}_{oid}e", sid, x, y, w, 14, empty)
+        _style(reqs, f"{sid}_{oid}e", 0, len(empty), size=9, color=GRAY, font=FONT)
+        return y + 14
+
+    try:
+        labels = [_short_email(u, 14) for u in m_users]
+        series = {model: [int(v) for v in (m_series.get(model) or [])] for model in m_models}
+        legend_entries = [
+            (str(m), BRAND_SERIES_COLORS[i % len(BRAND_SERIES_COLORS)])
+            for i, m in enumerate(m_models)
+        ]
+        chart_h = int(_cursor_chart_panel_reserve(
+            content_ceiling=content_ceiling, start_y=y,
+            legend_rows=len(legend_entries), legend_vertical=True,
+        ))
+        ss_id, chart_id = charts.add_bar_chart(
+            title=chart_title,
+            labels=labels,
+            series=series,
+            stacked=True,
+            show_title=False,
+            suppress_legend=True,
+        )
+        return _cursor_embed_chart_panel(
+            reqs, sid=sid, oid=oid, x=x, y=y, w=w, chart_h=chart_h,
+            spreadsheet_id=ss_id, chart_id=chart_id,
+            title=chart_title,
+            legend=legend_entries, legend_vertical=True,
+            legend_font_pt=8, legend_swatch=8,
+        )
+    except Exception as exc:
+        logger.warning("Cursor user-model chart embed failed: %s", exc)
+        empty = "Chart unavailable"
+        _box(reqs, f"{sid}_{oid}e", sid, x, y, w, 14, empty)
+        _style(reqs, f"{sid}_{oid}e", 0, len(empty), size=9, color=GRAY, font=FONT)
+        return y + 14
+
+
 def _render_cursor_users_slide(
     reqs: list[dict[str, Any]],
     sid: str,
@@ -3217,6 +3341,7 @@ def _render_cursor_users_slide(
     idx: int,
     *,
     audience: str,
+    layout: str,
 ) -> int:
     cu = _cursor_blob(report)
     if not cu.get("configured"):
@@ -3233,7 +3358,7 @@ def _render_cursor_users_slide(
     totals = scope.get("totals") or {}
     top_users = scope.get("top_users") or []
     bottom_users = scope.get("bottom_users") or []
-    matrix = scope.get("user_model_matrix") or {}
+    power_matrix = scope.get("user_model_matrix") or {}
     window_days = int(cu.get("window_days") or 30)
 
     # Audience-scoped slide: seat count / adoption / idle seats are not meaningful (the
@@ -3249,7 +3374,13 @@ def _render_cursor_users_slide(
     top3_share = int(round(top3_tokens / total_tokens * 100)) if total_tokens else 0
 
     is_engineers = audience == "engineers"
-    title = "Cursor AI Power Users" if is_engineers else "Cursor AI Power Users — Non-Engineering"
+    suffix = "" if is_engineers else " — Non-Engineering"
+    titles = {
+        "volume_lists": f"Cursor AI User Volume{suffix}",
+        "power_chart": f"Cursor AI Power Users{suffix}",
+        "light_chart": f"Cursor AI Light Usage{suffix}",
+    }
+    title = titles.get(layout, titles["power_chart"])
     takeaway_focus = "users" if is_engineers else "users_non_engineers"
     active_kpi = "Active engineers" if is_engineers else "Active users"
     scope_label = "dev-* engineers" if is_engineers else "non-engineering users"
@@ -3270,85 +3401,87 @@ def _render_cursor_users_slide(
     )
 
     body_top = kpi_y + 12
-    col_gap = 20
-    left_w = (CONTENT_W - col_gap) * 3 // 5
-    right_w = CONTENT_W - left_w - col_gap
-    left_x = MARGIN
-    right_x = MARGIN + left_w + col_gap
+    content_x = MARGIN
+    content_w = CONTENT_W
     content_ceiling = _ENG_CONTENT_BOTTOM - 6
     charts = report.get("_charts")
-
-    left_y = body_top
-    m_users = matrix.get("users") or []
-    m_models = matrix.get("models") or []
-    m_series = matrix.get("series") or {}
-    if m_users and m_models and charts:
-        try:
-            chart_title = f"Model usage by user ({scope_label}, tokens, {window_days}d)"
-            labels = [_short_email(u, 14) for u in m_users]
-            series = {model: [int(v) for v in (m_series.get(model) or [])] for model in m_models}
-            legend_entries = [
-                (str(m), BRAND_SERIES_COLORS[i % len(BRAND_SERIES_COLORS)])
-                for i, m in enumerate(m_models)
-            ]
-            chart_h = int(_cursor_chart_panel_reserve(
-                content_ceiling=content_ceiling, start_y=left_y,
-                legend_rows=len(legend_entries), legend_vertical=True,
-            ))
-            ss_id, chart_id = charts.add_bar_chart(
-                title=chart_title,
-                labels=labels,
-                series=series,
-                stacked=True,
-                show_title=False,
-                suppress_legend=True,
-            )
-            left_y = _cursor_embed_chart_panel(
-                reqs, sid=sid, oid="uchart", x=left_x, y=left_y, w=left_w, chart_h=chart_h,
-                spreadsheet_id=ss_id, chart_id=chart_id,
-                title=chart_title,
-                legend=legend_entries, legend_vertical=True,
-                legend_font_pt=8, legend_swatch=8,
-            )
-        except Exception as exc:
-            logger.warning("Cursor user-model chart embed failed: %s", exc)
-    else:
-        empty = "No per-user model data in window"
-        _box(reqs, f"{sid}_ue", sid, left_x, left_y, left_w, 14, empty)
-        _style(reqs, f"{sid}_ue", 0, len(empty), size=9, color=GRAY, font=FONT)
-
-    list_gap = 10.0
-    list_w = (right_w - list_gap) / 2.0
-    high_x = right_x
-    low_x = right_x + list_w + list_gap
     list_limit = 4
-    row_y = _cursor_section_header(
-        reqs, sid, "th", high_x, body_top, list_w, f"Highest volume ({window_days}d)",
-    )
-    _cursor_section_header(reqs, sid, "tl", low_x, body_top, list_w, f"Lowest volume ({window_days}d)")
-    _render_cursor_volume_user_list(
-        reqs, sid,
-        users=top_users, x=high_x, y=row_y, w=list_w, content_ceiling=content_ceiling,
-        oid_prefix="tu", limit=list_limit, show_models=True, row_color=NAVY,
-    )
-    _render_cursor_volume_user_list(
-        reqs, sid,
-        users=bottom_users, x=low_x, y=row_y, w=list_w, content_ceiling=content_ceiling,
-        oid_prefix="lu", limit=list_limit, show_models=False, row_color=GRAY,
-    )
 
-    _render_takeaway_band(reqs, sid, _cursor_takeaway(cu, takeaway_focus))
+    if layout == "volume_lists":
+        list_gap = 20.0
+        list_w = (content_w - list_gap) / 2.0
+        high_x = content_x
+        low_x = content_x + list_w + list_gap
+        row_y = _cursor_section_header(
+            reqs, sid, "th", high_x, body_top, list_w, f"Highest volume ({window_days}d)",
+        )
+        _cursor_section_header(reqs, sid, "tl", low_x, body_top, list_w, f"Lowest volume ({window_days}d)")
+        _render_cursor_volume_user_list(
+            reqs, sid,
+            users=top_users, x=high_x, y=row_y, w=list_w, content_ceiling=content_ceiling,
+            oid_prefix="tu", limit=list_limit, show_models=True, row_color=NAVY,
+        )
+        _render_cursor_volume_user_list(
+            reqs, sid,
+            users=bottom_users, x=low_x, y=row_y, w=list_w, content_ceiling=content_ceiling,
+            oid_prefix="lu", limit=list_limit, show_models=False, row_color=GRAY,
+        )
+        _render_takeaway_band(reqs, sid, _cursor_takeaway(cu, takeaway_focus))
+    elif layout == "power_chart":
+        chart_title = f"Model usage by power user ({scope_label}, tokens, {window_days}d)"
+        _render_cursor_user_model_chart(
+            reqs, sid,
+            matrix=power_matrix, charts=charts,
+            x=content_x, y=body_top, w=content_w, content_ceiling=content_ceiling,
+            chart_title=chart_title, oid="pchart",
+        )
+    elif layout == "light_chart":
+        light_matrix = _matrix_from_volume_users(bottom_users)
+        chart_title = f"Model usage by light users ({scope_label}, tokens, {window_days}d)"
+        _render_cursor_user_model_chart(
+            reqs, sid,
+            matrix=light_matrix, charts=charts,
+            x=content_x, y=body_top, w=content_w, content_ceiling=content_ceiling,
+            chart_title=chart_title, oid="lchart",
+        )
+
     return idx + 1
 
 
+def cursor_users_volume_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Highest/lowest token-volume lists for dev-* engineers."""
+    return _render_cursor_users_slide(reqs, sid, report, idx, audience="engineers", layout="volume_lists")
+
+
 def cursor_users_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
-    """AI Power Users for dev-* Atlassian team members."""
-    return _render_cursor_users_slide(reqs, sid, report, idx, audience="engineers")
+    """Model mix chart for dev-* engineer power users."""
+    return _render_cursor_users_slide(reqs, sid, report, idx, audience="engineers", layout="power_chart")
+
+
+def cursor_users_light_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Model mix chart for dev-* engineer light users."""
+    return _render_cursor_users_slide(reqs, sid, report, idx, audience="engineers", layout="light_chart")
+
+
+def cursor_users_non_engineers_volume_slide(
+    reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int,
+) -> int:
+    """Highest/lowest token-volume lists for non-engineering Cursor users."""
+    return _render_cursor_users_slide(
+        reqs, sid, report, idx, audience="non_engineers", layout="volume_lists",
+    )
 
 
 def cursor_users_non_engineers_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
-    """AI Power Users for non-engineering Cursor users."""
-    return _render_cursor_users_slide(reqs, sid, report, idx, audience="non_engineers")
+    """Model mix chart for non-engineering power users."""
+    return _render_cursor_users_slide(reqs, sid, report, idx, audience="non_engineers", layout="power_chart")
+
+
+def cursor_users_non_engineers_light_slide(
+    reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int,
+) -> int:
+    """Model mix chart for non-engineering light users."""
+    return _render_cursor_users_slide(reqs, sid, report, idx, audience="non_engineers", layout="light_chart")
 
 
 def _github_productivity_blob(report: dict[str, Any]) -> dict[str, Any]:
@@ -3589,6 +3722,14 @@ _GITHUB_CHANGE_TABLE_COL_WIDTHS: tuple[float, ...] = (188.0, 72.0, 72.0, 72.0, 6
 _GITHUB_CHANGE_TABLE_ALIGNS = ("START", "END", "END", "END", "END", "END")
 
 
+def _github_repo_display_name(full_name: str) -> str:
+    """Repo short name without org prefix for change-profile tables."""
+    name = str(full_name or "").strip()
+    if "/" in name:
+        return name.split("/", 1)[1]
+    return name
+
+
 def _github_change_profile_rows(repos: list[dict[str, Any]], cap: int) -> list[list[str]]:
     active = sorted(
         (
@@ -3609,7 +3750,7 @@ def _github_change_profile_rows(repos: list[dict[str, Any]], cap: int) -> list[l
         dels = int(repo.get("lines_deleted") or 0)
         net = adds - dels
         del_pct = f"{dels / adds * 100:.0f}%" if adds else "—"
-        short_name = str(repo.get("full_name") or "")[:36]
+        short_name = _github_repo_display_name(str(repo.get("full_name") or ""))
         rows.append([
             short_name,
             _fmt_tokens(adds),
@@ -3785,6 +3926,7 @@ def ai_output_correlation_slide(reqs: list[dict[str, Any]], sid: str, report: di
                 line_series={"Tokens (÷1K)": [round(t / 1000.0, 1) for t in token_series]},
                 show_title=False,
                 suppress_legend=True,
+                axis_font_size=_SPRINT_SNAPSHOT_CHART_AXIS_PT,
             )
             _cursor_embed_chart_panel(
                 reqs, sid=sid, oid="aich", x=MARGIN, y=body_top, w=CONTENT_W, chart_h=chart_h,
@@ -3886,7 +4028,7 @@ def ai_productivity_matrix_slide(reqs: list[dict[str, Any]], sid: str, report: d
 
     headers = ("Engineer", "Tokens", "Commits", "PRs", "Commits / 1K tokens", "Quadrant")
     aligns = _AI_MATRIX_TABLE_ALIGNS
-    row_h = _AI_MATRIX_TABLE_ROW_H
+    row_h = _AI_MATRIX_TABLE_FIT_ROW_H
     panel_x = MARGIN
     panel_y = kpi_y + 10
     panel_w = CONTENT_W
@@ -3899,7 +4041,7 @@ def ai_productivity_matrix_slide(reqs: list[dict[str, Any]], sid: str, report: d
     max_body_rows = _table_rows_fit_span(
         y_top=table_top,
         y_bottom=table_bottom,
-        row_height_pt=_AI_MATRIX_TABLE_FIT_ROW_H,
+        row_height_pt=row_h,
         reserved_table_rows=1,
         max_rows_cap=10,
     )

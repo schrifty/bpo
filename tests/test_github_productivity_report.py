@@ -7,7 +7,9 @@ from unittest.mock import MagicMock
 
 from src.github_productivity_report import (
     build_github_productivity_report,
+    compute_github_contribution_insights,
     compute_github_delivery_insights,
+    compute_github_output_insights,
     github_qa_blob,
 )
 
@@ -35,7 +37,8 @@ def test_build_productivity_report_aggregates(monkeypatch):
             }
         }
     ]
-    gh.list_pull_requests.return_value = [
+    gh.list_pull_requests.return_value = []
+    gh.list_merged_pulls_since.return_value = [
         {
             "state": "closed",
             "merged_at": recent,
@@ -89,7 +92,8 @@ def test_merged_prs_count_without_engineer_author_mapping(monkeypatch):
     gh.get_authenticated_user.return_value = {"login": "bot"}
     gh.get_repo.return_value = {"full_name": "acme/web", "default_branch": "main", "pushed_at": recent}
     gh.list_commits.return_value = []
-    gh.list_pull_requests.return_value = [
+    gh.list_pull_requests.return_value = []
+    gh.list_merged_pulls_since.return_value = [
         {
             "state": "closed",
             "merged_at": recent,
@@ -121,6 +125,34 @@ def test_merged_prs_count_without_engineer_author_mapping(monkeypatch):
     assert report["repos_summary"][0]["merged_prs"] == 1
     assert report["company_all"]["merged_prs"] == 1
     assert report["company_engineers"]["merged_prs"] == 0
+
+
+def test_compute_github_output_insights_flags_commit_merge_gap():
+    gp = {
+        "configured": True,
+        "window_days": 30,
+        "company_engineers": {"commits": 120, "merged_prs": 5},
+        "repos_summary": [
+            {"full_name": "acme/web", "commits": 80, "merged_prs": 4},
+            {"full_name": "acme/ml", "commits": 40, "merged_prs": 0},
+        ],
+    }
+    text = compute_github_output_insights(gp)
+    assert "ahead of merges" in text.lower() or "no merges" in text.lower()
+
+
+def test_compute_github_contribution_insights_flags_concentration():
+    gp = {
+        "configured": True,
+        "window_days": 30,
+        "company_engineers": {"merged_prs": 20, "contributor_count": 6},
+        "top_contributors": [
+            {"email": "ada@x.com", "merged_prs": 12},
+            {"email": "bob@x.com", "merged_prs": 3},
+        ],
+    }
+    text = compute_github_contribution_insights(gp)
+    assert "ada" in text.lower() or "rotate" in text.lower()
 
 
 def test_compute_github_delivery_insights_flags_review_backlog():

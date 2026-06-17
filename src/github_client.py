@@ -459,6 +459,48 @@ class GitHubClient:
             max_items=cap,
         )
 
+    def search_issues(
+        self,
+        query: str,
+        *,
+        max_items: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """GitHub issue/PR search (``/search/issues``) with page-based pagination."""
+        cap = 500 if max_items is None else max(1, int(max_items))
+        results: list[dict[str, Any]] = []
+        page = 1
+        while len(results) < cap:
+            per_page = min(_DEFAULT_PAGE_SIZE, cap - len(results))
+            data = self._get_json(
+                "/search/issues",
+                params={"q": query, "per_page": per_page, "page": page},
+            )
+            if not isinstance(data, dict):
+                break
+            batch = data.get("items") or []
+            if not isinstance(batch, list):
+                break
+            results.extend(x for x in batch if isinstance(x, dict))
+            if len(batch) < per_page:
+                break
+            page += 1
+            if page > _MAX_PAGES:
+                break
+        return results[:cap]
+
+    def list_merged_pulls_since(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        since: datetime,
+        max_pulls: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Merged PRs in a repo since *since* via search API (avoids pulls-list pagination gaps)."""
+        since_str = since.astimezone(timezone.utc).strftime("%Y-%m-%d")
+        q = f"repo:{owner}/{repo}+is:pr+is:merged+merged:>={since_str}"
+        return self.search_issues(q, max_items=max_pulls)
+
     def list_org_members(self, org: str, *, max_members: int = 500) -> list[dict[str, Any]]:
         org_name = (org or "").strip()
         if not org_name:

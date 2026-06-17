@@ -288,3 +288,103 @@ def build_ai_productivity_correlation(
             "Correlation does not imply causation.",
         ],
     }
+
+
+def compute_ai_correlation_insights(ai: dict[str, Any] | None) -> str:
+    """Actionable takeaway for the AI Spend vs GitHub Output slide."""
+    if not ai or not ai.get("configured"):
+        return ""
+    company = ai.get("company") or {}
+    days = int(ai.get("window_days") or 30)
+    commits = int(company.get("commits") or 0)
+    tokens = int(company.get("total_tokens") or 0)
+    corr = company.get("token_commit_correlation")
+    weekly = ai.get("weekly_trend") or []
+
+    signals: list[str] = []
+    if isinstance(corr, (int, float)):
+        r = float(corr)
+        if tokens >= 50_000 and commits >= 10 and abs(r) < 0.15:
+            signals.append(
+                f"Token spend and commits barely move together (r={r:.2f}) in {days}d—"
+                "AI usage is not yet translating into a consistent git-output lift; inspect per-engineer yield next."
+            )
+        elif r >= 0.45 and commits >= 10:
+            signals.append(
+                f"Tokens and commits rise together (r={r:.2f})—"
+                "high-AI weeks coincide with shipping; protect the toolchain rather than cutting spend blindly."
+            )
+        elif r <= -0.25:
+            signals.append(
+                f"Tokens and commits diverge (r={r:.2f})—"
+                "more model usage without matching git output may signal experimentation, blocked work, or bad prompts."
+            )
+
+    if weekly and len(weekly) >= 3:
+        recent = weekly[-3:]
+        tok_slope = int(recent[-1].get("tokens") or 0) - int(recent[0].get("tokens") or 0)
+        com_slope = int(recent[-1].get("commits") or 0) - int(recent[0].get("commits") or 0)
+        if tok_slope > 20_000 and com_slope <= 0:
+            signals.append(
+                "Recent weeks show rising token spend without more commits—"
+                "check whether teams are stuck in review, reworking, or using AI off the critical path."
+            )
+
+    if not signals:
+        signals.append(
+            f"{commits} commits vs {_fmt_ai_tokens(tokens)} tokens in {days}d—"
+            "treat correlation as diagnostic: compare weekly chart shape before changing AI budget or headcount."
+        )
+    return signals[0][:320].rstrip()
+
+
+def compute_ai_matrix_insights(ai: dict[str, Any] | None) -> str:
+    """Actionable takeaway for the AI Productivity Matrix slide."""
+    if not ai or not ai.get("configured"):
+        return ""
+    days = int(ai.get("window_days") or 30)
+    counts = ai.get("quadrant_counts") or {}
+    high_low = int(counts.get("high_tokens_low_output") or 0)
+    high_high = int(counts.get("high_tokens_high_output") or 0)
+    low_high = int(counts.get("low_tokens_high_output") or 0)
+    matched = int((ai.get("identity") or {}).get("matched_individuals") or 0)
+    review = ai.get("review") or []
+
+    signals: list[str] = []
+    if high_low >= 3:
+        signals.append(
+            f"{high_low} engineers sit in high-token / low-output in {days}d—"
+            "prioritize prompt coaching and PR throughput before expanding seat count."
+        )
+    elif low_high >= 3:
+        signals.append(
+            f"{low_high} engineers deliver strong output with lighter AI spend—"
+            "study their workflow for team playbooks rather than mandating more token usage."
+        )
+    elif high_high >= matched // 2 and matched >= 4:
+        signals.append(
+            "Most matched engineers are high-token and high-output—"
+            "AI spend is concentrated among people who are also shipping; watch for review bottlenecks next."
+        )
+
+    if review:
+        names = ", ".join(str(r.get("email") or "").split("@", 1)[0] for r in review[:2])
+        signals.append(
+            f"Review queue includes {names}—"
+            "pair high spend with merge cadence before labeling AI adoption a success."
+        )
+
+    if not signals:
+        signals.append(
+            f"Quadrants split on median tokens and commits ({days}d)—"
+            "use high-token/low-output as the coaching short-list, not the headline commit count."
+        )
+    return signals[0][:320].rstrip()
+
+
+def _fmt_ai_tokens(value: int) -> str:
+    if value >= 1_000_000:
+        return f"{value / 1_000_000:.1f}M"
+    if value >= 1_000:
+        return f"{value / 1_000:.0f}K"
+    return str(value)

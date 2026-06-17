@@ -1,0 +1,17 @@
+id: cursor_users_light
+type: standard
+order: 90
+title: Cursor AI Light Usage
+slide_type: cursor_users_light
+data_tools: []
+customers: all
+
+prompt: >
+  AI coding-assistant (Cursor) light-usage slide for engineering squads in the
+  engineering portfolio deck, aimed at a VP of Engineering. Scope is Dev - *
+  Atlassian engineering teams only. Four KPI cards cover active engineers, total
+  tokens, top-user share, and top-3 share. A full-width stacked bar chart shows
+  model mix by token volume for the lowest-usage engineers (under-adopted seats).
+  Pairs with the user-volume ranking slide and the power-user model-mix chart.
+  Data comes from the Cursor Team Admin API joined to Atlassian Teams; omitted
+  when CURSOR_ADMIN_API_KEY or ATLASSIAN_ORG_ID is not configured.

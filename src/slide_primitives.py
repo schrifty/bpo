@@ -19,6 +19,8 @@ from .slides_theme import (
     FONT_SERIF,
     GRAY,
     KPI_METRIC_LABEL_PT,
+    KPI_METRIC_PAD_H,
+    KPI_METRIC_PAD_V,
     LIGHT,
     MARGIN,
     NAVY,
@@ -141,17 +143,31 @@ def kpi_metric_card(
     label_pt: float = KPI_METRIC_LABEL_PT,
     value_pt: float = 18,
 ) -> None:
-    """Outlined KPI tile for app-built slides."""
+    """Outlined KPI tile for app-built slides.
+
+    Label sits ``KPI_METRIC_PAD_V`` from the top edge; value sits the same inset
+    from the bottom (``contentAlignment: BOTTOM`` on the value box).
+    """
     accent = accent or BLUE
     bar_rect(reqs, oid_base, sid, x, y, w, h, LIGHT, outline=GRAY)
-    pad = 10.0
-    inner_w = max(40.0, w - 2 * pad)
+    pad_h = KPI_METRIC_PAD_H
+    pad_v = KPI_METRIC_PAD_V
+    inner_w = max(40.0, w - 2 * pad_h)
     label, label_pt = _fit_kpi_label(label, inner_w, label_pt)
-    _box(reqs, f"{oid_base}_l", sid, x + pad, y + 8, inner_w, 12, label)
+    label_line_h = max(12.0, label_pt * 1.2)
+    label_id = f"{oid_base}_l"
+    _box(reqs, label_id, sid, x + pad_h, y + pad_v, inner_w, label_line_h, label)
+    reqs.append({
+        "updateShapeProperties": {
+            "objectId": label_id,
+            "shapeProperties": {"contentAlignment": "TOP"},
+            "fields": "contentAlignment",
+        }
+    })
     if label:
         reqs.append({
             "updateTextStyle": {
-                "objectId": f"{oid_base}_l",
+                "objectId": label_id,
                 "textRange": {"type": "ALL"},
                 "style": {
                     "fontSize": {"magnitude": label_pt, "unit": "PT"},
@@ -161,12 +177,21 @@ def kpi_metric_card(
                 "fields": "fontSize,foregroundColor,fontFamily",
             }
         })
-    value_h = max(22.0, h - 28.0)
-    _box(reqs, f"{oid_base}_v", sid, x + pad, y + 22, inner_w, value_h, value)
+    value_id = f"{oid_base}_v"
+    value_y = y + pad_v + label_line_h
+    value_h = max(16.0, h - 2 * pad_v - label_line_h)
+    _box(reqs, value_id, sid, x + pad_h, value_y, inner_w, value_h, value)
+    reqs.append({
+        "updateShapeProperties": {
+            "objectId": value_id,
+            "shapeProperties": {"contentAlignment": "BOTTOM"},
+            "fields": "contentAlignment",
+        }
+    })
     if value:
         reqs.append({
             "updateTextStyle": {
-                "objectId": f"{oid_base}_v",
+                "objectId": value_id,
                 "textRange": {"type": "ALL"},
                 "style": {
                     "bold": True,

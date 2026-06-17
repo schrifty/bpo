@@ -1,21 +1,17 @@
 id: cursor_users
 type: standard
-order: 88
+order: 89
 title: Cursor AI Power Users
 slide_type: cursor_users
 data_tools: []
 customers: all
 
 prompt: >
-  AI coding-assistant (Cursor) user-behavior slide for engineering squads in the
+  AI coding-assistant (Cursor) power-user slide for engineering squads in the
   engineering portfolio deck, aimed at a VP of Engineering. Scope is Dev - *
-  Atlassian engineering teams only (same cohort as AI Coding Spend and AI Token Usage).
-  Bottom-line subtitle states adoption, how concentrated usage is in the top user, and
-  how many seats are idle. Four KPI cards cover active engineers, adoption rate,
-  top-user share of tokens, and idle seats. A model-usage-by-user stacked bar chart
-  shows who uses what (tokens by model per power user). Side-by-side highest- and
-  lowest-volume lists show token volume per engineer (top model on power users only);
-  lowest list excludes anyone already in the highest list to surface under-adopted
-  seats. Pairs with a separate non-engineering power-users slide. Data comes from
-  the Cursor Team Admin API joined to Atlassian Teams; omitted when
-  CURSOR_ADMIN_API_KEY or ATLASSIAN_ORG_ID is not configured.
+  Atlassian engineering teams only. Four KPI cards cover active engineers, total
+  tokens, top-user share, and top-3 share. A full-width stacked bar chart shows
+  model usage by token volume for the highest-usage engineers (power users).
+  Pairs with a separate user-volume ranking slide and a light-usage model-mix
+  chart. Data comes from the Cursor Team Admin API joined to Atlassian Teams;
+  omitted when CURSOR_ADMIN_API_KEY or ATLASSIAN_ORG_ID is not configured.

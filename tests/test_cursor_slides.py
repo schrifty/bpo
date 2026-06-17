@@ -11,13 +11,18 @@ from unittest.mock import MagicMock
 from src.slide_engineering_portfolio import (
     _clamp_eng_takeaway,
     _cursor_cost_model_rows,
+    _matrix_from_volume_users,
     cursor_cost_slide,
     cursor_cost_models_slide,
     cursor_efficiency_slide,
     cursor_efficiency_engineers_slide,
     cursor_model_usage_slide,
+    cursor_users_volume_slide,
     cursor_users_slide,
+    cursor_users_light_slide,
+    cursor_users_non_engineers_volume_slide,
     cursor_users_non_engineers_slide,
+    cursor_users_non_engineers_light_slide,
     cursor_usage_slide,
     cursor_usage_non_engineers_slide,
 )
@@ -116,8 +121,10 @@ def _cursor_report() -> dict:
                  "models": [{"model": "gpt-5", "tokens": 300_000, "share": 1.0}]},
             ],
             "bottom_users": [
-                {"email": "grace@x.com", "tokens": 12_000, "events": 40},
-                {"email": "dan@x.com", "tokens": 8_500, "events": 22},
+                {"email": "grace@x.com", "tokens": 12_000, "events": 40,
+                 "models": [{"model": "gpt-5", "tokens": 12_000, "share": 1.0}]},
+                {"email": "dan@x.com", "tokens": 8_500, "events": 22,
+                 "models": [{"model": "Auto (default)", "tokens": 8_500, "share": 1.0}]},
             ],
             "user_model_matrix": {
                 "users": ["ada@x.com", "linus@x.com"],
@@ -137,7 +144,8 @@ def _cursor_report() -> dict:
                  "models": [{"model": "Auto (default)", "tokens": 80_000, "share": 1.0}]},
             ],
             "bottom_users": [
-                {"email": "cs@x.com", "tokens": 80_000, "events": 300},
+                {"email": "cs@x.com", "tokens": 80_000, "events": 300,
+                 "models": [{"model": "Auto (default)", "tokens": 80_000, "share": 1.0}]},
             ],
             "user_model_matrix": {
                 "users": ["pm@x.com", "cs@x.com"],
@@ -343,12 +351,67 @@ def test_users_slide_renders_token_volume_columns() -> None:
     for u in rep["cursor_usage"]["users_engineers"]["top_users"]:
         u["spend_cents"] = 0
     reqs: list = []
-    cursor_users_slide(reqs, "sid_w0", rep, 0)
+    cursor_users_volume_slide(reqs, "sid_w0", rep, 0)
     text = _texts(reqs)
     # Tokens still render; cost column was removed from the volume lists.
     assert "700K" in text or "700" in text
     assert "grace" in text
     assert "dan" in text
+
+
+def test_matrix_from_volume_users_builds_stacked_series() -> None:
+    users = [
+        {"email": "a@x.com", "models": [{"model": "gpt-5", "tokens": 100}]},
+        {"email": "b@x.com", "models": [{"model": "claude-4.5-sonnet", "tokens": 50}]},
+    ]
+    matrix = _matrix_from_volume_users(users)
+    assert matrix["users"] == ["a@x.com", "b@x.com"]
+    assert matrix["series"]["gpt-5"] == [100, 0]
+    assert matrix["series"]["claude-4.5-sonnet"] == [0, 50]
+
+
+def test_users_volume_slide_renders_rankings() -> None:
+    rep = _cursor_report()
+    reqs: list = []
+    cursor_users_volume_slide(reqs, "sid_wv", rep, 0)
+    assert _title(reqs, "sid_wv") == "Cursor AI User Volume"
+    text = _texts(reqs)
+    assert "Top-user share" in text
+    assert "Top-3 share" in text
+    assert "Adoption" not in text
+    assert "Idle" not in text
+    assert "Highest volume" in text
+    assert "Lowest volume" in text
+    assert "30d" in text
+    assert "ada" in text
+    assert "grace" in text
+    assert len(_chart_embeds(reqs)) == 0
+
+
+def test_users_power_slide_renders_chart() -> None:
+    rep = _cursor_report()
+    rep["_charts"] = _mock_charts()
+    reqs: list = []
+    cursor_users_slide(reqs, "sid_w", rep, 0)
+    assert _title(reqs, "sid_w") == "Cursor AI Power Users"
+    text = _texts(reqs)
+    assert "Highest volume" not in text
+    title_arg = rep["_charts"].add_bar_chart.call_args.kwargs["title"]
+    assert "power user" in title_arg
+    assert "dev-* engineers" in title_arg
+    assert len(_chart_embeds(reqs)) == 1
+
+
+def test_users_light_slide_renders_chart() -> None:
+    rep = _cursor_report()
+    rep["_charts"] = _mock_charts()
+    reqs: list = []
+    cursor_users_light_slide(reqs, "sid_wl", rep, 0)
+    assert _title(reqs, "sid_wl") == "Cursor AI Light Usage"
+    title_arg = rep["_charts"].add_bar_chart.call_args.kwargs["title"]
+    assert "light users" in title_arg
+    assert "dev-* engineers" in title_arg
+    assert len(_chart_embeds(reqs)) == 1
 
 
 def test_usage_slide_renders_tokens_and_chart_only() -> None:
@@ -407,26 +470,15 @@ def test_model_usage_slide_renders_both_audiences_and_percentages() -> None:
     assert "71%" in text  # claude requests / total requests
 
 
-def test_users_slide_renders_power_users_and_concentration() -> None:
+def test_users_non_engineers_volume_slide_renders_rankings() -> None:
     rep = _cursor_report()
-    rep["_charts"] = _mock_charts()
     reqs: list = []
-    cursor_users_slide(reqs, "sid_w", rep, 0)
-    assert _title(reqs, "sid_w") == "Cursor AI Power Users"
+    cursor_users_non_engineers_volume_slide(reqs, "sid_wnv", rep, 0)
+    assert _title(reqs, "sid_wnv") == "Cursor AI User Volume — Non-Engineering"
     text = _texts(reqs)
-    assert "Top-user share" in text
-    assert "Top-3 share" in text
-    # Scoped slide must not surface seat-based adoption/idle metrics.
-    assert "Adoption" not in text
-    assert "Idle" not in text
+    assert "Active users" in text
     assert "Highest volume" in text
-    assert "Lowest volume" in text
-    assert "30d" in text
-    title_arg = rep["_charts"].add_bar_chart.call_args.kwargs["title"]
-    assert "dev-* engineers" in title_arg
-    assert len(_chart_embeds(reqs)) == 1
-    assert "ada" in text  # short email of top user
-    assert "grace" in text  # short email of low-volume user
+    assert len(_chart_embeds(reqs)) == 0
 
 
 def test_users_non_engineers_slide_renders_scoped_power_users() -> None:
@@ -438,11 +490,21 @@ def test_users_non_engineers_slide_renders_scoped_power_users() -> None:
     text = _texts(reqs)
     assert "Active users" in text
     assert "30d" in text
+    assert "Highest volume" not in text
     title_arg = rep["_charts"].add_bar_chart.call_args.kwargs["title"]
     assert "non-engineering users" in title_arg
     assert len(_chart_embeds(reqs)) == 1
-    assert "pm" in text
-    assert "Highest volume" in text
+
+
+def test_users_non_engineers_light_slide_renders_chart() -> None:
+    rep = _cursor_report()
+    rep["_charts"] = _mock_charts()
+    reqs: list = []
+    cursor_users_non_engineers_light_slide(reqs, "sid_wnl", rep, 0)
+    assert _title(reqs, "sid_wnl") == "Cursor AI Light Usage — Non-Engineering"
+    title_arg = rep["_charts"].add_bar_chart.call_args.kwargs["title"]
+    assert "light users" in title_arg
+    assert len(_chart_embeds(reqs)) == 1
 
 
 def test_efficiency_output_slide_renders_chart() -> None:
@@ -529,7 +591,9 @@ def test_cursor_slides_emit_missing_data_when_unconfigured() -> None:
     for builder in (
         cursor_cost_slide, cursor_usage_slide, cursor_usage_non_engineers_slide,
         cursor_model_usage_slide, cursor_efficiency_slide, cursor_efficiency_engineers_slide,
-        cursor_users_slide, cursor_users_non_engineers_slide,
+        cursor_users_volume_slide, cursor_users_slide, cursor_users_light_slide,
+        cursor_users_non_engineers_volume_slide, cursor_users_non_engineers_slide,
+        cursor_users_non_engineers_light_slide,
     ):
         reqs: list = []
         builder(reqs, "sid_x", rep, 0)

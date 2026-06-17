@@ -199,5 +199,20 @@ def test_check_github_api_delegates_to_client(monkeypatch):
     assert msg is None
 
 
+def test_list_merged_pulls_since_uses_search_api():
+    since = datetime(2026, 5, 1, tzinfo=timezone.utc)
+
+    def router(method, url, params):
+        assert method == "GET"
+        assert "/search/issues" in url
+        assert "is:merged" in params["q"]
+        assert "merged:>=2026-05-01" in params["q"]
+        return _FakeResponse(200, {"items": [{"number": 1, "merged_at": "2026-05-10T12:00:00Z"}]})
+
+    gh = _client(_FakeSession(router=router))
+    pulls = gh.list_merged_pulls_since("acme", "web", since=since)
+    assert len(pulls) == 1
+
+
 def test_github_configured():
     assert github_configured() in (True, False)

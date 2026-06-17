@@ -171,41 +171,30 @@ def _attach_productivity_takeaways(
     ai_productivity: dict[str, Any] | None,
 ) -> None:
     if github_productivity and github_productivity.get("configured"):
-        ce = github_productivity.get("company_engineers") or {}
-        days = int(github_productivity.get("window_days") or 30)
-        github_productivity["takeaways"] = {
-            "github_output": (
-                f"{int(ce.get('commits') or 0)} commits and {int(ce.get('merged_prs') or 0)} merged PRs "
-                f"across {len(github_productivity.get('repos') or [])} repos ({days}d, dev-* engineers)."
-            ),
-            "github_contribution": (
-                f"{int(ce.get('contributor_count') or 0)} active contributors merged "
-                f"{int(ce.get('merged_prs') or 0)} PRs in {days}d (dev-* engineers)."
-            ),
-            "github_change": (
-                f"{int(ce.get('lines_added') or 0):,} lines added and "
-                f"{int(ce.get('lines_deleted') or 0):,} deleted ({days}d, dev-* engineers)."
-            ),
-        }
-        from .github_productivity_report import compute_github_delivery_insights
+        from .github_productivity_report import (
+            compute_github_change_insights,
+            compute_github_contribution_insights,
+            compute_github_delivery_insights,
+            compute_github_output_insights,
+        )
 
         delivery = compute_github_delivery_insights(github_productivity)
         github_productivity["delivery_insights"] = delivery
-        github_productivity["takeaways"]["github_delivery"] = delivery["takeaway"]
+        github_productivity["takeaways"] = {
+            "github_output": compute_github_output_insights(github_productivity),
+            "github_contribution": compute_github_contribution_insights(github_productivity),
+            "github_change": compute_github_change_insights(github_productivity),
+            "github_delivery": delivery["takeaway"],
+        }
     if ai_productivity and ai_productivity.get("configured"):
-        co = ai_productivity.get("company") or {}
-        days = int(ai_productivity.get("window_days") or 30)
-        corr = co.get("token_commit_correlation")
-        corr_txt = f"{corr:.2f}" if isinstance(corr, (int, float)) else "n/a"
+        from .ai_productivity_correlation import (
+            compute_ai_correlation_insights,
+            compute_ai_matrix_insights,
+        )
+
         ai_productivity["takeaways"] = {
-            "correlation": (
-                f"{int(co.get('commits') or 0)} GitHub commits vs "
-                f"{int(co.get('total_tokens') or 0):,} Cursor tokens ({days}d); "
-                f"token↔commit r={corr_txt}."
-            ),
-            "matrix": (
-                "Yield ranks commits per 1K tokens; high-token/low-output quadrant flags coaching candidates."
-            ),
+            "correlation": compute_ai_correlation_insights(ai_productivity),
+            "matrix": compute_ai_matrix_insights(ai_productivity),
         }
 
 
