@@ -22,7 +22,7 @@ _SLIDE_TYPE_TITLES: dict[str, str] = {
     "cursor_cost_models": "Cursor AI Spend by Model",
     "cursor_efficiency": "Cursor AI Coding Efficiency - Engineering",
     "cursor_efficiency_engineers": "Cursor - Most Efficient Engineers",
-    "cursor_usage": "Cursor AI Token Usage",
+    "cursor_usage": "Cursor AI Token Usage - Engineering",
     "cursor_usage_non_engineers": "Cursor AI Token Usage — Non-Engineering",
     "cursor_model_usage": "Cursor AI Model Usage",
     "cursor_users": "Cursor AI Power Users",

@@ -2702,7 +2702,7 @@ def _render_cursor_usage_slide(
     events = int(totals.get("event_count") or 0)
 
     is_engineers = audience == "engineers"
-    title = "Cursor AI Token Usage" if is_engineers else "Cursor AI Token Usage — Non-Engineering"
+    title = "Cursor AI Token Usage - Engineering" if is_engineers else "Cursor AI Token Usage — Non-Engineering"
     takeaway_focus = "usage" if is_engineers else "usage_non_engineers"
     scope_label = "dev-* engineers" if is_engineers else "non-engineering users"
 

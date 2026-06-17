@@ -356,7 +356,7 @@ def test_usage_slide_renders_tokens_and_chart_only() -> None:
     rep["_charts"] = _mock_charts()
     reqs: list = []
     cursor_usage_slide(reqs, "sid_u", rep, 0)
-    assert _title(reqs, "sid_u") == "Cursor AI Token Usage"
+    assert _title(reqs, "sid_u") == "Cursor AI Token Usage - Engineering"
     text = _texts(reqs)
     assert "Input tokens" in text and "Output tokens" in text
     assert "30d" in text
