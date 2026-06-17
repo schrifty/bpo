@@ -7,7 +7,11 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .engineer_identity_map import canonicalize_email, load_github_email_aliases
+from .engineer_identity_map import (
+    canonicalize_email,
+    load_github_email_aliases,
+    roster_email_for_github_login,
+)
 from .github_cache import cache_get, cache_key, cache_set
 from .github_client import (
     GitHubClient,
@@ -136,6 +140,8 @@ def _resolve_contributor_login(
             engineer_emails=engineer_emails or None,
         )
     if not canonical and engineer_emails:
+        canonical = roster_email_for_github_login(login, engineer_emails)
+    if not canonical and engineer_emails:
         for email in engineer_emails:
             local = email.split("@", 1)[0].lower()
             if login == local:
@@ -248,7 +254,13 @@ def build_github_productivity_report(
     if use_cache:
         cache_storage_key = cache_key(
             "productivity_report",
-            {"org": org_name, "repos": repos_raw, "days": days, "identity": bool(identity)},
+            {
+                "org": org_name,
+                "repos": repos_raw,
+                "days": days,
+                "identity": bool(identity),
+                "schema": 2,
+            },
         )
         cached = cache_get(cache_storage_key)
         if cached is not None:
@@ -470,6 +482,113 @@ def build_github_productivity_report(
     if cache_storage_key:
         cache_set(cache_storage_key, result)
     return result
+
+
+def _format_pr_cycle_human(hours: Any) -> str:
+    if not isinstance(hours, (int, float)):
+        return "unknown"
+    h = float(hours)
+    return f"{h:.0f}h" if h < 48 else f"{h / 24:.1f}d"
+
+
+def compute_github_delivery_insights(productivity: dict[str, Any] | None) -> dict[str, str]:
+    """Derive executive takeaway and speaker guidance for the delivery-flow slide."""
+    empty = {"takeaway": "", "speaker_guidance": ""}
+    if not productivity or not productivity.get("configured"):
+        return empty
+
+    ce = productivity.get("company_engineers") or {}
+    org = productivity.get("company_all") or {}
+    weekly = productivity.get("weekly") or []
+    days = int(productivity.get("window_days") or 30)
+
+    open_prs = int(org.get("open_prs") or 0)
+    merged_prs = int(ce.get("merged_prs") or 0)
+    releases = int(org.get("releases") or 0)
+    median_h = ce.get("median_pr_cycle_hours")
+
+    signals: list[str] = []
+
+    if merged_prs <= 0 and open_prs <= 0:
+        signals.append(
+            f"No merged PR activity recorded for dev-* engineers in {days}d—"
+            "treat throughput KPIs as unavailable until GitHub identity mapping and PR fetch are confirmed."
+        )
+    elif open_prs >= 25 and merged_prs > 0 and open_prs >= merged_prs:
+        signals.append(
+            f"Review backlog is building ({open_prs} open vs {merged_prs} merged in {days}d)—"
+            "staff review capacity and WIP limits before starting more parallel work."
+        )
+    elif open_prs > 0 and merged_prs >= open_prs * 3:
+        signals.append(
+            f"Throughput is clearing the queue ({merged_prs} merged vs {open_prs} open in {days}d)—"
+            "maintain reviewer rotation so merge velocity does not slip."
+        )
+
+    if weekly:
+        recent = weekly[-4:] if len(weekly) >= 4 else weekly
+        recent_commits = sum(int(w.get("engineer_commits") or 0) for w in recent)
+        recent_merges = sum(int(w.get("engineer_merged_prs") or 0) for w in recent)
+        if recent_commits >= 15 and recent_merges == 0:
+            signals.append(
+                "Recent weeks show coding activity without PR merges—"
+                "check for direct-to-main commits, fork workflows, or PRs stuck outside the tracked repos."
+            )
+        elif recent_commits >= 15 and recent_merges > 0 and recent_commits > recent_merges * 2:
+            signals.append(
+                "Commits are outpacing PR merges in recent weeks—"
+                "ask whether work is batching in branches or bypassing review."
+            )
+        elif recent_commits >= 10 and recent_merges >= 5 and recent_merges >= recent_commits * 0.25:
+            signals.append(
+                "Weekly commits and merges are moving together—"
+                "delivery is flowing through PRs rather than piling up as unreviewed code."
+            )
+
+    if isinstance(median_h, (int, float)):
+        cycle_txt = _format_pr_cycle_human(median_h)
+        if float(median_h) <= 24:
+            signals.append(f"Median PR cycle is ~{cycle_txt}—review feedback is fast enough to unblock daily work.")
+        elif float(median_h) <= 48:
+            signals.append(f"Median PR cycle is ~{cycle_txt}—within a normal 1–2 day review band.")
+        else:
+            signals.append(
+                f"Median PR cycle is ~{cycle_txt}—hunt for stale approvals, oversized PRs, and teams waiting on one reviewer."
+            )
+
+    if merged_prs >= 8 and releases == 0:
+        signals.append(
+            f"No releases tagged in {days}d despite {merged_prs} merges—"
+            "confirm whether production ship cadence is tracked elsewhere or delivery stops at merge."
+        )
+
+    if not signals:
+        signals.append(
+            f"Use the weekly chart to compare coding bursts to merge throughput; "
+            f"{open_prs} PRs remain open while {merged_prs} landed in {days}d."
+        )
+
+    takeaway = signals[0]
+    if len(signals) > 1 and len(takeaway) < 220:
+        takeaway = f"{signals[0]} {signals[1]}"
+    takeaway = takeaway[:320].rstrip()
+
+    cycle_label = _format_pr_cycle_human(median_h)
+    speaker_parts = [
+        "Use this slide to judge whether Engineering is shipping through review or accumulating hidden WIP.",
+        (
+            f"In the last {days} days the org has {open_prs} open PRs, dev-* engineers merged {merged_prs} PRs, "
+            f"and median review cycle is ~{cycle_label}."
+        ),
+    ]
+    speaker_parts.extend(signals[:3])
+    speaker_parts.append(
+        "If open PRs rise while weekly merges flatten, redirect staff to review and split large PRs; "
+        "if commits run ahead of merges, audit direct-push paths and branch policies."
+    )
+    speaker_guidance = " ".join(speaker_parts)[:1200].rstrip()
+
+    return {"takeaway": takeaway, "speaker_guidance": speaker_guidance}
 
 
 def github_qa_blob(productivity: dict[str, Any] | None) -> dict[str, Any]:

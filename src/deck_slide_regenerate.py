@@ -7,8 +7,8 @@ from typing import Any
 
 from .config import logger
 from .deck_builder_utils import _build_slide_jql_speaker_notes, _normalize_builder_return
-from .deck_data_enrichment import enrich_cursor_usage_if_needed
-from .deck_governance import _CURSOR_SLIDE_TYPES
+from .deck_data_enrichment import enrich_cursor_usage_if_needed, enrich_github_productivity_if_needed
+from .deck_governance import _CURSOR_SLIDE_TYPES, _GITHUB_PRODUCTIVITY_SLIDE_TYPES
 from .deck_loader import resolve_deck
 from .deck_orchestrator import _PORTFOLIO_DRIVE_TITLE_TAIL
 from .hydrate_extract import extract_text
@@ -17,7 +17,7 @@ from .slide_utils import slide_object_id_base as _slide_object_id_base
 from .slides_api import _get_service, presentations_batch_update_chunked
 from .speaker_notes import set_speaker_notes_batch
 
-_SLIDE_TYPE_TITLES: dict[str, str] = {
+_SLIDE_TYPE_TITLES: dict[str, str | tuple[str, ...]] = {
     "cursor_cost": "Cursor AI Coding Spend",
     "cursor_cost_models": "Cursor AI Spend by Model",
     "cursor_efficiency": "Cursor AI Coding Efficiency - Engineering",
@@ -27,6 +27,10 @@ _SLIDE_TYPE_TITLES: dict[str, str] = {
     "cursor_model_usage": "Cursor AI Model Usage",
     "cursor_users": "Cursor AI Power Users",
     "cursor_users_non_engineers": "Cursor AI Power Users — Non-Engineering",
+    "ai_productivity_matrix": (
+        "AI Productivity Matrix - Engineering",
+        "AI Productivity Matrix",
+    ),
 }
 
 _PRESENTATION_ID_RE = re.compile(r"/presentation/d/([a-zA-Z0-9_-]+)")
@@ -40,14 +44,24 @@ def parse_presentation_id(value: str) -> str:
     return raw
 
 
+def _slide_title_aliases(title: str | tuple[str, ...]) -> tuple[str, ...]:
+    if isinstance(title, tuple):
+        return title
+    return (title,)
+
+
 def infer_slide_type_from_page(slide: dict[str, Any]) -> str | None:
     """Best-effort slide_type match from on-slide title text."""
     texts: list[str] = []
     for element in slide.get("pageElements") or []:
         texts.extend(extract_text(element))
     blob = "\n".join(texts)
-    # Match longer titles first (engineers vs non-engineering variants).
-    for slide_type, title in sorted(_SLIDE_TYPE_TITLES.items(), key=lambda kv: -len(kv[1])):
+    ranked: list[tuple[str, str]] = []
+    for slide_type, title in _SLIDE_TYPE_TITLES.items():
+        for alias in _slide_title_aliases(title):
+            ranked.append((slide_type, alias))
+    ranked.sort(key=lambda kv: -len(kv[1]))
+    for slide_type, title in ranked:
         if title in blob:
             return slide_type
     return None
@@ -168,9 +182,18 @@ def regenerate_deck_slides(
     rep["_drive_svc"] = drive_service
 
     cursor_plan = [plan_by_type[st] for _, _, st in targets if st in plan_by_type]
-    enrich_cursor_usage_if_needed(rep, cursor_plan, deck_id=deck_id)
-    if not (rep.get("cursor_usage") or {}).get("configured"):
+    need_github = bool(set(slide_types) & _GITHUB_PRODUCTIVITY_SLIDE_TYPES)
+    enrich_plan = slide_plan if need_github else cursor_plan
+    enrich_cursor_usage_if_needed(rep, enrich_plan, deck_id=deck_id)
+    if need_github:
+        enrich_github_productivity_if_needed(rep, deck_id=deck_id)
+    if set(slide_types) & _CURSOR_SLIDE_TYPES and not (rep.get("cursor_usage") or {}).get("configured"):
         return {"error": "Cursor usage not configured — set CURSOR_ADMIN_API_KEY", "presentation_id": pres_id}
+    if need_github and not (rep.get("ai_productivity") or {}).get("configured"):
+        return {
+            "error": "AI productivity not configured — requires Cursor + GitHub enrichment",
+            "presentation_id": pres_id,
+        }
 
     from .charts import DeckCharts
 

@@ -3574,7 +3574,8 @@ def github_delivery_flow_slide(reqs: list[dict[str, Any]], sid: str, report: dic
     takeaway = _productivity_takeaway(
         gp,
         "github_delivery",
-        f"{int(org.get('open_prs') or 0)} open PRs vs {int(company.get('merged_prs') or 0)} merged in {window_days}d.",
+        (gp.get("delivery_insights") or {}).get("takeaway")
+        or "Compare weekly commits to merged PRs to spot review bottlenecks and WIP buildup.",
     )
     _render_takeaway_band(reqs, sid, takeaway)
     return idx + 1
@@ -3804,6 +3805,62 @@ def ai_output_correlation_slide(reqs: list[dict[str, Any]], sid: str, report: di
     return idx + 1
 
 
+_AI_MATRIX_PANEL_PAD = 2.0
+_AI_MATRIX_TABLE_ROW_H = 20.0
+_AI_MATRIX_TABLE_FIT_ROW_H = 25.0
+_AI_MATRIX_TABLE_HEADER_PT = 8.0
+_AI_MATRIX_TABLE_BODY_PT = 8.0
+_AI_MATRIX_TABLE_COL_WIDTHS: tuple[float, ...] = (168.0, 68.0, 56.0, 48.0, 88.0, 96.0)
+_AI_MATRIX_TABLE_ALIGNS = ("START", "END", "END", "END", "END", "START")
+_AI_MATRIX_QUADRANT_KPI: tuple[tuple[str, str], ...] = (
+    ("high_tokens_high_output", "High token / high out"),
+    ("high_tokens_low_output", "High token / low out"),
+    ("low_tokens_high_output", "Low token / high out"),
+    ("low_tokens_low_output", "Low token / low out"),
+)
+_AI_MATRIX_QUADRANT_CELL = {
+    "high_tokens_high_output": "High / high",
+    "high_tokens_low_output": "High / low",
+    "low_tokens_high_output": "Low / high",
+    "low_tokens_low_output": "Low / low",
+}
+
+
+def _ai_matrix_table_rows(ai: dict[str, Any], cap: int) -> list[list[str]]:
+    """Ranked engineer rows for the productivity matrix table."""
+    from .ai_productivity_correlation import _MIN_TOKENS_FOR_RANK, _quadrant
+
+    medians = ai.get("medians") or {}
+    med_tokens = float(medians.get("tokens") or 0.0)
+    med_commits = float(medians.get("commits") or 0.0)
+    ranked = [
+        row
+        for row in (ai.get("individuals") or [])
+        if int(row.get("tokens") or 0) >= _MIN_TOKENS_FOR_RANK
+    ]
+    ranked.sort(
+        key=lambda r: (float(r.get("commits_per_1k_tokens") or 0), int(r.get("commits") or 0)),
+        reverse=True,
+    )
+    cap = max(1, cap)
+    body: list[list[str]] = []
+    for row in ranked[:cap]:
+        tokens_n = int(row.get("tokens") or 0)
+        commits_n = int(row.get("commits") or 0)
+        q_key = _quadrant(tokens_n, commits_n, med_tokens=med_tokens, med_commits=med_commits)
+        cpt = row.get("commits_per_1k_tokens")
+        cpt_str = f"{cpt:g}" if isinstance(cpt, (int, float)) else "—"
+        body.append([
+            _short_email(str(row.get("email") or ""), 24),
+            _fmt_tokens(tokens_n),
+            str(commits_n),
+            str(int(row.get("merged_prs") or 0)),
+            cpt_str,
+            _AI_MATRIX_QUADRANT_CELL.get(q_key, "—"),
+        ])
+    return body
+
+
 def ai_productivity_matrix_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
     """Per-engineer yield table and quadrant summary (tokens × GitHub output)."""
     ai = _ai_productivity_blob(report)
@@ -3812,49 +3869,97 @@ def ai_productivity_matrix_slide(reqs: list[dict[str, Any]], sid: str, report: d
 
     window_days = int(ai.get("window_days") or 30)
     counts = ai.get("quadrant_counts") or {}
-    rows = ai.get("top_yield") or ai.get("individuals") or []
 
     _slide(reqs, sid, idx)
     _cursor_bg(reqs, sid)
-    _eng_title(reqs, sid, "AI Productivity Matrix")
+    _eng_title(reqs, sid, "AI Productivity Matrix - Engineering")
 
     kpi_y = _eng_kpi_row(
         reqs, sid,
         [
-            ("High tok / high out", str(int(counts.get("high_tokens_high_output") or 0))),
-            ("High tok / low out", str(int(counts.get("high_tokens_low_output") or 0))),
-            ("Low tok / high out", str(int(counts.get("low_tokens_high_output") or 0))),
-            ("Low tok / low out", str(int(counts.get("low_tokens_low_output") or 0))),
+            (label, str(int(counts.get(key) or 0)))
+            for key, label in _AI_MATRIX_QUADRANT_KPI
         ],
         y=BODY_Y,
+        h=48.0,
     )
 
-    section_y = _cursor_section_header(
-        reqs, sid, "aim", MARGIN, kpi_y + 12, CONTENT_W,
-        f"Highest yield engineers (commits / 1K tokens, {window_days}d)",
+    headers = ("Engineer", "Tokens", "Commits", "PRs", "Commits / 1K tokens", "Quadrant")
+    aligns = _AI_MATRIX_TABLE_ALIGNS
+    row_h = _AI_MATRIX_TABLE_ROW_H
+    panel_x = MARGIN
+    panel_y = kpi_y + 10
+    panel_w = CONTENT_W
+    panel_pad = _AI_MATRIX_PANEL_PAD
+    inner_w = panel_w - 2 * panel_pad
+    col_widths = _scale_col_widths(_AI_MATRIX_TABLE_COL_WIDTHS, inner_w)
+    table_x = panel_x + panel_pad
+    table_top = panel_y + panel_pad
+    table_bottom = _ENG_TAKEAWAY_Y - 18
+    max_body_rows = _table_rows_fit_span(
+        y_top=table_top,
+        y_bottom=table_bottom,
+        row_height_pt=_AI_MATRIX_TABLE_FIT_ROW_H,
+        reserved_table_rows=1,
+        max_rows_cap=10,
     )
-    y = section_y + 4
-    hdr = f"{'Engineer':<28} {'Tokens':>10} {'Commits':>8} {'C/1K tok':>10}"
-    _box(reqs, f"{sid}_mh", sid, MARGIN, y, CONTENT_W, 12, hdr)
-    _style(reqs, f"{sid}_mh", 0, len(hdr), bold=True, size=8, color=GRAY, font=FONT)
-    y += 14
-    for i, row in enumerate(rows[:8]):
-        if y + 13 > _ENG_CONTENT_BOTTOM - 20:
-            break
-        email = _short_email(str(row.get("email") or ""), 22)
-        tokens = _fmt_tokens(int(row.get("tokens") or 0))
-        commits = str(int(row.get("commits") or 0))
-        cpt = row.get("commits_per_1k_tokens")
-        cpt_str = f"{cpt:g}" if isinstance(cpt, (int, float)) else "—"
-        line = f"{email:<28} {tokens:>10} {commits:>8} {cpt_str:>10}"
-        _box(reqs, f"{sid}_mr{i}", sid, MARGIN, y, CONTENT_W, 12, line)
-        _style(reqs, f"{sid}_mr{i}", 0, len(line), size=8.5, color=NAVY, font=MONO)
-        y += 13
+    body_rows = _ai_matrix_table_rows(ai, max_body_rows)
+    if not body_rows:
+        return _missing_data_slide(reqs, sid, report, idx, "AI productivity matrix (no engineer matches in window)")
 
+    num_rows = 1 + len(body_rows)
+    panel_h = 2 * panel_pad + num_rows * row_h
+    _bar_rect(reqs, f"{sid}_aimpnl", sid, panel_x, panel_y, panel_w, panel_h, WHITE, outline=GRAY)
+    table_id = f"{sid}_aimtbl"
+    reqs.append({
+        "createTable": {
+            "objectId": table_id,
+            "elementProperties": {
+                "pageObjectId": sid,
+                "size": _sz(inner_w, num_rows * row_h),
+                "transform": _tf(table_x, table_top),
+            },
+            "rows": num_rows,
+            "columns": len(headers),
+        }
+    })
+    _clean_table(reqs, table_id, num_rows, len(headers))
+    _table_column_widths(reqs, table_id, col_widths)
+
+    for ci, head in enumerate(headers):
+        _table_cell_text(reqs, table_id, 0, ci, head)
+        _table_cell_style(
+            reqs, table_id, 0, ci, len(head),
+            bold=True, color=GRAY, size=_AI_MATRIX_TABLE_HEADER_PT, font=FONT, align=aligns[ci],
+        )
+
+    engineer_chars = max_chars_one_line_for_table_col(col_widths[0], _AI_MATRIX_TABLE_BODY_PT)
+    for ri, cells in enumerate(body_rows, start=1):
+        cells = list(cells)
+        cells[0] = _truncate_one_line(cells[0], engineer_chars)
+        for ci, text in enumerate(cells):
+            if not text:
+                continue
+            _table_cell_text(reqs, table_id, ri, ci, text)
+            font = FONT if ci in (0, 5) else MONO
+            _table_cell_style(
+                reqs, table_id, ri, ci, len(text),
+                bold=False, color=NAVY, size=_AI_MATRIX_TABLE_BODY_PT, font=font, align=aligns[ci],
+            )
+
+    ranked_count = len([
+        row for row in (ai.get("individuals") or [])
+        if int(row.get("tokens") or 0) >= 1000
+    ])
+    omitted = ranked_count - len(body_rows)
     takeaway = _productivity_takeaway(
         ai,
         "matrix",
-        "Quadrants split on median tokens and commits among engineers with meaningful AI usage.",
+        (
+            f"Ranked by commits per 1K tokens ({window_days}d, dev-* engineers). "
+            f"Quadrants split on median token usage and commits."
+            + (f" {omitted} more engineer(s) not shown." if omitted > 0 else "")
+        ),
     )
     _render_takeaway_band(reqs, sid, takeaway)
     return idx + 1

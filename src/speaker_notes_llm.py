@@ -278,6 +278,16 @@ def enrich_speaker_notes_with_management_guidance(
         hydrate_replacements=hydrate_replacements,
         slide_copy_excerpt=slide_copy_excerpt,
     )
+    st = (slide_type or (entry or {}).get("slide_type") or (entry or {}).get("id") or "").strip()
+    if st == "github_delivery_flow":
+        gp = (report or {}).get("github_productivity") or {}
+        static = (gp.get("delivery_insights") or {}).get("speaker_guidance") or ""
+        if not static and gp.get("configured"):
+            from .github_productivity_report import compute_github_delivery_insights
+
+            static = compute_github_delivery_insights(gp).get("speaker_guidance") or ""
+        if static:
+            paragraph = static
     if not paragraph:
         return base
 

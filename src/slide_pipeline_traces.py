@@ -533,6 +533,60 @@ def data_quality_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]
     return rows
 
 
+def github_delivery_flow_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Speaker-note rows for GitHub Delivery Flow."""
+    gp = report.get("github_productivity") or {}
+    if not gp.get("configured"):
+        return []
+
+    from .github_productivity_report import compute_github_delivery_insights
+
+    ce = gp.get("company_engineers") or {}
+    org = gp.get("company_all") or {}
+    days = int(gp.get("window_days") or 30)
+    insights = gp.get("delivery_insights") or compute_github_delivery_insights(gp)
+    median = ce.get("median_pr_cycle_hours")
+
+    rows = [
+        {
+            "description": "Open PRs (org-wide queue)",
+            "source": "GitHub REST",
+            "query": f"{int(org.get('open_prs') or 0)} open pull requests across tracked repos (snapshot at report time)",
+        },
+        {
+            "description": f"Merged PRs ({days}d, dev-* engineers)",
+            "source": "GitHub REST",
+            "query": (
+                f"{int(ce.get('merged_prs') or 0)} merged PRs attributed to dev-* roster via login/email mapping "
+                f"since {gp.get('since') or f'last {days} days'}"
+            ),
+        },
+        {
+            "description": "Median PR cycle",
+            "source": "GitHub REST",
+            "query": (
+                f"Median hours from PR open to merge for dev-* engineers: {median if median is not None else 'n/a'}"
+            ),
+        },
+        {
+            "description": f"Releases ({days}d)",
+            "source": "GitHub REST",
+            "query": f"{int(org.get('releases') or 0)} published releases in window across tracked repos",
+        },
+        {
+            "description": "Weekly throughput chart",
+            "source": "GitHub REST",
+            "query": "ISO-week buckets of engineer-scoped commits (bars) vs merged PRs (line) from github_productivity.weekly",
+        },
+        {
+            "description": "Executive read",
+            "source": "BPO",
+            "query": insights.get("speaker_guidance") or insights.get("takeaway") or "",
+        },
+    ]
+    return rows
+
+
 CANONICAL_PIPELINE_TRACES: dict[str, Any] = {
     "health": health_snapshot_pipeline_traces,
     "benchmarks": peer_benchmarks_pipeline_traces,
@@ -547,6 +601,7 @@ CANONICAL_PIPELINE_TRACES: dict[str, Any] = {
     "cohort_findings": cohort_findings_pipeline_traces,
     "cs_notable": cs_notable_pipeline_traces,
     "data_quality": data_quality_pipeline_traces,
+    "github_delivery_flow": github_delivery_flow_pipeline_traces,
 }
 
 

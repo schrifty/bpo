@@ -24,8 +24,12 @@ def _github_report() -> dict:
             "takeaways": {
                 "github_output": "42 commits and 8 merged PRs across 2 repos (30d, dev-* engineers).",
                 "github_contribution": "4 active contributors merged 8 PRs in 30d.",
-                "github_delivery": "3 open PRs vs 8 merged in 30d.",
+                "github_delivery": "Review backlog is building—prioritize reviewer capacity before adding parallel work.",
                 "github_change": "3,200 lines added and 800 deleted (30d).",
+            },
+            "delivery_insights": {
+                "takeaway": "Review backlog is building—prioritize reviewer capacity before adding parallel work.",
+                "speaker_guidance": "Use this slide to judge whether Engineering is shipping through review or accumulating hidden WIP.",
             },
             "top_contributors": [
                 {"email": "dev@leandna.com", "commits": 25, "merged_prs": 5, "lines_net": 2000},
@@ -87,12 +91,29 @@ def _ai_report() -> dict:
             "low_tokens_high_output": 1,
             "low_tokens_low_output": 0,
         },
-        "top_yield": [
+        "medians": {"tokens": 40_000, "commits": 10},
+        "individuals": [
             {
                 "email": "dev@leandna.com",
                 "tokens": 50_000,
                 "commits": 12,
+                "merged_prs": 4,
                 "commits_per_1k_tokens": 0.24,
+            },
+            {
+                "email": "peer@leandna.com",
+                "tokens": 30_000,
+                "commits": 8,
+                "merged_prs": 2,
+                "commits_per_1k_tokens": 0.27,
+            },
+        ],
+        "top_yield": [
+            {
+                "email": "peer@leandna.com",
+                "tokens": 30_000,
+                "commits": 8,
+                "commits_per_1k_tokens": 0.27,
             },
         ],
         "takeaways": {
@@ -149,6 +170,10 @@ def test_github_delivery_flow_slide_renders_with_chart():
     idx = github_delivery_flow_slide(reqs, "gdf", report, 0)
     assert idx == 1
     charts.add_combo_chart.assert_called_once()
+    text = " ".join(
+        r["insertText"]["text"] for r in reqs if isinstance(r, dict) and "insertText" in r
+    )
+    assert "open PRs vs" not in text.lower() or "backlog" in text.lower() or "review" in text.lower()
 
 
 def test_github_change_profile_slide_renders_table():
@@ -173,7 +198,17 @@ def test_ai_productivity_matrix_slide_renders_table():
     reqs: list = []
     idx = ai_productivity_matrix_slide(reqs, "mx1", _ai_report(), 0)
     assert idx == 1
-    assert any(r.get("createShape") for r in reqs)
+    assert any(r.get("createTable") for r in reqs)
+    text = " ".join(
+        r["insertText"]["text"] for r in reqs if isinstance(r, dict) and "insertText" in r
+    )
+    assert "AI Productivity Matrix - Engineering" in text
+    assert "High token / high out" in text
+    assert "Commits / 1K tokens" in text
+    assert "C/1K tok" not in text
+    assert "High tok /" not in text
+    assert "Low tok /" not in text
+    assert "peer@leandna.com" in text or "peer" in text
 
 
 def test_filter_cursor_only_slide_plan(monkeypatch):

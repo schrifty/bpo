@@ -182,16 +182,16 @@ def _attach_productivity_takeaways(
                 f"{int(ce.get('contributor_count') or 0)} active contributors merged "
                 f"{int(ce.get('merged_prs') or 0)} PRs in {days}d (dev-* engineers)."
             ),
-            "github_delivery": (
-                f"{int((github_productivity.get('company_all') or {}).get('open_prs') or 0)} open PRs vs "
-                f"{int(ce.get('merged_prs') or 0)} merged in {days}d; median review cycle "
-                f"{ce.get('median_pr_cycle_hours') or 'n/a'}h."
-            ),
             "github_change": (
                 f"{int(ce.get('lines_added') or 0):,} lines added and "
                 f"{int(ce.get('lines_deleted') or 0):,} deleted ({days}d, dev-* engineers)."
             ),
         }
+        from .github_productivity_report import compute_github_delivery_insights
+
+        delivery = compute_github_delivery_insights(github_productivity)
+        github_productivity["delivery_insights"] = delivery
+        github_productivity["takeaways"]["github_delivery"] = delivery["takeaway"]
     if ai_productivity and ai_productivity.get("configured"):
         co = ai_productivity.get("company") or {}
         days = int(ai_productivity.get("window_days") or 30)

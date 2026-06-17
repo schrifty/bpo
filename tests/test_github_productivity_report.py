@@ -5,7 +5,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
-from src.github_productivity_report import build_github_productivity_report, github_qa_blob
+from src.github_productivity_report import (
+    build_github_productivity_report,
+    compute_github_delivery_insights,
+    github_qa_blob,
+)
 
 
 def _identity() -> dict:
@@ -117,6 +121,38 @@ def test_merged_prs_count_without_engineer_author_mapping(monkeypatch):
     assert report["repos_summary"][0]["merged_prs"] == 1
     assert report["company_all"]["merged_prs"] == 1
     assert report["company_engineers"]["merged_prs"] == 0
+
+
+def test_compute_github_delivery_insights_flags_review_backlog():
+    gp = {
+        "configured": True,
+        "window_days": 30,
+        "company_all": {"open_prs": 40, "releases": 2},
+        "company_engineers": {"merged_prs": 20, "median_pr_cycle_hours": 23.6},
+        "weekly": [
+            {"engineer_commits": 50, "engineer_merged_prs": 8},
+            {"engineer_commits": 45, "engineer_merged_prs": 6},
+        ],
+    }
+    insights = compute_github_delivery_insights(gp)
+    assert "backlog" in insights["takeaway"].lower() or "open" in insights["takeaway"].lower()
+    assert "median_pr_cycle_hours" not in insights["speaker_guidance"]
+    assert "23" in insights["speaker_guidance"] or "24h" in insights["speaker_guidance"]
+
+
+def test_compute_github_delivery_insights_detects_commit_merge_gap():
+    gp = {
+        "configured": True,
+        "window_days": 30,
+        "company_all": {"open_prs": 5, "releases": 1},
+        "company_engineers": {"merged_prs": 12, "median_pr_cycle_hours": 18},
+        "weekly": [
+            {"engineer_commits": 40, "engineer_merged_prs": 2},
+            {"engineer_commits": 35, "engineer_merged_prs": 1},
+        ],
+    }
+    insights = compute_github_delivery_insights(gp)
+    assert "outpac" in insights["takeaway"].lower() or "commits" in insights["takeaway"].lower()
 
 
 def test_build_productivity_report_uses_cache(monkeypatch):
