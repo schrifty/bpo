@@ -45,6 +45,7 @@ from .slides_theme import (
     MAX_PAGINATED_SLIDE_PAGES,
     MONO,
     CURSOR_BG,
+    GITHUB_BG,
     NAVY,
     SLIDE_H,
     SLIDE_W,
@@ -174,6 +175,30 @@ def eng_toc_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], 
         _style(reqs, desc_id, 0, len(desc), size=10.5, color=GRAY, font=FONT)
         y += row_h
 
+    return idx + 1
+
+
+def eng_divider_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Section divider for engineering portfolio chapters (GitHub, Cursor, etc.)."""
+    entry = report.get("_current_slide") or {}
+    section_title = str(entry.get("title") or "").strip()
+    title_key = section_title.casefold()
+    if "cursor" in title_key:
+        bg, title_color = CURSOR_BG, NAVY
+    elif "github" in title_key:
+        bg, title_color = GITHUB_BG, NAVY
+    else:
+        bg, title_color = NAVY, WHITE
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, bg)
+    if section_title:
+        _box(reqs, f"{sid}_sec", sid, MARGIN, SLIDE_H * 0.38, CONTENT_W, 56, section_title)
+        _style(
+            reqs, f"{sid}_sec", 0, len(section_title),
+            bold=True, size=32, color=title_color, font=FONT_SERIF,
+        )
+    _internal_footer(reqs, sid)
     return idx + 1
 
 
@@ -2357,6 +2382,14 @@ def _cursor_bg(reqs: list[dict[str, Any]], sid: str) -> None:
     _bg(reqs, sid, CURSOR_BG)
 
 
+def _github_bg(reqs: list[dict[str, Any]], sid: str) -> None:
+    """Light-green background shared by GitHub productivity slides."""
+    _bg(reqs, sid, GITHUB_BG)
+
+
+_GITHUB_REPO_ROW_STEP = 11.0
+
+
 def _cursor_takeaway(cu: dict[str, Any], focus: str) -> str:
     """Per-slide takeaway, falling back to the legacy single ``takeaway`` field."""
     takeaways = cu.get("takeaways") or {}
@@ -3342,8 +3375,15 @@ def github_engineering_output_slide(reqs: list[dict[str, Any]], sid: str, report
     repos = gp.get("repos_summary") or []
 
     _slide(reqs, sid, idx)
-    _cursor_bg(reqs, sid)
+    _github_bg(reqs, sid)
     _eng_title(reqs, sid, "GitHub Engineering Output")
+
+    active_repos = sorted(
+        (r for r in repos if int(r.get("commits") or 0) >= 1),
+        key=lambda r: int(r.get("commits") or 0),
+        reverse=True,
+    )
+    repos_updated = len(active_repos)
 
     kpi_y = _eng_kpi_row(
         reqs, sid,
@@ -3351,33 +3391,37 @@ def github_engineering_output_slide(reqs: list[dict[str, Any]], sid: str, report
             (f"Commits ({window_days}d)", str(int(company.get("commits") or 0))),
             ("Merged PRs", str(int(company.get("merged_prs") or 0))),
             ("Lines added", _fmt_tokens(int(company.get("lines_added") or 0))),
-            ("Repos tracked", str(len(gp.get("repos") or []))),
+            ("Repos Updated", str(repos_updated)),
         ],
         y=BODY_Y,
     )
 
     body_top = kpi_y + 12
+    list_top = body_top + 4
+    list_ceiling = _ENG_CONTENT_BOTTOM - 4
+    max_rows = max(1, int((list_ceiling - list_top) / _GITHUB_REPO_ROW_STEP))
+    display_repos = active_repos[:max_rows]
+    header = f"Repositories with commits ({window_days}d)"
+    if len(active_repos) > len(display_repos):
+        header += f" — {len(display_repos)} of {len(active_repos)} shown"
     section_y = _cursor_section_header(
         reqs, sid, "ghr", MARGIN, body_top, CONTENT_W,
-        f"Top repositories by commits ({window_days}d)",
+        header,
     )
-    y = section_y + 4
-    sorted_repos = sorted(repos, key=lambda r: int(r.get("commits") or 0), reverse=True)
-    for i, row in enumerate(sorted_repos[:8]):
-        if y + 14 > _ENG_CONTENT_BOTTOM:
-            break
+    y = section_y + 2
+    for i, row in enumerate(display_repos):
         name = str(row.get("full_name") or "")[:42]
         commits = int(row.get("commits") or 0)
         prs = int(row.get("merged_prs") or 0)
         line = f"{name}  —  {commits} commits, {prs} merged PRs"
-        _box(reqs, f"{sid}_gr{i}", sid, MARGIN, y, CONTENT_W, 13, line)
-        _style(reqs, f"{sid}_gr{i}", 0, len(line), size=8.5, color=NAVY, font=FONT)
-        y += 14
+        _box(reqs, f"{sid}_gr{i}", sid, MARGIN, y, CONTENT_W, 11, line)
+        _style(reqs, f"{sid}_gr{i}", 0, len(line), size=8, color=NAVY, font=FONT)
+        y += _GITHUB_REPO_ROW_STEP
 
     takeaway = _productivity_takeaway(
         gp,
         "github_output",
-        f"{int(company.get('commits') or 0)} commits across {len(gp.get('repos') or [])} repos in {window_days}d.",
+        f"{int(company.get('commits') or 0)} commits across {repos_updated} repos in {window_days}d.",
     )
     _render_takeaway_band(reqs, sid, takeaway)
     return idx + 1

@@ -71,6 +71,48 @@ def test_github_qa_blob():
     assert blob["user_login"] == "bot"
 
 
+def test_merged_prs_count_without_engineer_author_mapping(monkeypatch):
+    monkeypatch.setattr("src.github_productivity_report.github_configured", lambda: True)
+    recent = datetime.now(timezone.utc).strftime("%Y-%m-%dT12:00:00Z")
+
+    gh = MagicMock()
+    gh.get_authenticated_user.return_value = {"login": "bot"}
+    gh.get_repo.return_value = {"full_name": "acme/web", "default_branch": "main", "pushed_at": recent}
+    gh.list_commits.return_value = []
+    gh.list_pull_requests.return_value = [
+        {
+            "state": "closed",
+            "merged_at": recent,
+            "created_at": recent,
+            "updated_at": recent,
+            "user": {"login": "xyzzy_unmapped"},
+        }
+    ]
+    gh.list_releases.return_value = []
+    gh.get_contributor_stats.return_value = []
+
+    monkeypatch.setattr(
+        "src.github_productivity_report._resolve_repo_specs",
+        lambda **kw: [("acme", "web")],
+    )
+    monkeypatch.setattr(
+        "src.github_productivity_report.load_github_email_aliases",
+        lambda: ({}, {}),
+    )
+    monkeypatch.setattr("src.github_productivity_report.cache_get", lambda *a, **k: None)
+
+    report = build_github_productivity_report(
+        window_days=14,
+        client=gh,
+        identity=_identity(),
+        use_cache=False,
+    )
+    assert report is not None
+    assert report["repos_summary"][0]["merged_prs"] == 1
+    assert report["company_all"]["merged_prs"] == 1
+    assert report["company_engineers"]["merged_prs"] == 0
+
+
 def test_build_productivity_report_uses_cache(monkeypatch):
     monkeypatch.setattr("src.github_productivity_report.github_configured", lambda: True)
     cached = {"configured": True, "company_engineers": {"commits": 99}}

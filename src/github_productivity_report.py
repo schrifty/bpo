@@ -74,6 +74,54 @@ def _finalize_person(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _resolve_contributor_login(
+    login: str,
+    *,
+    login_to_email: dict[str, str],
+    email_aliases: dict[str, str],
+    engineer_emails: set[str],
+) -> str | None:
+    """Map a GitHub login to a canonical email when possible."""
+    login = login.strip().lower()
+    if not login:
+        return None
+    canonical = login_to_email.get(login)
+    if not canonical:
+        canonical = email_aliases.get(f"{login}@users.noreply.github.com")
+    if not canonical:
+        canonical = canonicalize_email(
+            f"{login}@users.noreply.github.com",
+            email_aliases=email_aliases,
+            login_to_email=login_to_email,
+            engineer_emails=engineer_emails or None,
+        )
+    if not canonical and engineer_emails:
+        for email in engineer_emails:
+            local = email.split("@", 1)[0].lower()
+            if login == local:
+                canonical = email
+                break
+    if canonical and login not in login_to_email:
+        login_to_email[login] = canonical
+    if engineer_emails and canonical and canonical not in engineer_emails:
+        return None
+    return canonical
+
+
+def _repo_contributor_lines_totals(stats: list[dict[str, Any]], *, since: datetime) -> tuple[int, int]:
+    """Sum weekly contributor additions/deletions for a repo within the lookback window."""
+    since_ts = since.timestamp()
+    adds = dels = 0
+    for row in stats:
+        for week in row.get("weeks") or []:
+            if not isinstance(week, dict):
+                continue
+            if float(week.get("w") or 0) >= since_ts - 7 * 86400:
+                adds += int(week.get("a") or 0)
+                dels += int(week.get("d") or 0)
+    return adds, dels
+
+
 def _contributor_lines_in_window(
     stats: list[dict[str, Any]], *, since: datetime, login_to_email: dict[str, str], engineer_emails: set[str]
 ) -> dict[str, dict[str, int]]:
@@ -84,10 +132,13 @@ def _contributor_lines_in_window(
     for row in stats:
         author = row.get("author") if isinstance(row.get("author"), dict) else {}
         login = str(author.get("login") or "").strip().lower()
-        canonical = login_to_email.get(login)
+        canonical = _resolve_contributor_login(
+            login,
+            login_to_email=login_to_email,
+            email_aliases=email_aliases,
+            engineer_emails=engineer_emails,
+        )
         if not canonical:
-            continue
-        if engineer_emails and canonical not in engineer_emails:
             continue
         adds = dels = 0
         for week in row.get("weeks") or []:
@@ -119,11 +170,12 @@ def _attribute_pull(
     if merged_at and merged_at >= since:
         user_obj = pull.get("user") if isinstance(pull.get("user"), dict) else {}
         login = str(user_obj.get("login") or "").strip().lower()
-        canonical = login_to_email.get(login)
-        if not canonical and login:
-            canonical = email_aliases.get(f"{login}@users.noreply.github.com")
-        if engineer_emails and canonical and canonical not in engineer_emails:
-            canonical = None
+        canonical = _resolve_contributor_login(
+            login,
+            login_to_email=login_to_email,
+            email_aliases=email_aliases,
+            engineer_emails=engineer_emails,
+        )
         created = _parse_iso_dt(pull.get("created_at"))
         cycle = None
         if created and merged_at:
@@ -244,21 +296,22 @@ def build_github_productivity_report(
                 repo_open_prs += 1
                 company_open_prs += 1
                 continue
-            if state != "merged" or not canonical:
+            if state != "merged":
                 continue
             repo_all["merged_prs"] += 1
             company_all["merged_prs"] += 1
-            person = all_by_email.setdefault(canonical, _blank_person())
-            person["merged_prs"] += 1
-            if cycle is not None:
-                person.setdefault("_cycle_hours", []).append(cycle)
-            if engineer_emails and canonical in engineer_emails:
-                eng = engineer_by_email.setdefault(canonical, _blank_person())
-                eng["merged_prs"] += 1
+            if canonical:
+                person = all_by_email.setdefault(canonical, _blank_person())
+                person["merged_prs"] += 1
                 if cycle is not None:
-                    eng.setdefault("_cycle_hours", []).append(cycle)
-                repo_engineers["merged_prs"] += 1
-                company_engineers["merged_prs"] += 1
+                    person.setdefault("_cycle_hours", []).append(cycle)
+                if engineer_emails and canonical in engineer_emails:
+                    eng = engineer_by_email.setdefault(canonical, _blank_person())
+                    eng["merged_prs"] += 1
+                    if cycle is not None:
+                        eng.setdefault("_cycle_hours", []).append(cycle)
+                    repo_engineers["merged_prs"] += 1
+                    company_engineers["merged_prs"] += 1
 
         for rel in gh.list_releases(owner, repo, limit=30):
             published = _parse_iso_dt(rel.get("published_at") or rel.get("created_at"))
@@ -268,16 +321,17 @@ def build_github_productivity_report(
 
         try:
             stats = gh.get_contributor_stats(owner, repo)
+            repo_adds, repo_dels = _repo_contributor_lines_totals(stats, since=since)
+            repo_all["lines_added"] += repo_adds
+            repo_all["lines_deleted"] += repo_dels
+            company_all["lines_added"] += repo_adds
+            company_all["lines_deleted"] += repo_dels
             for canonical, lines in _contributor_lines_in_window(
-                stats, since=since, login_to_email=login_to_email, engineer_emails=set()
+                stats, since=since, login_to_email=login_to_email, engineer_emails=engineer_emails
             ).items():
                 person = all_by_email.setdefault(canonical, _blank_person())
                 person["lines_added"] += lines["lines_added"]
                 person["lines_deleted"] += lines["lines_deleted"]
-                repo_all["lines_added"] += lines["lines_added"]
-                repo_all["lines_deleted"] += lines["lines_deleted"]
-                company_all["lines_added"] += lines["lines_added"]
-                company_all["lines_deleted"] += lines["lines_deleted"]
                 if engineer_emails and canonical in engineer_emails:
                     eng = engineer_by_email.setdefault(canonical, _blank_person())
                     eng["lines_added"] += lines["lines_added"]

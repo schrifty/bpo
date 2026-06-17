@@ -150,6 +150,7 @@ BLACK = {"red": 0.0, "green": 0.0, "blue": 0.0}         # metric labels on LIGHT
 KPI_METRIC_LABEL_PT = 10.0
 LIGHT = {"red": 0.933, "green": 0.941, "blue": 0.953}    # #eef0f3  light background
 CURSOR_BG = {"red": 0.910, "green": 0.957, "blue": 0.988}  # #e8f4fc  Cursor slide background
+GITHUB_BG = {"red": 0.910, "green": 0.969, "blue": 0.910}  # #e8f7e8  GitHub slide background
 FONT = "Source Sans Pro"
 FONT_SERIF = "IBM Plex Serif"
 MONO = "Source Sans 3"

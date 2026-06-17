@@ -28,6 +28,13 @@ slides:
   - slide: eng_bug_flow
   - slide: eng_backlog_health
   - slide: eng_support_pressure
+  - slide: eng_divider
+    title: Github Insights
+  - slide: github_engineering_output
+  - slide: ai_output_correlation
+  - slide: ai_productivity_matrix
+  - slide: eng_divider
+    title: Cursor Insights
   - slide: cursor_cost
   - slide: cursor_cost_models
   - slide: cursor_efficiency
@@ -37,7 +44,4 @@ slides:
   - slide: cursor_model_usage
   - slide: cursor_users
   - slide: cursor_users_non_engineers
-  - slide: github_engineering_output
-  - slide: ai_output_correlation
-  - slide: ai_productivity_matrix
   - slide: data_quality

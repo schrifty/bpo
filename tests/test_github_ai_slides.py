@@ -78,6 +78,24 @@ def test_github_engineering_output_slide_renders():
     idx = github_engineering_output_slide(reqs, "gh1", _github_report(), 0)
     assert idx == 1
     assert any(r.get("createSlide") for r in reqs)
+    text = " ".join(
+        r["insertText"]["text"] for r in reqs if isinstance(r, dict) and "insertText" in r
+    )
+    assert "Repos Updated" in text
+    assert "Repos tracked" not in text
+
+
+def test_eng_divider_slide_renders_section_title():
+    from src.slide_engineering_portfolio import eng_divider_slide
+
+    reqs: list = []
+    report = {"_current_slide": {"title": "Github Insights"}}
+    idx = eng_divider_slide(reqs, "div1", report, 0)
+    assert idx == 1
+    text = " ".join(
+        r["insertText"]["text"] for r in reqs if isinstance(r, dict) and "insertText" in r
+    )
+    assert "Github Insights" in text
 
 
 def test_ai_output_correlation_slide_renders_with_chart():
