@@ -651,7 +651,7 @@ def _build_efficiency(
         "accepted_lines_per_1k_tokens": lines_per_1k,
         "cost_per_accepted_line_cents": cents_per_line,
         "daily": daily,
-        "top_efficiency": per_user[:TOP_USERS_LIMIT],
+        "top_efficiency": per_user,
     }
 
 

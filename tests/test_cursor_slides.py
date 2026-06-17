@@ -466,12 +466,62 @@ def test_efficiency_engineers_slide_renders_ranking() -> None:
     rep = _cursor_report()
     reqs: list = []
     cursor_efficiency_engineers_slide(reqs, "sid_ee", rep, 0)
-    assert _title(reqs, "sid_ee") == "Cursor AI Most Efficient Engineers - Engineering"
+    assert _title(reqs, "sid_ee") == "Cursor - Most Efficient Engineers"
     text = _texts(reqs)
     assert "Most efficient engineers" in text
     assert "ada" in text
     assert "Lines kept" not in text
+    assert "Tab + agent accepted lines vs. model-API cost" in text
     assert len(_chart_embeds(reqs)) == 0
+    value_styles = [
+        r["updateTextStyle"]
+        for r in reqs
+        if isinstance(r, dict) and "updateTextStyle" in r
+        and str(r["updateTextStyle"].get("objectId", "")).endswith("_v")
+    ]
+    assert value_styles
+    assert all(s["style"]["fontSize"]["magnitude"] == 9 for s in value_styles)
+    from src.slides_theme import NAVY
+    assert all(
+        s["style"]["foregroundColor"]["opaqueColor"]["rgbColor"] == NAVY for s in value_styles
+    )
+
+
+def test_efficiency_engineers_slide_footnote_above_takeaway() -> None:
+    from src.slide_engineering_portfolio import (
+        _EFF_ENGINEERS_FOOTNOTE_ABOVE_TAKEAWAY,
+        _EFF_ENGINEERS_FOOTNOTE_H,
+        _ENG_TAKEAWAY_Y,
+    )
+
+    rep = _cursor_report()
+    reqs: list = []
+    cursor_efficiency_engineers_slide(reqs, "sid_ee", rep, 0)
+    expected_y = _ENG_TAKEAWAY_Y - 3.0 - _EFF_ENGINEERS_FOOTNOTE_ABOVE_TAKEAWAY - _EFF_ENGINEERS_FOOTNOTE_H
+    footnote = next(
+        r for r in reqs
+        if isinstance(r, dict)
+        and r.get("createShape", {}).get("objectId") == "sid_ee_efn"
+    )
+    assert footnote["createShape"]["elementProperties"]["transform"]["translateY"] == expected_y
+
+
+def test_efficiency_engineers_slide_fits_many_rows() -> None:
+    rep = _cursor_report()
+    rep["cursor_usage"]["efficiency"]["top_efficiency"] = [
+        {"email": f"user{i}@x.com", "lines_per_1k_tokens": 100 - i}
+        for i in range(25)
+    ]
+    reqs: list = []
+    cursor_efficiency_engineers_slide(reqs, "sid_ee", rep, 0)
+    bar_labels = [
+        r["createShape"]["objectId"]
+        for r in reqs
+        if isinstance(r, dict)
+        and r.get("createShape", {}).get("objectId", "").startswith("sid_ee_ef")
+        and str(r["createShape"]["objectId"]).endswith("_l")
+    ]
+    assert len(bar_labels) >= 15
 
 
 def test_cursor_slides_emit_missing_data_when_unconfigured() -> None:

@@ -51,6 +51,7 @@ from .slides_theme import (
     TITLE_Y,
     WHITE,
     _cap_chunk_list,
+    _table_rows_fit_span,
 )
 from .charts import BRAND_SERIES_COLORS, CHART_AXIS_PT
 
@@ -2310,6 +2311,8 @@ def _eng_share_bar(
     bar_max_w: float,
     color: dict[str, float],
     value_w: float = 34.0,
+    value_font_pt: float = 8.0,
+    value_color: dict[str, float] | None = None,
 ) -> None:
     """One labelled horizontal share bar (model mix row).
 
@@ -2339,7 +2342,10 @@ def _eng_share_bar(
         }
     )
     _box(reqs, f"{sid}_{oid}_v", sid, bar_x + bar_max_w + 4, y, value_w, 13, value_label)
-    _style(reqs, f"{sid}_{oid}_v", 0, len(value_label), size=8, color=GRAY, font=FONT)
+    _style(
+        reqs, f"{sid}_{oid}_v", 0, len(value_label),
+        size=value_font_pt, color=value_color or GRAY, font=FONT,
+    )
 
 
 def _cursor_blob(report: dict[str, Any]) -> dict[str, Any]:
@@ -2595,8 +2601,14 @@ def cursor_cost_models_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     table_x = panel_x + panel_pad
     table_top = panel_y + panel_pad
     disclaimer_reserve = _COST_MODEL_DISCLAIMER_H + _COST_MODEL_DISCLAIMER_GAP
-    content_ceiling = _ENG_CONTENT_BOTTOM - panel_pad - disclaimer_reserve
-    max_body_rows = max(1, int((content_ceiling - table_top) / row_h) - 1)
+    table_bottom = _ENG_CONTENT_BOTTOM - panel_pad - disclaimer_reserve
+    max_body_rows = _table_rows_fit_span(
+        y_top=table_top,
+        y_bottom=table_bottom,
+        row_height_pt=row_h,
+        reserved_table_rows=1,
+        max_rows_cap=20,
+    )
     body_rows = _cursor_cost_model_rows(model_cost, total_cents, max_body_rows)
     num_rows = 1 + len(body_rows)
     panel_h = 2 * panel_pad + num_rows * row_h
@@ -2779,17 +2791,19 @@ _MODEL_TABLE_ROW_H = 31.0
 
 # Spend-by-model table (engineer-scoped cost mix). Spend column header is built per slide
 # from ``window_days``; base column widths are scaled to the bordered panel inner width.
-_COST_MODEL_PANEL_PAD = 4.0
-_COST_MODEL_TABLE_ROW_H = 26.0
-_COST_MODEL_TABLE_HEADER_PT = 9.0
-_COST_MODEL_TABLE_BODY_PT = 9.0
+# Row height matches rendered Slides rows at 8pt (~22pt with cell padding) so we can pack
+# more models without the table growing past the disclaimer band.
+_COST_MODEL_PANEL_PAD = 2.0
+_COST_MODEL_TABLE_ROW_H = 22.0
+_COST_MODEL_TABLE_HEADER_PT = 8.0
+_COST_MODEL_TABLE_BODY_PT = 8.0
 _COST_MODEL_TABLE_COL_WIDTHS: tuple[float, ...] = (210.0, 76.0, 110.0, 84.0, 144.0)
 _COST_MODEL_TABLE_ALIGNS = ("START", "END", "END", "END", "END")
 _COST_MODEL_DISCLAIMER = (
     "Model spend cannot be correlated with productivity because usage is not attributed on commits."
 )
-_COST_MODEL_DISCLAIMER_H = 18.0
-_COST_MODEL_DISCLAIMER_GAP = 6.0
+_COST_MODEL_DISCLAIMER_H = 16.0
+_COST_MODEL_DISCLAIMER_GAP = 4.0
 
 
 def _scale_col_widths(base: tuple[float, ...], total: float) -> tuple[float, ...]:
@@ -3080,6 +3094,26 @@ def _render_cursor_efficiency_output_slide(
     return idx + 1
 
 
+def _cursor_efficiency_engineers_footnote(report: dict[str, Any]) -> str:
+    """Scope footnote for the most-efficient-engineers ranking slide."""
+    note = "Tab + agent accepted lines vs. model-API cost"
+    ai = _ai_productivity_blob(report)
+    if ai.get("configured"):
+        co = ai.get("company") or {}
+        corr = co.get("token_commit_correlation")
+        corr_txt = f"{corr:.2f}" if isinstance(corr, (int, float)) else "n/a"
+        note += (
+            f" · GitHub: {int(co.get('commits') or 0)} commits; "
+            f"token↔commit r={corr_txt} (accepted lines ≠ git commits)"
+        )
+    return note
+
+
+_EFF_ENGINEERS_ROW_STEP = 13.0
+_EFF_ENGINEERS_FOOTNOTE_H = 14.0
+_EFF_ENGINEERS_FOOTNOTE_ABOVE_TAKEAWAY = 6.0
+
+
 def _render_cursor_efficiency_engineers_slide(
     reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int,
 ) -> int:
@@ -3093,22 +3127,25 @@ def _render_cursor_efficiency_engineers_slide(
 
     _slide(reqs, sid, idx)
     _cursor_bg(reqs, sid)
-    _eng_title(reqs, sid, "Cursor AI Most Efficient Engineers - Engineering")
+    _eng_title(reqs, sid, "Cursor - Most Efficient Engineers")
 
     section_y = _cursor_section_header(
         reqs, sid, "meh", MARGIN, BODY_Y, CONTENT_W,
         "Most efficient engineers (lines / 1K tokens)",
     )
-    content_ceiling = _ENG_CONTENT_BOTTOM - 6
     right_x = MARGIN
     right_w = CONTENT_W
     right_y = section_y + 4
+    footnote_y = (
+        _ENG_TAKEAWAY_Y - 3.0 - _EFF_ENGINEERS_FOOTNOTE_ABOVE_TAKEAWAY - _EFF_ENGINEERS_FOOTNOTE_H
+    )
+    bar_ceiling = footnote_y - 4.0
 
     if top_eff:
         max_ratio = max(float(u.get("lines_per_1k_tokens") or 0) for u in top_eff) or 1.0
         bar_max_w = min(420.0, right_w - 120.0)
         for i, u in enumerate(top_eff):
-            if right_y + 15 > content_ceiling:
+            if right_y + _EFF_ENGINEERS_ROW_STEP > bar_ceiling:
                 break
             ratio = float(u.get("lines_per_1k_tokens") or 0)
             label = _short_email(str(u.get("email") or ""), 22)
@@ -3118,21 +3155,13 @@ def _render_cursor_efficiency_engineers_slide(
                 fraction=ratio / max_ratio, x=right_x, y=right_y, w=right_w,
                 bar_max_w=bar_max_w, color=BRAND_SERIES_COLORS[i % len(BRAND_SERIES_COLORS)],
                 value_w=48.0,
+                value_font_pt=9.0,
+                value_color=NAVY,
             )
-            right_y += 15
-        if right_y + 11 <= content_ceiling:
-            note = "Tab + agent accepted lines vs. model-API cost"
-            ai = _ai_productivity_blob(report)
-            if ai.get("configured"):
-                co = ai.get("company") or {}
-                corr = co.get("token_commit_correlation")
-                corr_txt = f"{corr:.2f}" if isinstance(corr, (int, float)) else "n/a"
-                note += (
-                    f" · GitHub: {int(co.get('commits') or 0)} commits; "
-                    f"token↔commit r={corr_txt} (accepted lines ≠ git commits)"
-                )
-            _box(reqs, f"{sid}_efn", sid, right_x, right_y, right_w, 11, note)
-            _style(reqs, f"{sid}_efn", 0, len(note), size=7.5, color=GRAY, font=FONT)
+            right_y += _EFF_ENGINEERS_ROW_STEP
+        note = _cursor_efficiency_engineers_footnote(report)
+        _box(reqs, f"{sid}_efn", sid, right_x, footnote_y, right_w, _EFF_ENGINEERS_FOOTNOTE_H, note)
+        _style(reqs, f"{sid}_efn", 0, len(note), size=7.5, color=GRAY, font=FONT)
     else:
         empty = "No per-engineer efficiency data"
         _box(reqs, f"{sid}_efe", sid, right_x, right_y, right_w, 13, empty)
