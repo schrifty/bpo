@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from src.ai_productivity_correlation import build_ai_productivity_correlation
+from src.ai_productivity_correlation import _pearson, build_ai_productivity_correlation
+
+
+def test_pearson_fallback_without_statistics_correlation(monkeypatch) -> None:
+    import statistics
+
+    monkeypatch.delattr(statistics, "correlation", raising=False)
+    # Perfect positive correlation
+    assert _pearson([1.0, 2.0, 3.0, 4.0], [2.0, 4.0, 6.0, 8.0]) == 1.0
 
 
 def test_correlation_builds_company_and_individual_rows():

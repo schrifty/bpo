@@ -78,9 +78,21 @@ def _pearson(xs: list[float], ys: list[float]) -> float | None:
     if len(set(xs)) <= 1 or len(set(ys)) <= 1:
         return None
     try:
-        return round(statistics.correlation(xs, ys), 4)
+        corr_fn = getattr(statistics, "correlation", None)
+        if corr_fn is not None:
+            return round(corr_fn(xs, ys), 4)
     except (statistics.StatisticsError, ValueError):
         return None
+    # Python < 3.10 has no statistics.correlation — compute Pearson r directly.
+    n = len(xs)
+    mean_x = statistics.mean(xs)
+    mean_y = statistics.mean(ys)
+    num = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+    den_x = sum((x - mean_x) ** 2 for x in xs)
+    den_y = sum((y - mean_y) ** 2 for y in ys)
+    if den_x <= 0 or den_y <= 0:
+        return None
+    return round(num / (den_x * den_y) ** 0.5, 4)
 
 
 def _iso_week_key_from_day_key(day_key: str) -> str | None:

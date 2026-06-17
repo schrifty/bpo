@@ -458,7 +458,7 @@ def test_efficiency_engineers_slide_renders_ranking() -> None:
     rep = _cursor_report()
     reqs: list = []
     cursor_efficiency_engineers_slide(reqs, "sid_ee", rep, 0)
-    assert _title(reqs, "sid_ee") == "Cursor AI Coding Efficiency - Non-Engineers"
+    assert _title(reqs, "sid_ee") == "Cursor AI Most Efficient Engineers - Engineering"
     text = _texts(reqs)
     assert "Most efficient engineers" in text
     assert "ada" in text

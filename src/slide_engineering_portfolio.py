@@ -3073,7 +3073,7 @@ def _render_cursor_efficiency_engineers_slide(
 
     _slide(reqs, sid, idx)
     _cursor_bg(reqs, sid)
-    _eng_title(reqs, sid, "Cursor AI Coding Efficiency - Non-Engineers")
+    _eng_title(reqs, sid, "Cursor AI Most Efficient Engineers - Engineering")
 
     section_y = _cursor_section_header(
         reqs, sid, "meh", MARGIN, BODY_Y, CONTENT_W,

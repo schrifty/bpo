@@ -242,7 +242,8 @@ def enrich_github_productivity_if_needed(
             )
     except Exception as e:
         logger.warning("%s: github/ai productivity enrichment failed: %s", deck_id, e)
-        report["github_productivity"] = {"configured": False, "error": str(e)[:200]}
+        if not (report.get("github_productivity") or {}).get("configured"):
+            report["github_productivity"] = {"configured": False, "error": str(e)[:200]}
 
 
 def enrich_engineering_portfolio_if_needed(report: dict[str, Any], *, deck_id: str = "engineering-portfolio") -> None:
