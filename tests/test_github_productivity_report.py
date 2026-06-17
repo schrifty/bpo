@@ -52,17 +52,23 @@ def test_build_productivity_report_aggregates(monkeypatch):
         "src.github_productivity_report._resolve_repo_specs",
         lambda **kw: [("acme", "web")],
     )
+    monkeypatch.setattr("src.github_productivity_report.cache_get", lambda *a, **k: None)
 
     report = build_github_productivity_report(
         window_days=14,
         client=gh,
         identity=_identity(),
+        use_cache=False,
     )
     assert report is not None
     assert report["company_engineers"]["commits"] == 1
     assert report["company_engineers"]["merged_prs"] == 1
     assert report["company_engineers"]["lines_added"] == 100
     assert report["by_email"]["dev@leandna.com"]["commits"] == 1
+    assert report["top_contributors"][0]["email"] == "dev@leandna.com"
+    assert report["weekly"][0]["merged_prs"] == 1
+    assert report["weekly"][0]["engineer_merged_prs"] == 1
+    assert report["company_engineers"]["median_pr_cycle_hours"] == 0.0
 
 
 def test_github_qa_blob():

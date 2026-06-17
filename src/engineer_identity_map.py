@@ -54,6 +54,25 @@ def reset_github_alias_cache_for_tests() -> None:
     _alias_cache = None
 
 
+def roster_email_for_github_login(login: str, roster_emails: set[str]) -> str | None:
+    """Map an enterprise GitHub login (e.g. ``first-last_leandna``) to a roster email."""
+    login = (login or "").strip().lower()
+    if not login or not roster_emails:
+        return None
+    roster_by_cf = {str(e).casefold(): e for e in roster_emails}
+    if login.endswith("_leandna"):
+        stem = login[: -len("_leandna")]
+        candidate = f"{stem.replace('-', '.')}@leandna.com"
+        if candidate in roster_by_cf:
+            return roster_by_cf[candidate]
+    for email in roster_emails:
+        local = email.split("@", 1)[0].lower()
+        login_stem = login.split("_", 1)[0] if login.endswith("_leandna") else login
+        if login_stem.replace("-", ".") == local:
+            return email
+    return None
+
+
 def canonicalize_email(
     raw_email: str | None,
     *,
@@ -164,6 +183,10 @@ def build_engineer_identity_map(
                     continue
                 if login in login_aliases:
                     login_to_email[login] = login_aliases[login]
+                    continue
+                matched = roster_email_for_github_login(login, roster_emails)
+                if matched:
+                    login_to_email[login] = matched
         except Exception as e:
             warnings.append(f"github org members: {e}")
 

@@ -74,6 +74,46 @@ def _finalize_person(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _median_pr_cycle_hours(by_email: dict[str, dict[str, Any]]) -> float | None:
+    cycles = [
+        float(row["avg_pr_cycle_hours"])
+        for row in by_email.values()
+        if isinstance(row.get("avg_pr_cycle_hours"), (int, float))
+    ]
+    if not cycles:
+        return None
+    cycles.sort()
+    mid = len(cycles) // 2
+    if len(cycles) % 2:
+        return round(cycles[mid], 1)
+    return round((cycles[mid - 1] + cycles[mid]) / 2, 1)
+
+
+def _top_contributors(by_email: dict[str, dict[str, Any]], *, limit: int = 25) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for email, row in by_email.items():
+        commits = int(row.get("commits") or 0)
+        merged_prs = int(row.get("merged_prs") or 0)
+        lines_added = int(row.get("lines_added") or 0)
+        lines_deleted = int(row.get("lines_deleted") or 0)
+        if commits <= 0 and merged_prs <= 0 and lines_added <= 0:
+            continue
+        rows.append(
+            {
+                "email": email,
+                "commits": commits,
+                "merged_prs": merged_prs,
+                "lines_added": lines_added,
+                "lines_deleted": lines_deleted,
+                "lines_net": lines_added - lines_deleted,
+                "repos_touched": len(row.get("repos_touched") or []),
+                "avg_pr_cycle_hours": row.get("avg_pr_cycle_hours"),
+            }
+        )
+    rows.sort(key=lambda r: (r["merged_prs"], r["commits"], r["lines_net"]), reverse=True)
+    return rows[:limit]
+
+
 def _resolve_contributor_login(
     login: str,
     *,
@@ -236,6 +276,8 @@ def build_github_productivity_report(
     company_releases = 0
     weekly_commits: dict[str, int] = defaultdict(int)
     weekly_engineer_commits: dict[str, int] = defaultdict(int)
+    weekly_merged_prs: dict[str, int] = defaultdict(int)
+    weekly_engineer_merged_prs: dict[str, int] = defaultdict(int)
     repos_summary: list[dict[str, Any]] = []
     warnings: list[str] = list(identity.get("warnings") or []) if identity else []
 
@@ -252,7 +294,11 @@ def build_github_productivity_report(
             if when and when < since:
                 continue
             raw_email = _commit_author_email(commit)
+            author_obj = commit.get("author") if isinstance(commit.get("author"), dict) else {}
+            api_login = str(author_obj.get("login") or "").strip().lower() or None
             login = parse_github_noreply_login(raw_email) if not raw_email else None
+            if not login:
+                login = api_login
             if not raw_email and login and login in login_to_email:
                 canonical = login_to_email[login]
             else:
@@ -268,8 +314,9 @@ def build_github_productivity_report(
                 wk = _iso_week_key(when)
                 weekly_commits[wk] += 1
             if canonical:
-                if login and login not in login_to_email:
-                    login_to_email[login] = canonical
+                for gh_login in {login, api_login} - {None}:
+                    if gh_login and gh_login not in login_to_email:
+                        login_to_email[gh_login] = canonical
                 person = all_by_email.setdefault(canonical, _blank_person())
                 person["commits"] += 1
                 if full_name not in person["repos_touched"]:
@@ -298,6 +345,10 @@ def build_github_productivity_report(
                 continue
             if state != "merged":
                 continue
+            merged_at = _parse_iso_dt(pull.get("merged_at"))
+            if merged_at and merged_at >= since:
+                wk = _iso_week_key(merged_at)
+                weekly_merged_prs[wk] += 1
             repo_all["merged_prs"] += 1
             company_all["merged_prs"] += 1
             if canonical:
@@ -312,6 +363,8 @@ def build_github_productivity_report(
                         eng.setdefault("_cycle_hours", []).append(cycle)
                     repo_engineers["merged_prs"] += 1
                     company_engineers["merged_prs"] += 1
+                    if merged_at and merged_at >= since:
+                        weekly_engineer_merged_prs[_iso_week_key(merged_at)] += 1
 
         for rel in gh.list_releases(owner, repo, limit=30):
             published = _parse_iso_dt(rel.get("published_at") or rel.get("created_at"))
@@ -365,19 +418,30 @@ def build_github_productivity_report(
     company_engineers = _finalize_person(company_engineers)
     company_all["open_prs"] = company_open_prs
     company_all["releases"] = company_releases
-    company_engineers["open_prs"] = 0
-    company_engineers["releases"] = 0
+    company_engineers["open_prs"] = company_open_prs
+    company_engineers["releases"] = company_releases
+    company_engineers["median_pr_cycle_hours"] = _median_pr_cycle_hours(engineer_by_email)
+    contributors = _top_contributors(engineer_by_email if engineer_emails else all_by_email)
+    company_engineers["contributor_count"] = len(contributors)
 
     unmatched_github = sorted(set(all_by_email.keys()) - engineer_emails) if engineer_emails else []
 
+    week_keys = sorted(
+        set(weekly_commits.keys())
+        | set(weekly_engineer_commits.keys())
+        | set(weekly_merged_prs.keys())
+        | set(weekly_engineer_merged_prs.keys())
+    )
     weekly = [
         {
             "week": wk,
             "label": _week_label(wk),
-            "commits": weekly_commits[wk],
+            "commits": weekly_commits.get(wk, 0),
             "engineer_commits": weekly_engineer_commits.get(wk, 0),
+            "merged_prs": weekly_merged_prs.get(wk, 0),
+            "engineer_merged_prs": weekly_engineer_merged_prs.get(wk, 0),
         }
-        for wk in sorted(weekly_commits.keys())
+        for wk in week_keys
     ]
 
     result = {
@@ -393,6 +457,7 @@ def build_github_productivity_report(
         "company_engineers": company_engineers,
         "by_email": engineer_by_email if engineer_emails else all_by_email,
         "by_email_all": all_by_email,
+        "top_contributors": contributors,
         "weekly": weekly,
         "repos_summary": repos_summary,
         "identity": {

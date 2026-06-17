@@ -27,7 +27,12 @@ _CURSOR_SLIDE_TYPES = frozenset({
 })
 
 _GITHUB_PRODUCTIVITY_SLIDE_TYPES = frozenset({
-    "github_engineering_output", "ai_output_correlation", "ai_productivity_matrix",
+    "github_engineering_output",
+    "github_engineer_contribution",
+    "github_delivery_flow",
+    "github_change_profile",
+    "ai_output_correlation",
+    "ai_productivity_matrix",
 })
 
 _TEAMS_SLIDE_TYPES = frozenset({"eng_team_roster"}) | _CURSOR_SLIDE_TYPES

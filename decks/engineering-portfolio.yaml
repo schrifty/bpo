@@ -31,6 +31,9 @@ slides:
   - slide: eng_divider
     title: Github Insights
   - slide: github_engineering_output
+  - slide: github_engineer_contribution
+  - slide: github_delivery_flow
+  - slide: github_change_profile
   - slide: ai_output_correlation
   - slide: ai_productivity_matrix
   - slide: eng_divider

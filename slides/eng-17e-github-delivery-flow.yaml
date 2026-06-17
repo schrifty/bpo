@@ -1,0 +1,12 @@
+id: github_delivery_flow
+type: standard
+order: 87
+title: GitHub Delivery Flow
+slide_type: github_delivery_flow
+data_tools: []
+customers: all
+
+prompt: >
+  GitHub delivery-flow slide for the engineering portfolio deck, aimed at a VP of Engineering.
+  KPIs cover open PRs, merged PRs, median review cycle, and releases; a weekly combo chart
+  compares engineer commits vs merged PRs. Surfaces review-queue pressure vs throughput.

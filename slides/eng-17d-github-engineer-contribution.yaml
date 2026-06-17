@@ -1,0 +1,13 @@
+id: github_engineer_contribution
+type: standard
+order: 86
+title: GitHub Engineer Contribution
+slide_type: github_engineer_contribution
+data_tools: []
+customers: all
+
+prompt: >
+  GitHub engineer contribution slide for the engineering portfolio deck, aimed at a VP of
+  Engineering. Ranks dev-* engineers by merged PRs (commits as fallback) with contributor
+  count, top-3 concentration, and median PR cycle KPIs. Data comes from GitHub productivity
+  enrichment joined to the dev-* roster.

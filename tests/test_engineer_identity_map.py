@@ -9,6 +9,7 @@ from src.engineer_identity_map import (
     canonicalize_email,
     load_github_email_aliases,
     reset_github_alias_cache_for_tests,
+    roster_email_for_github_login,
 )
 
 
@@ -61,6 +62,13 @@ def test_build_identity_map_from_atlassian_scope():
     assert identity["configured"] is True
     assert "alice@leandna.com" in identity["by_email"]
     assert identity["by_email"]["alice@leandna.com"]["github_logins"] == ["alice"]
+
+
+def test_roster_email_for_github_login_matches_enterprise_pattern():
+    roster = {"thibault.albatro@leandna.com", "david.henry@leandna.com"}
+    assert roster_email_for_github_login("thibault-albatro_leandna", roster) == "thibault.albatro@leandna.com"
+    assert roster_email_for_github_login("david-henry_leandna", roster) == "david.henry@leandna.com"
+    assert roster_email_for_github_login("unknown_leandna", roster) is None
 
 
 def test_load_aliases_empty_by_default():

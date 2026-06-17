@@ -152,7 +152,12 @@ def filter_github_productivity_slides(
 
     def _keep(entry: dict[str, Any]) -> bool:
         st = (entry.get("slide_type") or "").strip()
-        if st == "github_engineering_output" and not gp_ok:
+        if st in (
+            "github_engineering_output",
+            "github_engineer_contribution",
+            "github_delivery_flow",
+            "github_change_profile",
+        ) and not gp_ok:
             return False
         if st in ("ai_output_correlation", "ai_productivity_matrix") and not ai_ok:
             return False
@@ -172,6 +177,19 @@ def _attach_productivity_takeaways(
             "github_output": (
                 f"{int(ce.get('commits') or 0)} commits and {int(ce.get('merged_prs') or 0)} merged PRs "
                 f"across {len(github_productivity.get('repos') or [])} repos ({days}d, dev-* engineers)."
+            ),
+            "github_contribution": (
+                f"{int(ce.get('contributor_count') or 0)} active contributors merged "
+                f"{int(ce.get('merged_prs') or 0)} PRs in {days}d (dev-* engineers)."
+            ),
+            "github_delivery": (
+                f"{int((github_productivity.get('company_all') or {}).get('open_prs') or 0)} open PRs vs "
+                f"{int(ce.get('merged_prs') or 0)} merged in {days}d; median review cycle "
+                f"{ce.get('median_pr_cycle_hours') or 'n/a'}h."
+            ),
+            "github_change": (
+                f"{int(ce.get('lines_added') or 0):,} lines added and "
+                f"{int(ce.get('lines_deleted') or 0):,} deleted ({days}d, dev-* engineers)."
             ),
         }
     if ai_productivity and ai_productivity.get("configured"):

@@ -3427,6 +3427,311 @@ def github_engineering_output_slide(reqs: list[dict[str, Any]], sid: str, report
     return idx + 1
 
 
+def _fmt_pr_cycle_hours(hours: Any) -> str:
+    if not isinstance(hours, (int, float)):
+        return "—"
+    h = float(hours)
+    return f"{h:.0f}h" if h < 48 else f"{h / 24:.1f}d"
+
+
+_GITHUB_CONTRIB_ROW_STEP = 13.0
+
+
+def github_engineer_contribution_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Rank dev-* engineers by merged PRs and commits."""
+    gp = _github_productivity_blob(report)
+    if not gp.get("configured"):
+        return _missing_data_slide(reqs, sid, report, idx, "GitHub productivity (set GITHUB_TOKEN and GITHUB_ORG)")
+
+    company = gp.get("company_engineers") or {}
+    contributors = gp.get("top_contributors") or []
+    window_days = int(gp.get("window_days") or 30)
+
+    _slide(reqs, sid, idx)
+    _github_bg(reqs, sid)
+    _eng_title(reqs, sid, "GitHub Engineer Contribution")
+
+    total_prs = int(company.get("merged_prs") or 0)
+    top3_prs = sum(int(r.get("merged_prs") or 0) for r in contributors[:3])
+    top_share = f"{top3_prs / total_prs * 100:.0f}%" if total_prs else "—"
+
+    kpi_y = _eng_kpi_row(
+        reqs, sid,
+        [
+            ("Contributors", str(int(company.get("contributor_count") or len(contributors)))),
+            ("Merged PRs", str(total_prs)),
+            ("Top 3 share", top_share),
+            ("Median PR cycle", _fmt_pr_cycle_hours(company.get("median_pr_cycle_hours"))),
+        ],
+        y=BODY_Y,
+    )
+
+    section_y = _cursor_section_header(
+        reqs, sid, "gce", MARGIN, kpi_y + 12, CONTENT_W,
+        f"Engineers ranked by merged PRs ({window_days}d)",
+    )
+    y = section_y + 4
+    bar_ceiling = _ENG_CONTENT_BOTTOM - 4
+    rank_key = "merged_prs"
+    if contributors and not any(int(r.get("merged_prs") or 0) for r in contributors):
+        rank_key = "commits"
+    max_val = max(
+        (float(r.get(rank_key) or 0) for r in contributors),
+        default=1.0,
+    ) or 1.0
+    bar_max_w = min(420.0, CONTENT_W - 120.0)
+
+    for i, row in enumerate(contributors):
+        if y + _GITHUB_CONTRIB_ROW_STEP > bar_ceiling:
+            break
+        metric = float(row.get(rank_key) or 0)
+        label = _short_email(str(row.get("email") or ""), 22)
+        suffix = " PRs" if rank_key == "merged_prs" else " commits"
+        _eng_share_bar(
+            reqs, sid, f"gc{i}",
+            label=label,
+            value_label=f"{int(metric)}{suffix}",
+            fraction=metric / max_val,
+            x=MARGIN, y=y, w=CONTENT_W,
+            bar_max_w=bar_max_w,
+            color=BRAND_SERIES_COLORS[i % len(BRAND_SERIES_COLORS)],
+            value_w=72.0,
+            value_font_pt=9.0,
+            value_color=NAVY,
+        )
+        y += _GITHUB_CONTRIB_ROW_STEP
+
+    takeaway = _productivity_takeaway(
+        gp,
+        "github_contribution",
+        f"{len(contributors)} active contributors; top 3 account for {top_share} of merged PRs.",
+    )
+    _render_takeaway_band(reqs, sid, takeaway)
+    return idx + 1
+
+
+def github_delivery_flow_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Weekly commits vs merged PRs and review-queue KPIs."""
+    gp = _github_productivity_blob(report)
+    if not gp.get("configured"):
+        return _missing_data_slide(reqs, sid, report, idx, "GitHub productivity (set GITHUB_TOKEN and GITHUB_ORG)")
+
+    company = gp.get("company_engineers") or {}
+    org = gp.get("company_all") or {}
+    weekly = gp.get("weekly") or []
+    window_days = int(gp.get("window_days") or 30)
+
+    _slide(reqs, sid, idx)
+    _github_bg(reqs, sid)
+    _eng_title(reqs, sid, "GitHub Delivery Flow")
+
+    kpi_y = _eng_kpi_row(
+        reqs, sid,
+        [
+            ("Open PRs", str(int(org.get("open_prs") or 0))),
+            (f"Merged PRs ({window_days}d)", str(int(company.get("merged_prs") or 0))),
+            ("Median PR cycle", _fmt_pr_cycle_hours(company.get("median_pr_cycle_hours"))),
+            (f"Releases ({window_days}d)", str(int(org.get("releases") or 0))),
+        ],
+        y=BODY_Y,
+    )
+
+    body_top = kpi_y + 12
+    charts = report.get("_charts")
+    if weekly and charts:
+        try:
+            chart_title = f"Commits vs merged PRs by week (dev-* engineers, {window_days}d)"
+            labels = [str(w.get("label") or w.get("week") or "") for w in weekly]
+            commit_series = [int(w.get("engineer_commits") or 0) for w in weekly]
+            pr_series = [int(w.get("engineer_merged_prs") or 0) for w in weekly]
+            chart_h = int(_cursor_chart_panel_reserve(
+                content_ceiling=_ENG_CONTENT_BOTTOM - 6, start_y=body_top, legend_rows=2,
+            ))
+            ss_id, chart_id = charts.add_combo_chart(
+                title=chart_title,
+                labels=labels,
+                bar_series={"Commits": commit_series},
+                line_series={"Merged PRs": pr_series},
+                show_title=False,
+                suppress_legend=True,
+                width_pixels=int((CONTENT_W - 2 * _CURSOR_CHART_PAD) * 2),
+                height_pixels=int(chart_h * 2),
+            )
+            _cursor_embed_chart_panel(
+                reqs, sid=sid, oid="gdf", x=MARGIN, y=body_top, w=CONTENT_W, chart_h=chart_h,
+                spreadsheet_id=ss_id, chart_id=chart_id,
+                title=chart_title,
+                legend=[("Commits", BRAND_SERIES_COLORS[0]), ("Merged PRs", BRAND_SERIES_COLORS[1])],
+                legend_above=True,
+            )
+        except Exception as exc:
+            logger.warning("GitHub delivery flow chart embed failed: %s", exc)
+    else:
+        empty = "No weekly GitHub activity in window"
+        _box(reqs, f"{sid}_gde", sid, MARGIN, body_top, CONTENT_W, 14, empty)
+        _style(reqs, f"{sid}_gde", 0, len(empty), size=9, color=GRAY, font=FONT)
+
+    takeaway = _productivity_takeaway(
+        gp,
+        "github_delivery",
+        f"{int(org.get('open_prs') or 0)} open PRs vs {int(company.get('merged_prs') or 0)} merged in {window_days}d.",
+    )
+    _render_takeaway_band(reqs, sid, takeaway)
+    return idx + 1
+
+
+_GITHUB_CHANGE_PANEL_PAD = 2.0
+_GITHUB_CHANGE_TABLE_ROW_H = 22.0
+_GITHUB_CHANGE_TABLE_HEADER_PT = 8.0
+_GITHUB_CHANGE_TABLE_BODY_PT = 8.0
+_GITHUB_CHANGE_TABLE_COL_WIDTHS: tuple[float, ...] = (188.0, 72.0, 72.0, 72.0, 64.0, 72.0)
+_GITHUB_CHANGE_TABLE_ALIGNS = ("START", "END", "END", "END", "END", "END")
+
+
+def _github_change_profile_rows(repos: list[dict[str, Any]], cap: int) -> list[list[str]]:
+    active = sorted(
+        (
+            r for r in repos
+            if int(r.get("commits") or 0) >= 1
+            or int(r.get("lines_added") or 0) > 0
+            or int(r.get("lines_deleted") or 0) > 0
+        ),
+        key=lambda r: int(r.get("lines_added") or 0),
+        reverse=True,
+    )
+    cap = max(1, cap)
+    show_other = len(active) > cap
+    display_cap = cap - 1 if show_other else cap
+    rows: list[list[str]] = []
+    for repo in active[:display_cap]:
+        adds = int(repo.get("lines_added") or 0)
+        dels = int(repo.get("lines_deleted") or 0)
+        net = adds - dels
+        del_pct = f"{dels / adds * 100:.0f}%" if adds else "—"
+        short_name = str(repo.get("full_name") or "")[:36]
+        rows.append([
+            short_name,
+            _fmt_tokens(adds),
+            _fmt_tokens(dels),
+            _fmt_tokens(net),
+            del_pct,
+            str(int(repo.get("merged_prs") or 0)),
+        ])
+    if show_other:
+        other = active[display_cap:]
+        o_adds = sum(int(r.get("lines_added") or 0) for r in other)
+        o_dels = sum(int(r.get("lines_deleted") or 0) for r in other)
+        o_net = o_adds - o_dels
+        o_del_pct = f"{o_dels / o_adds * 100:.0f}%" if o_adds else "—"
+        o_prs = sum(int(r.get("merged_prs") or 0) for r in other)
+        n = len(other)
+        label = f"Other ({n} repos)" if n != 1 else "Other (1 repo)"
+        rows.append([label, _fmt_tokens(o_adds), _fmt_tokens(o_dels), _fmt_tokens(o_net), o_del_pct, str(o_prs)])
+    return rows
+
+
+def github_change_profile_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Lines added/deleted by repo — change surface and churn signal."""
+    gp = _github_productivity_blob(report)
+    if not gp.get("configured"):
+        return _missing_data_slide(reqs, sid, report, idx, "GitHub productivity (set GITHUB_TOKEN and GITHUB_ORG)")
+
+    company = gp.get("company_engineers") or {}
+    repos = gp.get("repos_summary") or []
+    window_days = int(gp.get("window_days") or 30)
+    lines_added = int(company.get("lines_added") or 0)
+    lines_deleted = int(company.get("lines_deleted") or 0)
+    lines_net = lines_added - lines_deleted
+    del_ratio = f"{lines_deleted / lines_added * 100:.0f}%" if lines_added else "—"
+
+    _slide(reqs, sid, idx)
+    _github_bg(reqs, sid)
+    _eng_title(reqs, sid, "GitHub Change Profile")
+
+    kpi_y = _eng_kpi_row(
+        reqs, sid,
+        [
+            ("Lines added", _fmt_tokens(lines_added)),
+            ("Lines deleted", _fmt_tokens(lines_deleted)),
+            ("Net lines", _fmt_tokens(lines_net)),
+            ("Delete ratio", del_ratio),
+        ],
+        y=BODY_Y,
+    )
+
+    col_widths_base = _GITHUB_CHANGE_TABLE_COL_WIDTHS
+    headers = ("Repository", "+Lines", "−Lines", "Net", "Del %", "PRs")
+    aligns = _GITHUB_CHANGE_TABLE_ALIGNS
+    row_h = _GITHUB_CHANGE_TABLE_ROW_H
+    panel_x = MARGIN
+    panel_y = kpi_y + 12
+    panel_w = CONTENT_W
+    panel_pad = _GITHUB_CHANGE_PANEL_PAD
+    inner_w = panel_w - 2 * panel_pad
+    col_widths = _scale_col_widths(col_widths_base, inner_w)
+    table_x = panel_x + panel_pad
+    table_top = panel_y + panel_pad
+    table_bottom = _ENG_CONTENT_BOTTOM - panel_pad
+    max_body_rows = _table_rows_fit_span(
+        y_top=table_top,
+        y_bottom=table_bottom,
+        row_height_pt=row_h,
+        reserved_table_rows=1,
+        max_rows_cap=20,
+    )
+    body_rows = _github_change_profile_rows(repos, max_body_rows)
+    if not body_rows:
+        return _missing_data_slide(reqs, sid, report, idx, "GitHub change profile (no line activity in window)")
+
+    num_rows = 1 + len(body_rows)
+    panel_h = 2 * panel_pad + num_rows * row_h
+    _bar_rect(reqs, f"{sid}_gcpnl", sid, panel_x, panel_y, panel_w, panel_h, WHITE, outline=GRAY)
+    table_id = f"{sid}_gctbl"
+    reqs.append({
+        "createTable": {
+            "objectId": table_id,
+            "elementProperties": {
+                "pageObjectId": sid,
+                "size": _sz(inner_w, num_rows * row_h),
+                "transform": _tf(table_x, table_top),
+            },
+            "rows": num_rows,
+            "columns": len(headers),
+        }
+    })
+    _clean_table(reqs, table_id, num_rows, len(headers))
+    _table_column_widths(reqs, table_id, col_widths)
+
+    for ci, head in enumerate(headers):
+        _table_cell_text(reqs, table_id, 0, ci, head)
+        _table_cell_style(
+            reqs, table_id, 0, ci, len(head),
+            bold=True, color=GRAY, size=_GITHUB_CHANGE_TABLE_HEADER_PT, font=FONT, align=aligns[ci],
+        )
+
+    repo_chars = max_chars_one_line_for_table_col(col_widths[0], _GITHUB_CHANGE_TABLE_BODY_PT)
+    for ri, cells in enumerate(body_rows, start=1):
+        cells = list(cells)
+        cells[0] = _truncate_one_line(cells[0], repo_chars)
+        for ci, text in enumerate(cells):
+            if not text:
+                continue
+            _table_cell_text(reqs, table_id, ri, ci, text)
+            font = FONT if ci == 0 else MONO
+            _table_cell_style(
+                reqs, table_id, ri, ci, len(text),
+                bold=False, color=NAVY, size=_GITHUB_CHANGE_TABLE_BODY_PT, font=font, align=aligns[ci],
+            )
+
+    takeaway = _productivity_takeaway(
+        gp,
+        "github_change",
+        f"{_fmt_tokens(lines_added)} added / {_fmt_tokens(lines_deleted)} deleted across active repos ({window_days}d).",
+    )
+    _render_takeaway_band(reqs, sid, takeaway)
+    return idx + 1
+
+
 def ai_output_correlation_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
     """Company-level Cursor token spend vs GitHub output correlation."""
     ai = _ai_productivity_blob(report)
