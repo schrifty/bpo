@@ -216,10 +216,20 @@ def eng_portfolio_title_slide(reqs: list[dict[str, Any]], sid: str, report: dict
     except Exception:
         sprint_label = sprint_name or ""
 
-    sub = f"Sprint: {sprint_label}" if sprint_label else ""
-    if sub:
-        _box(reqs, f"{sid}_sp", sid, MARGIN, 160, CONTENT_W, 24, sub)
-        _style(reqs, f"{sid}_sp", 0, len(sub), size=14, color={"red": 0.6, "green": 0.8, "blue": 1.0}, font=FONT)
+    subtitle_y = 160.0
+    subtitle_color = {"red": 0.6, "green": 0.8, "blue": 1.0}
+    if sprint_label:
+        sub = f"Sprint: {sprint_label}"
+        _box(reqs, f"{sid}_sp", sid, MARGIN, subtitle_y, CONTENT_W, 24, sub)
+        _style(reqs, f"{sid}_sp", 0, len(sub), size=14, color=subtitle_color, font=FONT)
+        subtitle_y += 28.0
+
+    cu = report.get("cursor_usage") or {}
+    if cu.get("configured"):
+        run_rate = (cu.get("totals") or {}).get("charged_cents_window")
+        cursor_sub = f"Cursor AI 30d run rate: {_fmt_cents(run_rate)}"
+        _box(reqs, f"{sid}_cu", sid, MARGIN, subtitle_y, CONTENT_W, 24, cursor_sub)
+        _style(reqs, f"{sid}_cu", 0, len(cursor_sub), size=14, color=subtitle_color, font=FONT)
 
     generated = datetime.now().strftime("%B %-d, %Y at %-I:%M %p")
     gen_text = f"Generated {generated}"

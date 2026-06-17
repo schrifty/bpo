@@ -68,7 +68,7 @@ SLIDE_DATA_REQUIREMENTS: dict[str, list[str]] = {
     "qbr_agenda": [],
     "qbr_divider": [],
     "qbr_deployment": ["sites"],
-    "eng_portfolio_title": ["eng_portfolio"],
+    "eng_portfolio_title": ["eng_portfolio", "cursor_usage"],
     "eng_toc": [],
     "eng_exec_summary": ["eng_portfolio"],
     "eng_team_scorecard": ["eng_portfolio"],
