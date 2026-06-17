@@ -162,7 +162,9 @@ def eng_toc_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], 
         ("4  Operational Health", "Current sprint, flow & bottlenecks, load, work mix"),
         ("5  Quality", "Bug health and bug inflow vs. outflow"),
         ("6  Backlog & Support", "Escalation aging and inbound support pressure"),
-        ("7  Appendix", "Data quality and sourcing"),
+        ("7  GitHub Insights", "Engineering output, PR flow, and AI correlation"),
+        ("8  Cursor Insights", "AI coding spend, usage, and power-user patterns"),
+        ("9  Appendix", "Data quality and sourcing"),
     ]
 
     row_h = 46.0

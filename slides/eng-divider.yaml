@@ -8,5 +8,6 @@ customers: all
 
 prompt: >
   Engineering portfolio section divider slide. The section title comes from the deck plan
-  entry (e.g. Github Insights, Cursor Insights). Uses a themed background: light green for
-  GitHub chapters and light blue for Cursor chapters.
+  entry (e.g. Team & Org, GitHub Insights, Cursor Insights). Default chapters use a navy
+  background with white title text; GitHub chapters use light green and Cursor chapters
+  use light blue.

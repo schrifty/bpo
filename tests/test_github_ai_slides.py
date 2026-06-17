@@ -140,13 +140,13 @@ def test_eng_divider_slide_renders_section_title():
     from src.slide_engineering_portfolio import eng_divider_slide
 
     reqs: list = []
-    report = {"_current_slide": {"title": "Github Insights"}}
+    report = {"_current_slide": {"title": "GitHub Insights"}}
     idx = eng_divider_slide(reqs, "div1", report, 0)
     assert idx == 1
     text = " ".join(
         r["insertText"]["text"] for r in reqs if isinstance(r, dict) and "insertText" in r
     )
-    assert "Github Insights" in text
+    assert "GitHub Insights" in text
 
 
 def test_github_engineer_contribution_slide_renders():

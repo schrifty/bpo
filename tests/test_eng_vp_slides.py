@@ -226,8 +226,33 @@ def test_toc_slide_registered_and_renders_sections() -> None:
     assert nxt == 4
     assert _title(reqs, "sid_toc") == "Agenda"
     body = _all_text(reqs)
-    for section in ("Executive Summary", "Outcomes", "Operational Health", "Quality"):
+    for section in (
+        "Executive Summary", "Outcomes", "Operational Health", "Quality",
+        "GitHub Insights", "Cursor Insights", "Appendix",
+    ):
         assert section in body
+
+
+def test_eng_divider_slide_renders_jira_section_on_navy_bg():
+    from src.slide_engineering_portfolio import eng_divider_slide
+    from src.slides_theme import NAVY, WHITE
+
+    reqs: list = []
+    report = {"_current_slide": {"title": "Team & Org"}}
+    eng_divider_slide(reqs, "div_j", report, 0)
+    bg = next(
+        r["updatePageProperties"]["pageProperties"]["pageBackgroundFill"]["solidFill"]["color"]["rgbColor"]
+        for r in reqs
+        if isinstance(r, dict) and "updatePageProperties" in r
+    )
+    assert bg == NAVY
+    title_style = next(
+        r["updateTextStyle"]["style"]["foregroundColor"]["opaqueColor"]["rgbColor"]
+        for r in reqs
+        if isinstance(r, dict)
+        and r.get("updateTextStyle", {}).get("objectId") == "div_j_sec"
+    )
+    assert title_style == WHITE
 
 
 def test_work_split_titles_reactive_dominance() -> None:

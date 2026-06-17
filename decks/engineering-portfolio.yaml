@@ -12,24 +12,34 @@ purpose: |
   engineering capacity."
 
 slides:
-  # Bottom line → Team → Outcomes → Operational health → Quality → External pressure → Hygiene
+  # Bottom line → Team → Outcomes → Operational health → Quality → External pressure → Integrations → Hygiene
   - slide: eng_portfolio_title
   - slide: eng_toc
   - slide: eng_exec_summary
+  - slide: eng_divider
+    title: Team & Org
   - slide: eng_team_roster
   - slide: eng_team_scorecard
+  - slide: eng_divider
+    title: Outcomes
   - slide: eng_epic_progress
   - slide: eng_velocity
+  - slide: eng_divider
+    title: Operational Health
   - slide: eng_current_sprint
   - slide: eng_flow_bottlenecks
   - slide: eng_capacity
   - slide: eng_work_split
+  - slide: eng_divider
+    title: Quality
   - slide: eng_bug_health
   - slide: eng_bug_flow
   - slide: eng_backlog_health
+  - slide: eng_divider
+    title: Backlog & Support
   - slide: eng_support_pressure
   - slide: eng_divider
-    title: Github Insights
+    title: GitHub Insights
   - slide: github_engineering_output
   - slide: github_engineer_contribution
   - slide: github_delivery_flow
@@ -51,4 +61,6 @@ slides:
   - slide: cursor_users_non_engineers_volume
   - slide: cursor_users_non_engineers
   - slide: cursor_users_non_engineers_light
+  - slide: eng_divider
+    title: Appendix
   - slide: data_quality
