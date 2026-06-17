@@ -262,7 +262,8 @@ def test_cost_models_slide_renders_table() -> None:
     cursor_cost_models_slide(reqs, "sid_cm", rep, 0)
     assert _title(reqs, "sid_cm") == "Cursor AI Spend by Model"
     text = _texts(reqs)
-    assert "Model spend cannot be linked to commits or productivity" in text
+    assert "Model spend cannot be correlated with productivity" in text
+    assert "usage is not attributed on commits" in text
     assert "Spend (last 30d)" in text
     assert "Cost / 1K tok" in text
     assert "Spend by model" not in text
@@ -271,11 +272,17 @@ def test_cost_models_slide_renders_table() -> None:
     assert "800K" in text
     assert "22.50¢" in text
     assert any(r.get("createTable") for r in reqs)
+    inserts = [r["insertText"]["text"] for r in reqs if isinstance(r, dict) and "insertText" in r]
+    claude_i = next(i for i, t in enumerate(inserts) if t == "claude-4.5-sonnet")
+    gpt_i = next(i for i, t in enumerate(inserts) if t == "gpt-5")
+    assert claude_i < gpt_i
 
 
 def test_cost_models_slide_table_fits_content_area() -> None:
-    """Table panel stays above the takeaway band with room for padding."""
+    """Table panel and disclaimer stay above the takeaway band."""
     from src.slide_engineering_portfolio import (
+        _COST_MODEL_DISCLAIMER_GAP,
+        _COST_MODEL_DISCLAIMER_H,
         _COST_MODEL_PANEL_PAD,
         _COST_MODEL_TABLE_ROW_H,
         _ENG_CONTENT_BOTTOM,
@@ -284,7 +291,7 @@ def test_cost_models_slide_table_fits_content_area() -> None:
 
     rep = _cursor_report()
     rep["cursor_usage"]["cost_engineers"]["model_mix"] = [
-        {"model": f"model-{i}", "cents": 1000 * (i + 1)} for i in range(20)
+        {"model": f"model-{i}", "cents": 1000 * (i + 1), "tokens": 10_000 * (i + 1)} for i in range(20)
     ]
     reqs: list = []
     cursor_cost_models_slide(reqs, "sid_cm", rep, 0)
@@ -292,7 +299,8 @@ def test_cost_models_slide_table_fits_content_area() -> None:
     num_rows = table_req["createTable"]["rows"]
     panel_top = float(BODY_Y)
     panel_bottom = panel_top + 2 * _COST_MODEL_PANEL_PAD + num_rows * _COST_MODEL_TABLE_ROW_H
-    assert panel_bottom <= _ENG_CONTENT_BOTTOM + 1
+    disclaimer_bottom = panel_bottom + _COST_MODEL_DISCLAIMER_GAP + _COST_MODEL_DISCLAIMER_H
+    assert disclaimer_bottom <= _ENG_CONTENT_BOTTOM + 1
     assert any(
         r.get("createShape", {}).get("objectId") == "sid_cm_cpnl"
         for r in reqs

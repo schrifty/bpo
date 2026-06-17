@@ -2567,8 +2567,8 @@ def cursor_cost_models_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     eng_totals = cost.get("totals") or {}
     window_days = int(cu.get("window_days") or 30)
     model_cost = sorted(
-        (m for m in model_mix if (m.get("cents") or 0) > 0),
-        key=lambda m: float(m.get("cents") or 0),
+        (m for m in model_mix if (m.get("tokens") or 0) > 0 or (m.get("cents") or 0) > 0),
+        key=lambda m: float(m.get("tokens") or 0),
         reverse=True,
     )
     kpi_total_cents = float(eng_totals.get("charged_cents_window") or 0)
@@ -2580,12 +2580,7 @@ def cursor_cost_models_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
 
     _slide(reqs, sid, idx)
     _cursor_bg(reqs, sid)
-    _eng_title(
-        reqs,
-        sid,
-        "Cursor AI Spend by Model",
-        "Model spend cannot be linked to commits or productivity — usage is not attributed per commit.",
-    )
+    _eng_title(reqs, sid, "Cursor AI Spend by Model")
 
     col_widths_base = _COST_MODEL_TABLE_COL_WIDTHS
     headers = ("Model", "Tokens", f"Spend (last {window_days}d)", "Cost / 1K tok", "% of spend")
@@ -2599,7 +2594,8 @@ def cursor_cost_models_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     col_widths = _scale_col_widths(col_widths_base, inner_w)
     table_x = panel_x + panel_pad
     table_top = panel_y + panel_pad
-    content_ceiling = _ENG_CONTENT_BOTTOM - panel_pad
+    disclaimer_reserve = _COST_MODEL_DISCLAIMER_H + _COST_MODEL_DISCLAIMER_GAP
+    content_ceiling = _ENG_CONTENT_BOTTOM - panel_pad - disclaimer_reserve
     max_body_rows = max(1, int((content_ceiling - table_top) / row_h) - 1)
     body_rows = _cursor_cost_model_rows(model_cost, total_cents, max_body_rows)
     num_rows = 1 + len(body_rows)
@@ -2625,10 +2621,10 @@ def cursor_cost_models_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
         _table_cell_text(reqs, table_id, 0, ci, head)
         _table_cell_style(
             reqs, table_id, 0, ci, len(head),
-            bold=True, color=GRAY, size=_MODEL_TABLE_HEADER_PT, font=FONT, align=aligns[ci],
+            bold=True, color=GRAY, size=_COST_MODEL_TABLE_HEADER_PT, font=FONT, align=aligns[ci],
         )
 
-    model_chars = max_chars_one_line_for_table_col(col_widths[0], _MODEL_TABLE_BODY_PT)
+    model_chars = max_chars_one_line_for_table_col(col_widths[0], _COST_MODEL_TABLE_BODY_PT)
     for ri, cells in enumerate(body_rows, start=1):
         cells = list(cells)
         cells[0] = _truncate_one_line(cells[0], model_chars)
@@ -2640,14 +2636,21 @@ def cursor_cost_models_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
             font = FONT if ci == 0 else MONO
             _table_cell_style(
                 reqs, table_id, ri, ci, len(text),
-                bold=False, color=color, size=_MODEL_TABLE_BODY_PT, font=font, align=aligns[ci],
+                bold=False, color=color, size=_COST_MODEL_TABLE_BODY_PT, font=font, align=aligns[ci],
             )
 
+    disclaimer_y = panel_y + panel_h + _COST_MODEL_DISCLAIMER_GAP
+    _box(reqs, f"{sid}_cmdisc", sid, MARGIN, disclaimer_y, CONTENT_W, _COST_MODEL_DISCLAIMER_H, _COST_MODEL_DISCLAIMER)
+    _style(
+        reqs, f"{sid}_cmdisc", 0, len(_COST_MODEL_DISCLAIMER),
+        size=11, color=GRAY, font=FONT,
+    )
+
     top_parts = [
-        f"{_truncate_one_line(str(m.get('model') or 'unknown'), 24)} {_fmt_cents(m.get('cents'))}"
+        f"{_truncate_one_line(str(m.get('model') or 'unknown'), 24)} {_fmt_tokens(m.get('tokens'))}"
         for m in model_cost[:3]
     ]
-    fallback = f"Top spend: {'; '.join(top_parts)}." if top_parts else ""
+    fallback = f"Top by tokens: {'; '.join(top_parts)}." if top_parts else ""
     _render_takeaway_band(reqs, sid, _cursor_takeaway(cu, "cost_models") or fallback)
     return idx + 1
 
@@ -2777,9 +2780,16 @@ _MODEL_TABLE_ROW_H = 31.0
 # Spend-by-model table (engineer-scoped cost mix). Spend column header is built per slide
 # from ``window_days``; base column widths are scaled to the bordered panel inner width.
 _COST_MODEL_PANEL_PAD = 4.0
-_COST_MODEL_TABLE_ROW_H = 36.0
+_COST_MODEL_TABLE_ROW_H = 26.0
+_COST_MODEL_TABLE_HEADER_PT = 9.0
+_COST_MODEL_TABLE_BODY_PT = 9.0
 _COST_MODEL_TABLE_COL_WIDTHS: tuple[float, ...] = (210.0, 76.0, 110.0, 84.0, 144.0)
 _COST_MODEL_TABLE_ALIGNS = ("START", "END", "END", "END", "END")
+_COST_MODEL_DISCLAIMER = (
+    "Model spend cannot be correlated with productivity because usage is not attributed on commits."
+)
+_COST_MODEL_DISCLAIMER_H = 18.0
+_COST_MODEL_DISCLAIMER_GAP = 6.0
 
 
 def _scale_col_widths(base: tuple[float, ...], total: float) -> tuple[float, ...]:

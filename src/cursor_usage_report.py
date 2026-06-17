@@ -338,7 +338,7 @@ def _build_engineer_cost_scope(
         events,
         email_filter=engineer_emails,
         model_mix_limit=None,
-        model_mix_sort="cents",
+        model_mix_sort="tokens",
     )
     member_emails = {
         str(m.get("email") or "").strip().casefold()
@@ -740,8 +740,8 @@ def _focus_prompt(report: dict[str, Any], focus: str) -> str:
         cost_eng = report.get("cost_engineers") or {}
         model_mix = cost_eng.get("model_mix") or []
         ranked = sorted(
-            (m for m in model_mix if (m.get("cents") or 0) > 0),
-            key=lambda m: float(m.get("cents") or 0),
+            (m for m in model_mix if (m.get("tokens") or 0) > 0 or (m.get("cents") or 0) > 0),
+            key=lambda m: float(m.get("tokens") or 0),
             reverse=True,
         )
         total = sum(float(m.get("cents") or 0) for m in ranked)
@@ -753,13 +753,14 @@ def _focus_prompt(report: dict[str, Any], focus: str) -> str:
             return f"{cents / total * 100:.0f}%"
 
         mix_str = ", ".join(
-            f"{m.get('model')} {_cents_to_dollars(m.get('cents'))} ({_share(float(m.get('cents') or 0))})"
+            f"{m.get('model')} {int(m.get('tokens') or 0):,} tokens, "
+            f"{_cents_to_dollars(m.get('cents'))} ({_share(float(m.get('cents') or 0))})"
             for m in top
         ) or "no model spend"
         return (
             f"Cursor AI coding-assistant SPEND BY MODEL for dev-* engineers over the last {window_days} days. "
             f"Total engineer-scoped spend: {_cents_to_dollars(total)} across {len(ranked)} model(s). "
-            f"Ranked by spend: {mix_str}. "
+            f"Ranked by tokens: {mix_str}. "
             "Implication for a VP of Engineering about model concentration, cost drivers, or "
             "whether expensive models are justified — and the concrete next step."
         )
