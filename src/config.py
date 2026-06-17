@@ -23,6 +23,17 @@ def _resolve_path_from_project_root(value: str | None) -> str | None:
         p = (_PROJECT_ROOT / p).resolve()
     return str(p)
 
+
+def resolve_bpo_cache_root() -> Path:
+    """Root directory for on-disk integration caches (GitHub, Cursor, etc.)."""
+    raw = os.environ.get("BPO_CACHE_DIR", "").strip()
+    if raw:
+        return Path(raw).expanduser().resolve()
+    return (_PROJECT_ROOT / ".cache").resolve()
+
+
+BPO_CACHE_ROOT = resolve_bpo_cache_root()
+
 # Logging: console shows INFO+ only. DEBUG only when running with debugger (LOG_LEVEL=DEBUG in launch.json)
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 _bpo_logger = logging.getLogger("bpo")
@@ -142,6 +153,15 @@ if os.environ.get("BPO_CURSOR_CACHE_DISABLED", "").strip().lower() in ("1", "tru
     BPO_CURSOR_CACHE_TTL_SECONDS = 0
 _cursor_slides_only = os.environ.get("BPO_CURSOR_SLIDES_ONLY", "").strip().lower()
 BPO_CURSOR_SLIDES_ONLY = _cursor_slides_only in ("1", "true", "yes", "on")
+
+# Atlassian Teams roster (org membership) — reused across eng portfolio, Cursor scope, identity map.
+try:
+    _teams_cache_hours = float(os.environ.get("BPO_ATLASSIAN_TEAMS_CACHE_TTL_HOURS", "1").strip())
+except ValueError:
+    _teams_cache_hours = 1.0
+BPO_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS = max(0, int(_teams_cache_hours * 3600))
+if os.environ.get("BPO_ATLASSIAN_TEAMS_CACHE_DISABLED", "").strip().lower() in ("1", "true", "yes", "on"):
+    BPO_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS = 0
 
 # Slack (optional — bot token for customer channel conversation digests)
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "").strip() or None

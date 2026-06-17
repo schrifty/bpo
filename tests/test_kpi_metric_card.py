@@ -40,3 +40,5 @@ def test_kpi_metric_card_symmetric_vertical_padding() -> None:
     assert label_y - y == KPI_METRIC_PAD_V
     assert (y + h) - (value_y + value_h) == KPI_METRIC_PAD_V
     assert label["elementProperties"]["transform"]["translateX"] == x + KPI_METRIC_PAD_H
+    # Value is bottom-anchored, not a full-height box below the label (avoids hollow KPI tiles).
+    assert value_y > label_y + 12

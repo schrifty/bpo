@@ -16,7 +16,7 @@ Other env (see ``config``):
 Cache age policy is fixed in code: 7d fresh, 14d max weekday stale reuse, Drive writes for large JSON on weekends
 (see module constants ``DRIVE_CACHE_*``).
 
-Also stores ``pendo_preload_v1_*.json`` slice caches and ``integration_*_v1_*.json`` (Jira/JSM support deck,
+Also stores ``integration_*_v1_*.json`` (Jira/JSM support deck, engineering portfolio,
 Salesforce comprehensive) in the same folder.
 Hydrate phrase catalog lives in the repo at ``config/comprehensive_data_element_list.json`` (``entries[].terms``; not in this Drive folder).
 If you previously used the folder name ``Portfolio cache``, rename it to ``Cache`` in Drive or set

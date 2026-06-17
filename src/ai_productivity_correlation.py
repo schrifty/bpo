@@ -128,7 +128,12 @@ def _build_weekly_trend(
         for row in (github_productivity.get("weekly") or [])
         if isinstance(row, dict) and row.get("week")
     }
-    weeks = sorted(set(tokens_by_week.keys()) | set(gh_weekly.keys()))
+    gh_merges = {
+        str(row.get("week") or ""): int(row.get("engineer_merged_prs") or row.get("merged_prs") or 0)
+        for row in (github_productivity.get("weekly") or [])
+        if isinstance(row, dict) and row.get("week")
+    }
+    weeks = sorted(set(tokens_by_week.keys()) | set(gh_weekly.keys()) | set(gh_merges.keys()))
     out: list[dict[str, Any]] = []
     for wk in weeks:
         label = wk.split("-W")[-1] if "-W" in wk else wk
@@ -138,6 +143,7 @@ def _build_weekly_trend(
                 "label": f"W{int(label)}" if label.isdigit() else label,
                 "tokens": tokens_by_week.get(wk, 0),
                 "commits": gh_weekly.get(wk, 0),
+                "merged_prs": gh_merges.get(wk, 0),
             }
         )
     return out
@@ -291,7 +297,7 @@ def build_ai_productivity_correlation(
 
 
 def compute_ai_correlation_insights(ai: dict[str, Any] | None) -> str:
-    """Actionable takeaway for the AI Spend vs GitHub Output slide."""
+    """Actionable takeaway for the AI Spend vs. GitHub Output slide."""
     if not ai or not ai.get("configured"):
         return ""
     company = ai.get("company") or {}
@@ -336,6 +342,75 @@ def compute_ai_correlation_insights(ai: dict[str, Any] | None) -> str:
             "treat correlation as diagnostic: compare weekly chart shape before changing AI budget or headcount."
         )
     return signals[0][:320].rstrip()
+
+
+def compute_productivity_summary_insights(ai: dict[str, Any] | None) -> str:
+    """Takeaway for the productivity summary landing slide."""
+    if not ai or not ai.get("configured"):
+        return ""
+    company = ai.get("company") or {}
+    days = int(ai.get("window_days") or 30)
+    commits = int(company.get("commits") or 0)
+    merged = int(company.get("merged_prs") or 0)
+    cpt = company.get("commits_per_1k_tokens")
+    cpt_txt = f"{cpt:g}" if isinstance(cpt, (int, float)) else "—"
+    return (
+        f"Engineer-scoped: {commits} commits, {merged} merged PRs, "
+        f"{cpt_txt} commits per 1K tokens ({days}d)—use the following slides for trend, yield, and coaching."
+    )[:320].rstrip()
+
+
+def compute_productivity_coaching_insights(ai: dict[str, Any] | None) -> str:
+    """Takeaway for the under-yield coaching list slide."""
+    if not ai or not ai.get("configured"):
+        return ""
+    review = ai.get("review") or []
+    days = int(ai.get("window_days") or 30)
+    if not review:
+        return (
+            f"No high-token / low-output engineers flagged in {days}d—"
+            "revisit after the next sprint if token spend rises without merge cadence."
+        )
+    names = ", ".join(_short_email_local(r.get("email")) for r in review[:3])
+    extra = f" (+{len(review) - 3} more)" if len(review) > 3 else ""
+    return (
+        f"{len(review)} engineer(s) show high Cursor spend with low git output ({names}{extra})—"
+        "focus coaching on PR throughput and targeted prompts, not blanket seat cuts."
+    )[:320].rstrip()
+
+
+def compute_productivity_trend_insights(ai: dict[str, Any] | None) -> str:
+    """Takeaway for the weekly productivity trend slide."""
+    if not ai or not ai.get("configured"):
+        return ""
+    weekly = ai.get("weekly_trend") or []
+    days = int(ai.get("window_days") or 30)
+    if len(weekly) < 2:
+        return f"Weekly productivity trend unavailable for {days}d window."
+    last = weekly[-1]
+    prev = weekly[-2]
+    dc = int(last.get("commits") or 0) - int(prev.get("commits") or 0)
+    dm = int(last.get("merged_prs") or 0) - int(prev.get("merged_prs") or 0)
+    dt = int(last.get("tokens") or 0) - int(prev.get("tokens") or 0)
+    if dt > 10_000 and dc <= 0 and dm <= 0:
+        return (
+            "Latest week: token spend up while commits and merges flat—"
+            "investigate review bottlenecks before treating AI adoption as productive."
+        )
+    if dc > 0 and dm > 0:
+        return (
+            "Latest week: commits and merges moved up with token spend—"
+            "productivity is flowing through git, not just the model API."
+        )
+    return (
+        f"Weekly commits, merges, and tokens over {days}d—"
+        "look for weeks where all three rise together before scaling AI seats."
+    )[:320].rstrip()
+
+
+def _short_email_local(email: Any) -> str:
+    e = str(email or "").strip()
+    return e.split("@", 1)[0] if "@" in e else e
 
 
 def compute_ai_matrix_insights(ai: dict[str, Any] | None) -> str:

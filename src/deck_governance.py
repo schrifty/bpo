@@ -33,6 +33,9 @@ _GITHUB_PRODUCTIVITY_SLIDE_TYPES = frozenset({
     "github_engineer_contribution",
     "github_delivery_flow",
     "github_change_profile",
+    "productivity_summary",
+    "productivity_trend",
+    "productivity_coaching",
     "ai_output_correlation",
     "ai_productivity_matrix",
 })

@@ -12,6 +12,9 @@ from src.slide_engineering_portfolio import (
     github_delivery_flow_slide,
     github_engineer_contribution_slide,
     github_engineering_output_slide,
+    productivity_coaching_slide,
+    productivity_summary_slide,
+    productivity_trend_slide,
 )
 
 
@@ -76,14 +79,15 @@ def _ai_report() -> dict:
         "company": {
             "total_tokens": 500_000,
             "commits": 42,
+            "merged_prs": 8,
             "tokens_per_commit": 11904.76,
             "cents_per_merged_pr": 125.0,
             "commits_per_1k_tokens": 0.084,
             "token_commit_correlation": 0.72,
         },
         "weekly_trend": [
-            {"week": "2026-W20", "label": "W20", "tokens": 120_000, "commits": 10},
-            {"week": "2026-W21", "label": "W21", "tokens": 180_000, "commits": 15},
+            {"week": "2026-W20", "label": "W20", "tokens": 120_000, "commits": 10, "merged_prs": 2},
+            {"week": "2026-W21", "label": "W21", "tokens": 180_000, "commits": 15, "merged_prs": 3},
         ],
         "quadrant_counts": {
             "high_tokens_high_output": 2,
@@ -119,7 +123,18 @@ def _ai_report() -> dict:
         "takeaways": {
             "correlation": "42 GitHub commits vs 500,000 Cursor tokens (30d); token↔commit r=0.72.",
             "matrix": "Yield ranks commits per 1K tokens; high-token/low-output quadrant flags coaching candidates.",
+            "productivity_summary": "Engineer-scoped: 42 commits, 8 merged PRs, 0.084 commits per 1K tokens (30d).",
+            "productivity_trend": "Latest week: commits and merges moved up with token spend.",
+            "productivity_coaching": "1 engineer(s) show high Cursor spend with low git output.",
         },
+        "review": [
+            {
+                "email": "heavy@leandna.com",
+                "tokens": 80_000,
+                "commits": 1,
+                "commits_per_1k_tokens": 0.0125,
+            },
+        ],
     }
     return base
 
@@ -140,13 +155,47 @@ def test_eng_divider_slide_renders_section_title():
     from src.slide_engineering_portfolio import eng_divider_slide
 
     reqs: list = []
-    report = {"_current_slide": {"title": "GitHub Insights"}}
+    report = {"_current_slide": {"title": "Engineering Output"}}
     idx = eng_divider_slide(reqs, "div1", report, 0)
     assert idx == 1
     text = " ".join(
         r["insertText"]["text"] for r in reqs if isinstance(r, dict) and "insertText" in r
     )
-    assert "GitHub Insights" in text
+    assert "Engineering Output" in text
+
+
+def test_productivity_summary_slide_renders_kpis():
+    reqs: list = []
+    idx = productivity_summary_slide(reqs, "ps1", _ai_report(), 0)
+    assert idx == 1
+    text = " ".join(
+        r["insertText"]["text"] for r in reqs if isinstance(r, dict) and "insertText" in r
+    )
+    assert "Engineering Productivity Summary" in text
+    assert "Merged PRs" in text
+    assert "Commits / 1K tokens" in text
+
+
+def test_productivity_trend_slide_renders_with_chart():
+    report = _ai_report()
+    charts = MagicMock()
+    charts.add_combo_chart.return_value = ("ss", "chart1")
+    report["_charts"] = charts
+    reqs: list = []
+    idx = productivity_trend_slide(reqs, "pt1", report, 0)
+    assert idx == 1
+    charts.add_combo_chart.assert_called_once()
+
+
+def test_productivity_coaching_slide_renders_review_list():
+    reqs: list = []
+    idx = productivity_coaching_slide(reqs, "pc1", _ai_report(), 0)
+    assert idx == 1
+    text = " ".join(
+        r["insertText"]["text"] for r in reqs if isinstance(r, dict) and "insertText" in r
+    )
+    assert "AI Productivity Coaching Focus" in text
+    assert "heavy" in text
 
 
 def test_github_engineer_contribution_slide_renders():
@@ -233,6 +282,9 @@ def test_filter_github_productivity_slides_drops_when_unconfigured():
         {"slide_type": "github_engineer_contribution"},
         {"slide_type": "github_delivery_flow"},
         {"slide_type": "github_change_profile"},
+        {"slide_type": "productivity_summary"},
+        {"slide_type": "productivity_trend"},
+        {"slide_type": "productivity_coaching"},
         {"slide_type": "ai_output_correlation"},
         {"slide_type": "ai_productivity_matrix"},
         {"slide_type": "data_quality"},

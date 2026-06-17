@@ -227,8 +227,8 @@ def test_toc_slide_registered_and_renders_sections() -> None:
     assert _title(reqs, "sid_toc") == "Agenda"
     body = _all_text(reqs)
     for section in (
-        "Executive Summary", "Outcomes", "Operational Health", "Quality",
-        "GitHub Insights", "Cursor Insights", "Appendix",
+        "Executive Summary", "Team & Org", "Outcomes", "Operational Health", "Quality",
+        "Backlog & Support", "Engineering Output", "AI Tooling", "Productivity", "Appendix",
     ):
         assert section in body
 

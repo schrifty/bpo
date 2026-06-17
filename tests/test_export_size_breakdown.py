@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.drive_cache_stats import record_pendo_preload_load_attempt, reset_drive_cache_load_stats
+from src.drive_cache_stats import record_integration_load_attempt, reset_drive_cache_load_stats
 from src.export_llm_context_snapshot import (
     _doc_payload_component_bytes,
     _markdown_section_byte_breakdown,
@@ -33,7 +33,7 @@ def test_emit_export_size_breakdown_stderr(capsys) -> None:
     from src.export_run_diagnostics import ExportRunDiagnostics
 
     reset_drive_cache_load_stats()
-    record_pendo_preload_load_attempt(hit=True)
+    record_integration_load_attempt(hit=True)
     md = "## 1. Pendo\n\n{}\n\n## 7. Risk\n\nline\n"
     doc = {
         "pendo": {"x": 1},
@@ -59,6 +59,6 @@ def test_emit_export_size_breakdown_stderr(capsys) -> None:
     assert "portfolio snapshot" in err
     assert "00:00:13" in err  # 12.5s rounded
     assert "cache hit/miss" in err
-    assert "pendo_preload" in err
+    assert "integration" in err
     assert "salesforce_comprehensive" in err
     assert "Pendo" in err

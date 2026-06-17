@@ -150,46 +150,46 @@ def _eng_title(
 
 
 def eng_toc_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
-    """Agenda / table of contents grouped by the deck's narrative sections."""
+    """Agenda — section list for the engineering portfolio deck."""
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _eng_title(reqs, sid, "Agenda", "What this review covers, in order")
+    _eng_title(reqs, sid, "Agenda", "Sections in this review")
 
-    sections: list[tuple[str, str]] = [
-        ("1  Executive Summary", "Bottom line — what to watch and decide"),
-        ("2  Team & Org", "Squads, headcount, and the delivery scorecard"),
-        ("3  Outcomes", "Initiative progress and delivery velocity"),
-        ("4  Operational Health", "Current sprint, flow & bottlenecks, load, work mix"),
-        ("5  Quality", "Bug health and bug inflow vs. outflow"),
-        ("6  Backlog & Support", "Escalation aging and inbound support pressure"),
-        ("7  GitHub Insights", "Engineering output, PR flow, and AI correlation"),
-        ("8  Cursor Insights", "AI coding spend, usage, and power-user patterns"),
-        ("9  Appendix", "Data quality and sourcing"),
+    sections = [
+        "Executive Summary",
+        "Team & Org",
+        "Outcomes",
+        "Operational Health",
+        "Quality",
+        "Backlog & Support",
+        "Engineering Output",
+        "AI Tooling",
+        "Productivity",
+        "Appendix",
     ]
 
-    row_h = 46.0
-    y = BODY_Y + 18
-    for i, (head, desc) in enumerate(sections):
-        num_id = f"{sid}_s{i}h"
-        _box(reqs, num_id, sid, MARGIN, y, CONTENT_W, 20, head)
-        _style(reqs, num_id, 0, len(head), bold=True, size=15, color=NAVY, font=FONT_SERIF)
-        desc_id = f"{sid}_s{i}d"
-        _box(reqs, desc_id, sid, MARGIN + 14, y + 20, CONTENT_W - 14, 16, desc)
-        _style(reqs, desc_id, 0, len(desc), size=10.5, color=GRAY, font=FONT)
+    row_h = 28.0
+    y = BODY_Y + 20
+    for i, name in enumerate(sections):
+        line = f"{i + 1}.  {name}"
+        _box(reqs, f"{sid}_s{i}", sid, MARGIN, y, CONTENT_W, 18, line)
+        _style(reqs, f"{sid}_s{i}", 0, len(line), size=13, color=NAVY, font=FONT)
         y += row_h
 
     return idx + 1
 
 
 def eng_divider_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
-    """Section divider for engineering portfolio chapters (GitHub, Cursor, etc.)."""
+    """Section divider for engineering portfolio chapters."""
     entry = report.get("_current_slide") or {}
     section_title = str(entry.get("title") or "").strip()
     title_key = section_title.casefold()
-    if "cursor" in title_key:
+    if "ai tooling" in title_key or ("cursor" in title_key and "productivity" not in title_key):
         bg, title_color = CURSOR_BG, NAVY
-    elif "github" in title_key:
+    elif "engineering output" in title_key or "github" in title_key:
         bg, title_color = GITHUB_BG, NAVY
+    elif "productivity" in title_key:
+        bg, title_color = CURSOR_BG, NAVY
     else:
         bg, title_color = NAVY, WHITE
 
@@ -3497,6 +3497,154 @@ def _ai_productivity_blob(report: dict[str, Any]) -> dict[str, Any]:
 def _productivity_takeaway(blob: dict[str, Any], key: str, fallback: str = "") -> str:
     takeaways = blob.get("takeaways") or {}
     return str(takeaways.get(key) or fallback).strip()
+
+
+def productivity_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Landing KPIs for engineer-scoped output vs AI token spend."""
+    ai = _ai_productivity_blob(report)
+    if not ai.get("configured"):
+        return _missing_data_slide(
+            reqs, sid, report, idx,
+            "Productivity summary (requires Cursor + GitHub productivity data)",
+        )
+
+    company = ai.get("company") or {}
+    window_days = int(ai.get("window_days") or 30)
+    commits = int(company.get("commits") or 0)
+    merged = int(company.get("merged_prs") or 0)
+    tokens = int(company.get("total_tokens") or 0)
+    cpt = company.get("commits_per_1k_tokens")
+    cpt_str = f"{cpt:g}" if isinstance(cpt, (int, float)) else "—"
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _eng_title(reqs, sid, "Engineering Productivity Summary")
+
+    context = (
+        f"Dev-* engineers · {window_days}d window · "
+        "GitHub output joined to Cursor token spend."
+    )
+    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
+    _style(reqs, f"{sid}_ctx", 0, len(context), size=10, color=GRAY, font=FONT)
+
+    kpi_y = _eng_kpi_row(
+        reqs, sid,
+        [
+            (f"Commits ({window_days}d)", str(commits)),
+            ("Merged PRs", str(merged)),
+            ("Tokens (window)", _fmt_tokens(tokens)),
+            ("Commits / 1K tokens", cpt_str),
+        ],
+        y=BODY_Y + 18,
+    )
+
+    takeaway = _productivity_takeaway(ai, "productivity_summary", "")
+    _render_takeaway_band(reqs, sid, takeaway)
+    return idx + 1
+
+
+def productivity_trend_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Weekly commits, merges, and token spend."""
+    ai = _ai_productivity_blob(report)
+    if not ai.get("configured"):
+        return _missing_data_slide(reqs, sid, report, idx, "Productivity trend (requires correlation data)")
+
+    window_days = int(ai.get("window_days") or 30)
+    weekly = ai.get("weekly_trend") or []
+
+    _slide(reqs, sid, idx)
+    _cursor_bg(reqs, sid)
+    _eng_title(reqs, sid, "Productivity Trend")
+
+    body_top = BODY_Y + 4
+    charts = report.get("_charts")
+    if weekly and charts:
+        try:
+            chart_title = f"Commits, merges, and tokens by week ({window_days}d)"
+            labels = [str(w.get("label") or w.get("week") or "") for w in weekly]
+            commit_series = [int(w.get("commits") or 0) for w in weekly]
+            merge_series = [int(w.get("merged_prs") or 0) for w in weekly]
+            token_series = [round(int(w.get("tokens") or 0) / 1000.0, 1) for w in weekly]
+            chart_h = int(_cursor_chart_panel_reserve(
+                content_ceiling=_ENG_CONTENT_BOTTOM - 6, start_y=body_top, legend_rows=3,
+            ))
+            ss_id, chart_id = charts.add_combo_chart(
+                title=chart_title,
+                labels=labels,
+                bar_series={"Commits": commit_series, "Merged PRs": merge_series},
+                line_series={"Tokens (÷1K)": token_series},
+                show_title=False,
+                suppress_legend=True,
+            )
+            _cursor_embed_chart_panel(
+                reqs, sid=sid, oid="ptt", x=MARGIN, y=body_top, w=CONTENT_W, chart_h=chart_h,
+                spreadsheet_id=ss_id, chart_id=chart_id,
+                title=chart_title,
+                legend=[
+                    ("Commits", BRAND_SERIES_COLORS[0]),
+                    ("Merged PRs", BRAND_SERIES_COLORS[1]),
+                    ("Tokens (÷1K)", BRAND_SERIES_COLORS[2]),
+                ],
+            )
+        except Exception as exc:
+            logger.warning("Productivity trend chart embed failed: %s", exc)
+    else:
+        empty = "No weekly productivity data in window"
+        _box(reqs, f"{sid}_pte", sid, MARGIN, body_top, CONTENT_W, 14, empty)
+        _style(reqs, f"{sid}_pte", 0, len(empty), size=9, color=GRAY, font=FONT)
+
+    takeaway = _productivity_takeaway(ai, "productivity_trend", "")
+    _render_takeaway_band(reqs, sid, takeaway)
+    return idx + 1
+
+
+_PRODUCTIVITY_COACHING_ROW_STEP = 13.0
+
+
+def productivity_coaching_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """High-token / low-output engineers flagged for coaching."""
+    ai = _ai_productivity_blob(report)
+    if not ai.get("configured"):
+        return _missing_data_slide(reqs, sid, report, idx, "Productivity coaching (requires correlation data)")
+
+    window_days = int(ai.get("window_days") or 30)
+    review = ai.get("review") or []
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _eng_title(reqs, sid, "AI Productivity Coaching Focus")
+
+    section_y = _cursor_section_header(
+        reqs, sid, "pch", MARGIN, BODY_Y, CONTENT_W,
+        f"High token / low output ({window_days}d, dev-* engineers)",
+    )
+    y = section_y + 4
+    if not review:
+        empty = "No under-yield engineers flagged in this window"
+        _box(reqs, f"{sid}_pce", sid, MARGIN, y, CONTENT_W, 14, empty)
+        _style(reqs, f"{sid}_pce", 0, len(empty), size=9, color=GRAY, font=FONT)
+    else:
+        hdr = f"{'Engineer':<24}{'Tokens':>10}{'Commits':>9}{'C/1K tok':>10}"
+        _box(reqs, f"{sid}_pchdr", sid, MARGIN, y, CONTENT_W, 12, hdr)
+        _style(reqs, f"{sid}_pchdr", 0, len(hdr), bold=True, size=8, color=GRAY, font=MONO)
+        y += 14
+        ceiling = _ENG_CONTENT_BOTTOM - 4
+        for i, row in enumerate(review):
+            if y + _PRODUCTIVITY_COACHING_ROW_STEP > ceiling:
+                break
+            email = _short_email(str(row.get("email") or ""), 22)
+            tokens = _fmt_tokens(int(row.get("tokens") or 0))
+            commits = str(int(row.get("commits") or 0))
+            cpt = row.get("commits_per_1k_tokens")
+            cpt_str = f"{cpt:g}" if isinstance(cpt, (int, float)) else "—"
+            line = f"{email:<24}{tokens:>10}{commits:>9}{cpt_str:>10}"
+            _box(reqs, f"{sid}_pcr{i}", sid, MARGIN, y, CONTENT_W, 12, line)
+            _style(reqs, f"{sid}_pcr{i}", 0, len(line), size=8, color=NAVY, font=MONO)
+            y += _PRODUCTIVITY_COACHING_ROW_STEP
+
+    takeaway = _productivity_takeaway(ai, "productivity_coaching", "")
+    _render_takeaway_band(reqs, sid, takeaway)
+    return idx + 1
 
 
 def github_engineering_output_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:

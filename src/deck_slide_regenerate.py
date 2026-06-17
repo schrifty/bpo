@@ -35,6 +35,9 @@ _SLIDE_TYPE_TITLES: dict[str, str | tuple[str, ...]] = {
         "AI Productivity Matrix - Engineering",
         "AI Productivity Matrix",
     ),
+    "productivity_summary": "Engineering Productivity Summary",
+    "productivity_trend": "Productivity Trend",
+    "productivity_coaching": "AI Productivity Coaching Focus",
 }
 
 _PRESENTATION_ID_RE = re.compile(r"/presentation/d/([a-zA-Z0-9_-]+)")

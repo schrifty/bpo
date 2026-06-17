@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from src.jira_client import JiraClient
+import pytest
+
+from src.jira_client import JiraClient, clear_atlassian_teams_cache_for_tests
+
+
+@pytest.fixture(autouse=True)
+def _clear_atlassian_teams_cache() -> None:
+    clear_atlassian_teams_cache_for_tests()
+    yield
+    clear_atlassian_teams_cache_for_tests()
 
 
 def _client(*, org="ORG123", api_key=None):
@@ -85,3 +94,23 @@ def test_get_atlassian_teams_unreachable_fails_loud() -> None:
         out = c.get_atlassian_teams()
     assert out["teams"] == []
     assert "unreachable" in out["error"]
+
+
+def test_get_atlassian_teams_uses_in_process_cache(monkeypatch) -> None:
+    monkeypatch.setattr("src.config.BPO_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS", 3600)
+    c = _client()
+    calls = {"n": 0}
+
+    def fake_get(url, **kw):
+        if url.endswith("/teams"):
+            calls["n"] += 1
+            return _Resp(200, {"entities": [], "cursor": None})
+        return _Resp(404, {})
+
+    with patch("src.jira_client.requests.get", side_effect=fake_get):
+        out1 = c.get_atlassian_teams(with_members=False, resolve_names=False)
+        n_after_first = calls["n"]
+        out2 = c.get_atlassian_teams(with_members=False, resolve_names=False)
+    assert out1["error"] is None and out2["error"] is None
+    assert n_after_first >= 1
+    assert calls["n"] == n_after_first  # second call served from in-process cache

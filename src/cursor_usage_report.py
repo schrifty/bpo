@@ -961,12 +961,27 @@ def build_cursor_usage_report(
     window_days: int = DEFAULT_EVENTS_WINDOW_DAYS,
     trend_months: int = DEFAULT_TREND_MONTHS,
     client: CursorClient | None = None,
+    use_cache: bool = True,
 ) -> dict[str, Any]:
     """Assemble the ``cursor_usage`` report blob. Always returns a dict.
 
     When Cursor is not configured, returns ``{"configured": False}`` so the deck can
     filter the slide out cleanly. Per-section API failures are collected in ``errors``.
     """
+    from .config import BPO_CURSOR_CACHE_TTL_SECONDS
+    from .disk_cache import cache_get, cache_key, cache_set
+
+    storage_key: str | None = None
+    if use_cache and BPO_CURSOR_CACHE_TTL_SECONDS > 0:
+        storage_key = cache_key(
+            "cursor_usage_report",
+            {"window_days": int(window_days), "trend_months": int(trend_months)},
+        )
+        cached = cache_get("cursor", storage_key, BPO_CURSOR_CACHE_TTL_SECONDS)
+        if cached is not None:
+            logger.debug("Cursor usage report cache hit")
+            return cached
+
     if client is None and not cursor_configured():
         return {"configured": False, "errors": ["CURSOR_ADMIN_API_KEY not set"]}
 
@@ -1058,9 +1073,9 @@ def build_cursor_usage_report(
     if events:
         try:
             from .eng_team_roster import build_engineer_audience_scope
-            from .jira_client import JiraClient
+            from .jira_client import get_shared_jira_client
 
-            jira = JiraClient()
+            jira = get_shared_jira_client()
             scope = build_engineer_audience_scope(jira, timeout=60.0)
             if scope.get("error"):
                 warnings.append(f"engineer/non-engineer scope: {scope['error']}")
@@ -1210,4 +1225,6 @@ def build_cursor_usage_report(
         report["members"]["total"], active_window,
         report["totals"]["total_tokens"], len(report["model_mix"]), len(errors), len(warnings),
     )
+    if use_cache and storage_key and BPO_CURSOR_CACHE_TTL_SECONDS > 0 and report.get("configured"):
+        cache_set("cursor", storage_key, report, BPO_CURSOR_CACHE_TTL_SECONDS)
     return report

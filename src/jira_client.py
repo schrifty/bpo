@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import difflib
+import copy
 import hashlib
 import os
 import re
@@ -23,6 +24,8 @@ from .jira_connection import build_jira_connection_settings
 # ── Performance: shared JSM org directory (paginated API) ─────────────────
 _JSM_ORG_GLOBAL_LOCK = threading.Lock()
 _JSM_ORG_GLOBAL_CACHE: dict[str, tuple[float, list[str]]] = {}
+_ATLASSIAN_TEAMS_RESPONSE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_ATLASSIAN_TEAMS_CACHE_LOCK = threading.Lock()
 # TTL for JSM organization list (same tenant rarely changes during a batch run).
 _JSM_ORG_CACHE_TTL_S = float(os.environ.get("BPO_JSM_ORG_CACHE_TTL_S", "900"))
 
@@ -1379,6 +1382,15 @@ class JiraClient:
                 break
         return ids
 
+    def _atlassian_teams_cache_key(
+        self,
+        *,
+        with_members: bool,
+        resolve_names: bool,
+        max_teams: int,
+    ) -> str:
+        return f"{self.atlassian_org_id}|m={int(with_members)}|n={int(resolve_names)}|max={max_teams}"
+
     def get_atlassian_teams(
         self,
         *,
@@ -1396,6 +1408,20 @@ class JiraClient:
         """
         if not self.atlassian_org_id:
             return {"error": "ATLASSIAN_ORG_ID is not set", "teams": []}
+
+        from .config import BPO_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS
+
+        cache_key = self._atlassian_teams_cache_key(
+            with_members=with_members,
+            resolve_names=resolve_names,
+            max_teams=max_teams,
+        )
+        if BPO_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS > 0:
+            with _ATLASSIAN_TEAMS_CACHE_LOCK:
+                hit = _ATLASSIAN_TEAMS_RESPONSE_CACHE.get(cache_key)
+                if hit and time.time() - hit[0] < BPO_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS:
+                    logger.debug("Atlassian Teams cache hit")
+                    return copy.deepcopy(hit[1])
 
         chosen: tuple[str, dict[str, str]] | None = None
         last_err: str | None = None
@@ -1460,7 +1486,11 @@ class JiraClient:
                 "members": member_names,
                 "member_count": len(member_names) if resolve_names else len(ids),
             })
-        return {"org_id": self.atlassian_org_id, "route": base, "teams": teams, "error": None}
+        result = {"org_id": self.atlassian_org_id, "route": base, "teams": teams, "error": None}
+        if BPO_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS > 0 and not result.get("error"):
+            with _ATLASSIAN_TEAMS_CACHE_LOCK:
+                _ATLASSIAN_TEAMS_RESPONSE_CACHE[cache_key] = (time.time(), copy.deepcopy(result))
+        return result
 
     def _jql_match_total(self, jql: str) -> int | None:
         """Return Jira's match count for JQL without fetching issue bodies.
@@ -5325,6 +5355,11 @@ def reset_shared_jira_client() -> None:
     global _shared_jira_client
     with _SHARED_JIRA_CLIENT_LOCK:
         _shared_jira_client = None
+
+
+def clear_atlassian_teams_cache_for_tests() -> None:
+    with _ATLASSIAN_TEAMS_CACHE_LOCK:
+        _ATLASSIAN_TEAMS_RESPONSE_CACHE.clear()
 
 
 def get_shared_jira_client() -> JiraClient:

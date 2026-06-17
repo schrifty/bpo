@@ -85,7 +85,7 @@ The following rules are mandatory for automated generation.
 
 - Any outlined KPI metric tile must be rendered only through `_kpi_metric_card` (defined in `src/slide_primitives.py`, re-exported by `src/slides_client.py`).
 - KPI labels inside cards must remain single-line.
-- Label and value use equal vertical inset (`KPI_METRIC_PAD_V`, 8 pt) from the card edges; value is bottom-aligned in the box.
+- Label and value use equal vertical inset (`KPI_METRIC_PAD_V`, 8 pt) from the card edges; value sits in a bottom-anchored line box (not a stretched full-height box).
 - KPI values in the same row must use the same accent color unless a semantic exception is explicitly intended.
 
 ### Continuation behavior
@@ -426,7 +426,8 @@ The shared KPI box pattern is:
 - light fill `LIGHT`
 - approximately 1 pt gray outline
 - **symmetric insets:** `KPI_METRIC_PAD_V` (8 pt) from the top edge to the label and from the bottom edge to the value; `KPI_METRIC_PAD_H` (10 pt) horizontal inset
-- metric label at `KPI_METRIC_LABEL_PT` (10 pt) in `BLACK`, top-aligned in its line box
+- metric label at `KPI_METRIC_LABEL_PT` (10 pt) in `BLACK`, top-aligned in a compact line box under the top inset
+- metric value in a compact line box (≈1.25× value pt height) anchored to the bottom inset — not a full-height box with bottom alignment (that leaves a hollow band between label and value)
 - primary value bold in caller-chosen accent, **bottom-aligned** in the remaining box height below the label
 - default accent `NAVY` when `accent` is omitted
 

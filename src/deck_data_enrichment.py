@@ -22,6 +22,9 @@ _ENG_PORTFOLIO_DECK_IDS: frozenset[str] = frozenset({"engineering-portfolio", "i
 
 _GITHUB_PRODUCTIVITY_SLIDE_TYPES = frozenset({
     "github_engineering_output",
+    "productivity_summary",
+    "productivity_trend",
+    "productivity_coaching",
     "ai_output_correlation",
     "ai_productivity_matrix",
 })
@@ -159,7 +162,13 @@ def filter_github_productivity_slides(
             "github_change_profile",
         ) and not gp_ok:
             return False
-        if st in ("ai_output_correlation", "ai_productivity_matrix") and not ai_ok:
+        if st in (
+            "productivity_summary",
+            "productivity_trend",
+            "productivity_coaching",
+            "ai_output_correlation",
+            "ai_productivity_matrix",
+        ) and not ai_ok:
             return False
         return True
 
@@ -190,11 +199,17 @@ def _attach_productivity_takeaways(
         from .ai_productivity_correlation import (
             compute_ai_correlation_insights,
             compute_ai_matrix_insights,
+            compute_productivity_coaching_insights,
+            compute_productivity_summary_insights,
+            compute_productivity_trend_insights,
         )
 
         ai_productivity["takeaways"] = {
             "correlation": compute_ai_correlation_insights(ai_productivity),
             "matrix": compute_ai_matrix_insights(ai_productivity),
+            "productivity_summary": compute_productivity_summary_insights(ai_productivity),
+            "productivity_trend": compute_productivity_trend_insights(ai_productivity),
+            "productivity_coaching": compute_productivity_coaching_insights(ai_productivity),
         }
 
 
@@ -217,12 +232,18 @@ def enrich_github_productivity_if_needed(
         from .ai_productivity_correlation import build_ai_productivity_correlation
         from .engineer_identity_map import build_engineer_identity_map
         from .github_productivity_report import build_github_productivity_report, github_qa_blob
-        from .jira_client import JiraClient
+        from .jira_client import get_shared_jira_client
 
         gh = GitHubClient()
         org = _github_org()
+        cu = report.get("cursor_usage") or {}
+        scope = cu.get("engineer_scope") or {}
+        preset_emails: set[str] | None = None
+        if scope.get("configured") and scope.get("emails"):
+            preset_emails = {str(e).strip().casefold() for e in scope["emails"] if e}
         identity = build_engineer_identity_map(
-            jira_client=JiraClient(),
+            engineer_emails=preset_emails,
+            jira_client=get_shared_jira_client(),
             github_client=gh,
             github_org=org,
         )
@@ -263,14 +284,14 @@ def enrich_engineering_portfolio_if_needed(report: dict[str, Any], *, deck_id: s
         return
     days = int(report.get("days") or 30)
     try:
-        from .jira_client import get_shared_jira_client
+        from .engineering_portfolio_cache import load_or_fetch_engineering_portfolio
 
         logger.info(
-            "%s deck: fetching Jira portfolio snapshot (%d-day window)",
+            "%s deck: loading Jira portfolio snapshot (%d-day window)",
             deck_id,
             days,
         )
-        report["eng_portfolio"] = get_shared_jira_client().get_engineering_portfolio(days=days)
+        report["eng_portfolio"] = load_or_fetch_engineering_portfolio(days=days)
     except Exception as e:
         logger.warning("%s: could not load eng_portfolio: %s", deck_id, e)
 

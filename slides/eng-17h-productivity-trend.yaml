@@ -1,0 +1,12 @@
+id: productivity_trend
+type: standard
+order: 93
+title: Productivity Trend
+slide_type: productivity_trend
+data_tools: []
+customers: all
+
+prompt: >
+  Weekly combo chart: commits and merged PRs (bars) vs Cursor tokens scaled to thousands (line).
+  Diagnostic view of whether AI spend and git output move together. Requires ai_productivity
+  weekly_trend; omitted when correlation data is unavailable.

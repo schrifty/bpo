@@ -32,7 +32,6 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
 
 import requests
@@ -49,11 +48,10 @@ _MAX_RANGE_DAYS = 30
 _DEFAULT_TIMEOUT_S = 60.0
 _DEFAULT_PAGE_SIZE = 1000
 
-# On-disk read cache. Cursor aggregates daily-usage and usage-events hourly and advises
-# polling at most once/hour, so we persist the fully-assembled (paginated, chunked) result
-# keyed by the request shape with timestamps floored to the hour. This survives across
-# separate CLI runs (decks.py, metrics-upsert), which an in-process cache cannot.
-_CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache" / "cursor"
+# On-disk read cache under ``BPO_CACHE_DIR/cursor/`` (see ``src.disk_cache``).
+from . import disk_cache as _disk_cache
+
+_CACHE_NAMESPACE = "cursor"
 _CACHE_LOCK = threading.Lock()
 _HOUR_MS = 3_600_000
 
@@ -70,47 +68,17 @@ def _cache_key(name: str, params: dict[str, Any]) -> str:
 
 def _cache_get(key: str, ttl_seconds: int) -> Any | None:
     """Return cached data for *key* when present and younger than *ttl_seconds*, else None."""
-    if ttl_seconds <= 0:
-        return None
-    path = _CACHE_DIR / f"{key}.json"
-    with _CACHE_LOCK:
-        try:
-            raw = path.read_text(encoding="utf-8")
-        except (FileNotFoundError, OSError):
-            return None
-    try:
-        payload = json.loads(raw)
-        if time.time() - float(payload.get("ts") or 0) > ttl_seconds:
-            return None
-        return payload.get("data")
-    except (ValueError, TypeError):
-        return None
+    return _disk_cache.cache_get(_CACHE_NAMESPACE, key, ttl_seconds)
 
 
 def _cache_set(key: str, data: Any, ttl_seconds: int) -> None:
     """Persist *data* under *key* (atomic write). No-op when caching is disabled."""
-    if ttl_seconds <= 0:
-        return
-    with _CACHE_LOCK:
-        try:
-            _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-            tmp = _CACHE_DIR / f"{key}.json.tmp"
-            tmp.write_text(json.dumps({"ts": time.time(), "data": data}), encoding="utf-8")
-            tmp.replace(_CACHE_DIR / f"{key}.json")
-        except OSError as e:  # cache is best-effort; never fail a real request over it
-            logger.debug("Cursor cache write failed (%s); continuing without cache", e)
+    _disk_cache.cache_set(_CACHE_NAMESPACE, key, data, ttl_seconds)
 
 
 def clear_cursor_cache() -> None:
     """Delete all on-disk Cursor cache entries (manual refresh / test isolation)."""
-    with _CACHE_LOCK:
-        if not _CACHE_DIR.exists():
-            return
-        for f in _CACHE_DIR.glob("*.json*"):
-            try:
-                f.unlink()
-            except OSError:
-                pass
+    _disk_cache.clear_namespace_for_tests(_CACHE_NAMESPACE)
 
 # Rate limiting: the Admin API allows 20 requests/min/team. We (a) pace requests
 # client-side so a multi-call deck build stays under that ceiling, and (b) retry
@@ -316,11 +284,19 @@ class CursorClient:
     # ── members ────────────────────────────────────────────────────────────
     def get_team_members(self, *, include_removed: bool = False) -> list[dict[str, Any]]:
         """All team members (GET /teams/members). Removed users excluded by default."""
+        key = _cache_key("team_members", {"include_removed": include_removed})
+        cached = _cache_get(key, self._cache_ttl)
+        if cached is not None:
+            logger.debug("Cursor cache hit: team members (%d row(s))", len(cached))
+            return cached
         data = self._request("GET", "/teams/members")
         members = data.get("teamMembers") or []
         if include_removed:
-            return members
-        return [m for m in members if not m.get("isRemoved")]
+            out = members
+        else:
+            out = [m for m in members if not m.get("isRemoved")]
+        _cache_set(key, out, self._cache_ttl)
+        return out
 
     # ── daily usage ──────────────────────────────────────────────────────────
     def get_daily_usage(
@@ -385,6 +361,19 @@ class CursorClient:
         page_size: int = 100,
     ) -> list[dict[str, Any]]:
         """Per-member spend for the current billing cycle (POST /teams/spend), all pages."""
+        key = _cache_key(
+            "team_spend",
+            {
+                "search_term": search_term,
+                "sort_by": sort_by,
+                "sort_direction": sort_direction,
+                "page_size": page_size,
+            },
+        )
+        cached = _cache_get(key, self._cache_ttl)
+        if cached is not None:
+            logger.debug("Cursor cache hit: team spend (%d row(s))", len(cached))
+            return cached
         out: list[dict[str, Any]] = []
         page = 1
         while True:
@@ -402,6 +391,7 @@ class CursorClient:
             if page >= total_pages:
                 break
             page += 1
+        _cache_set(key, out, self._cache_ttl)
         return out
 
     # ── usage events (token-level) ───────────────────────────────────────────

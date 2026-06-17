@@ -39,19 +39,15 @@ slides:
     title: Backlog & Support
   - slide: eng_support_pressure
   - slide: eng_divider
-    title: GitHub Insights
+    title: Engineering Output
   - slide: github_engineering_output
   - slide: github_engineer_contribution
   - slide: github_delivery_flow
   - slide: github_change_profile
-  - slide: ai_output_correlation
-  - slide: ai_productivity_matrix
   - slide: eng_divider
-    title: Cursor Insights
+    title: AI Tooling
   - slide: cursor_cost
   - slide: cursor_cost_models
-  - slide: cursor_efficiency
-  - slide: cursor_efficiency_engineers
   - slide: cursor_usage
   - slide: cursor_usage_non_engineers
   - slide: cursor_model_usage
@@ -61,6 +57,15 @@ slides:
   - slide: cursor_users_non_engineers_volume
   - slide: cursor_users_non_engineers
   - slide: cursor_users_non_engineers_light
+  - slide: eng_divider
+    title: Productivity
+  - slide: productivity_summary
+  - slide: productivity_trend
+  - slide: ai_output_correlation
+  - slide: ai_productivity_matrix
+  - slide: productivity_coaching
+  - slide: cursor_efficiency
+  - slide: cursor_efficiency_engineers
   - slide: eng_divider
     title: Appendix
   - slide: data_quality

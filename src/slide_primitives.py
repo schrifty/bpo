@@ -154,7 +154,15 @@ def kpi_metric_card(
     pad_v = KPI_METRIC_PAD_V
     inner_w = max(40.0, w - 2 * pad_h)
     label, label_pt = _fit_kpi_label(label, inner_w, label_pt)
+    value_line_h = max(16.0, value_pt * 1.25)
+    value_y = y + h - pad_v - value_line_h
+    value_h = value_line_h
     label_line_h = max(12.0, label_pt * 1.2)
+    min_gap = 4.0
+    max_label_h = value_y - (y + pad_v) - min_gap
+    if max_label_h < 10.0:
+        max_label_h = 10.0
+    label_line_h = min(label_line_h, max_label_h)
     label_id = f"{oid_base}_l"
     _box(reqs, label_id, sid, x + pad_h, y + pad_v, inner_w, label_line_h, label)
     reqs.append({
@@ -178,8 +186,6 @@ def kpi_metric_card(
             }
         })
     value_id = f"{oid_base}_v"
-    value_y = y + pad_v + label_line_h
-    value_h = max(16.0, h - 2 * pad_v - label_line_h)
     _box(reqs, value_id, sid, x + pad_h, value_y, inner_w, value_h, value)
     reqs.append({
         "updateShapeProperties": {

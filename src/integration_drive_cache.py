@@ -3,8 +3,8 @@
 Files live under ``resolve_portfolio_snapshot_folder_id()`` (QBR ``Cache`` or
 ``BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID``). Read age policy matches
 ``pendo_portfolio_snapshot_drive.classify_drive_cache_age`` (7d fresh, 14d weekday stale cap,
-weekend refresh in the stale band). Writes match ``pendo_preload_cache_drive``: create any day;
-replace existing files on weekends only in the snapshot calendar zone.
+weekend refresh in the stale band). Writes create any day; replace existing files on weekends only
+in the snapshot calendar zone.
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ from .pendo_portfolio_snapshot_drive import (
 INTEGRATION_CACHE_SCHEMA_VERSION = 1
 KIND_JIRA_SUPPORT = "jira_support"
 KIND_SALESFORCE_COMPREHENSIVE = "salesforce_comprehensive"
+KIND_ENGINEERING_PORTFOLIO = "engineering_portfolio"
 
 _SAVE_LOCK = threading.Lock()
 

@@ -592,7 +592,9 @@ def _run_jira_backed_deck(deck_id: str, label: str) -> None:
         }
     else:
         print(f"Fetching {label.lower()} data from Jira...")
-        eng_data = get_shared_jira_client().get_engineering_portfolio(days=30)
+        from src.engineering_portfolio_cache import load_or_fetch_engineering_portfolio
+
+        eng_data = load_or_fetch_engineering_portfolio(days=30)
         report = {
             "type": "engineering_portfolio",
             "customer": "Engineering",
@@ -1095,7 +1097,9 @@ def _run_all_portfolio_decks() -> None:
                 }
             else:
                 print("Fetching engineering portfolio data from Jira...")
-                eng_portfolio_cache = get_shared_jira_client().get_engineering_portfolio(days=30)
+                from src.engineering_portfolio_cache import load_or_fetch_engineering_portfolio
+
+                eng_portfolio_cache = load_or_fetch_engineering_portfolio(days=30)
                 report = {
                     "type": "engineering_portfolio",
                     "customer": "Engineering",
@@ -1108,7 +1112,9 @@ def _run_all_portfolio_decks() -> None:
         elif deck_id == "implementations_review":
             if eng_portfolio_cache is None:
                 print("Fetching engineering portfolio data from Jira (implementations review)...")
-                eng_portfolio_cache = get_shared_jira_client().get_engineering_portfolio(days=30)
+                from src.engineering_portfolio_cache import load_or_fetch_engineering_portfolio
+
+                eng_portfolio_cache = load_or_fetch_engineering_portfolio(days=30)
             report = {
                 "type": "engineering_portfolio",
                 "customer": "Engineering",

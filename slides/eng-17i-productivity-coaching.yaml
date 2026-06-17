@@ -1,0 +1,12 @@
+id: productivity_coaching
+type: standard
+order: 94
+title: AI Productivity Coaching Focus
+slide_type: productivity_coaching
+data_tools: []
+customers: all
+
+prompt: >
+  Lists engineers flagged as high Cursor token spend with low git output (from ai_productivity.review).
+  Coaching focus slide — not a seat-reduction list. Requires ai_productivity; omitted when
+  correlation data is unavailable.
