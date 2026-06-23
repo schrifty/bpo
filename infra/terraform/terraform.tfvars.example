@@ -18,5 +18,5 @@ default_job_command = ["engineering-portfolio"]
 # Set true after first successful manual run-task
 enable_schedules = false
 
-# task_cpu    = 2048
-# task_memory = 4096
+# task_cpu    = 4096
+# task_memory = 8192

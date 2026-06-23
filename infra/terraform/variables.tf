@@ -58,12 +58,12 @@ variable "default_job_command" {
 
 variable "task_cpu" {
   type    = number
-  default = 2048
+  default = 4096
 }
 
 variable "task_memory" {
   type    = number
-  default = 4096
+  default = 8192
 }
 
 variable "job_timeout_seconds" {
