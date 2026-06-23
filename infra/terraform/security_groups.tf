@@ -3,6 +3,11 @@ resource "aws_security_group" "ecs_tasks" {
   description = "Cortex Fargate deck jobs"
   vpc_id      = local.vpc_id
 
+  lifecycle {
+    # Description-only changes force SG replacement; EFS mount targets block delete.
+    ignore_changes = [description]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -17,6 +22,10 @@ resource "aws_security_group" "efs" {
   name        = "${var.name_prefix}-efs"
   description = "EFS NFS for Cortex cache"
   vpc_id      = local.vpc_id
+
+  lifecycle {
+    ignore_changes = [description]
+  }
 
   ingress {
     description     = "NFS from ECS tasks"

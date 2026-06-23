@@ -28,8 +28,8 @@
   },
   {
     "Name": "cortex-portfolio-batch-nightly",
-    "Description": "Portfolio deck batch — daily 03:00 UTC",
-    "ScheduleExpression": "cron(0 3 * * ? *)",
+    "Description": "Portfolio deck batch — daily 04:00 UTC",
+    "ScheduleExpression": "cron(0 4 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {
@@ -54,10 +54,37 @@
     ]
   },
   {
-    "Name": "cortex-export-weekly",
-    "Description": "LLM context export — Sunday 06:00 UTC",
-    "ScheduleExpression": "cron(0 6 ? * SUN *)",
+    "Name": "cortex-export-nightly",
+    "Description": "LLM context export (decks --export) — daily 03:00 UTC",
+    "ScheduleExpression": "cron(0 3 * * ? *)",
     "State": "ENABLED",
+    "Targets": [
+      {
+        "Id": "cortex-export-nightly",
+        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
+        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
+        "EcsParameters": {
+          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
+          "LaunchType": "FARGATE",
+          "PlatformVersion": "LATEST",
+          "NetworkConfiguration": {
+            "awsvpcConfiguration": {
+              "Subnets": ["subnet-REPLACE"],
+              "SecurityGroups": ["sg-REPLACE"],
+              "AssignPublicIp": "DISABLED"
+            }
+          },
+          "TaskCount": 1
+        },
+        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"export-nightly\"]}]}"
+      }
+    ]
+  },
+  {
+    "Name": "cortex-export-weekly",
+    "Description": "LLM context export — Sunday 06:00 UTC (optional; disabled when export-nightly is used)",
+    "ScheduleExpression": "cron(0 6 ? * SUN *)",
+    "State": "DISABLED",
     "Targets": [
       {
         "Id": "cortex-export-weekly",

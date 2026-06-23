@@ -118,14 +118,19 @@ variable "scheduled_jobs" {
       enabled             = true
     }
     portfolio-batch = {
-      schedule_expression = "cron(0 3 * * ? *)"
+      schedule_expression = "cron(0 4 * * ? *)"
       command             = ["portfolio-batch"]
+      enabled             = true
+    }
+    export-nightly = {
+      schedule_expression = "cron(0 3 * * ? *)"
+      command             = ["export-nightly"]
       enabled             = true
     }
     export-weekly = {
       schedule_expression = "cron(0 6 ? * SUN *)"
       command             = ["export-weekly"]
-      enabled             = true
+      enabled             = false
     }
   }
 }

@@ -34,9 +34,10 @@ Set `CORTEX_LOG_FORMAT=json` (auto on ECS) for CloudWatch filters; stdout includ
 | Job | Schedule (example) | YAML |
 |-----|-------------------|------|
 | Engineering portfolio | Daily 02:00 UTC | `engineering-portfolio` |
-| Portfolio batch | Daily 03:00 UTC | `portfolio-batch` |
+| LLM export | Daily 03:00 UTC | `export-nightly` (`decks --export`, 90-day window) |
+| Portfolio batch | Daily 04:00 UTC | `portfolio-batch` |
 | Full nightly chain | — | `nightly-core` |
-| LLM export | Sunday 06:00 UTC | `export-weekly` |
+| LLM export (legacy) | Sunday 06:00 UTC | `export-weekly` (disabled in Terraform defaults) |
 
 See `docs/DESIGN/PROPOSED_CLOUD_ARCH.md` for IAM, EFS cache mount, and alarm setup.
 

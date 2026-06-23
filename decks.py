@@ -54,6 +54,11 @@ Flag commands (utilities)
       ``Output/{ISO-date} - Output/LLM-Context-All_Customers.md`` (same calendar day).
       Section 7 LLM churn/account-risk insights are always appended to the export markdown.
 
+  decks --schedule [--prefix NAME] [--region REGION]
+      Show EventBridge cron schedules for ECS batch jobs (live AWS when credentials are available,
+      plus catalog defaults from ``infra/terraform/variables.tf``). Cron times are UTC. Set
+      ``CORTEX_SCHEDULE_NAME_PREFIX`` when rules use a non-default prefix (e.g. ``bpo``).
+
   decks run-job --job <name> [--dry-run] [--no-json-summary]
       Run a declarative batch job from ``config/jobs/<name>.yaml`` (or ``CORTEX_JOB=<name>``).
       Steps invoke ``decks.py`` subcommands sequentially; emits ``CORTEX_RUN_SUMMARY=…`` on stdout.
@@ -1204,6 +1209,12 @@ def main():
         rest = [a for a in sys.argv[1:] if a != "--export"]
         export_main(rest, prog="decks --export")
         return
+
+    if "--schedule" in sys.argv:
+        from src.ecs_schedule_report import schedule_main
+
+        rest = [a for a in sys.argv[1:] if a != "--schedule"]
+        sys.exit(schedule_main(rest, prog="decks --schedule"))
 
     if len(sys.argv) > 1 and sys.argv[1] == "qbr":
         from src.qbr_template import run_qbr_cli

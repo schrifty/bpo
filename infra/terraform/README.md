@@ -89,7 +89,7 @@ enable_schedules = true
 terraform apply
 ```
 
-Jobs are defined in `variables.tf` → `scheduled_jobs` (engineering-portfolio 02:00 UTC, portfolio-batch 03:00, export-weekly Sunday 06:00).
+Jobs are defined in `variables.tf` → `scheduled_jobs` (engineering-portfolio 02:00 UTC, export-nightly 03:00, portfolio-batch 04:00; export-weekly optional/disabled).
 
 ## Variables (common)
 
