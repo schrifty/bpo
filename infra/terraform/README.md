@@ -1,4 +1,4 @@
-# BPO AWS infrastructure (Terraform)
+# Cortex AWS infrastructure (Terraform)
 
 Idempotent replacement for manual IAM / EFS / ECS / EventBridge setup.
 
@@ -6,13 +6,13 @@ Idempotent replacement for manual IAM / EFS / ECS / EventBridge setup.
 
 | Resource | Name (default) |
 |----------|----------------|
-| ECR repository | `bpo-decks` |
-| Secrets Manager secret | `bpo/prod/env` |
-| CloudWatch log group | `/bpo/decks` |
-| EFS + access point | `bpo-cache` (uid/gid 1000) |
-| IAM roles | `bpo-ecs-execution`, `bpo-ecs-task`, `bpo-eventbridge-ecs` (if schedules on) |
-| ECS cluster | `bpo` |
-| ECS task definition | `bpo-decks` |
+| ECR repository | `cortex-decks` |
+| Secrets Manager secret | `cortex/prod/env` |
+| CloudWatch log group | `/cortex/decks` |
+| EFS + access point | `cortex-cache` (uid/gid 1000) |
+| IAM roles | `cortex-ecs-execution`, `cortex-ecs-task`, `cortex-eventbridge-ecs` (if schedules on) |
+| ECS cluster | `cortex` |
+| ECS task definition | `cortex-decks` |
 | EventBridge rules | optional (`enable_schedules`) |
 
 ## Prerequisites
@@ -47,8 +47,8 @@ After first `apply` (creates ECR):
 eval "$(terraform output -raw ecr_login_command)"
 
 cd ../..   # repo root
-docker build -t bpo-decks .
-docker tag bpo-decks:latest $(terraform -chdir=infra/terraform output -raw ecr_repository_url):latest
+docker build -t cortex-decks .
+docker tag cortex-decks:latest $(terraform -chdir=infra/terraform output -raw ecr_repository_url):latest
 docker push $(terraform -chdir=infra/terraform output -raw ecr_repository_url):latest
 ```
 
@@ -75,7 +75,7 @@ Watch logs:
 aws logs tail $(terraform output -raw cloudwatch_log_group) --follow
 ```
 
-Look for `BPO_RUN_SUMMARY={"success":true,...}`.
+Look for `CORTEX_RUN_SUMMARY={"success":true,...}`.
 
 ### Enable nightly cron
 
@@ -98,9 +98,9 @@ Jobs are defined in `variables.tf` → `scheduled_jobs` (engineering-portfolio 0
 | `use_default_vpc` | `true` | Easiest first deploy |
 | `vpc_id` / `subnet_ids` | empty | Override for custom VPC |
 | `assign_public_ip` | `true` | Set `false` with private subnets + NAT |
-| `secrets_json_file` | empty | Path to `output/bpo-secrets-manager.json` |
+| `secrets_json_file` | empty | Path to `output/cortex-secrets-manager.json` |
 | `enable_schedules` | `false` | EventBridge → ECS |
-| `name_prefix` | `bpo` | Change if importing existing manual roles |
+| `name_prefix` | `cortex` | Change if importing existing manual roles |
 
 ## Importing existing manual resources
 
@@ -116,10 +116,10 @@ terraform apply
 Or manually:
 
 ```bash
-terraform import aws_cloudwatch_log_group.decks /bpo/decks
-terraform import aws_ecr_repository.decks bpo-decks
-terraform import aws_iam_role.ecs_execution bpo-ecs-execution
-terraform import aws_iam_role.ecs_task bpo-ecs-task
+terraform import aws_cloudwatch_log_group.decks /cortex/decks
+terraform import aws_ecr_repository.decks cortex-decks
+terraform import aws_iam_role.ecs_execution cortex-ecs-execution
+terraform import aws_iam_role.ecs_task cortex-ecs-task
 terraform apply
 ```
 
@@ -127,10 +127,10 @@ If you prefer a clean slate instead, delete the manual ECR repo, log group, and 
 
 ## Importing existing manual resources (alternate: new name prefix)
 
-If you already created `bpo-ecs-execution` by hand, either:
+If you already created `cortex-ecs-execution` by hand, either:
 
 1. Delete manual roles and `terraform apply`, or  
-2. Set `name_prefix = "bpo-tf"` in tfvars to avoid name clash, or  
+2. Set `name_prefix = "cortex-tf"` in tfvars to avoid name clash, or  
 3. `terraform import` each resource (see AWS docs).
 
 ## Secrets without Terraform
@@ -139,8 +139,8 @@ Create the secret shell with Terraform, upload JSON once:
 
 ```bash
 aws secretsmanager put-secret-value \
-  --secret-id bpo/prod/env \
-  --secret-string file://../../output/bpo-secrets-manager.json
+  --secret-id cortex/prod/env \
+  --secret-string file://../../output/cortex-secrets-manager.json
 ```
 
 ## Destroy

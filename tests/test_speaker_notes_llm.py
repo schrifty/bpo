@@ -29,14 +29,14 @@ def _mock_llm_response(text: str) -> MagicMock:
 
 
 def test_speaker_notes_llm_disabled_returns_unchanged(monkeypatch):
-    monkeypatch.setenv("BPO_SPEAKER_NOTES_LLM", "false")
+    monkeypatch.setenv("CORTEX_SPEAKER_NOTES_LLM", "false")
     base = "2026-01-01 12:00:00\n\nSlide: Data Quality"
     out = enrich_speaker_notes_with_management_guidance(base, report={}, entry={"slide_type": "data_quality"})
     assert out == base
 
 
 def test_generate_management_guidance_success(monkeypatch):
-    monkeypatch.setenv("BPO_SPEAKER_NOTES_LLM", "true")
+    monkeypatch.setenv("CORTEX_SPEAKER_NOTES_LLM", "true")
     mock_client = MagicMock()
     mock_client.chat.completions.create.return_value = _mock_llm_response(
         "Use backlog age to decide whether to re-prioritize sprint commitments and unblock Support escalations."
@@ -53,16 +53,16 @@ def test_generate_management_guidance_success(monkeypatch):
 
 
 def test_generate_management_guidance_failure_no_fallback(monkeypatch):
-    monkeypatch.setenv("BPO_SPEAKER_NOTES_LLM", "true")
-    monkeypatch.delenv("BPO_SPEAKER_NOTES_LLM_ALLOW_FALLBACK", raising=False)
+    monkeypatch.setenv("CORTEX_SPEAKER_NOTES_LLM", "true")
+    monkeypatch.delenv("CORTEX_SPEAKER_NOTES_LLM_ALLOW_FALLBACK", raising=False)
     with patch("src.speaker_notes_llm.llm_client", side_effect=RuntimeError("no api key")):
         out = generate_slide_management_guidance(slide_title="Test", slide_type="data_quality")
     assert out == ""
 
 
 def test_generate_management_guidance_failure_with_fallback(monkeypatch):
-    monkeypatch.setenv("BPO_SPEAKER_NOTES_LLM", "true")
-    monkeypatch.setenv("BPO_SPEAKER_NOTES_LLM_ALLOW_FALLBACK", "true")
+    monkeypatch.setenv("CORTEX_SPEAKER_NOTES_LLM", "true")
+    monkeypatch.setenv("CORTEX_SPEAKER_NOTES_LLM_ALLOW_FALLBACK", "true")
     with patch("src.speaker_notes_llm.llm_client", side_effect=RuntimeError("no api key")):
         out = generate_slide_management_guidance(slide_title="Cursor Usage", slide_type="cursor_usage")
     assert "Cursor Usage" in out
@@ -70,7 +70,7 @@ def test_generate_management_guidance_failure_with_fallback(monkeypatch):
 
 
 def test_enrich_appends_how_to_use_block(monkeypatch):
-    monkeypatch.setenv("BPO_SPEAKER_NOTES_LLM", "true")
+    monkeypatch.setenv("CORTEX_SPEAKER_NOTES_LLM", "true")
     paragraph = (
         "This slide shows sprint throughput so you can calibrate capacity planning with Support "
         "and Implementation leads before the next release train."
@@ -90,7 +90,7 @@ def test_enrich_appends_how_to_use_block(monkeypatch):
 
 
 def test_build_slide_jql_speaker_notes_includes_guidance(monkeypatch):
-    monkeypatch.setenv("BPO_SPEAKER_NOTES_LLM", "true")
+    monkeypatch.setenv("CORTEX_SPEAKER_NOTES_LLM", "true")
     report = {"jira": {"jql_queries": ["project = LEAN"]}}
     entry = {"slide_type": "data_quality", "title": "Data Quality", "id": "data_quality"}
     paragraph = "LEAN project volume helps you spot Support-to-Engineering handoff bottlenecks."
@@ -105,7 +105,7 @@ def test_build_slide_jql_speaker_notes_includes_guidance(monkeypatch):
 
 
 def test_build_hydrate_speaker_notes_includes_guidance(monkeypatch):
-    monkeypatch.setenv("BPO_SPEAKER_NOTES_LLM", "true")
+    monkeypatch.setenv("CORTEX_SPEAKER_NOTES_LLM", "true")
     from src import evaluate
 
     paragraph = "Compare mapped KPIs to last quarter before committing headcount to Support backlog burn-down."
@@ -125,7 +125,7 @@ def test_build_hydrate_speaker_notes_includes_guidance(monkeypatch):
 
 
 def test_user_prompt_includes_metrics_and_yaml(monkeypatch):
-    monkeypatch.setenv("BPO_SPEAKER_NOTES_LLM", "true")
+    monkeypatch.setenv("CORTEX_SPEAKER_NOTES_LLM", "true")
     captured: dict = {}
 
     def _capture_create(**kwargs):

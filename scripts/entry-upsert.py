@@ -4,7 +4,7 @@
 Examples::
 
   entry-upsert --metric-ndx 2076 --date 2026-05-22 --numerator 1 --denominator 100
-  BPO_ALLOW_PRODUCTION_MUTATIONS=true entry-upsert \\
+  CORTEX_ALLOW_PRODUCTION_MUTATIONS=true entry-upsert \\
     --metric-ndx 2076 --date 2026-05-22 --numerator 85 --denominator 100 \\
     --requested-sites 416
 """

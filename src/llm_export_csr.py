@@ -10,7 +10,7 @@ from .portfolio_salesforce_allowlist import resolve_sf_label_to_pendo_prefix
 
 
 def llm_export_csr_top_n() -> int:
-    raw = (os.environ.get("BPO_LLM_EXPORT_CSR_TOP_N") or "").strip()
+    raw = (os.environ.get("CORTEX_LLM_EXPORT_CSR_TOP_N") or "").strip()
     if not raw:
         return 20
     try:

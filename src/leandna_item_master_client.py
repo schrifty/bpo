@@ -1,4 +1,4 @@
-"""LeanDNA Item Master Data API client for BPO.
+"""LeanDNA Item Master Data API client for Cortex.
 
 Fetches comprehensive item-level supply chain data including DOI backwards,
 risk scores, ABC classification, lead time variance, and excess inventory details.

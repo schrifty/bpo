@@ -53,9 +53,9 @@ def _health_deck_presentation_title(
 
     tail = _PORTFOLIO_DRIVE_TITLE_TAIL.get(deck_id)
     if tail is not None:
-        from .config import BPO_CURSOR_SLIDES_ONLY
+        from .config import CORTEX_CURSOR_SLIDES_ONLY
 
-        if deck_id == "engineering-portfolio" and BPO_CURSOR_SLIDES_ONLY:
+        if deck_id == "engineering-portfolio" and CORTEX_CURSOR_SLIDES_ONLY:
             return f"Portfolio - {tail} — Cursor ({date_str})"
         return f"Portfolio - {tail} ({date_str})"
 

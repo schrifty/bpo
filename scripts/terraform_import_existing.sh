@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Import manually created BPO AWS resources into Terraform state.
+# Import manually created Cortex AWS resources into Terraform state.
 # Run from infra/terraform after: terraform init
 set -euo pipefail
 cd "$(dirname "$0")/../infra/terraform"
@@ -17,10 +17,10 @@ import_if_missing() {
   fi
 }
 
-import_if_missing 'aws_cloudwatch_log_group.decks' '/bpo/decks'
-import_if_missing 'aws_ecr_repository.decks' 'bpo-decks'
-import_if_missing 'aws_iam_role.ecs_execution' 'bpo-ecs-execution'
-import_if_missing 'aws_iam_role.ecs_task' 'bpo-ecs-task'
+import_if_missing 'aws_cloudwatch_log_group.decks' '/cortex/decks'
+import_if_missing 'aws_ecr_repository.decks' 'cortex-decks'
+import_if_missing 'aws_iam_role.ecs_execution' 'cortex-ecs-execution'
+import_if_missing 'aws_iam_role.ecs_task' 'cortex-ecs-task'
 
 echo ""
 echo "Done. Run: terraform plan && terraform apply"

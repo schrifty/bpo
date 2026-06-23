@@ -38,7 +38,7 @@ load_dotenv(ROOT / ".env")
 
 import requests  # noqa: E402
 
-from src.config import BPO_LEANDNA_DATA_API_EXECUTION_BUCKET  # noqa: E402
+from src.config import CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET  # noqa: E402
 from src.leandna_data_api_http import leandna_data_api_credentials_configured  # noqa: E402
 from src.leandna_data_api_request import data_api_base_url, data_api_get_json  # noqa: E402
 from src.leandna_metrics_client import (  # noqa: E402
@@ -269,7 +269,7 @@ def main() -> int:
         "-v",
         "--verbose",
         action="store_true",
-        help="Enable INFO logging from BPO clients",
+        help="Enable INFO logging from Cortex clients",
     )
     ap.add_argument(
         "--connect-timeout",
@@ -288,9 +288,9 @@ def main() -> int:
     )
     ns = ap.parse_args()
 
-    bpo_log = logging.getLogger("bpo")
-    bpo_log.setLevel(logging.INFO if ns.verbose else logging.WARNING)
-    bpo_log.propagate = False
+    cortex_log = logging.getLogger("cortex")
+    cortex_log.setLevel(logging.INFO if ns.verbose else logging.WARNING)
+    cortex_log.propagate = False
 
     if not leandna_data_api_credentials_configured():
         print(
@@ -306,7 +306,7 @@ def main() -> int:
         print(str(e), file=sys.stderr)
         return 1
 
-    bucket = BPO_LEANDNA_DATA_API_EXECUTION_BUCKET
+    bucket = CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET
     print(
         f"LeanDNA target: GET {base}/data/identity + GET {base}/data/Metric"
         + ("" if ns.no_data else f" + GET {{id}}/MetricDataPoint")

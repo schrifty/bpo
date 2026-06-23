@@ -24,9 +24,9 @@ from typing import Any
 import requests
 
 from .config import (
-    BPO_GITHUB_LOOKBACK_DAYS,
-    BPO_GITHUB_MAX_COMMITS_PER_REPO,
-    BPO_GITHUB_MAX_REPOS,
+    CORTEX_GITHUB_LOOKBACK_DAYS,
+    CORTEX_GITHUB_MAX_COMMITS_PER_REPO,
+    CORTEX_GITHUB_MAX_REPOS,
     GITHUB_API_BASE_URL,
     GITHUB_ORG,
     GITHUB_REPOS,
@@ -66,15 +66,15 @@ def _github_repos_env() -> str | None:
 
 
 def _github_lookback_days() -> int:
-    return BPO_GITHUB_LOOKBACK_DAYS
+    return CORTEX_GITHUB_LOOKBACK_DAYS
 
 
 def _github_max_repos() -> int:
-    return BPO_GITHUB_MAX_REPOS
+    return CORTEX_GITHUB_MAX_REPOS
 
 
 def _github_max_commits_per_repo() -> int:
-    return BPO_GITHUB_MAX_COMMITS_PER_REPO
+    return CORTEX_GITHUB_MAX_COMMITS_PER_REPO
 
 
 def check_github_api() -> tuple[bool, str | None]:

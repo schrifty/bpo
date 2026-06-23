@@ -1,6 +1,6 @@
 """Append-only hydrate / field matching audit log (JSONL at repo root: ``matching.log``).
 
-Set ``BPO_MATCHING_LOG=0`` to disable. Thread-safe; safe for parallel slide workers.
+Set ``CORTEX_MATCHING_LOG=0`` to disable. Thread-safe; safe for parallel slide workers.
 Each line is one JSON object with an ``event`` field and a UTC ``ts`` (ISO-8601).
 """
 
@@ -18,7 +18,7 @@ _DEFAULT_PATH = _REPO_ROOT / "matching.log"
 
 _lock = threading.Lock()
 _session_open = False
-_enabled = os.environ.get("BPO_MATCHING_LOG", "1").strip().lower() not in (
+_enabled = os.environ.get("CORTEX_MATCHING_LOG", "1").strip().lower() not in (
     "0",
     "false",
     "no",
@@ -31,7 +31,7 @@ def enabled() -> bool:
 
 
 def log_path() -> Path:
-    raw = (os.environ.get("BPO_MATCHING_LOG_PATH") or "").strip()
+    raw = (os.environ.get("CORTEX_MATCHING_LOG_PATH") or "").strip()
     return Path(raw) if raw else _DEFAULT_PATH
 
 

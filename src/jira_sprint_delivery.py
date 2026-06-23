@@ -20,7 +20,7 @@ from .jira_cycle_time import (
     parse_excluded_issue_types,
 )
 
-logger = logging.getLogger("bpo")
+logger = logging.getLogger("cortex")
 
 _AGILE = "/rest/agile/1.0"
 

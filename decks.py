@@ -28,7 +28,7 @@ Flag commands (utilities)
 
   decks --upload-portfolio-snapshot [--days N] [--max-customers M]
       Run full Pendo portfolio crawl and upload JSON to the portfolio snapshot
-      folder: BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID if set, else "Cache" under QBR generator
+      folder: CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID if set, else "Cache" under QBR generator
       under GOOGLE_QBR_GENERATOR_FOLDER_ID. If you omit --days, uses the same
       calendar length as resolve_quarter() (matches default QBR cohort window).
       QBR may auto-refresh this snapshot on weekends when Drive needs an update (see
@@ -55,8 +55,8 @@ Flag commands (utilities)
       Section 7 LLM churn/account-risk insights are always appended to the export markdown.
 
   decks run-job --job <name> [--dry-run] [--no-json-summary]
-      Run a declarative batch job from ``config/jobs/<name>.yaml`` (or ``BPO_JOB=<name>``).
-      Steps invoke ``decks.py`` subcommands sequentially; emits ``BPO_RUN_SUMMARY=…`` on stdout.
+      Run a declarative batch job from ``config/jobs/<name>.yaml`` (or ``CORTEX_JOB=<name>``).
+      Steps invoke ``decks.py`` subcommands sequentially; emits ``CORTEX_RUN_SUMMARY=…`` on stdout.
 
   decks qbr <customer name>
       Quarterly Business Review from the Drive QBR template (single Slides file). Other decks are built with
@@ -579,7 +579,7 @@ def _run_deck_run_cli(rest: list[str]) -> None:
 
 def _run_jira_backed_deck(deck_id: str, label: str) -> None:
     """Generate a Jira-backed single deck using engineering portfolio data."""
-    from src.config import BPO_CURSOR_SLIDES_ONLY
+    from src.config import CORTEX_CURSOR_SLIDES_ONLY
     from src.data_source_health import check_all_required
     from src.jira_client import get_shared_jira_client
     from src.slides_client import create_health_deck
@@ -591,8 +591,8 @@ def _run_jira_backed_deck(deck_id: str, label: str) -> None:
             print(f"  • {msg}")
         sys.exit(1)
     t0 = time.time()
-    if BPO_CURSOR_SLIDES_ONLY and deck_id == "engineering-portfolio":
-        print("BPO_CURSOR_SLIDES_ONLY set — skipping Jira portfolio fetch")
+    if CORTEX_CURSOR_SLIDES_ONLY and deck_id == "engineering-portfolio":
+        print("CORTEX_CURSOR_SLIDES_ONLY set — skipping Jira portfolio fetch")
         report = {
             "type": "engineering_portfolio",
             "customer": "Engineering",
@@ -1094,10 +1094,10 @@ def _run_all_portfolio_decks() -> None:
                 thumbnails=args.thumbnails,
             )
         elif deck_id == "engineering-portfolio":
-            from src.config import BPO_CURSOR_SLIDES_ONLY
+            from src.config import CORTEX_CURSOR_SLIDES_ONLY
 
-            if BPO_CURSOR_SLIDES_ONLY:
-                print("BPO_CURSOR_SLIDES_ONLY set — skipping Jira portfolio fetch")
+            if CORTEX_CURSOR_SLIDES_ONLY:
+                print("CORTEX_CURSOR_SLIDES_ONLY set — skipping Jira portfolio fetch")
                 report = {
                     "type": "engineering_portfolio",
                     "customer": "Engineering",
@@ -1177,12 +1177,12 @@ def _run_run_job_cli(rest: list[str]) -> None:
     from src.job_runner import run_job
 
     ap = argparse.ArgumentParser(prog="decks run-job", description="Run a declarative YAML batch job.")
-    ap.add_argument("--job", default=os.environ.get("BPO_JOB", "").strip() or None, help="Job name or path")
+    ap.add_argument("--job", default=os.environ.get("CORTEX_JOB", "").strip() or None, help="Job name or path")
     ap.add_argument("--dry-run", action="store_true", help="Print steps without executing")
     ap.add_argument("--no-json-summary", action="store_true", help="Omit EMF metrics line from summary")
     args = ap.parse_args(rest)
     if not args.job:
-        ap.error("--job is required (or set BPO_JOB)")
+        ap.error("--job is required (or set CORTEX_JOB)")
     sys.exit(
         run_job(
             args.job,

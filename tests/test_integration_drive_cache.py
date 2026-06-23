@@ -52,14 +52,14 @@ def test_validate_envelope_rejects_mismatch() -> None:
 def test_integration_drive_cache_reads_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     from src import config
 
-    monkeypatch.setattr(config, "BPO_INTEGRATION_DRIVE_CACHE_DISABLED", True)
-    monkeypatch.setattr(config, "BPO_INTEGRATION_DRIVE_CACHE_FORCE_REFRESH", False)
+    monkeypatch.setattr(config, "CORTEX_INTEGRATION_DRIVE_CACHE_DISABLED", True)
+    monkeypatch.setattr(config, "CORTEX_INTEGRATION_DRIVE_CACHE_FORCE_REFRESH", False)
     assert idc.integration_drive_cache_reads_enabled() is False
 
 
 def test_integration_drive_cache_reads_force_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
     from src import config
 
-    monkeypatch.setattr(config, "BPO_INTEGRATION_DRIVE_CACHE_DISABLED", False)
-    monkeypatch.setattr(config, "BPO_INTEGRATION_DRIVE_CACHE_FORCE_REFRESH", True)
+    monkeypatch.setattr(config, "CORTEX_INTEGRATION_DRIVE_CACHE_DISABLED", False)
+    monkeypatch.setattr(config, "CORTEX_INTEGRATION_DRIVE_CACHE_FORCE_REFRESH", True)
     assert idc.integration_drive_cache_reads_enabled() is False

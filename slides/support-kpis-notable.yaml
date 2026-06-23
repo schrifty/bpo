@@ -17,4 +17,4 @@ prompt: |
   At deck build time, the app runs an LLM on a JSON digest of the enriched
   ``report["jira"]["support_kpis"]`` bundle, then inserts this slide at position 2
   (after the cover). If the LLM is off or fails in strict mode, ``notable_items`` below
-  is used when BPO_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true.
+  is used when CORTEX_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true.

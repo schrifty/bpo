@@ -26,18 +26,18 @@ class NotableLlmError(RuntimeError):
 
 
 def _flag_use_llm() -> bool:
-    v = (os.environ.get("BPO_SUPPORT_NOTABLE_LLM", "true") or "").strip().lower()
+    v = (os.environ.get("CORTEX_SUPPORT_NOTABLE_LLM", "true") or "").strip().lower()
     return v not in ("0", "false", "no", "off")
 
 
 def _flag_escalation_nature_llm() -> bool:
-    v = (os.environ.get("BPO_SUPPORT_ESCALATION_NATURE_LLM", "true") or "").strip().lower()
+    v = (os.environ.get("CORTEX_SUPPORT_ESCALATION_NATURE_LLM", "true") or "").strip().lower()
     return v not in ("0", "false", "no", "off")
 
 
 def _allow_notable_llm_fallback() -> bool:
     """If false (default), any LLM/parsing failure for Notable raises; no generic bullets."""
-    v = (os.environ.get("BPO_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK", "") or "").strip().lower()
+    v = (os.environ.get("CORTEX_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK", "") or "").strip().lower()
     return v in ("1", "true", "yes", "on", "allow")
 
 
@@ -238,8 +238,8 @@ def generate_help_escalation_nature_quote_llm(report: dict[str, Any]) -> str | N
     """Multi-paragraph analysis for the Escalation metrics slide: themes, KPIs, and ticket evidence.
 
     Uses ``jira.help_escalation_metrics.llm_ticket_context`` (full field samples) and respects
-    ``BPO_SUPPORT_ESCALATION_NATURE_LLM`` (off → None). Reuses the same master LLM switch as Notable
-    (``BPO_SUPPORT_NOTABLE_LLM``) so support runs can disable all LLM in one place.
+    ``CORTEX_SUPPORT_ESCALATION_NATURE_LLM`` (off → None). Reuses the same master LLM switch as Notable
+    (``CORTEX_SUPPORT_NOTABLE_LLM``) so support runs can disable all LLM in one place.
     """
     if not _flag_use_llm() or not _flag_escalation_nature_llm():
         return None
@@ -744,7 +744,7 @@ def generate_notable_bullets_via_llm(
     except RuntimeError as e:
         if not allow_fb:
             raise NotableLlmError(
-                f"No LLM client: {e}. Set API keys, or BPO_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true to use static bullets."
+                f"No LLM client: {e}. Set API keys, or CORTEX_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true to use static bullets."
             ) from e
         logger.warning("Notable: LLM disabled (%s) — using YAML / default bullets", e)
         return _fallback_items(entry), "yaml_fallback"
@@ -839,7 +839,7 @@ def generate_notable_bullets_via_llm(
             logger.error("Notable: LLM parse failed (strict; not using fallback). %s: %s", type(e).__name__, e)
             raise NotableLlmError(
                 f"Notable: LLM did not return parseable JSON bullets ({type(e).__name__}: {e}). "
-                f"Set BPO_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true to use static bullets, or fix the prompt/parse path."
+                f"Set CORTEX_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true to use static bullets, or fix the prompt/parse path."
             ) from e
         logger.warning("Notable: LLM parse/complete failed — using YAML / defaults. %s: %s", type(e).__name__, e)
         return _fallback_items(entry), "yaml_fallback"
@@ -850,7 +850,7 @@ def generate_notable_bullets_via_llm(
             logger.error("Notable: LLM failed (strict; not using fallback).", exc_info=True)
             raise NotableLlmError(
                 f"Notable: LLM request failed: {e}. "
-                "Set BPO_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true for legacy soft fallback, or fix the error."
+                "Set CORTEX_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true for legacy soft fallback, or fix the error."
             ) from e
         logger.warning("Notable: LLM generation failed — using YAML / defaults. Error: %s", e, exc_info=True)
         return _fallback_items(entry), "yaml_fallback"
@@ -1077,7 +1077,7 @@ def generate_support_kpis_notable_bullets_via_llm(
     except RuntimeError as e:
         if not allow_fb:
             raise NotableLlmError(
-                f"No LLM client: {e}. Set API keys, or BPO_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true to use static bullets."
+                f"No LLM client: {e}. Set API keys, or CORTEX_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true to use static bullets."
             ) from e
         logger.warning("Support KPIs Notable: LLM disabled (%s) — using YAML / default bullets", e)
         return _fallback_support_kpis_items(entry), "yaml_fallback"
@@ -1160,7 +1160,7 @@ def generate_support_kpis_notable_bullets_via_llm(
         if not allow_fb:
             raise NotableLlmError(
                 f"Support KPIs Notable: LLM did not return parseable JSON bullets ({type(e).__name__}: {e}). "
-                "Set BPO_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true for static bullets."
+                "Set CORTEX_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true for static bullets."
             ) from e
         logger.warning("Support KPIs Notable: parse failed — using defaults. %s", e)
         return _fallback_support_kpis_items(entry), "yaml_fallback"

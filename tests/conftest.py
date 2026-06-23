@@ -29,7 +29,7 @@ def _leandna_data_api_staging_only(request: pytest.FixtureRequest):
 @pytest.fixture(autouse=True)
 def _disable_speaker_notes_llm_by_default(monkeypatch):
     """Existing speaker-notes tests expect deterministic output without live LLM calls."""
-    monkeypatch.setenv("BPO_SPEAKER_NOTES_LLM", "false")
+    monkeypatch.setenv("CORTEX_SPEAKER_NOTES_LLM", "false")
 
 
 @pytest.fixture(autouse=True)

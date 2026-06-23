@@ -491,7 +491,7 @@ def cs_notable_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
     return [{
         "description": "Notable (CS) bullets",
         "source": "LLM" if source == "llm" else "static / YAML (digest + optional LLM in support deck run)",
-        "query": f"source={source}; Jira + engagement digest; see BPO logs for this run",
+        "query": f"source={source}; Jira + engagement digest; see Cortex logs for this run",
     }]
 
 
@@ -505,19 +505,19 @@ def data_quality_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]
     if deck_id:
         rows.append({
             "description": "Deck",
-            "source": "BPO",
+            "source": "Cortex",
             "query": f"deck_id={deck_id}",
         })
     if gov.get("assembled_at"):
         rows.append({
             "description": "Governance assembled",
-            "source": "BPO",
+            "source": "Cortex",
             "query": str(gov["assembled_at"]),
         })
     for line in (gov.get("scope") or [])[:4]:
-        rows.append({"description": "Scope", "source": "BPO", "query": str(line)})
+        rows.append({"description": "Scope", "source": "Cortex", "query": str(line)})
     for line in (gov.get("freshness") or [])[:3]:
-        rows.append({"description": "Freshness", "source": "BPO", "query": str(line)})
+        rows.append({"description": "Freshness", "source": "Cortex", "query": str(line)})
     for item in (gov.get("lineage") or [])[:8]:
         if isinstance(item, dict):
             rows.append({
@@ -580,7 +580,7 @@ def github_delivery_flow_pipeline_traces(report: dict[str, Any]) -> list[dict[st
         },
         {
             "description": "Executive read",
-            "source": "BPO",
+            "source": "Cortex",
             "query": insights.get("speaker_guidance") or insights.get("takeaway") or "",
         },
     ]

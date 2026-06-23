@@ -109,7 +109,7 @@ def check_all_required() -> list[str]:
 def integration_freshness_metadata() -> dict[str, object]:
     """Integration configuration and cache freshness for run summaries / unattended gates."""
     from .config import (
-        BPO_SALESFORCE_CACHE_TTL_SECONDS,
+        CORTEX_SALESFORCE_CACHE_TTL_SECONDS,
         CURSOR_ADMIN_API_KEY,
         GITHUB_TOKEN,
         SF_CONSUMER_KEY,
@@ -124,7 +124,7 @@ def integration_freshness_metadata() -> dict[str, object]:
         "cursor_configured": bool(CURSOR_ADMIN_API_KEY),
         "ai_productivity_configured": bool(GITHUB_TOKEN and CURSOR_ADMIN_API_KEY),
         "salesforce_configured": sf_configured,
-        "salesforce_cache_ttl_h": round(BPO_SALESFORCE_CACHE_TTL_SECONDS / 3600.0, 2),
+        "salesforce_cache_ttl_h": round(CORTEX_SALESFORCE_CACHE_TTL_SECONDS / 3600.0, 2),
     }
     age_h = salesforce_read_cache_age_hours()
     if age_h is not None:

@@ -1,4 +1,4 @@
-"""Canonical paths for BPO YAML config (aliases, cohorts, portfolio maps)."""
+"""Canonical paths for Cortex YAML config (aliases, cohorts, portfolio maps)."""
 
 from __future__ import annotations
 

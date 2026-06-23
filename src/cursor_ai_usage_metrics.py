@@ -12,7 +12,7 @@ from typing import Any
 
 from .cursor_client import CursorClient
 
-logger = logging.getLogger("bpo")
+logger = logging.getLogger("cortex")
 
 DEFAULT_TOKEN_USAGE_WINDOW_DAYS = 30
 

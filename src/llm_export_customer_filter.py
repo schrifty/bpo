@@ -8,10 +8,10 @@ Supports:
     - Explicit name excludes (CLI, env comma-list, optional UTF-8 file of names).
 
 Environment (defaults off unless noted):
-    ``BPO_LLM_EXPORT_CUSTOMERS_SF_ALLOWLIST`` — ``1``/``true``/``yes``/``on`` to enable SF allowlist.
-    ``BPO_LLM_EXPORT_EXCLUDE_SF_CHURNED_MATCHED`` — same truthy semantics for churned filter.
-    ``BPO_LLM_EXPORT_EXCLUDE_CUSTOMERS`` — comma-separated Pendo customer labels (case-insensitive).
-    ``BPO_LLM_EXPORT_EXCLUDE_CUSTOMERS_FILE`` — path to ``.yaml`` (``customers: [..]``) or plain text
+    ``CORTEX_LLM_EXPORT_CUSTOMERS_SF_ALLOWLIST`` — ``1``/``true``/``yes``/``on`` to enable SF allowlist.
+    ``CORTEX_LLM_EXPORT_EXCLUDE_SF_CHURNED_MATCHED`` — same truthy semantics for churned filter.
+    ``CORTEX_LLM_EXPORT_EXCLUDE_CUSTOMERS`` — comma-separated Pendo customer labels (case-insensitive).
+    ``CORTEX_LLM_EXPORT_EXCLUDE_CUSTOMERS_FILE`` — path to ``.yaml`` (``customers: [..]``) or plain text
     (one name per non-empty, non-``#`` line).
 
 Allowlist requires Salesforce to be configured; otherwise :func:`apply_llm_export_customer_filters`
@@ -119,14 +119,14 @@ class LlmExportCustomerFilterConfig:
     ) -> LlmExportCustomerFilterConfig:
         env_names = _gather_exclude_labels(
             cli_names=list(exclude_customer),
-            env_csv=os.environ.get("BPO_LLM_EXPORT_EXCLUDE_CUSTOMERS", ""),
-            env_file=os.environ.get("BPO_LLM_EXPORT_EXCLUDE_CUSTOMERS_FILE", ""),
+            env_csv=os.environ.get("CORTEX_LLM_EXPORT_EXCLUDE_CUSTOMERS", ""),
+            env_file=os.environ.get("CORTEX_LLM_EXPORT_EXCLUDE_CUSTOMERS_FILE", ""),
         )
         return LlmExportCustomerFilterConfig(
             sf_allowlist=customers_sf_allowlist
-            or _env_truthy(os.environ.get("BPO_LLM_EXPORT_CUSTOMERS_SF_ALLOWLIST")),
+            or _env_truthy(os.environ.get("CORTEX_LLM_EXPORT_CUSTOMERS_SF_ALLOWLIST")),
             exclude_sf_churned_matched=customers_exclude_sf_churned
-            or _env_truthy(os.environ.get("BPO_LLM_EXPORT_EXCLUDE_SF_CHURNED_MATCHED")),
+            or _env_truthy(os.environ.get("CORTEX_LLM_EXPORT_EXCLUDE_SF_CHURNED_MATCHED")),
             exclude_names_lower=env_names,
         )
 
@@ -222,8 +222,8 @@ def apply_llm_export_customer_filters(
     if cfg.sf_allowlist:
         if not _salesforce_configured():
             raise RuntimeError(
-                "BPO LLM export: Salesforce allowlist filtering requested but Salesforce is not configured "
-                "(set JWT env vars per docs).Unset BPO_LLM_EXPORT_CUSTOMERS_SF_ALLOWLIST / omit "
+                "Cortex LLM export: Salesforce allowlist filtering requested but Salesforce is not configured "
+                "(set JWT env vars per docs).Unset CORTEX_LLM_EXPORT_CUSTOMERS_SF_ALLOWLIST / omit "
                 "`--customers-sf-allowlist`.",
             )
         active_lower, sf_labels, book = active_sf_allowlist_lower()

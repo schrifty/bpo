@@ -40,7 +40,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 
 _LOG = logging.getLogger("integration_leandna_data_api")
 
-# ``build_leandna_data_api_headers`` defaults to ``bpo-…`` User-Agent; Swagger runs in a browser.
+# ``build_leandna_data_api_headers`` defaults to ``cortex-…`` User-Agent; Swagger runs in a browser.
 # If staging returns 401 only from Python, try matching a normal browser UA (see LEANDNA_SETUP).
 _SWAGGER_LIKE_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -83,7 +83,7 @@ def _ensure_verbose_logging() -> None:
     root.setLevel(logging.DEBUG)
     for name in (
         "integration_leandna_data_api",
-        "bpo",
+        "cortex",
         "src.leandna_data_api_http",
         "src.leandna_data_api_request",
         "urllib3.connectionpool",

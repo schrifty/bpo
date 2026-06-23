@@ -14,9 +14,9 @@ spend-limit, and billing-group mutations are intentionally omitted.
 
 Caching: ``daily-usage-data`` and ``filtered-usage-events`` are aggregated hourly
 server-side (Cursor advises polling at most once/hour), so the fully-assembled result
-of those two reads is cached on disk for ``BPO_CURSOR_CACHE_TTL_HOURS`` (default 1h),
+of those two reads is cached on disk for ``CORTEX_CURSOR_CACHE_TTL_HOURS`` (default 1h),
 keyed by the request shape with timestamps floored to the hour. This keeps repeated
-deck builds well under the 20 req/min ceiling. Disable with ``BPO_CURSOR_CACHE_DISABLED``.
+deck builds well under the 20 req/min ceiling. Disable with ``CORTEX_CURSOR_CACHE_DISABLED``.
 
 Fails loud: any non-2xx response raises :class:`CursorClientError` rather than
 returning placeholder data, so callers (and metric generators) surface the issue.
@@ -37,7 +37,7 @@ from typing import Any
 import requests
 
 from .config import (
-    BPO_CURSOR_CACHE_TTL_SECONDS,
+    CORTEX_CURSOR_CACHE_TTL_SECONDS,
     CURSOR_ADMIN_API_KEY,
     CURSOR_API_BASE_URL,
     logger,
@@ -48,7 +48,7 @@ _MAX_RANGE_DAYS = 30
 _DEFAULT_TIMEOUT_S = 60.0
 _DEFAULT_PAGE_SIZE = 1000
 
-# On-disk read cache under ``BPO_CACHE_DIR/cursor/`` (see ``src.disk_cache``).
+# On-disk read cache under ``CORTEX_CACHE_DIR/cursor/`` (see ``src.disk_cache``).
 from . import disk_cache as _disk_cache
 
 _CACHE_NAMESPACE = "cursor"
@@ -91,7 +91,7 @@ _RATE_LIMIT_BACKOFF_CAP_S = 60.0
 
 def _default_min_request_interval() -> float:
     """Min seconds between Cursor API requests (override via env for tuning/tests)."""
-    raw = (os.environ.get("BPO_CURSOR_MIN_REQUEST_INTERVAL_S") or "").strip()
+    raw = (os.environ.get("CORTEX_CURSOR_MIN_REQUEST_INTERVAL_S") or "").strip()
     if raw:
         try:
             return max(0.0, float(raw))
@@ -191,7 +191,7 @@ class CursorClient:
         self.base_url = (base_url or CURSOR_API_BASE_URL or "https://api.cursor.com").rstrip("/")
         self.timeout = timeout
         self._cache_ttl = (
-            BPO_CURSOR_CACHE_TTL_SECONDS if cache_ttl_seconds is None else max(0, int(cache_ttl_seconds))
+            CORTEX_CURSOR_CACHE_TTL_SECONDS if cache_ttl_seconds is None else max(0, int(cache_ttl_seconds))
         )
         self._min_request_interval = (
             _default_min_request_interval() if min_request_interval is None

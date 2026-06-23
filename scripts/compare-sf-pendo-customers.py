@@ -59,7 +59,7 @@ def main() -> int:
     ap.add_argument("-v", "--verbose", action="store_true")
     ns = ap.parse_args()
 
-    logging.getLogger("bpo").setLevel(logging.INFO if ns.verbose else logging.WARNING)
+    logging.getLogger("cortex").setLevel(logging.INFO if ns.verbose else logging.WARNING)
 
     print("Loading portfolio + Salesforce (LLM export bundle)…", file=sys.stderr)
     portfolio = build_llm_export_snapshot_report(PendoClient(), days=ns.days)

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Load BPO secrets from AWS Secrets Manager into the process environment.
+"""Load Cortex secrets from AWS Secrets Manager into the process environment.
 
 Run before ``decks.py`` on ECS/Fargate (see ``scripts/run_job.sh``). When
-``BPO_SECRETS_ARN`` is unset, exits 0 without changes so local runs keep using ``.env``.
+``CORTEX_SECRETS_ARN`` is unset, exits 0 without changes so local runs keep using ``.env``.
 
 Expected secret JSON keys mirror ``.env.example`` variable names. Optional
 ``GOOGLE_SERVICE_ACCOUNT_JSON`` (object or string) is written to a temp file and
@@ -24,7 +24,7 @@ def _load_secret_string(arn: str) -> str:
         import boto3
     except ImportError as exc:
         raise RuntimeError(
-            "boto3 is required to load BPO_SECRETS_ARN; pip install boto3 or unset BPO_SECRETS_ARN"
+            "boto3 is required to load CORTEX_SECRETS_ARN; pip install boto3 or unset CORTEX_SECRETS_ARN"
         ) from exc
     client = boto3.client("secretsmanager")
     resp = client.get_secret_value(SecretId=arn)
@@ -48,7 +48,7 @@ def apply_secret_payload(payload: dict[str, Any]) -> None:
             sa_text = sa_raw
         else:
             sa_text = json.dumps(sa_raw)
-        fd, path = tempfile.mkstemp(prefix="bpo-google-sa-", suffix=".json")
+        fd, path = tempfile.mkstemp(prefix="cortex-google-sa-", suffix=".json")
         os.close(fd)
         Path(path).write_text(sa_text, encoding="utf-8")
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
@@ -56,7 +56,7 @@ def apply_secret_payload(payload: dict[str, Any]) -> None:
 
 def bootstrap(*, secrets_arn: str | None = None) -> bool:
     """Load secrets when configured. Returns True when secrets were applied."""
-    arn = (secrets_arn or os.environ.get("BPO_SECRETS_ARN", "")).strip()
+    arn = (secrets_arn or os.environ.get("CORTEX_SECRETS_ARN", "")).strip()
     if not arn:
         return False
     raw = _load_secret_string(arn)
@@ -67,7 +67,7 @@ def bootstrap(*, secrets_arn: str | None = None) -> bool:
     if not isinstance(payload, dict):
         raise RuntimeError(f"Secret {arn!r} JSON must be an object")
     apply_secret_payload(dict(payload))
-    os.environ.setdefault("BPO_SKIP_DOTENV", "1")
+    os.environ.setdefault("CORTEX_SKIP_DOTENV", "1")
     return True
 
 
@@ -78,7 +78,7 @@ def main() -> None:
         print(f"bootstrap_aws_env: {exc}", file=sys.stderr)
         sys.exit(1)
     if applied:
-        print("bootstrap_aws_env: loaded secrets from BPO_SECRETS_ARN", file=sys.stderr)
+        print("bootstrap_aws_env: loaded secrets from CORTEX_SECRETS_ARN", file=sys.stderr)
     sys.exit(0)
 
 

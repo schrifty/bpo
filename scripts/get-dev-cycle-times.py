@@ -303,7 +303,7 @@ def main() -> int:
     ap.add_argument("--timeout", type=float, default=60.0, metavar="SEC")
     ns = ap.parse_args()
 
-    logging.getLogger("bpo").setLevel(logging.INFO if ns.verbose else logging.WARNING)
+    logging.getLogger("cortex").setLevel(logging.INFO if ns.verbose else logging.WARNING)
 
     try:
         jira = get_shared_jira_client()

@@ -20,7 +20,7 @@ from .leandna_metrics_client import (
     unwrap_metric_datapoint_rows,
 )
 
-logger = logging.getLogger("bpo")
+logger = logging.getLogger("cortex")
 
 _CRED_PREFIX = {"production": "PR_", "staging": "ST_"}
 

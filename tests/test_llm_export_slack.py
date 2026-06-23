@@ -8,7 +8,7 @@ from src.llm_export_slack import attach_slack_top_customers_for_llm_export, llm_
 
 
 def test_llm_export_slack_disabled_by_env():
-    with patch.dict("os.environ", {"BPO_LLM_EXPORT_SLACK": "false"}, clear=False):
+    with patch.dict("os.environ", {"CORTEX_LLM_EXPORT_SLACK": "false"}, clear=False):
         assert llm_export_slack_enabled() is False
 
 

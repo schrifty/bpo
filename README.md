@@ -1,6 +1,6 @@
-# bpo
+# Cortex
 
-Automated Customer Success deck generation powered by Pendo, JIRA, and Google Slides. Generates per-customer health reviews, executive summaries, product adoption reports, and portfolio-level health decks.
+Cortex — automated customer success deck generation powered by Pendo, JIRA, and Google Slides. Generates per-customer health reviews, executive summaries, product adoption reports, and portfolio-level health decks.
 
 ## Setup
 
@@ -23,13 +23,13 @@ python3 decks.py run-job --job engineering-portfolio --dry-run
 On AWS, build and run the container (see `Dockerfile`, `infra/` templates):
 
 ```bash
-docker build -t bpo .
-docker run --rm -v "$PWD/.env:/app/.env:ro" -v "$PWD/.cache:/var/bpo/cache" \
-  -e BPO_SKIP_DOTENV=0 -e BPO_CACHE_DIR=/var/bpo/cache bpo engineering-portfolio
+docker build -t cortex-decks .
+docker run --rm -v "$PWD/.env:/app/.env:ro" -v "$PWD/.cache:/var/cortex/cache" \
+  -e CORTEX_SKIP_DOTENV=0 -e CORTEX_CACHE_DIR=/var/cortex/cache cortex-decks engineering-portfolio
 ```
 
-Production uses `scripts/run_job.sh` → `bootstrap_aws_env.py` (when `BPO_SECRETS_ARN` is set) → `decks run-job`.
-Set `BPO_LOG_FORMAT=json` (auto on ECS) for CloudWatch filters; stdout includes `BPO_RUN_SUMMARY={…}` and EMF metrics.
+Production uses `scripts/run_job.sh` → `bootstrap_aws_env.py` (when `CORTEX_SECRETS_ARN` is set) → `decks run-job`.
+Set `CORTEX_LOG_FORMAT=json` (auto on ECS) for CloudWatch filters; stdout includes `CORTEX_RUN_SUMMARY={…}` and EMF metrics.
 
 | Job | Schedule (example) | YAML |
 |-----|-------------------|------|
@@ -152,7 +152,7 @@ For a proposed cloud architecture on AWS (EC2, Lambda, or ECS Fargate), plus sec
 ## Structure
 
 ```
-bpo/
+cortex/
 ├── decks/                    # Deck definitions (YAML) — what slides to include per audience
 │   ├── cs-health-review.yaml
 │   ├── executive-summary.yaml

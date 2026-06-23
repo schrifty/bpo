@@ -29,14 +29,14 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(ROOT / ".env")
 
-from src.config import BPO_LEANDNA_DATA_API_EXECUTION_BUCKET  # noqa: E402
+from src.config import CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET  # noqa: E402
 from src.leandna_data_api_request import data_api_base_url  # noqa: E402
 from src.leandna_metrics_catalog import (  # noqa: E402
     MetricsCatalogError,
     format_metric_brief_lines,
     list_metric_definitions_filtered,
 )
-from src.leandna_metrics_cli import configure_bpo_logging, pop_leading_numeric_metric_id  # noqa: E402
+from src.leandna_metrics_cli import configure_cortex_logging, pop_leading_numeric_metric_id  # noqa: E402
 
 
 def main() -> int:
@@ -66,7 +66,7 @@ def main() -> int:
         return 1
     metric_id_filter = flag_metric_id or leading_metric_id
 
-    configure_bpo_logging(verbose=ns.verbose)
+    configure_cortex_logging(verbose=ns.verbose)
 
     try:
         base = data_api_base_url()
@@ -75,7 +75,7 @@ def main() -> int:
         return 1
     print(
         f"LeanDNA target: GET {base}/data/Metric  "
-        f"(EXECUTION_ENV bucket: {BPO_LEANDNA_DATA_API_EXECUTION_BUCKET})",
+        f"(EXECUTION_ENV bucket: {CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET})",
         file=sys.stderr,
     )
 

@@ -1,6 +1,6 @@
 # Salesforce Data Schema
 
-BPO uses the Salesforce **REST API** with **JWT Bearer** auth. Implementation: [`src/salesforce_client.py`](../../src/salesforce_client.py). Setup: [`../SETUP/SALESFORCE_SETUP.md`](../SETUP/SALESFORCE_SETUP.md). Registry: [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) (Salesforce section).
+Cortex uses the Salesforce **REST API** with **JWT Bearer** auth. Implementation: [`src/salesforce_client.py`](../../src/salesforce_client.py). Setup: [`../SETUP/SALESFORCE_SETUP.md`](../SETUP/SALESFORCE_SETUP.md). Registry: [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) (Salesforce section).
 
 ## 1. HTTP
 
@@ -24,13 +24,13 @@ Version: `SF_REST_API_VERSION` in code (e.g. `v59.0`). Not used here: Bulk/Compo
 | `Contract_Status__c`, `Contract_Contract_Start_Date__c`, `Contract_Contract_End_Date__c`, `ARR__c` | Contract / ARR **on the Account row** (not the standard **Contract** sObject) |
 | Factory / operational start | Normalized as **`factory_start_date`** on Customer Entity rows — sourced from **`SF_ACCOUNT_FACTORY_START_DATE_FIELD`** (default `Effective_Date_of_Order__c`; override in `.env`). Distinct from **`Contract_Contract_Start_Date__c`**. |
 
-**Portfolio / cohort “Total ARR”** — `get_arr_by_customer_names` sums **`Account.ARR__c`** on matched Customer Entity accounts only. It does **not** read the standard **`Contract`** object or roll up contract line amounts. For standard Contract fields BPO can query, see **§7 Contract** and **`query_contracts`** / comprehensive category **`contracts`**.
+**Portfolio / cohort “Total ARR”** — `get_arr_by_customer_names` sums **`Account.ARR__c`** on matched Customer Entity accounts only. It does **not** read the standard **`Contract`** object or roll up contract line amounts. For standard Contract fields Cortex can query, see **§7 Contract** and **`query_contracts`** / comprehensive category **`contracts`**.
 
 **Deeper background** on where ARR/MRR usually lives (Account vs Opportunity vs Order vs CPQ Subscriptions vs Revenue Cloud): **[`SALESFORCE_REVENUE_AND_ARR.md`](./SALESFORCE_REVENUE_AND_ARR.md)**.
 
 **Opportunity** — aggregates only (via `get_opportunity_creation_this_year`, `get_advanced_pipeline_arr`): filter by `Type` (New Business, New Expansion Business, Expansion Business, POC), `AccountId` in matched accounts, current **calendar year** on `CreatedDate` for counts; same types + `StageName` in (3-Business Validation, 4-Proposal, 5-Contracts) for **SUM(ARR__c)**.
 
-**Comprehensive deck** (`get_customer_salesforce_comprehensive`) — after matching Customer Entity account(s), BPO walks the standard Account hierarchy: every account with `ParentId` pointing at an Id already in the set is added (breadth-first), up to depth 25 and 2000 Ids total, then all category SOQL uses that expanded Id list. Partner relationships and other non-`ParentId` links are not followed. Included categories: contacts, opportunities, opportunity_line_items, cases, tasks, events, **`contracts`** (standard Contract: `AccountId IN (...)`), orders, quotes, assets, owners_sample, etc.
+**Comprehensive deck** (`get_customer_salesforce_comprehensive`) — after matching Customer Entity account(s), Cortex walks the standard Account hierarchy: every account with `ParentId` pointing at an Id already in the set is added (breadth-first), up to depth 25 and 2000 Ids total, then all category SOQL uses that expanded Id list. Partner relationships and other non-`ParentId` links are not followed. Included categories: contacts, opportunities, opportunity_line_items, cases, tasks, events, **`contracts`** (standard Contract: `AccountId IN (...)`), orders, quotes, assets, owners_sample, etc.
 
 ## 3. `get_customer_salesforce` output
 
@@ -134,7 +134,7 @@ Prospect before qualification; **Lead conversion** can create **Account**, **Con
 | `Amount` | Currency | Precision 18, **scale 2** (two decimal places) | Total **deal value** in the opportunity’s currency (header-level; line items may roll up into this depending on org setup). |
 | `Probability` | Percent | Stored 0–100 | **Win likelihood**; often **tied to stage** and used for **weighted pipeline** (Amount × Probability). |
 | `CloseDate` | Date | Calendar date | **Expected close** date for forecasting and quarter planning. |
-| `Type` | Picklist | Values defined in org | Deal category (e.g. New Business, Renewal); BPO’s Salesforce metrics filter on specific **Type** values. |
+| `Type` | Picklist | Values defined in org | Deal category (e.g. New Business, Renewal); Cortex’s Salesforce metrics filter on specific **Type** values. |
 | `ForecastCategoryName` | Picklist | Values defined in org | Human-readable **forecast bucket** (e.g. Pipeline, Best Case, Closed); aligns with **forecasting** tools and is often **derived from stage** in standard setups. |
 | `OwnerId` | Reference (User) | 18-character Id | Sales rep owning the opportunity. |
 | `CreatedDate` | DateTime | UTC timestamp | When the opportunity was created. |
@@ -191,9 +191,9 @@ Formal **price quote** (often CPQ) linked to an **Opportunity** and **Account**;
 
 **Commercial agreement** (subscription, MSA, etc.) with **term** and **status**; often used for **renewal** and entitlement tracking.
 
-**BPO implementation** — Canonical column list: **`MAINSTREAM_OBJECT_FIELDS["Contract"]`** in [`src/salesforce_client.py`](../../src/salesforce_client.py) (must stay in sync with this table). Call **`SalesforceClient.query_contracts(where=..., limit=...)`** or **`query_mainstream_object("Contract", ...)`** with a custom **`fields=`** tuple if your org adds columns (e.g. custom **ARR / MRR**). **`get_customer_salesforce_comprehensive`** stores rows under **`categories["contracts"]`**, filtered with **`AccountId IN (...)`** on the expanded account Id set. **Cohort summary and similar deck ARR** still use **`Account.ARR__c`** on Customer Entity accounts, not this object, unless you extend the code to aggregate Contract fields.
+**Cortex implementation** — Canonical column list: **`MAINSTREAM_OBJECT_FIELDS["Contract"]`** in [`src/salesforce_client.py`](../../src/salesforce_client.py) (must stay in sync with this table). Call **`SalesforceClient.query_contracts(where=..., limit=...)`** or **`query_mainstream_object("Contract", ...)`** with a custom **`fields=`** tuple if your org adds columns (e.g. custom **ARR / MRR**). **`get_customer_salesforce_comprehensive`** stores rows under **`categories["contracts"]`**, filtered with **`AccountId IN (...)`** on the expanded account Id set. **Cohort summary and similar deck ARR** still use **`Account.ARR__c`** on Customer Entity accounts, not this object, unless you extend the code to aggregate Contract fields.
 
-**Not in BPO’s default Contract SELECT** — Standard Salesforce may expose **`CustomerSignedId`**, **`CompanySignedDate`**, **`SpecialTerms`**, CPQ-related fields, or custom **`__c`** currency fields; use **`…/sobjects/Contract/describe`** or Object Manager, then **`fields=`** or raw **`query_soql`**.
+**Not in Cortex’s default Contract SELECT** — Standard Salesforce may expose **`CustomerSignedId`**, **`CompanySignedDate`**, **`SpecialTerms`**, CPQ-related fields, or custom **`__c`** currency fields; use **`…/sobjects/Contract/describe`** or Object Manager, then **`fields=`** or raw **`query_soql`**.
 
 | Field | Type | Length / precision | Description |
 |-------|------|--------------------|-------------|

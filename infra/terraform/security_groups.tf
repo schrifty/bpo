@@ -1,6 +1,6 @@
 resource "aws_security_group" "ecs_tasks" {
   name        = "${var.name_prefix}-ecs-tasks"
-  description = "BPO Fargate deck jobs"
+  description = "Cortex Fargate deck jobs"
   vpc_id      = local.vpc_id
 
   egress {
@@ -15,7 +15,7 @@ resource "aws_security_group" "ecs_tasks" {
 
 resource "aws_security_group" "efs" {
   name        = "${var.name_prefix}-efs"
-  description = "EFS NFS for BPO cache"
+  description = "EFS NFS for Cortex cache"
   vpc_id      = local.vpc_id
 
   ingress {

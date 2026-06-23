@@ -1,4 +1,4 @@
-resource "aws_ecs_cluster" "bpo" {
+resource "aws_ecs_cluster" "cortex" {
   name = local.cluster_name
 
   setting {
@@ -19,7 +19,7 @@ resource "aws_ecs_task_definition" "decks" {
   task_role_arn            = aws_iam_role.ecs_task.arn
 
   volume {
-    name = "bpo-cache"
+    name = "cortex-cache"
     efs_volume_configuration {
       file_system_id     = aws_efs_file_system.cache.id
       transit_encryption = "ENABLED"
@@ -32,7 +32,7 @@ resource "aws_ecs_task_definition" "decks" {
 
   container_definitions = jsonencode([
     {
-      name      = "bpo-decks"
+      name      = "cortex-decks"
       image     = local.ecr_image
       essential = true
       entryPoint = [
@@ -42,8 +42,8 @@ resource "aws_ecs_task_definition" "decks" {
       environment = local.container_environment
       mountPoints = [
         {
-          sourceVolume  = "bpo-cache"
-          containerPath = "/var/bpo/cache"
+          sourceVolume  = "cortex-cache"
+          containerPath = "/var/cortex/cache"
           readOnly      = false
         },
       ]

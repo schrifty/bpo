@@ -133,8 +133,8 @@ def test_data_api_mutate_json_blocked_when_production_bucket(monkeypatch: pytest
     import src.config as cfg
     from src.leandna_data_api_request import data_api_mutate_json
 
-    monkeypatch.setattr(cfg, "BPO_LEANDNA_DATA_API_EXECUTION_BUCKET", "production")
-    monkeypatch.delenv("BPO_ALLOW_PRODUCTION_MUTATIONS", raising=False)
+    monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "production")
+    monkeypatch.delenv("CORTEX_ALLOW_PRODUCTION_MUTATIONS", raising=False)
     out = data_api_mutate_json("DELETE", "Metric/1/MetricDataPoint")
     assert out["ok"] is False
     assert "disabled" in out["error"].lower()

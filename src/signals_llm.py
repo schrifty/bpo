@@ -1,7 +1,7 @@
 """Optional LLM rewrite of Notable Signals — heuristic + cross-source facts (Phase 1 rules),
 plus optional QBR Manifest + YAML slide brief as editorial context (Phase 3).
 
-Enabled with ``BPO_SIGNALS_LLM=1``. Runs after ``extend_health_report_signals`` on the full health report.
+Enabled with ``CORTEX_SIGNALS_LLM=1``. Runs after ``extend_health_report_signals`` on the full health report.
 """
 
 from __future__ import annotations
@@ -12,11 +12,11 @@ import re
 from typing import Any
 
 from .config import (
-    BPO_SIGNALS_LLM,
-    BPO_SIGNALS_LLM_EDITORIAL,
-    BPO_SIGNALS_LLM_MAX_ITEMS,
-    BPO_SIGNALS_LLM_MANIFEST_MAX_CHARS,
-    BPO_SIGNALS_LLM_SLIDE_PROMPT_MAX_CHARS,
+    CORTEX_SIGNALS_LLM,
+    CORTEX_SIGNALS_LLM_EDITORIAL,
+    CORTEX_SIGNALS_LLM_MAX_ITEMS,
+    CORTEX_SIGNALS_LLM_MANIFEST_MAX_CHARS,
+    CORTEX_SIGNALS_LLM_SLIDE_PROMPT_MAX_CHARS,
     LLM_MODEL,
     llm_client,
     logger,
@@ -183,7 +183,7 @@ def extract_executive_signals_slide_prompt(
     """Return the ``prompt`` text from the ``signals`` slide in ``executive_summary`` deck YAML (if any)."""
     from .deck_loader import resolve_deck
 
-    cap = max_chars if max_chars is not None else BPO_SIGNALS_LLM_SLIDE_PROMPT_MAX_CHARS
+    cap = max_chars if max_chars is not None else CORTEX_SIGNALS_LLM_SLIDE_PROMPT_MAX_CHARS
     try:
         r = resolve_deck("executive_summary", customer)
     except Exception as e:
@@ -211,16 +211,16 @@ def build_signals_llm_user_envelope(
     """Wrap ``facts`` plus optional ``editorial`` (Manifest + slide YAML) for the user message."""
     facts = build_signals_llm_payload(report)
     envelope: dict[str, Any] = {"facts": facts}
-    if not BPO_SIGNALS_LLM_EDITORIAL:
+    if not CORTEX_SIGNALS_LLM_EDITORIAL:
         return envelope
     editorial: dict[str, str] = {}
     if manifest_rules and manifest_rules.strip():
         mr = manifest_rules.strip()
-        mx = BPO_SIGNALS_LLM_MANIFEST_MAX_CHARS
+        mx = CORTEX_SIGNALS_LLM_MANIFEST_MAX_CHARS
         editorial["manifest_rules"] = mr[:mx] if len(mr) > mx else mr
     if slide_prompt and slide_prompt.strip():
         sp = slide_prompt.strip()
-        cap = BPO_SIGNALS_LLM_SLIDE_PROMPT_MAX_CHARS
+        cap = CORTEX_SIGNALS_LLM_SLIDE_PROMPT_MAX_CHARS
         editorial["slide_brief_from_yaml"] = sp[:cap] if len(sp) > cap else sp
     if editorial:
         envelope["editorial"] = editorial
@@ -296,7 +296,7 @@ def _parse_llm_signals_response(raw: str) -> dict[str, Any]:
         if len(t) < 8:
             continue
         out.append(t)
-        if len(out) >= BPO_SIGNALS_LLM_MAX_ITEMS:
+        if len(out) >= CORTEX_SIGNALS_LLM_MAX_ITEMS:
             break
     ts_raw = data.get("trend_summary_for_slide")
     trend_summary = str(ts_raw).strip()[:240] if ts_raw else ""
@@ -314,7 +314,7 @@ def _parse_llm_signals_response(raw: str) -> dict[str, Any]:
 
 
 def maybe_rewrite_signals_with_llm(report: dict[str, Any]) -> None:
-    """If ``BPO_SIGNALS_LLM`` is on, replace ``report['signals']`` with LLM output; else no-op.
+    """If ``CORTEX_SIGNALS_LLM`` is on, replace ``report['signals']`` with LLM output; else no-op.
 
     Consumes and removes ``_signals_llm_manifest_rules`` / ``_signals_llm_slide_prompt`` if present
     (QBR passes Manifest + YAML brief). On failure, leaves heuristic ``signals`` and sets meta.
@@ -323,7 +323,7 @@ def maybe_rewrite_signals_with_llm(report: dict[str, Any]) -> None:
     manifest_rules = report.pop("_signals_llm_manifest_rules", None)
     slide_prompt = report.pop("_signals_llm_slide_prompt", None)
 
-    if not BPO_SIGNALS_LLM:
+    if not CORTEX_SIGNALS_LLM:
         return
 
     base = list(report.get("signals") or [])
@@ -347,7 +347,7 @@ def maybe_rewrite_signals_with_llm(report: dict[str, Any]) -> None:
     if len(user_json) > 18000:
         user_json = user_json[:17900] + "…"
 
-    system = _SIGNALS_LLM_SYSTEM.format(max_items=BPO_SIGNALS_LLM_MAX_ITEMS)
+    system = _SIGNALS_LLM_SYSTEM.format(max_items=CORTEX_SIGNALS_LLM_MAX_ITEMS)
     try:
         resp = _llm_create_with_retry(
             client,
@@ -401,7 +401,7 @@ def extract_portfolio_signals_slide_prompt(
     from .deck_loader import resolve_deck
 
     did = deck_id if deck_id in ("portfolio_review", "csm_book_of_business") else "portfolio_review"
-    cap = max_chars if max_chars is not None else BPO_SIGNALS_LLM_SLIDE_PROMPT_MAX_CHARS
+    cap = max_chars if max_chars is not None else CORTEX_SIGNALS_LLM_SLIDE_PROMPT_MAX_CHARS
     try:
         r = resolve_deck(did, "Portfolio")
     except Exception as e:
@@ -611,12 +611,12 @@ def build_portfolio_signals_llm_user_envelope(
 ) -> dict[str, Any]:
     facts = build_portfolio_signals_llm_payload(report)
     envelope: dict[str, Any] = {"facts": facts}
-    if not BPO_SIGNALS_LLM_EDITORIAL:
+    if not CORTEX_SIGNALS_LLM_EDITORIAL:
         return envelope
     editorial: dict[str, str] = {}
     if slide_prompt and slide_prompt.strip():
         sp = slide_prompt.strip()
-        cap = BPO_SIGNALS_LLM_SLIDE_PROMPT_MAX_CHARS
+        cap = CORTEX_SIGNALS_LLM_SLIDE_PROMPT_MAX_CHARS
         editorial["slide_brief_from_yaml"] = sp[:cap] if len(sp) > cap else sp
     if editorial:
         envelope["editorial"] = editorial
@@ -676,7 +676,7 @@ def _parse_portfolio_llm_signals_response(raw: str) -> list[dict[str, Any]]:
         if not cust:
             cust = "Portfolio"
         out.append({"customer": cust, "signal": sig})
-        if len(out) >= BPO_SIGNALS_LLM_MAX_ITEMS:
+        if len(out) >= CORTEX_SIGNALS_LLM_MAX_ITEMS:
             break
     return out
 
@@ -686,9 +686,9 @@ def maybe_rewrite_portfolio_signals_with_llm(
     *,
     deck_id: str = "portfolio_review",
 ) -> None:
-    """When ``BPO_SIGNALS_LLM`` is on, replace ``portfolio_signals`` using a rich multi-source envelope."""
+    """When ``CORTEX_SIGNALS_LLM`` is on, replace ``portfolio_signals`` using a rich multi-source envelope."""
     report.pop("_portfolio_signals_llm_meta", None)
-    if not BPO_SIGNALS_LLM:
+    if not CORTEX_SIGNALS_LLM:
         return
     if not (report.get("customers") or []):
         return
@@ -720,7 +720,7 @@ def maybe_rewrite_portfolio_signals_with_llm(
     if len(user_json) > _PORTFOLIO_SIGNALS_LLM_USER_JSON_CAP:
         user_json = user_json[: _PORTFOLIO_SIGNALS_LLM_USER_JSON_CAP - 3] + "…"
 
-    system = _PORTFOLIO_SIGNALS_LLM_SYSTEM.format(max_items=BPO_SIGNALS_LLM_MAX_ITEMS)
+    system = _PORTFOLIO_SIGNALS_LLM_SYSTEM.format(max_items=CORTEX_SIGNALS_LLM_MAX_ITEMS)
     try:
         resp = _llm_create_with_retry(
             client,

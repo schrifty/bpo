@@ -85,7 +85,7 @@ def _resolve_site_id(*, requested_sites: str | None, identity_body: dict[str, An
         return site_ids[0]
 
     preferred: list[int] = []
-    env_raw = (os.environ.get("BPO_LEANDNA_METRICS_SITE_ID") or "").strip()
+    env_raw = (os.environ.get("CORTEX_LEANDNA_METRICS_SITE_ID") or "").strip()
     if env_raw:
         try:
             preferred.append(int(env_raw))
@@ -108,7 +108,7 @@ def _site_id_resolve_error(identity_body: dict[str, Any]) -> str:
         "missing metric-id and could not infer siteId from identity "
         f"({len(site_ids)} authorized site(s): {ids_s}). "
         f"Pass --requested-sites (portfolio default is {METRICS_REGISTRY_DEFAULT_SITE_ID}) "
-        "or set BPO_LEANDNA_METRICS_SITE_ID."
+        "or set CORTEX_LEANDNA_METRICS_SITE_ID."
     )
 
 

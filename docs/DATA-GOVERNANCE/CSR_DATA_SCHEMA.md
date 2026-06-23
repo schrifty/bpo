@@ -1,6 +1,6 @@
 # Customer Success Report (CS Report / CSR) Data Schema
 
-BPO reads the **latest CS Report** as an **XLSX** file from a shared Google Drive folder, parses the first worksheet into rows, and treats many metric columns as **JSON-encoded KPI objects**.
+Cortex reads the **latest CS Report** as an **XLSX** file from a shared Google Drive folder, parses the first worksheet into rows, and treats many metric columns as **JSON-encoded KPI objects**.
 
 Implementation: [`src/cs_report_client.py`](../../src/cs_report_client.py).  
 Cross-links: governance registry in [`DATA_REGISTRY.md`](./DATA_REGISTRY.md).
@@ -35,7 +35,7 @@ In a **merged health report** (e.g. from `PendoClient.get_customer_health_report
 | Column | Type | Usage |
 |--------|------|--------|
 | `customer` | string | Required; matched case-insensitively to the deck customer |
-| `delta` | string | Time bucket; BPO filters with **`delta == "week"`** for all public APIs (`_customer_rows`) |
+| `delta` | string | Time bucket; Cortex filters with **`delta == "week"`** for all public APIs (`_customer_rows`) |
 | `factoryName` | string | Factory / site label (primary display name per row) |
 | `site` | string | Optional; copied through when column exists |
 | `entity` | string | Optional; copied through when column exists |
@@ -46,7 +46,7 @@ Headers are taken **exactly** from the spreadsheet (stringified cell values). Op
 
 ## 3. KPI cell JSON
 
-Many numeric fields are **not raw numbers** in the sheet. They are stored as JSON strings. BPO parses them with `_parse_kpi`:
+Many numeric fields are **not raw numbers** in the sheet. They are stored as JSON strings. Cortex parses them with `_parse_kpi`:
 
 | JSON key | Meaning |
 |----------|---------|
@@ -61,7 +61,7 @@ Invalid JSON or missing dict → treated as no value.
 
 ---
 
-## 4. Columns consumed by BPO (by feature)
+## 4. Columns consumed by Cortex (by feature)
 
 Below, “KPI” means a JSON-encoded column as in §3.
 
@@ -69,7 +69,7 @@ Below, “KPI” means a JSON-encoded column as in §3.
 
 | Spreadsheet column | Notes |
 |--------------------|--------|
-| `healthScore` | String bucket (e.g. GREEN / YELLOW / RED / NONE). When `NONE`, BPO may fall back to `automatedHealthScores[0].healthScore` (0–100 composite) or `override`. |
+| `healthScore` | String bucket (e.g. GREEN / YELLOW / RED / NONE). When `NONE`, Cortex may fall back to `automatedHealthScores[0].healthScore` (0–100 composite) or `override`. |
 | `automatedHealthScores` | JSON array of per-factory automated health breakdown (composite score, pillar scores, optional color override) |
 | `shortageItemCount` | KPI |
 | `criticalShortages` | KPI |

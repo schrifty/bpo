@@ -16,7 +16,7 @@ import requests
 
 from .jira_client import JiraClient
 
-logger = logging.getLogger("bpo")
+logger = logging.getLogger("cortex")
 
 # Boards selected for dev-team cycle time (see discover-dev-teams).
 DEV_CYCLE_TIME_BOARDS: tuple[dict[str, Any], ...] = (
@@ -70,7 +70,7 @@ def parse_excluded_issue_types(
         return ()
     if extra:
         return tuple(x.strip() for x in extra if x and str(x).strip())
-    raw = (os.environ.get("BPO_CYCLE_TIME_EXCLUDE_ISSUE_TYPES") or "").strip()
+    raw = (os.environ.get("CORTEX_CYCLE_TIME_EXCLUDE_ISSUE_TYPES") or "").strip()
     if raw:
         return tuple(x.strip() for x in raw.split(",") if x.strip())
     return DEFAULT_EXCLUDED_ISSUE_TYPES
@@ -429,7 +429,7 @@ def parse_outlier_sigma(override: float | None = None, *, disable: bool = False)
         return 0.0
     if override is not None:
         return max(0.0, float(override))
-    raw = (os.environ.get("BPO_CYCLE_TIME_OUTLIER_SIGMA") or "4").strip()
+    raw = (os.environ.get("CORTEX_CYCLE_TIME_OUTLIER_SIGMA") or "4").strip()
     if raw.lower() in ("0", "false", "no", "off", "none"):
         return 0.0
     try:

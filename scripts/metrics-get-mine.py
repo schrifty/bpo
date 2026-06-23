@@ -31,7 +31,7 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(ROOT / ".env")
 
-from src.config import BPO_LEANDNA_DATA_API_EXECUTION_BUCKET  # noqa: E402
+from src.config import CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET  # noqa: E402
 from src.leandna_data_api_request import data_api_base_url  # noqa: E402
 from src.leandna_metrics_catalog import (  # noqa: E402
     MetricsCatalogError,
@@ -39,7 +39,7 @@ from src.leandna_metrics_catalog import (  # noqa: E402
     fetch_metric_datapoint_series,
     fetch_my_metric_definitions,
 )
-from src.leandna_metrics_cli import configure_bpo_logging  # noqa: E402
+from src.leandna_metrics_cli import configure_cortex_logging  # noqa: E402
 from src.leandna_metrics_client import metric_definition_label  # noqa: E402
 from src.leandna_metrics_display import print_metric_value_chart  # noqa: E402
 
@@ -91,7 +91,7 @@ def main() -> int:
     ap.add_argument("-v", "--verbose", action="store_true")
     ns = ap.parse_args()
 
-    configure_bpo_logging(verbose=ns.verbose)
+    configure_cortex_logging(verbose=ns.verbose)
 
     try:
         base = data_api_base_url()
@@ -111,7 +111,7 @@ def main() -> int:
     print(
         f"LeanDNA target: {base}/data/identity + /data/Metric  "
         f"(owner={identity.owner_label!r}, requestedSites={effective_sites!r}, "
-        f"EXECUTION_ENV bucket={BPO_LEANDNA_DATA_API_EXECUTION_BUCKET})",
+        f"EXECUTION_ENV bucket={CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET})",
         file=sys.stderr,
     )
     print(

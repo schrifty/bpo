@@ -10,7 +10,7 @@ from .llm_export_csr import llm_export_csr_top_n, top_active_customers_by_arr_fo
 
 
 def llm_export_slack_enabled() -> bool:
-    raw = (os.environ.get("BPO_LLM_EXPORT_SLACK") or "").strip().lower()
+    raw = (os.environ.get("CORTEX_LLM_EXPORT_SLACK") or "").strip().lower()
     if raw in ("0", "false", "no", "off"):
         return False
     if raw in ("1", "true", "yes", "on"):
@@ -21,7 +21,7 @@ def llm_export_slack_enabled() -> bool:
 
 
 def llm_export_slack_top_n() -> int:
-    raw = (os.environ.get("BPO_LLM_EXPORT_SLACK_TOP_N") or "").strip()
+    raw = (os.environ.get("CORTEX_LLM_EXPORT_SLACK_TOP_N") or "").strip()
     if not raw:
         return llm_export_csr_top_n()
     try:
@@ -47,7 +47,7 @@ def attach_slack_top_customers_for_llm_export(report: dict[str, Any]) -> dict[st
     if not summary["enabled"]:
         report["slack"] = {
             "scope": "top_customers_by_arr",
-            "skipped": "BPO_LLM_EXPORT_SLACK disabled",
+            "skipped": "CORTEX_LLM_EXPORT_SLACK disabled",
             "customers": {},
         }
         report["_llm_export_slack"] = summary

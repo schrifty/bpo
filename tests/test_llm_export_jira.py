@@ -14,8 +14,8 @@ def test_attach_jira_top_customers_for_llm_export(monkeypatch):
             return {"customer": name, "days": days, "total_issues": 3}
 
     monkeypatch.setattr("src.jira_client.get_shared_jira_client", lambda: _Jc())
-    monkeypatch.setenv("BPO_LLM_EXPORT_JIRA_TOP_N", "1")
-    monkeypatch.setenv("BPO_LLM_EXPORT_JIRA_WORKERS", "1")
+    monkeypatch.setenv("CORTEX_LLM_EXPORT_JIRA_TOP_N", "1")
+    monkeypatch.setenv("CORTEX_LLM_EXPORT_JIRA_WORKERS", "1")
 
     report = {
         "days": 90,

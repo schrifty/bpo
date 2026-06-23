@@ -43,12 +43,12 @@ __all__ = [
 
 
 def speaker_notes_llm_enabled() -> bool:
-    v = (os.environ.get("BPO_SPEAKER_NOTES_LLM", "true") or "").strip().lower()
+    v = (os.environ.get("CORTEX_SPEAKER_NOTES_LLM", "true") or "").strip().lower()
     return v not in ("0", "false", "no", "off")
 
 
 def speaker_notes_llm_allow_fallback() -> bool:
-    v = (os.environ.get("BPO_SPEAKER_NOTES_LLM_ALLOW_FALLBACK", "") or "").strip().lower()
+    v = (os.environ.get("CORTEX_SPEAKER_NOTES_LLM_ALLOW_FALLBACK", "") or "").strip().lower()
     return v in ("1", "true", "yes", "on", "allow")
 
 

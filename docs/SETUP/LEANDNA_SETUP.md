@@ -1,6 +1,6 @@
-# LeanDNA Data API connection (BPO)
+# LeanDNA Data API connection (Cortex)
 
-BPO calls LeanDNA’s **Data API** (REST JSON under `/data/...`) for item master, material shortages, lean projects, metrics, and related QBR enrichments. This doc is the operational counterpart to **[`SALESFORCE_SETUP.md`](./SALESFORCE_SETUP.md)** — how to authenticate and which env vars matter.
+Cortex calls LeanDNA’s **Data API** (REST JSON under `/data/...`) for item master, material shortages, lean projects, metrics, and related QBR enrichments. This doc is the operational counterpart to **[`SALESFORCE_SETUP.md`](./SALESFORCE_SETUP.md)** — how to authenticate and which env vars matter.
 
 **Deeper reference:** [`DATA-GOVERNANCE/LEANDNA_DATA_API_SCHEMA.md`](../DATA-GOVERNANCE/LEANDNA_DATA_API_SCHEMA.md) (resources and report keys). **Swagger:** run `scripts/fetch_leandna_swagger.py` once credentials work.
 
@@ -33,7 +33,7 @@ Implementation: shared headers in [`src/leandna_data_api_http.py`](../../src/lea
 
 ### `EXECUTION_ENV` (optional): prefixed credentials
 
-When **`EXECUTION_ENV`** is set, BPO reads **only** the matching prefixed variables (unprefixed `LEANDNA_DATA_API_*` values are **ignored** for that process):
+When **`EXECUTION_ENV`** is set, Cortex reads **only** the matching prefixed variables (unprefixed `LEANDNA_DATA_API_*` values are **ignored** for that process):
 
 | `EXECUTION_ENV` (case-insensitive) | Prefix | Example vars |
 |-----------------------------------|--------|----------------|
@@ -44,9 +44,9 @@ Any **other** non-empty value (e.g. `dev`) clears LeanDNA Data API settings so c
 
 When **`EXECUTION_ENV` is unset**, behavior is **unchanged**: use the unprefixed `LEANDNA_DATA_API_*` variables (legacy).
 
-Implementation: [`src/config.py`](../../src/config.py) (`BPO_LEANDNA_DATA_API_EXECUTION_BUCKET`, `resolve_leandna_data_api_base_url`).
+Implementation: [`src/config.py`](../../src/config.py) (`CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET`, `resolve_leandna_data_api_base_url`).
 
-**Production / CI is read-only for LeanDNA mutations:** When `EXECUTION_ENV` is `Production` or `CI`, all Data API **POST**, **PUT**, and **DELETE** calls are rejected in-process (`data_api_mutate_json`, agent tool `leandna_data_api_mutate`). **GET** remains allowed. To run integration tests or emergency writes against prod, set `BPO_ALLOW_PRODUCTION_MUTATIONS=true` (logged; not recommended for routine use). Use `EXECUTION_ENV=Staging` for normal write testing.
+**Production / CI is read-only for LeanDNA mutations:** When `EXECUTION_ENV` is `Production` or `CI`, all Data API **POST**, **PUT**, and **DELETE** calls are rejected in-process (`data_api_mutate_json`, agent tool `leandna_data_api_mutate`). **GET** remains allowed. To run integration tests or emergency writes against prod, set `CORTEX_ALLOW_PRODUCTION_MUTATIONS=true` (logged; not recommended for routine use). Use `EXECUTION_ENV=Staging` for normal write testing.
 
 The same mutation guard applies to **Data API** writes (`entry-insert`, `entry-upsert`, `entry-delete` via `src/leandna_metrics_write.py`).
 
@@ -117,9 +117,9 @@ configured for staging.
 python3 -m pytest tests/test_integration_leandna_data_api.py tests/test-metrics.py -v -m leandna_data_api
 ```
 
-Metric **display** (integration): ``tests/test-metrics.py`` — chart + field dump for metric **id 638**; **POST** then **DELETE** ``2026-05-12`` (POST failure ignored if row exists); DELETE must succeed. Mutations run on staging without ``BPO_ALLOW_PRODUCTION_MUTATIONS``.
+Metric **display** (integration): ``tests/test-metrics.py`` — chart + field dump for metric **id 638**; **POST** then **DELETE** ``2026-05-12`` (POST failure ignored if row exists); DELETE must succeed. Mutations run on staging without ``CORTEX_ALLOW_PRODUCTION_MUTATIONS``.
 
 ## Related docs
 
-- [`DATA-GOVERNANCE/LEANDNA_DATA_API_SCHEMA.md`](../DATA-GOVERNANCE/LEANDNA_DATA_API_SCHEMA.md) — endpoints BPO uses vs available.
+- [`DATA-GOVERNANCE/LEANDNA_DATA_API_SCHEMA.md`](../DATA-GOVERNANCE/LEANDNA_DATA_API_SCHEMA.md) — endpoints Cortex uses vs available.
 - [`DATA-GOVERNANCE/LEANDNA_DATA_API_TOOLS.md`](../DATA-GOVERNANCE/LEANDNA_DATA_API_TOOLS.md) — broader integration ideas (not setup-focused).

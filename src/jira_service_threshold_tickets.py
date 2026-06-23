@@ -12,7 +12,7 @@ from typing import Any
 
 from .jira_client import JiraClient
 
-logger = logging.getLogger("bpo")
+logger = logging.getLogger("cortex")
 
 # Priorities that count as "beyond service thresholds".
 SERVICE_THRESHOLD_PRIORITIES: tuple[str, ...] = (

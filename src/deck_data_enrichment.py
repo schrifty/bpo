@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from .config import BPO_CURSOR_SLIDES_ONLY, logger
+from .config import CORTEX_CURSOR_SLIDES_ONLY, logger
 from .slide_leandna_shortage import SLIDES_NEEDING_LEANDNA_SHORTAGE as _SLIDES_NEEDING_LEANDNA_SHORTAGE
 from .slide_salesforce import (
     filter_salesforce_comprehensive_slide_plan as _filter_salesforce_comprehensive_slide_plan,
@@ -55,10 +55,10 @@ def enrich_deck_report_data(
 
     if deck_id in _ENG_PORTFOLIO_DECK_IDS:
         slide_plan = filter_cursor_only_slide_plan(slide_plan, deck_id=deck_id)
-        if not BPO_CURSOR_SLIDES_ONLY:
+        if not CORTEX_CURSOR_SLIDES_ONLY:
             enrich_engineering_portfolio_if_needed(report, deck_id=deck_id)
         slide_plan = enrich_cursor_usage_if_needed(report, slide_plan, deck_id=deck_id)
-        if not BPO_CURSOR_SLIDES_ONLY:
+        if not CORTEX_CURSOR_SLIDES_ONLY:
             enrich_github_productivity_if_needed(report, deck_id=deck_id)
             slide_plan = filter_github_productivity_slides(report, slide_plan, deck_id=deck_id)
 
@@ -75,14 +75,14 @@ def filter_cursor_only_slide_plan(
     *,
     deck_id: str = "engineering-portfolio",
 ) -> list[dict[str, Any]]:
-    """When ``BPO_CURSOR_SLIDES_ONLY`` is set, keep only Cursor slide types in the plan."""
-    if not BPO_CURSOR_SLIDES_ONLY or deck_id not in _ENG_PORTFOLIO_DECK_IDS:
+    """When ``CORTEX_CURSOR_SLIDES_ONLY`` is set, keep only Cursor slide types in the plan."""
+    if not CORTEX_CURSOR_SLIDES_ONLY or deck_id not in _ENG_PORTFOLIO_DECK_IDS:
         return slide_plan
     from .deck_governance import _CURSOR_SLIDE_TYPES
 
     filtered = [e for e in slide_plan if (e.get("slide_type") or "") in _CURSOR_SLIDE_TYPES]
     logger.info(
-        "%s deck: BPO_CURSOR_SLIDES_ONLY — building %d cursor slide(s) only",
+        "%s deck: CORTEX_CURSOR_SLIDES_ONLY — building %d cursor slide(s) only",
         deck_id,
         len(filtered),
     )

@@ -95,7 +95,7 @@ def build_leandna_env_headers(
         raise ValueError(f"LeanDNA {config.bucket}: missing bearer token and cookie.")
     headers: dict[str, str] = {
         "Accept": "application/json",
-        "User-Agent": f"Mozilla/5.0 (compatible; BPO/{user_agent_suffix})",
+        "User-Agent": f"Mozilla/5.0 (compatible; Cortex/{user_agent_suffix})",
     }
     if bearer:
         headers["Authorization"] = f"Bearer {bearer}"
@@ -161,7 +161,7 @@ def env_mutate_json(
         if not leandna_http_mutations_allowed():
             return {
                 "ok": False,
-                "error": "Refusing to mutate LeanDNA production (set BPO_ALLOW_PRODUCTION_MUTATIONS=true to override).",
+                "error": "Refusing to mutate LeanDNA production (set CORTEX_ALLOW_PRODUCTION_MUTATIONS=true to override).",
             }
     m = (method or "").strip().upper()
     if m not in ("POST", "PUT", "DELETE"):

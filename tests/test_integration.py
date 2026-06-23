@@ -92,7 +92,7 @@ def test_adapt_custom_slides_qbr_mapping_first_no_llm(monkeypatch, tmp_path):
 
     Proves the mapping-first path in ``adapt_custom_slides`` through Phase B replaceAllText.
     """
-    monkeypatch.setenv("BPO_SLIDES_WRITE_INTERVAL_SEC", "0")
+    monkeypatch.setenv("CORTEX_SLIDES_WRITE_INTERVAL_SEC", "0")
     monkeypatch.setattr("src.slides_api._throttle_before_slides_write", lambda: None)
     monkeypatch.setattr(evaluate, "_slide_cache_dir", lambda: tmp_path)
     monkeypatch.setattr(evaluate, "bootstrap_qbr_mappings_from_slides", lambda *a, **k: 0)

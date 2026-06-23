@@ -1,6 +1,6 @@
-# LeanDNA Data API - Tool Opportunities for BPO
+# LeanDNA Data API - Tool Opportunities for Cortex
 
-This document analyzes the LeanDNA Data API swagger spec and outlines what tools/integrations can be built to enhance BPO's QBR deck generation and CS reporting.
+This document analyzes the LeanDNA Data API swagger spec and outlines what tools/integrations can be built to enhance Cortex's QBR deck generation and CS reporting.
 
 ## API Overview
 
@@ -11,13 +11,13 @@ This document analyzes the LeanDNA Data API swagger spec and outlines what tools
 
 ---
 
-## Key Data Available (That BPO Currently Lacks or Gets from CS Report XLSX)
+## Key Data Available (That Cortex Currently Lacks or Gets from CS Report XLSX)
 
 ### 1. **Item Master Data** (`/data/ItemMasterData`)
 
 **Rich inventory metrics per item/site:**
 
-| Field | Relevance to BPO | Notes |
+| Field | Relevance to Cortex | Notes |
 |-------|------------------|-------|
 | `daysOfInventoryBackward` | ✅ **NEW** — User asked about "DOI Backwards" | Not in current CSR schema |
 | `daysOfInventoryForward` | ✅ Maps to CSR `doiForwards` | Live API vs static export |
@@ -121,9 +121,9 @@ This document analyzes the LeanDNA Data API swagger spec and outlines what tools
 - `metricValues` — time-series data per metric/month
 - `fiscalYear`, `startTimestamp`, `endTimestamp`, `currency`
 
-**BPO client:** `src/leandna_metrics_client.py` — `list_metric_definitions()`, `fetch_metric_report(...)`. Not merged into QBR `report` yet; add an enrich step when a slide needs custom LeanDNA KPIs.
+**Cortex client:** `src/leandna_metrics_client.py` — `list_metric_definitions()`, `fetch_metric_report(...)`. Not merged into QBR `report` yet; add an enrich step when a slide needs custom LeanDNA KPIs.
 
-**Tool idea:** Generic metric fetcher for custom KPIs → slides/charts. Example: if CSR lacks a field, customer can define a LeanDNA metric and BPO pulls it via this endpoint.
+**Tool idea:** Generic metric fetcher for custom KPIs → slides/charts. Example: if CSR lacks a field, customer can define a LeanDNA metric and Cortex pulls it via this endpoint.
 
 ---
 
@@ -140,7 +140,7 @@ This document analyzes the LeanDNA Data API swagger spec and outlines what tools
 
 **Tool idea:**
 1. **Bulk ingest alternative** — replace CS Report XLSX with parquet downloads; richer, more granular.
-2. **Scheduled sync** — nightly job downloads latest parquet, normalizes to BPO schema, caches on Drive.
+2. **Scheduled sync** — nightly job downloads latest parquet, normalizes to Cortex schema, caches on Drive.
 3. **CTB detail** — `ClearToBuildMultiLevelProductionOrder` → detailed CTB slide (multi-level BOM view not in CSR).
 
 ---
@@ -159,7 +159,7 @@ This document analyzes the LeanDNA Data API swagger spec and outlines what tools
 
 **`/data/WriteBack/v1/TransitionActions` (PUT):** Update action status (`WAITING` → `RUNNING` → `SUCCESSFUL`/`FAILED`/`SKIPPED`).
 
-**Tool idea (advanced):** If BPO agent mode includes "request PO update" flow, surface `WAITING` actions and guide user to ERP write-back (read-only for now; no auto-write unless explicitly requested and scoped).
+**Tool idea (advanced):** If Cortex agent mode includes "request PO update" flow, surface `WAITING` actions and guide user to ERP write-back (read-only for now; no auto-write unless explicitly requested and scoped).
 
 ---
 
@@ -184,7 +184,7 @@ This document analyzes the LeanDNA Data API swagger spec and outlines what tools
 
 ---
 
-## Proposed BPO Tools (Priority Order)
+## Proposed Cortex Tools (Priority Order)
 
 ### High Priority (QBR Value Add)
 
@@ -253,7 +253,7 @@ LEANDNA_DATA_API_DEFAULT_SITES = os.environ.get("LEANDNA_DATA_API_DEFAULT_SITES"
 ### Client Module (`src/leandna_data_client.py`)
 
 ```python
-"""LeanDNA Data API client for BPO.
+"""LeanDNA Data API client for Cortex.
 
 Thread-safe caching (in-memory + optional Drive backup).
 All GET endpoints return JSON; POST/PUT methods guarded with confirmation (not exposed to agent by default).
@@ -353,10 +353,10 @@ Add fields to `docs/DATA-GOVERNANCE/DATA_REGISTRY.md`:
 
 ## Open Questions
 
-1. **Site mapping:** How to resolve BPO `customer` → LeanDNA `siteId` list? (via `/data/identity` + `config/teams.yaml` or new mapping file?)
+1. **Site mapping:** How to resolve Cortex `customer` → LeanDNA `siteId` list? (via `/data/identity` + `config/teams.yaml` or new mapping file?)
 2. **Rate limits:** Swagger doesn't document rate limits; confirm with LeanDNA support before production.
 3. **Field coverage:** Does `daysOfInventoryBackward` exist in real API responses? (User asked about it; schema shows it, but validate with live call.)
-4. **Write-back scope:** Should BPO ever auto-update POs via `/data/WriteBack/v1/TransitionActions`, or strictly read-only? (Recommend read-only for now.)
+4. **Write-back scope:** Should Cortex ever auto-update POs via `/data/WriteBack/v1/TransitionActions`, or strictly read-only? (Recommend read-only for now.)
 
 ---
 
@@ -374,7 +374,7 @@ Add fields to `docs/DATA-GOVERNANCE/DATA_REGISTRY.md`:
 
 ## Summary
 
-The **LeanDNA Data API is a high-value integration** for BPO. It provides:
+The **LeanDNA Data API is a high-value integration** for Cortex. It provides:
 
 1. **Gaps filled:** DOI backwards, Lean Projects, shortage trends, supplier performance, item-level risk.
 2. **Real-time data:** Live API vs static XLSX export (fresher for QBRs).

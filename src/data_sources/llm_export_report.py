@@ -22,8 +22,8 @@ _LLM_EXPORT_PORTFOLIO_SIGNAL_MAX_READ_HEAVY = 50_000
 
 
 def _llm_export_portfolio_signal_caps() -> tuple[int, int]:
-    """Optional env: ``BPO_LLM_EXPORT_PORTFOLIO_SIGNAL_MAX_LINES`` (applies to both caps if set)."""
-    raw = (os.environ.get("BPO_LLM_EXPORT_PORTFOLIO_SIGNAL_MAX_LINES") or "").strip()
+    """Optional env: ``CORTEX_LLM_EXPORT_PORTFOLIO_SIGNAL_MAX_LINES`` (applies to both caps if set)."""
+    raw = (os.environ.get("CORTEX_LLM_EXPORT_PORTFOLIO_SIGNAL_MAX_LINES") or "").strip()
     if not raw:
         return (_LLM_EXPORT_PORTFOLIO_SIGNAL_MAX_LINES, _LLM_EXPORT_PORTFOLIO_SIGNAL_MAX_READ_HEAVY)
     try:
@@ -147,7 +147,7 @@ def build_llm_export_snapshot_report(pc: Any, *, days: int) -> dict[str, Any]:
                 _provenance_row(
                     SourceId.SLACK_CUSTOMER_CONVERSATIONS,
                     status="skipped",
-                    detail="BPO_LLM_EXPORT_SLACK disabled",
+                    detail="CORTEX_LLM_EXPORT_SLACK disabled",
                 )
             )
         elif not slack_summary.get("slack_configured"):
@@ -199,7 +199,7 @@ def build_llm_export_snapshot_report(pc: Any, *, days: int) -> dict[str, Any]:
                 _provenance_row(
                     SourceId.SALESFORCE_COMPREHENSIVE_PORTFOLIO,
                     status="skipped",
-                    detail="BPO_LLM_EXPORT_SF_COMPREHENSIVE disabled",
+                    detail="CORTEX_LLM_EXPORT_SF_COMPREHENSIVE disabled",
                 )
             )
         elif not sf_comp_summary.get("salesforce_configured"):

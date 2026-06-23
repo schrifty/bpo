@@ -8,7 +8,7 @@
 #                       entries with a generator, null when not yet defined
 #   metric-id         — Data API catalog id (same as app ndx); required before upsert unless
 #                       already present in GET /data/Metric (create metrics in LeanDNA UI)
-#   metric-generator  — Python function that computes the daily value when wired in BPO;
+#   metric-generator  — Python function that computes the daily value when wired in Cortex;
 #                       null when no generator exists in this repo yet
 #
 # Generator names refer to functions under src/ (e.g. jira_cycle_time.get_dev_team_cycle_times).

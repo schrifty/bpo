@@ -55,6 +55,6 @@ def require_leandna_staging_integration_env(
         import src.config as cfg
 
     assert_leandna_staging_integration_bucket(
-        bucket=cfg.BPO_LEANDNA_DATA_API_EXECUTION_BUCKET,
+        bucket=cfg.CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET,
         execution_env=os.environ.get("EXECUTION_ENV") or "",
     )

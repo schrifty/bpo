@@ -19,7 +19,7 @@ from .jira_sprint_delivery import (
     resolve_board_sprint,
 )
 
-logger = logging.getLogger("bpo")
+logger = logging.getLogger("cortex")
 
 _AGILE = "/rest/agile/1.0"
 

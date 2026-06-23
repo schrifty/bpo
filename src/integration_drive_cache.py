@@ -1,7 +1,7 @@
 """Drive JSON cache for heavy Jira/JSM and Salesforce deck payloads (same folder as Pendo portfolio).
 
 Files live under ``resolve_portfolio_snapshot_folder_id()`` (QBR ``Cache`` or
-``BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID``). Read age policy matches
+``CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID``). Read age policy matches
 ``pendo_portfolio_snapshot_drive.classify_drive_cache_age`` (7d fresh, 14d weekday stale cap,
 weekend refresh in the stale band). Writes create any day; replace existing files on weekends only
 in the snapshot calendar zone.
@@ -89,8 +89,8 @@ def _validate_envelope(raw: Any, kind: str, customer_key: str) -> dict[str, Any]
 
 def integration_drive_cache_reads_enabled() -> bool:
     return (
-        not _config_mod.BPO_INTEGRATION_DRIVE_CACHE_DISABLED
-        and not _config_mod.BPO_INTEGRATION_DRIVE_CACHE_FORCE_REFRESH
+        not _config_mod.CORTEX_INTEGRATION_DRIVE_CACHE_DISABLED
+        and not _config_mod.CORTEX_INTEGRATION_DRIVE_CACHE_FORCE_REFRESH
     )
 
 
@@ -177,7 +177,7 @@ def try_load_integration_payload(kind: str, customer: str | None) -> dict[str, A
 
 def save_integration_payload(kind: str, customer: str | None, payload: dict[str, Any]) -> None:
     """Write or replace a cache JSON on Drive (best-effort; same weekend write rule as Pendo preload)."""
-    if _config_mod.BPO_INTEGRATION_DRIVE_CACHE_DISABLED:
+    if _config_mod.CORTEX_INTEGRATION_DRIVE_CACHE_DISABLED:
         return
     folder_id = resolve_portfolio_snapshot_folder_id()
     if not folder_id:

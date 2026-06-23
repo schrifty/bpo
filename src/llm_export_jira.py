@@ -12,7 +12,7 @@ from .llm_export_csr import llm_export_csr_top_n, top_active_customers_by_arr_fo
 
 
 def llm_export_jira_top_n() -> int:
-    raw = (os.environ.get("BPO_LLM_EXPORT_JIRA_TOP_N") or "").strip()
+    raw = (os.environ.get("CORTEX_LLM_EXPORT_JIRA_TOP_N") or "").strip()
     if not raw:
         return llm_export_csr_top_n()
     try:
@@ -22,7 +22,7 @@ def llm_export_jira_top_n() -> int:
 
 
 def llm_export_jira_workers() -> int:
-    raw = (os.environ.get("BPO_LLM_EXPORT_JIRA_WORKERS") or "").strip()
+    raw = (os.environ.get("CORTEX_LLM_EXPORT_JIRA_WORKERS") or "").strip()
     if not raw:
         return 4
     try:
@@ -32,7 +32,7 @@ def llm_export_jira_workers() -> int:
 
 
 def llm_export_jira_customer_timeout_seconds() -> float:
-    raw = (os.environ.get("BPO_LLM_EXPORT_JIRA_CUSTOMER_TIMEOUT_SECONDS") or "").strip()
+    raw = (os.environ.get("CORTEX_LLM_EXPORT_JIRA_CUSTOMER_TIMEOUT_SECONDS") or "").strip()
     if not raw:
         return 120.0
     try:

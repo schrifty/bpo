@@ -60,7 +60,7 @@ def _help_bucket_counts_for_row(jira, row: dict) -> tuple[list[int | None], str]
         return [None] * len(HELP_TICKET_DAY_BUCKETS), "no_entity_name"
 
     scope_clause, scope_meta = jira.help_salesforce_entity_site_scoped_clause(row)
-    if "___BPO_NO_ORG_MATCH___" in scope_clause:
+    if "___CORTEX_NO_ORG_MATCH___" in scope_clause:
         return [None] * len(HELP_TICKET_DAY_BUCKETS), "no_jsm_org_match"
 
     counts: list[int | None] = []

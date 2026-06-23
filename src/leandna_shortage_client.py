@@ -1,4 +1,4 @@
-"""LeanDNA Material Shortages API client for BPO.
+"""LeanDNA Material Shortages API client for Cortex.
 
 Fetches time-series shortage data including weekly/daily forecasts, criticality levels,
 scheduled deliveries, and production order impacts.

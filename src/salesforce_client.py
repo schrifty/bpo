@@ -6,7 +6,7 @@ Also exposes SOQL helpers for common standard objects (see MAINSTREAM_OBJECT_FIE
 and ``get_customer_salesforce_comprehensive`` for deck-sized multi-object exports.
 
 Read responses (SOQL record lists, global sObject describe, COUNT totals) are cached
-in-process for ``BPO_SALESFORCE_CACHE_TTL_HOURS`` (default 48). JWT tokens are not cached here.
+in-process for ``CORTEX_SALESFORCE_CACHE_TTL_HOURS`` (default 48). JWT tokens are not cached here.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from typing import Any
 import requests
 
 from .config import (
-    BPO_SALESFORCE_CACHE_TTL_SECONDS,
+    CORTEX_SALESFORCE_CACHE_TTL_SECONDS,
     SF_ACCOUNT_FACTORY_START_DATE_FIELD,
     SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP,
     SF_LOGIN_URL,
@@ -64,7 +64,7 @@ def _sf_cache_key(kind: str, payload: str) -> str:
 
 
 def _sf_read_cache_get(key: str) -> Any | None:
-    if BPO_SALESFORCE_CACHE_TTL_SECONDS <= 0:
+    if CORTEX_SALESFORCE_CACHE_TTL_SECONDS <= 0:
         return None
     now = time.time()
     with _SF_READ_CACHE_LOCK:
@@ -72,14 +72,14 @@ def _sf_read_cache_get(key: str) -> Any | None:
         if not hit:
             return None
         ts, val = hit
-        if now - ts > BPO_SALESFORCE_CACHE_TTL_SECONDS:
+        if now - ts > CORTEX_SALESFORCE_CACHE_TTL_SECONDS:
             del _sf_read_cache[key]
             return None
         return copy.deepcopy(val)
 
 
 def _sf_read_cache_set(key: str, val: Any) -> None:
-    if BPO_SALESFORCE_CACHE_TTL_SECONDS <= 0:
+    if CORTEX_SALESFORCE_CACHE_TTL_SECONDS <= 0:
         return
     with _SF_READ_CACHE_LOCK:
         _sf_read_cache[key] = (time.time(), copy.deepcopy(val))
@@ -530,7 +530,7 @@ class SalesforceClient:
         return out
 
     def _query(self, soql: str) -> list[dict]:
-        """Run SOQL query and return list of records (cached per ``BPO_SALESFORCE_CACHE_TTL_*``)."""
+        """Run SOQL query and return list of records (cached per ``CORTEX_SALESFORCE_CACHE_TTL_*``)."""
         key = _sf_cache_key("rec", soql)
         cached = _sf_read_cache_get(key)
         if cached is not None:

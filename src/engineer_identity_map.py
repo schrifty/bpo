@@ -10,7 +10,7 @@ import yaml
 
 from .config_paths import GITHUB_EMAIL_ALIASES_FILE
 
-logger = logging.getLogger("bpo")
+logger = logging.getLogger("cortex")
 
 _alias_cache: dict[str, Any] | None = None
 

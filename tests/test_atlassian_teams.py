@@ -97,7 +97,7 @@ def test_get_atlassian_teams_unreachable_fails_loud() -> None:
 
 
 def test_get_atlassian_teams_uses_in_process_cache(monkeypatch) -> None:
-    monkeypatch.setattr("src.config.BPO_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS", 3600)
+    monkeypatch.setattr("src.config.CORTEX_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS", 3600)
     c = _client()
     calls = {"n": 0}
 

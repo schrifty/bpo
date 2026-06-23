@@ -2,7 +2,7 @@
 # (noise / internal / training rows). Omitted from portfolio parallel rollup.
 # Formerly config/portfolio_exclude_prefixes.yaml.
 #
-# Ad-hoc additions: comma-separated ``BPO_PORTFOLIO_EXCLUDE_CUSTOMERS`` in .env
+# Ad-hoc additions: comma-separated ``CORTEX_PORTFOLIO_EXCLUDE_CUSTOMERS`` in .env
 # (still supported; merges with this list).
 ---
 version: 1

@@ -9,7 +9,7 @@
 # This script prioritizes gaps where sourcing **performance and operations data** saves
 # real time: shortages, CTB / DOI / inventory metrics, platform & product adoption (e.g. Kei),
 # Lean/value line items, Jira/Support rollups, CS Report KPIs — anything normally pulled from
-# analytics, ERP/MRP snapshots, spreadsheets, or BPO hydrate mappings rather than memory.
+# analytics, ERP/MRP snapshots, spreadsheets, or Cortex hydrate mappings rather than memory.
 #
 # **Text-only:** raster screenshots/images are ignored (no OCR); embedded Slides **charts** stay in scope.
 # The appended summary slide(s) and gap_inventory_rows use **time_saving_hits** (filtered +
@@ -287,7 +287,7 @@ def _heuristic_table_row(slide_idx: int, hit: dict[str, Any]) -> list[str]:
         return [
             str(slide_idx),
             field,
-            _tc("BPO hydrate catalog / mapped API field"),
+            _tc("Cortex hydrate catalog / mapped API field"),
             _tc("Metric, currency, date, or percent per token type"),
             _tc("Follow slide numeric style (decimals, units)"),
             _tc("Match reporting window (e.g. quarter, trailing 90d)"),
@@ -438,7 +438,7 @@ def _compact_from_heuristic(slide_idx: int, h: dict[str, Any]) -> dict[str, Any]
             "slide": slide_idx,
             "find": find,
             "replace": _compact_replace(None, fmt),
-            "source": "bpo_data_summary_or_qbr_mappings",
+            "source": "cortex_data_summary_or_qbr_mappings",
         }
     if kind == "generic_metric":
         return {

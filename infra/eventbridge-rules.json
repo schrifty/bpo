@@ -1,16 +1,16 @@
 [
   {
-    "Name": "bpo-engineering-portfolio-nightly",
+    "Name": "cortex-engineering-portfolio-nightly",
     "Description": "Engineering portfolio deck — daily 02:00 UTC",
     "ScheduleExpression": "cron(0 2 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {
-        "Id": "bpo-eng-portfolio",
-        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/bpo",
-        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/bpo-eventbridge-ecs",
+        "Id": "cortex-eng-portfolio",
+        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
+        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
         "EcsParameters": {
-          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/bpo-decks",
+          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
           "LaunchType": "FARGATE",
           "PlatformVersion": "LATEST",
           "NetworkConfiguration": {
@@ -22,22 +22,22 @@
           },
           "TaskCount": 1
         },
-        "Input": "{\"containerOverrides\":[{\"name\":\"bpo-decks\",\"command\":[\"engineering-portfolio\"]}]}"
+        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"engineering-portfolio\"]}]}"
       }
     ]
   },
   {
-    "Name": "bpo-portfolio-batch-nightly",
+    "Name": "cortex-portfolio-batch-nightly",
     "Description": "Portfolio deck batch — daily 03:00 UTC",
     "ScheduleExpression": "cron(0 3 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {
-        "Id": "bpo-portfolio-batch",
-        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/bpo",
-        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/bpo-eventbridge-ecs",
+        "Id": "cortex-portfolio-batch",
+        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
+        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
         "EcsParameters": {
-          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/bpo-decks",
+          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
           "LaunchType": "FARGATE",
           "PlatformVersion": "LATEST",
           "NetworkConfiguration": {
@@ -49,22 +49,22 @@
           },
           "TaskCount": 1
         },
-        "Input": "{\"containerOverrides\":[{\"name\":\"bpo-decks\",\"command\":[\"portfolio-batch\"]}]}"
+        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"portfolio-batch\"]}]}"
       }
     ]
   },
   {
-    "Name": "bpo-export-weekly",
+    "Name": "cortex-export-weekly",
     "Description": "LLM context export — Sunday 06:00 UTC",
     "ScheduleExpression": "cron(0 6 ? * SUN *)",
     "State": "ENABLED",
     "Targets": [
       {
-        "Id": "bpo-export-weekly",
-        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/bpo",
-        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/bpo-eventbridge-ecs",
+        "Id": "cortex-export-weekly",
+        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
+        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
         "EcsParameters": {
-          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/bpo-decks",
+          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
           "LaunchType": "FARGATE",
           "PlatformVersion": "LATEST",
           "NetworkConfiguration": {
@@ -76,7 +76,7 @@
           },
           "TaskCount": 1
         },
-        "Input": "{\"containerOverrides\":[{\"name\":\"bpo-decks\",\"command\":[\"export-weekly\"]}]}"
+        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"export-weekly\"]}]}"
       }
     ]
   }

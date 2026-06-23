@@ -39,7 +39,7 @@ def export_slide_thumbnails(
         return []
 
     if output_dir is None:
-        output_dir = Path(tempfile.mkdtemp(prefix=f"bpo-thumbs-{pres_id[:12]}-"))
+        output_dir = Path(tempfile.mkdtemp(prefix=f"cortex-thumbs-{pres_id[:12]}-"))
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 

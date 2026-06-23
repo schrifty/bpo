@@ -57,7 +57,7 @@ def test_resolve_site_id_uses_env_override_when_authorized() -> None:
     from src.leandna_metric_registry_resolve import _resolve_site_id
 
     body = {"authorizedSites": [{"siteId": 100}, {"siteId": 500}]}
-    with patch.dict(os.environ, {"BPO_LEANDNA_METRICS_SITE_ID": "500"}):
+    with patch.dict(os.environ, {"CORTEX_LEANDNA_METRICS_SITE_ID": "500"}):
         assert _resolve_site_id(requested_sites=None, identity_body=body) == 500
 
 

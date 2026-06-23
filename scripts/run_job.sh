@@ -4,14 +4,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-export BPO_SKIP_DOTENV="${BPO_SKIP_DOTENV:-1}"
-export BPO_CACHE_DIR="${BPO_CACHE_DIR:-/var/bpo/cache}"
+export CORTEX_SKIP_DOTENV="${CORTEX_SKIP_DOTENV:-1}"
+export CORTEX_CACHE_DIR="${CORTEX_CACHE_DIR:-/var/cortex/cache}"
 
-if [[ -n "${BPO_SECRETS_ARN:-}" ]]; then
+if [[ -n "${CORTEX_SECRETS_ARN:-}" ]]; then
   python3 scripts/bootstrap_aws_env.py
 fi
 
-JOB="${1:-${BPO_JOB:-nightly-core}}"
+JOB="${1:-${CORTEX_JOB:-nightly-core}}"
 shift || true
 
 exec python3 decks.py run-job --job "$JOB" "$@"

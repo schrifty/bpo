@@ -1,4 +1,4 @@
-"""Shared on-disk TTL cache under ``BPO_CACHE_DIR`` (default: repo ``.cache/``)."""
+"""Shared on-disk TTL cache under ``CORTEX_CACHE_DIR`` (default: repo ``.cache/``)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .config import BPO_CACHE_ROOT, logger
+from .config import CORTEX_CACHE_ROOT, logger
 
 _LOCK = threading.Lock()
 
@@ -20,7 +20,7 @@ def cache_key(name: str, params: dict[str, Any]) -> str:
 
 
 def cache_path(namespace: str, key: str) -> Path:
-    return BPO_CACHE_ROOT / namespace / f"{key}.json"
+    return CORTEX_CACHE_ROOT / namespace / f"{key}.json"
 
 
 def cache_get(namespace: str, key: str, ttl_seconds: int | None) -> Any | None:
@@ -58,7 +58,7 @@ def cache_set(namespace: str, key: str, data: Any, ttl_seconds: int | None) -> N
 
 
 def clear_namespace_for_tests(namespace: str) -> None:
-    root = BPO_CACHE_ROOT / namespace
+    root = CORTEX_CACHE_ROOT / namespace
     with _LOCK:
         if not root.exists():
             return

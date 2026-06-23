@@ -20,10 +20,10 @@ from tqdm.auto import tqdm
 
 from .config_paths import COHORTS_FILE
 from .config import (
-    BPO_PORTFOLIO_CUSTOMER_SOURCE,
-    BPO_PENDO_CACHE_TTL_SECONDS,
-    BPO_SIGNALS_LLM,
-    BPO_SIGNALS_TRENDS,
+    CORTEX_PORTFOLIO_CUSTOMER_SOURCE,
+    CORTEX_PENDO_CACHE_TTL_SECONDS,
+    CORTEX_SIGNALS_LLM,
+    CORTEX_SIGNALS_TRENDS,
     FEATURE_ADOPTION_INSIGHTS,
     PENDO_BASE_URL,
     PENDO_INTEGRATION_KEY,
@@ -372,7 +372,7 @@ def customer_is_excluded_from_portfolio(customer_prefix: str) -> bool:
     """True if portfolio parallel rollup should not fetch a summary for this Pendo customer prefix.
 
     Uses ``config/pendo_orphans.yaml`` plus optional env
-    ``BPO_PORTFOLIO_EXCLUDE_CUSTOMERS`` (comma-separated prefixes). Excluded names are
+    ``CORTEX_PORTFOLIO_EXCLUDE_CUSTOMERS`` (comma-separated prefixes). Excluded names are
     dropped before ``get_customer_health`` so missing-visitor errors are not logged as ERROR.
     """
     from .portfolio_exclude_prefixes import is_skipped_customer_prefix
@@ -1447,7 +1447,7 @@ class PendoClient:
 
     _visitor_cache: dict[str, Any] | None = None
     _visitor_cache_ts: float = 0
-    _CACHE_TTL = BPO_PENDO_CACHE_TTL_SECONDS  # seconds; overridden by preload() for batch runs
+    _CACHE_TTL = CORTEX_PENDO_CACHE_TTL_SECONDS  # seconds; overridden by preload() for batch runs
     _page_events_cache: dict[str, Any] | None = None
     _page_events_cache_ts: float = 0
     _track_events_cache: dict[str, Any] | None = None
@@ -2573,7 +2573,7 @@ class PendoClient:
         """Comprehensive health report combining all focused methods.
         Used by the monolith deck generator and as a convenience method.
 
-        When ``BPO_SIGNALS_LLM`` is enabled, optional ``signals_llm_manifest_rules`` (QBR Manifest
+        When ``CORTEX_SIGNALS_LLM`` is enabled, optional ``signals_llm_manifest_rules`` (QBR Manifest
         excerpt) and ``signals_llm_slide_prompt`` (Notable Signals slide YAML brief) are passed
         through to the signals LLM as editorial context (Phase 3).
         """
@@ -2709,7 +2709,7 @@ class PendoClient:
             },
             "slack": slack_data,
         }
-        if BPO_SIGNALS_TRENDS:
+        if CORTEX_SIGNALS_TRENDS:
             try:
                 from .signals_trends import build_signals_trend_context
 
@@ -2719,13 +2719,13 @@ class PendoClient:
                 logger.warning("signals_trends: build failed (%s)", e)
                 merged["signals_trend_context"] = None
         extend_health_report_signals(merged)
-        if BPO_SIGNALS_LLM:
+        if CORTEX_SIGNALS_LLM:
             if signals_llm_manifest_rules:
                 merged["_signals_llm_manifest_rules"] = signals_llm_manifest_rules.strip()
             if signals_llm_slide_prompt:
                 merged["_signals_llm_slide_prompt"] = signals_llm_slide_prompt.strip()
         maybe_rewrite_signals_with_llm(merged)
-        if BPO_SIGNALS_TRENDS:
+        if CORTEX_SIGNALS_TRENDS:
             try:
                 from .signals_trends import finalize_signals_trends_banner
 
@@ -2800,14 +2800,14 @@ class PendoClient:
         from .data_source_health import _salesforce_configured
 
         def _effective_portfolio_customer_source() -> str:
-            src = (BPO_PORTFOLIO_CUSTOMER_SOURCE or "auto").strip().lower()
+            src = (CORTEX_PORTFOLIO_CUSTOMER_SOURCE or "auto").strip().lower()
             if src in ("", "auto"):
                 return "salesforce" if _salesforce_configured() else "pendo"
             if src in ("salesforce", "pendo"):
                 return src
             logger.warning(
-                "Invalid BPO_PORTFOLIO_CUSTOMER_SOURCE %r — using pendo",
-                BPO_PORTFOLIO_CUSTOMER_SOURCE,
+                "Invalid CORTEX_PORTFOLIO_CUSTOMER_SOURCE %r — using pendo",
+                CORTEX_PORTFOLIO_CUSTOMER_SOURCE,
             )
             return "pendo"
 
@@ -2855,7 +2855,7 @@ class PendoClient:
                     preview += ", …"
                 logger.info(
                     "Portfolio: skipping %d customer(s) (config/pendo_orphans.yaml "
-                    "or BPO_PORTFOLIO_EXCLUDE_CUSTOMERS): %s",
+                    "or CORTEX_PORTFOLIO_EXCLUDE_CUSTOMERS): %s",
                     len(skipped_ex),
                     preview,
                 )
@@ -2864,7 +2864,7 @@ class PendoClient:
 
         total = len(all_names)
         try:
-            _nw = int(os.environ.get("BPO_PORTFOLIO_PARALLEL_WORKERS", "8").strip())
+            _nw = int(os.environ.get("CORTEX_PORTFOLIO_PARALLEL_WORKERS", "8").strip())
             pool_workers = max(1, min(32, _nw))
         except ValueError:
             pool_workers = 8

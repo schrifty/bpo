@@ -67,7 +67,7 @@ def test_parse_salesforce_rest_errors_extracts_query_message():
 def test_query_soql_hits_read_cache_second_call(monkeypatch):
     import src.salesforce_client as sfc
 
-    monkeypatch.setattr(sfc, "BPO_SALESFORCE_CACHE_TTL_SECONDS", 86400)
+    monkeypatch.setattr(sfc, "CORTEX_SALESFORCE_CACHE_TTL_SECONDS", 86400)
     clear_salesforce_read_cache()
     client = SalesforceClient()
     client._token = "t"

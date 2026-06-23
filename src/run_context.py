@@ -7,11 +7,11 @@ import uuid
 from contextvars import ContextVar
 from typing import Any
 
-_run_id: ContextVar[str | None] = ContextVar("bpo_run_id", default=None)
-_job_name: ContextVar[str | None] = ContextVar("bpo_job_name", default=None)
-_deck_id: ContextVar[str | None] = ContextVar("bpo_deck_id", default=None)
-_customer: ContextVar[str | None] = ContextVar("bpo_customer", default=None)
-_phase: ContextVar[str | None] = ContextVar("bpo_phase", default=None)
+_run_id: ContextVar[str | None] = ContextVar("cortex_run_id", default=None)
+_job_name: ContextVar[str | None] = ContextVar("cortex_job_name", default=None)
+_deck_id: ContextVar[str | None] = ContextVar("cortex_deck_id", default=None)
+_customer: ContextVar[str | None] = ContextVar("cortex_customer", default=None)
+_phase: ContextVar[str | None] = ContextVar("cortex_phase", default=None)
 
 
 def new_run_id() -> str:
@@ -19,7 +19,7 @@ def new_run_id() -> str:
 
 
 def _env_run_id() -> str | None:
-    raw = os.environ.get("BPO_RUN_ID", "").strip()
+    raw = os.environ.get("CORTEX_RUN_ID", "").strip()
     return raw or None
 
 
@@ -83,10 +83,10 @@ def run_context_fields() -> dict[str, str]:
         val = var.get()
         if val:
             out[key] = val
-    step = os.environ.get("BPO_STEP_NAME", "").strip()
+    step = os.environ.get("CORTEX_STEP_NAME", "").strip()
     if step and "phase" not in out:
         out["phase"] = step
-    job_env = os.environ.get("BPO_JOB_NAME", "").strip()
+    job_env = os.environ.get("CORTEX_JOB_NAME", "").strip()
     if job_env and "job_name" not in out:
         out["job_name"] = job_env
     return out

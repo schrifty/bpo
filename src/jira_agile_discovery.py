@@ -9,7 +9,7 @@ import requests
 
 from .jira_client import JiraClient
 
-logger = logging.getLogger("bpo")
+logger = logging.getLogger("cortex")
 
 _AGILE = "/rest/agile/1.0"
 

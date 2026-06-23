@@ -125,7 +125,7 @@ class RunDiagnostics:
         json_summary: bool = True,
     ) -> dict[str, Any]:
         summary = self.build_summary(job_name=job_name, fail_on_warnings=fail_on_warnings)
-        line = "BPO_RUN_SUMMARY=" + json.dumps(summary, separators=(",", ":"), default=str)
+        line = "CORTEX_RUN_SUMMARY=" + json.dumps(summary, separators=(",", ":"), default=str)
         print(line, flush=True)
         if json_summary:
             emf = {
@@ -133,7 +133,7 @@ class RunDiagnostics:
                     "Timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
                     "CloudWatchMetrics": [
                         {
-                            "Namespace": "BPO",
+                            "Namespace": "Cortex",
                             "Dimensions": [["Job"]],
                             "Metrics": [
                                 {"Name": "RunSuccess", "Unit": "Count"},
@@ -151,9 +151,9 @@ class RunDiagnostics:
                 "IntegrationWarnings": summary["integration_warnings"],
             }
             print(json.dumps(emf, separators=(",", ":")), flush=True)
-        from .config import logger as bpo_logger
+        from .config import logger as cortex_logger
 
-        bpo_logger.info(
+        cortex_logger.info(
             "run_complete success=%s duration_s=%s failures=%d warnings=%d",
             summary["success"],
             summary["duration_s"],
@@ -210,7 +210,7 @@ def collect_run_warning(message: str, *, llm_export: bool = False) -> None:
 
 @contextmanager
 def run_diagnostics_scope(*, scope: str = "run", reset_drive_cache: bool = True) -> Iterator[RunDiagnostics]:
-    from .config import logger as bpo_logger
+    from .config import logger as cortex_logger
 
     if reset_drive_cache:
         from .drive_cache_stats import reset_drive_cache_load_stats
@@ -225,11 +225,11 @@ def run_diagnostics_scope(*, scope: str = "run", reset_drive_cache: bool = True)
     diag = RunDiagnostics(scope=scope)
     token = _run_diag.set(diag)
     handler = _RunWarningLogHandler(diag)
-    bpo_logger.addHandler(handler)
+    cortex_logger.addHandler(handler)
     try:
         yield diag
     finally:
-        bpo_logger.removeHandler(handler)
+        cortex_logger.removeHandler(handler)
         _run_diag.reset(token)
 
 

@@ -1,4 +1,4 @@
-# BPO cohort classification — config/cohorts.yaml
+# Cortex cohort classification — config/cohorts.yaml
 # Schema: top-level `cohorts:` — per Pendo prefix: name, cohort, aliases, exclude, etc.
 # See docs/DATA-GOVERNANCE/CUSTOMER_COHORTS.md and CONFIG_ALIASES.md.
 # Each customer key matches the first-word prefix used in Pendo site names.

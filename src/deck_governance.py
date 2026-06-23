@@ -366,14 +366,14 @@ def _build_freshness_lines(report: dict[str, Any]) -> list[str]:
     if isinstance(cu, dict) and cu.get("generated_at"):
         lines.append(f"Cursor pull: {cu['generated_at']}")
 
-    sf_ttl = (os.environ.get("BPO_SALESFORCE_CACHE_TTL_HOURS") or "48").strip()
+    sf_ttl = (os.environ.get("CORTEX_SALESFORCE_CACHE_TTL_HOURS") or "48").strip()
     sf = report.get("salesforce") or {}
     if isinstance(sf, dict) and sf and "error" not in sf:
-        lines.append(f"Salesforce: live or cached (TTL {sf_ttl}h via BPO_SALESFORCE_CACHE_TTL_HOURS)")
+        lines.append(f"Salesforce: live or cached (TTL {sf_ttl}h via CORTEX_SALESFORCE_CACHE_TTL_HOURS)")
 
-    cursor_ttl = (os.environ.get("BPO_CURSOR_CACHE_TTL_HOURS") or "1").strip()
+    cursor_ttl = (os.environ.get("CORTEX_CURSOR_CACHE_TTL_HOURS") or "1").strip()
     if isinstance(cu, dict) and cu.get("configured"):
-        lines.append(f"Cursor cache TTL: {cursor_ttl}h (BPO_CURSOR_CACHE_TTL_HOURS)")
+        lines.append(f"Cursor cache TTL: {cursor_ttl}h (CORTEX_CURSOR_CACHE_TTL_HOURS)")
 
     return lines[:_FRESHNESS_CAP]
 

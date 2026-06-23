@@ -28,7 +28,7 @@ data "aws_iam_policy_document" "ecs_task" {
       "secretsmanager:GetSecretValue",
       "secretsmanager:DescribeSecret",
     ]
-    resources = [aws_secretsmanager_secret.bpo.arn]
+    resources = [aws_secretsmanager_secret.cortex.arn]
   }
 
   statement {

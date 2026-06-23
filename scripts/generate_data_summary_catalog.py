@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Emit ``config/comprehensive_data_element_list.json`` — registry of data elements BPO can surface.
+"""Emit ``config/comprehensive_data_element_list.json`` — registry of data elements Cortex can surface.
 
 Paths are logical dotted paths on the **single-customer health report** from
 ``PendoClient.get_customer_health_report`` unless prefixed ``portfolio.``, ``teams_yaml.``, or
@@ -445,7 +445,7 @@ def build_entries() -> list[dict[str, Any]]:
     # ── Signals / optional LLM overlays ─────────────────────────────────────
     rows.extend(
         [
-            _e("signals_trend_context", "[Pendo] optional trend context when BPO_SIGNALS_TRENDS"),
+            _e("signals_trend_context", "[Pendo] optional trend context when CORTEX_SIGNALS_TRENDS"),
             _e("_signals_llm_manifest_rules", "[internal] LLM editorial manifest excerpt"),
             _e("_signals_llm_slide_prompt", "[internal] slide prompt excerpt"),
         ]
@@ -523,7 +523,7 @@ def main() -> int:
     payload = {
         "version": 1,
         "_comment": (
-            "Catalog of data elements BPO can access for QBR / decks (path + terms). "
+            "Catalog of data elements Cortex can access for QBR / decks (path + terms). "
             "Terms drive hydrate phrase matching and qbr_mappings target resolution (see "
             "resolve_data_summary_target_path). "
             "Pendo per-page and per-feature detail rows are intentionally omitted (see sites/top_pages). "

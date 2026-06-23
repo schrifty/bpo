@@ -111,7 +111,7 @@ _slides_last_write_mono: float = 0.0
 
 
 def _slides_write_interval_sec() -> float:
-    raw = os.environ.get("BPO_SLIDES_WRITE_INTERVAL_SEC", "1.05").strip()
+    raw = os.environ.get("CORTEX_SLIDES_WRITE_INTERVAL_SEC", "1.05").strip()
     try:
         v = float(raw)
     except ValueError:
@@ -120,7 +120,7 @@ def _slides_write_interval_sec() -> float:
 
 
 def _slides_batch_update_max_retries() -> int:
-    raw = os.environ.get("BPO_SLIDES_BATCH_UPDATE_RETRIES", "12").strip()
+    raw = os.environ.get("CORTEX_SLIDES_BATCH_UPDATE_RETRIES", "12").strip()
     try:
         n = int(raw)
     except ValueError:
@@ -184,9 +184,9 @@ def slides_presentations_batch_update(
     otherwise burst past that limit.
 
     Env (optional):
-      BPO_SLIDES_WRITE_INTERVAL_SEC — minimum seconds between successful writes (default 1.05; 0 disables).
-      BPO_SLIDES_BATCH_UPDATE_RETRIES — max attempts per call including the first (default 12).
-      BPO_SLIDES_BATCH_CHUNK_SIZE — default subrequests per batchUpdate chunk (default 2000, max 5000).
+      CORTEX_SLIDES_WRITE_INTERVAL_SEC — minimum seconds between successful writes (default 1.05; 0 disables).
+      CORTEX_SLIDES_BATCH_UPDATE_RETRIES — max attempts per call including the first (default 12).
+      CORTEX_SLIDES_BATCH_CHUNK_SIZE — default subrequests per batchUpdate chunk (default 2000, max 5000).
     """
     if not requests:
         return
@@ -220,7 +220,7 @@ def slides_presentations_batch_update(
 
 
 def _slides_batch_chunk_default() -> int:
-    raw = os.environ.get("BPO_SLIDES_BATCH_CHUNK_SIZE", "").strip()
+    raw = os.environ.get("CORTEX_SLIDES_BATCH_CHUNK_SIZE", "").strip()
     if not raw:
         return _SLIDES_BATCH_UPDATE_DEFAULT_CHUNK
     try:
@@ -238,7 +238,7 @@ def presentations_batch_update_chunked(
 ) -> None:
     """Call presentations.batchUpdate in ordered chunks to stay under per-call subrequest limits.
 
-    Env ``BPO_SLIDES_BATCH_CHUNK_SIZE`` sets the default chunk when *chunk_size* is None
+    Env ``CORTEX_SLIDES_BATCH_CHUNK_SIZE`` sets the default chunk when *chunk_size* is None
     (clamped to ``_SLIDES_BATCH_UPDATE_MAX_CHUNK``). Larger chunks mean fewer round trips
     per deck but each call must stay under API subrequest limits.
     """

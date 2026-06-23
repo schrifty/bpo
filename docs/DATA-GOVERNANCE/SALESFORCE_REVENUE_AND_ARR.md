@@ -2,7 +2,7 @@
 
 This document goes **deeper** than [`SALESFORCE_DATA_SCHEMA.md`](./SALESFORCE_DATA_SCHEMA.md) §2–§7 on **how organizations typically model annual recurring revenue (ARR), monthly recurring revenue (MRR), and “contract value”** in Salesforce—and why a single `Contract` query rarely answers “what is ARR?”
 
-**BPO today:** cohort/portfolio totals use **`Account.ARR__c`** on **`Type = 'Customer Entity'`** rows, matched to Pendo names by substring. That is one valid pattern; it is **not** the only pattern, and it may disagree with finance if their truth is on **subscriptions**, **order lines**, or **another rollup**.
+**Cortex today:** cohort/portfolio totals use **`Account.ARR__c`** on **`Type = 'Customer Entity'`** rows, matched to Pendo names by substring. That is one valid pattern; it is **not** the only pattern, and it may disagree with finance if their truth is on **subscriptions**, **order lines**, or **another rollup**.
 
 ---
 
@@ -27,9 +27,9 @@ So: **having `Contract` rows does not imply you can read ARR from `Contract`** w
   - **Flow / Process Builder** from winning Opportunity
   - **Roll-up summary** or **DLRS** from child objects (less common on vanilla Account without custom children)
 
-**Pros:** Trivial to report and to match to a “customer” in Pendo. **Cons:** Can drift from source systems; substring name match (as in BPO) can **wrong-account** or **double-count** if matching is fuzzy.
+**Pros:** Trivial to report and to match to a “customer” in Pendo. **Cons:** Can drift from source systems; substring name match (as in Cortex) can **wrong-account** or **double-count** if matching is fuzzy.
 
-**BPO alignment:** `get_arr_by_customer_names` → **`Account.ARR__c`** on Customer Entity accounts is this pattern.
+**Cortex alignment:** `get_arr_by_customer_names` → **`Account.ARR__c`** on Customer Entity accounts is this pattern.
 
 ---
 
@@ -121,12 +121,12 @@ Work in a **sandbox** with a **integration user** that has the same object acces
 
 ---
 
-## 9. Implications for BPO (this repo)
+## 9. Implications for Cortex (this repo)
 
 | Topic | Current behavior | If ARR is “wrong” |
 |-------|------------------|-------------------|
 | Cohort **Total ARR** | Sum of **`Account.ARR__c`** for Customer Entity accounts matched by **name contains** | Finance may use **Subscription** or **Order** rollups; or **Account.ARR__c** is stale/wrong; or **matching** attributes ARR to the wrong account |
-| Standard **Contract** in BPO | **`query_contracts`** / comprehensive **`contracts`** category — **no ARR** in default `MAINSTREAM_OBJECT_FIELDS` | Extend **`fields=`** with org ARR fields **if** they exist on `Contract`, **or** add a new query path (e.g. aggregate `SBQQ__Subscription__c` by Account) |
+| Standard **Contract** in Cortex | **`query_contracts`** / comprehensive **`contracts`** category — **no ARR** in default `MAINSTREAM_OBJECT_FIELDS` | Extend **`fields=`** with org ARR fields **if** they exist on `Contract`, **or** add a new query path (e.g. aggregate `SBQQ__Subscription__c` by Account) |
 | Documentation | [`SALESFORCE_DATA_SCHEMA.md`](./SALESFORCE_DATA_SCHEMA.md) §2, §7 Contract, [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) | Registry entries can be extended when a **canonical** ARR source object is chosen |
 
 ---

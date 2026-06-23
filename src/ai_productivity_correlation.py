@@ -8,7 +8,7 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Any
 
-logger = logging.getLogger("bpo")
+logger = logging.getLogger("cortex")
 
 _MIN_TOKENS_FOR_RANK = 1000
 _QUADRANT_LABELS = (

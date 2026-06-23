@@ -1,12 +1,12 @@
 # Data governance
 
-This folder holds BPO’s **data registry**, **dictionary**, **per-source schemas**, and related **governance / analysis** docs (gaps, priorities, cohorts, integration notes).
+This folder holds Cortex’s **data registry**, **dictionary**, **per-source schemas**, and related **governance / analysis** docs (gaps, priorities, cohorts, integration notes).
 
 Start with **[`DATA_REGISTRY.md`](./DATA_REGISTRY.md)** for the cross-system identifier list; use the other files here for detailed schemas and supporting notes.
 
 | Document | Description |
 |----------|-------------|
-| [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) | Master registry: stable IDs, sources, where BPO uses each item, status flags |
+| [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) | Master registry: stable IDs, sources, where Cortex uses each item, status flags |
 | [`DATA_DICTIONARY.md`](./DATA_DICTIONARY.md) | Human-readable mirror of the comprehensive data-element catalog (by source path) |
 | [`JIRA_DATA_SCHEMA.md`](./JIRA_DATA_SCHEMA.md) | Jira / JSM fields, APIs, and custom fields |
 | [`PENDO_DATA_SCHEMA.md`](./PENDO_DATA_SCHEMA.md) | Pendo aggregation sources, metadata, and events |

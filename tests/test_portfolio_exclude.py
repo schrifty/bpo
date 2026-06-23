@@ -28,7 +28,7 @@ def test_customer_is_excluded_from_portfolio_false_prefix_tokens():
 
 
 def test_customer_is_excluded_from_portfolio_env_extra():
-    with patch.dict(os.environ, {"BPO_PORTFOLIO_EXCLUDE_CUSTOMERS": "FooBar, Baz"}):
+    with patch.dict(os.environ, {"CORTEX_PORTFOLIO_EXCLUDE_CUSTOMERS": "FooBar, Baz"}):
         assert customer_is_excluded_from_portfolio("FooBar") is True
         assert customer_is_excluded_from_portfolio("Baz") is True
         assert customer_is_excluded_from_portfolio("NotListed") is False

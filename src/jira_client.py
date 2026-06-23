@@ -27,23 +27,23 @@ _JSM_ORG_GLOBAL_CACHE: dict[str, tuple[float, list[str]]] = {}
 _ATLASSIAN_TEAMS_RESPONSE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _ATLASSIAN_TEAMS_CACHE_LOCK = threading.Lock()
 # TTL for JSM organization list (same tenant rarely changes during a batch run).
-_JSM_ORG_CACHE_TTL_S = float(os.environ.get("BPO_JSM_ORG_CACHE_TTL_S", "900"))
+_JSM_ORG_CACHE_TTL_S = float(os.environ.get("CORTEX_JSM_ORG_CACHE_TTL_S", "900"))
 
 _SHARED_JIRA_CLIENT_LOCK = threading.Lock()
 _shared_jira_client: Any = None
 
 # Cap HELP body fetch (slide lists / histograms); extra issues are omitted from breakdowns.
-HELP_JIRA_BODY_MAX_RESULTS = int(os.environ.get("BPO_HELP_JIRA_BODY_MAX", "750"))
+HELP_JIRA_BODY_MAX_RESULTS = int(os.environ.get("CORTEX_HELP_JIRA_BODY_MAX", "750"))
 # Single merged JQL for ticket metrics (open ∪ 365d resolved ∪ 365d created).
-HELP_METRICS_MERGED_MAX_RESULTS = int(os.environ.get("BPO_HELP_JIRA_METRICS_MAX", "2000"))
+HELP_METRICS_MERGED_MAX_RESULTS = int(os.environ.get("CORTEX_HELP_JIRA_METRICS_MAX", "2000"))
 # Full Jira field fetch for LLM + Escalation metrics slide (capped; totals use _jql_match_total).
-HELP_ESCALATION_LLM_MAX_ISSUES = int(os.environ.get("BPO_HELP_ESCALATION_LLM_MAX_ISSUES", "200"))
+HELP_ESCALATION_LLM_MAX_ISSUES = int(os.environ.get("CORTEX_HELP_ESCALATION_LLM_MAX_ISSUES", "200"))
 # HELP trend fetch cap (created/resolved monthly trend series).
-HELP_TRENDS_MAX_RESULTS = int(os.environ.get("BPO_HELP_TRENDS_MAX", "12000"))
+HELP_TRENDS_MAX_RESULTS = int(os.environ.get("CORTEX_HELP_TRENDS_MAX", "12000"))
 # HELP resolved-window TTR (JSM SLA ``Time to resolution``, customfield_10665).
-HELP_TTR_RESOLVED_MAX_RESULTS = int(os.environ.get("BPO_HELP_TTR_RESOLVED_MAX", "2000"))
+HELP_TTR_RESOLVED_MAX_RESULTS = int(os.environ.get("CORTEX_HELP_TTR_RESOLVED_MAX", "2000"))
 # Parallel Jira fetches (rate-limit aware).
-_JIRA_PARALLEL_WORKERS = max(1, min(4, int(os.environ.get("BPO_JIRA_PARALLEL_WORKERS", "3"))))
+_JIRA_PARALLEL_WORKERS = max(1, min(4, int(os.environ.get("CORTEX_JIRA_PARALLEL_WORKERS", "3"))))
 
 CUSTOMER_FIELD = "customfield_10100"   # "Customer" multi-select
 ORG_FIELD = "customfield_10502"        # "Organizations" (JSM)
@@ -1409,17 +1409,17 @@ class JiraClient:
         if not self.atlassian_org_id:
             return {"error": "ATLASSIAN_ORG_ID is not set", "teams": []}
 
-        from .config import BPO_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS
+        from .config import CORTEX_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS
 
         cache_key = self._atlassian_teams_cache_key(
             with_members=with_members,
             resolve_names=resolve_names,
             max_teams=max_teams,
         )
-        if BPO_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS > 0:
+        if CORTEX_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS > 0:
             with _ATLASSIAN_TEAMS_CACHE_LOCK:
                 hit = _ATLASSIAN_TEAMS_RESPONSE_CACHE.get(cache_key)
-                if hit and time.time() - hit[0] < BPO_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS:
+                if hit and time.time() - hit[0] < CORTEX_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS:
                     logger.debug("Atlassian Teams cache hit")
                     return copy.deepcopy(hit[1])
 
@@ -1487,7 +1487,7 @@ class JiraClient:
                 "member_count": len(member_names) if resolve_names else len(ids),
             })
         result = {"org_id": self.atlassian_org_id, "route": base, "teams": teams, "error": None}
-        if BPO_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS > 0 and not result.get("error"):
+        if CORTEX_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS > 0 and not result.get("error"):
             with _ATLASSIAN_TEAMS_CACHE_LOCK:
                 _ATLASSIAN_TEAMS_RESPONSE_CACHE[cache_key] = (time.time(), copy.deepcopy(result))
         return result
@@ -1560,10 +1560,10 @@ class JiraClient:
         """All JSM organization names (exact strings valid in ``Organizations =`` JQL).
 
         Cached process-wide with TTL so every new ``JiraClient()`` does not re-walk the
-        paginated Service Desk API. Set ``BPO_JIRA_SKIP_JSM_ORG_FUZZY=1`` to skip the
+        paginated Service Desk API. Set ``CORTEX_JIRA_SKIP_JSM_ORG_FUZZY=1`` to skip the
         directory fetch (literal ``Organizations =`` terms only).
         """
-        if os.environ.get("BPO_JIRA_SKIP_JSM_ORG_FUZZY", "").strip() in ("1", "true", "yes"):
+        if os.environ.get("CORTEX_JIRA_SKIP_JSM_ORG_FUZZY", "").strip() in ("1", "true", "yes"):
             return []
 
         now = time.monotonic()
@@ -1725,7 +1725,7 @@ class JiraClient:
         if organizations_only:
             if not org_fragments:
                 # No Organizations literals (should be rare) — JQL that matches no real issues.
-                return ('summary ~ "___BPO_NO_ORG_MATCH___"', resolved_orgs)
+                return ('summary ~ "___CORTEX_NO_ORG_MATCH___"', resolved_orgs)
             clauses = org_fragments
         else:
             clauses = org_fragments + text_fragments
@@ -1748,7 +1748,7 @@ class JiraClient:
         if (
             customer_name
             and isinstance(org_only_clause, str)
-            and "___BPO_NO_ORG_MATCH___" in org_only_clause
+            and "___CORTEX_NO_ORG_MATCH___" in org_only_clause
         ):
             cust = (customer_name or "").strip()
             sf_hint = _salesforce_activity_hint_for_customer_scope(cust)
@@ -1797,7 +1797,7 @@ class JiraClient:
             "site_terms": [],
             "site_text_scoped": False,
         }
-        if "___BPO_NO_ORG_MATCH___" in org_clause:
+        if "___CORTEX_NO_ORG_MATCH___" in org_clause:
             return org_clause, meta
 
         site_terms = _help_site_text_terms_from_salesforce_entity(entity_row)
@@ -2209,7 +2209,7 @@ class JiraClient:
                 "JIRA HELP slide body sampled: breakdowns omit older issues in window",
                 expected=help_jql_total,
                 actual=len(issues),
-                sources=("JQL total vs fetched issues", "BPO_HELP_JIRA_BODY_MAX"),
+                sources=("JQL total vs fetched issues", "CORTEX_HELP_JIRA_BODY_MAX"),
                 severity="warning",
             )
 
@@ -4278,7 +4278,7 @@ class JiraClient:
                 skipped_no_factory += 1
                 continue
             scope_clause, _scope_meta = self.help_salesforce_entity_site_scoped_clause(row)
-            if "___BPO_NO_ORG_MATCH___" in scope_clause:
+            if "___CORTEX_NO_ORG_MATCH___" in scope_clause:
                 skipped_no_org += 1
                 continue
             entities_counted += 1

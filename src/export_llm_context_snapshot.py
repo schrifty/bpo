@@ -23,7 +23,7 @@ Optional portfolio row filters (after Pendo+Salesforce bundle, before markdown):
 - ``--customers-exclude-sf-churned`` — drop rows that **matched** Salesforce rollups with ``active``
   false (contract-status churn rollup).
 - ``--exclude-customer`` — repeat to drop explicit Pendo customer labels (case-insensitive), or see
-  env ``BPO_LLM_EXPORT_EXCLUDE_CUSTOMERS`` / ``BPO_LLM_EXPORT_EXCLUDE_CUSTOMERS_FILE``.
+  env ``CORTEX_LLM_EXPORT_EXCLUDE_CUSTOMERS`` / ``CORTEX_LLM_EXPORT_EXCLUDE_CUSTOMERS_FILE``.
 
 Requires ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` (and optional ``GOOGLE_QBR_OUTPUT_PARENT_ID``) plus
 Drive credentials. Each run uploads ``LLM-Context-All_Customers.md`` to **both**:
@@ -149,10 +149,10 @@ _LLM_EXPORT_DEFAULT_MAX_BYTES = 500_000
 
 
 def llm_export_default_max_bytes() -> int:
-    """Default UTF-8 soft cap for all-customers export (``BPO_LLM_EXPORT_MAX_BYTES``; 0 = unlimited)."""
+    """Default UTF-8 soft cap for all-customers export (``CORTEX_LLM_EXPORT_MAX_BYTES``; 0 = unlimited)."""
     import os
 
-    raw = (os.environ.get("BPO_LLM_EXPORT_MAX_BYTES") or "").strip()
+    raw = (os.environ.get("CORTEX_LLM_EXPORT_MAX_BYTES") or "").strip()
     if not raw:
         return _LLM_EXPORT_DEFAULT_MAX_BYTES
     try:
@@ -564,7 +564,7 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
             "the whole markdown file. §3c Salesforce comprehensive is exported in **headline** form (per-customer "
             "KPIs + capped category samples, top customers by ARR). If the export is still too large, CSR and §3 "
             "rollup tighten further; the **end of the file may be cut off** — raise `--max-bytes` or set "
-            "`BPO_LLM_EXPORT_SF_COMPREHENSIVE=false` for a smaller run."
+            "`CORTEX_LLM_EXPORT_SF_COMPREHENSIVE=false` for a smaller run."
         )
     else:
         lines.append(
@@ -1064,7 +1064,7 @@ def _compact_csr(
 def _compact_slack(slack: dict[str, Any], *, size_caps_enabled: bool = True) -> dict[str, Any]:
     if not slack:
         return {
-            "note": "Slack was not attached (empty slack). Set SLACK_BOT_TOKEN and BPO_LLM_EXPORT_SLACK.",
+            "note": "Slack was not attached (empty slack). Set SLACK_BOT_TOKEN and CORTEX_LLM_EXPORT_SLACK.",
         }
     max_lines = 30 if size_caps_enabled else 500
     out: dict[str, Any] = {}
@@ -1316,7 +1316,7 @@ def build_snapshot_document(
 
     doc: dict[str, Any] = {
         "document_purpose": (
-            "Structured facts from BPO integrations for LLM Q&A. Figures are snapshots from vendor APIs "
+            "Structured facts from Cortex integrations for LLM Q&A. Figures are snapshots from vendor APIs "
             "and internal exports; verify in source systems before contractual or financial use. "
             "Active installed-base customers (§1, §3, §5) are separate from inactive SF segments (§3b churned-lost, "
             "§3b-renewal negotiation)."
@@ -1563,7 +1563,7 @@ def emit_export_size_breakdown_stderr(
 
 def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
     parts: list[str] = [
-        "# BPO data snapshot (LLM context)",
+        "# Cortex data snapshot (LLM context)",
         "",
         "Use this file as **reference material** only. Prefer citing numbers exactly as shown; "
         "when a field is missing, say it was not in the snapshot.",
@@ -1609,7 +1609,7 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
             "## LeanDNA Data API — data elements (reference)",
             "",
             "Structured list of **catalog paths** (from `config/comprehensive_data_element_list.json` when present), **typical QBR "
-            "report paths**, and **HTTP surfaces** used by BPO. No live LeanDNA values are included here.",
+            "report paths**, and **HTTP surfaces** used by Cortex. No live LeanDNA values are included here.",
             "",
             _json_compact(doc.get("leandna_data_api_reference") or {}),
             "",
@@ -1792,7 +1792,7 @@ def _build_export_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
         default=llm_export_default_max_bytes(),
         help=(
             f"Soft cap on UTF-8 body size (default {llm_export_default_max_bytes():,} from "
-            "BPO_LLM_EXPORT_MAX_BYTES). 0 = no cap. When N>0, compacts §3c/CSR/SF and may truncate markdown."
+            "CORTEX_LLM_EXPORT_MAX_BYTES). 0 = no cap. When N>0, compacts §3c/CSR/SF and may truncate markdown."
         ),
     )
     ap.add_argument(
@@ -1820,7 +1820,7 @@ def _build_export_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
         action="append",
         default=None,
         metavar="NAME",
-        help="Drop this Pendo customer label (repeatable). Also see BPO_LLM_EXPORT_EXCLUDE_CUSTOMERS (+ _FILE env).",
+        help="Drop this Pendo customer label (repeatable). Also see CORTEX_LLM_EXPORT_EXCLUDE_CUSTOMERS (+ _FILE env).",
     )
     ap.add_argument(
         "--skip-risk-insights",
@@ -1944,7 +1944,7 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
         if args.skip_risk_insights:
             import logging
 
-            logging.getLogger("bpo").info(
+            logging.getLogger("cortex").info(
                 "LLM export: skipping §7 risk insights (--skip-risk-insights)"
             )
         else:
@@ -2011,11 +2011,11 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
             body_before_section7_bytes=md_body_before_section7_bytes,
         )
         diag.emit_stderr_summary()
-        from .config import BPO_FAIL_ON_INTEGRATION_WARNINGS
+        from .config import CORTEX_FAIL_ON_INTEGRATION_WARNINGS
         from .data_source_health import integration_freshness_metadata
 
         diag.set_integration_meta(integration_freshness_metadata())
-        summary = diag.emit_run_summary(job_name="export", fail_on_warnings=BPO_FAIL_ON_INTEGRATION_WARNINGS)
+        summary = diag.emit_run_summary(job_name="export", fail_on_warnings=CORTEX_FAIL_ON_INTEGRATION_WARNINGS)
         if not summary.get("success"):
             sys.exit(1)
 

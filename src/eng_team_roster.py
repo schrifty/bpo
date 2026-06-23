@@ -20,7 +20,7 @@ from typing import Any
 from .jira_client import JiraClient
 from .jira_sprint_delivery import AGILE_TEAM_FIELD
 
-logger = logging.getLogger("bpo")
+logger = logging.getLogger("cortex")
 
 _LEADS_PATH = Path(__file__).resolve().parent.parent / "config" / "engineering_team_leads.yaml"
 

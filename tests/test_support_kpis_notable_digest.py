@@ -30,8 +30,8 @@ def test_build_support_kpis_digest_includes_trimmed_kpi_bundle():
 def test_support_kpis_notable_env_off_uses_yaml_fallback_items():
     import os
 
-    old = os.environ.get("BPO_SUPPORT_NOTABLE_LLM")
-    os.environ["BPO_SUPPORT_NOTABLE_LLM"] = "false"
+    old = os.environ.get("CORTEX_SUPPORT_NOTABLE_LLM")
+    os.environ["CORTEX_SUPPORT_NOTABLE_LLM"] = "false"
     try:
         bullets, src = generate_support_kpis_notable_bullets_via_llm(
             build_support_kpis_digest({"jira": {"support_kpis": {"open_count": 1}}}, slide_titles=[]),
@@ -39,9 +39,9 @@ def test_support_kpis_notable_env_off_uses_yaml_fallback_items():
         )
     finally:
         if old is None:
-            os.environ.pop("BPO_SUPPORT_NOTABLE_LLM", None)
+            os.environ.pop("CORTEX_SUPPORT_NOTABLE_LLM", None)
         else:
-            os.environ["BPO_SUPPORT_NOTABLE_LLM"] = old
+            os.environ["CORTEX_SUPPORT_NOTABLE_LLM"] = old
     assert src == "env_off"
     assert bullets == ["INTAKE: Custom fallback only."]
     assert len(bullets) <= SUPPORT_KPIS_NOTABLE_BULLET_COUNT

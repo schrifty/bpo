@@ -1,7 +1,7 @@
 # Copy to terraform.tfvars and adjust. Do NOT commit terraform.tfvars (gitignored).
 
 aws_region   = "us-east-1"
-name_prefix  = "bpo"
+name_prefix  = "cortex"
 environment  = "prod"
 
 # Default VPC + all its subnets (assign_public_ip=true for internet without NAT)
@@ -10,7 +10,7 @@ assign_public_ip = true
 
 # Upload secrets from local builder (repo root):
 #   python3 scripts/build_secrets_manager_json.py
-# secrets_json_file = "../../output/bpo-secrets-manager.json"
+# secrets_json_file = "../../output/cortex-secrets-manager.json"
 
 image_tag           = "latest"
 default_job_command = ["engineering-portfolio"]

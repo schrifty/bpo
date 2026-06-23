@@ -8,7 +8,7 @@ import logging
 import sys
 from typing import Any
 
-from src.config import BPO_LEANDNA_DATA_API_EXECUTION_BUCKET
+from src.config import CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET
 from src.leandna_metrics_write import (
     READ_TIMEOUT_S,
     MetricDeleteArgs,
@@ -29,10 +29,10 @@ def pop_leading_numeric_metric_id(argv: list[str]) -> tuple[list[str], str | Non
     return argv, None
 
 
-def configure_bpo_logging(*, verbose: bool) -> None:
-    bpo_log = logging.getLogger("bpo")
-    bpo_log.setLevel(logging.INFO if verbose else logging.WARNING)
-    bpo_log.propagate = False
+def configure_cortex_logging(*, verbose: bool) -> None:
+    cortex_log = logging.getLogger("cortex")
+    cortex_log.setLevel(logging.INFO if verbose else logging.WARNING)
+    cortex_log.propagate = False
 
 
 def add_metric_write_arguments(ap: argparse.ArgumentParser) -> None:
@@ -123,9 +123,9 @@ def print_result_env(env: dict[str, Any]) -> None:
         if hint:
             print(hint, file=sys.stderr)
     err = str((insert or env).get("error") or "")
-    if "mutations" in err.lower() and BPO_LEANDNA_DATA_API_EXECUTION_BUCKET == "production":
+    if "mutations" in err.lower() and CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET == "production":
         print(
-            "Production writes blocked — prefix command with BPO_ALLOW_PRODUCTION_MUTATIONS=true",
+            "Production writes blocked — prefix command with CORTEX_ALLOW_PRODUCTION_MUTATIONS=true",
             file=sys.stderr,
         )
     elif (insert or env).get("status") == 401 or "session not found" in err.lower():

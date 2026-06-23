@@ -8,7 +8,7 @@ import pytest
 def test_resolve_base_url_legacy_empty_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
     import src.config as cfg
 
-    monkeypatch.setattr(cfg, "BPO_LEANDNA_DATA_API_EXECUTION_BUCKET", "legacy")
+    monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "legacy")
     monkeypatch.setattr(cfg, "LEANDNA_DATA_API_BASE_URL", "")
     assert cfg.resolve_leandna_data_api_base_url() == "https://app.leandna.com/api"
 
@@ -16,7 +16,7 @@ def test_resolve_base_url_legacy_empty_falls_back(monkeypatch: pytest.MonkeyPatc
 def test_resolve_base_url_staging_requires_base(monkeypatch: pytest.MonkeyPatch) -> None:
     import src.config as cfg
 
-    monkeypatch.setattr(cfg, "BPO_LEANDNA_DATA_API_EXECUTION_BUCKET", "staging")
+    monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "staging")
     monkeypatch.setattr(cfg, "LEANDNA_DATA_API_BASE_URL", "")
     with pytest.raises(ValueError, match="ST_LEANDNA_DATA_API_BASE_URL"):
         cfg.resolve_leandna_data_api_base_url()
@@ -25,7 +25,7 @@ def test_resolve_base_url_staging_requires_base(monkeypatch: pytest.MonkeyPatch)
 def test_resolve_base_url_production_requires_base(monkeypatch: pytest.MonkeyPatch) -> None:
     import src.config as cfg
 
-    monkeypatch.setattr(cfg, "BPO_LEANDNA_DATA_API_EXECUTION_BUCKET", "production")
+    monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "production")
     monkeypatch.setattr(cfg, "LEANDNA_DATA_API_BASE_URL", "")
     with pytest.raises(ValueError, match="PR_LEANDNA_DATA_API_BASE_URL"):
         cfg.resolve_leandna_data_api_base_url()
@@ -34,7 +34,7 @@ def test_resolve_base_url_production_requires_base(monkeypatch: pytest.MonkeyPat
 def test_resolve_base_url_none_bucket_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     import src.config as cfg
 
-    monkeypatch.setattr(cfg, "BPO_LEANDNA_DATA_API_EXECUTION_BUCKET", "none")
+    monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "none")
     monkeypatch.setattr(cfg, "LEANDNA_DATA_API_BASE_URL", "")
     with pytest.raises(ValueError, match="EXECUTION_ENV"):
         cfg.resolve_leandna_data_api_base_url()
@@ -43,8 +43,8 @@ def test_resolve_base_url_none_bucket_raises(monkeypatch: pytest.MonkeyPatch) ->
 def test_execution_env_production_blocks_mutations(monkeypatch: pytest.MonkeyPatch) -> None:
     import src.config as cfg
 
-    monkeypatch.setattr(cfg, "BPO_LEANDNA_DATA_API_EXECUTION_BUCKET", "production")
-    monkeypatch.delenv("BPO_ALLOW_PRODUCTION_MUTATIONS", raising=False)
+    monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "production")
+    monkeypatch.delenv("CORTEX_ALLOW_PRODUCTION_MUTATIONS", raising=False)
     assert cfg.execution_env_disallows_http_mutations() is True
     assert cfg.leandna_http_mutations_allowed() is False
     blocked = cfg.leandna_http_mutation_blocked_envelope(method="POST", path="Metric/1/MetricDataPoint")
@@ -56,7 +56,7 @@ def test_execution_env_production_blocks_mutations(monkeypatch: pytest.MonkeyPat
 def test_execution_env_staging_allows_mutations(monkeypatch: pytest.MonkeyPatch) -> None:
     import src.config as cfg
 
-    monkeypatch.setattr(cfg, "BPO_LEANDNA_DATA_API_EXECUTION_BUCKET", "staging")
+    monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "staging")
     assert cfg.execution_env_disallows_http_mutations() is False
     assert cfg.leandna_http_mutations_allowed() is True
     assert cfg.leandna_http_mutation_blocked_envelope(method="DELETE") is None
@@ -65,8 +65,8 @@ def test_execution_env_staging_allows_mutations(monkeypatch: pytest.MonkeyPatch)
 def test_production_mutations_override(monkeypatch: pytest.MonkeyPatch) -> None:
     import src.config as cfg
 
-    monkeypatch.setattr(cfg, "BPO_LEANDNA_DATA_API_EXECUTION_BUCKET", "production")
-    monkeypatch.setenv("BPO_ALLOW_PRODUCTION_MUTATIONS", "true")
+    monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "production")
+    monkeypatch.setenv("CORTEX_ALLOW_PRODUCTION_MUTATIONS", "true")
     assert cfg.leandna_http_mutations_allowed() is True
     assert cfg.leandna_http_mutation_blocked_envelope(method="POST") is None
 

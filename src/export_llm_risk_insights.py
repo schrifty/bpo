@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import Any
 
-logger = logging.getLogger("bpo")
+logger = logging.getLogger("cortex")
 
 # Max customers pulled into payload (Pendo headline / portfolio-order cap).
 _DEFAULT_CUSTOMER_CAP = 40
@@ -48,14 +48,14 @@ def _env_float(name: str, default: float) -> float:
 
 def _risk_jira_customer_timeout_seconds() -> float:
     return _env_float(
-        "BPO_LLM_EXPORT_RISK_JIRA_CUSTOMER_TIMEOUT_SECONDS",
+        "CORTEX_LLM_EXPORT_RISK_JIRA_CUSTOMER_TIMEOUT_SECONDS",
         _DEFAULT_JIRA_CUSTOMER_TIMEOUT_SECONDS,
     )
 
 
 def _risk_llm_batch_timeout_seconds() -> float:
     return _env_float(
-        "BPO_LLM_EXPORT_RISK_LLM_BATCH_TIMEOUT_SECONDS",
+        "CORTEX_LLM_EXPORT_RISK_LLM_BATCH_TIMEOUT_SECONDS",
         _DEFAULT_LLM_BATCH_TIMEOUT_SECONDS,
     )
 
@@ -229,7 +229,7 @@ def build_customer_risk_payloads(
     jira_workers: int = 4,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Return list of per-customer dicts for the LLM and any warnings (non-fatal)."""
-    cap = customer_cap if customer_cap is not None else _env_int("BPO_LLM_EXPORT_RISK_CUSTOMER_CAP", _DEFAULT_CUSTOMER_CAP)
+    cap = customer_cap if customer_cap is not None else _env_int("CORTEX_LLM_EXPORT_RISK_CUSTOMER_CAP", _DEFAULT_CUSTOMER_CAP)
     warnings: list[str] = []
 
     rows = report.get("customers") if isinstance(report.get("customers"), list) else []
@@ -509,7 +509,7 @@ def render_risk_insights_section(
         )
         return "\n".join(lines)
 
-    batch_n = _env_int("BPO_LLM_EXPORT_RISK_BATCH_SIZE", _DEFAULT_BATCH_SIZE)
+    batch_n = _env_int("CORTEX_LLM_EXPORT_RISK_BATCH_SIZE", _DEFAULT_BATCH_SIZE)
     llm_timeout = _risk_llm_batch_timeout_seconds()
     total_batches = (len(payloads) + batch_n - 1) // batch_n
     all_parsed: list[dict[str, Any]] = []

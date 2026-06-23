@@ -1,4 +1,4 @@
-"""Tests for run diagnostics and BPO_RUN_SUMMARY emission."""
+"""Tests for run diagnostics and CORTEX_RUN_SUMMARY emission."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ def test_run_summary_emits_json_line(capsys) -> None:
     diag.add_failure("step-a: exit 1")
     summary = diag.emit_run_summary(job_name="demo", json_summary=False)
     out = capsys.readouterr().out
-    assert out.startswith("BPO_RUN_SUMMARY=")
+    assert out.startswith("CORTEX_RUN_SUMMARY=")
     parsed = json.loads(out.split("=", 1)[1].strip())
     assert parsed["success"] is False
     assert parsed["job"] == "demo"

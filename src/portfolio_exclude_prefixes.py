@@ -14,7 +14,7 @@ _CFG_PATH = PENDO_ORPHANS_FILE
 
 
 def _parse_env_extra() -> frozenset[str]:
-    raw = os.environ.get("BPO_PORTFOLIO_EXCLUDE_CUSTOMERS", "")
+    raw = os.environ.get("CORTEX_PORTFOLIO_EXCLUDE_CUSTOMERS", "")
     return frozenset(x.strip() for x in raw.split(",") if x.strip())
 
 

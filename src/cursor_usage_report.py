@@ -30,7 +30,7 @@ from typing import Any
 
 from .cursor_client import CursorClient, CursorClientError, cursor_configured
 
-logger = logging.getLogger("bpo")
+logger = logging.getLogger("cortex")
 
 DEFAULT_EVENTS_WINDOW_DAYS = 30
 DEFAULT_TREND_MONTHS = 6
@@ -968,16 +968,16 @@ def build_cursor_usage_report(
     When Cursor is not configured, returns ``{"configured": False}`` so the deck can
     filter the slide out cleanly. Per-section API failures are collected in ``errors``.
     """
-    from .config import BPO_CURSOR_CACHE_TTL_SECONDS
+    from .config import CORTEX_CURSOR_CACHE_TTL_SECONDS
     from .disk_cache import cache_get, cache_key, cache_set
 
     storage_key: str | None = None
-    if use_cache and BPO_CURSOR_CACHE_TTL_SECONDS > 0:
+    if use_cache and CORTEX_CURSOR_CACHE_TTL_SECONDS > 0:
         storage_key = cache_key(
             "cursor_usage_report",
             {"window_days": int(window_days), "trend_months": int(trend_months)},
         )
-        cached = cache_get("cursor", storage_key, BPO_CURSOR_CACHE_TTL_SECONDS)
+        cached = cache_get("cursor", storage_key, CORTEX_CURSOR_CACHE_TTL_SECONDS)
         if cached is not None:
             logger.debug("Cursor usage report cache hit")
             return cached
@@ -1225,6 +1225,6 @@ def build_cursor_usage_report(
         report["members"]["total"], active_window,
         report["totals"]["total_tokens"], len(report["model_mix"]), len(errors), len(warnings),
     )
-    if use_cache and storage_key and BPO_CURSOR_CACHE_TTL_SECONDS > 0 and report.get("configured"):
-        cache_set("cursor", storage_key, report, BPO_CURSOR_CACHE_TTL_SECONDS)
+    if use_cache and storage_key and CORTEX_CURSOR_CACHE_TTL_SECONDS > 0 and report.get("configured"):
+        cache_set("cursor", storage_key, report, CORTEX_CURSOR_CACHE_TTL_SECONDS)
     return report

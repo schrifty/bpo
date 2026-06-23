@@ -60,20 +60,20 @@ def test_parse_envelope_max_customers_mismatch() -> None:
 
 def test_resolve_portfolio_snapshot_folder_id_explicit_override(monkeypatch: pytest.MonkeyPatch) -> None:
     pendo_portfolio_snapshot_drive._resolved_generator_cache_folder_id = pendo_portfolio_snapshot_drive._UNRESOLVED
-    monkeypatch.setattr(pendo_portfolio_snapshot_drive, "BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID", "folder_explicit")
+    monkeypatch.setattr(pendo_portfolio_snapshot_drive, "CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID", "folder_explicit")
     monkeypatch.setattr(pendo_portfolio_snapshot_drive, "GOOGLE_QBR_GENERATOR_FOLDER_ID", "folder_gen")
     assert pendo_portfolio_snapshot_drive.resolve_portfolio_snapshot_folder_id() == "folder_explicit"
 
 
 def test_saved_at_to_calendar_date_utc(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(pendo_portfolio_snapshot_drive, "BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ", "UTC")
+    monkeypatch.setattr(pendo_portfolio_snapshot_drive, "CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ", "UTC")
     d = saved_at_to_calendar_date("2026-03-31T18:00:00+00:00")
     assert d == datetime.date(2026, 3, 31)
 
 
 def test_resolve_portfolio_snapshot_folder_id_none_without_config(monkeypatch: pytest.MonkeyPatch) -> None:
     pendo_portfolio_snapshot_drive._resolved_generator_cache_folder_id = pendo_portfolio_snapshot_drive._UNRESOLVED
-    monkeypatch.setattr(pendo_portfolio_snapshot_drive, "BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID", None)
+    monkeypatch.setattr(pendo_portfolio_snapshot_drive, "CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID", None)
     monkeypatch.setattr(pendo_portfolio_snapshot_drive, "GOOGLE_QBR_GENERATOR_FOLDER_ID", None)
     assert pendo_portfolio_snapshot_drive.resolve_portfolio_snapshot_folder_id() is None
 

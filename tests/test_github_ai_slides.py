@@ -271,7 +271,7 @@ def test_filter_cursor_only_slide_plan(monkeypatch):
     ]
     assert filter_cursor_only_slide_plan(plan, deck_id="engineering-portfolio") == plan
 
-    monkeypatch.setattr("src.deck_data_enrichment.BPO_CURSOR_SLIDES_ONLY", True)
+    monkeypatch.setattr("src.deck_data_enrichment.CORTEX_CURSOR_SLIDES_ONLY", True)
     filtered = filter_cursor_only_slide_plan(plan, deck_id="engineering-portfolio")
     assert [e["slide_type"] for e in filtered] == ["cursor_cost", "cursor_efficiency"]
 

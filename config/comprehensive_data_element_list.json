@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "_comment": "Catalog of data elements BPO can access for QBR / decks (path + terms). Terms drive hydrate phrase matching and qbr_mappings target resolution (see resolve_data_summary_target_path). Pendo per-page and per-feature detail rows are intentionally omitted (see sites/top_pages). After regenerating from this script, re-merge any custom hydrate phrases into ``terms`` if needed.",
+  "_comment": "Catalog of data elements Cortex can access for QBR / decks (path + terms). Terms drive hydrate phrase matching and qbr_mappings target resolution (see resolve_data_summary_target_path). Pendo per-page and per-feature detail rows are intentionally omitted (see sites/top_pages). After regenerating from this script, re-merge any custom hydrate phrases into ``terms`` if needed.",
   "entries": [
     {
       "path": "customer",
@@ -2705,7 +2705,7 @@
       "path": "signals_trend_context",
       "terms": [
         "signals_trend_context",
-        "[Pendo] optional trend context when BPO_SIGNALS_TRENDS"
+        "[Pendo] optional trend context when CORTEX_SIGNALS_TRENDS"
       ]
     },
     {

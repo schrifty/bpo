@@ -17,12 +17,12 @@ def _env_truthy(name: str, *, default: bool) -> bool:
 
 
 def llm_export_sf_comprehensive_enabled() -> bool:
-    """When false, skip per-customer comprehensive SOQL (``BPO_LLM_EXPORT_SF_COMPREHENSIVE``)."""
-    return _env_truthy("BPO_LLM_EXPORT_SF_COMPREHENSIVE", default=True)
+    """When false, skip per-customer comprehensive SOQL (``CORTEX_LLM_EXPORT_SF_COMPREHENSIVE``)."""
+    return _env_truthy("CORTEX_LLM_EXPORT_SF_COMPREHENSIVE", default=True)
 
 
 def llm_export_sf_comprehensive_row_limit() -> int:
-    raw = (os.environ.get("BPO_LLM_EXPORT_SF_COMPREHENSIVE_ROW_LIMIT") or "").strip()
+    raw = (os.environ.get("CORTEX_LLM_EXPORT_SF_COMPREHENSIVE_ROW_LIMIT") or "").strip()
     if not raw:
         return 8
     try:
@@ -33,7 +33,7 @@ def llm_export_sf_comprehensive_row_limit() -> int:
 
 def llm_export_sf_comprehensive_customer_cap() -> int | None:
     """Max customers to fetch. Default 12 (top active by ARR). ``0``/``all`` = no cap."""
-    raw = (os.environ.get("BPO_LLM_EXPORT_SF_COMPREHENSIVE_CUSTOMER_CAP") or "").strip()
+    raw = (os.environ.get("CORTEX_LLM_EXPORT_SF_COMPREHENSIVE_CUSTOMER_CAP") or "").strip()
     if not raw:
         return 12
     if raw.lower() in ("0", "all", "none", "unlimited"):
@@ -148,7 +148,7 @@ def attach_salesforce_comprehensive_for_llm_export(report: dict[str, Any]) -> di
     if not summary["enabled"]:
         report["salesforce_comprehensive_portfolio"] = {
             "configured": False,
-            "skipped": "disabled_via_BPO_LLM_EXPORT_SF_COMPREHENSIVE",
+            "skipped": "disabled_via_CORTEX_LLM_EXPORT_SF_COMPREHENSIVE",
         }
         report["_llm_export_salesforce_comprehensive"] = summary
         return summary
@@ -233,7 +233,7 @@ def attach_salesforce_comprehensive_for_llm_export(report: dict[str, Any]) -> di
         "note": (
             "Per-customer payloads mirror the salesforce_comprehensive deck (mainstream object "
             "categories scoped to matched Customer Entity accounts). When "
-            "BPO_LLM_EXPORT_SF_COMPREHENSIVE_CUSTOMER_CAP is set (default 12), only the top "
+            "CORTEX_LLM_EXPORT_SF_COMPREHENSIVE_CUSTOMER_CAP is set (default 12), only the top "
             "active Salesforce labels by ARR are fetched — same ranking as §4 CS Report top-N. "
             "Set CUSTOMER_CAP=0 or all to fetch every active+churned portfolio label."
         ),

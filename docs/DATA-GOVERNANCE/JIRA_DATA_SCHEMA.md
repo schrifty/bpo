@@ -17,7 +17,7 @@ Comprehensive schema of data available from the Jira Cloud and Jira Service Mana
 5. [Issue Schema](#5-issue-schema)
    - [Top-Level Keys](#51-top-level-keys)
    - [Standard Fields](#52-standard-fields)
-   - [Custom Fields (Active in BPO)](#53-custom-fields-active-in-bpo)
+   - [Custom Fields (Active in Cortex)](#53-custom-fields-active-in-cortex)
    - [Custom Fields (Available but Unused)](#54-custom-fields-available-but-unused)
 6. [JSM-Specific Structures](#6-jsm-specific-structures)
    - [SLA Fields](#61-sla-fields)
@@ -30,7 +30,7 @@ Comprehensive schema of data available from the Jira Cloud and Jira Service Mana
 10. [Resolutions](#10-resolutions)
 11. [Organizations (JSM)](#11-organizations-jsm)
 12. [CMDB Object References](#12-cmdb-object-references)
-13. [How BPO Uses This Data](#13-how-bpo-uses-this-data)
+13. [How Cortex Uses This Data](#13-how-cortex-uses-this-data)
 14. [Volumes & Limits](#14-volumes--limits)
 15. [Gaps & Open Questions](#15-gaps--open-questions)
 16. [References](#16-references)
@@ -173,7 +173,7 @@ All standard Jira fields observed in API responses: ✅
 | `security` | object \| null | `{id, name, description}` — security level |
 | `environment` | string \| null | Environment description |
 
-### 5.3 Custom Fields (Active in BPO)
+### 5.3 Custom Fields (Active in Cortex)
 
 These custom fields are actively used by `jira_client.py`: ✅
 
@@ -188,7 +188,7 @@ These custom fields are actively used by `jira_client.py`: ✅
 
 ### 5.4 Custom Fields (Available but Unused)
 
-Notable custom fields available in the instance that BPO does not currently consume:
+Notable custom fields available in the instance that Cortex does not currently consume:
 
 | Field ID | Name | Type | Potential Value |
 |----------|------|------|-----------------|
@@ -470,11 +470,11 @@ Two custom fields reference Jira Assets (CMDB) objects: ✅
 }]
 ```
 
-These IDs can be resolved via the Assets API (`/rest/assets/1.0/object/{objectId}`) to get site names, locations, and other metadata. ❓ Not currently used by BPO.
+These IDs can be resolved via the Assets API (`/rest/assets/1.0/object/{objectId}`) to get site names, locations, and other metadata. ❓ Not currently used by Cortex.
 
 ---
 
-## 13. How BPO Uses This Data
+## 13. How Cortex Uses This Data
 
 `src/jira_client.py` exposes two main methods:
 
@@ -539,7 +539,7 @@ Both `ttfr` and `ttr` are computed from JSM SLA cycle data:
 | LEAN project | ~27,500 total issues ✅ |
 | Organizations | 186 ✅ |
 | Custom fields | 191 total field definitions ✅ |
-| BPO max results per search | 200 (customer) / 50 (engineering) ✅ |
+| Cortex max results per search | 200 (customer) / 50 (engineering) ✅ |
 
 ---
 
@@ -547,7 +547,7 @@ Both `ttfr` and `ttr` are computed from JSM SLA cycle data:
 
 | Gap | Impact | Mitigation |
 |-----|--------|------------|
-| `customfield_10100` (Customer multi-select) is rarely populated | Cannot reliably match tickets to customers via this field | BPO uses Organizations field + summary text search instead ✅ |
+| `customfield_10100` (Customer multi-select) is rarely populated | Cannot reliably match tickets to customers via this field | Cortex uses Organizations field + summary text search instead ✅ |
 | CMDB Site/Entity objects (`customfield_11121`, `11154`) are opaque IDs | Cannot resolve site names from ticket data alone | Would need Assets API integration ❓ |
 | Satisfaction (`customfield_10609`) appears always null | No CSAT data available from API | May require JSM portal configuration or different API endpoint |
 | CSM field (`customfield_11220`) has inconsistent casing | e.g. "Bartlomiej Grabowy, Bartlomiej Grabowy" | Known Pendo-origin issue; same dedup logic needed |
@@ -565,4 +565,4 @@ Both `ttfr` and `ttr` are computed from JSM SLA cycle data:
 - [JSM REST API](https://developer.atlassian.com/cloud/jira/service-desk/rest/intro/) 📄
 - [Jira Assets (CMDB) API](https://developer.atlassian.com/cloud/assets/rest/) 📄
 - [Rate Limiting](https://developer.atlassian.com/cloud/jira/platform/rate-limiting/) 📄
-- BPO client: `src/jira_client.py` ✅
+- Cortex client: `src/jira_client.py` ✅

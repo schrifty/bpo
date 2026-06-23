@@ -1,4 +1,4 @@
-# BPO data snapshot (LLM context)
+# Cortex data snapshot (LLM context)
 
 Use this file as **reference material** only. Prefer citing numbers exactly as shown; when a field is missing, say it was not in the snapshot.
 
@@ -10,7 +10,7 @@ Use this file as **reference material** only. Prefer citing numbers exactly as s
 
 ## Purpose
 
-Structured facts from BPO integrations for LLM Q&A. Figures are snapshots from vendor APIs and internal exports; verify in source systems before contractual or financial use.
+Structured facts from Cortex integrations for LLM Q&A. Figures are snapshots from vendor APIs and internal exports; verify in source systems before contractual or financial use.
 
 ## Snapshot coverage & omission rationale
 

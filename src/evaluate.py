@@ -622,7 +622,7 @@ def _resolve_data_ask_to_replacements(
     return replacements
 
 
-_print_context = "bpo"  # overridden per command
+_print_context = "cortex"  # overridden per command
 
 def _print(*args, **kwargs):
     """Log and print with immediate flush so output appears in real time."""

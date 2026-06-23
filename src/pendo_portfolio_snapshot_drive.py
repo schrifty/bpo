@@ -2,16 +2,16 @@
 
 **Wall clock:** Snapshot refresh overlaps with deck generation pipelines that reuse the crawl;
 Slides-side work usually dominates elapsed time unless you tune
-``BPO_SLIDES_WRITE_INTERVAL_SEC`` / chunk size.
+``CORTEX_SLIDES_WRITE_INTERVAL_SEC`` / chunk size.
 The cached filename **must** match the QBR ``days`` value (quarter length), e.g.
 ``decks --upload-portfolio-snapshot`` with no ``--days`` uses ``resolve_quarter().days``.
 
 Snapshot folder resolution:
-  1. ``BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID`` if set — explicit Drive folder id.
+  1. ``CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID`` if set — explicit Drive folder id.
   2. Else subfolder ``Cache`` under ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` (created if missing).
 
 Other env (see ``config``):
-  BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ — IANA zone for weekend/weekday (Sat/Sun refresh) and calendar logic.
+  CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ — IANA zone for weekend/weekday (Sat/Sun refresh) and calendar logic.
 
 Cache age policy is fixed in code: 7d fresh, 14d max weekday stale reuse, Drive writes for large JSON on weekends
 (see module constants ``DRIVE_CACHE_*``).
@@ -20,7 +20,7 @@ Also stores ``integration_*_v1_*.json`` (Jira/JSM support deck, engineering port
 Salesforce comprehensive) in the same folder.
 Hydrate phrase catalog lives in the repo at ``config/comprehensive_data_element_list.json`` (``entries[].terms``; not in this Drive folder).
 If you previously used the folder name ``Portfolio cache``, rename it to ``Cache`` in Drive or set
-``BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID`` to the old folder so existing files remain visible.
+``CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID`` to the old folder so existing files remain visible.
 """
 
 from __future__ import annotations
@@ -39,9 +39,9 @@ from zoneinfo import ZoneInfo
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 from .config import (
-    BPO_PENDO_CACHE_TTL_SECONDS,
-    BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
-    BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID,
+    CORTEX_PENDO_CACHE_TTL_SECONDS,
+    CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
+    CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID,
     GOOGLE_QBR_GENERATOR_FOLDER_ID,
     logger,
 )
@@ -54,7 +54,7 @@ from .drive_config import (
 
 PORTFOLIO_SNAPSHOT_SCHEMA_VERSION = 1
 _SNAPSHOT_PREFIX = f"portfolio_snapshot_v{PORTFOLIO_SNAPSHOT_SCHEMA_VERSION}"
-# Subfolder under GOOGLE_QBR_GENERATOR_FOLDER_ID when BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID is unset.
+# Subfolder under GOOGLE_QBR_GENERATOR_FOLDER_ID when CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID is unset.
 PORTFOLIO_SNAPSHOT_CACHE_FOLDER_NAME = "Cache"
 
 # Drive JSON cache policy (fixed; no env toggles): 7d fresh, 14d weekday stale cap, weekend refresh.
@@ -95,7 +95,7 @@ def _drive_io_transient(e: BaseException) -> bool:
 
 def resolve_portfolio_snapshot_folder_id() -> str | None:
     """Return Drive folder id for JSON snapshots, or None if not configured."""
-    explicit = (BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID or "").strip()
+    explicit = (CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID or "").strip()
     if explicit:
         return explicit
     global _resolved_generator_cache_folder_id
@@ -293,13 +293,13 @@ def try_load_portfolio_snapshot_for_request(
     max_age_hours: float | None = None,
 ) -> dict[str, Any] | None:
     """Load a fresh portfolio snapshot from Drive if configured and valid; else None."""
-    if BPO_PENDO_CACHE_TTL_SECONDS <= 0:
+    if CORTEX_PENDO_CACHE_TTL_SECONDS <= 0:
         logger.info("Portfolio snapshot: bypass Drive read (Pendo cache disabled)")
         return None
     folder_id = resolve_portfolio_snapshot_folder_id()
     if not folder_id:
         logger.debug(
-            "Portfolio snapshot: no folder (set GOOGLE_QBR_GENERATOR_FOLDER_ID or BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID)"
+            "Portfolio snapshot: no folder (set GOOGLE_QBR_GENERATOR_FOLDER_ID or CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID)"
         )
         return None
 
@@ -369,11 +369,11 @@ def try_load_portfolio_snapshot_for_request(
 
 def _snapshot_calendar_zone() -> ZoneInfo:
     try:
-        return ZoneInfo(BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ)
+        return ZoneInfo(CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ)
     except Exception:
         logger.warning(
-            "Portfolio snapshot: invalid BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ %r — using UTC",
-            BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
+            "Portfolio snapshot: invalid CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ %r — using UTC",
+            CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
         )
         return ZoneInfo("UTC")
 
@@ -383,7 +383,7 @@ def _calendar_today_for_snapshot() -> date:
 
 
 def is_weekend_in_snapshot_tz() -> bool:
-    """True if local calendar day (``BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ``) is Saturday or Sunday."""
+    """True if local calendar day (``CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ``) is Saturday or Sunday."""
     now = datetime.now(_snapshot_calendar_zone())
     return now.weekday() >= 5  # Mon=0 … Sat=5, Sun=6
 
@@ -449,7 +449,7 @@ def saved_at_to_calendar_date(saved_at: str) -> date | None:
 def ensure_daily_portfolio_snapshot_for_qbr(days: int, max_customers: int | None = None) -> None:
     """If a snapshot folder exists, ensure Drive has a portfolio JSON when needed.
 
-    Auto-upload runs **only on Sat/Sun** in ``BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ``. Weekdays skip the
+    Auto-upload runs **only on Sat/Sun** in ``CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ``. Weekdays skip the
     expensive crawl; rely on Drive read (including stale weekday reuse) from
     ``try_load_portfolio_snapshot_for_request``.
 
@@ -467,7 +467,7 @@ def ensure_daily_portfolio_snapshot_for_qbr(days: int, max_customers: int | None
     if not is_weekend_in_snapshot_tz():
         logger.info(
             "Pendo: portfolio snapshot auto-upload skipped (weekend-only schedule; weekday in %s)",
-            BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
+            CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
         )
         return
 
@@ -483,7 +483,7 @@ def ensure_daily_portfolio_snapshot_for_qbr(days: int, max_customers: int | None
     logger.info(
         "Pendo: auto-uploading portfolio snapshot %r (weekend refresh or missing; %s)...",
         name,
-        BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
+        CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
     )
     try:
         from .pendo_client import PendoClient
@@ -556,7 +556,7 @@ def run_upload_portfolio_snapshot_cli(days: int, max_customers: int | None) -> d
     if not folder_id:
         return {
             "error": (
-                "No snapshot folder: set BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID or "
+                "No snapshot folder: set CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID or "
                 "GOOGLE_QBR_GENERATOR_FOLDER_ID (cache uses subfolder "
                 f"{PORTFOLIO_SNAPSHOT_CACHE_FOLDER_NAME!r})"
             ),

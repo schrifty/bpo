@@ -124,7 +124,7 @@ def _ingest_log_message(
         {
             "category": cat,
             "message": msg,
-            "source": "bpo_logger",
+            "source": "cortex_logger",
         }
     )
 

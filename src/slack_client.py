@@ -14,9 +14,9 @@ import yaml
 
 from .config_paths import SLACK_CUSTOMER_ALIASES_FILE
 from .config import (
-    BPO_SLACK_MAX_CHANNELS_PER_CUSTOMER,
-    BPO_SLACK_MAX_MESSAGES_PER_CHANNEL,
-    BPO_SLACK_LOOKBACK_DAYS,
+    CORTEX_SLACK_MAX_CHANNELS_PER_CUSTOMER,
+    CORTEX_SLACK_MAX_MESSAGES_PER_CHANNEL,
+    CORTEX_SLACK_LOOKBACK_DAYS,
     SLACK_API_BASE_URL,
     SLACK_BOT_TOKEN,
     logger,
@@ -59,7 +59,7 @@ def slack_enabled_for_reports() -> bool:
 
     if not slack_configured():
         return False
-    raw = (os.environ.get("BPO_SLACK_DISABLED") or "").strip().lower()
+    raw = (os.environ.get("CORTEX_SLACK_DISABLED") or "").strip().lower()
     return raw not in ("1", "true", "yes", "on")
 
 
@@ -206,7 +206,7 @@ def match_channels_for_customer(customer_name: str) -> list[dict[str, Any]]:
         if _name_matches_customer(ch_name, name, extra):
             matched.append(dict(ch))
     matched.sort(key=lambda c: (0 if name.lower() in str(c.get("name") or "").lower() else 1, str(c.get("name") or "").lower()))
-    return matched[: max(1, int(BPO_SLACK_MAX_CHANNELS_PER_CUSTOMER))]
+    return matched[: max(1, int(CORTEX_SLACK_MAX_CHANNELS_PER_CUSTOMER))]
 
 
 def _format_ts(ts: str | float | None) -> str:
@@ -310,7 +310,7 @@ def get_customer_slack_conversations(
 ) -> dict[str, Any]:
     """Recent Slack conversation digests for channels matched to *customer_name*."""
     name = (customer_name or "").strip()
-    lookback = int(days if days is not None else BPO_SLACK_LOOKBACK_DAYS)
+    lookback = int(days if days is not None else CORTEX_SLACK_LOOKBACK_DAYS)
     lookback = max(1, min(lookback, 90))
     empty: dict[str, Any] = {
         "source": "slack",
@@ -335,7 +335,7 @@ def get_customer_slack_conversations(
         return empty
 
     summaries: list[dict[str, Any]] = []
-    max_msg = max(5, int(BPO_SLACK_MAX_MESSAGES_PER_CHANNEL))
+    max_msg = max(5, int(CORTEX_SLACK_MAX_MESSAGES_PER_CHANNEL))
     for ch in channels:
         summaries.append(_summarize_channel(ch, days=lookback, max_messages=max_msg))
 

@@ -28,15 +28,15 @@ sources:
     display_name: Salesforce
     authority: system_of_record
     env_required: []
-    env_optional: [SF_CLIENT_ID, SF_USERNAME, BPO_SALESFORCE_CACHE_TTL_HOURS]
-    cache_ttl_env: BPO_SALESFORCE_CACHE_TTL_HOURS
+    env_optional: [SF_CLIENT_ID, SF_USERNAME, CORTEX_SALESFORCE_CACHE_TTL_HOURS]
+    cache_ttl_env: CORTEX_SALESFORCE_CACHE_TTL_HOURS
     default_cache_hours: 48
   cursor:
     display_name: Cursor
     authority: enrichment
     env_required: [CURSOR_ADMIN_API_KEY]
-    env_optional: [CURSOR_API_BASE_URL, BPO_CURSOR_CACHE_TTL_HOURS]
-    cache_ttl_env: BPO_CURSOR_CACHE_TTL_HOURS
+    env_optional: [CURSOR_API_BASE_URL, CORTEX_CURSOR_CACHE_TTL_HOURS]
+    cache_ttl_env: CORTEX_CURSOR_CACHE_TTL_HOURS
     default_cache_hours: 1
     endpoints:
       - name: team_members
@@ -56,7 +56,7 @@ sources:
     authority: enrichment
     env_required: []
     env_optional: [GITHUB_TOKEN, GITHUB_ORG, GITHUB_REPOS, GITHUB_API_BASE_URL]
-    cache_ttl_env: BPO_GITHUB_CACHE_TTL_HOURS
+    cache_ttl_env: CORTEX_GITHUB_CACHE_TTL_HOURS
     default_cache_hours: 1
     endpoints:
       - name: org_repos

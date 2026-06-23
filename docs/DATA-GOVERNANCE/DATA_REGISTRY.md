@@ -1,6 +1,6 @@
 # Data Registry
 
-Master list of **stable identifiers** for data BPO reads or may read: where each item comes from, where the codebase uses it, and short governance flags (`UNUSED`, `MISSING`, `DUPLICATE?`, …).
+Master list of **stable identifiers** for data Cortex reads or may read: where each item comes from, where the codebase uses it, and short governance flags (`UNUSED`, `MISSING`, `DUPLICATE?`, …).
 
 **File:** `docs/DATA-GOVERNANCE/DATA_REGISTRY.md` (this document).
 
@@ -32,14 +32,14 @@ Treat this as a **living governance artifact**: prioritize making gaps and overl
 
 - assign a stable identifier to each known data item
 - organize items by source system
-- document where each item comes from and where BPO uses it
+- document where each item comes from and where Cortex uses it
 - flag obvious missing, duplicated, derived, or suspiciously sourced items
 
 ## Scope Rules For v1
 
 - include data items the app actively reads today
 - include high-signal fields or endpoints that are clearly available in current
-  source-system docs, even if BPO does not consume them yet
+  source-system docs, even if Cortex does not consume them yet
 - do not treat Google Drive / Slides transport metadata as business data unless
   it becomes a reported metric
 
@@ -65,7 +65,7 @@ Examples:
 - `MISSING`: needed by the business but not currently available from the source
 - `DUPLICATE?`: similar item appears in multiple systems and needs governance
 - `WRONG-SOURCE?`: item is available, but probably not from the best system
-- `UNUSED`: documented/available today but not consumed by BPO yet
+- `UNUSED`: documented/available today but not consumed by Cortex yet
 - `NEEDS-REVIEW`: known ambiguity in semantics, matching, or source quality
 
 ## Related Docs
@@ -207,7 +207,7 @@ Examples:
 
 ## CS Report
 
-Column names, KPI JSON shape, and how BPO reads the workbook are documented in **[`CSR_DATA_SCHEMA.md`](./CSR_DATA_SCHEMA.md)**.
+Column names, KPI JSON shape, and how Cortex reads the workbook are documented in **[`CSR_DATA_SCHEMA.md`](./CSR_DATA_SCHEMA.md)**.
 
 ### Query Surfaces
 
@@ -267,7 +267,7 @@ REST Data API (auth: Bearer and/or session cookie — [`../SETUP/LEANDNA_SETUP.m
 |---|---|---|---|---|
 | `LEANDNA-ITEM-MASTER-DATA` | Item Master Data Report (comprehensive item-level metrics). | `GET /data/ItemMasterData` | `src/leandna_item_master_client.py`, supply chain/platform health slides | Core surface |
 | `LEANDNA-SESSION-IDENTITY` | Session info with authorized sites and user details. | `GET /data/identity` | Preflight / site mapping (planned; not called in code yet) | `UNUSED` in code today |
-| `LEANDNA-SHORTAGE-BY-ITEM-MONTHLY` | Monthly shortage buckets by item. | `GET /data/MaterialShortages/ShortagesByItem/Monthly` | — | `UNUSED` — not in BPO client |
+| `LEANDNA-SHORTAGE-BY-ITEM-MONTHLY` | Monthly shortage buckets by item. | `GET /data/MaterialShortages/ShortagesByItem/Monthly` | — | `UNUSED` — not in Cortex client |
 | `LEANDNA-SHORTAGE-SCHEDULED-DELIVERIES-DAILY` | Shortages + scheduled deliveries (daily). | `GET /data/MaterialShortages/ShortagesByItemWithScheduledDeliveries/Daily` | — | `UNUSED` |
 | `LEANDNA-SHORTAGE-SCHEDULED-DELIVERIES-MONTHLY` | Shortages + scheduled deliveries (monthly). | `GET /data/MaterialShortages/ShortagesByItemWithScheduledDeliveries/Monthly` | — | `UNUSED` |
 | `LEANDNA-PURCHASE-ORDER-DATA` | Purchase order lines (commit dates, delays, lead time). | `GET /data/SupplyOrder/PurchaseOrder` | — | `UNUSED` |
@@ -276,7 +276,7 @@ REST Data API (auth: Bearer and/or session cookie — [`../SETUP/LEANDNA_SETUP.m
 | `LEANDNA-METRIC-REPORT` | Fiscal-year metric time series. | `GET /data/MetricReport` | `src/leandna_metrics_client.py` | Client only — not merged into QBR `report` yet |
 | `LEANDNA-DATA-SHARE` | Signed Parquet bulk export URLs. | `GET /data/DataShare` | — | `UNUSED` |
 | `LEANDNA-WRITEBACK-PO-ACTIONS` | Pending PO write-back actions (read). | `GET /data/WriteBack/v1/PurchaseOrderActions` | — | `UNUSED` (read-only recommended) |
-| `LEANDNA-WRITEBACK-TRANSITION` | Update write-back action status. | `PUT /data/WriteBack/v1/TransitionActions` | — | `UNUSED` (no auto-write in BPO) |
+| `LEANDNA-WRITEBACK-TRANSITION` | Update write-back action status. | `PUT /data/WriteBack/v1/TransitionActions` | — | `UNUSED` (no auto-write in Cortex) |
 | `LEANDNA-LEAN-PROJECT-TASKS` | Tasks for a project. | `GET /data/LeanProject/{projectId}/Tasks` | — | `UNUSED` |
 | `LEANDNA-LEAN-PROJECT-ISSUES` | Issues for a project. | `GET /data/LeanProject/{projectId}/Issues` | — | `UNUSED` |
 | `LEANDNA-LEAN-PROJECT-STAGE-HISTORY` | Stage change history. | `GET /data/LeanProject/{projectIds}/Stage/History` | — | `UNUSED` |
@@ -312,7 +312,7 @@ REST Data API (auth: Bearer and/or session cookie — [`../SETUP/LEANDNA_SETUP.m
 |---|---|---|---|---|
 | `SHORTAGE-BY-ITEM-WEEKLY` | Weekly shortage forecast (32 weeks forward). | `GET /data/MaterialShortages/ShortagesByItem/Weekly` | `src/leandna_shortage_client.py`, shortage forecast slide | Core shortage surface |
 | `SHORTAGE-BY-ITEM-DAILY` | Daily shortage forecast (45 days forward). | `GET /data/MaterialShortages/ShortagesByItem/Daily` | `src/leandna_shortage_client.py` | `UNUSED` in QBR enrich; client available |
-| `SHORTAGE-BY-ITEM-MONTHLY` | Monthly shortage forecast by item. | `GET /data/MaterialShortages/ShortagesByItem/Monthly` | — | `UNUSED` — not in BPO client |
+| `SHORTAGE-BY-ITEM-MONTHLY` | Monthly shortage forecast by item. | `GET /data/MaterialShortages/ShortagesByItem/Monthly` | — | `UNUSED` — not in Cortex client |
 | `SHORTAGE-BY-ORDER` | Shortage-by-production-order mapping. | `GET /data/MaterialShortages/ShortagesByOrder` | `src/leandna_shortage_client.py` | `UNUSED` in QBR enrich; client available |
 | `SHORTAGE-WITH-DELIVERIES-WEEKLY` | Weekly shortages + scheduled PO delivery tracking. | `GET /data/MaterialShortages/ShortagesByItemWithScheduledDeliveries/Weekly` | `src/leandna_shortage_client.py`, shortage deliveries slide | Core for scheduled deliveries |
 | `SHORTAGE-WITH-DELIVERIES-DAILY` | Daily + scheduled deliveries. | `GET .../ShortagesByItemWithScheduledDeliveries/Daily` | — | `UNUSED` |
@@ -360,7 +360,7 @@ REST Data API (auth: Bearer and/or session cookie — [`../SETUP/LEANDNA_SETUP.m
 | `LEAN-PROJECT-MONTHLY-SAVINGS-ACTUAL` | Actual savings for a specific month. | `savings[].actual` (/data/LeanProject/{ids}/Savings) | `src/leandna_lean_projects_client.py`, savings slide | Time-series metric |
 | `LEAN-PROJECT-MONTHLY-SAVINGS-TARGET` | Target savings for a specific month. | `savings[].target` (/data/LeanProject/{ids}/Savings) | `src/leandna_lean_projects_client.py`, savings slide | Time-series metric |
 | `LEAN-PROJECT-SAVINGS-CATEGORY` | Category of savings (e.g., Inventory Reduction). | `savings[].savingsCategory` (/data/LeanProject/{ids}/Savings) | `src/leandna_lean_projects_client.py` | Categorization for breakdown |
-| `LEAN-PROJECT-SAVINGS-TYPE` | Savings type dimension. | `savings[].savingsType` | — | `UNUSED` in BPO enrich |
+| `LEAN-PROJECT-SAVINGS-TYPE` | Savings type dimension. | `savings[].savingsType` | — | `UNUSED` in Cortex enrich |
 | `LEAN-PROJECT-LINK` | Direct link to project in LeanDNA UI. | `link` (/data/LeanProject) | `src/leandna_lean_projects_client.py` | Navigation |
 | `LEAN-PROJECT-CUSTOM-FIELDS` | Extensible custom field values. | `customFieldValues` | — | `UNUSED` |
 | `LEAN-PROJECT-TASK-ROW` | Task on a project. | `GET /data/LeanProject/{id}/Tasks` | — | `UNUSED` |
@@ -445,7 +445,7 @@ REST Data API (auth: Bearer and/or session cookie — [`../SETUP/LEANDNA_SETUP.m
 | Identifier | Description | Source field / query surface | Where used | Status note |
 |---|---|---|---|---|
 | `LEANDNA-WB-PO-ACTION` | Pending PO write-back action row. | `GET /data/WriteBack/v1/PurchaseOrderActions` | — | `UNUSED`; read-only recommended |
-| `LEANDNA-WB-ACTION-STATUS-UPDATE` | Transition action state. | `PUT /data/WriteBack/v1/TransitionActions` | — | `UNUSED`; no auto-write in BPO |
+| `LEANDNA-WB-ACTION-STATUS-UPDATE` | Transition action state. | `PUT /data/WriteBack/v1/TransitionActions` | — | `UNUSED`; no auto-write in Cortex |
 
 ## Salesforce
 
@@ -496,7 +496,7 @@ Field-level schema and HTTP surfaces: [`SALESFORCE_DATA_SCHEMA.md`](./SALESFORCE
 | `CUSTOMER-COHORT` | Manufacturing cohort assigned to a customer. | `config/cohorts.yaml` classification | `src/pendo_client.py`, `docs/DATA-GOVERNANCE/CUSTOMER_COHORTS.md` | Internal reference data |
 | `PEER-MEDIAN-ACTIVE-RATE` | Median weekly active rate across all peers. | Derived from Pendo customer list | `src/pendo_client.py`, health/benchmark slides | `DERIVED` |
 | `COHORT-MEDIAN-ACTIVE-RATE` | Median weekly active rate across the customer's cohort. | Derived from Pendo + cohort mapping | `src/pendo_client.py`, health/benchmark slides | `DERIVED` |
-| `DATA-QUALITY-CHECK` | Runtime governance check flag produced by BPO. | `src/qa.py` registry entries | `src/qa.py`, data-quality slide | Internal governance artifact |
+| `DATA-QUALITY-CHECK` | Runtime governance check flag produced by Cortex. | `src/qa.py` registry entries | `src/qa.py`, data-quality slide | Internal governance artifact |
 
 ## Governance Observations (v1)
 
@@ -507,7 +507,7 @@ Field-level schema and HTTP surfaces: [`SALESFORCE_DATA_SCHEMA.md`](./SALESFORCE
 | `LICENSED-SEATS` | Needed for seat-utilization and adoption denominator. | Salesforce, billing, or provisioning system |
 | `EXECUTIVE-SPONSOR` | Needed for commercial/account governance and QBR context. | Salesforce |
 | `RENEWAL-DATE` | Needed for renewal risk and timing. Contract end date may be a proxy, but the business definition is not formalized here. | Salesforce |
-| `SUPPORT-TICKET-HEALTH-OUTSIDE-JIRA` | If support exists in systems other than Jira/JSM, BPO does not registry-link that yet. | TBD |
+| `SUPPORT-TICKET-HEALTH-OUTSIDE-JIRA` | If support exists in systems other than Jira/JSM, Cortex does not registry-link that yet. | TBD |
 
 ### Likely Duplicated Or Semantically Overlapping
 

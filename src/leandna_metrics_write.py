@@ -10,7 +10,7 @@ from typing import Any
 
 import requests
 
-from src.config import BPO_LEANDNA_DATA_API_EXECUTION_BUCKET
+from src.config import CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET
 from src.leandna_data_api_http import leandna_data_api_credentials_configured
 from src.leandna_metrics_client import (
     build_metric_datapoint_post_body,
@@ -52,7 +52,7 @@ class MetricDeleteArgs:
 
 
 def _configure_logging(verbose: bool) -> None:
-    logging.getLogger("bpo").setLevel(logging.INFO if verbose else logging.WARNING)
+    logging.getLogger("cortex").setLevel(logging.INFO if verbose else logging.WARNING)
 
 
 def _require_data_api_credentials() -> str | None:
@@ -224,7 +224,7 @@ def run_insert(args: MetricWriteArgs) -> tuple[int, dict[str, Any]]:
         return 1, {"ok": False, "error": cred_err}
 
     print(
-        f"Auth: LeanDNA Data API POST MetricDataPoint (EXECUTION_ENV={BPO_LEANDNA_DATA_API_EXECUTION_BUCKET})",
+        f"Auth: LeanDNA Data API POST MetricDataPoint (EXECUTION_ENV={CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET})",
         file=sys.stderr,
     )
     try:
@@ -243,7 +243,7 @@ def run_upsert(args: MetricWriteArgs) -> tuple[int, dict[str, Any]]:
         return 1, {"ok": False, "error": cred_err}
 
     print(
-        f"Auth: LeanDNA Data API upsert MetricDataPoint (EXECUTION_ENV={BPO_LEANDNA_DATA_API_EXECUTION_BUCKET})",
+        f"Auth: LeanDNA Data API upsert MetricDataPoint (EXECUTION_ENV={CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET})",
         file=sys.stderr,
     )
     try:
@@ -265,7 +265,7 @@ def run_delete(args: MetricDeleteArgs) -> tuple[int, dict[str, Any]]:
         return 1, {"ok": False, "error": cred_err}
 
     print(
-        f"Auth: LeanDNA Data API DELETE MetricDataPoint (EXECUTION_ENV={BPO_LEANDNA_DATA_API_EXECUTION_BUCKET})",
+        f"Auth: LeanDNA Data API DELETE MetricDataPoint (EXECUTION_ENV={CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET})",
         file=sys.stderr,
     )
     sites, _cat, _metric = resolve_write_sites_and_category(args)

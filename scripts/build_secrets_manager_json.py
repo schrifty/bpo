@@ -7,7 +7,7 @@ gitignored path and paste into Secrets Manager console or ``aws secretsmanager c
 
 Usage:
   python3 scripts/build_secrets_manager_json.py
-  python3 scripts/build_secrets_manager_json.py -o output/bpo-secrets-manager.json
+  python3 scripts/build_secrets_manager_json.py -o output/cortex-secrets-manager.json
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ def build_secrets_payload(env_path: Path | None = None) -> dict[str, Any]:
         payload["SF_PRIVATE_KEY"] = key_file.read_text(encoding="utf-8")
 
     # ECS sets these via task definition — omit from secret blob.
-    for drop in ("BPO_SKIP_DOTENV", "BPO_SECRETS_ARN", "BPO_CACHE_DIR", "BPO_LOG_FORMAT"):
+    for drop in ("CORTEX_SKIP_DOTENV", "CORTEX_SECRETS_ARN", "CORTEX_CACHE_DIR", "CORTEX_LOG_FORMAT"):
         payload.pop(drop, None)
 
     return payload
@@ -72,8 +72,8 @@ def main() -> None:
         "-o",
         "--output",
         type=Path,
-        default=ROOT / "output" / "bpo-secrets-manager.json",
-        help="Output path (default: output/bpo-secrets-manager.json)",
+        default=ROOT / "output" / "cortex-secrets-manager.json",
+        help="Output path (default: output/cortex-secrets-manager.json)",
     )
     ap.add_argument("--env", type=Path, default=ROOT / ".env", help="Source .env file")
     args = ap.parse_args()

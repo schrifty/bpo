@@ -22,7 +22,7 @@ def test_attach_comprehensive_skipped_when_disabled(monkeypatch):
     summary = attach_salesforce_comprehensive_for_llm_export(report)
     assert summary["enabled"] is False
     assert report["salesforce_comprehensive_portfolio"]["skipped"] == (
-        "disabled_via_BPO_LLM_EXPORT_SF_COMPREHENSIVE"
+        "disabled_via_CORTEX_LLM_EXPORT_SF_COMPREHENSIVE"
     )
 
 
@@ -73,7 +73,7 @@ def test_attach_comprehensive_fetches_per_label(monkeypatch):
             "expansion_kpis": {"configured": True, "pct_active_customers_expanding_cy": 12.5},
         }
     }
-    monkeypatch.setenv("BPO_LLM_EXPORT_SF_COMPREHENSIVE_CUSTOMER_CAP", "0")
+    monkeypatch.setenv("CORTEX_LLM_EXPORT_SF_COMPREHENSIVE_CUSTOMER_CAP", "0")
     summary = attach_salesforce_comprehensive_for_llm_export(report)
     assert summary["customers_requested"] == 2
     assert summary["selection"] == "all_portfolio_labels"
@@ -123,12 +123,12 @@ def test_snapshot_document_includes_comprehensive_section():
 
 
 def test_llm_export_sf_comprehensive_enabled_default_true(monkeypatch):
-    monkeypatch.delenv("BPO_LLM_EXPORT_SF_COMPREHENSIVE", raising=False)
+    monkeypatch.delenv("CORTEX_LLM_EXPORT_SF_COMPREHENSIVE", raising=False)
     assert llm_export_sf_comprehensive_enabled() is True
 
 
 def test_attach_comprehensive_cap_uses_top_active_by_arr(monkeypatch):
-    monkeypatch.setenv("BPO_LLM_EXPORT_SF_COMPREHENSIVE_CUSTOMER_CAP", "1")
+    monkeypatch.setenv("CORTEX_LLM_EXPORT_SF_COMPREHENSIVE_CUSTOMER_CAP", "1")
     monkeypatch.setattr(
         "src.llm_export_salesforce_comprehensive.llm_export_sf_comprehensive_enabled",
         lambda: True,

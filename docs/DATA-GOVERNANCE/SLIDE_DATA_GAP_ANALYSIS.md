@@ -57,7 +57,7 @@ Bracket tokens and hydrate-style markers (`[???]`, `[00%]`, …) are **explicit*
 
 - A **business concept** (what decision does this support?)
 - A **candidate metric name** (internal jargon allowed)
-- Whether BPO’s **data dictionary / mappings** (`config/comprehensive_data_element_list.json`, `config/qbr_mappings.yaml`) already defines a path.
+- Whether Cortex’s **data dictionary / mappings** (`config/comprehensive_data_element_list.json`, `config/qbr_mappings.yaml`) already defines a path.
 
 ### 3. Classify **confidence**
 

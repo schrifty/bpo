@@ -94,9 +94,9 @@ def main() -> int:
     ap.add_argument("-v", "--verbose", action="store_true")
     ns = ap.parse_args()
 
-    bpo_log = logging.getLogger("bpo")
-    bpo_log.setLevel(logging.INFO if ns.verbose else logging.WARNING)
-    bpo_log.propagate = False
+    cortex_log = logging.getLogger("cortex")
+    cortex_log.setLevel(logging.INFO if ns.verbose else logging.WARNING)
+    cortex_log.propagate = False
 
     try:
         jira = get_shared_jira_client()

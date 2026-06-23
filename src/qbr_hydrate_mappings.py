@@ -11,13 +11,13 @@ Each rule's ``target`` is resolved via :func:`data_field_synonyms.resolve_data_s
 (``comprehensive_data_element_list.json`` ``terms``).
 
 **Disk writes are opt-in.** Hydrate **always reads** the YAML when present; it does **not** rewrite the
-file unless :func:`qbr_mappings_disk_write_enabled` is true (see ``BPO_QBR_MAPPINGS_WRITE``).
+file unless :func:`qbr_mappings_disk_write_enabled` is true (see ``CORTEX_QBR_MAPPINGS_WRITE``).
 
 **Bootstrap / auto-append:** When writes are enabled and ``config/qbr_mappings.yaml`` is absent,
 :func:`bootstrap_qbr_mappings_from_slides` can walk template slides and create stub rows
 (``target: ""``). With writes disabled and no file, add ``config/qbr_mappings.yaml`` manually
 (version 2 schema: ``slides`` / ``global_elements``; see :func:`bootstrap_qbr_mappings_from_slides`)
-or enable ``BPO_QBR_MAPPINGS_WRITE``.
+or enable ``CORTEX_QBR_MAPPINGS_WRITE``.
 """
 
 from __future__ import annotations
@@ -55,12 +55,12 @@ def qbr_mappings_disk_write_enabled() -> bool:
 
     Default is **false** (read-only): manual edits are never overwritten during QBR.
 
-    * Set ``BPO_QBR_MAPPINGS_WRITE`` to ``1``, ``true``, ``yes``, or ``on`` to allow writes.
+    * Set ``CORTEX_QBR_MAPPINGS_WRITE`` to ``1``, ``true``, ``yes``, or ``on`` to allow writes.
     * Set to ``0``, ``false``, ``no``, or ``off`` to disallow (explicit override).
-    * If ``BPO_QBR_MAPPINGS_WRITE`` is unset, ``BPO_QBR_MAPPINGS_AUTOWRITE=true`` still enables
+    * If ``CORTEX_QBR_MAPPINGS_WRITE`` is unset, ``CORTEX_QBR_MAPPINGS_AUTOWRITE=true`` still enables
       writes (legacy; previously defaulted on in :mod:`evaluate`).
     """
-    raw = os.environ.get("BPO_QBR_MAPPINGS_WRITE")
+    raw = os.environ.get("CORTEX_QBR_MAPPINGS_WRITE")
     if raw is not None and str(raw).strip() != "":
         s = str(raw).strip().lower()
         if s in ("1", "true", "yes", "on"):
@@ -68,7 +68,7 @@ def qbr_mappings_disk_write_enabled() -> bool:
         if s in ("0", "false", "no", "off"):
             return False
         return False
-    aw = (os.environ.get("BPO_QBR_MAPPINGS_AUTOWRITE") or "").strip().lower()
+    aw = (os.environ.get("CORTEX_QBR_MAPPINGS_AUTOWRITE") or "").strip().lower()
     return aw in ("1", "true", "yes", "on")
 
 
@@ -452,7 +452,7 @@ def bootstrap_qbr_mappings_from_slides(
     if not qbr_mappings_disk_write_enabled():
         logger.info(
             "qbr_mappings: bootstrap skipped — %s missing and disk writes are disabled "
-            "(set BPO_QBR_MAPPINGS_WRITE=1 to auto-create, or add config/qbr_mappings.yaml manually)",
+            "(set CORTEX_QBR_MAPPINGS_WRITE=1 to auto-create, or add config/qbr_mappings.yaml manually)",
             p,
         )
         return 0
@@ -509,7 +509,7 @@ def merge_discovered_sources_into_qbr_mappings(
     p = path or _DEFAULT_PATH
     if not qbr_mappings_disk_write_enabled():
         logger.info(
-            "qbr_mappings: skip merge — disk writes disabled (set BPO_QBR_MAPPINGS_WRITE=1 to append "
+            "qbr_mappings: skip merge — disk writes disabled (set CORTEX_QBR_MAPPINGS_WRITE=1 to append "
             "discovered sources to %s)",
             p,
         )

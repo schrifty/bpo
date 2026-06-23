@@ -1,13 +1,13 @@
 variable "aws_region" {
-  description = "AWS region for all BPO resources."
+  description = "AWS region for all Cortex resources."
   type        = string
   default     = "us-east-1"
 }
 
 variable "name_prefix" {
-  description = "Prefix for resource names (e.g. bpo, bpo-prod)."
+  description = "Prefix for resource names (e.g. cortex, cortex-prod)."
   type        = string
-  default     = "bpo"
+  default     = "cortex"
 }
 
 variable "environment" {
@@ -45,7 +45,7 @@ variable "assign_public_ip" {
 # --- Container ---
 
 variable "image_tag" {
-  description = "ECR image tag for bpo-decks (push before apply or after first apply + push)."
+  description = "ECR image tag for cortex-decks (push before apply or after first apply + push)."
   type        = string
   default     = "latest"
 }

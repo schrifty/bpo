@@ -38,7 +38,7 @@ def test_cohort_and_engineering_portfolio_prefix():
 
 
 def test_engineering_portfolio_cursor_only_title(monkeypatch):
-    monkeypatch.setattr("src.config.BPO_CURSOR_SLIDES_ONLY", True)
+    monkeypatch.setattr("src.config.CORTEX_CURSOR_SLIDES_ONLY", True)
     t = _health_deck_presentation_title(
         deck_id="engineering-portfolio",
         deck_name="Engineering Portfolio Review",

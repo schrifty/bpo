@@ -62,7 +62,7 @@ def insert_support_notable_slide(
                 "deck_id": deck_id,
                 "hint": (
                     "Notable Findings slide was not added. The deck is otherwise complete. "
-                    "Set BPO_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true to insert static bullets, "
+                    "Set CORTEX_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true to insert static bullets, "
                     "or fix the LLM path and regenerate."
                 ),
             }
@@ -97,7 +97,7 @@ def insert_support_notable_slide(
                 "deck_id": deck_id,
                 "hint": (
                     "Notable slide was not added. The deck is otherwise complete. "
-                    "Set BPO_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true to insert generic bullets, "
+                    "Set CORTEX_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true to insert generic bullets, "
                     "or fix the Notable/LLM path and regenerate."
                 ),
             }

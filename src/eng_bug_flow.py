@@ -11,7 +11,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
-logger = logging.getLogger("bpo")
+logger = logging.getLogger("cortex")
 
 if TYPE_CHECKING:  # pragma: no cover
     from .jira_client import JiraClient

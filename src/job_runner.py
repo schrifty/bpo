@@ -13,7 +13,7 @@ from typing import Any
 
 import yaml
 
-from .config import BPO_FAIL_ON_INTEGRATION_WARNINGS, BPO_JOB_TIMEOUT_SECONDS, logger
+from .config import CORTEX_FAIL_ON_INTEGRATION_WARNINGS, CORTEX_JOB_TIMEOUT_SECONDS, logger
 from .data_source_health import check_all_required, integration_freshness_metadata
 from .run_context import init_run_context, set_run_phase
 from .run_diagnostics import run_diagnostics_scope, run_phase
@@ -140,11 +140,11 @@ def build_step_argv(step: dict[str, Any]) -> list[str]:
 
 def _step_env(run_id: str, job_name: str, step_name: str) -> dict[str, str]:
     env = dict(os.environ)
-    env["BPO_RUN_ID"] = run_id
-    env["BPO_JOB_NAME"] = job_name
-    env["BPO_STEP_NAME"] = step_name
-    if BPO_FAIL_ON_INTEGRATION_WARNINGS:
-        env.setdefault("BPO_FAIL_ON_INTEGRATION_WARNINGS", "1")
+    env["CORTEX_RUN_ID"] = run_id
+    env["CORTEX_JOB_NAME"] = job_name
+    env["CORTEX_STEP_NAME"] = step_name
+    if CORTEX_FAIL_ON_INTEGRATION_WARNINGS:
+        env.setdefault("CORTEX_FAIL_ON_INTEGRATION_WARNINGS", "1")
     return env
 
 
@@ -202,7 +202,7 @@ def _write_failures_artifact(job_name: str, run_id: str, failures: list[str]) ->
         indent=2,
         default=str,
     )
-    if _truthy_env("BPO_FAILURES_JSON_LOCAL"):
+    if _truthy_env("CORTEX_FAILURES_JSON_LOCAL"):
         path = _PROJECT_ROOT / "output" / f"failures-{job_name}-{run_id[:8]}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body, encoding="utf-8")
@@ -234,9 +234,9 @@ def run_job(
     json_summary: bool = True,
 ) -> int:
     spec = load_job_spec(job)
-    run_id = init_run_context(run_id=os.environ.get("BPO_RUN_ID") or None, job_name=spec.name)
-    fail_on_warnings = spec.fail_on_warnings or BPO_FAIL_ON_INTEGRATION_WARNINGS
-    timeout = BPO_JOB_TIMEOUT_SECONDS
+    run_id = init_run_context(run_id=os.environ.get("CORTEX_RUN_ID") or None, job_name=spec.name)
+    fail_on_warnings = spec.fail_on_warnings or CORTEX_FAIL_ON_INTEGRATION_WARNINGS
+    timeout = CORTEX_JOB_TIMEOUT_SECONDS
 
     if dry_run:
         print(f"Job: {spec.name} (run_id={run_id})")

@@ -27,7 +27,7 @@ def test_collect_export_warning_outside_scope_prints(capsys) -> None:
     assert "warning: LLM export — orphan" in err
 
 
-def test_scope_captures_bpo_logger_warning() -> None:
+def test_scope_captures_cortex_logger_warning() -> None:
     with export_diagnostics_scope() as diag:
         from src.config import logger
 

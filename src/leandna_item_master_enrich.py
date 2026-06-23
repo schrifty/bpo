@@ -23,7 +23,7 @@ def _resolve_customer_sites(customer: str) -> str | None:
     """Resolve customer name to LeanDNA site IDs (comma-separated).
     
     Args:
-        customer: BPO customer name.
+        customer: Cortex customer name.
     
     Returns:
         Comma-separated site IDs or None for all authorized sites.

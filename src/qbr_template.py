@@ -10,10 +10,10 @@ from typing import Any
 from googleapiclient.errors import HttpError
 
 from .config import (
-    BPO_SIGNALS_LLM,
-    BPO_SIGNALS_LLM_DECK_PROMPT,
-    BPO_SIGNALS_LLM_EDITORIAL,
-    BPO_SIGNALS_LLM_MANIFEST_MAX_CHARS,
+    CORTEX_SIGNALS_LLM,
+    CORTEX_SIGNALS_LLM_DECK_PROMPT,
+    CORTEX_SIGNALS_LLM_EDITORIAL,
+    CORTEX_SIGNALS_LLM_MANIFEST_MAX_CHARS,
     GOOGLE_QBR_GENERATOR_FOLDER_ID,
     GOOGLE_QBR_TEMPLATE_FOLDER_ID,
     LLM_MODEL,
@@ -429,10 +429,10 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
 
     mf_excerpt: str | None = None
     sig_prompt: str | None = None
-    if BPO_SIGNALS_LLM and BPO_SIGNALS_LLM_EDITORIAL:
+    if CORTEX_SIGNALS_LLM and CORTEX_SIGNALS_LLM_EDITORIAL:
         if manifest_text and manifest_text.strip():
-            mf_excerpt = manifest_text.strip()[:BPO_SIGNALS_LLM_MANIFEST_MAX_CHARS]
-        if BPO_SIGNALS_LLM_DECK_PROMPT:
+            mf_excerpt = manifest_text.strip()[:CORTEX_SIGNALS_LLM_MANIFEST_MAX_CHARS]
+        if CORTEX_SIGNALS_LLM_DECK_PROMPT:
             sig_prompt = extract_executive_signals_slide_prompt(customer)
 
     report = pc.get_customer_health_report(

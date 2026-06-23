@@ -11,7 +11,7 @@ locals {
 
   common_tags = merge(
     {
-      Project     = "bpo"
+      Project     = "cortex"
       Environment = var.environment
       ManagedBy   = "terraform"
     },
@@ -31,12 +31,12 @@ locals {
   ecr_image = "${aws_ecr_repository.decks.repository_url}:${var.image_tag}"
 
   container_environment = [
-    { name = "BPO_SKIP_DOTENV", value = "1" },
-    { name = "BPO_CACHE_DIR", value = "/var/bpo/cache" },
-    { name = "BPO_LOG_FORMAT", value = "json" },
-    { name = "BPO_FAIL_ON_INTEGRATION_WARNINGS", value = var.fail_on_integration_warnings ? "1" : "0" },
-    { name = "BPO_JOB_TIMEOUT_SECONDS", value = tostring(var.job_timeout_seconds) },
-    { name = "BPO_SECRETS_ARN", value = aws_secretsmanager_secret.bpo.arn },
+    { name = "CORTEX_SKIP_DOTENV", value = "1" },
+    { name = "CORTEX_CACHE_DIR", value = "/var/cortex/cache" },
+    { name = "CORTEX_LOG_FORMAT", value = "json" },
+    { name = "CORTEX_FAIL_ON_INTEGRATION_WARNINGS", value = var.fail_on_integration_warnings ? "1" : "0" },
+    { name = "CORTEX_JOB_TIMEOUT_SECONDS", value = tostring(var.job_timeout_seconds) },
+    { name = "CORTEX_SECRETS_ARN", value = aws_secretsmanager_secret.cortex.arn },
   ]
 
   scheduled_jobs_enabled = {

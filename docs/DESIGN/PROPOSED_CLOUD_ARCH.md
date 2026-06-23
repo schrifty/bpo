@@ -1,6 +1,6 @@
 # Proposed cloud architecture (AWS)
 
-Design note for running BPO in the cloud. **Operational artifacts** live in `Dockerfile`, `scripts/run_job.sh`, `scripts/bootstrap_aws_env.py`, and `infra/` (ECS task definition, EventBridge, CloudWatch alarm templates).
+Design note for running Cortex in the cloud. **Operational artifacts** live in `Dockerfile`, `scripts/run_job.sh`, `scripts/bootstrap_aws_env.py`, and `infra/` (ECS task definition, EventBridge, CloudWatch alarm templates).
 
 ## Operational runbook (nightly decks)
 
@@ -26,8 +26,8 @@ python3 decks.py run-job --job engineering-portfolio
 Optional unattended strictness (matches AWS default):
 
 ```bash
-export BPO_FAIL_ON_INTEGRATION_WARNINGS=1
-export BPO_LOG_FORMAT=json
+export CORTEX_FAIL_ON_INTEGRATION_WARNINGS=1
+export CORTEX_LOG_FORMAT=json
 python3 decks.py run-job --job export-weekly
 ```
 
@@ -35,22 +35,22 @@ python3 decks.py run-job --job export-weekly
 
 1. Build/push image to ECR; register `infra/ecs-task-definition.json` (replace `ACCOUNT_ID`, `REGION`, EFS ids).
 2. Create Secrets Manager secret (JSON keys mirror `.env.example`; include `GOOGLE_SERVICE_ACCOUNT_JSON`).
-3. Mount EFS at `/var/bpo/cache`; set `BPO_CACHE_DIR=/var/bpo/cache`.
-4. CloudWatch log group `/bpo/decks` with `awslogs` driver (see task definition).
+3. Mount EFS at `/var/cortex/cache`; set `CORTEX_CACHE_DIR=/var/cortex/cache`.
+4. CloudWatch log group `/cortex/decks` with `awslogs` driver (see task definition).
 5. EventBridge rules in `infra/eventbridge-rules.json` — **one rule per job** so failures are isolated.
-6. Alarms on `BPO.RunSuccess` EMF metric or log filter `{ $.event = "run_complete" && $.success = false }`.
+6. Alarms on `Cortex.RunSuccess` EMF metric or log filter `{ $.event = "run_complete" && $.success = false }`.
 
 Each task emits:
 
-- JSON logs (`BPO_LOG_FORMAT=json`, automatic when `ECS_CONTAINER_METADATA_URI` is set)
-- `BPO_RUN_SUMMARY={"success":…,"failures":[…],…}` on stdout
-- EMF line with `BPO.RunSuccess`, `BPO.RunDurationSeconds`, `BPO.DeckFailures`, `BPO.IntegrationWarnings`
+- JSON logs (`CORTEX_LOG_FORMAT=json`, automatic when `ECS_CONTAINER_METADATA_URI` is set)
+- `CORTEX_RUN_SUMMARY={"success":…,"failures":[…],…}` on stdout
+- EMF line with `Cortex.RunSuccess`, `Cortex.RunDurationSeconds`, `Cortex.DeckFailures`, `Cortex.IntegrationWarnings`
 
 On failure, `failures-<job>-<run_id>.json` is uploaded to Drive Output when configured.
 
 ---
 
-BPO today only responds to **synchronous** requests (you run the script). Soon it will also:
+Cortex today only responds to **synchronous** requests (you run the script). Soon it will also:
 
 - Run **every night** (cron).
 - React to **Google Drive events** or a **schedule** (e.g. run `decks hydrate` after decks are shared with the intake group).
@@ -59,7 +59,7 @@ This doc describes one architecture that supports all three: sync now, cron and 
 
 ---
 
-## How BPO is triggered
+## How Cortex is triggered
 
 | Trigger        | Today | Soon   | What runs                          |
 |----------------|-------|--------|------------------------------------|
@@ -91,7 +91,7 @@ Single box that does everything: run the script, run cron, and accept a webhook 
 
 Clone repo, create venv, `pip install -r requirements.txt`. Then either:
 
-- **Quick:** Copy your laptop `.env` to the server and the Google service account JSON to e.g. `/opt/bpo/keys/`; set `GOOGLE_APPLICATION_CREDENTIALS` to that path.
+- **Quick:** Copy your laptop `.env` to the server and the Google service account JSON to e.g. `/opt/cortex/keys/`; set `GOOGLE_APPLICATION_CREDENTIALS` to that path.
 - **Production:** Store env vars and the Google SA JSON in **AWS Secrets Manager**. Before each run, load them (e.g. a small script that fetches secrets, writes the JSON to `/tmp/sa.json`, exports env, then runs `python decks.py "$@"`). Grant the EC2 instance role permission to read those secrets.
 
 ### 3. Synchronous (today)
@@ -102,8 +102,8 @@ Run the script when you want:
 # SSH into EC2, or run via SSM Run Command
 # There is no committed load_secrets.sh; use your own wrapper that loads AWS Secrets Manager
 # (or .env), exports env vars, then runs the CLI, for example:
-cd /opt/bpo && python decks.py "health review for Carrier"
-cd /opt/bpo && python decks.py hydrate
+cd /opt/cortex && python decks.py "health review for Carrier"
+cd /opt/cortex && python decks.py hydrate
 ```
 
 Optional: add a tiny API (e.g. Flask/FastAPI) that accepts `POST /run` with `{"prompt": "health review for all customers"}` and runs `decks.py` in a subprocess or background thread, so you can call it from your laptop without SSH.
@@ -113,7 +113,7 @@ Optional: add a tiny API (e.g. Flask/FastAPI) that accepts `POST /run` with `{"p
 ```bash
 crontab -e
 # Every night at 2am UTC
-0 2 * * * cd /opt/bpo && python decks.py "health review for all customers" >> /var/log/bpo.log 2>&1
+0 2 * * * cd /opt/cortex && python decks.py "health review for all customers" >> /var/log/cortex.log 2>&1
 ```
 
 Or use **EventBridge** with a cron rule to trigger the same command (e.g. via SSM Run Command on the EC2 instance), so you keep scheduling in AWS.

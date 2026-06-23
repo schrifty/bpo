@@ -26,7 +26,7 @@ from .github_client import (
     parse_github_noreply_login,
 )
 
-logger = logging.getLogger("bpo")
+logger = logging.getLogger("cortex")
 
 _EMPTY_PERSON = {
     "commits": 0,

@@ -55,7 +55,7 @@ def test_normalize_item_text_strips_leading_number():
 
 def test_build_signals_llm_user_envelope_includes_editorial():
     report = {"customer": "X", "days": 30, "signals": ["A"], "engagement": {}, "benchmarks": {}, "account": {}}
-    with patch("src.signals_llm.BPO_SIGNALS_LLM_EDITORIAL", True):
+    with patch("src.signals_llm.CORTEX_SIGNALS_LLM_EDITORIAL", True):
         env = build_signals_llm_user_envelope(
             report,
             manifest_rules="Focus on renewal risk.",
@@ -69,7 +69,7 @@ def test_build_signals_llm_user_envelope_includes_editorial():
 
 def test_maybe_rewrite_pops_editorial_keys_even_when_llm_disabled():
     report = {"signals": ["x"], "_signals_llm_manifest_rules": "secret", "_signals_llm_slide_prompt": "brief"}
-    with patch("src.signals_llm.BPO_SIGNALS_LLM", False):
+    with patch("src.signals_llm.CORTEX_SIGNALS_LLM", False):
         maybe_rewrite_signals_with_llm(report)
     assert "_signals_llm_manifest_rules" not in report
     assert "_signals_llm_slide_prompt" not in report
@@ -77,7 +77,7 @@ def test_maybe_rewrite_pops_editorial_keys_even_when_llm_disabled():
 
 def test_maybe_rewrite_skips_when_flag_off():
     report = {"signals": ["keep me"]}
-    with patch("src.signals_llm.BPO_SIGNALS_LLM", False):
+    with patch("src.signals_llm.CORTEX_SIGNALS_LLM", False):
         maybe_rewrite_signals_with_llm(report)
     assert report["signals"] == ["keep me"]
     assert "_signals_llm_meta" not in report
@@ -85,7 +85,7 @@ def test_maybe_rewrite_skips_when_flag_off():
 
 def test_maybe_rewrite_skips_empty_signals():
     report = {"signals": []}
-    with patch("src.signals_llm.BPO_SIGNALS_LLM", True):
+    with patch("src.signals_llm.CORTEX_SIGNALS_LLM", True):
         maybe_rewrite_signals_with_llm(report)
     assert report["signals"] == []
     assert report.get("_signals_llm_meta", {}).get("source") == "skipped"
@@ -113,7 +113,7 @@ def test_maybe_rewrite_applies_llm_output():
         )
     ]
     mock_client = MagicMock()
-    with patch("src.signals_llm.BPO_SIGNALS_LLM", True), patch(
+    with patch("src.signals_llm.CORTEX_SIGNALS_LLM", True), patch(
         "src.signals_llm.llm_client", return_value=mock_client
     ), patch("src.signals_llm._llm_create_with_retry", return_value=mock_resp):
         maybe_rewrite_signals_with_llm(report)
@@ -129,7 +129,7 @@ def test_maybe_rewrite_fallback_on_bad_json():
     report = {"customer": "X", "days": 30, "signals": ["Only heuristic"], "engagement": {}, "benchmarks": {}, "account": {}}
     mock_resp = MagicMock()
     mock_resp.choices = [MagicMock(message=MagicMock(content="not json"))]
-    with patch("src.signals_llm.BPO_SIGNALS_LLM", True), patch(
+    with patch("src.signals_llm.CORTEX_SIGNALS_LLM", True), patch(
         "src.signals_llm.llm_client", return_value=MagicMock()
     ), patch("src.signals_llm._llm_create_with_retry", return_value=mock_resp):
         maybe_rewrite_signals_with_llm(report)
@@ -206,8 +206,8 @@ def test_maybe_rewrite_portfolio_signals_applies_llm():
         )
     ]
     mock_client = MagicMock()
-    with patch("src.signals_llm.BPO_SIGNALS_LLM", True), patch(
-        "src.signals_llm.BPO_SIGNALS_LLM_EDITORIAL", False
+    with patch("src.signals_llm.CORTEX_SIGNALS_LLM", True), patch(
+        "src.signals_llm.CORTEX_SIGNALS_LLM_EDITORIAL", False
     ), patch("src.signals_llm.extract_portfolio_signals_slide_prompt", return_value=None), patch(
         "src.signals_llm.llm_client", return_value=mock_client
     ), patch("src.signals_llm._llm_create_with_retry", return_value=mock_resp):

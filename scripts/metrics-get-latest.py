@@ -25,10 +25,10 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(ROOT / ".env")
 
-from src.config import BPO_LEANDNA_DATA_API_EXECUTION_BUCKET  # noqa: E402
+from src.config import CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET  # noqa: E402
 from src.leandna_data_api_request import data_api_base_url  # noqa: E402
 from src.leandna_metric_registry_resolve import METRICS_REGISTRY_DEFAULT_SITE_ID  # noqa: E402
-from src.leandna_metrics_cli import configure_bpo_logging  # noqa: E402
+from src.leandna_metrics_cli import configure_cortex_logging  # noqa: E402
 from src.metrics_latest import (  # noqa: E402
     DEFAULT_RECENT_DATAPOINT_COUNT,
     fetch_registry_recent_datapoints,
@@ -73,7 +73,7 @@ def main() -> int:
     ap.add_argument("-v", "--verbose", action="store_true")
     ns = ap.parse_args()
 
-    configure_bpo_logging(verbose=ns.verbose)
+    configure_cortex_logging(verbose=ns.verbose)
 
     try:
         base = data_api_base_url()
@@ -85,7 +85,7 @@ def main() -> int:
         f"LeanDNA target: GET /data/Metric/{{id}}/MetricDataPoint  "
         f"(lookback={ns.lookback_days}d, recent={ns.recent_count}, "
         f"requestedSites={ns.requested_sites!r}, "
-        f"EXECUTION_ENV bucket={BPO_LEANDNA_DATA_API_EXECUTION_BUCKET})",
+        f"EXECUTION_ENV bucket={CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET})",
         file=sys.stderr,
     )
 

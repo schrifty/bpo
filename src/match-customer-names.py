@@ -939,7 +939,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-v", "--verbose", action="store_true")
     ns = ap.parse_args(argv)
 
-    logging.getLogger("bpo").setLevel(logging.INFO if ns.verbose else logging.WARNING)
+    logging.getLogger("cortex").setLevel(logging.INFO if ns.verbose else logging.WARNING)
 
     print("Loading Salesforce portfolio and cross-system names…", file=sys.stderr)
     report = build_company_match_report(

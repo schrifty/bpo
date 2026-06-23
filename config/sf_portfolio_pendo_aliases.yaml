@@ -1,4 +1,4 @@
-# BPO list alias map — config/sf_portfolio_pendo_aliases.yaml
+# Cortex list alias map — config/sf_portfolio_pendo_aliases.yaml
 # Schema: { "<SF portfolio label>": "<pendo_prefix>" | [ "<prefix>", ... ] }  (keys case-insensitive)
 # Used by: portfolio SF → Pendo prefix resolution. See CONFIG_ALIASES.md.
 # Use when CRM rollup labels do not appear in Pendo sitenames (see config/cohorts.yaml).

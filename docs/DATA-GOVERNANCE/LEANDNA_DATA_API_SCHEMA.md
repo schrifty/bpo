@@ -1,10 +1,10 @@
-# LeanDNA Data API schema (BPO)
+# LeanDNA Data API schema (Cortex)
 
 LeanDNA **Data API** — REST JSON under the resolved base URL (`resolve_leandna_data_api_base_url()` in `src/config.py`; optional `EXECUTION_ENV` with `ST_*` / `PR_*` — see **[`../SETUP/LEANDNA_SETUP.md`](../SETUP/LEANDNA_SETUP.md)**). **Auth:** Bearer (`LEANDNA_DATA_API_BEARER_TOKEN`) and/or browser **Cookie** (`LEANDNA_DATA_API_COOKIE`) plus optional `Origin`/`Referer` — same setup doc. **Optional site scope:** `RequestedSites: <comma-separated site ids>`.
 
 Canonical registry identifiers: [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) (LeanDNA Data API section). Integration analysis: [`LEANDNA_DATA_API_TOOLS.md`](./LEANDNA_DATA_API_TOOLS.md). OpenAPI: fetch with authenticated `scripts/fetch_leandna_swagger.py`.
 
-**BPO implementation today:** `src/leandna_item_master_client.py`, `src/leandna_shortage_client.py`, `src/leandna_lean_projects_client.py`, `src/leandna_metrics_client.py` (metrics HTTP only — no QBR `report[]` merge yet), matching `*_enrich.py`, and **LangChain** ``GET /data/...`` helpers: `src/leandna_data_api_request.py`, `src/tools/leandna_data_api_tool.py` (wired via ``get_pendo_tools``); QBR wires enrichments in `src/qbr_template.py`.
+**Cortex implementation today:** `src/leandna_item_master_client.py`, `src/leandna_shortage_client.py`, `src/leandna_lean_projects_client.py`, `src/leandna_metrics_client.py` (metrics HTTP only — no QBR `report[]` merge yet), matching `*_enrich.py`, and **LangChain** ``GET /data/...`` helpers: `src/leandna_data_api_request.py`, `src/tools/leandna_data_api_tool.py` (wired via ``get_pendo_tools``); QBR wires enrichments in `src/qbr_template.py`.
 
 ---
 
@@ -19,7 +19,7 @@ Canonical registry identifiers: [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) (LeanDN
 
 ---
 
-## 2. Surfaces BPO uses in production flows
+## 2. Surfaces Cortex uses in production flows
 
 | Resource | HTTP | Report / usage |
 |----------|------|----------------|
@@ -41,7 +41,7 @@ Canonical registry identifiers: [`DATA_REGISTRY.md`](./DATA_REGISTRY.md) (LeanDN
 
 ---
 
-## 3. Surfaces available in the API but not wired in BPO
+## 3. Surfaces available in the API but not wired in Cortex
 
 | Area | Typical path pattern | Notes |
 |------|----------------------|--------|
@@ -68,7 +68,7 @@ Exact query parameters and response fields **follow the tenant’s OpenAPI** —
 
 ### 4.1 Item Master (`/data/ItemMasterData`)
 
-Examples BPO aggregates today: `daysOfInventoryBackward`, `daysOfInventoryForward`, `aggregateRiskScore`, `riskLevel`, `abcRank`, `leadTime`, `observedLeadTime`, `excessOnHandValue`, `ctbShortageImpactedValue`, `daysOfCoverageWorkDays`, `criticalityLevel`, `weeklyDemandStdDev`, `futureDemandDaily`, …
+Examples Cortex aggregates today: `daysOfInventoryBackward`, `daysOfInventoryForward`, `aggregateRiskScore`, `riskLevel`, `abcRank`, `leadTime`, `observedLeadTime`, `excessOnHandValue`, `ctbShortageImpactedValue`, `daysOfCoverageWorkDays`, `criticalityLevel`, `weeklyDemandStdDev`, `futureDemandDaily`, …
 
 ### 4.2 Material shortages (weekly / daily rows)
 

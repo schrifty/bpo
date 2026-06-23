@@ -1,4 +1,4 @@
-"""LangChain tools for BPO."""
+"""LangChain tools for Cortex."""
 
 from .jira_tool import JiraProjectSnapshotTool
 from .leandna_data_api_tool import (

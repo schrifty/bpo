@@ -176,7 +176,7 @@ def test_5xx_retries(monkeypatch) -> None:
 def test_cache_short_circuits_second_call(monkeypatch, tmp_path) -> None:
     # With caching on, an identical daily-usage call within the TTL serves from disk
     # and does not hit the network a second time.
-    monkeypatch.setattr("src.config.BPO_CACHE_ROOT", tmp_path)
+    monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path)
     clear_cursor_cache()
     c = _client(cache_ttl_seconds=3600)
     calls = {"n": 0}
@@ -194,7 +194,7 @@ def test_cache_short_circuits_second_call(monkeypatch, tmp_path) -> None:
 
 
 def test_cache_disabled_always_requests(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr("src.config.BPO_CACHE_ROOT", tmp_path)
+    monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path)
     clear_cursor_cache()
     c = _client(cache_ttl_seconds=0)  # caching off
     calls = {"n": 0}

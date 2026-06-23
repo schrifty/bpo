@@ -4,7 +4,7 @@ The app can pull **Entity Contract** (Account) and **Opportunity** data from Sal
 
 ## The app doesn’t include a certificate — you create one
 
-The BPO app does **not** ship with a certificate or private key. For JWT Bearer Flow, **you** (or your team) generate a **key pair** once:
+The Cortex app does **not** ship with a certificate or private key. For JWT Bearer Flow, **you** (or your team) generate a **key pair** once:
 
 - **Private key** (e.g. `server.key`) — stays with you; the app uses it to sign every JWT. You configure it via `SF_PRIVATE_KEY` or `SF_PRIVATE_KEY_PATH`. Never commit it or send it to Salesforce.
 - **Certificate** (e.g. `server.crt`) — public half of the same pair. You give this file to your Salesforce admin to **upload** into the Connected App (Setup → App Manager → your app → Use digital signatures → upload). Salesforce uses it only to verify that JWTs signed with your private key are legitimate.

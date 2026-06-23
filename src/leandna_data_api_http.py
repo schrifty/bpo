@@ -84,7 +84,7 @@ def build_leandna_data_api_headers(
 
     h: dict[str, str] = {
         "Accept": "application/json",
-        "User-Agent": f"bpo-{user_agent_suffix}",
+        "User-Agent": f"cortex-{user_agent_suffix}",
     }
     if content_type_json:
         h["Content-Type"] = "application/json"
