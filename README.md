@@ -40,6 +40,15 @@ Set `BPO_LOG_FORMAT=json` (auto on ECS) for CloudWatch filters; stdout includes 
 
 See `docs/DESIGN/PROPOSED_CLOUD_ARCH.md` for IAM, EFS cache mount, and alarm setup.
 
+**Recommended:** use Terraform instead of manual console/CLI:
+
+```bash
+cd infra/terraform && cp terraform.tfvars.example terraform.tfvars
+terraform init && terraform apply
+```
+
+See `infra/terraform/README.md` for build/push and smoke-test steps.
+
 **Required:** `PENDO_INTEGRATION_KEY`, `OPENAI_API_KEY`
 
 **Optional:** `PENDO_BASE_URL`, `PENDO_MAX_RESULTS`, `PENDO_MAX_OUTPUT_CHARS`, `LOG_LEVEL`

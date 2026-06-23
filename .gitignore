@@ -13,6 +13,7 @@ build/
 
 # Secrets
 .env
+output/
 *.json
 !.vscode/*.json
 !config/comprehensive_data_element_list.json

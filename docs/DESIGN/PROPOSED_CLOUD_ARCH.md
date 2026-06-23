@@ -4,6 +4,17 @@ Design note for running BPO in the cloud. **Operational artifacts** live in `Doc
 
 ## Operational runbook (nightly decks)
 
+**Infrastructure:** use Terraform (`infra/terraform/`). Manual JSON templates in `infra/*.json` are legacy reference.
+
+```bash
+cd infra/terraform
+cp terraform.tfvars.example terraform.tfvars
+terraform init && terraform apply
+terraform output -raw run_task_engineering_portfolio | bash
+```
+
+See `infra/terraform/README.md` for ECR push, secrets upload, and schedules.
+
 ### Local parity
 
 ```bash
