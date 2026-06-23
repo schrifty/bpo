@@ -19,4 +19,4 @@ default_job_command = ["engineering-portfolio"]
 enable_schedules = false
 
 # task_cpu    = 4096
-# task_memory = 8192
+# task_memory = 16384
