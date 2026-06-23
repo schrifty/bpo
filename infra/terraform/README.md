@@ -104,6 +104,29 @@ Jobs are defined in `variables.tf` → `scheduled_jobs` (engineering-portfolio 0
 
 ## Importing existing manual resources
 
+If you created resources by hand before Terraform (common), import them once:
+
+```bash
+chmod +x ../../scripts/terraform_import_existing.sh
+../../scripts/terraform_import_existing.sh
+terraform plan
+terraform apply
+```
+
+Or manually:
+
+```bash
+terraform import aws_cloudwatch_log_group.decks /bpo/decks
+terraform import aws_ecr_repository.decks bpo-decks
+terraform import aws_iam_role.ecs_execution bpo-ecs-execution
+terraform import aws_iam_role.ecs_task bpo-ecs-task
+terraform apply
+```
+
+If you prefer a clean slate instead, delete the manual ECR repo, log group, and IAM roles in the console, then `terraform apply` (only if nothing depends on them).
+
+## Importing existing manual resources (alternate: new name prefix)
+
 If you already created `bpo-ecs-execution` by hand, either:
 
 1. Delete manual roles and `terraform apply`, or  
