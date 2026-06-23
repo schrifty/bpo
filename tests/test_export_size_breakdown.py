@@ -51,14 +51,28 @@ def test_emit_export_size_breakdown_stderr(capsys) -> None:
     diag.record_phase("Drive upload", 3.2)
     emit_export_size_breakdown_stderr(md, doc, diag)
     err = capsys.readouterr().err
-    assert "Export run summary" in err
-    assert "total uploaded" in err
-    assert "markdown sections" in err
-    assert "document payloads" in err
-    assert "wall-clock timing" in err
+    assert "Export completed" in err
+    assert "uploaded" in err
+    assert "Markdown sections" in err
+    assert "Payload components" in err
+    assert "Timing" in err
     assert "portfolio snapshot" in err
     assert "00:00:13" in err  # 12.5s rounded
-    assert "cache hit/miss" in err
+    assert "Cache" in err
     assert "integration" in err
     assert "salesforce_comprehensive" in err
     assert "Pendo" in err
+    assert "─" * 60 in err
+
+
+def test_emit_export_summary_includes_warnings(capsys) -> None:
+    from src.export_run_diagnostics import ExportRunDiagnostics
+
+    diag = ExportRunDiagnostics()
+    diag.add_warning("Pendo prefix missing for Acme")
+    emit_export_size_breakdown_stderr("## 1. Test\n", {"pendo": {}}, diag)
+    err = capsys.readouterr().err
+    assert "completed with 1 warning" in err
+    assert "Warnings (1)" in err
+    assert "Pendo prefix missing" in err
+    assert "Failures" not in err

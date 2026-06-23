@@ -1488,6 +1488,24 @@ def _doc_payload_component_bytes(doc: dict[str, Any]) -> list[tuple[str, int]]:
     return sorted(rows, key=lambda x: (-x[1], x[0]))
 
 
+def _export_summary_rule() -> str:
+    return "─" * 60
+
+
+def _export_status_label(diag: Any | None) -> str:
+    if diag is None:
+        return "completed"
+    failures = getattr(diag, "failures", None) or []
+    warnings = getattr(diag, "warnings", None) or []
+    if failures:
+        n = len(failures)
+        return f"FAILED ({n} failure{'s' if n != 1 else ''})"
+    if warnings:
+        n = len(warnings)
+        return f"completed with {n} warning{'s' if n != 1 else ''}"
+    return "completed"
+
+
 def emit_export_size_breakdown_stderr(
     md: str,
     doc: dict[str, Any],
@@ -1498,53 +1516,64 @@ def emit_export_size_breakdown_stderr(
     pre_truncation_bytes: int | None = None,
     body_before_section7_bytes: int | None = None,
 ) -> None:
-    """Print UTF-8 size totals, per-section contribution, and phase timing (stderr)."""
+    """Print a single consolidated export summary (size, timing, cache, warnings)."""
+    from .export_run_diagnostics import format_elapsed_hms
+
     total = _utf8_byte_len(md)
+    status = _export_status_label(diag)
+    wall = format_elapsed_hms(diag.total_elapsed_s()) if diag is not None else "—"
+
     print("", file=sys.stderr)
-    print("=" * 60, file=sys.stderr)
-    print("Export run summary:", file=sys.stderr)
-    print("  --- size (UTF-8) ---", file=sys.stderr)
-    print(f"  total uploaded: {_format_utf8_bytes(total)}", file=sys.stderr)
+    print(_export_summary_rule(), file=sys.stderr)
+    print(
+        f"Export {status} · {_format_utf8_bytes(total)} uploaded · {wall} total",
+        file=sys.stderr,
+    )
+
+    size_lines: list[str] = [f"uploaded {_format_utf8_bytes(total)}"]
     if truncated and pre_truncation_bytes is not None:
-        print(
-            f"  body before --max-bytes cut: {_format_utf8_bytes(pre_truncation_bytes)} "
-            f"(cap {_format_utf8_bytes(max_bytes_cap or 0)})",
-            file=sys.stderr,
+        size_lines.append(
+            f"before --max-bytes cut {_format_utf8_bytes(pre_truncation_bytes)} "
+            f"(cap {_format_utf8_bytes(max_bytes_cap or 0)})"
         )
     if body_before_section7_bytes is not None and total > body_before_section7_bytes:
         s7 = total - body_before_section7_bytes
-        print(
-            f"  §7 risk insights (appended after cap): {_format_utf8_bytes(s7)}",
-            file=sys.stderr,
-        )
+        size_lines.append(f"§7 risk insights {_format_utf8_bytes(s7)} (after cap)")
+    print("", file=sys.stderr)
+    print("Size", file=sys.stderr)
+    for line in size_lines:
+        print(f"  {line}", file=sys.stderr)
 
     sections = _markdown_section_byte_breakdown(md)
     if sections:
-        print("  --- markdown sections (uploaded file) ---", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("Markdown sections", file=sys.stderr)
         for label, size in sorted(sections, key=lambda x: (-x[1], x[0])):
             pct = (100.0 * size / total) if total else 0.0
-            print(
-                f"    {pct:5.1f}%  {_format_utf8_bytes(size):>18}  {label}",
-                file=sys.stderr,
-            )
+            print(f"  {pct:5.1f}%  {_format_utf8_bytes(size):>10}  {label}", file=sys.stderr)
 
     components = _doc_payload_component_bytes(doc)
     comp_total = sum(n for _, n in components)
     if components:
-        print("  --- document payloads (compact JSON in snapshot) ---", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("Payload components", file=sys.stderr)
         for label, size in components:
             pct = (100.0 * size / comp_total) if comp_total else 0.0
-            print(
-                f"    {pct:5.1f}%  {_format_utf8_bytes(size):>18}  {label}",
-                file=sys.stderr,
-            )
-        print(
-            f"  payload subtotal (excludes markdown framing): {_format_utf8_bytes(comp_total)}",
-            file=sys.stderr,
-        )
+            print(f"  {pct:5.1f}%  {_format_utf8_bytes(size):>10}  {label}", file=sys.stderr)
+        print(f"  subtotal {_format_utf8_bytes(comp_total)} (JSON only, excl. markdown framing)", file=sys.stderr)
+
     if diag is not None and getattr(diag, "timings", None):
-        for line in diag.timing_breakdown_lines():
-            print(line, file=sys.stderr)
+        timings = list(diag.timings)
+        if timings:
+            print("", file=sys.stderr)
+            print("Timing", file=sys.stderr)
+            for label, secs in timings:
+                print(f"  {format_elapsed_hms(secs):>8}  {label}", file=sys.stderr)
+            measured = sum(secs for _, secs in timings)
+            overhead = max(0.0, diag.total_elapsed_s() - measured)
+            if overhead >= 0.5:
+                print(f"  {format_elapsed_hms(overhead):>8}  unphased overhead", file=sys.stderr)
+            print(f"  {format_elapsed_hms(diag.total_elapsed_s()):>8}  total", file=sys.stderr)
 
     from .drive_cache_stats import drive_cache_breakdown_lines
 
@@ -1555,10 +1584,27 @@ def emit_export_size_breakdown_stderr(
         if isinstance(raw_sf, dict):
             sf_comp_summary = raw_sf
     cache_lines = drive_cache_breakdown_lines(sf_comprehensive_summary=sf_comp_summary)
-    for line in cache_lines:
-        print(line, file=sys.stderr)
+    if cache_lines:
+        print("", file=sys.stderr)
+        print("Cache", file=sys.stderr)
+        for line in cache_lines:
+            print(f"  {line.strip()}", file=sys.stderr)
 
-    print("=" * 60, file=sys.stderr)
+    if diag is not None:
+        failures = list(getattr(diag, "failures", None) or [])
+        warnings = list(getattr(diag, "warnings", None) or [])
+        if failures:
+            print("", file=sys.stderr)
+            print(f"Failures ({len(failures)})", file=sys.stderr)
+            for i, msg in enumerate(failures, 1):
+                print(f"  {i}. {msg}", file=sys.stderr)
+        if warnings:
+            print("", file=sys.stderr)
+            print(f"Warnings ({len(warnings)})", file=sys.stderr)
+            for i, msg in enumerate(warnings, 1):
+                print(f"  {i}. {msg}", file=sys.stderr)
+
+    print(_export_summary_rule(), file=sys.stderr)
 
 
 def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
@@ -1996,8 +2042,11 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
             fid_root = upload_text_file_to_drive_folder(fname, md, root_id, mime_type="text/markdown")
             fid_dated = upload_text_file_to_drive_folder(fname, md, dated_id, mime_type="text/markdown")
 
-        print(f"Exported {nbytes} bytes → Drive Output/{fname} (id={fid_root})", file=sys.stderr)
-        print(f"Exported {nbytes} bytes → Drive Output/{dated_label}/{fname} (id={fid_dated})", file=sys.stderr)
+        print(
+            f"Uploaded {_format_utf8_bytes(nbytes)} → Output/{fname} "
+            f"and Output/{dated_label}/{fname}",
+            file=sys.stderr,
+        )
         print(f"Output/ (stable): https://drive.google.com/file/d/{fid_root}/view")
         print(f"Output/{dated_label}/: https://drive.google.com/file/d/{fid_dated}/view")
 
@@ -2010,7 +2059,6 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
             pre_truncation_bytes=pre_truncation_bytes,
             body_before_section7_bytes=md_body_before_section7_bytes,
         )
-        diag.emit_stderr_summary()
         from .config import CORTEX_FAIL_ON_INTEGRATION_WARNINGS
         from .data_source_health import integration_freshness_metadata
 

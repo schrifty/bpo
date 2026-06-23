@@ -41,7 +41,7 @@ def _cache_hit_miss_row(label: str, hits: int, attempts: int) -> str | None:
         return None
     misses = max(0, attempts - hits)
     pct = (100.0 * hits / attempts) if attempts else 0.0
-    return f"    {pct:5.1f}%  {hits:4d} hit  {misses:4d} miss  ({attempts:4d} loads)  {label}"
+    return f"{pct:5.1f}%  {hits:4d} hit  {misses:4d} miss  ({attempts:4d} loads)  {label}"
 
 
 def drive_cache_breakdown_lines(
@@ -67,7 +67,7 @@ def drive_cache_breakdown_lines(
 
     if not rows:
         return []
-    return ["  --- cache hit/miss ---", *rows]
+    return rows
 
 
 def format_drive_cache_load_summary() -> str:
