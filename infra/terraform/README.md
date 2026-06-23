@@ -47,7 +47,7 @@ After first `apply` (creates ECR):
 eval "$(terraform output -raw ecr_login_command)"
 
 cd ../..   # repo root
-docker build -t cortex-decks .
+docker build --platform linux/amd64 -t cortex-decks .
 docker tag cortex-decks:latest $(terraform -chdir=infra/terraform output -raw ecr_repository_url):latest
 docker push $(terraform -chdir=infra/terraform output -raw ecr_repository_url):latest
 ```

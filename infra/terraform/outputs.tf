@@ -20,7 +20,7 @@ output "docker_build_push_commands" {
   description = "Build and push after terraform apply"
   value       = <<-EOT
     cd /path/to/cortex
-    docker build -t ${local.ecr_repository_name} .
+    docker build --platform linux/amd64 -t ${local.ecr_repository_name} .
     docker tag ${local.ecr_repository_name}:latest ${aws_ecr_repository.decks.repository_url}:${var.image_tag}
     docker push ${aws_ecr_repository.decks.repository_url}:${var.image_tag}
   EOT

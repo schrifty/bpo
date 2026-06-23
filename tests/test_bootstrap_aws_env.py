@@ -31,3 +31,19 @@ def test_apply_secret_payload_writes_google_sa(monkeypatch, tmp_path) -> None:
     assert os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
     sa = json.loads((tmp_path / "sa.json").read_text(encoding="utf-8"))
     assert sa["client_email"] == "x@y.iam.gserviceaccount.com"
+
+
+def test_build_secret_env_and_shell_exports() -> None:
+    mod = _bootstrap_module()
+    env = mod.build_secret_env(
+        {
+            "PENDO_INTEGRATION_KEY": "pendo-key",
+            "OPENAI_API_KEY": "sk-test",
+        }
+    )
+    assert env["PENDO_INTEGRATION_KEY"] == "pendo-key"
+    assert env["CORTEX_SKIP_DOTENV"] == "1"
+    rendered = mod.render_shell_exports(env)
+    assert "export OPENAI_API_KEY=" in rendered
+    assert "export PENDO_INTEGRATION_KEY=" in rendered
+
