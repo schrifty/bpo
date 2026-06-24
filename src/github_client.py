@@ -498,7 +498,7 @@ class GitHubClient:
     ) -> list[dict[str, Any]]:
         """Merged PRs in a repo since *since* via search API (avoids pulls-list pagination gaps)."""
         since_str = since.astimezone(timezone.utc).strftime("%Y-%m-%d")
-        q = f"repo:{owner}/{repo}+is:pr+is:merged+merged:>={since_str}"
+        q = f"repo:{owner}/{repo} is:pr is:merged merged:>={since_str}"
         return self.search_issues(q, max_items=max_pulls)
 
     def list_org_members(self, org: str, *, max_members: int = 500) -> list[dict[str, Any]]:

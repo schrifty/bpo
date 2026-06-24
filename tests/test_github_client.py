@@ -207,6 +207,7 @@ def test_list_merged_pulls_since_uses_search_api():
         assert "/search/issues" in url
         assert "is:merged" in params["q"]
         assert "merged:>=2026-05-01" in params["q"]
+        assert "+" not in params["q"]
         return _FakeResponse(200, {"items": [{"number": 1, "merged_at": "2026-05-10T12:00:00Z"}]})
 
     gh = _client(_FakeSession(router=router))
