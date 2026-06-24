@@ -19,6 +19,7 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "schedule_expression": "cron(0 2 * * ? *)",
         "command": ["engineering-portfolio"],
         "enabled": True,
+        "rule_name": "decks-engineering-portfolio",
         "summary": "Engineering portfolio deck",
     },
     "export-nightly": {
@@ -27,19 +28,42 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "enabled": True,
         "summary": "LLM export (decks --export, 90-day window)",
     },
-    "portfolio-batch": {
-        "schedule_expression": "cron(0 4 * * ? *)",
-        "command": ["portfolio-batch"],
-        "enabled": True,
-        "summary": "Portfolio deck batch",
-    },
-    "export-weekly": {
-        "schedule_expression": "cron(0 6 ? * SUN *)",
-        "command": ["export-weekly"],
-        "enabled": False,
-        "summary": "LLM export (legacy weekly; disabled in Terraform defaults)",
-    },
 }
+
+
+def _catalog_rule_name_index() -> dict[str, str]:
+    """Map explicit EventBridge rule names to catalog job keys."""
+    out: dict[str, str] = {}
+    for job_key, spec in SCHEDULED_JOBS_CATALOG.items():
+        rule_name = spec.get("rule_name")
+        if rule_name:
+            out[str(rule_name)] = job_key
+    return out
+
+
+def _expected_rule_name(job_key: str, spec: dict[str, Any], *, name_prefix: str) -> str:
+    rule_name = spec.get("rule_name")
+    if rule_name:
+        return str(rule_name)
+    return f"{name_prefix}-{job_key}"
+
+
+def _schedule_row_from_rule(
+    *,
+    rule: dict[str, Any],
+    job_key: str,
+    command: list[str],
+) -> ScheduleRow:
+    catalog = SCHEDULED_JOBS_CATALOG.get(job_key, {})
+    return ScheduleRow(
+        job_key=job_key,
+        rule_name=str(rule.get("Name") or ""),
+        state=str(rule.get("State") or ""),
+        schedule_expression=str(rule.get("ScheduleExpression") or ""),
+        command=command or [str(x) for x in (catalog.get("command") or [])],
+        summary=str(catalog.get("summary") or job_key),
+        source="aws",
+    )
 
 
 @dataclass
@@ -111,15 +135,19 @@ def _fetch_via_aws_cli(*, name_prefix: str, region: str) -> tuple[list[ScheduleR
 
     payload = json.loads(proc.stdout or "{}")
     rows: list[ScheduleRow] = []
+    seen_jobs: set[str] = set()
+    custom_rules = _catalog_rule_name_index()
     for rule in payload.get("Rules") or []:
         name = str(rule.get("Name") or "")
-        if not name.startswith(f"{name_prefix}-"):
+        if name in custom_rules:
+            job_key = custom_rules[name]
+        elif name.startswith(f"{name_prefix}-"):
+            job_key = name[len(name_prefix) + 1 :]
+        else:
             continue
-        job_key = name[len(name_prefix) + 1 :]
         schedule = str(rule.get("ScheduleExpression") or "")
         if not schedule:
             continue
-        state = str(rule.get("State") or "")
         command: list[str] = []
         target_proc = subprocess.run(
             [
@@ -143,18 +171,55 @@ def _fetch_via_aws_cli(*, name_prefix: str, region: str) -> tuple[list[ScheduleR
                 command = _command_from_target_input(target.get("Input"))
                 if command:
                     break
-        catalog = SCHEDULED_JOBS_CATALOG.get(job_key, {})
-        rows.append(
-            ScheduleRow(
-                job_key=job_key,
-                rule_name=name,
-                state=state,
-                schedule_expression=schedule,
-                command=command or list(catalog.get("command") or []),
-                summary=str(catalog.get("summary") or job_key),
-                source="aws",
-            )
+        rows.append(_schedule_row_from_rule(rule=rule, job_key=job_key, command=command))
+        seen_jobs.add(job_key)
+
+    for rule_name, job_key in custom_rules.items():
+        if job_key in seen_jobs:
+            continue
+        describe_proc = subprocess.run(
+            [
+                "aws",
+                "events",
+                "describe-rule",
+                "--name",
+                rule_name,
+                "--region",
+                region,
+                "--output",
+                "json",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
         )
+        if describe_proc.returncode != 0:
+            continue
+        rule = json.loads(describe_proc.stdout or "{}")
+        command: list[str] = []
+        target_proc = subprocess.run(
+            [
+                "aws",
+                "events",
+                "list-targets-by-rule",
+                "--rule",
+                rule_name,
+                "--region",
+                region,
+                "--output",
+                "json",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if target_proc.returncode == 0:
+            targets_payload = json.loads(target_proc.stdout or "{}")
+            for target in targets_payload.get("Targets") or []:
+                command = _command_from_target_input(target.get("Input"))
+                if command:
+                    break
+        rows.append(_schedule_row_from_rule(rule=rule, job_key=job_key, command=command))
     rows.sort(key=lambda r: (r.schedule_expression, r.job_key))
     return rows, None
 
@@ -169,36 +234,45 @@ def fetch_aws_schedule_rows(*, name_prefix: str, region: str) -> tuple[list[Sche
 
     client = boto3.client("events", region_name=region)
     rows: list[ScheduleRow] = []
+    seen_jobs: set[str] = set()
+    custom_rules = _catalog_rule_name_index()
     try:
         paginator = client.get_paginator("list_rules")
         for page in paginator.paginate(NamePrefix=f"{name_prefix}-"):
             for rule in page.get("Rules") or []:
                 name = str(rule.get("Name") or "")
-                if not name.startswith(f"{name_prefix}-"):
+                if name in custom_rules:
+                    job_key = custom_rules[name]
+                elif name.startswith(f"{name_prefix}-"):
+                    job_key = name[len(name_prefix) + 1 :]
+                else:
                     continue
-                job_key = name[len(name_prefix) + 1 :]
                 schedule = str(rule.get("ScheduleExpression") or "")
                 if not schedule:
                     continue
-                state = str(rule.get("State") or "")
                 targets = client.list_targets_by_rule(Rule=name).get("Targets") or []
                 command: list[str] = []
                 for target in targets:
                     command = _command_from_target_input(target.get("Input"))
                     if command:
                         break
-                catalog = SCHEDULED_JOBS_CATALOG.get(job_key, {})
-                rows.append(
-                    ScheduleRow(
-                        job_key=job_key,
-                        rule_name=name,
-                        state=state,
-                        schedule_expression=schedule,
-                        command=command or list(catalog.get("command") or []),
-                        summary=str(catalog.get("summary") or job_key),
-                        source="aws",
-                    )
-                )
+                rows.append(_schedule_row_from_rule(rule=rule, job_key=job_key, command=command))
+                seen_jobs.add(job_key)
+
+        for rule_name, job_key in custom_rules.items():
+            if job_key in seen_jobs:
+                continue
+            try:
+                rule = client.describe_rule(Name=rule_name)
+            except ClientError:
+                continue
+            targets = client.list_targets_by_rule(Rule=rule_name).get("Targets") or []
+            command = []
+            for target in targets:
+                command = _command_from_target_input(target.get("Input"))
+                if command:
+                    break
+            rows.append(_schedule_row_from_rule(rule=rule, job_key=job_key, command=command))
     except (NoCredentialsError, ClientError, BotoCoreError) as exc:
         return [], f"AWS lookup failed ({exc}); showing catalog only"
 
@@ -224,7 +298,7 @@ def build_schedule_rows(*, name_prefix: str, region: str) -> tuple[list[Schedule
         merged.append(
             ScheduleRow(
                 job_key=job_key,
-                rule_name=None,
+                rule_name=_expected_rule_name(job_key, spec, name_prefix=name_prefix),
                 state=None,
                 schedule_expression=str(spec.get("schedule_expression") or ""),
                 command=[str(x) for x in (spec.get("command") or [])],
@@ -239,7 +313,7 @@ def build_schedule_rows(*, name_prefix: str, region: str) -> tuple[list[Schedule
         merged.append(
             ScheduleRow(
                 job_key=job_key,
-                rule_name=None,
+                rule_name=_expected_rule_name(job_key, spec, name_prefix=name_prefix),
                 state="DISABLED",
                 schedule_expression=str(spec.get("schedule_expression") or ""),
                 command=[str(x) for x in (spec.get("command") or [])],
@@ -299,7 +373,7 @@ def schedule_main(argv: list[str] | None = None, *, prog: str = "decks --schedul
     print()
     if rows:
         for row in rows:
-            if row.source == "catalog" and row.rule_name is None and row.state != "DISABLED":
+            if row.source == "catalog" and row.state is None:
                 print(f"# {row.job_key}: {row.summary} — not deployed in AWS")
         print(format_schedule_table(rows))
     else:

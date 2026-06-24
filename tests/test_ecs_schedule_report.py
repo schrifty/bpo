@@ -23,12 +23,12 @@ def test_format_schedule_table_aligns_columns():
             source="aws",
         ),
         ScheduleRow(
-            job_key="engineering-portfolio",
-            rule_name="bpo-engineering-portfolio",
+            job_key="other-job",
+            rule_name="bpo-other-job",
             state="ENABLED",
-            schedule_expression="cron(0 2 * * ? *)",
-            command=["engineering-portfolio"],
-            summary="eng",
+            schedule_expression="cron(0 4 * * ? *)",
+            command=["other-job"],
+            summary="other",
             source="aws",
         ),
     ]
@@ -46,6 +46,8 @@ def test_build_schedule_rows_merges_catalog_when_aws_empty(monkeypatch):
     rows, notes = build_schedule_rows(name_prefix="bpo", region="us-east-1")
     assert any(r.job_key == "export-nightly" for r in rows)
     assert any(r.job_key == "engineering-portfolio" for r in rows)
+    eng = next(r for r in rows if r.job_key == "engineering-portfolio")
+    assert eng.rule_name == "decks-engineering-portfolio"
     assert notes
 
 

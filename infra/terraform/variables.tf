@@ -110,27 +110,19 @@ variable "scheduled_jobs" {
     schedule_expression = string
     command             = list(string)
     enabled             = bool
+    rule_name           = optional(string)
   }))
   default = {
     engineering-portfolio = {
       schedule_expression = "cron(0 2 * * ? *)"
       command             = ["engineering-portfolio"]
       enabled             = true
-    }
-    portfolio-batch = {
-      schedule_expression = "cron(0 4 * * ? *)"
-      command             = ["portfolio-batch"]
-      enabled             = true
+      rule_name           = "decks-engineering-portfolio"
     }
     export-nightly = {
       schedule_expression = "cron(0 3 * * ? *)"
       command             = ["export-nightly"]
       enabled             = true
-    }
-    export-weekly = {
-      schedule_expression = "cron(0 6 ? * SUN *)"
-      command             = ["export-weekly"]
-      enabled             = false
     }
   }
 }

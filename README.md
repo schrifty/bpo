@@ -31,13 +31,12 @@ docker run --rm -v "$PWD/.env:/app/.env:ro" -v "$PWD/.cache:/var/cortex/cache" \
 Production uses `scripts/run_job.sh` → `bootstrap_aws_env.py` (when `CORTEX_SECRETS_ARN` is set) → `decks run-job`.
 Set `CORTEX_LOG_FORMAT=json` (auto on ECS) for CloudWatch filters; stdout includes `CORTEX_RUN_SUMMARY={…}` and EMF metrics.
 
-| Job | Schedule (example) | YAML |
-|-----|-------------------|------|
-| Engineering portfolio | Daily 02:00 UTC | `engineering-portfolio` |
+| Job | Schedule (EventBridge) | YAML |
+|-----|------------------------|------|
+| Engineering portfolio | Daily 02:00 UTC (`decks-engineering-portfolio`) | `engineering-portfolio` |
 | LLM export | Daily 03:00 UTC | `export-nightly` (`decks --export`, 90-day window) |
-| Portfolio batch | Daily 04:00 UTC | `portfolio-batch` |
-| Full nightly chain | — | `nightly-core` |
-| LLM export (legacy) | Sunday 06:00 UTC | `export-weekly` (disabled in Terraform defaults) |
+| Portfolio batch | Manual / `run-task` | `portfolio-batch` |
+| Full nightly chain | Manual | `nightly-core` |
 
 See `docs/DESIGN/PROPOSED_CLOUD_ARCH.md` for IAM, EFS cache mount, and alarm setup.
 

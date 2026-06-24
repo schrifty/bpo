@@ -89,7 +89,7 @@ enable_schedules = true
 terraform apply
 ```
 
-Jobs are defined in `variables.tf` → `scheduled_jobs` (engineering-portfolio 02:00 UTC, export-nightly 03:00, portfolio-batch 04:00; export-weekly optional/disabled).
+Jobs are defined in `variables.tf` → `scheduled_jobs` (default: `decks-engineering-portfolio` 02:00 UTC, `export-nightly` 03:00 UTC). Override `rule_name` on a job when the EventBridge rule should not use `{name_prefix}-{job_key}`.
 
 ## Variables (common)
 
