@@ -194,7 +194,7 @@ def test_productivity_coaching_slide_renders_review_list():
     text = " ".join(
         r["insertText"]["text"] for r in reqs if isinstance(r, dict) and "insertText" in r
     )
-    assert "AI Productivity Coaching Focus" in text
+    assert "Coaching Focus" in text
     assert "heavy" in text
 
 
@@ -251,7 +251,7 @@ def test_ai_productivity_matrix_slide_renders_table():
     text = " ".join(
         r["insertText"]["text"] for r in reqs if isinstance(r, dict) and "insertText" in r
     )
-    assert "AI Productivity Matrix - Engineering" in text
+    assert "AI Productivity Matrix" in text
     assert "High token / high out" in text
     assert "Commits / 1K tokens" in text
     assert "C/1K tok" not in text

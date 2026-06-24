@@ -66,6 +66,38 @@ PROJECT_SLIDE_SUBTITLE = {
     "LEAN": "Engineering escalations",
 }
 
+# User-facing labels for internal Jira board/project codes (never show raw keys on slides).
+_PROJECT_DISPLAY = {
+    "HELP": "Support",
+    "CUSTOMER": "Implementation",
+    "LEAN": "Engineering",
+}
+
+
+def _display_project_code(project: str) -> str:
+    code = (project or "").strip().upper()
+    return _PROJECT_DISPLAY.get(code, (project or "").strip() or "—")
+
+
+def _display_team_name(team: str) -> str:
+    """Compact, executive-friendly squad label."""
+    t = (team or "").strip()
+    if not t:
+        return t
+    upper = t.upper()
+    if "DATA INTEG" in upper:
+        return "Data Integration"
+    if upper.startswith("CUSTOMER"):
+        return "Implementation"
+    if upper.startswith("LEAN"):
+        rest = t[4:].strip(" -")
+        return f"Engineering — {rest}" if rest else "Engineering"
+    return t
+
+
+def _truncate_callout(text: str, *, max_chars: int = 92) -> str:
+    return _truncate_one_line(" ".join((text or "").split()), max_chars)
+
 # Embedded column charts on small slide bands: axis/category text one step above CHART_AXIS_PT (12).
 _SPRINT_SNAPSHOT_CHART_AXIS_PT = CHART_AXIS_PT + 2
 
@@ -189,7 +221,7 @@ def eng_divider_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
     elif "engineering output" in title_key or "github" in title_key:
         bg, title_color = GITHUB_BG, NAVY
     elif "productivity" in title_key:
-        bg, title_color = CURSOR_BG, NAVY
+        bg, title_color = WHITE, NAVY
     else:
         bg, title_color = NAVY, WHITE
 
@@ -314,24 +346,14 @@ def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     _bg(reqs, sid, WHITE)
     _eng_title(reqs, sid, "Team Scorecard", subtitle)
 
-    # Business context: define throughput and lead time; note the two operating models.
-    context = (
-        "Closed = issues resolved in the latest sprint (throughput). Lead time = median "
-        "days from created to resolved. The six LEAN squads run continuous flow; the "
-        "CUSTOMER board runs weekly sprints. Sprint commit-vs-complete % is omitted — it "
-        "is not comparable across these models."
-    )
-    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 28, context)
-    _style(reqs, f"{sid}_ctx", 0, len(context), size=9.5, color=NAVY, font=FONT)
-
-    # One-line portfolio rollup (replaces the old 3 KPI cards so every team row fits).
+    # Business context lives in the subtitle; keep the face uncluttered.
     summary_bits: list[str] = []
     if total_throughput:
         summary_bits.append(f"{total_throughput} closed last sprint")
     if avg_lead is not None:
         summary_bits.append(f"avg lead {_format_scorecard_days(avg_lead)}")
     # ── Native team table ────────────────────────────────────────────────────
-    table_top = BODY_Y + 50
+    table_top = BODY_Y + 8
     col_widths = list(_SCORECARD_COL_WIDTHS)
     headers = ["Team", "Latest sprint", "Closed", "Lead time"]
     # Left-align text columns; right-align the two numeric columns.
@@ -347,8 +369,9 @@ def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
         summary_bits.append(f"+{dropped} more team{'s' if dropped != 1 else ''} not shown")
     summary_line = "   ·   ".join(summary_bits)
     if summary_line:
-        _box(reqs, f"{sid}_sum", sid, MARGIN, BODY_Y + 30, CONTENT_W, 16, summary_line)
-        _style(reqs, f"{sid}_sum", 0, len(summary_line), bold=True, size=10.5, color=NAVY, font=FONT)
+        _box(reqs, f"{sid}_sum", sid, MARGIN, BODY_Y + 2, CONTENT_W, 16, summary_line)
+        _style(reqs, f"{sid}_sum", 0, len(summary_line), bold=True, size=10, color=GRAY, font=FONT)
+        table_top = BODY_Y + 22
     table_id = f"{sid}_tbl"
     reqs.append({
         "createTable": {
@@ -383,7 +406,7 @@ def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     team_chars = max_chars_one_line_for_table_col(col_widths[0], _SCORECARD_BODY_PT)
     sprint_chars = max_chars_one_line_for_table_col(col_widths[1], _SCORECARD_BODY_PT)
     for row_index, team in enumerate(display_teams, start=1):
-        team_name = _truncate_one_line(str(team.get("team") or ""), team_chars)
+        team_name = _truncate_one_line(_display_team_name(str(team.get("team") or "")), team_chars)
         sprint_name = _format_sprint_name_for_display(str(team.get("sprint_name") or ""))
         sprint_name = _truncate_one_line(sprint_name, sprint_chars)
         cycle = _format_scorecard_days(team.get("median_lead_days"))
@@ -491,12 +514,12 @@ def eng_team_roster_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str
         line = _truncate_one_line(prefix + ", ".join(members), mem_chars)
         if line:
             _box(reqs, f"{sid}_mm{i}", sid, MARGIN + mem_indent, y0 + 17, mem_w, 14, line)
-            _style(reqs, f"{sid}_mm{i}", 0, len(line), size=8.5, color=GRAY, font=FONT)
+            _style(reqs, f"{sid}_mm{i}", 0, len(line), size=9, color=GRAY, font=FONT)
             if prefix:
                 dash = line.find("—")
                 bold_end = dash if dash != -1 else min(len(line), len(prefix))
                 if bold_end > 0:
-                    _style(reqs, f"{sid}_mm{i}", 0, bold_end, bold=True, size=8.5, color=NAVY, font=FONT)
+                    _style(reqs, f"{sid}_mm{i}", 0, bold_end, bold=True, size=9, color=NAVY, font=FONT)
 
     return idx + 1
 
@@ -806,16 +829,12 @@ def eng_current_sprint_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     _bg(reqs, sid, WHITE)
     _eng_title(reqs, sid, "Current Sprint", subtitle)
 
-    context = "What the LEAN engineering team is working on in the active sprint."
-    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
-    _style(reqs, f"{sid}_ctx", 0, len(context), size=11, color=NAVY, font=FONT)
-
-    card_y = BODY_Y + 16
+    card_y = BODY_Y + 4
     cards_y = _eng_kpi_row(
         reqs, sid,
         [
-            ("Open (LEAN total)", str(in_flight)),
-            ("Active (in progress/review)", str(active)),
+            ("Open items", str(in_flight)),
+            ("Active now", str(active)),
             ("Bugs in flight", str(bugs)),
             ("Closed this period", str(closed)),
         ],
@@ -1036,42 +1055,29 @@ def eng_capacity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
     engineers_active = sum(1 for r in rows if r["active"] > 0)
 
     if total_active and top3_share >= 60:
-        subtitle = f"Concentrated — top 3 engineers hold {top3_share}% of active WIP"
+        subtitle = f"Top 3 engineers hold {top3_share}% of active WIP"
     elif total_active:
-        subtitle = f"{total_active} active WIP ({total_wip} assigned, {total_stale} stale >{abandoned_days}d)"
+        subtitle = f"{total_active} active items across {engineers_active} engineers"
     else:
-        subtitle = "No active WIP on LEAN board"
+        subtitle = "No active WIP on the engineering board"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
     _eng_title(reqs, sid, "Engineering Load", subtitle)
 
-    unassigned_note = (
-        f" {unassigned_stale} more stale items are unassigned (in the backlog-hygiene total)."
-        if unassigned_stale else ""
-    )
-    context = (
-        f"LEAN board WIP per assignee. Active = touched in the last {active_days}d (real load); "
-        f"Total = all assigned open items; Stale = assigned but untouched >{abandoned_days}d "
-        f"(a subset of Total).{unassigned_note} High Total with near-zero Active and 0 resolved = "
-        "stale assignment, not load."
-    )
-    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 26, context)
-    _style(reqs, f"{sid}_ctx", 0, len(context), size=9.5, color=NAVY, font=FONT)
-
     cards_y = _eng_kpi_row(
         reqs, sid,
         [
-            ("Engineers (active WIP)", str(engineers_active)),
+            ("Engineers (active)", str(engineers_active)),
             (f"Active WIP (\u2264{active_days}d)", str(total_active)),
             (f"Stale WIP (>{abandoned_days}d)", str(total_stale)),
-            ("Top 3 active share", f"{top3_share}%" if total_active else "—"),
+            ("Top 3 share", f"{top3_share}%" if total_active else "—"),
         ],
-        y=BODY_Y + 30,
+        y=BODY_Y + 4,
     )
 
     # Native table: Engineer | Active WIP | Total WIP | Resolved 30d | Resolved 90d.
-    table_top = cards_y + 18
+    table_top = cards_y + 12
     col_widths = [216.0, 102.0, 102.0, 102.0, 102.0]
     headers = ["Engineer", f"Active (\u2264{active_days}d)", "Total WIP", "Resolved 30d", "Resolved 90d"]
     aligns = ["START", "END", "END", "END", "END"]
@@ -1144,7 +1150,7 @@ def _eng_callout_column(
         _style(reqs, f"{sid}_{oid}_e", 0, len(empty), size=10, color=GRAY, font=FONT)
         return cy + 20
     for i, (text, color) in enumerate(items[:max_items]):
-        bullet = f"\u25cf  {text}"
+        bullet = f"\u25cf  {_truncate_callout(text)}"
         _box(reqs, f"{sid}_{oid}_b{i}", sid, x, cy, w, row_h, bullet)
         _style(reqs, f"{sid}_{oid}_b{i}", 0, 1, bold=True, size=10, color=color, font=FONT)
         _style(reqs, f"{sid}_{oid}_b{i}", 1, len(bullet), size=10, color=NAVY, font=FONT)
@@ -1223,11 +1229,8 @@ def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
     epic_progress = eng.get("epic_progress") or {}
     epics_at_risk = int(epic_progress.get("at_risk_count") or 0)
     if epics_at_risk:
-        stalled_keys = ", ".join(
-            str(e.get("key")) for e in (epic_progress.get("epics") or []) if e.get("at_risk")
-        )[:60]
         n = epics_at_risk
-        risks.append((f"{n} initiative{'s' if n != 1 else ''} stalled — open work, no activity in 30d ({stalled_keys})", AMBER))
+        risks.append((f"{n} initiative{'s' if n != 1 else ''} stalled — no child activity in 30d", AMBER))
         actions.append((f"Re-engage or re-scope the {n} stalled initiative{'s' if n != 1 else ''}", AMBER))
     # Sprint hygiene, NOT a delivery miss: the CUSTOMER/Data Integration boards park a
     # large standing backlog inside each weekly sprint, so most of it carries over. This
@@ -1240,8 +1243,8 @@ def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
         else None
     )
     if carryover is not None and carryover >= 25:
-        risks.append((f"CUSTOMER/Data Integration sprints carry ~{carryover} unfinished issues week to week — sprint scope inflated", AMBER))
-        actions.append((f"Trim CUSTOMER/Data Integration sprint scope to a realistic weekly commitment (clear the ~{carryover}-issue standing backlog)", AMBER))
+        risks.append((f"Implementation sprints carry ~{carryover} open items week to week — scope inflated", AMBER))
+        actions.append((f"Right-size Implementation sprint scope (~{carryover} standing backlog)", AMBER))
     if over_90:
         oldest_txt = f", oldest {float(oldest):.0f}d" if oldest is not None else ""
         risks.append((f"{over_90} escalation{'s' if over_90 != 1 else ''} open >90 days{oldest_txt}", AMBER))
@@ -1279,7 +1282,7 @@ def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
     else:
         verdict = "on track"
 
-    subtitle = f"{sprint_name}: {verdict} — what to watch and what to decide"
+    subtitle = f"{sprint_name}: {verdict}"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
@@ -1290,24 +1293,19 @@ def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
         reqs, sid,
         [
             ("Closed (all teams)", "—" if sprint_throughput is None else str(int(sprint_throughput))),
-            ("Velocity (CUSTOMER SP)", vel_value),
+            ("Sprint velocity", vel_value),
             ("Open escalations", str(open_esc)),
             ("Reactive load", f"{reactive_wip_pct}%"),
         ],
-        y=BODY_Y + 22,
+        y=BODY_Y + 8,
     )
 
-    col_top = cards_y + 18
+    col_top = cards_y + 14
     col_gap = 28
     col_w = (CONTENT_W - col_gap) / 2
     right_x = MARGIN + col_w + col_gap
-    _eng_callout_column(reqs, sid, "risk", MARGIN, col_top, col_w, "What to worry about", risks)
-    _eng_callout_column(reqs, sid, "act", right_x, col_top, col_w, "Decisions needed", actions)
-
-    _eng_scope_footer(
-        reqs, sid,
-        f"Synthesis of this deck  ·  {sprint_name}  ·  \u25b2/\u25bc vs prior sprint where data allows  ·  Source: Jira",
-    )
+    _eng_callout_column(reqs, sid, "risk", MARGIN, col_top, col_w, "Watch list", risks)
+    _eng_callout_column(reqs, sid, "act", right_x, col_top, col_w, "Decisions", actions)
     return idx + 1
 
 
@@ -1341,15 +1339,15 @@ def eng_flow_bottlenecks_slide(reqs: list[dict[str, Any]], sid: str, report: dic
     by_status_median = flow.get("by_status_median_active") or status_flow.get("by_status_median_days") or {}
 
     if blocked:
-        subtitle = f"Risk — {blocked} active item{'s' if blocked != 1 else ''} flagged blocked"
+        subtitle = f"{blocked} active item{'s' if blocked != 1 else ''} flagged blocked"
     elif carry:
-        subtitle = f"Risk — {carry} active item{'s' if carry != 1 else ''} carried across sprints"
+        subtitle = f"{carry} active item{'s' if carry != 1 else ''} carried across sprints"
     elif stale_recent:
-        subtitle = f"Bottleneck — {stale_recent} active item{'s' if stale_recent != 1 else ''} stalled 10–{abandoned_days}d"
+        subtitle = f"{stale_recent} item{'s' if stale_recent != 1 else ''} stalled 10–{abandoned_days}d in stage"
     elif abandoned:
-        subtitle = f"Hygiene — {abandoned} active items abandoned in stage >{abandoned_days}d"
+        subtitle = f"{abandoned} item{'s' if abandoned != 1 else ''} abandoned in stage >{abandoned_days}d"
     elif active:
-        subtitle = f"Healthy — {active} active item{'s' if active != 1 else ''} moving"
+        subtitle = f"{active} active item{'s' if active != 1 else ''} in flight"
     else:
         subtitle = "No active work"
 
@@ -1357,27 +1355,19 @@ def eng_flow_bottlenecks_slide(reqs: list[dict[str, Any]], sid: str, report: dic
     _bg(reqs, sid, WHITE)
     _eng_title(reqs, sid, "Flow & Bottlenecks", subtitle)
 
-    context = (
-        "LEAN Engineering board: where active work is piling up or stalling. Recent stalls "
-        f"are actionable; items parked in-stage >{abandoned_days}d are counted separately as "
-        "abandoned (close or re-engage)."
-    )
-    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 26, context)
-    _style(reqs, f"{sid}_ctx", 0, len(context), size=9.5, color=NAVY, font=FONT)
-
     cards_y = _eng_kpi_row(
         reqs, sid,
         [
             ("Active WIP", str(active)),
-            ("In review (chokepoint)", str(in_review)),
+            ("In review", str(in_review)),
             (f"Stalled 10–{abandoned_days}d", str(stale_recent)),
             (f"Abandoned >{abandoned_days}d", str(abandoned)),
         ],
-        y=BODY_Y + 30,
+        y=BODY_Y + 4,
     )
 
     # ── Median time in current stage (changelog) — reveals the real chokepoint ──
-    stage_y = cards_y + 10
+    stage_y = cards_y + 8
     if changelog_on and by_status_median:
         ordered = [
             (s, by_status_median[s])
@@ -1441,7 +1431,7 @@ def eng_flow_bottlenecks_slide(reqs: list[dict[str, Any]], sid: str, report: dic
     _table_column_widths(reqs, table_id, col_widths)
     for ci, h in enumerate(headers):
         _table_cell_text(reqs, table_id, 0, ci, h)
-        _table_cell_style(reqs, table_id, 0, ci, len(h), bold=True, color=GRAY, size=8, font=FONT, align=aligns[ci])
+        _table_cell_style(reqs, table_id, 0, ci, len(h), bold=True, color=GRAY, size=9.5, font=FONT, align=aligns[ci])
 
     summary_chars = max_chars_one_line_for_table_col(col_widths[1], 9.0)
     owner_chars = max_chars_one_line_for_table_col(col_widths[2], 9.0)
@@ -1500,19 +1490,15 @@ def eng_work_split_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
     unplanned_wip = int(wip.get("unplanned") or 0)
 
     if reactive_wip_pct >= 40:
-        subtitle = f"Reactive work dominating — {reactive_wip_pct}% of WIP is unplanned"
+        subtitle = f"{reactive_wip_pct}% of WIP is unplanned reactive work"
     elif (planned_wip + unplanned_wip) > 0:
-        subtitle = f"Roadmap-focused — {100 - reactive_wip_pct}% of WIP is planned"
+        subtitle = f"{100 - reactive_wip_pct}% of WIP is planned roadmap work"
     else:
         subtitle = "No open work"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
     _eng_title(reqs, sid, "Planned vs. Unplanned", subtitle)
-
-    context = "LEAN Engineering board: how much capacity goes to roadmap work versus reactive bugs and escalations."
-    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
-    _style(reqs, f"{sid}_ctx", 0, len(context), size=11, color=NAVY, font=FONT)
 
     cards_y = _eng_kpi_row(
         reqs, sid,
@@ -1522,11 +1508,11 @@ def eng_work_split_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
             ("Reactive share (WIP)", f"{reactive_wip_pct}%"),
             ("Reactive share (closed)", f"{reactive_closed_pct}%"),
         ],
-        y=BODY_Y + 22,
+        y=BODY_Y + 4,
     )
 
     charts = report.get("_charts")
-    body_top = cards_y + 18
+    body_top = cards_y + 12
     col_gap = 24
     left_w = (CONTENT_W - col_gap) // 2
     right_w = CONTENT_W - left_w - col_gap
@@ -1576,27 +1562,6 @@ def eng_bug_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
     _eng_title(reqs, sid, "Bug Health", subtitle)
 
     jira_base = eng.get("base_url", "")
-    bar = f"Open bugs: {len(open_bugs)}   |   Blocker / Critical: {len(blocker_crit)}"
-    _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 16, bar)
-    _style(reqs, f"{sid}_bar", 0, len(bar), size=9, color=GRAY, font=FONT)
-    _style(
-        reqs,
-        f"{sid}_bar",
-        len("Open bugs: "),
-        len(f"Open bugs: {len(open_bugs)}"),
-        bold=True,
-        color=RED if open_bugs else GREEN,
-    )
-    blocker_start = bar.index("Blocker")
-    _style(
-        reqs,
-        f"{sid}_bar",
-        blocker_start,
-        blocker_start + len(f"Blocker / Critical: {len(blocker_crit)}"),
-        bold=True,
-        color=RED if blocker_crit else GREEN,
-    )
-
     prio_color = {
         "Blocker": {"red": 0.85, "green": 0.15, "blue": 0.15},
         "Critical": {"red": 0.9, "green": 0.4, "blue": 0.0},
@@ -1610,7 +1575,7 @@ def eng_bug_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
         by_priority[short] = by_priority.get(short, 0) + 1
 
     prio_order = ["Blocker", "Critical", "Major", "Minor"]
-    body_top = BODY_Y + 18
+    body_top = BODY_Y + 4
     if by_priority:
         prio_label = "By priority:  "
         prio_chunks: list[tuple[int, int, dict[str, float]]] = []
@@ -1746,15 +1711,7 @@ def eng_bug_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
 
 def _short_team_label(team: str) -> str:
     """Compact board label for the velocity chart legend."""
-    t = (team or "").strip()
-    upper = t.upper()
-    if upper.startswith("LEAN"):
-        return "LEAN"
-    if "DATA INTEG" in upper:
-        return "Data Integ."
-    if upper.startswith("CUSTOMER"):
-        return "CUSTOMER"
-    return _truncate_one_line(t, 12)
+    return _truncate_one_line(_display_team_name(team), 12)
 
 
 _VELOCITY_PIPELINE_LABEL_W = 86.0
@@ -2012,17 +1969,7 @@ def eng_epic_progress_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
     _bg(reqs, sid, WHITE)
     _eng_title(reqs, sid, "Initiative Progress", subtitle)
 
-    proj_scope = " + ".join(ep.get("projects") or ["LEAN", "CUSTOMER"])
-    context = (
-        f"In-flight initiatives across {proj_scope} (same scope as the scorecard), ranked by remaining "
-        "open work — near-done and oversized maintenance epics excluded · bar = % of child issues done · "
-        "updated/30d = child issues touched in the last 30 days (movement signal)."
-        + ("" if ep.get("has_due_dates") else " No due dates are set in Jira, so risk uses movement, not dates.")
-    )
-    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 26, context)
-    _style(reqs, f"{sid}_ctx", 0, len(context), size=9.5, color=NAVY, font=FONT)
-
-    top = BODY_Y + 32
+    top = BODY_Y + 8
     n = len(epics)
     row_h = min(44.0, max(30.0, (_ENG_CONTENT_BOTTOM - top) / n))
 
@@ -2064,7 +2011,7 @@ def eng_epic_progress_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
         # Meta line under the name: project · owner · status · activity · risk flags.
         parts: list[str] = []
         if project:
-            parts.append(project)
+            parts.append(_display_project_code(project))
         if owner:
             parts.append(owner.split()[0] if owner else owner)
         if status:
@@ -2079,7 +2026,8 @@ def eng_epic_progress_slide(reqs: list[dict[str, Any]], sid: str, report: dict[s
         _box(reqs, f"{sid}_es{i}", sid, MARGIN + 12, y0 + 16, name_w + max_bar, 13, meta)
         _style(reqs, f"{sid}_es{i}", 0, len(meta), size=8.5, color=GRAY, font=FONT)
         if project:
-            _style(reqs, f"{sid}_es{i}", 0, len(project), bold=True, size=8.5, color=NAVY, font=FONT)
+            disp = _display_project_code(project)
+            _style(reqs, f"{sid}_es{i}", 0, len(disp), bold=True, size=8.5, color=NAVY, font=FONT)
         if flags:
             fstart = meta.index(flags[0])
             _style(reqs, f"{sid}_es{i}", fstart, len(meta), bold=True, size=8.5, color=RED, font=FONT)
@@ -2110,16 +2058,16 @@ def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
         prior = [float(v) for v in sp_total[:-1] if v]
         baseline = (sum(prior) / len(prior)) if prior else None
         if baseline and latest >= baseline * 1.05:
-            subtitle = f"Up — {latest:.0f} SP last sprint, above {baseline:.0f} recent avg"
+            subtitle = f"{latest:.0f} SP last sprint, above {baseline:.0f} recent average"
         elif baseline and latest <= baseline * 0.95:
-            subtitle = f"Down — {latest:.0f} SP last sprint, below {baseline:.0f} recent avg"
+            subtitle = f"{latest:.0f} SP last sprint, below {baseline:.0f} recent average"
         else:
             subtitle = f"{latest:.0f} SP last sprint (~{baseline:.0f} avg)" if baseline \
                 else f"{latest:.0f} SP delivered last sprint"
-        sp_team_names = ", ".join(velocity.get("teams") or []) or "scrum boards"
+        sp_team_names = ", ".join(_display_team_name(t) for t in (velocity.get("teams") or [])) or "scrum boards"
         zero_sp = velocity.get("zero_sp_teams") or []
         no_sp_note = (
-            f" · {', '.join(zero_sp)} run on ticket throughput (no story points)"
+            f" · {', '.join(_display_team_name(t) for t in zero_sp)} use ticket throughput"
             if zero_sp else ""
         )
         # Surface the ticket-throughput trend too — it can fall even when SP looks flat,
@@ -2137,8 +2085,7 @@ def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
             else:
                 tix_note = f" · ~{tix_now} tickets/sprint"
         context = (
-            f"Bars = story points per closed sprint (per SP-estimating board: {sp_team_names}); "
-            f"line = total tickets delivered{no_sp_note}{tix_note}. Aligned by recency."
+            f"Story points by sprint ({sp_team_names}); line = tickets closed{no_sp_note}."
         )
     else:
         recent_throughput = throughput[-4:] if throughput else []
@@ -2154,21 +2101,21 @@ def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
         )
         net = avg_closed - avg_created
         if net > 2:
-            subtitle = f"Backlog shrinking — {net:.0f} more tickets closed than created per week"
+            subtitle = f"Backlog shrinking by ~{net:.0f} tickets per week"
         elif net < -2:
-            subtitle = f"Backlog growing — {abs(net):.0f} more created than closed per week"
+            subtitle = f"Backlog growing by ~{abs(net):.0f} tickets per week"
         else:
-            subtitle = f"Flow balanced — averaging {avg_closed:.0f} tickets closed per week"
-        context = f"Open: {in_flight}   ·   Closed this period: {closed_count}   ·   Last 12 weeks"
+            subtitle = f"~{avg_closed:.0f} tickets closed per week on average"
+        context = ""
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
     _eng_title(reqs, sid, "Velocity", subtitle)
 
-    _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y, CONTENT_W, 24, context)
-    _style(reqs, f"{sid}_bar", 0, len(context), size=9, color=GRAY, font=FONT)
-
-    body_top = BODY_Y + 30
+    body_top = BODY_Y + 8 if not has_sp else BODY_Y + 22
+    if has_sp:
+        _box(reqs, f"{sid}_bar", sid, MARGIN, BODY_Y + 2, CONTENT_W, 14, context)
+        _style(reqs, f"{sid}_bar", 0, len(context), size=9, color=GRAY, font=FONT)
     col_gap = 20
     left_w = (CONTENT_W - col_gap) * 3 // 5
     right_w = CONTENT_W - left_w - col_gap
@@ -2195,7 +2142,7 @@ def eng_velocity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
         )
 
     right_y = body_top
-    _pipeline_hdr = "LEAN pipeline (by status)"
+    _pipeline_hdr = "Engineering pipeline (by status)"
     _box(reqs, f"{sid}_sbh", sid, right_x, right_y, right_w, 14, _pipeline_hdr)
     _style(reqs, f"{sid}_sbh", 0, len(_pipeline_hdr), bold=True, size=10, color=NAVY, font=FONT)
     right_y += 16
@@ -3518,14 +3465,10 @@ def productivity_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dic
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _eng_title(reqs, sid, "Engineering Productivity Summary")
-
-    context = (
-        f"Dev-* engineers · {window_days}d window · "
-        "GitHub output joined to Cursor token spend."
+    _eng_title(
+        reqs, sid, "Engineering Productivity Summary",
+        f"{commits} commits and {merged} merged PRs in {window_days}d",
     )
-    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
-    _style(reqs, f"{sid}_ctx", 0, len(context), size=10, color=GRAY, font=FONT)
 
     kpi_y = _eng_kpi_row(
         reqs, sid,
@@ -3535,7 +3478,7 @@ def productivity_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dic
             ("Tokens (window)", _fmt_tokens(tokens)),
             ("Commits / 1K tokens", cpt_str),
         ],
-        y=BODY_Y + 18,
+        y=BODY_Y + 4,
     )
 
     takeaway = _productivity_takeaway(ai, "productivity_summary", "")
@@ -3553,7 +3496,7 @@ def productivity_trend_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     weekly = ai.get("weekly_trend") or []
 
     _slide(reqs, sid, idx)
-    _cursor_bg(reqs, sid)
+    _bg(reqs, sid, WHITE)
     _eng_title(reqs, sid, "Productivity Trend")
 
     body_top = BODY_Y + 4
@@ -3599,6 +3542,17 @@ def productivity_trend_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
 
 
 _PRODUCTIVITY_COACHING_ROW_STEP = 13.0
+_COACHING_TABLE_COL_WIDTHS: tuple[float, ...] = (280.0, 110.0, 110.0, 124.0)
+_COACHING_TABLE_ALIGNS = ("START", "END", "END", "END")
+_COACHING_TABLE_ROW_H = 22.0
+_COACHING_TABLE_HEADER_PT = 9.0
+_COACHING_TABLE_BODY_PT = 9.0
+
+_GITHUB_REPO_TABLE_COL_WIDTHS: tuple[float, ...] = (340.0, 140.0, 144.0)
+_GITHUB_REPO_TABLE_ALIGNS = ("START", "END", "END")
+_GITHUB_REPO_TABLE_ROW_H = 22.0
+_GITHUB_REPO_TABLE_HEADER_PT = 9.0
+_GITHUB_REPO_TABLE_BODY_PT = 9.0
 
 
 def productivity_coaching_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
@@ -3612,35 +3566,76 @@ def productivity_coaching_slide(reqs: list[dict[str, Any]], sid: str, report: di
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _eng_title(reqs, sid, "AI Productivity Coaching Focus")
-
-    section_y = _cursor_section_header(
-        reqs, sid, "pch", MARGIN, BODY_Y, CONTENT_W,
-        f"High token / low output ({window_days}d, dev-* engineers)",
+    _eng_title(
+        reqs, sid, "Coaching Focus",
+        f"High token / low output engineers ({window_days}d)",
     )
-    y = section_y + 4
+
+    panel_x = MARGIN
+    panel_y = BODY_Y + 4
+    panel_w = CONTENT_W
+    panel_pad = 2.0
+    inner_w = panel_w - 2 * panel_pad
+    col_widths = _scale_col_widths(_COACHING_TABLE_COL_WIDTHS, inner_w)
+    table_x = panel_x + panel_pad
+    table_top = panel_y + panel_pad
+    table_bottom = _ENG_CONTENT_BOTTOM - panel_pad
+    max_body_rows = _table_rows_fit_span(
+        y_top=table_top,
+        y_bottom=table_bottom,
+        row_height_pt=_COACHING_TABLE_ROW_H,
+        reserved_table_rows=1,
+        max_rows_cap=12,
+    )
     if not review:
         empty = "No under-yield engineers flagged in this window"
-        _box(reqs, f"{sid}_pce", sid, MARGIN, y, CONTENT_W, 14, empty)
-        _style(reqs, f"{sid}_pce", 0, len(empty), size=9, color=GRAY, font=FONT)
+        _box(reqs, f"{sid}_pce", sid, MARGIN, table_top, CONTENT_W, 14, empty)
+        _style(reqs, f"{sid}_pce", 0, len(empty), size=10, color=GRAY, font=FONT)
     else:
-        hdr = f"{'Engineer':<24}{'Tokens':>10}{'Commits':>9}{'C/1K tok':>10}"
-        _box(reqs, f"{sid}_pchdr", sid, MARGIN, y, CONTENT_W, 12, hdr)
-        _style(reqs, f"{sid}_pchdr", 0, len(hdr), bold=True, size=8, color=GRAY, font=MONO)
-        y += 14
-        ceiling = _ENG_CONTENT_BOTTOM - 4
-        for i, row in enumerate(review):
-            if y + _PRODUCTIVITY_COACHING_ROW_STEP > ceiling:
-                break
-            email = _short_email(str(row.get("email") or ""), 22)
-            tokens = _fmt_tokens(int(row.get("tokens") or 0))
-            commits = str(int(row.get("commits") or 0))
+        headers = ("Engineer", "Tokens", "Commits", "Commits / 1K tokens")
+        body_rows: list[list[str]] = []
+        for row in review[:max_body_rows]:
             cpt = row.get("commits_per_1k_tokens")
             cpt_str = f"{cpt:g}" if isinstance(cpt, (int, float)) else "—"
-            line = f"{email:<24}{tokens:>10}{commits:>9}{cpt_str:>10}"
-            _box(reqs, f"{sid}_pcr{i}", sid, MARGIN, y, CONTENT_W, 12, line)
-            _style(reqs, f"{sid}_pcr{i}", 0, len(line), size=8, color=NAVY, font=MONO)
-            y += _PRODUCTIVITY_COACHING_ROW_STEP
+            body_rows.append([
+                _short_email(str(row.get("email") or ""), 28),
+                _fmt_tokens(int(row.get("tokens") or 0)),
+                str(int(row.get("commits") or 0)),
+                cpt_str,
+            ])
+        num_rows = 1 + len(body_rows)
+        panel_h = 2 * panel_pad + num_rows * _COACHING_TABLE_ROW_H
+        _bar_rect(reqs, f"{sid}_pcpnl", sid, panel_x, panel_y, panel_w, panel_h, WHITE, outline=GRAY)
+        table_id = f"{sid}_pctbl"
+        reqs.append({
+            "createTable": {
+                "objectId": table_id,
+                "elementProperties": {
+                    "pageObjectId": sid,
+                    "size": _sz(inner_w, num_rows * _COACHING_TABLE_ROW_H),
+                    "transform": _tf(table_x, table_top),
+                },
+                "rows": num_rows,
+                "columns": len(headers),
+            }
+        })
+        _clean_table(reqs, table_id, num_rows, len(headers))
+        _table_column_widths(reqs, table_id, col_widths)
+        for ci, head in enumerate(headers):
+            _table_cell_text(reqs, table_id, 0, ci, head)
+            _table_cell_style(
+                reqs, table_id, 0, ci, len(head),
+                bold=True, color=GRAY, size=_COACHING_TABLE_HEADER_PT, font=FONT,
+                align=_COACHING_TABLE_ALIGNS[ci],
+            )
+        for ri, cells in enumerate(body_rows, start=1):
+            for ci, text in enumerate(cells):
+                _table_cell_text(reqs, table_id, ri, ci, text)
+                _table_cell_style(
+                    reqs, table_id, ri, ci, len(text),
+                    bold=(ci == 0), color=NAVY, size=_COACHING_TABLE_BODY_PT,
+                    font=FONT if ci == 0 else MONO, align=_COACHING_TABLE_ALIGNS[ci],
+                )
 
     takeaway = _productivity_takeaway(ai, "productivity_coaching", "")
     _render_takeaway_band(reqs, sid, takeaway)
@@ -3656,17 +3651,19 @@ def github_engineering_output_slide(reqs: list[dict[str, Any]], sid: str, report
     company = gp.get("company_engineers") or {}
     window_days = int(gp.get("window_days") or 30)
     repos = gp.get("repos_summary") or []
-
-    _slide(reqs, sid, idx)
-    _github_bg(reqs, sid)
-    _eng_title(reqs, sid, "GitHub Engineering Output")
-
     active_repos = sorted(
         (r for r in repos if int(r.get("commits") or 0) >= 1),
         key=lambda r: int(r.get("commits") or 0),
         reverse=True,
     )
     repos_updated = len(active_repos)
+
+    _slide(reqs, sid, idx)
+    _github_bg(reqs, sid)
+    _eng_title(
+        reqs, sid, "GitHub Engineering Output",
+        f"{int(company.get('commits') or 0)} commits across {repos_updated} repos ({window_days}d)",
+    )
 
     kpi_y = _eng_kpi_row(
         reqs, sid,
@@ -3679,27 +3676,74 @@ def github_engineering_output_slide(reqs: list[dict[str, Any]], sid: str, report
         y=BODY_Y,
     )
 
-    body_top = kpi_y + 12
-    list_top = body_top + 4
-    list_ceiling = _ENG_CONTENT_BOTTOM - 4
-    max_rows = max(1, int((list_ceiling - list_top) / _GITHUB_REPO_ROW_STEP))
-    display_repos = active_repos[:max_rows]
-    header = f"Repositories with commits ({window_days}d)"
-    if len(active_repos) > len(display_repos):
-        header += f" — {len(display_repos)} of {len(active_repos)} shown"
-    section_y = _cursor_section_header(
-        reqs, sid, "ghr", MARGIN, body_top, CONTENT_W,
-        header,
+    body_top = kpi_y + 10
+    panel_x = MARGIN
+    panel_y = body_top
+    panel_w = CONTENT_W
+    panel_pad = 2.0
+    inner_w = panel_w - 2 * panel_pad
+    col_widths = _scale_col_widths(_GITHUB_REPO_TABLE_COL_WIDTHS, inner_w)
+    table_x = panel_x + panel_pad
+    table_top = panel_y + panel_pad
+    table_bottom = _ENG_CONTENT_BOTTOM - panel_pad
+    max_body_rows = _table_rows_fit_span(
+        y_top=table_top,
+        y_bottom=table_bottom,
+        row_height_pt=_GITHUB_REPO_TABLE_ROW_H,
+        reserved_table_rows=1,
+        max_rows_cap=14,
     )
-    y = section_y + 2
-    for i, row in enumerate(display_repos):
-        name = str(row.get("full_name") or "")[:42]
-        commits = int(row.get("commits") or 0)
-        prs = int(row.get("merged_prs") or 0)
-        line = f"{name}  —  {commits} commits, {prs} merged PRs"
-        _box(reqs, f"{sid}_gr{i}", sid, MARGIN, y, CONTENT_W, 11, line)
-        _style(reqs, f"{sid}_gr{i}", 0, len(line), size=8, color=NAVY, font=FONT)
-        y += _GITHUB_REPO_ROW_STEP
+    display_repos = active_repos[:max_body_rows]
+    if not display_repos:
+        empty = f"No repositories with commits in the last {window_days}d"
+        _box(reqs, f"{sid}_gre", sid, MARGIN, table_top, CONTENT_W, 14, empty)
+        _style(reqs, f"{sid}_gre", 0, len(empty), size=10, color=GRAY, font=FONT)
+    else:
+        headers = ("Repository", "Commits", "Merged PRs")
+        body_rows = [
+            [
+                _github_repo_display_name(str(row.get("full_name") or "")),
+                str(int(row.get("commits") or 0)),
+                str(int(row.get("merged_prs") or 0)),
+            ]
+            for row in display_repos
+        ]
+        num_rows = 1 + len(body_rows)
+        panel_h = 2 * panel_pad + num_rows * _GITHUB_REPO_TABLE_ROW_H
+        _bar_rect(reqs, f"{sid}_grpnl", sid, panel_x, panel_y, panel_w, panel_h, WHITE, outline=GRAY)
+        table_id = f"{sid}_grtbl"
+        reqs.append({
+            "createTable": {
+                "objectId": table_id,
+                "elementProperties": {
+                    "pageObjectId": sid,
+                    "size": _sz(inner_w, num_rows * _GITHUB_REPO_TABLE_ROW_H),
+                    "transform": _tf(table_x, table_top),
+                },
+                "rows": num_rows,
+                "columns": len(headers),
+            }
+        })
+        _clean_table(reqs, table_id, num_rows, len(headers))
+        _table_column_widths(reqs, table_id, col_widths)
+        for ci, head in enumerate(headers):
+            _table_cell_text(reqs, table_id, 0, ci, head)
+            _table_cell_style(
+                reqs, table_id, 0, ci, len(head),
+                bold=True, color=GRAY, size=_GITHUB_REPO_TABLE_HEADER_PT, font=FONT,
+                align=_GITHUB_REPO_TABLE_ALIGNS[ci],
+            )
+        repo_chars = max_chars_one_line_for_table_col(col_widths[0], _GITHUB_REPO_TABLE_BODY_PT)
+        for ri, cells in enumerate(body_rows, start=1):
+            cells = list(cells)
+            cells[0] = _truncate_one_line(cells[0], repo_chars)
+            for ci, text in enumerate(cells):
+                _table_cell_text(reqs, table_id, ri, ci, text)
+                _table_cell_style(
+                    reqs, table_id, ri, ci, len(text),
+                    bold=(ci == 0), color=NAVY, size=_GITHUB_REPO_TABLE_BODY_PT,
+                    font=FONT, align=_GITHUB_REPO_TABLE_ALIGNS[ci],
+                )
 
     takeaway = _productivity_takeaway(
         gp,
@@ -3823,7 +3867,7 @@ def github_delivery_flow_slide(reqs: list[dict[str, Any]], sid: str, report: dic
     charts = report.get("_charts")
     if weekly and charts:
         try:
-            chart_title = f"Commits vs merged PRs by week (dev-* engineers, {window_days}d)"
+            chart_title = f"Commits vs merged PRs by week ({window_days}d, engineering team)"
             labels = [str(w.get("label") or w.get("week") or "") for w in weekly]
             commit_series = [int(w.get("engineer_commits") or 0) for w in weekly]
             pr_series = [int(w.get("engineer_merged_prs") or 0) for w in weekly]
@@ -4164,7 +4208,7 @@ def ai_productivity_matrix_slide(reqs: list[dict[str, Any]], sid: str, report: d
 
     _slide(reqs, sid, idx)
     _cursor_bg(reqs, sid)
-    _eng_title(reqs, sid, "AI Productivity Matrix - Engineering")
+    _eng_title(reqs, sid, "AI Productivity Matrix")
 
     kpi_y = _eng_kpi_row(
         reqs, sid,
@@ -4456,13 +4500,7 @@ def eng_support_pressure_slide(reqs: list[dict[str, Any]], sid: str, report: dic
     _bg(reqs, sid, WHITE)
     _eng_title(reqs, sid, "Support Pressure", subtitle)
 
-    end_d = date.today()
-    start_d = end_d - timedelta(days=days)
-    context = f"{start_d.strftime('%b %-d')} – {end_d.strftime('%b %-d, %Y')}  ({days}d)"
-    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
-    _style(reqs, f"{sid}_ctx", 0, len(context), size=9, color=GRAY, font=FONT)
-
-    body_top = BODY_Y + 18
+    body_top = BODY_Y + 4
     col_gap = 24
     left_w = (CONTENT_W - col_gap) * 3 // 5
     right_w = CONTENT_W - left_w - col_gap

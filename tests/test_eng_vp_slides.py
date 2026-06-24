@@ -177,7 +177,7 @@ def test_exec_summary_flags_attention_and_renders_callouts() -> None:
     assert _has_obj(reqs, "sid_es_act_b0")  # decisions-needed bullet
     # Sprint backlog is framed as hygiene/carryover, not a delivery miss.
     body = _all_text(reqs)
-    assert "unfinished issues" in body
+    assert "open items" in body
     assert "commitments slipping" not in body
     assert "delivery" not in body.lower()
 
@@ -196,7 +196,6 @@ def test_exec_summary_feeds_initiative_risk() -> None:
     eng_exec_summary_slide(reqs, "sid_ir", report, 0)
     body = _all_text(reqs)
     assert "2 initiatives stalled" in body
-    assert "LEAN-100" in body and "LEAN-200" in body
 
 
 def test_flow_slide_titles_bottleneck_and_lists_stalled() -> None:
@@ -259,6 +258,6 @@ def test_work_split_titles_reactive_dominance() -> None:
     reqs: list = []
     eng_work_split_slide(reqs, "sid_ws", _report(), 0)
     assert _title(reqs, "sid_ws") == "Planned vs. Unplanned"
-    assert "Reactive work dominating" in _subtitle(reqs, "sid_ws")
+    assert "unplanned reactive work" in _subtitle(reqs, "sid_ws")
     assert "50%" in _subtitle(reqs, "sid_ws")
     assert _has_obj(reqs, "sid_ws_kpi3_v")

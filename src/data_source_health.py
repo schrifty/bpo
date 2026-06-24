@@ -6,6 +6,8 @@ deck runs abort with a clear error instead of proceeding with partial data.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from .config import (
     PENDO_INTEGRATION_KEY,
     SF_LOGIN_URL,
@@ -32,9 +34,26 @@ def check_pendo() -> tuple[bool, str | None]:
         return False, f"Pendo: {str(e)[:120]}"
 
 
+def _salesforce_private_key_available() -> bool:
+    """True when JWT auth material is present (inline PEM or readable key file)."""
+    if SF_PRIVATE_KEY and str(SF_PRIVATE_KEY).strip():
+        return True
+    if SF_PRIVATE_KEY_PATH:
+        path = Path(SF_PRIVATE_KEY_PATH).expanduser()
+        if path.is_file():
+            return True
+        logger.warning("SF_PRIVATE_KEY_PATH file not found: %s", path)
+    return False
+
+
 def _salesforce_configured() -> bool:
-    """True if any Salesforce credential is set (we expect the app to use SF)."""
-    return bool(SF_LOGIN_URL and SF_CONSUMER_KEY and SF_USERNAME and (SF_PRIVATE_KEY or SF_PRIVATE_KEY_PATH))
+    """True when Salesforce JWT credentials are complete and usable."""
+    return bool(
+        SF_LOGIN_URL
+        and SF_CONSUMER_KEY
+        and SF_USERNAME
+        and _salesforce_private_key_available()
+    )
 
 
 def check_salesforce() -> tuple[bool, str | None]:
@@ -118,7 +137,7 @@ def integration_freshness_metadata() -> dict[str, object]:
     )
     from .salesforce_client import salesforce_read_cache_age_hours
 
-    sf_configured = bool(SF_LOGIN_URL and SF_CONSUMER_KEY and SF_USERNAME)
+    sf_configured = _salesforce_configured()
     meta: dict[str, object] = {
         "github_configured": bool(GITHUB_TOKEN),
         "cursor_configured": bool(CURSOR_ADMIN_API_KEY),
