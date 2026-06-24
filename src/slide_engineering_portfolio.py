@@ -101,6 +101,10 @@ def _truncate_callout(text: str, *, max_chars: int = 92) -> str:
 # Embedded column charts on small slide bands: axis/category text one step above CHART_AXIS_PT (12).
 _SPRINT_SNAPSHOT_CHART_AXIS_PT = CHART_AXIS_PT + 2
 
+# KPI band placement (see docs/PRESENTATION/SLIDE_DESIGN_STANDARDS.md).
+_ENG_KPI_AFTER_TITLE_Y = BODY_Y + 4
+_ENG_KPI_AFTER_CONTEXT_Y = BODY_Y + 20
+
 
 def _format_sprint_name_for_display(name: str) -> str:
     """Normalize Jira sprint labels (e.g. ``Sprint590`` → ``Sprint 590``)."""
@@ -346,14 +350,27 @@ def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     _bg(reqs, sid, WHITE)
     _eng_title(reqs, sid, "Team Scorecard", subtitle)
 
-    # Business context lives in the subtitle; keep the face uncluttered.
-    summary_bits: list[str] = []
-    if total_throughput:
-        summary_bits.append(f"{total_throughput} closed last sprint")
+    context = (
+        "Closed = issues resolved in the latest sprint; lead time = median days created→resolved. "
+        "Engineering squads use continuous flow; Implementation uses weekly sprints."
+    )
+    _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
+    _style(reqs, f"{sid}_ctx", 0, len(context), size=10, color=GRAY, font=FONT)
+
+    total_sp = summary.get("total_story_points_delivered")
+    kpi_cards: list[tuple[str, str]] = []
+    if total_throughput is not None:
+        kpi_cards.append(("Closed (sprint)", str(int(total_throughput))))
+    if total_sp:
+        kpi_cards.append(("Story points", f"{float(total_sp):.0f}"))
     if avg_lead is not None:
-        summary_bits.append(f"avg lead {_format_scorecard_days(avg_lead)}")
+        kpi_cards.append(("Avg lead time", _format_scorecard_days(avg_lead)))
+    kpi_cards.append(("Squads", str(len(teams))))
+
+    cards_y = _eng_kpi_row(reqs, sid, kpi_cards[:4], y=_ENG_KPI_AFTER_CONTEXT_Y, h=50)
+
     # ── Native team table ────────────────────────────────────────────────────
-    table_top = BODY_Y + 8
+    table_top = cards_y + 12
     col_widths = list(_SCORECARD_COL_WIDTHS)
     headers = ["Team", "Latest sprint", "Closed", "Lead time"]
     # Left-align text columns; right-align the two numeric columns.
@@ -366,12 +383,10 @@ def eng_team_scorecard_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
     # Flag any teams that didn't fit so the rollup line never hides dropped rows.
     dropped = len(teams) - len(display_teams)
     if dropped > 0:
-        summary_bits.append(f"+{dropped} more team{'s' if dropped != 1 else ''} not shown")
-    summary_line = "   ·   ".join(summary_bits)
-    if summary_line:
-        _box(reqs, f"{sid}_sum", sid, MARGIN, BODY_Y + 2, CONTENT_W, 16, summary_line)
-        _style(reqs, f"{sid}_sum", 0, len(summary_line), bold=True, size=10, color=GRAY, font=FONT)
-        table_top = BODY_Y + 22
+        note = f"+{dropped} more team{'s' if dropped != 1 else ''} not shown"
+        _box(reqs, f"{sid}_drop", sid, MARGIN, table_top, CONTENT_W, 12, note)
+        _style(reqs, f"{sid}_drop", 0, len(note), size=9, color=GRAY, font=FONT)
+        table_top += 14
     table_id = f"{sid}_tbl"
     reqs.append({
         "createTable": {
@@ -969,7 +984,7 @@ def eng_backlog_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[
             ("Avg resolve cycle", _fmt_days(avg_cycle)),
             ("Resolved (6 mo)", resolved_label),
         ],
-        y=BODY_Y + 22,
+        y=_ENG_KPI_AFTER_CONTEXT_Y,
     )
 
     charts = report.get("_charts")
@@ -1073,7 +1088,7 @@ def eng_capacity_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
             (f"Stale WIP (>{abandoned_days}d)", str(total_stale)),
             ("Top 3 share", f"{top3_share}%" if total_active else "—"),
         ],
-        y=BODY_Y + 4,
+        y=_ENG_KPI_AFTER_TITLE_Y,
     )
 
     # Native table: Engineer | Active WIP | Total WIP | Resolved 30d | Resolved 90d.
@@ -1297,7 +1312,7 @@ def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
             ("Open escalations", str(open_esc)),
             ("Reactive load", f"{reactive_wip_pct}%"),
         ],
-        y=BODY_Y + 8,
+        y=_ENG_KPI_AFTER_TITLE_Y + 4,
     )
 
     col_top = cards_y + 14
@@ -1363,7 +1378,7 @@ def eng_flow_bottlenecks_slide(reqs: list[dict[str, Any]], sid: str, report: dic
             (f"Stalled 10–{abandoned_days}d", str(stale_recent)),
             (f"Abandoned >{abandoned_days}d", str(abandoned)),
         ],
-        y=BODY_Y + 4,
+        y=_ENG_KPI_AFTER_TITLE_Y,
     )
 
     # ── Median time in current stage (changelog) — reveals the real chokepoint ──
@@ -1508,7 +1523,7 @@ def eng_work_split_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
             ("Reactive share (WIP)", f"{reactive_wip_pct}%"),
             ("Reactive share (closed)", f"{reactive_closed_pct}%"),
         ],
-        y=BODY_Y + 4,
+        y=_ENG_KPI_AFTER_TITLE_Y,
     )
 
     charts = report.get("_charts")
@@ -1901,7 +1916,7 @@ def eng_bug_flow_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, A
             (f"Resolved ({wk_n}w)", str(resolved_total)),
             ("Net change", net_txt),
         ],
-        y=BODY_Y + 22,
+        y=_ENG_KPI_AFTER_CONTEXT_Y,
     )
 
     charts = report.get("_charts")
@@ -2512,7 +2527,7 @@ def cursor_cost_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, An
             ("Active engineers", str(active)),
             ("Total included usage", _fmt_cents(included_cents)),
         ],
-        y=BODY_Y,
+        y=_ENG_KPI_AFTER_TITLE_Y,
     )
 
     body_top = kpi_y + 12
@@ -2722,7 +2737,7 @@ def _render_cursor_usage_slide(
             ("Output tokens", _fmt_tokens(output_tokens)),
             ("Requests", _fmt_tokens(events)),
         ],
-        y=BODY_Y,
+        y=_ENG_KPI_AFTER_TITLE_Y,
     )
 
     body_top = kpi_y + 12
@@ -3050,7 +3065,7 @@ def _render_cursor_efficiency_output_slide(
             ("Lines / 1K tokens", per_1k_str),
             ("Cost / accepted line", _fmt_cents_per_line(cents_per_line)),
         ],
-        y=BODY_Y,
+        y=_ENG_KPI_AFTER_TITLE_Y,
     )
 
     body_top = kpi_y + 12
@@ -3346,7 +3361,7 @@ def _render_cursor_users_slide(
             ("Top-user share", f"{top_share}%" if top_share else "—"),
             ("Top-3 share", f"{top3_share}%" if top3_share else "—"),
         ],
-        y=BODY_Y,
+        y=_ENG_KPI_AFTER_TITLE_Y,
     )
 
     body_top = kpi_y + 12
@@ -3478,7 +3493,7 @@ def productivity_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dic
             ("Tokens (window)", _fmt_tokens(tokens)),
             ("Commits / 1K tokens", cpt_str),
         ],
-        y=BODY_Y + 4,
+        y=_ENG_KPI_AFTER_TITLE_Y,
     )
 
     takeaway = _productivity_takeaway(ai, "productivity_summary", "")
@@ -3673,7 +3688,7 @@ def github_engineering_output_slide(reqs: list[dict[str, Any]], sid: str, report
             ("Lines added", _fmt_tokens(int(company.get("lines_added") or 0))),
             ("Repos Updated", str(repos_updated)),
         ],
-        y=BODY_Y,
+        y=_ENG_KPI_AFTER_TITLE_Y,
     )
 
     body_top = kpi_y + 10
@@ -3790,7 +3805,7 @@ def github_engineer_contribution_slide(reqs: list[dict[str, Any]], sid: str, rep
             ("Top 3 share", top_share),
             ("Median PR cycle", _fmt_pr_cycle_hours(company.get("median_pr_cycle_hours"))),
         ],
-        y=BODY_Y,
+        y=_ENG_KPI_AFTER_TITLE_Y,
     )
 
     section_y = _cursor_section_header(
@@ -3860,7 +3875,7 @@ def github_delivery_flow_slide(reqs: list[dict[str, Any]], sid: str, report: dic
             ("Median PR cycle", _fmt_pr_cycle_hours(company.get("median_pr_cycle_hours"))),
             (f"Releases ({window_days}d)", str(int(org.get("releases") or 0))),
         ],
-        y=BODY_Y,
+        y=_ENG_KPI_AFTER_TITLE_Y,
     )
 
     body_top = kpi_y + 12
@@ -3992,7 +4007,7 @@ def github_change_profile_slide(reqs: list[dict[str, Any]], sid: str, report: di
             ("Net lines", _fmt_tokens(lines_net)),
             ("Delete ratio", del_ratio),
         ],
-        y=BODY_Y,
+        y=_ENG_KPI_AFTER_TITLE_Y,
     )
 
     col_widths_base = _GITHUB_CHANGE_TABLE_COL_WIDTHS
@@ -4099,7 +4114,7 @@ def ai_output_correlation_slide(reqs: list[dict[str, Any]], sid: str, report: di
             ("Commits / 1K tokens", f"{cpt:g}" if isinstance(cpt, (int, float)) else "—"),
             ("Token↔commit r", corr_str),
         ],
-        y=BODY_Y,
+        y=_ENG_KPI_AFTER_TITLE_Y,
     )
 
     body_top = kpi_y + 12
@@ -4216,7 +4231,7 @@ def ai_productivity_matrix_slide(reqs: list[dict[str, Any]], sid: str, report: d
             (label, str(int(counts.get(key) or 0)))
             for key, label in _AI_MATRIX_QUADRANT_KPI
         ],
-        y=BODY_Y,
+        y=_ENG_KPI_AFTER_TITLE_Y,
         h=48.0,
     )
 

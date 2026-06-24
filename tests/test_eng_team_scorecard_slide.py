@@ -68,6 +68,22 @@ def test_eng_team_scorecard_slide_renders_table() -> None:
     assert alignments[(1, 2)] == "END"
     assert alignments[(1, 3)] == "END"
 
+    kpi_outlines = [
+        r["createShape"]["objectId"]
+        for r in reqs
+        if isinstance(r, dict)
+        and "createShape" in r
+        and str(r["createShape"].get("objectId", "")).startswith("sid_sc_kpi")
+        and r["createShape"].get("shapeType") == "RECTANGLE"
+    ]
+    assert len(kpi_outlines) >= 3, "scorecard should render shared KPI metric cards via _kpi_metric_card"
+    kpi_values = {
+        r["insertText"]["objectId"]
+        for r in reqs
+        if isinstance(r, dict) and "insertText" in r and r["insertText"].get("objectId", "").endswith("_v")
+    }
+    assert "sid_sc_kpi0_v" in kpi_values
+
 
 def test_eng_team_scorecard_slide_missing_data() -> None:
     reqs: list = []
