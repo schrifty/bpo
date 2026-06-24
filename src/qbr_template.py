@@ -359,7 +359,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
     Creates ``<QBR Generator>/Output/{date} - Output/{customer} — QBR ({quarter})/`` (unless
     ``GOOGLE_QBR_OUTPUT_PARENT_ID`` overrides the parent of ``{date} - Output``), and places the hydrated
     QBR presentation there. Other decks (health review, portfolio, cohort, etc.) are generated separately via
-    ``decks.py`` / ``create_health_deck`` as needed.
+    ``cortex.py`` / ``create_health_deck`` as needed.
 
     After preload, may auto-build/upload the Drive portfolio snapshot once per calendar day (see
     ``ensure_daily_portfolio_snapshot_for_qbr``) for portfolio-style runs that consume it.

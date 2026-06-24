@@ -90,3 +90,17 @@ output "run_task_engineering_portfolio" {
 output "scheduled_job_rules" {
   value = [for k, r in aws_cloudwatch_event_rule.job : r.name]
 }
+
+output "schedule_alarm_sns_topic_arn" {
+  description = "Subscribe email/SMS here for scheduled job failure alerts (aws sns subscribe ...)"
+  value = var.alarm_sns_topic_arn != "" ? var.alarm_sns_topic_arn : (
+    length(aws_sns_topic.schedule_alarms) > 0 ? aws_sns_topic.schedule_alarms[0].arn : null
+  )
+}
+
+output "schedule_cloudwatch_alarms" {
+  value = var.enable_schedule_alarms ? concat(
+    [aws_cloudwatch_metric_alarm.run_summary_failed[0].alarm_name],
+    [for k, a in aws_cloudwatch_metric_alarm.eventbridge_failed_invocations : a.alarm_name],
+  ) : []
+}

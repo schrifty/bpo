@@ -19,8 +19,8 @@ See `infra/terraform/README.md` for ECR push, secrets upload, and schedules.
 
 ```bash
 cp .env.example .env   # fill keys
-python3 decks.py run-job --job nightly-core --dry-run
-python3 decks.py run-job --job engineering-portfolio
+python3 cortex.py run-job --job nightly-core --dry-run
+python3 cortex.py run-job --job engineering-portfolio
 ```
 
 Optional unattended strictness (matches AWS default):
@@ -28,7 +28,7 @@ Optional unattended strictness (matches AWS default):
 ```bash
 export CORTEX_FAIL_ON_INTEGRATION_WARNINGS=1
 export CORTEX_LOG_FORMAT=json
-python3 decks.py run-job --job export-weekly
+python3 cortex.py run-job --job export-weekly
 ```
 
 ### AWS (ECS Fargate + EventBridge)
@@ -70,7 +70,7 @@ This doc describes one architecture that supports all three: sync now, cron and 
 To support Drive, you need an **HTTP endpoint** that receives notifications and starts the right job. So the shape is:
 
 - **One place that runs the script:** EC2, or Lambda (short jobs) + ECS (long jobs).
-- **Sync:** You invoke that place (SSH + `decks.py`, or POST to an API).
+- **Sync:** You invoke that place (SSH + `cortex.py`, or POST to an API).
 - **Cron:** EventBridge (or cron on EC2) invokes the same runner on a schedule.
 - **Drive:** Google can send a webhook to your endpoint; the handler triggers the runner (e.g. `decks hydrate` for group intake).
 
@@ -92,7 +92,7 @@ Single box that does everything: run the script, run cron, and accept a webhook 
 Clone repo, create venv, `pip install -r requirements.txt`. Then either:
 
 - **Quick:** Copy your laptop `.env` to the server and the Google service account JSON to e.g. `/opt/cortex/keys/`; set `GOOGLE_APPLICATION_CREDENTIALS` to that path.
-- **Production:** Store env vars and the Google SA JSON in **AWS Secrets Manager**. Before each run, load them (e.g. a small script that fetches secrets, writes the JSON to `/tmp/sa.json`, exports env, then runs `python decks.py "$@"`). Grant the EC2 instance role permission to read those secrets.
+- **Production:** Store env vars and the Google SA JSON in **AWS Secrets Manager**. Before each run, load them (e.g. a small script that fetches secrets, writes the JSON to `/tmp/sa.json`, exports env, then runs `python cortex.py "$@"`). Grant the EC2 instance role permission to read those secrets.
 
 ### 3. Synchronous (today)
 
@@ -102,18 +102,18 @@ Run the script when you want:
 # SSH into EC2, or run via SSM Run Command
 # There is no committed load_secrets.sh; use your own wrapper that loads AWS Secrets Manager
 # (or .env), exports env vars, then runs the CLI, for example:
-cd /opt/cortex && python decks.py "health review for Carrier"
-cd /opt/cortex && python decks.py hydrate
+cd /opt/cortex && python cortex.py "health review for Carrier"
+cd /opt/cortex && python cortex.py hydrate
 ```
 
-Optional: add a tiny API (e.g. Flask/FastAPI) that accepts `POST /run` with `{"prompt": "health review for all customers"}` and runs `decks.py` in a subprocess or background thread, so you can call it from your laptop without SSH.
+Optional: add a tiny API (e.g. Flask/FastAPI) that accepts `POST /run` with `{"prompt": "health review for all customers"}` and runs `cortex.py` in a subprocess or background thread, so you can call it from your laptop without SSH.
 
 ### 4. Nightly cron (soon)
 
 ```bash
 crontab -e
 # Every night at 2am UTC
-0 2 * * * cd /opt/cortex && python decks.py "health review for all customers" >> /var/log/cortex.log 2>&1
+0 2 * * * cd /opt/cortex && python cortex.py "health review for all customers" >> /var/log/cortex.log 2>&1
 ```
 
 Or use **EventBridge** with a cron rule to trigger the same command (e.g. via SSM Run Command on the EC2 instance), so you keep scheduling in AWS.
@@ -148,7 +148,7 @@ Google Drive can notify an URL when a file or folder changes (**Push Notificatio
 
 If you prefer not to manage EC2:
 
-- **Sync + webhook:** API Gateway + Lambda. Lambda receives your sync request or the Drive webhook, then either runs a short `decks` command (if you fit in 15 min) or starts an **ECS Fargate task** that runs `decks.py` (for “all customers”, hydrate, etc.).
+- **Sync + webhook:** API Gateway + Lambda. Lambda receives your sync request or the Drive webhook, then either runs a short `cortex` command (if you fit in 15 min) or starts an **ECS Fargate task** that runs `cortex.py` (for “all customers”, hydrate, etc.).
 - **Cron:** EventBridge rule triggers the same Lambda (or triggers ECS RunTask directly) to run the nightly job.
 
 Trade-off: more moving parts (Lambda, ECS, IAM, task definitions), but no server to patch. The Drive webhook is still “HTTP endpoint → run job”; the endpoint is Lambda instead of a process on EC2.
@@ -159,7 +159,7 @@ Trade-off: more moving parts (Lambda, ECS, IAM, task definitions), but no server
 
 | Your need              | Approach                                              |
 |------------------------|--------------------------------------------------------|
-| Sync (now)             | Run `decks.py` on EC2 via SSH (or POST to small API). |
+| Sync (now)             | Run `cortex.py` on EC2 via SSH (or POST to small API). |
 | Nightly run (soon)     | Cron on EC2, or EventBridge → Lambda/ECS.             |
 | Drive events (soon)    | Public HTTPS webhook → verify → run `decks hydrate` (or evaluate). Webhook = Lambda or small server on EC2. |
 

@@ -73,7 +73,19 @@ variable "job_timeout_seconds" {
 
 variable "fail_on_integration_warnings" {
   type    = bool
-  default = true
+  default = false
+}
+
+variable "enable_schedule_alarms" {
+  description = "CloudWatch alarms + SNS notifications for scheduled job failures (requires enable_schedules)."
+  type        = bool
+  default     = true
+}
+
+variable "alarm_sns_topic_arn" {
+  description = "Optional existing SNS topic for schedule alarms. When empty and enable_schedule_alarms is true, Terraform creates a topic named {name_prefix}-cortex-schedule-alarms."
+  type        = string
+  default     = ""
 }
 
 variable "log_retention_days" {

@@ -20,7 +20,7 @@ from .run_diagnostics import run_diagnostics_scope, run_phase
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _JOBS_DIR = _PROJECT_ROOT / "config" / "jobs"
-_DECKS_PY = _PROJECT_ROOT / "decks.py"
+_CORTEX_PY = _PROJECT_ROOT / "cortex.py"
 
 
 @dataclass
@@ -164,7 +164,7 @@ def run_step_subprocess(
     logger.info("job step start: %s (%s)", name, " ".join(argv))
     try:
         proc = subprocess.run(
-            [sys.executable, str(_DECKS_PY), *argv],
+            [sys.executable, str(_CORTEX_PY), *argv],
             cwd=str(_PROJECT_ROOT),
             env=env,
             timeout=timeout_seconds if timeout_seconds > 0 else None,
@@ -242,7 +242,7 @@ def run_job(
         print(f"Job: {spec.name} (run_id={run_id})")
         for step in spec.steps:
             argv = build_step_argv(step)
-            print(f"  - {step.get('name', step.get('command'))}: python3 decks.py {' '.join(argv)}")
+            print(f"  - {step.get('name', step.get('command'))}: python3 cortex.py {' '.join(argv)}")
         return 0
 
     preflight_errors = check_all_required()

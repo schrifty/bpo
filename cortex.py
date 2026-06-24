@@ -1,32 +1,32 @@
 #!/usr/bin/env python3
-"""decks — build Google Slides decks (CS health, portfolio, Jira) and run tooling.
+"""cortex — build Google Slides decks (CS health, portfolio, Jira) and run tooling.
 
 All deck generation uses explicit flags or subcommands (no natural-language / LLM parsing).
 
 ────────────────────────────────────────────────────────────────
 Flag commands (utilities)
 ────────────────────────────────────────────────────────────────
-  decks --help, -h
+  cortex --help, -h
       Show this text.
 
-  decks --list
+  cortex --list
       Print configured deck ids and display names (from local YAML), grouped into
       customer-scoped vs portfolio / cross-customer decks.
 
-  decks --hydrate [customer]
+  cortex --hydrate [customer]
       Hydrate slide content for presentations shared with the intake group (see .env:
       GOOGLE_HYDRATE_INTAKE_GROUP). Optional customer name overrides detection.
 
-  decks --evaluate [--verbose|-v]
+  cortex --evaluate [--verbose|-v]
       Run reproducibility checks on slides. Summary prints at the end.
 
-  decks --qa <url-or-presentation-id>
+  cortex --qa <url-or-presentation-id>
       Visual QA for one presentation (URL may contain /presentation/d/<id>/).
 
-  decks --sync-config [--sync-overwrite]
+  cortex --sync-config [--sync-overwrite]
       Upload deck/slide YAML config to Google Drive.
 
-  decks --upload-portfolio-snapshot [--days N] [--max-customers M]
+  cortex --upload-portfolio-snapshot [--days N] [--max-customers M]
       Run full Pendo portfolio crawl and upload JSON to the portfolio snapshot
       folder: CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID if set, else "Cache" under QBR generator
       under GOOGLE_QBR_GENERATOR_FOLDER_ID. If you omit --days, uses the same
@@ -34,19 +34,19 @@ Flag commands (utilities)
       QBR may auto-refresh this snapshot on weekends when Drive needs an update (see
       ``pendo_portfolio_snapshot_drive.ensure_daily_portfolio_snapshot_for_qbr``).
 
-  decks --customer "Customer Name" [--days N] [--quarter Q1 2026] [--thumbnails] [--workers N]
-      Run every **customer-scoped** deck id (see ``decks --list``) for one account, in sequence.
+  cortex --customer "Customer Name" [--days N] [--quarter Q1 2026] [--thumbnails] [--workers N]
+      Run every **customer-scoped** deck id (see ``cortex --list``) for one account, in sequence.
       Pauses briefly between decks to reduce Drive rate limits.
 
-  decks --portfolio [--days N] [--max-customers M] [--quarter …] [--thumbnails] [--csm "Name"]
+  cortex --portfolio [--days N] [--max-customers M] [--quarter …] [--thumbnails] [--csm "Name"]
       Run every **portfolio** deck: portfolio_review, cohort_review, engineering-portfolio,
       implementations_review, support_review_portfolio. Optional ``--csm`` also runs ``csm_book_of_business``
       for that Pendo CSM substring. No customer name — these decks are org- or all-customer scoped.
 
-  decks --data
+  cortex --data
       Print canonical data element paths from ``config/comprehensive_data_element_list.json``.
 
-  decks --export [--days N] [--max-bytes N] [--signals-cap N]
+  cortex --export [--days N] [--max-bytes N] [--signals-cap N]
       [--customers-sf-allowlist] [--customers-exclude-sf-churned]
       [--exclude-customer LABEL ...]
       Build the all-customers LLM context markdown snapshot and upload it to Drive **twice**: under
@@ -54,56 +54,60 @@ Flag commands (utilities)
       ``Output/{ISO-date} - Output/LLM-Context-All_Customers.md`` (same calendar day).
       Section 7 LLM churn/account-risk insights are always appended to the export markdown.
 
-  decks --schedule [--prefix NAME] [--region REGION]
+  cortex --schedule [--prefix NAME] [--region REGION]
       Show EventBridge cron schedules for ECS batch jobs (live AWS when credentials are available,
-      plus catalog defaults from ``infra/terraform/variables.tf``). Cron times are UTC. Set
-      ``CORTEX_SCHEDULE_NAME_PREFIX`` when rules use a non-default prefix (e.g. ``bpo``).
+      plus catalog defaults from ``infra/terraform/variables.tf``). Cron times are UTC.
+      Default prefix: ``CORTEX_SCHEDULE_NAME_PREFIX`` or ``bpo`` (matches deployed AWS ``name_prefix``).
 
-  decks run-job --job <name> [--dry-run] [--no-json-summary]
+  cortex --running [--cluster NAME] [--family FAMILY] [--region REGION]
+      List ECS Fargate tasks currently running Cortex batch jobs (``desiredStatus=RUNNING``).
+      Defaults: ``CORTEX_ECS_*``, ``terraform.tfvars`` ``name_prefix``, or ``bpo`` / ``bpo-decks``.
+
+  cortex run-job --job <name> [--dry-run] [--no-json-summary]
       Run a declarative batch job from ``config/jobs/<name>.yaml`` (or ``CORTEX_JOB=<name>``).
-      Steps invoke ``decks.py`` subcommands sequentially; emits ``CORTEX_RUN_SUMMARY=…`` on stdout.
+      Steps invoke ``cortex.py`` subcommands sequentially; emits ``CORTEX_RUN_SUMMARY=…`` on stdout.
 
-  decks qbr <customer name>
+  cortex qbr <customer name>
       Quarterly Business Review from the Drive QBR template (single Slides file). Other decks are built with
-      ``decks --customer``, ``decks run --deck …``, or ``decks --portfolio`` as needed — not as part of ``qbr``.
+      ``cortex --customer``, ``cortex run --deck …``, or ``cortex --portfolio`` as needed — not as part of ``qbr``.
 
 ────────────────────────────────────────────────────────────────
 Generate one deck (explicit)
 ────────────────────────────────────────────────────────────────
-  decks run --deck <id> [options]
-      ``--deck`` must be an id from ``decks --list``. Typical options:
+  cortex run --deck <id> [options]
+      ``--deck`` must be an id from ``cortex --list``. Typical options:
       ``--customer NAME`` (repeatable), ``--all-customers``, ``--quarter``, ``--days``,
       ``--max-customers``, ``--workers``, ``--thumbnails``. For ``csm_book_of_business`` use ``--csm``.
       Portfolio follow-on deck runs only when using ``--all-customers`` or more than three
       explicit ``--customer`` values (same rule as the old batch behavior).
 
-  decks cohort [--days N] [--quarter …] [--max-customers M] [--thumbnails]
+  cortex cohort [--days N] [--quarter …] [--max-customers M] [--thumbnails]
       Manufacturing cohort review only.
 
-  decks engineering-portfolio
-  decks implementations-review
+  cortex engineering-portfolio
+  cortex implementations-review
       Jira-backed org decks (same payloads as ``--portfolio`` batch).
 
-  decks regenerate-slides --deck engineering-portfolio --cursor [--presentation-id ID|URL]
+  cortex regenerate-slides --deck engineering-portfolio --cursor [--presentation-id ID|URL]
       Rebuild Cursor slides in the latest (or specified) Engineering Review presentation in Drive.
 
-  decks support [--customer NAME]
+  cortex support [--customer NAME]
       Support review deck (single customer or all).
 
-  decks support-portfolio [--days N]
+  cortex support-portfolio [--days N]
       All-customers support portfolio deck.
 
-  decks support-kpis [--customer NAME] [--days N]
+  cortex support-kpis [--customer NAME] [--days N]
       HELP operational KPI deck (intake, flow, backlog, SLA, etc.).
 
-  decks csm book --csm "<name>" [--days N] [--max-customers M] [--quarter …]
+  cortex csm book --csm "<name>" [--days N] [--max-customers M] [--quarter …]
       CSM book of business (Pendo ownername filter).
 
-  decks kpi [--values] [--requested-sites ID]
+  cortex kpi [--values] [--requested-sites ID]
       List LeanDNA metrics owned by you (``metrics-get-mine``; Data API only).
       Pass ``--values`` for per-metric datapoint charts.
 
-  decks metrics-upsert [--date YYYY-MM-DD] [--dry-run] [--metric NAME] [--requested-sites ID]
+  cortex metrics-upsert [--date YYYY-MM-DD] [--dry-run] [--metric NAME] [--requested-sites ID]
       For each row in ``config/my-metrics.yaml`` with ``metric-generator`` set, call the generator
       and upsert ``MetricDataPoint`` for that date via the Data API. Rows without a generator
       are skipped.
@@ -120,7 +124,7 @@ from src.cli_warning_filters import apply_cli_warning_filters
 
 apply_cli_warning_filters()
 
-# Same split as ``decks --list`` and batch commands (customer-scoped vs portfolio / cross-customer).
+# Same split as ``cortex --list`` and batch commands (customer-scoped vs portfolio / cross-customer).
 _PORTFOLIO_SCOPE_DECK_IDS: frozenset[str] = frozenset(
     {
         "portfolio_review",
@@ -196,14 +200,14 @@ def _run_data_catalog_cli() -> None:
 
 
 def _run_cohort_review_cli(rest: list[str]) -> None:
-    """``decks cohort …`` — cohort review only."""
+    """``cortex cohort …`` — cohort review only."""
     import argparse
 
     from src.data_source_health import check_all_required
     from src.quarters import resolve_quarter
     from src.slides_client import create_cohort_deck
 
-    ap = argparse.ArgumentParser(prog="decks cohort", description="Manufacturing cohort review deck.")
+    ap = argparse.ArgumentParser(prog="cortex cohort", description="Manufacturing cohort review deck.")
     ap.add_argument("--days", type=int, default=None, help="Lookback days (default: quarter window)")
     ap.add_argument("--max-customers", type=int, default=None, dest="max_customers")
     ap.add_argument("--quarter", type=str, default=None, help='e.g. "Q1 2026", prev, current')
@@ -247,14 +251,14 @@ def _run_cohort_review_cli(rest: list[str]) -> None:
 
 
 def _run_deck_run_cli(rest: list[str]) -> None:
-    """``decks run --deck ID …`` — one deck with explicit parameters."""
+    """``cortex run --deck ID …`` — one deck with explicit parameters."""
     import argparse
 
     ap = argparse.ArgumentParser(
-        prog="decks run",
-        description="Generate a single deck by id (see decks --list). No natural-language parsing.",
+        prog="cortex run",
+        description="Generate a single deck by id (see cortex --list). No natural-language parsing.",
     )
-    ap.add_argument("--deck", required=True, metavar="ID", help="Deck id from decks --list")
+    ap.add_argument("--deck", required=True, metavar="ID", help="Deck id from cortex --list")
     ap.add_argument("--customer", action="append", dest="customers", metavar="NAME", help="Repeat for multiple accounts")
     ap.add_argument("--all-customers", action="store_true", dest="all_customers", help="Use full Pendo customer list")
     ap.add_argument("--quarter", type=str, default=None)
@@ -286,7 +290,7 @@ def _run_deck_run_cli(rest: list[str]) -> None:
 
     deck_id = args.deck
     if not load_deck(deck_id):
-        ap.error(f"unknown deck id {deck_id!r} (run decks --list)")
+        ap.error(f"unknown deck id {deck_id!r} (run cortex --list)")
 
     if args.all_customers and args.customers:
         ap.error("use either --all-customers or one or more --customer, not both")
@@ -524,7 +528,7 @@ def _run_deck_run_cli(rest: list[str]) -> None:
 
     if fail:
         failed_names = [r.get("customer", "?") for r in fail]
-        parts = ["decks", "run", "--deck", deck_id]
+        parts = ["cortex", "run", "--deck", deck_id]
         for n in failed_names:
             parts.extend(["--customer", str(n)])
         if qr:
@@ -626,7 +630,7 @@ def _run_jira_backed_deck(deck_id: str, label: str) -> None:
 
 
 def _run_regenerate_slides_cli(rest: list[str]) -> None:
-    """``decks regenerate-slides …`` — rebuild selected slides in an existing presentation."""
+    """``cortex regenerate-slides …`` — rebuild selected slides in an existing presentation."""
     import argparse
     import sys
     import time
@@ -635,7 +639,7 @@ def _run_regenerate_slides_cli(rest: list[str]) -> None:
     from src.deck_slide_regenerate import find_latest_presentation_for_deck, regenerate_deck_slides
 
     ap = argparse.ArgumentParser(
-        prog="decks regenerate-slides",
+        prog="cortex regenerate-slides",
         description="Rebuild specific slides in an existing Google Slides deck (in place).",
     )
     ap.add_argument("--deck", default="engineering-portfolio", help="Deck id (default: engineering-portfolio)")
@@ -713,13 +717,13 @@ def _run_implementations_review_deck() -> None:
 
 
 def _run_support_deck(rest: list[str]) -> None:
-    """``decks support …`` — single support-focused deck from Jira."""
+    """``cortex support …`` — single support-focused deck from Jira."""
     import argparse
 
     from src.data_source_health import check_all_required
     from src.slides_client import create_health_deck
 
-    parser = argparse.ArgumentParser(prog="decks support", description="Generate support review deck")
+    parser = argparse.ArgumentParser(prog="cortex support", description="Generate support review deck")
     parser.add_argument(
         "--customer",
         type=str,
@@ -761,14 +765,14 @@ def _run_support_deck(rest: list[str]) -> None:
 
 
 def _run_support_kpis_deck(rest: list[str]) -> None:
-    """``decks support-kpis …`` — HELP operational KPI deck."""
+    """``cortex support-kpis …`` — HELP operational KPI deck."""
     import argparse
 
     from src.data_source_health import check_all_required
     from src.slides_client import create_health_deck
 
     parser = argparse.ArgumentParser(
-        prog="decks support-kpis",
+        prog="cortex support-kpis",
         description="Generate HELP operational KPI deck",
     )
     parser.add_argument("--customer", type=str, default=None, help="Scope to one JSM customer/org")
@@ -810,17 +814,17 @@ def _run_kpi_cli(rest: list[str]) -> None:
 
 
 def _run_metrics_upsert_cli(rest: list[str]) -> None:
-    """``decks metrics-upsert`` — generate registry metrics and upsert via Data API."""
+    """``cortex metrics-upsert`` — generate registry metrics and upsert via Data API."""
     from dotenv import load_dotenv
 
     from src.metrics_upsert import run_metrics_upsert_cli
 
     load_dotenv(Path(__file__).resolve().parent / ".env")
-    raise SystemExit(run_metrics_upsert_cli(rest, prog="decks metrics-upsert"))
+    raise SystemExit(run_metrics_upsert_cli(rest, prog="cortex metrics-upsert"))
 
 
 def _run_csm_book_deck() -> None:
-    """CSM book of business from ``decks csm book --csm \"Name\"`` (flags after ``book``)."""
+    """CSM book of business from ``cortex csm book --csm \"Name\"`` (flags after ``book``)."""
     import argparse
 
     from src.data_source_health import check_all_required
@@ -847,7 +851,7 @@ def _run_csm_book_deck() -> None:
 
     csm = (args.csm or "").strip()
     if not csm:
-        print("Usage: decks csm book --csm \"<Pendo CSM name substring>\" [--days N] [--max-customers M] [--quarter Q1 2026]")
+        print("Usage: cortex csm book --csm \"<Pendo CSM name substring>\" [--days N] [--max-customers M] [--quarter Q1 2026]")
         sys.exit(1)
 
     if args.days is not None:
@@ -884,14 +888,14 @@ def _run_csm_book_deck() -> None:
 
 
 def _run_support_review_portfolio_deck(rest: list[str]) -> None:
-    """``decks support-portfolio …`` — all-customers support deck."""
+    """``cortex support-portfolio …`` — all-customers support deck."""
     import argparse
 
     from src.data_source_health import check_all_required
     from src.slides_client import create_health_deck
 
     parser = argparse.ArgumentParser(
-        prog="decks support-portfolio",
+        prog="cortex support-portfolio",
         description="Generate Support Review Portfolio (all customers)",
     )
     parser.add_argument(
@@ -937,8 +941,8 @@ def _run_all_customer_decks() -> None:
     from src.slides_client import create_health_deck, create_health_decks_for_customers
 
     ap = argparse.ArgumentParser(
-        prog="decks",
-        description="Run every customer-scoped deck for a single named account (see decks --list).",
+        prog="cortex",
+        description="Run every customer-scoped deck for a single named account (see cortex --list).",
     )
     ap.add_argument(
         "--customer",
@@ -1030,8 +1034,8 @@ def _run_all_portfolio_decks() -> None:
     )
 
     ap = argparse.ArgumentParser(
-        prog="decks",
-        description="Run every portfolio / cross-customer deck (see decks --list).",
+        prog="cortex",
+        description="Run every portfolio / cross-customer deck (see cortex --list).",
     )
     ap.add_argument(
         "--portfolio",
@@ -1181,7 +1185,7 @@ def _run_run_job_cli(rest: list[str]) -> None:
 
     from src.job_runner import run_job
 
-    ap = argparse.ArgumentParser(prog="decks run-job", description="Run a declarative YAML batch job.")
+    ap = argparse.ArgumentParser(prog="cortex run-job", description="Run a declarative YAML batch job.")
     ap.add_argument("--job", default=os.environ.get("CORTEX_JOB", "").strip() or None, help="Job name or path")
     ap.add_argument("--dry-run", action="store_true", help="Print steps without executing")
     ap.add_argument("--no-json-summary", action="store_true", help="Omit EMF metrics line from summary")
@@ -1207,19 +1211,25 @@ def main():
         from src.export_llm_context_snapshot import export_main
 
         rest = [a for a in sys.argv[1:] if a != "--export"]
-        export_main(rest, prog="decks --export")
+        export_main(rest, prog="cortex --export")
         return
 
     if "--schedule" in sys.argv:
         from src.ecs_schedule_report import schedule_main
 
         rest = [a for a in sys.argv[1:] if a != "--schedule"]
-        sys.exit(schedule_main(rest, prog="decks --schedule"))
+        sys.exit(schedule_main(rest, prog="cortex --schedule"))
+
+    if "--running" in sys.argv:
+        from src.ecs_running_report import running_main
+
+        rest = [a for a in sys.argv[1:] if a != "--running"]
+        sys.exit(running_main(rest, prog="cortex --running"))
 
     if len(sys.argv) > 1 and sys.argv[1] == "qbr":
         from src.qbr_template import run_qbr_cli
 
-        run_qbr_cli(sys.argv[2:], prog="decks qbr")
+        run_qbr_cli(sys.argv[2:], prog="cortex qbr")
         return
 
     if "--list" in sys.argv:
@@ -1268,7 +1278,7 @@ def main():
         m = _re.search(r"presentation/d/([a-zA-Z0-9_-]+)", rest)
         pres_id = m.group(1) if m else rest
         if not pres_id:
-            print("Usage: decks --qa <presentation-url-or-id>")
+            print("Usage: cortex --qa <presentation-url-or-id>")
             sys.exit(1)
         results = visual_qa(pres_id)
         issues = [r for r in results if not r.get("pass", True)]
@@ -1330,7 +1340,7 @@ def main():
         print(f"       customers in snapshot: {result.get('customer_count')}")
         return
 
-    # Top-level help only when the first argument is -h/--help (not ``decks run --help``).
+    # Top-level help only when the first argument is -h/--help (not ``cortex run --help``).
     if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help"):
         print(__doc__.strip())
         return
@@ -1389,7 +1399,7 @@ def main():
         _run_csm_book_deck()
         return
 
-    print(f"error: unknown command {sub!r}. Use flags or subcommands — try: decks --help", file=sys.stderr)
+    print(f"error: unknown command {sub!r}. Use flags or subcommands — try: cortex --help", file=sys.stderr)
     sys.exit(2)
 
 

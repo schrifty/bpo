@@ -277,7 +277,7 @@ def enrich_github_productivity_if_needed(
 def enrich_engineering_portfolio_if_needed(report: dict[str, Any], *, deck_id: str = "engineering-portfolio") -> None:
     """Populate ``eng_portfolio`` when absent (e.g. health report lacked Jira portfolio data).
 
-    ``decks.py`` usually pre-fills this for programmatic deck builds; callers with a trimmed
+    ``cortex.py`` usually pre-fills this for programmatic deck builds; callers with a trimmed
     report may rely on this fetch instead.
     """
     if report.get("eng_portfolio"):

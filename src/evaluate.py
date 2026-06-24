@@ -2428,7 +2428,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
         customer = customer_override or _detect_customer(pres_name, known_customers)
         if not customer:
             _print(f"  Could not detect customer from title. "
-                   f"Re-run with: decks --hydrate <customer>\n")
+                   f"Re-run with: cortex --hydrate <customer>\n")
             all_results.append({"name": pres_name, "error": "customer not detected"})
             continue
         _print(f"  Customer: {customer}")

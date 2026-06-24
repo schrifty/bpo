@@ -12,7 +12,7 @@ breakdowns, and SLA-style aggregates only — **no issue keys, summaries, or tic
 The markdown includes **Snapshot coverage & omission rationale** (profile sources, registry ids not in this export and why, caps, loader provenance, feedback prompt) plus **Planned integrations (not in this snapshot yet)** (e.g. Aha, GitHub).
 
 Usage:
-  decks --export [--days N] [--skip-risk-insights] [--customers-sf-allowlist] [--customers-exclude-sf-churned] [--exclude-customer NAME ...]
+  cortex --export [--days N] [--skip-risk-insights] [--customers-sf-allowlist] [--customers-exclude-sf-churned] [--exclude-customer NAME ...]
   python -m src.export_llm_context_snapshot --days 90
 
 Optional portfolio row filters (after Pendo+Salesforce bundle, before markdown):
@@ -2059,12 +2059,11 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
             pre_truncation_bytes=pre_truncation_bytes,
             body_before_section7_bytes=md_body_before_section7_bytes,
         )
-        from .config import CORTEX_FAIL_ON_INTEGRATION_WARNINGS
-        from .data_source_health import integration_freshness_metadata
-
         diag.set_integration_meta(integration_freshness_metadata())
-        summary = diag.emit_run_summary(job_name="export", fail_on_warnings=CORTEX_FAIL_ON_INTEGRATION_WARNINGS)
-        if not summary.get("success"):
+        # Integration join warnings (SF↔Pendo, Jira HELP fallbacks, etc.) belong in the
+        # export markdown and stderr recap — not as a failed exit code.
+        summary = diag.emit_run_summary(job_name="export", fail_on_warnings=False)
+        if diag.failures:
             sys.exit(1)
 
 

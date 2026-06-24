@@ -1,4 +1,4 @@
-"""Collect warnings and phase timings during ``decks --export`` / :func:`export_main`."""
+"""Collect warnings and phase timings during ``cortex --export`` / :func:`export_main`."""
 
 from __future__ import annotations
 

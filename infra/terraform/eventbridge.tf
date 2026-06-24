@@ -34,4 +34,9 @@ resource "aws_cloudwatch_event_target" "job" {
       command = each.value.command
     }]
   })
+
+  retry_policy {
+    maximum_event_age_in_seconds = 7200
+    maximum_retry_attempts       = 2
+  }
 }

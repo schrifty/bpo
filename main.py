@@ -78,7 +78,7 @@ def main() -> None:
         print("\nExamples:")
         print("  python main.py 'Get usage data for customer acme-123'")
         print('  python main.py qbr "Acme Corp"   # QBR deck from Drive template')
-        print('  decks qbr "Acme Corp"   # same pipeline via decks CLI')
+        print('  cortex qbr "Acme Corp"   # same pipeline via cortex CLI')
 
 
 if __name__ == "__main__":

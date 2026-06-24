@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Load Cortex secrets from AWS Secrets Manager into the process environment.
 
-Run before ``decks.py`` on ECS/Fargate (see ``scripts/run_job.sh``). When
+Run before ``cortex.py`` on ECS/Fargate (see ``scripts/run_job.sh``). When
 ``CORTEX_SECRETS_ARN`` is unset, exits 0 without changes so local runs keep using ``.env``.
 
 Expected secret JSON keys mirror ``.env.example`` variable names. Optional
@@ -9,7 +9,7 @@ Expected secret JSON keys mirror ``.env.example`` variable names. Optional
 ``GOOGLE_APPLICATION_CREDENTIALS`` is set to that path.
 
 ``run_job.sh`` uses ``--shell-export`` so variables are applied in the shell
-before ``decks.py`` starts (a plain subprocess would not propagate ``os.environ``).
+before ``cortex.py`` starts (a plain subprocess would not propagate ``os.environ``).
 """
 
 from __future__ import annotations

@@ -15,4 +15,4 @@ fi
 JOB="${1:-${CORTEX_JOB:-nightly-core}}"
 shift || true
 
-exec python3 decks.py run-job --job "$JOB" "$@"
+exec python3 cortex.py run-job --job "$JOB" "$@"

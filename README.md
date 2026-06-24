@@ -16,8 +16,8 @@ Config is in `src/config.py` (reads from env).
 Batch jobs are defined in `config/jobs/*.yaml` and executed via:
 
 ```bash
-python3 decks.py run-job --job nightly-core          # local
-python3 decks.py run-job --job engineering-portfolio --dry-run
+python3 cortex.py run-job --job nightly-core          # local
+python3 cortex.py run-job --job engineering-portfolio --dry-run
 ```
 
 On AWS, build and run the container (see `Dockerfile`, `infra/` templates):
@@ -25,16 +25,16 @@ On AWS, build and run the container (see `Dockerfile`, `infra/` templates):
 ```bash
 docker build -t cortex-decks .
 docker run --rm -v "$PWD/.env:/app/.env:ro" -v "$PWD/.cache:/var/cortex/cache" \
-  -e CORTEX_SKIP_DOTENV=0 -e CORTEX_CACHE_DIR=/var/cortex/cache cortex-decks engineering-portfolio
+  -e CORTEX_SKIP_DOTENV=0 -e CORTEX_CACHE_DIR=/var/cortex/cache cortex-cortex engineering-portfolio
 ```
 
-Production uses `scripts/run_job.sh` → `bootstrap_aws_env.py` (when `CORTEX_SECRETS_ARN` is set) → `decks run-job`.
+Production uses `scripts/run_job.sh` → `bootstrap_aws_env.py` (when `CORTEX_SECRETS_ARN` is set) → `cortex run-job`.
 Set `CORTEX_LOG_FORMAT=json` (auto on ECS) for CloudWatch filters; stdout includes `CORTEX_RUN_SUMMARY={…}` and EMF metrics.
 
 | Job | Schedule (EventBridge) | YAML |
 |-----|------------------------|------|
 | Engineering portfolio | Daily 02:00 UTC (`decks-engineering-portfolio`) | `engineering-portfolio` |
-| LLM export | Daily 03:00 UTC | `export-nightly` (`decks --export`, 90-day window) |
+| LLM export | Daily 03:00 UTC | `export-nightly` (`cortex --export`, 90-day window) |
 | Portfolio batch | Manual / `run-task` | `portfolio-batch` |
 | Full nightly chain | Manual | `nightly-core` |
 
@@ -70,14 +70,14 @@ For the Support Summary slide (HELP tickets, SLAs, engineering pipeline):
 
 Add to `.env`: `JIRA_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` (site REST, default). For Atlassian API gateway + service account token, set `JIRA_AUTH_MODE=gateway` and `JIRA_CLOUD_ID` (or `JIRA_CLOUD_ID_AUTO=true`). See `.env.example`.
 
-The engineering portfolio deck (`decks engineering-portfolio` or `decks run --deck engineering-portfolio`) uses the shared Jira portfolio payload: **LEAN**-focused SDLC slides, a **LEAN** project snapshot (status and assignee charts), **Support Pressure** (HELP aggregates), and related metadata. The **implementations review** deck (`implementations_review`) is the **CUSTOMER** project snapshot only (same payload; dedicated deck). Agents can call the **`jira_project_snapshot`** tool with a project key for the same JSON payload.
+The engineering portfolio deck (`cortex engineering-portfolio` or `cortex run --deck engineering-portfolio`) uses the shared Jira portfolio payload: **LEAN**-focused SDLC slides, a **LEAN** project snapshot (status and assignee charts), **Support Pressure** (HELP aggregates), and related metadata. The **implementations review** deck (`implementations_review`) is the **CUSTOMER** project snapshot only (same payload; dedicated deck). Agents can call the **`jira_project_snapshot`** tool with a project key for the same JSON payload.
 
 ## Generating Decks
 
 **QBR (Drive template)** — explicit subcommand:
 
 ```bash
-decks qbr "Customer Name"              # QBR deck from Drive template
+cortex qbr "Customer Name"              # QBR deck from Drive template
 python main.py qbr "Customer Name"     # equivalent entrypoint (same pipeline)
 ```
 
@@ -85,38 +85,38 @@ Other decks use **explicit** flags and subcommands (no LLM parsing). Some useful
 
 ```bash
 # List deck ids and display names
-decks --list
+cortex --list
 
 # One customer-scoped deck type (id from --list) — one or many customers
-decks run --deck cs_health_review --customer Carrier
-decks run --deck cs_health_review --customer Carrier --customer Daikin
-decks run --deck product_adoption --all-customers
-decks run --deck cs_health_review --all-customers --max-customers 10 --quarter prev
+cortex run --deck cs_health_review --customer Carrier
+cortex run --deck cs_health_review --customer Carrier --customer Daikin
+cortex run --deck product_adoption --all-customers
+cortex run --deck cs_health_review --all-customers --max-customers 10 --quarter prev
 
 # Portfolio / cohort / Jira org decks
-decks run --deck portfolio_review
-decks cohort
-decks engineering-portfolio
-decks implementations-review
-decks support
-decks support-portfolio
-decks run --deck csm_book_of_business --csm "Josh"
+cortex run --deck portfolio_review
+cortex cohort
+cortex engineering-portfolio
+cortex implementations-review
+cortex support
+cortex support-portfolio
+cortex run --deck csm_book_of_business --csm "Josh"
 
 # Batch: every customer-scoped deck for one account, or every portfolio deck
-decks --customer "Carrier" --quarter "Q1 2026" --thumbnails
-decks --portfolio --max-customers 20
+cortex --customer "Carrier" --quarter "Q1 2026" --thumbnails
+cortex --portfolio --max-customers 20
 ```
 
-Use `decks --help` for the full command reference.
+Use `cortex --help` for the full command reference.
 
 ### Evaluating Custom Slides
 
 CSMs can submit custom slides for automation by sharing a Google Slides deck with the intake Google Group. Set `GOOGLE_HYDRATE_INTAKE_GROUP` in `.env` to that group’s email **exactly** as it appears in Share (e.g. `hydrate-deck@leandna.com`). Viewer or Editor on the group both work. The service account must use an identity that can see those files (e.g. domain-wide delegation to a user who is in that group). Then:
 
 ```bash
-decks --evaluate            # assess each slide
-decks --evaluate --verbose  # include full extracted text
-decks hydrate               # same intake sources; fills live data
+cortex --evaluate            # assess each slide
+cortex --evaluate --verbose  # include full extracted text
+cortex --hydrate               # same intake sources; fills live data
 ```
 
 The evaluator exports a thumbnail of each slide, extracts text and layout structure, then uses GPT-4o vision to assess reproducibility against current data sources and slide-building capabilities. Output includes feasibility rating, data gaps, visual element analysis, effort estimate, and the closest existing slide type.
@@ -126,8 +126,8 @@ The evaluator exports a thumbnail of each slide, extracts text and layout struct
 Deck definitions and slides can be edited on Google Drive so non-developers can customize them. To push local configs to Drive:
 
 ```bash
-decks --sync-config
-decks --sync-config --sync-overwrite
+cortex --sync-config
+cortex --sync-config --sync-overwrite
 ```
 
 After syncing, the app reads from Drive first and falls back to local files if a Drive file has errors. Parse failures are surfaced on the Data Quality slide.
@@ -185,13 +185,13 @@ cortex/
 │       ├── pendo_tool.py     # LangChain tools (Pendo, decks, CS report, LeanDNA Data API, …)
 │       ├── leandna_data_api_tool.py  # LeanDNA Data API catalog + GET + POST/PUT/DELETE (mutate)
 │       └── jira_tool.py      # `jira_project_snapshot` (HELP / CUSTOMER / LEAN metrics)
-├── decks.py              # CLI for batch deck generation
+├── cortex.py              # CLI for batch deck generation
 └── main.py                   # CLI for interactive agent mode
 ```
 
 ## Deck types
 
-Definitions live in `decks/*.yaml` (Drive can override when `GOOGLE_QBR_GENERATOR_FOLDER_ID` is set). **`decks --list`** prints every id and name, **sorted into two groups** — customer-scoped first, then portfolio / cross-customer.
+Definitions live in `decks/*.yaml` (Drive can override when `GOOGLE_QBR_GENERATOR_FOLDER_ID` is set). **`cortex --list`** prints every id and name, **sorted into two groups** — customer-scoped first, then portfolio / cross-customer.
 
 ### Customer-scoped decks
 

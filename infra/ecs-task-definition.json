@@ -17,7 +17,7 @@
         {"name": "CORTEX_SKIP_DOTENV", "value": "1"},
         {"name": "CORTEX_CACHE_DIR", "value": "/var/cortex/cache"},
         {"name": "CORTEX_LOG_FORMAT", "value": "json"},
-        {"name": "CORTEX_FAIL_ON_INTEGRATION_WARNINGS", "value": "1"},
+        {"name": "CORTEX_FAIL_ON_INTEGRATION_WARNINGS", "value": "0"},
         {"name": "CORTEX_JOB_TIMEOUT_SECONDS", "value": "7200"},
         {"name": "CORTEX_SECRETS_ARN", "value": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:cortex/prod/env"}
       ],

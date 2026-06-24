@@ -24,7 +24,7 @@ def test_run_job_dry_run(capsys) -> None:
     assert code == 0
     out = capsys.readouterr().out
     assert "engineering-portfolio" in out
-    assert "python3 decks.py" in out
+    assert "python3 cortex.py" in out
 
 
 def test_build_step_argv_unknown_command() -> None:

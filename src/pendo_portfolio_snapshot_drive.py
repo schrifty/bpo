@@ -4,7 +4,7 @@
 Slides-side work usually dominates elapsed time unless you tune
 ``CORTEX_SLIDES_WRITE_INTERVAL_SEC`` / chunk size.
 The cached filename **must** match the QBR ``days`` value (quarter length), e.g.
-``decks --upload-portfolio-snapshot`` with no ``--days`` uses ``resolve_quarter().days``.
+``cortex --upload-portfolio-snapshot`` with no ``--days`` uses ``resolve_quarter().days``.
 
 Snapshot folder resolution:
   1. ``CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID`` if set — explicit Drive folder id.
@@ -310,7 +310,7 @@ def try_load_portfolio_snapshot_for_request(
         if not file_id:
             logger.info(
                 "Portfolio snapshot: no file %r in Drive folder — upload a matching crawl, e.g. "
-                "decks --upload-portfolio-snapshot --days %d (filename must match this quarter window)",
+                "cortex --upload-portfolio-snapshot --days %d (filename must match this quarter window)",
                 name,
                 days,
             )
@@ -512,7 +512,7 @@ def upload_portfolio_snapshot_to_drive(
     """Serialize *report* (from ``get_portfolio_report``) and create or replace the snapshot file.
 
     Skips updating an **existing** file on weekdays unless *force_weekday_write* is true
-    (e.g. ``decks --upload-portfolio-snapshot``). New files are always created.
+    (e.g. ``cortex --upload-portfolio-snapshot``). New files are always created.
     """
     if report.get("type") != "portfolio":
         raise ValueError("report must be a portfolio dict from get_portfolio_report")

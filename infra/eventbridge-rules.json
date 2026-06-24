@@ -28,7 +28,7 @@
   },
   {
     "Name": "cortex-export-nightly",
-    "Description": "LLM context export (decks --export) — daily 03:00 UTC",
+    "Description": "LLM context export (cortex --export) — daily 03:00 UTC",
     "ScheduleExpression": "cron(0 3 * * ? *)",
     "State": "ENABLED",
     "Targets": [

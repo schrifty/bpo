@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from dataclasses import dataclass
 from typing import Any
+
+from src.ecs_aws_defaults import default_name_prefix, default_region
 
 # Keep in sync with infra/terraform/variables.tf scheduled_jobs defaults.
 SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
@@ -26,7 +27,7 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "schedule_expression": "cron(0 3 * * ? *)",
         "command": ["export-nightly"],
         "enabled": True,
-        "summary": "LLM export (decks --export, 90-day window)",
+        "summary": "LLM export (cortex --export, 90-day window)",
     },
 }
 
@@ -75,19 +76,6 @@ class ScheduleRow:
     command: list[str]
     summary: str
     source: str  # "aws" | "catalog"
-
-
-def _default_region() -> str:
-    return (
-        os.environ.get("CORTEX_AWS_REGION", "").strip()
-        or os.environ.get("AWS_DEFAULT_REGION", "").strip()
-        or os.environ.get("AWS_REGION", "").strip()
-        or "us-east-1"
-    )
-
-
-def _default_name_prefix() -> str:
-    return os.environ.get("CORTEX_SCHEDULE_NAME_PREFIX", "").strip() or "cortex"
 
 
 def _command_from_target_input(raw_input: str | None) -> list[str]:
@@ -353,17 +341,17 @@ def format_schedule_table(rows: list[ScheduleRow]) -> str:
     return "\n".join(lines)
 
 
-def schedule_main(argv: list[str] | None = None, *, prog: str = "decks --schedule") -> int:
+def schedule_main(argv: list[str] | None = None, *, prog: str = "cortex --schedule") -> int:
     parser = argparse.ArgumentParser(prog=prog, description="Show EventBridge schedules for Cortex ECS jobs.")
     parser.add_argument(
         "--prefix",
-        default=_default_name_prefix(),
-        help="EventBridge rule name prefix (default: CORTEX_SCHEDULE_NAME_PREFIX or cortex)",
+        default=default_name_prefix(),
+        help="EventBridge rule name prefix (default: CORTEX_SCHEDULE_NAME_PREFIX, terraform name_prefix, or bpo)",
     )
     parser.add_argument(
         "--region",
-        default=_default_region(),
-        help="AWS region (default: CORTEX_AWS_REGION, AWS_DEFAULT_REGION, or us-east-1)",
+        default=default_region(),
+        help="AWS region (default: CORTEX_AWS_REGION, terraform aws_region, or us-east-1)",
     )
     args = parser.parse_args(argv)
 

@@ -100,6 +100,8 @@ Jobs are defined in `variables.tf` → `scheduled_jobs` (default: `decks-enginee
 | `assign_public_ip` | `true` | Set `false` with private subnets + NAT |
 | `secrets_json_file` | empty | Path to `output/cortex-secrets-manager.json` |
 | `enable_schedules` | `false` | EventBridge → ECS |
+| `enable_schedule_alarms` | `true` | FailedInvocations + run-summary-failed + ECS task-failure SNS |
+| `alarm_sns_topic_arn` | empty | Uses `${name_prefix}-cortex-schedule-alarms` when alarms enabled |
 | `name_prefix` | `cortex` | Change if importing existing manual roles |
 
 ## Importing existing manual resources
