@@ -32,7 +32,7 @@ def load_or_fetch_engineering_portfolio(*, days: int = 30) -> dict[str, Any]:
     if integration_drive_cache_reads_enabled():
         cached = try_load_integration_payload(KIND_ENGINEERING_PORTFOLIO, cache_key)
         if cached is not None and not cached.get("error") and _days_match(cached, window):
-            logger.info("Engineering portfolio: Drive cache hit (%dd)", window)
+            logger.debug("Engineering portfolio: Drive cache hit (%dd)", window)
             return dict(cached)
 
     from .jira_client import get_shared_jira_client

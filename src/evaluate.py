@@ -215,7 +215,7 @@ def _log_slide_visual_findings(pres_name: str, slide_num: int, total: int, chart
             )
         )
         lines.append("└" + "─" * 69)
-        logger.info("\n".join(lines))
+        logger.debug("\n".join(lines))
 
 
 def _get_cached_classification(cache_key: str) -> dict | None:
@@ -864,7 +864,7 @@ def visual_qa(pres_id: str, slides_svc=None) -> list[dict[str, Any]]:
     # Step 1: Pre-fetch all thumbnail URLs in the main thread.
     # The Google API client (httplib2) is NOT thread-safe — calling it from workers
     # causes malloc double-free crashes.  Getting just the URL is fast (<0.5s/slide).
-    logger.info("QA: fetching thumbnail URLs for %d slides...", n)
+    logger.debug("QA: fetching thumbnail URLs for %d slides...", n)
     thumb_urls: dict[str, str | None] = {}
     for si, slide in enumerate(slides, 1):
         page_id = slide["objectId"]
@@ -1767,7 +1767,7 @@ def adapt_custom_slides(
     explicit_slide_type_by_page: dict[str, str] = {}
     if use_explicit_qbr:
         explicit_slide_type_by_page = build_adapt_page_slide_type_by_page_id(report, page_ids)
-        logger.info("hydrate: QBR explicit mappings enabled (config/qbr_mappings.yaml); synonym phrase table skipped")
+        logger.debug("hydrate: QBR explicit mappings enabled (config/qbr_mappings.yaml); synonym phrase table skipped")
     t_adapt0 = time.perf_counter()
     stats = {
         "adapted": 0,
@@ -1790,7 +1790,7 @@ def adapt_custom_slides(
         if nb:
             invalidate_qbr_mappings_cache()
     preflight_s = time.perf_counter() - t_adapt0
-    logger.info(
+    logger.debug(
         "hydrate: adapt preflight %.2fs — text-only LLM input (no slide thumbnails); disk cache uses text snapshot",
         preflight_s,
     )
@@ -2161,7 +2161,7 @@ def adapt_custom_slides(
     t_n0 = time.perf_counter()
     if notes_updates:
         n = set_speaker_notes_batch(slides_svc, pres_id, notes_updates)
-        logger.info("hydrate: wrote speaker notes for %d/%d slides in single batchUpdate", n, len(notes_updates))
+        logger.debug("hydrate: wrote speaker notes for %d/%d slides in single batchUpdate", n, len(notes_updates))
     speaker_notes_s = time.perf_counter() - t_n0
 
     t_tail0 = time.perf_counter()
@@ -2273,12 +2273,6 @@ def adapt_custom_slides(
         "error": err_n,
         "total_slides": n_pages,
     }
-    if n_pages:
-        logger.info(
-            "hydrate: adapt cache summary — %s | analysis_hit=%d adapt_hit=%d llm=%d empty=%d error=%d",
-            _cache_hit_rate_line("served_from_cache", cache_served, n_pages),
-            ah, adh, llm_n, empty_n, err_n,
-        )
     tail_s = time.perf_counter() - t_tail0
     total_adapt_s = time.perf_counter() - t_adapt0
     stats["timing"] = {
@@ -2289,20 +2283,13 @@ def adapt_custom_slides(
         "tail_summary_slide_and_stats_s": round(tail_s, 3),
         "total_adapt_s": round(total_adapt_s, 3),
     }
-    _den = max(total_adapt_s, 0.01)
     logger.info(
-        "hydrate: adapt wall time — total=%.1fs (preflight=%.1fs, phase_A_parallel_gpt=%.1fs, "
-        "phase_B_slides=%.1fs, speaker_notes=%.1fs, tail_summary+stats=%.1fs) — as %% of total: %s",
+        "hydrate: adapt timing %.1fs (A=%.1fs B=%.1fs notes=%.1fs) — cache %s",
         total_adapt_s,
-        preflight_s,
         phase_a_s,
         phase_b_slides_s,
         speaker_notes_s,
-        tail_s,
-        "/".join(
-            f"{(x / _den) * 100.0:.0f}%"
-            for x in (preflight_s, phase_a_s, phase_b_slides_s, speaker_notes_s, tail_s)
-        ),
+        _cache_hit_rate_line("served_from_cache", cache_served, n_pages) if n_pages else "n/a",
     )
 
     if use_explicit_qbr:
@@ -2695,7 +2682,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
 
         # Execute
         url = f"https://docs.google.com/presentation/d/{pres_id}/edit"
-        logger.info("hydrate: phase 2 — built=%d rebuilt, kept=%d, skipped=%d",
+        logger.debug("hydrate: phase 2 — built=%d rebuilt, kept=%d, skipped=%d",
                     built, kept, skipped)
         if reqs:
             try:
@@ -2764,7 +2751,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
                     "notes, and adaptation attempts), but no slide body text was replaced — often normal for "
                     "mostly static or custom slides."
                 )
-                logger.info(
+                logger.debug(
                     "hydrate: Phase 3 applied 0 text replacements; report still used for notes / builders "
                     "where applicable (deck=%s)",
                     pres_name,
@@ -2784,7 +2771,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
                 "\n  Phase 3 (adapt): skipped — no slides marked for in-place data swap "
                 "(only title / qbr_cover / qbr_divider slides, or slide/plan length mismatch)."
             )
-            logger.info("hydrate: Phase 3 skipped — adapt_page_ids empty")
+            logger.debug("hydrate: Phase 3 skipped — adapt_page_ids empty")
 
         if HYDRATE_REMOVE_INTAKE_GROUP_PERMISSION and GOOGLE_HYDRATE_INTAKE_GROUP:
             n_perm = _remove_intake_group_permission_from_file(

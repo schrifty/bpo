@@ -106,7 +106,7 @@ def _try_load_from_drive(endpoint: str, cache_key: str) -> list[dict] | None:
         with network_timeout(30.0, "Drive file download"):
             content = request.execute()
         data = json.loads(content.decode("utf-8"))
-        logger.info("LeanDNA Shortage: loaded %d items from Drive cache (%s)", len(data), filename)
+        logger.debug("LeanDNA Shortage: loaded %d items from Drive cache (%s)", len(data), filename)
         return data
         
     except Exception as e:
@@ -141,7 +141,7 @@ def _save_to_drive(data: list[dict], endpoint: str, cache_key: str) -> None:
         
         with network_timeout(30.0, "Drive file creation"):
             file_obj = drive.files().create(body=meta, media_body=media, fields="id").execute()
-        logger.info("LeanDNA Shortage: saved %d items to Drive cache (%s, id=%s)", len(data), filename, file_obj["id"][:16])
+        logger.debug("LeanDNA Shortage: saved %d items to Drive cache (%s, id=%s)", len(data), filename, file_obj["id"][:16])
         
     except Exception as e:
         logger.warning("Failed to save LeanDNA Shortage to Drive cache: %s", e)
@@ -255,7 +255,7 @@ def get_shortages_by_item_weekly(
         
         # Fetch from API
         url = f"{_get_base_url()}/data/MaterialShortages/ShortagesByItem/Weekly"
-        logger.info("LeanDNA Shortage (weekly): fetching from API (sites=%s)", sites or "all")
+        logger.debug("LeanDNA Shortage (weekly): fetching from API (sites=%s)", sites or "all")
         
         try:
             response = requests.get(url, headers=_headers(sites), timeout=180)
@@ -347,7 +347,7 @@ def get_shortages_by_item_daily(sites: str | None = None) -> list[dict]:
         return drive_data
     
     url = f"{_get_base_url()}/data/MaterialShortages/ShortagesByItem/Daily"
-    logger.info("LeanDNA Shortage (daily): fetching from API (sites=%s)", sites or "all")
+    logger.debug("LeanDNA Shortage (daily): fetching from API (sites=%s)", sites or "all")
     
     try:
         response = requests.get(url, headers=_headers(sites), timeout=180)
@@ -402,7 +402,7 @@ def get_shortages_by_order(sites: str | None = None) -> list[dict]:
         List of shortage-by-order records.
     """
     url = f"{_get_base_url()}/data/MaterialShortages/ShortagesByOrder"
-    logger.info("LeanDNA Shortage (by order): fetching from API (sites=%s)", sites or "all")
+    logger.debug("LeanDNA Shortage (by order): fetching from API (sites=%s)", sites or "all")
     
     try:
         response = requests.get(url, headers=_headers(sites), timeout=180)
@@ -446,7 +446,7 @@ def get_shortages_with_scheduled_deliveries_weekly(sites: str | None = None) -> 
         return drive_data
     
     url = f"{_get_base_url()}/data/MaterialShortages/ShortagesByItemWithScheduledDeliveries/Weekly"
-    logger.info("LeanDNA Shortage (weekly+deliveries): fetching from API (sites=%s)", sites or "all")
+    logger.debug("LeanDNA Shortage (weekly+deliveries): fetching from API (sites=%s)", sites or "all")
     
     try:
         response = requests.get(url, headers=_headers(sites), timeout=180)

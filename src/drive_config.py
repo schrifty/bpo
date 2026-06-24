@@ -851,7 +851,7 @@ def sync_obsolete_drive_config(
                 )
                 continue
             _upload_file(name, content, drive_folder, file_id=fid_use)
-            logger.info("Drive %s/%s overwritten from repo (was obsolete)", label, name)
+            logger.debug("Drive %s/%s overwritten from repo (was obsolete)", label, name)
             if label == "decks":
                 stats["decks_updated"] += 1
                 stats["updated_deck_files"].append(name)
@@ -875,7 +875,7 @@ def sync_obsolete_drive_config(
                     stats["new_slide_files"].append(name)
                 continue
             _ensure_upload_yaml(name, content, drive_folder, file_id=None)
-            logger.info(
+            logger.debug(
                 "Drive %s/%s synced from repo (was missing — create or merge into existing name)",
                 label,
                 name,
@@ -955,19 +955,9 @@ def ensure_drive_config_matches_repo() -> None:
                     stats["slides_uploaded_new"],
                 )
             else:
-                try:
-                    _, d_f, s_f = _get_config_folder_ids()
-                    logger.info(
-                        "Drive deck/slide YAML already matches repo (QBR Generator); "
-                        "no uploads. decks_folder_id=%s… slides_folder_id=%s…",
-                        (d_f or "")[:12],
-                        (s_f or "")[:12],
-                    )
-                except Exception:
-                    logger.info(
-                        "Drive deck/slide YAML already matches repo (QBR Generator); "
-                        "no uploads needed.",
-                    )
+                logger.debug(
+                    "Drive deck/slide YAML already matches repo (QBR Generator); no uploads needed.",
+                )
     except Exception as e:
         logger.warning("Drive QBR Generator deck|slide sync failed (continuing): %s", e)
     try:
@@ -1258,7 +1248,7 @@ def _load_yaml_from_drive_uncached(
     if target_mode:
         basename_by_id = _slide_basenames_for_ids(local_dir, only_slide_ids or set())
         target_basenames = set(basename_by_id.values())
-        logger.info(
+        logger.debug(
             "Drive %s: need %d slide def(s) by id (subset load); %d targeted file(s) from local index "
             "(%d total in Drive folder_id=%s…)",
             kind,
@@ -1269,7 +1259,7 @@ def _load_yaml_from_drive_uncached(
         )
         if len(target_basenames) < len(only_slide_ids or ()):
             missing_index = (only_slide_ids or set()) - set(basename_by_id.keys())
-            logger.info(
+            logger.debug(
                 "Drive %s: no local YAML for %d id(s) — will scan remaining Drive files if needed: %s",
                 kind,
                 len(missing_index),
@@ -1277,8 +1267,8 @@ def _load_yaml_from_drive_uncached(
                 + ("…" if len(missing_index) > 8 else ""),
             )
     else:
-        logger.info(
-            "Drive %s: reading %d YAML file(s) from folder_id=%s… (per-file progress follows)",
+        logger.debug(
+            "Drive %s: reading %d YAML file(s) from folder_id=%s…",
             kind,
             n_drive_files,
             (folder_id or "")[:12],
@@ -1287,13 +1277,13 @@ def _load_yaml_from_drive_uncached(
     def _consume_drive_file(df: dict[str, Any], *, pass_label: str) -> None:
         nonlocal found_ids
         drive_names.add(df["name"])
-        logger.info("Drive %s: %s — %s — get_media starting …", kind, pass_label, df["name"])
+        logger.debug("Drive %s: %s — %s — get_media starting …", kind, pass_label, df["name"])
         t_read = time.perf_counter()
         try:
             text = _read_drive_file(df["id"])
             dt = time.perf_counter() - t_read
             if dt >= 1.0:
-                logger.info(
+                logger.debug(
                     "Drive %s: %s — %s — get_media done in %.2fs",
                     kind,
                     pass_label,
@@ -1352,7 +1342,7 @@ def _load_yaml_from_drive_uncached(
             n_fetched += 1
             _consume_drive_file(df, pass_label=f"targeted {n_fetched}/{len(target_basenames)}")
         if found_ids >= (only_slide_ids or set()):
-            logger.info(
+            logger.debug(
                 "Drive %s: subset load complete — %d targeted get_media (%d id(s); %d other Drive files skipped)",
                 kind,
                 n_fetched,
@@ -1367,7 +1357,7 @@ def _load_yaml_from_drive_uncached(
         still_need = (only_slide_ids or set()) - found_ids
         unindexed = still_need - set(basename_by_id.keys())
         if unindexed:
-            logger.info(
+            logger.debug(
                 "Drive %s: %d id(s) still missing after targeted fetch — scanning other Drive YAMLs "
                 "(no local file for: %s)",
                 kind,
@@ -1383,7 +1373,7 @@ def _load_yaml_from_drive_uncached(
                 scanned += 1
                 _consume_drive_file(df, pass_label=f"fallback scan {scanned}")
         else:
-            logger.info(
+            logger.debug(
                 "Drive %s: %d id(s) not on Drive yet — will use local repo copies (%s)",
                 kind,
                 len(still_need),

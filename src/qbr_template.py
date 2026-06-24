@@ -382,7 +382,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
     except RuntimeError as e:
         return {"error": str(e), "hint": "Set GOOGLE_QBR_GENERATOR_FOLDER_ID in .env to your QBR Generator folder id."}
 
-    logger.info(
+    logger.debug(
         "QBR: generator base folder id=%s — https://drive.google.com/drive/folders/%s",
         gen_id,
         gen_id,
@@ -395,7 +395,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
     _qbr_time_segment("resolve_template_and_manifest")
 
     mf_hash = hashlib.sha256(manifest_text.encode("utf-8", errors="replace")).hexdigest()[:16]
-    logger.info("QBR: manifest loaded (%d chars, sha256[:16]=%s)", len(manifest_text), mf_hash)
+    logger.debug("QBR: manifest loaded (%d chars, sha256[:16]=%s)", len(manifest_text), mf_hash)
 
     qr = resolve_quarter()
     days = qr.days
@@ -563,7 +563,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
 
         _qbr_time_segment("hide_move_slides_reread_presentation")
         adapt_ids = compute_adapt_page_ids(final_slides, title_oid, exec_set)
-        logger.info("QBR: adapting %d template slides (excludes title; hidden included)", len(adapt_ids))
+        logger.debug("QBR: adapting %d template slides (excludes title; hidden included)", len(adapt_ids))
 
         qbr_agenda_visual: dict[str, Any] = {"enabled": False, "skipped": True}
         adapt_hydrate_stats: dict[str, Any] = {}
@@ -601,7 +601,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
                     oai,
                     title_slide_object_id=title_oid,
                 )
-                logger.info(
+                logger.debug(
                     "QBR agenda visual refinement: %s",
                     qbr_agenda_visual,
                 )
@@ -651,14 +651,14 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
 
         result["drive_cache_load_stats"] = drive_cache_load_stats_snapshot()
 
-        logger.info("QBR: timing — total wall clock %.1fs (per-phase; compare to sum of segments)", qbr_total)
+        logger.info("QBR: timing total %.1fs", qbr_total)
         _den = max(qbr_total, 0.01)
         for _name, _sec in sorted(
             ((k, v) for k, v in qbr_times.items() if k != "total_elapsed_s"), key=lambda x: -x[1]
         ):
             if _sec < 0.01:
                 continue
-            logger.info("QBR: timing — %5.1fs  %4.0f%%  %s", _sec, 100.0 * _sec / _den, _name)
+            logger.debug("QBR: timing — %5.1fs  %4.0f%%  %s", _sec, 100.0 * _sec / _den, _name)
         log_drive_cache_load_summary(label="QBR")
         return result
     finally:

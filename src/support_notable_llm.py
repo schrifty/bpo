@@ -282,7 +282,7 @@ def generate_help_escalation_nature_quote_llm(report: dict[str, Any]) -> str | N
     try:
         client = llm_client()
     except RuntimeError as e:
-        logger.info("Escalation nature quote: no LLM client (%s)", e)
+        logger.debug("Escalation nature quote: no LLM client (%s)", e)
         return None
 
     sys = (
@@ -315,7 +315,7 @@ def generate_help_escalation_nature_quote_llm(report: dict[str, Any]) -> str | N
         )
         ch = (resp.choices[0].message.content or "").strip() if resp and resp.choices else ""
     except Exception as e:
-        logger.info("Escalation nature quote: LLM failed: %s", e)
+        logger.debug("Escalation nature quote: LLM failed: %s", e)
         return None
     if not ch:
         return None
@@ -428,7 +428,7 @@ def _salvage_bullet_strings_from_partial_json(s: str) -> list[str] | None:
             out.append(str(val).strip())
         i = j
     if out:
-        logger.info("Notable: recovered %d complete bullet(s) from partial/truncated JSON", len(out))
+        logger.debug("Notable: recovered %d complete bullet(s) from partial/truncated JSON", len(out))
     return out if out else None
 
 
@@ -671,7 +671,7 @@ def _top_up_notable_bullets(
                 raise
         ch = (resp.choices[0].message.content or "").strip() if resp and resp.choices else ""
     except Exception as e:
-        logger.info("Notable top-up: LLM call failed: %s", e)
+        logger.debug("Notable top-up: LLM call failed: %s", e)
         return []
     if not ch:
         return []
@@ -680,10 +680,10 @@ def _top_up_notable_bullets(
     try:
         got = _parse_notable_bullets_json(nch) or _parse_bullets_from_markdown_lines(_normalize_llm_json_string(ch)) or []
     except Exception as ex:
-        logger.info("Notable: could not parse top-up response: %s", ex)
+        logger.debug("Notable: could not parse top-up response: %s", ex)
         got = []
     if got:
-        logger.info("Notable: top-up LLM returned %d new bullet(s)", len(got))
+        logger.debug("Notable: top-up LLM returned %d new bullet(s)", len(got))
     return [str(b).strip() for b in got if str(b).strip()][:n_more]
 
 
@@ -810,7 +810,7 @@ def generate_notable_bullets_via_llm(
                 or "json_object" in emsg
                 or ("unknown" in emsg and "param" in emsg)
             ):
-                logger.info("Notable: retrying without response_format: %s", str(e)[:200])
+                logger.debug("Notable: retrying without response_format: %s", str(e)[:200])
                 resp = _llm_create_with_retry(client, **kws)
             else:
                 raise
@@ -825,7 +825,7 @@ def generate_notable_bullets_via_llm(
             loose = _parse_bullets_from_markdown_lines(_normalize_llm_json_string(ch))
             if loose:
                 out = loose
-                logger.info("Notable: used markdown/loose line parse after JSON miss (%d line(s))", len(out))
+                logger.debug("Notable: used markdown/loose line parse after JSON miss (%d line(s))", len(out))
         if not out:
             logger.warning("Notable: could not parse LLM response. Raw length=%d, first 1000 chars: %s", len(ch), ch[:1000])
             raise ValueError("Notable: could not parse bullets from LLM response")
@@ -1137,7 +1137,7 @@ def generate_support_kpis_notable_bullets_via_llm(
                 or "json_object" in emsg
                 or ("unknown" in emsg and "param" in emsg)
             ):
-                logger.info("Support KPIs Notable: retrying without response_format: %s", str(e)[:200])
+                logger.debug("Support KPIs Notable: retrying without response_format: %s", str(e)[:200])
                 resp = _llm_create_with_retry(client, **kws)
             else:
                 raise

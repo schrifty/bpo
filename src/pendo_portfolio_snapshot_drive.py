@@ -232,7 +232,7 @@ def _read_drive_file_text(file_id: str) -> str:
                             pct = f" ~{int(float(prog) * 100)}%"
                     except (TypeError, ValueError, AttributeError):
                         pass
-                logger.info(
+                logger.debug(
                     "Drive get_media progress: file=%s chunk=%s bytes=%s%s%s",
                     fid_short,
                     chunk_n,
@@ -294,7 +294,7 @@ def try_load_portfolio_snapshot_for_request(
 ) -> dict[str, Any] | None:
     """Load a fresh portfolio snapshot from Drive if configured and valid; else None."""
     if CORTEX_PENDO_CACHE_TTL_SECONDS <= 0:
-        logger.info("Portfolio snapshot: bypass Drive read (Pendo cache disabled)")
+        logger.debug("Portfolio snapshot: bypass Drive read (Pendo cache disabled)")
         return None
     folder_id = resolve_portfolio_snapshot_folder_id()
     if not folder_id:
@@ -347,16 +347,9 @@ def try_load_portfolio_snapshot_for_request(
         if decision == "reject":
             return None
 
-        if decision == "fresh":
+        if decision == "fresh" or decision == "stale_ok":
             logger.info(
-                "Portfolio snapshot: using Drive file %r (age %.1fh, %d customers)",
-                name,
-                age_h,
-                report.get("customer_count", 0),
-            )
-        else:
-            logger.info(
-                "Portfolio snapshot: using Drive file %r (stale weekday, %.1fh, %d customers)",
+                "Portfolio snapshot: using Drive file %r (%.1fh, %d customers)",
                 name,
                 age_h,
                 report.get("customer_count", 0),
@@ -409,7 +402,7 @@ def classify_drive_cache_age(
     if age_h <= max_h:
         return "fresh"
     if age_h > cap_h:
-        logger.info(
+        logger.debug(
             "%s: skip %r — past stale cap (%.1fh > %.1fh); must refresh",
             log_label,
             cache_name,
@@ -418,14 +411,14 @@ def classify_drive_cache_age(
         )
         return "reject"
     if is_weekend_in_snapshot_tz():
-        logger.info(
+        logger.debug(
             "%s: skip %r — age %.1fh in refresh band (weekend); recomputing",
             log_label,
             cache_name,
             age_h,
         )
         return "reject"
-    logger.info(
+    logger.debug(
         "%s: using stale %r (%.1fh old; weekday — Drive refresh on next Sat/Sun)",
         log_label,
         cache_name,
@@ -465,7 +458,7 @@ def ensure_daily_portfolio_snapshot_for_qbr(days: int, max_customers: int | None
     name = portfolio_snapshot_filename(days, max_customers)
 
     if not is_weekend_in_snapshot_tz():
-        logger.info(
+        logger.debug(
             "Pendo: portfolio snapshot auto-upload skipped (weekend-only schedule; weekday in %s)",
             CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
         )
@@ -473,7 +466,7 @@ def ensure_daily_portfolio_snapshot_for_qbr(days: int, max_customers: int | None
 
     existing = try_load_portfolio_snapshot_for_request(days, max_customers)
     if existing is not None:
-        logger.info(
+        logger.debug(
             "Pendo: portfolio snapshot %r already fresh enough on Drive — skip auto-upload",
             name,
         )
@@ -523,7 +516,7 @@ def upload_portfolio_snapshot_to_drive(
     if not force_weekday_write:
         existing_early = find_file_in_folder(name, folder_id, mime_type=None)
         if existing_early and not is_weekend_in_snapshot_tz():
-            logger.info(
+            logger.debug(
                 "Portfolio snapshot: skip Drive upload %r — weekday (weekend-only updates)",
                 name,
             )
@@ -541,12 +534,11 @@ def upload_portfolio_snapshot_to_drive(
         if existing_id:
             with network_timeout(30.0, "Drive file update"):
                 f = drive.files().update(fileId=existing_id, media_body=media, fields="id").execute()
-            logger.info("Portfolio snapshot: updated Drive file %r (%s)", name, f["id"])
-            return f["id"]
-        meta: dict[str, Any] = {"name": name, "parents": [folder_id]}
-        with network_timeout(30.0, "Drive file creation"):
-            f = drive.files().create(body=meta, media_body=media, fields="id").execute()
-        logger.info("Portfolio snapshot: created Drive file %r (%s)", name, f["id"])
+        else:
+            meta: dict[str, Any] = {"name": name, "parents": [folder_id]}
+            with network_timeout(30.0, "Drive file creation"):
+                f = drive.files().create(body=meta, media_body=media, fields="id").execute()
+        logger.info("Portfolio snapshot: uploaded %r to Drive", name)
         return f["id"]
 
 

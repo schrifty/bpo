@@ -130,14 +130,14 @@ def try_load_integration_payload(kind: str, customer: str | None) -> dict[str, A
             raw = json.loads(text)
             env = _validate_envelope(raw, kind, customer_key)
             if env is None:
-                logger.info(
+                logger.debug(
                     "Integration Drive cache: skip %r — envelope invalid (schema/kind/customer/payload)",
                     name,
                 )
                 return None
             age_h = _envelope_age_hours(env.get("saved_at"), meta.get("modifiedTime"))
             if age_h is None:
-                logger.info(
+                logger.debug(
                     "Integration Drive cache: skip %r — could not determine age",
                     name,
                 )
@@ -150,13 +150,13 @@ def try_load_integration_payload(kind: str, customer: str | None) -> dict[str, A
             if decision == "reject":
                 return None
             if decision == "fresh":
-                logger.info(
+                logger.debug(
                     "Integration Drive cache: loaded %r (%.1fh old)",
                     name,
                     age_h,
                 )
             else:
-                logger.info(
+                logger.debug(
                     "Integration Drive cache: loaded %r (stale weekday, %.1fh)",
                     name,
                     age_h,
@@ -185,7 +185,7 @@ def save_integration_payload(kind: str, customer: str | None, payload: dict[str,
     customer_key = integration_customer_key(customer)
     name = integration_cache_filename(kind, customer_key)
     if find_file_in_folder(name, folder_id, mime_type=None) and not is_weekend_in_snapshot_tz():
-        logger.info(
+        logger.debug(
             "Integration Drive cache: skip write %r — weekday (weekend-only Drive updates)",
             name,
         )
@@ -223,7 +223,7 @@ def save_integration_payload(kind: str, customer: str | None, payload: dict[str,
                                 media_body=media,
                                 fields="id",
                             ).execute()
-                logger.info(
+                logger.debug(
                     "Integration Drive cache: wrote %r (%d bytes)",
                     name,
                     len(body),

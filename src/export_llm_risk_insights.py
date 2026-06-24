@@ -291,7 +291,7 @@ def build_customer_risk_payloads(
             except Exception as e:
                 return nm, {"error": str(e)}
 
-        logger.info(
+        logger.debug(
             "LLM export §7: prefetching Jira HELP for %d customer(s) "
             "(%d workers, %.1fs timeout per customer)",
             len(names),
@@ -315,7 +315,7 @@ def build_customer_risk_payloads(
                     warnings.append(f"{nm}: {blob['error']}")
                 jira_by_name[nm] = blob
                 done_jira += 1
-                logger.info(
+                logger.debug(
                     "LLM export §7: Jira prefetch %d/%d (%.1fs) — %r",
                     done_jira,
                     len(names),
@@ -529,7 +529,7 @@ def render_risk_insights_section(
         preview = ", ".join(batch_names[:3])
         if len(batch_names) > 3:
             preview += ", …"
-        logger.info(
+        logger.debug(
             "LLM export §7: LLM batch %d/%d starting (%d customers: %s)",
             batch_idx,
             total_batches,
@@ -553,7 +553,7 @@ def render_risk_insights_section(
             )
             batch_errors.append(f"batch {batch_idx} ({len(batch)} customers): {err}")
             continue
-        logger.info(
+        logger.debug(
             "LLM export §7: LLM batch %d/%d OK in %.1fs (%d customer row(s) parsed)",
             batch_idx,
             total_batches,

@@ -59,7 +59,7 @@ class _PendoDataTool(BaseTool):
             days = int(parts[1])
         else:
             days = resolve_quarter().days
-        logger.info("Tool: %s | %s, %dd", self.name, customer, days)
+        logger.debug("Tool: %s | %s, %dd", self.name, customer, days)
         method = getattr(_client(self.integration_key, self.base_url), self._client_method)
         return json.dumps(method(customer, days), indent=2)
 
@@ -76,7 +76,7 @@ class _CSReportTool(BaseTool):
     def _run(self, query: str) -> str:
         from .. import cs_report_client
         customer = query.strip().split(",")[0].strip()
-        logger.info("Tool: %s | %s", self.name, customer)
+        logger.debug("Tool: %s | %s", self.name, customer)
         fn = getattr(cs_report_client, self._report_function)
         return json.dumps(fn(customer), indent=2)
 
@@ -258,7 +258,7 @@ class PendoAccountsTool(BaseTool):
 
     @_network_safe
     def _run(self, query: str = "") -> str:
-        logger.info("Tool: pendo_accounts")
+        logger.debug("Tool: pendo_accounts")
         data = _client(self.integration_key, self.base_url).list_accounts()
         results = data.get("results") if isinstance(data, dict) else None
         if isinstance(results, list):
@@ -281,7 +281,7 @@ class _PendoCatalogListTool(BaseTool):
 
     @_network_safe
     def _run(self, query: str = "") -> str:
-        logger.info("Tool: %s", self.name)
+        logger.debug("Tool: %s", self.name)
         method = getattr(_client(self.integration_key, self.base_url), self._client_method)
         data = method()
         return json.dumps(_json_truncate_list(data, max_items=40), indent=2)
@@ -331,7 +331,7 @@ class _PendoSchemaTool(BaseTool):
 
     @_network_safe
     def _run(self, query: str = "") -> str:
-        logger.info("Tool: %s", self.name)
+        logger.debug("Tool: %s", self.name)
         method = getattr(_client(self.integration_key, self.base_url), self._client_method)
         return json.dumps(method(), indent=2)
 
@@ -377,7 +377,7 @@ class ListCustomersTool(_PendoDataTool):
     def _run(self, query: str = "") -> str:
         from ..quarters import resolve_quarter
         days = int(query.strip()) if query.strip().isdigit() else resolve_quarter().days
-        logger.info("Tool: list_customers | %dd", days)
+        logger.debug("Tool: list_customers | %dd", days)
         return json.dumps(
             _client(self.integration_key, self.base_url).list_customers(days),
             indent=2,
@@ -401,7 +401,7 @@ class ListDeckTypesTool(BaseTool):
 
     def _run(self, query: str = "") -> str:
         from ..deck_loader import list_decks
-        logger.info("Tool: list_deck_types")
+        logger.debug("Tool: list_deck_types")
         return json.dumps(list_decks(), indent=2)
 
     async def _arun(self, query: str = "") -> str:
@@ -428,7 +428,7 @@ class GetDeckDefinitionTool(BaseTool):
             return json.dumps({"error": "Input must be 'deck_id,customer' (e.g. 'cs_health_review,AGI')"})
         deck_id = parts[0]
         customer = parts[1]
-        logger.info("Tool: get_deck_definition | %s for %s", deck_id, customer)
+        logger.debug("Tool: get_deck_definition | %s for %s", deck_id, customer)
         return json.dumps(resolve_deck(deck_id, customer), indent=2)
 
     async def _arun(self, query: str) -> str:
@@ -449,7 +449,7 @@ class GetSlideDefinitionsTool(BaseTool):
     def _run(self, query: str) -> str:
         from ..slide_loader import get_slide_prompts
         customer = query.strip()
-        logger.info("Tool: get_slide_definitions | %s", customer)
+        logger.debug("Tool: get_slide_definitions | %s", customer)
         return json.dumps(get_slide_prompts(customer), indent=2)
 
     async def _arun(self, query: str) -> str:
@@ -478,7 +478,7 @@ class CreateDeckTool(BaseTool):
         customer = parts[0]
         days = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else resolve_quarter().days
         deck_name = parts[2] if len(parts) > 2 else None
-        logger.info("Tool: create_deck | %s, %dd, %s", customer, days, deck_name)
+        logger.debug("Tool: create_deck | %s, %dd, %s", customer, days, deck_name)
         return json.dumps(create_empty_deck(customer, days, deck_name), indent=2)
 
     async def _arun(self, query: str) -> str:
@@ -518,7 +518,7 @@ class AddSlideTool(BaseTool):
         if not deck_id or not slide_type:
             return json.dumps({"error": "deck_id and slide_type are required"})
 
-        logger.info("Tool: add_slide | %s -> %s", slide_type, deck_id[:20])
+        logger.debug("Tool: add_slide | %s -> %s", slide_type, deck_id[:20])
         return json.dumps(add_slide(deck_id, slide_type, data), indent=2)
 
     async def _arun(self, query: str) -> str:
@@ -606,7 +606,7 @@ class GenerateFullDeckTool(BaseTool):
             qr = resolve_quarter(parts[2] if len(parts) > 2 else None)
             days = qr.days
 
-        logger.info("Tool: generate_full_deck | %s, %s, %dd, %s", customer, deck_id, days, qr.label if qr else "no quarter")
+        logger.debug("Tool: generate_full_deck | %s, %s, %dd, %s", customer, deck_id, days, qr.label if qr else "no quarter")
         client = _client(self.integration_key, self.base_url)
         report = client.get_customer_health_report(customer, days=days)
         if "error" in report:
