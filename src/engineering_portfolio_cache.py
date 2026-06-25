@@ -24,6 +24,21 @@ def _days_match(cached: dict[str, Any], days: int) -> bool:
         return False
 
 
+def _refresh_live_sprint(portfolio: dict[str, Any]) -> dict[str, Any]:
+    """Patch cached eng_portfolio with live Jira active sprint (cheap API call)."""
+    try:
+        from .jira_client import get_shared_jira_client
+
+        live = get_shared_jira_client().fetch_active_board_sprint()
+        if live:
+            out = dict(portfolio)
+            out["sprint"] = live
+            return out
+    except Exception as e:
+        logger.debug("Engineering portfolio: sprint refresh skipped: %s", e)
+    return portfolio
+
+
 def load_or_fetch_engineering_portfolio(*, days: int = 30) -> dict[str, Any]:
     """Return ``eng_portfolio`` blob from Drive cache or Jira ``get_engineering_portfolio``."""
     window = max(1, int(days))
@@ -33,7 +48,7 @@ def load_or_fetch_engineering_portfolio(*, days: int = 30) -> dict[str, Any]:
         cached = try_load_integration_payload(KIND_ENGINEERING_PORTFOLIO, cache_key)
         if cached is not None and not cached.get("error") and _days_match(cached, window):
             logger.debug("Engineering portfolio: Drive cache hit (%dd)", window)
-            return dict(cached)
+            return _refresh_live_sprint(dict(cached))
 
     from .jira_client import get_shared_jira_client
 

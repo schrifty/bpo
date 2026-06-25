@@ -1152,8 +1152,9 @@ def _eng_callout_column(
     heading: str,
     items: list[tuple[str, dict[str, float]]],
     *,
-    max_items: int = 6,
+    max_items: int = 5,
     row_h: float = 30.0,
+    content_bottom: float | None = None,
 ) -> float:
     """Titled column of color-bulleted, prescriptive lines. Returns y below the list."""
     _box(reqs, f"{sid}_{oid}_h", sid, x, y, w, 16, heading)
@@ -1164,12 +1165,31 @@ def _eng_callout_column(
         _box(reqs, f"{sid}_{oid}_e", sid, x, cy, w, 16, empty)
         _style(reqs, f"{sid}_{oid}_e", 0, len(empty), size=10, color=GRAY, font=FONT)
         return cy + 20
-    for i, (text, color) in enumerate(items[:max_items]):
+
+    display = items[:max_items]
+    row_h_eff = row_h
+    if content_bottom is not None:
+        budget = max(24.0, content_bottom - cy)
+        if len(display) * row_h_eff > budget:
+            row_h_eff = max(24.0, budget / len(display))
+        if len(display) * row_h_eff > budget:
+            max_fit = max(1, int(budget // 24.0))
+            display = items[:max_fit]
+            row_h_eff = max(24.0, budget / len(display))
+
+    for i, (text, color) in enumerate(display):
         bullet = f"\u25cf  {_truncate_callout(text)}"
-        _box(reqs, f"{sid}_{oid}_b{i}", sid, x, cy, w, row_h, bullet)
+        _box(reqs, f"{sid}_{oid}_b{i}", sid, x, cy, w, row_h_eff, bullet)
         _style(reqs, f"{sid}_{oid}_b{i}", 0, 1, bold=True, size=10, color=color, font=FONT)
         _style(reqs, f"{sid}_{oid}_b{i}", 1, len(bullet), size=10, color=NAVY, font=FONT)
-        cy += row_h
+        cy += row_h_eff
+
+    overflow = len(items) - len(display)
+    if overflow > 0 and content_bottom is not None and cy + 16 <= content_bottom:
+        note = f"+{overflow} more — see Operational Health / Quality"
+        _box(reqs, f"{sid}_{oid}_ov", sid, x, cy, w, 14, note)
+        _style(reqs, f"{sid}_{oid}_ov", 0, len(note), size=9, color=GRAY, font=FONT)
+        cy += 16
     return cy
 
 
@@ -1278,6 +1298,10 @@ def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
         actions.append(("Rebalance WIP off the top 3 engineers to reduce key-person risk", AMBER))
     if cycle_delta is not None and cycle_delta > 1:
         risks.append((f"Cycle time up {cycle_delta:.0f}d over recent weeks", AMBER))
+        actions.append((
+            f"Review flow bottlenecks — cycle time up {cycle_delta:.0f}d vs recent weeks",
+            AMBER,
+        ))
     if not risks:
         risks.append(("No critical risks flagged this period", GREEN))
     if not actions:
@@ -1319,8 +1343,14 @@ def eng_exec_summary_slide(reqs: list[dict[str, Any]], sid: str, report: dict[st
     col_gap = 28
     col_w = (CONTENT_W - col_gap) / 2
     right_x = MARGIN + col_w + col_gap
-    _eng_callout_column(reqs, sid, "risk", MARGIN, col_top, col_w, "Watch list", risks)
-    _eng_callout_column(reqs, sid, "act", right_x, col_top, col_w, "Decisions", actions)
+    _eng_callout_column(
+        reqs, sid, "risk", MARGIN, col_top, col_w, "Watch list", risks,
+        content_bottom=_ENG_CONTENT_BOTTOM,
+    )
+    _eng_callout_column(
+        reqs, sid, "act", right_x, col_top, col_w, "Decisions", actions,
+        content_bottom=_ENG_CONTENT_BOTTOM,
+    )
     return idx + 1
 
 
@@ -2232,21 +2262,6 @@ def _fmt_tokens(value: Any) -> str:
     if n >= 1_000:
         return f"{n / 1_000:.0f}K"
     return str(n)
-
-
-def _fmt_line_count(value: Any) -> str:
-    """Line counts for GitHub tables — one decimal K below 10K so Net aligns with +/- columns."""
-    try:
-        n = int(value or 0)
-    except (TypeError, ValueError):
-        return "—"
-    sign = "−" if n < 0 else ""
-    n = abs(n)
-    if n >= 10_000:
-        return f"{sign}{n / 1_000:.0f}K"
-    if n >= 1_000:
-        return f"{sign}{n / 1_000:.1f}K"
-    return f"{sign}{n:,}" if sign else str(n)
 
 
 def _fmt_change_profile_lines(adds: int, dels: int) -> tuple[str, str, str]:

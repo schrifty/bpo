@@ -4777,6 +4777,34 @@ class JiraClient:
         flagged_keys = {a["key"] for a in active_for_flow if a.get("flagged")}
         return status_flow, stage_age_by_key, flagged_keys
 
+    def fetch_active_board_sprint(self, board_id: int = 44) -> dict[str, Any] | None:
+        """Live active sprint metadata for a Jira board (lightweight cache refresh)."""
+        import requests as _req
+
+        try:
+            resp = _req.get(
+                f"{self.api_base_url}/rest/agile/1.0/board/{int(board_id)}/sprint?state=active",
+                headers=self._headers,
+                timeout=10,
+            )
+            if not resp.ok:
+                return None
+            vals = resp.json().get("values", [])
+            if not vals:
+                return None
+            s = vals[0]
+            return {
+                "id": s["id"],
+                "name": s["name"],
+                "state": s["state"],
+                "start": (s.get("startDate") or "")[:10],
+                "end": (s.get("endDate") or "")[:10],
+                "goal": s.get("goal", ""),
+            }
+        except Exception as e:
+            logger.warning("Active sprint fetch failed (board %s): %s", board_id, e)
+            return None
+
     def get_engineering_portfolio(self, days: int = 30) -> dict[str, Any]:
         """Fetch a product/engineering-wide SDLC snapshot — not per-customer.
 
@@ -4791,23 +4819,10 @@ class JiraClient:
         # ── Active sprint from Board 44 (LEAN Scrum - CURRENT Issues) ──
         sprint_info: dict = {}
         recent_sprints: list[dict] = []
+        live_sprint = self.fetch_active_board_sprint(44)
+        if live_sprint:
+            sprint_info = live_sprint
         try:
-            resp = _req.get(
-                f"{self.api_base_url}/rest/agile/1.0/board/44/sprint?state=active",
-                headers=self._headers, timeout=10,
-            )
-            if resp.ok:
-                vals = resp.json().get("values", [])
-                if vals:
-                    s = vals[0]
-                    sprint_info = {
-                        "id": s["id"],
-                        "name": s["name"],
-                        "state": s["state"],
-                        "start": s.get("startDate", "")[:10],
-                        "end": s.get("endDate", "")[:10],
-                        "goal": s.get("goal", ""),
-                    }
             # Last 4 closed sprints for velocity
             resp2 = _req.get(
                 f"{self.api_base_url}/rest/agile/1.0/board/44/sprint?state=closed&maxResults=4",

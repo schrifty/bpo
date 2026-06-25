@@ -6,6 +6,7 @@ from datetime import date
 
 from src.jira_client import compute_eng_flow, compute_eng_work_split
 from src.slide_engineering_portfolio import (
+    _ENG_CONTENT_BOTTOM,
     eng_exec_summary_slide,
     eng_flow_bottlenecks_slide,
     eng_toc_slide,
@@ -196,6 +197,52 @@ def test_exec_summary_feeds_initiative_risk() -> None:
     eng_exec_summary_slide(reqs, "sid_ir", report, 0)
     body = _all_text(reqs)
     assert "2 initiatives stalled" in body
+
+
+def test_exec_summary_callouts_respect_content_bottom() -> None:
+    report = _report()
+    flow = report["eng_portfolio"]["flow"]
+    flow["blocked_count"] = 5
+    flow["stale_recent"] = 64
+    flow["abandoned_in_stage"] = 78
+    report["eng_portfolio"]["epic_progress"] = {"at_risk_count": 2}
+    report["eng_portfolio"]["work_split"] = {"reactive_wip_pct": 45}
+    report["eng_portfolio"]["by_assignee"] = {f"u{i}": 10 for i in range(8)}
+    reqs: list = []
+    eng_exec_summary_slide(reqs, "sid_fit", report, 0)
+    assert _has_obj(reqs, "sid_fit_risk_b4")
+    assert not _has_obj(reqs, "sid_fit_risk_b5")
+    assert _has_obj(reqs, "sid_fit_risk_ov")
+    # Last bullet must sit above the takeaway band (no clip into footer).
+    last_risk = next(
+        r for r in reqs
+        if isinstance(r, dict)
+        and r.get("createShape", {}).get("objectId") == "sid_fit_risk_b4"
+    )
+    y = last_risk["createShape"]["elementProperties"]["transform"]["translateY"]
+    h = last_risk["createShape"]["elementProperties"]["size"]["height"]["magnitude"]
+    assert y + h <= _ENG_CONTENT_BOTTOM + 1
+
+
+def test_exec_summary_cycle_delta_pairs_action() -> None:
+    report = {
+        "eng_portfolio": {
+            "days": 30,
+            "sprint": {"name": "Sprint 592"},
+            "team_scorecard": {"summary": {}},
+            "by_assignee": {},
+            "blocker_critical": [],
+            "project_snapshots": {"LEAN": {"open_count": 0, "open_over_90_count": 0}},
+            "flow": {"cycle_delta_days": 3, "stale_recent": 0, "abandoned_in_stage": 0, "blocked_count": 0},
+            "work_split": {"reactive_wip_pct": 0},
+            "sprint_velocity": {"boards": []},
+        }
+    }
+    reqs: list = []
+    eng_exec_summary_slide(reqs, "sid_cy", report, 0)
+    body = _all_text(reqs)
+    assert "Cycle time up 3d" in body
+    assert "flow bottlenecks" in body.lower()
 
 
 def test_flow_slide_titles_bottleneck_and_lists_stalled() -> None:
