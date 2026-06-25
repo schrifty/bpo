@@ -2234,6 +2234,39 @@ def _fmt_tokens(value: Any) -> str:
     return str(n)
 
 
+def _fmt_line_count(value: Any) -> str:
+    """Line counts for GitHub tables — one decimal K below 10K so Net aligns with +/- columns."""
+    try:
+        n = int(value or 0)
+    except (TypeError, ValueError):
+        return "—"
+    sign = "−" if n < 0 else ""
+    n = abs(n)
+    if n >= 10_000:
+        return f"{sign}{n / 1_000:.0f}K"
+    if n >= 1_000:
+        return f"{sign}{n / 1_000:.1f}K"
+    return f"{sign}{n:,}" if sign else str(n)
+
+
+def _fmt_change_profile_lines(adds: int, dels: int) -> tuple[str, str, str]:
+    """Format +/−/Net with shared K precision so Net matches visible +/- math."""
+    net = adds - dels
+    peak = max(adds, dels, abs(net))
+
+    def _one(n: int) -> str:
+        sign = "−" if n < 0 else ""
+        n = abs(n)
+        if peak >= 1_000:
+            text = f"{n / 1_000:.1f}K"
+            if text.endswith(".0K"):
+                text = f"{text[:-3]}K"
+            return f"{sign}{text}"
+        return f"{sign}{n:,}" if sign else str(n)
+
+    return _one(adds), _one(dels), _one(net)
+
+
 def _fmt_cents(value: Any) -> str:
     """Dollar amount from cents (whole dollars): 184029 → '$1,840'."""
     if value is None:
@@ -3565,9 +3598,17 @@ _COACHING_TABLE_BODY_PT = 9.0
 
 _GITHUB_REPO_TABLE_COL_WIDTHS: tuple[float, ...] = (340.0, 140.0, 144.0)
 _GITHUB_REPO_TABLE_ALIGNS = ("START", "END", "END")
-_GITHUB_REPO_TABLE_ROW_H = 22.0
+_GITHUB_REPO_TABLE_ROW_H = 26.0
+_GITHUB_REPO_TABLE_RENDER_H = 26.0
+# Slides table cells render taller than font size alone — reserve space above takeaway band.
+_GITHUB_TABLE_BOTTOM_BUFFER = 18.0
 _GITHUB_REPO_TABLE_HEADER_PT = 9.0
 _GITHUB_REPO_TABLE_BODY_PT = 9.0
+
+
+def _github_body_bottom() -> float:
+    """Content ceiling for GitHub slides (table/chart must stop above takeaway band)."""
+    return _ENG_CONTENT_BOTTOM - _GITHUB_TABLE_BOTTOM_BUFFER
 
 
 def productivity_coaching_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
@@ -3672,12 +3713,29 @@ def github_engineering_output_slide(reqs: list[dict[str, Any]], sid: str, report
         reverse=True,
     )
     repos_updated = len(active_repos)
+    commits = int(company.get("commits") or 0)
+    kpi_h = 54.0
+    panel_pad = 2.0
+    table_top_est = _ENG_KPI_AFTER_TITLE_Y + kpi_h + 10 + panel_pad
+    table_bottom_est = _github_body_bottom() - panel_pad
+    max_body_rows = _table_rows_fit_span(
+        y_top=table_top_est,
+        y_bottom=table_bottom_est,
+        row_height_pt=_GITHUB_REPO_TABLE_ROW_H,
+        reserved_table_rows=1,
+        max_rows_cap=12,
+    )
+    shown_count = min(len(active_repos), max_body_rows) if active_repos else 0
+    if active_repos and shown_count < repos_updated:
+        repo_line = f"top {shown_count} of {repos_updated} repos"
+    else:
+        repo_line = f"{repos_updated} repos" if repos_updated else "0 repos"
 
     _slide(reqs, sid, idx)
     _github_bg(reqs, sid)
     _eng_title(
         reqs, sid, "GitHub Engineering Output",
-        f"{int(company.get('commits') or 0)} commits across {repos_updated} repos ({window_days}d)",
+        f"{commits} commits, {repo_line} ({window_days}d)",
     )
 
     kpi_y = _eng_kpi_row(
@@ -3695,18 +3753,17 @@ def github_engineering_output_slide(reqs: list[dict[str, Any]], sid: str, report
     panel_x = MARGIN
     panel_y = body_top
     panel_w = CONTENT_W
-    panel_pad = 2.0
     inner_w = panel_w - 2 * panel_pad
     col_widths = _scale_col_widths(_GITHUB_REPO_TABLE_COL_WIDTHS, inner_w)
     table_x = panel_x + panel_pad
     table_top = panel_y + panel_pad
-    table_bottom = _ENG_CONTENT_BOTTOM - panel_pad
+    table_bottom = _github_body_bottom() - panel_pad
     max_body_rows = _table_rows_fit_span(
         y_top=table_top,
         y_bottom=table_bottom,
         row_height_pt=_GITHUB_REPO_TABLE_ROW_H,
         reserved_table_rows=1,
-        max_rows_cap=14,
+        max_rows_cap=12,
     )
     display_repos = active_repos[:max_body_rows]
     if not display_repos:
@@ -3724,7 +3781,7 @@ def github_engineering_output_slide(reqs: list[dict[str, Any]], sid: str, report
             for row in display_repos
         ]
         num_rows = 1 + len(body_rows)
-        panel_h = 2 * panel_pad + num_rows * _GITHUB_REPO_TABLE_ROW_H
+        panel_h = 2 * panel_pad + num_rows * _GITHUB_REPO_TABLE_RENDER_H
         _bar_rect(reqs, f"{sid}_grpnl", sid, panel_x, panel_y, panel_w, panel_h, WHITE, outline=GRAY)
         table_id = f"{sid}_grtbl"
         reqs.append({
@@ -3732,7 +3789,7 @@ def github_engineering_output_slide(reqs: list[dict[str, Any]], sid: str, report
                 "objectId": table_id,
                 "elementProperties": {
                     "pageObjectId": sid,
-                    "size": _sz(inner_w, num_rows * _GITHUB_REPO_TABLE_ROW_H),
+                    "size": _sz(inner_w, num_rows * _GITHUB_REPO_TABLE_RENDER_H),
                     "transform": _tf(table_x, table_top),
                 },
                 "rows": num_rows,
@@ -3885,10 +3942,15 @@ def github_delivery_flow_slide(reqs: list[dict[str, Any]], sid: str, report: dic
             chart_title = f"Commits vs merged PRs by week ({window_days}d, engineering team)"
             labels = [str(w.get("label") or w.get("week") or "") for w in weekly]
             commit_series = [int(w.get("engineer_commits") or 0) for w in weekly]
-            pr_series = [int(w.get("engineer_merged_prs") or 0) for w in weekly]
             chart_h = int(_cursor_chart_panel_reserve(
-                content_ceiling=_ENG_CONTENT_BOTTOM - 6, start_y=body_top, legend_rows=2,
+                content_ceiling=_github_body_bottom() - 6, start_y=body_top, legend_rows=2,
             ))
+            pr_series = [
+                int(w.get("engineer_merged_prs") or w.get("merged_prs") or 0)
+                for w in weekly
+            ]
+            if sum(pr_series) <= 0:
+                pr_series = [int(w.get("merged_prs") or 0) for w in weekly]
             ss_id, chart_id = charts.add_combo_chart(
                 title=chart_title,
                 labels=labels,
@@ -3896,6 +3958,7 @@ def github_delivery_flow_slide(reqs: list[dict[str, Any]], sid: str, report: dic
                 line_series={"Merged PRs": pr_series},
                 show_title=False,
                 suppress_legend=True,
+                line_on_left_axis=True,
                 width_pixels=int((CONTENT_W - 2 * _CURSOR_CHART_PAD) * 2),
                 height_pixels=int(chart_h * 2),
             )
@@ -3924,7 +3987,8 @@ def github_delivery_flow_slide(reqs: list[dict[str, Any]], sid: str, report: dic
 
 
 _GITHUB_CHANGE_PANEL_PAD = 2.0
-_GITHUB_CHANGE_TABLE_ROW_H = 22.0
+_GITHUB_CHANGE_TABLE_ROW_H = 26.0
+_GITHUB_CHANGE_TABLE_RENDER_H = 26.0
 _GITHUB_CHANGE_TABLE_HEADER_PT = 8.0
 _GITHUB_CHANGE_TABLE_BODY_PT = 8.0
 _GITHUB_CHANGE_TABLE_COL_WIDTHS: tuple[float, ...] = (188.0, 72.0, 72.0, 72.0, 64.0, 72.0)
@@ -3957,14 +4021,14 @@ def _github_change_profile_rows(repos: list[dict[str, Any]], cap: int) -> list[l
     for repo in active[:display_cap]:
         adds = int(repo.get("lines_added") or 0)
         dels = int(repo.get("lines_deleted") or 0)
-        net = adds - dels
         del_pct = f"{dels / adds * 100:.0f}%" if adds else "—"
         short_name = _github_repo_display_name(str(repo.get("full_name") or ""))
+        add_s, del_s, net_s = _fmt_change_profile_lines(adds, dels)
         rows.append([
             short_name,
-            _fmt_tokens(adds),
-            _fmt_tokens(dels),
-            _fmt_tokens(net),
+            add_s,
+            del_s,
+            net_s,
             del_pct,
             str(int(repo.get("merged_prs") or 0)),
         ])
@@ -3972,12 +4036,15 @@ def _github_change_profile_rows(repos: list[dict[str, Any]], cap: int) -> list[l
         other = active[display_cap:]
         o_adds = sum(int(r.get("lines_added") or 0) for r in other)
         o_dels = sum(int(r.get("lines_deleted") or 0) for r in other)
-        o_net = o_adds - o_dels
+        o_add_s, o_del_s, o_net_s = _fmt_change_profile_lines(o_adds, o_dels)
         o_del_pct = f"{o_dels / o_adds * 100:.0f}%" if o_adds else "—"
         o_prs = sum(int(r.get("merged_prs") or 0) for r in other)
         n = len(other)
         label = f"Other ({n} repos)" if n != 1 else "Other (1 repo)"
-        rows.append([label, _fmt_tokens(o_adds), _fmt_tokens(o_dels), _fmt_tokens(o_net), o_del_pct, str(o_prs)])
+        rows.append([
+            label, o_add_s, o_del_s, o_net_s,
+            o_del_pct, str(o_prs),
+        ])
     return rows
 
 
@@ -4014,6 +4081,7 @@ def github_change_profile_slide(reqs: list[dict[str, Any]], sid: str, report: di
     headers = ("Repository", "+Lines", "−Lines", "Net", "Del %", "PRs")
     aligns = _GITHUB_CHANGE_TABLE_ALIGNS
     row_h = _GITHUB_CHANGE_TABLE_ROW_H
+    render_h = _GITHUB_CHANGE_TABLE_RENDER_H
     panel_x = MARGIN
     panel_y = kpi_y + 12
     panel_w = CONTENT_W
@@ -4022,20 +4090,20 @@ def github_change_profile_slide(reqs: list[dict[str, Any]], sid: str, report: di
     col_widths = _scale_col_widths(col_widths_base, inner_w)
     table_x = panel_x + panel_pad
     table_top = panel_y + panel_pad
-    table_bottom = _ENG_CONTENT_BOTTOM - panel_pad
+    table_bottom = _github_body_bottom() - panel_pad
     max_body_rows = _table_rows_fit_span(
         y_top=table_top,
         y_bottom=table_bottom,
         row_height_pt=row_h,
         reserved_table_rows=1,
-        max_rows_cap=20,
+        max_rows_cap=12,
     )
     body_rows = _github_change_profile_rows(repos, max_body_rows)
     if not body_rows:
         return _missing_data_slide(reqs, sid, report, idx, "GitHub change profile (no line activity in window)")
 
     num_rows = 1 + len(body_rows)
-    panel_h = 2 * panel_pad + num_rows * row_h
+    panel_h = 2 * panel_pad + num_rows * render_h
     _bar_rect(reqs, f"{sid}_gcpnl", sid, panel_x, panel_y, panel_w, panel_h, WHITE, outline=GRAY)
     table_id = f"{sid}_gctbl"
     reqs.append({
@@ -4043,7 +4111,7 @@ def github_change_profile_slide(reqs: list[dict[str, Any]], sid: str, report: di
             "objectId": table_id,
             "elementProperties": {
                 "pageObjectId": sid,
-                "size": _sz(inner_w, num_rows * row_h),
+                "size": _sz(inner_w, num_rows * render_h),
                 "transform": _tf(table_x, table_top),
             },
             "rows": num_rows,

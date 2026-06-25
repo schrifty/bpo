@@ -225,6 +225,39 @@ def test_github_delivery_flow_slide_renders_with_chart():
     assert "open PRs vs" not in text.lower() or "backlog" in text.lower() or "review" in text.lower()
 
 
+def test_fmt_change_profile_lines_aligns_net_with_signed_columns():
+    from src.slide_engineering_portfolio import _fmt_change_profile_lines
+
+    adds, dels, net = _fmt_change_profile_lines(18000, 2400)
+    assert adds == "18K"
+    assert dels == "2.4K"
+    assert net == "15.6K"
+
+
+def test_fmt_change_profile_lines_other_row_uses_k():
+    from src.slide_engineering_portfolio import _fmt_change_profile_lines
+
+    adds, dels, net = _fmt_change_profile_lines(2800, 507)
+    assert adds == "2.8K"
+    assert dels == "0.5K"
+    assert net == "2.3K"
+
+
+def test_github_engineering_output_subtitle_notes_truncated_table():
+    report = _github_report()
+    report["github_productivity"]["repos_summary"] = [
+        {"full_name": f"acme/r{i}", "commits": 100 - i, "merged_prs": 1}
+        for i in range(12)
+    ]
+    reqs: list = []
+    github_engineering_output_slide(reqs, "geo", report, 0)
+    text = " ".join(
+        r["insertText"]["text"] for r in reqs if isinstance(r, dict) and "insertText" in r
+    )
+    assert "top" in text
+    assert "of 12 repos" in text
+
+
 def test_github_change_profile_slide_renders_table():
     reqs: list = []
     idx = github_change_profile_slide(reqs, "gcp", _github_report(), 0)

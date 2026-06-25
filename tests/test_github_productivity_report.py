@@ -78,6 +78,48 @@ def test_build_productivity_report_aggregates(monkeypatch):
     assert report["company_engineers"]["median_pr_cycle_hours"] == 0.0
 
 
+def test_search_issue_nested_merged_at_populates_weekly_and_cycle(monkeypatch):
+    """GitHub search returns merged_at under pull_request, not top-level."""
+    monkeypatch.setattr("src.github_productivity_report.github_configured", lambda: True)
+    recent = datetime.now(timezone.utc).strftime("%Y-%m-%dT12:00:00Z")
+
+    gh = MagicMock()
+    gh.get_authenticated_user.return_value = {"login": "bot"}
+    gh.get_repo.return_value = {"full_name": "acme/web", "default_branch": "main", "pushed_at": recent}
+    gh.list_commits.return_value = []
+    gh.list_pull_requests.return_value = []
+    gh.list_merged_pulls_since.return_value = [
+        {
+            "state": "closed",
+            "merged_at": None,
+            "closed_at": recent,
+            "created_at": recent,
+            "updated_at": recent,
+            "pull_request": {"merged_at": recent},
+            "user": {"login": "dev"},
+        }
+    ]
+    gh.list_releases.return_value = []
+    gh.get_contributor_stats.return_value = []
+
+    monkeypatch.setattr(
+        "src.github_productivity_report._resolve_repo_specs",
+        lambda **kw: [("acme", "web")],
+    )
+    monkeypatch.setattr("src.github_productivity_report.cache_get", lambda *a, **k: None)
+
+    report = build_github_productivity_report(
+        window_days=14,
+        client=gh,
+        identity=_identity(),
+        use_cache=False,
+    )
+    assert report is not None
+    assert report["weekly"][0]["merged_prs"] == 1
+    assert report["weekly"][0]["engineer_merged_prs"] == 1
+    assert report["company_engineers"]["median_pr_cycle_hours"] == 0.0
+
+
 def test_github_qa_blob():
     blob = github_qa_blob({"configured": True, "api": "rest", "user_login": "bot"})
     assert blob["configured"] is True
@@ -138,7 +180,7 @@ def test_compute_github_output_insights_flags_commit_merge_gap():
         ],
     }
     text = compute_github_output_insights(gp)
-    assert "ahead of merges" in text.lower() or "no merges" in text.lower()
+    assert "without pr merges" in text.lower() or "ahead of merges" in text.lower()
 
 
 def test_compute_github_contribution_insights_flags_concentration():

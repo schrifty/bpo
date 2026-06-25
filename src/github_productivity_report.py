@@ -50,6 +50,21 @@ def _week_label(key: str) -> str:
     return key
 
 
+def _pull_merged_at(pull: dict[str, Any]) -> datetime | None:
+    """Merged timestamp from a pull or search-issue payload."""
+    merged = _parse_iso_dt(pull.get("merged_at"))
+    if merged is not None:
+        return merged
+    pr_obj = pull.get("pull_request")
+    if isinstance(pr_obj, dict):
+        merged = _parse_iso_dt(pr_obj.get("merged_at"))
+        if merged is not None:
+            return merged
+    if pull.get("state") == "closed":
+        return _parse_iso_dt(pull.get("closed_at"))
+    return None
+
+
 def _blank_person() -> dict[str, Any]:
     return {**_EMPTY_PERSON, "repos_touched": []}
 
@@ -79,11 +94,13 @@ def _finalize_person(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _median_pr_cycle_hours(by_email: dict[str, dict[str, Any]]) -> float | None:
-    cycles = [
-        float(row["avg_pr_cycle_hours"])
-        for row in by_email.values()
-        if isinstance(row.get("avg_pr_cycle_hours"), (int, float))
-    ]
+    cycles: list[float] = []
+    for row in by_email.values():
+        raw = row.get("_cycle_hours")
+        if isinstance(raw, list):
+            cycles.extend(float(h) for h in raw if isinstance(h, (int, float)))
+        elif isinstance(row.get("avg_pr_cycle_hours"), (int, float)):
+            cycles.append(float(row["avg_pr_cycle_hours"]))
     if not cycles:
         return None
     cycles.sort()
@@ -209,7 +226,7 @@ def _attribute_pull(
     engineer_emails: set[str],
 ) -> tuple[str | None, float | None, str]:
     """Return (canonical_email, cycle_hours, state) where state is open|merged|skip."""
-    merged_at = _parse_iso_dt(pull.get("merged_at"))
+    merged_at = _pull_merged_at(pull)
     updated_at = _parse_iso_dt(pull.get("updated_at"))
     if pull.get("state") == "open":
         return None, None, "open"
@@ -259,7 +276,7 @@ def build_github_productivity_report(
                 "repos": repos_raw,
                 "days": days,
                 "identity": bool(identity),
-                "schema": 3,
+                "schema": 4,
             },
         )
         cached = cache_get(cache_storage_key)
@@ -356,7 +373,7 @@ def build_github_productivity_report(
                 company_open_prs += 1
 
         for pull in gh.list_merged_pulls_since(owner, repo, since=since):
-            merged_at = _parse_iso_dt(pull.get("merged_at"))
+            merged_at = _pull_merged_at(pull)
             user_obj = pull.get("user") if isinstance(pull.get("user"), dict) else {}
             login = str(user_obj.get("login") or "").strip().lower()
             canonical = _resolve_contributor_login(
@@ -433,6 +450,8 @@ def build_github_productivity_report(
             }
         )
 
+    median_cycle = _median_pr_cycle_hours(engineer_by_email)
+
     for bucket in (all_by_email, engineer_by_email):
         for email in list(bucket.keys()):
             bucket[email] = _finalize_person(bucket[email])
@@ -443,7 +462,7 @@ def build_github_productivity_report(
     company_all["releases"] = company_releases
     company_engineers["open_prs"] = company_open_prs
     company_engineers["releases"] = company_releases
-    company_engineers["median_pr_cycle_hours"] = _median_pr_cycle_hours(engineer_by_email)
+    company_engineers["median_pr_cycle_hours"] = median_cycle
     contributors = _top_contributors(engineer_by_email if engineer_emails else all_by_email)
     company_engineers["contributor_count"] = len(contributors)
 
@@ -580,9 +599,7 @@ def compute_github_delivery_insights(productivity: dict[str, Any] | None) -> dic
         )
 
     takeaway = signals[0]
-    if len(signals) > 1 and len(takeaway) < 220:
-        takeaway = f"{signals[0]} {signals[1]}"
-    takeaway = takeaway[:320].rstrip()
+    takeaway = takeaway[:280].rstrip()
 
     cycle_label = _format_pr_cycle_human(median_h)
     speaker_parts = [
@@ -637,18 +654,18 @@ def compute_github_output_insights(productivity: dict[str, Any] | None) -> str:
 
     if zero_pr and len(zero_pr) <= 4:
         names = ", ".join(_github_repo_short_name(r.get("full_name") or "") for r in zero_pr[:3])
-        extra = f" (+{len(zero_pr) - 3} more)" if len(zero_pr) > 3 else ""
-        signals.append(
-            f"{len(zero_pr)} repo(s) with commits but no merges ({names}{extra})—"
-            "verify those services use PR review rather than direct pushes."
-        )
+        extra = f" (+{len(zero_pr) - 3})" if len(zero_pr) > 3 else ""
+        return (
+            f"{len(zero_pr)} repo(s) show commits without PR merges ({names}{extra})—"
+            "confirm review policy on those services."
+        )[:280]
 
     if not signals:
         signals.append(
             f"{commits} commits and {merged} merged PRs across {len(active)} active repos in {days}d—"
             "scan the repo list for uneven delivery before changing staffing."
         )
-    return signals[0][:320].rstrip()
+    return signals[0][:280].rstrip()
 
 
 def compute_github_contribution_insights(productivity: dict[str, Any] | None) -> str:

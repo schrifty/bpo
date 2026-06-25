@@ -486,6 +486,7 @@ class DeckCharts:
         show_title: bool = True,
         suppress_legend: bool = False,
         axis_font_size: int = CHART_AXIS_PT,
+        line_on_left_axis: bool = False,
         width_pixels: int = 800,
         height_pixels: int = 400,
     ) -> tuple[str, int]:
@@ -532,13 +533,14 @@ class DeckCharts:
 
         for ci, name in enumerate(line_series):
             color_idx = len(bar_series) + ci
+            axis = "LEFT_AXIS" if line_on_left_axis else "RIGHT_AXIS"
             s = {
                 "series": {"sourceRange": {"sources": [{
                     "sheetId": sheet_id,
                     "startRowIndex": 0, "endRowIndex": num_rows,
                     "startColumnIndex": col, "endColumnIndex": col + 1,
                 }]}},
-                "targetAxis": "RIGHT_AXIS",
+                "targetAxis": axis,
                 "type": "LINE",
             }
             if color_idx < len(BRAND_SERIES_COLORS):
@@ -553,6 +555,11 @@ class DeckCharts:
                 "chartType": "COMBO",
                 "legendPosition": "NO_LEGEND" if suppress_legend else "BOTTOM_LEGEND",
                 "axis": [
+                    {"position": "BOTTOM_AXIS", "format": _chart_text_format(axis_font_size, GRAY)},
+                    {"position": "LEFT_AXIS", "format": _chart_text_format(axis_font_size, GRAY)},
+                ]
+                if line_on_left_axis
+                else [
                     {"position": "BOTTOM_AXIS", "format": _chart_text_format(axis_font_size, GRAY)},
                     {"position": "LEFT_AXIS", "format": _chart_text_format(axis_font_size, GRAY)},
                     {"position": "RIGHT_AXIS", "format": _chart_text_format(axis_font_size, GRAY)},
