@@ -292,7 +292,7 @@ def eng_portfolio_title_slide(reqs: list[dict[str, Any]], sid: str, report: dict
     cu = report.get("cursor_usage") or {}
     if cu.get("configured"):
         run_rate = (cu.get("totals") or {}).get("charged_cents_window")
-        cursor_sub = f"Cursor AI 30d run rate: {_fmt_cents(run_rate)}"
+        cursor_sub = f"Cursor tokens - 30d run rate: {_fmt_cents(run_rate)}"
         _box(reqs, f"{sid}_cu", sid, MARGIN, subtitle_y, CONTENT_W, 24, cursor_sub)
         _style(reqs, f"{sid}_cu", 0, len(cursor_sub), size=14, color=subtitle_color, font=FONT)
 

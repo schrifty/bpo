@@ -485,6 +485,7 @@ class DeckCharts:
         background: dict[str, float] | None = None,
         show_title: bool = True,
         suppress_legend: bool = False,
+        axis_font_size: int = CHART_AXIS_PT,
         width_pixels: int = 800,
         height_pixels: int = 400,
     ) -> tuple[str, int]:
@@ -552,9 +553,9 @@ class DeckCharts:
                 "chartType": "COMBO",
                 "legendPosition": "NO_LEGEND" if suppress_legend else "BOTTOM_LEGEND",
                 "axis": [
-                    {"position": "BOTTOM_AXIS"},
-                    {"position": "LEFT_AXIS"},
-                    {"position": "RIGHT_AXIS"},
+                    {"position": "BOTTOM_AXIS", "format": _chart_text_format(axis_font_size, GRAY)},
+                    {"position": "LEFT_AXIS", "format": _chart_text_format(axis_font_size, GRAY)},
+                    {"position": "RIGHT_AXIS", "format": _chart_text_format(axis_font_size, GRAY)},
                 ],
                 "domains": [{"domain": {"sourceRange": {"sources": [{
                     "sheetId": sheet_id,

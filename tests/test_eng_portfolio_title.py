@@ -23,7 +23,7 @@ def test_title_slide_shows_sprint_and_cursor_run_rate() -> None:
     text = _texts(reqs)
     assert "Sprint: Sprint 597" in text
     assert "ends Jun 20, 2026" in text
-    assert "Cursor AI 30d run rate: $9,963" in text
+    assert "Cursor tokens - 30d run rate: $9,963" in text
 
 
 def test_title_slide_omits_cursor_line_when_unconfigured() -> None:
@@ -35,4 +35,4 @@ def test_title_slide_omits_cursor_line_when_unconfigured() -> None:
     eng_portfolio_title_slide(reqs, "sid", report, 0)
     text = _texts(reqs)
     assert "Sprint:" in text
-    assert "Cursor AI 30d run rate" not in text
+    assert "Cursor tokens - 30d run rate" not in text

@@ -128,6 +128,49 @@ def bar_rect(
     })
 
 
+def _kpi_text_box_align(
+    reqs: list[dict[str, Any]],
+    object_id: str,
+    *,
+    align: str,
+    font_pt: float,
+    color: dict[str, float],
+    bold: bool,
+) -> None:
+    """Apply KPI text box alignment and strip default paragraph spacing."""
+    reqs.append({
+        "updateShapeProperties": {
+            "objectId": object_id,
+            "shapeProperties": {"contentAlignment": align},
+            "fields": "contentAlignment",
+        }
+    })
+    reqs.append({
+        "updateParagraphStyle": {
+            "objectId": object_id,
+            "style": {
+                "lineSpacing": 100,
+                "spaceAbove": {"magnitude": 0, "unit": "PT"},
+                "spaceBelow": {"magnitude": 0, "unit": "PT"},
+            },
+            "fields": "lineSpacing,spaceAbove,spaceBelow",
+        }
+    })
+    reqs.append({
+        "updateTextStyle": {
+            "objectId": object_id,
+            "textRange": {"type": "ALL"},
+            "style": {
+                "bold": bold,
+                "fontSize": {"magnitude": font_pt, "unit": "PT"},
+                "foregroundColor": {"opaqueColor": {"rgbColor": color}},
+                "fontFamily": FONT,
+            },
+            "fields": "bold,fontSize,foregroundColor,fontFamily",
+        }
+    })
+
+
 def kpi_metric_card(
     reqs: list[dict[str, Any]],
     oid_base: str,
@@ -145,8 +188,8 @@ def kpi_metric_card(
 ) -> None:
     """Outlined KPI tile for app-built slides.
 
-    Label sits ``KPI_METRIC_PAD_V`` from the top edge; value sits the same inset
-    from the bottom (``contentAlignment: BOTTOM`` on the value box).
+    Label top edge sits ``KPI_METRIC_PAD_V`` below the card top; value bottom edge
+    sits ``KPI_METRIC_PAD_V`` above the card bottom (fixed single-line boxes).
     """
     accent = accent or BLUE
     bar_rect(reqs, oid_base, sid, x, y, w, h, LIGHT, outline=GRAY)
@@ -154,58 +197,31 @@ def kpi_metric_card(
     pad_v = KPI_METRIC_PAD_V
     inner_w = max(40.0, w - 2 * pad_h)
     label, label_pt = _fit_kpi_label(label, inner_w, label_pt)
-    value_line_h = max(16.0, value_pt * 1.25)
-    value_y = y + h - pad_v - value_line_h
-    value_h = value_line_h
     label_line_h = max(12.0, label_pt * 1.2)
-    min_gap = 4.0
-    max_label_h = value_y - (y + pad_v) - min_gap
-    if max_label_h < 10.0:
-        max_label_h = 10.0
-    label_line_h = min(label_line_h, max_label_h)
+    value_line_h = max(16.0, value_pt * 1.25)
     label_id = f"{oid_base}_l"
     _box(reqs, label_id, sid, x + pad_h, y + pad_v, inner_w, label_line_h, label)
-    reqs.append({
-        "updateShapeProperties": {
-            "objectId": label_id,
-            "shapeProperties": {"contentAlignment": "TOP"},
-            "fields": "contentAlignment",
-        }
-    })
     if label:
+        _kpi_text_box_align(reqs, label_id, align="TOP", font_pt=label_pt, color=BLACK, bold=False)
+    else:
         reqs.append({
-            "updateTextStyle": {
+            "updateShapeProperties": {
                 "objectId": label_id,
-                "textRange": {"type": "ALL"},
-                "style": {
-                    "fontSize": {"magnitude": label_pt, "unit": "PT"},
-                    "foregroundColor": {"opaqueColor": {"rgbColor": BLACK}},
-                    "fontFamily": FONT,
-                },
-                "fields": "fontSize,foregroundColor,fontFamily",
+                "shapeProperties": {"contentAlignment": "TOP"},
+                "fields": "contentAlignment",
             }
         })
     value_id = f"{oid_base}_v"
-    _box(reqs, value_id, sid, x + pad_h, value_y, inner_w, value_h, value)
-    reqs.append({
-        "updateShapeProperties": {
-            "objectId": value_id,
-            "shapeProperties": {"contentAlignment": "BOTTOM"},
-            "fields": "contentAlignment",
-        }
-    })
+    value_y = y + h - pad_v - value_line_h
+    _box(reqs, value_id, sid, x + pad_h, value_y, inner_w, value_line_h, value)
     if value:
+        _kpi_text_box_align(reqs, value_id, align="BOTTOM", font_pt=value_pt, color=accent, bold=True)
+    else:
         reqs.append({
-            "updateTextStyle": {
+            "updateShapeProperties": {
                 "objectId": value_id,
-                "textRange": {"type": "ALL"},
-                "style": {
-                    "bold": True,
-                    "fontSize": {"magnitude": value_pt, "unit": "PT"},
-                    "foregroundColor": {"opaqueColor": {"rgbColor": accent}},
-                    "fontFamily": FONT,
-                },
-                "fields": "bold,fontSize,foregroundColor,fontFamily",
+                "shapeProperties": {"contentAlignment": "BOTTOM"},
+                "fields": "contentAlignment",
             }
         })
 
