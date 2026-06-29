@@ -54,6 +54,11 @@ Flag commands (utilities)
       ``Output/{ISO-date} - Output/LLM-Context-All_Customers.md`` (same calendar day).
       Section 7 LLM churn/account-risk insights are always appended to the export markdown.
 
+  cortex --export-pendo --customer <name> [--days N] [--format json|markdown|both] [--no-drive] [-o PATH]
+      Export **Pendo-only** product usage for one customer (sites, features, depth, Kei, trends).
+      Uploads to ``Output/customer-exports/{customer}/`` (stable + dated subfolder).
+      Default: ``--days 30``, ``--format both`` (JSON + markdown).
+
   cortex --schedule [--prefix NAME] [--region REGION]
       Show EventBridge cron schedules for ECS batch jobs (live AWS when credentials are available,
       plus catalog defaults from ``infra/terraform/variables.tf``). Cron times are UTC.
@@ -1212,6 +1217,13 @@ def main():
 
         rest = [a for a in sys.argv[1:] if a != "--export"]
         export_main(rest, prog="cortex --export")
+        return
+
+    if "--export-pendo" in sys.argv:
+        from src.export_customer_pendo_snapshot import export_pendo_main
+
+        rest = [a for a in sys.argv[1:] if a != "--export-pendo"]
+        export_pendo_main(rest, prog="cortex --export-pendo")
         return
 
     if "--schedule" in sys.argv:

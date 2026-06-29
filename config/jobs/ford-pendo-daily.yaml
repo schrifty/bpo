@@ -1,0 +1,9 @@
+name: ford-pendo-daily
+stop_on_failure: true
+fail_on_warnings: false
+steps:
+  - name: ford-pendo-export
+    command: export-pendo
+    customer: Ford
+    days: 30
+    format: both

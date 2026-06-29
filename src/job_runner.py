@@ -135,6 +135,20 @@ def build_step_argv(step: dict[str, Any]) -> list[str]:
         if step.get("skip_risk_insights"):
             argv.append("--skip-risk-insights")
         return argv
+    if command == "export-pendo":
+        customer = str(step.get("customer") or "").strip()
+        if not customer:
+            raise ValueError("export-pendo command requires customer")
+        argv = ["--export-pendo", "--customer", customer]
+        if step.get("days") is not None:
+            argv.extend(["--days", str(int(step["days"]))])
+        if step.get("format"):
+            argv.extend(["--format", str(step["format"])])
+        if step.get("no_drive"):
+            argv.append("--no-drive")
+        if step.get("out"):
+            argv.extend(["-o", str(step["out"])])
+        return argv
     raise ValueError(f"Unsupported job command: {command!r}")
 
 
