@@ -1,8 +1,8 @@
 [
   {
     "Name": "decks-engineering-portfolio",
-    "Description": "Engineering portfolio deck — daily 02:00 UTC",
-    "ScheduleExpression": "cron(0 2 * * ? *)",
+    "Description": "Engineering portfolio deck — daily 01:00 UTC",
+    "ScheduleExpression": "cron(0 1 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {
@@ -28,8 +28,8 @@
   },
   {
     "Name": "cortex-export-nightly",
-    "Description": "LLM context export (cortex --export) — daily 03:00 UTC",
-    "ScheduleExpression": "cron(0 3 * * ? *)",
+    "Description": "LLM context export (cortex --export) — daily 00:00 UTC",
+    "ScheduleExpression": "cron(0 0 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {
@@ -55,8 +55,8 @@
   },
   {
     "Name": "cortex-ford-pendo-daily",
-    "Description": "Ford Pendo usage export (cortex --export-pendo --customer Ford) — daily 04:00 UTC",
-    "ScheduleExpression": "cron(0 4 * * ? *)",
+    "Description": "Ford Pendo usage export (cortex --export-pendo --customer Ford) — daily 02:00 UTC",
+    "ScheduleExpression": "cron(0 2 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {

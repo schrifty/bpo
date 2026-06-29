@@ -126,18 +126,18 @@ variable "scheduled_jobs" {
   }))
   default = {
     engineering-portfolio = {
-      schedule_expression = "cron(0 2 * * ? *)"
+      schedule_expression = "cron(0 1 * * ? *)"
       command             = ["engineering-portfolio"]
       enabled             = true
       rule_name           = "decks-engineering-portfolio"
     }
     export-nightly = {
-      schedule_expression = "cron(0 3 * * ? *)"
+      schedule_expression = "cron(0 0 * * ? *)"
       command             = ["export-nightly"]
       enabled             = true
     }
     ford-pendo-daily = {
-      schedule_expression = "cron(0 4 * * ? *)"
+      schedule_expression = "cron(0 2 * * ? *)"
       command             = ["ford-pendo-daily"]
       enabled             = true
     }
