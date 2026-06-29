@@ -7,8 +7,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.export_customer_pendo_snapshot import (
+    build_core_feature_checklist,
     build_customer_pendo_export_report,
     build_headline,
+    build_unused_features,
+    build_usage_trends,
     render_customer_pendo_markdown,
     resolve_pendo_customer_prefix,
 )
@@ -49,14 +52,17 @@ def test_build_headline_aggregates_site_totals() -> None:
     assert headline["distinct_features_used_top10"] == 2
 
 
+@patch("src.export_customer_pendo_snapshot._fetch_activity_day_buckets")
 @patch("src.export_customer_pendo_snapshot.build_usage_trends")
 @patch("src.export_customer_pendo_snapshot._optional_salesforce_context")
-def test_build_customer_pendo_export_report(mock_sf, mock_trends) -> None:
+def test_build_customer_pendo_export_report(mock_sf, mock_trends, mock_buckets) -> None:
     mock_sf.return_value = {"salesforce_label": "Ford Motor Company", "active_arr_usd": 1000}
     mock_trends.return_value = {
         "comparison": {"active_users_7d_pct_change": 2.0},
         "weekly_active_users": [],
+        "compare_days": 30,
     }
+    mock_buckets.return_value = ([], [])
     pc = MagicMock()
     pc.get_sites_by_customer.return_value = {"customer_list": ["Ford"]}
     pc.get_customer_health.return_value = {
@@ -71,13 +77,20 @@ def test_build_customer_pendo_export_report(mock_sf, mock_trends) -> None:
     pc.get_customer_features.return_value = {"top_features": [{"name": "CTB", "events": 9}]}
     pc.get_customer_depth.return_value = {"total_feature_events": 9, "write_ratio": 10, "breakdown": []}
     pc.get_customer_kei.return_value = {"total_queries": 1, "unique_users": 1, "adoption_rate": 10}
+    pc.get_feature_catalog.return_value = {"f1": "Clear to Build", "f2": "Unused Widget"}
+    pc._get_visitor_partition.return_value = {"now_ms": 1_700_000_000_000}
+    pc._filter_customer_visitors.return_value = ([{"visitorId": "v1"}], None)
 
-    report = build_customer_pendo_export_report(pc, "Ford", days=30)
+    report = build_customer_pendo_export_report(pc, "Ford", days=30, compare_days=14)
 
     assert report["meta"]["pendo_prefix"] == "Ford"
+    assert report["meta"]["compare_days"] == 14
     assert report["meta"]["salesforce"]["salesforce_label"] == "Ford Motor Company"
     assert report["sites"]["sites"][0]["sitename"] == "Essex"
-    pc.preload.assert_called_once_with(30)
+    assert "core_feature_checklist" in report
+    assert "unused_features" in report
+    pc.preload.assert_called_once_with(44)
+    mock_trends.assert_called_once()
 
 
 def test_render_customer_pendo_markdown_includes_sections() -> None:
@@ -108,21 +121,121 @@ def test_render_customer_pendo_markdown_includes_sections() -> None:
             "depth": {},
             "kei": {},
             "trends": {"weekly_active_users": [], "comparison": {}},
+            "core_feature_checklist": {"summary": {"total_tracked": 1, "adopted": 1, "not_adopted": 0, "declining": 0}, "entries": []},
+            "unused_features": {"catalog_total": 2, "unused_count": 1, "unused_features": [{"name": "Unused Widget"}], "truncated": False},
             "engagement": {"benchmarks": {}, "signals": []},
         }
     )
     assert "# Pendo usage — Ford" in md
     assert "## 1. Headline" in md
-    assert "## 2. Sites" in md
-    assert "## 5. Kei AI" in md
+    assert "## 4. Core feature checklist" in md
+    assert "## 5. Unused product features" in md
+    assert "## 7. Kei AI" in md
+    assert "## 8. Usage trends" in md
 
 
-def test_load_ford_pendo_daily_job() -> None:
-    spec = load_job_spec("ford-pendo-daily")
-    assert spec.name == "ford-pendo-daily"
-    assert spec.steps[0]["customer"] == "Ford"
+def test_build_core_feature_checklist_statuses() -> None:
+    catalog = {"f1": "Clear to Build dashboard", "f2": "Kei assistant", "f3": "Unused thing"}
+    checklist = build_core_feature_checklist(
+        customer="Ford",
+        feature_catalog=catalog,
+        feat_current={"f1": 20, "f2": 0},
+        feat_prior={"f1": 40, "f2": 0},
+    )
+    by_label = {entry["label"]: entry for entry in checklist["entries"]}
+    assert by_label["Clear to Build"]["status"] == "declining"
+    assert by_label["Kei AI"]["status"] == "not_adopted"
+    assert checklist["summary"]["declining"] >= 1
+    assert checklist["summary"]["not_adopted"] >= 1
+
+
+def test_build_unused_features_lists_zero_usage_catalog_entries() -> None:
+    unused = build_unused_features(
+        {"f1": "Used feature", "f2": "Unused feature"},
+        {"f1": 5},
+    )
+    assert unused["unused_count"] == 1
+    assert unused["unused_features"][0]["name"] == "Unused feature"
+
+
+def test_build_usage_trends_adds_weekly_activity_and_rolling_avg() -> None:
+    end_ms = 1_700_000_000_000
+    pc = MagicMock()
+    pc._get_visitor_partition.return_value = {"now_ms": end_ms}
+
+    def _snap(_pc, _customer, start_ms, end_ms, **_kwargs):
+        return {"active_7d": 5, "total_users": 10, "weekly_active_rate_pct": 50.0}
+
+    page_rows = [
+        {"visitorId": "v1", "day": end_ms - 2 * 86_400_000, "numEvents": 3, "numMinutes": 2},
+    ]
+    feat_rows = [
+        {"visitorId": "v1", "day": end_ms - 2 * 86_400_000, "featureId": "f1", "numEvents": 4},
+    ]
+
+    with patch("src.export_customer_pendo_snapshot._snapshot_metrics", side_effect=_snap):
+        trends = build_usage_trends(
+            pc,
+            "Ford",
+            14,
+            compare_days=14,
+            visitor_ids={"v1"},
+            day_buckets=(page_rows, feat_rows),
+        )
+
+    assert trends["compare_days"] == 14
+    assert trends["weekly_active_users"][-1]["total_events"] == 7
+    assert trends["comparison"]["total_events_pct_change"] is not None
+    assert trends["weekly_active_users"][-1]["rolling_4w_avg_total_events"] is not None
+
+
+def test_build_step_argv_export_pendo_compare_days() -> None:
+    argv = build_step_argv(
+        {"command": "export-pendo", "customer": "Ford", "days": 30, "compare_days": 14, "format": "both"}
+    )
+    assert argv == ["--export-pendo", "--customer", "Ford", "--days", "30", "--compare-days", "14", "--format", "both"]
 
 
 def test_build_step_argv_export_pendo() -> None:
     argv = build_step_argv({"command": "export-pendo", "customer": "Ford", "days": 30, "format": "both"})
     assert argv == ["--export-pendo", "--customer", "Ford", "--days", "30", "--format", "both"]
+
+
+def test_load_ford_pendo_7d_job() -> None:
+    spec = load_job_spec("ford-pendo-7d")
+    assert spec.name == "ford-pendo-7d"
+    step = spec.steps[0]
+    assert step["customer"] == "Ford"
+    assert step["days"] == 7
+    assert step["compare_days"] == 7
+    assert build_step_argv(step) == [
+        "--export-pendo",
+        "--customer",
+        "Ford",
+        "--days",
+        "7",
+        "--compare-days",
+        "7",
+        "--format",
+        "both",
+    ]
+
+
+def test_load_ford_pendo_30d_job() -> None:
+    spec = load_job_spec("ford-pendo-30d")
+    assert spec.name == "ford-pendo-30d"
+    step = spec.steps[0]
+    assert step["customer"] == "Ford"
+    assert step["days"] == 30
+    assert step["compare_days"] == 30
+    assert build_step_argv(step) == [
+        "--export-pendo",
+        "--customer",
+        "Ford",
+        "--days",
+        "30",
+        "--compare-days",
+        "30",
+        "--format",
+        "both",
+    ]

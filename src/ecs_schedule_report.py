@@ -30,12 +30,19 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "rule_name": "cortex-export-nightly",
         "summary": "LLM export (cortex export-all, 90-day window)",
     },
-    "ford-pendo-daily": {
+    "ford-pendo-7d": {
         "schedule_expression": "cron(0 2 * * ? *)",
-        "command": ["ford-pendo-daily"],
+        "command": ["ford-pendo-7d"],
         "enabled": True,
-        "rule_name": "cortex-ford-pendo-daily",
-        "summary": "Ford Pendo usage export (cortex --export-pendo --customer Ford, 30-day window)",
+        "rule_name": "cortex-ford-pendo-7d",
+        "summary": "Ford Pendo usage export (cortex --export-pendo --customer Ford --days 7 --compare-days 7)",
+    },
+    "ford-pendo-30d": {
+        "schedule_expression": "cron(30 2 * * ? *)",
+        "command": ["ford-pendo-30d"],
+        "enabled": True,
+        "rule_name": "cortex-ford-pendo-30d",
+        "summary": "Ford Pendo usage export (cortex --export-pendo --customer Ford --days 30 --compare-days 30)",
     },
 }
 

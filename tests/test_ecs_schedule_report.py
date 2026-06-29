@@ -46,13 +46,17 @@ def test_build_schedule_rows_merges_catalog_when_aws_empty(monkeypatch):
     rows, notes = build_schedule_rows(name_prefix="cortex", region="us-east-1")
     assert any(r.job_key == "export-nightly" for r in rows)
     assert any(r.job_key == "engineering-portfolio" for r in rows)
-    assert any(r.job_key == "ford-pendo-daily" for r in rows)
+    assert any(r.job_key == "ford-pendo-7d" for r in rows)
+    assert any(r.job_key == "ford-pendo-30d" for r in rows)
     eng = next(r for r in rows if r.job_key == "engineering-portfolio")
     assert eng.rule_name == "cortex-engineering-portfolio"
     export = next(r for r in rows if r.job_key == "export-nightly")
     assert export.rule_name == "cortex-export-nightly"
-    ford = next(r for r in rows if r.job_key == "ford-pendo-daily")
-    assert ford.rule_name == "cortex-ford-pendo-daily"
+    ford_7d = next(r for r in rows if r.job_key == "ford-pendo-7d")
+    assert ford_7d.rule_name == "cortex-ford-pendo-7d"
+    ford_30d = next(r for r in rows if r.job_key == "ford-pendo-30d")
+    assert ford_30d.rule_name == "cortex-ford-pendo-30d"
+    assert ford_30d.schedule_expression == "cron(30 2 * * ? *)"
     assert notes
 
 

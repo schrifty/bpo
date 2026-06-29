@@ -4,7 +4,8 @@
 Designed for strategic accounts that track product usage across sites (e.g. Ford daily).
 
 Usage:
-  cortex --export-pendo --customer Ford [--days 30] [--format both|json|markdown] [--no-drive] [-o PATH]
+  cortex --export-pendo --customer Ford [--days 30] [--compare-days 30]
+      [--format both|json|markdown] [--no-drive] [-o PATH]
 """
 from __future__ import annotations
 
@@ -13,12 +14,16 @@ import datetime as dt
 import json
 import re
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from .config import logger
+from .config_paths import PENDO_CORE_FEATURES_FILE
 from .export_run_diagnostics import export_diagnostics_scope, export_phase
-from .pendo_client import PendoClient, _name_matches
+from .pendo_client import PendoClient, _name_matches, _time_series
 from .signals_trends import _snapshot_metrics
 
 _PROFILE_ID = "customer_pendo_export"
@@ -103,23 +108,226 @@ def _pct_change(current: float | int | None, prior: float | int | None) -> float
     return round((cur - prev) / prev * 100.0, 1)
 
 
-def build_usage_trends(pc: PendoClient, customer: str, days: int) -> dict[str, Any]:
-    """Prior-period comparison and weekly active-user series."""
+def _customer_visitor_ids(pc: PendoClient, customer: str, days: int) -> set[str]:
     partition = pc._get_visitor_partition(days)
-    end_ms = int(partition["now_ms"])
-    start_ms = end_ms - int(days) * _MS_PER_DAY
-    prior_end = start_ms
-    prior_start = prior_end - int(days) * _MS_PER_DAY
+    customer_visitors, _ = pc._filter_customer_visitors(customer, partition)
+    return {str(v.get("visitorId")) for v in customer_visitors if v.get("visitorId")}
 
-    current = _snapshot_metrics(pc, customer, start_ms, end_ms) or {}
-    prior = _snapshot_metrics(pc, customer, prior_start, prior_end) or {}
+
+def _fetch_activity_day_buckets(pc: PendoClient, total_days: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Page and feature event rows with ``day`` buckets (not merged across days)."""
+    ts = _time_series(total_days)
+    page_raw = pc.aggregate([{"source": {"pageEvents": None, "timeSeries": ts}}]).get("results") or []
+    feat_raw = pc.aggregate([{"source": {"featureEvents": None, "timeSeries": ts}}]).get("results") or []
+    return (
+        [ev for ev in page_raw if isinstance(ev, dict)],
+        [ev for ev in feat_raw if isinstance(ev, dict)],
+    )
+
+
+def _day_in_window(day_ms: int | None, start_ms: int, end_ms: int) -> bool:
+    if day_ms is None:
+        return False
+    try:
+        day = int(day_ms)
+    except (TypeError, ValueError):
+        return False
+    return start_ms <= day < end_ms
+
+
+def _sum_activity_in_window(
+    page_rows: list[dict[str, Any]],
+    feat_rows: list[dict[str, Any]],
+    visitor_ids: set[str],
+    start_ms: int,
+    end_ms: int,
+) -> dict[str, int | float]:
+    page_events = page_minutes = feature_events = 0
+    for ev in page_rows:
+        if str(ev.get("visitorId")) not in visitor_ids:
+            continue
+        if not _day_in_window(ev.get("day"), start_ms, end_ms):
+            continue
+        page_events += int(ev.get("numEvents") or 0)
+        page_minutes += int(ev.get("numMinutes") or 0)
+    for ev in feat_rows:
+        if str(ev.get("visitorId")) not in visitor_ids:
+            continue
+        if not _day_in_window(ev.get("day"), start_ms, end_ms):
+            continue
+        feature_events += int(ev.get("numEvents") or 0)
+    total_events = page_events + feature_events
+    return {
+        "total_events": total_events,
+        "page_events": page_events,
+        "page_minutes": page_minutes,
+        "feature_events": feature_events,
+    }
+
+
+def _feature_counts_in_window(
+    feat_rows: list[dict[str, Any]],
+    visitor_ids: set[str],
+    start_ms: int,
+    end_ms: int,
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for ev in feat_rows:
+        if str(ev.get("visitorId")) not in visitor_ids:
+            continue
+        if not _day_in_window(ev.get("day"), start_ms, end_ms):
+            continue
+        fid = str(ev.get("featureId") or "")
+        if not fid:
+            continue
+        counts[fid] = counts.get(fid, 0) + int(ev.get("numEvents") or 0)
+    return counts
+
+
+def _rolling_average(values: list[int | float | None], window: int) -> list[float | None]:
+    out: list[float | None] = []
+    for i in range(len(values)):
+        chunk = values[max(0, i - window + 1) : i + 1]
+        nums = [float(v) for v in chunk if v is not None]
+        out.append(round(sum(nums) / len(nums), 1) if nums else None)
+    return out
+
+
+@lru_cache(maxsize=1)
+def _load_core_feature_specs() -> dict[str, Any]:
+    if not PENDO_CORE_FEATURES_FILE.is_file():
+        return {"defaults": [], "customers": {}}
+    data = yaml.safe_load(PENDO_CORE_FEATURES_FILE.read_text(encoding="utf-8")) or {}
+    return {
+        "defaults": list(data.get("defaults") or []),
+        "customers": dict(data.get("customers") or {}),
+    }
+
+
+def _core_feature_entries_for_customer(customer: str) -> list[dict[str, str]]:
+    cfg = _load_core_feature_specs()
+    customer_specs = (cfg.get("customers") or {}).get(customer) or []
+    specs = customer_specs if customer_specs else (cfg.get("defaults") or [])
+    out: list[dict[str, str]] = []
+    for spec in specs:
+        if not isinstance(spec, dict):
+            continue
+        label = str(spec.get("label") or "").strip()
+        match = str(spec.get("match") or "").strip()
+        if label and match:
+            out.append({"label": label, "match": match})
+    return out
+
+
+def _catalog_features_matching_pattern(feature_catalog: dict[str, str], pattern: str) -> list[dict[str, str]]:
+    try:
+        rx = re.compile(pattern, re.IGNORECASE)
+    except re.error:
+        return []
+    rows: list[dict[str, str]] = []
+    for fid, name in feature_catalog.items():
+        if rx.search(str(name or "")):
+            rows.append({"feature_id": str(fid), "name": str(name)})
+    rows.sort(key=lambda r: r["name"].lower())
+    return rows
+
+
+def build_core_feature_checklist(
+    *,
+    customer: str,
+    feature_catalog: dict[str, str],
+    feat_current: dict[str, int],
+    feat_prior: dict[str, int],
+) -> dict[str, Any]:
+    """Adopted / not adopted / declining checklist from config/pendo_core_features.yaml."""
+    entries: list[dict[str, Any]] = []
+    for spec in _core_feature_entries_for_customer(customer):
+        matched = _catalog_features_matching_pattern(feature_catalog, spec["match"])
+        matched_ids = {row["feature_id"] for row in matched}
+        current_events = sum(feat_current.get(fid, 0) for fid in matched_ids)
+        prior_events = sum(feat_prior.get(fid, 0) for fid in matched_ids)
+        if current_events <= 0:
+            status = "not_adopted"
+        elif prior_events >= 5 and current_events < prior_events * 0.72:
+            status = "declining"
+        else:
+            status = "adopted"
+        entries.append(
+            {
+                "label": spec["label"],
+                "match": spec["match"],
+                "status": status,
+                "matched_features": matched,
+                "events_current": current_events,
+                "events_prior": prior_events,
+                "events_pct_change": _pct_change(current_events, prior_events),
+            }
+        )
+    summary = {
+        "adopted": sum(1 for e in entries if e["status"] == "adopted"),
+        "not_adopted": sum(1 for e in entries if e["status"] == "not_adopted"),
+        "declining": sum(1 for e in entries if e["status"] == "declining"),
+        "total_tracked": len(entries),
+    }
+    return {"summary": summary, "entries": entries}
+
+
+def build_unused_features(
+    feature_catalog: dict[str, str],
+    feat_current: dict[str, int],
+    *,
+    limit: int = 100,
+) -> dict[str, Any]:
+    """Catalog features with zero customer usage in the current window."""
+    unused: list[dict[str, Any]] = []
+    for fid, name in feature_catalog.items():
+        if feat_current.get(str(fid), 0) > 0:
+            continue
+        unused.append({"feature_id": str(fid), "name": str(name)})
+    unused.sort(key=lambda r: r["name"].lower())
+    return {
+        "catalog_total": len(feature_catalog),
+        "unused_count": len(unused),
+        "unused_features": unused[:limit],
+        "truncated": len(unused) > limit,
+    }
+
+
+def build_usage_trends(
+    pc: PendoClient,
+    customer: str,
+    days: int,
+    *,
+    compare_days: int | None = None,
+    visitor_ids: set[str] | None = None,
+    day_buckets: tuple[list[dict[str, Any]], list[dict[str, Any]]] | None = None,
+) -> dict[str, Any]:
+    """Prior-period comparison and weekly active-user / activity series."""
+    compare = max(1, int(compare_days if compare_days is not None else days))
+    window_days = max(1, int(days))
+    total_lookback = window_days + compare
+
+    partition = pc._get_visitor_partition(window_days)
+    end_ms = int(partition["now_ms"])
+    current_start_ms = end_ms - window_days * _MS_PER_DAY
+    prior_end_ms = current_start_ms
+    prior_start_ms = prior_end_ms - compare * _MS_PER_DAY
+
+    vids = visitor_ids or _customer_visitor_ids(pc, customer, window_days)
+    page_rows, feat_rows = day_buckets if day_buckets is not None else _fetch_activity_day_buckets(pc, total_lookback)
+
+    current = _snapshot_metrics(pc, customer, current_start_ms, end_ms) or {}
+    prior = _snapshot_metrics(pc, customer, prior_start_ms, prior_end_ms) or {}
+    current_activity = _sum_activity_in_window(page_rows, feat_rows, vids, current_start_ms, end_ms)
+    prior_activity = _sum_activity_in_window(page_rows, feat_rows, vids, prior_start_ms, prior_end_ms)
 
     weekly: list[dict[str, Any]] = []
-    num_weeks = max(1, min(13, (int(days) + 6) // 7))
+    num_weeks = max(1, min(13, (window_days + 6) // 7))
     for i in range(num_weeks):
         w_end = end_ms - i * 7 * _MS_PER_DAY
         w_start = w_end - 7 * _MS_PER_DAY
         snap = _snapshot_metrics(pc, customer, w_start, w_end) or {}
+        activity = _sum_activity_in_window(page_rows, feat_rows, vids, w_start, w_end)
         weekly.append(
             {
                 "week_index": num_weeks - i,
@@ -128,16 +336,27 @@ def build_usage_trends(pc: PendoClient, customer: str, days: int) -> dict[str, A
                 "active_users_7d": snap.get("active_7d"),
                 "total_users": snap.get("total_users"),
                 "weekly_active_rate_pct": snap.get("weekly_active_rate_pct"),
+                "total_events": activity.get("total_events"),
+                "page_events": activity.get("page_events"),
+                "page_minutes": activity.get("page_minutes"),
+                "feature_events": activity.get("feature_events"),
             }
         )
     weekly.sort(key=lambda r: r["week_index"])
 
+    rolling_active = _rolling_average([row.get("active_users_7d") for row in weekly], 4)
+    rolling_events = _rolling_average([row.get("total_events") for row in weekly], 4)
+    for idx, row in enumerate(weekly):
+        row["rolling_4w_avg_active_users"] = rolling_active[idx]
+        row["rolling_4w_avg_total_events"] = rolling_events[idx]
+
     cur_rate = current.get("weekly_active_rate_pct")
     prev_rate = prior.get("weekly_active_rate_pct")
     return {
-        "prior_period_days": int(days),
-        "current_period": current,
-        "prior_period": prior,
+        "window_days": window_days,
+        "compare_days": compare,
+        "current_period": {**current, **current_activity},
+        "prior_period": {**prior, **prior_activity},
         "comparison": {
             "active_users_7d_pct_change": _pct_change(current.get("active_7d"), prior.get("active_7d")),
             "total_users_pct_change": _pct_change(current.get("total_users"), prior.get("total_users")),
@@ -145,6 +364,11 @@ def build_usage_trends(pc: PendoClient, customer: str, days: int) -> dict[str, A
                 round(float(cur_rate) - float(prev_rate), 1)
                 if cur_rate is not None and prev_rate is not None
                 else None
+            ),
+            "total_events_pct_change": _pct_change(current_activity.get("total_events"), prior_activity.get("total_events")),
+            "page_minutes_pct_change": _pct_change(current_activity.get("page_minutes"), prior_activity.get("page_minutes")),
+            "feature_events_pct_change": _pct_change(
+                current_activity.get("feature_events"), prior_activity.get("feature_events")
             ),
         },
         "weekly_active_users": weekly,
@@ -188,27 +412,57 @@ def build_customer_pendo_export_report(
     customer_query: str,
     *,
     days: int = 30,
+    compare_days: int | None = None,
 ) -> dict[str, Any]:
     """Fetch Pendo usage slices for one customer (product adoption focus)."""
     pendo_prefix = resolve_pendo_customer_prefix(customer_query, pc)
+    window_days = max(1, int(days))
+    compare = max(1, int(compare_days if compare_days is not None else window_days))
+    total_lookback = window_days + compare
     exported_at = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     window_end = dt.date.today()
-    window_start = window_end - dt.timedelta(days=max(1, int(days)) - 1)
+    window_start = window_end - dt.timedelta(days=window_days - 1)
 
-    pc.preload(days)
+    pc.preload(max(window_days, total_lookback))
 
-    health = pc.get_customer_health(pendo_prefix, days=days)
+    health = pc.get_customer_health(pendo_prefix, days=window_days)
     if health.get("error"):
         return {"error": health["error"], "customer_query": customer_query, "pendo_prefix": pendo_prefix}
 
-    sites = pc.get_customer_sites(pendo_prefix, days=days)
+    sites = pc.get_customer_sites(pendo_prefix, days=window_days)
     if sites.get("error"):
         return {"error": sites["error"], "customer_query": customer_query, "pendo_prefix": pendo_prefix}
 
-    features = pc.get_customer_features(pendo_prefix, days=days)
-    depth = pc.get_customer_depth(pendo_prefix, days=days)
-    kei = pc.get_customer_kei(pendo_prefix, days=days)
-    trends = build_usage_trends(pc, pendo_prefix, days)
+    features = pc.get_customer_features(pendo_prefix, days=window_days)
+    depth = pc.get_customer_depth(pendo_prefix, days=window_days)
+    kei = pc.get_customer_kei(pendo_prefix, days=window_days)
+
+    visitor_ids = _customer_visitor_ids(pc, pendo_prefix, window_days)
+    day_buckets = _fetch_activity_day_buckets(pc, total_lookback)
+    partition = pc._get_visitor_partition(window_days)
+    end_ms = int(partition["now_ms"])
+    current_start_ms = end_ms - window_days * _MS_PER_DAY
+    prior_end_ms = current_start_ms
+    prior_start_ms = prior_end_ms - compare * _MS_PER_DAY
+    _, feat_rows = day_buckets
+    feat_current = _feature_counts_in_window(feat_rows, visitor_ids, current_start_ms, end_ms)
+    feat_prior = _feature_counts_in_window(feat_rows, visitor_ids, prior_start_ms, prior_end_ms)
+    feature_catalog = pc.get_feature_catalog()
+    core_checklist = build_core_feature_checklist(
+        customer=pendo_prefix,
+        feature_catalog=feature_catalog,
+        feat_current=feat_current,
+        feat_prior=feat_prior,
+    )
+    unused_features = build_unused_features(feature_catalog, feat_current)
+    trends = build_usage_trends(
+        pc,
+        pendo_prefix,
+        window_days,
+        compare_days=compare,
+        visitor_ids=visitor_ids,
+        day_buckets=day_buckets,
+    )
 
     report: dict[str, Any] = {
         "meta": {
@@ -216,7 +470,8 @@ def build_customer_pendo_export_report(
             "exported_at_utc": exported_at,
             "customer_query": customer_query.strip(),
             "pendo_prefix": pendo_prefix,
-            "days": int(days),
+            "days": window_days,
+            "compare_days": compare,
             "window_start": window_start.isoformat(),
             "window_end": window_end.isoformat(),
             "salesforce": _optional_salesforce_context(pendo_prefix),
@@ -236,6 +491,8 @@ def build_customer_pendo_export_report(
         },
         "sites": sites,
         "features": features,
+        "core_feature_checklist": core_checklist,
+        "unused_features": unused_features,
         "depth": depth,
         "kei": kei,
         "trends": trends,
@@ -256,6 +513,7 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
         "",
         f"- **Exported:** {meta.get('exported_at_utc')}",
         f"- **Window:** {meta.get('window_start')} → {meta.get('window_end')} ({meta.get('days')} days)",
+        f"- **Compare window:** prior {meta.get('compare_days', meta.get('days'))} days",
         f"- **Pendo prefix:** `{meta.get('pendo_prefix')}`",
     ]
     if sf.get("salesforce_label"):
@@ -271,21 +529,24 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
     md = "\n".join(lines) + "\n\n"
 
     cmp_ = headline.get("vs_prior_period") or {}
-    md += _md_section(
-        "1. Headline",
-        "\n".join(
-            [
-                f"- Active users (7d): **{headline.get('active_users_7d')}** "
-                f"({cmp_.get('active_users_7d_pct_change')}% vs prior {meta.get('days')}d)"
-                if cmp_.get("active_users_7d_pct_change") is not None
-                else f"- Active users (7d): **{headline.get('active_users_7d')}**",
-                f"- Total visitors: **{headline.get('total_visitors')}** · sites: **{headline.get('total_sites')}**",
-                f"- Weekly active rate: **{headline.get('weekly_active_rate_pct')}%**",
-                f"- Events: **{headline.get('total_events'):,}** · minutes: **{headline.get('total_minutes'):,}**",
-                f"- Feature events: **{headline.get('feature_events'):,}** · write ratio: **{headline.get('write_ratio_pct')}%**",
-            ]
-        ),
-    )
+    compare_days = meta.get("compare_days", meta.get("days"))
+    headline_lines = [
+        f"- Active users (7d): **{headline.get('active_users_7d')}** "
+        f"({cmp_.get('active_users_7d_pct_change')}% vs prior {compare_days}d)"
+        if cmp_.get("active_users_7d_pct_change") is not None
+        else f"- Active users (7d): **{headline.get('active_users_7d')}**",
+        f"- Total visitors: **{headline.get('total_visitors')}** · sites: **{headline.get('total_sites')}**",
+        f"- Weekly active rate: **{headline.get('weekly_active_rate_pct')}%**",
+        f"- Events: **{headline.get('total_events'):,}** · minutes: **{headline.get('total_minutes'):,}**",
+        f"- Feature events: **{headline.get('feature_events'):,}** · write ratio: **{headline.get('write_ratio_pct')}%**",
+    ]
+    if cmp_.get("total_events_pct_change") is not None:
+        headline_lines.append(
+            f"- Activity vs prior {compare_days}d: events **{cmp_.get('total_events_pct_change')}%** · "
+            f"minutes **{cmp_.get('page_minutes_pct_change')}%** · "
+            f"feature clicks **{cmp_.get('feature_events_pct_change')}%**"
+        )
+    md += _md_section("1. Headline", "\n".join(headline_lines))
 
     site_rows = (report.get("sites") or {}).get("sites") or []
     site_lines = ["| Site | Visitors | Events | Minutes | Last active |", "| --- | ---: | ---: | ---: | --- |"]
@@ -319,6 +580,39 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
         feat_lines.append(f"**Adoption note:** {insights['narrative']}")
     md += _md_section("3. Feature & page adoption", "\n".join(feat_lines) or "*(no feature data)*")
 
+    checklist = report.get("core_feature_checklist") or {}
+    checklist_lines = [
+        f"- Tracked: **{checklist.get('summary', {}).get('total_tracked', 0)}** · "
+        f"adopted **{checklist.get('summary', {}).get('adopted', 0)}** · "
+        f"not adopted **{checklist.get('summary', {}).get('not_adopted', 0)}** · "
+        f"declining **{checklist.get('summary', {}).get('declining', 0)}**",
+        "",
+        "| Capability | Status | Events (current) | Events (prior) | Δ % |",
+        "| --- | --- | ---: | ---: | ---: |",
+    ]
+    for entry in checklist.get("entries") or []:
+        checklist_lines.append(
+            f"| {entry.get('label', '')} | {entry.get('status', '')} | "
+            f"{entry.get('events_current', 0):,} | {entry.get('events_prior', 0):,} | "
+            f"{entry.get('events_pct_change') if entry.get('events_pct_change') is not None else 'n/a'} |"
+        )
+    md += _md_section("4. Core feature checklist", "\n".join(checklist_lines))
+
+    unused = report.get("unused_features") or {}
+    unused_rows = unused.get("unused_features") or []
+    unused_lines = [
+        f"- Catalog features: **{unused.get('catalog_total', 0)}** · "
+        f"unused in window: **{unused.get('unused_count', 0)}**",
+        "",
+    ]
+    if unused_rows:
+        unused_lines.extend(f"- {row.get('name')}" for row in unused_rows[:40])
+        if unused.get("truncated"):
+            unused_lines.append(f"\n*Showing 40 of {unused.get('unused_count')} unused features.*")
+    else:
+        unused_lines.append("*(All catalog features had at least one event in the window.)*")
+    md += _md_section("5. Unused product features", "\n".join(unused_lines))
+
     depth = report.get("depth") or {}
     breakdown = depth.get("breakdown") or []
     depth_lines = [
@@ -336,7 +630,7 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
                 f"- {row.get('category')}: {row.get('events', 0):,} events "
                 f"({row.get('users', 0)} users)"
             )
-    md += _md_section("4. Behavioral depth", "\n".join(depth_lines))
+    md += _md_section("6. Behavioral depth", "\n".join(depth_lines))
 
     kei = report.get("kei") or {}
     kei_lines = [
@@ -345,26 +639,32 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
         f"- Executive users: **{kei.get('executive_users', 0)}** "
         f"({kei.get('executive_queries', 0):,} queries)",
     ]
-    md += _md_section("5. Kei AI", "\n".join(kei_lines))
+    md += _md_section("7. Kei AI", "\n".join(kei_lines))
 
     trends = report.get("trends") or {}
-    trend_lines = ["| Week | Start | End | Active (7d) | Total users | WAU % |", "| ---: | --- | --- | ---: | ---: | ---: |"]
+    trend_lines = [
+        "| Week | Start | End | Active (7d) | Events | Minutes | Feature clicks | 4w avg users | 4w avg events |",
+        "| ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ]
     for row in trends.get("weekly_active_users") or []:
         trend_lines.append(
             f"| {row.get('week_index')} | {row.get('window_start')} | {row.get('window_end')} | "
-            f"{row.get('active_users_7d', 0)} | {row.get('total_users', 0)} | "
-            f"{row.get('weekly_active_rate_pct', 0)} |"
+            f"{row.get('active_users_7d', 0)} | {row.get('total_events', 0):,} | "
+            f"{row.get('page_minutes', 0):,} | {row.get('feature_events', 0):,} | "
+            f"{row.get('rolling_4w_avg_active_users', 'n/a')} | {row.get('rolling_4w_avg_total_events', 'n/a')} |"
         )
     cmp_ = trends.get("comparison") or {}
     if cmp_:
         trend_lines.append("")
         trend_lines.append(
-            f"Prior {meta.get('days')}d comparison: active users "
+            f"Prior {compare_days}d comparison: active users "
             f"{cmp_.get('active_users_7d_pct_change')}% · total users "
             f"{cmp_.get('total_users_pct_change')}% · WAU "
-            f"{cmp_.get('weekly_active_rate_pp_change')} pp"
+            f"{cmp_.get('weekly_active_rate_pp_change')} pp · events "
+            f"{cmp_.get('total_events_pct_change')}% · minutes "
+            f"{cmp_.get('page_minutes_pct_change')}%"
         )
-    md += _md_section("6. Usage trends", "\n".join(trend_lines))
+    md += _md_section("8. Usage trends", "\n".join(trend_lines))
 
     eng = report.get("engagement") or {}
     bench = eng.get("benchmarks") or {}
@@ -377,7 +677,7 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
         secondary.append("")
         secondary.append("**Auto-detected signals:**")
         secondary.extend(f"- {s}" for s in signals[:12])
-    md += _md_section("7. Engagement context", "\n".join(secondary))
+    md += _md_section("9. Engagement context", "\n".join(secondary))
 
     return md.rstrip() + "\n"
 
@@ -415,6 +715,12 @@ def export_pendo_main(cli_args: list[str] | None = None, *, prog: str | None = N
     ap.add_argument("--customer", required=True, help="Pendo customer prefix or alias (e.g. Ford)")
     ap.add_argument("--days", type=int, default=30, help="Lookback window in days (default 30)")
     ap.add_argument(
+        "--compare-days",
+        type=int,
+        default=None,
+        help="Prior comparison window in days (default: same as --days)",
+    )
+    ap.add_argument(
         "--format",
         choices=("json", "markdown", "both"),
         default="both",
@@ -432,7 +738,12 @@ def export_pendo_main(cli_args: list[str] | None = None, *, prog: str | None = N
     with export_diagnostics_scope() as diag:
         with export_phase(diag, "Pendo preload + customer export"):
             pc = PendoClient()
-            report = build_customer_pendo_export_report(pc, args.customer, days=args.days)
+            report = build_customer_pendo_export_report(
+                pc,
+                args.customer,
+                days=args.days,
+                compare_days=args.compare_days,
+            )
 
         if report.get("error"):
             print(f"error: {report['error']}", file=sys.stderr)

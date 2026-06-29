@@ -142,6 +142,8 @@ def build_step_argv(step: dict[str, Any]) -> list[str]:
         argv = ["--export-pendo", "--customer", customer]
         if step.get("days") is not None:
             argv.extend(["--days", str(int(step["days"]))])
+        if step.get("compare_days") is not None:
+            argv.extend(["--compare-days", str(int(step["compare_days"]))])
         if step.get("format"):
             argv.extend(["--format", str(step["format"])])
         if step.get("no_drive"):

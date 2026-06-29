@@ -54,7 +54,7 @@ Flag commands (utilities)
       ``Output/{ISO-date} - Output/LLM-Context-All_Customers.md`` (same calendar day).
       Section 7 LLM churn/account-risk insights are always appended to the export markdown.
 
-  cortex --export-pendo --customer <name> [--days N] [--format json|markdown|both] [--no-drive] [-o PATH]
+  cortex --export-pendo --customer <name> [--days N] [--compare-days N] [--format json|markdown|both] [--no-drive] [-o PATH]
       Export **Pendo-only** product usage for one customer (sites, features, depth, Kei, trends).
       Uploads to ``Output/customer-exports/{customer}/`` (stable + dated subfolder).
       Default: ``--days 30``, ``--format both`` (JSON + markdown).

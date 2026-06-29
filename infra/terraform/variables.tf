@@ -137,11 +137,17 @@ variable "scheduled_jobs" {
       enabled             = true
       rule_name           = "cortex-export-nightly"
     }
-    ford-pendo-daily = {
+    ford-pendo-7d = {
       schedule_expression = "cron(0 2 * * ? *)"
-      command             = ["ford-pendo-daily"]
+      command             = ["ford-pendo-7d"]
       enabled             = true
-      rule_name           = "cortex-ford-pendo-daily"
+      rule_name           = "cortex-ford-pendo-7d"
+    }
+    ford-pendo-30d = {
+      schedule_expression = "cron(30 2 * * ? *)"
+      command             = ["ford-pendo-30d"]
+      enabled             = true
+      rule_name           = "cortex-ford-pendo-30d"
     }
   }
 }
