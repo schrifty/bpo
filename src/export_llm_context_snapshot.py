@@ -2059,6 +2059,8 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
             pre_truncation_bytes=pre_truncation_bytes,
             body_before_section7_bytes=md_body_before_section7_bytes,
         )
+        from src.data_source_health import integration_freshness_metadata
+
         diag.set_integration_meta(integration_freshness_metadata())
         # Integration join warnings (SF↔Pendo, Jira HELP fallbacks, etc.) belong in the
         # export markdown and stderr recap — not as a failed exit code.
