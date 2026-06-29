@@ -436,6 +436,9 @@ def build_customer_pendo_export_report(
     features = pc.get_customer_features(pendo_prefix, days=window_days)
     depth = pc.get_customer_depth(pendo_prefix, days=window_days)
     kei = pc.get_customer_kei(pendo_prefix, days=window_days)
+    people = pc.get_customer_people(pendo_prefix, days=window_days)
+    exports = pc.get_customer_exports(pendo_prefix, days=window_days)
+    frustration = pc.get_customer_frustration_signals(pendo_prefix, days=window_days)
 
     visitor_ids = _customer_visitor_ids(pc, pendo_prefix, window_days)
     day_buckets = _fetch_activity_day_buckets(pc, total_lookback)
@@ -494,6 +497,9 @@ def build_customer_pendo_export_report(
         "core_feature_checklist": core_checklist,
         "unused_features": unused_features,
         "depth": depth,
+        "people": people,
+        "exports": exports,
+        "frustration": frustration,
         "kei": kei,
         "trends": trends,
     }
@@ -632,6 +638,107 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
             )
     md += _md_section("6. Behavioral depth", "\n".join(depth_lines))
 
+    people = report.get("people") or {}
+    people_lines: list[str] = []
+    if people.get("error"):
+        people_lines.append(f"*(unavailable: {people['error']})*")
+    else:
+        champions = people.get("champions") or []
+        at_risk = people.get("at_risk_users") or []
+        if champions:
+            people_lines.append("### Champions (most recently active)")
+            people_lines.append("| Email | Role | Last visit | Days inactive |")
+            people_lines.append("| --- | --- | --- | ---: |")
+            for u in champions[:5]:
+                people_lines.append(
+                    f"| {u.get('email', '')} | {u.get('role', '')} | "
+                    f"{u.get('last_visit', '')} | {u.get('days_inactive', '')} |"
+                )
+            people_lines.append("")
+        if at_risk:
+            people_lines.append("### At-risk users (2 wk – ~6 mo inactive)")
+            people_lines.append("| Email | Role | Last visit | Days inactive |")
+            people_lines.append("| --- | --- | --- | ---: |")
+            for u in at_risk[:5]:
+                people_lines.append(
+                    f"| {u.get('email', '')} | {u.get('role', '')} | "
+                    f"{u.get('last_visit', '')} | {u.get('days_inactive', '')} |"
+                )
+        if not champions and not at_risk:
+            people_lines.append("*(No champion or at-risk users in this window.)*")
+    md += _md_section("7. People", "\n".join(people_lines))
+
+    exports = report.get("exports") or {}
+    export_lines: list[str] = []
+    if exports.get("error"):
+        export_lines.append(f"*(unavailable: {exports['error']})*")
+    else:
+        export_lines.extend(
+            [
+                f"- Total exports: **{exports.get('total_exports', 0):,}**",
+                f"- Exports per active user: **{exports.get('exports_per_active_user', 0)}** "
+                f"(active users: **{exports.get('active_users', 0)}**)",
+            ]
+        )
+        by_feature = exports.get("by_feature") or []
+        if by_feature:
+            export_lines.append("")
+            export_lines.append("**By feature:**")
+            for row in by_feature[:15]:
+                export_lines.append(f"- {row.get('feature', '')}: {row.get('exports', 0):,}")
+        top_exporters = exports.get("top_exporters") or []
+        if top_exporters:
+            export_lines.append("")
+            export_lines.append("**Top exporters:**")
+            for row in top_exporters[:5]:
+                export_lines.append(
+                    f"- {row.get('email', '')} ({row.get('role', '')}): {row.get('exports', 0):,}"
+                )
+        if exports.get("note"):
+            export_lines.append("")
+            export_lines.append(f"*{exports['note']}*")
+    md += _md_section("8. Export behavior", "\n".join(export_lines) or "*(no export data)*")
+
+    frustration = report.get("frustration") or {}
+    frustration_lines: list[str] = []
+    if frustration.get("error"):
+        frustration_lines.append(f"*(unavailable: {frustration['error']})*")
+    else:
+        totals = frustration.get("totals") or {}
+        frustration_lines.append(
+            f"- Total frustration signals: **{frustration.get('total_frustration_signals', 0):,}** "
+            f"(rage {totals.get('rageClickCount', 0):,} · dead {totals.get('deadClickCount', 0):,} · "
+            f"error {totals.get('errorClickCount', 0):,} · U-turn {totals.get('uTurnCount', 0):,})"
+        )
+        top_pages = frustration.get("top_pages") or []
+        if top_pages:
+            frustration_lines.append("")
+            frustration_lines.append("**Top pages:**")
+            frustration_lines.append("| Page | Rage | Dead | Error | U-turn |")
+            frustration_lines.append("| --- | ---: | ---: | ---: | ---: |")
+            for row in top_pages[:10]:
+                frustration_lines.append(
+                    f"| {row.get('page', '')} | {row.get('rageClickCount', 0)} | "
+                    f"{row.get('deadClickCount', 0)} | {row.get('errorClickCount', 0)} | "
+                    f"{row.get('uTurnCount', 0)} |"
+                )
+        top_features = frustration.get("top_features") or []
+        if top_features:
+            frustration_lines.append("")
+            frustration_lines.append("**Top features:**")
+            frustration_lines.append("| Feature | Rage | Dead | Error | U-turn |")
+            frustration_lines.append("| --- | ---: | ---: | ---: | ---: |")
+            for row in top_features[:10]:
+                frustration_lines.append(
+                    f"| {row.get('feature', '')} | {row.get('rageClickCount', 0)} | "
+                    f"{row.get('deadClickCount', 0)} | {row.get('errorClickCount', 0)} | "
+                    f"{row.get('uTurnCount', 0)} |"
+                )
+        if frustration.get("total_frustration_signals", 0) == 0:
+            frustration_lines.append("")
+            frustration_lines.append("*(No frustration signals in this window.)*")
+    md += _md_section("9. Frustration signals", "\n".join(frustration_lines) or "*(no frustration data)*")
+
     kei = report.get("kei") or {}
     kei_lines = [
         f"- Total queries: **{kei.get('total_queries', 0):,}**",
@@ -639,7 +746,7 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
         f"- Executive users: **{kei.get('executive_users', 0)}** "
         f"({kei.get('executive_queries', 0):,} queries)",
     ]
-    md += _md_section("7. Kei AI", "\n".join(kei_lines))
+    md += _md_section("10. Kei AI", "\n".join(kei_lines))
 
     trends = report.get("trends") or {}
     trend_lines = [
@@ -664,7 +771,7 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
             f"{cmp_.get('total_events_pct_change')}% · minutes "
             f"{cmp_.get('page_minutes_pct_change')}%"
         )
-    md += _md_section("8. Usage trends", "\n".join(trend_lines))
+    md += _md_section("11. Usage trends", "\n".join(trend_lines))
 
     eng = report.get("engagement") or {}
     bench = eng.get("benchmarks") or {}
@@ -677,7 +784,7 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
         secondary.append("")
         secondary.append("**Auto-detected signals:**")
         secondary.extend(f"- {s}" for s in signals[:12])
-    md += _md_section("9. Engagement context", "\n".join(secondary))
+    md += _md_section("12. Engagement context", "\n".join(secondary))
 
     return md.rstrip() + "\n"
 

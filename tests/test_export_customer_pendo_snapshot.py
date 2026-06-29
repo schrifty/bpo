@@ -77,6 +77,23 @@ def test_build_customer_pendo_export_report(mock_sf, mock_trends, mock_buckets) 
     pc.get_customer_features.return_value = {"top_features": [{"name": "CTB", "events": 9}]}
     pc.get_customer_depth.return_value = {"total_feature_events": 9, "write_ratio": 10, "breakdown": []}
     pc.get_customer_kei.return_value = {"total_queries": 1, "unique_users": 1, "adoption_rate": 10}
+    pc.get_customer_people.return_value = {
+        "champions": [{"email": "a@ford.com", "role": "Buyer", "last_visit": "2026-06-28", "days_inactive": 1.0}],
+        "at_risk_users": [],
+    }
+    pc.get_customer_exports.return_value = {
+        "total_exports": 12,
+        "exports_per_active_user": 3.0,
+        "active_users": 4,
+        "by_feature": [{"feature": "CTB: Export to Excel", "exports": 12}],
+        "top_exporters": [{"email": "a@ford.com", "role": "Buyer", "exports": 12}],
+    }
+    pc.get_customer_frustration_signals.return_value = {
+        "total_frustration_signals": 2,
+        "totals": {"rageClickCount": 1, "deadClickCount": 1, "errorClickCount": 0, "uTurnCount": 0},
+        "top_pages": [],
+        "top_features": [],
+    }
     pc.get_feature_catalog.return_value = {"f1": "Clear to Build", "f2": "Unused Widget"}
     pc._get_visitor_partition.return_value = {"now_ms": 1_700_000_000_000}
     pc._filter_customer_visitors.return_value = ([{"visitorId": "v1"}], None)
@@ -89,6 +106,12 @@ def test_build_customer_pendo_export_report(mock_sf, mock_trends, mock_buckets) 
     assert report["sites"]["sites"][0]["sitename"] == "Essex"
     assert "core_feature_checklist" in report
     assert "unused_features" in report
+    assert report["people"]["champions"][0]["email"] == "a@ford.com"
+    assert report["exports"]["total_exports"] == 12
+    assert report["frustration"]["total_frustration_signals"] == 2
+    pc.get_customer_people.assert_called_once_with("Ford", days=30)
+    pc.get_customer_exports.assert_called_once_with("Ford", days=30)
+    pc.get_customer_frustration_signals.assert_called_once_with("Ford", days=30)
     pc.preload.assert_called_once_with(44)
     mock_trends.assert_called_once()
 
@@ -119,6 +142,23 @@ def test_render_customer_pendo_markdown_includes_sections() -> None:
             "sites": {"sites": []},
             "features": {},
             "depth": {},
+            "people": {
+                "champions": [{"email": "a@ford.com", "role": "Buyer", "last_visit": "2026-06-28", "days_inactive": 1.0}],
+                "at_risk_users": [{"email": "b@ford.com", "role": "Planner", "last_visit": "2026-05-01", "days_inactive": 30.0}],
+            },
+            "exports": {
+                "total_exports": 5,
+                "exports_per_active_user": 2.5,
+                "active_users": 2,
+                "by_feature": [{"feature": "CTB: Export to Excel", "exports": 5}],
+                "top_exporters": [{"email": "a@ford.com", "role": "Buyer", "exports": 5}],
+            },
+            "frustration": {
+                "total_frustration_signals": 3,
+                "totals": {"rageClickCount": 2, "deadClickCount": 1, "errorClickCount": 0, "uTurnCount": 0},
+                "top_pages": [{"page": "Shortages", "rageClickCount": 2, "deadClickCount": 0, "errorClickCount": 0, "uTurnCount": 0}],
+                "top_features": [],
+            },
             "kei": {},
             "trends": {"weekly_active_users": [], "comparison": {}},
             "core_feature_checklist": {"summary": {"total_tracked": 1, "adopted": 1, "not_adopted": 0, "declining": 0}, "entries": []},
@@ -130,8 +170,11 @@ def test_render_customer_pendo_markdown_includes_sections() -> None:
     assert "## 1. Headline" in md
     assert "## 4. Core feature checklist" in md
     assert "## 5. Unused product features" in md
-    assert "## 7. Kei AI" in md
-    assert "## 8. Usage trends" in md
+    assert "## 7. People" in md
+    assert "## 8. Export behavior" in md
+    assert "## 9. Frustration signals" in md
+    assert "## 10. Kei AI" in md
+    assert "## 11. Usage trends" in md
 
 
 def test_build_core_feature_checklist_statuses() -> None:
