@@ -15,6 +15,24 @@ if str(_root) not in sys.path:
 
 
 @pytest.fixture(autouse=True)
+def _leandna_data_api_staging_only(request: pytest.FixtureRequest):
+    """Live LeanDNA HTTP tests may only run against staging; Production fails loud."""
+    if request.node.get_closest_marker("leandna_data_api") is None:
+        yield
+        return
+    from tests.leandna_integration_env import require_leandna_staging_integration_env
+
+    require_leandna_staging_integration_env()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _disable_speaker_notes_llm_by_default(monkeypatch):
+    """Existing speaker-notes tests expect deterministic output without live LLM calls."""
+    monkeypatch.setenv("CORTEX_SPEAKER_NOTES_LLM", "false")
+
+
+@pytest.fixture(autouse=True)
 def _isolated_process_caches():
     """Module-level integration/config caches must not leak mocked responses between tests."""
     from src import drive_config, evaluate, salesforce_client, slide_loader

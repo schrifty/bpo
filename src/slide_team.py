@@ -11,10 +11,10 @@ from .slides_theme import BLUE, FONT, MARGIN, NAVY, SLIDE_H, SLIDE_W, WHITE
 
 
 def load_teams() -> dict[str, Any]:
-    """Load team rosters from teams.yaml (project root)."""
+    """Load team rosters from ``config/teams.yaml``."""
     import yaml
 
-    path = Path(__file__).resolve().parent.parent / "teams.yaml"
+    path = Path(__file__).resolve().parent.parent / "config" / "teams.yaml"
     if not path.exists():
         return {}
     try:

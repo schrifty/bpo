@@ -1,0 +1,13 @@
+id: eng_divider
+type: standard
+order: 83
+title: Section
+slide_type: eng_divider
+data_tools: []
+customers: all
+
+prompt: >
+  Engineering portfolio section divider slide. The section title comes from the deck plan
+  entry (e.g. Team & Org, GitHub Insights, Cursor Insights). Default chapters use a navy
+  background with white title text; GitHub chapters use light green and Cursor chapters
+  use light blue.

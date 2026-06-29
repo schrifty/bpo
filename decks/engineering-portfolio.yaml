@@ -5,27 +5,67 @@ audience: VP / Director of Engineering
 purpose: |
   A product-level engineering review — not per customer, but across the entire
   LEAN project. Covers what's in flight this sprint, bug health, weekly velocity,
-  enhancement pipeline, and the aggregate support burden coming in from customers.
+  and the aggregate support burden coming in from customers.
 
   The narrative arc: "Here's what the team is working on, how fast we're shipping,
-  where the bugs are, what customers have asked for, and how much unplanned support
-  work is competing for engineering capacity."
+  where the bugs are, and how much unplanned support work is competing for
+  engineering capacity."
 
 slides:
+  # Bottom line → Team → Outcomes → Operational health → Quality → External pressure → Integrations → Hygiene
   - slide: eng_portfolio_title
-  - slide: eng_jira_project
-    jira_project: HELP
-    title: "HELP — Support"
-  - slide: eng_jira_project
-    jira_project: CUSTOMER
-    title: "CUSTOMER — Implementation escalations"
-  - slide: eng_jira_project
-    jira_project: LEAN
-    title: "LEAN — Engineering escalations"
-  - slide: eng_sprint_snapshot
-  - slide: eng_bug_health
+  - slide: eng_toc
+  - slide: eng_exec_summary
+  - slide: eng_divider
+    title: Team & Org
+  - slide: eng_team_roster
+  - slide: eng_team_scorecard
+  - slide: eng_divider
+    title: Outcomes
+  - slide: eng_epic_progress
   - slide: eng_velocity
-  - slide: eng_enhancements
-  - slide: eng_enhancements_shipped
+  - slide: eng_divider
+    title: Operational Health
+  - slide: eng_current_sprint
+  - slide: eng_flow_bottlenecks
+  - slide: eng_capacity
+  - slide: eng_work_split
+  - slide: eng_divider
+    title: Quality
+  - slide: eng_bug_health
+  - slide: eng_bug_flow
+  - slide: eng_backlog_health
+  - slide: eng_divider
+    title: Backlog & Support
   - slide: eng_support_pressure
+  - slide: eng_divider
+    title: Engineering Output
+  - slide: github_engineering_output
+  - slide: github_engineer_contribution
+  - slide: github_delivery_flow
+  - slide: github_change_profile
+  - slide: eng_divider
+    title: AI Tooling
+  - slide: cursor_cost
+  - slide: cursor_cost_models
+  - slide: cursor_usage
+  - slide: cursor_usage_non_engineers
+  - slide: cursor_model_usage
+  - slide: cursor_users_volume
+  - slide: cursor_users
+  - slide: cursor_users_light
+  - slide: cursor_users_non_engineers_volume
+  - slide: cursor_users_non_engineers
+  - slide: cursor_users_non_engineers_light
+  - slide: eng_divider
+    title: Productivity
+  - slide: productivity_summary
+  - slide: productivity_trend
+  - slide: ai_output_correlation
+  - slide: ai_productivity_matrix
+  - slide: productivity_coaching
+  - slide: cursor_efficiency
+  - slide: cursor_efficiency_engineers
+  - slide: eng_divider
+    title: Appendix
   - slide: data_quality

@@ -6,12 +6,13 @@ Also exposes SOQL helpers for common standard objects (see MAINSTREAM_OBJECT_FIE
 and ``get_customer_salesforce_comprehensive`` for deck-sized multi-object exports.
 
 Read responses (SOQL record lists, global sObject describe, COUNT totals) are cached
-in-process for ``BPO_SALESFORCE_CACHE_TTL_HOURS`` (default 48). JWT tokens are not cached here.
+in-process for ``CORTEX_SALESFORCE_CACHE_TTL_HOURS`` (default 48). JWT tokens are not cached here.
 """
 
 from __future__ import annotations
 
 import copy
+import datetime
 import hashlib
 import threading
 import time
@@ -23,7 +24,8 @@ import re
 import requests
 
 from .config import (
-    BPO_SALESFORCE_CACHE_TTL_SECONDS,
+    CORTEX_SALESFORCE_CACHE_TTL_SECONDS,
+    SF_ACCOUNT_FACTORY_START_DATE_FIELD,
     SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP,
     SF_LOGIN_URL,
     SF_CONSUMER_KEY,
@@ -43,6 +45,17 @@ def clear_salesforce_read_cache() -> None:
         _sf_read_cache.clear()
 
 
+def salesforce_read_cache_age_hours() -> float | None:
+    """Age in hours of the oldest in-process Salesforce read cache entry, if any."""
+    if not _sf_read_cache:
+        return None
+    with _SF_READ_CACHE_LOCK:
+        if not _sf_read_cache:
+            return None
+        oldest = min(ts for ts, _ in _sf_read_cache.values())
+    return max(0.0, (time.time() - oldest) / 3600.0)
+
+
 def reset_for_tests() -> None:
     """Reset module-level Salesforce state that can leak between tests."""
     clear_salesforce_read_cache()
@@ -53,7 +66,7 @@ def _sf_cache_key(kind: str, payload: str) -> str:
 
 
 def _sf_read_cache_get(key: str) -> Any | None:
-    if BPO_SALESFORCE_CACHE_TTL_SECONDS <= 0:
+    if CORTEX_SALESFORCE_CACHE_TTL_SECONDS <= 0:
         return None
     now = time.time()
     with _SF_READ_CACHE_LOCK:
@@ -61,14 +74,14 @@ def _sf_read_cache_get(key: str) -> Any | None:
         if not hit:
             return None
         ts, val = hit
-        if now - ts > BPO_SALESFORCE_CACHE_TTL_SECONDS:
+        if now - ts > CORTEX_SALESFORCE_CACHE_TTL_SECONDS:
             del _sf_read_cache[key]
             return None
         return copy.deepcopy(val)
 
 
 def _sf_read_cache_set(key: str, val: Any) -> None:
-    if BPO_SALESFORCE_CACHE_TTL_SECONDS <= 0:
+    if CORTEX_SALESFORCE_CACHE_TTL_SECONDS <= 0:
         return
     with _SF_READ_CACHE_LOCK:
         _sf_read_cache[key] = (time.time(), copy.deepcopy(val))
@@ -98,13 +111,18 @@ def _relationship_json_key_for_lookup(lookup_field: str) -> str:
 
 
 def _entity_account_select_field_names() -> tuple[str, ...]:
-    """Columns for Customer Entity accounts: core + Parent + optional Ultimate Parent + ARR."""
+    """Columns for Customer Entity accounts: core + Parent + optional Ultimate Parent + factory-start date."""
+    cols = list(_ACCOUNT_ENTITY_CORE_FIELDS)
     ult = (SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP or "").strip()
-    if not ult:
-        return _ACCOUNT_ENTITY_CORE_FIELDS
-    if ult.endswith("__c"):
-        return _ACCOUNT_ENTITY_CORE_FIELDS + (ult, ult[:-3] + "__r.Name")
-    return _ACCOUNT_ENTITY_CORE_FIELDS + (ult, ult + ".Name")
+    if ult:
+        if ult.endswith("__c"):
+            cols.extend([ult, ult[:-3] + "__r.Name"])
+        else:
+            cols.extend([ult, ult + ".Name"])
+    fs = (SF_ACCOUNT_FACTORY_START_DATE_FIELD or "").strip()
+    if fs and fs not in cols:
+        cols.append(fs)
+    return tuple(cols)
 
 
 def _normalize_entity_account_row(r: dict[str, Any]) -> dict[str, Any]:
@@ -117,6 +135,8 @@ def _normalize_entity_account_row(r: dict[str, Any]) -> dict[str, Any]:
         uo = r.get(_relationship_json_key_for_lookup(lf))
         if isinstance(uo, dict):
             ult_name = (uo.get("Name") or "").strip()
+    fs_field = (SF_ACCOUNT_FACTORY_START_DATE_FIELD or "").strip()
+    factory_start = r.get(fs_field) if fs_field else None
     return {
         "Id": r.get("Id"),
         "Name": r.get("Name"),
@@ -125,6 +145,7 @@ def _normalize_entity_account_row(r: dict[str, Any]) -> dict[str, Any]:
         "Contract_Status__c": r.get("Contract_Status__c"),
         "Contract_Contract_Start_Date__c": r.get("Contract_Contract_Start_Date__c"),
         "Contract_Contract_End_Date__c": r.get("Contract_Contract_End_Date__c"),
+        "factory_start_date": factory_start,
         "ARR__c": r.get("ARR__c"),
         "ParentId": r.get("ParentId"),
         "parent_name": parent_name,
@@ -148,9 +169,91 @@ def _customer_name_matches_entity_account(name_upper: str, a: dict[str, Any]) ->
         if val and _customer_label_matches_text(name_upper, val):
             return True
     return False
-# Opportunity types for creation and pipeline
-OPP_TYPES = ("New Business", "New Expansion Business", "Expansion Business", "POC")
+
+
+# Align with SalesforceClient._CHURNED_STATUSES for renewal windows (module-level for helpers).
+_CHURNED_CONTRACT_STATUS_LOWER = frozenset({"churned", "cancelled", "terminated", "expired", "closed"})
+
+
+def _parse_sf_contract_date(raw: Any) -> datetime.date | None:
+    if raw is None:
+        return None
+    s = str(raw).strip()[:10]
+    if len(s) < 10:
+        return None
+    try:
+        return datetime.datetime.strptime(s, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _renewal_roll_up_fields(matching: list[dict[str, Any]]) -> dict[str, Any]:
+    """Contract status + end/start band across matched Customer Entity rows (one Pendo customer label)."""
+    today = datetime.date.today()
+    statuses: set[str] = set()
+    ends_active: list[datetime.date] = []
+    ends_all: list[datetime.date] = []
+    starts_active: list[datetime.date] = []
+    for a in matching:
+        st = (a.get("Contract_Status__c") or "").strip()
+        if st:
+            statuses.add(st)
+        churned = st.lower() in _CHURNED_CONTRACT_STATUS_LOWER if st else False
+        ed = _parse_sf_contract_date(a.get("Contract_Contract_End_Date__c"))
+        if ed:
+            ends_all.append(ed)
+            if not churned:
+                ends_active.append(ed)
+        sd = _parse_sf_contract_date(a.get("Contract_Contract_Start_Date__c"))
+        if sd and not churned:
+            starts_active.append(sd)
+    ends_use = ends_active or ends_all
+    nearest = min(ends_use) if ends_use else None
+    farthest = max(ends_use) if ends_use else None
+    days_nearest = (nearest - today).days if nearest else None
+    status_list = sorted(statuses, key=lambda x: x.lower())[:16]
+    out: dict[str, Any] = {
+        "contract_statuses_distinct": status_list,
+        "entity_row_count": len(matching),
+        "contract_end_date_nearest": nearest.isoformat() if nearest else None,
+        "contract_end_date_farthest": farthest.isoformat() if farthest else None,
+        "days_until_contract_end_nearest": days_nearest,
+        "contract_start_date_earliest_active": min(starts_active).isoformat() if starts_active else None,
+        "contract_start_date_latest_active": max(starts_active).isoformat() if starts_active else None,
+    }
+    return out
+
+
+def opportunity_account_scope_ids(entity_rows: list[dict[str, Any]]) -> list[str]:
+    """Account Ids for opportunity SOQL: Customer Entity rows plus distinct ParentId values."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for row in entity_rows:
+        if not isinstance(row, dict):
+            continue
+        for raw in (row.get("Id"), row.get("ParentId")):
+            aid = (raw or "").strip()
+            if len(aid) >= 15 and aid not in seen:
+                seen.add(aid)
+                out.append(aid)
+    return out
+
+
+def opportunity_account_scope_ids_from_entity_ids(
+    entity_ids: list[str],
+    account_by_id: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Expand deduplicated entity Ids to include parent accounts for portfolio pipeline SOQL."""
+    rows = [account_by_id[eid] for eid in entity_ids if eid in account_by_id]
+    return opportunity_account_scope_ids(rows)
+
+
+# Opportunity types for creation and pipeline (include Renewal for entity-churn / parent-opp cases)
+OPP_TYPES = ("New Business", "New Expansion Business", "Expansion Business", "POC", "Renewal")
 PIPELINE_STAGES = ("3-Business Validation", "4-Proposal", "5-Contracts")
+# Closed Won motion (calendar year on CloseDate); Expansion Business + New Expansion Business count as expansion.
+_EXPANSION_CLOSED_WON_TYPES = frozenset({"Expansion Business", "New Expansion Business"})
+_NEW_LOGO_CLOSED_WON_TYPES = frozenset({"New Business"})
 
 # REST API version used for query + sObject metadata (keep in sync across methods).
 SF_REST_API_VERSION = "v59.0"
@@ -430,7 +533,7 @@ class SalesforceClient:
         return out
 
     def _query(self, soql: str) -> list[dict]:
-        """Run SOQL query and return list of records (cached per ``BPO_SALESFORCE_CACHE_TTL_*``)."""
+        """Run SOQL query and return list of records (cached per ``CORTEX_SALESFORCE_CACHE_TTL_*``)."""
         key = _sf_cache_key("rec", soql)
         cached = _sf_read_cache_get(key)
         if cached is not None:
@@ -677,23 +780,90 @@ class SalesforceClient:
         _sf_read_cache_set(key, n)
         return n
 
-    def get_advanced_pipeline_arr(self, account_ids: list[str]) -> float:
+    def get_advanced_pipeline_arr(self, account_ids: list[str], *, open_only: bool = True) -> float:
         """Sum ARR__c for Opportunities in pipeline stages for given Account IDs."""
         if not account_ids:
             return 0.0
         ids_comma = ", ".join(f"'{aid}'" for aid in account_ids)
         types_comma = ", ".join(f"'{t}'" for t in OPP_TYPES)
         stages_comma = ", ".join(f"'{s}'" for s in PIPELINE_STAGES)
+        closed = " AND IsClosed = false" if open_only else ""
         soql = (
             f"SELECT SUM(ARR__c) total FROM Opportunity "
             f"WHERE AccountId IN ({ids_comma}) AND Type IN ({types_comma}) "
-            f"AND StageName IN ({stages_comma})"
+            f"AND StageName IN ({stages_comma}){closed}"
         )
         raw = self._query(soql)
         if not raw:
             return 0.0
         total = raw[0].get("total")
         return float(total) if total is not None else 0.0
+
+    def get_open_pipeline_opportunities(
+        self,
+        account_ids: list[str],
+        *,
+        limit: int = 8,
+    ) -> list[dict[str, Any]]:
+        """Open Opportunities in pipeline stages (for renewal-in-flight on churned entities)."""
+        if not account_ids or limit <= 0:
+            return []
+        ids_comma = ", ".join(f"'{aid}'" for aid in account_ids)
+        types_comma = ", ".join(f"'{t}'" for t in OPP_TYPES)
+        stages_comma = ", ".join(f"'{s}'" for s in PIPELINE_STAGES)
+        soql = (
+            f"SELECT Id, Name, StageName, Type, ARR__c, CloseDate, AccountId "
+            f"FROM Opportunity WHERE AccountId IN ({ids_comma}) AND Type IN ({types_comma}) "
+            f"AND StageName IN ({stages_comma}) AND IsClosed = false "
+            f"ORDER BY ARR__c DESC NULLS LAST LIMIT {max(1, min(int(limit), 25))}"
+        )
+        rows = self._query(soql)
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            out.append(
+                {
+                    "name": r.get("Name"),
+                    "stage": r.get("StageName"),
+                    "type": r.get("Type"),
+                    "arr": r.get("ARR__c"),
+                    "close_date": r.get("CloseDate"),
+                    "account_id": r.get("AccountId"),
+                }
+            )
+        return out
+
+    def renewal_in_flight_fields_for_entities(
+        self,
+        matching: list[dict[str, Any]],
+        *,
+        all_matched_churned: bool,
+    ) -> dict[str, Any]:
+        """Signals when entity contracts are churned but parent-account pipeline opps are open."""
+        if not all_matched_churned or not matching:
+            return {"renewal_in_flight": False, "churn_risk": False}
+        entity_ids = [a["Id"] for a in matching if isinstance(a, dict) and a.get("Id")]
+        scope = opportunity_account_scope_ids(matching)
+        pipe_entity = self.get_advanced_pipeline_arr(entity_ids) if entity_ids else 0.0
+        pipe_total = self.get_advanced_pipeline_arr(scope) if scope else 0.0
+        opps = self.get_open_pipeline_opportunities(scope, limit=6)
+        in_flight = pipe_total > 0 or bool(opps)
+        fields: dict[str, Any] = {
+            "renewal_in_flight": in_flight,
+            "pipeline_arr_entity_accounts": round(pipe_entity, 2),
+            "pipeline_arr_including_parent_accounts": round(pipe_total, 2),
+        }
+        if in_flight:
+            fields["renewal_in_flight_note"] = (
+                "Customer Entity contract status is churned/expired, but open Opportunities exist "
+                "on parent account(s) in pipeline stages (often renewal negotiation)."
+            )
+            fields["open_pipeline_opportunities_sample"] = opps
+            fields["churn_risk"] = False
+        else:
+            fields["churn_risk"] = True
+        return fields
 
     _CHURNED_STATUSES = frozenset({"churned", "cancelled", "terminated", "expired", "closed"})
 
@@ -724,6 +894,115 @@ class SalesforceClient:
             if total_arr:
                 lookup[name] = total_arr
         return lookup
+
+    def _portfolio_closed_won_opportunity_rows_cy(
+        self, account_ids: list[str], calendar_year: int
+    ) -> list[dict[str, Any]]:
+        """Return Opportunity rows (AccountId, Type, Amount) Won in *calendar_year*.
+
+        Uses ``IsWon`` and ``CloseDate`` (standard Salesforce). Types include expansion
+        motion (see ``_EXPANSION_CLOSED_WON_TYPES`` / ``_NEW_LOGO_CLOSED_WON_TYPES``).
+        Chunked IN lists to stay under REST query length limits.
+        """
+        if not account_ids:
+            return []
+        motion_types = tuple(sorted(_EXPANSION_CLOSED_WON_TYPES | _NEW_LOGO_CLOSED_WON_TYPES))
+        types_in = ", ".join(f"'{t}'" for t in motion_types)
+        out: list[dict[str, Any]] = []
+        chunk_size = 60
+        for i in range(0, len(account_ids), chunk_size):
+            chunk = account_ids[i : i + chunk_size]
+            ids_in = ", ".join(f"'{aid}'" for aid in chunk)
+            soql = (
+                f"SELECT AccountId, Type, Amount FROM Opportunity "
+                f"WHERE AccountId IN ({ids_in}) "
+                f"AND IsWon = true "
+                f"AND CALENDAR_YEAR(CloseDate) = {int(calendar_year)} "
+                f"AND Type IN ({types_in})"
+            )
+            out.extend(self._query(soql))
+        return out
+
+    @staticmethod
+    def _expansion_kpis_from_opportunities(
+        *,
+        per_name: dict[str, list[dict[str, Any]]],
+        names_clean: list[str],
+        closed_won_rows: list[dict[str, Any]],
+        calendar_year: int,
+    ) -> dict[str, Any]:
+        """Derive portfolio expansion / new-logo KPIs from closed-won opps + entity rollups."""
+        expansion_accounts: set[str] = set()
+        new_biz_accounts: set[str] = set()
+        expansion_amount = 0.0
+        expansion_opp_count = 0
+        for r in closed_won_rows:
+            if not isinstance(r, dict):
+                continue
+            aid = r.get("AccountId")
+            if not isinstance(aid, str) or len(aid.strip()) < 15:
+                continue
+            typ = str(r.get("Type") or "")
+            try:
+                amt = float(r.get("Amount") or 0)
+            except (TypeError, ValueError):
+                amt = 0.0
+            if typ in _EXPANSION_CLOSED_WON_TYPES:
+                expansion_accounts.add(aid)
+                expansion_amount += amt
+                expansion_opp_count += 1
+            elif typ in _NEW_LOGO_CLOSED_WON_TYPES:
+                new_biz_accounts.add(aid)
+
+        active_labels: list[str] = []
+        for name in names_clean:
+            matching = per_name.get(name) or []
+            if not matching:
+                continue
+            has_active = False
+            for a in matching:
+                st = (a.get("Contract_Status__c") or "").strip().lower()
+                if st not in SalesforceClient._CHURNED_STATUSES:
+                    has_active = True
+                    break
+            if has_active:
+                active_labels.append(name)
+
+        def _label_account_ids(label: str) -> set[str]:
+            return {
+                str(a.get("Id")).strip()
+                for a in (per_name.get(label) or [])
+                if isinstance(a.get("Id"), str) and len(str(a.get("Id")).strip()) >= 15
+            }
+
+        expanding_labels: list[str] = []
+        for label in active_labels:
+            if _label_account_ids(label) & expansion_accounts:
+                expanding_labels.append(label)
+
+        new_logo_labels: list[str] = []
+        for label in active_labels:
+            if _label_account_ids(label) & new_biz_accounts:
+                new_logo_labels.append(label)
+
+        denom = len(active_labels)
+        numer = len(expanding_labels)
+        pct = round(100.0 * numer / denom, 1) if denom else 0.0
+
+        return {
+            "configured": True,
+            "empty": False,
+            "calendar_year": int(calendar_year),
+            "eligible_active_customer_count": denom,
+            "active_customers_with_expansion_wins_cy": numer,
+            "pct_active_customers_expanding_cy": pct,
+            "closed_won_expansion_deal_count_cy": expansion_opp_count,
+            "closed_won_expansion_amount_sum_cy": round(expansion_amount, 2),
+            "distinct_accounts_expansion_win_cy": len(expansion_accounts),
+            "active_customers_with_new_business_won_cy": len(new_logo_labels),
+            "distinct_accounts_new_business_win_cy": len(new_biz_accounts),
+            "expanding_customer_labels_sample": sorted(expanding_labels)[:12],
+        }
 
     def get_active_customer_names(self, customer_names: list[str]) -> set[str]:
         """Return the subset of *customer_names* whose Contract_Status__c is NOT churned.
@@ -785,40 +1064,68 @@ class SalesforceClient:
             "active_customer_count": 0,
             "churned_customer_count": 0,
             "top_customers_by_arr": [],
+            "matched_customer_contract_rollups": [],
             "churned_customer_names_sample": [],
+            "expansion_kpis": {
+                "configured": True,
+                "empty": True,
+                "calendar_year": time.gmtime().tm_year,
+            },
         }
 
         accounts = self.get_entity_accounts()
         if not accounts:
             return empty_out
 
+        account_by_id = {
+            a["Id"]: a for a in accounts if isinstance(a, dict) and a.get("Id")
+        }
+        from .portfolio_salesforce_allowlist import matching_entity_accounts_for_customer_label
         from .salesforce_reporting import aggregate_accounts_by_corporate_group
 
         by_group = aggregate_accounts_by_corporate_group(accounts)
-        all_ids: list[str] = []
+        per_group = dict(by_group)
+        rollup_names = [
+            g
+            for g, ents in by_group.items()
+            if sum(float(a.get("ARR__c") or 0) for a in ents) > 0
+        ]
+
+        matched_usage = 0
+        unmatched_usage = 0
+        if names_clean:
+            for name in names_clean:
+                if matching_entity_accounts_for_customer_label(name, accounts):
+                    matched_usage += 1
+                else:
+                    unmatched_usage += 1
+
         seen_ids: set[str] = set()
+        dedup_ids: list[str] = []
         for a in accounts:
             aid = a.get("Id")
             if isinstance(aid, str) and len(aid.strip()) >= 15 and aid not in seen_ids:
                 seen_ids.add(aid)
-                all_ids.append(aid)
+                dedup_ids.append(aid)
 
         top_rows: list[dict[str, Any]] = []
         total_arr = 0.0
         active_arr = 0.0
         churned_arr = 0.0
         churned_names: list[str] = []
+        renewal_in_flight_arr = 0.0
+        renewal_in_flight_cust = 0
+        renewal_in_flight_names: list[str] = []
         active_cust = 0
         churned_cust = 0
-        for group_name, matching in by_group.items():
+        for group_name in rollup_names:
+            matching = per_group[group_name]
             arr_sum = 0.0
             for a in matching:
                 try:
                     arr_sum += float(a.get("ARR__c") or 0)
                 except (TypeError, ValueError):
                     pass
-            if arr_sum <= 0:
-                continue
             has_active_contract = False
             for a in matching:
                 status = (a.get("Contract_Status__c") or "").strip().lower()
@@ -826,36 +1133,66 @@ class SalesforceClient:
                     has_active_contract = True
                     break
             all_matched_churned = not has_active_contract
-            top_rows.append({
+            row = {
                 "customer": group_name,
                 "arr": round(arr_sum, 2),
                 "active": not all_matched_churned,
                 "entity_count": len(matching),
-            })
+            }
+            row.update(_renewal_roll_up_fields(matching))
+            row.update(
+                self.renewal_in_flight_fields_for_entities(
+                    matching, all_matched_churned=all_matched_churned
+                )
+            )
+            top_rows.append(row)
             total_arr += arr_sum
             if all_matched_churned:
-                churned_arr += arr_sum
-                churned_cust += 1
-                if len(churned_names) < 12:
-                    churned_names.append(group_name)
+                if row.get("renewal_in_flight") is True:
+                    renewal_in_flight_arr += arr_sum
+                    renewal_in_flight_cust += 1
+                    if len(renewal_in_flight_names) < 12:
+                        renewal_in_flight_names.append(group_name)
+                else:
+                    churned_arr += arr_sum
+                    churned_cust += 1
+                    if len(churned_names) < 12:
+                        churned_names.append(group_name)
             else:
                 active_arr += arr_sum
                 active_cust += 1
 
         top_rows.sort(key=lambda r: (-(float(r.get("arr") or 0)), str(r.get("customer") or "")))
         top10 = top_rows[:10]
-        pipeline = self.get_advanced_pipeline_arr(all_ids) if all_ids else 0.0
-        opps = self.get_opportunity_creation_this_year(all_ids) if all_ids else 0
+        matched_customer_contract_rollups = list(top_rows)
+        dedup_scope = (
+            opportunity_account_scope_ids_from_entity_ids(dedup_ids, account_by_id)
+            if dedup_ids
+            else []
+        )
+        pipeline = self.get_advanced_pipeline_arr(dedup_scope) if dedup_scope else 0.0
+        opps = self.get_opportunity_creation_this_year(dedup_scope) if dedup_scope else 0
 
-        matched_usage = 0
-        unmatched_usage = 0
-        if names_clean:
-            for name in names_clean:
-                upper = name.upper()
-                if any(_customer_name_matches_entity_account(upper, a) for a in accounts):
-                    matched_usage += 1
-                else:
-                    unmatched_usage += 1
+        calendar_year = time.gmtime().tm_year
+        expansion_kpis: dict[str, Any]
+        if not dedup_ids:
+            expansion_kpis = {"configured": True, "empty": True, "calendar_year": calendar_year}
+        else:
+            try:
+                won_rows = self._portfolio_closed_won_opportunity_rows_cy(dedup_scope, calendar_year)
+                expansion_kpis = self._expansion_kpis_from_opportunities(
+                    per_name=per_group,
+                    names_clean=rollup_names,
+                    closed_won_rows=won_rows,
+                    calendar_year=calendar_year,
+                )
+            except Exception as e:
+                logger.warning("Salesforce: portfolio expansion KPI rollup failed: %s", e)
+                expansion_kpis = {
+                    "configured": True,
+                    "calendar_year": calendar_year,
+                    "error": str(e)[:420],
+                }
 
         return {
             "configured": True,
@@ -874,8 +1211,13 @@ class SalesforceClient:
             "opportunity_count_this_year": int(opps),
             "active_customer_count": active_cust,
             "churned_customer_count": churned_cust,
+            "renewal_in_flight_customer_count": renewal_in_flight_cust,
+            "renewal_in_flight_contract_arr": round(renewal_in_flight_arr, 2),
+            "renewal_in_flight_customer_names_sample": renewal_in_flight_names,
             "top_customers_by_arr": top10,
+            "matched_customer_contract_rollups": matched_customer_contract_rollups,
             "churned_customer_names_sample": churned_names,
+            "expansion_kpis": expansion_kpis,
         }
 
     def _get_customer_salesforce_by_account_ids(
@@ -946,7 +1288,7 @@ class SalesforceClient:
     ) -> dict[str, Any]:
         """Contract info, opportunity count (this year), and pipeline ARR for a customer.
 
-        When ``preferred_account_ids`` is set (e.g. from ``customer_identity_map.yaml``), resolves
+        When ``preferred_account_ids`` is set (e.g. from ``config/customer_identity_map.yaml``), resolves
         those Customer Entity accounts **by Id** first. Otherwise matches Entity Account by
         ``Name``, ``LeanDNA_Entity_Name__c``, Parent name, or Ultimate Parent name (case-insensitive
         substring; Ultimate Parent requires ``SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP``).
@@ -1081,6 +1423,8 @@ class SalesforceClient:
         if not base.get("matched") or not account_ids:
             return out
 
+        matching = [a for a in (base.get("accounts") or []) if isinstance(a, dict)]
+
         try:
             expanded = self.expand_descendant_account_ids(account_ids)
         except Exception as e:
@@ -1088,8 +1432,22 @@ class SalesforceClient:
             expanded = list(account_ids)
             out["category_errors"]["account_hierarchy"] = str(e)[:500]
         out["account_ids_expanded"] = expanded
-        out["opportunity_count_this_year"] = self.get_opportunity_creation_this_year(expanded)
-        out["pipeline_arr"] = self.get_advanced_pipeline_arr(expanded)
+        opp_scope = opportunity_account_scope_ids(matching)
+        out["opportunity_account_scope_ids"] = opp_scope
+        out["opportunity_count_this_year"] = self.get_opportunity_creation_this_year(opp_scope)
+        out["pipeline_arr"] = self.get_advanced_pipeline_arr(opp_scope)
+        has_active_entity = False
+        for a in matching:
+            st = (a.get("Contract_Status__c") or "").strip().lower()
+            if st and st not in self._CHURNED_STATUSES:
+                has_active_entity = True
+                break
+        out.update(
+            self.renewal_in_flight_fields_for_entities(
+                matching,
+                all_matched_churned=bool(matching) and not has_active_entity,
+            )
+        )
 
         ids_in = ", ".join(f"'{aid}'" for aid in expanded)
         cap = out["row_limit"]

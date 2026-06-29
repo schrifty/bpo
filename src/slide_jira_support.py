@@ -5,12 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 from .cs_report_client import get_csr_section
+from .jira_client import HELP_FACTORY_START_DAY_BUCKETS
 from .slide_primitives import (
     CHART_LEGEND_PT,
     align as _align,
     background as _bg,
     bar_rect as _bar_rect,
     clean_table as _clean_table,
+    rect as _solid_rect,
     kpi_metric_card as _kpi_metric_card,
     missing_data_slide as _missing_data_slide,
     pill as _pill,
@@ -346,6 +348,361 @@ def project_ticket_metrics_breakdown_slide(
 
 def customer_ticket_metrics_charts_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
     return project_ticket_metrics_breakdown_slide(reqs, sid, report, idx, snap_key="customer_ticket_metrics", project="HELP", default_title="Ticket Metrics Breakdown")
+
+
+def help_factory_start_day_buckets_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Column chart: HELP tickets created in factory-start day windows (per SF entities), with hypercare cutoff overlay."""
+    jira = report.get("jira") or {}
+    blob = jira.get("help_factory_start_day_buckets")
+    charts = report.get("_charts")
+    if not isinstance(blob, dict):
+        return _missing_data_slide(
+            reqs,
+            sid,
+            report,
+            idx,
+            "HELP factory start day buckets (not in report — support deck data fetch)",
+        )
+    if blob.get("error"):
+        return _missing_data_slide(reqs, sid, report, idx, f"HELP factory start buckets: {blob.get('error')}")
+    if not charts:
+        return _missing_data_slide(reqs, sid, report, idx, "HELP factory start buckets and chart service")
+
+    labels = blob.get("bucket_labels") or []
+    counts_raw = blob.get("counts") or []
+    try:
+        counts = [int(x) for x in counts_raw]
+    except (TypeError, ValueError):
+        counts = []
+    if len(labels) != len(counts) or not labels:
+        return _missing_data_slide(reqs, sid, report, idx, "HELP factory start buckets: malformed snapshot")
+
+    customer = report.get("customer") or blob.get("customer") or "All Customers"
+    entry = report.get("_current_slide") or {}
+    configured_title = (entry.get("title") or "").strip()
+    if configured_title:
+        title = configured_title
+    elif report.get("support_deck_scoped_titles") and report.get("customer"):
+        title = "Post-Implementation Ticket Volumes"
+    elif blob.get("portfolio_aggregate"):
+        title = "Post-Implementation Ticket Volumes"
+    else:
+        title = f"{customer} — Post-Implementation Ticket Volumes"
+
+    fs_field = (blob.get("factory_start_date_field") or "factory_start_date").strip()
+    scope_phrase = (
+        "Portfolio aggregate: summed across all Salesforce Customer Entity rows"
+        if blob.get("portfolio_aggregate")
+        else "Summed across Salesforce Customer Entity rows for this customer"
+    )
+    meta_bits: list[str] = [
+        f"{scope_phrase} (factory field: {fs_field}). "
+        "Scoped with JSM Organizations plus site phrases when available (same as entity HELP export)."
+    ]
+    ent_matched = blob.get("entity_rows_matched")
+    ent_used = blob.get("entities_with_factory_and_org")
+    if ent_matched is not None:
+        meta_bits.append(f"Entities matched: {int(ent_matched)}; counted (factory date + org): {int(ent_used or 0)}.")
+    if int(blob.get("skipped_no_factory_start") or 0):
+        meta_bits.append(f"No factory start date: {int(blob['skipped_no_factory_start'])} rows skipped.")
+    if int(blob.get("skipped_no_jsm_org") or 0):
+        meta_bits.append(f"No JSM org match: {int(blob['skipped_no_jsm_org'])} rows skipped.")
+    if blob.get("jira_count_partial_failure"):
+        meta_bits.append("Some Jira approximate counts failed; totals may be incomplete.")
+
+    _slide(reqs, sid, idx)
+    slide_bg = project_slide_bg("HELP")
+    _bg(reqs, sid, slide_bg)
+    _slide_title(reqs, sid, title)
+    subtitle = " ".join(meta_bits)
+    sub_y = BODY_Y + 6
+    _box(reqs, f"{sid}_sub", sid, MARGIN, sub_y, CONTENT_W, 36, subtitle)
+    _style(reqs, f"{sid}_sub", 0, len(subtitle), size=9, color=GRAY, font=FONT)
+
+    from .charts import embed_chart
+
+    chart_top = sub_y + 40
+    chart_h = float(BODY_BOTTOM) - chart_top - 12.0
+    chart_h = max(chart_h, 120.0)
+    vals = [max(0, c) for c in counts]
+    ss_id, chart_id = charts.add_bar_chart(
+        title="",
+        labels=[_truncate_table_cell(str(lbl), 52) for lbl in labels],
+        series={"Tickets opened": vals},
+        horizontal=False,
+        show_title=False,
+        suppress_legend=True,
+        background=slide_bg,
+    )
+    embed_chart(reqs, f"{sid}_bar", sid, ss_id, chart_id, MARGIN, chart_top, CONTENT_W, chart_h, linked=True)
+
+    # Hypercare cutoff: vertical marker at calendar day 42 on a 0–200 day factory-start timeline.
+    # Embedded Sheets charts reserve substantial width for the Y-axis; use fractional insets of
+    # CONTENT_W (the chart object width) so the overlay tracks the category plot band.
+    n = len(HELP_FACTORY_START_DAY_BUCKETS)
+    if n == len(labels):
+        chart_w = float(CONTENT_W)
+        # Empirical: ~15–16% leading for value axis + ticks; trailing ~3.5% for padding.
+        plot_left = MARGIN + chart_w * 0.155
+        plot_right = MARGIN + chart_w * 0.965
+        hypercare_day = 42
+        axis_day_max = float(HELP_FACTORY_START_DAY_BUCKETS[-1][1] or 200)
+        x_line = plot_left + (hypercare_day / axis_day_max) * (plot_right - plot_left)
+        line_w = 1.5
+        axis_reserve = 36.0
+        line_top = chart_top + 8.0
+        line_h = max(40.0, chart_h - axis_reserve - 8.0)
+        _solid_rect(reqs, f"{sid}_hcut", sid, x_line - line_w / 2.0, line_top, line_w, line_h, RED)
+        lbl = "Hypercare Cutoff"
+        lbl_w = 120.0
+        lbl_x = min(x_line + 5.0, plot_right - lbl_w)
+        _box(reqs, f"{sid}_hcut_lbl", sid, lbl_x, line_top + 2.0, lbl_w, 16.0, lbl)
+        _style(reqs, f"{sid}_hcut_lbl", 0, len(lbl), size=9, color=RED, bold=True, font=FONT)
+
+    return idx + 1
+
+
+def help_monthly_operational_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Table: HELP monthly ops in banded sections (month | HELP ex-outage | Outage/HC)."""
+    jira = report.get("jira") or {}
+    blob = jira.get("help_monthly_operational_metrics")
+    if not isinstance(blob, dict):
+        return _missing_data_slide(
+            reqs,
+            sid,
+            report,
+            idx,
+            "HELP monthly operational metrics (not in report — support deck data fetch)",
+        )
+    if blob.get("error"):
+        return _missing_data_slide(reqs, sid, report, idx, f"HELP monthly operational: {blob.get('error')}")
+
+    rows_in = list(blob.get("rows") or [])
+
+    customer = report.get("customer") or blob.get("customer") or "All Customers"
+    entry = report.get("_current_slide") or {}
+    title = (entry.get("title") or "").strip() or "HELP — Monthly Ticket Operations"
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, project_slide_bg("HELP"))
+    _slide_title(reqs, sid, title)
+
+    sub_h = 32.0
+    foot = (
+        "HELP: Open = backlog at month end (excl. Outage/Healthcheck). Rate = opened ÷ days in month. "
+        "Outage/HC: Open = backlog at month start; Delta = opened − closed in month. "
+        "Trailing * = partial month. Counts: Jira approximate-count."
+    )
+    if blob.get("jira_count_partial_failure"):
+        foot += " Some counts may be incomplete."
+    _wrap_box(reqs, f"{sid}_sub", sid, MARGIN, BODY_Y, CONTENT_W, sub_h, foot)
+    _style(reqs, f"{sid}_sub", 0, len(foot), size=7, color=GRAY, font=FONT)
+
+    if not rows_in:
+        _box(reqs, f"{sid}_empty", sid, MARGIN, BODY_Y + sub_h + 8, CONTENT_W, 28, "No monthly rows returned.")
+        _style(reqs, f"{sid}_empty", 0, len("No monthly rows returned."), size=10, color=NAVY, font=FONT)
+        return idx + 1
+
+    # Section backgrounds (column bands): month | HELP (ex-outage) | Outage/HC
+    bg_month = {"red": 0.90, "green": 0.91, "blue": 0.95}
+    bg_help = {"red": 0.88, "green": 0.94, "blue": 1.0}
+    bg_out = {"red": 1.0, "green": 0.95, "blue": 0.90}
+
+    table_top = BODY_Y + sub_h + 4.0
+    row_h = 15.0
+    header_rows = 2
+    max_body = max(1, int((float(BODY_BOTTOM) - table_top - 8.0) // row_h) - header_rows)
+    display_rows = rows_in[-max_body:] if len(rows_in) > max_body else rows_in
+
+    num_cols = 10
+    col_widths = [56, 62, 54, 62, 62, 56, 48, 54, 62, 62]
+    adj = int(CONTENT_W) - sum(col_widths)
+    if adj:
+        col_widths[-1] = col_widths[-1] + adj
+
+    num_rows = header_rows + len(display_rows)
+    table_id = f"{sid}_mtbl"
+    reqs.append({
+        "createTable": {
+            "objectId": table_id,
+            "elementProperties": {
+                "pageObjectId": sid,
+                "size": _sz(sum(col_widths), num_rows * row_h),
+                "transform": _tf(MARGIN, table_top),
+            },
+            "rows": num_rows,
+            "columns": num_cols,
+        }
+    })
+
+    def _merge(r: int, c: int, rs: int, cs: int) -> None:
+        reqs.append({
+            "mergeTableCells": {
+                "objectId": table_id,
+                "tableRange": {
+                    "location": {"rowIndex": r, "columnIndex": c},
+                    "rowSpan": rs,
+                    "columnSpan": cs,
+                },
+            },
+        })
+
+    # Row 0: section titles; row 1: metric subheaders; data from row 2.
+    _merge(0, 0, 2, 1)
+    _merge(0, 1, 1, 4)
+    _merge(0, 5, 1, 5)
+
+    def _band_fill(r0: int, c0: int, rs: int, cs: int, fill_rgb: dict[str, float]) -> None:
+        reqs.append({
+            "updateTableCellProperties": {
+                "objectId": table_id,
+                "tableRange": {
+                    "location": {"rowIndex": r0, "columnIndex": c0},
+                    "rowSpan": rs,
+                    "columnSpan": cs,
+                },
+                "tableCellProperties": {
+                    "tableCellBackgroundFill": {"solidFill": {"color": {"rgbColor": fill_rgb}}},
+                },
+                "fields": "tableCellBackgroundFill",
+            },
+        })
+
+    def _ct(row: int, col: int, text: str) -> None:
+        if not text:
+            return
+        reqs.append({
+            "insertText": {
+                "objectId": table_id,
+                "cellLocation": {"rowIndex": row, "columnIndex": col},
+                "text": str(text),
+                "insertionIndex": 0,
+            },
+        })
+
+    def _cs(row: int, col: int, text_len: int, *, bold: bool = False, size: float = 8.0, color: Any = None) -> None:
+        if text_len <= 0:
+            return
+        from typing import Any
+
+        s: dict[str, Any] = {
+            "fontSize": {"magnitude": size, "unit": "PT"},
+            "fontFamily": FONT,
+        }
+        fields = "fontSize,fontFamily"
+        if bold:
+            s["bold"] = True
+            fields += ",bold"
+        if color is not None:
+            s["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}
+            fields += ",foregroundColor"
+        reqs.append({
+            "updateTextStyle": {
+                "objectId": table_id,
+                "cellLocation": {"rowIndex": row, "columnIndex": col},
+                "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
+                "style": s,
+                "fields": fields,
+            },
+        })
+
+    def _pc(row: int, col: int, alignment: str) -> None:
+        reqs.append({
+            "updateParagraphStyle": {
+                "objectId": table_id,
+                "cellLocation": {"rowIndex": row, "columnIndex": col},
+                "textRange": {"type": "ALL"},
+                "style": {"alignment": alignment},
+                "fields": "alignment",
+            },
+        })
+
+    # Section backgrounds: month column (rows 0–1 merged), then column bands per row.
+    _band_fill(0, 0, 2, 1, bg_month)
+    _band_fill(0, 1, 1, 4, bg_help)
+    _band_fill(0, 5, 1, 5, bg_out)
+    _band_fill(1, 1, 1, 4, bg_help)
+    _band_fill(1, 5, 1, 5, bg_out)
+    for rr in range(2, num_rows):
+        _band_fill(rr, 0, 1, 1, bg_month)
+        _band_fill(rr, 1, 1, 4, bg_help)
+        _band_fill(rr, 5, 1, 5, bg_out)
+
+    _clean_table(reqs, table_id, num_rows, num_cols)
+    reqs.append({
+        "updateTableBorderProperties": {
+            "objectId": table_id,
+            "tableRange": {
+                "location": {"rowIndex": 1, "columnIndex": 0},
+                "rowSpan": 1,
+                "columnSpan": num_cols,
+            },
+            "borderPosition": "BOTTOM",
+            "tableBorderProperties": {
+                "tableBorderFill": {"solidFill": {"color": {"rgbColor": BLUE}}},
+                "weight": {"magnitude": 1, "unit": "PT"},
+                "dashStyle": "SOLID",
+            },
+            "fields": "tableBorderFill,weight,dashStyle",
+        },
+    })
+
+    sec_help = "HELP tickets (excl. Outage / Healthcheck)"
+    sec_out = "Outage / Healthcheck tickets"
+    _ct(0, 0, "Month")
+    _cs(0, 0, len("Month"), bold=True, size=8.0, color=NAVY)
+    _pc(0, 0, "CENTER")
+    _ct(0, 1, sec_help)
+    _cs(0, 1, len(sec_help), bold=True, size=8.0, color=NAVY)
+    _pc(0, 1, "CENTER")
+    _ct(0, 5, sec_out)
+    _cs(0, 5, len(sec_out), bold=True, size=8.0, color=NAVY)
+    _pc(0, 5, "CENTER")
+
+    sub_h1 = ["Open", "Rate", "Opened", "Closed", "Open", "Delta", "Rate", "Opened", "Closed"]
+    for j, h in enumerate(sub_h1):
+        ci = 1 + j
+        _ct(1, ci, h)
+        _cs(1, ci, len(h), bold=True, size=7.5, color=NAVY)
+        _pc(1, ci, "END")
+
+    def _fmt_rate(v: Any) -> str:
+        try:
+            x = float(v)
+        except (TypeError, ValueError):
+            return "—"
+        if abs(x - round(x)) < 0.05:
+            return str(int(round(x)))
+        return f"{x:.1f}"
+
+    for ri, row in enumerate(display_rows, start=2):
+        opened_ot = int(row.get("outage_opened") or 0)
+        resolved_ot = int(row.get("outage_resolved") or 0)
+        delta_ot = row.get("outage_delta")
+        if delta_ot is None:
+            delta_ot = opened_ot - resolved_ot
+        vals = [
+            str(row.get("label") or row.get("month_key") or ""),
+            _format_count(row.get("total_open_eom")),
+            _fmt_rate(row.get("tix_per_day")),
+            _format_count(row.get("opened")),
+            _format_count(row.get("resolved")),
+            _format_count(row.get("outage_open_start")),
+            _format_count(delta_ot),
+            _fmt_rate(row.get("outage_tix_per_day")),
+            _format_count(opened_ot),
+            _format_count(resolved_ot),
+        ]
+        for ci, v in enumerate(vals):
+            _ct(ri, ci, v)
+            size = 7.5 if ci == 0 else 7.75
+            _cs(ri, ci, len(v), bold=False, size=size, color=None)
+            if ci == 0:
+                _pc(ri, 0, "START")
+            else:
+                _pc(ri, ci, "END")
+
+    return idx + 1
 
 
 def customer_project_ticket_metrics_breakdown_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:

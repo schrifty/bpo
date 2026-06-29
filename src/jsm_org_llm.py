@@ -17,13 +17,13 @@ from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
 
 
 def _jsm_llm_enabled() -> bool:
-    v = (os.environ.get("BPO_JSM_ORG_LLM", "true") or "").strip().lower()
+    v = (os.environ.get("CORTEX_JSM_ORG_LLM", "true") or "").strip().lower()
     return v not in ("0", "false", "no", "off")
 
 
 def _jsm_max_candidate_chars() -> int:
     try:
-        return max(5_000, int(os.environ.get("BPO_JSM_ORG_LLM_MAX_CANDIDATE_CHARS", "90000")))
+        return max(5_000, int(os.environ.get("CORTEX_JSM_ORG_LLM_MAX_CANDIDATE_CHARS", "90000")))
     except ValueError:
         return 90_000
 

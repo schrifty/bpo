@@ -1,0 +1,15 @@
+id: eng_exec_summary
+type: standard
+order: 80
+title: Engineering Review — Executive Summary
+slide_type: eng_exec_summary
+data_tools: []
+customers: all
+
+prompt: >
+  Bottom-line-up-front summary for the VP of Engineering. Headline KPI cards
+  (sprint delivery, story-point velocity with trend, open escalations, reactive
+  load) sit above two columns: "What to worry about" (threshold-driven risk
+  watch-list — blockers, aging escalations, stalled WIP, capacity concentration,
+  reactive load) and "Decisions needed" (paired prescriptive actions). Single
+  question: what is the state of engineering and what should the VP act on?

@@ -1,1 +1,1 @@
-"""BPO - LangChain framework with Pendo API."""
+"""Cortex - LangChain framework with Pendo API."""

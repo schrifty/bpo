@@ -10,77 +10,9 @@ from src.config import logger
 def main() -> None:
     argv = sys.argv[1:]
     if argv and argv[0] == "qbr":
-        customer = " ".join(argv[1:]).strip()
-        if not customer:
-            print("Usage: python main.py qbr <customer>", file=sys.stderr)
-            print("  Builds a QBR deck from the Drive template (see GOOGLE_QBR_GENERATOR_FOLDER_ID).", file=sys.stderr)
-            sys.exit(2)
-        from src.qbr_template import run_qbr_from_template
+        from src.qbr_template import run_qbr_cli
 
-        import time as _time
-        _qbr_t0 = _time.monotonic()
-        logger.info("QBR run for customer query: %s", customer)
-        result = run_qbr_from_template(customer)
-        if result.get("error"):
-            print(f"Error: {result['error']}", file=sys.stderr)
-            if result.get("hint"):
-                print(result["hint"], file=sys.stderr)
-            sys.exit(1)
-        print(result.get("url", ""))
-        print(f"Customer: {result.get('customer')}")
-        if result.get("bundle_folder_id"):
-            print(
-                f"Bundle folder: https://drive.google.com/drive/folders/{result['bundle_folder_id']}"
-            )
-        print(
-            f"Slides — hidden: {result.get('slides_hidden', 0)}; "
-            f"adapted: {result.get('adapt_slides', 0)}"
-        )
-        if result.get("plan_notes"):
-            print(f"Manifest plan: {result['plan_notes']}")
-        for row in result.get("companion_decks") or []:
-            label = row.get("key") or row.get("deck_id", "")
-            if row.get("error"):
-                print(f"  [{label}] skipped/failed: {row['error']}", flush=True)
-                if row.get("hint"):
-                    print(f"      {row['hint']}", flush=True)
-            elif row.get("url"):
-                print(f"  [{label}] {row['url']}", flush=True)
-            else:
-                print(
-                    f"  [{label}] no URL in result (unexpected — see bpo logs for this companion)",
-                    flush=True,
-                )
-        qt = result.get("qbr_timing_seconds") or {}
-        if qt:
-            top = sorted(
-                ((k, v) for k, v in qt.items() if k != "total_elapsed_s" and isinstance(v, (int, float))),
-                key=lambda x: -x[1],
-            )[:12]
-            rows = [(k, v) for k, v in top if v >= 0.5]
-            if rows:
-                print("Time (QBR phases, top):", flush=True)
-                for key, seconds in rows:
-                    print(f"  {key}: {seconds:.0f}s", flush=True)
-        ha = (result.get("hydrate_adapt_stats") or {}).get("timing") or {}
-        if ha:
-            def _f(key: str) -> float:
-                v = ha.get(key)
-                return float(v) if v is not None else 0.0
-
-            print("Time (main deck adapt):", flush=True)
-            for label, key in (
-                ("preflight", "preflight_pres_and_thumb_urls_s"),
-                ("phase_A_LLM", "phase_a_parallel_gpt_s"),
-                ("phase_B_Slides", "phase_b_sequential_slides_api_s"),
-                ("notes", "speaker_notes_batch_s"),
-                ("tail", "tail_summary_slide_and_stats_s"),
-                ("total", "total_adapt_s"),
-            ):
-                print(f"  {label}: {_f(key):.0f}s", flush=True)
-        elapsed = _time.monotonic() - _qbr_t0
-        mins, secs = divmod(int(elapsed), 60)
-        logger.info("QBR complete in %dm %02ds", mins, secs)
+        run_qbr_cli(argv[1:], prog="python main.py qbr")
         return
 
     parser = argparse.ArgumentParser(
@@ -145,7 +77,8 @@ def main() -> None:
         parser.print_help()
         print("\nExamples:")
         print("  python main.py 'Get usage data for customer acme-123'")
-        print("  python main.py qbr \"Acme Corp\"   # QBR from Drive template (see GOOGLE_QBR_GENERATOR_FOLDER_ID)")
+        print('  python main.py qbr "Acme Corp"   # QBR deck from Drive template')
+        print('  cortex qbr "Acme Corp"   # same pipeline via cortex CLI')
 
 
 if __name__ == "__main__":

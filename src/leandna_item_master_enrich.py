@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .config import logger, LEANDNA_DATA_API_BEARER_TOKEN
+from .config import logger
+from .leandna_data_api_http import leandna_data_api_credentials_configured
 from .leandna_item_master_client import (
     get_item_master_data,
     get_high_risk_items,
@@ -22,20 +23,20 @@ def _resolve_customer_sites(customer: str) -> str | None:
     """Resolve customer name to LeanDNA site IDs (comma-separated).
     
     Args:
-        customer: BPO customer name.
+        customer: Cortex customer name.
     
     Returns:
         Comma-separated site IDs or None for all authorized sites.
     
     TODO: Implement site mapping logic. Options:
-      1. Add `leandna_site_ids` to teams.yaml per customer
+      1. Add `leandna_site_ids` to `config/teams.yaml` per customer
       2. Call /data/identity API and fuzzy-match siteName
       3. Use customer-specific env var LEANDNA_SITES_{customer}
     
     For now: return None (all sites) and rely on RequestedSites header behavior.
     """
     # Placeholder: no mapping yet
-    # Future: load from teams.yaml or identity API
+    # Future: load from config/teams.yaml or identity API
     return None
 
 
@@ -60,8 +61,8 @@ def enrich_qbr_with_item_master(
     logger.info("LeanDNA Item Master enrichment: starting for customer=%s", customer)
     
     # Check if LeanDNA is configured
-    if not LEANDNA_DATA_API_BEARER_TOKEN:
-        logger.debug("LeanDNA enrichment skipped: LEANDNA_DATA_API_BEARER_TOKEN not set")
+    if not leandna_data_api_credentials_configured():
+        logger.debug("LeanDNA enrichment skipped: no LEANDNA_DATA_API_BEARER_TOKEN or LEANDNA_DATA_API_COOKIE")
         report.setdefault("leandna_item_master", {"enabled": False, "reason": "bearer_token_not_configured"})
         return report
     

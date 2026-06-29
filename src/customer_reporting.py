@@ -13,10 +13,10 @@ from typing import Any
 
 import yaml
 
-from .config import logger
+from .config_paths import CS_REPORT_CUSTOMER_ALIASES_FILE
 from .salesforce_reporting import resolve_corporate_label
 
-_CSR_ALIASES_FILE = Path(__file__).resolve().parent.parent / "cs_report_customer_aliases.yaml"
+_CSR_ALIASES_FILE = CS_REPORT_CUSTOMER_ALIASES_FILE
 _map_lock = threading.Lock()
 _cs_to_corporate_cache: dict[str, str] | None = None
 

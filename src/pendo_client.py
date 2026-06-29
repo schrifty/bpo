@@ -18,10 +18,12 @@ import requests
 from requests.adapters import HTTPAdapter
 from tqdm.auto import tqdm
 
+from .config_paths import COHORTS_FILE
 from .config import (
-    BPO_PENDO_CACHE_TTL_SECONDS,
-    BPO_SIGNALS_LLM,
-    BPO_SIGNALS_TRENDS,
+    CORTEX_PORTFOLIO_CUSTOMER_SOURCE,
+    CORTEX_PENDO_CACHE_TTL_SECONDS,
+    CORTEX_SIGNALS_LLM,
+    CORTEX_SIGNALS_TRENDS,
     FEATURE_ADOPTION_INSIGHTS,
     PENDO_BASE_URL,
     PENDO_INTEGRATION_KEY,
@@ -66,6 +68,25 @@ def _take_portfolio_signals_capping_read_heavy(
             if rh_used >= max_read_heavy:
                 continue
             rh_used += 1
+        out.append(item)
+    return out
+
+
+def _dedupe_portfolio_signal_rows(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Remove duplicate (customer, signal) pairs when customer names differ only by case/spacing.
+
+    Pendo sometimes returns the same account under near-duplicate names (e.g. ``MicroVention`` vs
+    ``Microvention``), which would otherwise emit identical portfolio signal lines twice.
+    """
+    seen: set[tuple[str, str]] = set()
+    out: list[dict[str, Any]] = []
+    for item in signals:
+        cust = str(item.get("customer") or "").strip()
+        sig = " ".join(str(item.get("signal") or "").split())
+        key = (cust.lower(), sig.lower())
+        if key in seen:
+            continue
+        seen.add(key)
         out.append(item)
     return out
 
@@ -321,8 +342,8 @@ def _load_cohorts() -> dict[str, Any]:
     global _cohort_data, _alias_map
     if _cohort_data is not None:
         return _cohort_data
-    p = Path(__file__).resolve().parent.parent / "cohorts.yaml"
-    if not p.exists():
+    p = COHORTS_FILE
+    if not p.is_file():
         _cohort_data = {}
         return _cohort_data
     import yaml
@@ -348,20 +369,15 @@ def get_customer_cohort(customer_prefix: str) -> dict[str, Any]:
 
 
 def customer_is_excluded_from_portfolio(customer_prefix: str) -> bool:
-    """True if portfolio/cohort rollup should not fetch a summary for this Pendo customer prefix.
+    """True if portfolio parallel rollup should not fetch a summary for this Pendo customer prefix.
 
-    Uses the same **exclude: true** block in ``cohorts.yaml`` as benchmarking (see docs/CUSTOMER_COHORTS.md),
-    plus optional env ``BPO_PORTFOLIO_EXCLUDE_CUSTOMERS`` (comma-separated prefixes, e.g. ``Automated,Foo``).
-    Excluded names are dropped before ``get_customer_health`` so missing-visitor errors are not logged as ERROR.
+    Uses ``config/pendo_orphans.yaml`` plus optional env
+    ``CORTEX_PORTFOLIO_EXCLUDE_CUSTOMERS`` (comma-separated prefixes). Excluded names are
+    dropped before ``get_customer_health`` so missing-visitor errors are not logged as ERROR.
     """
-    raw = os.environ.get("BPO_PORTFOLIO_EXCLUDE_CUSTOMERS", "")
-    extras = {x.strip() for x in raw.split(",") if x.strip()}
-    if customer_prefix in extras:
-        return True
-    data = _load_cohorts()
-    canonical = _alias_map.get(customer_prefix, customer_prefix)
-    info = data.get(canonical, {})
-    return isinstance(info, dict) and bool(info.get("exclude"))
+    from .portfolio_exclude_prefixes import is_skipped_customer_prefix
+
+    return is_skipped_customer_prefix(customer_prefix)
 
 
 _COHORT_DISPLAY = {
@@ -406,9 +422,9 @@ def _cohort_findings_metadata_bullets(
     thin_n: int,
     singleton_n: int,
     un: dict[str, Any],
+    cfg: dict[str, Any],
 ) -> list[str]:
-    """Build cohort metadata lines from ``cohort_findings`` slide YAML ``metadata`` block."""
-    cfg = cohort_findings_metadata()
+    """Build cohort metadata lines from ``cohort_findings`` metadata (YAML or built-in defaults)."""
     t = cfg.get("templates") or {}
     try:
         max_b = max(1, int(cfg.get("max_bullets") or 1))
@@ -464,11 +480,16 @@ def _cohort_findings_metadata_bullets(
 
 def compute_cohort_portfolio_rollup(
     customer_summaries: list[dict[str, Any]],
+    *,
+    use_cohort_findings_slide_yaml: bool = True,
 ) -> tuple[dict[str, dict[str, Any]], list[str]]:
-    """Bucket portfolio rows by ``cohorts.yaml`` classification (via ``get_customer_cohort``).
+    """Bucket portfolio rows by ``config/cohorts.yaml`` classification (via ``get_customer_cohort``).
 
     Does not define cohorts — only reads ``cohort`` from existing customer records.
     Returns ``(cohort_digest, findings_bullets)``.
+
+    When ``use_cohort_findings_slide_yaml`` is False, cohort bullet tuning uses built-in defaults
+    only (no ``slides/`` or Drive slide reads). Deck generation keeps the default True.
     """
     buckets: dict[str, list[dict[str, Any]]] = {}
     for s in customer_summaries:
@@ -482,7 +503,7 @@ def compute_cohort_portfolio_rollup(
     digest: dict[str, dict[str, Any]] = {}
     for cid, rows in buckets.items():
         if cid == "unclassified":
-            display = "Unclassified / not in cohorts.yaml"
+            display = "Unclassified / not in config/cohorts.yaml"
         else:
             display = _COHORT_DISPLAY.get(cid, cid.replace("_", " ").title())
         logins = [float(r.get("login_pct") or 0) for r in rows]
@@ -546,7 +567,14 @@ def compute_cohort_portfolio_rollup(
                 f"Next-largest: {second['display_name']} ({second['n']} customers, {s2}%).",
             )
 
-    rp = cohort_findings_rollup_params()
+    if use_cohort_findings_slide_yaml:
+        rp = cohort_findings_rollup_params()
+        meta_cfg = cohort_findings_metadata()
+    else:
+        from .slide_loader import cohort_findings_metadata_defaults, cohort_findings_rollup_defaults
+
+        rp = cohort_findings_rollup_defaults()
+        meta_cfg = cohort_findings_metadata_defaults()
     min_n_compare = max(1, rp["min_customers_for_cross_cohort_compare"])
     spread_min_pp = max(0, rp["min_login_spread_pp"])
     singleton_n = max(0, rp["singleton_n"])
@@ -606,6 +634,7 @@ def compute_cohort_portfolio_rollup(
             thin_n=thin_n,
             singleton_n=singleton_n,
             un=un,
+            cfg=meta_cfg,
         )
     )
 
@@ -1396,23 +1425,10 @@ class PendoClient:
         with self._cache_lock:
             if self._feature_catalog_cache is not None and self._cache_valid(self._feature_catalog_cache_ts):
                 return self._feature_catalog_cache
-        from .pendo_preload_cache_drive import (
-            PRELOAD_KIND_FEATURE_CATALOG,
-            save_pendo_preload_payload,
-            try_load_pendo_preload_payload,
-        )
-
-        blob = try_load_pendo_preload_payload(PRELOAD_KIND_FEATURE_CATALOG, None)
-        if isinstance(blob, dict):
-            with self._cache_lock:
-                self._feature_catalog_cache = blob
-                self._feature_catalog_cache_ts = time.time()
-            return blob
         result = self.get_feature_catalog()
         with self._cache_lock:
             self._feature_catalog_cache = result
             self._feature_catalog_cache_ts = time.time()
-        save_pendo_preload_payload(PRELOAD_KIND_FEATURE_CATALOG, None, result)
         return result
 
     def get_account_info(self, account_id: str) -> dict[str, Any]:
@@ -1431,7 +1447,7 @@ class PendoClient:
 
     _visitor_cache: dict[str, Any] | None = None
     _visitor_cache_ts: float = 0
-    _CACHE_TTL = BPO_PENDO_CACHE_TTL_SECONDS  # seconds; overridden by preload() for batch runs
+    _CACHE_TTL = CORTEX_PENDO_CACHE_TTL_SECONDS  # seconds; overridden by preload() for batch runs
     _page_events_cache: dict[str, Any] | None = None
     _page_events_cache_ts: float = 0
     _track_events_cache: dict[str, Any] | None = None
@@ -1475,20 +1491,6 @@ class PendoClient:
                 if cached_days == days:
                     return self._visitor_cache
 
-        from .pendo_preload_cache_drive import (
-            PRELOAD_KIND_VISITORS,
-            save_pendo_preload_payload,
-            try_load_pendo_preload_payload,
-        )
-
-        blob = try_load_pendo_preload_payload(PRELOAD_KIND_VISITORS, days)
-        if isinstance(blob, dict) and "all_visitors" in blob and "all_customer_stats" in blob:
-            result = self._visitor_partition_attach_callable(blob)
-            with self._cache_lock:
-                self._visitor_cache = result
-                self._visitor_cache_ts = time.time()
-            return result
-
         now_ms = int(time.time() * 1000)
         all_visitors = self.get_visitors(days=days).get("results", [])
 
@@ -1519,8 +1521,6 @@ class PendoClient:
         with self._cache_lock:
             self._visitor_cache = result
             self._visitor_cache_ts = time.time()
-        store = {k: v for k, v in result.items() if k != "_is_internal"}
-        save_pendo_preload_payload(PRELOAD_KIND_VISITORS, days, store)
         return result
 
     def _get_page_events_cached(self, days: int) -> list[dict]:
@@ -1528,18 +1528,6 @@ class PendoClient:
             if self._page_events_cache and self._cache_valid(self._page_events_cache_ts):
                 if self._page_events_cache.get("days") == days:
                     return self._page_events_cache["results"]
-        from .pendo_preload_cache_drive import (
-            PRELOAD_KIND_PAGE_EVENTS,
-            save_pendo_preload_payload,
-            try_load_pendo_preload_payload,
-        )
-
-        blob = try_load_pendo_preload_payload(PRELOAD_KIND_PAGE_EVENTS, days)
-        if isinstance(blob, list):
-            with self._cache_lock:
-                self._page_events_cache = {"days": days, "results": blob}
-                self._page_events_cache_ts = time.time()
-            return blob
         ts = _time_series(days)
         raw = self.aggregate([
             {"source": {"pageEvents": None, "timeSeries": ts}},
@@ -1548,7 +1536,6 @@ class PendoClient:
         with self._cache_lock:
             self._page_events_cache = {"days": days, "results": results}
             self._page_events_cache_ts = time.time()
-        save_pendo_preload_payload(PRELOAD_KIND_PAGE_EVENTS, days, results)
         return results
 
     def _get_track_events_cached(self, days: int) -> list[dict]:
@@ -1556,18 +1543,6 @@ class PendoClient:
             if self._track_events_cache and self._cache_valid(self._track_events_cache_ts):
                 if self._track_events_cache.get("days") == days:
                     return self._track_events_cache["results"]
-        from .pendo_preload_cache_drive import (
-            PRELOAD_KIND_TRACK_EVENTS,
-            save_pendo_preload_payload,
-            try_load_pendo_preload_payload,
-        )
-
-        blob = try_load_pendo_preload_payload(PRELOAD_KIND_TRACK_EVENTS, days)
-        if isinstance(blob, list):
-            with self._cache_lock:
-                self._track_events_cache = {"days": days, "results": blob}
-                self._track_events_cache_ts = time.time()
-            return blob
         # Only *get_customer_kei* uses this list — it keeps rows with "kei" in pageId. A full
         # subscription extract with ``events: None`` is enormous and slow; restrict to the
         # platform classes Kei can fire on (same spirit as get_track_events, but multi-surface).
@@ -1584,7 +1559,6 @@ class PendoClient:
         with self._cache_lock:
             self._track_events_cache = {"days": days, "results": results}
             self._track_events_cache_ts = time.time()
-        save_pendo_preload_payload(PRELOAD_KIND_TRACK_EVENTS, days, results)
         return results
 
     def _get_guide_events_cached(self, days: int) -> list[dict]:
@@ -1592,18 +1566,6 @@ class PendoClient:
             if self._guide_events_cache and self._cache_valid(self._guide_events_cache_ts):
                 if self._guide_events_cache.get("days") == days:
                     return self._guide_events_cache["results"]
-        from .pendo_preload_cache_drive import (
-            PRELOAD_KIND_GUIDE_EVENTS,
-            save_pendo_preload_payload,
-            try_load_pendo_preload_payload,
-        )
-
-        blob = try_load_pendo_preload_payload(PRELOAD_KIND_GUIDE_EVENTS, days)
-        if isinstance(blob, list):
-            with self._cache_lock:
-                self._guide_events_cache = {"days": days, "results": blob}
-                self._guide_events_cache_ts = time.time()
-            return blob
         ts = _time_series(days)
         raw = self.aggregate([
             {"source": {"guideEvents": None, "timeSeries": ts}},
@@ -1612,45 +1574,21 @@ class PendoClient:
         with self._cache_lock:
             self._guide_events_cache = {"days": days, "results": results}
             self._guide_events_cache_ts = time.time()
-        save_pendo_preload_payload(PRELOAD_KIND_GUIDE_EVENTS, days, results)
         return results
 
     def _get_page_catalog_cached(self) -> dict[str, str]:
         with self._cache_lock:
             if self._page_catalog_cache is not None and self._CACHE_TTL > 0:
                 return self._page_catalog_cache
-        from .pendo_preload_cache_drive import (
-            PRELOAD_KIND_PAGE_CATALOG,
-            save_pendo_preload_payload,
-            try_load_pendo_preload_payload,
-        )
-
-        blob = try_load_pendo_preload_payload(PRELOAD_KIND_PAGE_CATALOG, None)
-        if isinstance(blob, dict):
-            with self._cache_lock:
-                self._page_catalog_cache = blob
-            return blob
         result = self.get_page_catalog()
         with self._cache_lock:
             self._page_catalog_cache = result
-        save_pendo_preload_payload(PRELOAD_KIND_PAGE_CATALOG, None, result)
         return result
 
     def _get_guide_catalog_cached(self) -> dict[str, str]:
         with self._cache_lock:
             if self._guide_catalog_cache is not None and self._CACHE_TTL > 0:
                 return self._guide_catalog_cache
-        from .pendo_preload_cache_drive import (
-            PRELOAD_KIND_GUIDE_CATALOG,
-            save_pendo_preload_payload,
-            try_load_pendo_preload_payload,
-        )
-
-        blob = try_load_pendo_preload_payload(PRELOAD_KIND_GUIDE_CATALOG, None)
-        if isinstance(blob, dict):
-            with self._cache_lock:
-                self._guide_catalog_cache = blob
-            return blob
         try:
             resp = self._http_session().get(
                 f"{self.base_url}/guide",
@@ -1662,7 +1600,6 @@ class PendoClient:
             result = {}
         with self._cache_lock:
             self._guide_catalog_cache = result
-        save_pendo_preload_payload(PRELOAD_KIND_GUIDE_CATALOG, None, result)
         return result
 
     def _get_usage_by_site_cached(self, days: int) -> dict[str, Any]:
@@ -1670,24 +1607,11 @@ class PendoClient:
             if self._usage_by_site_cache and self._cache_valid(self._usage_by_site_cache_ts):
                 if self._usage_by_site_cache.get("days") == days:
                     return self._usage_by_site_cache
-        from .pendo_preload_cache_drive import (
-            PRELOAD_KIND_USAGE_BY_SITE,
-            save_pendo_preload_payload,
-            try_load_pendo_preload_payload,
-        )
-
-        blob = try_load_pendo_preload_payload(PRELOAD_KIND_USAGE_BY_SITE, days)
-        if isinstance(blob, dict) and blob.get("days") == days:
-            with self._cache_lock:
-                self._usage_by_site_cache = blob
-                self._usage_by_site_cache_ts = time.time()
-            return blob
         result = self.get_usage_by_site(days=days)
         result["days"] = days
         with self._cache_lock:
             self._usage_by_site_cache = result
             self._usage_by_site_cache_ts = time.time()
-        save_pendo_preload_payload(PRELOAD_KIND_USAGE_BY_SITE, days, result)
         return result
 
     def _get_usage_by_site_entity_cached(self, days: int) -> dict[str, Any]:
@@ -1995,20 +1919,20 @@ class PendoClient:
                     sources=("computed rate", "reported rate"),
                     severity="error")
 
-        # Customer should exist in cohorts.yaml
+        # Customer should exist in config/cohorts.yaml
         if cohort_info.get("cohort"):
             qa.check()
         elif cohort_info.get("exclude"):
             qa.check()
         else:
-            qa.flag(f"Customer '{customer_name}' not found in cohorts.yaml",
-                    sources=("Pendo customer list", "cohorts.yaml"),
+            qa.flag(f"Customer '{customer_name}' not found in config/cohorts.yaml",
+                    sources=("Pendo customer list", "config/cohorts.yaml"),
                     severity="warning")
 
         # Flag unverified cohort classifications
         if cohort_info.get("unverified"):
             qa.flag(f"Cohort classification unverified for '{customer_name}' ({cohort_info.get('cohort', '?')})",
-                    sources=("cohorts.yaml",),
+                    sources=("config/cohorts.yaml",),
                     severity="info")
 
         # Cohort median should exist if customer has a cohort with enough peers
@@ -2286,19 +2210,6 @@ class PendoClient:
                 if self._feat_events_cache.get("days") == days:
                     return self._feat_events_cache["results"]
 
-        from .pendo_preload_cache_drive import (
-            PRELOAD_KIND_FEATURE_EVENTS,
-            save_pendo_preload_payload,
-            try_load_pendo_preload_payload,
-        )
-
-        blob = try_load_pendo_preload_payload(PRELOAD_KIND_FEATURE_EVENTS, days)
-        if isinstance(blob, list):
-            with self._cache_lock:
-                self._feat_events_cache = {"days": days, "results": blob}
-                self._feat_events_cache_ts = time.time()
-            return blob
-
         ts = _time_series(days)
         raw = self.aggregate([
             {"source": {"featureEvents": None, "timeSeries": ts}},
@@ -2308,7 +2219,6 @@ class PendoClient:
         with self._cache_lock:
             self._feat_events_cache = {"days": days, "results": results}
             self._feat_events_cache_ts = time.time()
-        save_pendo_preload_payload(PRELOAD_KIND_FEATURE_EVENTS, days, results)
         return results
 
     def _visitor_info_map(self, visitors: list[dict]) -> dict[str, dict]:
@@ -2663,7 +2573,7 @@ class PendoClient:
         """Comprehensive health report combining all focused methods.
         Used by the monolith deck generator and as a convenience method.
 
-        When ``BPO_SIGNALS_LLM`` is enabled, optional ``signals_llm_manifest_rules`` (QBR Manifest
+        When ``CORTEX_SIGNALS_LLM`` is enabled, optional ``signals_llm_manifest_rules`` (QBR Manifest
         excerpt) and ``signals_llm_slide_prompt`` (Notable Signals slide YAML brief) are passed
         through to the signals LLM as editorial context (Phase 3).
         """
@@ -2752,6 +2662,19 @@ class PendoClient:
             qa.flag(f"CS Report data unavailable: {str(e)[:80]}",
                     sources=("CS Report / Data Exports",), severity="warning")
 
+        slack_data: dict[str, Any] = {}
+        try:
+            from .slack_client import get_customer_slack_conversations, slack_enabled_for_reports
+
+            if slack_enabled_for_reports():
+                slack_data = get_customer_slack_conversations(customer_name, days=min(int(days), 90))
+        except Exception as e:
+            qa.flag(
+                f"Slack data unavailable: {str(e)[:80]}",
+                sources=("Slack API",),
+                severity="warning",
+            )
+
         try:
             pendo_catalog_appendix = self.get_pendo_catalog_appendix_summary()
         except Exception as e:
@@ -2784,8 +2707,9 @@ class PendoClient:
                 "supply_chain": cs_supply_chain,
                 "platform_value": cs_platform_value,
             },
+            "slack": slack_data,
         }
-        if BPO_SIGNALS_TRENDS:
+        if CORTEX_SIGNALS_TRENDS:
             try:
                 from .signals_trends import build_signals_trend_context
 
@@ -2795,13 +2719,13 @@ class PendoClient:
                 logger.warning("signals_trends: build failed (%s)", e)
                 merged["signals_trend_context"] = None
         extend_health_report_signals(merged)
-        if BPO_SIGNALS_LLM:
+        if CORTEX_SIGNALS_LLM:
             if signals_llm_manifest_rules:
                 merged["_signals_llm_manifest_rules"] = signals_llm_manifest_rules.strip()
             if signals_llm_slide_prompt:
                 merged["_signals_llm_slide_prompt"] = signals_llm_slide_prompt.strip()
         maybe_rewrite_signals_with_llm(merged)
-        if BPO_SIGNALS_TRENDS:
+        if CORTEX_SIGNALS_TRENDS:
             try:
                 from .signals_trends import finalize_signals_trends_banner
 
@@ -2846,32 +2770,101 @@ class PendoClient:
             "exports": exports,
         }
 
-    def get_portfolio_report(self, days: int = 30, max_customers: int | None = None) -> dict[str, Any]:
+    def get_portfolio_report(
+        self,
+        days: int = 30,
+        max_customers: int | None = None,
+        *,
+        cohort_rollup_from_slide_yaml: bool = True,
+        portfolio_signals_max_lines: int = _MAX_PORTFOLIO_SIGNAL_LINES,
+        portfolio_signals_max_read_heavy: int = _MAX_READ_HEAVY_PORTFOLIO_SIGNALS,
+    ) -> dict[str, Any]:
         """Full portfolio report for the book-of-business deck.
-        Calls preload() then iterates all customers in parallel."""
+        Calls preload() then iterates all customers in parallel.
+
+        Set ``cohort_rollup_from_slide_yaml=False`` for callers that must not read slide definitions
+        from disk or Drive (cohort findings bullets use built-in defaults only).
+
+        ``portfolio_signals_max_lines`` / ``portfolio_signals_max_read_heavy`` tune
+        :meth:`_compute_portfolio_signals` (deck defaults: 20 lines, 4 read-heavy). LLM exports
+        raise these so ``portfolio_signals`` is not deck-limited.
+        """
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         self.preload(days)
         by_customer = self.get_sites_by_customer(days)
         raw_list = [c for c in by_customer["customer_list"] if c != "(unknown)"]
         skipped_ex = [c for c in raw_list if customer_is_excluded_from_portfolio(c)]
-        all_names = [c for c in raw_list if c not in skipped_ex]
-        if skipped_ex:
-            preview = ", ".join(skipped_ex[:25])
-            if len(skipped_ex) > 25:
-                preview += ", …"
-            logger.info(
-                "Portfolio: skipping %d customer(s) excluded from portfolio (cohorts.yaml exclude "
-                "or BPO_PORTFOLIO_EXCLUDE_CUSTOMERS): %s",
-                len(skipped_ex),
-                preview,
+        pendo_prefixes_for_resolve = frozenset(raw_list)
+
+        from .data_source_health import _salesforce_configured
+
+        def _effective_portfolio_customer_source() -> str:
+            src = (CORTEX_PORTFOLIO_CUSTOMER_SOURCE or "auto").strip().lower()
+            if src in ("", "auto"):
+                return "salesforce" if _salesforce_configured() else "pendo"
+            if src in ("salesforce", "pendo"):
+                return src
+            logger.warning(
+                "Invalid CORTEX_PORTFOLIO_CUSTOMER_SOURCE %r — using pendo",
+                CORTEX_PORTFOLIO_CUSTOMER_SOURCE,
             )
+            return "pendo"
+
+        cust_src = _effective_portfolio_customer_source()
+        if cust_src == "salesforce" and not _salesforce_configured():
+            logger.warning(
+                "Portfolio: Salesforce customer source requested but Salesforce is not configured — using pendo",
+            )
+            cust_src = "pendo"
+
+        portfolio_salesforce_allowlist_meta: dict[str, Any] = {}
+        if cust_src == "salesforce":
+            from .portfolio_salesforce_allowlist import salesforce_allowlist_pendo_keys
+            from .salesforce_client import SalesforceClient
+
+            logger.info(
+                "Portfolio: customer list from Salesforce Customer Entity rollup (matching Pendo prefixes)",
+            )
+            sf = SalesforceClient()
+            rows = sf.get_entity_accounts()
+            all_names, portfolio_salesforce_allowlist_meta = salesforce_allowlist_pendo_keys(
+                entity_accounts=rows,
+                pendo_prefixes=pendo_prefixes_for_resolve,
+                is_excluded=customer_is_excluded_from_portfolio,
+            )
+            n_skip_ex = len(portfolio_salesforce_allowlist_meta.get("salesforce_labels_excluded_after_resolve") or [])
+            if n_skip_ex:
+                preview = portfolio_salesforce_allowlist_meta["salesforce_labels_excluded_after_resolve"][:12]
+                logger.info(
+                    "Portfolio: %d Salesforce label(s) resolved to excluded Pendo prefix(es) (portfolio denylist): %s",
+                    n_skip_ex,
+                    preview,
+                )
+            if rows and not all_names:
+                logger.warning(
+                    "Portfolio: Salesforce returned %d Customer Entity row(s) but none resolved to a "
+                    "non-excluded Pendo customer prefix — summaries will be empty (see prior warnings).",
+                    len(rows),
+                )
+        else:
+            all_names = [c for c in raw_list if c not in skipped_ex]
+            if skipped_ex:
+                preview = ", ".join(skipped_ex[:25])
+                if len(skipped_ex) > 25:
+                    preview += ", …"
+                logger.info(
+                    "Portfolio: skipping %d customer(s) (config/pendo_orphans.yaml "
+                    "or CORTEX_PORTFOLIO_EXCLUDE_CUSTOMERS): %s",
+                    len(skipped_ex),
+                    preview,
+                )
         if max_customers:
             all_names = all_names[:max_customers]
 
         total = len(all_names)
         try:
-            _nw = int(os.environ.get("BPO_PORTFOLIO_PARALLEL_WORKERS", "8").strip())
+            _nw = int(os.environ.get("CORTEX_PORTFOLIO_PARALLEL_WORKERS", "8").strip())
             pool_workers = max(1, min(32, _nw))
         except ValueError:
             pool_workers = 8
@@ -2927,22 +2920,39 @@ class PendoClient:
             "Portfolio: computed %d customer summaries in %.1fs, building cohort rollup",
             len(customer_summaries), time.time() - t0,
         )
-        cohort_digest, cohort_findings_bullets = compute_cohort_portfolio_rollup(customer_summaries)
+        cohort_digest, cohort_findings_bullets = compute_cohort_portfolio_rollup(
+            customer_summaries,
+            use_cohort_findings_slide_yaml=cohort_rollup_from_slide_yaml,
+        )
 
-        return {
+        out: dict[str, Any] = {
             "type": "portfolio",
             "days": days,
             "generated": datetime.datetime.now().strftime("%Y-%m-%d"),
             "customer_count": len(customer_summaries),
             "customers": customer_summaries,
-            "portfolio_signals": self._compute_portfolio_signals(customer_summaries),
+            "portfolio_signals": self._compute_portfolio_signals(
+                customer_summaries,
+                max_lines=portfolio_signals_max_lines,
+                max_read_heavy=portfolio_signals_max_read_heavy,
+            ),
             "portfolio_trends": self._compute_portfolio_trends(customer_summaries),
             "portfolio_leaders": self._compute_portfolio_leaders(customer_summaries),
             "cohort_digest": cohort_digest,
             "cohort_findings_bullets": cohort_findings_bullets,
+            "portfolio_customer_source": cust_src,
         }
+        if portfolio_salesforce_allowlist_meta:
+            out["portfolio_salesforce_allowlist"] = portfolio_salesforce_allowlist_meta
+        return out
 
-    def _compute_portfolio_signals(self, summaries: list[dict]) -> list[dict[str, Any]]:
+    def _compute_portfolio_signals(
+        self,
+        summaries: list[dict],
+        *,
+        max_lines: int = _MAX_PORTFOLIO_SIGNAL_LINES,
+        max_read_heavy: int = _MAX_READ_HEAVY_PORTFOLIO_SIGNALS,
+    ) -> list[dict[str, Any]]:
         """Extract the most critical per-customer signals, ranked by severity."""
         # Avoid "only" — it matches "only 0.0% write" and makes read-heavy lines dominate severity.
         alarm_keywords = [
@@ -2965,7 +2975,10 @@ class PendoClient:
                         "score": s.get("score", 0),
                     })
         signals.sort(key=lambda x: (-x["severity"], x["score"]))
-        return _take_portfolio_signals_capping_read_heavy(signals)
+        signals = _dedupe_portfolio_signal_rows(signals)
+        return _take_portfolio_signals_capping_read_heavy(
+            signals, max_total=max_lines, max_read_heavy=max_read_heavy
+        )
 
     def _compute_portfolio_trends(self, summaries: list[dict]) -> dict[str, Any]:
         """Aggregate product-level trends across all customers."""

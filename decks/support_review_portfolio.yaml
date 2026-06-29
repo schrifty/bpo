@@ -1,15 +1,15 @@
 id: support_review_portfolio
-name: Support Review — Portfolio
+name: Support Review Portfolio
 audience: Support / Engineering Leadership
 
 purpose: |
   Installed-base (all-customers) support operations deck: same Jira-backed
   slide lineup as ``support`` when run with no customer — HELP / CUSTOMER /
-  LEAN volume, KPIs, org ranking on HELP, escalation metrics, customer
+  LEAN volume, KPIs, HELP factory-start day buckets (portfolio aggregate), HELP monthly operational table,
+  org ranking on HELP, escalation metrics, customer
   escalations, recent activity, and resolved-by-assignee tables.
   Use this deck id when you want an explicit portfolio artifact (title and
-  ``decks --list``) distinct from per-account ``support`` runs. Not added to
-  the QBR companion deck list unless product asks for it.
+  ``cortex --list``) distinct from per-account ``support`` runs.
 
 # Slide order matches ``decks/support.yaml`` (shared slide YAML ids).
 slides:
@@ -23,6 +23,10 @@ slides:
     title: "HELP Ticket Metrics"
   - slide: support_ticket_metrics_breakdown
     title: "HELP Ticket Metrics Breakdown"
+  - slide: support_help_factory_start_buckets
+    title: "Post-Implementation Ticket Volumes"
+  - slide: support_help_monthly_operational
+    title: "HELP — Monthly Ticket Operations"
   - slide: support_help_orgs_by_opened
     title: "HELP — Tickets Opened by Organization (90 Days)"
   - slide: support_help_escalation_metrics

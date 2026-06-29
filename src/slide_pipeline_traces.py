@@ -88,7 +88,7 @@ def health_snapshot_pipeline_traces(report: dict[str, Any]) -> list[dict[str, st
             "source": "Pendo",
             "query": (
                 f"Same % as row above; {abs(vs):.0f}pp {direction} {bench_label} "
-                f"(cohort from cohorts.yaml when n≥{min_peers}; slides/std-07-benchmarks.yaml rollup_params)"
+                f"(cohort from config/cohorts.yaml when n≥{min_peers}; slides/std-07-benchmarks.yaml rollup_params)"
             ),
         },
         {
@@ -98,8 +98,8 @@ def health_snapshot_pipeline_traces(report: dict[str, Any]) -> list[dict[str, st
         },
         {
             "description": labels.COHORT,
-            "source": "Pendo + cohorts.yaml",
-            "query": "Label from get_customer_cohort / cohorts.yaml (shows Unclassified when missing)",
+            "source": "Pendo + config/cohorts.yaml",
+            "query": "Label from get_customer_cohort / config/cohorts.yaml (shows Unclassified when missing)",
         },
     ]
     internal = int(acct.get("internal_visitors") or 0)
@@ -133,7 +133,7 @@ def peer_benchmarks_pipeline_traces(report: dict[str, Any]) -> list[dict[str, st
     )
     q_cohort_median = (
         "Median among accounts in the same manufacturing cohort "
-        f"(get_customer_cohort / cohorts.yaml); shown when cohort n≥{min_peers} "
+        f"(get_customer_cohort / config/cohorts.yaml); shown when cohort n≥{min_peers} "
         "(rollup_params on slides/std-07-benchmarks.yaml)"
     )
     q_delta = "Customer weekly active rate minus comparison median (percentage points vs peer/cohort on slide)"
@@ -315,7 +315,7 @@ def cohort_summary_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str
     med_kei = metrics["med_kei"]
     return [
         {"description": labels.TOTAL_CUSTOMERS, "source": "Pendo", "query": f"On-slide value {metrics['total_customers']} — customer_count in portfolio report (cohort_digest scope)"},
-        {"description": labels.COHORTS, "source": "Pendo", "query": f"On-slide value {metrics['num_cohorts']} — cohort buckets with ≥1 customer (get_customer_cohort / cohorts.yaml)"},
+        {"description": labels.COHORTS, "source": "Pendo", "query": f"On-slide value {metrics['num_cohorts']} — cohort buckets with ≥1 customer (get_customer_cohort / config/cohorts.yaml)"},
         {
             "description": labels.TOTAL_ARR,
             "source": "Salesforce",
@@ -373,7 +373,7 @@ def cohort_profile_pipeline_rows_for_block(
     median_exports_os = "On-slide —" if median_exports is None else f"On-slide {median_exports:.0f}"
 
     rows = [
-        {"description": f"Cohort profile: {name} ({n} customers)", "source": "Pendo", "query": f"Bucket {cohort_label!r} in cohort_digest — get_customer_cohort / cohorts.yaml; portfolio rollup customer summaries"},
+        {"description": f"Cohort profile: {name} ({n} customers)", "source": "Pendo", "query": f"Bucket {cohort_label!r} in cohort_digest — get_customer_cohort / config/cohorts.yaml; portfolio rollup customer summaries"},
         {"description": labels.ACTIVE_USERS_7D, "source": "Pendo", "query": f"On-slide cohort total {total_active:,} — cohort_digest.total_active_users ({name})"},
         {"description": labels.TOTAL_USERS, "source": "Pendo", "query": f"On-slide cohort total {total_users:,} — cohort_digest.total_users ({name})"},
         {"description": labels.WEEKLY_ACTIVE_MEDIAN, "source": "Pendo", "query": f"{median_login_os} — median of engagement.active_rate_7d across customers in this cohort ({name})"},
@@ -453,19 +453,146 @@ def cohort_findings_pipeline_traces(report: dict[str, Any]) -> list[dict[str, st
     }]
 
 
+def help_factory_start_buckets_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Speaker-note rows for HELP factory-start day bucket slide (five summed windows)."""
+    blob = (report.get("jira") or {}).get("help_factory_start_day_buckets") or {}
+    rows: list[dict[str, str]] = []
+    for item in blob.get("jql_queries") or []:
+        if not isinstance(item, dict):
+            continue
+        desc = str(item.get("description") or "").strip()
+        jql = str(item.get("jql") or "").strip()
+        raw_tot = item.get("total")
+        try:
+            tot_s = f"{int(raw_tot):,} tickets"
+        except (TypeError, ValueError):
+            tot_s = "unknown tickets"
+        qtext = f"{jql} ({tot_s})" if jql else f"({tot_s})"
+        rows.append({"description": desc, "source": "Jira", "query": qtext})
+    return rows
+
+
+def help_monthly_operational_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Speaker-note rows for HELP monthly operational table (representative JQL samples)."""
+    blob = (report.get("jira") or {}).get("help_monthly_operational_metrics") or {}
+    rows: list[dict[str, str]] = []
+    for item in blob.get("jql_queries") or []:
+        if not isinstance(item, dict):
+            continue
+        desc = str(item.get("description") or "").strip()
+        jql = str(item.get("jql") or "").strip()
+        if jql:
+            rows.append({"description": desc or "Jira", "source": "Jira", "query": jql})
+    return rows
+
+
 def cs_notable_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
     source = (report.get("support_notable_bullets_source") or "").strip() or "static"
     return [{
         "description": "Notable (CS) bullets",
         "source": "LLM" if source == "llm" else "static / YAML (digest + optional LLM in support deck run)",
-        "query": f"source={source}; Jira + engagement digest; see BPO logs for this run",
+        "query": f"source={source}; Jira + engagement digest; see Cortex logs for this run",
     }]
+
+
+def data_quality_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Deck-scoped provenance for the Data Governance slide (not whole-report JQL dump)."""
+    gov = report.get("_governance") or {}
+    if not isinstance(gov, dict):
+        return []
+    rows: list[dict[str, str]] = []
+    deck_id = str(gov.get("deck_id") or report.get("_deck_id") or "").strip()
+    if deck_id:
+        rows.append({
+            "description": "Deck",
+            "source": "Cortex",
+            "query": f"deck_id={deck_id}",
+        })
+    if gov.get("assembled_at"):
+        rows.append({
+            "description": "Governance assembled",
+            "source": "Cortex",
+            "query": str(gov["assembled_at"]),
+        })
+    for line in (gov.get("scope") or [])[:4]:
+        rows.append({"description": "Scope", "source": "Cortex", "query": str(line)})
+    for line in (gov.get("freshness") or [])[:3]:
+        rows.append({"description": "Freshness", "source": "Cortex", "query": str(line)})
+    for item in (gov.get("lineage") or [])[:8]:
+        if isinstance(item, dict):
+            rows.append({
+                "description": str(item.get("description") or "Lineage"),
+                "source": str(item.get("source") or "Report"),
+                "query": str(item.get("query") or ""),
+            })
+    rows.append({
+        "description": "Full provenance",
+        "source": "Slide",
+        "query": "See Data Governance slide sections (scope, freshness, lineage, discrepancies)",
+    })
+    return rows
+
+
+def github_delivery_flow_pipeline_traces(report: dict[str, Any]) -> list[dict[str, str]]:
+    """Speaker-note rows for GitHub Delivery Flow."""
+    gp = report.get("github_productivity") or {}
+    if not gp.get("configured"):
+        return []
+
+    from .github_productivity_report import compute_github_delivery_insights
+
+    ce = gp.get("company_engineers") or {}
+    org = gp.get("company_all") or {}
+    days = int(gp.get("window_days") or 30)
+    insights = gp.get("delivery_insights") or compute_github_delivery_insights(gp)
+    median = ce.get("median_pr_cycle_hours")
+
+    rows = [
+        {
+            "description": "Open PRs (org-wide queue)",
+            "source": "GitHub REST",
+            "query": f"{int(org.get('open_prs') or 0)} open pull requests across tracked repos (snapshot at report time)",
+        },
+        {
+            "description": f"Merged PRs ({days}d, dev-* engineers)",
+            "source": "GitHub REST",
+            "query": (
+                f"{int(ce.get('merged_prs') or 0)} merged PRs attributed to dev-* roster via login/email mapping "
+                f"since {gp.get('since') or f'last {days} days'}"
+            ),
+        },
+        {
+            "description": "Median PR cycle",
+            "source": "GitHub REST",
+            "query": (
+                f"Median hours from PR open to merge for dev-* engineers: {median if median is not None else 'n/a'}"
+            ),
+        },
+        {
+            "description": f"Releases ({days}d)",
+            "source": "GitHub REST",
+            "query": f"{int(org.get('releases') or 0)} published releases in window across tracked repos",
+        },
+        {
+            "description": "Weekly throughput chart",
+            "source": "GitHub REST",
+            "query": "ISO-week buckets of engineer-scoped commits (bars) vs merged PRs (line) from github_productivity.weekly",
+        },
+        {
+            "description": "Executive read",
+            "source": "Cortex",
+            "query": insights.get("speaker_guidance") or insights.get("takeaway") or "",
+        },
+    ]
+    return rows
 
 
 CANONICAL_PIPELINE_TRACES: dict[str, Any] = {
     "health": health_snapshot_pipeline_traces,
     "benchmarks": peer_benchmarks_pipeline_traces,
     "platform_value": platform_value_pipeline_traces,
+    "support_help_factory_start_buckets": help_factory_start_buckets_pipeline_traces,
+    "support_help_monthly_operational": help_monthly_operational_pipeline_traces,
     "support_health_exec": support_health_exec_pipeline_traces,
     "salesforce_pipeline": salesforce_pipeline_traces,
     "platform_risk": platform_risk_pipeline_traces,
@@ -473,6 +600,8 @@ CANONICAL_PIPELINE_TRACES: dict[str, Any] = {
     "cohort_profiles": cohort_profiles_pipeline_traces,
     "cohort_findings": cohort_findings_pipeline_traces,
     "cs_notable": cs_notable_pipeline_traces,
+    "data_quality": data_quality_pipeline_traces,
+    "github_delivery_flow": github_delivery_flow_pipeline_traces,
 }
 
 

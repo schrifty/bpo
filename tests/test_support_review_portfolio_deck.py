@@ -2,7 +2,7 @@
 
 from src.deck_loader import load_deck, resolve_deck
 from src.slide_support_intro import support_deck_cover_slide
-from src.slides_theme import NAVY
+from src.slides_theme import NAVY, WHITE
 
 
 def test_support_review_portfolio_deck_yaml_loads():
@@ -18,21 +18,17 @@ def test_support_review_portfolio_resolves_all_customers_slides():
     slides = r.get("slides") or []
     ids = [s.get("slide_type") or s.get("id") for s in slides]
     assert "support_deck_cover" in ids
+    assert "support_help_factory_start_buckets" in ids
+    assert "support_help_monthly_operational" in ids
     assert "support_help_orgs_by_opened" in ids
     assert "data_quality" in ids
     assert len(slides) >= 10
+    fi = ids.index("support_help_factory_start_buckets")
+    mi = ids.index("support_help_monthly_operational")
+    assert mi == fi + 1
 
 
-def test_support_deck_cover_uses_shared_hero_background():
-    """support_deck_cover always uses the navy hero (support, portfolio, supply-chain)."""
-    reqs: list = []
-    report = {
-        "customer": "Acme Corp",
-        "support_deck_generated_at": "2026-04-29T12:00:00Z",
-        "days": 30,
-        "_current_slide": {"id": "support_deck_cover", "title": "Support Review"},
-    }
-    support_deck_cover_slide(reqs, "s_cover_1", report, 1)
+def _cover_bg_rgb(reqs: list) -> dict:
     bg_reqs = [
         r
         for r in reqs
@@ -44,5 +40,21 @@ def test_support_deck_cover_uses_shared_hero_background():
         .get("rgbColor")
     ]
     assert bg_reqs, "expected updatePageProperties with solidFill background"
-    rgb = bg_reqs[0]["updatePageProperties"]["pageProperties"]["pageBackgroundFill"]["solidFill"]["color"]["rgbColor"]
-    assert rgb == NAVY
+    return bg_reqs[0]["updatePageProperties"]["pageProperties"]["pageBackgroundFill"]["solidFill"]["color"]["rgbColor"]
+
+
+def test_support_deck_cover_uses_shared_hero_background():
+    """support_deck_cover uses navy hero for support/portfolio decks; white for support-kpis."""
+    base = {
+        "customer": "Acme Corp",
+        "support_deck_generated_at": "2026-04-29T12:00:00Z",
+        "days": 30,
+        "_current_slide": {"id": "support_deck_cover", "title": "Support Review"},
+    }
+    reqs: list = []
+    support_deck_cover_slide(reqs, "s_cover_1", dict(base), 1)
+    assert _cover_bg_rgb(reqs) == NAVY
+
+    reqs_kpi: list = []
+    support_deck_cover_slide(reqs_kpi, "s_cover_2", {**base, "type": "support_kpis"}, 1)
+    assert _cover_bg_rgb(reqs_kpi) == WHITE

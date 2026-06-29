@@ -1,0 +1,12 @@
+id: support_kpis_sla
+type: standard
+order: 14
+title: SLA
+slide_type: support_kpis_sla
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  First-response and resolution SLA adherence % on resolved HELP tickets for 30 days,
+  90 days, and 1 year (three rows, two metrics each).

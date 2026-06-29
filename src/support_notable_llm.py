@@ -26,18 +26,18 @@ class NotableLlmError(RuntimeError):
 
 
 def _flag_use_llm() -> bool:
-    v = (os.environ.get("BPO_SUPPORT_NOTABLE_LLM", "true") or "").strip().lower()
+    v = (os.environ.get("CORTEX_SUPPORT_NOTABLE_LLM", "true") or "").strip().lower()
     return v not in ("0", "false", "no", "off")
 
 
 def _flag_escalation_nature_llm() -> bool:
-    v = (os.environ.get("BPO_SUPPORT_ESCALATION_NATURE_LLM", "true") or "").strip().lower()
+    v = (os.environ.get("CORTEX_SUPPORT_ESCALATION_NATURE_LLM", "true") or "").strip().lower()
     return v not in ("0", "false", "no", "off")
 
 
 def _allow_notable_llm_fallback() -> bool:
     """If false (default), any LLM/parsing failure for Notable raises; no generic bullets."""
-    v = (os.environ.get("BPO_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK", "") or "").strip().lower()
+    v = (os.environ.get("CORTEX_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK", "") or "").strip().lower()
     return v in ("1", "true", "yes", "on", "allow")
 
 
@@ -238,8 +238,8 @@ def generate_help_escalation_nature_quote_llm(report: dict[str, Any]) -> str | N
     """Multi-paragraph analysis for the Escalation metrics slide: themes, KPIs, and ticket evidence.
 
     Uses ``jira.help_escalation_metrics.llm_ticket_context`` (full field samples) and respects
-    ``BPO_SUPPORT_ESCALATION_NATURE_LLM`` (off → None). Reuses the same master LLM switch as Notable
-    (``BPO_SUPPORT_NOTABLE_LLM``) so support runs can disable all LLM in one place.
+    ``CORTEX_SUPPORT_ESCALATION_NATURE_LLM`` (off → None). Reuses the same master LLM switch as Notable
+    (``CORTEX_SUPPORT_NOTABLE_LLM``) so support runs can disable all LLM in one place.
     """
     if not _flag_use_llm() or not _flag_escalation_nature_llm():
         return None
@@ -282,7 +282,7 @@ def generate_help_escalation_nature_quote_llm(report: dict[str, Any]) -> str | N
     try:
         client = llm_client()
     except RuntimeError as e:
-        logger.info("Escalation nature quote: no LLM client (%s)", e)
+        logger.debug("Escalation nature quote: no LLM client (%s)", e)
         return None
 
     sys = (
@@ -315,7 +315,7 @@ def generate_help_escalation_nature_quote_llm(report: dict[str, Any]) -> str | N
         )
         ch = (resp.choices[0].message.content or "").strip() if resp and resp.choices else ""
     except Exception as e:
-        logger.info("Escalation nature quote: LLM failed: %s", e)
+        logger.debug("Escalation nature quote: LLM failed: %s", e)
         return None
     if not ch:
         return None
@@ -428,7 +428,7 @@ def _salvage_bullet_strings_from_partial_json(s: str) -> list[str] | None:
             out.append(str(val).strip())
         i = j
     if out:
-        logger.info("Notable: recovered %d complete bullet(s) from partial/truncated JSON", len(out))
+        logger.debug("Notable: recovered %d complete bullet(s) from partial/truncated JSON", len(out))
     return out if out else None
 
 
@@ -671,7 +671,7 @@ def _top_up_notable_bullets(
                 raise
         ch = (resp.choices[0].message.content or "").strip() if resp and resp.choices else ""
     except Exception as e:
-        logger.info("Notable top-up: LLM call failed: %s", e)
+        logger.debug("Notable top-up: LLM call failed: %s", e)
         return []
     if not ch:
         return []
@@ -680,10 +680,10 @@ def _top_up_notable_bullets(
     try:
         got = _parse_notable_bullets_json(nch) or _parse_bullets_from_markdown_lines(_normalize_llm_json_string(ch)) or []
     except Exception as ex:
-        logger.info("Notable: could not parse top-up response: %s", ex)
+        logger.debug("Notable: could not parse top-up response: %s", ex)
         got = []
     if got:
-        logger.info("Notable: top-up LLM returned %d new bullet(s)", len(got))
+        logger.debug("Notable: top-up LLM returned %d new bullet(s)", len(got))
     return [str(b).strip() for b in got if str(b).strip()][:n_more]
 
 
@@ -744,7 +744,7 @@ def generate_notable_bullets_via_llm(
     except RuntimeError as e:
         if not allow_fb:
             raise NotableLlmError(
-                f"No LLM client: {e}. Set API keys, or BPO_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true to use static bullets."
+                f"No LLM client: {e}. Set API keys, or CORTEX_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true to use static bullets."
             ) from e
         logger.warning("Notable: LLM disabled (%s) — using YAML / default bullets", e)
         return _fallback_items(entry), "yaml_fallback"
@@ -810,7 +810,7 @@ def generate_notable_bullets_via_llm(
                 or "json_object" in emsg
                 or ("unknown" in emsg and "param" in emsg)
             ):
-                logger.info("Notable: retrying without response_format: %s", str(e)[:200])
+                logger.debug("Notable: retrying without response_format: %s", str(e)[:200])
                 resp = _llm_create_with_retry(client, **kws)
             else:
                 raise
@@ -825,7 +825,7 @@ def generate_notable_bullets_via_llm(
             loose = _parse_bullets_from_markdown_lines(_normalize_llm_json_string(ch))
             if loose:
                 out = loose
-                logger.info("Notable: used markdown/loose line parse after JSON miss (%d line(s))", len(out))
+                logger.debug("Notable: used markdown/loose line parse after JSON miss (%d line(s))", len(out))
         if not out:
             logger.warning("Notable: could not parse LLM response. Raw length=%d, first 1000 chars: %s", len(ch), ch[:1000])
             raise ValueError("Notable: could not parse bullets from LLM response")
@@ -839,7 +839,7 @@ def generate_notable_bullets_via_llm(
             logger.error("Notable: LLM parse failed (strict; not using fallback). %s: %s", type(e).__name__, e)
             raise NotableLlmError(
                 f"Notable: LLM did not return parseable JSON bullets ({type(e).__name__}: {e}). "
-                f"Set BPO_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true to use static bullets, or fix the prompt/parse path."
+                f"Set CORTEX_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true to use static bullets, or fix the prompt/parse path."
             ) from e
         logger.warning("Notable: LLM parse/complete failed — using YAML / defaults. %s: %s", type(e).__name__, e)
         return _fallback_items(entry), "yaml_fallback"
@@ -850,7 +850,324 @@ def generate_notable_bullets_via_llm(
             logger.error("Notable: LLM failed (strict; not using fallback).", exc_info=True)
             raise NotableLlmError(
                 f"Notable: LLM request failed: {e}. "
-                "Set BPO_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true for legacy soft fallback, or fix the error."
+                "Set CORTEX_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true for legacy soft fallback, or fix the error."
             ) from e
         logger.warning("Notable: LLM generation failed — using YAML / defaults. Error: %s", e, exc_info=True)
         return _fallback_items(entry), "yaml_fallback"
+
+
+SUPPORT_KPIS_NOTABLE_BULLET_COUNT = 5
+
+
+def _trim_support_kpis_payload(kpis: dict[str, Any]) -> dict[str, Any]:
+    """Support-kpis Jira bundle for LLM digest (omit JQL noise; cap long weekly series)."""
+    if not isinstance(kpis, dict):
+        return {}
+    out = {k: v for k, v in kpis.items() if k != "jql_queries"}
+    ef = out.get("escalation_flow")
+    if isinstance(ef, dict):
+        trimmed_ef: dict[str, Any] = {}
+        for proj, pdata in ef.items():
+            if not isinstance(pdata, dict):
+                trimmed_ef[proj] = pdata
+                continue
+            t = dict(pdata)
+            fw = list(t.get("flow_weekly") or [])
+            if len(fw) > 13:
+                t["flow_weekly"] = fw[-13:]
+            trimmed_ef[proj] = t
+        out["escalation_flow"] = trimmed_ef
+    ch = out.get("customer_health")
+    if isinstance(ch, list) and len(ch) > 15:
+        out["customer_health"] = ch[:15]
+    rbt = out.get("resolution_by_type")
+    if isinstance(rbt, list) and len(rbt) > 12:
+        out["resolution_by_type"] = rbt[:12]
+    return out
+
+
+def build_support_kpis_digest(
+    report: dict[str, Any],
+    *,
+    slide_titles: list[str],
+) -> dict[str, Any]:
+    """Structured summary of the HELP KPI bundle used by the support-kpis deck."""
+    from .slides_theme import _date_range
+
+    j = report.get("jira") or {}
+    kpis = j.get("support_kpis")
+    customer = report.get("customer")
+    c_disp = customer if customer else "All Customers"
+    scope_label = (
+        f"for {customer} (HELP JSM Organizations)" if customer else "across all HELP customers (portfolio scope)"
+    )
+    window_days = int(report.get("days") or 180)
+    if isinstance(kpis, dict) and kpis.get("window_days") is not None:
+        window_days = int(kpis.get("window_days") or window_days)
+
+    r: dict[str, Any] = {
+        "deck_type": "support-kpis",
+        "customer_name": c_disp,
+        "data_scope": (
+            f"All metrics below are HELP project operational KPIs {scope_label}. "
+            "Escalation LEAN = Engineering; CUSTOMER = Data Integration (jira_escalated)."
+        ),
+        "window_days": window_days,
+        "date_range": _date_range(
+            window_days, report.get("quarter"), report.get("quarter_start"), report.get("quarter_end")
+        ),
+        "deck_slides_built": slide_titles,
+    }
+    if isinstance(kpis, dict) and kpis.get("error"):
+        r["support_kpis"] = {"error": kpis.get("error"), "customer": kpis.get("customer")}
+    elif isinstance(kpis, dict):
+        r["support_kpis"] = _trim_support_kpis_payload(kpis)
+    else:
+        r["support_kpis"] = {"error": "support_kpis enrichment missing from report"}
+
+    payload = json.dumps(r, indent=0, default=str, ensure_ascii=False)
+    if len(payload) > _MAX_DIGEST_JSON_CHARS:
+        sk = r.get("support_kpis")
+        if isinstance(sk, dict):
+            for drop in ("intake_breakdown", "csat"):
+                sk.pop(drop, None)
+            payload = json.dumps(r, indent=0, default=str, ensure_ascii=False)
+        if len(payload) > _MAX_DIGEST_JSON_CHARS and isinstance(sk, dict):
+            sk.pop("escalation_flow", None)
+            payload = json.dumps(r, indent=0, default=str, ensure_ascii=False)
+    return r
+
+
+def _fallback_support_kpis_items(entry: dict[str, Any]) -> list[str]:
+    ni = entry.get("notable_items")
+    if ni and isinstance(ni, (list, tuple)):
+        return [str(x).strip() for x in ni if str(x).strip()][:SUPPORT_KPIS_NOTABLE_BULLET_COUNT]
+    return [
+        "INTAKE: Review weekly ticket creation in the analysis window — spikes may signal product friction or onboarding gaps.",
+        "BACKLOG: Inspect age buckets and whether tickets sit with support, waiting on customer, or engineering.",
+        "SLA: Check TTFR/TTR adherence across 30d, 90d, and 1y windows; persistent misses need leadership review.",
+        "ESCALATIONS: LEAN (Engineering) vs CUSTOMER (Data Integration) jira_escalated flow and open escalation backlog.",
+        "AGING: Tickets beyond first-response or resolution service thresholds — assign and unblock proactively.",
+    ]
+
+
+def _heuristic_support_kpis_bullets(
+    digest: dict[str, Any],
+    existing: list[str],
+    need: int,
+) -> list[str]:
+    if need <= 0:
+        return []
+    sk = digest.get("support_kpis")
+    if not isinstance(sk, dict) or sk.get("error"):
+        return []
+    cname = str(digest.get("customer_name") or "HELP")
+    ex_low: set[str] = {re.sub(r"\s+", " ", (e or "").lower())[:60] for e in existing if e}
+
+    def _take(text: str) -> bool:
+        t = re.sub(r"\s+", " ", (text or "").lower())[:60]
+        if t in ex_low or not text.strip():
+            return False
+        ex_low.add(t)
+        return True
+
+    cands: list[str] = []
+    oc = sk.get("open_count")
+    if isinstance(oc, int):
+        cands.append(f"BACKLOG: {cname} has {oc} open HELP ticket(s) in the digest snapshot.")
+    buckets = sk.get("backlog_age_buckets")
+    if isinstance(buckets, dict) and buckets:
+        parts = [f"{k}: {v}" for k, v in buckets.items()]
+        cands.append(f"BACKLOG: Open tickets by age bucket — {', '.join(parts)}.")
+    sla_w = sk.get("sla_by_window")
+    if isinstance(sla_w, dict):
+        for days, lab in (("30", "30-day"), ("90", "90-day"), ("365", "1-year")):
+            row = sla_w.get(days)
+            if not isinstance(row, dict):
+                continue
+            ttfr = row.get("ttfr") if isinstance(row.get("ttfr"), dict) else {}
+            pct = ttfr.get("pct")
+            if isinstance(pct, (int, float)):
+                cands.append(
+                    f"SLA: {lab} window TTFR adherence about {float(pct):.0f}% "
+                    f"({ttfr.get('met', '?')}/{ttfr.get('measured', '?')} measured)."
+                )
+                break
+    tail = sk.get("tail_risk")
+    if isinstance(tail, list) and tail:
+        top = tail[0]
+        if isinstance(top, dict):
+            age = top.get("age_days")
+            org = top.get("organization") or "—"
+            cands.append(f"TAIL RISK: Oldest open ticket sample is {age} days for {org} (digest).")
+    aging = sk.get("aging_beyond_thresholds")
+    if isinstance(aging, dict) and aging.get("count"):
+        cands.append(
+            f"AGING: {int(aging.get('count') or 0)} open ticket(s) exceed TTFR/TTR service thresholds (digest)."
+        )
+    for proj, label in (("LEAN", "Engineering"), ("CUSTOMER", "Data Integration")):
+        eb = sk.get(f"escalation_backlog_{'engineering' if proj == 'LEAN' else 'data_integration'}")
+        if isinstance(eb, dict) and eb.get("open_count") is not None:
+            cands.append(
+                f"ESCALATIONS: {label} ({proj}) jira_escalated open backlog count {int(eb.get('open_count') or 0)}."
+            )
+
+    out: list[str] = []
+    for t in cands:
+        if len(out) >= need:
+            break
+        t = t.strip()
+        if _take(t):
+            out.append(t)
+    return out
+
+
+def _pad_support_kpis_notable_bullets(
+    out: list[str],
+    digest: dict[str, Any],
+    entry: dict[str, Any],
+) -> list[str]:
+    target = SUPPORT_KPIS_NOTABLE_BULLET_COUNT
+    if len(out) >= target:
+        return out[:target]
+    short = target - len(out)
+    client: Any = None
+    if short > 0:
+        try:
+            client = llm_client()
+        except Exception:
+            client = None
+    if client and short > 0:
+        extra = _top_up_notable_bullets(client, digest, out, short)
+        for e in extra:
+            if e and e not in out:
+                out.append(e)
+        out = _dedupe_preserve(out, target)[:target]
+    short = target - len(out)
+    if short > 0:
+        for h in _heuristic_support_kpis_bullets(digest, out, short):
+            if h and h not in out:
+                out.append(h)
+        out = _dedupe_preserve(out, target)[:target]
+    if len(out) < target:
+        for x in _fallback_support_kpis_items(entry or {}):
+            if len(out) >= target:
+                break
+            if x and x not in out:
+                out.append(x)
+    if len(out) < target:
+        for x in _fallback_support_kpis_items({}):
+            if len(out) >= target:
+                break
+            if x and x not in out:
+                out.append(x)
+    return out[:target]
+
+
+def generate_support_kpis_notable_bullets_via_llm(
+    digest: dict[str, Any],
+    entry: dict[str, Any],
+) -> tuple[list[str], str]:
+    """Return (bullets, source) for the support-kpis Notable Findings slide (five bullets)."""
+    if not _flag_use_llm():
+        return _fallback_support_kpis_items(entry), "env_off"
+    allow_fb = _allow_notable_llm_fallback()
+    try:
+        client = llm_client()
+    except RuntimeError as e:
+        if not allow_fb:
+            raise NotableLlmError(
+                f"No LLM client: {e}. Set API keys, or CORTEX_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true to use static bullets."
+            ) from e
+        logger.warning("Support KPIs Notable: LLM disabled (%s) — using YAML / default bullets", e)
+        return _fallback_support_kpis_items(entry), "yaml_fallback"
+
+    n = SUPPORT_KPIS_NOTABLE_BULLET_COUNT
+    payload = json.dumps(digest, indent=0, default=str, ensure_ascii=False)[:_MAX_DIGEST_JSON_CHARS]
+    customer_name = digest.get("customer_name", "HELP portfolio")
+    sys = (
+        "You are a support operations analyst preparing executive findings for Support and Engineering leadership. "
+        "Extract specific, actionable insights from HELP Jira KPI data — not generic advice. "
+        "Cite actual numbers from the digest. Be conservative with trend language (two periods is not a trend)."
+    )
+    user = (
+        f"Analyze this HELP operational KPI data for **{customer_name}** and produce exactly {n} findings.\n\n"
+        f"DATA:\n{payload}\n\n"
+        "Each finding should map to one category (use at least 6 different categories across all bullets):\n"
+        "• INTAKE: Ticket creation volume and breakdown (priority, type, customer/org).\n"
+        "• FLOW: Created vs resolved weekly flow in the analysis window.\n"
+        "• BACKLOG: Open count, age buckets, and with-support / waiting-on-customer / engineering split.\n"
+        "• TAIL RISK: Oldest open tickets and stagnant high-age work.\n"
+        "• SLA: TTFR/TTR adherence across 30d, 90d, and 1y windows.\n"
+        "• TTFR: Time-to-first-response stats for resolved tickets.\n"
+        "• RESOLUTION: Median/p90 resolution time by issue type.\n"
+        "• ESCALATIONS: LEAN (Engineering) vs CUSTOMER (Data Integration) escalation flow and open backlog.\n"
+        "• CUSTOMER HEALTH: Orgs with 3+ open tickets or any ticket 30+ days open.\n"
+        "• AGING: Tickets beyond first-response or resolution service thresholds.\n\n"
+        "RULES:\n"
+        f"- Attribute metrics to {customer_name} or state portfolio scope when customer is 'All Customers'.\n"
+        "- Each bullet: 1-2 sentences, max 300 chars. Start with category in CAPS.\n"
+        "- Do not invent data. Use only the digest.\n"
+        "- Same trend caution as support review: no 'trend' language for only two time buckets.\n"
+        "- In JSON, never use unescaped double quotes inside a bullet.\n\n"
+        "OUTPUT: JSON only:\n"
+        "```json\n"
+        f'{{ "bullets": [ {n} strings ] }}\n'
+        "```"
+    )
+
+    try:
+        model = LLM_MODEL_FAST
+        if len(payload) > 8_000:
+            model = LLM_MODEL
+        kws: dict[str, Any] = {
+            "model": model,
+            "messages": [{"role": "system", "content": sys}, {"role": "user", "content": user}],
+            "max_tokens": 4_500,
+            "temperature": 0.3,
+        }
+        try:
+            resp = _llm_create_with_retry(
+                client, **{**kws, "response_format": {"type": "json_object"}},
+            )
+        except Exception as e:
+            emsg = f"{e!s}".lower()
+            if (
+                ("response" in emsg and "format" in emsg)
+                or "json_object" in emsg
+                or ("unknown" in emsg and "param" in emsg)
+            ):
+                logger.debug("Support KPIs Notable: retrying without response_format: %s", str(e)[:200])
+                resp = _llm_create_with_retry(client, **kws)
+            else:
+                raise
+        ch = (resp.choices[0].message.content or "").strip() if resp and resp.choices else ""
+        if not ch:
+            raise ValueError("empty LLM content")
+        out: list[str] | None = _parse_notable_bullets_json(ch)
+        if not out:
+            loose = _parse_bullets_from_markdown_lines(_normalize_llm_json_string(ch))
+            if loose:
+                out = loose
+        if not out:
+            raise ValueError("could not parse bullets from LLM response")
+        out = [str(b).strip() for b in out if str(b).strip()][:n]
+        if not out:
+            raise ValueError("no bullet strings after parse")
+        out = _pad_support_kpis_notable_bullets(out, digest, entry)
+        return out, "llm"
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+        if not allow_fb:
+            raise NotableLlmError(
+                f"Support KPIs Notable: LLM did not return parseable JSON bullets ({type(e).__name__}: {e}). "
+                "Set CORTEX_SUPPORT_NOTABLE_LLM_ALLOW_FALLBACK=true for static bullets."
+            ) from e
+        logger.warning("Support KPIs Notable: parse failed — using defaults. %s", e)
+        return _fallback_support_kpis_items(entry), "yaml_fallback"
+    except NotableLlmError:
+        raise
+    except Exception as e:
+        if not allow_fb:
+            raise NotableLlmError(f"Support KPIs Notable: LLM request failed: {e}") from e
+        logger.warning("Support KPIs Notable: LLM failed — using defaults. %s", e, exc_info=True)
+        return _fallback_support_kpis_items(entry), "yaml_fallback"

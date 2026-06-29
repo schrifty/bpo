@@ -1,0 +1,13 @@
+# GitHub ↔ corporate email aliases for productivity joins.
+# Schema:
+#   emails: { "<raw commit email>": "<canonical@leandna.com>" }
+#   logins: { "<github_login>": "<canonical@leandna.com>" }
+#
+# Example:
+# emails:
+#   schrifty@gmail.com: marc.schriftman@leandna.com
+# logins:
+#   marc-schriftman_leandna: marc.schriftman@leandna.com
+
+emails: {}
+logins: {}

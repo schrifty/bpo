@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 from typing import Any
 
 from .slide_primitives import (
@@ -66,7 +67,7 @@ def portfolio_revenue_book_slide(reqs: list[dict[str, Any]], sid: str, report: d
             f"Matched to ≥1 SF entity: {sm:,}  ·  Unmatched: {su:,}"
         )
     lines.append("")
-    lines.append(f"Contract ARR on matched Entity rows: {_fmt_portfolio_usd(book.get('total_arr'))}")
+    lines.append(f"Contract ARR (Salesforce reporting groups): {_fmt_portfolio_usd(book.get('total_arr'))}")
     lines.append(
         f"  → On active-status contracts: {_fmt_portfolio_usd(book.get('active_installed_base_arr'))} "
         f"({int(book.get('active_customer_count') or 0):,} customers)"
@@ -96,10 +97,6 @@ def portfolio_revenue_book_slide(reqs: list[dict[str, Any]], sid: str, report: d
     if isinstance(churn_sample, list) and churn_sample:
         lines.append("")
         lines.append(f"Churned-status sample: {', '.join(str(x) for x in churn_sample[:8])}")
-    lines.append("")
-    lines.append(
-        "New logos / expansion vs prior periods are not computed here — use Salesforce reports for motion history."
-    )
 
     body = "\n".join(lines)
 
@@ -110,11 +107,92 @@ def portfolio_revenue_book_slide(reqs: list[dict[str, Any]], sid: str, report: d
     _box(reqs, oid, sid, MARGIN, BODY_Y, CONTENT_W, 300, body)
     _style(reqs, oid, 0, len(body), size=10, color=NAVY, font=FONT)
     foot = (
-        "ARR and status from matched Customer Entity accounts; pipeline uses the same advanced-stage "
-        "definition as per-account decks."
+        "ARR and contract status from Salesforce Customer Entity accounts; pipeline uses the same "
+        "advanced-stage definition as per-account decks."
     )
     fid = f"{sid}_foot"
     _box(reqs, fid, sid, MARGIN, 400, CONTENT_W, 36, foot)
+    _style(reqs, fid, 0, len(foot), size=8, color=GRAY, font=FONT)
+    return idx + 1
+
+
+def portfolio_expansion_book_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Closed-won expansion & new-business motion from Salesforce Opportunities (portfolio scope)."""
+    ex = report.get("portfolio_expansion_book")
+    if not isinstance(ex, dict):
+        ex = {}
+    if not ex.get("configured"):
+        return _missing_data_slide(
+            reqs,
+            sid,
+            report,
+            idx,
+            "Salesforce expansion metrics (credentials not configured)",
+        )
+    if ex.get("error"):
+        return _missing_data_slide(reqs, sid, report, idx, str(ex.get("error")))
+
+    entry = report.get("_current_slide") or {}
+    title = (entry.get("title") or "").strip() or "Expansion & new logos (Salesforce)"
+
+    cy = int(ex.get("calendar_year") or 0) or datetime.date.today().year
+    lines: list[str] = []
+
+    denom = int(ex.get("eligible_active_customer_count") or 0)
+    numer = int(ex.get("active_customers_with_expansion_wins_cy") or 0)
+    pct = ex.get("pct_active_customers_expanding_cy")
+    try:
+        pct_f = float(pct) if pct is not None else 0.0
+    except (TypeError, ValueError):
+        pct_f = 0.0
+
+    lines.append(f"Portfolio expansion rate — calendar year {cy} (won opportunities)")
+    lines.append("")
+    lines.append(
+        "PRIMARY KPI — Percent of Salesforce-active portfolio customers with at least one closed-won Expansion / "
+        f"New Expansion opportunity this calendar year: {pct_f:g}% ({numer:,} of {denom:,})."
+        if denom
+        else "No Salesforce-matched Customer Entity accounts in this portfolio run — denominator is zero."
+    )
+    opp_n = int(ex.get("closed_won_expansion_deal_count_cy") or 0)
+    amt = _fmt_portfolio_usd(ex.get("closed_won_expansion_amount_sum_cy"))
+    acct_exp = int(ex.get("distinct_accounts_expansion_win_cy") or 0)
+    lines.append("")
+    lines.append(f"Closed-won expansion deals (Expansion + New Expansion types): {opp_n:,}  ·  Sum Amount: {amt}")
+    lines.append(f"Distinct Customer Entity accounts with an expansion win: {acct_exp:,}")
+
+    nb_lbl = int(ex.get("active_customers_with_new_business_won_cy") or 0)
+    nb_acct = int(ex.get("distinct_accounts_new_business_win_cy") or 0)
+    lines.append("")
+    lines.append(
+        "New logos (closed-won New Business on scoped accounts · same Customer Entity rollup): "
+        f"{nb_lbl:,} active portfolio labels  ·  {nb_acct:,} distinct Entity accounts touched"
+    )
+
+    samp = ex.get("expanding_customer_labels_sample") or []
+    if isinstance(samp, list) and samp:
+        lines.append("")
+        lines.append("Sample customers with expansion wins: " + ", ".join(str(x) for x in samp[:10]))
+
+    if denom and numer == 0 and opp_n == 0:
+        lines.append("")
+        lines.append("No closed-won expansion opportunities on scoped Customer Entity accounts this calendar year.")
+
+    body = "\n".join(lines)
+
+    _slide(reqs, sid, idx)
+    _bg(reqs, sid, WHITE)
+    _slide_title(reqs, sid, title)
+    oid = f"{sid}_body"
+    _box(reqs, oid, sid, MARGIN, BODY_Y, CONTENT_W, 340, body)
+    _style(reqs, oid, 0, len(body), size=10, color=NAVY, font=FONT)
+    foot = (
+        f"Uses Opportunity IsWon, CloseDate in CY {cy}, Types: Expansion Business, New Expansion Business "
+        "(expansion), New Business (new logos). Eligible denominator = matched portfolio rows with at least one "
+        "active (non-churned) Customer Entity contract - same notion as Revenue Book."
+    )
+    fid = f"{sid}_foot"
+    _box(reqs, fid, sid, MARGIN, 392, CONTENT_W, 54, foot)
     _style(reqs, fid, 0, len(foot), size=8, color=GRAY, font=FONT)
     return idx + 1
 

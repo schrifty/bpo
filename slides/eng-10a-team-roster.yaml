@@ -1,0 +1,13 @@
+id: eng_team_roster
+type: standard
+order: 75
+title: Engineering Teams
+slide_type: eng_team_roster
+data_tools: []
+customers: all
+
+prompt: >
+  Engineering team roster for the portfolio deck. One row per Agile Team on the LEAN
+  board: team name, optional team lead, a bar sized by headcount, and the member names.
+  Each engineer is assigned to the team where they did most of their work over the
+  trailing window so people are not double-counted across teams.

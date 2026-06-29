@@ -36,6 +36,10 @@ from .evaluate import (
     _slide_metric_font_clamp_requests,
     apply_synonym_resolution_to_replacements,
 )
+from .qbr_hydrate_mappings import (
+    REPORT_KEY_EXPLICIT_QBR_MAPPINGS,
+    apply_explicit_qbr_mappings,
+)
 from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
 from .speaker_notes import set_speaker_notes
 from .slides_api import slides_presentations_batch_update
@@ -144,7 +148,7 @@ def _apply_qbr_agenda_layout_hints_from_vision(
     if reqs:
         try:
             slides_presentations_batch_update(slides_svc, pres_id, reqs)
-            logger.info(
+            logger.debug(
                 "%s: applied %s layout hint request(s) (widen/font)",
                 _QBR_VCYCLE,
                 len(reqs),
@@ -198,7 +202,7 @@ def find_qbr_agenda_page_id(
             continue
         te = _extract_slide_text_elements(slide.get("pageElements", []))
         if _slide_matches_qbr_agenda_hydrate(te, ag):
-            logger.info(
+            logger.debug(
                 "%s: matched qbr_agenda slide objectId=%s (will run view/review if enabled)",
                 _QBR_VCYCLE,
                 pid,
@@ -273,7 +277,7 @@ def _qbr_agenda_visual_quality_ok(
         ok = bool(data.get("ok"))
         issues = str(data.get("issues") or "").strip()[:1200]
         hints = _layout_hints_from_vision_payload(data)
-        logger.info(
+        logger.debug(
             "%s: %s — vision verdict ok=%s issues=%s",
             _QBR_VCYCLE,
             review_label,
@@ -281,7 +285,7 @@ def _qbr_agenda_visual_quality_ok(
             (issues or "(none)")[:400],
         )
         if hints:
-            logger.info("%s: %s — layout_hints=%s", _QBR_VCYCLE, review_label, hints)
+            logger.debug("%s: %s — layout_hints=%s", _QBR_VCYCLE, review_label, hints)
         return ok, issues, hints
     except Exception as e:
         logger.warning("QBR agenda visual QA failed (%s) — not treating as pass", e)
@@ -307,7 +311,7 @@ def _apply_single_page_hydrate(
     replace_reqs, has_unmapped, has_static_images = _apply_adaptations(
         slides_svc, pres_id, page_id, replacements
     )
-    logger.info(
+    logger.debug(
         "%s: hydrate apply slide %s — %s replace batch request(s), unmapped=%s",
         _QBR_VCYCLE,
         slide_num,
@@ -402,7 +406,7 @@ def run_qbr_agenda_visual_refinement_loop(
     data_summary = _build_data_summary(report)
     max_r = cfg["max_refinements"]
 
-    logger.info(
+    logger.debug(
         "%s: start presentation=%s page_id=%s slide_index=%s max_refinements=%s model=%s",
         _QBR_VCYCLE,
         pres_id,
@@ -413,12 +417,12 @@ def run_qbr_agenda_visual_refinement_loop(
     )
 
     def _thumb(phase: str) -> str | None:
-        logger.info("%s: fetch thumbnail (%s) page_id=%s", _QBR_VCYCLE, phase, page_id)
+        logger.debug("%s: fetch thumbnail (%s) page_id=%s", _QBR_VCYCLE, phase, page_id)
         try:
             url = _get_slide_thumbnail_url(slides_svc, pres_id, page_id)
             b64 = _download_thumbnail_b64(url)
             if b64:
-                logger.info(
+                logger.debug(
                     "%s: thumbnail ok (%s) base64_len=%s",
                     _QBR_VCYCLE,
                     phase,
@@ -436,7 +440,7 @@ def run_qbr_agenda_visual_refinement_loop(
         oai, thumb_b64, review_label="initial_review"
     )
     if ok:
-        logger.info(
+        logger.debug(
             "%s: done — pass on first review (no refinement passes)",
             _QBR_VCYCLE,
         )
@@ -448,7 +452,7 @@ def run_qbr_agenda_visual_refinement_loop(
             "last_issues": "",
         }
 
-    logger.info(
+    logger.debug(
         "%s: initial review did not pass — entering refinement (up to %s pass(es)). Issues: %s",
         _QBR_VCYCLE,
         max_r,
@@ -473,7 +477,7 @@ def run_qbr_agenda_visual_refinement_loop(
                 text_elements0 = _extract_slide_text_elements(slide1.get("pageElements", []))
                 reshort = _build_qbr_agenda_reshorten_replacements(text_elements0, report)
                 if reshort:
-                    logger.info(
+                    logger.debug(
                         "%s: applying %s reshorten replacement(s) from vision hints",
                         _QBR_VCYCLE,
                         len(reshort),
@@ -496,7 +500,7 @@ def run_qbr_agenda_visual_refinement_loop(
                 oai, thumb_b64, review_label="post_layout_hints"
             )
             if ok2:
-                logger.info(
+                logger.debug(
                     "%s: done — pass after vision layout_hints + reshorten (no LLM refinement passes)",
                     _QBR_VCYCLE,
                 )
@@ -512,7 +516,7 @@ def run_qbr_agenda_visual_refinement_loop(
 
     for _ in range(max_r):
         refinements_used += 1
-        logger.info(
+        logger.debug(
             "%s: refinement pass %s/%s starting",
             _QBR_VCYCLE,
             refinements_used,
@@ -547,9 +551,18 @@ def run_qbr_agenda_visual_refinement_loop(
             extra_system_rules=extra,
         )
         _slab = f"qbr-agenda-refine-{refinements_used}"
-        replacements = apply_synonym_resolution_to_replacements(
-            replacements, text_elements, data_summary, slide_ref=_slab
-        )
+        if report.get(REPORT_KEY_EXPLICIT_QBR_MAPPINGS):
+            replacements = apply_explicit_qbr_mappings(
+                replacements,
+                text_elements,
+                data_summary,
+                slide_type="qbr_agenda",
+                slide_ref=_slab,
+            )
+        else:
+            replacements = apply_synonym_resolution_to_replacements(
+                replacements, text_elements, data_summary, slide_ref=_slab
+            )
         replacements = _sanitize_adapt_replacements_plausible_years(
             replacements, slide_ref=_slab
         )
@@ -559,7 +572,7 @@ def run_qbr_agenda_visual_refinement_loop(
         replacements = _ensure_charts_and_images_marked(text_elements, replacements)
         replacements = _merge_qbr_agenda_title_replacements(text_elements, replacements, report)
 
-        logger.info(
+        logger.debug(
             "%s: pass %s — adapt produced %s replacement rule(s) (0 means slide likely unchanged)",
             _QBR_VCYCLE,
             refinements_used,
@@ -593,7 +606,7 @@ def run_qbr_agenda_visual_refinement_loop(
             review_label=f"after_refinement_pass_{refinements_used}",
         )
         if ok:
-            logger.info(
+            logger.debug(
                 "%s: done — pass after %s refinement pass(es)",
                 _QBR_VCYCLE,
                 refinements_used,

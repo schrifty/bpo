@@ -12,6 +12,7 @@ from src.drive_config import (
     _normalize_config_text,
     clear_yaml_config_cache,
     config_text_matches_local,
+    upload_to_qbr_output_folders,
 )
 
 
@@ -28,6 +29,16 @@ def test_config_text_matches_local_equivalent_yaml_spacing() -> None:
 
 def test_config_text_matches_local_different_content() -> None:
     assert not config_text_matches_local("a: 1\n", "a: 2\n")
+
+
+def test_normalize_config_text_three_way_duplicate_policy() -> None:
+    """Same logical YAML can differ in line endings; differing titles stay distinct."""
+    a = "id: slide_x\ntitle: \"Q\"\n"
+    b = "id: slide_x\r\ntitle: \"Q\"  \n"
+    c = "id: slide_x\ntitle: \"Different\"\n"
+    na = _normalize_config_text(a)
+    assert na == _normalize_config_text(b)
+    assert na != _normalize_config_text(c)
 
 
 def test_dedupe_drive_yaml_files_by_name_keeps_newest() -> None:
@@ -149,3 +160,38 @@ def test_load_yaml_from_drive_skips_drive_file_without_top_level_id(
     assert len(result) == 1
     assert result[0]["id"] == "slide_a"
     assert result[0]["_source"] == "drive"
+
+
+def test_upload_to_qbr_output_folders_writes_root_and_dated(monkeypatch) -> None:
+    uploads: list[tuple[str, str, str]] = []
+
+    monkeypatch.setattr(
+        "src.drive_config.get_qbr_output_root_folder_id",
+        lambda: "root-folder",
+    )
+    monkeypatch.setattr(
+        "src.drive_config.get_qbr_output_folder_id",
+        lambda: "dated-folder",
+    )
+
+    def _fake_upload(name: str, content: str, folder_id: str, *, mime_type: str = "text/markdown"):
+        uploads.append((name, content, folder_id))
+        return f"file-{folder_id}"
+
+    monkeypatch.setattr("src.drive_config.upload_text_file_to_drive_folder", _fake_upload)
+
+    meta = upload_to_qbr_output_folders("match-customer-names.txt", "hello", mime_type="text/plain")
+
+    assert meta["file_id_root"] == "file-root-folder"
+    assert meta["file_id_dated"] == "file-dated-folder"
+    assert len(uploads) == 2
+    assert uploads[0] == ("match-customer-names.txt", "hello", "root-folder")
+    assert uploads[1] == ("match-customer-names.txt", "hello", "dated-folder")
+
+
+def test_upload_to_qbr_output_folders_fails_without_folders(monkeypatch) -> None:
+    monkeypatch.setattr("src.drive_config.get_qbr_output_root_folder_id", lambda: None)
+    monkeypatch.setattr("src.drive_config.get_qbr_output_folder_id", lambda: "dated-folder")
+
+    with pytest.raises(RuntimeError, match="Could not resolve Drive Output"):
+        upload_to_qbr_output_folders("match-customer-names.txt", "x")

@@ -1,0 +1,30 @@
+# Cortex list alias map — config/sf_portfolio_pendo_aliases.yaml
+# Schema: { "<SF portfolio label>": "<pendo_prefix>" | [ "<prefix>", ... ] }  (keys case-insensitive)
+# Used by: portfolio SF → Pendo prefix resolution. See CONFIG_ALIASES.md.
+# Use when CRM rollup labels do not appear in Pendo sitenames (see config/cohorts.yaml).
+
+"Pump Solutions Group (Oakbrook Terrace, IL)":
+  - Dover
+
+"Key Technology":
+  - Duravant
+
+Foodmate:
+  - Duravant
+
+"Hartzell Aviation":
+  - Signia
+
+# Signia subsidiary; Pendo usage is under Signia prefix (not ACE sitename token).
+ACE Thermal Systems:
+  - Signia
+
+# Salesforce portfolio rollup label (Customer Entity ultimate/parent) → Pendo prefix.
+Johnson:
+  - JCI
+
+Ford:
+  - Ford Motor Company
+
+"Ag Growth International Inc":
+  - AGI

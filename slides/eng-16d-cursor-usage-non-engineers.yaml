@@ -1,0 +1,20 @@
+id: cursor_usage_non_engineers
+type: standard
+order: 87
+title: Cursor AI Token Usage — Non-Engineering
+slide_type: cursor_usage_non_engineers
+data_tools: []
+customers: all
+
+prompt: >
+  AI coding-assistant (Cursor) token-usage slide for non-engineering users in the
+  engineering portfolio deck, aimed at a VP of Engineering. Scope is Cursor users
+  outside Dev - * Atlassian engineering squads (Product, Support Engineering,
+  Solutions Engineering, CS, etc.). Bottom-line subtitle states total tokens over
+  the recent window, input/output workload ratio, and how many non-engineering
+  seats are active. Four KPI cards cover total tokens, input tokens, output tokens,
+  and request count. A tokens-over-time stacked bar chart shows daily input and
+  output tokens; a model-usage-by-tokens mix shows which models carry the volume.
+  Pairs with the engineer-scoped AI Token Usage slide so org-wide Cursor spend is
+  not hidden. Data comes from the Cursor Team Admin API joined to Atlassian Teams;
+  omitted when CURSOR_ADMIN_API_KEY or ATLASSIAN_ORG_ID is not configured.

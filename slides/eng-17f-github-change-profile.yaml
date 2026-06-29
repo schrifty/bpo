@@ -1,0 +1,12 @@
+id: github_change_profile
+type: standard
+order: 88
+title: GitHub Change Profile
+slide_type: github_change_profile
+data_tools: []
+customers: all
+
+prompt: >
+  GitHub change-profile slide for the engineering portfolio deck, aimed at a VP of Engineering.
+  KPIs for lines added, deleted, net change, and delete ratio; a table ranks repositories by
+  line churn. Helps distinguish greenfield work, refactors, and high-churn repos.

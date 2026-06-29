@@ -19,6 +19,8 @@ from .slides_theme import (
     FONT_SERIF,
     GRAY,
     KPI_METRIC_LABEL_PT,
+    KPI_METRIC_PAD_H,
+    KPI_METRIC_PAD_V,
     LIGHT,
     MARGIN,
     NAVY,
@@ -126,6 +128,49 @@ def bar_rect(
     })
 
 
+def _kpi_text_box_align(
+    reqs: list[dict[str, Any]],
+    object_id: str,
+    *,
+    align: str,
+    font_pt: float,
+    color: dict[str, float],
+    bold: bool,
+) -> None:
+    """Apply KPI text box alignment and strip default paragraph spacing."""
+    reqs.append({
+        "updateShapeProperties": {
+            "objectId": object_id,
+            "shapeProperties": {"contentAlignment": align},
+            "fields": "contentAlignment",
+        }
+    })
+    reqs.append({
+        "updateParagraphStyle": {
+            "objectId": object_id,
+            "style": {
+                "lineSpacing": 100,
+                "spaceAbove": {"magnitude": 0, "unit": "PT"},
+                "spaceBelow": {"magnitude": 0, "unit": "PT"},
+            },
+            "fields": "lineSpacing,spaceAbove,spaceBelow",
+        }
+    })
+    reqs.append({
+        "updateTextStyle": {
+            "objectId": object_id,
+            "textRange": {"type": "ALL"},
+            "style": {
+                "bold": bold,
+                "fontSize": {"magnitude": font_pt, "unit": "PT"},
+                "foregroundColor": {"opaqueColor": {"rgbColor": color}},
+                "fontFamily": FONT,
+            },
+            "fields": "bold,fontSize,foregroundColor,fontFamily",
+        }
+    })
+
+
 def kpi_metric_card(
     reqs: list[dict[str, Any]],
     oid_base: str,
@@ -141,40 +186,42 @@ def kpi_metric_card(
     label_pt: float = KPI_METRIC_LABEL_PT,
     value_pt: float = 18,
 ) -> None:
-    """Outlined KPI tile for app-built slides."""
+    """Outlined KPI tile for app-built slides.
+
+    Label top edge sits ``KPI_METRIC_PAD_V`` below the card top; value bottom edge
+    sits ``KPI_METRIC_PAD_V`` above the card bottom (fixed single-line boxes).
+    """
     accent = accent or BLUE
     bar_rect(reqs, oid_base, sid, x, y, w, h, LIGHT, outline=GRAY)
-    pad = 10.0
-    inner_w = max(40.0, w - 2 * pad)
+    pad_h = KPI_METRIC_PAD_H
+    pad_v = KPI_METRIC_PAD_V
+    inner_w = max(40.0, w - 2 * pad_h)
     label, label_pt = _fit_kpi_label(label, inner_w, label_pt)
-    _box(reqs, f"{oid_base}_l", sid, x + pad, y + 8, inner_w, 12, label)
+    label_line_h = max(12.0, label_pt * 1.2)
+    value_line_h = max(16.0, value_pt * 1.25)
+    label_id = f"{oid_base}_l"
+    _box(reqs, label_id, sid, x + pad_h, y + pad_v, inner_w, label_line_h, label)
     if label:
+        _kpi_text_box_align(reqs, label_id, align="TOP", font_pt=label_pt, color=BLACK, bold=False)
+    else:
         reqs.append({
-            "updateTextStyle": {
-                "objectId": f"{oid_base}_l",
-                "textRange": {"type": "ALL"},
-                "style": {
-                    "fontSize": {"magnitude": label_pt, "unit": "PT"},
-                    "foregroundColor": {"opaqueColor": {"rgbColor": BLACK}},
-                    "fontFamily": FONT,
-                },
-                "fields": "fontSize,foregroundColor,fontFamily",
+            "updateShapeProperties": {
+                "objectId": label_id,
+                "shapeProperties": {"contentAlignment": "TOP"},
+                "fields": "contentAlignment",
             }
         })
-    value_h = max(22.0, h - 28.0)
-    _box(reqs, f"{oid_base}_v", sid, x + pad, y + 22, inner_w, value_h, value)
+    value_id = f"{oid_base}_v"
+    value_y = y + h - pad_v - value_line_h
+    _box(reqs, value_id, sid, x + pad_h, value_y, inner_w, value_line_h, value)
     if value:
+        _kpi_text_box_align(reqs, value_id, align="BOTTOM", font_pt=value_pt, color=accent, bold=True)
+    else:
         reqs.append({
-            "updateTextStyle": {
-                "objectId": f"{oid_base}_v",
-                "textRange": {"type": "ALL"},
-                "style": {
-                    "bold": True,
-                    "fontSize": {"magnitude": value_pt, "unit": "PT"},
-                    "foregroundColor": {"opaqueColor": {"rgbColor": accent}},
-                    "fontFamily": FONT,
-                },
-                "fields": "bold,fontSize,foregroundColor,fontFamily",
+            "updateShapeProperties": {
+                "objectId": value_id,
+                "shapeProperties": {"contentAlignment": "BOTTOM"},
+                "fields": "contentAlignment",
             }
         })
 
@@ -427,6 +474,81 @@ def clean_table(reqs: list[dict[str, Any]], table_id: str, num_rows: int, num_co
             "fields": "tableBorderFill,weight,dashStyle",
         }
     })
+
+
+def table_cell_text(reqs: list[dict[str, Any]], table_id: str, row: int, col: int, text: str) -> None:
+    """Insert text into a single table cell (no-op for empty strings)."""
+    if not text:
+        return
+    reqs.append({
+        "insertText": {
+            "objectId": table_id,
+            "cellLocation": {"rowIndex": row, "columnIndex": col},
+            "text": str(text),
+            "insertionIndex": 0,
+        }
+    })
+
+
+def table_cell_style(
+    reqs: list[dict[str, Any]],
+    table_id: str,
+    row: int,
+    col: int,
+    text_len: int,
+    *,
+    bold: bool = False,
+    color: dict[str, float] | None = None,
+    size: float = 9,
+    font: str = FONT,
+    align: str | None = None,
+    link: str | None = None,
+) -> None:
+    """Style one table cell's text and (optionally) its paragraph alignment."""
+    if text_len > 0:
+        style_body: dict[str, Any] = {"fontSize": {"magnitude": size, "unit": "PT"}, "fontFamily": font}
+        fields = ["fontSize", "fontFamily"]
+        if bold:
+            style_body["bold"] = True
+            fields.append("bold")
+        if color:
+            style_body["foregroundColor"] = {"opaqueColor": {"rgbColor": color}}
+            fields.append("foregroundColor")
+        if link:
+            style_body["link"] = {"url": link}
+            fields.append("link")
+        reqs.append({
+            "updateTextStyle": {
+                "objectId": table_id,
+                "cellLocation": {"rowIndex": row, "columnIndex": col},
+                "textRange": {"type": "FIXED_RANGE", "startIndex": 0, "endIndex": text_len},
+                "style": style_body,
+                "fields": ",".join(fields),
+            }
+        })
+    if align:
+        reqs.append({
+            "updateParagraphStyle": {
+                "objectId": table_id,
+                "cellLocation": {"rowIndex": row, "columnIndex": col},
+                "textRange": {"type": "ALL"},
+                "style": {"alignment": align},
+                "fields": "alignment",
+            }
+        })
+
+
+def table_column_widths(reqs: list[dict[str, Any]], table_id: str, col_widths: list[float]) -> None:
+    """Set explicit column widths (pt) so a table justifies to its intended span."""
+    for col_index, width in enumerate(col_widths):
+        reqs.append({
+            "updateTableColumnProperties": {
+                "objectId": table_id,
+                "columnIndices": [col_index],
+                "tableColumnProperties": {"columnWidth": {"magnitude": width, "unit": "PT"}},
+                "fields": "columnWidth",
+            }
+        })
 
 
 def simple_table(

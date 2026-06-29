@@ -8,7 +8,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from .config import logger, LEANDNA_DATA_API_BEARER_TOKEN
+from .config import logger
+from .leandna_data_api_http import leandna_data_api_credentials_configured
 from .leandna_shortage_client import (
     get_shortages_by_item_weekly,
     aggregate_shortage_forecast,
@@ -22,7 +23,7 @@ def _resolve_customer_sites(customer: str) -> str | None:
     """Resolve customer name to LeanDNA site IDs (comma-separated).
     
     Args:
-        customer: BPO customer name.
+        customer: Cortex customer name.
     
     Returns:
         Comma-separated site IDs or None for all authorized sites.
@@ -56,8 +57,10 @@ def enrich_qbr_with_shortage_trends(
     logger.info("LeanDNA Shortage Trends enrichment: starting for customer=%s", customer)
     
     # Check if LeanDNA is configured
-    if not LEANDNA_DATA_API_BEARER_TOKEN:
-        logger.debug("LeanDNA shortage trends skipped: LEANDNA_DATA_API_BEARER_TOKEN not set")
+    if not leandna_data_api_credentials_configured():
+        logger.debug(
+            "LeanDNA shortage trends skipped: no LEANDNA_DATA_API_BEARER_TOKEN or LEANDNA_DATA_API_COOKIE",
+        )
         report.setdefault("leandna_shortage_trends", {"enabled": False, "reason": "bearer_token_not_configured"})
         return report
     

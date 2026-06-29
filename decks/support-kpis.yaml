@@ -1,0 +1,43 @@
+id: support-kpis
+name: Support KPIs
+audience: Support / Engineering Leadership
+
+purpose: |
+  HELP operational KPI deck: intake, flow, backlog aging, tail risk, SLA adherence,
+  TTFR, resolution time by type, LEAN/CUSTOMER jira_escalated flow, customer health, sentiment
+  (supplementary), and tickets beyond first-response / resolution service thresholds.
+  Scoped to the HELP Jira project (JSM Organizations for per-customer runs).
+  Single-customer runs omit the account name in slide titles (cover + corner badge).
+
+slides:
+  - slide: support_deck_cover
+    title: Support KPIs
+  - slide: support_kpis_notable
+    title: Notable Findings
+  - slide: support_kpis_intake
+    title: Intake
+  - slide: support_kpis_flow
+    title: Flow
+  - slide: support_kpis_backlog
+    title: Backlog
+  - slide: support_kpis_tail_risk
+    title: Tail Risk
+  - slide: support_kpis_sla
+    title: SLA
+  - slide: support_kpis_ttfr
+    title: TTFR
+  - slide: support_kpis_resolution
+    title: Resolution
+  - slide: support_kpis_engineering_dependency
+    title: Engineering Escalations
+  - slide: support_kpis_escalation_backlog_engineering
+    title: Escalation Backlog - Engineering
+  - slide: support_kpis_escalation_backlog_data_integration
+    title: Escalation Backlog - Data Integration
+  - slide: support_kpis_customer_health
+    title: Customer Health
+  - slide: support_kpis_csat
+    title: CSAT
+  - slide: support_kpis_aging_thresholds
+    title: Aging Tickets Beyond Service Thresholds
+  - slide: data_quality

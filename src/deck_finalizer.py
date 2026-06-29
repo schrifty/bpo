@@ -31,7 +31,7 @@ def finalize_health_deck(
         "customer": customer,
         "slides_created": slides_created,
     }
-    nsrc = report.get("support_notable_bullets_source")
+    nsrc = report.get("support_notable_bullets_source") or report.get("support_kpis_notable_bullets_source")
     if nsrc:
         result["notable_bullets_source"] = nsrc
 

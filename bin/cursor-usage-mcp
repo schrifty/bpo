@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Launch the read-only Cursor usage MCP server (scripts/cursor_usage_mcp.py).
+# The `mcp` SDK needs Python >=3.10, while the rest of the pipeline runs on the
+# system python3 (often 3.9), so prefer the repo venv / a modern interpreter here.
+set -euo pipefail
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+ROOT="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
+
+pick_python() {
+  if [ -x "$ROOT/.venv/bin/python" ]; then echo "$ROOT/.venv/bin/python"; return; fi
+  for c in python3.12 python3.11 python3.10 python3; do
+    if command -v "$c" >/dev/null 2>&1; then echo "$c"; return; fi
+  done
+  echo "python3"
+}
+
+exec "$(pick_python)" "$ROOT/scripts/cursor_usage_mcp.py" "$@"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 
-SLIDES_OBJECT_ID_BASE_MAX = 38
+SLIDES_OBJECT_ID_BASE_MAX = 32
 
 
 def blob_recent_tickets_window_days(blob: dict, closed: bool) -> int | None:

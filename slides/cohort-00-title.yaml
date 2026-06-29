@@ -8,4 +8,4 @@ customers: all
 
 prompt: >
   Cover slide for the cohort deck. Navy background; states customer count and
-  period; references cohorts.yaml and CUSTOMER_COHORTS.md.
+  period; references config/cohorts.yaml and docs/DATA-GOVERNANCE/CUSTOMER_COHORTS.md.

@@ -1,0 +1,16 @@
+id: cursor_users_non_engineers
+type: standard
+order: 92
+title: Cursor AI Power Users — Non-Engineering
+slide_type: cursor_users_non_engineers
+data_tools: []
+customers: all
+
+prompt: >
+  AI coding-assistant (Cursor) power-user slide for non-engineering users in the
+  engineering portfolio deck, aimed at a VP of Engineering. Scope is Cursor users
+  outside Dev - * Atlassian engineering squads. Four KPI cards cover active users,
+  total tokens, top-user share, and top-3 share. A full-width stacked bar chart
+  shows model usage by token volume for the highest-usage non-engineering users.
+  Pairs with separate user-volume and light-usage slides for non-engineering
+  adoption. Data comes from the Cursor Team Admin API joined to Atlassian Teams.

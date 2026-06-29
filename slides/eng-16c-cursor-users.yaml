@@ -1,0 +1,17 @@
+id: cursor_users
+type: standard
+order: 89
+title: Cursor AI Power Users
+slide_type: cursor_users
+data_tools: []
+customers: all
+
+prompt: >
+  AI coding-assistant (Cursor) power-user slide for engineering squads in the
+  engineering portfolio deck, aimed at a VP of Engineering. Scope is Dev - *
+  Atlassian engineering teams only. Four KPI cards cover active engineers, total
+  tokens, top-user share, and top-3 share. A full-width stacked bar chart shows
+  model usage by token volume for the highest-usage engineers (power users).
+  Pairs with a separate user-volume ranking slide and a light-usage model-mix
+  chart. Data comes from the Cursor Team Admin API joined to Atlassian Teams;
+  omitted when CURSOR_ADMIN_API_KEY or ATLASSIAN_ORG_ID is not configured.

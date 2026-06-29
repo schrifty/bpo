@@ -1,6 +1,6 @@
 """Evaluate and hydrate Google Slides shared with the configured intake Google Group.
 
-Evaluate: lists files shared with GOOGLE_HYDRATE_INTAKE_GROUP, exports thumbnails,
+Evaluate: lists files shared with GOOGLE_HYDRATE_INTAKE_GROUP, exports thumbnails (for QA / classification),
 extracts text/elements, and asks GPT-4o to assess reproducibility.
 
 Hydrate: classifies each slide in a source deck against our builder types,
@@ -38,6 +38,20 @@ from .data_field_synonyms import (
     apply_synonym_resolution_to_replacements,
     data_summary_lookup,
     data_summary_path_exists,
+    end_qbr_comprehensive_catalog_session,
+)
+from .qbr_hydrate_mappings import (
+    QBR_MAPPINGS_DEFAULT_PATH,
+    REPORT_KEY_EXPLICIT_QBR_MAPPINGS,
+    apply_explicit_qbr_mappings,
+    bootstrap_qbr_mappings_from_slides,
+    build_adapt_page_slide_type_by_page_id,
+    build_mapping_first_qbr_replacements,
+    expand_qbr_mapping_source_candidates,
+    invalidate_qbr_mappings_cache,
+    mapping_source_is_visual_only,
+    merge_discovered_sources_into_qbr_mappings,
+    qbr_mappings_disk_write_enabled,
 )
 from .drive_config import assert_qbr_prompts_ready_or_raise, get_deck_output_folder_id
 from .hydrate_capabilities import (
@@ -125,6 +139,7 @@ from .slides_api import (
     slides_presentations_batch_update,
 )
 from .speaker_notes import set_speaker_notes, set_speaker_notes_batch
+from .speaker_notes_llm import enrich_speaker_notes_with_management_guidance
 
 def _slide_cache_dir() -> Path:
     """Directory for persisted slide analysis cache (classification, adapt)."""
@@ -200,7 +215,7 @@ def _log_slide_visual_findings(pres_name: str, slide_num: int, total: int, chart
             )
         )
         lines.append("└" + "─" * 69)
-        logger.info("\n".join(lines))
+        logger.debug("\n".join(lines))
 
 
 def _get_cached_classification(cache_key: str) -> dict | None:
@@ -246,6 +261,60 @@ def _log_slide_pipeline_done(slide_ref: str, src: str, replacements: list[dict])
         unmapped_count=len(unmapped),
         unmapped_rows_sample=unmapped_details,
     )
+
+
+# Verbose adapt tracing for selected 1-based slide indices only (hydrate debugging).
+_HYDRATE_EXTRA_LOG_SLIDE_INDEXES = frozenset({4, 6})
+
+
+def _hydrate_extra_log_slide(slide_num: Any) -> bool:
+    return isinstance(slide_num, int) and slide_num in _HYDRATE_EXTRA_LOG_SLIDE_INDEXES
+
+
+def _hydrate_slide_number_for_extra_log(page_id: str, ordered_ids: list[str]) -> int | None:
+    if page_id not in ordered_ids:
+        return None
+    return ordered_ids.index(page_id) + 1
+
+
+def _hydrate_extra_te_preview(text_elements: list[dict], *, max_chars: int = 1500) -> str:
+    chunks: list[str] = []
+    for el in text_elements[:36]:
+        tid = str(el.get("element_id") or "")[:14]
+        typ = str(el.get("type") or "?")
+        raw = " ".join((el.get("text") or "").split())
+        if len(raw) > 160:
+            raw = raw[:157] + "..."
+        chunks.append(f"{typ}:{tid}:{raw}")
+    out = " || ".join(chunks)
+    return out if len(out) <= max_chars else out[: max_chars - 3] + "..."
+
+
+def _hydrate_extra_repl_preview(replacements: list[dict], *, max_rows: int = 48) -> str:
+    lines: list[str] = []
+    for i, r in enumerate(replacements[:max_rows]):
+        o = str(r.get("original") or "")
+        nv = str(r.get("new_value") or "")
+        fld = str(r.get("field") or "")
+        lines.append(
+            f"  [{i}] mapped={r.get('mapped', True)} field={fld[:72]!r} "
+            f"orig={o[:120]!r} -> nv={nv[:120]!r}"
+        )
+    if len(replacements) > max_rows:
+        lines.append(f"  ... {len(replacements) - max_rows} more row(s)")
+    return "\n".join(lines) if lines else "  (no rows)"
+
+
+def _hydrate_extra_replace_reqs_preview(reqs: list[dict], *, max_req: int = 16) -> str:
+    lines: list[str] = []
+    for i, req in enumerate(reqs[:max_req]):
+        rat = req.get("replaceAllText") or {}
+        ct = (rat.get("containsText") or {}).get("text", "")
+        rt = str(rat.get("replaceText") or "")
+        lines.append(f"  [{i}] match={ct[:100]!r} -> replace={rt[:100]!r}")
+    if len(reqs) > max_req:
+        lines.append(f"  ... {len(reqs) - max_req} more request(s)")
+    return "\n".join(lines) if lines else "  (no replaceAllText reqs)"
 
 
 def _resolve_cached_replacements(
@@ -553,7 +622,7 @@ def _resolve_data_ask_to_replacements(
     return replacements
 
 
-_print_context = "bpo"  # overridden per command
+_print_context = "cortex"  # overridden per command
 
 def _print(*args, **kwargs):
     """Log and print with immediate flush so output appears in real time."""
@@ -795,7 +864,7 @@ def visual_qa(pres_id: str, slides_svc=None) -> list[dict[str, Any]]:
     # Step 1: Pre-fetch all thumbnail URLs in the main thread.
     # The Google API client (httplib2) is NOT thread-safe — calling it from workers
     # causes malloc double-free crashes.  Getting just the URL is fast (<0.5s/slide).
-    logger.info("QA: fetching thumbnail URLs for %d slides...", n)
+    logger.debug("QA: fetching thumbnail URLs for %d slides...", n)
     thumb_urls: dict[str, str | None] = {}
     for si, slide in enumerate(slides, 1):
         page_id = slide["objectId"]
@@ -991,6 +1060,7 @@ def reset_for_tests() -> None:
     _load_adapt_template_slide_rule.cache_clear()
     _load_adapt_system_prompt_template.cache_clear()
     _reset_hydrate_data_summary_for_tests()
+    end_qbr_comprehensive_catalog_session()
 
 
 def _get_data_replacements(oai, text_elements: list[dict], data_summary: dict,
@@ -1159,7 +1229,7 @@ def _unmapped_placeholder_descriptions_for_notes(oai, entries: list[dict]) -> li
 
 _PLACEHOLDER_MARKERS = ("[000]", "[$000]", "[00/00/00]", "[00%]", "[???]")
 
-# QBR template agenda: "Title #1" … "Title #N" labels → section titles from decks/qbr.yaml (via report["_slide_plan"]).
+# QBR template agenda: "Title #1" … "Title #N" labels → section titles from report["_slide_plan"].
 _TITLE_HASH_PLACEHOLDER_RE = re.compile(r"\bTitle\s*#\s*(\d+)\b", re.I)
 
 
@@ -1383,7 +1453,7 @@ def _build_hydrate_speaker_notes(
     slide_title: str | None = None,
     slide_yaml_hint: str | None = None,
 ) -> str:
-    """Hydration speaker notes: timestamp + title, data context, Data Fields (arrow lines), visuals, checklist."""
+    """Hydration speaker notes: timestamp + title, data context, mapped values (arrow lines), visuals, checklist."""
     from datetime import datetime as _dt
     _ts = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
     ds: dict[str, Any] = {}
@@ -1425,15 +1495,8 @@ def _build_hydrate_speaker_notes(
 
     if slide_yaml_hint and str(slide_yaml_hint).strip():
         lines.append("Slide YAML: " + str(slide_yaml_hint).strip()[:2000])
-    else:
-        lines.append(
-            "YAML: Document each slide's field semantics in the deck YAML under `slides:` "
-            "(match template yellow/orange cues). Use a comment such as "
-            "`# HYDRATE_UNKNOWN: …` when a slot cannot be mapped reliably; otherwise note the "
-            "intended pipeline field so hydration stays deterministic."
-        )
 
-    lines.append("Data Fields:")
+    lines.append("Mapped values:")
     if replacements:
         for r in replacements:
             lines.append(_hydrate_data_field_line(r))
@@ -1545,7 +1608,31 @@ def _build_hydrate_speaker_notes(
     body = "\n".join(lines)
     if len(body) > 12000:
         body = body[:11900] + "\n\n… (truncated)"
-    return body
+
+    slide_copy_parts: list[str] = []
+    seen_copy: set[str] = set()
+    for el in text_elements:
+        for part in (el.get("text") or "").split("\n"):
+            s = part.strip()
+            if len(s) < 2 or s in seen_copy or _hydrate_line_is_qbr_banner_noise(s):
+                continue
+            seen_copy.add(s)
+            slide_copy_parts.append(s[:200])
+            if len(slide_copy_parts) >= 12:
+                break
+        if len(slide_copy_parts) >= 12:
+            break
+
+    return enrich_speaker_notes_with_management_guidance(
+        body,
+        report=report,
+        slide_title=title_guess,
+        slide_type=(analysis or {}).get("slide_type") or "",
+        slide_yaml_hint=slide_yaml_hint,
+        hydrate_analysis=analysis,
+        hydrate_replacements=replacements,
+        slide_copy_excerpt="\n".join(slide_copy_parts),
+    )
 
 
 def _replacement_is_visual(r: dict) -> bool:
@@ -1634,6 +1721,18 @@ def _append_hydrate_summary_slide(
     return False
 
 
+def _slide_text_snapshot_for_adapt_cache(text_elements: list[dict], *, max_chars: int = 12000) -> str:
+    """Stable, bounded text fingerprint for slide-level adapt / analysis disk cache (no thumbnail)."""
+    parts: list[str] = []
+    for el in text_elements:
+        eid = str(el.get("element_id") or "")
+        typ = str(el.get("type") or "")
+        text = str(el.get("text") or "")
+        parts.append(f"{eid}\t{typ}\t{text}")
+    raw = "\n".join(parts)
+    return raw[:max_chars] if len(raw) > max_chars else raw
+
+
 def adapt_custom_slides(
     slides_svc,
     pres_id: str,
@@ -1649,7 +1748,7 @@ def adapt_custom_slides(
     """Adapt slides by replacing data values with current data.
 
     Two-phase approach:
-      Phase A (parallel)  — thumbnail fetch + GPT-4o per slide (I/O bound, safe to parallelise)
+      Phase A (parallel)  — GPT-4o per slide from extracted text only (no slide thumbnails)
       Phase B (sequential) — Slides API batchUpdate per slide (mutates shared presentation state)
 
     Writes per-slide speaker notes (hydration QA: pipeline mapping, unmapped placeholders, slide copy);
@@ -1664,6 +1763,11 @@ def adapt_custom_slides(
     _reset_hydrate_data_summary_for_tests()
     run_start = run_started_at or datetime.datetime.now(datetime.timezone.utc)
     data_summary = _build_data_summary(report)
+    use_explicit_qbr = bool(report.get(REPORT_KEY_EXPLICIT_QBR_MAPPINGS))
+    explicit_slide_type_by_page: dict[str, str] = {}
+    if use_explicit_qbr:
+        explicit_slide_type_by_page = build_adapt_page_slide_type_by_page_id(report, page_ids)
+        logger.debug("hydrate: QBR explicit mappings enabled (config/qbr_mappings.yaml); synonym phrase table skipped")
     t_adapt0 = time.perf_counter()
     stats = {
         "adapted": 0,
@@ -1672,55 +1776,43 @@ def adapt_custom_slides(
         "skipped": 0,
         "notes_only": 0,
         "summary_slide_added": False,
+        "qbr_mappings_bootstrap_elements": 0,
     }
 
     pres = slides_svc.presentations().get(presentationId=pres_id).execute()
     slides_by_id = {s["objectId"]: s for s in pres.get("slides", [])}
     ordered_ids = [s["objectId"] for s in pres.get("slides", [])]
+    if use_explicit_qbr and not QBR_MAPPINGS_DEFAULT_PATH.exists():
+        nb = bootstrap_qbr_mappings_from_slides(
+            slides_by_id, page_ids, ordered_ids, explicit_slide_type_by_page
+        )
+        stats["qbr_mappings_bootstrap_elements"] = nb
+        if nb:
+            invalidate_qbr_mappings_cache()
+    preflight_s = time.perf_counter() - t_adapt0
+    logger.debug(
+        "hydrate: adapt preflight %.2fs — text-only LLM input (no slide thumbnails); disk cache uses text snapshot",
+        preflight_s,
+    )
 
     # ── Phase A: parallel GPT reasoning ──────────────────────────────────────
-    # Fetch thumbnail URLs in parallel — each worker gets its own httplib2-backed
-    # Slides service so there is no shared mutable state.
-    thumb_urls: dict[str, str | None] = {}
-    if google_creds is not None and len(page_ids) > 1:
-        import threading as _thr
-        _thread_local = _thr.local()
-
-        def _thumb_worker(page_id: str) -> tuple[str, str | None]:
-            if not hasattr(_thread_local, "svc"):
-                _thread_local.svc = _build_slides_service_for_thread(google_creds)
-            try:
-                url = _get_slide_thumbnail_url(_thread_local.svc, pres_id, page_id)
-                return page_id, url
-            except Exception as e:
-                slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
-                logger.warning("hydrate: adapt slide %s thumbnail URL failed: %s", slide_num, e)
-                return page_id, None
-
-        logger.info("hydrate: fetching %d thumbnail URLs in parallel", len(page_ids))
-        with ThreadPoolExecutor(max_workers=min(4, len(page_ids))) as pool:
-            for page_id, url in pool.map(_thumb_worker, page_ids):
-                thumb_urls[page_id] = url
-    else:
-        for page_id in page_ids:
-            slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
-            logger.debug("hydrate: adapt slide %s — fetching thumbnail...", slide_num)
-            try:
-                thumb_urls[page_id] = _get_slide_thumbnail_url(slides_svc, pres_id, page_id)
-            except Exception as e:
-                logger.warning("hydrate: adapt slide %s thumbnail URL failed: %s", slide_num, e)
-                thumb_urls[page_id] = None
-
-    preflight_s = time.perf_counter() - t_adapt0
 
     def _fetch_and_reason(page_id: str) -> tuple[str, list[dict], list[dict], str, dict | None]:
         """Returns (page_id, text_elements, replacements, cache_source, analysis_or_none).
 
-        cache_source: analysis_hit | adapt_hit | llm | empty | error
-        analysis is included when in cache (for speaker-notes rebuild spec).
+        cache_source: analysis_hit | adapt_hit | llm | qbr_mappings_first | empty | error
+        analysis is included when in cache (for speaker-notes rebuild spec); explicit QBR
+        mapping-first returns analysis None.
         """
+        _sn = _hydrate_slide_number_for_extra_log(page_id, ordered_ids)
         slide = slides_by_id.get(page_id)
         if not slide:
+            if _hydrate_extra_log_slide(_sn):
+                logger.info(
+                    "hydrate extra slide %s phase=A skip (no slide object) page_id=%s",
+                    _sn,
+                    page_id,
+                )
             if matching_log.enabled():
                 sn = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
                 matching_log.emit(
@@ -1729,21 +1821,86 @@ def adapt_custom_slides(
             return page_id, [], [], "empty", None
         text_elements = _extract_slide_text_elements(slide.get("pageElements", []))
         if not text_elements:
+            if _hydrate_extra_log_slide(_sn):
+                logger.info(
+                    "hydrate extra slide %s phase=A skip (no text elements) page_id=%s",
+                    _sn,
+                    page_id,
+                )
             if matching_log.enabled():
                 sn = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
                 matching_log.emit("slide_skip", slide_ref=str(sn), reason="no_text_elements")
             return page_id, [], [], "empty", None
         slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
+        slide_type_for_explicit = explicit_slide_type_by_page.get(page_id) if use_explicit_qbr else None
+        if _hydrate_extra_log_slide(slide_num):
+            logger.info(
+                "hydrate extra slide %s phase=A start page_id=%s use_explicit_qbr=%s "
+                "slide_type=%r text_elements=%d",
+                slide_num,
+                page_id,
+                use_explicit_qbr,
+                slide_type_for_explicit,
+                len(text_elements),
+            )
+            logger.info(
+                "hydrate extra slide %s phase=A text_preview: %s",
+                slide_num,
+                _hydrate_extra_te_preview(text_elements),
+            )
+
+        if use_explicit_qbr:
+            sn = slide_num if isinstance(slide_num, int) else None
+            replacements = build_mapping_first_qbr_replacements(
+                text_elements,
+                data_summary,
+                slide_type=slide_type_for_explicit or None,
+                slide_ref=str(slide_num),
+                slide_number=sn,
+            )
+            replacements = _sanitize_adapt_replacements_plausible_years(
+                replacements, slide_ref=str(slide_num)
+            )
+            replacements = _sanitize_adapt_replacements_percent_semantics(
+                replacements, text_elements, slide_ref=str(slide_num)
+            )
+            replacements = _ensure_charts_and_images_marked(text_elements, replacements)
+            _log_slide_pipeline_done(str(slide_num), "qbr_mappings_first", replacements)
+            if _hydrate_extra_log_slide(slide_num):
+                logger.info(
+                    "hydrate extra slide %s phase=A done source=qbr_mappings_first rows=%d\n%s",
+                    slide_num,
+                    len(replacements),
+                    _hydrate_extra_repl_preview(replacements),
+                )
+            return page_id, text_elements, replacements, "qbr_mappings_first", None
+
+        def _post_llm_mapping(repls: list[dict]) -> list[dict]:
+            if use_explicit_qbr:
+                sn = slide_num if isinstance(slide_num, int) else None
+                return apply_explicit_qbr_mappings(
+                    repls,
+                    text_elements,
+                    data_summary,
+                    slide_type=slide_type_for_explicit or None,
+                    slide_ref=str(slide_num),
+                    slide_number=sn,
+                )
+            return apply_synonym_resolution_to_replacements(
+                repls, text_elements, data_summary, slide_ref=str(slide_num)
+            )
+
         extra_agenda = _qbr_agenda_adapt_extra_rules(report, text_elements)
-        url = thumb_urls.get(page_id)
-        thumb_b64 = None
-        if url:
-            try:
-                thumb_b64 = _download_thumbnail_b64(url)
-            except Exception:
-                pass
-        slide_cache_key = _slide_content_hash(thumb_b64, page_id=page_id) if thumb_b64 else None
-        adapt_cache_key = _adapt_cache_key(thumb_b64, page_id, data_summary) if thumb_b64 else None
+        text_snapshot = _slide_text_snapshot_for_adapt_cache(text_elements)
+        slide_cache_key = (
+            _slide_content_hash(None, text_snapshot, page_id=page_id) if text_snapshot else None
+        )
+        adapt_cache_key = (
+            _adapt_cache_key(None, page_id, data_summary, text_snapshot=text_snapshot)
+            if text_snapshot
+            else None
+        )
+        thumb_b64: str | None = None
         analysis: dict | None = None
         if slide_cache_key:
             analysis = _get_cached_slide_analysis(slide_cache_key)
@@ -1756,9 +1913,7 @@ def adapt_custom_slides(
                     text_elements,
                     slide_ref=str(slide_num),
                 )
-                replacements = apply_synonym_resolution_to_replacements(
-                    replacements, text_elements, data_summary, slide_ref=str(slide_num)
-                )
+                replacements = _post_llm_mapping(replacements)
                 replacements = _sanitize_adapt_replacements_plausible_years(
                     replacements, slide_ref=str(slide_num)
                 )
@@ -1767,6 +1922,15 @@ def adapt_custom_slides(
                 )
                 replacements = _ensure_charts_and_images_marked(text_elements, replacements)
                 _log_slide_pipeline_done(str(slide_num), "analysis_hit", replacements)
+                if _hydrate_extra_log_slide(slide_num):
+                    logger.info(
+                        "hydrate extra slide %s phase=A done source=analysis_hit rows=%d "
+                        "analysis_keys=%s\n%s",
+                        slide_num,
+                        len(replacements),
+                        sorted((analysis or {}).keys())[:30],
+                        _hydrate_extra_repl_preview(replacements),
+                    )
                 return page_id, text_elements, replacements, "analysis_hit", analysis
             if adapt_cache_key is not None and not (extra_agenda or "").strip():
                 cached = _get_cached_adapt(adapt_cache_key)
@@ -1777,9 +1941,7 @@ def adapt_custom_slides(
                 replacements = _resolve_cached_replacements(
                     cached, data_summary, slide_ref=str(slide_num)
                 )
-                replacements = apply_synonym_resolution_to_replacements(
-                    replacements, text_elements, data_summary, slide_ref=str(slide_num)
-                )
+                replacements = _post_llm_mapping(replacements)
                 replacements = _sanitize_adapt_replacements_plausible_years(
                     replacements, slide_ref=str(slide_num)
                 )
@@ -1788,6 +1950,15 @@ def adapt_custom_slides(
                 )
                 replacements = _ensure_charts_and_images_marked(text_elements, replacements)
                 _log_slide_pipeline_done(str(slide_num), "adapt_hit", replacements)
+                if _hydrate_extra_log_slide(slide_num):
+                    logger.info(
+                        "hydrate extra slide %s phase=A done source=adapt_hit rows=%d "
+                        "analysis_keys=%s\n%s",
+                        slide_num,
+                        len(replacements),
+                        sorted((analysis or {}).keys())[:30] if analysis else [],
+                        _hydrate_extra_repl_preview(replacements),
+                    )
                 return page_id, text_elements, replacements, "adapt_hit", analysis
         n_total = len(text_elements)
         n_data = sum(1 for el in text_elements if _element_may_contain_data(el))
@@ -1801,9 +1972,7 @@ def adapt_custom_slides(
             slide_label=str(slide_num),
             extra_system_rules=extra_agenda,
         )
-        replacements = apply_synonym_resolution_to_replacements(
-            replacements, text_elements, data_summary, slide_ref=str(slide_num)
-        )
+        replacements = _post_llm_mapping(replacements)
         replacements = _sanitize_adapt_replacements_plausible_years(
             replacements, slide_ref=str(slide_num)
         )
@@ -1816,6 +1985,14 @@ def adapt_custom_slides(
         if slide_cache_key and not analysis:
             analysis = _get_cached_slide_analysis(slide_cache_key)
         _log_slide_pipeline_done(str(slide_num), "llm", replacements)
+        if _hydrate_extra_log_slide(slide_num):
+            logger.info(
+                "hydrate extra slide %s phase=A done source=llm rows=%d analysis_keys=%s\n%s",
+                slide_num,
+                len(replacements),
+                sorted((analysis or {}).keys())[:30] if analysis else [],
+                _hydrate_extra_repl_preview(replacements),
+            )
         return page_id, text_elements, replacements, "llm", analysis
 
     results: dict[str, tuple[list[dict], list[dict], dict | None]] = {}
@@ -1841,8 +2018,22 @@ def adapt_custom_slides(
     t_b0 = time.perf_counter()
     for page_id in page_ids:
         text_elements, replacements, analysis = results.get(page_id, ([], [], None))
-        replacements = _merge_qbr_agenda_title_replacements(text_elements, replacements, report)
         slide_num = ordered_ids.index(page_id) + 1 if page_id in ordered_ids else "?"
+        if _hydrate_extra_log_slide(slide_num):
+            logger.info(
+                "hydrate extra slide %s phase=B entry page_id=%s pre_merge rows=%d",
+                slide_num,
+                page_id,
+                len(replacements),
+            )
+        replacements = _merge_qbr_agenda_title_replacements(text_elements, replacements, report)
+        if _hydrate_extra_log_slide(slide_num):
+            logger.info(
+                "hydrate extra slide %s phase=B after qbr agenda merge rows=%d\n%s",
+                slide_num,
+                len(replacements),
+                _hydrate_extra_repl_preview(replacements),
+            )
 
         if not text_elements:
             stats["skipped"] += 1
@@ -1876,6 +2067,16 @@ def adapt_custom_slides(
         replace_reqs, has_unmapped, has_static_images = _apply_adaptations(
             slides_svc, pres_id, page_id, replacements
         )
+        if _hydrate_extra_log_slide(slide_num):
+            logger.info(
+                "hydrate extra slide %s phase=B replaceAllText batch size=%d has_unmapped=%s "
+                "has_static_images=%s\n%s",
+                slide_num,
+                len(replace_reqs),
+                has_unmapped,
+                has_static_images,
+                _hydrate_extra_replace_reqs_preview(replace_reqs),
+            )
         if has_static_images:
             _print(f"      ↳ contains static image(s) with data")
         if replace_reqs:
@@ -1930,6 +2131,13 @@ def adapt_custom_slides(
         else:
             stats["clean"] += 1
 
+        if _hydrate_extra_log_slide(slide_num):
+            logger.info(
+                "hydrate extra slide %s phase=B speaker_notes queued (incomplete=%s static_images=%s)",
+                slide_num,
+                has_unmapped,
+                has_static_images,
+            )
         stats["adapted"] += 1
         notes_updates.append(
             (
@@ -1953,7 +2161,7 @@ def adapt_custom_slides(
     t_n0 = time.perf_counter()
     if notes_updates:
         n = set_speaker_notes_batch(slides_svc, pres_id, notes_updates)
-        logger.info("hydrate: wrote speaker notes for %d/%d slides in single batchUpdate", n, len(notes_updates))
+        logger.debug("hydrate: wrote speaker notes for %d/%d slides in single batchUpdate", n, len(notes_updates))
     speaker_notes_s = time.perf_counter() - t_n0
 
     t_tail0 = time.perf_counter()
@@ -2065,37 +2273,59 @@ def adapt_custom_slides(
         "error": err_n,
         "total_slides": n_pages,
     }
-    if n_pages:
-        logger.info(
-            "hydrate: adapt cache summary — %s | analysis_hit=%d adapt_hit=%d llm=%d empty=%d error=%d",
-            _cache_hit_rate_line("served_from_cache", cache_served, n_pages),
-            ah, adh, llm_n, empty_n, err_n,
-        )
     tail_s = time.perf_counter() - t_tail0
     total_adapt_s = time.perf_counter() - t_adapt0
     stats["timing"] = {
-        "preflight_pres_and_thumb_urls_s": round(preflight_s, 3),
+        "preflight_pres_read_s": round(preflight_s, 3),
         "phase_a_parallel_gpt_s": round(phase_a_s, 3),
         "phase_b_sequential_slides_api_s": round(phase_b_slides_s, 3),
         "speaker_notes_batch_s": round(speaker_notes_s, 3),
         "tail_summary_slide_and_stats_s": round(tail_s, 3),
         "total_adapt_s": round(total_adapt_s, 3),
     }
-    _den = max(total_adapt_s, 0.01)
     logger.info(
-        "hydrate: adapt wall time — total=%.1fs (preflight=%.1fs, phase_A_parallel_gpt=%.1fs, "
-        "phase_B_slides=%.1fs, speaker_notes=%.1fs, tail_summary+stats=%.1fs) — as %% of total: %s",
+        "hydrate: adapt timing %.1fs (A=%.1fs B=%.1fs notes=%.1fs) — cache %s",
         total_adapt_s,
-        preflight_s,
         phase_a_s,
         phase_b_slides_s,
         speaker_notes_s,
-        tail_s,
-        "/".join(
-            f"{(x / _den) * 100.0:.0f}%"
-            for x in (preflight_s, phase_a_s, phase_b_slides_s, speaker_notes_s, tail_s)
-        ),
+        _cache_hit_rate_line("served_from_cache", cache_served, n_pages) if n_pages else "n/a",
     )
+
+    if use_explicit_qbr:
+        stats["qbr_mappings_sources_appended"] = 0
+        if qbr_mappings_disk_write_enabled():
+            discoveries: list[dict[str, Any]] = []
+            for page_id in page_ids:
+                if page_id not in ordered_ids:
+                    continue
+                sn = ordered_ids.index(page_id) + 1
+                _te, reps, _an = results.get(page_id, ([], [], None))
+                sid_raw = (explicit_slide_type_by_page.get(page_id) or "").strip() or None
+                for r in reps or []:
+                    if str(r.get("field") or "").lower() in ("chart", "image"):
+                        continue
+                    if r.get("mapped", False):
+                        continue
+                    orig = str(r.get("original") or "").strip()
+                    if not orig or len(orig) > 2000:
+                        continue
+                    if mapping_source_is_visual_only(orig, r.get("field")):
+                        continue
+                    for piece in expand_qbr_mapping_source_candidates(orig, field=r.get("field")):
+                        discoveries.append(
+                            {"slide_number": int(sn), "slide_id": sid_raw, "source": piece}
+                        )
+            if discoveries:
+                try:
+                    napp = merge_discovered_sources_into_qbr_mappings(discoveries)
+                except OSError as oe:
+                    logger.warning("qbr_mappings: auto-append to config failed — %s", oe)
+                    napp = 0
+                if napp:
+                    invalidate_qbr_mappings_cache()
+                stats["qbr_mappings_sources_appended"] = napp
+
     return stats
 
 
@@ -2185,7 +2415,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
         customer = customer_override or _detect_customer(pres_name, known_customers)
         if not customer:
             _print(f"  Could not detect customer from title. "
-                   f"Re-run with: decks --hydrate <customer>\n")
+                   f"Re-run with: cortex --hydrate <customer>\n")
             all_results.append({"name": pres_name, "error": "customer not detected"})
             continue
         _print(f"  Customer: {customer}")
@@ -2391,6 +2621,16 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
             {"id": sp["slide_type"], "slide_type": sp["slide_type"], "title": sp["title"]}
             for sp in slide_plan if sp["slide_type"] != "skip"
         ]
+        try:
+            from .deck_governance import attach_deck_governance
+
+            attach_deck_governance(
+                report,
+                report["_slide_plan"],
+                deck_id=str(report.get("_deck_id") or ""),
+            )
+        except Exception as exc:
+            logger.warning("hydrate: attach_deck_governance failed: %s", exc)
         # Phase 2: Delete slides classified as "skip", and rebuild the one purely-mechanical
         # slide type (data_quality — color-coded boxes, no editorial content).
         # All other slides are kept exactly as-is; their data values will be updated
@@ -2442,7 +2682,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
 
         # Execute
         url = f"https://docs.google.com/presentation/d/{pres_id}/edit"
-        logger.info("hydrate: phase 2 — built=%d rebuilt, kept=%d, skipped=%d",
+        logger.debug("hydrate: phase 2 — built=%d rebuilt, kept=%d, skipped=%d",
                     built, kept, skipped)
         if reqs:
             try:
@@ -2511,7 +2751,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
                     "notes, and adaptation attempts), but no slide body text was replaced — often normal for "
                     "mostly static or custom slides."
                 )
-                logger.info(
+                logger.debug(
                     "hydrate: Phase 3 applied 0 text replacements; report still used for notes / builders "
                     "where applicable (deck=%s)",
                     pres_name,
@@ -2531,7 +2771,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
                 "\n  Phase 3 (adapt): skipped — no slides marked for in-place data swap "
                 "(only title / qbr_cover / qbr_divider slides, or slide/plan length mismatch)."
             )
-            logger.info("hydrate: Phase 3 skipped — adapt_page_ids empty")
+            logger.debug("hydrate: Phase 3 skipped — adapt_page_ids empty")
 
         if HYDRATE_REMOVE_INTAKE_GROUP_PERMISSION and GOOGLE_HYDRATE_INTAKE_GROUP:
             n_perm = _remove_intake_group_permission_from_file(

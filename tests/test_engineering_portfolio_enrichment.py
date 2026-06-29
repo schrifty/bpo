@@ -1,5 +1,7 @@
 """engineering-portfolio deck must load Jira portfolio data when not pre-filled."""
 
+import pytest
+
 from src import deck_data_enrichment
 
 
@@ -12,13 +14,23 @@ class _FakePortfolioJira:
         return {"days": days, "sprint": {"name": "Unit Sprint"}, "in_flight_count": 0}
 
 
-def test_engineering_portfolio_enrichment_fetches_when_missing(monkeypatch):
-    fake = _FakePortfolioJira()
+def _patch_portfolio_loader(monkeypatch, fake: _FakePortfolioJira) -> None:
     monkeypatch.setattr("src.jira_client.get_shared_jira_client", lambda: fake)
+
+    def _load(*, days: int = 30) -> dict:
+        return fake.get_engineering_portfolio(days=days)
+
+    monkeypatch.setattr("src.engineering_portfolio_cache.load_or_fetch_engineering_portfolio", _load)
+
+
+@pytest.mark.parametrize("deck_id", ["engineering-portfolio", "implementations_review"])
+def test_engineering_portfolio_enrichment_fetches_when_missing(deck_id, monkeypatch):
+    fake = _FakePortfolioJira()
+    _patch_portfolio_loader(monkeypatch, fake)
 
     report: dict = {"customer": "Acme Corp", "days": 45}
     out, _ = deck_data_enrichment.enrich_deck_report_data(
-        "engineering-portfolio",
+        deck_id,
         report,
         [],
         "Acme Corp",
@@ -28,13 +40,14 @@ def test_engineering_portfolio_enrichment_fetches_when_missing(monkeypatch):
     assert out["eng_portfolio"]["days"] == 45
 
 
-def test_engineering_portfolio_enrichment_skips_when_prefilled(monkeypatch):
+@pytest.mark.parametrize("deck_id", ["engineering-portfolio", "implementations_review"])
+def test_engineering_portfolio_enrichment_skips_when_prefilled(deck_id, monkeypatch):
     fake = _FakePortfolioJira()
-    monkeypatch.setattr("src.jira_client.get_shared_jira_client", lambda: fake)
+    _patch_portfolio_loader(monkeypatch, fake)
 
     report: dict = {"eng_portfolio": {"prefilled": True}}
     out, _ = deck_data_enrichment.enrich_deck_report_data(
-        "engineering-portfolio",
+        deck_id,
         report,
         [],
         None,

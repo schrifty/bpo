@@ -25,7 +25,7 @@ from .speaker_notes import set_speaker_notes_batch
 
 
 def _get_deck_output_folder() -> str | None:
-    """Return the base QBR Generator folder ID for individual deck outputs."""
+    """Return the dated Output folder ID (same as QBR ``{ISO-date} - Output``)."""
     from .drive_config import get_deck_output_folder_id
 
     return get_deck_output_folder_id()
@@ -127,6 +127,7 @@ def add_slide(deck_id: str, slide_type: str, data: dict[str, Any]) -> dict[str, 
     }
     note_payload = dict(data)
     note_payload["_current_slide"] = note_entry
+    note_payload["_deck_id"] = deck_id
     notes = _build_slide_jql_speaker_notes(note_payload, note_entry)
     if note_ids:
         n = set_speaker_notes_batch(slides_service, deck_id, [(nid, notes) for nid in note_ids])

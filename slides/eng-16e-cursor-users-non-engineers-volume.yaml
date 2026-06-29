@@ -1,0 +1,15 @@
+id: cursor_users_non_engineers_volume
+type: standard
+order: 91
+title: Cursor AI User Volume — Non-Engineering
+slide_type: cursor_users_non_engineers_volume
+data_tools: []
+customers: all
+
+prompt: >
+  AI coding-assistant (Cursor) user-volume slide for non-engineering users in the
+  engineering portfolio deck, aimed at a VP of Engineering. Scope is Cursor users
+  outside Dev - * Atlassian engineering squads. Four KPI cards cover active users,
+  total tokens, top-user share, and top-3 share. Side-by-side highest- and
+  lowest-volume lists show token volume per user. Pairs with dedicated power-user
+  and light-usage model-mix chart slides for non-engineering adoption.

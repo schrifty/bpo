@@ -9,6 +9,13 @@ from googleapiclient.errors import HttpError
 
 from .config import logger
 from .slides_api import slides_presentations_batch_update
+from .speaker_notes_llm import enrich_speaker_notes_with_management_guidance
+
+# Slides with a canonical trace builder should not also merge every JQL under report[jira].
+_SLIDE_TYPES_SPEAKER_NOTES_CANONICAL_ONLY: frozenset[str] = frozenset({
+    "support_help_factory_start_buckets",
+    "support_help_monthly_operational",
+})
 
 __all__ = [
     "build_slide_jql_speaker_notes",
@@ -34,13 +41,13 @@ def collect_jql_soql_trace_entries(obj: Any) -> list[dict[str, str]]:
                 if isinstance(item, dict) and str(item.get("jql") or "").strip():
                     entries.append({
                         "description": str(item.get("description") or "Jira issue search").strip(),
-                        "source": "Jira",
+                        "source": "Atlassian Jira",
                         "query": str(item["jql"]).strip(),
                     })
                 elif isinstance(item, str) and item.strip():
                     entries.append({
                         "description": "Jira issue search",
-                        "source": "Jira",
+                        "source": "Atlassian Jira",
                         "query": item.strip(),
                     })
         soql_raw = obj.get("soql_queries")
@@ -140,7 +147,6 @@ def build_slide_jql_speaker_notes(
             ts,
             "",
             f"Slide: {slide_title}",
-            f"Slide type: {slide_type}",
         ]
 
         required_keys = data_requirements.get(slide_type, [])
@@ -164,7 +170,10 @@ def build_slide_jql_speaker_notes(
             executable = collect_jql_soql_trace_entries(report)
         executable = dedupe_data_trace_entries(executable)
 
-        entries = dedupe_data_trace_entries(pipeline + executable)
+        if canon_fn is not None and slide_type in _SLIDE_TYPES_SPEAKER_NOTES_CANONICAL_ONLY:
+            entries = dedupe_data_trace_entries(pipeline)
+        else:
+            entries = dedupe_data_trace_entries(pipeline + executable)
 
         if not entries:
             if slide_type in (
@@ -182,7 +191,12 @@ def build_slide_jql_speaker_notes(
                     "Platform Value & ROI Summary: CS Report / Pendo-backed metrics from the customer health report; "
                     "TOC rows follow the resolved deck slide plan."
                 )
-            return "\n".join(header)
+            base = "\n".join(header)
+            return enrich_speaker_notes_with_management_guidance(
+                base,
+                report=report,
+                entry=entry,
+            )
 
         header.append("")
         n = len(entries)
@@ -198,7 +212,12 @@ def build_slide_jql_speaker_notes(
                         header.append(f"  {p}")
             if i < n - 1:
                 header.append("")
-        return "\n".join(header)
+        base = "\n".join(header)
+        return enrich_speaker_notes_with_management_guidance(
+            base,
+            report=report,
+            entry=entry,
+        )
     finally:
         if prev_sn_entry is not None:
             report["_speaker_note_slide_entry"] = prev_sn_entry

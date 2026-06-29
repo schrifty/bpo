@@ -1,0 +1,16 @@
+id: implementations_review
+name: Implementations Review
+audience: Professional Services / Implementation leadership
+
+purpose: |
+  Org-wide snapshot of the Jira CUSTOMER (implementation) project: open workload by
+  status, aging, and assignee resolution trends. Pair with Engineering Portfolio
+  Review for LEAN engineering work; this deck is scoped to implementation escalations only.
+
+slides:
+  - slide: eng_portfolio_title
+    cover_title: "Implementations Review"
+  - slide: eng_jira_project
+    jira_project: CUSTOMER
+    title: "CUSTOMER — Implementation escalations"
+  - slide: data_quality

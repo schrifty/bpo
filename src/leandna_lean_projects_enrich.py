@@ -2,13 +2,30 @@
 
 Augments the report dict with project portfolio health and savings tracking.
 Called from qbr_template.py after CS Report load.
+
+**Payload shape**
+
+- ``all_projects`` — every project returned by ``GET /data/LeanProject`` for the
+  quarter window, each row a **shallow copy** of the API object plus stable
+  aliases (``savings_actual``, ``savings_target``, ``project_manager``,
+  ``sponsor_name``) for slides and legacy field names.
+- ``top_projects`` — same shape, limited to the top N by actual savings (for
+  tables); not a reduced field set.
+- ``project_savings`` — raw list from ``GET /data/LeanProject/{ids}/Savings`` for
+  the same top-N ids (not fetched for the full portfolio).
+- ``monthly_savings`` — derived rollup across ``project_savings`` only.
+
+**Still not loaded here** (separate API calls; add clients if needed): Tasks,
+Issues, Stage/History, taxonomy (Areas/Types/Categories), and **savings** for
+projects outside the top-N slice.
 """
 from __future__ import annotations
 
 from typing import Any
 from datetime import datetime, timezone
 
-from .config import logger, LEANDNA_DATA_API_BEARER_TOKEN
+from .config import logger
+from .leandna_data_api_http import leandna_data_api_credentials_configured
 from .leandna_lean_projects_client import (
     get_lean_projects,
     get_project_savings,
@@ -18,11 +35,27 @@ from .leandna_lean_projects_client import (
 )
 
 
+def _lean_project_row_for_report(p: dict[str, Any]) -> dict[str, Any]:
+    """Copy one Lean Project API object into the report without dropping fields.
+
+    Adds slide/legacy-friendly keys without removing nested API structures
+    (``projectManager``, ``sponsor``, ``customFieldValues``, etc.).
+    """
+    row: dict[str, Any] = dict(p)
+    row["savings_actual"] = float(p.get("totalActualSavingsForPeriod") or 0.0)
+    row["savings_target"] = float(p.get("totalTargetSavingsForPeriod") or 0.0)
+    pm = p.get("projectManager")
+    row["project_manager"] = pm.get("name") if isinstance(pm, dict) else None
+    sp = p.get("sponsor")
+    row["sponsor_name"] = sp.get("name") if isinstance(sp, dict) else None
+    return row
+
+
 def _resolve_customer_sites(customer: str) -> str | None:
     """Resolve customer name to LeanDNA site IDs (comma-separated).
     
     Args:
-        customer: BPO customer name.
+        customer: Cortex customer name.
     
     Returns:
         Comma-separated site IDs or None for all authorized sites.
@@ -94,8 +127,10 @@ def enrich_qbr_with_lean_projects(
     logger.info("LeanDNA Lean Projects enrichment: starting for customer=%s", customer)
     
     # Check if LeanDNA is configured
-    if not LEANDNA_DATA_API_BEARER_TOKEN:
-        logger.debug("LeanDNA Lean Projects skipped: LEANDNA_DATA_API_BEARER_TOKEN not set")
+    if not leandna_data_api_credentials_configured():
+        logger.debug(
+            "LeanDNA Lean Projects skipped: no LEANDNA_DATA_API_BEARER_TOKEN or LEANDNA_DATA_API_COOKIE",
+        )
         report.setdefault("leandna_lean_projects", {
             "enabled": False,
             "reason": "bearer_token_not_configured",
@@ -149,7 +184,10 @@ def enrich_qbr_with_lean_projects(
         
         # Aggregate monthly savings
         monthly = aggregate_monthly_savings(savings_data, months=3) if savings_data else []
-        
+
+        all_rows = [_lean_project_row_for_report(p) for p in projects]
+        top_rows = [_lean_project_row_for_report(p) for p in top_projects]
+
         # Build enrichment payload
         enrichment = {
             "enabled": True,
@@ -165,20 +203,10 @@ def enrich_qbr_with_lean_projects(
             "savings_achievement_pct": portfolio["savings_achievement_pct"],
             "best_practice_count": portfolio["best_practice_count"],
             "validated_results_count": portfolio["validated_results_count"],
-            "top_projects": [
-                {
-                    "id": p.get("id"),
-                    "name": p.get("name"),
-                    "stage": p.get("stage"),
-                    "state": p.get("state"),
-                    "savings_actual": p.get("totalActualSavingsForPeriod", 0.0),
-                    "savings_target": p.get("totalTargetSavingsForPeriod", 0.0),
-                    "is_best_practice": p.get("isBestPractice", False),
-                    "is_validated": p.get("isProjectResultsValidated", False),
-                    "project_manager": p.get("projectManager", {}).get("name"),
-                }
-                for p in top_projects
-            ],
+            "all_projects": all_rows,
+            "top_projects": top_rows,
+            "project_savings": savings_data,
+            "project_savings_project_ids": top_ids,
             "monthly_savings": monthly,
         }
         

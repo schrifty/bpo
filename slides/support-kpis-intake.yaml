@@ -1,0 +1,11 @@
+id: support_kpis_intake
+type: standard
+order: 10
+title: Intake
+slide_type: support_kpis_intake
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Weekly HELP tickets opened (trailing window), with top customers by opens in the subtitle band.

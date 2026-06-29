@@ -15,11 +15,8 @@ from typing import Any
 
 import requests
 
-from .config import (
-    logger,
-    LEANDNA_DATA_API_BASE_URL,
-    LEANDNA_DATA_API_BEARER_TOKEN,
-)
+from .config import logger
+from .leandna_data_api_request import data_api_base_url
 
 # Thread-safe in-memory cache
 _cache_lock = threading.Lock()
@@ -27,23 +24,15 @@ _projects_cache: dict[str, Any] = {}
 _savings_cache: dict[str, Any] = {}
 
 
-def _get_bearer_token() -> str:
-    """Return the LeanDNA API bearer token from config."""
-    token = LEANDNA_DATA_API_BEARER_TOKEN
-    if not token:
-        raise ValueError("LEANDNA_DATA_API_BEARER_TOKEN not configured in .env")
-    return token
-
-
 def _headers(sites: str | None = None) -> dict[str, str]:
     """Build request headers with auth and optional site filter."""
-    h = {
-        "Authorization": f"Bearer {_get_bearer_token()}",
-        "Content-Type": "application/json",
-    }
-    if sites:
-        h["RequestedSites"] = sites
-    return h
+    from .leandna_data_api_http import build_leandna_data_api_headers
+
+    return build_leandna_data_api_headers(
+        requested_sites=sites,
+        user_agent_suffix="leandna-lean-projects-client/1.0",
+        content_type_json=True,
+    )
 
 
 def _get_cache_key(sites: str | None, date_from: str | None, date_to: str | None) -> str:
@@ -153,7 +142,7 @@ def get_lean_projects(
             return cached
     
     # Fetch from API
-    url = f"{LEANDNA_DATA_API_BASE_URL}/data/LeanProject"
+    url = f"{data_api_base_url()}/data/LeanProject"
     params: dict[str, Any] = {}
     if date_from:
         params["dateFrom"] = date_from
@@ -219,7 +208,7 @@ def get_project_savings(
             return cached
     
     # Fetch from API
-    url = f"{LEANDNA_DATA_API_BASE_URL}/data/LeanProject/{','.join(project_ids)}/Savings"
+    url = f"{data_api_base_url()}/data/LeanProject/{','.join(project_ids)}/Savings"
     
     try:
         logger.info("LeanDNA Project Savings: fetching for %d projects", len(project_ids))
@@ -359,7 +348,7 @@ def check_reachable(sites: str | None = None) -> bool:
     Returns:
         True if API responds with 200 (or 401 if token is invalid).
     """
-    url = f"{LEANDNA_DATA_API_BASE_URL}/data/LeanProject"
+    url = f"{data_api_base_url()}/data/LeanProject"
     params = {"dateFrom": "2026-01-01", "dateTo": "2026-01-01"}  # minimal query
     
     try:

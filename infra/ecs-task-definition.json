@@ -1,0 +1,54 @@
+{
+  "family": "cortex-decks",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "2048",
+  "memory": "4096",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-ecs-execution",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-ecs-task",
+  "containerDefinitions": [
+    {
+      "name": "cortex-decks",
+      "image": "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/cortex-decks:latest",
+      "essential": true,
+      "entryPoint": ["/app/scripts/run_job.sh"],
+      "command": ["nightly-core"],
+      "environment": [
+        {"name": "CORTEX_SKIP_DOTENV", "value": "1"},
+        {"name": "CORTEX_CACHE_DIR", "value": "/var/cortex/cache"},
+        {"name": "CORTEX_LOG_FORMAT", "value": "json"},
+        {"name": "CORTEX_FAIL_ON_INTEGRATION_WARNINGS", "value": "0"},
+        {"name": "CORTEX_JOB_TIMEOUT_SECONDS", "value": "7200"},
+        {"name": "CORTEX_SECRETS_ARN", "value": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:cortex/prod/env"}
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/cortex/decks",
+          "awslogs-region": "REGION",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "mountPoints": [
+        {
+          "sourceVolume": "cortex-cache",
+          "containerPath": "/var/cortex/cache",
+          "readOnly": false
+        }
+      ]
+    }
+  ],
+  "volumes": [
+    {
+      "name": "cortex-cache",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "fs-REPLACE",
+        "transitEncryption": "ENABLED",
+        "authorizationConfig": {
+          "accessPointId": "fsap-REPLACE",
+          "iam": "ENABLED"
+        }
+      }
+    }
+  ]
+}

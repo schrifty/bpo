@@ -1,0 +1,12 @@
+id: eng_team_scorecard
+type: standard
+order: 80
+title: Development Team Scorecard
+slide_type: eng_team_scorecard
+data_tools: []
+customers: all
+
+prompt: >
+  Multi-team scorecard for the engineering portfolio deck. One row per scrum board:
+  latest closed sprint delivery %, story points delivered vs committed, and median
+  cycle time (days) for issues completed in the reporting window.

@@ -4,14 +4,15 @@
 id: cs_health_data_quality
 type: standard
 order: 99
-title: Data Quality
+title: Data Governance
 slide_type: data_quality
 data_tools: []
 customers: all
 
 prompt: |
-  Final slide in every deck. Shows the results of automated cross-source
-  validation checks. If all checks passed, display a reassuring green status.
-  If discrepancies were found, list them with severity, expected vs. actual
-  values, and data sources involved. This slide is always present — a clean
-  bill of health is itself valuable information.
+  Final slide in every deck. Data governance receipt for this run: which integrations
+  fed the deck (source pills), scope and filters, freshness, deck-scoped lineage
+  (JQL/SOQL/API paths where available), and known gaps (cross-source checks plus
+  integration warnings). Salesforce is system of record for customer inventory; Pendo,
+  Atlassian Jira/Teams, and Cursor enrich narrative. Always present — a clean bill of
+  health is itself valuable information.

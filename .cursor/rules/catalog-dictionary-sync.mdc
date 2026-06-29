@@ -1,0 +1,11 @@
+---
+description: Keep comprehensive catalog and data dictionary in sync
+alwaysApply: true
+---
+
+# Catalog/Dictionary Sync Rule
+
+- `config/comprehensive_data_element_list.json` is the canonical source of data elements.
+- `docs/DATA-GOVERNANCE/DATA_DICTIONARY.md` must mirror that catalog by source and path coverage.
+- Any change to one file requires updating the other in the same change.
+- Do not leave one file stale with missing or extra data elements relative to the other.

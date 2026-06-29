@@ -1,0 +1,15 @@
+id: cursor_efficiency_engineers
+type: standard
+order: 85.5
+title: Cursor - Most Efficient Engineers
+slide_type: cursor_efficiency_engineers
+data_tools: []
+customers: all
+
+prompt: >
+  AI coding-assistant (Cursor) efficiency ranking slide for the engineering portfolio deck,
+  aimed at a VP of Engineering. Ranks engineers by accepted lines per 1K tokens (Tab + agent
+  accepted lines vs. model-API token cost). Full-width horizontal bar ranking with optional
+  GitHub token↔commit correlation footnote when ai_productivity is loaded. Framed as an
+  efficiency signal, not a productivity ranking. Split from the output-vs-cost efficiency
+  slide; data comes from the Cursor Team Admin API over the last ~30 days.

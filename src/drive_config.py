@@ -26,6 +26,7 @@ The QBR Generator folder (``GOOGLE_QBR_GENERATOR_FOLDER_ID``) typically contains
 
 from __future__ import annotations
 
+import datetime
 import errno
 import io
 import threading
@@ -37,7 +38,7 @@ import yaml
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
-from .config import GOOGLE_QBR_GENERATOR_FOLDER_ID, logger
+from .config import GOOGLE_QBR_GENERATOR_FOLDER_ID, GOOGLE_QBR_OUTPUT_PARENT_ID, logger
 from .qa import qa
 
 _drive_service = None
@@ -52,8 +53,6 @@ _yaml_cache_lock = threading.Lock()
 _slide_def_id_cache: dict[str, dict[str, Any]] = {}
 _drive_yaml_duplicate_log_lock = threading.Lock()
 _drive_yaml_duplicate_signatures_warned: set[tuple[str, tuple[tuple[str, str, tuple[str, ...]], ...]]] = set()
-_deck_output_folder_cache: str | None = None
-
 # Set by ensure_drive_config_matches_repo (at most once per process).
 _drive_repo_sync_ran = False
 
@@ -61,9 +60,40 @@ _drive_repo_sync_ran = False
 _qbr_adapt_prompt_sync_ran = False
 
 # Same folder name as ``qbr_template.QBR_PROMPTS_SUBFOLDER`` (qbr_slide_list doc lives here).
+QBR_OUTPUT_SUBFOLDER = "Output"
 QBR_PROMPTS_FOLDER_NAME = "Prompts"
 ADAPT_SYSTEM_PROMPT_FILENAME = "adapt_system_prompt.yaml"
 _MIME_FOLDER = "application/vnd.google-apps.folder"
+_MIME_PRESENTATION = "application/vnd.google-apps.presentation"
+
+
+def resolve_qbr_template_presentation_id() -> str:
+    """Return the Drive **file id** for the canonical QBR Slides template.
+
+    Matches :func:`~src.qbr_template.resolve_qbr_template_and_manifest` template lookup without
+    loading the manifest Doc.
+
+    Resolution:
+        - Parent folder: ``GOOGLE_QBR_TEMPLATE_FOLDER_ID`` if set, else the QBR generator folder.
+        - File name: ``config.QBR_TEMPLATE_FILE_NAME``.
+
+    Raises:
+        RuntimeError: generator folder env not set (same as :func:`get_qbr_generator_folder_id_for_drive_config`).
+        FileNotFoundError: no Slides file with that exact name under the folder.
+
+    Note:
+        Callers **must not** mutate this file (e.g. append inventory slides); use a copy or ``--presentation``.
+    """
+    from .config import GOOGLE_QBR_TEMPLATE_FOLDER_ID, QBR_TEMPLATE_FILE_NAME
+
+    gen_id = get_qbr_generator_folder_id_for_drive_config()
+    folder = (GOOGLE_QBR_TEMPLATE_FOLDER_ID or "").strip() or gen_id
+    tid = find_file_in_folder(QBR_TEMPLATE_FILE_NAME, folder, _MIME_PRESENTATION)
+    if not tid:
+        raise FileNotFoundError(
+            f"QBR template Slides file not found: {QBR_TEMPLATE_FILE_NAME!r} under Drive folder id {folder}",
+        )
+    return tid
 
 
 def _get_drive():
@@ -146,7 +176,10 @@ def find_file_in_folder(
     parent_id: str,
     mime_type: str | None = None,
 ) -> str | None:
-    """Return the file id of the first non-trashed file with exact ``name`` under ``parent_id``."""
+    """Return newest (``modifiedTime``) non-trashed file id matching exact ``name`` under ``parent_id``.
+
+    Queries up to 25 matches — enough for accidental duplicate uploads of the same basename.
+    """
     esc = _drive_q_escape(name)
     q = f"name = '{esc}' and '{parent_id}' in parents and trashed = false"
     if mime_type:
@@ -157,9 +190,14 @@ def find_file_in_folder(
         try:
             with drive_api_lock:
                 drive = _get_drive()
-                results = drive.files().list(q=q, fields="files(id, name)", pageSize=5).execute()
+                results = drive.files().list(
+                    q=q, fields="files(id, name, modifiedTime)", pageSize=25
+                ).execute()
                 files = results.get("files", [])
-                return files[0]["id"] if files else None
+                if not files:
+                    return None
+                files.sort(key=lambda x: x.get("modifiedTime") or "", reverse=True)
+                return files[0]["id"]
         except Exception as e:
             if not _drive_transport_retryable(e) or attempt >= max_attempts - 1:
                 raise
@@ -218,15 +256,43 @@ def get_qbr_generator_folder_id_for_drive_config() -> str:
     return explicit
 
 
-def get_deck_output_folder_id() -> str | None:
-    """Return the base QBR Generator folder id for generated deck outputs."""
-    global _deck_output_folder_cache
+def get_qbr_output_root_folder_id() -> str | None:
+    """Return folder id for stable outputs under QBR ``Output`` (not the date-stamped subfolder).
+
+    Default: ``<QBR Generator>/Output``. When ``GOOGLE_QBR_OUTPUT_PARENT_ID`` is set, returns that id —
+    the same parent used for ``{ISO-date} - Output`` dated folders (siblings under ``Output``).
+    """
+    out_parent = (GOOGLE_QBR_OUTPUT_PARENT_ID or "").strip() or None
+    if out_parent:
+        return out_parent
     if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
+        logger.warning(
+            "QBR: GOOGLE_QBR_GENERATOR_FOLDER_ID not set — cannot resolve Output folder under generator",
+        )
         return None
-    if _deck_output_folder_cache:
-        return _deck_output_folder_cache
-    _deck_output_folder_cache = get_qbr_generator_folder_id_for_drive_config()
-    return _deck_output_folder_cache
+    gen = get_qbr_generator_folder_id_for_drive_config()
+    return _find_or_create_folder(QBR_OUTPUT_SUBFOLDER, gen)
+
+
+def get_qbr_output_folder_id() -> str | None:
+    """Return folder id for ``{ISO-date} - Output``, creating it if needed.
+
+    Default parent chain: ``<QBR Generator>/Output/``. Override with ``GOOGLE_QBR_OUTPUT_PARENT_ID``
+    (parent of the date-stamped folder only).
+    """
+    parent = get_qbr_output_root_folder_id()
+    if not parent:
+        return None
+    name = f"{datetime.date.today().isoformat()} - Output"
+    return _find_or_create_folder(name, parent)
+
+
+def get_deck_output_folder_id() -> str | None:
+    """Return dated folder under ``Output/`` for programmatic deck creation (Slides API copies).
+
+    Same path as the QBR dated Output folder: ``<generator>/Output/{ISO-date} - Output``, not the generator root.
+    """
+    return get_qbr_output_folder_id()
 
 
 def _get_config_folder_ids() -> tuple[str, str, str]:
@@ -294,17 +360,41 @@ def _dedupe_drive_yaml_files_by_name(
     return out
 
 
+def _list_drive_yaml_raw_paginated(folder_id: str) -> list[dict[str, Any]]:
+    """List every non-trashed YAML in a folder (including duplicate basenames). Paginated."""
+    from .network_utils import network_timeout
+
+    q = (
+        f"'{folder_id}' in parents and trashed = false "
+        "and (name contains '.yaml' or name contains '.yml')"
+    )
+    out: list[dict[str, Any]] = []
+    page_token: str | None = None
+    with network_timeout(120.0, "Drive folder listing (paginated)"):
+        while True:
+            with drive_api_lock:
+                drive = _get_drive()
+                req = (
+                    drive.files()
+                    .list(
+                        q=q,
+                        fields="nextPageToken, files(id, name, modifiedTime)",
+                        pageSize=1000,
+                        pageToken=page_token,
+                    )
+                )
+                results = req.execute()
+            out.extend(results.get("files", []))
+            page_token = results.get("nextPageToken")
+            if not page_token:
+                break
+    return out
+
+
 def _list_drive_files(folder_id: str) -> list[dict[str, Any]]:
     """List YAML files in a Drive folder. Returns one file per basename (newest if duplicates exist)."""
-    from .network_utils import network_timeout
-    
-    with network_timeout(30.0, "Drive folder listing"):
-        with drive_api_lock:
-            drive = _get_drive()
-            q = f"'{folder_id}' in parents and trashed = false and (name contains '.yaml' or name contains '.yml')"
-            results = drive.files().list(q=q, fields="files(id, name, modifiedTime)", pageSize=200).execute()
-            raw = results.get("files", [])
-        return _dedupe_drive_yaml_files_by_name(raw, folder_id=folder_id)
+    raw = _list_drive_yaml_raw_paginated(folder_id)
+    return _dedupe_drive_yaml_files_by_name(raw, folder_id=folder_id)
 
 
 def _read_drive_file(file_id: str) -> str:
@@ -339,6 +429,78 @@ def _upload_file(name: str, content: str, folder_id: str, file_id: str | None = 
         meta: dict[str, Any] = {"name": name, "parents": [folder_id]}
         f = drive.files().create(body=meta, media_body=media, fields="id").execute()
         return f["id"]
+
+
+def _ensure_upload_yaml(name: str, content: str, folder_id: str, *, file_id: str | None = None) -> str:
+    """Upload YAML without creating a same-named duplicate when an untrashed file already exists."""
+    if file_id:
+        return _upload_file(name, content, folder_id, file_id=file_id)
+    existing_id = find_file_in_folder(name, folder_id)
+    if existing_id:
+        return _upload_file(name, content, folder_id, file_id=existing_id)
+    return _upload_file(name, content, folder_id, file_id=None)
+
+
+def upload_text_file_to_drive_folder(
+    name: str,
+    content: str,
+    folder_id: str,
+    *,
+    mime_type: str = "text/markdown",
+    replace_existing: bool = True,
+) -> str:
+    """Create or replace a UTF-8 text file on Drive under ``folder_id``. Returns file id.
+
+    When ``replace_existing`` is True (default), updates the first non-trashed file with the
+    same ``name`` in that folder (any mime); otherwise creates a new file (duplicates allowed).
+    """
+    with drive_api_lock:
+        drive = _get_drive()
+        media = MediaIoBaseUpload(
+            io.BytesIO(content.encode("utf-8")),
+            mimetype=mime_type,
+            resumable=False,
+        )
+        fid: str | None = None
+        if replace_existing:
+            fid = find_file_in_folder(name, folder_id, mime_type=None)
+        if fid:
+            f = drive.files().update(fileId=fid, media_body=media).execute()
+            return f["id"]
+        meta: dict[str, Any] = {"name": name, "parents": [folder_id]}
+        f = drive.files().create(body=meta, media_body=media, fields="id").execute()
+        return f["id"]
+
+
+def upload_to_qbr_output_folders(
+    name: str,
+    content: str,
+    *,
+    mime_type: str = "text/markdown",
+) -> dict[str, str]:
+    """Upload to QBR ``Output/`` and today's ``{ISO-date} - Output/`` (replace same filename).
+
+    Same layout as LLM context export and dated deck outputs under the QBR Generator tree.
+    Raises ``RuntimeError`` when Drive output folders cannot be resolved.
+    """
+    root_id = get_qbr_output_root_folder_id()
+    dated_id = get_qbr_output_folder_id()
+    if not root_id or not dated_id:
+        raise RuntimeError(
+            "Could not resolve Drive Output folders (set GOOGLE_QBR_GENERATOR_FOLDER_ID "
+            "and verify Drive access)."
+        )
+    fid_root = upload_text_file_to_drive_folder(name, content, root_id, mime_type=mime_type)
+    fid_dated = upload_text_file_to_drive_folder(name, content, dated_id, mime_type=mime_type)
+    dated_label = f"{datetime.date.today().isoformat()} - Output"
+    return {
+        "filename": name,
+        "dated_label": dated_label,
+        "file_id_root": fid_root,
+        "file_id_dated": fid_dated,
+        "root_folder_id": root_id,
+        "dated_folder_id": dated_id,
+    }
 
 
 def _normalize_config_text(text: str) -> str:
@@ -498,13 +660,12 @@ def clear_yaml_config_cache() -> None:
 
 def reset_for_tests() -> None:
     """Reset Drive-backed module caches and one-shot sync guards for test isolation."""
-    global _drive_repo_sync_ran, _qbr_adapt_prompt_sync_ran, _deck_output_folder_cache
+    global _drive_repo_sync_ran, _qbr_adapt_prompt_sync_ran
     clear_yaml_config_cache()
     with _drive_yaml_duplicate_log_lock:
         _drive_yaml_duplicate_signatures_warned.clear()
     _drive_repo_sync_ran = False
     _qbr_adapt_prompt_sync_ran = False
-    _deck_output_folder_cache = None
 
 
 def list_obsolete_drive_config(
@@ -681,9 +842,16 @@ def sync_obsolete_drive_config(
                     stats["slides_updated"] += 1
                     stats["updated_slide_files"].append(name)
                 continue
-            if fid:
-                _upload_file(name, content, drive_folder, file_id=fid)
-                logger.info("Drive %s/%s overwritten from repo (was obsolete)", label, name)
+            fid_use = fid or find_file_in_folder(name, drive_folder)
+            if not fid_use:
+                logger.warning(
+                    "Drive %s/%s marked stale but no Drive file id resolved — skip overwrite",
+                    label,
+                    name,
+                )
+                continue
+            _upload_file(name, content, drive_folder, file_id=fid_use)
+            logger.debug("Drive %s/%s overwritten from repo (was obsolete)", label, name)
             if label == "decks":
                 stats["decks_updated"] += 1
                 stats["updated_deck_files"].append(name)
@@ -706,8 +874,12 @@ def sync_obsolete_drive_config(
                     stats["slides_uploaded_new"] += 1
                     stats["new_slide_files"].append(name)
                 continue
-            _upload_file(name, content, drive_folder, file_id=None)
-            logger.info("Drive %s/%s created from repo (was missing)", label, name)
+            _ensure_upload_yaml(name, content, drive_folder, file_id=None)
+            logger.debug(
+                "Drive %s/%s synced from repo (was missing — create or merge into existing name)",
+                label,
+                name,
+            )
             if label == "decks":
                 stats["decks_uploaded_new"] += 1
                 stats["new_deck_files"].append(name)
@@ -783,19 +955,9 @@ def ensure_drive_config_matches_repo() -> None:
                     stats["slides_uploaded_new"],
                 )
             else:
-                try:
-                    _, d_f, s_f = _get_config_folder_ids()
-                    logger.info(
-                        "Drive deck/slide YAML already matches repo (QBR Generator); "
-                        "no uploads. decks_folder_id=%s… slides_folder_id=%s…",
-                        (d_f or "")[:12],
-                        (s_f or "")[:12],
-                    )
-                except Exception:
-                    logger.info(
-                        "Drive deck/slide YAML already matches repo (QBR Generator); "
-                        "no uploads needed.",
-                    )
+                logger.debug(
+                    "Drive deck/slide YAML already matches repo (QBR Generator); no uploads needed.",
+                )
     except Exception as e:
         logger.warning("Drive QBR Generator deck|slide sync failed (continuing): %s", e)
     try:
@@ -836,7 +998,7 @@ def sync_config_to_drive(
                 continue
             content = f.read_text()
             fid = existing.get(f.name) if overwrite else None
-            _upload_file(f.name, content, drive_folder, file_id=fid)
+            _ensure_upload_yaml(f.name, content, drive_folder, file_id=fid)
             stats[f"{label}_uploaded"] += 1
             logger.debug("Uploaded %s/%s to Drive", label, f.name)
 
@@ -863,26 +1025,23 @@ def load_deck_yaml_from_drive(deck_id: str, local_dir: Path) -> dict[str, Any] |
     try:
         ensure_drive_config_matches_repo()
         _, d_folder, _s = _get_config_folder_ids()
-        for df in _list_drive_files(d_folder):
-            if df.get("name") == basename:
-                t_read = time.perf_counter()
-                try:
-                    text = _read_drive_file(df["id"])
-                    raw = yaml.safe_load(text)
-                    if isinstance(raw, dict) and raw.get("id") == deck_id:
-                        raw["_source"] = "drive"
-                        raw["_file"] = basename
-                        dt = time.perf_counter() - t_read
-                        logger.info(
-                            "Drive decks: single-file load %s in %.2fs (folder_id=%s…)",
-                            basename,
-                            dt,
-                            (d_folder or "")[:12],
-                        )
-                        return raw
-                except Exception as e:
-                    logger.debug("load_deck_yaml_from_drive: %s: %s", basename, e)
-                break
+        file_id = find_file_in_folder(basename, d_folder)
+        if not file_id:
+            return None
+        t_read = time.perf_counter()
+        text = _read_drive_file(file_id)
+        raw = yaml.safe_load(text)
+        if isinstance(raw, dict) and raw.get("id") == deck_id:
+            raw["_source"] = "drive"
+            raw["_file"] = basename
+            dt = time.perf_counter() - t_read
+            logger.info(
+                "Drive decks: single-file load %s in %.2fs (folder_id=%s…)",
+                basename,
+                dt,
+                (d_folder or "")[:12],
+            )
+            return raw
     except Exception as e:
         logger.debug("load_deck_yaml_from_drive: %s", e)
     return None
@@ -897,6 +1056,26 @@ def _register_slides_in_id_cache(items: list[dict[str, Any]]) -> None:
 
 def _ordered_slides_from_id_cache(only_slide_ids: set[str]) -> list[dict[str, Any]]:
     return [_slide_def_id_cache[i] for i in sorted(only_slide_ids)]
+
+
+def _slide_basenames_for_ids(local_dir: Path, only_slide_ids: set[str]) -> dict[str, str]:
+    """Map slide ``id`` → Drive/local YAML basename (e.g. ``support-kpis-intake.yaml``).
+
+    Uses the repo ``slides/`` tree so subset loads can ``get_media`` only those files
+    instead of downloading every YAML in the Drive folder until ids match.
+    """
+    if not only_slide_ids or not local_dir.is_dir():
+        return {}
+    out: dict[str, str] = {}
+    need = set(only_slide_ids)
+    for f in sorted(local_dir.glob("*.yaml")):
+        d = _load_single_local(f)
+        lid = str(d.get("id")) if d and d.get("id") is not None else ""
+        if lid in need:
+            out[lid] = f.name
+            if len(out) >= len(need):
+                break
+    return out
 
 
 def _filter_slides_to_ids(
@@ -946,8 +1125,7 @@ def load_yaml_from_drive(
     When ``only_slide_ids`` is set (``kind == "slides"`` only), loads only those
     slide definitions. The first such load walks Drive like before; later calls
     reuse a process-wide per-id cache (or a prior full ``slides`` list) so
-    multi-deck runs (main + companions) do not repeat a full folder walk for
-    every deck.
+    batched multi-deck runs do not repeat a full folder walk for every deck.
 
     Args:
         kind: "decks" or "slides"
@@ -1066,43 +1244,49 @@ def _load_yaml_from_drive_uncached(
     n_drive_files = len(drive_files)
     target_mode = only_slide_ids is not None and kind == "slides" and bool(only_slide_ids)
     found_ids: set[str] = set()
+    target_basenames: set[str] = set()
     if target_mode:
-        logger.info(
-            "Drive %s: need %d slide def(s) by id (subset load); up to %d file(s) in folder_id=%s…",
+        basename_by_id = _slide_basenames_for_ids(local_dir, only_slide_ids or set())
+        target_basenames = set(basename_by_id.values())
+        logger.debug(
+            "Drive %s: need %d slide def(s) by id (subset load); %d targeted file(s) from local index "
+            "(%d total in Drive folder_id=%s…)",
             kind,
             len(only_slide_ids or ()),
+            len(target_basenames),
             n_drive_files,
             (folder_id or "")[:12],
         )
+        if len(target_basenames) < len(only_slide_ids or ()):
+            missing_index = (only_slide_ids or set()) - set(basename_by_id.keys())
+            logger.debug(
+                "Drive %s: no local YAML for %d id(s) — will scan remaining Drive files if needed: %s",
+                kind,
+                len(missing_index),
+                ", ".join(sorted(missing_index)[:8])
+                + ("…" if len(missing_index) > 8 else ""),
+            )
     else:
-        logger.info(
-            "Drive %s: reading %d YAML file(s) from folder_id=%s… (per-file progress follows)",
+        logger.debug(
+            "Drive %s: reading %d YAML file(s) from folder_id=%s…",
             kind,
             n_drive_files,
             (folder_id or "")[:12],
         )
-    for i, df in enumerate(drive_files, 1):
-        if target_mode and only_slide_ids and found_ids >= only_slide_ids:
-            logger.info(
-                "Drive %s: subset load complete — have all %d id(s) after %d get_media (skipped %d remaining in folder)",
-                kind,
-                len(only_slide_ids),
-                i - 1,
-                n_drive_files - (i - 1),
-            )
-            break
+
+    def _consume_drive_file(df: dict[str, Any], *, pass_label: str) -> None:
+        nonlocal found_ids
         drive_names.add(df["name"])
-        logger.info("Drive %s: %d/%d %s — get_media starting …", kind, i, n_drive_files, df["name"])
+        logger.debug("Drive %s: %s — %s — get_media starting …", kind, pass_label, df["name"])
         t_read = time.perf_counter()
         try:
             text = _read_drive_file(df["id"])
             dt = time.perf_counter() - t_read
             if dt >= 1.0:
-                logger.info(
-                    "Drive %s: %d/%d %s — get_media done in %.2fs",
+                logger.debug(
+                    "Drive %s: %s — %s — get_media done in %.2fs",
                     kind,
-                    i,
-                    n_drive_files,
+                    pass_label,
                     df["name"],
                     dt,
                 )
@@ -1110,16 +1294,15 @@ def _load_yaml_from_drive_uncached(
             if not isinstance(parsed, dict):
                 raise ValueError(f"Expected mapping in {df['name']}")
             if "id" not in parsed:
-                # Non-slide YAML in slides/ (e.g. ``qbr-template-authoring-cues.yaml`` — no ``id`` by design).
                 logger.debug(
                     "Drive %s/%s has no top-level id — skipping (not a deck/slide definition)",
                     kind,
                     df["name"],
                 )
-                continue
+                return
             sid = str(parsed["id"])
             if target_mode and only_slide_ids and sid not in only_slide_ids:
-                continue
+                return
             parsed["_source"] = "drive"
             parsed["_file"] = df["name"]
             results.append(parsed)
@@ -1148,6 +1331,54 @@ def _load_yaml_from_drive_uncached(
                 results.append(local)
                 if target_mode and only_slide_ids and local.get("id"):
                     found_ids.add(str(local["id"]))
+
+    n_fetched = 0
+    if target_mode and target_basenames:
+        for df in drive_files:
+            if found_ids >= (only_slide_ids or set()):
+                break
+            if df["name"] not in target_basenames:
+                continue
+            n_fetched += 1
+            _consume_drive_file(df, pass_label=f"targeted {n_fetched}/{len(target_basenames)}")
+        if found_ids >= (only_slide_ids or set()):
+            logger.debug(
+                "Drive %s: subset load complete — %d targeted get_media (%d id(s); %d other Drive files skipped)",
+                kind,
+                n_fetched,
+                len(only_slide_ids or ()),
+                n_drive_files - n_fetched,
+            )
+    elif not target_mode:
+        for i, df in enumerate(drive_files, 1):
+            _consume_drive_file(df, pass_label=f"{i}/{n_drive_files}")
+
+    if target_mode and only_slide_ids and found_ids < (only_slide_ids or set()):
+        still_need = (only_slide_ids or set()) - found_ids
+        unindexed = still_need - set(basename_by_id.keys())
+        if unindexed:
+            logger.debug(
+                "Drive %s: %d id(s) still missing after targeted fetch — scanning other Drive YAMLs "
+                "(no local file for: %s)",
+                kind,
+                len(still_need),
+                ", ".join(sorted(unindexed)[:8]) + ("…" if len(unindexed) > 8 else ""),
+            )
+            scanned = 0
+            for df in drive_files:
+                if found_ids >= (only_slide_ids or set()):
+                    break
+                if df["name"] in drive_names:
+                    continue
+                scanned += 1
+                _consume_drive_file(df, pass_label=f"fallback scan {scanned}")
+        else:
+            logger.debug(
+                "Drive %s: %d id(s) not on Drive yet — will use local repo copies (%s)",
+                kind,
+                len(still_need),
+                ", ".join(sorted(still_need)[:8]) + ("…" if len(still_need) > 8 else ""),
+            )
 
     if target_mode and only_slide_ids:
         missing = (only_slide_ids or set()) - {str(r.get("id")) for r in results if r.get("id")}

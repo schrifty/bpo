@@ -1,27 +1,26 @@
 """Google Drive cache for the Pendo portfolio crawl (cohort / portfolio decks).
 
-**Wall clock:** Skipping ``get_portfolio_report`` saves Pendo/API time, but QBR bundle runs
-several single-customer companion Slides decks *before* portfolio and cohort. Those decks usually take longer than the
-portfolio crawl, and the crawl previously ran *in parallel* with them—so end-to-end
-bundle time may barely change until Slides work shrinks (or you tune
-``BPO_SLIDES_WRITE_INTERVAL_SEC`` / chunk size). The filename **must** match the QBR
-``days`` value (quarter length), e.g. ``decks --upload-portfolio-snapshot`` with no
-``--days`` uses ``resolve_quarter().days``.
+**Wall clock:** Snapshot refresh overlaps with deck generation pipelines that reuse the crawl;
+Slides-side work usually dominates elapsed time unless you tune
+``CORTEX_SLIDES_WRITE_INTERVAL_SEC`` / chunk size.
+The cached filename **must** match the QBR ``days`` value (quarter length), e.g.
+``cortex --upload-portfolio-snapshot`` with no ``--days`` uses ``resolve_quarter().days``.
 
 Snapshot folder resolution:
-  1. ``BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID`` if set — explicit Drive folder id.
+  1. ``CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID`` if set — explicit Drive folder id.
   2. Else subfolder ``Cache`` under ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` (created if missing).
 
 Other env (see ``config``):
-  BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ — IANA zone for weekend/weekday (Sat/Sun refresh) and calendar logic.
+  CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ — IANA zone for weekend/weekday (Sat/Sun refresh) and calendar logic.
 
 Cache age policy is fixed in code: 7d fresh, 14d max weekday stale reuse, Drive writes for large JSON on weekends
 (see module constants ``DRIVE_CACHE_*``).
 
-Also stores ``data_field_synonyms.json`` and ``pendo_preload_v1_*.json`` slice caches in the same folder.
-Synonyms: repo is pushed on first load per process; hydrate reads Drive first with local fallback.
+Also stores ``integration_*_v1_*.json`` (Jira/JSM support deck, engineering portfolio,
+Salesforce comprehensive) in the same folder.
+Hydrate phrase catalog lives in the repo at ``config/comprehensive_data_element_list.json`` (``entries[].terms``; not in this Drive folder).
 If you previously used the folder name ``Portfolio cache``, rename it to ``Cache`` in Drive or set
-``BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID`` to the old folder so existing files remain visible.
+``CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID`` to the old folder so existing files remain visible.
 """
 
 from __future__ import annotations
@@ -40,26 +39,23 @@ from zoneinfo import ZoneInfo
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 from .config import (
-    BPO_PENDO_CACHE_TTL_SECONDS,
-    BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
-    BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID,
+    CORTEX_PENDO_CACHE_TTL_SECONDS,
+    CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
+    CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID,
     GOOGLE_QBR_GENERATOR_FOLDER_ID,
     logger,
 )
 from .drive_config import (
     _find_or_create_folder,
     _get_drive,
-    config_text_matches_local,
     drive_api_lock,
     find_file_in_folder,
 )
-from .qa import qa
 
 PORTFOLIO_SNAPSHOT_SCHEMA_VERSION = 1
 _SNAPSHOT_PREFIX = f"portfolio_snapshot_v{PORTFOLIO_SNAPSHOT_SCHEMA_VERSION}"
-# Subfolder under GOOGLE_QBR_GENERATOR_FOLDER_ID when BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID is unset.
+# Subfolder under GOOGLE_QBR_GENERATOR_FOLDER_ID when CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID is unset.
 PORTFOLIO_SNAPSHOT_CACHE_FOLDER_NAME = "Cache"
-DATA_FIELD_SYNONYMS_FILENAME = "data_field_synonyms.json"
 
 # Drive JSON cache policy (fixed; no env toggles): 7d fresh, 14d weekday stale cap, weekend refresh.
 DRIVE_CACHE_MAX_FRESH_AGE_HOURS = 168.0
@@ -99,7 +95,7 @@ def _drive_io_transient(e: BaseException) -> bool:
 
 def resolve_portfolio_snapshot_folder_id() -> str | None:
     """Return Drive folder id for JSON snapshots, or None if not configured."""
-    explicit = (BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID or "").strip()
+    explicit = (CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID or "").strip()
     if explicit:
         return explicit
     global _resolved_generator_cache_folder_id
@@ -236,7 +232,7 @@ def _read_drive_file_text(file_id: str) -> str:
                             pct = f" ~{int(float(prog) * 100)}%"
                     except (TypeError, ValueError, AttributeError):
                         pass
-                logger.info(
+                logger.debug(
                     "Drive get_media progress: file=%s chunk=%s bytes=%s%s%s",
                     fid_short,
                     chunk_n,
@@ -264,143 +260,29 @@ def _read_drive_file_text_retrying(file_id: str, *, attempts: int = 6) -> str:
     raise AssertionError(last)  # pragma: no cover
 
 
-_data_field_synonyms_sync_ran = False
-
-
 def local_data_field_synonyms_path() -> Path:
-    """Repo path to ``config/data_field_synonyms.json``."""
-    return Path(__file__).resolve().parent.parent / "config" / DATA_FIELD_SYNONYMS_FILENAME
-
-
-def ensure_data_field_synonyms_repo_on_drive() -> None:
-    """Once per process: ensure QBR Cache folder has the repo copy of ``data_field_synonyms.json``.
-
-    Same idea as ``ensure_drive_config_matches_repo`` for YAML: local repo wins when content
-    differs or the Drive file is missing. No-op when snapshot folder is not configured.
-    """
-    global _data_field_synonyms_sync_ran
-    if _data_field_synonyms_sync_ran:
-        return
-    _data_field_synonyms_sync_ran = True
-    folder_id = resolve_portfolio_snapshot_folder_id()
-    if not folder_id:
-        logger.debug("data_field_synonyms: no QBR cache folder — skip Drive sync")
-        return
-    local_path = local_data_field_synonyms_path()
-    if not local_path.is_file():
-        logger.debug("data_field_synonyms: local file missing %s — skip Drive sync", local_path)
-        return
-    try:
-        local_text = local_path.read_text(encoding="utf-8")
-    except OSError as e:
-        logger.warning("data_field_synonyms: cannot read local file: %s", e)
-        return
-    try:
-        fid = find_file_in_folder(DATA_FIELD_SYNONYMS_FILENAME, folder_id, mime_type=None)
-        if not fid:
-            _upload_data_field_synonyms_bytes(local_text.encode("utf-8"), folder_id, file_id=None)
-            logger.info(
-                "data_field_synonyms: uploaded %r to QBR cache folder",
-                DATA_FIELD_SYNONYMS_FILENAME,
-            )
-            return
-        drive_text = _read_drive_file_text_retrying(fid)
-        if config_text_matches_local(local_text, drive_text):
-            logger.debug("data_field_synonyms: Drive copy matches repo — no upload")
-            return
-        _upload_data_field_synonyms_bytes(local_text.encode("utf-8"), folder_id, file_id=fid)
-        logger.info(
-            "data_field_synonyms: replaced Drive copy from repo (%s)",
-            DATA_FIELD_SYNONYMS_FILENAME,
-        )
-    except Exception as e:
-        logger.warning("data_field_synonyms: Drive sync failed (continuing): %s", e)
-
-
-def _upload_data_field_synonyms_bytes(
-    payload: bytes,
-    folder_id: str,
-    *,
-    file_id: str | None,
-) -> str:
-    from .network_utils import network_timeout
-    
-    with drive_api_lock:
-        drive = _get_drive()
-        media = MediaIoBaseUpload(io.BytesIO(payload), mimetype="application/json")
-        if file_id:
-            with network_timeout(30.0, "Drive file update"):
-                f = drive.files().update(fileId=file_id, media_body=media, fields="id").execute()
-            return str(f["id"])
-        meta: dict[str, Any] = {"name": DATA_FIELD_SYNONYMS_FILENAME, "parents": [folder_id]}
-        with network_timeout(30.0, "Drive file creation"):
-            f = drive.files().create(body=meta, media_body=media, fields="id").execute()
-        return str(f["id"])
+    """Repo path to the hydrate phrase catalog: ``config/comprehensive_data_element_list.json``."""
+    return Path(__file__).resolve().parent.parent / "config" / "comprehensive_data_element_list.json"
 
 
 def load_data_field_synonyms_document(*, allow_drive: bool = True) -> tuple[dict[str, Any], str]:
-    """Load synonym JSON. After a one-time repo→Drive sync when configured, prefer Drive.
+    """Load hydrate phrase catalog from ``config/comprehensive_data_element_list.json`` (repo only).
 
-    Returns ``(data, source)`` where *source* is ``"drive"``, ``"local"``, or ``"missing"``.
+    *allow_drive* is retained for call-site compatibility; the catalog is not read from Drive.
+
+    Returns ``(data, source)`` where *source* is ``"local"`` or ``"missing"``.
     """
+    _ = allow_drive  # Drive Cache folder is for portfolio/preload JSON only.
     local_path = local_data_field_synonyms_path()
-    if allow_drive:
-        ensure_data_field_synonyms_repo_on_drive()
 
-    def _load_local() -> dict[str, Any] | None:
-        if not local_path.is_file():
-            return None
-        try:
-            raw = json.loads(local_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return None
-        return raw if isinstance(raw, dict) else None
-
-    if allow_drive:
-        folder_id = resolve_portfolio_snapshot_folder_id()
-        if folder_id:
-            try:
-                fid = find_file_in_folder(DATA_FIELD_SYNONYMS_FILENAME, folder_id, mime_type=None)
-                if fid:
-                    text = _read_drive_file_text_retrying(fid)
-                    try:
-                        data = json.loads(text)
-                    except json.JSONDecodeError as e:
-                        logger.warning(
-                            "data_field_synonyms: Drive JSON invalid — %s; using local",
-                            e,
-                        )
-                        qa.flag(
-                            f"Drive {DATA_FIELD_SYNONYMS_FILENAME} parse error — using local",
-                            expected="valid JSON",
-                            actual=str(e)[:120],
-                            sources=(f"Cache/{DATA_FIELD_SYNONYMS_FILENAME}", str(local_path)),
-                            internal=True,
-                            severity="error",
-                        )
-                        loc = _load_local()
-                        return (loc or {}, "local" if loc else "missing")
-                    if isinstance(data, dict) and isinstance(data.get("entries"), list):
-                        return data, "drive"
-                    logger.warning(
-                        "data_field_synonyms: Drive document missing entries list — using local",
-                    )
-                    qa.flag(
-                        f"Drive {DATA_FIELD_SYNONYMS_FILENAME} invalid shape — using local",
-                        expected="object with entries[]",
-                        actual=type(data).__name__,
-                        sources=(f"Cache/{DATA_FIELD_SYNONYMS_FILENAME}", str(local_path)),
-                        internal=True,
-                        severity="error",
-                    )
-                    loc_bad = _load_local()
-                    return (loc_bad or {}, "local" if loc_bad else "missing")
-            except Exception as e:
-                logger.warning("data_field_synonyms: Drive load failed — %s; using local", e)
-
-    loc = _load_local()
-    if loc is not None:
-        return loc, "local"
+    if not local_path.is_file():
+        return {}, "missing"
+    try:
+        raw = json.loads(local_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}, "missing"
+    if isinstance(raw, dict):
+        return raw, "local"
     return {}, "missing"
 
 
@@ -411,13 +293,13 @@ def try_load_portfolio_snapshot_for_request(
     max_age_hours: float | None = None,
 ) -> dict[str, Any] | None:
     """Load a fresh portfolio snapshot from Drive if configured and valid; else None."""
-    if BPO_PENDO_CACHE_TTL_SECONDS <= 0:
-        logger.info("Portfolio snapshot: bypass Drive read (Pendo cache disabled)")
+    if CORTEX_PENDO_CACHE_TTL_SECONDS <= 0:
+        logger.debug("Portfolio snapshot: bypass Drive read (Pendo cache disabled)")
         return None
     folder_id = resolve_portfolio_snapshot_folder_id()
     if not folder_id:
         logger.debug(
-            "Portfolio snapshot: no folder (set GOOGLE_QBR_GENERATOR_FOLDER_ID or BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID)"
+            "Portfolio snapshot: no folder (set GOOGLE_QBR_GENERATOR_FOLDER_ID or CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID)"
         )
         return None
 
@@ -428,7 +310,7 @@ def try_load_portfolio_snapshot_for_request(
         if not file_id:
             logger.info(
                 "Portfolio snapshot: no file %r in Drive folder — upload a matching crawl, e.g. "
-                "decks --upload-portfolio-snapshot --days %d (filename must match this quarter window)",
+                "cortex --upload-portfolio-snapshot --days %d (filename must match this quarter window)",
                 name,
                 days,
             )
@@ -465,16 +347,9 @@ def try_load_portfolio_snapshot_for_request(
         if decision == "reject":
             return None
 
-        if decision == "fresh":
+        if decision == "fresh" or decision == "stale_ok":
             logger.info(
-                "Portfolio snapshot: using Drive file %r (age %.1fh, %d customers)",
-                name,
-                age_h,
-                report.get("customer_count", 0),
-            )
-        else:
-            logger.info(
-                "Portfolio snapshot: using Drive file %r (stale weekday, %.1fh, %d customers)",
+                "Portfolio snapshot: using Drive file %r (%.1fh, %d customers)",
                 name,
                 age_h,
                 report.get("customer_count", 0),
@@ -487,11 +362,11 @@ def try_load_portfolio_snapshot_for_request(
 
 def _snapshot_calendar_zone() -> ZoneInfo:
     try:
-        return ZoneInfo(BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ)
+        return ZoneInfo(CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ)
     except Exception:
         logger.warning(
-            "Portfolio snapshot: invalid BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ %r — using UTC",
-            BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
+            "Portfolio snapshot: invalid CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ %r — using UTC",
+            CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
         )
         return ZoneInfo("UTC")
 
@@ -501,7 +376,7 @@ def _calendar_today_for_snapshot() -> date:
 
 
 def is_weekend_in_snapshot_tz() -> bool:
-    """True if local calendar day (``BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ``) is Saturday or Sunday."""
+    """True if local calendar day (``CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ``) is Saturday or Sunday."""
     now = datetime.now(_snapshot_calendar_zone())
     return now.weekday() >= 5  # Mon=0 … Sat=5, Sun=6
 
@@ -527,7 +402,7 @@ def classify_drive_cache_age(
     if age_h <= max_h:
         return "fresh"
     if age_h > cap_h:
-        logger.info(
+        logger.debug(
             "%s: skip %r — past stale cap (%.1fh > %.1fh); must refresh",
             log_label,
             cache_name,
@@ -536,14 +411,14 @@ def classify_drive_cache_age(
         )
         return "reject"
     if is_weekend_in_snapshot_tz():
-        logger.info(
+        logger.debug(
             "%s: skip %r — age %.1fh in refresh band (weekend); recomputing",
             log_label,
             cache_name,
             age_h,
         )
         return "reject"
-    logger.info(
+    logger.debug(
         "%s: using stale %r (%.1fh old; weekday — Drive refresh on next Sat/Sun)",
         log_label,
         cache_name,
@@ -567,7 +442,7 @@ def saved_at_to_calendar_date(saved_at: str) -> date | None:
 def ensure_daily_portfolio_snapshot_for_qbr(days: int, max_customers: int | None = None) -> None:
     """If a snapshot folder exists, ensure Drive has a portfolio JSON when needed.
 
-    Auto-upload runs **only on Sat/Sun** in ``BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ``. Weekdays skip the
+    Auto-upload runs **only on Sat/Sun** in ``CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ``. Weekdays skip the
     expensive crawl; rely on Drive read (including stale weekday reuse) from
     ``try_load_portfolio_snapshot_for_request``.
 
@@ -583,15 +458,15 @@ def ensure_daily_portfolio_snapshot_for_qbr(days: int, max_customers: int | None
     name = portfolio_snapshot_filename(days, max_customers)
 
     if not is_weekend_in_snapshot_tz():
-        logger.info(
+        logger.debug(
             "Pendo: portfolio snapshot auto-upload skipped (weekend-only schedule; weekday in %s)",
-            BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
+            CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
         )
         return
 
     existing = try_load_portfolio_snapshot_for_request(days, max_customers)
     if existing is not None:
-        logger.info(
+        logger.debug(
             "Pendo: portfolio snapshot %r already fresh enough on Drive — skip auto-upload",
             name,
         )
@@ -601,7 +476,7 @@ def ensure_daily_portfolio_snapshot_for_qbr(days: int, max_customers: int | None
     logger.info(
         "Pendo: auto-uploading portfolio snapshot %r (weekend refresh or missing; %s)...",
         name,
-        BPO_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
+        CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ,
     )
     try:
         from .pendo_client import PendoClient
@@ -630,7 +505,7 @@ def upload_portfolio_snapshot_to_drive(
     """Serialize *report* (from ``get_portfolio_report``) and create or replace the snapshot file.
 
     Skips updating an **existing** file on weekdays unless *force_weekday_write* is true
-    (e.g. ``decks --upload-portfolio-snapshot``). New files are always created.
+    (e.g. ``cortex --upload-portfolio-snapshot``). New files are always created.
     """
     if report.get("type") != "portfolio":
         raise ValueError("report must be a portfolio dict from get_portfolio_report")
@@ -641,7 +516,7 @@ def upload_portfolio_snapshot_to_drive(
     if not force_weekday_write:
         existing_early = find_file_in_folder(name, folder_id, mime_type=None)
         if existing_early and not is_weekend_in_snapshot_tz():
-            logger.info(
+            logger.debug(
                 "Portfolio snapshot: skip Drive upload %r — weekday (weekend-only updates)",
                 name,
             )
@@ -659,12 +534,11 @@ def upload_portfolio_snapshot_to_drive(
         if existing_id:
             with network_timeout(30.0, "Drive file update"):
                 f = drive.files().update(fileId=existing_id, media_body=media, fields="id").execute()
-            logger.info("Portfolio snapshot: updated Drive file %r (%s)", name, f["id"])
-            return f["id"]
-        meta: dict[str, Any] = {"name": name, "parents": [folder_id]}
-        with network_timeout(30.0, "Drive file creation"):
-            f = drive.files().create(body=meta, media_body=media, fields="id").execute()
-        logger.info("Portfolio snapshot: created Drive file %r (%s)", name, f["id"])
+        else:
+            meta: dict[str, Any] = {"name": name, "parents": [folder_id]}
+            with network_timeout(30.0, "Drive file creation"):
+                f = drive.files().create(body=meta, media_body=media, fields="id").execute()
+        logger.info("Portfolio snapshot: uploaded %r to Drive", name)
         return f["id"]
 
 
@@ -674,7 +548,7 @@ def run_upload_portfolio_snapshot_cli(days: int, max_customers: int | None) -> d
     if not folder_id:
         return {
             "error": (
-                "No snapshot folder: set BPO_PORTFOLIO_SNAPSHOT_FOLDER_ID or "
+                "No snapshot folder: set CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID or "
                 "GOOGLE_QBR_GENERATOR_FOLDER_ID (cache uses subfolder "
                 f"{PORTFOLIO_SNAPSHOT_CACHE_FOLDER_NAME!r})"
             ),

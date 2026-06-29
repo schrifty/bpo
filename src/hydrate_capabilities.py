@@ -53,10 +53,10 @@ DATA_SOURCES: dict[str, list[str]] = {
         "recommendations created, POs placed",
         "daily & weekly active buyer counts & percentages",
     ],
-    "teams.yaml (local config)": [
+    "`config/teams.yaml` (local roster)": [
         "CSM / AE / SE team roster per customer (manually maintained)",
     ],
-    "cohorts.yaml (local config)": [
+    "config/cohorts.yaml (local config)": [
         "manufacturing cohort classification per customer (e.g. Aerospace, Automotive)",
     ],
 }
@@ -124,14 +124,14 @@ BUILDER_DESCRIPTIONS = {
     "platform_value_summary_toc": "Platform Value & ROI Summary — table of contents from resolved slide plan",
     "cross_validation": "Data cross-validation — Pendo vs CS Report engagement comparison",
     "signals": "Notable signals — auto-detected churn risk, expansion, adoption gaps",
-    "team": "Team roster — CSM/AE assignments from teams.yaml",
-    "data_quality": "Data quality — cross-source validation results",
+        "team": "Team roster — CSM/AE assignments from `config/teams.yaml`",
+    "data_quality": "Data governance — sourcing receipt and cross-check findings",
     "custom": "Static content slide — reproduced text with title and body sections",
     "skip": "Skip this slide entirely (blank, transition, or not reproducible)",
     "salesforce_comprehensive_cover": "Salesforce export intro — match status, row limits, org-wide product note",
     "salesforce_comprehensive_toc": "Salesforce export table of contents — retained object sections after empty categories are omitted",
     "salesforce_category": "Salesforce table — one object category (sf_category) from comprehensive fetch",
-    "cohort_deck_title": "Cohort deck cover — portfolio period, customer count, cohorts.yaml reference",
+    "cohort_deck_title": "Cohort deck cover — portfolio period, customer count, config/cohorts.yaml reference",
     "cohort_profiles": "Per-cohort profile slides — medians and account list for each manufacturing cohort bucket",
     "cohort_findings": (
         "Single slide — bullet list comparing cohort buckets (sample sizes, median login/write, "

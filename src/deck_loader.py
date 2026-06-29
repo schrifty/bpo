@@ -88,12 +88,10 @@ def _slide_ids_required_by_deck(deck: dict[str, Any]) -> set[str]:
     return out
 
 
-def load_deck(
-    deck_id: str,
-    decks_dir: str | Path | None = None,
-) -> dict[str, Any] | None:
-    """Load a single deck definition by ID (prefers ``decks/{deck_id}.yaml`` — one file, not the full folder)."""
-    d = Path(decks_dir) if decks_dir else DEFAULT_DECKS_DIR
+def _load_deck_from_local_dir(d: Path, deck_id: str) -> dict[str, Any] | None:
+    """Load one deck from the repo ``decks/`` tree without a Drive folder walk."""
+    if not d.is_dir():
+        return None
     direct = d / f"{deck_id}.yaml"
     if direct.is_file():
         try:
@@ -104,6 +102,29 @@ def load_deck(
                 return raw
         except Exception as e:
             logger.debug("load_deck: %s: %s", direct, e)
+    for f in sorted(d.glob("*.yaml")):
+        if f.name == direct.name:
+            continue
+        try:
+            raw = yaml.safe_load(f.read_text())
+            if isinstance(raw, dict) and raw.get("id") == deck_id:
+                raw.setdefault("_file", f.name)
+                raw.setdefault("_source", "local")
+                return raw
+        except Exception as e:
+            logger.debug("load_deck: %s: %s", f.name, e)
+    return None
+
+
+def load_deck(
+    deck_id: str,
+    decks_dir: str | Path | None = None,
+) -> dict[str, Any] | None:
+    """Load a single deck definition by ID (one YAML file — never the full Drive decks folder)."""
+    d = Path(decks_dir) if decks_dir else DEFAULT_DECKS_DIR
+    local = _load_deck_from_local_dir(d, deck_id)
+    if local:
+        return local
     if _USE_DRIVE and not decks_dir:
         try:
             from .drive_config import load_deck_yaml_from_drive
@@ -113,9 +134,6 @@ def load_deck(
                 return got
         except Exception as e:
             logger.debug("load_deck: Drive single fetch: %s", e)
-    for raw in _load_all_decks(decks_dir):
-        if raw.get("id") == deck_id:
-            return raw
     return None
 
 
@@ -196,6 +214,9 @@ def resolve_deck(
         # Deck YAML may pass builder params (e.g. jira_project for eng_jira_project slides).
         if "jira_project" in entry:
             slide_row["jira_project"] = str(entry["jira_project"]).strip().upper()
+        ct = entry.get("cover_title")
+        if ct:
+            slide_row["cover_title"] = str(ct).strip()
         if slide_def.get("sf_category"):
             slide_row["sf_category"] = str(slide_def["sf_category"]).strip()
         if entry.get("sf_category"):

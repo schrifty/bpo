@@ -1,0 +1,18 @@
+id: cursor_users_volume
+type: standard
+order: 88
+title: Cursor AI User Volume
+slide_type: cursor_users_volume
+data_tools: []
+customers: all
+
+prompt: >
+  AI coding-assistant (Cursor) user-volume slide for engineering squads in the
+  engineering portfolio deck, aimed at a VP of Engineering. Scope is Dev - *
+  Atlassian engineering teams only. Four KPI cards cover active engineers, total
+  tokens in the window, top-user share, and top-3 share. Side-by-side highest-
+  and lowest-volume lists show token volume per engineer (top model on power
+  users only); lowest list excludes anyone already in the highest list. Pairs
+  with dedicated power-user and light-usage model-mix chart slides. Data comes
+  from the Cursor Team Admin API joined to Atlassian Teams; omitted when
+  CURSOR_ADMIN_API_KEY or ATLASSIAN_ORG_ID is not configured.

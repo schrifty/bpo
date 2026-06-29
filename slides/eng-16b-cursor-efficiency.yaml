@@ -1,0 +1,20 @@
+id: cursor_efficiency
+type: standard
+order: 85
+title: Cursor AI Coding Efficiency - Engineering
+slide_type: cursor_efficiency
+data_tools: []
+customers: all
+
+prompt: >
+  AI coding-assistant (Cursor) efficiency / ROI slide for the engineering portfolio deck,
+  aimed at a VP of Engineering. Answers "what did the spend actually produce?" by joining
+  accepted AI-written lines (Cursor daily-usage acceptedLinesAdded) against token cost
+  (usage events). Bottom-line subtitle states accepted lines over the window, the lines-kept
+  ratio, and cost per accepted line. Four KPI cards cover accepted lines, lines kept %,
+  accepted lines per 1K tokens, and cost per accepted line. A full-width output-vs-cost combo
+  chart shows daily accepted lines (bars) against usage cost (line). The most-efficient-
+  engineers ranking lives on a separate slide (cursor_efficiency_engineers). Framed as an efficiency/ROI correlation, not a per-engineer
+  productivity ranking; accepted lines span Tab and agent surfaces while cost is model-API
+  usage, so cost-per-line is a blended proxy. Data comes from the Cursor Team Admin API over
+  the last ~30 days; the slide is omitted when no CURSOR_ADMIN_API_KEY is configured.

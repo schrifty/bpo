@@ -18,6 +18,7 @@ def enrich_portfolio_report_with_revenue_book(report: dict[str, Any]) -> None:
 
     if not _salesforce_configured():
         report["portfolio_revenue_book"] = {"configured": False}
+        report["portfolio_expansion_book"] = {"configured": False}
         return
     customers = report.get("customers") or []
     usage_names = [
@@ -29,12 +30,16 @@ def enrich_portfolio_report_with_revenue_book(report: dict[str, Any]) -> None:
         from .salesforce_client import SalesforceClient
 
         sf = SalesforceClient()
-        report["portfolio_revenue_book"] = sf.get_portfolio_revenue_book_metrics(
+        book = sf.get_portfolio_revenue_book_metrics(
             usage_customer_names=usage_names or None,
         )
+        report["portfolio_revenue_book"] = book
+        ex = book.get("expansion_kpis")
+        report["portfolio_expansion_book"] = dict(ex) if isinstance(ex, dict) else {}
     except Exception as e:
         logger.warning("portfolio: Salesforce revenue book enrichment failed: %s", e)
         report["portfolio_revenue_book"] = {"configured": True, "error": str(e)}
+        report["portfolio_expansion_book"] = {}
 
 
 def csm_book_cli_argv_anchor(argv: list[str]) -> int:
@@ -159,7 +164,7 @@ def create_cohort_deck(
     output_folder_id: str | None = None,
     portfolio_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Single deck: cohort buckets from cohorts.yaml + portfolio metrics."""
+    """Single deck: cohort buckets from config/cohorts.yaml + portfolio metrics."""
     from .deck_orchestrator import create_health_deck
 
     if portfolio_report is not None:

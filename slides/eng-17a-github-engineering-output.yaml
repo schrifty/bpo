@@ -1,0 +1,15 @@
+id: github_engineering_output
+type: standard
+order: 90
+title: GitHub Engineering Output
+slide_type: github_engineering_output
+data_tools: []
+customers: all
+
+prompt: >
+  GitHub engineering output slide for the engineering portfolio deck, aimed at a VP of
+  Engineering. Shows dev-* engineer commits, merged PRs, lines added, and repos tracked over
+  the lookback window. A ranked list highlights top repositories by commit volume. Data comes
+  from the GitHub REST API (org repos, commits, PRs, contributor stats) joined to canonical
+  engineer emails via Jira dev-* roster and github_email_aliases.yaml. Omitted when GITHUB_TOKEN
+  is unset or GitHub productivity enrichment fails.

@@ -1,0 +1,538 @@
+"""LeanDNA Data API — Metrics catalog and fiscal MetricReport.
+
+Surfaces from the OpenAPI **Metrics** group (same host as Item Master / Lean Project):
+
+- ``GET /data/Metric`` — list metric definitions (Manual, Automatic, ProcurementLog, Calculated).
+- ``GET /data/MetricReport`` — fiscal-year metric report (monthly aggregates), optionally filtered.
+- :func:`format_first_kpi_line_from_metric_report` — one-line summary of the first ``metricValues`` row (for logs / smoke tests).
+
+Auth: see :mod:`leandna_data_api_http` — **Bearer** and/or **browser session cookie**
+(``LEANDNA_DATA_API_COOKIE``). Optional ``RequestedSites`` header.
+
+Exact query parameter names can vary by LeanDNA release — defaults use camelCase
+(``fiscalYear``, ``metrics``, ``valueStreams``). If the API returns **400**, confirm names in
+the tenant swagger (``scripts/fetch_leandna_swagger.py``) and use ``extra_query`` on
+:func:`fetch_metric_report`.
+"""
+
+from __future__ import annotations
+
+import difflib
+import re
+import statistics
+from datetime import date, timedelta
+from typing import Any
+
+import requests
+
+from .leandna_data_api_request import data_api_base_url
+from .config import logger
+from .leandna_data_api_http import build_leandna_data_api_headers
+
+
+def _connect_read_timeout(connect_seconds: float, read_seconds: float) -> float | tuple[float, float]:
+    """``requests`` timeout: separate connect vs read when ``connect_seconds`` > 0."""
+    c = float(connect_seconds)
+    r = float(read_seconds)
+    if c <= 0:
+        return r
+    return (c, r)
+
+
+def _base_url() -> str:
+    return data_api_base_url()
+
+
+def _raise_for_status(resp: requests.Response) -> None:
+    """Raise on HTTP error; log 401 hints (staging vs prod base URL)."""
+    if resp.ok:
+        return
+    snippet = (resp.text or "").strip().replace("\n", " ")[:500]
+    if resp.status_code == 401:
+        logger.error(
+            "LeanDNA Data API 401 — invalid/expired Bearer, wrong LEANDNA_DATA_API_BASE_URL, or session "
+            "expired. Try LEANDNA_DATA_API_COOKIE from the browser while logged in (see "
+            "src/leandna_data_api_http.py). URL=%s body_prefix=%r",
+            resp.url,
+            snippet,
+        )
+    resp.raise_for_status()
+
+
+def _unwrap_metric_definition_rows(data: Any) -> list[dict[str, Any]]:
+    """Normalize ``GET /data/Metric`` body to a list of metric dicts."""
+    if isinstance(data, list):
+        return [x for x in data if isinstance(x, dict)]
+    if isinstance(data, dict):
+        for key in ("metrics", "data", "items", "results"):
+            block = data.get(key)
+            if isinstance(block, list):
+                return [x for x in block if isinstance(x, dict)]
+    logger.warning("LeanDNA Metric: unexpected response shape %s", type(data).__name__)
+    return []
+
+
+def list_metric_definitions(
+    requested_sites: str | None = None,
+    *,
+    connect_timeout_seconds: float = 15.0,
+    timeout_seconds: float = 120.0,
+    extra_query: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Return metric definitions from ``GET /data/Metric``.
+
+    Typical fields (tenant-dependent): ``id``, ``name``, ``siteId``, ``metricType``,
+    ``possibleValueStreams``, ``currentCategories``.
+
+    ``connect_timeout_seconds`` bounds TCP/TLS handshake (default 15s); ``timeout_seconds``
+    bounds time waiting for the response body after connect (default 120s).
+    """
+    url = f"{_base_url()}/data/Metric"
+    params = dict(extra_query or {})
+    logger.info("LeanDNA Metric: GET %s (sites=%s)", url, requested_sites or "all")
+    r = requests.get(
+        url,
+        headers=build_leandna_data_api_headers(
+            requested_sites=requested_sites,
+            user_agent_suffix="leandna-metrics-client/1.0",
+        ),
+        params=params,
+        timeout=_connect_read_timeout(connect_timeout_seconds, timeout_seconds),
+    )
+    _raise_for_status(r)
+    return _unwrap_metric_definition_rows(r.json())
+
+
+def fetch_metric_report(
+    fiscal_year: int | str,
+    *,
+    requested_sites: str | None = None,
+    metric_ids: list[str] | None = None,
+    value_streams: list[str] | None = None,
+    connect_timeout_seconds: float = 15.0,
+    timeout_seconds: float = 180.0,
+    extra_query: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Fetch ``GET /data/MetricReport`` for a fiscal year.
+
+    Parameters:
+        fiscal_year: Fiscal year label accepted by the API (often integer e.g. ``2026``).
+        requested_sites: Optional ``RequestedSites`` header value.
+        metric_ids: Filter to these metric ids (sent as comma-separated ``metrics`` query).
+        value_streams: Filter to these value streams (comma-separated ``valueStreams`` query).
+        extra_query: Additional query parameters merged last (override keys above if needed).
+
+    Returns:
+        Parsed JSON object. Common keys (per internal docs): ``metrics``, ``metricValues``,
+        ``fiscalYear``, ``startTimestamp``, ``endTimestamp``, ``currency``.
+    """
+    url = f"{_base_url()}/data/MetricReport"
+    params: dict[str, Any] = {"fiscalYear": fiscal_year}
+    if metric_ids:
+        params["metrics"] = ",".join(str(x).strip() for x in metric_ids if str(x).strip())
+    if value_streams:
+        params["valueStreams"] = ",".join(str(x).strip() for x in value_streams if str(x).strip())
+    params.update(extra_query or {})
+
+    logger.info(
+        "LeanDNA MetricReport: GET %s fiscalYear=%s sites=%s",
+        url,
+        fiscal_year,
+        requested_sites or "all",
+    )
+    r = requests.get(
+        url,
+        headers=build_leandna_data_api_headers(
+            requested_sites=requested_sites,
+            user_agent_suffix="leandna-metrics-client/1.0",
+        ),
+        params=params,
+        timeout=_connect_read_timeout(connect_timeout_seconds, timeout_seconds),
+    )
+    _raise_for_status(r)
+    body = r.json()
+    if not isinstance(body, dict):
+        logger.warning("LeanDNA MetricReport: expected object, got %s", type(body).__name__)
+        return {"raw": body}
+    return body
+
+
+def format_first_kpi_line_from_metric_report(report: dict[str, Any]) -> str:
+    """Format one human-readable KPI line from a ``MetricReport`` JSON body.
+
+    Uses the first row of ``metricValues`` and matches ``metricId`` to ``metrics`` for a label.
+    Percent-style metric names (label ending with ``%``) render the value with a ``%`` suffix.
+    """
+    meta_rows = report.get("metrics") or []
+    id_to_label: dict[str, str] = {}
+    if isinstance(meta_rows, list):
+        for m in meta_rows:
+            if not isinstance(m, dict):
+                continue
+            mid = m.get("id")
+            if mid is None:
+                continue
+            label = m.get("name") or m.get("crossSiteName") or str(mid)
+            id_to_label[str(mid)] = str(label)
+
+    values_block = report.get("metricValues")
+    if not isinstance(values_block, list) or not values_block:
+        return "KPI: (no metricValues)"
+
+    row = values_block[0]
+    if not isinstance(row, dict):
+        return "KPI: (metricValues[0] is not an object)"
+
+    mid = row.get("metricId", row.get("id"))
+    label = id_to_label.get(str(mid), str(mid) if mid is not None else "metric")
+
+    val: Any = row.get("value")
+    if val is None:
+        for k, v in row.items():
+            if k in ("metricId", "id", "dataPointDate"):
+                continue
+            if isinstance(v, (int, float)):
+                val = v
+                break
+        if val is None:
+            val = next((v for k, v in row.items() if k not in ("metricId", "id")), None)
+
+    fy = report.get("fiscalYear", "")
+    suffix = f" (FY{fy})" if fy != "" else ""
+    if isinstance(val, (int, float)) and str(label).rstrip().endswith("%"):
+        return f"KPI: {label} = {val}%{suffix}"
+    return f"KPI: {label} = {val!r}{suffix}"
+
+
+def unwrap_metric_datapoint_rows(body: Any) -> list[dict[str, Any]]:
+    """Normalize ``GET /data/Metric/{id}/MetricDataPoint`` body to a list of point dicts."""
+    if isinstance(body, list):
+        return [x for x in body if isinstance(x, dict)]
+    if isinstance(body, dict):
+        for key in ("data", "items", "results", "metricDataPoints"):
+            block = body.get(key)
+            if isinstance(block, list):
+                return [x for x in block if isinstance(x, dict)]
+    return []
+
+
+def resolve_metric_datapoint_window(
+    *,
+    lookback_days: int = 90,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> tuple[str, str]:
+    """Return ``(startDate, endDate)`` ISO date strings for MetricDataPoint queries."""
+    if start_date and end_date:
+        return start_date.strip(), end_date.strip()
+    end_d = date.today()
+    if end_date:
+        end_d = date.fromisoformat(end_date.strip())
+    start_d = end_d - timedelta(days=max(1, lookback_days))
+    if start_date:
+        start_d = date.fromisoformat(start_date.strip())
+    return start_d.isoformat(), end_d.isoformat()
+
+
+def fetch_metric_datapoints(
+    metric_id: Any,
+    *,
+    start_date: str,
+    end_date: str,
+    requested_sites: str | None = None,
+    connect_timeout_seconds: float = 15.0,
+    timeout_seconds: float = 120.0,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    """Fetch ``GET /data/Metric/{id}/MetricDataPoint`` for a date window.
+
+    Returns ``(rows sorted by dataPointDate, None)`` on success, or ``([], error_envelope)``
+    when the Data API GET fails (same envelope shape as ``data_api_get_json``).
+    """
+    from .leandna_data_api_request import data_api_get_json
+
+    path = f"Metric/{metric_id}/MetricDataPoint"
+    env = data_api_get_json(
+        path,
+        query={"startDate": start_date, "endDate": end_date},
+        requested_sites=requested_sites,
+        timeout_seconds=timeout_seconds,
+        user_agent_suffix="leandna-metrics-client/1.0",
+    )
+    if not env.get("ok"):
+        return [], env
+    rows = unwrap_metric_datapoint_rows(env.get("body"))
+    rows.sort(key=lambda r: str(r.get("dataPointDate") or ""))
+    return rows, None
+
+
+def slim_metric_datapoint_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep only date + value for CLI / export payloads."""
+    return [
+        {"dataPointDate": p.get("dataPointDate"), "value": p.get("value")}
+        for p in rows
+        if isinstance(p, dict)
+    ]
+
+
+def metric_definition_label(metric: dict[str, Any]) -> str:
+    return str(metric.get("name") or metric.get("crossSiteName") or metric.get("id") or "").strip()
+
+
+def _normalize_metric_search_text(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
+
+def score_metric_name_similarity(query: str, metric: dict[str, Any], *, window_days: int | None = None) -> float:
+    """Similarity in [0, 1] between *query* and a metric definition name."""
+    q_norm = _normalize_metric_search_text(query)
+    if not q_norm:
+        return 0.0
+    label = metric_definition_label(metric)
+    blob_norm = _normalize_metric_search_text(f"{label} {metric.get('crossSiteName', '')}")
+    if not blob_norm:
+        return 0.0
+    if q_norm in blob_norm or blob_norm in q_norm:
+        score = 0.92
+    else:
+        score = difflib.SequenceMatcher(None, q_norm, blob_norm).ratio()
+    if window_days is not None and window_days > 0:
+        day_tokens = (f"{window_days}d", f"{window_days} d", f"last {window_days}")
+        if any(tok.replace(" ", "") in blob_norm.replace(" ", "") for tok in day_tokens):
+            score = min(1.0, score + 0.08)
+    return score
+
+
+def find_similar_metric_definitions(
+    catalog: list[dict[str, Any]],
+    query: str,
+    *,
+    window_days: int | None = None,
+    min_score: float = 0.45,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    """Rank catalog metrics by name similarity to *query* (best first)."""
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for m in catalog:
+        if not isinstance(m, dict):
+            continue
+        s = score_metric_name_similarity(query, m, window_days=window_days)
+        if s >= min_score:
+            scored.append((s, m))
+    scored.sort(key=lambda x: (-x[0], metric_definition_label(x[1]).lower()))
+    out: list[dict[str, Any]] = []
+    for s, m in scored[: max(1, limit)]:
+        row = dict(m)
+        row["match_score"] = round(s, 4)
+        out.append(row)
+    return out
+
+
+def summarize_metric_datapoint_values(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate numeric ``value`` fields from MetricDataPoint rows."""
+    nums: list[float] = []
+    dates: list[str] = []
+    for p in rows:
+        if not isinstance(p, dict):
+            continue
+        v = p.get("value")
+        if isinstance(v, bool):
+            continue
+        if isinstance(v, (int, float)):
+            nums.append(float(v))
+            dates.append(str(p.get("dataPointDate") or ""))
+    if not nums:
+        return {"points": len(rows), "measured": 0}
+    nums_sorted = sorted(nums)
+    latest_date = dates[-1] if dates else ""
+    return {
+        "points": len(rows),
+        "measured": len(nums),
+        "latest": nums[-1],
+        "latest_date": latest_date[:10] if latest_date else "",
+        "avg": sum(nums) / len(nums),
+        "median": statistics.median(nums_sorted),
+        "min": nums_sorted[0],
+        "max": nums_sorted[-1],
+    }
+
+
+def pick_metric_by_id(catalog: list[dict[str, Any]], metric_id: Any) -> dict[str, Any] | None:
+    """Return the catalog row whose ``id`` matches *metric_id*."""
+    want = str(metric_id).strip()
+    if not want:
+        return None
+    for row in catalog:
+        if not isinstance(row, dict):
+            continue
+        if metric_id_matches(row.get("id"), want):
+            return row
+    return None
+
+
+def metric_id_matches(raw_id: Any, want: str) -> bool:
+    """True when catalog row ``id`` equals *want* (numeric or string match)."""
+    w = (want or "").strip()
+    if not w:
+        return False
+    try:
+        return int(raw_id) == int(w)
+    except (TypeError, ValueError):
+        return str(raw_id).strip() == w
+
+
+def sort_metrics_by_id(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def key(r: dict[str, Any]) -> tuple:
+        raw = r.get("id")
+        try:
+            return (0, int(raw))
+        except (TypeError, ValueError):
+            return (1, str(raw or ""))
+
+    return sorted(rows, key=key)
+
+
+def metric_requested_sites(metric: dict[str, Any], cli_sites: str | None = None) -> str | None:
+    """``RequestedSites`` header value for a metric definition row."""
+    if cli_sites is not None and str(cli_sites).strip():
+        return str(cli_sites).strip()
+    sid = metric.get("siteId")
+    if sid is None:
+        return None
+    s = str(sid).strip()
+    return s or None
+
+
+def default_datapoint_category(metric: dict[str, Any]) -> str:
+    """Best-effort category string from a metric definition."""
+    cats = metric.get("currentCategories")
+    if isinstance(cats, list) and cats:
+        return str(cats[0] or "").strip()
+    if isinstance(cats, str):
+        return cats.strip()
+    return ""
+
+
+def compute_metric_datapoint_value(numerator: int | float, denominator: int | float) -> float:
+    """Display ``value`` for ``POST …/MetricDataPoint`` (percentage when denominator ≠ 0)."""
+    if denominator == 0:
+        return float(numerator)
+    return round((float(numerator) / float(denominator)) * 100, 3)
+
+
+def build_metric_datapoint_post_body(
+    *,
+    metric_id: int,
+    data_point_date: str,
+    numerator: int | float,
+    denominator: int | float = 1.0,
+    category: str = "",
+) -> dict[str, Any]:
+    """Body for ``POST /data/Metric/{id}/MetricDataPoint``."""
+    value = compute_metric_datapoint_value(numerator, denominator)
+    denom = 1 if denominator == 0 else denominator
+    return {
+        "dataPointDate": data_point_date,
+        "metricId": int(metric_id),
+        "category": category,
+        "value": value,
+        "numeratorValue": numerator,
+        "denominatorValue": denom,
+    }
+
+
+def post_metric_datapoint(
+    metric_id: Any,
+    body: dict[str, Any],
+    *,
+    requested_sites: str | None = None,
+    timeout_seconds: float = 120.0,
+) -> dict[str, Any]:
+    """``POST /data/Metric/{id}/MetricDataPoint`` using Data API bearer/cookie auth."""
+    from .leandna_data_api_request import data_api_mutate_json
+
+    return data_api_mutate_json(
+        "POST",
+        f"Metric/{metric_id}/MetricDataPoint",
+        json_body=body,
+        requested_sites=requested_sites,
+        timeout_seconds=timeout_seconds,
+        user_agent_suffix="leandna-metrics-client/1.0",
+    )
+
+
+def delete_metric_datapoint(
+    metric_id: Any,
+    *,
+    data_point_date: str,
+    requested_sites: str | None = None,
+    timeout_seconds: float = 120.0,
+) -> dict[str, Any]:
+    """``DELETE /data/Metric/{id}/MetricDataPoint`` for a single ``dataPointDate``."""
+    from .leandna_data_api_request import data_api_mutate_json
+
+    return data_api_mutate_json(
+        "DELETE",
+        f"Metric/{metric_id}/MetricDataPoint",
+        query={"startDate": data_point_date, "endDate": data_point_date},
+        requested_sites=requested_sites,
+        timeout_seconds=timeout_seconds,
+        user_agent_suffix="leandna-metrics-client/1.0",
+    )
+
+
+def metric_datapoint_exists_for_date(
+    metric_id: Any,
+    data_point_date: str,
+    *,
+    requested_sites: str | None = None,
+    category: str | None = None,
+    timeout_seconds: float = 60.0,
+) -> bool:
+    """True when a datapoint exists for *data_point_date* (optionally matching *category*)."""
+    rows, err = fetch_metric_datapoints(
+        metric_id,
+        start_date=data_point_date,
+        end_date=data_point_date,
+        requested_sites=requested_sites,
+        timeout_seconds=timeout_seconds,
+    )
+    if err is not None or not rows:
+        return False
+    if category is None:
+        return True
+    want = str(category).strip()
+    return any(str(r.get("category") or "").strip() == want for r in rows if isinstance(r, dict))
+
+
+def fetch_identity_authorized_site_ids(*, timeout_seconds: float = 30.0) -> list[int]:
+    """Site ids from ``GET /data/identity`` → ``authorizedSites[].siteId``."""
+    from .leandna_data_api_request import data_api_get_json
+
+    env = data_api_get_json("identity", timeout_seconds=timeout_seconds)
+    if not env.get("ok"):
+        return []
+    body = env.get("body")
+    if not isinstance(body, dict):
+        return []
+    rows = body.get("authorizedSites")
+    if not isinstance(rows, list):
+        return []
+    out: list[int] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        raw = row.get("siteId")
+        try:
+            out.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def resolve_metric_catalog_row(
+    metric_id: Any,
+    *,
+    timeout_seconds: float = 60.0,
+) -> dict[str, Any] | None:
+    """Find one metric row via ``GET /data/Metric`` (no ``RequestedSites`` — fast tenant catalog)."""
+    return pick_metric_by_id(list_metric_definitions(timeout_seconds=timeout_seconds), metric_id)

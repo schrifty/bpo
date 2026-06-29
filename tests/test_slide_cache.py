@@ -4,6 +4,7 @@ import json
 import pytest
 
 from src import evaluate
+from src.hydrate_cache import adapt_cache_key
 
 
 def _thumb_b64(contents: bytes) -> str:
@@ -99,6 +100,23 @@ def test_classification_cache_strips_internal_keys(monkeypatch, tmp_path):
     got = evaluate._get_cached_classification(key)
     assert "_version" not in got
     assert got["slide_type"] == "agenda"
+
+
+def test_adapt_cache_key_uses_text_snapshot_when_no_thumbnail():
+    """Adapt disk cache can key off slide text instead of thumbnail bytes."""
+    ds = {"total_sites": 3}
+    k1 = adapt_cache_key(None, "pageA", ds, text_snapshot="id1\tshape\t42")
+    k2 = adapt_cache_key(None, "pageA", ds, text_snapshot="id1\tshape\t42")
+    k3 = adapt_cache_key(None, "pageB", ds, text_snapshot="id1\tshape\t42")
+    assert k1 is not None and k2 is not None and k3 is not None
+    assert k1 == k2
+    assert k1 != k3
+
+
+def test_slide_text_snapshot_for_adapt_cache_truncates():
+    els = [{"element_id": "x", "type": "shape", "text": "a" * 5000} for _ in range(4)]
+    s = evaluate._slide_text_snapshot_for_adapt_cache(els, max_chars=100)
+    assert len(s) == 100
 
 
 def test_adapt_cache_roundtrip(monkeypatch, tmp_path):

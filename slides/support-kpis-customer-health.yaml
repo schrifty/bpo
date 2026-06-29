@@ -1,0 +1,11 @@
+id: support_kpis_customer_health
+type: standard
+order: 18
+title: Customer Health
+slide_type: support_kpis_customer_health
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  JSM organizations with 3+ open HELP tickets or any ticket open 30+ days.

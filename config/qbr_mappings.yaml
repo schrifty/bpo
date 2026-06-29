@@ -1,0 +1,145 @@
+slides:
+  - slide_number: 4
+    elements:
+      - name: 4-executive-sponsor
+        source: [Executive sponsor]
+        target: pendo_champion_1
+      - name: 4-site-leader
+        source: [Site leader]
+        target: pendo_champion_2
+      - name: 4-smes
+        source: [SME(s)]
+        target: pendo_champion_3
+      - name: 4-it-leader
+        source: [IT leader (Optional, but recomennded)]
+        target: pendo_champion_4
+      - name: 4-CSM
+        source: [CSM]
+        target: pendo_champion_5
+      - name: 4-AE
+        source: [AE]
+        target: pendo_champion_6
+      - name: 4-Implementation Manager
+        source: [Implementation manager, if first QBR]
+        target: pendo_champion_7
+      - name: 4-QBR-Highlight-1
+        source: [QBR highlight]
+        target: qbr_highlight_1
+      - name: 4-QBR-Highlight-2
+        source: [QBR highlight]
+        target: qbr_highlight_2
+      - name: 4-QBR-Highlight-3
+        source: [QBR highlight]
+        target: qbr_highlight_3
+      - name: 4-QBR-Highlight-4
+        source: [QBR highlight]
+        target: qbr_highlight_4
+      - name: 4-LeanDNA-Exec-Sponsor
+        source: [Exec Sponsor]
+        target: leandna_exec_sponsor
+  - slide_number: 6
+    elements:
+      - name: 6-DOI-Backwards-Improvement
+        source: [DOI Backwards Improvement]
+        target: leandna_item_master.doi_backwards
+      - name: 6-Clear-to-Build-Improvement
+        source: [Clear to Build Improvement]
+        target: cs_health_sites.ctb
+  - slide_number: 29
+    elements:
+      - name: auto_s29_575e0f5fbb
+        source: $21M
+        target: ''
+      - name: auto_s29_b6f8457127
+        source: 80%
+        target: ''
+      - name: auto_s29_8d0c2cba63
+        source: 20%
+        target: ''
+      - name: auto_s29_f0e3c13faf
+        source: $4.2M
+        target: ''
+      - name: auto_s29_ff035c2a66
+        source: 18%
+        target: ''
+      - name: auto_s29_76541be0ce
+        source: $759k
+        target: ''
+      - name: auto_s29_bfca2a29ea
+        source: 6 months
+        target: ''
+      - name: auto_s29_215b910c33
+        source: $1.5M
+        target: ''
+  - slide_number: 30
+    elements:
+      - name: auto_s30_982a1eebb7
+        source: 12%
+        target: ''
+      - name: auto_s30_f6ee4dc1af
+        source: Sep 2023
+        target: ''
+  - slide_number: 31
+    elements:
+      - name: auto_s31_a45d4ca950
+        source: 425 high frequency users
+        target: ''
+  - slide_number: 32
+    elements:
+      - name: auto_s32_ddc6453711
+        source: '2.5'
+        target: ''
+      - name: auto_s32_9ff2d2768b
+        source: '7.5'
+        target: ''
+      - name: auto_s32_296be2f369
+        source: '425'
+        target: ''
+      - name: auto_s32_8cf1eff0b5
+        source: '450'
+        target: ''
+      - name: auto_s32_247e9d60c8
+        source: '1063'
+        target: ''
+      - name: auto_s32_5e330eb803
+        source: 40%
+        target: ''
+      - name: auto_s32_e5f8b3afb9
+        source: '41400'
+        target: ''
+      - name: auto_s32_089f2ef8d2
+        source: $45
+        target: ''
+  - slide_number: 46
+    elements:
+      - name: auto_s46_3a07d7582a
+        source: 70% Promoters
+        target: ''
+      - name: auto_s46_cff205052a
+        source: 20% Passives
+        target: ''
+      - name: auto_s46_a4120de564
+        source: 10% Detractors
+        target: ''
+      - name: auto_s46_af01d1c27f
+        source: 70 - 10 = 60
+        target: ''
+  - slide_number: 47
+    elements:
+      - name: auto_s47_0d15580806
+        source: Mon 202X-Mon 202X
+        target: ''
+      - name: auto_s47_3361a27a4d
+        source: 'NPS: -19'
+        target: ''
+      - name: auto_s47_8dc3dac8a5
+        source: 'Response rate: 21%'
+        target: ''
+      - name: auto_s47_ffb3af569a
+        source: 26 out of 121
+        target: ''
+      - name: auto_s47_7c80a7619b
+        source: 1-Mar-2022 - 28-Feb-2023
+        target: ''
+global_elements: []
+version: 2

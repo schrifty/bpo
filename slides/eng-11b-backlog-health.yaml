@@ -1,0 +1,14 @@
+id: eng_backlog_health
+type: standard
+order: 82
+title: Escalation Backlog Health (LEAN Engineering)
+slide_type: eng_backlog_health
+data_tools: []
+customers: all
+
+prompt: >
+  Health of the LEAN engineering escalation queue. KPI cards show total open,
+  median open-ticket age, average open->resolved cycle (6 mo), and resolved volume,
+  with two charts: open tickets by status and open tickets by age bucket
+  (0-7d / 8-30d / 31-90d / 90d+). Single question: is the queue under control and
+  aging well?

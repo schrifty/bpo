@@ -1,0 +1,14 @@
+id: cursor_cost_models
+type: standard
+order: 84
+title: Cursor AI Spend by Model
+slide_type: cursor_cost_models
+data_tools: []
+customers: all
+
+prompt: >
+  AI coding-assistant (Cursor) spend-by-model slide for the engineering portfolio deck, aimed at
+  a VP of Engineering. KPI cards cover engineer-scoped window spend, model count, top-model share,
+  and active engineers. A full-width native table ranks dev-* engineer spend by model with dollar
+  spend and percent of total. Data comes from Cursor usage events (chargedCents per model); the
+  slide is omitted when CURSOR_ADMIN_API_KEY or engineer-scoped cost data is unavailable.

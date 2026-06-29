@@ -1,0 +1,14 @@
+# Cortex identity map — config/customer_identity_map.yaml
+# Schema: per customer key (case-insensitive): salesforce_account_id OR salesforce_account_ids
+# (+ optional salesforce_primary_account_id). See CONFIG_ALIASES.md.
+#
+# Single account:
+#   Acme Corporation:
+#     salesforce_account_id: "001XXXXXXXXXXXXXX"
+#
+# Multiple Customer Entity rows (e.g. regional entities); optional primary for reporting:
+#   Acme Corporation:
+#     salesforce_account_ids:
+#       - "001XXXXXXXXXXXXAA"
+#       - "001XXXXXXXXXXXXBB"
+#     salesforce_primary_account_id: "001XXXXXXXXXXXXAA"

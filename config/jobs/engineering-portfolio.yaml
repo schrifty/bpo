@@ -1,0 +1,6 @@
+name: engineering-portfolio
+stop_on_failure: true
+steps:
+  - name: engineering-portfolio
+    command: deck
+    deck_id: engineering-portfolio

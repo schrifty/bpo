@@ -1,0 +1,21 @@
+---
+description: Enforce human-readable naming for portfolio and cross-customer deck names
+globs: decks/*.yaml
+alwaysApply: false
+---
+
+# Portfolio And Cross-Customer Deck Display Names
+
+For human-facing deck `name` values in portfolio or cross-customer decks:
+
+- Use plain English words with standard capitalization.
+- Do not use underscores (`_`) or dashes (`-`) in the display name.
+- Do not start the display name with numbers or punctuation.
+- Keep internal deck `id` values unchanged unless explicitly requested.
+
+Examples:
+- `Support Review Portfolio` (good)
+- `Engineering Portfolio Review` (good)
+- `support_review_portfolio` (bad)
+- `00 - Portfolio Health Review` (bad)
+- `Engineering-Portfolio` (bad)

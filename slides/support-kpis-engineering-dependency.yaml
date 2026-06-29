@@ -1,0 +1,12 @@
+id: support_kpis_engineering_dependency
+type: standard
+order: 17
+title: Engineering Escalations
+slide_type: support_kpis_engineering_dependency
+data_tools:
+  - customer_jira
+customers: all
+
+prompt: >
+  Engineering and Data Integration escalations: weekly opened vs resolved for jira_escalated
+  tickets. Mapping work → CUSTOMER (DI); other escalations → LEAN (Engineering).

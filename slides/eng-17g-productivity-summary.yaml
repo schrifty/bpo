@@ -1,0 +1,12 @@
+id: productivity_summary
+type: standard
+order: 92
+title: Engineering Productivity Summary
+slide_type: productivity_summary
+data_tools: []
+customers: all
+
+prompt: >
+  Landing slide for engineer-scoped productivity: commits, merged PRs, total Cursor tokens,
+  and commits per 1K tokens over the reporting window. Requires joined GitHub + Cursor data
+  (ai_productivity blob); omitted when correlation data is unavailable.

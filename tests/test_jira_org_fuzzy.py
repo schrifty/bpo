@@ -73,7 +73,7 @@ def test_customer_match_no_directory_name_and_no_fuzzy_uses_no_match_jql(
     jc._jsm_llm_org_resolve_cache = {}
     with patch.object(jc, "_list_jsm_organization_names", return_value=["Example"]):
         frag, orgs = jc._customer_match_clause("ABC", organizations_only=True)
-    assert "___BPO_NO_ORG_MATCH___" in frag
+    assert "___CORTEX_NO_ORG_MATCH___" in frag
     assert orgs == []
 
 
@@ -91,6 +91,53 @@ def test_customer_match_llm_adds_resolved_directory_name(
     assert 'Organizations = "Example"' in frag
     assert "Example" in orgs
     mock_llm.assert_called_once()
+
+
+def test_help_project_customer_filter_falls_back_to_text_when_no_org_literal():
+    """HELP deck: avoid dead JQL when JSM directory has no match for the account name."""
+    jc = JiraClient.__new__(JiraClient)
+    calls: list[bool] = []
+
+    def fake_customer_match_clause(
+        customer_name, match_terms=None, *, organizations_only=False
+    ):
+        calls.append(organizations_only)
+        if organizations_only:
+            return ('summary ~ "___CORTEX_NO_ORG_MATCH___"', [])
+        return ("(summary ~ \"Safran\" OR description ~ \"Safran\")", [])
+
+    jc._customer_match_clause = fake_customer_match_clause  # type: ignore[method-assign]
+    frag, orgs = jc._help_project_customer_filter("Safran")
+    assert calls == [True, False]
+    assert "___CORTEX_NO_ORG_MATCH___" not in frag
+    assert "summary ~" in frag
+    assert orgs == []
+
+
+def test_help_fallback_warning_includes_salesforce_activity(caplog, monkeypatch):
+    import logging
+
+    from src import jira_client as jc
+
+    jc_client = jc.JiraClient.__new__(jc.JiraClient)
+
+    def fake_customer_match_clause(
+        customer_name, match_terms=None, *, organizations_only=False
+    ):
+        if organizations_only:
+            return ('summary ~ "___CORTEX_NO_ORG_MATCH___"', [])
+        return ('(summary ~ "Industrial")', [])
+
+    jc_client._customer_match_clause = fake_customer_match_clause  # type: ignore[method-assign]
+    monkeypatch.setattr(jc, "_salesforce_activity_hint_for_customer_scope", lambda _n: (
+        "Salesforce: active/non-churned (2 entity row(s), ARR $80,000 active of $80,000 total, "
+        "statuses: Active; SF portfolio label(s): Industrial US)"
+    ))
+    with caplog.at_level(logging.WARNING):
+        jc_client._help_project_customer_filter("Industrial")
+    assert "no JSM Organizations match" in caplog.text
+    assert "active/non-churned" in caplog.text
+    assert "Industrial US" in caplog.text
 
 
 def test_customer_project_text_match_clause_uses_summary_description_not_orgs():

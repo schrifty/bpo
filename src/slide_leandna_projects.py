@@ -64,7 +64,9 @@ def _placeholder(reqs: list[dict[str, Any]], sid: str, oid: str, y: float, h: fl
     _style(reqs, oid, 0, len(text), size=14, color=GRAY, font=FONT)
 
 
-def lean_projects_portfolio_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> list[str]:
+def lean_projects_portfolio_slide(
+    reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int
+) -> int | tuple[int, list[str]]:
     """Lean Projects Portfolio — Top 10 projects by savings."""
     ldna_projects = report.get("leandna_lean_projects") or {}
     if not ldna_projects.get("enabled"):
@@ -113,10 +115,12 @@ def lean_projects_portfolio_slide(reqs: list[dict[str, Any]], sid: str, report: 
                     _table_cell_bg(reqs, table_id, row_index, col_index, cell_color)
             _table_cell_style(reqs, table_id, row_index, col_index, len(value), size=7, align="END" if col_index >= 4 else None)
 
-    return [sid]
+    return idx + 1, [sid]
 
 
-def lean_projects_savings_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> list[str]:
+def lean_projects_savings_slide(
+    reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int
+) -> int | tuple[int, list[str]]:
     """Lean Projects Savings — monthly trend and KPIs."""
     ldna_projects = report.get("leandna_lean_projects") or {}
     if not ldna_projects.get("enabled"):
@@ -140,4 +144,4 @@ def lean_projects_savings_slide(reqs: list[dict[str, Any]], sid: str, report: di
     _kpi_metric_card(reqs, f"{sid}_k1", sid, MARGIN + kpi_w + kpi_gap, kpi_y, kpi_w, kpi_h, "Active Projects", f"{ldna_projects.get('active_projects', 0):,}", accent=BLUE, value_pt=18)
     _kpi_metric_card(reqs, f"{sid}_k2", sid, MARGIN + 2 * (kpi_w + kpi_gap), kpi_y, kpi_w, kpi_h, "Total Savings", _fmt_money(total_actual), accent=GREEN, value_pt=18)
     _kpi_metric_card(reqs, f"{sid}_k3", sid, MARGIN + 3 * (kpi_w + kpi_gap), kpi_y, kpi_w, kpi_h, "Achievement", f"{achievement:.0f}%", accent=GREEN if achievement >= 100 else ORANGE, value_pt=18)
-    return [sid]
+    return idx + 1, [sid]

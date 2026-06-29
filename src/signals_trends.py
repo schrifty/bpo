@@ -10,12 +10,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from .config import (
-    BPO_SIGNALS_TRENDS,
-    BPO_SIGNALS_TRENDS_MOM,
-    BPO_SIGNALS_TRENDS_PRIOR_PERIOD,
-    BPO_SIGNALS_TRENDS_TIMEOUT,
-    BPO_SIGNALS_TRENDS_WOW,
-    BPO_SIGNALS_TRENDS_YOY,
+    CORTEX_SIGNALS_TRENDS,
+    CORTEX_SIGNALS_TRENDS_MOM,
+    CORTEX_SIGNALS_TRENDS_PRIOR_PERIOD,
+    CORTEX_SIGNALS_TRENDS_TIMEOUT,
+    CORTEX_SIGNALS_TRENDS_WOW,
+    CORTEX_SIGNALS_TRENDS_YOY,
     logger,
 )
 
@@ -69,7 +69,7 @@ def _snapshot_metrics(
     *,
     timeout: tuple[int, float] | None = None,
 ) -> dict[str, Any] | None:
-    to = timeout if timeout is not None else (10, float(BPO_SIGNALS_TRENDS_TIMEOUT))
+    to = timeout if timeout is not None else (10, float(CORTEX_SIGNALS_TRENDS_TIMEOUT))
     try:
         visitors = pc.get_visitors_range(start_ms, end_ms, _timeout=to)
     except Exception as e:
@@ -100,7 +100,7 @@ def _fetch_trend_windows_parallel(
     """Run independent visitor-range snapshots in parallel (thread-safe Pendo posts)."""
     if not windows:
         return {}
-    timeout = (10, float(BPO_SIGNALS_TRENDS_TIMEOUT))
+    timeout = (10, float(CORTEX_SIGNALS_TRENDS_TIMEOUT))
     results: dict[str, dict[str, Any] | None] = {}
 
     def _job(key: str, s: int, e: int) -> tuple[str, dict[str, Any] | None]:
@@ -127,7 +127,7 @@ def build_signals_trend_context(
     report: dict[str, Any],
 ) -> dict[str, Any] | None:
     """Build compact trend + cohort context for the signals LLM and slide banner."""
-    if not BPO_SIGNALS_TRENDS:
+    if not CORTEX_SIGNALS_TRENDS:
         return None
 
     eng = report.get("engagement") or {}
@@ -161,12 +161,12 @@ def build_signals_trend_context(
     ms_day = 86400 * 1000
 
     windows: list[tuple[str, int, int]] = []
-    if BPO_SIGNALS_TRENDS_PRIOR_PERIOD and days >= 7:
+    if CORTEX_SIGNALS_TRENDS_PRIOR_PERIOD and days >= 7:
         start_current = end_ms - days * ms_day
         start_prior = start_current - days * ms_day
         windows.append(("prior", start_prior, start_current))
 
-    if BPO_SIGNALS_TRENDS_WOW:
+    if CORTEX_SIGNALS_TRENDS_WOW:
         w = 7
         c_end = end_ms
         c_start = c_end - w * ms_day
@@ -175,7 +175,7 @@ def build_signals_trend_context(
         windows.append(("wow_cur", c_start, c_end))
         windows.append(("wow_prev", p_start, p_end))
 
-    if BPO_SIGNALS_TRENDS_MOM and days >= 14:
+    if CORTEX_SIGNALS_TRENDS_MOM and days >= 14:
         w = 30
         c_end = end_ms
         c_start = c_end - w * ms_day
@@ -184,7 +184,7 @@ def build_signals_trend_context(
         windows.append(("mom_cur", c_start, c_end))
         windows.append(("mom_prev", p_start, p_end))
 
-    if BPO_SIGNALS_TRENDS_YOY and days >= 60:
+    if CORTEX_SIGNALS_TRENDS_YOY and days >= 60:
         w = 365
         c_end = end_ms
         c_start = c_end - w * ms_day

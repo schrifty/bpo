@@ -1,3 +1,6 @@
+# LeanDNA automated SSO session cache (Playwright)
+.cache/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -10,8 +13,11 @@ build/
 
 # Secrets
 .env
+output/
 *.json
 !.vscode/*.json
+!config/comprehensive_data_element_list.json
+!infra/*.json
 # Private key for Salesforce JWT — never commit
 server.key
 *.key
@@ -37,3 +43,4 @@ matching.log
 # Byte-compiled
 *.so
 src/pendo_client.py
+config/comprehensive_data_element_list.json.bak

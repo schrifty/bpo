@@ -1,4 +1,4 @@
-"""LeanDNA Item Master Data API client for BPO.
+"""LeanDNA Item Master Data API client for Cortex.
 
 Fetches comprehensive item-level supply chain data including DOI backwards,
 risk scores, ABC classification, lead time variance, and excess inventory details.
@@ -23,15 +23,9 @@ _cache_timestamp: datetime | None = None
 
 
 def _get_base_url() -> str:
-    """Get LeanDNA Data API base URL from config."""
-    from .config import LEANDNA_DATA_API_BASE_URL
-    return LEANDNA_DATA_API_BASE_URL or "https://app.leandna.com/api"
+    from .leandna_data_api_request import data_api_base_url
 
-
-def _get_bearer_token() -> str | None:
-    """Get LeanDNA bearer token from config."""
-    from .config import LEANDNA_DATA_API_BEARER_TOKEN
-    return LEANDNA_DATA_API_BEARER_TOKEN
+    return data_api_base_url()
 
 
 def _get_cache_ttl_hours() -> int:
@@ -42,18 +36,12 @@ def _get_cache_ttl_hours() -> int:
 
 def _headers(requested_sites: str | None = None) -> dict[str, str]:
     """Build request headers with auth and optional site scoping."""
-    token = _get_bearer_token()
-    if not token:
-        raise ValueError("LEANDNA_DATA_API_BEARER_TOKEN not configured in .env")
-    
-    h = {
-        "Authorization": f"Bearer {token.strip()}",
-        "Accept": "application/json",
-        "User-Agent": "bpo-leandna-client/1.0",
-    }
-    if requested_sites:
-        h["RequestedSites"] = requested_sites.strip()
-    return h
+    from .leandna_data_api_http import build_leandna_data_api_headers
+
+    return build_leandna_data_api_headers(
+        requested_sites=requested_sites,
+        user_agent_suffix="leandna-item-master-client/1.0",
+    )
 
 
 def _cache_key(sites: str | None) -> str:

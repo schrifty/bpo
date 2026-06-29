@@ -1,0 +1,14 @@
+id: portfolio_expansion_book
+type: standard
+order: after portfolio_revenue_book
+title: Expansion & new logos (Salesforce)
+slide_type: portfolio_expansion_book
+data_tools: []
+customers: all
+
+prompt: >
+  Highlights closed-won revenue motion on the same Customer Entity rollup as Revenue Book.
+  PRIMARY KPI is % of Salesforce-active portfolio customers that recorded at least one
+  Expansion or New Expansion win in the calendar year (Opportunity CloseDate).
+  Supplement with sum Amount and deal counts, distinct accounts touched, and New Business wins.
+  YoY comparisons are not computed here — use Salesforce reporting.

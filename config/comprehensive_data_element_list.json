@@ -1,0 +1,3104 @@
+{
+  "version": 1,
+  "_comment": "Catalog of data elements Cortex can access for QBR / decks (path + terms). Terms drive hydrate phrase matching and qbr_mappings target resolution (see resolve_data_summary_target_path). Pendo per-page and per-feature detail rows are intentionally omitted (see sites/top_pages). After regenerating from this script, re-merge any custom hydrate phrases into ``terms`` if needed.",
+  "entries": [
+    {
+      "path": "customer",
+      "terms": [
+        "customer",
+        "[report] customer short name / query key",
+        "Pendo identity"
+      ]
+    },
+    {
+      "path": "generated",
+      "terms": [
+        "generated",
+        "[report] generated date stamp",
+        "health report"
+      ]
+    },
+    {
+      "path": "days",
+      "terms": [
+        "days",
+        "[report] Pendo lookback window days"
+      ]
+    },
+    {
+      "path": "salesforce_primary_account_id",
+      "terms": [
+        "salesforce_primary_account_id",
+        "[report] resolved Salesforce Account Id"
+      ]
+    },
+    {
+      "path": "customer_key_type",
+      "terms": [
+        "customer_key_type",
+        "[report] identity resolution: salesforce_account_id | name | none"
+      ]
+    },
+    {
+      "path": "customer_name",
+      "terms": [
+        "customer_name",
+        "[data_summary] mirrors report.customer",
+        "hydrate shorthand"
+      ]
+    },
+    {
+      "path": "report_date",
+      "terms": [
+        "report_date",
+        "[data_summary] mirrors report.generated"
+      ]
+    },
+    {
+      "path": "quarter",
+      "terms": [
+        "quarter",
+        "[report] fiscal quarter label (QBR may set)"
+      ]
+    },
+    {
+      "path": "quarter_start",
+      "terms": [
+        "quarter_start",
+        "[report] ISO date"
+      ]
+    },
+    {
+      "path": "quarter_end",
+      "terms": [
+        "quarter_end",
+        "[report] ISO date"
+      ]
+    },
+    {
+      "path": "account.name",
+      "terms": [
+        "account.name",
+        "[Pendo] account display name"
+      ]
+    },
+    {
+      "path": "account.region",
+      "terms": [
+        "account.region",
+        "[Pendo] account region"
+      ]
+    },
+    {
+      "path": "account.csm",
+      "terms": [
+        "account.csm",
+        "[Pendo] CSM names joined"
+      ]
+    },
+    {
+      "path": "account.account_id",
+      "terms": [
+        "account.account_id",
+        "[Pendo] subscription/account id"
+      ]
+    },
+    {
+      "path": "account.total_visitors",
+      "terms": [
+        "account.total_visitors",
+        "[Pendo] visitor count (excludes internal)"
+      ]
+    },
+    {
+      "path": "account.internal_visitors",
+      "terms": [
+        "account.internal_visitors",
+        "[Pendo] LeanDNA staff visitors excluded from metrics"
+      ]
+    },
+    {
+      "path": "account.total_sites",
+      "terms": [
+        "account.total_sites",
+        "[Pendo] matched factory/site names"
+      ]
+    },
+    {
+      "path": "engagement.active_7d",
+      "terms": [
+        "engagement.active_7d",
+        "[Pendo] weekly active visitors"
+      ]
+    },
+    {
+      "path": "engagement.active_30d",
+      "terms": [
+        "engagement.active_30d",
+        "[Pendo] monthly active visitors"
+      ]
+    },
+    {
+      "path": "engagement.dormant",
+      "terms": [
+        "engagement.dormant",
+        "[Pendo] dormant bucket"
+      ]
+    },
+    {
+      "path": "engagement.active_rate_7d",
+      "terms": [
+        "engagement.active_rate_7d",
+        "[Pendo] active_7d / total_visitors %"
+      ]
+    },
+    {
+      "path": "engagement.role_active",
+      "terms": [
+        "engagement.role_active",
+        "[Pendo] dict role→count (active)"
+      ]
+    },
+    {
+      "path": "engagement.role_dormant",
+      "terms": [
+        "engagement.role_dormant",
+        "[Pendo] dict role→count (dormant)"
+      ]
+    },
+    {
+      "path": "benchmarks.customer_active_rate",
+      "terms": [
+        "benchmarks.customer_active_rate",
+        "[Pendo] same as engagement rate %"
+      ]
+    },
+    {
+      "path": "benchmarks.peer_median_rate",
+      "terms": [
+        "benchmarks.peer_median_rate",
+        "[Pendo] portfolio median active %"
+      ]
+    },
+    {
+      "path": "benchmarks.peer_count",
+      "terms": [
+        "benchmarks.peer_count",
+        "[Pendo] peers in benchmark set"
+      ]
+    },
+    {
+      "path": "benchmarks.cohort",
+      "terms": [
+        "benchmarks.cohort",
+        "[config/cohorts.yaml] Pendo prefix cohort key"
+      ]
+    },
+    {
+      "path": "benchmarks.cohort_name",
+      "terms": [
+        "benchmarks.cohort_name",
+        "[Pendo] display cohort name"
+      ]
+    },
+    {
+      "path": "benchmarks.cohort_median_rate",
+      "terms": [
+        "benchmarks.cohort_median_rate",
+        "[Pendo] cohort median active %"
+      ]
+    },
+    {
+      "path": "benchmarks.cohort_count",
+      "terms": [
+        "benchmarks.cohort_count",
+        "[Pendo] cohort peer count"
+      ]
+    },
+    {
+      "path": "signals",
+      "terms": [
+        "signals",
+        "[Pendo] list of signal strings (not enumerated per-line here)"
+      ]
+    },
+    {
+      "path": "sites",
+      "terms": [
+        "sites",
+        "[Pendo] array of site dicts — keys include sitename, visitors, pages_used, features_used, total_events, total_minutes, last_active",
+        "no per-page tables in this catalog"
+      ]
+    },
+    {
+      "path": "site_details",
+      "terms": [
+        "site_details",
+        "[data_summary] trimmed copy of sites for prompts"
+      ]
+    },
+    {
+      "path": "site_details.name",
+      "terms": [
+        "site_details.name",
+        "[Pendo→summary] site display name"
+      ]
+    },
+    {
+      "path": "site_details.visitors",
+      "terms": [
+        "site_details.visitors",
+        "[Pendo→summary] visitors at site"
+      ]
+    },
+    {
+      "path": "site_details.pages_used",
+      "terms": [
+        "site_details.pages_used",
+        "[Pendo→summary] pages used"
+      ]
+    },
+    {
+      "path": "site_details.features_used",
+      "terms": [
+        "site_details.features_used",
+        "[Pendo→summary] features used"
+      ]
+    },
+    {
+      "path": "site_details.events",
+      "terms": [
+        "site_details.events",
+        "[Pendo→summary] total_events"
+      ]
+    },
+    {
+      "path": "site_details.total_minutes",
+      "terms": [
+        "site_details.total_minutes",
+        "[Pendo→summary] minutes"
+      ]
+    },
+    {
+      "path": "site_details.last_active",
+      "terms": [
+        "site_details.last_active",
+        "[Pendo→summary] last active"
+      ]
+    },
+    {
+      "path": "top_pages",
+      "terms": [
+        "top_pages",
+        "[Pendo] ranked page list — omitting per-row catalog"
+      ]
+    },
+    {
+      "path": "top_features",
+      "terms": [
+        "top_features",
+        "[Pendo] ranked feature list — omitting per-row catalog"
+      ]
+    },
+    {
+      "path": "feature_adoption_insights",
+      "terms": [
+        "feature_adoption_insights",
+        "[Pendo] structured adoption insights object"
+      ]
+    },
+    {
+      "path": "champions",
+      "terms": [
+        "champions",
+        "[Pendo] champion user rows"
+      ]
+    },
+    {
+      "path": "at_risk_users",
+      "terms": [
+        "at_risk_users",
+        "[Pendo] at-risk user rows"
+      ]
+    },
+    {
+      "path": "depth.customer",
+      "terms": [
+        "depth.customer",
+        "[Pendo depth]"
+      ]
+    },
+    {
+      "path": "depth.days",
+      "terms": [
+        "depth.days",
+        "[Pendo depth]"
+      ]
+    },
+    {
+      "path": "depth.total_feature_events",
+      "terms": [
+        "depth.total_feature_events",
+        "[Pendo depth]"
+      ]
+    },
+    {
+      "path": "depth.active_users",
+      "terms": [
+        "depth.active_users",
+        "[Pendo depth]"
+      ]
+    },
+    {
+      "path": "depth.read_events",
+      "terms": [
+        "depth.read_events",
+        "[Pendo depth]"
+      ]
+    },
+    {
+      "path": "depth.write_events",
+      "terms": [
+        "depth.write_events",
+        "[Pendo depth]"
+      ]
+    },
+    {
+      "path": "depth.collab_events",
+      "terms": [
+        "depth.collab_events",
+        "[Pendo depth]"
+      ]
+    },
+    {
+      "path": "depth.write_ratio",
+      "terms": [
+        "depth.write_ratio",
+        "[Pendo depth] read vs write %"
+      ]
+    },
+    {
+      "path": "depth.breakdown",
+      "terms": [
+        "depth.breakdown",
+        "[Pendo depth] category breakdown rows"
+      ]
+    },
+    {
+      "path": "exports.customer",
+      "terms": [
+        "exports.customer",
+        "[Pendo exports]"
+      ]
+    },
+    {
+      "path": "exports.days",
+      "terms": [
+        "exports.days",
+        "[Pendo exports]"
+      ]
+    },
+    {
+      "path": "exports.total_exports",
+      "terms": [
+        "exports.total_exports",
+        "[Pendo exports]"
+      ]
+    },
+    {
+      "path": "exports.exports_per_active_user",
+      "terms": [
+        "exports.exports_per_active_user",
+        "[Pendo exports]"
+      ]
+    },
+    {
+      "path": "exports.active_users",
+      "terms": [
+        "exports.active_users",
+        "[Pendo exports]"
+      ]
+    },
+    {
+      "path": "exports.by_feature",
+      "terms": [
+        "exports.by_feature",
+        "[Pendo exports] ranked export features"
+      ]
+    },
+    {
+      "path": "exports.top_exporters",
+      "terms": [
+        "exports.top_exporters",
+        "[Pendo exports] top users"
+      ]
+    },
+    {
+      "path": "kei.customer",
+      "terms": [
+        "kei.customer",
+        "[Pendo Kei]"
+      ]
+    },
+    {
+      "path": "kei.days",
+      "terms": [
+        "kei.days",
+        "[Pendo Kei]"
+      ]
+    },
+    {
+      "path": "kei.total_queries",
+      "terms": [
+        "kei.total_queries",
+        "[Pendo Kei] chat / Kei events"
+      ]
+    },
+    {
+      "path": "kei.unique_users",
+      "terms": [
+        "kei.unique_users",
+        "[Pendo Kei]"
+      ]
+    },
+    {
+      "path": "kei.active_users",
+      "terms": [
+        "kei.active_users",
+        "[Pendo Kei]"
+      ]
+    },
+    {
+      "path": "kei.adoption_rate",
+      "terms": [
+        "kei.adoption_rate",
+        "[Pendo Kei] %"
+      ]
+    },
+    {
+      "path": "kei.executive_users",
+      "terms": [
+        "kei.executive_users",
+        "[Pendo Kei] exec role count"
+      ]
+    },
+    {
+      "path": "kei.executive_queries",
+      "terms": [
+        "kei.executive_queries",
+        "[Pendo Kei] exec query volume"
+      ]
+    },
+    {
+      "path": "kei.users",
+      "terms": [
+        "kei.users",
+        "[Pendo Kei] top user rows (email, role, queries, is_executive)"
+      ]
+    },
+    {
+      "path": "guides.customer",
+      "terms": [
+        "guides.customer",
+        "[Pendo guides]"
+      ]
+    },
+    {
+      "path": "guides.days",
+      "terms": [
+        "guides.days",
+        "[Pendo guides]"
+      ]
+    },
+    {
+      "path": "guides.total_guide_events",
+      "terms": [
+        "guides.total_guide_events",
+        "[Pendo guides]"
+      ]
+    },
+    {
+      "path": "guides.users_who_saw_guides",
+      "terms": [
+        "guides.users_who_saw_guides",
+        "[Pendo guides]"
+      ]
+    },
+    {
+      "path": "guides.total_visitors",
+      "terms": [
+        "guides.total_visitors",
+        "[Pendo guides]"
+      ]
+    },
+    {
+      "path": "guides.guide_reach",
+      "terms": [
+        "guides.guide_reach",
+        "[Pendo guides] %"
+      ]
+    },
+    {
+      "path": "guides.seen",
+      "terms": [
+        "guides.seen",
+        "[Pendo guides] guideSeen count"
+      ]
+    },
+    {
+      "path": "guides.advanced",
+      "terms": [
+        "guides.advanced",
+        "[Pendo guides] guideAdvanced count"
+      ]
+    },
+    {
+      "path": "guides.dismissed",
+      "terms": [
+        "guides.dismissed",
+        "[Pendo guides] guideDismissed count"
+      ]
+    },
+    {
+      "path": "guides.dismiss_rate",
+      "terms": [
+        "guides.dismiss_rate",
+        "[Pendo guides] %"
+      ]
+    },
+    {
+      "path": "guides.advance_rate",
+      "terms": [
+        "guides.advance_rate",
+        "[Pendo guides] %"
+      ]
+    },
+    {
+      "path": "guides.top_guides",
+      "terms": [
+        "guides.top_guides",
+        "[Pendo guides] ranked guide rows"
+      ]
+    },
+    {
+      "path": "poll_events",
+      "terms": [
+        "poll_events",
+        "[Pendo] poll/survey engagement blob"
+      ]
+    },
+    {
+      "path": "frustration",
+      "terms": [
+        "frustration",
+        "[Pendo] frustration signals blob"
+      ]
+    },
+    {
+      "path": "track_events_breakdown",
+      "terms": [
+        "track_events_breakdown",
+        "[Pendo] track-type breakdown blob"
+      ]
+    },
+    {
+      "path": "visitor_languages",
+      "terms": [
+        "visitor_languages",
+        "[Pendo] language distribution blob"
+      ]
+    },
+    {
+      "path": "pendo_catalog_appendix",
+      "terms": [
+        "pendo_catalog_appendix",
+        "[Pendo] catalog appendix summary"
+      ]
+    },
+    {
+      "path": "jira.customer",
+      "terms": [
+        "jira.customer",
+        "[Jira]"
+      ]
+    },
+    {
+      "path": "jira.days",
+      "terms": [
+        "jira.days",
+        "[Jira] lookback"
+      ]
+    },
+    {
+      "path": "jira.total_issues",
+      "terms": [
+        "jira.total_issues",
+        "[Jira] HELP scope issue count in window"
+      ]
+    },
+    {
+      "path": "jira.open_issues",
+      "terms": [
+        "jira.open_issues",
+        "[Jira]"
+      ]
+    },
+    {
+      "path": "jira.resolved_issues",
+      "terms": [
+        "jira.resolved_issues",
+        "[Jira]"
+      ]
+    },
+    {
+      "path": "jira.escalated",
+      "terms": [
+        "jira.escalated",
+        "[Jira] escalated count"
+      ]
+    },
+    {
+      "path": "jira.open_bugs",
+      "terms": [
+        "jira.open_bugs",
+        "[Jira]"
+      ]
+    },
+    {
+      "path": "jira.by_status",
+      "terms": [
+        "jira.by_status",
+        "[Jira] histogram"
+      ]
+    },
+    {
+      "path": "jira.by_type",
+      "terms": [
+        "jira.by_type",
+        "[Jira] histogram"
+      ]
+    },
+    {
+      "path": "jira.by_priority",
+      "terms": [
+        "jira.by_priority",
+        "[Jira] histogram"
+      ]
+    },
+    {
+      "path": "jira.by_sentiment",
+      "terms": [
+        "jira.by_sentiment",
+        "[Jira] histogram"
+      ]
+    },
+    {
+      "path": "jira.by_request_type",
+      "terms": [
+        "jira.by_request_type",
+        "[Jira] histogram"
+      ]
+    },
+    {
+      "path": "jira.tickets_over_time",
+      "terms": [
+        "jira.tickets_over_time",
+        "[Jira] weekly buckets"
+      ]
+    },
+    {
+      "path": "jira.recent_issues",
+      "terms": [
+        "jira.recent_issues",
+        "[Jira] sample rows (key/summary)"
+      ]
+    },
+    {
+      "path": "jira.escalated_issues",
+      "terms": [
+        "jira.escalated_issues",
+        "[Jira] sample escalations"
+      ]
+    },
+    {
+      "path": "jira.engineering",
+      "terms": [
+        "jira.engineering",
+        "[Jira] LEAN engineering slice"
+      ]
+    },
+    {
+      "path": "jira.enhancements",
+      "terms": [
+        "jira.enhancements",
+        "[Jira] ER slice"
+      ]
+    },
+    {
+      "path": "jira.ttfr",
+      "terms": [
+        "jira.ttfr",
+        "[Jira] time-to-first-response SLA stats"
+      ]
+    },
+    {
+      "path": "jira.ttr",
+      "terms": [
+        "jira.ttr",
+        "[Jira] time-to-resolve SLA stats"
+      ]
+    },
+    {
+      "path": "jira.customer_ticket_metrics",
+      "terms": [
+        "jira.customer_ticket_metrics",
+        "[Jira] pre-aggregated ticket metrics"
+      ]
+    },
+    {
+      "path": "jira.support_kpis",
+      "terms": [
+        "jira.support_kpis",
+        "[Jira] HELP operational KPI bundle for support-kpis deck"
+      ]
+    },
+    {
+      "path": "jira.jsm_organizations_resolved",
+      "terms": [
+        "jira.jsm_organizations_resolved",
+        "[Jira] org resolution trace"
+      ]
+    },
+    {
+      "path": "jira.help_scope",
+      "terms": [
+        "jira.help_scope",
+        "[Jira] scope description string"
+      ]
+    },
+    {
+      "path": "jira.jql_queries",
+      "terms": [
+        "jira.jql_queries",
+        "[Jira] JQL trace for QA"
+      ]
+    },
+    {
+      "path": "support.total_tickets",
+      "terms": [
+        "support.total_tickets",
+        "[data_summary] from jira.total_issues"
+      ]
+    },
+    {
+      "path": "support.open",
+      "terms": [
+        "support.open",
+        "[data_summary] from jira.open_issues"
+      ]
+    },
+    {
+      "path": "support.resolved",
+      "terms": [
+        "support.resolved",
+        "[data_summary] from jira.resolved_issues"
+      ]
+    },
+    {
+      "path": "salesforce.customer",
+      "terms": [
+        "salesforce.customer",
+        "[SFDC]"
+      ]
+    },
+    {
+      "path": "salesforce.accounts",
+      "terms": [
+        "salesforce.accounts",
+        "[SFDC] matched Account rows"
+      ]
+    },
+    {
+      "path": "salesforce.account_ids",
+      "terms": [
+        "salesforce.account_ids",
+        "[SFDC] Ids"
+      ]
+    },
+    {
+      "path": "salesforce.opportunity_count_this_year",
+      "terms": [
+        "salesforce.opportunity_count_this_year",
+        "[SFDC]"
+      ]
+    },
+    {
+      "path": "salesforce.pipeline_arr",
+      "terms": [
+        "salesforce.pipeline_arr",
+        "[SFDC] pipeline ARR"
+      ]
+    },
+    {
+      "path": "salesforce.matched",
+      "terms": [
+        "salesforce.matched",
+        "[SFDC] boolean"
+      ]
+    },
+    {
+      "path": "salesforce.resolution",
+      "terms": [
+        "salesforce.resolution",
+        "[SFDC] salesforce_account_id | name | none"
+      ]
+    },
+    {
+      "path": "salesforce.primary_account_id",
+      "terms": [
+        "salesforce.primary_account_id",
+        "[SFDC]"
+      ]
+    },
+    {
+      "path": "salesforce.error",
+      "terms": [
+        "salesforce.error",
+        "[SFDC] when present"
+      ]
+    },
+    {
+      "path": "salesforce.row_limit",
+      "terms": [
+        "salesforce.row_limit",
+        "[SFDC comprehensive] max rows per category"
+      ]
+    },
+    {
+      "path": "salesforce.account_ids_expanded",
+      "terms": [
+        "salesforce.account_ids_expanded",
+        "[SFDC comprehensive] hierarchy-expanded Account Ids"
+      ]
+    },
+    {
+      "path": "salesforce.categories",
+      "terms": [
+        "salesforce.categories",
+        "[SFDC comprehensive] dict label→rows (wide SOQL bundles)"
+      ]
+    },
+    {
+      "path": "salesforce.category_errors",
+      "terms": [
+        "salesforce.category_errors",
+        "[SFDC comprehensive] per-category fetch errors"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].Id",
+      "terms": [
+        "salesforce.accounts[].Id",
+        "[SFDC] Account Id"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].Name",
+      "terms": [
+        "salesforce.accounts[].Name",
+        "[SFDC] Account name"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].LeanDNA_Entity_Name__c",
+      "terms": [
+        "salesforce.accounts[].LeanDNA_Entity_Name__c",
+        "[SFDC] LeanDNA entity name"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].US_Persons_Only_Customer__c",
+      "terms": [
+        "salesforce.accounts[].US_Persons_Only_Customer__c",
+        "[SFDC] compliance flag"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].Contract_Status__c",
+      "terms": [
+        "salesforce.accounts[].Contract_Status__c",
+        "[SFDC] account contract status"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].factory_start_date",
+      "terms": [
+        "salesforce.accounts[].factory_start_date",
+        "[SFDC] factory/operational start (SF_ACCOUNT_FACTORY_START_DATE_FIELD)"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].Contract_Contract_Start_Date__c",
+      "terms": [
+        "salesforce.accounts[].Contract_Contract_Start_Date__c",
+        "[SFDC] contract start date"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].Contract_Contract_End_Date__c",
+      "terms": [
+        "salesforce.accounts[].Contract_Contract_End_Date__c",
+        "[SFDC] contract end date"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].ARR__c",
+      "terms": [
+        "salesforce.accounts[].ARR__c",
+        "[SFDC] account ARR custom field"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].ParentId",
+      "terms": [
+        "salesforce.accounts[].ParentId",
+        "[SFDC] parent account id"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].parent_name",
+      "terms": [
+        "salesforce.accounts[].parent_name",
+        "[SFDC] normalized parent account name"
+      ]
+    },
+    {
+      "path": "salesforce.accounts[].ultimate_parent_name",
+      "terms": [
+        "salesforce.accounts[].ultimate_parent_name",
+        "[SFDC] normalized ultimate parent name"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts",
+      "terms": [
+        "salesforce.categories.contacts",
+        "[SFDC comprehensive] category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].Id",
+      "terms": [
+        "salesforce.categories.contacts[].Id",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].FirstName",
+      "terms": [
+        "salesforce.categories.contacts[].FirstName",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].LastName",
+      "terms": [
+        "salesforce.categories.contacts[].LastName",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].Email",
+      "terms": [
+        "salesforce.categories.contacts[].Email",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].Phone",
+      "terms": [
+        "salesforce.categories.contacts[].Phone",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].AccountId",
+      "terms": [
+        "salesforce.categories.contacts[].AccountId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].Title",
+      "terms": [
+        "salesforce.categories.contacts[].Title",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].MailingCity",
+      "terms": [
+        "salesforce.categories.contacts[].MailingCity",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].MailingState",
+      "terms": [
+        "salesforce.categories.contacts[].MailingState",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].MailingCountry",
+      "terms": [
+        "salesforce.categories.contacts[].MailingCountry",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].OwnerId",
+      "terms": [
+        "salesforce.categories.contacts[].OwnerId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contacts[].CreatedDate",
+      "terms": [
+        "salesforce.categories.contacts[].CreatedDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities",
+      "terms": [
+        "salesforce.categories.opportunities",
+        "[SFDC comprehensive] category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].Id",
+      "terms": [
+        "salesforce.categories.opportunities[].Id",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].Name",
+      "terms": [
+        "salesforce.categories.opportunities[].Name",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].AccountId",
+      "terms": [
+        "salesforce.categories.opportunities[].AccountId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].StageName",
+      "terms": [
+        "salesforce.categories.opportunities[].StageName",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].Amount",
+      "terms": [
+        "salesforce.categories.opportunities[].Amount",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].Probability",
+      "terms": [
+        "salesforce.categories.opportunities[].Probability",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].CloseDate",
+      "terms": [
+        "salesforce.categories.opportunities[].CloseDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].Type",
+      "terms": [
+        "salesforce.categories.opportunities[].Type",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].ForecastCategoryName",
+      "terms": [
+        "salesforce.categories.opportunities[].ForecastCategoryName",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].OwnerId",
+      "terms": [
+        "salesforce.categories.opportunities[].OwnerId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].CreatedDate",
+      "terms": [
+        "salesforce.categories.opportunities[].CreatedDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunities[].LastModifiedDate",
+      "terms": [
+        "salesforce.categories.opportunities[].LastModifiedDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunity_line_items",
+      "terms": [
+        "salesforce.categories.opportunity_line_items",
+        "[SFDC comprehensive] category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunity_line_items[].Id",
+      "terms": [
+        "salesforce.categories.opportunity_line_items[].Id",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunity_line_items[].OpportunityId",
+      "terms": [
+        "salesforce.categories.opportunity_line_items[].OpportunityId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunity_line_items[].Product2Id",
+      "terms": [
+        "salesforce.categories.opportunity_line_items[].Product2Id",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunity_line_items[].Quantity",
+      "terms": [
+        "salesforce.categories.opportunity_line_items[].Quantity",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunity_line_items[].UnitPrice",
+      "terms": [
+        "salesforce.categories.opportunity_line_items[].UnitPrice",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunity_line_items[].TotalPrice",
+      "terms": [
+        "salesforce.categories.opportunity_line_items[].TotalPrice",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.opportunity_line_items[].ServiceDate",
+      "terms": [
+        "salesforce.categories.opportunity_line_items[].ServiceDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases",
+      "terms": [
+        "salesforce.categories.cases",
+        "[SFDC comprehensive] category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].Id",
+      "terms": [
+        "salesforce.categories.cases[].Id",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].CaseNumber",
+      "terms": [
+        "salesforce.categories.cases[].CaseNumber",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].Subject",
+      "terms": [
+        "salesforce.categories.cases[].Subject",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].Status",
+      "terms": [
+        "salesforce.categories.cases[].Status",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].Priority",
+      "terms": [
+        "salesforce.categories.cases[].Priority",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].Origin",
+      "terms": [
+        "salesforce.categories.cases[].Origin",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].AccountId",
+      "terms": [
+        "salesforce.categories.cases[].AccountId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].ContactId",
+      "terms": [
+        "salesforce.categories.cases[].ContactId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].OwnerId",
+      "terms": [
+        "salesforce.categories.cases[].OwnerId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].CreatedDate",
+      "terms": [
+        "salesforce.categories.cases[].CreatedDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.cases[].ClosedDate",
+      "terms": [
+        "salesforce.categories.cases[].ClosedDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks",
+      "terms": [
+        "salesforce.categories.tasks",
+        "[SFDC comprehensive] category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks[].Id",
+      "terms": [
+        "salesforce.categories.tasks[].Id",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks[].Subject",
+      "terms": [
+        "salesforce.categories.tasks[].Subject",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks[].Status",
+      "terms": [
+        "salesforce.categories.tasks[].Status",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks[].Priority",
+      "terms": [
+        "salesforce.categories.tasks[].Priority",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks[].ActivityDate",
+      "terms": [
+        "salesforce.categories.tasks[].ActivityDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks[].WhoId",
+      "terms": [
+        "salesforce.categories.tasks[].WhoId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks[].WhatId",
+      "terms": [
+        "salesforce.categories.tasks[].WhatId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks[].OwnerId",
+      "terms": [
+        "salesforce.categories.tasks[].OwnerId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks[].IsClosed",
+      "terms": [
+        "salesforce.categories.tasks[].IsClosed",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.tasks[].CreatedDate",
+      "terms": [
+        "salesforce.categories.tasks[].CreatedDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.events",
+      "terms": [
+        "salesforce.categories.events",
+        "[SFDC comprehensive] category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.events[].Id",
+      "terms": [
+        "salesforce.categories.events[].Id",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.events[].Subject",
+      "terms": [
+        "salesforce.categories.events[].Subject",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.events[].StartDateTime",
+      "terms": [
+        "salesforce.categories.events[].StartDateTime",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.events[].EndDateTime",
+      "terms": [
+        "salesforce.categories.events[].EndDateTime",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.events[].Location",
+      "terms": [
+        "salesforce.categories.events[].Location",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.events[].WhoId",
+      "terms": [
+        "salesforce.categories.events[].WhoId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.events[].WhatId",
+      "terms": [
+        "salesforce.categories.events[].WhatId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.events[].OwnerId",
+      "terms": [
+        "salesforce.categories.events[].OwnerId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.events[].CreatedDate",
+      "terms": [
+        "salesforce.categories.events[].CreatedDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contracts",
+      "terms": [
+        "salesforce.categories.contracts",
+        "[SFDC comprehensive] category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contracts[].Id",
+      "terms": [
+        "salesforce.categories.contracts[].Id",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contracts[].ContractNumber",
+      "terms": [
+        "salesforce.categories.contracts[].ContractNumber",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contracts[].AccountId",
+      "terms": [
+        "salesforce.categories.contracts[].AccountId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contracts[].Status",
+      "terms": [
+        "salesforce.categories.contracts[].Status",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contracts[].StartDate",
+      "terms": [
+        "salesforce.categories.contracts[].StartDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contracts[].EndDate",
+      "terms": [
+        "salesforce.categories.contracts[].EndDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contracts[].ContractTerm",
+      "terms": [
+        "salesforce.categories.contracts[].ContractTerm",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contracts[].OwnerId",
+      "terms": [
+        "salesforce.categories.contracts[].OwnerId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.contracts[].CreatedDate",
+      "terms": [
+        "salesforce.categories.contracts[].CreatedDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.orders",
+      "terms": [
+        "salesforce.categories.orders",
+        "[SFDC comprehensive] category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.orders[].Id",
+      "terms": [
+        "salesforce.categories.orders[].Id",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.orders[].OrderNumber",
+      "terms": [
+        "salesforce.categories.orders[].OrderNumber",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.orders[].AccountId",
+      "terms": [
+        "salesforce.categories.orders[].AccountId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.orders[].EffectiveDate",
+      "terms": [
+        "salesforce.categories.orders[].EffectiveDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.orders[].Status",
+      "terms": [
+        "salesforce.categories.orders[].Status",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.orders[].TotalAmount",
+      "terms": [
+        "salesforce.categories.orders[].TotalAmount",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.orders[].Type",
+      "terms": [
+        "salesforce.categories.orders[].Type",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.orders[].OwnerId",
+      "terms": [
+        "salesforce.categories.orders[].OwnerId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.orders[].CreatedDate",
+      "terms": [
+        "salesforce.categories.orders[].CreatedDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes",
+      "terms": [
+        "salesforce.categories.quotes",
+        "[SFDC comprehensive] category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes[].Id",
+      "terms": [
+        "salesforce.categories.quotes[].Id",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes[].QuoteNumber",
+      "terms": [
+        "salesforce.categories.quotes[].QuoteNumber",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes[].Name",
+      "terms": [
+        "salesforce.categories.quotes[].Name",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes[].OpportunityId",
+      "terms": [
+        "salesforce.categories.quotes[].OpportunityId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes[].AccountId",
+      "terms": [
+        "salesforce.categories.quotes[].AccountId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes[].Status",
+      "terms": [
+        "salesforce.categories.quotes[].Status",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes[].ExpirationDate",
+      "terms": [
+        "salesforce.categories.quotes[].ExpirationDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes[].GrandTotal",
+      "terms": [
+        "salesforce.categories.quotes[].GrandTotal",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes[].OwnerId",
+      "terms": [
+        "salesforce.categories.quotes[].OwnerId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.quotes[].CreatedDate",
+      "terms": [
+        "salesforce.categories.quotes[].CreatedDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.assets",
+      "terms": [
+        "salesforce.categories.assets",
+        "[SFDC comprehensive] category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.assets[].Id",
+      "terms": [
+        "salesforce.categories.assets[].Id",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.assets[].Name",
+      "terms": [
+        "salesforce.categories.assets[].Name",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.assets[].AccountId",
+      "terms": [
+        "salesforce.categories.assets[].AccountId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.assets[].SerialNumber",
+      "terms": [
+        "salesforce.categories.assets[].SerialNumber",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.assets[].Status",
+      "terms": [
+        "salesforce.categories.assets[].Status",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.assets[].Product2Id",
+      "terms": [
+        "salesforce.categories.assets[].Product2Id",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.assets[].InstallDate",
+      "terms": [
+        "salesforce.categories.assets[].InstallDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.assets[].OwnerId",
+      "terms": [
+        "salesforce.categories.assets[].OwnerId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.owners_sample",
+      "terms": [
+        "salesforce.categories.owners_sample",
+        "[SFDC comprehensive] category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.owners_sample[].Id",
+      "terms": [
+        "salesforce.categories.owners_sample[].Id",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.owners_sample[].Name",
+      "terms": [
+        "salesforce.categories.owners_sample[].Name",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.owners_sample[].Username",
+      "terms": [
+        "salesforce.categories.owners_sample[].Username",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.owners_sample[].Email",
+      "terms": [
+        "salesforce.categories.owners_sample[].Email",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.owners_sample[].IsActive",
+      "terms": [
+        "salesforce.categories.owners_sample[].IsActive",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.owners_sample[].ProfileId",
+      "terms": [
+        "salesforce.categories.owners_sample[].ProfileId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.owners_sample[].UserType",
+      "terms": [
+        "salesforce.categories.owners_sample[].UserType",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaign_members",
+      "terms": [
+        "salesforce.categories.campaign_members",
+        "[SFDC comprehensive] category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaign_members[].Id",
+      "terms": [
+        "salesforce.categories.campaign_members[].Id",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaign_members[].CampaignId",
+      "terms": [
+        "salesforce.categories.campaign_members[].CampaignId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaign_members[].LeadId",
+      "terms": [
+        "salesforce.categories.campaign_members[].LeadId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaign_members[].ContactId",
+      "terms": [
+        "salesforce.categories.campaign_members[].ContactId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaign_members[].Status",
+      "terms": [
+        "salesforce.categories.campaign_members[].Status",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaign_members[].CreatedDate",
+      "terms": [
+        "salesforce.categories.campaign_members[].CreatedDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaigns_related",
+      "terms": [
+        "salesforce.categories.campaigns_related",
+        "[SFDC comprehensive] category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaigns_related[].Id",
+      "terms": [
+        "salesforce.categories.campaigns_related[].Id",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaigns_related[].Name",
+      "terms": [
+        "salesforce.categories.campaigns_related[].Name",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaigns_related[].Status",
+      "terms": [
+        "salesforce.categories.campaigns_related[].Status",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaigns_related[].Type",
+      "terms": [
+        "salesforce.categories.campaigns_related[].Type",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaigns_related[].StartDate",
+      "terms": [
+        "salesforce.categories.campaigns_related[].StartDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaigns_related[].EndDate",
+      "terms": [
+        "salesforce.categories.campaigns_related[].EndDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaigns_related[].BudgetedCost",
+      "terms": [
+        "salesforce.categories.campaigns_related[].BudgetedCost",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaigns_related[].ActualCost",
+      "terms": [
+        "salesforce.categories.campaigns_related[].ActualCost",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.campaigns_related[].OwnerId",
+      "terms": [
+        "salesforce.categories.campaigns_related[].OwnerId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match",
+      "terms": [
+        "salesforce.categories.leads_name_match",
+        "[SFDC comprehensive] category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].Id",
+      "terms": [
+        "salesforce.categories.leads_name_match[].Id",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].FirstName",
+      "terms": [
+        "salesforce.categories.leads_name_match[].FirstName",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].LastName",
+      "terms": [
+        "salesforce.categories.leads_name_match[].LastName",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].Company",
+      "terms": [
+        "salesforce.categories.leads_name_match[].Company",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].Email",
+      "terms": [
+        "salesforce.categories.leads_name_match[].Email",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].Phone",
+      "terms": [
+        "salesforce.categories.leads_name_match[].Phone",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].Status",
+      "terms": [
+        "salesforce.categories.leads_name_match[].Status",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].LeadSource",
+      "terms": [
+        "salesforce.categories.leads_name_match[].LeadSource",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].OwnerId",
+      "terms": [
+        "salesforce.categories.leads_name_match[].OwnerId",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].CreatedDate",
+      "terms": [
+        "salesforce.categories.leads_name_match[].CreatedDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].LastModifiedDate",
+      "terms": [
+        "salesforce.categories.leads_name_match[].LastModifiedDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.leads_name_match[].IsConverted",
+      "terms": [
+        "salesforce.categories.leads_name_match[].IsConverted",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.products_org_sample",
+      "terms": [
+        "salesforce.categories.products_org_sample",
+        "[SFDC comprehensive] category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.products_org_sample[].Id",
+      "terms": [
+        "salesforce.categories.products_org_sample[].Id",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.products_org_sample[].Name",
+      "terms": [
+        "salesforce.categories.products_org_sample[].Name",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.products_org_sample[].ProductCode",
+      "terms": [
+        "salesforce.categories.products_org_sample[].ProductCode",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.products_org_sample[].Description",
+      "terms": [
+        "salesforce.categories.products_org_sample[].Description",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.products_org_sample[].IsActive",
+      "terms": [
+        "salesforce.categories.products_org_sample[].IsActive",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.products_org_sample[].Family",
+      "terms": [
+        "salesforce.categories.products_org_sample[].Family",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.products_org_sample[].CreatedDate",
+      "terms": [
+        "salesforce.categories.products_org_sample[].CreatedDate",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.pricebooks_org_sample",
+      "terms": [
+        "salesforce.categories.pricebooks_org_sample",
+        "[SFDC comprehensive] category table"
+      ]
+    },
+    {
+      "path": "salesforce.categories.pricebooks_org_sample[].Id",
+      "terms": [
+        "salesforce.categories.pricebooks_org_sample[].Id",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.pricebooks_org_sample[].Name",
+      "terms": [
+        "salesforce.categories.pricebooks_org_sample[].Name",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.pricebooks_org_sample[].IsActive",
+      "terms": [
+        "salesforce.categories.pricebooks_org_sample[].IsActive",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.pricebooks_org_sample[].IsStandard",
+      "terms": [
+        "salesforce.categories.pricebooks_org_sample[].IsStandard",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "salesforce.categories.pricebooks_org_sample[].Description",
+      "terms": [
+        "salesforce.categories.pricebooks_org_sample[].Description",
+        "[SFDC comprehensive] category row field"
+      ]
+    },
+    {
+      "path": "slack.source",
+      "terms": [
+        "slack.source",
+        "[Slack]"
+      ]
+    },
+    {
+      "path": "slack.customer",
+      "terms": [
+        "slack.customer",
+        "[Slack] customer or lookup name"
+      ]
+    },
+    {
+      "path": "slack.days",
+      "terms": [
+        "slack.days",
+        "[Slack] lookback window"
+      ]
+    },
+    {
+      "path": "slack.configured",
+      "terms": [
+        "slack.configured",
+        "[Slack] token present"
+      ]
+    },
+    {
+      "path": "slack.channels_matched",
+      "terms": [
+        "slack.channels_matched",
+        "[Slack] matched channel id/name list"
+      ]
+    },
+    {
+      "path": "slack.conversation_summaries",
+      "terms": [
+        "slack.conversation_summaries",
+        "[Slack] per-channel digest blocks"
+      ]
+    },
+    {
+      "path": "slack.conversation_summaries[].channel_id",
+      "terms": [
+        "slack.conversation_summaries[].channel_id",
+        "[Slack]"
+      ]
+    },
+    {
+      "path": "slack.conversation_summaries[].channel_name",
+      "terms": [
+        "slack.conversation_summaries[].channel_name",
+        "[Slack]"
+      ]
+    },
+    {
+      "path": "slack.conversation_summaries[].message_count",
+      "terms": [
+        "slack.conversation_summaries[].message_count",
+        "[Slack]"
+      ]
+    },
+    {
+      "path": "slack.conversation_summaries[].summary_lines",
+      "terms": [
+        "slack.conversation_summaries[].summary_lines",
+        "[Slack] recent human messages"
+      ]
+    },
+    {
+      "path": "slack.conversation_summaries[].summary_text",
+      "terms": [
+        "slack.conversation_summaries[].summary_text",
+        "[Slack] bullet markdown"
+      ]
+    },
+    {
+      "path": "slack.combined_summary_markdown",
+      "terms": [
+        "slack.combined_summary_markdown",
+        "[Slack] all channels for customer"
+      ]
+    },
+    {
+      "path": "slack.note",
+      "terms": [
+        "slack.note",
+        "[Slack] when no channels matched"
+      ]
+    },
+    {
+      "path": "slack.error",
+      "terms": [
+        "slack.error",
+        "[Slack] when fetch failed"
+      ]
+    },
+    {
+      "path": "slack.skipped",
+      "terms": [
+        "slack.skipped",
+        "[Slack] not configured or disabled"
+      ]
+    },
+    {
+      "path": "csr.platform_health",
+      "terms": [
+        "csr.platform_health",
+        "[CSR] platform health block"
+      ]
+    },
+    {
+      "path": "csr.platform_health.customer",
+      "terms": [
+        "csr.platform_health.customer",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.platform_health.source",
+      "terms": [
+        "csr.platform_health.source",
+        "[CSR] cs_report"
+      ]
+    },
+    {
+      "path": "csr.platform_health.factory_count",
+      "terms": [
+        "csr.platform_health.factory_count",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.platform_health.health_distribution",
+      "terms": [
+        "csr.platform_health.health_distribution",
+        "[CSR] health bucket counts"
+      ]
+    },
+    {
+      "path": "csr.platform_health.total_shortages",
+      "terms": [
+        "csr.platform_health.total_shortages",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.platform_health.total_critical_shortages",
+      "terms": [
+        "csr.platform_health.total_critical_shortages",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.platform_health.sites",
+      "terms": [
+        "csr.platform_health.sites",
+        "[CSR] per-factory health rows"
+      ]
+    },
+    {
+      "path": "csr.platform_health.error",
+      "terms": [
+        "csr.platform_health.error",
+        "[CSR] when load failed"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.customer",
+      "terms": [
+        "csr.supply_chain.customer",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.source",
+      "terms": [
+        "csr.supply_chain.source",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.factory_count",
+      "terms": [
+        "csr.supply_chain.factory_count",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.totals.on_hand",
+      "terms": [
+        "csr.supply_chain.totals.on_hand",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.totals.on_order",
+      "terms": [
+        "csr.supply_chain.totals.on_order",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.totals.excess_on_hand",
+      "terms": [
+        "csr.supply_chain.totals.excess_on_hand",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.totals.excess_on_order",
+      "terms": [
+        "csr.supply_chain.totals.excess_on_order",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.totals.past_due_po",
+      "terms": [
+        "csr.supply_chain.totals.past_due_po",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.totals.past_due_req",
+      "terms": [
+        "csr.supply_chain.totals.past_due_req",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.sites",
+      "terms": [
+        "csr.supply_chain.sites",
+        "[CSR] per-factory supply rows"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.error",
+      "terms": [
+        "csr.supply_chain.error",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.platform_value.customer",
+      "terms": [
+        "csr.platform_value.customer",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.platform_value.source",
+      "terms": [
+        "csr.platform_value.source",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.platform_value.factory_count",
+      "terms": [
+        "csr.platform_value.factory_count",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.platform_value.total_savings",
+      "terms": [
+        "csr.platform_value.total_savings",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.platform_value.total_open_ia_value",
+      "terms": [
+        "csr.platform_value.total_open_ia_value",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.platform_value.total_potential_savings",
+      "terms": [
+        "csr.platform_value.total_potential_savings",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.platform_value.total_potential_to_sell",
+      "terms": [
+        "csr.platform_value.total_potential_to_sell",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.platform_value.total_recs_created_30d",
+      "terms": [
+        "csr.platform_value.total_recs_created_30d",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.platform_value.total_pos_placed_30d",
+      "terms": [
+        "csr.platform_value.total_pos_placed_30d",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.platform_value.total_overdue_tasks",
+      "terms": [
+        "csr.platform_value.total_overdue_tasks",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.platform_value.sites",
+      "terms": [
+        "csr.platform_value.sites",
+        "[CSR] per-factory ROI rows"
+      ]
+    },
+    {
+      "path": "csr.platform_value.error",
+      "terms": [
+        "csr.platform_value.error",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.platform_health.sites[]",
+      "terms": [
+        "csr.platform_health.sites[]",
+        "[CSR site row] keys may include: factory health_score clear_to_build_pct clear_to_commit_pct component_availability_pct component_availability_projected_pct shortages critical_shortages weekly_active_buyers_pct buyer_mapping_quality high_risk_items site entity"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.sites[]",
+      "terms": [
+        "csr.supply_chain.sites[]",
+        "[CSR site row] keys may include: factory on_hand_value on_order_value excess_on_hand doi_days days_coverage turns_of_inventory late_pos late_prs site entity"
+      ]
+    },
+    {
+      "path": "csr.platform_value.sites[]",
+      "terms": [
+        "csr.platform_value.sites[]",
+        "[CSR site row] keys may include: factory savings_current_period open_ia_value recs_created_30d pos_placed_30d overdue_tasks current_fy_spend previous_fy_spend site entity"
+      ]
+    },
+    {
+      "path": "total_users",
+      "terms": [
+        "total_users",
+        "[data_summary] alias of total_visitors"
+      ]
+    },
+    {
+      "path": "total_visitors",
+      "terms": [
+        "total_visitors",
+        "[data_summary]"
+      ]
+    },
+    {
+      "path": "unique_visitors",
+      "terms": [
+        "unique_visitors",
+        "[data_summary] alias"
+      ]
+    },
+    {
+      "path": "active_users",
+      "terms": [
+        "active_users",
+        "[data_summary] from account.active_visitors if present"
+      ]
+    },
+    {
+      "path": "total_sites",
+      "terms": [
+        "total_sites",
+        "[data_summary]"
+      ]
+    },
+    {
+      "path": "active_sites",
+      "terms": [
+        "active_sites",
+        "[data_summary]"
+      ]
+    },
+    {
+      "path": "health_score",
+      "terms": [
+        "health_score",
+        "[data_summary] from account"
+      ]
+    },
+    {
+      "path": "account_total_minutes",
+      "terms": [
+        "account_total_minutes",
+        "[data_summary] summed site minutes"
+      ]
+    },
+    {
+      "path": "account_avg_weekly_hours",
+      "terms": [
+        "account_avg_weekly_hours",
+        "[data_summary] derived"
+      ]
+    },
+    {
+      "path": "total_shortages",
+      "terms": [
+        "total_shortages",
+        "[data_summary] from csr.platform_health"
+      ]
+    },
+    {
+      "path": "total_critical_shortages",
+      "terms": [
+        "total_critical_shortages",
+        "[data_summary]"
+      ]
+    },
+    {
+      "path": "weekly_active_buyers_pct_avg",
+      "terms": [
+        "weekly_active_buyers_pct_avg",
+        "[data_summary] averaged CSR site rows"
+      ]
+    },
+    {
+      "path": "cs_health_sites",
+      "terms": [
+        "cs_health_sites",
+        "[data_summary] CSR snippet for prompts"
+      ]
+    },
+    {
+      "path": "cs_health_sites.site",
+      "terms": [
+        "cs_health_sites.site",
+        "[data_summary] CSR site label"
+      ]
+    },
+    {
+      "path": "cs_health_sites.health",
+      "terms": [
+        "cs_health_sites.health",
+        "[data_summary] CSR health bucket"
+      ]
+    },
+    {
+      "path": "cs_health_sites.ctb",
+      "terms": [
+        "cs_health_sites.ctb",
+        "[data_summary] CTB %"
+      ]
+    },
+    {
+      "path": "cs_health_sites.ctc",
+      "terms": [
+        "cs_health_sites.ctc",
+        "[data_summary] CTC %"
+      ]
+    },
+    {
+      "path": "platform_value",
+      "terms": [
+        "platform_value",
+        "[data_summary] copy of csr.platform_value"
+      ]
+    },
+    {
+      "path": "supply_chain",
+      "terms": [
+        "supply_chain",
+        "[data_summary] copy of csr.supply_chain"
+      ]
+    },
+    {
+      "path": "platform_value.total_open_ia_value",
+      "terms": [
+        "platform_value.total_open_ia_value",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "platform_value.total_potential_savings",
+      "terms": [
+        "platform_value.total_potential_savings",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "platform_value.total_potential_to_sell",
+      "terms": [
+        "platform_value.total_potential_to_sell",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "platform_value.total_recs_created_30d",
+      "terms": [
+        "platform_value.total_recs_created_30d",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "platform_value.total_pos_placed_30d",
+      "terms": [
+        "platform_value.total_pos_placed_30d",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "platform_value.total_overdue_tasks",
+      "terms": [
+        "platform_value.total_overdue_tasks",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "platform_value.total_savings",
+      "terms": [
+        "platform_value.total_savings",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "platform_value.factory_count",
+      "terms": [
+        "platform_value.factory_count",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "supply_chain.factory_count",
+      "terms": [
+        "supply_chain.factory_count",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.on_hand",
+      "terms": [
+        "supply_chain.totals.on_hand",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.on_order",
+      "terms": [
+        "supply_chain.totals.on_order",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.excess_on_hand",
+      "terms": [
+        "supply_chain.totals.excess_on_hand",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.excess_on_order",
+      "terms": [
+        "supply_chain.totals.excess_on_order",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.past_due_po",
+      "terms": [
+        "supply_chain.totals.past_due_po",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.past_due_req",
+      "terms": [
+        "supply_chain.totals.past_due_req",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "leandna_item_master",
+      "terms": [
+        "leandna_item_master",
+        "[LeanDNA Data API] item master enrichment blob"
+      ]
+    },
+    {
+      "path": "leandna_shortage_trends",
+      "terms": [
+        "leandna_shortage_trends",
+        "[LeanDNA Data API] shortage trends enrichment"
+      ]
+    },
+    {
+      "path": "leandna_lean_projects",
+      "terms": [
+        "leandna_lean_projects",
+        "[LeanDNA Data API] lean projects + savings enrichment"
+      ]
+    },
+    {
+      "path": "signals_trend_context",
+      "terms": [
+        "signals_trend_context",
+        "[Pendo] optional trend context when CORTEX_SIGNALS_TRENDS"
+      ]
+    },
+    {
+      "path": "_signals_llm_manifest_rules",
+      "terms": [
+        "_signals_llm_manifest_rules",
+        "[internal] LLM editorial manifest excerpt"
+      ]
+    },
+    {
+      "path": "_signals_llm_slide_prompt",
+      "terms": [
+        "_signals_llm_slide_prompt",
+        "[internal] slide prompt excerpt"
+      ]
+    },
+    {
+      "path": "portfolio.type",
+      "terms": [
+        "portfolio.type",
+        "[portfolio] discriminator"
+      ]
+    },
+    {
+      "path": "portfolio.days",
+      "terms": [
+        "portfolio.days",
+        "[portfolio]"
+      ]
+    },
+    {
+      "path": "portfolio.generated",
+      "terms": [
+        "portfolio.generated",
+        "[portfolio]"
+      ]
+    },
+    {
+      "path": "portfolio.customer_count",
+      "terms": [
+        "portfolio.customer_count",
+        "[portfolio]"
+      ]
+    },
+    {
+      "path": "portfolio.customers",
+      "terms": [
+        "portfolio.customers",
+        "[portfolio] array of per-customer summary rows"
+      ]
+    },
+    {
+      "path": "portfolio.portfolio_signals",
+      "terms": [
+        "portfolio.portfolio_signals",
+        "[portfolio] ranked signal lines"
+      ]
+    },
+    {
+      "path": "portfolio.portfolio_trends",
+      "terms": [
+        "portfolio.portfolio_trends",
+        "[portfolio] trend aggregates"
+      ]
+    },
+    {
+      "path": "portfolio.portfolio_leaders",
+      "terms": [
+        "portfolio.portfolio_leaders",
+        "[portfolio] leader board"
+      ]
+    },
+    {
+      "path": "portfolio.cohort_digest",
+      "terms": [
+        "portfolio.cohort_digest",
+        "[portfolio] cohort digest"
+      ]
+    },
+    {
+      "path": "portfolio.cohort_findings_bullets",
+      "terms": [
+        "portfolio.cohort_findings_bullets",
+        "[portfolio] cohort bullets"
+      ]
+    },
+    {
+      "path": "portfolio.customers[]",
+      "terms": [
+        "portfolio.customers[]",
+        "[portfolio row] keys include customer pendo_csm engagement benchmarks signals active_users total_users login_pct depth kei guides exports"
+      ]
+    },
+    {
+      "path": "github",
+      "terms": [
+        "github",
+        "[GitHub] blob when present on report — structure varies by wiring"
+      ]
+    },
+    {
+      "path": "github_productivity",
+      "terms": [
+        "github_productivity",
+        "[report] GitHub engineering output rollup (commits, PRs, lines) for productivity joins"
+      ]
+    },
+    {
+      "path": "github_productivity.by_email",
+      "terms": [
+        "github_productivity.by_email",
+        "[report] per-canonical-email GitHub output in the lookback window"
+      ]
+    },
+    {
+      "path": "github_productivity.company_engineers",
+      "terms": [
+        "github_productivity.company_engineers",
+        "[report] engineer-scoped GitHub totals for the lookback window"
+      ]
+    },
+    {
+      "path": "github_productivity.weekly",
+      "terms": [
+        "github_productivity.weekly",
+        "[report] ISO-week commit buckets (all vs engineer-scoped)"
+      ]
+    },
+    {
+      "path": "github_productivity.takeaways",
+      "terms": [
+        "github_productivity.takeaways",
+        "[report] slide takeaway strings for GitHub output slides"
+      ]
+    },
+    {
+      "path": "engineer_identity",
+      "terms": [
+        "engineer_identity",
+        "[report] canonical engineer email map for GitHub ↔ Cursor joins"
+      ]
+    },
+    {
+      "path": "ai_productivity",
+      "terms": [
+        "ai_productivity",
+        "[report] Cursor token spend correlated with GitHub output (company + individual)"
+      ]
+    },
+    {
+      "path": "ai_productivity.company",
+      "terms": [
+        "ai_productivity.company",
+        "[report] company-level tokens/commits/spend KPIs for engineers"
+      ]
+    },
+    {
+      "path": "ai_productivity.by_email",
+      "terms": [
+        "ai_productivity.by_email",
+        "[report] per-engineer Cursor × GitHub productivity metrics"
+      ]
+    },
+    {
+      "path": "ai_productivity.weekly_trend",
+      "terms": [
+        "ai_productivity.weekly_trend",
+        "[report] merged ISO-week Cursor tokens vs GitHub commits"
+      ]
+    },
+    {
+      "path": "ai_productivity.quadrant_counts",
+      "terms": [
+        "ai_productivity.quadrant_counts",
+        "[report] engineer counts per tokens×output quadrant"
+      ]
+    },
+    {
+      "path": "ai_productivity.top_yield",
+      "terms": [
+        "ai_productivity.top_yield",
+        "[report] highest commits-per-1K-tokens engineers"
+      ]
+    },
+    {
+      "path": "ai_productivity.review",
+      "terms": [
+        "ai_productivity.review",
+        "[report] high-token/low-output engineers for coaching review"
+      ]
+    },
+    {
+      "path": "ai_productivity.takeaways",
+      "terms": [
+        "ai_productivity.takeaways",
+        "[report] slide takeaway strings for AI productivity slides"
+      ]
+    },
+    {
+      "path": "cursor_usage.engineer_usage_by_email",
+      "terms": [
+        "cursor_usage.engineer_usage_by_email",
+        "[report] per-engineer Cursor tokens/spend for dev-* scope"
+      ]
+    },
+    {
+      "path": "teams_yaml.customer_team",
+      "terms": [
+        "teams_yaml.customer_team",
+        "[config/teams.yaml] list of {name, title} customer-facing team"
+      ]
+    },
+    {
+      "path": "teams_yaml.leandna_team",
+      "terms": [
+        "teams_yaml.leandna_team",
+        "[config/teams.yaml] list of {name, title} LeanDNA team"
+      ]
+    },
+    {
+      "path": "teams_yaml.leandna_site_ids",
+      "terms": [
+        "teams_yaml.leandna_site_ids",
+        "[config/teams.yaml] optional LeanDNA site ids per customer"
+      ]
+    },
+    {
+      "path": "cohorts_yaml",
+      "terms": [
+        "cohorts_yaml",
+        "[config cohorts.yaml] cohort / optional exclude / vertical per customer; Pendo orphans → pendo_orphans.yaml (not nested under report)"
+      ]
+    },
+    {
+      "path": "pendo_orphans_yaml",
+      "terms": [
+        "pendo_orphans_yaml",
+        "[config pendo_orphans.yaml] Pendo sitename prefixes with no SF Customer Entity match, omitted from portfolio rollup (not nested under report)"
+      ]
+    },
+    {
+      "path": "_slide_plan",
+      "terms": [
+        "_slide_plan",
+        "[internal] resolved template slide plan"
+      ]
+    },
+    {
+      "path": "cursor_usage",
+      "terms": [
+        "cursor_usage",
+        "[report] Cursor Admin API usage / spend rollup for engineering deck slides"
+      ]
+    },
+    {
+      "path": "cursor_usage.configured",
+      "terms": [
+        "cursor_usage.configured",
+        "[report] Cursor integration loaded for this run"
+      ]
+    },
+    {
+      "path": "cursor_usage.generated_at",
+      "terms": [
+        "cursor_usage.generated_at",
+        "[report] ISO timestamp of Cursor API pull"
+      ]
+    },
+    {
+      "path": "cursor_usage.window_days",
+      "terms": [
+        "cursor_usage.window_days",
+        "[report] Cursor usage window days"
+      ]
+    },
+    {
+      "path": "cursor_usage.warnings",
+      "terms": [
+        "cursor_usage.warnings",
+        "[report] Cursor attribution / scope warnings"
+      ]
+    },
+    {
+      "path": "cursor_usage.errors",
+      "terms": [
+        "cursor_usage.errors",
+        "[report] Cursor API section errors"
+      ]
+    },
+    {
+      "path": "cursor_usage.totals.included_spend_cents_cycle",
+      "terms": [
+        "cursor_usage.totals.included_spend_cents_cycle",
+        "[report] org-wide seat-included usage cents this billing cycle (sum of includedSpendCents from /teams/spend)"
+      ]
+    },
+    {
+      "path": "cursor_usage.cost_engineers.totals.included_spend_cents_cycle",
+      "terms": [
+        "cursor_usage.cost_engineers.totals.included_spend_cents_cycle",
+        "[report] dev-* engineer subset of includedSpendCents this billing cycle"
+      ]
+    },
+    {
+      "path": "_governance",
+      "terms": [
+        "_governance",
+        "[report] deck-scoped data governance blob for Data Governance slide"
+      ]
+    },
+    {
+      "path": "_governance.deck_id",
+      "terms": [
+        "_governance.deck_id",
+        "[report] deck id for governance receipt"
+      ]
+    },
+    {
+      "path": "_governance.assembled_at",
+      "terms": [
+        "_governance.assembled_at",
+        "[report] ISO timestamp when governance blob was assembled"
+      ]
+    },
+    {
+      "path": "_governance.source_status",
+      "terms": [
+        "_governance.source_status",
+        "[report] per-integration pill status for this deck"
+      ]
+    },
+    {
+      "path": "_governance.scope",
+      "terms": [
+        "_governance.scope",
+        "[report] scope and filter bullets for governance slide"
+      ]
+    },
+    {
+      "path": "_governance.freshness",
+      "terms": [
+        "_governance.freshness",
+        "[report] data freshness bullets for governance slide"
+      ]
+    },
+    {
+      "path": "_governance.lineage",
+      "terms": [
+        "_governance.lineage",
+        "[report] deck-scoped lineage trace rows"
+      ]
+    },
+    {
+      "path": "_governance.discrepancies",
+      "terms": [
+        "_governance.discrepancies",
+        "[report] merged qa and integration warnings for governance slide"
+      ]
+    },
+    {
+      "path": "_governance.cross_checks",
+      "terms": [
+        "_governance.cross_checks",
+        "[report] cross-source validation summary counts"
+      ]
+    },
+    {
+      "path": "_governance.authority_footnote",
+      "terms": [
+        "_governance.authority_footnote",
+        "[report] system-of-record authority note for governance slide"
+      ]
+    },
+    {
+      "path": "_hydrate_slide_hints",
+      "terms": [
+        "_hydrate_slide_hints",
+        "[internal] hydrate hints map"
+      ]
+    },
+    {
+      "path": "_slides_svc",
+      "terms": [
+        "_slides_svc",
+        "[internal] Google Slides service"
+      ]
+    },
+    {
+      "path": "_drive_svc",
+      "terms": [
+        "_drive_svc",
+        "[internal] Drive service"
+      ]
+    }
+  ]
+}

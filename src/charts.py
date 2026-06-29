@@ -96,7 +96,7 @@ CHART_SPEC_FONT_NAME = "Roboto"
 # Pies are embedded at slide PT size; larger backing pixels + maximized spec improve the bitmap
 # when Slides downscales the chart. For ticket metrics breakdown slides, the in-chart legend is
 # off (NO_LEGEND) and readable copy lives in _slide_chart_legend_vertical — see
-# docs/SLIDE_DESIGN_STANDARDS.md (Pie charts: Jira ticket metrics breakdown).
+# docs/PRESENTATION/SLIDE_DESIGN_STANDARDS.md (Pie charts: Jira ticket metrics breakdown).
 CHART_PIE_OVERLAY_W_PX = 2560
 CHART_PIE_OVERLAY_H_PX = 1600
 
@@ -129,6 +129,7 @@ class DeckCharts:
         self._folder_id = folder_id or _get_chart_folder()
         self._ss_id: str | None = None
         self._sheet_counter = 0
+        self._used_titles: set[str] = set()
         self._deck_name = deck_name
 
     @property
@@ -171,7 +172,18 @@ class DeckCharts:
         ss_id = self._ensure_spreadsheet()
         self._sheet_counter += 1
         sheet_id = self._sheet_counter
-        clean_title = title[:100].replace("/", "-")
+        raw = (title or "").strip()
+        base_title = (raw if raw else f"Chart{sheet_id}")[:100].replace("/", "-")
+        # Google Sheets rejects duplicate sheet titles. Decks reuse chart titles across
+        # slides (e.g. the engineer- and non-engineer-scoped usage slides both create a
+        # "Tokens over time" chart), so dedupe by suffixing the unique sheet counter.
+        # The sheet-tab name is internal only — the chart's visible title comes from the
+        # chart spec — so the suffix never appears on a slide.
+        clean_title = base_title
+        if clean_title in self._used_titles:
+            suffix = f" ({sheet_id})"
+            clean_title = base_title[: 100 - len(suffix)] + suffix
+        self._used_titles.add(clean_title)
 
         self._sheets_svc.spreadsheets().batchUpdate(
             spreadsheetId=ss_id,
@@ -251,6 +263,8 @@ class DeckCharts:
         *,
         background: dict[str, float] | None = None,
         series_colors: list[dict[str, float]] | None = None,
+        width_pixels: int = 800,
+        height_pixels: int = 400,
     ) -> tuple[str, int]:
         """Create a bar/column chart. Returns (spreadsheet_id, chart_id).
 
@@ -262,7 +276,7 @@ class DeckCharts:
         ``BRAND_SERIES_COLORS`` per series — use a ``PIE_SLICE_COLORS`` prefix when a
         stacked bar sits beside an embedded pie so one legend matches both charts.
         """
-        sheet_id = self._add_sheet_tab(title or "Chart")
+        sheet_id = self._add_sheet_tab(title)
         series_names = list(series.keys())
         headers = ["Label"] + series_names
         rows = [[labels[i]] + [s[i] for s in series.values()] for i in range(len(labels))]
@@ -321,7 +335,9 @@ class DeckCharts:
         if show_title and (title or "").strip():
             spec["titleTextFormat"] = _chart_text_format(CHART_TITLE_PT, NAVY, bold=True)
 
-        chart_id = self._create_chart(sheet_id, spec, num_rows)
+        chart_id = self._create_chart(
+            sheet_id, spec, num_rows, width_pixels=width_pixels, height_pixels=height_pixels,
+        )
         logger.debug("Created %s chart '%s' (sheet=%d, chart=%d)", chart_type, title, sheet_id, chart_id)
         return self._ss_id, chart_id
 
@@ -468,11 +484,21 @@ class DeckCharts:
         *,
         background: dict[str, float] | None = None,
         show_title: bool = True,
+        suppress_legend: bool = False,
+        axis_font_size: int = CHART_AXIS_PT,
+        line_on_left_axis: bool = False,
+        width_pixels: int = 800,
+        height_pixels: int = 400,
     ) -> tuple[str, int]:
         """Create a combo chart (bars + lines). Returns (spreadsheet_id, chart_id).
 
         Set *show_title* False when the slide already states the takeaway — the in-chart
         title otherwise steals vertical space from the plot on tight layouts.
+
+        Set *suppress_legend* True for multi-series combos and render a readable
+        slide-level legend via ``slide_chart_legend`` (the embedded Sheets legend is
+        unreadably small once scaled into a slide); colors follow ``BRAND_SERIES_COLORS``
+        in ``bar_series`` then ``line_series`` order.
         """
         sheet_id = self._add_sheet_tab(title)
         all_series_names = list(bar_series.keys()) + list(line_series.keys())
@@ -507,13 +533,14 @@ class DeckCharts:
 
         for ci, name in enumerate(line_series):
             color_idx = len(bar_series) + ci
+            axis = "LEFT_AXIS" if line_on_left_axis else "RIGHT_AXIS"
             s = {
                 "series": {"sourceRange": {"sources": [{
                     "sheetId": sheet_id,
                     "startRowIndex": 0, "endRowIndex": num_rows,
                     "startColumnIndex": col, "endColumnIndex": col + 1,
                 }]}},
-                "targetAxis": "RIGHT_AXIS",
+                "targetAxis": axis,
                 "type": "LINE",
             }
             if color_idx < len(BRAND_SERIES_COLORS):
@@ -526,11 +553,16 @@ class DeckCharts:
             "fontName": CHART_SPEC_FONT_NAME,
             "basicChart": {
                 "chartType": "COMBO",
-                "legendPosition": "BOTTOM_LEGEND",
+                "legendPosition": "NO_LEGEND" if suppress_legend else "BOTTOM_LEGEND",
                 "axis": [
-                    {"position": "BOTTOM_AXIS"},
-                    {"position": "LEFT_AXIS"},
-                    {"position": "RIGHT_AXIS"},
+                    {"position": "BOTTOM_AXIS", "format": _chart_text_format(axis_font_size, GRAY)},
+                    {"position": "LEFT_AXIS", "format": _chart_text_format(axis_font_size, GRAY)},
+                ]
+                if line_on_left_axis
+                else [
+                    {"position": "BOTTOM_AXIS", "format": _chart_text_format(axis_font_size, GRAY)},
+                    {"position": "LEFT_AXIS", "format": _chart_text_format(axis_font_size, GRAY)},
+                    {"position": "RIGHT_AXIS", "format": _chart_text_format(axis_font_size, GRAY)},
                 ],
                 "domains": [{"domain": {"sourceRange": {"sources": [{
                     "sheetId": sheet_id,
@@ -547,7 +579,11 @@ class DeckCharts:
         if background is not None:
             spec["backgroundColorStyle"] = _rgb_to_sheets(background)
 
-        chart_id = self._create_chart(sheet_id, spec, num_rows)
+        chart_id = self._create_chart(
+            sheet_id, spec, num_rows,
+            width_pixels=width_pixels,
+            height_pixels=height_pixels,
+        )
         logger.debug("Created COMBO chart '%s' (sheet=%d, chart=%d)", title, sheet_id, chart_id)
         return self._ss_id, chart_id
 

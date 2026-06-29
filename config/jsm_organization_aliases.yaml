@@ -1,0 +1,7 @@
+# Cortex list alias map — config/jsm_organization_aliases.yaml
+# Schema: { "<customer_key>": [ "<search_term>", ... ] }  (keys case-insensitive)
+# Used by: Jira HELP — JSM Organizations fuzzy match (+ optional LLM). See CONFIG_ALIASES.md.
+# Prefer fuzzy/LLM resolution; add entries only when aliases must work without an LLM.
+JCI:
+  - Johnson Controls
+  - Johnson Controls International

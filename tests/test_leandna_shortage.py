@@ -168,7 +168,7 @@ def test_get_scheduled_deliveries_summary():
     # next_7_qty depends on date parsing; should include both items if within 7 days
 
 
-@patch("src.leandna_shortage_enrich.LEANDNA_DATA_API_BEARER_TOKEN", "test_token")
+@patch("src.leandna_shortage_enrich.leandna_data_api_credentials_configured", lambda: True)
 @patch("src.leandna_shortage_enrich.get_shortages_by_item_weekly")
 def test_enrich_qbr_with_shortage_trends(mock_get_weekly, mock_weekly_shortage_data):
     """Test QBR enrichment with shortage trends."""
@@ -191,7 +191,7 @@ def test_enrich_qbr_with_shortage_trends(mock_get_weekly, mock_weekly_shortage_d
     assert critical_timeline[0]["itemCode"] == "ITEM-001"
 
 
-@patch("src.leandna_shortage_enrich.LEANDNA_DATA_API_BEARER_TOKEN", "test_token")
+@patch("src.leandna_shortage_enrich.leandna_data_api_credentials_configured", lambda: True)
 @patch("src.leandna_shortage_enrich.get_shortages_by_item_weekly")
 def test_enrich_qbr_with_shortage_trends_no_data(mock_get_weekly):
     """Test enrichment with no shortage data."""
@@ -205,7 +205,7 @@ def test_enrich_qbr_with_shortage_trends_no_data(mock_get_weekly):
     assert "error" in result["leandna_shortage_trends"]
 
 
-@patch("src.leandna_shortage_enrich.LEANDNA_DATA_API_BEARER_TOKEN", None)
+@patch("src.leandna_shortage_enrich.leandna_data_api_credentials_configured", lambda: False)
 def test_enrich_qbr_without_bearer_token():
     """Test enrichment skips when bearer token not configured."""
     report = {"customer": "TestCorp"}
@@ -215,7 +215,7 @@ def test_enrich_qbr_without_bearer_token():
     assert result["leandna_shortage_trends"]["reason"] == "bearer_token_not_configured"
 
 
-@patch("src.leandna_shortage_enrich.LEANDNA_DATA_API_BEARER_TOKEN", "test_token")
+@patch("src.leandna_shortage_enrich.leandna_data_api_credentials_configured", lambda: True)
 @patch("src.leandna_shortage_enrich.get_shortages_by_item_weekly")
 def test_enrich_qbr_handles_api_error_gracefully(mock_get_weekly):
     """Test graceful error handling."""
