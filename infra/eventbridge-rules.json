@@ -52,5 +52,32 @@
         "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"export-nightly\"]}]}"
       }
     ]
+  },
+  {
+    "Name": "cortex-ford-pendo-daily",
+    "Description": "Ford Pendo usage export (cortex --export-pendo --customer Ford) — daily 04:00 UTC",
+    "ScheduleExpression": "cron(0 4 * * ? *)",
+    "State": "ENABLED",
+    "Targets": [
+      {
+        "Id": "cortex-ford-pendo-daily",
+        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
+        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
+        "EcsParameters": {
+          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
+          "LaunchType": "FARGATE",
+          "PlatformVersion": "LATEST",
+          "NetworkConfiguration": {
+            "awsvpcConfiguration": {
+              "Subnets": ["subnet-REPLACE"],
+              "SecurityGroups": ["sg-REPLACE"],
+              "AssignPublicIp": "DISABLED"
+            }
+          },
+          "TaskCount": 1
+        },
+        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"ford-pendo-daily\"]}]}"
+      }
+    ]
   }
 ]

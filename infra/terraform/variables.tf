@@ -136,6 +136,11 @@ variable "scheduled_jobs" {
       command             = ["export-nightly"]
       enabled             = true
     }
+    ford-pendo-daily = {
+      schedule_expression = "cron(0 4 * * ? *)"
+      command             = ["ford-pendo-daily"]
+      enabled             = true
+    }
   }
 }
 

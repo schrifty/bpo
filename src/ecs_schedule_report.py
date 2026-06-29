@@ -29,6 +29,12 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "enabled": True,
         "summary": "LLM export (cortex --export, 90-day window)",
     },
+    "ford-pendo-daily": {
+        "schedule_expression": "cron(0 4 * * ? *)",
+        "command": ["ford-pendo-daily"],
+        "enabled": True,
+        "summary": "Ford Pendo usage export (cortex --export-pendo --customer Ford, 30-day window)",
+    },
 }
 
 
