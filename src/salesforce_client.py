@@ -18,6 +18,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import re
+
 import requests
 
 from .config import (
@@ -130,20 +132,21 @@ def _normalize_entity_account_row(r: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _customer_label_matches_text(label_upper: str, text: str) -> bool:
+    """Word-boundary match so e.g. ``CONTROL`` does not match *Johnson Controls*."""
+    if not label_upper or not text:
+        return False
+    return bool(re.search(rf"\b{re.escape(label_upper)}\b", text, re.IGNORECASE))
+
+
 def _customer_name_matches_entity_account(name_upper: str, a: dict[str, Any]) -> bool:
     """Match Pendo/customer label to Entity Account Name, entity name, Parent, or Ultimate Parent."""
     if not name_upper:
         return False
-    if name_upper in (a.get("Name") or "").upper():
-        return True
-    if name_upper in (a.get("LeanDNA_Entity_Name__c") or "").upper():
-        return True
-    pn = (a.get("parent_name") or "").strip()
-    if pn and name_upper in pn.upper():
-        return True
-    un = (a.get("ultimate_parent_name") or "").strip()
-    if un and name_upper in un.upper():
-        return True
+    for field in ("Name", "LeanDNA_Entity_Name__c", "parent_name", "ultimate_parent_name"):
+        val = (a.get(field) or "").strip()
+        if val and _customer_label_matches_text(name_upper, val):
+            return True
     return False
 # Opportunity types for creation and pipeline
 OPP_TYPES = ("New Business", "New Expansion Business", "Expansion Business", "POC")
@@ -752,17 +755,26 @@ class SalesforceClient:
                 active.add(name)
         return active
 
-    def get_portfolio_revenue_book_metrics(self, customer_names: list[str]) -> dict[str, Any]:
-        """Aggregate ARR, contract status, pipeline, and opps across portfolio customer labels.
+    def get_portfolio_revenue_book_metrics(
+        self,
+        usage_customer_names: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Aggregate ARR, contract status, pipeline, and opps from Salesforce Customer Entity accounts.
 
-        Loads entity accounts once; name matching matches :meth:`get_arr_by_customer_names`.
-        Account Ids are deduplicated before pipeline / opportunity SOQL.
+        **Salesforce-first:** all Customer Entity rows are grouped by corporate reporting
+        hierarchy (``src/salesforce_reporting``). *usage_customer_names* (typically Pendo
+        prefixes) is optional and used only for usage↔SF crosswalk stats — not to drive
+        financial rollups or top-customer ranking.
         """
-        names_clean = [(n or "").strip() for n in customer_names if (n or "").strip()]
+        names_clean = [(n or "").strip() for n in (usage_customer_names or []) if (n or "").strip()]
         empty_out: dict[str, Any] = {
             "configured": True,
             "empty": True,
-            "pendo_customers": 0,
+            "source": "salesforce_entity_hierarchy",
+            "salesforce_entity_count": 0,
+            "salesforce_reporting_groups": 0,
+            "usage_tracked_customers": len(names_clean),
+            "pendo_customers": len(names_clean),
             "salesforce_matched_customers": 0,
             "salesforce_unmatched_customers": 0,
             "total_arr": 0.0,
@@ -775,27 +787,21 @@ class SalesforceClient:
             "top_customers_by_arr": [],
             "churned_customer_names_sample": [],
         }
-        if not names_clean:
-            return empty_out
 
         accounts = self.get_entity_accounts()
-        per_name: dict[str, list[dict[str, Any]]] = {n: [] for n in names_clean}
-        for name in names_clean:
-            upper = name.upper()
-            for a in accounts:
-                if _customer_name_matches_entity_account(upper, a):
-                    per_name[name].append(a)
+        if not accounts:
+            return empty_out
 
-        matched_names = [n for n in names_clean if per_name[n]]
-        unmatched = len(names_clean) - len(matched_names)
+        from .salesforce_reporting import aggregate_accounts_by_corporate_group
+
+        by_group = aggregate_accounts_by_corporate_group(accounts)
+        all_ids: list[str] = []
         seen_ids: set[str] = set()
-        dedup_ids: list[str] = []
-        for n in matched_names:
-            for a in per_name[n]:
-                aid = a.get("Id")
-                if isinstance(aid, str) and len(aid.strip()) >= 15 and aid not in seen_ids:
-                    seen_ids.add(aid)
-                    dedup_ids.append(aid)
+        for a in accounts:
+            aid = a.get("Id")
+            if isinstance(aid, str) and len(aid.strip()) >= 15 and aid not in seen_ids:
+                seen_ids.add(aid)
+                all_ids.append(aid)
 
         top_rows: list[dict[str, Any]] = []
         total_arr = 0.0
@@ -804,16 +810,15 @@ class SalesforceClient:
         churned_names: list[str] = []
         active_cust = 0
         churned_cust = 0
-        for name in names_clean:
-            matching = per_name[name]
-            if not matching:
-                continue
+        for group_name, matching in by_group.items():
             arr_sum = 0.0
             for a in matching:
                 try:
                     arr_sum += float(a.get("ARR__c") or 0)
                 except (TypeError, ValueError):
                     pass
+            if arr_sum <= 0:
+                continue
             has_active_contract = False
             for a in matching:
                 status = (a.get("Contract_Status__c") or "").strip().lower()
@@ -821,27 +826,47 @@ class SalesforceClient:
                     has_active_contract = True
                     break
             all_matched_churned = not has_active_contract
-            top_rows.append({"customer": name, "arr": round(arr_sum, 2), "active": not all_matched_churned})
+            top_rows.append({
+                "customer": group_name,
+                "arr": round(arr_sum, 2),
+                "active": not all_matched_churned,
+                "entity_count": len(matching),
+            })
             total_arr += arr_sum
             if all_matched_churned:
                 churned_arr += arr_sum
                 churned_cust += 1
                 if len(churned_names) < 12:
-                    churned_names.append(name)
+                    churned_names.append(group_name)
             else:
                 active_arr += arr_sum
                 active_cust += 1
 
         top_rows.sort(key=lambda r: (-(float(r.get("arr") or 0)), str(r.get("customer") or "")))
         top10 = top_rows[:10]
-        pipeline = self.get_advanced_pipeline_arr(dedup_ids) if dedup_ids else 0.0
-        opps = self.get_opportunity_creation_this_year(dedup_ids) if dedup_ids else 0
+        pipeline = self.get_advanced_pipeline_arr(all_ids) if all_ids else 0.0
+        opps = self.get_opportunity_creation_this_year(all_ids) if all_ids else 0
+
+        matched_usage = 0
+        unmatched_usage = 0
+        if names_clean:
+            for name in names_clean:
+                upper = name.upper()
+                if any(_customer_name_matches_entity_account(upper, a) for a in accounts):
+                    matched_usage += 1
+                else:
+                    unmatched_usage += 1
+
         return {
             "configured": True,
             "empty": False,
+            "source": "salesforce_entity_hierarchy",
+            "salesforce_entity_count": len(accounts),
+            "salesforce_reporting_groups": len(by_group),
+            "usage_tracked_customers": len(names_clean),
             "pendo_customers": len(names_clean),
-            "salesforce_matched_customers": len(matched_names),
-            "salesforce_unmatched_customers": unmatched,
+            "salesforce_matched_customers": matched_usage,
+            "salesforce_unmatched_customers": unmatched_usage,
             "total_arr": round(total_arr, 2),
             "active_installed_base_arr": round(active_arr, 2),
             "churned_contract_arr": round(churned_arr, 2),

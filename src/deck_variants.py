@@ -8,37 +8,30 @@ from .config import logger
 
 
 def enrich_portfolio_report_with_revenue_book(report: dict[str, Any]) -> None:
-    """Attach ``portfolio_revenue_book`` from Salesforce (mutates *report* in place)."""
+    """Attach ``portfolio_revenue_book`` from Salesforce (mutates *report* in place).
+
+    Financial rollups are **Salesforce-first** (all Customer Entity accounts grouped by
+    SF hierarchy). Pendo customer names in ``report["customers"]`` are passed only as an
+    optional usage crosswalk — they do not drive ARR totals or top-customer ranking.
+    """
     from .data_source_health import _salesforce_configured
 
     if not _salesforce_configured():
         report["portfolio_revenue_book"] = {"configured": False}
         return
     customers = report.get("customers") or []
-    names = [str(s.get("customer") or "").strip() for s in customers if isinstance(s, dict) and s.get("customer")]
-    if not names:
-        report["portfolio_revenue_book"] = {
-            "configured": True,
-            "empty": True,
-            "pendo_customers": 0,
-            "salesforce_matched_customers": 0,
-            "salesforce_unmatched_customers": 0,
-            "total_arr": 0.0,
-            "active_installed_base_arr": 0.0,
-            "churned_contract_arr": 0.0,
-            "pipeline_arr": 0.0,
-            "opportunity_count_this_year": 0,
-            "active_customer_count": 0,
-            "churned_customer_count": 0,
-            "top_customers_by_arr": [],
-            "churned_customer_names_sample": [],
-        }
-        return
+    usage_names = [
+        str(s.get("customer") or "").strip()
+        for s in customers
+        if isinstance(s, dict) and s.get("customer")
+    ]
     try:
         from .salesforce_client import SalesforceClient
 
         sf = SalesforceClient()
-        report["portfolio_revenue_book"] = sf.get_portfolio_revenue_book_metrics(names)
+        report["portfolio_revenue_book"] = sf.get_portfolio_revenue_book_metrics(
+            usage_customer_names=usage_names or None,
+        )
     except Exception as e:
         logger.warning("portfolio: Salesforce revenue book enrichment failed: %s", e)
         report["portfolio_revenue_book"] = {"configured": True, "error": str(e)}

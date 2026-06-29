@@ -54,11 +54,17 @@ def portfolio_revenue_book_slide(reqs: list[dict[str, Any]], sid: str, report: d
     title = (entry.get("title") or "").strip() or "Revenue book (Salesforce)"
 
     lines: list[str] = []
-    pc = int(book.get("pendo_customers") or 0)
+    sf_entities = int(book.get("salesforce_entity_count") or 0)
+    sf_groups = int(book.get("salesforce_reporting_groups") or 0)
+    usage_n = int(book.get("usage_tracked_customers") or book.get("pendo_customers") or 0)
     sm = int(book.get("salesforce_matched_customers") or 0)
     su = int(book.get("salesforce_unmatched_customers") or 0)
-    lines.append(f"Pendo customers in this window: {pc:,}")
-    lines.append(f"Salesforce matched (≥1 Customer Entity row): {sm:,}  ·  Unmatched names: {su:,}")
+    lines.append(f"Salesforce Customer Entity rows: {sf_entities:,}  ·  Reporting groups: {sf_groups:,}")
+    if usage_n:
+        lines.append(
+            f"Usage-tracked labels (Pendo) in this window: {usage_n:,}  ·  "
+            f"Matched to ≥1 SF entity: {sm:,}  ·  Unmatched: {su:,}"
+        )
     lines.append("")
     lines.append(f"Contract ARR on matched Entity rows: {_fmt_portfolio_usd(book.get('total_arr'))}")
     lines.append(
@@ -78,7 +84,7 @@ def portfolio_revenue_book_slide(reqs: list[dict[str, Any]], sid: str, report: d
     top = book.get("top_customers_by_arr") or []
     if isinstance(top, list) and top:
         lines.append("")
-        lines.append("Top customers by contract ARR (matched):")
+        lines.append("Top customers by contract ARR (Salesforce reporting groups):")
         for i, row in enumerate(top[:8], start=1):
             if not isinstance(row, dict):
                 continue

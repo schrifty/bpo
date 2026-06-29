@@ -1,0 +1,34 @@
+# Corporate reporting groups for Salesforce Customer Entity rollups.
+# Each key is the label used in portfolio revenue / top-customer rankings.
+#
+# Matching (first hit wins per account):
+#   1. Account ultimate parent name (when SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP is set)
+#   2. parent_name_prefix — Parent.Name starts with this string (case-insensitive)
+#   3. name_prefix — Account Name starts with this string
+#   4. Otherwise the account's division label (parent name, else Account Name)
+#
+# CS Report aliases (cs_report_customer_aliases.yaml) should use these keys where possible.
+
+corporate_rollups:
+  Safran:
+    parent_name_prefix: Safran
+    name_prefix: Safran
+  Johnson Controls:
+    parent_name_prefix: Johnson Controls
+    name_prefix: Johnson Controls
+  Carrier:
+    parent_name_prefix: Carrier
+    name_prefix: Carrier
+  Bombardier:
+    parent_name_prefix: Bombardier
+    name_prefix: Bombardier
+  REV Group:
+    parent_name_prefix: REV
+    name_prefix: REV
+
+# Map short Pendo / deck labels → corporate rollup key above (usage crosswalk only).
+label_aliases:
+  JCI: Johnson Controls
+  Johnson: Johnson Controls
+  REV: REV Group
+  Rev: REV Group

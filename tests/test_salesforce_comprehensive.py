@@ -613,6 +613,38 @@ def test_customer_name_matches_entity_account_parent_and_ultimate():
     )
 
 
+def test_customer_name_matches_entity_account_word_boundary_not_controls():
+    """Pendo prefix Control must not absorb Johnson Controls entity ARR."""
+    control = "CONTROL"
+    assert _customer_name_matches_entity_account(
+        control,
+        {
+            "Name": "Control Devices Entity",
+            "LeanDNA_Entity_Name__c": "",
+            "parent_name": "Control Devices, LLC",
+            "ultimate_parent_name": "",
+        },
+    )
+    assert not _customer_name_matches_entity_account(
+        control,
+        {
+            "Name": "Johnson Controls - Marinette (WI)",
+            "LeanDNA_Entity_Name__c": "",
+            "parent_name": "Johnson Controls Fire Suppression",
+            "ultimate_parent_name": "",
+        },
+    )
+    assert _customer_name_matches_entity_account(
+        "JOHNSON",
+        {
+            "Name": "Johnson Controls - Marinette (WI)",
+            "LeanDNA_Entity_Name__c": "",
+            "parent_name": "Johnson Controls Fire Suppression",
+            "ultimate_parent_name": "",
+        },
+    )
+
+
 def test_jira_customer_search_terms_include_safe_cohort_aliases():
     with patch(
         "src.jira_client._load_cohort_customer_alias_map",

@@ -1,0 +1,35 @@
+---
+description: Salesforce is canonical for customer identity, contracts, ARR, and entity hierarchy; Pendo is usage-only
+alwaysApply: true
+---
+
+# Salesforce-first customer and financial identity
+
+## Source of truth
+
+| Domain | Canonical source | Notes |
+|--------|------------------|-------|
+| Contract ARR, contract status, active vs churned | Salesforce **Customer Entity** `Account` rows (`ARR__c`, `Contract_Status__c`) | Not Pendo, not CS Report |
+| Customer / corporate hierarchy | Salesforce `Parent.Name`, optional Ultimate Parent (`SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP`), `config/salesforce_reporting_rollups.yaml` | Not Pendo sitename prefixes |
+| Usage, engagement, sites, feature adoption | Pendo | Only where product usage is the question |
+| Supply-chain KPIs (shortages, CTB, health score) | CS Report export | Operational metrics; `customer` column is a **label** — map to SF reporting groups via aliases |
+
+## Implementation rules
+
+- **Portfolio / revenue / “top customers by ARR”** — aggregate all SF Customer Entity accounts by **Salesforce reporting group** (`src/salesforce_reporting.py`). Do **not** drive financial rollups from `get_sites_by_customer()` / Pendo prefix lists.
+- **Name matching** — word-boundary match (`_customer_label_matches_text`) when joining labels to SF; prefer **Account Id** from `customer_identity_map.yaml` over substring.
+- **Pendo customer prefix** — usage index only. Optional crosswalk to SF (e.g. `usage_tracked_customers`) is informational, not the financial denominator.
+- **CS Report / export `customer` column** — map to SF corporate labels via `cs_report_customer_aliases.yaml` + `salesforce_reporting_rollups.yaml`; never treat export BU names as canonical customers for ARR.
+- **New features** — if the question is contractual, financial, or “who is the customer,” start from Salesforce; pull Pendo only for usage fields.
+
+## Anti-patterns
+
+```python
+# ❌ Financial rollup keyed on Pendo customer_list
+names = pendo.get_sites_by_customer(days)["customer_list"]
+arr = sf.get_portfolio_revenue_book_metrics(names)  # old pattern
+
+# ✅ Salesforce-first
+book = sf.get_portfolio_revenue_book_metrics(usage_customer_names=pendo_names)  # pendo optional
+# top_customers_by_arr comes from SF entity hierarchy, not the name list
+```
