@@ -20,18 +20,26 @@ def _reset_env(monkeypatch):
 def test_default_name_prefix_reads_terraform_tfvars(monkeypatch, tmp_path):
     tf_dir = tmp_path / "infra" / "terraform"
     tf_dir.mkdir(parents=True)
-    (tf_dir / "terraform.tfvars").write_text('name_prefix = "bpo"\naws_region = "us-west-2"\n', encoding="utf-8")
+    (tf_dir / "terraform.tfvars").write_text('name_prefix = "cortex"\naws_region = "us-west-2"\n', encoding="utf-8")
     monkeypatch.setattr(defaults, "_TFVARS_PATH", tf_dir / "terraform.tfvars")
-    assert defaults.default_name_prefix() == "bpo"
-    assert defaults.default_cluster_name() == "bpo"
-    assert defaults.default_task_family() == "bpo-decks"
+    assert defaults.default_name_prefix() == "cortex"
+    assert defaults.default_cluster_name() == "cortex"
+    assert defaults.default_task_family() == "cortex-decks"
     assert defaults.default_region() == "us-west-2"
+
+
+def test_default_name_prefix_falls_back_to_cortex(monkeypatch, tmp_path):
+    missing = tmp_path / "infra" / "terraform" / "terraform.tfvars"
+    monkeypatch.setattr(defaults, "_TFVARS_PATH", missing)
+    assert defaults.default_name_prefix() == "cortex"
+    assert defaults.default_cluster_name() == "cortex"
+    assert defaults.default_task_family() == "cortex-decks"
 
 
 def test_env_overrides_terraform_tfvars(monkeypatch, tmp_path):
     tf_dir = tmp_path / "infra" / "terraform"
     tf_dir.mkdir(parents=True)
-    (tf_dir / "terraform.tfvars").write_text('name_prefix = "bpo"\n', encoding="utf-8")
+    (tf_dir / "terraform.tfvars").write_text('name_prefix = "cortex"\n', encoding="utf-8")
     monkeypatch.setattr(defaults, "_TFVARS_PATH", tf_dir / "terraform.tfvars")
     monkeypatch.setenv("CORTEX_SCHEDULE_NAME_PREFIX", "custom")
     assert defaults.default_name_prefix() == "custom"

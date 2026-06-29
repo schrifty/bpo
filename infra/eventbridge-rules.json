@@ -1,12 +1,12 @@
 [
   {
-    "Name": "decks-engineering-portfolio",
+    "Name": "cortex-engineering-portfolio",
     "Description": "Engineering portfolio deck — daily 01:00 UTC",
     "ScheduleExpression": "cron(0 1 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {
-        "Id": "decks-engineering-portfolio",
+        "Id": "cortex-engineering-portfolio",
         "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
         "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
         "EcsParameters": {
@@ -28,7 +28,7 @@
   },
   {
     "Name": "cortex-export-nightly",
-    "Description": "LLM context export (cortex --export) — daily 00:00 UTC",
+    "Description": "LLM context export (cortex export-all) — daily 00:00 UTC",
     "ScheduleExpression": "cron(0 0 * * ? *)",
     "State": "ENABLED",
     "Targets": [

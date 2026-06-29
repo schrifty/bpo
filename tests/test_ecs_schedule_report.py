@@ -15,7 +15,7 @@ def test_format_schedule_table_aligns_columns():
     rows = [
         ScheduleRow(
             job_key="export-nightly",
-            rule_name="bpo-export-nightly",
+            rule_name="cortex-export-nightly",
             state="ENABLED",
             schedule_expression="cron(0 3 * * ? *)",
             command=["export-nightly"],
@@ -24,7 +24,7 @@ def test_format_schedule_table_aligns_columns():
         ),
         ScheduleRow(
             job_key="other-job",
-            rule_name="bpo-other-job",
+            rule_name="cortex-other-job",
             state="ENABLED",
             schedule_expression="cron(0 4 * * ? *)",
             command=["other-job"],
@@ -34,7 +34,7 @@ def test_format_schedule_table_aligns_columns():
     ]
     text = format_schedule_table(rows)
     assert "export-nightly" in text
-    assert "bpo-export-nightly" in text
+    assert "cortex-export-nightly" in text
     assert "cron(0 3 * * ? *)" in text
 
 
@@ -43,12 +43,16 @@ def test_build_schedule_rows_merges_catalog_when_aws_empty(monkeypatch):
         "src.ecs_schedule_report.fetch_aws_schedule_rows",
         lambda **kwargs: ([], "AWS lookup failed (test); showing catalog only"),
     )
-    rows, notes = build_schedule_rows(name_prefix="bpo", region="us-east-1")
+    rows, notes = build_schedule_rows(name_prefix="cortex", region="us-east-1")
     assert any(r.job_key == "export-nightly" for r in rows)
     assert any(r.job_key == "engineering-portfolio" for r in rows)
     assert any(r.job_key == "ford-pendo-daily" for r in rows)
     eng = next(r for r in rows if r.job_key == "engineering-portfolio")
-    assert eng.rule_name == "decks-engineering-portfolio"
+    assert eng.rule_name == "cortex-engineering-portfolio"
+    export = next(r for r in rows if r.job_key == "export-nightly")
+    assert export.rule_name == "cortex-export-nightly"
+    ford = next(r for r in rows if r.job_key == "ford-pendo-daily")
+    assert ford.rule_name == "cortex-ford-pendo-daily"
     assert notes
 
 
@@ -69,7 +73,7 @@ def test_schedule_main_prints_table(monkeypatch, capsys):
             [
                 ScheduleRow(
                     job_key="export-nightly",
-                    rule_name="bpo-export-nightly",
+                    rule_name="cortex-export-nightly",
                     state="ENABLED",
                     schedule_expression="cron(0 3 * * ? *)",
                     command=["export-nightly"],
@@ -80,8 +84,8 @@ def test_schedule_main_prints_table(monkeypatch, capsys):
             [],
         ),
     )
-    code = schedule_main(["--prefix", "bpo", "--region", "us-east-1"])
+    code = schedule_main(["--prefix", "cortex", "--region", "us-east-1"])
     out = capsys.readouterr().out
     assert code == 0
-    assert "bpo-export-nightly" in out
+    assert "cortex-export-nightly" in out
     assert "cron(0 3 * * ? *)" in out

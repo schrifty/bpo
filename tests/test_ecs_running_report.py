@@ -26,7 +26,7 @@ def test_running_row_from_task_uses_overrides():
         "taskArn": "arn:aws:ecs:us-east-1:123:task/cluster/abc123",
         "lastStatus": "RUNNING",
         "startedAt": datetime(2026, 6, 17, 3, 15, tzinfo=timezone.utc),
-        "taskDefinitionArn": "arn:aws:ecs:us-east-1:123:task-definition/bpo-decks:4",
+        "taskDefinitionArn": "arn:aws:ecs:us-east-1:123:task-definition/cortex-decks:4",
         "startedBy": "events.amazonaws.com",
         "overrides": {
             "containerOverrides": [{"name": "cortex-decks", "command": ["export-nightly"]}],
@@ -37,7 +37,7 @@ def test_running_row_from_task_uses_overrides():
     assert row.job == "export-nightly"
     assert row.status == "RUNNING"
     assert "2026-06-17 03:15:00 UTC" in row.started_at
-    assert row.task_definition == "bpo-decks:4"
+    assert row.task_definition == "cortex-decks:4"
 
 
 def test_format_running_table_aligns_columns():
@@ -47,7 +47,7 @@ def test_format_running_table_aligns_columns():
             job="export-nightly",
             status="RUNNING",
             started_at="2026-06-17 03:15:00 UTC",
-            task_definition="bpo-decks:4",
+            task_definition="cortex-decks:4",
             started_by="events.amazonaws.com",
         )
     ]
@@ -67,14 +67,14 @@ def test_running_main_prints_table(monkeypatch, capsys):
                     job="engineering-portfolio",
                     status="RUNNING",
                     started_at="2026-06-17 02:00:00 UTC",
-                    task_definition="bpo-decks:4",
+                    task_definition="cortex-decks:4",
                     started_by="events.amazonaws.com",
                 )
             ],
             None,
         ),
     )
-    code = running_main(["--cluster", "bpo", "--region", "us-east-1"])
+    code = running_main(["--cluster", "cortex", "--region", "us-east-1"])
     out = capsys.readouterr().out
     assert code == 0
     assert "abc123" in out
@@ -86,7 +86,7 @@ def test_running_main_prints_empty_state(monkeypatch, capsys):
         "src.ecs_running_report.fetch_running_rows",
         lambda **kwargs: ([], None),
     )
-    code = running_main(["--cluster", "bpo", "--region", "us-east-1"])
+    code = running_main(["--cluster", "cortex", "--region", "us-east-1"])
     out = capsys.readouterr().out
     assert code == 0
     assert "No tasks running." in out
@@ -97,7 +97,7 @@ def test_running_main_reports_aws_error(monkeypatch, capsys):
         "src.ecs_running_report.fetch_running_rows",
         lambda **kwargs: ([], "AWS lookup failed (test)"),
     )
-    code = running_main(["--cluster", "bpo", "--region", "us-east-1"])
+    code = running_main(["--cluster", "cortex", "--region", "us-east-1"])
     out = capsys.readouterr().out
     assert code == 1
     assert "Error: AWS lookup failed (test)" in out

@@ -12,7 +12,7 @@ breakdowns, and SLA-style aggregates only — **no issue keys, summaries, or tic
 The markdown includes **Snapshot coverage & omission rationale** (profile sources, registry ids not in this export and why, caps, loader provenance, feedback prompt) plus **Planned integrations (not in this snapshot yet)** (e.g. Aha, GitHub).
 
 Usage:
-  cortex --export [--days N] [--skip-risk-insights] [--customers-sf-allowlist] [--customers-exclude-sf-churned] [--exclude-customer NAME ...]
+  cortex export-all [--days N] [--skip-risk-insights] [--customers-sf-allowlist] [--customers-exclude-sf-churned] [--exclude-customer NAME ...]
   python -m src.export_llm_context_snapshot --days 90
 
 Optional portfolio row filters (after Pendo+Salesforce bundle, before markdown):

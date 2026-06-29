@@ -46,7 +46,7 @@ Flag commands (utilities)
   cortex --data
       Print canonical data element paths from ``config/comprehensive_data_element_list.json``.
 
-  cortex --export [--days N] [--max-bytes N] [--signals-cap N]
+  cortex export-all [--days N] [--max-bytes N] [--signals-cap N]
       [--customers-sf-allowlist] [--customers-exclude-sf-churned]
       [--exclude-customer LABEL ...]
       Build the all-customers LLM context markdown snapshot and upload it to Drive **twice**: under
@@ -62,11 +62,11 @@ Flag commands (utilities)
   cortex --schedule [--prefix NAME] [--region REGION]
       Show EventBridge cron schedules for ECS batch jobs (live AWS when credentials are available,
       plus catalog defaults from ``infra/terraform/variables.tf``). Cron times are UTC.
-      Default prefix: ``CORTEX_SCHEDULE_NAME_PREFIX`` or ``bpo`` (matches deployed AWS ``name_prefix``).
+      Default prefix: ``CORTEX_SCHEDULE_NAME_PREFIX`` or ``cortex`` (matches deployed AWS ``name_prefix``).
 
   cortex --running [--cluster NAME] [--family FAMILY] [--region REGION]
       List ECS Fargate tasks currently running Cortex batch jobs (``desiredStatus=RUNNING``).
-      Defaults: ``CORTEX_ECS_*``, ``terraform.tfvars`` ``name_prefix``, or ``bpo`` / ``bpo-decks``.
+      Defaults: ``CORTEX_ECS_*``, ``terraform.tfvars`` ``name_prefix``, or ``cortex`` / ``cortex-decks``.
 
   cortex run-job --job <name> [--dry-run] [--no-json-summary]
       Run a declarative batch job from ``config/jobs/<name>.yaml`` (or ``CORTEX_JOB=<name>``).
@@ -92,6 +92,9 @@ Generate one deck (explicit)
   cortex engineering-portfolio
   cortex implementations-review
       Jira-backed org decks (same payloads as ``--portfolio`` batch).
+
+  cortex export-all [--days N] [--max-bytes N] [--signals-cap N]
+      All-customers LLM context snapshot (same as the ``export-nightly`` job).
 
   cortex regenerate-slides --deck engineering-portfolio --cursor [--presentation-id ID|URL]
       Rebuild Cursor slides in the latest (or specified) Engineering Review presentation in Drive.
@@ -1213,11 +1216,11 @@ def main():
         return
 
     if "--export" in sys.argv:
-        from src.export_llm_context_snapshot import export_main
-
-        rest = [a for a in sys.argv[1:] if a != "--export"]
-        export_main(rest, prog="cortex --export")
-        return
+        print(
+            "error: cortex --export was renamed to cortex export-all",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     if "--export-pendo" in sys.argv:
         from src.export_customer_pendo_snapshot import export_pendo_main
@@ -1376,6 +1379,11 @@ def main():
         return
     if sub == "run-job":
         _run_run_job_cli(sys.argv[2:])
+        return
+    if sub == "export-all":
+        from src.export_llm_context_snapshot import export_main
+
+        export_main(sys.argv[2:], prog="cortex export-all")
         return
     if sub == "cohort":
         _run_cohort_review_cli(sys.argv[2:])

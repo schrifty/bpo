@@ -129,17 +129,19 @@ variable "scheduled_jobs" {
       schedule_expression = "cron(0 1 * * ? *)"
       command             = ["engineering-portfolio"]
       enabled             = true
-      rule_name           = "decks-engineering-portfolio"
+      rule_name           = "cortex-engineering-portfolio"
     }
     export-nightly = {
       schedule_expression = "cron(0 0 * * ? *)"
       command             = ["export-nightly"]
       enabled             = true
+      rule_name           = "cortex-export-nightly"
     }
     ford-pendo-daily = {
       schedule_expression = "cron(0 2 * * ? *)"
       command             = ["ford-pendo-daily"]
       enabled             = true
+      rule_name           = "cortex-ford-pendo-daily"
     }
   }
 }

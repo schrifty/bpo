@@ -33,9 +33,9 @@ Set `CORTEX_LOG_FORMAT=json` (auto on ECS) for CloudWatch filters; stdout includ
 
 | Job | Schedule (EventBridge) | YAML |
 |-----|------------------------|------|
-| Engineering portfolio | Daily 01:00 UTC (`decks-engineering-portfolio`) | `engineering-portfolio` |
-| LLM export | Daily 00:00 UTC | `export-nightly` (`cortex --export`, 90-day window) |
-| Ford Pendo export | Daily 02:00 UTC | `ford-pendo-daily` (`cortex --export-pendo --customer Ford`, 30-day window) |
+| Engineering portfolio | Daily 01:00 UTC (`cortex-engineering-portfolio`) | `engineering-portfolio` |
+| LLM export | Daily 00:00 UTC (`cortex-export-nightly`) | `export-nightly` (`cortex export-all`, 90-day window) |
+| Ford Pendo export | Daily 02:00 UTC (`cortex-ford-pendo-daily`) | `ford-pendo-daily` (`cortex --export-pendo --customer Ford`, 30-day window) |
 | Portfolio batch | Manual / `run-task` | `portfolio-batch` |
 | Full nightly chain | Manual | `nightly-core` |
 

@@ -219,7 +219,7 @@ def running_main(argv: list[str] | None = None, *, prog: str = "cortex --running
     parser.add_argument(
         "--cluster",
         default=default_cluster_name(),
-        help="ECS cluster name (default: CORTEX_ECS_CLUSTER, terraform name_prefix, or bpo)",
+        help="ECS cluster name (default: CORTEX_ECS_CLUSTER, terraform name_prefix, or cortex)",
     )
     parser.add_argument(
         "--family",

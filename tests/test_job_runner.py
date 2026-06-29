@@ -19,6 +19,16 @@ def test_build_step_argv_portfolio() -> None:
     assert argv == ["--portfolio", "--days", "30", "--csm", "Alex"]
 
 
+def test_build_step_argv_export_all() -> None:
+    argv = build_step_argv({"command": "export-all", "days": 90})
+    assert argv == ["export-all", "--days", "90"]
+
+
+def test_build_step_argv_export_legacy_alias() -> None:
+    argv = build_step_argv({"command": "export", "days": 90})
+    assert argv == ["export-all", "--days", "90"]
+
+
 def test_run_job_dry_run(capsys) -> None:
     code = run_job("engineering-portfolio", dry_run=True)
     assert code == 0

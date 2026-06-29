@@ -20,19 +20,21 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "schedule_expression": "cron(0 1 * * ? *)",
         "command": ["engineering-portfolio"],
         "enabled": True,
-        "rule_name": "decks-engineering-portfolio",
+        "rule_name": "cortex-engineering-portfolio",
         "summary": "Engineering portfolio deck",
     },
     "export-nightly": {
         "schedule_expression": "cron(0 0 * * ? *)",
         "command": ["export-nightly"],
         "enabled": True,
-        "summary": "LLM export (cortex --export, 90-day window)",
+        "rule_name": "cortex-export-nightly",
+        "summary": "LLM export (cortex export-all, 90-day window)",
     },
     "ford-pendo-daily": {
         "schedule_expression": "cron(0 2 * * ? *)",
         "command": ["ford-pendo-daily"],
         "enabled": True,
+        "rule_name": "cortex-ford-pendo-daily",
         "summary": "Ford Pendo usage export (cortex --export-pendo --customer Ford, 30-day window)",
     },
 }
@@ -352,7 +354,7 @@ def schedule_main(argv: list[str] | None = None, *, prog: str = "cortex --schedu
     parser.add_argument(
         "--prefix",
         default=default_name_prefix(),
-        help="EventBridge rule name prefix (default: CORTEX_SCHEDULE_NAME_PREFIX, terraform name_prefix, or bpo)",
+        help="EventBridge rule name prefix (default: CORTEX_SCHEDULE_NAME_PREFIX, terraform name_prefix, or cortex)",
     )
     parser.add_argument(
         "--region",

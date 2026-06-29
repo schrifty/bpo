@@ -3,5 +3,5 @@ stop_on_failure: true
 fail_on_warnings: false
 steps:
   - name: llm-export
-    command: export
+    command: export-all
     days: 90

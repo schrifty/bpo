@@ -124,8 +124,8 @@ def build_step_argv(step: dict[str, Any]) -> list[str]:
         if step.get("max_customers") is not None:
             argv.extend(["--max-customers", str(int(step["max_customers"]))])
         return argv
-    if command == "export":
-        argv = ["--export"]
+    if command in ("export", "export-all"):
+        argv = ["export-all"]
         if step.get("days") is not None:
             argv.extend(["--days", str(int(step["days"]))])
         if step.get("max_bytes") is not None:
