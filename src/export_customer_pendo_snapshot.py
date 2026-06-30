@@ -31,9 +31,10 @@ _CUSTOMER_EXPORTS_FOLDER = "customer-exports"
 _MS_PER_DAY = 86_400_000
 
 
-def _safe_export_stem(customer: str) -> str:
-    stem = re.sub(r"[^\w\-]+", "-", (customer or "").strip()).strip("-")
-    return stem or "customer"
+def _pendo_export_file_stem(customer: str, days: int) -> str:
+    """Return filename stem (no extension), e.g. ``Pendo Export  (Ford, 30d)``."""
+    label = (customer or "").strip() or "customer"
+    return f"Pendo Export  ({label}, {days}d)"
 
 
 def resolve_pendo_customer_prefix(query: str, pc: PendoClient) -> str:
@@ -857,7 +858,7 @@ def export_pendo_main(cli_args: list[str] | None = None, *, prog: str | None = N
             sys.exit(1)
 
         pendo_prefix = (report.get("meta") or {}).get("pendo_prefix") or args.customer
-        stem = f"Pendo-Usage-{_safe_export_stem(pendo_prefix)}"
+        stem = _pendo_export_file_stem(pendo_prefix, args.days)
         md = render_customer_pendo_markdown(report) if args.format in ("markdown", "both") else ""
         json_text = json.dumps(report, indent=2, default=str) if args.format in ("json", "both") else ""
 
