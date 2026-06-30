@@ -13,6 +13,7 @@ from src.export_customer_pendo_snapshot import (
     build_unused_features,
     build_usage_trends,
     render_customer_pendo_markdown,
+    report_to_parquet_bytes,
     resolve_pendo_customer_prefix,
     _pendo_export_file_stem,
 )
@@ -22,6 +23,25 @@ from src.job_runner import build_step_argv, load_job_spec
 def test_pendo_export_file_stem_includes_granularity() -> None:
     assert _pendo_export_file_stem("Ford", 7) == "Pendo Export  (Ford, 7d)"
     assert _pendo_export_file_stem("Ford", 30) == "Pendo Export  (Ford, 30d)"
+
+
+def test_report_to_parquet_bytes_writes_valid_parquet() -> None:
+    import io
+
+    import pyarrow.parquet as pq
+
+    report = {
+        "meta": {"pendo_prefix": "Ford", "days": 30, "exported_at_utc": "2026-06-29T00:00:00Z"},
+        "headline": {"active_users_7d": 42, "total_sites": 3},
+        "sites": {"sites": [{"site_name": "Plant A", "total_events": 100}]},
+    }
+    data = report_to_parquet_bytes(report)
+    assert data[:4] == b"PAR1"
+    table = pq.read_table(io.BytesIO(data))
+    assert table.num_rows == 1
+    row = table.to_pylist()[0]
+    assert row["meta"]["pendo_prefix"] == "Ford"
+    assert row["headline"]["active_users_7d"] == 42
 
 
 def test_resolve_pendo_customer_prefix_exact() -> None:

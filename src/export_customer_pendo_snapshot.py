@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export single-customer Pendo usage snapshots to Google Drive (JSON + markdown).
+"""Export single-customer Pendo usage snapshots to Google Drive (JSON, markdown, Parquet).
 
 Designed for strategic accounts that track product usage across sites (e.g. Ford daily).
 
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import io
 import json
 import re
 import sys
@@ -35,6 +36,18 @@ def _pendo_export_file_stem(customer: str, days: int) -> str:
     """Return filename stem (no extension), e.g. ``Pendo Export  (Ford, 30d)``."""
     label = (customer or "").strip() or "customer"
     return f"Pendo Export  ({label}, {days}d)"
+
+
+def report_to_parquet_bytes(report: dict[str, Any]) -> bytes:
+    """Serialize the full export report as a single-row nested Parquet file."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    safe = json.loads(json.dumps(report, default=str))
+    table = pa.Table.from_pylist([safe])
+    buf = io.BytesIO()
+    pq.write_table(table, buf, compression="snappy")
+    return buf.getvalue()
 
 
 def resolve_pendo_customer_prefix(query: str, pc: PendoClient) -> str:
@@ -815,9 +828,14 @@ def _write_local(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def _write_local_bytes(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+
+
 def export_pendo_main(cli_args: list[str] | None = None, *, prog: str | None = None) -> None:
     ap = argparse.ArgumentParser(
-        description="Export single-customer Pendo usage snapshot (JSON + markdown) to Drive.",
+        description="Export single-customer Pendo usage snapshot (JSON, markdown, Parquet) to Drive.",
         prog=prog or "cortex --export-pendo",
     )
     ap.add_argument("--customer", required=True, help="Pendo customer prefix or alias (e.g. Ford)")
@@ -839,7 +857,7 @@ def export_pendo_main(cli_args: list[str] | None = None, *, prog: str | None = N
         "-o",
         "--out",
         metavar="PATH",
-        help="Local output path prefix (writes PATH.json and/or PATH.md); default output/ when --no-drive",
+        help="Local output path prefix (writes PATH.json, PATH.md, PATH.parquet); default output/ when --no-drive",
     )
     args = ap.parse_args(cli_args)
 
@@ -861,11 +879,13 @@ def export_pendo_main(cli_args: list[str] | None = None, *, prog: str | None = N
         stem = _pendo_export_file_stem(pendo_prefix, args.days)
         md = render_customer_pendo_markdown(report) if args.format in ("markdown", "both") else ""
         json_text = json.dumps(report, indent=2, default=str) if args.format in ("json", "both") else ""
+        parquet_bytes = report_to_parquet_bytes(report)
+        parquet_name = f"{stem}.parquet"
 
         if args.no_drive or args.out:
             if args.out:
                 base = Path(args.out)
-                if base.suffix.lower() in (".json", ".md"):
+                if base.suffix.lower() in (".json", ".md", ".parquet"):
                     base = base.with_suffix("")
             else:
                 base = Path("output") / stem
@@ -875,9 +895,11 @@ def export_pendo_main(cli_args: list[str] | None = None, *, prog: str | None = N
             if md:
                 _write_local(base.with_suffix(".md"), md)
                 print(f"Wrote {base.with_suffix('.md')}")
+            _write_local_bytes(base.with_suffix(".parquet"), parquet_bytes)
+            print(f"Wrote {base.with_suffix('.parquet')}")
 
         if not args.no_drive:
-            from .drive_config import upload_text_file_to_drive_folder
+            from .drive_config import upload_binary_file_to_drive_folder, upload_text_file_to_drive_folder
 
             folders = ensure_customer_pendo_export_folders(pendo_prefix)
             stable_id = folders["stable_folder_id"]
@@ -906,6 +928,18 @@ def export_pendo_main(cli_args: list[str] | None = None, *, prog: str | None = N
                     upload_text_file_to_drive_folder(
                         f"{stem}.json", json_text, stable_id, mime_type="application/json"
                     )
+                upload_binary_file_to_drive_folder(
+                    parquet_name,
+                    parquet_bytes,
+                    dated_id,
+                    mime_type="application/vnd.apache.parquet",
+                )
+                upload_binary_file_to_drive_folder(
+                    parquet_name,
+                    parquet_bytes,
+                    stable_id,
+                    mime_type="application/vnd.apache.parquet",
+                )
 
         from .data_source_health import integration_freshness_metadata
 

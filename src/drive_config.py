@@ -454,10 +454,28 @@ def upload_text_file_to_drive_folder(
     When ``replace_existing`` is True (default), updates the first non-trashed file with the
     same ``name`` in that folder (any mime); otherwise creates a new file (duplicates allowed).
     """
+    return upload_binary_file_to_drive_folder(
+        name,
+        content.encode("utf-8"),
+        folder_id,
+        mime_type=mime_type,
+        replace_existing=replace_existing,
+    )
+
+
+def upload_binary_file_to_drive_folder(
+    name: str,
+    content: bytes,
+    folder_id: str,
+    *,
+    mime_type: str = "application/octet-stream",
+    replace_existing: bool = True,
+) -> str:
+    """Create or replace a binary file on Drive under ``folder_id``. Returns file id."""
     with drive_api_lock:
         drive = _get_drive()
         media = MediaIoBaseUpload(
-            io.BytesIO(content.encode("utf-8")),
+            io.BytesIO(content),
             mimetype=mime_type,
             resumable=False,
         )
