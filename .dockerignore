@@ -3,11 +3,15 @@
 !.env.example
 .cache/
 .git/
+.venv/
 .pytest_cache/
+.slide_cache/
 __pycache__/
 *.pyc
 .cursor/
 terminals/
 output/
+infra/terraform/.terraform/
+infra/terraform/terraform.tfstate*
 *.pem
 *.key
