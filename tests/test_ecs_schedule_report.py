@@ -50,8 +50,10 @@ def test_build_schedule_rows_merges_catalog_when_aws_empty(monkeypatch):
     assert any(r.job_key == "ford-pendo-30d" for r in rows)
     eng = next(r for r in rows if r.job_key == "engineering-portfolio")
     assert eng.rule_name == "cortex-engineering-portfolio"
+    assert eng.schedule_expression == "cron(30 1 * * ? *)"
     export = next(r for r in rows if r.job_key == "export-nightly")
     assert export.rule_name == "cortex-export-nightly"
+    assert export.schedule_expression == "cron(0 1 * * ? *)"
     ford_7d = next(r for r in rows if r.job_key == "ford-pendo-7d")
     assert ford_7d.rule_name == "cortex-ford-pendo-7d"
     ford_30d = next(r for r in rows if r.job_key == "ford-pendo-30d")

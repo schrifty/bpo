@@ -31,10 +31,10 @@ docker run --rm -v "$PWD/.env:/app/.env:ro" -v "$PWD/.cache:/var/cortex/cache" \
 Production uses `scripts/run_job.sh` → `bootstrap_aws_env.py` (when `CORTEX_SECRETS_ARN` is set) → `cortex run-job`.
 Set `CORTEX_LOG_FORMAT=json` (auto on ECS) for CloudWatch filters; stdout includes `CORTEX_RUN_SUMMARY={…}` and EMF metrics.
 
-| Job | Schedule (EventBridge) | YAML |
-|-----|------------------------|------|
-| Engineering portfolio | Daily 01:00 UTC (`cortex-engineering-portfolio`) | `engineering-portfolio` |
-| LLM export | Daily 00:00 UTC (`cortex-export-nightly`) | `export-nightly` (`cortex export-all`, 90-day window) |
+| Job | Schedule (EventBridge, UTC) | YAML |
+|-----|-----------------------------|------|
+| LLM export | Daily 01:00 UTC (`cortex-export-nightly`) | `export-nightly` (`cortex export-all`, 90-day window) |
+| Engineering portfolio | Daily 01:30 UTC (`cortex-engineering-portfolio`) | `engineering-portfolio` |
 | Ford Pendo export (7d) | Daily 02:00 UTC (`cortex-ford-pendo-7d`) | `ford-pendo-7d` (`cortex --export-pendo --customer Ford --days 7 --compare-days 7`) |
 | Ford Pendo export (30d) | Daily 02:30 UTC (`cortex-ford-pendo-30d`) | `ford-pendo-30d` (`cortex --export-pendo --customer Ford --days 30 --compare-days 30`) |
 | Portfolio batch | Manual / `run-task` | `portfolio-batch` |

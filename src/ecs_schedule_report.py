@@ -16,19 +16,19 @@ from src.ecs_aws_defaults import default_name_prefix, default_region
 
 # Keep in sync with infra/terraform/variables.tf scheduled_jobs defaults.
 SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
-    "engineering-portfolio": {
-        "schedule_expression": "cron(0 1 * * ? *)",
-        "command": ["engineering-portfolio"],
-        "enabled": True,
-        "rule_name": "cortex-engineering-portfolio",
-        "summary": "Engineering portfolio deck",
-    },
     "export-nightly": {
-        "schedule_expression": "cron(0 0 * * ? *)",
+        "schedule_expression": "cron(0 1 * * ? *)",
         "command": ["export-nightly"],
         "enabled": True,
         "rule_name": "cortex-export-nightly",
         "summary": "LLM export (cortex export-all, 90-day window)",
+    },
+    "engineering-portfolio": {
+        "schedule_expression": "cron(30 1 * * ? *)",
+        "command": ["engineering-portfolio"],
+        "enabled": True,
+        "rule_name": "cortex-engineering-portfolio",
+        "summary": "Engineering portfolio deck",
     },
     "ford-pendo-7d": {
         "schedule_expression": "cron(0 2 * * ? *)",

@@ -1,35 +1,8 @@
 [
   {
-    "Name": "cortex-engineering-portfolio",
-    "Description": "Engineering portfolio deck — daily 01:00 UTC",
-    "ScheduleExpression": "cron(0 1 * * ? *)",
-    "State": "ENABLED",
-    "Targets": [
-      {
-        "Id": "cortex-engineering-portfolio",
-        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
-        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
-        "EcsParameters": {
-          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
-          "LaunchType": "FARGATE",
-          "PlatformVersion": "LATEST",
-          "NetworkConfiguration": {
-            "awsvpcConfiguration": {
-              "Subnets": ["subnet-REPLACE"],
-              "SecurityGroups": ["sg-REPLACE"],
-              "AssignPublicIp": "DISABLED"
-            }
-          },
-          "TaskCount": 1
-        },
-        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"engineering-portfolio\"]}]}"
-      }
-    ]
-  },
-  {
     "Name": "cortex-export-nightly",
-    "Description": "LLM context export (cortex export-all) — daily 00:00 UTC",
-    "ScheduleExpression": "cron(0 0 * * ? *)",
+    "Description": "LLM context export (cortex export-all) — daily 01:00 UTC",
+    "ScheduleExpression": "cron(0 1 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {
@@ -50,6 +23,33 @@
           "TaskCount": 1
         },
         "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"export-nightly\"]}]}"
+      }
+    ]
+  },
+  {
+    "Name": "cortex-engineering-portfolio",
+    "Description": "Engineering portfolio deck — daily 01:30 UTC",
+    "ScheduleExpression": "cron(30 1 * * ? *)",
+    "State": "ENABLED",
+    "Targets": [
+      {
+        "Id": "cortex-engineering-portfolio",
+        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
+        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
+        "EcsParameters": {
+          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
+          "LaunchType": "FARGATE",
+          "PlatformVersion": "LATEST",
+          "NetworkConfiguration": {
+            "awsvpcConfiguration": {
+              "Subnets": ["subnet-REPLACE"],
+              "SecurityGroups": ["sg-REPLACE"],
+              "AssignPublicIp": "DISABLED"
+            }
+          },
+          "TaskCount": 1
+        },
+        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"engineering-portfolio\"]}]}"
       }
     ]
   },
