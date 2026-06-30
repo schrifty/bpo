@@ -7,4 +7,3 @@ steps:
     customer: Ford
     days: 30
     compare_days: 30
-    format: both

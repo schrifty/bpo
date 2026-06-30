@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
-"""Export single-customer Pendo usage snapshots to Google Drive (JSON, markdown, Parquet).
+"""Export single-customer Pendo usage snapshots to Google Drive (markdown + Sheet).
 
 Designed for strategic accounts that track product usage across sites (e.g. Ford daily).
 
 Usage:
-  cortex --export-pendo --customer Ford [--days 30] [--compare-days 30]
-      [--format both|json|markdown] [--no-drive] [-o PATH]
+  cortex --export-pendo --customer Ford [--days 30] [--compare-days 30] [--no-drive] [-o PATH]
 """
 from __future__ import annotations
 
 import argparse
 import datetime as dt
-import io
-import json
 import re
 import sys
 from functools import lru_cache
@@ -36,18 +33,6 @@ def _pendo_export_file_stem(customer: str, days: int) -> str:
     """Return filename stem (no extension), e.g. ``Pendo Export  (Ford, 30d)``."""
     label = (customer or "").strip() or "customer"
     return f"Pendo Export  ({label}, {days}d)"
-
-
-def report_to_parquet_bytes(report: dict[str, Any]) -> bytes:
-    """Serialize the full export report as a single-row nested Parquet file."""
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    safe = json.loads(json.dumps(report, default=str))
-    table = pa.Table.from_pylist([safe])
-    buf = io.BytesIO()
-    pq.write_table(table, buf, compression="snappy")
-    return buf.getvalue()
 
 
 def resolve_pendo_customer_prefix(query: str, pc: PendoClient) -> str:
@@ -74,39 +59,6 @@ def resolve_pendo_customer_prefix(query: str, pc: PendoClient) -> str:
             "pass the exact prefix from `cortex --list` or cohorts.yaml"
         )
     return q
-
-
-def _optional_salesforce_context(pendo_prefix: str) -> dict[str, Any]:
-    """One-line SF commercial context when JWT credentials are configured."""
-    try:
-        from .portfolio_salesforce_allowlist import _load_sf_portfolio_pendo_alias_map
-        from .salesforce_client import SalesforceClient
-
-        alias_map = _load_sf_portfolio_pendo_alias_map()
-        sf_labels: list[str] = []
-        for label, prefixes in alias_map.items():
-            targets = prefixes if isinstance(prefixes, list) else [prefixes]
-            if any(str(p).strip().lower() == pendo_prefix.lower() for p in targets if p):
-                sf_labels.append(label)
-        if not sf_labels:
-            sf_labels = [pendo_prefix]
-
-        sf = SalesforceClient()
-        metrics = sf.get_portfolio_revenue_book_metrics([sf_labels[0]])
-        rows = metrics.get("matched_customer_contract_rollups") or []
-        if not rows:
-            return {"salesforce_label": sf_labels[0], "note": "no Customer Entity rollup matched"}
-        row = rows[0]
-        return {
-            "salesforce_label": row.get("customer") or sf_labels[0],
-            "entity_count": row.get("entity_count"),
-            "active_arr_usd": row.get("active_arr_usd"),
-            "total_arr_usd": row.get("total_arr_usd"),
-            "active": row.get("active"),
-        }
-    except Exception as exc:
-        logger.debug("customer pendo export: Salesforce context skipped: %s", exc)
-        return {"note": "Salesforce context unavailable (credentials or lookup failed)"}
 
 
 def _pct_change(current: float | int | None, prior: float | int | None) -> float | None:
@@ -491,7 +443,6 @@ def build_customer_pendo_export_report(
             "compare_days": compare,
             "window_start": window_start.isoformat(),
             "window_end": window_end.isoformat(),
-            "salesforce": _optional_salesforce_context(pendo_prefix),
         },
         "headline": build_headline(
             health=health,
@@ -527,7 +478,6 @@ def _md_section(title: str, body: str) -> str:
 def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
     meta = report.get("meta") or {}
     headline = report.get("headline") or {}
-    sf = meta.get("salesforce") or {}
     lines = [
         f"# Pendo usage — {meta.get('pendo_prefix') or meta.get('customer_query')}",
         "",
@@ -536,15 +486,6 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
         f"- **Compare window:** prior {meta.get('compare_days', meta.get('days'))} days",
         f"- **Pendo prefix:** `{meta.get('pendo_prefix')}`",
     ]
-    if sf.get("salesforce_label"):
-        arr = sf.get("active_arr_usd")
-        arr_s = f"${arr:,.0f}" if isinstance(arr, (int, float)) else "n/a"
-        lines.append(
-            f"- **Salesforce:** {sf.get('salesforce_label')} · active ARR {arr_s} · "
-            f"{sf.get('entity_count', 'n/a')} entities"
-        )
-    elif sf.get("note"):
-        lines.append(f"- **Salesforce:** {sf['note']}")
 
     md = "\n".join(lines) + "\n\n"
 
@@ -828,14 +769,9 @@ def _write_local(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _write_local_bytes(path: Path, content: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
-
-
 def export_pendo_main(cli_args: list[str] | None = None, *, prog: str | None = None) -> None:
     ap = argparse.ArgumentParser(
-        description="Export single-customer Pendo usage snapshot (JSON, markdown, Parquet) to Drive.",
+        description="Export single-customer Pendo usage snapshot (markdown + Google Sheet) to Drive.",
         prog=prog or "cortex --export-pendo",
     )
     ap.add_argument("--customer", required=True, help="Pendo customer prefix or alias (e.g. Ford)")
@@ -846,18 +782,12 @@ def export_pendo_main(cli_args: list[str] | None = None, *, prog: str | None = N
         default=None,
         help="Prior comparison window in days (default: same as --days)",
     )
-    ap.add_argument(
-        "--format",
-        choices=("json", "markdown", "both"),
-        default="both",
-        help="Output format (default both)",
-    )
     ap.add_argument("--no-drive", action="store_true", help="Skip Drive upload; write locally only")
     ap.add_argument(
         "-o",
         "--out",
         metavar="PATH",
-        help="Local output path prefix (writes PATH.json, PATH.md, PATH.parquet); default output/ when --no-drive",
+        help="Local output path prefix (writes PATH.md and PATH.xlsx); default output/ when --no-drive",
     )
     args = ap.parse_args(cli_args)
 
@@ -877,29 +807,25 @@ def export_pendo_main(cli_args: list[str] | None = None, *, prog: str | None = N
 
         pendo_prefix = (report.get("meta") or {}).get("pendo_prefix") or args.customer
         stem = _pendo_export_file_stem(pendo_prefix, args.days)
-        md = render_customer_pendo_markdown(report) if args.format in ("markdown", "both") else ""
-        json_text = json.dumps(report, indent=2, default=str) if args.format in ("json", "both") else ""
-        parquet_bytes = report_to_parquet_bytes(report)
-        parquet_name = f"{stem}.parquet"
+        md = render_customer_pendo_markdown(report)
 
         if args.no_drive or args.out:
             if args.out:
                 base = Path(args.out)
-                if base.suffix.lower() in (".json", ".md", ".parquet"):
+                if base.suffix.lower() in (".md", ".xlsx"):
                     base = base.with_suffix("")
             else:
                 base = Path("output") / stem
-            if json_text:
-                _write_local(base.with_suffix(".json"), json_text)
-                print(f"Wrote {base.with_suffix('.json')}")
-            if md:
-                _write_local(base.with_suffix(".md"), md)
-                print(f"Wrote {base.with_suffix('.md')}")
-            _write_local_bytes(base.with_suffix(".parquet"), parquet_bytes)
-            print(f"Wrote {base.with_suffix('.parquet')}")
+            _write_local(base.with_suffix(".md"), md)
+            print(f"Wrote {base.with_suffix('.md')}")
+            from .export_pendo_spreadsheet import write_pendo_export_xlsx
+
+            write_pendo_export_xlsx(base.with_suffix(".xlsx"), report)
+            print(f"Wrote {base.with_suffix('.xlsx')}")
 
         if not args.no_drive:
-            from .drive_config import upload_binary_file_to_drive_folder, upload_text_file_to_drive_folder
+            from .drive_config import upload_text_file_to_drive_folder
+            from .export_pendo_spreadsheet import spreadsheet_url, upload_pendo_export_spreadsheet
 
             folders = ensure_customer_pendo_export_folders(pendo_prefix)
             stable_id = folders["stable_folder_id"]
@@ -907,39 +833,23 @@ def export_pendo_main(cli_args: list[str] | None = None, *, prog: str | None = N
             dated_label = folders["dated_label"]
 
             with export_phase(diag, "Drive upload"):
-                if md:
-                    fid_stable = upload_text_file_to_drive_folder(
-                        f"{stem}.md", md, stable_id, mime_type="text/markdown"
-                    )
-                    fid_dated = upload_text_file_to_drive_folder(
-                        f"{stem}.md", md, dated_id, mime_type="text/markdown"
-                    )
-                    print(
-                        f"Uploaded markdown → customer-exports/{pendo_prefix}/{stem}.md "
-                        f"and {dated_label}/{stem}.md",
-                        file=sys.stderr,
-                    )
-                    print(f"Stable: https://drive.google.com/file/d/{fid_stable}/view")
-                    print(f"Dated:  https://drive.google.com/file/d/{fid_dated}/view")
-                if json_text:
-                    upload_text_file_to_drive_folder(
-                        f"{stem}.json", json_text, dated_id, mime_type="application/json"
-                    )
-                    upload_text_file_to_drive_folder(
-                        f"{stem}.json", json_text, stable_id, mime_type="application/json"
-                    )
-                upload_binary_file_to_drive_folder(
-                    parquet_name,
-                    parquet_bytes,
-                    dated_id,
-                    mime_type="application/vnd.apache.parquet",
+                fid_stable = upload_text_file_to_drive_folder(
+                    f"{stem}.md", md, stable_id, mime_type="text/markdown"
                 )
-                upload_binary_file_to_drive_folder(
-                    parquet_name,
-                    parquet_bytes,
-                    stable_id,
-                    mime_type="application/vnd.apache.parquet",
+                fid_dated = upload_text_file_to_drive_folder(
+                    f"{stem}.md", md, dated_id, mime_type="text/markdown"
                 )
+                print(
+                    f"Uploaded markdown → customer-exports/{pendo_prefix}/{stem}.md "
+                    f"and {dated_label}/{stem}.md",
+                    file=sys.stderr,
+                )
+                print(f"Stable: https://drive.google.com/file/d/{fid_stable}/view")
+                print(f"Dated:  https://drive.google.com/file/d/{fid_dated}/view")
+                ss_stable = upload_pendo_export_spreadsheet(report, stem, stable_id)
+                ss_dated = upload_pendo_export_spreadsheet(report, stem, dated_id)
+                print(f"Spreadsheet (stable): {spreadsheet_url(ss_stable)}", file=sys.stderr)
+                print(f"Spreadsheet (dated):  {spreadsheet_url(ss_dated)}", file=sys.stderr)
 
         from .data_source_health import integration_freshness_metadata
 

@@ -13,7 +13,6 @@ from src.export_customer_pendo_snapshot import (
     build_unused_features,
     build_usage_trends,
     render_customer_pendo_markdown,
-    report_to_parquet_bytes,
     resolve_pendo_customer_prefix,
     _pendo_export_file_stem,
 )
@@ -23,25 +22,6 @@ from src.job_runner import build_step_argv, load_job_spec
 def test_pendo_export_file_stem_includes_granularity() -> None:
     assert _pendo_export_file_stem("Ford", 7) == "Pendo Export  (Ford, 7d)"
     assert _pendo_export_file_stem("Ford", 30) == "Pendo Export  (Ford, 30d)"
-
-
-def test_report_to_parquet_bytes_writes_valid_parquet() -> None:
-    import io
-
-    import pyarrow.parquet as pq
-
-    report = {
-        "meta": {"pendo_prefix": "Ford", "days": 30, "exported_at_utc": "2026-06-29T00:00:00Z"},
-        "headline": {"active_users_7d": 42, "total_sites": 3},
-        "sites": {"sites": [{"site_name": "Plant A", "total_events": 100}]},
-    }
-    data = report_to_parquet_bytes(report)
-    assert data[:4] == b"PAR1"
-    table = pq.read_table(io.BytesIO(data))
-    assert table.num_rows == 1
-    row = table.to_pylist()[0]
-    assert row["meta"]["pendo_prefix"] == "Ford"
-    assert row["headline"]["active_users_7d"] == 42
 
 
 def test_resolve_pendo_customer_prefix_exact() -> None:
@@ -80,9 +60,7 @@ def test_build_headline_aggregates_site_totals() -> None:
 
 @patch("src.export_customer_pendo_snapshot._fetch_activity_day_buckets")
 @patch("src.export_customer_pendo_snapshot.build_usage_trends")
-@patch("src.export_customer_pendo_snapshot._optional_salesforce_context")
-def test_build_customer_pendo_export_report(mock_sf, mock_trends, mock_buckets) -> None:
-    mock_sf.return_value = {"salesforce_label": "Ford Motor Company", "active_arr_usd": 1000}
+def test_build_customer_pendo_export_report(mock_trends, mock_buckets) -> None:
     mock_trends.return_value = {
         "comparison": {"active_users_7d_pct_change": 2.0},
         "weekly_active_users": [],
@@ -128,7 +106,7 @@ def test_build_customer_pendo_export_report(mock_sf, mock_trends, mock_buckets) 
 
     assert report["meta"]["pendo_prefix"] == "Ford"
     assert report["meta"]["compare_days"] == 14
-    assert report["meta"]["salesforce"]["salesforce_label"] == "Ford Motor Company"
+    assert "salesforce" not in report["meta"]
     assert report["sites"]["sites"][0]["sitename"] == "Essex"
     assert "core_feature_checklist" in report
     assert "unused_features" in report
@@ -152,7 +130,6 @@ def test_render_customer_pendo_markdown_includes_sections() -> None:
                 "days": 30,
                 "window_start": "2026-05-30",
                 "window_end": "2026-06-29",
-                "salesforce": {"salesforce_label": "Ford Motor Company", "active_arr_usd": 1000, "entity_count": 5},
             },
             "headline": {
                 "active_users_7d": 4,
@@ -193,6 +170,7 @@ def test_render_customer_pendo_markdown_includes_sections() -> None:
         }
     )
     assert "# Pendo usage — Ford" in md
+    assert "Salesforce" not in md
     assert "## 1. Headline" in md
     assert "## 4. Core feature checklist" in md
     assert "## 5. Unused product features" in md
@@ -260,14 +238,14 @@ def test_build_usage_trends_adds_weekly_activity_and_rolling_avg() -> None:
 
 def test_build_step_argv_export_pendo_compare_days() -> None:
     argv = build_step_argv(
-        {"command": "export-pendo", "customer": "Ford", "days": 30, "compare_days": 14, "format": "both"}
+        {"command": "export-pendo", "customer": "Ford", "days": 30, "compare_days": 14}
     )
-    assert argv == ["--export-pendo", "--customer", "Ford", "--days", "30", "--compare-days", "14", "--format", "both"]
+    assert argv == ["--export-pendo", "--customer", "Ford", "--days", "30", "--compare-days", "14"]
 
 
 def test_build_step_argv_export_pendo() -> None:
-    argv = build_step_argv({"command": "export-pendo", "customer": "Ford", "days": 30, "format": "both"})
-    assert argv == ["--export-pendo", "--customer", "Ford", "--days", "30", "--format", "both"]
+    argv = build_step_argv({"command": "export-pendo", "customer": "Ford", "days": 30})
+    assert argv == ["--export-pendo", "--customer", "Ford", "--days", "30"]
 
 
 def test_load_ford_pendo_7d_job() -> None:
@@ -285,8 +263,6 @@ def test_load_ford_pendo_7d_job() -> None:
         "7",
         "--compare-days",
         "7",
-        "--format",
-        "both",
     ]
 
 
@@ -305,6 +281,4 @@ def test_load_ford_pendo_30d_job() -> None:
         "30",
         "--compare-days",
         "30",
-        "--format",
-        "both",
     ]
