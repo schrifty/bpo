@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Run terraform apply for Cortex AWS infra from the repo root.
+#
+# Usage:
+#   bin/apply
+#   bin/apply -auto-approve
+#   bin/apply -var="image_tag=latest"
+#   bin/apply -target=aws_ecs_task_definition.decks
+set -euo pipefail
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+ROOT="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
+TF_DIR="${ROOT}/infra/terraform"
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [terraform apply options...]
+
+Run terraform apply in infra/terraform (from repo root).
+
+Examples:
+  $(basename "$0")
+  $(basename "$0") -auto-approve
+  $(basename "$0") -var="image_tag=latest"
+
+Pass -h or --help to this script for this message; pass terraform -help for Terraform flags.
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if ! command -v terraform >/dev/null 2>&1; then
+  echo "terraform is required but not found in PATH" >&2
+  exit 1
+fi
+
+if [[ ! -d "$TF_DIR" ]]; then
+  echo "Terraform directory not found: ${TF_DIR}" >&2
+  exit 1
+fi
+
+if [[ ! -d "${TF_DIR}/.terraform" ]]; then
+  echo "No .terraform/ in ${TF_DIR}; running terraform init first..."
+  terraform -chdir="$TF_DIR" init
+fi
+
+exec terraform -chdir="$TF_DIR" apply "$@"
