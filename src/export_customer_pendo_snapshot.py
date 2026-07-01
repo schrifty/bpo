@@ -12,10 +12,12 @@ import argparse
 import datetime as dt
 import re
 import sys
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import requests
 import yaml
 
 from .config import logger
@@ -80,11 +82,57 @@ def _customer_visitor_ids(pc: PendoClient, customer: str, days: int) -> set[str]
     return {str(v.get("visitorId")) for v in customer_visitors if v.get("visitorId")}
 
 
+def _activity_aggregate_read_timeout(total_days: int) -> float:
+    """Scale Pendo read timeout for timeSeries aggregates (more days → longer)."""
+    return min(300.0, max(90.0, 90.0 + (total_days - 14) * 3.0))
+
+
+def _aggregate_with_retry(
+    pc: PendoClient,
+    pipeline: list[dict[str, Any]],
+    *,
+    total_days: int,
+    label: str,
+    max_attempts: int = 3,
+) -> dict[str, Any]:
+    read_timeout = _activity_aggregate_read_timeout(total_days)
+    timeout = (10, read_timeout)
+    last_exc: BaseException | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return pc.aggregate(pipeline, timeout=timeout)
+        except requests.exceptions.Timeout as exc:
+            last_exc = exc
+            if attempt >= max_attempts:
+                raise
+            wait = 5.0 * attempt
+            logger.warning(
+                "Pendo %s aggregate timed out (attempt %d/%d, read_timeout=%.0fs); retry in %.0fs",
+                label,
+                attempt,
+                max_attempts,
+                read_timeout,
+                wait,
+            )
+            time.sleep(wait)
+    raise RuntimeError(f"Pendo {label} aggregate failed after {max_attempts} attempts") from last_exc
+
+
 def _fetch_activity_day_buckets(pc: PendoClient, total_days: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Page and feature event rows with ``day`` buckets (not merged across days)."""
     ts = _time_series(total_days)
-    page_raw = pc.aggregate([{"source": {"pageEvents": None, "timeSeries": ts}}]).get("results") or []
-    feat_raw = pc.aggregate([{"source": {"featureEvents": None, "timeSeries": ts}}]).get("results") or []
+    page_raw = _aggregate_with_retry(
+        pc,
+        [{"source": {"pageEvents": None, "timeSeries": ts}}],
+        total_days=total_days,
+        label="pageEvents",
+    ).get("results") or []
+    feat_raw = _aggregate_with_retry(
+        pc,
+        [{"source": {"featureEvents": None, "timeSeries": ts}}],
+        total_days=total_days,
+        label="featureEvents",
+    ).get("results") or []
     return (
         [ev for ev in page_raw if isinstance(ev, dict)],
         [ev for ev in feat_raw if isinstance(ev, dict)],

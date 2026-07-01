@@ -675,7 +675,12 @@ class PendoClient:
             "Content-Type": "application/json",
         }
 
-    def aggregate(self, pipeline: list[dict[str, Any]]) -> dict[str, Any]:
+    def aggregate(
+        self,
+        pipeline: list[dict[str, Any]],
+        *,
+        timeout: tuple[int, float] | None = None,
+    ) -> dict[str, Any]:
         """Execute an aggregation pipeline."""
         url = f"{self.base_url}/aggregation"
         logger.debug("Pendo API POST %s (pipeline steps=%d)", url, len(pipeline))
@@ -686,9 +691,10 @@ class PendoClient:
                 "pipeline": pipeline,
             },
         }
+        connect_t, read_t = timeout if timeout is not None else (10, float(PENDO_REQUEST_TIMEOUT_S))
         resp = self._http_session().post(
             url, json=payload, headers=self._headers(),
-            timeout=(10, PENDO_REQUEST_TIMEOUT_S),
+            timeout=(connect_t, read_t),
         )
         resp.raise_for_status()
         data = resp.json()

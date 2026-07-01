@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from src.export_customer_pendo_snapshot import (
     build_core_feature_checklist,
@@ -14,6 +15,8 @@ from src.export_customer_pendo_snapshot import (
     build_usage_trends,
     render_customer_pendo_markdown,
     resolve_pendo_customer_prefix,
+    _activity_aggregate_read_timeout,
+    _aggregate_with_retry,
     _pendo_export_file_stem,
 )
 from src.job_runner import build_step_argv, load_job_spec
@@ -22,6 +25,51 @@ from src.job_runner import build_step_argv, load_job_spec
 def test_pendo_export_file_stem_includes_granularity() -> None:
     assert _pendo_export_file_stem("Ford", 7) == "Pendo Export  (Ford, 7d)"
     assert _pendo_export_file_stem("Ford", 30) == "Pendo Export  (Ford, 30d)"
+
+
+def test_activity_aggregate_read_timeout_scales_with_window() -> None:
+    assert _activity_aggregate_read_timeout(14) == 90.0
+    assert _activity_aggregate_read_timeout(7) == 90.0
+    assert _activity_aggregate_read_timeout(60) == 228.0
+    assert _activity_aggregate_read_timeout(120) == 300.0
+
+
+@patch("src.export_customer_pendo_snapshot.time.sleep")
+def test_aggregate_with_retry_succeeds_after_timeout(mock_sleep) -> None:
+    pc = MagicMock()
+    pc.aggregate.side_effect = [
+        requests.exceptions.ReadTimeout("timed out"),
+        {"results": [{"visitorId": "v1"}]},
+    ]
+    out = _aggregate_with_retry(
+        pc,
+        [{"source": {"pageEvents": None}}],
+        total_days=60,
+        label="pageEvents",
+    )
+    assert out["results"][0]["visitorId"] == "v1"
+    assert pc.aggregate.call_count == 2
+    pc.aggregate.assert_called_with(
+        [{"source": {"pageEvents": None}}],
+        timeout=(10, 228.0),
+    )
+    mock_sleep.assert_called_once_with(5.0)
+
+
+@patch("src.export_customer_pendo_snapshot.time.sleep")
+def test_aggregate_with_retry_raises_after_max_attempts(mock_sleep) -> None:
+    pc = MagicMock()
+    pc.aggregate.side_effect = requests.exceptions.ReadTimeout("timed out")
+    with pytest.raises(requests.exceptions.ReadTimeout):
+        _aggregate_with_retry(
+            pc,
+            [{"source": {"featureEvents": None}}],
+            total_days=30,
+            label="featureEvents",
+            max_attempts=3,
+        )
+    assert pc.aggregate.call_count == 3
+    assert mock_sleep.call_count == 2
 
 
 def test_resolve_pendo_customer_prefix_exact() -> None:
