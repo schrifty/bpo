@@ -44,6 +44,13 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "rule_name": "cortex-ford-pendo-30d",
         "summary": "Ford Pendo usage export (cortex --export-pendo --customer Ford --days 30 --compare-days 30)",
     },
+    "metrics-eng-cycle-lead-weekly": {
+        "schedule_expression": "cron(0 5 ? * MON *)",
+        "command": ["metrics-eng-cycle-lead-weekly"],
+        "enabled": True,
+        "rule_name": "cortex-metrics-eng-cycle-lead-weekly",
+        "summary": "LeanDNA metrics upsert: Engineering Cycle Time (2024) + Lead Time (2179), weekly Sun 11pm CT",
+    },
 }
 
 

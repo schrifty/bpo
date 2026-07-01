@@ -150,6 +150,13 @@ variable "scheduled_jobs" {
       enabled             = true
       rule_name           = "cortex-ford-pendo-30d"
     }
+    # Sunday 11:00 PM US/Central (CST) = Monday 05:00 UTC; 10:00 PM during CDT.
+    metrics-eng-cycle-lead-weekly = {
+      schedule_expression = "cron(0 5 ? * MON *)"
+      command             = ["metrics-eng-cycle-lead-weekly"]
+      enabled             = true
+      rule_name           = "cortex-metrics-eng-cycle-lead-weekly"
+    }
   }
 }
 

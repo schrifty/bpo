@@ -1,0 +1,12 @@
+name: metrics-eng-cycle-lead-weekly
+stop_on_failure: true
+fail_on_warnings: false
+steps:
+  - name: engineering-cycle-time-2024
+    command: metrics-upsert
+    metric: Engineering Cycle Time (Sprint)
+    days: 30
+  - name: engineering-lead-time-2179
+    command: metrics-upsert
+    metric: Engineering Lead Time (Days)
+    days: 30

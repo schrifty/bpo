@@ -89,7 +89,7 @@ enable_schedules = true
 terraform apply
 ```
 
-Jobs are defined in `variables.tf` → `scheduled_jobs` (default, all UTC, 30 minutes apart from 01:00: `export-nightly` 01:00, `cortex-engineering-portfolio` 01:30, `ford-pendo-7d` 02:00, `ford-pendo-30d` 02:30). Override `rule_name` on a job when the EventBridge rule should not use `{name_prefix}-{job_key}`.
+Jobs are defined in `variables.tf` → `scheduled_jobs` (default cron is UTC). Daily jobs run 30 minutes apart from 01:00 UTC: `export-nightly` 01:00, `cortex-engineering-portfolio` 01:30, `ford-pendo-7d` 02:00, `ford-pendo-30d` 02:30. Weekly: `metrics-eng-cycle-lead-weekly` Monday 05:00 UTC (Sunday 11:00 PM US/Central in CST). Override `rule_name` on a job when the EventBridge rule should not use `{name_prefix}-{job_key}`.
 
 ## Variables (common)
 
