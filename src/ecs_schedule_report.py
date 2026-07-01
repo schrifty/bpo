@@ -49,7 +49,7 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "command": ["metrics-eng-cycle-lead-weekly"],
         "enabled": True,
         "rule_name": "cortex-metrics-eng-cycle-lead-weekly",
-        "summary": "LeanDNA metrics upsert: Engineering Cycle Time (2024) + Lead Time (2179), weekly Sun 11pm CT",
+        "summary": "LeanDNA metrics upsert: 2024, 2179, 2028, 2035 — weekly Sun 11pm CT",
     },
 }
 

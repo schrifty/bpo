@@ -10,3 +10,9 @@ steps:
     command: metrics-upsert
     metric: Engineering Lead Time (Days)
     days: 30
+  - name: service-threshold-tickets-2028
+    command: metrics-upsert
+    metric: Tickets Beyond Service Thresholds
+  - name: customer-reported-bugs-2035
+    command: metrics-upsert
+    metric: Customer-Reported Bugs

@@ -37,7 +37,7 @@ Set `CORTEX_LOG_FORMAT=json` (auto on ECS) for CloudWatch filters; stdout includ
 | Engineering portfolio | Daily 01:30 UTC (`cortex-engineering-portfolio`) | `engineering-portfolio` |
 | Ford Pendo export (7d) | Daily 02:00 UTC (`cortex-ford-pendo-7d`) | `ford-pendo-7d` (`cortex --export-pendo --customer Ford --days 7 --compare-days 7`) |
 | Ford Pendo export (30d) | Daily 02:30 UTC (`cortex-ford-pendo-30d`) | `ford-pendo-30d` (`cortex --export-pendo --customer Ford --days 30 --compare-days 30`) |
-| Engineering cycle + lead time KPIs | Weekly Sun 11:00 PM US/Central (`cortex-metrics-eng-cycle-lead-weekly`, Mon 05:00 UTC) | `metrics-eng-cycle-lead-weekly` (LeanDNA metrics 2024 + 2179) |
+| Engineering KPIs (cycle, lead time, thresholds, bugs) | Weekly Sun 11:00 PM US/Central (`cortex-metrics-eng-cycle-lead-weekly`, Mon 05:00 UTC) | `metrics-eng-cycle-lead-weekly` (LeanDNA metrics 2024, 2179, 2028, 2035) |
 | Portfolio batch | Manual / `run-task` | `portfolio-batch` |
 | Full nightly chain | Manual | `nightly-core` |
 
