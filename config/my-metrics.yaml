@@ -28,9 +28,12 @@ metrics:
 
   # Customer-Reported Bugs
   "Customer-Reported Bugs":
-    description: null
+    description: >-
+      Count of open LEAN Bug issues in active engineering statuses (Open,
+      Reopened, In Progress, In Review)—the same slice as the engineering
+      portfolio Bug Health slide. Computed from Jira by get_customer_reported_bugs.
     metric-id: 2035
-    metric-generator: null
+    metric-generator: get_customer_reported_bugs
 
   # Tickets Beyond Service Thresholds
   "Tickets Beyond Service Thresholds":

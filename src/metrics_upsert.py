@@ -166,6 +166,17 @@ def _invoke_get_service_threshold_tickets(ctx: dict[str, Any]) -> dict[str, Any]
     )
 
 
+def _invoke_get_customer_reported_bugs(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.jira_client import get_shared_jira_client
+    from src.jira_customer_reported_bugs import get_customer_reported_bug_count
+
+    jira = get_shared_jira_client()
+    return get_customer_reported_bug_count(
+        jira,
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
 def _invoke_get_sprint_delivery_by_team(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.jira_client import get_shared_jira_client
     from src.jira_sprint_delivery import get_sprint_delivery_metric_value
@@ -196,6 +207,7 @@ _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_dev_team_lead_time": _invoke_get_dev_team_lead_time,
     "get_ai_token_usage": _invoke_get_ai_token_usage,
     "get_service_threshold_tickets": _invoke_get_service_threshold_tickets,
+    "get_customer_reported_bugs": _invoke_get_customer_reported_bugs,
     "get_sprint_delivery_by_team": _invoke_get_sprint_delivery_by_team,
     "get_sprint_story_points_by_team": _invoke_get_sprint_story_points_by_team,
 }
