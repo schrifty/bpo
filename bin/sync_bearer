@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Sync PR_LEANDNA_DATA_API_BEARER_TOKEN from .env into AWS Secrets Manager.
+set -euo pipefail
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+ROOT="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
+
+if [[ "${1:-}" == "--install" ]]; then
+  DEST="${HOME}/.local/bin/sync_bearer"
+  mkdir -p "${HOME}/.local/bin"
+  ln -sf "${ROOT}/bin/sync_bearer" "$DEST"
+  echo "Installed: $DEST -> ${ROOT}/bin/sync_bearer"
+  case ":${PATH}:" in
+    *":${HOME}/.local/bin:"*) ;;
+    *)
+      echo "Add to ~/.zshrc: export PATH=\"\${HOME}/.local/bin:\${PATH}\""
+      ;;
+  esac
+  exit 0
+fi
+
+exec python3 "$ROOT/scripts/sync_bearer.py" "$@"
