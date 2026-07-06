@@ -16,6 +16,7 @@ def test_support_deck_slide_types_are_registered():
     for deck_id in ("support", "support_review_portfolio"):
         resolved = resolve_deck(deck_id, None)
         assert not resolved.get("error"), resolved
+        assert len(resolved.get("slides") or []) >= 10, deck_id
         for row in resolved.get("slides") or []:
             st = (row.get("slide_type") or "").strip()
             assert st, row

@@ -10,6 +10,8 @@ is raised so the discrepancy shows up on the Data Quality slide.
 
 from __future__ import annotations
 
+import copy
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +23,9 @@ from .slide_loader import load_slides
 DEFAULT_DECKS_DIR = Path(__file__).resolve().parent.parent / "decks"
 
 _USE_DRIVE = bool(GOOGLE_QBR_GENERATOR_FOLDER_ID)
+
+_RESOLVE_DECK_CACHE: OrderedDict[tuple[str, str, str, str], dict[str, Any]] = OrderedDict()
+_RESOLVE_DECK_CACHE_MAX = 64
 
 
 def _load_all_decks(decks_dir: str | Path | None = None) -> list[dict[str, Any]]:
@@ -199,25 +204,44 @@ def load_deck(
     return _apply_deck_extends(raw, decks_dir, _stack=_extends_stack)
 
 
-def resolve_deck(
+def _resolve_deck_cache_key(
     deck_id: str,
-    customer: str,
-    decks_dir: str | Path | None = None,
-    slides_dir: str | Path | None = None,
+    customer: str | None,
+    decks_dir: str | Path | None,
+    slides_dir: str | Path | None,
+) -> tuple[str, str, str, str]:
+    decks_key = str(Path(decks_dir).resolve()) if decks_dir else ""
+    slides_key = str(Path(slides_dir).resolve()) if slides_dir else ""
+    customer_key = "" if customer is None else str(customer).strip()
+    return str(deck_id).strip(), customer_key, decks_key, slides_key
+
+
+def clear_resolve_deck_cache() -> None:
+    """Drop cached :func:`resolve_deck` results (for tests or after config edits)."""
+    _RESOLVE_DECK_CACHE.clear()
+
+
+def _resolve_deck_cache_get(key: tuple[str, str, str, str]) -> dict[str, Any] | None:
+    hit = _RESOLVE_DECK_CACHE.get(key)
+    if hit is None:
+        return None
+    _RESOLVE_DECK_CACHE.move_to_end(key)
+    return hit
+
+
+def _resolve_deck_cache_set(key: tuple[str, str, str, str], value: dict[str, Any]) -> None:
+    _RESOLVE_DECK_CACHE[key] = value
+    _RESOLVE_DECK_CACHE.move_to_end(key)
+    while len(_RESOLVE_DECK_CACHE) > _RESOLVE_DECK_CACHE_MAX:
+        _RESOLVE_DECK_CACHE.popitem(last=False)
+
+
+def _resolve_deck_impl(
+    deck_id: str,
+    customer: str | None,
+    decks_dir: str | Path | None,
+    slides_dir: str | Path | None,
 ) -> dict[str, Any]:
-    """Resolve a deck definition into a concrete slide plan for a customer.
-
-    Loads the deck, loads all applicable slide definitions for the customer,
-    then applies the deck's slide list and override rules to produce
-    a final ordered list of slide prompts the agent should follow.
-
-    Returns:
-        {
-            id, name, audience, purpose,
-            slides: [{id, type, title, slide_type, data_tools, prompt, required, note}],
-            excluded: [{slide, note}],
-        }
-    """
     deck = load_deck(deck_id, decks_dir)
     if not deck:
         return {"error": f"Deck '{deck_id}' not found"}
@@ -304,3 +328,34 @@ def resolve_deck(
         "slides": slides,
         "excluded": excluded,
     }
+
+
+def resolve_deck(
+    deck_id: str,
+    customer: str | None,
+    decks_dir: str | Path | None = None,
+    slides_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Resolve a deck definition into a concrete slide plan for a customer.
+
+    Loads the deck, loads all applicable slide definitions for the customer,
+    then applies the deck's slide list and override rules to produce
+    a final ordered list of slide prompts the agent should follow.
+
+    Repeated calls with the same ``deck_id``, ``customer``, and directory paths
+    return a deep copy of a cached result (in-process LRU, max 64 entries).
+
+    Returns:
+        {
+            id, name, audience, purpose,
+            slides: [{id, type, title, slide_type, data_tools, prompt, required, note}],
+            excluded: [{slide, note}],
+        }
+    """
+    key = _resolve_deck_cache_key(deck_id, customer, decks_dir, slides_dir)
+    cached = _resolve_deck_cache_get(key)
+    if cached is not None:
+        return copy.deepcopy(cached)
+    result = _resolve_deck_impl(deck_id, customer, decks_dir, slides_dir)
+    _resolve_deck_cache_set(key, copy.deepcopy(result))
+    return result
