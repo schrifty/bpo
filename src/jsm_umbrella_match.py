@@ -31,9 +31,9 @@ def division_names_without_parenthetical(labels: list[Any]) -> list[str]:
 
 
 def _load_cs_report_alias_map() -> dict[str, list[str]]:
-    from .cs_report_client import _load_cs_report_alias_map as _csr_map
+    from .cs_report_client import _load_cs_report_alias_map as load_csr_aliases
 
-    return _load_cs_report_alias_map()
+    return load_csr_aliases()
 
 
 def cs_report_alias_terms_for_label(label: str) -> list[str]:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any
 
@@ -459,6 +461,136 @@ def _handle_support_jira_fetch_failure(
     report["error"] = f"Support deck: Jira fetch failed: {error}"
 
 
+# HELP Jira products that share one JSM org-resolution pass per support deck run.
+_HELP_CLAUSE_PRODUCTS: frozenset[str] = frozenset(
+    {
+        "customer_ticket_metrics",
+        "help_ticket_volume_trends",
+        "help_customer_escalations",
+        "help_escalation_metrics",
+        "help_monthly_operational_metrics",
+        "customer_help_recent",
+        "help_resolved_by_assignee",
+    }
+)
+
+
+def _collect_support_jira_fetch_jobs(
+    jira_client: Any,
+    jira: dict[str, Any],
+    customer: str | None,
+    need: frozenset[str],
+    *,
+    help_clause: tuple[str, list[str]] | None,
+) -> list[tuple[str, Callable[[], Any]]]:
+    jobs: list[tuple[str, Callable[[], Any]]] = []
+
+    def add(product: str, fn: Callable[[], Any]) -> None:
+        if product in need and _support_jira_product_missing_or_errored(jira, product):
+            jobs.append((product, fn))
+
+    hc = help_clause
+
+    add(
+        "customer_ticket_metrics",
+        lambda: jira_client.get_customer_ticket_metrics(customer, _prebuilt_clause=hc),
+    )
+    add(
+        "help_factory_start_day_buckets",
+        lambda: jira_client.get_help_factory_start_day_buckets(customer),
+    )
+    add(
+        "help_monthly_operational_metrics",
+        lambda: jira_client.get_help_monthly_operational_table(customer, _prebuilt_clause=hc),
+    )
+    add(
+        "help_ticket_volume_trends",
+        lambda: jira_client.get_help_ticket_volume_trends(customer, _prebuilt_clause=hc),
+    )
+    if not customer:
+        add(
+            "help_orgs_by_opened",
+            lambda: jira_client.get_help_organizations_by_opened(days=90, max_results=5000),
+        )
+    add(
+        "help_customer_escalations",
+        lambda: jira_client.get_help_customer_escalations(customer, _prebuilt_clause=hc),
+    )
+    add(
+        "help_escalation_metrics",
+        lambda: jira_client.get_help_escalation_metrics(customer, _prebuilt_clause=hc),
+    )
+    add(
+        "customer_help_recent",
+        lambda: jira_client.get_customer_help_recent_tickets(
+            customer,
+            opened_within_days=None,
+            closed_within_days=None,
+            max_each=200,
+            _prebuilt_clause=hc,
+        ),
+    )
+    add(
+        "help_resolved_by_assignee",
+        lambda: jira_client.get_resolved_tickets_by_assignee(
+            "HELP", customer, days=90, _prebuilt_clause=hc
+        ),
+    )
+    add(
+        "customer_project_recent",
+        lambda: jira_client.get_customer_project_recent_tickets(
+            "CUSTOMER",
+            customer,
+            opened_within_days=None,
+            closed_within_days=None,
+            max_each=200,
+        ),
+    )
+    add(
+        "customer_project_open_breakdown",
+        lambda: jira_client.get_customer_project_open_breakdown("CUSTOMER", customer),
+    )
+    add(
+        "customer_project_volume_trends",
+        lambda: jira_client.get_project_ticket_volume_trends("CUSTOMER", customer),
+    )
+    add(
+        "customer_project_ticket_metrics",
+        lambda: jira_client.get_project_ticket_metrics("CUSTOMER", customer),
+    )
+    add(
+        "lean_project_recent",
+        lambda: jira_client.get_customer_project_recent_tickets(
+            "LEAN",
+            customer,
+            opened_within_days=None,
+            closed_within_days=None,
+            max_each=200,
+        ),
+    )
+    add(
+        "lean_project_open_breakdown",
+        lambda: jira_client.get_customer_project_open_breakdown("LEAN", customer),
+    )
+    add(
+        "lean_project_volume_trends",
+        lambda: jira_client.get_project_ticket_volume_trends("LEAN", customer),
+    )
+    add(
+        "lean_project_ticket_metrics",
+        lambda: jira_client.get_project_ticket_metrics("LEAN", customer),
+    )
+    add(
+        "customer_resolved_by_assignee",
+        lambda: jira_client.get_resolved_tickets_by_assignee("CUSTOMER", customer, days=90),
+    )
+    add(
+        "lean_resolved_by_assignee",
+        lambda: jira_client.get_resolved_tickets_by_assignee("LEAN", customer, days=90),
+    )
+    return jobs
+
+
 def _fetch_support_jira_products(
     jira_client: Any,
     report: dict[str, Any],
@@ -468,151 +600,40 @@ def _fetch_support_jira_products(
 ) -> None:
     if "jira" not in report:
         report["jira"] = {}
-    if "base_url" not in report["jira"]:
-        report["jira"]["base_url"] = (jira_client.base_url or "").rstrip("/")
+    jira = report["jira"]
+    if "base_url" not in jira:
+        jira["base_url"] = (jira_client.base_url or "").rstrip("/")
 
-    if "customer_ticket_metrics" in need and _support_jira_product_missing_or_errored(report["jira"], "customer_ticket_metrics"):
-        logger.debug("Support deck: fetching customer ticket metrics for %s", customer_display)
-        report["jira"]["customer_ticket_metrics"] = jira_client.get_customer_ticket_metrics(customer)
+    help_clause = None
+    if need & _HELP_CLAUSE_PRODUCTS:
+        help_clause = jira_client._help_project_customer_filter(customer, None)
 
-    if "help_factory_start_day_buckets" in need and _support_jira_product_missing_or_errored(
-        report["jira"], "help_factory_start_day_buckets"
-    ):
-        logger.debug("Support deck: fetching HELP factory start day buckets for %s", customer_display)
-        report["jira"]["help_factory_start_day_buckets"] = jira_client.get_help_factory_start_day_buckets(customer)
+    jobs = _collect_support_jira_fetch_jobs(
+        jira_client, jira, customer, need, help_clause=help_clause
+    )
+    if not jobs:
+        return
 
-    if "help_monthly_operational_metrics" in need and _support_jira_product_missing_or_errored(
-        report["jira"], "help_monthly_operational_metrics"
-    ):
-        logger.debug("Support deck: fetching HELP monthly operational table for %s", customer_display)
-        report["jira"]["help_monthly_operational_metrics"] = jira_client.get_help_monthly_operational_table(customer)
+    from .jira_client import _JIRA_PARALLEL_WORKERS
 
-    if "help_ticket_volume_trends" in need and _support_jira_product_missing_or_errored(
-        report["jira"], "help_ticket_volume_trends"
-    ):
-        logger.debug("Support deck: fetching HELP volume trends for %s", customer_display)
-        report["jira"]["help_ticket_volume_trends"] = jira_client.get_help_ticket_volume_trends(customer)
+    if len(jobs) == 1:
+        product, fn = jobs[0]
+        logger.debug("Support deck: fetching Jira product %s for %s", product, customer_display)
+        jira[product] = fn()
+        return
 
-    if (
-        "help_orgs_by_opened" in need
-        and not customer
-        and _support_jira_product_missing_or_errored(report["jira"], "help_orgs_by_opened")
-    ):
-        logger.debug("Support deck: fetching HELP org ranking (all customers) for %s", customer_display)
-        report["jira"]["help_orgs_by_opened"] = jira_client.get_help_organizations_by_opened(
-            days=90, max_results=5000
-        )
-
-    if "help_customer_escalations" in need and _support_jira_product_missing_or_errored(
-        report["jira"], "help_customer_escalations"
-    ):
-        logger.debug("Support deck: fetching HELP customer escalations for %s", customer_display)
-        report["jira"]["help_customer_escalations"] = jira_client.get_help_customer_escalations(customer)
-
-    if "help_escalation_metrics" in need and _support_jira_product_missing_or_errored(
-        report["jira"], "help_escalation_metrics"
-    ):
-        logger.debug("Support deck: fetching HELP escalation metrics for %s", customer_display)
-        report["jira"]["help_escalation_metrics"] = jira_client.get_help_escalation_metrics(customer)
-
-    if "customer_help_recent" in need and _support_jira_product_missing_or_errored(report["jira"], "customer_help_recent"):
-        logger.debug("Support deck: fetching recent HELP tickets for %s", customer_display)
-        report["jira"]["customer_help_recent"] = jira_client.get_customer_help_recent_tickets(
-            customer,
-            opened_within_days=None,
-            closed_within_days=None,
-            max_each=200,
-        )
-
-    if "help_resolved_by_assignee" in need and _support_jira_product_missing_or_errored(
-        report["jira"], "help_resolved_by_assignee"
-    ):
-        logger.debug("Support deck: fetching HELP resolved tickets by assignee for %s", customer_display)
-        report["jira"]["help_resolved_by_assignee"] = jira_client.get_resolved_tickets_by_assignee(
-            "HELP", customer, days=90
-        )
-
-    if "customer_project_recent" in need and _support_jira_product_missing_or_errored(
-        report["jira"], "customer_project_recent"
-    ):
-        logger.debug("Support deck: fetching recent CUSTOMER project tickets for %s", customer_display)
-        report["jira"]["customer_project_recent"] = jira_client.get_customer_project_recent_tickets(
-            "CUSTOMER",
-            customer,
-            opened_within_days=None,
-            closed_within_days=None,
-            max_each=200,
-        )
-
-    if "customer_project_open_breakdown" in need and _support_jira_product_missing_or_errored(
-        report["jira"], "customer_project_open_breakdown"
-    ):
-        logger.debug("Support deck: fetching CUSTOMER open breakdown for %s", customer_display)
-        report["jira"]["customer_project_open_breakdown"] = jira_client.get_customer_project_open_breakdown(
-            "CUSTOMER", customer
-        )
-
-    if "customer_project_volume_trends" in need and _support_jira_product_missing_or_errored(
-        report["jira"], "customer_project_volume_trends"
-    ):
-        logger.debug("Support deck: fetching CUSTOMER volume trends for %s", customer_display)
-        report["jira"]["customer_project_volume_trends"] = jira_client.get_project_ticket_volume_trends(
-            "CUSTOMER", customer
-        )
-
-    if "customer_project_ticket_metrics" in need and _support_jira_product_missing_or_errored(
-        report["jira"], "customer_project_ticket_metrics"
-    ):
-        logger.debug("Support deck: fetching CUSTOMER ticket KPI metrics for %s", customer_display)
-        report["jira"]["customer_project_ticket_metrics"] = jira_client.get_project_ticket_metrics(
-            "CUSTOMER", customer
-        )
-
-    if "lean_project_recent" in need and _support_jira_product_missing_or_errored(report["jira"], "lean_project_recent"):
-        logger.debug("Support deck: fetching recent LEAN project tickets for %s", customer_display)
-        report["jira"]["lean_project_recent"] = jira_client.get_customer_project_recent_tickets(
-            "LEAN",
-            customer,
-            opened_within_days=None,
-            closed_within_days=None,
-            max_each=200,
-        )
-
-    if "lean_project_open_breakdown" in need and _support_jira_product_missing_or_errored(
-        report["jira"], "lean_project_open_breakdown"
-    ):
-        logger.debug("Support deck: fetching LEAN open breakdown for %s", customer_display)
-        report["jira"]["lean_project_open_breakdown"] = jira_client.get_customer_project_open_breakdown(
-            "LEAN", customer
-        )
-
-    if "lean_project_volume_trends" in need and _support_jira_product_missing_or_errored(
-        report["jira"], "lean_project_volume_trends"
-    ):
-        logger.debug("Support deck: fetching LEAN volume trends for %s", customer_display)
-        report["jira"]["lean_project_volume_trends"] = jira_client.get_project_ticket_volume_trends("LEAN", customer)
-
-    if "lean_project_ticket_metrics" in need and _support_jira_product_missing_or_errored(
-        report["jira"], "lean_project_ticket_metrics"
-    ):
-        logger.debug("Support deck: fetching LEAN ticket KPI metrics for %s", customer_display)
-        report["jira"]["lean_project_ticket_metrics"] = jira_client.get_project_ticket_metrics("LEAN", customer)
-
-    if "customer_resolved_by_assignee" in need and _support_jira_product_missing_or_errored(
-        report["jira"], "customer_resolved_by_assignee"
-    ):
-        logger.debug("Support deck: fetching CUSTOMER resolved tickets by assignee for %s", customer_display)
-        report["jira"]["customer_resolved_by_assignee"] = jira_client.get_resolved_tickets_by_assignee(
-            "CUSTOMER", customer, days=90
-        )
-
-    if "lean_resolved_by_assignee" in need and _support_jira_product_missing_or_errored(
-        report["jira"], "lean_resolved_by_assignee"
-    ):
-        logger.debug("Support deck: fetching LEAN resolved tickets by assignee for %s", customer_display)
-        report["jira"]["lean_resolved_by_assignee"] = jira_client.get_resolved_tickets_by_assignee(
-            "LEAN", customer, days=90
-        )
+    workers = max(1, min(_JIRA_PARALLEL_WORKERS, len(jobs)))
+    logger.info(
+        "Support deck: fetching %d Jira products in parallel (workers=%d) for %s",
+        len(jobs),
+        workers,
+        customer_display,
+    )
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        future_map = {pool.submit(fn): product for product, fn in jobs}
+        for fut in as_completed(future_map):
+            product = future_map[fut]
+            jira[product] = fut.result()
 
 
 def _validate_support_jira_products(

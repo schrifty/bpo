@@ -230,10 +230,8 @@ def _load_jsm_org_alias_map() -> dict[str, list[str]]:
 
 
 def _merge_jsm_customer_alias_terms(terms: list[str | None]) -> list[str]:
-    """Append alias strings for any term that appears as a key in config/jsm_organization_aliases.yaml."""
+    """Append alias strings from JSM, CS Report, and cohort maps for configured customer keys."""
     am = _load_jsm_org_alias_map()
-    if not am:
-        return [t for t in terms if t and str(t).strip()]
     out: list[str] = []
     seen: set[str] = set()
     for t in terms:
@@ -245,15 +243,32 @@ def _merge_jsm_customer_alias_terms(terms: list[str | None]) -> list[str]:
             continue
         seen.add(k)
         out.append(c)
+
+    try:
+        from .cs_report_client import (
+            _load_cohort_customer_alias_map,
+            _load_cs_report_alias_map,
+        )
+
+        csr_map = _load_cs_report_alias_map()
+        cohort_map = _load_cohort_customer_alias_map()
+    except Exception:
+        csr_map = {}
+        cohort_map = {}
+
     for t in list(out):
-        extras = am.get(t.lower())
-        if not extras:
-            continue
-        for e in extras:
-            el = e.lower()
-            if el not in seen:
-                seen.add(el)
-                out.append(e)
+        for extras in (
+            am.get(t.lower()),
+            csr_map.get(t.lower()),
+            cohort_map.get(t.lower()),
+        ):
+            if not extras:
+                continue
+            for e in extras:
+                el = str(e).strip().lower()
+                if el and el not in seen:
+                    seen.add(el)
+                    out.append(str(e).strip())
     return out
 
 
@@ -1737,6 +1752,22 @@ class JiraClient:
                 continue
             seen_org_lower.add(key)
             org_names.append(ex)
+
+        if not org_names and (customer_name or "").strip():
+            from .jsm_umbrella_match import jsm_directory_prefix_organizations
+
+            prefix_orgs = jsm_directory_prefix_organizations(
+                customer_name.strip(),
+                candidates,
+            )
+            if len(prefix_orgs) >= 2:
+                for ex in prefix_orgs:
+                    key = ex.lower()
+                    if key in seen_org_lower:
+                        continue
+                    seen_org_lower.add(key)
+                    org_names.append(ex)
+                    resolved_orgs.append(ex)
 
         org_literal = _organizations_jql_literal(org_names)
 
@@ -4017,6 +4048,8 @@ class JiraClient:
         self,
         customer_name: str | None = None,
         match_terms: list[str] | None = None,
+        *,
+        _prebuilt_clause: tuple[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """HELP escalation KPIs: open backlog TTR split by ``customer_escalation`` label, plus 90d open/close counts.
 
@@ -4026,8 +4059,8 @@ class JiraClient:
         ``customer_escalation`` Jira label.
         """
         jql_start = self._jql_log_len()
-        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
-            customer_name, match_terms
+        base_filter, resolved_jsm_orgs = self._resolve_help_customer_filter(
+            customer_name, match_terms, _prebuilt_clause=_prebuilt_clause
         )
         excl = _TRANSIENT_LABELS_EXCLUSION
         max_open = HELP_METRICS_MERGED_MAX_RESULTS
@@ -4389,11 +4422,13 @@ class JiraClient:
         self,
         customer_name: str | None = None,
         match_terms: list[str] | None = None,
+        *,
+        _prebuilt_clause: tuple[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """Return 12-month HELP created vs resolved trends for a customer or all customers."""
         jql_start = self._jql_log_len()
-        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
-            customer_name, match_terms
+        base_filter, resolved_jsm_orgs = self._resolve_help_customer_filter(
+            customer_name, match_terms, _prebuilt_clause=_prebuilt_clause
         )
         jql = (
             f"project = HELP AND {base_filter} AND {_TRANSIENT_LABELS_EXCLUSION} "
@@ -4443,6 +4478,7 @@ class JiraClient:
         match_terms: list[str] | None = None,
         *,
         num_months: int = 12,
+        _prebuilt_clause: tuple[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """Monthly HELP counts aligned with operational spreadsheet (non-outage vs outage/healthcheck).
 
@@ -4455,8 +4491,8 @@ class JiraClient:
         from calendar import monthrange
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
-            customer_name, match_terms
+        base_filter, resolved_jsm_orgs = self._resolve_help_customer_filter(
+            customer_name, match_terms, _prebuilt_clause=_prebuilt_clause
         )
         scope = f"project = HELP AND ({base_filter})"
         now = datetime.now(timezone.utc)
