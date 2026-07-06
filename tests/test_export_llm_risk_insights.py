@@ -49,8 +49,9 @@ def sample_report() -> dict:
                 {
                     "Name": "Acme",
                     "ARR__c": 1.2e6,
+                    "commercial_status": "ACTIVE",
+                    "current_arr": 1.2e6,
                     "days_until_contract_end_nearest": 45,
-                    "active_in_salesforce": True,
                 }
             ]
         },
@@ -78,6 +79,7 @@ def test_build_customer_risk_payloads_merges_domains(sample_report: dict, monkey
     assert len(payloads) == 2
     acme = next(p for p in payloads if p["customer"] == "Acme")
     assert acme["pendo"]["login_pct"] == 25.0
+    assert acme["salesforce"].get("commercial_status") == "ACTIVE"
     assert acme["salesforce"].get("days_until_contract_end_nearest") == 45
     assert acme["pendo_portfolio_signals_sample"]
     assert "leandna_data_api" in acme and "note" in acme["leandna_data_api"]

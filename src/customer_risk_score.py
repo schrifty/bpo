@@ -5,6 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from .salesforce_client import _CHURNED_CONTRACT_STATUS_LOWER
+from .salesforce_commercial_status import (
+    COMMERCIAL_STATUS_ACTIVE,
+    COMMERCIAL_STATUS_CHURNED,
+    COMMERCIAL_STATUS_FUTURE,
+    COMMERCIAL_STATUS_OUT_OF_CONTRACT_RENEWING,
+)
 
 # Align with pendo_client._compute_portfolio_signals alarm keywords.
 _SIGNAL_KEYWORDS: tuple[str, ...] = (
@@ -128,23 +134,45 @@ def _pendo_subscores(pendo: dict[str, Any]) -> tuple[float, list[tuple[str, floa
     return pillar, leaves
 
 
+def _renewal_negotiation_subscore(
+    sf: dict[str, Any],
+    *,
+    label_prefix: str = "Salesforce renewal in flight",
+) -> tuple[float, list[tuple[str, float, float]]]:
+    pipe = sf.get("pipeline_arr_including_parent_accounts")
+    detail = (
+        f"open renewal pipeline on parent account (${pipe:,.0f} ARR)"
+        if isinstance(pipe, (int, float)) and pipe
+        else "open renewal pipeline on parent account"
+    )
+    leaves = [(f"{label_prefix} ({detail})", 25.0, 1.0)]
+    return 25.0, leaves
+
+
 def _sf_contract_subscore(sf: dict[str, Any]) -> tuple[float, list[tuple[str, float, float]]]:
     leaves: list[tuple[str, float, float]] = []
 
-    if sf.get("renewal_in_flight") is True:
-        pipe = sf.get("pipeline_arr_including_parent_accounts")
-        detail = (
-            f"open renewal pipeline on parent account (${pipe:,.0f} ARR)"
-            if isinstance(pipe, (int, float)) and pipe
-            else "open renewal pipeline on parent account"
-        )
-        leaves.append((f"Salesforce renewal in flight ({detail})", 25.0, 1.0))
-        return 25.0, leaves
-
-    active = sf.get("active_in_salesforce")
-    if active is False or sf.get("active") is False:
-        leaves.append(("Salesforce contract status", 100.0, 1.0))
+    status = str(sf.get("commercial_status") or "").strip().upper() or None
+    if status == COMMERCIAL_STATUS_CHURNED:
+        leaves.append(("Salesforce CHURNED commercial_status", 100.0, 1.0))
         return 100.0, leaves
+    if status == COMMERCIAL_STATUS_OUT_OF_CONTRACT_RENEWING:
+        return _renewal_negotiation_subscore(
+            sf,
+            label_prefix="Salesforce OUT_OF_CONTRACT_RENEWING",
+        )
+    if status == COMMERCIAL_STATUS_FUTURE:
+        leaves.append(("Salesforce FUTURE contract (not yet started)", 20.0, 1.0))
+        return 20.0, leaves
+
+    if status != COMMERCIAL_STATUS_ACTIVE:
+        if sf.get("renewal_in_flight") is True:
+            return _renewal_negotiation_subscore(sf)
+
+        active = sf.get("active_in_salesforce")
+        if active is False or sf.get("active") is False:
+            leaves.append(("Salesforce contract status", 100.0, 1.0))
+            return 100.0, leaves
 
     statuses = sf.get("contract_statuses_distinct")
     if isinstance(statuses, list):

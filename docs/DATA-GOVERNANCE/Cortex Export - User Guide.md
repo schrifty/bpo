@@ -29,7 +29,7 @@ The export is split into numbered sections. When you ask the AI a question, it h
 | **Section 4b — Slack** | Recent Slack conversations tied to customer names (when Slack is connected). |
 | **Section 5 — Usage signals** | Product “flags” — e.g. low adoption, features not used, unusual usage patterns. |
 | **Section 6 — Trend context** | Extra timing/trend notes when included. |
-| **Section 7 — Risk insights** | Optional AI-written summary of account and churn risk (may be skipped on some runs). |
+| **Section 7 — Risk insights** | Optional AI-written summary of account and churn risk. Scores use **Salesforce `commercial_status`** (not just Pendo usage). Customers in renewal negotiation are scored differently from churned accounts. |
 
 At the top of the file you’ll also see **Snapshot coverage** — a short explanation of what was included, what was left out, and any limits on this run. **Read that first** if an answer looks incomplete.
 
@@ -103,6 +103,7 @@ Salesforce decides **who is a customer** and **whether they’re active, renewin
 - “Which current-book customers have contracts ending in the next 90 days?”
 - “Who is in renewal negotiation and also flagged in Section 7 risk insights?”
 - “Don’t count churned customers — who is most at risk of churn among the current book?”
+- “In Section 7, who has OUT_OF_CONTRACT_RENEWING status and what does the risk score say about them?”
 
 ### Portfolio overview
 
