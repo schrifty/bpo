@@ -37,9 +37,9 @@ def test_top_active_customers_by_arr_for_csr():
         "customers": [{"customer": "Duravant"}],
         "_llm_export_salesforce_revenue_book": {
             "matched_customer_contract_rollups": [
-                {"customer": "Small", "arr": 10.0, "active": True},
-                {"customer": "Big", "arr": 500.0, "active": True},
-                {"customer": "Churned", "arr": 999.0, "active": False},
+                {"customer": "Small", "arr": 10.0, "active": True, "current_arr": 10.0},
+                {"customer": "Big", "arr": 500.0, "active": True, "current_arr": 500.0},
+                {"customer": "Churned", "arr": 999.0, "active": False, "commercial_status": "CHURNED", "current_arr": 0.0},
             ],
         },
     }
@@ -48,6 +48,27 @@ def test_top_active_customers_by_arr_for_csr():
     assert rows[0]["ultimate_parent"] == "Big"
     assert rows[0]["arr"] == 500.0
     assert rows[1]["ultimate_parent"] == "Small"
+
+
+def test_group_contract_rollups_full_book_includes_renewal_and_excludes_from_selection_filter():
+    from src.llm_export_csr import group_contract_rollups_by_ultimate_parent
+
+    rollups = [
+        {"customer": "Ford Motor Company", "commercial_status": "OUT_OF_CONTRACT_RENEWING", "current_arr": 525_000.0, "historical_arr": 525_000.0, "renewal_arr": 525_000.0},
+        {"customer": "ChurnedCo", "commercial_status": "CHURNED", "current_arr": 0.0, "historical_arr": 50_000.0},
+        {"customer": "Commercial HVAC (Carrier)", "commercial_status": "ACTIVE", "current_arr": 600_000.0, "historical_arr": 600_000.0, "active_arr": 600_000.0},
+        {"customer": "Residential HVAC (Carrier)", "commercial_status": "ACTIVE", "current_arr": 501_650.0, "historical_arr": 501_650.0, "active_arr": 501_650.0},
+    ]
+    full = group_contract_rollups_by_ultimate_parent(rollups, current_book_only=False)
+    current = group_contract_rollups_by_ultimate_parent(rollups, current_book_only=True)
+    assert len(full) == 3
+    assert next(r for r in full if r["ultimate_parent"] == "Carrier")["current_arr"] == 1_101_650.0
+    ford_full = next(r for r in full if r["ultimate_parent"] == "Ford Motor Company")
+    assert ford_full["commercial_status"] == "OUT_OF_CONTRACT_RENEWING"
+    assert len(current) == 2
+    assert any(r["ultimate_parent"] == "Ford Motor Company" for r in current)
+    assert any(r["ultimate_parent"] == "Carrier" for r in current)
+    assert not any(r["ultimate_parent"] == "ChurnedCo" for r in current)
 
 
 def test_load_csr_top_customers_by_arr(monkeypatch):

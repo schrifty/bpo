@@ -45,11 +45,42 @@ def test_derive_commercial_status_future_from_start_date():
     assert entity_has_future_contract(matching[0])
 
 
+def test_derive_commercial_status_active_when_expired_status_but_contract_in_term():
+    """SF often marks Contract_Status__c Expired while end date is still in the future."""
+    future_end = (datetime.date.today() + datetime.timedelta(days=30)).isoformat()
+    matching = [{"Contract_Status__c": "Expired", "Contract_Contract_End_Date__c": future_end, "ARR__c": 50}]
+    assert (
+        derive_commercial_status(matching, renewal_in_flight=False)
+        == COMMERCIAL_STATUS_ACTIVE
+    )
+    fields = rollup_arr_fields(matching, commercial_status=COMMERCIAL_STATUS_ACTIVE)
+    assert fields["active_arr"] == 50.0
+    assert fields["current_arr"] == 50.0
+
+
 def test_derive_commercial_status_churned_default():
     matching = [{"Contract_Status__c": "Churned", "ARR__c": 25}]
     assert (
         derive_commercial_status(matching, renewal_in_flight=False)
         == COMMERCIAL_STATUS_CHURNED
+    )
+
+
+def test_derive_commercial_status_active_when_signed_renewal_closed_won():
+    matching = [
+        {
+            "Contract_Status__c": "Expired",
+            "Contract_Contract_End_Date__c": "2026-04-10",
+            "ARR__c": 105_000,
+        }
+    ]
+    assert (
+        derive_commercial_status(
+            matching,
+            renewal_in_flight=False,
+            signed_renewal_closed_won=True,
+        )
+        == COMMERCIAL_STATUS_ACTIVE
     )
 
 

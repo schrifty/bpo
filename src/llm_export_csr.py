@@ -50,12 +50,149 @@ def _rollup_as_synthetic_account(label: str) -> dict[str, Any]:
     }
 
 
+def contract_rollups_from_report(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """All ``matched_customer_contract_rollups`` rows from the portfolio revenue book."""
+    book = report.get("_llm_export_salesforce_revenue_book")
+    if not isinstance(book, dict):
+        book = report.get("portfolio_revenue_book")
+    if not isinstance(book, dict):
+        return []
+    return [
+        r
+        for r in (book.get("matched_customer_contract_rollups") or [])
+        if isinstance(r, dict) and str(r.get("customer") or "").strip()
+    ]
+
+
+def _aggregate_commercial_status(statuses: list[str]) -> str:
+    from .salesforce_commercial_status import (
+        COMMERCIAL_STATUS_ACTIVE,
+        COMMERCIAL_STATUS_CHURNED,
+        COMMERCIAL_STATUS_FUTURE,
+        COMMERCIAL_STATUS_OUT_OF_CONTRACT_RENEWING,
+    )
+
+    normalized = {str(s or "").strip() for s in statuses if str(s or "").strip()}
+    if COMMERCIAL_STATUS_ACTIVE in normalized:
+        return COMMERCIAL_STATUS_ACTIVE
+    if COMMERCIAL_STATUS_OUT_OF_CONTRACT_RENEWING in normalized:
+        return COMMERCIAL_STATUS_OUT_OF_CONTRACT_RENEWING
+    if COMMERCIAL_STATUS_FUTURE in normalized:
+        return COMMERCIAL_STATUS_FUTURE
+    return COMMERCIAL_STATUS_CHURNED
+
+
+def group_contract_rollups_by_ultimate_parent(
+    contract_rollups: list[dict[str, Any]],
+    *,
+    current_book_only: bool = False,
+) -> list[dict[str, Any]]:
+    """Group portfolio contract rollups by ultimate parent (same logic as ``selection_ranked``).
+
+    Sums ``historical_arr``, ``active_arr``, ``renewal_arr``, and ``current_arr`` from each
+    corporate reporting-group rollup — do not re-sum raw entity ``ARR__c`` (that under-counts
+    when divisions share a parenthetical ultimate parent like Carrier).
+    """
+    from .salesforce_commercial_status import (
+        is_current_book_commercial_status,
+        rollup_current_arr,
+        rollup_in_current_book,
+    )
+
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in contract_rollups:
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get("customer") or "").strip()
+        if not label:
+            continue
+        if current_book_only and not rollup_in_current_book(row):
+            continue
+
+        ultimate = entity_account_ultimate_parent_group(_rollup_as_synthetic_account(label))
+        bucket = grouped.setdefault(
+            ultimate,
+            {
+                "ultimate_parent": ultimate,
+                "salesforce_labels": [],
+                "historical_arr": 0.0,
+                "active_arr": 0.0,
+                "renewal_arr": 0.0,
+                "current_arr": 0.0,
+                "entity_count": 0,
+                "commercial_statuses": [],
+            },
+        )
+        if label not in bucket["salesforce_labels"]:
+            bucket["salesforce_labels"].append(label)
+        try:
+            bucket["historical_arr"] = round(
+                float(bucket["historical_arr"])
+                + float(row.get("historical_arr") or row.get("arr") or 0),
+                2,
+            )
+        except (TypeError, ValueError):
+            pass
+        try:
+            bucket["active_arr"] = round(float(bucket["active_arr"]) + float(row.get("active_arr") or 0), 2)
+        except (TypeError, ValueError):
+            pass
+        try:
+            bucket["renewal_arr"] = round(float(bucket["renewal_arr"]) + float(row.get("renewal_arr") or 0), 2)
+        except (TypeError, ValueError):
+            pass
+        try:
+            bucket["current_arr"] = round(
+                float(bucket["current_arr"]) + float(rollup_current_arr(row)),
+                2,
+            )
+        except (TypeError, ValueError):
+            pass
+        status = str(row.get("commercial_status") or "").strip()
+        if status:
+            bucket["commercial_statuses"].append(status)
+        try:
+            bucket["entity_count"] += int(row.get("entity_count") or row.get("entity_row_count") or 0)
+        except (TypeError, ValueError):
+            pass
+
+    rows: list[dict[str, Any]] = []
+    for ultimate, bucket in grouped.items():
+        statuses = bucket.pop("commercial_statuses")
+        commercial_status = _aggregate_commercial_status(statuses) if statuses else _aggregate_commercial_status([])
+        historical_arr = float(bucket["historical_arr"])
+        current_arr = float(bucket["current_arr"])
+        rows.append(
+            {
+                "ultimate_parent": ultimate,
+                "salesforce_labels": sorted(bucket["salesforce_labels"]),
+                "arr": historical_arr,
+                "historical_arr": historical_arr,
+                "active_arr": float(bucket["active_arr"]),
+                "renewal_arr": float(bucket["renewal_arr"]),
+                "current_arr": current_arr,
+                "entity_count": int(bucket["entity_count"]),
+                "commercial_status": commercial_status,
+                "active": is_current_book_commercial_status(commercial_status),
+                "entity_names_sample": [],
+            }
+        )
+    rows.sort(
+        key=lambda r: (
+            -float(r.get("current_arr") or 0),
+            -float(r.get("arr") or 0),
+            str(r.get("ultimate_parent") or "").lower(),
+        )
+    )
+    return rows
+
+
 def top_active_ultimate_parents_by_arr_for_llm_export(
     report: dict[str, Any],
     *,
     top_n: int,
 ) -> list[dict[str, Any]]:
-    """Rank active Salesforce contract ARR by ultimate parent (same grouping as §3c rollup)."""
+    """Rank current-book Salesforce contract ARR by ultimate parent (same grouping as §3c rollup)."""
     rollups = _active_contract_rollups(report)
     if not rollups:
         return []
@@ -65,29 +202,14 @@ def top_active_ultimate_parents_by_arr_for_llm_export(
         for r in (report.get("customers") or [])
         if isinstance(r, dict) and str(r.get("customer") or "").strip()
     )
-    grouped: dict[str, dict[str, Any]] = {}
-    for r in rollups:
-        label = str(r["customer"]).strip()
-        try:
-            from .salesforce_commercial_status import rollup_current_arr
-
-            arr = rollup_current_arr(r)
-        except (TypeError, ValueError):
-            arr = 0.0
-        ultimate = entity_account_ultimate_parent_group(_rollup_as_synthetic_account(label))
-        bucket = grouped.setdefault(
-            ultimate,
-            {"ultimate_parent": ultimate, "arr": 0.0, "salesforce_labels": []},
-        )
-        bucket["arr"] = round(float(bucket["arr"]) + arr, 2)
-        if label not in bucket["salesforce_labels"]:
-            bucket["salesforce_labels"].append(label)
+    grouped_rows = group_contract_rollups_by_ultimate_parent(rollups, current_book_only=False)
 
     rows: list[dict[str, Any]] = []
-    for ultimate, bucket in grouped.items():
+    for bucket in grouped_rows:
+        ultimate = bucket["ultimate_parent"]
         mapped = resolve_sf_label_to_pendo_prefix(ultimate, pendo_prefixes)
         if not mapped:
-            for label in bucket["salesforce_labels"]:
+            for label in bucket.get("salesforce_labels") or []:
                 mapped = resolve_sf_label_to_pendo_prefix(label, pendo_prefixes)
                 if mapped:
                     break
@@ -96,9 +218,10 @@ def top_active_ultimate_parents_by_arr_for_llm_export(
             {
                 "ultimate_parent": ultimate,
                 "salesforce_label": ultimate,
-                "salesforce_labels": sorted(bucket["salesforce_labels"]),
-                "arr": bucket["arr"],
-                "current_arr": bucket["arr"],
+                "salesforce_labels": list(bucket.get("salesforce_labels") or []),
+                "arr": bucket["current_arr"],
+                "current_arr": bucket["current_arr"],
+                "commercial_status": bucket.get("commercial_status"),
                 "pendo_customer_key": mapped,
                 "csr_lookup_name": lookup,
             }

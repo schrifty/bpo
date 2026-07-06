@@ -331,7 +331,11 @@ def build_entries() -> list[dict[str, Any]]:
             ),
             _e(
                 "salesforce_comprehensive_portfolio.arr_by_ultimate_parent",
-                "[LLM export §3c] full-book ARR rollup by Ultimate Parent, sorted by current_arr desc",
+                "[LLM export §3c] full-book ultimate-parent rollup from portfolio contract rollups, sorted by current_arr desc",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].salesforce_labels",
+                "[LLM export §3c] corporate reporting-group labels rolled into this ultimate parent",
             ),
             _e(
                 "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].ultimate_parent",

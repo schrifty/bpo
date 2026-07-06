@@ -61,7 +61,7 @@ def test_attach_comprehensive_fetches_per_label(monkeypatch):
             return [
                 {"Id": "a1", "Name": "Commercial HVAC (Carrier)", "ARR__c": 100.0, "Contract_Status__c": "Active"},
                 {"Id": "a2", "Name": "Residential HVAC (Carrier)", "ARR__c": 250.0, "Contract_Status__c": "Active"},
-                {"Id": "a3", "Name": "Safran", "ARR__c": 50.0, "Contract_Status__c": "Churned"},
+                {"Id": "a3", "Name": "ChurnedCo", "ARR__c": 50.0, "Contract_Status__c": "Churned"},
             ]
 
     monkeypatch.setattr(
@@ -71,17 +71,40 @@ def test_attach_comprehensive_fetches_per_label(monkeypatch):
     report = {
         "_llm_export_salesforce_revenue_book": {
             "matched_customer_contract_rollups": [
-                {"customer": "Acme", "active": True},
-                {"customer": "OldCo", "active": False},
+                {"customer": "Acme", "active": True, "current_arr": 60.0, "historical_arr": 60.0, "active_arr": 60.0, "commercial_status": "ACTIVE"},
+                {"customer": "OldCo", "active": False, "current_arr": 0.0, "historical_arr": 40.0, "commercial_status": "CHURNED"},
+                {
+                    "customer": "Commercial HVAC (Carrier)",
+                    "current_arr": 100.0,
+                    "historical_arr": 100.0,
+                    "active_arr": 100.0,
+                    "commercial_status": "ACTIVE",
+                    "entity_count": 1,
+                },
+                {
+                    "customer": "Residential HVAC (Carrier)",
+                    "current_arr": 250.0,
+                    "historical_arr": 250.0,
+                    "active_arr": 250.0,
+                    "commercial_status": "ACTIVE",
+                    "entity_count": 1,
+                },
+                {
+                    "customer": "ChurnedCo",
+                    "current_arr": 0.0,
+                    "historical_arr": 50.0,
+                    "commercial_status": "CHURNED",
+                    "entity_count": 1,
+                },
             ],
             "expansion_kpis": {"configured": True, "pct_active_customers_expanding_cy": 12.5},
         }
     }
     monkeypatch.setenv("CORTEX_LLM_EXPORT_SF_COMPREHENSIVE_CUSTOMER_CAP", "0")
     summary = attach_salesforce_comprehensive_for_llm_export(report)
-    assert summary["customers_requested"] == 2
+    assert summary["customers_requested"] == 5
     assert summary["selection"] == "all_portfolio_labels"
-    assert summary["customers_matched"] == 2
+    assert summary["customers_matched"] == 5
     block = report["salesforce_comprehensive_portfolio"]
     assert block["configured"] is True
     assert block["row_limit"] == 8
@@ -100,42 +123,75 @@ def test_attach_comprehensive_fetches_per_label(monkeypatch):
     assert rollup[0]["arr"] == 350.0
     assert rollup[0]["historical_arr"] == 350.0
     assert rollup[0]["current_arr"] == 350.0
-    assert rollup[0]["entity_count"] == 2
     assert rollup[0]["commercial_status"] == "ACTIVE"
     assert rollup[0]["active"] is True
-    safran = next(r for r in rollup if r["ultimate_parent"] == "Safran")
-    assert safran["commercial_status"] == "CHURNED"
-    assert safran["active"] is False
-    assert safran["current_arr"] == 0.0
+    churned = next(r for r in rollup if r["ultimate_parent"] == "ChurnedCo")
+    assert churned["commercial_status"] == "CHURNED"
+    assert churned["active"] is False
+    assert churned["current_arr"] == 0.0
 
 
-def test_arr_by_ultimate_parent_renewal_from_contract_rollups(monkeypatch):
-    """Expired entities with open renewal pipeline classify as OUT_OF_CONTRACT_RENEWING."""
+def test_arr_by_ultimate_parent_safran_like_active_with_mixed_statuses():
+    """Large customers may show Activated + Expired on different entities — still ACTIVE."""
     from src.llm_export_salesforce_comprehensive import _build_arr_by_ultimate_parent
 
-    entities = [
+    rollups = [
         {
-            "Id": "a1",
-            "Name": "Ford Motor Company",
-            "ARR__c": 500_000.0,
-            "Contract_Status__c": "Expired",
-            "ultimate_parent_name": "Ford",
+            "customer": "Safran",
+            "commercial_status": "ACTIVE",
+            "historical_arr": 2_223_798.0,
+            "active_arr": 2_223_798.0,
+            "current_arr": 2_223_798.0,
+            "entity_count": 68,
+            "contract_statuses_distinct": ["Activated", "Expired"],
         },
     ]
+    rows = _build_arr_by_ultimate_parent([], contract_rollups=rollups)
+    safran = next(r for r in rows if r["ultimate_parent"] == "Safran")
+    assert safran["commercial_status"] == "ACTIVE"
+    assert safran["current_arr"] == 2_223_798.0
+    assert safran["active"] is True
+
+
+def test_arr_by_ultimate_parent_renewal_from_contract_rollups():
+    """Expired entity rollups with OUT_OF_CONTRACT_RENEWING stay in full-book ranking."""
+    from src.llm_export_csr import group_contract_rollups_by_ultimate_parent
+    from src.llm_export_salesforce_comprehensive import _build_arr_by_ultimate_parent
+
     rollups = [
         {
             "customer": "Ford Motor Company",
             "commercial_status": "OUT_OF_CONTRACT_RENEWING",
             "renewal_in_flight": True,
-            "current_arr": 500_000.0,
+            "historical_arr": 525_000.0,
+            "renewal_arr": 525_000.0,
+            "current_arr": 525_000.0,
+            "active_arr": 0.0,
+        },
+        {
+            "customer": "Commercial HVAC (Carrier)",
+            "commercial_status": "ACTIVE",
+            "historical_arr": 430_694.0,
+            "current_arr": 430_694.0,
+            "active_arr": 430_694.0,
+        },
+        {
+            "customer": "Residential HVAC (Carrier)",
+            "commercial_status": "ACTIVE",
+            "historical_arr": 670_956.0,
+            "current_arr": 670_956.0,
+            "active_arr": 670_956.0,
         },
     ]
-    rows = _build_arr_by_ultimate_parent(entities, contract_rollups=rollups)
-    assert len(rows) == 1
-    assert rows[0]["commercial_status"] == "OUT_OF_CONTRACT_RENEWING"
-    assert rows[0]["renewal_arr"] == 500_000.0
-    assert rows[0]["current_arr"] == 500_000.0
-    assert rows[0]["active"] is True
+    grouped = group_contract_rollups_by_ultimate_parent(rollups, current_book_only=False)
+    carrier = next(r for r in grouped if r["ultimate_parent"] == "Carrier")
+    assert carrier["current_arr"] == 1_101_650.0
+
+    rows = _build_arr_by_ultimate_parent([], contract_rollups=rollups)
+    ford = next(r for r in rows if r["ultimate_parent"] == "Ford Motor Company")
+    assert ford["commercial_status"] == "OUT_OF_CONTRACT_RENEWING"
+    assert ford["current_arr"] == 525_000.0
+    assert ford["active"] is True
 
 
 def test_compact_salesforce_includes_expansion_kpis():
@@ -187,7 +243,7 @@ def test_compact_preserves_arr_by_ultimate_parent_when_entities_truncated():
                 "active": True,
             },
             {
-                "ultimate_parent": "Safran",
+                "ultimate_parent": "ChurnedCo",
                 "arr": 50.0,
                 "current_arr": 0.0,
                 "entity_count": 1,

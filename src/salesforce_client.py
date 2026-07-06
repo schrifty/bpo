@@ -834,32 +834,78 @@ class SalesforceClient:
             )
         return out
 
+    def get_recent_closed_won_renewal_opportunities(
+        self,
+        account_ids: list[str],
+        *,
+        limit: int = 6,
+        lookback_days: int = 365,
+    ) -> list[dict[str, Any]]:
+        """Closed-won Renewal opportunities (signed renewals no longer in open pipeline)."""
+        if not account_ids or limit <= 0:
+            return []
+        ids_comma = ", ".join(f"'{aid}'" for aid in account_ids)
+        soql = (
+            f"SELECT Id, Name, StageName, Type, ARR__c, CloseDate, AccountId "
+            f"FROM Opportunity WHERE AccountId IN ({ids_comma}) AND Type = 'Renewal' "
+            f"AND IsWon = true AND CloseDate = LAST_N_DAYS:{max(1, int(lookback_days))} "
+            f"ORDER BY CloseDate DESC NULLS LAST, ARR__c DESC NULLS LAST "
+            f"LIMIT {max(1, min(int(limit), 25))}"
+        )
+        rows = self._query(soql)
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            out.append(
+                {
+                    "name": r.get("Name"),
+                    "stage": r.get("StageName"),
+                    "type": r.get("Type"),
+                    "arr": r.get("ARR__c"),
+                    "close_date": r.get("CloseDate"),
+                    "account_id": r.get("AccountId"),
+                }
+            )
+        return out
+
     def renewal_in_flight_fields_for_entities(
         self,
         matching: list[dict[str, Any]],
         *,
         all_matched_churned: bool,
     ) -> dict[str, Any]:
-        """Signals when entity contracts are churned but parent-account pipeline opps are open."""
+        """Signals when entity contracts are churned but parent renewal motion exists."""
         if not all_matched_churned or not matching:
-            return {"renewal_in_flight": False, "churn_risk": False}
+            return {"renewal_in_flight": False, "churn_risk": False, "signed_renewal_closed_won": False}
         entity_ids = [a["Id"] for a in matching if isinstance(a, dict) and a.get("Id")]
         scope = opportunity_account_scope_ids(matching)
         pipe_entity = self.get_advanced_pipeline_arr(entity_ids) if entity_ids else 0.0
         pipe_total = self.get_advanced_pipeline_arr(scope) if scope else 0.0
         opps = self.get_open_pipeline_opportunities(scope, limit=6)
+        closed_renewals = self.get_recent_closed_won_renewal_opportunities(scope, limit=6)
         in_flight = pipe_total > 0 or bool(opps)
+        signed_renewal = bool(closed_renewals)
         fields: dict[str, Any] = {
             "renewal_in_flight": in_flight,
+            "signed_renewal_closed_won": signed_renewal,
             "pipeline_arr_entity_accounts": round(pipe_entity, 2),
             "pipeline_arr_including_parent_accounts": round(pipe_total, 2),
         }
+        if closed_renewals:
+            fields["recent_closed_won_renewal_opportunities_sample"] = closed_renewals
         if in_flight:
             fields["renewal_in_flight_note"] = (
                 "Customer Entity contract status is churned/expired, but open Opportunities exist "
                 "on parent account(s) in pipeline stages (often renewal negotiation)."
             )
             fields["open_pipeline_opportunities_sample"] = opps
+            fields["churn_risk"] = False
+        elif signed_renewal:
+            fields["renewal_in_flight_note"] = (
+                "Customer Entity contract fields may still show expired/churned status, but a "
+                "closed-won Renewal Opportunity exists on parent account(s) — treat as renewed/active."
+            )
             fields["churn_risk"] = False
         else:
             fields["churn_risk"] = True
@@ -1140,26 +1186,31 @@ class SalesforceClient:
             COMMERCIAL_STATUS_FUTURE,
             COMMERCIAL_STATUS_OUT_OF_CONTRACT_RENEWING,
             derive_commercial_status,
+            entity_has_active_contract,
             renewal_in_flight_from_status,
             rollup_arr_fields,
         )
 
         for group_name in rollup_names:
             matching = per_group[group_name]
-            all_matched_churned = not any(
-                (a.get("Contract_Status__c") or "").strip().lower()
-                not in self._CHURNED_STATUSES
-                for a in matching
-                if (a.get("Contract_Status__c") or "").strip()
-            )
+            all_matched_churned = not any(entity_has_active_contract(a) for a in matching)
             renewal_fields = self.renewal_in_flight_fields_for_entities(
                 matching, all_matched_churned=all_matched_churned
             )
             commercial_status = derive_commercial_status(
                 matching,
                 renewal_in_flight=bool(renewal_fields.get("renewal_in_flight")),
+                signed_renewal_closed_won=bool(renewal_fields.get("signed_renewal_closed_won")),
             )
             arr_fields = rollup_arr_fields(matching, commercial_status=commercial_status)
+            if (
+                commercial_status == COMMERCIAL_STATUS_ACTIVE
+                and float(arr_fields.get("current_arr") or 0) == 0
+                and renewal_fields.get("signed_renewal_closed_won")
+                and float(arr_fields.get("historical_arr") or 0) > 0
+            ):
+                arr_fields["active_arr"] = float(arr_fields["historical_arr"])
+                arr_fields["current_arr"] = float(arr_fields["historical_arr"])
             row = {
                 "customer": group_name,
                 "commercial_status": commercial_status,

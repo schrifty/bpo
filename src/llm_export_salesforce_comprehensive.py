@@ -43,65 +43,15 @@ def _entity_accounts_with_grouping(
     return enriched
 
 
-def _rollup_as_synthetic_account(label: str) -> dict[str, Any]:
-    return {
-        "Name": label,
-        "LeanDNA_Entity_Name__c": label,
-        "parent_name": "",
-        "ultimate_parent_name": "",
-    }
-
-
-def _contract_rollups_by_ultimate_parent(
-    contract_rollups: list[dict[str, Any]],
-) -> dict[str, list[dict[str, Any]]]:
-    from .salesforce_reporting import entity_account_ultimate_parent_group
-
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for row in contract_rollups:
-        if not isinstance(row, dict):
-            continue
-        label = str(row.get("customer") or "").strip()
-        if not label:
-            continue
-        ultimate = entity_account_ultimate_parent_group(_rollup_as_synthetic_account(label))
-        grouped.setdefault(ultimate, []).append(row)
-    return grouped
-
-
-def _rollups_for_ultimate_parent_group(
-    parent: str,
-    rows_in_group: list[dict[str, Any]],
-    contract_rollups: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Match contract rollups to an ultimate-parent entity bucket (label vs SF lookup)."""
-    from .portfolio_salesforce_allowlist import matching_entity_accounts_for_customer_label
-    from .salesforce_reporting import entity_account_ultimate_parent_group
-
-    if not contract_rollups:
-        return []
-    matched: list[dict[str, Any]] = []
-    for row in contract_rollups:
-        if not isinstance(row, dict):
-            continue
-        label = str(row.get("customer") or "").strip()
-        if not label:
-            continue
-        label_parent = entity_account_ultimate_parent_group(_rollup_as_synthetic_account(label))
-        if label_parent == parent or matching_entity_accounts_for_customer_label(label, rows_in_group):
-            matched.append(row)
-    return matched
-
-
-def _renewal_in_flight_from_rollups(rollups: list[dict[str, Any]]) -> bool:
-    from .salesforce_commercial_status import renewal_in_flight_from_status
-
-    for row in rollups:
-        if renewal_in_flight_from_status(str(row.get("commercial_status") or "").strip()):
-            return True
-        if row.get("renewal_in_flight") is True:
-            return True
-    return False
+def _entity_names_sample(rows_in_group: list[dict[str, Any]], *, limit: int = 12) -> list[str]:
+    names: list[str] = []
+    for account in rows_in_group:
+        name = (account.get("Name") or "").strip()
+        if name and name not in names:
+            names.append(name)
+        if len(names) >= limit:
+            break
+    return names
 
 
 def _build_arr_by_ultimate_parent(
@@ -109,12 +59,14 @@ def _build_arr_by_ultimate_parent(
     *,
     contract_rollups: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Full-book ARR rollup keyed by Ultimate Parent, sorted by ``current_arr`` descending.
+    """Full-book ARR rollup keyed by ultimate parent, sorted by ``current_arr`` descending.
 
-    Pre-aggregated so ``top N by Ultimate Parent ARR`` is answerable without scanning the
-    (compaction-capped) per-entity list. ``commercial_status`` follows portfolio contract
-    rollup semantics (renewal pipeline from matching contract rollups when present).
+    Uses portfolio **contract rollups** (corporate reporting groups) — the same source as
+    ``selection_ranked`` — so divisions like Carrier HVAC roll up correctly. Includes all
+    ``commercial_status`` values (not only the current book). Entity rows enrich name samples
+    and supply fallback buckets when the revenue book has no matching rollup label.
     """
+    from .llm_export_csr import group_contract_rollups_by_ultimate_parent
     from .salesforce_commercial_status import (
         derive_commercial_status,
         is_current_book_commercial_status,
@@ -122,43 +74,39 @@ def _build_arr_by_ultimate_parent(
     )
     from .salesforce_reporting import aggregate_accounts_by_ultimate_parent
 
-    rollups_by_parent = _contract_rollups_by_ultimate_parent(contract_rollups or [])
-    groups = aggregate_accounts_by_ultimate_parent(entity_accounts)
-    rows: list[dict[str, Any]] = []
-    for parent, rows_in_group in groups.items():
-        entity_names: list[str] = []
-        for a in rows_in_group:
-            name = (a.get("Name") or "").strip()
-            if name and len(entity_names) < 12:
-                entity_names.append(name)
+    rows_by_parent: dict[str, dict[str, Any]] = {}
+    rollups = contract_rollups or []
+    if rollups:
+        for row in group_contract_rollups_by_ultimate_parent(rollups, current_book_only=False):
+            rows_by_parent[str(row["ultimate_parent"])] = dict(row)
 
-        parent_rollups = _rollups_for_ultimate_parent_group(
-            parent,
-            rows_in_group,
-            contract_rollups or [],
-        )
-        if not parent_rollups:
-            parent_rollups = rollups_by_parent.get(parent) or []
-        commercial_status = derive_commercial_status(
-            rows_in_group,
-            renewal_in_flight=_renewal_in_flight_from_rollups(parent_rollups),
-        )
+    entity_groups = aggregate_accounts_by_ultimate_parent(entity_accounts) if entity_accounts else {}
+    for parent, rows_in_group in entity_groups.items():
+        if parent in rows_by_parent:
+            row = rows_by_parent[parent]
+            row["entity_names_sample"] = _entity_names_sample(rows_in_group)
+            if not int(row.get("entity_count") or 0):
+                row["entity_count"] = len(rows_in_group)
+            continue
+        if rollups:
+            continue
+        commercial_status = derive_commercial_status(rows_in_group, renewal_in_flight=False)
         arr_fields = rollup_arr_fields(rows_in_group, commercial_status=commercial_status)
+        rows_by_parent[parent] = {
+            "ultimate_parent": parent,
+            "salesforce_labels": [],
+            "arr": arr_fields["historical_arr"],
+            "historical_arr": arr_fields["historical_arr"],
+            "active_arr": arr_fields["active_arr"],
+            "renewal_arr": arr_fields["renewal_arr"],
+            "current_arr": arr_fields["current_arr"],
+            "entity_count": len(rows_in_group),
+            "commercial_status": commercial_status,
+            "active": is_current_book_commercial_status(commercial_status),
+            "entity_names_sample": _entity_names_sample(rows_in_group),
+        }
 
-        rows.append(
-            {
-                "ultimate_parent": parent,
-                "arr": arr_fields["historical_arr"],
-                "historical_arr": arr_fields["historical_arr"],
-                "active_arr": arr_fields["active_arr"],
-                "renewal_arr": arr_fields["renewal_arr"],
-                "current_arr": arr_fields["current_arr"],
-                "entity_count": len(rows_in_group),
-                "commercial_status": commercial_status,
-                "active": is_current_book_commercial_status(commercial_status),
-                "entity_names_sample": entity_names,
-            }
-        )
+    rows = list(rows_by_parent.values())
     rows.sort(
         key=lambda r: (
             -float(r.get("current_arr") or 0),
@@ -416,10 +364,12 @@ def attach_salesforce_comprehensive_for_llm_export(report: dict[str, Any]) -> di
         "portfolio_expansion_book": expansion,
         "note": (
             "Per-customer payloads mirror the salesforce_comprehensive deck (mainstream object "
-            "categories scoped to matched Customer Entity accounts). When "
-            "CORTEX_LLM_EXPORT_SF_COMPREHENSIVE_CUSTOMER_CAP is set (default 12), only the top "
-            "active Salesforce ultimate parents by ARR are fetched — same ranking as §2 Jira and "
-            "§4 CS Report top-N. Set CUSTOMER_CAP=0 or all to fetch every active+churned portfolio label."
+            "categories scoped to matched Customer Entity accounts). "
+            "``arr_by_ultimate_parent`` sums portfolio contract rollups by ultimate parent (same grouping as "
+            "``selection_ranked``) and includes all commercial_status segments; sort by ``current_arr``. "
+            "When CORTEX_LLM_EXPORT_SF_COMPREHENSIVE_CUSTOMER_CAP is set (default 12), only the top "
+            "current-book ultimate parents by ARR are fetched for ``by_customer`` — same ranking as §2 Jira and "
+            "§4 CS Report top-N. Set CUSTOMER_CAP=0 or all to fetch every portfolio label."
         ),
     }
     report["_llm_export_salesforce_comprehensive"] = summary

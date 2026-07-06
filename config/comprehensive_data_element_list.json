@@ -2159,7 +2159,14 @@
       "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent",
       "terms": [
         "salesforce_comprehensive_portfolio.arr_by_ultimate_parent",
-        "[LLM export §3c] full-book ARR rollup by Ultimate Parent, sorted desc"
+        "[LLM export §3c] full-book ultimate-parent rollup from portfolio contract rollups (not raw entity sums), sorted by current_arr desc"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].salesforce_labels",
+      "terms": [
+        "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].salesforce_labels",
+        "[LLM export §3c] corporate reporting-group labels rolled into this ultimate parent"
       ]
     },
     {

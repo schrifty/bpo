@@ -431,8 +431,9 @@ Commercial classification and ARR rollups for Salesforce Customer Entity reporti
 - `salesforce_comprehensive_portfolio.entity_accounts[].corporate_group` (corporate rollup label; `config/salesforce_reporting_rollups.yaml`)
 - `salesforce_comprehensive_portfolio.entity_accounts[].ultimate_parent_group` (Ultimate Parent rollup; falls back to name parenthetical / corporate group when `ultimate_parent_name` blank)
 - `salesforce_comprehensive_portfolio.entity_accounts_count`
-- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent` (full-book ARR rollup by Ultimate Parent, sorted by `current_arr` desc)
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent` (ultimate-parent rollup from **portfolio contract rollups**, sorted by `current_arr` desc; all commercial_status segments)
 - `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].ultimate_parent`
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].salesforce_labels`
 - `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].arr` (alias of `historical_arr`)
 - `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].historical_arr`
 - `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].active_arr`

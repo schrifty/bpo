@@ -48,7 +48,16 @@ def parse_sf_contract_date(raw: Any) -> datetime.date | None:
         return None
 
 
-def entity_has_active_contract(account: dict[str, Any]) -> bool:
+def entity_has_active_contract(
+    account: dict[str, Any],
+    *,
+    today: datetime.date | None = None,
+) -> bool:
+    """True when the entity has in-term entitlement (status or contract end date)."""
+    ref = today or datetime.date.today()
+    end = parse_sf_contract_date(account.get("Contract_Contract_End_Date__c"))
+    if end is not None and end >= ref:
+        return True
     st = (account.get("Contract_Status__c") or "").strip().lower()
     return bool(st) and st not in _CHURNED_CONTRACT_STATUS_LOWER
 
@@ -105,15 +114,18 @@ def derive_commercial_status(
     matching: list[dict[str, Any]],
     *,
     renewal_in_flight: bool,
+    signed_renewal_closed_won: bool = False,
     today: datetime.date | None = None,
 ) -> str:
     """Classify a reporting group from entity contract rows and renewal pipeline signals."""
-    if any(entity_has_active_contract(a) for a in matching):
+    if any(entity_has_active_contract(a, today=today) for a in matching):
         return COMMERCIAL_STATUS_ACTIVE
-    if renewal_in_flight:
-        return COMMERCIAL_STATUS_OUT_OF_CONTRACT_RENEWING
     if any(entity_has_future_contract(a, today=today) for a in matching):
         return COMMERCIAL_STATUS_FUTURE
+    if renewal_in_flight:
+        return COMMERCIAL_STATUS_OUT_OF_CONTRACT_RENEWING
+    if signed_renewal_closed_won:
+        return COMMERCIAL_STATUS_ACTIVE
     return COMMERCIAL_STATUS_CHURNED
 
 

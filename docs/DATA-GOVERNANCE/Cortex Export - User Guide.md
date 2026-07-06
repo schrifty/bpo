@@ -24,7 +24,7 @@ The export is split into numbered sections. When you ask the AI a question, it h
 | **Section 3b — Churned** | Customers who **left** (lost contracts, no renewal in flight). **Separate list — don’t mix with Section 3.** |
 | **Section 3b-renewal — Renewal in progress** | Contracts that **expired** but a **renewal deal is still open**. These are **not** churn — sales is still working them. |
 | **Section 3b-future — Future contracts** | Deals **signed but not started yet** (contract start date in the future). Not active today, not churn. |
-| **Section 3c — Salesforce (detailed CRM)** | Extra Salesforce detail (opportunities, cases, contacts, etc.) for top customers. Includes **`arr_by_ultimate_parent`** — revenue rolled up by corporate parent with **`commercial_status`** and **`current_arr`** for ranking. |
+| **Section 3c — Salesforce (detailed CRM)** | Extra Salesforce detail (opportunities, cases, contacts, etc.) for top customers. **`arr_by_ultimate_parent`** ranks **all** ultimate parents using the same contract-rollup math as the export (Carrier divisions collapse correctly). Sort by **`current_arr`**. Includes renewing and churned parents — not only the current book. |
 | **Section 4 — CS Report** | Customer Success weekly health: platform health, supply chain, value metrics for large accounts. |
 | **Section 4b — Slack** | Recent Slack conversations tied to customer names (when Slack is connected). |
 | **Section 5 — Usage signals** | Product “flags” — e.g. low adoption, features not used, unusual usage patterns. |
@@ -58,6 +58,15 @@ Salesforce decides **who is a customer** and **whether they’re active, renewin
 ---
 
 ## Revenue (ARR) — what the numbers mean
+
+**Two ranking lists (same rollup math, different scope):**
+
+| List | Where | Who’s included |
+|------|--------|----------------|
+| **`selection_ranked`** | Coverage block; drives §2 Jira / §4 CS Report top-N | **Current book only** — ACTIVE + OUT_OF_CONTRACT_RENEWING. True churn (lost contracts, no renewal) is excluded on purpose. |
+| **`arr_by_ultimate_parent`** | §3c Salesforce comprehensive | **All** ultimate parents from contract rollups — active, renewing, churned, future. Carrier divisions collapse to one row (~$1.1M). Ford appears here when `commercial_status` is OUT_OF_CONTRACT_RENEWING. |
+
+If Ford shows **`CHURNED`** with no renewal pipeline in Salesforce, the export is reflecting CRM data — verify open opportunities on the parent account before expecting them in a current-ARR ranking.
 
 **ARR** = Annual Recurring Revenue. The export breaks it down so you don’t double-count:
 
