@@ -55,6 +55,14 @@ class _FakeSupportJiraClient:
         self._record("get_project_ticket_metrics", project, customer)
         return {"project": project, "customer": customer}
 
+    def get_help_factory_start_day_buckets(self, customer):
+        self._record("get_help_factory_start_day_buckets", customer)
+        return {"customer": customer, "jql_queries": []}
+
+    def get_help_monthly_operational_table(self, customer):
+        self._record("get_help_monthly_operational_table", customer)
+        return {"customer": customer, "rows": []}
+
 
 def test_support_enrichment_fetches_help_volume_trends_for_customer(monkeypatch):
     fake = _FakeSupportJiraClient()
