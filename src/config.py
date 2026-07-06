@@ -211,16 +211,6 @@ CORTEX_GITHUB_CACHE_TTL_SECONDS = max(0, int(_github_cache_hours * 3600))
 if os.environ.get("CORTEX_GITHUB_CACHE_DISABLED", "").strip().lower() in ("1", "true", "yes", "on"):
     CORTEX_GITHUB_CACHE_TTL_SECONDS = 0
 
-# Rippling Platform API (optional — Bearer API key for HR org / employee / team rosters).
-# Create the token in the Rippling developer portal with employee:read, company:teams:read,
-# and company:departments:read scopes. Header-based versioning (Rippling-Api-Version) is optional.
-RIPPLING_API_KEY = os.environ.get("RIPPLING_API_KEY", "").strip() or None
-RIPPLING_API_BASE_URL = (
-    os.environ.get("RIPPLING_API_BASE_URL", "https://api.rippling.com/platform/api").strip().rstrip("/")
-    or "https://api.rippling.com/platform/api"
-)
-RIPPLING_API_VERSION = os.environ.get("RIPPLING_API_VERSION", "").strip() or None
-
 # Cursor Admin API (optional — Team Admin API key for AI coding usage / spend metrics)
 # Key is used as the HTTP Basic username (empty password). Create in Cursor dashboard → Settings.
 CURSOR_ADMIN_API_KEY = os.environ.get("CURSOR_ADMIN_API_KEY", "").strip() or None

@@ -588,7 +588,7 @@ def run_qbr_from_template(customer_query: str) -> dict[str, Any]:
                 oai,
                 source_presentation_name=out_title,
                 title_slide_object_id=title_oid,
-                google_creds=_google_creds,
+                _google_creds=_google_creds,
             ) or {}
             _qbr_time_segment("adapt_custom_slides_hydrate")
             agenda_page_id = find_qbr_agenda_page_id(slides_svc, pres_id, adapt_ids, report)

@@ -15,7 +15,6 @@ import json
 import re
 import secrets
 import sys
-import tempfile
 import textwrap
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -57,11 +56,9 @@ from .drive_config import assert_qbr_prompts_ready_or_raise, get_deck_output_fol
 from .hydrate_capabilities import (
     AVAILABLE_DATA_KEYS as _AVAILABLE_DATA_KEYS,
     CANONICAL_DATA_KEYS,
-    build_capability_context as _build_capability_context,
     builder_descriptions_text,
 )
 from .hydrate_cache import adapt_cache_key as _adapt_cache_key
-from .hydrate_cache import data_summary_fingerprint as _data_summary_fingerprint
 from .hydrate_cache import default_slide_cache_dir
 from .hydrate_cache import get_cached_adapt as _cache_get_adapt
 from .hydrate_cache import get_cached_classification as _cache_get_classification
@@ -72,69 +69,44 @@ from .hydrate_cache import set_cached_slide_analysis as _cache_set_slide_analysi
 from .hydrate_cache import slide_content_hash as _slide_content_hash
 from .hydrate_data_summary import build_data_summary as _build_data_summary
 from .hydrate_data_summary import format_data_summary_for_adapt_prompt as _format_data_summary_for_adapt_prompt
-from .hydrate_data_summary import prune_data_summary_for_prompt as _prune_data_summary_for_prompt
 from .hydrate_data_summary import reset_for_tests as _reset_hydrate_data_summary_for_tests
-from .hydrate_data_summary import truncate_strings_in_obj as _truncate_strings_in_obj
 from .hydrate_extract import describe_elements as _describe_elements
 from .hydrate_extract import extract_slide_text_elements as _extract_slide_text_elements
 from .hydrate_extract import extract_text as _extract_text
 from .hydrate_classification import classify_slide as _classify_slide
 from .hydrate_classification import detect_customer as _detect_customer
-from .hydrate_classification import COMPANY_NAMES_FOR_DETECT
-from .hydrate_intake import convert_pptx_to_slides as _convert_pptx_to_slides
-from .hydrate_intake import drive_query_escape as _drive_query_escape
-from .hydrate_intake import fallback_intake_presentations_by_group_permission as _fallback_intake_presentations_by_group_permission
-from .hydrate_intake import file_has_group_permission as _file_has_group_permission
-from .hydrate_intake import intake_entries_from_drive_file as _intake_entries_from_drive_file
 from .hydrate_intake import list_presentations_shared_with_group as _list_presentations_shared_with_group
 from .hydrate_intake import log_intake_decks_for_run as _log_intake_decks_for_run
-from .hydrate_intake import parent_folder_for_file as _parent_folder_for_file
 from .hydrate_intake import remove_intake_group_permission_from_file as _remove_intake_group_permission_from_file
 from .hydrate_qbr_agenda import build_qbr_agenda_reshorten_replacements as _build_qbr_agenda_reshorten_replacements
-from .hydrate_qbr_agenda import build_qbr_title_hash_replacements as _build_qbr_title_hash_replacements
-from .hydrate_qbr_agenda import compiled_title_slot_pattern as _compiled_title_slot_pattern
 from .hydrate_qbr_agenda import merge_qbr_agenda_title_replacements as _merge_qbr_agenda_title_replacements
 from .hydrate_qbr_agenda import qbr_agenda_adapt_extra_rules as _qbr_agenda_adapt_extra_rules
-from .hydrate_qbr_agenda import qbr_agenda_effective_max_chars as _qbr_agenda_effective_max_chars
 from .hydrate_qbr_agenda import qbr_agenda_hydrate_config as _qbr_agenda_hydrate_config
-from .hydrate_qbr_agenda import qbr_agenda_items_from_plan as _qbr_agenda_items_from_plan
-from .hydrate_qbr_agenda import qbr_agenda_label_shortening_mode as _qbr_agenda_label_shortening_mode
 from .hydrate_qbr_agenda import qbr_agenda_title_bar_shape_object_ids as _qbr_agenda_title_bar_shape_object_ids
 from .hydrate_qbr_agenda import shape_autofit_none_requests as _shape_autofit_none_requests
-from .hydrate_qbr_agenda import shorten_agenda_label as _shorten_agenda_label
-from .hydrate_qbr_agenda import slide_looks_like_qbr_agenda_titles_legacy as _slide_looks_like_qbr_agenda_titles_legacy
 from .hydrate_qbr_agenda import slide_matches_qbr_agenda_hydrate as _slide_matches_qbr_agenda_hydrate
-from .hydrate_qbr_agenda import truncate_agenda_line as _truncate_agenda_line
 from .hydrate_reproducibility import cache_hit_rate_line as _cache_hit_rate_line
 from .hydrate_reproducibility import derive_reproducibility as _derive_reproducibility
 from .hydrate_replacements import dedupe_replacements_by_original as _dedupe_replacements_by_original
 from .hydrate_replacements import element_may_contain_data as _element_may_contain_data
-from .hydrate_replacements import first_number_in_new_value as _adapt_first_number_in_new_value
 from .hydrate_replacements import normalize_adapt_replacements as _normalize_adapt_replacements
 from .hydrate_replacements import original_reads_as_percent_on_slide as _adapt_original_reads_as_percent_on_slide
-from .hydrate_replacements import placeholder_for_percent_mismatch as _adapt_placeholder_for_percent_mismatch
-from .hydrate_replacements import placeholder_for_years_context as _adapt_placeholder_for_years_context
 from .hydrate_replacements import sanitize_adapt_replacements_percent_semantics as _sanitize_adapt_replacements_percent_semantics
 from .hydrate_replacements import sanitize_adapt_replacements_plausible_years as _sanitize_adapt_replacements_plausible_years
 from .hydrate_replacements import text_has_percentage_semantics as _adapt_text_has_percentage_semantics
 from .hydrate_slide_mutation import add_incomplete_banner as _add_incomplete_banner
 from .hydrate_slide_mutation import apply_adaptations as _apply_adaptations
-from .hydrate_slide_mutation import has_text_placeholder_incomplete as _has_text_placeholder_incomplete
-from .hydrate_slide_mutation import mapped_new_values_for_font_clamp as _mapped_new_values_for_font_clamp
 from .hydrate_slide_mutation import red_style_placeholders as _red_style_placeholders
 from .hydrate_slide_mutation import replacement_row_is_static_visual_incomplete as _replacement_row_is_static_visual_incomplete
 from .hydrate_slide_mutation import should_add_incomplete_banner as _should_add_incomplete_banner
 from .hydrate_slide_mutation import slide_metric_font_clamp_requests as _slide_metric_font_clamp_requests
-from .hydrate_slide_mutation import unmapped_nonvisual_rows_all_editorial_headings as _unmapped_nonvisual_rows_all_editorial_headings
 from .hydrate_thumbnails import download_thumbnail_b64 as _download_thumbnail_b64
 from .hydrate_thumbnails import get_slide_thumbnail_b64 as _get_slide_thumbnail_b64
 from .hydrate_thumbnails import get_slide_thumbnail_url as _get_slide_thumbnail_url
 from .llm_utils import _llm_create_with_retry, _strip_json_code_fence
 from . import matching_log
-from .slide_loader import get_slide_definition
 from .slide_requests import append_slide, append_text_box, append_wrapped_text_box
 from .slides_api import (
-    _build_slides_service_for_thread,
     _get_service,
     slides_presentations_batch_update,
 )
@@ -1743,7 +1715,7 @@ def adapt_custom_slides(
     source_presentation_name: str = "",
     run_started_at: datetime.datetime | None = None,
     title_slide_object_id: str | None = None,
-    google_creds=None,
+    _google_creds=None,
 ) -> dict[str, Any]:
     """Adapt slides by replacing data values with current data.
 
@@ -2735,7 +2707,7 @@ def hydrate_new_slides(customer_override: str | None = None) -> list[dict[str, A
                 slides_svc, pres_id, adapt_page_ids, report, oai,
                 source_presentation_name=pres_name,
                 run_started_at=adapt_phase_started,
-                google_creds=_google_creds,
+                _google_creds=_google_creds,
             )
             if adapt_stats.get("summary_slide_added"):
                 _print(

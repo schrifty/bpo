@@ -263,10 +263,6 @@ from .deck_composable import (
     add_slide,
     create_empty_deck,
 )
-from .deck_legacy import (
-    create_deck_for_customer,
-    create_decks_for_all_customers,
-)
 from .deck_orchestrator import (
     create_health_deck,
 )
