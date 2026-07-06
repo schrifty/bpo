@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import Any
@@ -46,39 +45,20 @@ def llm_export_jira_customer_timeout_seconds() -> float:
         return 120.0
 
 
-def _division_names_without_parenthetical(labels: list[Any]) -> list[str]:
-    """JSM org labels often omit the parenthetical parent (e.g. ``Commercial HVAC`` not ``… (Carrier)``)."""
-    out: list[str] = []
-    seen: set[str] = set()
-    for raw in labels:
-        label = str(raw or "").strip()
-        if not label:
-            continue
-        base = re.sub(r"\s*\([^)]+\)\s*$", "", label).strip()
-        if not base or base == label:
-            continue
-        key = base.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(base)
-    return out
-
-
 def _jira_merged_lookup_bundle(row: dict[str, Any]) -> tuple[str, list[str], list[str]]:
     """Primary JSM lookup + subsidiary match terms for one ultimate-parent export row."""
     from src.cs_report_client import selection_lookup_keys_for_llm_export
+    from src.jsm_umbrella_match import expand_umbrella_jsm_match_terms
 
     lookup_keys = selection_lookup_keys_for_llm_export(row)
     if not lookup_keys:
         return "", [], []
     primary = lookup_keys[0]
-    match_terms = list(lookup_keys[1:])
-    seen = {t.lower() for t in lookup_keys}
-    for division in _division_names_without_parenthetical(row.get("salesforce_labels") or []):
-        if division.lower() not in seen:
-            seen.add(division.lower())
-            match_terms.append(division)
+    match_terms = expand_umbrella_jsm_match_terms(
+        primary,
+        match_terms=list(lookup_keys[1:]),
+        salesforce_labels=row.get("salesforce_labels") if isinstance(row.get("salesforce_labels"), list) else None,
+    )
     return primary, match_terms, lookup_keys
 
 

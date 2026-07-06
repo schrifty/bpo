@@ -367,6 +367,10 @@ def cs_report_lookup_keys_for_account(
 
     add(salesforce_label)
     add(pendo_customer_key or "")
+    csr = _load_cs_report_alias_map()
+    for seed in list(keys):
+        for term in csr.get(seed.lower(), []):
+            add(term)
     cohort = _load_cohort_customer_alias_map()
     for seed in list(keys):
         for term in cohort.get(seed.lower(), []):

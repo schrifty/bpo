@@ -1803,6 +1803,18 @@ class JiraClient:
             )
         return org_only_clause, orgs
 
+    def _resolve_help_customer_filter(
+        self,
+        customer_name: str | None,
+        match_terms: list[str] | None = None,
+        *,
+        _prebuilt_clause: tuple[str, list[str]] | None = None,
+    ) -> tuple[str, list[str]]:
+        """Reuse a pre-resolved HELP org clause when prefetching many support products."""
+        if _prebuilt_clause is not None:
+            return _prebuilt_clause
+        return self._help_project_customer_filter(customer_name, match_terms)
+
     def help_salesforce_entity_site_scoped_clause(
         self,
         entity_row: dict[str, Any],
@@ -2760,12 +2772,9 @@ class JiraClient:
         HELP body fetch) to skip a second org-resolution pass.
         """
         jql_start = self._jql_log_len()
-        if _prebuilt_clause is not None:
-            base_filter, resolved_jsm_orgs = _prebuilt_clause
-        else:
-            base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
-                customer_name, match_terms
-            )
+        base_filter, resolved_jsm_orgs = self._resolve_help_customer_filter(
+            customer_name, match_terms, _prebuilt_clause=_prebuilt_clause
+        )
         max_fetch = HELP_METRICS_MERGED_MAX_RESULTS
         proj = "project = HELP AND "
 
@@ -3057,6 +3066,7 @@ class JiraClient:
         opened_within_days: int | None = 45,
         closed_within_days: int | None = 45,
         max_each: int = 100,
+        _prebuilt_clause: tuple[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """Recent HELP issues for one customer: opened in window vs resolved in window.
 
@@ -3072,6 +3082,7 @@ class JiraClient:
             opened_within_days=opened_within_days,
             closed_within_days=closed_within_days,
             max_each=max_each,
+            _prebuilt_clause=_prebuilt_clause,
         )
     
     def get_customer_project_recent_tickets(
@@ -3083,6 +3094,7 @@ class JiraClient:
         opened_within_days: int | None = 45,
         closed_within_days: int | None = 45,
         max_each: int = 100,
+        _prebuilt_clause: tuple[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """Recent tickets for any project for one customer: opened in window vs resolved in window.
 
@@ -3097,8 +3109,8 @@ class JiraClient:
         
         # If customer_name is None on non-HELP projects, scope to all project tickets.
         if project == "HELP":
-            base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
-                customer_name, match_terms
+            base_filter, resolved_jsm_orgs = self._resolve_help_customer_filter(
+                customer_name, match_terms, _prebuilt_clause=_prebuilt_clause
             )
         else:
             base_filter, resolved_jsm_orgs = self._customer_project_text_match_clause(
@@ -3210,6 +3222,7 @@ class JiraClient:
         match_terms: list[str] | None = None,
         *,
         max_results: int = 1000,
+        _prebuilt_clause: tuple[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """Open-ticket status/type breakdown for a project/customer scope."""
         jql_start = self._jql_log_len()
@@ -3219,8 +3232,8 @@ class JiraClient:
             return {"error": str(e), "project": (project or "").strip().upper(), "customer": customer_name}
 
         if proj == "HELP":
-            base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
-                customer_name, match_terms
+            base_filter, resolved_jsm_orgs = self._resolve_help_customer_filter(
+                customer_name, match_terms, _prebuilt_clause=_prebuilt_clause
             )
         else:
             base_filter, resolved_jsm_orgs = self._customer_project_text_match_clause(
@@ -3276,6 +3289,7 @@ class JiraClient:
         *,
         days: int = 90,
         max_results: int = 500,
+        _prebuilt_clause: tuple[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """Get resolved tickets grouped by assignee for a project and customer.
         
@@ -3293,8 +3307,8 @@ class JiraClient:
         
         # If customer_name is None on non-HELP projects, scope to all project tickets.
         if project == "HELP":
-            base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
-                customer_name, match_terms
+            base_filter, resolved_jsm_orgs = self._resolve_help_customer_filter(
+                customer_name, match_terms, _prebuilt_clause=_prebuilt_clause
             )
         else:
             base_filter, resolved_jsm_orgs = self._customer_project_text_match_clause(
@@ -3933,6 +3947,7 @@ class JiraClient:
         match_terms: list[str] | None = None,
         *,
         max_results: int = 200,
+        _prebuilt_clause: tuple[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """Open HELP issues with Jira label ``customer_escalation``, most recently updated first.
 
@@ -3941,8 +3956,8 @@ class JiraClient:
         + ``ORDER BY updated DESC`` — matches the support-deck spec for this slide.
         """
         jql_start = self._jql_log_len()
-        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
-            customer_name, match_terms
+        base_filter, resolved_jsm_orgs = self._resolve_help_customer_filter(
+            customer_name, match_terms, _prebuilt_clause=_prebuilt_clause
         )
         jql = (
             f"project = HELP AND ({base_filter}) AND labels = \"customer_escalation\" "
