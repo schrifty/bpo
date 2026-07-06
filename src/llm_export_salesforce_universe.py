@@ -226,27 +226,51 @@ def _inactive_sf_headline_rows(
     *,
     customer_segment: str,
 ) -> list[dict[str, Any]]:
+    from .salesforce_commercial_status import (
+        COMMERCIAL_STATUS_CHURNED,
+        COMMERCIAL_STATUS_FUTURE,
+        COMMERCIAL_STATUS_OUT_OF_CONTRACT_RENEWING,
+    )
+
+    segment_status = {
+        "churned": COMMERCIAL_STATUS_CHURNED,
+        "renewal_negotiation": COMMERCIAL_STATUS_OUT_OF_CONTRACT_RENEWING,
+        "future_contract": COMMERCIAL_STATUS_FUTURE,
+    }
     rows: list[dict[str, Any]] = []
     for r in sorted(rollups, key=lambda x: str(x.get("customer") or "").lower()):
         label = str(r.get("customer") or "").strip()
         if not label:
             continue
+        commercial_status = str(r.get("commercial_status") or "").strip() or segment_status.get(
+            customer_segment, COMMERCIAL_STATUS_CHURNED
+        )
+        historical_arr = r.get("historical_arr") or r.get("arr")
         rows.append(
             {
                 "customer": label,
                 "customer_segment": customer_segment,
+                "commercial_status": commercial_status,
                 "salesforce_only": True,
                 "pendo_metrics_available": False,
                 "active_in_salesforce": False,
                 "churn_risk": r.get("churn_risk"),
-                "arr": r.get("arr"),
+                "arr": historical_arr,
+                "historical_arr": historical_arr,
+                "active_arr": r.get("active_arr"),
+                "renewal_arr": r.get("renewal_arr"),
+                "current_arr": r.get("current_arr"),
                 "contract_statuses_distinct": r.get("contract_statuses_distinct"),
                 "contract_end_date_nearest": r.get("contract_end_date_nearest"),
                 "renewal_in_flight": r.get("renewal_in_flight"),
+                "signed_renewal_closed_won": r.get("signed_renewal_closed_won"),
                 "pipeline_arr_including_parent_accounts": r.get(
                     "pipeline_arr_including_parent_accounts"
                 ),
                 "open_pipeline_opportunities_sample": r.get("open_pipeline_opportunities_sample"),
+                "recent_closed_won_renewal_opportunities_sample": r.get(
+                    "recent_closed_won_renewal_opportunities_sample"
+                ),
                 "total_users": None,
                 "active_users": None,
                 "login_pct": None,

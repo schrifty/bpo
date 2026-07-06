@@ -53,9 +53,27 @@ def test_exclude_sf_churned_matched(monkeypatch):
         "salesforce": {
             "error": None,
             "matched_customer_contract_rollups": [
-                {"customer": "ActiveInc", "active": True},
-                {"customer": "GoneCorp", "active": False},
+                {"customer": "ActiveInc", "commercial_status": "ACTIVE"},
             ],
+        },
+        "salesforce_churned_segment": {
+            "segment": "churned",
+            "customers_headline": [
+                {
+                    "customer": "GoneCorp",
+                    "commercial_status": "CHURNED",
+                    "current_arr": 0.0,
+                }
+            ],
+            "salesforce": {
+                "matched_customer_contract_rollups": [
+                    {
+                        "customer": "GoneCorp",
+                        "commercial_status": "CHURNED",
+                        "current_arr": 0.0,
+                    }
+                ],
+            },
         },
     }
     cfg = LlmExportCustomerFilterConfig(exclude_sf_churned_matched=True)
@@ -63,6 +81,32 @@ def test_exclude_sf_churned_matched(monkeypatch):
     nc = [r["customer"] for r in report["customers"]]
     assert nc == ["ActiveInc", "NoSfRow"]
     assert report["portfolio_signals"] == []
+
+
+def test_exclude_sf_churned_ignores_current_book_only_salesforce_block(monkeypatch):
+    """§3 aggregate no longer lists churned labels — filter must read §3b segment."""
+
+    def _noop_aggregate(_report):
+        return {}
+
+    monkeypatch.setattr(
+        "src.data_sources.loaders.salesforce_portfolio_aggregate.salesforce_portfolio_aggregate_for_report",
+        _noop_aggregate,
+    )
+
+    report = {
+        "customers": [{"customer": "GoneCorp"}],
+        "portfolio_signals": [],
+        "salesforce": {
+            "matched_customer_contract_rollups": [
+                {"customer": "ActiveInc", "commercial_status": "ACTIVE"},
+            ],
+        },
+    }
+    cfg = LlmExportCustomerFilterConfig(exclude_sf_churned_matched=True)
+    summary = apply_llm_export_customer_filters(report, cfg)
+    assert [r["customer"] for r in report["customers"]] == ["GoneCorp"]
+    assert any("salesforce_churned_segment is missing" in w for w in summary.get("warnings") or [])
 
 
 def test_sf_allowlist_intersect(monkeypatch):

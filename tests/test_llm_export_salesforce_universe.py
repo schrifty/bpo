@@ -77,6 +77,7 @@ def test_attach_churned_segment_separate_from_active(monkeypatch):
     assert seg["customer_count"] == 1
     assert seg["customers_headline"][0]["customer"] == "Gone LLC"
     assert seg["customers_headline"][0]["customer_segment"] == "churned"
+    assert seg["customers_headline"][0]["commercial_status"] == "CHURNED"
     assert seg["salesforce"]["customer_segment"] == "churned"
     assert "pipeline_arr" not in seg["salesforce"]
     assert [r["customer"] for r in report["customers"]] == ["Active Co"]
@@ -227,3 +228,4 @@ def test_renewal_negotiation_segment_separate_from_churned(monkeypatch):
     assert ren["customer_count"] == 1
     assert ren["customers_headline"][0]["customer"] == "Ford Motor Company"
     assert ren["customers_headline"][0]["customer_segment"] == "renewal_negotiation"
+    assert ren["customers_headline"][0]["commercial_status"] == "OUT_OF_CONTRACT_RENEWING"
