@@ -50,21 +50,21 @@ def test_build_schedule_rows_merges_catalog_when_aws_empty(monkeypatch):
     assert any(r.job_key == "ford-pendo-30d" for r in rows)
     top_arr = next(r for r in rows if r.job_key == "pendo-top-arr-30d")
     assert top_arr.rule_name == "cortex-pendo-top-arr-30d"
-    assert top_arr.schedule_expression == "cron(0 9 * * ? *)"
+    assert top_arr.schedule_expression == "cron(0 8 * * ? *)"
     weekly = next(r for r in rows if r.job_key == "metrics-eng-cycle-lead-weekly")
     assert weekly.rule_name == "cortex-metrics-eng-cycle-lead-weekly"
-    assert weekly.schedule_expression == "cron(0 5 ? * MON *)"
+    assert weekly.schedule_expression == "cron(30 8 ? * MON *)"
     eng = next(r for r in rows if r.job_key == "engineering-portfolio")
     assert eng.rule_name == "cortex-engineering-portfolio"
-    assert eng.schedule_expression == "cron(30 1 * * ? *)"
+    assert eng.schedule_expression == "cron(30 6 * * ? *)"
     export = next(r for r in rows if r.job_key == "export-nightly")
     assert export.rule_name == "cortex-export-nightly"
-    assert export.schedule_expression == "cron(0 1 * * ? *)"
+    assert export.schedule_expression == "cron(0 6 * * ? *)"
     ford_7d = next(r for r in rows if r.job_key == "ford-pendo-7d")
     assert ford_7d.rule_name == "cortex-ford-pendo-7d"
     ford_30d = next(r for r in rows if r.job_key == "ford-pendo-30d")
     assert ford_30d.rule_name == "cortex-ford-pendo-30d"
-    assert ford_30d.schedule_expression == "cron(30 2 * * ? *)"
+    assert ford_30d.schedule_expression == "cron(30 7 * * ? *)"
     assert notes
 
 

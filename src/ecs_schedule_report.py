@@ -17,46 +17,46 @@ from src.ecs_aws_defaults import default_name_prefix, default_region
 # Keep in sync with infra/terraform/variables.tf scheduled_jobs defaults.
 SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
     "export-nightly": {
-        "schedule_expression": "cron(0 1 * * ? *)",
+        "schedule_expression": "cron(0 6 * * ? *)",
         "command": ["export-nightly"],
         "enabled": True,
         "rule_name": "cortex-export-nightly",
         "summary": "LLM export (cortex export-all, 90-day window)",
     },
     "engineering-portfolio": {
-        "schedule_expression": "cron(30 1 * * ? *)",
+        "schedule_expression": "cron(30 6 * * ? *)",
         "command": ["engineering-portfolio"],
         "enabled": True,
         "rule_name": "cortex-engineering-portfolio",
         "summary": "Engineering portfolio deck",
     },
     "ford-pendo-7d": {
-        "schedule_expression": "cron(0 2 * * ? *)",
+        "schedule_expression": "cron(0 7 * * ? *)",
         "command": ["ford-pendo-7d"],
         "enabled": True,
         "rule_name": "cortex-ford-pendo-7d",
         "summary": "Ford Pendo usage export (cortex --export-pendo --customer Ford --days 7 --compare-days 7)",
     },
     "ford-pendo-30d": {
-        "schedule_expression": "cron(30 2 * * ? *)",
+        "schedule_expression": "cron(30 7 * * ? *)",
         "command": ["ford-pendo-30d"],
         "enabled": True,
         "rule_name": "cortex-ford-pendo-30d",
         "summary": "Ford Pendo usage export (cortex --export-pendo --customer Ford --days 30 --compare-days 30)",
     },
     "pendo-top-arr-30d": {
-        "schedule_expression": "cron(0 9 * * ? *)",
+        "schedule_expression": "cron(0 8 * * ? *)",
         "command": ["pendo-top-arr-30d"],
         "enabled": True,
         "rule_name": "cortex-pendo-top-arr-30d",
-        "summary": "Top-5 ARR Pendo detailed export (cortex --export-pendo-top-arr --top-n 5 --days 30 --compare-days 30) — daily 3am CT",
+        "summary": "Top-5 ARR Pendo detailed export (cortex --export-pendo-top-arr --top-n 5 --days 30 --compare-days 30)",
     },
     "metrics-eng-cycle-lead-weekly": {
-        "schedule_expression": "cron(0 5 ? * MON *)",
+        "schedule_expression": "cron(30 8 ? * MON *)",
         "command": ["metrics-eng-cycle-lead-weekly"],
         "enabled": True,
         "rule_name": "cortex-metrics-eng-cycle-lead-weekly",
-        "summary": "LeanDNA metrics upsert: 2024, 2179, 2028, 2035 — weekly Sun 11pm CT",
+        "summary": "LeanDNA metrics upsert: 2024, 2179, 2028, 2035 — weekly Mon 08:30 UTC",
     },
 }
 

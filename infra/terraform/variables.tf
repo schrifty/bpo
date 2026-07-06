@@ -125,41 +125,39 @@ variable "scheduled_jobs" {
     rule_name           = optional(string)
   }))
   default = {
-    # EventBridge cron is UTC. Jobs run daily, 30 minutes apart starting 01:00 UTC.
+    # EventBridge cron is UTC. Jobs run daily, 30 minutes apart starting 06:00 UTC.
     export-nightly = {
-      schedule_expression = "cron(0 1 * * ? *)"
+      schedule_expression = "cron(0 6 * * ? *)"
       command             = ["export-nightly"]
       enabled             = true
       rule_name           = "cortex-export-nightly"
     }
     engineering-portfolio = {
-      schedule_expression = "cron(30 1 * * ? *)"
+      schedule_expression = "cron(30 6 * * ? *)"
       command             = ["engineering-portfolio"]
       enabled             = true
       rule_name           = "cortex-engineering-portfolio"
     }
     ford-pendo-7d = {
-      schedule_expression = "cron(0 2 * * ? *)"
+      schedule_expression = "cron(0 7 * * ? *)"
       command             = ["ford-pendo-7d"]
       enabled             = true
       rule_name           = "cortex-ford-pendo-7d"
     }
     ford-pendo-30d = {
-      schedule_expression = "cron(30 2 * * ? *)"
+      schedule_expression = "cron(30 7 * * ? *)"
       command             = ["ford-pendo-30d"]
       enabled             = true
       rule_name           = "cortex-ford-pendo-30d"
     }
-    # Daily 3:00 AM US/Central (CST) = 09:00 UTC; 4:00 AM during CDT.
     pendo-top-arr-30d = {
-      schedule_expression = "cron(0 9 * * ? *)"
+      schedule_expression = "cron(0 8 * * ? *)"
       command             = ["pendo-top-arr-30d"]
       enabled             = true
       rule_name           = "cortex-pendo-top-arr-30d"
     }
-    # Sunday 11:00 PM US/Central (CST) = Monday 05:00 UTC; 10:00 PM during CDT.
     metrics-eng-cycle-lead-weekly = {
-      schedule_expression = "cron(0 5 ? * MON *)"
+      schedule_expression = "cron(30 8 ? * MON *)"
       command             = ["metrics-eng-cycle-lead-weekly"]
       enabled             = true
       rule_name           = "cortex-metrics-eng-cycle-lead-weekly"

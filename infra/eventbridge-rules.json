@@ -1,8 +1,8 @@
 [
   {
     "Name": "cortex-export-nightly",
-    "Description": "LLM context export (cortex export-all) — daily 01:00 UTC",
-    "ScheduleExpression": "cron(0 1 * * ? *)",
+    "Description": "LLM context export (cortex export-all) — daily 06:00 UTC",
+    "ScheduleExpression": "cron(0 6 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {
@@ -28,8 +28,8 @@
   },
   {
     "Name": "cortex-engineering-portfolio",
-    "Description": "Engineering portfolio deck — daily 01:30 UTC",
-    "ScheduleExpression": "cron(30 1 * * ? *)",
+    "Description": "Engineering portfolio deck — daily 06:30 UTC",
+    "ScheduleExpression": "cron(30 6 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {
@@ -55,8 +55,8 @@
   },
   {
     "Name": "cortex-ford-pendo-7d",
-    "Description": "Ford Pendo usage export (cortex --export-pendo --customer Ford --days 7 --compare-days 7) — daily 02:00 UTC",
-    "ScheduleExpression": "cron(0 2 * * ? *)",
+    "Description": "Ford Pendo usage export (cortex --export-pendo --customer Ford --days 7 --compare-days 7) — daily 07:00 UTC",
+    "ScheduleExpression": "cron(0 7 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {
@@ -82,8 +82,8 @@
   },
   {
     "Name": "cortex-ford-pendo-30d",
-    "Description": "Ford Pendo usage export (cortex --export-pendo --customer Ford --days 30 --compare-days 30) — daily 02:30 UTC",
-    "ScheduleExpression": "cron(30 2 * * ? *)",
+    "Description": "Ford Pendo usage export (cortex --export-pendo --customer Ford --days 30 --compare-days 30) — daily 07:30 UTC",
+    "ScheduleExpression": "cron(30 7 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {
@@ -109,8 +109,8 @@
   },
   {
     "Name": "cortex-pendo-top-arr-30d",
-    "Description": "Top-5 ARR Pendo detailed export (cortex --export-pendo-top-arr --top-n 5 --days 30 --compare-days 30) — daily 3:00 AM US/Central (CST) / 4:00 AM during CDT",
-    "ScheduleExpression": "cron(0 9 * * ? *)",
+    "Description": "Top-5 ARR Pendo detailed export (cortex --export-pendo-top-arr --top-n 5 --days 30 --compare-days 30) — daily 08:00 UTC",
+    "ScheduleExpression": "cron(0 8 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {
@@ -136,8 +136,8 @@
   },
   {
     "Name": "cortex-metrics-eng-cycle-lead-weekly",
-    "Description": "LeanDNA metrics upsert: Engineering Cycle Time (2024) + Lead Time (2179) — weekly Sunday 11:00 PM US/Central (Mon 05:00 UTC CST / 10:00 PM CDT)",
-    "ScheduleExpression": "cron(0 5 ? * MON *)",
+    "Description": "LeanDNA metrics upsert: Engineering Cycle Time (2024) + Lead Time (2179) — weekly Monday 08:30 UTC",
+    "ScheduleExpression": "cron(30 8 ? * MON *)",
     "State": "ENABLED",
     "Targets": [
       {
