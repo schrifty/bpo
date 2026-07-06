@@ -149,6 +149,33 @@ def build_step_argv(step: dict[str, Any]) -> list[str]:
         if step.get("out"):
             argv.extend(["-o", str(step["out"])])
         return argv
+    if command == "export-pendo-detailed":
+        customer = str(step.get("customer") or "").strip()
+        if not customer:
+            raise ValueError("export-pendo-detailed command requires customer")
+        argv = ["--export-pendo-detailed", "--customer", customer]
+        if step.get("days") is not None:
+            argv.extend(["--days", str(int(step["days"]))])
+        if step.get("compare_days") is not None:
+            argv.extend(["--compare-days", str(int(step["compare_days"]))])
+        if step.get("no_drive"):
+            argv.append("--no-drive")
+        if step.get("out"):
+            argv.extend(["-o", str(step["out"])])
+        return argv
+    if command == "export-pendo-top-arr":
+        argv = ["--export-pendo-top-arr"]
+        if step.get("top_n") is not None:
+            argv.extend(["--top-n", str(int(step["top_n"]))])
+        if step.get("days") is not None:
+            argv.extend(["--days", str(int(step["days"]))])
+        if step.get("compare_days") is not None:
+            argv.extend(["--compare-days", str(int(step["compare_days"]))])
+        if step.get("no_drive"):
+            argv.append("--no-drive")
+        if step.get("out_dir"):
+            argv.extend(["--out-dir", str(step["out_dir"])])
+        return argv
     if command == "metrics-upsert":
         argv = ["metrics-upsert"]
         if step.get("metric"):

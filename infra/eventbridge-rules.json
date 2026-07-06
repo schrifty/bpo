@@ -108,6 +108,33 @@
     ]
   },
   {
+    "Name": "cortex-pendo-top-arr-30d",
+    "Description": "Top-5 ARR Pendo detailed export (cortex --export-pendo-top-arr --top-n 5 --days 30 --compare-days 30) — daily 3:00 AM US/Central (CST) / 4:00 AM during CDT",
+    "ScheduleExpression": "cron(0 9 * * ? *)",
+    "State": "ENABLED",
+    "Targets": [
+      {
+        "Id": "cortex-pendo-top-arr-30d",
+        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
+        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
+        "EcsParameters": {
+          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
+          "LaunchType": "FARGATE",
+          "PlatformVersion": "LATEST",
+          "NetworkConfiguration": {
+            "awsvpcConfiguration": {
+              "Subnets": ["subnet-REPLACE"],
+              "SecurityGroups": ["sg-REPLACE"],
+              "AssignPublicIp": "DISABLED"
+            }
+          },
+          "TaskCount": 1
+        },
+        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"pendo-top-arr-30d\"]}]}"
+      }
+    ]
+  },
+  {
     "Name": "cortex-metrics-eng-cycle-lead-weekly",
     "Description": "LeanDNA metrics upsert: Engineering Cycle Time (2024) + Lead Time (2179) — weekly Sunday 11:00 PM US/Central (Mon 05:00 UTC CST / 10:00 PM CDT)",
     "ScheduleExpression": "cron(0 5 ? * MON *)",

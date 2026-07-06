@@ -48,6 +48,9 @@ def test_build_schedule_rows_merges_catalog_when_aws_empty(monkeypatch):
     assert any(r.job_key == "engineering-portfolio" for r in rows)
     assert any(r.job_key == "ford-pendo-7d" for r in rows)
     assert any(r.job_key == "ford-pendo-30d" for r in rows)
+    top_arr = next(r for r in rows if r.job_key == "pendo-top-arr-30d")
+    assert top_arr.rule_name == "cortex-pendo-top-arr-30d"
+    assert top_arr.schedule_expression == "cron(0 9 * * ? *)"
     weekly = next(r for r in rows if r.job_key == "metrics-eng-cycle-lead-weekly")
     assert weekly.rule_name == "cortex-metrics-eng-cycle-lead-weekly"
     assert weekly.schedule_expression == "cron(0 5 ? * MON *)"

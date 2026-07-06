@@ -150,6 +150,13 @@ variable "scheduled_jobs" {
       enabled             = true
       rule_name           = "cortex-ford-pendo-30d"
     }
+    # Daily 3:00 AM US/Central (CST) = 09:00 UTC; 4:00 AM during CDT.
+    pendo-top-arr-30d = {
+      schedule_expression = "cron(0 9 * * ? *)"
+      command             = ["pendo-top-arr-30d"]
+      enabled             = true
+      rule_name           = "cortex-pendo-top-arr-30d"
+    }
     # Sunday 11:00 PM US/Central (CST) = Monday 05:00 UTC; 10:00 PM during CDT.
     metrics-eng-cycle-lead-weekly = {
       schedule_expression = "cron(0 5 ? * MON *)"

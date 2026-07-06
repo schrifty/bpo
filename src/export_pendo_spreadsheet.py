@@ -24,6 +24,8 @@ _PENDO_EXPORT_TABS: tuple[tuple[str, str], ...] = (
     ("frustration", "frustration"),
     ("kei", "kei"),
     ("trends", "trends"),
+    ("site_detail", "site_detail"),
+    ("user_roster", "user_roster"),
 )
 
 _SHEET_TITLE_BAD = re.compile(r"[:\\/?*\[\]]")
@@ -258,6 +260,56 @@ def _build_trends_rows(report: dict[str, Any], customer: str) -> list[dict[str, 
     return rows
 
 
+def _build_site_detail_rows(report: dict[str, Any], customer: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for site in report.get("site_detail") or []:
+        if not isinstance(site, dict):
+            continue
+        cur = site.get("activity_current") or {}
+        prior = site.get("activity_prior") or {}
+        cmp_ = site.get("activity_pct_change") or {}
+        eng = site.get("engagement") or {}
+        rows.append(
+            {
+                "customerndx": customer,
+                "section": "site_summary",
+                "sitename": site.get("sitename"),
+                "visitors": site.get("visitors"),
+                "active_7d": eng.get("active_7d"),
+                "active_30d": eng.get("active_30d"),
+                "dormant": eng.get("dormant"),
+                "total_events": cur.get("total_events"),
+                "page_minutes": cur.get("page_minutes"),
+                "feature_events": cur.get("feature_events"),
+                "prior_total_events": prior.get("total_events"),
+                "events_pct_change": cmp_.get("total_events"),
+            }
+        )
+        for item in site.get("top_pages") or []:
+            if isinstance(item, dict):
+                rows.append({"customerndx": customer, "section": "site_top_page", "sitename": site.get("sitename"), **item})
+        for item in site.get("top_features") or []:
+            if isinstance(item, dict):
+                rows.append({"customerndx": customer, "section": "site_top_feature", "sitename": site.get("sitename"), **item})
+        for user in site.get("users") or []:
+            if isinstance(user, dict):
+                rows.append({"customerndx": customer, "section": "site_user", "sitename": site.get("sitename"), **user})
+    return rows
+
+
+def _build_user_roster_rows(report: dict[str, Any], customer: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for user in report.get("user_roster") or []:
+        if not isinstance(user, dict):
+            continue
+        row = {"customerndx": customer, **{k: v for k, v in user.items() if k != "sites"}}
+        sites = user.get("sites")
+        if isinstance(sites, list):
+            row["sites"] = ", ".join(str(s) for s in sites if s)
+        rows.append(row)
+    return rows
+
+
 _TAB_BUILDERS = {
     "meta": _build_meta_rows,
     "headline": _build_headline_rows,
@@ -272,6 +324,8 @@ _TAB_BUILDERS = {
     "frustration": _build_frustration_rows,
     "kei": _build_kei_rows,
     "trends": _build_trends_rows,
+    "site_detail": _build_site_detail_rows,
+    "user_roster": _build_user_roster_rows,
 }
 
 
@@ -280,6 +334,8 @@ def build_pendo_export_workbook_tables(report: dict[str, Any]) -> dict[str, list
     customer = _customerndx(report)
     tables: dict[str, list[list[Any]]] = {}
     for report_key, tab_title in _PENDO_EXPORT_TABS:
+        if report_key in ("site_detail", "user_roster") and not report.get(report_key):
+            continue
         builder = _TAB_BUILDERS[report_key]
         rows = builder(report, customer)
         tables[_safe_sheet_title(tab_title)] = _rows_to_grid(rows)

@@ -55,6 +55,8 @@ Flag commands (utilities)
       Section 7 LLM churn/account-risk insights are always appended to the export markdown.
 
   cortex --export-pendo --customer <name> [--days N] [--compare-days N] [--no-drive] [-o PATH]
+  cortex --export-pendo-detailed --customer <name> [--days N] [--compare-days N] [--no-drive] [-o PATH]
+  cortex --export-pendo-top-arr [--top-n 5] [--days N] [--compare-days N] [--no-drive] [--out-dir DIR]
       Export **Pendo-only** product usage for one customer (sites, features, depth, Kei, trends).
       Uploads markdown + Google Sheet to ``Output/customer-exports/{customer}/`` (stable + dated subfolder).
       Default: ``--days 30``.
@@ -1227,6 +1229,20 @@ def main():
 
         rest = [a for a in sys.argv[1:] if a != "--export-pendo"]
         export_pendo_main(rest, prog="cortex --export-pendo")
+        return
+
+    if "--export-pendo-detailed" in sys.argv:
+        from src.export_pendo_detailed_snapshot import export_pendo_detailed_main
+
+        rest = [a for a in sys.argv[1:] if a != "--export-pendo-detailed"]
+        export_pendo_detailed_main(rest, prog="cortex --export-pendo-detailed")
+        return
+
+    if "--export-pendo-top-arr" in sys.argv:
+        from src.export_pendo_detailed_snapshot import export_pendo_top_arr_main
+
+        rest = [a for a in sys.argv[1:] if a != "--export-pendo-top-arr"]
+        export_pendo_top_arr_main(rest, prog="cortex --export-pendo-top-arr")
         return
 
     if "--schedule" in sys.argv:

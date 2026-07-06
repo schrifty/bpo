@@ -1,0 +1,9 @@
+name: pendo-top-arr-30d
+stop_on_failure: true
+fail_on_warnings: false
+steps:
+  - name: pendo-top-arr-export-30d
+    command: export-pendo-top-arr
+    top_n: 5
+    days: 30
+    compare_days: 30
