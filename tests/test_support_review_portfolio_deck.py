@@ -10,6 +10,11 @@ def test_support_review_portfolio_deck_yaml_loads():
     assert d is not None
     assert d.get("id") == "support_review_portfolio"
     assert "Portfolio" in (d.get("name") or "")
+    assert d.get("extends") is None
+    cover = next(
+        e for e in (d.get("slides") or []) if (e.get("slide") or e.get("recipe")) == "support_deck_cover"
+    )
+    assert cover.get("title") == "Support Review — Portfolio"
 
 
 def test_support_review_portfolio_resolves_all_customers_slides():
@@ -26,6 +31,24 @@ def test_support_review_portfolio_resolves_all_customers_slides():
     fi = ids.index("support_help_factory_start_buckets")
     mi = ids.index("support_help_monthly_operational")
     assert mi == fi + 1
+    cover = next(s for s in slides if (s.get("slide_type") or s.get("id")) == "support_deck_cover")
+    assert cover.get("title") == "Support Review — Portfolio"
+
+
+def test_support_review_portfolio_matches_support_slide_lineup():
+    """Portfolio deck inherits support.yaml slides; only cover title differs."""
+    r_support = resolve_deck("support", None)
+    r_portfolio = resolve_deck("support_review_portfolio", None)
+    assert not r_support.get("error")
+    assert not r_portfolio.get("error")
+    support_ids = [s.get("slide_type") or s.get("id") for s in r_support.get("slides") or []]
+    portfolio_ids = [s.get("slide_type") or s.get("id") for s in r_portfolio.get("slides") or []]
+    assert support_ids == portfolio_ids
+    support_titles = [s.get("title") for s in r_support.get("slides") or []]
+    portfolio_titles = [s.get("title") for s in r_portfolio.get("slides") or []]
+    assert support_titles[1:] == portfolio_titles[1:]
+    assert portfolio_titles[0] == "Support Review — Portfolio"
+    assert support_titles[0] == "Support Review"
 
 
 def _cover_bg_rgb(reqs: list) -> dict:

@@ -88,6 +88,63 @@ def _slide_ids_required_by_deck(deck: dict[str, Any]) -> set[str]:
     return out
 
 
+def _merge_extended_deck(alias: dict[str, Any], base: dict[str, Any]) -> dict[str, Any]:
+    """Merge an alias deck (``extends: <base_id>``) onto its base definition."""
+    merged = dict(base)
+    for key in ("id", "name", "audience", "purpose", "_file", "_source"):
+        if key in alias and alias.get(key) is not None:
+            merged[key] = alias[key]
+    if alias.get("slides"):
+        merged["slides"] = [dict(e) for e in alias["slides"]]
+    else:
+        merged["slides"] = [dict(e) for e in (base.get("slides") or [])]
+
+    cover_title = alias.get("cover_title")
+    if cover_title:
+        for i, entry in enumerate(merged["slides"]):
+            rid = entry.get("slide", entry.get("recipe", ""))
+            if rid == "support_deck_cover":
+                merged["slides"][i] = {**entry, "title": str(cover_title).strip()}
+                break
+
+    slide_title_overrides = alias.get("slide_title_overrides") or {}
+    if slide_title_overrides:
+        for i, entry in enumerate(merged["slides"]):
+            rid = entry.get("slide", entry.get("recipe", ""))
+            ot = slide_title_overrides.get(rid)
+            if ot:
+                merged["slides"][i] = {**entry, "title": str(ot).strip()}
+
+    for key in ("extends", "cover_title", "slide_title_overrides"):
+        merged.pop(key, None)
+    return merged
+
+
+def _apply_deck_extends(
+    deck: dict[str, Any],
+    decks_dir: str | Path | None,
+    *,
+    _stack: frozenset[str] | None = None,
+) -> dict[str, Any]:
+    """When deck YAML declares ``extends: <id>``, inherit slides from the base deck."""
+    extends = deck.get("extends")
+    if not extends:
+        return deck
+    base_id = str(extends).strip()
+    if not base_id:
+        return deck
+    deck_id = str(deck.get("id") or "")
+    seen = _stack or frozenset()
+    if deck_id in seen or base_id in seen:
+        logger.warning("Deck '%s' has circular extends chain; using alias YAML as-is", deck_id)
+        return deck
+    base = load_deck(base_id, decks_dir, _extends_stack=seen | {deck_id})
+    if not base:
+        logger.warning("Deck '%s' extends missing deck '%s'", deck_id, base_id)
+        return deck
+    return _merge_extended_deck(deck, base)
+
+
 def _load_deck_from_local_dir(d: Path, deck_id: str) -> dict[str, Any] | None:
     """Load one deck from the repo ``decks/`` tree without a Drive folder walk."""
     if not d.is_dir():
@@ -119,22 +176,27 @@ def _load_deck_from_local_dir(d: Path, deck_id: str) -> dict[str, Any] | None:
 def load_deck(
     deck_id: str,
     decks_dir: str | Path | None = None,
+    *,
+    _extends_stack: frozenset[str] | None = None,
 ) -> dict[str, Any] | None:
     """Load a single deck definition by ID (one YAML file — never the full Drive decks folder)."""
     d = Path(decks_dir) if decks_dir else DEFAULT_DECKS_DIR
+    raw: dict[str, Any] | None = None
     local = _load_deck_from_local_dir(d, deck_id)
     if local:
-        return local
-    if _USE_DRIVE and not decks_dir:
+        raw = local
+    elif _USE_DRIVE and not decks_dir:
         try:
             from .drive_config import load_deck_yaml_from_drive
 
             got = load_deck_yaml_from_drive(deck_id, d)
             if got and got.get("id") == deck_id:
-                return got
+                raw = got
         except Exception as e:
             logger.debug("load_deck: Drive single fetch: %s", e)
-    return None
+    if not raw:
+        return None
+    return _apply_deck_extends(raw, decks_dir, _stack=_extends_stack)
 
 
 def resolve_deck(
