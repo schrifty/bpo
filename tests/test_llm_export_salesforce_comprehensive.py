@@ -198,7 +198,7 @@ def test_attach_comprehensive_cap_uses_top_active_by_arr(monkeypatch):
         }
     }
     summary = attach_salesforce_comprehensive_for_llm_export(report)
-    assert summary["selection"] == "top_active_by_arr"
+    assert summary["selection"] == "top_active_ultimate_parents_by_arr"
     assert summary["customers_requested"] == 1
     assert fetched == ["BigCo"]
-    assert summary["selection_ranked"][0]["salesforce_label"] == "BigCo"
+    assert summary["selection_ranked"][0]["ultimate_parent"] == "BigCo"

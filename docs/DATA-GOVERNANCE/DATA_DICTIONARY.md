@@ -397,6 +397,20 @@
 - `portfolio_expansion_book.pct_active_customers_expanding_cy`
 - `portfolio_revenue_book.expansion_kpis`
 
+## Portfolio revenue book (`portfolio_revenue_book`)
+
+Commercial classification and ARR rollups for Salesforce Customer Entity reporting groups. See [`LLM_EXPORT_ALL_CONSUMER_GUIDE.md`](./LLM_EXPORT_ALL_CONSUMER_GUIDE.md).
+
+- `portfolio_revenue_book.matched_customer_contract_rollups[].commercial_status` — `ACTIVE` | `OUT_OF_CONTRACT_RENEWING` | `CHURNED` | `FUTURE`
+- `portfolio_revenue_book.matched_customer_contract_rollups[].active_arr`
+- `portfolio_revenue_book.matched_customer_contract_rollups[].renewal_arr`
+- `portfolio_revenue_book.matched_customer_contract_rollups[].current_arr` — `active_arr + renewal_arr` (ranking key)
+- `portfolio_revenue_book.matched_customer_contract_rollups[].historical_arr`
+- `portfolio_revenue_book.active_arr` / `renewal_arr` / `current_arr` / `historical_arr` — book totals
+- `portfolio_revenue_book.future_contract_arr` / `future_customer_count`
+
+**Caveat:** boolean `active` on rollups is **deprecated**; use `commercial_status` and `current_arr` for executive views.
+
 ## LLM export CS Report (`csr`, §4 — top customers by ARR)
 - `csr.scope`
 - `csr.top_n`

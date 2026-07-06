@@ -74,6 +74,8 @@ def test_get_portfolio_revenue_book_metrics_sf_first_corporate_groups():
     assert m["top_customers_by_arr"][0]["arr"] == 200_000.0
     assert len(m["matched_customer_contract_rollups"]) == 3
     acme_row = next(r for r in m["matched_customer_contract_rollups"] if r["customer"] == "Acme Division East")
+    assert acme_row["commercial_status"] == "ACTIVE"
+    assert acme_row["current_arr"] == 100_000.0
     assert acme_row["contract_end_date_nearest"] == "2027-06-01"
     assert acme_row["contract_statuses_distinct"] == ["Active"]
     assert acme_row["entity_row_count"] == 1

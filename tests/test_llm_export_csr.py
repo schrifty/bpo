@@ -4,9 +4,32 @@ from __future__ import annotations
 
 from src.cs_report_client import load_csr_top_customers_by_arr
 from src.llm_export_csr import (
+    LLM_EXPORT_TOP_ARR_SCOPE,
     attach_csr_top_customers_for_llm_export,
-    top_active_customers_by_arr_for_csr,
+    top_active_ultimate_parents_by_arr_for_llm_export,
 )
+
+
+def test_top_active_ultimate_parents_groups_carrier_divisions():
+    report = {
+        "customers": [{"customer": "carrier"}],
+        "_llm_export_salesforce_revenue_book": {
+            "matched_customer_contract_rollups": [
+                {"customer": "Commercial HVAC (Carrier)", "arr": 400_000.0, "active": True},
+                {"customer": "Residential HVAC (Carrier)", "arr": 300_000.0, "active": True},
+                {"customer": "Other Co", "arr": 100_000.0, "active": True},
+            ],
+        },
+    }
+    rows = top_active_ultimate_parents_by_arr_for_llm_export(report, top_n=2)
+    assert len(rows) == 2
+    assert rows[0]["ultimate_parent"] == "Carrier"
+    assert rows[0]["arr"] == 700_000.0
+    assert set(rows[0]["salesforce_labels"]) == {
+        "Commercial HVAC (Carrier)",
+        "Residential HVAC (Carrier)",
+    }
+    assert rows[1]["ultimate_parent"] == "Other Co"
 
 
 def test_top_active_customers_by_arr_for_csr():
@@ -20,11 +43,11 @@ def test_top_active_customers_by_arr_for_csr():
             ],
         },
     }
-    rows = top_active_customers_by_arr_for_csr(report, top_n=2)
+    rows = top_active_ultimate_parents_by_arr_for_llm_export(report, top_n=2)
     assert len(rows) == 2
-    assert rows[0]["salesforce_label"] == "Big"
+    assert rows[0]["ultimate_parent"] == "Big"
     assert rows[0]["arr"] == 500.0
-    assert rows[1]["salesforce_label"] == "Small"
+    assert rows[1]["ultimate_parent"] == "Small"
 
 
 def test_load_csr_top_customers_by_arr(monkeypatch):
@@ -44,9 +67,9 @@ def test_load_csr_top_customers_by_arr(monkeypatch):
     monkeypatch.setattr(m, "get_customer_platform_value", pv)
 
     out = load_csr_top_customers_by_arr(
-        [{"salesforce_label": "Acme", "arr": 100.0, "csr_lookup_name": "Acme"}]
+        [{"ultimate_parent": "Acme", "salesforce_label": "Acme", "arr": 100.0, "csr_lookup_name": "Acme"}]
     )
-    assert out["scope"] == "top_customers_by_arr"
+    assert out["scope"] == LLM_EXPORT_TOP_ARR_SCOPE
     assert "Acme" in out["customers"]
     assert out["customers"]["Acme"]["platform_health"]["customer"] == "Acme"
 
@@ -55,7 +78,7 @@ def test_attach_csr_top_customers_for_llm_export(monkeypatch):
     monkeypatch.setattr(
         "src.cs_report_client.load_csr_top_customers_by_arr",
         lambda sel: {
-            "scope": "top_customers_by_arr",
+            "scope": LLM_EXPORT_TOP_ARR_SCOPE,
             "top_n": len(sel),
             "selection_ranked": [],
             "customers": {

@@ -77,6 +77,10 @@ _LEANDNA_DATA_API_HTTP_SURFACES: tuple[str, ...] = (
 )
 
 # Typical ``report`` dotted paths when QBR LeanDNA enrichments run (no live values in this export).
+
+
+def _is_llm_export_top_arr_scope(scope: Any) -> bool:
+    return scope in ("top_customers_by_arr", "top_ultimate_parents_by_arr")
 _LEANDNA_QBR_ENRICHMENT_PATHS: tuple[str, ...] = (
     "leandna_item_master",
     "leandna_item_master.abc_distribution",
@@ -186,7 +190,7 @@ def _integration_coverage_lines(*, salesforce: dict[str, Any], csr: dict[str, An
     if not csr:
         lines.append("- **CS Report:** **Not loaded** — no `csr` block on the merged report.")
         return lines
-    if csr.get("scope") == "top_customers_by_arr":
+    if _is_llm_export_top_arr_scope(csr.get("scope")):
         customers = csr.get("customers") if isinstance(csr.get("customers"), dict) else {}
         n = len(customers)
         n_ok = sum(
@@ -200,7 +204,7 @@ def _integration_coverage_lines(*, salesforce: dict[str, Any], csr: dict[str, An
         )
         if n and n_ok:
             lines.append(
-                f"- **CS Report:** **Loaded** — per-customer week slices for top {n} label(s) by ARR "
+                f"- **CS Report:** **Loaded** — per-customer week slices for top {n} ultimate parent(s) by ARR "
                 f"({n_ok} with at least one section; see §4 ``customers``)."
             )
         elif n:
@@ -664,7 +668,7 @@ def _compact_eng_enh_counts_only(blob: dict[str, Any] | None) -> dict[str, Any]:
 def _compact_jira(j: dict[str, Any], *, size_caps_enabled: bool = True) -> dict[str, Any]:
     if not j or not isinstance(j, dict):
         return {}
-    if j.get("scope") == "top_customers_by_arr":
+    if _is_llm_export_top_arr_scope(j.get("scope")):
         customers_in = j.get("customers")
         customers_out: dict[str, Any] = {}
         if isinstance(customers_in, dict):
@@ -674,10 +678,14 @@ def _compact_jira(j: dict[str, Any], *, size_caps_enabled: bool = True) -> dict[
                 slim: dict[str, Any] = {
                     k: entry.get(k)
                     for k in (
+                        "ultimate_parent",
                         "salesforce_label",
+                        "salesforce_labels",
                         "arr",
                         "pendo_customer_key",
                         "jira_lookup_name",
+                        "jira_match_terms",
+                        "jira_merged_subsidiary_lookups",
                     )
                     if k in entry
                 }
@@ -1021,7 +1029,7 @@ def _compact_csr(
     out: dict[str, Any] = {}
     if isinstance(csr.get("note"), str):
         out["note"] = csr["note"]
-    if csr.get("scope") == "top_customers_by_arr":
+    if _is_llm_export_top_arr_scope(csr.get("scope")):
         out["scope"] = csr["scope"]
         if csr.get("top_n") is not None:
             out["top_n"] = csr["top_n"]
@@ -1035,7 +1043,14 @@ def _compact_csr(
                     continue
                 slim: dict[str, Any] = {
                     k: block[k]
-                    for k in ("salesforce_label", "arr", "pendo_customer_key", "csr_lookup_name")
+                    for k in (
+                        "ultimate_parent",
+                        "salesforce_label",
+                        "salesforce_labels",
+                        "arr",
+                        "pendo_customer_key",
+                        "csr_lookup_name",
+                    )
                     if k in block
                 }
                 for key in ("platform_health", "supply_chain", "platform_value"):
@@ -1174,10 +1189,14 @@ def _compact_salesforce_comprehensive_portfolio(
     priority: list[str] = []
     if report is not None:
         try:
-            from .llm_export_csr import top_active_customers_by_arr_for_csr
+            from .llm_export_csr import top_active_ultimate_parents_by_arr_for_llm_export
 
-            for row in top_active_customers_by_arr_for_csr(report, top_n=max(1, top_customers)):
-                label = str(row.get("salesforce_label") or "").strip()
+            for row in top_active_ultimate_parents_by_arr_for_llm_export(
+                report, top_n=max(1, top_customers)
+            ):
+                label = str(
+                    row.get("ultimate_parent") or row.get("salesforce_label") or ""
+                ).strip()
                 if label and label not in priority:
                     priority.append(label)
         except Exception:

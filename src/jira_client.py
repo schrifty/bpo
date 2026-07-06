@@ -153,6 +153,27 @@ def _jql_escape_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
+def _organizations_jql_literal(org_names: list[str]) -> str | None:
+    """Build a single JSM ``Organizations`` JQL clause for one or more directory names."""
+    unique: list[str] = []
+    seen_lower: set[str] = set()
+    for org in org_names:
+        ex = (org or "").strip()
+        if not ex:
+            continue
+        key = ex.lower()
+        if key in seen_lower:
+            continue
+        seen_lower.add(key)
+        unique.append(ex)
+    if not unique:
+        return None
+    if len(unique) == 1:
+        return f'Organizations = "{_jql_escape_string(unique[0])}"'
+    quoted = ", ".join(f'"{_jql_escape_string(n)}"' for n in unique)
+    return f"Organizations in ({quoted})"
+
+
 def _norm_org_for_match(s: str) -> str:
     """Normalize a label for fuzzy comparison against JSM organization names."""
     t = (s or "").lower().strip()
@@ -1698,24 +1719,26 @@ class JiraClient:
                 if not any(x.lower() == ex.lower() for x in resolved_orgs):
                     resolved_orgs.append(ex)
 
-        org_fragments: list[str] = []
-        seen_org: set[str] = set()
+        org_names: list[str] = []
+        seen_org_lower: set[str] = set()
         for term in cleaned_terms:
             exact = jsm_name_by_lower.get(term.lower())
             if not exact:
                 continue
-            esc = _jql_escape_string(exact)
-            frag = f'Organizations = "{esc}"'
-            if frag not in seen_org:
-                seen_org.add(frag)
-                org_fragments.append(frag)
+            key = exact.lower()
+            if key in seen_org_lower:
+                continue
+            seen_org_lower.add(key)
+            org_names.append(exact)
         for org in resolved_orgs:
             ex = jsm_name_by_lower.get(org.strip().lower(), org.strip())
-            esc = _jql_escape_string(ex)
-            frag = f'Organizations = "{esc}"'
-            if frag not in seen_org:
-                seen_org.add(frag)
-                org_fragments.append(frag)
+            key = ex.lower()
+            if not ex or key in seen_org_lower:
+                continue
+            seen_org_lower.add(key)
+            org_names.append(ex)
+
+        org_literal = _organizations_jql_literal(org_names)
 
         text_fragments: list[str] = []
         for esc in escaped_terms:
@@ -1723,12 +1746,14 @@ class JiraClient:
             text_fragments.append(f'description ~ "{esc}"')
 
         if organizations_only:
-            if not org_fragments:
+            if not org_literal:
                 # No Organizations literals (should be rare) — JQL that matches no real issues.
                 return ('summary ~ "___CORTEX_NO_ORG_MATCH___"', resolved_orgs)
-            clauses = org_fragments
+            return org_literal, resolved_orgs
+        if org_literal:
+            clauses = [org_literal] + text_fragments
         else:
-            clauses = org_fragments + text_fragments
+            clauses = text_fragments
         return "(" + " OR ".join(clauses) + ")", resolved_orgs
 
     def _help_project_customer_filter(
@@ -2104,16 +2129,27 @@ class JiraClient:
             "jql_queries": self._jql_since(jql_start),
         }
 
-    def get_customer_jira(self, customer_name: str, days: int = 90) -> dict[str, Any]:
+    def get_customer_jira(
+        self,
+        customer_name: str,
+        days: int = 90,
+        *,
+        match_terms: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Get JIRA picture for a customer: open issues, recent activity, escalations.
 
         Scoped to **project HELP** (support desk) only. All HELP issue lists and
         :func:`get_customer_ticket_metrics` prebuilt slice use the same JQL: JSM
         ``Organizations`` only (no ``summary`` / ``description`` text match) so
         per-customer counts are not inflated by other orgs' tickets.
+
+        *match_terms* adds extra Salesforce / subsidiary labels to the JSM org resolution
+        (OR'd into one HELP filter) so parent and division org names are counted together.
         """
         jql_start = self._jql_log_len()
-        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(customer_name)
+        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
+            customer_name, match_terms
+        )
         jql = f"project = HELP AND {base_filter} AND {_TRANSIENT_LABELS_EXCLUSION} AND created >= -{days}d ORDER BY created DESC"
         clause_bundle = (base_filter, resolved_jsm_orgs)
 

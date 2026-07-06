@@ -291,6 +291,87 @@ def build_entries() -> list[dict[str, Any]]:
                 )
             )
 
+    rows.extend(
+        [
+            _e("salesforce.expansion_kpis", "[SFDC portfolio] expansion KPI rollup on revenue book"),
+            _e("salesforce.portfolio_expansion_book", "[SFDC portfolio] expansion book snapshot"),
+        ]
+    )
+
+    # ── LLM export: salesforce_comprehensive_portfolio (§3c) ─────────────────
+    rows.extend(
+        [
+            _e(
+                "salesforce_comprehensive_portfolio",
+                "[LLM export §3c] portfolio-wide SF comprehensive block",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.by_customer",
+                "[LLM export §3c] label→per-customer salesforce.* comprehensive payloads",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.entity_accounts",
+                "[LLM export §3c] full-book Customer Entity rows (get_entity_accounts)",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.entity_accounts[].division_group",
+                "[LLM export §3c] SF hierarchy: ultimate parent → parent → account name",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.entity_accounts[].corporate_group",
+                "[LLM export §3c] corporate rollup label (config/salesforce_reporting_rollups.yaml)",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.entity_accounts[].ultimate_parent_group",
+                "[LLM export §3c] Ultimate Parent rollup; falls back to name parenthetical / corporate group when ultimate_parent_name blank",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.entity_accounts_count",
+                "[LLM export §3c] count of entity_accounts (full book, not compaction cap)",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.arr_by_ultimate_parent",
+                "[LLM export §3c] full-book ARR rollup by Ultimate Parent, sorted desc",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].ultimate_parent",
+                "[LLM export §3c] Ultimate Parent group label",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].arr",
+                "[LLM export §3c] summed ARR for group",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].entity_count",
+                "[LLM export §3c] Customer Entity count in group",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].active",
+                "[LLM export §3c] True when any entity in group has non-churned contract status",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].entity_names_sample",
+                "[LLM export §3c] sample entity Name values (up to 12)",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.portfolio_expansion_book",
+                "[LLM export §3c] expansion KPI book copied from portfolio revenue book",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.row_limit",
+                "[LLM export §3c] CORTEX_LLM_EXPORT_SF_COMPREHENSIVE_ROW_LIMIT per category",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.customer_count",
+                "[LLM export §3c] portfolio labels with comprehensive fetch attempted",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.configured",
+                "[LLM export §3c] Salesforce integration configured",
+            ),
+        ]
+    )
+
     # ── Slack (customer channel conversation digests) ─────────────────────────
     rows.extend(
         [

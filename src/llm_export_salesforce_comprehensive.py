@@ -123,16 +123,23 @@ def _labels_for_comprehensive_fetch(
         labels = _rollup_labels_with_segment(report)
         return labels, {"selection": "all_portfolio_labels", "top_n": None}
 
-    from .llm_export_csr import top_active_customers_by_arr_for_csr
+    from .llm_export_csr import top_active_ultimate_parents_by_arr_for_llm_export
 
-    ranked = top_active_customers_by_arr_for_csr(report, top_n=cap)
-    labels = [
-        (str(row.get("salesforce_label") or "").strip(), "active")
-        for row in ranked
-        if str(row.get("salesforce_label") or "").strip()
-    ]
+    ranked = top_active_ultimate_parents_by_arr_for_llm_export(report, top_n=cap)
+    labels: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for row in ranked:
+        for label in row.get("salesforce_labels") or [row.get("ultimate_parent")]:
+            s = str(label or "").strip()
+            if not s:
+                continue
+            key = s.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            labels.append((s, "active"))
     return labels, {
-        "selection": "top_active_by_arr",
+        "selection": "top_active_ultimate_parents_by_arr",
         "top_n": cap,
         "selection_ranked": ranked,
     }
@@ -166,7 +173,15 @@ def _rollup_labels_with_segment(report: dict[str, Any]) -> list[tuple[str, str]]
             label = str(r.get("customer") or "").strip()
             if not label:
                 continue
-            if r.get("active") is not False:
+            if r.get("commercial_status") == "ACTIVE":
+                seg = "active"
+            elif r.get("commercial_status") == "OUT_OF_CONTRACT_RENEWING":
+                seg = "renewal_negotiation"
+            elif r.get("commercial_status") == "FUTURE":
+                seg = "future_contract"
+            elif r.get("commercial_status") == "CHURNED":
+                seg = "churned"
+            elif r.get("active") is not False:
                 seg = "active"
             elif r.get("renewal_in_flight") is True:
                 seg = "renewal_negotiation"
@@ -307,8 +322,8 @@ def attach_salesforce_comprehensive_for_llm_export(report: dict[str, Any]) -> di
             "Per-customer payloads mirror the salesforce_comprehensive deck (mainstream object "
             "categories scoped to matched Customer Entity accounts). When "
             "CORTEX_LLM_EXPORT_SF_COMPREHENSIVE_CUSTOMER_CAP is set (default 12), only the top "
-            "active Salesforce labels by ARR are fetched — same ranking as §4 CS Report top-N. "
-            "Set CUSTOMER_CAP=0 or all to fetch every active+churned portfolio label."
+            "active Salesforce ultimate parents by ARR are fetched — same ranking as §2 Jira and "
+            "§4 CS Report top-N. Set CUSTOMER_CAP=0 or all to fetch every active+churned portfolio label."
         ),
     }
     report["_llm_export_salesforce_comprehensive"] = summary
