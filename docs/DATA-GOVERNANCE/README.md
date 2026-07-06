@@ -19,5 +19,6 @@ Start with **[`DATA_REGISTRY.md`](./DATA_REGISTRY.md)** for the cross-system ide
 | [`CUSTOMER_COHORTS.md`](./CUSTOMER_COHORTS.md) | Manufacturing cohort classifications (`config/cohorts.yaml`) |
 | [`CONFIG_ALIASES.md`](./CONFIG_ALIASES.md) | Customer alias maps under `config/` |
 | [`SLIDE_DATA_GAP_ANALYSIS.md`](./SLIDE_DATA_GAP_ANALYSIS.md) | Slide ↔ data coverage methodology / findings |
+| [`Cortex Export - User Guide.md`](./Cortex%20Export%20-%20User%20Guide.md) | All-customers export: what’s in the file, how to read it, example AI prompts |
 
 **Operational setup** (credentials, env vars) lives under [`../SETUP/`](../SETUP/). **Slide design & Pendo builders:** [`../PRESENTATION/`](../PRESENTATION/). Other deck/product docs remain at [`../`](../).

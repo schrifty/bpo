@@ -399,7 +399,7 @@
 
 ## Portfolio revenue book (`portfolio_revenue_book`)
 
-Commercial classification and ARR rollups for Salesforce Customer Entity reporting groups. See [`LLM_EXPORT_ALL_CONSUMER_GUIDE.md`](./LLM_EXPORT_ALL_CONSUMER_GUIDE.md).
+Commercial classification and ARR rollups for Salesforce Customer Entity reporting groups. See [`Cortex Export - User Guide.md`](./Cortex%20Export%20-%20User%20Guide.md).
 
 - `portfolio_revenue_book.matched_customer_contract_rollups[].commercial_status` — `ACTIVE` | `OUT_OF_CONTRACT_RENEWING` | `CHURNED` | `FUTURE`
 - `portfolio_revenue_book.matched_customer_contract_rollups[].active_arr`
