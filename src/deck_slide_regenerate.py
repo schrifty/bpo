@@ -12,7 +12,7 @@ from .deck_governance import _CURSOR_SLIDE_TYPES, _GITHUB_PRODUCTIVITY_SLIDE_TYP
 from .deck_loader import resolve_deck
 from .deck_orchestrator import _PORTFOLIO_DRIVE_TITLE_TAIL
 from .hydrate_extract import extract_text
-from .slide_registry import _SLIDE_BUILDERS
+from .slide_registry import get_slide_builder, slide_builder_names
 from .slide_utils import slide_object_id_base as _slide_object_id_base
 from .slides_api import _get_service, presentations_batch_update_chunked
 from .speaker_notes import set_speaker_notes_batch
@@ -146,7 +146,7 @@ def regenerate_deck_slides(
     if not pres_id:
         return {"error": "presentation_id is required"}
 
-    unknown = set(slide_types) - set(_SLIDE_BUILDERS.keys())
+    unknown = set(slide_types) - set(slide_builder_names())
     if unknown:
         return {"error": f"Unknown slide types: {', '.join(sorted(unknown))}"}
 
@@ -212,7 +212,7 @@ def regenerate_deck_slides(
         if not entry:
             logger.warning("Slide type %s not in deck plan — skipping", slide_type)
             continue
-        builder = _SLIDE_BUILDERS.get(slide_type)
+        builder = get_slide_builder(slide_type)
         if not builder:
             continue
 

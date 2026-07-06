@@ -7,7 +7,7 @@ from typing import Any
 from .config import logger
 from .deck_data_enrichment import SUPPORT_DECK_IDS, SUPPORT_KPI_DECK_IDS
 from .deck_builder_utils import _normalize_builder_return
-from .slide_registry import _SLIDE_BUILDERS
+from .slide_registry import get_slide_builder
 from .slide_utils import slide_object_id_base as _slide_object_id_base
 
 
@@ -43,7 +43,7 @@ def render_slide_plan(
 
     for entry in plan_work:
         slide_type = entry.get("slide_type", entry["id"])
-        builder = _SLIDE_BUILDERS.get(slide_type)
+        builder = get_slide_builder(slide_type)
         if not builder:
             logger.warning(
                 "create_health_deck: no _SLIDE_BUILDERS entry for slide_type=%r (deck %s entry id=%r)",

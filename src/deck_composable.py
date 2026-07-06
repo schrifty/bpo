@@ -13,7 +13,7 @@ from .deck_builder_utils import (
     _normalize_builder_return,
 )
 from .slide_metadata import SLIDE_DATA_REQUIREMENTS
-from .slide_registry import _SLIDE_BUILDERS
+from .slide_registry import get_slide_builder, slide_builder_names
 from .slide_utils import slide_object_id_base as _slide_object_id_base
 from .slides_api import (
     _get_service,
@@ -86,9 +86,9 @@ _slide_counter: dict[str, int] = {}
 
 def add_slide(deck_id: str, slide_type: str, data: dict[str, Any]) -> dict[str, Any]:
     """Add one slide to an existing deck."""
-    builder = _SLIDE_BUILDERS.get(slide_type)
+    builder = get_slide_builder(slide_type)
     if not builder:
-        return {"error": f"Unknown slide type '{slide_type}'. Valid: {', '.join(_SLIDE_BUILDERS)}"}
+        return {"error": f"Unknown slide type '{slide_type}'. Valid: {', '.join(slide_builder_names())}"}
 
     try:
         slides_service, _ds, _ = _get_service()

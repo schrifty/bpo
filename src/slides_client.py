@@ -32,27 +32,6 @@ from .slide_cs_notable import cs_notable_slide as _cs_notable_slide
 from .slide_depth import depth_slide as _depth_slide
 from .slide_engagement import engagement_slide as _engagement_slide
 from .slide_exports import exports_slide as _exports_slide
-from .slide_engineering_portfolio import (
-    customer_project_volume_trends_slide as _customer_project_volume_trends_slide,
-    eng_backlog_health_slide as _eng_backlog_health_slide,
-    eng_bug_health_slide as _eng_bug_health_slide,
-    eng_capacity_slide as _eng_capacity_slide,
-    eng_current_sprint_slide as _eng_current_sprint_slide,
-    eng_exec_summary_slide as _eng_exec_summary_slide,
-    eng_flow_bottlenecks_slide as _eng_flow_bottlenecks_slide,
-    eng_work_split_slide as _eng_work_split_slide,
-    eng_enhancements_open_slide as _eng_enhancements_open_slide,
-    eng_enhancements_shipped_slide as _eng_enhancements_shipped_slide,
-    eng_help_volume_trends_slide as _eng_help_volume_trends_slide,
-    eng_insight_bullets as _eng_insight_bullets,
-    eng_jira_project_slide as _eng_jira_project_slide,
-    eng_portfolio_title_slide as _eng_portfolio_title_slide,
-    eng_team_scorecard_slide as _eng_team_scorecard_slide,
-    eng_sprint_snapshot_slide as _eng_sprint_snapshot_slide,
-    eng_support_pressure_slide as _eng_support_pressure_slide,
-    eng_velocity_slide as _eng_velocity_slide,
-    lean_project_volume_trends_slide as _lean_project_volume_trends_slide,
-)
 from .slide_guides import (
     guides_no_usage_slide as _guides_no_usage_slide,
     guides_slide as _guides_slide,

@@ -2,313 +2,302 @@
 
 from __future__ import annotations
 
-from .slide_benchmarks import benchmarks_slide as _benchmarks_slide
-from .slide_cohort import (
-    cohort_deck_title_slide as _cohort_deck_title_slide,
-    cohort_findings_slide as _cohort_findings_slide,
-    cohort_profiles_slide as _cohort_profiles_slide,
-    cohort_summary_slide as _cohort_summary_slide,
-)
-from .slide_cs_notable import cs_notable_slide as _cs_notable_slide
-from .slide_support_kpis_notable import support_kpis_notable_slide as _support_kpis_notable_slide
-from .slide_custom import custom_slide as _custom_slide
-from .slide_data_quality import data_quality_slide as _data_quality_slide
-from .slide_depth import depth_slide as _depth_slide
-from .slide_engagement import engagement_slide as _engagement_slide
-from .slide_engineering_portfolio import (
-    cursor_cost_slide as _cursor_cost_slide,
-    cursor_cost_models_slide as _cursor_cost_models_slide,
-    cursor_efficiency_slide as _cursor_efficiency_slide,
-    cursor_efficiency_engineers_slide as _cursor_efficiency_engineers_slide,
-    cursor_usage_slide as _cursor_usage_slide,
-    cursor_usage_non_engineers_slide as _cursor_usage_non_engineers_slide,
-    cursor_model_usage_slide as _cursor_model_usage_slide,
-    cursor_users_volume_slide as _cursor_users_volume_slide,
-    cursor_users_slide as _cursor_users_slide,
-    cursor_users_light_slide as _cursor_users_light_slide,
-    cursor_users_non_engineers_volume_slide as _cursor_users_non_engineers_volume_slide,
-    cursor_users_non_engineers_slide as _cursor_users_non_engineers_slide,
-    cursor_users_non_engineers_light_slide as _cursor_users_non_engineers_light_slide,
-    github_engineering_output_slide as _github_engineering_output_slide,
-    github_engineer_contribution_slide as _github_engineer_contribution_slide,
-    github_delivery_flow_slide as _github_delivery_flow_slide,
-    github_change_profile_slide as _github_change_profile_slide,
-    ai_output_correlation_slide as _ai_output_correlation_slide,
-    ai_productivity_matrix_slide as _ai_productivity_matrix_slide,
-    productivity_summary_slide as _productivity_summary_slide,
-    productivity_trend_slide as _productivity_trend_slide,
-    productivity_coaching_slide as _productivity_coaching_slide,
-    customer_project_volume_trends_slide as _customer_project_volume_trends_slide,
-    eng_backlog_health_slide as _eng_backlog_health_slide,
-    eng_bug_flow_slide as _eng_bug_flow_slide,
-    eng_bug_health_slide as _eng_bug_health_slide,
-    eng_capacity_slide as _eng_capacity_slide,
-    eng_epic_progress_slide as _eng_epic_progress_slide,
-    eng_current_sprint_slide as _eng_current_sprint_slide,
-    eng_exec_summary_slide as _eng_exec_summary_slide,
-    eng_flow_bottlenecks_slide as _eng_flow_bottlenecks_slide,
-    eng_work_split_slide as _eng_work_split_slide,
-    eng_help_volume_trends_slide as _eng_help_volume_trends_slide,
-    eng_jira_project_slide as _eng_jira_project_slide,
-    eng_portfolio_title_slide as _eng_portfolio_title_slide,
-    eng_team_scorecard_slide as _eng_team_scorecard_slide,
-    eng_team_roster_slide as _eng_team_roster_slide,
-    eng_divider_slide as _eng_divider_slide,
-    eng_toc_slide as _eng_toc_slide,
-    eng_sprint_snapshot_slide as _eng_sprint_snapshot_slide,
-    eng_support_pressure_slide as _eng_support_pressure_slide,
-    eng_velocity_slide as _eng_velocity_slide,
-    lean_project_volume_trends_slide as _lean_project_volume_trends_slide,
-)
-from .slide_exports import exports_slide as _exports_slide
-from .slide_guides import guides_slide as _guides_slide
-from .slide_health import health_slide as _health_slide
-from .slide_jira_support import (
-    cross_validation_slide as _cross_validation_slide,
-    customer_help_recent_slide as _customer_help_recent_slide,
-    customer_project_recent_closed_slide as _customer_project_recent_closed_slide,
-    customer_project_recent_opened_slide as _customer_project_recent_opened_slide,
-    customer_project_ticket_metrics_breakdown_slide as _customer_project_ticket_metrics_breakdown_slide,
-    customer_project_ticket_metrics_slide as _customer_project_ticket_metrics_slide,
-    customer_resolved_by_assignee_slide as _customer_resolved_by_assignee_slide,
-    customer_ticket_metrics_charts_slide as _customer_ticket_metrics_charts_slide,
-    customer_ticket_metrics_slide as _customer_ticket_metrics_slide,
-    engineering_slide as _engineering_slide,
-    enhancement_requests_slide as _enhancement_requests_slide,
-    help_factory_start_day_buckets_slide as _help_factory_start_day_buckets_slide,
-    help_monthly_operational_slide as _help_monthly_operational_slide,
-    help_resolved_by_assignee_slide as _help_resolved_by_assignee_slide,
-    jira_slide as _jira_slide,
-    lean_project_recent_closed_slide as _lean_project_recent_closed_slide,
-    lean_project_recent_opened_slide as _lean_project_recent_opened_slide,
-    lean_project_ticket_metrics_breakdown_slide as _lean_project_ticket_metrics_breakdown_slide,
-    lean_project_ticket_metrics_slide as _lean_project_ticket_metrics_slide,
-    lean_resolved_by_assignee_slide as _lean_resolved_by_assignee_slide,
-    sla_health_slide as _sla_health_slide,
-    support_breakdown_slide as _support_breakdown_slide,
-    support_help_customer_escalations_slide as _support_help_customer_escalations_slide,
-    support_help_escalation_metrics_slide as _support_help_escalation_metrics_slide,
-    support_help_orgs_by_opened_slide as _support_help_orgs_by_opened_slide,
-    support_recent_closed_slide as _support_recent_closed_slide,
-    support_recent_opened_slide as _support_recent_opened_slide,
-)
-from .slide_kei import kei_slide as _kei_slide
-from .slide_leandna_projects import (
-    lean_projects_portfolio_slide as _lean_projects_portfolio_slide,
-    lean_projects_savings_slide as _lean_projects_savings_slide,
-)
-from .slide_leandna_shortage import (
-    critical_shortages_detail_slide as _critical_shortages_detail_slide,
-    shortage_deliveries_slide as _shortage_deliveries_slide,
-    shortage_forecast_slide as _shortage_forecast_slide,
-)
+from collections.abc import Callable, Iterator, Mapping
+from importlib import import_module
+from typing import Any
+
 from .slide_metadata import SLIDE_DATA_REQUIREMENTS
-from .slide_platform_health import platform_health_slide as _platform_health_slide
-from .slide_platform_value import (
-    platform_value_slide as _platform_value_slide,
-    platform_value_summary_cover_slide as _platform_value_summary_cover_slide,
-    platform_value_summary_toc_slide as _platform_value_summary_toc_slide,
-)
-from .slide_pendo import (
-    pendo_definitions_appendix_slide as _pendo_definitions_appendix_slide,
-    pendo_friction_slide as _pendo_friction_slide,
-    pendo_localization_slide as _pendo_localization_slide,
-    pendo_sentiment_slide as _pendo_sentiment_slide,
-    pendo_track_analytics_slide as _pendo_track_analytics_slide,
-)
-from .slide_portfolio import (
-    csm_book_title_slide as _csm_book_title_slide,
-    portfolio_expansion_book_slide as _portfolio_expansion_book_slide,
-    portfolio_leaders_slide as _portfolio_leaders_slide,
-    portfolio_revenue_book_slide as _portfolio_revenue_book_slide,
-    portfolio_signals_slide as _portfolio_signals_slide,
-    portfolio_title_slide as _portfolio_title_slide,
-    portfolio_trends_slide as _portfolio_trends_slide,
-)
-from .slide_qbr_deployment import qbr_deployment_slide as _qbr_deployment_slide
-from .slide_qbr_framing import (
-    qbr_agenda_slide as _qbr_agenda_slide,
-    qbr_cover_slide as _qbr_cover_slide,
-    qbr_divider_slide as _qbr_divider_slide,
-)
-from .slide_salesforce import (
-    salesforce_category_slide as _salesforce_category_slide,
-    salesforce_comprehensive_cover_slide as _salesforce_comprehensive_cover_slide,
-    salesforce_comprehensive_toc_slide as _salesforce_comprehensive_toc_slide,
-)
-from .slide_signals import signals_slide as _signals_slide
-from .slide_sites import sites_slide as _sites_slide
-from .slide_supply_chain import supply_chain_slide as _supply_chain_slide
-from .slide_support_intro import (
-    support_deck_cover_slide as _support_deck_cover_slide,
-    support_intro_slide as _support_intro_slide,
-)
-from .slide_support_kpis import (
-    support_kpis_aging_thresholds_slide as _support_kpis_aging_thresholds_slide,
-    support_kpis_backlog_slide as _support_kpis_backlog_slide,
-    support_kpis_csat_slide as _support_kpis_csat_slide,
-    support_kpis_customer_health_slide as _support_kpis_customer_health_slide,
-    support_kpis_engineering_dependency_slide as _support_kpis_engineering_dependency_slide,
-    support_kpis_escalation_backlog_engineering_slide as _support_kpis_escalation_backlog_engineering_slide,
-    support_kpis_escalation_backlog_data_integration_slide as _support_kpis_escalation_backlog_data_integration_slide,
-    support_kpis_flow_slide as _support_kpis_flow_slide,
-    support_kpis_intake_slide as _support_kpis_intake_slide,
-    support_kpis_resolution_slide as _support_kpis_resolution_slide,
-    support_kpis_sla_slide as _support_kpis_sla_slide,
-    support_kpis_tail_risk_slide as _support_kpis_tail_risk_slide,
-    support_kpis_ttfr_slide as _support_kpis_ttfr_slide,
-)
-from .slide_team import team_slide as _team_slide
-from .slide_title_page import title_slide as _title_slide
-from .slide_usage import champions_slide as _champions_slide, features_slide as _features_slide
+
+_SLIDE_BUILDER_SPECS: dict[str, tuple[str, str]] = {}
+_SLIDE_BUILDER_CACHE: dict[str, Callable[..., Any]] = {}
 
 
-_SLIDE_BUILDERS = {
-    "title": _title_slide,
-    "health": _health_slide,
-    "engagement": _engagement_slide,
-    "sites": _sites_slide,
-    "features": _features_slide,
-    "champions": _champions_slide,
-    "benchmarks": _benchmarks_slide,
-    "exports": _exports_slide,
-    "depth": _depth_slide,
-    "kei": _kei_slide,
-    "guides": _guides_slide,
-    "jira": _jira_slide,
-    "customer_ticket_metrics": _customer_ticket_metrics_slide,
-    "customer_ticket_metrics_charts": _customer_ticket_metrics_charts_slide,
-    "support_help_factory_start_buckets": _help_factory_start_day_buckets_slide,
-    "support_help_monthly_operational": _help_monthly_operational_slide,
-    "support_help_orgs_by_opened": _support_help_orgs_by_opened_slide,
-    "support_help_customer_escalations": _support_help_customer_escalations_slide,
-    "support_help_escalation_metrics": _support_help_escalation_metrics_slide,
-    "support_recent_opened": _support_recent_opened_slide,
-    "support_recent_closed": _support_recent_closed_slide,
-    "customer_project_volume_trends": _customer_project_volume_trends_slide,
-    "customer_project_ticket_metrics": _customer_project_ticket_metrics_slide,
-    "customer_project_ticket_metrics_breakdown": _customer_project_ticket_metrics_breakdown_slide,
-    "customer_project_recent_opened": _customer_project_recent_opened_slide,
-    "customer_project_recent_closed": _customer_project_recent_closed_slide,
-    "lean_project_volume_trends": _lean_project_volume_trends_slide,
-    "lean_project_ticket_metrics": _lean_project_ticket_metrics_slide,
-    "lean_project_ticket_metrics_breakdown": _lean_project_ticket_metrics_breakdown_slide,
-    "lean_project_recent_opened": _lean_project_recent_opened_slide,
-    "lean_project_recent_closed": _lean_project_recent_closed_slide,
-    "help_resolved_by_assignee": _help_resolved_by_assignee_slide,
-    "customer_resolved_by_assignee": _customer_resolved_by_assignee_slide,
-    "lean_resolved_by_assignee": _lean_resolved_by_assignee_slide,
-    "custom": _custom_slide,
-    "signals": _signals_slide,
-    "platform_health": _platform_health_slide,
-    "supply_chain": _supply_chain_slide,
-    "platform_value": _platform_value_slide,
-    "platform_value_summary_cover": _platform_value_summary_cover_slide,
-    "platform_value_summary_toc": _platform_value_summary_toc_slide,
-    "data_quality": _data_quality_slide,
-    "portfolio_title": _portfolio_title_slide,
-    "csm_book_title": _csm_book_title_slide,
-    "portfolio_revenue_book": _portfolio_revenue_book_slide,
-    "portfolio_expansion_book": _portfolio_expansion_book_slide,
-    "portfolio_signals": _portfolio_signals_slide,
-    "portfolio_trends": _portfolio_trends_slide,
-    "portfolio_leaders": _portfolio_leaders_slide,
-    "team": _team_slide,
-    "sla_health": _sla_health_slide,
-    "cross_validation": _cross_validation_slide,
-    "engineering": _engineering_slide,
-    "enhancements": _enhancement_requests_slide,
-    "support_breakdown": _support_breakdown_slide,
-    "qbr_cover": _qbr_cover_slide,
-    "qbr_agenda": _qbr_agenda_slide,
-    "qbr_divider": _qbr_divider_slide,
-    "qbr_deployment": _qbr_deployment_slide,
-    "eng_portfolio_title": _eng_portfolio_title_slide,
-    "eng_toc": _eng_toc_slide,
-    "eng_divider": _eng_divider_slide,
-    "eng_exec_summary": _eng_exec_summary_slide,
-    "eng_team_scorecard": _eng_team_scorecard_slide,
-    "eng_team_roster": _eng_team_roster_slide,
-    "eng_current_sprint": _eng_current_sprint_slide,
-    "eng_flow_bottlenecks": _eng_flow_bottlenecks_slide,
-    "eng_work_split": _eng_work_split_slide,
-    "eng_backlog_health": _eng_backlog_health_slide,
-    "eng_capacity": _eng_capacity_slide,
-    "eng_sprint_snapshot": _eng_sprint_snapshot_slide,
-    "eng_epic_progress": _eng_epic_progress_slide,
-    "eng_bug_health": _eng_bug_health_slide,
-    "eng_bug_flow": _eng_bug_flow_slide,
-    "eng_velocity": _eng_velocity_slide,
-    "eng_support_pressure": _eng_support_pressure_slide,
-    "eng_jira_project": _eng_jira_project_slide,
-    "eng_help_volume_trends": _eng_help_volume_trends_slide,
-    "cursor_cost": _cursor_cost_slide,
-    "cursor_cost_models": _cursor_cost_models_slide,
-    "cursor_usage": _cursor_usage_slide,
-    "cursor_usage_non_engineers": _cursor_usage_non_engineers_slide,
-    "cursor_model_usage": _cursor_model_usage_slide,
-    "cursor_efficiency": _cursor_efficiency_slide,
-    "cursor_efficiency_engineers": _cursor_efficiency_engineers_slide,
-    "cursor_users_volume": _cursor_users_volume_slide,
-    "cursor_users": _cursor_users_slide,
-    "cursor_users_light": _cursor_users_light_slide,
-    "cursor_users_non_engineers_volume": _cursor_users_non_engineers_volume_slide,
-    "cursor_users_non_engineers": _cursor_users_non_engineers_slide,
-    "cursor_users_non_engineers_light": _cursor_users_non_engineers_light_slide,
-    "github_engineering_output": _github_engineering_output_slide,
-    "github_engineer_contribution": _github_engineer_contribution_slide,
-    "github_delivery_flow": _github_delivery_flow_slide,
-    "github_change_profile": _github_change_profile_slide,
-    "productivity_summary": _productivity_summary_slide,
-    "productivity_trend": _productivity_trend_slide,
-    "productivity_coaching": _productivity_coaching_slide,
-    "ai_output_correlation": _ai_output_correlation_slide,
-    "ai_productivity_matrix": _ai_productivity_matrix_slide,
-    "support_deck_cover": _support_deck_cover_slide,
-    "support_intro": _support_intro_slide,
-    "support_kpis_intake": _support_kpis_intake_slide,
-    "support_kpis_flow": _support_kpis_flow_slide,
-    "support_kpis_backlog": _support_kpis_backlog_slide,
-    "support_kpis_tail_risk": _support_kpis_tail_risk_slide,
-    "support_kpis_sla": _support_kpis_sla_slide,
-    "support_kpis_ttfr": _support_kpis_ttfr_slide,
-    "support_kpis_resolution": _support_kpis_resolution_slide,
-    "support_kpis_engineering_dependency": _support_kpis_engineering_dependency_slide,
-    "support_kpis_escalation_backlog_engineering": _support_kpis_escalation_backlog_engineering_slide,
-    "support_kpis_escalation_backlog_data_integration": _support_kpis_escalation_backlog_data_integration_slide,
-    "support_kpis_customer_health": _support_kpis_customer_health_slide,
-    "support_kpis_csat": _support_kpis_csat_slide,
-    "support_kpis_aging_thresholds": _support_kpis_aging_thresholds_slide,
-    "support_kpis_notable": _support_kpis_notable_slide,
-    "cs_notable": _cs_notable_slide,
-    "salesforce_comprehensive_cover": _salesforce_comprehensive_cover_slide,
-    "salesforce_comprehensive_toc": _salesforce_comprehensive_toc_slide,
-    "salesforce_category": _salesforce_category_slide,
-    "cohort_deck_title": _cohort_deck_title_slide,
-    "cohort_summary": _cohort_summary_slide,
-    "cohort_profiles": _cohort_profiles_slide,
-    "cohort_findings": _cohort_findings_slide,
-    "shortage_forecast": _shortage_forecast_slide,
-    "critical_shortages_detail": _critical_shortages_detail_slide,
-    "shortage_deliveries": _shortage_deliveries_slide,
-    "lean_projects_portfolio": _lean_projects_portfolio_slide,
-    "lean_projects_savings": _lean_projects_savings_slide,
-    "pendo_sentiment": _pendo_sentiment_slide,
-    "pendo_friction": _pendo_friction_slide,
-    "pendo_localization": _pendo_localization_slide,
-    "pendo_track_analytics": _pendo_track_analytics_slide,
-    "pendo_definitions_appendix": _pendo_definitions_appendix_slide,
-}
+def _register(module: str, **slides: str) -> None:
+    for slide_type, attr in slides.items():
+        if slide_type in _SLIDE_BUILDER_SPECS:
+            raise ValueError(f"duplicate slide_type {slide_type!r}")
+        _SLIDE_BUILDER_SPECS[slide_type] = (module, attr)
+
+
+def _load_builder(slide_type: str) -> Callable[..., Any] | None:
+    cached = _SLIDE_BUILDER_CACHE.get(slide_type)
+    if cached is not None:
+        return cached
+    spec = _SLIDE_BUILDER_SPECS.get(slide_type)
+    if spec is None:
+        return None
+    module_name, attr = spec
+    mod = import_module(f".{module_name}", package=__package__)
+    fn = getattr(mod, attr)
+    _SLIDE_BUILDER_CACHE[slide_type] = fn
+    return fn
+
+
+class _LazySlideBuilders(Mapping[str, Callable[..., Any]]):
+    """Registry keys are known at import time; builder modules load on first use."""
+
+    def __contains__(self, key: object) -> bool:
+        return isinstance(key, str) and key in _SLIDE_BUILDER_SPECS
+
+    def __getitem__(self, key: str) -> Callable[..., Any]:
+        fn = _load_builder(key)
+        if fn is None:
+            raise KeyError(key)
+        return fn
+
+    def get(self, key: str, default: Any = None) -> Any:
+        fn = _load_builder(key)
+        return fn if fn is not None else default
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(_SLIDE_BUILDER_SPECS)
+
+    def __len__(self) -> int:
+        return len(_SLIDE_BUILDER_SPECS)
+
+    def keys(self):
+        return _SLIDE_BUILDER_SPECS.keys()
+
+
+_SLIDE_BUILDERS: Mapping[str, Callable[..., Any]] = _LazySlideBuilders()
+
+_register(
+    "slide_title_page",
+    title="title_slide",
+)
+_register(
+    "slide_health",
+    health="health_slide",
+)
+_register(
+    "slide_engagement",
+    engagement="engagement_slide",
+)
+_register(
+    "slide_sites",
+    sites="sites_slide",
+)
+_register(
+    "slide_usage",
+    features="features_slide",
+    champions="champions_slide",
+)
+_register(
+    "slide_benchmarks",
+    benchmarks="benchmarks_slide",
+)
+_register(
+    "slide_exports",
+    exports="exports_slide",
+)
+_register(
+    "slide_depth",
+    depth="depth_slide",
+)
+_register(
+    "slide_kei",
+    kei="kei_slide",
+)
+_register(
+    "slide_guides",
+    guides="guides_slide",
+)
+_register(
+    "slide_jira_support",
+    jira="jira_slide",
+    customer_ticket_metrics="customer_ticket_metrics_slide",
+    customer_ticket_metrics_charts="customer_ticket_metrics_charts_slide",
+    support_help_factory_start_buckets="help_factory_start_day_buckets_slide",
+    support_help_monthly_operational="help_monthly_operational_slide",
+    support_help_orgs_by_opened="support_help_orgs_by_opened_slide",
+    support_help_customer_escalations="support_help_customer_escalations_slide",
+    support_help_escalation_metrics="support_help_escalation_metrics_slide",
+    support_recent_opened="support_recent_opened_slide",
+    support_recent_closed="support_recent_closed_slide",
+    customer_project_ticket_metrics="customer_project_ticket_metrics_slide",
+    customer_project_ticket_metrics_breakdown="customer_project_ticket_metrics_breakdown_slide",
+    customer_project_recent_opened="customer_project_recent_opened_slide",
+    customer_project_recent_closed="customer_project_recent_closed_slide",
+    lean_project_ticket_metrics="lean_project_ticket_metrics_slide",
+    lean_project_ticket_metrics_breakdown="lean_project_ticket_metrics_breakdown_slide",
+    lean_project_recent_opened="lean_project_recent_opened_slide",
+    lean_project_recent_closed="lean_project_recent_closed_slide",
+    help_resolved_by_assignee="help_resolved_by_assignee_slide",
+    customer_resolved_by_assignee="customer_resolved_by_assignee_slide",
+    lean_resolved_by_assignee="lean_resolved_by_assignee_slide",
+    sla_health="sla_health_slide",
+    cross_validation="cross_validation_slide",
+    engineering="engineering_slide",
+    enhancements="enhancement_requests_slide",
+    support_breakdown="support_breakdown_slide",
+)
+_register(
+    "slide_engineering_portfolio",
+    customer_project_volume_trends="customer_project_volume_trends_slide",
+    eng_backlog_health="eng_backlog_health_slide",
+    eng_bug_flow="eng_bug_flow_slide",
+    eng_bug_health="eng_bug_health_slide",
+    eng_capacity="eng_capacity_slide",
+    eng_epic_progress="eng_epic_progress_slide",
+    eng_current_sprint="eng_current_sprint_slide",
+    eng_exec_summary="eng_exec_summary_slide",
+    eng_flow_bottlenecks="eng_flow_bottlenecks_slide",
+    eng_work_split="eng_work_split_slide",
+    eng_help_volume_trends="eng_help_volume_trends_slide",
+    eng_jira_project="eng_jira_project_slide",
+    eng_portfolio_title="eng_portfolio_title_slide",
+    eng_team_scorecard="eng_team_scorecard_slide",
+    eng_team_roster="eng_team_roster_slide",
+    eng_divider="eng_divider_slide",
+    eng_toc="eng_toc_slide",
+    eng_sprint_snapshot="eng_sprint_snapshot_slide",
+    eng_support_pressure="eng_support_pressure_slide",
+    eng_velocity="eng_velocity_slide",
+    lean_project_volume_trends="lean_project_volume_trends_slide",
+    cursor_cost="cursor_cost_slide",
+    cursor_cost_models="cursor_cost_models_slide",
+    cursor_efficiency="cursor_efficiency_slide",
+    cursor_efficiency_engineers="cursor_efficiency_engineers_slide",
+    cursor_usage="cursor_usage_slide",
+    cursor_usage_non_engineers="cursor_usage_non_engineers_slide",
+    cursor_model_usage="cursor_model_usage_slide",
+    cursor_users_volume="cursor_users_volume_slide",
+    cursor_users="cursor_users_slide",
+    cursor_users_light="cursor_users_light_slide",
+    cursor_users_non_engineers_volume="cursor_users_non_engineers_volume_slide",
+    cursor_users_non_engineers="cursor_users_non_engineers_slide",
+    cursor_users_non_engineers_light="cursor_users_non_engineers_light_slide",
+    github_engineering_output="github_engineering_output_slide",
+    github_engineer_contribution="github_engineer_contribution_slide",
+    github_delivery_flow="github_delivery_flow_slide",
+    github_change_profile="github_change_profile_slide",
+    productivity_summary="productivity_summary_slide",
+    productivity_trend="productivity_trend_slide",
+    productivity_coaching="productivity_coaching_slide",
+    ai_output_correlation="ai_output_correlation_slide",
+    ai_productivity_matrix="ai_productivity_matrix_slide",
+)
+_register(
+    "slide_custom",
+    custom="custom_slide",
+)
+_register(
+    "slide_signals",
+    signals="signals_slide",
+)
+_register(
+    "slide_platform_health",
+    platform_health="platform_health_slide",
+)
+_register(
+    "slide_supply_chain",
+    supply_chain="supply_chain_slide",
+)
+_register(
+    "slide_platform_value",
+    platform_value="platform_value_slide",
+    platform_value_summary_cover="platform_value_summary_cover_slide",
+    platform_value_summary_toc="platform_value_summary_toc_slide",
+)
+_register(
+    "slide_data_quality",
+    data_quality="data_quality_slide",
+)
+_register(
+    "slide_portfolio",
+    portfolio_title="portfolio_title_slide",
+    csm_book_title="csm_book_title_slide",
+    portfolio_revenue_book="portfolio_revenue_book_slide",
+    portfolio_expansion_book="portfolio_expansion_book_slide",
+    portfolio_signals="portfolio_signals_slide",
+    portfolio_trends="portfolio_trends_slide",
+    portfolio_leaders="portfolio_leaders_slide",
+)
+_register(
+    "slide_team",
+    team="team_slide",
+)
+_register(
+    "slide_qbr_framing",
+    qbr_cover="qbr_cover_slide",
+    qbr_agenda="qbr_agenda_slide",
+    qbr_divider="qbr_divider_slide",
+)
+_register(
+    "slide_qbr_deployment",
+    qbr_deployment="qbr_deployment_slide",
+)
+_register(
+    "slide_support_intro",
+    support_deck_cover="support_deck_cover_slide",
+    support_intro="support_intro_slide",
+)
+_register(
+    "slide_support_kpis",
+    support_kpis_intake="support_kpis_intake_slide",
+    support_kpis_flow="support_kpis_flow_slide",
+    support_kpis_backlog="support_kpis_backlog_slide",
+    support_kpis_tail_risk="support_kpis_tail_risk_slide",
+    support_kpis_sla="support_kpis_sla_slide",
+    support_kpis_ttfr="support_kpis_ttfr_slide",
+    support_kpis_resolution="support_kpis_resolution_slide",
+    support_kpis_engineering_dependency="support_kpis_engineering_dependency_slide",
+    support_kpis_escalation_backlog_engineering="support_kpis_escalation_backlog_engineering_slide",
+    support_kpis_escalation_backlog_data_integration="support_kpis_escalation_backlog_data_integration_slide",
+    support_kpis_customer_health="support_kpis_customer_health_slide",
+    support_kpis_csat="support_kpis_csat_slide",
+    support_kpis_aging_thresholds="support_kpis_aging_thresholds_slide",
+)
+_register(
+    "slide_support_kpis_notable",
+    support_kpis_notable="support_kpis_notable_slide",
+)
+_register(
+    "slide_cs_notable",
+    cs_notable="cs_notable_slide",
+)
+_register(
+    "slide_salesforce",
+    salesforce_comprehensive_cover="salesforce_comprehensive_cover_slide",
+    salesforce_comprehensive_toc="salesforce_comprehensive_toc_slide",
+    salesforce_category="salesforce_category_slide",
+)
+_register(
+    "slide_cohort",
+    cohort_deck_title="cohort_deck_title_slide",
+    cohort_summary="cohort_summary_slide",
+    cohort_profiles="cohort_profiles_slide",
+    cohort_findings="cohort_findings_slide",
+)
+_register(
+    "slide_leandna_shortage",
+    shortage_forecast="shortage_forecast_slide",
+    critical_shortages_detail="critical_shortages_detail_slide",
+    shortage_deliveries="shortage_deliveries_slide",
+)
+_register(
+    "slide_leandna_projects",
+    lean_projects_portfolio="lean_projects_portfolio_slide",
+    lean_projects_savings="lean_projects_savings_slide",
+)
+_register(
+    "slide_pendo",
+    pendo_sentiment="pendo_sentiment_slide",
+    pendo_friction="pendo_friction_slide",
+    pendo_localization="pendo_localization_slide",
+    pendo_track_analytics="pendo_track_analytics_slide",
+    pendo_definitions_appendix="pendo_definitions_appendix_slide",
+)
 
 
 def get_slide_builder(slide_type: str):
     """Return the registered builder for a slide type, or None if unknown."""
-    return _SLIDE_BUILDERS.get(slide_type)
+    return _load_builder(slide_type)
 
 
 def slide_builder_names() -> list[str]:
     """Return registered slide type names in registry order."""
-    return list(_SLIDE_BUILDERS)
+    return list(_SLIDE_BUILDER_SPECS)
 
 
 def get_slide_data_requirements(slide_type: str | None = None) -> list[str] | dict[str, list[str]]:
