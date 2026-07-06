@@ -85,6 +85,9 @@ class _FakeSelectiveJira:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
+    def _help_project_customer_filter(self, customer, match_terms=None):
+        return ('Organizations = "Acme"', ["Acme"])
+
     def get_customer_help_recent_tickets(self, customer, **_kwargs):
         self.calls.append("get_customer_help_recent_tickets")
         return {"customer": customer, "recently_opened": [], "recently_closed": []}

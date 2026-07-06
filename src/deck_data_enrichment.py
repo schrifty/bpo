@@ -606,7 +606,9 @@ def _fetch_support_jira_products(
 
     help_clause = None
     if need & _HELP_CLAUSE_PRODUCTS:
-        help_clause = jira_client._help_project_customer_filter(customer, None)
+        resolver = getattr(jira_client, "_help_project_customer_filter", None)
+        if callable(resolver):
+            help_clause = resolver(customer, None)
 
     jobs = _collect_support_jira_fetch_jobs(
         jira_client, jira, customer, need, help_clause=help_clause

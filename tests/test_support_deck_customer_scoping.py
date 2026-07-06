@@ -12,6 +12,9 @@ class _FakeSupportJiraClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple]] = []
 
+    def _help_project_customer_filter(self, customer, match_terms=None):
+        return ('Organizations = "Acme"', ["Acme"])
+
     def _record(self, name: str, *args):
         self.calls.append((name, args))
 
