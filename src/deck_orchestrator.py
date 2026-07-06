@@ -151,6 +151,9 @@ def create_health_deck(
 
         report, slide_plan = enrich_deck_report_data(deck_id, report, slide_plan, customer)
 
+        if err := str(report.get("error") or "").strip():
+            return {"error": err, "customer": customer, "deck_id": deck_id}
+
         if deck_id in ("portfolio_review", "csm_book_of_business") and is_portfolio:
             from .signals_llm import maybe_rewrite_portfolio_signals_with_llm
 

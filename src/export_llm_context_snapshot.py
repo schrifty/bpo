@@ -670,6 +670,31 @@ def _emit_integration_stderr_warnings(report: dict[str, Any]) -> None:
             llm_export=True,
         )
 
+    jira = report.get("jira") if isinstance(report.get("jira"), dict) else {}
+    jira_err = str(jira.get("error") or "").strip()
+    if jira_err:
+        collect_export_warning(f"Jira: {jira_err}", llm_export=True)
+    else:
+        nested: list[str] = []
+        for key, val in jira.items():
+            if key in ("base_url", "error", "scope", "customers"):
+                continue
+            if isinstance(val, dict) and val.get("error"):
+                nested.append(f"{key}: {val['error']}")
+        customers = jira.get("customers")
+        if isinstance(customers, dict):
+            for label, entry in customers.items():
+                if not isinstance(entry, dict):
+                    continue
+                jb = entry.get("jira")
+                if isinstance(jb, dict) and jb.get("error"):
+                    nested.append(f"{label}: {jb['error']}")
+        if nested:
+            collect_export_warning(
+                "Jira: " + " | ".join(nested[:5]) + (" …" if len(nested) > 5 else ""),
+                llm_export=True,
+            )
+
 
 def _compact_eng_enh_counts_only(blob: dict[str, Any] | None) -> dict[str, Any]:
     """Engineering / enhancement rolls — counts only (no ticket keys or summaries)."""

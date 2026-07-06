@@ -156,12 +156,21 @@ def ingest_report_integration_warnings(report: dict[str, Any], slide_plan: list[
 
     if "atlassian_jira" in source_ids:
         jira = report.get("jira") or {}
-        if isinstance(jira, dict) and str(jira.get("error") or "").strip():
-            qa.flag(
-                str(jira["error"]).strip(),
-                severity="error",
-                sources=("Atlassian Jira",),
-            )
+        if isinstance(jira, dict):
+            top_err = str(jira.get("error") or "").strip()
+            if top_err:
+                qa.flag(top_err, severity="error", sources=("Atlassian Jira",))
+            for key, val in jira.items():
+                if key in ("base_url", "error"):
+                    continue
+                if isinstance(val, dict):
+                    nested = str(val.get("error") or "").strip()
+                    if nested:
+                        qa.flag(
+                            f"Jira {key}: {nested}",
+                            severity="error",
+                            sources=("Atlassian Jira",),
+                        )
         ep = report.get("eng_portfolio") or {}
         if isinstance(ep, dict) and str(ep.get("error") or "").strip():
             qa.flag(

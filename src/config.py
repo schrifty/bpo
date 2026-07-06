@@ -71,6 +71,7 @@ CORTEX_CACHE_ROOT = resolve_cortex_cache_root()
 
 # Scheduled / unattended runs
 CORTEX_FAIL_ON_INTEGRATION_WARNINGS = _truthy_env("CORTEX_FAIL_ON_INTEGRATION_WARNINGS")
+CORTEX_SUPPORT_JIRA_ALLOW_FALLBACK = _truthy_env("CORTEX_SUPPORT_JIRA_ALLOW_FALLBACK")
 try:
     _job_timeout_raw = os.environ.get("CORTEX_JOB_TIMEOUT_SECONDS", "").strip()
     CORTEX_JOB_TIMEOUT_SECONDS = max(0, int(_job_timeout_raw)) if _job_timeout_raw else 0
