@@ -1236,6 +1236,12 @@ def _compact_salesforce_comprehensive_portfolio(
     else:
         out["entity_accounts"] = entities
         out["entity_accounts_count"] = len(entities)
+    # Ultimate-parent ARR rollup is small and pre-aggregated across the *full* book, so keep
+    # it even when per-entity rows are truncated — it answers "top N by Ultimate Parent ARR".
+    arr_by_up = block.get("arr_by_ultimate_parent")
+    if isinstance(arr_by_up, list):
+        out["arr_by_ultimate_parent"] = arr_by_up[:100]
+        out["arr_by_ultimate_parent_count"] = len(arr_by_up)
     return out
 
 

@@ -16,6 +16,75 @@ def _env_truthy(name: str, *, default: bool) -> bool:
     return raw in ("1", "true", "yes", "on")
 
 
+def _entity_accounts_with_grouping(
+    entity_accounts: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return copies of entity rows enriched with SF-first grouping labels.
+
+    Adds ``division_group``, ``corporate_group``, and ``ultimate_parent_group`` so the
+    export can be grouped by Ultimate Parent even when ``ultimate_parent_name`` is blank
+    (no ``SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP``). See ``src/salesforce_reporting``.
+    """
+    from .salesforce_reporting import (
+        entity_account_corporate_group,
+        entity_account_division_group,
+        entity_account_ultimate_parent_group,
+    )
+
+    enriched: list[dict[str, Any]] = []
+    for account in entity_accounts:
+        if not isinstance(account, dict):
+            continue
+        row = dict(account)
+        row["division_group"] = entity_account_division_group(account)
+        row["corporate_group"] = entity_account_corporate_group(account)
+        row["ultimate_parent_group"] = entity_account_ultimate_parent_group(account)
+        enriched.append(row)
+    return enriched
+
+
+def _build_arr_by_ultimate_parent(
+    entity_accounts: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Full-book ARR rollup keyed by Ultimate Parent, sorted by ARR descending.
+
+    Pre-aggregated so ``top N by Ultimate Parent ARR`` is answerable without scanning the
+    (compaction-capped) per-entity list. ``active`` is True when any entity in the group has
+    a non-churned contract status.
+    """
+    from .salesforce_client import _CHURNED_CONTRACT_STATUS_LOWER
+    from .salesforce_reporting import aggregate_accounts_by_ultimate_parent
+
+    groups = aggregate_accounts_by_ultimate_parent(entity_accounts)
+    rows: list[dict[str, Any]] = []
+    for parent, rows_in_group in groups.items():
+        arr_sum = 0.0
+        active = False
+        entity_names: list[str] = []
+        for a in rows_in_group:
+            try:
+                arr_sum += float(a.get("ARR__c") or 0)
+            except (TypeError, ValueError):
+                pass
+            status = (a.get("Contract_Status__c") or "").strip().lower()
+            if status not in _CHURNED_CONTRACT_STATUS_LOWER:
+                active = True
+            name = (a.get("Name") or "").strip()
+            if name and len(entity_names) < 12:
+                entity_names.append(name)
+        rows.append(
+            {
+                "ultimate_parent": parent,
+                "arr": round(arr_sum, 2),
+                "entity_count": len(rows_in_group),
+                "active": active,
+                "entity_names_sample": entity_names,
+            }
+        )
+    rows.sort(key=lambda r: (-(float(r.get("arr") or 0)), str(r.get("ultimate_parent") or "")))
+    return rows
+
+
 def llm_export_sf_comprehensive_enabled() -> bool:
     """When false, skip per-customer comprehensive SOQL (``CORTEX_LLM_EXPORT_SF_COMPREHENSIVE``)."""
     return _env_truthy("CORTEX_LLM_EXPORT_SF_COMPREHENSIVE", default=True)
@@ -213,6 +282,9 @@ def attach_salesforce_comprehensive_for_llm_export(report: dict[str, Any]) -> di
         logger.warning("LLM export: get_entity_accounts failed: %s", e)
         summary["entity_accounts_error"] = str(e)[:500]
 
+    entity_accounts = _entity_accounts_with_grouping(entity_accounts)
+    arr_by_ultimate_parent = _build_arr_by_ultimate_parent(entity_accounts)
+
     book = report.get("_llm_export_salesforce_revenue_book")
     if not isinstance(book, dict):
         book = report.get("portfolio_revenue_book")
@@ -229,6 +301,7 @@ def attach_salesforce_comprehensive_for_llm_export(report: dict[str, Any]) -> di
         "by_customer": by_customer,
         "entity_accounts": entity_accounts,
         "entity_accounts_count": len(entity_accounts),
+        "arr_by_ultimate_parent": arr_by_ultimate_parent,
         "portfolio_expansion_book": expansion,
         "note": (
             "Per-customer payloads mirror the salesforce_comprehensive deck (mainstream object "

@@ -2,7 +2,9 @@
 
 from src.salesforce_reporting import (
     aggregate_accounts_by_corporate_group,
+    aggregate_accounts_by_ultimate_parent,
     entity_account_corporate_group,
+    entity_account_ultimate_parent_group,
     invalidate_salesforce_reporting_cache,
     resolve_corporate_label,
 )
@@ -49,3 +51,34 @@ def test_standalone_entity_uses_division_name():
 
 def test_resolve_corporate_label_maps_jci():
     assert resolve_corporate_label("JCI") == "Johnson Controls"
+
+
+def test_ultimate_parent_from_name_parenthetical_when_lookup_blank():
+    a = _acct(name="Commercial HVAC (Carrier)", arr=100_000)
+    assert entity_account_ultimate_parent_group(a) == "Carrier"
+
+
+def test_ultimate_parent_collapses_divisions_sharing_parenthetical_parent():
+    accounts = [
+        _acct(name="Commercial HVAC (Carrier)", arr=100_000),
+        _acct(name="Residential HVAC (Carrier)", arr=250_000),
+        _acct(name="Safran", arr=50_000),
+    ]
+    groups = aggregate_accounts_by_ultimate_parent(accounts)
+    assert set(groups) == {"Carrier", "Safran"}
+    assert sum(float(a["ARR__c"]) for a in groups["Carrier"]) == 350_000
+
+
+def test_ultimate_parent_prefers_explicit_lookup_value():
+    a = _acct(name="Commercial HVAC (Carrier)", ult="Carrier Global", arr=1.0)
+    assert entity_account_ultimate_parent_group(a) == "Carrier Global"
+
+
+def test_ultimate_parent_parenthetical_resolves_alias():
+    a = _acct(name="Fire Suppression (JCI)", arr=1.0)
+    assert entity_account_ultimate_parent_group(a) == "Johnson Controls"
+
+
+def test_ultimate_parent_falls_back_to_corporate_group():
+    a = _acct(name="Standalone Plant", parent="Safran Cabin", arr=1.0)
+    assert entity_account_ultimate_parent_group(a) == "Safran"

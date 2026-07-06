@@ -58,7 +58,11 @@ def test_attach_comprehensive_fetches_per_label(monkeypatch):
 
     class FakeSf:
         def get_entity_accounts(self):
-            return [{"Id": "a1", "Name": "Entity", "ARR__c": 1.0}]
+            return [
+                {"Id": "a1", "Name": "Commercial HVAC (Carrier)", "ARR__c": 100.0, "Contract_Status__c": "Active"},
+                {"Id": "a2", "Name": "Residential HVAC (Carrier)", "ARR__c": 250.0, "Contract_Status__c": "Active"},
+                {"Id": "a3", "Name": "Safran", "ARR__c": 50.0, "Contract_Status__c": "Churned"},
+            ]
 
     monkeypatch.setattr(
         "src.salesforce_client.SalesforceClient",
@@ -84,8 +88,20 @@ def test_attach_comprehensive_fetches_per_label(monkeypatch):
     assert "Acme" in block["by_customer"]
     assert block["by_customer"]["Acme"]["customer_segment"] == "active"
     assert block["by_customer"]["OldCo"]["customer_segment"] == "churned"
-    assert len(block["entity_accounts"]) == 1
+    assert len(block["entity_accounts"]) == 3
     assert block["portfolio_expansion_book"]["pct_active_customers_expanding_cy"] == 12.5
+    # Every entity carries SF-first grouping labels for Ultimate Parent rollups.
+    first = block["entity_accounts"][0]
+    assert first["ultimate_parent_group"] == "Carrier"
+    assert "division_group" in first and "corporate_group" in first
+    # Pre-aggregated Ultimate Parent ARR rollup, sorted descending, collapses Carrier divisions.
+    rollup = block["arr_by_ultimate_parent"]
+    assert rollup[0]["ultimate_parent"] == "Carrier"
+    assert rollup[0]["arr"] == 350.0
+    assert rollup[0]["entity_count"] == 2
+    assert rollup[0]["active"] is True
+    safran = next(r for r in rollup if r["ultimate_parent"] == "Safran")
+    assert safran["active"] is False
 
 
 def test_compact_salesforce_includes_expansion_kpis():
@@ -120,6 +136,22 @@ def test_snapshot_document_includes_comprehensive_section():
     md = export_mod.render_markdown(doc, exported_at_utc="2020-01-01T00:00:00Z")
     assert "## 3c. Salesforce comprehensive" in md
     assert "by_customer" in md
+
+
+def test_compact_preserves_arr_by_ultimate_parent_when_entities_truncated():
+    block = {
+        "configured": True,
+        "by_customer": {},
+        "entity_accounts": [{"Id": f"a{i}", "Name": f"E{i}"} for i in range(100)],
+        "arr_by_ultimate_parent": [
+            {"ultimate_parent": "Carrier", "arr": 350.0, "entity_count": 2, "active": True},
+            {"ultimate_parent": "Safran", "arr": 50.0, "entity_count": 1, "active": False},
+        ],
+    }
+    compact = export_mod._compact_salesforce_comprehensive_portfolio(block, entity_account_cap=48)
+    assert compact["entity_accounts_truncated"] is True
+    assert compact["arr_by_ultimate_parent"][0]["ultimate_parent"] == "Carrier"
+    assert compact["arr_by_ultimate_parent_count"] == 2
 
 
 def test_llm_export_sf_comprehensive_enabled_default_true(monkeypatch):
