@@ -18,19 +18,19 @@ class _FakeSupportJiraClient:
     def _record(self, name: str, *args):
         self.calls.append((name, args))
 
-    def get_customer_ticket_metrics(self, customer):
+    def get_customer_ticket_metrics(self, customer, **_kwargs):
         self._record("get_customer_ticket_metrics", customer)
         return {"customer": customer}
 
-    def get_help_ticket_volume_trends(self, customer):
+    def get_help_ticket_volume_trends(self, customer, **_kwargs):
         self._record("get_help_ticket_volume_trends", customer)
         return {"customer": customer, "all": [], "escalated": [], "non_escalated": []}
 
-    def get_help_customer_escalations(self, customer):
+    def get_help_customer_escalations(self, customer, **_kwargs):
         self._record("get_help_customer_escalations", customer)
         return {"customer": customer, "tickets": []}
 
-    def get_help_escalation_metrics(self, customer):
+    def get_help_escalation_metrics(self, customer, **_kwargs):
         self._record("get_help_escalation_metrics", customer)
         return {"customer": customer, "error": "skip LLM in unit test"}
 
@@ -62,7 +62,7 @@ class _FakeSupportJiraClient:
         self._record("get_help_factory_start_day_buckets", customer)
         return {"customer": customer, "jql_queries": []}
 
-    def get_help_monthly_operational_table(self, customer):
+    def get_help_monthly_operational_table(self, customer, **_kwargs):
         self._record("get_help_monthly_operational_table", customer)
         return {"customer": customer, "rows": []}
 
