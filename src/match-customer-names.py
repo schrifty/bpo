@@ -570,7 +570,7 @@ def build_company_match_report(
         out["errors"].append("Salesforce not configured (SF_* env vars)")
         return out
 
-    active, churned, _labels, _book, renewal = salesforce_portfolio_rollups_split()
+    active, churned, _labels, _book, renewal, _future = salesforce_portfolio_rollups_split()
     all_rollups: list[tuple[str, dict[str, Any]]] = []
     for bucket, rows in (
         ("active", active),
