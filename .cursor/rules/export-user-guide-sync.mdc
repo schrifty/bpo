@@ -1,0 +1,37 @@
+---
+description: Keep Cortex Export user guide in sync with export-all changes
+globs: src/export_llm_context_snapshot.py,src/export_llm_risk_insights.py,src/llm_export_*.py,src/data_sources/llm_export_report.py,tests/test_export_llm*.py
+alwaysApply: false
+---
+
+# Export user guide sync
+
+The end-user doc is **`docs/DATA-GOVERNANCE/Cortex Export - User Guide.md`**. When **export-all** behavior, layout, or semantics change, update that guide in the **same change**—do not leave it stale.
+
+## When to update
+
+Update the guide when a change affects anything a reader or LLM consumer would notice:
+
+- Markdown **section numbers, titles, or boundaries** (§1–§7, §3b / §3b-renewal / §3b-future, etc.)
+- **What is included or excluded** per section (Pendo, Jira, Salesforce segments, CS Report, Slack, risk insights)
+- **Customer status** vocabulary (`commercial_status`, current book vs churn / renewal / future)
+- **ARR fields** or how customers are **ranked / capped** (top-N, env vars, ultimate-parent grouping)
+- **CLI flags**, default lookback, Drive output filename/path, size caps, or filters (`--customers-sf-allowlist`, etc.)
+- **Coverage / omission** messaging at the top of the export
+- New **example prompts** when a section is added or its purpose shifts materially
+
+## What to skip
+
+- Internal refactors with no user-visible export change
+- Test-only or fixture tweaks that do not change export content
+- Technical catalog paths — those belong in `DATA_DICTIONARY.md`, not the user guide
+
+## How to update
+
+- Write for **non-technical readers** (CS, AMs, leadership): plain English, short tables, example AI prompts where helpful
+- Keep operator/CLI details in a brief **“For operators”** section at the end
+- If the guide is renamed, update links in `docs/DATA-GOVERNANCE/README.md` and `DATA_DICTIONARY.md` in the same change
+
+## Completion check
+
+Before marking export-all work done, confirm the user guide still matches the snapshot: section map, status/ARR rules, caps, and at least one prompt example for any new section.
