@@ -43,45 +43,129 @@ def _entity_accounts_with_grouping(
     return enriched
 
 
+def _rollup_as_synthetic_account(label: str) -> dict[str, Any]:
+    return {
+        "Name": label,
+        "LeanDNA_Entity_Name__c": label,
+        "parent_name": "",
+        "ultimate_parent_name": "",
+    }
+
+
+def _contract_rollups_by_ultimate_parent(
+    contract_rollups: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    from .salesforce_reporting import entity_account_ultimate_parent_group
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in contract_rollups:
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get("customer") or "").strip()
+        if not label:
+            continue
+        ultimate = entity_account_ultimate_parent_group(_rollup_as_synthetic_account(label))
+        grouped.setdefault(ultimate, []).append(row)
+    return grouped
+
+
+def _rollups_for_ultimate_parent_group(
+    parent: str,
+    rows_in_group: list[dict[str, Any]],
+    contract_rollups: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Match contract rollups to an ultimate-parent entity bucket (label vs SF lookup)."""
+    from .portfolio_salesforce_allowlist import matching_entity_accounts_for_customer_label
+    from .salesforce_reporting import entity_account_ultimate_parent_group
+
+    if not contract_rollups:
+        return []
+    matched: list[dict[str, Any]] = []
+    for row in contract_rollups:
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get("customer") or "").strip()
+        if not label:
+            continue
+        label_parent = entity_account_ultimate_parent_group(_rollup_as_synthetic_account(label))
+        if label_parent == parent or matching_entity_accounts_for_customer_label(label, rows_in_group):
+            matched.append(row)
+    return matched
+
+
+def _renewal_in_flight_from_rollups(rollups: list[dict[str, Any]]) -> bool:
+    from .salesforce_commercial_status import renewal_in_flight_from_status
+
+    for row in rollups:
+        if renewal_in_flight_from_status(str(row.get("commercial_status") or "").strip()):
+            return True
+        if row.get("renewal_in_flight") is True:
+            return True
+    return False
+
+
 def _build_arr_by_ultimate_parent(
     entity_accounts: list[dict[str, Any]],
+    *,
+    contract_rollups: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Full-book ARR rollup keyed by Ultimate Parent, sorted by ARR descending.
+    """Full-book ARR rollup keyed by Ultimate Parent, sorted by ``current_arr`` descending.
 
     Pre-aggregated so ``top N by Ultimate Parent ARR`` is answerable without scanning the
-    (compaction-capped) per-entity list. ``active`` is True when any entity in the group has
-    a non-churned contract status.
+    (compaction-capped) per-entity list. ``commercial_status`` follows portfolio contract
+    rollup semantics (renewal pipeline from matching contract rollups when present).
     """
-    from .salesforce_client import _CHURNED_CONTRACT_STATUS_LOWER
+    from .salesforce_commercial_status import (
+        derive_commercial_status,
+        is_current_book_commercial_status,
+        rollup_arr_fields,
+    )
     from .salesforce_reporting import aggregate_accounts_by_ultimate_parent
 
+    rollups_by_parent = _contract_rollups_by_ultimate_parent(contract_rollups or [])
     groups = aggregate_accounts_by_ultimate_parent(entity_accounts)
     rows: list[dict[str, Any]] = []
     for parent, rows_in_group in groups.items():
-        arr_sum = 0.0
-        active = False
         entity_names: list[str] = []
         for a in rows_in_group:
-            try:
-                arr_sum += float(a.get("ARR__c") or 0)
-            except (TypeError, ValueError):
-                pass
-            status = (a.get("Contract_Status__c") or "").strip().lower()
-            if status not in _CHURNED_CONTRACT_STATUS_LOWER:
-                active = True
             name = (a.get("Name") or "").strip()
             if name and len(entity_names) < 12:
                 entity_names.append(name)
+
+        parent_rollups = _rollups_for_ultimate_parent_group(
+            parent,
+            rows_in_group,
+            contract_rollups or [],
+        )
+        if not parent_rollups:
+            parent_rollups = rollups_by_parent.get(parent) or []
+        commercial_status = derive_commercial_status(
+            rows_in_group,
+            renewal_in_flight=_renewal_in_flight_from_rollups(parent_rollups),
+        )
+        arr_fields = rollup_arr_fields(rows_in_group, commercial_status=commercial_status)
+
         rows.append(
             {
                 "ultimate_parent": parent,
-                "arr": round(arr_sum, 2),
+                "arr": arr_fields["historical_arr"],
+                "historical_arr": arr_fields["historical_arr"],
+                "active_arr": arr_fields["active_arr"],
+                "renewal_arr": arr_fields["renewal_arr"],
+                "current_arr": arr_fields["current_arr"],
                 "entity_count": len(rows_in_group),
-                "active": active,
+                "commercial_status": commercial_status,
+                "active": is_current_book_commercial_status(commercial_status),
                 "entity_names_sample": entity_names,
             }
         )
-    rows.sort(key=lambda r: (-(float(r.get("arr") or 0)), str(r.get("ultimate_parent") or "")))
+    rows.sort(
+        key=lambda r: (
+            -float(r.get("current_arr") or 0),
+            -float(r.get("arr") or 0),
+            str(r.get("ultimate_parent") or "").lower(),
+        )
+    )
     return rows
 
 
@@ -298,11 +382,23 @@ def attach_salesforce_comprehensive_for_llm_export(report: dict[str, Any]) -> di
         summary["entity_accounts_error"] = str(e)[:500]
 
     entity_accounts = _entity_accounts_with_grouping(entity_accounts)
-    arr_by_ultimate_parent = _build_arr_by_ultimate_parent(entity_accounts)
 
     book = report.get("_llm_export_salesforce_revenue_book")
     if not isinstance(book, dict):
         book = report.get("portfolio_revenue_book")
+
+    contract_rollups: list[dict[str, Any]] = []
+    if isinstance(book, dict):
+        contract_rollups = [
+            r
+            for r in (book.get("matched_customer_contract_rollups") or [])
+            if isinstance(r, dict)
+        ]
+    arr_by_ultimate_parent = _build_arr_by_ultimate_parent(
+        entity_accounts,
+        contract_rollups=contract_rollups,
+    )
+
     expansion = None
     if isinstance(book, dict):
         expansion = book.get("expansion_kpis")

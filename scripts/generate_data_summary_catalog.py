@@ -331,7 +331,7 @@ def build_entries() -> list[dict[str, Any]]:
             ),
             _e(
                 "salesforce_comprehensive_portfolio.arr_by_ultimate_parent",
-                "[LLM export §3c] full-book ARR rollup by Ultimate Parent, sorted desc",
+                "[LLM export §3c] full-book ARR rollup by Ultimate Parent, sorted by current_arr desc",
             ),
             _e(
                 "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].ultimate_parent",
@@ -339,7 +339,27 @@ def build_entries() -> list[dict[str, Any]]:
             ),
             _e(
                 "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].arr",
-                "[LLM export §3c] summed ARR for group",
+                "[LLM export §3c] summed historical ARR for group (alias of historical_arr)",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].historical_arr",
+                "[LLM export §3c] summed entity ARR__c for group regardless of contract status",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].active_arr",
+                "[LLM export §3c] ARR from non-churned entity contracts in group",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].renewal_arr",
+                "[LLM export §3c] renewal-negotiation ARR when commercial_status is OUT_OF_CONTRACT_RENEWING",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].current_arr",
+                "[LLM export §3c] active_arr + renewal_arr; primary sort key for the rollup list",
+            ),
+            _e(
+                "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].commercial_status",
+                "[LLM export §3c] ACTIVE | OUT_OF_CONTRACT_RENEWING | CHURNED | FUTURE for Ultimate Parent group",
             ),
             _e(
                 "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].entity_count",
@@ -347,7 +367,7 @@ def build_entries() -> list[dict[str, Any]]:
             ),
             _e(
                 "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].active",
-                "[LLM export §3c] True when any entity in group has non-churned contract status",
+                "[LLM export §3c] legacy True when commercial_status is ACTIVE or OUT_OF_CONTRACT_RENEWING (current book)",
             ),
             _e(
                 "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].entity_names_sample",

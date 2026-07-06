@@ -98,10 +98,44 @@ def test_attach_comprehensive_fetches_per_label(monkeypatch):
     rollup = block["arr_by_ultimate_parent"]
     assert rollup[0]["ultimate_parent"] == "Carrier"
     assert rollup[0]["arr"] == 350.0
+    assert rollup[0]["historical_arr"] == 350.0
+    assert rollup[0]["current_arr"] == 350.0
     assert rollup[0]["entity_count"] == 2
+    assert rollup[0]["commercial_status"] == "ACTIVE"
     assert rollup[0]["active"] is True
     safran = next(r for r in rollup if r["ultimate_parent"] == "Safran")
+    assert safran["commercial_status"] == "CHURNED"
     assert safran["active"] is False
+    assert safran["current_arr"] == 0.0
+
+
+def test_arr_by_ultimate_parent_renewal_from_contract_rollups(monkeypatch):
+    """Expired entities with open renewal pipeline classify as OUT_OF_CONTRACT_RENEWING."""
+    from src.llm_export_salesforce_comprehensive import _build_arr_by_ultimate_parent
+
+    entities = [
+        {
+            "Id": "a1",
+            "Name": "Ford Motor Company",
+            "ARR__c": 500_000.0,
+            "Contract_Status__c": "Expired",
+            "ultimate_parent_name": "Ford",
+        },
+    ]
+    rollups = [
+        {
+            "customer": "Ford Motor Company",
+            "commercial_status": "OUT_OF_CONTRACT_RENEWING",
+            "renewal_in_flight": True,
+            "current_arr": 500_000.0,
+        },
+    ]
+    rows = _build_arr_by_ultimate_parent(entities, contract_rollups=rollups)
+    assert len(rows) == 1
+    assert rows[0]["commercial_status"] == "OUT_OF_CONTRACT_RENEWING"
+    assert rows[0]["renewal_arr"] == 500_000.0
+    assert rows[0]["current_arr"] == 500_000.0
+    assert rows[0]["active"] is True
 
 
 def test_compact_salesforce_includes_expansion_kpis():
@@ -144,8 +178,22 @@ def test_compact_preserves_arr_by_ultimate_parent_when_entities_truncated():
         "by_customer": {},
         "entity_accounts": [{"Id": f"a{i}", "Name": f"E{i}"} for i in range(100)],
         "arr_by_ultimate_parent": [
-            {"ultimate_parent": "Carrier", "arr": 350.0, "entity_count": 2, "active": True},
-            {"ultimate_parent": "Safran", "arr": 50.0, "entity_count": 1, "active": False},
+            {
+                "ultimate_parent": "Carrier",
+                "arr": 350.0,
+                "current_arr": 350.0,
+                "entity_count": 2,
+                "commercial_status": "ACTIVE",
+                "active": True,
+            },
+            {
+                "ultimate_parent": "Safran",
+                "arr": 50.0,
+                "current_arr": 0.0,
+                "entity_count": 1,
+                "commercial_status": "CHURNED",
+                "active": False,
+            },
         ],
     }
     compact = export_mod._compact_salesforce_comprehensive_portfolio(block, entity_account_cap=48)

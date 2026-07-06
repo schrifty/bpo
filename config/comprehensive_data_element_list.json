@@ -2173,7 +2173,42 @@
       "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].arr",
       "terms": [
         "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].arr",
-        "[LLM export §3c] summed ARR for group"
+        "[LLM export §3c] summed historical ARR for group (alias of historical_arr)"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].historical_arr",
+      "terms": [
+        "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].historical_arr",
+        "[LLM export §3c] summed entity ARR__c for group regardless of contract status"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].active_arr",
+      "terms": [
+        "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].active_arr",
+        "[LLM export §3c] ARR from non-churned entity contracts in group"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].renewal_arr",
+      "terms": [
+        "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].renewal_arr",
+        "[LLM export §3c] renewal-negotiation ARR when commercial_status is OUT_OF_CONTRACT_RENEWING"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].current_arr",
+      "terms": [
+        "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].current_arr",
+        "[LLM export §3c] active_arr + renewal_arr; primary sort key for the rollup list"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].commercial_status",
+      "terms": [
+        "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].commercial_status",
+        "[LLM export §3c] ACTIVE | OUT_OF_CONTRACT_RENEWING | CHURNED | FUTURE for Ultimate Parent group"
       ]
     },
     {
@@ -2187,7 +2222,7 @@
       "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].active",
       "terms": [
         "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].active",
-        "[LLM export §3c] True when any entity in group has non-churned contract status"
+        "[LLM export §3c] legacy True when commercial_status is ACTIVE or OUT_OF_CONTRACT_RENEWING (current book)"
       ]
     },
     {

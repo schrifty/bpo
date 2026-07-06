@@ -431,11 +431,16 @@ Commercial classification and ARR rollups for Salesforce Customer Entity reporti
 - `salesforce_comprehensive_portfolio.entity_accounts[].corporate_group` (corporate rollup label; `config/salesforce_reporting_rollups.yaml`)
 - `salesforce_comprehensive_portfolio.entity_accounts[].ultimate_parent_group` (Ultimate Parent rollup; falls back to name parenthetical / corporate group when `ultimate_parent_name` blank)
 - `salesforce_comprehensive_portfolio.entity_accounts_count`
-- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent` (full-book ARR rollup by Ultimate Parent, sorted desc)
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent` (full-book ARR rollup by Ultimate Parent, sorted by `current_arr` desc)
 - `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].ultimate_parent`
-- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].arr`
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].arr` (alias of `historical_arr`)
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].historical_arr`
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].active_arr`
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].renewal_arr`
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].current_arr`
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].commercial_status`
 - `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].entity_count`
-- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].active`
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].active` (legacy current-book flag from `commercial_status`)
 - `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].entity_names_sample`
 - `salesforce_comprehensive_portfolio.portfolio_expansion_book`
 - `salesforce_comprehensive_portfolio.row_limit`

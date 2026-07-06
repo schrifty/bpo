@@ -24,7 +24,7 @@ The export is split into numbered sections. When you ask the AI a question, it h
 | **Section 3b — Churned** | Customers who **left** (lost contracts, no renewal in flight). **Separate list — don’t mix with Section 3.** |
 | **Section 3b-renewal — Renewal in progress** | Contracts that **expired** but a **renewal deal is still open**. These are **not** churn — sales is still working them. |
 | **Section 3b-future — Future contracts** | Deals **signed but not started yet** (contract start date in the future). Not active today, not churn. |
-| **Section 3c — Salesforce (detailed CRM)** | Extra Salesforce detail (opportunities, cases, contacts, etc.) for top customers. |
+| **Section 3c — Salesforce (detailed CRM)** | Extra Salesforce detail (opportunities, cases, contacts, etc.) for top customers. Includes **`arr_by_ultimate_parent`** — revenue rolled up by corporate parent with **`commercial_status`** and **`current_arr`** for ranking. |
 | **Section 4 — CS Report** | Customer Success weekly health: platform health, supply chain, value metrics for large accounts. |
 | **Section 4b — Slack** | Recent Slack conversations tied to customer names (when Slack is connected). |
 | **Section 5 — Usage signals** | Product “flags” — e.g. low adoption, features not used, unusual usage patterns. |
