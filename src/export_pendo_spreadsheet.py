@@ -367,10 +367,11 @@ def upload_pendo_export_spreadsheet(report: dict[str, Any], title: str, folder_i
     from googleapiclient.errors import HttpError
 
     from .charts import _build_sheets_service
-    from .drive_config import drive_api_lock, find_file_in_folder
+    from .drive_config import dedupe_duplicate_names_in_folder, drive_api_lock, find_file_in_folder
     from .slides_api import _get_service
 
     mime = "application/vnd.google-apps.spreadsheet"
+    dedupe_duplicate_names_in_folder(folder_id, title)
     existing = find_file_in_folder(title, folder_id, mime_type=mime)
     if existing:
         with drive_api_lock:

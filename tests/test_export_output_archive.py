@@ -67,36 +67,42 @@ def test_should_archive_previous_month_file() -> None:
 
 def test_archive_previous_month_in_folder_moves_qualifying_children(monkeypatch) -> None:
     parent_id = "output-root"
+    historical_id = "historical-root"
     archive_id = "archive-2026-06"
     calls: list[tuple[str, str, str]] = []
 
     def fake_list(_pid: str):
-        assert _pid == parent_id
-        return [
-            {
-                "id": "f1",
-                "name": "2026-06-10 - Output",
-                "mimeType": _MIME_FOLDER,
-                "modifiedTime": "2026-06-10T00:00:00.000Z",
-            },
-            {
-                "id": "f2",
-                "name": "LLM-Context-All_Customers.md",
-                "mimeType": "text/markdown",
-                "modifiedTime": "2026-07-01T00:00:00.000Z",
-            },
-            {
-                "id": "f3",
-                "name": "customer-exports",
-                "mimeType": _MIME_FOLDER,
-                "modifiedTime": "2026-06-01T00:00:00.000Z",
-            },
-        ]
+        if _pid == parent_id:
+            return [
+                {
+                    "id": "f1",
+                    "name": "2026-06-10 - Output",
+                    "mimeType": _MIME_FOLDER,
+                    "modifiedTime": "2026-06-10T00:00:00.000Z",
+                },
+                {
+                    "id": "f2",
+                    "name": "LLM-Context-All_Customers.md",
+                    "mimeType": "text/markdown",
+                    "modifiedTime": "2026-07-01T00:00:00.000Z",
+                },
+                {
+                    "id": "f3",
+                    "name": "customer-exports",
+                    "mimeType": _MIME_FOLDER,
+                    "modifiedTime": "2026-06-01T00:00:00.000Z",
+                },
+            ]
+        return []
 
     monkeypatch.setattr("src.export_output_archive._list_folder_children", fake_list)
     monkeypatch.setattr(
-        "src.drive_config._find_or_create_folder",
-        lambda name, pid: archive_id if name == "2026-06" and pid == parent_id else pytest.fail("unexpected"),
+        "src.export_output_archive.ensure_historical_data_folder",
+        lambda _pid: historical_id,
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive._ensure_month_archive_folder",
+        lambda hid, month: archive_id if hid == historical_id and month == "2026-06" else pytest.fail("unexpected"),
     )
 
     def fake_move(file_id: str, from_parent: str, to_parent: str) -> None:
@@ -130,7 +136,7 @@ def test_maybe_migrate_walks_customer_exports(monkeypatch) -> None:
         lambda: "output-root",
     )
 
-    def fake_migrate(parent_id: str, **kwargs):
+    def fake_archive(parent_id: str, **kwargs):
         if parent_id == "output-root":
             return {
                 "parent_id": parent_id,
@@ -146,8 +152,8 @@ def test_maybe_migrate_walks_customer_exports(monkeypatch) -> None:
         raise AssertionError(parent_id)
 
     monkeypatch.setattr(
-        "src.export_output_archive.migrate_export_folder_to_historical_data",
-        fake_migrate,
+        "src.export_output_archive._archive_export_base_on_startup",
+        fake_archive,
     )
     monkeypatch.setattr(
         "src.export_output_archive._find_folder_in_parent",
@@ -177,7 +183,8 @@ def test_maybe_archive_alias_delegates_to_migration(monkeypatch) -> None:
 def test_migrate_legacy_dated_folder_moves_children_and_trashes_container(monkeypatch) -> None:
     parent_id = "account-folder"
     historical_id = "historical-folder"
-    calls: list[tuple[str, str, str]] = []
+    month_folder_id = "month-folder"
+    moves: list[tuple[str, str, str]] = []
     trashed: list[str] = []
 
     def fake_list(pid: str):
@@ -205,6 +212,8 @@ def test_migrate_legacy_dated_folder_moves_children_and_trashes_container(monkey
                     "modifiedTime": "2026-06-15T00:00:00.000Z",
                 }
             ]
+        if pid in {historical_id, month_folder_id}:
+            return []
         raise AssertionError(pid)
 
     monkeypatch.setattr("src.export_output_archive._list_folder_children", fake_list)
@@ -212,17 +221,91 @@ def test_migrate_legacy_dated_folder_moves_children_and_trashes_container(monkey
         "src.export_output_archive.ensure_historical_data_folder",
         lambda _pid: historical_id,
     )
+    monkeypatch.setattr(
+        "src.export_output_archive._ensure_month_archive_folder",
+        lambda hid, month: month_folder_id if month == "2026-06" else pytest.fail("unexpected"),
+    )
+    monkeypatch.setattr("src.export_output_archive.dedupe_duplicate_names_in_folder", lambda *_a, **_k: None)
 
     def fake_move(file_id: str, from_parent: str, to_parent: str) -> None:
-        calls.append((file_id, from_parent, to_parent))
+        moves.append((file_id, from_parent, to_parent))
 
     monkeypatch.setattr("src.export_output_archive._move_drive_item", fake_move)
     monkeypatch.setattr(
-        "src.export_output_archive._trash_drive_item",
+        "src.export_output_archive.trash_drive_file",
         lambda fid: trashed.append(fid),
+    )
+    monkeypatch.setattr("src.export_output_archive.rename_drive_file", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        "src.export_output_archive.archive_previous_month_in_folder",
+        lambda *_a, **_k: {"moved": []},
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive.consolidate_historical_data_to_monthly_archives",
+        lambda *_a, **_k: {"moved": []},
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive.normalize_loose_historical_data",
+        lambda *_a, **_k: {"reorganized": []},
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive.ensure_persistent_exports_in_base",
+        lambda *_a, **_k: [],
     )
 
     result = migrate_export_folder_to_historical_data(parent_id)
-    assert calls == [("inner", "dated", historical_id)]
+    assert moves == [("inner", "dated", month_folder_id)]
     assert trashed == ["dated"]
-    assert result["moved"][0]["name"] == "Pendo Export  (Ford, 30d).md"
+    assert result["moved"][0]["target"] == "Pendo Export  (Ford, 30d).md"
+    assert result["moved"][0]["month"] == "2026-06"
+
+
+def test_migrate_promotes_legacy_base_pendo_to_persistent(monkeypatch) -> None:
+    parent_id = "account-folder"
+    historical_id = "historical-folder"
+
+    def fake_list(pid: str):
+        if pid == parent_id:
+            return [
+                {
+                    "id": "legacy",
+                    "name": "Pendo Export  (Ford, 30d).md",
+                    "mimeType": "text/markdown",
+                    "modifiedTime": "2026-07-01T00:00:00.000Z",
+                }
+            ]
+        if pid == historical_id:
+            return []
+        raise AssertionError(pid)
+
+    monkeypatch.setattr("src.export_output_archive._list_folder_children", fake_list)
+    monkeypatch.setattr(
+        "src.export_output_archive.ensure_historical_data_folder",
+        lambda _pid: historical_id,
+    )
+    monkeypatch.setattr("src.export_output_archive.dedupe_duplicate_names_in_folder", lambda *_a, **_k: None)
+    renames: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "src.export_output_archive.rename_drive_file",
+        lambda fid, name: renames.append((fid, name)),
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive.archive_previous_month_in_folder",
+        lambda *_a, **_k: {"moved": []},
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive.consolidate_historical_data_to_monthly_archives",
+        lambda *_a, **_k: {"moved": []},
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive.normalize_loose_historical_data",
+        lambda *_a, **_k: {"reorganized": []},
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive.ensure_persistent_exports_in_base",
+        lambda *_a, **_k: [],
+    )
+
+    result = migrate_export_folder_to_historical_data(parent_id)
+    assert renames == [("legacy", "Pendo Export  (Ford, 30d)-persistent.md")]
+    assert result["promoted"][0]["target"] == "Pendo Export  (Ford, 30d)-persistent.md"

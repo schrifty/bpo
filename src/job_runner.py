@@ -263,14 +263,22 @@ def _write_failures_artifact(job_name: str, run_id: str, failures: list[str]) ->
         logger.info("Wrote failures artifact: %s", path)
         return str(path)
     try:
+        from .export_drive_layout import ensure_historical_data_folder, ensure_historical_day_folder, historical_day_folder_label
         from .drive_config import get_qbr_output_root_folder_id, upload_text_file_to_drive_folder
 
         root_id = get_qbr_output_root_folder_id()
         if not root_id:
             return None
+        historical_id = ensure_historical_data_folder(root_id)
+        day_folder_id = ensure_historical_day_folder(historical_id)
         fname = f"failures-{job_name}-{run_id[:8]}.json"
-        fid = upload_text_file_to_drive_folder(fname, body, root_id, mime_type="application/json")
-        logger.info("Uploaded failures artifact to Drive: %s (id=%s)", fname, fid)
+        fid = upload_text_file_to_drive_folder(fname, body, day_folder_id, mime_type="application/json")
+        logger.info(
+            "Uploaded failures artifact to Drive Historical Data/%s/%s (id=%s)",
+            historical_day_folder_label(),
+            fname,
+            fid,
+        )
         return fid
     except Exception as exc:
         logger.warning("Could not upload failures.json to Drive: %s", exc)

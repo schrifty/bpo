@@ -1,7 +1,8 @@
 """Cross-system customer name resolution (Salesforce → Pendo, CS Report, JSM).
 
 CLI: ``./bin/match-customer-names`` uploads to QBR ``Output/`` (``-persistent`` filename) and
-``Historical Data/`` (dated snapshot) on Drive. Use ``--no-drive`` for a local-only run.
+``Output/match-customer-names-persistent.{txt,json}`` and a same-day snapshot under
+``Historical Data/{date}/`` on Drive. Use ``--no-drive`` for a local-only run.
 """
 
 from __future__ import annotations
@@ -876,12 +877,16 @@ def _default_local_out_path(fmt: str) -> Path:
 def _print_drive_upload_messages(meta: dict[str, str], *, nbytes: int) -> None:
     persistent = meta["filename"]
     historical = meta.get("historical_filename", persistent)
+    historical_day = meta.get("historical_day_folder", "")
+    historical_path = (
+        f"Historical Data/{historical_day}/{historical}" if historical_day else f"Historical Data/{historical}"
+    )
     print(
         f"Wrote {nbytes} bytes → Drive Output/{persistent} (id={meta['file_id_root']})",
         file=sys.stderr,
     )
     print(
-        f"Wrote {nbytes} bytes → Drive Historical Data/{historical} (id={meta['file_id_historical']})",
+        f"Wrote {nbytes} bytes → Drive {historical_path} (id={meta['file_id_historical']})",
         file=sys.stderr,
     )
     print(f"Output/ (persistent): https://drive.google.com/file/d/{meta['file_id_root']}/view")

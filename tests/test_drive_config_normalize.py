@@ -179,17 +179,20 @@ def test_upload_to_qbr_output_folders_writes_persistent_and_historical(monkeypat
         return f"file-{folder_id}"
 
     monkeypatch.setattr("src.drive_config.upload_text_file_to_drive_folder", _fake_upload)
+    monkeypatch.setattr(
+        "src.export_drive_layout.ensure_historical_day_folder",
+        lambda _hid, _day=None: "historical-day-folder",
+    )
+    monkeypatch.setattr("src.drive_config.dedupe_duplicate_names_in_folder", lambda *_a, **_k: None)
 
     meta = upload_to_qbr_output_folders("match-customer-names.txt", "hello", mime_type="text/plain")
 
     assert meta["file_id_root"] == "file-root-folder"
-    assert meta["file_id_historical"] == "file-historical-folder"
+    assert meta["file_id_historical"] == "file-historical-day-folder"
     assert meta["dated_label"] == "Historical Data"
     assert len(uploads) == 2
     assert uploads[0] == ("match-customer-names-persistent.txt", "hello", "root-folder")
-    assert uploads[1][2] == "historical-folder"
-    assert uploads[1][0].startswith("match-customer-names ")
-    assert uploads[1][0].endswith(".txt")
+    assert uploads[1] == ("match-customer-names.txt", "hello", "historical-day-folder")
 
 
 def test_upload_to_qbr_output_folders_fails_without_folders(monkeypatch) -> None:

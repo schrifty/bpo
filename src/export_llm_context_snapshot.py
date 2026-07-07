@@ -29,7 +29,7 @@ Requires ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` (and optional ``GOOGLE_QBR_OUTPUT_PA
 Drive credentials. Each run uploads ``LLM-Context-All_Customers`` to **both**:
 
 1. ``<generator>/Output/LLM-Context-All_Customers-persistent.md`` (bookmarkable current export)
-2. ``<generator>/Output/Historical Data/LLM-Context-All_Customers {ISO-date}.md`` (dated snapshot)
+2. ``<generator>/Output/Historical Data/{ISO-date}/LLM-Context-All_Customers.md`` (same-day snapshot, plain stem)
 
 Every export appends **§7 Account & churn risk insights** (LLM). Failures are printed inside that section; the export still completes unless the core datasource report fails earlier.
 """
@@ -2170,11 +2170,14 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
 
         print(
             f"Uploaded {_format_utf8_bytes(nbytes)} → Output/{urls['persistent_filename']} "
-            f"and Historical Data/{urls['historical_filename']}",
+            f"and Historical Data/{urls['historical_day_folder']}/{urls['historical_filename']}",
             file=sys.stderr,
         )
         print(f"Output/ (persistent): https://drive.google.com/file/d/{urls['persistent_file_id']}/view")
-        print(f"Historical Data/: https://drive.google.com/file/d/{urls['historical_file_id']}/view")
+        print(
+            f"Historical Data/{urls['historical_day_folder']}/: "
+            f"https://drive.google.com/file/d/{urls['historical_file_id']}/view"
+        )
 
         emit_export_size_breakdown_stderr(
             md,
