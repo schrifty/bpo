@@ -23,7 +23,16 @@ _DATED_OUTPUT_FOLDER_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) - Output$")
 _ARCHIVE_MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
 _HISTORICAL_DAY_FOLDER_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _HISTORICAL_FLAT_DATED_NAME_RE = re.compile(r"^(.+) (\d{4}-\d{2}-\d{2})(\..+)?$")
-_MANAGED_EXPORT_PREFIXES = ("Pendo Export  ", "LLM-Context-Portfolio", "match-customer-names")
+_MANAGED_EXPORT_PREFIXES = (
+    "Pendo Export  ",
+    "LLM-Context-Portfolio",
+    "match-customer-names",
+    "Portfolio - Engineering Review",
+)
+_PORTFOLIO_DECK_EXPORT_STEMS: dict[str, str] = {
+    "engineering-portfolio": "Portfolio - Engineering Review",
+}
+_MIME_PRESENTATION = "application/vnd.google-apps.presentation"
 _MIME_SPREADSHEET = "application/vnd.google-apps.spreadsheet"
 _MIME_FOLDER = "application/vnd.google-apps.folder"
 
@@ -366,3 +375,106 @@ def historical_spreadsheet_title(stem: str, export_date: dt.date | None = None) 
 
 def parse_historical_dated_name(name: str) -> tuple[str, dt.date, str] | None:
     return parse_historical_flat_dated_name(name)
+
+
+def portfolio_deck_export_stem(deck_id: str, *, cursor_suffix: bool = False) -> str | None:
+    """Stable Drive stem for portfolio-class decks using persistent/historical layout."""
+    base = _PORTFOLIO_DECK_EXPORT_STEMS.get(deck_id)
+    if not base:
+        return None
+    if cursor_suffix and deck_id == "engineering-portfolio":
+        return f"{base} — Cursor"
+    return base
+
+
+def portfolio_deck_persistent_title(deck_id: str, *, cursor_suffix: bool = False) -> str | None:
+    stem = portfolio_deck_export_stem(deck_id, cursor_suffix=cursor_suffix)
+    if not stem:
+        return None
+    return f"{stem}{PERSISTENT_SUFFIX}"
+
+
+def portfolio_deck_snapshot_title(deck_id: str, *, cursor_suffix: bool = False) -> str | None:
+    return portfolio_deck_export_stem(deck_id, cursor_suffix=cursor_suffix)
+
+
+def uses_portfolio_deck_export_layout(deck_id: str) -> bool:
+    return deck_id in _PORTFOLIO_DECK_EXPORT_STEMS
+
+
+def resolve_portfolio_deck_output(
+    deck_id: str,
+    *,
+    cursor_suffix: bool = False,
+) -> dict[str, str] | None:
+    """Return Output-root persistent placement for a portfolio deck job."""
+    persistent_title = portfolio_deck_persistent_title(deck_id, cursor_suffix=cursor_suffix)
+    snapshot_title = portfolio_deck_snapshot_title(deck_id, cursor_suffix=cursor_suffix)
+    if not persistent_title or not snapshot_title:
+        return None
+    folders = ensure_portfolio_output_folders()
+    return {
+        "persistent_folder_id": folders["persistent_folder_id"],
+        "historical_folder_id": folders["historical_folder_id"],
+        "persistent_title": persistent_title,
+        "snapshot_title": snapshot_title,
+        "base_label": folders["base_label"],
+    }
+
+
+def snapshot_presentation_to_historical_day(
+    *,
+    presentation_id: str,
+    deck_id: str,
+    drive_service: Any,
+    cursor_suffix: bool = False,
+    export_date: dt.date | None = None,
+) -> dict[str, str]:
+    """Copy a portfolio deck presentation into ``Historical Data/{YYYY-MM-DD}/``."""
+    from .drive_config import dedupe_duplicate_names_in_folder, list_files_by_name_in_folder, trash_drive_file
+
+    snapshot_title = portfolio_deck_snapshot_title(deck_id, cursor_suffix=cursor_suffix)
+    if not snapshot_title:
+        raise ValueError(f"deck_id {deck_id!r} does not use portfolio deck export layout")
+
+    folders = ensure_portfolio_output_folders()
+    day = export_date or dt.date.today()
+    day_label = historical_day_folder_label(day)
+    day_folder_id = ensure_historical_day_folder(folders["historical_folder_id"], day)
+
+    for row in list_files_by_name_in_folder(
+        snapshot_title,
+        day_folder_id,
+        mime_type=_MIME_PRESENTATION,
+    ):
+        fid = str(row.get("id") or "")
+        if fid:
+            trash_drive_file(fid)
+
+    dedupe_duplicate_names_in_folder(day_folder_id, snapshot_title)
+
+    copied = (
+        drive_service.files()
+        .copy(
+            fileId=presentation_id,
+            body={"name": snapshot_title, "parents": [day_folder_id]},
+            fields="id",
+        )
+        .execute()
+    )
+    historical_id = str(copied["id"])
+    logger.info(
+        "Copied portfolio deck %s → %s/%s and Historical Data/%s/%s",
+        deck_id,
+        folders["base_label"],
+        portfolio_deck_persistent_title(deck_id, cursor_suffix=cursor_suffix),
+        day_label,
+        snapshot_title,
+    )
+    return {
+        "historical_file_id": historical_id,
+        "historical_filename": snapshot_title,
+        "historical_day_folder": day_label,
+        "historical_folder_id": folders["historical_folder_id"],
+        "historical_url": f"https://docs.google.com/presentation/d/{historical_id}/edit",
+    }

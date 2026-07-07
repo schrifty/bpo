@@ -80,28 +80,67 @@ def find_latest_presentation_for_deck(
     deck_id: str,
 ) -> dict[str, Any] | None:
     """Return the newest presentation file for a portfolio deck id."""
-    from .drive_config import get_deck_output_folder_id, get_qbr_output_root_folder_id
+    from .config import CORTEX_CURSOR_SLIDES_ONLY
+    from .drive_config import (
+        _drive_q_escape,
+        get_deck_output_folder_id,
+        get_qbr_output_root_folder_id,
+    )
+    from .export_drive_layout import (
+        portfolio_deck_persistent_title,
+        portfolio_deck_snapshot_title,
+        uses_portfolio_deck_export_layout,
+    )
 
     tail = _PORTFOLIO_DRIVE_TITLE_TAIL.get(deck_id)
     if not tail:
         return None
-    name_hint = tail
-    folder_ids = [get_deck_output_folder_id(), get_qbr_output_root_folder_id()]
+
+    cursor_suffix = bool(CORTEX_CURSOR_SLIDES_ONLY and deck_id == "engineering-portfolio")
+    persistent_title = (
+        portfolio_deck_persistent_title(deck_id, cursor_suffix=cursor_suffix)
+        if uses_portfolio_deck_export_layout(deck_id)
+        else None
+    )
+    snapshot_title = (
+        portfolio_deck_snapshot_title(deck_id, cursor_suffix=cursor_suffix)
+        if uses_portfolio_deck_export_layout(deck_id)
+        else None
+    )
+
     best: dict[str, Any] | None = None
+    output_root_id = get_qbr_output_root_folder_id()
+    folder_ids: list[str | None] = [output_root_id, get_deck_output_folder_id()]
     for folder_id in folder_ids:
         if not folder_id:
             continue
+        if persistent_title and folder_id == output_root_id:
+            esc = _drive_q_escape(persistent_title)
+            q = (
+                f"'{folder_id}' in parents and "
+                "mimeType='application/vnd.google-apps.presentation' and "
+                f"name = '{esc}' and trashed=false"
+            )
+            best = _drive_search_newest(drive_service, q, best)
+        if snapshot_title:
+            esc = _drive_q_escape(snapshot_title)
+            q = (
+                f"'{folder_id}' in parents and "
+                "mimeType='application/vnd.google-apps.presentation' and "
+                f"name = '{esc}' and trashed=false"
+            )
+            best = _drive_search_newest(drive_service, q, best)
         q = (
             f"'{folder_id}' in parents and "
             "mimeType='application/vnd.google-apps.presentation' and "
-            f"name contains '{name_hint}' and trashed=false"
+            f"name contains '{tail}' and trashed=false"
         )
         best = _drive_search_newest(drive_service, q, best)
 
     if best is None:
         q = (
             "mimeType='application/vnd.google-apps.presentation' and "
-            f"name contains 'Portfolio - {name_hint}' and trashed=false"
+            f"name contains 'Portfolio - {tail}' and trashed=false"
         )
         best = _drive_search_newest(drive_service, q, best)
     return best

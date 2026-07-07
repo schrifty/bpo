@@ -78,3 +78,11 @@ def test_is_allowed_export_base_subfolder_rejects_monthly_bucket_at_base() -> No
     assert not is_allowed_export_base_subfolder("2026-06", portfolio_root=True)
     assert not is_allowed_export_base_subfolder("2026-06", portfolio_root=False)
     assert is_allowed_export_base_subfolder("Historical Data", portfolio_root=True)
+
+
+def test_portfolio_deck_persistent_title_matches_export_pattern() -> None:
+    from src.export_drive_layout import portfolio_deck_persistent_title
+
+    assert portfolio_deck_persistent_title("engineering-portfolio") == (
+        "Portfolio - Engineering Review-persistent"
+    )

@@ -139,15 +139,34 @@ def create_health_deck(
 
         slide_plan: list[dict[str, Any]] = list(resolved.get("slides") or [])
 
-        # For support deck without customer, include full support slide lineup with all-project scope.
-        title = _health_deck_presentation_title(
-            deck_id=deck_id,
-            deck_name=str(deck_name),
-            date_str=date_str,
-            customer=customer,
-            report=report,
-            is_portfolio=is_portfolio,
+        from .config import CORTEX_CURSOR_SLIDES_ONLY
+        from .export_drive_layout import (
+            resolve_portfolio_deck_output,
+            snapshot_presentation_to_historical_day,
+            uses_portfolio_deck_export_layout,
         )
+
+        portfolio_output = None
+        if uses_portfolio_deck_export_layout(deck_id):
+            portfolio_output = resolve_portfolio_deck_output(
+                deck_id,
+                cursor_suffix=bool(CORTEX_CURSOR_SLIDES_ONLY and deck_id == "engineering-portfolio"),
+            )
+
+        # For support deck without customer, include full support slide lineup with all-project scope.
+        if portfolio_output:
+            title = portfolio_output["persistent_title"]
+            create_folder_id = output_folder_id or portfolio_output["persistent_folder_id"]
+        else:
+            title = _health_deck_presentation_title(
+                deck_id=deck_id,
+                deck_name=str(deck_name),
+                date_str=date_str,
+                customer=customer,
+                report=report,
+                is_portfolio=is_portfolio,
+            )
+            create_folder_id = output_folder_id
 
         report, slide_plan = enrich_deck_report_data(deck_id, report, slide_plan, customer)
 
@@ -175,11 +194,19 @@ def create_health_deck(
                 "deck_id": deck_id,
             }
 
-        pres_id, create_error = create_presentation(drive_service, title, output_folder_id)
+        pres_id, create_error = create_presentation(drive_service, title, create_folder_id)
         if create_error:
             create_error.setdefault("customer", customer)
             create_error.setdefault("deck_id", deck_id)
             return create_error
+
+        if portfolio_output:
+            from .drive_config import dedupe_duplicate_names_in_folder
+
+            dedupe_duplicate_names_in_folder(
+                portfolio_output["persistent_folder_id"],
+                portfolio_output["persistent_title"],
+            )
 
         # Provide a DeckCharts instance for Slides embeds backed by Google Sheets.
         from .charts import DeckCharts
@@ -238,7 +265,7 @@ def create_health_deck(
             return notable_error
 
         _set_support_deck_corner_customer(None)
-        return finalize_health_deck(
+        result = finalize_health_deck(
             slides_service,
             pres_id,
             report,
@@ -247,3 +274,16 @@ def create_health_deck(
             slides_created,
             thumbnails=thumbnails,
         )
+        if portfolio_output and "error" not in result:
+            try:
+                hist = snapshot_presentation_to_historical_day(
+                    presentation_id=pres_id,
+                    deck_id=deck_id,
+                    drive_service=drive_service,
+                    cursor_suffix=bool(CORTEX_CURSOR_SLIDES_ONLY and deck_id == "engineering-portfolio"),
+                )
+                result.update(hist)
+            except Exception as exc:
+                logger.warning("Portfolio deck historical snapshot failed: %s", exc)
+                result["historical_snapshot_error"] = str(exc)
+        return result
