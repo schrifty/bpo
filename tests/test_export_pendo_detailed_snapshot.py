@@ -5,7 +5,11 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from src.export_pendo_detailed_snapshot import (
+    _canonical_site_names_for_prefix,
+    _index_rows_by_visitor,
     _pendo_detailed_export_file_stem,
+    _sum_activity_indexed,
+    _top_pages_and_features_in_window,
     build_customer_pendo_detailed_report,
     build_full_user_roster,
     build_site_detail_slices,
@@ -34,6 +38,35 @@ def test_pendo_detailed_export_file_stem() -> None:
     assert _pendo_detailed_export_file_stem("Ford", 30) == "Pendo Detailed Export  (Ford, 30d)"
 
 
+def test_indexed_activity_matches_window_totals() -> None:
+    now_ms = 1_700_100_000_000
+    page_rows = [
+        {"visitorId": "v1", "day": now_ms - 86400000, "pageId": "p1", "numEvents": 10, "numMinutes": 5},
+        {"visitorId": "v2", "day": now_ms - 86400000, "pageId": "p2", "numEvents": 4, "numMinutes": 2},
+    ]
+    feat_rows = [{"visitorId": "v1", "day": now_ms - 86400000, "featureId": "f1", "numEvents": 3}]
+    page_by_visitor, feat_by_visitor = _index_rows_by_visitor(page_rows, feat_rows)
+    current = _sum_activity_indexed(
+        page_by_visitor,
+        feat_by_visitor,
+        {"v1"},
+        now_ms - 7 * 86400000,
+        now_ms,
+    )
+    assert current["total_events"] == 13
+    top_pages, top_features = _top_pages_and_features_in_window(
+        page_by_visitor,
+        feat_by_visitor,
+        {"v1"},
+        start_ms=now_ms - 7 * 86400000,
+        end_ms=now_ms,
+        page_catalog={"p1": "Dashboard"},
+        feature_catalog={"f1": "Export"},
+    )
+    assert top_pages[0]["name"] == "Dashboard"
+    assert top_features[0]["name"] == "Export"
+
+
 def test_build_site_detail_slices_and_user_roster() -> None:
     pc = MagicMock()
     now_ms = 1_700_100_000_000
@@ -43,17 +76,18 @@ def test_build_site_detail_slices_and_user_roster() -> None:
         _visitor("v3", "c@ford.com", ["Ford Dearborn Engine", "Ford Lima Engine"]),
     ]
     page_rows = [
-        {"visitorId": "v1", "day": now_ms - 86400000, "numEvents": 10, "numMinutes": 5},
-        {"visitorId": "v2", "day": now_ms - 86400000, "numEvents": 4, "numMinutes": 2},
+        {"visitorId": "v1", "day": now_ms - 86400000, "pageId": "p1", "numEvents": 10, "numMinutes": 5},
+        {"visitorId": "v2", "day": now_ms - 86400000, "pageId": "p2", "numEvents": 4, "numMinutes": 2},
     ]
     feat_rows = [
-        {"visitorId": "v1", "day": now_ms - 86400000, "numEvents": 3},
-        {"visitorId": "v3", "day": now_ms - 86400000, "numEvents": 1},
+        {"visitorId": "v1", "day": now_ms - 86400000, "featureId": "f1", "numEvents": 3},
+        {"visitorId": "v3", "day": now_ms - 86400000, "featureId": "f1", "numEvents": 1},
     ]
-    pc._get_page_catalog_cached.return_value = {"p1": "Dashboard"}
+    pc._get_page_catalog_cached.return_value = {"p1": "Dashboard", "p2": "Reports"}
     pc.get_feature_catalog.return_value = {"f1": "Export"}
     pc._get_page_events_cached.return_value = [
         {"visitorId": "v1", "pageId": "p1", "numEvents": 10, "numMinutes": 5},
+        {"visitorId": "v2", "pageId": "p2", "numEvents": 4, "numMinutes": 2},
     ]
     pc._get_feature_events_cached.return_value = [
         {"visitorId": "v1", "featureId": "f1", "numEvents": 3},
@@ -67,6 +101,14 @@ def test_build_site_detail_slices_and_user_roster() -> None:
         }
         for v in vs
     ]
+    pc.get_sites_by_customer.return_value = {
+        "by_customer": {
+            "Ford": [
+                {"sitename": "Ford Dearborn Engine", "total_events": 14},
+                {"sitename": "Ford Lima Engine", "total_events": 4},
+            ],
+        },
+    }
 
     sites = build_site_detail_slices(
         pc,
@@ -82,6 +124,8 @@ def test_build_site_detail_slices_and_user_roster() -> None:
     assert sites[0]["sitename"] in {"Ford Dearborn Engine", "Ford Lima Engine"}
     assert sites[0]["visitors"] >= 1
     assert sites[0]["top_pages"]
+    assert pc._get_page_events_cached.call_count == 1
+    assert pc._get_feature_events_cached.call_count == 1
 
     roster = build_full_user_roster(
         pc,
@@ -96,6 +140,21 @@ def test_build_site_detail_slices_and_user_roster() -> None:
     assert len(roster) == 3
     assert roster[0]["email"]
     assert roster[0]["events_current"] >= 0
+
+
+def test_canonical_site_names_ignores_visitor_metadata_inflation() -> None:
+    pc = MagicMock()
+    pc.get_sites_by_customer.return_value = {
+        "by_customer": {
+            "Safran": [
+                {"sitename": "Safran Ventilation Systems", "total_events": 100},
+                {"sitename": "Safran Site B", "total_events": 50},
+            ],
+        },
+    }
+    names = _canonical_site_names_for_prefix(pc, "Safran", days=30)
+    assert names == ["Safran Ventilation Systems", "Safran Site B"]
+    pc.get_sites_by_customer.assert_called_once_with(days=30)
 
 
 @patch("src.export_pendo_detailed_snapshot.build_customer_pendo_export_report")

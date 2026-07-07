@@ -15,6 +15,7 @@ from typing import Any
 
 from .config import logger
 from .export_customer_pendo_snapshot import (
+    _day_in_window,
     _fetch_activity_day_buckets,
     _md_section,
     _pct_change,
@@ -80,40 +81,86 @@ def _engagement_bucket(days_inactive: float) -> str:
     return "dormant"
 
 
-def _top_pages_and_features_for_visitors(
-    pc: PendoClient,
+def _index_rows_by_visitor(
+    page_rows: list[dict[str, Any]],
+    feat_rows: list[dict[str, Any]],
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[dict[str, Any]]]]:
+    page_by_visitor: dict[str, list[dict[str, Any]]] = {}
+    feat_by_visitor: dict[str, list[dict[str, Any]]] = {}
+    for ev in page_rows:
+        vid = str(ev.get("visitorId") or "")
+        if vid:
+            page_by_visitor.setdefault(vid, []).append(ev)
+    for ev in feat_rows:
+        vid = str(ev.get("visitorId") or "")
+        if vid:
+            feat_by_visitor.setdefault(vid, []).append(ev)
+    return page_by_visitor, feat_by_visitor
+
+
+def _sum_activity_indexed(
+    page_by_visitor: dict[str, list[dict[str, Any]]],
+    feat_by_visitor: dict[str, list[dict[str, Any]]],
     visitor_ids: set[str],
-    days: int,
+    start_ms: int,
+    end_ms: int,
+) -> dict[str, int | float]:
+    page_events = page_minutes = feature_events = 0
+    for vid in visitor_ids:
+        for ev in page_by_visitor.get(vid, ()):
+            if not _day_in_window(ev.get("day"), start_ms, end_ms):
+                continue
+            page_events += int(ev.get("numEvents") or 0)
+            page_minutes += int(ev.get("numMinutes") or 0)
+        for ev in feat_by_visitor.get(vid, ()):
+            if not _day_in_window(ev.get("day"), start_ms, end_ms):
+                continue
+            feature_events += int(ev.get("numEvents") or 0)
+    total_events = page_events + feature_events
+    return {
+        "total_events": total_events,
+        "page_events": page_events,
+        "page_minutes": page_minutes,
+        "feature_events": feature_events,
+    }
+
+
+def _index_merged_events_by_visitor(
+    events: list[dict[str, Any]],
+    visitor_ids: set[str],
+) -> dict[str, list[dict[str, Any]]]:
+    out: dict[str, list[dict[str, Any]]] = {}
+    for ev in events:
+        vid = str(ev.get("visitorId") or "")
+        if vid in visitor_ids:
+            out.setdefault(vid, []).append(ev)
+    return out
+
+
+def _top_pages_and_features_from_merged(
+    page_by_visitor: dict[str, list[dict[str, Any]]],
+    feat_by_visitor: dict[str, list[dict[str, Any]]],
+    visitor_ids: set[str],
     *,
+    page_catalog: dict[str, str],
+    feature_catalog: dict[str, str],
     limit: int = 8,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    page_catalog = pc._get_page_catalog_cached()
-    feature_catalog = pc.get_feature_catalog()
     page_counts: dict[str, dict[str, int]] = {}
     feat_counts: dict[str, int] = {}
-    try:
-        for ev in pc._get_page_events_cached(days):
-            if str(ev.get("visitorId")) not in visitor_ids:
-                continue
+    for vid in visitor_ids:
+        for ev in page_by_visitor.get(vid, ()):
             pid = str(ev.get("pageId") or "")
             if not pid:
                 continue
             bucket = page_counts.setdefault(pid, {"events": 0, "minutes": 0})
             bucket["events"] += int(ev.get("numEvents") or 0)
             bucket["minutes"] += int(ev.get("numMinutes") or 0)
-    except Exception as e:
-        logger.debug("Site detail top pages skipped: %s", e)
-    try:
-        for ev in pc._get_feature_events_cached(days):
-            if str(ev.get("visitorId")) not in visitor_ids:
-                continue
+        for ev in feat_by_visitor.get(vid, ()):
             fid = str(ev.get("featureId") or "")
             if not fid:
                 continue
             feat_counts[fid] = feat_counts.get(fid, 0) + int(ev.get("numEvents") or 0)
-    except Exception as e:
-        logger.debug("Site detail top features skipped: %s", e)
-
     top_pages = [
         {"name": page_catalog.get(pid, pid), "events": c["events"], "minutes": c["minutes"]}
         for pid, c in sorted(page_counts.items(), key=lambda x: -x[1]["events"])[:limit]
@@ -123,6 +170,95 @@ def _top_pages_and_features_for_visitors(
         for fid, count in sorted(feat_counts.items(), key=lambda x: -x[1])[:limit]
     ]
     return top_pages, top_features
+
+
+def _top_pages_and_features_in_window(
+    page_by_visitor: dict[str, list[dict[str, Any]]],
+    feat_by_visitor: dict[str, list[dict[str, Any]]],
+    visitor_ids: set[str],
+    *,
+    start_ms: int,
+    end_ms: int,
+    page_catalog: dict[str, str],
+    feature_catalog: dict[str, str],
+    limit: int = 8,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    page_counts: dict[str, dict[str, int]] = {}
+    feat_counts: dict[str, int] = {}
+    for vid in visitor_ids:
+        for ev in page_by_visitor.get(vid, ()):
+            if not _day_in_window(ev.get("day"), start_ms, end_ms):
+                continue
+            pid = str(ev.get("pageId") or "")
+            if not pid:
+                continue
+            bucket = page_counts.setdefault(pid, {"events": 0, "minutes": 0})
+            bucket["events"] += int(ev.get("numEvents") or 0)
+            bucket["minutes"] += int(ev.get("numMinutes") or 0)
+        for ev in feat_by_visitor.get(vid, ()):
+            if not _day_in_window(ev.get("day"), start_ms, end_ms):
+                continue
+            fid = str(ev.get("featureId") or "")
+            if not fid:
+                continue
+            feat_counts[fid] = feat_counts.get(fid, 0) + int(ev.get("numEvents") or 0)
+    top_pages = [
+        {"name": page_catalog.get(pid, pid), "events": c["events"], "minutes": c["minutes"]}
+        for pid, c in sorted(page_counts.items(), key=lambda x: -x[1]["events"])[:limit]
+    ]
+    top_features = [
+        {"name": feature_catalog.get(fid, fid), "events": count}
+        for fid, count in sorted(feat_counts.items(), key=lambda x: -x[1])[:limit]
+    ]
+    return top_pages, top_features
+
+
+def _canonical_site_names_for_prefix(
+    pc: PendoClient,
+    pendo_prefix: str,
+    *,
+    days: int,
+) -> list[str]:
+    """Return sitenames from the portfolio site-ID inventory for one customer prefix.
+
+    Uses the same rollup as ``get_sites_by_customer`` (one row per Pendo site id), not the
+    union of every ``agent.sitenames`` string attached to visitors (which inflates counts).
+    """
+    by_customer = (pc.get_sites_by_customer(days=days) or {}).get("by_customer") or {}
+    rows: list[dict[str, Any]] = list(by_customer.get(pendo_prefix) or [])
+    if not rows:
+        target = pendo_prefix.strip().lower()
+        for key, site_rows in by_customer.items():
+            if str(key).strip().lower() == target:
+                rows = list(site_rows)
+                break
+    seen: set[str] = set()
+    names: list[str] = []
+    events_by_name = {
+        str(row.get("sitename") or "").strip(): int(row.get("total_events") or 0)
+        for row in rows
+        if row.get("sitename")
+    }
+    for row in rows:
+        sn = str(row.get("sitename") or "").strip()
+        if not sn:
+            continue
+        key = sn.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        names.append(sn)
+    names.sort(key=lambda sn: (-events_by_name.get(sn, 0), sn.lower()))
+    return names
+
+
+def _filter_rows_for_visitors(
+    rows: list[dict[str, Any]],
+    visitor_ids: set[str],
+) -> list[dict[str, Any]]:
+    if not visitor_ids:
+        return []
+    return [ev for ev in rows if str(ev.get("visitorId") or "") in visitor_ids]
 
 
 def build_site_detail_slices(
@@ -143,27 +279,54 @@ def build_site_detail_slices(
     prior_end_ms = current_start_ms
     prior_start_ms = prior_end_ms - compare * _MS_PER_DAY
 
-    site_names: list[str] = []
-    seen: set[str] = set()
-    for v in customer_visitors:
-        agent = (v.get("metadata") or {}).get("agent") or {}
-        for sn in _visitor_sitenames(agent, pendo_prefix):
-            if sn.lower() not in seen:
-                seen.add(sn.lower())
-                site_names.append(sn)
-    site_names.sort(key=str.lower)
+    customer_visitor_ids = {
+        str(v.get("visitorId"))
+        for v in customer_visitors
+        if v.get("visitorId")
+    }
+    customer_page_rows = _filter_rows_for_visitors(page_rows, customer_visitor_ids)
+    customer_feat_rows = _filter_rows_for_visitors(feat_rows, customer_visitor_ids)
+    page_by_visitor, feat_by_visitor = _index_rows_by_visitor(customer_page_rows, customer_feat_rows)
+    merged_page_by_visitor = _index_merged_events_by_visitor(
+        pc._get_page_events_cached(window_days),
+        customer_visitor_ids,
+    )
+    merged_feat_by_visitor = _index_merged_events_by_visitor(
+        pc._get_feature_events_cached(window_days),
+        customer_visitor_ids,
+    )
+    page_catalog = pc._get_page_catalog_cached()
+    feature_catalog = pc.get_feature_catalog()
+
+    site_names = _canonical_site_names_for_prefix(pc, pendo_prefix, days=window_days)
+    logger.info(
+        "Pendo detailed: building %d site slice(s) for %r (%d visitors; canonical site inventory)",
+        len(site_names),
+        pendo_prefix,
+        len(customer_visitor_ids),
+    )
 
     slices: list[dict[str, Any]] = []
     for sitename in site_names:
         site_visitors = _visitors_for_sitename(customer_visitors, sitename)
         visitor_ids = {str(v.get("visitorId")) for v in site_visitors if v.get("visitorId")}
-        current = _sum_activity_in_window(page_rows, feat_rows, visitor_ids, current_start_ms, now_ms)
-        prior = _sum_activity_in_window(page_rows, feat_rows, visitor_ids, prior_start_ms, prior_end_ms)
+        current = _sum_activity_indexed(
+            page_by_visitor, feat_by_visitor, visitor_ids, current_start_ms, now_ms
+        )
+        prior = _sum_activity_indexed(
+            page_by_visitor, feat_by_visitor, visitor_ids, prior_start_ms, prior_end_ms
+        )
         users = pc._build_user_activity(site_visitors, now_ms)
         engagement = {"active_7d": 0, "active_30d": 0, "dormant": 0}
         for u in users:
             engagement[_engagement_bucket(float(u.get("days_inactive") or 999))] += 1
-        top_pages, top_features = _top_pages_and_features_for_visitors(pc, visitor_ids, window_days)
+        top_pages, top_features = _top_pages_and_features_from_merged(
+            merged_page_by_visitor,
+            merged_feat_by_visitor,
+            visitor_ids,
+            page_catalog=page_catalog,
+            feature_catalog=feature_catalog,
+        )
         slices.append(
             {
                 "sitename": sitename,
@@ -203,6 +366,15 @@ def build_full_user_roster(
     prior_end_ms = current_start_ms
     prior_start_ms = prior_end_ms - compare * _MS_PER_DAY
 
+    customer_visitor_ids = {
+        str(v.get("visitorId"))
+        for v in customer_visitors
+        if v.get("visitorId")
+    }
+    customer_page_rows = _filter_rows_for_visitors(page_rows, customer_visitor_ids)
+    customer_feat_rows = _filter_rows_for_visitors(feat_rows, customer_visitor_ids)
+    page_by_visitor, feat_by_visitor = _index_rows_by_visitor(customer_page_rows, customer_feat_rows)
+
     roster: list[dict[str, Any]] = []
     for v in customer_visitors:
         vid = str(v.get("visitorId") or "")
@@ -212,8 +384,12 @@ def build_full_user_roster(
         auto = (v.get("metadata") or {}).get("auto") or {}
         lv = auto.get("lastvisit", 0)
         days_inactive = (now_ms - lv) / (86400 * 1000) if lv else 999.0
-        current = _sum_activity_in_window(page_rows, feat_rows, {vid}, current_start_ms, now_ms)
-        prior = _sum_activity_in_window(page_rows, feat_rows, {vid}, prior_start_ms, prior_end_ms)
+        current = _sum_activity_indexed(
+            page_by_visitor, feat_by_visitor, {vid}, current_start_ms, now_ms
+        )
+        prior = _sum_activity_indexed(
+            page_by_visitor, feat_by_visitor, {vid}, prior_start_ms, prior_end_ms
+        )
         roster.append(
             {
                 "visitor_id": vid,
@@ -273,6 +449,11 @@ def build_customer_pendo_detailed_report(
         }
 
     page_rows, feat_rows = _fetch_activity_day_buckets(pc, total_lookback)
+    logger.info(
+        "Pendo detailed: enriching %r with site/user slices (%d visitors)",
+        pendo_prefix,
+        len(customer_visitors),
+    )
     site_detail = build_site_detail_slices(
         pc,
         pendo_prefix,
