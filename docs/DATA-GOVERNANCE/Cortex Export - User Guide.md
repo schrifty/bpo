@@ -4,7 +4,7 @@ This guide explains **what’s in the Cortex customer export**, **how to read it
 
 ## What is this file?
 
-Cortex produces a snapshot called **`LLM-Context-All_Customers.md`**. Think of it as a **single briefing packet** about your customer portfolio: who they are, how they use the product, support load, contract status, and health signals.
+Cortex produces a snapshot called **`LLM-Context-Portfolio.md`**. Think of it as a **single briefing packet** about your customer portfolio: who they are, how they use the product, support load, contract status, and health signals.
 
 The file is saved to **Google Drive** (under the Cortex generator folder → **Output**). A fresh copy is usually created on a schedule; each file has an **Exported (UTC)** date at the top so you know how old the data is.
 

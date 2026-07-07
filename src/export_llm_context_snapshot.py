@@ -26,10 +26,10 @@ Optional portfolio row filters (after Pendo+Salesforce bundle, before markdown):
   env ``CORTEX_LLM_EXPORT_EXCLUDE_CUSTOMERS`` / ``CORTEX_LLM_EXPORT_EXCLUDE_CUSTOMERS_FILE``.
 
 Requires ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` (and optional ``GOOGLE_QBR_OUTPUT_PARENT_ID``) plus
-Drive credentials. Each run uploads ``LLM-Context-All_Customers`` to **both**:
+Drive credentials. Each run uploads ``LLM-Context-Portfolio`` to **both**:
 
-1. ``<generator>/Output/LLM-Context-All_Customers-persistent.md`` (bookmarkable current export)
-2. ``<generator>/Output/Historical Data/{ISO-date}/LLM-Context-All_Customers.md`` (same-day snapshot, plain stem)
+1. ``<generator>/Output/LLM-Context-Portfolio-persistent.md`` (bookmarkable current export)
+2. ``<generator>/Output/Historical Data/{ISO-date}/LLM-Context-Portfolio.md`` (same-day snapshot, plain stem)
 
 Every export appends **§7 Account & churn risk insights** (LLM). Failures are printed inside that section; the export still completes unless the core datasource report fails earlier.
 """
@@ -2159,7 +2159,7 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
         folders = ensure_portfolio_output_folders()
         with export_phase(diag, "Drive upload"):
             urls = upload_text_persistent_and_historical(
-                stem="LLM-Context-All_Customers",
+                stem="LLM-Context-Portfolio",
                 content=md,
                 ext=".md",
                 persistent_folder_id=folders["persistent_folder_id"],

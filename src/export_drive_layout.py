@@ -22,7 +22,7 @@ _DATED_OUTPUT_FOLDER_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) - Output$")
 _ARCHIVE_MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
 _HISTORICAL_DAY_FOLDER_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _HISTORICAL_FLAT_DATED_NAME_RE = re.compile(r"^(.+) (\d{4}-\d{2}-\d{2})(\..+)?$")
-_MANAGED_EXPORT_PREFIXES = ("Pendo Export  ", "LLM-Context-All_Customers", "match-customer-names")
+_MANAGED_EXPORT_PREFIXES = ("Pendo Export  ", "LLM-Context-Portfolio", "match-customer-names")
 _MIME_SPREADSHEET = "application/vnd.google-apps.spreadsheet"
 _MIME_FOLDER = "application/vnd.google-apps.folder"
 

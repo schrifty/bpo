@@ -50,8 +50,8 @@ Flag commands (utilities)
       [--customers-sf-allowlist] [--customers-exclude-sf-churned]
       [--exclude-customer LABEL ...]
       Build the all-customers LLM context markdown snapshot and upload it to Drive **twice**: under
-      ``<QBR Generator>/Output/LLM-Context-All_Customers-persistent.md`` (bookmarkable current export)
-      and under ``Output/Historical Data/{ISO-date}/LLM-Context-All_Customers.md`` (same-day snapshot).
+      ``<QBR Generator>/Output/LLM-Context-Portfolio-persistent.md`` (bookmarkable current export)
+      and under ``Output/Historical Data/{ISO-date}/LLM-Context-Portfolio.md`` (same-day snapshot).
       Prior-month base-folder exports are archived into ``Output/Historical Data/{YYYY-MM}/`` at startup.
       Section 7 LLM churn/account-risk insights are always appended to the export markdown.
 

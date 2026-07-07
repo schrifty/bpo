@@ -28,7 +28,7 @@ def test_item_month_key_from_dated_output_folder() -> None:
 
 
 def test_item_month_key_from_modified_time() -> None:
-    assert item_month_key("LLM-Context-All_Customers.md", "2026-06-30T10:00:00.000Z", mime_type="text/markdown") == "2026-06"
+    assert item_month_key("LLM-Context-Portfolio.md", "2026-06-30T10:00:00.000Z", mime_type="text/markdown") == "2026-06"
 
 
 def test_should_archive_skips_customer_exports_and_archive_folders() -> None:
@@ -82,7 +82,7 @@ def test_archive_previous_month_in_folder_moves_qualifying_children(monkeypatch)
                 },
                 {
                     "id": "f2",
-                    "name": "LLM-Context-All_Customers.md",
+                    "name": "LLM-Context-Portfolio.md",
                     "mimeType": "text/markdown",
                     "modifiedTime": "2026-07-01T00:00:00.000Z",
                 },
