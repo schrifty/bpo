@@ -793,23 +793,10 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
 
 
 def ensure_customer_pendo_export_folders(customer: str) -> dict[str, str]:
-    """Return stable and dated folder ids under Output/customer-exports/{customer}/."""
-    from .drive_config import _find_or_create_folder, get_qbr_output_root_folder_id
+    """Return persistent and historical folder ids under Output/customer-exports/{customer}/."""
+    from .export_drive_layout import ensure_customer_export_folders
 
-    root = get_qbr_output_root_folder_id()
-    if not root:
-        raise RuntimeError(
-            "Could not resolve Drive Output folder (set GOOGLE_QBR_GENERATOR_FOLDER_ID)."
-        )
-    customer_folder = _find_or_create_folder(_CUSTOMER_EXPORTS_FOLDER, root)
-    account_folder = _find_or_create_folder(customer, customer_folder)
-    dated_name = f"{dt.date.today().isoformat()} - Output"
-    dated_folder = _find_or_create_folder(dated_name, account_folder)
-    return {
-        "stable_folder_id": account_folder,
-        "dated_folder_id": dated_folder,
-        "dated_label": dated_name,
-    }
+    return ensure_customer_export_folders(customer)
 
 
 def _write_local(path: Path, content: str) -> None:
@@ -872,32 +859,28 @@ def export_pendo_main(cli_args: list[str] | None = None, *, prog: str | None = N
             print(f"Wrote {base.with_suffix('.xlsx')}")
 
         if not args.no_drive:
-            from .drive_config import upload_text_file_to_drive_folder
-            from .export_pendo_spreadsheet import spreadsheet_url, upload_pendo_export_spreadsheet
+            from .export_drive_layout import ensure_customer_export_folders, upload_pendo_markdown_and_spreadsheet
 
-            folders = ensure_customer_pendo_export_folders(pendo_prefix)
-            stable_id = folders["stable_folder_id"]
-            dated_id = folders["dated_folder_id"]
-            dated_label = folders["dated_label"]
-
+            folders = ensure_customer_export_folders(pendo_prefix)
             with export_phase(diag, "Drive upload"):
-                fid_stable = upload_text_file_to_drive_folder(
-                    f"{stem}.md", md, stable_id, mime_type="text/markdown"
-                )
-                fid_dated = upload_text_file_to_drive_folder(
-                    f"{stem}.md", md, dated_id, mime_type="text/markdown"
+                urls = upload_pendo_markdown_and_spreadsheet(
+                    stem=stem,
+                    md=md,
+                    report=report,
+                    persistent_folder_id=folders["persistent_folder_id"],
+                    historical_folder_id=folders["historical_folder_id"],
+                    base_label=folders["base_label"],
                 )
                 print(
-                    f"Uploaded markdown → customer-exports/{pendo_prefix}/{stem}.md "
-                    f"and {dated_label}/{stem}.md",
+                    f"Persistent markdown: https://drive.google.com/file/d/{urls['persistent_md_id']}/view",
                     file=sys.stderr,
                 )
-                print(f"Stable: https://drive.google.com/file/d/{fid_stable}/view")
-                print(f"Dated:  https://drive.google.com/file/d/{fid_dated}/view")
-                ss_stable = upload_pendo_export_spreadsheet(report, stem, stable_id)
-                ss_dated = upload_pendo_export_spreadsheet(report, stem, dated_id)
-                print(f"Spreadsheet (stable): {spreadsheet_url(ss_stable)}", file=sys.stderr)
-                print(f"Spreadsheet (dated):  {spreadsheet_url(ss_dated)}", file=sys.stderr)
+                print(
+                    f"Historical markdown: https://drive.google.com/file/d/{urls['historical_md_id']}/view",
+                    file=sys.stderr,
+                )
+                print(f"Spreadsheet (persistent): {urls['persistent_spreadsheet_url']}", file=sys.stderr)
+                print(f"Spreadsheet (historical):  {urls['historical_spreadsheet_url']}", file=sys.stderr)
 
         from .data_source_health import integration_freshness_metadata
 

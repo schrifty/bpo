@@ -496,28 +496,39 @@ def upload_to_qbr_output_folders(
     *,
     mime_type: str = "text/markdown",
 ) -> dict[str, str]:
-    """Upload to QBR ``Output/`` and today's ``{ISO-date} - Output/`` (replace same filename).
+    """Upload persistent + historical copies under ``Output/``.
 
-    Same layout as LLM context export and dated deck outputs under the QBR Generator tree.
-    Raises ``RuntimeError`` when Drive output folders cannot be resolved.
+    Persistent file uses ``{stem}-persistent{ext}`` in ``Output/``; historical snapshot uses
+    ``Historical Data/{stem} {ISO-date}{ext}``.
     """
-    root_id = get_qbr_output_root_folder_id()
-    dated_id = get_qbr_output_folder_id()
-    if not root_id or not dated_id:
-        raise RuntimeError(
-            "Could not resolve Drive Output folders (set GOOGLE_QBR_GENERATOR_FOLDER_ID "
-            "and verify Drive access)."
-        )
-    fid_root = upload_text_file_to_drive_folder(name, content, root_id, mime_type=mime_type)
-    fid_dated = upload_text_file_to_drive_folder(name, content, dated_id, mime_type=mime_type)
-    dated_label = f"{datetime.date.today().isoformat()} - Output"
+    from .export_drive_layout import ensure_portfolio_output_folders, upload_text_persistent_and_historical
+
+    folders = ensure_portfolio_output_folders()
+    if "." in name:
+        stem, ext = name.rsplit(".", 1)
+        ext = f".{ext}"
+    else:
+        stem, ext = name, ""
+    urls = upload_text_persistent_and_historical(
+        stem=stem,
+        content=content,
+        ext=ext,
+        persistent_folder_id=folders["persistent_folder_id"],
+        historical_folder_id=folders["historical_folder_id"],
+        base_label=folders["base_label"],
+        mime_type=mime_type,
+    )
     return {
-        "filename": name,
-        "dated_label": dated_label,
-        "file_id_root": fid_root,
-        "file_id_dated": fid_dated,
-        "root_folder_id": root_id,
-        "dated_folder_id": dated_id,
+        "filename": urls["persistent_filename"],
+        "historical_filename": urls["historical_filename"],
+        "file_id_root": urls["persistent_file_id"],
+        "file_id_historical": urls["historical_file_id"],
+        "root_folder_id": folders["persistent_folder_id"],
+        "historical_folder_id": folders["historical_folder_id"],
+        # Backward-compatible keys for older callers
+        "file_id_dated": urls["historical_file_id"],
+        "dated_folder_id": folders["historical_folder_id"],
+        "dated_label": "Historical Data",
     }
 
 

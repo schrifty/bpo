@@ -1,29 +1,31 @@
-"""Archive prior-month export artifacts on Drive into ``YYYY-MM`` subfolders.
+"""Prepare Drive export folders: migrate legacy layout into ``Historical Data``.
 
-On startup (once per process), moves export files and dated ``{ISO-date} - Output``
-folders from the previous calendar month out of:
+On startup (once per process), moves dated ``{ISO-date} - Output`` folders, monthly
+``YYYY-MM`` archive folders, and non-persistent files from:
 
 - ``<QBR Generator>/Output/``
 - ``<QBR Generator>/Output/customer-exports/{customer}/``
 
-Current-month exports stay at the top level. Already-archived ``YYYY-MM`` folders are
-left in place. Set ``CORTEX_SKIP_OUTPUT_ARCHIVE=1`` to disable.
+into ``Historical Data/`` under each export base. Set ``CORTEX_SKIP_OUTPUT_ARCHIVE=1`` to disable.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import os
-import re
 from typing import Any
 
 from .config import logger
-from .drive_config import QBR_OUTPUT_SUBFOLDER, _find_or_create_folder, drive_api_lock
-
-_CUSTOMER_EXPORTS_FOLDER = "customer-exports"
-_MIME_FOLDER = "application/vnd.google-apps.folder"
-_ARCHIVE_MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
-_DATED_OUTPUT_FOLDER_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) - Output$")
+from .export_drive_layout import (
+    HISTORICAL_DATA_FOLDER,
+    PERSISTENT_SUFFIX,
+    _ARCHIVE_MONTH_RE,
+    _CUSTOMER_EXPORTS_FOLDER,
+    _DATED_OUTPUT_FOLDER_RE,
+    _MIME_FOLDER,
+    ensure_historical_data_folder,
+)
+from .drive_config import QBR_OUTPUT_SUBFOLDER, drive_api_lock
 
 _archive_ran = False
 
@@ -131,6 +133,86 @@ def _move_drive_item(file_id: str, from_parent_id: str, to_parent_id: str) -> No
         ).execute()
 
 
+def _trash_drive_item(file_id: str) -> None:
+    with drive_api_lock:
+        drive = _get_drive()
+        drive.files().update(fileId=file_id, body={"trashed": True}).execute()
+
+
+def _is_legacy_container_folder(name: str) -> bool:
+    return bool(_DATED_OUTPUT_FOLDER_RE.match(name or "") or _ARCHIVE_MONTH_RE.match(name or ""))
+
+
+def _should_migrate_base_file(name: str) -> bool:
+    if not name or name.startswith("."):
+        return False
+    if PERSISTENT_SUFFIX in name:
+        return False
+    if name == HISTORICAL_DATA_FOLDER:
+        return False
+    return True
+
+
+def migrate_export_folder_to_historical_data(
+    parent_id: str,
+    *,
+    skip_folder_names: frozenset[str] | None = None,
+    context: str = "",
+) -> dict[str, Any]:
+    """Move legacy export artifacts under ``parent_id`` into ``Historical Data/``."""
+    historical_id = ensure_historical_data_folder(parent_id)
+    moved: list[dict[str, str]] = []
+    trashed: list[str] = []
+
+    for child in _list_folder_children(parent_id):
+        name = str(child.get("name") or "")
+        mime = str(child.get("mimeType") or "")
+        cid = str(child.get("id") or "")
+        if not cid:
+            continue
+        if name == HISTORICAL_DATA_FOLDER:
+            continue
+        if skip_folder_names and name in skip_folder_names:
+            continue
+
+        if mime == _MIME_FOLDER:
+            if not _is_legacy_container_folder(name):
+                continue
+            for inner in _list_folder_children(cid):
+                inner_id = str(inner.get("id") or "")
+                inner_name = str(inner.get("name") or "")
+                if not inner_id:
+                    continue
+                _move_drive_item(inner_id, cid, historical_id)
+                moved.append({"id": inner_id, "name": inner_name, "from": name})
+            _trash_drive_item(cid)
+            trashed.append(name)
+            logger.info(
+                "Migrated legacy folder %s → %s (%s)",
+                name,
+                HISTORICAL_DATA_FOLDER,
+                context or parent_id[:12],
+            )
+            continue
+
+        if _should_migrate_base_file(name):
+            _move_drive_item(cid, parent_id, historical_id)
+            moved.append({"id": cid, "name": name, "from": "(base)"})
+            logger.info(
+                "Migrated legacy export %s → %s (%s)",
+                name,
+                HISTORICAL_DATA_FOLDER,
+                context or parent_id[:12],
+            )
+
+    return {
+        "parent_id": parent_id,
+        "historical_folder_id": historical_id,
+        "moved": moved,
+        "trashed_folders": trashed,
+    }
+
+
 def archive_previous_month_in_folder(
     parent_id: str,
     archive_month: str,
@@ -138,7 +220,9 @@ def archive_previous_month_in_folder(
     skip_names: frozenset[str] | None = None,
     context: str = "",
 ) -> dict[str, Any]:
-    """Move prior-month children of ``parent_id`` into ``parent_id/{archive_month}/``."""
+    """Legacy monthly archive helper (tests only; production uses Historical Data migration)."""
+    from .drive_config import _find_or_create_folder
+
     moved: list[dict[str, str]] = []
     for child in _list_folder_children(parent_id):
         name = str(child.get("name") or "")
@@ -163,8 +247,8 @@ def archive_previous_month_in_folder(
     return {"parent_id": parent_id, "archive_month": archive_month, "moved": moved}
 
 
-def maybe_archive_previous_month_exports(*, force: bool = False) -> dict[str, Any]:
-    """Archive last month's exports on Drive (at most once per process)."""
+def maybe_migrate_export_layout_on_startup(*, force: bool = False) -> dict[str, Any]:
+    """Migrate legacy dated/monthly export layout into Historical Data (once per process)."""
     global _archive_ran
     if _archive_ran and not force:
         return {"skipped": "already_ran"}
@@ -177,26 +261,25 @@ def maybe_archive_previous_month_exports(*, force: bool = False) -> dict[str, An
 
     root_id = get_qbr_output_root_folder_id()
     if not root_id:
-        logger.debug("Output archive: no Drive Output folder configured")
+        logger.debug("Export layout migration: no Drive Output folder configured")
         return {"skipped": "no_output_folder"}
 
-    archive_month = previous_month_key()
     summary: dict[str, Any] = {
-        "archive_month": archive_month,
         "output_root": None,
         "customer_exports": [],
         "moved_count": 0,
+        "trashed_folder_count": 0,
     }
 
     try:
-        root_result = archive_previous_month_in_folder(
+        root_result = migrate_export_folder_to_historical_data(
             root_id,
-            archive_month,
-            skip_names=frozenset({_CUSTOMER_EXPORTS_FOLDER}),
+            skip_folder_names=frozenset({_CUSTOMER_EXPORTS_FOLDER}),
             context=QBR_OUTPUT_SUBFOLDER,
         )
         summary["output_root"] = root_result
         summary["moved_count"] += len(root_result.get("moved") or [])
+        summary["trashed_folder_count"] += len(root_result.get("trashed_folders") or [])
 
         customer_exports_id = _find_folder_in_parent(_CUSTOMER_EXPORTS_FOLDER, root_id)
         if customer_exports_id:
@@ -204,32 +287,31 @@ def maybe_archive_previous_month_exports(*, force: bool = False) -> dict[str, An
                 if str(customer_folder.get("mimeType") or "") != _MIME_FOLDER:
                     continue
                 customer_name = str(customer_folder.get("name") or "")
-                if not customer_name or _ARCHIVE_MONTH_RE.match(customer_name):
+                if not customer_name:
                     continue
-                cust_result = archive_previous_month_in_folder(
+                cust_result = migrate_export_folder_to_historical_data(
                     str(customer_folder["id"]),
-                    archive_month,
                     context=f"{_CUSTOMER_EXPORTS_FOLDER}/{customer_name}",
                 )
-                summary["customer_exports"].append(
-                    {"customer": customer_name, **cust_result},
-                )
+                summary["customer_exports"].append({"customer": customer_name, **cust_result})
                 summary["moved_count"] += len(cust_result.get("moved") or [])
+                summary["trashed_folder_count"] += len(cust_result.get("trashed_folders") or [])
 
-        if summary["moved_count"]:
+        if summary["moved_count"] or summary["trashed_folder_count"]:
             logger.info(
-                "Output archive: moved %d item(s) into %s folders under Drive %s",
+                "Export layout migration: moved %d file(s), removed %d legacy folder(s) under Drive %s",
                 summary["moved_count"],
-                archive_month,
+                summary["trashed_folder_count"],
                 QBR_OUTPUT_SUBFOLDER,
             )
         else:
-            logger.debug(
-                "Output archive: nothing to move for %s under Drive %s",
-                archive_month,
-                QBR_OUTPUT_SUBFOLDER,
-            )
+            logger.debug("Export layout migration: nothing to move under Drive %s", QBR_OUTPUT_SUBFOLDER)
         return summary
     except Exception as e:
-        logger.warning("Output archive failed (continuing): %s", e)
-        return {"skipped": "error", "error": str(e), "archive_month": archive_month}
+        logger.warning("Export layout migration failed (continuing): %s", e)
+        return {"skipped": "error", "error": str(e)}
+
+
+def maybe_archive_previous_month_exports(*, force: bool = False) -> dict[str, Any]:
+    """Backward-compatible startup hook (delegates to Historical Data migration)."""
+    return maybe_migrate_export_layout_on_startup(force=force)

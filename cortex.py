@@ -50,15 +50,16 @@ Flag commands (utilities)
       [--customers-sf-allowlist] [--customers-exclude-sf-churned]
       [--exclude-customer LABEL ...]
       Build the all-customers LLM context markdown snapshot and upload it to Drive **twice**: under
-      ``<QBR Generator>/Output/LLM-Context-All_Customers.md`` (stable) and under the dated folder
-      ``Output/{ISO-date} - Output/LLM-Context-All_Customers.md`` (same calendar day).
+      ``<QBR Generator>/Output/LLM-Context-All_Customers-persistent.md`` (bookmarkable current export)
+      and under ``Output/Historical Data/LLM-Context-All_Customers {ISO-date}.md`` (dated snapshot).
       Section 7 LLM churn/account-risk insights are always appended to the export markdown.
 
   cortex --export-pendo --customer <name> [--days N] [--compare-days N] [--no-drive] [-o PATH]
   cortex --export-pendo-detailed --customer <name> [--days N] [--compare-days N] [--no-drive] [-o PATH]
   cortex --export-pendo-top-arr [--top-n 5] [--days N] [--compare-days N] [--no-drive] [--out-dir DIR]
       Export **Pendo-only** product usage for one customer (sites, features, depth, Kei, trends).
-      Uploads markdown + Google Sheet to ``Output/customer-exports/{customer}/`` (stable + dated subfolder).
+      Uploads markdown + Google Sheet to ``Output/customer-exports/{customer}/`` (``-persistent`` current
+      export in the base folder; dated snapshot under ``Historical Data/``).
       Default: ``--days 30``.
 
   cortex --schedule [--prefix NAME] [--region REGION]

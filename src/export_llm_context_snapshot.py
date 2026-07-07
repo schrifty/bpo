@@ -26,10 +26,10 @@ Optional portfolio row filters (after Pendo+Salesforce bundle, before markdown):
   env ``CORTEX_LLM_EXPORT_EXCLUDE_CUSTOMERS`` / ``CORTEX_LLM_EXPORT_EXCLUDE_CUSTOMERS_FILE``.
 
 Requires ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` (and optional ``GOOGLE_QBR_OUTPUT_PARENT_ID``) plus
-Drive credentials. Each run uploads ``LLM-Context-All_Customers.md`` to **both**:
+Drive credentials. Each run uploads ``LLM-Context-All_Customers`` to **both**:
 
-1. ``<generator>/Output/`` (stable path for bookmarks)
-2. ``<generator>/Output/{ISO-date} - Output/`` (same-day bundle folder; filename replaced if present)
+1. ``<generator>/Output/LLM-Context-All_Customers-persistent.md`` (bookmarkable current export)
+2. ``<generator>/Output/Historical Data/LLM-Context-All_Customers {ISO-date}.md`` (dated snapshot)
 
 Every export appends **§7 Account & churn risk insights** (LLM). Failures are printed inside that section; the export still completes unless the core datasource report fails earlier.
 """
@@ -2152,37 +2152,29 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
             if str(k).startswith("_"):
                 doc.pop(k, None)
 
-        fname = "LLM-Context-All_Customers.md"
         nbytes = len(md.encode("utf-8"))
 
-        from src.drive_config import (
-            get_qbr_output_folder_id,
-            get_qbr_output_root_folder_id,
-            upload_text_file_to_drive_folder,
-        )
+        from .export_drive_layout import ensure_portfolio_output_folders, upload_text_persistent_and_historical
 
-        root_id = get_qbr_output_root_folder_id()
-        dated_id = get_qbr_output_folder_id()
-        if not root_id or not dated_id:
-            print(
-                "error: could not resolve Drive Output folders (set GOOGLE_QBR_GENERATOR_FOLDER_ID "
-                "and verify Drive access).",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        dated_label = f"{dt.date.today().isoformat()} - Output"
+        folders = ensure_portfolio_output_folders()
         with export_phase(diag, "Drive upload"):
-            fid_root = upload_text_file_to_drive_folder(fname, md, root_id, mime_type="text/markdown")
-            fid_dated = upload_text_file_to_drive_folder(fname, md, dated_id, mime_type="text/markdown")
+            urls = upload_text_persistent_and_historical(
+                stem="LLM-Context-All_Customers",
+                content=md,
+                ext=".md",
+                persistent_folder_id=folders["persistent_folder_id"],
+                historical_folder_id=folders["historical_folder_id"],
+                base_label=folders["base_label"],
+                mime_type="text/markdown",
+            )
 
         print(
-            f"Uploaded {_format_utf8_bytes(nbytes)} → Output/{fname} "
-            f"and Output/{dated_label}/{fname}",
+            f"Uploaded {_format_utf8_bytes(nbytes)} → Output/{urls['persistent_filename']} "
+            f"and Historical Data/{urls['historical_filename']}",
             file=sys.stderr,
         )
-        print(f"Output/ (stable): https://drive.google.com/file/d/{fid_root}/view")
-        print(f"Output/{dated_label}/: https://drive.google.com/file/d/{fid_dated}/view")
+        print(f"Output/ (persistent): https://drive.google.com/file/d/{urls['persistent_file_id']}/view")
+        print(f"Historical Data/: https://drive.google.com/file/d/{urls['historical_file_id']}/view")
 
         emit_export_size_breakdown_stderr(
             md,
