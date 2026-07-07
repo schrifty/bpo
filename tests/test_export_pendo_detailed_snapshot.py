@@ -5,7 +5,9 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from src.export_pendo_detailed_snapshot import (
+    _cap_site_users,
     _index_rows_by_visitor,
+    _roster_user_relevant,
     _site_names_from_account_sites,
     _pendo_detailed_export_file_stem,
     _sum_activity_indexed,
@@ -142,6 +144,60 @@ def test_build_site_detail_slices_and_user_roster() -> None:
     assert roster[0]["events_current"] >= 0
 
 
+def test_roster_excludes_dormant_without_window_events() -> None:
+    pc = MagicMock()
+    now_ms = 1_700_100_000_000
+    visitors = [
+        _visitor("v1", "active@ford.com", ["Ford Dearborn Engine"], lastvisit=now_ms - 86400000),
+        _visitor(
+            "v2",
+            "dormant@ford.com",
+            ["Ford Dearborn Engine"],
+            lastvisit=now_ms - 60 * 86400000,
+        ),
+    ]
+    page_rows = [
+        {"visitorId": "v1", "day": now_ms - 86400000, "pageId": "p1", "numEvents": 5, "numMinutes": 1},
+    ]
+    feat_rows: list[dict] = []
+    pc._build_user_activity.side_effect = lambda vs, _now: [
+        {
+            "email": (v.get("metadata") or {}).get("agent", {}).get("emailaddress", ""),
+            "role": "Buyer",
+            "last_visit": "2024-01-01",
+            "days_inactive": 1.0,
+        }
+        for v in vs
+    ]
+    roster = build_full_user_roster(
+        pc,
+        "Ford",
+        days=7,
+        compare_days=7,
+        customer_visitors=visitors,
+        page_rows=page_rows,
+        feat_rows=feat_rows,
+        now_ms=now_ms,
+    )
+    assert len(roster) == 1
+    assert roster[0]["email"] == "active@ford.com"
+    assert not _roster_user_relevant(
+        {"events_current": 0, "days_inactive": 60.0},
+    )
+    assert _roster_user_relevant({"events_current": 0, "days_inactive": 10.0})
+
+
+def test_cap_site_users_keeps_most_recent() -> None:
+    users = [
+        {"email": "old@x.com", "days_inactive": 20.0},
+        {"email": "new@x.com", "days_inactive": 1.0},
+    ]
+    capped, total = _cap_site_users(users, cap=1)
+    assert total == 2
+    assert len(capped) == 1
+    assert capped[0]["email"] == "new@x.com"
+
+
 def test_site_names_from_account_sites_merges_entities_and_skips_inactive() -> None:
     names = _site_names_from_account_sites(
         {
@@ -191,6 +247,8 @@ def test_render_customer_pendo_detailed_markdown_includes_site_and_user_sections
             "window_end": "2026-01-01",
             "days": 30,
             "compare_days": 30,
+            "user_roster_total_visitors": 10,
+            "user_roster_scope": "active_30d_or_window_events",
         },
         "headline": {
             "active_users_7d": 5,
@@ -244,6 +302,7 @@ def test_render_customer_pendo_detailed_markdown_includes_site_and_user_sections
     md = render_customer_pendo_detailed_markdown(report)
     assert "## 13. Site detail" in md
     assert "## 14. User roster" in md
+    assert "of **10** total visitors" in md
     assert "Ford Dearborn Engine" in md
     assert "a@ford.com" in md
 

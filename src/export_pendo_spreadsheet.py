@@ -275,6 +275,7 @@ def _build_site_detail_rows(report: dict[str, Any], customer: str) -> list[dict[
                 "section": "site_summary",
                 "sitename": site.get("sitename"),
                 "visitors": site.get("visitors"),
+                "users_total": site.get("users_total"),
                 "active_7d": eng.get("active_7d"),
                 "active_30d": eng.get("active_30d"),
                 "dormant": eng.get("dormant"),

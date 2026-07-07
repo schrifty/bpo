@@ -9,6 +9,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,39 @@ _PROFILE_ID = "customer_pendo_detailed_export"
 _MS_PER_DAY = 86_400_000
 _DEFAULT_TOP_N = 5
 _DEFAULT_USER_ROSTER_MD_CAP = 250
+_DEFAULT_SITE_USERS_CAP = 50
+_ROSTER_SCOPE = "active_30d_or_window_events"
+
+
+def _site_users_cap() -> int:
+    raw = os.environ.get("CORTEX_PENDO_SITE_USERS_CAP", str(_DEFAULT_SITE_USERS_CAP)).strip()
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return _DEFAULT_SITE_USERS_CAP
+
+
+def _roster_max_users() -> int:
+    raw = os.environ.get("CORTEX_PENDO_ROSTER_MAX_USERS", "0").strip()
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 0
+
+
+def _roster_user_relevant(row: dict[str, Any]) -> bool:
+    """Keep users active in the last 30d or with any events in the export window."""
+    if int(row.get("events_current") or 0) > 0:
+        return True
+    return float(row.get("days_inactive") or 999) <= 30
+
+
+def _cap_site_users(users: list[dict[str, Any]], *, cap: int) -> tuple[list[dict[str, Any]], int]:
+    total = len(users)
+    if total <= cap:
+        return users, total
+    ranked = sorted(users, key=lambda u: (float(u.get("days_inactive") or 999), str(u.get("email") or "")))
+    return ranked[:cap], total
 
 
 def _pendo_detailed_export_file_stem(customer: str, days: int) -> str:
@@ -315,6 +349,7 @@ def build_site_detail_slices(
             page_catalog=page_catalog,
             feature_catalog=feature_catalog,
         )
+        site_users, users_total = _cap_site_users(users, cap=_site_users_cap())
         slices.append(
             {
                 "sitename": sitename,
@@ -329,7 +364,8 @@ def build_site_detail_slices(
                 },
                 "top_pages": top_pages,
                 "top_features": top_features,
-                "users": sorted(users, key=lambda u: (u.get("days_inactive", 999), u.get("email") or "")),
+                "users": site_users,
+                "users_total": users_total,
             }
         )
     slices.sort(key=lambda s: (-int((s.get("activity_current") or {}).get("total_events") or 0), s.get("sitename") or ""))
@@ -347,7 +383,7 @@ def build_full_user_roster(
     feat_rows: list[dict[str, Any]],
     now_ms: int,
 ) -> list[dict[str, Any]]:
-    """All customer visitors with window activity and site assignments."""
+    """Customer visitors active in 30d or with window activity (see ``_ROSTER_SCOPE``)."""
     window_days = max(1, int(days))
     compare = max(1, int(compare_days))
     current_start_ms = now_ms - window_days * _MS_PER_DAY
@@ -375,6 +411,8 @@ def build_full_user_roster(
         current = _sum_activity_indexed(
             page_by_visitor, feat_by_visitor, {vid}, current_start_ms, now_ms
         )
+        if days_inactive > 30 and int(current.get("total_events") or 0) <= 0:
+            continue
         prior = _sum_activity_indexed(
             page_by_visitor, feat_by_visitor, {vid}, prior_start_ms, prior_end_ms
         )
@@ -397,11 +435,15 @@ def build_full_user_roster(
         )
     roster.sort(
         key=lambda r: (
+            -int(r.get("events_current") or 0),
             r.get("engagement_status") != "active_7d",
             r.get("days_inactive", 999),
             r.get("email") or "",
         )
     )
+    max_users = _roster_max_users()
+    if max_users and len(roster) > max_users:
+        roster = roster[:max_users]
     return roster
 
 
@@ -463,12 +505,21 @@ def build_customer_pendo_detailed_report(
         feat_rows=feat_rows,
         now_ms=now_ms,
     )
+    logger.info(
+        "Pendo detailed: roster %d of %d visitors for %r (%s)",
+        len(user_roster),
+        len(customer_visitors),
+        pendo_prefix,
+        _ROSTER_SCOPE,
+    )
 
     meta = dict(account.get("meta") or {})
     meta["profile_id"] = _PROFILE_ID
     meta["granularity"] = "account_site_user"
     meta["site_count"] = len(site_detail)
+    meta["user_roster_total_visitors"] = len(customer_visitors)
     meta["user_roster_count"] = len(user_roster)
+    meta["user_roster_scope"] = _ROSTER_SCOPE
 
     return {
         **account,
@@ -513,6 +564,7 @@ def render_site_detail_markdown(site_detail: list[dict[str, Any]], *, compare_da
             for row in site.get("top_features") or []:
                 lines.append(f"- {row.get('name')}: {int(row.get('events') or 0):,} events")
         site_users = site.get("users") or []
+        users_total = int(site.get("users_total") or len(site_users))
         if site_users:
             lines.append("")
             lines.append("| User | Role | Last visit | Days inactive |")
@@ -522,8 +574,9 @@ def render_site_detail_markdown(site_detail: list[dict[str, Any]], *, compare_da
                     f"| {u.get('email', '')} | {u.get('role', '')} | {u.get('last_visit', '')} | "
                     f"{u.get('days_inactive', '')} |"
                 )
-            if len(site_users) > 15:
-                lines.append(f"\n*Showing 15 of {len(site_users)} users at this site.*")
+            shown = min(15, len(site_users))
+            if users_total > shown:
+                lines.append(f"\n*Showing {shown} of {users_total} users at this site.*")
         blocks.append("\n".join(lines))
 
     body = "\n\n".join(blocks)
@@ -536,16 +589,21 @@ def render_user_roster_markdown(
     user_roster: list[dict[str, Any]],
     *,
     cap: int = _DEFAULT_USER_ROSTER_MD_CAP,
+    total_visitors: int | None = None,
+    roster_scope: str | None = None,
 ) -> str:
     if not user_roster:
         return _md_section("14. User roster", "*(No users in roster.)*")
 
     lines = [
-        f"- Total users: **{len(user_roster)}**",
-        "",
-        "| Email | Role | Sites | Status | Last visit | Days inactive | Events | Minutes | Feature clicks | Δ events % |",
-        "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
+        f"- Roster users: **{len(user_roster)}**"
+        + (f" of **{total_visitors}** total visitors" if total_visitors else ""),
     ]
+    if roster_scope:
+        lines[0] += f" ({roster_scope})"
+    lines.extend(["", "| Email | Role | Sites | Status | Last visit | Days inactive | Events | Minutes | Feature clicks | Δ events % |",
+        "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
+    ])
     shown = user_roster[:cap]
     for u in shown:
         sites = ", ".join(u.get("sites") or []) or "—"
@@ -560,7 +618,7 @@ def render_user_roster_markdown(
             f"{int(u.get('feature_events_current') or 0):,} | {pct_s} |"
         )
     if len(user_roster) > cap:
-        lines.append(f"\n*Showing {cap} of {len(user_roster)} users (full roster in spreadsheet export).*")
+        lines.append(f"\n*Showing {cap} of {len(user_roster)} roster users (spreadsheet export).*")
     return _md_section("14. User roster", "\n".join(lines))
 
 
@@ -569,7 +627,12 @@ def render_customer_pendo_detailed_markdown(report: dict[str, Any]) -> str:
     compare_days = int(meta.get("compare_days") or meta.get("days") or 30)
     base = render_customer_pendo_markdown(report).rstrip()
     extra = render_site_detail_markdown(report.get("site_detail") or [], compare_days=compare_days)
-    extra += render_user_roster_markdown(report.get("user_roster") or [])
+    meta = report.get("meta") or {}
+    extra += render_user_roster_markdown(
+        report.get("user_roster") or [],
+        total_visitors=meta.get("user_roster_total_visitors"),
+        roster_scope=meta.get("user_roster_scope"),
+    )
     return base + "\n\n" + extra.strip() + "\n"
 
 
