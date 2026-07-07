@@ -213,43 +213,34 @@ def _top_pages_and_features_in_window(
     return top_pages, top_features
 
 
-def _canonical_site_names_for_prefix(
-    pc: PendoClient,
-    pendo_prefix: str,
-    *,
-    days: int,
-) -> list[str]:
-    """Return sitenames from the portfolio site-ID inventory for one customer prefix.
+def _site_names_from_account_sites(sites_payload: dict[str, Any]) -> list[str]:
+    """Unique sitenames from the account export Sites table (section 2).
 
-    Uses the same rollup as ``get_sites_by_customer`` (one row per Pendo site id), not the
-    union of every ``agent.sitenames`` string attached to visitors (which inflates counts).
+    Merges entity-level rows that share a sitename and keeps only sites with
+    activity in the export window (``total_events > 0``), so ``site_detail`` is not
+    inflated by historical sitename strings on visitor profiles.
     """
-    by_customer = (pc.get_sites_by_customer(days=days) or {}).get("by_customer") or {}
-    rows: list[dict[str, Any]] = list(by_customer.get(pendo_prefix) or [])
-    if not rows:
-        target = pendo_prefix.strip().lower()
-        for key, site_rows in by_customer.items():
-            if str(key).strip().lower() == target:
-                rows = list(site_rows)
-                break
-    seen: set[str] = set()
-    names: list[str] = []
-    events_by_name = {
-        str(row.get("sitename") or "").strip(): int(row.get("total_events") or 0)
-        for row in rows
-        if row.get("sitename")
-    }
-    for row in rows:
+    by_name: dict[str, dict[str, Any]] = {}
+    for row in sites_payload.get("sites") or []:
         sn = str(row.get("sitename") or "").strip()
         if not sn:
             continue
         key = sn.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        names.append(sn)
-    names.sort(key=lambda sn: (-events_by_name.get(sn, 0), sn.lower()))
-    return names
+        bucket = by_name.setdefault(
+            key,
+            {"sitename": sn, "visitors": 0, "total_events": 0},
+        )
+        bucket["visitors"] += int(row.get("visitors") or 0)
+        bucket["total_events"] += int(row.get("total_events") or 0)
+    active = [v for v in by_name.values() if int(v.get("total_events") or 0) > 0]
+    active.sort(
+        key=lambda v: (
+            -int(v.get("total_events") or 0),
+            -int(v.get("visitors") or 0),
+            str(v.get("sitename") or "").lower(),
+        )
+    )
+    return [str(v["sitename"]) for v in active]
 
 
 def _filter_rows_for_visitors(
@@ -271,6 +262,7 @@ def build_site_detail_slices(
     page_rows: list[dict[str, Any]],
     feat_rows: list[dict[str, Any]],
     now_ms: int,
+    canonical_site_names: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Per-sitename mini-reports for one Pendo customer prefix."""
     window_days = max(1, int(days))
@@ -298,9 +290,9 @@ def build_site_detail_slices(
     page_catalog = pc._get_page_catalog_cached()
     feature_catalog = pc.get_feature_catalog()
 
-    site_names = _canonical_site_names_for_prefix(pc, pendo_prefix, days=window_days)
+    site_names = list(canonical_site_names or [])
     logger.info(
-        "Pendo detailed: building %d site slice(s) for %r (%d visitors; canonical site inventory)",
+        "Pendo detailed: building %d site slice(s) for %r (%d visitors; active account sites)",
         len(site_names),
         pendo_prefix,
         len(customer_visitor_ids),
@@ -463,6 +455,7 @@ def build_customer_pendo_detailed_report(
         page_rows=page_rows,
         feat_rows=feat_rows,
         now_ms=now_ms,
+        canonical_site_names=_site_names_from_account_sites(account.get("sites") or {}),
     )
     user_roster = build_full_user_roster(
         pc,

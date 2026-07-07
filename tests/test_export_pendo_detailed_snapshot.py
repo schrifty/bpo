@@ -5,8 +5,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from src.export_pendo_detailed_snapshot import (
-    _canonical_site_names_for_prefix,
     _index_rows_by_visitor,
+    _site_names_from_account_sites,
     _pendo_detailed_export_file_stem,
     _sum_activity_indexed,
     _top_pages_and_features_in_window,
@@ -119,6 +119,7 @@ def test_build_site_detail_slices_and_user_roster() -> None:
         page_rows=page_rows,
         feat_rows=feat_rows,
         now_ms=now_ms,
+        canonical_site_names=["Ford Dearborn Engine", "Ford Lima Engine"],
     )
     assert len(sites) == 2
     assert sites[0]["sitename"] in {"Ford Dearborn Engine", "Ford Lima Engine"}
@@ -142,19 +143,18 @@ def test_build_site_detail_slices_and_user_roster() -> None:
     assert roster[0]["events_current"] >= 0
 
 
-def test_canonical_site_names_ignores_visitor_metadata_inflation() -> None:
-    pc = MagicMock()
-    pc.get_sites_by_customer.return_value = {
-        "by_customer": {
-            "Safran": [
-                {"sitename": "Safran Ventilation Systems", "total_events": 100},
-                {"sitename": "Safran Site B", "total_events": 50},
+def test_site_names_from_account_sites_merges_entities_and_skips_inactive() -> None:
+    names = _site_names_from_account_sites(
+        {
+            "sites": [
+                {"sitename": "Safran Montreal CG1", "entity": "A", "visitors": 10, "total_events": 100},
+                {"sitename": "Safran Montreal CG1", "entity": "B", "visitors": 5, "total_events": 50},
+                {"sitename": "Safran Legacy Training", "visitors": 1, "total_events": 0},
+                {"sitename": "Safran Issoudun 36P", "visitors": 3, "total_events": 20},
             ],
-        },
-    }
-    names = _canonical_site_names_for_prefix(pc, "Safran", days=30)
-    assert names == ["Safran Ventilation Systems", "Safran Site B"]
-    pc.get_sites_by_customer.assert_called_once_with(days=30)
+        }
+    )
+    assert names == ["Safran Montreal CG1", "Safran Issoudun 36P"]
 
 
 @patch("src.export_pendo_detailed_snapshot.build_customer_pendo_export_report")
