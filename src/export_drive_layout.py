@@ -4,7 +4,8 @@ Persistent artifacts live in the export base folder with a ``-persistent`` suffi
 (always replaced in place). Each export also writes a same-day snapshot under
 ``Historical Data/{YYYY-MM-DD}/`` using the plain export stem (no ``-persistent``).
 Prior-month base-folder exports are bucketed into ``Historical Data/{YYYY-MM}/`` at startup via
-:func:`src.export_output_archive.archive_previous_month_in_folder`.
+:func:`src.export_output_archive.archive_previous_month_in_folder`. Prior-month day subfolders
+under ``Historical Data/`` are nested under that same monthly bucket.
 """
 
 from __future__ import annotations

@@ -4,7 +4,8 @@ Export base folders (``Output/`` and ``Output/customer-exports/{customer}/``) ma
 only ``-persistent`` export files and allowed subfolders (``customer-exports``, ``Historical Data``).
 Each export also writes a same-day snapshot under ``Historical Data/{YYYY-MM-DD}/`` (plain stem).
 Prior-month base-folder exports are moved into ``Historical Data/{YYYY-MM}/`` via
-:func:`archive_previous_month_in_folder` at startup.
+:func:`archive_previous_month_in_folder` at startup. Prior-month day subfolders
+(``Historical Data/{YYYY-MM-DD}/``) are nested under that same monthly bucket.
 
 Set ``CORTEX_SKIP_OUTPUT_ARCHIVE=1`` to disable startup enforcement.
 """
@@ -791,17 +792,27 @@ def migrate_export_folder_to_historical_data(
         skip_names=skip_folder_names,
         context=context,
     )
+    archived_days = archive_previous_month_day_folders_in_historical_data(
+        historical_id,
+        archive_month,
+        context=context,
+    )
     persistent_created = ensure_persistent_exports_in_base(parent_id, historical_id)
 
     return {
         "parent_id": parent_id,
         "historical_folder_id": historical_id,
         "archive_month": archive_month,
-        "moved": (promoted_result.get("moved") or []) + (archived.get("moved") or []),
+        "moved": (
+            (promoted_result.get("moved") or [])
+            + (archived.get("moved") or [])
+            + (archived_days.get("moved") or [])
+        ),
         "promoted": promoted_result.get("promoted") or [],
         "trashed_folders": promoted_result.get("trashed_folders") or [],
         "historical_consolidated": consolidated,
         "archived_previous_month": archived,
+        "archived_previous_month_day_folders": archived_days,
         "persistent_created": persistent_created,
     }
 
@@ -858,6 +869,46 @@ def archive_previous_month_in_folder(
     }
 
 
+def _historical_day_folder_belongs_to_month(day_folder_name: str, archive_month: str) -> bool:
+    if not is_historical_day_subfolder(day_folder_name):
+        return False
+    return day_folder_name.startswith(f"{archive_month}-")
+
+
+def archive_previous_month_day_folders_in_historical_data(
+    historical_id: str,
+    archive_month: str,
+    *,
+    context: str = "",
+) -> dict[str, Any]:
+    """Nest prior-month ``Historical Data/{YYYY-MM-DD}/`` folders under ``Historical Data/{YYYY-MM}/``."""
+    archive_folder_id = _ensure_month_archive_folder(historical_id, archive_month)
+    moved: list[dict[str, str]] = []
+    for child in _list_folder_children(historical_id):
+        name = str(child.get("name") or "")
+        mime = str(child.get("mimeType") or "")
+        cid = str(child.get("id") or "")
+        if not cid or mime != _MIME_FOLDER:
+            continue
+        if not _historical_day_folder_belongs_to_month(name, archive_month):
+            continue
+        _move_drive_item(cid, historical_id, archive_folder_id)
+        moved.append({"id": cid, "name": name})
+        logger.info(
+            "Archived Drive day folder %s → %s/%s/%s (%s)",
+            name,
+            HISTORICAL_DATA_FOLDER,
+            archive_month,
+            name,
+            context or historical_id[:12],
+        )
+    return {
+        "historical_folder_id": historical_id,
+        "archive_month": archive_month,
+        "moved": moved,
+    }
+
+
 def _archive_export_base_on_startup(
     parent_id: str,
     *,
@@ -888,14 +939,24 @@ def _archive_export_base_on_startup(
         skip_names=skip_folder_names,
         context=context,
     )
+    archived_days = archive_previous_month_day_folders_in_historical_data(
+        historical_id,
+        archive_month,
+        context=context,
+    )
     return {
         "parent_id": parent_id,
         "archive_month": archive_month,
         "promoted": promoted_result.get("promoted") or [],
-        "moved": (promoted_result.get("moved") or []) + (archived.get("moved") or []),
+        "moved": (
+            (promoted_result.get("moved") or [])
+            + (archived.get("moved") or [])
+            + (archived_days.get("moved") or [])
+        ),
         "trashed_folders": promoted_result.get("trashed_folders") or [],
         "historical_consolidated": consolidated,
         "archived_previous_month": archived,
+        "archived_previous_month_day_folders": archived_days,
     }
 
 

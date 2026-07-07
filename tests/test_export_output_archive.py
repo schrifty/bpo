@@ -8,6 +8,7 @@ import pytest
 
 from src.export_output_archive import (
     _MIME_FOLDER,
+    archive_previous_month_day_folders_in_historical_data,
     archive_previous_month_in_folder,
     clear_output_archive_guard,
     item_month_key,
@@ -117,6 +118,42 @@ def test_archive_previous_month_in_folder_moves_qualifying_children(monkeypatch)
     )
     assert [m["id"] for m in result["moved"]] == ["f1"]
     assert calls == [("f1", parent_id, archive_id)]
+
+
+def test_archive_previous_month_day_folders_moves_june_days(monkeypatch) -> None:
+    historical_id = "historical-root"
+    month_folder_id = "month-2026-06"
+    calls: list[tuple[str, str, str]] = []
+
+    monkeypatch.setattr(
+        "src.export_output_archive._list_folder_children",
+        lambda pid: (
+            [
+                {"id": "d1", "name": "2026-06-23", "mimeType": _MIME_FOLDER},
+                {"id": "d2", "name": "2026-06-30", "mimeType": _MIME_FOLDER},
+                {"id": "d3", "name": "2026-07-01", "mimeType": _MIME_FOLDER},
+                {"id": "m1", "name": "2026-06", "mimeType": _MIME_FOLDER},
+            ]
+            if pid == historical_id
+            else []
+        ),
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive._ensure_month_archive_folder",
+        lambda hid, month: month_folder_id if hid == historical_id and month == "2026-06" else pytest.fail("unexpected"),
+    )
+
+    def fake_move(file_id: str, from_parent: str, to_parent: str) -> None:
+        calls.append((file_id, from_parent, to_parent))
+
+    monkeypatch.setattr("src.export_output_archive._move_drive_item", fake_move)
+
+    result = archive_previous_month_day_folders_in_historical_data(historical_id, "2026-06")
+    assert [m["name"] for m in result["moved"]] == ["2026-06-23", "2026-06-30"]
+    assert calls == [
+        ("d1", historical_id, month_folder_id),
+        ("d2", historical_id, month_folder_id),
+    ]
 
 
 def test_maybe_archive_runs_once_and_honors_skip_env(monkeypatch) -> None:
@@ -249,6 +286,10 @@ def test_migrate_legacy_dated_folder_moves_children_and_trashes_container(monkey
         lambda *_a, **_k: {"reorganized": []},
     )
     monkeypatch.setattr(
+        "src.export_output_archive.archive_previous_month_day_folders_in_historical_data",
+        lambda *_a, **_k: {"moved": []},
+    )
+    monkeypatch.setattr(
         "src.export_output_archive.ensure_persistent_exports_in_base",
         lambda *_a, **_k: [],
     )
@@ -300,6 +341,10 @@ def test_migrate_promotes_legacy_base_pendo_to_persistent(monkeypatch) -> None:
     monkeypatch.setattr(
         "src.export_output_archive.normalize_loose_historical_data",
         lambda *_a, **_k: {"reorganized": []},
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive.archive_previous_month_day_folders_in_historical_data",
+        lambda *_a, **_k: {"moved": []},
     )
     monkeypatch.setattr(
         "src.export_output_archive.ensure_persistent_exports_in_base",
