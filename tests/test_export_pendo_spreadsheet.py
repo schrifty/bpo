@@ -71,6 +71,35 @@ def test_write_pendo_export_xlsx(tmp_path: Path) -> None:
     assert out.stat().st_size > 500
 
 
+def test_sheets_values_update_retries_on_429(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    from googleapiclient.errors import HttpError
+    from httplib2 import Response
+
+    from src.slides_api import sheets_spreadsheet_values_update
+
+    calls = {"n": 0}
+    resp = Response({"status": "429"})
+    err = HttpError(resp, b'{"error": {"message": "Quota exceeded"}}')
+
+    sheets_svc = MagicMock()
+    update = sheets_svc.spreadsheets.return_value.values.return_value.update.return_value
+    update.execute.side_effect = [err, None]
+
+    monkeypatch.setattr("src.slides_api._sheets_write_interval_sec", lambda: 0.0)
+    monkeypatch.setattr("src.slides_api.time.sleep", lambda _s: calls.__setitem__("n", calls["n"] + 1))
+
+    sheets_spreadsheet_values_update(
+        sheets_svc,
+        spreadsheet_id="ss1",
+        range_str="'trends'!A1",
+        values=[["a"]],
+    )
+    assert update.execute.call_count == 2
+    assert calls["n"] == 1
+
+
 def test_rows_to_grid_json_encodes_nested_cell_values() -> None:
     from src.export_pendo_spreadsheet import _rows_to_grid
 

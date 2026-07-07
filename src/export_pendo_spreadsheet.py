@@ -383,23 +383,26 @@ def upload_pendo_export_spreadsheet(report: dict[str, Any], title: str, folder_i
     sheets_svc = _build_sheets_service()
     _, drive_svc, _ = _get_service()
 
+    from .slides_api import sheets_spreadsheet_create, sheets_spreadsheet_values_update
+
     sheet_defs = [{"properties": {"title": tab}} for tab in tables]
-    ss = sheets_svc.spreadsheets().create(
+    ss = sheets_spreadsheet_create(
+        sheets_svc,
         body={"properties": {"title": title}, "sheets": sheet_defs},
         fields="spreadsheetId,sheets.properties.title",
-    ).execute()
+    )
     ss_id = ss["spreadsheetId"]
 
     with drive_api_lock:
         drive_svc.files().update(fileId=ss_id, addParents=folder_id, fields="id,parents").execute()
 
     for tab_title, grid in tables.items():
-        sheets_svc.spreadsheets().values().update(
-            spreadsheetId=ss_id,
-            range=f"'{tab_title}'!A1",
-            valueInputOption="RAW",
-            body={"values": grid},
-        ).execute()
+        sheets_spreadsheet_values_update(
+            sheets_svc,
+            spreadsheet_id=ss_id,
+            range_str=f"'{tab_title}'!A1",
+            values=grid,
+        )
 
     logger.info("Created Pendo export spreadsheet %s (%s)", ss_id, title)
     return ss_id

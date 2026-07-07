@@ -15,7 +15,6 @@ from src.export_pendo_detailed_snapshot import (
     build_site_detail_slices,
     load_top_ultimate_parents_by_arr_for_pendo,
     render_customer_pendo_detailed_markdown,
-    render_top_arr_batch_manifest,
 )
 from src.job_runner import build_step_argv
 
@@ -261,18 +260,6 @@ def test_load_top_ultimate_parents_by_arr_for_pendo(mock_pc_cls, mock_sf_cls, mo
     rows = load_top_ultimate_parents_by_arr_for_pendo(5)
     assert rows[0]["ultimate_parent"] == "Safran"
     mock_top.assert_called_once()
-
-
-def test_render_top_arr_batch_manifest() -> None:
-    md = render_top_arr_batch_manifest(
-        days=30,
-        top_n=2,
-        results=[
-            {"selection": {"ultimate_parent": "Safran", "current_arr": 100.0, "pendo_customer_key": "Safran"}, "status": "ok", "stem": "Pendo Detailed Export  (Safran, 30d)"},
-        ],
-    )
-    assert "Safran" in md
-    assert "Pendo Detailed Export" in md
 
 
 def test_build_step_argv_export_pendo_detailed_and_top_arr() -> None:

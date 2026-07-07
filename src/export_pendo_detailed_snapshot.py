@@ -39,10 +39,6 @@ def _pendo_detailed_export_file_stem(customer: str, days: int) -> str:
     return f"Pendo Detailed Export  ({label}, {days}d)"
 
 
-def _pendo_top_arr_manifest_stem(days: int, top_n: int) -> str:
-    return f"Pendo Detailed Export Top {top_n} by ARR ({days}d)"
-
-
 def _visitors_for_sitename(
     customer_visitors: list[dict[str, Any]],
     sitename: str,
@@ -714,32 +710,6 @@ def export_pendo_detailed_main(cli_args: list[str] | None = None, *, prog: str |
         diag.emit_run_summary(job_name="export-pendo-detailed", fail_on_warnings=False)
 
 
-def render_top_arr_batch_manifest(
-    *,
-    days: int,
-    top_n: int,
-    results: list[dict[str, Any]],
-) -> str:
-    lines = [
-        f"# Pendo detailed exports — top {top_n} by ARR ({days}d)",
-        "",
-        "| Rank | Ultimate parent | Current ARR | Pendo prefix | Status | Output stem |",
-        "| ---: | --- | ---: | --- | --- | --- |",
-    ]
-    for idx, row in enumerate(results, 1):
-        sel = row.get("selection") or {}
-        lines.append(
-            f"| {idx} | {sel.get('ultimate_parent', '')} | "
-            f"${float(sel.get('current_arr') or sel.get('arr') or 0):,.0f} | "
-            f"{sel.get('pendo_customer_key') or '—'} | {row.get('status', '')} | "
-            f"{row.get('stem') or '—'} |"
-        )
-        err = row.get("error")
-        if err:
-            lines.append(f"| | | | | *{err}* | |")
-    return "\n".join(lines) + "\n"
-
-
 def export_pendo_top_arr_main(cli_args: list[str] | None = None, *, prog: str | None = None) -> None:
     ap = argparse.ArgumentParser(
         description="Run site/user Pendo detailed export for top Salesforce ultimate parents by ARR.",
@@ -811,29 +781,6 @@ def export_pendo_top_arr_main(cli_args: list[str] | None = None, *, prog: str | 
                 entry.update({"status": "error", "error": str(e)[:500]})
                 errors += 1
                 batch_results.append(entry)
-
-        manifest = render_top_arr_batch_manifest(days=args.days, top_n=args.top_n, results=batch_results)
-        manifest_stem = _pendo_top_arr_manifest_stem(args.days, args.top_n)
-        if args.no_drive or args.out_dir:
-            out_dir.mkdir(parents=True, exist_ok=True)
-            manifest_path = out_dir / f"{manifest_stem}.md"
-            _write_local(manifest_path, manifest)
-            print(f"Wrote {manifest_path}")
-        if not args.no_drive:
-            from .drive_config import upload_text_file_to_drive_folder, get_qbr_output_root_folder_id
-            from .export_customer_pendo_snapshot import _CUSTOMER_EXPORTS_FOLDER
-            from .drive_config import _find_or_create_folder
-
-            root = get_qbr_output_root_folder_id()
-            if root:
-                batch_folder = _find_or_create_folder(_CUSTOMER_EXPORTS_FOLDER, root)
-                fid = upload_text_file_to_drive_folder(
-                    f"{manifest_stem}.md",
-                    manifest,
-                    batch_folder,
-                    mime_type="text/markdown",
-                )
-                print(f"Batch manifest: https://drive.google.com/file/d/{fid}/view", file=sys.stderr)
 
         from .data_source_health import integration_freshness_metadata
 
