@@ -1232,10 +1232,10 @@ _CSR_SCHEMA_NOTE = (
     "section (short -> long, e.g. `hs`=health_score, `ctb`=clear_to_build_pct, `doi`=doi_days, "
     "`ohv`=on_hand_value, `scp`=savings_current_period). A key is present only when that factory "
     "has a value (nulls are omitted). Merged metrics span platform-health, supply-chain, and "
-    "platform-value worksheets. Per-customer `summary` holds the section rollups "
-    "(health_distribution, total_shortages, inventory_totals, total_savings, …) with full-length "
-    "keys. When `sites_total` > len(sites), rows were sampled (see `sites_sample_strategy`); "
-    "`summary` still reflects all factories."
+    "platform-value worksheets. Per-customer section rollups (health_distribution, total_shortages, "
+    "inventory_totals, total_savings, …) are in the §4.1 markdown table (one row per customer), not "
+    "in this JSON. When `sites_total` > len(sites), rows were sampled (see `sites_sample_strategy`); "
+    "the §4.1 summary still reflects all factories."
 )
 
 _CSR_SUMMARY_HEALTH_KEYS = (
@@ -1394,6 +1394,140 @@ def _compact_csr(
             )
         )
     return out
+
+
+# Column order for the per-customer CS Report summary table (§4). Known keys are placed first in
+# this order; any extra keys found at runtime are appended so nothing is silently dropped.
+_CSR_SUMMARY_TABLE_SCALARS = (
+    "factory_count",
+    "total_shortages",
+    "total_critical_shortages",
+    "total_savings",
+    "total_open_ia_value",
+    "total_potential_savings",
+    "total_potential_to_sell",
+    "total_recs_created_30d",
+    "total_pos_placed_30d",
+    "total_overdue_tasks",
+)
+_CSR_SUMMARY_HEALTH_ORDER = ("GREEN", "YELLOW", "RED", "NONE")
+_CSR_SUMMARY_INV_ORDER = (
+    "on_hand",
+    "on_order",
+    "excess_on_hand",
+    "excess_on_order",
+    "past_due_po",
+    "past_due_req",
+)
+
+
+def _md_table_cell(value: Any) -> str:
+    """Render one markdown-table cell: None/empty -> blank; escape pipes and collapse newlines."""
+    if value is None:
+        return ""
+    text = str(value).replace("|", r"\|").replace("\n", " ").strip()
+    return text
+
+
+def _ordered_keys(seen: set[str], preferred: tuple[str, ...]) -> list[str]:
+    ordered = [k for k in preferred if k in seen]
+    ordered.extend(sorted(k for k in seen if k not in preferred))
+    return ordered
+
+
+def _csr_summary_markdown_table(cs: dict[str, Any]) -> str | None:
+    """Render all per-customer CS Report ``summary`` rollups as ONE markdown table.
+
+    A single cross-customer table costs far fewer tokens than 98 repeated JSON objects (long keys
+    are written once as headers, not per row) and is the shape an LLM reads most reliably for
+    "how is every customer doing" questions. Nested ``health_distribution`` / ``inventory_totals``
+    dicts are flattened into ``health_*`` / ``inv_*`` columns. Returns None when there are no
+    per-customer summaries (e.g. empty or legacy single-block CSR), so the caller falls back to JSON.
+    """
+    customers = cs.get("customers")
+    if not isinstance(customers, dict):
+        return None
+    rows: list[tuple[str, dict[str, Any], Any]] = []
+    scalar_seen: set[str] = set()
+    health_seen: set[str] = set()
+    inv_seen: set[str] = set()
+    for label, block in customers.items():
+        if not isinstance(block, dict):
+            continue
+        summary = block.get("summary")
+        if not isinstance(summary, dict):
+            continue
+        rows.append((str(label), summary, block.get("arr")))
+        for k, v in summary.items():
+            if k == "health_distribution" and isinstance(v, dict):
+                health_seen |= set(v.keys())
+            elif k == "inventory_totals" and isinstance(v, dict):
+                inv_seen |= set(v.keys())
+            elif not isinstance(v, (dict, list)):
+                scalar_seen.add(k)
+    if not rows:
+        return None
+
+    scalar_cols = _ordered_keys(scalar_seen, _CSR_SUMMARY_TABLE_SCALARS)
+    health_cols = _ordered_keys(health_seen, _CSR_SUMMARY_HEALTH_ORDER)
+    inv_cols = _ordered_keys(inv_seen, _CSR_SUMMARY_INV_ORDER)
+    has_arr = any(arr is not None for _, _, arr in rows)
+
+    header: list[str] = ["customer"]
+    if has_arr:
+        header.append("arr")
+    header += scalar_cols
+    header += [f"health_{k}" for k in health_cols]
+    header += [f"inv_{k}" for k in inv_cols]
+
+    lines = ["| " + " | ".join(header) + " |", "| " + " | ".join(["---"] * len(header)) + " |"]
+    for label, summary, arr in rows:
+        hd = summary.get("health_distribution") if isinstance(summary.get("health_distribution"), dict) else {}
+        inv = summary.get("inventory_totals") if isinstance(summary.get("inventory_totals"), dict) else {}
+        cells = [_md_table_cell(label)]
+        if has_arr:
+            cells.append(_md_table_cell(arr))
+        cells += [_md_table_cell(summary.get(k)) for k in scalar_cols]
+        cells += [_md_table_cell(hd.get(k)) for k in health_cols]
+        cells += [_md_table_cell(inv.get(k)) for k in inv_cols]
+        lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines)
+
+
+def _cs_report_detail_without_summary(cs: dict[str, Any]) -> dict[str, Any]:
+    """Copy of the CSR block with per-customer ``summary`` removed (it now lives in the table)."""
+    detail = {k: v for k, v in cs.items() if k != "customers"}
+    customers = cs.get("customers")
+    if isinstance(customers, dict):
+        detail["customers"] = {
+            label: ({k: v for k, v in block.items() if k != "summary"} if isinstance(block, dict) else block)
+            for label, block in customers.items()
+        }
+    return detail
+
+
+def _render_cs_report_section(cs: Any) -> list[str]:
+    """§4 body: a per-customer summary markdown table + factory-detail JSON (summary removed).
+
+    Falls back to a single JSON blob when there are no per-customer summaries to tabulate.
+    """
+    if not isinstance(cs, dict):
+        return [_json_compact(cs)]
+    table = _csr_summary_markdown_table(cs)
+    if table is None:
+        return [_json_compact(cs)]
+    return [
+        "### 4.1 Per-customer summary (all customers) — one row per customer",
+        "",
+        table,
+        "",
+        "### 4.2 Per-customer factory detail (JSON) — one `sites` row per factory",
+        "",
+        "> Summaries are in the §4.1 table above and are omitted here to avoid duplication. "
+        "Site-row keys are abbreviated; decode with ``field_legend``.",
+        "",
+        _json_compact(_cs_report_detail_without_summary(cs)),
+    ]
 
 
 def _compact_slack(slack: dict[str, Any], *, size_caps_enabled: bool = True) -> dict[str, Any]:
@@ -2120,14 +2254,15 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
             "",
             "## 4. CS Report (top customers by ARR — per-customer week)",
             "",
-            "Per-customer CS Report for the highest-ARR active Salesforce labels. Each customer has a "
-            "``summary`` (section rollups) and a single ``sites`` list where **one row = one factory** "
-            "with platform-health, supply-chain, and platform-value metrics merged inline (no 3× "
-            "worksheet duplication). Site-row keys are abbreviated to save tokens — decode them with "
-            "the ``field_legend`` (short → long) at the top of this section; see ``schema_note`` for "
-            "how to read rows.",
+            "Per-customer CS Report for the highest-ARR active Salesforce labels. **§4.1** is a single "
+            "markdown table of every customer's section rollups (health mix, shortages, inventory "
+            "totals, savings) — the fastest layer for cross-customer questions. **§4.2** is the "
+            "factory-level detail as JSON: one ``sites`` row per factory with platform-health, "
+            "supply-chain, and platform-value metrics merged inline (no 3× worksheet duplication). "
+            "Site-row keys are abbreviated to save tokens — decode them with the ``field_legend`` "
+            "(short → long) in §4.2; see ``schema_note`` for how to read rows.",
             "",
-            _json_compact(doc.get("cs_report")),
+            *_render_cs_report_section(doc.get("cs_report")),
             "",
             "## 4b. Slack (top customers by ARR — recent channel conversations)",
             "",

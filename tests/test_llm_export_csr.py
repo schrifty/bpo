@@ -101,6 +101,35 @@ def test_compact_csr_field_legend_has_no_short_key_collisions():
     assert _CSR_SITE_FIELD_LEGEND == {v: k for k, v in _CSR_SITE_FIELD_ABBR.items()}
 
 
+def test_render_cs_report_section_emits_summary_table_and_detail_without_summary():
+    from src.export_llm_context_snapshot import _render_cs_report_section
+
+    out = _compact_csr(_csr_top_arr_fixture(), site_limit=15, string_cap=400, size_caps_enabled=True)
+    body = "\n".join(_render_cs_report_section(out))
+    # §4.1 renders a per-customer summary markdown table with flattened nested columns.
+    assert "### 4.1 Per-customer summary" in body
+    assert "| customer |" in body and "| --- |" in body
+    assert "health_RED" in body and "health_GREEN" in body
+    assert "inv_on_hand" in body
+    # Acme's rollups appear as a table row (factory_count=2, total_shortages=12, total_savings=900).
+    acme_row = next(ln for ln in body.splitlines() if ln.startswith("| Acme |"))
+    for token in ("| 2 |", "| 12 |", "| 900 |"):
+        assert token in acme_row
+    # §4.2 keeps factory detail as JSON but drops the now-redundant per-customer summary.
+    assert "### 4.2 Per-customer factory detail" in body
+    assert '"sites"' in body
+    assert '"summary"' not in body
+
+
+def test_render_cs_report_section_falls_back_to_json_without_customers():
+    from src.export_llm_context_snapshot import _render_cs_report_section
+
+    # Empty / legacy CSR has no per-customer summaries to tabulate -> single JSON blob, no table.
+    body = "\n".join(_render_cs_report_section({"note": "not attached"}))
+    assert "### 4.1" not in body
+    assert '"note"' in body
+
+
 def test_top_active_ultimate_parents_groups_carrier_divisions():
     report = {
         "customers": [{"customer": "carrier"}],
