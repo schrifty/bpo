@@ -430,6 +430,22 @@ _pendo_cache_disabled = os.environ.get("CORTEX_PENDO_CACHE_DISABLED", "").strip(
 if _pendo_cache_disabled in ("1", "true", "yes", "on"):
     CORTEX_PENDO_CACHE_TTL_SECONDS = 0
 
+# Pendo aggregation request pacing (token bucket). Prevents 429s under scaled batch
+# load (portfolio crawl, top-ARR batch) while still allowing short parallel bursts
+# (e.g. preload's fan-out). Sustained refill is capped at
+# CORTEX_PENDO_MAX_REQUESTS_PER_MINUTE; up to CORTEX_PENDO_MAX_BURST requests may fire
+# immediately before pacing kicks in. Set the rate to 0 to disable pacing entirely.
+try:
+    _pendo_rpm = int(os.environ.get("CORTEX_PENDO_MAX_REQUESTS_PER_MINUTE", "120").strip())
+except ValueError:
+    _pendo_rpm = 120
+CORTEX_PENDO_MAX_REQUESTS_PER_MINUTE = max(0, _pendo_rpm)
+try:
+    _pendo_burst = int(os.environ.get("CORTEX_PENDO_MAX_BURST", "32").strip())
+except ValueError:
+    _pendo_burst = 32
+CORTEX_PENDO_MAX_BURST = max(1, _pendo_burst)
+
 # Feature Adoption slide: half-over-half usage narrative (extra Pendo aggregations). Off by default — disable by unsetting or false.
 _fai = os.environ.get("CORTEX_FEATURE_ADOPTION_INSIGHTS", "").strip().lower()
 FEATURE_ADOPTION_INSIGHTS = _fai in ("1", "true", "yes", "on")
