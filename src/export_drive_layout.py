@@ -29,6 +29,8 @@ _MANAGED_EXPORT_PREFIXES = (
     "match-customer-names",
     "Portfolio - Engineering Review",
 )
+EXPORT_USER_GUIDE_DRIVE_FILENAME = "Cortex Export - User Guide.md"
+OUTPUT_ROOT_STATIC_FILENAMES = frozenset({EXPORT_USER_GUIDE_DRIVE_FILENAME})
 _PORTFOLIO_DECK_EXPORT_STEMS: dict[str, str] = {
     "engineering-portfolio": "Portfolio - Engineering Review",
 }
@@ -78,6 +80,11 @@ def is_managed_export_filename(name: str) -> bool:
     if parse_historical_flat_dated_name(name):
         return True
     return any(name.startswith(p) for p in _MANAGED_EXPORT_PREFIXES)
+
+
+def is_output_root_static_filename(name: str) -> bool:
+    """True for non-export files that may remain at ``Output/`` root (not archived at startup)."""
+    return (name or "") in OUTPUT_ROOT_STATIC_FILENAMES
 
 
 def export_stem_from_filename(name: str, *, mime_type: str = "") -> str | None:

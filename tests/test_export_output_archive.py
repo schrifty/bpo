@@ -301,6 +301,18 @@ def test_migrate_legacy_dated_folder_moves_children_and_trashes_container(monkey
     assert result["moved"][0]["month"] == "2026-06"
 
 
+def test_relocate_non_persistent_skips_user_guide_at_output_root() -> None:
+    from src.export_output_archive import _relocate_non_persistent_base_file
+
+    child = {
+        "id": "guide-1",
+        "name": "Cortex Export - User Guide.md",
+        "mimeType": "text/markdown",
+        "modifiedTime": "2026-07-01T00:00:00.000Z",
+    }
+    assert _relocate_non_persistent_base_file(child, parent_id="out", historical_id="hist") is None
+
+
 def test_migrate_promotes_legacy_base_pendo_to_persistent(monkeypatch) -> None:
     parent_id = "account-folder"
     historical_id = "historical-folder"

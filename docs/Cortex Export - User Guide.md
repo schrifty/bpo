@@ -1,12 +1,25 @@
 # Cortex Export — User Guide
 
-This guide explains **what’s in the Cortex customer export**, **how to read it**, and **how to ask an AI good questions** using the file. You do not need to know how the export is built to use it well.
+This guide explains **what’s in Cortex export files**, **how to read them**, and **how to ask an AI good questions** using the data. You do not need to know how exports are built to use them well.
 
-## What is this file?
+Cortex produces two main kinds of markdown exports:
 
-Cortex produces a snapshot called **`LLM-Context-Portfolio.md`**. Think of it as a **single briefing packet** about your customer portfolio: who they are, how they use the product, support load, contract status, and health signals.
+| Export | Who it’s for | What it covers |
+|--------|----------------|----------------|
+| **Portfolio LLM context** (`LLM-Context-Portfolio`) | Leadership, CS, AMs — whole book | Pendo headlines, Jira, Salesforce, CS Report, signals, risk — **all customers** in one file |
+| **Per-customer Pendo export** (`Pendo Export  (Customer, Nd)`) | Account teams — one strategic customer | Deep **Pendo-only** usage: sites, features, people, trends — **one customer** per file (+ matching Sheet) |
 
-The file is saved to **Google Drive** (under the Cortex generator folder → **Output**). A fresh copy is usually created on a schedule; each file has an **Exported (UTC)** date at the top so you know how old the data is.
+Both use the same **Drive layout** (see [Where files live on Drive](#where-files-live-on-drive)).
+
+---
+
+## Portfolio LLM context export
+
+### What is this file?
+
+Cortex produces a portfolio snapshot whose bookmarkable name is **`LLM-Context-Portfolio-persistent.md`**. Think of it as a **single briefing packet** about your customer portfolio: who they are, how they use the product, support load, contract status, and health signals.
+
+A same-day copy (plain name, no `-persistent`) is also saved under **Historical Data** for that run’s date. Each file has an **Exported (UTC)** date at the top so you know how old the data is. The nightly job refreshes the persistent copy on a schedule.
 
 **Best use:** attach the file (or paste a section) to ChatGPT, Claude, or another assistant and ask questions in plain English. The assistant should **quote numbers from the file** and say when something isn’t in the snapshot.
 
@@ -14,7 +27,7 @@ The file is saved to **Google Drive** (under the Cortex generator folder → **O
 
 ## What’s inside (the numbered sections)
 
-The export is split into numbered sections. When you ask the AI a question, it helps to name the section if you know it.
+The portfolio export is split into numbered sections. When you ask the AI a question, it helps to name the section if you know it.
 
 | Section | In plain English |
 |---------|------------------|
@@ -142,14 +155,105 @@ If Ford shows **`CHURNED`** with no renewal pipeline in Salesforce, the export i
 
 ---
 
-## For operators (how the file is generated)
+## Per-customer Pendo export
 
-Technical teammates run:
+### What is this file?
+
+For strategic accounts (e.g. Ford on a daily or weekly cadence), Cortex can export a **customer-scoped Pendo usage packet**: markdown plus a **Google Sheet** with the same tables. The bookmarkable markdown is named like **`Pendo Export  (Ford, 30d)-persistent.md`**; the companion spreadsheet uses the same stem with `-persistent` (no `.md`).
+
+This export is **Pendo only** — no Jira, Salesforce, or CS Report sections. Use the **portfolio LLM context** export above when you need contract status, support load, or churn segmentation.
+
+### Where it lives on Drive
+
+Per-customer exports live under **`Output/customer-exports/{Customer}/`**, not in the portfolio `Output/` root:
+
+```
+Output/customer-exports/Ford/
+  Pendo Export  (Ford, 30d)-persistent.md      ← bookmarkable current export
+  Pendo Export  (Ford, 30d)-persistent         ← spreadsheet (same stem)
+  Historical Data/
+    2026-07-07/
+      Pendo Export  (Ford, 30d).md
+      Pendo Export  (Ford, 30d)                ← spreadsheet snapshot
+```
+
+Prior-month day folders under **Historical Data** are rolled into monthly buckets (`Historical Data/2026-06/…`) automatically at startup, same as portfolio exports.
+
+### What’s inside (sections 1–12)
+
+| Section | In plain English |
+|---------|------------------|
+| **1. Headline** | Active users, login rate, events, minutes — top-line health for the window |
+| **2. Sites** | Each Pendo site under this customer prefix |
+| **3. Feature & page adoption** | Which product areas saw clicks/views |
+| **4. Core feature checklist** | Expected capabilities vs observed usage |
+| **5. Unused product features** | Features with no recent activity |
+| **6. Behavioral depth** | How deeply users engage beyond logins |
+| **7. People** | Champions and at-risk users (by recency) |
+| **8. Export behavior** | Data export / download usage patterns |
+| **9. Frustration signals** | Rage clicks and similar friction signals |
+| **10. Kei AI** | Kei assistant usage for this customer |
+| **11. Usage trends** | Weekly active users and period-over-period comparison |
+| **12. Engagement context** | Cohort benchmarks and auto-detected usage signals |
+
+**Detailed variant** (`--export-pendo-detailed`) adds **§13 Site detail** and **§14 User roster** (per-site and per-user tables). The **top-ARR batch** (`--export-pendo-top-arr`) runs the detailed export for the largest Salesforce ultimate parents by current ARR.
+
+### Example prompts — Pendo export
+
+- “Summarize Section 1 headline metrics for Ford over the last 30 days.”
+- “Which sites in Section 2 have the lowest weekly active rate?”
+- “List champions from Section 7 and any at-risk users.”
+- “What unused features appear in Section 5? Should we be concerned?”
+- “How did weekly active users trend in Section 11 vs the prior comparison window?”
+
+### Rules to avoid wrong answers (Pendo export)
+
+1. **This file does not define churn or ARR.** For contract status or revenue, use the portfolio export’s Salesforce sections.
+2. **Customer identity is the Pendo prefix** (e.g. `Ford`), not a Salesforce account name — aliases are resolved at export time.
+3. **Check the lookback window** in the filename (`30d`, `7d`, etc.) before comparing numbers across files.
+
+---
+
+## Where files live on Drive
+
+All Cortex exports under the QBR generator use the same pattern:
+
+| Role | Location | Filename pattern |
+|------|----------|------------------|
+| **Bookmarkable “current” export** | Portfolio: `Output/` root · Per-customer Pendo: `Output/customer-exports/{Customer}/` | `{stem}-persistent` (+ `.md` for markdown) |
+| **Same-day historical snapshot** | `…/Historical Data/{YYYY-MM-DD}/` | Plain `{stem}` (no `-persistent`) |
+| **Prior-month archives** | `…/Historical Data/{YYYY-MM}/{YYYY-MM-DD}/` | Rolled up at process startup |
+
+**Portfolio exports** (`export-all`, engineering portfolio deck) use `Output/` as the persistent base. **Per-customer Pendo** uses each customer’s folder under `customer-exports/`.
+
+This user guide is also published to **`Output/Cortex Export - User Guide.md`** on Cortex startup when the repo copy is newer than Drive or missing there. It is not archived into `Historical Data/` with export snapshots.
+
+Other artifacts (Jira cache JSON, chart spreadsheets) live under the generator root (`Cache/`, `chart-data/`) — not in this export layout.
+
+---
+
+## For operators (how exports are generated)
+
+### Portfolio LLM context
 
 ```bash
 cortex export-all
 ```
 
-Common options: `--days 90` (lookback window), `--skip-risk-insights` (omit Section 7), filters to trim the customer list. The nightly job uses a 90-day window by default.
+Common options: `--days 90` (lookback window), `--skip-risk-insights` (omit Section 7), filters to trim the customer list. The nightly `export-nightly` job uses a 90-day window by default.
 
-For field definitions and integration details, see [`DATA_DICTIONARY.md`](./DATA_DICTIONARY.md) and [`SALESFORCE_REVENUE_AND_ARR.md`](./SALESFORCE_REVENUE_AND_ARR.md).
+Drive output: `Output/LLM-Context-Portfolio-persistent.md` and `Output/Historical Data/{today}/LLM-Context-Portfolio.md`.
+
+### Per-customer Pendo
+
+```bash
+cortex --export-pendo --customer Ford --days 30
+cortex --export-pendo-detailed --customer Ford --days 30
+cortex --export-pendo-top-arr --top-n 5 --days 30
+```
+
+Scheduled jobs include `ford-pendo-7d`, `ford-pendo-30d`, `carrier-pendo-detailed-30d`, and `pendo-top-arr-30d`. Add `--no-drive` to write locally only; `-o` / `--out-dir` set local paths.
+
+Drive output (per customer): `Output/customer-exports/{Customer}/` persistent markdown + spreadsheet, plus matching copies under `Historical Data/{today}/`.
+
+For field definitions and integration details, see [`DATA_DICTIONARY.md`](./DATA-GOVERNANCE/DATA_DICTIONARY.md) and [`SALESFORCE_REVENUE_AND_ARR.md`](./DATA-GOVERNANCE/SALESFORCE_REVENUE_AND_ARR.md).

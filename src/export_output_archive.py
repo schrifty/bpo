@@ -278,6 +278,10 @@ def _relocate_non_persistent_base_file(
     modified = str(child.get("modifiedTime") or "")
     if not cid or not name or is_persistent_export_name(name):
         return None
+    from .export_drive_layout import is_output_root_static_filename
+
+    if is_output_root_static_filename(name):
+        return None
 
     persistent_name = target_persistent_name(name, mime_type=mime)
     if persistent_name and persistent_name != name:
