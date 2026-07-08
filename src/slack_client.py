@@ -14,6 +14,7 @@ import yaml
 
 from .config_paths import SLACK_CUSTOMER_ALIASES_FILE
 from .config import (
+    CORTEX_SLACK_CACHE_TTL_SECONDS,
     CORTEX_SLACK_MAX_CHANNELS_PER_CUSTOMER,
     CORTEX_SLACK_MAX_MESSAGES_PER_CHANNEL,
     CORTEX_SLACK_LOOKBACK_DAYS,
@@ -21,6 +22,10 @@ from .config import (
     SLACK_BOT_TOKEN,
     logger,
 )
+
+# Read methods safe to serve from the disk cache. ``auth.test`` (preflight) is never
+# cached — health checks must reflect live credential/connectivity state.
+_CACHEABLE_METHODS = frozenset({"conversations.list", "conversations.history"})
 
 # Hard safety cap for a single channel history pull (pagination stops here).
 _SLACK_HISTORY_HARD_CAP = 5000
@@ -84,18 +89,33 @@ def check_slack_api() -> tuple[bool, str | None]:
 def _slack_api(method: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
     if not slack_configured():
         raise RuntimeError("Slack not configured (set SLACK_BOT_TOKEN)")
+    call_params = params or {}
+    use_cache = method in _CACHEABLE_METHODS and CORTEX_SLACK_CACHE_TTL_SECONDS > 0
+    ckey: str | None = None
+    if use_cache:
+        from . import slack_cache
+
+        ckey = slack_cache.cache_key(method, call_params)
+        cached = slack_cache.cache_get(ckey)
+        if isinstance(cached, dict):
+            return cached
     url = f"{SLACK_API_BASE_URL.rstrip('/')}/{method}"
     token = str(SLACK_BOT_TOKEN).strip()
     resp = requests.post(
         url,
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=utf-8"},
-        json=params or {},
+        json=call_params,
         timeout=45,
     )
     resp.raise_for_status()
     data = resp.json()
     if not isinstance(data, dict):
         raise RuntimeError(f"Slack {method}: non-object response")
+    # Only cache successful reads; error envelopes stay uncached so transient failures self-heal.
+    if use_cache and ckey is not None and data.get("ok"):
+        from . import slack_cache
+
+        slack_cache.cache_set(ckey, data)
     return data
 
 

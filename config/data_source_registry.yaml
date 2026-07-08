@@ -71,6 +71,13 @@ sources:
       - name: contributor_stats
         method: GET
         path: /repos/{owner}/{repo}/stats/contributors
+  slack:
+    display_name: Slack
+    authority: enrichment
+    env_required: []
+    env_optional: [SLACK_BOT_TOKEN, SLACK_API_BASE_URL, CORTEX_SLACK_CACHE_TTL_HOURS]
+    cache_ttl_env: CORTEX_SLACK_CACHE_TTL_HOURS
+    default_cache_hours: 23
   leandna:
     display_name: LeanDNA
     authority: enrichment
@@ -123,6 +130,7 @@ report_key_to_source_id:
   leandna_item_master: leandna
   leandna_lean_projects: leandna
   cursor_usage: cursor
+  slack: slack
 
 source_display_order:
   - pendo
@@ -132,4 +140,5 @@ source_display_order:
   - salesforce
   - cursor
   - github
+  - slack
   - leandna

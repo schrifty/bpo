@@ -273,6 +273,15 @@ try:
     )
 except ValueError:
     CORTEX_LLM_EXPORT_SLACK_MAX_MESSAGES_PER_CHANNEL = 2000
+# Slack API disk cache: default 23h so a once-daily run pulls fresh, while ad-hoc
+# midday re-runs (typically feature testing, not consumer-facing) reuse the morning pull.
+try:
+    _slack_cache_hours = float(os.environ.get("CORTEX_SLACK_CACHE_TTL_HOURS", "23").strip())
+except ValueError:
+    _slack_cache_hours = 23.0
+CORTEX_SLACK_CACHE_TTL_SECONDS = max(0, int(_slack_cache_hours * 3600))
+if os.environ.get("CORTEX_SLACK_CACHE_DISABLED", "").strip().lower() in ("1", "true", "yes", "on"):
+    CORTEX_SLACK_CACHE_TTL_SECONDS = 0
 
 # Salesforce (JWT Bearer Flow: Connected App + private key)
 # SF_LOGIN_URL: https://login.salesforce.com (prod) or https://test.salesforce.com (sandbox)

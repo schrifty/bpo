@@ -176,11 +176,13 @@ def integration_freshness_metadata() -> dict[str, object]:
     """Integration configuration and cache freshness for run summaries / unattended gates."""
     from .config import (
         CORTEX_SALESFORCE_CACHE_TTL_SECONDS,
+        CORTEX_SLACK_CACHE_TTL_SECONDS,
         CURSOR_ADMIN_API_KEY,
         GITHUB_TOKEN,
         SF_CONSUMER_KEY,
         SF_LOGIN_URL,
         SF_USERNAME,
+        SLACK_BOT_TOKEN,
     )
     from .salesforce_client import salesforce_read_cache_age_hours
 
@@ -191,6 +193,8 @@ def integration_freshness_metadata() -> dict[str, object]:
         "ai_productivity_configured": bool(GITHUB_TOKEN and CURSOR_ADMIN_API_KEY),
         "salesforce_configured": sf_configured,
         "salesforce_cache_ttl_h": round(CORTEX_SALESFORCE_CACHE_TTL_SECONDS / 3600.0, 2),
+        "slack_configured": bool(SLACK_BOT_TOKEN),
+        "slack_cache_ttl_h": round(CORTEX_SLACK_CACHE_TTL_SECONDS / 3600.0, 2),
     }
     age_h = salesforce_read_cache_age_hours()
     if age_h is not None:
