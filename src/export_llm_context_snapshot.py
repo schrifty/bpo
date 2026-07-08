@@ -744,6 +744,41 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
                 lines.append(f"- **`{src}`** — **{st}** — {det}")
             else:
                 lines.append(f"- **`{src}`** — **{st}**")
+    slack_meta = cov.get("slack_top_by_arr")
+    if isinstance(slack_meta, dict) and slack_meta.get("enabled"):
+        perf = slack_meta.get("performance") if isinstance(slack_meta.get("performance"), dict) else {}
+        lines.extend(
+            [
+                "",
+                "### Slack pilot timing (top customers by ARR)",
+                f"- **Scope:** top **{slack_meta.get('top_n', '')}** ultimate parents · "
+                f"**{slack_meta.get('lookback_days', '')}**-day lookback",
+                f"- **Customers:** {slack_meta.get('customers_selected', 0)} selected · "
+                f"{slack_meta.get('customers_with_slack_data', 0)} with channel data · "
+                f"{slack_meta.get('customers_llm_summarized', 0)} LLM summaries · "
+                f"{slack_meta.get('customers_slack_errors', 0)} fetch errors · "
+                f"{slack_meta.get('customers_llm_errors', 0)} LLM errors",
+            ]
+        )
+        if perf:
+            lines.append(
+                f"- **Wall time:** **{perf.get('wall_seconds_total', '—')}s** total "
+                f"(fetch **{perf.get('fetch_wall_seconds', '—')}s** · "
+                f"LLM **{perf.get('llm_wall_seconds', '—')}s**)"
+            )
+            per_cust = perf.get("per_customer")
+            if isinstance(per_cust, list) and per_cust:
+                lines.append("- **Per customer:**")
+                for row in per_cust:
+                    if not isinstance(row, dict):
+                        continue
+                    name = row.get("customer") or "?"
+                    lines.append(
+                        f"  - **{name}** — fetch {row.get('fetch_seconds', '—')}s · "
+                        f"LLM {row.get('llm_seconds', '—')}s · "
+                        f"{row.get('channels', 0)} channels · {row.get('messages', 0)} messages"
+                        + (f" · llm_error={row['llm_error']}" if row.get("llm_error") else "")
+                    )
     lines.extend(
         [
             "",
@@ -1557,6 +1592,47 @@ def _sf_arr_num(value: Any) -> float:
     return float(value) if isinstance(value, (int, float)) else 0.0
 
 
+def _rollup_rows_from_sf_accounts(accounts: Any) -> list[dict[str, Any]]:
+    """Map §3 ``accounts`` rows back to portfolio contract-rollup shape for grouping."""
+    rows: list[dict[str, Any]] = []
+    if not isinstance(accounts, list):
+        return rows
+    for account in accounts:
+        if not isinstance(account, dict):
+            continue
+        label = str(account.get("Name") or "").strip()
+        if not label:
+            continue
+        row = dict(account)
+        row["customer"] = label
+        rows.append(row)
+    return rows
+
+
+def _grouped_sf_accounts_for_table(accounts: Any) -> list[dict[str, Any]]:
+    """Roll up current-book labels to ultimate parent (same math as ``selection_ranked`` / §3c)."""
+    from .llm_export_csr import group_contract_rollups_by_ultimate_parent
+
+    rollups = _rollup_rows_from_sf_accounts(accounts)
+    if not rollups:
+        return []
+    grouped = group_contract_rollups_by_ultimate_parent(rollups, current_book_only=False)
+    out: list[dict[str, Any]] = []
+    for bucket in grouped:
+        out.append(
+            {
+                "Name": bucket["ultimate_parent"],
+                "commercial_status": bucket.get("commercial_status"),
+                "current_arr": bucket.get("current_arr"),
+                "active_arr": bucket.get("active_arr"),
+                "renewal_arr": bucket.get("renewal_arr"),
+                "historical_arr": bucket.get("historical_arr"),
+                "entity_row_count": bucket.get("entity_count"),
+            }
+        )
+    return out
+
+
 def _salesforce_accounts_markdown_table(accounts: Any) -> str | None:
     """Render the Salesforce ``accounts`` list as ONE markdown table, ranked by ``current_arr``.
 
@@ -1604,7 +1680,7 @@ def _render_salesforce_current_book_section(block: Any) -> list[str]:
     """
     if not isinstance(block, dict):
         return [_json_compact(block)]
-    table = _salesforce_accounts_markdown_table(block.get("accounts"))
+    table = _salesforce_accounts_markdown_table(_grouped_sf_accounts_for_table(block.get("accounts")))
     if table is None:
         return [_json_compact(block)]
     detail = {k: v for k, v in block.items() if k != "accounts"}

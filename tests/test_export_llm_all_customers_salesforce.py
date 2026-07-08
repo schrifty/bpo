@@ -127,6 +127,26 @@ def test_render_salesforce_current_book_ranks_by_current_arr_as_table():
     assert '"accounts_total"' in lines[-1]
 
 
+def test_render_salesforce_current_book_groups_carrier_divisions_by_ultimate_parent():
+    mod = _export_mod
+    block = {
+        "matched": True,
+        "accounts_total": 5,
+        "accounts": [
+            {"Name": "Safran", "commercial_status": "ACTIVE", "current_arr": 2_223_798.0, "active_arr": 2_223_798.0, "renewal_arr": 0.0, "historical_arr": 2_223_798.0},
+            {"Name": "Commercial HVAC (Carrier)", "commercial_status": "ACTIVE", "current_arr": 335_728.0, "active_arr": 335_728.0, "renewal_arr": 0.0, "historical_arr": 335_728.0},
+            {"Name": "Residential HVAC (Carrier)", "commercial_status": "ACTIVE", "current_arr": 297_762.0, "active_arr": 297_762.0, "renewal_arr": 0.0, "historical_arr": 297_762.0},
+            {"Name": "Ford Motor Company", "commercial_status": "ACTIVE", "current_arr": 525_000.0, "active_arr": 525_000.0, "renewal_arr": 0.0, "historical_arr": 525_000.0},
+            {"Name": "Bombardier", "commercial_status": "ACTIVE", "current_arr": 600_000.0, "active_arr": 600_000.0, "renewal_arr": 0.0, "historical_arr": 600_000.0},
+        ],
+    }
+    body = "\n".join(mod._render_salesforce_current_book_section(block))
+    assert "| 2 | Carrier |" in body
+    assert "Commercial HVAC (Carrier)" not in body.split("### 3.2")[0]
+    assert "| 3 | Bombardier |" in body
+    assert "| 4 | Ford Motor Company |" in body
+
+
 def test_render_salesforce_current_book_falls_back_to_json_without_accounts():
     mod = _export_mod
     assert mod._render_salesforce_current_book_section({}) == [mod._json_compact({})]
