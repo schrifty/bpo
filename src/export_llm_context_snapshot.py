@@ -650,7 +650,9 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
             "plus response-time style summaries. **Individual tickets are not listed** (no issue keys, titles, or customer notes in text).",
             "",
             "- **§3 — Salesforce (current book):** **Revenue and renewal-oriented facts** for ultimate parents with "
-            "``commercial_status`` **ACTIVE** or **OUT_OF_CONTRACT_RENEWING** (ranked by ``current_arr``). Pendo in §1 "
+            "``commercial_status`` **ACTIVE** or **OUT_OF_CONTRACT_RENEWING**. **§3.1** is a markdown table of every "
+            "account **pre-ranked by ``current_arr``** — the authoritative source for “top N by revenue” (read the "
+            "``rank`` column); **§3.2** holds the contract rollups and portfolio aggregates as JSON. Pendo in §1 "
             "merges when a prefix matches, but **Pendo is not required** (see ``salesforce_only`` rows). "
             "**Do not combine** with §3b / §3b-renewal / §3b-future.",
             "- **§3b — Salesforce (churned / lost):** **Salesforce-only** ``CHURNED`` contracts **without** open "
@@ -1530,6 +1532,99 @@ def _render_cs_report_section(cs: Any) -> list[str]:
     ]
 
 
+# §3 current-book table columns: (account json key, table header). Rendered in this order,
+# but a column is dropped when every row is empty for it (keeps the table narrow per segment).
+_SF_ACCOUNTS_TABLE_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("Name", "customer"),
+    ("commercial_status", "commercial_status"),
+    ("current_arr", "current_arr"),
+    ("active_arr", "active_arr"),
+    ("renewal_arr", "renewal_arr"),
+    ("historical_arr", "historical_arr"),
+    ("renewal_in_flight", "renewal_in_flight"),
+    ("days_until_contract_end_nearest", "days_to_renewal"),
+    ("contract_end_date_nearest", "contract_end_nearest"),
+    ("contract_end_date_farthest", "contract_end_farthest"),
+    ("contract_start_date_earliest_active", "contract_start_earliest"),
+    ("contract_start_date_latest_active", "contract_start_latest"),
+    ("contract_statuses_distinct", "contract_statuses"),
+    ("entity_row_count", "entity_rows"),
+    ("ARR__c", "arr_field_c"),
+)
+
+
+def _sf_arr_num(value: Any) -> float:
+    return float(value) if isinstance(value, (int, float)) else 0.0
+
+
+def _salesforce_accounts_markdown_table(accounts: Any) -> str | None:
+    """Render the Salesforce ``accounts`` list as ONE markdown table, ranked by ``current_arr``.
+
+    LLMs rank a single minified-JSON line unreliably and tend to confabulate a plausible-looking
+    "top N by ARR" (dropping/renumbering rows, inventing figures). A pre-sorted table with a
+    ``rank`` column makes "top N customers by revenue" a lookup, not a computation. Columns that
+    are empty across every row are dropped so churned/future segments stay narrow. Returns None
+    when there are no account rows, so the caller falls back to JSON.
+    """
+    rows = [a for a in accounts if isinstance(a, dict)] if isinstance(accounts, list) else []
+    if not rows:
+        return None
+    rows = sorted(
+        rows,
+        key=lambda a: (-_sf_arr_num(a.get("current_arr")), -_sf_arr_num(a.get("historical_arr"))),
+    )
+    present = [
+        (key, label)
+        for key, label in _SF_ACCOUNTS_TABLE_COLUMNS
+        if any(a.get(key) not in (None, "", []) for a in rows)
+    ]
+    if not present:
+        return None
+    header = ["rank"] + [label for _, label in present]
+    lines = [
+        "| " + " | ".join(header) + " |",
+        "| " + " | ".join(["---"] * len(header)) + " |",
+    ]
+    for i, a in enumerate(rows, 1):
+        cells = [str(i)]
+        for key, _label in present:
+            val = a.get(key)
+            if isinstance(val, list):
+                val = ", ".join(str(x) for x in val)
+            cells.append(_md_table_cell(val))
+        lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines)
+
+
+def _render_salesforce_current_book_section(block: Any) -> list[str]:
+    """§3 body: a pre-sorted per-account markdown table (§3.1) + rollup/aggregate JSON (§3.2).
+
+    The per-account list is removed from the JSON to avoid duplicating it under the table.
+    Falls back to a single JSON blob when there are no account rows to tabulate.
+    """
+    if not isinstance(block, dict):
+        return [_json_compact(block)]
+    table = _salesforce_accounts_markdown_table(block.get("accounts"))
+    if table is None:
+        return [_json_compact(block)]
+    detail = {k: v for k, v in block.items() if k != "accounts"}
+    return [
+        "### 3.1 Current book by ARR (one row per ultimate parent, ranked)",
+        "",
+        "> Ranked by ``current_arr`` desc (= ``active_arr`` + ``renewal_arr``). This table is the "
+        "authoritative source for \u201ctop N customers by revenue\u201d \u2014 read the ``rank`` column "
+        "directly; do not re-derive the ranking from other sections.",
+        "",
+        table,
+        "",
+        "### 3.2 Contract rollups & portfolio aggregates (JSON)",
+        "",
+        "> Per-account rows are in the §3.1 table above and omitted here to avoid duplication.",
+        "",
+        _json_compact(detail),
+    ]
+
+
 def _compact_slack(slack: dict[str, Any], *, size_caps_enabled: bool = True) -> dict[str, Any]:
     if not slack:
         return {
@@ -2220,7 +2315,7 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
             "",
             "## 3. Salesforce (current book — ACTIVE + OUT_OF_CONTRACT_RENEWING)",
             "",
-            _json_compact(doc.get("salesforce")),
+            *_render_salesforce_current_book_section(doc.get("salesforce")),
             "",
             "## 3b. Salesforce (churned / lost — do not merge with §1–§3 current book)",
             "",

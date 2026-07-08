@@ -96,6 +96,44 @@ def test_salesforce_all_customers_maps_revenue_book(monkeypatch):
     assert acct0.get("current_arr") == 60.0
 
 
+def test_render_salesforce_current_book_ranks_by_current_arr_as_table():
+    mod = _export_mod
+    block = {
+        "matched": True,
+        "salesforce_export_note": "Current book only ...",
+        "accounts_total": 3,
+        "accounts": [
+            {"Name": "GE Appliances", "commercial_status": "ACTIVE", "current_arr": 430954.0,
+             "active_arr": 430954.0, "renewal_arr": 0.0, "historical_arr": 430954.0},
+            {"Name": "Safran", "commercial_status": "ACTIVE", "current_arr": 2223798.0,
+             "active_arr": 2223798.0, "renewal_arr": 0.0, "historical_arr": 2494130.0},
+            {"Name": "Ford Motor Company", "commercial_status": "ACTIVE", "current_arr": 525000.0,
+             "active_arr": 525000.0, "renewal_arr": 0.0, "historical_arr": 525000.0},
+        ],
+    }
+    lines = mod._render_salesforce_current_book_section(block)
+    body = "\n".join(lines)
+    # §3.1 markdown table with a rank column, sorted by current_arr desc.
+    assert "### 3.1 Current book by ARR" in body
+    assert "| rank | customer |" in body
+    assert "| 1 | Safran |" in body
+    assert "| 2 | Ford Motor Company |" in body
+    assert "| 3 | GE Appliances |" in body
+    # Ford (525K) must outrank GE (431K) — the exact bug that was hallucinated away.
+    assert body.index("Ford Motor Company") < body.index("GE Appliances")
+    # §3.2 JSON must not re-emit the per-account list.
+    assert "### 3.2 Contract rollups" in body
+    assert '"accounts":' not in lines[-1]
+    assert '"accounts_total"' in lines[-1]
+
+
+def test_render_salesforce_current_book_falls_back_to_json_without_accounts():
+    mod = _export_mod
+    assert mod._render_salesforce_current_book_section({}) == [mod._json_compact({})]
+    empty = {"accounts": []}
+    assert mod._render_salesforce_current_book_section(empty) == [mod._json_compact(empty)]
+
+
 def test_compact_salesforce_future_segment_and_markdown():
     mod = _export_mod
     future_sf = salesforce_aggregate_from_rollups(

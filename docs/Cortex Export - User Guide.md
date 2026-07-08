@@ -33,7 +33,7 @@ The portfolio export is split into numbered sections. When you ask the AI a ques
 |---------|------------------|
 | **Section 1 — Pendo** | Who’s using the product and how much (logins, active users, etc.). Portfolio-wide view. |
 | **Section 2 — Jira (support)** | Support ticket volume and queue health for your **largest customers by revenue** — not every ticket detail. |
-| **Section 3 — Salesforce (current customers)** | **Customers you should treat as “in the book today”** — active contracts **or** renewals in progress. Revenue and contract facts live here. |
+| **Section 3 — Salesforce (current customers)** | **Customers you should treat as “in the book today”** — active contracts **or** renewals in progress. Revenue and contract facts live here. **§3.1** is a ready-made table of every customer **ranked by current ARR** (read the `rank` column for “top N by revenue”); **§3.2** holds the contract-rollup and portfolio-total detail. |
 | **Section 3b — Churned** | Customers who **left** (lost contracts, no renewal in flight). **Separate list — don’t mix with Section 3.** |
 | **Section 3b-renewal — Renewal in progress** | Contracts that **expired** but a **renewal deal is still open**. These are **not** churn — sales is still working them. |
 | **Section 3b-future — Future contracts** | Deals **signed but not started yet** (contract start date in the future). Not active today, not churn. |
@@ -63,7 +63,7 @@ Salesforce decides **who is a customer** and **whether they’re active, renewin
 
 ### Example prompts — customer status
 
-- “List our top 10 customers by revenue from Section 3 and say whether each is Active or Renewing.”
+- “List our top 10 customers by revenue from the Section 3.1 table (use the `rank` column) and say whether each is Active or Renewing.”
 - “Who appears in Section 3b as churned? Don’t include anyone from Section 3.”
 - “Is Acme Corp in the current book or in the churned section? Quote the status field.”
 - “Which customers are in renewal negotiation (Section 3b-renewal) but might still show usage in Section 1?”
