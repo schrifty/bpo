@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import random
 import re
 import sys
 import time
@@ -279,6 +280,30 @@ def _activity_aggregate_read_timeout(total_days: int) -> float:
     return min(300.0, max(90.0, 90.0 + (total_days - 14) * 3.0))
 
 
+# Pendo responses worth retrying: rate limiting (429) and transient server errors.
+_RETRYABLE_HTTP_STATUS = frozenset({429, 500, 502, 503, 504})
+# Random backoff jitter (seconds) added to the base wait so parallel workers don't
+# retry in lockstep after a shared 429/5xx.
+_RETRY_JITTER_S = 2.0
+# Upper bound on a single backoff (incl. a server Retry-After) so a pathological
+# hint can't stall a batch run.
+_RETRY_MAX_WAIT_S = 60.0
+
+
+def _retry_after_seconds(exc: requests.exceptions.RequestException) -> float | None:
+    """Return the ``Retry-After`` header (seconds form) from a response, if present."""
+    resp = getattr(exc, "response", None)
+    headers = getattr(resp, "headers", None)
+    raw = headers.get("Retry-After") if headers else None
+    if not raw:
+        return None
+    try:
+        return max(0.0, float(raw))
+    except (TypeError, ValueError):
+        # HTTP-date form is not honored; fall back to computed backoff.
+        return None
+
+
 def _aggregate_with_retry(
     pc: PendoClient,
     pipeline: list[dict[str, Any]],
@@ -291,22 +316,39 @@ def _aggregate_with_retry(
     timeout = (10, read_timeout)
     last_exc: BaseException | None = None
     for attempt in range(1, max_attempts + 1):
+        retry_after: float | None = None
         try:
             return pc.aggregate(pipeline, timeout=timeout)
+        except requests.exceptions.HTTPError as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status not in _RETRYABLE_HTTP_STATUS:
+                raise
+            last_exc = exc
+            reason = f"HTTP {status}"
+            retry_after = _retry_after_seconds(exc)
         except requests.exceptions.Timeout as exc:
             last_exc = exc
-            if attempt >= max_attempts:
-                raise
-            wait = 5.0 * attempt
-            logger.warning(
-                "Pendo %s aggregate timed out (attempt %d/%d, read_timeout=%.0fs); retry in %.0fs",
-                label,
-                attempt,
-                max_attempts,
-                read_timeout,
-                wait,
-            )
-            time.sleep(wait)
+            reason = "timed out"
+        except requests.exceptions.ConnectionError as exc:
+            last_exc = exc
+            reason = "connection error"
+
+        if attempt >= max_attempts:
+            raise last_exc  # type: ignore[misc]
+        if retry_after is not None:
+            wait = min(_RETRY_MAX_WAIT_S, retry_after)
+        else:
+            wait = min(_RETRY_MAX_WAIT_S, 5.0 * attempt + random.uniform(0.0, _RETRY_JITTER_S))
+        logger.warning(
+            "Pendo %s aggregate failed (%s, attempt %d/%d, read_timeout=%.0fs); retry in %.1fs",
+            label,
+            reason,
+            attempt,
+            max_attempts,
+            read_timeout,
+            wait,
+        )
+        time.sleep(wait)
     raise RuntimeError(f"Pendo {label} aggregate failed after {max_attempts} attempts") from last_exc
 
 

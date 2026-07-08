@@ -39,8 +39,17 @@ def test_activity_aggregate_read_timeout_scales_with_window() -> None:
     assert _activity_aggregate_read_timeout(120) == 300.0
 
 
+def _http_error(status: int, *, retry_after: str | None = None) -> requests.exceptions.HTTPError:
+    resp = requests.Response()
+    resp.status_code = status
+    if retry_after is not None:
+        resp.headers["Retry-After"] = retry_after
+    return requests.exceptions.HTTPError(f"{status}", response=resp)
+
+
+@patch("src.export_customer_pendo_snapshot.random.uniform", return_value=0.0)
 @patch("src.export_customer_pendo_snapshot.time.sleep")
-def test_aggregate_with_retry_succeeds_after_timeout(mock_sleep) -> None:
+def test_aggregate_with_retry_succeeds_after_timeout(mock_sleep, _mock_jitter) -> None:
     pc = MagicMock()
     pc.aggregate.side_effect = [
         requests.exceptions.ReadTimeout("timed out"),
@@ -61,8 +70,9 @@ def test_aggregate_with_retry_succeeds_after_timeout(mock_sleep) -> None:
     mock_sleep.assert_called_once_with(5.0)
 
 
+@patch("src.export_customer_pendo_snapshot.random.uniform", return_value=0.0)
 @patch("src.export_customer_pendo_snapshot.time.sleep")
-def test_aggregate_with_retry_raises_after_max_attempts(mock_sleep) -> None:
+def test_aggregate_with_retry_raises_after_max_attempts(mock_sleep, _mock_jitter) -> None:
     pc = MagicMock()
     pc.aggregate.side_effect = requests.exceptions.ReadTimeout("timed out")
     with pytest.raises(requests.exceptions.ReadTimeout):
@@ -75,6 +85,81 @@ def test_aggregate_with_retry_raises_after_max_attempts(mock_sleep) -> None:
         )
     assert pc.aggregate.call_count == 3
     assert mock_sleep.call_count == 2
+
+
+@patch("src.export_customer_pendo_snapshot.random.uniform", return_value=0.0)
+@patch("src.export_customer_pendo_snapshot.time.sleep")
+def test_aggregate_with_retry_retries_on_429(mock_sleep, _mock_jitter) -> None:
+    pc = MagicMock()
+    pc.aggregate.side_effect = [_http_error(429), {"results": []}]
+    out = _aggregate_with_retry(
+        pc,
+        [{"source": {"pageEvents": None}}],
+        total_days=30,
+        label="pageEvents",
+    )
+    assert out == {"results": []}
+    assert pc.aggregate.call_count == 2
+    mock_sleep.assert_called_once_with(5.0)
+
+
+@patch("src.export_customer_pendo_snapshot.time.sleep")
+def test_aggregate_with_retry_honors_retry_after_header(mock_sleep) -> None:
+    pc = MagicMock()
+    pc.aggregate.side_effect = [_http_error(503, retry_after="12"), {"results": []}]
+    _aggregate_with_retry(
+        pc,
+        [{"source": {"featureEvents": None}}],
+        total_days=30,
+        label="featureEvents",
+    )
+    mock_sleep.assert_called_once_with(12.0)
+
+
+@patch("src.export_customer_pendo_snapshot.time.sleep")
+def test_aggregate_with_retry_caps_retry_after(mock_sleep) -> None:
+    pc = MagicMock()
+    pc.aggregate.side_effect = [_http_error(429, retry_after="9999"), {"results": []}]
+    _aggregate_with_retry(
+        pc,
+        [{"source": {"pageEvents": None}}],
+        total_days=30,
+        label="pageEvents",
+    )
+    mock_sleep.assert_called_once_with(60.0)
+
+
+@patch("src.export_customer_pendo_snapshot.random.uniform", return_value=0.0)
+@patch("src.export_customer_pendo_snapshot.time.sleep")
+def test_aggregate_with_retry_retries_on_connection_error(mock_sleep, _mock_jitter) -> None:
+    pc = MagicMock()
+    pc.aggregate.side_effect = [
+        requests.exceptions.ConnectionError("reset"),
+        {"results": []},
+    ]
+    _aggregate_with_retry(
+        pc,
+        [{"source": {"pageEvents": None}}],
+        total_days=30,
+        label="pageEvents",
+    )
+    assert pc.aggregate.call_count == 2
+    mock_sleep.assert_called_once_with(5.0)
+
+
+@patch("src.export_customer_pendo_snapshot.time.sleep")
+def test_aggregate_with_retry_does_not_retry_non_retryable_http(mock_sleep) -> None:
+    pc = MagicMock()
+    pc.aggregate.side_effect = _http_error(400)
+    with pytest.raises(requests.exceptions.HTTPError):
+        _aggregate_with_retry(
+            pc,
+            [{"source": {"pageEvents": None}}],
+            total_days=30,
+            label="pageEvents",
+        )
+    assert pc.aggregate.call_count == 1
+    mock_sleep.assert_not_called()
 
 
 def test_resolve_pendo_customer_prefix_exact() -> None:
