@@ -13,6 +13,7 @@ from src.export_customer_pendo_snapshot import (
     build_headline,
     build_unused_features,
     build_usage_trends,
+    merge_active_site_rows,
     render_customer_pendo_markdown,
     resolve_pendo_customer_prefix,
     _activity_aggregate_read_timeout,
@@ -227,6 +228,89 @@ def test_render_customer_pendo_markdown_includes_sections() -> None:
     assert "## 9. Frustration signals" in md
     assert "## 10. Kei AI" in md
     assert "## 11. Usage trends" in md
+
+
+def test_merge_active_site_rows_merges_entities_and_filters_idle() -> None:
+    # Two entity rows for Montreal carry the SAME site-level events/minutes (Pendo
+    # fallback) but different visitors — the real Safran pattern.
+    rows = [
+        {"sitename": "Safran Montreal CG1", "entity": "A", "visitors": 10, "total_events": 100, "total_minutes": 60, "last_active": "2026-07-01"},
+        {"sitename": "Safran Montreal CG1", "entity": "B", "visitors": 5, "total_events": 100, "total_minutes": 60, "last_active": "2026-07-08"},
+        {"sitename": "Safran Issoudun 36P", "visitors": 3, "total_events": 20, "total_minutes": 10, "last_active": "2026-07-05"},
+        {"sitename": "Safran Idle Plant", "visitors": 2, "total_events": 0, "total_minutes": 0, "last_active": "2025-01-01"},
+    ]
+    active, active_count, provisioned = merge_active_site_rows(rows)
+    assert provisioned == 3
+    assert active_count == 2
+    # Montreal merged across entities: visitors summed, events/minutes NOT double-counted
+    # (max, not sum), newest last_active kept.
+    montreal = active[0]
+    assert montreal["sitename"] == "Safran Montreal CG1"
+    assert montreal["visitors"] == 15
+    assert montreal["total_events"] == 100
+    assert montreal["total_minutes"] == 60
+    assert montreal["last_active"] == "2026-07-08"
+    # Idle site excluded
+    assert all(r["sitename"] != "Safran Idle Plant" for r in active)
+    # Sorted by events desc
+    assert [r["sitename"] for r in active] == ["Safran Montreal CG1", "Safran Issoudun 36P"]
+
+
+def test_merge_active_site_rows_handles_empty() -> None:
+    active, active_count, provisioned = merge_active_site_rows([])
+    assert active == []
+    assert active_count == 0
+    assert provisioned == 0
+
+
+def test_render_pendo_markdown_section2_lists_active_sites_deduped() -> None:
+    md = render_customer_pendo_markdown(
+        {
+            "meta": {
+                "exported_at_utc": "2026-06-29T12:00:00Z",
+                "pendo_prefix": "Safran",
+                "customer_query": "Safran",
+                "days": 30,
+                "window_start": "2026-05-30",
+                "window_end": "2026-06-29",
+            },
+            "headline": {
+                "active_users_7d": 4,
+                "total_visitors": 10,
+                "total_sites": 3,
+                "weekly_active_rate_pct": 40,
+                "total_events": 100,
+                "total_minutes": 50,
+                "feature_events": 20,
+                "write_ratio_pct": 12,
+                "vs_prior_period": {},
+            },
+            "sites": {
+                "sites": [
+                    {"sitename": "Safran Montreal CG1", "entity": "A", "visitors": 10, "total_events": 100, "total_minutes": 60, "last_active": "2026-06-01"},
+                    {"sitename": "Safran Montreal CG1", "entity": "B", "visitors": 5, "total_events": 100, "total_minutes": 60, "last_active": "2026-06-29"},
+                    {"sitename": "Safran Idle Plant", "visitors": 2, "total_events": 0, "total_minutes": 0, "last_active": "N/A"},
+                ]
+            },
+            "features": {},
+            "depth": {},
+            "people": {"champions": [], "at_risk_users": []},
+            "exports": {"total_exports": 0, "exports_per_active_user": 0, "active_users": 0, "by_feature": [], "top_exporters": []},
+            "frustration": {"total_frustration_signals": 0, "totals": {}, "top_pages": [], "top_features": []},
+            "kei": {},
+            "trends": {"weekly_active_users": [], "comparison": {}},
+            "core_feature_checklist": {"summary": {"total_tracked": 0, "adopted": 0, "not_adopted": 0, "declining": 0}, "entries": []},
+            "unused_features": {"catalog_total": 0, "unused_count": 0, "unused_features": [], "truncated": False},
+            "engagement": {"benchmarks": {}, "signals": []},
+        }
+    )
+    assert "## 2. Sites" in md
+    assert "Active sites: **1** of **2** provisioned" in md
+    # Montreal appears once (entities merged), idle plant excluded
+    assert md.count("Safran Montreal CG1 |") == 1
+    assert "Safran Idle Plant" not in md
+    # No stale "Showing 40 of N" footer
+    assert "Showing 40 of" not in md
 
 
 def test_build_core_feature_checklist_statuses() -> None:

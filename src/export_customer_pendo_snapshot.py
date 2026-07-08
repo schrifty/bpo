@@ -30,6 +30,63 @@ _PROFILE_ID = "customer_pendo_export"
 _MS_PER_DAY = 86_400_000
 
 
+def merge_active_site_rows(
+    site_rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int, int]:
+    """Collapse raw ``(sitename, entity)`` rows into one row per sitename.
+
+    Pendo's ``get_customer_sites`` returns a row per site-*entity* pair, so a single
+    physical site can appear many times (Safran: ~5k rows for ~400 sitenames). For an
+    LLM-queryable export we want one row per site, and only sites that were actually
+    used in the window (events > 0).
+
+    Aggregation across a sitename's entity rows is deliberately asymmetric:
+
+    * **visitors** are summed — Pendo counts visitors per (sitename, entity) and a
+      visitor carries a single entity, so entity rows partition the visitor set.
+    * **events / minutes** take the **max**, not the sum. When entity-level usage is
+      not populated, Pendo repeats the *site-level* total on every entity row (observed
+      for Safran: ~12 identical rows). Summing would inflate a site's events several-fold.
+      Max returns the true site total in that (dominant) case and merely under-counts in
+      the rare case where usage really is entity-specific — far safer than gross inflation.
+
+    Returns ``(active_rows_sorted, active_count, provisioned_count)`` where
+    ``provisioned_count`` is the number of distinct sitenames before the active filter
+    (i.e. everything provisioned, active or idle).
+    """
+    by_name: dict[str, dict[str, Any]] = {}
+    for row in site_rows or []:
+        sitename = str(row.get("sitename") or "").strip()
+        if not sitename:
+            continue
+        bucket = by_name.setdefault(
+            sitename.lower(),
+            {
+                "sitename": sitename,
+                "visitors": 0,
+                "total_events": 0,
+                "total_minutes": 0,
+                "last_active": "",
+            },
+        )
+        bucket["visitors"] += int(row.get("visitors") or 0)
+        bucket["total_events"] = max(bucket["total_events"], int(row.get("total_events") or 0))
+        bucket["total_minutes"] = max(bucket["total_minutes"], int(row.get("total_minutes") or 0))
+        last_active = str(row.get("last_active") or "").strip()
+        if last_active and last_active != "N/A" and last_active > bucket["last_active"]:
+            bucket["last_active"] = last_active
+    provisioned_count = len(by_name)
+    active_rows = [r for r in by_name.values() if int(r.get("total_events") or 0) > 0]
+    active_rows.sort(
+        key=lambda r: (
+            -int(r.get("total_events") or 0),
+            -int(r.get("visitors") or 0),
+            str(r.get("sitename") or "").lower(),
+        )
+    )
+    return active_rows, len(active_rows), provisioned_count
+
+
 def _pendo_export_file_stem(customer: str, days: int) -> str:
     """Return filename stem (no extension), e.g. ``Pendo Export  (Ford, 30d)``."""
     label = (customer or "").strip() or "customer"
@@ -556,15 +613,24 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
         )
     md += _md_section("1. Headline", "\n".join(headline_lines))
 
-    site_rows = (report.get("sites") or {}).get("sites") or []
-    site_lines = ["| Site | Visitors | Events | Minutes | Last active |", "| --- | ---: | ---: | ---: | --- |"]
-    for s in site_rows[:40]:
+    raw_site_rows = (report.get("sites") or {}).get("sites") or []
+    active_sites, active_count, provisioned_count = merge_active_site_rows(raw_site_rows)
+    idle_count = max(0, provisioned_count - active_count)
+    site_lines = [
+        f"- Active sites: **{active_count}** of **{provisioned_count}** provisioned "
+        f"({idle_count} idle in window). One row per site; Pendo entity rows merged; "
+        "only sites with events in the window are listed.",
+        "",
+        "| Site | Visitors | Events | Minutes | Last active |",
+        "| --- | ---: | ---: | ---: | --- |",
+    ]
+    for s in active_sites:
         site_lines.append(
-            f"| {s.get('sitename', '')} | {s.get('visitors', 0)} | "
+            f"| {s.get('sitename', '')} | {s.get('visitors', 0):,} | "
             f"{s.get('total_events', 0):,} | {s.get('total_minutes', 0):,} | {s.get('last_active', '')} |"
         )
-    if len(site_rows) > 40:
-        site_lines.append(f"\n*Showing 40 of {len(site_rows)} sites.*")
+    if not active_sites:
+        site_lines.append("| _(no sites with activity in window)_ |  |  |  |  |")
     md += _md_section("2. Sites", "\n".join(site_lines))
 
     feat = report.get("features") or {}
