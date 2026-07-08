@@ -8,7 +8,10 @@ from .config import logger
 from .deck_data_enrichment import SUPPORT_DECK_IDS, SUPPORT_KPI_DECK_IDS
 from .deck_builder_utils import _normalize_builder_return
 from .slide_registry import get_slide_builder
-from .slide_utils import slide_object_id_base as _slide_object_id_base
+from .slide_utils import (
+    slide_object_id_base as _slide_object_id_base,
+    unique_slide_object_id_base as _unique_slide_object_id_base,
+)
 
 
 def render_slide_plan(
@@ -40,6 +43,7 @@ def render_slide_plan(
     reqs: list[dict] = []
     idx = 1
     note_targets: list[tuple[str, dict[str, Any]]] = []
+    used_slide_sids: set[str] = set()
 
     for entry in plan_work:
         slide_type = entry.get("slide_type", entry["id"])
@@ -53,7 +57,22 @@ def render_slide_plan(
             )
             continue
         report["_current_slide"] = entry
-        sid = _slide_object_id_base(str(entry["id"]), idx)
+        # Page object IDs must be globally unique in the batch or Google Slides returns a 400.
+        # Guard against two plan entries resolving to the same (id, seq) base; every child
+        # element ID is derived from this base, so a unique base keeps the whole slide unique.
+        base_sid = _slide_object_id_base(str(entry["id"]), idx)
+        sid = _unique_slide_object_id_base(str(entry["id"]), idx, used_slide_sids)
+        if sid != base_sid:
+            logger.warning(
+                "render_slide_plan: duplicate slide object id %r (deck %s, slide id=%r, idx=%d); "
+                "remapping to %r to avoid a Slides 400. Check the deck plan for duplicate slide entries.",
+                base_sid,
+                deck_id,
+                entry.get("id"),
+                idx,
+                sid,
+            )
+        used_slide_sids.add(sid)
         ret = builder(reqs, sid, report, idx)
         next_idx, note_ids = _normalize_builder_return(ret, sid)
         if slide_type == "cohort_profiles" and note_ids:
