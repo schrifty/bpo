@@ -24,6 +24,7 @@ from .export_customer_pendo_snapshot import (
     _write_local,
     build_customer_pendo_export_report,
     render_customer_pendo_markdown,
+    resolve_site_business_unit,
 )
 from .export_run_diagnostics import export_diagnostics_scope, export_phase
 from .pendo_client import PendoClient, _name_matches
@@ -33,7 +34,25 @@ _MS_PER_DAY = 86_400_000
 _DEFAULT_TOP_N = 5
 _DEFAULT_USER_ROSTER_MD_CAP = 250
 _DEFAULT_SITE_USERS_CAP = 50
+_DEFAULT_SITE_DETAIL_USER_SITES = 20
 _ROSTER_SCOPE = "active_30d_or_window_events"
+
+
+def _site_detail_user_sites_cap() -> int:
+    """How many top sites (by events) get a per-site user table in §13.2."""
+    raw = os.environ.get(
+        "CORTEX_PENDO_SITE_DETAIL_USER_SITES", str(_DEFAULT_SITE_DETAIL_USER_SITES)
+    ).strip()
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return _DEFAULT_SITE_DETAIL_USER_SITES
+
+
+def _md_cell(value: Any) -> str:
+    """Render a markdown table cell: collapse newlines and escape pipes."""
+    text = "" if value is None else str(value)
+    return text.replace("|", "\\|").replace("\n", " ").strip()
 
 
 def _site_users_cap() -> int:
@@ -528,59 +547,94 @@ def build_customer_pendo_detailed_report(
     }
 
 
-def render_site_detail_markdown(site_detail: list[dict[str, Any]], *, compare_days: int) -> str:
+def render_site_detail_markdown(
+    site_detail: list[dict[str, Any]],
+    *,
+    compare_days: int,
+    customer_prefix: str = "",
+) -> str:
+    """Render §13 as a site-activity table (§13.1) plus per-site user drill-down (§13.2).
+
+    The old prose-block-per-site layout produced thousands of near-duplicate lines for
+    large accounts. A single table is far more LLM-queryable ("which E&D sites are
+    declining?" is one filter) and much cheaper in tokens. Per-site user tables are kept
+    only for the busiest sites (by events); the full user list lives in §14.
+    """
     if not site_detail:
         return _md_section("13. Site detail", "*(No sites with matching visitor metadata.)*")
 
-    blocks: list[str] = []
-    for idx, site in enumerate(site_detail, 1):
+    show_bu = resolve_site_business_unit(customer_prefix, str(site_detail[0].get("sitename") or "")) is not None
+
+    header = ["Site"]
+    if show_bu:
+        header.append("Business unit")
+    header += [
+        "Visitors", "7d", "30d", "Dormant", "Events", "Minutes",
+        "Feature clicks", "Δ events %", "Top page", "Top feature",
+    ]
+    align = ["---"] + (["---"] if show_bu else []) + [
+        "---:", "---:", "---:", "---:", "---:", "---:", "---:", "---:", "---", "---",
+    ]
+    table = [f"| {' | '.join(header)} |", f"| {' | '.join(align)} |"]
+    for site in site_detail:
         eng = site.get("engagement") or {}
         cur = site.get("activity_current") or {}
         cmp_ = site.get("activity_pct_change") or {}
-        lines = [
-            f"### {idx}. {site.get('sitename')}",
-            f"- Visitors: **{site.get('visitors', 0)}** "
-            f"(7d active **{eng.get('active_7d', 0)}** · 30d **{eng.get('active_30d', 0)}** · dormant **{eng.get('dormant', 0)}**)",
-            f"- Events: **{int(cur.get('total_events') or 0):,}** · minutes: **{int(cur.get('page_minutes') or 0):,}** · "
-            f"feature clicks: **{int(cur.get('feature_events') or 0):,}**",
+        top_pages = site.get("top_pages") or []
+        top_features = site.get("top_features") or []
+        top_page = top_pages[0].get("name") if top_pages else ""
+        top_feature = top_features[0].get("name") if top_features else ""
+        delta = cmp_.get("total_events")
+        row = [_md_cell(site.get("sitename"))]
+        if show_bu:
+            row.append(_md_cell(resolve_site_business_unit(customer_prefix, str(site.get("sitename") or "")) or "Unclassified"))
+        row += [
+            f"{int(site.get('visitors') or 0):,}",
+            f"{int(eng.get('active_7d') or 0):,}",
+            f"{int(eng.get('active_30d') or 0):,}",
+            f"{int(eng.get('dormant') or 0):,}",
+            f"{int(cur.get('total_events') or 0):,}",
+            f"{int(cur.get('page_minutes') or 0):,}",
+            f"{int(cur.get('feature_events') or 0):,}",
+            (f"{delta}" if delta is not None else "n/a"),
+            _md_cell(top_page),
+            _md_cell(top_feature),
         ]
-        if cmp_.get("total_events") is not None:
-            lines.append(
-                f"- vs prior {compare_days}d: events **{cmp_.get('total_events')}%** · "
-                f"minutes **{cmp_.get('page_minutes')}%** · features **{cmp_.get('feature_events')}%**"
-            )
-        if site.get("top_pages"):
-            lines.append("")
-            lines.append("**Top pages:**")
-            for row in site.get("top_pages") or []:
-                lines.append(
-                    f"- {row.get('name')}: {int(row.get('events') or 0):,} events, "
-                    f"{int(row.get('minutes') or 0):,} min"
-                )
-        if site.get("top_features"):
-            lines.append("")
-            lines.append("**Top features:**")
-            for row in site.get("top_features") or []:
-                lines.append(f"- {row.get('name')}: {int(row.get('events') or 0):,} events")
-        site_users = site.get("users") or []
-        users_total = int(site.get("users_total") or len(site_users))
-        if site_users:
-            lines.append("")
-            lines.append("| User | Role | Last visit | Days inactive |")
-            lines.append("| --- | --- | --- | ---: |")
-            for u in site_users[:15]:
-                lines.append(
-                    f"| {u.get('email', '')} | {u.get('role', '')} | {u.get('last_visit', '')} | "
-                    f"{u.get('days_inactive', '')} |"
-                )
-            shown = min(15, len(site_users))
-            if users_total > shown:
-                lines.append(f"\n*Showing {shown} of {users_total} users at this site.*")
-        blocks.append("\n".join(lines))
+        table.append(f"| {' | '.join(row)} |")
 
-    body = "\n\n".join(blocks)
-    if len(site_detail) > 40:
-        body += f"\n\n*Site detail includes all {len(site_detail)} sites.*"
+    activity = "### 13.1 Site activity\n\n" + "\n".join(table) + f"\n\n*All {len(site_detail)} active sites (sorted by events). Per-site top page/feature shown; deeper page/feature detail is in §3.*"
+
+    user_sites_cap = _site_detail_user_sites_cap()
+    detail_blocks: list[str] = []
+    for site in site_detail[:user_sites_cap]:
+        site_users = site.get("users") or []
+        if not site_users:
+            continue
+        users_total = int(site.get("users_total") or len(site_users))
+        block = [
+            f"#### {site.get('sitename')}",
+            "",
+            "| User | Role | Last visit | Days inactive |",
+            "| --- | --- | --- | ---: |",
+        ]
+        for u in site_users[:15]:
+            block.append(
+                f"| {_md_cell(u.get('email'))} | {_md_cell(u.get('role'))} | "
+                f"{_md_cell(u.get('last_visit'))} | {u.get('days_inactive', '')} |"
+            )
+        shown = min(15, len(site_users))
+        if users_total > shown:
+            block.append(f"\n*Showing {shown} of {users_total} users at this site.*")
+        detail_blocks.append("\n".join(block))
+
+    body = activity
+    if detail_blocks:
+        capped = min(user_sites_cap, len(site_detail))
+        body += (
+            f"\n\n### 13.2 Site user detail (top {capped} sites by events)\n\n"
+            "Per-site user samples for the busiest sites. The complete user list is in "
+            "§14 (roster).\n\n" + "\n\n".join(detail_blocks)
+        )
     return _md_section("13. Site detail", body)
 
 
@@ -625,7 +679,12 @@ def render_customer_pendo_detailed_markdown(report: dict[str, Any]) -> str:
     meta = report.get("meta") or {}
     compare_days = int(meta.get("compare_days") or meta.get("days") or 30)
     base = render_customer_pendo_markdown(report).rstrip()
-    extra = render_site_detail_markdown(report.get("site_detail") or [], compare_days=compare_days)
+    customer_prefix = str(meta.get("pendo_prefix") or meta.get("customer_query") or "")
+    extra = render_site_detail_markdown(
+        report.get("site_detail") or [],
+        compare_days=compare_days,
+        customer_prefix=customer_prefix,
+    )
     meta = report.get("meta") or {}
     extra += render_user_roster_markdown(
         report.get("user_roster") or [],

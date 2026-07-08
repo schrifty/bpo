@@ -198,7 +198,13 @@ Prior-month day folders under **Historical Data** are rolled into monthly bucket
 | **11. Usage trends** | Weekly active users and period-over-period comparison |
 | **12. Engagement context** | Cohort benchmarks and auto-detected usage signals |
 
-**Detailed variant** (`--export-pendo-detailed`) adds **§13 Site detail** and **§14 User roster** (per-site and per-user tables). The **top-ARR batch** (`--export-pendo-top-arr`) runs the detailed export for the largest Salesforce ultimate parents by current ARR.
+**Detailed variant** (`--export-pendo-detailed`) adds **§13 Site detail** and **§14 User roster**:
+
+- **§13.1 Site activity** — one **table** with every active site: business unit, visitors, 7d/30d/dormant, events, minutes, feature clicks, change vs prior period, and each site’s top page and top feature. Best for cross-site questions (“which sites are declining?”).
+- **§13.2 Site user detail** — per-site user samples for the **busiest sites by events** only (the full user list is in §14).
+- **§14 User roster** — per-user table across the account.
+
+The **top-ARR batch** (`--export-pendo-top-arr`) runs the detailed export for the largest Salesforce ultimate parents by current ARR.
 
 ### Example prompts — Pendo export
 
@@ -206,6 +212,7 @@ Prior-month day folders under **Historical Data** are rolled into monthly bucket
 - “How many active sites does this customer have vs how many are provisioned? (Section 1 / Section 2)”
 - “Which sites in Section 2 have the lowest weekly active rate?”
 - “From Section 2.1, which Safran business unit has the most active sites and the highest event volume?”
+- “In Section 13.1, list the sites with the most negative change vs the prior period.”
 - “List champions from Section 7 and any at-risk users.”
 - “What unused features appear in Section 5? Should we be concerned?”
 - “How did weekly active users trend in Section 11 vs the prior comparison window?”
@@ -257,6 +264,8 @@ cortex --export-pendo-top-arr --top-n 5 --days 30
 ```
 
 Scheduled jobs include `ford-pendo-7d`, `ford-pendo-30d`, `carrier-pendo-detailed-30d`, and `pendo-top-arr-30d`. Add `--no-drive` to write locally only; `-o` / `--out-dir` set local paths.
+
+Business units for §2.1 / §13.1 come from `config/pendo_site_bu_map.yaml` (per Pendo prefix); customers with no entry simply omit the business-unit column and §2.1. `CORTEX_PENDO_SITE_DETAIL_USER_SITES` (default 20) caps how many top sites get a per-site user table in §13.2.
 
 Drive output (per customer): `Output/Customer Exports/{Customer}/` persistent markdown + spreadsheet, plus matching copies under `Historical Data/{today}/`.
 

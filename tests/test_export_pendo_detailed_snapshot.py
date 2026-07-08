@@ -17,6 +17,7 @@ from src.export_pendo_detailed_snapshot import (
     build_site_detail_slices,
     load_top_ultimate_parents_by_arr_for_pendo,
     render_customer_pendo_detailed_markdown,
+    render_site_detail_markdown,
 )
 from src.job_runner import build_step_argv
 
@@ -210,6 +211,71 @@ def test_site_names_from_account_sites_merges_entities_and_skips_inactive() -> N
         }
     )
     assert names == ["Safran Montreal CG1", "Safran Issoudun 36P"]
+
+
+def _site_detail_fixture(sitename: str, events: int, *, users: int = 1) -> dict:
+    return {
+        "sitename": sitename,
+        "visitors": users,
+        "engagement": {"active_7d": users, "active_30d": 0, "dormant": 0},
+        "activity_current": {"total_events": events, "page_minutes": events // 2, "feature_events": events - 1},
+        "activity_pct_change": {"total_events": 5.0, "page_minutes": 4.0, "feature_events": 3.0},
+        "top_pages": [{"name": "Purchase orders (PO)", "events": events, "minutes": 10}],
+        "top_features": [{"name": "Export to Excel", "events": events}],
+        "users": [{"email": f"u{i}@safrangroup.com", "role": "Buyer", "last_visit": "2026-07-08", "days_inactive": 0.1} for i in range(users)],
+        "users_total": users,
+    }
+
+
+def test_render_site_detail_markdown_is_table_first_with_business_unit() -> None:
+    site_detail = [
+        _site_detail_fixture("Safran Montreal CG1", 90_000, users=3),
+        _site_detail_fixture("Safran Electrical and Power Niort", 120_000, users=2),
+    ]
+    md = render_site_detail_markdown(site_detail, compare_days=30, customer_prefix="Safran")
+    assert "## 13. Site detail" in md
+    assert "### 13.1 Site activity" in md
+    # Table header includes Business unit (Safran is mapped) and activity columns
+    assert "| Site | Business unit | Visitors | 7d | 30d | Dormant | Events | Minutes | Feature clicks | Δ events % | Top page | Top feature |" in md
+    assert "Electrical & Power" in md
+    assert "Cabin & Seats" in md
+    # Per-site user drill-down for busiest sites
+    assert "### 13.2 Site user detail" in md
+    assert "u0@safrangroup.com" in md
+    # No legacy prose-per-site format
+    assert "**Top pages:**" not in md
+    assert "*Site detail includes all" not in md
+
+
+def test_render_site_detail_markdown_omits_business_unit_for_unmapped_customer() -> None:
+    site_detail = [_site_detail_fixture("Ford Dearborn Engine", 50, users=1)]
+    md = render_site_detail_markdown(site_detail, compare_days=30, customer_prefix="Ford")
+    assert "### 13.1 Site activity" in md
+    assert "Business unit" not in md
+    assert "| Site | Visitors | 7d | 30d | Dormant | Events | Minutes | Feature clicks | Δ events % | Top page | Top feature |" in md
+
+
+def test_render_site_detail_markdown_escapes_pipes_in_names() -> None:
+    site = _site_detail_fixture("Acme | Weird Site", 100, users=1)
+    site["top_page"] = "Page | with pipe"
+    md = render_site_detail_markdown([site], compare_days=30, customer_prefix="Ford")
+    # Pipe in sitename is escaped so the table row stays well-formed
+    assert "Acme \\| Weird Site" in md
+
+
+def test_render_site_detail_user_sites_cap(monkeypatch) -> None:
+    monkeypatch.setenv("CORTEX_PENDO_SITE_DETAIL_USER_SITES", "1")
+    site_detail = [
+        _site_detail_fixture("Safran Montreal CG1", 90_000, users=2),
+        _site_detail_fixture("Safran Tijuana C44", 60_000, users=2),
+    ]
+    md = render_site_detail_markdown(site_detail, compare_days=30, customer_prefix="Safran")
+    # Both sites appear in the §13.1 activity table
+    assert "Safran Montreal CG1" in md
+    assert "Safran Tijuana C44" in md
+    # Only the top site gets a §13.2 user block
+    assert "#### Safran Montreal CG1" in md
+    assert "#### Safran Tijuana C44" not in md
 
 
 @patch("src.export_pendo_detailed_snapshot.build_customer_pendo_export_report")
