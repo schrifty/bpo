@@ -17,18 +17,18 @@ from src.export_drive_layout import (
 
 
 def test_portfolio_deck_export_stem_engineering() -> None:
-    assert portfolio_deck_export_stem("engineering-portfolio") == "Portfolio - Engineering Review"
+    assert portfolio_deck_export_stem("engineering-portfolio") == "Engineering-Review-Portfolio"
     assert portfolio_deck_export_stem("engineering-portfolio", cursor_suffix=True) == (
-        "Portfolio - Engineering Review — Cursor"
+        "Engineering-Review-Portfolio — Cursor"
     )
     assert portfolio_deck_export_stem("portfolio_review") is None
 
 
 def test_portfolio_deck_persistent_and_snapshot_titles() -> None:
     assert portfolio_deck_persistent_title("engineering-portfolio") == (
-        "Portfolio - Engineering Review-persistent"
+        "Engineering-Review-Portfolio-persistent"
     )
-    assert portfolio_deck_snapshot_title("engineering-portfolio") == "Portfolio - Engineering Review"
+    assert portfolio_deck_snapshot_title("engineering-portfolio") == "Engineering-Review-Portfolio"
     assert uses_portfolio_deck_export_layout("engineering-portfolio")
     assert not uses_portfolio_deck_export_layout("implementations_review")
 
@@ -46,8 +46,8 @@ def test_resolve_portfolio_deck_output(monkeypatch) -> None:
     assert out == {
         "persistent_folder_id": "output-root",
         "historical_folder_id": "historical-root",
-        "persistent_title": "Portfolio - Engineering Review-persistent",
-        "snapshot_title": "Portfolio - Engineering Review",
+        "persistent_title": "Engineering-Review-Portfolio-persistent",
+        "snapshot_title": "Engineering-Review-Portfolio",
         "base_label": "Output",
     }
 
@@ -103,12 +103,12 @@ def test_snapshot_presentation_to_historical_day(monkeypatch) -> None:
     assert trashed == ["old-snapshot"]
     assert copy_calls[0]["fileId"] == "pres-123"
     assert copy_calls[0]["body"] == {
-        "name": "Portfolio - Engineering Review",
+        "name": "Engineering-Review-Portfolio",
         "parents": ["historical-day-folder"],
     }
     assert out["historical_file_id"] == "historical-pres-id"
     assert out["historical_day_folder"] == "2026-07-07"
-    assert out["historical_filename"] == "Portfolio - Engineering Review"
+    assert out["historical_filename"] == "Engineering-Review-Portfolio"
 
 
 def test_snapshot_presentation_requires_layout_deck() -> None:

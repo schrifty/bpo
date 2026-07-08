@@ -28,12 +28,13 @@ _MANAGED_EXPORT_PREFIXES = (
     "Pendo Export  ",
     "LLM-Context-Portfolio",
     "match-customer-names",
-    "Portfolio - Engineering Review",
+    "Engineering-Review-Portfolio",
+    "Portfolio - Engineering Review",  # legacy name — keep so pre-rename files stay managed
 )
 EXPORT_USER_GUIDE_DRIVE_FILENAME = "Cortex Export - User Guide.md"
 OUTPUT_ROOT_STATIC_FILENAMES = frozenset({EXPORT_USER_GUIDE_DRIVE_FILENAME})
 _PORTFOLIO_DECK_EXPORT_STEMS: dict[str, str] = {
-    "engineering-portfolio": "Portfolio - Engineering Review",
+    "engineering-portfolio": "Engineering-Review-Portfolio",
 }
 _MIME_PRESENTATION = "application/vnd.google-apps.presentation"
 _MIME_SPREADSHEET = "application/vnd.google-apps.spreadsheet"

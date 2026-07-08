@@ -55,8 +55,11 @@ def _health_deck_presentation_title(
     if tail is not None:
         from .config import CORTEX_CURSOR_SLIDES_ONLY
 
-        if deck_id == "engineering-portfolio" and CORTEX_CURSOR_SLIDES_ONLY:
-            return f"Portfolio - {tail} — Cursor ({date_str})"
+        if deck_id == "engineering-portfolio":
+            base = "Engineering-Review-Portfolio"
+            if CORTEX_CURSOR_SLIDES_ONLY:
+                return f"{base} — Cursor ({date_str})"
+            return f"{base} ({date_str})"
         return f"Portfolio - {tail} ({date_str})"
 
     if deck_id in ("support", "support-kpis") and not customer:

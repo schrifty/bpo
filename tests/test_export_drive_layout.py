@@ -96,7 +96,7 @@ def test_portfolio_deck_persistent_title_matches_export_pattern() -> None:
     from src.export_drive_layout import portfolio_deck_persistent_title
 
     assert portfolio_deck_persistent_title("engineering-portfolio") == (
-        "Portfolio - Engineering Review-persistent"
+        "Engineering-Review-Portfolio-persistent"
     )
 
 
