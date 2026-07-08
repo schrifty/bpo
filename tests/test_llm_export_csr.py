@@ -60,13 +60,21 @@ def test_compact_csr_merges_factory_rows_across_worksheets():
     # No per-section site duplication: single merged sites list.
     assert "platform_health" not in acme and "supply_chain" not in acme
     assert acme["sites_total"] == 2
-    by_factory = {s["factory"]: s for s in acme["sites"]}
+    # Site-row keys are abbreviated; decode via the published field_legend (short -> long).
+    legend = out["field_legend"]
+    assert legend["fac"] == "factory"
+    assert legend["hs"] == "health_score"
+    assert legend["ohv"] == "on_hand_value"
+    assert legend["scp"] == "savings_current_period"
+    by_factory = {s["fac"]: s for s in acme["sites"]}
     plant_a = by_factory["Plant A"]
-    # One factory row carries health + supply-chain + value metrics together.
-    assert plant_a["health_score"] == "RED"
-    assert plant_a["on_hand_value"] == 3000
-    assert plant_a["savings_current_period"] == 700
-    # Section rollups preserved in summary.
+    # One factory row carries health + supply-chain + value metrics together (abbreviated keys).
+    assert plant_a["hs"] == "RED"
+    assert plant_a["ohv"] == 3000
+    assert plant_a["scp"] == 700
+    # Long-form keys are not present on abbreviated site rows.
+    assert "health_score" not in plant_a and "on_hand_value" not in plant_a
+    # Section rollups preserved in summary with full-length keys.
     assert acme["summary"]["factory_count"] == 2
     assert acme["summary"]["total_shortages"] == 12
     assert acme["summary"]["inventory_totals"] == {"on_hand": 5000}
@@ -82,6 +90,15 @@ def test_compact_csr_records_section_errors_without_sites():
     assert acme["section_errors"] == {"platform_value": "no rows"}
     # Health + supply rows still merge.
     assert acme["sites_total"] == 2
+
+
+def test_compact_csr_field_legend_has_no_short_key_collisions():
+    from src.export_llm_context_snapshot import _CSR_SITE_FIELD_ABBR, _CSR_SITE_FIELD_LEGEND
+
+    # Every long field maps to a distinct short key (no two long names share one abbreviation).
+    assert len(set(_CSR_SITE_FIELD_ABBR.values())) == len(_CSR_SITE_FIELD_ABBR)
+    # Legend is a faithful inverse used by LLMs to decode abbreviated rows.
+    assert _CSR_SITE_FIELD_LEGEND == {v: k for k, v in _CSR_SITE_FIELD_ABBR.items()}
 
 
 def test_top_active_ultimate_parents_groups_carrier_divisions():
