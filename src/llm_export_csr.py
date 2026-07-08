@@ -15,13 +15,19 @@ LLM_EXPORT_TOP_ARR_SCOPE = "top_ultimate_parents_by_arr"
 
 
 def llm_export_csr_top_n() -> int:
+    """Number of top-ARR ultimate parents to attach CS Report slices for (§4).
+
+    Default 100 effectively covers the full CSR customer set — the export budget is now
+    token-based (~450K), so per-customer CSR (~1.7K tokens each) fits without the old
+    byte-cap throttle. Override with ``CORTEX_LLM_EXPORT_CSR_TOP_N`` (clamped to 500).
+    """
     raw = (os.environ.get("CORTEX_LLM_EXPORT_CSR_TOP_N") or "").strip()
     if not raw:
-        return 20
+        return 100
     try:
-        return max(1, min(int(raw), 100))
+        return max(1, min(int(raw), 500))
     except ValueError:
-        return 20
+        return 100
 
 
 def _active_contract_rollups(report: dict[str, Any]) -> list[dict[str, Any]]:
