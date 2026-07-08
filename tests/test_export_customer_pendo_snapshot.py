@@ -11,10 +11,12 @@ from src.export_customer_pendo_snapshot import (
     build_core_feature_checklist,
     build_customer_pendo_export_report,
     build_headline,
+    build_business_unit_summary,
     build_unused_features,
     build_usage_trends,
     merge_active_site_rows,
     render_customer_pendo_markdown,
+    resolve_site_business_unit,
     resolve_pendo_customer_prefix,
     _activity_aggregate_read_timeout,
     _aggregate_with_retry,
@@ -264,12 +266,13 @@ def test_merge_active_site_rows_handles_empty() -> None:
 
 
 def test_render_pendo_markdown_section2_lists_active_sites_deduped() -> None:
+    # Unmapped customer (no BU config) keeps §2 focused on the dedupe behavior.
     md = render_customer_pendo_markdown(
         {
             "meta": {
                 "exported_at_utc": "2026-06-29T12:00:00Z",
-                "pendo_prefix": "Safran",
-                "customer_query": "Safran",
+                "pendo_prefix": "Ford",
+                "customer_query": "Ford",
                 "days": 30,
                 "window_start": "2026-05-30",
                 "window_end": "2026-06-29",
@@ -277,7 +280,7 @@ def test_render_pendo_markdown_section2_lists_active_sites_deduped() -> None:
             "headline": {
                 "active_users_7d": 4,
                 "total_visitors": 10,
-                "total_sites": 3,
+                "total_sites": 2,
                 "weekly_active_rate_pct": 40,
                 "total_events": 100,
                 "total_minutes": 50,
@@ -287,9 +290,9 @@ def test_render_pendo_markdown_section2_lists_active_sites_deduped() -> None:
             },
             "sites": {
                 "sites": [
-                    {"sitename": "Safran Montreal CG1", "entity": "A", "visitors": 10, "total_events": 100, "total_minutes": 60, "last_active": "2026-06-01"},
-                    {"sitename": "Safran Montreal CG1", "entity": "B", "visitors": 5, "total_events": 100, "total_minutes": 60, "last_active": "2026-06-29"},
-                    {"sitename": "Safran Idle Plant", "visitors": 2, "total_events": 0, "total_minutes": 0, "last_active": "N/A"},
+                    {"sitename": "Ford Dearborn Engine", "entity": "A", "visitors": 10, "total_events": 100, "total_minutes": 60, "last_active": "2026-06-01"},
+                    {"sitename": "Ford Dearborn Engine", "entity": "B", "visitors": 5, "total_events": 100, "total_minutes": 60, "last_active": "2026-06-29"},
+                    {"sitename": "Ford Idle Plant", "visitors": 2, "total_events": 0, "total_minutes": 0, "last_active": "N/A"},
                 ]
             },
             "features": {},
@@ -306,11 +309,139 @@ def test_render_pendo_markdown_section2_lists_active_sites_deduped() -> None:
     )
     assert "## 2. Sites" in md
     assert "Active sites: **1** of **2** provisioned" in md
-    # Montreal appears once (entities merged), idle plant excluded
-    assert md.count("Safran Montreal CG1 |") == 1
-    assert "Safran Idle Plant" not in md
+    # Site appears once (entities merged), idle plant excluded
+    assert md.count("Ford Dearborn Engine |") == 1
+    assert "Ford Idle Plant" not in md
     # No stale "Showing 40 of N" footer
     assert "Showing 40 of" not in md
+
+
+def test_resolve_site_business_unit_safran_divisions() -> None:
+    # Division-named rules win over shared location catch-alls (ordering matters).
+    assert resolve_site_business_unit("Safran", "Safran Electrical and Power Soliman") == "Electrical & Power"
+    assert resolve_site_business_unit("Safran", "Safran Seats Soliman 33P") == "Cabin & Seats"
+    assert resolve_site_business_unit("Safran", "Safran Electronics and Defense Auxerre") == "Electronics & Defense"
+    assert resolve_site_business_unit("Safran", "Safran Aerosystems A1P Chateaudun Production") == "Aerosystems"
+    assert resolve_site_business_unit("Safran", "Safran Montreal CG1") == "Cabin & Seats"
+    assert resolve_site_business_unit("Safran", "Safran Astronautics") == "Other / Corporate"
+    # Case-insensitive prefix match
+    assert resolve_site_business_unit("safran", "Safran Montreal CG1") == "Cabin & Seats"
+
+
+def test_resolve_site_business_unit_unmapped_customer_returns_none() -> None:
+    assert resolve_site_business_unit("SomeUnmappedCo", "SomeUnmappedCo Plant 1") is None
+
+
+def test_build_business_unit_summary_aggregates_and_sorts() -> None:
+    active = [
+        {"sitename": "Safran Montreal CG1", "visitors": 100, "total_events": 90_000, "total_minutes": 80_000},
+        {"sitename": "Safran Tijuana C44", "visitors": 80, "total_events": 60_000, "total_minutes": 50_000},
+        {"sitename": "Safran Electrical and Power Niort", "visitors": 40, "total_events": 120_000, "total_minutes": 90_000},
+    ]
+    summary = build_business_unit_summary("Safran", active)
+    by_bu = {r["business_unit"]: r for r in summary}
+    assert by_bu["Cabin & Seats"]["site_count"] == 2
+    assert by_bu["Cabin & Seats"]["visitors"] == 180
+    assert by_bu["Cabin & Seats"]["total_events"] == 150_000
+    assert by_bu["Cabin & Seats"]["top_site"] == "Safran Montreal CG1"
+    assert by_bu["Electrical & Power"]["site_count"] == 1
+    # Sorted by total events desc: Cabin & Seats (150k) before Electrical & Power (120k)
+    assert [r["business_unit"] for r in summary] == ["Cabin & Seats", "Electrical & Power"]
+    # Internal sort key removed from output
+    assert "_top_site_events" not in summary[0]
+
+
+def test_build_business_unit_summary_empty_for_unmapped_customer() -> None:
+    assert build_business_unit_summary("SomeUnmappedCo", [{"sitename": "X", "total_events": 5}]) == []
+
+
+def test_render_pendo_markdown_emits_business_unit_section_for_mapped_customer() -> None:
+    md = render_customer_pendo_markdown(
+        {
+            "meta": {
+                "exported_at_utc": "2026-06-29T12:00:00Z",
+                "pendo_prefix": "Safran",
+                "customer_query": "Safran",
+                "days": 30,
+                "window_start": "2026-05-30",
+                "window_end": "2026-06-29",
+            },
+            "headline": {
+                "active_users_7d": 4,
+                "total_visitors": 500,
+                "total_sites": 400,
+                "weekly_active_rate_pct": 40,
+                "total_events": 100,
+                "total_minutes": 50,
+                "feature_events": 20,
+                "write_ratio_pct": 12,
+                "vs_prior_period": {},
+            },
+            "sites": {
+                "sites": [
+                    {"sitename": "Safran Montreal CG1", "visitors": 100, "total_events": 90_000, "total_minutes": 80_000, "last_active": "2026-06-29"},
+                    {"sitename": "Safran Electrical and Power Niort", "visitors": 40, "total_events": 120_000, "total_minutes": 90_000, "last_active": "2026-06-29"},
+                ]
+            },
+            "features": {},
+            "depth": {},
+            "people": {"champions": [], "at_risk_users": []},
+            "exports": {"total_exports": 0, "exports_per_active_user": 0, "active_users": 0, "by_feature": [], "top_exporters": []},
+            "frustration": {"total_frustration_signals": 0, "totals": {}, "top_pages": [], "top_features": []},
+            "kei": {},
+            "trends": {"weekly_active_users": [], "comparison": {}},
+            "core_feature_checklist": {"summary": {"total_tracked": 0, "adopted": 0, "not_adopted": 0, "declining": 0}, "entries": []},
+            "unused_features": {"catalog_total": 0, "unused_count": 0, "unused_features": [], "truncated": False},
+            "engagement": {"benchmarks": {}, "signals": []},
+        }
+    )
+    assert "## 2.1 Business unit summary" in md
+    assert "Electrical & Power" in md
+    assert "Cabin & Seats" in md
+    # §2 gains a Business unit column for mapped customers
+    assert "| Site | Business unit | Visitors | Events | Minutes | Last active |" in md
+    # Headline now labels active vs provisioned
+    assert "active of **400** provisioned" in md
+
+
+def test_render_pendo_markdown_omits_business_unit_section_for_unmapped_customer() -> None:
+    md = render_customer_pendo_markdown(
+        {
+            "meta": {
+                "exported_at_utc": "2026-06-29T12:00:00Z",
+                "pendo_prefix": "Ford",
+                "customer_query": "Ford",
+                "days": 30,
+                "window_start": "2026-05-30",
+                "window_end": "2026-06-29",
+            },
+            "headline": {
+                "active_users_7d": 4,
+                "total_visitors": 10,
+                "total_sites": 2,
+                "weekly_active_rate_pct": 40,
+                "total_events": 100,
+                "total_minutes": 50,
+                "feature_events": 20,
+                "write_ratio_pct": 12,
+                "vs_prior_period": {},
+            },
+            "sites": {"sites": [{"sitename": "Ford Dearborn", "visitors": 5, "total_events": 10, "total_minutes": 3, "last_active": "2026-06-29"}]},
+            "features": {},
+            "depth": {},
+            "people": {"champions": [], "at_risk_users": []},
+            "exports": {"total_exports": 0, "exports_per_active_user": 0, "active_users": 0, "by_feature": [], "top_exporters": []},
+            "frustration": {"total_frustration_signals": 0, "totals": {}, "top_pages": [], "top_features": []},
+            "kei": {},
+            "trends": {"weekly_active_users": [], "comparison": {}},
+            "core_feature_checklist": {"summary": {"total_tracked": 0, "adopted": 0, "not_adopted": 0, "declining": 0}, "entries": []},
+            "unused_features": {"catalog_total": 0, "unused_count": 0, "unused_features": [], "truncated": False},
+            "engagement": {"benchmarks": {}, "signals": []},
+        }
+    )
+    assert "## 2.1 Business unit summary" not in md
+    # §2 keeps the original columns (no Business unit) for unmapped customers
+    assert "| Site | Visitors | Events | Minutes | Last active |" in md
 
 
 def test_build_core_feature_checklist_statuses() -> None:

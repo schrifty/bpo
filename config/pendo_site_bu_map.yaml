@@ -1,0 +1,56 @@
+# Pendo site -> business unit map for the customer Pendo export (§2 / §2.1).
+#
+# Purpose: large customers run many Pendo "sites" (factories/plants) across several
+# business units. This map lets the export roll active sites up to a business unit so
+# an LLM can answer "how is <division> doing?" without pattern-matching site names.
+#
+# How it is applied:
+#   - Keyed by Pendo customer prefix (matched case-insensitively to meta.pendo_prefix).
+#   - For each site, rules are evaluated IN ORDER; the first rule with any pattern that
+#     appears (case-insensitive substring) in the sitename wins.
+#   - Put the most specific / division-named rules first and location-only catch-alls
+#     last, since a plant name may also contain a shared town name.
+#   - Sites that match no rule fall back to `default_business_unit`.
+#   - Customers with no entry here get no BU column and no §2.1 section (no noise).
+
+customers:
+  Safran:
+    default_business_unit: "Other / Corporate"
+    rules:
+      - business_unit: "Electronics & Defense"
+        patterns:
+          - "Electronics and Defense"
+      - business_unit: "Electrical & Power"
+        patterns:
+          - "Electrical and Power"
+          - "Electrical "
+          - "Power Units"
+      - business_unit: "Aerosystems"
+        patterns:
+          - "Aerosystems"
+      - business_unit: "Cabin & Seats"
+        patterns:
+          - "Cabin"
+          - "Seats"
+          - "Garden Grove"
+          - "Marysville"
+          - "Montreal"
+          - "Santa Maria"
+          - "Tijuana"
+          - "Chihuahua"
+          - "Herborn"
+          - "Carson"
+          - "Issoudun"
+          - "Loches"
+          - "Soliman"
+          - "Slough"
+          - "Ventilation"
+          - "ICA "
+          - "AMX "
+          - "Newport"
+      - business_unit: "Other / Corporate"
+        patterns:
+          - "Corporate"
+          - "Astronautics"
+          - "SA Lean Projects"
+          - "ZAES"

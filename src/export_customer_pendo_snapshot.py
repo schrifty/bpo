@@ -21,7 +21,7 @@ import requests
 import yaml
 
 from .config import logger
-from .config_paths import PENDO_CORE_FEATURES_FILE
+from .config_paths import PENDO_CORE_FEATURES_FILE, PENDO_SITE_BU_MAP_FILE
 from .export_run_diagnostics import export_diagnostics_scope, export_phase
 from .pendo_client import PendoClient, _name_matches, _time_series
 from .signals_trends import _snapshot_metrics
@@ -85,6 +85,98 @@ def merge_active_site_rows(
         )
     )
     return active_rows, len(active_rows), provisioned_count
+
+
+@lru_cache(maxsize=1)
+def _load_site_bu_map() -> dict[str, Any]:
+    if not PENDO_SITE_BU_MAP_FILE.is_file():
+        return {"customers": {}}
+    data = yaml.safe_load(PENDO_SITE_BU_MAP_FILE.read_text(encoding="utf-8")) or {}
+    return {"customers": dict(data.get("customers") or {})}
+
+
+def _bu_rules_for_customer(customer_prefix: str) -> tuple[list[dict[str, Any]], str] | None:
+    """Return ``(rules, default_business_unit)`` for a customer, or ``None`` if unmapped."""
+    customers = _load_site_bu_map().get("customers") or {}
+    target = str(customer_prefix or "").strip().lower()
+    entry = None
+    for key, val in customers.items():
+        if str(key).strip().lower() == target:
+            entry = val
+            break
+    if not isinstance(entry, dict):
+        return None
+    rules: list[dict[str, Any]] = []
+    for rule in entry.get("rules") or []:
+        if not isinstance(rule, dict):
+            continue
+        bu = str(rule.get("business_unit") or "").strip()
+        patterns = [str(p) for p in (rule.get("patterns") or []) if str(p).strip()]
+        if bu and patterns:
+            rules.append({"business_unit": bu, "patterns": patterns})
+    default_bu = str(entry.get("default_business_unit") or "Unclassified").strip()
+    return rules, default_bu
+
+
+def resolve_site_business_unit(customer_prefix: str, sitename: str) -> str | None:
+    """Map a sitename to a business unit via ``config/pendo_site_bu_map.yaml``.
+
+    Returns ``None`` when the customer has no BU mapping configured, so callers can
+    omit the BU column / §2.1 section rather than emit an all-``Unclassified`` view.
+    """
+    resolved = _bu_rules_for_customer(customer_prefix)
+    if resolved is None:
+        return None
+    rules, default_bu = resolved
+    lowered = str(sitename or "").lower()
+    for rule in rules:
+        if any(pat.lower() in lowered for pat in rule["patterns"]):
+            return rule["business_unit"]
+    return default_bu
+
+
+def build_business_unit_summary(
+    customer_prefix: str,
+    active_sites: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Aggregate deduped active sites by business unit.
+
+    Returns ``[]`` when the customer is unmapped. ``total_events`` / ``total_minutes``
+    sum cleanly here because ``active_sites`` are already one-row-per-site (entity rows
+    merged), so there is no cross-entity double-count.
+    """
+    if _bu_rules_for_customer(customer_prefix) is None:
+        return []
+    groups: dict[str, dict[str, Any]] = {}
+    for site in active_sites:
+        bu = resolve_site_business_unit(customer_prefix, site.get("sitename", "")) or "Unclassified"
+        events = int(site.get("total_events") or 0)
+        group = groups.setdefault(
+            bu,
+            {
+                "business_unit": bu,
+                "site_count": 0,
+                "visitors": 0,
+                "total_events": 0,
+                "total_minutes": 0,
+                "top_site": "",
+                "_top_site_events": -1,
+            },
+        )
+        group["site_count"] += 1
+        group["visitors"] += int(site.get("visitors") or 0)
+        group["total_events"] += events
+        group["total_minutes"] += int(site.get("total_minutes") or 0)
+        if events > group["_top_site_events"]:
+            group["_top_site_events"] = events
+            group["top_site"] = str(site.get("sitename") or "")
+    rows = list(groups.values())
+    for row in rows:
+        row.pop("_top_site_events", None)
+    rows.sort(
+        key=lambda g: (-int(g["total_events"]), -int(g["site_count"]), str(g["business_unit"]))
+    )
+    return rows
 
 
 def _pendo_export_file_stem(customer: str, days: int) -> str:
@@ -593,6 +685,12 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
 
     md = "\n".join(lines) + "\n\n"
 
+    pendo_prefix = str(meta.get("pendo_prefix") or meta.get("customer_query") or "")
+    raw_site_rows = (report.get("sites") or {}).get("sites") or []
+    active_sites, active_count, provisioned_count = merge_active_site_rows(raw_site_rows)
+    provisioned_display = int(headline.get("total_sites") or provisioned_count or 0)
+    idle_count = max(0, provisioned_display - active_count)
+
     cmp_ = headline.get("vs_prior_period") or {}
     compare_days = meta.get("compare_days", meta.get("days"))
     headline_lines = [
@@ -600,7 +698,8 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
         f"({cmp_.get('active_users_7d_pct_change')}% vs prior {compare_days}d)"
         if cmp_.get("active_users_7d_pct_change") is not None
         else f"- Active users (7d): **{headline.get('active_users_7d')}**",
-        f"- Total visitors: **{headline.get('total_visitors')}** · sites: **{headline.get('total_sites')}**",
+        f"- Total visitors: **{headline.get('total_visitors')}** · "
+        f"sites: **{active_count}** active of **{provisioned_display}** provisioned",
         f"- Weekly active rate: **{headline.get('weekly_active_rate_pct')}%**",
         f"- Events: **{headline.get('total_events'):,}** · minutes: **{headline.get('total_minutes'):,}**",
         f"- Feature events: **{headline.get('feature_events'):,}** · write ratio: **{headline.get('write_ratio_pct')}%**",
@@ -613,25 +712,52 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
         )
     md += _md_section("1. Headline", "\n".join(headline_lines))
 
-    raw_site_rows = (report.get("sites") or {}).get("sites") or []
-    active_sites, active_count, provisioned_count = merge_active_site_rows(raw_site_rows)
-    idle_count = max(0, provisioned_count - active_count)
+    bu_summary = build_business_unit_summary(pendo_prefix, active_sites)
+    show_bu = bool(bu_summary)
     site_lines = [
-        f"- Active sites: **{active_count}** of **{provisioned_count}** provisioned "
+        f"- Active sites: **{active_count}** of **{provisioned_display}** provisioned "
         f"({idle_count} idle in window). One row per site; Pendo entity rows merged; "
         "only sites with events in the window are listed.",
         "",
-        "| Site | Visitors | Events | Minutes | Last active |",
-        "| --- | ---: | ---: | ---: | --- |",
     ]
-    for s in active_sites:
-        site_lines.append(
-            f"| {s.get('sitename', '')} | {s.get('visitors', 0):,} | "
-            f"{s.get('total_events', 0):,} | {s.get('total_minutes', 0):,} | {s.get('last_active', '')} |"
-        )
-    if not active_sites:
-        site_lines.append("| _(no sites with activity in window)_ |  |  |  |  |")
+    if show_bu:
+        site_lines.append("| Site | Business unit | Visitors | Events | Minutes | Last active |")
+        site_lines.append("| --- | --- | ---: | ---: | ---: | --- |")
+        for s in active_sites:
+            bu = resolve_site_business_unit(pendo_prefix, s.get("sitename", "")) or "Unclassified"
+            site_lines.append(
+                f"| {s.get('sitename', '')} | {bu} | {s.get('visitors', 0):,} | "
+                f"{s.get('total_events', 0):,} | {s.get('total_minutes', 0):,} | {s.get('last_active', '')} |"
+            )
+        if not active_sites:
+            site_lines.append("| _(no sites with activity in window)_ |  |  |  |  |  |")
+    else:
+        site_lines.append("| Site | Visitors | Events | Minutes | Last active |")
+        site_lines.append("| --- | ---: | ---: | ---: | --- |")
+        for s in active_sites:
+            site_lines.append(
+                f"| {s.get('sitename', '')} | {s.get('visitors', 0):,} | "
+                f"{s.get('total_events', 0):,} | {s.get('total_minutes', 0):,} | {s.get('last_active', '')} |"
+            )
+        if not active_sites:
+            site_lines.append("| _(no sites with activity in window)_ |  |  |  |  |")
     md += _md_section("2. Sites", "\n".join(site_lines))
+
+    if show_bu:
+        bu_lines = [
+            "Active sites rolled up to business unit "
+            "(mapping: `config/pendo_site_bu_map.yaml`). Visitors may overlap across "
+            "sites, so per-BU visitor counts are associations, not unique headcount.",
+            "",
+            "| Business unit | Active sites | Visitors | Events | Minutes | Top site (by events) |",
+            "| --- | ---: | ---: | ---: | ---: | --- |",
+        ]
+        for row in bu_summary:
+            bu_lines.append(
+                f"| {row['business_unit']} | {row['site_count']:,} | {row['visitors']:,} | "
+                f"{row['total_events']:,} | {row['total_minutes']:,} | {row['top_site']} |"
+            )
+        md += _md_section("2.1 Business unit summary", "\n".join(bu_lines))
 
     feat = report.get("features") or {}
     feat_lines: list[str] = []

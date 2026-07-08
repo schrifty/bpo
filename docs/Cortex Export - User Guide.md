@@ -184,8 +184,9 @@ Prior-month day folders under **Historical Data** are rolled into monthly bucket
 
 | Section | In plain English |
 |---------|------------------|
-| **1. Headline** | Active users, login rate, events, minutes — top-line health for the window |
-| **2. Sites** | Each Pendo site under this customer prefix |
+| **1. Headline** | Active users, login rate, events, minutes — top-line health for the window. Site count reads **“N active of M provisioned”** (active = had usage in the window; provisioned = every site ever set up). |
+| **2. Sites** | **Active sites only** (had events in the window), one row per site — Pendo’s internal “entity” duplicates are merged, so a plant appears once. Idle/never-used sites are excluded (counted in the headline instead). |
+| **2.1 Business unit summary** | For big multi-division customers (e.g. Safran), active sites rolled up to **business unit** — sites, visitors, events, and the top site per unit. Only shown when a mapping exists for that customer. |
 | **3. Feature & page adoption** | Which product areas saw clicks/views |
 | **4. Core feature checklist** | Expected capabilities vs observed usage |
 | **5. Unused product features** | Features with no recent activity |
@@ -202,7 +203,9 @@ Prior-month day folders under **Historical Data** are rolled into monthly bucket
 ### Example prompts — Pendo export
 
 - “Summarize Section 1 headline metrics for Ford over the last 30 days.”
+- “How many active sites does this customer have vs how many are provisioned? (Section 1 / Section 2)”
 - “Which sites in Section 2 have the lowest weekly active rate?”
+- “From Section 2.1, which Safran business unit has the most active sites and the highest event volume?”
 - “List champions from Section 7 and any at-risk users.”
 - “What unused features appear in Section 5? Should we be concerned?”
 - “How did weekly active users trend in Section 11 vs the prior comparison window?”
