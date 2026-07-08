@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from src.job_runner import build_step_argv, load_job_spec, run_job
+from src.job_runner import (
+    _build_failures_payload,
+    _extract_step_failure_messages,
+    _summarize_step_error,
+    build_step_argv,
+    load_job_spec,
+    run_job,
+)
 
 
 def test_load_nightly_core_spec() -> None:
@@ -82,6 +89,57 @@ def test_run_job_dry_run(capsys) -> None:
     out = capsys.readouterr().out
     assert "engineering-portfolio" in out
     assert "python3 cortex.py" in out
+
+
+def test_extract_step_failure_messages_from_preflight_output() -> None:
+    stdout = (
+        "Data source check failed — not running:\n"
+        "  • Jira: HTTPSConnectionPool(host='api.atlassian.com', port=443): Read timed out.\n"
+    )
+    messages = _extract_step_failure_messages(stdout, "")
+    assert any("Jira" in m for m in messages)
+
+
+def test_extract_step_failure_messages_from_deck_fail_line() -> None:
+    stdout = "Done in 12s\n  FAIL: Rate limit: quota exceeded. Wait and retry.\n"
+    messages = _extract_step_failure_messages(stdout, "")
+    assert messages == ["FAIL: Rate limit: quota exceeded. Wait and retry."]
+
+
+def test_build_failures_payload_includes_failed_step_details() -> None:
+    from src.job_runner import StepResult
+
+    step = StepResult(
+        name="engineering-portfolio",
+        command="deck",
+        success=False,
+        exit_code=1,
+        duration_s=12.3,
+        error="Jira: timeout",
+        detail_messages=["Jira: timeout"],
+        stdout_tail="  FAIL: deck error\n",
+        stderr_tail="warning: something\n",
+    )
+    payload = _build_failures_payload(
+        "engineering-portfolio",
+        "adb13090daa44a03ba677d4d9c813c4a",
+        failures=["engineering-portfolio: Jira: timeout"],
+        step_results=[step],
+    )
+    assert payload["failures"] == ["engineering-portfolio: Jira: timeout"]
+    assert payload["steps"][0]["name"] == "engineering-portfolio"
+    assert payload["steps"][0]["detail_messages"] == ["Jira: timeout"]
+    assert "stdout_tail" in payload["steps"][0]
+
+
+def test_summarize_step_error_prefers_detail_messages() -> None:
+    err = _summarize_step_error(
+        exit_code=1,
+        detail_messages=["Jira: timeout", "FAIL: no slides"],
+        stderr_tail="",
+        stdout_tail="",
+    )
+    assert err.startswith("Jira: timeout")
 
 
 def test_build_step_argv_unknown_command() -> None:

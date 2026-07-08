@@ -21,6 +21,8 @@ from .run_diagnostics import run_diagnostics_scope, run_phase
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _JOBS_DIR = _PROJECT_ROOT / "config" / "jobs"
 _CORTEX_PY = _PROJECT_ROOT / "cortex.py"
+_STEP_OUTPUT_TAIL_CHARS = 6000
+_MAX_FAILURE_MESSAGES = 20
 
 
 @dataclass
@@ -31,6 +33,9 @@ class StepResult:
     exit_code: int
     duration_s: float
     error: str | None = None
+    detail_messages: list[str] = field(default_factory=list)
+    stdout_tail: str | None = None
+    stderr_tail: str | None = None
 
 
 @dataclass
@@ -192,6 +197,114 @@ def build_step_argv(step: dict[str, Any]) -> list[str]:
     raise ValueError(f"Unsupported job command: {command!r}")
 
 
+def _tail_text(text: str, *, max_chars: int = _STEP_OUTPUT_TAIL_CHARS) -> str:
+    raw = text or ""
+    if len(raw) <= max_chars:
+        return raw
+    omitted = len(raw) - max_chars
+    return f"... ({omitted} chars omitted)\n{raw[-max_chars:]}"
+
+
+def _extract_step_failure_messages(stdout: str, stderr: str) -> list[str]:
+    """Pull human-readable failure lines from a subprocess step."""
+    messages: list[str] = []
+    seen: set[str] = set()
+
+    def _add(msg: str) -> None:
+        s = (msg or "").strip()
+        if not s or s in seen:
+            return
+        seen.add(s)
+        messages.append(s)
+
+    for line in "\n".join(filter(None, [stdout, stderr])).splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("CORTEX_RUN_SUMMARY="):
+            try:
+                payload = json.loads(stripped[len("CORTEX_RUN_SUMMARY=") :])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                for item in payload.get("failures") or []:
+                    _add(str(item))
+                for item in payload.get("warnings") or []:
+                    if messages:
+                        break
+            continue
+        if stripped.startswith("• "):
+            _add(stripped[2:].strip())
+            continue
+        if stripped.startswith("FAIL:"):
+            _add(stripped)
+            continue
+        lower = stripped.lower()
+        if lower.startswith("error:") or "data source check failed" in lower:
+            _add(stripped)
+    return messages[:_MAX_FAILURE_MESSAGES]
+
+
+def _summarize_step_error(
+    *,
+    exit_code: int,
+    detail_messages: list[str],
+    stderr_tail: str,
+    stdout_tail: str,
+) -> str:
+    if detail_messages:
+        head = "; ".join(detail_messages[:3])
+        if len(detail_messages) > 3:
+            head += f" (+{len(detail_messages) - 3} more)"
+        return head
+    for blob in (stderr_tail, stdout_tail):
+        for line in reversed((blob or "").splitlines()):
+            s = line.strip()
+            if s and not s.startswith("CORTEX_RUN_SUMMARY="):
+                return s[:240]
+    return f"exit code {exit_code}"
+
+
+def _step_result_to_dict(result: StepResult) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "name": result.name,
+        "command": result.command,
+        "exit_code": result.exit_code,
+        "duration_s": round(result.duration_s, 1),
+        "success": result.success,
+        "error": result.error,
+    }
+    if result.detail_messages:
+        row["detail_messages"] = list(result.detail_messages)
+    if result.stdout_tail:
+        row["stdout_tail"] = result.stdout_tail
+    if result.stderr_tail:
+        row["stderr_tail"] = result.stderr_tail
+    return row
+
+
+def _build_failures_payload(
+    job_name: str,
+    run_id: str,
+    *,
+    failures: list[str],
+    step_results: list[StepResult] | None = None,
+    preflight_errors: list[str] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "job": job_name,
+        "run_id": run_id,
+        "failures": failures,
+    }
+    if preflight_errors:
+        payload["preflight_errors"] = list(preflight_errors)
+    if step_results:
+        failed_steps = [r for r in step_results if not r.success]
+        if failed_steps:
+            payload["steps"] = [_step_result_to_dict(r) for r in failed_steps]
+    return payload
+
+
 def _step_env(run_id: str, job_name: str, step_name: str) -> dict[str, str]:
     env = dict(os.environ)
     env["CORTEX_RUN_ID"] = run_id
@@ -222,10 +335,26 @@ def run_step_subprocess(
             cwd=str(_PROJECT_ROOT),
             env=env,
             timeout=timeout_seconds if timeout_seconds > 0 else None,
+            capture_output=True,
+            text=True,
         )
         elapsed = time.monotonic() - t0
         ok = proc.returncode == 0
-        err = None if ok else f"exit code {proc.returncode}"
+        stdout = proc.stdout or ""
+        stderr = proc.stderr or ""
+        detail_messages = [] if ok else _extract_step_failure_messages(stdout, stderr)
+        err = None
+        if not ok:
+            err = _summarize_step_error(
+                exit_code=int(proc.returncode),
+                detail_messages=detail_messages,
+                stderr_tail=_tail_text(stderr),
+                stdout_tail=_tail_text(stdout),
+            )
+            if stderr.strip():
+                logger.error("job step stderr (%s):\n%s", name, _tail_text(stderr, max_chars=2000))
+            elif stdout.strip():
+                logger.error("job step stdout (%s):\n%s", name, _tail_text(stdout, max_chars=2000))
         logger.info("job step end: %s success=%s duration_s=%.1f", name, ok, elapsed)
         return StepResult(
             name=name,
@@ -234,6 +363,9 @@ def run_step_subprocess(
             exit_code=int(proc.returncode),
             duration_s=elapsed,
             error=err,
+            detail_messages=detail_messages,
+            stdout_tail=None if ok else _tail_text(stdout),
+            stderr_tail=None if ok else _tail_text(stderr),
         )
     except subprocess.TimeoutExpired:
         elapsed = time.monotonic() - t0
@@ -248,11 +380,24 @@ def run_step_subprocess(
         )
 
 
-def _write_failures_artifact(job_name: str, run_id: str, failures: list[str]) -> str | None:
+def _write_failures_artifact(
+    job_name: str,
+    run_id: str,
+    failures: list[str],
+    *,
+    step_results: list[StepResult] | None = None,
+    preflight_errors: list[str] | None = None,
+) -> str | None:
     if not failures:
         return None
     body = json.dumps(
-        {"job": job_name, "run_id": run_id, "failures": failures},
+        _build_failures_payload(
+            job_name,
+            run_id,
+            failures=failures,
+            step_results=step_results,
+            preflight_errors=preflight_errors,
+        ),
         indent=2,
         default=str,
     )
@@ -314,7 +459,13 @@ def run_job(
     )
     if preflight_errors:
         for msg in preflight_errors:
-            print(f"  • {msg}")
+            print(f"  • {msg}", file=sys.stderr)
+        _write_failures_artifact(
+            spec.name,
+            run_id,
+            [f"preflight: {msg}" for msg in preflight_errors],
+            preflight_errors=preflight_errors,
+        )
         return 1
 
     meta = integration_freshness_metadata()
@@ -348,6 +499,11 @@ def run_job(
         )
         diag.emit_stderr_summary()
         if summary.get("failures"):
-            _write_failures_artifact(spec.name, run_id, list(summary["failures"]))
+            _write_failures_artifact(
+                spec.name,
+                run_id,
+                list(summary["failures"]),
+                step_results=step_results,
+            )
 
     return 0 if summary.get("success") else 1
