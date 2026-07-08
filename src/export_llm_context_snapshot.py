@@ -1174,29 +1174,119 @@ def _sample_csr_sites_for_export(sites: list[dict[str, Any]], limit: int) -> lis
     return out[:limit]
 
 
-def _compact_csr_section_block(
+_CSR_SECTION_KEYS = ("platform_health", "supply_chain", "platform_value")
+_CSR_SITE_JOIN_FIELDS = ("factory", "site", "entity")
+
+# One-line, self-describing schema hint so any LLM reading the export understands the
+# de-duplicated §4 shape without external docs.
+_CSR_SCHEMA_NOTE = (
+    "Each `sites` row is ONE factory with all CS Report metrics merged inline: "
+    "platform-health (health_score, clear_to_build_pct, clear_to_commit_pct, shortages, "
+    "critical_shortages, weekly_active_buyers_pct, high_risk_items), supply-chain "
+    "(on_hand_value, on_order_value, excess_on_hand, doi_days, days_coverage, late_pos), and "
+    "platform-value (savings_current_period, open_ia_value, recs_created_30d, pos_placed_30d, "
+    "overdue_tasks). Per-customer `summary` holds the section rollups (health_distribution, "
+    "total_shortages, inventory_totals, total_savings, …). When `sites_total` > len(sites), "
+    "rows were sampled (see `sites_sample_strategy`); `summary` still reflects all factories."
+)
+
+_CSR_SUMMARY_HEALTH_KEYS = (
+    "factory_count",
+    "health_distribution",
+    "total_shortages",
+    "total_critical_shortages",
+)
+_CSR_SUMMARY_VALUE_KEYS = (
+    "total_savings",
+    "total_open_ia_value",
+    "total_potential_savings",
+    "total_potential_to_sell",
+    "total_recs_created_30d",
+    "total_pos_placed_30d",
+    "total_overdue_tasks",
+)
+
+
+def _csr_site_join_key(site: dict[str, Any]) -> tuple[str, str, str]:
+    return tuple(str(site.get(f) or "").strip().lower() for f in _CSR_SITE_JOIN_FIELDS)  # type: ignore[return-value]
+
+
+def _merge_customer_csr_site_rows(block: dict[str, Any]) -> list[dict[str, Any]]:
+    """Union the three CSR worksheet ``sites`` lists into one row per factory (metrics inline).
+
+    Removes the ~3× duplication of factory name + wrapper keys across the health / supply-chain /
+    value worksheets. Metric field names are disjoint across worksheets, so a factory row gathers
+    every metric present for it. Errored sections contribute nothing.
+    """
+    merged: dict[tuple[str, str, str], dict[str, Any]] = {}
+    order: list[tuple[str, str, str]] = []
+    for sec_name in _CSR_SECTION_KEYS:
+        sec = block.get(sec_name)
+        if not isinstance(sec, dict) or sec.get("error"):
+            continue
+        for site in sec.get("sites") or []:
+            if not isinstance(site, dict):
+                continue
+            key = _csr_site_join_key(site)
+            if key not in merged:
+                merged[key] = {}
+                order.append(key)
+            merged[key].update(site)
+    return [merged[k] for k in order]
+
+
+def _csr_customer_summary(block: dict[str, Any], *, factory_count: int) -> dict[str, Any]:
+    """Per-customer section rollups (no site rows) across the three CSR worksheets."""
+    summary: dict[str, Any] = {"factory_count": factory_count}
+    ph = block.get("platform_health")
+    if isinstance(ph, dict) and not ph.get("error"):
+        for k in _CSR_SUMMARY_HEALTH_KEYS:
+            if k in ph and k != "factory_count":
+                summary[k] = ph[k]
+    sc = block.get("supply_chain")
+    if isinstance(sc, dict) and not sc.get("error") and isinstance(sc.get("totals"), dict):
+        summary["inventory_totals"] = sc["totals"]
+    pv = block.get("platform_value")
+    if isinstance(pv, dict) and not pv.get("error"):
+        for k in _CSR_SUMMARY_VALUE_KEYS:
+            if k in pv:
+                summary[k] = pv[k]
+    return summary
+
+
+def _compact_csr_customer_block(
     block: dict[str, Any], *, site_limit: int, string_cap: int, size_caps_enabled: bool = True
 ) -> dict[str, Any]:
+    """Merged, LLM-friendly per-customer CSR: one row per factory + section rollups."""
     from src.hydrate_data_summary import truncate_strings_in_obj
 
-    if block.get("error"):
-        return {"error": block.get("error")}
-    pruned = dict(block)
-    sites = pruned.get("sites")
-    if isinstance(sites, list):
+    merged_sites = _merge_customer_csr_site_rows(block)
+    out: dict[str, Any] = {"summary": _csr_customer_summary(block, factory_count=len(merged_sites))}
+
+    section_errors = {
+        name: block[name]["error"]
+        for name in _CSR_SECTION_KEYS
+        if isinstance(block.get(name), dict) and block[name].get("error")
+    }
+    if section_errors:
+        out["section_errors"] = section_errors
+
+    if merged_sites:
+        total = len(merged_sites)
         if size_caps_enabled and _export_cap_active(site_limit):
-            pruned["sites"] = _sample_csr_sites_for_export(sites, site_limit)
-            pruned["sites_sample_strategy"] = "health_mix_then_shortage_bias"
+            sampled = _sample_csr_sites_for_export(merged_sites, site_limit)
+            out["sites"] = sampled
+            if len(sampled) < total:
+                out["sites_sample_strategy"] = "health_mix_then_shortage_bias"
         else:
-            pruned["sites"] = list(sites)
-        pruned["sites_total"] = len(sites)
+            out["sites"] = merged_sites
+        out["sites_total"] = total
+    elif not section_errors:
+        out["sites"] = []
+
     if size_caps_enabled and _export_cap_active(string_cap):
-        return truncate_strings_in_obj(
-            pruned, max_str=string_cap, max_list_items=48, max_dict_keys=96
-        )
-    return truncate_strings_in_obj(
-        pruned, max_str=50_000, max_list_items=100_000, max_dict_keys=10_000
-    )
+        return truncate_strings_in_obj(out, max_str=string_cap, max_list_items=200, max_dict_keys=96)
+    return truncate_strings_in_obj(out, max_str=50_000, max_list_items=100_000, max_dict_keys=10_000)
 
 
 def _compact_csr(
@@ -1209,6 +1299,7 @@ def _compact_csr(
     out: dict[str, Any] = {}
     if isinstance(csr.get("note"), str):
         out["note"] = csr["note"]
+    out["schema_note"] = _CSR_SCHEMA_NOTE
     if _is_llm_export_top_arr_scope(csr.get("scope")):
         out["scope"] = csr["scope"]
         if csr.get("top_n") is not None:
@@ -1233,26 +1324,26 @@ def _compact_csr(
                     )
                     if k in block
                 }
-                for key in ("platform_health", "supply_chain", "platform_value"):
-                    sec = block.get(key)
-                    if isinstance(sec, dict):
-                        slim[key] = _compact_csr_section_block(
-                            sec,
-                            site_limit=site_limit,
-                            string_cap=string_cap,
-                            size_caps_enabled=size_caps_enabled,
-                        )
+                slim.update(
+                    _compact_csr_customer_block(
+                        block,
+                        site_limit=site_limit,
+                        string_cap=string_cap,
+                        size_caps_enabled=size_caps_enabled,
+                    )
+                )
                 out["customers"][label] = slim
         return out
-    for key in ("platform_health", "supply_chain", "platform_value"):
-        block = csr.get(key)
-        if isinstance(block, dict):
-            out[key] = _compact_csr_section_block(
-                block,
+    # Legacy / all-customers aggregate shape: three sections at the top level.
+    if any(isinstance(csr.get(k), dict) for k in _CSR_SECTION_KEYS):
+        out.update(
+            _compact_csr_customer_block(
+                csr,
                 site_limit=site_limit,
                 string_cap=string_cap,
                 size_caps_enabled=size_caps_enabled,
             )
+        )
     return out
 
 
@@ -1980,8 +2071,10 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
             "",
             "## 4. CS Report (top customers by ARR — per-customer week)",
             "",
-            "Per-customer ``platform_health``, ``supply_chain``, and ``platform_value`` for the "
-            "highest-ARR active Salesforce labels (not an all-customers site merge).",
+            "Per-customer CS Report for the highest-ARR active Salesforce labels. Each customer has a "
+            "``summary`` (section rollups) and a single ``sites`` list where **one row = one factory** "
+            "with platform-health, supply-chain, and platform-value metrics merged inline (no 3× "
+            "worksheet duplication). See ``schema_note`` for field meanings.",
             "",
             _json_compact(doc.get("cs_report")),
             "",
