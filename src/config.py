@@ -282,6 +282,11 @@ except ValueError:
 CORTEX_SLACK_CACHE_TTL_SECONDS = max(0, int(_slack_cache_hours * 3600))
 if os.environ.get("CORTEX_SLACK_CACHE_DISABLED", "").strip().lower() in ("1", "true", "yes", "on"):
     CORTEX_SLACK_CACHE_TTL_SECONDS = 0
+# When history returns not_in_channel, join matched public channels (requires channels:join scope).
+CORTEX_SLACK_AUTO_JOIN_PUBLIC_CHANNELS = (
+    os.environ.get("CORTEX_SLACK_AUTO_JOIN_PUBLIC_CHANNELS", "true").strip().lower()
+    not in ("0", "false", "no", "off")
+)
 
 # Salesforce (JWT Bearer Flow: Connected App + private key)
 # SF_LOGIN_URL: https://login.salesforce.com (prod) or https://test.salesforce.com (sandbox)

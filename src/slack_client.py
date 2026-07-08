@@ -14,6 +14,7 @@ import yaml
 
 from .config_paths import SLACK_CUSTOMER_ALIASES_FILE
 from .config import (
+    CORTEX_SLACK_AUTO_JOIN_PUBLIC_CHANNELS,
     CORTEX_SLACK_CACHE_TTL_SECONDS,
     CORTEX_SLACK_MAX_CHANNELS_PER_CUSTOMER,
     CORTEX_SLACK_MAX_MESSAGES_PER_CHANNEL,
@@ -147,6 +148,21 @@ def _tokens(text: str) -> list[str]:
     return [t.lower() for t in _WORD_RE.findall(text or "") if len(t) >= 2]
 
 
+def _alias_fragment_matches_channel(channel_name: str, fragment: str) -> bool:
+    """True when an explicit YAML alias fragment matches a channel name."""
+    ch = (channel_name or "").lower()
+    frag = (fragment or "").strip().lower()
+    if not ch or not frag:
+        return False
+    if frag in ch:
+        return True
+    frag_tokens = _tokens(fragment)
+    if not frag_tokens:
+        return False
+    ch_tokens = set(_tokens(channel_name))
+    return all(t in ch_tokens for t in frag_tokens)
+
+
 def _name_matches_customer(channel_name: str, customer_name: str, extra_terms: list[str]) -> bool:
     ch_tokens = set(_tokens(channel_name))
     if not ch_tokens:
@@ -174,6 +190,7 @@ def _list_channels(*, force_refresh: bool = False) -> list[dict[str, Any]]:
             return list(_CHANNEL_CACHE)
 
     channels: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
     cursor: str | None = None
     for _ in range(50):
         params: dict[str, Any] = {
@@ -187,19 +204,34 @@ def _list_channels(*, force_refresh: bool = False) -> list[dict[str, Any]]:
         if not data.get("ok"):
             raise RuntimeError(f"Slack conversations.list: {data.get('error')}")
         batch = data.get("channels") if isinstance(data.get("channels"), list) else []
+        new_count = 0
         for ch in batch:
-            if isinstance(ch, dict) and ch.get("id"):
-                channels.append(
-                    {
-                        "id": ch.get("id"),
-                        "name": ch.get("name") or "",
-                        "is_private": bool(ch.get("is_private")),
-                        "num_members": ch.get("num_members"),
-                    }
-                )
-        cursor = (data.get("response_metadata") or {}).get("next_cursor") if isinstance(data.get("response_metadata"), dict) else None
-        if not cursor:
+            if not isinstance(ch, dict):
+                continue
+            ch_id = str(ch.get("id") or "").strip()
+            if not ch_id or ch_id in seen_ids:
+                continue
+            seen_ids.add(ch_id)
+            new_count += 1
+            channels.append(
+                {
+                    "id": ch_id,
+                    "name": ch.get("name") or "",
+                    "is_private": bool(ch.get("is_private")),
+                    "is_member": bool(ch.get("is_member")),
+                    "num_members": ch.get("num_members"),
+                }
+            )
+        next_cursor = (
+            (data.get("response_metadata") or {}).get("next_cursor")
+            if isinstance(data.get("response_metadata"), dict)
+            else None
+        )
+        next_cursor = str(next_cursor or "").strip() or None
+        # Slack can return a repeating cursor when the workspace has a single page; stop on no progress.
+        if not next_cursor or next_cursor == cursor or new_count == 0:
             break
+        cursor = next_cursor
         time.sleep(0.2)
 
     with _CHANNEL_CACHE_LOCK:
@@ -220,13 +252,20 @@ def match_channels_for_customer(customer_name: str) -> list[dict[str, Any]]:
     if not name:
         return []
     aliases = _load_slack_alias_map()
-    extra = list(aliases.get(name.lower(), []))
-    extra.append(name)
+    alias_terms = list(aliases.get(name.lower(), []))
     channels = _list_channels()
     matched: list[dict[str, Any]] = []
+    matched_ids: set[str] = set()
     for ch in channels:
+        ch_id = str(ch.get("id") or "").strip()
+        if ch_id and ch_id in matched_ids:
+            continue
         ch_name = str(ch.get("name") or "")
-        if _name_matches_customer(ch_name, name, extra):
+        alias_hit = any(_alias_fragment_matches_channel(ch_name, term) for term in alias_terms)
+        name_hit = _name_matches_customer(ch_name, name, [name])
+        if alias_hit or name_hit:
+            if ch_id:
+                matched_ids.add(ch_id)
             matched.append(dict(ch))
     matched.sort(key=lambda c: (0 if name.lower() in str(c.get("name") or "").lower() else 1, str(c.get("name") or "").lower()))
     return matched[: max(1, int(CORTEX_SLACK_MAX_CHANNELS_PER_CUSTOMER))]
@@ -259,9 +298,42 @@ def _message_line(msg: dict[str, Any]) -> str | None:
     return line
 
 
-def _fetch_channel_history(channel_id: str, *, oldest: float, limit: int) -> list[dict[str, Any]]:
+def _try_join_public_channel(channel: dict[str, Any]) -> bool:
+    """Join a public channel when auto-join is enabled and the bot is not already a member."""
+    if channel.get("is_member"):
+        return True
+    if channel.get("is_private"):
+        return False
+    if not CORTEX_SLACK_AUTO_JOIN_PUBLIC_CHANNELS:
+        return False
+    ch_id = str(channel.get("id") or "").strip()
+    if not ch_id:
+        return False
+    try:
+        data = _slack_api("conversations.join", params={"channel": ch_id})
+        if data.get("ok"):
+            channel["is_member"] = True
+            return True
+        logger.warning(
+            "Slack conversations.join failed for #%s: %s",
+            channel.get("name") or ch_id,
+            data.get("error"),
+        )
+    except Exception as e:
+        logger.warning("Slack conversations.join error for #%s: %s", channel.get("name") or ch_id, e)
+    return False
+
+
+def _fetch_channel_history(
+    channel_id: str,
+    *,
+    oldest: float,
+    limit: int,
+    channel: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     messages: list[dict[str, Any]] = []
     cursor: str | None = None
+    joined_retry = False
     while len(messages) < limit:
         page_limit = min(200, limit - len(messages))
         params: dict[str, Any] = {
@@ -274,6 +346,12 @@ def _fetch_channel_history(channel_id: str, *, oldest: float, limit: int) -> lis
         data = _slack_api("conversations.history", params=params)
         if not data.get("ok"):
             err = str(data.get("error") or "unknown")
+            if err == "not_in_channel" and channel and not joined_retry:
+                joined_retry = True
+                if _try_join_public_channel(channel):
+                    cursor = None
+                    continue
+                return []
             if err == "not_in_channel":
                 return []
             raise RuntimeError(f"Slack conversations.history: {err}")
@@ -298,7 +376,7 @@ def _summarize_channel(
     ch_name = str(channel.get("name") or ch_id)
     oldest = time.time() - max(1, int(days)) * 86400
     try:
-        raw = _fetch_channel_history(ch_id, oldest=oldest, limit=max_messages)
+        raw = _fetch_channel_history(ch_id, oldest=oldest, limit=max_messages, channel=channel)
     except Exception as e:
         return {
             "channel_id": ch_id,
