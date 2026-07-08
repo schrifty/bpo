@@ -2373,6 +2373,69 @@
       ]
     },
     {
+      "path": "slack.lookback_days",
+      "terms": [
+        "slack.lookback_days",
+        "[Slack] export lookback window (days)"
+      ]
+    },
+    {
+      "path": "slack.top_n",
+      "terms": [
+        "slack.top_n",
+        "[Slack] top customers by ARR included"
+      ]
+    },
+    {
+      "path": "slack.customers",
+      "terms": [
+        "slack.customers",
+        "[Slack] per-customer blocks keyed by Salesforce label"
+      ]
+    },
+    {
+      "path": "slack.customers[].llm_summary",
+      "terms": [
+        "slack.customers[].llm_summary",
+        "[Slack] Cortex LLM digest of channel history"
+      ]
+    },
+    {
+      "path": "slack.customers[].llm_summary.summary_markdown",
+      "terms": [
+        "slack.customers[].llm_summary.summary_markdown",
+        "[Slack] LLM summary bullets"
+      ]
+    },
+    {
+      "path": "slack.customers[].llm_summary.themes",
+      "terms": [
+        "slack.customers[].llm_summary.themes",
+        "[Slack] LLM topic labels"
+      ]
+    },
+    {
+      "path": "slack.customers[].llm_summary.open_items",
+      "terms": [
+        "slack.customers[].llm_summary.open_items",
+        "[Slack] unresolved asks from transcript"
+      ]
+    },
+    {
+      "path": "slack.customers[].llm_summary.sentiment",
+      "terms": [
+        "slack.customers[].llm_summary.sentiment",
+        "[Slack] LLM sentiment label"
+      ]
+    },
+    {
+      "path": "_llm_export_slack.performance",
+      "terms": [
+        "_llm_export_slack.performance",
+        "[Slack] export timing (wall, fetch, llm, per_customer)"
+      ]
+    },
+    {
       "path": "csr.platform_health",
       "terms": [
         "csr.platform_health",

@@ -39,7 +39,7 @@ The portfolio export is split into numbered sections. When you ask the AI a ques
 | **Section 3b-future — Future contracts** | Deals **signed but not started yet** (contract start date in the future). Not active today, not churn. |
 | **Section 3c — Salesforce (detailed CRM)** | Extra Salesforce detail (opportunities, cases, contacts, etc.) for top customers. **`arr_by_ultimate_parent`** ranks **all** ultimate parents using the same contract-rollup math as the export (Carrier divisions collapse correctly). Sort by **`current_arr`**. Includes renewing and churned parents — not only the current book. |
 | **Section 4 — CS Report** | Customer Success weekly health: platform health, supply chain, value metrics for large accounts. |
-| **Section 4b — Slack** | Recent Slack conversations tied to customer names (when Slack is connected). |
+| **Section 4b — Slack** | Top customers by ARR (default **10**): 6-month Slack channel history per customer plus a Cortex **LLM summary** (`llm_summary`). Timing is in the export coverage manifest (`_llm_export_slack.performance`). |
 | **Section 5 — Usage signals** | Product “flags” — e.g. low adoption, features not used, unusual usage patterns. |
 | **Section 6 — Trend context** | Extra timing/trend notes when included. |
 | **Section 7 — Risk insights** | Optional AI-written summary of account and churn risk. Scores use **Salesforce `commercial_status`** (not just Pendo usage). Customers in renewal negotiation are scored differently from churned accounts. |

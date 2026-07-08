@@ -150,6 +150,15 @@
 - `slack.note`
 - `slack.error`
 - `slack.skipped`
+- `slack.lookback_days`
+- `slack.top_n`
+- `slack.customers`
+- `slack.customers[].llm_summary`
+- `slack.customers[].llm_summary.summary_markdown`
+- `slack.customers[].llm_summary.themes`
+- `slack.customers[].llm_summary.open_items`
+- `slack.customers[].llm_summary.sentiment`
+- `_llm_export_slack.performance`
 
 ## internal
 - `_drive_svc`

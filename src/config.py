@@ -248,7 +248,7 @@ SLACK_API_BASE_URL = (
     or "https://slack.com/api"
 )
 try:
-    CORTEX_SLACK_LOOKBACK_DAYS = max(1, min(int(os.environ.get("CORTEX_SLACK_LOOKBACK_DAYS", "30").strip()), 90))
+    CORTEX_SLACK_LOOKBACK_DAYS = max(1, min(int(os.environ.get("CORTEX_SLACK_LOOKBACK_DAYS", "30").strip()), 180))
 except ValueError:
     CORTEX_SLACK_LOOKBACK_DAYS = 30
 try:
@@ -256,9 +256,23 @@ try:
 except ValueError:
     CORTEX_SLACK_MAX_CHANNELS_PER_CUSTOMER = 5
 try:
-    CORTEX_SLACK_MAX_MESSAGES_PER_CHANNEL = max(5, min(int(os.environ.get("CORTEX_SLACK_MAX_MESSAGES_PER_CHANNEL", "50").strip()), 200))
+    CORTEX_SLACK_MAX_MESSAGES_PER_CHANNEL = max(5, min(int(os.environ.get("CORTEX_SLACK_MAX_MESSAGES_PER_CHANNEL", "50").strip()), 5000))
 except ValueError:
     CORTEX_SLACK_MAX_MESSAGES_PER_CHANNEL = 50
+# Portfolio LLM export Slack: 6-month lookback and higher per-channel caps by default.
+try:
+    CORTEX_LLM_EXPORT_SLACK_LOOKBACK_DAYS = max(
+        1, min(int(os.environ.get("CORTEX_LLM_EXPORT_SLACK_LOOKBACK_DAYS", "180").strip()), 180)
+    )
+except ValueError:
+    CORTEX_LLM_EXPORT_SLACK_LOOKBACK_DAYS = 180
+try:
+    CORTEX_LLM_EXPORT_SLACK_MAX_MESSAGES_PER_CHANNEL = max(
+        50,
+        min(int(os.environ.get("CORTEX_LLM_EXPORT_SLACK_MAX_MESSAGES_PER_CHANNEL", "2000").strip()), 5000),
+    )
+except ValueError:
+    CORTEX_LLM_EXPORT_SLACK_MAX_MESSAGES_PER_CHANNEL = 2000
 
 # Salesforce (JWT Bearer Flow: Connected App + private key)
 # SF_LOGIN_URL: https://login.salesforce.com (prod) or https://test.salesforce.com (sandbox)

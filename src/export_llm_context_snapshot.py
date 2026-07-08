@@ -1655,12 +1655,13 @@ def _compact_slack(slack: dict[str, Any], *, size_caps_enabled: bool = True) -> 
                 if not isinstance(s, dict):
                     continue
                 lines = s.get("summary_lines") if isinstance(s.get("summary_lines"), list) else []
+                llm_ok = isinstance(block.get("llm_summary"), dict) and block["llm_summary"].get("status") == "ok"
                 slim_summaries.append(
                     {
                         "channel_id": s.get("channel_id"),
                         "channel_name": s.get("channel_name"),
                         "message_count": s.get("message_count"),
-                        "summary_lines": lines[-max_lines:] if max_lines else lines,
+                        "summary_lines": [] if llm_ok else (lines[-max_lines:] if max_lines else lines),
                         "error": s.get("error"),
                     }
                 )
@@ -1673,6 +1674,8 @@ def _compact_slack(slack: dict[str, Any], *, size_caps_enabled: bool = True) -> 
                 "note": payload.get("note"),
                 "error": payload.get("error"),
             }
+            if isinstance(block.get("llm_summary"), dict):
+                slim["llm_summary"] = block["llm_summary"]
             out["customers"][label] = slim
         return out
     payload = slack
@@ -2359,10 +2362,12 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
             "",
             *_render_cs_report_section(doc.get("cs_report")),
             "",
-            "## 4b. Slack (top customers by ARR — recent channel conversations)",
+            "## 4b. Slack (top customers by ARR — 6-month conversations + LLM summaries)",
             "",
-            "Recent human messages from Slack channels matched to each customer name "
-            "(and ``config/slack_customer_aliases.yaml``). Not Slack AI-generated summaries.",
+            "Pilot scope: top ultimate parents by current ARR (default 10). Per customer: Slack "
+            "channels matched by name/aliases, up to 180 days of human messages, and a Cortex "
+            "``llm_summary`` digest. Raw lines remain under ``conversation_summaries``; timing "
+            "is in ``_llm_export_slack.performance`` on the coverage manifest.",
             "",
             _json_compact(doc.get("slack") or {}),
             "",

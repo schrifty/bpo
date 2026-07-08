@@ -22,6 +22,9 @@ from .config import (
     logger,
 )
 
+# Hard safety cap for a single channel history pull (pagination stops here).
+_SLACK_HISTORY_HARD_CAP = 5000
+
 _SLACK_ALIAS_FILE = SLACK_CUSTOMER_ALIASES_FILE
 _alias_map: dict[str, list[str]] | None = None
 _alias_lock = threading.Lock()
@@ -307,11 +310,14 @@ def get_customer_slack_conversations(
     customer_name: str,
     *,
     days: int | None = None,
+    max_messages_per_channel: int | None = None,
+    max_lookback_days: int | None = None,
 ) -> dict[str, Any]:
     """Recent Slack conversation digests for channels matched to *customer_name*."""
     name = (customer_name or "").strip()
     lookback = int(days if days is not None else CORTEX_SLACK_LOOKBACK_DAYS)
-    lookback = max(1, min(lookback, 90))
+    lookback_cap = 90 if max_lookback_days is None else max(1, int(max_lookback_days))
+    lookback = max(1, min(lookback, lookback_cap))
     empty: dict[str, Any] = {
         "source": "slack",
         "customer": name,
@@ -335,7 +341,10 @@ def get_customer_slack_conversations(
         return empty
 
     summaries: list[dict[str, Any]] = []
-    max_msg = max(5, int(CORTEX_SLACK_MAX_MESSAGES_PER_CHANNEL))
+    if max_messages_per_channel is not None:
+        max_msg = max(5, min(int(max_messages_per_channel), _SLACK_HISTORY_HARD_CAP))
+    else:
+        max_msg = max(5, min(int(CORTEX_SLACK_MAX_MESSAGES_PER_CHANNEL), _SLACK_HISTORY_HARD_CAP))
     for ch in channels:
         summaries.append(_summarize_channel(ch, days=lookback, max_messages=max_msg))
 
