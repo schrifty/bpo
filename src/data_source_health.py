@@ -9,6 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from .config import (
+    JIRA_API_TOKEN,
+    JIRA_URL,
     PENDO_INTEGRATION_KEY,
     SF_LOGIN_URL,
     SF_CONSUMER_KEY,
@@ -105,24 +107,69 @@ def check_slack() -> tuple[bool, str | None]:
         return False, f"Slack: {str(e)[:120]}"
 
 
-def check_all_required() -> list[str]:
-    """Run preflight on Pendo, Salesforce (if configured), GitHub/Slack (if configured), and CS Report.
+def _jira_configured() -> bool:
+    return bool(JIRA_URL and JIRA_API_TOKEN)
 
-    Returns a list of error messages. If empty, all required sources are up; otherwise
-    the caller should abort and print these messages.
+
+def check_jira() -> tuple[bool, str | None]:
+    """Return (True, None) if Jira credentials are set and ``/rest/api/3/myself`` succeeds."""
+    if not _jira_configured():
+        return False, "Jira: JIRA_URL and JIRA_API_TOKEN must be set"
+    try:
+        import requests
+
+        from .jira_client import get_shared_jira_client
+
+        client = get_shared_jira_client()
+        resp = requests.get(
+            f"{client.api_base_url}/rest/api/3/myself",
+            headers=client._headers,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return True, None
+    except Exception as e:
+        logger.warning("Jira preflight failed: %s", e)
+        return False, f"Jira: {str(e)[:120]}"
+
+
+_PREFLIGHT_SOURCES_DEFAULT = ("pendo", "salesforce", "github", "slack", "cs_report")
+_JIRA_BACKED_DECK_PREFLIGHT_SOURCES = ("jira", "github")
+
+
+def _run_preflight(source: str) -> tuple[bool, str | None]:
+    if source == "pendo":
+        return check_pendo()
+    if source == "salesforce":
+        return check_salesforce()
+    if source == "github":
+        return check_github()
+    if source == "slack":
+        return check_slack()
+    if source == "cs_report":
+        return check_cs_report()
+    if source == "jira":
+        return check_jira()
+    raise ValueError(f"unknown preflight source {source!r}")
+
+
+def check_all_required(*, sources: tuple[str, ...] | None = None) -> list[str]:
+    """Run preflight on the requested integrations.
+
+    Default: Pendo, Salesforce (if configured), GitHub/Slack (if configured), CS Report.
+    Pass ``sources`` to scope checks (e.g. Jira-backed decks use ``jira`` + ``github`` only).
     """
     errors: list[str] = []
-    for name, check_fn in (
-        ("Pendo", check_pendo),
-        ("Salesforce", check_salesforce),
-        ("GitHub", check_github),
-        ("Slack", check_slack),
-        ("CS Report", check_cs_report),
-    ):
-        ok, msg = check_fn()
+    for key in sources or _PREFLIGHT_SOURCES_DEFAULT:
+        ok, msg = _run_preflight(key)
         if not ok and msg:
             errors.append(msg)
     return errors
+
+
+def check_jira_backed_deck_required() -> list[str]:
+    """Preflight for engineering-portfolio and implementations_review (Jira primary; GitHub optional)."""
+    return check_all_required(sources=_JIRA_BACKED_DECK_PREFLIGHT_SOURCES)
 
 
 def integration_freshness_metadata() -> dict[str, object]:

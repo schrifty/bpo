@@ -602,11 +602,10 @@ def _run_deck_run_cli(rest: list[str]) -> None:
 def _run_jira_backed_deck(deck_id: str, label: str) -> None:
     """Generate a Jira-backed single deck using engineering portfolio data."""
     from src.config import CORTEX_CURSOR_SLIDES_ONLY
-    from src.data_source_health import check_all_required
-    from src.jira_client import get_shared_jira_client
+    from src.data_source_health import check_jira_backed_deck_required
     from src.slides_client import create_health_deck
 
-    preflight_errors = check_all_required()
+    preflight_errors = check_jira_backed_deck_required()
     if preflight_errors:
         print("Data source check failed — not running:")
         for msg in preflight_errors:

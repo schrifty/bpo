@@ -215,7 +215,11 @@ def is_allowed_export_base_subfolder(name: str, *, portfolio_root: bool) -> bool
         if portfolio_root
         else CUSTOMER_EXPORT_BASE_ALLOWED_SUBFOLDERS
     )
-    return name in allowed
+    if name in allowed:
+        return True
+    if portfolio_root and dated_output_folder_date(name) == dt.date.today():
+        return True
+    return False
 
 
 def is_legacy_export_container_folder(name: str, *, include_todays_dated: bool = False) -> bool:

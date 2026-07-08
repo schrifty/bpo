@@ -72,6 +72,16 @@ def test_is_legacy_export_container_folder_at_customer_includes_today() -> None:
     assert is_legacy_export_container_folder("2026-07-07 - Output", include_todays_dated=True)
 
 
+def test_is_allowed_export_base_subfolder_allows_todays_dated_output_folder() -> None:
+    from datetime import date
+
+    from src.export_drive_layout import is_allowed_export_base_subfolder
+
+    today_name = f"{date.today().isoformat()} - Output"
+    assert is_allowed_export_base_subfolder(today_name, portfolio_root=True)
+    assert not is_allowed_export_base_subfolder("2020-01-01 - Output", portfolio_root=True)
+
+
 def test_is_allowed_export_base_subfolder_rejects_monthly_bucket_at_base() -> None:
     from src.export_drive_layout import is_allowed_export_base_subfolder
 
