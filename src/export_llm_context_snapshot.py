@@ -147,13 +147,29 @@ _PLANNED_DATASOURCES_NOT_IN_EXPORT: tuple[str, ...] = ("Aha", "GitHub")
 # Pendo §1: max rows in ``customers_headline`` when size caps are enabled (see ``_pendo_portfolio_topline``).
 _PENDO_EXPORT_HEADLINE_CUSTOMER_CAP = 200
 
-# ``--max-bytes`` / compaction caps: 0 means no limit (full payloads in export).
+# ``--max-tokens`` / ``--max-bytes`` / compaction caps: 0 means no limit (full payloads).
 _LLM_EXPORT_NO_CAP = 0
-_LLM_EXPORT_DEFAULT_MAX_BYTES = 500_000
+# The governing budget for this export is the LLM **token** window, not raw bytes. The byte
+# cap is retained as an optional secondary guard (off by default). See ``do 1`` rationale:
+# CSR JSON runs ~3.4 chars/token, so a byte cap wastes ~70% of a token budget.
+_LLM_EXPORT_DEFAULT_MAX_BYTES = 0
+_LLM_EXPORT_DEFAULT_MAX_TOKENS = 450_000
+# Never shrink/truncate below this floor, regardless of an aggressive explicit cap.
+_LLM_EXPORT_MIN_TOKEN_CAP = 20_000
+_LLM_EXPORT_MIN_BYTE_CAP = 20_000
+# Fallback chars-per-token when tiktoken is unavailable (conservative → over-counts tokens).
+_LLM_EXPORT_FALLBACK_CHARS_PER_TOKEN = 3.2
+
+_TOKEN_ENCODER: Any | None = None
+_TOKEN_ENCODER_TRIED = False
 
 
 def llm_export_default_max_bytes() -> int:
-    """Default UTF-8 soft cap for all-customers export (``CORTEX_LLM_EXPORT_MAX_BYTES``; 0 = unlimited)."""
+    """Default UTF-8 byte cap (``CORTEX_LLM_EXPORT_MAX_BYTES``; 0 = unlimited, the default).
+
+    The primary export budget is token-based (:func:`llm_export_default_max_tokens`); the byte
+    cap is an opt-in secondary guard.
+    """
     import os
 
     raw = (os.environ.get("CORTEX_LLM_EXPORT_MAX_BYTES") or "").strip()
@@ -163,6 +179,83 @@ def llm_export_default_max_bytes() -> int:
         return max(0, int(raw))
     except ValueError:
         return _LLM_EXPORT_DEFAULT_MAX_BYTES
+
+
+def llm_export_default_max_tokens() -> int:
+    """Default LLM token budget for the export (``CORTEX_LLM_EXPORT_MAX_TOKENS``; 0 = unlimited)."""
+    import os
+
+    raw = (os.environ.get("CORTEX_LLM_EXPORT_MAX_TOKENS") or "").strip()
+    if not raw:
+        return _LLM_EXPORT_DEFAULT_MAX_TOKENS
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return _LLM_EXPORT_DEFAULT_MAX_TOKENS
+
+
+def _get_token_encoder() -> Any | None:
+    """Return a cached ``tiktoken`` encoder, or ``None`` when the package is unavailable."""
+    global _TOKEN_ENCODER, _TOKEN_ENCODER_TRIED
+    if _TOKEN_ENCODER_TRIED:
+        return _TOKEN_ENCODER
+    _TOKEN_ENCODER_TRIED = True
+    try:
+        import tiktoken
+
+        _TOKEN_ENCODER = tiktoken.get_encoding("cl100k_base")
+    except Exception:
+        _TOKEN_ENCODER = None
+    return _TOKEN_ENCODER
+
+
+def count_tokens(text: str) -> int:
+    """Count LLM tokens in *text* via ``tiktoken`` (cl100k_base), or a conservative estimate.
+
+    The fallback (no tiktoken) approximates from UTF-8 byte length so callers still get a
+    monotonic, slightly high token estimate for cap enforcement.
+    """
+    if not text:
+        return 0
+    enc = _get_token_encoder()
+    if enc is not None:
+        return len(enc.encode(text, disallowed_special=()))
+    import math
+
+    return int(math.ceil(len(text.encode("utf-8")) / _LLM_EXPORT_FALLBACK_CHARS_PER_TOKEN))
+
+
+def _truncate_to_tokens(text: str, max_tokens: int) -> str:
+    """Return *text* clipped to at most *max_tokens* tokens (best-effort under fallback)."""
+    if max_tokens <= 0 or not text:
+        return text
+    enc = _get_token_encoder()
+    if enc is not None:
+        tokens = enc.encode(text, disallowed_special=())
+        if len(tokens) <= max_tokens:
+            return text
+        return enc.decode(tokens[:max_tokens])
+    approx_bytes = int(max_tokens * _LLM_EXPORT_FALLBACK_CHARS_PER_TOKEN)
+    raw = text.encode("utf-8")
+    if len(raw) <= approx_bytes:
+        return text
+    return raw[:approx_bytes].decode("utf-8", errors="ignore")
+
+
+def _format_tokens(n: int) -> str:
+    n = max(0, int(n))
+    if n >= 1000:
+        return f"{n / 1000:.1f}K tokens ({n:,})"
+    return f"{n:,} tokens"
+
+
+def _over_size_caps(md: str, *, max_bytes: int, max_tokens: int) -> bool:
+    """True when *md* exceeds an active token or byte cap (0 = that cap is disabled)."""
+    if max_tokens and count_tokens(md) > max_tokens:
+        return True
+    if max_bytes and _utf8_byte_len(md) > max_bytes:
+        return True
+    return False
 
 
 def _export_cap_active(cap: int | None) -> bool:
@@ -326,6 +419,7 @@ def _build_export_coverage(
     report: dict[str, Any],
     *,
     markdown_soft_cap_bytes: int,
+    markdown_soft_cap_tokens: int = _LLM_EXPORT_NO_CAP,
     csr_site_limit: int,
     csr_string_cap: int,
     sf_accounts: int,
@@ -364,6 +458,7 @@ def _build_export_coverage(
         "sources_in_profile": sources_in_profile,
         "registry_excluded": registry_excluded,
         "markdown_soft_cap_bytes": int(markdown_soft_cap_bytes),
+        "markdown_soft_cap_tokens": int(markdown_soft_cap_tokens),
         "size_caps_enabled": size_caps_enabled,
         "compaction": {
             "csr_site_limit": csr_site_limit,
@@ -583,18 +678,27 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
         ]
     )
     if cov.get("size_caps_enabled"):
+        cap_tok = cov.get("markdown_soft_cap_tokens")
+        cap_b = cov.get("markdown_soft_cap_bytes")
+        if cap_tok and int(cap_tok) > 0:
+            budget = f"about **{int(cap_tok):,}** LLM tokens (`--max-tokens`, cl100k_base)"
+            if cap_b and int(cap_b) > 0:
+                budget += f" and **{int(cap_b):,}** UTF-8 bytes (`--max-bytes`)"
+            raise_hint = "raise `--max-tokens`"
+        else:
+            budget = f"about **{int(cap_b or 0):,}** bytes of UTF-8 (`--max-bytes`)"
+            raise_hint = "raise `--max-bytes`"
         lines.append(
-            f"- **Target size (`--max-bytes`):** about **{cov.get('markdown_soft_cap_bytes', '')}** bytes of UTF-8 for "
-            "the whole markdown file. §3c Salesforce comprehensive is exported in **headline** form (per-customer "
-            "KPIs + capped category samples, top customers by ARR). If the export is still too large, CSR and §3 "
-            "rollup tighten further; the **end of the file may be cut off** — raise `--max-bytes` or set "
-            "`CORTEX_LLM_EXPORT_SF_COMPREHENSIVE=false` for a smaller run."
+            f"- **Target size:** {budget} for the whole markdown file. §3c Salesforce comprehensive is exported "
+            "in **headline** form (per-customer KPIs + capped category samples, top customers by ARR). If the "
+            "export is still too large, CSR and §3 rollup tighten further; the **end of the file may be cut "
+            f"off** — {raise_hint} or set `CORTEX_LLM_EXPORT_SF_COMPREHENSIVE=false` for a smaller run."
         )
     else:
         lines.append(
-            "- **Size caps:** **disabled** for this run (`--max-bytes 0`). Full CS Report site rows, "
-            "Salesforce rollups, Pendo headlines, and §3c comprehensive payloads are included without markdown "
-            "truncation or tiered compaction."
+            "- **Size caps:** **disabled** for this run (`--max-tokens 0 --max-bytes 0`). Full CS Report site "
+            "rows, Salesforce rollups, Pendo headlines, and §3c comprehensive payloads are included without "
+            "markdown truncation or tiered compaction."
         )
     c = cov.get("compaction") if isinstance(cov.get("compaction"), dict) else {}
     if c and cov.get("size_caps_enabled"):
@@ -1365,6 +1469,7 @@ def build_snapshot_document(
     report: dict[str, Any],
     *,
     markdown_soft_cap_bytes: int = _LLM_EXPORT_NO_CAP,
+    markdown_soft_cap_tokens: int = _LLM_EXPORT_NO_CAP,
     csr_site_limit: int = _LLM_EXPORT_NO_CAP,
     csr_string_cap: int = _LLM_EXPORT_NO_CAP,
     sf_accounts: int = _LLM_EXPORT_NO_CAP,
@@ -1513,6 +1618,7 @@ def build_snapshot_document(
         "export_coverage": _build_export_coverage(
             report,
             markdown_soft_cap_bytes=markdown_soft_cap_bytes,
+            markdown_soft_cap_tokens=markdown_soft_cap_tokens,
             csr_site_limit=csr_site_limit,
             csr_string_cap=csr_string_cap,
             sf_accounts=sf_accounts,
@@ -1639,6 +1745,7 @@ def emit_export_size_breakdown_stderr(
     diag: Any | None = None,
     *,
     max_bytes_cap: int | None = None,
+    max_tokens_cap: int | None = None,
     truncated: bool = False,
     pre_truncation_bytes: int | None = None,
     body_before_section7_bytes: int | None = None,
@@ -1647,21 +1754,29 @@ def emit_export_size_breakdown_stderr(
     from .export_run_diagnostics import format_elapsed_hms
 
     total = _utf8_byte_len(md)
+    total_tokens = count_tokens(md)
     status = _export_status_label(diag)
     wall = format_elapsed_hms(diag.total_elapsed_s()) if diag is not None else "—"
 
     print("", file=sys.stderr)
     print(_export_summary_rule(), file=sys.stderr)
     print(
-        f"Export {status} · {_format_utf8_bytes(total)} uploaded · {wall} total",
+        f"Export {status} · {_format_tokens(total_tokens)} · {_format_utf8_bytes(total)} uploaded · {wall} total",
         file=sys.stderr,
     )
 
-    size_lines: list[str] = [f"uploaded {_format_utf8_bytes(total)}"]
+    size_lines: list[str] = [f"uploaded {_format_tokens(total_tokens)} · {_format_utf8_bytes(total)}"]
+    if max_tokens_cap:
+        pct = (100.0 * total_tokens / max_tokens_cap) if max_tokens_cap else 0.0
+        size_lines.append(f"token budget {int(max_tokens_cap):,} (using {pct:.0f}%)")
     if truncated and pre_truncation_bytes is not None:
+        cap_note = (
+            f"--max-tokens {int(max_tokens_cap):,}"
+            if max_tokens_cap
+            else f"--max-bytes {_format_utf8_bytes(max_bytes_cap or 0)}"
+        )
         size_lines.append(
-            f"before --max-bytes cut {_format_utf8_bytes(pre_truncation_bytes)} "
-            f"(cap {_format_utf8_bytes(max_bytes_cap or 0)})"
+            f"before {cap_note} cut {_format_utf8_bytes(pre_truncation_bytes)}"
         )
     if body_before_section7_bytes is not None and total > body_before_section7_bytes:
         s7 = total - body_before_section7_bytes
@@ -1747,11 +1862,17 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
         f"- **Underlying `generated` stamp:** {doc.get('generated_report_timestamp')}",
     ]
     ec = doc.get("export_coverage") if isinstance(doc.get("export_coverage"), dict) else {}
-    cap_b = ec.get("markdown_soft_cap_bytes")
+    cap_b = ec.get("markdown_soft_cap_tokens")
+    cap_bytes = ec.get("markdown_soft_cap_bytes")
     if ec.get("size_caps_enabled") and cap_b is not None and int(cap_b) > 0:
-        parts.append(f"- **Markdown soft cap (this run):** {cap_b} bytes (`--max-bytes`)")
+        line = f"- **Token budget (this run):** {int(cap_b):,} tokens (`--max-tokens`, cl100k_base)"
+        if cap_bytes is not None and int(cap_bytes) > 0:
+            line += f"; byte cap {int(cap_bytes):,} (`--max-bytes`)"
+        parts.append(line)
+    elif ec.get("size_caps_enabled") and cap_bytes is not None and int(cap_bytes) > 0:
+        parts.append(f"- **Markdown soft cap (this run):** {cap_bytes} bytes (`--max-bytes`)")
     elif not ec.get("size_caps_enabled"):
-        parts.append("- **Markdown soft cap (this run):** none (`--max-bytes 0`)")
+        parts.append("- **Markdown soft cap (this run):** none (`--max-tokens 0 --max-bytes 0`)")
     parts.extend(
         [
         "",
@@ -1967,12 +2088,23 @@ def _build_export_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
     )
     ap.add_argument("--days", type=int, default=90, help="Lookback days for portfolio window (default 90)")
     ap.add_argument(
+        "--max-tokens",
+        type=int,
+        default=llm_export_default_max_tokens(),
+        help=(
+            f"Primary budget: LLM tokens (cl100k_base) for the whole file (default "
+            f"{llm_export_default_max_tokens():,} from CORTEX_LLM_EXPORT_MAX_TOKENS). 0 = no token cap. "
+            "When N>0, compacts §3c/CSR/SF and may truncate markdown to fit the token budget."
+        ),
+    )
+    ap.add_argument(
         "--max-bytes",
         type=int,
         default=llm_export_default_max_bytes(),
         help=(
-            f"Soft cap on UTF-8 body size (default {llm_export_default_max_bytes():,} from "
-            "CORTEX_LLM_EXPORT_MAX_BYTES). 0 = no cap. When N>0, compacts §3c/CSR/SF and may truncate markdown."
+            f"Optional secondary UTF-8 byte guard (default {llm_export_default_max_bytes():,} from "
+            "CORTEX_LLM_EXPORT_MAX_BYTES; 0 = no byte cap). Applied in addition to --max-tokens; the "
+            "tighter of the two governs."
         ),
     )
     ap.add_argument(
@@ -2055,7 +2187,9 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
 
         _emit_integration_stderr_warnings(report)
 
-        size_caps_enabled = int(args.max_bytes) > 0
+        token_cap = int(args.max_tokens)
+        byte_cap = int(args.max_bytes)
+        size_caps_enabled = token_cap > 0 or byte_cap > 0
         csr_lim = 15 if size_caps_enabled else _LLM_EXPORT_NO_CAP
         csr_str = 400 if size_caps_enabled else _LLM_EXPORT_NO_CAP
         sf_acct = 24 if size_caps_enabled else _LLM_EXPORT_NO_CAP
@@ -2065,7 +2199,8 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
         with export_phase(diag, "markdown build"):
             doc = build_snapshot_document(
                 report,
-                markdown_soft_cap_bytes=int(args.max_bytes),
+                markdown_soft_cap_bytes=byte_cap,
+                markdown_soft_cap_tokens=token_cap,
                 csr_site_limit=csr_lim,
                 csr_string_cap=csr_str,
                 sf_accounts=sf_acct,
@@ -2081,7 +2216,8 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
             doc["_portfolio_raw"] = report
 
             md = render_markdown(doc, exported_at_utc=exported_at)
-            max_b = max(20_000, int(args.max_bytes)) if size_caps_enabled else 0
+            max_tok = max(_LLM_EXPORT_MIN_TOKEN_CAP, token_cap) if token_cap > 0 else 0
+            max_b = max(_LLM_EXPORT_MIN_BYTE_CAP, byte_cap) if byte_cap > 0 else 0
 
             if size_caps_enabled:
                 tiers = [
@@ -2090,7 +2226,7 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
                     (6, 220, 8, 10, 2),
                     (4, 180, 4, 6, 1),
                 ]
-                while len(md.encode("utf-8")) > max_b and tiers:
+                while _over_size_caps(md, max_bytes=max_b, max_tokens=max_tok) and tiers:
                     csr_lim, csr_str, sf_acct, sf_top, sf_rows = tiers.pop(0)
                     _shrink_snapshot_params(
                         doc,
@@ -2107,9 +2243,22 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
                         exported_at_utc=exported_at,
                     )
 
+                if max_tok and count_tokens(md) > max_tok:
+                    pre_truncation_bytes = _utf8_byte_len(md)
+                    markdown_truncated = True
+                    collect_export_warning(
+                        f"markdown truncated to --max-tokens ({max_tok:,}); raise limit if needed",
+                        llm_export=True,
+                    )
+                    md = _truncate_to_tokens(md, max_tok).rstrip() + (
+                        "\n\n<!-- Document truncated to --max-tokens; re-run with a higher limit "
+                        "or narrow integrations if needed. -->\n"
+                    )
+
                 raw = md.encode("utf-8")
-                if len(raw) > max_b:
-                    pre_truncation_bytes = len(raw)
+                if max_b and len(raw) > max_b:
+                    if pre_truncation_bytes is None:
+                        pre_truncation_bytes = len(raw)
                     markdown_truncated = True
                     collect_export_warning(
                         f"markdown truncated to --max-bytes ({max_b}); raise limit if needed",
@@ -2184,6 +2333,7 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
             doc,
             diag,
             max_bytes_cap=max_b,
+            max_tokens_cap=max_tok,
             truncated=markdown_truncated,
             pre_truncation_bytes=pre_truncation_bytes,
             body_before_section7_bytes=md_body_before_section7_bytes,

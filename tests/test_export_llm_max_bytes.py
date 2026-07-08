@@ -1,12 +1,30 @@
-"""LLM export default max-bytes and §3c headline compaction."""
+"""LLM export default token/byte budgets and §3c headline compaction."""
 
 from __future__ import annotations
 
 from src import export_llm_context_snapshot as mod
 
 
-def test_llm_export_default_max_bytes_is_500k():
-    assert mod.llm_export_default_max_bytes() == 500_000
+def test_llm_export_default_max_tokens_is_450k():
+    assert mod.llm_export_default_max_tokens() == 450_000
+
+
+def test_llm_export_default_max_bytes_disabled_by_default():
+    assert mod.llm_export_default_max_bytes() == 0
+
+
+def test_llm_export_default_max_tokens_env_override(monkeypatch):
+    monkeypatch.setenv("CORTEX_LLM_EXPORT_MAX_TOKENS", "120000")
+    assert mod.llm_export_default_max_tokens() == 120_000
+
+
+def test_count_tokens_positive_and_truncation_bounded():
+    text = "Carrier factory shortage report. " * 500
+    n = mod.count_tokens(text)
+    assert n > 0
+    clipped = mod._truncate_to_tokens(text, 50)
+    assert mod.count_tokens(clipped) <= 50
+    assert len(clipped) < len(text)
 
 
 def test_compact_salesforce_comprehensive_keeps_top_arr_and_samples():
