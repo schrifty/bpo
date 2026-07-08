@@ -22,6 +22,9 @@ SUPPORT_KPI_DECK_IDS: frozenset[str] = frozenset({"support-kpis"})
 # Decks that need ``eng_portfolio`` from ``get_engineering_portfolio`` when absent.
 _ENG_PORTFOLIO_DECK_IDS: frozenset[str] = frozenset({"engineering-portfolio", "implementations_review"})
 
+# Meta deck about Cortex itself — populates ``report["cortex_meta"]``.
+_CORTEX_SHOWCASE_DECK_IDS: frozenset[str] = frozenset({"cortex_showcase"})
+
 _GITHUB_PRODUCTIVITY_SLIDE_TYPES = frozenset({
     "github_engineering_output",
     "productivity_summary",
@@ -63,6 +66,9 @@ def enrich_deck_report_data(
         if not CORTEX_CURSOR_SLIDES_ONLY:
             enrich_github_productivity_if_needed(report, deck_id=deck_id)
             slide_plan = filter_github_productivity_slides(report, slide_plan, deck_id=deck_id)
+
+    if deck_id in _CORTEX_SHOWCASE_DECK_IDS:
+        enrich_cortex_meta_if_needed(report, deck_id=deck_id)
 
     report = enrich_leandna_shortage_if_needed(report, slide_plan, customer)
 
@@ -296,6 +302,26 @@ def enrich_engineering_portfolio_if_needed(report: dict[str, Any], *, deck_id: s
         report["eng_portfolio"] = load_or_fetch_engineering_portfolio(days=days)
     except Exception as e:
         logger.warning("%s: could not load eng_portfolio: %s", deck_id, e)
+
+
+def enrich_cortex_meta_if_needed(report: dict[str, Any], *, deck_id: str = "cortex_showcase") -> None:
+    """Populate ``report["cortex_meta"]`` for the Cortex Showcase deck when absent.
+
+    Assembles the meta blob (static repo facts + guarded live volume counts) via
+    :func:`src.cortex_meta_report.build_cortex_meta_report`. Live counts default on;
+    a missing credential surfaces as an explicit ``unavailable`` inside the blob rather
+    than failing the build, and the builders omit any element they lack data for.
+    """
+    if report.get("cortex_meta"):
+        return
+    days = int(report.get("days") or 30)
+    try:
+        from .cortex_meta_report import build_cortex_meta_report
+
+        report["cortex_meta"] = build_cortex_meta_report(days=days, live=True)
+    except Exception as e:  # noqa: BLE001 - never let meta assembly abort the deck
+        logger.warning("%s: could not build cortex_meta: %s", deck_id, e)
+        report["cortex_meta"] = {}
 
 
 def prepare_support_slide_plan(

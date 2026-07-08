@@ -139,6 +139,11 @@ SLIDE_DATA_REQUIREMENTS: dict[str, list[str]] = {
     "pendo_localization": ["visitor_languages"],
     "pendo_track_analytics": ["track_events_breakdown"],
     "pendo_definitions_appendix": ["pendo_catalog_appendix"],
+    "cortex_title": ["cortex_meta"],
+    "cortex_overview": ["cortex_meta"],
+    "cortex_graph_breadth": ["cortex_meta"],
+    "cortex_dogfood": ["cortex_meta"],
+    "cortex_economics": ["cortex_meta"],
 }
 
 

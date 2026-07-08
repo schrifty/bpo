@@ -29,6 +29,7 @@ _PORTFOLIO_DRIVE_TITLE_TAIL: dict[str, str] = {
     "engineering-portfolio": "Engineering Review",
     "implementations_review": "Implementations Review",
     "support_review_portfolio": "Support Review",
+    "cortex_showcase": "Cortex Showcase",
 }
 
 

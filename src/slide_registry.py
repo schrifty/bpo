@@ -288,6 +288,14 @@ _register(
     pendo_track_analytics="pendo_track_analytics_slide",
     pendo_definitions_appendix="pendo_definitions_appendix_slide",
 )
+_register(
+    "slide_cortex_showcase",
+    cortex_title="cortex_title_slide",
+    cortex_overview="cortex_overview_slide",
+    cortex_graph_breadth="cortex_graph_breadth_slide",
+    cortex_dogfood="cortex_dogfood_slide",
+    cortex_economics="cortex_economics_slide",
+)
 
 
 def get_slide_builder(slide_type: str):

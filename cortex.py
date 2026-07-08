@@ -314,6 +314,7 @@ def _run_deck_run_cli(rest: list[str]) -> None:
         "engineering-portfolio",
         "implementations_review",
         "support_review_portfolio",
+        "cortex_showcase",
     )
     if deck_id in no_customer_flags:
         if args.all_customers or args.customers:
@@ -388,6 +389,24 @@ def _run_deck_run_cli(rest: list[str]) -> None:
 
     if deck_id in ("engineering-portfolio", "implementations_review"):
         _run_jira_backed_deck(deck_id, deck_id.replace("-", " ").title())
+        return
+
+    if deck_id == "cortex_showcase":
+        print("Deck:       cortex_showcase")
+        print(f"Period:     last {days}d (live volume window)")
+        print()
+        t0 = time.time()
+        # cortex_meta (static facts + live volume) is assembled by the deck enrichment hook.
+        report = {"type": "cortex_showcase", "customer": None, "days": days}
+        result = create_health_deck(report, deck_id="cortex_showcase", thumbnails=thumbnails)
+        elapsed = time.time() - t0
+        print(f"\n{'=' * 60}")
+        print(f"Done in {elapsed:.0f}s")
+        print(f"{'=' * 60}")
+        if "error" in result:
+            print(f"  FAIL: {result['error'][:120]}")
+            sys.exit(1)
+        print(f"  OK   {result.get('url', '')}")
         return
 
     if deck_id == "support_review_portfolio":

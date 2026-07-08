@@ -1,0 +1,12 @@
+id: cortex_title
+type: standard
+order: 80
+title: Cortex Showcase — Title
+slide_type: cortex_title
+data_tools: []
+customers: all
+
+prompt: >
+  Cover slide for the Cortex Showcase deck ("the deck about Cortex, built by
+  Cortex"). Shows a headline stat line assembled from real repo metrics
+  (data elements, source systems, slide builders) via the cortex_meta blob.

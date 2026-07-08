@@ -1,0 +1,12 @@
+id: cortex_overview
+type: standard
+order: 80
+title: What Cortex is, in numbers
+slide_type: cortex_overview
+data_tools: []
+customers: all
+
+prompt: >
+  KPI strip summarizing Cortex: data elements, source systems, portfolio
+  customers (live Salesforce), and slide builders, plus a two-line description of
+  the one-layer / two-output architecture. All values come from cortex_meta.
