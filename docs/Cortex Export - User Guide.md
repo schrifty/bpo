@@ -101,36 +101,58 @@ If Ford shows **`CHURNED`** with no renewal pipeline in Salesforce, the export i
 
 ---
 
-## Example prompts by topic
+## Prompts you might find valuable — Portfolio export
 
-### Usage and adoption (Section 1 & 5)
+Copy/paste and adapt these. Start with “Use only the attached Cortex export; quote exact numbers and customer names, and say if something isn’t in the file.” See [Tips for talking to an AI](#tips-for-talking-to-an-ai) for more.
+
+### Executive summary & QBR prep
+
+- “Give me a one-page executive summary of the portfolio: top 10 customers by current ARR (Section 3 / 3c), the biggest usage risks (Sections 1, 5, 7), and anyone in renewal or churn (Sections 3b, 3b-renewal).”
+- “Draft QBR talking points for **Carrier**: pull ARR (Section 3), support load (Section 2), CS health (Section 4), and usage trend (Section 1). Keep it to 5 bullets.”
+- “Which accounts should leadership watch this week? Combine risk insights (Section 7) with declining usage (Section 5) and name the top 5 with a one-line reason each.”
+- “Build a board-ready table: for our top 10 customers by current ARR, show ARR, status, support ticket trend, and CS health score.”
+
+### Revenue & ARR
+
+- “Rank all ultimate parents by **current ARR** from Section 3c (`arr_by_ultimate_parent`) and show `commercial_status` for each.”
+- “What is total current-book ARR in Section 3, and what share sits in the top 5 accounts?”
+- “Compare **historical ARR** to **current ARR** for Beta Industries — what changed and why?”
+- “List current-book customers (Section 3) whose ARR is above $500K but whose login rate in Section 1 is below the portfolio median.”
+
+### Renewals & churn risk
+
+- “Which current-book customers have contracts ending in the next 90 days? (Sections 3 / 3b-renewal)”
+- “Who is in renewal negotiation (Section 3b-renewal) and also flagged in Section 7 risk insights?”
+- “Don’t count churned customers — who is most at risk among the current book? Use Sections 5 and 7.”
+- “Who churned (Section 3b) that still showed usage in Section 1 in the last window? These may be win-back targets.”
+
+### Support load (Section 2)
+
+- “Which of our largest customers have the most open support tickets, and is volume rising or falling?”
+- “Any signs of SLA or response-time issues for Carrier in Section 2?”
+- “Cross-reference Section 2 support volume with Section 4 CS health — who has both high tickets and poor health?”
+
+### Customer success health (Section 4)
+
+- “For our top customers in Section 4, who has red or yellow platform-health scores?”
+- “Give a one-paragraph health summary for Hussmann using Section 4 only.”
+
+### Usage & adoption (Sections 1 & 5)
 
 - “Which customers have the lowest login rate in the last 90 days?”
 - “Summarize the usage signals in Section 5 for customers with declining engagement.”
 - “Does Ford show up in Section 1? If yes, give active users and login percentage.”
 
-### Support (Section 2)
+### Cross-section “power” prompts (join the data)
 
-- “Which of our largest customers have the most open support tickets?”
-- “Is support volume going up or down for our top 5 accounts?”
-- “Any signs of SLA or response-time issues for Carrier?”
+- “Find **expansion candidates**: customers with strong usage (Section 1) and healthy CS scores (Section 4) whose contracts renew soon (Section 3).”
+- “Find **hidden churn risk**: high current ARR (Section 3) but declining usage (Sections 1/5) and open support pressure (Section 2).”
+- “Which customers appear in Section 7 risk insights but still have open renewals in Section 3b-renewal? Reconcile the two.”
 
-### Customer Success health (Section 4)
+### Trust & data quality
 
-- “For our top customers in Section 4, who has red or yellow platform health scores?”
-- “Give a one-paragraph health summary for Hussmann using Section 4 only.”
-
-### Renewals and risk (Sections 3, 3b-renewal, 7)
-
-- “Which current-book customers have contracts ending in the next 90 days?”
-- “Who is in renewal negotiation and also flagged in Section 7 risk insights?”
-- “Don’t count churned customers — who is most at risk of churn among the current book?”
-- “In Section 7, who has OUT_OF_CONTRACT_RENEWING status and what does the risk score say about them?”
-
-### Portfolio overview
-
-- “Give me an executive summary: top customers by revenue, biggest usage concerns, and anyone in renewal or churn sections.”
-- “What data is missing or truncated in this export? Check the coverage section at the top.”
+- “What was capped or omitted in this run? Read **Snapshot coverage** at the top and list any top-N limits.”
+- “How fresh is the Salesforce data here? Quote the exported date and any cache note before I make a renewal decision.”
 
 ---
 
@@ -186,7 +208,7 @@ Prior-month day folders under **Historical Data** are rolled into monthly bucket
 |---------|------------------|
 | **1. Headline** | Active users, login rate, events, minutes — top-line health for the window. Site count reads **“N active of M provisioned”** (active = had usage in the window; provisioned = every site ever set up). |
 | **2. Sites** | **Active sites only** (had events in the window), one row per site — Pendo’s internal “entity” duplicates are merged, so a plant appears once. Idle/never-used sites are excluded (counted in the headline instead). |
-| **2.1 Business unit summary** | For big multi-division customers (e.g. Safran), active sites rolled up to **business unit** — sites, visitors, events, and the top site per unit. Only shown when a mapping exists for that customer. |
+| **2.1 Business unit summary** | For big multi-division customers (e.g. Safran), active sites rolled up to **business unit** — sites, visitors, events, and the top site per unit. Only shown when a mapping exists for that customer. A **Confidence** note flags any sites mapped by a location/brand guess (`inferred`) or still `unmapped` — those need Customer Success confirmation (see `docs/DATA-GOVERNANCE/BUSINESS_UNIT_MAPPING_REVIEW.md`). Treat `inferred`/`unmapped` rows as provisional. |
 | **3. Feature & page adoption** | Which product areas saw clicks/views |
 | **4. Core feature checklist** | Expected capabilities vs observed usage |
 | **5. Unused product features** | Features with no recent activity |
@@ -202,20 +224,55 @@ Prior-month day folders under **Historical Data** are rolled into monthly bucket
 
 - **§13.1 Site activity** — one **table** with every active site: business unit, visitors, 7d/30d/dormant, events, minutes, feature clicks, change vs prior period, and each site’s top page and top feature. Best for cross-site questions (“which sites are declining?”).
 - **§13.2 Site user detail** — per-site user samples for the **busiest sites by events** only (the full user list is in §14).
-- **§14 User roster** — per-user table across the account.
+- **§14 User roster** — per-user table across the account. For customers with a business-unit mapping, it includes a **Primary BU** column (the unit of each user’s most-used sites).
+
+Every Pendo export also opens with a short **“How to read this export”** note that pins the key rules: it’s usage-only (no ARR/churn), “sites” means *active* sites (idle ones are counted in §1), and **per-site visitor counts overlap** so you shouldn’t add them up for unique headcount (use §1 total visitors).
 
 The **top-ARR batch** (`--export-pendo-top-arr`) runs the detailed export for the largest Salesforce ultimate parents by current ARR.
 
-### Example prompts — Pendo export
+### Prompts you might find valuable — Pendo export
 
-- “Summarize Section 1 headline metrics for Ford over the last 30 days.”
-- “How many active sites does this customer have vs how many are provisioned? (Section 1 / Section 2)”
-- “Which sites in Section 2 have the lowest weekly active rate?”
-- “From Section 2.1, which Safran business unit has the most active sites and the highest event volume?”
-- “In Section 13.1, list the sites with the most negative change vs the prior period.”
-- “List champions from Section 7 and any at-risk users.”
-- “What unused features appear in Section 5? Should we be concerned?”
-- “How did weekly active users trend in Section 11 vs the prior comparison window?”
+Copy/paste and adapt. Start with “Use only the attached Pendo export for {Customer}; quote exact numbers and site/user names, and say if something isn’t in the file.” Replace `{Customer}` with the Pendo prefix in the filename.
+
+**Account health at a glance**
+
+- “Give me a health snapshot for {Customer}: headline metrics (Section 1), the weekly trend (Section 11), and the auto-detected signals (Section 12).”
+- “Is engagement growing or shrinking? Use Section 11 weekly active users and the prior-period comparison, and quote the percentages.”
+- “What are the three most important things to know about {Customer}’s usage this window? Cite the section for each.”
+
+**Sites & business units**
+
+- “How many active sites does {Customer} have vs how many are provisioned? (Sections 1 / 2)”
+- “From Section 2.1, rank business units by active sites and events, and name the top site in each.”
+- “In Section 13.1, which sites are declining most vs the prior period? Group them by business unit.”
+- “Which active sites have many visitors but low events (possible adoption gaps)? (Section 2 / 13.1)”
+- “Summarize {Customer}’s footprint by business unit for a QBR slide: sites, visitors, and events per unit (Section 2.1).”
+
+**Adoption & whitespace**
+
+- “From Section 4 (core feature checklist), which expected capabilities are not adopted or are declining?”
+- “What are the top unused features in Section 5, and which look like real expansion or enablement opportunities?”
+- “Which pages and features drive the most usage? (Section 3) What does that say about how they use the product?”
+- “Given the write ratio in Section 6, are users running operations in the product or just reading dashboards?”
+
+**People & champions**
+
+- “List champions and at-risk users from Section 7 with their roles and last-visit dates.”
+- “From Section 14, who are the 10 most active users, and what roles and business units are they in?”
+- “Which business unit (Primary BU) do the most active users belong to? (Section 14)”
+- “Who are the at-risk users we should re-engage, and which sites are they on? (Sections 7 / 13.2 / 14)”
+
+**Friction & support risk**
+
+- “Where is the most user friction? Summarize Section 9 (rage / dead / error / U-turn) by page.”
+- “Does export behavior in Section 8 suggest users are working outside the product? Who are the heaviest exporters?”
+- “Is there onboarding friction? Check the guide-dismiss signal in Section 12.”
+
+**Detailed-variant power prompts (§13–§14)**
+
+- “Build a per-site scorecard for {business unit}: from Section 13.1 list each site’s visitors, events, dormant count, and change vs prior period.”
+- “Cross-reference Section 13.1 and Section 14: for the top declining sites, name the active users we should reach out to.”
+- “For {Customer}, draft a QBR usage narrative using Sections 1, 2.1, 11, and 12 — highlight growth, decline, and business-unit spread.”
 
 ### Rules to avoid wrong answers (Pendo export)
 
@@ -265,7 +322,7 @@ cortex --export-pendo-top-arr --top-n 5 --days 30
 
 Scheduled jobs include `ford-pendo-7d`, `ford-pendo-30d`, `carrier-pendo-detailed-30d`, and `pendo-top-arr-30d`. Add `--no-drive` to write locally only; `-o` / `--out-dir` set local paths.
 
-Business units for §2.1 / §13.1 come from `config/pendo_site_bu_map.yaml` (per Pendo prefix); customers with no entry simply omit the business-unit column and §2.1. `CORTEX_PENDO_SITE_DETAIL_USER_SITES` (default 20) caps how many top sites get a per-site user table in §13.2.
+Business units for §2.1 / §13.1 come from `config/pendo_site_bu_map.yaml` (per Pendo prefix); customers with no entry simply omit the business-unit column and §2.1. Each rule carries a `confidence` (`high` = the site name self-labels its division; `inferred` = a location/brand guess); unmatched sites fall to the `default_business_unit` (`Unmapped — needs review`). Sites resolving to `inferred` or the default are surfaced every run (export log warning + §2.1 Confidence note) and collected in `docs/DATA-GOVERNANCE/BUSINESS_UNIT_MAPPING_REVIEW.md` for periodic CS review. For customers whose CS Report is split by division (e.g. Safran), `python scripts/build_csr_bu_map.py --customer <name> --live` joins Pendo sites to the CS Report factory list and prints an authoritative, CSR-confirmed rules fragment plus a coverage report to refresh the map. Safran is validated; **Carrier, Spirit, and Bombardier are provisional** (all rules `inferred`) pending CS-confirmed taxonomy. `CORTEX_PENDO_SITE_DETAIL_USER_SITES` (default 20) caps how many top sites get a per-site user table in §13.2.
 
 Drive output (per customer): `Output/Customer Exports/{Customer}/` persistent markdown + spreadsheet, plus matching copies under `Historical Data/{today}/`.
 

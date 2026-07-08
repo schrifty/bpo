@@ -55,6 +55,27 @@ def _md_cell(value: Any) -> str:
     return text.replace("|", "\\|").replace("\n", " ").strip()
 
 
+def _customer_is_bu_mapped(customer_prefix: str) -> bool:
+    """True when the customer has a business-unit mapping (empty name yields the default BU)."""
+    return resolve_site_business_unit(customer_prefix, "") is not None
+
+
+def _primary_business_unit(customer_prefix: str, sites: list[str] | None) -> str | None:
+    """Most common business unit across a user's sites (mode; first-seen tie-break)."""
+    counts: dict[str, int] = {}
+    order: list[str] = []
+    for site in sites or []:
+        bu = resolve_site_business_unit(customer_prefix, str(site or ""))
+        if not bu:
+            continue
+        if bu not in counts:
+            order.append(bu)
+        counts[bu] = counts.get(bu, 0) + 1
+    if not counts:
+        return None
+    return max(order, key=lambda bu: (counts[bu], -order.index(bu)))
+
+
 def _site_users_cap() -> int:
     raw = os.environ.get("CORTEX_PENDO_SITE_USERS_CAP", str(_DEFAULT_SITE_USERS_CAP)).strip()
     try:
@@ -644,19 +665,26 @@ def render_user_roster_markdown(
     cap: int = _DEFAULT_USER_ROSTER_MD_CAP,
     total_visitors: int | None = None,
     roster_scope: str | None = None,
+    customer_prefix: str = "",
 ) -> str:
     if not user_roster:
         return _md_section("14. User roster", "*(No users in roster.)*")
 
+    show_bu = _customer_is_bu_mapped(customer_prefix)
     lines = [
         f"- Roster users: **{len(user_roster)}**"
         + (f" of **{total_visitors}** total visitors" if total_visitors else ""),
     ]
     if roster_scope:
         lines[0] += f" ({roster_scope})"
-    lines.extend(["", "| Email | Role | Sites | Status | Last visit | Days inactive | Events | Minutes | Feature clicks | Δ events % |",
-        "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
-    ])
+    if show_bu:
+        lines.extend(["", "| Email | Role | Primary BU | Sites | Status | Last visit | Days inactive | Events | Minutes | Feature clicks | Δ events % |",
+            "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
+        ])
+    else:
+        lines.extend(["", "| Email | Role | Sites | Status | Last visit | Days inactive | Events | Minutes | Feature clicks | Δ events % |",
+            "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
+        ])
     shown = user_roster[:cap]
     for u in shown:
         sites = ", ".join(u.get("sites") or []) or "—"
@@ -664,8 +692,12 @@ def render_user_roster_markdown(
             sites = sites[:45] + "…"
         pct = u.get("events_pct_change")
         pct_s = f"{pct}" if pct is not None else "n/a"
+        bu_cell = ""
+        if show_bu:
+            bu_cell = f" {_primary_business_unit(customer_prefix, u.get('sites')) or '—'} |"
         lines.append(
-            f"| {u.get('email', '')} | {u.get('role', '')} | {sites} | {u.get('engagement_status', '')} | "
+            f"| {_md_cell(u.get('email'))} | {_md_cell(u.get('role'))} |{bu_cell} {_md_cell(sites)} | "
+            f"{u.get('engagement_status', '')} | "
             f"{u.get('last_visit', '')} | {u.get('days_inactive', '')} | "
             f"{int(u.get('events_current') or 0):,} | {int(u.get('page_minutes_current') or 0):,} | "
             f"{int(u.get('feature_events_current') or 0):,} | {pct_s} |"
@@ -690,6 +722,7 @@ def render_customer_pendo_detailed_markdown(report: dict[str, Any]) -> str:
         report.get("user_roster") or [],
         total_visitors=meta.get("user_roster_total_visitors"),
         roster_scope=meta.get("user_roster_scope"),
+        customer_prefix=customer_prefix,
     )
     return base + "\n\n" + extra.strip() + "\n"
 

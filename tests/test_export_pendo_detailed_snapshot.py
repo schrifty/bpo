@@ -18,6 +18,8 @@ from src.export_pendo_detailed_snapshot import (
     load_top_ultimate_parents_by_arr_for_pendo,
     render_customer_pendo_detailed_markdown,
     render_site_detail_markdown,
+    render_user_roster_markdown,
+    _primary_business_unit,
 )
 from src.job_runner import build_step_argv
 
@@ -276,6 +278,37 @@ def test_render_site_detail_user_sites_cap(monkeypatch) -> None:
     # Only the top site gets a §13.2 user block
     assert "#### Safran Montreal CG1" in md
     assert "#### Safran Tijuana C44" not in md
+
+
+def test_primary_business_unit_picks_mode() -> None:
+    sites = [
+        "Safran Montreal CG1",            # Cabin & Seats
+        "Safran Tijuana C44",             # Cabin & Seats
+        "Safran Electrical and Power Niort",  # Electrical & Power
+    ]
+    assert _primary_business_unit("Safran", sites) == "Cabin & Seats"
+    assert _primary_business_unit("Safran", ["Safran Electrical and Power Niort"]) == "Electrical & Power"
+    # Unmapped customer / no sites -> None
+    assert _primary_business_unit("Ford", ["Ford Dearborn"]) is None
+    assert _primary_business_unit("Safran", []) is None
+
+
+def test_render_user_roster_adds_business_unit_for_mapped_customer() -> None:
+    roster = [
+        {"email": "a@safrangroup.com", "role": "Buyer", "sites": ["Safran Montreal CG1"], "engagement_status": "active_7d", "last_visit": "2026-07-08", "days_inactive": 0.1, "events_current": 100, "page_minutes_current": 10, "feature_events_current": 90, "events_pct_change": 5.0},
+    ]
+    md = render_user_roster_markdown(roster, total_visitors=1, roster_scope="active", customer_prefix="Safran")
+    assert "| Email | Role | Primary BU | Sites |" in md
+    assert "Cabin & Seats" in md
+
+
+def test_render_user_roster_omits_business_unit_for_unmapped_customer() -> None:
+    roster = [
+        {"email": "a@ford.com", "role": "Buyer", "sites": ["Ford Dearborn"], "engagement_status": "active_7d", "last_visit": "2026-07-08", "days_inactive": 0.1, "events_current": 100, "page_minutes_current": 10, "feature_events_current": 90, "events_pct_change": 5.0},
+    ]
+    md = render_user_roster_markdown(roster, total_visitors=1, roster_scope="active", customer_prefix="Ford")
+    assert "Primary BU" not in md
+    assert "| Email | Role | Sites | Status |" in md
 
 
 @patch("src.export_pendo_detailed_snapshot.build_customer_pendo_export_report")

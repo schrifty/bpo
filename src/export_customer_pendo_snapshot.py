@@ -95,8 +95,15 @@ def _load_site_bu_map() -> dict[str, Any]:
     return {"customers": dict(data.get("customers") or {})}
 
 
+_BU_UNMAPPED = "Unmapped — needs review"
+
+
 def _bu_rules_for_customer(customer_prefix: str) -> tuple[list[dict[str, Any]], str] | None:
-    """Return ``(rules, default_business_unit)`` for a customer, or ``None`` if unmapped."""
+    """Return ``(rules, default_business_unit)`` for a customer, or ``None`` if unmapped.
+
+    Each rule carries a ``confidence`` of ``"high"`` (sitename self-labels its division)
+    or ``"inferred"`` (mapped by a location/brand guess that needs confirmation).
+    """
     customers = _load_site_bu_map().get("customers") or {}
     target = str(customer_prefix or "").strip().lower()
     entry = None
@@ -112,27 +119,64 @@ def _bu_rules_for_customer(customer_prefix: str) -> tuple[list[dict[str, Any]], 
             continue
         bu = str(rule.get("business_unit") or "").strip()
         patterns = [str(p) for p in (rule.get("patterns") or []) if str(p).strip()]
+        confidence = str(rule.get("confidence") or "high").strip().lower()
+        if confidence not in ("high", "inferred"):
+            confidence = "high"
         if bu and patterns:
-            rules.append({"business_unit": bu, "patterns": patterns})
-    default_bu = str(entry.get("default_business_unit") or "Unclassified").strip()
+            rules.append({"business_unit": bu, "patterns": patterns, "confidence": confidence})
+    default_bu = str(entry.get("default_business_unit") or _BU_UNMAPPED).strip()
     return rules, default_bu
+
+
+def resolve_site_business_unit_detail(customer_prefix: str, sitename: str) -> tuple[str | None, str]:
+    """Map a sitename to ``(business_unit, confidence)``.
+
+    ``confidence`` is one of:
+      * ``"high"``     — matched a self-labeling rule
+      * ``"inferred"`` — matched a location/brand guess (needs CS confirmation)
+      * ``"none"``     — no rule matched; fell back to the default (needs review)
+      * ``"unmapped_customer"`` — the customer has no mapping (``business_unit`` is ``None``)
+    """
+    resolved = _bu_rules_for_customer(customer_prefix)
+    if resolved is None:
+        return None, "unmapped_customer"
+    rules, default_bu = resolved
+    lowered = str(sitename or "").lower()
+    for rule in rules:
+        if any(pat.lower() in lowered for pat in rule["patterns"]):
+            return rule["business_unit"], rule["confidence"]
+    return default_bu, "none"
 
 
 def resolve_site_business_unit(customer_prefix: str, sitename: str) -> str | None:
     """Map a sitename to a business unit via ``config/pendo_site_bu_map.yaml``.
 
     Returns ``None`` when the customer has no BU mapping configured, so callers can
-    omit the BU column / §2.1 section rather than emit an all-``Unclassified`` view.
+    omit the BU column / §2.1 section rather than emit an all-unmapped view.
     """
-    resolved = _bu_rules_for_customer(customer_prefix)
-    if resolved is None:
-        return None
-    rules, default_bu = resolved
-    lowered = str(sitename or "").lower()
-    for rule in rules:
-        if any(pat.lower() in lowered for pat in rule["patterns"]):
-            return rule["business_unit"]
-    return default_bu
+    bu, _ = resolve_site_business_unit_detail(customer_prefix, sitename)
+    return bu
+
+
+def business_unit_review_sites(
+    customer_prefix: str,
+    active_sites: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Active sites whose business unit is *inferred* or *unmapped* — i.e. need review.
+
+    Returns ``[]`` for unmapped customers. Each item is
+    ``{"sitename", "business_unit", "confidence"}`` with confidence in
+    ``{"inferred", "none"}``.
+    """
+    if _bu_rules_for_customer(customer_prefix) is None:
+        return []
+    out: list[dict[str, Any]] = []
+    for site in active_sites:
+        sitename = str(site.get("sitename") or "")
+        bu, confidence = resolve_site_business_unit_detail(customer_prefix, sitename)
+        if confidence in ("inferred", "none"):
+            out.append({"sitename": sitename, "business_unit": bu, "confidence": confidence})
+    return out
 
 
 def build_business_unit_summary(
@@ -681,6 +725,22 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
         f"- **Window:** {meta.get('window_start')} → {meta.get('window_end')} ({meta.get('days')} days)",
         f"- **Compare window:** prior {meta.get('compare_days', meta.get('days'))} days",
         f"- **Pendo prefix:** `{meta.get('pendo_prefix')}`",
+        "",
+        "**How to read this export**",
+        "- This file is **Pendo usage only** — no contract status, ARR, or churn "
+        "(use the portfolio LLM-context export for those).",
+        "- **Sites** = one row per *active* site (had events in the window); Pendo's "
+        "internal per-entity duplicates are merged. The count of every provisioned site "
+        "(active + idle) is in §1 only.",
+        "- **Visitor counts can overlap across sites** — a user assigned to several sites "
+        "is counted on each — so do **not** sum per-site or per-business-unit visitors to "
+        "get unique headcount; use §1 total visitors for that.",
+        "- When a **business unit** mapping exists for this customer, §2.1 rolls sites up "
+        "by unit and §2 / §13.1 / §14 carry a business-unit column.",
+        "- Sections are numbered (§1 headline; §2 sites, §2.1 business units; §3–§12 "
+        "adoption, people, trends). The **detailed** export adds §13 site detail and §14 "
+        "user roster; the §14 roster is complete in the companion spreadsheet even when "
+        "the markdown table is capped.",
     ]
 
     md = "\n".join(lines) + "\n\n"
@@ -756,6 +816,28 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
             bu_lines.append(
                 f"| {row['business_unit']} | {row['site_count']:,} | {row['visitors']:,} | "
                 f"{row['total_events']:,} | {row['total_minutes']:,} | {row['top_site']} |"
+            )
+        review = business_unit_review_sites(pendo_prefix, active_sites)
+        if review:
+            inferred = sum(1 for r in review if r["confidence"] == "inferred")
+            unmapped = sum(1 for r in review if r["confidence"] == "none")
+            parts: list[str] = []
+            if inferred:
+                parts.append(f"**{inferred}** inferred (location/brand guess, not confirmed)")
+            if unmapped:
+                parts.append(f"**{unmapped}** unmapped")
+            bu_lines.append("")
+            bu_lines.append(
+                f"> **Confidence:** {' · '.join(parts)} of {len(active_sites)} active sites "
+                "need Customer Success confirmation. See "
+                "`docs/DATA-GOVERNANCE/BUSINESS_UNIT_MAPPING_REVIEW.md`."
+            )
+            logger.warning(
+                "Pendo export %s: %d active site(s) have inferred/unmapped business units "
+                "(need CS review): %s",
+                pendo_prefix,
+                len(review),
+                ", ".join(r["sitename"] for r in review[:25]),
             )
         md += _md_section("2.1 Business unit summary", "\n".join(bu_lines))
 

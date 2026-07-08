@@ -11,12 +11,14 @@ from src.export_customer_pendo_snapshot import (
     build_core_feature_checklist,
     build_customer_pendo_export_report,
     build_headline,
+    business_unit_review_sites,
     build_business_unit_summary,
     build_unused_features,
     build_usage_trends,
     merge_active_site_rows,
     render_customer_pendo_markdown,
     resolve_site_business_unit,
+    resolve_site_business_unit_detail,
     resolve_pendo_customer_prefix,
     _activity_aggregate_read_timeout,
     _aggregate_with_retry,
@@ -222,6 +224,8 @@ def test_render_customer_pendo_markdown_includes_sections() -> None:
     )
     assert "# Pendo usage — Ford" in md
     assert "Salesforce" not in md
+    assert "**How to read this export**" in md
+    assert "Visitor counts can overlap across sites" in md
     assert "## 1. Headline" in md
     assert "## 4. Core feature checklist" in md
     assert "## 5. Unused product features" in md
@@ -323,13 +327,47 @@ def test_resolve_site_business_unit_safran_divisions() -> None:
     assert resolve_site_business_unit("Safran", "Safran Electronics and Defense Auxerre") == "Electronics & Defense"
     assert resolve_site_business_unit("Safran", "Safran Aerosystems A1P Chateaudun Production") == "Aerosystems"
     assert resolve_site_business_unit("Safran", "Safran Montreal CG1") == "Cabin & Seats"
-    assert resolve_site_business_unit("Safran", "Safran Astronautics") == "Other / Corporate"
+    # CSR-confirmed corrections: Astronautics is Cabin & Seats; AMX is Electrical & Power
+    assert resolve_site_business_unit("Safran", "Safran Astronautics") == "Cabin & Seats"
+    assert resolve_site_business_unit("Safran", "Safran AMX SM1") == "Electrical & Power"
+    assert resolve_site_business_unit("Safran", "Safran SA Lean Projects") == "Other / Corporate"
     # Case-insensitive prefix match
     assert resolve_site_business_unit("safran", "Safran Montreal CG1") == "Cabin & Seats"
 
 
 def test_resolve_site_business_unit_unmapped_customer_returns_none() -> None:
     assert resolve_site_business_unit("SomeUnmappedCo", "SomeUnmappedCo Plant 1") is None
+
+
+def test_resolve_site_business_unit_detail_reports_confidence() -> None:
+    # Self-labeling division name -> high confidence
+    bu, conf = resolve_site_business_unit_detail("Safran", "Safran Electronics and Defense Auxerre")
+    assert bu == "Electronics & Defense" and conf == "high"
+    # Location-only guess -> inferred
+    bu, conf = resolve_site_business_unit_detail("Safran", "Safran Montreal CG1")
+    assert bu == "Cabin & Seats" and conf == "inferred"
+    # No rule match -> default bucket, confidence "none"
+    bu, conf = resolve_site_business_unit_detail("Safran", "Safran Mystery Plant XYZ")
+    assert bu == "Unmapped — needs review" and conf == "none"
+    # Unmapped customer
+    bu, conf = resolve_site_business_unit_detail("Ford", "Ford Dearborn")
+    assert bu is None and conf == "unmapped_customer"
+
+
+def test_business_unit_review_sites_lists_inferred_and_unmapped() -> None:
+    active = [
+        {"sitename": "Safran Electronics and Defense Auxerre", "total_events": 100},  # high -> excluded
+        {"sitename": "Safran Montreal CG1", "total_events": 90},                       # inferred
+        {"sitename": "Safran Mystery Plant XYZ", "total_events": 5},                   # none
+    ]
+    review = business_unit_review_sites("Safran", active)
+    names = {r["sitename"]: r["confidence"] for r in review}
+    assert names == {
+        "Safran Montreal CG1": "inferred",
+        "Safran Mystery Plant XYZ": "none",
+    }
+    # Unmapped customer -> no review items
+    assert business_unit_review_sites("Ford", active) == []
 
 
 def test_build_business_unit_summary_aggregates_and_sorts() -> None:
@@ -398,6 +436,10 @@ def test_render_pendo_markdown_emits_business_unit_section_for_mapped_customer()
     assert "## 2.1 Business unit summary" in md
     assert "Electrical & Power" in md
     assert "Cabin & Seats" in md
+    # Montreal is a location guess -> confidence footnote surfaces it for CS review
+    assert "**Confidence:**" in md
+    assert "inferred" in md
+    assert "BUSINESS_UNIT_MAPPING_REVIEW.md" in md
     # §2 gains a Business unit column for mapped customers
     assert "| Site | Business unit | Visitors | Events | Minutes | Last active |" in md
     # Headline now labels active vs provisioned
