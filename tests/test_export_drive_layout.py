@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import datetime as dt
 
+import pytest
+
 from src.export_drive_layout import (
     historical_day_folder_label,
     historical_snapshot_filename,
@@ -96,3 +98,63 @@ def test_portfolio_deck_persistent_title_matches_export_pattern() -> None:
     assert portfolio_deck_persistent_title("engineering-portfolio") == (
         "Portfolio - Engineering Review-persistent"
     )
+
+
+def test_ensure_customer_exports_parent_folder_returns_existing(monkeypatch) -> None:
+    from src.export_drive_layout import CUSTOMER_EXPORTS_FOLDER, ensure_customer_exports_parent_folder
+
+    monkeypatch.setattr(
+        "src.drive_config.find_file_in_folder",
+        lambda name, pid, **kwargs: "new-id" if name == CUSTOMER_EXPORTS_FOLDER else None,
+    )
+    created: list[str] = []
+    monkeypatch.setattr(
+        "src.drive_config._find_or_create_folder",
+        lambda name, pid: created.append(name) or "created-id",
+    )
+    monkeypatch.setattr("src.drive_config.rename_drive_file", lambda *_a, **_k: pytest.fail("unexpected"))
+
+    assert ensure_customer_exports_parent_folder("output-root") == "new-id"
+    assert created == []
+
+
+def test_ensure_customer_exports_parent_folder_renames_legacy(monkeypatch) -> None:
+    from src.export_drive_layout import (
+        CUSTOMER_EXPORTS_FOLDER,
+        _LEGACY_CUSTOMER_EXPORTS_FOLDER,
+        ensure_customer_exports_parent_folder,
+    )
+
+    def fake_find(name, pid, **kwargs):
+        if name == CUSTOMER_EXPORTS_FOLDER:
+            return None
+        if name == _LEGACY_CUSTOMER_EXPORTS_FOLDER:
+            return "legacy-id"
+        return None
+
+    monkeypatch.setattr("src.drive_config.find_file_in_folder", fake_find)
+    renames: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "src.drive_config.rename_drive_file",
+        lambda fid, new_name: renames.append((fid, new_name)),
+    )
+    monkeypatch.setattr(
+        "src.drive_config._find_or_create_folder",
+        lambda *_a, **_k: pytest.fail("unexpected"),
+    )
+
+    assert ensure_customer_exports_parent_folder("output-root") == "legacy-id"
+    assert renames == [("legacy-id", CUSTOMER_EXPORTS_FOLDER)]
+
+
+def test_ensure_customer_exports_parent_folder_creates_when_missing(monkeypatch) -> None:
+    from src.export_drive_layout import CUSTOMER_EXPORTS_FOLDER, ensure_customer_exports_parent_folder
+
+    monkeypatch.setattr("src.drive_config.find_file_in_folder", lambda *_a, **_k: None)
+    monkeypatch.setattr("src.drive_config.rename_drive_file", lambda *_a, **_k: pytest.fail("unexpected"))
+    monkeypatch.setattr(
+        "src.drive_config._find_or_create_folder",
+        lambda name, pid: "created-id" if name == CUSTOMER_EXPORTS_FOLDER and pid == "output-root" else pytest.fail("unexpected"),
+    )
+
+    assert ensure_customer_exports_parent_folder("output-root") == "created-id"

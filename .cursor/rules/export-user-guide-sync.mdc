@@ -38,7 +38,7 @@ Update the guide when a change affects anything a reader or LLM consumer would n
 **Drive layout (all exports)**
 
 - **Persistent** vs **Historical Data/{date}/** dual-write paths
-- Portfolio root (`Output/`) vs per-customer (`Output/customer-exports/{Customer}/`)
+- Portfolio root (`Output/`) vs per-customer (`Output/Customer Exports/{Customer}/`)
 - Monthly archive rollup under `Historical Data/{YYYY-MM}/`
 - Scheduled **job names** or default windows when operators rely on them
 
@@ -66,5 +66,5 @@ Before marking export work done, confirm the user guide still matches:
 
 1. **Portfolio LLM** — section map, status/ARR rules, caps, portfolio example prompts
 2. **Per-customer Pendo** — section map (incl. detailed extras), spreadsheet note, Pendo example prompts
-3. **Drive layout** — persistent filenames, historical day folders, portfolio vs `customer-exports` bases
+3. **Drive layout** — persistent filenames, historical day folders, portfolio vs `Customer Exports` bases
 4. At least one prompt example for any **new or materially changed** section

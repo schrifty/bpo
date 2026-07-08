@@ -27,7 +27,6 @@ from .pendo_client import PendoClient, _name_matches, _time_series
 from .signals_trends import _snapshot_metrics
 
 _PROFILE_ID = "customer_pendo_export"
-_CUSTOMER_EXPORTS_FOLDER = "customer-exports"
 _MS_PER_DAY = 86_400_000
 
 
@@ -793,7 +792,7 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
 
 
 def ensure_customer_pendo_export_folders(customer: str) -> dict[str, str]:
-    """Return persistent and historical folder ids under Output/customer-exports/{customer}/."""
+    """Return persistent and historical folder ids under Output/Customer Exports/{customer}/."""
     from .export_drive_layout import ensure_customer_export_folders
 
     return ensure_customer_export_folders(customer)

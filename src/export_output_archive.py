@@ -1,7 +1,7 @@
 """Prepare Drive export folders: enforce persistent-only export bases + monthly archives.
 
-Export base folders (``Output/`` and ``Output/customer-exports/{customer}/``) may contain
-only ``-persistent`` export files and allowed subfolders (``customer-exports``, ``Historical Data``).
+Export base folders (``Output/`` and ``Output/Customer Exports/{customer}/``) may contain
+only ``-persistent`` export files and allowed subfolders (``Customer Exports``, ``Historical Data``).
 Each export also writes a same-day snapshot under ``Historical Data/{YYYY-MM-DD}/`` (plain stem).
 Prior-month base-folder exports are moved into ``Historical Data/{YYYY-MM}/`` via
 :func:`archive_previous_month_in_folder` at startup. Prior-month day subfolders
@@ -20,12 +20,14 @@ from .config import logger
 from .export_drive_layout import (
     HISTORICAL_DATA_FOLDER,
     PERSISTENT_SUFFIX,
+    CUSTOMER_EXPORTS_FOLDER,
+    _LEGACY_CUSTOMER_EXPORTS_FOLDER,
     _ARCHIVE_MONTH_RE,
-    _CUSTOMER_EXPORTS_FOLDER,
     _DATED_OUTPUT_FOLDER_RE,
     _MIME_FOLDER,
     dated_output_folder_date,
     ensure_customer_export_folders,
+    ensure_customer_exports_parent_folder,
     ensure_historical_data_folder,
     ensure_historical_day_folder,
     ensure_historical_month_folder,
@@ -822,12 +824,12 @@ def migrate_export_folder_to_historical_data(
 
 
 def repair_customer_export_drive_layout(customer: str) -> dict[str, Any]:
-    """Repair one ``customer-exports/{customer}/`` folder (promote persistent, dedupe historical)."""
+    """Repair one ``Customer Exports/{customer}/`` folder (promote persistent, dedupe historical)."""
     folders = ensure_customer_export_folders(customer)
     parent_id = folders["persistent_folder_id"]
     result = migrate_export_folder_to_historical_data(
         parent_id,
-        context=f"{_CUSTOMER_EXPORTS_FOLDER}/{customer}",
+        context=f"{CUSTOMER_EXPORTS_FOLDER}/{customer}",
         portfolio_root=False,
     )
     return {"customer": customer, **result}
@@ -991,7 +993,11 @@ def maybe_migrate_export_layout_on_startup(*, force: bool = False) -> dict[str, 
     try:
         root_result = _archive_export_base_on_startup(
             root_id,
-            skip_folder_names=frozenset({_CUSTOMER_EXPORTS_FOLDER, HISTORICAL_DATA_FOLDER}),
+            skip_folder_names=frozenset({
+                CUSTOMER_EXPORTS_FOLDER,
+                _LEGACY_CUSTOMER_EXPORTS_FOLDER,
+                HISTORICAL_DATA_FOLDER,
+            }),
             context=QBR_OUTPUT_SUBFOLDER,
             portfolio_root=True,
         )
@@ -999,7 +1005,7 @@ def maybe_migrate_export_layout_on_startup(*, force: bool = False) -> dict[str, 
         summary["moved_count"] += len(root_result.get("moved") or [])
         summary["trashed_folder_count"] += len(root_result.get("trashed_folders") or [])
 
-        customer_exports_id = _find_folder_in_parent(_CUSTOMER_EXPORTS_FOLDER, root_id)
+        customer_exports_id = ensure_customer_exports_parent_folder(root_id)
         if customer_exports_id:
             for customer_folder in _list_folder_children(customer_exports_id):
                 if str(customer_folder.get("mimeType") or "") != _MIME_FOLDER:
@@ -1010,7 +1016,7 @@ def maybe_migrate_export_layout_on_startup(*, force: bool = False) -> dict[str, 
                 cust_result = _archive_export_base_on_startup(
                     str(customer_folder["id"]),
                     skip_folder_names=frozenset({HISTORICAL_DATA_FOLDER}),
-                    context=f"{_CUSTOMER_EXPORTS_FOLDER}/{customer_name}",
+                    context=f"{CUSTOMER_EXPORTS_FOLDER}/{customer_name}",
                     portfolio_root=False,
                 )
                 summary["customer_exports"].append({"customer": customer_name, **cust_result})

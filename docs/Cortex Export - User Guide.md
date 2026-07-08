@@ -165,16 +165,17 @@ This export is **Pendo only** — no Jira, Salesforce, or CS Report sections. Us
 
 ### Where it lives on Drive
 
-Per-customer exports live under **`Output/customer-exports/{Customer}/`**, not in the portfolio `Output/` root:
+Per-customer exports live under **`Output/Customer Exports/{Customer}/`**, not in the portfolio `Output/` root:
 
 ```
-Output/customer-exports/Ford/
-  Pendo Export  (Ford, 30d)-persistent.md      ← bookmarkable current export
-  Pendo Export  (Ford, 30d)-persistent         ← spreadsheet (same stem)
-  Historical Data/
-    2026-07-07/
-      Pendo Export  (Ford, 30d).md
-      Pendo Export  (Ford, 30d)                ← spreadsheet snapshot
+Output/Customer Exports/
+  Ford/
+    Pendo Export  (Ford, 30d)-persistent.md      ← bookmarkable current export
+    Pendo Export  (Ford, 30d)-persistent         ← spreadsheet (same stem)
+    Historical Data/
+      2026-07-07/
+        Pendo Export  (Ford, 30d).md
+        Pendo Export  (Ford, 30d)                ← spreadsheet snapshot
 ```
 
 Prior-month day folders under **Historical Data** are rolled into monthly buckets (`Historical Data/2026-06/…`) automatically at startup, same as portfolio exports.
@@ -220,11 +221,11 @@ All Cortex exports under the QBR generator use the same pattern:
 
 | Role | Location | Filename pattern |
 |------|----------|------------------|
-| **Bookmarkable “current” export** | Portfolio: `Output/` root · Per-customer Pendo: `Output/customer-exports/{Customer}/` | `{stem}-persistent` (+ `.md` for markdown) |
+| **Bookmarkable “current” export** | Portfolio: `Output/` root · Per-customer Pendo: `Output/Customer Exports/{Customer}/` | `{stem}-persistent` (+ `.md` for markdown) |
 | **Same-day historical snapshot** | `…/Historical Data/{YYYY-MM-DD}/` | Plain `{stem}` (no `-persistent`) |
 | **Prior-month archives** | `…/Historical Data/{YYYY-MM}/{YYYY-MM-DD}/` | Rolled up at process startup |
 
-**Portfolio exports** (`export-all`, engineering portfolio deck) use `Output/` as the persistent base. **Per-customer Pendo** uses each customer’s folder under `customer-exports/`.
+**Portfolio exports** (`export-all`, engineering portfolio deck) use `Output/` as the persistent base. **Per-customer Pendo** uses each customer’s folder under `Customer Exports/`.
 
 This user guide is also published to **`Output/Cortex Export - User Guide.md`** on Cortex startup when the repo copy is newer than Drive or missing there. It is not archived into `Historical Data/` with export snapshots.
 
@@ -254,6 +255,6 @@ cortex --export-pendo-top-arr --top-n 5 --days 30
 
 Scheduled jobs include `ford-pendo-7d`, `ford-pendo-30d`, `carrier-pendo-detailed-30d`, and `pendo-top-arr-30d`. Add `--no-drive` to write locally only; `-o` / `--out-dir` set local paths.
 
-Drive output (per customer): `Output/customer-exports/{Customer}/` persistent markdown + spreadsheet, plus matching copies under `Historical Data/{today}/`.
+Drive output (per customer): `Output/Customer Exports/{Customer}/` persistent markdown + spreadsheet, plus matching copies under `Historical Data/{today}/`.
 
 For field definitions and integration details, see [`DATA_DICTIONARY.md`](./DATA-GOVERNANCE/DATA_DICTIONARY.md) and [`SALESFORCE_REVENUE_AND_ARR.md`](./DATA-GOVERNANCE/SALESFORCE_REVENUE_AND_ARR.md).

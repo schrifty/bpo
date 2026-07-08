@@ -6,6 +6,7 @@ import datetime as dt
 
 import pytest
 
+from src.export_drive_layout import CUSTOMER_EXPORTS_FOLDER, _LEGACY_CUSTOMER_EXPORTS_FOLDER
 from src.export_output_archive import (
     _MIME_FOLDER,
     archive_previous_month_day_folders_in_historical_data,
@@ -33,12 +34,20 @@ def test_item_month_key_from_modified_time() -> None:
 
 
 def test_should_archive_skips_customer_exports_and_archive_folders() -> None:
+    skip = frozenset({CUSTOMER_EXPORTS_FOLDER, _LEGACY_CUSTOMER_EXPORTS_FOLDER})
     assert not should_archive_item(
-        "customer-exports",
+        CUSTOMER_EXPORTS_FOLDER,
         "2026-06-01T00:00:00.000Z",
         mime_type=_MIME_FOLDER,
         archive_month="2026-06",
-        skip_names=frozenset({"customer-exports"}),
+        skip_names=skip,
+    )
+    assert not should_archive_item(
+        _LEGACY_CUSTOMER_EXPORTS_FOLDER,
+        "2026-06-01T00:00:00.000Z",
+        mime_type=_MIME_FOLDER,
+        archive_month="2026-06",
+        skip_names=skip,
     )
     assert not should_archive_item(
         "2026-06",
@@ -89,7 +98,7 @@ def test_archive_previous_month_in_folder_moves_qualifying_children(monkeypatch)
                 },
                 {
                     "id": "f3",
-                    "name": "customer-exports",
+                    "name": CUSTOMER_EXPORTS_FOLDER,
                     "mimeType": _MIME_FOLDER,
                     "modifiedTime": "2026-06-01T00:00:00.000Z",
                 },
@@ -114,7 +123,7 @@ def test_archive_previous_month_in_folder_moves_qualifying_children(monkeypatch)
     result = archive_previous_month_in_folder(
         parent_id,
         "2026-06",
-        skip_names=frozenset({"customer-exports"}),
+        skip_names=frozenset({CUSTOMER_EXPORTS_FOLDER, _LEGACY_CUSTOMER_EXPORTS_FOLDER}),
     )
     assert [m["id"] for m in result["moved"]] == ["f1"]
     assert calls == [("f1", parent_id, archive_id)]
@@ -193,8 +202,8 @@ def test_maybe_migrate_walks_customer_exports(monkeypatch) -> None:
         fake_archive,
     )
     monkeypatch.setattr(
-        "src.export_output_archive._find_folder_in_parent",
-        lambda name, pid: "customer-exports-id" if name == "customer-exports" and pid == "output-root" else None,
+        "src.export_output_archive.ensure_customer_exports_parent_folder",
+        lambda pid: "customer-exports-id" if pid == "output-root" else pytest.fail("unexpected"),
     )
     monkeypatch.setattr(
         "src.export_output_archive._list_folder_children",

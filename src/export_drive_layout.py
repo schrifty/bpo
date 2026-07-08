@@ -18,7 +18,8 @@ from .config import logger
 
 HISTORICAL_DATA_FOLDER = "Historical Data"
 PERSISTENT_SUFFIX = "-persistent"
-_CUSTOMER_EXPORTS_FOLDER = "customer-exports"
+CUSTOMER_EXPORTS_FOLDER = "Customer Exports"
+_LEGACY_CUSTOMER_EXPORTS_FOLDER = "customer-exports"
 _DATED_OUTPUT_FOLDER_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) - Output$")
 _ARCHIVE_MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
 _HISTORICAL_DAY_FOLDER_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -200,7 +201,7 @@ def dated_output_folder_date(name: str) -> dt.date | None:
         return None
 
 
-PORTFOLIO_EXPORT_BASE_ALLOWED_SUBFOLDERS = frozenset({_CUSTOMER_EXPORTS_FOLDER, HISTORICAL_DATA_FOLDER})
+PORTFOLIO_EXPORT_BASE_ALLOWED_SUBFOLDERS = frozenset({CUSTOMER_EXPORTS_FOLDER, HISTORICAL_DATA_FOLDER})
 CUSTOMER_EXPORT_BASE_ALLOWED_SUBFOLDERS = frozenset({HISTORICAL_DATA_FOLDER})
 
 
@@ -216,6 +217,8 @@ def is_allowed_export_base_subfolder(name: str, *, portfolio_root: bool) -> bool
         else CUSTOMER_EXPORT_BASE_ALLOWED_SUBFOLDERS
     )
     if name in allowed:
+        return True
+    if portfolio_root and name == _LEGACY_CUSTOMER_EXPORTS_FOLDER:
         return True
     if portfolio_root and dated_output_folder_date(name) == dt.date.today():
         return True
@@ -242,8 +245,28 @@ def is_legacy_dated_output_folder(name: str, *, today: dt.date | None = None) ->
     return False
 
 
+def ensure_customer_exports_parent_folder(parent_id: str) -> str:
+    """Return ``Customer Exports`` folder id under ``parent_id``, renaming legacy ``customer-exports``."""
+    from .drive_config import _find_or_create_folder, find_file_in_folder, rename_drive_file
+
+    existing = find_file_in_folder(CUSTOMER_EXPORTS_FOLDER, parent_id, mime_type=_MIME_FOLDER)
+    if existing:
+        return existing
+    legacy = find_file_in_folder(_LEGACY_CUSTOMER_EXPORTS_FOLDER, parent_id, mime_type=_MIME_FOLDER)
+    if legacy:
+        rename_drive_file(legacy, CUSTOMER_EXPORTS_FOLDER)
+        logger.info(
+            "Renamed Drive folder %r → %r under parent %s",
+            _LEGACY_CUSTOMER_EXPORTS_FOLDER,
+            CUSTOMER_EXPORTS_FOLDER,
+            parent_id[:12],
+        )
+        return legacy
+    return _find_or_create_folder(CUSTOMER_EXPORTS_FOLDER, parent_id)
+
+
 def ensure_customer_export_folders(customer: str) -> dict[str, str]:
-    """Return persistent (account) and historical root folder ids under customer-exports."""
+    """Return persistent (account) and historical root folder ids under Customer Exports."""
     from .drive_config import _find_or_create_folder, get_qbr_output_root_folder_id
 
     root = get_qbr_output_root_folder_id()
@@ -251,13 +274,13 @@ def ensure_customer_export_folders(customer: str) -> dict[str, str]:
         raise RuntimeError(
             "Could not resolve Drive Output folder (set GOOGLE_QBR_GENERATOR_FOLDER_ID)."
         )
-    customer_exports = _find_or_create_folder(_CUSTOMER_EXPORTS_FOLDER, root)
+    customer_exports = ensure_customer_exports_parent_folder(root)
     account_folder = _find_or_create_folder(customer, customer_exports)
     historical_id = ensure_historical_data_folder(account_folder)
     return {
         "persistent_folder_id": account_folder,
         "historical_folder_id": historical_id,
-        "base_label": f"customer-exports/{customer}",
+        "base_label": f"{CUSTOMER_EXPORTS_FOLDER}/{customer}",
     }
 
 
