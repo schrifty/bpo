@@ -238,7 +238,7 @@ SLACK_API_BASE_URL = (
     or "https://slack.com/api"
 )
 try:
-    CORTEX_SLACK_LOOKBACK_DAYS = max(1, min(int(os.environ.get("CORTEX_SLACK_LOOKBACK_DAYS", "30").strip()), 90))
+    CORTEX_SLACK_LOOKBACK_DAYS = max(1, min(int(os.environ.get("CORTEX_SLACK_LOOKBACK_DAYS", "30").strip()), 180))
 except ValueError:
     CORTEX_SLACK_LOOKBACK_DAYS = 30
 try:
@@ -246,9 +246,33 @@ try:
 except ValueError:
     CORTEX_SLACK_MAX_CHANNELS_PER_CUSTOMER = 5
 try:
-    CORTEX_SLACK_MAX_MESSAGES_PER_CHANNEL = max(5, min(int(os.environ.get("CORTEX_SLACK_MAX_MESSAGES_PER_CHANNEL", "50").strip()), 200))
+    CORTEX_SLACK_MAX_MESSAGES_PER_CHANNEL = max(5, min(int(os.environ.get("CORTEX_SLACK_MAX_MESSAGES_PER_CHANNEL", "50").strip()), 5000))
 except ValueError:
     CORTEX_SLACK_MAX_MESSAGES_PER_CHANNEL = 50
+try:
+    CORTEX_LLM_EXPORT_SLACK_LOOKBACK_DAYS = max(
+        1, min(int(os.environ.get("CORTEX_LLM_EXPORT_SLACK_LOOKBACK_DAYS", "180").strip()), 180)
+    )
+except ValueError:
+    CORTEX_LLM_EXPORT_SLACK_LOOKBACK_DAYS = 180
+try:
+    CORTEX_LLM_EXPORT_SLACK_MAX_MESSAGES_PER_CHANNEL = max(
+        50,
+        min(int(os.environ.get("CORTEX_LLM_EXPORT_SLACK_MAX_MESSAGES_PER_CHANNEL", "2000").strip()), 5000),
+    )
+except ValueError:
+    CORTEX_LLM_EXPORT_SLACK_MAX_MESSAGES_PER_CHANNEL = 2000
+try:
+    _slack_cache_hours = float(os.environ.get("CORTEX_SLACK_CACHE_TTL_HOURS", "23").strip())
+except ValueError:
+    _slack_cache_hours = 23.0
+CORTEX_SLACK_CACHE_TTL_SECONDS = max(0, int(_slack_cache_hours * 3600))
+if os.environ.get("CORTEX_SLACK_CACHE_DISABLED", "").strip().lower() in ("1", "true", "yes", "on"):
+    CORTEX_SLACK_CACHE_TTL_SECONDS = 0
+CORTEX_SLACK_AUTO_JOIN_PUBLIC_CHANNELS = (
+    os.environ.get("CORTEX_SLACK_AUTO_JOIN_PUBLIC_CHANNELS", "true").strip().lower()
+    not in ("0", "false", "no", "off")
+)
 
 # Salesforce (JWT Bearer Flow: Connected App + private key)
 # SF_LOGIN_URL: https://login.salesforce.com (prod) or https://test.salesforce.com (sandbox)

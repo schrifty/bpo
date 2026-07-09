@@ -2,7 +2,51 @@
 # Schema: { "<customer_key>": [ "<channel name fragment>", ... ] }  (keys case-insensitive)
 # Used by: Slack channel matching (substring + word boundaries). See CONFIG_ALIASES.md.
 #
-# Example:
-# JCI:
-#   - johnson-controls
-#   - jci-support
+# Seeded 2026-07-08 from live conversations.list (100 unique public channels visible to the bot).
+# Keys use csr_lookup_name (Pendo prefix when mapped) plus common Salesforce ultimate-parent labels.
+#
+# Top-10 ARR pilot coverage from public inventory:
+#   Johnson Controls (lookup JCI) — johnson-controls
+#   Spirit — spirit, spirit-data-load, spirit-implementation
+#   Bombardier — bombardier-migration, bombardier_abm
+# No public *ford*, *safran*, *carrier*, *modine*, *daikin*, *ge*, or *mercury* channels in inventory;
+# those customers likely use private channels or names the bot cannot see until invited.
+
+JCI:
+  - johnson-controls
+Johnson:
+  - johnson-controls
+Johnson Controls:
+  - johnson-controls
+
+Spirit:
+  - spirit
+  - spirit-data-load
+  - spirit-implementation
+
+Bombardier:
+  - bombardier-migration
+  - bombardier_abm
+
+# Other customer-adjacent public channels (not top-10 pilot; safe explicit aliases).
+Dover:
+  - dover-implementation
+  - dover_abm
+Collins:
+  - collins_aerospace_abm
+Thales:
+  - thales-extract
+Esterline:
+  - esterline_abm
+Gulfstream:
+  - gd_gulfstream_abm
+"L3 Harris":
+  - l3_harris_abm
+  - l3harrisbrief
+Textron:
+  - textron_abm
+GKN:
+  - gkn_aerospace_abm
+EnerSys:
+  - enersys-implement
+  - enersyswarrensbug

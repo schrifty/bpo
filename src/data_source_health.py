@@ -9,6 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from .config import (
+    JIRA_API_TOKEN,
+    JIRA_URL,
     PENDO_INTEGRATION_KEY,
     SF_LOGIN_URL,
     SF_CONSUMER_KEY,
@@ -105,32 +107,14 @@ def check_slack() -> tuple[bool, str | None]:
         return False, f"Slack: {str(e)[:120]}"
 
 
-def check_all_required() -> list[str]:
-    """Run preflight on Pendo, Salesforce (if configured), GitHub/Slack (if configured), and CS Report.
-
-    Returns a list of error messages. If empty, all required sources are up; otherwise
-    the caller should abort and print these messages.
-    """
-    errors: list[str] = []
-    for name, check_fn in (
-        ("Pendo", check_pendo),
-        ("Salesforce", check_salesforce),
-        ("GitHub", check_github),
-        ("Slack", check_slack),
-        ("CS Report", check_cs_report),
-    ):
-        ok, msg = check_fn()
-        if not ok and msg:
-            errors.append(msg)
-    return errors
+def _jira_configured() -> bool:
+    return bool(JIRA_URL and JIRA_API_TOKEN)
 
 
-def check_jira_backed_deck_required() -> list[str]:
-    """Preflight for Jira-backed portfolio decks (Jira required)."""
-    from .config import JIRA_API_TOKEN, JIRA_URL
-
-    if not (JIRA_URL and JIRA_API_TOKEN):
-        return ["Jira: JIRA_URL and JIRA_API_TOKEN must be set"]
+def check_jira() -> tuple[bool, str | None]:
+    """Return (True, None) if Jira credentials are set and ``/rest/api/3/myself`` succeeds."""
+    if not _jira_configured():
+        return False, "Jira: JIRA_URL and JIRA_API_TOKEN must be set"
     try:
         import requests
 
@@ -143,21 +127,62 @@ def check_jira_backed_deck_required() -> list[str]:
             timeout=30,
         )
         resp.raise_for_status()
-        return []
+        return True, None
     except Exception as e:
         logger.warning("Jira preflight failed: %s", e)
-        return [f"Jira: {str(e)[:120]}"]
+        return False, f"Jira: {str(e)[:120]}"
+
+
+_PREFLIGHT_SOURCES_DEFAULT = ("pendo", "salesforce", "github", "slack", "cs_report")
+_JIRA_BACKED_DECK_PREFLIGHT_SOURCES = ("jira", "github")
+
+
+def _run_preflight(source: str) -> tuple[bool, str | None]:
+    if source == "pendo":
+        return check_pendo()
+    if source == "salesforce":
+        return check_salesforce()
+    if source == "github":
+        return check_github()
+    if source == "slack":
+        return check_slack()
+    if source == "cs_report":
+        return check_cs_report()
+    if source == "jira":
+        return check_jira()
+    raise ValueError(f"unknown preflight source {source!r}")
+
+
+def check_all_required(*, sources: tuple[str, ...] | None = None) -> list[str]:
+    """Run preflight on the requested integrations.
+
+    Default: Pendo, Salesforce (if configured), GitHub/Slack (if configured), CS Report.
+    Pass ``sources`` to scope checks (e.g. Jira-backed decks use ``jira`` + ``github`` only).
+    """
+    errors: list[str] = []
+    for key in sources or _PREFLIGHT_SOURCES_DEFAULT:
+        ok, msg = _run_preflight(key)
+        if not ok and msg:
+            errors.append(msg)
+    return errors
+
+
+def check_jira_backed_deck_required() -> list[str]:
+    """Preflight for engineering-portfolio and implementations_review (Jira primary; GitHub optional)."""
+    return check_all_required(sources=_JIRA_BACKED_DECK_PREFLIGHT_SOURCES)
 
 
 def integration_freshness_metadata() -> dict[str, object]:
     """Integration configuration and cache freshness for run summaries / unattended gates."""
     from .config import (
         CORTEX_SALESFORCE_CACHE_TTL_SECONDS,
+        CORTEX_SLACK_CACHE_TTL_SECONDS,
         CURSOR_ADMIN_API_KEY,
         GITHUB_TOKEN,
         SF_CONSUMER_KEY,
         SF_LOGIN_URL,
         SF_USERNAME,
+        SLACK_BOT_TOKEN,
     )
     from .salesforce_client import salesforce_read_cache_age_hours
 
@@ -168,6 +193,8 @@ def integration_freshness_metadata() -> dict[str, object]:
         "ai_productivity_configured": bool(GITHUB_TOKEN and CURSOR_ADMIN_API_KEY),
         "salesforce_configured": sf_configured,
         "salesforce_cache_ttl_h": round(CORTEX_SALESFORCE_CACHE_TTL_SECONDS / 3600.0, 2),
+        "slack_configured": bool(SLACK_BOT_TOKEN),
+        "slack_cache_ttl_h": round(CORTEX_SLACK_CACHE_TTL_SECONDS / 3600.0, 2),
     }
     age_h = salesforce_read_cache_age_hours()
     if age_h is not None:

@@ -30,16 +30,18 @@ def test_name_matches_customer_word_boundary():
 def test_match_channels_for_customer_uses_aliases():
     reset_slack_channel_cache()
     channels = [
-        {"id": "C1", "name": "random"},
-        {"id": "C2", "name": "johnson-controls-cs"},
+        {"id": "C1", "name": "random", "is_private": False},
+        {"id": "C2", "name": "johnson-controls-cs", "is_private": False},
+        {"id": "C3", "name": "dover-implementation", "is_private": False},
     ]
     with patch("src.slack_client._list_channels", return_value=channels), patch(
         "src.slack_client._load_slack_alias_map",
-        return_value={"jci": ["johnson-controls"]},
+        return_value={"jci": ["johnson-controls"], "spirit": ["spirit-implementation"]},
     ):
         matched = match_channels_for_customer("JCI")
-    assert len(matched) == 1
-    assert matched[0]["name"] == "johnson-controls-cs"
+        spirit_matched = match_channels_for_customer("Spirit")
+    assert [c["name"] for c in matched] == ["johnson-controls-cs"]
+    assert [c["name"] for c in spirit_matched] == []
 
 
 def test_check_slack_api_ok():
@@ -80,3 +82,99 @@ def test_check_slack_api_failure():
         ok, msg = check_slack_api()
     assert ok is False
     assert msg and "invalid_auth" in msg
+
+
+def test_slack_api_read_methods_use_disk_cache():
+    from src import slack_client, slack_cache
+
+    slack_cache.clear_slack_cache_for_tests()
+    resp = MagicMock()
+    resp.json.return_value = {"ok": True, "channels": [{"id": "C1", "name": "acme"}]}
+    resp.raise_for_status.return_value = None
+    with patch("src.slack_client.SLACK_BOT_TOKEN", "xoxb-test"), patch(
+        "src.slack_client.CORTEX_SLACK_CACHE_TTL_SECONDS", 3600
+    ), patch("src.slack_client.requests.post", return_value=resp) as post:
+        first = slack_client._slack_api("conversations.list", params={"limit": 200})
+        second = slack_client._slack_api("conversations.list", params={"limit": 200})
+    assert first == second
+    # Second identical read is served from disk cache — only one network call.
+    assert post.call_count == 1
+    slack_cache.clear_slack_cache_for_tests()
+
+
+def test_slack_api_never_caches_auth_test():
+    from src import slack_client, slack_cache
+
+    slack_cache.clear_slack_cache_for_tests()
+    resp = MagicMock()
+    resp.json.return_value = {"ok": True, "team": "T"}
+    resp.raise_for_status.return_value = None
+    with patch("src.slack_client.SLACK_BOT_TOKEN", "xoxb-test"), patch(
+        "src.slack_client.CORTEX_SLACK_CACHE_TTL_SECONDS", 3600
+    ), patch("src.slack_client.requests.post", return_value=resp) as post:
+        slack_client._slack_api("auth.test")
+        slack_client._slack_api("auth.test")
+    # Preflight must always hit the live API — never cached.
+    assert post.call_count == 2
+
+
+def test_list_channels_stops_when_pagination_cursor_repeats():
+    from src import slack_client
+
+    reset_slack_channel_cache()
+    page = {
+        "ok": True,
+        "channels": [{"id": "C1", "name": "acme", "is_private": False, "is_member": False}],
+        "response_metadata": {"next_cursor": "same"},
+    }
+
+    def fake_list(method, *, params=None):
+        assert method == "conversations.list"
+        return page
+
+    with patch("src.slack_client.SLACK_BOT_TOKEN", "xoxb-test"), patch(
+        "src.slack_client._slack_api", side_effect=fake_list
+    ):
+        channels = slack_client._list_channels(force_refresh=True)
+    assert len(channels) == 1
+    assert channels[0]["name"] == "acme"
+
+
+def test_fetch_channel_history_joins_public_channel_on_not_in_channel():
+    from src import slack_client
+
+    channel = {"id": "C1", "name": "acme-cs", "is_private": False, "is_member": False}
+    history = [{"type": "message", "user": "U1", "text": "Hi", "ts": "1710000000.000001"}]
+    calls: list[str] = []
+
+    def fake_api(method, *, params=None):
+        calls.append(method)
+        if method == "conversations.history":
+            if len(calls) == 1:
+                return {"ok": False, "error": "not_in_channel"}
+            return {"ok": True, "messages": history}
+        if method == "conversations.join":
+            return {"ok": True, "channel": {"id": "C1"}}
+        raise AssertionError(method)
+
+    with patch("src.slack_client.SLACK_BOT_TOKEN", "xoxb-test"), patch(
+        "src.slack_client.CORTEX_SLACK_AUTO_JOIN_PUBLIC_CHANNELS", True
+    ), patch("src.slack_client._slack_api", side_effect=fake_api):
+        out = slack_client._fetch_channel_history("C1", oldest=0.0, limit=10, channel=channel)
+    assert out == history
+    assert calls == ["conversations.history", "conversations.join", "conversations.history"]
+    assert channel.get("is_member") is True
+
+
+def test_jci_alias_matches_johnson_controls_channel():
+    import src.slack_client as slack_client
+
+    reset_slack_channel_cache()
+    slack_client._alias_map = None
+    channels = [
+        {"id": "C1", "name": "random", "is_private": False},
+        {"id": "C2", "name": "johnson-controls", "is_private": False},
+    ]
+    with patch("src.slack_client._list_channels", return_value=channels):
+        matched = match_channels_for_customer("JCI")
+    assert [c["name"] for c in matched] == ["johnson-controls"]
