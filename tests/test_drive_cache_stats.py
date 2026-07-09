@@ -36,9 +36,8 @@ def test_drive_cache_breakdown_lines() -> None:
     record_integration_load_attempt(hit=True)
     record_integration_load_attempt(hit=False)
     lines = drive_cache_breakdown_lines()
-    assert lines[0] == "  --- cache hit/miss ---"
-    assert "integration" in lines[1]
-    assert "1 hit" in lines[1] and "1 miss" in lines[1]
+    assert "integration (Drive JSON)" in lines[0]
+    assert "1 hit" in lines[0] and "1 miss" in lines[0]
 
     sf_lines = drive_cache_breakdown_lines(
         sf_comprehensive_summary={

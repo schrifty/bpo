@@ -32,6 +32,10 @@ def test_attach_comprehensive_fetches_per_label(monkeypatch):
         lambda: True,
     )
     monkeypatch.setattr(
+        "src.llm_export_salesforce_comprehensive.llm_export_sf_comprehensive_row_limit",
+        lambda: 8,
+    )
+    monkeypatch.setattr(
         "src.llm_export_salesforce_comprehensive._salesforce_configured",
         lambda: True,
     )

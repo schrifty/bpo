@@ -8,8 +8,8 @@ from src.sf_pendo_reconcile import build_reconcile_report, score_sf_pendo_pair
 
 def test_row_has_pendo_metrics() -> None:
     assert _row_has_pendo_metrics({"total_users": 10})
-    assert not row_metrics({"salesforce_only": True})
-    assert not row_metrics({})
+    assert not _row_has_pendo_metrics({"salesforce_only": True})
+    assert not _row_has_pendo_metrics({})
 
 
 def test_score_subsidiary_entity_name() -> None:

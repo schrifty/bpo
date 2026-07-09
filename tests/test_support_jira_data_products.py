@@ -87,14 +87,72 @@ class _FakeSelectiveJira:
         return {"customer": customer, "recently_opened": [], "recently_closed": []}
 
 
-def test_selective_enrichment_skips_unneeded_fetches(monkeypatch):
-    fake = _FakeSelectiveJira()
+class _FakeSupportJiraClient:
+    base_url = "https://example.atlassian.net"
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, tuple]] = []
+
+    def _record(self, name: str, *args):
+        self.calls.append((name, args))
+
+    def get_customer_ticket_metrics(self, customer):
+        self._record("get_customer_ticket_metrics", customer)
+        return {"customer": customer}
+
+    def get_help_ticket_volume_trends(self, customer):
+        self._record("get_help_ticket_volume_trends", customer)
+        return {"customer": customer, "all": [], "escalated": [], "non_escalated": []}
+
+    def get_help_factory_start_day_buckets(self, customer):
+        self._record("get_help_factory_start_day_buckets", customer)
+        return {"customer": customer, "buckets": []}
+
+    def get_help_monthly_operational_table(self, customer):
+        self._record("get_help_monthly_operational_table", customer)
+        return {"customer": customer, "rows": []}
+
+    def get_help_customer_escalations(self, customer):
+        self._record("get_help_customer_escalations", customer)
+        return {"customer": customer, "tickets": []}
+
+    def get_help_escalation_metrics(self, customer):
+        self._record("get_help_escalation_metrics", customer)
+        return {"customer": customer, "error": "skip LLM in unit test"}
+
+    def get_customer_help_recent_tickets(self, customer, **_kwargs):
+        self._record("get_customer_help_recent_tickets", customer)
+        return {"customer": customer, "recently_opened": [], "recently_closed": []}
+
+    def get_resolved_tickets_by_assignee(self, project, customer, **_kwargs):
+        self._record("get_resolved_tickets_by_assignee", project, customer)
+        return {"project": project, "customer": customer, "by_assignee": [], "total_resolved": 0}
+
+    def get_customer_project_recent_tickets(self, project, customer, **_kwargs):
+        self._record("get_customer_project_recent_tickets", project, customer)
+        return {"project": project, "customer": customer, "recently_opened": [], "recently_closed": []}
+
+    def get_customer_project_open_breakdown(self, project, customer):
+        self._record("get_customer_project_open_breakdown", project, customer)
+        return {"project": project, "customer": customer}
+
+    def get_project_ticket_volume_trends(self, project, customer):
+        self._record("get_project_ticket_volume_trends", project, customer)
+        return {"project": project, "customer": customer, "all": [], "escalated": [], "non_escalated": []}
+
+    def get_project_ticket_metrics(self, project, customer):
+        self._record("get_project_ticket_metrics", project, customer)
+        return {"project": project, "customer": customer}
+
+
+def test_support_enrichment_fetches_full_jira_bundle_for_customer(monkeypatch):
+    fake = _FakeSupportJiraClient()
     monkeypatch.setattr("src.jira_client.get_shared_jira_client", lambda: fake)
 
-    report: dict = {"customer": "Acme"}
-    plan = [{"slide_type": "support_recent_opened", "id": "ro", "title": "Opened"}]
-    deck_data_enrichment.enrich_support_jira_data(report, "Acme", plan)
+    report = {"customer": "Acme"}
+    deck_data_enrichment.enrich_support_jira_data(report, "Acme")
 
-    assert fake.calls == ["get_customer_help_recent_tickets"]
-    assert "customer_help_recent" in report["jira"]
-    assert "customer_ticket_metrics" not in report["jira"]
+    assert report["jira"]["help_ticket_volume_trends"]["customer"] == "Acme"
+    assert report["jira"]["customer_help_recent"]["customer"] == "Acme"
+    assert ("get_help_ticket_volume_trends", ("Acme",)) in fake.calls
+    assert ("get_customer_help_recent_tickets", ("Acme",)) in fake.calls

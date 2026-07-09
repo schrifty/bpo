@@ -1,7 +1,7 @@
 """Pytest configuration and shared fixtures.
 
-Fast pre-push: ``pytest -m "not slow"`` (skips tests marked ``@pytest.mark.slow``,
-see ``pytest.ini``). Run the full ``tests/`` tree before release or in CI.
+Fast pre-push: ``pytest -m "not slow and not jira_live and not leandna_data_api"``
+(see ``pytest.ini``). Run the full ``tests/`` tree before release or in CI.
 """
 import sys
 from pathlib import Path
@@ -30,6 +30,20 @@ def _leandna_data_api_staging_only(request: pytest.FixtureRequest):
 def _disable_speaker_notes_llm_by_default(monkeypatch):
     """Existing speaker-notes tests expect deterministic output without live LLM calls."""
     monkeypatch.setenv("CORTEX_SPEAKER_NOTES_LLM", "false")
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_test_env(monkeypatch):
+    """Keep unit tests independent of developer .env toggles and live integration caches."""
+    monkeypatch.setenv("CORTEX_CURSOR_SLIDES_ONLY", "false")
+    monkeypatch.setenv("CORTEX_CURSOR_CACHE_TTL_SECONDS", "0")
+    monkeypatch.setattr("src.config.CORTEX_CURSOR_SLIDES_ONLY", False)
+    monkeypatch.setattr("src.deck_data_enrichment.CORTEX_CURSOR_SLIDES_ONLY", False)
+    monkeypatch.setattr(
+        "src.integration_drive_cache.integration_drive_cache_reads_enabled",
+        lambda: False,
+    )
+    yield
 
 
 @pytest.fixture(autouse=True)
