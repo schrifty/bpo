@@ -179,6 +179,75 @@ def find_file_in_folder(
     raise RuntimeError("find_file_in_folder: unreachable")  # pragma: no cover
 
 
+def list_files_by_name_in_folder(
+    name: str,
+    parent_id: str,
+    *,
+    mime_type: str | None = None,
+) -> list[dict[str, str]]:
+    """Return non-trashed files matching exact ``name``, newest ``modifiedTime`` first."""
+    esc = _drive_q_escape(name)
+    q = f"name = '{esc}' and '{parent_id}' in parents and trashed = false"
+    if mime_type:
+        q += f" and mimeType = '{_drive_q_escape(mime_type)}'"
+    with drive_api_lock:
+        drive = _get_drive()
+        results = drive.files().list(
+            q=q, fields="files(id, name, modifiedTime)", pageSize=25
+        ).execute()
+        files = results.get("files") or []
+        files.sort(key=lambda x: x.get("modifiedTime") or "", reverse=True)
+        return files
+
+
+def dedupe_duplicate_names_in_folder(parent_id: str, name: str) -> str | None:
+    """Trash duplicate Drive files with the same ``name``; return kept file id (newest)."""
+    files = list_files_by_name_in_folder(name, parent_id)
+    if not files:
+        return None
+    keep_id = str(files[0]["id"])
+    if len(files) == 1:
+        return keep_id
+    with drive_api_lock:
+        drive = _get_drive()
+        for extra in files[1:]:
+            fid = str(extra.get("id") or "")
+            if not fid or fid == keep_id:
+                continue
+            drive.files().update(fileId=fid, body={"trashed": True}).execute()
+            logger.info("Removed duplicate Drive file %r (id=%s)", name, fid)
+    return keep_id
+
+
+def rename_drive_file(file_id: str, new_name: str) -> None:
+    with drive_api_lock:
+        drive = _get_drive()
+        drive.files().update(fileId=file_id, body={"name": new_name}, fields="id,name").execute()
+
+
+def move_drive_file(
+    file_id: str, *, from_parent_id: str, to_parent_id: str, new_name: str | None = None
+) -> None:
+    body: dict[str, Any] = {}
+    if new_name:
+        body["name"] = new_name
+    with drive_api_lock:
+        drive = _get_drive()
+        drive.files().update(
+            fileId=file_id,
+            addParents=to_parent_id,
+            removeParents=from_parent_id,
+            body=body or None,
+            fields="id,name",
+        ).execute()
+
+
+def trash_drive_file(file_id: str) -> None:
+    with drive_api_lock:
+        drive = _get_drive()
+        drive.files().update(fileId=file_id, body={"trashed": True}).execute()
+
+
 def export_google_doc_as_plain_text(file_id: str, *, _max_retries: int = 5) -> str:
     """Export a Google Doc to UTF-8 plain text (retries on rate-limit errors)."""
     import random, time

@@ -1190,6 +1190,12 @@ def _run_run_job_cli(rest: list[str]) -> None:
 
 
 def main():
+    from src.export_output_archive import maybe_archive_previous_month_exports
+    from src.export_user_guide_drive import maybe_sync_export_user_guide_on_startup
+
+    maybe_archive_previous_month_exports()
+    maybe_sync_export_user_guide_on_startup()
+
     # Utility flags and explicit subcommands (``run``, ``cohort``, …)
     if "--data" in sys.argv:
         _run_data_catalog_cli()

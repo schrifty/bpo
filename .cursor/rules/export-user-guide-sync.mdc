@@ -1,0 +1,70 @@
+---
+description: Keep Cortex Export user guide in sync with all export and Drive layout changes
+globs: docs/Cortex Export - User Guide.md,src/export_*.py,src/export_user_guide_drive.py,src/export_drive_layout.py,src/export_output_archive.py,src/deck_orchestrator.py,src/data_sources/llm_export_report.py,config/jobs/export-nightly.yaml,config/jobs/ford-pendo-*.yaml,config/jobs/carrier-pendo-*.yaml,config/jobs/pendo-top-arr-*.yaml,tests/test_export_*.py,tests/test_portfolio_deck_drive_layout.py
+alwaysApply: false
+---
+
+# Export user guide sync
+
+The end-user doc is **`docs/Cortex Export - User Guide.md`**. When **any Cortex export** behavior, layout, or semantics change, update that guide in the **same change**—do not leave it stale.
+
+## Export families covered
+
+| Family | Code / CLI | User guide sections |
+|--------|------------|---------------------|
+| **Portfolio LLM context** | `cortex export-all`, `export-nightly` job · `src/export_llm_context_snapshot.py` | Portfolio LLM context · §1–§7 · status · ARR · portfolio prompts |
+| **Per-customer Pendo** | `cortex --export-pendo`, `--export-pendo-detailed`, `--export-pendo-top-arr` · `src/export_customer_pendo_snapshot.py`, `src/export_pendo_detailed_snapshot.py`, `src/export_pendo_spreadsheet.py` | Per-customer Pendo export · §1–§12 · §13–§14 (detailed) · Pendo prompts |
+| **Shared Drive layout** | `src/export_drive_layout.py`, `src/export_output_archive.py` · portfolio deck placement in `src/deck_orchestrator.py` | Where files live on Drive · For operators (paths) |
+
+## When to update
+
+Update the guide when a change affects anything a reader or LLM consumer would notice:
+
+**Portfolio LLM (`LLM-Context-Portfolio`)**
+
+- Markdown **section numbers, titles, or boundaries** (§1–§7, §3b / §3b-renewal / §3b-future, §3c, §4b, etc.)
+- **What is included or excluded** per section (Pendo, Jira, Salesforce segments, CS Report, Slack, risk insights)
+- **Customer status** vocabulary (`commercial_status`, current book vs churn / renewal / future)
+- **ARR fields** or how customers are **ranked / capped** (top-N, env vars, ultimate-parent grouping)
+- **Coverage / omission** messaging at the top of the export
+
+**Per-customer Pendo (`Pendo Export  (Customer, Nd)`)**
+
+- Pendo export **section numbers or titles** (§1–§12; §13–§14 for detailed)
+- **Markdown vs spreadsheet** pairing, stem/filename pattern, or lookback window in names (`7d`, `30d`)
+- **Customer resolution** behavior (Pendo prefix vs alias) when user-facing
+- Differences between **standard**, **detailed**, and **top-ARR batch** exports
+
+**Drive layout (all exports)**
+
+- **Persistent** vs **Historical Data/{date}/** dual-write paths
+- Portfolio root (`Output/`) vs per-customer (`Output/Customer Exports/{Customer}/`)
+- Monthly archive rollup under `Historical Data/{YYYY-MM}/`
+- Scheduled **job names** or default windows when operators rely on them
+
+**Operators**
+
+- **CLI flags**, default lookback, size caps, or filters (`--customers-sf-allowlist`, `--skip-risk-insights`, `--no-drive`, etc.)
+- New **example prompts** when a section is added or its purpose shifts materially
+
+## What to skip
+
+- Internal refactors with no user-visible export change
+- Test-only or fixture tweaks that do not change export content or Drive placement
+- Technical catalog field paths — those belong in `DATA_DICTIONARY.md`, not the user guide
+- Deck slide content / design — `docs/PRESENTATION/` unless the change only affects export-style Drive filenames or layout documented in the guide
+
+## How to update
+
+- Write for **non-technical readers** (CS, AMs, leadership): plain English, short tables, example AI prompts where helpful
+- Keep operator/CLI details in **For operators** at the end; keep Drive paths in **Where files live on Drive**
+- If the guide is renamed or moved, update links in `docs/DATA-GOVERNANCE/DATA_DICTIONARY.md` and any other docs that reference it in the same change
+
+## Completion check
+
+Before marking export work done, confirm the user guide still matches:
+
+1. **Portfolio LLM** — section map, status/ARR rules, caps, portfolio example prompts
+2. **Per-customer Pendo** — section map (incl. detailed extras), spreadsheet note, Pendo example prompts
+3. **Drive layout** — persistent filenames, historical day folders, portfolio vs `Customer Exports` bases
+4. At least one prompt example for any **new or materially changed** section
