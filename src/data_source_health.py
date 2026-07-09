@@ -125,6 +125,30 @@ def check_all_required() -> list[str]:
     return errors
 
 
+def check_jira_backed_deck_required() -> list[str]:
+    """Preflight for Jira-backed portfolio decks (Jira required)."""
+    from .config import JIRA_API_TOKEN, JIRA_URL
+
+    if not (JIRA_URL and JIRA_API_TOKEN):
+        return ["Jira: JIRA_URL and JIRA_API_TOKEN must be set"]
+    try:
+        import requests
+
+        from .jira_client import get_shared_jira_client
+
+        client = get_shared_jira_client()
+        resp = requests.get(
+            f"{client.api_base_url}/rest/api/3/myself",
+            headers=client._headers,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return []
+    except Exception as e:
+        logger.warning("Jira preflight failed: %s", e)
+        return [f"Jira: {str(e)[:120]}"]
+
+
 def integration_freshness_metadata() -> dict[str, object]:
     """Integration configuration and cache freshness for run summaries / unattended gates."""
     from .config import (

@@ -834,32 +834,78 @@ class SalesforceClient:
             )
         return out
 
+    def get_recent_closed_won_renewal_opportunities(
+        self,
+        account_ids: list[str],
+        *,
+        limit: int = 6,
+        lookback_days: int = 365,
+    ) -> list[dict[str, Any]]:
+        """Closed-won Renewal opportunities (signed renewals no longer in open pipeline)."""
+        if not account_ids or limit <= 0:
+            return []
+        ids_comma = ", ".join(f"'{aid}'" for aid in account_ids)
+        soql = (
+            f"SELECT Id, Name, StageName, Type, ARR__c, CloseDate, AccountId "
+            f"FROM Opportunity WHERE AccountId IN ({ids_comma}) AND Type = 'Renewal' "
+            f"AND IsWon = true AND CloseDate = LAST_N_DAYS:{max(1, int(lookback_days))} "
+            f"ORDER BY CloseDate DESC NULLS LAST, ARR__c DESC NULLS LAST "
+            f"LIMIT {max(1, min(int(limit), 25))}"
+        )
+        rows = self._query(soql)
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            out.append(
+                {
+                    "name": r.get("Name"),
+                    "stage": r.get("StageName"),
+                    "type": r.get("Type"),
+                    "arr": r.get("ARR__c"),
+                    "close_date": r.get("CloseDate"),
+                    "account_id": r.get("AccountId"),
+                }
+            )
+        return out
+
     def renewal_in_flight_fields_for_entities(
         self,
         matching: list[dict[str, Any]],
         *,
         all_matched_churned: bool,
     ) -> dict[str, Any]:
-        """Signals when entity contracts are churned but parent-account pipeline opps are open."""
+        """Signals when entity contracts are churned but parent renewal motion exists."""
         if not all_matched_churned or not matching:
-            return {"renewal_in_flight": False, "churn_risk": False}
+            return {"renewal_in_flight": False, "churn_risk": False, "signed_renewal_closed_won": False}
         entity_ids = [a["Id"] for a in matching if isinstance(a, dict) and a.get("Id")]
         scope = opportunity_account_scope_ids(matching)
         pipe_entity = self.get_advanced_pipeline_arr(entity_ids) if entity_ids else 0.0
         pipe_total = self.get_advanced_pipeline_arr(scope) if scope else 0.0
         opps = self.get_open_pipeline_opportunities(scope, limit=6)
+        closed_renewals = self.get_recent_closed_won_renewal_opportunities(scope, limit=6)
         in_flight = pipe_total > 0 or bool(opps)
+        signed_renewal = bool(closed_renewals)
         fields: dict[str, Any] = {
             "renewal_in_flight": in_flight,
+            "signed_renewal_closed_won": signed_renewal,
             "pipeline_arr_entity_accounts": round(pipe_entity, 2),
             "pipeline_arr_including_parent_accounts": round(pipe_total, 2),
         }
+        if closed_renewals:
+            fields["recent_closed_won_renewal_opportunities_sample"] = closed_renewals
         if in_flight:
             fields["renewal_in_flight_note"] = (
                 "Customer Entity contract status is churned/expired, but open Opportunities exist "
                 "on parent account(s) in pipeline stages (often renewal negotiation)."
             )
             fields["open_pipeline_opportunities_sample"] = opps
+            fields["churn_risk"] = False
+        elif signed_renewal:
+            fields["renewal_in_flight_note"] = (
+                "Customer Entity contract fields may still show expired/churned status, but a "
+                "closed-won Renewal Opportunity exists on parent account(s) — treat as renewed/active."
+            )
             fields["churn_risk"] = False
         else:
             fields["churn_risk"] = True
@@ -1057,12 +1103,22 @@ class SalesforceClient:
             "salesforce_matched_customers": 0,
             "salesforce_unmatched_customers": 0,
             "total_arr": 0.0,
+            "historical_arr": 0.0,
             "active_installed_base_arr": 0.0,
+            "active_arr": 0.0,
+            "renewal_arr": 0.0,
+            "current_arr": 0.0,
             "churned_contract_arr": 0.0,
+            "future_contract_arr": 0.0,
             "pipeline_arr": 0.0,
             "opportunity_count_this_year": 0,
             "active_customer_count": 0,
             "churned_customer_count": 0,
+            "future_customer_count": 0,
+            "renewal_in_flight_customer_count": 0,
+            "renewal_in_flight_contract_arr": 0.0,
+            "renewal_in_flight_customer_names_sample": [],
+            "future_customer_names_sample": [],
             "top_customers_by_arr": [],
             "matched_customer_contract_rollups": [],
             "churned_customer_names_sample": [],
@@ -1110,59 +1166,90 @@ class SalesforceClient:
 
         top_rows: list[dict[str, Any]] = []
         total_arr = 0.0
-        active_arr = 0.0
+        historical_arr_total = 0.0
+        active_arr_total = 0.0
+        renewal_arr_total = 0.0
+        current_arr_total = 0.0
         churned_arr = 0.0
+        future_arr = 0.0
         churned_names: list[str] = []
+        future_names: list[str] = []
         renewal_in_flight_arr = 0.0
         renewal_in_flight_cust = 0
         renewal_in_flight_names: list[str] = []
         active_cust = 0
         churned_cust = 0
+        future_cust = 0
+        from .salesforce_commercial_status import (
+            COMMERCIAL_STATUS_ACTIVE,
+            COMMERCIAL_STATUS_CHURNED,
+            COMMERCIAL_STATUS_FUTURE,
+            COMMERCIAL_STATUS_OUT_OF_CONTRACT_RENEWING,
+            derive_commercial_status,
+            entity_has_active_contract,
+            renewal_in_flight_from_status,
+            rollup_arr_fields,
+        )
+
         for group_name in rollup_names:
             matching = per_group[group_name]
-            arr_sum = 0.0
-            for a in matching:
-                try:
-                    arr_sum += float(a.get("ARR__c") or 0)
-                except (TypeError, ValueError):
-                    pass
-            has_active_contract = False
-            for a in matching:
-                status = (a.get("Contract_Status__c") or "").strip().lower()
-                if status not in self._CHURNED_STATUSES:
-                    has_active_contract = True
-                    break
-            all_matched_churned = not has_active_contract
+            all_matched_churned = not any(entity_has_active_contract(a) for a in matching)
+            renewal_fields = self.renewal_in_flight_fields_for_entities(
+                matching, all_matched_churned=all_matched_churned
+            )
+            commercial_status = derive_commercial_status(
+                matching,
+                renewal_in_flight=bool(renewal_fields.get("renewal_in_flight")),
+                signed_renewal_closed_won=bool(renewal_fields.get("signed_renewal_closed_won")),
+            )
+            arr_fields = rollup_arr_fields(matching, commercial_status=commercial_status)
+            if (
+                commercial_status == COMMERCIAL_STATUS_ACTIVE
+                and float(arr_fields.get("current_arr") or 0) == 0
+                and renewal_fields.get("signed_renewal_closed_won")
+                and float(arr_fields.get("historical_arr") or 0) > 0
+            ):
+                arr_fields["active_arr"] = float(arr_fields["historical_arr"])
+                arr_fields["current_arr"] = float(arr_fields["historical_arr"])
             row = {
                 "customer": group_name,
-                "arr": round(arr_sum, 2),
-                "active": not all_matched_churned,
+                "commercial_status": commercial_status,
                 "entity_count": len(matching),
+                **arr_fields,
+                "renewal_in_flight": renewal_in_flight_from_status(commercial_status),
             }
             row.update(_renewal_roll_up_fields(matching))
-            row.update(
-                self.renewal_in_flight_fields_for_entities(
-                    matching, all_matched_churned=all_matched_churned
-                )
-            )
+            row.update(renewal_fields)
             top_rows.append(row)
-            total_arr += arr_sum
-            if all_matched_churned:
-                if row.get("renewal_in_flight") is True:
-                    renewal_in_flight_arr += arr_sum
-                    renewal_in_flight_cust += 1
-                    if len(renewal_in_flight_names) < 12:
-                        renewal_in_flight_names.append(group_name)
-                else:
-                    churned_arr += arr_sum
-                    churned_cust += 1
-                    if len(churned_names) < 12:
-                        churned_names.append(group_name)
-            else:
-                active_arr += arr_sum
+            historical_arr_total += float(arr_fields["historical_arr"])
+            total_arr += float(arr_fields["historical_arr"])
+            active_arr_total += float(arr_fields["active_arr"])
+            renewal_arr_total += float(arr_fields["renewal_arr"])
+            current_arr_total += float(arr_fields["current_arr"])
+            if commercial_status == COMMERCIAL_STATUS_ACTIVE:
                 active_cust += 1
+            elif commercial_status == COMMERCIAL_STATUS_OUT_OF_CONTRACT_RENEWING:
+                renewal_in_flight_arr += float(arr_fields["renewal_arr"])
+                renewal_in_flight_cust += 1
+                if len(renewal_in_flight_names) < 12:
+                    renewal_in_flight_names.append(group_name)
+            elif commercial_status == COMMERCIAL_STATUS_FUTURE:
+                future_arr += float(arr_fields["historical_arr"])
+                future_cust += 1
+                if len(future_names) < 12:
+                    future_names.append(group_name)
+            else:
+                churned_arr += float(arr_fields["historical_arr"])
+                churned_cust += 1
+                if len(churned_names) < 12:
+                    churned_names.append(group_name)
 
-        top_rows.sort(key=lambda r: (-(float(r.get("arr") or 0)), str(r.get("customer") or "")))
+        top_rows.sort(
+            key=lambda r: (
+                -(float(r.get("current_arr") or 0)),
+                str(r.get("customer") or "").lower(),
+            )
+        )
         top10 = top_rows[:10]
         matched_customer_contract_rollups = list(top_rows)
         dedup_scope = (
@@ -1205,15 +1292,22 @@ class SalesforceClient:
             "salesforce_matched_customers": matched_usage,
             "salesforce_unmatched_customers": unmatched_usage,
             "total_arr": round(total_arr, 2),
-            "active_installed_base_arr": round(active_arr, 2),
+            "historical_arr": round(historical_arr_total, 2),
+            "active_installed_base_arr": round(active_arr_total, 2),
+            "active_arr": round(active_arr_total, 2),
+            "renewal_arr": round(renewal_arr_total, 2),
+            "current_arr": round(current_arr_total, 2),
             "churned_contract_arr": round(churned_arr, 2),
+            "future_contract_arr": round(future_arr, 2),
             "pipeline_arr": round(pipeline, 2),
             "opportunity_count_this_year": int(opps),
             "active_customer_count": active_cust,
             "churned_customer_count": churned_cust,
+            "future_customer_count": future_cust,
             "renewal_in_flight_customer_count": renewal_in_flight_cust,
             "renewal_in_flight_contract_arr": round(renewal_in_flight_arr, 2),
             "renewal_in_flight_customer_names_sample": renewal_in_flight_names,
+            "future_customer_names_sample": future_names,
             "top_customers_by_arr": top10,
             "matched_customer_contract_rollups": matched_customer_contract_rollups,
             "churned_customer_names_sample": churned_names,

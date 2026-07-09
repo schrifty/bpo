@@ -62,6 +62,7 @@ def test_attach_churned_segment_separate_from_active(monkeypatch):
             ["Active Co", "Gone LLC"],
             {"configured": True, "pipeline_arr": 999.0},
             [],
+            [],
         )
 
     monkeypatch.setattr(
@@ -76,6 +77,7 @@ def test_attach_churned_segment_separate_from_active(monkeypatch):
     assert seg["customer_count"] == 1
     assert seg["customers_headline"][0]["customer"] == "Gone LLC"
     assert seg["customers_headline"][0]["customer_segment"] == "churned"
+    assert seg["customers_headline"][0]["commercial_status"] == "CHURNED"
     assert seg["salesforce"]["customer_segment"] == "churned"
     assert "pipeline_arr" not in seg["salesforce"]
     assert [r["customer"] for r in report["customers"]] == ["Active Co"]
@@ -131,6 +133,7 @@ def test_merge_universe_fetches_salesforce_rollups_once(monkeypatch):
             ["Active Co", "Gone LLC"],
             {"configured": True},
             [],
+            [],
         )
 
     monkeypatch.setattr(
@@ -168,22 +171,32 @@ def test_merge_universe_calls_active_and_churn(monkeypatch):
         lambda _r, **_: calls.append("renewal") or {},
     )
     monkeypatch.setattr(
+        "src.llm_export_salesforce_universe.attach_future_contract_segment_for_llm_export",
+        lambda _r, **_: calls.append("future") or {},
+    )
+    monkeypatch.setattr(
         "src.llm_export_salesforce_universe.strip_churned_customers_from_active_export",
         lambda _r: calls.append("strip") or {},
     )
     merge_salesforce_universe_for_llm_export({})
-    assert calls == ["active", "churn", "renewal", "strip"]
+    assert calls == ["active", "churn", "renewal", "future", "strip"]
 
 
 def test_partition_inactive_splits_renewal_from_churned_lost():
     rollups = [
-        {"customer": "Ford", "active": False, "renewal_in_flight": True},
-        {"customer": "Gone", "active": False, "renewal_in_flight": False},
-        {"customer": "Active", "active": True},
+        {
+            "customer": "Ford",
+            "commercial_status": "OUT_OF_CONTRACT_RENEWING",
+            "renewal_in_flight": True,
+        },
+        {"customer": "Gone", "commercial_status": "CHURNED"},
+        {"customer": "Later", "commercial_status": "FUTURE"},
+        {"customer": "Active", "commercial_status": "ACTIVE"},
     ]
-    lost, renewal = partition_inactive_sf_rollups(rollups)
+    lost, renewal, future = partition_inactive_sf_rollups(rollups)
     assert [r["customer"] for r in lost] == ["Gone"]
     assert [r["customer"] for r in renewal] == ["Ford"]
+    assert [r["customer"] for r in future] == ["Later"]
 
 
 def test_renewal_negotiation_segment_separate_from_churned(monkeypatch):
@@ -195,10 +208,11 @@ def test_renewal_negotiation_segment_separate_from_churned(monkeypatch):
     def fake_split():
         return (
             [],
-            [{"customer": "Gone LLC", "active": False}],
+            [{"customer": "Gone LLC", "commercial_status": "CHURNED"}],
             [],
             {"configured": True},
-            [{"customer": "Ford Motor Company", "active": False, "renewal_in_flight": True}],
+            [{"customer": "Ford Motor Company", "commercial_status": "OUT_OF_CONTRACT_RENEWING"}],
+            [],
         )
 
     monkeypatch.setattr(
@@ -214,3 +228,4 @@ def test_renewal_negotiation_segment_separate_from_churned(monkeypatch):
     assert ren["customer_count"] == 1
     assert ren["customers_headline"][0]["customer"] == "Ford Motor Company"
     assert ren["customers_headline"][0]["customer_segment"] == "renewal_negotiation"
+    assert ren["customers_headline"][0]["commercial_status"] == "OUT_OF_CONTRACT_RENEWING"

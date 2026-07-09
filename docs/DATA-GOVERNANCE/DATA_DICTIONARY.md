@@ -150,9 +150,19 @@
 - `slack.note`
 - `slack.error`
 - `slack.skipped`
+- `slack.lookback_days`
+- `slack.top_n`
+- `slack.customers`
+- `slack.customers[].llm_summary`
+- `slack.customers[].llm_summary.summary_markdown`
+- `slack.customers[].llm_summary.themes`
+- `slack.customers[].llm_summary.open_items`
+- `slack.customers[].llm_summary.sentiment`
+- `_llm_export_slack.performance`
 
 ## internal
 - `_drive_svc`
+- `_hydrate_slide_hints`
 - `_signals_llm_manifest_rules`
 - `_signals_llm_slide_prompt`
 - `_slide_plan`
@@ -396,6 +406,20 @@
 - `portfolio_expansion_book.pct_active_customers_expanding_cy`
 - `portfolio_revenue_book.expansion_kpis`
 
+## Portfolio revenue book (`portfolio_revenue_book`)
+
+Commercial classification and ARR rollups for Salesforce Customer Entity reporting groups. See [`Cortex Export - User Guide.md`](../Cortex%20Export%20-%20User%20Guide.md).
+
+- `portfolio_revenue_book.matched_customer_contract_rollups[].commercial_status` — `ACTIVE` | `OUT_OF_CONTRACT_RENEWING` | `CHURNED` | `FUTURE`
+- `portfolio_revenue_book.matched_customer_contract_rollups[].active_arr`
+- `portfolio_revenue_book.matched_customer_contract_rollups[].renewal_arr`
+- `portfolio_revenue_book.matched_customer_contract_rollups[].current_arr` — `active_arr + renewal_arr` (ranking key)
+- `portfolio_revenue_book.matched_customer_contract_rollups[].historical_arr`
+- `portfolio_revenue_book.active_arr` / `renewal_arr` / `current_arr` / `historical_arr` — book totals
+- `portfolio_revenue_book.future_contract_arr` / `future_customer_count`
+
+**Caveat:** boolean `active` on rollups is **deprecated**; use `commercial_status` and `current_arr` for executive views.
+
 ## LLM export CS Report (`csr`, §4 — top customers by ARR)
 - `csr.scope`
 - `csr.top_n`
@@ -412,7 +436,22 @@
 - `salesforce_comprehensive_portfolio`
 - `salesforce_comprehensive_portfolio.by_customer`
 - `salesforce_comprehensive_portfolio.entity_accounts`
+- `salesforce_comprehensive_portfolio.entity_accounts[].division_group` (SF hierarchy: ultimate parent → parent → account name)
+- `salesforce_comprehensive_portfolio.entity_accounts[].corporate_group` (corporate rollup label; `config/salesforce_reporting_rollups.yaml`)
+- `salesforce_comprehensive_portfolio.entity_accounts[].ultimate_parent_group` (Ultimate Parent rollup; falls back to name parenthetical / corporate group when `ultimate_parent_name` blank)
 - `salesforce_comprehensive_portfolio.entity_accounts_count`
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent` (ultimate-parent rollup from **portfolio contract rollups**, sorted by `current_arr` desc; all commercial_status segments)
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].ultimate_parent`
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].salesforce_labels`
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].arr` (alias of `historical_arr`)
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].historical_arr`
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].active_arr`
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].renewal_arr`
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].current_arr`
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].commercial_status`
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].entity_count`
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].active` (legacy current-book flag from `commercial_status`)
+- `salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].entity_names_sample`
 - `salesforce_comprehensive_portfolio.portfolio_expansion_book`
 - `salesforce_comprehensive_portfolio.row_limit`
 - `salesforce_comprehensive_portfolio.customer_count`

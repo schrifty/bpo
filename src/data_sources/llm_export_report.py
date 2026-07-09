@@ -166,7 +166,9 @@ def build_llm_export_snapshot_report(pc: Any, *, days: int) -> dict[str, Any]:
                     detail="no_salesforce_rollups_for_top_arr_selection",
                 )
             )
-        elif int(slack_summary.get("customers_slack_errors") or 0) > 0:
+        elif int(slack_summary.get("customers_slack_errors") or 0) > 0 or int(
+            slack_summary.get("customers_llm_errors") or 0
+        ) > 0:
             provenance.append(
                 _provenance_row(
                     SourceId.SLACK_CUSTOMER_CONVERSATIONS,
@@ -174,7 +176,10 @@ def build_llm_export_snapshot_report(pc: Any, *, days: int) -> dict[str, Any]:
                     detail=(
                         f"top_{slack_summary.get('customers_selected')} "
                         f"with_data={slack_summary.get('customers_with_slack_data')} "
-                        f"errors={slack_summary.get('customers_slack_errors')}"
+                        f"slack_errors={slack_summary.get('customers_slack_errors')} "
+                        f"llm_summaries={slack_summary.get('customers_llm_summarized')} "
+                        f"llm_errors={slack_summary.get('customers_llm_errors')} "
+                        f"wall_s={slack_summary.get('performance', {}).get('wall_seconds_total')}"
                     ),
                 )
             )
@@ -183,7 +188,11 @@ def build_llm_export_snapshot_report(pc: Any, *, days: int) -> dict[str, Any]:
                 _provenance_row(
                     SourceId.SLACK_CUSTOMER_CONVERSATIONS,
                     status="ok",
-                    detail=f"top_{slack_summary.get('customers_selected')}_by_arr",
+                    detail=(
+                        f"top_{slack_summary.get('customers_selected')}_by_arr "
+                        f"llm={slack_summary.get('customers_llm_summarized')} "
+                        f"wall_s={slack_summary.get('performance', {}).get('wall_seconds_total')}"
+                    ),
                 )
             )
     except Exception as e:

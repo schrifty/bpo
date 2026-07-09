@@ -36,9 +36,34 @@ def test_salesforce_all_customers_maps_revenue_book(monkeypatch):
             "opportunity_count_this_year": 7,
             "active_customer_count": 1,
             "churned_customer_count": 1,
+            "renewal_in_flight_customer_count": 0,
+            "future_customer_count": 0,
+            "active_arr": 90.0,
+            "renewal_arr": 0.0,
+            "current_arr": 90.0,
+            "historical_arr": 100.0,
+            "future_contract_arr": 0.0,
             "top_customers_by_arr": [
-                {"customer": "Acme", "arr": 60.0, "active": True},
-                {"customer": "Beta", "arr": 40.0, "active": False},
+                {
+                    "customer": "Acme",
+                    "arr": 60.0,
+                    "active": True,
+                    "commercial_status": "ACTIVE",
+                    "active_arr": 60.0,
+                    "renewal_arr": 0.0,
+                    "current_arr": 60.0,
+                    "historical_arr": 60.0,
+                },
+                {
+                    "customer": "Beta",
+                    "arr": 40.0,
+                    "active": False,
+                    "commercial_status": "CHURNED",
+                    "active_arr": 0.0,
+                    "renewal_arr": 0.0,
+                    "current_arr": 0.0,
+                    "historical_arr": 40.0,
+                },
             ],
             "churned_customer_names_sample": [],
         }
@@ -63,7 +88,115 @@ def test_salesforce_all_customers_maps_revenue_book(monkeypatch):
 
     compact = mod._compact_salesforce(sf, account_cap=6)
     assert compact.get("total_arr") == 100.0
+    assert compact.get("current_arr") == 90.0
     assert compact.get("salesforce_matched_customers") == 2
+    assert "commercial_status" in (compact.get("salesforce_export_note") or "")
+    acct0 = compact["accounts"][0]
+    assert acct0.get("commercial_status") == "ACTIVE"
+    assert acct0.get("current_arr") == 60.0
+
+
+def test_render_salesforce_current_book_ranks_by_current_arr_as_table():
+    mod = _export_mod
+    block = {
+        "matched": True,
+        "salesforce_export_note": "Current book only ...",
+        "accounts_total": 3,
+        "accounts": [
+            {"Name": "GE Appliances", "commercial_status": "ACTIVE", "current_arr": 430954.0,
+             "active_arr": 430954.0, "renewal_arr": 0.0, "historical_arr": 430954.0},
+            {"Name": "Safran", "commercial_status": "ACTIVE", "current_arr": 2223798.0,
+             "active_arr": 2223798.0, "renewal_arr": 0.0, "historical_arr": 2494130.0},
+            {"Name": "Ford Motor Company", "commercial_status": "ACTIVE", "current_arr": 525000.0,
+             "active_arr": 525000.0, "renewal_arr": 0.0, "historical_arr": 525000.0},
+        ],
+    }
+    lines = mod._render_salesforce_current_book_section(block)
+    body = "\n".join(lines)
+    # §3.1 markdown table with a rank column, sorted by current_arr desc.
+    assert "### 3.1 Current book by ARR" in body
+    assert "| rank | customer |" in body
+    assert "| 1 | Safran |" in body
+    assert "| 2 | Ford Motor Company |" in body
+    assert "| 3 | GE Appliances |" in body
+    # Ford (525K) must outrank GE (431K) — the exact bug that was hallucinated away.
+    assert body.index("Ford Motor Company") < body.index("GE Appliances")
+    # §3.2 JSON must not re-emit the per-account list.
+    assert "### 3.2 Contract rollups" in body
+    assert '"accounts":' not in lines[-1]
+    assert '"accounts_total"' in lines[-1]
+
+
+def test_render_salesforce_current_book_groups_carrier_divisions_by_ultimate_parent():
+    mod = _export_mod
+    block = {
+        "matched": True,
+        "accounts_total": 5,
+        "accounts": [
+            {"Name": "Safran", "commercial_status": "ACTIVE", "current_arr": 2_223_798.0, "active_arr": 2_223_798.0, "renewal_arr": 0.0, "historical_arr": 2_223_798.0},
+            {"Name": "Commercial HVAC (Carrier)", "commercial_status": "ACTIVE", "current_arr": 335_728.0, "active_arr": 335_728.0, "renewal_arr": 0.0, "historical_arr": 335_728.0},
+            {"Name": "Residential HVAC (Carrier)", "commercial_status": "ACTIVE", "current_arr": 297_762.0, "active_arr": 297_762.0, "renewal_arr": 0.0, "historical_arr": 297_762.0},
+            {"Name": "Ford Motor Company", "commercial_status": "ACTIVE", "current_arr": 525_000.0, "active_arr": 525_000.0, "renewal_arr": 0.0, "historical_arr": 525_000.0},
+            {"Name": "Bombardier", "commercial_status": "ACTIVE", "current_arr": 600_000.0, "active_arr": 600_000.0, "renewal_arr": 0.0, "historical_arr": 600_000.0},
+        ],
+    }
+    body = "\n".join(mod._render_salesforce_current_book_section(block))
+    assert "| 2 | Carrier |" in body
+    assert "Commercial HVAC (Carrier)" not in body.split("### 3.2")[0]
+    assert "| 3 | Bombardier |" in body
+    assert "| 4 | Ford Motor Company |" in body
+
+
+def test_render_salesforce_current_book_falls_back_to_json_without_accounts():
+    mod = _export_mod
+    assert mod._render_salesforce_current_book_section({}) == [mod._json_compact({})]
+    empty = {"accounts": []}
+    assert mod._render_salesforce_current_book_section(empty) == [mod._json_compact(empty)]
+
+
+def test_compact_salesforce_future_segment_and_markdown():
+    mod = _export_mod
+    future_sf = salesforce_aggregate_from_rollups(
+        [
+            {
+                "customer": "FutureCo",
+                "commercial_status": "FUTURE",
+                "active_arr": 0.0,
+                "renewal_arr": 0.0,
+                "current_arr": 0.0,
+                "historical_arr": 25.0,
+                "arr": 25.0,
+            }
+        ],
+        segment="future_contract",
+    )
+    compact = mod._compact_salesforce(future_sf, account_cap=6)
+    assert "FUTURE" in (compact.get("salesforce_export_note") or "")
+    assert compact["accounts"][0]["commercial_status"] == "FUTURE"
+
+    report: dict = {
+        "customer": "All Customers",
+        "generated": "2020-01-01T00:00:00Z",
+        "days": 90,
+        "portfolio_signals": [],
+        "salesforce": {},
+        "salesforce_future_contract_segment": {
+            "segment": "future_contract",
+            "do_not_merge_with_active_book": True,
+            "customer_count": 1,
+            "customers_headline": [{"customer": "FutureCo", "salesforce_only": True}],
+            "salesforce": future_sf,
+        },
+    }
+    doc = mod.build_snapshot_document(report, size_caps_enabled=False)
+    assert doc["salesforce_future_contract_segment"]["customer_count"] == 1
+    cov = doc["export_coverage"]
+    assert cov["salesforce_future_contract_segment"]["customer_count"] == 1
+
+    md = mod.render_markdown(doc, exported_at_utc="2020-01-01T00:00:00Z")
+    assert "## 3b-future. Salesforce (future contracts — not current book)" in md
+    assert "commercial_status = FUTURE" in md
+    assert "FutureCo" in md
 
 
 def test_export_coverage_manifest_and_markdown_section():

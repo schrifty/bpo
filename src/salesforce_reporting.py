@@ -6,6 +6,7 @@ See ``config/salesforce_reporting_rollups.yaml`` and ``.cursor/rules/salesforce-
 
 from __future__ import annotations
 
+import re
 import threading
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,9 @@ from typing import Any
 import yaml
 
 from .config import logger
+
+# Trailing parenthetical parent, e.g. "Commercial HVAC (Carrier)" -> "Carrier".
+_TRAILING_PARENTHETICAL_RE = re.compile(r"\(([^()]+)\)\s*$")
 
 _ROLLUPS_FILE = Path(__file__).resolve().parent.parent / "config" / "salesforce_reporting_rollups.yaml"
 _cache_lock = threading.Lock()
@@ -118,5 +122,52 @@ def aggregate_accounts_by_corporate_group(
         if not isinstance(account, dict):
             continue
         group = entity_account_corporate_group(account)
+        out.setdefault(group, []).append(account)
+    return out
+
+
+def _parenthetical_parent(account: dict[str, Any]) -> str:
+    """Ultimate parent embedded as a trailing parenthetical in the entity label.
+
+    Salesforce Customer Entity names commonly encode the parent, e.g.
+    ``"Commercial HVAC (Carrier)"`` → ``"Carrier"``. Used only as a fallback when
+    ``SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP`` is unset (so ``ultimate_parent_name`` is blank).
+    """
+    for field in ("Name", "LeanDNA_Entity_Name__c"):
+        val = (account.get(field) or "").strip()
+        m = _TRAILING_PARENTHETICAL_RE.search(val)
+        if m:
+            inner = m.group(1).strip()
+            if inner:
+                return inner
+    return ""
+
+
+def entity_account_ultimate_parent_group(account: dict[str, Any]) -> str:
+    """Ultimate-parent rollup label for an account, resilient to a blank SF lookup.
+
+    Resolution order (first hit wins):
+      1. ``ultimate_parent_name`` (from ``SF_ACCOUNT_ULTIMATE_PARENT_LOOKUP``)
+      2. trailing parenthetical in the entity name (aliased via ``label_aliases``)
+      3. corporate rollup group (parent/name prefix rules → division fallback)
+    """
+    ult = (account.get("ultimate_parent_name") or "").strip()
+    if ult:
+        return ult
+    paren = _parenthetical_parent(account)
+    if paren:
+        return resolve_corporate_label(paren)
+    return entity_account_corporate_group(account)
+
+
+def aggregate_accounts_by_ultimate_parent(
+    accounts: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    """Bucket normalized Customer Entity rows by :func:`entity_account_ultimate_parent_group`."""
+    out: dict[str, list[dict[str, Any]]] = {}
+    for account in accounts:
+        if not isinstance(account, dict):
+            continue
+        group = entity_account_ultimate_parent_group(account)
         out.setdefault(group, []).append(account)
     return out

@@ -367,6 +367,10 @@ def cs_report_lookup_keys_for_account(
 
     add(salesforce_label)
     add(pendo_customer_key or "")
+    csr = _load_cs_report_alias_map()
+    for seed in list(keys):
+        for term in csr.get(seed.lower(), []):
+            add(term)
     cohort = _load_cohort_customer_alias_map()
     for seed in list(keys):
         for term in cohort.get(seed.lower(), []):
@@ -869,18 +873,64 @@ def load_csr_all_customers_week() -> dict[str, Any]:
     return {"platform_health": merged_ph, "supply_chain": merged_sc, "platform_value": merged_pv}
 
 
+def _csr_selection_customer_key(row: dict[str, Any]) -> str:
+    ultimate = str(row.get("ultimate_parent") or "").strip()
+    if ultimate:
+        return ultimate
+    return str(row.get("salesforce_label") or row.get("customer") or "").strip()
+
+
+def selection_lookup_keys_for_llm_export(row: dict[str, Any]) -> list[str]:
+    """Ordered CS Report / Jira lookup keys for a top-ARR selection row."""
+    keys: list[str] = []
+
+    def add(term: str) -> None:
+        s = (term or "").strip()
+        if not s:
+            return
+        if s.lower() in {k.lower() for k in keys}:
+            return
+        keys.append(s)
+
+    ultimate = str(row.get("ultimate_parent") or "").strip()
+    pendo = row.get("pendo_customer_key")
+    if ultimate:
+        for k in cs_report_lookup_keys_for_account(
+            salesforce_label=ultimate,
+            pendo_customer_key=pendo,
+        ):
+            add(k)
+    labels = row.get("salesforce_labels")
+    if isinstance(labels, list):
+        for label in labels:
+            for k in cs_report_lookup_keys_for_account(
+                salesforce_label=str(label or "").strip(),
+                pendo_customer_key=None,
+            ):
+                add(k)
+    sf_label = str(row.get("salesforce_label") or row.get("customer") or "").strip()
+    if sf_label:
+        for k in cs_report_lookup_keys_for_account(
+            salesforce_label=sf_label,
+            pendo_customer_key=pendo if not ultimate else None,
+        ):
+            add(k)
+    return keys
+
+
 def load_csr_top_customers_by_arr(
     selection: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Load per-customer CS Report week slices for a ranked ARR selection (LLM export §4).
 
-    *selection* rows should include ``salesforce_label``, ``arr``, and ``csr_lookup_name``
-    (Pendo prefix or Salesforce label used for :func:`get_customer_platform_health` alias resolution).
+    *selection* rows should include ``ultimate_parent`` (preferred key), summed ``arr``, and
+    constituent ``salesforce_labels`` when grouped by ultimate parent. Legacy rows may use
+    ``salesforce_label`` only.
     """
     if not selection:
         err: dict[str, Any] = {"error": "empty selection", "source": "cs_report"}
         return {
-            "scope": "top_customers_by_arr",
+            "scope": "top_ultimate_parents_by_arr",
             "top_n": 0,
             "selection_ranked": [],
             "customers": {},
@@ -895,16 +945,13 @@ def load_csr_top_customers_by_arr(
     for row in selection:
         if not isinstance(row, dict):
             continue
-        sf_label = str(row.get("salesforce_label") or row.get("customer") or "").strip()
-        if not sf_label:
+        customer_key = _csr_selection_customer_key(row)
+        if not customer_key:
             continue
-        lookup_keys = cs_report_lookup_keys_for_account(
-            salesforce_label=sf_label,
-            pendo_customer_key=row.get("pendo_customer_key"),
-        )
-        ph = get_customer_platform_health(sf_label, lookup_keys=lookup_keys)
-        sc = get_customer_supply_chain(sf_label, lookup_keys=lookup_keys)
-        pv = get_customer_platform_value(sf_label, lookup_keys=lookup_keys)
+        lookup_keys = selection_lookup_keys_for_llm_export(row)
+        ph = get_customer_platform_health(customer_key, lookup_keys=lookup_keys)
+        sc = get_customer_supply_chain(customer_key, lookup_keys=lookup_keys)
+        pv = get_customer_platform_value(customer_key, lookup_keys=lookup_keys)
         matched = None
         merged_csr_names: list[str] = []
         if isinstance(ph, dict) and not ph.get("error"):
@@ -912,21 +959,25 @@ def load_csr_top_customers_by_arr(
             raw_merged = ph.get("csr_customer_names_merged")
             if isinstance(raw_merged, list):
                 merged_csr_names = [str(x) for x in raw_merged if str(x).strip()]
-        customers[sf_label] = {
-            "salesforce_label": sf_label,
+        customers[customer_key] = {
+            "ultimate_parent": row.get("ultimate_parent") or customer_key,
+            "salesforce_label": customer_key,
+            "salesforce_labels": row.get("salesforce_labels") or [],
             "arr": row.get("arr"),
             "pendo_customer_key": row.get("pendo_customer_key"),
             "csr_lookup_keys": lookup_keys,
             "csr_matched_lookup_key": matched,
             "csr_customer_names_merged": merged_csr_names,
-            "csr_lookup_name": matched or (lookup_keys[0] if lookup_keys else sf_label),
+            "csr_lookup_name": matched or (lookup_keys[0] if lookup_keys else customer_key),
             "platform_health": ph,
             "supply_chain": sc,
             "platform_value": pv,
         }
         selection_ranked.append(
             {
-                "salesforce_label": sf_label,
+                "ultimate_parent": row.get("ultimate_parent") or customer_key,
+                "salesforce_label": customer_key,
+                "salesforce_labels": row.get("salesforce_labels") or [],
                 "arr": row.get("arr"),
                 "csr_lookup_keys": lookup_keys,
                 "csr_matched_lookup_key": matched,
@@ -938,13 +989,15 @@ def load_csr_top_customers_by_arr(
         )
 
     return {
-        "scope": "top_customers_by_arr",
+        "scope": "top_ultimate_parents_by_arr",
         "top_n": len(selection_ranked),
-        "aggregate_scope": "top_customers_by_arr",
+        "aggregate_scope": "top_ultimate_parents_by_arr",
         "note": (
-            "Per-customer CS Report (delta=week) for the highest-ARR active Salesforce Customer Entity "
-            "labels. Each entry under ``customers`` has platform_health, supply_chain, and "
-            "platform_value for that account (not a portfolio-wide merge)."
+            "Per-customer CS Report (delta=week) for the highest-ARR active Salesforce ultimate "
+            "parents (contract rollups summed by ultimate parent — same grouping as "
+            "``arr_by_ultimate_parent`` in §3c). Each entry under ``customers`` has "
+            "platform_health, supply_chain, and platform_value for that parent group "
+            "(not a portfolio-wide merge)."
         ),
         "selection_ranked": selection_ranked,
         "customers": customers,

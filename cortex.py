@@ -38,12 +38,13 @@ Flag commands (utilities)
   cortex --data
       Print canonical data element paths from ``config/comprehensive_data_element_list.json``.
 
-  cortex --export [--days N] [--max-bytes N] [--signals-cap N]
+  cortex export-all [--days N] [--max-tokens N] [--max-bytes N] [--signals-cap N]
       [--customers-sf-allowlist] [--customers-exclude-sf-churned]
       [--exclude-customer LABEL ...]
       Build the all-customers LLM context markdown snapshot and upload it to Drive **twice**: under
-      ``<QBR Generator>/Output/LLM-Context-All_Customers.md`` (stable) and under the dated folder
-      ``Output/{ISO-date} - Output/LLM-Context-All_Customers.md`` (same calendar day).
+      ``<QBR Generator>/Output/LLM-Context-Portfolio-persistent.md`` (bookmarkable current export)
+      and under ``Output/Historical Data/{ISO-date}/LLM-Context-Portfolio.md`` (same-day snapshot).
+      ``cortex --export`` is a deprecated alias for the same command.
       Section 7 LLM churn/account-risk insights are always appended to the export markdown.
 
   cortex --schedule [--prefix NAME] [--region REGION]
@@ -75,6 +76,9 @@ Generate one deck (explicit)
   cortex engineering-portfolio
   cortex implementations-review
       Jira-backed org decks (same payloads as ``--portfolio`` batch).
+
+  cortex export-all [--days N] [--max-tokens N] [--max-bytes N] [--signals-cap N]
+      All-customers LLM context snapshot (same as the ``export-nightly`` job).
 
   cortex regenerate-slides --deck engineering-portfolio --cursor [--presentation-id ID|URL]
       Rebuild Cursor slides in the latest (or specified) Engineering Review presentation in Drive.
@@ -1206,6 +1210,12 @@ def main():
 
         rest = [a for a in sys.argv[1:] if a != "--export"]
         export_main(rest, prog="cortex --export")
+        return
+
+    if len(sys.argv) > 1 and sys.argv[1] == "export-all":
+        from src.export_llm_context_snapshot import export_main
+
+        export_main(sys.argv[2:], prog="cortex export-all")
         return
 
     if "--schedule" in sys.argv:

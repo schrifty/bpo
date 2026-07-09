@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "_comment": "Catalog of data elements Cortex can access for decks (path + terms). Pendo per-page and per-feature detail rows are intentionally omitted (see sites/top_pages).",
+  "_comment": "Catalog of data elements Cortex can access for QBR / decks (path + terms). Terms drive hydrate phrase matching and qbr_mappings target resolution (see resolve_data_summary_target_path). Pendo per-page and per-feature detail rows are intentionally omitted (see sites/top_pages). After regenerating from this script, re-merge any custom hydrate phrases into ``terms`` if needed.",
   "entries": [
     {
       "path": "customer",
@@ -2093,6 +2093,181 @@
       ]
     },
     {
+      "path": "salesforce.expansion_kpis",
+      "terms": [
+        "salesforce.expansion_kpis",
+        "[SFDC portfolio] expansion KPI rollup on revenue book"
+      ]
+    },
+    {
+      "path": "salesforce.portfolio_expansion_book",
+      "terms": [
+        "salesforce.portfolio_expansion_book",
+        "[SFDC portfolio] expansion book snapshot"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio",
+      "terms": [
+        "salesforce_comprehensive_portfolio",
+        "[LLM export §3c] portfolio-wide SF comprehensive block"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.by_customer",
+      "terms": [
+        "salesforce_comprehensive_portfolio.by_customer",
+        "[LLM export §3c] label→per-customer salesforce.* comprehensive payloads"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.entity_accounts",
+      "terms": [
+        "salesforce_comprehensive_portfolio.entity_accounts",
+        "[LLM export §3c] full-book Customer Entity rows (get_entity_accounts)"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.entity_accounts[].division_group",
+      "terms": [
+        "salesforce_comprehensive_portfolio.entity_accounts[].division_group",
+        "[LLM export §3c] SF hierarchy: ultimate parent → parent → account name"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.entity_accounts[].corporate_group",
+      "terms": [
+        "salesforce_comprehensive_portfolio.entity_accounts[].corporate_group",
+        "[LLM export §3c] corporate rollup label (config/salesforce_reporting_rollups.yaml)"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.entity_accounts[].ultimate_parent_group",
+      "terms": [
+        "salesforce_comprehensive_portfolio.entity_accounts[].ultimate_parent_group",
+        "[LLM export §3c] Ultimate Parent rollup; falls back to name parenthetical / corporate group when ultimate_parent_name blank"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.entity_accounts_count",
+      "terms": [
+        "salesforce_comprehensive_portfolio.entity_accounts_count",
+        "[LLM export §3c] count of entity_accounts (full book, not compaction cap)"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent",
+      "terms": [
+        "salesforce_comprehensive_portfolio.arr_by_ultimate_parent",
+        "[LLM export §3c] full-book ultimate-parent rollup from portfolio contract rollups (not raw entity sums), sorted by current_arr desc"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].salesforce_labels",
+      "terms": [
+        "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].salesforce_labels",
+        "[LLM export §3c] corporate reporting-group labels rolled into this ultimate parent"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].ultimate_parent",
+      "terms": [
+        "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].ultimate_parent",
+        "[LLM export §3c] Ultimate Parent group label"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].arr",
+      "terms": [
+        "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].arr",
+        "[LLM export §3c] summed historical ARR for group (alias of historical_arr)"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].historical_arr",
+      "terms": [
+        "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].historical_arr",
+        "[LLM export §3c] summed entity ARR__c for group regardless of contract status"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].active_arr",
+      "terms": [
+        "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].active_arr",
+        "[LLM export §3c] ARR from non-churned entity contracts in group"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].renewal_arr",
+      "terms": [
+        "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].renewal_arr",
+        "[LLM export §3c] renewal-negotiation ARR when commercial_status is OUT_OF_CONTRACT_RENEWING"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].current_arr",
+      "terms": [
+        "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].current_arr",
+        "[LLM export §3c] active_arr + renewal_arr; primary sort key for the rollup list"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].commercial_status",
+      "terms": [
+        "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].commercial_status",
+        "[LLM export §3c] ACTIVE | OUT_OF_CONTRACT_RENEWING | CHURNED | FUTURE for Ultimate Parent group"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].entity_count",
+      "terms": [
+        "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].entity_count",
+        "[LLM export §3c] Customer Entity count in group"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].active",
+      "terms": [
+        "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].active",
+        "[LLM export §3c] legacy True when commercial_status is ACTIVE or OUT_OF_CONTRACT_RENEWING (current book)"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].entity_names_sample",
+      "terms": [
+        "salesforce_comprehensive_portfolio.arr_by_ultimate_parent[].entity_names_sample",
+        "[LLM export §3c] sample entity Name values (up to 12)"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.portfolio_expansion_book",
+      "terms": [
+        "salesforce_comprehensive_portfolio.portfolio_expansion_book",
+        "[LLM export §3c] expansion KPI book copied from portfolio revenue book"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.row_limit",
+      "terms": [
+        "salesforce_comprehensive_portfolio.row_limit",
+        "[LLM export §3c] CORTEX_LLM_EXPORT_SF_COMPREHENSIVE_ROW_LIMIT per category"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.customer_count",
+      "terms": [
+        "salesforce_comprehensive_portfolio.customer_count",
+        "[LLM export §3c] portfolio labels with comprehensive fetch attempted"
+      ]
+    },
+    {
+      "path": "salesforce_comprehensive_portfolio.configured",
+      "terms": [
+        "salesforce_comprehensive_portfolio.configured",
+        "[LLM export §3c] Salesforce integration configured"
+      ]
+    },
+    {
       "path": "slack.source",
       "terms": [
         "slack.source",
@@ -2195,6 +2370,69 @@
       "terms": [
         "slack.skipped",
         "[Slack] not configured or disabled"
+      ]
+    },
+    {
+      "path": "slack.lookback_days",
+      "terms": [
+        "slack.lookback_days",
+        "[Slack] export lookback window (days)"
+      ]
+    },
+    {
+      "path": "slack.top_n",
+      "terms": [
+        "slack.top_n",
+        "[Slack] top customers by ARR included"
+      ]
+    },
+    {
+      "path": "slack.customers",
+      "terms": [
+        "slack.customers",
+        "[Slack] per-customer blocks keyed by Salesforce label"
+      ]
+    },
+    {
+      "path": "slack.customers[].llm_summary",
+      "terms": [
+        "slack.customers[].llm_summary",
+        "[Slack] Cortex LLM digest of channel history"
+      ]
+    },
+    {
+      "path": "slack.customers[].llm_summary.summary_markdown",
+      "terms": [
+        "slack.customers[].llm_summary.summary_markdown",
+        "[Slack] LLM summary bullets"
+      ]
+    },
+    {
+      "path": "slack.customers[].llm_summary.themes",
+      "terms": [
+        "slack.customers[].llm_summary.themes",
+        "[Slack] LLM topic labels"
+      ]
+    },
+    {
+      "path": "slack.customers[].llm_summary.open_items",
+      "terms": [
+        "slack.customers[].llm_summary.open_items",
+        "[Slack] unresolved asks from transcript"
+      ]
+    },
+    {
+      "path": "slack.customers[].llm_summary.sentiment",
+      "terms": [
+        "slack.customers[].llm_summary.sentiment",
+        "[Slack] LLM sentiment label"
+      ]
+    },
+    {
+      "path": "_llm_export_slack.performance",
+      "terms": [
+        "_llm_export_slack.performance",
+        "[Slack] export timing (wall, fetch, llm, per_customer)"
       ]
     },
     {
@@ -3077,6 +3315,13 @@
       "terms": [
         "_governance.authority_footnote",
         "[report] system-of-record authority note for governance slide"
+      ]
+    },
+    {
+      "path": "_hydrate_slide_hints",
+      "terms": [
+        "_hydrate_slide_hints",
+        "[internal] hydrate hints map"
       ]
     },
     {

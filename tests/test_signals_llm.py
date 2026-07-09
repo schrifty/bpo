@@ -164,13 +164,38 @@ def test_build_portfolio_signals_llm_payload_multisource():
         "cohort_digest": {},
         "cohort_findings_bullets": ["Cohort finding A"],
         "portfolio_help_ticket_metrics": {"unresolved_count": 12, "by_type_open": {"Bug": 3}},
-        "portfolio_revenue_book": {"total_arr": 1_000_000.0, "top_customers_by_arr": []},
+        "portfolio_revenue_book": {
+            "total_arr": 1_000_000.0,
+            "current_arr": 900_000.0,
+            "active_arr": 800_000.0,
+            "renewal_arr": 100_000.0,
+            "historical_arr": 1_000_000.0,
+            "future_contract_arr": 50_000.0,
+            "renewal_in_flight_customer_count": 2,
+            "future_customer_count": 1,
+            "top_customers_by_arr": [
+                {
+                    "customer": "Safran",
+                    "commercial_status": "ACTIVE",
+                    "historical_arr": 2_000_000.0,
+                    "active_arr": 2_000_000.0,
+                    "renewal_arr": 0.0,
+                    "current_arr": 2_000_000.0,
+                    "arr": 2_000_000.0,
+                }
+            ],
+        },
     }
     p = build_portfolio_signals_llm_payload(report)
     assert p["heuristic_critical_signals"][0]["customer"] == "Acme"
     assert p["customers_fact_pack"][0]["per_customer_signal_lines"]
     assert p["jira_help_portfolio_rollup"]["unresolved_help"] == 12
-    assert p["salesforce_revenue_book_compact"]["total_arr"] == 1_000_000.0
+    sf = p["salesforce_revenue_book_compact"]
+    assert sf["total_arr"] == 1_000_000.0
+    assert sf["current_arr"] == 900_000.0
+    assert sf["future_contract_arr"] == 50_000.0
+    assert sf["top_customers_by_arr_sample"][0]["commercial_status"] == "ACTIVE"
+    assert sf["top_customers_by_arr_sample"][0]["current_arr"] == 2_000_000.0
 
 
 def test_maybe_rewrite_portfolio_signals_applies_llm():

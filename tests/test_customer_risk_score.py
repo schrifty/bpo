@@ -22,7 +22,7 @@ def test_acme_scores_higher_than_healthy_beta():
             "engagement": {"active_rate_7d": 25.0},
         },
         salesforce={
-            "active_in_salesforce": True,
+            "commercial_status": "ACTIVE",
             "days_until_contract_end_nearest": 45,
         },
         portfolio_signals=[{"signal": "Low login rate vs peers", "severity": 1}],
@@ -37,7 +37,7 @@ def test_acme_scores_higher_than_healthy_beta():
             "guides": {"dismiss_rate": 5.0},
             "engagement": {"active_rate_7d": 88.0},
         },
-        salesforce={"active_in_salesforce": True, "days_until_contract_end_nearest": 400},
+        salesforce={"commercial_status": "ACTIVE", "days_until_contract_end_nearest": 400},
         portfolio_signals=[],
         csr_sites=[],
         jira_help={"open_issues": 0, "escalated": 0},
@@ -51,7 +51,7 @@ def test_acme_scores_higher_than_healthy_beta():
 def test_contract_churn_maxes_salesforce_pillar():
     churned = compute_customer_risk_score(
         pendo={"login_pct": 80.0},
-        salesforce={"active_in_salesforce": False},
+        salesforce={"commercial_status": "CHURNED"},
         portfolio_signals=[],
         csr_sites=[],
         include_jira=False,
@@ -61,7 +61,60 @@ def test_contract_churn_maxes_salesforce_pillar():
     assert "salesforce" in churned["top_influencer"].lower()
 
 
+def test_commercial_status_churned_beats_legacy_active_flag():
+    """commercial_status=CHURNED wins even when legacy active fields are absent."""
+    churned = compute_customer_risk_score(
+        pendo={"login_pct": 80.0},
+        salesforce={"commercial_status": "CHURNED", "active": True},
+        portfolio_signals=[],
+        csr_sites=[],
+        include_jira=False,
+    )
+    assert churned["pillars"]["salesforce"] == 100.0
+
+
 def test_renewal_in_flight_lowers_salesforce_churn_risk():
+    renewal = compute_customer_risk_score(
+        pendo={"login_pct": 80.0},
+        salesforce={
+            "commercial_status": "OUT_OF_CONTRACT_RENEWING",
+            "pipeline_arr_including_parent_accounts": 1_455_000.0,
+        },
+        portfolio_signals=[],
+        csr_sites=[],
+        include_jira=False,
+    )
+    churned = compute_customer_risk_score(
+        pendo={"login_pct": 80.0},
+        salesforce={"commercial_status": "CHURNED"},
+        portfolio_signals=[],
+        csr_sites=[],
+        include_jira=False,
+    )
+    assert renewal["risk_score"] < churned["risk_score"]
+    assert renewal["pillars"]["salesforce"] < churned["pillars"]["salesforce"]
+
+
+def test_future_commercial_status_not_scored_as_churn():
+    future = compute_customer_risk_score(
+        pendo={"login_pct": 80.0},
+        salesforce={"commercial_status": "FUTURE"},
+        portfolio_signals=[],
+        csr_sites=[],
+        include_jira=False,
+    )
+    churned = compute_customer_risk_score(
+        pendo={"login_pct": 80.0},
+        salesforce={"commercial_status": "CHURNED"},
+        portfolio_signals=[],
+        csr_sites=[],
+        include_jira=False,
+    )
+    assert future["risk_score"] < churned["risk_score"]
+    assert future["pillars"]["salesforce"] == 20.0
+
+
+def test_legacy_renewal_in_flight_fallback_without_commercial_status():
     renewal = compute_customer_risk_score(
         pendo={"login_pct": 80.0},
         salesforce={

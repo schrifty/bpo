@@ -6,7 +6,14 @@ from src.data_sources.loaders.salesforce_portfolio_aggregate import salesforce_a
 
 
 def test_churn_segment_omits_portfolio_wide_pipeline_fields():
-    rollups = [{"customer": "Gone", "active": False, "arr": 12.0}]
+    rollups = [
+        {
+            "customer": "Gone",
+            "commercial_status": "CHURNED",
+            "historical_arr": 12.0,
+            "arr": 12.0,
+        }
+    ]
     out = salesforce_aggregate_from_rollups(rollups, book={"pipeline_arr": 500.0}, segment="churned")
     assert out["customer_segment"] == "churned"
     assert out["segment_contract_arr"] == 12.0

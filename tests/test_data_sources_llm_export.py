@@ -12,10 +12,9 @@ from src.data_sources import (
 )
 
 
-def test_profile_llm_export_covers_four_sources():
+def test_profile_llm_export_covers_portfolio_sources():
     assert len(PROFILE_LLM_EXPORT_ALL_CUSTOMERS) == 6
     assert SourceId.PENDO_PORTFOLIO_ROLLUP in PROFILE_LLM_EXPORT_ALL_CUSTOMERS
-    assert SourceId.JIRA_HELP_PORTFOLIO in PROFILE_LLM_EXPORT_ALL_CUSTOMERS
     assert SourceId.SLACK_CUSTOMER_CONVERSATIONS in PROFILE_LLM_EXPORT_ALL_CUSTOMERS
 
 
@@ -26,7 +25,7 @@ def test_profile_leandna_qbr_enrichments_lists_three_api_bundles():
     assert SourceId.LEANDNA_LEAN_PROJECTS in PROFILE_LEANDNA_QBR_ENRICHMENTS
 
 
-def test_profile_single_customer_health_core_lists_pendo_and_csr():
+def test_profile_single_customer_health_core_lists_pendo_csr_and_slack():
     assert len(PROFILE_SINGLE_CUSTOMER_HEALTH_CORE) == 3
     assert SourceId.PENDO_CUSTOMER_HEALTH in PROFILE_SINGLE_CUSTOMER_HEALTH_CORE
     assert SourceId.CS_REPORT_CUSTOMER_WEEK in PROFILE_SINGLE_CUSTOMER_HEALTH_CORE

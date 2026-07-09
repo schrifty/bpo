@@ -11,30 +11,43 @@ from .portfolio_salesforce_allowlist import (
     resolve_sf_label_to_pendo_prefix,
 )
 
-# active rollups, churned-lost rollups, portfolio labels, revenue book, renewal-negotiation rollups
+# active rollups, churned-lost, portfolio labels, revenue book, renewal-negotiation, future-contract rollups
 SfPortfolioSplit = tuple[
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[str],
     dict[str, Any],
     list[dict[str, Any]],
+    list[dict[str, Any]],
 ]
 
 
 def partition_inactive_sf_rollups(
     rollups: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Split inactive contract rollups into churned-lost vs renewal-in-negotiation."""
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split non-current-book rollups into churned-lost, renewal-in-negotiation, and future-won."""
+    from .salesforce_commercial_status import (
+        COMMERCIAL_STATUS_CHURNED,
+        COMMERCIAL_STATUS_FUTURE,
+        COMMERCIAL_STATUS_OUT_OF_CONTRACT_RENEWING,
+    )
+
     churned_lost: list[dict[str, Any]] = []
     renewal_negotiation: list[dict[str, Any]] = []
+    future_contract: list[dict[str, Any]] = []
     for r in rollups:
-        if not isinstance(r, dict) or r.get("active") is not False:
+        if not isinstance(r, dict):
             continue
-        if r.get("renewal_in_flight") is True:
+        status = str(r.get("commercial_status") or "").strip()
+        if status == COMMERCIAL_STATUS_OUT_OF_CONTRACT_RENEWING or r.get("renewal_in_flight") is True:
             renewal_negotiation.append(r)
-        else:
+        elif status == COMMERCIAL_STATUS_FUTURE:
+            future_contract.append(r)
+        elif status == COMMERCIAL_STATUS_CHURNED or (
+            not status and r.get("active") is False and r.get("renewal_in_flight") is not True
+        ):
             churned_lost.append(r)
-    return churned_lost, renewal_negotiation
+    return churned_lost, renewal_negotiation, future_contract
 
 
 def _customer_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
@@ -79,30 +92,31 @@ def customer_matches_active_sf_label(
 
 
 def salesforce_portfolio_rollups_split() -> SfPortfolioSplit:
-    """Return (active, churned-lost, labels, book, renewal-negotiation rollups)."""
+    """Return (current-book, churned-lost, labels, book, renewal-negotiation, future-won rollups)."""
     if not _salesforce_configured():
-        return [], [], [], {"configured": False}, []
+        return [], [], [], {"configured": False}, [], []
     from src.salesforce_client import SalesforceClient
+    from src.salesforce_commercial_status import rollup_in_current_book
 
     sf = SalesforceClient()
     entity_accounts = sf.get_entity_accounts()
     labels = portfolio_labels_from_entity_accounts(entity_accounts)
     if not labels:
-        return [], [], [], {"configured": True, "empty": True}, []
+        return [], [], [], {"configured": True, "empty": True}, [], []
     book = sf.get_portfolio_revenue_book_metrics(labels)
     rollups = [
         r
         for r in (book.get("matched_customer_contract_rollups") or [])
         if isinstance(r, dict) and r.get("customer")
     ]
-    active = [r for r in rollups if r.get("active") is not False]
-    churned_lost, renewal_neg = partition_inactive_sf_rollups(rollups)
-    return active, churned_lost, labels, book, renewal_neg
+    active = [r for r in rollups if rollup_in_current_book(r)]
+    churned_lost, renewal_neg, future_contract = partition_inactive_sf_rollups(rollups)
+    return active, churned_lost, labels, book, renewal_neg, future_contract
 
 
 def active_salesforce_portfolio_rollups() -> tuple[list[dict[str, Any]], list[str], dict[str, Any]]:
-    """Return (active rollups, portfolio labels, revenue book dict). Empty when SF unavailable."""
-    active, _churned, labels, book, _renewal = salesforce_portfolio_rollups_split()
+    """Return (current-book rollups, portfolio labels, revenue book dict). Empty when SF unavailable."""
+    active, _churned, labels, book, _renewal, _future = salesforce_portfolio_rollups_split()
     return active, labels, book
 
 
@@ -118,6 +132,14 @@ def churned_sf_excluded_customer_keys(
     sf_labels: list[str] = []
     excluded: set[str] = set()
     def _skip_active_exclusion(row: dict[str, Any]) -> bool:
+        from src.salesforce_commercial_status import (
+            COMMERCIAL_STATUS_FUTURE,
+            COMMERCIAL_STATUS_OUT_OF_CONTRACT_RENEWING,
+        )
+
+        status = str(row.get("commercial_status") or "").strip()
+        if status in (COMMERCIAL_STATUS_OUT_OF_CONTRACT_RENEWING, COMMERCIAL_STATUS_FUTURE):
+            return True
         return row.get("renewal_in_flight") is True
 
     for r in seg.get("customers_headline") or []:
@@ -204,27 +226,51 @@ def _inactive_sf_headline_rows(
     *,
     customer_segment: str,
 ) -> list[dict[str, Any]]:
+    from .salesforce_commercial_status import (
+        COMMERCIAL_STATUS_CHURNED,
+        COMMERCIAL_STATUS_FUTURE,
+        COMMERCIAL_STATUS_OUT_OF_CONTRACT_RENEWING,
+    )
+
+    segment_status = {
+        "churned": COMMERCIAL_STATUS_CHURNED,
+        "renewal_negotiation": COMMERCIAL_STATUS_OUT_OF_CONTRACT_RENEWING,
+        "future_contract": COMMERCIAL_STATUS_FUTURE,
+    }
     rows: list[dict[str, Any]] = []
     for r in sorted(rollups, key=lambda x: str(x.get("customer") or "").lower()):
         label = str(r.get("customer") or "").strip()
         if not label:
             continue
+        commercial_status = str(r.get("commercial_status") or "").strip() or segment_status.get(
+            customer_segment, COMMERCIAL_STATUS_CHURNED
+        )
+        historical_arr = r.get("historical_arr") or r.get("arr")
         rows.append(
             {
                 "customer": label,
                 "customer_segment": customer_segment,
+                "commercial_status": commercial_status,
                 "salesforce_only": True,
                 "pendo_metrics_available": False,
                 "active_in_salesforce": False,
                 "churn_risk": r.get("churn_risk"),
-                "arr": r.get("arr"),
+                "arr": historical_arr,
+                "historical_arr": historical_arr,
+                "active_arr": r.get("active_arr"),
+                "renewal_arr": r.get("renewal_arr"),
+                "current_arr": r.get("current_arr"),
                 "contract_statuses_distinct": r.get("contract_statuses_distinct"),
                 "contract_end_date_nearest": r.get("contract_end_date_nearest"),
                 "renewal_in_flight": r.get("renewal_in_flight"),
+                "signed_renewal_closed_won": r.get("signed_renewal_closed_won"),
                 "pipeline_arr_including_parent_accounts": r.get(
                     "pipeline_arr_including_parent_accounts"
                 ),
                 "open_pipeline_opportunities_sample": r.get("open_pipeline_opportunities_sample"),
+                "recent_closed_won_renewal_opportunities_sample": r.get(
+                    "recent_closed_won_renewal_opportunities_sample"
+                ),
                 "total_users": None,
                 "active_users": None,
                 "login_pct": None,
@@ -253,9 +299,9 @@ def attach_churned_salesforce_segment_for_llm_export(
         return summary
 
     if sf_split is None:
-        _active, churned, _labels, book, _renewal = salesforce_portfolio_rollups_split()
+        _active, churned, _labels, book, _renewal, _future = salesforce_portfolio_rollups_split()
     else:
-        _active, churned, _labels, book, _renewal = sf_split
+        _active, churned, _labels, book, _renewal, _future = sf_split
     summary["salesforce_churned_entities"] = len(churned)
     summary["salesforce_renewal_negotiation_entities"] = len(_renewal)
     if not churned:
@@ -313,9 +359,9 @@ def attach_renewal_negotiation_segment_for_llm_export(
         return summary
 
     if sf_split is None:
-        _active, _churned, _labels, book, renewal = salesforce_portfolio_rollups_split()
+        _active, _churned, _labels, book, renewal, _future = salesforce_portfolio_rollups_split()
     else:
-        _active, _churned, _labels, book, renewal = sf_split
+        _active, _churned, _labels, book, renewal, _future = sf_split
     summary["salesforce_renewal_negotiation_entities"] = len(renewal)
     if not renewal:
         report["salesforce_renewal_negotiation_segment"] = {
@@ -360,6 +406,69 @@ def attach_renewal_negotiation_segment_for_llm_export(
     return summary
 
 
+def attach_future_contract_segment_for_llm_export(
+    report: dict[str, Any],
+    *,
+    sf_split: SfPortfolioSplit | None = None,
+) -> dict[str, Any]:
+    """Populate ``report['salesforce_future_contract_segment']`` (won contracts not yet started)."""
+    summary: dict[str, Any] = {
+        "salesforce_configured": _salesforce_configured(),
+        "salesforce_future_contract_entities": 0,
+    }
+    if not summary["salesforce_configured"]:
+        report["salesforce_future_contract_segment"] = {
+            "segment": "future_contract",
+            "do_not_merge_with_active_book": True,
+            "skipped": "salesforce_not_configured",
+        }
+        return summary
+
+    if sf_split is None:
+        _active, _churned, _labels, book, _renewal, future = salesforce_portfolio_rollups_split()
+    else:
+        _active, _churned, _labels, book, _renewal, future = sf_split
+    summary["salesforce_future_contract_entities"] = len(future)
+    if not future:
+        report["salesforce_future_contract_segment"] = {
+            "segment": "future_contract",
+            "do_not_merge_with_active_book": True,
+            "customer_count": 0,
+            "customers_headline": [],
+            "salesforce": {
+                "matched": False,
+                "resolution": "portfolio_aggregate",
+                "customer_segment": "future_contract",
+            },
+        }
+        return summary
+
+    from src.data_sources.loaders.salesforce_portfolio_aggregate import salesforce_aggregate_from_rollups
+
+    sf_future = salesforce_aggregate_from_rollups(future, book=book, segment="future_contract")
+    report["salesforce_future_contract_segment"] = {
+        "segment": "future_contract",
+        "do_not_merge_with_active_book": True,
+        "usage_note": (
+            "Customer Entity groups with no active contract yet but a won/signed contract whose "
+            "start date is in the future (or pending-activation status). Not churn and not "
+            "renewal-in-flight — do not merge with §3 active installed-base totals."
+        ),
+        "data_sources_included": ["salesforce"],
+        "data_sources_excluded": ["pendo", "jira", "cs_report"],
+        "customer_count": len(future),
+        "customers_headline": _inactive_sf_headline_rows(
+            future, customer_segment="future_contract"
+        ),
+        "salesforce": sf_future,
+    }
+    logger.info(
+        "LLM export: attached future-contract Salesforce segment with %d customer(s)",
+        len(future),
+    )
+    return summary
+
+
 def merge_active_salesforce_customers_for_llm_export(
     report: dict[str, Any],
     *,
@@ -380,7 +489,7 @@ def merge_active_salesforce_customers_for_llm_export(
     if sf_split is None:
         rollups, sf_labels, book = active_salesforce_portfolio_rollups()
     else:
-        rollups, _churned, sf_labels, book, _renewal = sf_split
+        rollups, _churned, sf_labels, book, _renewal, _future = sf_split
     summary["salesforce_portfolio_labels"] = len(sf_labels)
     summary["salesforce_active_entities"] = len(rollups)
 
@@ -446,11 +555,13 @@ def merge_salesforce_universe_for_llm_export(report: dict[str, Any]) -> dict[str
     active_summary = merge_active_salesforce_customers_for_llm_export(report, sf_split=sf_split)
     churn_summary = attach_churned_salesforce_segment_for_llm_export(report, sf_split=sf_split)
     renewal_summary = attach_renewal_negotiation_segment_for_llm_export(report, sf_split=sf_split)
+    future_summary = attach_future_contract_segment_for_llm_export(report, sf_split=sf_split)
     exclusion_summary = strip_churned_customers_from_active_export(report)
     return {
         "active": active_summary,
         "churned": churn_summary,
         "renewal_negotiation": renewal_summary,
+        "future_contract": future_summary,
         "churn_exclusion_from_active": exclusion_summary,
     }
 

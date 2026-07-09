@@ -3,8 +3,8 @@
 Supports:
     - Intersect headline customers / §5 signals with **active** Salesforce Customer Entity
       portfolio labels (Pendo match optional; see ``merge_active_salesforce_customers_for_llm_export``).
-    - Drop customers that **matched** Salesforce rollups but are **inactive** (`active` False on
-      contract status rollup — churned-style entities only).
+    - Drop customers that **matched** Salesforce rollups with ``commercial_status = CHURNED`` (reads
+      ``salesforce_churned_segment`` / revenue book — not the §3 current-book aggregate).
     - Explicit name excludes (CLI, env comma-list, optional UTF-8 file of names).
 
 Environment (defaults off unless noted):
@@ -31,6 +31,7 @@ from .config import logger
 from .data_source_health import _salesforce_configured
 from .llm_export_salesforce_universe import (
     active_sf_allowlist_lower,
+    churned_sf_excluded_customer_keys,
     customer_matches_active_sf_label,
 )
 
@@ -148,31 +149,6 @@ def _pendo_prefix_set(rows: list[dict[str, Any]]) -> frozenset[str]:
     return frozenset(out)
 
 
-def _inactive_sf_matched_names(sf: dict[str, Any]) -> frozenset[str]:
-    out: set[str] = set()
-    roll = sf.get("matched_customer_contract_rollups")
-    if isinstance(roll, list):
-        for row in roll:
-            if not isinstance(row, dict):
-                continue
-            if row.get("active") is not False:
-                continue
-            name = str(row.get("customer") or "").strip()
-            if name:
-                out.add(name.lower())
-    acct = sf.get("accounts")
-    if isinstance(acct, list):
-        for row in acct:
-            if not isinstance(row, dict):
-                continue
-            if row.get("active_in_salesforce") is not False:
-                continue
-            name = str(row.get("Name") or "").strip()
-            if name:
-                out.add(name.lower())
-    return frozenset(out)
-
-
 def apply_llm_export_customer_filters(
     report: dict[str, Any],
     cfg: LlmExportCustomerFilterConfig,
@@ -255,19 +231,30 @@ def apply_llm_export_customer_filters(
     else:
         sf_allowlist_labels = None
 
-    # 3) Inactive Salesforce matches (explicit churn rollup)
+    # 3) CHURNED Salesforce matches (§3b segment — not §3 current-book rollups)
     inactive: frozenset[str] | None = None
     if cfg.exclude_sf_churned_matched:
-        sf_blob = report.get("salesforce") if isinstance(report.get("salesforce"), dict) else {}
-        if sf_blob.get("error"):
+        churn_seg = report.get("salesforce_churned_segment")
+        if not isinstance(churn_seg, dict):
             msg = (
-                "exclude_sf_churned_matched requested but Salesforce block has error; "
+                "exclude_sf_churned_matched requested but salesforce_churned_segment is missing; "
+                "churn-based drop skipped for this run."
+            )
+            summary["warnings"].append(msg)
+            logger.warning("LLM export customer filter: %s", msg)
+        elif churn_seg.get("skipped"):
+            msg = (
+                "exclude_sf_churned_matched requested but Salesforce is not configured; "
                 "churn-based drop skipped for this run."
             )
             summary["warnings"].append(msg)
             logger.warning("LLM export customer filter: %s", msg)
         else:
-            inactive = _inactive_sf_matched_names(sf_blob)
+            inactive = churned_sf_excluded_customer_keys(
+                report,
+                pendo_prefixes=_pendo_prefix_set(rows),
+            )
+            summary["churned_exclusion_keys"] = sorted(inactive)
 
     if inactive is not None:
         before_ch = len(rows)

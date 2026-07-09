@@ -12,7 +12,7 @@ breakdowns, and SLA-style aggregates only — **no issue keys, summaries, or tic
 The markdown includes **Snapshot coverage & omission rationale** (profile sources, registry ids not in this export and why, caps, loader provenance, feedback prompt) plus **Planned integrations (not in this snapshot yet)** (e.g. Aha, GitHub).
 
 Usage:
-  cortex --export [--days N] [--skip-risk-insights] [--customers-sf-allowlist] [--customers-exclude-sf-churned] [--exclude-customer NAME ...]
+  cortex export-all [--days N] [--skip-risk-insights] [--customers-sf-allowlist] [--customers-exclude-sf-churned] [--exclude-customer NAME ...]
   python -m src.export_llm_context_snapshot --days 90
 
 Optional portfolio row filters (after Pendo+Salesforce bundle, before markdown):
@@ -26,10 +26,10 @@ Optional portfolio row filters (after Pendo+Salesforce bundle, before markdown):
   env ``CORTEX_LLM_EXPORT_EXCLUDE_CUSTOMERS`` / ``CORTEX_LLM_EXPORT_EXCLUDE_CUSTOMERS_FILE``.
 
 Requires ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` (and optional ``GOOGLE_QBR_OUTPUT_PARENT_ID``) plus
-Drive credentials. Each run uploads ``LLM-Context-All_Customers.md`` to **both**:
+Drive credentials. Each run uploads ``LLM-Context-Portfolio`` to **both**:
 
-1. ``<generator>/Output/`` (stable path for bookmarks)
-2. ``<generator>/Output/{ISO-date} - Output/`` (same-day bundle folder; filename replaced if present)
+1. ``<generator>/Output/LLM-Context-Portfolio-persistent.md`` (bookmarkable current export)
+2. ``<generator>/Output/Historical Data/{ISO-date}/LLM-Context-Portfolio.md`` (same-day snapshot, plain stem)
 
 Every export appends **§7 Account & churn risk insights** (LLM). Failures are printed inside that section; the export still completes unless the core datasource report fails earlier.
 """
@@ -77,6 +77,10 @@ _LEANDNA_DATA_API_HTTP_SURFACES: tuple[str, ...] = (
 )
 
 # Typical ``report`` dotted paths when QBR LeanDNA enrichments run (no live values in this export).
+
+
+def _is_llm_export_top_arr_scope(scope: Any) -> bool:
+    return scope in ("top_customers_by_arr", "top_ultimate_parents_by_arr")
 _LEANDNA_QBR_ENRICHMENT_PATHS: tuple[str, ...] = (
     "leandna_item_master",
     "leandna_item_master.abc_distribution",
@@ -143,13 +147,29 @@ _PLANNED_DATASOURCES_NOT_IN_EXPORT: tuple[str, ...] = ("Aha", "GitHub")
 # Pendo §1: max rows in ``customers_headline`` when size caps are enabled (see ``_pendo_portfolio_topline``).
 _PENDO_EXPORT_HEADLINE_CUSTOMER_CAP = 200
 
-# ``--max-bytes`` / compaction caps: 0 means no limit (full payloads in export).
+# ``--max-tokens`` / ``--max-bytes`` / compaction caps: 0 means no limit (full payloads).
 _LLM_EXPORT_NO_CAP = 0
-_LLM_EXPORT_DEFAULT_MAX_BYTES = 500_000
+# The governing budget for this export is the LLM **token** window, not raw bytes. The byte
+# cap is retained as an optional secondary guard (off by default). See ``do 1`` rationale:
+# CSR JSON runs ~3.4 chars/token, so a byte cap wastes ~70% of a token budget.
+_LLM_EXPORT_DEFAULT_MAX_BYTES = 0
+_LLM_EXPORT_DEFAULT_MAX_TOKENS = 450_000
+# Never shrink/truncate below this floor, regardless of an aggressive explicit cap.
+_LLM_EXPORT_MIN_TOKEN_CAP = 20_000
+_LLM_EXPORT_MIN_BYTE_CAP = 20_000
+# Fallback chars-per-token when tiktoken is unavailable (conservative → over-counts tokens).
+_LLM_EXPORT_FALLBACK_CHARS_PER_TOKEN = 3.2
+
+_TOKEN_ENCODER: Any | None = None
+_TOKEN_ENCODER_TRIED = False
 
 
 def llm_export_default_max_bytes() -> int:
-    """Default UTF-8 soft cap for all-customers export (``CORTEX_LLM_EXPORT_MAX_BYTES``; 0 = unlimited)."""
+    """Default UTF-8 byte cap (``CORTEX_LLM_EXPORT_MAX_BYTES``; 0 = unlimited, the default).
+
+    The primary export budget is token-based (:func:`llm_export_default_max_tokens`); the byte
+    cap is an opt-in secondary guard.
+    """
     import os
 
     raw = (os.environ.get("CORTEX_LLM_EXPORT_MAX_BYTES") or "").strip()
@@ -159,6 +179,83 @@ def llm_export_default_max_bytes() -> int:
         return max(0, int(raw))
     except ValueError:
         return _LLM_EXPORT_DEFAULT_MAX_BYTES
+
+
+def llm_export_default_max_tokens() -> int:
+    """Default LLM token budget for the export (``CORTEX_LLM_EXPORT_MAX_TOKENS``; 0 = unlimited)."""
+    import os
+
+    raw = (os.environ.get("CORTEX_LLM_EXPORT_MAX_TOKENS") or "").strip()
+    if not raw:
+        return _LLM_EXPORT_DEFAULT_MAX_TOKENS
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return _LLM_EXPORT_DEFAULT_MAX_TOKENS
+
+
+def _get_token_encoder() -> Any | None:
+    """Return a cached ``tiktoken`` encoder, or ``None`` when the package is unavailable."""
+    global _TOKEN_ENCODER, _TOKEN_ENCODER_TRIED
+    if _TOKEN_ENCODER_TRIED:
+        return _TOKEN_ENCODER
+    _TOKEN_ENCODER_TRIED = True
+    try:
+        import tiktoken
+
+        _TOKEN_ENCODER = tiktoken.get_encoding("cl100k_base")
+    except Exception:
+        _TOKEN_ENCODER = None
+    return _TOKEN_ENCODER
+
+
+def count_tokens(text: str) -> int:
+    """Count LLM tokens in *text* via ``tiktoken`` (cl100k_base), or a conservative estimate.
+
+    The fallback (no tiktoken) approximates from UTF-8 byte length so callers still get a
+    monotonic, slightly high token estimate for cap enforcement.
+    """
+    if not text:
+        return 0
+    enc = _get_token_encoder()
+    if enc is not None:
+        return len(enc.encode(text, disallowed_special=()))
+    import math
+
+    return int(math.ceil(len(text.encode("utf-8")) / _LLM_EXPORT_FALLBACK_CHARS_PER_TOKEN))
+
+
+def _truncate_to_tokens(text: str, max_tokens: int) -> str:
+    """Return *text* clipped to at most *max_tokens* tokens (best-effort under fallback)."""
+    if max_tokens <= 0 or not text:
+        return text
+    enc = _get_token_encoder()
+    if enc is not None:
+        tokens = enc.encode(text, disallowed_special=())
+        if len(tokens) <= max_tokens:
+            return text
+        return enc.decode(tokens[:max_tokens])
+    approx_bytes = int(max_tokens * _LLM_EXPORT_FALLBACK_CHARS_PER_TOKEN)
+    raw = text.encode("utf-8")
+    if len(raw) <= approx_bytes:
+        return text
+    return raw[:approx_bytes].decode("utf-8", errors="ignore")
+
+
+def _format_tokens(n: int) -> str:
+    n = max(0, int(n))
+    if n >= 1000:
+        return f"{n / 1000:.1f}K tokens ({n:,})"
+    return f"{n:,} tokens"
+
+
+def _over_size_caps(md: str, *, max_bytes: int, max_tokens: int) -> bool:
+    """True when *md* exceeds an active token or byte cap (0 = that cap is disabled)."""
+    if max_tokens and count_tokens(md) > max_tokens:
+        return True
+    if max_bytes and _utf8_byte_len(md) > max_bytes:
+        return True
+    return False
 
 
 def _export_cap_active(cap: int | None) -> bool:
@@ -186,7 +283,7 @@ def _integration_coverage_lines(*, salesforce: dict[str, Any], csr: dict[str, An
     if not csr:
         lines.append("- **CS Report:** **Not loaded** — no `csr` block on the merged report.")
         return lines
-    if csr.get("scope") == "top_customers_by_arr":
+    if _is_llm_export_top_arr_scope(csr.get("scope")):
         customers = csr.get("customers") if isinstance(csr.get("customers"), dict) else {}
         n = len(customers)
         n_ok = sum(
@@ -200,7 +297,7 @@ def _integration_coverage_lines(*, salesforce: dict[str, Any], csr: dict[str, An
         )
         if n and n_ok:
             lines.append(
-                f"- **CS Report:** **Loaded** — per-customer week slices for top {n} label(s) by ARR "
+                f"- **CS Report:** **Loaded** — per-customer week slices for top {n} ultimate parent(s) by ARR "
                 f"({n_ok} with at least one section; see §4 ``customers``)."
             )
         elif n:
@@ -322,6 +419,7 @@ def _build_export_coverage(
     report: dict[str, Any],
     *,
     markdown_soft_cap_bytes: int,
+    markdown_soft_cap_tokens: int = _LLM_EXPORT_NO_CAP,
     csr_site_limit: int,
     csr_string_cap: int,
     sf_accounts: int,
@@ -360,6 +458,7 @@ def _build_export_coverage(
         "sources_in_profile": sources_in_profile,
         "registry_excluded": registry_excluded,
         "markdown_soft_cap_bytes": int(markdown_soft_cap_bytes),
+        "markdown_soft_cap_tokens": int(markdown_soft_cap_tokens),
         "size_caps_enabled": size_caps_enabled,
         "compaction": {
             "csr_site_limit": csr_site_limit,
@@ -411,6 +510,12 @@ def _build_export_coverage(
             "customer_count": renewal_seg_cov.get("customer_count"),
             "do_not_merge_with_active_book": renewal_seg_cov.get("do_not_merge_with_active_book"),
         }
+    future_seg_cov = report.get("salesforce_future_contract_segment")
+    if isinstance(future_seg_cov, dict):
+        out_cov["salesforce_future_contract_segment"] = {
+            "customer_count": future_seg_cov.get("customer_count"),
+            "do_not_merge_with_active_book": future_seg_cov.get("do_not_merge_with_active_book"),
+        }
     return out_cov
 
 
@@ -433,7 +538,8 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
         lines.extend(
             [
                 "### Salesforce customer universe (this run)",
-                f"- **Active Customer Entity labels in Salesforce:** **{sf_uni.get('salesforce_active_entities', 0)}**",
+                f"- **Current-book Customer Entity labels in Salesforce (ACTIVE + OUT_OF_CONTRACT_RENEWING):** "
+                f"**{sf_uni.get('salesforce_active_entities', 0)}**",
                 f"- **§1 rows added with Salesforce only (no Pendo headline metrics):** "
                 f"**{sf_uni.get('added_salesforce_only_rows', 0)}**",
             ]
@@ -444,7 +550,7 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
             if len(without) > 12:
                 preview += ", …"
             lines.append(
-                f"- **Active SF labels with no Pendo prefix match (still in §1/§3):** {preview}"
+                f"- **Current-book SF labels with no Pendo prefix match (still in §1/§3):** {preview}"
             )
         lines.append("")
     sf_churn_cov = cov.get("salesforce_churned")
@@ -471,6 +577,17 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
                     "### Salesforce renewal negotiation (§3b-renewal)",
                     f"- **Expired contracts with open renewal pipeline:** **{n_renewal}**",
                     "- These accounts may still appear in §1 when Pendo matches; they are **not** counted in §3b churn.",
+                    "",
+                ]
+            )
+        fut_seg = cov.get("salesforce_future_contract_segment")
+        n_future = fut_seg.get("customer_count") if isinstance(fut_seg, dict) else None
+        if n_future:
+            lines.extend(
+                [
+                    "### Salesforce future contracts (§3b-future)",
+                    f"- **FUTURE commercial_status (won contracts not yet started):** **{n_future}**",
+                    "- **Do not merge** with §3 current book, §3b churn, or §3b-renewal.",
                     "",
                 ]
             )
@@ -532,12 +649,16 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
             "- **§2 — Jira (HELP):** **Workload and health of the queue** — counts by status, type, and similar rollups, "
             "plus response-time style summaries. **Individual tickets are not listed** (no issue keys, titles, or customer notes in text).",
             "",
-            "- **§3 — Salesforce (active installed base):** **Revenue and renewal-oriented facts** for **active "
-            "(non-churned) Customer Entity** labels. Pendo usage in §1 is merged when a prefix matches, but **Pendo is "
-            "not required** for a customer to appear (see ``salesforce_only`` rows in §1). **Do not combine** with §3b.",
-            "- **§3b — Salesforce (churned / lost):** **Salesforce-only** inactive contracts **without** open "
-            "parent-account renewal pipeline. **§3b-renewal** holds expired contracts **with** renewal pipeline "
-            "(negotiation, not churn). **No Pendo/Jira** in either inactive segment; true churn is stripped from §1/§5.",
+            "- **§3 — Salesforce (current book):** **Revenue and renewal-oriented facts** for ultimate parents with "
+            "``commercial_status`` **ACTIVE** or **OUT_OF_CONTRACT_RENEWING**. **§3.1** is a markdown table of every "
+            "account **pre-ranked by ``current_arr``** — the authoritative source for “top N by revenue” (read the "
+            "``rank`` column); **§3.2** holds the contract rollups and portfolio aggregates as JSON. Pendo in §1 "
+            "merges when a prefix matches, but **Pendo is not required** (see ``salesforce_only`` rows). "
+            "**Do not combine** with §3b / §3b-renewal / §3b-future.",
+            "- **§3b — Salesforce (churned / lost):** **Salesforce-only** ``CHURNED`` contracts **without** open "
+            "parent-account renewal pipeline. **§3b-renewal** = ``OUT_OF_CONTRACT_RENEWING`` (negotiation, not churn). "
+            "**§3b-future** = ``FUTURE`` (won contracts not yet started). **No Pendo/Jira** in inactive segments; "
+            "true churn is stripped from §1/§5.",
             "",
             "- **§4 — CS Report (weekly export):** Per-customer **platform_health**, **supply_chain**, and "
             "**platform_value** for the **top Salesforce labels by ARR** (not an all-customer site merge). When size "
@@ -559,18 +680,27 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
         ]
     )
     if cov.get("size_caps_enabled"):
+        cap_tok = cov.get("markdown_soft_cap_tokens")
+        cap_b = cov.get("markdown_soft_cap_bytes")
+        if cap_tok and int(cap_tok) > 0:
+            budget = f"about **{int(cap_tok):,}** LLM tokens (`--max-tokens`, cl100k_base)"
+            if cap_b and int(cap_b) > 0:
+                budget += f" and **{int(cap_b):,}** UTF-8 bytes (`--max-bytes`)"
+            raise_hint = "raise `--max-tokens`"
+        else:
+            budget = f"about **{int(cap_b or 0):,}** bytes of UTF-8 (`--max-bytes`)"
+            raise_hint = "raise `--max-bytes`"
         lines.append(
-            f"- **Target size (`--max-bytes`):** about **{cov.get('markdown_soft_cap_bytes', '')}** bytes of UTF-8 for "
-            "the whole markdown file. §3c Salesforce comprehensive is exported in **headline** form (per-customer "
-            "KPIs + capped category samples, top customers by ARR). If the export is still too large, CSR and §3 "
-            "rollup tighten further; the **end of the file may be cut off** — raise `--max-bytes` or set "
-            "`CORTEX_LLM_EXPORT_SF_COMPREHENSIVE=false` for a smaller run."
+            f"- **Target size:** {budget} for the whole markdown file. §3c Salesforce comprehensive is exported "
+            "in **headline** form (per-customer KPIs + capped category samples, top customers by ARR). If the "
+            "export is still too large, CSR and §3 rollup tighten further; the **end of the file may be cut "
+            f"off** — {raise_hint} or set `CORTEX_LLM_EXPORT_SF_COMPREHENSIVE=false` for a smaller run."
         )
     else:
         lines.append(
-            "- **Size caps:** **disabled** for this run (`--max-bytes 0`). Full CS Report site rows, "
-            "Salesforce rollups, Pendo headlines, and §3c comprehensive payloads are included without markdown "
-            "truncation or tiered compaction."
+            "- **Size caps:** **disabled** for this run (`--max-tokens 0 --max-bytes 0`). Full CS Report site "
+            "rows, Salesforce rollups, Pendo headlines, and §3c comprehensive payloads are included without "
+            "markdown truncation or tiered compaction."
         )
     c = cov.get("compaction") if isinstance(cov.get("compaction"), dict) else {}
     if c and cov.get("size_caps_enabled"):
@@ -614,6 +744,41 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
                 lines.append(f"- **`{src}`** — **{st}** — {det}")
             else:
                 lines.append(f"- **`{src}`** — **{st}**")
+    slack_meta = cov.get("slack_top_by_arr")
+    if isinstance(slack_meta, dict) and slack_meta.get("enabled"):
+        perf = slack_meta.get("performance") if isinstance(slack_meta.get("performance"), dict) else {}
+        lines.extend(
+            [
+                "",
+                "### Slack pilot timing (top customers by ARR)",
+                f"- **Scope:** top **{slack_meta.get('top_n', '')}** ultimate parents · "
+                f"**{slack_meta.get('lookback_days', '')}**-day lookback",
+                f"- **Customers:** {slack_meta.get('customers_selected', 0)} selected · "
+                f"{slack_meta.get('customers_with_slack_data', 0)} with channel data · "
+                f"{slack_meta.get('customers_llm_summarized', 0)} LLM summaries · "
+                f"{slack_meta.get('customers_slack_errors', 0)} fetch errors · "
+                f"{slack_meta.get('customers_llm_errors', 0)} LLM errors",
+            ]
+        )
+        if perf:
+            lines.append(
+                f"- **Wall time:** **{perf.get('wall_seconds_total', '—')}s** total "
+                f"(fetch **{perf.get('fetch_wall_seconds', '—')}s** · "
+                f"LLM **{perf.get('llm_wall_seconds', '—')}s**)"
+            )
+            per_cust = perf.get("per_customer")
+            if isinstance(per_cust, list) and per_cust:
+                lines.append("- **Per customer:**")
+                for row in per_cust:
+                    if not isinstance(row, dict):
+                        continue
+                    name = row.get("customer") or "?"
+                    lines.append(
+                        f"  - **{name}** — fetch {row.get('fetch_seconds', '—')}s · "
+                        f"LLM {row.get('llm_seconds', '—')}s · "
+                        f"{row.get('channels', 0)} channels · {row.get('messages', 0)} messages"
+                        + (f" · llm_error={row['llm_error']}" if row.get("llm_error") else "")
+                    )
     lines.extend(
         [
             "",
@@ -646,6 +811,31 @@ def _emit_integration_stderr_warnings(report: dict[str, Any]) -> None:
             llm_export=True,
         )
 
+    jira = report.get("jira") if isinstance(report.get("jira"), dict) else {}
+    jira_err = str(jira.get("error") or "").strip()
+    if jira_err:
+        collect_export_warning(f"Jira: {jira_err}", llm_export=True)
+    else:
+        nested: list[str] = []
+        for key, val in jira.items():
+            if key in ("base_url", "error", "scope", "customers"):
+                continue
+            if isinstance(val, dict) and val.get("error"):
+                nested.append(f"{key}: {val['error']}")
+        customers = jira.get("customers")
+        if isinstance(customers, dict):
+            for label, entry in customers.items():
+                if not isinstance(entry, dict):
+                    continue
+                jb = entry.get("jira")
+                if isinstance(jb, dict) and jb.get("error"):
+                    nested.append(f"{label}: {jb['error']}")
+        if nested:
+            collect_export_warning(
+                "Jira: " + " | ".join(nested[:5]) + (" …" if len(nested) > 5 else ""),
+                llm_export=True,
+            )
+
 
 def _compact_eng_enh_counts_only(blob: dict[str, Any] | None) -> dict[str, Any]:
     """Engineering / enhancement rolls — counts only (no ticket keys or summaries)."""
@@ -664,7 +854,7 @@ def _compact_eng_enh_counts_only(blob: dict[str, Any] | None) -> dict[str, Any]:
 def _compact_jira(j: dict[str, Any], *, size_caps_enabled: bool = True) -> dict[str, Any]:
     if not j or not isinstance(j, dict):
         return {}
-    if j.get("scope") == "top_customers_by_arr":
+    if _is_llm_export_top_arr_scope(j.get("scope")):
         customers_in = j.get("customers")
         customers_out: dict[str, Any] = {}
         if isinstance(customers_in, dict):
@@ -674,10 +864,14 @@ def _compact_jira(j: dict[str, Any], *, size_caps_enabled: bool = True) -> dict[
                 slim: dict[str, Any] = {
                     k: entry.get(k)
                     for k in (
+                        "ultimate_parent",
                         "salesforce_label",
+                        "salesforce_labels",
                         "arr",
                         "pendo_customer_key",
                         "jira_lookup_name",
+                        "jira_match_terms",
+                        "jira_merged_subsidiary_lookups",
                     )
                     if k in entry
                 }
@@ -800,7 +994,12 @@ _SF_ACCOUNT_EXPORT_KEYS = (
     "Name",
     "ARR__c",
     "Type",
-    "active_in_salesforce",
+    "commercial_status",
+    "active_arr",
+    "renewal_arr",
+    "current_arr",
+    "historical_arr",
+    "renewal_in_flight",
     "contract_statuses_distinct",
     "contract_end_date_nearest",
     "contract_end_date_farthest",
@@ -836,18 +1035,28 @@ def _compact_salesforce(sf: dict[str, Any], *, account_cap: int = 0) -> dict[str
             out["matched_customer_contract_rollups"] = list(rollups)
         out["matched_customer_contract_rollups_total"] = len(rollups)
         seg = sf.get("customer_segment") or "active"
-        if seg in ("churned", "renewal_negotiation"):
+        if seg == "churned":
             out["salesforce_export_note"] = (
-                "Inactive Customer Entity rollups (not active installed base). "
-                "Do not combine with §3 active totals or §5 Pendo signals. "
-                "renewal_negotiation = expired contracts with open parent-account pipeline."
+                "Churned / lost contracts only (``commercial_status = CHURNED``). "
+                "Do not merge with §3 current book or §5 Pendo portfolio."
+            )
+        elif seg == "renewal_negotiation":
+            out["salesforce_export_note"] = (
+                "Renewal negotiation segment (``commercial_status = OUT_OF_CONTRACT_RENEWING``). "
+                "Expired entity contracts with open parent-account renewal pipeline — not churn. "
+                "Do not merge with §3b churned or add to §3 current-book ARR."
+            )
+        elif seg == "future_contract":
+            out["salesforce_export_note"] = (
+                "Future contract segment (``commercial_status = FUTURE``). "
+                "Won/signed contracts not yet in the current book. "
+                "Do not merge with §3, §3b, or §3b-renewal."
             )
         else:
             out["salesforce_export_note"] = (
-                "Active installed-base rollups: ARR sum, distinct Contract_Status__c, "
-                "nearest/farthest Contract_Contract_End_Date__c among non-churned rows "
-                "(fallback: all rows if every matched row is churned). "
-                "Churned customers are in §3b only."
+                "Current book only — ACTIVE and OUT_OF_CONTRACT_RENEWING ultimate parents "
+                "(``commercial_status``). Ranked by ``current_arr`` (= ``active_arr`` + ``renewal_arr``). "
+                "Churned, renewal-only, and future segments are in §3b, §3b-renewal, and §3b-future."
             )
     accts = sf.get("accounts")
     if isinstance(accts, list):
@@ -859,16 +1068,32 @@ def _compact_salesforce(sf: dict[str, Any], *, account_cap: int = 0) -> dict[str
             slim.append({k: a.get(k) for k in _SF_ACCOUNT_EXPORT_KEYS})
         out["accounts"] = slim
         out["accounts_total"] = len(accts)
+    for k in (
+        "segment_customer_count",
+        "segment_contract_arr",
+        "segment_current_arr",
+        "segment_note",
+        "portfolio_book_note",
+    ):
+        if k in sf:
+            out[k] = sf[k]
     if sf.get("resolution") == "portfolio_aggregate":
         for k in (
             "total_arr",
+            "historical_arr",
             "active_installed_base_arr",
+            "active_arr",
+            "renewal_arr",
+            "current_arr",
             "churned_contract_arr",
+            "future_contract_arr",
             "pendo_customers",
             "salesforce_matched_customers",
             "salesforce_unmatched_customers",
             "active_customer_count",
             "churned_customer_count",
+            "renewal_in_flight_customer_count",
+            "future_customer_count",
             "expansion_kpis",
             "portfolio_expansion_book",
         ):
@@ -986,29 +1211,167 @@ def _sample_csr_sites_for_export(sites: list[dict[str, Any]], limit: int) -> lis
     return out[:limit]
 
 
-def _compact_csr_section_block(
+_CSR_SECTION_KEYS = ("platform_health", "supply_chain", "platform_value")
+_CSR_SITE_JOIN_FIELDS = ("factory", "site", "entity")
+
+# Per-factory `sites` rows repeat their field names hundreds of times across the export, so we
+# emit short, stable keys in each row and publish a single `field_legend` (short -> long) at the
+# top of §4. This keeps the structure fully key-value (self-describing per row, nulls omitted,
+# chunk-safe) while removing the repeated long-field-name token cost (~19% off §4). LLMs decode
+# each row via the legend; do NOT reuse a short key for two different long names.
+_CSR_SITE_FIELD_ABBR: dict[str, str] = {
+    # identity
+    "factory": "fac",
+    "site": "st",
+    "entity": "ent",
+    # platform health
+    "health_score": "hs",
+    "clear_to_build_pct": "ctb",
+    "clear_to_commit_pct": "ctc",
+    "component_availability_pct": "ca",
+    "component_availability_projected_pct": "cap",
+    "shortages": "sh",
+    "critical_shortages": "csh",
+    "weekly_active_buyers_pct": "wab",
+    "buyer_mapping_quality": "bmq",
+    "high_risk_items": "hri",
+    # supply chain
+    "on_hand_value": "ohv",
+    "on_order_value": "oov",
+    "excess_on_hand": "eoh",
+    "doi_days": "doi",
+    "days_coverage": "dcov",
+    "turns_of_inventory": "toi",
+    "late_pos": "lpo",
+    "late_prs": "lpr",
+    # platform value
+    "savings_current_period": "scp",
+    "open_ia_value": "oia",
+    "recs_created_30d": "rc30",
+    "pos_placed_30d": "pp30",
+    "overdue_tasks": "odt",
+    "current_fy_spend": "cfs",
+    "previous_fy_spend": "pfs",
+}
+# short -> long, published once per §4 so any LLM can decode the abbreviated site rows.
+_CSR_SITE_FIELD_LEGEND: dict[str, str] = {v: k for k, v in _CSR_SITE_FIELD_ABBR.items()}
+
+
+def _abbreviate_csr_site(site: dict[str, Any]) -> dict[str, Any]:
+    """Rename site-row keys to their short forms (order preserved; unknown keys kept as-is)."""
+    return {_CSR_SITE_FIELD_ABBR.get(k, k): v for k, v in site.items()}
+
+# One-line, self-describing schema hint so any LLM reading the export understands the
+# de-duplicated §4 shape without external docs.
+_CSR_SCHEMA_NOTE = (
+    "Each `sites` row is ONE factory with all CS Report metrics merged inline. Row keys are "
+    "ABBREVIATED to save tokens — decode them with the `field_legend` map at the top of this "
+    "section (short -> long, e.g. `hs`=health_score, `ctb`=clear_to_build_pct, `doi`=doi_days, "
+    "`ohv`=on_hand_value, `scp`=savings_current_period). A key is present only when that factory "
+    "has a value (nulls are omitted). Merged metrics span platform-health, supply-chain, and "
+    "platform-value worksheets. Per-customer section rollups (health_distribution, total_shortages, "
+    "inventory_totals, total_savings, …) are in the §4.1 markdown table (one row per customer), not "
+    "in this JSON. When `sites_total` > len(sites), rows were sampled (see `sites_sample_strategy`); "
+    "the §4.1 summary still reflects all factories."
+)
+
+_CSR_SUMMARY_HEALTH_KEYS = (
+    "factory_count",
+    "health_distribution",
+    "total_shortages",
+    "total_critical_shortages",
+)
+_CSR_SUMMARY_VALUE_KEYS = (
+    "total_savings",
+    "total_open_ia_value",
+    "total_potential_savings",
+    "total_potential_to_sell",
+    "total_recs_created_30d",
+    "total_pos_placed_30d",
+    "total_overdue_tasks",
+)
+
+
+def _csr_site_join_key(site: dict[str, Any]) -> tuple[str, str, str]:
+    return tuple(str(site.get(f) or "").strip().lower() for f in _CSR_SITE_JOIN_FIELDS)  # type: ignore[return-value]
+
+
+def _merge_customer_csr_site_rows(block: dict[str, Any]) -> list[dict[str, Any]]:
+    """Union the three CSR worksheet ``sites`` lists into one row per factory (metrics inline).
+
+    Removes the ~3× duplication of factory name + wrapper keys across the health / supply-chain /
+    value worksheets. Metric field names are disjoint across worksheets, so a factory row gathers
+    every metric present for it. Errored sections contribute nothing.
+    """
+    merged: dict[tuple[str, str, str], dict[str, Any]] = {}
+    order: list[tuple[str, str, str]] = []
+    for sec_name in _CSR_SECTION_KEYS:
+        sec = block.get(sec_name)
+        if not isinstance(sec, dict) or sec.get("error"):
+            continue
+        for site in sec.get("sites") or []:
+            if not isinstance(site, dict):
+                continue
+            key = _csr_site_join_key(site)
+            if key not in merged:
+                merged[key] = {}
+                order.append(key)
+            merged[key].update(site)
+    return [merged[k] for k in order]
+
+
+def _csr_customer_summary(block: dict[str, Any], *, factory_count: int) -> dict[str, Any]:
+    """Per-customer section rollups (no site rows) across the three CSR worksheets."""
+    summary: dict[str, Any] = {"factory_count": factory_count}
+    ph = block.get("platform_health")
+    if isinstance(ph, dict) and not ph.get("error"):
+        for k in _CSR_SUMMARY_HEALTH_KEYS:
+            if k in ph and k != "factory_count":
+                summary[k] = ph[k]
+    sc = block.get("supply_chain")
+    if isinstance(sc, dict) and not sc.get("error") and isinstance(sc.get("totals"), dict):
+        summary["inventory_totals"] = sc["totals"]
+    pv = block.get("platform_value")
+    if isinstance(pv, dict) and not pv.get("error"):
+        for k in _CSR_SUMMARY_VALUE_KEYS:
+            if k in pv:
+                summary[k] = pv[k]
+    return summary
+
+
+def _compact_csr_customer_block(
     block: dict[str, Any], *, site_limit: int, string_cap: int, size_caps_enabled: bool = True
 ) -> dict[str, Any]:
+    """Merged, LLM-friendly per-customer CSR: one row per factory + section rollups."""
     from src.export_string_utils import truncate_strings_in_obj
 
-    if block.get("error"):
-        return {"error": block.get("error")}
-    pruned = dict(block)
-    sites = pruned.get("sites")
-    if isinstance(sites, list):
+    merged_sites = _merge_customer_csr_site_rows(block)
+    out: dict[str, Any] = {"summary": _csr_customer_summary(block, factory_count=len(merged_sites))}
+
+    section_errors = {
+        name: block[name]["error"]
+        for name in _CSR_SECTION_KEYS
+        if isinstance(block.get(name), dict) and block[name].get("error")
+    }
+    if section_errors:
+        out["section_errors"] = section_errors
+
+    if merged_sites:
+        total = len(merged_sites)
         if size_caps_enabled and _export_cap_active(site_limit):
-            pruned["sites"] = _sample_csr_sites_for_export(sites, site_limit)
-            pruned["sites_sample_strategy"] = "health_mix_then_shortage_bias"
+            sampled = _sample_csr_sites_for_export(merged_sites, site_limit)
+            out["sites"] = [_abbreviate_csr_site(s) for s in sampled]
+            if len(sampled) < total:
+                out["sites_sample_strategy"] = "health_mix_then_shortage_bias"
         else:
-            pruned["sites"] = list(sites)
-        pruned["sites_total"] = len(sites)
+            out["sites"] = [_abbreviate_csr_site(s) for s in merged_sites]
+        out["sites_total"] = total
+    elif not section_errors:
+        out["sites"] = []
+
     if size_caps_enabled and _export_cap_active(string_cap):
-        return truncate_strings_in_obj(
-            pruned, max_str=string_cap, max_list_items=48, max_dict_keys=96
-        )
-    return truncate_strings_in_obj(
-        pruned, max_str=50_000, max_list_items=100_000, max_dict_keys=10_000
-    )
+        return truncate_strings_in_obj(out, max_str=string_cap, max_list_items=200, max_dict_keys=96)
+    return truncate_strings_in_obj(out, max_str=50_000, max_list_items=100_000, max_dict_keys=10_000)
 
 
 def _compact_csr(
@@ -1021,7 +1384,9 @@ def _compact_csr(
     out: dict[str, Any] = {}
     if isinstance(csr.get("note"), str):
         out["note"] = csr["note"]
-    if csr.get("scope") == "top_customers_by_arr":
+    out["schema_note"] = _CSR_SCHEMA_NOTE
+    out["field_legend"] = _CSR_SITE_FIELD_LEGEND
+    if _is_llm_export_top_arr_scope(csr.get("scope")):
         out["scope"] = csr["scope"]
         if csr.get("top_n") is not None:
             out["top_n"] = csr["top_n"]
@@ -1035,30 +1400,305 @@ def _compact_csr(
                     continue
                 slim: dict[str, Any] = {
                     k: block[k]
-                    for k in ("salesforce_label", "arr", "pendo_customer_key", "csr_lookup_name")
+                    for k in (
+                        "ultimate_parent",
+                        "salesforce_label",
+                        "salesforce_labels",
+                        "arr",
+                        "pendo_customer_key",
+                        "csr_lookup_name",
+                    )
                     if k in block
                 }
-                for key in ("platform_health", "supply_chain", "platform_value"):
-                    sec = block.get(key)
-                    if isinstance(sec, dict):
-                        slim[key] = _compact_csr_section_block(
-                            sec,
-                            site_limit=site_limit,
-                            string_cap=string_cap,
-                            size_caps_enabled=size_caps_enabled,
-                        )
+                slim.update(
+                    _compact_csr_customer_block(
+                        block,
+                        site_limit=site_limit,
+                        string_cap=string_cap,
+                        size_caps_enabled=size_caps_enabled,
+                    )
+                )
                 out["customers"][label] = slim
         return out
-    for key in ("platform_health", "supply_chain", "platform_value"):
-        block = csr.get(key)
-        if isinstance(block, dict):
-            out[key] = _compact_csr_section_block(
-                block,
+    # Legacy / all-customers aggregate shape: three sections at the top level.
+    if any(isinstance(csr.get(k), dict) for k in _CSR_SECTION_KEYS):
+        out.update(
+            _compact_csr_customer_block(
+                csr,
                 site_limit=site_limit,
                 string_cap=string_cap,
                 size_caps_enabled=size_caps_enabled,
             )
+        )
     return out
+
+
+# Column order for the per-customer CS Report summary table (§4). Known keys are placed first in
+# this order; any extra keys found at runtime are appended so nothing is silently dropped.
+_CSR_SUMMARY_TABLE_SCALARS = (
+    "factory_count",
+    "total_shortages",
+    "total_critical_shortages",
+    "total_savings",
+    "total_open_ia_value",
+    "total_potential_savings",
+    "total_potential_to_sell",
+    "total_recs_created_30d",
+    "total_pos_placed_30d",
+    "total_overdue_tasks",
+)
+_CSR_SUMMARY_HEALTH_ORDER = ("GREEN", "YELLOW", "RED", "NONE")
+_CSR_SUMMARY_INV_ORDER = (
+    "on_hand",
+    "on_order",
+    "excess_on_hand",
+    "excess_on_order",
+    "past_due_po",
+    "past_due_req",
+)
+
+
+def _md_table_cell(value: Any) -> str:
+    """Render one markdown-table cell: None/empty -> blank; escape pipes and collapse newlines."""
+    if value is None:
+        return ""
+    text = str(value).replace("|", r"\|").replace("\n", " ").strip()
+    return text
+
+
+def _ordered_keys(seen: set[str], preferred: tuple[str, ...]) -> list[str]:
+    ordered = [k for k in preferred if k in seen]
+    ordered.extend(sorted(k for k in seen if k not in preferred))
+    return ordered
+
+
+def _csr_summary_markdown_table(cs: dict[str, Any]) -> str | None:
+    """Render all per-customer CS Report ``summary`` rollups as ONE markdown table.
+
+    A single cross-customer table costs far fewer tokens than 98 repeated JSON objects (long keys
+    are written once as headers, not per row) and is the shape an LLM reads most reliably for
+    "how is every customer doing" questions. Nested ``health_distribution`` / ``inventory_totals``
+    dicts are flattened into ``health_*`` / ``inv_*`` columns. Returns None when there are no
+    per-customer summaries (e.g. empty or legacy single-block CSR), so the caller falls back to JSON.
+    """
+    customers = cs.get("customers")
+    if not isinstance(customers, dict):
+        return None
+    rows: list[tuple[str, dict[str, Any], Any]] = []
+    scalar_seen: set[str] = set()
+    health_seen: set[str] = set()
+    inv_seen: set[str] = set()
+    for label, block in customers.items():
+        if not isinstance(block, dict):
+            continue
+        summary = block.get("summary")
+        if not isinstance(summary, dict):
+            continue
+        rows.append((str(label), summary, block.get("arr")))
+        for k, v in summary.items():
+            if k == "health_distribution" and isinstance(v, dict):
+                health_seen |= set(v.keys())
+            elif k == "inventory_totals" and isinstance(v, dict):
+                inv_seen |= set(v.keys())
+            elif not isinstance(v, (dict, list)):
+                scalar_seen.add(k)
+    if not rows:
+        return None
+
+    scalar_cols = _ordered_keys(scalar_seen, _CSR_SUMMARY_TABLE_SCALARS)
+    health_cols = _ordered_keys(health_seen, _CSR_SUMMARY_HEALTH_ORDER)
+    inv_cols = _ordered_keys(inv_seen, _CSR_SUMMARY_INV_ORDER)
+    has_arr = any(arr is not None for _, _, arr in rows)
+
+    header: list[str] = ["customer"]
+    if has_arr:
+        header.append("arr")
+    header += scalar_cols
+    header += [f"health_{k}" for k in health_cols]
+    header += [f"inv_{k}" for k in inv_cols]
+
+    lines = ["| " + " | ".join(header) + " |", "| " + " | ".join(["---"] * len(header)) + " |"]
+    for label, summary, arr in rows:
+        hd = summary.get("health_distribution") if isinstance(summary.get("health_distribution"), dict) else {}
+        inv = summary.get("inventory_totals") if isinstance(summary.get("inventory_totals"), dict) else {}
+        cells = [_md_table_cell(label)]
+        if has_arr:
+            cells.append(_md_table_cell(arr))
+        cells += [_md_table_cell(summary.get(k)) for k in scalar_cols]
+        cells += [_md_table_cell(hd.get(k)) for k in health_cols]
+        cells += [_md_table_cell(inv.get(k)) for k in inv_cols]
+        lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines)
+
+
+def _cs_report_detail_without_summary(cs: dict[str, Any]) -> dict[str, Any]:
+    """Copy of the CSR block with per-customer ``summary`` removed (it now lives in the table)."""
+    detail = {k: v for k, v in cs.items() if k != "customers"}
+    customers = cs.get("customers")
+    if isinstance(customers, dict):
+        detail["customers"] = {
+            label: ({k: v for k, v in block.items() if k != "summary"} if isinstance(block, dict) else block)
+            for label, block in customers.items()
+        }
+    return detail
+
+
+def _render_cs_report_section(cs: Any) -> list[str]:
+    """§4 body: a per-customer summary markdown table + factory-detail JSON (summary removed).
+
+    Falls back to a single JSON blob when there are no per-customer summaries to tabulate.
+    """
+    if not isinstance(cs, dict):
+        return [_json_compact(cs)]
+    table = _csr_summary_markdown_table(cs)
+    if table is None:
+        return [_json_compact(cs)]
+    return [
+        "### 4.1 Per-customer summary (all customers) — one row per customer",
+        "",
+        table,
+        "",
+        "### 4.2 Per-customer factory detail (JSON) — one `sites` row per factory",
+        "",
+        "> Summaries are in the §4.1 table above and are omitted here to avoid duplication. "
+        "Site-row keys are abbreviated; decode with ``field_legend``.",
+        "",
+        _json_compact(_cs_report_detail_without_summary(cs)),
+    ]
+
+
+# §3 current-book table columns: (account json key, table header). Rendered in this order,
+# but a column is dropped when every row is empty for it (keeps the table narrow per segment).
+_SF_ACCOUNTS_TABLE_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("Name", "customer"),
+    ("commercial_status", "commercial_status"),
+    ("current_arr", "current_arr"),
+    ("active_arr", "active_arr"),
+    ("renewal_arr", "renewal_arr"),
+    ("historical_arr", "historical_arr"),
+    ("renewal_in_flight", "renewal_in_flight"),
+    ("days_until_contract_end_nearest", "days_to_renewal"),
+    ("contract_end_date_nearest", "contract_end_nearest"),
+    ("contract_end_date_farthest", "contract_end_farthest"),
+    ("contract_start_date_earliest_active", "contract_start_earliest"),
+    ("contract_start_date_latest_active", "contract_start_latest"),
+    ("contract_statuses_distinct", "contract_statuses"),
+    ("entity_row_count", "entity_rows"),
+    ("ARR__c", "arr_field_c"),
+)
+
+
+def _sf_arr_num(value: Any) -> float:
+    return float(value) if isinstance(value, (int, float)) else 0.0
+
+
+def _rollup_rows_from_sf_accounts(accounts: Any) -> list[dict[str, Any]]:
+    """Map §3 ``accounts`` rows back to portfolio contract-rollup shape for grouping."""
+    rows: list[dict[str, Any]] = []
+    if not isinstance(accounts, list):
+        return rows
+    for account in accounts:
+        if not isinstance(account, dict):
+            continue
+        label = str(account.get("Name") or "").strip()
+        if not label:
+            continue
+        row = dict(account)
+        row["customer"] = label
+        rows.append(row)
+    return rows
+
+
+def _grouped_sf_accounts_for_table(accounts: Any) -> list[dict[str, Any]]:
+    """Roll up current-book labels to ultimate parent (same math as ``selection_ranked`` / §3c)."""
+    from .llm_export_csr import group_contract_rollups_by_ultimate_parent
+
+    rollups = _rollup_rows_from_sf_accounts(accounts)
+    if not rollups:
+        return []
+    grouped = group_contract_rollups_by_ultimate_parent(rollups, current_book_only=False)
+    out: list[dict[str, Any]] = []
+    for bucket in grouped:
+        out.append(
+            {
+                "Name": bucket["ultimate_parent"],
+                "commercial_status": bucket.get("commercial_status"),
+                "current_arr": bucket.get("current_arr"),
+                "active_arr": bucket.get("active_arr"),
+                "renewal_arr": bucket.get("renewal_arr"),
+                "historical_arr": bucket.get("historical_arr"),
+                "entity_row_count": bucket.get("entity_count"),
+            }
+        )
+    return out
+
+
+def _salesforce_accounts_markdown_table(accounts: Any) -> str | None:
+    """Render the Salesforce ``accounts`` list as ONE markdown table, ranked by ``current_arr``.
+
+    LLMs rank a single minified-JSON line unreliably and tend to confabulate a plausible-looking
+    "top N by ARR" (dropping/renumbering rows, inventing figures). A pre-sorted table with a
+    ``rank`` column makes "top N customers by revenue" a lookup, not a computation. Columns that
+    are empty across every row are dropped so churned/future segments stay narrow. Returns None
+    when there are no account rows, so the caller falls back to JSON.
+    """
+    rows = [a for a in accounts if isinstance(a, dict)] if isinstance(accounts, list) else []
+    if not rows:
+        return None
+    rows = sorted(
+        rows,
+        key=lambda a: (-_sf_arr_num(a.get("current_arr")), -_sf_arr_num(a.get("historical_arr"))),
+    )
+    present = [
+        (key, label)
+        for key, label in _SF_ACCOUNTS_TABLE_COLUMNS
+        if any(a.get(key) not in (None, "", []) for a in rows)
+    ]
+    if not present:
+        return None
+    header = ["rank"] + [label for _, label in present]
+    lines = [
+        "| " + " | ".join(header) + " |",
+        "| " + " | ".join(["---"] * len(header)) + " |",
+    ]
+    for i, a in enumerate(rows, 1):
+        cells = [str(i)]
+        for key, _label in present:
+            val = a.get(key)
+            if isinstance(val, list):
+                val = ", ".join(str(x) for x in val)
+            cells.append(_md_table_cell(val))
+        lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines)
+
+
+def _render_salesforce_current_book_section(block: Any) -> list[str]:
+    """§3 body: a pre-sorted per-account markdown table (§3.1) + rollup/aggregate JSON (§3.2).
+
+    The per-account list is removed from the JSON to avoid duplicating it under the table.
+    Falls back to a single JSON blob when there are no account rows to tabulate.
+    """
+    if not isinstance(block, dict):
+        return [_json_compact(block)]
+    table = _salesforce_accounts_markdown_table(_grouped_sf_accounts_for_table(block.get("accounts")))
+    if table is None:
+        return [_json_compact(block)]
+    detail = {k: v for k, v in block.items() if k != "accounts"}
+    return [
+        "### 3.1 Current book by ARR (one row per ultimate parent, ranked)",
+        "",
+        "> Ranked by ``current_arr`` desc (= ``active_arr`` + ``renewal_arr``). This table is the "
+        "authoritative source for \u201ctop N customers by revenue\u201d \u2014 read the ``rank`` column "
+        "directly; do not re-derive the ranking from other sections.",
+        "",
+        table,
+        "",
+        "### 3.2 Contract rollups & portfolio aggregates (JSON)",
+        "",
+        "> Per-account rows are in the §3.1 table above and omitted here to avoid duplication.",
+        "",
+        _json_compact(detail),
+    ]
 
 
 def _compact_slack(slack: dict[str, Any], *, size_caps_enabled: bool = True) -> dict[str, Any]:
@@ -1091,12 +1731,13 @@ def _compact_slack(slack: dict[str, Any], *, size_caps_enabled: bool = True) -> 
                 if not isinstance(s, dict):
                     continue
                 lines = s.get("summary_lines") if isinstance(s.get("summary_lines"), list) else []
+                llm_ok = isinstance(block.get("llm_summary"), dict) and block["llm_summary"].get("status") == "ok"
                 slim_summaries.append(
                     {
                         "channel_id": s.get("channel_id"),
                         "channel_name": s.get("channel_name"),
                         "message_count": s.get("message_count"),
-                        "summary_lines": lines[-max_lines:] if max_lines else lines,
+                        "summary_lines": [] if llm_ok else (lines[-max_lines:] if max_lines else lines),
                         "error": s.get("error"),
                     }
                 )
@@ -1109,6 +1750,8 @@ def _compact_slack(slack: dict[str, Any], *, size_caps_enabled: bool = True) -> 
                 "note": payload.get("note"),
                 "error": payload.get("error"),
             }
+            if isinstance(block.get("llm_summary"), dict):
+                slim["llm_summary"] = block["llm_summary"]
             out["customers"][label] = slim
         return out
     payload = slack
@@ -1174,10 +1817,14 @@ def _compact_salesforce_comprehensive_portfolio(
     priority: list[str] = []
     if report is not None:
         try:
-            from .llm_export_csr import top_active_customers_by_arr_for_csr
+            from .llm_export_csr import top_active_ultimate_parents_by_arr_for_llm_export
 
-            for row in top_active_customers_by_arr_for_csr(report, top_n=max(1, top_customers)):
-                label = str(row.get("salesforce_label") or "").strip()
+            for row in top_active_ultimate_parents_by_arr_for_llm_export(
+                report, top_n=max(1, top_customers)
+            ):
+                label = str(
+                    row.get("ultimate_parent") or row.get("salesforce_label") or ""
+                ).strip()
                 if label and label not in priority:
                     priority.append(label)
         except Exception:
@@ -1236,6 +1883,12 @@ def _compact_salesforce_comprehensive_portfolio(
     else:
         out["entity_accounts"] = entities
         out["entity_accounts_count"] = len(entities)
+    # Ultimate-parent ARR rollup is small and pre-aggregated across the *full* book, so keep
+    # it even when per-entity rows are truncated — it answers "top N by Ultimate Parent ARR".
+    arr_by_up = block.get("arr_by_ultimate_parent")
+    if isinstance(arr_by_up, list):
+        out["arr_by_ultimate_parent"] = arr_by_up[:100]
+        out["arr_by_ultimate_parent_count"] = len(arr_by_up)
     return out
 
 
@@ -1264,6 +1917,7 @@ def build_snapshot_document(
     report: dict[str, Any],
     *,
     markdown_soft_cap_bytes: int = _LLM_EXPORT_NO_CAP,
+    markdown_soft_cap_tokens: int = _LLM_EXPORT_NO_CAP,
     csr_site_limit: int = _LLM_EXPORT_NO_CAP,
     csr_string_cap: int = _LLM_EXPORT_NO_CAP,
     sf_accounts: int = _LLM_EXPORT_NO_CAP,
@@ -1314,12 +1968,29 @@ def build_snapshot_document(
             else:
                 renewal_headline = renewal_rows
 
+    future_seg = report.get("salesforce_future_contract_segment")
+    future_sf = {}
+    future_headline: list[dict[str, Any]] = []
+    if isinstance(future_seg, dict):
+        raw_sf = future_seg.get("salesforce")
+        if isinstance(raw_sf, dict):
+            future_sf = _compact_salesforce(
+                raw_sf, account_cap=sf_accounts if size_caps_enabled else _LLM_EXPORT_NO_CAP
+            )
+        raw_rows = future_seg.get("customers_headline")
+        if isinstance(raw_rows, list):
+            future_rows = [r for r in raw_rows if isinstance(r, dict)]
+            if size_caps_enabled and _export_cap_active(sf_accounts):
+                future_headline = future_rows[: max(sf_accounts, 1)]
+            else:
+                future_headline = future_rows
+
     doc: dict[str, Any] = {
         "document_purpose": (
             "Structured facts from Cortex integrations for LLM Q&A. Figures are snapshots from vendor APIs "
             "and internal exports; verify in source systems before contractual or financial use. "
-            "Active installed-base customers (§1, §3, §5) are separate from inactive SF segments (§3b churned-lost, "
-            "§3b-renewal negotiation)."
+            "Current-book customers (§1, §3, §5) use ``commercial_status`` ACTIVE + OUT_OF_CONTRACT_RENEWING; "
+            "inactive SF segments are §3b churned-lost, §3b-renewal negotiation, and §3b-future contracts."
         ),
         "customer": report.get("customer"),
         "generated_report_timestamp": report.get("generated"),
@@ -1347,6 +2018,14 @@ def build_snapshot_document(
             "customer_count": (renewal_seg or {}).get("customer_count") if isinstance(renewal_seg, dict) else 0,
             "customers_headline": renewal_headline,
             "salesforce": renewal_sf,
+        },
+        "salesforce_future_contract_segment": {
+            "segment": "future_contract",
+            "do_not_merge_with_active_book": True,
+            "usage_note": (future_seg or {}).get("usage_note") if isinstance(future_seg, dict) else None,
+            "customer_count": (future_seg or {}).get("customer_count") if isinstance(future_seg, dict) else 0,
+            "customers_headline": future_headline,
+            "salesforce": future_sf,
         },
         "salesforce_comprehensive_portfolio": (
             _compact_salesforce_comprehensive_portfolio(
@@ -1387,6 +2066,7 @@ def build_snapshot_document(
         "export_coverage": _build_export_coverage(
             report,
             markdown_soft_cap_bytes=markdown_soft_cap_bytes,
+            markdown_soft_cap_tokens=markdown_soft_cap_tokens,
             csr_site_limit=csr_site_limit,
             csr_string_cap=csr_string_cap,
             sf_accounts=sf_accounts,
@@ -1475,6 +2155,7 @@ def _doc_payload_component_bytes(doc: dict[str, Any]) -> list[tuple[str, int]]:
     add("salesforce", doc.get("salesforce"))
     add("salesforce_churned_segment", doc.get("salesforce_churned_segment"))
     add("salesforce_renewal_negotiation_segment", doc.get("salesforce_renewal_negotiation_segment"))
+    add("salesforce_future_contract_segment", doc.get("salesforce_future_contract_segment"))
     add("salesforce_comprehensive_portfolio", doc.get("salesforce_comprehensive_portfolio"))
     add("cs_report", doc.get("cs_report"))
     add("slack", doc.get("slack"))
@@ -1512,6 +2193,7 @@ def emit_export_size_breakdown_stderr(
     diag: Any | None = None,
     *,
     max_bytes_cap: int | None = None,
+    max_tokens_cap: int | None = None,
     truncated: bool = False,
     pre_truncation_bytes: int | None = None,
     body_before_section7_bytes: int | None = None,
@@ -1520,21 +2202,29 @@ def emit_export_size_breakdown_stderr(
     from .export_run_diagnostics import format_elapsed_hms
 
     total = _utf8_byte_len(md)
+    total_tokens = count_tokens(md)
     status = _export_status_label(diag)
     wall = format_elapsed_hms(diag.total_elapsed_s()) if diag is not None else "—"
 
     print("", file=sys.stderr)
     print(_export_summary_rule(), file=sys.stderr)
     print(
-        f"Export {status} · {_format_utf8_bytes(total)} uploaded · {wall} total",
+        f"Export {status} · {_format_tokens(total_tokens)} · {_format_utf8_bytes(total)} uploaded · {wall} total",
         file=sys.stderr,
     )
 
-    size_lines: list[str] = [f"uploaded {_format_utf8_bytes(total)}"]
+    size_lines: list[str] = [f"uploaded {_format_tokens(total_tokens)} · {_format_utf8_bytes(total)}"]
+    if max_tokens_cap:
+        pct = (100.0 * total_tokens / max_tokens_cap) if max_tokens_cap else 0.0
+        size_lines.append(f"token budget {int(max_tokens_cap):,} (using {pct:.0f}%)")
     if truncated and pre_truncation_bytes is not None:
+        cap_note = (
+            f"--max-tokens {int(max_tokens_cap):,}"
+            if max_tokens_cap
+            else f"--max-bytes {_format_utf8_bytes(max_bytes_cap or 0)}"
+        )
         size_lines.append(
-            f"before --max-bytes cut {_format_utf8_bytes(pre_truncation_bytes)} "
-            f"(cap {_format_utf8_bytes(max_bytes_cap or 0)})"
+            f"before {cap_note} cut {_format_utf8_bytes(pre_truncation_bytes)}"
         )
     if body_before_section7_bytes is not None and total > body_before_section7_bytes:
         s7 = total - body_before_section7_bytes
@@ -1620,11 +2310,17 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
         f"- **Underlying `generated` stamp:** {doc.get('generated_report_timestamp')}",
     ]
     ec = doc.get("export_coverage") if isinstance(doc.get("export_coverage"), dict) else {}
-    cap_b = ec.get("markdown_soft_cap_bytes")
+    cap_b = ec.get("markdown_soft_cap_tokens")
+    cap_bytes = ec.get("markdown_soft_cap_bytes")
     if ec.get("size_caps_enabled") and cap_b is not None and int(cap_b) > 0:
-        parts.append(f"- **Markdown soft cap (this run):** {cap_b} bytes (`--max-bytes`)")
+        line = f"- **Token budget (this run):** {int(cap_b):,} tokens (`--max-tokens`, cl100k_base)"
+        if cap_bytes is not None and int(cap_bytes) > 0:
+            line += f"; byte cap {int(cap_bytes):,} (`--max-bytes`)"
+        parts.append(line)
+    elif ec.get("size_caps_enabled") and cap_bytes is not None and int(cap_bytes) > 0:
+        parts.append(f"- **Markdown soft cap (this run):** {cap_bytes} bytes (`--max-bytes`)")
     elif not ec.get("size_caps_enabled"):
-        parts.append("- **Markdown soft cap (this run):** none (`--max-bytes 0`)")
+        parts.append("- **Markdown soft cap (this run):** none (`--max-tokens 0 --max-bytes 0`)")
     parts.extend(
         [
         "",
@@ -1696,23 +2392,30 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
             "",
             _json_compact(doc.get("jira_help")),
             "",
-            "## 3. Salesforce (active installed base)",
+            "## 3. Salesforce (current book — ACTIVE + OUT_OF_CONTRACT_RENEWING)",
             "",
-            _json_compact(doc.get("salesforce")),
+            *_render_salesforce_current_book_section(doc.get("salesforce")),
             "",
-            "## 3b. Salesforce (churned / lost — do not merge with §1–§3 active book)",
+            "## 3b. Salesforce (churned / lost — do not merge with §1–§3 current book)",
             "",
-            "> **Segment boundary:** Inactive contracts **without** open parent-account renewal pipeline. "
-            "No Pendo or Jira for these accounts. Do not add ARR to §3 active totals or §5.",
+            "> **Segment boundary:** ``commercial_status = CHURNED`` — inactive contracts **without** open "
+            "parent-account renewal pipeline. No Pendo or Jira. Do not add ARR to §3 current-book totals or §5.",
             "",
             _json_compact(doc.get("salesforce_churned_segment")),
             "",
             "## 3b-renewal. Salesforce (renewal negotiation — not churn)",
             "",
-            "> **Segment boundary:** Expired/churned entity contracts with **open renewal pipeline** on parent "
-            "accounts. Not churn risk; may still appear in §1 when Pendo matches.",
+            "> **Segment boundary:** ``commercial_status = OUT_OF_CONTRACT_RENEWING`` — expired entity contracts "
+            "with **open renewal pipeline** on parent accounts. Not churn risk; may still appear in §1 when Pendo matches.",
             "",
             _json_compact(doc.get("salesforce_renewal_negotiation_segment")),
+            "",
+            "## 3b-future. Salesforce (future contracts — not current book)",
+            "",
+            "> **Segment boundary:** ``commercial_status = FUTURE`` — won/signed contracts whose start date is "
+            "in the future. Not churn and not renewal-in-flight; do not merge with §3 current-book ARR.",
+            "",
+            _json_compact(doc.get("salesforce_future_contract_segment")),
             "",
             "## 3c. Salesforce comprehensive (per customer + entity accounts)",
             "",
@@ -1725,15 +2428,22 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
             "",
             "## 4. CS Report (top customers by ARR — per-customer week)",
             "",
-            "Per-customer ``platform_health``, ``supply_chain``, and ``platform_value`` for the "
-            "highest-ARR active Salesforce labels (not an all-customers site merge).",
+            "Per-customer CS Report for the highest-ARR active Salesforce labels. **§4.1** is a single "
+            "markdown table of every customer's section rollups (health mix, shortages, inventory "
+            "totals, savings) — the fastest layer for cross-customer questions. **§4.2** is the "
+            "factory-level detail as JSON: one ``sites`` row per factory with platform-health, "
+            "supply-chain, and platform-value metrics merged inline (no 3× worksheet duplication). "
+            "Site-row keys are abbreviated to save tokens — decode them with the ``field_legend`` "
+            "(short → long) in §4.2; see ``schema_note`` for how to read rows.",
             "",
-            _json_compact(doc.get("cs_report")),
+            *_render_cs_report_section(doc.get("cs_report")),
             "",
-            "## 4b. Slack (top customers by ARR — recent channel conversations)",
+            "## 4b. Slack (top customers by ARR — 6-month conversations + LLM summaries)",
             "",
-            "Recent human messages from Slack channels matched to each customer name "
-            "(and ``config/slack_customer_aliases.yaml``). Not Slack AI-generated summaries.",
+            "Pilot scope: top ultimate parents by current ARR (default 10). Per customer: Slack "
+            "channels matched by name/aliases, up to 180 days of human messages, and a Cortex "
+            "``llm_summary`` digest. Raw lines remain under ``conversation_summaries``; timing "
+            "is in ``_llm_export_slack.performance`` on the coverage manifest.",
             "",
             _json_compact(doc.get("slack") or {}),
             "",
@@ -1833,12 +2543,23 @@ def _build_export_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
     )
     ap.add_argument("--days", type=int, default=90, help="Lookback days for portfolio window (default 90)")
     ap.add_argument(
+        "--max-tokens",
+        type=int,
+        default=llm_export_default_max_tokens(),
+        help=(
+            f"Primary budget: LLM tokens (cl100k_base) for the whole file (default "
+            f"{llm_export_default_max_tokens():,} from CORTEX_LLM_EXPORT_MAX_TOKENS). 0 = no token cap. "
+            "When N>0, compacts §3c/CSR/SF and may truncate markdown to fit the token budget."
+        ),
+    )
+    ap.add_argument(
         "--max-bytes",
         type=int,
         default=llm_export_default_max_bytes(),
         help=(
-            f"Soft cap on UTF-8 body size (default {llm_export_default_max_bytes():,} from "
-            "CORTEX_LLM_EXPORT_MAX_BYTES). 0 = no cap. When N>0, compacts §3c/CSR/SF and may truncate markdown."
+            f"Optional secondary UTF-8 byte guard (default {llm_export_default_max_bytes():,} from "
+            "CORTEX_LLM_EXPORT_MAX_BYTES; 0 = no byte cap). Applied in addition to --max-tokens; the "
+            "tighter of the two governs."
         ),
     )
     ap.add_argument(
@@ -1921,7 +2642,9 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
 
         _emit_integration_stderr_warnings(report)
 
-        size_caps_enabled = int(args.max_bytes) > 0
+        token_cap = int(args.max_tokens)
+        byte_cap = int(args.max_bytes)
+        size_caps_enabled = token_cap > 0 or byte_cap > 0
         csr_lim = 15 if size_caps_enabled else _LLM_EXPORT_NO_CAP
         csr_str = 400 if size_caps_enabled else _LLM_EXPORT_NO_CAP
         sf_acct = 24 if size_caps_enabled else _LLM_EXPORT_NO_CAP
@@ -1931,7 +2654,8 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
         with export_phase(diag, "markdown build"):
             doc = build_snapshot_document(
                 report,
-                markdown_soft_cap_bytes=int(args.max_bytes),
+                markdown_soft_cap_bytes=byte_cap,
+                markdown_soft_cap_tokens=token_cap,
                 csr_site_limit=csr_lim,
                 csr_string_cap=csr_str,
                 sf_accounts=sf_acct,
@@ -1947,7 +2671,8 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
             doc["_portfolio_raw"] = report
 
             md = render_markdown(doc, exported_at_utc=exported_at)
-            max_b = max(20_000, int(args.max_bytes)) if size_caps_enabled else 0
+            max_tok = max(_LLM_EXPORT_MIN_TOKEN_CAP, token_cap) if token_cap > 0 else 0
+            max_b = max(_LLM_EXPORT_MIN_BYTE_CAP, byte_cap) if byte_cap > 0 else 0
 
             if size_caps_enabled:
                 tiers = [
@@ -1956,7 +2681,7 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
                     (6, 220, 8, 10, 2),
                     (4, 180, 4, 6, 1),
                 ]
-                while len(md.encode("utf-8")) > max_b and tiers:
+                while _over_size_caps(md, max_bytes=max_b, max_tokens=max_tok) and tiers:
                     csr_lim, csr_str, sf_acct, sf_top, sf_rows = tiers.pop(0)
                     _shrink_snapshot_params(
                         doc,
@@ -1973,9 +2698,22 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
                         exported_at_utc=exported_at,
                     )
 
+                if max_tok and count_tokens(md) > max_tok:
+                    pre_truncation_bytes = _utf8_byte_len(md)
+                    markdown_truncated = True
+                    collect_export_warning(
+                        f"markdown truncated to --max-tokens ({max_tok:,}); raise limit if needed",
+                        llm_export=True,
+                    )
+                    md = _truncate_to_tokens(md, max_tok).rstrip() + (
+                        "\n\n<!-- Document truncated to --max-tokens; re-run with a higher limit "
+                        "or narrow integrations if needed. -->\n"
+                    )
+
                 raw = md.encode("utf-8")
-                if len(raw) > max_b:
-                    pre_truncation_bytes = len(raw)
+                if max_b and len(raw) > max_b:
+                    if pre_truncation_bytes is None:
+                        pre_truncation_bytes = len(raw)
                     markdown_truncated = True
                     collect_export_warning(
                         f"markdown truncated to --max-bytes ({max_b}); raise limit if needed",
@@ -2018,43 +2756,39 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
             if str(k).startswith("_"):
                 doc.pop(k, None)
 
-        fname = "LLM-Context-All_Customers.md"
         nbytes = len(md.encode("utf-8"))
 
-        from src.drive_config import (
-            get_qbr_output_folder_id,
-            get_qbr_output_root_folder_id,
-            upload_text_file_to_drive_folder,
-        )
+        from .export_drive_layout import ensure_portfolio_output_folders, upload_text_persistent_and_historical
 
-        root_id = get_qbr_output_root_folder_id()
-        dated_id = get_qbr_output_folder_id()
-        if not root_id or not dated_id:
-            print(
-                "error: could not resolve Drive Output folders (set GOOGLE_QBR_GENERATOR_FOLDER_ID "
-                "and verify Drive access).",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        dated_label = f"{dt.date.today().isoformat()} - Output"
+        folders = ensure_portfolio_output_folders()
         with export_phase(diag, "Drive upload"):
-            fid_root = upload_text_file_to_drive_folder(fname, md, root_id, mime_type="text/markdown")
-            fid_dated = upload_text_file_to_drive_folder(fname, md, dated_id, mime_type="text/markdown")
+            urls = upload_text_persistent_and_historical(
+                stem="LLM-Context-Portfolio",
+                content=md,
+                ext=".md",
+                persistent_folder_id=folders["persistent_folder_id"],
+                historical_folder_id=folders["historical_folder_id"],
+                base_label=folders["base_label"],
+                mime_type="text/markdown",
+            )
 
         print(
-            f"Uploaded {_format_utf8_bytes(nbytes)} → Output/{fname} "
-            f"and Output/{dated_label}/{fname}",
+            f"Uploaded {_format_utf8_bytes(nbytes)} → Output/{urls['persistent_filename']} "
+            f"and Historical Data/{urls['historical_day_folder']}/{urls['historical_filename']}",
             file=sys.stderr,
         )
-        print(f"Output/ (stable): https://drive.google.com/file/d/{fid_root}/view")
-        print(f"Output/{dated_label}/: https://drive.google.com/file/d/{fid_dated}/view")
+        print(f"Output/ (persistent): https://drive.google.com/file/d/{urls['persistent_file_id']}/view")
+        print(
+            f"Historical Data/{urls['historical_day_folder']}/: "
+            f"https://drive.google.com/file/d/{urls['historical_file_id']}/view"
+        )
 
         emit_export_size_breakdown_stderr(
             md,
             doc,
             diag,
             max_bytes_cap=max_b,
+            max_tokens_cap=max_tok,
             truncated=markdown_truncated,
             pre_truncation_bytes=pre_truncation_bytes,
             body_before_section7_bytes=md_body_before_section7_bytes,
