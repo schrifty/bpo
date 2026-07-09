@@ -510,7 +510,6 @@ def build_entries() -> list[dict[str, Any]]:
     rows.extend(
         [
             _e("_slide_plan", "[internal] resolved template slide plan"),
-            _e("_hydrate_slide_hints", "[internal] hydrate hints map"),
             _e("_slides_svc", "[internal] Google Slides service"),
             _e("_drive_svc", "[internal] Drive service"),
         ]
@@ -523,11 +522,8 @@ def main() -> int:
     payload = {
         "version": 1,
         "_comment": (
-            "Catalog of data elements Cortex can access for QBR / decks (path + terms). "
-            "Terms drive hydrate phrase matching and qbr_mappings target resolution (see "
-            "resolve_data_summary_target_path). "
+            "Catalog of data elements Cortex can access for decks (path + terms). "
             "Pendo per-page and per-feature detail rows are intentionally omitted (see sites/top_pages). "
-            "After regenerating from this script, re-merge any custom hydrate phrases into ``terms`` if needed."
         ),
         "entries": build_entries(),
     }

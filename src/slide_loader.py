@@ -311,32 +311,13 @@ def get_slide_definition(
 ) -> dict[str, Any] | None:
     """Return a deep copy of one slide YAML by ``id``, or None if missing.
 
-    Used to read ``hydrate:`` and other metadata for template hydration without
-    loading the full customer-filtered slide list. Passes a single ``id`` to
-    :func:`_load_all_slides` so only that YAML is loaded (avoids a full-Drive
-    or full-``slides/*.yaml`` walk when a folder id is set or for large trees).
+    Used to read slide metadata without loading the full customer-filtered slide list.
+    Passes a single ``id`` to :func:`_load_all_slides` so only that YAML is loaded.
     """
     for r in _load_all_slides(slides_dir, only_slide_ids={slide_id}):
         if r.get("id") == slide_id:
             return copy.deepcopy(r)
     return None
-
-
-@functools.lru_cache(maxsize=1)
-def hydrate_hints_by_slide_id(slides_dir: str | Path | None = None) -> dict[str, Any]:
-    """Map slide ``id`` → ``hydrate`` dict for every slide YAML that defines a non-empty ``hydrate`` block.
-
-    Used by QBR template hydrate so ``report["_hydrate_slide_hints"]`` is data-driven from ``slides/``
-    instead of hardcoding one slide id in Python.
-    """
-    out: dict[str, Any] = {}
-    for r in _load_all_slides(slides_dir):
-        hid = r.get("id")
-        h = r.get("hydrate")
-        if not hid or not isinstance(h, dict) or not h:
-            continue
-        out[str(hid)] = copy.deepcopy(h)
-    return out
 
 
 def reset_for_tests() -> None:
@@ -345,7 +326,6 @@ def reset_for_tests() -> None:
     cohort_findings_metadata.cache_clear()
     benchmarks_min_peers_for_cohort_median.cache_clear()
     cohort_profiles_max_physical_slides.cache_clear()
-    hydrate_hints_by_slide_id.cache_clear()
 
 
 def get_slide_prompts(

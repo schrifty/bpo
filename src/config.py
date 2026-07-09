@@ -141,15 +141,8 @@ GOOGLE_APPLICATION_CREDENTIALS = _resolve_path_from_project_root(
     os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
 )
 # QBR Generator folder id (Prompts, decks/, slides/, chart-data/, individual deck outputs, Output/, etc.).
-# Required for hydrate/QBR and Drive-backed YAML.
+# Required for Drive-backed deck/slide YAML and composable deck output.
 GOOGLE_QBR_GENERATOR_FOLDER_ID = os.environ.get("GOOGLE_QBR_GENERATOR_FOLDER_ID", "").strip() or None
-# Optional: Drive folder id where the QBR Slides template lives. If unset, the template is resolved under GOOGLE_QBR_GENERATOR_FOLDER_ID.
-GOOGLE_QBR_TEMPLATE_FOLDER_ID = os.environ.get("GOOGLE_QBR_TEMPLATE_FOLDER_ID", "").strip() or None
-# Exact Google Slides file name (title) for the QBR template on Drive (must match).
-QBR_TEMPLATE_FILE_NAME = (
-    os.environ.get("QBR_TEMPLATE_FILE_NAME", "").strip()
-    or "BPO [Template] Executive Business Review [QBR]"
-)
 # Optional override: parent folder for `{ISO-date} - Output`; default is `<QBR Generator>/Output/`.
 GOOGLE_QBR_OUTPUT_PARENT_ID = os.environ.get("GOOGLE_QBR_OUTPUT_PARENT_ID", "").strip() or None
 # Portfolio / cohort: optional override for JSON snapshot folder. If unset, snapshots live under
@@ -163,18 +156,6 @@ _pcs = (os.environ.get("CORTEX_PORTFOLIO_CUSTOMER_SOURCE") or "auto").strip().lo
 CORTEX_PORTFOLIO_CUSTOMER_SOURCE = _pcs if _pcs else "auto"
 # Optional: your email (folder owner) - transfer ownership so files count against your quota, not service account's
 GOOGLE_DRIVE_OWNER_EMAIL = os.environ.get("GOOGLE_DRIVE_OWNER_EMAIL")
-# Hydrate/evaluate: Google Group email (e.g. hydrate-deck@yourdomain.com). Must match Share exactly.
-# Lists Slides where the group is Viewer or Editor (Drive query uses in readers OR in writers).
-GOOGLE_HYDRATE_INTAKE_GROUP = os.environ.get("GOOGLE_HYDRATE_INTAKE_GROUP", "").strip() or None
-# Hydrate: max slides to classify and include in the output copy. 0 = no limit. Default 10.
-try:
-    _hms = os.environ.get("HYDRATE_MAX_SLIDES", "10").strip()
-    HYDRATE_MAX_SLIDES = max(0, int(_hms))
-except ValueError:
-    HYDRATE_MAX_SLIDES = 10
-# After hydrate: remove GOOGLE_HYDRATE_INTAKE_GROUP from the **source** deck's sharing (Drive permission).
-_rm = os.environ.get("HYDRATE_REMOVE_INTAKE_GROUP_PERMISSION", "true").strip().lower()
-HYDRATE_REMOVE_INTAKE_GROUP_PERMISSION = _rm in ("1", "true", "yes", "on")
 # JIRA Cloud — default site REST (JIRA_URL); optional gateway via JIRA_AUTH_MODE=gateway
 JIRA_URL = os.environ.get("JIRA_URL")
 JIRA_EMAIL = os.environ.get("JIRA_EMAIL")

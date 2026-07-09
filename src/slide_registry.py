@@ -125,12 +125,6 @@ from .slide_portfolio import (
     portfolio_title_slide as _portfolio_title_slide,
     portfolio_trends_slide as _portfolio_trends_slide,
 )
-from .slide_qbr_deployment import qbr_deployment_slide as _qbr_deployment_slide
-from .slide_qbr_framing import (
-    qbr_agenda_slide as _qbr_agenda_slide,
-    qbr_cover_slide as _qbr_cover_slide,
-    qbr_divider_slide as _qbr_divider_slide,
-)
 from .slide_salesforce import (
     salesforce_category_slide as _salesforce_category_slide,
     salesforce_comprehensive_cover_slide as _salesforce_comprehensive_cover_slide,
@@ -219,10 +213,6 @@ _SLIDE_BUILDERS = {
     "engineering": _engineering_slide,
     "enhancements": _enhancement_requests_slide,
     "support_breakdown": _support_breakdown_slide,
-    "qbr_cover": _qbr_cover_slide,
-    "qbr_agenda": _qbr_agenda_slide,
-    "qbr_divider": _qbr_divider_slide,
-    "qbr_deployment": _qbr_deployment_slide,
     "eng_portfolio_title": _eng_portfolio_title_slide,
     "eng_toc": _eng_toc_slide,
     "eng_divider": _eng_divider_slide,

@@ -1,4 +1,4 @@
-"""Pure extraction helpers for hydrate slide analysis."""
+"""Pure extraction helpers for Google Slides page elements."""
 
 from __future__ import annotations
 

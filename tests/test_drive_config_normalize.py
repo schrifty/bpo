@@ -65,7 +65,6 @@ def test_ensure_drive_config_matches_repo_skips_without_folder(monkeypatch: pyte
     import src.drive_config as dc
 
     dc._drive_repo_sync_ran = False
-    dc._qbr_adapt_prompt_sync_ran = False
     monkeypatch.setattr(dc, "GOOGLE_QBR_GENERATOR_FOLDER_ID", None)
     calls: list[int] = []
 
@@ -78,42 +77,10 @@ def test_ensure_drive_config_matches_repo_skips_without_folder(monkeypatch: pyte
     assert calls == []
 
 
-def test_ensure_qbr_adapt_prompt_sync_runs_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Idempotent guard: second call does not hit Drive APIs."""
-    import src.drive_config as dc
-
-    dc._qbr_adapt_prompt_sync_ran = False
-    monkeypatch.setattr(dc, "GOOGLE_QBR_GENERATOR_FOLDER_ID", "gen")
-    monkeypatch.setattr(dc, "get_qbr_generator_folder_id_for_drive_config", lambda: "gen")
-    n = 0
-
-    def fake_find_or_create(*_a: object, **_k: object) -> str:
-        nonlocal n
-        n += 1
-        return "prompts_folder_id"
-
-    monkeypatch.setattr(dc, "_find_or_create_folder", fake_find_or_create)
-    monkeypatch.setattr(dc, "_list_drive_files", lambda _fid: [])
-    monkeypatch.setattr(dc, "_upload_file", lambda *_a, **_k: "new_id")
-    dc.ensure_qbr_adapt_prompt_yaml_synced_from_repo()
-    dc.ensure_qbr_adapt_prompt_yaml_synced_from_repo()
-    assert n == 1
-
-
-def test_assert_qbr_prompts_ready_raises_without_generator_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Hydrate requires GOOGLE_QBR_GENERATOR_FOLDER_ID."""
-    import src.drive_config as dc
-
-    monkeypatch.setattr(dc, "GOOGLE_QBR_GENERATOR_FOLDER_ID", None)
-    with pytest.raises(RuntimeError, match="GOOGLE_QBR_GENERATOR_FOLDER_ID"):
-        dc.assert_qbr_prompts_ready_or_raise()
-
-
 def test_ensure_drive_config_matches_repo_runs_once(monkeypatch: pytest.MonkeyPatch) -> None:
     import src.drive_config as dc
 
     dc._drive_repo_sync_ran = False
-    dc._qbr_adapt_prompt_sync_ran = False
     monkeypatch.setattr(dc, "GOOGLE_QBR_GENERATOR_FOLDER_ID", "gen")
     monkeypatch.setattr(dc, "get_qbr_generator_folder_id_for_drive_config", lambda: "gen")
     n = 0
@@ -132,12 +99,11 @@ def test_ensure_drive_config_matches_repo_runs_once(monkeypatch: pytest.MonkeyPa
 def test_load_yaml_from_drive_skips_drive_file_without_top_level_id(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Artifacts like qbr-template-authoring-cues.yaml have no ``id``; do not warn or qa-flag."""
+    """Artifacts without top-level ``id`` are skipped; do not warn or qa-flag."""
     import src.drive_config as dc
 
     clear_yaml_config_cache()
     dc._drive_repo_sync_ran = False
-    dc._qbr_adapt_prompt_sync_ran = False
     monkeypatch.setattr(dc, "GOOGLE_QBR_GENERATOR_FOLDER_ID", "gen")
     monkeypatch.setattr(dc, "get_qbr_generator_folder_id_for_drive_config", lambda: "root")
     monkeypatch.setattr(dc, "ensure_drive_config_matches_repo", lambda: None)
@@ -151,7 +117,7 @@ def test_load_yaml_from_drive_skips_drive_file_without_top_level_id(
         "_list_drive_files",
         lambda _folder_id: [
             {"name": "real-slide.yaml", "id": "fid-slide"},
-            {"name": "qbr-template-authoring-cues.yaml", "id": "fid-artifact"},
+            {"name": "authoring-cues.yaml", "id": "fid-artifact"},
         ],
     )
     monkeypatch.setattr(dc, "_read_drive_file", lambda fid: reads[fid])

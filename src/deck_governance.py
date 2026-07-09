@@ -73,7 +73,7 @@ def collect_report_keys_for_slide_plan(slide_plan: list[dict[str, Any]] | None) 
     keys: set[str] = set()
     for entry in slide_plan or ():
         slide_type = (entry.get("slide_type") or "").strip()
-        if slide_type in ("", "data_quality", "qbr_divider", "eng_divider", "skip"):
+        if slide_type in ("", "data_quality", "eng_divider", "skip"):
             continue
         for req in SLIDE_DATA_REQUIREMENTS.get(slide_type) or ():
             keys.add(req)
@@ -87,7 +87,7 @@ def collect_source_ids_for_slide_plan(slide_plan: list[dict[str, Any]] | None) -
     slide_types: set[str] = set()
     for entry in slide_plan or ():
         st = (entry.get("slide_type") or "").strip()
-        if st and st not in ("data_quality", "qbr_divider", "eng_divider", "skip"):
+        if st and st not in ("data_quality", "eng_divider", "skip"):
             slide_types.add(st)
         for req in SLIDE_DATA_REQUIREMENTS.get(st) or ():
             sid = key_map.get(req)

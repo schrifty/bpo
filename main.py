@@ -8,13 +8,6 @@ from src.config import logger
 
 
 def main() -> None:
-    argv = sys.argv[1:]
-    if argv and argv[0] == "qbr":
-        from src.qbr_template import run_qbr_cli
-
-        run_qbr_cli(argv[1:], prog="python main.py qbr")
-        return
-
     parser = argparse.ArgumentParser(
         description=(
             "Pendo usage Q&A via a LangChain agent. "
@@ -50,35 +43,20 @@ def main() -> None:
         print("LangChain + Pendo agent. Type 'quit' to exit.\n")
         while True:
             try:
-                query = input("You: ").strip()
+                q = input("You: ").strip()
             except (EOFError, KeyboardInterrupt):
+                print()
                 break
-            if not query or query.lower() in ("quit", "exit", "q"):
+            if not q or q.lower() in ("quit", "exit", "q"):
                 break
-            logger.debug("User query: %s", query)
-            result = run_agent(agent, query)
-            messages = result.get("messages", [])
-            if messages:
-                last = messages[-1]
-                content = getattr(last, "content", str(last))
-                print(f"\nAgent: {content}\n")
+            print(f"Agent: {run_agent(agent, q)}\n")
+        return
 
-    elif args.query:
-        logger.debug("Query: %s", args.query)
-        result = run_agent(agent, args.query)
-        messages = result.get("messages", [])
-        if messages:
-            last = messages[-1]
-            content = getattr(last, "content", str(last))
-            print(content)
-        else:
-            print(result)
-    else:
+    if not args.query:
         parser.print_help()
-        print("\nExamples:")
-        print("  python main.py 'Get usage data for customer acme-123'")
-        print('  python main.py qbr "Acme Corp"   # QBR deck from Drive template')
-        print('  cortex qbr "Acme Corp"   # same pipeline via cortex CLI')
+        sys.exit(0)
+
+    print(run_agent(agent, args.query))
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ from .deck_data_enrichment import enrich_cursor_usage_if_needed, enrich_github_p
 from .deck_governance import _CURSOR_SLIDE_TYPES, _GITHUB_PRODUCTIVITY_SLIDE_TYPES
 from .deck_loader import resolve_deck
 from .deck_orchestrator import _PORTFOLIO_DRIVE_TITLE_TAIL
-from .hydrate_extract import extract_text
+from .slides_text_extract import extract_text
 from .slide_registry import _SLIDE_BUILDERS
 from .slide_utils import slide_object_id_base as _slide_object_id_base
 from .slides_api import _get_service, presentations_batch_update_chunked

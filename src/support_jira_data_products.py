@@ -61,9 +61,6 @@ SUPPORT_SLIDE_TYPES_NO_JIRA: frozenset[str] = frozenset(
         "support_deck_cover",
         "support_intro",
         "data_quality",
-        "qbr_cover",
-        "qbr_agenda",
-        "qbr_divider",
     }
 )
 

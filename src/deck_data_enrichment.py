@@ -657,9 +657,9 @@ def enrich_leandna_shortage_if_needed(
         & {str((e or {}).get("slide_type") or (e or {}).get("id") or "") for e in slide_plan}
     ):
         try:
-            from .leandna_shortage_enrich import enrich_qbr_with_shortage_trends
+            from .leandna_shortage_enrich import enrich_report_with_shortage_trends
 
-            return enrich_qbr_with_shortage_trends(
+            return enrich_report_with_shortage_trends(
                 report, str(customer).strip(), weeks_forward=12
             )
         except Exception as e:

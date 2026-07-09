@@ -198,12 +198,6 @@ from .slide_primitives import (
     support_title_includes_project as _support_title_includes_project,
     table_cell_bg as _table_cell_bg,
 )
-from .slide_qbr_framing import (
-    qbr_agenda_slide as _qbr_agenda_slide,
-    qbr_cover_slide as _qbr_cover_slide,
-    qbr_divider_slide as _qbr_divider_slide,
-)
-from .slide_qbr_deployment import qbr_deployment_slide as _qbr_deployment_slide
 from .slide_support_intro import (
     support_deck_cover_slide as _support_deck_cover_slide,
     support_intro_slide as _support_intro_slide,

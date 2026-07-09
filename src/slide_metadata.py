@@ -64,10 +64,6 @@ SLIDE_DATA_REQUIREMENTS: dict[str, list[str]] = {
     "cohort_profiles": ["cohort_digest"],
     "cohort_findings": ["cohort_findings_bullets"],
     "team": ["customer"],
-    "qbr_cover": ["customer", "days"],
-    "qbr_agenda": [],
-    "qbr_divider": [],
-    "qbr_deployment": ["sites"],
     "eng_portfolio_title": ["eng_portfolio", "cursor_usage"],
     "eng_toc": [],
     "eng_divider": [],
@@ -216,7 +212,7 @@ def ordered_dq_data_sources_for_slide_plan(slide_plan: list[dict[str, Any]] | No
     req_keys: set[str] = set()
     for entry in slide_plan or ():
         slide_type = (entry.get("slide_type") or "").strip()
-        if slide_type in ("", "data_quality", "qbr_divider", "eng_divider"):
+        if slide_type in ("", "data_quality", "eng_divider"):
             continue
         for req in SLIDE_DATA_REQUIREMENTS.get(slide_type) or ():
             req_keys.add(req)

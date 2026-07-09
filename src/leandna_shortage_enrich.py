@@ -1,7 +1,7 @@
 """QBR report enrichment with LeanDNA Material Shortage Trends.
 
 Augments the report dict with time-series shortage intelligence before slide generation.
-Called from qbr_template.py after Item Master enrichment.
+Called from deck_data_enrichment after Item Master enrichment.
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def _resolve_customer_sites(customer: str) -> str | None:
     return None
 
 
-def enrich_qbr_with_shortage_trends(
+def enrich_report_with_shortage_trends(
     report: dict[str, Any],
     customer: str,
     weeks_forward: int = 12,

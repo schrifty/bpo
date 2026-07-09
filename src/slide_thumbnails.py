@@ -1,4 +1,4 @@
-"""Thumbnail helpers used by evaluate and hydrate flows."""
+"""Thumbnail helpers for slide visual QA."""
 
 from __future__ import annotations
 
@@ -9,11 +9,7 @@ import requests
 
 
 def get_slide_thumbnail_url(slides_svc, pres_id: str, page_id: str) -> str:
-    """Get a slide thumbnail content URL.
-
-    The Google API client is not thread-safe, so callers should use a thread-local
-    Slides service when calling this from worker threads.
-    """
+    """Get a slide thumbnail content URL."""
     thumb = slides_svc.presentations().pages().getThumbnail(
         presentationId=pres_id,
         pageObjectId=page_id,

@@ -74,13 +74,6 @@ The engineering portfolio deck (`cortex engineering-portfolio` or `cortex run --
 
 ## Generating Decks
 
-**QBR (Drive template)** — explicit subcommand:
-
-```bash
-cortex qbr "Customer Name"              # QBR deck from Drive template
-python main.py qbr "Customer Name"     # equivalent entrypoint (same pipeline)
-```
-
 Other decks use **explicit** flags and subcommands (no LLM parsing). Some useful patterns:
 
 ```bash
@@ -108,18 +101,6 @@ cortex --portfolio --max-customers 20
 ```
 
 Use `cortex --help` for the full command reference.
-
-### Evaluating Custom Slides
-
-CSMs can submit custom slides for automation by sharing a Google Slides deck with the intake Google Group. Set `GOOGLE_HYDRATE_INTAKE_GROUP` in `.env` to that group’s email **exactly** as it appears in Share (e.g. `hydrate-deck@leandna.com`). Viewer or Editor on the group both work. The service account must use an identity that can see those files (e.g. domain-wide delegation to a user who is in that group). Then:
-
-```bash
-cortex --evaluate            # assess each slide
-cortex --evaluate --verbose  # include full extracted text
-cortex --hydrate               # same intake sources; fills live data
-```
-
-The evaluator exports a thumbnail of each slide, extracts text and layout structure, then uses GPT-4o vision to assess reproducibility against current data sources and slide-building capabilities. Output includes feasibility rating, data gaps, visual element analysis, effort estimate, and the closest existing slide type.
 
 ### Drive Config Sync
 
@@ -159,11 +140,10 @@ cortex/
 │   ├── product-adoption.yaml
 │   └── portfolio-review.yaml
 ├── slides/                   # Slide definitions (YAML) — individual slide configs
-│   ├── qbr-01-cover.yaml     # QBR primary deck filenames (qbr-01 … qbr-18 …)
-│   ├── qbr-05-health.yaml
-│   ├── ...
-│   └── qbr-18-data-quality.yaml
-│   (other prefixes: std-*, cohort-*, eng-*, … for non-QBR decks)
+│   ├── std-*.yaml            # Shared composable slide types
+│   ├── cohort-*.yaml
+│   ├── eng-*.yaml
+│   └── …
 ├── config/                   # cohorts, customer alias maps, pendo_orphans (see CONFIG_ALIASES.md)
 ├── docs/
 │   ├── DATA-GOVERNANCE/     # Data governance: DATA_REGISTRY.md, DATA_DICTIONARY.md, per-source schemas, …
@@ -204,7 +184,6 @@ One deck run is built around **named account(s)** using the customer health repo
 | `executive_summary` | Executive Summary |
 | `platform_value_summary` | Platform Value & ROI Summary |
 | `product_adoption` | Product Adoption Review |
-| `qbr` | Quarterly Business Review |
 | `salesforce_comprehensive` | Salesforce Comprehensive Export |
 | `supply_chain_review` | Supply Chain & Operations Review |
 | `support` | Support Review (Jira HELP / related scope; see deck YAML for all-customer HELP options) |

@@ -153,7 +153,6 @@
 
 ## internal
 - `_drive_svc`
-- `_hydrate_slide_hints`
 - `_signals_llm_manifest_rules`
 - `_signals_llm_slide_prompt`
 - `_slide_plan`

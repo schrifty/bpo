@@ -18,7 +18,7 @@ PROFILE_LLM_EXPORT_ALL_CUSTOMERS: frozenset[SourceId] = frozenset(
     )
 )
 
-# QBR LeanDNA Data API enrichments (``qbr_template.py`` → ``enrich_qbr_with_*``).
+# LeanDNA Data API enrichments (``deck_data_enrichment`` → ``enrich_report_with_*``).
 PROFILE_ID_LEANDNA_QBR_ENRICHMENTS = "leandna_qbr_enrichments"
 
 PROFILE_LEANDNA_QBR_ENRICHMENTS: frozenset[SourceId] = frozenset(

@@ -35,14 +35,12 @@ def _disable_speaker_notes_llm_by_default(monkeypatch):
 @pytest.fixture(autouse=True)
 def _isolated_process_caches():
     """Module-level integration/config caches must not leak mocked responses between tests."""
-    from src import drive_config, evaluate, salesforce_client, slide_loader
+    from src import drive_config, salesforce_client, slide_loader
 
     salesforce_client.reset_for_tests()
     drive_config.reset_for_tests()
     slide_loader.reset_for_tests()
-    evaluate.reset_for_tests()
     yield
     salesforce_client.reset_for_tests()
     drive_config.reset_for_tests()
     slide_loader.reset_for_tests()
-    evaluate.reset_for_tests()

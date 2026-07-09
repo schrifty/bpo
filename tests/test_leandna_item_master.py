@@ -142,14 +142,14 @@ def test_get_excess_items_filters_positive_only():
 
 
 @patch("src.leandna_item_master_enrich.get_item_master_data")
-def test_enrich_qbr_with_item_master_adds_enrichment(mock_get_data, mock_items, monkeypatch):
+def test_enrich_report_with_item_master_adds_enrichment(mock_get_data, mock_items, monkeypatch):
     monkeypatch.setattr(
         "src.leandna_item_master_enrich.leandna_data_api_credentials_configured", lambda: True
     )
     mock_get_data.return_value = mock_items
     
     report = {"customer": "Test Customer"}
-    result = enrich.enrich_qbr_with_item_master(report, "Test Customer")
+    result = enrich.enrich_report_with_item_master(report, "Test Customer")
     
     assert "leandna_item_master" in result
     ldna = result["leandna_item_master"]
@@ -160,12 +160,12 @@ def test_enrich_qbr_with_item_master_adds_enrichment(mock_get_data, mock_items, 
     assert ldna["abc_distribution"]["A"] == 1
 
 
-def test_enrich_qbr_with_item_master_skips_if_not_configured(monkeypatch):
+def test_enrich_report_with_item_master_skips_if_not_configured(monkeypatch):
     monkeypatch.setattr(
         "src.leandna_item_master_enrich.leandna_data_api_credentials_configured", lambda: False
     )
     report = {"customer": "Test"}
-    result = enrich.enrich_qbr_with_item_master(report, "Test")
+    result = enrich.enrich_report_with_item_master(report, "Test")
     
     assert "leandna_item_master" in result
     assert result["leandna_item_master"]["enabled"] is False
@@ -180,7 +180,7 @@ def test_enrich_qbr_handles_api_error_gracefully(mock_get_data, monkeypatch):
     mock_get_data.side_effect = Exception("API timeout")
     
     report = {"customer": "Test"}
-    result = enrich.enrich_qbr_with_item_master(report, "Test")
+    result = enrich.enrich_report_with_item_master(report, "Test")
     
     assert "leandna_item_master" in result
     assert result["leandna_item_master"]["enabled"] is True

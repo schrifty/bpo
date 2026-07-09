@@ -96,21 +96,6 @@ def _report_metrics_blob(report: dict[str, Any], data_keys: list[str]) -> str:
     return _truncate_json(blob, _MAX_METRICS_JSON_CHARS)
 
 
-def _hydrate_replacements_summary(replacements: list[dict[str, Any]] | None) -> str:
-    if not replacements:
-        return ""
-    lines: list[str] = []
-    for r in replacements[:24]:
-        fld = str(r.get("field") or r.get("original") or "?").strip()
-        nv = str(r.get("new_value") or "").strip()
-        if not nv or nv in ("—", "-", "N/A"):
-            continue
-        if len(nv) > 120:
-            nv = nv[:117] + "..."
-        lines.append(f"{fld}: {nv}")
-    return "\n".join(lines)
-
-
 def _build_user_prompt(
     *,
     slide_title: str,
@@ -120,8 +105,6 @@ def _build_user_prompt(
     slide_yaml_prompt: str = "",
     metrics_blob: str = "",
     existing_notes_excerpt: str = "",
-    hydrate_analysis: dict[str, Any] | None = None,
-    hydrate_replacements_summary: str = "",
     slide_copy_excerpt: str = "",
 ) -> str:
     parts: list[str] = [
@@ -134,17 +117,8 @@ def _build_user_prompt(
         parts.append(f"Customer / scope: {customer}")
     if slide_yaml_prompt:
         parts.append(f"Slide design prompt (YAML):\n{slide_yaml_prompt}")
-    if hydrate_analysis:
-        purpose = (hydrate_analysis.get("purpose") or "").strip()
-        if purpose:
-            parts.append(f"Slide objective: {purpose}")
-        interp = (hydrate_analysis.get("interpretation") or "").strip()
-        if interp:
-            parts.append(f"Visual interpretation: {interp[:800]}")
     if metrics_blob:
         parts.append(f"Key metrics from report slice (JSON):\n{metrics_blob}")
-    if hydrate_replacements_summary:
-        parts.append(f"Mapped values on slide:\n{hydrate_replacements_summary}")
     if slide_copy_excerpt:
         parts.append(f"Visible slide copy:\n{slide_copy_excerpt}")
     if existing_notes_excerpt:
@@ -170,8 +144,6 @@ def generate_slide_management_guidance(
     entry: dict[str, Any] | None = None,
     data_keys: list[str] | None = None,
     existing_notes: str = "",
-    hydrate_analysis: dict[str, Any] | None = None,
-    hydrate_replacements: list[dict[str, Any]] | None = None,
     slide_copy_excerpt: str = "",
 ) -> str:
     """Return one VP-focused management paragraph, or ``""`` on failure (unless fallback enabled)."""
@@ -205,7 +177,6 @@ def generate_slide_management_guidance(
     cust = str(cust or "").strip()
 
     metrics_blob = _report_metrics_blob(report, keys)
-    repl_summary = _hydrate_replacements_summary(hydrate_replacements)
     notes_excerpt = (existing_notes or "").strip()
 
     user_prompt = _build_user_prompt(
@@ -216,8 +187,6 @@ def generate_slide_management_guidance(
         slide_yaml_prompt=yaml_prompt,
         metrics_blob=metrics_blob,
         existing_notes_excerpt=notes_excerpt,
-        hydrate_analysis=hydrate_analysis,
-        hydrate_replacements_summary=repl_summary,
         slide_copy_excerpt=slide_copy_excerpt,
     )
 
@@ -258,8 +227,6 @@ def enrich_speaker_notes_with_management_guidance(
     slide_title: str = "",
     slide_type: str = "",
     slide_yaml_hint: str = "",
-    hydrate_analysis: dict[str, Any] | None = None,
-    hydrate_replacements: list[dict[str, Any]] | None = None,
     slide_copy_excerpt: str = "",
 ) -> str:
     """Append LLM management guidance to existing speaker notes when enabled."""
@@ -274,8 +241,6 @@ def enrich_speaker_notes_with_management_guidance(
         report=report,
         entry=entry,
         existing_notes=base,
-        hydrate_analysis=hydrate_analysis,
-        hydrate_replacements=hydrate_replacements,
         slide_copy_excerpt=slide_copy_excerpt,
     )
     st = (slide_type or (entry or {}).get("slide_type") or (entry or {}).get("id") or "").strip()

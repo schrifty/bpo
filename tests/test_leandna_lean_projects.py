@@ -188,9 +188,9 @@ def test_get_lean_projects_api_error(mock_headers, mock_get):
 
 @patch("src.leandna_lean_projects_enrich.get_lean_projects")
 @patch("src.leandna_lean_projects_enrich.get_project_savings")
-def test_enrich_qbr_with_lean_projects_success(mock_savings, mock_projects, monkeypatch):
+def test_enrich_report_with_lean_projects_success(mock_savings, mock_projects, monkeypatch):
     """Test successful QBR enrichment with Lean Projects."""
-    from src.leandna_lean_projects_enrich import enrich_qbr_with_lean_projects
+    from src.leandna_lean_projects_enrich import enrich_report_with_lean_projects
     
     monkeypatch.setattr(
         "src.leandna_lean_projects_enrich.leandna_data_api_credentials_configured", lambda: True
@@ -235,7 +235,7 @@ def test_enrich_qbr_with_lean_projects_success(mock_savings, mock_projects, monk
         "quarter_end": "2026-03-31",
     }
     
-    result = enrich_qbr_with_lean_projects(report, "TestCorp")
+    result = enrich_report_with_lean_projects(report, "TestCorp")
     
     assert "leandna_lean_projects" in result
     enrichment = result["leandna_lean_projects"]
@@ -265,9 +265,9 @@ def test_enrich_qbr_with_lean_projects_success(mock_savings, mock_projects, monk
     mock_savings.assert_called_once()
 
 
-def test_enrich_qbr_without_token(monkeypatch):
+def test_enrich_report_without_token(monkeypatch):
     """Test enrichment skips when token is not configured."""
-    from src.leandna_lean_projects_enrich import enrich_qbr_with_lean_projects
+    from src.leandna_lean_projects_enrich import enrich_report_with_lean_projects
     
     monkeypatch.setattr(
         "src.leandna_lean_projects_enrich.leandna_data_api_credentials_configured", lambda: False
@@ -275,7 +275,7 @@ def test_enrich_qbr_without_token(monkeypatch):
     
     report = {"customer": "TestCorp"}
     
-    result = enrich_qbr_with_lean_projects(report, "TestCorp")
+    result = enrich_report_with_lean_projects(report, "TestCorp")
     
     assert "leandna_lean_projects" in result
     assert result["leandna_lean_projects"]["enabled"] is False
@@ -285,7 +285,7 @@ def test_enrich_qbr_without_token(monkeypatch):
 @patch("src.leandna_lean_projects_enrich.get_lean_projects")
 def test_enrich_qbr_no_projects_found(mock_projects, monkeypatch):
     """Test enrichment when no projects are found."""
-    from src.leandna_lean_projects_enrich import enrich_qbr_with_lean_projects
+    from src.leandna_lean_projects_enrich import enrich_report_with_lean_projects
     
     monkeypatch.setattr(
         "src.leandna_lean_projects_enrich.leandna_data_api_credentials_configured", lambda: True
@@ -298,7 +298,7 @@ def test_enrich_qbr_no_projects_found(mock_projects, monkeypatch):
         "quarter_end": "2026-03-31",
     }
     
-    result = enrich_qbr_with_lean_projects(report, "TestCorp")
+    result = enrich_report_with_lean_projects(report, "TestCorp")
     
     assert "leandna_lean_projects" in result
     enrichment = result["leandna_lean_projects"]

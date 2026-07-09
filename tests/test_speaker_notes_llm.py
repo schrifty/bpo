@@ -104,26 +104,6 @@ def test_build_slide_jql_speaker_notes_includes_guidance(monkeypatch):
     assert paragraph in notes
 
 
-def test_build_hydrate_speaker_notes_includes_guidance(monkeypatch):
-    monkeypatch.setenv("CORTEX_SPEAKER_NOTES_LLM", "true")
-    from src import evaluate
-
-    paragraph = "Compare mapped KPIs to last quarter before committing headcount to Support backlog burn-down."
-    with patch(
-        "src.speaker_notes_llm.generate_slide_management_guidance",
-        return_value=paragraph,
-    ):
-        out = evaluate._build_hydrate_speaker_notes(
-            [{"field": "open_tickets", "new_value": "42", "mapped": True}],
-            [{"type": "shape", "text": "Open tickets"}],
-            report={"customer": "Acme"},
-            analysis={"slide_type": "support_kpis_intake", "purpose": "Intake volume"},
-        )
-    assert "Mapped values:" in out
-    assert "How to use this slide" in out
-    assert paragraph in out
-
-
 def test_user_prompt_includes_metrics_and_yaml(monkeypatch):
     monkeypatch.setenv("CORTEX_SPEAKER_NOTES_LLM", "true")
     captured: dict = {}
