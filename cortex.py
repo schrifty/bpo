@@ -47,6 +47,14 @@ Flag commands (utilities)
       ``cortex --export`` is a deprecated alias for the same command.
       Section 7 LLM churn/account-risk insights are always appended to the export markdown.
 
+  cortex --export-pendo --customer <name> [--days N] [--compare-days N] [--no-drive] [-o PATH]
+  cortex --export-pendo-detailed --customer <name> [--days N] [--compare-days N] [--no-drive] [-o PATH]
+  cortex --export-pendo-top-arr [--top-n 5] [--days N] [--compare-days N] [--no-drive] [--out-dir DIR]
+      Export **Pendo-only** product usage for one customer (sites, features, depth, trends).
+      Uploads markdown + Google Sheet to ``Output/Customer Exports/{customer}/`` — only
+      ``-persistent`` files in the customer folder; same-day snapshots under ``Historical Data/{ISO-date}/``.
+      Default: ``--days 30``.
+
   cortex --schedule [--prefix NAME] [--region REGION]
       Show EventBridge cron schedules for ECS batch jobs (live AWS when credentials are available,
       plus catalog defaults from ``infra/terraform/variables.tf``). Cron times are UTC.
@@ -1216,6 +1224,27 @@ def main():
         from src.export_llm_context_snapshot import export_main
 
         export_main(sys.argv[2:], prog="cortex export-all")
+        return
+
+    if "--export-pendo" in sys.argv:
+        from src.export_customer_pendo_snapshot import export_pendo_main
+
+        rest = [a for a in sys.argv[1:] if a != "--export-pendo"]
+        export_pendo_main(rest, prog="cortex --export-pendo")
+        return
+
+    if "--export-pendo-detailed" in sys.argv:
+        from src.export_pendo_detailed_snapshot import export_pendo_detailed_main
+
+        rest = [a for a in sys.argv[1:] if a != "--export-pendo-detailed"]
+        export_pendo_detailed_main(rest, prog="cortex --export-pendo-detailed")
+        return
+
+    if "--export-pendo-top-arr" in sys.argv:
+        from src.export_pendo_detailed_snapshot import export_pendo_top_arr_main
+
+        rest = [a for a in sys.argv[1:] if a != "--export-pendo-top-arr"]
+        export_pendo_top_arr_main(rest, prog="cortex --export-pendo-top-arr")
         return
 
     if "--schedule" in sys.argv:

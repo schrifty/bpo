@@ -22,6 +22,8 @@ from .config_paths import COHORTS_FILE
 from .config import (
     CORTEX_PORTFOLIO_CUSTOMER_SOURCE,
     CORTEX_PENDO_CACHE_TTL_SECONDS,
+    CORTEX_PENDO_MAX_BURST,
+    CORTEX_PENDO_MAX_REQUESTS_PER_MINUTE,
     CORTEX_SIGNALS_LLM,
     CORTEX_SIGNALS_TRENDS,
     FEATURE_ADOPTION_INSIGHTS,
@@ -35,6 +37,48 @@ from .slide_loader import cohort_findings_metadata, cohort_findings_rollup_param
 
 PENDO_REQUEST_TIMEOUT_S = 90
 PENDO_TOTAL_TIMEOUT_S = 300
+
+
+class _TokenBucket:
+    """Thread-safe token bucket that paces Pendo aggregation requests.
+
+    Allows short bursts of up to ``capacity`` requests to fire immediately (so
+    parallel fan-out like ``preload()`` is not serialized), then paces sustained
+    throughput to ``rate_per_sec`` requests/second. A non-positive ``rate_per_sec``
+    disables pacing so ``acquire()`` never blocks.
+    """
+
+    def __init__(self, rate_per_sec: float, capacity: float):
+        self._rate = float(rate_per_sec)
+        self._capacity = max(1.0, float(capacity))
+        self._tokens = self._capacity
+        self._updated = time.monotonic()
+        self._lock = threading.Lock()
+
+    @property
+    def enabled(self) -> bool:
+        return self._rate > 0
+
+    def acquire(self) -> float:
+        """Block until one token is available. Returns seconds spent waiting."""
+        if self._rate <= 0:
+            return 0.0
+        waited = 0.0
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                self._tokens = min(
+                    self._capacity,
+                    self._tokens + (now - self._updated) * self._rate,
+                )
+                self._updated = now
+                if self._tokens >= 1.0:
+                    self._tokens -= 1.0
+                    return waited
+                # Not enough credit yet — compute the wait outside the lock.
+                needed = (1.0 - self._tokens) / self._rate
+            time.sleep(needed)
+            waited += needed
 
 
 def _name_matches(query: str, text: str) -> bool:
@@ -648,6 +692,9 @@ class PendoClient:
         self,
         integration_key: str | None = None,
         base_url: str | None = None,
+        *,
+        max_requests_per_minute: int | None = None,
+        max_burst: int | None = None,
     ):
         self.integration_key = integration_key or PENDO_INTEGRATION_KEY
         self.base_url = (base_url or PENDO_BASE_URL).rstrip("/")
@@ -657,7 +704,22 @@ class PendoClient:
             )
         # Session is not thread-safe; preload() uses a thread pool — one Session per thread.
         self._http_tls = threading.local()
-        logger.debug("PendoClient initialized (base_url=%s)", self.base_url)
+        # Shared across threads so the whole process paces aggregation calls together.
+        rpm = CORTEX_PENDO_MAX_REQUESTS_PER_MINUTE if max_requests_per_minute is None else max(0, max_requests_per_minute)
+        burst = CORTEX_PENDO_MAX_BURST if max_burst is None else max(1, max_burst)
+        self._rate_limiter = _TokenBucket(rate_per_sec=rpm / 60.0, capacity=burst)
+        logger.debug(
+            "PendoClient initialized (base_url=%s, pacing=%s rpm, burst=%d)",
+            self.base_url,
+            rpm if self._rate_limiter.enabled else "off",
+            burst,
+        )
+
+    def _pace_request(self, label: str) -> None:
+        """Block on the shared token bucket before an aggregation POST."""
+        waited = self._rate_limiter.acquire()
+        if waited > 0:
+            logger.debug("Pendo %s paced by rate limiter (waited %.2fs)", label, waited)
 
     def _http_session(self) -> requests.Session:
         s = getattr(self._http_tls, "session", None)
@@ -675,7 +737,12 @@ class PendoClient:
             "Content-Type": "application/json",
         }
 
-    def aggregate(self, pipeline: list[dict[str, Any]]) -> dict[str, Any]:
+    def aggregate(
+        self,
+        pipeline: list[dict[str, Any]],
+        *,
+        timeout: tuple[int, float] | None = None,
+    ) -> dict[str, Any]:
         """Execute an aggregation pipeline."""
         url = f"{self.base_url}/aggregation"
         logger.debug("Pendo API POST %s (pipeline steps=%d)", url, len(pipeline))
@@ -686,9 +753,11 @@ class PendoClient:
                 "pipeline": pipeline,
             },
         }
+        connect_t, read_t = timeout if timeout is not None else (10, float(PENDO_REQUEST_TIMEOUT_S))
+        self._pace_request("aggregate")
         resp = self._http_session().post(
             url, json=payload, headers=self._headers(),
-            timeout=(10, PENDO_REQUEST_TIMEOUT_S),
+            timeout=(connect_t, read_t),
         )
         resp.raise_for_status()
         data = resp.json()
@@ -738,6 +807,7 @@ class PendoClient:
                 "pipeline": pipeline,
             },
         }
+        self._pace_request("visitors_range")
         resp = requests.post(
             url,
             json=payload,

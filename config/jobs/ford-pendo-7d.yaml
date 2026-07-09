@@ -1,0 +1,9 @@
+name: ford-pendo-7d
+stop_on_failure: true
+fail_on_warnings: false
+steps:
+  - name: ford-pendo-export-7d
+    command: export-pendo
+    customer: Ford
+    days: 7
+    compare_days: 7

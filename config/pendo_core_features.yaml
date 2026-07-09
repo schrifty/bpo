@@ -1,0 +1,25 @@
+# Core product capabilities tracked in single-customer Pendo exports (Phase 2 checklist).
+# Each entry matches Pendo feature catalog names (case-insensitive regex).
+version: 1
+defaults:
+  - label: Clear to Build
+    match: "clear to build|\\bctb\\b"
+  - label: Material shortages
+    match: "shortage"
+  - label: Inventory / DOI
+    match: "inventory|days of inventory|\\bdoi\\b"
+  - label: Purchase orders
+    match: "purchase order|\\bpo\\b"
+  - label: Export / download
+    match: "export|download.*(csv|xlsx|excel)"
+  - label: Kei AI
+    match: "kei"
+  - label: Lean projects
+    match: "lean project"
+  - label: Supplier management
+    match: "supplier|scorecard"
+  - label: Intelligent actions
+    match: "intelligent action|action card"
+  - label: Send to ERP
+    match: "send to erp"
+customers: {}

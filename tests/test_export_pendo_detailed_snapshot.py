@@ -1,0 +1,451 @@
+"""Tests for site/user Pendo detailed exports and top-ARR batch."""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock, patch
+
+from src.export_pendo_detailed_snapshot import (
+    _cap_site_users,
+    _index_rows_by_visitor,
+    _roster_user_relevant,
+    _site_names_from_account_sites,
+    _pendo_detailed_export_file_stem,
+    _sum_activity_indexed,
+    _top_pages_and_features_in_window,
+    build_customer_pendo_detailed_report,
+    build_full_user_roster,
+    build_site_detail_slices,
+    load_top_ultimate_parents_by_arr_for_pendo,
+    render_customer_pendo_detailed_markdown,
+    render_site_detail_markdown,
+    render_user_roster_markdown,
+    _primary_business_unit,
+)
+from src.job_runner import build_step_argv
+
+
+def _visitor(vid: str, email: str, sitenames: list[str], lastvisit: int = 1_700_000_000_000) -> dict:
+    return {
+        "visitorId": vid,
+        "metadata": {
+            "agent": {
+                "emailaddress": email,
+                "role": "Buyer",
+                "sitenames": sitenames,
+            },
+            "auto": {"lastvisit": lastvisit},
+        },
+    }
+
+
+def test_pendo_detailed_export_file_stem() -> None:
+    assert _pendo_detailed_export_file_stem("Ford", 30) == "Pendo Detailed Export  (Ford, 30d)"
+
+
+def test_indexed_activity_matches_window_totals() -> None:
+    now_ms = 1_700_100_000_000
+    page_rows = [
+        {"visitorId": "v1", "day": now_ms - 86400000, "pageId": "p1", "numEvents": 10, "numMinutes": 5},
+        {"visitorId": "v2", "day": now_ms - 86400000, "pageId": "p2", "numEvents": 4, "numMinutes": 2},
+    ]
+    feat_rows = [{"visitorId": "v1", "day": now_ms - 86400000, "featureId": "f1", "numEvents": 3}]
+    page_by_visitor, feat_by_visitor = _index_rows_by_visitor(page_rows, feat_rows)
+    current = _sum_activity_indexed(
+        page_by_visitor,
+        feat_by_visitor,
+        {"v1"},
+        now_ms - 7 * 86400000,
+        now_ms,
+    )
+    assert current["total_events"] == 13
+    top_pages, top_features = _top_pages_and_features_in_window(
+        page_by_visitor,
+        feat_by_visitor,
+        {"v1"},
+        start_ms=now_ms - 7 * 86400000,
+        end_ms=now_ms,
+        page_catalog={"p1": "Dashboard"},
+        feature_catalog={"f1": "Export"},
+    )
+    assert top_pages[0]["name"] == "Dashboard"
+    assert top_features[0]["name"] == "Export"
+
+
+def test_build_site_detail_slices_and_user_roster() -> None:
+    pc = MagicMock()
+    now_ms = 1_700_100_000_000
+    visitors = [
+        _visitor("v1", "a@ford.com", ["Ford Dearborn Engine"]),
+        _visitor("v2", "b@ford.com", ["Ford Lima Engine"]),
+        _visitor("v3", "c@ford.com", ["Ford Dearborn Engine", "Ford Lima Engine"]),
+    ]
+    page_rows = [
+        {"visitorId": "v1", "day": now_ms - 86400000, "pageId": "p1", "numEvents": 10, "numMinutes": 5},
+        {"visitorId": "v2", "day": now_ms - 86400000, "pageId": "p2", "numEvents": 4, "numMinutes": 2},
+    ]
+    feat_rows = [
+        {"visitorId": "v1", "day": now_ms - 86400000, "featureId": "f1", "numEvents": 3},
+        {"visitorId": "v3", "day": now_ms - 86400000, "featureId": "f1", "numEvents": 1},
+    ]
+    pc._get_page_catalog_cached.return_value = {"p1": "Dashboard", "p2": "Reports"}
+    pc.get_feature_catalog.return_value = {"f1": "Export"}
+    pc._get_page_events_cached.return_value = [
+        {"visitorId": "v1", "pageId": "p1", "numEvents": 10, "numMinutes": 5},
+        {"visitorId": "v2", "pageId": "p2", "numEvents": 4, "numMinutes": 2},
+    ]
+    pc._get_feature_events_cached.return_value = [
+        {"visitorId": "v1", "featureId": "f1", "numEvents": 3},
+    ]
+    pc._build_user_activity.side_effect = lambda vs, _now: [
+        {
+            "email": (v.get("metadata") or {}).get("agent", {}).get("emailaddress", ""),
+            "role": "Buyer",
+            "last_visit": "2024-01-01",
+            "days_inactive": 1.0,
+        }
+        for v in vs
+    ]
+    pc.get_sites_by_customer.return_value = {
+        "by_customer": {
+            "Ford": [
+                {"sitename": "Ford Dearborn Engine", "total_events": 14},
+                {"sitename": "Ford Lima Engine", "total_events": 4},
+            ],
+        },
+    }
+
+    sites = build_site_detail_slices(
+        pc,
+        "Ford",
+        days=7,
+        compare_days=7,
+        customer_visitors=visitors,
+        page_rows=page_rows,
+        feat_rows=feat_rows,
+        now_ms=now_ms,
+        canonical_site_names=["Ford Dearborn Engine", "Ford Lima Engine"],
+    )
+    assert len(sites) == 2
+    assert sites[0]["sitename"] in {"Ford Dearborn Engine", "Ford Lima Engine"}
+    assert sites[0]["visitors"] >= 1
+    assert sites[0]["top_pages"]
+    assert pc._get_page_events_cached.call_count == 1
+    assert pc._get_feature_events_cached.call_count == 1
+
+    roster = build_full_user_roster(
+        pc,
+        "Ford",
+        days=7,
+        compare_days=7,
+        customer_visitors=visitors,
+        page_rows=page_rows,
+        feat_rows=feat_rows,
+        now_ms=now_ms,
+    )
+    assert len(roster) == 3
+    assert roster[0]["email"]
+    assert roster[0]["events_current"] >= 0
+
+
+def test_roster_excludes_dormant_without_window_events() -> None:
+    pc = MagicMock()
+    now_ms = 1_700_100_000_000
+    visitors = [
+        _visitor("v1", "active@ford.com", ["Ford Dearborn Engine"], lastvisit=now_ms - 86400000),
+        _visitor(
+            "v2",
+            "dormant@ford.com",
+            ["Ford Dearborn Engine"],
+            lastvisit=now_ms - 60 * 86400000,
+        ),
+    ]
+    page_rows = [
+        {"visitorId": "v1", "day": now_ms - 86400000, "pageId": "p1", "numEvents": 5, "numMinutes": 1},
+    ]
+    feat_rows: list[dict] = []
+    pc._build_user_activity.side_effect = lambda vs, _now: [
+        {
+            "email": (v.get("metadata") or {}).get("agent", {}).get("emailaddress", ""),
+            "role": "Buyer",
+            "last_visit": "2024-01-01",
+            "days_inactive": 1.0,
+        }
+        for v in vs
+    ]
+    roster = build_full_user_roster(
+        pc,
+        "Ford",
+        days=7,
+        compare_days=7,
+        customer_visitors=visitors,
+        page_rows=page_rows,
+        feat_rows=feat_rows,
+        now_ms=now_ms,
+    )
+    assert len(roster) == 1
+    assert roster[0]["email"] == "active@ford.com"
+    assert not _roster_user_relevant(
+        {"events_current": 0, "days_inactive": 60.0},
+    )
+    assert _roster_user_relevant({"events_current": 0, "days_inactive": 10.0})
+
+
+def test_cap_site_users_keeps_most_recent() -> None:
+    users = [
+        {"email": "old@x.com", "days_inactive": 20.0},
+        {"email": "new@x.com", "days_inactive": 1.0},
+    ]
+    capped, total = _cap_site_users(users, cap=1)
+    assert total == 2
+    assert len(capped) == 1
+    assert capped[0]["email"] == "new@x.com"
+
+
+def test_site_names_from_account_sites_merges_entities_and_skips_inactive() -> None:
+    names = _site_names_from_account_sites(
+        {
+            "sites": [
+                {"sitename": "Safran Montreal CG1", "entity": "A", "visitors": 10, "total_events": 100},
+                {"sitename": "Safran Montreal CG1", "entity": "B", "visitors": 5, "total_events": 50},
+                {"sitename": "Safran Legacy Training", "visitors": 1, "total_events": 0},
+                {"sitename": "Safran Issoudun 36P", "visitors": 3, "total_events": 20},
+            ],
+        }
+    )
+    assert names == ["Safran Montreal CG1", "Safran Issoudun 36P"]
+
+
+def _site_detail_fixture(sitename: str, events: int, *, users: int = 1) -> dict:
+    return {
+        "sitename": sitename,
+        "visitors": users,
+        "engagement": {"active_7d": users, "active_30d": 0, "dormant": 0},
+        "activity_current": {"total_events": events, "page_minutes": events // 2, "feature_events": events - 1},
+        "activity_pct_change": {"total_events": 5.0, "page_minutes": 4.0, "feature_events": 3.0},
+        "top_pages": [{"name": "Purchase orders (PO)", "events": events, "minutes": 10}],
+        "top_features": [{"name": "Export to Excel", "events": events}],
+        "users": [{"email": f"u{i}@safrangroup.com", "role": "Buyer", "last_visit": "2026-07-08", "days_inactive": 0.1} for i in range(users)],
+        "users_total": users,
+    }
+
+
+def test_render_site_detail_markdown_is_table_first_with_business_unit() -> None:
+    site_detail = [
+        _site_detail_fixture("Safran Montreal CG1", 90_000, users=3),
+        _site_detail_fixture("Safran Electrical and Power Niort", 120_000, users=2),
+    ]
+    md = render_site_detail_markdown(site_detail, compare_days=30, customer_prefix="Safran")
+    assert "## 13. Site detail" in md
+    assert "### 13.1 Site activity" in md
+    # Table header includes Business unit (Safran is mapped) and activity columns
+    assert "| Site | Business unit | Visitors | 7d | 30d | Dormant | Events | Minutes | Feature clicks | Δ events % | Top page | Top feature |" in md
+    assert "Electrical & Power" in md
+    assert "Cabin & Seats" in md
+    # Per-site user drill-down for busiest sites
+    assert "### 13.2 Site user detail" in md
+    assert "u0@safrangroup.com" in md
+    # No legacy prose-per-site format
+    assert "**Top pages:**" not in md
+    assert "*Site detail includes all" not in md
+
+
+def test_render_site_detail_markdown_omits_business_unit_for_unmapped_customer() -> None:
+    site_detail = [_site_detail_fixture("Ford Dearborn Engine", 50, users=1)]
+    md = render_site_detail_markdown(site_detail, compare_days=30, customer_prefix="Ford")
+    assert "### 13.1 Site activity" in md
+    assert "Business unit" not in md
+    assert "| Site | Visitors | 7d | 30d | Dormant | Events | Minutes | Feature clicks | Δ events % | Top page | Top feature |" in md
+
+
+def test_render_site_detail_markdown_escapes_pipes_in_names() -> None:
+    site = _site_detail_fixture("Acme | Weird Site", 100, users=1)
+    site["top_page"] = "Page | with pipe"
+    md = render_site_detail_markdown([site], compare_days=30, customer_prefix="Ford")
+    # Pipe in sitename is escaped so the table row stays well-formed
+    assert "Acme \\| Weird Site" in md
+
+
+def test_render_site_detail_user_sites_cap(monkeypatch) -> None:
+    monkeypatch.setenv("CORTEX_PENDO_SITE_DETAIL_USER_SITES", "1")
+    site_detail = [
+        _site_detail_fixture("Safran Montreal CG1", 90_000, users=2),
+        _site_detail_fixture("Safran Tijuana C44", 60_000, users=2),
+    ]
+    md = render_site_detail_markdown(site_detail, compare_days=30, customer_prefix="Safran")
+    # Both sites appear in the §13.1 activity table
+    assert "Safran Montreal CG1" in md
+    assert "Safran Tijuana C44" in md
+    # Only the top site gets a §13.2 user block
+    assert "#### Safran Montreal CG1" in md
+    assert "#### Safran Tijuana C44" not in md
+
+
+def test_primary_business_unit_picks_mode() -> None:
+    sites = [
+        "Safran Montreal CG1",            # Cabin & Seats
+        "Safran Tijuana C44",             # Cabin & Seats
+        "Safran Electrical and Power Niort",  # Electrical & Power
+    ]
+    assert _primary_business_unit("Safran", sites) == "Cabin & Seats"
+    assert _primary_business_unit("Safran", ["Safran Electrical and Power Niort"]) == "Electrical & Power"
+    # Unmapped customer / no sites -> None
+    assert _primary_business_unit("Ford", ["Ford Dearborn"]) is None
+    assert _primary_business_unit("Safran", []) is None
+
+
+def test_render_user_roster_adds_business_unit_for_mapped_customer() -> None:
+    roster = [
+        {"email": "a@safrangroup.com", "role": "Buyer", "sites": ["Safran Montreal CG1"], "engagement_status": "active_7d", "last_visit": "2026-07-08", "days_inactive": 0.1, "events_current": 100, "page_minutes_current": 10, "feature_events_current": 90, "events_pct_change": 5.0},
+    ]
+    md = render_user_roster_markdown(roster, total_visitors=1, roster_scope="active", customer_prefix="Safran")
+    assert "| Email | Role | Primary BU | Sites |" in md
+    assert "Cabin & Seats" in md
+
+
+def test_render_user_roster_omits_business_unit_for_unmapped_customer() -> None:
+    roster = [
+        {"email": "a@ford.com", "role": "Buyer", "sites": ["Ford Dearborn"], "engagement_status": "active_7d", "last_visit": "2026-07-08", "days_inactive": 0.1, "events_current": 100, "page_minutes_current": 10, "feature_events_current": 90, "events_pct_change": 5.0},
+    ]
+    md = render_user_roster_markdown(roster, total_visitors=1, roster_scope="active", customer_prefix="Ford")
+    assert "Primary BU" not in md
+    assert "| Email | Role | Sites | Status |" in md
+
+
+@patch("src.export_pendo_detailed_snapshot.build_customer_pendo_export_report")
+def test_build_customer_pendo_detailed_report_extends_account(mock_account) -> None:
+    mock_account.return_value = {
+        "meta": {"pendo_prefix": "Ford", "days": 7, "compare_days": 7},
+        "headline": {"total_sites": 2},
+        "sites": {"sites": []},
+    }
+    pc = MagicMock()
+    pc._get_visitor_partition.return_value = {"now_ms": 1_700_100_000_000}
+    pc._filter_customer_visitors.return_value = ([_visitor("v1", "a@ford.com", ["Ford Dearborn Engine"])], [])
+    with patch("src.export_pendo_detailed_snapshot._fetch_activity_day_buckets", return_value=([], [])):
+        with patch(
+            "src.export_pendo_detailed_snapshot.build_site_detail_slices",
+            return_value=[{"sitename": "Ford Dearborn Engine", "visitors": 1}],
+        ):
+            with patch(
+                "src.export_pendo_detailed_snapshot.build_full_user_roster",
+                return_value=[{"email": "a@ford.com", "sites": ["Ford Dearborn Engine"]}],
+            ):
+                report = build_customer_pendo_detailed_report(pc, "Ford", days=7, compare_days=7)
+    assert report["meta"]["profile_id"] == "customer_pendo_detailed_export"
+    assert report["site_detail"]
+    assert report["user_roster"]
+
+
+def test_render_customer_pendo_detailed_markdown_includes_site_and_user_sections() -> None:
+    report = {
+        "meta": {
+            "pendo_prefix": "Ford",
+            "customer_query": "Ford",
+            "exported_at_utc": "2026-01-01T00:00:00Z",
+            "window_start": "2025-12-01",
+            "window_end": "2026-01-01",
+            "days": 30,
+            "compare_days": 30,
+            "user_roster_total_visitors": 10,
+            "user_roster_scope": "active_30d_or_window_events",
+        },
+        "headline": {
+            "active_users_7d": 5,
+            "total_visitors": 10,
+            "total_sites": 2,
+            "weekly_active_rate_pct": 50,
+            "total_events": 100,
+            "total_minutes": 20,
+            "feature_events": 30,
+            "write_ratio_pct": 10,
+            "vs_prior_period": {},
+        },
+        "engagement": {"account": {}, "engagement": {}, "benchmarks": {}, "signals": []},
+        "sites": {"sites": [{"sitename": "Ford Dearborn Engine", "visitors": 3, "total_events": 50, "total_minutes": 10, "last_active": "2026-01-01"}]},
+        "features": {},
+        "core_feature_checklist": {"summary": {"total_tracked": 0, "adopted": 0, "not_adopted": 0, "declining": 0}, "entries": []},
+        "unused_features": {"catalog_total": 1, "unused_count": 0, "unused_features": []},
+        "depth": {"total_feature_events": 1, "active_users": 1, "write_ratio": 1, "read_events": 0, "write_events": 1, "collab_events": 0, "breakdown": []},
+        "people": {"champions": [], "at_risk_users": []},
+        "exports": {"total_exports": 0, "exports_per_active_user": 0, "active_users": 0},
+        "frustration": {"total_frustration_signals": 0, "totals": {}},
+        "kei": {"total_queries": 0, "unique_users": 0, "adoption_rate": 0, "executive_users": 0, "executive_queries": 0},
+        "trends": {"weekly_active_users": [], "comparison": {}},
+        "site_detail": [
+            {
+                "sitename": "Ford Dearborn Engine",
+                "visitors": 3,
+                "engagement": {"active_7d": 2, "active_30d": 1, "dormant": 0},
+                "activity_current": {"total_events": 50, "page_minutes": 10, "feature_events": 5},
+                "activity_pct_change": {"total_events": 10.0},
+                "top_pages": [{"name": "Dashboard", "events": 20, "minutes": 5}],
+                "top_features": [],
+                "users": [{"email": "a@ford.com", "role": "Buyer", "last_visit": "2026-01-01", "days_inactive": 1}],
+            }
+        ],
+        "user_roster": [
+            {
+                "email": "a@ford.com",
+                "role": "Buyer",
+                "sites": ["Ford Dearborn Engine"],
+                "engagement_status": "active_7d",
+                "last_visit": "2026-01-01",
+                "days_inactive": 1,
+                "events_current": 50,
+                "page_minutes_current": 10,
+                "feature_events_current": 5,
+                "events_pct_change": 10.0,
+            }
+        ],
+    }
+    md = render_customer_pendo_detailed_markdown(report)
+    assert "## 13. Site detail" in md
+    assert "## 14. User roster" in md
+    assert "of **10** total visitors" in md
+    assert "Ford Dearborn Engine" in md
+    assert "a@ford.com" in md
+
+
+@patch("src.llm_export_csr.top_active_ultimate_parents_by_arr_for_llm_export")
+@patch("src.salesforce_client.SalesforceClient")
+@patch("src.pendo_client.PendoClient")
+def test_load_top_ultimate_parents_by_arr_for_pendo(mock_pc_cls, mock_sf_cls, mock_top) -> None:
+    mock_pc_cls.return_value.get_sites_by_customer.return_value = {"customer_list": ["Safran", "Ford"]}
+    mock_sf_cls.return_value.get_portfolio_revenue_book_metrics.return_value = {
+        "matched_customer_contract_rollups": [{"customer": "Safran", "current_arr": 100.0, "active": True}]
+    }
+    mock_top.return_value = [{"ultimate_parent": "Safran", "current_arr": 100.0, "pendo_customer_key": "Safran"}]
+    rows = load_top_ultimate_parents_by_arr_for_pendo(5)
+    assert rows[0]["ultimate_parent"] == "Safran"
+    mock_top.assert_called_once()
+
+
+def test_build_step_argv_export_pendo_detailed_and_top_arr() -> None:
+    assert build_step_argv({"command": "export-pendo-detailed", "customer": "Ford", "days": 30}) == [
+        "--export-pendo-detailed",
+        "--customer",
+        "Ford",
+        "--days",
+        "30",
+    ]
+    assert build_step_argv({"command": "export-pendo-top-arr", "top_n": 5, "days": 30, "no_drive": True}) == [
+        "--export-pendo-top-arr",
+        "--top-n",
+        "5",
+        "--days",
+        "30",
+        "--no-drive",
+    ]
+
+
+def test_load_job_spec_pendo_top_arr_30d() -> None:
+    from src.job_runner import load_job_spec
+
+    spec = load_job_spec("pendo-top-arr-30d")
+    assert spec.name == "pendo-top-arr-30d"
+    assert len(spec.steps) == 1
+    step = spec.steps[0]
+    assert step["command"] == "export-pendo-top-arr"
+    assert step["top_n"] == 5
+    assert step["days"] == 30
+    assert step["compare_days"] == 30

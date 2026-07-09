@@ -1,0 +1,9 @@
+name: carrier-pendo-detailed-30d
+stop_on_failure: true
+fail_on_warnings: false
+steps:
+  - name: carrier-pendo-detailed-export-30d
+    command: export-pendo-detailed
+    customer: Carrier
+    days: 30
+    compare_days: 30

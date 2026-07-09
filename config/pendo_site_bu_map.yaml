@@ -1,0 +1,168 @@
+# Pendo site -> business unit map for the customer Pendo export (§2 / §2.1 / §13.1 / §14).
+#
+# Purpose: large customers run many Pendo "sites" (factories/plants) across several
+# business units. This map lets the export roll active sites up to a business unit so
+# an LLM can answer "how is <division> doing?" without pattern-matching site names.
+#
+# How it is applied:
+#   - Keyed by Pendo customer prefix (matched case-insensitively to meta.pendo_prefix).
+#   - For each site, rules are evaluated IN ORDER; the first rule with any pattern that
+#     appears (case-insensitive substring) in the sitename wins.
+#   - Sites that match no rule fall back to `default_business_unit`.
+#   - Customers with no entry here get no BU column and no §2.1 section (no noise).
+#
+# Confidence (per rule) — drives the "needs review" surfacing:
+#   - high      : the sitename self-labels its division (e.g. contains "Electronics and
+#                 Defense"). Trustworthy; low maintenance.
+#   - inferred  : mapped by a location / site-code / brand guess, NOT confirmed. These
+#                 are flagged in the export and listed for Customer Success to confirm.
+#   - (default_business_unit has implicit confidence "none" = unmapped, needs review.)
+#   Missing `confidence` defaults to `high`.
+#
+# Maintenance: sites that resolve to `inferred` or the default are surfaced every run
+# (export log warning + §2.1 confidence footnote) and collected in
+# docs/DATA-GOVERNANCE/BUSINESS_UNIT_MAPPING_REVIEW.md for periodic CS review. Put the
+# most specific / division-named (high-confidence) rules first and location-only
+# catch-alls (inferred) last.
+
+customers:
+  # ────────────────────────────────────────────────────────────────────────
+  # Safran — validated against the 30d detailed export (124 active sites).
+  # ~74% of sites self-label their division (high); ~26% are location-inferred.
+  # ────────────────────────────────────────────────────────────────────────
+  Safran:
+    default_business_unit: "Unmapped — needs review"
+    rules:
+      # --- High confidence: division name appears in the sitename ---
+      - business_unit: "Electronics & Defense"
+        confidence: high
+        patterns:
+          - "Electronics and Defense"
+      - business_unit: "Electrical & Power"
+        confidence: high
+        patterns:
+          - "Electrical and Power"
+          - "Electrical "
+      - business_unit: "Aerosystems"
+        confidence: high
+        patterns:
+          - "Aerosystems"
+      - business_unit: "Cabin & Seats"
+        confidence: high
+        patterns:
+          - "Cabin and Seats"
+          - "Cabin"
+          - "Seats"
+      # --- Inferred: location / site-code / ambiguous product line (confirm with CS) ---
+      - business_unit: "Electrical & Power"
+        confidence: inferred
+        patterns:
+          - "AMX "          # CSR-confirmed: AMX SM1/2/3 are under Safran Electrical and Power
+          - "Power Units"   # APU line — may belong elsewhere; confirm
+      - business_unit: "Cabin & Seats"
+        confidence: inferred
+        patterns:
+          - "Garden Grove"
+          - "Marysville"
+          - "Montreal"
+          - "Santa Maria"
+          - "Tijuana"
+          - "Chihuahua"
+          - "Herborn"
+          - "Carson"
+          - "Issoudun"
+          - "Loches"
+          - "Soliman"
+          - "Slough"
+          - "Ventilation"     # could be Aerosystems — confirm
+          - "Engineered Materials"  # CSR-confirmed: Marysville/Newport Engineered Materials = Cabin & Seats
+          - "Astronautics"    # CSR-confirmed: under Safran Cabin and Seats
+          - "ICA "
+          - "Newport"
+      - business_unit: "Other / Corporate"
+        confidence: inferred
+        patterns:
+          - "Corporate"
+          - "SA Lean Projects"
+          - "ZAES"
+
+  # ────────────────────────────────────────────────────────────────────────
+  # PROVISIONAL — the entries below are NOT yet validated against a Pendo site
+  # export. All rules are `inferred`; anything that does not match falls to
+  # "needs review". Replace with a CS-confirmed taxonomy (see review doc).
+  # ────────────────────────────────────────────────────────────────────────
+  Carrier:
+    default_business_unit: "Unmapped — needs review"
+    rules:
+      - business_unit: "Fire & Security"
+        confidence: inferred
+        patterns:
+          - "Kidde"
+          - "Marioff"
+          - "Fireye"
+          - "Det-Tronics"
+          - "Autronica"
+          - "Edwards"
+          - "LenelS2"
+          - "Fire"
+          - "Security"
+      - business_unit: "Refrigeration"
+        confidence: inferred
+        patterns:
+          - "Transicold"
+          - "Refrigeration"
+          - "Sensitech"
+      - business_unit: "HVAC"
+        confidence: inferred
+        patterns:
+          - "HVAC"
+          - "Automated Logic"
+          - "Riello"
+          - "Toshiba"
+          - "Viessmann"
+          - "Residential"
+          - "Commercial"
+
+  Spirit:
+    # Spirit AeroSystems is largely a single aerostructures business organized by
+    # program/site. BU rollup is likely by site or program — confirm with CS.
+    default_business_unit: "Unmapped — needs review"
+    rules:
+      - business_unit: "Wichita"
+        confidence: inferred
+        patterns: ["Wichita"]
+      - business_unit: "Tulsa / McAlester"
+        confidence: inferred
+        patterns: ["Tulsa", "McAlester"]
+      - business_unit: "Belfast / Prestwick"
+        confidence: inferred
+        patterns: ["Belfast", "Prestwick"]
+      - business_unit: "Kinston"
+        confidence: inferred
+        patterns: ["Kinston"]
+      - business_unit: "Morocco"
+        confidence: inferred
+        patterns: ["Casablanca", "Morocco"]
+      - business_unit: "Malaysia"
+        confidence: inferred
+        patterns: ["Subang", "Malaysia"]
+
+  Bombardier:
+    # Bombardier Aviation (business jets) organized by site/program — confirm with CS.
+    default_business_unit: "Unmapped — needs review"
+    rules:
+      - business_unit: "Montreal (Dorval / Mirabel / St-Laurent)"
+        confidence: inferred
+        patterns: ["Dorval", "Mirabel", "St-Laurent", "Saint-Laurent"]
+      - business_unit: "Toronto (Downsview)"
+        confidence: inferred
+        patterns: ["Toronto", "Downsview"]
+      - business_unit: "Queretaro"
+        confidence: inferred
+        patterns: ["Queretaro", "Querétaro"]
+      - business_unit: "Red Oak"
+        confidence: inferred
+        patterns: ["Red Oak"]
+      - business_unit: "Wichita"
+        confidence: inferred
+        patterns: ["Wichita"]
