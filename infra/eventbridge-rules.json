@@ -1,35 +1,8 @@
 [
   {
-    "Name": "decks-engineering-portfolio",
-    "Description": "Engineering portfolio deck — daily 02:00 UTC",
-    "ScheduleExpression": "cron(0 2 * * ? *)",
-    "State": "ENABLED",
-    "Targets": [
-      {
-        "Id": "decks-engineering-portfolio",
-        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
-        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
-        "EcsParameters": {
-          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
-          "LaunchType": "FARGATE",
-          "PlatformVersion": "LATEST",
-          "NetworkConfiguration": {
-            "awsvpcConfiguration": {
-              "Subnets": ["subnet-REPLACE"],
-              "SecurityGroups": ["sg-REPLACE"],
-              "AssignPublicIp": "DISABLED"
-            }
-          },
-          "TaskCount": 1
-        },
-        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"engineering-portfolio\"]}]}"
-      }
-    ]
-  },
-  {
     "Name": "cortex-export-nightly",
-    "Description": "LLM context export (cortex --export) — daily 03:00 UTC",
-    "ScheduleExpression": "cron(0 3 * * ? *)",
+    "Description": "Portfolio LLM export (export-nightly job) — daily 06:00 UTC",
+    "ScheduleExpression": "cron(0 6 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {
@@ -50,6 +23,81 @@
           "TaskCount": 1
         },
         "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"export-nightly\"]}]}"
+      }
+    ]
+  },
+  {
+    "Name": "cortex-engineering-portfolio",
+    "Description": "Engineering portfolio deck — daily 06:30 UTC",
+    "ScheduleExpression": "cron(30 6 * * ? *)",
+    "State": "ENABLED",
+    "Targets": [
+      {
+        "Id": "cortex-engineering-portfolio",
+        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
+        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
+        "EcsParameters": {
+          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
+          "LaunchType": "FARGATE",
+          "PlatformVersion": "LATEST",
+          "NetworkConfiguration": {
+            "awsvpcConfiguration": {
+              "Subnets": ["subnet-REPLACE"],
+              "SecurityGroups": ["sg-REPLACE"],
+              "AssignPublicIp": "DISABLED"
+            }
+          },
+          "TaskCount": 1
+        },
+        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"engineering-portfolio\"]}]}"
+      }
+    ]
+  },
+  {
+    "Name": "cortex-ford-pendo-7d",
+    "Description": "Ford Pendo export (7d) — daily 07:00 UTC",
+    "ScheduleExpression": "cron(0 7 * * ? *)",
+    "State": "ENABLED",
+    "Targets": [
+      {
+        "Id": "cortex-ford-pendo-7d",
+        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"ford-pendo-7d\"]}]}"
+      }
+    ]
+  },
+  {
+    "Name": "cortex-ford-pendo-30d",
+    "Description": "Ford Pendo export (30d) — daily 07:30 UTC",
+    "ScheduleExpression": "cron(30 7 * * ? *)",
+    "State": "ENABLED",
+    "Targets": [
+      {
+        "Id": "cortex-ford-pendo-30d",
+        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"ford-pendo-30d\"]}]}"
+      }
+    ]
+  },
+  {
+    "Name": "cortex-pendo-top-arr-30d",
+    "Description": "Top-5 ARR Pendo detailed exports — daily 08:00 UTC",
+    "ScheduleExpression": "cron(0 8 * * ? *)",
+    "State": "ENABLED",
+    "Targets": [
+      {
+        "Id": "cortex-pendo-top-arr-30d",
+        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"pendo-top-arr-30d\"]}]}"
+      }
+    ]
+  },
+  {
+    "Name": "cortex-carrier-pendo-detailed-30d",
+    "Description": "Carrier Pendo detailed export (30d) — daily 08:30 UTC",
+    "ScheduleExpression": "cron(30 8 * * ? *)",
+    "State": "ENABLED",
+    "Targets": [
+      {
+        "Id": "cortex-carrier-pendo-detailed-30d",
+        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"carrier-pendo-detailed-30d\"]}]}"
       }
     ]
   }

@@ -125,16 +125,42 @@ variable "scheduled_jobs" {
     rule_name           = optional(string)
   }))
   default = {
-    engineering-portfolio = {
-      schedule_expression = "cron(0 2 * * ? *)"
-      command             = ["engineering-portfolio"]
-      enabled             = true
-      rule_name           = "decks-engineering-portfolio"
-    }
+    # EventBridge cron is UTC. Daily jobs run 30 minutes apart starting 06:00 UTC.
     export-nightly = {
-      schedule_expression = "cron(0 3 * * ? *)"
+      schedule_expression = "cron(0 6 * * ? *)"
       command             = ["export-nightly"]
       enabled             = true
+      rule_name           = "cortex-export-nightly"
+    }
+    engineering-portfolio = {
+      schedule_expression = "cron(30 6 * * ? *)"
+      command             = ["engineering-portfolio"]
+      enabled             = true
+      rule_name           = "cortex-engineering-portfolio"
+    }
+    ford-pendo-7d = {
+      schedule_expression = "cron(0 7 * * ? *)"
+      command             = ["ford-pendo-7d"]
+      enabled             = true
+      rule_name           = "cortex-ford-pendo-7d"
+    }
+    ford-pendo-30d = {
+      schedule_expression = "cron(30 7 * * ? *)"
+      command             = ["ford-pendo-30d"]
+      enabled             = true
+      rule_name           = "cortex-ford-pendo-30d"
+    }
+    pendo-top-arr-30d = {
+      schedule_expression = "cron(0 8 * * ? *)"
+      command             = ["pendo-top-arr-30d"]
+      enabled             = true
+      rule_name           = "cortex-pendo-top-arr-30d"
+    }
+    carrier-pendo-detailed-30d = {
+      schedule_expression = "cron(30 8 * * ? *)"
+      command             = ["carrier-pendo-detailed-30d"]
+      enabled             = true
+      rule_name           = "cortex-carrier-pendo-detailed-30d"
     }
   }
 }
