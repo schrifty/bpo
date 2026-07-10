@@ -34,7 +34,7 @@ def test_cohort_and_engineering_portfolio_prefix():
         report={"customer": "Spirit", "days": 14},
         is_portfolio=False,
     )
-    assert eng == "Portfolio - Engineering Review (Last 14 days)"
+    assert eng == "Engineering-Review-Portfolio (Last 14 days)"
 
 
 def test_engineering_portfolio_cursor_only_title(monkeypatch):
@@ -47,7 +47,7 @@ def test_engineering_portfolio_cursor_only_title(monkeypatch):
         report={"customer": "Engineering", "days": 14},
         is_portfolio=False,
     )
-    assert t == "Portfolio - Engineering Review — Cursor (Last 14 days)"
+    assert t == "Engineering-Review-Portfolio — Cursor (Last 14 days)"
 
 
 def test_csm_book_prefix_includes_owner():

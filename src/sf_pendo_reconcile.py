@@ -233,7 +233,7 @@ def build_reconcile_report(
 
         entity_accounts = SalesforceClient().get_entity_accounts()
 
-    active_rollups, _churned, sf_labels, book, _renewal = salesforce_portfolio_rollups_split()
+    active_rollups, _churned, sf_labels, book, _renewal, _future = salesforce_portfolio_rollups_split()
     report.active_sf_labels = [
         str(r.get("customer") or "").strip()
         for r in active_rollups

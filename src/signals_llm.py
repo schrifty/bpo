@@ -428,19 +428,32 @@ def _compact_portfolio_revenue_for_llm(raw: Any) -> dict[str, Any] | None:
     for row in top[:12]:
         if not isinstance(row, dict):
             continue
+        historical = row.get("historical_arr") or row.get("arr") or row.get("ARR__c") or row.get("total_arr")
         top_slim.append(
             {
                 "customer": _trim_str(row.get("customer") or row.get("name"), 80),
-                "arr": row.get("arr") or row.get("ARR__c") or row.get("total_arr"),
+                "commercial_status": row.get("commercial_status"),
+                "arr": historical,
+                "historical_arr": row.get("historical_arr") or historical,
+                "active_arr": row.get("active_arr"),
+                "renewal_arr": row.get("renewal_arr"),
+                "current_arr": row.get("current_arr"),
             }
         )
     return {
         "total_arr": raw.get("total_arr"),
+        "historical_arr": raw.get("historical_arr"),
+        "active_arr": raw.get("active_arr"),
+        "renewal_arr": raw.get("renewal_arr"),
+        "current_arr": raw.get("current_arr"),
         "pipeline_arr": raw.get("pipeline_arr"),
         "active_installed_base_arr": raw.get("active_installed_base_arr"),
         "churned_contract_arr": raw.get("churned_contract_arr"),
+        "future_contract_arr": raw.get("future_contract_arr"),
         "active_customer_count": raw.get("active_customer_count"),
         "churned_customer_count": raw.get("churned_customer_count"),
+        "renewal_in_flight_customer_count": raw.get("renewal_in_flight_customer_count"),
+        "future_customer_count": raw.get("future_customer_count"),
         "salesforce_matched_customers": raw.get("salesforce_matched_customers"),
         "salesforce_unmatched_customers": raw.get("salesforce_unmatched_customers"),
         "top_customers_by_arr_sample": top_slim,
