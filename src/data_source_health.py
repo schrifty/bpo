@@ -26,10 +26,15 @@ def check_pendo() -> tuple[bool, str | None]:
     if not PENDO_INTEGRATION_KEY:
         return False, "Pendo: PENDO_INTEGRATION_KEY is not set"
     try:
+        from .pendo_aggregate import call_with_pendo_retry
         from .pendo_client import PendoClient
+
         client = PendoClient()
-        # Minimal API call to confirm we can reach Pendo
-        client.get_sites_by_customer(days=1)
+        call_with_pendo_retry(
+            lambda: client.get_sites_by_customer(days=1),
+            label="preflight",
+            max_attempts=3,
+        )
         return True, None
     except Exception as e:
         logger.warning("Pendo preflight failed: %s", e)

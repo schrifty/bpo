@@ -456,6 +456,10 @@ except ValueError:
     _pendo_burst = 32
 CORTEX_PENDO_MAX_BURST = max(1, _pendo_burst)
 
+# Cross-container Pendo pacing via EFS-backed token bucket (see pendo_global_rate_limit.py).
+_pendo_global_rl = os.environ.get("CORTEX_PENDO_GLOBAL_RATE_LIMIT", "true").strip().lower()
+CORTEX_PENDO_GLOBAL_RATE_LIMIT = _pendo_global_rl not in ("0", "false", "no", "off")
+
 # Feature Adoption slide: half-over-half usage narrative (extra Pendo aggregations). Off by default — disable by unsetting or false.
 _fai = os.environ.get("CORTEX_FEATURE_ADOPTION_INSIGHTS", "").strip().lower()
 FEATURE_ADOPTION_INSIGHTS = _fai in ("1", "true", "yes", "on")
