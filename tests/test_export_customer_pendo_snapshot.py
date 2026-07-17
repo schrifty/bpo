@@ -28,8 +28,8 @@ from src.job_runner import build_step_argv, load_job_spec
 
 
 def test_pendo_export_file_stem_includes_granularity() -> None:
-    assert _pendo_export_file_stem("Ford", 7) == "Pendo Export  (Ford, 7d)"
-    assert _pendo_export_file_stem("Ford", 30) == "Pendo Export  (Ford, 30d)"
+    assert _pendo_export_file_stem("Ford", 7) == "Ford Export (7d)"
+    assert _pendo_export_file_stem("Ford", 30) == "Ford Export (30d)"
 
 
 def test_activity_aggregate_read_timeout_scales_with_window() -> None:

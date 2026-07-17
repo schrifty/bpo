@@ -12,6 +12,7 @@ from src.export_drive_layout import (
     historical_snapshot_spreadsheet_title,
     is_legacy_dated_output_folder,
     is_legacy_export_container_folder,
+    is_managed_export_filename,
     parse_historical_flat_dated_name,
     persistent_filename,
     persistent_spreadsheet_title,
@@ -21,15 +22,11 @@ from src.export_drive_layout import (
 
 
 def test_persistent_filename_appends_suffix_before_extension() -> None:
-    assert persistent_filename("Pendo Export  (Ford, 30d)", ext=".md") == (
-        "Pendo Export  (Ford, 30d)-persistent.md"
-    )
+    assert persistent_filename("Ford Export (30d)", ext=".md") == "Ford Export (30d)-persistent.md"
 
 
 def test_historical_snapshot_filename_has_no_date_or_persistent_suffix() -> None:
-    assert historical_snapshot_filename("Pendo Export  (Ford, 30d)", ext=".md") == (
-        "Pendo Export  (Ford, 30d).md"
-    )
+    assert historical_snapshot_filename("Ford Export (30d)", ext=".md") == "Ford Export (30d).md"
 
 
 def test_historical_day_folder_label() -> None:
@@ -37,31 +34,38 @@ def test_historical_day_folder_label() -> None:
 
 
 def test_spreadsheet_titles_match_markdown_pattern() -> None:
-    stem = "Pendo Export  (Carrier, 30d)"
+    stem = "Carrier Export (30d)"
     assert persistent_spreadsheet_title(stem) == f"{stem}-persistent"
     assert historical_snapshot_spreadsheet_title(stem) == stem
 
 
-def test_target_persistent_name_from_legacy_pendo_markdown() -> None:
-    assert target_persistent_name("Pendo Export  (Ford, 30d).md", mime_type="text/markdown") == (
-        "Pendo Export  (Ford, 30d)-persistent.md"
+def test_target_persistent_name_from_customer_export_markdown() -> None:
+    assert target_persistent_name("Ford Export (30d).md", mime_type="text/markdown") == (
+        "Ford Export (30d)-persistent.md"
     )
 
 
 def test_target_historical_snapshot_name_strips_persistent_and_date() -> None:
     assert target_historical_snapshot_name(
-        "Pendo Export  (Ford, 30d)-persistent.md",
+        "Ford Export (30d)-persistent.md",
         mime_type="text/markdown",
-    ) == "Pendo Export  (Ford, 30d).md"
+    ) == "Ford Export (30d).md"
     assert target_historical_snapshot_name(
-        "Pendo Export  (Ford, 30d) 2026-06-15.md",
+        "Ford Export (30d) 2026-06-15.md",
         mime_type="text/markdown",
-    ) == "Pendo Export  (Ford, 30d).md"
+    ) == "Ford Export (30d).md"
 
 
 def test_parse_historical_flat_dated_name() -> None:
-    parsed = parse_historical_flat_dated_name("Pendo Export  (Ford, 30d) 2026-06-15.md")
-    assert parsed == ("Pendo Export  (Ford, 30d)", dt.date(2026, 6, 15), ".md")
+    parsed = parse_historical_flat_dated_name("Ford Export (30d) 2026-06-15.md")
+    assert parsed == ("Ford Export (30d)", dt.date(2026, 6, 15), ".md")
+
+
+def test_is_managed_export_filename_accepts_customer_export_stems() -> None:
+    assert is_managed_export_filename("Ford Export (30d)-persistent.md")
+    assert is_managed_export_filename("Ford Export (7d).md")
+    assert is_managed_export_filename("Pendo Export  (Ford, 30d)-persistent.md")
+    assert not is_managed_export_filename("random-notes.md")
 
 
 def test_is_legacy_dated_output_folder_skips_today() -> None:

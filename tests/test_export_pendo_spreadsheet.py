@@ -65,7 +65,7 @@ def test_build_workbook_tables_has_all_tabs_and_customerndx() -> None:
 
 
 def test_write_pendo_export_xlsx(tmp_path: Path) -> None:
-    out = tmp_path / "Pendo Export  (Ford, 30d).xlsx"
+    out = tmp_path / "Ford Export (30d).xlsx"
     write_pendo_export_xlsx(out, _SAMPLE_REPORT)
     assert out.exists()
     assert out.stat().st_size > 500

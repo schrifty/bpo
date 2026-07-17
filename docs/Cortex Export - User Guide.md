@@ -7,7 +7,7 @@ Cortex produces two main kinds of markdown exports:
 | Export | Who it’s for | What it covers |
 |--------|----------------|----------------|
 | **Portfolio LLM context** (`LLM-Context-Portfolio`) | Leadership, CS, AMs — whole book | Pendo headlines, Jira, Salesforce, CS Report, signals, risk — **all customers** in one file |
-| **Per-customer Pendo export** (`Pendo Export  (Customer, Nd)`) | Account teams — one strategic customer | Deep **Pendo** usage plus **CS Report** factory metrics when matched — **one customer** per file (+ matching Sheet) |
+| **Per-customer export** (`Customer Export (Nd)`) | Account teams — one strategic customer | Deep **Pendo** usage plus **CS Report** factory metrics when matched — **one customer** per file (+ matching Sheet) |
 
 Both use the same **Drive layout** (see [Where files live on Drive](#where-files-live-on-drive)).
 
@@ -177,11 +177,11 @@ Copy/paste and adapt these. Start with “Use only the attached Cortex export; q
 
 ---
 
-## Per-customer Pendo export
+## Per-customer export
 
 ### What is this file?
 
-For strategic accounts (e.g. Ford on a daily or weekly cadence), Cortex can export a **customer-scoped Pendo usage packet**: markdown plus a **Google Sheet** with the same tables. The bookmarkable markdown is named like **`Pendo Export  (Ford, 30d)-persistent.md`**; the companion spreadsheet uses the same stem with `-persistent` (no `.md`).
+For strategic accounts (e.g. Ford on a daily or weekly cadence), Cortex can export a **customer-scoped usage packet**: markdown plus a **Google Sheet** with the same tables. The bookmarkable markdown is named like **`Ford Export (30d)-persistent.md`**; the companion spreadsheet uses the same stem with `-persistent` (no `.md`).
 
 This export is **Pendo usage plus CS Report** (when CSR matches the customer) — factory health, supply chain, and value metrics in §13 (§15 in the detailed variant). It does **not** include Jira, Salesforce contract status, or churn segmentation; use the **portfolio LLM context** export for those.
 
@@ -192,12 +192,12 @@ Per-customer exports live under **`Output/Customer Exports/{Customer}/`**, not i
 ```
 Output/Customer Exports/
   Ford/
-    Pendo Export  (Ford, 30d)-persistent.md      ← bookmarkable current export
-    Pendo Export  (Ford, 30d)-persistent         ← spreadsheet (same stem)
+    Ford Export (30d)-persistent.md      ← bookmarkable current export
+    Ford Export (30d)-persistent         ← spreadsheet (same stem)
     Historical Data/
       2026-07-07/
-        Pendo Export  (Ford, 30d).md
-        Pendo Export  (Ford, 30d)                ← spreadsheet snapshot
+        Ford Export (30d).md
+        Ford Export (30d)                ← spreadsheet snapshot
 ```
 
 Prior-month day folders under **Historical Data** are rolled into monthly buckets (`Historical Data/2026-06/…`) automatically at startup, same as portfolio exports.

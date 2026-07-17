@@ -225,9 +225,9 @@ def build_business_unit_summary(
 
 
 def _pendo_export_file_stem(customer: str, days: int) -> str:
-    """Return filename stem (no extension), e.g. ``Pendo Export  (Ford, 30d)``."""
+    """Return filename stem (no extension), e.g. ``Ford Export (30d)``."""
     label = (customer or "").strip() or "customer"
-    return f"Pendo Export  ({label}, {days}d)"
+    return f"{label} Export ({days}d)"
 
 
 def resolve_pendo_customer_prefix(query: str, pc: PendoClient) -> str:

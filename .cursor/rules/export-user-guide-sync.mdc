@@ -28,7 +28,7 @@ Update the guide when a change affects anything a reader or LLM consumer would n
 - **ARR fields** or how customers are **ranked / capped** (top-N, env vars, ultimate-parent grouping)
 - **Coverage / omission** messaging at the top of the export
 
-**Per-customer Pendo (`Pendo Export  (Customer, Nd)`)**
+**Per-customer export (`Customer Export (Nd)`)**
 
 - Pendo export **section numbers or titles** (§1–§12; §13–§14 for detailed)
 - **Markdown vs spreadsheet** pairing, stem/filename pattern, or lookback window in names (`7d`, `30d`)
