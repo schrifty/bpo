@@ -7,7 +7,7 @@ Cortex produces two main kinds of markdown exports:
 | Export | Who it’s for | What it covers |
 |--------|----------------|----------------|
 | **Portfolio LLM context** (`LLM-Context-Portfolio`) | Leadership, CS, AMs — whole book | Pendo headlines, Jira, Salesforce, CS Report, signals, risk — **all customers** in one file |
-| **Per-customer Pendo export** (`Pendo Export  (Customer, Nd)`) | Account teams — one strategic customer | Deep **Pendo-only** usage: sites, features, people, trends — **one customer** per file (+ matching Sheet) |
+| **Per-customer Pendo export** (`Pendo Export  (Customer, Nd)`) | Account teams — one strategic customer | Deep **Pendo** usage plus **CS Report** factory metrics when matched — **one customer** per file (+ matching Sheet) |
 
 Both use the same **Drive layout** (see [Where files live on Drive](#where-files-live-on-drive)).
 
@@ -183,7 +183,7 @@ Copy/paste and adapt these. Start with “Use only the attached Cortex export; q
 
 For strategic accounts (e.g. Ford on a daily or weekly cadence), Cortex can export a **customer-scoped Pendo usage packet**: markdown plus a **Google Sheet** with the same tables. The bookmarkable markdown is named like **`Pendo Export  (Ford, 30d)-persistent.md`**; the companion spreadsheet uses the same stem with `-persistent` (no `.md`).
 
-This export is **Pendo only** — no Jira, Salesforce, or CS Report sections. Use the **portfolio LLM context** export above when you need contract status, support load, or churn segmentation.
+This export is **Pendo usage plus CS Report** (when CSR matches the customer) — factory health, supply chain, and value metrics in §13 (§15 in the detailed variant). It does **not** include Jira, Salesforce contract status, or churn segmentation; use the **portfolio LLM context** export for those.
 
 ### Where it lives on Drive
 
@@ -219,14 +219,16 @@ Prior-month day folders under **Historical Data** are rolled into monthly bucket
 | **10. Kei AI** | Kei assistant usage for this customer |
 | **11. Usage trends** | Weekly active users and period-over-period comparison |
 | **12. Engagement context** | Cohort benchmarks and auto-detected usage signals |
+| **13. CS Report** | Weekly **factory-level** CS Report when this customer matches CSR: customer summary (§13.1) and **every factory** with merged health, supply-chain, and value metrics (§13.2). No site sampling. If CSR has no match, the section explains what was tried. |
 
-**Detailed variant** (`--export-pendo-detailed`) adds **§13 Site detail** and **§14 User roster**:
+**Detailed variant** (`--export-pendo-detailed`) adds **§13 Site detail**, **§14 User roster**, and moves CS Report to **§15**:
 
 - **§13.1 Site activity** — one **table** with every active site: business unit, visitors, 7d/30d/dormant, events, minutes, feature clicks, change vs prior period, and each site’s top page and top feature. Best for cross-site questions (“which sites are declining?”).
 - **§13.2 Site user detail** — per-site user samples for the **busiest sites by events** only (the full user list is in §14).
 - **§14 User roster** — per-user table across the account. For customers with a business-unit mapping, it includes a **Primary BU** column (the unit of each user’s most-used sites).
+- **§15. CS Report** — same CS Report content as §13 in the standard export (all factories, merged metrics).
 
-Every Pendo export also opens with a short **“How to read this export”** note that pins the key rules: it’s usage-only (no ARR/churn), “sites” means *active* sites (idle ones are counted in §1), and **per-site visitor counts overlap** so you shouldn’t add them up for unique headcount (use §1 total visitors).
+Every Pendo export also opens with a short **“How to read this export”** note that pins the key rules: Pendo usage plus CS Report when matched (no ARR/churn/Jira), “sites” means *active* sites (idle ones are counted in §1), and **per-site visitor counts overlap** so you shouldn’t add them up for unique headcount (use §1 total visitors).
 
 The **top-ARR batch** (`--export-pendo-top-arr`) runs the detailed export for the largest Salesforce ultimate parents by current ARR.
 
@@ -268,7 +270,11 @@ Copy/paste and adapt. Start with “Use only the attached Pendo export for {Cust
 - “Does export behavior in Section 8 suggest users are working outside the product? Who are the heaviest exporters?”
 - “Is there onboarding friction? Check the guide-dismiss signal in Section 12.”
 
-**Detailed-variant power prompts (§13–§14)**
+- “Which factories have the worst shortage counts? Use Section 13.2 (CS Report) and rank by `shortages`.”
+- “Compare Pendo active sites (Section 2) to CS Report factories (Section 13.2) — where do we have usage but RED health, or healthy factories with no logins?”
+- “What is total on-hand inventory and open IA value for {Customer}? (Section 13.1 summary)”
+
+**Detailed-variant power prompts (§13–§15)**
 
 - “Build a per-site scorecard for {business unit}: from Section 13.1 list each site’s visitors, events, dormant count, and change vs prior period.”
 - “Cross-reference Section 13.1 and Section 14: for the top declining sites, name the active users we should reach out to.”

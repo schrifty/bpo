@@ -672,3 +672,114 @@ def test_load_ford_pendo_30d_job() -> None:
         "--compare-days",
         "30",
     ]
+
+
+def test_render_csr_markdown_includes_all_factories() -> None:
+    from src.export_customer_pendo_snapshot import render_csr_markdown
+
+    report = {
+        "csr": {
+            "scope": "single_customer_pendo_export",
+            "csr_loaded": True,
+            "csr_lookup_keys": ["Ford", "Ford Motor Company"],
+            "csr_matched_lookup_key": "Ford Motor Company",
+            "summary": {
+                "factory_count": 2,
+                "health_distribution": {"GREEN": 1, "RED": 1},
+                "total_shortages": 12,
+                "total_critical_shortages": 3,
+                "inventory_totals": {"on_hand": 1000, "on_order": 200},
+                "total_savings": 50000,
+            },
+            "merged_sites": [
+                {
+                    "factory": "Van Dyke",
+                    "health_score": "RED",
+                    "shortages": 10,
+                    "on_hand_value": 800,
+                    "savings_current_period": 40000,
+                },
+                {
+                    "factory": "Cleveland",
+                    "health_score": "GREEN",
+                    "shortages": 2,
+                    "on_hand_value": 200,
+                    "savings_current_period": 10000,
+                },
+            ],
+        }
+    }
+    md = render_csr_markdown(report, section_number=13)
+    assert "## 13. CS Report" in md
+    assert "### 13.1 Customer summary" in md
+    assert "### 13.2 All factories" in md
+    assert "Van Dyke" in md
+    assert "Cleveland" in md
+    assert "2 factories" in md
+
+
+def test_render_customer_pendo_markdown_appends_csr_section() -> None:
+    report = {
+        "meta": {
+            "pendo_prefix": "Ford",
+            "customer_query": "Ford",
+            "exported_at_utc": "2020-01-01T00:00:00Z",
+            "window_start": "2020-01-01",
+            "window_end": "2020-01-30",
+            "days": 30,
+            "compare_days": 30,
+        },
+        "headline": {
+            "active_users_7d": 1,
+            "total_visitors": 2,
+            "total_sites": 1,
+            "weekly_active_rate_pct": 50.0,
+            "total_events": 100,
+            "total_minutes": 200,
+            "feature_events": 50,
+            "write_ratio_pct": 60.0,
+        },
+        "sites": {"sites": [], "sites_active": 0, "sites_provisioned": 0},
+        "features": {},
+        "core_feature_checklist": [],
+        "unused_features": [],
+        "depth": {},
+        "people": {},
+        "exports": {},
+        "frustration": {},
+        "kei": {},
+        "trends": {"weekly_active_users": []},
+        "engagement": {"benchmarks": {}, "signals": []},
+        "csr": {
+            "csr_loaded": True,
+            "csr_lookup_keys": ["Ford"],
+            "csr_matched_lookup_key": "Ford",
+            "summary": {"factory_count": 1},
+            "merged_sites": [{"factory": "Plant A", "shortages": 1}],
+        },
+    }
+    md = render_customer_pendo_markdown(report)
+    assert "## 13. CS Report" in md
+    assert "Plant A" in md
+
+
+def test_merge_csr_customer_site_rows_unions_sections() -> None:
+    from src.cs_report_client import merge_csr_customer_site_rows
+
+    block = {
+        "platform_health": {
+            "sites": [{"factory": "A", "health_score": "RED", "shortages": 5}],
+        },
+        "supply_chain": {
+            "sites": [{"factory": "A", "on_hand_value": 1000}],
+        },
+        "platform_value": {
+            "sites": [{"factory": "A", "savings_current_period": 200}],
+        },
+    }
+    merged = merge_csr_customer_site_rows(block)
+    assert len(merged) == 1
+    assert merged[0]["factory"] == "A"
+    assert merged[0]["health_score"] == "RED"
+    assert merged[0]["on_hand_value"] == 1000
+    assert merged[0]["savings_current_period"] == 200

@@ -24,6 +24,7 @@ from .export_customer_pendo_snapshot import (
     _write_local,
     build_customer_pendo_export_report,
     render_customer_pendo_markdown,
+    render_csr_markdown,
     resolve_site_business_unit,
 )
 from .export_run_diagnostics import export_diagnostics_scope, export_phase
@@ -724,6 +725,9 @@ def render_customer_pendo_detailed_markdown(report: dict[str, Any]) -> str:
         roster_scope=meta.get("user_roster_scope"),
         customer_prefix=customer_prefix,
     )
+    csr_md = render_csr_markdown(report, section_number=15)
+    if csr_md:
+        extra += csr_md
     return base + "\n\n" + extra.strip() + "\n"
 
 

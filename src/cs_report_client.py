@@ -918,6 +918,113 @@ def selection_lookup_keys_for_llm_export(row: dict[str, Any]) -> list[str]:
     return keys
 
 
+def load_csr_for_pendo_customer_export(
+    *,
+    pendo_prefix: str,
+    customer_query: str = "",
+) -> dict[str, Any]:
+    """Load full CS Report week slices for a single Pendo customer export (all factories).
+
+    Returns platform_health, supply_chain, and platform_value with every factory row —
+    no top-N or site sampling (unlike the portfolio LLM export compaction path).
+    """
+    prefix = (pendo_prefix or "").strip()
+    query = (customer_query or "").strip() or prefix
+    lookup_keys = cs_report_lookup_keys_for_account(
+        salesforce_label=query,
+        pendo_customer_key=prefix,
+    )
+    ph = get_customer_platform_health(prefix, lookup_keys=lookup_keys)
+    sc = get_customer_supply_chain(prefix, lookup_keys=lookup_keys)
+    pv = get_customer_platform_value(prefix, lookup_keys=lookup_keys)
+    matched = None
+    merged_csr_names: list[str] = []
+    if isinstance(ph, dict) and not ph.get("error"):
+        matched = ph.get("customer")
+        raw_merged = ph.get("csr_customer_names_merged")
+        if isinstance(raw_merged, list):
+            merged_csr_names = [str(x) for x in raw_merged if str(x).strip()]
+    loaded = not all(
+        isinstance(block, dict) and block.get("error")
+        for block in (ph, sc, pv)
+    )
+    block = {
+        "scope": "single_customer_pendo_export",
+        "delta": "week",
+        "pendo_prefix": prefix,
+        "customer_query": query,
+        "csr_lookup_keys": lookup_keys,
+        "csr_matched_lookup_key": matched,
+        "csr_customer_names_merged": merged_csr_names,
+        "platform_health": ph,
+        "supply_chain": sc,
+        "platform_value": pv,
+    }
+    block["merged_sites"] = merge_csr_customer_site_rows(block)
+    block["summary"] = csr_customer_summary_from_block(block, factory_count=len(block["merged_sites"]))
+    block["csr_loaded"] = loaded and bool(block["merged_sites"])
+    return block
+
+
+_CSR_PENDO_SECTION_KEYS = ("platform_health", "supply_chain", "platform_value")
+_CSR_SITE_JOIN_FIELDS = ("factory", "site", "entity")
+
+
+def _csr_site_join_key(site: dict[str, Any]) -> tuple[str, str, str]:
+    return tuple(str(site.get(f) or "").strip().lower() for f in _CSR_SITE_JOIN_FIELDS)  # type: ignore[return-value]
+
+
+def merge_csr_customer_site_rows(csr_block: dict[str, Any]) -> list[dict[str, Any]]:
+    """Union platform_health / supply_chain / platform_value ``sites`` into one row per factory."""
+    merged: dict[tuple[str, str, str], dict[str, Any]] = {}
+    order: list[tuple[str, str, str]] = []
+    for sec_name in _CSR_PENDO_SECTION_KEYS:
+        sec = csr_block.get(sec_name)
+        if not isinstance(sec, dict) or sec.get("error"):
+            continue
+        for site in sec.get("sites") or []:
+            if not isinstance(site, dict):
+                continue
+            key = _csr_site_join_key(site)
+            if key not in merged:
+                merged[key] = {}
+                order.append(key)
+            merged[key].update(site)
+    return [merged[k] for k in order]
+
+
+def csr_customer_summary_from_block(csr_block: dict[str, Any], *, factory_count: int) -> dict[str, Any]:
+    """Customer-level rollups across the three CSR worksheets (no per-factory rows)."""
+    summary: dict[str, Any] = {"factory_count": factory_count}
+    ph = csr_block.get("platform_health")
+    if isinstance(ph, dict) and not ph.get("error"):
+        for k in (
+            "health_distribution",
+            "total_shortages",
+            "total_critical_shortages",
+            "factory_count",
+        ):
+            if k in ph and k != "factory_count":
+                summary[k] = ph[k]
+    sc = csr_block.get("supply_chain")
+    if isinstance(sc, dict) and not sc.get("error") and isinstance(sc.get("totals"), dict):
+        summary["inventory_totals"] = sc["totals"]
+    pv = csr_block.get("platform_value")
+    if isinstance(pv, dict) and not pv.get("error"):
+        for k in (
+            "total_savings",
+            "total_open_ia_value",
+            "total_potential_savings",
+            "total_potential_to_sell",
+            "total_recs_created_30d",
+            "total_pos_placed_30d",
+            "total_overdue_tasks",
+        ):
+            if k in pv:
+                summary[k] = pv[k]
+    return summary
+
+
 def load_csr_top_customers_by_arr(
     selection: list[dict[str, Any]],
 ) -> dict[str, Any]:
