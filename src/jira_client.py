@@ -26,7 +26,7 @@ _JSM_ORG_GLOBAL_LOCK = threading.Lock()
 _JSM_ORG_GLOBAL_CACHE: dict[str, tuple[float, list[str]]] = {}
 _ATLASSIAN_TEAMS_RESPONSE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _ATLASSIAN_TEAMS_CACHE_LOCK = threading.Lock()
-# TTL for JSM organization list (same tenant rarely changes during a batch run).
+# TTL for JSM organization list in-process L1 (disk cache uses CORTEX_JIRA_CACHE_TTL_SECONDS).
 _JSM_ORG_CACHE_TTL_S = float(os.environ.get("CORTEX_JSM_ORG_CACHE_TTL_S", "900"))
 
 _SHARED_JIRA_CLIENT_LOCK = threading.Lock()
@@ -1346,6 +1346,24 @@ class JiraClient:
         ]
         for i in range(0, len(todo), 90):
             chunk = todo[i:i + 90]
+            from . import jira_cache
+
+            cache_params = {"account_ids": sorted(chunk)}
+            cached_users = jira_cache.cache_get(self._jsm_cache_key, "user_bulk", cache_params)
+            if isinstance(cached_users, list):
+                for row in cached_users:
+                    if not isinstance(row, dict):
+                        continue
+                    aid = row.get("accountId")
+                    if not aid:
+                        continue
+                    name = (row.get("displayName") or "").strip()
+                    email = (row.get("emailAddress") or "").strip()
+                    if name:
+                        self._atlassian_user_name_cache[aid] = name
+                    if email:
+                        self._atlassian_user_email_cache[aid] = email
+                continue
             try:
                 # ``/user/bulk`` defaults to maxResults=10 — must request the full chunk
                 # size or only the first 10 accountIds resolve.
@@ -1359,7 +1377,9 @@ class JiraClient:
                 )
                 if resp.status_code != 200:
                     continue
-                for user in resp.json().get("values") or []:
+                values = resp.json().get("values") or []
+                jira_cache.cache_set(self._jsm_cache_key, "user_bulk", cache_params, values)
+                for user in values:
                     aid = user.get("accountId")
                     name = user.get("displayName")
                     if aid and name and user.get("accountType") == "atlassian":
@@ -1534,8 +1554,16 @@ class JiraClient:
         Uses ``POST /rest/api/3/search/approximate-count`` (Atlassian requires bounded JQL for some
         tenants; counts may lag slightly vs live search — see Jira docs).
         """
+        from . import jira_cache
+
+        cleaned = jql.strip()
+        cache_params = {"jql": cleaned}
+        cached = jira_cache.cache_get(self._jsm_cache_key, "jql_count", cache_params)
+        if isinstance(cached, dict) and "count" in cached:
+            val = cached.get("count")
+            return int(val) if val is not None else None
         try:
-            body: dict[str, Any] = {"jql": jql.strip()}
+            body: dict[str, Any] = {"jql": cleaned}
             resp = requests.post(
                 f"{self.api_base_url}/rest/api/3/search/approximate-count",
                 headers=self._headers,
@@ -1545,7 +1573,14 @@ class JiraClient:
             resp.raise_for_status()
             data = resp.json()
             c = data.get("count")
-            return int(c) if c is not None else None
+            count = int(c) if c is not None else None
+            jira_cache.cache_set(
+                self._jsm_cache_key,
+                "jql_count",
+                cache_params,
+                {"count": count},
+            )
+            return count
         except Exception as e:
             logger.debug("JIRA jql match total failed: %s", e)
             return None
@@ -1566,10 +1601,21 @@ class JiraClient:
         *,
         data_description: str | None = None,
     ) -> list[dict]:
-        results: list[dict] = []
-        next_token: str | None = None
+        from . import jira_cache
+
         flds = fields if fields is not None else _ISSUE_FIELDS
         self._record_jql(jql, description=data_description or "Jira issue search")
+        cache_params = {
+            "jql": jql.strip(),
+            "max_results": int(max_results),
+            "fields": list(flds),
+        }
+        cached = jira_cache.cache_get(self._jsm_cache_key, "search_jql", cache_params)
+        if isinstance(cached, list):
+            return cached
+
+        results: list[dict] = []
+        next_token: str | None = None
         while len(results) < max_results:
             body: dict[str, Any] = {
                 "jql": jql,
@@ -1590,6 +1636,7 @@ class JiraClient:
             next_token = data.get("nextPageToken")
             if not next_token:
                 break
+        jira_cache.cache_set(self._jsm_cache_key, "search_jql", cache_params, results)
         return results
 
     def _list_jsm_organization_names(self) -> list[str]:
@@ -1601,6 +1648,15 @@ class JiraClient:
         """
         if os.environ.get("CORTEX_JIRA_SKIP_JSM_ORG_FUZZY", "").strip() in ("1", "true", "yes"):
             return []
+
+        from . import jira_cache
+
+        disk_cached = jira_cache.cache_get(self._jsm_cache_key, "jsm_organization_names", {})
+        if isinstance(disk_cached, list):
+            now = time.monotonic()
+            with _JSM_ORG_GLOBAL_LOCK:
+                _JSM_ORG_GLOBAL_CACHE[self._jsm_cache_key] = (now, list(disk_cached))
+            return list(disk_cached)
 
         now = time.monotonic()
         with _JSM_ORG_GLOBAL_LOCK:
@@ -1658,6 +1714,7 @@ class JiraClient:
             )
         with _JSM_ORG_GLOBAL_LOCK:
             _JSM_ORG_GLOBAL_CACHE[self._jsm_cache_key] = (now, unique)
+        jira_cache.cache_set(self._jsm_cache_key, "jsm_organization_names", {}, unique)
         return unique
 
     def _customer_match_clause(
@@ -4754,6 +4811,13 @@ class JiraClient:
         cached = getattr(self, "_flagged_field_id_cache", "__unset__")
         if cached != "__unset__":
             return cached
+        from . import jira_cache
+
+        disk = jira_cache.cache_get(self._jsm_cache_key, "flagged_field_id", {})
+        if isinstance(disk, dict) and "field_id" in disk:
+            field_id = disk.get("field_id")
+            self._flagged_field_id_cache = field_id
+            return field_id
         field_id: str | None = None
         try:
             resp = requests.get(
@@ -4767,6 +4831,7 @@ class JiraClient:
         except Exception as e:
             logger.warning("Flagged field discovery failed: %s", e)
         self._flagged_field_id_cache = field_id
+        jira_cache.cache_set(self._jsm_cache_key, "flagged_field_id", {}, {"field_id": field_id})
         return field_id
 
     def _fetch_issue_changelogs(
@@ -4789,6 +4854,12 @@ class JiraClient:
             fields += f",{flagged_field_id}"
 
         def _one(key: str) -> tuple[str, dict | None]:
+            from . import jira_cache
+
+            cache_params = {"issue_key": key, "fields": fields}
+            cached = jira_cache.cache_get(self._jsm_cache_key, "issue_changelog", cache_params)
+            if isinstance(cached, dict):
+                return key, cached
             try:
                 resp = requests.get(
                     f"{self.api_base_url}/rest/api/3/issue/{key}",
@@ -4801,11 +4872,13 @@ class JiraClient:
                 data = resp.json()
                 f = data.get("fields") or {}
                 flagged = bool(f.get(flagged_field_id)) if flagged_field_id else False
-                return key, {
+                payload = {
                     "histories": (data.get("changelog") or {}).get("histories") or [],
                     "created": f.get("created"),
                     "flagged": flagged,
                 }
+                jira_cache.cache_set(self._jsm_cache_key, "issue_changelog", cache_params, payload)
+                return key, payload
             except Exception as e:
                 logger.debug("changelog fetch failed for %s: %s", key, e)
                 return key, None

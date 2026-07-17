@@ -175,6 +175,8 @@ def check_jira_backed_deck_required() -> list[str]:
 def integration_freshness_metadata() -> dict[str, object]:
     """Integration configuration and cache freshness for run summaries / unattended gates."""
     from .config import (
+        CORTEX_JIRA_CACHE_TTL_SECONDS,
+        CORTEX_PENDO_DISK_CACHE_TTL_SECONDS,
         CORTEX_SALESFORCE_CACHE_TTL_SECONDS,
         CORTEX_SLACK_CACHE_TTL_SECONDS,
         CURSOR_ADMIN_API_KEY,
@@ -193,6 +195,8 @@ def integration_freshness_metadata() -> dict[str, object]:
         "ai_productivity_configured": bool(GITHUB_TOKEN and CURSOR_ADMIN_API_KEY),
         "salesforce_configured": sf_configured,
         "salesforce_cache_ttl_h": round(CORTEX_SALESFORCE_CACHE_TTL_SECONDS / 3600.0, 2),
+        "pendo_disk_cache_ttl_h": round(CORTEX_PENDO_DISK_CACHE_TTL_SECONDS / 3600.0, 2),
+        "jira_cache_ttl_h": round(CORTEX_JIRA_CACHE_TTL_SECONDS / 3600.0, 2),
         "slack_configured": bool(SLACK_BOT_TOKEN),
         "slack_cache_ttl_h": round(CORTEX_SLACK_CACHE_TTL_SECONDS / 3600.0, 2),
     }

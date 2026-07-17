@@ -448,7 +448,7 @@ except ValueError:
 # Optional limits for tool output (0 = no limit, full dataset returned)
 PENDO_MAX_RESULTS = int(os.environ.get("PENDO_MAX_RESULTS", "0"))
 PENDO_MAX_OUTPUT_CHARS = int(os.environ.get("PENDO_MAX_OUTPUT_CHARS", "0"))
-# Pendo read/preload caches: in-process slices plus Drive JSON preload/portfolio snapshots.
+# Pendo in-process preload slice cache (short TTL within a single Python process).
 try:
     _pendo_cache_seconds = int(os.environ.get("CORTEX_PENDO_CACHE_TTL_SECONDS", "120").strip())
 except ValueError:
@@ -457,6 +457,23 @@ CORTEX_PENDO_CACHE_TTL_SECONDS = max(0, _pendo_cache_seconds)
 _pendo_cache_disabled = os.environ.get("CORTEX_PENDO_CACHE_DISABLED", "").strip().lower()
 if _pendo_cache_disabled in ("1", "true", "yes", "on"):
     CORTEX_PENDO_CACHE_TTL_SECONDS = 0
+# Pendo preload disk cache (cross-run persistence under CORTEX_CACHE_DIR/pendo/).
+try:
+    _pendo_disk_cache_hours = float(os.environ.get("CORTEX_PENDO_DISK_CACHE_TTL_HOURS", "12").strip())
+except ValueError:
+    _pendo_disk_cache_hours = 12.0
+CORTEX_PENDO_DISK_CACHE_TTL_SECONDS = max(0, int(_pendo_disk_cache_hours * 3600))
+if os.environ.get("CORTEX_PENDO_DISK_CACHE_DISABLED", "").strip().lower() in ("1", "true", "yes", "on"):
+    CORTEX_PENDO_DISK_CACHE_TTL_SECONDS = 0
+
+# Jira read API disk cache (search/jql, counts, org directory, changelogs, etc.).
+try:
+    _jira_cache_hours = float(os.environ.get("CORTEX_JIRA_CACHE_TTL_HOURS", "20").strip())
+except ValueError:
+    _jira_cache_hours = 20.0
+CORTEX_JIRA_CACHE_TTL_SECONDS = max(0, int(_jira_cache_hours * 3600))
+if os.environ.get("CORTEX_JIRA_CACHE_DISABLED", "").strip().lower() in ("1", "true", "yes", "on"):
+    CORTEX_JIRA_CACHE_TTL_SECONDS = 0
 
 # Pendo aggregation request pacing (token bucket). Prevents 429s under scaled batch
 # load (portfolio crawl, top-ARR batch) while still allowing short parallel bursts
