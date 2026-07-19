@@ -30,7 +30,7 @@ def _csr_top_arr_fixture() -> dict:
                     "total_shortages": 12,
                     "total_critical_shortages": 3,
                     "sites": [
-                        {"factory": "Plant A", "health_score": "RED", "shortages": 12},
+                        {"factory": "Plant A", "health_score": "RED", "shortages": 12, "supplier_commit_date_pct": 91.2},
                         {"factory": "Plant B", "health_score": "GREEN", "shortages": 0},
                     ],
                 },
@@ -66,12 +66,14 @@ def test_compact_csr_merges_factory_rows_across_worksheets():
     assert legend["hs"] == "health_score"
     assert legend["ohv"] == "on_hand_value"
     assert legend["scp"] == "savings_current_period"
+    assert legend["scdp"] == "supplier_commit_date_pct"
     by_factory = {s["fac"]: s for s in acme["sites"]}
     plant_a = by_factory["Plant A"]
     # One factory row carries health + supply-chain + value metrics together (abbreviated keys).
     assert plant_a["hs"] == "RED"
     assert plant_a["ohv"] == 3000
     assert plant_a["scp"] == 700
+    assert plant_a["scdp"] == 91.2
     # Long-form keys are not present on abbreviated site rows.
     assert "health_score" not in plant_a and "on_hand_value" not in plant_a
     # Section rollups preserved in summary with full-length keys.
@@ -93,12 +95,12 @@ def test_compact_csr_records_section_errors_without_sites():
 
 
 def test_compact_csr_field_legend_has_no_short_key_collisions():
-    from src.export_llm_context_snapshot import _CSR_SITE_FIELD_ABBR, _CSR_SITE_FIELD_LEGEND
+    from src.cs_report_client import CSR_MERGED_SITE_EXPORT_COLUMNS, CSR_SITE_FIELD_ABBR, CSR_SITE_FIELD_LEGEND
 
-    # Every long field maps to a distinct short key (no two long names share one abbreviation).
-    assert len(set(_CSR_SITE_FIELD_ABBR.values())) == len(_CSR_SITE_FIELD_ABBR)
-    # Legend is a faithful inverse used by LLMs to decode abbreviated rows.
-    assert _CSR_SITE_FIELD_LEGEND == {v: k for k, v in _CSR_SITE_FIELD_ABBR.items()}
+    # Every export column has a short key; no two long names share one abbreviation.
+    assert set(CSR_SITE_FIELD_ABBR.keys()) >= set(CSR_MERGED_SITE_EXPORT_COLUMNS)
+    assert len(set(CSR_SITE_FIELD_ABBR.values())) == len(CSR_SITE_FIELD_ABBR)
+    assert CSR_SITE_FIELD_LEGEND == {v: k for k, v in CSR_SITE_FIELD_ABBR.items()}
 
 
 def test_render_cs_report_section_emits_summary_table_and_detail_without_summary():

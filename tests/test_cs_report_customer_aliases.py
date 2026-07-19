@@ -1,8 +1,47 @@
 """CS Report customer column alias matching (Pendo name vs export `customer`)."""
 import json
+from datetime import datetime
 from unittest.mock import patch
 
 from src import cs_report_client
+
+
+def test_build_csr_site_entry_maps_full_csr_row() -> None:
+    row = {
+        "factoryName": "Plant A",
+        "entity": "Entity A",
+        "region": "NA",
+        "division": "Auto",
+        "businessUnit": "Powertrain",
+        "healthScore": "GREEN",
+        "shortageItemCount": json.dumps({"endValue": 12, "empty": False}),
+        "clearToBuildPercent": json.dumps({"endValue": 88.5, "empty": False}),
+        "totalOnHandValue": json.dumps({"endValue": 1000000, "empty": False}),
+        "dailyInventoryUsage": json.dumps({"endValue": 25000, "empty": False}),
+        "excessOnOrderValuePositive": json.dumps({"endValue": 5000, "empty": False}),
+        "potentialSavings": json.dumps({"endValue": 9000, "empty": False}),
+        "potentialToSell": json.dumps({"endValue": 4000, "empty": False}),
+        "apexPoActionPoCt": json.dumps({"endValue": 3, "empty": False}),
+        "supplierCommitDatePercent": json.dumps({"endValue": 91.2, "empty": False}),
+        "automatedHealthScores": json.dumps([{"healthScore": 92.0, "override": "GREEN"}]),
+        "startDate": datetime(2026, 1, 1),
+        "endDate": datetime(2026, 12, 31),
+    }
+    entry = cs_report_client._build_csr_site_entry(row)
+    assert entry["factory"] == "Plant A"
+    assert entry["health_score"] == "GREEN"
+    assert entry["shortages"] == 12
+    assert entry["clear_to_build_pct"] == 88.5
+    assert entry["on_hand_value"] == 1000000
+    assert entry["daily_inventory_usage"] == 25000
+    assert entry["excess_on_order_value"] == 5000
+    assert entry["potential_savings"] == 9000
+    assert entry["potential_to_sell"] == 4000
+    assert entry["apex_po_action_po_ct"] == 3
+    assert entry["supplier_commit_date_pct"] == 91.2
+    assert entry["automated_health_composite"] == 92.0
+    assert entry["start_date"] == "2026-01-01"
+    assert entry["end_date"] == "2026-12-31"
 
 
 def test_normalize_health_score_from_json_kpi() -> None:
@@ -128,6 +167,29 @@ def test_sites_for_customer_lookup_merges_multiple_csr_customer_names(mock_fetch
             rows, matched, tried, merged = cs_report_client._sites_for_customer_lookup("Johnson")
     assert len(rows) == 2
     assert set(merged) == {"Johnson Controls", "Johnson Controls International"}
+
+
+@patch.object(cs_report_client, "_fetch_latest_report")
+def test_cirtec_alias_matches_csr_workbook_label(mock_fetch: object) -> None:
+    mock_fetch.return_value = [
+        {"customer": "Cirtec Medical Corp", "delta": "week", "factoryName": "Plant A", "healthScore": "GREEN"},
+    ]
+    with patch.object(
+        cs_report_client,
+        "_load_cs_report_alias_map",
+        return_value={"cirtec": ["Cirtec Medical Corp"]},
+    ):
+        with patch.object(cs_report_client, "_load_cohort_customer_alias_map", return_value={}):
+            rows, matched, _tried, merged = cs_report_client._sites_for_customer_lookup(
+                "Cirtec",
+                lookup_keys=cs_report_client.cs_report_lookup_keys_for_account(
+                    salesforce_label="Cirtec Medical Corp.",
+                    pendo_customer_key="Cirtec",
+                ),
+            )
+    assert len(rows) == 1
+    assert matched == "Cirtec"
+    assert merged == ["Cirtec Medical Corp"]
 
 
 @patch.object(cs_report_client, "_fetch_latest_report")

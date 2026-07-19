@@ -51,6 +51,12 @@ from src.cli_warning_filters import apply_cli_warning_filters
 
 apply_cli_warning_filters()
 
+from src.cs_report_client import (
+    CSR_SITE_FIELD_LEGEND,
+    abbreviate_csr_site_row,
+    csr_customer_summary_from_block,
+)
+
 _DATA_SUMMARY_PATH = _ROOT / "config" / "comprehensive_data_element_list.json"
 
 # HTTP surfaces wired in code (see ``src/data_sources/registry.SourceId`` docstring).
@@ -1214,83 +1220,19 @@ def _sample_csr_sites_for_export(sites: list[dict[str, Any]], limit: int) -> lis
 _CSR_SECTION_KEYS = ("platform_health", "supply_chain", "platform_value")
 _CSR_SITE_JOIN_FIELDS = ("factory", "site", "entity")
 
-# Per-factory `sites` rows repeat their field names hundreds of times across the export, so we
-# emit short, stable keys in each row and publish a single `field_legend` (short -> long) at the
-# top of §4. This keeps the structure fully key-value (self-describing per row, nulls omitted,
-# chunk-safe) while removing the repeated long-field-name token cost (~19% off §4). LLMs decode
-# each row via the legend; do NOT reuse a short key for two different long names.
-_CSR_SITE_FIELD_ABBR: dict[str, str] = {
-    # identity
-    "factory": "fac",
-    "site": "st",
-    "entity": "ent",
-    # platform health
-    "health_score": "hs",
-    "clear_to_build_pct": "ctb",
-    "clear_to_commit_pct": "ctc",
-    "component_availability_pct": "ca",
-    "component_availability_projected_pct": "cap",
-    "shortages": "sh",
-    "critical_shortages": "csh",
-    "weekly_active_buyers_pct": "wab",
-    "buyer_mapping_quality": "bmq",
-    "high_risk_items": "hri",
-    # supply chain
-    "on_hand_value": "ohv",
-    "on_order_value": "oov",
-    "excess_on_hand": "eoh",
-    "doi_days": "doi",
-    "days_coverage": "dcov",
-    "turns_of_inventory": "toi",
-    "late_pos": "lpo",
-    "late_prs": "lpr",
-    # platform value
-    "savings_current_period": "scp",
-    "open_ia_value": "oia",
-    "recs_created_30d": "rc30",
-    "pos_placed_30d": "pp30",
-    "overdue_tasks": "odt",
-    "current_fy_spend": "cfs",
-    "previous_fy_spend": "pfs",
-}
-# short -> long, published once per §4 so any LLM can decode the abbreviated site rows.
-_CSR_SITE_FIELD_LEGEND: dict[str, str] = {v: k for k, v in _CSR_SITE_FIELD_ABBR.items()}
-
-
-def _abbreviate_csr_site(site: dict[str, Any]) -> dict[str, Any]:
-    """Rename site-row keys to their short forms (order preserved; unknown keys kept as-is)."""
-    return {_CSR_SITE_FIELD_ABBR.get(k, k): v for k, v in site.items()}
-
 # One-line, self-describing schema hint so any LLM reading the export understands the
 # de-duplicated §4 shape without external docs.
 _CSR_SCHEMA_NOTE = (
     "Each `sites` row is ONE factory with all CS Report metrics merged inline. Row keys are "
     "ABBREVIATED to save tokens — decode them with the `field_legend` map at the top of this "
-    "section (short -> long, e.g. `hs`=health_score, `ctb`=clear_to_build_pct, `doi`=doi_days, "
-    "`ohv`=on_hand_value, `scp`=savings_current_period). A key is present only when that factory "
+    "section (short -> long, e.g. `hs`=health_score, `ctb`=clear_to_build_pct, `eoov`=excess_on_order_value, "
+    "`dab`=daily_active_buyers_pct, `psav`=potential_savings). A key is present only when that factory "
     "has a value (nulls are omitted). Merged metrics span platform-health, supply-chain, and "
-    "platform-value worksheets. Per-customer section rollups (health_distribution, total_shortages, "
-    "inventory_totals, total_savings, …) are in the §4.1 markdown table (one row per customer), not "
-    "in this JSON. When `sites_total` > len(sites), rows were sampled (see `sites_sample_strategy`); "
-    "the §4.1 summary still reflects all factories."
+    "platform-value worksheets (full CSR workbook metric set). Per-customer section rollups "
+    "(health_distribution, total_shortages, inventory_totals, total_savings, …) are in the §4.1 "
+    "markdown table (one row per customer), not in this JSON. When `sites_total` > len(sites), rows "
+    "were sampled (see `sites_sample_strategy`); the §4.1 summary still reflects all factories."
 )
-
-_CSR_SUMMARY_HEALTH_KEYS = (
-    "factory_count",
-    "health_distribution",
-    "total_shortages",
-    "total_critical_shortages",
-)
-_CSR_SUMMARY_VALUE_KEYS = (
-    "total_savings",
-    "total_open_ia_value",
-    "total_potential_savings",
-    "total_potential_to_sell",
-    "total_recs_created_30d",
-    "total_pos_placed_30d",
-    "total_overdue_tasks",
-)
-
 
 def _csr_site_join_key(site: dict[str, Any]) -> tuple[str, str, str]:
     return tuple(str(site.get(f) or "").strip().lower() for f in _CSR_SITE_JOIN_FIELDS)  # type: ignore[return-value]
@@ -1322,21 +1264,7 @@ def _merge_customer_csr_site_rows(block: dict[str, Any]) -> list[dict[str, Any]]
 
 def _csr_customer_summary(block: dict[str, Any], *, factory_count: int) -> dict[str, Any]:
     """Per-customer section rollups (no site rows) across the three CSR worksheets."""
-    summary: dict[str, Any] = {"factory_count": factory_count}
-    ph = block.get("platform_health")
-    if isinstance(ph, dict) and not ph.get("error"):
-        for k in _CSR_SUMMARY_HEALTH_KEYS:
-            if k in ph and k != "factory_count":
-                summary[k] = ph[k]
-    sc = block.get("supply_chain")
-    if isinstance(sc, dict) and not sc.get("error") and isinstance(sc.get("totals"), dict):
-        summary["inventory_totals"] = sc["totals"]
-    pv = block.get("platform_value")
-    if isinstance(pv, dict) and not pv.get("error"):
-        for k in _CSR_SUMMARY_VALUE_KEYS:
-            if k in pv:
-                summary[k] = pv[k]
-    return summary
+    return csr_customer_summary_from_block(block, factory_count=factory_count)
 
 
 def _compact_csr_customer_block(
@@ -1360,11 +1288,11 @@ def _compact_csr_customer_block(
         total = len(merged_sites)
         if size_caps_enabled and _export_cap_active(site_limit):
             sampled = _sample_csr_sites_for_export(merged_sites, site_limit)
-            out["sites"] = [_abbreviate_csr_site(s) for s in sampled]
+            out["sites"] = [abbreviate_csr_site_row(s) for s in sampled]
             if len(sampled) < total:
                 out["sites_sample_strategy"] = "health_mix_then_shortage_bias"
         else:
-            out["sites"] = [_abbreviate_csr_site(s) for s in merged_sites]
+            out["sites"] = [abbreviate_csr_site_row(s) for s in merged_sites]
         out["sites_total"] = total
     elif not section_errors:
         out["sites"] = []
@@ -1385,7 +1313,7 @@ def _compact_csr(
     if isinstance(csr.get("note"), str):
         out["note"] = csr["note"]
     out["schema_note"] = _CSR_SCHEMA_NOTE
-    out["field_legend"] = _CSR_SITE_FIELD_LEGEND
+    out["field_legend"] = CSR_SITE_FIELD_LEGEND
     if _is_llm_export_top_arr_scope(csr.get("scope")):
         out["scope"] = csr["scope"]
         if csr.get("top_n") is not None:
@@ -1441,11 +1369,16 @@ _CSR_SUMMARY_TABLE_SCALARS = (
     "total_critical_shortages",
     "total_savings",
     "total_open_ia_value",
+    "total_ia_current_period_open_value",
+    "total_ia_previous_period_savings",
     "total_potential_savings",
     "total_potential_to_sell",
     "total_recs_created_30d",
     "total_pos_placed_30d",
     "total_overdue_tasks",
+    "total_current_fy_spend",
+    "total_previous_fy_spend",
+    "total_current_week52_ldna_target",
 )
 _CSR_SUMMARY_HEALTH_ORDER = ("GREEN", "YELLOW", "RED", "NONE")
 _CSR_SUMMARY_INV_ORDER = (
@@ -1453,6 +1386,11 @@ _CSR_SUMMARY_INV_ORDER = (
     "on_order",
     "excess_on_hand",
     "excess_on_order",
+    "excess_onhand_demanded",
+    "excess_onhand_obsolete",
+    "excess_on_order_obsolete",
+    "manufactured_inventory",
+    "early_deliveries",
     "past_due_po",
     "past_due_req",
 )

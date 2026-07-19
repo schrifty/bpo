@@ -871,42 +871,33 @@ def render_csr_markdown(report: dict[str, Any], *, section_number: int = 13) -> 
         )
     inv = summary.get("inventory_totals")
     if isinstance(inv, dict) and inv:
-        summary_lines.append(
-            f"- **Inventory (on hand / on order):** ${inv.get('on_hand', 0):,} / "
-            f"${inv.get('on_order', 0):,}"
-        )
+        for key in sorted(inv.keys()):
+            val = inv.get(key)
+            if val is None:
+                continue
+            label = key.replace("_", " ").strip().title()
+            summary_lines.append(f"- **Inventory {label}:** ${val:,}")
     for k, label in (
         ("total_savings", "Savings (current period)"),
         ("total_open_ia_value", "Open IA value"),
+        ("total_ia_current_period_open_value", "IA current-period open value"),
+        ("total_ia_previous_period_savings", "IA previous-period savings"),
         ("total_potential_savings", "Potential savings"),
+        ("total_potential_to_sell", "Potential to sell"),
         ("total_recs_created_30d", "Recs created (30d)"),
         ("total_pos_placed_30d", "POs placed (30d)"),
+        ("total_overdue_tasks", "Overdue workbench tasks"),
+        ("total_current_fy_spend", "Current FY spend"),
+        ("total_previous_fy_spend", "Previous FY spend"),
+        ("total_current_week52_ldna_target", "Current week-52 LeanDNA target"),
     ):
         if summary.get(k) is not None:
             summary_lines.append(f"- **{label}:** {summary[k]:,}")
 
     merged_sites = csr.get("merged_sites") if isinstance(csr.get("merged_sites"), list) else []
-    preferred_cols = (
-        "factory",
-        "site",
-        "entity",
-        "health_score",
-        "clear_to_build_pct",
-        "clear_to_commit_pct",
-        "component_availability_pct",
-        "shortages",
-        "critical_shortages",
-        "on_hand_value",
-        "on_order_value",
-        "excess_on_hand",
-        "doi_days",
-        "savings_current_period",
-        "open_ia_value",
-        "recs_created_30d",
-        "pos_placed_30d",
-        "overdue_tasks",
-    )
-    cols = _ordered_table_columns(merged_sites, preferred_cols)
+    from .cs_report_client import csr_merged_site_export_columns
+
+    cols = csr_merged_site_export_columns(merged_sites)
     factory_lines = [
         f"### {section_number}.2 All factories (merged metrics)",
         "",

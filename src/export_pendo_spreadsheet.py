@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,8 @@ _PENDO_EXPORT_TABS: tuple[tuple[str, str], ...] = (
     ("trends", "trends"),
     ("site_detail", "site_detail"),
     ("user_roster", "user_roster"),
+    ("csr", "csr_factories"),
+    ("csr_summary", "csr_summary"),
 )
 
 _SHEET_TITLE_BAD = re.compile(r"[:\\/?*\[\]]")
@@ -64,6 +67,14 @@ def _cell_value(value: Any) -> Any:
         return ""
     if isinstance(value, (dict, list)):
         return json.dumps(value, default=str)
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            return value.isoformat()
+        if value.hour == 0 and value.minute == 0 and value.second == 0 and value.microsecond == 0:
+            return value.date().isoformat()
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
     return value
 
 
@@ -311,6 +322,43 @@ def _build_user_roster_rows(report: dict[str, Any], customer: str) -> list[dict[
     return rows
 
 
+def _build_csr_factory_rows(report: dict[str, Any], customer: str) -> list[dict[str, Any]]:
+    csr = report.get("csr")
+    if not isinstance(csr, dict) or not csr.get("csr_loaded"):
+        return []
+    from .cs_report_client import csr_merged_site_export_columns
+
+    merged = csr.get("merged_sites") if isinstance(csr.get("merged_sites"), list) else []
+    columns = csr_merged_site_export_columns(merged)
+    rows: list[dict[str, Any]] = []
+    for site in merged:
+        if not isinstance(site, dict):
+            continue
+        row = {"customerndx": customer}
+        for col in columns:
+            row[col] = site.get(col, "")
+        rows.append(row)
+    return rows
+
+
+def _build_csr_summary_rows(report: dict[str, Any], customer: str) -> list[dict[str, Any]]:
+    csr = report.get("csr")
+    if not isinstance(csr, dict):
+        return []
+    summary = csr.get("summary") if isinstance(csr.get("summary"), dict) else {}
+    rows: list[dict[str, Any]] = [{"customerndx": customer, "section": "summary", **_flatten_scalars(summary)}]
+    inv = summary.get("inventory_totals")
+    if isinstance(inv, dict):
+        rows.append(
+            {
+                "customerndx": customer,
+                "section": "inventory_totals",
+                **_flatten_scalars(inv, prefix="inventory_totals"),
+            }
+        )
+    return rows
+
+
 _TAB_BUILDERS = {
     "meta": _build_meta_rows,
     "headline": _build_headline_rows,
@@ -327,6 +375,8 @@ _TAB_BUILDERS = {
     "trends": _build_trends_rows,
     "site_detail": _build_site_detail_rows,
     "user_roster": _build_user_roster_rows,
+    "csr": _build_csr_factory_rows,
+    "csr_summary": _build_csr_summary_rows,
 }
 
 
@@ -336,6 +386,8 @@ def build_pendo_export_workbook_tables(report: dict[str, Any]) -> dict[str, list
     tables: dict[str, list[list[Any]]] = {}
     for report_key, tab_title in _PENDO_EXPORT_TABS:
         if report_key in ("site_detail", "user_roster") and not report.get(report_key):
+            continue
+        if report_key in ("csr", "csr_summary") and not (report.get("csr") or {}).get("csr_loaded"):
             continue
         builder = _TAB_BUILDERS[report_key]
         rows = builder(report, customer)

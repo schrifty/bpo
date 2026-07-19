@@ -38,6 +38,22 @@ _SAMPLE_REPORT = {
     "frustration": {"total_frustration_signals": 1, "top_pages": [{"page": "Shortages", "rageClickCount": 1}]},
     "kei": {"adoption_pct": 12.5},
     "trends": {"comparison": {"total_events_pct_change": -3.1}, "weekly_active_users": [{"week_start": "2026-06-02", "active_users": 4}]},
+    "csr": {
+        "csr_loaded": True,
+        "summary": {
+            "factory_count": 1,
+            "total_savings": 1000,
+            "inventory_totals": {"on_hand": 500, "on_order": 200},
+        },
+        "merged_sites": [
+            {
+                "factory": "Plant A",
+                "health_score": "GREEN",
+                "shortages": 3,
+                "supplier_commit_date_pct": 90.0,
+            }
+        ],
+    },
 }
 
 
@@ -57,6 +73,8 @@ def test_build_workbook_tables_has_all_tabs_and_customerndx() -> None:
         "frustration",
         "kei",
         "trends",
+        "csr_factories",
+        "csr_summary",
     }
     sites = tables["sites"]
     assert sites[0][0] == "customerndx"
@@ -101,6 +119,8 @@ def test_sheets_values_update_retries_on_429(monkeypatch) -> None:
 
 
 def test_rows_to_grid_json_encodes_nested_cell_values() -> None:
+    from datetime import datetime
+
     from src.export_pendo_spreadsheet import _rows_to_grid
 
     grid = _rows_to_grid(
@@ -108,3 +128,23 @@ def test_rows_to_grid_json_encodes_nested_cell_values() -> None:
     )
     assert grid[1][0] == "Ford"
     assert '"feature_id"' in str(grid[1][-1])
+
+
+def test_rows_to_grid_serializes_datetime_csr_dates() -> None:
+    from datetime import datetime
+
+    from src.export_pendo_spreadsheet import _rows_to_grid
+
+    grid = _rows_to_grid(
+        [
+            {
+                "customerndx": "Ford",
+                "factory": "Plant A",
+                "start_date": datetime(2026, 1, 1),
+                "date_modified": datetime(2026, 7, 17, 14, 30, 0),
+            }
+        ]
+    )
+    assert grid[0] == ["customerndx", "factory", "start_date", "date_modified"]
+    assert grid[1][2] == "2026-01-01"
+    assert grid[1][3] == "2026-07-17T14:30:00"

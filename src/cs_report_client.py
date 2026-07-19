@@ -12,6 +12,7 @@ from __future__ import annotations
 import io
 import json
 import threading
+from datetime import date, datetime
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -489,6 +490,430 @@ def _add_site_entity_from_row(row: dict[str, Any], entry: dict[str, Any]) -> Non
             entry["entity"] = val if isinstance(val, str) else str(val)
 
 
+def _set_csr_kpi_int(entry: dict[str, Any], row: dict[str, Any], column: str, export_key: str) -> None:
+    val = _kpi_end(row.get(column))
+    if val is not None:
+        entry[export_key] = int(val)
+
+
+def _set_csr_kpi_dec(
+    entry: dict[str, Any],
+    row: dict[str, Any],
+    column: str,
+    export_key: str,
+    *,
+    decimals: int | None,
+) -> None:
+    val = _kpi_end(row.get(column))
+    if val is None:
+        return
+    if decimals is None:
+        entry[export_key] = round(val)
+    else:
+        entry[export_key] = round(val, decimals)
+
+
+def _csr_plain_scalar(raw: Any) -> Any | None:
+    """Normalize CS Report plain column values for export (JSON/Sheets-safe)."""
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, str):
+        text = raw.strip()
+        return text if text else None
+    if isinstance(raw, datetime):
+        if raw.tzinfo is not None:
+            return raw.isoformat()
+        if raw.hour == 0 and raw.minute == 0 and raw.second == 0 and raw.microsecond == 0:
+            return raw.date().isoformat()
+        return raw.isoformat()
+    if isinstance(raw, date):
+        return raw.isoformat()
+    return raw
+
+
+def _set_csr_plain(entry: dict[str, Any], row: dict[str, Any], column: str, export_key: str) -> None:
+    scalar = _csr_plain_scalar(row.get(column))
+    if scalar is not None:
+        entry[export_key] = scalar
+
+
+def _add_automated_health_export(row: dict[str, Any], entry: dict[str, Any]) -> None:
+    raw = row.get("automatedHealthScores")
+    if raw is None or raw == "":
+        return
+    if isinstance(raw, str):
+        entry["automated_health_scores"] = raw.strip()
+    else:
+        entry["automated_health_scores"] = json.dumps(raw, default=str)
+    payload = None
+    if isinstance(raw, str) and raw.strip().startswith("["):
+        try:
+            payload = json.loads(raw)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            payload = None
+    elif isinstance(raw, list):
+        payload = raw
+    if isinstance(payload, list) and payload:
+        item = payload[0]
+        if isinstance(item, dict):
+            composite = item.get("healthScore")
+            if isinstance(composite, (int, float)):
+                entry["automated_health_composite"] = round(float(composite), 1)
+            override = item.get("override")
+            if isinstance(override, str) and override.strip():
+                entry["automated_health_override"] = override.strip()
+
+
+# KPI columns → export keys. ``decimals``: None = round to int dollars/count; 0/1/2 = float precision.
+_CSR_KPI_INT_FIELDS: tuple[tuple[str, str], ...] = (
+    ("aggregateRiskScoreHighCount", "high_risk_items"),
+    ("apexPoActionPoCt", "apex_po_action_po_ct"),
+    ("criticalShortages", "critical_shortages"),
+    ("erpExceptionMsgPoCt", "erp_exception_msg_po_ct"),
+    ("latePOCount", "late_pos"),
+    ("latePRCount", "late_prs"),
+    ("nonCompliantPosCt", "non_compliant_pos_ct"),
+    ("openPoCt", "open_po_ct"),
+    ("posPlacedInLast30DaysCt", "pos_placed_30d"),
+    ("recsCreatedLast30DaysCt", "recs_created_30d"),
+    ("shortageItemCount", "shortages"),
+    ("shortagesByOrderLines", "shortages_by_order_lines"),
+    ("supplierCt", "supplier_ct"),
+    ("workbenchOverdueTasksCt", "overdue_tasks"),
+)
+
+_CSR_KPI_DEC1_FIELDS: tuple[tuple[str, str], ...] = (
+    ("buyerMappingQualityScore", "buyer_mapping_quality"),
+    ("clearToBuildPercent", "clear_to_build_pct"),
+    ("clearToCommitPercent", "clear_to_commit_pct"),
+    ("commitDateCoverage", "commit_date_coverage_pct"),
+    ("componentAvailabilityPercent", "component_availability_pct"),
+    ("componentAvailabilityPercentProjected", "component_availability_projected_pct"),
+    ("dailyActiveBuyersPercent", "daily_active_buyers_pct"),
+    ("dailyEngagedBuyersPercent", "daily_engaged_buyers_pct"),
+    ("daysCoverage", "days_coverage"),
+    ("doiBackwards", "doi_backwards"),
+    ("doiForwards", "doi_days"),
+    ("inventoryActionFixRateTrailing90Days", "ia_fix_rate_trailing_90d"),
+    ("inventoryActionUnableToFixRateTrailing90Days", "ia_unable_to_fix_rate_trailing_90d"),
+    ("onOrderDays", "on_order_days"),
+    ("supplierCommitDatePercent", "supplier_commit_date_pct"),
+    ("weeklyActiveBuyersPercent", "weekly_active_buyers_pct"),
+    ("weeklyEngagedIABuyersPercent", "weekly_engaged_ia_buyers_pct"),
+    ("weeklyEngagedSuppliersPercent", "weekly_engaged_suppliers_pct"),
+)
+
+_CSR_KPI_ROUND_FIELDS: tuple[tuple[str, str], ...] = (
+    ("currentFySpend", "current_fy_spend"),
+    ("currentWeek52ldnaTarget", "current_week52_ldna_target"),
+    ("dailyInventoryUsage", "daily_inventory_usage"),
+    ("earlyDeliveriesValue", "early_deliveries_value"),
+    ("excessOnOrderObsoleteValue", "excess_on_order_obsolete_value"),
+    ("excessOnOrderValuePositive", "excess_on_order_value"),
+    ("excessOnhandDemandedValue", "excess_onhand_demanded_value"),
+    ("excessOnhandObsoleteValue", "excess_onhand_obsolete_value"),
+    ("excessOnhandValuePositive", "excess_on_hand"),
+    ("inventoryActionCurrentReportingPeriodOpenValue", "ia_current_period_open_value"),
+    ("inventoryActionCurrentReportingPeriodSavings", "savings_current_period"),
+    ("inventoryActionOpenValue", "open_ia_value"),
+    ("inventoryActionPreviousReportingPeriodSavings", "ia_previous_period_savings"),
+    ("manufacturedInventoryValue", "manufactured_inventory_value"),
+    ("pastDuePOValue", "past_due_po_value"),
+    ("pastDueRequirementValue", "past_due_req_value"),
+    ("potentialSavings", "potential_savings"),
+    ("potentialToSell", "potential_to_sell"),
+    ("previousFySpend", "previous_fy_spend"),
+    ("totalOnHandValue", "on_hand_value"),
+    ("totalOnOrderValue", "on_order_value"),
+)
+
+_CSR_KPI_DEC2_FIELDS: tuple[tuple[str, str], ...] = (
+    ("toiBackwards", "toi_backwards"),
+    ("toiForwards", "turns_of_inventory"),
+)
+
+_CSR_PLAIN_FIELDS: tuple[tuple[str, str], ...] = (
+    ("businessUnit", "business_unit"),
+    ("customerNdx", "customer_ndx"),
+    ("dateCreated", "date_created"),
+    ("dateModified", "date_modified"),
+    ("division", "division"),
+    ("endDate", "end_date"),
+    ("factoryNdx", "factory_ndx"),
+    ("inventoryActionCurrentReportingPeriod", "ia_current_reporting_period"),
+    ("inventoryActionPreviousReportingPeriod", "ia_previous_reporting_period"),
+    ("region", "region"),
+    ("startDate", "start_date"),
+)
+
+# Preferred column order for customer-export markdown / spreadsheet (§13.2).
+CSR_MERGED_SITE_EXPORT_COLUMNS: tuple[str, ...] = (
+    "factory",
+    "site",
+    "entity",
+    "region",
+    "division",
+    "business_unit",
+    "customer_ndx",
+    "factory_ndx",
+    "health_score",
+    "automated_health_composite",
+    "automated_health_override",
+    "clear_to_build_pct",
+    "clear_to_commit_pct",
+    "component_availability_pct",
+    "component_availability_projected_pct",
+    "shortages",
+    "critical_shortages",
+    "shortages_by_order_lines",
+    "high_risk_items",
+    "buyer_mapping_quality",
+    "weekly_active_buyers_pct",
+    "daily_active_buyers_pct",
+    "daily_engaged_buyers_pct",
+    "weekly_engaged_ia_buyers_pct",
+    "weekly_engaged_suppliers_pct",
+    "on_hand_value",
+    "on_order_value",
+    "excess_on_hand",
+    "excess_on_order_value",
+    "excess_onhand_demanded_value",
+    "excess_onhand_obsolete_value",
+    "excess_on_order_obsolete_value",
+    "manufactured_inventory_value",
+    "early_deliveries_value",
+    "past_due_po_value",
+    "past_due_req_value",
+    "doi_days",
+    "doi_backwards",
+    "days_coverage",
+    "on_order_days",
+    "turns_of_inventory",
+    "toi_backwards",
+    "daily_inventory_usage",
+    "late_pos",
+    "late_prs",
+    "open_po_ct",
+    "non_compliant_pos_ct",
+    "apex_po_action_po_ct",
+    "erp_exception_msg_po_ct",
+    "supplier_ct",
+    "supplier_commit_date_pct",
+    "commit_date_coverage_pct",
+    "savings_current_period",
+    "open_ia_value",
+    "ia_current_period_open_value",
+    "ia_previous_period_savings",
+    "ia_fix_rate_trailing_90d",
+    "ia_unable_to_fix_rate_trailing_90d",
+    "ia_current_reporting_period",
+    "ia_previous_reporting_period",
+    "potential_savings",
+    "potential_to_sell",
+    "recs_created_30d",
+    "pos_placed_30d",
+    "overdue_tasks",
+    "current_fy_spend",
+    "previous_fy_spend",
+    "current_week52_ldna_target",
+    "start_date",
+    "end_date",
+    "date_created",
+    "date_modified",
+    "automated_health_scores",
+)
+
+# Short keys for portfolio LLM export §4.2 (token savings). Must be unique (one long name per short key).
+CSR_SITE_FIELD_ABBR: dict[str, str] = {
+    "factory": "fac",
+    "site": "st",
+    "entity": "ent",
+    "region": "reg",
+    "division": "div",
+    "business_unit": "bu",
+    "customer_ndx": "cndx",
+    "factory_ndx": "fndx",
+    "health_score": "hs",
+    "automated_health_composite": "ahc",
+    "automated_health_override": "aho",
+    "automated_health_scores": "ahs",
+    "clear_to_build_pct": "ctb",
+    "clear_to_commit_pct": "ctc",
+    "component_availability_pct": "ca",
+    "component_availability_projected_pct": "cap",
+    "shortages": "sh",
+    "critical_shortages": "csh",
+    "shortages_by_order_lines": "sbol",
+    "high_risk_items": "hri",
+    "buyer_mapping_quality": "bmq",
+    "weekly_active_buyers_pct": "wab",
+    "daily_active_buyers_pct": "dab",
+    "daily_engaged_buyers_pct": "deb",
+    "weekly_engaged_ia_buyers_pct": "weib",
+    "weekly_engaged_suppliers_pct": "wesp",
+    "on_hand_value": "ohv",
+    "on_order_value": "oov",
+    "excess_on_hand": "eoh",
+    "excess_on_order_value": "eoov",
+    "excess_onhand_demanded_value": "eodv",
+    "excess_onhand_obsolete_value": "eoobv",
+    "excess_on_order_obsolete_value": "eooobv",
+    "manufactured_inventory_value": "miv",
+    "early_deliveries_value": "edv",
+    "past_due_po_value": "pdpv",
+    "past_due_req_value": "pdrv",
+    "doi_days": "doi",
+    "doi_backwards": "doib",
+    "days_coverage": "dcov",
+    "on_order_days": "ood",
+    "turns_of_inventory": "toi",
+    "toi_backwards": "toib",
+    "daily_inventory_usage": "diu",
+    "late_pos": "lpo",
+    "late_prs": "lpr",
+    "open_po_ct": "opoc",
+    "non_compliant_pos_ct": "ncpoc",
+    "apex_po_action_po_ct": "apapoc",
+    "erp_exception_msg_po_ct": "eempoc",
+    "supplier_ct": "supc",
+    "supplier_commit_date_pct": "scdp",
+    "commit_date_coverage_pct": "cdcp",
+    "savings_current_period": "scp",
+    "open_ia_value": "oia",
+    "ia_current_period_open_value": "iciapov",
+    "ia_previous_period_savings": "iaprs",
+    "ia_fix_rate_trailing_90d": "ifr90",
+    "ia_unable_to_fix_rate_trailing_90d": "iutfr90",
+    "ia_current_reporting_period": "icrp",
+    "ia_previous_reporting_period": "iprp",
+    "potential_savings": "psav",
+    "potential_to_sell": "pts",
+    "recs_created_30d": "rc30",
+    "pos_placed_30d": "pp30",
+    "overdue_tasks": "odt",
+    "current_fy_spend": "cfs",
+    "previous_fy_spend": "pfs",
+    "current_week52_ldna_target": "cw52t",
+    "start_date": "sdt",
+    "end_date": "edt",
+    "date_created": "dcr",
+    "date_modified": "dmd",
+}
+
+CSR_SITE_FIELD_LEGEND: dict[str, str] = {short: long for long, short in CSR_SITE_FIELD_ABBR.items()}
+
+
+def abbreviate_csr_site_row(site: dict[str, Any]) -> dict[str, Any]:
+    """Rename site-row keys to short forms for portfolio LLM export (unknown keys kept as-is)."""
+    return {CSR_SITE_FIELD_ABBR.get(k, k): v for k, v in site.items()}
+
+
+_SUPPLY_CHAIN_TOTAL_KEYS: tuple[tuple[str, str], ...] = (
+    ("on_hand_value", "on_hand"),
+    ("on_order_value", "on_order"),
+    ("excess_on_hand", "excess_on_hand"),
+    ("excess_on_order_value", "excess_on_order"),
+    ("excess_onhand_demanded_value", "excess_onhand_demanded"),
+    ("excess_onhand_obsolete_value", "excess_onhand_obsolete"),
+    ("excess_on_order_obsolete_value", "excess_on_order_obsolete"),
+    ("manufactured_inventory_value", "manufactured_inventory"),
+    ("early_deliveries_value", "early_deliveries"),
+    ("past_due_po_value", "past_due_po"),
+    ("past_due_req_value", "past_due_req"),
+)
+
+_PLATFORM_VALUE_TOTAL_KEYS: tuple[tuple[str, str], ...] = (
+    ("savings_current_period", "total_savings"),
+    ("open_ia_value", "total_open_ia_value"),
+    ("ia_current_period_open_value", "total_ia_current_period_open_value"),
+    ("ia_previous_period_savings", "total_ia_previous_period_savings"),
+    ("potential_savings", "total_potential_savings"),
+    ("potential_to_sell", "total_potential_to_sell"),
+    ("recs_created_30d", "total_recs_created_30d"),
+    ("pos_placed_30d", "total_pos_placed_30d"),
+    ("overdue_tasks", "total_overdue_tasks"),
+    ("current_fy_spend", "total_current_fy_spend"),
+    ("previous_fy_spend", "total_previous_fy_spend"),
+    ("current_week52_ldna_target", "total_current_week52_ldna_target"),
+)
+
+
+def _build_csr_site_entry(row: dict[str, Any]) -> dict[str, Any]:
+    """Map one CS Report ``delta=week`` row to the full per-factory export shape."""
+    entry: dict[str, Any] = {
+        "factory": row.get("factoryName", "Unknown"),
+        "health_score": _health_score_from_row(row),
+    }
+    _add_site_entity_from_row(row, entry)
+    for column, export_key in _CSR_KPI_INT_FIELDS:
+        _set_csr_kpi_int(entry, row, column, export_key)
+    for column, export_key in _CSR_KPI_DEC1_FIELDS:
+        _set_csr_kpi_dec(entry, row, column, export_key, decimals=1)
+    for column, export_key in _CSR_KPI_ROUND_FIELDS:
+        _set_csr_kpi_dec(entry, row, column, export_key, decimals=None)
+    for column, export_key in _CSR_KPI_DEC2_FIELDS:
+        _set_csr_kpi_dec(entry, row, column, export_key, decimals=2)
+    for column, export_key in _CSR_PLAIN_FIELDS:
+        _set_csr_plain(entry, row, column, export_key)
+    _add_automated_health_export(row, entry)
+    return entry
+
+
+def _sum_entry_fields(entries: list[dict[str, Any]], mapping: tuple[tuple[str, str], ...]) -> dict[str, Any]:
+    totals: dict[str, float] = {}
+    for entry in entries:
+        for entry_key, total_key in mapping:
+            raw = entry.get(entry_key)
+            if isinstance(raw, (int, float)):
+                totals[total_key] = totals.get(total_key, 0.0) + float(raw)
+    return {k: round(v) for k, v in totals.items()}
+
+
+def _sum_entry_int_fields(entries: list[dict[str, Any]], keys: tuple[str, ...]) -> dict[str, int]:
+    totals: dict[str, int] = {}
+    for entry in entries:
+        for key in keys:
+            raw = entry.get(key)
+            if isinstance(raw, (int, float)):
+                totals[key] = totals.get(key, 0) + int(raw)
+    return totals
+
+
+def csr_merged_site_export_columns(rows: list[dict[str, Any]]) -> list[str]:
+    """Return export column order for merged CSR factory rows."""
+    seen: set[str] = set()
+    for row in rows:
+        seen |= {k for k in row.keys() if row.get(k) not in (None, "", [])}
+    ordered = [k for k in CSR_MERGED_SITE_EXPORT_COLUMNS if k in seen]
+    ordered.extend(sorted(k for k in seen if k not in ordered))
+    return ordered
+
+
+def _csr_site_entries_for_customer(
+    customer_name: str,
+    *,
+    lookup_keys: list[str] | None = None,
+) -> tuple[list[dict[str, Any]], str | None, list[str], list[str]]:
+    rows, matched_key, tried, matched_csr_customers = _sites_for_customer_lookup(
+        customer_name,
+        lookup_keys=lookup_keys,
+        delta="week",
+    )
+    if not rows:
+        return [], matched_key, tried, matched_csr_customers
+    return [_build_csr_site_entry(r) for r in rows], matched_key, tried, matched_csr_customers
+
+
+def _csr_load_error(customer_name: str, lookup_keys: list[str] | None, tried: list[str]) -> dict[str, Any]:
+    return {
+        "error": (
+            f"No CS Report data for {customer_name!r} "
+            f"(lookup_keys={lookup_keys!r}, tried `customer`={tried!r}, delta=week)"
+        ),
+        "source": "cs_report",
+    }
+
+
 # ── Public API ──
 
 
@@ -498,77 +923,31 @@ def get_customer_platform_health(
     lookup_keys: list[str] | None = None,
 ) -> dict[str, Any]:
     """Health scores, component availability, CTB/CTC, and shortage summary per site."""
-    sites, matched_key, tried, matched_csr_customers = _sites_for_customer_lookup(
-        customer_name, lookup_keys=lookup_keys, delta="week"
+    entries, matched_key, tried, matched_csr_customers = _csr_site_entries_for_customer(
+        customer_name,
+        lookup_keys=lookup_keys,
     )
-    if not sites:
-        return {
-            "error": (
-                f"No CS Report data for {customer_name!r} "
-                f"(lookup_keys={lookup_keys!r}, tried `customer`={tried!r}, delta=week)"
-            ),
-            "source": "cs_report",
-        }
+    if not entries:
+        return _csr_load_error(customer_name, lookup_keys, tried)
+
     display_name = matched_key or customer_name
-
-    site_health: list[dict[str, Any]] = []
-    total_shortages = 0
-    total_critical = 0
     health_colors: dict[str, int] = {}
+    shortage_totals = _sum_entry_int_fields(entries, ("shortages", "critical_shortages"))
 
-    for r in sites:
-        factory = r.get("factoryName", "Unknown")
-        health = _health_score_from_row(r)
+    for entry in entries:
+        health = str(entry.get("health_score") or "NONE")
         health_colors[health] = health_colors.get(health, 0) + 1
-
-        shortages = _kpi_end(r.get("shortageItemCount"))
-        critical = _kpi_end(r.get("criticalShortages"))
-        ctb = _kpi_end(r.get("clearToBuildPercent"))
-        ctc = _kpi_end(r.get("clearToCommitPercent"))
-        comp_avail = _kpi_end(r.get("componentAvailabilityPercent"))
-        comp_proj = _kpi_end(r.get("componentAvailabilityPercentProjected"))
-        buyer_qual = _kpi_end(r.get("buyerMappingQualityScore"))
-        weekly_active = _kpi_end(r.get("weeklyActiveBuyersPercent"))
-        risk_high = _kpi_end(r.get("aggregateRiskScoreHighCount"))
-
-        if shortages:
-            total_shortages += int(shortages)
-        if critical:
-            total_critical += int(critical)
-
-        entry: dict[str, Any] = {"factory": factory, "health_score": health}
-        if ctb is not None:
-            entry["clear_to_build_pct"] = round(ctb, 1)
-        if ctc is not None:
-            entry["clear_to_commit_pct"] = round(ctc, 1)
-        if comp_avail is not None:
-            entry["component_availability_pct"] = round(comp_avail, 1)
-        if comp_proj is not None:
-            entry["component_availability_projected_pct"] = round(comp_proj, 1)
-        if shortages is not None:
-            entry["shortages"] = int(shortages)
-        if critical is not None:
-            entry["critical_shortages"] = int(critical)
-        if weekly_active is not None:
-            entry["weekly_active_buyers_pct"] = round(weekly_active, 1)
-        if buyer_qual is not None:
-            entry["buyer_mapping_quality"] = round(buyer_qual, 1)
-        if risk_high is not None:
-            entry["high_risk_items"] = int(risk_high)
-        _add_site_entity_from_row(r, entry)
-
-        site_health.append(entry)
 
     qa.check("CS Report platform health loaded")
 
     return {
         "customer": display_name,
         "source": "cs_report",
-        "factory_count": len(sites),
+        "factory_count": len(entries),
         "csr_customer_names_merged": matched_csr_customers,
         "health_distribution": health_colors,
-        "total_shortages": total_shortages,
-        "total_critical_shortages": total_critical,
+        "total_shortages": shortage_totals.get("shortages", 0),
+        "total_critical_shortages": shortage_totals.get("critical_shortages", 0),
         "sites_sort": "shortages_desc",
         "sites_note": (
             "Per-factory list is sorted by shortages (highest first). When the export "
@@ -576,7 +955,7 @@ def get_customer_platform_health(
             "the automated composite (same signal CSR uses for scored sites). Conversion / "
             "project-only rows may remain NONE."
         ),
-        "sites": sorted(site_health, key=lambda s: s.get("shortages", 0), reverse=True),
+        "sites": sorted(entries, key=lambda s: s.get("shortages", 0), reverse=True),
     }
 
 
@@ -586,82 +965,22 @@ def get_customer_supply_chain(
     lookup_keys: list[str] | None = None,
 ) -> dict[str, Any]:
     """Inventory values, DOI, excess, and shortage trends per site."""
-    sites, matched_key, tried, _matched_csr = _sites_for_customer_lookup(
-        customer_name, lookup_keys=lookup_keys, delta="week"
+    entries, matched_key, tried, _matched_csr = _csr_site_entries_for_customer(
+        customer_name,
+        lookup_keys=lookup_keys,
     )
-    if not sites:
-        return {
-            "error": (
-                f"No CS Report data for {customer_name!r} "
-                f"(lookup_keys={lookup_keys!r}, tried `customer`={tried!r}, delta=week)"
-            ),
-            "source": "cs_report",
-        }
+    if not entries:
+        return _csr_load_error(customer_name, lookup_keys, tried)
+
     display_name = matched_key or customer_name
-
-    site_data: list[dict[str, Any]] = []
-    totals = {
-        "on_hand": 0.0, "on_order": 0.0, "excess_on_hand": 0.0,
-        "excess_on_order": 0.0, "past_due_po": 0.0, "past_due_req": 0.0,
-    }
-
-    for r in sites:
-        factory = r.get("factoryName", "Unknown")
-        on_hand = _kpi_end(r.get("totalOnHandValue"))
-        on_order = _kpi_end(r.get("totalOnOrderValue"))
-        excess_oh = _kpi_end(r.get("excessOnhandValuePositive"))
-        excess_oo = _kpi_end(r.get("excessOnOrderValuePositive"))
-        doi = _kpi_end(r.get("doiForwards"))
-        days_cov = _kpi_end(r.get("daysCoverage"))
-        past_po = _kpi_end(r.get("pastDuePOValue"))
-        past_req = _kpi_end(r.get("pastDueRequirementValue"))
-        late_po = _kpi_end(r.get("latePOCount"))
-        late_pr = _kpi_end(r.get("latePRCount"))
-        daily_usage = _kpi_end(r.get("dailyInventoryUsage"))
-        toi = _kpi_end(r.get("toiForwards"))
-
-        if on_hand:
-            totals["on_hand"] += on_hand
-        if on_order:
-            totals["on_order"] += on_order
-        if excess_oh:
-            totals["excess_on_hand"] += excess_oh
-        if excess_oo:
-            totals["excess_on_order"] += excess_oo
-        if past_po:
-            totals["past_due_po"] += past_po
-        if past_req:
-            totals["past_due_req"] += past_req
-
-        entry: dict[str, Any] = {"factory": factory}
-        if on_hand is not None:
-            entry["on_hand_value"] = round(on_hand)
-        if on_order is not None:
-            entry["on_order_value"] = round(on_order)
-        if excess_oh is not None:
-            entry["excess_on_hand"] = round(excess_oh)
-        if doi is not None:
-            entry["doi_days"] = round(doi, 1)
-        if days_cov is not None:
-            entry["days_coverage"] = round(days_cov, 1)
-        if toi is not None:
-            entry["turns_of_inventory"] = round(toi, 2)
-        if late_po is not None:
-            entry["late_pos"] = int(late_po)
-        if late_pr is not None:
-            entry["late_prs"] = int(late_pr)
-        _add_site_entity_from_row(r, entry)
-
-        site_data.append(entry)
-
     qa.check("CS Report supply chain loaded")
 
     return {
         "customer": display_name,
         "source": "cs_report",
-        "factory_count": len(sites),
-        "totals": {k: round(v) for k, v in totals.items()},
-        "sites": sorted(site_data, key=lambda s: s.get("on_hand_value", 0), reverse=True),
+        "factory_count": len(entries),
+        "totals": _sum_entry_fields(entries, _SUPPLY_CHAIN_TOTAL_KEYS),
+        "sites": sorted(entries, key=lambda s: s.get("on_hand_value", 0), reverse=True),
     }
 
 
@@ -671,88 +990,23 @@ def get_customer_platform_value(
     lookup_keys: list[str] | None = None,
 ) -> dict[str, Any]:
     """ROI metrics: savings, open IA value, recs created, PO activity."""
-    sites, matched_key, tried, _matched_csr = _sites_for_customer_lookup(
-        customer_name, lookup_keys=lookup_keys, delta="week"
+    entries, matched_key, tried, _matched_csr = _csr_site_entries_for_customer(
+        customer_name,
+        lookup_keys=lookup_keys,
     )
-    if not sites:
-        return {
-            "error": (
-                f"No CS Report data for {customer_name!r} "
-                f"(lookup_keys={lookup_keys!r}, tried `customer`={tried!r}, delta=week)"
-            ),
-            "source": "cs_report",
-        }
+    if not entries:
+        return _csr_load_error(customer_name, lookup_keys, tried)
+
     display_name = matched_key or customer_name
-
-    site_data: list[dict[str, Any]] = []
-    total_savings = 0.0
-    total_open_value = 0.0
-    total_recs = 0
-    total_pos_placed = 0
-    total_overdue = 0
-    total_potential_savings = 0.0
-    total_potential_sell = 0.0
-
-    for r in sites:
-        factory = r.get("factoryName", "Unknown")
-        savings = _kpi_end(r.get("inventoryActionCurrentReportingPeriodSavings"))
-        open_val = _kpi_end(r.get("inventoryActionOpenValue"))
-        recs = _kpi_end(r.get("recsCreatedLast30DaysCt"))
-        pos = _kpi_end(r.get("posPlacedInLast30DaysCt"))
-        overdue = _kpi_end(r.get("workbenchOverdueTasksCt"))
-        pot_save = _kpi_end(r.get("potentialSavings"))
-        pot_sell = _kpi_end(r.get("potentialToSell"))
-        fy_spend = _kpi_end(r.get("currentFySpend"))
-        prev_spend = _kpi_end(r.get("previousFySpend"))
-
-        if savings:
-            total_savings += savings
-        if open_val:
-            total_open_value += open_val
-        if recs:
-            total_recs += int(recs)
-        if pos:
-            total_pos_placed += int(pos)
-        if overdue:
-            total_overdue += int(overdue)
-        if pot_save and pot_save > 0:
-            total_potential_savings += pot_save
-        if pot_sell and pot_sell > 0:
-            total_potential_sell += pot_sell
-
-        entry: dict[str, Any] = {"factory": factory}
-        if savings is not None:
-            entry["savings_current_period"] = round(savings)
-        if open_val is not None:
-            entry["open_ia_value"] = round(open_val)
-        if recs is not None:
-            entry["recs_created_30d"] = int(recs)
-        if pos is not None:
-            entry["pos_placed_30d"] = int(pos)
-        if overdue is not None:
-            entry["overdue_tasks"] = int(overdue)
-        if fy_spend is not None:
-            entry["current_fy_spend"] = round(fy_spend)
-        if prev_spend is not None:
-            entry["previous_fy_spend"] = round(prev_spend)
-        _add_site_entity_from_row(r, entry)
-
-        site_data.append(entry)
-
+    totals = _sum_entry_fields(entries, _PLATFORM_VALUE_TOTAL_KEYS)
     qa.check("CS Report platform value loaded")
 
     return {
         "customer": display_name,
         "source": "cs_report",
-        "factory_count": len(sites),
-        "total_savings": round(total_savings),
-        "total_open_ia_value": round(total_open_value),
-        "total_potential_savings": round(total_potential_savings),
-        "total_potential_to_sell": round(total_potential_sell),
-        "total_recs_created_30d": total_recs,
-        "total_pos_placed_30d": total_pos_placed,
-        "total_overdue_tasks": total_overdue,
-        "sites": sorted(site_data, key=lambda s: s.get("savings_current_period", 0), reverse=True),
+        "factory_count": len(entries),
+        **totals,
+        "sites": sorted(entries, key=lambda s: s.get("savings_current_period", 0), reverse=True),
     }
 
 
@@ -787,13 +1041,7 @@ def load_csr_all_customers_week() -> dict[str, Any]:
 
     pv_sites: list[dict[str, Any]] = []
     pv_factory_count = 0
-    total_savings = 0.0
-    total_open_ia_value = 0.0
-    total_potential_savings = 0.0
-    total_potential_to_sell = 0.0
-    total_recs = 0
-    total_pos = 0
-    total_overdue = 0
+    pv_totals: dict[str, float] = defaultdict(float)
 
     for cn in customers:
         ph = get_customer_platform_health(cn)
@@ -822,13 +1070,10 @@ def load_csr_all_customers_week() -> dict[str, Any]:
         pv = get_customer_platform_value(cn)
         if not pv.get("error"):
             pv_factory_count += int(pv.get("factory_count") or 0)
-            total_savings += float(pv.get("total_savings") or 0)
-            total_open_ia_value += float(pv.get("total_open_ia_value") or 0)
-            total_potential_savings += float(pv.get("total_potential_savings") or 0)
-            total_potential_to_sell += float(pv.get("total_potential_to_sell") or 0)
-            total_recs += int(pv.get("total_recs_created_30d") or 0)
-            total_pos += int(pv.get("total_pos_placed_30d") or 0)
-            total_overdue += int(pv.get("total_overdue_tasks") or 0)
+            for _entry_key, total_key in _PLATFORM_VALUE_TOTAL_KEYS:
+                val = pv.get(total_key)
+                if isinstance(val, (int, float)):
+                    pv_totals[total_key] += float(val)
             for s in pv.get("sites") or []:
                 row = dict(s)
                 row["csr_customer"] = cn
@@ -861,13 +1106,7 @@ def load_csr_all_customers_week() -> dict[str, Any]:
         "aggregate_scope": "all_customers_week",
         "distinct_csr_customers": len(customers),
         "factory_count": pv_factory_count,
-        "total_savings": round(total_savings),
-        "total_open_ia_value": round(total_open_ia_value),
-        "total_potential_savings": round(total_potential_savings),
-        "total_potential_to_sell": round(total_potential_to_sell),
-        "total_recs_created_30d": total_recs,
-        "total_pos_placed_30d": total_pos,
-        "total_overdue_tasks": total_overdue,
+        **{k: round(v) for k, v in pv_totals.items()},
         "sites": sorted(pv_sites, key=lambda s: s.get("savings_current_period", 0), reverse=True),
     }
     return {"platform_health": merged_ph, "supply_chain": merged_sc, "platform_value": merged_pv}
@@ -1014,11 +1253,16 @@ def csr_customer_summary_from_block(csr_block: dict[str, Any], *, factory_count:
         for k in (
             "total_savings",
             "total_open_ia_value",
+            "total_ia_current_period_open_value",
+            "total_ia_previous_period_savings",
             "total_potential_savings",
             "total_potential_to_sell",
             "total_recs_created_30d",
             "total_pos_placed_30d",
             "total_overdue_tasks",
+            "total_current_fy_spend",
+            "total_previous_fy_spend",
+            "total_current_week52_ldna_target",
         ):
             if k in pv:
                 summary[k] = pv[k]

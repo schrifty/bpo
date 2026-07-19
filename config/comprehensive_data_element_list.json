@@ -756,13 +756,6 @@
       ]
     },
     {
-      "path": "jira.support_kpis",
-      "terms": [
-        "jira.support_kpis",
-        "[Jira] HELP operational KPI bundle for support-kpis deck"
-      ]
-    },
-    {
       "path": "jira.jsm_organizations_resolved",
       "terms": [
         "jira.jsm_organizations_resolved",
@@ -2159,7 +2152,7 @@
       "path": "salesforce_comprehensive_portfolio.arr_by_ultimate_parent",
       "terms": [
         "salesforce_comprehensive_portfolio.arr_by_ultimate_parent",
-        "[LLM export §3c] full-book ultimate-parent rollup from portfolio contract rollups (not raw entity sums), sorted by current_arr desc"
+        "[LLM export §3c] full-book ultimate-parent rollup from portfolio contract rollups, sorted by current_arr desc"
       ]
     },
     {
@@ -2373,69 +2366,6 @@
       ]
     },
     {
-      "path": "slack.lookback_days",
-      "terms": [
-        "slack.lookback_days",
-        "[Slack] export lookback window (days)"
-      ]
-    },
-    {
-      "path": "slack.top_n",
-      "terms": [
-        "slack.top_n",
-        "[Slack] top customers by ARR included"
-      ]
-    },
-    {
-      "path": "slack.customers",
-      "terms": [
-        "slack.customers",
-        "[Slack] per-customer blocks keyed by Salesforce label"
-      ]
-    },
-    {
-      "path": "slack.customers[].llm_summary",
-      "terms": [
-        "slack.customers[].llm_summary",
-        "[Slack] Cortex LLM digest of channel history"
-      ]
-    },
-    {
-      "path": "slack.customers[].llm_summary.summary_markdown",
-      "terms": [
-        "slack.customers[].llm_summary.summary_markdown",
-        "[Slack] LLM summary bullets"
-      ]
-    },
-    {
-      "path": "slack.customers[].llm_summary.themes",
-      "terms": [
-        "slack.customers[].llm_summary.themes",
-        "[Slack] LLM topic labels"
-      ]
-    },
-    {
-      "path": "slack.customers[].llm_summary.open_items",
-      "terms": [
-        "slack.customers[].llm_summary.open_items",
-        "[Slack] unresolved asks from transcript"
-      ]
-    },
-    {
-      "path": "slack.customers[].llm_summary.sentiment",
-      "terms": [
-        "slack.customers[].llm_summary.sentiment",
-        "[Slack] LLM sentiment label"
-      ]
-    },
-    {
-      "path": "_llm_export_slack.performance",
-      "terms": [
-        "_llm_export_slack.performance",
-        "[Slack] export timing (wall, fetch, llm, per_customer)"
-      ]
-    },
-    {
       "path": "csr.platform_health",
       "terms": [
         "csr.platform_health",
@@ -2548,6 +2478,41 @@
       ]
     },
     {
+      "path": "csr.supply_chain.totals.excess_onhand_demanded",
+      "terms": [
+        "csr.supply_chain.totals.excess_onhand_demanded",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.totals.excess_onhand_obsolete",
+      "terms": [
+        "csr.supply_chain.totals.excess_onhand_obsolete",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.totals.excess_on_order_obsolete",
+      "terms": [
+        "csr.supply_chain.totals.excess_on_order_obsolete",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.totals.manufactured_inventory",
+      "terms": [
+        "csr.supply_chain.totals.manufactured_inventory",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.supply_chain.totals.early_deliveries",
+      "terms": [
+        "csr.supply_chain.totals.early_deliveries",
+        "[CSR]"
+      ]
+    },
+    {
       "path": "csr.supply_chain.totals.past_due_po",
       "terms": [
         "csr.supply_chain.totals.past_due_po",
@@ -2611,6 +2576,20 @@
       ]
     },
     {
+      "path": "csr.platform_value.total_ia_current_period_open_value",
+      "terms": [
+        "csr.platform_value.total_ia_current_period_open_value",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.platform_value.total_ia_previous_period_savings",
+      "terms": [
+        "csr.platform_value.total_ia_previous_period_savings",
+        "[CSR]"
+      ]
+    },
+    {
       "path": "csr.platform_value.total_potential_savings",
       "terms": [
         "csr.platform_value.total_potential_savings",
@@ -2646,6 +2625,27 @@
       ]
     },
     {
+      "path": "csr.platform_value.total_current_fy_spend",
+      "terms": [
+        "csr.platform_value.total_current_fy_spend",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.platform_value.total_previous_fy_spend",
+      "terms": [
+        "csr.platform_value.total_previous_fy_spend",
+        "[CSR]"
+      ]
+    },
+    {
+      "path": "csr.platform_value.total_current_week52_ldna_target",
+      "terms": [
+        "csr.platform_value.total_current_week52_ldna_target",
+        "[CSR]"
+      ]
+    },
+    {
       "path": "csr.platform_value.sites",
       "terms": [
         "csr.platform_value.sites",
@@ -2663,21 +2663,21 @@
       "path": "csr.platform_health.sites[]",
       "terms": [
         "csr.platform_health.sites[]",
-        "[CSR site row] keys may include: factory health_score clear_to_build_pct clear_to_commit_pct component_availability_pct component_availability_projected_pct shortages critical_shortages weekly_active_buyers_pct buyer_mapping_quality high_risk_items site entity"
+        "[CSR site row] keys may include: factory site entity region division business_unit customer_ndx factory_ndx health_score automated_health_composite automated_health_override clear_to_build_pct clear_to_commit_pct component_availability_pct component_availability_projected_pct shortages critical_shortages shortages_by_order_lines high_risk_items buyer_mapping_quality weekly_active_buyers_pct daily_active_buyers_pct daily_engaged_buyers_pct weekly_engaged_ia_buyers_pct weekly_engaged_suppliers_pct on_hand_value on_order_value excess_on_hand excess_on_order_value excess_onhand_demanded_value excess_onhand_obsolete_value excess_on_order_obsolete_value manufactured_inventory_value early_deliveries_value past_due_po_value past_due_req_value doi_days doi_backwards days_coverage on_order_days turns_of_inventory toi_backwards daily_inventory_usage late_pos late_prs open_po_ct non_compliant_pos_ct apex_po_action_po_ct erp_exception_msg_po_ct supplier_ct supplier_commit_date_pct commit_date_coverage_pct savings_current_period open_ia_value ia_current_period_open_value ia_previous_period_savings ia_fix_rate_trailing_90d ia_unable_to_fix_rate_trailing_90d ia_current_reporting_period ia_previous_reporting_period potential_savings potential_to_sell recs_created_30d pos_placed_30d overdue_tasks current_fy_spend previous_fy_spend current_week52_ldna_target start_date end_date date_created date_modified automated_health_scores"
       ]
     },
     {
       "path": "csr.supply_chain.sites[]",
       "terms": [
         "csr.supply_chain.sites[]",
-        "[CSR site row] keys may include: factory on_hand_value on_order_value excess_on_hand doi_days days_coverage turns_of_inventory late_pos late_prs site entity"
+        "[CSR site row] keys may include: factory site entity region division business_unit customer_ndx factory_ndx health_score automated_health_composite automated_health_override clear_to_build_pct clear_to_commit_pct component_availability_pct component_availability_projected_pct shortages critical_shortages shortages_by_order_lines high_risk_items buyer_mapping_quality weekly_active_buyers_pct daily_active_buyers_pct daily_engaged_buyers_pct weekly_engaged_ia_buyers_pct weekly_engaged_suppliers_pct on_hand_value on_order_value excess_on_hand excess_on_order_value excess_onhand_demanded_value excess_onhand_obsolete_value excess_on_order_obsolete_value manufactured_inventory_value early_deliveries_value past_due_po_value past_due_req_value doi_days doi_backwards days_coverage on_order_days turns_of_inventory toi_backwards daily_inventory_usage late_pos late_prs open_po_ct non_compliant_pos_ct apex_po_action_po_ct erp_exception_msg_po_ct supplier_ct supplier_commit_date_pct commit_date_coverage_pct savings_current_period open_ia_value ia_current_period_open_value ia_previous_period_savings ia_fix_rate_trailing_90d ia_unable_to_fix_rate_trailing_90d ia_current_reporting_period ia_previous_reporting_period potential_savings potential_to_sell recs_created_30d pos_placed_30d overdue_tasks current_fy_spend previous_fy_spend current_week52_ldna_target start_date end_date date_created date_modified automated_health_scores"
       ]
     },
     {
       "path": "csr.platform_value.sites[]",
       "terms": [
         "csr.platform_value.sites[]",
-        "[CSR site row] keys may include: factory savings_current_period open_ia_value recs_created_30d pos_placed_30d overdue_tasks current_fy_spend previous_fy_spend site entity"
+        "[CSR site row] keys may include: factory site entity region division business_unit customer_ndx factory_ndx health_score automated_health_composite automated_health_override clear_to_build_pct clear_to_commit_pct component_availability_pct component_availability_projected_pct shortages critical_shortages shortages_by_order_lines high_risk_items buyer_mapping_quality weekly_active_buyers_pct daily_active_buyers_pct daily_engaged_buyers_pct weekly_engaged_ia_buyers_pct weekly_engaged_suppliers_pct on_hand_value on_order_value excess_on_hand excess_on_order_value excess_onhand_demanded_value excess_onhand_obsolete_value excess_on_order_obsolete_value manufactured_inventory_value early_deliveries_value past_due_po_value past_due_req_value doi_days doi_backwards days_coverage on_order_days turns_of_inventory toi_backwards daily_inventory_usage late_pos late_prs open_po_ct non_compliant_pos_ct apex_po_action_po_ct erp_exception_msg_po_ct supplier_ct supplier_commit_date_pct commit_date_coverage_pct savings_current_period open_ia_value ia_current_period_open_value ia_previous_period_savings ia_fix_rate_trailing_90d ia_unable_to_fix_rate_trailing_90d ia_current_reporting_period ia_previous_reporting_period potential_savings potential_to_sell recs_created_30d pos_placed_30d overdue_tasks current_fy_spend previous_fy_spend current_week52_ldna_target start_date end_date date_created date_modified automated_health_scores"
       ]
     },
     {
@@ -2821,6 +2821,20 @@
       ]
     },
     {
+      "path": "platform_value.total_ia_current_period_open_value",
+      "terms": [
+        "platform_value.total_ia_current_period_open_value",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "platform_value.total_ia_previous_period_savings",
+      "terms": [
+        "platform_value.total_ia_previous_period_savings",
+        "[CSR→summary]"
+      ]
+    },
+    {
       "path": "platform_value.total_potential_savings",
       "terms": [
         "platform_value.total_potential_savings",
@@ -2863,6 +2877,27 @@
       ]
     },
     {
+      "path": "platform_value.total_current_fy_spend",
+      "terms": [
+        "platform_value.total_current_fy_spend",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "platform_value.total_previous_fy_spend",
+      "terms": [
+        "platform_value.total_previous_fy_spend",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "platform_value.total_current_week52_ldna_target",
+      "terms": [
+        "platform_value.total_current_week52_ldna_target",
+        "[CSR→summary]"
+      ]
+    },
+    {
       "path": "platform_value.factory_count",
       "terms": [
         "platform_value.factory_count",
@@ -2901,6 +2936,41 @@
       "path": "supply_chain.totals.excess_on_order",
       "terms": [
         "supply_chain.totals.excess_on_order",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.excess_onhand_demanded",
+      "terms": [
+        "supply_chain.totals.excess_onhand_demanded",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.excess_onhand_obsolete",
+      "terms": [
+        "supply_chain.totals.excess_onhand_obsolete",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.excess_on_order_obsolete",
+      "terms": [
+        "supply_chain.totals.excess_on_order_obsolete",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.manufactured_inventory",
+      "terms": [
+        "supply_chain.totals.manufactured_inventory",
+        "[CSR→summary]"
+      ]
+    },
+    {
+      "path": "supply_chain.totals.early_deliveries",
+      "terms": [
+        "supply_chain.totals.early_deliveries",
         "[CSR→summary]"
       ]
     },
@@ -3045,111 +3115,6 @@
       ]
     },
     {
-      "path": "github_productivity",
-      "terms": [
-        "github_productivity",
-        "[report] GitHub engineering output rollup (commits, PRs, lines) for productivity joins"
-      ]
-    },
-    {
-      "path": "github_productivity.by_email",
-      "terms": [
-        "github_productivity.by_email",
-        "[report] per-canonical-email GitHub output in the lookback window"
-      ]
-    },
-    {
-      "path": "github_productivity.company_engineers",
-      "terms": [
-        "github_productivity.company_engineers",
-        "[report] engineer-scoped GitHub totals for the lookback window"
-      ]
-    },
-    {
-      "path": "github_productivity.weekly",
-      "terms": [
-        "github_productivity.weekly",
-        "[report] ISO-week commit buckets (all vs engineer-scoped)"
-      ]
-    },
-    {
-      "path": "github_productivity.takeaways",
-      "terms": [
-        "github_productivity.takeaways",
-        "[report] slide takeaway strings for GitHub output slides"
-      ]
-    },
-    {
-      "path": "engineer_identity",
-      "terms": [
-        "engineer_identity",
-        "[report] canonical engineer email map for GitHub ↔ Cursor joins"
-      ]
-    },
-    {
-      "path": "ai_productivity",
-      "terms": [
-        "ai_productivity",
-        "[report] Cursor token spend correlated with GitHub output (company + individual)"
-      ]
-    },
-    {
-      "path": "ai_productivity.company",
-      "terms": [
-        "ai_productivity.company",
-        "[report] company-level tokens/commits/spend KPIs for engineers"
-      ]
-    },
-    {
-      "path": "ai_productivity.by_email",
-      "terms": [
-        "ai_productivity.by_email",
-        "[report] per-engineer Cursor × GitHub productivity metrics"
-      ]
-    },
-    {
-      "path": "ai_productivity.weekly_trend",
-      "terms": [
-        "ai_productivity.weekly_trend",
-        "[report] merged ISO-week Cursor tokens vs GitHub commits"
-      ]
-    },
-    {
-      "path": "ai_productivity.quadrant_counts",
-      "terms": [
-        "ai_productivity.quadrant_counts",
-        "[report] engineer counts per tokens×output quadrant"
-      ]
-    },
-    {
-      "path": "ai_productivity.top_yield",
-      "terms": [
-        "ai_productivity.top_yield",
-        "[report] highest commits-per-1K-tokens engineers"
-      ]
-    },
-    {
-      "path": "ai_productivity.review",
-      "terms": [
-        "ai_productivity.review",
-        "[report] high-token/low-output engineers for coaching review"
-      ]
-    },
-    {
-      "path": "ai_productivity.takeaways",
-      "terms": [
-        "ai_productivity.takeaways",
-        "[report] slide takeaway strings for AI productivity slides"
-      ]
-    },
-    {
-      "path": "cursor_usage.engineer_usage_by_email",
-      "terms": [
-        "cursor_usage.engineer_usage_by_email",
-        "[report] per-engineer Cursor tokens/spend for dev-* scope"
-      ]
-    },
-    {
       "path": "teams_yaml.customer_team",
       "terms": [
         "teams_yaml.customer_team",
@@ -3189,132 +3154,6 @@
       "terms": [
         "_slide_plan",
         "[internal] resolved template slide plan"
-      ]
-    },
-    {
-      "path": "cursor_usage",
-      "terms": [
-        "cursor_usage",
-        "[report] Cursor Admin API usage / spend rollup for engineering deck slides"
-      ]
-    },
-    {
-      "path": "cursor_usage.configured",
-      "terms": [
-        "cursor_usage.configured",
-        "[report] Cursor integration loaded for this run"
-      ]
-    },
-    {
-      "path": "cursor_usage.generated_at",
-      "terms": [
-        "cursor_usage.generated_at",
-        "[report] ISO timestamp of Cursor API pull"
-      ]
-    },
-    {
-      "path": "cursor_usage.window_days",
-      "terms": [
-        "cursor_usage.window_days",
-        "[report] Cursor usage window days"
-      ]
-    },
-    {
-      "path": "cursor_usage.warnings",
-      "terms": [
-        "cursor_usage.warnings",
-        "[report] Cursor attribution / scope warnings"
-      ]
-    },
-    {
-      "path": "cursor_usage.errors",
-      "terms": [
-        "cursor_usage.errors",
-        "[report] Cursor API section errors"
-      ]
-    },
-    {
-      "path": "cursor_usage.totals.included_spend_cents_cycle",
-      "terms": [
-        "cursor_usage.totals.included_spend_cents_cycle",
-        "[report] org-wide seat-included usage cents this billing cycle (sum of includedSpendCents from /teams/spend)"
-      ]
-    },
-    {
-      "path": "cursor_usage.cost_engineers.totals.included_spend_cents_cycle",
-      "terms": [
-        "cursor_usage.cost_engineers.totals.included_spend_cents_cycle",
-        "[report] dev-* engineer subset of includedSpendCents this billing cycle"
-      ]
-    },
-    {
-      "path": "_governance",
-      "terms": [
-        "_governance",
-        "[report] deck-scoped data governance blob for Data Governance slide"
-      ]
-    },
-    {
-      "path": "_governance.deck_id",
-      "terms": [
-        "_governance.deck_id",
-        "[report] deck id for governance receipt"
-      ]
-    },
-    {
-      "path": "_governance.assembled_at",
-      "terms": [
-        "_governance.assembled_at",
-        "[report] ISO timestamp when governance blob was assembled"
-      ]
-    },
-    {
-      "path": "_governance.source_status",
-      "terms": [
-        "_governance.source_status",
-        "[report] per-integration pill status for this deck"
-      ]
-    },
-    {
-      "path": "_governance.scope",
-      "terms": [
-        "_governance.scope",
-        "[report] scope and filter bullets for governance slide"
-      ]
-    },
-    {
-      "path": "_governance.freshness",
-      "terms": [
-        "_governance.freshness",
-        "[report] data freshness bullets for governance slide"
-      ]
-    },
-    {
-      "path": "_governance.lineage",
-      "terms": [
-        "_governance.lineage",
-        "[report] deck-scoped lineage trace rows"
-      ]
-    },
-    {
-      "path": "_governance.discrepancies",
-      "terms": [
-        "_governance.discrepancies",
-        "[report] merged qa and integration warnings for governance slide"
-      ]
-    },
-    {
-      "path": "_governance.cross_checks",
-      "terms": [
-        "_governance.cross_checks",
-        "[report] cross-source validation summary counts"
-      ]
-    },
-    {
-      "path": "_governance.authority_footnote",
-      "terms": [
-        "_governance.authority_footnote",
-        "[report] system-of-record authority note for governance slide"
       ]
     },
     {

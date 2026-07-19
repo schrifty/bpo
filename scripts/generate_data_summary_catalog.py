@@ -436,6 +436,11 @@ def build_entries() -> list[dict[str, Any]]:
             _e("csr.supply_chain.totals.on_order", "[CSR]"),
             _e("csr.supply_chain.totals.excess_on_hand", "[CSR]"),
             _e("csr.supply_chain.totals.excess_on_order", "[CSR]"),
+            _e("csr.supply_chain.totals.excess_onhand_demanded", "[CSR]"),
+            _e("csr.supply_chain.totals.excess_onhand_obsolete", "[CSR]"),
+            _e("csr.supply_chain.totals.excess_on_order_obsolete", "[CSR]"),
+            _e("csr.supply_chain.totals.manufactured_inventory", "[CSR]"),
+            _e("csr.supply_chain.totals.early_deliveries", "[CSR]"),
             _e("csr.supply_chain.totals.past_due_po", "[CSR]"),
             _e("csr.supply_chain.totals.past_due_req", "[CSR]"),
             _e("csr.supply_chain.sites", "[CSR] per-factory supply rows"),
@@ -445,46 +450,43 @@ def build_entries() -> list[dict[str, Any]]:
             _e("csr.platform_value.factory_count", "[CSR]"),
             _e("csr.platform_value.total_savings", "[CSR]"),
             _e("csr.platform_value.total_open_ia_value", "[CSR]"),
+            _e("csr.platform_value.total_ia_current_period_open_value", "[CSR]"),
+            _e("csr.platform_value.total_ia_previous_period_savings", "[CSR]"),
             _e("csr.platform_value.total_potential_savings", "[CSR]"),
             _e("csr.platform_value.total_potential_to_sell", "[CSR]"),
             _e("csr.platform_value.total_recs_created_30d", "[CSR]"),
             _e("csr.platform_value.total_pos_placed_30d", "[CSR]"),
             _e("csr.platform_value.total_overdue_tasks", "[CSR]"),
+            _e("csr.platform_value.total_current_fy_spend", "[CSR]"),
+            _e("csr.platform_value.total_previous_fy_spend", "[CSR]"),
+            _e("csr.platform_value.total_current_week52_ldna_target", "[CSR]"),
             _e("csr.platform_value.sites", "[CSR] per-factory ROI rows"),
             _e("csr.platform_value.error", "[CSR]"),
         ]
     )
 
     # CSR site-row leaves (representative; same keys on each list item when present)
-    ph_site = (
-        "factory health_score clear_to_build_pct clear_to_commit_pct "
-        "component_availability_pct component_availability_projected_pct shortages "
-        "critical_shortages weekly_active_buyers_pct buyer_mapping_quality high_risk_items site entity"
-    )
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from src.cs_report_client import CSR_MERGED_SITE_EXPORT_COLUMNS
+
+    ph_site = " ".join(CSR_MERGED_SITE_EXPORT_COLUMNS)
     rows.append(
         _e(
             "csr.platform_health.sites[]",
             f"[CSR site row] keys may include: {ph_site}",
         )
     )
-    sc_site = (
-        "factory on_hand_value on_order_value excess_on_hand doi_days days_coverage "
-        "turns_of_inventory late_pos late_prs site entity"
-    )
     rows.append(
         _e(
             "csr.supply_chain.sites[]",
-            f"[CSR site row] keys may include: {sc_site}",
+            f"[CSR site row] keys may include: {ph_site}",
         )
-    )
-    pv_site = (
-        "factory savings_current_period open_ia_value recs_created_30d pos_placed_30d "
-        "overdue_tasks current_fy_spend previous_fy_spend site entity"
     )
     rows.append(
         _e(
             "csr.platform_value.sites[]",
-            f"[CSR site row] keys may include: {pv_site}",
+            f"[CSR site row] keys may include: {ph_site}",
         )
     )
 
@@ -517,12 +519,17 @@ def build_entries() -> list[dict[str, Any]]:
     rows.extend(
         [
             _e("platform_value.total_open_ia_value", "[CSR→summary]"),
+            _e("platform_value.total_ia_current_period_open_value", "[CSR→summary]"),
+            _e("platform_value.total_ia_previous_period_savings", "[CSR→summary]"),
             _e("platform_value.total_potential_savings", "[CSR→summary]"),
             _e("platform_value.total_potential_to_sell", "[CSR→summary]"),
             _e("platform_value.total_recs_created_30d", "[CSR→summary]"),
             _e("platform_value.total_pos_placed_30d", "[CSR→summary]"),
             _e("platform_value.total_overdue_tasks", "[CSR→summary]"),
             _e("platform_value.total_savings", "[CSR→summary]"),
+            _e("platform_value.total_current_fy_spend", "[CSR→summary]"),
+            _e("platform_value.total_previous_fy_spend", "[CSR→summary]"),
+            _e("platform_value.total_current_week52_ldna_target", "[CSR→summary]"),
             _e("platform_value.factory_count", "[CSR→summary]"),
         ]
     )
@@ -533,6 +540,11 @@ def build_entries() -> list[dict[str, Any]]:
             _e("supply_chain.totals.on_order", "[CSR→summary]"),
             _e("supply_chain.totals.excess_on_hand", "[CSR→summary]"),
             _e("supply_chain.totals.excess_on_order", "[CSR→summary]"),
+            _e("supply_chain.totals.excess_onhand_demanded", "[CSR→summary]"),
+            _e("supply_chain.totals.excess_onhand_obsolete", "[CSR→summary]"),
+            _e("supply_chain.totals.excess_on_order_obsolete", "[CSR→summary]"),
+            _e("supply_chain.totals.manufactured_inventory", "[CSR→summary]"),
+            _e("supply_chain.totals.early_deliveries", "[CSR→summary]"),
             _e("supply_chain.totals.past_due_po", "[CSR→summary]"),
             _e("supply_chain.totals.past_due_req", "[CSR→summary]"),
         ]
