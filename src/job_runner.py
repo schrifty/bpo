@@ -330,53 +330,76 @@ def run_step_subprocess(
     t0 = time.monotonic()
     logger.info("job step start: %s (%s)", name, " ".join(argv))
     try:
-        proc = subprocess.run(
+        # Stream child stdout/stderr to CloudWatch (via cortex logger) while also
+        # capturing for failure extraction. ``capture_output=True`` alone swallows
+        # successful-run detail (e.g. Slack join/match logs).
+        proc = subprocess.Popen(
             [sys.executable, str(_CORTEX_PY), *argv],
             cwd=str(_PROJECT_ROOT),
             env=env,
-            timeout=timeout_seconds if timeout_seconds > 0 else None,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
+            bufsize=1,
         )
+        collected: list[str] = []
+        assert proc.stdout is not None
+        try:
+            for line in proc.stdout:
+                collected.append(line)
+                stripped = line.rstrip("\n")
+                if stripped:
+                    # Child already emits JSON/text logs; forward as-is at INFO.
+                    logger.info("%s", stripped)
+            proc.wait(timeout=timeout_seconds if timeout_seconds > 0 else None)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            elapsed = time.monotonic() - t0
+            logger.error("job step timeout: %s after %ds", name, timeout_seconds)
+            return StepResult(
+                name=name,
+                command=command,
+                success=False,
+                exit_code=124,
+                duration_s=elapsed,
+                error=f"timeout after {timeout_seconds}s",
+            )
         elapsed = time.monotonic() - t0
-        ok = proc.returncode == 0
-        stdout = proc.stdout or ""
-        stderr = proc.stderr or ""
-        detail_messages = [] if ok else _extract_step_failure_messages(stdout, stderr)
+        combined = "".join(collected)
+        ok = (proc.returncode or 0) == 0
+        detail_messages = [] if ok else _extract_step_failure_messages(combined, "")
         err = None
         if not ok:
             err = _summarize_step_error(
-                exit_code=int(proc.returncode),
+                exit_code=int(proc.returncode or 1),
                 detail_messages=detail_messages,
-                stderr_tail=_tail_text(stderr),
-                stdout_tail=_tail_text(stdout),
+                stderr_tail=_tail_text(combined),
+                stdout_tail=_tail_text(combined),
             )
-            if stderr.strip():
-                logger.error("job step stderr (%s):\n%s", name, _tail_text(stderr, max_chars=2000))
-            elif stdout.strip():
-                logger.error("job step stdout (%s):\n%s", name, _tail_text(stdout, max_chars=2000))
+            logger.error("job step output (%s):\n%s", name, _tail_text(combined, max_chars=2000))
         logger.info("job step end: %s success=%s duration_s=%.1f", name, ok, elapsed)
         return StepResult(
             name=name,
             command=command,
             success=ok,
-            exit_code=int(proc.returncode),
+            exit_code=int(proc.returncode or 0),
             duration_s=elapsed,
             error=err,
             detail_messages=detail_messages,
-            stdout_tail=None if ok else _tail_text(stdout),
-            stderr_tail=None if ok else _tail_text(stderr),
+            stdout_tail=None if ok else _tail_text(combined),
+            stderr_tail=None if ok else _tail_text(combined),
         )
-    except subprocess.TimeoutExpired:
+    except Exception as exc:
         elapsed = time.monotonic() - t0
-        logger.error("job step timeout: %s after %ds", name, timeout_seconds)
+        logger.error("job step failed to start/run: %s: %s", name, exc)
         return StepResult(
             name=name,
             command=command,
             success=False,
-            exit_code=124,
+            exit_code=1,
             duration_s=elapsed,
-            error=f"timeout after {timeout_seconds}s",
+            error=str(exc)[:400],
         )
 
 

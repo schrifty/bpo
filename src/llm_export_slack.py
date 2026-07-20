@@ -78,6 +78,7 @@ def attach_slack_top_customers_for_llm_export(report: dict[str, Any]) -> dict[st
             "customers": {},
         }
         report["_llm_export_slack"] = summary
+        logger.info("LLM export Slack: skipped (CORTEX_LLM_EXPORT_SLACK disabled)")
         return summary
     if not slack_configured():
         report["slack"] = {
@@ -86,10 +87,24 @@ def attach_slack_top_customers_for_llm_export(report: dict[str, Any]) -> dict[st
             "customers": {},
         }
         report["_llm_export_slack"] = summary
+        logger.info("LLM export Slack: skipped (SLACK_BOT_TOKEN not configured)")
         return summary
 
     selection = top_active_ultimate_parents_by_arr_for_llm_export(report, top_n=top_n)
     summary["customers_selected"] = len(selection)
+    logger.info(
+        "LLM export Slack: start top_n=%d lookback_days=%d max_messages_per_channel=%d "
+        "llm_summary=%s selection=%d customers=%s",
+        top_n,
+        lookback_days,
+        CORTEX_LLM_EXPORT_SLACK_MAX_MESSAGES_PER_CHANNEL,
+        summary["llm_summary_enabled"],
+        len(selection),
+        [
+            str(r.get("ultimate_parent") or r.get("salesforce_label") or "")
+            for r in selection
+        ],
+    )
     if not selection:
         report["slack"] = {
             "scope": LLM_EXPORT_TOP_ARR_SCOPE,
@@ -100,6 +115,7 @@ def attach_slack_top_customers_for_llm_export(report: dict[str, Any]) -> dict[st
             "customers": {},
         }
         report["_llm_export_slack"] = summary
+        logger.warning("LLM export Slack: no ARR selection — nothing to fetch")
         return summary
 
     run_started = time.monotonic()
@@ -107,7 +123,7 @@ def attach_slack_top_customers_for_llm_export(report: dict[str, Any]) -> dict[st
     by_customer: dict[str, Any] = {}
     per_customer_perf: list[dict[str, Any]] = []
 
-    for row in selection:
+    for idx, row in enumerate(selection, start=1):
         customer_key = str(
             row.get("ultimate_parent") or row.get("salesforce_label") or ""
         ).strip()
@@ -115,6 +131,14 @@ def attach_slack_top_customers_for_llm_export(report: dict[str, Any]) -> dict[st
         if not lookup:
             continue
 
+        logger.info(
+            "LLM export Slack: customer %d/%d %r lookup=%r arr=%s",
+            idx,
+            len(selection),
+            customer_key,
+            lookup,
+            row.get("current_arr") or row.get("arr"),
+        )
         cust_started = time.monotonic()
         payload = get_customer_slack_conversations(
             lookup,
@@ -138,6 +162,22 @@ def attach_slack_top_customers_for_llm_export(report: dict[str, Any]) -> dict[st
                 llm_seconds = float(llm_summary.get("llm_seconds") or round(time.monotonic() - llm_started, 3))
                 if llm_summary.get("status") == "ok":
                     summary["customers_llm_summarized"] += 1
+                    logger.info(
+                        "LLM export Slack: LLM summary ok for %r status=%s messages=%s "
+                        "channels=%s llm_seconds=%.2f",
+                        customer_key,
+                        llm_summary.get("status"),
+                        llm_summary.get("message_count_analyzed"),
+                        llm_summary.get("channels_included"),
+                        llm_seconds,
+                    )
+                else:
+                    logger.info(
+                        "LLM export Slack: LLM summary for %r status=%s detail=%s",
+                        customer_key,
+                        llm_summary.get("status"),
+                        llm_summary.get("skipped") or llm_summary.get("error") or "-",
+                    )
             except SlackSummaryLlmError as exc:
                 llm_error = str(exc)[:400]
                 llm_seconds = round(time.monotonic() - llm_started, 3)
@@ -148,6 +188,19 @@ def attach_slack_top_customers_for_llm_export(report: dict[str, Any]) -> dict[st
                     "error": llm_error,
                     "lookback_days": lookback_days,
                 }
+                logger.warning(
+                    "LLM export Slack: LLM summary failed for %r: %s (%.2fs)",
+                    customer_key,
+                    llm_error,
+                    llm_seconds,
+                )
+        elif not payload.get("conversation_summaries"):
+            logger.info(
+                "LLM export Slack: no conversation_summaries for %r (error=%s note=%s)",
+                customer_key,
+                payload.get("error") or "-",
+                (payload.get("note") or "-")[:160],
+            )
 
         message_count = 0
         channel_count = 0
@@ -182,6 +235,14 @@ def attach_slack_top_customers_for_llm_export(report: dict[str, Any]) -> dict[st
                 "llm_error": llm_error,
             }
         )
+        logger.info(
+            "LLM export Slack: customer %r done fetch=%.2fs llm=%.2fs channels=%d messages=%d",
+            customer_key,
+            fetch_seconds,
+            llm_seconds,
+            channel_count,
+            message_count,
+        )
 
     fetch_wall = round(time.monotonic() - fetch_started, 3)
     llm_wall = round(sum(float(p.get("llm_seconds") or 0) for p in per_customer_perf), 3)
@@ -209,7 +270,7 @@ def attach_slack_top_customers_for_llm_export(report: dict[str, Any]) -> dict[st
     }
     report["_llm_export_slack"] = summary
     logger.info(
-        "LLM export: Slack top %d by ARR — %d with channel data, %d fetch errors, "
+        "LLM export Slack: finished top %d by ARR — %d with channel data, %d fetch errors, "
         "%d LLM summaries, %d LLM errors, wall=%.1fs (fetch=%.1fs, llm=%.1fs)",
         len(selection),
         summary["customers_with_slack_data"],

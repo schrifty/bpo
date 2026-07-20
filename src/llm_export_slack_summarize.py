@@ -119,6 +119,21 @@ def summarize_customer_slack_for_llm_export(
         base["input_truncated"] = True
         base["messages_in_transcript"] = len(transcript.split("\n")) if transcript else 0
         base["messages_omitted"] = max(0, msg_count - int(base.get("messages_in_transcript") or 0))
+        logger.info(
+            "Slack LLM summary for %r: truncating input messages=%d kept=%d omitted=%d",
+            label,
+            msg_count,
+            base["messages_in_transcript"],
+            base["messages_omitted"],
+        )
+    else:
+        logger.info(
+            "Slack LLM summary for %r: starting messages=%d channels=%s chars=%d",
+            label,
+            msg_count,
+            base.get("channels_included"),
+            len(transcript),
+        )
 
     system = (
         "You are a careful customer success analyst summarizing Slack channel history for leadership.\n"

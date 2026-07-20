@@ -268,7 +268,18 @@ def match_channels_for_customer(customer_name: str) -> list[dict[str, Any]]:
                 matched_ids.add(ch_id)
             matched.append(dict(ch))
     matched.sort(key=lambda c: (0 if name.lower() in str(c.get("name") or "").lower() else 1, str(c.get("name") or "").lower()))
-    return matched[: max(1, int(CORTEX_SLACK_MAX_CHANNELS_PER_CUSTOMER))]
+    capped = matched[: max(1, int(CORTEX_SLACK_MAX_CHANNELS_PER_CUSTOMER))]
+    logger.info(
+        "Slack channel match for %r: workspace_channels=%d alias_terms=%d "
+        "matched=%d capped_to=%d names=%s",
+        name,
+        len(channels),
+        len(alias_terms),
+        len(matched),
+        len(capped),
+        [str(c.get("name") or "") for c in capped],
+    )
+    return capped
 
 
 def _format_ts(ts: str | float | None) -> str:
@@ -300,27 +311,33 @@ def _message_line(msg: dict[str, Any]) -> str | None:
 
 def _try_join_public_channel(channel: dict[str, Any]) -> bool:
     """Join a public channel when auto-join is enabled and the bot is not already a member."""
+    ch_name = channel.get("name") or channel.get("id") or "?"
     if channel.get("is_member"):
+        logger.info("Slack join skipped for #%s: already a member", ch_name)
         return True
     if channel.get("is_private"):
+        logger.info("Slack join skipped for #%s: private channel (invite required)", ch_name)
         return False
     if not CORTEX_SLACK_AUTO_JOIN_PUBLIC_CHANNELS:
+        logger.info("Slack join skipped for #%s: CORTEX_SLACK_AUTO_JOIN_PUBLIC_CHANNELS off", ch_name)
         return False
     ch_id = str(channel.get("id") or "").strip()
     if not ch_id:
         return False
     try:
+        logger.info("Slack conversations.join attempting #%s (%s)", ch_name, ch_id)
         data = _slack_api("conversations.join", params={"channel": ch_id})
         if data.get("ok"):
             channel["is_member"] = True
+            logger.info("Slack conversations.join succeeded for #%s", ch_name)
             return True
         logger.warning(
             "Slack conversations.join failed for #%s: %s",
-            channel.get("name") or ch_id,
+            ch_name,
             data.get("error"),
         )
     except Exception as e:
-        logger.warning("Slack conversations.join error for #%s: %s", channel.get("name") or ch_id, e)
+        logger.warning("Slack conversations.join error for #%s: %s", ch_name, e)
     return False
 
 
@@ -346,13 +363,23 @@ def _fetch_channel_history(
         data = _slack_api("conversations.history", params=params)
         if not data.get("ok"):
             err = str(data.get("error") or "unknown")
+            ch_label = (channel or {}).get("name") or channel_id
             if err == "not_in_channel" and channel and not joined_retry:
+                logger.info(
+                    "Slack history not_in_channel for #%s — attempting auto-join then retry",
+                    ch_label,
+                )
                 joined_retry = True
                 if _try_join_public_channel(channel):
                     cursor = None
                     continue
+                logger.warning(
+                    "Slack history empty for #%s: still not_in_channel after join attempt",
+                    ch_label,
+                )
                 return []
             if err == "not_in_channel":
+                logger.warning("Slack history empty for #%s: not_in_channel", ch_label)
                 return []
             raise RuntimeError(f"Slack conversations.history: {err}")
         batch = data.get("messages") if isinstance(data.get("messages"), list) else []
@@ -443,14 +470,45 @@ def get_customer_slack_conversations(
         max_msg = max(5, min(int(max_messages_per_channel), _SLACK_HISTORY_HARD_CAP))
     else:
         max_msg = max(5, min(int(CORTEX_SLACK_MAX_MESSAGES_PER_CHANNEL), _SLACK_HISTORY_HARD_CAP))
+    logger.info(
+        "Slack fetch start for %r: channels=%d lookback_days=%d max_messages_per_channel=%d "
+        "auto_join=%s",
+        name,
+        len(channels),
+        lookback,
+        max_msg,
+        CORTEX_SLACK_AUTO_JOIN_PUBLIC_CHANNELS,
+    )
     for ch in channels:
-        summaries.append(_summarize_channel(ch, days=lookback, max_messages=max_msg))
+        ch_started = time.monotonic()
+        summary = _summarize_channel(ch, days=lookback, max_messages=max_msg)
+        summaries.append(summary)
+        logger.info(
+            "Slack channel fetch for %r #%s: private=%s member=%s messages=%d error=%s "
+            "elapsed=%.2fs",
+            name,
+            summary.get("channel_name"),
+            bool(ch.get("is_private")),
+            bool(ch.get("is_member")),
+            int(summary.get("message_count") or 0),
+            summary.get("error") or "-",
+            time.monotonic() - ch_started,
+        )
 
     combined_parts = [
         f"### #{s.get('channel_name')}\n{s.get('summary_text')}"
         for s in summaries
         if isinstance(s, dict) and not s.get("error")
     ]
+    total_msgs = sum(int(s.get("message_count") or 0) for s in summaries if isinstance(s, dict))
+    errors = sum(1 for s in summaries if isinstance(s, dict) and s.get("error"))
+    logger.info(
+        "Slack fetch done for %r: channels=%d messages=%d channel_errors=%d",
+        name,
+        len(summaries),
+        total_msgs,
+        errors,
+    )
     return {
         **empty,
         "conversation_summaries": summaries,
