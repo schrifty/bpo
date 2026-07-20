@@ -7,7 +7,7 @@
 #
 # Top-10 ARR pilot coverage from public inventory:
 #   Johnson Controls (lookup JCI) — johnson-controls
-#   Spirit — spirit, spirit-data-load, spirit-implementation
+#   Spirit — spirit, spirit-data-load (spirit-implementation is archived; excluded)
 #   Bombardier — bombardier-migration, bombardier_abm
 # No public *ford*, *safran*, *carrier*, *modine*, *daikin*, *ge*, or *mercury* channels in inventory;
 # those customers likely use private channels or names the bot cannot see until invited.
@@ -21,8 +21,8 @@ Johnson Controls:
 
 Spirit:
   - spirit
+  # Token match: any channel whose name contains the token "spirit" (archived still excluded).
   - spirit-data-load
-  - spirit-implementation
 
 Bombardier:
   - bombardier-migration

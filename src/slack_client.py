@@ -149,12 +149,16 @@ def _tokens(text: str) -> list[str]:
 
 
 def _alias_fragment_matches_channel(channel_name: str, fragment: str) -> bool:
-    """True when an explicit YAML alias fragment matches a channel name."""
+    """True when an explicit YAML alias fragment matches a channel name.
+
+    Matching is token-based (alphanumeric runs): ``spirit`` matches ``spirit``,
+    ``spirit-data-load``, and ``foo-spirit-bar``, but not ``aspirin-team``.
+    """
     ch = (channel_name or "").lower()
     frag = (fragment or "").strip().lower()
     if not ch or not frag:
         return False
-    if frag in ch:
+    if ch == frag:
         return True
     frag_tokens = _tokens(fragment)
     if not frag_tokens:
@@ -211,6 +215,8 @@ def _list_channels(*, force_refresh: bool = False) -> list[dict[str, Any]]:
             ch_id = str(ch.get("id") or "").strip()
             if not ch_id or ch_id in seen_ids:
                 continue
+            if ch.get("is_archived"):
+                continue
             seen_ids.add(ch_id)
             new_count += 1
             channels.append(
@@ -219,6 +225,7 @@ def _list_channels(*, force_refresh: bool = False) -> list[dict[str, Any]]:
                     "name": ch.get("name") or "",
                     "is_private": bool(ch.get("is_private")),
                     "is_member": bool(ch.get("is_member")),
+                    "is_archived": bool(ch.get("is_archived")),
                     "num_members": ch.get("num_members"),
                 }
             )
@@ -257,6 +264,8 @@ def match_channels_for_customer(customer_name: str) -> list[dict[str, Any]]:
     matched: list[dict[str, Any]] = []
     matched_ids: set[str] = set()
     for ch in channels:
+        if ch.get("is_archived"):
+            continue
         ch_id = str(ch.get("id") or "").strip()
         if ch_id and ch_id in matched_ids:
             continue

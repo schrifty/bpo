@@ -33,15 +33,77 @@ def test_match_channels_for_customer_uses_aliases():
         {"id": "C1", "name": "random", "is_private": False},
         {"id": "C2", "name": "johnson-controls-cs", "is_private": False},
         {"id": "C3", "name": "dover-implementation", "is_private": False},
+        {"id": "C4", "name": "spirit", "is_private": False},
+        {"id": "C5", "name": "spirit-data-load", "is_private": False},
+        {"id": "C6", "name": "cs-spirit-ops", "is_private": False},
+        {"id": "C7", "name": "spirit-implementation", "is_private": False, "is_archived": True},
+        {"id": "C8", "name": "aspirin-team", "is_private": False},
     ]
     with patch("src.slack_client._list_channels", return_value=channels), patch(
         "src.slack_client._load_slack_alias_map",
-        return_value={"jci": ["johnson-controls"], "spirit": ["spirit-implementation"]},
+        return_value={
+            "jci": ["johnson-controls"],
+            "spirit": ["spirit"],
+        },
     ):
         matched = match_channels_for_customer("JCI")
         spirit_matched = match_channels_for_customer("Spirit")
     assert [c["name"] for c in matched] == ["johnson-controls-cs"]
-    assert [c["name"] for c in spirit_matched] == []
+    # Token "spirit" matches any channel containing that token; archived skipped.
+    assert [c["name"] for c in spirit_matched] == ["cs-spirit-ops", "spirit", "spirit-data-load"]
+
+
+def test_alias_spirit_matches_spirit_token_anywhere():
+    from src.slack_client import _alias_fragment_matches_channel
+
+    assert _alias_fragment_matches_channel("spirit", "spirit")
+    assert _alias_fragment_matches_channel("spirit-data-load", "spirit")
+    assert _alias_fragment_matches_channel("spirit_abm", "spirit")
+    assert _alias_fragment_matches_channel("cs-spirit-ops", "spirit")
+    assert not _alias_fragment_matches_channel("aspirin-team", "spirit")
+
+
+def test_match_channels_skips_archived():
+    reset_slack_channel_cache()
+    channels = [
+        {"id": "C1", "name": "spirit", "is_private": False, "is_archived": False},
+        {"id": "C2", "name": "spirit-implementation", "is_private": False, "is_archived": True},
+        {"id": "C3", "name": "spirit-data-load", "is_private": False},
+    ]
+    with patch("src.slack_client._list_channels", return_value=channels), patch(
+        "src.slack_client._load_slack_alias_map",
+        return_value={"spirit": ["spirit", "spirit-data-load", "spirit-implementation"]},
+    ):
+        matched = match_channels_for_customer("Spirit")
+    assert [c["name"] for c in matched] == ["spirit", "spirit-data-load"]
+
+
+def test_list_channels_drops_archived_even_if_api_returns_them():
+    import src.slack_client as slack_client
+
+    reset_slack_channel_cache()
+    pages = [
+        {
+            "ok": True,
+            "channels": [
+                {"id": "C1", "name": "spirit", "is_archived": False},
+                {"id": "C2", "name": "spirit-implementation", "is_archived": True},
+            ],
+            "response_metadata": {},
+        }
+    ]
+
+    def _api(method, params=None):
+        assert method == "conversations.list"
+        assert params and params.get("exclude_archived") is True
+        return pages.pop(0)
+
+    with patch("src.slack_client.SLACK_BOT_TOKEN", "xoxb-test"), patch(
+        "src.slack_client._slack_api", side_effect=_api
+    ):
+        channels = slack_client._list_channels(force_refresh=True)
+    assert [c["name"] for c in channels] == ["spirit"]
+    assert all(not c.get("is_archived") for c in channels)
 
 
 def test_check_slack_api_ok():
