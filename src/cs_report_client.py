@@ -20,7 +20,11 @@ from typing import Any
 import yaml
 
 from .config import logger
-from .config_paths import COHORTS_FILE, CS_REPORT_CUSTOMER_ALIASES_FILE
+from .config_paths import (
+    COHORTS_FILE,
+    CS_REPORT_COLUMN_LABELS_FILE,
+    CS_REPORT_CUSTOMER_ALIASES_FILE,
+)
 from .qa import qa
 
 # Shared Drive ID and folder for the CS Report
@@ -32,11 +36,14 @@ _cache_lock = threading.Lock()
 
 # Optional: project-root YAML — map Pendo customer → exact CS Report `customer` values
 _CSR_ALIAS_FILE = CS_REPORT_CUSTOMER_ALIASES_FILE
+_CSR_COLUMN_LABELS_FILE = CS_REPORT_COLUMN_LABELS_FILE
 _COHORTS_FILE = COHORTS_FILE
 _cs_report_alias_map: dict[str, list[str]] | None = None
 _cs_report_alias_lock = threading.Lock()
 _cohort_customer_alias_map: dict[str, list[str]] | None = None
 _cohort_customer_alias_lock = threading.Lock()
+_cs_report_column_labels: dict[str, str] | None = None
+_cs_report_column_labels_lock = threading.Lock()
 
 
 def _get_drive():
@@ -646,7 +653,8 @@ _CSR_PLAIN_FIELDS: tuple[tuple[str, str], ...] = (
     ("startDate", "start_date"),
 )
 
-# Preferred column order for customer-export markdown / spreadsheet (§13.2).
+# Preferred internal column order for customer-export markdown / spreadsheet (§13.2).
+# Export surfaces remap these to CSR display labels via ``present_csr_site_for_export``.
 CSR_MERGED_SITE_EXPORT_COLUMNS: tuple[str, ...] = (
     "factory",
     "site",
@@ -723,89 +731,120 @@ CSR_MERGED_SITE_EXPORT_COLUMNS: tuple[str, ...] = (
     "automated_health_scores",
 )
 
-# Short keys for portfolio LLM export §4.2 (token savings). Must be unique (one long name per short key).
-CSR_SITE_FIELD_ABBR: dict[str, str] = {
-    "factory": "fac",
-    "site": "st",
-    "entity": "ent",
-    "region": "reg",
-    "division": "div",
-    "business_unit": "bu",
-    "customer_ndx": "cndx",
-    "factory_ndx": "fndx",
-    "health_score": "hs",
-    "automated_health_composite": "ahc",
-    "automated_health_override": "aho",
-    "automated_health_scores": "ahs",
-    "clear_to_build_pct": "ctb",
-    "clear_to_commit_pct": "ctc",
-    "component_availability_pct": "ca",
-    "component_availability_projected_pct": "cap",
-    "shortages": "sh",
-    "critical_shortages": "csh",
-    "shortages_by_order_lines": "sbol",
-    "high_risk_items": "hri",
-    "buyer_mapping_quality": "bmq",
-    "weekly_active_buyers_pct": "wab",
-    "daily_active_buyers_pct": "dab",
-    "daily_engaged_buyers_pct": "deb",
-    "weekly_engaged_ia_buyers_pct": "weib",
-    "weekly_engaged_suppliers_pct": "wesp",
-    "on_hand_value": "ohv",
-    "on_order_value": "oov",
-    "excess_on_hand": "eoh",
-    "excess_on_order_value": "eoov",
-    "excess_onhand_demanded_value": "eodv",
-    "excess_onhand_obsolete_value": "eoobv",
-    "excess_on_order_obsolete_value": "eooobv",
-    "manufactured_inventory_value": "miv",
-    "early_deliveries_value": "edv",
-    "past_due_po_value": "pdpv",
-    "past_due_req_value": "pdrv",
-    "doi_days": "doi",
-    "doi_backwards": "doib",
-    "days_coverage": "dcov",
-    "on_order_days": "ood",
-    "turns_of_inventory": "toi",
-    "toi_backwards": "toib",
-    "daily_inventory_usage": "diu",
-    "late_pos": "lpo",
-    "late_prs": "lpr",
-    "open_po_ct": "opoc",
-    "non_compliant_pos_ct": "ncpoc",
-    "apex_po_action_po_ct": "apapoc",
-    "erp_exception_msg_po_ct": "eempoc",
-    "supplier_ct": "supc",
-    "supplier_commit_date_pct": "scdp",
-    "commit_date_coverage_pct": "cdcp",
-    "savings_current_period": "scp",
-    "open_ia_value": "oia",
-    "ia_current_period_open_value": "iciapov",
-    "ia_previous_period_savings": "iaprs",
-    "ia_fix_rate_trailing_90d": "ifr90",
-    "ia_unable_to_fix_rate_trailing_90d": "iutfr90",
-    "ia_current_reporting_period": "icrp",
-    "ia_previous_reporting_period": "iprp",
-    "potential_savings": "psav",
-    "potential_to_sell": "pts",
-    "recs_created_30d": "rc30",
-    "pos_placed_30d": "pp30",
-    "overdue_tasks": "odt",
-    "current_fy_spend": "cfs",
-    "previous_fy_spend": "pfs",
-    "current_week52_ldna_target": "cw52t",
-    "start_date": "sdt",
-    "end_date": "edt",
-    "date_created": "dcr",
-    "date_modified": "dmd",
+# Internal snake_case key → CSR workbook column (camelCase). Used for export labels.
+_CSR_INTERNAL_TO_WORKBOOK: dict[str, str] = {
+    "factory": "factoryName",
+    "health_score": "healthScore",
+    "automated_health_scores": "automatedHealthScores",
+    "site": "site",
+    "entity": "entity",
+}
+for _col, _key in (
+    *_CSR_KPI_INT_FIELDS,
+    *_CSR_KPI_DEC1_FIELDS,
+    *_CSR_KPI_ROUND_FIELDS,
+    *_CSR_KPI_DEC2_FIELDS,
+    *_CSR_PLAIN_FIELDS,
+):
+    _CSR_INTERNAL_TO_WORKBOOK[_key] = _col
+
+# Cortex-derived fields (not a single workbook column header).
+_CSR_DERIVED_EXPORT_LABELS: dict[str, str] = {
+    "automated_health_composite": "Automated Health Composite",
+    "automated_health_override": "Automated Health Override",
 }
 
-CSR_SITE_FIELD_LEGEND: dict[str, str] = {short: long for long, short in CSR_SITE_FIELD_ABBR.items()}
+
+def _humanize_camel_case(name: str) -> str:
+    """Fallback display label when YAML has no override (e.g. ``doiForwards`` → ``Doi Forwards``)."""
+    import re
+
+    s = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name)
+    s = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", s)
+    return s.strip() or name
+
+
+def _load_cs_report_column_labels() -> dict[str, str]:
+    """Workbook column → CSR UI / export display label."""
+    global _cs_report_column_labels
+    if _cs_report_column_labels is not None:
+        return _cs_report_column_labels
+    with _cs_report_column_labels_lock:
+        if _cs_report_column_labels is not None:
+            return _cs_report_column_labels
+        out: dict[str, str] = {}
+        if _CSR_COLUMN_LABELS_FILE.is_file():
+            try:
+                raw = yaml.safe_load(_CSR_COLUMN_LABELS_FILE.read_text()) or {}
+                labels = raw.get("labels") if isinstance(raw, dict) else None
+                if isinstance(labels, dict):
+                    for k, v in labels.items():
+                        if str(k).strip().startswith("#"):
+                            continue
+                        key = str(k).strip()
+                        val = str(v).strip() if v is not None else ""
+                        if key and val:
+                            out[key] = val
+            except Exception as e:
+                logger.warning(
+                    "cs_report_column_labels: could not load %s: %s",
+                    _CSR_COLUMN_LABELS_FILE,
+                    e,
+                )
+        _cs_report_column_labels = out
+        return out
+
+
+def invalidate_cs_report_column_labels_cache_for_tests() -> None:
+    """Clear display-label cache (tests only)."""
+    global _cs_report_column_labels
+    with _cs_report_column_labels_lock:
+        _cs_report_column_labels = None
+
+
+def csr_export_column_label(internal_key: str) -> str:
+    """CSR display label for an internal site-row key (matches CSR UI naming where known)."""
+    if internal_key in _CSR_DERIVED_EXPORT_LABELS:
+        return _CSR_DERIVED_EXPORT_LABELS[internal_key]
+    workbook = _CSR_INTERNAL_TO_WORKBOOK.get(internal_key)
+    if workbook:
+        labels = _load_cs_report_column_labels()
+        if workbook in labels:
+            return labels[workbook]
+        return _humanize_camel_case(workbook)
+    return internal_key.replace("_", " ").strip().title() or internal_key
+
+
+def present_csr_site_for_export(site: dict[str, Any]) -> dict[str, Any]:
+    """Remap internal snake_case site keys to CSR display labels for exports."""
+    return {csr_export_column_label(k): v for k, v in site.items()}
+
+
+def csr_site_field_legend() -> dict[str, str]:
+    """Export display label → CSR workbook column (or derived note) for field_legend."""
+    legend: dict[str, str] = {}
+    for internal in CSR_MERGED_SITE_EXPORT_COLUMNS:
+        label = csr_export_column_label(internal)
+        workbook = _CSR_INTERNAL_TO_WORKBOOK.get(internal)
+        if workbook:
+            legend[label] = workbook
+        elif internal in _CSR_DERIVED_EXPORT_LABELS:
+            legend[label] = f"(derived from automatedHealthScores; not a workbook column)"
+        else:
+            legend[label] = internal
+    return legend
+
+
+# Back-compat aliases (portfolio previously abbreviated keys; now uses CSR display labels).
+CSR_SITE_FIELD_ABBR: dict[str, str] = {
+    k: csr_export_column_label(k) for k in CSR_MERGED_SITE_EXPORT_COLUMNS
+}
+CSR_SITE_FIELD_LEGEND: dict[str, str] = csr_site_field_legend()
 
 
 def abbreviate_csr_site_row(site: dict[str, Any]) -> dict[str, Any]:
-    """Rename site-row keys to short forms for portfolio LLM export (unknown keys kept as-is)."""
-    return {CSR_SITE_FIELD_ABBR.get(k, k): v for k, v in site.items()}
+    """Present site-row keys as CSR display labels (name kept for call-site compatibility)."""
+    return present_csr_site_for_export(site)
 
 
 _SUPPLY_CHAIN_TOTAL_KEYS: tuple[tuple[str, str], ...] = (
@@ -880,13 +919,24 @@ def _sum_entry_int_fields(entries: list[dict[str, Any]], keys: tuple[str, ...]) 
 
 
 def csr_merged_site_export_columns(rows: list[dict[str, Any]]) -> list[str]:
-    """Return export column order for merged CSR factory rows."""
+    """Return CSR display-label column order for merged factory rows (export tables)."""
+    presented = [present_csr_site_for_export(r) for r in rows]
     seen: set[str] = set()
-    for row in rows:
+    for row in presented:
         seen |= {k for k in row.keys() if row.get(k) not in (None, "", [])}
-    ordered = [k for k in CSR_MERGED_SITE_EXPORT_COLUMNS if k in seen]
+    label_order = [csr_export_column_label(k) for k in CSR_MERGED_SITE_EXPORT_COLUMNS]
+    ordered = [lab for lab in label_order if lab in seen]
     ordered.extend(sorted(k for k in seen if k not in ordered))
     return ordered
+
+
+def csr_sites_and_columns_for_export(
+    rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Present site rows with CSR display labels and matching column order."""
+    presented = [present_csr_site_for_export(r) for r in rows]
+    cols = csr_merged_site_export_columns(rows)
+    return presented, cols
 
 
 def _csr_site_entries_for_customer(

@@ -865,9 +865,13 @@ def render_csr_markdown(report: dict[str, Any], *, section_number: int = 13) -> 
             f"RED {hd.get('RED', 0)} · NONE {hd.get('NONE', 0)}"
         )
     if summary.get("total_shortages") is not None:
+        from .cs_report_client import csr_export_column_label
+
+        sh_label = csr_export_column_label("shortages")
+        csh_label = csr_export_column_label("critical_shortages")
         summary_lines.append(
-            f"- **Shortages:** {summary.get('total_shortages', 0):,} "
-            f"(critical {summary.get('total_critical_shortages', 0):,})"
+            f"- **{sh_label}:** {summary.get('total_shortages', 0):,} "
+            f"({csh_label} {summary.get('total_critical_shortages', 0):,})"
         )
     inv = summary.get("inventory_totals")
     if isinstance(inv, dict) and inv:
@@ -895,18 +899,19 @@ def render_csr_markdown(report: dict[str, Any], *, section_number: int = 13) -> 
             summary_lines.append(f"- **{label}:** {summary[k]:,}")
 
     merged_sites = csr.get("merged_sites") if isinstance(csr.get("merged_sites"), list) else []
-    from .cs_report_client import csr_merged_site_export_columns
+    from .cs_report_client import csr_sites_and_columns_for_export
 
-    cols = csr_merged_site_export_columns(merged_sites)
+    presented, cols = csr_sites_and_columns_for_export(merged_sites)
     factory_lines = [
         f"### {section_number}.2 All factories (merged metrics)",
         "",
-        f"*{len(merged_sites)} factories — every CSR site row for this customer.*",
+        f"*{len(merged_sites)} factories — every CSR site row for this customer. "
+        f"Column names match CSR display labels.*",
         "",
         "| " + " | ".join(cols) + " |",
         "| " + " | ".join(["---"] * len(cols)) + " |",
     ]
-    for row in merged_sites:
+    for row in presented:
         factory_lines.append(
             "| " + " | ".join(_md_table_cell(row.get(c)) for c in cols) + " |"
         )

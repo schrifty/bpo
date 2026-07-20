@@ -52,9 +52,9 @@ from src.cli_warning_filters import apply_cli_warning_filters
 apply_cli_warning_filters()
 
 from src.cs_report_client import (
-    CSR_SITE_FIELD_LEGEND,
     abbreviate_csr_site_row,
     csr_customer_summary_from_block,
+    csr_site_field_legend,
 )
 
 _DATA_SUMMARY_PATH = _ROOT / "config" / "comprehensive_data_element_list.json"
@@ -1223,15 +1223,16 @@ _CSR_SITE_JOIN_FIELDS = ("factory", "site", "entity")
 # One-line, self-describing schema hint so any LLM reading the export understands the
 # de-duplicated §4 shape without external docs.
 _CSR_SCHEMA_NOTE = (
-    "Each `sites` row is ONE factory with all CS Report metrics merged inline. Row keys are "
-    "ABBREVIATED to save tokens — decode them with the `field_legend` map at the top of this "
-    "section (short -> long, e.g. `hs`=health_score, `ctb`=clear_to_build_pct, `eoov`=excess_on_order_value, "
-    "`dab`=daily_active_buyers_pct, `psav`=potential_savings). A key is present only when that factory "
-    "has a value (nulls are omitted). Merged metrics span platform-health, supply-chain, and "
-    "platform-value worksheets (full CSR workbook metric set). Per-customer section rollups "
-    "(health_distribution, total_shortages, inventory_totals, total_savings, …) are in the §4.1 "
-    "markdown table (one row per customer), not in this JSON. When `sites_total` > len(sites), rows "
-    "were sampled (see `sites_sample_strategy`); the §4.1 summary still reflects all factories."
+    "Each `sites` row is ONE factory with all CS Report metrics merged inline. Row keys use "
+    "CSR display labels (same wording as the CS Report UI where configured in "
+    "`config/cs_report_column_labels.yaml`). Decode to workbook/API columns with `field_legend` "
+    "(display label → camelCase workbook column, e.g. `Current shortages (purchased)` → "
+    "`shortageItemCount`). A key is present only when that factory has a value (nulls are "
+    "omitted). Merged metrics span platform-health, supply-chain, and platform-value worksheets "
+    "(full CSR workbook metric set). Per-customer section rollups (health_distribution, "
+    "total_shortages, inventory_totals, total_savings, …) are in the §4.1 markdown table (one "
+    "row per customer), not in this JSON. When `sites_total` > len(sites), rows were sampled "
+    "(see `sites_sample_strategy`); the §4.1 summary still reflects all factories."
 )
 
 def _csr_site_join_key(site: dict[str, Any]) -> tuple[str, str, str]:
@@ -1313,7 +1314,7 @@ def _compact_csr(
     if isinstance(csr.get("note"), str):
         out["note"] = csr["note"]
     out["schema_note"] = _CSR_SCHEMA_NOTE
-    out["field_legend"] = CSR_SITE_FIELD_LEGEND
+    out["field_legend"] = csr_site_field_legend()
     if _is_llm_export_top_arr_scope(csr.get("scope")):
         out["scope"] = csr["scope"]
         if csr.get("top_n") is not None:
@@ -1499,7 +1500,7 @@ def _render_cs_report_section(cs: Any) -> list[str]:
         "### 4.2 Per-customer factory detail (JSON) — one `sites` row per factory",
         "",
         "> Summaries are in the §4.1 table above and are omitted here to avoid duplication. "
-        "Site-row keys are abbreviated; decode with ``field_legend``.",
+        "Site-row keys use CSR display labels; decode workbook columns with ``field_legend``.",
         "",
         _json_compact(_cs_report_detail_without_summary(cs)),
     ]
@@ -2371,8 +2372,8 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
             "totals, savings) — the fastest layer for cross-customer questions. **§4.2** is the "
             "factory-level detail as JSON: one ``sites`` row per factory with platform-health, "
             "supply-chain, and platform-value metrics merged inline (no 3× worksheet duplication). "
-            "Site-row keys are abbreviated to save tokens — decode them with the ``field_legend`` "
-            "(short → long) in §4.2; see ``schema_note`` for how to read rows.",
+            "Site-row keys use CSR display labels — decode workbook/API columns with the ``field_legend`` "
+            "(display label → workbook column) in §4.2; see ``schema_note`` for how to read rows.",
             "",
             *_render_cs_report_section(doc.get("cs_report")),
             "",

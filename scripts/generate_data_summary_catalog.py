@@ -468,25 +468,29 @@ def build_entries() -> list[dict[str, Any]]:
     # CSR site-row leaves (representative; same keys on each list item when present)
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
-    from src.cs_report_client import CSR_MERGED_SITE_EXPORT_COLUMNS
+    from src.cs_report_client import CSR_MERGED_SITE_EXPORT_COLUMNS, csr_export_column_label
 
     ph_site = " ".join(CSR_MERGED_SITE_EXPORT_COLUMNS)
+    ph_export = " | ".join(csr_export_column_label(k) for k in CSR_MERGED_SITE_EXPORT_COLUMNS)
     rows.append(
         _e(
             "csr.platform_health.sites[]",
-            f"[CSR site row] keys may include: {ph_site}",
+            f"[CSR site row] internal keys may include: {ph_site}. "
+            f"Export surfaces use CSR display labels: {ph_export}",
         )
     )
     rows.append(
         _e(
             "csr.supply_chain.sites[]",
-            f"[CSR site row] keys may include: {ph_site}",
+            f"[CSR site row] internal keys may include: {ph_site}. "
+            f"Export surfaces use CSR display labels: {ph_export}",
         )
     )
     rows.append(
         _e(
             "csr.platform_value.sites[]",
-            f"[CSR site row] keys may include: {ph_site}",
+            f"[CSR site row] internal keys may include: {ph_site}. "
+            f"Export surfaces use CSR display labels: {ph_export}",
         )
     )
 

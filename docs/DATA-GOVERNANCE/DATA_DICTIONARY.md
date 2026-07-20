@@ -62,6 +62,7 @@
 - `csr.platform_health.sites[]`
 - `csr.platform_value.sites[]`
 - `csr.supply_chain.sites[]`
+- Export markdown / spreadsheet / portfolio §4 present these with **CSR display labels** from `config/cs_report_column_labels.yaml` (e.g. `Current shortages (purchased)` for `shortageItemCount`); internal APIs keep snake_case keys.
 
 ## CSR→summary
 - `platform_value.factory_count`

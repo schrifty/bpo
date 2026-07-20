@@ -38,7 +38,7 @@ The portfolio export is split into numbered sections. When you ask the AI a ques
 | **Section 3b-renewal — Renewal in progress** | Contracts that **expired** but a **renewal deal is still open**. These are **not** churn — sales is still working them. |
 | **Section 3b-future — Future contracts** | Deals **signed but not started yet** (contract start date in the future). Not active today, not churn. |
 | **Section 3c — Salesforce (detailed CRM)** | Extra Salesforce detail (opportunities, cases, contacts, etc.) for top customers. **`arr_by_ultimate_parent`** ranks **all** ultimate parents using the same contract-rollup math as the export (Carrier divisions collapse correctly). Sort by **`current_arr`**. Includes renewing and churned parents — not only the current book. |
-| **Section 4 — CS Report** | Customer Success weekly health: platform health, supply chain, value metrics for large accounts. **§4.1** is a per-customer summary table (all rollup totals). **§4.2** is per-factory detail with **every CSR workbook metric column** (abbreviated keys + `field_legend`). |
+| **Section 4 — CS Report** | Customer Success weekly health: platform health, supply chain, value metrics for large accounts. **§4.1** is a per-customer summary table (all rollup totals). **§4.2** is per-factory detail with **every CSR workbook metric column** (CSR display labels + `field_legend` → workbook columns). |
 | **Section 4b — Slack** | Top customers by ARR (default **10**): 6-month Slack channel history per customer plus a Cortex **LLM summary** (`llm_summary`). Timing is in the export coverage manifest (`_llm_export_slack.performance`). |
 | **Section 5 — Usage signals** | Product “flags” — e.g. low adoption, features not used, unusual usage patterns. |
 | **Section 6 — Trend context** | Extra timing/trend notes when included. |
@@ -219,7 +219,7 @@ Prior-month day folders under **Historical Data** are rolled into monthly bucket
 | **10. Kei AI** | Kei assistant usage for this customer |
 | **11. Usage trends** | Weekly active users and period-over-period comparison |
 | **12. Engagement context** | Cohort benchmarks and auto-detected usage signals |
-| **13. CS Report** | Weekly **factory-level** CS Report when this customer matches CSR: customer summary (§13.1) and **every factory** with merged health, supply-chain, and value metrics (§13.2). **All CSR workbook metric columns** for the week export are included (full factory table). Companion spreadsheet tabs: **`csr_factories`** (per-factory rows) and **`csr_summary`** (customer rollups). No site sampling. If CSR has no match, the section explains what was tried. |
+| **13. CS Report** | Weekly **factory-level** CS Report when this customer matches CSR: customer summary (§13.1) and **every factory** with merged health, supply-chain, and value metrics (§13.2). **All CSR workbook metric columns** for the week export are included (full factory table) using **CSR display labels** (e.g. `Current shortages (purchased)`). Companion spreadsheet tabs: **`csr_factories`** (per-factory rows) and **`csr_summary`** (customer rollups). No site sampling. If CSR has no match, the section explains what was tried. |
 
 **Detailed variant** (`--export-pendo-detailed`) adds **§13 Site detail**, **§14 User roster**, and moves CS Report to **§15**:
 
@@ -270,7 +270,7 @@ Copy/paste and adapt. Start with “Use only the attached Pendo export for {Cust
 - “Does export behavior in Section 8 suggest users are working outside the product? Who are the heaviest exporters?”
 - “Is there onboarding friction? Check the guide-dismiss signal in Section 12.”
 
-- “Which factories have the worst shortage counts? Use Section 13.2 (CS Report) and rank by `shortages`.”
+- “Which factories have the worst shortage counts? Use Section 13.2 (CS Report) and rank by `Current shortages (purchased)`.”
 - “Compare Pendo active sites (Section 2) to CS Report factories (Section 13.2) — where do we have usage but RED health, or healthy factories with no logins?”
 - “What is total on-hand inventory and open IA value for {Customer}? (Section 13.1 summary)”
 

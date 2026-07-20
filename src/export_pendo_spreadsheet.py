@@ -326,12 +326,12 @@ def _build_csr_factory_rows(report: dict[str, Any], customer: str) -> list[dict[
     csr = report.get("csr")
     if not isinstance(csr, dict) or not csr.get("csr_loaded"):
         return []
-    from .cs_report_client import csr_merged_site_export_columns
+    from .cs_report_client import csr_sites_and_columns_for_export
 
     merged = csr.get("merged_sites") if isinstance(csr.get("merged_sites"), list) else []
-    columns = csr_merged_site_export_columns(merged)
+    presented, columns = csr_sites_and_columns_for_export(merged)
     rows: list[dict[str, Any]] = []
-    for site in merged:
+    for site in presented:
         if not isinstance(site, dict):
             continue
         row = {"customerndx": customer}

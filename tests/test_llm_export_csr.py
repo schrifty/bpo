@@ -60,21 +60,22 @@ def test_compact_csr_merges_factory_rows_across_worksheets():
     # No per-section site duplication: single merged sites list.
     assert "platform_health" not in acme and "supply_chain" not in acme
     assert acme["sites_total"] == 2
-    # Site-row keys are abbreviated; decode via the published field_legend (short -> long).
+    # Site-row keys use CSR display labels; field_legend maps label → workbook column.
     legend = out["field_legend"]
-    assert legend["fac"] == "factory"
-    assert legend["hs"] == "health_score"
-    assert legend["ohv"] == "on_hand_value"
-    assert legend["scp"] == "savings_current_period"
-    assert legend["scdp"] == "supplier_commit_date_pct"
-    by_factory = {s["fac"]: s for s in acme["sites"]}
+    assert legend["Factory"] == "factoryName"
+    assert legend["Health Score"] == "healthScore"
+    assert legend["Total On Hand Value"] == "totalOnHandValue"
+    assert legend["IA Current Period Savings"] == "inventoryActionCurrentReportingPeriodSavings"
+    assert legend["Supplier Commit Date %"] == "supplierCommitDatePercent"
+    assert legend["Current shortages (purchased)"] == "shortageItemCount"
+    by_factory = {s["Factory"]: s for s in acme["sites"]}
     plant_a = by_factory["Plant A"]
-    # One factory row carries health + supply-chain + value metrics together (abbreviated keys).
-    assert plant_a["hs"] == "RED"
-    assert plant_a["ohv"] == 3000
-    assert plant_a["scp"] == 700
-    assert plant_a["scdp"] == 91.2
-    # Long-form keys are not present on abbreviated site rows.
+    # One factory row carries health + supply-chain + value metrics together (CSR labels).
+    assert plant_a["Health Score"] == "RED"
+    assert plant_a["Total On Hand Value"] == 3000
+    assert plant_a["IA Current Period Savings"] == 700
+    assert plant_a["Supplier Commit Date %"] == 91.2
+    # Internal snake_case keys are not present on presented site rows.
     assert "health_score" not in plant_a and "on_hand_value" not in plant_a
     # Section rollups preserved in summary with full-length keys.
     assert acme["summary"]["factory_count"] == 2
@@ -94,13 +95,30 @@ def test_compact_csr_records_section_errors_without_sites():
     assert acme["sites_total"] == 2
 
 
-def test_compact_csr_field_legend_has_no_short_key_collisions():
-    from src.cs_report_client import CSR_MERGED_SITE_EXPORT_COLUMNS, CSR_SITE_FIELD_ABBR, CSR_SITE_FIELD_LEGEND
+def test_compact_csr_field_legend_maps_display_labels_to_workbook():
+    from src.cs_report_client import (
+        CSR_MERGED_SITE_EXPORT_COLUMNS,
+        csr_export_column_label,
+        csr_site_field_legend,
+    )
 
-    # Every export column has a short key; no two long names share one abbreviation.
-    assert set(CSR_SITE_FIELD_ABBR.keys()) >= set(CSR_MERGED_SITE_EXPORT_COLUMNS)
-    assert len(set(CSR_SITE_FIELD_ABBR.values())) == len(CSR_SITE_FIELD_ABBR)
-    assert CSR_SITE_FIELD_LEGEND == {v: k for k, v in CSR_SITE_FIELD_ABBR.items()}
+    legend = csr_site_field_legend()
+    labels = [csr_export_column_label(k) for k in CSR_MERGED_SITE_EXPORT_COLUMNS]
+    # Display labels are unique and covered by the legend.
+    assert len(set(labels)) == len(labels)
+    assert set(legend.keys()) >= set(labels)
+    assert legend[csr_export_column_label("shortages")] == "shortageItemCount"
+    assert legend[csr_export_column_label("factory")] == "factoryName"
+
+
+def test_present_csr_site_uses_current_shortages_purchased_label():
+    from src.cs_report_client import present_csr_site_for_export
+
+    presented = present_csr_site_for_export({"factory": "Plant A", "shortages": 208, "critical_shortages": 35})
+    assert "Current shortages (purchased)" in presented
+    assert presented["Current shortages (purchased)"] == 208
+    assert presented["Critical shortages"] == 35
+    assert "shortages" not in presented
 
 
 def test_render_cs_report_section_emits_summary_table_and_detail_without_summary():
