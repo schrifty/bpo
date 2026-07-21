@@ -753,6 +753,16 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
     slack_meta = cov.get("slack_top_by_arr")
     if isinstance(slack_meta, dict) and slack_meta.get("enabled"):
         perf = slack_meta.get("performance") if isinstance(slack_meta.get("performance"), dict) else {}
+        invite_needed = (
+            slack_meta.get("channels_invite_needed")
+            if isinstance(slack_meta.get("channels_invite_needed"), list)
+            else []
+        )
+        no_visible = (
+            slack_meta.get("customers_no_visible_channel_match")
+            if isinstance(slack_meta.get("customers_no_visible_channel_match"), list)
+            else []
+        )
         lines.extend(
             [
                 "",
@@ -764,8 +774,36 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
                 f"{slack_meta.get('customers_llm_summarized', 0)} LLM summaries · "
                 f"{slack_meta.get('customers_slack_errors', 0)} fetch errors · "
                 f"{slack_meta.get('customers_llm_errors', 0)} LLM errors",
+                f"- **Invite needed:** {slack_meta.get('channels_invite_needed_count', len(invite_needed))} "
+                f"matched channel(s) where the bot is not a member · "
+                f"{slack_meta.get('customers_no_visible_channel_match_count', len(no_visible))} "
+                "customer(s) with no visible channel match "
+                "(private channels are invisible until the bot is invited)",
             ]
         )
+        if invite_needed:
+            lines.append("- **Channels to invite the Cortex bot into:**")
+            for row in invite_needed:
+                if not isinstance(row, dict):
+                    continue
+                ch = row.get("channel") or "?"
+                cust = row.get("customer") or "?"
+                kind = "private" if row.get("is_private") else "public"
+                lines.append(f"  - `#{ch}` ({kind}) — customer **{cust}**")
+                if row.get("action"):
+                    lines.append(f"    - {row['action']}")
+        if no_visible:
+            lines.append(
+                "- **Customers with no visible Slack channel** "
+                "(cannot list private channel names until invited):"
+            )
+            for row in no_visible:
+                if not isinstance(row, dict):
+                    continue
+                cust = row.get("customer") or "?"
+                lines.append(f"  - **{cust}** (lookup `{row.get('lookup_name') or cust}`)")
+                if row.get("action"):
+                    lines.append(f"    - {row['action']}")
         if perf:
             lines.append(
                 f"- **Wall time:** **{perf.get('wall_seconds_total', '—')}s** total "
@@ -779,11 +817,18 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
                     if not isinstance(row, dict):
                         continue
                     name = row.get("customer") or "?"
+                    extra = ""
+                    if row.get("invite_needed"):
+                        extra += f" · invite_needed={row['invite_needed']}"
+                    if row.get("no_visible_channel_match"):
+                        extra += " · no_visible_match"
+                    if row.get("llm_error"):
+                        extra += f" · llm_error={row['llm_error']}"
                     lines.append(
                         f"  - **{name}** — fetch {row.get('fetch_seconds', '—')}s · "
                         f"LLM {row.get('llm_seconds', '—')}s · "
                         f"{row.get('channels', 0)} channels · {row.get('messages', 0)} messages"
-                        + (f" · llm_error={row['llm_error']}" if row.get("llm_error") else "")
+                        f"{extra}"
                     )
     lines.extend(
         [
@@ -1647,7 +1692,16 @@ def _compact_slack(slack: dict[str, Any], *, size_caps_enabled: bool = True) -> 
         }
     max_lines = 30 if size_caps_enabled else 500
     out: dict[str, Any] = {}
-    for key in ("scope", "top_n", "lookback_days", "note", "skipped", "error"):
+    for key in (
+        "scope",
+        "top_n",
+        "lookback_days",
+        "note",
+        "skipped",
+        "error",
+        "channels_invite_needed",
+        "customers_no_visible_channel_match",
+    ):
         if key in slack and slack[key] is not None:
             out[key] = slack[key]
     if isinstance(slack.get("selection_ranked"), list):
@@ -1684,6 +1738,8 @@ def _compact_slack(slack: dict[str, Any], *, size_caps_enabled: bool = True) -> 
                 "source": payload.get("source"),
                 "days": payload.get("days"),
                 "channels_matched": payload.get("channels_matched"),
+                "channels_invite_needed": payload.get("channels_invite_needed"),
+                "no_visible_channel_match": payload.get("no_visible_channel_match"),
                 "conversation_summaries": slim_summaries,
                 "combined_summary_markdown": payload.get("combined_summary_markdown"),
                 "note": payload.get("note"),

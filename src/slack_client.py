@@ -466,12 +466,26 @@ def get_customer_slack_conversations(
         return {**empty, "skipped": "slack_not_configured"}
 
     channels = match_channels_for_customer(name)
-    empty["channels_matched"] = [{"id": c.get("id"), "name": c.get("name")} for c in channels]
+    empty["channels_matched"] = [
+        {
+            "id": c.get("id"),
+            "name": c.get("name"),
+            "is_private": bool(c.get("is_private")),
+            "is_member": bool(c.get("is_member")),
+            "invite_needed": (not bool(c.get("is_member"))),
+        }
+        for c in channels
+    ]
+    empty["channels_invite_needed"] = [
+        row for row in empty["channels_matched"] if row.get("invite_needed")
+    ]
     if not channels:
         empty["note"] = (
             "No Slack channels matched this customer name or config/slack_customer_aliases.yaml entries. "
-            "Add aliases or ensure the bot is in customer channels."
+            "Private channels the bot is not in are invisible to the API — invite the bot or add aliases "
+            "for the public channel names you expect."
         )
+        empty["no_visible_channel_match"] = True
         return empty
 
     summaries: list[dict[str, Any]] = []

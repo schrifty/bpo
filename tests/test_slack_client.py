@@ -117,7 +117,7 @@ def test_check_slack_api_ok():
 
 def test_get_customer_slack_conversations_digest():
     reset_slack_channel_cache()
-    channels = [{"id": "C1", "name": "acme-cs", "is_private": False}]
+    channels = [{"id": "C1", "name": "acme-cs", "is_private": False, "is_member": False}]
     history = [
         {
             "type": "message",
@@ -135,6 +135,19 @@ def test_get_customer_slack_conversations_digest():
     assert len(summaries) == 1
     assert summaries[0]["message_count"] == 1
     assert "Hello from CS" in (summaries[0].get("summary_text") or "")
+    assert out["channels_invite_needed"][0]["name"] == "acme-cs"
+    assert out["channels_matched"][0]["invite_needed"] is True
+
+
+def test_get_customer_slack_conversations_no_visible_match():
+    reset_slack_channel_cache()
+    with patch("src.slack_client.SLACK_BOT_TOKEN", "xoxb-test"), patch(
+        "src.slack_client.match_channels_for_customer", return_value=[]
+    ):
+        out = get_customer_slack_conversations("Safran", days=7)
+    assert out.get("no_visible_channel_match") is True
+    assert out["channels_invite_needed"] == []
+    assert "invisible" in (out.get("note") or "").lower()
 
 
 def test_check_slack_api_failure():
