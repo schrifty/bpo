@@ -218,7 +218,7 @@ def test_export_coverage_manifest_and_markdown_section():
     }
     doc = mod.build_snapshot_document(
         report,
-        markdown_soft_cap_bytes=99_999,
+        markdown_soft_cap_tokens=450_000,
         size_caps_enabled=True,
         csr_site_limit=15,
         csr_string_cap=400,
@@ -233,7 +233,8 @@ def test_export_coverage_manifest_and_markdown_section():
     assert cov["profile_id"] == "llm_export_all_customers"
     assert len(cov["sources_in_profile"]) == 6
     assert len(cov["registry_excluded"]) == 5
-    assert cov["markdown_soft_cap_bytes"] == 99_999
+    assert cov["markdown_soft_cap_tokens"] == 450_000
+    assert "markdown_soft_cap_bytes" not in cov
     assert cov["compaction"]["rollup_cap"] == max(cov["compaction"]["sf_accounts"] * 6, 72)
     assert cov["compaction"]["signals_cap"] is None
     assert len(doc["notable_signals_lines"]) == 5
@@ -248,7 +249,8 @@ def test_export_coverage_manifest_and_markdown_section():
     int_i = md.index("## Integration coverage")
     assert cov_i < dg_i < ldna_i < int_i
     assert "No data-governance warnings were recorded" in md
-    assert "99999 bytes (`--max-bytes`)" in md
+    assert "450,000 tokens (`--max-tokens`" in md
+    assert "--max-bytes" not in md
     assert "leandna_item_master" in md
     assert "§5 shows the **full** ranked Pendo usage signal list" in md
 

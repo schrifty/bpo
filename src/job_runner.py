@@ -133,8 +133,8 @@ def build_step_argv(step: dict[str, Any]) -> list[str]:
         argv = ["export-all"]
         if step.get("days") is not None:
             argv.extend(["--days", str(int(step["days"]))])
-        if step.get("max_bytes") is not None:
-            argv.extend(["--max-bytes", str(int(step["max_bytes"]))])
+        if step.get("max_tokens") is not None:
+            argv.extend(["--max-tokens", str(int(step["max_tokens"]))])
         if step.get("signals_cap") is not None:
             argv.extend(["--signals-cap", str(int(step["signals_cap"]))])
         if step.get("skip_risk_insights"):

@@ -1,4 +1,4 @@
-"""LLM export default token/byte budgets and §3c headline compaction."""
+"""LLM export default token budgets and §3c headline compaction."""
 
 from __future__ import annotations
 
@@ -7,10 +7,6 @@ from src import export_llm_context_snapshot as mod
 
 def test_llm_export_default_max_tokens_is_450k():
     assert mod.llm_export_default_max_tokens() == 450_000
-
-
-def test_llm_export_default_max_bytes_disabled_by_default():
-    assert mod.llm_export_default_max_bytes() == 0
 
 
 def test_llm_export_default_max_tokens_env_override(monkeypatch):

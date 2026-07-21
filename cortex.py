@@ -46,7 +46,7 @@ Flag commands (utilities)
   cortex --data
       Print canonical data element paths from ``config/comprehensive_data_element_list.json``.
 
-  cortex export-all [--days N] [--max-tokens N] [--max-bytes N] [--signals-cap N]
+  cortex export-all [--days N] [--max-tokens N] [--signals-cap N]
       [--customers-sf-allowlist] [--customers-exclude-sf-churned]
       [--exclude-customer LABEL ...]
       Build the all-customers LLM context markdown snapshot and upload it to Drive **twice**: under
@@ -98,7 +98,7 @@ Generate one deck (explicit)
   cortex implementations-review
       Jira-backed org decks (same payloads as ``--portfolio`` batch).
 
-  cortex export-all [--days N] [--max-tokens N] [--max-bytes N] [--signals-cap N]
+  cortex export-all [--days N] [--max-tokens N] [--signals-cap N]
       All-customers LLM context snapshot (same as the ``export-nightly`` job).
 
   cortex regenerate-slides --deck engineering-portfolio --cursor [--presentation-id ID|URL]
