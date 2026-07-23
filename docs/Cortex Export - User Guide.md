@@ -31,7 +31,7 @@ The portfolio export is split into numbered sections. When you ask the AI a ques
 
 | Section | In plain English |
 |---------|------------------|
-| **Section 1 — Pendo** | Who’s using the product and how much (logins, active users, etc.). Portfolio-wide view. |
+| **Section 1 — Pendo** | Who’s using the product and how much (logins, active users, **usage by site**). Portfolio-wide view. |
 | **Section 2 — Jira (support)** | Support ticket volume and queue health for your **largest customers by revenue** — not every ticket detail. |
 | **Section 3 — Salesforce (current customers)** | **Customers you should treat as “in the book today”** — active contracts **or** renewals in progress. Revenue and contract facts live here. **§3.1** is a ready-made table of every customer **ranked by current ARR** (read the `rank` column for “top N by revenue”); **§3.2** holds the contract-rollup and portfolio-total detail. |
 | **Section 3b — Churned** | Customers who **left** (lost contracts, no renewal in flight). **Separate list — don’t mix with Section 3.** |

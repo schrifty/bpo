@@ -3073,6 +3073,153 @@
       ]
     },
     {
+      "path": "pendo_usage_by_site",
+      "terms": [
+        "pendo_usage_by_site",
+        "[LLM export] Pendo usage aggregated by active sitename (page views, feature clicks, events, minutes)"
+      ]
+    },
+    {
+      "path": "pendo_usage_by_site.sites",
+      "terms": [
+        "pendo_usage_by_site.sites",
+        "[LLM export] array of active site rows — sitename, siteid, customer, page_views, feature_clicks, total_events, total_minutes"
+      ]
+    },
+    {
+      "path": "pendo_usage_by_site.sites[].sitename",
+      "terms": [
+        "pendo_usage_by_site.sites[].sitename",
+        "[LLM export usage-by-site] Pendo sitename"
+      ]
+    },
+    {
+      "path": "pendo_usage_by_site.sites[].siteid",
+      "terms": [
+        "pendo_usage_by_site.sites[].siteid",
+        "[LLM export usage-by-site] Pendo site id when known"
+      ]
+    },
+    {
+      "path": "pendo_usage_by_site.sites[].customer",
+      "terms": [
+        "pendo_usage_by_site.sites[].customer",
+        "[LLM export usage-by-site] customer prefix derived from sitename"
+      ]
+    },
+    {
+      "path": "pendo_usage_by_site.sites[].page_views",
+      "terms": [
+        "pendo_usage_by_site.sites[].page_views",
+        "[LLM export usage-by-site] page event count in lookback"
+      ]
+    },
+    {
+      "path": "pendo_usage_by_site.sites[].feature_clicks",
+      "terms": [
+        "pendo_usage_by_site.sites[].feature_clicks",
+        "[LLM export usage-by-site] feature event count in lookback"
+      ]
+    },
+    {
+      "path": "pendo_usage_by_site.sites[].total_events",
+      "terms": [
+        "pendo_usage_by_site.sites[].total_events",
+        "[LLM export usage-by-site] page + feature events"
+      ]
+    },
+    {
+      "path": "pendo_usage_by_site.sites[].total_minutes",
+      "terms": [
+        "pendo_usage_by_site.sites[].total_minutes",
+        "[LLM export usage-by-site] summed activity minutes"
+      ]
+    },
+    {
+      "path": "pendo_usage_by_site.by_customer",
+      "terms": [
+        "pendo_usage_by_site.by_customer",
+        "[LLM export] active-site usage rolled up by customer prefix"
+      ]
+    },
+    {
+      "path": "pendo_usage_by_site.by_customer[].customer",
+      "terms": [
+        "pendo_usage_by_site.by_customer[].customer",
+        "[LLM export usage-by-site customer rollup] customer prefix"
+      ]
+    },
+    {
+      "path": "pendo_usage_by_site.by_customer[].sites",
+      "terms": [
+        "pendo_usage_by_site.by_customer[].sites",
+        "[LLM export usage-by-site customer rollup] active site count"
+      ]
+    },
+    {
+      "path": "pendo_usage_by_site.by_customer[].page_views",
+      "terms": [
+        "pendo_usage_by_site.by_customer[].page_views",
+        "[LLM export usage-by-site customer rollup] summed page views"
+      ]
+    },
+    {
+      "path": "pendo_usage_by_site.by_customer[].feature_clicks",
+      "terms": [
+        "pendo_usage_by_site.by_customer[].feature_clicks",
+        "[LLM export usage-by-site customer rollup] summed feature clicks"
+      ]
+    },
+    {
+      "path": "pendo_usage_by_site.by_customer[].total_events",
+      "terms": [
+        "pendo_usage_by_site.by_customer[].total_events",
+        "[LLM export usage-by-site customer rollup] summed events"
+      ]
+    },
+    {
+      "path": "pendo_usage_by_site.by_customer[].total_minutes",
+      "terms": [
+        "pendo_usage_by_site.by_customer[].total_minutes",
+        "[LLM export usage-by-site customer rollup] summed minutes"
+      ]
+    },
+    {
+      "path": "pendo_usage_by_site.sites_total",
+      "terms": [
+        "pendo_usage_by_site.sites_total",
+        "[LLM export] count of active sites before any optional truncation"
+      ]
+    },
+    {
+      "path": "pendo_usage_by_site.active_only",
+      "terms": [
+        "pendo_usage_by_site.active_only",
+        "[LLM export] true when idle sites (zero events) are excluded"
+      ]
+    },
+    {
+      "path": "pendo_usage_by_site.days",
+      "terms": [
+        "pendo_usage_by_site.days",
+        "[LLM export] lookback days for usage-by-site aggregation"
+      ]
+    },
+    {
+      "path": "pendo_usage_by_site.source",
+      "terms": [
+        "pendo_usage_by_site.source",
+        "[LLM export] always pendo when attached"
+      ]
+    },
+    {
+      "path": "pendo_usage_by_site.note",
+      "terms": [
+        "pendo_usage_by_site.note",
+        "[LLM export] how to read usage-by-site rows"
+      ]
+    },
+    {
       "path": "portfolio.portfolio_trends",
       "terms": [
         "portfolio.portfolio_trends",

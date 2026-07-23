@@ -410,6 +410,26 @@
 - `portfolio.portfolio_signals`
 - `portfolio.portfolio_trends`
 - `portfolio.type`
+- `pendo_usage_by_site.active_only` — LLM export: only sites with `total_events > 0`
+- `pendo_usage_by_site.by_customer[]` — per-customer rollup of active site usage
+- `pendo_usage_by_site.by_customer[].customer`
+- `pendo_usage_by_site.by_customer[].feature_clicks`
+- `pendo_usage_by_site.by_customer[].page_views`
+- `pendo_usage_by_site.by_customer[].sites`
+- `pendo_usage_by_site.by_customer[].total_events`
+- `pendo_usage_by_site.by_customer[].total_minutes`
+- `pendo_usage_by_site.days`
+- `pendo_usage_by_site.note`
+- `pendo_usage_by_site.sites[]` — active sites ranked by `total_events`
+- `pendo_usage_by_site.sites[].customer`
+- `pendo_usage_by_site.sites[].feature_clicks`
+- `pendo_usage_by_site.sites[].page_views`
+- `pendo_usage_by_site.sites[].siteid`
+- `pendo_usage_by_site.sites[].sitename`
+- `pendo_usage_by_site.sites[].total_events`
+- `pendo_usage_by_site.sites[].total_minutes`
+- `pendo_usage_by_site.sites_total`
+- `pendo_usage_by_site.source`
 
 ## portfolio row
 - `portfolio.customers[]`

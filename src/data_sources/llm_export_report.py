@@ -11,6 +11,7 @@ from .loaders.salesforce_portfolio_aggregate import salesforce_portfolio_aggrega
 
 from ..llm_export_csr import attach_csr_top_customers_for_llm_export
 from ..llm_export_slack import attach_slack_top_customers_for_llm_export
+from ..llm_export_pendo_usage_by_site import attach_pendo_usage_by_site_for_llm_export
 from ..llm_export_salesforce_comprehensive import attach_salesforce_comprehensive_for_llm_export
 from ..llm_export_salesforce_universe import merge_salesforce_universe_for_llm_export
 
@@ -85,6 +86,21 @@ def build_llm_export_snapshot_report(pc: Any, *, days: int) -> dict[str, Any]:
     provenance.append(_provenance_row(SourceId.PENDO_PORTFOLIO_ROLLUP, status="ok"))
     report = dict(portfolio)
     report["customer"] = "All Customers"
+
+    try:
+        usage_summary = attach_pendo_usage_by_site_for_llm_export(report, pc, days=days)
+        if usage_summary.get("error"):
+            provenance[-1]["status"] = "partial"
+            provenance[-1]["detail"] = f"usage_by_site_error={usage_summary.get('error')}"
+        elif usage_summary.get("enabled") is not False:
+            provenance[-1]["detail"] = (
+                f"usage_by_site_active={usage_summary.get('sites_total')} "
+                f"customers={usage_summary.get('customers_with_sites')}"
+            )
+    except Exception as e:
+        report["pendo_usage_by_site"] = {"error": str(e)[:400], "days": int(days)}
+        provenance[-1]["status"] = "partial"
+        provenance[-1]["detail"] = f"usage_by_site_error={e}"
 
     merge_salesforce_universe_for_llm_export(report)
     report["salesforce"] = salesforce_portfolio_aggregate_for_report(report)

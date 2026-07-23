@@ -477,6 +477,9 @@ def _build_export_coverage(
     slack_meta = report.get("_llm_export_slack")
     if isinstance(slack_meta, dict):
         out_cov["slack_top_by_arr"] = slack_meta
+    usage_meta = report.get("_llm_export_pendo_usage_by_site")
+    if isinstance(usage_meta, dict):
+        out_cov["pendo_usage_by_site"] = usage_meta
     churn_seg_cov = report.get("salesforce_churned_segment")
     if isinstance(churn_seg_cov, dict):
         out_cov["salesforce_churned_segment"] = {
@@ -620,9 +623,11 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
             "### Section-by-section: what you are looking at",
             "The numbered sections are **JSON blocks** (machine-friendly). Here is what each one is meant to represent for CS conversations.",
             "",
-            f"- **§1 — Pendo (all customers):** A **portfolio-level** snapshot: logins, adoption-style metrics, and short "
-            f"per-customer headline rows. It is **not** a full Pendo analytics export (no page/feature catalogs, no "
-            f"multi-gigabyte raw downloads). The headline customer list stops after **{cov.get('pendo_export_constants', {}).get('customers_headline_max', 200)}** rows; "
+            f"- **§1 — Pendo (all customers):** A **portfolio-level** snapshot: logins, adoption-style metrics, "
+            f"per-customer headline rows, and **usage by site** (active sites with page/feature/event/minute "
+            f"totals plus customer rollups). It is **not** a full Pendo analytics export (no page/feature "
+            f"catalogs, no multi-gigabyte raw downloads). The headline customer list stops after "
+            f"**{cov.get('pendo_export_constants', {}).get('customers_headline_max', 200)}** rows; "
             "cohort and “who is leading / lagging” style details are shortened so the file stays shareable.",
             "",
             "- **§2 — Jira (HELP):** **Workload and health of the queue** — counts by status, type, and similar rollups, "
@@ -1124,7 +1129,7 @@ def _pendo_portfolio_topline(
     max_customer_rows: int = _PENDO_EXPORT_HEADLINE_CUSTOMER_CAP,
     size_caps_enabled: bool = True,
 ) -> dict[str, Any]:
-    """Portfolio rollup + capped per-customer headline rows (no Pendo detail payloads)."""
+    """Portfolio rollup + capped per-customer headline rows + usage-by-site."""
     from src.hydrate_data_summary import truncate_strings_in_obj
 
     raw_customers = portfolio.get("customers") if isinstance(portfolio.get("customers"), list) else []
@@ -1148,7 +1153,9 @@ def _pendo_portfolio_topline(
         )
     note_parts = [
         "Portfolio rollup: per-customer rows are headline engagement counts when Pendo data exists "
-        "(``salesforce_only`` rows carry Salesforce identity without Pendo metrics)."
+        "(``salesforce_only`` rows carry Salesforce identity without Pendo metrics). "
+        "``usage_by_site`` lists active Pendo sites (page views, feature clicks, events, minutes) "
+        "plus ``by_customer`` rollups."
     ]
     raw_n = len(raw_customers)
     if size_caps_enabled and _export_cap_active(max_customer_rows) and raw_n > max_customer_rows:
@@ -1169,7 +1176,7 @@ def _pendo_portfolio_topline(
         if size_caps_enabled
         else dict(max_str=50_000, max_list_items=100_000, max_dict_keys=10_000)
     )
-    return {
+    out: dict[str, Any] = {
         "scope": "portfolio_all_customers",
         "note": " ".join(note_parts),
         "customer_count": portfolio.get("customer_count"),
@@ -1202,6 +1209,15 @@ def _pendo_portfolio_topline(
             **digest_kw,
         ),
     }
+    from src.llm_export_pendo_usage_by_site import compact_pendo_usage_by_site
+
+    out["usage_by_site"] = compact_pendo_usage_by_site(
+        portfolio.get("pendo_usage_by_site")
+        if isinstance(portfolio.get("pendo_usage_by_site"), dict)
+        else None,
+        size_caps_enabled=size_caps_enabled,
+    )
+    return out
 
 
 def _sample_csr_sites_for_export(sites: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
@@ -2332,7 +2348,11 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
     parts.extend(
         [
             "",
-            "## 1. Pendo (headline metrics only)",
+            "## 1. Pendo (headline metrics + usage by site)",
+            "",
+            "Portfolio engagement headlines plus **``usage_by_site``**: every active Pendo site "
+            "(page views, feature clicks, events, minutes) ranked by activity, with ``by_customer`` "
+            "rollups. Idle/never-used sites are excluded.",
             "",
             _json_compact(doc.get("pendo")),
             "",
