@@ -7,10 +7,10 @@ the LeanDNA Data API (KPIs without a ``metric-id`` are listed without a value).
 
 Examples::
 
-  metrics-by-tag --tag engineering
-  metrics-by-tag --tag ai --recent-count 5
-  metrics-by-tag --list
-  metrics-by-tag --tag delivery --json
+  metrics-by-tag                     # list tags
+  metrics-by-tag engineering         # KPIs + current values for that tag
+  metrics-by-tag ai --recent-count 5
+  metrics-by-tag delivery --json
 """
 from __future__ import annotations
 
@@ -54,6 +54,7 @@ def _print_tag_catalog() -> int:
     print("Tags in config/my-metrics.yaml (tag: KPI count):")
     for tag, count in tags:
         print(f"  {tag}: {count}")
+    print("\nUsage: metrics-by-tag <tag>   e.g. metrics-by-tag engineering")
     return 0
 
 
@@ -75,7 +76,18 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description="List KPIs for a tag with current values (config/my-metrics.yaml + LeanDNA).",
     )
-    ap.add_argument("--tag", metavar="NAME", help="Tag to filter KPIs by (normalized: lowercase, hyphenated)")
+    ap.add_argument(
+        "tag",
+        nargs="?",
+        metavar="TAG",
+        help="Tag to filter KPIs by (normalized: lowercase, hyphenated). Omit to list tags.",
+    )
+    ap.add_argument(
+        "--tag",
+        dest="tag_flag",
+        metavar="NAME",
+        help="Same as positional TAG (kept for compatibility)",
+    )
     ap.add_argument("--list", action="store_true", help="List all defined tags and their KPI counts, then exit")
     ap.add_argument("--json", action="store_true", help="Emit a JSON array of matching KPIs with current values")
     ap.add_argument(
@@ -104,22 +116,20 @@ def main() -> int:
 
     configure_cortex_logging(verbose=ns.verbose)
 
-    if ns.list:
+    tag = (ns.tag_flag or ns.tag or "").strip() or None
+
+    if ns.list or not tag:
         return _print_tag_catalog()
 
-    if not ns.tag:
-        print("Provide --tag NAME (or --list to see available tags).", file=sys.stderr)
-        return 2
-
     try:
-        base = data_api_base_url()
+        data_api_base_url()
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 1
 
     print(
         f"LeanDNA target: GET /data/Metric/{{id}}/MetricDataPoint  "
-        f"(tag={ns.tag!r}, lookback={ns.lookback_days}d, recent={ns.recent_count}, "
+        f"(tag={tag!r}, lookback={ns.lookback_days}d, recent={ns.recent_count}, "
         f"requestedSites={ns.requested_sites!r}, "
         f"EXECUTION_ENV bucket={CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET})",
         file=sys.stderr,
@@ -127,18 +137,18 @@ def main() -> int:
 
     try:
         rows = fetch_recent_datapoints_by_tag(
-            ns.tag,
+            tag,
             requested_sites=ns.requested_sites,
             lookback_days=ns.lookback_days,
             timeout_seconds=ns.timeout,
             limit=ns.recent_count,
         )
     except Exception as e:  # noqa: BLE001 — surface Data API/HTTP failures cleanly
-        print(f"Failed to fetch datapoints for tag {ns.tag!r}: {e}", file=sys.stderr)
+        print(f"Failed to fetch datapoints for tag {tag!r}: {e}", file=sys.stderr)
         return 1
     if not rows:
-        available = ", ".join(tag for tag, _ in all_registry_tags()) or "(none)"
-        print(f"No KPIs tagged {ns.tag!r}. Available tags: {available}", file=sys.stderr)
+        available = ", ".join(t for t, _ in all_registry_tags()) or "(none)"
+        print(f"No KPIs tagged {tag!r}. Available tags: {available}", file=sys.stderr)
         return 1
 
     if ns.json:
@@ -152,7 +162,7 @@ def main() -> int:
     with_value = sum(1 for row in rows if row.recent)
     without_id = sum(1 for row in rows if row.metric_id <= 0)
     print(
-        f"Tag {ns.tag!r}: {len(rows)} KPI(s) — {with_value} with a current value, "
+        f"Tag {tag!r}: {len(rows)} KPI(s) — {with_value} with a current value, "
         f"{without_id} without a metric-id.",
         file=sys.stderr,
     )
