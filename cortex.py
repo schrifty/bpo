@@ -26,6 +26,13 @@ Flag commands (utilities)
       calendar length as resolve_quarter(). Portfolio runs may auto-refresh this snapshot on weekends when Drive needs an update (see
       ``pendo_portfolio_snapshot_drive.ensure_weekend_portfolio_snapshot``).
 
+  cortex --refresh-pendo-snapshot [--windows 7,14,30,60,90] [--upload-portfolio-days 90]
+      Shared Pendo ingest: warm disk preload slices for multiple windows (EFS/local
+      ``CORTEX_CACHE_DIR/pendo/``), write ``shared_snapshot_manifest_v1.json``, and
+      optionally upload the Drive portfolio rollup. Scheduled as ``pendo-snapshot-refresh``
+      at 03:00 UTC so transforms (export-nightly / Ford / top-ARR) can require a fresh
+      snapshot instead of each re-crawling Pendo cold.
+
   cortex --customer "Customer Name" [--days N] [--quarter Q1 2026] [--thumbnails] [--workers N]
       Run every **customer-scoped** deck id (see ``cortex --list``) for one account, in sequence.
       Pauses briefly between decks to reduce Drive rate limits.
@@ -1377,6 +1384,12 @@ def main():
         print(f"  OK   file_id={result.get('file_id')}  {result.get('filename')}")
         print(f"       customers in snapshot: {result.get('customer_count')}")
         return
+
+    if "--refresh-pendo-snapshot" in sys.argv:
+        from src.pendo_shared_snapshot import refresh_pendo_snapshot_main
+
+        rest = [a for a in sys.argv[1:] if a != "--refresh-pendo-snapshot"]
+        raise SystemExit(refresh_pendo_snapshot_main(rest, prog="cortex --refresh-pendo-snapshot"))
 
     # Top-level help only when the first argument is -h/--help (not ``cortex run --help``).
     if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help"):

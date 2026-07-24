@@ -129,6 +129,17 @@ def build_step_argv(step: dict[str, Any]) -> list[str]:
         if step.get("max_customers") is not None:
             argv.extend(["--max-customers", str(int(step["max_customers"]))])
         return argv
+    if command in ("refresh-pendo-snapshot", "pendo-snapshot-refresh"):
+        argv = ["--refresh-pendo-snapshot"]
+        windows = step.get("windows")
+        if windows is not None:
+            if isinstance(windows, (list, tuple)):
+                argv.extend(["--windows", ",".join(str(int(w)) for w in windows)])
+            else:
+                argv.extend(["--windows", str(windows)])
+        if step.get("upload_portfolio_days") is not None:
+            argv.extend(["--upload-portfolio-days", str(int(step["upload_portfolio_days"]))])
+        return argv
     if command in ("export", "export-all"):
         argv = ["export-all"]
         if step.get("days") is not None:
@@ -305,13 +316,22 @@ def _build_failures_payload(
     return payload
 
 
-def _step_env(run_id: str, job_name: str, step_name: str) -> dict[str, str]:
+def _step_env(run_id: str, job_name: str, step_name: str, step: dict[str, Any] | None = None) -> dict[str, str]:
     env = dict(os.environ)
     env["CORTEX_RUN_ID"] = run_id
     env["CORTEX_JOB_NAME"] = job_name
     env["CORTEX_STEP_NAME"] = step_name
     if CORTEX_FAIL_ON_INTEGRATION_WARNINGS:
         env.setdefault("CORTEX_FAIL_ON_INTEGRATION_WARNINGS", "1")
+    step = step or {}
+    if step.get("require_pendo_snapshot"):
+        env["CORTEX_PENDO_SNAPSHOT_REQUIRE"] = "1"
+        windows = step.get("require_pendo_windows") or step.get("pendo_snapshot_windows")
+        if windows is not None:
+            if isinstance(windows, (list, tuple)):
+                env["CORTEX_PENDO_SNAPSHOT_REQUIRE_WINDOWS"] = ",".join(str(int(w)) for w in windows)
+            else:
+                env["CORTEX_PENDO_SNAPSHOT_REQUIRE_WINDOWS"] = str(windows)
     return env
 
 
@@ -326,7 +346,7 @@ def run_step_subprocess(
     command = str(step.get("command") or "")
     argv = build_step_argv(step)
     set_run_phase(name)
-    env = _step_env(run_id, job_name, name)
+    env = _step_env(run_id, job_name, name, step)
     t0 = time.monotonic()
     logger.info("job step start: %s (%s)", name, " ".join(argv))
     try:

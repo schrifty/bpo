@@ -1,0 +1,8 @@
+name: pendo-snapshot-refresh
+stop_on_failure: true
+fail_on_warnings: false
+steps:
+  - name: refresh-shared-pendo-snapshot
+    command: refresh-pendo-snapshot
+    windows: [7, 14, 30, 60, 90]
+    upload_portfolio_days: 90

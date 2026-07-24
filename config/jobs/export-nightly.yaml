@@ -5,3 +5,5 @@ steps:
   - name: llm-export
     command: export-all
     days: 90
+    require_pendo_snapshot: true
+    require_pendo_windows: [90]

@@ -606,10 +606,21 @@ def build_customer_pendo_export_report(
     compare_days: int | None = None,
 ) -> dict[str, Any]:
     """Fetch Pendo usage slices for one customer (product adoption focus)."""
-    pendo_prefix = resolve_pendo_customer_prefix(customer_query, pc)
+    from .pendo_shared_snapshot import PendoSnapshotError, ensure_shared_pendo_snapshot, required_windows_from_env
+
     window_days = max(1, int(days))
     compare = max(1, int(compare_days if compare_days is not None else window_days))
     total_lookback = window_days + compare
+    try:
+        ensure_shared_pendo_snapshot(
+            required_windows=required_windows_from_env(
+                fallback=[window_days, max(window_days, total_lookback)]
+            )
+        )
+    except PendoSnapshotError as exc:
+        return {"error": str(exc), "customer_query": customer_query}
+
+    pendo_prefix = resolve_pendo_customer_prefix(customer_query, pc)
     exported_at = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     window_end = dt.date.today()
     window_start = window_end - dt.timedelta(days=window_days - 1)

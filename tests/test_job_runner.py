@@ -26,9 +26,33 @@ def test_build_step_argv_portfolio() -> None:
     assert argv == ["--portfolio", "--days", "30", "--csm", "Alex"]
 
 
-def test_build_step_argv_export_all() -> None:
-    argv = build_step_argv({"command": "export-all", "days": 90})
-    assert argv == ["export-all", "--days", "90"]
+def test_build_step_argv_refresh_pendo_snapshot() -> None:
+    argv = build_step_argv(
+        {
+            "command": "refresh-pendo-snapshot",
+            "windows": [7, 14, 30, 60, 90],
+            "upload_portfolio_days": 90,
+        }
+    )
+    assert argv == [
+        "--refresh-pendo-snapshot",
+        "--windows",
+        "7,14,30,60,90",
+        "--upload-portfolio-days",
+        "90",
+    ]
+
+
+def test_load_pendo_snapshot_refresh_job() -> None:
+    spec = load_job_spec("pendo-snapshot-refresh")
+    assert spec.name == "pendo-snapshot-refresh"
+    assert build_step_argv(spec.steps[0])[0] == "--refresh-pendo-snapshot"
+
+
+def test_export_nightly_requires_pendo_snapshot() -> None:
+    spec = load_job_spec("export-nightly")
+    assert spec.steps[0].get("require_pendo_snapshot") is True
+    assert spec.steps[0].get("require_pendo_windows") == [90]
 
 
 def test_build_step_argv_export_legacy_alias() -> None:

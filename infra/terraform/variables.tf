@@ -125,7 +125,15 @@ variable "scheduled_jobs" {
     rule_name           = optional(string)
   }))
   default = {
-    # EventBridge cron is UTC. Daily jobs run 30 minutes apart starting 06:00 UTC.
+    # EventBridge cron is UTC. Shared Pendo ingest runs first (03:00) so disk
+    # preload + manifest are ready before export transforms start at 06:00.
+    # Remaining jobs stay 30 minutes apart from 06:00 UTC.
+    pendo-snapshot-refresh = {
+      schedule_expression = "cron(0 3 * * ? *)"
+      command             = ["pendo-snapshot-refresh"]
+      enabled             = true
+      rule_name           = "cortex-pendo-snapshot-refresh"
+    }
     export-nightly = {
       schedule_expression = "cron(0 6 * * ? *)"
       command             = ["export-nightly"]

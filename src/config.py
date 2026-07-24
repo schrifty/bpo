@@ -458,13 +458,22 @@ _pendo_cache_disabled = os.environ.get("CORTEX_PENDO_CACHE_DISABLED", "").strip(
 if _pendo_cache_disabled in ("1", "true", "yes", "on"):
     CORTEX_PENDO_CACHE_TTL_SECONDS = 0
 # Pendo preload disk cache (cross-run persistence under CORTEX_CACHE_DIR/pendo/).
+# Default 24h so nightly shared-snapshot ingest (early UTC) still covers late transforms
+# and allows same-day stale reuse when CORTEX_PENDO_SNAPSHOT_MAX_AGE_HOURS permits.
 try:
-    _pendo_disk_cache_hours = float(os.environ.get("CORTEX_PENDO_DISK_CACHE_TTL_HOURS", "12").strip())
+    _pendo_disk_cache_hours = float(os.environ.get("CORTEX_PENDO_DISK_CACHE_TTL_HOURS", "24").strip())
 except ValueError:
-    _pendo_disk_cache_hours = 12.0
+    _pendo_disk_cache_hours = 24.0
 CORTEX_PENDO_DISK_CACHE_TTL_SECONDS = max(0, int(_pendo_disk_cache_hours * 3600))
 if os.environ.get("CORTEX_PENDO_DISK_CACHE_DISABLED", "").strip().lower() in ("1", "true", "yes", "on"):
     CORTEX_PENDO_DISK_CACHE_TTL_SECONDS = 0
+# Shared multi-window snapshot (pendo-snapshot-refresh). Transforms set
+# CORTEX_PENDO_SNAPSHOT_REQUIRE to fail loud when the manifest is missing/stale.
+try:
+    _pendo_snapshot_max_age_h = float(os.environ.get("CORTEX_PENDO_SNAPSHOT_MAX_AGE_HOURS", "18").strip())
+except ValueError:
+    _pendo_snapshot_max_age_h = 18.0
+CORTEX_PENDO_SNAPSHOT_MAX_AGE_HOURS = max(0.0, _pendo_snapshot_max_age_h)
 
 # Jira read API disk cache (search/jql, counts, org directory, changelogs, etc.).
 try:
@@ -490,6 +499,10 @@ try:
 except ValueError:
     _pendo_burst = 32
 CORTEX_PENDO_MAX_BURST = max(1, _pendo_burst)
+
+# Cross-container Pendo pacing via EFS-backed token bucket (see pendo_global_rate_limit.py).
+_pendo_global_rl = os.environ.get("CORTEX_PENDO_GLOBAL_RATE_LIMIT", "true").strip().lower()
+CORTEX_PENDO_GLOBAL_RATE_LIMIT = _pendo_global_rl not in ("0", "false", "no", "off")
 
 # Feature Adoption slide: half-over-half usage narrative (extra Pendo aggregations). Off by default — disable by unsetting or false.
 _fai = os.environ.get("CORTEX_FEATURE_ADOPTION_INSIGHTS", "").strip().lower()

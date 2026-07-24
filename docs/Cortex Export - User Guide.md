@@ -316,6 +316,8 @@ cortex export-all
 
 Common options: `--days 90` (lookback window), `--skip-risk-insights` (omit Section 7), filters to trim the customer list. The nightly `export-nightly` job uses a 90-day window by default.
 
+**Shared Pendo ingest:** `pendo-snapshot-refresh` runs at **03:00 UTC** and warms disk preload slices for 7/14/30/60/90-day windows (plus a Drive portfolio rollup). Scheduled Pendo transforms (`export-nightly`, Ford, top-ARR) **require** that snapshot (fail loud if missing/stale >18h) so they do not each cold-crawl Pendo. Local `export-all` / `--export-pendo` do not require it unless you set `CORTEX_PENDO_SNAPSHOT_REQUIRE=true`.
+
 Drive output: `Output/LLM-Context-Portfolio-persistent.md` and `Output/Historical Data/{today}/LLM-Context-Portfolio.md`.
 
 ### Per-customer Pendo

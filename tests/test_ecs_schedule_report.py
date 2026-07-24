@@ -44,10 +44,14 @@ def test_build_schedule_rows_merges_catalog_when_aws_empty(monkeypatch):
         lambda **kwargs: ([], "AWS lookup failed (test); showing catalog only"),
     )
     rows, notes = build_schedule_rows(name_prefix="cortex", region="us-east-1")
+    assert any(r.job_key == "pendo-snapshot-refresh" for r in rows)
     assert any(r.job_key == "export-nightly" for r in rows)
     assert any(r.job_key == "engineering-portfolio" for r in rows)
     assert any(r.job_key == "ford-pendo-7d" for r in rows)
     assert any(r.job_key == "ford-pendo-30d" for r in rows)
+    snap = next(r for r in rows if r.job_key == "pendo-snapshot-refresh")
+    assert snap.rule_name == "cortex-pendo-snapshot-refresh"
+    assert snap.schedule_expression == "cron(0 3 * * ? *)"
     top_arr = next(r for r in rows if r.job_key == "pendo-top-arr-30d")
     assert top_arr.rule_name == "cortex-pendo-top-arr-30d"
     assert top_arr.schedule_expression == "cron(0 8 * * ? *)"

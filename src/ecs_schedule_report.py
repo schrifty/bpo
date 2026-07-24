@@ -16,12 +16,19 @@ from src.ecs_aws_defaults import default_name_prefix, default_region
 
 # Keep in sync with infra/terraform/variables.tf scheduled_jobs defaults.
 SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
+    "pendo-snapshot-refresh": {
+        "schedule_expression": "cron(0 3 * * ? *)",
+        "command": ["pendo-snapshot-refresh"],
+        "enabled": True,
+        "rule_name": "cortex-pendo-snapshot-refresh",
+        "summary": "Shared Pendo ingest (preload 7/14/30/60/90 + Drive portfolio 90d)",
+    },
     "export-nightly": {
         "schedule_expression": "cron(0 6 * * ? *)",
         "command": ["export-nightly"],
         "enabled": True,
         "rule_name": "cortex-export-nightly",
-        "summary": "LLM export (cortex export-all, 90-day window)",
+        "summary": "LLM export (cortex export-all, 90-day window; requires shared Pendo snapshot)",
     },
     "engineering-portfolio": {
         "schedule_expression": "cron(30 6 * * ? *)",

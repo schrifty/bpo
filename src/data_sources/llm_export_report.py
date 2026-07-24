@@ -50,6 +50,13 @@ def build_llm_export_snapshot_report(pc: Any, *, days: int) -> dict[str, Any]:
     _ = PROFILE_LLM_EXPORT_ALL_CUSTOMERS
     provenance: list[dict[str, Any]] = []
 
+    from ..pendo_shared_snapshot import PendoSnapshotError, ensure_shared_pendo_snapshot, required_windows_from_env
+
+    try:
+        ensure_shared_pendo_snapshot(required_windows=required_windows_from_env(fallback=[days]))
+    except PendoSnapshotError as exc:
+        raise RuntimeError(str(exc)) from exc
+
     _sig_lines, _sig_rh = _llm_export_portfolio_signal_caps()
     portfolio = pc.get_portfolio_report(
         days=days,

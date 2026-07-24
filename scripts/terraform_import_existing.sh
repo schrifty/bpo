@@ -80,8 +80,9 @@ fi
 
 # EventBridge rules (only when schedules are enabled in tfvars)
 if grep -qE '^[[:space:]]*enable_schedules[[:space:]]*=[[:space:]]*true' terraform.tfvars 2>/dev/null; then
-  for job_key in engineering-portfolio export-nightly ford-pendo-7d ford-pendo-30d pendo-top-arr-30d metrics-eng-cycle-lead-weekly; do
+  for job_key in pendo-snapshot-refresh engineering-portfolio export-nightly ford-pendo-7d ford-pendo-30d pendo-top-arr-30d metrics-eng-cycle-lead-weekly; do
     case "$job_key" in
+      pendo-snapshot-refresh) rule_name="cortex-pendo-snapshot-refresh" ;;
       engineering-portfolio) rule_name="cortex-engineering-portfolio" ;;
       export-nightly) rule_name="cortex-export-nightly" ;;
       ford-pendo-7d) rule_name="cortex-ford-pendo-7d" ;;

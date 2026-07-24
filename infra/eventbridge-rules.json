@@ -1,5 +1,36 @@
 [
   {
+    "Name": "cortex-pendo-snapshot-refresh",
+    "Description": "Shared Pendo ingest (preload 7/14/30/60/90 + Drive portfolio 90d) \u2014 daily 03:00 UTC (3h before export-nightly)",
+    "ScheduleExpression": "cron(0 3 * * ? *)",
+    "State": "ENABLED",
+    "Targets": [
+      {
+        "Id": "cortex-pendo-snapshot-refresh",
+        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
+        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
+        "EcsParameters": {
+          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
+          "LaunchType": "FARGATE",
+          "PlatformVersion": "LATEST",
+          "NetworkConfiguration": {
+            "awsvpcConfiguration": {
+              "Subnets": [
+                "subnet-REPLACE"
+              ],
+              "SecurityGroups": [
+                "sg-REPLACE"
+              ],
+              "AssignPublicIp": "DISABLED"
+            }
+          },
+          "TaskCount": 1
+        },
+        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"pendo-snapshot-refresh\"]}]}"
+      }
+    ]
+  },
+  {
     "Name": "cortex-export-nightly",
     "Description": "LLM context export (cortex export-all) \u2014 daily 06:00 UTC",
     "ScheduleExpression": "cron(0 6 * * ? *)",
@@ -187,7 +218,7 @@
   },
   {
     "Name": "cortex-metrics-eng-cycle-lead-weekly",
-    "Description": "LeanDNA metrics upsert: Engineering Cycle Time (2024) + Lead Time (2179) \u2014 weekly Monday 09:00 UTC",
+    "Description": "LeanDNA metrics upsert: Engineering Cycle Time (2024) + Lead Time (2179) — weekly Monday 09:00 UTC",
     "ScheduleExpression": "cron(0 9 ? * MON *)",
     "State": "ENABLED",
     "Targets": [

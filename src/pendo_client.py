@@ -708,7 +708,9 @@ class PendoClient:
         # Shared across threads so the whole process paces aggregation calls together.
         rpm = CORTEX_PENDO_MAX_REQUESTS_PER_MINUTE if max_requests_per_minute is None else max(0, max_requests_per_minute)
         burst = CORTEX_PENDO_MAX_BURST if max_burst is None else max(1, max_burst)
-        self._rate_limiter = _TokenBucket(rate_per_sec=rpm / 60.0, capacity=burst)
+        self._rate_per_sec = rpm / 60.0
+        self._burst_capacity = float(burst)
+        self._rate_limiter = _TokenBucket(rate_per_sec=self._rate_per_sec, capacity=burst)
         logger.debug(
             "PendoClient initialized (base_url=%s, pacing=%s rpm, burst=%d)",
             self.base_url,

@@ -7,3 +7,5 @@ steps:
     customer: Ford
     days: 7
     compare_days: 7
+    require_pendo_snapshot: true
+    require_pendo_windows: [7, 14]
