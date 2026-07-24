@@ -1,15 +1,17 @@
-"""Resolve KPIs live from generators and/or from LeanDNA Data API storage.
+"""Resolve KPIs live from generators.
 
-Persistence is optional. Registry rows define how to compute a KPI; ``metric-id``
-is only required when reading or writing the Data API store. Decks and CLIs
-should call ``resolve_kpi`` / ``resolve_kpis_by_tag`` instead of assuming a
-stored datapoint exists.
+Reads are always live: registry generators compute the value each time. The
+LeanDNA Data API is the system of record for *stored* KPI history — this module
+never reads a stored datapoint to satisfy a normal read, and generating never
+writes. Persist explicitly with ``metrics-upsert`` / ``materialize_kpi``.
+
+An explicit ``mode="stored"`` is offered only to *inspect* what the Data API
+currently holds; it is not part of the default read path.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Literal
@@ -18,7 +20,6 @@ from src.kpi_observation import (
     KPIObservation,
     observation_from_generator_raw,
     observation_from_stored_datapoint,
-    stored_is_fresh,
 )
 from src.metrics_latest import (
     DEFAULT_RECENT_DATAPOINT_COUNT,
@@ -40,10 +41,9 @@ from src.metrics_upsert import MetricUpsertContext, MetricUpsertError, invoke_me
 
 logger = logging.getLogger(__name__)
 
-ResolveMode = Literal["auto", "live", "stored"]
-RESOLVE_MODES: tuple[str, ...] = ("auto", "live", "stored")
-
-DEFAULT_STORED_MAX_AGE_HOURS = 48.0
+ResolveMode = Literal["live", "stored"]
+RESOLVE_MODES: tuple[str, ...] = ("live", "stored")
+DEFAULT_RESOLVE_MODE: ResolveMode = "live"
 
 
 @dataclass(frozen=True)
@@ -82,18 +82,6 @@ def default_resolve_context(
         workers=workers,
         metric_name_filter=None,
     )
-
-
-def stored_max_age_hours(*, override: float | None = None) -> float:
-    if override is not None:
-        return float(override)
-    raw = (os.environ.get("CORTEX_KPI_STORED_MAX_AGE_HOURS") or "").strip()
-    if raw:
-        try:
-            return float(raw)
-        except ValueError:
-            logger.warning("Invalid CORTEX_KPI_STORED_MAX_AGE_HOURS=%r; using %s", raw, DEFAULT_STORED_MAX_AGE_HOURS)
-    return DEFAULT_STORED_MAX_AGE_HOURS
 
 
 def _metric_id_or_none(entry: dict[str, Any]) -> int | None:
@@ -160,22 +148,20 @@ def resolve_kpi(
     metric_name: str,
     entry: dict[str, Any],
     *,
-    mode: ResolveMode = "auto",
+    mode: ResolveMode = DEFAULT_RESOLVE_MODE,
     registry: dict[str, Any] | None = None,
     ctx: MetricUpsertContext | None = None,
     requested_sites: str | None = None,
     lookback_days: int = 365,
     timeout_seconds: float = 60.0,
     recent_count: int = DEFAULT_RECENT_DATAPOINT_COUNT,
-    max_stored_age_hours: float | None = None,
-    allow_stored_fetch: bool = True,
 ) -> KPIResolved:
-    """Resolve one KPI under ``mode`` (``auto`` | ``live`` | ``stored``).
+    """Resolve one KPI under ``mode`` (``live`` default, or ``stored``).
 
-    * **live** — always run ``metric-generator`` when present.
-    * **stored** — read LeanDNA Data API only (``metric-id`` required for a value).
-    * **auto** — use a fresh stored datapoint when available; otherwise live; otherwise
-      empty / stale stored with a warning.
+    * **live** (default) — run the ``metric-generator`` and return a freshly
+      computed value. The Data API is never read.
+    * **stored** — read the LeanDNA Data API only, to inspect what is persisted
+      (``metric-id`` required for a value). Not part of the default read path.
     """
     if mode not in RESOLVE_MODES:
         raise ValueError(f"mode must be one of {RESOLVE_MODES}, got {mode!r}")
@@ -185,94 +171,35 @@ def resolve_kpi(
         timeout_seconds=timeout_seconds,
         requested_sites=requested_sites,
     )
-    age_h = stored_max_age_hours(override=max_stored_age_hours)
     tags = tuple(registry_metric_tags(entry))
     description = registry_metric_description(entry)
     automated = is_automated_metric(entry)
     metric_id = _metric_id_or_none(entry)
 
     recent: tuple[DatapointValue, ...] = ()
-    stored_error: str | None = None
-    if allow_stored_fetch and mode in ("auto", "stored") and metric_id is not None:
-        recent, stored_error = fetch_stored_recent(
-            entry,
-            requested_sites=requested_sites,
-            lookback_days=lookback_days,
-            timeout_seconds=timeout_seconds,
-            limit=recent_count,
-        )
-
-    def _from_stored() -> KPIObservation:
-        if metric_id is None:
-            return _empty_observation(warning="no metric-id in registry — no stored value")
-        if stored_error:
-            return KPIObservation(error=stored_error, origin="stored", as_of=None)
-        if not recent:
-            return _empty_observation(warning="no datapoints")
-        return observation_from_stored_datapoint(
-            date_s=recent[0].date,
-            value=recent[0].value,
-            metric_id=metric_id,
-        )
 
     if mode == "live":
         observation = generate_live_observation(metric_name, entry, registry=reg, ctx=resolve_ctx)
-    elif mode == "stored":
-        observation = _from_stored()
-    else:
-        # auto
-        stored_obs = _from_stored() if (allow_stored_fetch and metric_id is not None) else _empty_observation()
-        if (
-            stored_obs.origin == "stored"
-            and stored_obs.ok
-            and stored_is_fresh(stored_obs.as_of, max_age_hours=age_h)
-        ):
-            observation = stored_obs
-        elif has_metric_generator(entry):
-            observation = generate_live_observation(metric_name, entry, registry=reg, ctx=resolve_ctx)
-            if not observation.ok and stored_obs.origin == "stored" and stored_obs.display_value is not None:
-                # Live failed but we have a (possibly stale) stored value — keep stored + warn.
-                warnings = stored_obs.warnings + (
-                    f"live generation failed ({observation.error}); using stored value",
-                )
-                if not stored_is_fresh(stored_obs.as_of, max_age_hours=age_h):
-                    warnings = warnings + (f"stored value older than {age_h:g}h",)
-                observation = KPIObservation(
-                    value=stored_obs.value,
-                    numerator=stored_obs.numerator,
-                    denominator=stored_obs.denominator,
-                    as_of=stored_obs.as_of,
-                    window_days=stored_obs.window_days,
-                    source=stored_obs.source,
-                    warnings=warnings,
-                    error=None,
-                    origin="stored",
-                    meta=dict(stored_obs.meta),
-                )
-        elif stored_obs.origin == "stored" and stored_obs.display_value is not None:
-            warnings = stored_obs.warnings
-            if not stored_is_fresh(stored_obs.as_of, max_age_hours=age_h):
-                warnings = warnings + (f"stored value older than {age_h:g}h (no generator for refresh)",)
-            observation = KPIObservation(
-                value=stored_obs.value,
-                numerator=stored_obs.numerator,
-                denominator=stored_obs.denominator,
-                as_of=stored_obs.as_of,
-                window_days=stored_obs.window_days,
-                source=stored_obs.source,
-                warnings=warnings,
-                error=stored_obs.error,
-                origin="stored",
-                meta=dict(stored_obs.meta),
-            )
+    else:  # stored — explicit Data API inspection only
+        if metric_id is None:
+            observation = _empty_observation(warning="no metric-id in registry — no stored value")
         else:
-            if metric_id is None and not has_metric_generator(entry):
-                observation = _empty_observation(
-                    warning="no metric-id and no metric-generator — nothing to resolve",
-                )
+            recent, stored_error = fetch_stored_recent(
+                entry,
+                requested_sites=requested_sites,
+                lookback_days=lookback_days,
+                timeout_seconds=timeout_seconds,
+                limit=recent_count,
+            )
+            if stored_error:
+                observation = KPIObservation(error=stored_error, origin="stored", as_of=None)
+            elif not recent:
+                observation = _empty_observation(warning="no datapoints")
             else:
-                observation = stored_obs if stored_obs.warnings or stored_obs.error else _empty_observation(
-                    warning="no datapoints",
+                observation = observation_from_stored_datapoint(
+                    date_s=recent[0].date,
+                    value=recent[0].value,
+                    metric_id=metric_id,
                 )
 
     return KPIResolved(
@@ -290,17 +217,15 @@ def resolve_kpi(
 def resolve_kpis_by_tag(
     tag: str,
     *,
-    mode: ResolveMode = "auto",
+    mode: ResolveMode = DEFAULT_RESOLVE_MODE,
     registry: dict[str, Any] | None = None,
     ctx: MetricUpsertContext | None = None,
     requested_sites: str | None = None,
     lookback_days: int = 365,
     timeout_seconds: float = 60.0,
     recent_count: int = DEFAULT_RECENT_DATAPOINT_COUNT,
-    max_stored_age_hours: float | None = None,
-    allow_stored_fetch: bool = True,
 ) -> list[KPIResolved]:
-    """Resolve every registry KPI carrying *tag*."""
+    """Resolve every registry KPI carrying *tag* (live by default)."""
     reg = registry if registry is not None else load_metrics_registry()
     resolve_ctx = ctx or default_resolve_context(
         timeout_seconds=timeout_seconds,
@@ -319,8 +244,6 @@ def resolve_kpis_by_tag(
                 lookback_days=lookback_days,
                 timeout_seconds=timeout_seconds,
                 recent_count=recent_count,
-                max_stored_age_hours=max_stored_age_hours,
-                allow_stored_fetch=allow_stored_fetch,
             )
         )
     return out
@@ -371,10 +294,10 @@ def format_kpi_resolved_block(row: KPIResolved, *, indent: str = "  ") -> list[s
     for w in obs.warnings:
         lines.append(f"{indent}warning: {w}")
 
-    # Under stored/auto, show older history when available.
+    # In stored inspection mode, list older persisted datapoints as history.
     if row.recent_stored and origin == "stored" and len(row.recent_stored) > 1:
         for point in row.recent_stored[1:]:
-            lines.append(f"{indent}{format_datapoint_line(date=point.date, value=point.value)}")
+            lines.append(f"{indent}history: {format_datapoint_line(date=point.date, value=point.value)}")
 
     return lines
 

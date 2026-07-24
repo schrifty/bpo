@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -219,15 +219,3 @@ def observation_from_stored_datapoint(
         source=("data-api",),
         meta={"metric_id": metric_id} if metric_id else {},
     )
-
-
-def stored_is_fresh(as_of: str | None, *, max_age_hours: float) -> bool:
-    """True when stored ``as_of`` date is within *max_age_hours* of UTC now."""
-    if not as_of or max_age_hours <= 0:
-        return False
-    try:
-        d = date.fromisoformat(str(as_of)[:10])
-    except ValueError:
-        return False
-    age_h = (datetime.now(timezone.utc).date() - d).days * 24.0
-    return age_h <= float(max_age_hours)
