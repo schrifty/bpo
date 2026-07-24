@@ -56,6 +56,7 @@ class _TokenBucket:
         self._lock = threading.Lock()
 
     @property
+
     def enabled(self) -> bool:
         return self._rate > 0
 
@@ -716,10 +717,22 @@ class PendoClient:
         )
 
     def _pace_request(self, label: str) -> None:
-        """Block on the shared token bucket before an aggregation POST."""
-        waited = self._rate_limiter.acquire()
-        if waited > 0:
-            logger.debug("Pendo %s paced by rate limiter (waited %.2fs)", label, waited)
+        """Block on global (EFS) and local token buckets before an aggregation POST."""
+        from .pendo_global_rate_limit import acquire_global_pendo_token
+
+        global_wait = acquire_global_pendo_token(
+            rate_per_sec=self._rate_per_sec,
+            capacity=self._burst_capacity,
+        )
+        local_wait = self._rate_limiter.acquire()
+        total = global_wait + local_wait
+        if total > 0:
+            logger.debug(
+                "Pendo %s paced (global=%.2fs local=%.2fs)",
+                label,
+                global_wait,
+                local_wait,
+            )
 
     def _http_session(self) -> requests.Session:
         s = getattr(self._http_tls, "session", None)
@@ -742,28 +755,50 @@ class PendoClient:
         pipeline: list[dict[str, Any]],
         *,
         timeout: tuple[int, float] | None = None,
+        label: str = "aggregate",
+        max_attempts: int = 3,
+        read_timeout_days: int | None = None,
+        retry: bool = True,
     ) -> dict[str, Any]:
-        """Execute an aggregation pipeline."""
+        """Execute an aggregation pipeline with optional retry on transient failures."""
+        from .pendo_aggregate import call_with_pendo_retry_optional, resolve_pendo_connect_read_timeout
+
         url = f"{self.base_url}/aggregation"
         logger.debug("Pendo API POST %s (pipeline steps=%d)", url, len(pipeline))
-        payload = {
-            "response": {"mimeType": "application/json"},
-            "request": {
-                "requestId": str(uuid4()),
-                "pipeline": pipeline,
-            },
-        }
-        connect_t, read_t = timeout if timeout is not None else (10, float(PENDO_REQUEST_TIMEOUT_S))
-        self._pace_request("aggregate")
-        resp = self._http_session().post(
-            url, json=payload, headers=self._headers(),
-            timeout=(connect_t, read_t),
+        connect_t, read_t = resolve_pendo_connect_read_timeout(
+            timeout=timeout,
+            read_timeout_days=read_timeout_days,
+            default_read_timeout=float(PENDO_REQUEST_TIMEOUT_S),
         )
-        resp.raise_for_status()
-        data = resp.json()
-        result_count = len(data.get("results", [])) if isinstance(data.get("results"), list) else "?"
-        logger.debug("Pendo API response: %s results", result_count)
-        return data
+
+        def _once() -> dict[str, Any]:
+            payload = {
+                "response": {"mimeType": "application/json"},
+                "request": {
+                    "requestId": str(uuid4()),
+                    "pipeline": pipeline,
+                },
+            }
+            self._pace_request(label)
+            resp = self._http_session().post(
+                url,
+                json=payload,
+                headers=self._headers(),
+                timeout=(connect_t, read_t),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            result_count = len(data.get("results", [])) if isinstance(data.get("results"), list) else "?"
+            logger.debug("Pendo API response: %s results", result_count)
+            return data
+
+        return call_with_pendo_retry_optional(
+            _once,
+            label=label,
+            max_attempts=max_attempts,
+            read_timeout=read_t,
+            retry=retry,
+        )
 
     def get_visitors(self, days: int = 30) -> dict[str, Any]:
         """Get visitor data for the last N days."""
@@ -791,7 +826,13 @@ class PendoClient:
         """
         if end_ms <= start_ms:
             return []
-        connect_t, read_t = _timeout if _timeout is not None else (10, float(PENDO_REQUEST_TIMEOUT_S))
+        from .pendo_aggregate import call_with_pendo_retry_optional, resolve_pendo_connect_read_timeout
+
+        connect_t, read_t = resolve_pendo_connect_read_timeout(
+            timeout=_timeout,
+            read_timeout_days=None,
+            default_read_timeout=float(PENDO_REQUEST_TIMEOUT_S),
+        )
         url = f"{self.base_url}/aggregation"
         pipeline = [
             {
@@ -800,24 +841,32 @@ class PendoClient:
                 }
             }
         ]
-        payload = {
-            "response": {"mimeType": "application/json"},
-            "request": {
-                "requestId": str(uuid4()),
-                "pipeline": pipeline,
-            },
-        }
-        self._pace_request("visitors_range")
-        resp = requests.post(
-            url,
-            json=payload,
-            headers=self._headers(),
-            timeout=(connect_t, read_t),
+
+        def _once() -> list[dict]:
+            payload = {
+                "response": {"mimeType": "application/json"},
+                "request": {
+                    "requestId": str(uuid4()),
+                    "pipeline": pipeline,
+                },
+            }
+            self._pace_request("visitors_range")
+            resp = requests.post(
+                url,
+                json=payload,
+                headers=self._headers(),
+                timeout=(connect_t, read_t),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            results = data.get("results")
+            return results if isinstance(results, list) else []
+
+        return call_with_pendo_retry_optional(
+            _once,
+            label="visitors_range",
+            read_timeout=read_t,
         )
-        resp.raise_for_status()
-        data = resp.json()
-        results = data.get("results")
-        return results if isinstance(results, list) else []
 
     def get_usage_for_customer(
         self, customer: str, days: int = 30, include_usage_metrics: bool = True

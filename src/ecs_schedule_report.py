@@ -51,12 +51,20 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "rule_name": "cortex-pendo-top-arr-30d",
         "summary": "Top-5 ARR Pendo detailed export (cortex --export-pendo-top-arr --top-n 5 --days 30 --compare-days 30)",
     },
+    "carrier-pendo-detailed-30d": {
+        "schedule_expression": "cron(30 8 * * ? *)",
+        "command": ["carrier-pendo-detailed-30d"],
+        "enabled": True,
+        "rule_name": "cortex-carrier-pendo-detailed-30d",
+        "summary": "Carrier Pendo detailed export (30d)",
+    },
+
     "metrics-eng-cycle-lead-weekly": {
-        "schedule_expression": "cron(30 8 ? * MON *)",
+        "schedule_expression": "cron(0 9 ? * MON *)",
         "command": ["metrics-eng-cycle-lead-weekly"],
         "enabled": True,
         "rule_name": "cortex-metrics-eng-cycle-lead-weekly",
-        "summary": "LeanDNA metrics upsert: 2024, 2179, 2028, 2035 — weekly Mon 08:30 UTC",
+        "summary": "LeanDNA metrics upsert: 2024, 2179, 2028, 2035 — weekly Mon 09:00 UTC",
     },
 }
 

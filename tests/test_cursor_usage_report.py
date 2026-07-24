@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from datetime import datetime, timezone
 
 from src.cursor_usage_report import (
@@ -12,6 +13,27 @@ from src.cursor_usage_report import (
     generate_cursor_usage_takeaway,
 )
 from src.deck_data_enrichment import enrich_cursor_usage_if_needed
+
+
+@pytest.fixture(autouse=True)
+def _cursor_report_test_harness(monkeypatch):
+    """Keep Cursor report tests off live Jira and inside the April 2026 fixture window."""
+
+    class _FixedDateTime(datetime):
+        _NOW = datetime(2026, 4, 15, 12, 0, 0, tzinfo=timezone.utc)
+
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return cls._NOW
+            return cls._NOW.astimezone(tz)
+
+    monkeypatch.setattr("src.cursor_usage_report.datetime", _FixedDateTime)
+    monkeypatch.setattr("src.config.CORTEX_CURSOR_CACHE_TTL_SECONDS", 0)
+    monkeypatch.setattr(
+        "src.eng_team_roster.build_engineer_audience_scope",
+        lambda *_a, **_k: {"error": "unit test: skip engineer scope"},
+    )
 
 
 def _ms(y: int, m: int, d: int = 1) -> int:
@@ -149,7 +171,12 @@ def test_build_report_includes_cost_daily_and_matrix() -> None:
 
 def test_engineer_cost_scope_includes_all_models_by_spend() -> None:
     events = [
-        {"userEmail": "eng@x.com", "model": f"model-{i}", "chargedCents": float(i + 1)}
+        {
+            "userEmail": "eng@x.com",
+            "model": f"model-{i}",
+            "chargedCents": float(i + 1),
+            "tokenUsage": {"inputTokens": (i + 1) * 10, "outputTokens": 0},
+        }
         for i in range(8)
     ]
     eng_roll = _rollup_usage_events(

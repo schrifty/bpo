@@ -260,32 +260,6 @@ def _read_drive_file_text_retrying(file_id: str, *, attempts: int = 6) -> str:
     raise AssertionError(last)  # pragma: no cover
 
 
-def local_data_field_synonyms_path() -> Path:
-    """Repo path to the hydrate phrase catalog: ``config/comprehensive_data_element_list.json``."""
-    return Path(__file__).resolve().parent.parent / "config" / "comprehensive_data_element_list.json"
-
-
-def load_data_field_synonyms_document(*, allow_drive: bool = True) -> tuple[dict[str, Any], str]:
-    """Load hydrate phrase catalog from ``config/comprehensive_data_element_list.json`` (repo only).
-
-    *allow_drive* is retained for call-site compatibility; the catalog is not read from Drive.
-
-    Returns ``(data, source)`` where *source* is ``"local"`` or ``"missing"``.
-    """
-    _ = allow_drive  # Drive Cache folder is for portfolio/preload JSON only.
-    local_path = local_data_field_synonyms_path()
-
-    if not local_path.is_file():
-        return {}, "missing"
-    try:
-        raw = json.loads(local_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}, "missing"
-    if isinstance(raw, dict):
-        return raw, "local"
-    return {}, "missing"
-
-
 def try_load_portfolio_snapshot_for_request(
     days: int,
     max_customers: int | None,
@@ -439,15 +413,15 @@ def saved_at_to_calendar_date(saved_at: str) -> date | None:
         return None
 
 
-def ensure_daily_portfolio_snapshot_for_qbr(days: int, max_customers: int | None = None) -> None:
+def ensure_daily_portfolio_snapshot(days: int, max_customers: int | None = None) -> None:
     """If a snapshot folder exists, ensure Drive has a portfolio JSON when needed.
 
     Auto-upload runs **only on Sat/Sun** in ``CORTEX_PORTFOLIO_SNAPSHOT_CALENDAR_TZ``. Weekdays skip the
     expensive crawl; rely on Drive read (including stale weekday reuse) from
     ``try_load_portfolio_snapshot_for_request``.
 
-    Called after ``PendoClient.preload`` on QBR so portfolio crawl reuses warm caches.
-    Failures are logged; QBR continues without snapshot for this run.
+    Called after ``PendoClient.preload`` on heavy portfolio runs so crawl reuses warm caches.
+    Failures are logged; the caller continues without snapshot for this run.
     """
     folder_id = resolve_portfolio_snapshot_folder_id()
     if not folder_id:

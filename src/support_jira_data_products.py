@@ -16,6 +16,8 @@ JIRA_SUPPORT_PRODUCT_IDS: frozenset[str] = frozenset(
     {
         "customer_ticket_metrics",
         "help_ticket_volume_trends",
+        "help_factory_start_day_buckets",
+        "help_monthly_operational_metrics",
         "help_orgs_by_opened",
         "help_customer_escalations",
         "help_escalation_metrics",
@@ -63,9 +65,6 @@ SUPPORT_SLIDE_TYPES_NO_JIRA: frozenset[str] = frozenset(
         "support_deck_cover",
         "support_intro",
         "data_quality",
-        "qbr_cover",
-        "qbr_agenda",
-        "qbr_divider",
     }
 )
 
@@ -74,6 +73,8 @@ SUPPORT_JIRA_PRODUCTS_BY_SLIDE_TYPE: dict[str, frozenset[str]] = {
     "customer_ticket_metrics": frozenset({"customer_ticket_metrics"}),
     "customer_ticket_metrics_charts": frozenset({"customer_ticket_metrics"}),
     "support_help_orgs_by_opened": frozenset({"help_orgs_by_opened"}),
+    "support_help_factory_start_buckets": frozenset({"help_factory_start_day_buckets"}),
+    "support_help_monthly_operational": frozenset({"help_monthly_operational_metrics"}),
     "support_help_escalation_metrics": frozenset({"help_escalation_metrics"}),
     "support_help_customer_escalations": frozenset({"help_customer_escalations"}),
     "support_help_factory_start_buckets": frozenset({"help_factory_start_day_buckets"}),

@@ -218,16 +218,6 @@ _register(
     team="team_slide",
 )
 _register(
-    "slide_qbr_framing",
-    qbr_cover="qbr_cover_slide",
-    qbr_agenda="qbr_agenda_slide",
-    qbr_divider="qbr_divider_slide",
-)
-_register(
-    "slide_qbr_deployment",
-    qbr_deployment="qbr_deployment_slide",
-)
-_register(
     "slide_support_intro",
     support_deck_cover="support_deck_cover_slide",
     support_intro="support_intro_slide",

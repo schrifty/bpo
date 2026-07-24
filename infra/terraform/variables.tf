@@ -125,7 +125,7 @@ variable "scheduled_jobs" {
     rule_name           = optional(string)
   }))
   default = {
-    # EventBridge cron is UTC. Jobs run daily, 30 minutes apart starting 06:00 UTC.
+    # EventBridge cron is UTC. Daily jobs run 30 minutes apart starting 06:00 UTC.
     export-nightly = {
       schedule_expression = "cron(0 6 * * ? *)"
       command             = ["export-nightly"]
@@ -156,8 +156,14 @@ variable "scheduled_jobs" {
       enabled             = true
       rule_name           = "cortex-pendo-top-arr-30d"
     }
+    carrier-pendo-detailed-30d = {
+      schedule_expression = "cron(30 8 * * ? *)"
+      command             = ["carrier-pendo-detailed-30d"]
+      enabled             = true
+      rule_name           = "cortex-carrier-pendo-detailed-30d"
+    }
     metrics-eng-cycle-lead-weekly = {
-      schedule_expression = "cron(30 8 ? * MON *)"
+      schedule_expression = "cron(0 9 ? * MON *)"
       command             = ["metrics-eng-cycle-lead-weekly"]
       enabled             = true
       rule_name           = "cortex-metrics-eng-cycle-lead-weekly"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -57,3 +58,13 @@ def test_salesforce_configured_when_key_file_exists(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(dsh, "SF_PRIVATE_KEY", None)
     monkeypatch.setattr(dsh, "SF_PRIVATE_KEY_PATH", str(key_file))
     assert dsh._salesforce_configured() is True
+
+
+@patch("src.pendo_aggregate.call_with_pendo_retry")
+def test_check_pendo_retries_before_failure(mock_retry, monkeypatch: pytest.MonkeyPatch) -> None:
+    mock_retry.side_effect = RuntimeError("Pendo down")
+    monkeypatch.setattr(dsh, "PENDO_INTEGRATION_KEY", "test-key")
+    ok, msg = dsh.check_pendo()
+    assert ok is False
+    assert msg is not None and msg.startswith("Pendo:")
+    mock_retry.assert_called_once()

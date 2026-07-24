@@ -1,7 +1,7 @@
 """LeanDNA Lean Projects API client.
 
 Provides access to Lean Projects, savings tracking, and task/issue management.
-Used by qbr_template.py for continuous improvement ROI tracking.
+Used by deck_data_enrichment for continuous improvement ROI tracking.
 
 API docs: https://app.leandna.com/api/swagger.json
 Endpoints: /data/LeanProject, /data/LeanProject/{projectIds}/Savings, etc.

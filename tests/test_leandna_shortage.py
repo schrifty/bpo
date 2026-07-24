@@ -170,12 +170,12 @@ def test_get_scheduled_deliveries_summary():
 
 @patch("src.leandna_shortage_enrich.leandna_data_api_credentials_configured", lambda: True)
 @patch("src.leandna_shortage_enrich.get_shortages_by_item_weekly")
-def test_enrich_qbr_with_shortage_trends(mock_get_weekly, mock_weekly_shortage_data):
+def test_enrich_report_with_shortage_trends(mock_get_weekly, mock_weekly_shortage_data):
     """Test QBR enrichment with shortage trends."""
     mock_get_weekly.return_value = mock_weekly_shortage_data
     
     report = {"customer": "TestCorp"}
-    result = enrich.enrich_qbr_with_shortage_trends(report, "TestCorp", weeks_forward=12)
+    result = enrich.enrich_report_with_shortage_trends(report, "TestCorp", weeks_forward=12)
     
     assert result["leandna_shortage_trends"]["enabled"] is True
     assert result["leandna_shortage_trends"]["total_items_in_shortage"] == 3
@@ -193,12 +193,12 @@ def test_enrich_qbr_with_shortage_trends(mock_get_weekly, mock_weekly_shortage_d
 
 @patch("src.leandna_shortage_enrich.leandna_data_api_credentials_configured", lambda: True)
 @patch("src.leandna_shortage_enrich.get_shortages_by_item_weekly")
-def test_enrich_qbr_with_shortage_trends_no_data(mock_get_weekly):
+def test_enrich_report_with_shortage_trends_no_data(mock_get_weekly):
     """Test enrichment with no shortage data."""
     mock_get_weekly.return_value = []
     
     report = {"customer": "TestCorp"}
-    result = enrich.enrich_qbr_with_shortage_trends(report, "TestCorp")
+    result = enrich.enrich_report_with_shortage_trends(report, "TestCorp")
     
     assert result["leandna_shortage_trends"]["enabled"] is True
     assert result["leandna_shortage_trends"]["total_items_in_shortage"] == 0
@@ -206,10 +206,10 @@ def test_enrich_qbr_with_shortage_trends_no_data(mock_get_weekly):
 
 
 @patch("src.leandna_shortage_enrich.leandna_data_api_credentials_configured", lambda: False)
-def test_enrich_qbr_without_bearer_token():
+def test_enrich_report_without_bearer_token():
     """Test enrichment skips when bearer token not configured."""
     report = {"customer": "TestCorp"}
-    result = enrich.enrich_qbr_with_shortage_trends(report, "TestCorp")
+    result = enrich.enrich_report_with_shortage_trends(report, "TestCorp")
     
     assert result["leandna_shortage_trends"]["enabled"] is False
     assert result["leandna_shortage_trends"]["reason"] == "bearer_token_not_configured"
@@ -222,7 +222,7 @@ def test_enrich_qbr_handles_api_error_gracefully(mock_get_weekly):
     mock_get_weekly.side_effect = Exception("API error")
     
     report = {"customer": "TestCorp"}
-    result = enrich.enrich_qbr_with_shortage_trends(report, "TestCorp")
+    result = enrich.enrich_report_with_shortage_trends(report, "TestCorp")
     
     assert result["leandna_shortage_trends"]["enabled"] is True
     assert "error" in result["leandna_shortage_trends"]

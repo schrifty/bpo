@@ -1,7 +1,7 @@
 """QBR report enrichment with LeanDNA Item Master Data.
 
 Augments the report dict with item-level supply chain intelligence before slide generation.
-Called from qbr_template.py after CS Report load.
+Called from deck_data_enrichment after CS Report load.
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def _resolve_customer_sites(customer: str) -> str | None:
     return None
 
 
-def enrich_qbr_with_item_master(
+def enrich_report_with_item_master(
     report: dict[str, Any],
     customer: str,
     force_refresh: bool = False,

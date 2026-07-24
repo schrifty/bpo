@@ -11,8 +11,8 @@ def test_apply_cli_warning_filters_registers_google_and_urllib3_filters() -> Non
     apply_cli_warning_filters()
     patterns = []
     for item in warnings.filters:
-        if len(item) >= 4 and item[2] is not None:
-            msg = item[2]
+        if len(item) >= 2 and item[1] is not None:
+            msg = item[1]
             patterns.append(msg.pattern if hasattr(msg, "pattern") else str(msg))
     joined = " ".join(patterns)
     assert "urllib3 v2 only supports OpenSSL" in joined

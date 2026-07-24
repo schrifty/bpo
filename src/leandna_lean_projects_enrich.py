@@ -1,7 +1,7 @@
 """QBR report enrichment with LeanDNA Lean Projects data.
 
 Augments the report dict with project portfolio health and savings tracking.
-Called from qbr_template.py after CS Report load.
+Called from deck_data_enrichment after CS Report load.
 
 **Payload shape**
 
@@ -106,7 +106,7 @@ def _get_quarter_date_range(report: dict[str, Any]) -> tuple[str, str]:
         return _get_quarter_date_range({})
 
 
-def enrich_qbr_with_lean_projects(
+def enrich_report_with_lean_projects(
     report: dict[str, Any],
     customer: str,
     force_refresh: bool = False,

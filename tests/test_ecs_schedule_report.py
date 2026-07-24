@@ -53,7 +53,7 @@ def test_build_schedule_rows_merges_catalog_when_aws_empty(monkeypatch):
     assert top_arr.schedule_expression == "cron(0 8 * * ? *)"
     weekly = next(r for r in rows if r.job_key == "metrics-eng-cycle-lead-weekly")
     assert weekly.rule_name == "cortex-metrics-eng-cycle-lead-weekly"
-    assert weekly.schedule_expression == "cron(30 8 ? * MON *)"
+    assert weekly.schedule_expression == "cron(0 9 ? * MON *)"
     eng = next(r for r in rows if r.job_key == "engineering-portfolio")
     assert eng.rule_name == "cortex-engineering-portfolio"
     assert eng.schedule_expression == "cron(30 6 * * ? *)"

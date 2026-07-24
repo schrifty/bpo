@@ -18,7 +18,7 @@ The QBR Generator folder (``GOOGLE_QBR_GENERATOR_FOLDER_ID``) typically contains
         {ISO-date} - Output/
     slides/
     Prompts/
-        (qbr_slide_list Google Doc, adapt_system_prompt.yaml, …)
+        (optional shared prompt assets, …)
 
 :func:`get_qbr_generator_folder_id_for_drive_config` returns the folder id from
 ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` (required).
@@ -56,44 +56,10 @@ _drive_yaml_duplicate_signatures_warned: set[tuple[str, tuple[tuple[str, str, tu
 # Set by ensure_drive_config_matches_repo (at most once per process).
 _drive_repo_sync_ran = False
 
-# QBR Generator → Prompts/adapt_system_prompt.yaml sync (at most once per process).
-_qbr_adapt_prompt_sync_ran = False
-
-# Same folder name as ``qbr_template.QBR_PROMPTS_SUBFOLDER`` (qbr_slide_list doc lives here).
+# Drive output folder name under the generator root.
 QBR_OUTPUT_SUBFOLDER = "Output"
-QBR_PROMPTS_FOLDER_NAME = "Prompts"
-ADAPT_SYSTEM_PROMPT_FILENAME = "adapt_system_prompt.yaml"
 _MIME_FOLDER = "application/vnd.google-apps.folder"
 _MIME_PRESENTATION = "application/vnd.google-apps.presentation"
-
-
-def resolve_qbr_template_presentation_id() -> str:
-    """Return the Drive **file id** for the canonical QBR Slides template.
-
-    Matches :func:`~src.qbr_template.resolve_qbr_template_and_manifest` template lookup without
-    loading the manifest Doc.
-
-    Resolution:
-        - Parent folder: ``GOOGLE_QBR_TEMPLATE_FOLDER_ID`` if set, else the QBR generator folder.
-        - File name: ``config.QBR_TEMPLATE_FILE_NAME``.
-
-    Raises:
-        RuntimeError: generator folder env not set (same as :func:`get_qbr_generator_folder_id_for_drive_config`).
-        FileNotFoundError: no Slides file with that exact name under the folder.
-
-    Note:
-        Callers **must not** mutate this file (e.g. append inventory slides); use a copy or ``--presentation``.
-    """
-    from .config import GOOGLE_QBR_TEMPLATE_FOLDER_ID, QBR_TEMPLATE_FILE_NAME
-
-    gen_id = get_qbr_generator_folder_id_for_drive_config()
-    folder = (GOOGLE_QBR_TEMPLATE_FOLDER_ID or "").strip() or gen_id
-    tid = find_file_in_folder(QBR_TEMPLATE_FILE_NAME, folder, _MIME_PRESENTATION)
-    if not tid:
-        raise FileNotFoundError(
-            f"QBR template Slides file not found: {QBR_TEMPLATE_FILE_NAME!r} under Drive folder id {folder}",
-        )
-    return tid
 
 
 def _get_drive():
@@ -259,7 +225,9 @@ def rename_drive_file(file_id: str, new_name: str) -> None:
         drive.files().update(fileId=file_id, body={"name": new_name}, fields="id,name").execute()
 
 
-def move_drive_file(file_id: str, *, from_parent_id: str, to_parent_id: str, new_name: str | None = None) -> None:
+def move_drive_file(
+    file_id: str, *, from_parent_id: str, to_parent_id: str, new_name: str | None = None
+) -> None:
     body: dict[str, Any] = {}
     if new_name:
         body["name"] = new_name
@@ -521,34 +489,16 @@ def upload_text_file_to_drive_folder(
     When ``replace_existing`` is True (default), updates the first non-trashed file with the
     same ``name`` in that folder (any mime); otherwise creates a new file (duplicates allowed).
     """
-    return upload_binary_file_to_drive_folder(
-        name,
-        content.encode("utf-8"),
-        folder_id,
-        mime_type=mime_type,
-        replace_existing=replace_existing,
-    )
-
-
-def upload_binary_file_to_drive_folder(
-    name: str,
-    content: bytes,
-    folder_id: str,
-    *,
-    mime_type: str = "application/octet-stream",
-    replace_existing: bool = True,
-) -> str:
-    """Create or replace a binary file on Drive under ``folder_id``. Returns file id."""
     with drive_api_lock:
         drive = _get_drive()
         media = MediaIoBaseUpload(
-            io.BytesIO(content),
+            io.BytesIO(content.encode("utf-8")),
             mimetype=mime_type,
             resumable=False,
         )
         fid: str | None = None
         if replace_existing:
-            fid = dedupe_duplicate_names_in_folder(folder_id, name)
+            fid = find_file_in_folder(name, folder_id, mime_type=None)
         if fid:
             f = drive.files().update(fileId=fid, media_body=media).execute()
             return f["id"]
@@ -563,40 +513,28 @@ def upload_to_qbr_output_folders(
     *,
     mime_type: str = "text/markdown",
 ) -> dict[str, str]:
-    """Upload persistent + historical copies under ``Output/``.
+    """Upload to QBR ``Output/`` and today's ``{ISO-date} - Output/`` (replace same filename).
 
-    Persistent file uses ``{stem}-persistent{ext}`` in ``Output/``; same-day snapshot uses
-    ``Historical Data/{ISO-date}/{stem}{ext}`` (plain stem, no ``-persistent``).
+    Same layout as LLM context export and dated deck outputs under the QBR Generator tree.
+    Raises ``RuntimeError`` when Drive output folders cannot be resolved.
     """
-    from .export_drive_layout import ensure_portfolio_output_folders, upload_text_persistent_and_historical
-
-    folders = ensure_portfolio_output_folders()
-    if "." in name:
-        stem, ext = name.rsplit(".", 1)
-        ext = f".{ext}"
-    else:
-        stem, ext = name, ""
-    urls = upload_text_persistent_and_historical(
-        stem=stem,
-        content=content,
-        ext=ext,
-        persistent_folder_id=folders["persistent_folder_id"],
-        historical_folder_id=folders["historical_folder_id"],
-        base_label=folders["base_label"],
-        mime_type=mime_type,
-    )
+    root_id = get_qbr_output_root_folder_id()
+    dated_id = get_qbr_output_folder_id()
+    if not root_id or not dated_id:
+        raise RuntimeError(
+            "Could not resolve Drive Output folders (set GOOGLE_QBR_GENERATOR_FOLDER_ID "
+            "and verify Drive access)."
+        )
+    fid_root = upload_text_file_to_drive_folder(name, content, root_id, mime_type=mime_type)
+    fid_dated = upload_text_file_to_drive_folder(name, content, dated_id, mime_type=mime_type)
+    dated_label = f"{datetime.date.today().isoformat()} - Output"
     return {
-        "filename": urls["persistent_filename"],
-        "historical_filename": urls["historical_filename"],
-        "historical_day_folder": urls.get("historical_day_folder"),
-        "file_id_root": urls["persistent_file_id"],
-        "file_id_historical": urls["historical_file_id"],
-        "root_folder_id": folders["persistent_folder_id"],
-        "historical_folder_id": folders["historical_folder_id"],
-        # Backward-compatible keys for older callers
-        "file_id_dated": urls["historical_file_id"],
-        "dated_folder_id": folders["historical_folder_id"],
-        "dated_label": "Historical Data",
+        "filename": name,
+        "dated_label": dated_label,
+        "file_id_root": fid_root,
+        "file_id_dated": fid_dated,
+        "root_folder_id": root_id,
+        "dated_folder_id": dated_id,
     }
 
 
@@ -612,157 +550,20 @@ def config_text_matches_local(local_text: str, drive_text: str) -> bool:
     return _normalize_config_text(local_text) == _normalize_config_text(drive_text)
 
 
-def ensure_qbr_adapt_prompt_yaml_synced_from_repo() -> None:
-    """Push local ``prompts/adapt_system_prompt.yaml`` to QBR Generator's Prompts folder if stale or missing.
-
-    Idempotent: runs at most once per process unless :func:`clear_yaml_config_cache` resets the guard.
-    """
-    global _qbr_adapt_prompt_sync_ran
-    if _qbr_adapt_prompt_sync_ran:
-        return
-    if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
-        return
-    _qbr_adapt_prompt_sync_ran = True
-    qbr_gen = get_qbr_generator_folder_id_for_drive_config()
-    local_path = Path(__file__).resolve().parent.parent / "prompts" / ADAPT_SYSTEM_PROMPT_FILENAME
-    if not local_path.is_file():
-        logger.debug("No local %s — skip QBR Prompts sync", ADAPT_SYSTEM_PROMPT_FILENAME)
-        return
-    try:
-        prompts_id = _find_or_create_folder(QBR_PROMPTS_FOLDER_NAME, qbr_gen)
-        local_text = local_path.read_text(encoding="utf-8")
-        existing = {f["name"]: f["id"] for f in _list_drive_files(prompts_id)}
-        fid = existing.get(ADAPT_SYSTEM_PROMPT_FILENAME)
-        if fid:
-            try:
-                drive_text = _read_drive_file(fid)
-            except Exception as e:
-                logger.warning(
-                    "Could not read Drive QBR Prompts/%s (%s) — replacing from repo",
-                    ADAPT_SYSTEM_PROMPT_FILENAME,
-                    e,
-                )
-                _upload_file(ADAPT_SYSTEM_PROMPT_FILENAME, local_text, prompts_id, file_id=fid)
-                logger.info("Replaced QBR Prompts/%s on Drive (read failed)", ADAPT_SYSTEM_PROMPT_FILENAME)
-                return
-            if config_text_matches_local(local_text, drive_text):
-                return
-            _upload_file(ADAPT_SYSTEM_PROMPT_FILENAME, local_text, prompts_id, file_id=fid)
-            logger.info("Synced QBR Prompts/%s from repo to Drive", ADAPT_SYSTEM_PROMPT_FILENAME)
-        else:
-            _upload_file(ADAPT_SYSTEM_PROMPT_FILENAME, local_text, prompts_id)
-            logger.info("Uploaded QBR Prompts/%s to Drive (new file)", ADAPT_SYSTEM_PROMPT_FILENAME)
-    except Exception as e:
-        logger.warning("QBR Prompts %s sync failed: %s", ADAPT_SYSTEM_PROMPT_FILENAME, e)
-
-
-def read_adapt_system_prompt_yaml_text_from_drive() -> str | None:
-    """Return raw YAML text for ``adapt_system_prompt.yaml`` from QBR Prompts folder, or None."""
-    if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
-        return None
-    qbr_gen = get_qbr_generator_folder_id_for_drive_config()
-    try:
-        prompts_id = _find_or_create_folder(QBR_PROMPTS_FOLDER_NAME, qbr_gen)
-        existing = {f["name"]: f["id"] for f in _list_drive_files(prompts_id)}
-        fid = existing.get(ADAPT_SYSTEM_PROMPT_FILENAME)
-        if not fid:
-            return None
-        return _read_drive_file(fid)
-    except Exception as e:
-        logger.warning(
-            "Could not read QBR Prompts/%s from Drive: %s",
-            ADAPT_SYSTEM_PROMPT_FILENAME,
-            e,
-        )
-        return None
-
-
-def _adapt_system_prompt_body_from_yaml_raw(raw: str) -> str | None:
-    """Return usable adapt system prompt text, or None if YAML is invalid or key missing."""
-    try:
-        data = yaml.safe_load(raw)
-        if not isinstance(data, dict):
-            return None
-        s = data.get("adapt_system_prompt")
-        if not isinstance(s, str) or not s.strip():
-            return None
-        return s.rstrip("\n") + "\n"
-    except Exception:
-        return None
-
-
-def assert_qbr_prompts_ready_or_raise() -> None:
-    """Validate local and (when Drive is configured) Drive ``Prompts/`` before heavy data work.
-
-    Call from hydrate (and similar entry points) **before** Pendo / health-report loads so the
-    run fails fast when ``adapt_system_prompt.yaml`` is missing or unusable.
-
-    Raises:
-        FileNotFoundError: local file missing, Prompts folder missing on Drive, or Drive YAML missing.
-        ValueError: YAML present but ``adapt_system_prompt`` key missing/empty.
-        RuntimeError: ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` is unset or empty.
-    """
-    root = Path(__file__).resolve().parent.parent
-    local_path = root / "prompts" / ADAPT_SYSTEM_PROMPT_FILENAME
-    if not local_path.is_file():
-        raise FileNotFoundError(
-            f"Missing local {ADAPT_SYSTEM_PROMPT_FILENAME} under {local_path.parent}"
-        )
-    local_raw = local_path.read_text(encoding="utf-8")
-    if _adapt_system_prompt_body_from_yaml_raw(local_raw) is None:
-        raise ValueError(
-            f"{local_path} must contain a non-empty string key 'adapt_system_prompt'"
-        )
-
-    if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
-        raise RuntimeError(
-            "GOOGLE_QBR_GENERATOR_FOLDER_ID must be set (folder id for QBR template, Prompts, decks/, slides/)."
-        )
-
-    ensure_drive_config_matches_repo()
-    qbr_gen = get_qbr_generator_folder_id_for_drive_config()
-    prompts_id = find_file_in_folder(QBR_PROMPTS_FOLDER_NAME, qbr_gen, _MIME_FOLDER)
-    if not prompts_id:
-        raise FileNotFoundError(
-            f"QBR Prompts folder {QBR_PROMPTS_FOLDER_NAME!r} not found under QBR Generator "
-            f"(id={qbr_gen})"
-        )
-    ensure_qbr_adapt_prompt_yaml_synced_from_repo()
-    drive_raw = read_adapt_system_prompt_yaml_text_from_drive()
-    if drive_raw is None:
-        raise FileNotFoundError(
-            f"{ADAPT_SYSTEM_PROMPT_FILENAME} missing or unreadable in Drive Prompts "
-            f"(folder id={prompts_id}) after sync"
-        )
-    if _adapt_system_prompt_body_from_yaml_raw(drive_raw) is None:
-        raise ValueError(
-            f"Drive {ADAPT_SYSTEM_PROMPT_FILENAME} must contain a non-empty string key 'adapt_system_prompt'"
-        )
-
-
 def clear_yaml_config_cache() -> None:
     """Drop cached deck/slide YAML from Drive so the next load refetches."""
-    global _qbr_adapt_prompt_sync_ran
     with _yaml_cache_lock:
         _yaml_cache.clear()
         _slide_def_id_cache.clear()
-    _qbr_adapt_prompt_sync_ran = False
-    try:
-        from .evaluate import _load_adapt_system_prompt_template
-
-        _load_adapt_system_prompt_template.cache_clear()
-    except Exception:
-        pass
 
 
 def reset_for_tests() -> None:
     """Reset Drive-backed module caches and one-shot sync guards for test isolation."""
-    global _drive_repo_sync_ran, _qbr_adapt_prompt_sync_ran
+    global _drive_repo_sync_ran
     clear_yaml_config_cache()
     with _drive_yaml_duplicate_log_lock:
         _drive_yaml_duplicate_signatures_warned.clear()
     _drive_repo_sync_ran = False
-    _qbr_adapt_prompt_sync_ran = False
 
 
 def list_obsolete_drive_config(
@@ -1021,8 +822,7 @@ def ensure_drive_config_matches_repo() -> None:
     with whatever is on Drive (or local fallback).
 
     Deck/slide files live under ``<QBR Generator>/decks|slides/`` (see
-    :func:`get_qbr_generator_folder_id_for_drive_config`). Also syncs
-    ``prompts/adapt_system_prompt.yaml`` to the same folder’s ``Prompts/`` subfolder.
+    :func:`get_qbr_generator_folder_id_for_drive_config`).
     """
     global _drive_repo_sync_ran
     if _drive_repo_sync_ran:
@@ -1057,10 +857,6 @@ def ensure_drive_config_matches_repo() -> None:
                 )
     except Exception as e:
         logger.warning("Drive QBR Generator deck|slide sync failed (continuing): %s", e)
-    try:
-        ensure_qbr_adapt_prompt_yaml_synced_from_repo()
-    except Exception as e:
-        logger.warning("QBR Prompts adapt_system_prompt sync failed (continuing): %s", e)
 
 
 # ── Public API ──

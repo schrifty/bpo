@@ -1130,7 +1130,7 @@ def _pendo_portfolio_topline(
     size_caps_enabled: bool = True,
 ) -> dict[str, Any]:
     """Portfolio rollup + capped per-customer headline rows + usage-by-site."""
-    from src.hydrate_data_summary import truncate_strings_in_obj
+    from src.export_string_utils import truncate_strings_in_obj
 
     raw_customers = portfolio.get("customers") if isinstance(portfolio.get("customers"), list) else []
     cap_rows = (
@@ -1298,7 +1298,7 @@ def _compact_csr_customer_block(
     block: dict[str, Any], *, site_limit: int, string_cap: int, size_caps_enabled: bool = True
 ) -> dict[str, Any]:
     """Merged, LLM-friendly per-customer CSR: one row per factory + section rollups."""
-    from src.hydrate_data_summary import truncate_strings_in_obj
+    from src.export_string_utils import truncate_strings_in_obj
 
     merged_sites = _merge_customer_csr_site_rows(block)
     out: dict[str, Any] = {"summary": _csr_customer_summary(block, factory_count=len(merged_sites))}
@@ -2053,7 +2053,7 @@ def build_snapshot_document(
     }
     stc = report.get("signals_trend_context")
     if stc:
-        from src.hydrate_data_summary import truncate_strings_in_obj
+        from src.export_string_utils import truncate_strings_in_obj
 
         if size_caps_enabled:
             doc["signals_trend_context"] = truncate_strings_in_obj(

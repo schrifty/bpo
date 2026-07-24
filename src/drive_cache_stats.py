@@ -7,7 +7,10 @@ from contextlib import contextmanager
 from typing import Any, Iterator
 
 from .config import logger
-from .hydrate_reproducibility import cache_hit_rate_line
+
+def _cache_hit_rate_line(label: str, hits: int, total: int) -> str:
+    pct = (100 * hits // total) if total else 0
+    return f"{label}: {hits}/{total} ({pct}%)"
 
 _lock = threading.Lock()
 _integration_attempts = 0
@@ -75,7 +78,7 @@ def format_drive_cache_load_summary() -> str:
     snap = drive_cache_load_stats_snapshot()
     ig = snap["integration"]
     if ig["attempts"] > 0:
-        return "Drive JSON cache — " + cache_hit_rate_line("integration", ig["hits"], ig["attempts"])
+        return "Drive JSON cache — " + _cache_hit_rate_line("integration", ig["hits"], ig["attempts"])
     return "Drive JSON cache: no load attempts"
 
 

@@ -35,6 +35,7 @@ def test_attach_comprehensive_fetches_per_label(monkeypatch):
         "src.llm_export_salesforce_comprehensive._salesforce_configured",
         lambda: True,
     )
+    monkeypatch.delenv("CORTEX_LLM_EXPORT_SF_COMPREHENSIVE_ROW_LIMIT", raising=False)
     monkeypatch.setattr(
         "src.customer_identity.lookup_salesforce_identity",
         lambda _label: ([], None),

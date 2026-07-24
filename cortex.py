@@ -13,13 +13,6 @@ Flag commands (utilities)
       Print configured deck ids and display names (from local YAML), grouped into
       customer-scoped vs portfolio / cross-customer decks.
 
-  cortex --hydrate [customer]
-      Hydrate slide content for presentations shared with the intake group (see .env:
-      GOOGLE_HYDRATE_INTAKE_GROUP). Optional customer name overrides detection.
-
-  cortex --evaluate [--verbose|-v]
-      Run reproducibility checks on slides. Summary prints at the end.
-
   cortex --qa <url-or-presentation-id>
       Visual QA for one presentation (URL may contain /presentation/d/<id>/).
 
@@ -30,9 +23,8 @@ Flag commands (utilities)
       Run full Pendo portfolio crawl and upload JSON to the portfolio snapshot
       folder: CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID if set, else "Cache" under QBR generator
       under GOOGLE_QBR_GENERATOR_FOLDER_ID. If you omit --days, uses the same
-      calendar length as resolve_quarter() (matches default QBR cohort window).
-      QBR may auto-refresh this snapshot on weekends when Drive needs an update (see
-      ``pendo_portfolio_snapshot_drive.ensure_daily_portfolio_snapshot_for_qbr``).
+      calendar length as resolve_quarter(). Portfolio runs may auto-refresh this snapshot on weekends when Drive needs an update (see
+      ``pendo_portfolio_snapshot_drive.ensure_weekend_portfolio_snapshot``).
 
   cortex --customer "Customer Name" [--days N] [--quarter Q1 2026] [--thumbnails] [--workers N]
       Run every **customer-scoped** deck id (see ``cortex --list``) for one account, in sequence.
@@ -53,6 +45,7 @@ Flag commands (utilities)
       ``<QBR Generator>/Output/LLM-Context-Portfolio-persistent.md`` (bookmarkable current export)
       and under ``Output/Historical Data/{ISO-date}/LLM-Context-Portfolio.md`` (same-day snapshot).
       Prior-month base-folder exports are archived into ``Output/Historical Data/{YYYY-MM}/`` at startup.
+      ``cortex --export`` is a deprecated alias for the same command.
       Section 7 LLM churn/account-risk insights are always appended to the export markdown.
 
   cortex --export-pendo --customer <name> [--days N] [--compare-days N] [--no-drive] [-o PATH]
@@ -76,10 +69,6 @@ Flag commands (utilities)
   cortex run-job --job <name> [--dry-run] [--no-json-summary]
       Run a declarative batch job from ``config/jobs/<name>.yaml`` (or ``CORTEX_JOB=<name>``).
       Steps invoke ``cortex.py`` subcommands sequentially; emits ``CORTEX_RUN_SUMMARY=…`` on stdout.
-
-  cortex qbr <customer name>
-      Quarterly Business Review from the Drive QBR template (single Slides file). Other decks are built with
-      ``cortex --customer``, ``cortex run --deck …``, or ``cortex --portfolio`` as needed — not as part of ``qbr``.
 
 ────────────────────────────────────────────────────────────────
 Generate one deck (explicit)
@@ -1239,7 +1228,7 @@ def main():
     maybe_archive_previous_month_exports()
     maybe_sync_export_user_guide_on_startup()
 
-    # Utility flags and explicit subcommands (``run``, ``qbr``, ``cohort``, …)
+    # Utility flags and explicit subcommands (``run``, ``cohort``, …)
     if "--data" in sys.argv:
         _run_data_catalog_cli()
         return
@@ -1250,6 +1239,33 @@ def main():
             file=sys.stderr,
         )
         sys.exit(2)
+
+    if "--export-pendo" in sys.argv:
+        from src.export_customer_pendo_snapshot import export_pendo_main
+
+        rest = [a for a in sys.argv[1:] if a != "--export-pendo"]
+        export_pendo_main(rest, prog="cortex --export-pendo")
+        return
+
+    if "--export-pendo-detailed" in sys.argv:
+        from src.export_pendo_detailed_snapshot import export_pendo_detailed_main
+
+        rest = [a for a in sys.argv[1:] if a != "--export-pendo-detailed"]
+        export_pendo_detailed_main(rest, prog="cortex --export-pendo-detailed")
+        return
+
+    if "--export-pendo-top-arr" in sys.argv:
+        from src.export_pendo_detailed_snapshot import export_pendo_top_arr_main
+
+        rest = [a for a in sys.argv[1:] if a != "--export-pendo-top-arr"]
+        export_pendo_top_arr_main(rest, prog="cortex --export-pendo-top-arr")
+        return
+
+    if len(sys.argv) > 1 and sys.argv[1] == "export-all":
+        from src.export_llm_context_snapshot import export_main
+
+        export_main(sys.argv[2:], prog="cortex export-all")
+        return
 
     if "--export-pendo" in sys.argv:
         from src.export_customer_pendo_snapshot import export_pendo_main
@@ -1284,12 +1300,6 @@ def main():
         rest = [a for a in sys.argv[1:] if a != "--running"]
         sys.exit(running_main(rest, prog="cortex --running"))
 
-    if len(sys.argv) > 1 and sys.argv[1] == "qbr":
-        from src.qbr_template import run_qbr_cli
-
-        run_qbr_cli(sys.argv[2:], prog="cortex qbr")
-        return
-
     if "--list" in sys.argv:
         from src.deck_loader import list_decks
 
@@ -1311,26 +1321,8 @@ def main():
             print(f"  {m['name']}")
         return
 
-    if "--evaluate" in sys.argv:
-        from src.evaluate import evaluate_new_slides
-        verbose = "--verbose" in sys.argv or "-v" in sys.argv
-        results = evaluate_new_slides(verbose=verbose)
-        if results:
-            reproducible = sum(1 for r in results if "fully" in r.get("feasibility", ""))
-            mostly = sum(1 for r in results if "mostly" in r.get("feasibility", ""))
-            partial = sum(1 for r in results if "partially" in r.get("feasibility", ""))
-            blocked = sum(1 for r in results if "not" in r.get("feasibility", ""))
-            print(f"{'=' * 60}")
-            print(f"Summary: {len(results)} slides evaluated")
-            print(f"  ✅ Fully reproducible:     {reproducible}")
-            print(f"  🟡 Mostly reproducible:    {mostly}")
-            print(f"  🟠 Partially reproducible: {partial}")
-            print(f"  ❌ Not reproducible:        {blocked}")
-            print(f"{'=' * 60}")
-        return
-
     if "--qa" in sys.argv:
-        from src.evaluate import visual_qa
+        from src.visual_qa import visual_qa
         import re as _re
         rest = " ".join(a for a in sys.argv[1:] if a != "--qa").strip()
         m = _re.search(r"presentation/d/([a-zA-Z0-9_-]+)", rest)
@@ -1343,18 +1335,6 @@ def main():
         if not issues:
             print("\nAll slides passed visual QA.")
         sys.exit(1 if issues else 0)
-
-    if "--hydrate" in sys.argv:
-        from src.evaluate import hydrate_new_slides
-        rest = [a for a in sys.argv[1:] if a not in ("--hydrate",)]
-        override = " ".join(rest).strip() if rest else None
-        if not override:
-            full = " ".join(sys.argv[1:])
-            import re
-            m = re.search(r"(?:for|hydrate)\s+(.+)", full, re.I)
-            override = m.group(1).strip() if m else None
-        hydrate_new_slides(customer_override=override)
-        return
 
     if "--sync-config" in sys.argv:
         from src.drive_config import sync_config_to_drive
@@ -1386,7 +1366,7 @@ def main():
         if days is None:
             days = resolve_quarter(None).days
             print(
-                f"Using --days {days} from resolve_quarter() (same window as default QBR); "
+                f"Using --days {days} from resolve_quarter(); "
                 "pass --days explicitly to override."
             )
         print(f"Uploading portfolio snapshot (days={days}, max_customers={max_cust})...")
