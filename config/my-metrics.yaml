@@ -10,6 +10,9 @@
 #                       already present in GET /data/Metric (create metrics in LeanDNA UI)
 #   metric-generator  — Python function that computes the daily value when wired in Cortex;
 #                       null when no generator exists in this repo yet
+#   tags              — Optional list of lowercase labels for grouping/filtering KPIs
+#                       (e.g. [engineering, delivery]). One KPI may carry many tags. Query
+#                       all KPIs for a tag with current values via `metrics-by-tag --tag NAME`.
 #
 # Generator names refer to functions under src/ (e.g. jira_cycle_time.get_dev_team_cycle_times).
 
@@ -19,12 +22,14 @@ metrics:
     description: null
     metric-id: 1860
     metric-generator: null
+    tags: [control-tower, onboarding]
 
   # On-Time Performance
   "On Time Performance":
     description: null
     metric-id: 1745
     metric-generator: null
+    tags: [supply-chain, delivery]
 
   # Customer-Reported Bugs
   "Customer-Reported Bugs":
@@ -34,6 +39,7 @@ metrics:
       portfolio Bug Health slide. Computed from Jira by get_customer_reported_bugs.
     metric-id: 2035
     metric-generator: get_customer_reported_bugs
+    tags: [engineering, quality]
 
   # Tickets Beyond Service Thresholds
   "Tickets Beyond Service Thresholds":
@@ -44,12 +50,14 @@ metrics:
       get_service_threshold_tickets.
     metric-id: 2028
     metric-generator: get_service_threshold_tickets
+    tags: [support, sla]
 
   # Site Uptime %
   "Site Uptime %":
     description: null
     metric-id: 1769
     metric-generator: null
+    tags: [reliability, platform]
 
   # AI Token Usage
   "AI Token Usage":
@@ -59,30 +67,35 @@ metrics:
       get_ai_token_usage.
     metric-id: null
     metric-generator: get_ai_token_usage
+    tags: [ai, engineering, adoption]
 
   # Median Time to Complete SUT (Weeks)
   "Median Time to Complete SUT (Weeks)":
     description: null
     metric-id: 2175
     metric-generator: null
+    tags: [onboarding, delivery]
 
   # Sprint Delivery % - AUTOMATABLE
   "Sprint Delivery %":
     description: null
     metric-id: 2086
     metric-generator: null
+    tags: [engineering, delivery]
 
   # TTFR (30 Days) - AUTOMATABLE
   "TTFR (30 Days)":
     description: null
     metric-id: null
     metric-generator: null
+    tags: [support, sla]
 
   # SLA Adherence (30 Days) - AUTOMATABLE
   "SLA Adherence (30 Days)":
     description: null
     metric-id: null
     metric-generator: null
+    tags: [support, sla]
 
   "Engineering Cycle Time (Sprint)":
     description: >-
@@ -91,6 +104,7 @@ metrics:
       counting backlog wait. Computed from Jira changelogs by get_dev_team_cycle_times.
     metric-id: 2024
     metric-generator: get_dev_team_cycle_times
+    tags: [engineering, delivery]
 
   "Engineering Lead Time (Days)":
     description: >-
@@ -99,18 +113,21 @@ metrics:
       lead time by get_dev_team_lead_time.
     metric-id: 2179
     metric-generator: get_dev_team_lead_time
+    tags: [engineering, delivery]
 
   # Data Sync Failures (Month) - 2029
   "Data Sync Failures (Month)":
     description: null
     metric-id: null
     metric-generator: null
+    tags: [reliability, data-integration]
 
   # Data Sync Failures (YTD) - 2031
   "Data Sync Failures (YTD)":
     description: null
     metric-id: null
     metric-generator: null
+    tags: [reliability, data-integration]
 
   # 2076
   "KPI Automation %":
@@ -120,18 +137,21 @@ metrics:
       the KPI automation numerator.
     metric-id: null
     metric-generator: get_kpi_automation_pct
+    tags: [automation, ops]
 
   # 2077
   "QBR Automation %":
     description: null
     metric-id: null
     metric-generator: null
+    tags: [automation, ops]
 
   # 2085
   "Team Performance (Onshore vs. Offshore)":
     description: null
     metric-id: null
     metric-generator: null
+    tags: [engineering, delivery]
 
   "Sprint Story Points Delivered":
     description: >-
@@ -139,9 +159,11 @@ metrics:
       boards, aggregated from Jira by get_sprint_story_points_by_team.
     metric-id: null
     metric-generator: get_sprint_story_points_by_team
+    tags: [engineering, delivery]
 
   # 2087
   "AI Usage/Effectiveness":
     description: null
     metric-id: null
     metric-generator: null
+    tags: [ai, adoption]

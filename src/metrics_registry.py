@@ -42,6 +42,76 @@ def registry_metric_description(entry: Any) -> str | None:
     return text or None
 
 
+def normalize_tag(raw: Any) -> str:
+    """Canonical tag form: trimmed, lowercased, inner whitespace/underscores → hyphen."""
+    text = str(raw or "").strip().lower()
+    if not text:
+        return ""
+    return "-".join(text.replace("_", " ").split())
+
+
+def registry_metric_tags(entry: Any) -> list[str]:
+    """Normalized, de-duplicated tags for a registry entry (order preserved)."""
+    if not isinstance(entry, dict):
+        return []
+    raw = entry.get("tags")
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        candidates = [raw]
+    elif isinstance(raw, (list, tuple)):
+        candidates = list(raw)
+    else:
+        return []
+    out: list[str] = []
+    for item in candidates:
+        tag = normalize_tag(item)
+        if tag and tag not in out:
+            out.append(tag)
+    return out
+
+
+def entry_has_tag(entry: Any, tag: str) -> bool:
+    """True when *entry* carries *tag* (tag comparison is normalized)."""
+    target = normalize_tag(tag)
+    if not target:
+        return False
+    return target in registry_metric_tags(entry)
+
+
+def all_registry_tags(*, registry: dict[str, Any] | None = None) -> list[tuple[str, int]]:
+    """Sorted ``(tag, count)`` pairs across the registry, most-used first then alphabetical."""
+    reg = registry if registry is not None else load_metrics_registry()
+    metrics = reg.get("metrics")
+    if not isinstance(metrics, dict):
+        return []
+    counts: dict[str, int] = {}
+    for entry in metrics.values():
+        for tag in registry_metric_tags(entry):
+            counts[tag] = counts.get(tag, 0) + 1
+    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
+def iter_metrics_by_tag(
+    tag: str,
+    *,
+    registry: dict[str, Any] | None = None,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Registry rows carrying *tag* as ``(display name, entry dict)`` in file order."""
+    target = normalize_tag(tag)
+    if not target:
+        return []
+    reg = registry if registry is not None else load_metrics_registry()
+    metrics = reg.get("metrics")
+    if not isinstance(metrics, dict):
+        return []
+    out: list[tuple[str, dict[str, Any]]] = []
+    for name, entry in metrics.items():
+        if isinstance(entry, dict) and entry_has_tag(entry, target):
+            out.append((str(name), entry))
+    return out
+
+
 def registry_datapoint_metric_id(entry: Any) -> int | None:
     """Optional ``datapoint-metric-id`` when series data lives on another catalog row."""
     if not isinstance(entry, dict):

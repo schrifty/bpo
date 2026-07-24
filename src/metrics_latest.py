@@ -13,9 +13,12 @@ from src.leandna_metrics_client import (
 )
 from src.metrics_registry import (
     datapoint_metric_ids_for_entry,
+    has_metric_id,
     is_automated_metric,
+    iter_metrics_by_tag,
     iter_metrics_with_id,
     registry_metric_description,
+    registry_metric_tags,
 )
 
 DEFAULT_RECENT_DATAPOINT_COUNT = 3
@@ -35,6 +38,7 @@ class MetricRecentDatapointsRow:
     error: str | None = None
     automated: bool = False
     description: str | None = None
+    tags: tuple[str, ...] = ()
 
 
 def datapoint_value_from_row(row: dict[str, Any]) -> DatapointValue | None:
@@ -85,7 +89,10 @@ def format_metric_recent_block(
     tag = "[automated]" if row.automated else "[manual]"
     description = (row.description or "").strip()
     name_and_description = f"{row.metric_name} - {description}" if description else row.metric_name
-    header = f"{name_and_description} {tag}:"
+    tag_suffix = f" [tags: {', '.join(row.tags)}]" if row.tags else ""
+    header = f"{name_and_description} {tag}{tag_suffix}:"
+    if row.metric_id <= 0:
+        return [header, f"{indent}(no metric-id in registry — no stored value)"]
     if row.error:
         return [header, f"{indent}(error: {row.error})"]
     if not row.recent:
@@ -214,6 +221,61 @@ def fetch_registry_recent_datapoints(
                 error=error,
                 automated=is_automated_metric(entry),
                 description=registry_metric_description(entry),
+                tags=tuple(registry_metric_tags(entry)),
+            )
+        )
+    return rows
+
+
+def fetch_recent_datapoints_by_tag(
+    tag: str,
+    *,
+    requested_sites: str | None = None,
+    lookback_days: int = 365,
+    timeout_seconds: float = 60.0,
+    limit: int = DEFAULT_RECENT_DATAPOINT_COUNT,
+) -> list[MetricRecentDatapointsRow]:
+    """Recent datapoints for every ``my-metrics.yaml`` KPI carrying *tag*.
+
+    Rows without a ``metric-id`` are still returned (with ``metric_id`` = 0 and no
+    stored value) so the caller sees the full membership of the tag, not only the
+    KPIs that have a LeanDNA catalog id.
+    """
+    rows: list[MetricRecentDatapointsRow] = []
+    for name, entry in iter_metrics_by_tag(tag):
+        tags = tuple(registry_metric_tags(entry))
+        description = registry_metric_description(entry)
+        automated = is_automated_metric(entry)
+        if not has_metric_id(entry):
+            rows.append(
+                MetricRecentDatapointsRow(
+                    metric_name=name,
+                    metric_id=0,
+                    recent=(),
+                    error=None,
+                    automated=automated,
+                    description=description,
+                    tags=tags,
+                )
+            )
+            continue
+        metric_id = int(entry["metric-id"])
+        recent, error = fetch_recent_datapoints_with_fallbacks(
+            datapoint_metric_ids_for_entry(entry, metric_id),
+            requested_sites=requested_sites,
+            lookback_days=lookback_days,
+            timeout_seconds=timeout_seconds,
+            limit=limit,
+        )
+        rows.append(
+            MetricRecentDatapointsRow(
+                metric_name=name,
+                metric_id=metric_id,
+                recent=recent,
+                error=error,
+                automated=automated,
+                description=description,
+                tags=tags,
             )
         )
     return rows
