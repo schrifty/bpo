@@ -12,6 +12,7 @@ currently holds; it is not part of the default read path.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Literal
@@ -214,6 +215,37 @@ def resolve_kpi(
     )
 
 
+def iter_resolve_kpis_by_tag(
+    tag: str,
+    *,
+    mode: ResolveMode = DEFAULT_RESOLVE_MODE,
+    registry: dict[str, Any] | None = None,
+    ctx: MetricUpsertContext | None = None,
+    requested_sites: str | None = None,
+    lookback_days: int = 365,
+    timeout_seconds: float = 60.0,
+    recent_count: int = DEFAULT_RECENT_DATAPOINT_COUNT,
+) -> Iterator[KPIResolved]:
+    """Yield each registry KPI carrying *tag* as soon as it resolves (live by default)."""
+    reg = registry if registry is not None else load_metrics_registry()
+    resolve_ctx = ctx or default_resolve_context(
+        timeout_seconds=timeout_seconds,
+        requested_sites=requested_sites,
+    )
+    for name, entry in iter_metrics_by_tag(tag, registry=reg):
+        yield resolve_kpi(
+            name,
+            entry,
+            mode=mode,
+            registry=reg,
+            ctx=resolve_ctx,
+            requested_sites=requested_sites,
+            lookback_days=lookback_days,
+            timeout_seconds=timeout_seconds,
+            recent_count=recent_count,
+        )
+
+
 def resolve_kpis_by_tag(
     tag: str,
     *,
@@ -226,27 +258,18 @@ def resolve_kpis_by_tag(
     recent_count: int = DEFAULT_RECENT_DATAPOINT_COUNT,
 ) -> list[KPIResolved]:
     """Resolve every registry KPI carrying *tag* (live by default)."""
-    reg = registry if registry is not None else load_metrics_registry()
-    resolve_ctx = ctx or default_resolve_context(
-        timeout_seconds=timeout_seconds,
-        requested_sites=requested_sites,
-    )
-    out: list[KPIResolved] = []
-    for name, entry in iter_metrics_by_tag(tag, registry=reg):
-        out.append(
-            resolve_kpi(
-                name,
-                entry,
-                mode=mode,
-                registry=reg,
-                ctx=resolve_ctx,
-                requested_sites=requested_sites,
-                lookback_days=lookback_days,
-                timeout_seconds=timeout_seconds,
-                recent_count=recent_count,
-            )
+    return list(
+        iter_resolve_kpis_by_tag(
+            tag,
+            mode=mode,
+            registry=registry,
+            ctx=ctx,
+            requested_sites=requested_sites,
+            lookback_days=lookback_days,
+            timeout_seconds=timeout_seconds,
+            recent_count=recent_count,
         )
-    return out
+    )
 
 
 def materialize_kpi(
@@ -266,28 +289,84 @@ def materialize_kpi(
     return upsert_one_registry_metric(metric_name, entry, registry=registry, ctx=ctx)
 
 
-def format_kpi_resolved_block(row: KPIResolved, *, indent: str = "  ") -> list[str]:
-    """One-line human format: ``Name [tags] value`` (extra history lines in stored mode)."""
-    tags = f"[{', '.join(row.tags)}]" if row.tags else "[]"
+@dataclass(frozen=True)
+class KPIColumnWidths:
+    """Fixed column widths for streamed tabular KPI output."""
+
+    name: int
+    tags: int
+
+    @property
+    def header(self) -> str:
+        return f"{'KPI':<{self.name}}  {'TAGS':<{self.tags}}  VALUE"
+
+
+def _tags_cell(tags: tuple[str, ...] | list[str]) -> str:
+    return ", ".join(tags) if tags else "—"
+
+
+def _value_cell(row: KPIResolved) -> str:
     obs = row.observation
-
     if obs.error:
-        return [f"{row.metric_name} {tags} (error: {obs.error})"]
-
+        return f"error: {obs.error}"
     if obs.display_value is None:
-        detail = obs.warnings[0] if obs.warnings else "no value"
-        return [f"{row.metric_name} {tags} ({detail})"]
+        if obs.warnings:
+            return obs.warnings[0]
+        return "—"
+    return str(obs.display_value)
 
-    lines = [f"{row.metric_name} {tags} {obs.display_value}"]
-    for w in obs.warnings:
-        lines.append(f"{indent}warning: {w}")
 
-    # In stored inspection mode, list older persisted datapoints as history.
+def column_widths_for_metrics(
+    metrics: list[tuple[str, dict[str, Any]]],
+) -> KPIColumnWidths:
+    """Compute name/tags column widths from registry rows (before values resolve)."""
+    name_w = len("KPI")
+    tags_w = len("TAGS")
+    for name, entry in metrics:
+        name_w = max(name_w, len(str(name)))
+        tags_w = max(tags_w, len(_tags_cell(tuple(registry_metric_tags(entry)))))
+    return KPIColumnWidths(name=name_w, tags=tags_w)
+
+
+def column_widths_for_tag(
+    tag: str,
+    *,
+    registry: dict[str, Any] | None = None,
+) -> KPIColumnWidths:
+    """Column widths for every KPI carrying *tag* (cheap; no generators/API)."""
+    reg = registry if registry is not None else load_metrics_registry()
+    return column_widths_for_metrics(iter_metrics_by_tag(tag, registry=reg))
+
+
+def format_kpi_resolved_line(
+    row: KPIResolved,
+    *,
+    widths: KPIColumnWidths | None = None,
+    indent: str = "  ",
+) -> list[str]:
+    """Columnar lines: ``KPI  TAGS  VALUE`` (plus optional warning/history indents)."""
+    w = widths or column_widths_for_metrics([(row.metric_name, row.entry)])
+    tags = _tags_cell(row.tags)
+    value = _value_cell(row)
+    lines = [f"{row.metric_name:<{w.name}}  {tags:<{w.tags}}  {value}"]
+
+    obs = row.observation
+    # When a warning is the VALUE cell, don't repeat it underneath.
+    used_warning_as_value = obs.display_value is None and not obs.error and bool(obs.warnings)
+    extra_warnings = obs.warnings[1:] if used_warning_as_value else obs.warnings
+    for warning in extra_warnings:
+        lines.append(f"{indent}warning: {warning}")
+
     if row.recent_stored and obs.origin == "stored" and len(row.recent_stored) > 1:
         for point in row.recent_stored[1:]:
             lines.append(f"{indent}history: {format_datapoint_line(date=point.date, value=point.value)}")
 
     return lines
+
+
+def format_kpi_resolved_block(row: KPIResolved, *, indent: str = "  ") -> list[str]:
+    """Backward-compatible alias for :func:`format_kpi_resolved_line`."""
+    return format_kpi_resolved_line(row, indent=indent)
 
 
 def kpi_resolved_to_json(row: KPIResolved) -> dict[str, Any]:

@@ -2,16 +2,18 @@
 """List every ``config/my-metrics.yaml`` KPI carrying a tag, with current value.
 
 Tags live under each metric's ``tags:`` list. One KPI may carry many tags. Values
-come from the KPI service (``auto`` by default): live generators when present,
-optionally LeanDNA Data API stored datapoints when a ``metric-id`` exists.
+come from live generators by default (``--mode live``). Use ``--mode stored`` only
+to inspect LeanDNA Data API datapoints.
+
+Text output streams each KPI as soon as it resolves. JSON still buffers the full
+list so the document is valid.
 
 Examples::
 
   metrics-by-tag                     # list tags
-  metrics-by-tag engineering         # KPIs + values (mode=auto)
-  metrics-by-tag engineering --mode live
-  metrics-by-tag ai --mode stored --recent-count 5
-  metrics-by-tag delivery --json
+  metrics-by-tag engineering         # KPIs + live values (streamed)
+  metrics-by-tag engineering --mode stored
+  metrics-by-tag ai --json
 """
 from __future__ import annotations
 
@@ -36,10 +38,11 @@ from src.config import CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET  # noqa: E402
 from src.kpi_service import (  # noqa: E402
     DEFAULT_RESOLVE_MODE,
     RESOLVE_MODES,
+    column_widths_for_tag,
     default_resolve_context,
-    format_kpi_resolved_block,
+    format_kpi_resolved_line,
+    iter_resolve_kpis_by_tag,
     kpi_resolved_to_json,
-    resolve_kpis_by_tag,
 )
 from src.leandna_data_api_request import data_api_base_url  # noqa: E402
 from src.leandna_metric_registry_resolve import METRICS_REGISTRY_DEFAULT_SITE_ID  # noqa: E402
@@ -77,7 +80,8 @@ def main() -> int:
         description=(
             "List KPIs for a tag with current values (config/my-metrics.yaml). "
             "Reads are live by default: values come from generators, not stored datapoints. "
-            "Use --mode stored only to inspect what the LeanDNA Data API holds."
+            "Use --mode stored only to inspect what the LeanDNA Data API holds. "
+            "Text mode prints each KPI as soon as it resolves."
         ),
     )
     ap.add_argument(
@@ -166,8 +170,13 @@ def main() -> int:
         verbose=ns.verbose,
     )
 
+    rows = []
+    widths = None if ns.json else column_widths_for_tag(tag)
     try:
-        rows = resolve_kpis_by_tag(
+        if widths is not None:
+            print(widths.header, flush=True)
+            print(f"{'─' * widths.name}  {'─' * widths.tags}  {'─' * 5}", flush=True)
+        for row in iter_resolve_kpis_by_tag(
             tag,
             mode=ns.mode,
             ctx=ctx,
@@ -175,10 +184,14 @@ def main() -> int:
             lookback_days=ns.lookback_days,
             timeout_seconds=ns.timeout,
             recent_count=ns.recent_count,
-        )
+        ):
+            rows.append(row)
+            if widths is not None:
+                print("\n".join(format_kpi_resolved_line(row, widths=widths)), flush=True)
     except Exception as e:  # noqa: BLE001 — surface resolve/Data API failures cleanly
         print(f"Failed to resolve KPIs for tag {tag!r}: {e}", file=sys.stderr)
         return 1
+
     if not rows:
         available = ", ".join(t for t, _ in all_registry_tags()) or "(none)"
         print(f"No KPIs tagged {tag!r}. Available tags: {available}", file=sys.stderr)
@@ -186,9 +199,6 @@ def main() -> int:
 
     if ns.json:
         print(json.dumps([kpi_resolved_to_json(row) for row in rows], indent=2, default=str, ensure_ascii=False))
-    else:
-        for row in rows:
-            print("\n".join(format_kpi_resolved_block(row)))
 
     with_value = sum(1 for row in rows if row.observation.display_value is not None and not row.observation.error)
     live_n = sum(1 for row in rows if row.observation.origin == "live" and row.observation.ok)

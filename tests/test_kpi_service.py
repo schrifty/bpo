@@ -111,13 +111,16 @@ def test_resolve_live_without_metric_id(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert row.metric_id is None
 
     block = format_kpi_resolved_block(row)
-    assert block == ["Live Only [engineering] 0.3"]
+    assert "Live Only" in block[0]
+    assert "engineering" in block[0]
+    assert "0.3" in block[0]
 
 
-def test_format_kpi_resolved_block_clean_line() -> None:
+def test_format_kpi_resolved_line_columnar() -> None:
     from src.kpi_observation import KPIObservation
-    from src.kpi_service import KPIResolved
+    from src.kpi_service import KPIColumnWidths, KPIResolved, format_kpi_resolved_line
 
+    widths = KPIColumnWidths(name=20, tags=28)
     row = KPIResolved(
         metric_name="% WAU",
         entry={},
@@ -127,7 +130,9 @@ def test_format_kpi_resolved_block_clean_line() -> None:
         description="ignored in text format",
         metric_id=None,
     )
-    assert format_kpi_resolved_block(row) == ["% WAU [mfr, engineering, ai] 42.5"]
+    assert format_kpi_resolved_line(row, widths=widths) == [
+        f"{'% WAU':<20}  {'mfr, engineering, ai':<28}  42.5"
+    ]
 
     empty = KPIResolved(
         metric_name="Neither",
@@ -138,9 +143,10 @@ def test_format_kpi_resolved_block_clean_line() -> None:
         description=None,
         metric_id=None,
     )
-    assert format_kpi_resolved_block(empty) == [
-        "Neither [] (no metric-generator — cannot compute live value)"
+    assert format_kpi_resolved_line(empty, widths=widths) == [
+        f"{'Neither':<20}  {'—':<28}  no metric-generator — cannot compute live value"
     ]
+    assert widths.header == f"{'KPI':<20}  {'TAGS':<28}  VALUE"
 
 
 def test_live_is_default_mode_and_never_reads_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -212,6 +218,32 @@ def test_resolve_kpis_by_tag_live(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     # No generator → nothing to compute; storage is not consulted in live mode.
     assert by_name["Stored Only"].observation.origin == "none"
     assert by_name["Neither"].observation.origin == "none"
+
+
+def test_iter_resolve_kpis_by_tag_yields_incrementally(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from src.kpi_service import iter_resolve_kpis_by_tag
+
+    reg = _write_registry(tmp_path)
+    calls: list[str] = []
+
+    def fake_invoke(name, *, registry, ctx):
+        calls.append(name)
+        return {"value": len(calls)}
+
+    monkeypatch.setattr("src.kpi_service.invoke_metric_generator", fake_invoke)
+
+    it = iter_resolve_kpis_by_tag("engineering", registry=reg, ctx=_ctx())
+    first = next(it)
+    assert first.metric_name == "Live Only"
+    assert first.observation.display_value == 1
+    # Second generator KPI is "Both"; Stored Only / Neither have no generator.
+    assert calls == ["gen_live"]
+    second = next(it)
+    assert second.metric_name == "Stored Only"
+    third = next(it)
+    assert third.metric_name == "Both"
+    assert third.observation.display_value == 2
+    assert calls == ["gen_live", "gen_both"]
 
 
 def test_observation_passthrough() -> None:
