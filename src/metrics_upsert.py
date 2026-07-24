@@ -201,6 +201,74 @@ def _invoke_get_sprint_story_points_by_team(ctx: dict[str, Any]) -> dict[str, An
     )
 
 
+def _invoke_get_wau_pct(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.cursor_client import get_shared_cursor_client
+    from src.eng_scorecard_metrics import WAU_WINDOW_DAYS, get_wau_pct
+    from src.jira_client import get_shared_jira_client
+
+    # Weekly active users — always a 7-day window regardless of upsert --days default.
+    return get_wau_pct(
+        get_shared_cursor_client(),
+        get_shared_jira_client(),
+        days=WAU_WINDOW_DAYS,
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
+def _invoke_get_tokens_per_dev(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.cursor_client import get_shared_cursor_client
+    from src.eng_scorecard_metrics import get_tokens_per_dev
+    from src.jira_client import get_shared_jira_client
+
+    return get_tokens_per_dev(
+        get_shared_cursor_client(),
+        get_shared_jira_client(),
+        days=int(ctx.get("days") or 30),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
+def _invoke_get_prs_merged(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.eng_scorecard_metrics import get_prs_merged
+
+    return get_prs_merged(days=int(ctx.get("days") or 30), timeout=float(ctx.get("timeout") or 60.0))
+
+
+def _invoke_get_issues_shipped(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.eng_scorecard_metrics import get_issues_shipped
+    from src.jira_client import get_shared_jira_client
+
+    return get_issues_shipped(
+        get_shared_jira_client(),
+        days=int(ctx.get("days") or 30),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
+def _invoke_get_growth_allocation_pct(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.eng_scorecard_metrics import get_growth_allocation_pct
+    from src.jira_client import get_shared_jira_client
+
+    return get_growth_allocation_pct(
+        get_shared_jira_client(),
+        days=int(ctx.get("days") or 30),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
+def _invoke_get_ai_spend_per_issue(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.cursor_client import get_shared_cursor_client
+    from src.eng_scorecard_metrics import get_ai_spend_per_issue
+    from src.jira_client import get_shared_jira_client
+
+    return get_ai_spend_per_issue(
+        get_shared_cursor_client(),
+        get_shared_jira_client(),
+        days=int(ctx.get("days") or 30),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
 _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_kpi_automation_pct": lambda ctx: get_kpi_automation_pct(registry=ctx["registry"]),
     "get_dev_team_cycle_times": _invoke_get_dev_team_cycle_times,
@@ -210,6 +278,12 @@ _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_customer_reported_bugs": _invoke_get_customer_reported_bugs,
     "get_sprint_delivery_by_team": _invoke_get_sprint_delivery_by_team,
     "get_sprint_story_points_by_team": _invoke_get_sprint_story_points_by_team,
+    "get_wau_pct": _invoke_get_wau_pct,
+    "get_tokens_per_dev": _invoke_get_tokens_per_dev,
+    "get_prs_merged": _invoke_get_prs_merged,
+    "get_issues_shipped": _invoke_get_issues_shipped,
+    "get_growth_allocation_pct": _invoke_get_growth_allocation_pct,
+    "get_ai_spend_per_issue": _invoke_get_ai_spend_per_issue,
 }
 
 

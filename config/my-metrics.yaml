@@ -167,3 +167,106 @@ metrics:
     metric-id: null
     metric-generator: null
     tags: [ai, adoption]
+
+  # ── Engineering MFR scorecard (board-level AI adoption & impact) ──
+  "% WAU":
+    description: >-
+      Percentage of engineers actively using AI tools each week. Weekly active
+      Cursor users on Dev - * Atlassian teams ÷ engineering headcount
+      (get_wau_pct).
+    metric-id: null
+    metric-generator: get_wau_pct
+    tags: [mfr, engineering, adoption, ai]
+
+  "% AI-Assisted PRs":
+    description: >-
+      Percentage of code changes significantly supported by AI
+      (AI-assisted PRs ÷ total PRs). Generator blocked until a reliable
+      per-PR AI-assistance signal exists (Cursor/GitHub agent attribution,
+      label, check, or commit trailer).
+    metric-id: null
+    metric-generator: null
+    tags: [mfr, engineering, adoption, ai]
+
+  "% AI-Assisted Automated PRs":
+    description: >-
+      Percentage of code changes created by AI (AI-automated PRs ÷ total PRs).
+      Generator blocked until an explicit AI-created/agent PR flag is available
+      (distinct from assisted).
+    metric-id: null
+    metric-generator: null
+    tags: [mfr, engineering, adoption, ai]
+
+  "Tokens / Dev":
+    description: >-
+      How heavily engineers are using AI tools: total Cursor model tokens
+      (input + output) over the trailing window ÷ Dev - * engineering
+      headcount (get_tokens_per_dev).
+    metric-id: null
+    metric-generator: get_tokens_per_dev
+    tags: [mfr, engineering, adoption, ai]
+
+  "AI Spend %":
+    description: >-
+      Share of engineering spend dedicated to AI tools and models
+      ((AI tooling + model/API spend) ÷ total engineering spend). Generator
+      blocked until total engineering spend (payroll/opex) is available;
+      Cursor AI spend alone is not enough.
+    metric-id: null
+    metric-generator: null
+    tags: [mfr, engineering, adoption, ai]
+
+  "PRs Merged":
+    description: >-
+      Amount of development work completed and approved: engineer-scoped
+      GitHub pull requests merged in the trailing window (get_prs_merged).
+    metric-id: null
+    metric-generator: get_prs_merged
+    tags: [mfr, engineering, impact, delivery]
+
+  "Defect Introduction Rate":
+    description: >-
+      Percentage of new bugs introduced into released software (new defects
+      tied to recent releases ÷ total shipped work). Generator blocked until
+      a defined defect→release link exists (fix version, release notes, or
+      post-deploy window).
+    metric-id: null
+    metric-generator: null
+    tags: [mfr, engineering, impact, quality]
+
+  "Issues Shipped":
+    description: >-
+      Completed engineering tasks delivered in the period: LEAN issues in
+      statusCategory Done with resolved date in the trailing window
+      (get_issues_shipped).
+    metric-id: null
+    metric-generator: get_issues_shipped
+    tags: [mfr, engineering, impact, delivery]
+
+  "% Growth Allocation":
+    description: >-
+      Share of engineering capacity on growth/roadmap work: planned (non-reactive)
+      LEAN Done issues ÷ all LEAN Done issues in the window. Reactive =
+      Bug/Incident/Escalation types and escalation labels
+      (get_growth_allocation_pct).
+    metric-id: null
+    metric-generator: get_growth_allocation_pct
+    tags: [mfr, engineering, impact, delivery]
+
+  "Headcount + AI Spend / Issue":
+    description: >-
+      Total cost to deliver one unit of engineering work
+      ((engineering headcount cost + AI spend) ÷ issues shipped). Generator
+      blocked until engineering headcount cost ($) is available from finance/HR.
+    metric-id: null
+    metric-generator: null
+    tags: [mfr, engineering, impact, ai]
+
+  "AI Spend / Issue":
+    description: >-
+      AI cost associated with delivering one unit of engineering work:
+      engineer-scoped Cursor spend (USD) ÷ Issues Shipped in the same window
+      (get_ai_spend_per_issue).
+    metric-id: null
+    metric-generator: get_ai_spend_per_issue
+    tags: [mfr, engineering, impact, ai]
