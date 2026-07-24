@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """List every ``config/my-metrics.yaml`` KPI carrying a tag, with current value.
 
-Tags live under each metric's ``tags:`` list. One KPI may carry many tags. This
-tool selects all KPIs for one tag and fetches their newest MetricDataPoint(s) from
-the LeanDNA Data API (KPIs without a ``metric-id`` are listed without a value).
+Tags live under each metric's ``tags:`` list. One KPI may carry many tags. Values
+come from the KPI service (``auto`` by default): live generators when present,
+optionally LeanDNA Data API stored datapoints when a ``metric-id`` exists.
 
 Examples::
 
   metrics-by-tag                     # list tags
-  metrics-by-tag engineering         # KPIs + current values for that tag
-  metrics-by-tag ai --recent-count 5
+  metrics-by-tag engineering         # KPIs + values (mode=auto)
+  metrics-by-tag engineering --mode live
+  metrics-by-tag ai --mode stored --recent-count 5
   metrics-by-tag delivery --json
 """
 from __future__ import annotations
@@ -32,18 +33,23 @@ from dotenv import load_dotenv  # noqa: E402
 load_dotenv(ROOT / ".env")
 
 from src.config import CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET  # noqa: E402
+from src.kpi_service import (  # noqa: E402
+    RESOLVE_MODES,
+    default_resolve_context,
+    format_kpi_resolved_block,
+    kpi_resolved_to_json,
+    resolve_kpis_by_tag,
+    stored_max_age_hours,
+)
 from src.leandna_data_api_request import data_api_base_url  # noqa: E402
 from src.leandna_metric_registry_resolve import METRICS_REGISTRY_DEFAULT_SITE_ID  # noqa: E402
 from src.leandna_metrics_cli import configure_cortex_logging  # noqa: E402
-from src.metrics_latest import (  # noqa: E402
-    DEFAULT_RECENT_DATAPOINT_COUNT,
-    fetch_recent_datapoints_by_tag,
-    format_metric_recent_block,
-)
+from src.metrics_latest import DEFAULT_RECENT_DATAPOINT_COUNT  # noqa: E402
 from src.metrics_registry import all_registry_tags  # noqa: E402
 
 _DEFAULT_LOOKBACK_DAYS = 365
 _READ_TIMEOUT_S = 60.0
+_DEFAULT_LIVE_DAYS = 30
 
 
 def _print_tag_catalog() -> int:
@@ -58,23 +64,20 @@ def _print_tag_catalog() -> int:
     return 0
 
 
-def _row_to_json(row: object) -> dict[str, object]:
-    return {
-        "metric_name": row.metric_name,  # type: ignore[attr-defined]
-        "metric_id": row.metric_id or None,  # type: ignore[attr-defined]
-        "automated": row.automated,  # type: ignore[attr-defined]
-        "tags": list(row.tags),  # type: ignore[attr-defined]
-        "description": row.description,  # type: ignore[attr-defined]
-        "error": row.error,  # type: ignore[attr-defined]
-        "recent": [{"date": p.date, "value": p.value} for p in row.recent],  # type: ignore[attr-defined]
-        "current_value": (row.recent[0].value if row.recent else None),  # type: ignore[attr-defined]
-        "current_value_date": (row.recent[0].date if row.recent else None),  # type: ignore[attr-defined]
-    }
+def _data_api_configured() -> bool:
+    try:
+        data_api_base_url()
+        return True
+    except ValueError:
+        return False
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="List KPIs for a tag with current values (config/my-metrics.yaml + LeanDNA).",
+        description=(
+            "List KPIs for a tag with current values (config/my-metrics.yaml). "
+            "Default mode=auto uses live generators and optional Data API storage."
+        ),
     )
     ap.add_argument(
         "tag",
@@ -91,6 +94,12 @@ def main() -> int:
     ap.add_argument("--list", action="store_true", help="List all defined tags and their KPI counts, then exit")
     ap.add_argument("--json", action="store_true", help="Emit a JSON array of matching KPIs with current values")
     ap.add_argument(
+        "--mode",
+        choices=RESOLVE_MODES,
+        default="auto",
+        help="auto=prefer fresh stored else live (default); live=generators only; stored=Data API only",
+    )
+    ap.add_argument(
         "--requested-sites",
         default=str(METRICS_REGISTRY_DEFAULT_SITE_ID),
         metavar="ID",
@@ -101,14 +110,28 @@ def main() -> int:
         type=int,
         default=_DEFAULT_LOOKBACK_DAYS,
         metavar="N",
-        help=f"Search window ending today (default: {_DEFAULT_LOOKBACK_DAYS})",
+        help=f"Stored datapoint search window ending today (default: {_DEFAULT_LOOKBACK_DAYS})",
+    )
+    ap.add_argument(
+        "--days",
+        type=int,
+        default=_DEFAULT_LIVE_DAYS,
+        metavar="N",
+        help=f"Trailing window for live generators (default: {_DEFAULT_LIVE_DAYS})",
     )
     ap.add_argument(
         "--recent-count",
         type=int,
         default=DEFAULT_RECENT_DATAPOINT_COUNT,
         metavar="N",
-        help=f"Newest datapoints to show per KPI (default: {DEFAULT_RECENT_DATAPOINT_COUNT})",
+        help=f"Newest stored datapoints to keep per KPI (default: {DEFAULT_RECENT_DATAPOINT_COUNT})",
+    )
+    ap.add_argument(
+        "--max-stored-age-hours",
+        type=float,
+        default=None,
+        metavar="H",
+        help="In auto mode, treat stored values older than this as stale (default: env or 48)",
     )
     ap.add_argument("--timeout", type=float, default=_READ_TIMEOUT_S, metavar="SEC")
     ap.add_argument("-v", "--verbose", action="store_true")
@@ -121,30 +144,59 @@ def main() -> int:
     if ns.list or not tag:
         return _print_tag_catalog()
 
-    try:
-        data_api_base_url()
-    except ValueError as e:
-        print(str(e), file=sys.stderr)
-        return 1
+    allow_stored = ns.mode in ("auto", "stored")
+    if ns.mode == "stored" and not _data_api_configured():
+        try:
+            data_api_base_url()
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            return 1
+    if allow_stored and not _data_api_configured():
+        if ns.mode == "auto":
+            print(
+                "Data API not configured — resolving with mode=live only "
+                "(set LeanDNA Data API env to enable stored reads).",
+                file=sys.stderr,
+            )
+            allow_stored = False
+        else:
+            try:
+                data_api_base_url()
+            except ValueError as e:
+                print(str(e), file=sys.stderr)
+                return 1
 
+    age_h = stored_max_age_hours(override=ns.max_stored_age_hours)
     print(
-        f"LeanDNA target: GET /data/Metric/{{id}}/MetricDataPoint  "
-        f"(tag={tag!r}, lookback={ns.lookback_days}d, recent={ns.recent_count}, "
-        f"requestedSites={ns.requested_sites!r}, "
-        f"EXECUTION_ENV bucket={CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET})",
+        f"KPI resolve: tag={tag!r} mode={ns.mode} days={ns.days} "
+        f"lookback={ns.lookback_days}d recent={ns.recent_count} "
+        f"max_stored_age={age_h:g}h stored_fetch={allow_stored} "
+        f"requestedSites={ns.requested_sites!r} "
+        f"EXECUTION_ENV bucket={CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET}",
         file=sys.stderr,
     )
 
+    ctx = default_resolve_context(
+        days=ns.days,
+        timeout_seconds=ns.timeout,
+        requested_sites=ns.requested_sites,
+        verbose=ns.verbose,
+    )
+
     try:
-        rows = fetch_recent_datapoints_by_tag(
+        rows = resolve_kpis_by_tag(
             tag,
+            mode=ns.mode,
+            ctx=ctx,
             requested_sites=ns.requested_sites,
             lookback_days=ns.lookback_days,
             timeout_seconds=ns.timeout,
-            limit=ns.recent_count,
+            recent_count=ns.recent_count,
+            max_stored_age_hours=ns.max_stored_age_hours,
+            allow_stored_fetch=allow_stored,
         )
-    except Exception as e:  # noqa: BLE001 — surface Data API/HTTP failures cleanly
-        print(f"Failed to fetch datapoints for tag {tag!r}: {e}", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001 — surface resolve/Data API failures cleanly
+        print(f"Failed to resolve KPIs for tag {tag!r}: {e}", file=sys.stderr)
         return 1
     if not rows:
         available = ", ".join(t for t, _ in all_registry_tags()) or "(none)"
@@ -152,18 +204,20 @@ def main() -> int:
         return 1
 
     if ns.json:
-        print(json.dumps([_row_to_json(row) for row in rows], indent=2, default=str, ensure_ascii=False))
+        print(json.dumps([kpi_resolved_to_json(row) for row in rows], indent=2, default=str, ensure_ascii=False))
     else:
         for index, row in enumerate(rows):
             if index:
                 print()
-            print("\n".join(format_metric_recent_block(row)))
+            print("\n".join(format_kpi_resolved_block(row)))
 
-    with_value = sum(1 for row in rows if row.recent)
-    without_id = sum(1 for row in rows if row.metric_id <= 0)
+    with_value = sum(1 for row in rows if row.observation.display_value is not None and not row.observation.error)
+    live_n = sum(1 for row in rows if row.observation.origin == "live" and row.observation.ok)
+    stored_n = sum(1 for row in rows if row.observation.origin == "stored" and row.observation.ok)
+    err_n = sum(1 for row in rows if row.observation.error)
     print(
-        f"Tag {tag!r}: {len(rows)} KPI(s) — {with_value} with a current value, "
-        f"{without_id} without a metric-id.",
+        f"Tag {tag!r}: {len(rows)} KPI(s) — {with_value} with a value "
+        f"({live_n} live, {stored_n} stored), {err_n} error(s).",
         file=sys.stderr,
     )
     return 0
