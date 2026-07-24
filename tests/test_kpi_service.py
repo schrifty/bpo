@@ -111,7 +111,36 @@ def test_resolve_live_without_metric_id(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert row.metric_id is None
 
     block = format_kpi_resolved_block(row)
-    assert "[live]" in block[1]
+    assert block == ["Live Only [engineering] 0.3"]
+
+
+def test_format_kpi_resolved_block_clean_line() -> None:
+    from src.kpi_observation import KPIObservation
+    from src.kpi_service import KPIResolved
+
+    row = KPIResolved(
+        metric_name="% WAU",
+        entry={},
+        observation=KPIObservation(value=42.5, origin="live", as_of="2026-07-24"),
+        tags=("mfr", "engineering", "ai"),
+        automated=True,
+        description="ignored in text format",
+        metric_id=None,
+    )
+    assert format_kpi_resolved_block(row) == ["% WAU [mfr, engineering, ai] 42.5"]
+
+    empty = KPIResolved(
+        metric_name="Neither",
+        entry={},
+        observation=KPIObservation(origin="none", warnings=("no metric-generator — cannot compute live value",)),
+        tags=(),
+        automated=False,
+        description=None,
+        metric_id=None,
+    )
+    assert format_kpi_resolved_block(empty) == [
+        "Neither [] (no metric-generator — cannot compute live value)"
+    ]
 
 
 def test_live_is_default_mode_and_never_reads_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

@@ -187,9 +187,7 @@ def main() -> int:
     if ns.json:
         print(json.dumps([kpi_resolved_to_json(row) for row in rows], indent=2, default=str, ensure_ascii=False))
     else:
-        for index, row in enumerate(rows):
-            if index:
-                print()
+        for row in rows:
             print("\n".join(format_kpi_resolved_block(row)))
 
     with_value = sum(1 for row in rows if row.observation.display_value is not None and not row.observation.error)

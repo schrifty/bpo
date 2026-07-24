@@ -267,35 +267,23 @@ def materialize_kpi(
 
 
 def format_kpi_resolved_block(row: KPIResolved, *, indent: str = "  ") -> list[str]:
-    """Human-readable lines for one resolved KPI."""
-    tag = "[automated]" if row.automated else "[manual]"
-    description = (row.description or "").strip()
-    name_and_description = f"{row.metric_name} - {description}" if description else row.metric_name
-    tag_suffix = f" [tags: {', '.join(row.tags)}]" if row.tags else ""
-    header = f"{name_and_description} {tag}{tag_suffix}:"
+    """One-line human format: ``Name [tags] value`` (extra history lines in stored mode)."""
+    tags = f"[{', '.join(row.tags)}]" if row.tags else "[]"
     obs = row.observation
-    lines = [header]
 
     if obs.error:
-        lines.append(f"{indent}(error: {obs.error}) [origin={obs.origin}]")
-        return lines
+        return [f"{row.metric_name} {tags} (error: {obs.error})"]
 
     if obs.display_value is None:
-        if obs.warnings:
-            for w in obs.warnings:
-                lines.append(f"{indent}({w})")
-        else:
-            lines.append(f"{indent}(no value)")
-        return lines
+        detail = obs.warnings[0] if obs.warnings else "no value"
+        return [f"{row.metric_name} {tags} ({detail})"]
 
-    as_of = obs.as_of or "?"
-    origin = obs.origin
-    lines.append(f"{indent}{format_datapoint_line(date=as_of, value=obs.display_value)} [{origin}]")
+    lines = [f"{row.metric_name} {tags} {obs.display_value}"]
     for w in obs.warnings:
         lines.append(f"{indent}warning: {w}")
 
     # In stored inspection mode, list older persisted datapoints as history.
-    if row.recent_stored and origin == "stored" and len(row.recent_stored) > 1:
+    if row.recent_stored and obs.origin == "stored" and len(row.recent_stored) > 1:
         for point in row.recent_stored[1:]:
             lines.append(f"{indent}history: {format_datapoint_line(date=point.date, value=point.value)}")
 
