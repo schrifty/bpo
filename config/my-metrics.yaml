@@ -98,6 +98,13 @@ metrics:
     metric-generator: null
     tags: [support, sla]
 
+  # Median TTR
+  "Median TTR":
+    description: null
+    metric-id: 2171
+    metric-generator: null
+    tags: [support, sla]
+
   # SLA Adherence (30 Days) - AUTOMATABLE
   "SLA Adherence (30 Days)":
     description: null
