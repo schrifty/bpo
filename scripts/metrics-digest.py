@@ -3,8 +3,9 @@
 
 Examples::
 
-  metrics-digest --dry-run
-  metrics-digest
+  metrics-report                 # columnar report to stdout (no email)
+  metrics-digest --dry-run       # same as metrics-report
+  metrics-digest                 # generate and email via SES
   metrics-digest --days 30 --timeout 180
 """
 from __future__ import annotations

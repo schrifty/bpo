@@ -69,10 +69,13 @@ def test_partition_and_format_off_target_first() -> None:
 
     body = format_digest_body(rows, as_of="2026-08-03")
     assert "OFF TARGET" in body
+    assert "NAME" in body and "ID" in body and "VALUE" in body and "TARGET" in body
     assert body.index("Mid") < body.index("ALL OTHER")
     assert body.index("Zebra") < body.index("Alpha")
-    assert "id=—" in body
     assert "error: fail" in body
+    # Columnar rows should include padded name then id cells
+    assert "Zebra" in body and "1" in body
+    assert "—" in body  # missing metric id for Mid
 
     subj = format_digest_subject(rows, as_of="2026-08-03")
     assert subj == "KPI digest 2026-08-03 — 2 off target"

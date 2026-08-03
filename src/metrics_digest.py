@@ -33,8 +33,6 @@ from src.ses_email import SesEmailError, digest_email_from, digest_email_recipie
 
 logger = logging.getLogger("cortex")
 
-SEPARATOR = "-" * 72
-
 
 @dataclass(frozen=True)
 class DigestRow:
@@ -194,12 +192,76 @@ def partition_digest_rows(rows: list[DigestRow]) -> tuple[list[DigestRow], list[
     return off, rest
 
 
-def format_digest_line(row: DigestRow) -> str:
+@dataclass(frozen=True)
+class DigestColumnWidths:
+    name: int
+    metric_id: int
+    value: int
+    target: int
+    direction: int
+
+    @property
+    def header(self) -> str:
+        return (
+            f"{'NAME':<{self.name}}  "
+            f"{'ID':<{self.metric_id}}  "
+            f"{'VALUE':<{self.value}}  "
+            f"{'TARGET':<{self.target}}  "
+            f"{'DIR':<{self.direction}}"
+        )
+
+    @property
+    def rule(self) -> str:
+        return "-" * len(self.header)
+
+
+def column_widths_for_digest_rows(rows: list[DigestRow]) -> DigestColumnWidths:
+    """Compute column widths from digest rows (and header labels)."""
+    name_w = len("NAME")
+    id_w = len("ID")
+    value_w = len("VALUE")
+    target_w = len("TARGET")
+    dir_w = len("DIR")
+    for row in rows:
+        name_w = max(name_w, len(row.name))
+        id_w = max(id_w, len(row.id_display))
+        value_w = max(value_w, len(row.value_display))
+        target_w = max(target_w, len(row.target_display))
+        dir_w = max(dir_w, len(row.direction or "—"))
+    return DigestColumnWidths(
+        name=name_w,
+        metric_id=id_w,
+        value=value_w,
+        target=target_w,
+        direction=dir_w,
+    )
+
+
+def format_digest_line(row: DigestRow, *, widths: DigestColumnWidths | None = None) -> str:
+    """One columnar digest row: NAME  ID  VALUE  TARGET  DIR."""
+    w = widths or column_widths_for_digest_rows([row])
     direction = row.direction or "—"
     return (
-        f"{row.name}  id={row.id_display}  value={row.value_display}  "
-        f"target={row.target_display}  direction={direction}"
+        f"{row.name:<{w.name}}  "
+        f"{row.id_display:<{w.metric_id}}  "
+        f"{row.value_display:<{w.value}}  "
+        f"{row.target_display:<{w.target}}  "
+        f"{direction:<{w.direction}}"
     )
+
+
+def _format_section(
+    title: str,
+    section_rows: list[DigestRow],
+    *,
+    widths: DigestColumnWidths,
+) -> list[str]:
+    lines = [title, widths.header, widths.rule]
+    if section_rows:
+        lines.extend(format_digest_line(r, widths=widths) for r in section_rows)
+    else:
+        lines.append("(none)")
+    return lines
 
 
 def format_digest_body(
@@ -210,22 +272,15 @@ def format_digest_body(
     """Plain-text email body with off-target section then separator then the rest."""
     as_of_s = as_of or date.today().isoformat()
     off, rest = partition_digest_rows(rows)
+    widths = column_widths_for_digest_rows(rows)
     lines: list[str] = [
         f"KPI digest — {as_of_s}",
         f"Off target: {len(off)}  |  On target / other: {len(rest)}  |  Total: {len(rows)}",
         "",
-        "OFF TARGET",
-        SEPARATOR,
     ]
-    if off:
-        lines.extend(format_digest_line(r) for r in off)
-    else:
-        lines.append("(none)")
-    lines.extend(["", "ALL OTHER GENERATED METRICS", SEPARATOR])
-    if rest:
-        lines.extend(format_digest_line(r) for r in rest)
-    else:
-        lines.append("(none)")
+    lines.extend(_format_section("OFF TARGET", off, widths=widths))
+    lines.append("")
+    lines.extend(_format_section("ALL OTHER GENERATED METRICS", rest, widths=widths))
     lines.append("")
     return "\n".join(lines)
 

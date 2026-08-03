@@ -124,6 +124,9 @@ Generate one deck (explicit)
   cortex metrics-digest [--dry-run] [--days N] [--timeout SEC]
       Live-generate every registry KPI with a ``metric-generator``, compare to ``target`` /
       ``direction``, and email a morning digest via SES (off-target first).
+
+  cortex metrics-report [--days N] [--timeout SEC]
+      Same as ``metrics-digest --dry-run``: print the columnar KPI digest without emailing.
 """
 
 import json
@@ -864,6 +867,17 @@ def _run_metrics_digest_cli(rest: list[str]) -> None:
     raise SystemExit(run_metrics_digest_cli(rest, prog="cortex metrics-digest"))
 
 
+def _run_metrics_report_cli(rest: list[str]) -> None:
+    """``cortex metrics-report`` — print columnar digest without sending email."""
+    from dotenv import load_dotenv
+
+    from src.metrics_digest import run_metrics_digest_cli
+
+    load_dotenv(Path(__file__).resolve().parent / ".env")
+    argv = ["--dry-run", *rest]
+    raise SystemExit(run_metrics_digest_cli(argv, prog="cortex metrics-report"))
+
+
 def _run_csm_book_deck() -> None:
     """CSM book of business from ``cortex csm book --csm \"Name\"`` (flags after ``book``)."""
     import argparse
@@ -1464,6 +1478,9 @@ def main():
         return
     if sub == "metrics-digest":
         _run_metrics_digest_cli(sys.argv[2:])
+        return
+    if sub == "metrics-report":
+        _run_metrics_report_cli(sys.argv[2:])
         return
 
     from src.deck_variants import csm_book_cli_argv_anchor
