@@ -39,63 +39,27 @@ from src.ses_email import SesEmailError, digest_email_from, digest_email_recipie
 
 logger = logging.getLogger("cortex")
 
-# Terminal / email plain-text table width for digest rows (NAME ID VALUE TARGET DIR).
+# Soft wrap width for long VALUE continuation lines. Primary table columns use
+# compact natural widths only — never pad to fill a target width.
 DIGEST_LINE_WIDTH = 128
 _DIGEST_COL_GAP = 2
 _DIGEST_COL_COUNT = 5
+# Inline VALUE column cap — longer values print in full on following lines.
+_DIGEST_VALUE_INLINE_MAX = 24
 
 
-def _truncate_cell(text: str, width: int) -> str:
-    """Fit *text* into *width* only when the column budget requires it."""
-    if width <= 0:
-        return ""
-    if len(text) <= width:
-        return text
-    if width == 1:
-        return "…"
-    return text[: width - 1] + "…"
+def _wrap_digest_text(text: str, *, width: int, prefix: str = "  ") -> list[str]:
+    """Hard-wrap *text* to *width* without dropping characters."""
+    avail = max(1, width - len(prefix))
+    if len(text) <= avail:
+        return [f"{prefix}{text}"]
+    lines: list[str] = []
+    rest = text
+    while rest:
+        lines.append(f"{prefix}{rest[:avail]}")
+        rest = rest[avail:]
+    return lines
 
-
-def _fit_digest_widths(
-    name_w: int,
-    id_w: int,
-    value_w: int,
-    target_w: int,
-    dir_w: int,
-    *,
-    total_width: int = DIGEST_LINE_WIDTH,
-) -> tuple[int, int, int, int, int]:
-    """Pad/shrink column widths so the formatted line is exactly *total_width*.
-
-    Prefers full natural widths. Never shortens VALUE until every other column is
-    already at its header minimum; only then truncate VALUE as a last resort.
-    """
-    gaps = _DIGEST_COL_GAP * (_DIGEST_COL_COUNT - 1)
-    mins = (len("NAME"), len("ID"), len("VALUE"), len("TARGET"), len("DIR"))
-    widths = [max(mins[i], w) for i, w in enumerate((name_w, id_w, value_w, target_w, dir_w))]
-
-    def _used() -> int:
-        return sum(widths) + gaps
-
-    # Shrink name / id / target / dir first; VALUE only if still over budget.
-    shrink_order = (0, 1, 3, 4, 2)
-    guard = 0
-    while _used() > total_width and guard < 10_000:
-        guard += 1
-        shrunk = False
-        for idx in shrink_order:
-            if widths[idx] > mins[idx]:
-                widths[idx] -= 1
-                shrunk = True
-                break
-        if not shrunk:
-            break
-
-    # Pad the name column so short tables still span the full report width.
-    leftover = total_width - _used()
-    if leftover > 0:
-        widths[0] += leftover
-    return widths[0], widths[1], widths[2], widths[3], widths[4]
 
 
 @dataclass(frozen=True)
@@ -283,9 +247,9 @@ class DigestColumnWidths:
 def column_widths_for_digest_rows(
     rows: list[DigestRow],
     *,
-    total_width: int = DIGEST_LINE_WIDTH,
+    min_total_width: int | None = None,  # noqa: ARG001 — kept for call-site compat; ignored
 ) -> DigestColumnWidths:
-    """Compute column widths that format to exactly *total_width* characters."""
+    """Compact natural column widths (no padding). Long VALUES wrap below the row."""
     name_w = len("NAME")
     id_w = len("ID")
     value_w = len("VALUE")
@@ -294,12 +258,12 @@ def column_widths_for_digest_rows(
     for row in rows:
         name_w = max(name_w, len(row.name))
         id_w = max(id_w, len(row.id_display))
-        value_w = max(value_w, len(row.value_display))
         target_w = max(target_w, len(row.target_display))
         dir_w = max(dir_w, len(row.direction or "—"))
-    name_w, id_w, value_w, target_w, dir_w = _fit_digest_widths(
-        name_w, id_w, value_w, target_w, dir_w, total_width=total_width
-    )
+        vd = row.value_display
+        if len(vd) <= _DIGEST_VALUE_INLINE_MAX:
+            value_w = max(value_w, len(vd))
+    value_w = min(max(value_w, len("VALUE")), _DIGEST_VALUE_INLINE_MAX)
     return DigestColumnWidths(
         name=name_w,
         metric_id=id_w,
@@ -309,18 +273,35 @@ def column_widths_for_digest_rows(
     )
 
 
-def format_digest_line(row: DigestRow, *, widths: DigestColumnWidths | None = None) -> str:
-    """One columnar digest row: NAME  ID  VALUE  TARGET  DIR (``DIGEST_LINE_WIDTH``)."""
+def format_digest_lines(row: DigestRow, *, widths: DigestColumnWidths | None = None) -> list[str]:
+    """Columnar row lines: primary table row, plus wrapped full VALUE when it does not fit inline."""
     w = widths or column_widths_for_digest_rows([row])
     direction = row.direction or "—"
     gap = " " * _DIGEST_COL_GAP
-    return (
-        f"{_truncate_cell(row.name, w.name):<{w.name}}{gap}"
-        f"{_truncate_cell(row.id_display, w.metric_id):<{w.metric_id}}{gap}"
-        f"{_truncate_cell(row.value_display, w.value):<{w.value}}{gap}"
-        f"{_truncate_cell(row.target_display, w.target):<{w.target}}{gap}"
-        f"{_truncate_cell(direction, w.direction):<{w.direction}}"
+    value = row.value_display
+    if len(value) <= w.value:
+        primary = (
+            f"{row.name:<{w.name}}{gap}"
+            f"{row.id_display:<{w.metric_id}}{gap}"
+            f"{value:<{w.value}}{gap}"
+            f"{row.target_display:<{w.target}}{gap}"
+            f"{direction:<{w.direction}}"
+        )
+        return [primary]
+    primary = (
+        f"{row.name:<{w.name}}{gap}"
+        f"{row.id_display:<{w.metric_id}}{gap}"
+        f"{'':<{w.value}}{gap}"
+        f"{row.target_display:<{w.target}}{gap}"
+        f"{direction:<{w.direction}}"
     )
+    wrap_width = max(DIGEST_LINE_WIDTH, len(primary))
+    return [primary, *_wrap_digest_text(value, width=wrap_width, prefix="  ")]
+
+
+def format_digest_line(row: DigestRow, *, widths: DigestColumnWidths | None = None) -> str:
+    """Primary columnar line only (see :func:`format_digest_lines` for wrapped values)."""
+    return format_digest_lines(row, widths=widths)[0]
 
 
 def _format_section(
@@ -331,7 +312,8 @@ def _format_section(
 ) -> list[str]:
     lines = [title, widths.header, widths.rule]
     if section_rows:
-        lines.extend(format_digest_line(r, widths=widths) for r in section_rows)
+        for r in section_rows:
+            lines.extend(format_digest_lines(r, widths=widths))
     else:
         lines.append("(none)")
     return lines

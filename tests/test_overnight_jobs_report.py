@@ -85,10 +85,11 @@ def test_format_overnight_section_width() -> None:
     ]
     lines = format_overnight_jobs_section(outcomes)
     assert lines[0] == "LAST NIGHT'S JOBS"
-    assert len(lines[1]) == 128
-    assert len(lines[2]) == 128
+    assert len(lines[1]) < 80  # compact natural width, not padded to 128
+    assert len(lines[2]) == len(lines[1])
     joined = "\n".join(lines)
+    assert "pendo-snapshot-refresh" in joined
+    assert "engineering-portfolio" in joined
     assert "deck failure: " in joined
     assert "x" * 100 in joined.replace("\n", "").replace("  ", "")
-    for line in lines:
-        assert len(line) <= 128, repr(line)
+    assert "…" not in joined

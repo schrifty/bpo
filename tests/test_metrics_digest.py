@@ -113,35 +113,46 @@ def test_morning_report_leads_with_overnight_jobs() -> None:
     assert subj == "Morning report 2026-08-03 — 1 job issue(s), 0 off target"
 
 
-def test_digest_report_is_128_columns_wide() -> None:
-    from src.metrics_digest import DIGEST_LINE_WIDTH, column_widths_for_digest_rows, format_digest_line
+def test_digest_report_uses_compact_natural_widths() -> None:
+    from src.metrics_digest import column_widths_for_digest_rows, format_digest_lines
 
-    assert DIGEST_LINE_WIDTH == 128
     rows = [
         DigestRow("Short", 1, 10.0, 5.0, "lower", True),
         DigestRow("Median TTR", 2171, 12345.67, 9999.0, "higher", False),
-        DigestRow("Err", None, None, None, None, True, error="session expired"),
+        DigestRow("Engineering Cycle Time (Sprint)", 2024, 0.67, 5.0, "lower", False),
     ]
     widths = column_widths_for_digest_rows(rows)
-    assert len(widths.header) == DIGEST_LINE_WIDTH
-    assert len(widths.rule) == DIGEST_LINE_WIDTH
+    # Compact: roughly name + id + value + target + dir + gaps, not forced to 128.
+    assert len(widths.header) < 100
+    assert len(widths.rule) == len(widths.header)
     for row in rows:
-        line = format_digest_line(row, widths=widths)
-        assert len(line) == DIGEST_LINE_WIDTH, repr(line)
-        # Values / errors are never shortened when they fit the value column.
-        assert row.value_display in line
+        lines = format_digest_lines(row, widths=widths)
+        assert len(lines[0]) == len(widths.header)
+        assert row.name in lines[0]
+        assert any(row.value_display in line for line in lines)
 
 
-def test_digest_prefers_full_value_over_shortening() -> None:
-    from src.metrics_digest import column_widths_for_digest_rows, format_digest_line
+def test_digest_long_values_wrap_without_widening_header() -> None:
+    from src.metrics_digest import column_widths_for_digest_rows, format_digest_body, format_digest_lines
 
+    long_error = "engineer roster unavailable: ATLASSIAN_ORG_ID is not set " + ("x" * 200)
     rows = [
-        DigestRow("N" * 90, 1, None, 1.0, "lower", True, error="exact-value-token-keep-me"),
+        DigestRow("% WAU", None, None, 1.0, "higher", True, error=long_error),
+        DigestRow("Median TTR", 2171, 48.0, 160.0, "lower", False),
+        DigestRow("AI Token Usage", None, 485092511.0, 1.0, "higher", False),
     ]
     widths = column_widths_for_digest_rows(rows)
-    line = format_digest_line(rows[0], widths=widths)
-    assert "exact-value-token-keep-me" in line
-    assert len(line) == 128
+    assert len(widths.header) < 80
+    assert widths.value <= 24
+    lines = format_digest_lines(rows[0], widths=widths)
+    assert len(lines[0]) == len(widths.header)
+    joined = "\n".join(lines)
+    assert long_error.replace(" ", "") in joined.replace("\n", "").replace(" ", "")
+    assert "…" not in joined
+    body = format_digest_body(rows, as_of="2026-08-03", overnight=[])
+    for line in body.splitlines():
+        if line.startswith("NAME") or (line and set(line) == {"-"}):
+            assert len(line) < 80, f"header/rule too wide: {len(line)}"
 
 
 

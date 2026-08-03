@@ -287,18 +287,11 @@ def format_overnight_jobs_section(
     *,
     line_width: int = _LINE_WIDTH,
 ) -> list[str]:
-    """Plain-text section lines for the morning report (*line_width* columns)."""
+    """Plain-text overnight jobs table using compact natural widths (no padding)."""
     status_w = max(len("STATUS"), max((len(o.status) for o in outcomes), default=0))
     dur_w = max(len("DURATION"), max((len(_fmt_duration(o.duration_s)) for o in outcomes), default=0))
     fin_w = max(len("FINISHED"), max((len(_fmt_finished(o.finished_utc)) for o in outcomes), default=0))
-    gaps = 2 * 3  # three "  " separators
     job_w = max(len("JOB"), max((len(o.job) for o in outcomes), default=0))
-    natural = job_w + status_w + dur_w + fin_w + gaps
-    if natural < line_width:
-        job_w += line_width - natural
-    elif natural > line_width:
-        # Last resort: shrink JOB only so STATUS/DURATION/FINISHED stay full-width.
-        job_w = max(len("JOB"), line_width - status_w - dur_w - fin_w - gaps)
 
     header = (
         f"{'JOB':<{job_w}}  "
@@ -314,20 +307,18 @@ def format_overnight_jobs_section(
         return lines
 
     for row in outcomes:
-        job = row.job
-        if len(job) > job_w:
-            job = job[: job_w - 1] + "…"  # only when job name itself exceeds budget
         line = (
-            f"{job:<{job_w}}  "
+            f"{row.job:<{job_w}}  "
             f"{row.status:<{status_w}}  "
             f"{_fmt_duration(row.duration_s):>{dur_w}}  "
             f"{_fmt_finished(row.finished_utc):>{fin_w}}"
         )
         lines.append(line)
+        wrap_w = max(line_width, len(header))
         if row.detail:
-            lines.extend(_wrap_text(row.detail, width=line_width, prefix="  "))
+            lines.extend(_wrap_text(row.detail, width=wrap_w, prefix="  "))
         for fail in row.failures:
-            lines.extend(_wrap_text(f"- {fail}", width=line_width, prefix="  "))
+            lines.extend(_wrap_text(f"- {fail}", width=wrap_w, prefix="  "))
     return lines
 
 
