@@ -177,6 +177,18 @@ def _invoke_get_customer_reported_bugs(ctx: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _invoke_get_median_ttr(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.jira_client import get_shared_jira_client
+    from src.jira_median_ttr import DEFAULT_MEDIAN_TTR_DAYS, get_median_ttr
+
+    jira = get_shared_jira_client()
+    return get_median_ttr(
+        jira,
+        days=int(ctx.get("days") or DEFAULT_MEDIAN_TTR_DAYS),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
 def _invoke_get_sprint_delivery_by_team(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.jira_client import get_shared_jira_client
     from src.jira_sprint_delivery import get_sprint_delivery_metric_value
@@ -276,6 +288,7 @@ _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_ai_token_usage": _invoke_get_ai_token_usage,
     "get_service_threshold_tickets": _invoke_get_service_threshold_tickets,
     "get_customer_reported_bugs": _invoke_get_customer_reported_bugs,
+    "get_median_ttr": _invoke_get_median_ttr,
     "get_sprint_delivery_by_team": _invoke_get_sprint_delivery_by_team,
     "get_sprint_story_points_by_team": _invoke_get_sprint_story_points_by_team,
     "get_wau_pct": _invoke_get_wau_pct,

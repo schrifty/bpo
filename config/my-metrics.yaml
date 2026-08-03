@@ -100,9 +100,13 @@ metrics:
 
   # Median TTR
   "Median TTR":
-    description: null
+    description: >-
+      Median completed JSM Time-to-resolution SLA elapsed time in hours for HELP
+      tickets resolved in a trailing window (default 30 days), excluding Outage /
+      Healthcheck labels. Computed from customfield_10665 completedCycles by
+      get_median_ttr.
     metric-id: 2171
-    metric-generator: null
+    metric-generator: get_median_ttr
     tags: [support, sla]
 
   # SLA Adherence (30 Days) - AUTOMATABLE

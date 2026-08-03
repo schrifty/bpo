@@ -3567,6 +3567,115 @@ class JiraClient:
             out["tickets"] = slim
         return out
 
+    def get_help_median_ttr(
+        self,
+        *,
+        days: int = 30,
+        customer_name: str | None = None,
+        match_terms: list[str] | None = None,
+        max_results: int | None = None,
+    ) -> dict[str, Any]:
+        """HELP **median TTR** from completed JSM Time-to-resolution SLA cycles (LeanDNA 2171).
+
+        Same resolved-window JQL as :meth:`get_help_time_to_resolution`, but the value is the
+        median ``elapsedTime.millis`` across tickets with a completed ``customfield_10665``
+        cycle (not SLA adherence %). Returned ``value`` is that median in **hours** (rounded).
+        """
+        jql_start = self._jql_log_len()
+        if days < 1:
+            return {"error": "days must be >= 1", "days": days, "project": "HELP"}
+
+        cap = max_results if max_results is not None else HELP_TTR_RESOLVED_MAX_RESULTS
+        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
+            customer_name, match_terms
+        )
+        jql = (
+            f"project = HELP AND {base_filter} AND {_TRANSIENT_LABELS_EXCLUSION} "
+            f"AND resolution is not EMPTY AND resolved >= -{int(days)}d "
+            "ORDER BY resolved DESC"
+        )
+        jql_total = self._jql_match_total(jql)
+
+        try:
+            raw = self._search(
+                jql,
+                max_results=cap,
+                fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
+                data_description=(
+                    f"HELP median TTR SLA (resolved in last {int(days)}d"
+                    + (f", customer {customer_name!r}" if customer_name else ", portfolio")
+                    + ")"
+                ),
+            )
+        except Exception as e:
+            logger.warning(
+                "HELP median TTR fetch failed (days=%s customer=%r): %s",
+                days,
+                customer_name,
+                e,
+            )
+            return {
+                "error": str(e),
+                "project": "HELP",
+                "metric": "median_ttr_hours",
+                "window_days": int(days),
+                "customer": customer_name,
+                "jsm_organizations_resolved": resolved_jsm_orgs,
+                "jql_queries": self._jql_since(jql_start),
+            }
+
+        issues = [self._normalize_issue(i) for i in raw]
+        sla = self._compute_sla(issues, "ttr", project_key="HELP")
+        measured = int(sla.get("measured") or 0)
+        if measured < 1:
+            return {
+                "error": (
+                    "no completed Time to resolution SLA cycles "
+                    f"for HELP tickets resolved in the last {int(days)}d"
+                ),
+                "project": "HELP",
+                "metric": "median_ttr_hours",
+                "definition": (
+                    "Median completed JSM Time to resolution SLA elapsed time (hours) "
+                    "for HELP tickets resolved in a trailing window"
+                ),
+                "sla_field": TTR_FIELD,
+                "window_days": int(days),
+                "customer": customer_name,
+                "jsm_organizations_resolved": resolved_jsm_orgs,
+                "resolved_in_window": len(issues),
+                "jql_total": jql_total,
+                "fetch_cap": cap,
+                "truncated": jql_total is not None and jql_total > len(issues),
+                "ttr": sla,
+                "jql_queries": self._jql_since(jql_start),
+            }
+
+        median_ms = float(sla["median_ms"])
+        hours = median_ms / 3_600_000.0
+        value = int(round(hours))
+        return {
+            "value": value,
+            "project": "HELP",
+            "metric": "median_ttr_hours",
+            "definition": (
+                "Median completed JSM Time to resolution SLA elapsed time (hours) "
+                "for HELP tickets resolved in a trailing window"
+            ),
+            "sla_field": TTR_FIELD,
+            "window_days": int(days),
+            "customer": customer_name,
+            "jsm_organizations_resolved": resolved_jsm_orgs,
+            "resolved_in_window": len(issues),
+            "jql_total": jql_total,
+            "fetch_cap": cap,
+            "truncated": jql_total is not None and jql_total > len(issues),
+            "median_ms": median_ms,
+            "median_hours": round(hours, 2),
+            "ttr": sla,
+            "jql_queries": self._jql_since(jql_start),
+        }
+
     @staticmethod
     def _compute_sla_field_adherence_pct(
         issues: list[dict],
