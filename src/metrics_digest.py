@@ -15,9 +15,11 @@ from datetime import date
 from typing import Any, Sequence
 
 from src.metrics_registry import (
+    entry_has_tag,
     has_metric_id,
     iter_metrics_with_generator,
     load_metrics_registry,
+    normalize_tag,
     registry_metric_description,
     registry_metric_direction,
     registry_metric_tags,
@@ -221,8 +223,13 @@ def build_digest_rows(
     *,
     registry: dict[str, Any] | None = None,
     ctx: MetricUpsertContext | None = None,
+    tag: str | None = None,
 ) -> list[DigestRow]:
-    """Generate a digest row for every registry metric that has a generator."""
+    """Generate a digest row for every registry metric that has a generator.
+
+    When *tag* is set, only metrics carrying that registry tag are included
+    (normalized via :func:`normalize_tag`, e.g. ``AKKR`` → ``akkr``).
+    """
     reg = registry if registry is not None else load_metrics_registry()
     resolve_ctx = ctx or MetricUpsertContext(
         entry_date=date.today().isoformat(),
@@ -236,8 +243,11 @@ def build_digest_rows(
         workers=6,
         metric_name_filter=None,
     )
+    tag_norm = normalize_tag(tag) if tag else ""
     rows: list[DigestRow] = []
     for name, entry in iter_metrics_with_generator(registry=reg):
+        if tag_norm and not entry_has_tag(entry, tag_norm):
+            continue
         rows.append(generate_digest_row(name, entry, registry=reg, ctx=resolve_ctx))
     return rows
 
@@ -374,21 +384,29 @@ def format_digest_body(
     *,
     as_of: str | None = None,
     overnight: list[OvernightJobOutcome] | None = None,
+    tag: str | None = None,
 ) -> str:
     """Plain-text morning report: overnight jobs, then off-target KPIs, then the rest."""
     as_of_s = as_of or date.today().isoformat()
     off, rest = partition_digest_rows(rows)
     widths = column_widths_for_digest_rows(rows)
+    tag_norm = normalize_tag(tag) if tag else ""
+    title = f"Morning report — {as_of_s}"
+    if tag_norm:
+        title = f"{title}  (tag: {tag_norm})"
     lines: list[str] = [
-        f"Morning report — {as_of_s}",
+        title,
         "",
     ]
     overnight_rows = overnight if overnight is not None else []
     lines.extend(format_overnight_jobs_section(overnight_rows))
     lines.append("")
-    lines.append(
+    kpi_line = (
         f"KPIs — off target: {len(off)}  |  on target / other: {len(rest)}  |  total: {len(rows)}"
     )
+    if tag_norm:
+        kpi_line = f"{kpi_line}  |  filter: {tag_norm}"
+    lines.append(kpi_line)
     lines.append("")
     lines.extend(_format_section("OFF TARGET", off, widths=widths))
     lines.append("")
@@ -402,13 +420,16 @@ def format_digest_subject(
     *,
     as_of: str | None = None,
     overnight: list[OvernightJobOutcome] | None = None,
+    tag: str | None = None,
 ) -> str:
     as_of_s = as_of or date.today().isoformat()
     off_n = sum(1 for r in rows if r.off_target)
     job_fail_n = overnight_failure_count(overnight or [])
+    tag_norm = normalize_tag(tag) if tag else ""
+    tag_bit = f", tag {tag_norm}" if tag_norm else ""
     if job_fail_n:
-        return f"Morning report {as_of_s} — {job_fail_n} job issue(s), {off_n} off target"
-    return f"Morning report {as_of_s} — {off_n} off target"
+        return f"Morning report {as_of_s} — {job_fail_n} job issue(s), {off_n} off target{tag_bit}"
+    return f"Morning report {as_of_s} — {off_n} off target{tag_bit}"
 
 
 @dataclass(frozen=True)
@@ -431,6 +452,7 @@ def run_metrics_digest(
     send_fn: Any | None = None,
     skip_overnight: bool = False,
     overnight: list[OvernightJobOutcome] | None = None,
+    tag: str | None = None,
 ) -> DigestResult:
     """Generate the morning report and optionally email via SES."""
     as_of_s = as_of or date.today().isoformat()
@@ -447,15 +469,15 @@ def run_metrics_digest(
         workers=6,
         metric_name_filter=None,
     )
-    rows = build_digest_rows(registry=registry, ctx=ctx)
+    rows = build_digest_rows(registry=registry, ctx=ctx, tag=tag)
     if overnight is not None:
         overnight_rows = overnight
     elif skip_overnight:
         overnight_rows = []
     else:
         overnight_rows = collect_overnight_job_outcomes(as_of=as_of_date)
-    subject = format_digest_subject(rows, as_of=as_of_s, overnight=overnight_rows)
-    body = format_digest_body(rows, as_of=as_of_s, overnight=overnight_rows)
+    subject = format_digest_subject(rows, as_of=as_of_s, overnight=overnight_rows, tag=tag)
+    body = format_digest_body(rows, as_of=as_of_s, overnight=overnight_rows, tag=tag)
 
     if dry_run:
         return DigestResult(rows=rows, subject=subject, body=body, sent=False)
@@ -505,6 +527,12 @@ def add_metrics_digest_arguments(ap: argparse.ArgumentParser) -> None:
         help="Report as-of date (default: today)",
     )
     ap.add_argument(
+        "--tag",
+        default=None,
+        metavar="TAG",
+        help="Only include KPIs with this registry tag (e.g. akkr, mfr, engineering)",
+    )
+    ap.add_argument(
         "--skip-overnight",
         action="store_true",
         help="Omit last-night's jobs section (skip CloudWatch)",
@@ -531,6 +559,7 @@ def run_metrics_digest_cli(argv: Sequence[str] | None = None, *, prog: str = "me
         timeout_seconds=float(ns.timeout),
         as_of=str(ns.date),
         skip_overnight=bool(ns.skip_overnight),
+        tag=(str(ns.tag).strip() or None) if ns.tag else None,
     )
     print(result.subject)
     print()

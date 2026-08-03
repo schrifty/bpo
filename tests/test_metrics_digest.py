@@ -223,6 +223,45 @@ def test_digest_prints_registry_description_truncated() -> None:
 
 
 
+def test_run_metrics_digest_filters_by_tag(monkeypatch) -> None:
+    registry = {
+        "metrics": {
+            "AKKR KPI": {
+                "metric-id": 1,
+                "metric-generator": "fake_akkr",
+                "target": 50,
+                "direction": "higher",
+                "tags": ["akkr", "mfr"],
+            },
+            "Other KPI": {
+                "metric-id": 2,
+                "metric-generator": "fake_other",
+                "target": 10,
+                "direction": "lower",
+                "tags": ["support"],
+            },
+        }
+    }
+
+    def fake_invoke(name, *, registry, ctx):  # noqa: ARG001
+        return {"value": 99}
+
+    monkeypatch.setattr("src.metrics_digest.invoke_metric_generator", fake_invoke)
+    result = run_metrics_digest(
+        dry_run=True,
+        as_of="2026-08-03",
+        registry=registry,
+        skip_overnight=True,
+        tag="AKKR",
+    )
+    names = [r.name for r in result.rows]
+    assert names == ["AKKR KPI"]
+    assert "tag: akkr" in result.body
+    assert "filter: akkr" in result.body
+    assert "tag akkr" in result.subject
+    assert "Other KPI" not in result.body
+
+
 def test_run_metrics_digest_dry_run_with_mocked_generators(monkeypatch) -> None:
     registry = {
         "metrics": {

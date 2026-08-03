@@ -121,11 +121,12 @@ Generate one deck (explicit)
       and upsert ``MetricDataPoint`` for that date via the Data API. Rows without a generator
       are skipped.
 
-  cortex metrics-digest [--dry-run] [--days N] [--timeout SEC]
+  cortex metrics-digest [--dry-run] [--days N] [--timeout SEC] [--tag TAG]
       Morning report: last night's ECS jobs, then live KPIs vs ``target`` /
       ``direction``, emailed via SES (off-target KPIs first).
+      ``--tag`` limits KPIs to those carrying the registry tag (e.g. ``akkr``).
 
-  cortex metrics-report [--days N] [--timeout SEC]
+  cortex metrics-report [--days N] [--timeout SEC] [--tag TAG]
       Same as ``metrics-digest --dry-run``: print the morning report without emailing.
 """
 
