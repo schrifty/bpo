@@ -133,5 +133,5 @@ def test_registry_wires_monthly_ai_spend() -> None:
     entry = registry["metrics"]["Monthly AI Spend"]
     assert entry["metric-generator"] == "get_monthly_ai_spend"
     assert entry["tags"] == ["enterprise", "finance"]
-    assert "90-day" in (entry.get("description") or "")
+    assert "Cursor AI spend" in (entry.get("description") or "")
     assert "get_monthly_ai_spend" in _GENERATORS

@@ -72,6 +72,7 @@ def test_partition_and_format_off_target_first() -> None:
     assert "LAST NIGHT'S JOBS" in body
     assert "OFF TARGET" in body
     assert "NAME" in body and "ID" in body and "VALUE" in body and "TARGET" in body
+    assert "DIR" in body and "TAGS" in body and "DESCRIPTION" in body
     assert body.index("LAST NIGHT'S JOBS") < body.index("OFF TARGET")
     assert body.index("Mid") < body.index("ALL OTHER")
     assert body.index("Zebra") < body.index("Alpha")
@@ -118,19 +119,47 @@ def test_digest_report_uses_compact_natural_widths() -> None:
     from src.metrics_digest import column_widths_for_digest_rows, format_digest_lines
 
     rows = [
-        DigestRow("Short", 1, 10.0, 5.0, "lower", True),
-        DigestRow("Median TTR", 2171, 12345.67, 9999.0, "higher", False),
-        DigestRow("Engineering Cycle Time (Sprint)", 2024, 0.67, 5.0, "lower", False),
+        DigestRow("Short", 1, 10.0, 5.0, "lower", True, tags=("mfr", "akkr")),
+        DigestRow("Median TTR", 2171, 12345.67, 9999.0, "higher", False, tags=("support",)),
+        DigestRow(
+            "Engineering Cycle Time (Sprint)",
+            2024,
+            0.67,
+            5.0,
+            "lower",
+            False,
+            tags=("engineering", "delivery"),
+        ),
     ]
     widths = column_widths_for_digest_rows(rows)
-    # Compact: roughly name + id + value + target + dir + gaps, not forced to 128.
-    assert len(widths.header) < 100
+    assert "TAGS" in widths.header
+    assert widths.header.index("DIR") < widths.header.index("TAGS")
     assert len(widths.rule) == len(widths.header)
     for row in rows:
         lines = format_digest_lines(row, widths=widths)
         assert len(lines[0]) == len(widths.header)
         assert row.name in lines[0]
         assert any(row.value_display in line for line in lines)
+        assert row.tags_display in lines[0]
+
+
+def test_digest_akkr_tags_appear_after_dir() -> None:
+    from src.metrics_digest import format_digest_lines
+
+    row = DigestRow(
+        "Weekly Active AI Users",
+        None,
+        79.4,
+        80.0,
+        "higher",
+        True,
+        tags=("mfr", "engineering", "adoption", "ai", "akkr"),
+    )
+    lines = format_digest_lines(row)
+    primary = lines[0]
+    assert "higher" in primary
+    assert "akkr" in primary
+    assert primary.index("higher") < primary.index("akkr")
 
 
 def test_digest_error_detail_follows_row_truncated_to_132() -> None:
@@ -153,34 +182,31 @@ def test_digest_error_detail_follows_row_truncated_to_132() -> None:
             "higher",
             True,
             error=long_error,
-            description="Percentage of Engineering Department members actively using AI tools each week.",
+            description="% of Engineering using Cursor in the last 7 days.",
         ),
         DigestRow("Median TTR", 2171, 48.0, 160.0, "lower", False),
         DigestRow("AI Token Usage", None, 485092511.0, 1.0, "higher", False),
     ]
     widths = column_widths_for_digest_rows(rows)
-    assert len(widths.header) < 80
+    assert "DESCRIPTION" in widths.header
     assert widths.value <= 24
     lines = format_digest_lines(rows[0], widths=widths)
-    assert len(lines) == 3  # primary + description + error
+    assert len(lines) == 2  # primary (with description) + error
     assert len(lines[0]) == len(widths.header)
     assert "error" in lines[0]
-    assert "Engineering Department" in lines[1]
-    detail = lines[2].lstrip()
+    assert "Engineering" in lines[0] and "Cursor" in lines[0]
+    detail = lines[1].lstrip()
     assert len(detail) == _DIGEST_DETAIL_MAX
     assert detail.endswith("…")
     assert detail.startswith("GitHubError:")
     assert long_error not in "\n".join(lines)  # full text not dumped
-    body = format_digest_body(rows, as_of="2026-08-03", overnight=[])
-    for line in body.splitlines():
-        if line.startswith("NAME") or (line and set(line) == {"-"}):
-            assert len(line) < 80, f"header/rule too wide: {len(line)}"
 
 
 def test_digest_prints_registry_description_truncated() -> None:
-    from src.metrics_digest import _DIGEST_DETAIL_MAX, format_digest_lines
+    from src.metrics_digest import _DIGEST_DESCRIPTION_MAX, format_digest_lines
 
-    long_desc = "A" * 200
+    assert _DIGEST_DESCRIPTION_MAX == 185
+    long_desc = "A" * 250
     row = DigestRow(
         "Issues Shipped",
         None,
@@ -191,9 +217,9 @@ def test_digest_prints_registry_description_truncated() -> None:
         description=long_desc,
     )
     lines = format_digest_lines(row)
-    assert len(lines) == 2
+    assert len(lines) == 1
     assert "281" in lines[0]
-    assert lines[1].lstrip() == ("A" * (_DIGEST_DETAIL_MAX - 1) + "…")
+    assert ("A" * (_DIGEST_DESCRIPTION_MAX - 1) + "…") in lines[0]
 
 
 

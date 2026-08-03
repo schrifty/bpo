@@ -20,6 +20,7 @@ from src.metrics_registry import (
     load_metrics_registry,
     registry_metric_description,
     registry_metric_direction,
+    registry_metric_tags,
     registry_metric_target,
     validate_metric_target_direction,
 )
@@ -44,11 +45,13 @@ logger = logging.getLogger("cortex")
 # only — never pad to fill a target width.
 DIGEST_LINE_WIDTH = 128
 _DIGEST_COL_GAP = 2
-_DIGEST_COL_COUNT = 5
+_DIGEST_COL_COUNT = 7
 # Inline VALUE column cap — longer values / errors go on a following detail line.
 _DIGEST_VALUE_INLINE_MAX = 24
-# Max characters for the detail line printed under a row (ellipsis if longer).
+# Max characters for error / overflow detail lines under a row.
 _DIGEST_DETAIL_MAX = 132
+# Registry description column: +40% truncation budget vs error detail lines.
+_DIGEST_DESCRIPTION_MAX = int(round(_DIGEST_DETAIL_MAX * 1.4))  # 185
 
 
 def _truncate_digest_detail(text: str, *, max_len: int = _DIGEST_DETAIL_MAX) -> str:
@@ -63,9 +66,14 @@ def _truncate_digest_detail(text: str, *, max_len: int = _DIGEST_DETAIL_MAX) -> 
     return collapsed[: max_len - 1] + "…"
 
 
-def _detail_lines(text: str, *, prefix: str = "  ") -> list[str]:
-    """One prefixed detail line, truncated to ``_DIGEST_DETAIL_MAX``."""
-    return [f"{prefix}{_truncate_digest_detail(text)}"]
+def _detail_lines(
+    text: str,
+    *,
+    prefix: str = "  ",
+    max_len: int = _DIGEST_DETAIL_MAX,
+) -> list[str]:
+    """One prefixed detail line, truncated to *max_len*."""
+    return [f"{prefix}{_truncate_digest_detail(text, max_len=max_len)}"]
 
 
 
@@ -79,6 +87,7 @@ class DigestRow:
     off_target: bool
     error: str | None = None
     description: str | None = None
+    tags: tuple[str, ...] = ()
 
     @property
     def id_display(self) -> str:
@@ -101,6 +110,10 @@ class DigestRow:
         if float(self.target).is_integer():
             return str(int(self.target))
         return f"{self.target:.2f}".rstrip("0").rstrip(".")
+
+    @property
+    def tags_display(self) -> str:
+        return ", ".join(self.tags) if self.tags else "—"
 
 
 def scalar_from_parts(parts: MetricParts) -> float:
@@ -148,6 +161,7 @@ def generate_digest_row(
     metric_id = _metric_id_or_none(entry)
     target = registry_metric_target(entry)
     description = registry_metric_description(entry)
+    tags = tuple(registry_metric_tags(entry))
     try:
         direction = registry_metric_direction(entry)
     except ValueError as e:
@@ -160,6 +174,7 @@ def generate_digest_row(
             off_target=True,
             error=str(e),
             description=description,
+            tags=tags,
         )
 
     cfg_err = validate_metric_target_direction(entry)
@@ -173,6 +188,7 @@ def generate_digest_row(
             off_target=True,
             error=cfg_err,
             description=description,
+            tags=tags,
         )
 
     gen_name = str(entry.get("metric-generator") or "").strip()
@@ -197,6 +213,7 @@ def generate_digest_row(
         off_target=is_off_target(value, target=target, direction=direction, error=err),
         error=err,
         description=description,
+        tags=tags,
     )
 
 
@@ -239,6 +256,8 @@ class DigestColumnWidths:
     value: int
     target: int
     direction: int
+    tags: int
+    description: int
 
     @property
     def header(self) -> str:
@@ -248,7 +267,9 @@ class DigestColumnWidths:
             f"{'ID':<{self.metric_id}}{gap}"
             f"{'VALUE':<{self.value}}{gap}"
             f"{'TARGET':<{self.target}}{gap}"
-            f"{'DIR':<{self.direction}}"
+            f"{'DIR':<{self.direction}}{gap}"
+            f"{'TAGS':<{self.tags}}{gap}"
+            f"{'DESCRIPTION':<{self.description}}"
         )
 
     @property
@@ -267,26 +288,37 @@ def column_widths_for_digest_rows(
     value_w = len("VALUE")
     target_w = len("TARGET")
     dir_w = len("DIR")
+    tags_w = len("TAGS")
+    desc_w = len("DESCRIPTION")
     for row in rows:
         name_w = max(name_w, len(row.name))
         id_w = max(id_w, len(row.id_display))
         target_w = max(target_w, len(row.target_display))
         dir_w = max(dir_w, len(row.direction or "—"))
+        tags_w = max(tags_w, len(row.tags_display))
+        if row.description:
+            desc_w = max(
+                desc_w,
+                len(_truncate_digest_detail(row.description, max_len=_DIGEST_DESCRIPTION_MAX)),
+            )
         vd = row.value_display
         if len(vd) <= _DIGEST_VALUE_INLINE_MAX:
             value_w = max(value_w, len(vd))
     value_w = min(max(value_w, len("VALUE")), _DIGEST_VALUE_INLINE_MAX)
+    desc_w = min(desc_w, _DIGEST_DESCRIPTION_MAX)
     return DigestColumnWidths(
         name=name_w,
         metric_id=id_w,
         value=value_w,
         target=target_w,
         direction=dir_w,
+        tags=tags_w,
+        description=desc_w,
     )
 
 
 def format_digest_lines(row: DigestRow, *, widths: DigestColumnWidths | None = None) -> list[str]:
-    """Columnar primary row; registry description then error follow (each ≤132 chars)."""
+    """Columnar primary row (description at end); errors follow on a detail line."""
     w = widths or column_widths_for_digest_rows([row])
     direction = row.direction or "—"
     gap = " " * _DIGEST_COL_GAP
@@ -295,16 +327,21 @@ def format_digest_lines(row: DigestRow, *, widths: DigestColumnWidths | None = N
     if len(value) > w.value:
         overflow = value
         value = ""
+    desc = (
+        _truncate_digest_detail(row.description, max_len=_DIGEST_DESCRIPTION_MAX)
+        if row.description
+        else "—"
+    )
     primary = (
         f"{row.name:<{w.name}}{gap}"
         f"{row.id_display:<{w.metric_id}}{gap}"
         f"{value:<{w.value}}{gap}"
         f"{row.target_display:<{w.target}}{gap}"
-        f"{direction:<{w.direction}}"
+        f"{direction:<{w.direction}}{gap}"
+        f"{row.tags_display:<{w.tags}}{gap}"
+        f"{desc:<{w.description}}"
     )
     lines = [primary]
-    if row.description:
-        lines.extend(_detail_lines(row.description))
     if row.error:
         lines.extend(_detail_lines(row.error))
     elif overflow:
