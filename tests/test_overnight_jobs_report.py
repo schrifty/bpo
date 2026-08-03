@@ -80,7 +80,7 @@ def test_format_overnight_section_width() -> None:
             status="FAIL",
             duration_s=143.6,
             finished_utc=datetime(2026, 8, 3, 6, 41, tzinfo=timezone.utc),
-            failures=("deck failure: " + ("x" * 100),),
+            failures=("deck failure: " + ("x" * 200),),
         ),
     ]
     lines = format_overnight_jobs_section(outcomes)
@@ -90,6 +90,8 @@ def test_format_overnight_section_width() -> None:
     joined = "\n".join(lines)
     assert "pendo-snapshot-refresh" in joined
     assert "engineering-portfolio" in joined
-    assert "deck failure: " in joined
-    assert "x" * 100 in joined.replace("\n", "").replace("  ", "")
-    assert "…" not in joined
+    detail_lines = [ln for ln in lines if ln.startswith("  - deck failure:")]
+    assert len(detail_lines) == 1
+    assert len(detail_lines[0].lstrip()) == 132
+    assert detail_lines[0].endswith("…")
+    assert "x" * 200 not in joined

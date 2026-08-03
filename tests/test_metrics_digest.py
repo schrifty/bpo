@@ -75,7 +75,8 @@ def test_partition_and_format_off_target_first() -> None:
     assert body.index("LAST NIGHT'S JOBS") < body.index("OFF TARGET")
     assert body.index("Mid") < body.index("ALL OTHER")
     assert body.index("Zebra") < body.index("Alpha")
-    assert "error: fail" in body
+    assert "error" in body
+    assert "fail" in body
     # Columnar rows should include padded name then id cells
     assert "Zebra" in body and "1" in body
     assert "—" in body  # missing metric id for Mid
@@ -132,10 +133,17 @@ def test_digest_report_uses_compact_natural_widths() -> None:
         assert any(row.value_display in line for line in lines)
 
 
-def test_digest_long_values_wrap_without_widening_header() -> None:
-    from src.metrics_digest import column_widths_for_digest_rows, format_digest_body, format_digest_lines
+def test_digest_error_detail_follows_row_truncated_to_132() -> None:
+    from src.metrics_digest import (
+        _DIGEST_DETAIL_MAX,
+        column_widths_for_digest_rows,
+        format_digest_body,
+        format_digest_lines,
+    )
 
-    long_error = "engineer roster unavailable: ATLASSIAN_ORG_ID is not set " + ("x" * 200)
+    long_error = "GitHubError: GitHub API HTTP 403 for https://api.github.com/orgs/leandna-apex/repos " + (
+        "SAML enforcement. " * 20
+    )
     rows = [
         DigestRow("% WAU", None, None, 1.0, "higher", True, error=long_error),
         DigestRow("Median TTR", 2171, 48.0, 160.0, "lower", False),
@@ -145,10 +153,15 @@ def test_digest_long_values_wrap_without_widening_header() -> None:
     assert len(widths.header) < 80
     assert widths.value <= 24
     lines = format_digest_lines(rows[0], widths=widths)
+    assert len(lines) == 2
     assert len(lines[0]) == len(widths.header)
-    joined = "\n".join(lines)
-    assert long_error.replace(" ", "") in joined.replace("\n", "").replace(" ", "")
-    assert "…" not in joined
+    assert "error" in lines[0]
+    assert lines[0].endswith(("higher", "higher ")) or "higher" in lines[0]
+    detail = lines[1].lstrip()
+    assert len(detail) == _DIGEST_DETAIL_MAX
+    assert detail.endswith("…")
+    assert detail.startswith("GitHubError:")
+    assert long_error not in "\n".join(lines)  # full text not dumped
     body = format_digest_body(rows, as_of="2026-08-03", overnight=[])
     for line in body.splitlines():
         if line.startswith("NAME") or (line and set(line) == {"-"}):

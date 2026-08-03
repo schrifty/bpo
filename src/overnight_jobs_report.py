@@ -22,6 +22,7 @@ _WINDOW_END_HOUR_UTC = 11
 _WINDOW_END_MINUTE_UTC = 45
 
 _LINE_WIDTH = 128
+_DETAIL_MAX = 132
 
 
 @dataclass(frozen=True)
@@ -266,28 +267,27 @@ def _fmt_finished(ts: datetime | None) -> str:
     return ts.astimezone(timezone.utc).strftime("%H:%M")
 
 
-def _wrap_text(text: str, *, width: int, prefix: str = "") -> list[str]:
-    """Wrap *text* to *width* without dropping characters (hard-wrap only if needed)."""
-    if width <= 0:
-        return [prefix + text] if text else [prefix.rstrip()]
-    avail = max(1, width - len(prefix))
-    if len(text) <= avail:
-        return [f"{prefix}{text}"]
-    lines: list[str] = []
-    rest = text
-    while rest:
-        chunk = rest[:avail]
-        rest = rest[avail:]
-        lines.append(f"{prefix}{chunk}")
-    return lines
+def _truncate_detail(text: str, *, max_len: int = _DETAIL_MAX) -> str:
+    collapsed = " ".join(str(text).split())
+    if max_len <= 0:
+        return ""
+    if len(collapsed) <= max_len:
+        return collapsed
+    if max_len == 1:
+        return "…"
+    return collapsed[: max_len - 1] + "…"
+
+
+def _detail_lines(text: str, *, prefix: str = "  ") -> list[str]:
+    return [f"{prefix}{_truncate_detail(text)}"]
 
 
 def format_overnight_jobs_section(
     outcomes: list[OvernightJobOutcome],
     *,
-    line_width: int = _LINE_WIDTH,
+    line_width: int = _LINE_WIDTH,  # noqa: ARG001 — kept for call-site compat
 ) -> list[str]:
-    """Plain-text overnight jobs table using compact natural widths (no padding)."""
+    """Plain-text overnight jobs table; details follow each row truncated to 132 chars."""
     status_w = max(len("STATUS"), max((len(o.status) for o in outcomes), default=0))
     dur_w = max(len("DURATION"), max((len(_fmt_duration(o.duration_s)) for o in outcomes), default=0))
     fin_w = max(len("FINISHED"), max((len(_fmt_finished(o.finished_utc)) for o in outcomes), default=0))
@@ -314,11 +314,10 @@ def format_overnight_jobs_section(
             f"{_fmt_finished(row.finished_utc):>{fin_w}}"
         )
         lines.append(line)
-        wrap_w = max(line_width, len(header))
         if row.detail:
-            lines.extend(_wrap_text(row.detail, width=wrap_w, prefix="  "))
+            lines.extend(_detail_lines(row.detail))
         for fail in row.failures:
-            lines.extend(_wrap_text(f"- {fail}", width=wrap_w, prefix="  "))
+            lines.extend(_detail_lines(f"- {fail}"))
     return lines
 
 

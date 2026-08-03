@@ -39,26 +39,32 @@ from src.ses_email import SesEmailError, digest_email_from, digest_email_recipie
 
 logger = logging.getLogger("cortex")
 
-# Soft wrap width for long VALUE continuation lines. Primary table columns use
-# compact natural widths only — never pad to fill a target width.
+# Soft wrap / detail budget. Primary table columns use compact natural widths
+# only — never pad to fill a target width.
 DIGEST_LINE_WIDTH = 128
 _DIGEST_COL_GAP = 2
 _DIGEST_COL_COUNT = 5
-# Inline VALUE column cap — longer values print in full on following lines.
+# Inline VALUE column cap — longer values / errors go on a following detail line.
 _DIGEST_VALUE_INLINE_MAX = 24
+# Max characters for the detail line printed under a row (ellipsis if longer).
+_DIGEST_DETAIL_MAX = 132
 
 
-def _wrap_digest_text(text: str, *, width: int, prefix: str = "  ") -> list[str]:
-    """Hard-wrap *text* to *width* without dropping characters."""
-    avail = max(1, width - len(prefix))
-    if len(text) <= avail:
-        return [f"{prefix}{text}"]
-    lines: list[str] = []
-    rest = text
-    while rest:
-        lines.append(f"{prefix}{rest[:avail]}")
-        rest = rest[avail:]
-    return lines
+def _truncate_digest_detail(text: str, *, max_len: int = _DIGEST_DETAIL_MAX) -> str:
+    """Single-line detail: collapse whitespace and truncate to *max_len* with ellipsis."""
+    collapsed = " ".join(str(text).split())
+    if max_len <= 0:
+        return ""
+    if len(collapsed) <= max_len:
+        return collapsed
+    if max_len == 1:
+        return "…"
+    return collapsed[: max_len - 1] + "…"
+
+
+def _detail_lines(text: str, *, prefix: str = "  ") -> list[str]:
+    """One prefixed detail line, truncated to ``_DIGEST_DETAIL_MAX``."""
+    return [f"{prefix}{_truncate_digest_detail(text)}"]
 
 
 
@@ -79,12 +85,19 @@ class DigestRow:
     @property
     def value_display(self) -> str:
         if self.error:
-            return f"error: {self.error}"
+            return "error"
         if self.value is None:
             return "—"
         if float(self.value).is_integer():
             return str(int(self.value))
         return f"{self.value:.2f}".rstrip("0").rstrip(".")
+
+    @property
+    def detail_display(self) -> str | None:
+        """Optional description printed under the primary row (errors, etc.)."""
+        if self.error:
+            return str(self.error)
+        return None
 
     @property
     def target_display(self) -> str:
@@ -274,29 +287,25 @@ def column_widths_for_digest_rows(
 
 
 def format_digest_lines(row: DigestRow, *, widths: DigestColumnWidths | None = None) -> list[str]:
-    """Columnar row lines: primary table row, plus wrapped full VALUE when it does not fit inline."""
+    """Columnar primary row; long VALUE / error text follows on a truncated detail line."""
     w = widths or column_widths_for_digest_rows([row])
     direction = row.direction or "—"
     gap = " " * _DIGEST_COL_GAP
     value = row.value_display
-    if len(value) <= w.value:
-        primary = (
-            f"{row.name:<{w.name}}{gap}"
-            f"{row.id_display:<{w.metric_id}}{gap}"
-            f"{value:<{w.value}}{gap}"
-            f"{row.target_display:<{w.target}}{gap}"
-            f"{direction:<{w.direction}}"
-        )
-        return [primary]
+    detail = row.detail_display
+    if detail is None and len(value) > w.value:
+        detail = value
+        value = ""
     primary = (
         f"{row.name:<{w.name}}{gap}"
         f"{row.id_display:<{w.metric_id}}{gap}"
-        f"{'':<{w.value}}{gap}"
+        f"{value:<{w.value}}{gap}"
         f"{row.target_display:<{w.target}}{gap}"
         f"{direction:<{w.direction}}"
     )
-    wrap_width = max(DIGEST_LINE_WIDTH, len(primary))
-    return [primary, *_wrap_digest_text(value, width=wrap_width, prefix="  ")]
+    if not detail:
+        return [primary]
+    return [primary, *_detail_lines(detail)]
 
 
 def format_digest_line(row: DigestRow, *, widths: DigestColumnWidths | None = None) -> str:

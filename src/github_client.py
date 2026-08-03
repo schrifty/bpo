@@ -276,7 +276,13 @@ class GitHubClient:
         if status == 401:
             hint = "invalid or expired GITHUB_TOKEN"
         elif status == 403:
-            hint = "forbidden — check token scopes (repo/read:org) and org membership"
+            if "SAML" in snippet or "saml" in snippet.lower():
+                hint = (
+                    "org SAML SSO — authorize this PAT for the org "
+                    "(GitHub → Settings → Developer settings → Personal access tokens → Configure SSO)"
+                )
+            else:
+                hint = "forbidden — check token scopes (repo/read:org) and org membership"
         elif status == 404:
             hint = "not found — verify org/repo names and token access"
         elif status == 429:
