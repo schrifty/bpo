@@ -260,6 +260,46 @@ def test_run_metrics_digest_filters_by_tag(monkeypatch) -> None:
     assert "filter: akkr" in result.body
     assert "tag akkr" in result.subject
     assert "Other KPI" not in result.body
+    assert "LAST NIGHT'S JOBS" not in result.body
+
+
+def test_tag_filter_omits_overnight_even_when_passed(monkeypatch) -> None:
+    from datetime import datetime, timezone
+
+    from src.overnight_jobs_report import OvernightJobOutcome
+
+    registry = {
+        "metrics": {
+            "AKKR KPI": {
+                "metric-generator": "fake",
+                "target": 1,
+                "direction": "higher",
+                "tags": ["akkr"],
+            }
+        }
+    }
+    monkeypatch.setattr(
+        "src.metrics_digest.invoke_metric_generator",
+        lambda *a, **k: {"value": 2},
+    )
+    overnight = [
+        OvernightJobOutcome(
+            job="export-nightly",
+            status="FAIL",
+            duration_s=1.0,
+            finished_utc=datetime(2026, 8, 3, 6, 0, tzinfo=timezone.utc),
+        )
+    ]
+    result = run_metrics_digest(
+        dry_run=True,
+        as_of="2026-08-03",
+        registry=registry,
+        overnight=overnight,
+        tag="akkr",
+    )
+    assert "LAST NIGHT'S JOBS" not in result.body
+    assert "job issue" not in result.subject
+    assert "AKKR KPI" in result.body
 
 
 def test_run_metrics_digest_dry_run_with_mocked_generators(monkeypatch) -> None:

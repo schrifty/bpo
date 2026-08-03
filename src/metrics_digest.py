@@ -398,9 +398,10 @@ def format_digest_body(
         title,
         "",
     ]
-    overnight_rows = overnight if overnight is not None else []
-    lines.extend(format_overnight_jobs_section(overnight_rows))
-    lines.append("")
+    if not tag_norm:
+        overnight_rows = overnight if overnight is not None else []
+        lines.extend(format_overnight_jobs_section(overnight_rows))
+        lines.append("")
     kpi_line = (
         f"KPIs — off target: {len(off)}  |  on target / other: {len(rest)}  |  total: {len(rows)}"
     )
@@ -470,9 +471,11 @@ def run_metrics_digest(
         metric_name_filter=None,
     )
     rows = build_digest_rows(registry=registry, ctx=ctx, tag=tag)
-    if overnight is not None:
+    tag_filter = bool(normalize_tag(tag)) if tag else False
+    # Tag-filtered reports are KPI-only; omit overnight jobs section and CloudWatch fetch.
+    if overnight is not None and not tag_filter:
         overnight_rows = overnight
-    elif skip_overnight:
+    elif skip_overnight or tag_filter:
         overnight_rows = []
     else:
         overnight_rows = collect_overnight_job_outcomes(as_of=as_of_date)
@@ -530,7 +533,10 @@ def add_metrics_digest_arguments(ap: argparse.ArgumentParser) -> None:
         "--tag",
         default=None,
         metavar="TAG",
-        help="Only include KPIs with this registry tag (e.g. akkr, mfr, engineering)",
+        help=(
+            "Only include KPIs with this registry tag (e.g. akkr, mfr, engineering); "
+            "omits the overnight jobs section"
+        ),
     )
     ap.add_argument(
         "--skip-overnight",
