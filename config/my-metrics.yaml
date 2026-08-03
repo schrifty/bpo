@@ -219,13 +219,13 @@ metrics:
     tags: [ai, adoption]
 
   # ── Engineering MFR scorecard (board-level AI adoption & impact) ──
-  "% WAU":
+  "Weekly Active AI Users":
     description: >-
-      Percentage of engineers actively using AI tools each week. Weekly active
-      Cursor users on Dev - * Atlassian teams ÷ engineering headcount
-      (get_wau_pct).
+      Percentage of Engineering Department members actively using AI tools each
+      week. Weekly active Cursor users on Dev - * Atlassian teams (Engineering
+      Department) ÷ Engineering headcount (get_weekly_active_ai_users).
     metric-id: null
-    metric-generator: get_wau_pct
+    metric-generator: get_weekly_active_ai_users
     tags: [mfr, engineering, adoption, ai]
     target: 80
     direction: higher

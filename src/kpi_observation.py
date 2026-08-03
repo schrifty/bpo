@@ -118,7 +118,8 @@ def observation_from_generator_raw(
             num = float(raw["numerator"])
             den = float(raw["denominator"])
             value = raw.get("value")
-            # Percent KPIs are often named "% WAU" (leading %) or "KPI Automation %".
+            # Percent KPIs often include "%" in the name ("KPI Automation %"). Generators
+            # may also supply an explicit percentage ``value`` (e.g. Weekly Active AI Users).
             is_pct = "%" in str(metric_name)
             if value is None and den != 0 and is_pct:
                 value = round(100.0 * num / den, 2)

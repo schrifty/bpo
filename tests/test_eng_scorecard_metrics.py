@@ -14,6 +14,7 @@ from src.eng_scorecard_metrics import (
     get_prs_merged,
     get_tokens_per_dev,
     get_wau_pct,
+    get_weekly_active_ai_users,
 )
 
 
@@ -65,7 +66,7 @@ def _patch_scope(monkeypatch: pytest.MonkeyPatch, jira: _FakeJira) -> None:
     )
 
 
-def test_get_wau_pct(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_weekly_active_ai_users(monkeypatch: pytest.MonkeyPatch) -> None:
     jira = _FakeJira(headcount=4, emails={"a@ex.com", "b@ex.com", "c@ex.com", "d@ex.com"})
     _patch_scope(monkeypatch, jira)
     events = [
@@ -73,10 +74,14 @@ def test_get_wau_pct(monkeypatch: pytest.MonkeyPatch) -> None:
         {"userEmail": "b@ex.com", "tokenUsage": {"inputTokens": 1, "outputTokens": 1}, "chargedCents": 1},
         {"userEmail": "outsider@ex.com", "tokenUsage": {"inputTokens": 9, "outputTokens": 9}, "chargedCents": 9},
     ]
-    out = get_wau_pct(_FakeCursor(events), jira, days=7)
+    out = get_weekly_active_ai_users(_FakeCursor(events), jira, days=7)
     assert out["numerator"] == 2.0
     assert out["denominator"] == 4.0
     assert out["active_users"] == 2
+    assert out["value"] == 50.0
+    assert out["scope"] == "engineering_department"
+    # Deprecated alias still works.
+    assert get_wau_pct(_FakeCursor(events), jira, days=7)["value"] == 50.0
 
 
 def test_get_tokens_per_dev(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -150,8 +155,8 @@ def test_get_prs_merged(monkeypatch: pytest.MonkeyPatch) -> None:
     assert out["scope"] == "engineers"
 
 
-def test_get_wau_pct_cursor_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_weekly_active_ai_users_cursor_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     jira = _FakeJira()
     _patch_scope(monkeypatch, jira)
-    out = get_wau_pct(_FakeCursor(fail=True), jira)
+    out = get_weekly_active_ai_users(_FakeCursor(fail=True), jira)
     assert "error" in out

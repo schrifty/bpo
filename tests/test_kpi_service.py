@@ -65,8 +65,8 @@ metrics:
 
 def test_observation_from_generator_ratio_and_pct() -> None:
     pct = observation_from_generator_raw(
-        {"numerator": 1, "denominator": 4},
-        metric_name="% WAU",
+        {"numerator": 1, "denominator": 4, "value": 25.0, "scope": "engineering_department"},
+        metric_name="Weekly Active AI Users",
     )
     assert pct.origin == "live"
     assert pct.value == 25.0
@@ -122,7 +122,7 @@ def test_format_kpi_resolved_line_columnar() -> None:
 
     widths = KPIColumnWidths(name=20, tags=28)
     row = KPIResolved(
-        metric_name="% WAU",
+        metric_name="Weekly Active AI Users",
         entry={},
         observation=KPIObservation(value=42.5, origin="live", as_of="2026-07-24"),
         tags=("mfr", "engineering", "ai"),
@@ -131,7 +131,7 @@ def test_format_kpi_resolved_line_columnar() -> None:
         metric_id=None,
     )
     assert format_kpi_resolved_line(row, widths=widths) == [
-        f"{'% WAU':<20}  {'mfr, engineering, ai':<28}  42.5"
+        f"{'Weekly Active AI Users':<20}  {'mfr, engineering, ai':<28}  42.5"
     ]
 
     empty = KPIResolved(

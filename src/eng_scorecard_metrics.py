@@ -1,6 +1,7 @@
 """LeanDNA metric generators for the Engineering MFR scorecard KPIs.
 
-Board-level AI adoption / impact metrics from Cursor, GitHub, and Jira. Generators
+Board-level AI adoption / impact metrics from Cursor, GitHub, and Jira, scoped to the
+Engineering Department (Atlassian ``Dev - *`` teams) where applicable. Generators
 return ``{"value": …}`` or ``{"numerator": …, "denominator": …}`` for percentages,
 and ``{"error": …}`` on failure so ``metrics-upsert`` fails loud.
 """
@@ -26,10 +27,10 @@ def _engineer_scope(jira: Any, *, timeout: float) -> dict[str, Any]:
 
     scope = build_engineer_audience_scope(jira, timeout=timeout)
     if scope.get("error"):
-        return {"error": f"engineer roster unavailable: {scope['error']}"}
+        return {"error": f"Engineering Department roster unavailable: {scope['error']}"}
     headcount = int(scope.get("headcount") or 0)
     if headcount <= 0:
-        return {"error": "engineer roster headcount is 0 (no Dev - * Atlassian teams)"}
+        return {"error": "Engineering Department headcount is 0 (no Dev - * Atlassian teams)"}
     emails = {str(e).strip().casefold() for e in (scope.get("emails") or []) if e}
     return {"headcount": headcount, "emails": emails}
 
@@ -69,6 +70,48 @@ def _engineer_event_stats(
     }
 
 
+def get_weekly_active_ai_users(
+    cursor_client: Any,
+    jira_client: Any,
+    *,
+    days: int = WAU_WINDOW_DAYS,
+    timeout: float = 60.0,
+) -> dict[str, Any]:
+    """Weekly Active AI Users: active Cursor users ÷ Engineering Department headcount.
+
+    Scope is the Engineering Department only — members of Atlassian ``Dev - *`` teams
+    (see :func:`eng_team_roster.build_engineer_audience_scope`). Non-engineering Cursor
+    users are excluded from both the numerator and the denominator.
+    """
+    scope = _engineer_scope(jira_client, timeout=timeout)
+    if scope.get("error"):
+        return scope
+    window = max(1, int(days) or WAU_WINDOW_DAYS)
+    events = _cursor_events(cursor_client, days=window)
+    if isinstance(events, dict) and events.get("error"):
+        return events
+    stats = _engineer_event_stats(events, engineer_emails=scope["emails"])
+    headcount = int(scope["headcount"])
+    active = int(stats["active_users"])
+    pct = round(100.0 * active / headcount, 2) if headcount else 0.0
+    logger.info(
+        "Weekly Active AI Users: %s / %s Engineering Department (window=%sd) = %s%%",
+        active,
+        headcount,
+        window,
+        pct,
+    )
+    return {
+        "numerator": float(active),
+        "denominator": float(headcount),
+        "value": pct,
+        "active_users": active,
+        "headcount": headcount,
+        "window_days": window,
+        "scope": "engineering_department",
+    }
+
+
 def get_wau_pct(
     cursor_client: Any,
     jira_client: Any,
@@ -76,24 +119,10 @@ def get_wau_pct(
     days: int = WAU_WINDOW_DAYS,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
-    """% WAU: weekly active AI users ÷ total engineering users."""
-    scope = _engineer_scope(jira_client, timeout=timeout)
-    if scope.get("error"):
-        return scope
-    events = _cursor_events(cursor_client, days=max(1, int(days) or WAU_WINDOW_DAYS))
-    if isinstance(events, dict) and events.get("error"):
-        return events
-    stats = _engineer_event_stats(events, engineer_emails=scope["emails"])
-    headcount = int(scope["headcount"])
-    active = int(stats["active_users"])
-    logger.info("%% WAU: %s / %s eng (window=%sd)", active, headcount, days)
-    return {
-        "numerator": float(active),
-        "denominator": float(headcount),
-        "active_users": active,
-        "headcount": headcount,
-        "window_days": max(1, int(days) or WAU_WINDOW_DAYS),
-    }
+    """Deprecated alias for :func:`get_weekly_active_ai_users`."""
+    return get_weekly_active_ai_users(
+        cursor_client, jira_client, days=days, timeout=timeout
+    )
 
 
 def get_tokens_per_dev(

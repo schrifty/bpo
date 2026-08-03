@@ -145,7 +145,7 @@ def test_digest_error_detail_follows_row_truncated_to_132() -> None:
         "SAML enforcement. " * 20
     )
     rows = [
-        DigestRow("% WAU", None, None, 1.0, "higher", True, error=long_error),
+        DigestRow("Weekly Active AI Users", None, None, 1.0, "higher", True, error=long_error),
         DigestRow("Median TTR", 2171, 48.0, 160.0, "lower", False),
         DigestRow("AI Token Usage", None, 485092511.0, 1.0, "higher", False),
     ]

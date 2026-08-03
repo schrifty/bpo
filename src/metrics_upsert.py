@@ -223,18 +223,24 @@ def _invoke_get_sprint_story_points_by_team(ctx: dict[str, Any]) -> dict[str, An
     )
 
 
-def _invoke_get_wau_pct(ctx: dict[str, Any]) -> dict[str, Any]:
+def _invoke_get_weekly_active_ai_users(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.cursor_client import get_shared_cursor_client
-    from src.eng_scorecard_metrics import WAU_WINDOW_DAYS, get_wau_pct
+    from src.eng_scorecard_metrics import WAU_WINDOW_DAYS, get_weekly_active_ai_users
     from src.jira_client import get_shared_jira_client
 
-    # Weekly active users — always a 7-day window regardless of upsert --days default.
-    return get_wau_pct(
+    # Weekly active AI users (Engineering Department) — always a 7-day window
+    # regardless of upsert --days default.
+    return get_weekly_active_ai_users(
         get_shared_cursor_client(),
         get_shared_jira_client(),
         days=WAU_WINDOW_DAYS,
         timeout=float(ctx.get("timeout") or 60.0),
     )
+
+
+def _invoke_get_wau_pct(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Deprecated alias for :func:`_invoke_get_weekly_active_ai_users`."""
+    return _invoke_get_weekly_active_ai_users(ctx)
 
 
 def _invoke_get_tokens_per_dev(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -302,7 +308,8 @@ _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_median_ttr": _invoke_get_median_ttr,
     "get_sprint_delivery_by_team": _invoke_get_sprint_delivery_by_team,
     "get_sprint_story_points_by_team": _invoke_get_sprint_story_points_by_team,
-    "get_wau_pct": _invoke_get_wau_pct,
+    "get_weekly_active_ai_users": _invoke_get_weekly_active_ai_users,
+    "get_wau_pct": _invoke_get_wau_pct,  # deprecated alias
     "get_tokens_per_dev": _invoke_get_tokens_per_dev,
     "get_prs_merged": _invoke_get_prs_merged,
     "get_issues_shipped": _invoke_get_issues_shipped,
