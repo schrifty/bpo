@@ -74,7 +74,7 @@ def test_observation_from_generator_ratio_and_pct() -> None:
 
     ratio = observation_from_generator_raw(
         {"numerator": 10, "denominator": 2},
-        metric_name="Tokens / Dev",
+        metric_name="Tokens per Dev",
     )
     assert ratio.display_value == 5.0
 

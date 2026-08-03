@@ -132,7 +132,7 @@ def get_tokens_per_dev(
     days: int = DEFAULT_WINDOW_DAYS,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
-    """Tokens / Dev: total model tokens ÷ engineering headcount."""
+    """Tokens per Dev: total model tokens ÷ Engineering Department headcount."""
     scope = _engineer_scope(jira_client, timeout=timeout)
     if scope.get("error"):
         return scope
@@ -143,7 +143,12 @@ def get_tokens_per_dev(
     headcount = int(scope["headcount"])
     tokens = int(stats["tokens"])
     per_dev = round(tokens / headcount, 1) if headcount else 0.0
-    logger.info("Tokens / Dev: %s tokens / %s eng = %s", tokens, headcount, per_dev)
+    logger.info(
+        "Tokens per Dev: %s tokens / %s Engineering Department = %s",
+        tokens,
+        headcount,
+        per_dev,
+    )
     return {
         "numerator": float(tokens),
         "denominator": float(headcount),
@@ -151,6 +156,7 @@ def get_tokens_per_dev(
         "tokens": tokens,
         "headcount": headcount,
         "window_days": max(1, int(days)),
+        "scope": "engineering_department",
     }
 
 
@@ -194,6 +200,148 @@ def get_prs_merged(
         "value": merged,
         "scope": scope,
         "window_days": max(1, int(days)),
+    }
+
+
+# Cursor / agent attribution markers on PR title, body, author, or labels.
+_AI_ASSISTED_PR_MARKERS = (
+    "made with cursor",
+    "co-authored-by: cursor",
+    "cursoragent@",
+    "generated with cursor",
+    "cursor agent",
+)
+_AI_ASSISTED_PR_LOGINS = frozenset({"cursoragent", "cursor", "cursor[bot]"})
+_AI_ASSISTED_PR_LABEL_NEEDLES = ("ai-assisted", "ai-automated", "cursor-agent", "cursor")
+
+
+def pr_is_ai_assisted(pull: dict[str, Any]) -> bool:
+    """True when a GitHub PR payload shows Cursor / AI-agent attribution."""
+    user = pull.get("user") if isinstance(pull.get("user"), dict) else {}
+    login = str(user.get("login") or "").strip().lower()
+    if login in _AI_ASSISTED_PR_LOGINS:
+        return True
+    for lab in pull.get("labels") or []:
+        name = str(lab.get("name") if isinstance(lab, dict) else lab or "").strip().lower()
+        if name and any(needle in name for needle in _AI_ASSISTED_PR_LABEL_NEEDLES):
+            return True
+    blob = f"{pull.get('title') or ''}\n{pull.get('body') or ''}".lower()
+    return any(marker in blob for marker in _AI_ASSISTED_PR_MARKERS)
+
+
+def get_ai_assisted_automated_prs_pct(
+    *,
+    days: int = DEFAULT_WINDOW_DAYS,
+    timeout: float = 60.0,  # noqa: ARG001
+) -> dict[str, Any]:
+    """% of AI-Assisted Automated PRs: AI-supported merged PRs ÷ total merged PRs.
+
+    AI support is inferred from Cursor attribution on the PR (trailers, author, labels).
+    When the Engineering Department roster is available, both numerator and denominator
+    are limited to engineer-authored merges; otherwise the org total is used.
+    """
+    from .engineer_identity_map import load_github_email_aliases
+    from .github_client import (
+        GitHubClient,
+        GitHubError,
+        _github_org,
+        _github_repos_env,
+        _resolve_repo_specs,
+        github_configured,
+    )
+    from .github_productivity_report import _resolve_contributor_login
+
+    if not github_configured():
+        return {"error": "GitHub not configured (GITHUB_TOKEN / org)"}
+
+    window = max(1, int(days))
+    since = datetime.now(timezone.utc) - timedelta(days=window)
+
+    engineer_emails: set[str] = set()
+    login_to_email: dict[str, str] = {}
+    try:
+        from .engineer_identity_map import build_engineer_identity_map
+        from .jira_client import get_shared_jira_client
+
+        identity = build_engineer_identity_map(jira_client=get_shared_jira_client())
+        if identity.get("configured"):
+            engineer_emails = {
+                str(e).strip().casefold()
+                for e in (identity.get("canonical_emails") or [])
+                if e
+            }
+            login_to_email = {
+                str(k).strip().lower(): str(v).strip().casefold()
+                for k, v in (identity.get("login_to_email") or {}).items()
+                if k and v
+            }
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "%% of AI-Assisted Automated PRs: identity map unavailable (%s); using org totals",
+            e,
+        )
+
+    email_aliases, _ = load_github_email_aliases()
+
+    try:
+        gh = GitHubClient()
+        repo_specs = _resolve_repo_specs(
+            org=_github_org(),
+            repos_env=_github_repos_env(),
+            client=gh,
+        )
+    except GitHubError as e:
+        return {"error": str(e)}
+
+    total = 0
+    assisted = 0
+    for owner, repo in repo_specs:
+        try:
+            pulls = gh.list_merged_pulls_since(owner, repo, since=since)
+        except GitHubError as e:
+            return {"error": f"GitHub merged PR list failed for {owner}/{repo}: {e}"}
+        for pull in pulls:
+            if engineer_emails:
+                user = pull.get("user") if isinstance(pull.get("user"), dict) else {}
+                login = str(user.get("login") or "").strip().lower()
+                canonical = _resolve_contributor_login(
+                    login,
+                    login_to_email=login_to_email,
+                    email_aliases=email_aliases,
+                    engineer_emails=engineer_emails,
+                )
+                if not canonical:
+                    continue
+            total += 1
+            if pr_is_ai_assisted(pull):
+                assisted += 1
+
+    if total <= 0:
+        return {
+            "error": (
+                f"no merged PRs in last {window}d "
+                f"({'engineers' if engineer_emails else 'org'}) for % of AI-Assisted Automated PRs"
+            )
+        }
+
+    pct = round(100.0 * assisted / total, 2)
+    scope = "engineers" if engineer_emails else "org"
+    logger.info(
+        "%% of AI-Assisted Automated PRs: %s / %s (%s, window=%sd) = %s%%",
+        assisted,
+        total,
+        scope,
+        window,
+        pct,
+    )
+    return {
+        "numerator": float(assisted),
+        "denominator": float(total),
+        "value": pct,
+        "assisted_prs": assisted,
+        "total_prs": total,
+        "scope": scope,
+        "window_days": window,
     }
 
 
@@ -270,6 +418,67 @@ def get_growth_allocation_pct(
         "planned": planned,
         "unplanned": int(closed_split.get("unplanned") or 0),
         "window_days": window,
+    }
+
+
+def get_ai_spend_pct(
+    cursor_client: Any,
+    *,
+    timeout: float = 60.0,
+) -> dict[str, Any]:
+    """AI Spend %: monthly AI spend (USD) ÷ monthly engineering spend (USD).
+
+    Numerator is projected calendar-month Cursor spend (:func:`get_monthly_ai_spend`).
+    Denominator is ``CORTEX_ENGINEERING_MONTHLY_SPEND_USD`` (finance-configured).
+    Fails loud when the denominator env is missing/invalid or Cursor spend fails.
+    """
+    import os
+
+    from .config import CORTEX_ENGINEERING_MONTHLY_SPEND_USD
+    from .cursor_ai_usage_metrics import get_monthly_ai_spend
+
+    eng_spend = CORTEX_ENGINEERING_MONTHLY_SPEND_USD
+    if eng_spend is None:
+        raw = (os.environ.get("CORTEX_ENGINEERING_MONTHLY_SPEND_USD") or "").strip()
+        if raw:
+            return {
+                "error": (
+                    "CORTEX_ENGINEERING_MONTHLY_SPEND_USD is not a valid number "
+                    f"(got {raw!r})"
+                )
+            }
+        return {
+            "error": (
+                "CORTEX_ENGINEERING_MONTHLY_SPEND_USD is not set — required for AI Spend % "
+                "(total monthly engineering spend in USD)"
+            )
+        }
+    if float(eng_spend) <= 0:
+        return {
+            "error": (
+                f"CORTEX_ENGINEERING_MONTHLY_SPEND_USD must be > 0 (got {eng_spend})"
+            )
+        }
+
+    ai = get_monthly_ai_spend(cursor_client, timeout=timeout)
+    if ai.get("error"):
+        return ai
+    ai_usd = float(ai.get("value") if ai.get("value") is not None else ai.get("spend_usd") or 0)
+    eng_usd = float(eng_spend)
+    pct = round(100.0 * ai_usd / eng_usd, 2)
+    logger.info(
+        "AI Spend %%: $%s AI / $%s engineering = %s%%",
+        ai_usd,
+        eng_usd,
+        pct,
+    )
+    return {
+        "numerator": ai_usd,
+        "denominator": eng_usd,
+        "value": pct,
+        "ai_spend_usd": ai_usd,
+        "engineering_spend_usd": eng_usd,
+        "scope": "monthly",
     }
 
 

@@ -234,26 +234,30 @@ metrics:
     description: >-
       Percentage of code changes significantly supported by AI
       (AI-assisted PRs ÷ total PRs). Generator blocked until a reliable
-      per-PR AI-assistance signal exists (Cursor/GitHub agent attribution,
-      label, check, or commit trailer).
+      per-PR AI-assistance signal exists beyond Cursor attribution trailers
+      (label, check, or commit-level Cursor Blame).
     metric-id: null
     metric-generator: null
     tags: [mfr, engineering, adoption, ai]
 
-  "% AI-Assisted Automated PRs":
+  "% of AI-Assisted Automated PRs":
     description: >-
-      Percentage of code changes created by AI (AI-automated PRs ÷ total PRs).
-      Generator blocked until an explicit AI-created/agent PR flag is available
-      (distinct from assisted).
+      Percentage of merged PRs significantly supported by AI ÷ total merged PRs
+      in the trailing window. AI support is detected from Cursor attribution on
+      the PR (Made with Cursor / Co-authored-by: Cursor / cursoragent author or
+      labels). Engineer-scoped when the Engineering Department roster is
+      available (get_ai_assisted_automated_prs_pct).
     metric-id: null
-    metric-generator: null
+    metric-generator: get_ai_assisted_automated_prs_pct
     tags: [mfr, engineering, adoption, ai]
+    target: 50
+    direction: higher
 
-  "Tokens / Dev":
+  "Tokens per Dev":
     description: >-
-      How heavily engineers are using AI tools: total Cursor model tokens
-      (input + output) over the trailing window ÷ Dev - * engineering
-      headcount (get_tokens_per_dev).
+      How heavily the Engineering Department is using AI tools: total Cursor
+      model tokens (input + output) over the trailing window ÷ Engineering
+      Department (Dev - *) headcount (get_tokens_per_dev).
     metric-id: null
     metric-generator: get_tokens_per_dev
     tags: [mfr, engineering, adoption, ai]
@@ -262,13 +266,15 @@ metrics:
 
   "AI Spend %":
     description: >-
-      Share of engineering spend dedicated to AI tools and models
-      ((AI tooling + model/API spend) ÷ total engineering spend). Generator
-      blocked until total engineering spend (payroll/opex) is available;
-      Cursor AI spend alone is not enough.
+      Share of engineering spend dedicated to AI tools and models: total AI
+      spend (projected monthly Cursor spend via get_monthly_ai_spend) ÷ total
+      monthly engineering spend from CORTEX_ENGINEERING_MONTHLY_SPEND_USD
+      (get_ai_spend_pct). Fails loud when the engineering-spend env is unset.
     metric-id: null
-    metric-generator: null
+    metric-generator: get_ai_spend_pct
     tags: [mfr, engineering, adoption, ai]
+    target: 5
+    direction: higher
 
   "PRs Merged":
     description: >-

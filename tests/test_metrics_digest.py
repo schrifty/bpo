@@ -145,7 +145,16 @@ def test_digest_error_detail_follows_row_truncated_to_132() -> None:
         "SAML enforcement. " * 20
     )
     rows = [
-        DigestRow("Weekly Active AI Users", None, None, 1.0, "higher", True, error=long_error),
+        DigestRow(
+            "Weekly Active AI Users",
+            None,
+            None,
+            1.0,
+            "higher",
+            True,
+            error=long_error,
+            description="Percentage of Engineering Department members actively using AI tools each week.",
+        ),
         DigestRow("Median TTR", 2171, 48.0, 160.0, "lower", False),
         DigestRow("AI Token Usage", None, 485092511.0, 1.0, "higher", False),
     ]
@@ -153,11 +162,11 @@ def test_digest_error_detail_follows_row_truncated_to_132() -> None:
     assert len(widths.header) < 80
     assert widths.value <= 24
     lines = format_digest_lines(rows[0], widths=widths)
-    assert len(lines) == 2
+    assert len(lines) == 3  # primary + description + error
     assert len(lines[0]) == len(widths.header)
     assert "error" in lines[0]
-    assert lines[0].endswith(("higher", "higher ")) or "higher" in lines[0]
-    detail = lines[1].lstrip()
+    assert "Engineering Department" in lines[1]
+    detail = lines[2].lstrip()
     assert len(detail) == _DIGEST_DETAIL_MAX
     assert detail.endswith("…")
     assert detail.startswith("GitHubError:")
@@ -166,6 +175,25 @@ def test_digest_error_detail_follows_row_truncated_to_132() -> None:
     for line in body.splitlines():
         if line.startswith("NAME") or (line and set(line) == {"-"}):
             assert len(line) < 80, f"header/rule too wide: {len(line)}"
+
+
+def test_digest_prints_registry_description_truncated() -> None:
+    from src.metrics_digest import _DIGEST_DETAIL_MAX, format_digest_lines
+
+    long_desc = "A" * 200
+    row = DigestRow(
+        "Issues Shipped",
+        None,
+        281.0,
+        20.0,
+        "higher",
+        False,
+        description=long_desc,
+    )
+    lines = format_digest_lines(row)
+    assert len(lines) == 2
+    assert "281" in lines[0]
+    assert lines[1].lstrip() == ("A" * (_DIGEST_DETAIL_MAX - 1) + "…")
 
 
 

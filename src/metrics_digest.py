@@ -18,6 +18,7 @@ from src.metrics_registry import (
     has_metric_id,
     iter_metrics_with_generator,
     load_metrics_registry,
+    registry_metric_description,
     registry_metric_direction,
     registry_metric_target,
     validate_metric_target_direction,
@@ -77,6 +78,7 @@ class DigestRow:
     direction: str | None
     off_target: bool
     error: str | None = None
+    description: str | None = None
 
     @property
     def id_display(self) -> str:
@@ -91,13 +93,6 @@ class DigestRow:
         if float(self.value).is_integer():
             return str(int(self.value))
         return f"{self.value:.2f}".rstrip("0").rstrip(".")
-
-    @property
-    def detail_display(self) -> str | None:
-        """Optional description printed under the primary row (errors, etc.)."""
-        if self.error:
-            return str(self.error)
-        return None
 
     @property
     def target_display(self) -> str:
@@ -152,6 +147,7 @@ def generate_digest_row(
     """Run one generator and classify against registry target/direction."""
     metric_id = _metric_id_or_none(entry)
     target = registry_metric_target(entry)
+    description = registry_metric_description(entry)
     try:
         direction = registry_metric_direction(entry)
     except ValueError as e:
@@ -163,6 +159,7 @@ def generate_digest_row(
             direction=None,
             off_target=True,
             error=str(e),
+            description=description,
         )
 
     cfg_err = validate_metric_target_direction(entry)
@@ -175,6 +172,7 @@ def generate_digest_row(
             direction=direction,
             off_target=True,
             error=cfg_err,
+            description=description,
         )
 
     gen_name = str(entry.get("metric-generator") or "").strip()
@@ -198,6 +196,7 @@ def generate_digest_row(
         direction=direction,
         off_target=is_off_target(value, target=target, direction=direction, error=err),
         error=err,
+        description=description,
     )
 
 
@@ -287,14 +286,14 @@ def column_widths_for_digest_rows(
 
 
 def format_digest_lines(row: DigestRow, *, widths: DigestColumnWidths | None = None) -> list[str]:
-    """Columnar primary row; long VALUE / error text follows on a truncated detail line."""
+    """Columnar primary row; registry description then error follow (each ≤132 chars)."""
     w = widths or column_widths_for_digest_rows([row])
     direction = row.direction or "—"
     gap = " " * _DIGEST_COL_GAP
     value = row.value_display
-    detail = row.detail_display
-    if detail is None and len(value) > w.value:
-        detail = value
+    overflow: str | None = None
+    if len(value) > w.value:
+        overflow = value
         value = ""
     primary = (
         f"{row.name:<{w.name}}{gap}"
@@ -303,9 +302,14 @@ def format_digest_lines(row: DigestRow, *, widths: DigestColumnWidths | None = N
         f"{row.target_display:<{w.target}}{gap}"
         f"{direction:<{w.direction}}"
     )
-    if not detail:
-        return [primary]
-    return [primary, *_detail_lines(detail)]
+    lines = [primary]
+    if row.description:
+        lines.extend(_detail_lines(row.description))
+    if row.error:
+        lines.extend(_detail_lines(row.error))
+    elif overflow:
+        lines.extend(_detail_lines(overflow))
+    return lines
 
 
 def format_digest_line(row: DigestRow, *, widths: DigestColumnWidths | None = None) -> str:

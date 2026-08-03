@@ -8,6 +8,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from src.eng_scorecard_metrics import (
+    get_ai_assisted_automated_prs_pct,
+    get_ai_spend_pct,
     get_ai_spend_per_issue,
     get_growth_allocation_pct,
     get_issues_shipped,
@@ -15,6 +17,7 @@ from src.eng_scorecard_metrics import (
     get_tokens_per_dev,
     get_wau_pct,
     get_weekly_active_ai_users,
+    pr_is_ai_assisted,
 )
 
 
@@ -123,6 +126,30 @@ def test_get_growth_allocation_pct(monkeypatch: pytest.MonkeyPatch) -> None:
     assert out["unplanned"] == 2
 
 
+def test_get_ai_spend_pct(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.config as config_mod
+
+    monkeypatch.setattr(config_mod, "CORTEX_ENGINEERING_MONTHLY_SPEND_USD", 500_000.0)
+    monkeypatch.setattr(
+        "src.cursor_ai_usage_metrics.get_monthly_ai_spend",
+        lambda client, timeout=60.0: {"value": 10000.0, "spend_usd": 10000.0},
+    )
+    out = get_ai_spend_pct(_FakeCursor())
+    assert out["numerator"] == 10000.0
+    assert out["denominator"] == 500_000.0
+    assert out["value"] == 2.0
+
+
+def test_get_ai_spend_pct_missing_eng_spend(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.config as config_mod
+
+    monkeypatch.setattr(config_mod, "CORTEX_ENGINEERING_MONTHLY_SPEND_USD", None)
+    monkeypatch.delenv("CORTEX_ENGINEERING_MONTHLY_SPEND_USD", raising=False)
+    out = get_ai_spend_pct(_FakeCursor())
+    assert "error" in out
+    assert "CORTEX_ENGINEERING_MONTHLY_SPEND_USD" in out["error"]
+
+
 def test_get_ai_spend_per_issue(monkeypatch: pytest.MonkeyPatch) -> None:
     jira = _FakeJira(headcount=2, emails={"a@ex.com"}, shipped_count=4)
     _patch_scope(monkeypatch, jira)
@@ -133,6 +160,52 @@ def test_get_ai_spend_per_issue(monkeypatch: pytest.MonkeyPatch) -> None:
     assert out["spend_usd"] == 2.0
     assert out["issues_shipped"] == 4
     assert out["value"] == 0.5
+
+
+def test_pr_is_ai_assisted_markers() -> None:
+    assert pr_is_ai_assisted({"title": "feat", "body": "Made with Cursor\n", "user": {"login": "alice"}})
+    assert pr_is_ai_assisted({"title": "x", "body": "Co-authored-by: Cursor <cursoragent@cursor.com>", "user": {}})
+    assert pr_is_ai_assisted({"title": "x", "body": "", "user": {"login": "cursoragent"}})
+    assert pr_is_ai_assisted({"title": "x", "body": "", "user": {"login": "bob"}, "labels": [{"name": "ai-assisted"}]})
+    assert not pr_is_ai_assisted({"title": "fix typo", "body": "no ai here", "user": {"login": "bob"}})
+
+
+def test_get_ai_assisted_automated_prs_pct(monkeypatch: pytest.MonkeyPatch) -> None:
+    pulls = [
+        {"title": "a", "body": "Made with Cursor", "user": {"login": "alice"}},
+        {"title": "b", "body": "plain", "user": {"login": "bob"}},
+        {"title": "c", "body": "Co-authored-by: Cursor <x@y>", "user": {"login": "carol"}},
+    ]
+
+    class _Gh:
+        def list_merged_pulls_since(self, owner, repo, *, since, max_pulls=None):
+            return pulls
+
+    monkeypatch.setattr("src.github_client.github_configured", lambda: True)
+    monkeypatch.setattr("src.github_client.GitHubClient", lambda: _Gh())
+    monkeypatch.setattr(
+        "src.github_client._resolve_repo_specs",
+        lambda **kwargs: [("leandna-apex", "app")],
+    )
+    monkeypatch.setattr("src.github_client._github_org", lambda: "leandna-apex")
+    monkeypatch.setattr("src.github_client._github_repos_env", lambda: None)
+    monkeypatch.setattr(
+        "src.engineer_identity_map.build_engineer_identity_map",
+        lambda **kwargs: {"configured": False},
+    )
+    monkeypatch.setattr("src.engineer_identity_map.load_github_email_aliases", lambda: ({}, None))
+
+    out = get_ai_assisted_automated_prs_pct(days=30)
+    assert out["numerator"] == 2.0
+    assert out["denominator"] == 3.0
+    assert out["value"] == 66.67
+    assert out["scope"] == "org"
+
+
+def test_get_ai_assisted_automated_prs_pct_github_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("src.github_client.github_configured", lambda: False)
+    out = get_ai_assisted_automated_prs_pct(days=30)
+    assert "error" in out
 
 
 def test_get_prs_merged(monkeypatch: pytest.MonkeyPatch) -> None:

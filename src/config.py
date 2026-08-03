@@ -242,6 +242,20 @@ if os.environ.get("CORTEX_CURSOR_CACHE_DISABLED", "").strip().lower() in ("1", "
 _cursor_slides_only = os.environ.get("CORTEX_CURSOR_SLIDES_ONLY", "").strip().lower()
 CORTEX_CURSOR_SLIDES_ONLY = _cursor_slides_only in ("1", "true", "yes", "on")
 
+# Monthly engineering opex (USD) for AI Spend % = monthly AI spend ÷ this value.
+# Set from finance; required for get_ai_spend_pct. Not a secret — still keep in local .env.
+def _parse_engineering_monthly_spend_usd() -> float | None:
+    raw = (os.environ.get("CORTEX_ENGINEERING_MONTHLY_SPEND_USD") or "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw.replace(",", ""))
+    except ValueError:
+        return None
+
+
+CORTEX_ENGINEERING_MONTHLY_SPEND_USD = _parse_engineering_monthly_spend_usd()
+
 # Atlassian Teams roster (org membership) — reused across eng portfolio, Cursor scope, identity map.
 try:
     _teams_cache_hours = float(os.environ.get("CORTEX_ATLASSIAN_TEAMS_CACHE_TTL_HOURS", "1").strip())
