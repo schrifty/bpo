@@ -13,6 +13,7 @@ from src.eng_scorecard_metrics import (
     get_ai_assisted_automated_prs_pct,
     get_ai_spend_pct,
     get_ai_spend_per_issue,
+    get_headcount_plus_ai_spend_per_issue,
     get_growth_allocation_pct,
     get_issues_shipped,
     get_prs_merged,
@@ -165,6 +166,54 @@ def test_get_ai_spend_per_issue(monkeypatch: pytest.MonkeyPatch) -> None:
     assert out["value"] == 0.5
 
 
+def test_get_headcount_plus_ai_spend_per_issue(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.config as config_mod
+
+    monkeypatch.setattr(config_mod, "CORTEX_ENGINEERING_MONTHLY_SPEND_USD", 30_000.0)
+    jira = _FakeJira(headcount=2, emails={"a@ex.com"}, shipped_count=4)
+    _patch_scope(monkeypatch, jira)
+    events = [
+        {"userEmail": "a@ex.com", "tokenUsage": {"inputTokens": 1, "outputTokens": 1, "totalCents": 0}, "chargedCents": 200},
+    ]
+    out = get_headcount_plus_ai_spend_per_issue(_FakeCursor(events), jira, days=30)
+    assert out["headcount_usd"] == 30_000.0
+    assert out["ai_spend_usd"] == 2.0
+    assert out["total_usd"] == 30_002.0
+    assert out["issues_shipped"] == 4
+    assert out["value"] == 7500.5
+
+
+def test_get_headcount_plus_ai_spend_per_issue_prorates_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.config as config_mod
+
+    monkeypatch.setattr(config_mod, "CORTEX_ENGINEERING_MONTHLY_SPEND_USD", 30_000.0)
+    jira = _FakeJira(headcount=2, emails={"a@ex.com"}, shipped_count=2)
+    _patch_scope(monkeypatch, jira)
+    events = [
+        {"userEmail": "a@ex.com", "tokenUsage": {"inputTokens": 1, "outputTokens": 1, "totalCents": 0}, "chargedCents": 100},
+    ]
+    out = get_headcount_plus_ai_spend_per_issue(_FakeCursor(events), jira, days=15)
+    assert out["headcount_usd"] == 15_000.0
+    assert out["ai_spend_usd"] == 1.0
+    assert out["value"] == 7500.5
+
+
+def test_get_headcount_plus_ai_spend_per_issue_requires_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.config as config_mod
+
+    monkeypatch.setattr(config_mod, "CORTEX_ENGINEERING_MONTHLY_SPEND_USD", None)
+    monkeypatch.delenv("CORTEX_ENGINEERING_MONTHLY_SPEND_USD", raising=False)
+    jira = _FakeJira(headcount=2, emails={"a@ex.com"}, shipped_count=4)
+    _patch_scope(monkeypatch, jira)
+    out = get_headcount_plus_ai_spend_per_issue(_FakeCursor([]), jira, days=30)
+    assert "error" in out
+    assert "CORTEX_ENGINEERING_MONTHLY_SPEND_USD" in out["error"]
+
+
 def test_pr_is_ai_assisted_and_automated_markers() -> None:
     assert pr_is_ai_assisted({"title": "feat", "body": "Made with Cursor\n", "user": {"login": "alice"}})
     assert pr_is_ai_assisted({"title": "x", "body": "Co-authored-by: Cursor <cursoragent@cursor.com>", "user": {}})
@@ -225,22 +274,43 @@ def test_get_ai_assisted_prs_pct_github_missing(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_get_prs_merged(monkeypatch: pytest.MonkeyPatch) -> None:
+    pulls = [
+        {"title": "a", "body": "", "user": {"login": "alice"}},
+        {"title": "b", "body": "", "user": {"login": "bob"}},
+        {"title": "c", "body": "", "user": {"login": "carol"}},
+    ]
+
+    class _Gh:
+        def list_merged_pulls_since(self, owner, repo, *, since, max_pulls=None):
+            return pulls
+
     monkeypatch.setattr("src.github_client.github_configured", lambda: True)
+    monkeypatch.setattr("src.github_client.GitHubClient", lambda: _Gh())
+    monkeypatch.setattr(
+        "src.github_client._resolve_repo_specs",
+        lambda **kwargs: [("leandna-apex", "app")],
+    )
+    monkeypatch.setattr("src.github_client._github_org", lambda: "leandna-apex")
+    monkeypatch.setattr("src.github_client._github_repos_env", lambda: None)
     monkeypatch.setattr(
         "src.engineer_identity_map.build_engineer_identity_map",
-        lambda **kwargs: {"configured": True, "canonical_emails": ["a@ex.com"]},
-    )
-    monkeypatch.setattr(
-        "src.github_productivity_report.build_github_productivity_report",
         lambda **kwargs: {
             "configured": True,
-            "company_engineers": {"merged_prs": 12},
-            "company_all": {"merged_prs": 99},
+            "canonical_emails": ["alice@ex.com", "bob@ex.com"],
+            "login_to_email": {"alice": "alice@ex.com", "bob": "bob@ex.com"},
         },
+    )
+    monkeypatch.setattr("src.engineer_identity_map.load_github_email_aliases", lambda: ({}, None))
+    monkeypatch.setattr(
+        "src.github_productivity_report._resolve_contributor_login",
+        lambda login, **kwargs: {
+            "alice": "alice@ex.com",
+            "bob": "bob@ex.com",
+        }.get(login),
     )
     monkeypatch.setattr("src.jira_client.get_shared_jira_client", MagicMock)
     out = get_prs_merged(days=30)
-    assert out["value"] == 12
+    assert out["value"] == 2  # carol excluded (not in engineer map)
     assert out["scope"] == "engineers"
 
 

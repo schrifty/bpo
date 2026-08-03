@@ -160,46 +160,111 @@ def get_tokens_per_dev(
     }
 
 
-def get_prs_merged(
+def _load_merged_prs_for_scorecard(
     *,
     days: int = DEFAULT_WINDOW_DAYS,
     timeout: float = 60.0,  # noqa: ARG001
+    label: str = "merged PRs",
 ) -> dict[str, Any]:
-    """PRs Merged: engineer-scoped merged PRs in the window (falls back to org total)."""
-    from .github_client import github_configured
-    from .github_productivity_report import build_github_productivity_report
+    """Load merged PRs for scorecard KPIs (Search API, engineer-scoped when mapped).
+
+    Shares :meth:`GitHubClient.list_merged_pulls_since` cache with sibling generators so a
+    digest run does not triple Search quota.
+    """
+    from .engineer_identity_map import load_github_email_aliases
+    from .github_client import (
+        GitHubClient,
+        GitHubError,
+        _github_org,
+        _github_repos_env,
+        _resolve_repo_specs,
+        github_configured,
+    )
+    from .github_productivity_report import _resolve_contributor_login
 
     if not github_configured():
         return {"error": "GitHub not configured (GITHUB_TOKEN / org)"}
 
-    identity = None
+    window = max(1, int(days))
+    since = datetime.now(timezone.utc) - timedelta(days=window)
+
+    engineer_emails: set[str] = set()
+    login_to_email: dict[str, str] = {}
     try:
         from .engineer_identity_map import build_engineer_identity_map
         from .jira_client import get_shared_jira_client
 
         identity = build_engineer_identity_map(jira_client=get_shared_jira_client())
-        if not identity.get("configured"):
-            identity = None
+        if identity.get("configured"):
+            engineer_emails = {
+                str(e).strip().casefold()
+                for e in (identity.get("canonical_emails") or [])
+                if e
+            }
+            login_to_email = {
+                str(k).strip().lower(): str(v).strip().casefold()
+                for k, v in (identity.get("login_to_email") or {}).items()
+                if k and v
+            }
     except Exception as e:  # noqa: BLE001
-        logger.warning("PRs Merged: identity map unavailable (%s); using org totals", e)
+        logger.warning("%s: identity map unavailable (%s); using org totals", label, e)
 
-    report = build_github_productivity_report(window_days=days, identity=identity)
-    if not report or not report.get("configured", True):
-        return {"error": "GitHub productivity report unavailable"}
+    email_aliases, _ = load_github_email_aliases()
 
-    eng = report.get("company_engineers") or {}
-    all_co = report.get("company_all") or {}
-    if identity is not None:
-        merged = int(eng.get("merged_prs") or 0)
-        scope = "engineers"
-    else:
-        merged = int(all_co.get("merged_prs") or 0)
-        scope = "org"
-    logger.info("PRs Merged: %s (%s, window=%sd)", merged, scope, days)
+    try:
+        gh = GitHubClient()
+        repo_specs = _resolve_repo_specs(
+            org=_github_org(),
+            repos_env=_github_repos_env(),
+            client=gh,
+        )
+    except GitHubError as e:
+        return {"error": str(e)}
+
+    pulls: list[dict[str, Any]] = []
+    for owner, repo in repo_specs:
+        try:
+            repo_pulls = gh.list_merged_pulls_since(owner, repo, since=since)
+        except GitHubError as e:
+            return {"error": f"GitHub merged PR list failed for {owner}/{repo}: {e}"}
+        for pull in repo_pulls:
+            if engineer_emails:
+                user = pull.get("user") if isinstance(pull.get("user"), dict) else {}
+                login = str(user.get("login") or "").strip().lower()
+                canonical = _resolve_contributor_login(
+                    login,
+                    login_to_email=login_to_email,
+                    email_aliases=email_aliases,
+                    engineer_emails=engineer_emails,
+                )
+                if not canonical:
+                    continue
+            pulls.append(pull)
+
+    return {
+        "pulls": pulls,
+        "scope": "engineers" if engineer_emails else "org",
+        "window_days": window,
+    }
+
+
+def get_prs_merged(
+    *,
+    days: int = DEFAULT_WINDOW_DAYS,
+    timeout: float = 60.0,
+) -> dict[str, Any]:
+    """PRs Merged: engineer-scoped merged PRs in the window (falls back to org total)."""
+    inv = _load_merged_prs_for_scorecard(days=days, timeout=timeout, label="PRs Merged")
+    if inv.get("error"):
+        return inv
+    merged = len(inv.get("pulls") or [])
+    scope = str(inv.get("scope") or "org")
+    window = int(inv.get("window_days") or days)
+    logger.info("PRs Merged: %s (%s, window=%sd)", merged, scope, window)
     return {
         "value": merged,
         "scope": scope,
-        "window_days": max(1, int(days)),
+        "window_days": window,
     }
 
 
@@ -251,98 +316,34 @@ def _merged_prs_ai_pct(
     *,
     mode: str,
     days: int = DEFAULT_WINDOW_DAYS,
-    timeout: float = 60.0,  # noqa: ARG001
+    timeout: float = 60.0,
 ) -> dict[str, Any]:
     """Shared counter: AI-classified merged PRs ÷ total merged PRs.
 
     *mode* is ``assisted`` (Cursor attribution) or ``automated`` (AI-generated).
     """
-    from .engineer_identity_map import load_github_email_aliases
-    from .github_client import (
-        GitHubClient,
-        GitHubError,
-        _github_org,
-        _github_repos_env,
-        _resolve_repo_specs,
-        github_configured,
-    )
-    from .github_productivity_report import _resolve_contributor_login
-
     label = "% AI-Assisted PRs" if mode == "assisted" else "% AI-Automated PRs"
     classify = pr_is_ai_assisted if mode == "assisted" else pr_is_ai_automated
 
-    if not github_configured():
-        return {"error": "GitHub not configured (GITHUB_TOKEN / org)"}
+    inv = _load_merged_prs_for_scorecard(days=days, timeout=timeout, label=label)
+    if inv.get("error"):
+        return inv
 
-    window = max(1, int(days))
-    since = datetime.now(timezone.utc) - timedelta(days=window)
-
-    engineer_emails: set[str] = set()
-    login_to_email: dict[str, str] = {}
-    try:
-        from .engineer_identity_map import build_engineer_identity_map
-        from .jira_client import get_shared_jira_client
-
-        identity = build_engineer_identity_map(jira_client=get_shared_jira_client())
-        if identity.get("configured"):
-            engineer_emails = {
-                str(e).strip().casefold()
-                for e in (identity.get("canonical_emails") or [])
-                if e
-            }
-            login_to_email = {
-                str(k).strip().lower(): str(v).strip().casefold()
-                for k, v in (identity.get("login_to_email") or {}).items()
-                if k and v
-            }
-    except Exception as e:  # noqa: BLE001
-        logger.warning("%s: identity map unavailable (%s); using org totals", label, e)
-
-    email_aliases, _ = load_github_email_aliases()
-
-    try:
-        gh = GitHubClient()
-        repo_specs = _resolve_repo_specs(
-            org=_github_org(),
-            repos_env=_github_repos_env(),
-            client=gh,
-        )
-    except GitHubError as e:
-        return {"error": str(e)}
-
-    total = 0
-    matched = 0
-    for owner, repo in repo_specs:
-        try:
-            pulls = gh.list_merged_pulls_since(owner, repo, since=since)
-        except GitHubError as e:
-            return {"error": f"GitHub merged PR list failed for {owner}/{repo}: {e}"}
-        for pull in pulls:
-            if engineer_emails:
-                user = pull.get("user") if isinstance(pull.get("user"), dict) else {}
-                login = str(user.get("login") or "").strip().lower()
-                canonical = _resolve_contributor_login(
-                    login,
-                    login_to_email=login_to_email,
-                    email_aliases=email_aliases,
-                    engineer_emails=engineer_emails,
-                )
-                if not canonical:
-                    continue
-            total += 1
-            if classify(pull):
-                matched += 1
+    pulls = inv.get("pulls") or []
+    total = len(pulls)
+    matched = sum(1 for pull in pulls if classify(pull))
+    window = int(inv.get("window_days") or days)
+    scope = str(inv.get("scope") or "org")
 
     if total <= 0:
         return {
             "error": (
                 f"no merged PRs in last {window}d "
-                f"({'engineers' if engineer_emails else 'org'}) for {label}"
+                f"({scope}) for {label}"
             )
         }
 
     pct = round(100.0 * matched / total, 2)
-    scope = "engineers" if engineer_emails else "org"
     logger.info(
         "%s: %s / %s (%s, window=%sd) = %s%%",
         label,
@@ -475,8 +476,8 @@ def get_ai_spend_pct(
     """AI Spend %: monthly AI spend (USD) ÷ monthly engineering spend (USD).
 
     Numerator is projected calendar-month Cursor spend (:func:`get_monthly_ai_spend`).
-    Denominator is ``CORTEX_ENGINEERING_MONTHLY_SPEND_USD`` (finance-configured).
-    Fails loud when the denominator env is missing/invalid or Cursor spend fails.
+    Denominator is ``CORTEX_ENGINEERING_MONTHLY_SPEND_USD`` (finance headcount/opex,
+    excluding AI tooling). Fails loud when unset/invalid or Cursor spend fails.
     """
     import os
 
@@ -565,4 +566,100 @@ def get_ai_spend_per_issue(
         "spend_usd": spend_usd,
         "issues_shipped": issues,
         "window_days": max(1, int(days)),
+    }
+
+
+def _engineering_headcount_monthly_usd() -> dict[str, Any]:
+    """Finance-configured monthly engineering headcount/opex (USD). Fail loud if unset."""
+    import os
+
+    from .config import CORTEX_ENGINEERING_MONTHLY_SPEND_USD
+
+    eng_spend = CORTEX_ENGINEERING_MONTHLY_SPEND_USD
+    if eng_spend is None:
+        raw = (os.environ.get("CORTEX_ENGINEERING_MONTHLY_SPEND_USD") or "").strip()
+        if raw:
+            return {
+                "error": (
+                    "CORTEX_ENGINEERING_MONTHLY_SPEND_USD is not a valid number "
+                    f"(got {raw!r})"
+                )
+            }
+        return {
+            "error": (
+                "CORTEX_ENGINEERING_MONTHLY_SPEND_USD is not set — required for "
+                "Headcount + AI Spend / Issue (monthly engineering headcount/opex USD, "
+                "excluding AI tooling)"
+            )
+        }
+    if float(eng_spend) <= 0:
+        return {
+            "error": (
+                f"CORTEX_ENGINEERING_MONTHLY_SPEND_USD must be > 0 (got {eng_spend})"
+            )
+        }
+    return {"value": float(eng_spend)}
+
+
+def get_headcount_plus_ai_spend_per_issue(
+    cursor_client: Any,
+    jira_client: Any,
+    *,
+    days: int = DEFAULT_WINDOW_DAYS,
+    timeout: float = 60.0,
+) -> dict[str, Any]:
+    """Headcount + AI Spend / Issue: (prorated headcount cost + AI spend) ÷ issues shipped.
+
+    Headcount cost is ``CORTEX_ENGINEERING_MONTHLY_SPEND_USD`` prorated to the window
+    (``monthly × days / 30``). Treat that env as engineering headcount/opex **excluding**
+    AI tooling so AI is not double-counted. AI spend is engineer-scoped Cursor charged
+    USD over the same window (same numerator as :func:`get_ai_spend_per_issue`).
+    """
+    hc = _engineering_headcount_monthly_usd()
+    if hc.get("error"):
+        return hc
+    window_days = max(1, int(days))
+    headcount_usd = round(float(hc["value"]) * (window_days / 30.0), 4)
+
+    scope = _engineer_scope(jira_client, timeout=timeout)
+    if scope.get("error"):
+        return scope
+    events = _cursor_events(cursor_client, days=window_days)
+    if isinstance(events, dict) and events.get("error"):
+        return events
+    stats = _engineer_event_stats(events, engineer_emails=scope["emails"])
+    ai_usd = round(float(stats["charged_cents"]) / 100.0, 4)
+
+    shipped = get_issues_shipped(jira_client, days=window_days, timeout=timeout)
+    if shipped.get("error"):
+        return shipped
+    issues = int(shipped.get("value") or 0)
+    if issues <= 0:
+        return {
+            "error": (
+                "Issues Shipped is 0 — cannot compute Headcount + AI Spend / Issue"
+            )
+        }
+
+    total_usd = round(headcount_usd + ai_usd, 4)
+    per_issue = round(total_usd / issues, 4)
+    logger.info(
+        "Headcount + AI Spend / Issue: ($%s headcount + $%s AI) / %s issues = $%s "
+        "(window=%sd)",
+        headcount_usd,
+        ai_usd,
+        issues,
+        per_issue,
+        window_days,
+    )
+    return {
+        "numerator": total_usd,
+        "denominator": float(issues),
+        "value": per_issue,
+        "headcount_usd": headcount_usd,
+        "ai_spend_usd": ai_usd,
+        "total_usd": total_usd,
+        "issues_shipped": issues,
+        "window_days": window_days,
+        "engineering_monthly_spend_usd": float(hc["value"]),
     }

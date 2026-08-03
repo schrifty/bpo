@@ -18,7 +18,7 @@
 #   metric-generator  — Python function that computes the value when wired in Cortex;
 #                       null when no generator exists in this repo yet
 #   tags              — Optional list of lowercase labels for grouping/filtering KPIs
-#                       (e.g. [engineering, delivery]). One KPI may carry many tags. Query
+#                       (e.g. [engineering, impact]). One KPI may carry many tags. Query
 #                       with `metrics-by-tag <tag>` (live by default).
 #   target            — Optional numeric goal (same unit as the generator value). Used by
 #                       metrics-digest for off-target classification.
@@ -41,7 +41,7 @@ metrics:
     description: null
     metric-id: 1745
     metric-generator: null
-    tags: [supply-chain, delivery]
+    tags: [supply-chain]
 
   # Customer-Reported Bugs
   "Customer-Reported Bugs":
@@ -88,14 +88,14 @@ metrics:
     description: null
     metric-id: 2175
     metric-generator: null
-    tags: [onboarding, delivery]
+    tags: [onboarding]
 
   # Sprint Delivery % - AUTOMATABLE
   "Sprint Delivery %":
     description: null
     metric-id: 2086
     metric-generator: null
-    tags: [engineering, delivery]
+    tags: [engineering]
 
   # TTFR (30 Days) - AUTOMATABLE
   "TTFR (30 Days)":
@@ -124,7 +124,7 @@ metrics:
     description: Median in-progress cycle time (days) across dev boards.
     metric-id: 2024
     metric-generator: get_dev_team_cycle_times
-    tags: [engineering, delivery]
+    tags: [engineering]
     target: 5
     direction: lower
 
@@ -132,7 +132,7 @@ metrics:
     description: Median create-to-resolve lead time (days) across dev boards.
     metric-id: 2179
     metric-generator: get_dev_team_lead_time
-    tags: [engineering, delivery]
+    tags: [engineering]
     target: 14
     direction: lower
 
@@ -171,13 +171,13 @@ metrics:
     description: null
     metric-id: null
     metric-generator: null
-    tags: [engineering, delivery]
+    tags: [engineering]
 
   "Sprint Story Points Delivered":
     description: Story points completed in the latest sprint across boards.
     metric-id: null
     metric-generator: get_sprint_story_points_by_team
-    tags: [engineering, delivery]
+    tags: [engineering]
     target: 40
     direction: higher
 
@@ -233,7 +233,7 @@ metrics:
     description: Engineer GitHub PRs merged in the window.
     metric-id: null
     metric-generator: get_prs_merged
-    tags: [engineering, impact, delivery]
+    tags: [engineering, impact, AKKR]
     target: 10
     direction: higher
 
@@ -241,13 +241,13 @@ metrics:
     description: New release defects ÷ shipped work (generator not yet wired).
     metric-id: null
     metric-generator: null
-    tags: [engineering, impact, quality]
+    tags: [engineering, impact, quality, AKKR]
 
   "Issues Shipped":
     description: LEAN issues Done in the trailing window.
     metric-id: null
     metric-generator: get_issues_shipped
-    tags: [engineering, impact, delivery]
+    tags: [engineering, impact, AKKR]
     target: 20
     direction: higher
 
@@ -255,20 +255,21 @@ metrics:
     description: Planned LEAN Done work ÷ all LEAN Done work.
     metric-id: null
     metric-generator: get_growth_allocation_pct
-    tags: [engineering, impact, delivery]
+    tags: [engineering, impact, AKKR]
     target: 70
     direction: higher
 
   "Headcount + AI Spend / Issue":
-    description: (Headcount cost + AI spend) ÷ issues shipped (blocked).
+    description: (Prorated eng headcount cost + AI spend) ÷ issues shipped.
     metric-id: null
-    metric-generator: null
-    tags: [engineering, impact, ai]
+    metric-generator: get_headcount_plus_ai_spend_per_issue
+    tags: [engineering, impact, ai, AKKR]
+    direction: lower
 
   "AI Spend / Issue":
     description: Engineer Cursor spend (USD) ÷ issues shipped.
     metric-id: null
     metric-generator: get_ai_spend_per_issue
-    tags: [engineering, impact, ai]
+    tags: [engineering, impact, ai, AKKR]
     target: 50
     direction: lower

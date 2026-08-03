@@ -128,7 +128,7 @@ def test_digest_report_uses_compact_natural_widths() -> None:
             5.0,
             "lower",
             False,
-            tags=("engineering", "delivery"),
+            tags=("engineering", "impact"),
         ),
     ]
     widths = column_widths_for_digest_rows(rows)

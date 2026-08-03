@@ -330,6 +330,19 @@ def _invoke_get_ai_spend_per_issue(ctx: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _invoke_get_headcount_plus_ai_spend_per_issue(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.cursor_client import get_shared_cursor_client
+    from src.eng_scorecard_metrics import get_headcount_plus_ai_spend_per_issue
+    from src.jira_client import get_shared_jira_client
+
+    return get_headcount_plus_ai_spend_per_issue(
+        get_shared_cursor_client(),
+        get_shared_jira_client(),
+        days=int(ctx.get("days") or 30),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
 _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_kpi_automation_pct": lambda ctx: get_kpi_automation_pct(registry=ctx["registry"]),
     "get_dev_team_cycle_times": _invoke_get_dev_team_cycle_times,
@@ -352,6 +365,7 @@ _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_growth_allocation_pct": _invoke_get_growth_allocation_pct,
     "get_ai_spend_pct": _invoke_get_ai_spend_pct,
     "get_ai_spend_per_issue": _invoke_get_ai_spend_per_issue,
+    "get_headcount_plus_ai_spend_per_issue": _invoke_get_headcount_plus_ai_spend_per_issue,
 }
 
 

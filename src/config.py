@@ -242,8 +242,9 @@ if os.environ.get("CORTEX_CURSOR_CACHE_DISABLED", "").strip().lower() in ("1", "
 _cursor_slides_only = os.environ.get("CORTEX_CURSOR_SLIDES_ONLY", "").strip().lower()
 CORTEX_CURSOR_SLIDES_ONLY = _cursor_slides_only in ("1", "true", "yes", "on")
 
-# Monthly engineering opex (USD) for AI Spend % = monthly AI spend ÷ this value.
-# Set from finance; required for get_ai_spend_pct. Not a secret — still keep in local .env.
+# Monthly engineering headcount/opex (USD), excluding AI tooling.
+# Used by AI Spend % (AI ÷ this) and Headcount + AI Spend / Issue (this prorated + AI).
+# Set from finance; required for those generators. Not a secret — still keep in local .env.
 def _parse_engineering_monthly_spend_usd() -> float | None:
     raw = (os.environ.get("CORTEX_ENGINEERING_MONTHLY_SPEND_USD") or "").strip()
     if not raw:

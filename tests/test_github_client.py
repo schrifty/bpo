@@ -15,6 +15,7 @@ from src.github_client import (
     _resolve_repo_specs,
     build_github_activity_report,
     check_github_api,
+    clear_merged_pulls_cache,
     github_configured,
 )
 
@@ -200,6 +201,7 @@ def test_check_github_api_delegates_to_client(monkeypatch):
 
 
 def test_list_merged_pulls_since_uses_search_api():
+    clear_merged_pulls_cache()
     since = datetime(2026, 5, 1, tzinfo=timezone.utc)
 
     def router(method, url, params):
@@ -213,6 +215,40 @@ def test_list_merged_pulls_since_uses_search_api():
     gh = _client(_FakeSession(router=router))
     pulls = gh.list_merged_pulls_since("acme", "web", since=since)
     assert len(pulls) == 1
+
+
+def test_list_merged_pulls_since_caches_search(monkeypatch):
+    clear_merged_pulls_cache()
+    since = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    calls = {"n": 0}
+
+    def router(method, url, params):
+        calls["n"] += 1
+        return _FakeResponse(200, {"items": [{"number": 1}]})
+
+    sess = _FakeSession(router=router)
+    gh = _client(sess)
+    assert len(gh.list_merged_pulls_since("acme", "web", since=since)) == 1
+    # Fresh client still hits the module cache (digest KPI sharing).
+    gh2 = _client(_FakeSession(router=router))
+    assert len(gh2.list_merged_pulls_since("acme", "web", since=since)) == 1
+    assert calls["n"] == 1
+
+
+def test_secondary_rate_limit_403_retries(monkeypatch):
+    monkeypatch.setattr("src.github_client.time.sleep", lambda *_a, **_k: None)
+    responses = [
+        _FakeResponse(
+            403,
+            None,
+            text='{"message":"You have exceeded a secondary rate limit"}',
+            headers={"Retry-After": "1"},
+        ),
+        _FakeResponse(200, {"login": "bot"}),
+    ]
+    sess = _FakeSession(responses=responses)
+    assert _client(sess).get_authenticated_user()["login"] == "bot"
+    assert len(sess.calls) == 2
 
 
 def test_github_configured():
