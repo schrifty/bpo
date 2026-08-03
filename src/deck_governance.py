@@ -381,8 +381,12 @@ def _build_freshness_lines(report: dict[str, Any]) -> list[str]:
         lines.append(f"Salesforce: live or cached (TTL {sf_ttl}h via CORTEX_SALESFORCE_CACHE_TTL_HOURS)")
 
     cursor_ttl = (os.environ.get("CORTEX_CURSOR_CACHE_TTL_HOURS") or "1").strip()
+    cursor_events_ttl = (os.environ.get("CORTEX_CURSOR_USAGE_EVENTS_CACHE_TTL_HOURS") or "23").strip()
     if isinstance(cu, dict) and cu.get("configured"):
-        lines.append(f"Cursor cache TTL: {cursor_ttl}h (CORTEX_CURSOR_CACHE_TTL_HOURS)")
+        lines.append(
+            f"Cursor cache TTL: {cursor_ttl}h general / {cursor_events_ttl}h usage-events "
+            f"(CORTEX_CURSOR_CACHE_TTL_HOURS / CORTEX_CURSOR_USAGE_EVENTS_CACHE_TTL_HOURS)"
+        )
 
     return lines[:_FRESHNESS_CAP]
 

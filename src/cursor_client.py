@@ -12,11 +12,11 @@ Authentication is HTTP Basic with ``CURSOR_ADMIN_API_KEY`` as the username and a
 empty password (per Cursor docs). Only read endpoints are implemented; member,
 spend-limit, and billing-group mutations are intentionally omitted.
 
-Caching: ``daily-usage-data`` and ``filtered-usage-events`` are aggregated hourly
-server-side (Cursor advises polling at most once/hour), so the fully-assembled result
-of those two reads is cached on disk for ``CORTEX_CURSOR_CACHE_TTL_HOURS`` (default 1h),
-keyed by the request shape with timestamps floored to the hour. This keeps repeated
-deck builds well under the 20 req/min ceiling. Disable with ``CORTEX_CURSOR_CACHE_DISABLED``.
+Caching: ``daily-usage-data`` / members / spend use ``CORTEX_CURSOR_CACHE_TTL_HOURS``
+(default 1h). ``filtered-usage-events`` is paginated and expensive under the 20 req/min
+ceiling, so it uses ``CORTEX_CURSOR_USAGE_EVENTS_CACHE_TTL_HOURS`` (default 23h), keyed
+by the request shape with timestamps floored to the hour. Disable with
+``CORTEX_CURSOR_CACHE_DISABLED``.
 
 Fails loud: any non-2xx response raises :class:`CursorClientError` rather than
 returning placeholder data, so callers (and metric generators) surface the issue.
@@ -38,6 +38,7 @@ import requests
 
 from .config import (
     CORTEX_CURSOR_CACHE_TTL_SECONDS,
+    CORTEX_CURSOR_USAGE_EVENTS_CACHE_TTL_SECONDS,
     CURSOR_ADMIN_API_KEY,
     CURSOR_API_BASE_URL,
     logger,
@@ -182,6 +183,7 @@ class CursorClient:
         min_request_interval: float | None = None,
         max_retries: int | None = None,
         cache_ttl_seconds: int | None = None,
+        usage_events_cache_ttl_seconds: int | None = None,
     ) -> None:
         key = (api_key or CURSOR_ADMIN_API_KEY or "").strip()
         if not key:
@@ -195,6 +197,13 @@ class CursorClient:
         self._cache_ttl = (
             CORTEX_CURSOR_CACHE_TTL_SECONDS if cache_ttl_seconds is None else max(0, int(cache_ttl_seconds))
         )
+        # Explicit cache_ttl_seconds also gates usage-events (tests / force-refresh).
+        if usage_events_cache_ttl_seconds is not None:
+            self._usage_events_cache_ttl = max(0, int(usage_events_cache_ttl_seconds))
+        elif cache_ttl_seconds is not None:
+            self._usage_events_cache_ttl = max(0, int(cache_ttl_seconds))
+        else:
+            self._usage_events_cache_ttl = CORTEX_CURSOR_USAGE_EVENTS_CACHE_TTL_SECONDS
         self._min_request_interval = (
             _default_min_request_interval() if min_request_interval is None
             else max(0.0, float(min_request_interval))
@@ -420,7 +429,7 @@ class CursorClient:
             "start": _floor_hour_ms(start_ms), "end": _floor_hour_ms(end_ms),
             "email": email, "user_id": user_id, "page_size": page_size, "max_events": max_events,
         })
-        cached = _cache_get(key, self._cache_ttl)
+        cached = _cache_get(key, self._usage_events_cache_ttl)
         if cached is not None:
             logger.debug("Cursor cache hit: filtered-usage-events (%d event(s))", len(cached))
             return cached
@@ -453,7 +462,7 @@ class CursorClient:
             if not pagination.get("hasNextPage"):
                 break
             page += 1
-        _cache_set(key, out, self._cache_ttl)
+        _cache_set(key, out, self._usage_events_cache_ttl)
         return out
 
     # ── convenience aggregate ────────────────────────────────────────────────

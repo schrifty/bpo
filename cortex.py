@@ -122,11 +122,11 @@ Generate one deck (explicit)
       are skipped.
 
   cortex metrics-digest [--dry-run] [--days N] [--timeout SEC]
-      Live-generate every registry KPI with a ``metric-generator``, compare to ``target`` /
-      ``direction``, and email a morning digest via SES (off-target first).
+      Morning report: last night's ECS jobs, then live KPIs vs ``target`` /
+      ``direction``, emailed via SES (off-target KPIs first).
 
   cortex metrics-report [--days N] [--timeout SEC]
-      Same as ``metrics-digest --dry-run``: print the columnar KPI digest without emailing.
+      Same as ``metrics-digest --dry-run``: print the morning report without emailing.
 """
 
 import json

@@ -219,16 +219,26 @@ CURSOR_API_BASE_URL = (
     os.environ.get("CURSOR_API_BASE_URL", "https://api.cursor.com").strip().rstrip("/")
     or "https://api.cursor.com"
 )
-# Cursor read cache: daily-usage + usage-events are aggregated hourly server-side, so
-# Cursor advises polling at most once/hour. Default 1h on-disk cache (keyed by hour) so
-# repeated deck builds reuse data instead of re-paginating under the 20 req/min ceiling.
+# Cursor read cache: daily-usage + members/spend are cached for
+# ``CORTEX_CURSOR_CACHE_TTL_HOURS`` (default 1h). ``filtered-usage-events`` is
+# heavier (paginated under a 20 req/min ceiling), so it uses a longer default of
+# ``CORTEX_CURSOR_USAGE_EVENTS_CACHE_TTL_HOURS`` (23h). Disable all with
+# ``CORTEX_CURSOR_CACHE_DISABLED``.
 try:
     _cursor_cache_hours = float(os.environ.get("CORTEX_CURSOR_CACHE_TTL_HOURS", "1").strip())
 except ValueError:
     _cursor_cache_hours = 1.0
 CORTEX_CURSOR_CACHE_TTL_SECONDS = max(0, int(_cursor_cache_hours * 3600))
+try:
+    _cursor_usage_events_cache_hours = float(
+        os.environ.get("CORTEX_CURSOR_USAGE_EVENTS_CACHE_TTL_HOURS", "23").strip()
+    )
+except ValueError:
+    _cursor_usage_events_cache_hours = 23.0
+CORTEX_CURSOR_USAGE_EVENTS_CACHE_TTL_SECONDS = max(0, int(_cursor_usage_events_cache_hours * 3600))
 if os.environ.get("CORTEX_CURSOR_CACHE_DISABLED", "").strip().lower() in ("1", "true", "yes", "on"):
     CORTEX_CURSOR_CACHE_TTL_SECONDS = 0
+    CORTEX_CURSOR_USAGE_EVENTS_CACHE_TTL_SECONDS = 0
 _cursor_slides_only = os.environ.get("CORTEX_CURSOR_SLIDES_ONLY", "").strip().lower()
 CORTEX_CURSOR_SLIDES_ONLY = _cursor_slides_only in ("1", "true", "yes", "on")
 

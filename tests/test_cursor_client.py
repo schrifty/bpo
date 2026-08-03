@@ -209,6 +209,41 @@ def test_cache_short_circuits_second_call(monkeypatch, tmp_path) -> None:
     assert calls["n"] == 1  # second call short-circuited by cache
 
 
+def test_usage_events_cache_uses_longer_ttl(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path)
+    clear_cursor_cache()
+    # Explicit long usage-events TTL (23h) independent of the short general TTL.
+    c = _client(cache_ttl_seconds=1, usage_events_cache_ttl_seconds=23 * 3600)
+    assert c._usage_events_cache_ttl == 23 * 3600
+    assert c._cache_ttl == 1
+    calls = {"n": 0}
+
+    def fake(method, url, *, json=None, params=None, timeout=None):
+        calls["n"] += 1
+        return _Resp(200, {"usageEvents": [{"id": calls["n"]}], "pagination": {"hasNextPage": False}})
+
+    monkeypatch.setattr(c._session, "request", fake)
+    first = c.get_usage_events(date(2024, 1, 1), date(2024, 1, 2))
+    second = c.get_usage_events(date(2024, 1, 1), date(2024, 1, 2))
+    assert first == second
+    assert calls["n"] == 1
+
+
+def test_default_usage_events_cache_ttl_is_23_hours(monkeypatch) -> None:
+    monkeypatch.delenv("CORTEX_CURSOR_USAGE_EVENTS_CACHE_TTL_HOURS", raising=False)
+    monkeypatch.delenv("CORTEX_CURSOR_CACHE_DISABLED", raising=False)
+    import importlib
+
+    import src.config as config
+
+    importlib.reload(config)
+    assert config.CORTEX_CURSOR_USAGE_EVENTS_CACHE_TTL_SECONDS == 23 * 3600
+    # Restore module imports that bound the old constant at import time.
+    import src.cursor_client as cursor_client
+
+    importlib.reload(cursor_client)
+
+
 def test_cache_disabled_always_requests(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path)
     clear_cursor_cache()

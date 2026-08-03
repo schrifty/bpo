@@ -1,7 +1,8 @@
-"""Daily KPI digest: live-generate registry metrics with generators and email results.
+"""Morning report: overnight ECS job status + live KPI digest emailed via SES.
 
-Off-target metrics (vs ``target`` / ``direction`` in ``config/my-metrics.yaml``) are
-listed first; remaining metrics follow alphabetically after a separator.
+Opens with last night's scheduled job outcomes (CloudWatch ``CORTEX_RUN_SUMMARY``),
+then off-target metrics (vs ``target`` / ``direction`` in ``config/my-metrics.yaml``),
+then remaining metrics alphabetically.
 """
 
 from __future__ import annotations
@@ -11,7 +12,6 @@ import logging
 import sys
 from dataclasses import dataclass
 from datetime import date
-from pathlib import Path
 from typing import Any, Sequence
 
 from src.metrics_registry import (
@@ -29,9 +29,73 @@ from src.metrics_upsert import (
     invoke_metric_generator,
     parse_generator_parts,
 )
+from src.overnight_jobs_report import (
+    OvernightJobOutcome,
+    collect_overnight_job_outcomes,
+    format_overnight_jobs_section,
+    overnight_failure_count,
+)
 from src.ses_email import SesEmailError, digest_email_from, digest_email_recipients, send_email
 
 logger = logging.getLogger("cortex")
+
+# Terminal / email plain-text table width for digest rows (NAME ID VALUE TARGET DIR).
+DIGEST_LINE_WIDTH = 128
+_DIGEST_COL_GAP = 2
+_DIGEST_COL_COUNT = 5
+
+
+def _truncate_cell(text: str, width: int) -> str:
+    """Fit *text* into *width* only when the column budget requires it."""
+    if width <= 0:
+        return ""
+    if len(text) <= width:
+        return text
+    if width == 1:
+        return "…"
+    return text[: width - 1] + "…"
+
+
+def _fit_digest_widths(
+    name_w: int,
+    id_w: int,
+    value_w: int,
+    target_w: int,
+    dir_w: int,
+    *,
+    total_width: int = DIGEST_LINE_WIDTH,
+) -> tuple[int, int, int, int, int]:
+    """Pad/shrink column widths so the formatted line is exactly *total_width*.
+
+    Prefers full natural widths. Never shortens VALUE until every other column is
+    already at its header minimum; only then truncate VALUE as a last resort.
+    """
+    gaps = _DIGEST_COL_GAP * (_DIGEST_COL_COUNT - 1)
+    mins = (len("NAME"), len("ID"), len("VALUE"), len("TARGET"), len("DIR"))
+    widths = [max(mins[i], w) for i, w in enumerate((name_w, id_w, value_w, target_w, dir_w))]
+
+    def _used() -> int:
+        return sum(widths) + gaps
+
+    # Shrink name / id / target / dir first; VALUE only if still over budget.
+    shrink_order = (0, 1, 3, 4, 2)
+    guard = 0
+    while _used() > total_width and guard < 10_000:
+        guard += 1
+        shrunk = False
+        for idx in shrink_order:
+            if widths[idx] > mins[idx]:
+                widths[idx] -= 1
+                shrunk = True
+                break
+        if not shrunk:
+            break
+
+    # Pad the name column so short tables still span the full report width.
+    leftover = total_width - _used()
+    if leftover > 0:
+        widths[0] += leftover
+    return widths[0], widths[1], widths[2], widths[3], widths[4]
 
 
 @dataclass(frozen=True)
@@ -202,11 +266,12 @@ class DigestColumnWidths:
 
     @property
     def header(self) -> str:
+        gap = " " * _DIGEST_COL_GAP
         return (
-            f"{'NAME':<{self.name}}  "
-            f"{'ID':<{self.metric_id}}  "
-            f"{'VALUE':<{self.value}}  "
-            f"{'TARGET':<{self.target}}  "
+            f"{'NAME':<{self.name}}{gap}"
+            f"{'ID':<{self.metric_id}}{gap}"
+            f"{'VALUE':<{self.value}}{gap}"
+            f"{'TARGET':<{self.target}}{gap}"
             f"{'DIR':<{self.direction}}"
         )
 
@@ -215,8 +280,12 @@ class DigestColumnWidths:
         return "-" * len(self.header)
 
 
-def column_widths_for_digest_rows(rows: list[DigestRow]) -> DigestColumnWidths:
-    """Compute column widths from digest rows (and header labels)."""
+def column_widths_for_digest_rows(
+    rows: list[DigestRow],
+    *,
+    total_width: int = DIGEST_LINE_WIDTH,
+) -> DigestColumnWidths:
+    """Compute column widths that format to exactly *total_width* characters."""
     name_w = len("NAME")
     id_w = len("ID")
     value_w = len("VALUE")
@@ -228,6 +297,9 @@ def column_widths_for_digest_rows(rows: list[DigestRow]) -> DigestColumnWidths:
         value_w = max(value_w, len(row.value_display))
         target_w = max(target_w, len(row.target_display))
         dir_w = max(dir_w, len(row.direction or "—"))
+    name_w, id_w, value_w, target_w, dir_w = _fit_digest_widths(
+        name_w, id_w, value_w, target_w, dir_w, total_width=total_width
+    )
     return DigestColumnWidths(
         name=name_w,
         metric_id=id_w,
@@ -238,15 +310,16 @@ def column_widths_for_digest_rows(rows: list[DigestRow]) -> DigestColumnWidths:
 
 
 def format_digest_line(row: DigestRow, *, widths: DigestColumnWidths | None = None) -> str:
-    """One columnar digest row: NAME  ID  VALUE  TARGET  DIR."""
+    """One columnar digest row: NAME  ID  VALUE  TARGET  DIR (``DIGEST_LINE_WIDTH``)."""
     w = widths or column_widths_for_digest_rows([row])
     direction = row.direction or "—"
+    gap = " " * _DIGEST_COL_GAP
     return (
-        f"{row.name:<{w.name}}  "
-        f"{row.id_display:<{w.metric_id}}  "
-        f"{row.value_display:<{w.value}}  "
-        f"{row.target_display:<{w.target}}  "
-        f"{direction:<{w.direction}}"
+        f"{_truncate_cell(row.name, w.name):<{w.name}}{gap}"
+        f"{_truncate_cell(row.id_display, w.metric_id):<{w.metric_id}}{gap}"
+        f"{_truncate_cell(row.value_display, w.value):<{w.value}}{gap}"
+        f"{_truncate_cell(row.target_display, w.target):<{w.target}}{gap}"
+        f"{_truncate_cell(direction, w.direction):<{w.direction}}"
     )
 
 
@@ -268,16 +341,23 @@ def format_digest_body(
     rows: list[DigestRow],
     *,
     as_of: str | None = None,
+    overnight: list[OvernightJobOutcome] | None = None,
 ) -> str:
-    """Plain-text email body with off-target section then separator then the rest."""
+    """Plain-text morning report: overnight jobs, then off-target KPIs, then the rest."""
     as_of_s = as_of or date.today().isoformat()
     off, rest = partition_digest_rows(rows)
     widths = column_widths_for_digest_rows(rows)
     lines: list[str] = [
-        f"KPI digest — {as_of_s}",
-        f"Off target: {len(off)}  |  On target / other: {len(rest)}  |  Total: {len(rows)}",
+        f"Morning report — {as_of_s}",
         "",
     ]
+    overnight_rows = overnight if overnight is not None else []
+    lines.extend(format_overnight_jobs_section(overnight_rows))
+    lines.append("")
+    lines.append(
+        f"KPIs — off target: {len(off)}  |  on target / other: {len(rest)}  |  total: {len(rows)}"
+    )
+    lines.append("")
     lines.extend(_format_section("OFF TARGET", off, widths=widths))
     lines.append("")
     lines.extend(_format_section("ALL OTHER GENERATED METRICS", rest, widths=widths))
@@ -285,10 +365,18 @@ def format_digest_body(
     return "\n".join(lines)
 
 
-def format_digest_subject(rows: list[DigestRow], *, as_of: str | None = None) -> str:
+def format_digest_subject(
+    rows: list[DigestRow],
+    *,
+    as_of: str | None = None,
+    overnight: list[OvernightJobOutcome] | None = None,
+) -> str:
     as_of_s = as_of or date.today().isoformat()
     off_n = sum(1 for r in rows if r.off_target)
-    return f"KPI digest {as_of_s} — {off_n} off target"
+    job_fail_n = overnight_failure_count(overnight or [])
+    if job_fail_n:
+        return f"Morning report {as_of_s} — {job_fail_n} job issue(s), {off_n} off target"
+    return f"Morning report {as_of_s} — {off_n} off target"
 
 
 @dataclass(frozen=True)
@@ -309,9 +397,12 @@ def run_metrics_digest(
     as_of: str | None = None,
     registry: dict[str, Any] | None = None,
     send_fn: Any | None = None,
+    skip_overnight: bool = False,
+    overnight: list[OvernightJobOutcome] | None = None,
 ) -> DigestResult:
-    """Generate digest rows and optionally email via SES."""
+    """Generate the morning report and optionally email via SES."""
     as_of_s = as_of or date.today().isoformat()
+    as_of_date = date.fromisoformat(as_of_s)
     ctx = MetricUpsertContext(
         entry_date=as_of_s,
         requested_sites=None,
@@ -325,8 +416,14 @@ def run_metrics_digest(
         metric_name_filter=None,
     )
     rows = build_digest_rows(registry=registry, ctx=ctx)
-    subject = format_digest_subject(rows, as_of=as_of_s)
-    body = format_digest_body(rows, as_of=as_of_s)
+    if overnight is not None:
+        overnight_rows = overnight
+    elif skip_overnight:
+        overnight_rows = []
+    else:
+        overnight_rows = collect_overnight_job_outcomes(as_of=as_of_date)
+    subject = format_digest_subject(rows, as_of=as_of_s, overnight=overnight_rows)
+    body = format_digest_body(rows, as_of=as_of_s, overnight=overnight_rows)
 
     if dry_run:
         return DigestResult(rows=rows, subject=subject, body=body, sent=False)
@@ -365,7 +462,7 @@ def add_metrics_digest_arguments(ap: argparse.ArgumentParser) -> None:
         "--no-send",
         action="store_true",
         dest="dry_run",
-        help="Print digest only; do not send email",
+        help="Print morning report only; do not send email",
     )
     ap.add_argument("--days", type=int, default=30, help="Trailing window for generators (default: 30)")
     ap.add_argument("--timeout", type=float, default=120.0, metavar="SEC")
@@ -373,7 +470,12 @@ def add_metrics_digest_arguments(ap: argparse.ArgumentParser) -> None:
         "--date",
         default=date.today().isoformat(),
         metavar="YYYY-MM-DD",
-        help="Digest as-of date in subject/body (default: today)",
+        help="Report as-of date (default: today)",
+    )
+    ap.add_argument(
+        "--skip-overnight",
+        action="store_true",
+        help="Omit last-night's jobs section (skip CloudWatch)",
     )
     ap.add_argument("-v", "--verbose", action="store_true")
 
@@ -381,7 +483,10 @@ def add_metrics_digest_arguments(ap: argparse.ArgumentParser) -> None:
 def run_metrics_digest_cli(argv: Sequence[str] | None = None, *, prog: str = "metrics-digest") -> int:
     ap = argparse.ArgumentParser(
         prog=prog,
-        description="Live-generate my-metrics.yaml KPIs with generators and email a morning digest.",
+        description=(
+            "Morning report: last night's ECS jobs, then live my-metrics.yaml KPIs "
+            "(emailed via SES unless --dry-run)."
+        ),
     )
     add_metrics_digest_arguments(ap)
     ns = ap.parse_args(list(argv) if argv is not None else None)
@@ -393,6 +498,7 @@ def run_metrics_digest_cli(argv: Sequence[str] | None = None, *, prog: str = "me
         days=int(ns.days),
         timeout_seconds=float(ns.timeout),
         as_of=str(ns.date),
+        skip_overnight=bool(ns.skip_overnight),
     )
     print(result.subject)
     print()

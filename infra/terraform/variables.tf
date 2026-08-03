@@ -170,12 +170,6 @@ variable "scheduled_jobs" {
       enabled             = true
       rule_name           = "cortex-carrier-pendo-detailed-30d"
     }
-    metrics-eng-cycle-lead-weekly = {
-      schedule_expression = "cron(0 9 ? * MON *)"
-      command             = ["metrics-eng-cycle-lead-weekly"]
-      enabled             = true
-      rule_name           = "cortex-metrics-eng-cycle-lead-weekly"
-    }
     metrics-daily-digest = {
       schedule_expression = "cron(0 12 * * ? *)"
       command             = ["metrics-daily-digest"]

@@ -67,9 +67,12 @@ def test_partition_and_format_off_target_first() -> None:
     assert [r.name for r in off] == ["Mid", "Zebra"]
     assert [r.name for r in rest] == ["Alpha"]
 
-    body = format_digest_body(rows, as_of="2026-08-03")
+    body = format_digest_body(rows, as_of="2026-08-03", overnight=[])
+    assert body.startswith("Morning report — 2026-08-03")
+    assert "LAST NIGHT'S JOBS" in body
     assert "OFF TARGET" in body
     assert "NAME" in body and "ID" in body and "VALUE" in body and "TARGET" in body
+    assert body.index("LAST NIGHT'S JOBS") < body.index("OFF TARGET")
     assert body.index("Mid") < body.index("ALL OTHER")
     assert body.index("Zebra") < body.index("Alpha")
     assert "error: fail" in body
@@ -77,8 +80,69 @@ def test_partition_and_format_off_target_first() -> None:
     assert "Zebra" in body and "1" in body
     assert "—" in body  # missing metric id for Mid
 
-    subj = format_digest_subject(rows, as_of="2026-08-03")
-    assert subj == "KPI digest 2026-08-03 — 2 off target"
+    subj = format_digest_subject(rows, as_of="2026-08-03", overnight=[])
+    assert subj == "Morning report 2026-08-03 — 2 off target"
+
+
+def test_morning_report_leads_with_overnight_jobs() -> None:
+    from datetime import datetime, timezone
+
+    from src.overnight_jobs_report import OvernightJobOutcome
+
+    rows = [DigestRow("Alpha", 2, 3.0, 5.0, "lower", False)]
+    overnight = [
+        OvernightJobOutcome(
+            job="export-nightly",
+            status="OK",
+            duration_s=540.0,
+            finished_utc=datetime(2026, 8, 3, 6, 10, tzinfo=timezone.utc),
+        ),
+        OvernightJobOutcome(
+            job="engineering-portfolio",
+            status="FAIL",
+            duration_s=143.6,
+            finished_utc=datetime(2026, 8, 3, 6, 41, tzinfo=timezone.utc),
+            failures=("deck: FAIL 401",),
+        ),
+    ]
+    body = format_digest_body(rows, as_of="2026-08-03", overnight=overnight)
+    assert body.index("LAST NIGHT'S JOBS") < body.index("OFF TARGET")
+    assert "export-nightly" in body and "OK" in body
+    assert "FAIL" in body and "deck: FAIL 401" in body
+    subj = format_digest_subject(rows, as_of="2026-08-03", overnight=overnight)
+    assert subj == "Morning report 2026-08-03 — 1 job issue(s), 0 off target"
+
+
+def test_digest_report_is_128_columns_wide() -> None:
+    from src.metrics_digest import DIGEST_LINE_WIDTH, column_widths_for_digest_rows, format_digest_line
+
+    assert DIGEST_LINE_WIDTH == 128
+    rows = [
+        DigestRow("Short", 1, 10.0, 5.0, "lower", True),
+        DigestRow("Median TTR", 2171, 12345.67, 9999.0, "higher", False),
+        DigestRow("Err", None, None, None, None, True, error="session expired"),
+    ]
+    widths = column_widths_for_digest_rows(rows)
+    assert len(widths.header) == DIGEST_LINE_WIDTH
+    assert len(widths.rule) == DIGEST_LINE_WIDTH
+    for row in rows:
+        line = format_digest_line(row, widths=widths)
+        assert len(line) == DIGEST_LINE_WIDTH, repr(line)
+        # Values / errors are never shortened when they fit the value column.
+        assert row.value_display in line
+
+
+def test_digest_prefers_full_value_over_shortening() -> None:
+    from src.metrics_digest import column_widths_for_digest_rows, format_digest_line
+
+    rows = [
+        DigestRow("N" * 90, 1, None, 1.0, "lower", True, error="exact-value-token-keep-me"),
+    ]
+    widths = column_widths_for_digest_rows(rows)
+    line = format_digest_line(rows[0], widths=widths)
+    assert "exact-value-token-keep-me" in line
+    assert len(line) == 128
+
 
 
 def test_run_metrics_digest_dry_run_with_mocked_generators(monkeypatch) -> None:
@@ -105,10 +169,11 @@ def test_run_metrics_digest_dry_run_with_mocked_generators(monkeypatch) -> None:
         return {"value": 25}
 
     monkeypatch.setattr("src.metrics_digest.invoke_metric_generator", fake_invoke)
-    result = run_metrics_digest(dry_run=True, as_of="2026-08-03", registry=registry)
+    result = run_metrics_digest(dry_run=True, as_of="2026-08-03", registry=registry, skip_overnight=True)
     assert result.sent is False
     assert result.error is None
     assert "2 off target" in result.subject
+    assert "Morning report" in result.subject
     # High: 40 < 50 (higher) → off; Low: 25 > 10 (lower) → off
     assert "OFF TARGET" in result.body
     assert "High KPI" in result.body
@@ -145,11 +210,12 @@ def test_run_metrics_digest_sends_via_ses(monkeypatch) -> None:
         as_of="2026-08-03",
         registry=registry,
         send_fn=fake_send,
+        skip_overnight=True,
     )
     assert result.sent is True
     assert result.message_id == "abc-123"
     assert calls and calls[0]["to"] == ["you@example.com"]
-    assert "KPI digest" in calls[0]["subject"]
+    assert "Morning report" in calls[0]["subject"]
 
 
 def test_send_email_fails_loud_without_from(monkeypatch) -> None:
