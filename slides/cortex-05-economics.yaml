@@ -1,0 +1,12 @@
+id: cortex_economics
+type: standard
+order: 80
+title: Engineered for the model — the whole book in one prompt
+slide_type: cortex_economics
+data_tools: []
+customers: all
+
+prompt: >
+  Token-economics slide: the entire book of business compresses to a fraction of
+  one context window. Shows the token budget, measured export size, and tokens per
+  customer, plus the compaction techniques that got us there (cortex_meta).

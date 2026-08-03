@@ -16,18 +16,62 @@ from src.ecs_aws_defaults import default_name_prefix, default_region
 
 # Keep in sync with infra/terraform/variables.tf scheduled_jobs defaults.
 SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
-    "engineering-portfolio": {
-        "schedule_expression": "cron(0 2 * * ? *)",
-        "command": ["engineering-portfolio"],
+    "pendo-snapshot-refresh": {
+        "schedule_expression": "cron(0 3 * * ? *)",
+        "command": ["pendo-snapshot-refresh"],
         "enabled": True,
-        "rule_name": "decks-engineering-portfolio",
-        "summary": "Engineering portfolio deck",
+        "rule_name": "cortex-pendo-snapshot-refresh",
+        "summary": "Shared Pendo ingest (preload 7/14/30/60/90 + Drive portfolio 90d)",
     },
     "export-nightly": {
-        "schedule_expression": "cron(0 3 * * ? *)",
+        "schedule_expression": "cron(0 6 * * ? *)",
         "command": ["export-nightly"],
         "enabled": True,
-        "summary": "LLM export (cortex --export, 90-day window)",
+        "rule_name": "cortex-export-nightly",
+        "summary": "LLM export (cortex export-all, 90-day window; requires shared Pendo snapshot)",
+    },
+    "engineering-portfolio": {
+        "schedule_expression": "cron(30 6 * * ? *)",
+        "command": ["engineering-portfolio"],
+        "enabled": True,
+        "rule_name": "cortex-engineering-portfolio",
+        "summary": "Engineering portfolio deck",
+    },
+    "ford-pendo-7d": {
+        "schedule_expression": "cron(0 7 * * ? *)",
+        "command": ["ford-pendo-7d"],
+        "enabled": True,
+        "rule_name": "cortex-ford-pendo-7d",
+        "summary": "Ford Pendo usage export (cortex --export-pendo --customer Ford --days 7 --compare-days 7)",
+    },
+    "ford-pendo-30d": {
+        "schedule_expression": "cron(30 7 * * ? *)",
+        "command": ["ford-pendo-30d"],
+        "enabled": True,
+        "rule_name": "cortex-ford-pendo-30d",
+        "summary": "Ford Pendo usage export (cortex --export-pendo --customer Ford --days 30 --compare-days 30)",
+    },
+    "pendo-top-arr-30d": {
+        "schedule_expression": "cron(0 8 * * ? *)",
+        "command": ["pendo-top-arr-30d"],
+        "enabled": True,
+        "rule_name": "cortex-pendo-top-arr-30d",
+        "summary": "Top-5 ARR Pendo detailed export (cortex --export-pendo-top-arr --top-n 5 --days 30 --compare-days 30)",
+    },
+    "carrier-pendo-detailed-30d": {
+        "schedule_expression": "cron(30 8 * * ? *)",
+        "command": ["carrier-pendo-detailed-30d"],
+        "enabled": True,
+        "rule_name": "cortex-carrier-pendo-detailed-30d",
+        "summary": "Carrier Pendo detailed export (30d)",
+    },
+
+    "metrics-eng-cycle-lead-weekly": {
+        "schedule_expression": "cron(0 9 ? * MON *)",
+        "command": ["metrics-eng-cycle-lead-weekly"],
+        "enabled": True,
+        "rule_name": "cortex-metrics-eng-cycle-lead-weekly",
+        "summary": "LeanDNA metrics upsert: 2024, 2179, 2028, 2035 — weekly Mon 09:00 UTC",
     },
     "metrics-daily-digest": {
         "schedule_expression": "cron(0 12 * * ? *)",
@@ -353,7 +397,7 @@ def schedule_main(argv: list[str] | None = None, *, prog: str = "cortex --schedu
     parser.add_argument(
         "--prefix",
         default=default_name_prefix(),
-        help="EventBridge rule name prefix (default: CORTEX_SCHEDULE_NAME_PREFIX, terraform name_prefix, or bpo)",
+        help="EventBridge rule name prefix (default: CORTEX_SCHEDULE_NAME_PREFIX, terraform name_prefix, or cortex)",
     )
     parser.add_argument(
         "--region",

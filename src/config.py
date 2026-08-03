@@ -71,6 +71,7 @@ CORTEX_CACHE_ROOT = resolve_cortex_cache_root()
 
 # Scheduled / unattended runs
 CORTEX_FAIL_ON_INTEGRATION_WARNINGS = _truthy_env("CORTEX_FAIL_ON_INTEGRATION_WARNINGS")
+CORTEX_SUPPORT_JIRA_ALLOW_FALLBACK = _truthy_env("CORTEX_SUPPORT_JIRA_ALLOW_FALLBACK")
 try:
     _job_timeout_raw = os.environ.get("CORTEX_JOB_TIMEOUT_SECONDS", "").strip()
     CORTEX_JOB_TIMEOUT_SECONDS = max(0, int(_job_timeout_raw)) if _job_timeout_raw else 0
@@ -141,8 +142,15 @@ GOOGLE_APPLICATION_CREDENTIALS = _resolve_path_from_project_root(
     os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
 )
 # QBR Generator folder id (Prompts, decks/, slides/, chart-data/, individual deck outputs, Output/, etc.).
-# Required for Drive-backed deck/slide YAML and composable deck output.
+# Required for hydrate/QBR and Drive-backed YAML.
 GOOGLE_QBR_GENERATOR_FOLDER_ID = os.environ.get("GOOGLE_QBR_GENERATOR_FOLDER_ID", "").strip() or None
+# Optional: Drive folder id where the QBR Slides template lives. If unset, the template is resolved under GOOGLE_QBR_GENERATOR_FOLDER_ID.
+GOOGLE_QBR_TEMPLATE_FOLDER_ID = os.environ.get("GOOGLE_QBR_TEMPLATE_FOLDER_ID", "").strip() or None
+# Exact Google Slides file name (title) for the QBR template on Drive (must match).
+QBR_TEMPLATE_FILE_NAME = (
+    os.environ.get("QBR_TEMPLATE_FILE_NAME", "").strip()
+    or "BPO [Template] Executive Business Review [QBR]"
+)
 # Optional override: parent folder for `{ISO-date} - Output`; default is `<QBR Generator>/Output/`.
 GOOGLE_QBR_OUTPUT_PARENT_ID = os.environ.get("GOOGLE_QBR_OUTPUT_PARENT_ID", "").strip() or None
 # Portfolio / cohort: optional override for JSON snapshot folder. If unset, snapshots live under
@@ -156,6 +164,18 @@ _pcs = (os.environ.get("CORTEX_PORTFOLIO_CUSTOMER_SOURCE") or "auto").strip().lo
 CORTEX_PORTFOLIO_CUSTOMER_SOURCE = _pcs if _pcs else "auto"
 # Optional: your email (folder owner) - transfer ownership so files count against your quota, not service account's
 GOOGLE_DRIVE_OWNER_EMAIL = os.environ.get("GOOGLE_DRIVE_OWNER_EMAIL")
+# Hydrate/evaluate: Google Group email (e.g. hydrate-deck@yourdomain.com). Must match Share exactly.
+# Lists Slides where the group is Viewer or Editor (Drive query uses in readers OR in writers).
+GOOGLE_HYDRATE_INTAKE_GROUP = os.environ.get("GOOGLE_HYDRATE_INTAKE_GROUP", "").strip() or None
+# Hydrate: max slides to classify and include in the output copy. 0 = no limit. Default 10.
+try:
+    _hms = os.environ.get("HYDRATE_MAX_SLIDES", "10").strip()
+    HYDRATE_MAX_SLIDES = max(0, int(_hms))
+except ValueError:
+    HYDRATE_MAX_SLIDES = 10
+# After hydrate: remove GOOGLE_HYDRATE_INTAKE_GROUP from the **source** deck's sharing (Drive permission).
+_rm = os.environ.get("HYDRATE_REMOVE_INTAKE_GROUP_PERMISSION", "true").strip().lower()
+HYDRATE_REMOVE_INTAKE_GROUP_PERMISSION = _rm in ("1", "true", "yes", "on")
 # JIRA Cloud — default site REST (JIRA_URL); optional gateway via JIRA_AUTH_MODE=gateway
 JIRA_URL = os.environ.get("JIRA_URL")
 JIRA_EMAIL = os.environ.get("JIRA_EMAIL")
@@ -191,16 +211,6 @@ except ValueError:
 CORTEX_GITHUB_CACHE_TTL_SECONDS = max(0, int(_github_cache_hours * 3600))
 if os.environ.get("CORTEX_GITHUB_CACHE_DISABLED", "").strip().lower() in ("1", "true", "yes", "on"):
     CORTEX_GITHUB_CACHE_TTL_SECONDS = 0
-
-# Rippling Platform API (optional — Bearer API key for HR org / employee / team rosters).
-# Create the token in the Rippling developer portal with employee:read, company:teams:read,
-# and company:departments:read scopes. Header-based versioning (Rippling-Api-Version) is optional.
-RIPPLING_API_KEY = os.environ.get("RIPPLING_API_KEY", "").strip() or None
-RIPPLING_API_BASE_URL = (
-    os.environ.get("RIPPLING_API_BASE_URL", "https://api.rippling.com/platform/api").strip().rstrip("/")
-    or "https://api.rippling.com/platform/api"
-)
-RIPPLING_API_VERSION = os.environ.get("RIPPLING_API_VERSION", "").strip() or None
 
 # Cursor Admin API (optional — Team Admin API key for AI coding usage / spend metrics)
 # Key is used as the HTTP Basic username (empty password). Create in Cursor dashboard → Settings.
@@ -249,6 +259,7 @@ try:
     CORTEX_SLACK_MAX_MESSAGES_PER_CHANNEL = max(5, min(int(os.environ.get("CORTEX_SLACK_MAX_MESSAGES_PER_CHANNEL", "50").strip()), 5000))
 except ValueError:
     CORTEX_SLACK_MAX_MESSAGES_PER_CHANNEL = 50
+# Portfolio LLM export Slack: 6-month lookback and higher per-channel caps by default.
 try:
     CORTEX_LLM_EXPORT_SLACK_LOOKBACK_DAYS = max(
         1, min(int(os.environ.get("CORTEX_LLM_EXPORT_SLACK_LOOKBACK_DAYS", "180").strip()), 180)
@@ -262,6 +273,8 @@ try:
     )
 except ValueError:
     CORTEX_LLM_EXPORT_SLACK_MAX_MESSAGES_PER_CHANNEL = 2000
+# Slack API disk cache: default 23h so a once-daily run pulls fresh, while ad-hoc
+# midday re-runs (typically feature testing, not consumer-facing) reuse the morning pull.
 try:
     _slack_cache_hours = float(os.environ.get("CORTEX_SLACK_CACHE_TTL_HOURS", "23").strip())
 except ValueError:
@@ -269,6 +282,7 @@ except ValueError:
 CORTEX_SLACK_CACHE_TTL_SECONDS = max(0, int(_slack_cache_hours * 3600))
 if os.environ.get("CORTEX_SLACK_CACHE_DISABLED", "").strip().lower() in ("1", "true", "yes", "on"):
     CORTEX_SLACK_CACHE_TTL_SECONDS = 0
+# When history returns not_in_channel, join matched public channels (requires channels:join scope).
 CORTEX_SLACK_AUTO_JOIN_PUBLIC_CHANNELS = (
     os.environ.get("CORTEX_SLACK_AUTO_JOIN_PUBLIC_CHANNELS", "true").strip().lower()
     not in ("0", "false", "no", "off")
@@ -434,7 +448,7 @@ except ValueError:
 # Optional limits for tool output (0 = no limit, full dataset returned)
 PENDO_MAX_RESULTS = int(os.environ.get("PENDO_MAX_RESULTS", "0"))
 PENDO_MAX_OUTPUT_CHARS = int(os.environ.get("PENDO_MAX_OUTPUT_CHARS", "0"))
-# Pendo read/preload caches: in-process slices plus Drive JSON preload/portfolio snapshots.
+# Pendo in-process preload slice cache (short TTL within a single Python process).
 try:
     _pendo_cache_seconds = int(os.environ.get("CORTEX_PENDO_CACHE_TTL_SECONDS", "120").strip())
 except ValueError:
@@ -443,8 +457,38 @@ CORTEX_PENDO_CACHE_TTL_SECONDS = max(0, _pendo_cache_seconds)
 _pendo_cache_disabled = os.environ.get("CORTEX_PENDO_CACHE_DISABLED", "").strip().lower()
 if _pendo_cache_disabled in ("1", "true", "yes", "on"):
     CORTEX_PENDO_CACHE_TTL_SECONDS = 0
+# Pendo preload disk cache (cross-run persistence under CORTEX_CACHE_DIR/pendo/).
+# Default 24h so nightly shared-snapshot ingest (early UTC) still covers late transforms
+# and allows same-day stale reuse when CORTEX_PENDO_SNAPSHOT_MAX_AGE_HOURS permits.
+try:
+    _pendo_disk_cache_hours = float(os.environ.get("CORTEX_PENDO_DISK_CACHE_TTL_HOURS", "24").strip())
+except ValueError:
+    _pendo_disk_cache_hours = 24.0
+CORTEX_PENDO_DISK_CACHE_TTL_SECONDS = max(0, int(_pendo_disk_cache_hours * 3600))
+if os.environ.get("CORTEX_PENDO_DISK_CACHE_DISABLED", "").strip().lower() in ("1", "true", "yes", "on"):
+    CORTEX_PENDO_DISK_CACHE_TTL_SECONDS = 0
+# Shared multi-window snapshot (pendo-snapshot-refresh). Transforms set
+# CORTEX_PENDO_SNAPSHOT_REQUIRE to fail loud when the manifest is missing/stale.
+try:
+    _pendo_snapshot_max_age_h = float(os.environ.get("CORTEX_PENDO_SNAPSHOT_MAX_AGE_HOURS", "18").strip())
+except ValueError:
+    _pendo_snapshot_max_age_h = 18.0
+CORTEX_PENDO_SNAPSHOT_MAX_AGE_HOURS = max(0.0, _pendo_snapshot_max_age_h)
 
-# Pendo aggregation request pacing (token bucket). Set rate to 0 to disable pacing.
+# Jira read API disk cache (search/jql, counts, org directory, changelogs, etc.).
+try:
+    _jira_cache_hours = float(os.environ.get("CORTEX_JIRA_CACHE_TTL_HOURS", "20").strip())
+except ValueError:
+    _jira_cache_hours = 20.0
+CORTEX_JIRA_CACHE_TTL_SECONDS = max(0, int(_jira_cache_hours * 3600))
+if os.environ.get("CORTEX_JIRA_CACHE_DISABLED", "").strip().lower() in ("1", "true", "yes", "on"):
+    CORTEX_JIRA_CACHE_TTL_SECONDS = 0
+
+# Pendo aggregation request pacing (token bucket). Prevents 429s under scaled batch
+# load (portfolio crawl, top-ARR batch) while still allowing short parallel bursts
+# (e.g. preload's fan-out). Sustained refill is capped at
+# CORTEX_PENDO_MAX_REQUESTS_PER_MINUTE; up to CORTEX_PENDO_MAX_BURST requests may fire
+# immediately before pacing kicks in. Set the rate to 0 to disable pacing entirely.
 try:
     _pendo_rpm = int(os.environ.get("CORTEX_PENDO_MAX_REQUESTS_PER_MINUTE", "120").strip())
 except ValueError:

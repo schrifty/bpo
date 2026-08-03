@@ -27,6 +27,27 @@ def slide_object_id_base(slide_id: str, seq: int) -> str:
     return f"s_{seq}_{digest}"
 
 
+def unique_slide_object_id_base(slide_id: str, seq: int, used: set[str]) -> str:
+    """Like :func:`slide_object_id_base`, but guaranteed unique within ``used``.
+
+    Two slide-plan entries that resolve to the same ``(slide_id, seq)`` would emit duplicate
+    page object IDs, which makes Google Slides ``batchUpdate`` fail hard with a 400
+    ("The object ID ... should be unique among all pages and page elements"). Because every
+    child element ID a builder emits is derived from this base, keeping the base unique keeps
+    the whole slide unique. When a collision is detected the base is salted with an increasing
+    suffix until unique. ``used`` is not mutated; the caller records the returned value.
+    """
+    base = slide_object_id_base(slide_id, seq)
+    if base not in used:
+        return base
+    n = 2
+    while True:
+        candidate = slide_object_id_base(f"{slide_id}_{n}", seq)
+        if candidate not in used:
+            return candidate
+        n += 1
+
+
 def slide_size(width: float, height: float) -> dict:
     return {
         "width": {"magnitude": width, "unit": "PT"},

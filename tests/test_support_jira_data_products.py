@@ -16,13 +16,14 @@ def test_support_deck_slide_types_are_registered():
     for deck_id in ("support", "support_review_portfolio"):
         resolved = resolve_deck(deck_id, None)
         assert not resolved.get("error"), resolved
+        assert len(resolved.get("slides") or []) >= 10, deck_id
         for row in resolved.get("slides") or []:
             st = (row.get("slide_type") or "").strip()
             assert st, row
             assert (
                 st in SUPPORT_JIRA_PRODUCTS_BY_SLIDE_TYPE
                 or st in SUPPORT_SLIDE_TYPES_NO_JIRA
-                or st == "cs_notable"
+                or st in ("cs_notable", "support_notable")
             ), f"unregistered slide_type {st!r} in {deck_id}"
 
     resolved_scoped = resolve_deck("support", "Acme Corp")
@@ -32,7 +33,7 @@ def test_support_deck_slide_types_are_registered():
         assert (
             st in SUPPORT_JIRA_PRODUCTS_BY_SLIDE_TYPE
             or st in SUPPORT_SLIDE_TYPES_NO_JIRA
-            or st == "cs_notable"
+            or st in ("cs_notable", "support_notable")
         ), f"unregistered slide_type {st!r} in support (scoped)"
 
 
@@ -59,7 +60,10 @@ def test_slide_type_registry_union_matches_canonical_product_set():
 
 
 def test_unknown_slide_type_triggers_full_fallback():
-    plan = [{"slide_type": "support_recent_opened", "id": "a", "title": "A"}, {"slide_type": "unknown_xyz", "id": "b", "title": "B"}]
+    plan = [
+        {"slide_type": "support_recent_opened", "id": "a", "title": "A"},
+        {"slide_type": "unknown_xyz", "id": "b", "title": "B"},
+    ]
     products, fallback = collect_support_jira_product_ids(plan, customer=None)
     assert fallback is True
     assert products == JIRA_SUPPORT_PRODUCT_IDS
@@ -82,6 +86,9 @@ class _FakeSelectiveJira:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
+    def _help_project_customer_filter(self, customer, match_terms=None):
+        return ('Organizations = "Acme"', ["Acme"])
+
     def get_customer_help_recent_tickets(self, customer, **_kwargs):
         self.calls.append("get_customer_help_recent_tickets")
         return {"customer": customer, "recently_opened": [], "recently_closed": []}
@@ -96,27 +103,27 @@ class _FakeSupportJiraClient:
     def _record(self, name: str, *args):
         self.calls.append((name, args))
 
-    def get_customer_ticket_metrics(self, customer):
+    def get_customer_ticket_metrics(self, customer, **_kwargs):
         self._record("get_customer_ticket_metrics", customer)
         return {"customer": customer}
 
-    def get_help_ticket_volume_trends(self, customer):
+    def get_help_ticket_volume_trends(self, customer, **_kwargs):
         self._record("get_help_ticket_volume_trends", customer)
         return {"customer": customer, "all": [], "escalated": [], "non_escalated": []}
 
-    def get_help_factory_start_day_buckets(self, customer):
+    def get_help_factory_start_day_buckets(self, customer, **_kwargs):
         self._record("get_help_factory_start_day_buckets", customer)
-        return {"customer": customer, "buckets": []}
+        return {"customer": customer, "jql_queries": []}
 
-    def get_help_monthly_operational_table(self, customer):
+    def get_help_monthly_operational_table(self, customer, **_kwargs):
         self._record("get_help_monthly_operational_table", customer)
         return {"customer": customer, "rows": []}
 
-    def get_help_customer_escalations(self, customer):
+    def get_help_customer_escalations(self, customer, **_kwargs):
         self._record("get_help_customer_escalations", customer)
         return {"customer": customer, "tickets": []}
 
-    def get_help_escalation_metrics(self, customer):
+    def get_help_escalation_metrics(self, customer, **_kwargs):
         self._record("get_help_escalation_metrics", customer)
         return {"customer": customer, "error": "skip LLM in unit test"}
 
@@ -132,22 +139,27 @@ class _FakeSupportJiraClient:
         self._record("get_customer_project_recent_tickets", project, customer)
         return {"project": project, "customer": customer, "recently_opened": [], "recently_closed": []}
 
-    def get_customer_project_open_breakdown(self, project, customer):
+    def get_customer_project_open_breakdown(self, project, customer, **_kwargs):
         self._record("get_customer_project_open_breakdown", project, customer)
         return {"project": project, "customer": customer}
 
-    def get_project_ticket_volume_trends(self, project, customer):
+    def get_project_ticket_volume_trends(self, project, customer, **_kwargs):
         self._record("get_project_ticket_volume_trends", project, customer)
         return {"project": project, "customer": customer, "all": [], "escalated": [], "non_escalated": []}
 
-    def get_project_ticket_metrics(self, project, customer):
+    def get_project_ticket_metrics(self, project, customer, **_kwargs):
         self._record("get_project_ticket_metrics", project, customer)
         return {"project": project, "customer": customer}
+
+    def get_help_organizations_by_opened(self, **_kwargs):
+        self._record("get_help_organizations_by_opened")
+        return {"organizations": []}
 
 
 def test_support_enrichment_fetches_full_jira_bundle_for_customer(monkeypatch):
     fake = _FakeSupportJiraClient()
     monkeypatch.setattr("src.jira_client.get_shared_jira_client", lambda: fake)
+    monkeypatch.setattr("src.integration_drive_cache.integration_drive_cache_reads_enabled", lambda: False)
 
     report = {"customer": "Acme"}
     deck_data_enrichment.enrich_support_jira_data(report, "Acme")
@@ -156,3 +168,35 @@ def test_support_enrichment_fetches_full_jira_bundle_for_customer(monkeypatch):
     assert report["jira"]["customer_help_recent"]["customer"] == "Acme"
     assert ("get_help_ticket_volume_trends", ("Acme",)) in fake.calls
     assert ("get_customer_help_recent_tickets", ("Acme",)) in fake.calls
+
+
+def test_jira_fetch_failure_fails_loud_by_default(monkeypatch):
+    def _boom():
+        raise RuntimeError("Jira unavailable")
+
+    monkeypatch.setattr("src.jira_client.get_shared_jira_client", _boom)
+    monkeypatch.setattr("src.integration_drive_cache.integration_drive_cache_reads_enabled", lambda: False)
+    monkeypatch.setattr(deck_data_enrichment, "CORTEX_SUPPORT_JIRA_ALLOW_FALLBACK", False)
+
+    report: dict = {}
+    plan = [{"slide_type": "support_recent_opened", "id": "ro", "title": "Opened"}]
+    deck_data_enrichment.enrich_support_jira_data(report, "Acme", plan)
+
+    assert "Jira unavailable" in str(report.get("error") or "")
+    assert report["jira"]["error"]
+
+
+def test_jira_fetch_failure_soft_fallback_when_opt_in(monkeypatch):
+    def _boom():
+        raise RuntimeError("Jira unavailable")
+
+    monkeypatch.setattr("src.jira_client.get_shared_jira_client", _boom)
+    monkeypatch.setattr("src.integration_drive_cache.integration_drive_cache_reads_enabled", lambda: False)
+    monkeypatch.setattr(deck_data_enrichment, "CORTEX_SUPPORT_JIRA_ALLOW_FALLBACK", True)
+
+    report: dict = {}
+    plan = [{"slide_type": "support_recent_opened", "id": "ro", "title": "Opened"}]
+    deck_data_enrichment.enrich_support_jira_data(report, "Acme", plan)
+
+    assert not report.get("error")
+    assert report["jira"]["customer_help_recent"]["recently_opened"] == []

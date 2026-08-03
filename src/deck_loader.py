@@ -10,6 +10,8 @@ is raised so the discrepancy shows up on the Data Quality slide.
 
 from __future__ import annotations
 
+import copy
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +23,9 @@ from .slide_loader import load_slides
 DEFAULT_DECKS_DIR = Path(__file__).resolve().parent.parent / "decks"
 
 _USE_DRIVE = bool(GOOGLE_QBR_GENERATOR_FOLDER_ID)
+
+_RESOLVE_DECK_CACHE: OrderedDict[tuple[str, str, str, str], dict[str, Any]] = OrderedDict()
+_RESOLVE_DECK_CACHE_MAX = 64
 
 
 def _load_all_decks(decks_dir: str | Path | None = None) -> list[dict[str, Any]]:
@@ -88,6 +93,63 @@ def _slide_ids_required_by_deck(deck: dict[str, Any]) -> set[str]:
     return out
 
 
+def _merge_extended_deck(alias: dict[str, Any], base: dict[str, Any]) -> dict[str, Any]:
+    """Merge an alias deck (``extends: <base_id>``) onto its base definition."""
+    merged = dict(base)
+    for key in ("id", "name", "audience", "purpose", "_file", "_source"):
+        if key in alias and alias.get(key) is not None:
+            merged[key] = alias[key]
+    if alias.get("slides"):
+        merged["slides"] = [dict(e) for e in alias["slides"]]
+    else:
+        merged["slides"] = [dict(e) for e in (base.get("slides") or [])]
+
+    cover_title = alias.get("cover_title")
+    if cover_title:
+        for i, entry in enumerate(merged["slides"]):
+            rid = entry.get("slide", entry.get("recipe", ""))
+            if rid == "support_deck_cover":
+                merged["slides"][i] = {**entry, "title": str(cover_title).strip()}
+                break
+
+    slide_title_overrides = alias.get("slide_title_overrides") or {}
+    if slide_title_overrides:
+        for i, entry in enumerate(merged["slides"]):
+            rid = entry.get("slide", entry.get("recipe", ""))
+            ot = slide_title_overrides.get(rid)
+            if ot:
+                merged["slides"][i] = {**entry, "title": str(ot).strip()}
+
+    for key in ("extends", "cover_title", "slide_title_overrides"):
+        merged.pop(key, None)
+    return merged
+
+
+def _apply_deck_extends(
+    deck: dict[str, Any],
+    decks_dir: str | Path | None,
+    *,
+    _stack: frozenset[str] | None = None,
+) -> dict[str, Any]:
+    """When deck YAML declares ``extends: <id>``, inherit slides from the base deck."""
+    extends = deck.get("extends")
+    if not extends:
+        return deck
+    base_id = str(extends).strip()
+    if not base_id:
+        return deck
+    deck_id = str(deck.get("id") or "")
+    seen = _stack or frozenset()
+    if deck_id in seen or base_id in seen:
+        logger.warning("Deck '%s' has circular extends chain; using alias YAML as-is", deck_id)
+        return deck
+    base = load_deck(base_id, decks_dir, _extends_stack=seen | {deck_id})
+    if not base:
+        logger.warning("Deck '%s' extends missing deck '%s'", deck_id, base_id)
+        return deck
+    return _merge_extended_deck(deck, base)
+
+
 def _load_deck_from_local_dir(d: Path, deck_id: str) -> dict[str, Any] | None:
     """Load one deck from the repo ``decks/`` tree without a Drive folder walk."""
     if not d.is_dir():
@@ -119,43 +181,67 @@ def _load_deck_from_local_dir(d: Path, deck_id: str) -> dict[str, Any] | None:
 def load_deck(
     deck_id: str,
     decks_dir: str | Path | None = None,
+    *,
+    _extends_stack: frozenset[str] | None = None,
 ) -> dict[str, Any] | None:
     """Load a single deck definition by ID (one YAML file — never the full Drive decks folder)."""
     d = Path(decks_dir) if decks_dir else DEFAULT_DECKS_DIR
+    raw: dict[str, Any] | None = None
     local = _load_deck_from_local_dir(d, deck_id)
     if local:
-        return local
-    if _USE_DRIVE and not decks_dir:
+        raw = local
+    elif _USE_DRIVE and not decks_dir:
         try:
             from .drive_config import load_deck_yaml_from_drive
 
             got = load_deck_yaml_from_drive(deck_id, d)
             if got and got.get("id") == deck_id:
-                return got
+                raw = got
         except Exception as e:
             logger.debug("load_deck: Drive single fetch: %s", e)
-    return None
+    if not raw:
+        return None
+    return _apply_deck_extends(raw, decks_dir, _stack=_extends_stack)
 
 
-def resolve_deck(
+def _resolve_deck_cache_key(
     deck_id: str,
-    customer: str,
-    decks_dir: str | Path | None = None,
-    slides_dir: str | Path | None = None,
+    customer: str | None,
+    decks_dir: str | Path | None,
+    slides_dir: str | Path | None,
+) -> tuple[str, str, str, str]:
+    decks_key = str(Path(decks_dir).resolve()) if decks_dir else ""
+    slides_key = str(Path(slides_dir).resolve()) if slides_dir else ""
+    customer_key = "" if customer is None else str(customer).strip()
+    return str(deck_id).strip(), customer_key, decks_key, slides_key
+
+
+def clear_resolve_deck_cache() -> None:
+    """Drop cached :func:`resolve_deck` results (for tests or after config edits)."""
+    _RESOLVE_DECK_CACHE.clear()
+
+
+def _resolve_deck_cache_get(key: tuple[str, str, str, str]) -> dict[str, Any] | None:
+    hit = _RESOLVE_DECK_CACHE.get(key)
+    if hit is None:
+        return None
+    _RESOLVE_DECK_CACHE.move_to_end(key)
+    return hit
+
+
+def _resolve_deck_cache_set(key: tuple[str, str, str, str], value: dict[str, Any]) -> None:
+    _RESOLVE_DECK_CACHE[key] = value
+    _RESOLVE_DECK_CACHE.move_to_end(key)
+    while len(_RESOLVE_DECK_CACHE) > _RESOLVE_DECK_CACHE_MAX:
+        _RESOLVE_DECK_CACHE.popitem(last=False)
+
+
+def _resolve_deck_impl(
+    deck_id: str,
+    customer: str | None,
+    decks_dir: str | Path | None,
+    slides_dir: str | Path | None,
 ) -> dict[str, Any]:
-    """Resolve a deck definition into a concrete slide plan for a customer.
-
-    Loads the deck, loads all applicable slide definitions for the customer,
-    then applies the deck's slide list and override rules to produce
-    a final ordered list of slide prompts the agent should follow.
-
-    Returns:
-        {
-            id, name, audience, purpose,
-            slides: [{id, type, title, slide_type, data_tools, prompt, required, note}],
-            excluded: [{slide, note}],
-        }
-    """
     deck = load_deck(deck_id, decks_dir)
     if not deck:
         return {"error": f"Deck '{deck_id}' not found"}
@@ -242,3 +328,34 @@ def resolve_deck(
         "slides": slides,
         "excluded": excluded,
     }
+
+
+def resolve_deck(
+    deck_id: str,
+    customer: str | None,
+    decks_dir: str | Path | None = None,
+    slides_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Resolve a deck definition into a concrete slide plan for a customer.
+
+    Loads the deck, loads all applicable slide definitions for the customer,
+    then applies the deck's slide list and override rules to produce
+    a final ordered list of slide prompts the agent should follow.
+
+    Repeated calls with the same ``deck_id``, ``customer``, and directory paths
+    return a deep copy of a cached result (in-process LRU, max 64 entries).
+
+    Returns:
+        {
+            id, name, audience, purpose,
+            slides: [{id, type, title, slide_type, data_tools, prompt, required, note}],
+            excluded: [{slide, note}],
+        }
+    """
+    key = _resolve_deck_cache_key(deck_id, customer, decks_dir, slides_dir)
+    cached = _resolve_deck_cache_get(key)
+    if cached is not None:
+        return copy.deepcopy(cached)
+    result = _resolve_deck_impl(deck_id, customer, decks_dir, slides_dir)
+    _resolve_deck_cache_set(key, copy.deepcopy(result))
+    return result

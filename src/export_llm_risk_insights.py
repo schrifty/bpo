@@ -177,7 +177,11 @@ def _sf_row_for_customer(sf: dict[str, Any], customer: str) -> dict[str, Any]:
         {
             "Name",
             "ARR__c",
-            "active_in_salesforce",
+            "commercial_status",
+            "active_arr",
+            "renewal_arr",
+            "current_arr",
+            "historical_arr",
             "contract_statuses_distinct",
             "contract_end_date_nearest",
             "days_until_contract_end_nearest",
@@ -205,7 +209,11 @@ def _sf_row_for_customer(sf: dict[str, Any], customer: str) -> dict[str, Any]:
                     {
                         "customer",
                         "arr",
-                        "active",
+                        "commercial_status",
+                        "active_arr",
+                        "renewal_arr",
+                        "current_arr",
+                        "historical_arr",
                         "contract_statuses_distinct",
                         "contract_end_date_nearest",
                         "days_until_contract_end_nearest",
@@ -213,6 +221,7 @@ def _sf_row_for_customer(sf: dict[str, Any], customer: str) -> dict[str, Any]:
                         "renewal_in_flight",
                         "pipeline_arr_including_parent_accounts",
                         "churn_risk",
+                        "active",
                     }
                 )
                 return {k: r.get(k) for k in rk if k in r}
@@ -398,6 +407,10 @@ def _call_risk_llm_batch(
             "TASK: For each object in input.customers[], output EXACTLY two insights focused on "
             "**account retention, contraction, or churn risk**. Use ONLY fields present under that "
             "customer entry (pendo, salesforce, cs_report samples, portfolio signals, jira_help counts). "
+            "Salesforce rows may include ``commercial_status`` (ACTIVE, OUT_OF_CONTRACT_RENEWING, CHURNED, FUTURE) "
+            "and ARR components (``current_arr``, ``active_arr``, ``renewal_arr``) — treat ``commercial_status`` "
+            "as authoritative over legacy ``active`` flags. CHURNED implies retention risk; "
+            "OUT_OF_CONTRACT_RENEWING is renewal negotiation, not lost churn. "
             "Each customer may include ``risk_assessment`` (composite score 0–100, tier, top_influencer) — "
             "treat as a prior; your insights may align or note tension with it.\n\n"
             "RULES:\n"

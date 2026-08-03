@@ -10,6 +10,7 @@ Top-level keys are **case-insensitive** customer keys (`--customer`, Pendo prefi
 |------|---------|
 | `config/jsm_organization_aliases.yaml` | Jira HELP — JSM `Organizations` fuzzy match |
 | `config/cs_report_customer_aliases.yaml` | CS Report — `customer` column lookup |
+| `config/cs_report_column_labels.yaml` | CS Report — workbook column → export display label (CSR UI wording) |
 | `config/slack_customer_aliases.yaml` | Slack — channel name fragments |
 | `config/sf_portfolio_pendo_aliases.yaml` | Portfolio — SF portfolio label → Pendo prefix |
 

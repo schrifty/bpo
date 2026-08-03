@@ -39,3 +39,10 @@ PROFILE_SINGLE_CUSTOMER_HEALTH_CORE: frozenset[SourceId] = frozenset(
         SourceId.SLACK_CUSTOMER_CONVERSATIONS,
     )
 )
+
+# Single-customer Pendo usage export (`src.export_customer_pendo_snapshot`).
+PROFILE_ID_CUSTOMER_PENDO_EXPORT = "customer_pendo_export"
+
+PROFILE_CUSTOMER_PENDO_EXPORT: frozenset[SourceId] = frozenset(
+    (SourceId.PENDO_CUSTOMER_HEALTH,),
+)

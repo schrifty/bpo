@@ -24,8 +24,10 @@ _DATED_OUTPUT_FOLDER_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) - Output$")
 _ARCHIVE_MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
 _HISTORICAL_DAY_FOLDER_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _HISTORICAL_FLAT_DATED_NAME_RE = re.compile(r"^(.+) (\d{4}-\d{2}-\d{2})(\..+)?$")
+# Legacy ``Pendo Export  (Customer, Nd)`` and current ``Customer Export (Nd)`` stems.
+_CUSTOMER_EXPORT_STEM_RE = re.compile(r"^(?:Pendo Export  \(.+\)|.+ Export \(\d+d\))$")
 _MANAGED_EXPORT_PREFIXES = (
-    "Pendo Export  ",
+    "Pendo Export  ",  # legacy customer export stem prefix
     "LLM-Context-Portfolio",
     "match-customer-names",
     "Engineering-Review-Portfolio",
@@ -77,9 +79,14 @@ def is_managed_export_filename(name: str) -> bool:
     """True for portfolio/customer export artifacts governed by persistent/historical layout."""
     if not name or name.startswith("."):
         return False
-    if PERSISTENT_SUFFIX in name:
-        return True
     if parse_historical_flat_dated_name(name):
+        return True
+    stem, _ext = split_filename_stem_ext(name)
+    if PERSISTENT_SUFFIX in stem:
+        stem = stem[: stem.index(PERSISTENT_SUFFIX)]
+    if _CUSTOMER_EXPORT_STEM_RE.match(stem):
+        return True
+    if PERSISTENT_SUFFIX in name:
         return True
     return any(name.startswith(p) for p in _MANAGED_EXPORT_PREFIXES)
 
@@ -112,7 +119,7 @@ def modified_time_to_date(modified_time: str | None) -> dt.date | None:
 
 
 def persistent_filename(stem: str, *, ext: str) -> str:
-    """e.g. ``Pendo Export  (Ford, 30d)-persistent.md``."""
+    """e.g. ``Ford Export (30d)-persistent.md``."""
     return f"{stem}{PERSISTENT_SUFFIX}{ext}"
 
 

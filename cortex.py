@@ -26,6 +26,13 @@ Flag commands (utilities)
       calendar length as resolve_quarter(). Portfolio runs may auto-refresh this snapshot on weekends when Drive needs an update (see
       ``pendo_portfolio_snapshot_drive.ensure_weekend_portfolio_snapshot``).
 
+  cortex --refresh-pendo-snapshot [--windows 7,14,30,60,90] [--upload-portfolio-days 90]
+      Shared Pendo ingest: warm disk preload slices for multiple windows (EFS/local
+      ``CORTEX_CACHE_DIR/pendo/``), write ``shared_snapshot_manifest_v1.json``, and
+      optionally upload the Drive portfolio rollup. Scheduled as ``pendo-snapshot-refresh``
+      at 03:00 UTC so transforms (export-nightly / Ford / top-ARR) can require a fresh
+      snapshot instead of each re-crawling Pendo cold.
+
   cortex --customer "Customer Name" [--days N] [--quarter Q1 2026] [--thumbnails] [--workers N]
       Run every **customer-scoped** deck id (see ``cortex --list``) for one account, in sequence.
       Pauses briefly between decks to reduce Drive rate limits.
@@ -38,31 +45,33 @@ Flag commands (utilities)
   cortex --data
       Print canonical data element paths from ``config/comprehensive_data_element_list.json``.
 
-  cortex export-all [--days N] [--max-tokens N] [--max-bytes N] [--signals-cap N]
+  cortex export-all [--days N] [--max-tokens N] [--signals-cap N]
       [--customers-sf-allowlist] [--customers-exclude-sf-churned]
       [--exclude-customer LABEL ...]
       Build the all-customers LLM context markdown snapshot and upload it to Drive **twice**: under
       ``<QBR Generator>/Output/LLM-Context-Portfolio-persistent.md`` (bookmarkable current export)
       and under ``Output/Historical Data/{ISO-date}/LLM-Context-Portfolio.md`` (same-day snapshot).
+      Prior-month base-folder exports are archived into ``Output/Historical Data/{YYYY-MM}/`` at startup.
       ``cortex --export`` is a deprecated alias for the same command.
       Section 7 LLM churn/account-risk insights are always appended to the export markdown.
 
   cortex --export-pendo --customer <name> [--days N] [--compare-days N] [--no-drive] [-o PATH]
   cortex --export-pendo-detailed --customer <name> [--days N] [--compare-days N] [--no-drive] [-o PATH]
   cortex --export-pendo-top-arr [--top-n 5] [--days N] [--compare-days N] [--no-drive] [--out-dir DIR]
-      Export **Pendo-only** product usage for one customer (sites, features, depth, trends).
+      Export **Pendo-only** product usage for one customer (sites, features, depth, Kei, trends).
       Uploads markdown + Google Sheet to ``Output/Customer Exports/{customer}/`` — only
       ``-persistent`` files in the customer folder; same-day snapshots under ``Historical Data/{ISO-date}/``.
+      Prior-month base-folder exports are archived into ``Historical Data/{YYYY-MM}/`` at startup.
       Default: ``--days 30``.
 
   cortex --schedule [--prefix NAME] [--region REGION]
       Show EventBridge cron schedules for ECS batch jobs (live AWS when credentials are available,
       plus catalog defaults from ``infra/terraform/variables.tf``). Cron times are UTC.
-      Default prefix: ``CORTEX_SCHEDULE_NAME_PREFIX`` or ``bpo`` (matches deployed AWS ``name_prefix``).
+      Default prefix: ``CORTEX_SCHEDULE_NAME_PREFIX`` or ``cortex`` (matches deployed AWS ``name_prefix``).
 
   cortex --running [--cluster NAME] [--family FAMILY] [--region REGION]
       List ECS Fargate tasks currently running Cortex batch jobs (``desiredStatus=RUNNING``).
-      Defaults: ``CORTEX_ECS_*``, ``terraform.tfvars`` ``name_prefix``, or ``bpo`` / ``bpo-decks``.
+      Defaults: ``CORTEX_ECS_*``, ``terraform.tfvars`` ``name_prefix``, or ``cortex`` / ``cortex-decks``.
 
   cortex run-job --job <name> [--dry-run] [--no-json-summary]
       Run a declarative batch job from ``config/jobs/<name>.yaml`` (or ``CORTEX_JOB=<name>``).
@@ -85,7 +94,7 @@ Generate one deck (explicit)
   cortex implementations-review
       Jira-backed org decks (same payloads as ``--portfolio`` batch).
 
-  cortex export-all [--days N] [--max-tokens N] [--max-bytes N] [--signals-cap N]
+  cortex export-all [--days N] [--max-tokens N] [--signals-cap N]
       All-customers LLM context snapshot (same as the ``export-nightly`` job).
 
   cortex regenerate-slides --deck engineering-portfolio --cursor [--presentation-id ID|URL]
@@ -305,6 +314,7 @@ def _run_deck_run_cli(rest: list[str]) -> None:
         "engineering-portfolio",
         "implementations_review",
         "support_review_portfolio",
+        "cortex_showcase",
     )
     if deck_id in no_customer_flags:
         if args.all_customers or args.customers:
@@ -379,6 +389,24 @@ def _run_deck_run_cli(rest: list[str]) -> None:
 
     if deck_id in ("engineering-portfolio", "implementations_review"):
         _run_jira_backed_deck(deck_id, deck_id.replace("-", " ").title())
+        return
+
+    if deck_id == "cortex_showcase":
+        print("Deck:       cortex_showcase")
+        print(f"Period:     last {days}d (live volume window)")
+        print()
+        t0 = time.time()
+        # cortex_meta (static facts + live volume) is assembled by the deck enrichment hook.
+        report = {"type": "cortex_showcase", "customer": None, "days": days}
+        result = create_health_deck(report, deck_id="cortex_showcase", thumbnails=thumbnails)
+        elapsed = time.time() - t0
+        print(f"\n{'=' * 60}")
+        print(f"Done in {elapsed:.0f}s")
+        print(f"{'=' * 60}")
+        if "error" in result:
+            print(f"  FAIL: {result['error'][:120]}")
+            sys.exit(1)
+        print(f"  OK   {result.get('url', '')}")
         return
 
     if deck_id == "support_review_portfolio":
@@ -593,11 +621,10 @@ def _run_deck_run_cli(rest: list[str]) -> None:
 def _run_jira_backed_deck(deck_id: str, label: str) -> None:
     """Generate a Jira-backed single deck using engineering portfolio data."""
     from src.config import CORTEX_CURSOR_SLIDES_ONLY
-    from src.data_source_health import check_all_required
-    from src.jira_client import get_shared_jira_client
+    from src.data_source_health import check_jira_backed_deck_required
     from src.slides_client import create_health_deck
 
-    preflight_errors = check_all_required()
+    preflight_errors = check_jira_backed_deck_required()
     if preflight_errors:
         print("Data source check failed — not running:")
         for msg in preflight_errors:
@@ -1228,10 +1255,31 @@ def main():
         return
 
     if "--export" in sys.argv:
-        from src.export_llm_context_snapshot import export_main
+        print(
+            "error: cortex --export was renamed to cortex export-all",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
-        rest = [a for a in sys.argv[1:] if a != "--export"]
-        export_main(rest, prog="cortex --export")
+    if "--export-pendo" in sys.argv:
+        from src.export_customer_pendo_snapshot import export_pendo_main
+
+        rest = [a for a in sys.argv[1:] if a != "--export-pendo"]
+        export_pendo_main(rest, prog="cortex --export-pendo")
+        return
+
+    if "--export-pendo-detailed" in sys.argv:
+        from src.export_pendo_detailed_snapshot import export_pendo_detailed_main
+
+        rest = [a for a in sys.argv[1:] if a != "--export-pendo-detailed"]
+        export_pendo_detailed_main(rest, prog="cortex --export-pendo-detailed")
+        return
+
+    if "--export-pendo-top-arr" in sys.argv:
+        from src.export_pendo_detailed_snapshot import export_pendo_top_arr_main
+
+        rest = [a for a in sys.argv[1:] if a != "--export-pendo-top-arr"]
+        export_pendo_top_arr_main(rest, prog="cortex --export-pendo-top-arr")
         return
 
     if len(sys.argv) > 1 and sys.argv[1] == "export-all":
@@ -1351,6 +1399,12 @@ def main():
         print(f"       customers in snapshot: {result.get('customer_count')}")
         return
 
+    if "--refresh-pendo-snapshot" in sys.argv:
+        from src.pendo_shared_snapshot import refresh_pendo_snapshot_main
+
+        rest = [a for a in sys.argv[1:] if a != "--refresh-pendo-snapshot"]
+        raise SystemExit(refresh_pendo_snapshot_main(rest, prog="cortex --refresh-pendo-snapshot"))
+
     # Top-level help only when the first argument is -h/--help (not ``cortex run --help``).
     if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help"):
         print(__doc__.strip())
@@ -1375,6 +1429,11 @@ def main():
         return
     if sub == "run-job":
         _run_run_job_cli(sys.argv[2:])
+        return
+    if sub == "export-all":
+        from src.export_llm_context_snapshot import export_main
+
+        export_main(sys.argv[2:], prog="cortex export-all")
         return
     if sub == "cohort":
         _run_cohort_review_cli(sys.argv[2:])

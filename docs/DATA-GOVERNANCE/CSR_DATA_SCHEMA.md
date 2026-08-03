@@ -63,54 +63,91 @@ Invalid JSON or missing dict → treated as no value.
 
 ## 4. Columns consumed by Cortex (by feature)
 
+Cortex maps **every metric column** in the current CS Report XLSX (72 columns as of 2026-07) into the per-customer export. Row filters (`customer`, `delta=week`) and identity columns (`factoryName` → `factory`, `entity`, optional `site`) are used for matching; KPI JSON cells export **`endValue`** under internal snake_case keys, then **export surfaces remap those keys to CSR display labels** from [`config/cs_report_column_labels.yaml`](../../config/cs_report_column_labels.yaml) (e.g. `shortageItemCount` → `Current shortages (purchased)`).
+
+Full export column order lives in ``CSR_MERGED_SITE_EXPORT_COLUMNS`` in ``cs_report_client.py`` (markdown §13.2 and spreadsheet tab ``csr_factories``), presented via ``present_csr_site_for_export``.
+
 Below, “KPI” means a JSON-encoded column as in §3.
 
 ### Platform health — `get_customer_platform_health`
 
-| Spreadsheet column | Notes |
-|--------------------|--------|
-| `healthScore` | String bucket (e.g. GREEN / YELLOW / RED / NONE). When `NONE`, Cortex may fall back to `automatedHealthScores[0].healthScore` (0–100 composite) or `override`. |
-| `automatedHealthScores` | JSON array of per-factory automated health breakdown (composite score, pillar scores, optional color override) |
-| `shortageItemCount` | KPI |
-| `criticalShortages` | KPI |
-| `clearToBuildPercent` | KPI |
-| `clearToCommitPercent` | KPI |
-| `componentAvailabilityPercent` | KPI |
-| `componentAvailabilityPercentProjected` | KPI |
-| `buyerMappingQualityScore` | KPI |
-| `weeklyActiveBuyersPercent` | KPI |
-| `aggregateRiskScoreHighCount` | KPI |
+| Spreadsheet column | Export key (internal) | Export display label | Notes |
+|--------------------|----------------------|----------------------|--------|
+| `healthScore` | `health_score` | Health Score | When `NONE`, may fall back to `automatedHealthScores[0]` |
+| `automatedHealthScores` | `automated_health_composite`, `automated_health_override`, `automated_health_scores` | Automated Health Composite / Override / Scores | Raw JSON preserved on `automated_health_scores` |
+| `shortageItemCount` | `shortages` | Current shortages (purchased) | KPI |
+| `criticalShortages` | `critical_shortages` | Critical shortages | KPI |
+| `shortagesByOrderLines` | `shortages_by_order_lines` | Shortages by order lines | KPI |
+| `clearToBuildPercent` | `clear_to_build_pct` | Clear to Build % | KPI |
+| `clearToCommitPercent` | `clear_to_commit_pct` | Clear to Commit % | KPI |
+| `componentAvailabilityPercent` | `component_availability_pct` | Component Availability % | KPI |
+| `componentAvailabilityPercentProjected` | `component_availability_projected_pct` | Component Availability % (Projected) | KPI |
+| `buyerMappingQualityScore` | `buyer_mapping_quality` | Buyer Mapping Quality | KPI |
+| `weeklyActiveBuyersPercent` | `weekly_active_buyers_pct` | Weekly Active Buyers % | KPI |
+| `dailyActiveBuyersPercent` | `daily_active_buyers_pct` | Daily Active Buyers % | KPI |
+| `dailyEngagedBuyersPercent` | `daily_engaged_buyers_pct` | Daily Engaged Buyers % | KPI |
+| `weeklyEngagedIABuyersPercent` | `weekly_engaged_ia_buyers_pct` | Weekly Engaged IA Buyers % | KPI |
+| `weeklyEngagedSuppliersPercent` | `weekly_engaged_suppliers_pct` | Weekly Engaged Suppliers % | KPI |
+| `aggregateRiskScoreHighCount` | `high_risk_items` | High Risk Items | KPI |
+| `businessUnit` | `business_unit` | Business Unit | plain |
+| `division` | `division` | Division | plain |
+| `region` | `region` | Region | plain |
+| `customerNdx` | `customer_ndx` | Customer Ndx | plain |
+| `factoryNdx` | `factory_ndx` | Factory Ndx | plain |
+| `dateCreated` / `dateModified` / `startDate` / `endDate` | `date_created`, etc. | Date Created, … | plain |
 
 ### Supply chain — `get_customer_supply_chain`
 
-| Spreadsheet column | Notes |
-|--------------------|--------|
-| `totalOnHandValue` | KPI |
-| `totalOnOrderValue` | KPI |
-| `excessOnhandValuePositive` | KPI |
-| `excessOnOrderValuePositive` | KPI |
-| `doiForwards` | KPI |
-| `daysCoverage` | KPI |
-| `pastDuePOValue` | KPI |
-| `pastDueRequirementValue` | KPI |
-| `latePOCount` | KPI |
-| `latePRCount` | KPI |
-| `dailyInventoryUsage` | KPI (present in code path; not all slides use it) |
-| `toiForwards` | KPI |
+| Spreadsheet column | Export key | Notes |
+|--------------------|------------|--------|
+| `totalOnHandValue` | `on_hand_value` | KPI; rolled to `totals.on_hand` |
+| `totalOnOrderValue` | `on_order_value` | KPI |
+| `excessOnhandValuePositive` | `excess_on_hand` | KPI |
+| `excessOnOrderValuePositive` | `excess_on_order_value` | KPI; rolled to `totals.excess_on_order` |
+| `excessOnhandDemandedValue` | `excess_onhand_demanded_value` | KPI |
+| `excessOnhandObsoleteValue` | `excess_onhand_obsolete_value` | KPI |
+| `excessOnOrderObsoleteValue` | `excess_on_order_obsolete_value` | KPI |
+| `manufacturedInventoryValue` | `manufactured_inventory_value` | KPI |
+| `earlyDeliveriesValue` | `early_deliveries_value` | KPI |
+| `doiForwards` | `doi_days` | KPI |
+| `doiBackwards` | `doi_backwards` | KPI |
+| `daysCoverage` | `days_coverage` | KPI |
+| `onOrderDays` | `on_order_days` | KPI |
+| `pastDuePOValue` | `past_due_po_value` | KPI |
+| `pastDueRequirementValue` | `past_due_req_value` | KPI |
+| `latePOCount` | `late_pos` | KPI |
+| `latePRCount` | `late_prs` | KPI |
+| `dailyInventoryUsage` | `daily_inventory_usage` | KPI |
+| `toiForwards` | `turns_of_inventory` | KPI |
+| `toiBackwards` | `toi_backwards` | KPI |
+| `openPoCt` | `open_po_ct` | KPI |
+| `nonCompliantPosCt` | `non_compliant_pos_ct` | KPI |
+| `apexPoActionPoCt` | `apex_po_action_po_ct` | KPI |
+| `erpExceptionMsgPoCt` | `erp_exception_msg_po_ct` | KPI |
+| `supplierCt` | `supplier_ct` | KPI |
+| `supplierCommitDatePercent` | `supplier_commit_date_pct` | KPI |
+| `commitDateCoverage` | `commit_date_coverage_pct` | KPI |
 
 ### Platform value / ROI — `get_customer_platform_value`
 
-| Spreadsheet column | Notes |
-|--------------------|--------|
-| `inventoryActionCurrentReportingPeriodSavings` | KPI |
-| `inventoryActionOpenValue` | KPI |
-| `recsCreatedLast30DaysCt` | KPI |
-| `posPlacedInLast30DaysCt` | KPI |
-| `workbenchOverdueTasksCt` | KPI |
-| `potentialSavings` | KPI |
-| `potentialToSell` | KPI |
-| `currentFySpend` | KPI |
-| `previousFySpend` | KPI |
+| Spreadsheet column | Export key | Notes |
+|--------------------|------------|--------|
+| `inventoryActionCurrentReportingPeriodSavings` | `savings_current_period` | KPI |
+| `inventoryActionOpenValue` | `open_ia_value` | KPI |
+| `inventoryActionCurrentReportingPeriodOpenValue` | `ia_current_period_open_value` | KPI |
+| `inventoryActionPreviousReportingPeriodSavings` | `ia_previous_period_savings` | KPI |
+| `inventoryActionFixRateTrailing90Days` | `ia_fix_rate_trailing_90d` | KPI |
+| `inventoryActionUnableToFixRateTrailing90Days` | `ia_unable_to_fix_rate_trailing_90d` | KPI |
+| `inventoryActionCurrentReportingPeriod` | `ia_current_reporting_period` | plain label |
+| `inventoryActionPreviousReportingPeriod` | `ia_previous_reporting_period` | plain label |
+| `recsCreatedLast30DaysCt` | `recs_created_30d` | KPI |
+| `posPlacedInLast30DaysCt` | `pos_placed_30d` | KPI |
+| `workbenchOverdueTasksCt` | `overdue_tasks` | KPI |
+| `potentialSavings` | `potential_savings` | KPI |
+| `potentialToSell` | `potential_to_sell` | KPI |
+| `currentFySpend` | `current_fy_spend` | KPI |
+| `previousFySpend` | `previous_fy_spend` | KPI |
+| `currentWeek52ldnaTarget` | `current_week52_ldna_target` | KPI |
 
 ---
 

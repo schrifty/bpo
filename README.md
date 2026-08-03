@@ -31,10 +31,15 @@ docker run --rm -v "$PWD/.env:/app/.env:ro" -v "$PWD/.cache:/var/cortex/cache" \
 Production uses `scripts/run_job.sh` → `bootstrap_aws_env.py` (when `CORTEX_SECRETS_ARN` is set) → `cortex run-job`.
 Set `CORTEX_LOG_FORMAT=json` (auto on ECS) for CloudWatch filters; stdout includes `CORTEX_RUN_SUMMARY={…}` and EMF metrics.
 
-| Job | Schedule (EventBridge) | YAML |
-|-----|------------------------|------|
-| Engineering portfolio | Daily 02:00 UTC (`decks-engineering-portfolio`) | `engineering-portfolio` |
-| LLM export | Daily 03:00 UTC | `export-nightly` (`cortex --export`, 90-day window) |
+| Job | Schedule (EventBridge, UTC) | YAML |
+|-----|-----------------------------|------|
+| Shared Pendo ingest | Daily 03:00 UTC (`cortex-pendo-snapshot-refresh`) | `pendo-snapshot-refresh` (preload 7/14/30/60/90 + Drive portfolio 90d) |
+| LLM export | Daily 06:00 UTC (`cortex-export-nightly`) | `export-nightly` (`cortex export-all`, 90-day window; requires shared snapshot) |
+| Engineering portfolio | Daily 06:30 UTC (`cortex-engineering-portfolio`) | `engineering-portfolio` |
+| Ford Pendo export (7d) | Daily 07:00 UTC (`cortex-ford-pendo-7d`) | `ford-pendo-7d` (`cortex --export-pendo --customer Ford --days 7 --compare-days 7`) |
+| Ford Pendo export (30d) | Daily 07:30 UTC (`cortex-ford-pendo-30d`) | `ford-pendo-30d` (`cortex --export-pendo --customer Ford --days 30 --compare-days 30`) |
+| Top-ARR Pendo detailed | Daily 08:00 UTC (`cortex-pendo-top-arr-30d`) | `pendo-top-arr-30d` |
+| Engineering KPIs (cycle, lead time, thresholds, bugs) | Weekly Mon 08:30 UTC (`cortex-metrics-eng-cycle-lead-weekly`) | `metrics-eng-cycle-lead-weekly` (LeanDNA metrics 2024, 2179, 2028, 2035) |
 | Portfolio batch | Manual / `run-task` | `portfolio-batch` |
 | Full nightly chain | Manual | `nightly-core` |
 

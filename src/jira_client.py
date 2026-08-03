@@ -26,7 +26,7 @@ _JSM_ORG_GLOBAL_LOCK = threading.Lock()
 _JSM_ORG_GLOBAL_CACHE: dict[str, tuple[float, list[str]]] = {}
 _ATLASSIAN_TEAMS_RESPONSE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _ATLASSIAN_TEAMS_CACHE_LOCK = threading.Lock()
-# TTL for JSM organization list (same tenant rarely changes during a batch run).
+# TTL for JSM organization list in-process L1 (disk cache uses CORTEX_JIRA_CACHE_TTL_SECONDS).
 _JSM_ORG_CACHE_TTL_S = float(os.environ.get("CORTEX_JSM_ORG_CACHE_TTL_S", "900"))
 
 _SHARED_JIRA_CLIENT_LOCK = threading.Lock()
@@ -153,6 +153,27 @@ def _jql_escape_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
+def _organizations_jql_literal(org_names: list[str]) -> str | None:
+    """Build a single JSM ``Organizations`` JQL clause for one or more directory names."""
+    unique: list[str] = []
+    seen_lower: set[str] = set()
+    for org in org_names:
+        ex = (org or "").strip()
+        if not ex:
+            continue
+        key = ex.lower()
+        if key in seen_lower:
+            continue
+        seen_lower.add(key)
+        unique.append(ex)
+    if not unique:
+        return None
+    if len(unique) == 1:
+        return f'Organizations = "{_jql_escape_string(unique[0])}"'
+    quoted = ", ".join(f'"{_jql_escape_string(n)}"' for n in unique)
+    return f"Organizations in ({quoted})"
+
+
 def _norm_org_for_match(s: str) -> str:
     """Normalize a label for fuzzy comparison against JSM organization names."""
     t = (s or "").lower().strip()
@@ -209,10 +230,8 @@ def _load_jsm_org_alias_map() -> dict[str, list[str]]:
 
 
 def _merge_jsm_customer_alias_terms(terms: list[str | None]) -> list[str]:
-    """Append alias strings for any term that appears as a key in config/jsm_organization_aliases.yaml."""
+    """Append alias strings from JSM, CS Report, and cohort maps for configured customer keys."""
     am = _load_jsm_org_alias_map()
-    if not am:
-        return [t for t in terms if t and str(t).strip()]
     out: list[str] = []
     seen: set[str] = set()
     for t in terms:
@@ -224,15 +243,32 @@ def _merge_jsm_customer_alias_terms(terms: list[str | None]) -> list[str]:
             continue
         seen.add(k)
         out.append(c)
+
+    try:
+        from .cs_report_client import (
+            _load_cohort_customer_alias_map,
+            _load_cs_report_alias_map,
+        )
+
+        csr_map = _load_cs_report_alias_map()
+        cohort_map = _load_cohort_customer_alias_map()
+    except Exception:
+        csr_map = {}
+        cohort_map = {}
+
     for t in list(out):
-        extras = am.get(t.lower())
-        if not extras:
-            continue
-        for e in extras:
-            el = e.lower()
-            if el not in seen:
-                seen.add(el)
-                out.append(e)
+        for extras in (
+            am.get(t.lower()),
+            csr_map.get(t.lower()),
+            cohort_map.get(t.lower()),
+        ):
+            if not extras:
+                continue
+            for e in extras:
+                el = str(e).strip().lower()
+                if el and el not in seen:
+                    seen.add(el)
+                    out.append(str(e).strip())
     return out
 
 
@@ -1310,6 +1346,24 @@ class JiraClient:
         ]
         for i in range(0, len(todo), 90):
             chunk = todo[i:i + 90]
+            from . import jira_cache
+
+            cache_params = {"account_ids": sorted(chunk)}
+            cached_users = jira_cache.cache_get(self._jsm_cache_key, "user_bulk", cache_params)
+            if isinstance(cached_users, list):
+                for row in cached_users:
+                    if not isinstance(row, dict):
+                        continue
+                    aid = row.get("accountId")
+                    if not aid:
+                        continue
+                    name = (row.get("displayName") or "").strip()
+                    email = (row.get("emailAddress") or "").strip()
+                    if name:
+                        self._atlassian_user_name_cache[aid] = name
+                    if email:
+                        self._atlassian_user_email_cache[aid] = email
+                continue
             try:
                 # ``/user/bulk`` defaults to maxResults=10 — must request the full chunk
                 # size or only the first 10 accountIds resolve.
@@ -1323,7 +1377,9 @@ class JiraClient:
                 )
                 if resp.status_code != 200:
                     continue
-                for user in resp.json().get("values") or []:
+                values = resp.json().get("values") or []
+                jira_cache.cache_set(self._jsm_cache_key, "user_bulk", cache_params, values)
+                for user in values:
                     aid = user.get("accountId")
                     name = user.get("displayName")
                     if aid and name and user.get("accountType") == "atlassian":
@@ -1498,8 +1554,16 @@ class JiraClient:
         Uses ``POST /rest/api/3/search/approximate-count`` (Atlassian requires bounded JQL for some
         tenants; counts may lag slightly vs live search — see Jira docs).
         """
+        from . import jira_cache
+
+        cleaned = jql.strip()
+        cache_params = {"jql": cleaned}
+        cached = jira_cache.cache_get(self._jsm_cache_key, "jql_count", cache_params)
+        if isinstance(cached, dict) and "count" in cached:
+            val = cached.get("count")
+            return int(val) if val is not None else None
         try:
-            body: dict[str, Any] = {"jql": jql.strip()}
+            body: dict[str, Any] = {"jql": cleaned}
             resp = requests.post(
                 f"{self.api_base_url}/rest/api/3/search/approximate-count",
                 headers=self._headers,
@@ -1509,7 +1573,14 @@ class JiraClient:
             resp.raise_for_status()
             data = resp.json()
             c = data.get("count")
-            return int(c) if c is not None else None
+            count = int(c) if c is not None else None
+            jira_cache.cache_set(
+                self._jsm_cache_key,
+                "jql_count",
+                cache_params,
+                {"count": count},
+            )
+            return count
         except Exception as e:
             logger.debug("JIRA jql match total failed: %s", e)
             return None
@@ -1530,10 +1601,21 @@ class JiraClient:
         *,
         data_description: str | None = None,
     ) -> list[dict]:
-        results: list[dict] = []
-        next_token: str | None = None
+        from . import jira_cache
+
         flds = fields if fields is not None else _ISSUE_FIELDS
         self._record_jql(jql, description=data_description or "Jira issue search")
+        cache_params = {
+            "jql": jql.strip(),
+            "max_results": int(max_results),
+            "fields": list(flds),
+        }
+        cached = jira_cache.cache_get(self._jsm_cache_key, "search_jql", cache_params)
+        if isinstance(cached, list):
+            return cached
+
+        results: list[dict] = []
+        next_token: str | None = None
         while len(results) < max_results:
             body: dict[str, Any] = {
                 "jql": jql,
@@ -1554,6 +1636,7 @@ class JiraClient:
             next_token = data.get("nextPageToken")
             if not next_token:
                 break
+        jira_cache.cache_set(self._jsm_cache_key, "search_jql", cache_params, results)
         return results
 
     def _list_jsm_organization_names(self) -> list[str]:
@@ -1565,6 +1648,15 @@ class JiraClient:
         """
         if os.environ.get("CORTEX_JIRA_SKIP_JSM_ORG_FUZZY", "").strip() in ("1", "true", "yes"):
             return []
+
+        from . import jira_cache
+
+        disk_cached = jira_cache.cache_get(self._jsm_cache_key, "jsm_organization_names", {})
+        if isinstance(disk_cached, list):
+            now = time.monotonic()
+            with _JSM_ORG_GLOBAL_LOCK:
+                _JSM_ORG_GLOBAL_CACHE[self._jsm_cache_key] = (now, list(disk_cached))
+            return list(disk_cached)
 
         now = time.monotonic()
         with _JSM_ORG_GLOBAL_LOCK:
@@ -1622,6 +1714,7 @@ class JiraClient:
             )
         with _JSM_ORG_GLOBAL_LOCK:
             _JSM_ORG_GLOBAL_CACHE[self._jsm_cache_key] = (now, unique)
+        jira_cache.cache_set(self._jsm_cache_key, "jsm_organization_names", {}, unique)
         return unique
 
     def _customer_match_clause(
@@ -1698,24 +1791,42 @@ class JiraClient:
                 if not any(x.lower() == ex.lower() for x in resolved_orgs):
                     resolved_orgs.append(ex)
 
-        org_fragments: list[str] = []
-        seen_org: set[str] = set()
+        org_names: list[str] = []
+        seen_org_lower: set[str] = set()
         for term in cleaned_terms:
             exact = jsm_name_by_lower.get(term.lower())
             if not exact:
                 continue
-            esc = _jql_escape_string(exact)
-            frag = f'Organizations = "{esc}"'
-            if frag not in seen_org:
-                seen_org.add(frag)
-                org_fragments.append(frag)
+            key = exact.lower()
+            if key in seen_org_lower:
+                continue
+            seen_org_lower.add(key)
+            org_names.append(exact)
         for org in resolved_orgs:
             ex = jsm_name_by_lower.get(org.strip().lower(), org.strip())
-            esc = _jql_escape_string(ex)
-            frag = f'Organizations = "{esc}"'
-            if frag not in seen_org:
-                seen_org.add(frag)
-                org_fragments.append(frag)
+            key = ex.lower()
+            if not ex or key in seen_org_lower:
+                continue
+            seen_org_lower.add(key)
+            org_names.append(ex)
+
+        if not org_names and (customer_name or "").strip():
+            from .jsm_umbrella_match import jsm_directory_prefix_organizations
+
+            prefix_orgs = jsm_directory_prefix_organizations(
+                customer_name.strip(),
+                candidates,
+            )
+            if len(prefix_orgs) >= 2:
+                for ex in prefix_orgs:
+                    key = ex.lower()
+                    if key in seen_org_lower:
+                        continue
+                    seen_org_lower.add(key)
+                    org_names.append(ex)
+                    resolved_orgs.append(ex)
+
+        org_literal = _organizations_jql_literal(org_names)
 
         text_fragments: list[str] = []
         for esc in escaped_terms:
@@ -1723,12 +1834,14 @@ class JiraClient:
             text_fragments.append(f'description ~ "{esc}"')
 
         if organizations_only:
-            if not org_fragments:
+            if not org_literal:
                 # No Organizations literals (should be rare) — JQL that matches no real issues.
                 return ('summary ~ "___CORTEX_NO_ORG_MATCH___"', resolved_orgs)
-            clauses = org_fragments
+            return org_literal, resolved_orgs
+        if org_literal:
+            clauses = [org_literal] + text_fragments
         else:
-            clauses = org_fragments + text_fragments
+            clauses = text_fragments
         return "(" + " OR ".join(clauses) + ")", resolved_orgs
 
     def _help_project_customer_filter(
@@ -1777,6 +1890,18 @@ class JiraClient:
                 customer_name, match_terms, organizations_only=False
             )
         return org_only_clause, orgs
+
+    def _resolve_help_customer_filter(
+        self,
+        customer_name: str | None,
+        match_terms: list[str] | None = None,
+        *,
+        _prebuilt_clause: tuple[str, list[str]] | None = None,
+    ) -> tuple[str, list[str]]:
+        """Reuse a pre-resolved HELP org clause when prefetching many support products."""
+        if _prebuilt_clause is not None:
+            return _prebuilt_clause
+        return self._help_project_customer_filter(customer_name, match_terms)
 
     def help_salesforce_entity_site_scoped_clause(
         self,
@@ -2104,16 +2229,27 @@ class JiraClient:
             "jql_queries": self._jql_since(jql_start),
         }
 
-    def get_customer_jira(self, customer_name: str, days: int = 90) -> dict[str, Any]:
+    def get_customer_jira(
+        self,
+        customer_name: str,
+        days: int = 90,
+        *,
+        match_terms: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Get JIRA picture for a customer: open issues, recent activity, escalations.
 
         Scoped to **project HELP** (support desk) only. All HELP issue lists and
         :func:`get_customer_ticket_metrics` prebuilt slice use the same JQL: JSM
         ``Organizations`` only (no ``summary`` / ``description`` text match) so
         per-customer counts are not inflated by other orgs' tickets.
+
+        *match_terms* adds extra Salesforce / subsidiary labels to the JSM org resolution
+        (OR'd into one HELP filter) so parent and division org names are counted together.
         """
         jql_start = self._jql_log_len()
-        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(customer_name)
+        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
+            customer_name, match_terms
+        )
         jql = f"project = HELP AND {base_filter} AND {_TRANSIENT_LABELS_EXCLUSION} AND created >= -{days}d ORDER BY created DESC"
         clause_bundle = (base_filter, resolved_jsm_orgs)
 
@@ -2724,12 +2860,9 @@ class JiraClient:
         HELP body fetch) to skip a second org-resolution pass.
         """
         jql_start = self._jql_log_len()
-        if _prebuilt_clause is not None:
-            base_filter, resolved_jsm_orgs = _prebuilt_clause
-        else:
-            base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
-                customer_name, match_terms
-            )
+        base_filter, resolved_jsm_orgs = self._resolve_help_customer_filter(
+            customer_name, match_terms, _prebuilt_clause=_prebuilt_clause
+        )
         max_fetch = HELP_METRICS_MERGED_MAX_RESULTS
         proj = "project = HELP AND "
 
@@ -3021,6 +3154,7 @@ class JiraClient:
         opened_within_days: int | None = 45,
         closed_within_days: int | None = 45,
         max_each: int = 100,
+        _prebuilt_clause: tuple[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """Recent HELP issues for one customer: opened in window vs resolved in window.
 
@@ -3036,6 +3170,7 @@ class JiraClient:
             opened_within_days=opened_within_days,
             closed_within_days=closed_within_days,
             max_each=max_each,
+            _prebuilt_clause=_prebuilt_clause,
         )
     
     def get_customer_project_recent_tickets(
@@ -3047,6 +3182,7 @@ class JiraClient:
         opened_within_days: int | None = 45,
         closed_within_days: int | None = 45,
         max_each: int = 100,
+        _prebuilt_clause: tuple[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """Recent tickets for any project for one customer: opened in window vs resolved in window.
 
@@ -3061,8 +3197,8 @@ class JiraClient:
         
         # If customer_name is None on non-HELP projects, scope to all project tickets.
         if project == "HELP":
-            base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
-                customer_name, match_terms
+            base_filter, resolved_jsm_orgs = self._resolve_help_customer_filter(
+                customer_name, match_terms, _prebuilt_clause=_prebuilt_clause
             )
         else:
             base_filter, resolved_jsm_orgs = self._customer_project_text_match_clause(
@@ -3174,6 +3310,7 @@ class JiraClient:
         match_terms: list[str] | None = None,
         *,
         max_results: int = 1000,
+        _prebuilt_clause: tuple[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """Open-ticket status/type breakdown for a project/customer scope."""
         jql_start = self._jql_log_len()
@@ -3183,8 +3320,8 @@ class JiraClient:
             return {"error": str(e), "project": (project or "").strip().upper(), "customer": customer_name}
 
         if proj == "HELP":
-            base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
-                customer_name, match_terms
+            base_filter, resolved_jsm_orgs = self._resolve_help_customer_filter(
+                customer_name, match_terms, _prebuilt_clause=_prebuilt_clause
             )
         else:
             base_filter, resolved_jsm_orgs = self._customer_project_text_match_clause(
@@ -3240,6 +3377,7 @@ class JiraClient:
         *,
         days: int = 90,
         max_results: int = 500,
+        _prebuilt_clause: tuple[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """Get resolved tickets grouped by assignee for a project and customer.
         
@@ -3257,8 +3395,8 @@ class JiraClient:
         
         # If customer_name is None on non-HELP projects, scope to all project tickets.
         if project == "HELP":
-            base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
-                customer_name, match_terms
+            base_filter, resolved_jsm_orgs = self._resolve_help_customer_filter(
+                customer_name, match_terms, _prebuilt_clause=_prebuilt_clause
             )
         else:
             base_filter, resolved_jsm_orgs = self._customer_project_text_match_clause(
@@ -3428,6 +3566,115 @@ class JiraClient:
                 )
             out["tickets"] = slim
         return out
+
+    def get_help_median_ttr(
+        self,
+        *,
+        days: int = 30,
+        customer_name: str | None = None,
+        match_terms: list[str] | None = None,
+        max_results: int | None = None,
+    ) -> dict[str, Any]:
+        """HELP **median TTR** from completed JSM Time-to-resolution SLA cycles (LeanDNA 2171).
+
+        Same resolved-window JQL as :meth:`get_help_time_to_resolution`, but the value is the
+        median ``elapsedTime.millis`` across tickets with a completed ``customfield_10665``
+        cycle (not SLA adherence %). Returned ``value`` is that median in **hours** (rounded).
+        """
+        jql_start = self._jql_log_len()
+        if days < 1:
+            return {"error": "days must be >= 1", "days": days, "project": "HELP"}
+
+        cap = max_results if max_results is not None else HELP_TTR_RESOLVED_MAX_RESULTS
+        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
+            customer_name, match_terms
+        )
+        jql = (
+            f"project = HELP AND {base_filter} AND {_TRANSIENT_LABELS_EXCLUSION} "
+            f"AND resolution is not EMPTY AND resolved >= -{int(days)}d "
+            "ORDER BY resolved DESC"
+        )
+        jql_total = self._jql_match_total(jql)
+
+        try:
+            raw = self._search(
+                jql,
+                max_results=cap,
+                fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
+                data_description=(
+                    f"HELP median TTR SLA (resolved in last {int(days)}d"
+                    + (f", customer {customer_name!r}" if customer_name else ", portfolio")
+                    + ")"
+                ),
+            )
+        except Exception as e:
+            logger.warning(
+                "HELP median TTR fetch failed (days=%s customer=%r): %s",
+                days,
+                customer_name,
+                e,
+            )
+            return {
+                "error": str(e),
+                "project": "HELP",
+                "metric": "median_ttr_hours",
+                "window_days": int(days),
+                "customer": customer_name,
+                "jsm_organizations_resolved": resolved_jsm_orgs,
+                "jql_queries": self._jql_since(jql_start),
+            }
+
+        issues = [self._normalize_issue(i) for i in raw]
+        sla = self._compute_sla(issues, "ttr", project_key="HELP")
+        measured = int(sla.get("measured") or 0)
+        if measured < 1:
+            return {
+                "error": (
+                    "no completed Time to resolution SLA cycles "
+                    f"for HELP tickets resolved in the last {int(days)}d"
+                ),
+                "project": "HELP",
+                "metric": "median_ttr_hours",
+                "definition": (
+                    "Median completed JSM Time to resolution SLA elapsed time (hours) "
+                    "for HELP tickets resolved in a trailing window"
+                ),
+                "sla_field": TTR_FIELD,
+                "window_days": int(days),
+                "customer": customer_name,
+                "jsm_organizations_resolved": resolved_jsm_orgs,
+                "resolved_in_window": len(issues),
+                "jql_total": jql_total,
+                "fetch_cap": cap,
+                "truncated": jql_total is not None and jql_total > len(issues),
+                "ttr": sla,
+                "jql_queries": self._jql_since(jql_start),
+            }
+
+        median_ms = float(sla["median_ms"])
+        hours = median_ms / 3_600_000.0
+        value = int(round(hours))
+        return {
+            "value": value,
+            "project": "HELP",
+            "metric": "median_ttr_hours",
+            "definition": (
+                "Median completed JSM Time to resolution SLA elapsed time (hours) "
+                "for HELP tickets resolved in a trailing window"
+            ),
+            "sla_field": TTR_FIELD,
+            "window_days": int(days),
+            "customer": customer_name,
+            "jsm_organizations_resolved": resolved_jsm_orgs,
+            "resolved_in_window": len(issues),
+            "jql_total": jql_total,
+            "fetch_cap": cap,
+            "truncated": jql_total is not None and jql_total > len(issues),
+            "median_ms": median_ms,
+            "median_hours": round(hours, 2),
+            "ttr": sla,
+            "jql_queries": self._jql_since(jql_start),
+        }
 
     @staticmethod
     def _compute_sla_field_adherence_pct(
@@ -3897,6 +4144,7 @@ class JiraClient:
         match_terms: list[str] | None = None,
         *,
         max_results: int = 200,
+        _prebuilt_clause: tuple[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """Open HELP issues with Jira label ``customer_escalation``, most recently updated first.
 
@@ -3905,8 +4153,8 @@ class JiraClient:
         + ``ORDER BY updated DESC`` — matches the support-deck spec for this slide.
         """
         jql_start = self._jql_log_len()
-        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
-            customer_name, match_terms
+        base_filter, resolved_jsm_orgs = self._resolve_help_customer_filter(
+            customer_name, match_terms, _prebuilt_clause=_prebuilt_clause
         )
         jql = (
             f"project = HELP AND ({base_filter}) AND labels = \"customer_escalation\" "
@@ -3966,6 +4214,8 @@ class JiraClient:
         self,
         customer_name: str | None = None,
         match_terms: list[str] | None = None,
+        *,
+        _prebuilt_clause: tuple[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """HELP escalation KPIs: open backlog TTR split by ``customer_escalation`` label, plus 90d open/close counts.
 
@@ -3975,8 +4225,8 @@ class JiraClient:
         ``customer_escalation`` Jira label.
         """
         jql_start = self._jql_log_len()
-        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
-            customer_name, match_terms
+        base_filter, resolved_jsm_orgs = self._resolve_help_customer_filter(
+            customer_name, match_terms, _prebuilt_clause=_prebuilt_clause
         )
         excl = _TRANSIENT_LABELS_EXCLUSION
         max_open = HELP_METRICS_MERGED_MAX_RESULTS
@@ -4338,11 +4588,13 @@ class JiraClient:
         self,
         customer_name: str | None = None,
         match_terms: list[str] | None = None,
+        *,
+        _prebuilt_clause: tuple[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """Return 12-month HELP created vs resolved trends for a customer or all customers."""
         jql_start = self._jql_log_len()
-        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
-            customer_name, match_terms
+        base_filter, resolved_jsm_orgs = self._resolve_help_customer_filter(
+            customer_name, match_terms, _prebuilt_clause=_prebuilt_clause
         )
         jql = (
             f"project = HELP AND {base_filter} AND {_TRANSIENT_LABELS_EXCLUSION} "
@@ -4392,6 +4644,7 @@ class JiraClient:
         match_terms: list[str] | None = None,
         *,
         num_months: int = 12,
+        _prebuilt_clause: tuple[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """Monthly HELP counts aligned with operational spreadsheet (non-outage vs outage/healthcheck).
 
@@ -4404,8 +4657,8 @@ class JiraClient:
         from calendar import monthrange
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
-            customer_name, match_terms
+        base_filter, resolved_jsm_orgs = self._resolve_help_customer_filter(
+            customer_name, match_terms, _prebuilt_clause=_prebuilt_clause
         )
         scope = f"project = HELP AND ({base_filter})"
         now = datetime.now(timezone.utc)
@@ -4667,6 +4920,13 @@ class JiraClient:
         cached = getattr(self, "_flagged_field_id_cache", "__unset__")
         if cached != "__unset__":
             return cached
+        from . import jira_cache
+
+        disk = jira_cache.cache_get(self._jsm_cache_key, "flagged_field_id", {})
+        if isinstance(disk, dict) and "field_id" in disk:
+            field_id = disk.get("field_id")
+            self._flagged_field_id_cache = field_id
+            return field_id
         field_id: str | None = None
         try:
             resp = requests.get(
@@ -4680,6 +4940,7 @@ class JiraClient:
         except Exception as e:
             logger.warning("Flagged field discovery failed: %s", e)
         self._flagged_field_id_cache = field_id
+        jira_cache.cache_set(self._jsm_cache_key, "flagged_field_id", {}, {"field_id": field_id})
         return field_id
 
     def _fetch_issue_changelogs(
@@ -4702,6 +4963,12 @@ class JiraClient:
             fields += f",{flagged_field_id}"
 
         def _one(key: str) -> tuple[str, dict | None]:
+            from . import jira_cache
+
+            cache_params = {"issue_key": key, "fields": fields}
+            cached = jira_cache.cache_get(self._jsm_cache_key, "issue_changelog", cache_params)
+            if isinstance(cached, dict):
+                return key, cached
             try:
                 resp = requests.get(
                     f"{self.api_base_url}/rest/api/3/issue/{key}",
@@ -4714,11 +4981,13 @@ class JiraClient:
                 data = resp.json()
                 f = data.get("fields") or {}
                 flagged = bool(f.get(flagged_field_id)) if flagged_field_id else False
-                return key, {
+                payload = {
                     "histories": (data.get("changelog") or {}).get("histories") or [],
                     "created": f.get("created"),
                     "flagged": flagged,
                 }
+                jira_cache.cache_set(self._jsm_cache_key, "issue_changelog", cache_params, payload)
+                return key, payload
             except Exception as e:
                 logger.debug("changelog fetch failed for %s: %s", key, e)
                 return key, None

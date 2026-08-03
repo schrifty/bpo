@@ -1,0 +1,12 @@
+id: cortex_graph_breadth
+type: standard
+order: 80
+title: One graph, one system of record
+slide_type: cortex_graph_breadth
+data_tools: []
+customers: all
+
+prompt: >
+  Explains the authority model — Salesforce is the system of record; the other
+  sources enrich only — and shows the report-blobs-per-source table from
+  cortex_meta so the audience sees where the breadth comes from.

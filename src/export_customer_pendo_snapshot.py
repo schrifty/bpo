@@ -12,11 +12,11 @@ import argparse
 import datetime as dt
 import re
 import sys
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-import requests
 import yaml
 
 from .config import logger
@@ -223,9 +223,9 @@ def build_business_unit_summary(
 
 
 def _pendo_export_file_stem(customer: str, days: int) -> str:
-    """Return filename stem (no extension), e.g. ``Pendo Export  (Ford, 30d)``."""
+    """Return filename stem (no extension), e.g. ``Ford Export (30d)``."""
     label = (customer or "").strip() or "customer"
-    return f"Pendo Export  ({label}, {days}d)"
+    return f"{label} Export ({days}d)"
 
 
 def resolve_pendo_customer_prefix(query: str, pc: PendoClient) -> str:
@@ -606,10 +606,21 @@ def build_customer_pendo_export_report(
     compare_days: int | None = None,
 ) -> dict[str, Any]:
     """Fetch Pendo usage slices for one customer (product adoption focus)."""
-    pendo_prefix = resolve_pendo_customer_prefix(customer_query, pc)
+    from .pendo_shared_snapshot import PendoSnapshotError, ensure_shared_pendo_snapshot, required_windows_from_env
+
     window_days = max(1, int(days))
     compare = max(1, int(compare_days if compare_days is not None else window_days))
     total_lookback = window_days + compare
+    try:
+        ensure_shared_pendo_snapshot(
+            required_windows=required_windows_from_env(
+                fallback=[window_days, max(window_days, total_lookback)]
+            )
+        )
+    except PendoSnapshotError as exc:
+        return {"error": str(exc), "customer_query": customer_query}
+
+    pendo_prefix = resolve_pendo_customer_prefix(customer_query, pc)
     exported_at = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     window_end = dt.date.today()
     window_start = window_end - dt.timedelta(days=window_days - 1)
@@ -693,7 +704,174 @@ def build_customer_pendo_export_report(
         "kei": kei,
         "trends": trends,
     }
+    attach_csr_to_customer_pendo_report(report)
     return report
+
+
+def attach_csr_to_customer_pendo_report(report: dict[str, Any]) -> None:
+    """Attach full CS Report week data for this customer under ``report['csr']``."""
+    meta = report.get("meta") if isinstance(report.get("meta"), dict) else {}
+    pendo_prefix = str(meta.get("pendo_prefix") or "").strip()
+    if not pendo_prefix:
+        return
+    customer_query = str(meta.get("customer_query") or "").strip()
+    try:
+        from .cs_report_client import load_csr_for_pendo_customer_export
+
+        report["csr"] = load_csr_for_pendo_customer_export(
+            pendo_prefix=pendo_prefix,
+            customer_query=customer_query,
+        )
+        meta["csr_loaded"] = bool((report.get("csr") or {}).get("csr_loaded"))
+        report["meta"] = meta
+        if report["csr"].get("csr_loaded"):
+            try:
+                from .cs_report_client import cross_validate_with_pendo
+
+                cross_validate_with_pendo(
+                    pendo_prefix,
+                    {
+                        "account": (report.get("engagement") or {}).get("account") or {},
+                        "engagement": (report.get("engagement") or {}).get("engagement") or {},
+                        "sites": (report.get("sites") or {}).get("sites") or [],
+                    },
+                )
+            except Exception as exc:
+                logger.debug("CSR/Pendo cross-validation skipped: %s", exc)
+    except Exception as exc:
+        logger.warning("CS Report attachment failed for %s: %s", pendo_prefix, exc)
+        report["csr"] = {
+            "scope": "single_customer_pendo_export",
+            "pendo_prefix": pendo_prefix,
+            "error": str(exc)[:400],
+            "csr_loaded": False,
+        }
+        meta["csr_loaded"] = False
+        report["meta"] = meta
+
+
+def _md_table_cell(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        return _md_table_cell(", ".join(f"{k}={v}" for k, v in value.items()))
+    text = str(value).replace("|", "\\|").replace("\n", " ").strip()
+    return text
+
+
+def _ordered_table_columns(rows: list[dict[str, Any]], preferred: tuple[str, ...]) -> list[str]:
+    seen: set[str] = set()
+    for row in rows:
+        seen |= {k for k in row.keys() if row.get(k) not in (None, "", [])}
+    ordered = [k for k in preferred if k in seen]
+    ordered.extend(sorted(k for k in seen if k not in preferred))
+    return ordered
+
+
+def render_csr_markdown(report: dict[str, Any], *, section_number: int = 13) -> str:
+    """Render CS Report factory data for a single-customer Pendo export."""
+    csr = report.get("csr")
+    if not isinstance(csr, dict):
+        return ""
+    title = f"{section_number}. CS Report (weekly factory health, supply chain, value)"
+    if csr.get("error") and not csr.get("csr_loaded"):
+        body = (
+            f"*(CS Report could not be loaded: {csr.get('error')})*\n\n"
+            "Use the portfolio LLM-context export for cross-customer CS comparisons when "
+            "this customer has no CSR match."
+        )
+        return _md_section(title, body)
+
+    lookup_keys = csr.get("csr_lookup_keys") or []
+    matched = csr.get("csr_matched_lookup_key") or "—"
+    merged_names = csr.get("csr_customer_names_merged") or []
+    intro = [
+        "> **CS Report** (`delta=week`) — factory-level platform health, supply chain, and "
+        "platform value for this customer. Metrics are merged **one row per factory** in §"
+        f"{section_number}.2 (all factories; no sampling).",
+        f"- **CSR lookup keys tried:** {', '.join(f'`{k}`' for k in lookup_keys) or '—'}",
+        f"- **Matched CSR customer label:** `{matched}`",
+    ]
+    if merged_names:
+        intro.append(
+            f"- **CSR division labels merged:** {', '.join(f'`{n}`' for n in merged_names)}"
+        )
+    if not csr.get("csr_loaded"):
+        section_errors = {
+            name: (csr.get(name) or {}).get("error")
+            for name in ("platform_health", "supply_chain", "platform_value")
+            if isinstance(csr.get(name), dict) and (csr.get(name) or {}).get("error")
+        }
+        err_lines = [f"- **{k}:** {v}" for k, v in section_errors.items()]
+        body = "\n".join(intro + ["", "*(No CS Report factory rows matched this customer.)*"] + err_lines)
+        return _md_section(title, body)
+
+    summary = csr.get("summary") if isinstance(csr.get("summary"), dict) else {}
+    summary_lines = [
+        f"### {section_number}.1 Customer summary",
+        "",
+        f"- **Factories:** {summary.get('factory_count', 0)}",
+    ]
+    if summary.get("health_distribution"):
+        hd = summary["health_distribution"]
+        summary_lines.append(
+            f"- **Health mix:** GREEN {hd.get('GREEN', 0)} · YELLOW {hd.get('YELLOW', 0)} · "
+            f"RED {hd.get('RED', 0)} · NONE {hd.get('NONE', 0)}"
+        )
+    if summary.get("total_shortages") is not None:
+        from .cs_report_client import csr_export_column_label
+
+        sh_label = csr_export_column_label("shortages")
+        csh_label = csr_export_column_label("critical_shortages")
+        summary_lines.append(
+            f"- **{sh_label}:** {summary.get('total_shortages', 0):,} "
+            f"({csh_label} {summary.get('total_critical_shortages', 0):,})"
+        )
+    inv = summary.get("inventory_totals")
+    if isinstance(inv, dict) and inv:
+        for key in sorted(inv.keys()):
+            val = inv.get(key)
+            if val is None:
+                continue
+            label = key.replace("_", " ").strip().title()
+            summary_lines.append(f"- **Inventory {label}:** ${val:,}")
+    for k, label in (
+        ("total_savings", "Savings (current period)"),
+        ("total_open_ia_value", "Open IA value"),
+        ("total_ia_current_period_open_value", "IA current-period open value"),
+        ("total_ia_previous_period_savings", "IA previous-period savings"),
+        ("total_potential_savings", "Potential savings"),
+        ("total_potential_to_sell", "Potential to sell"),
+        ("total_recs_created_30d", "Recs created (30d)"),
+        ("total_pos_placed_30d", "POs placed (30d)"),
+        ("total_overdue_tasks", "Overdue workbench tasks"),
+        ("total_current_fy_spend", "Current FY spend"),
+        ("total_previous_fy_spend", "Previous FY spend"),
+        ("total_current_week52_ldna_target", "Current week-52 LeanDNA target"),
+    ):
+        if summary.get(k) is not None:
+            summary_lines.append(f"- **{label}:** {summary[k]:,}")
+
+    merged_sites = csr.get("merged_sites") if isinstance(csr.get("merged_sites"), list) else []
+    from .cs_report_client import csr_sites_and_columns_for_export
+
+    presented, cols = csr_sites_and_columns_for_export(merged_sites)
+    factory_lines = [
+        f"### {section_number}.2 All factories (merged metrics)",
+        "",
+        f"*{len(merged_sites)} factories — every CSR site row for this customer. "
+        f"Column names match CSR display labels.*",
+        "",
+        "| " + " | ".join(cols) + " |",
+        "| " + " | ".join(["---"] * len(cols)) + " |",
+    ]
+    for row in presented:
+        factory_lines.append(
+            "| " + " | ".join(_md_table_cell(row.get(c)) for c in cols) + " |"
+        )
+
+    body = "\n".join(intro + ["", *summary_lines, "", *factory_lines])
+    return _md_section(title, body)
 
 
 def _md_section(title: str, body: str) -> str:
@@ -712,8 +890,9 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
         f"- **Pendo prefix:** `{meta.get('pendo_prefix')}`",
         "",
         "**How to read this export**",
-        "- This file is **Pendo usage only** — no contract status, ARR, or churn "
-        "(use the portfolio LLM-context export for those).",
+        "- **Pendo usage** (§1–§12) plus **CS Report** factory health (§13; §15 in the "
+        "detailed export) when CSR matches this customer. No contract ARR, churn, or "
+        "Jira — use the portfolio LLM-context export for those.",
         "- **Sites** = one row per *active* site (had events in the window); Pendo's "
         "internal per-entity duplicates are merged. The count of every provisioned site "
         "(active + idle) is in §1 only.",
@@ -1046,6 +1225,10 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
         secondary.append("**Auto-detected signals:**")
         secondary.extend(f"- {s}" for s in signals[:12])
     md += _md_section("12. Engagement context", "\n".join(secondary))
+
+    csr_md = render_csr_markdown(report, section_number=13)
+    if csr_md:
+        md += csr_md
 
     return md.rstrip() + "\n"
 

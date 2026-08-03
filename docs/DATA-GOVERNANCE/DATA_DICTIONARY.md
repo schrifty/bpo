@@ -18,6 +18,7 @@
 - `csr.platform_health.factory_count`
 - `csr.platform_health.health_distribution`
 - `csr.platform_health.sites`
+- `csr.platform_health.sites[]`
 - `csr.platform_health.source`
 - `csr.platform_health.total_critical_shortages`
 - `csr.platform_health.total_shortages`
@@ -25,21 +26,33 @@
 - `csr.platform_value.error`
 - `csr.platform_value.factory_count`
 - `csr.platform_value.sites`
+- `csr.platform_value.sites[]`
 - `csr.platform_value.source`
+- `csr.platform_value.total_current_fy_spend`
+- `csr.platform_value.total_current_week52_ldna_target`
+- `csr.platform_value.total_ia_current_period_open_value`
+- `csr.platform_value.total_ia_previous_period_savings`
 - `csr.platform_value.total_open_ia_value`
 - `csr.platform_value.total_overdue_tasks`
 - `csr.platform_value.total_pos_placed_30d`
 - `csr.platform_value.total_potential_savings`
 - `csr.platform_value.total_potential_to_sell`
+- `csr.platform_value.total_previous_fy_spend`
 - `csr.platform_value.total_recs_created_30d`
 - `csr.platform_value.total_savings`
 - `csr.supply_chain.customer`
 - `csr.supply_chain.error`
 - `csr.supply_chain.factory_count`
 - `csr.supply_chain.sites`
+- `csr.supply_chain.sites[]`
 - `csr.supply_chain.source`
+- `csr.supply_chain.totals.early_deliveries`
 - `csr.supply_chain.totals.excess_on_hand`
 - `csr.supply_chain.totals.excess_on_order`
+- `csr.supply_chain.totals.excess_on_order_obsolete`
+- `csr.supply_chain.totals.excess_onhand_demanded`
+- `csr.supply_chain.totals.excess_onhand_obsolete`
+- `csr.supply_chain.totals.manufactured_inventory`
 - `csr.supply_chain.totals.on_hand`
 - `csr.supply_chain.totals.on_order`
 - `csr.supply_chain.totals.past_due_po`
@@ -49,19 +62,30 @@
 - `csr.platform_health.sites[]`
 - `csr.platform_value.sites[]`
 - `csr.supply_chain.sites[]`
+- Export markdown / spreadsheet / portfolio §4 present these with **CSR display labels** from `config/cs_report_column_labels.yaml` (e.g. `Current shortages (purchased)` for `shortageItemCount`); internal APIs keep snake_case keys.
 
 ## CSR→summary
 - `platform_value.factory_count`
+- `platform_value.total_current_fy_spend`
+- `platform_value.total_current_week52_ldna_target`
+- `platform_value.total_ia_current_period_open_value`
+- `platform_value.total_ia_previous_period_savings`
 - `platform_value.total_open_ia_value`
 - `platform_value.total_overdue_tasks`
 - `platform_value.total_pos_placed_30d`
 - `platform_value.total_potential_savings`
-- `platform_value.total_savings`
 - `platform_value.total_potential_to_sell`
+- `platform_value.total_previous_fy_spend`
 - `platform_value.total_recs_created_30d`
+- `platform_value.total_savings`
 - `supply_chain.factory_count`
+- `supply_chain.totals.early_deliveries`
 - `supply_chain.totals.excess_on_hand`
 - `supply_chain.totals.excess_on_order`
+- `supply_chain.totals.excess_on_order_obsolete`
+- `supply_chain.totals.excess_onhand_demanded`
+- `supply_chain.totals.excess_onhand_obsolete`
+- `supply_chain.totals.manufactured_inventory`
 - `supply_chain.totals.on_hand`
 - `supply_chain.totals.on_order`
 - `supply_chain.totals.past_due_po`
@@ -386,6 +410,26 @@
 - `portfolio.portfolio_signals`
 - `portfolio.portfolio_trends`
 - `portfolio.type`
+- `pendo_usage_by_site.active_only` — LLM export: only sites with `total_events > 0`
+- `pendo_usage_by_site.by_customer[]` — per-customer rollup of active site usage
+- `pendo_usage_by_site.by_customer[].customer`
+- `pendo_usage_by_site.by_customer[].feature_clicks`
+- `pendo_usage_by_site.by_customer[].page_views`
+- `pendo_usage_by_site.by_customer[].sites`
+- `pendo_usage_by_site.by_customer[].total_events`
+- `pendo_usage_by_site.by_customer[].total_minutes`
+- `pendo_usage_by_site.days`
+- `pendo_usage_by_site.note`
+- `pendo_usage_by_site.sites[]` — active sites ranked by `total_events`
+- `pendo_usage_by_site.sites[].customer`
+- `pendo_usage_by_site.sites[].feature_clicks`
+- `pendo_usage_by_site.sites[].page_views`
+- `pendo_usage_by_site.sites[].siteid`
+- `pendo_usage_by_site.sites[].sitename`
+- `pendo_usage_by_site.sites[].total_events`
+- `pendo_usage_by_site.sites[].total_minutes`
+- `pendo_usage_by_site.sites_total`
+- `pendo_usage_by_site.source`
 
 ## portfolio row
 - `portfolio.customers[]`

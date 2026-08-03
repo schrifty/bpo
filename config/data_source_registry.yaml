@@ -6,7 +6,9 @@ sources:
     display_name: Pendo
     authority: enrichment
     env_required: []
-    env_optional: [PENDO_API_KEY, PENDO_SUBSCRIPTION_ID]
+    env_optional: [PENDO_API_KEY, PENDO_SUBSCRIPTION_ID, CORTEX_PENDO_DISK_CACHE_TTL_HOURS]
+    cache_ttl_env: CORTEX_PENDO_DISK_CACHE_TTL_HOURS
+    default_cache_hours: 12
   cs_report:
     display_name: CS Report
     authority: enrichment
@@ -17,7 +19,9 @@ sources:
     authority: enrichment
     aliases: [JIRA, Jira]
     env_required: [JIRA_URL, JIRA_API_TOKEN]
-    env_optional: [JIRA_EMAIL, JIRA_CLOUD_ID, ATLASSIAN_ORG_ID]
+    env_optional: [JIRA_EMAIL, JIRA_CLOUD_ID, ATLASSIAN_ORG_ID, CORTEX_JIRA_CACHE_TTL_HOURS]
+    cache_ttl_env: CORTEX_JIRA_CACHE_TTL_HOURS
+    default_cache_hours: 20
   atlassian_teams:
     display_name: Atlassian Teams
     authority: enrichment

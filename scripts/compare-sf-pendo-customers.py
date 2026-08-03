@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare Salesforce active customers to Pendo prefixes (LLM export data bundle).
 
-Loads the same portfolio + Salesforce universe as ``cortex --export`` / ``build_llm_export_snapshot_report``,
+Loads the same portfolio + Salesforce universe as ``cortex export-all`` / ``build_llm_export_snapshot_report``,
 then reports:
 
 1. Active Salesforce portfolio labels with no Pendo usage data

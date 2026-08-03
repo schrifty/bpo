@@ -38,6 +38,28 @@ def test_fuzzy_pick_empty_candidates():
     assert _fuzzy_pick_jsm_organizations(["Anything"], []) == []
 
 
+@patch("src.jira_client._fuzzy_pick_jsm_organizations", return_value=["Carrier", "Commercial HVAC", "Residential HVAC"])
+@patch("src.jira_client._load_jsm_org_alias_map", return_value={})
+def test_customer_match_clause_uses_organizations_in_for_multiple_orgs(
+    _mock_aliases, _mock_fuzzy
+):
+    jc = JiraClient.__new__(JiraClient)
+    jc._jsm_cache_key = "t1"
+    jc._jsm_llm_org_resolve_cache = {}
+    orgs = ["Carrier", "Commercial HVAC", "Residential HVAC"]
+    with patch.object(jc, "_list_jsm_organization_names", return_value=orgs):
+        frag, resolved = jc._customer_match_clause(
+            "Carrier",
+            ["Commercial HVAC (Carrier)", "Residential HVAC (Carrier)"],
+            organizations_only=True,
+        )
+    assert frag.startswith("Organizations in (")
+    assert 'Organizations = "Carrier"' not in frag
+    assert "Commercial HVAC" in frag
+    assert "Residential HVAC" in frag
+    assert len(resolved) == 3
+
+
 def test_customer_match_clause_organizations_only_omits_text_for_metrics():
     jc = JiraClient.__new__(JiraClient)
     jc._jsm_cache_key = "t1"

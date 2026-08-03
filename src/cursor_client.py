@@ -47,6 +47,8 @@ from .config import (
 _MAX_RANGE_DAYS = 30
 _DEFAULT_TIMEOUT_S = 60.0
 _DEFAULT_PAGE_SIZE = 1000
+# filtered-usage-events: larger pages cut wall time under the 20 req/min throttle.
+_DEFAULT_USAGE_EVENTS_PAGE_SIZE = 1000
 
 # On-disk read cache under ``CORTEX_CACHE_DIR/cursor/`` (see ``src.disk_cache``).
 from . import disk_cache as _disk_cache
@@ -402,16 +404,18 @@ class CursorClient:
         *,
         email: str | None = None,
         user_id: int | None = None,
-        page_size: int = 100,
+        page_size: int = _DEFAULT_USAGE_EVENTS_PAGE_SIZE,
         max_events: int | None = None,
     ) -> list[dict[str, Any]]:
         """Granular usage events incl. token usage (POST /teams/filtered-usage-events).
 
         Paginates until exhausted or *max_events* is reached. Ranges are inclusive on
-        both bounds per the Cursor docs.
+        both bounds per the Cursor docs. Default *page_size* is 1000 so cold 30-day
+        scans need far fewer round-trips under the client-side 20 req/min throttle.
         """
         start_ms = _to_epoch_ms(start_date)
         end_ms = _to_epoch_ms(end_date)
+        page_size = max(1, int(page_size))
         key = _cache_key("usage_events", {
             "start": _floor_hour_ms(start_ms), "end": _floor_hour_ms(end_ms),
             "email": email, "user_id": user_id, "page_size": page_size, "max_events": max_events,
@@ -437,6 +441,11 @@ class CursorClient:
             data = self._request("POST", "/teams/filtered-usage-events", json_body=body)
             events = data.get("usageEvents") or []
             out.extend(events)
+            if page == 1 or page % 5 == 0:
+                logger.info(
+                    "Cursor usage-events: page %d, %d event(s) so far (pageSize=%d)",
+                    page, len(out), page_size,
+                )
             if max_events is not None and len(out) >= max_events:
                 out = out[:max_events]
                 break

@@ -648,7 +648,8 @@ You receive JSON with:
   - portfolio_leaders: top customers by adoption / login / exports / write depth / exec Kei.
   - cohort_findings_bullets + cohort_digest_compact: cohort concentration and medians.
   - jira_help_portfolio_rollup: org-wide Jira HELP ticket backlog / type / status / SLA summaries (when present).
-  - salesforce_revenue_book_compact: ARR, pipeline, churn vs active counts, top accounts by ARR (when present).
+  - salesforce_revenue_book_compact: ARR rollups (``current_arr``, ``active_arr``, ``renewal_arr``,
+    ``historical_arr``), pipeline, segment counts, and top accounts with ``commercial_status`` (when present).
 - Optional "editorial": "slide_brief_from_yaml" — audience and emphasis from the deck YAML only.
 
 Rules:

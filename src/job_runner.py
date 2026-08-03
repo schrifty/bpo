@@ -129,12 +129,23 @@ def build_step_argv(step: dict[str, Any]) -> list[str]:
         if step.get("max_customers") is not None:
             argv.extend(["--max-customers", str(int(step["max_customers"]))])
         return argv
+    if command in ("refresh-pendo-snapshot", "pendo-snapshot-refresh"):
+        argv = ["--refresh-pendo-snapshot"]
+        windows = step.get("windows")
+        if windows is not None:
+            if isinstance(windows, (list, tuple)):
+                argv.extend(["--windows", ",".join(str(int(w)) for w in windows)])
+            else:
+                argv.extend(["--windows", str(windows)])
+        if step.get("upload_portfolio_days") is not None:
+            argv.extend(["--upload-portfolio-days", str(int(step["upload_portfolio_days"]))])
+        return argv
     if command in ("export", "export-all"):
         argv = ["export-all"]
         if step.get("days") is not None:
             argv.extend(["--days", str(int(step["days"]))])
-        if step.get("max_bytes") is not None:
-            argv.extend(["--max-bytes", str(int(step["max_bytes"]))])
+        if step.get("max_tokens") is not None:
+            argv.extend(["--max-tokens", str(int(step["max_tokens"]))])
         if step.get("signals_cap") is not None:
             argv.extend(["--signals-cap", str(int(step["signals_cap"]))])
         if step.get("skip_risk_insights"):
@@ -316,13 +327,22 @@ def _build_failures_payload(
     return payload
 
 
-def _step_env(run_id: str, job_name: str, step_name: str) -> dict[str, str]:
+def _step_env(run_id: str, job_name: str, step_name: str, step: dict[str, Any] | None = None) -> dict[str, str]:
     env = dict(os.environ)
     env["CORTEX_RUN_ID"] = run_id
     env["CORTEX_JOB_NAME"] = job_name
     env["CORTEX_STEP_NAME"] = step_name
     if CORTEX_FAIL_ON_INTEGRATION_WARNINGS:
         env.setdefault("CORTEX_FAIL_ON_INTEGRATION_WARNINGS", "1")
+    step = step or {}
+    if step.get("require_pendo_snapshot"):
+        env["CORTEX_PENDO_SNAPSHOT_REQUIRE"] = "1"
+        windows = step.get("require_pendo_windows") or step.get("pendo_snapshot_windows")
+        if windows is not None:
+            if isinstance(windows, (list, tuple)):
+                env["CORTEX_PENDO_SNAPSHOT_REQUIRE_WINDOWS"] = ",".join(str(int(w)) for w in windows)
+            else:
+                env["CORTEX_PENDO_SNAPSHOT_REQUIRE_WINDOWS"] = str(windows)
     return env
 
 
@@ -337,57 +357,80 @@ def run_step_subprocess(
     command = str(step.get("command") or "")
     argv = build_step_argv(step)
     set_run_phase(name)
-    env = _step_env(run_id, job_name, name)
+    env = _step_env(run_id, job_name, name, step)
     t0 = time.monotonic()
     logger.info("job step start: %s (%s)", name, " ".join(argv))
     try:
-        proc = subprocess.run(
+        # Stream child stdout/stderr to CloudWatch (via cortex logger) while also
+        # capturing for failure extraction. ``capture_output=True`` alone swallows
+        # successful-run detail (e.g. Slack join/match logs).
+        proc = subprocess.Popen(
             [sys.executable, str(_CORTEX_PY), *argv],
             cwd=str(_PROJECT_ROOT),
             env=env,
-            timeout=timeout_seconds if timeout_seconds > 0 else None,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
+            bufsize=1,
         )
+        collected: list[str] = []
+        assert proc.stdout is not None
+        try:
+            for line in proc.stdout:
+                collected.append(line)
+                stripped = line.rstrip("\n")
+                if stripped:
+                    # Child already emits JSON/text logs; forward as-is at INFO.
+                    logger.info("%s", stripped)
+            proc.wait(timeout=timeout_seconds if timeout_seconds > 0 else None)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            elapsed = time.monotonic() - t0
+            logger.error("job step timeout: %s after %ds", name, timeout_seconds)
+            return StepResult(
+                name=name,
+                command=command,
+                success=False,
+                exit_code=124,
+                duration_s=elapsed,
+                error=f"timeout after {timeout_seconds}s",
+            )
         elapsed = time.monotonic() - t0
-        ok = proc.returncode == 0
-        stdout = proc.stdout or ""
-        stderr = proc.stderr or ""
-        detail_messages = [] if ok else _extract_step_failure_messages(stdout, stderr)
+        combined = "".join(collected)
+        ok = (proc.returncode or 0) == 0
+        detail_messages = [] if ok else _extract_step_failure_messages(combined, "")
         err = None
         if not ok:
             err = _summarize_step_error(
-                exit_code=int(proc.returncode),
+                exit_code=int(proc.returncode or 1),
                 detail_messages=detail_messages,
-                stderr_tail=_tail_text(stderr),
-                stdout_tail=_tail_text(stdout),
+                stderr_tail=_tail_text(combined),
+                stdout_tail=_tail_text(combined),
             )
-            if stderr.strip():
-                logger.error("job step stderr (%s):\n%s", name, _tail_text(stderr, max_chars=2000))
-            elif stdout.strip():
-                logger.error("job step stdout (%s):\n%s", name, _tail_text(stdout, max_chars=2000))
+            logger.error("job step output (%s):\n%s", name, _tail_text(combined, max_chars=2000))
         logger.info("job step end: %s success=%s duration_s=%.1f", name, ok, elapsed)
         return StepResult(
             name=name,
             command=command,
             success=ok,
-            exit_code=int(proc.returncode),
+            exit_code=int(proc.returncode or 0),
             duration_s=elapsed,
             error=err,
             detail_messages=detail_messages,
-            stdout_tail=None if ok else _tail_text(stdout),
-            stderr_tail=None if ok else _tail_text(stderr),
+            stdout_tail=None if ok else _tail_text(combined),
+            stderr_tail=None if ok else _tail_text(combined),
         )
-    except subprocess.TimeoutExpired:
+    except Exception as exc:
         elapsed = time.monotonic() - t0
-        logger.error("job step timeout: %s after %ds", name, timeout_seconds)
+        logger.error("job step failed to start/run: %s: %s", name, exc)
         return StepResult(
             name=name,
             command=command,
             success=False,
-            exit_code=124,
+            exit_code=1,
             duration_s=elapsed,
-            error=f"timeout after {timeout_seconds}s",
+            error=str(exc)[:400],
         )
 
 

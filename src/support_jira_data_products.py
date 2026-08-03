@@ -21,6 +21,8 @@ JIRA_SUPPORT_PRODUCT_IDS: frozenset[str] = frozenset(
         "help_orgs_by_opened",
         "help_customer_escalations",
         "help_escalation_metrics",
+        "help_factory_start_day_buckets",
+        "help_monthly_operational_metrics",
         "customer_help_recent",
         "help_resolved_by_assignee",
         "customer_project_recent",
@@ -75,6 +77,8 @@ SUPPORT_JIRA_PRODUCTS_BY_SLIDE_TYPE: dict[str, frozenset[str]] = {
     "support_help_monthly_operational": frozenset({"help_monthly_operational_metrics"}),
     "support_help_escalation_metrics": frozenset({"help_escalation_metrics"}),
     "support_help_customer_escalations": frozenset({"help_customer_escalations"}),
+    "support_help_factory_start_buckets": frozenset({"help_factory_start_day_buckets"}),
+    "support_help_monthly_operational": frozenset({"help_monthly_operational_metrics"}),
     "support_recent_opened": frozenset({"customer_help_recent"}),
     "support_recent_closed": frozenset({"customer_help_recent"}),
     "help_resolved_by_assignee": frozenset({"help_resolved_by_assignee"}),
@@ -118,7 +122,7 @@ def collect_support_jira_product_ids(
             continue
         if st in SUPPORT_SLIDE_TYPES_NO_JIRA:
             continue
-        if st == "cs_notable":
+        if st in ("cs_notable", "support_notable"):
             notable = True
             continue
         mapped = SUPPORT_JIRA_PRODUCTS_BY_SLIDE_TYPE.get(st)

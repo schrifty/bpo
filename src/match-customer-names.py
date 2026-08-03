@@ -1,7 +1,8 @@
 """Cross-system customer name resolution (Salesforce → Pendo, CS Report, JSM).
 
-CLI: ``./bin/match-customer-names`` uploads to QBR ``Output/`` and ``{date} - Output/`` on Drive
-(same rules as deck / LLM export). Use ``--no-drive`` for a local-only run.
+CLI: ``./bin/match-customer-names`` uploads to QBR ``Output/`` (``-persistent`` filename) and
+``Output/match-customer-names-persistent.{txt,json}`` and a same-day snapshot under
+``Historical Data/{date}/`` on Drive. Use ``--no-drive`` for a local-only run.
 """
 
 from __future__ import annotations
@@ -570,7 +571,7 @@ def build_company_match_report(
         out["errors"].append("Salesforce not configured (SF_* env vars)")
         return out
 
-    active, churned, _labels, _book, renewal = salesforce_portfolio_rollups_split()
+    active, churned, _labels, _book, renewal, _future = salesforce_portfolio_rollups_split()
     all_rollups: list[tuple[str, dict[str, Any]]] = []
     for bucket, rows in (
         ("active", active),
@@ -874,24 +875,28 @@ def _default_local_out_path(fmt: str) -> Path:
 
 
 def _print_drive_upload_messages(meta: dict[str, str], *, nbytes: int) -> None:
-    fname = meta["filename"]
-    dated = meta["dated_label"]
+    persistent = meta["filename"]
+    historical = meta.get("historical_filename", persistent)
+    historical_day = meta.get("historical_day_folder", "")
+    historical_path = (
+        f"Historical Data/{historical_day}/{historical}" if historical_day else f"Historical Data/{historical}"
+    )
     print(
-        f"Wrote {nbytes} bytes → Drive Output/{fname} (id={meta['file_id_root']})",
+        f"Wrote {nbytes} bytes → Drive Output/{persistent} (id={meta['file_id_root']})",
         file=sys.stderr,
     )
     print(
-        f"Wrote {nbytes} bytes → Drive Output/{dated}/{fname} (id={meta['file_id_dated']})",
+        f"Wrote {nbytes} bytes → Drive {historical_path} (id={meta['file_id_historical']})",
         file=sys.stderr,
     )
-    print(f"Output/ (stable): https://drive.google.com/file/d/{meta['file_id_root']}/view")
-    print(f"Output/{dated}/: https://drive.google.com/file/d/{meta['file_id_dated']}/view")
+    print(f"Output/ (persistent): https://drive.google.com/file/d/{meta['file_id_root']}/view")
+    print(f"Historical Data/: https://drive.google.com/file/d/{meta['file_id_historical']}/view")
     print(
         f"Output/ folder: https://drive.google.com/drive/folders/{meta['root_folder_id']}",
         file=sys.stderr,
     )
     print(
-        f"Output/{dated}/ folder: https://drive.google.com/drive/folders/{meta['dated_folder_id']}",
+        f"Historical Data/ folder: https://drive.google.com/drive/folders/{meta['historical_folder_id']}",
         file=sys.stderr,
     )
 

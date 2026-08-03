@@ -12,7 +12,7 @@ from .deck_governance import _CURSOR_SLIDE_TYPES, _GITHUB_PRODUCTIVITY_SLIDE_TYP
 from .deck_loader import resolve_deck
 from .deck_orchestrator import _PORTFOLIO_DRIVE_TITLE_TAIL
 from .slides_text_extract import extract_text
-from .slide_registry import _SLIDE_BUILDERS
+from .slide_registry import get_slide_builder, slide_builder_names
 from .slide_utils import slide_object_id_base as _slide_object_id_base
 from .slides_api import _get_service, presentations_batch_update_chunked
 from .speaker_notes import set_speaker_notes_batch
@@ -80,28 +80,67 @@ def find_latest_presentation_for_deck(
     deck_id: str,
 ) -> dict[str, Any] | None:
     """Return the newest presentation file for a portfolio deck id."""
-    from .drive_config import get_deck_output_folder_id, get_qbr_output_root_folder_id
+    from .config import CORTEX_CURSOR_SLIDES_ONLY
+    from .drive_config import (
+        _drive_q_escape,
+        get_deck_output_folder_id,
+        get_qbr_output_root_folder_id,
+    )
+    from .export_drive_layout import (
+        portfolio_deck_persistent_title,
+        portfolio_deck_snapshot_title,
+        uses_portfolio_deck_export_layout,
+    )
 
     tail = _PORTFOLIO_DRIVE_TITLE_TAIL.get(deck_id)
     if not tail:
         return None
-    name_hint = tail
-    folder_ids = [get_deck_output_folder_id(), get_qbr_output_root_folder_id()]
+
+    cursor_suffix = bool(CORTEX_CURSOR_SLIDES_ONLY and deck_id == "engineering-portfolio")
+    persistent_title = (
+        portfolio_deck_persistent_title(deck_id, cursor_suffix=cursor_suffix)
+        if uses_portfolio_deck_export_layout(deck_id)
+        else None
+    )
+    snapshot_title = (
+        portfolio_deck_snapshot_title(deck_id, cursor_suffix=cursor_suffix)
+        if uses_portfolio_deck_export_layout(deck_id)
+        else None
+    )
+
     best: dict[str, Any] | None = None
+    output_root_id = get_qbr_output_root_folder_id()
+    folder_ids: list[str | None] = [output_root_id, get_deck_output_folder_id()]
     for folder_id in folder_ids:
         if not folder_id:
             continue
+        if persistent_title and folder_id == output_root_id:
+            esc = _drive_q_escape(persistent_title)
+            q = (
+                f"'{folder_id}' in parents and "
+                "mimeType='application/vnd.google-apps.presentation' and "
+                f"name = '{esc}' and trashed=false"
+            )
+            best = _drive_search_newest(drive_service, q, best)
+        if snapshot_title:
+            esc = _drive_q_escape(snapshot_title)
+            q = (
+                f"'{folder_id}' in parents and "
+                "mimeType='application/vnd.google-apps.presentation' and "
+                f"name = '{esc}' and trashed=false"
+            )
+            best = _drive_search_newest(drive_service, q, best)
         q = (
             f"'{folder_id}' in parents and "
             "mimeType='application/vnd.google-apps.presentation' and "
-            f"name contains '{name_hint}' and trashed=false"
+            f"name contains '{tail}' and trashed=false"
         )
         best = _drive_search_newest(drive_service, q, best)
 
     if best is None:
         q = (
             "mimeType='application/vnd.google-apps.presentation' and "
-            f"name contains 'Portfolio - {name_hint}' and trashed=false"
+            f"name contains 'Portfolio - {tail}' and trashed=false"
         )
         best = _drive_search_newest(drive_service, q, best)
     return best
@@ -146,7 +185,7 @@ def regenerate_deck_slides(
     if not pres_id:
         return {"error": "presentation_id is required"}
 
-    unknown = set(slide_types) - set(_SLIDE_BUILDERS.keys())
+    unknown = set(slide_types) - set(slide_builder_names())
     if unknown:
         return {"error": f"Unknown slide types: {', '.join(sorted(unknown))}"}
 
@@ -212,7 +251,7 @@ def regenerate_deck_slides(
         if not entry:
             logger.warning("Slide type %s not in deck plan — skipping", slide_type)
             continue
-        builder = _SLIDE_BUILDERS.get(slide_type)
+        builder = get_slide_builder(slide_type)
         if not builder:
             continue
 

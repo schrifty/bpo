@@ -29,6 +29,7 @@ _PORTFOLIO_DRIVE_TITLE_TAIL: dict[str, str] = {
     "engineering-portfolio": "Engineering Review",
     "implementations_review": "Implementations Review",
     "support_review_portfolio": "Support Review",
+    "cortex_showcase": "Cortex Showcase",
 }
 
 
@@ -156,6 +157,7 @@ def create_health_deck(
                 cursor_suffix=bool(CORTEX_CURSOR_SLIDES_ONLY and deck_id == "engineering-portfolio"),
             )
 
+        # For support deck without customer, include full support slide lineup with all-project scope.
         if portfolio_output:
             title = portfolio_output["persistent_title"]
             create_folder_id = output_folder_id or portfolio_output["persistent_folder_id"]

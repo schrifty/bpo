@@ -51,6 +51,12 @@ from src.cli_warning_filters import apply_cli_warning_filters
 
 apply_cli_warning_filters()
 
+from src.cs_report_client import (
+    abbreviate_csr_site_row,
+    csr_customer_summary_from_block,
+    csr_site_field_legend,
+)
+
 _DATA_SUMMARY_PATH = _ROOT / "config" / "comprehensive_data_element_list.json"
 
 # HTTP surfaces wired in code (see ``src/data_sources/registry.SourceId`` docstring).
@@ -147,38 +153,17 @@ _PLANNED_DATASOURCES_NOT_IN_EXPORT: tuple[str, ...] = ("Aha", "GitHub")
 # Pendo §1: max rows in ``customers_headline`` when size caps are enabled (see ``_pendo_portfolio_topline``).
 _PENDO_EXPORT_HEADLINE_CUSTOMER_CAP = 200
 
-# ``--max-tokens`` / ``--max-bytes`` / compaction caps: 0 means no limit (full payloads).
+# ``--max-tokens`` / compaction caps: 0 means no limit (full payloads).
 _LLM_EXPORT_NO_CAP = 0
-# The governing budget for this export is the LLM **token** window, not raw bytes. The byte
-# cap is retained as an optional secondary guard (off by default). See ``do 1`` rationale:
-# CSR JSON runs ~3.4 chars/token, so a byte cap wastes ~70% of a token budget.
-_LLM_EXPORT_DEFAULT_MAX_BYTES = 0
+# The governing budget for this export is the LLM **token** window (not raw bytes).
 _LLM_EXPORT_DEFAULT_MAX_TOKENS = 450_000
 # Never shrink/truncate below this floor, regardless of an aggressive explicit cap.
 _LLM_EXPORT_MIN_TOKEN_CAP = 20_000
-_LLM_EXPORT_MIN_BYTE_CAP = 20_000
 # Fallback chars-per-token when tiktoken is unavailable (conservative → over-counts tokens).
 _LLM_EXPORT_FALLBACK_CHARS_PER_TOKEN = 3.2
 
 _TOKEN_ENCODER: Any | None = None
 _TOKEN_ENCODER_TRIED = False
-
-
-def llm_export_default_max_bytes() -> int:
-    """Default UTF-8 byte cap (``CORTEX_LLM_EXPORT_MAX_BYTES``; 0 = unlimited, the default).
-
-    The primary export budget is token-based (:func:`llm_export_default_max_tokens`); the byte
-    cap is an opt-in secondary guard.
-    """
-    import os
-
-    raw = (os.environ.get("CORTEX_LLM_EXPORT_MAX_BYTES") or "").strip()
-    if not raw:
-        return _LLM_EXPORT_DEFAULT_MAX_BYTES
-    try:
-        return max(0, int(raw))
-    except ValueError:
-        return _LLM_EXPORT_DEFAULT_MAX_BYTES
 
 
 def llm_export_default_max_tokens() -> int:
@@ -249,13 +234,9 @@ def _format_tokens(n: int) -> str:
     return f"{n:,} tokens"
 
 
-def _over_size_caps(md: str, *, max_bytes: int, max_tokens: int) -> bool:
-    """True when *md* exceeds an active token or byte cap (0 = that cap is disabled)."""
-    if max_tokens and count_tokens(md) > max_tokens:
-        return True
-    if max_bytes and _utf8_byte_len(md) > max_bytes:
-        return True
-    return False
+def _over_size_caps(md: str, *, max_tokens: int) -> bool:
+    """True when *md* exceeds an active token cap (0 = disabled)."""
+    return bool(max_tokens and count_tokens(md) > max_tokens)
 
 
 def _export_cap_active(cap: int | None) -> bool:
@@ -418,7 +399,6 @@ def build_leandna_data_api_reference() -> dict[str, Any]:
 def _build_export_coverage(
     report: dict[str, Any],
     *,
-    markdown_soft_cap_bytes: int,
     markdown_soft_cap_tokens: int = _LLM_EXPORT_NO_CAP,
     csr_site_limit: int,
     csr_string_cap: int,
@@ -457,7 +437,6 @@ def _build_export_coverage(
         "profile_id": PROFILE_ID_LLM_EXPORT_ALL_CUSTOMERS,
         "sources_in_profile": sources_in_profile,
         "registry_excluded": registry_excluded,
-        "markdown_soft_cap_bytes": int(markdown_soft_cap_bytes),
         "markdown_soft_cap_tokens": int(markdown_soft_cap_tokens),
         "size_caps_enabled": size_caps_enabled,
         "compaction": {
@@ -498,6 +477,9 @@ def _build_export_coverage(
     slack_meta = report.get("_llm_export_slack")
     if isinstance(slack_meta, dict):
         out_cov["slack_top_by_arr"] = slack_meta
+    usage_meta = report.get("_llm_export_pendo_usage_by_site")
+    if isinstance(usage_meta, dict):
+        out_cov["pendo_usage_by_site"] = usage_meta
     churn_seg_cov = report.get("salesforce_churned_segment")
     if isinstance(churn_seg_cov, dict):
         out_cov["salesforce_churned_segment"] = {
@@ -641,9 +623,11 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
             "### Section-by-section: what you are looking at",
             "The numbered sections are **JSON blocks** (machine-friendly). Here is what each one is meant to represent for CS conversations.",
             "",
-            f"- **§1 — Pendo (all customers):** A **portfolio-level** snapshot: logins, adoption-style metrics, and short "
-            f"per-customer headline rows. It is **not** a full Pendo analytics export (no page/feature catalogs, no "
-            f"multi-gigabyte raw downloads). The headline customer list stops after **{cov.get('pendo_export_constants', {}).get('customers_headline_max', 200)}** rows; "
+            f"- **§1 — Pendo (all customers):** A **portfolio-level** snapshot: logins, adoption-style metrics, "
+            f"per-customer headline rows, and **usage by site** (active sites with page/feature/event/minute "
+            f"totals plus customer rollups). It is **not** a full Pendo analytics export (no page/feature "
+            f"catalogs, no multi-gigabyte raw downloads). The headline customer list stops after "
+            f"**{cov.get('pendo_export_constants', {}).get('customers_headline_max', 200)}** rows; "
             "cohort and “who is leading / lagging” style details are shortened so the file stays shareable.",
             "",
             "- **§2 — Jira (HELP):** **Workload and health of the queue** — counts by status, type, and similar rollups, "
@@ -681,24 +665,16 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
     )
     if cov.get("size_caps_enabled"):
         cap_tok = cov.get("markdown_soft_cap_tokens")
-        cap_b = cov.get("markdown_soft_cap_bytes")
-        if cap_tok and int(cap_tok) > 0:
-            budget = f"about **{int(cap_tok):,}** LLM tokens (`--max-tokens`, cl100k_base)"
-            if cap_b and int(cap_b) > 0:
-                budget += f" and **{int(cap_b):,}** UTF-8 bytes (`--max-bytes`)"
-            raise_hint = "raise `--max-tokens`"
-        else:
-            budget = f"about **{int(cap_b or 0):,}** bytes of UTF-8 (`--max-bytes`)"
-            raise_hint = "raise `--max-bytes`"
+        budget = f"about **{int(cap_tok or 0):,}** LLM tokens (`--max-tokens`, cl100k_base)"
         lines.append(
             f"- **Target size:** {budget} for the whole markdown file. §3c Salesforce comprehensive is exported "
             "in **headline** form (per-customer KPIs + capped category samples, top customers by ARR). If the "
             "export is still too large, CSR and §3 rollup tighten further; the **end of the file may be cut "
-            f"off** — {raise_hint} or set `CORTEX_LLM_EXPORT_SF_COMPREHENSIVE=false` for a smaller run."
+            "off** — raise `--max-tokens` or set `CORTEX_LLM_EXPORT_SF_COMPREHENSIVE=false` for a smaller run."
         )
     else:
         lines.append(
-            "- **Size caps:** **disabled** for this run (`--max-tokens 0 --max-bytes 0`). Full CS Report site "
+            "- **Size caps:** **disabled** for this run (`--max-tokens 0`). Full CS Report site "
             "rows, Salesforce rollups, Pendo headlines, and §3c comprehensive payloads are included without "
             "markdown truncation or tiered compaction."
         )
@@ -747,6 +723,16 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
     slack_meta = cov.get("slack_top_by_arr")
     if isinstance(slack_meta, dict) and slack_meta.get("enabled"):
         perf = slack_meta.get("performance") if isinstance(slack_meta.get("performance"), dict) else {}
+        invite_needed = (
+            slack_meta.get("channels_invite_needed")
+            if isinstance(slack_meta.get("channels_invite_needed"), list)
+            else []
+        )
+        no_visible = (
+            slack_meta.get("customers_no_visible_channel_match")
+            if isinstance(slack_meta.get("customers_no_visible_channel_match"), list)
+            else []
+        )
         lines.extend(
             [
                 "",
@@ -758,8 +744,36 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
                 f"{slack_meta.get('customers_llm_summarized', 0)} LLM summaries · "
                 f"{slack_meta.get('customers_slack_errors', 0)} fetch errors · "
                 f"{slack_meta.get('customers_llm_errors', 0)} LLM errors",
+                f"- **Invite needed:** {slack_meta.get('channels_invite_needed_count', len(invite_needed))} "
+                f"matched channel(s) where the bot is not a member · "
+                f"{slack_meta.get('customers_no_visible_channel_match_count', len(no_visible))} "
+                "customer(s) with no visible channel match "
+                "(private channels are invisible until the bot is invited)",
             ]
         )
+        if invite_needed:
+            lines.append("- **Channels to invite the Cortex bot into:**")
+            for row in invite_needed:
+                if not isinstance(row, dict):
+                    continue
+                ch = row.get("channel") or "?"
+                cust = row.get("customer") or "?"
+                kind = "private" if row.get("is_private") else "public"
+                lines.append(f"  - `#{ch}` ({kind}) — customer **{cust}**")
+                if row.get("action"):
+                    lines.append(f"    - {row['action']}")
+        if no_visible:
+            lines.append(
+                "- **Customers with no visible Slack channel** "
+                "(cannot list private channel names until invited):"
+            )
+            for row in no_visible:
+                if not isinstance(row, dict):
+                    continue
+                cust = row.get("customer") or "?"
+                lines.append(f"  - **{cust}** (lookup `{row.get('lookup_name') or cust}`)")
+                if row.get("action"):
+                    lines.append(f"    - {row['action']}")
         if perf:
             lines.append(
                 f"- **Wall time:** **{perf.get('wall_seconds_total', '—')}s** total "
@@ -773,11 +787,18 @@ def _export_coverage_markdown_lines(cov: dict[str, Any]) -> list[str]:
                     if not isinstance(row, dict):
                         continue
                     name = row.get("customer") or "?"
+                    extra = ""
+                    if row.get("invite_needed"):
+                        extra += f" · invite_needed={row['invite_needed']}"
+                    if row.get("no_visible_channel_match"):
+                        extra += " · no_visible_match"
+                    if row.get("llm_error"):
+                        extra += f" · llm_error={row['llm_error']}"
                     lines.append(
                         f"  - **{name}** — fetch {row.get('fetch_seconds', '—')}s · "
                         f"LLM {row.get('llm_seconds', '—')}s · "
                         f"{row.get('channels', 0)} channels · {row.get('messages', 0)} messages"
-                        + (f" · llm_error={row['llm_error']}" if row.get("llm_error") else "")
+                        f"{extra}"
                     )
     lines.extend(
         [
@@ -1108,7 +1129,7 @@ def _pendo_portfolio_topline(
     max_customer_rows: int = _PENDO_EXPORT_HEADLINE_CUSTOMER_CAP,
     size_caps_enabled: bool = True,
 ) -> dict[str, Any]:
-    """Portfolio rollup + capped per-customer headline rows (no Pendo detail payloads)."""
+    """Portfolio rollup + capped per-customer headline rows + usage-by-site."""
     from src.export_string_utils import truncate_strings_in_obj
 
     raw_customers = portfolio.get("customers") if isinstance(portfolio.get("customers"), list) else []
@@ -1132,7 +1153,9 @@ def _pendo_portfolio_topline(
         )
     note_parts = [
         "Portfolio rollup: per-customer rows are headline engagement counts when Pendo data exists "
-        "(``salesforce_only`` rows carry Salesforce identity without Pendo metrics)."
+        "(``salesforce_only`` rows carry Salesforce identity without Pendo metrics). "
+        "``usage_by_site`` lists active Pendo sites (page views, feature clicks, events, minutes) "
+        "plus ``by_customer`` rollups."
     ]
     raw_n = len(raw_customers)
     if size_caps_enabled and _export_cap_active(max_customer_rows) and raw_n > max_customer_rows:
@@ -1153,7 +1176,7 @@ def _pendo_portfolio_topline(
         if size_caps_enabled
         else dict(max_str=50_000, max_list_items=100_000, max_dict_keys=10_000)
     )
-    return {
+    out: dict[str, Any] = {
         "scope": "portfolio_all_customers",
         "note": " ".join(note_parts),
         "customer_count": portfolio.get("customer_count"),
@@ -1186,6 +1209,15 @@ def _pendo_portfolio_topline(
             **digest_kw,
         ),
     }
+    from src.llm_export_pendo_usage_by_site import compact_pendo_usage_by_site
+
+    out["usage_by_site"] = compact_pendo_usage_by_site(
+        portfolio.get("pendo_usage_by_site")
+        if isinstance(portfolio.get("pendo_usage_by_site"), dict)
+        else None,
+        size_caps_enabled=size_caps_enabled,
+    )
+    return out
 
 
 def _sample_csr_sites_for_export(sites: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
@@ -1214,83 +1246,20 @@ def _sample_csr_sites_for_export(sites: list[dict[str, Any]], limit: int) -> lis
 _CSR_SECTION_KEYS = ("platform_health", "supply_chain", "platform_value")
 _CSR_SITE_JOIN_FIELDS = ("factory", "site", "entity")
 
-# Per-factory `sites` rows repeat their field names hundreds of times across the export, so we
-# emit short, stable keys in each row and publish a single `field_legend` (short -> long) at the
-# top of §4. This keeps the structure fully key-value (self-describing per row, nulls omitted,
-# chunk-safe) while removing the repeated long-field-name token cost (~19% off §4). LLMs decode
-# each row via the legend; do NOT reuse a short key for two different long names.
-_CSR_SITE_FIELD_ABBR: dict[str, str] = {
-    # identity
-    "factory": "fac",
-    "site": "st",
-    "entity": "ent",
-    # platform health
-    "health_score": "hs",
-    "clear_to_build_pct": "ctb",
-    "clear_to_commit_pct": "ctc",
-    "component_availability_pct": "ca",
-    "component_availability_projected_pct": "cap",
-    "shortages": "sh",
-    "critical_shortages": "csh",
-    "weekly_active_buyers_pct": "wab",
-    "buyer_mapping_quality": "bmq",
-    "high_risk_items": "hri",
-    # supply chain
-    "on_hand_value": "ohv",
-    "on_order_value": "oov",
-    "excess_on_hand": "eoh",
-    "doi_days": "doi",
-    "days_coverage": "dcov",
-    "turns_of_inventory": "toi",
-    "late_pos": "lpo",
-    "late_prs": "lpr",
-    # platform value
-    "savings_current_period": "scp",
-    "open_ia_value": "oia",
-    "recs_created_30d": "rc30",
-    "pos_placed_30d": "pp30",
-    "overdue_tasks": "odt",
-    "current_fy_spend": "cfs",
-    "previous_fy_spend": "pfs",
-}
-# short -> long, published once per §4 so any LLM can decode the abbreviated site rows.
-_CSR_SITE_FIELD_LEGEND: dict[str, str] = {v: k for k, v in _CSR_SITE_FIELD_ABBR.items()}
-
-
-def _abbreviate_csr_site(site: dict[str, Any]) -> dict[str, Any]:
-    """Rename site-row keys to their short forms (order preserved; unknown keys kept as-is)."""
-    return {_CSR_SITE_FIELD_ABBR.get(k, k): v for k, v in site.items()}
-
 # One-line, self-describing schema hint so any LLM reading the export understands the
 # de-duplicated §4 shape without external docs.
 _CSR_SCHEMA_NOTE = (
-    "Each `sites` row is ONE factory with all CS Report metrics merged inline. Row keys are "
-    "ABBREVIATED to save tokens — decode them with the `field_legend` map at the top of this "
-    "section (short -> long, e.g. `hs`=health_score, `ctb`=clear_to_build_pct, `doi`=doi_days, "
-    "`ohv`=on_hand_value, `scp`=savings_current_period). A key is present only when that factory "
-    "has a value (nulls are omitted). Merged metrics span platform-health, supply-chain, and "
-    "platform-value worksheets. Per-customer section rollups (health_distribution, total_shortages, "
-    "inventory_totals, total_savings, …) are in the §4.1 markdown table (one row per customer), not "
-    "in this JSON. When `sites_total` > len(sites), rows were sampled (see `sites_sample_strategy`); "
-    "the §4.1 summary still reflects all factories."
+    "Each `sites` row is ONE factory with all CS Report metrics merged inline. Row keys use "
+    "CSR display labels (same wording as the CS Report UI where configured in "
+    "`config/cs_report_column_labels.yaml`). Decode to workbook/API columns with `field_legend` "
+    "(display label → camelCase workbook column, e.g. `Current shortages (purchased)` → "
+    "`shortageItemCount`). A key is present only when that factory has a value (nulls are "
+    "omitted). Merged metrics span platform-health, supply-chain, and platform-value worksheets "
+    "(full CSR workbook metric set). Per-customer section rollups (health_distribution, "
+    "total_shortages, inventory_totals, total_savings, …) are in the §4.1 markdown table (one "
+    "row per customer), not in this JSON. When `sites_total` > len(sites), rows were sampled "
+    "(see `sites_sample_strategy`); the §4.1 summary still reflects all factories."
 )
-
-_CSR_SUMMARY_HEALTH_KEYS = (
-    "factory_count",
-    "health_distribution",
-    "total_shortages",
-    "total_critical_shortages",
-)
-_CSR_SUMMARY_VALUE_KEYS = (
-    "total_savings",
-    "total_open_ia_value",
-    "total_potential_savings",
-    "total_potential_to_sell",
-    "total_recs_created_30d",
-    "total_pos_placed_30d",
-    "total_overdue_tasks",
-)
-
 
 def _csr_site_join_key(site: dict[str, Any]) -> tuple[str, str, str]:
     return tuple(str(site.get(f) or "").strip().lower() for f in _CSR_SITE_JOIN_FIELDS)  # type: ignore[return-value]
@@ -1322,21 +1291,7 @@ def _merge_customer_csr_site_rows(block: dict[str, Any]) -> list[dict[str, Any]]
 
 def _csr_customer_summary(block: dict[str, Any], *, factory_count: int) -> dict[str, Any]:
     """Per-customer section rollups (no site rows) across the three CSR worksheets."""
-    summary: dict[str, Any] = {"factory_count": factory_count}
-    ph = block.get("platform_health")
-    if isinstance(ph, dict) and not ph.get("error"):
-        for k in _CSR_SUMMARY_HEALTH_KEYS:
-            if k in ph and k != "factory_count":
-                summary[k] = ph[k]
-    sc = block.get("supply_chain")
-    if isinstance(sc, dict) and not sc.get("error") and isinstance(sc.get("totals"), dict):
-        summary["inventory_totals"] = sc["totals"]
-    pv = block.get("platform_value")
-    if isinstance(pv, dict) and not pv.get("error"):
-        for k in _CSR_SUMMARY_VALUE_KEYS:
-            if k in pv:
-                summary[k] = pv[k]
-    return summary
+    return csr_customer_summary_from_block(block, factory_count=factory_count)
 
 
 def _compact_csr_customer_block(
@@ -1360,11 +1315,11 @@ def _compact_csr_customer_block(
         total = len(merged_sites)
         if size_caps_enabled and _export_cap_active(site_limit):
             sampled = _sample_csr_sites_for_export(merged_sites, site_limit)
-            out["sites"] = [_abbreviate_csr_site(s) for s in sampled]
+            out["sites"] = [abbreviate_csr_site_row(s) for s in sampled]
             if len(sampled) < total:
                 out["sites_sample_strategy"] = "health_mix_then_shortage_bias"
         else:
-            out["sites"] = [_abbreviate_csr_site(s) for s in merged_sites]
+            out["sites"] = [abbreviate_csr_site_row(s) for s in merged_sites]
         out["sites_total"] = total
     elif not section_errors:
         out["sites"] = []
@@ -1385,7 +1340,7 @@ def _compact_csr(
     if isinstance(csr.get("note"), str):
         out["note"] = csr["note"]
     out["schema_note"] = _CSR_SCHEMA_NOTE
-    out["field_legend"] = _CSR_SITE_FIELD_LEGEND
+    out["field_legend"] = csr_site_field_legend()
     if _is_llm_export_top_arr_scope(csr.get("scope")):
         out["scope"] = csr["scope"]
         if csr.get("top_n") is not None:
@@ -1441,11 +1396,16 @@ _CSR_SUMMARY_TABLE_SCALARS = (
     "total_critical_shortages",
     "total_savings",
     "total_open_ia_value",
+    "total_ia_current_period_open_value",
+    "total_ia_previous_period_savings",
     "total_potential_savings",
     "total_potential_to_sell",
     "total_recs_created_30d",
     "total_pos_placed_30d",
     "total_overdue_tasks",
+    "total_current_fy_spend",
+    "total_previous_fy_spend",
+    "total_current_week52_ldna_target",
 )
 _CSR_SUMMARY_HEALTH_ORDER = ("GREEN", "YELLOW", "RED", "NONE")
 _CSR_SUMMARY_INV_ORDER = (
@@ -1453,6 +1413,11 @@ _CSR_SUMMARY_INV_ORDER = (
     "on_order",
     "excess_on_hand",
     "excess_on_order",
+    "excess_onhand_demanded",
+    "excess_onhand_obsolete",
+    "excess_on_order_obsolete",
+    "manufactured_inventory",
+    "early_deliveries",
     "past_due_po",
     "past_due_req",
 )
@@ -1561,7 +1526,7 @@ def _render_cs_report_section(cs: Any) -> list[str]:
         "### 4.2 Per-customer factory detail (JSON) — one `sites` row per factory",
         "",
         "> Summaries are in the §4.1 table above and are omitted here to avoid duplication. "
-        "Site-row keys are abbreviated; decode with ``field_legend``.",
+        "Site-row keys use CSR display labels; decode workbook columns with ``field_legend``.",
         "",
         _json_compact(_cs_report_detail_without_summary(cs)),
     ]
@@ -1708,7 +1673,16 @@ def _compact_slack(slack: dict[str, Any], *, size_caps_enabled: bool = True) -> 
         }
     max_lines = 30 if size_caps_enabled else 500
     out: dict[str, Any] = {}
-    for key in ("scope", "top_n", "lookback_days", "note", "skipped", "error"):
+    for key in (
+        "scope",
+        "top_n",
+        "lookback_days",
+        "note",
+        "skipped",
+        "error",
+        "channels_invite_needed",
+        "customers_no_visible_channel_match",
+    ):
         if key in slack and slack[key] is not None:
             out[key] = slack[key]
     if isinstance(slack.get("selection_ranked"), list):
@@ -1745,6 +1719,8 @@ def _compact_slack(slack: dict[str, Any], *, size_caps_enabled: bool = True) -> 
                 "source": payload.get("source"),
                 "days": payload.get("days"),
                 "channels_matched": payload.get("channels_matched"),
+                "channels_invite_needed": payload.get("channels_invite_needed"),
+                "no_visible_channel_match": payload.get("no_visible_channel_match"),
                 "conversation_summaries": slim_summaries,
                 "combined_summary_markdown": payload.get("combined_summary_markdown"),
                 "note": payload.get("note"),
@@ -1916,7 +1892,6 @@ def _portfolio_signal_lines(
 def build_snapshot_document(
     report: dict[str, Any],
     *,
-    markdown_soft_cap_bytes: int = _LLM_EXPORT_NO_CAP,
     markdown_soft_cap_tokens: int = _LLM_EXPORT_NO_CAP,
     csr_site_limit: int = _LLM_EXPORT_NO_CAP,
     csr_string_cap: int = _LLM_EXPORT_NO_CAP,
@@ -2065,7 +2040,6 @@ def build_snapshot_document(
         ),
         "export_coverage": _build_export_coverage(
             report,
-            markdown_soft_cap_bytes=markdown_soft_cap_bytes,
             markdown_soft_cap_tokens=markdown_soft_cap_tokens,
             csr_site_limit=csr_site_limit,
             csr_string_cap=csr_string_cap,
@@ -2192,7 +2166,6 @@ def emit_export_size_breakdown_stderr(
     doc: dict[str, Any],
     diag: Any | None = None,
     *,
-    max_bytes_cap: int | None = None,
     max_tokens_cap: int | None = None,
     truncated: bool = False,
     pre_truncation_bytes: int | None = None,
@@ -2218,13 +2191,8 @@ def emit_export_size_breakdown_stderr(
         pct = (100.0 * total_tokens / max_tokens_cap) if max_tokens_cap else 0.0
         size_lines.append(f"token budget {int(max_tokens_cap):,} (using {pct:.0f}%)")
     if truncated and pre_truncation_bytes is not None:
-        cap_note = (
-            f"--max-tokens {int(max_tokens_cap):,}"
-            if max_tokens_cap
-            else f"--max-bytes {_format_utf8_bytes(max_bytes_cap or 0)}"
-        )
         size_lines.append(
-            f"before {cap_note} cut {_format_utf8_bytes(pre_truncation_bytes)}"
+            f"before --max-tokens {int(max_tokens_cap or 0):,} cut {_format_utf8_bytes(pre_truncation_bytes)}"
         )
     if body_before_section7_bytes is not None and total > body_before_section7_bytes:
         s7 = total - body_before_section7_bytes
@@ -2310,17 +2278,13 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
         f"- **Underlying `generated` stamp:** {doc.get('generated_report_timestamp')}",
     ]
     ec = doc.get("export_coverage") if isinstance(doc.get("export_coverage"), dict) else {}
-    cap_b = ec.get("markdown_soft_cap_tokens")
-    cap_bytes = ec.get("markdown_soft_cap_bytes")
-    if ec.get("size_caps_enabled") and cap_b is not None and int(cap_b) > 0:
-        line = f"- **Token budget (this run):** {int(cap_b):,} tokens (`--max-tokens`, cl100k_base)"
-        if cap_bytes is not None and int(cap_bytes) > 0:
-            line += f"; byte cap {int(cap_bytes):,} (`--max-bytes`)"
-        parts.append(line)
-    elif ec.get("size_caps_enabled") and cap_bytes is not None and int(cap_bytes) > 0:
-        parts.append(f"- **Markdown soft cap (this run):** {cap_bytes} bytes (`--max-bytes`)")
+    cap_tok = ec.get("markdown_soft_cap_tokens")
+    if ec.get("size_caps_enabled") and cap_tok is not None and int(cap_tok) > 0:
+        parts.append(
+            f"- **Token budget (this run):** {int(cap_tok):,} tokens (`--max-tokens`, cl100k_base)"
+        )
     elif not ec.get("size_caps_enabled"):
-        parts.append("- **Markdown soft cap (this run):** none (`--max-tokens 0 --max-bytes 0`)")
+        parts.append("- **Token budget (this run):** none (`--max-tokens 0`)")
     parts.extend(
         [
         "",
@@ -2384,7 +2348,11 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
     parts.extend(
         [
             "",
-            "## 1. Pendo (headline metrics only)",
+            "## 1. Pendo (headline metrics + usage by site)",
+            "",
+            "Portfolio engagement headlines plus **``usage_by_site``**: every active Pendo site "
+            "(page views, feature clicks, events, minutes) ranked by activity, with ``by_customer`` "
+            "rollups. Idle/never-used sites are excluded.",
             "",
             _json_compact(doc.get("pendo")),
             "",
@@ -2433,8 +2401,8 @@ def render_markdown(doc: dict[str, Any], *, exported_at_utc: str) -> str:
             "totals, savings) — the fastest layer for cross-customer questions. **§4.2** is the "
             "factory-level detail as JSON: one ``sites`` row per factory with platform-health, "
             "supply-chain, and platform-value metrics merged inline (no 3× worksheet duplication). "
-            "Site-row keys are abbreviated to save tokens — decode them with the ``field_legend`` "
-            "(short → long) in §4.2; see ``schema_note`` for how to read rows.",
+            "Site-row keys use CSR display labels — decode workbook/API columns with the ``field_legend`` "
+            "(display label → workbook column) in §4.2; see ``schema_note`` for how to read rows.",
             "",
             *_render_cs_report_section(doc.get("cs_report")),
             "",
@@ -2479,7 +2447,7 @@ def _shrink_snapshot_params(
 ) -> None:
     """Mutate ``doc`` in place for smaller serialization.
 
-    ``signals_cap`` is not reduced by tiered shrink (only CSR/SF/§3c tighten under ``--max-bytes``).
+    ``signals_cap`` is not reduced by tiered shrink (only CSR/SF/§3c tighten under ``--max-tokens``).
     """
     doc["jira_help"] = _compact_jira(
         doc.get("_full_jira") or {}, size_caps_enabled=size_caps_enabled
@@ -2550,16 +2518,6 @@ def _build_export_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
             f"Primary budget: LLM tokens (cl100k_base) for the whole file (default "
             f"{llm_export_default_max_tokens():,} from CORTEX_LLM_EXPORT_MAX_TOKENS). 0 = no token cap. "
             "When N>0, compacts §3c/CSR/SF and may truncate markdown to fit the token budget."
-        ),
-    )
-    ap.add_argument(
-        "--max-bytes",
-        type=int,
-        default=llm_export_default_max_bytes(),
-        help=(
-            f"Optional secondary UTF-8 byte guard (default {llm_export_default_max_bytes():,} from "
-            "CORTEX_LLM_EXPORT_MAX_BYTES; 0 = no byte cap). Applied in addition to --max-tokens; the "
-            "tighter of the two governs."
         ),
     )
     ap.add_argument(
@@ -2643,8 +2601,7 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
         _emit_integration_stderr_warnings(report)
 
         token_cap = int(args.max_tokens)
-        byte_cap = int(args.max_bytes)
-        size_caps_enabled = token_cap > 0 or byte_cap > 0
+        size_caps_enabled = token_cap > 0
         csr_lim = 15 if size_caps_enabled else _LLM_EXPORT_NO_CAP
         csr_str = 400 if size_caps_enabled else _LLM_EXPORT_NO_CAP
         sf_acct = 24 if size_caps_enabled else _LLM_EXPORT_NO_CAP
@@ -2654,7 +2611,6 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
         with export_phase(diag, "markdown build"):
             doc = build_snapshot_document(
                 report,
-                markdown_soft_cap_bytes=byte_cap,
                 markdown_soft_cap_tokens=token_cap,
                 csr_site_limit=csr_lim,
                 csr_string_cap=csr_str,
@@ -2672,7 +2628,6 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
 
             md = render_markdown(doc, exported_at_utc=exported_at)
             max_tok = max(_LLM_EXPORT_MIN_TOKEN_CAP, token_cap) if token_cap > 0 else 0
-            max_b = max(_LLM_EXPORT_MIN_BYTE_CAP, byte_cap) if byte_cap > 0 else 0
 
             if size_caps_enabled:
                 tiers = [
@@ -2681,7 +2636,7 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
                     (6, 220, 8, 10, 2),
                     (4, 180, 4, 6, 1),
                 ]
-                while _over_size_caps(md, max_bytes=max_b, max_tokens=max_tok) and tiers:
+                while _over_size_caps(md, max_tokens=max_tok) and tiers:
                     csr_lim, csr_str, sf_acct, sf_top, sf_rows = tiers.pop(0)
                     _shrink_snapshot_params(
                         doc,
@@ -2707,20 +2662,6 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
                     )
                     md = _truncate_to_tokens(md, max_tok).rstrip() + (
                         "\n\n<!-- Document truncated to --max-tokens; re-run with a higher limit "
-                        "or narrow integrations if needed. -->\n"
-                    )
-
-                raw = md.encode("utf-8")
-                if max_b and len(raw) > max_b:
-                    if pre_truncation_bytes is None:
-                        pre_truncation_bytes = len(raw)
-                    markdown_truncated = True
-                    collect_export_warning(
-                        f"markdown truncated to --max-bytes ({max_b}); raise limit if needed",
-                        llm_export=True,
-                    )
-                    md = raw[:max_b].decode("utf-8", errors="ignore").rstrip() + (
-                        "\n\n<!-- Document truncated to --max-bytes; re-run with a higher limit "
                         "or narrow integrations if needed. -->\n"
                     )
             md_body_before_section7_bytes = _utf8_byte_len(md)
@@ -2787,7 +2728,6 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
             md,
             doc,
             diag,
-            max_bytes_cap=max_b,
             max_tokens_cap=max_tok,
             truncated=markdown_truncated,
             pre_truncation_bytes=pre_truncation_bytes,

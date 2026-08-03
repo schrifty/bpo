@@ -180,7 +180,9 @@ def _eng_title(
         sub_id = f"{sid}_sub"
         _box(reqs, sub_id, sid, MARGIN, TITLE_Y + 26, CONTENT_W, 18, sub)
         _style(reqs, sub_id, 0, len(sub), size=11.5, color=GRAY, font=FONT)
-    ul_y = TITLE_Y + 48 if subtitle else TITLE_Y + 26
+    # Accent rule sits under the subtitle when present, otherwise clear below the title text
+    # (a 22 pt serif title's descenders reach ~TITLE_Y+30, so keep the rule below that).
+    ul_y = TITLE_Y + 48 if subtitle else TITLE_Y + 34
     _rect(reqs, f"{sid}_ul", sid, MARGIN, ul_y, 56, 2.5, BLUE)
     _internal_footer(reqs, sid)
 
@@ -478,57 +480,63 @@ def eng_team_roster_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str
 
     if roster.get("source") == "atlassian_teams":
         context = (
-            "Membership and headcount from Atlassian Teams (the Dev squads) · bar length = team "
-            "headcount · bold name = team lead · an engineer may belong to more than one squad."
+            "Membership from Atlassian Teams (Dev squads) · bar = headcount · bold = team "
+            "lead · an engineer may be in more than one squad."
         )
     else:
         context = (
-            f"Each engineer is shown on the team where they did most of their work over the last "
-            f"{window_days} days · bar length = team headcount · bold name = team lead (where known)."
+            f"Each engineer on the team where they did most work over the last {window_days} "
+            f"days · bar = headcount · bold = team lead (where known)."
         )
+    context = _truncate_one_line(context, 150)
     _box(reqs, f"{sid}_ctx", sid, MARGIN, BODY_Y, CONTENT_W, 14, context)
     _style(reqs, f"{sid}_ctx", 0, len(context), size=9.5, color=GRAY, font=FONT)
 
-    top = BODY_Y + 24
+    # Each team occupies two stacked text lines (name row + member row). Size the row to the
+    # body band so a team's member line can never collide with the next team's name/bar, and
+    # keep both the name and the member list on a single (width-truncated) line each.
+    top = BODY_Y + 18
     n = len(teams)
-    row_h = min(46.0, max(30.0, (BODY_BOTTOM - top) / n))
+    row_h = min(44.0, max(30.0, (BODY_BOTTOM - top) / n))
     max_hc = max((int(t.get("headcount") or 0) for t in teams), default=1) or 1
 
-    name_w = 184.0
-    bar_x = MARGIN + name_w + 8
-    count_w = 28.0
-    max_bar = CONTENT_W - name_w - 8 - count_w - 6
+    # Right-anchor the headcount bar zone; the team name gets the remaining width on one line.
+    count_w = 26.0
+    max_bar = 170.0
+    bar_x = MARGIN + CONTENT_W - count_w - 6 - max_bar
+    name_w = bar_x - MARGIN - 12
+    name_chars = max_chars_one_line_for_table_col(name_w, 11.0)
     mem_indent = 12.0
     mem_w = CONTENT_W - mem_indent
-    mem_chars = max_chars_one_line_for_table_col(mem_w, 8.5)
+    mem_chars = max_chars_one_line_for_table_col(mem_w, 9.0)
 
     for i, team in enumerate(teams):
         y0 = top + i * row_h
-        name = str(team.get("team") or "")
+        name = _truncate_one_line(str(team.get("team") or ""), name_chars)
         hc = int(team.get("headcount") or 0)
         lead = str(team.get("lead") or "").strip()
         members = [str(m) for m in (team.get("members") or [])]
 
-        # Team name (bold).
-        _box(reqs, f"{sid}_tn{i}", sid, MARGIN, y0, name_w, 16, name)
+        # Team name (bold), single line so it can't wrap down into the member line.
+        _box(reqs, f"{sid}_tn{i}", sid, MARGIN, y0, name_w, 15, name)
         _style(reqs, f"{sid}_tn{i}", 0, len(name), bold=True, size=11, color=NAVY, font=FONT)
 
-        # Headcount bar: light track + blue fill, with the count just past the fill.
+        # Headcount bar in the right zone: light track + blue fill, count just past the fill.
         bar_w = max(4.0, hc / max_hc * max_bar)
-        _rect(reqs, f"{sid}_bt{i}", sid, bar_x, y0 + 2, max_bar, 11, _ROSTER_TRACK_FILL)
-        _rect(reqs, f"{sid}_bf{i}", sid, bar_x, y0 + 2, bar_w, 11, BLUE)
+        _rect(reqs, f"{sid}_bt{i}", sid, bar_x, y0 + 2, max_bar, 10, _ROSTER_TRACK_FILL)
+        _rect(reqs, f"{sid}_bf{i}", sid, bar_x, y0 + 2, bar_w, 10, BLUE)
         count_txt = str(hc)
-        _box(reqs, f"{sid}_bc{i}", sid, bar_x + bar_w + 6, y0, count_w, 16, count_txt)
+        _box(reqs, f"{sid}_bc{i}", sid, bar_x + bar_w + 6, y0, count_w, 15, count_txt)
         _style(reqs, f"{sid}_bc{i}", 0, len(count_txt), bold=True, size=10.5, color=NAVY, font=MONO)
 
-        # Members line, with optional bold "Lead: <name>" prefix. The lead is shown in
-        # the prefix, so drop them from the member list to avoid repeating the name.
+        # Member line (line 2), full width and width-truncated so it never runs under a bar
+        # or into the next row. Optional bold "Lead: <name>" prefix; drop the lead from the list.
         if lead:
             members = [m for m in members if m.strip().casefold() != lead.casefold()]
         prefix = f"Lead: {lead} — " if lead else ""
         line = _truncate_one_line(prefix + ", ".join(members), mem_chars)
         if line:
-            _box(reqs, f"{sid}_mm{i}", sid, MARGIN + mem_indent, y0 + 17, mem_w, 14, line)
+            _box(reqs, f"{sid}_mm{i}", sid, MARGIN + mem_indent, y0 + 15, mem_w, 13, line)
             _style(reqs, f"{sid}_mm{i}", 0, len(line), size=9, color=GRAY, font=FONT)
             if prefix:
                 dash = line.find("—")
@@ -1646,16 +1654,21 @@ def eng_bug_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
             _style(reqs, f"{sid}_bar2", a, b, bold=True, size=9, color=rgb, font=FONT)
         body_top = bar2_y + 18
 
-    blocker_rows = min(len(blocker_crit), 6) if blocker_crit else 0
     # Per ticket: meta row + subject + 2 description lines + small gap
     _bug_ticket_h = 16 + 16 + 15 + 15 + 4
-    blocker_section_h = 0
-    blocker_start_y: float | None = None
+    # Shared vertical budget for the two stacked lists (Open Bugs, then Blockers & Criticals).
+    # Both flow down from body_top; bound the row counts to what fits so neither list can run
+    # past the takeaway band or (when oversized) wrap off the top of the slide over the title.
+    _list_headers = 18 + (18 if blocker_crit else 0)
+    _ticket_capacity = max(0, int((_ENG_CONTENT_BOTTOM - body_top - _list_headers) // _bug_ticket_h))
     if blocker_crit:
-        blocker_section_h = 18 + 18 + blocker_rows * _bug_ticket_h + 8
-        blocker_start_y = _ENG_CONTENT_BOTTOM - blocker_section_h
+        # Blockers/criticals are the attention items → give them priority, but keep at least
+        # one open bug visible when open bugs exist.
+        blocker_rows = min(len(blocker_crit), 6, max(1, _ticket_capacity - (1 if open_bugs else 0)))
+    else:
+        blocker_rows = 0
+    open_rows = min(len(open_bugs), max(0, _ticket_capacity - blocker_rows))
 
-    list_bottom_cap = (blocker_start_y - 8) if blocker_start_y is not None else _ENG_CONTENT_BOTTOM
     left_x = MARGIN
     list_w = CONTENT_W
     desc_inner_w = float(CONTENT_W - 16)
@@ -1663,14 +1676,12 @@ def eng_bug_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
     desc_line_chars = max_chars_one_line_for_table_col(desc_inner_w, 8.0)
 
     left_y = body_top
-    _box(reqs, f"{sid}_bl_h", sid, left_x, left_y, list_w, 16, "Open Bugs")
-    _style(reqs, f"{sid}_bl_h", 0, 9, bold=True, size=11, color=NAVY, font=FONT)
-    left_y += 18
+    if open_rows:
+        _box(reqs, f"{sid}_bl_h", sid, left_x, left_y, list_w, 16, "Open Bugs")
+        _style(reqs, f"{sid}_bl_h", 0, 9, bold=True, size=11, color=NAVY, font=FONT)
+        left_y += 18
 
-    ticket_h = _bug_ticket_h
-    for bug_index, bug in enumerate(open_bugs[:12]):
-        if left_y + ticket_h > list_bottom_cap:
-            break
+    for bug_index, bug in enumerate(open_bugs[:open_rows]):
         key = bug["key"]
         priority = bug["priority"]
         prio_short = priority.split(":")[0] if ":" in priority else priority
@@ -1708,13 +1719,14 @@ def eng_bug_health_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str,
         _style(reqs, f"{sid}_bsd2{bug_index}", 0, len(d2), size=8, color=GRAY, font=FONT)
         left_y += 15 + 4
 
-    if blocker_crit and blocker_start_y is not None:
-        left_y = blocker_start_y
+    if blocker_crit and blocker_rows:
+        if open_rows:
+            left_y += 4  # breathing room between the two lists
         bh = "Blockers & Criticals"
         _box(reqs, f"{sid}_bch", sid, left_x, left_y, list_w, 16, bh)
         _style(reqs, f"{sid}_bch", 0, len(bh), bold=True, size=11, color=RED, font=FONT)
         left_y += 18
-        for bug_index, bug in enumerate(blocker_crit[:6]):
+        for bug_index, bug in enumerate(blocker_crit[:blocker_rows]):
             key = bug["key"]
             priority = bug.get("priority") or ""
             prio_short = priority.split(":")[0] if ":" in priority else (priority or "—")

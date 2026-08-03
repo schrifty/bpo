@@ -1,0 +1,12 @@
+id: cortex_dogfood
+type: standard
+order: 80
+title: The team that built Cortex, measured by Cortex
+slide_type: cortex_dogfood
+data_tools: []
+customers: all
+
+prompt: >
+  Live dogfood slide: the AI-assisted engineering team that builds Cortex, pulled
+  from the same engineering-portfolio pipeline every deck uses (Jira LEAN, plus
+  GitHub and Cursor when configured). Values come from cortex_meta.live_volume.

@@ -1,0 +1,19 @@
+id: cortex_showcase
+name: Cortex Showcase
+audience: Internal / conference (technical & product leaders)
+
+purpose: |
+  A deck *about* Cortex, generated *by* Cortex — proof that the intelligence layer
+  can point inward. Every slide is built from Cortex's own real artifacts (the data
+  element catalog, source registry, slide-builder registry, export token economics)
+  and live volume counts (Salesforce customers, and the engineering-portfolio
+  Jira/GitHub/Cursor pipeline that measures the team building Cortex). No slide is
+  hand-authored content; the numbers come from the cortex_meta report blob.
+
+slides:
+  - slide: cortex_title
+  - slide: cortex_overview
+  - slide: cortex_graph_breadth
+  - slide: cortex_dogfood
+  - slide: cortex_economics
+  - slide: data_quality

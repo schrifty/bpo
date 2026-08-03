@@ -90,8 +90,10 @@ def test_get_spend_paginates(monkeypatch) -> None:
 
 def test_get_usage_events_paginates_and_caps(monkeypatch) -> None:
     c = _client()
+    seen_page_sizes: list[int] = []
 
     def fake_request(method, url, *, json=None, params=None, timeout=None):
+        seen_page_sizes.append(json["pageSize"])
         page = json["page"]
         has_next = page < 3
         return _Resp(200, {
@@ -102,8 +104,22 @@ def test_get_usage_events_paginates_and_caps(monkeypatch) -> None:
     monkeypatch.setattr(c._session, "request", fake_request)
     events = c.get_usage_events(date(2024, 1, 1), date(2024, 1, 2))
     assert len(events) == 3
+    assert seen_page_sizes == [1000, 1000, 1000]
     capped = c.get_usage_events(date(2024, 1, 1), date(2024, 1, 2), max_events=2)
     assert len(capped) == 2
+
+
+def test_get_usage_events_respects_custom_page_size(monkeypatch) -> None:
+    c = _client()
+    seen: list[int] = []
+
+    def fake_request(method, url, *, json=None, params=None, timeout=None):
+        seen.append(json["pageSize"])
+        return _Resp(200, {"usageEvents": [], "pagination": {"hasNextPage": False}})
+
+    monkeypatch.setattr(c._session, "request", fake_request)
+    c.get_usage_events(date(2024, 1, 1), date(2024, 1, 2), page_size=250)
+    assert seen == [250]
 
 
 def test_get_usage_summary_aggregates(monkeypatch) -> None:

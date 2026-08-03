@@ -84,6 +84,76 @@ def test_attach_slack_top_customer_with_llm_summary_and_performance():
     assert "BigCo" in report["slack"]["customers"]
     assert report["slack"]["customers"]["BigCo"]["llm_summary"]["status"] == "ok"
     assert report["slack"]["lookback_days"] == 180
+    assert summary["channels_invite_needed"] == []
+    assert summary["customers_no_visible_channel_match"] == []
+
+
+def test_attach_slack_publishes_invite_needed_and_no_visible_match():
+    report: dict = {
+        "days": 30,
+        "customers": [{"customer": "Johnson"}, {"customer": "Safran"}],
+        "_llm_export_salesforce_revenue_book": {
+            "matched_customer_contract_rollups": [
+                {"customer": "Johnson", "arr": 200000, "active": True, "current_arr": 200000},
+                {"customer": "Safran", "arr": 150000, "active": True, "current_arr": 150000},
+            ],
+        },
+    }
+    johnson_payload = {
+        "source": "slack",
+        "days": 180,
+        "channels_matched": [
+            {
+                "id": "C1",
+                "name": "johnson-cs",
+                "is_private": False,
+                "is_member": False,
+                "invite_needed": True,
+            }
+        ],
+        "channels_invite_needed": [
+            {
+                "id": "C1",
+                "name": "johnson-cs",
+                "is_private": False,
+                "is_member": False,
+                "invite_needed": True,
+            }
+        ],
+        "conversation_summaries": [],
+    }
+    safran_payload = {
+        "source": "slack",
+        "days": 180,
+        "channels_matched": [],
+        "channels_invite_needed": [],
+        "no_visible_channel_match": True,
+        "note": "No Slack channels matched",
+        "conversation_summaries": [],
+    }
+
+    def _fake_get(name, **_kwargs):
+        return johnson_payload if name == "Johnson" else safran_payload
+
+    with patch("src.llm_export_slack.llm_export_slack_enabled", return_value=True), patch(
+        "src.slack_client.slack_configured", return_value=True
+    ), patch(
+        "src.slack_client.get_customer_slack_conversations", side_effect=_fake_get
+    ), patch(
+        "src.llm_export_slack_summarize.summarize_customer_slack_for_llm_export",
+        return_value={"status": "skipped", "skipped": "no_messages"},
+    ), patch(
+        "src.llm_export_slack.llm_export_slack_top_n", return_value=10
+    ):
+        summary = attach_slack_top_customers_for_llm_export(report)
+
+    assert summary["channels_invite_needed_count"] == 1
+    assert summary["channels_invite_needed"][0]["channel"] == "johnson-cs"
+    assert summary["channels_invite_needed"][0]["customer"] == "Johnson"
+    assert summary["customers_no_visible_channel_match_count"] == 1
+    assert summary["customers_no_visible_channel_match"][0]["customer"] == "Safran"
+    assert report["slack"]["channels_invite_needed"][0]["channel"] == "johnson-cs"
+    assert report["slack"]["customers_no_visible_channel_match"][0]["customer"] == "Safran"
 
 
 def test_summarize_customer_slack_no_messages():

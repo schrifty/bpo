@@ -20,4 +20,4 @@ Start with **[`DATA_REGISTRY.md`](./DATA_REGISTRY.md)** for the cross-system ide
 | [`CONFIG_ALIASES.md`](./CONFIG_ALIASES.md) | Customer alias maps under `config/` |
 | [`SLIDE_DATA_GAP_ANALYSIS.md`](./SLIDE_DATA_GAP_ANALYSIS.md) | Slide ↔ data coverage methodology / findings |
 
-**Operational setup** (credentials, env vars) lives under [`../SETUP/`](../SETUP/). **Slide design & Pendo builders:** [`../PRESENTATION/`](../PRESENTATION/). Other deck/product docs remain at [`../`](../).
+**Operational setup** (credentials, env vars) lives under [`../SETUP/`](../SETUP/). **Slide design & Pendo builders:** [`../PRESENTATION/`](../PRESENTATION/). **Export user guide:** [`../Cortex Export - User Guide.md`](../Cortex%20Export%20-%20User%20Guide.md). Other deck/product docs remain at [`../`](../).

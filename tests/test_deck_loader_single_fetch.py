@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.deck_loader import load_deck
+from src.deck_loader import clear_resolve_deck_cache, load_deck, resolve_deck
 
 
 def test_load_deck_does_not_call_load_yaml_from_drive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -79,3 +79,44 @@ def test_load_deck_yaml_from_drive_uses_find_file_in_folder(monkeypatch: pytest.
     list_all.assert_not_called()
     find_one.assert_called_once_with("support-kpis.yaml", "decks-folder")
     read_file.assert_called_once_with("file-id-support-kpis")
+
+
+def test_resolve_deck_caches_by_deck_customer_and_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    clear_resolve_deck_cache()
+    load_calls = {"n": 0}
+
+    def _fake_load_slides(*_args, **_kwargs):
+        load_calls["n"] += 1
+        return [
+            {
+                "id": "support_kpis_intake",
+                "type": "standard",
+                "title": "Intake",
+                "slide_type": "support_kpis_intake",
+                "customers": "all",
+                "order": 1,
+            }
+        ]
+
+    monkeypatch.setattr("src.deck_loader.load_slides", _fake_load_slides)
+    monkeypatch.setattr(
+        "src.deck_loader.load_deck",
+        lambda deck_id, decks_dir=None, **_kw: {
+            "id": deck_id,
+            "name": deck_id,
+            "slides": [{"slide": "support_kpis_intake", "title": "Intake"}],
+        },
+    )
+
+    first = resolve_deck("support-kpis", None)
+    second = resolve_deck("support-kpis", None)
+    assert load_calls["n"] == 1
+    assert first["slides"][0]["title"] == "Intake"
+
+    first["slides"][0]["title"] = "Mutated"
+    third = resolve_deck("support-kpis", None)
+    assert third["slides"][0]["title"] == "Intake"
+
+    clear_resolve_deck_cache()
+    resolve_deck("support-kpis", None)
+    assert load_calls["n"] == 2
