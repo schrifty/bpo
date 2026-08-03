@@ -194,6 +194,17 @@ def build_step_argv(step: dict[str, Any]) -> list[str]:
         if step.get("dry_run"):
             argv.append("--dry-run")
         return argv
+    if command == "metrics-digest":
+        argv = ["metrics-digest"]
+        if step.get("days") is not None:
+            argv.extend(["--days", str(int(step["days"]))])
+        if step.get("timeout") is not None:
+            argv.extend(["--timeout", str(float(step["timeout"]))])
+        if step.get("date"):
+            argv.extend(["--date", str(step["date"])])
+        if step.get("dry_run") or step.get("no_send"):
+            argv.append("--dry-run")
+        return argv
     raise ValueError(f"Unsupported job command: {command!r}")
 
 

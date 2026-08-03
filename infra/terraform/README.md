@@ -89,7 +89,18 @@ enable_schedules = true
 terraform apply
 ```
 
-Jobs are defined in `variables.tf` → `scheduled_jobs` (default cron is UTC). Daily jobs run 30 minutes apart from 06:00 UTC: `export-nightly` 06:00, `engineering-portfolio` 06:30, `ford-pendo-7d` 07:00, `ford-pendo-30d` 07:30, `pendo-top-arr-30d` 08:00, `carrier-pendo-detailed-30d` 08:30. Override `rule_name` on a job when the EventBridge rule should not use `{name_prefix}-{job_key}`.
+Jobs are defined in `variables.tf` → `scheduled_jobs` (default cron is UTC). Daily jobs run 30 minutes apart from 06:00 UTC: `export-nightly` 06:00, `engineering-portfolio` 06:30, `ford-pendo-7d` 07:00, `ford-pendo-30d` 07:30, `pendo-top-arr-30d` 08:00, `carrier-pendo-detailed-30d` 08:30, `metrics-daily-digest` 12:00 (≈07:00 Central). Override `rule_name` on a job when the EventBridge rule should not use `{name_prefix}-{job_key}`.
+
+### Morning KPI digest (SES)
+
+`metrics-daily-digest` live-generates every `config/my-metrics.yaml` row with a `metric-generator`, compares to `target` / `direction`, and emails a plain-text digest via SES.
+
+1. Verify the SES **From** identity in `us-east-1` (sandbox: verify recipient too).
+2. Put these keys in Secrets Manager (`cortex/prod/env` JSON, same as `.env.example`):
+   - `CORTEX_METRICS_DIGEST_TO` — comma-separated recipients (e.g. `marc.schriftman@leandna.com`)
+   - `CORTEX_METRICS_DIGEST_FROM` — verified SES identity
+3. `terraform apply` so rule `cortex-metrics-daily-digest` and task-role `ses:SendEmail` land.
+4. Smoke locally: `./bin/metrics-digest --dry-run`
 
 ## Variables (common)
 

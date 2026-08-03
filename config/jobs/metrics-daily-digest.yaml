@@ -1,0 +1,7 @@
+name: metrics-daily-digest
+stop_on_failure: true
+fail_on_warnings: false
+steps:
+  - name: email-kpi-digest
+    command: metrics-digest
+    days: 30

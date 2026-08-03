@@ -107,6 +107,69 @@ def has_metric_generator(entry: Any) -> bool:
     return not (isinstance(gen, str) and not gen.strip())
 
 
+MetricDirection = str  # "higher" | "lower"
+VALID_METRIC_DIRECTIONS: frozenset[str] = frozenset({"higher", "lower"})
+
+
+def registry_metric_target(entry: Any) -> float | None:
+    """Optional numeric ``target`` for scorecard / digest comparison."""
+    if not isinstance(entry, dict):
+        return None
+    raw = entry.get("target")
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    return float(raw)
+
+
+def registry_metric_direction(entry: Any) -> MetricDirection | None:
+    """Optional ``direction`` (``higher`` | ``lower``); required when ``target`` is set."""
+    if not isinstance(entry, dict):
+        return None
+    raw = entry.get("direction")
+    if raw is None:
+        return None
+    text = str(raw).strip().lower()
+    if not text:
+        return None
+    if text not in VALID_METRIC_DIRECTIONS:
+        raise ValueError(f"direction must be one of {sorted(VALID_METRIC_DIRECTIONS)}, got {raw!r}")
+    return text
+
+
+def validate_metric_target_direction(entry: Any) -> str | None:
+    """Return an error string when target/direction pairing is invalid; else ``None``."""
+    if not isinstance(entry, dict):
+        return "invalid registry row"
+    target = entry.get("target")
+    has_target = target is not None and not (isinstance(target, str) and not str(target).strip())
+    direction = entry.get("direction")
+    has_direction = direction is not None and str(direction).strip() != ""
+    if has_target and not has_direction:
+        return "target set but direction missing (use higher or lower)"
+    if has_direction:
+        try:
+            registry_metric_direction(entry)
+        except ValueError as e:
+            return str(e)
+    return None
+
+
+def iter_metrics_with_generator(
+    *,
+    registry: dict[str, Any] | None = None,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Registry rows with a non-empty ``metric-generator``: ``(display name, entry)``."""
+    reg = registry if registry is not None else load_metrics_registry()
+    metrics = reg.get("metrics")
+    if not isinstance(metrics, dict):
+        return []
+    out: list[tuple[str, dict[str, Any]]] = []
+    for name, entry in metrics.items():
+        if isinstance(entry, dict) and has_metric_generator(entry):
+            out.append((str(name), entry))
+    return out
+
+
 def is_fully_defined_metric(entry: Any) -> bool:
     """True when *entry* has ``metric-id`` and a non-empty ``metric-generator``."""
     if not isinstance(entry, dict):

@@ -40,6 +40,16 @@ data "aws_iam_policy_document" "ecs_task" {
     ]
     resources = [aws_efs_file_system.cache.arn]
   }
+
+  statement {
+    sid    = "SesSendMetricsDigest"
+    effect = "Allow"
+    actions = [
+      "ses:SendEmail",
+      "ses:SendRawEmail",
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role" "ecs_task" {
