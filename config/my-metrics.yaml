@@ -89,8 +89,11 @@ metrics:
 
   "Monthly AI Spend":
     description: >-
-      Team-wide Cursor AI spend in USD for the current billing cycle, summed from
-      /teams/spend overallSpendCents by get_monthly_ai_spend.
+      Projected team-wide Cursor AI spend (USD) for the current calendar month.
+      Real month-to-date charged cost from usage events is kept as-is; remaining
+      days are estimated from the average daily spend over a trailing 90-day
+      window that includes those MTD actuals (get_monthly_ai_spend). Prefers
+      real MTD over extrapolation.
     metric-id: null
     metric-generator: get_monthly_ai_spend
     tags: [enterprise, finance]
