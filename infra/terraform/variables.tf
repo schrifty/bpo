@@ -176,6 +176,12 @@ variable "scheduled_jobs" {
       enabled             = true
       rule_name           = "cortex-metrics-eng-cycle-lead-weekly"
     }
+    metrics-daily-digest = {
+      schedule_expression = "cron(0 12 * * ? *)"
+      command             = ["metrics-daily-digest"]
+      enabled             = true
+      rule_name           = "cortex-metrics-daily-digest"
+    }
   }
 }
 

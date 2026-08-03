@@ -20,6 +20,10 @@
 #   tags              — Optional list of lowercase labels for grouping/filtering KPIs
 #                       (e.g. [engineering, delivery]). One KPI may carry many tags. Query
 #                       with `metrics-by-tag <tag>` (live by default).
+#   target            — Optional numeric goal (same unit as the generator value). Used by
+#                       metrics-digest for off-target classification.
+#   direction         — higher | lower — required when target is set. lower = off when
+#                       value > target; higher = off when value < target.
 #
 # Generator names refer to functions under src/ (e.g. jira_cycle_time.get_dev_team_cycle_times).
 # Resolve modes: live (default) | stored inspection (see src/kpi_service.py).
@@ -48,6 +52,8 @@ metrics:
     metric-id: 2035
     metric-generator: get_customer_reported_bugs
     tags: [engineering, quality]
+    target: 25
+    direction: lower
 
   # Tickets Beyond Service Thresholds
   "Tickets Beyond Service Thresholds":
@@ -59,6 +65,8 @@ metrics:
     metric-id: 2028
     metric-generator: get_service_threshold_tickets
     tags: [support, sla]
+    target: 50
+    direction: lower
 
   # Site Uptime %
   "Site Uptime %":
@@ -76,6 +84,8 @@ metrics:
     metric-id: null
     metric-generator: get_ai_token_usage
     tags: [ai, engineering, adoption]
+    target: 1
+    direction: higher
 
   # Median Time to Complete SUT (Weeks)
   "Median Time to Complete SUT (Weeks)":
@@ -108,6 +118,8 @@ metrics:
     metric-id: 2171
     metric-generator: get_median_ttr
     tags: [support, sla]
+    target: 160
+    direction: lower
 
   # SLA Adherence (30 Days) - AUTOMATABLE
   "SLA Adherence (30 Days)":
@@ -124,6 +136,8 @@ metrics:
     metric-id: 2024
     metric-generator: get_dev_team_cycle_times
     tags: [engineering, delivery]
+    target: 5
+    direction: lower
 
   "Engineering Lead Time (Days)":
     description: >-
@@ -133,6 +147,8 @@ metrics:
     metric-id: 2179
     metric-generator: get_dev_team_lead_time
     tags: [engineering, delivery]
+    target: 14
+    direction: lower
 
   # Data Sync Failures (Month) - 2029
   "Data Sync Failures (Month)":
@@ -157,6 +173,8 @@ metrics:
     metric-id: null
     metric-generator: get_kpi_automation_pct
     tags: [automation, ops]
+    target: 50
+    direction: higher
 
   # 2077
   "QBR Automation %":
@@ -179,6 +197,8 @@ metrics:
     metric-id: null
     metric-generator: get_sprint_story_points_by_team
     tags: [engineering, delivery]
+    target: 40
+    direction: higher
 
   # 2087
   "AI Usage/Effectiveness":
@@ -196,6 +216,8 @@ metrics:
     metric-id: null
     metric-generator: get_wau_pct
     tags: [mfr, engineering, adoption, ai]
+    target: 80
+    direction: higher
 
   "% AI-Assisted PRs":
     description: >-
@@ -224,6 +246,8 @@ metrics:
     metric-id: null
     metric-generator: get_tokens_per_dev
     tags: [mfr, engineering, adoption, ai]
+    target: 1
+    direction: higher
 
   "AI Spend %":
     description: >-
@@ -242,6 +266,8 @@ metrics:
     metric-id: null
     metric-generator: get_prs_merged
     tags: [mfr, engineering, impact, delivery]
+    target: 10
+    direction: higher
 
   "Defect Introduction Rate":
     description: >-
@@ -261,6 +287,8 @@ metrics:
     metric-id: null
     metric-generator: get_issues_shipped
     tags: [mfr, engineering, impact, delivery]
+    target: 20
+    direction: higher
 
   "% Growth Allocation":
     description: >-
@@ -271,6 +299,8 @@ metrics:
     metric-id: null
     metric-generator: get_growth_allocation_pct
     tags: [mfr, engineering, impact, delivery]
+    target: 70
+    direction: higher
 
   "Headcount + AI Spend / Issue":
     description: >-
@@ -289,3 +319,5 @@ metrics:
     metric-id: null
     metric-generator: get_ai_spend_per_issue
     tags: [mfr, engineering, impact, ai]
+    target: 50
+    direction: lower

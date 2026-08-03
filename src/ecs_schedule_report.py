@@ -73,6 +73,13 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "rule_name": "cortex-metrics-eng-cycle-lead-weekly",
         "summary": "LeanDNA metrics upsert: 2024, 2179, 2028, 2035 — weekly Mon 09:00 UTC",
     },
+    "metrics-daily-digest": {
+        "schedule_expression": "cron(0 12 * * ? *)",
+        "command": ["metrics-daily-digest"],
+        "enabled": True,
+        "rule_name": "cortex-metrics-daily-digest",
+        "summary": "Morning KPI digest email (all generators vs target/direction via SES)",
+    },
 }
 
 
