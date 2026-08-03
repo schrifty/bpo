@@ -87,6 +87,14 @@ metrics:
     target: 1
     direction: higher
 
+  "Monthly AI Spend":
+    description: >-
+      Team-wide Cursor AI spend in USD for the current billing cycle, summed from
+      /teams/spend overallSpendCents by get_monthly_ai_spend.
+    metric-id: null
+    metric-generator: get_monthly_ai_spend
+    tags: [enterprise, finance]
+
   # Median Time to Complete SUT (Weeks)
   "Median Time to Complete SUT (Weeks)":
     description: null

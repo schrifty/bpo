@@ -2,6 +2,9 @@
 
 ``get_ai_token_usage`` — total AI tokens (input + output) consumed across the team
 over a trailing window, from ``/teams/filtered-usage-events`` token usage.
+
+``get_monthly_ai_spend`` — team-wide Cursor spend (USD) for the current billing
+cycle, from ``/teams/spend``.
 """
 
 from __future__ import annotations
@@ -64,4 +67,39 @@ def get_ai_token_usage_value(
         "cache_write_tokens": cache_write,
         "window_days": window,
         "event_count": len(events),
+    }
+
+
+def get_monthly_ai_spend(
+    client: CursorClient,
+    *,
+    timeout: float = 60.0,  # noqa: ARG001 - client carries its own timeout
+) -> dict[str, Any]:
+    """Return ``{"value": <USD>}`` for Cursor team spend in the current billing cycle.
+
+    Sums ``overallSpendCents`` across all ``/teams/spend`` members and converts to
+    USD. Fails loud (``{"error": ...}``) when the Cursor API is unavailable so
+    ``metrics-upsert`` does not write a placeholder value.
+    """
+    try:
+        rows = client.get_spend()
+    except Exception as e:
+        return {"error": f"Cursor monthly AI spend unavailable: {e}"}
+
+    total_cents = 0.0
+    for row in rows or []:
+        total_cents += float(row.get("overallSpendCents") or 0)
+    spend_usd = round(total_cents / 100.0, 2)
+    members = len(rows or [])
+    logger.info(
+        "Monthly AI Spend: $%s across %s member(s) (current Cursor billing cycle)",
+        spend_usd,
+        members,
+    )
+    return {
+        "value": spend_usd,
+        "spend_usd": spend_usd,
+        "spend_cents": round(total_cents, 2),
+        "members_count": members,
+        "billing_cycle": "current",
     }
