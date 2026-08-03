@@ -179,7 +179,7 @@ variable "scheduled_jobs" {
     metrics-daily-digest = {
       schedule_expression = "cron(0 12 * * ? *)"
       command             = ["metrics-daily-digest"]
-      enabled             = true
+      enabled             = false
       rule_name           = "cortex-metrics-daily-digest"
     }
   }

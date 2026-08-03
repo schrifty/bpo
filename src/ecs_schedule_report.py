@@ -76,9 +76,9 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
     "metrics-daily-digest": {
         "schedule_expression": "cron(0 12 * * ? *)",
         "command": ["metrics-daily-digest"],
-        "enabled": True,
+        "enabled": False,
         "rule_name": "cortex-metrics-daily-digest",
-        "summary": "Morning KPI digest email (all generators vs target/direction via SES)",
+        "summary": "Morning KPI digest email (all generators vs target/direction via SES) — disabled until SES domain DNS/DKIM",
     },
 }
 

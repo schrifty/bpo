@@ -89,7 +89,7 @@ enable_schedules = true
 terraform apply
 ```
 
-Jobs are defined in `variables.tf` → `scheduled_jobs` (default cron is UTC). Shared Pendo ingest (`pendo-snapshot-refresh`) runs at **03:00 UTC**; transform jobs then run 30 minutes apart from **06:00 UTC** (`export-nightly`, engineering portfolio, Ford 7d/30d, top-ARR, Carrier 08:30). Weekly: `metrics-eng-cycle-lead-weekly` Monday **09:00 UTC**. Daily: `metrics-daily-digest` **12:00 UTC** (≈07:00 Central). Override `rule_name` on a job when the EventBridge rule should not use `{name_prefix}-{job_key}`.
+Jobs are defined in `variables.tf` → `scheduled_jobs` (default cron is UTC). Shared Pendo ingest (`pendo-snapshot-refresh`) runs at **03:00 UTC**; transform jobs then run 30 minutes apart from **06:00 UTC** (`export-nightly`, engineering portfolio, Ford 7d/30d, top-ARR, Carrier 08:30). Weekly: `metrics-eng-cycle-lead-weekly` Monday **09:00 UTC**. Daily: `metrics-daily-digest` **12:00 UTC** (≈07:00 Central; **disabled** until SES `leandna.com` DKIM DNS is in place — set `enabled = true` then). Override `rule_name` on a job when the EventBridge rule should not use `{name_prefix}-{job_key}`.
 
 ### Morning KPI digest (SES)
 

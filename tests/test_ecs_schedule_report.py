@@ -62,6 +62,7 @@ def test_build_schedule_rows_merges_catalog_when_aws_empty(monkeypatch):
     digest = next(r for r in rows if r.job_key == "metrics-daily-digest")
     assert digest.rule_name == "cortex-metrics-daily-digest"
     assert digest.schedule_expression == "cron(0 12 * * ? *)"
+    assert digest.state == "DISABLED"
     eng = next(r for r in rows if r.job_key == "engineering-portfolio")
     assert eng.rule_name == "cortex-engineering-portfolio"
     assert eng.schedule_expression == "cron(30 6 * * ? *)"

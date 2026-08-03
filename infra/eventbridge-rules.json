@@ -249,9 +249,9 @@
   },
   {
     "Name": "cortex-metrics-daily-digest",
-    "Description": "Morning KPI digest email (all generators vs target) — daily 12:00 UTC",
+    "Description": "Morning KPI digest email (all generators vs target) — daily 12:00 UTC (disabled until SES domain DNS)",
     "ScheduleExpression": "cron(0 12 * * ? *)",
-    "State": "ENABLED",
+    "State": "DISABLED",
     "Targets": [
       {
         "Id": "cortex-metrics-daily-digest",
