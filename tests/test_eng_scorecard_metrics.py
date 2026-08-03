@@ -110,9 +110,16 @@ def test_get_tokens_per_dev(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_get_issues_shipped() -> None:
-    out = get_issues_shipped(_FakeJira(shipped_count=17), days=30)
+    out = get_issues_shipped(_FakeJira(shipped_count=17), days=84)
     assert out["value"] == 17
-    assert "resolved >= -30d" in out["jql"]
+    assert out["window_days"] == 84
+    assert "resolved >= -84d" in out["jql"]
+
+
+def test_get_issues_shipped_default_is_12_weeks() -> None:
+    out = get_issues_shipped(_FakeJira(shipped_count=17))
+    assert out["window_days"] == 84
+    assert "resolved >= -84d" in out["jql"]
 
 
 def test_get_issues_shipped_fails_loud() -> None:
@@ -255,24 +262,72 @@ def test_pr_is_ai_assisted_and_automated_markers() -> None:
     assert pr_is_ai_assisted({"title": "x", "body": "", "user": {"login": "cursoragent"}})
     assert pr_is_ai_assisted({"title": "x", "body": "", "user": {"login": "bob"}, "labels": [{"name": "ai-assisted"}]})
     assert not pr_is_ai_assisted({"title": "fix typo", "body": "no ai here", "user": {"login": "bob"}})
+    # Commit trailers count as assisted when provided.
+    assert pr_is_ai_assisted(
+        {"title": "x", "body": "plain", "user": {"login": "bob"}},
+        commits=[{"commit": {"message": "fix\n\nCo-authored-by: Cursor <cursoragent@cursor.com>"}}],
+    )
+    assert pr_is_ai_assisted(
+        {"title": "x", "body": "plain", "user": {"login": "bob"}},
+        commits=[{"commit": {"message": "feat\n\nMade-with: Cursor"}}],
+    )
+    assert not pr_is_ai_assisted(
+        {"title": "x", "body": "plain", "user": {"login": "bob"}},
+        commits=[{"commit": {"message": "chore: no attribution"}}],
+    )
     # Automated is stricter: agent author / generated markers, not mere "Made with Cursor".
     assert pr_is_ai_automated({"title": "x", "body": "", "user": {"login": "cursoragent"}})
     assert pr_is_ai_automated({"title": "x", "body": "Generated with Cursor", "user": {"login": "alice"}})
     assert not pr_is_ai_automated({"title": "feat", "body": "Made with Cursor\n", "user": {"login": "alice"}})
+    # Commit-level automated: agent author or Generated/Created markers — not Co-authored-by alone.
+    assert not pr_is_ai_automated(
+        {"title": "x", "body": "plain", "user": {"login": "bob"}},
+        commits=[{"commit": {"message": "fix\n\nCo-authored-by: Cursor <cursoragent@cursor.com>"}}],
+    )
+    assert pr_is_ai_automated(
+        {"title": "x", "body": "plain", "user": {"login": "bob"}},
+        commits=[{"commit": {"message": "Generated with Cursor"}, "author": {"login": "alice"}}],
+    )
+    assert pr_is_ai_automated(
+        {"title": "x", "body": "plain", "user": {"login": "bob"}},
+        commits=[{"commit": {"message": "agent change"}, "author": {"login": "cursoragent"}}],
+    )
 
 
 def test_get_ai_assisted_and_automated_prs_pct(monkeypatch: pytest.MonkeyPatch) -> None:
     pulls = [
-        {"title": "a", "body": "Made with Cursor", "user": {"login": "alice"}},
-        {"title": "b", "body": "plain", "user": {"login": "bob"}},
-        {"title": "c", "body": "Co-authored-by: Cursor <x@y>", "user": {"login": "carol"}},
-        {"title": "d", "body": "Generated with Cursor", "user": {"login": "dave"}},
-        {"title": "e", "body": "", "user": {"login": "cursoragent"}},
+        {"number": 1, "title": "a", "body": "Made with Cursor", "user": {"login": "alice"}},
+        {"number": 2, "title": "b", "body": "plain", "user": {"login": "bob"}},
+        {"number": 3, "title": "c", "body": "Co-authored-by: Cursor <x@y>", "user": {"login": "carol"}},
+        {"number": 4, "title": "d", "body": "Generated with Cursor", "user": {"login": "dave"}},
+        {"number": 5, "title": "e", "body": "", "user": {"login": "cursoragent"}},
+        {"number": 6, "title": "f", "body": "plain trailer only", "user": {"login": "erin"}},
+        {"number": 7, "title": "g", "body": "plain agent commit", "user": {"login": "frank"}},
     ]
 
     class _Gh:
         def list_merged_pulls_since(self, owner, repo, *, since, max_pulls=None):
             return pulls
+
+        def list_pull_commits(self, owner, repo, number, *, max_commits=None):
+            if int(number) == 6:
+                return [
+                    {
+                        "commit": {
+                            "message": (
+                                "LEAN-1 fix\n\nCo-authored-by: Cursor <cursoragent@cursor.com>"
+                            )
+                        }
+                    }
+                ]
+            if int(number) == 7:
+                return [
+                    {
+                        "commit": {"message": "agent landed this"},
+                        "author": {"login": "cursoragent"},
+                    }
+                ]
+            return [{"commit": {"message": "no cursor here"}}]
 
     monkeypatch.setattr("src.github_client.github_configured", lambda: True)
     monkeypatch.setattr("src.github_client.GitHubClient", lambda: _Gh())
@@ -289,17 +344,21 @@ def test_get_ai_assisted_and_automated_prs_pct(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr("src.engineer_identity_map.load_github_email_aliases", lambda: ({}, None))
 
     assisted = get_ai_assisted_prs_pct(days=30)
-    assert assisted["numerator"] == 4.0  # a,c,d,e (not b)
-    assert assisted["denominator"] == 5.0
-    assert assisted["value"] == 80.0
+    # a,c,d,e + f (co-authored trailer) + g (agent commit → automated ⊂ assisted); not b
+    assert assisted["numerator"] == 6.0
+    assert assisted["denominator"] == 7.0
+    assert assisted["value"] == round(100.0 * 6 / 7, 2)
+    assert assisted["commit_trailer_checks"] >= 1
 
     automated = get_ai_automated_prs_pct(days=30)
-    assert automated["numerator"] == 2.0  # d + e
-    assert automated["denominator"] == 5.0
-    assert automated["value"] == 40.0
+    # d + e (PR signals) + g (cursoragent commit author); not f (co-authored only)
+    assert automated["numerator"] == 3.0
+    assert automated["denominator"] == 7.0
+    assert automated["value"] == round(100.0 * 3 / 7, 2)
+    assert automated["commit_trailer_checks"] >= 1
 
     # Deprecated alias still points at assisted.
-    assert get_ai_assisted_automated_prs_pct(days=30)["value"] == 80.0
+    assert get_ai_assisted_automated_prs_pct(days=30)["value"] == assisted["value"]
 
 
 def test_get_ai_assisted_prs_pct_github_missing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -310,14 +369,17 @@ def test_get_ai_assisted_prs_pct_github_missing(monkeypatch: pytest.MonkeyPatch)
 
 def test_get_prs_merged(monkeypatch: pytest.MonkeyPatch) -> None:
     pulls = [
-        {"title": "a", "body": "", "user": {"login": "alice"}},
-        {"title": "b", "body": "", "user": {"login": "bob"}},
-        {"title": "c", "body": "", "user": {"login": "carol"}},
+        {"number": 1, "title": "a", "body": "", "user": {"login": "alice"}},
+        {"number": 2, "title": "b", "body": "", "user": {"login": "bob"}},
+        {"number": 3, "title": "c", "body": "", "user": {"login": "carol"}},
     ]
 
     class _Gh:
         def list_merged_pulls_since(self, owner, repo, *, since, max_pulls=None):
             return pulls
+
+        def list_pull_commits(self, owner, repo, number, *, max_commits=None):
+            return []
 
     monkeypatch.setattr("src.github_client.github_configured", lambda: True)
     monkeypatch.setattr("src.github_client.GitHubClient", lambda: _Gh())

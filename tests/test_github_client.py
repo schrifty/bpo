@@ -235,6 +235,35 @@ def test_list_merged_pulls_since_caches_search(monkeypatch):
     assert calls["n"] == 1
 
 
+def test_list_pull_commits_caches():
+    from src.github_client import clear_pull_commits_cache
+
+    clear_pull_commits_cache()
+    calls = {"n": 0}
+
+    def router(method, url, params):
+        calls["n"] += 1
+        assert "/pulls/42/commits" in url
+        return _FakeResponse(200, [{"sha": "abc", "commit": {"message": "x"}}], headers={})
+
+    # _paginate uses Link headers; empty link → single page. FakeResponse needs iterable via json list.
+    # Actually _paginate may call request differently — use responses that return list via json.
+    class _ListSession(_FakeSession):
+        def request(self, method, url, headers=None, params=None, timeout=None):
+            self.calls.append(
+                {"method": method, "url": url, "headers": headers, "params": params, "timeout": timeout}
+            )
+            calls["n"] += 1
+            return _FakeResponse(200, [{"sha": "abc", "commit": {"message": "x"}}])
+
+    gh = _client(_ListSession())
+    commits = gh.list_pull_commits("acme", "web", 42)
+    assert len(commits) == 1
+    gh2 = _client(_ListSession())
+    assert len(gh2.list_pull_commits("acme", "web", 42)) == 1
+    assert calls["n"] == 1
+
+
 def test_secondary_rate_limit_403_retries(monkeypatch):
     monkeypatch.setattr("src.github_client.time.sleep", lambda *_a, **_k: None)
     responses = [

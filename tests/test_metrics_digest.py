@@ -40,6 +40,54 @@ def test_registry_invalid_direction() -> None:
         registry_metric_direction({"direction": "sideways"})
 
 
+def test_digest_currency_value_and_target_display() -> None:
+    from src.metrics_digest import _format_digest_number
+    from src.metrics_registry import registry_metric_unit
+
+    assert registry_metric_unit({"unit": "currency"}) == "currency"
+    assert registry_metric_unit({}) is None
+    assert _format_digest_number(10342.41, unit="currency") == "$10,342.41"
+    assert _format_digest_number(50.0, unit="currency") == "$50"
+    row = DigestRow(
+        "AI Spend / Issue",
+        None,
+        33.7769,
+        50.0,
+        "lower",
+        False,
+        unit="currency",
+    )
+    assert row.value_display == "$33.78"
+    assert row.target_display == "$50"
+
+
+def test_generate_digest_row_prefers_explicit_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Spend/issue returns n/d plus value; digest must use value (USD), not (n/d)*100."""
+    from unittest.mock import MagicMock
+
+    from src.metrics_digest import generate_digest_row
+
+    monkeypatch.setattr(
+        "src.metrics_digest.invoke_metric_generator",
+        lambda *a, **k: {"numerator": 9491.0, "denominator": 281.0, "value": 33.78},
+    )
+    row = generate_digest_row(
+        "AI Spend / Issue",
+        {
+            "metric-generator": "get_ai_spend_per_issue",
+            "target": 50,
+            "direction": "lower",
+            "unit": "currency",
+        },
+        registry={"metrics": {}},
+        ctx=MagicMock(),
+    )
+    assert row.value == 33.78
+    assert row.value_display == "$33.78"
+    assert row.target_display == "$50"
+    assert row.off_target is False
+
+
 def test_is_off_target_lower_and_higher() -> None:
     assert is_off_target(200.0, target=160.0, direction="lower") is True
     assert is_off_target(100.0, target=160.0, direction="lower") is False

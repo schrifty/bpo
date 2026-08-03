@@ -286,12 +286,13 @@ def _invoke_get_ai_assisted_automated_prs_pct(ctx: dict[str, Any]) -> dict[str, 
 
 
 def _invoke_get_issues_shipped(ctx: dict[str, Any]) -> dict[str, Any]:
-    from src.eng_scorecard_metrics import get_issues_shipped
+    from src.eng_scorecard_metrics import ISSUES_SHIPPED_WINDOW_DAYS, get_issues_shipped
     from src.jira_client import get_shared_jira_client
 
+    # Always 12 weeks — independent of upsert/digest --days default.
     return get_issues_shipped(
         get_shared_jira_client(),
-        days=int(ctx.get("days") or 30),
+        days=ISSUES_SHIPPED_WINDOW_DAYS,
         timeout=float(ctx.get("timeout") or 60.0),
     )
 

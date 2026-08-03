@@ -52,11 +52,17 @@ _LINK_NEXT_RE = re.compile(r'<([^>]+)>\s*;\s*rel="next"')
 # In-process cache so digest KPIs that all call list_merged_pulls_since (PRs Merged,
 # % AI-Assisted / Automated) share one Search API pass per repo/window.
 _MERGED_PULLS_CACHE: dict[tuple[str, str, str, int], list[dict[str, Any]]] = {}
+_PULL_COMMITS_CACHE: dict[tuple[str, str, int], list[dict[str, Any]]] = {}
 
 
 def clear_merged_pulls_cache() -> None:
     """Drop cached merged-PR search results (tests / forced refresh)."""
     _MERGED_PULLS_CACHE.clear()
+
+
+def clear_pull_commits_cache() -> None:
+    """Drop cached PR commit lists (tests / forced refresh)."""
+    _PULL_COMMITS_CACHE.clear()
 
 
 class GitHubError(RuntimeError):
@@ -559,6 +565,29 @@ class GitHubClient:
         q = f"repo:{owner}/{repo} is:pr is:merged merged:>={since_str}"
         results = self.search_issues(q, max_items=cap)
         _MERGED_PULLS_CACHE[cache_key] = list(results)
+        return results
+
+    def list_pull_commits(
+        self,
+        owner: str,
+        repo: str,
+        number: int,
+        *,
+        max_commits: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Commits on a pull request (``GET /repos/.../pulls/{n}/commits``), cached in-process."""
+        pull_number = int(number)
+        cap = 250 if max_commits is None else max(1, int(max_commits))
+        cache_key = (owner.strip().lower(), repo.strip().lower(), pull_number)
+        cached = _PULL_COMMITS_CACHE.get(cache_key)
+        if cached is not None:
+            return list(cached)[:cap]
+        results = self._paginate(
+            f"/repos/{owner}/{repo}/pulls/{pull_number}/commits",
+            params={"per_page": _DEFAULT_PAGE_SIZE},
+            max_items=cap,
+        )
+        _PULL_COMMITS_CACHE[cache_key] = list(results)
         return results
 
     def list_org_members(self, org: str, *, max_members: int = 500) -> list[dict[str, Any]]:

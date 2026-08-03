@@ -24,6 +24,7 @@ from src.metrics_registry import (
     registry_metric_direction,
     registry_metric_tags,
     registry_metric_target,
+    registry_metric_unit,
     validate_metric_target_direction,
 )
 from src.metrics_upsert import (
@@ -79,6 +80,17 @@ def _detail_lines(
 
 
 
+def _format_digest_number(value: float, *, unit: str | None = None) -> str:
+    """Format a digest VALUE/TARGET cell; ``unit=currency`` → USD."""
+    if unit == "currency":
+        if float(value).is_integer():
+            return f"${int(value):,}"
+        return f"${value:,.2f}"
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{value:.2f}".rstrip("0").rstrip(".")
+
+
 @dataclass(frozen=True)
 class DigestRow:
     name: str
@@ -90,6 +102,7 @@ class DigestRow:
     error: str | None = None
     description: str | None = None
     tags: tuple[str, ...] = ()
+    unit: str | None = None
 
     @property
     def id_display(self) -> str:
@@ -101,17 +114,13 @@ class DigestRow:
             return "error"
         if self.value is None:
             return "—"
-        if float(self.value).is_integer():
-            return str(int(self.value))
-        return f"{self.value:.2f}".rstrip("0").rstrip(".")
+        return _format_digest_number(float(self.value), unit=self.unit)
 
     @property
     def target_display(self) -> str:
         if self.target is None:
             return "—"
-        if float(self.target).is_integer():
-            return str(int(self.target))
-        return f"{self.target:.2f}".rstrip("0").rstrip(".")
+        return _format_digest_number(float(self.target), unit=self.unit)
 
     @property
     def tags_display(self) -> str:
@@ -165,6 +174,20 @@ def generate_digest_row(
     description = registry_metric_description(entry)
     tags = tuple(registry_metric_tags(entry))
     try:
+        unit = registry_metric_unit(entry)
+    except ValueError as e:
+        return DigestRow(
+            name=name,
+            metric_id=metric_id,
+            value=None,
+            target=target,
+            direction=None,
+            off_target=True,
+            error=str(e),
+            description=description,
+            tags=tags,
+        )
+    try:
         direction = registry_metric_direction(entry)
     except ValueError as e:
         return DigestRow(
@@ -177,6 +200,7 @@ def generate_digest_row(
             error=str(e),
             description=description,
             tags=tags,
+            unit=unit,
         )
 
     cfg_err = validate_metric_target_direction(entry)
@@ -191,13 +215,19 @@ def generate_digest_row(
             error=cfg_err,
             description=description,
             tags=tags,
+            unit=unit,
         )
 
     gen_name = str(entry.get("metric-generator") or "").strip()
     try:
         raw = invoke_metric_generator(gen_name, registry=registry, ctx=ctx)
-        parts = parse_generator_parts(raw, metric_name=name, registry=registry)
-        value = scalar_from_parts(parts)
+        # Prefer explicit ``value`` when present so USD/issue (and similar) are not
+        # misread as (numerator/denominator)*100 by :func:`scalar_from_parts`.
+        if isinstance(raw, dict) and raw.get("value") is not None and not raw.get("error"):
+            value = float(raw["value"])
+        else:
+            parts = parse_generator_parts(raw, metric_name=name, registry=registry)
+            value = scalar_from_parts(parts)
         err = None
     except MetricUpsertError as e:
         value = None
@@ -216,6 +246,7 @@ def generate_digest_row(
         error=err,
         description=description,
         tags=tags,
+        unit=unit,
     )
 
 

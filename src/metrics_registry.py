@@ -206,6 +206,24 @@ def registry_metric_direction(entry: Any) -> MetricDirection | None:
     return text
 
 
+VALID_METRIC_UNITS: frozenset[str] = frozenset({"currency"})
+
+
+def registry_metric_unit(entry: Any) -> str | None:
+    """Optional display ``unit`` (e.g. ``currency`` for USD in metrics-digest)."""
+    if not isinstance(entry, dict):
+        return None
+    raw = entry.get("unit")
+    if raw is None:
+        return None
+    text = str(raw).strip().lower()
+    if not text:
+        return None
+    if text not in VALID_METRIC_UNITS:
+        raise ValueError(f"unit must be one of {sorted(VALID_METRIC_UNITS)}, got {raw!r}")
+    return text
+
+
 def validate_metric_target_direction(entry: Any) -> str | None:
     """Return an error string when target/direction pairing is invalid; else ``None``."""
     if not isinstance(entry, dict):
