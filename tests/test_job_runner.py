@@ -30,3 +30,14 @@ def test_run_job_dry_run(capsys) -> None:
 def test_build_step_argv_unknown_command() -> None:
     with pytest.raises(ValueError, match="Unsupported"):
         build_step_argv({"command": "unknown"})
+
+
+def test_build_step_argv_metrics_digest() -> None:
+    argv = build_step_argv({"command": "metrics-digest", "days": 30, "dry_run": True})
+    assert argv == ["metrics-digest", "--days", "30", "--dry-run"]
+
+
+def test_load_metrics_daily_digest_spec() -> None:
+    spec = load_job_spec("metrics-daily-digest")
+    assert spec.name == "metrics-daily-digest"
+    assert spec.steps[0]["command"] == "metrics-digest"

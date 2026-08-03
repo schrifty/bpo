@@ -29,6 +29,13 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "enabled": True,
         "summary": "LLM export (cortex --export, 90-day window)",
     },
+    "metrics-daily-digest": {
+        "schedule_expression": "cron(0 12 * * ? *)",
+        "command": ["metrics-daily-digest"],
+        "enabled": True,
+        "rule_name": "cortex-metrics-daily-digest",
+        "summary": "Morning KPI digest email (all generators vs target/direction via SES)",
+    },
 }
 
 
