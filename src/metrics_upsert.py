@@ -262,13 +262,27 @@ def _invoke_get_prs_merged(ctx: dict[str, Any]) -> dict[str, Any]:
     return get_prs_merged(days=int(ctx.get("days") or 30), timeout=float(ctx.get("timeout") or 60.0))
 
 
-def _invoke_get_ai_assisted_automated_prs_pct(ctx: dict[str, Any]) -> dict[str, Any]:
-    from src.eng_scorecard_metrics import get_ai_assisted_automated_prs_pct
+def _invoke_get_ai_assisted_prs_pct(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.eng_scorecard_metrics import get_ai_assisted_prs_pct
 
-    return get_ai_assisted_automated_prs_pct(
+    return get_ai_assisted_prs_pct(
         days=int(ctx.get("days") or 30),
         timeout=float(ctx.get("timeout") or 60.0),
     )
+
+
+def _invoke_get_ai_automated_prs_pct(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.eng_scorecard_metrics import get_ai_automated_prs_pct
+
+    return get_ai_automated_prs_pct(
+        days=int(ctx.get("days") or 30),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
+def _invoke_get_ai_assisted_automated_prs_pct(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Deprecated alias for :func:`_invoke_get_ai_assisted_prs_pct`."""
+    return _invoke_get_ai_assisted_prs_pct(ctx)
 
 
 def _invoke_get_issues_shipped(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -331,7 +345,9 @@ _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_wau_pct": _invoke_get_wau_pct,  # deprecated alias
     "get_tokens_per_dev": _invoke_get_tokens_per_dev,
     "get_prs_merged": _invoke_get_prs_merged,
-    "get_ai_assisted_automated_prs_pct": _invoke_get_ai_assisted_automated_prs_pct,
+    "get_ai_assisted_prs_pct": _invoke_get_ai_assisted_prs_pct,
+    "get_ai_automated_prs_pct": _invoke_get_ai_automated_prs_pct,
+    "get_ai_assisted_automated_prs_pct": _invoke_get_ai_assisted_automated_prs_pct,  # deprecated
     "get_issues_shipped": _invoke_get_issues_shipped,
     "get_growth_allocation_pct": _invoke_get_growth_allocation_pct,
     "get_ai_spend_pct": _invoke_get_ai_spend_pct,

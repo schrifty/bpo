@@ -8,6 +8,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from src.eng_scorecard_metrics import (
+    get_ai_assisted_prs_pct,
+    get_ai_automated_prs_pct,
     get_ai_assisted_automated_prs_pct,
     get_ai_spend_pct,
     get_ai_spend_per_issue,
@@ -18,6 +20,7 @@ from src.eng_scorecard_metrics import (
     get_wau_pct,
     get_weekly_active_ai_users,
     pr_is_ai_assisted,
+    pr_is_ai_automated,
 )
 
 
@@ -162,19 +165,25 @@ def test_get_ai_spend_per_issue(monkeypatch: pytest.MonkeyPatch) -> None:
     assert out["value"] == 0.5
 
 
-def test_pr_is_ai_assisted_markers() -> None:
+def test_pr_is_ai_assisted_and_automated_markers() -> None:
     assert pr_is_ai_assisted({"title": "feat", "body": "Made with Cursor\n", "user": {"login": "alice"}})
     assert pr_is_ai_assisted({"title": "x", "body": "Co-authored-by: Cursor <cursoragent@cursor.com>", "user": {}})
     assert pr_is_ai_assisted({"title": "x", "body": "", "user": {"login": "cursoragent"}})
     assert pr_is_ai_assisted({"title": "x", "body": "", "user": {"login": "bob"}, "labels": [{"name": "ai-assisted"}]})
     assert not pr_is_ai_assisted({"title": "fix typo", "body": "no ai here", "user": {"login": "bob"}})
+    # Automated is stricter: agent author / generated markers, not mere "Made with Cursor".
+    assert pr_is_ai_automated({"title": "x", "body": "", "user": {"login": "cursoragent"}})
+    assert pr_is_ai_automated({"title": "x", "body": "Generated with Cursor", "user": {"login": "alice"}})
+    assert not pr_is_ai_automated({"title": "feat", "body": "Made with Cursor\n", "user": {"login": "alice"}})
 
 
-def test_get_ai_assisted_automated_prs_pct(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_ai_assisted_and_automated_prs_pct(monkeypatch: pytest.MonkeyPatch) -> None:
     pulls = [
         {"title": "a", "body": "Made with Cursor", "user": {"login": "alice"}},
         {"title": "b", "body": "plain", "user": {"login": "bob"}},
         {"title": "c", "body": "Co-authored-by: Cursor <x@y>", "user": {"login": "carol"}},
+        {"title": "d", "body": "Generated with Cursor", "user": {"login": "dave"}},
+        {"title": "e", "body": "", "user": {"login": "cursoragent"}},
     ]
 
     class _Gh:
@@ -195,16 +204,23 @@ def test_get_ai_assisted_automated_prs_pct(monkeypatch: pytest.MonkeyPatch) -> N
     )
     monkeypatch.setattr("src.engineer_identity_map.load_github_email_aliases", lambda: ({}, None))
 
-    out = get_ai_assisted_automated_prs_pct(days=30)
-    assert out["numerator"] == 2.0
-    assert out["denominator"] == 3.0
-    assert out["value"] == 66.67
-    assert out["scope"] == "org"
+    assisted = get_ai_assisted_prs_pct(days=30)
+    assert assisted["numerator"] == 4.0  # a,c,d,e (not b)
+    assert assisted["denominator"] == 5.0
+    assert assisted["value"] == 80.0
+
+    automated = get_ai_automated_prs_pct(days=30)
+    assert automated["numerator"] == 2.0  # d + e
+    assert automated["denominator"] == 5.0
+    assert automated["value"] == 40.0
+
+    # Deprecated alias still points at assisted.
+    assert get_ai_assisted_automated_prs_pct(days=30)["value"] == 80.0
 
 
-def test_get_ai_assisted_automated_prs_pct_github_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_ai_assisted_prs_pct_github_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("src.github_client.github_configured", lambda: False)
-    out = get_ai_assisted_automated_prs_pct(days=30)
+    out = get_ai_assisted_prs_pct(days=30)
     assert "error" in out
 
 
