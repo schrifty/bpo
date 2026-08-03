@@ -238,10 +238,11 @@ metrics:
     direction: higher
 
   "Defect Introduction Rate":
-    description: New release defects ÷ shipped work (generator not yet wired).
+    description: LEAN bugs created ÷ issues shipped × 100.
     metric-id: null
-    metric-generator: null
+    metric-generator: get_defect_introduction_rate
     tags: [engineering, impact, quality, AKKR]
+    direction: lower
 
   "Issues Shipped":
     description: LEAN issues Done in the trailing window.

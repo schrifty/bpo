@@ -21,6 +21,11 @@ ISSUES_SHIPPED_JQL_TEMPLATE = (
     "project = LEAN AND statusCategory = Done AND resolved >= -{days}d"
 )
 
+# New LEAN bugs filed in the window (proxy for release defects until fixVersion/link exists).
+BUGS_CREATED_JQL_TEMPLATE = (
+    "project = LEAN AND issuetype = Bug AND created >= -{days}d"
+)
+
 
 def _engineer_scope(jira: Any, *, timeout: float) -> dict[str, Any]:
     from .eng_team_roster import build_engineer_audience_scope
@@ -414,6 +419,69 @@ def get_issues_shipped(
         }
     logger.info("Issues Shipped: %s (window=%sd)", count, window)
     return {"value": int(count), "jql": jql, "window_days": window}
+
+
+def get_defect_introduction_rate(
+    jira_client: Any,
+    *,
+    days: int = DEFAULT_WINDOW_DAYS,
+    timeout: float = 60.0,
+) -> dict[str, Any]:
+    """Defect Introduction Rate: LEAN bugs created ÷ Issues Shipped × 100.
+
+    Proxy for release-defect rate until a defect→release link (fixVersion / post-deploy
+    window) is available. Numerator is bugs *created* in the window; denominator is the
+    same Issues Shipped count as :func:`get_issues_shipped`. Lower is better.
+    """
+    window = max(1, int(days))
+    bugs_jql = BUGS_CREATED_JQL_TEMPLATE.format(days=window)
+    bugs_count = jira_client.jql_match_count(
+        bugs_jql,
+        data_description=f"LEAN Bugs created last {window}d (Defect Introduction Rate)",
+    )
+    if bugs_count is None:
+        return {
+            "error": (
+                "Jira count unavailable for Defect Introduction Rate numerator "
+                "(LEAN Bugs created; approximate-count returned no count)"
+            )
+        }
+
+    shipped = get_issues_shipped(jira_client, days=window, timeout=timeout)
+    if shipped.get("error"):
+        return {
+            "error": (
+                "Defect Introduction Rate denominator failed: "
+                f"{shipped['error']}"
+            )
+        }
+    issues = int(shipped.get("value") or 0)
+    if issues <= 0:
+        return {
+            "error": (
+                "Issues Shipped is 0 — cannot compute Defect Introduction Rate"
+            )
+        }
+
+    bugs = int(bugs_count)
+    rate = round(100.0 * bugs / issues, 2)
+    logger.info(
+        "Defect Introduction Rate: %s bugs / %s issues shipped = %s%% (window=%sd)",
+        bugs,
+        issues,
+        rate,
+        window,
+    )
+    return {
+        "numerator": float(bugs),
+        "denominator": float(issues),
+        "value": rate,
+        "bugs_created": bugs,
+        "issues_shipped": issues,
+        "bugs_jql": bugs_jql,
+        "shipped_jql": shipped.get("jql"),
+        "window_days": window,
+    }
 
 
 def get_growth_allocation_pct(

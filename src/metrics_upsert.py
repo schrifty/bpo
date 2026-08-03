@@ -296,6 +296,17 @@ def _invoke_get_issues_shipped(ctx: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _invoke_get_defect_introduction_rate(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.eng_scorecard_metrics import get_defect_introduction_rate
+    from src.jira_client import get_shared_jira_client
+
+    return get_defect_introduction_rate(
+        get_shared_jira_client(),
+        days=int(ctx.get("days") or 30),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
 def _invoke_get_growth_allocation_pct(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.eng_scorecard_metrics import get_growth_allocation_pct
     from src.jira_client import get_shared_jira_client
@@ -362,6 +373,7 @@ _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_ai_automated_prs_pct": _invoke_get_ai_automated_prs_pct,
     "get_ai_assisted_automated_prs_pct": _invoke_get_ai_assisted_automated_prs_pct,  # deprecated
     "get_issues_shipped": _invoke_get_issues_shipped,
+    "get_defect_introduction_rate": _invoke_get_defect_introduction_rate,
     "get_growth_allocation_pct": _invoke_get_growth_allocation_pct,
     "get_ai_spend_pct": _invoke_get_ai_spend_pct,
     "get_ai_spend_per_issue": _invoke_get_ai_spend_per_issue,

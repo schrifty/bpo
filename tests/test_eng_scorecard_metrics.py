@@ -13,6 +13,7 @@ from src.eng_scorecard_metrics import (
     get_ai_assisted_automated_prs_pct,
     get_ai_spend_pct,
     get_ai_spend_per_issue,
+    get_defect_introduction_rate,
     get_headcount_plus_ai_spend_per_issue,
     get_growth_allocation_pct,
     get_issues_shipped,
@@ -32,17 +33,21 @@ class _FakeJira:
         headcount: int = 10,
         emails: set[str] | None = None,
         shipped_count: int | None = 20,
+        bugs_created_count: int | None = 5,
         closed: list[dict[str, Any]] | None = None,
         search_error: str | None = None,
     ) -> None:
         self.headcount = headcount
         self.emails = emails or {"a@ex.com", "b@ex.com"}
         self.shipped_count = shipped_count
+        self.bugs_created_count = bugs_created_count
         self.closed = closed
         self.search_error = search_error
         self.atlassian_org_id = "org"
 
     def jql_match_count(self, jql: str, **kwargs: object) -> int | None:
+        if "issuetype = Bug" in jql and "created >=" in jql:
+            return self.bugs_created_count
         return self.shipped_count
 
     def _search(self, jql: str, **kwargs: object) -> list[dict[str, Any]]:
@@ -113,6 +118,36 @@ def test_get_issues_shipped() -> None:
 def test_get_issues_shipped_fails_loud() -> None:
     out = get_issues_shipped(_FakeJira(shipped_count=None))
     assert "error" in out
+
+
+def test_get_defect_introduction_rate() -> None:
+    out = get_defect_introduction_rate(
+        _FakeJira(bugs_created_count=4, shipped_count=20),
+        days=30,
+    )
+    assert out["bugs_created"] == 4
+    assert out["issues_shipped"] == 20
+    assert out["value"] == 20.0
+    assert "issuetype = Bug" in out["bugs_jql"]
+    assert "created >= -30d" in out["bugs_jql"]
+
+
+def test_get_defect_introduction_rate_zero_shipped() -> None:
+    out = get_defect_introduction_rate(
+        _FakeJira(bugs_created_count=1, shipped_count=0),
+        days=30,
+    )
+    assert "error" in out
+    assert "Issues Shipped is 0" in out["error"]
+
+
+def test_get_defect_introduction_rate_fails_loud_on_bugs_count() -> None:
+    out = get_defect_introduction_rate(
+        _FakeJira(bugs_created_count=None, shipped_count=20),
+        days=30,
+    )
+    assert "error" in out
+    assert "numerator" in out["error"]
 
 
 def test_get_growth_allocation_pct(monkeypatch: pytest.MonkeyPatch) -> None:
