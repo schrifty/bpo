@@ -125,13 +125,13 @@ def test_format_kpi_resolved_line_columnar() -> None:
         metric_name="Weekly Active AI Users",
         entry={},
         observation=KPIObservation(value=42.5, origin="live", as_of="2026-07-24"),
-        tags=("mfr", "engineering", "ai"),
+        tags=("engineering", "ai"),
         automated=True,
         description="ignored in text format",
         metric_id=None,
     )
     assert format_kpi_resolved_line(row, widths=widths) == [
-        f"{'Weekly Active AI Users':<20}  {'mfr, engineering, ai':<28}  42.5"
+        f"{'Weekly Active AI Users':<20}  {'engineering, ai':<28}  42.5"
     ]
 
     empty = KPIResolved(

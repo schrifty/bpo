@@ -73,7 +73,7 @@ metrics:
     description: Cursor tokens used in the last 30 days.
     metric-id: null
     metric-generator: get_ai_token_usage
-    tags: [ai, engineering, adoption]
+    tags: [ai, engineering]
     target: 1
     direction: higher
 
@@ -186,14 +186,14 @@ metrics:
     description: null
     metric-id: null
     metric-generator: null
-    tags: [ai, adoption]
+    tags: [ai]
 
   # ── Engineering MFR scorecard (board-level AI adoption & impact) ──
   "Weekly Active AI Users":
     description: "% of Engineering using Cursor in the last 7 days."
     metric-id: null
     metric-generator: get_weekly_active_ai_users
-    tags: [mfr, engineering, adoption, ai, AKKR]
+    tags: [engineering, ai, AKKR]
     target: 80
     direction: higher
 
@@ -201,13 +201,13 @@ metrics:
     description: AI-assisted PRs ÷ total PRs (generator not yet wired).
     metric-id: null
     metric-generator: null
-    tags: [mfr, engineering, adoption, ai, AKKR]
+    tags: [engineering, ai, AKKR]
 
   "% of AI-Assisted Automated PRs":
     description: Merged PRs with Cursor attribution ÷ total merged PRs.
     metric-id: null
     metric-generator: get_ai_assisted_automated_prs_pct
-    tags: [mfr, engineering, adoption, ai]
+    tags: [engineering, ai, AKKR]
     target: 50
     direction: higher
 
@@ -215,7 +215,7 @@ metrics:
     description: Cursor tokens ÷ Engineering headcount.
     metric-id: null
     metric-generator: get_tokens_per_dev
-    tags: [mfr, engineering, adoption, ai, AKKR]
+    tags: [engineering, ai, AKKR]
     target: 1
     direction: higher
 
@@ -223,7 +223,7 @@ metrics:
     description: Monthly Cursor AI spend ÷ monthly engineering spend.
     metric-id: null
     metric-generator: get_ai_spend_pct
-    tags: [mfr, engineering, adoption, ai, AKKR]
+    tags: [engineering, ai, AKKR]
     target: 5
     direction: higher
 
@@ -231,7 +231,7 @@ metrics:
     description: Engineer GitHub PRs merged in the window.
     metric-id: null
     metric-generator: get_prs_merged
-    tags: [mfr, engineering, impact, delivery]
+    tags: [engineering, impact, delivery]
     target: 10
     direction: higher
 
@@ -239,13 +239,13 @@ metrics:
     description: New release defects ÷ shipped work (generator not yet wired).
     metric-id: null
     metric-generator: null
-    tags: [mfr, engineering, impact, quality]
+    tags: [engineering, impact, quality]
 
   "Issues Shipped":
     description: LEAN issues Done in the trailing window.
     metric-id: null
     metric-generator: get_issues_shipped
-    tags: [mfr, engineering, impact, delivery]
+    tags: [engineering, impact, delivery]
     target: 20
     direction: higher
 
@@ -253,7 +253,7 @@ metrics:
     description: Planned LEAN Done work ÷ all LEAN Done work.
     metric-id: null
     metric-generator: get_growth_allocation_pct
-    tags: [mfr, engineering, impact, delivery]
+    tags: [engineering, impact, delivery]
     target: 70
     direction: higher
 
@@ -261,12 +261,12 @@ metrics:
     description: (Headcount cost + AI spend) ÷ issues shipped (blocked).
     metric-id: null
     metric-generator: null
-    tags: [mfr, engineering, impact, ai]
+    tags: [engineering, impact, ai]
 
   "AI Spend / Issue":
     description: Engineer Cursor spend (USD) ÷ issues shipped.
     metric-id: null
     metric-generator: get_ai_spend_per_issue
-    tags: [mfr, engineering, impact, ai]
+    tags: [engineering, impact, ai]
     target: 50
     direction: lower

@@ -119,7 +119,7 @@ def test_digest_report_uses_compact_natural_widths() -> None:
     from src.metrics_digest import column_widths_for_digest_rows, format_digest_lines
 
     rows = [
-        DigestRow("Short", 1, 10.0, 5.0, "lower", True, tags=("mfr", "akkr")),
+        DigestRow("Short", 1, 10.0, 5.0, "lower", True, tags=("akkr",)),
         DigestRow("Median TTR", 2171, 12345.67, 9999.0, "higher", False, tags=("support",)),
         DigestRow(
             "Engineering Cycle Time (Sprint)",
@@ -153,7 +153,7 @@ def test_digest_akkr_tags_appear_after_dir() -> None:
         80.0,
         "higher",
         True,
-        tags=("mfr", "engineering", "adoption", "ai", "akkr"),
+        tags=("engineering", "ai", "akkr"),
     )
     lines = format_digest_lines(row)
     primary = lines[0]
@@ -231,7 +231,7 @@ def test_run_metrics_digest_filters_by_tag(monkeypatch) -> None:
                 "metric-generator": "fake_akkr",
                 "target": 50,
                 "direction": "higher",
-                "tags": ["akkr", "mfr"],
+                "tags": ["akkr"],
             },
             "Other KPI": {
                 "metric-id": 2,
