@@ -266,3 +266,59 @@ def test_audience_scope_person_on_dev_and_product_counts_as_engineer() -> None:
     assert scope["engineer_names"] == {"alice"}
     assert scope["non_engineer_names"] == set()
     assert scope["emails"] == {"alice@x.com"}
+
+
+def test_audience_scope_excludes_named_dev_teams() -> None:
+    class _TeamsClient:
+        atlassian_org_id = "org-1"
+
+        def get_atlassian_teams(self, timeout=60.0):
+            return {
+                "error": None,
+                "teams": [
+                    {
+                        "name": "Dev - Data Implementation",
+                        "member_account_ids": ["di1", "di2"],
+                        "members": ["Dana", "Drew"],
+                    },
+                    {
+                        "name": "Dev - Supply Insights",
+                        "member_account_ids": ["s1", "di1"],
+                        "members": ["Sam", "Dana"],
+                    },
+                    {
+                        "name": "Product",
+                        "member_account_ids": ["p1"],
+                        "members": ["Pat"],
+                    },
+                ],
+            }
+
+        def resolve_account_names(self, account_ids, timeout=30.0):
+            return {
+                "di1": "Dana",
+                "di2": "Drew",
+                "s1": "Sam",
+                "p1": "Pat",
+            }
+
+        def resolve_account_emails(self, account_ids, timeout=30.0):
+            return {
+                "di1": "dana@x.com",
+                "di2": "drew@x.com",
+                "s1": "sam@x.com",
+                "p1": "pat@x.com",
+            }
+
+    scope = build_engineer_audience_scope(
+        _TeamsClient(),
+        exclude_teams={"Dev - Data Implementation"},
+    )
+    # Dana is on Supply Insights too → still an engineer; Drew only on DI → excluded.
+    assert scope["error"] is None
+    assert scope["engineer_names"] == {"dana", "sam"}
+    assert scope["emails"] == {"dana@x.com", "sam@x.com"}
+    assert scope["headcount"] == 2
+    assert "drew" in scope["non_engineer_names"] or "drew" not in scope["engineer_names"]
+    assert scope["excluded_teams"] == ["Dev - Data Implementation"]
+    assert "drew@x.com" not in scope["emails"]

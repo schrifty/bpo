@@ -17,6 +17,9 @@ logger = logging.getLogger("cortex")
 DEFAULT_WINDOW_DAYS = 30
 WAU_WINDOW_DAYS = 7
 ISSUES_SHIPPED_WINDOW_DAYS = 84  # 12 weeks
+# Omit from eng AI-adoption headcount KPIs (WAU, Tokens/Token Cost per Dev).
+ENG_AI_ADOPTION_EXCLUDED_DEV_TEAMS = frozenset({"dev - data implementation"})
+WAU_EXCLUDED_DEV_TEAMS = ENG_AI_ADOPTION_EXCLUDED_DEV_TEAMS  # backward-compatible alias
 
 ISSUES_SHIPPED_JQL_TEMPLATE = (
     "project = LEAN AND statusCategory = Done AND resolved >= -{days}d"
@@ -28,17 +31,28 @@ BUGS_CREATED_JQL_TEMPLATE = (
 )
 
 
-def _engineer_scope(jira: Any, *, timeout: float) -> dict[str, Any]:
+def _engineer_scope(
+    jira: Any,
+    *,
+    timeout: float,
+    exclude_teams: frozenset[str] | set[str] | None = None,
+) -> dict[str, Any]:
     from .eng_team_roster import build_engineer_audience_scope
 
-    scope = build_engineer_audience_scope(jira, timeout=timeout)
+    scope = build_engineer_audience_scope(
+        jira, timeout=timeout, exclude_teams=exclude_teams
+    )
     if scope.get("error"):
         return {"error": f"Engineering Department roster unavailable: {scope['error']}"}
     headcount = int(scope.get("headcount") or 0)
     if headcount <= 0:
         return {"error": "Engineering Department headcount is 0 (no Dev - * Atlassian teams)"}
     emails = {str(e).strip().casefold() for e in (scope.get("emails") or []) if e}
-    return {"headcount": headcount, "emails": emails}
+    return {
+        "headcount": headcount,
+        "emails": emails,
+        "excluded_teams": list(scope.get("excluded_teams") or []),
+    }
 
 
 def _cursor_events(client: Any, *, days: int) -> list[dict[str, Any]] | dict[str, Any]:
@@ -85,11 +99,14 @@ def get_weekly_active_ai_users(
 ) -> dict[str, Any]:
     """Weekly Active AI Users: active Cursor users ÷ Engineering Department headcount.
 
-    Scope is the Engineering Department only — members of Atlassian ``Dev - *`` teams
-    (see :func:`eng_team_roster.build_engineer_audience_scope`). Non-engineering Cursor
-    users are excluded from both the numerator and the denominator.
+    Scope is the Engineering Department — members of Atlassian ``Dev - *`` teams
+    (see :func:`eng_team_roster.build_engineer_audience_scope`), excluding
+    ``Dev - Data Implementation``. Non-engineering Cursor users are excluded from
+    both the numerator and the denominator.
     """
-    scope = _engineer_scope(jira_client, timeout=timeout)
+    scope = _engineer_scope(
+        jira_client, timeout=timeout, exclude_teams=ENG_AI_ADOPTION_EXCLUDED_DEV_TEAMS
+    )
     if scope.get("error"):
         return scope
     window = max(1, int(days) or WAU_WINDOW_DAYS)
@@ -100,11 +117,13 @@ def get_weekly_active_ai_users(
     headcount = int(scope["headcount"])
     active = int(stats["active_users"])
     pct = round(100.0 * active / headcount, 2) if headcount else 0.0
+    excluded = scope.get("excluded_teams") or []
     logger.info(
-        "Weekly Active AI Users: %s / %s Engineering Department (window=%sd) = %s%%",
+        "Weekly Active AI Users: %s / %s Engineering Department (window=%sd%s) = %s%%",
         active,
         headcount,
         window,
+        f", excl={excluded}" if excluded else "",
         pct,
     )
     return {
@@ -115,6 +134,7 @@ def get_weekly_active_ai_users(
         "headcount": headcount,
         "window_days": window,
         "scope": "engineering_department",
+        "excluded_teams": excluded,
     }
 
 
@@ -138,8 +158,14 @@ def get_tokens_per_dev(
     days: int = DEFAULT_WINDOW_DAYS,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
-    """Tokens per Dev: total model tokens ÷ Engineering Department headcount."""
-    scope = _engineer_scope(jira_client, timeout=timeout)
+    """Tokens per Dev: total model tokens ÷ Engineering Department headcount.
+
+    Same engineer scope as Weekly Active AI Users (``Dev - *``, excluding
+    ``Dev - Data Implementation``).
+    """
+    scope = _engineer_scope(
+        jira_client, timeout=timeout, exclude_teams=ENG_AI_ADOPTION_EXCLUDED_DEV_TEAMS
+    )
     if scope.get("error"):
         return scope
     events = _cursor_events(cursor_client, days=days)
@@ -149,11 +175,13 @@ def get_tokens_per_dev(
     headcount = int(scope["headcount"])
     tokens = int(stats["tokens"])
     per_dev = round(tokens / headcount, 1) if headcount else 0.0
+    excluded = scope.get("excluded_teams") or []
     logger.info(
-        "Tokens per Dev: %s tokens / %s Engineering Department = %s",
+        "Tokens per Dev: %s tokens / %s Engineering Department = %s%s",
         tokens,
         headcount,
         per_dev,
+        f" (excl={excluded})" if excluded else "",
     )
     return {
         "numerator": float(tokens),
@@ -163,6 +191,53 @@ def get_tokens_per_dev(
         "headcount": headcount,
         "window_days": max(1, int(days)),
         "scope": "engineering_department",
+        "excluded_teams": excluded,
+    }
+
+
+def get_token_cost_per_dev(
+    cursor_client: Any,
+    jira_client: Any,
+    *,
+    days: int = DEFAULT_WINDOW_DAYS,
+    timeout: float = 60.0,
+) -> dict[str, Any]:
+    """Token Cost per Dev: engineer Cursor spend (USD) ÷ Engineering Department headcount.
+
+    Same scope and window as :func:`get_tokens_per_dev` (``Dev - *``, excluding
+    ``Dev - Data Implementation``); numerator is charged Cursor usage
+    (``chargedCents`` / 100) instead of token count.
+    """
+    scope = _engineer_scope(
+        jira_client, timeout=timeout, exclude_teams=ENG_AI_ADOPTION_EXCLUDED_DEV_TEAMS
+    )
+    if scope.get("error"):
+        return scope
+    events = _cursor_events(cursor_client, days=days)
+    if isinstance(events, dict) and events.get("error"):
+        return events
+    stats = _engineer_event_stats(events, engineer_emails=scope["emails"])
+    headcount = int(scope["headcount"])
+    spend_usd = round(float(stats["charged_cents"]) / 100.0, 4)
+    per_dev = round(spend_usd / headcount, 4) if headcount else 0.0
+    excluded = scope.get("excluded_teams") or []
+    logger.info(
+        "Token Cost per Dev: $%s / %s Engineering Department = $%s (window=%sd%s)",
+        spend_usd,
+        headcount,
+        per_dev,
+        max(1, int(days)),
+        f", excl={excluded}" if excluded else "",
+    )
+    return {
+        "numerator": spend_usd,
+        "denominator": float(headcount),
+        "value": per_dev,
+        "spend_usd": spend_usd,
+        "headcount": headcount,
+        "window_days": max(1, int(days)),
+        "scope": "engineering_department",
+        "excluded_teams": excluded,
     }
 
 
@@ -550,13 +625,18 @@ def get_issues_shipped(
     return {"value": int(count), "jql": jql, "window_days": window}
 
 
-def get_defect_introduction_rate(
+def get_defects_per_100_issues(
     jira_client: Any,
     *,
     days: int = DEFAULT_WINDOW_DAYS,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
-    """Defect Introduction Rate: LEAN bugs created ÷ Issues Shipped × 100.
+    """Defects per 100 Issues: LEAN bugs created per 100 issues shipped.
+
+    Computed as ``(bugs_created ÷ issues_shipped) × 100`` so the scorecard value is
+    **bugs per 100 shipped issues** (a percentage-scale rate), not a 0–1 ratio.
+    Example: 57 bugs and 281 shipped → 20.28 means ~20 bugs were filed for every
+    100 issues completed.
 
     Proxy for release-defect rate until a defect→release link (fixVersion / post-deploy
     window) is available. Numerator is bugs *created* in the window; denominator is the
@@ -566,12 +646,12 @@ def get_defect_introduction_rate(
     bugs_jql = BUGS_CREATED_JQL_TEMPLATE.format(days=window)
     bugs_count = jira_client.jql_match_count(
         bugs_jql,
-        data_description=f"LEAN Bugs created last {window}d (Defect Introduction Rate)",
+        data_description=f"LEAN Bugs created last {window}d (Defects per 100 Issues)",
     )
     if bugs_count is None:
         return {
             "error": (
-                "Jira count unavailable for Defect Introduction Rate numerator "
+                "Jira count unavailable for Defects per 100 Issues numerator "
                 "(LEAN Bugs created; approximate-count returned no count)"
             )
         }
@@ -580,7 +660,7 @@ def get_defect_introduction_rate(
     if shipped.get("error"):
         return {
             "error": (
-                "Defect Introduction Rate denominator failed: "
+                "Defects per 100 Issues denominator failed: "
                 f"{shipped['error']}"
             )
         }
@@ -588,14 +668,14 @@ def get_defect_introduction_rate(
     if issues <= 0:
         return {
             "error": (
-                "Issues Shipped is 0 — cannot compute Defect Introduction Rate"
+                "Issues Shipped is 0 — cannot compute Defects per 100 Issues"
             )
         }
 
     bugs = int(bugs_count)
     rate = round(100.0 * bugs / issues, 2)
     logger.info(
-        "Defect Introduction Rate: %s bugs / %s issues shipped = %s%% (window=%sd)",
+        "Defects per 100 Issues: %s bugs / %s issues shipped = %s (window=%sd)",
         bugs,
         issues,
         rate,
@@ -611,6 +691,10 @@ def get_defect_introduction_rate(
         "shipped_jql": shipped.get("jql"),
         "window_days": window,
     }
+
+
+# Backward-compatible alias.
+get_defect_introduction_rate = get_defects_per_100_issues
 
 
 def get_growth_allocation_pct(

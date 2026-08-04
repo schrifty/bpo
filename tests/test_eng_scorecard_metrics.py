@@ -13,12 +13,13 @@ from src.eng_scorecard_metrics import (
     get_ai_assisted_automated_prs_pct,
     get_ai_spend_pct,
     get_ai_spend_per_issue,
-    get_defect_introduction_rate,
+    get_defects_per_100_issues,
     get_headcount_plus_ai_spend_per_issue,
     get_growth_allocation_pct,
     get_issues_shipped,
     get_prs_merged,
     get_tokens_per_dev,
+    get_token_cost_per_dev,
     get_wau_pct,
     get_weekly_active_ai_users,
     pr_is_ai_assisted,
@@ -70,10 +71,11 @@ class _FakeCursor:
 def _patch_scope(monkeypatch: pytest.MonkeyPatch, jira: _FakeJira) -> None:
     monkeypatch.setattr(
         "src.eng_team_roster.build_engineer_audience_scope",
-        lambda client, timeout=60.0: {
+        lambda client, timeout=60.0, exclude_teams=None: {
             "error": None,
             "headcount": jira.headcount,
             "emails": jira.emails,
+            "excluded_teams": list(exclude_teams or []),
         },
     )
 
@@ -109,6 +111,21 @@ def test_get_tokens_per_dev(monkeypatch: pytest.MonkeyPatch) -> None:
     assert out["value"] == 100.0
 
 
+def test_get_token_cost_per_dev(monkeypatch: pytest.MonkeyPatch) -> None:
+    jira = _FakeJira(headcount=2, emails={"a@ex.com", "b@ex.com"})
+    _patch_scope(monkeypatch, jira)
+    events = [
+        {"userEmail": "a@ex.com", "tokenUsage": {"inputTokens": 100, "outputTokens": 50}, "chargedCents": 200},
+        {"userEmail": "b@ex.com", "tokenUsage": {"inputTokens": 50, "outputTokens": 0}, "chargedCents": 100},
+        {"userEmail": "outsider@ex.com", "tokenUsage": {"inputTokens": 9, "outputTokens": 9}, "chargedCents": 999},
+    ]
+    out = get_token_cost_per_dev(_FakeCursor(events), jira, days=30)
+    assert out["spend_usd"] == 3.0
+    assert out["headcount"] == 2
+    assert out["value"] == 1.5
+    assert out["scope"] == "engineering_department"
+
+
 def test_get_issues_shipped() -> None:
     out = get_issues_shipped(_FakeJira(shipped_count=17), days=84)
     assert out["value"] == 17
@@ -127,8 +144,8 @@ def test_get_issues_shipped_fails_loud() -> None:
     assert "error" in out
 
 
-def test_get_defect_introduction_rate() -> None:
-    out = get_defect_introduction_rate(
+def test_get_defects_per_100_issues() -> None:
+    out = get_defects_per_100_issues(
         _FakeJira(bugs_created_count=4, shipped_count=20),
         days=30,
     )
@@ -139,8 +156,8 @@ def test_get_defect_introduction_rate() -> None:
     assert "created >= -30d" in out["bugs_jql"]
 
 
-def test_get_defect_introduction_rate_zero_shipped() -> None:
-    out = get_defect_introduction_rate(
+def test_get_defects_per_100_issues_zero_shipped() -> None:
+    out = get_defects_per_100_issues(
         _FakeJira(bugs_created_count=1, shipped_count=0),
         days=30,
     )
@@ -148,8 +165,8 @@ def test_get_defect_introduction_rate_zero_shipped() -> None:
     assert "Issues Shipped is 0" in out["error"]
 
 
-def test_get_defect_introduction_rate_fails_loud_on_bugs_count() -> None:
-    out = get_defect_introduction_rate(
+def test_get_defects_per_100_issues_fails_loud_on_bugs_count() -> None:
+    out = get_defects_per_100_issues(
         _FakeJira(bugs_created_count=None, shipped_count=20),
         days=30,
     )

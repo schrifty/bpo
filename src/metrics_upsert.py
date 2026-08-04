@@ -256,6 +256,19 @@ def _invoke_get_tokens_per_dev(ctx: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _invoke_get_token_cost_per_dev(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.cursor_client import get_shared_cursor_client
+    from src.eng_scorecard_metrics import get_token_cost_per_dev
+    from src.jira_client import get_shared_jira_client
+
+    return get_token_cost_per_dev(
+        get_shared_cursor_client(),
+        get_shared_jira_client(),
+        days=int(ctx.get("days") or 30),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
 def _invoke_get_prs_merged(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.eng_scorecard_metrics import get_prs_merged
 
@@ -297,11 +310,11 @@ def _invoke_get_issues_shipped(ctx: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _invoke_get_defect_introduction_rate(ctx: dict[str, Any]) -> dict[str, Any]:
-    from src.eng_scorecard_metrics import get_defect_introduction_rate
+def _invoke_get_defects_per_100_issues(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.eng_scorecard_metrics import get_defects_per_100_issues
     from src.jira_client import get_shared_jira_client
 
-    return get_defect_introduction_rate(
+    return get_defects_per_100_issues(
         get_shared_jira_client(),
         days=int(ctx.get("days") or 30),
         timeout=float(ctx.get("timeout") or 60.0),
@@ -369,12 +382,14 @@ _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_weekly_active_ai_users": _invoke_get_weekly_active_ai_users,
     "get_wau_pct": _invoke_get_wau_pct,  # deprecated alias
     "get_tokens_per_dev": _invoke_get_tokens_per_dev,
+    "get_token_cost_per_dev": _invoke_get_token_cost_per_dev,
     "get_prs_merged": _invoke_get_prs_merged,
     "get_ai_assisted_prs_pct": _invoke_get_ai_assisted_prs_pct,
     "get_ai_automated_prs_pct": _invoke_get_ai_automated_prs_pct,
     "get_ai_assisted_automated_prs_pct": _invoke_get_ai_assisted_automated_prs_pct,  # deprecated
     "get_issues_shipped": _invoke_get_issues_shipped,
-    "get_defect_introduction_rate": _invoke_get_defect_introduction_rate,
+    "get_defects_per_100_issues": _invoke_get_defects_per_100_issues,
+    "get_defect_introduction_rate": _invoke_get_defects_per_100_issues,  # deprecated alias
     "get_growth_allocation_pct": _invoke_get_growth_allocation_pct,
     "get_ai_spend_pct": _invoke_get_ai_spend_pct,
     "get_ai_spend_per_issue": _invoke_get_ai_spend_per_issue,
