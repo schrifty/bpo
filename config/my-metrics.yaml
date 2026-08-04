@@ -278,6 +278,7 @@ metrics:
     metric-generator: get_headcount_plus_ai_spend_per_issue
     tags: [engineering, impact, ai, AKKR]
     unit: currency
+    target: 5
     direction: lower
 
   "AI Spend / Issue":
