@@ -20,6 +20,18 @@ def render_slide_plan(
     deck_id: str,
 ) -> tuple[list[dict], int, list[tuple[str, dict[str, Any]]], dict[str, Any] | None, list[dict[str, Any]]]:
     """Build batchUpdate requests and speaker-note targets for a resolved slide plan."""
+    if deck_id == "engineering-portfolio":
+        from .config import CORTEX_ENG_PORTFOLIO_CLAUDE_SLIDES
+        from .eng_portfolio_claude_slides import render_eng_portfolio_claude_slide_plan
+
+        if CORTEX_ENG_PORTFOLIO_CLAUDE_SLIDES:
+            return render_eng_portfolio_claude_slide_plan(
+                report,
+                slide_plan,
+                deck_id,
+                deck_purpose=str(report.get("deck_purpose") or ""),
+            )
+
     # Build every slide except "Notable" on the first pass; fetches are already in ``report`` for support.
     # Notable slides are inserted in a second batch at insertionIndex 1 after the LLM runs on a digest
     # of the same in-memory data (no refetch; bullets reflect the same dataset as the rest of the deck).

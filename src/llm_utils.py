@@ -53,9 +53,10 @@ def _llm_create_with_retry(client: Any, max_retries: int = 3, **kwargs: Any):
                     )
                 else:
                     logger.error(
-                        "LLM quota exhausted (OpenAI). "
-                        "Fix: add credits at platform.openai.com/settings/organization/billing, "
-                        "or set LLM_PROVIDER=gemini in .env to use Gemini instead."
+                        "LLM quota exhausted (%s). "
+                        "Fix billing for that provider, or set LLM_PROVIDER to another "
+                        "of gemini|openai|anthropic in .env.",
+                        LLM_PROVIDER,
                     )
                 raise
 
