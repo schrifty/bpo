@@ -325,10 +325,10 @@ Drive output: `Output/LLM-Context-Portfolio-persistent.md` and `Output/Historica
 ```bash
 cortex --export-pendo --customer Ford --days 30
 cortex --export-pendo-detailed --customer Ford --days 30
-cortex --export-pendo-top-arr --top-n 5 --days 30
+cortex --export-pendo-top-arr --top-n 10 --days 30
 ```
 
-Scheduled jobs include `ford-pendo-7d`, `ford-pendo-30d`, `carrier-pendo-detailed-30d`, and `pendo-top-arr-30d`. Add `--no-drive` to write locally only; `-o` / `--out-dir` set local paths.
+Scheduled jobs include `ford-pendo-7d`, `ford-pendo-30d`, and `pendo-top-10-arr` (top 10 ARR · 30d + 7d detailed). Add `--no-drive` to write locally only; `-o` / `--out-dir` set local paths.
 
 Business units for §2.1 / §13.1 come from `config/pendo_site_bu_map.yaml` (per Pendo prefix); customers with no entry simply omit the business-unit column and §2.1. Each rule carries a `confidence` (`high` = the site name self-labels its division; `inferred` = a location/brand guess); unmatched sites fall to the `default_business_unit` (`Unmapped — needs review`). Sites resolving to `inferred` or the default are surfaced every run (export log warning + §2.1 Confidence note) and collected in `docs/DATA-GOVERNANCE/BUSINESS_UNIT_MAPPING_REVIEW.md` for periodic CS review. For customers whose CS Report is split by division (e.g. Safran), `python scripts/build_csr_bu_map.py --customer <name> --live` joins Pendo sites to the CS Report factory list and prints an authoritative, CSR-confirmed rules fragment plus a coverage report to refresh the map. Safran is validated; **Carrier, Spirit, and Bombardier are provisional** (all rules `inferred`) pending CS-confirmed taxonomy. `CORTEX_PENDO_SITE_DETAIL_USER_SITES` (default 20) caps how many top sites get a per-site user table in §13.2.
 

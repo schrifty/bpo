@@ -57,7 +57,7 @@ Flag commands (utilities)
 
   cortex --export-pendo --customer <name> [--days N] [--compare-days N] [--no-drive] [-o PATH]
   cortex --export-pendo-detailed --customer <name> [--days N] [--compare-days N] [--no-drive] [-o PATH]
-  cortex --export-pendo-top-arr [--top-n 5] [--days N] [--compare-days N] [--no-drive] [--out-dir DIR]
+  cortex --export-pendo-top-arr [--top-n 10] [--days N] [--compare-days N] [--no-drive] [--out-dir DIR]
       Export **Pendo-only** product usage for one customer (sites, features, depth, Kei, trends).
       Uploads markdown + Google Sheet to ``Output/Customer Exports/{customer}/`` — only
       ``-persistent`` files in the customer folder; same-day snapshots under ``Historical Data/{ISO-date}/``.

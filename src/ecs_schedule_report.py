@@ -51,19 +51,15 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "rule_name": "cortex-ford-pendo-30d",
         "summary": "Ford Pendo usage export (cortex --export-pendo --customer Ford --days 30 --compare-days 30)",
     },
-    "pendo-top-arr-30d": {
+    "pendo-top-10-arr": {
         "schedule_expression": "cron(0 8 * * ? *)",
-        "command": ["pendo-top-arr-30d"],
+        "command": ["pendo-top-10-arr"],
         "enabled": True,
-        "rule_name": "cortex-pendo-top-arr-30d",
-        "summary": "Top-5 ARR Pendo detailed export (cortex --export-pendo-top-arr --top-n 5 --days 30 --compare-days 30)",
-    },
-    "carrier-pendo-detailed-30d": {
-        "schedule_expression": "cron(30 8 * * ? *)",
-        "command": ["carrier-pendo-detailed-30d"],
-        "enabled": True,
-        "rule_name": "cortex-carrier-pendo-detailed-30d",
-        "summary": "Carrier Pendo detailed export (30d)",
+        "rule_name": "cortex-pendo-top-10-arr",
+        "summary": (
+            "Top-10 ARR Pendo detailed export "
+            "(30d + 7d via cortex --export-pendo-top-arr --top-n 10)"
+        ),
     },
 
     "metrics-daily-digest": {
