@@ -33,6 +33,12 @@ BUGS_CREATED_JQL_TEMPLATE = (
     "project = LEAN AND issuetype = Bug AND created >= -{days}d"
 )
 
+# % Growth Allocation excludes these from both numerator and denominator.
+_GROWTH_EXCLUDED_ISSUE_TYPES = frozenset({"Bug"})
+_TECH_DEBT_LABELS = frozenset(
+    {"tech-debt", "tech_debt", "technical_debt", "techdebt"}
+)
+
 
 def _engineer_scope(
     jira: Any,
@@ -587,7 +593,7 @@ def get_ai_automated_prs_pct(
     days: int = DEFAULT_WINDOW_DAYS,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
-    """% AI-Automated PRs: agent-authored PR/commit signals ÷ total merged PRs."""
+    """Deprecated: prefer :func:`get_ai_code_share`. Agent-authored PR share (trailer-based)."""
     return _merged_prs_ai_pct(mode="automated", days=days, timeout=timeout)
 
 
@@ -598,6 +604,88 @@ def get_ai_assisted_automated_prs_pct(
 ) -> dict[str, Any]:
     """Deprecated alias for :func:`get_ai_assisted_prs_pct`."""
     return get_ai_assisted_prs_pct(days=days, timeout=timeout)
+
+
+def get_ai_code_share(
+    cursor_client: Any,
+    jira_client: Any,
+    *,
+    days: int = DEFAULT_WINDOW_DAYS,
+    timeout: float = 60.0,
+) -> dict[str, Any]:
+    """AI Code Share: Cursor-attributed lines ÷ total changed lines in commits.
+
+    Uses Cursor ``/teams/daily-usage-data`` git line attribution for Engineering
+    Department members (``Dev - *``, excluding Data Implementation):
+
+    ``(acceptedLinesAdded + acceptedLinesDeleted)
+      ÷ (totalLinesAdded + totalLinesDeleted)``
+
+    This matches Cursor's "AI Share of Committed Code" signal (Tab + Agent lines
+    that survived into commits ÷ all lines changed in those commits). True
+    merged-PR SHA joining needs the Enterprise AI Code Tracking API, which this
+    team key cannot access yet.
+    """
+    scope = _engineer_scope(
+        jira_client, timeout=timeout, exclude_teams=ENG_AI_ADOPTION_EXCLUDED_DEV_TEAMS
+    )
+    if scope.get("error"):
+        return scope
+
+    window = max(1, int(days))
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=window)
+    try:
+        rows = cursor_client.get_daily_usage(start, end, all_members=True)
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"Cursor daily-usage unavailable for AI Code Share: {e}"}
+
+    emails = scope["emails"]
+    ai_lines = 0
+    total_lines = 0
+    matched_rows = 0
+    for row in rows or []:
+        email = str(row.get("email") or "").strip().casefold()
+        if not email or email not in emails:
+            continue
+        matched_rows += 1
+        ai_lines += int(row.get("acceptedLinesAdded") or 0) + int(
+            row.get("acceptedLinesDeleted") or 0
+        )
+        total_lines += int(row.get("totalLinesAdded") or 0) + int(
+            row.get("totalLinesDeleted") or 0
+        )
+
+    if total_lines <= 0:
+        return {
+            "error": (
+                "AI Code Share denominator is 0 — no Cursor totalLinesAdded/"
+                f"Deleted for Engineering Department in last {window}d"
+            )
+        }
+
+    pct = round(100.0 * ai_lines / total_lines, 2)
+    excluded = scope.get("excluded_teams") or []
+    logger.info(
+        "AI Code Share: %s / %s lines = %s%% (eng daily-usage, window=%sd%s, rows=%s)",
+        ai_lines,
+        total_lines,
+        pct,
+        window,
+        f", excl={excluded}" if excluded else "",
+        matched_rows,
+    )
+    return {
+        "numerator": float(ai_lines),
+        "denominator": float(total_lines),
+        "value": pct,
+        "ai_lines": ai_lines,
+        "total_lines": total_lines,
+        "window_days": window,
+        "scope": "engineering_department",
+        "source": "cursor_daily_usage",
+        "excluded_teams": excluded,
+    }
 
 
 def get_issues_shipped(
@@ -772,7 +860,11 @@ def get_growth_allocation_pct(
     days: int = DEFAULT_WINDOW_DAYS,
     timeout: float = 60.0,  # noqa: ARG001
 ) -> dict[str, Any]:
-    """% Growth Allocation: planned/roadmap closed work ÷ total closed engineering work."""
+    """% Growth Allocation: planned/roadmap closed work ÷ eligible closed work.
+
+    Bugs and tech-debt-labeled issues are excluded from both the numerator and
+    denominator so growth share is measured against non-bug, non-debt delivery.
+    """
     from .jira_client import compute_eng_work_split
 
     window = max(1, int(days))
@@ -789,24 +881,41 @@ def get_growth_allocation_pct(
         return {"error": f"Jira search unavailable for % Growth Allocation: {e}"}
 
     closed = []
+    excluded_bugs = 0
+    excluded_tech_debt = 0
     for issue in closed_raw or []:
         f = issue.get("fields") or {}
-        closed.append(
-            {
-                "type": (f.get("issuetype") or {}).get("name", ""),
-                "labels": f.get("labels") or [],
-            }
-        )
+        ticket = {
+            "type": (f.get("issuetype") or {}).get("name", ""),
+            "labels": f.get("labels") or [],
+        }
+        if (ticket.get("type") or "") in _GROWTH_EXCLUDED_ISSUE_TYPES:
+            excluded_bugs += 1
+            continue
+        labels = {str(label).lower() for label in (ticket.get("labels") or [])}
+        if labels & _TECH_DEBT_LABELS:
+            excluded_tech_debt += 1
+            continue
+        closed.append(ticket)
+
     split = compute_eng_work_split([], closed)
     closed_split = split.get("closed") or {}
     planned = int(closed_split.get("planned") or 0)
     total = int(closed_split.get("total") or 0)
     if total <= 0:
-        return {"error": f"no LEAN Done issues in last {window}d for growth allocation"}
+        return {
+            "error": (
+                f"no eligible LEAN Done issues in last {window}d for growth "
+                "allocation (after excluding bugs and tech debt)"
+            )
+        }
     logger.info(
-        "%% Growth Allocation: planned=%s / total=%s (window=%sd)",
+        "%% Growth Allocation: planned=%s / total=%s "
+        "(excluded bugs=%s tech_debt=%s, window=%sd)",
         planned,
         total,
+        excluded_bugs,
+        excluded_tech_debt,
         window,
     )
     return {
@@ -814,6 +923,8 @@ def get_growth_allocation_pct(
         "denominator": float(total),
         "planned": planned,
         "unplanned": int(closed_split.get("unplanned") or 0),
+        "excluded_bugs": excluded_bugs,
+        "excluded_tech_debt": excluded_tech_debt,
         "window_days": window,
     }
 

@@ -284,13 +284,22 @@ def _invoke_get_ai_assisted_prs_pct(ctx: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _invoke_get_ai_automated_prs_pct(ctx: dict[str, Any]) -> dict[str, Any]:
-    from src.eng_scorecard_metrics import get_ai_automated_prs_pct
+def _invoke_get_ai_code_share(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.cursor_client import get_shared_cursor_client
+    from src.eng_scorecard_metrics import get_ai_code_share
+    from src.jira_client import get_shared_jira_client
 
-    return get_ai_automated_prs_pct(
+    return get_ai_code_share(
+        get_shared_cursor_client(),
+        get_shared_jira_client(),
         days=int(ctx.get("days") or 30),
         timeout=float(ctx.get("timeout") or 60.0),
     )
+
+
+def _invoke_get_ai_automated_prs_pct(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Deprecated alias — prefer get_ai_code_share."""
+    return _invoke_get_ai_code_share(ctx)
 
 
 def _invoke_get_ai_assisted_automated_prs_pct(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -384,7 +393,8 @@ _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_token_cost_per_dev": _invoke_get_token_cost_per_dev,
     "get_prs_merged": _invoke_get_prs_merged,
     "get_ai_assisted_prs_pct": _invoke_get_ai_assisted_prs_pct,
-    "get_ai_automated_prs_pct": _invoke_get_ai_automated_prs_pct,
+    "get_ai_code_share": _invoke_get_ai_code_share,
+    "get_ai_automated_prs_pct": _invoke_get_ai_automated_prs_pct,  # deprecated → AI Code Share
     "get_ai_assisted_automated_prs_pct": _invoke_get_ai_assisted_automated_prs_pct,  # deprecated
     "get_issues_shipped": _invoke_get_issues_shipped,
     "get_defects_per_100_issues": _invoke_get_defects_per_100_issues,

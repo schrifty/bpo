@@ -12,6 +12,7 @@ from src.eng_scorecard_metrics import (
     get_ai_assisted_prs_pct,
     get_ai_automated_prs_pct,
     get_ai_assisted_automated_prs_pct,
+    get_ai_code_share,
     get_ai_spend_pct,
     get_ai_spend_per_issue,
     get_defects_per_100_issues,
@@ -196,13 +197,18 @@ def test_get_growth_allocation_pct(monkeypatch: pytest.MonkeyPatch) -> None:
         {"fields": {"issuetype": {"name": "Story"}, "labels": []}},
         {"fields": {"issuetype": {"name": "Bug"}, "labels": []}},
         {"fields": {"issuetype": {"name": "Task"}, "labels": ["escalation"]}},
+        {"fields": {"issuetype": {"name": "Task"}, "labels": ["tech-debt"]}},
+        {"fields": {"issuetype": {"name": "Improvement"}, "labels": ["tech_debt"]}},
     ]
     jira = _FakeJira(closed=closed)
     out = get_growth_allocation_pct(jira, days=30)
-    assert out["numerator"] == 2.0  # two Stories
-    assert out["denominator"] == 4.0
+    # Bugs + tech-debt excluded; remaining = 2 Stories + 1 escalation.
+    assert out["numerator"] == 2.0
+    assert out["denominator"] == 3.0
     assert out["planned"] == 2
-    assert out["unplanned"] == 2
+    assert out["unplanned"] == 1
+    assert out["excluded_bugs"] == 1
+    assert out["excluded_tech_debt"] == 2
 
 
 def test_get_ai_spend_pct(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -383,15 +389,74 @@ def test_get_ai_assisted_and_automated_prs_pct(monkeypatch: pytest.MonkeyPatch) 
     assert assisted["value"] == round(100.0 * 6 / 7, 2)
     assert assisted["commit_trailer_checks"] >= 1
 
+    # Deprecated automated PR metric still classifies agent signals.
     automated = get_ai_automated_prs_pct(days=30)
-    # d + e (PR signals) + g (cursoragent commit author); not f (co-authored only)
     assert automated["numerator"] == 3.0
     assert automated["denominator"] == 7.0
     assert automated["value"] == round(100.0 * 3 / 7, 2)
-    assert automated["commit_trailer_checks"] >= 1
 
     # Deprecated alias still points at assisted.
     assert get_ai_assisted_automated_prs_pct(days=30)["value"] == assisted["value"]
+
+
+def test_get_ai_code_share(monkeypatch: pytest.MonkeyPatch) -> None:
+    jira = _FakeJira(headcount=2, emails={"a@ex.com", "b@ex.com"})
+    _patch_scope(monkeypatch, jira)
+
+    class _CursorDaily:
+        def get_daily_usage(self, start: object, end: object, **kwargs: object) -> list[dict]:
+            return [
+                {
+                    "email": "a@ex.com",
+                    "acceptedLinesAdded": 80,
+                    "acceptedLinesDeleted": 20,
+                    "totalLinesAdded": 100,
+                    "totalLinesDeleted": 25,
+                },
+                {
+                    "email": "b@ex.com",
+                    "acceptedLinesAdded": 10,
+                    "acceptedLinesDeleted": 0,
+                    "totalLinesAdded": 50,
+                    "totalLinesDeleted": 25,
+                },
+                {
+                    "email": "outsider@ex.com",
+                    "acceptedLinesAdded": 999,
+                    "acceptedLinesDeleted": 0,
+                    "totalLinesAdded": 999,
+                    "totalLinesDeleted": 0,
+                },
+            ]
+
+    out = get_ai_code_share(_CursorDaily(), jira, days=30)
+    # eng only: ai=110, total=200 → 55%
+    assert out["ai_lines"] == 110
+    assert out["total_lines"] == 200
+    assert out["value"] == 55.0
+    assert out["scope"] == "engineering_department"
+    assert out["source"] == "cursor_daily_usage"
+
+
+def test_get_ai_code_share_zero_total(monkeypatch: pytest.MonkeyPatch) -> None:
+    jira = _FakeJira(headcount=1, emails={"a@ex.com"})
+    _patch_scope(monkeypatch, jira)
+
+    class _CursorDaily:
+        def get_daily_usage(self, start: object, end: object, **kwargs: object) -> list[dict]:
+            return [
+                {
+                    "email": "a@ex.com",
+                    "acceptedLinesAdded": 0,
+                    "acceptedLinesDeleted": 0,
+                    "totalLinesAdded": 0,
+                    "totalLinesDeleted": 0,
+                }
+            ]
+
+    out = get_ai_code_share(_CursorDaily(), jira, days=30)
+    assert "error" in out
+    assert "denominator is 0" in out["error"]
 
 
 def test_get_ai_assisted_prs_pct_github_missing(monkeypatch: pytest.MonkeyPatch) -> None:
