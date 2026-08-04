@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -126,17 +127,32 @@ def test_get_token_cost_per_dev(monkeypatch: pytest.MonkeyPatch) -> None:
     assert out["scope"] == "engineering_department"
 
 
-def test_get_issues_shipped() -> None:
-    out = get_issues_shipped(_FakeJira(shipped_count=17), days=84)
+def test_get_issues_shipped_trailing_window() -> None:
+    out = get_issues_shipped(_FakeJira(shipped_count=17), days=30)
     assert out["value"] == 17
-    assert out["window_days"] == 84
-    assert "resolved >= -84d" in out["jql"]
+    assert out["window_days"] == 30
+    assert "resolved >= -30d" in out["jql"]
 
 
-def test_get_issues_shipped_default_is_12_weeks() -> None:
-    out = get_issues_shipped(_FakeJira(shipped_count=17))
-    assert out["window_days"] == 84
-    assert "resolved >= -84d" in out["jql"]
+def test_get_issues_shipped_mtd_extrapolates_mid_month() -> None:
+    as_of = datetime(2026, 8, 15, 12, 0, tzinfo=timezone.utc)
+    out = get_issues_shipped(_FakeJira(shipped_count=150), as_of=as_of)
+    # 150 MTD × 31 / 15 = 310.0
+    assert out["mtd"] == 150
+    assert out["value"] == 310.0
+    assert out["method"] == "mtd_pace"
+    assert out["days_in_month"] == 31
+    assert out["days_elapsed"] == 15
+    assert "startOfMonth()" in out["jql"]
+
+
+def test_get_issues_shipped_month_complete_no_extrapolation() -> None:
+    as_of = datetime(2026, 8, 31, 18, 0, tzinfo=timezone.utc)
+    out = get_issues_shipped(_FakeJira(shipped_count=290), as_of=as_of)
+    assert out["value"] == 290.0
+    assert out["mtd"] == 290
+    assert out["method"] == "actual_month_complete"
+    assert out["extrapolated"] == 0.0
 
 
 def test_get_issues_shipped_fails_loud() -> None:

@@ -16,6 +16,7 @@ from typing import Any, Sequence
 
 from src.metrics_registry import (
     entry_has_tag,
+    digest_display_unit,
     has_metric_id,
     iter_metrics_with_generator,
     load_metrics_registry,
@@ -24,7 +25,6 @@ from src.metrics_registry import (
     registry_metric_direction,
     registry_metric_tags,
     registry_metric_target,
-    registry_metric_unit,
     validate_metric_target_direction,
 )
 from src.metrics_upsert import (
@@ -80,15 +80,22 @@ def _detail_lines(
 
 
 
+def _format_plain_number(value: float) -> str:
+    """Format a number with thousands separators; trim trailing decimal zeros."""
+    if float(value).is_integer():
+        return f"{int(value):,}"
+    return f"{value:,.2f}".rstrip("0").rstrip(".")
+
+
 def _format_digest_number(value: float, *, unit: str | None = None) -> str:
-    """Format a digest VALUE/TARGET cell; ``unit=currency`` → USD."""
+    """Format a digest VALUE/TARGET cell (currency, percent, or plain with commas)."""
     if unit == "currency":
         if float(value).is_integer():
             return f"${int(value):,}"
         return f"${value:,.2f}"
-    if float(value).is_integer():
-        return str(int(value))
-    return f"{value:.2f}".rstrip("0").rstrip(".")
+    if unit == "percent":
+        return f"{_format_plain_number(value)}%"
+    return _format_plain_number(value)
 
 
 @dataclass(frozen=True)
@@ -174,7 +181,7 @@ def generate_digest_row(
     description = registry_metric_description(entry)
     tags = tuple(registry_metric_tags(entry))
     try:
-        unit = registry_metric_unit(entry)
+        unit = digest_display_unit(name, entry)
     except ValueError as e:
         return DigestRow(
             name=name,

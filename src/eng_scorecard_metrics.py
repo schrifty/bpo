@@ -8,6 +8,7 @@ and ``{"error": …}`` on failure so ``metrics-upsert`` fails loud.
 
 from __future__ import annotations
 
+import calendar
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -16,13 +17,15 @@ logger = logging.getLogger("cortex")
 
 DEFAULT_WINDOW_DAYS = 30
 WAU_WINDOW_DAYS = 7
-ISSUES_SHIPPED_WINDOW_DAYS = 84  # 12 weeks
 # Omit from eng AI-adoption headcount KPIs (WAU, Tokens/Token Cost per Dev).
 ENG_AI_ADOPTION_EXCLUDED_DEV_TEAMS = frozenset({"dev - data implementation"})
 WAU_EXCLUDED_DEV_TEAMS = ENG_AI_ADOPTION_EXCLUDED_DEV_TEAMS  # backward-compatible alias
 
 ISSUES_SHIPPED_JQL_TEMPLATE = (
     "project = LEAN AND statusCategory = Done AND resolved >= -{days}d"
+)
+ISSUES_SHIPPED_MTD_JQL = (
+    "project = LEAN AND statusCategory = Done AND resolved >= startOfMonth()"
 )
 
 # New LEAN bugs filed in the window (proxy for release defects until fixVersion/link exists).
@@ -600,19 +603,53 @@ def get_ai_assisted_automated_prs_pct(
 def get_issues_shipped(
     jira_client: Any,
     *,
-    days: int = ISSUES_SHIPPED_WINDOW_DAYS,
+    days: int | None = None,
+    as_of: datetime | None = None,
     timeout: float = 60.0,  # noqa: ARG001
 ) -> dict[str, Any]:
-    """Issues Shipped: LEAN issues completed (Done) with resolved date in the window.
+    """Issues Shipped: LEAN Done issues for the current calendar month.
 
-    Default window is 12 weeks (:data:`ISSUES_SHIPPED_WINDOW_DAYS`). The digest/upsert
-    invoker always uses that period regardless of ``--days``.
+    Default (digest/upsert): count resolved since ``startOfMonth()``, then when the
+    month is incomplete extrapolate with MTD pace
+    ``mtd × days_in_month / days_elapsed``. On the last day of the month the value
+    is the actual MTD count (no extrapolation).
+
+    Pass ``days`` for a raw trailing-window count (used by dependent KPIs such as
+    Defects per 100 Issues and spend-per-issue).
     """
-    window = max(1, int(days))
-    jql = ISSUES_SHIPPED_JQL_TEMPLATE.format(days=window)
+    if days is not None:
+        window = max(1, int(days))
+        jql = ISSUES_SHIPPED_JQL_TEMPLATE.format(days=window)
+        count = jira_client.jql_match_count(
+            jql,
+            data_description=f"Issues Shipped (LEAN Done, resolved last {window}d)",
+        )
+        if count is None:
+            return {
+                "error": (
+                    "Jira count unavailable for Issues Shipped "
+                    "(POST /rest/api/3/search/approximate-count returned no count)"
+                )
+            }
+        raw = int(count)
+        logger.info("Issues Shipped: %s (window=%sd)", raw, window)
+        return {"value": raw, "jql": jql, "window_days": window}
+
+    now = as_of or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    else:
+        now = now.astimezone(timezone.utc)
+
+    days_in_month = calendar.monthrange(now.year, now.month)[1]
+    days_elapsed = min(max(1, now.day), days_in_month)
+    days_remaining = max(0, days_in_month - days_elapsed)
+    month_key = f"{now.year:04d}-{now.month:02d}"
+
+    jql = ISSUES_SHIPPED_MTD_JQL
     count = jira_client.jql_match_count(
         jql,
-        data_description=f"Issues Shipped (LEAN Done, resolved last {window}d)",
+        data_description=f"Issues Shipped (LEAN Done, resolved MTD {month_key})",
     )
     if count is None:
         return {
@@ -621,8 +658,40 @@ def get_issues_shipped(
                 "(POST /rest/api/3/search/approximate-count returned no count)"
             )
         }
-    logger.info("Issues Shipped: %s (window=%sd)", count, window)
-    return {"value": int(count), "jql": jql, "window_days": window}
+    mtd = int(count)
+    if days_remaining == 0:
+        value = float(mtd)
+        method = "actual_month_complete"
+        extrapolated = 0.0
+    elif mtd > 0:
+        value = round(mtd * (days_in_month / float(days_elapsed)), 1)
+        method = "mtd_pace"
+        extrapolated = round(value - mtd, 1)
+    else:
+        value = 0.0
+        method = "mtd_only"
+        extrapolated = 0.0
+
+    logger.info(
+        "Issues Shipped: %s for %s (mtd=%s, method=%s, day=%s/%s)",
+        value,
+        month_key,
+        mtd,
+        method,
+        days_elapsed,
+        days_in_month,
+    )
+    return {
+        "value": value,
+        "mtd": mtd,
+        "extrapolated": extrapolated,
+        "jql": jql,
+        "month": month_key,
+        "days_in_month": days_in_month,
+        "days_elapsed": days_elapsed,
+        "days_remaining": days_remaining,
+        "method": method,
+    }
 
 
 def get_defects_per_100_issues(

@@ -42,12 +42,20 @@ def test_registry_invalid_direction() -> None:
 
 def test_digest_currency_value_and_target_display() -> None:
     from src.metrics_digest import _format_digest_number
-    from src.metrics_registry import registry_metric_unit
+    from src.metrics_registry import digest_display_unit, registry_metric_unit
 
     assert registry_metric_unit({"unit": "currency"}) == "currency"
+    assert registry_metric_unit({"unit": "percent"}) == "percent"
     assert registry_metric_unit({}) is None
+    assert digest_display_unit("% Growth Allocation", {}) == "percent"
+    assert digest_display_unit("AI Spend %", {}) == "percent"
+    assert digest_display_unit("PRs Merged", {}) is None
     assert _format_digest_number(10342.41, unit="currency") == "$10,342.41"
     assert _format_digest_number(50.0, unit="currency") == "$50"
+    assert _format_digest_number(73.81, unit="percent") == "73.81%"
+    assert _format_digest_number(80.0, unit="percent") == "80%"
+    assert _format_digest_number(901253073.8) == "901,253,073.8"
+    assert _format_digest_number(281.0) == "281"
     row = DigestRow(
         "AI Spend / Issue",
         None,
@@ -59,6 +67,17 @@ def test_digest_currency_value_and_target_display() -> None:
     )
     assert row.value_display == "$33.78"
     assert row.target_display == "$50"
+    pct = DigestRow(
+        "Weekly Active AI Users",
+        None,
+        73.81,
+        80.0,
+        "higher",
+        True,
+        unit="percent",
+    )
+    assert pct.value_display == "73.81%"
+    assert pct.target_display == "80%"
 
 
 def test_generate_digest_row_prefers_explicit_value(monkeypatch: pytest.MonkeyPatch) -> None:
