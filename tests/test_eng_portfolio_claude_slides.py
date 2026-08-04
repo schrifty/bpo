@@ -11,7 +11,9 @@ import pytest
 from src.claude_slide_ir import normalize_slide_ir, render_slide_ir, rgb_from_hex
 from src.eng_portfolio_claude_slides import (
     EngPortfolioClaudeError,
+    _extract_json_object,
     build_eng_portfolio_digest,
+    digest_for_slide,
     generate_slide_ir_via_claude,
 )
 
@@ -127,6 +129,59 @@ def test_generate_slide_ir_via_claude_parses_json(monkeypatch: pytest.MonkeyPatc
         model="gemini-2.5-flash",
     )
     assert ir["elements"][0]["text"] == "Hello"
+
+
+def test_extract_json_object_from_noise() -> None:
+    raw = 'Sure.\n```json\n{"background":"#fff","elements":[{"type":"text","x":1,"y":1,"w":10,"h":10,"text":"Hi"}]}\n```\n'
+    blob = _extract_json_object(raw)
+    data = json.loads(blob)
+    assert data["elements"][0]["text"] == "Hi"
+
+
+def test_digest_for_slide_scopes_cursor() -> None:
+    full = {
+        "days": 30,
+        "eng_portfolio": {"closed_count": 9, "flow": {"active_count": 3}},
+        "cursor_usage": {"totals": {"tokens": 1}},
+        "github_productivity": {"totals": {"prs": 2}},
+    }
+    scoped = digest_for_slide(full, "cursor_cost")
+    assert "cursor_usage" in scoped
+    assert "flow" not in (scoped.get("eng_portfolio") or {})
+
+
+def test_generate_slide_ir_retries_on_bad_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    good = {
+        "background": "#FFFFFF",
+        "elements": [
+            {"type": "text", "x": 40, "y": 40, "w": 400, "h": 30, "text": "Fixed", "size": 18},
+        ],
+    }
+    calls: list[str] = []
+
+    def _fake(_c, **kwargs):
+        calls.append("x")
+
+        class _Msg:
+            content = "{bad" if len(calls) == 1 else json.dumps(good)
+
+        class _Choice:
+            message = _Msg()
+
+        class _Resp:
+            choices = [_Choice()]
+
+        return _Resp()
+
+    monkeypatch.setattr("src.eng_portfolio_claude_slides._llm_create_with_retry", _fake)
+    ir = generate_slide_ir_via_claude(
+        entry={"id": "eng_toc", "slide_type": "eng_toc"},
+        digest={"days": 30},
+        client=MagicMock(),
+        model="gemini-2.5-flash",
+    )
+    assert ir["elements"][0]["text"] == "Fixed"
+    assert len(calls) == 2
 
 
 def test_generate_slide_ir_via_claude_fail_loud(monkeypatch: pytest.MonkeyPatch) -> None:

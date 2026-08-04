@@ -258,22 +258,26 @@ def render_slide_ir(
 
 
 IR_SCHEMA_FOR_PROMPT = """
-Return ONLY a JSON object (no markdown fence) with this shape:
+Return ONLY a single JSON object (no markdown fence, no commentary) with this shape.
+Put "elements" BEFORE "speaker_notes" so layout is not truncated.
 {
   "background": "#FFFFFF",
-  "speaker_notes": "optional short speaker note",
   "elements": [
     {"type": "rect", "x": 0, "y": 0, "w": 720, "h": 48, "fill": "#0B1F33"},
     {"type": "text", "x": 48, "y": 12, "w": 624, "h": 28, "text": "Title", "size": 22, "bold": true, "color": "#FFFFFF"},
     {"type": "kpi_row", "x": 48, "y": 72, "w": 624, "h": 70, "items": [{"label": "Closed", "value": "42"}]},
     {"type": "bullets", "x": 48, "y": 160, "w": 300, "h": 160, "items": ["Point one", "Point two"], "size": 12},
     {"type": "table", "x": 360, "y": 160, "w": 312, "h": 160, "rows": [["Col A", "Col B"], ["1", "2"]]},
-    {"type": "takeaway", "x": 48, "y": 360, "w": 624, "h": 32, "text": "So what…", "size": 11, "fill": "#F3F5F8"},
+    {"type": "takeaway", "x": 48, "y": 360, "w": 624, "h": 32, "text": "So what", "size": 11, "fill": "#F3F5F8"},
     {"type": "rule", "x": 48, "y": 350, "w": 624, "h": 1, "fill": "#CCCCCC"}
-  ]
+  ],
+  "speaker_notes": "Optional; max 160 characters."
 }
-Canvas is 720×405 points. Coordinates (x,y,w,h) are in points from the top-left.
-Element types allowed: rect, text, kpi_row, bullets, table, takeaway, rule.
-Invent whatever layout best tells the story for this slide — there is no fixed corporate template.
-Use only facts/numbers present in the data digest; do not invent metrics.
+Hard limits:
+- Canvas 720×405 points; coordinates (x,y,w,h) in points from top-left
+- At most 10 elements
+- Keep every string short (titles ≤60 chars; bullet lines ≤90 chars; takeaway ≤140 chars)
+- speaker_notes ≤160 chars or omit it
+- Element types: rect, text, kpi_row, bullets, table, takeaway, rule
+- Invent layout freely; use only facts/numbers present in the data digest
 """.strip()
