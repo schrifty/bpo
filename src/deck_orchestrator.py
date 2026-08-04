@@ -232,15 +232,16 @@ def create_health_deck(
 
             if isinstance(e, EngPortfolioClaudeError):
                 _set_support_deck_corner_customer(None)
-                logger.error("Gemini eng-portfolio slide generation failed: %s", e)
+                logger.error("Claude eng-portfolio slide generation failed: %s", e)
                 return {
                     "error": str(e),
                     "customer": customer,
                     "deck_id": deck_id,
                     "hint": (
-                        "Set GEMINI_API_KEY, or CORTEX_ENG_PORTFOLIO_LLM_SLIDES=false "
+                        "Set ANTHROPIC_API_KEY, or CORTEX_ENG_PORTFOLIO_LLM_SLIDES=false "
                         "to use hand-built builders, or CORTEX_ENG_PORTFOLIO_LLM_ALLOW_FALLBACK=true "
-                        "for partial hand-built fallback."
+                        "for partial hand-built fallback. "
+                        "Default model is claude-opus-5 (override with CORTEX_ENG_PORTFOLIO_LLM_MODEL)."
                     ),
                 }
             raise

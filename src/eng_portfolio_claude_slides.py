@@ -3,7 +3,8 @@
 Deck YAML still defines slide order / ids. Hand-built Python slide builders are
 bypassed when ``CORTEX_ENG_PORTFOLIO_LLM_SLIDES`` / ``CORTEX_ENG_PORTFOLIO_CLAUDE_SLIDES``
 is on. Design-standards docs are intentionally NOT injected — the model invents
-structure from the data. Provider is Gemini for now (``eng_portfolio_llm_client``).
+structure from the data. Provider is Anthropic Claude via ``eng_portfolio_llm_client``
+(default model: ``claude-opus-5``).
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ from .slide_utils import (
 )
 
 _MAX_DIGEST_CHARS = 12_000
-# gemini-2.5-flash is a thinking model: max_tokens is total (reasoning + visible).
+# Claude Opus thinking models: max_tokens is total (reasoning + visible).
 _SLIDE_MAX_TOKENS = 16_384
 _SLIDE_MAX_ATTEMPTS = 2
 
@@ -259,7 +260,7 @@ def _llm_slide_completion(client: Any, *, model: str, messages: list[dict[str, s
     try:
         return (resp.choices[0].message.content or "").strip()
     except Exception as e:
-        raise EngPortfolioClaudeError(f"Gemini response missing content: {e}") from e
+        raise EngPortfolioClaudeError(f"Claude response missing content: {e}") from e
 
 
 def generate_slide_ir_via_claude(
@@ -287,12 +288,13 @@ def generate_slide_ir_via_claude(
         {"role": "user", "content": user},
     ]
     last_err: Exception | None = None
+    text = ""
     for attempt in range(1, _SLIDE_MAX_ATTEMPTS + 1):
         try:
             text = _llm_slide_completion(cl, model=model_name, messages=messages)
         except Exception as e:
             raise EngPortfolioClaudeError(
-                f"Gemini API failed for slide {brief.get('slide_id')!r}: {e}"
+                f"Claude API failed for slide {brief.get('slide_id')!r}: {e}"
             ) from e
         try:
             parsed = _parse_slide_ir_json(text)
@@ -300,7 +302,7 @@ def generate_slide_ir_via_claude(
         except (json.JSONDecodeError, ValueError, EngPortfolioClaudeError) as e:
             last_err = e
             logger.warning(
-                "eng portfolio Gemini JSON parse failed for %s (attempt %d/%d): %s",
+                "eng portfolio Claude JSON parse failed for %s (attempt %d/%d): %s",
                 brief.get("slide_id"),
                 attempt,
                 _SLIDE_MAX_ATTEMPTS,
@@ -323,7 +325,7 @@ def generate_slide_ir_via_claude(
                 },
             ]
     raise EngPortfolioClaudeError(
-        f"Gemini returned non-JSON for slide {brief.get('slide_id')!r}: {last_err}; "
+        f"Claude returned non-JSON for slide {brief.get('slide_id')!r}: {last_err}; "
         f"head={((text or '')[:240])!r}"
     )
 
@@ -361,13 +363,13 @@ def generate_eng_portfolio_slide_irs(
             i, ir, err = fut.result()
             if err:
                 errors.append(err)
-                logger.error("eng portfolio Gemini slide failed: %s", err)
+                logger.error("eng portfolio Claude slide failed: %s", err)
             else:
                 results[i] = ir
 
     if errors and not _allow_fallback():
         raise EngPortfolioClaudeError(
-            f"{len(errors)} Gemini slide generation failure(s): " + "; ".join(errors[:5])
+            f"{len(errors)} Claude slide generation failure(s): " + "; ".join(errors[:5])
         )
     if errors and _allow_fallback():
         logger.warning(
@@ -414,16 +416,16 @@ def render_eng_portfolio_claude_slide_plan(
 
         if ir.get("_claude_failed"):
             if not _allow_fallback():
-                raise EngPortfolioClaudeError(f"Missing Gemini IR for slide {entry.get('id')!r}")
+                raise EngPortfolioClaudeError(f"Missing Claude IR for slide {entry.get('id')!r}")
             # Opt-in fallback to hand-built builder
             slide_type = entry.get("slide_type", entry["id"])
             builder = get_slide_builder(slide_type)
             if not builder:
                 raise EngPortfolioClaudeError(
-                    f"Gemini failed and no hand-built builder for {slide_type!r}"
+                    f"Claude failed and no hand-built builder for {slide_type!r}"
                 )
             logger.warning(
-                "Falling back to hand-built builder for %s (Gemini IR missing)",
+                "Falling back to hand-built builder for %s (Claude IR missing)",
                 slide_type,
             )
             ret = builder(reqs, sid, report, idx)
@@ -445,8 +447,9 @@ def render_eng_portfolio_claude_slide_plan(
 
     slides_created = idx - 1
     logger.info(
-        "eng portfolio Gemini slides: deck=%s slides=%d elements_ok",
+        "eng portfolio Claude slides: deck=%s model=%s slides=%d elements_ok",
         deck_id,
+        CORTEX_ENG_PORTFOLIO_CLAUDE_MODEL,
         slides_created,
     )
     return reqs, slides_created, note_targets, None, plan_work

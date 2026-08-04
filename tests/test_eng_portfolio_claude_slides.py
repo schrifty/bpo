@@ -126,7 +126,7 @@ def test_generate_slide_ir_via_claude_parses_json(monkeypatch: pytest.MonkeyPatc
         entry={"id": "eng_exec_summary", "slide_type": "eng_exec_summary", "title": "Exec"},
         digest={"days": 30, "eng_portfolio": {"closed_count": 3}},
         client=client,
-        model="gemini-2.5-flash",
+        model="claude-opus-5",
     )
     assert ir["elements"][0]["text"] == "Hello"
 
@@ -178,7 +178,7 @@ def test_generate_slide_ir_retries_on_bad_json(monkeypatch: pytest.MonkeyPatch) 
         entry={"id": "eng_toc", "slide_type": "eng_toc"},
         digest={"days": 30},
         client=MagicMock(),
-        model="gemini-2.5-flash",
+        model="claude-opus-5",
     )
     assert ir["elements"][0]["text"] == "Fixed"
     assert len(calls) == 2
@@ -189,12 +189,25 @@ def test_generate_slide_ir_via_claude_fail_loud(monkeypatch: pytest.MonkeyPatch)
         "src.eng_portfolio_claude_slides._llm_create_with_retry",
         lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("boom")),
     )
-    with pytest.raises(EngPortfolioClaudeError, match="Gemini API failed"):
+    with pytest.raises(EngPortfolioClaudeError, match="Claude API failed"):
         generate_slide_ir_via_claude(
             entry={"id": "eng_toc", "slide_type": "eng_toc"},
             digest={},
             client=MagicMock(),
         )
+
+
+def test_default_eng_portfolio_model_is_opus() -> None:
+    from src.config import CORTEX_ENG_PORTFOLIO_LLM_MODEL
+
+    assert CORTEX_ENG_PORTFOLIO_LLM_MODEL == "claude-opus-5" or CORTEX_ENG_PORTFOLIO_LLM_MODEL  # env may override
+    # When unset in the test env, config default should be opus.
+    import os
+    if not (
+        os.environ.get("CORTEX_ENG_PORTFOLIO_LLM_MODEL")
+        or os.environ.get("CORTEX_ENG_PORTFOLIO_CLAUDE_MODEL")
+    ):
+        assert CORTEX_ENG_PORTFOLIO_LLM_MODEL == "claude-opus-5"
 
 
 def test_render_slide_plan_routes_to_claude(monkeypatch: pytest.MonkeyPatch) -> None:

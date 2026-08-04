@@ -603,8 +603,8 @@ _ANTHROPIC_OPENAI_BASE_URL = "https://api.anthropic.com/v1/"
 
 # Engineering portfolio: LLM designs each slide (layout + content). Deck YAML
 # still defines which slides/order; Python builders are bypassed when this is on.
-# Currently Gemini (swap model/provider later for Claude). Default on when
-# GEMINI_API_KEY is set; otherwise legacy builders remain.
+# Provider: Anthropic Claude (high-end Opus by default). On when ANTHROPIC_API_KEY
+# is set; otherwise legacy builders remain.
 # Env aliases: CORTEX_ENG_PORTFOLIO_LLM_* preferred; CORTEX_ENG_PORTFOLIO_CLAUDE_* still accepted.
 _eng_llm_raw = (
     os.environ.get("CORTEX_ENG_PORTFOLIO_LLM_SLIDES")
@@ -616,7 +616,7 @@ if _eng_llm_raw in ("0", "false", "no", "off"):
 elif _eng_llm_raw in ("1", "true", "yes", "on"):
     CORTEX_ENG_PORTFOLIO_CLAUDE_SLIDES = True
 else:
-    CORTEX_ENG_PORTFOLIO_CLAUDE_SLIDES = bool(GEMINI_API_KEY)
+    CORTEX_ENG_PORTFOLIO_CLAUDE_SLIDES = bool(ANTHROPIC_API_KEY)
 CORTEX_ENG_PORTFOLIO_LLM_SLIDES = CORTEX_ENG_PORTFOLIO_CLAUDE_SLIDES
 _eng_fb = (
     os.environ.get("CORTEX_ENG_PORTFOLIO_LLM_ALLOW_FALLBACK")
@@ -628,7 +628,7 @@ CORTEX_ENG_PORTFOLIO_LLM_ALLOW_FALLBACK = CORTEX_ENG_PORTFOLIO_CLAUDE_ALLOW_FALL
 CORTEX_ENG_PORTFOLIO_CLAUDE_MODEL = (
     os.environ.get("CORTEX_ENG_PORTFOLIO_LLM_MODEL", "").strip()
     or os.environ.get("CORTEX_ENG_PORTFOLIO_CLAUDE_MODEL", "").strip()
-    or "gemini-2.5-flash"
+    or "claude-opus-5"
 )
 CORTEX_ENG_PORTFOLIO_LLM_MODEL = CORTEX_ENG_PORTFOLIO_CLAUDE_MODEL
 
@@ -673,12 +673,14 @@ def gemini_llm_client():
     from openai import OpenAI
 
     if not GEMINI_API_KEY:
-        raise RuntimeError(
-            "GEMINI_API_KEY is not set (required for eng-portfolio LLM slides)"
-        )
+        raise RuntimeError("GEMINI_API_KEY is not set")
     return OpenAI(api_key=GEMINI_API_KEY, base_url=_GEMINI_BASE_URL)
 
 
 def eng_portfolio_llm_client():
-    """Client for eng-portfolio generative slides (Gemini for now)."""
-    return gemini_llm_client()
+    """Client for eng-portfolio generative slides (Anthropic Claude)."""
+    if not ANTHROPIC_API_KEY:
+        raise RuntimeError(
+            "ANTHROPIC_API_KEY is not set (required for eng-portfolio LLM slides)"
+        )
+    return anthropic_llm_client()
