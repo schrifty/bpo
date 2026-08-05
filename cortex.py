@@ -128,6 +128,10 @@ Generate one deck (explicit)
 
   cortex metrics-report [--days N] [--timeout SEC] [--tag TAG]
       Same as ``metrics-digest --dry-run``: print the morning report without emailing.
+
+  cortex metrics-deck [--days N] [--timeout SEC] [--tag TAG]
+      Generate a Google Slides deck from my-metrics.yaml KPIs in the Output folder.
+      ``--tag`` limits KPIs to those carrying the registry tag (e.g. ``akkr``).
 """
 
 import json
@@ -879,6 +883,16 @@ def _run_metrics_report_cli(rest: list[str]) -> None:
     raise SystemExit(run_metrics_digest_cli(argv, prog="cortex metrics-report"))
 
 
+def _run_metrics_deck_cli(rest: list[str]) -> None:
+    """``cortex metrics-deck`` — generate KPI metrics Slides deck."""
+    from dotenv import load_dotenv
+
+    from src.metrics_deck import run_metrics_deck_cli
+
+    load_dotenv(Path(__file__).resolve().parent / ".env")
+    raise SystemExit(run_metrics_deck_cli(rest, prog="cortex metrics-deck"))
+
+
 def _run_csm_book_deck() -> None:
     """CSM book of business from ``cortex csm book --csm \"Name\"`` (flags after ``book``)."""
     import argparse
@@ -1482,6 +1496,9 @@ def main():
         return
     if sub == "metrics-report":
         _run_metrics_report_cli(sys.argv[2:])
+        return
+    if sub == "metrics-deck":
+        _run_metrics_deck_cli(sys.argv[2:])
         return
 
     from src.deck_variants import csm_book_cli_argv_anchor

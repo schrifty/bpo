@@ -215,5 +215,36 @@
         "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"metrics-daily-digest\"]}]}"
       }
     ]
+  },
+  {
+    "Name": "cortex-akkr-metrics-deck",
+    "Description": "AKKR metrics deck (AI adoption & productivity KPIs) — daily 12:30 UTC",
+    "ScheduleExpression": "cron(30 12 * * ? *)",
+    "State": "ENABLED",
+    "Targets": [
+      {
+        "Id": "cortex-akkr-metrics-deck",
+        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
+        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
+        "EcsParameters": {
+          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
+          "LaunchType": "FARGATE",
+          "PlatformVersion": "LATEST",
+          "NetworkConfiguration": {
+            "awsvpcConfiguration": {
+              "Subnets": [
+                "subnet-REPLACE"
+              ],
+              "SecurityGroups": [
+                "sg-REPLACE"
+              ],
+              "AssignPublicIp": "DISABLED"
+            }
+          },
+          "TaskCount": 1
+        },
+        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"akkr-metrics-deck\"]}]}"
+      }
+    ]
   }
 ]

@@ -265,19 +265,38 @@ Put "elements" BEFORE "speaker_notes" so layout is not truncated.
   "elements": [
     {"type": "rect", "x": 0, "y": 0, "w": 720, "h": 48, "fill": "#0B1F33"},
     {"type": "text", "x": 48, "y": 12, "w": 624, "h": 28, "text": "Title", "size": 22, "bold": true, "color": "#FFFFFF"},
-    {"type": "kpi_row", "x": 48, "y": 72, "w": 624, "h": 70, "items": [{"label": "Closed", "value": "42"}]},
+    {"type": "kpi_row", "x": 48, "y": 72, "w": 624, "h": 70, "items": [{"label": "Closed", "value": "42", "fill": "#E8F4FC", "color": "#009AFF"}]},
     {"type": "bullets", "x": 48, "y": 160, "w": 300, "h": 160, "items": ["Point one", "Point two"], "size": 12},
-    {"type": "table", "x": 360, "y": 160, "w": 312, "h": 160, "rows": [["Col A", "Col B"], ["1", "2"]]},
-    {"type": "takeaway", "x": 48, "y": 360, "w": 624, "h": 32, "text": "So what", "size": 11, "fill": "#F3F5F8"},
-    {"type": "rule", "x": 48, "y": 350, "w": 624, "h": 1, "fill": "#CCCCCC"}
+    {"type": "table", "x": 360, "y": 160, "w": 312, "h": 140, "rows": [["Col A", "Col B"], ["1", "2"]]},
+    {"type": "takeaway", "x": 48, "y": 360, "w": 624, "h": 32, "text": "So what", "size": 11, "fill": "#EEF0F3"},
+    {"type": "rule", "x": 48, "y": 350, "w": 624, "h": 1, "fill": "#38C0CE"}
   ],
   "speaker_notes": "Optional; max 160 characters."
 }
+
+Brand palette (use for visual variety and hierarchy):
+- Navy header/dark text: #0B1F33
+- Primary accent (KPI values, highlights): #009AFF
+- Secondary accents: #7BC4FA, #38C0CE (teal)
+- Highlight/callout: #AEFFF6 (mint)
+- Light fills (KPI tiles, takeaway, alt rows): #EEF0F3, #E8F4FC
+- White: #FFFFFF — use for text on dark backgrounds
+
 Hard limits:
 - Canvas 720×405 points; coordinates (x,y,w,h) in points from top-left
 - At most 10 elements
 - Keep every string short (titles ≤60 chars; bullet lines ≤90 chars; takeaway ≤140 chars)
 - speaker_notes ≤160 chars or omit it
 - Element types: rect, text, kpi_row, bullets, table, takeaway, rule
-- Invent layout freely; use only facts/numbers present in the data digest
+
+Table guidance:
+- Size tables to fit content: ~20pt height per row
+- Max 8 data rows; max 5 columns; keep cells ≤35 chars
+- For readability use compact dimensions, not oversized
+
+KPI row guidance:
+- Use "fill" on items for colored tile backgrounds (#E8F4FC, #EEF0F3, #AEFFF6)
+- Use "color" on items for accent-colored values (#009AFF, #38C0CE)
+
+Invent layout freely; use only facts/numbers present in the data digest.
 """.strip()

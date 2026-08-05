@@ -551,6 +551,191 @@ def run_metrics_digest(
     )
 
 
+def generate_metrics_digest_deck(
+    rows: list[DigestRow],
+    *,
+    tag: str | None = None,
+    as_of: str | None = None,
+) -> dict[str, Any]:
+    """Generate a Google Slides deck from digest rows and upload to Output folder.
+
+    Returns dict with deck_id, deck_url, and any error.
+    """
+    from .drive_config import get_qbr_output_root_folder_id, _get_drive
+    from .deck_presentation_api import create_presentation
+    from .slide_requests import append_slide, append_text_box
+    from .slide_primitives import background, rect
+    from .slides_theme import (
+        SLIDE_W, SLIDE_H, MARGIN, NAVY, WHITE, BLUE, LIGHT, FONT,
+        BODY_Y, BODY_BOTTOM,
+    )
+
+    as_of_s = as_of or date.today().isoformat()
+    tag_label = tag.upper() if tag else "KPI"
+    deck_title = f"{tag_label} Metrics — {as_of_s}"
+
+    output_folder = get_qbr_output_root_folder_id()
+    if not output_folder:
+        return {"error": "No Output folder configured (set GOOGLE_QBR_GENERATOR_FOLDER_ID)"}
+
+    try:
+        drive_svc = _get_drive()
+        deck_id, err = create_presentation(drive_svc, deck_title, output_folder_id=output_folder)
+        if err or not deck_id:
+            return {"error": f"Failed to create presentation: {err}"}
+    except Exception as e:
+        return {"error": f"Failed to create presentation: {e}"}
+
+    reqs: list[dict[str, Any]] = []
+
+    # Title slide
+    title_sid = "metrics_title"
+    append_slide(reqs, title_sid, 1)
+    background(reqs, title_sid, NAVY)
+    append_text_box(reqs, f"{title_sid}_h", title_sid, MARGIN, 140, SLIDE_W - 2 * MARGIN, 60, deck_title)
+    reqs.append({
+        "updateTextStyle": {
+            "objectId": f"{title_sid}_h",
+            "style": {
+                "fontFamily": FONT,
+                "fontSize": {"magnitude": 32, "unit": "PT"},
+                "bold": True,
+                "foregroundColor": {"opaqueColor": {"rgbColor": WHITE}},
+            },
+            "textRange": {"type": "ALL"},
+            "fields": "fontFamily,fontSize,bold,foregroundColor",
+        }
+    })
+    subtitle = f"{len(rows)} metrics • as of {as_of_s}"
+    append_text_box(reqs, f"{title_sid}_sub", title_sid, MARGIN, 210, SLIDE_W - 2 * MARGIN, 30, subtitle)
+    reqs.append({
+        "updateTextStyle": {
+            "objectId": f"{title_sid}_sub",
+            "style": {
+                "fontFamily": FONT,
+                "fontSize": {"magnitude": 16, "unit": "PT"},
+                "foregroundColor": {"opaqueColor": {"rgbColor": {"red": 0.7, "green": 0.8, "blue": 0.9}}},
+            },
+            "textRange": {"type": "ALL"},
+            "fields": "fontFamily,fontSize,foregroundColor",
+        }
+    })
+
+    # Split rows: off-target first, then on-target
+    off_target = [r for r in rows if r.off_target]
+    on_target = [r for r in rows if not r.off_target]
+
+    # KPI slides — 6 metrics per slide
+    all_rows = off_target + on_target
+    metrics_per_slide = 6
+    slide_idx = 2
+
+    for chunk_start in range(0, len(all_rows), metrics_per_slide):
+        chunk = all_rows[chunk_start : chunk_start + metrics_per_slide]
+        sid = f"metrics_s{slide_idx}"
+        append_slide(reqs, sid, slide_idx)
+        background(reqs, sid, WHITE)
+
+        # Header bar
+        rect(reqs, f"{sid}_hdr", sid, 0, 0, SLIDE_W, 48, NAVY)
+        section = "Off Target" if chunk_start < len(off_target) else "On Target"
+        page_label = f"{tag_label} Metrics — {section}"
+        append_text_box(reqs, f"{sid}_htxt", sid, MARGIN, 12, SLIDE_W - 2 * MARGIN, 28, page_label)
+        reqs.append({
+            "updateTextStyle": {
+                "objectId": f"{sid}_htxt",
+                "style": {
+                    "fontFamily": FONT,
+                    "fontSize": {"magnitude": 20, "unit": "PT"},
+                    "bold": True,
+                    "foregroundColor": {"opaqueColor": {"rgbColor": WHITE}},
+                },
+                "textRange": {"type": "ALL"},
+                "fields": "fontFamily,fontSize,bold,foregroundColor",
+            }
+        })
+
+        # KPI cards — 2 columns x 3 rows
+        card_w = (SLIDE_W - 3 * MARGIN) / 2
+        card_h = 95
+        y_start = 60
+        gap = 10
+
+        for i, row in enumerate(chunk):
+            col = i % 2
+            row_idx = i // 2
+            cx = MARGIN + col * (card_w + MARGIN)
+            cy = y_start + row_idx * (card_h + gap)
+
+            # Card background
+            card_fill = {"red": 1.0, "green": 0.95, "blue": 0.95} if row.off_target else LIGHT
+            rect(reqs, f"{sid}_c{i}", sid, cx, cy, card_w, card_h, card_fill)
+
+            # Metric name
+            append_text_box(reqs, f"{sid}_n{i}", sid, cx + 8, cy + 6, card_w - 16, 20, row.name)
+            reqs.append({
+                "updateTextStyle": {
+                    "objectId": f"{sid}_n{i}",
+                    "style": {
+                        "fontFamily": FONT,
+                        "fontSize": {"magnitude": 11, "unit": "PT"},
+                        "bold": True,
+                        "foregroundColor": {"opaqueColor": {"rgbColor": NAVY}},
+                    },
+                    "textRange": {"type": "ALL"},
+                    "fields": "fontFamily,fontSize,bold,foregroundColor",
+                }
+            })
+
+            # Value
+            value_color = {"red": 0.8, "green": 0.2, "blue": 0.2} if row.off_target else BLUE
+            append_text_box(reqs, f"{sid}_v{i}", sid, cx + 8, cy + 30, card_w - 16, 36, row.value_display)
+            reqs.append({
+                "updateTextStyle": {
+                    "objectId": f"{sid}_v{i}",
+                    "style": {
+                        "fontFamily": FONT,
+                        "fontSize": {"magnitude": 28, "unit": "PT"},
+                        "bold": True,
+                        "foregroundColor": {"opaqueColor": {"rgbColor": value_color}},
+                    },
+                    "textRange": {"type": "ALL"},
+                    "fields": "fontFamily,fontSize,bold,foregroundColor",
+                }
+            })
+
+            # Target line
+            dir_arrow = "↑" if row.direction == "higher" else "↓" if row.direction == "lower" else ""
+            target_text = f"Target: {row.target_display} {dir_arrow}".strip()
+            append_text_box(reqs, f"{sid}_t{i}", sid, cx + 8, cy + 70, card_w - 16, 18, target_text)
+            reqs.append({
+                "updateTextStyle": {
+                    "objectId": f"{sid}_t{i}",
+                    "style": {
+                        "fontFamily": FONT,
+                        "fontSize": {"magnitude": 10, "unit": "PT"},
+                        "foregroundColor": {"opaqueColor": {"rgbColor": {"red": 0.4, "green": 0.4, "blue": 0.45}}},
+                    },
+                    "textRange": {"type": "ALL"},
+                    "fields": "fontFamily,fontSize,foregroundColor",
+                }
+            })
+
+        slide_idx += 1
+
+    # Execute batch update
+    from .slides_api import _get_service
+
+    slides_svc, _, _ = _get_service()
+    if reqs:
+        slides_svc.presentations().batchUpdate(
+            presentationId=deck_id, body={"requests": reqs}
+        ).execute()
+
+    deck_url = f"https://docs.google.com/presentation/d/{deck_id}/edit"
+    return {"deck_id": deck_id, "deck_url": deck_url}
+
+
 def add_metrics_digest_arguments(ap: argparse.ArgumentParser) -> None:
     ap.add_argument(
         "--dry-run",

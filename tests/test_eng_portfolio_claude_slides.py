@@ -12,6 +12,7 @@ from src.claude_slide_ir import normalize_slide_ir, render_slide_ir, rgb_from_he
 from src.eng_portfolio_claude_slides import (
     EngPortfolioClaudeError,
     _extract_json_object,
+    _llm_slide_completion,
     build_eng_portfolio_digest,
     digest_for_slide,
     generate_slide_ir_via_claude,
@@ -95,6 +96,36 @@ def test_build_eng_portfolio_digest_trims() -> None:
     assert digest["eng_portfolio"]["closed_count"] == 10
     assert len(digest["eng_portfolio"]["open_bugs"]) == 15
     assert digest["cursor_usage"]["totals"]["tokens"] == 1
+
+
+def test_llm_slide_completion_omits_temperature(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Claude Opus rejects temperature; eng-portfolio must not send it."""
+    captured: list[dict[str, Any]] = []
+
+    class _Msg:
+        content = '{"background":"#fff","elements":[]}'
+
+    class _Choice:
+        message = _Msg()
+
+    class _Resp:
+        choices = [_Choice()]
+
+    def _fake(_c, **kwargs):
+        captured.append(kwargs)
+        return _Resp()
+
+    monkeypatch.setattr("src.eng_portfolio_claude_slides._llm_create_with_retry", _fake)
+    text = _llm_slide_completion(
+        MagicMock(),
+        model="claude-opus-5",
+        messages=[{"role": "user", "content": "hi"}],
+    )
+    assert text.startswith("{")
+    assert captured, "expected at least one LLM call"
+    assert "temperature" not in captured[0]
+    assert captured[0]["model"] == "claude-opus-5"
+    assert captured[0]["max_tokens"] > 0
 
 
 def test_generate_slide_ir_via_claude_parses_json(monkeypatch: pytest.MonkeyPatch) -> None:

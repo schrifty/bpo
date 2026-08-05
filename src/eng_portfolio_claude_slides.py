@@ -240,10 +240,10 @@ def _slide_brief(entry: dict[str, Any], deck_purpose: str) -> dict[str, Any]:
 
 
 def _llm_slide_completion(client: Any, *, model: str, messages: list[dict[str, str]]) -> str:
+    # Claude Opus rejects temperature (deprecated for this model family).
     kws: dict[str, Any] = {
         "model": model,
         "messages": messages,
-        "temperature": 0.2,
         "max_tokens": _SLIDE_MAX_TOKENS,
     }
     try:
