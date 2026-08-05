@@ -110,6 +110,7 @@ class DigestRow:
     description: str | None = None
     tags: tuple[str, ...] = ()
     unit: str | None = None
+    context: str | None = None  # e.g. "$9,950 / 288 issues"
 
     @property
     def id_display(self) -> str:
@@ -132,6 +133,63 @@ class DigestRow:
     @property
     def tags_display(self) -> str:
         return ", ".join(self.tags) if self.tags else "—"
+
+
+def _build_context_string(name: str, raw: dict[str, Any], unit: str | None) -> str | None:
+    """Build a short context string from generator output (e.g. '48 / 408 PRs')."""
+    if not isinstance(raw, dict):
+        return None
+
+    # AI Spend / Issue, Headcount + AI Spend / Issue
+    if "issues" in name.lower() and raw.get("spend_usd") is not None:
+        spend = raw.get("spend_usd") or raw.get("ai_spend_usd", 0)
+        issues = raw.get("issues_shipped") or raw.get("issues", 0)
+        if issues:
+            return f"${spend:,.0f} / {issues:,} issues"
+
+    # Token Cost per Dev, Tokens per Dev
+    if raw.get("headcount") and (raw.get("spend_usd") is not None or raw.get("tokens") is not None):
+        hc = raw["headcount"]
+        if raw.get("spend_usd") is not None:
+            return f"${raw['spend_usd']:,.0f} / {hc} devs"
+        if raw.get("tokens") is not None:
+            tok = raw["tokens"]
+            if tok >= 1_000_000:
+                return f"{tok / 1_000_000:.1f}M tokens / {hc} devs"
+            return f"{tok:,} tokens / {hc} devs"
+
+    # AI Spend %
+    if "ai_spend_usd" in raw and "engineering_spend_usd" in raw:
+        return f"${raw['ai_spend_usd']:,.0f} / ${raw['engineering_spend_usd']:,.0f}"
+
+    # Percentages with matched/total (AI-Assisted PRs, Weekly Active AI Users)
+    if raw.get("matched_prs") is not None and raw.get("total_prs") is not None:
+        return f"{raw['matched_prs']} / {raw['total_prs']} PRs"
+    if raw.get("active_users") is not None and raw.get("headcount") is not None:
+        return f"{raw['active_users']} / {raw['headcount']} devs"
+
+    # AI Code Share
+    if raw.get("ai_lines") is not None and raw.get("total_lines") is not None:
+        ai = raw["ai_lines"]
+        total = raw["total_lines"]
+        if total >= 1000:
+            return f"{ai:,} / {total:,} lines"
+
+    # Defects per 100 Issues
+    if raw.get("bugs_created") is not None and raw.get("issues_shipped") is not None:
+        return f"{raw['bugs_created']} bugs / {raw['issues_shipped']} issues"
+
+    # Growth Allocation
+    if raw.get("planned_count") is not None and raw.get("total_count") is not None:
+        return f"{raw['planned_count']} / {raw['total_count']} issues"
+
+    # Generic numerator/denominator fallback
+    if raw.get("numerator") is not None and raw.get("denominator") is not None:
+        n, d = raw["numerator"], raw["denominator"]
+        if d > 1:
+            return f"{n:,.0f} / {d:,.0f}"
+
+    return None
 
 
 def scalar_from_parts(parts: MetricParts) -> float:
@@ -226,6 +284,7 @@ def generate_digest_row(
         )
 
     gen_name = str(entry.get("metric-generator") or "").strip()
+    raw: dict[str, Any] | None = None
     try:
         raw = invoke_metric_generator(gen_name, registry=registry, ctx=ctx)
         # Prefer explicit ``value`` when present so USD/issue (and similar) are not
@@ -243,6 +302,8 @@ def generate_digest_row(
         value = None
         err = f"{type(e).__name__}: {e}"
 
+    context = _build_context_string(name, raw, unit) if isinstance(raw, dict) else None
+
     return DigestRow(
         name=name,
         metric_id=metric_id,
@@ -254,6 +315,7 @@ def generate_digest_row(
         description=description,
         tags=tags,
         unit=unit,
+        context=context,
     )
 
 
@@ -557,11 +619,19 @@ def generate_metrics_digest_deck(
     tag: str | None = None,
     as_of: str | None = None,
 ) -> dict[str, Any]:
-    """Generate a Google Slides deck from digest rows and upload to Output folder.
+    """Generate a Google Slides deck from digest rows.
 
-    Returns dict with deck_id, deck_url, and any error.
+    Creates/updates a persistent deck in Output (e.g., "AKKR Metrics") whose link
+    never changes, and archives a dated copy to Historical Data/{YYYY-MM-DD}/.
+
+    Returns dict with deck_id, deck_url, historical_url, and any error.
     """
-    from .drive_config import get_qbr_output_root_folder_id, _get_drive
+    from .drive_config import (
+        get_qbr_output_root_folder_id,
+        _get_drive,
+        list_files_by_name_in_folder,
+        dedupe_duplicate_names_in_folder,
+    )
     from .deck_presentation_api import create_presentation
     from .slide_requests import append_slide, append_text_box
     from .slide_primitives import background, rect
@@ -569,10 +639,12 @@ def generate_metrics_digest_deck(
         SLIDE_W, SLIDE_H, MARGIN, NAVY, WHITE, BLUE, LIGHT, FONT,
         BODY_Y, BODY_BOTTOM,
     )
+    from .export_drive_layout import ensure_historical_day_folder, historical_day_folder_label
 
     as_of_s = as_of or date.today().isoformat()
     tag_label = tag.upper() if tag else "KPI"
-    deck_title = f"{tag_label} Metrics — {as_of_s}"
+    persistent_title = f"{tag_label} Metrics"  # stable name for Output
+    historical_title = f"{tag_label} Metrics — {as_of_s}"  # dated name for Historical Data
 
     output_folder = get_qbr_output_root_folder_id()
     if not output_folder:
@@ -580,19 +652,47 @@ def generate_metrics_digest_deck(
 
     try:
         drive_svc = _get_drive()
-        deck_id, err = create_presentation(drive_svc, deck_title, output_folder_id=output_folder)
-        if err or not deck_id:
-            return {"error": f"Failed to create presentation: {err}"}
+
+        # Look for existing persistent deck by name
+        existing = list_files_by_name_in_folder(
+            persistent_title,
+            output_folder,
+            mime_type="application/vnd.google-apps.presentation",
+        )
+        if existing:
+            deck_id = str(existing[0]["id"])
+            dedupe_duplicate_names_in_folder(output_folder, persistent_title)
+            logger.info("Reusing persistent presentation %s: %s", deck_id, persistent_title)
+        else:
+            deck_id, err = create_presentation(drive_svc, persistent_title, output_folder_id=output_folder)
+            if err or not deck_id:
+                return {"error": f"Failed to create presentation: {err}"}
     except Exception as e:
-        return {"error": f"Failed to create presentation: {e}"}
+        return {"error": f"Failed to create/find presentation: {e}"}
+
+    # Get Slides service and clear existing slides if reusing
+    from .slides_api import _get_service
+
+    slides_svc, _, _ = _get_service()
+    try:
+        pres = slides_svc.presentations().get(presentationId=deck_id).execute()
+        existing_slides = pres.get("slides") or []
+        if len(existing_slides) > 1 or (existing_slides and existing_slides[0].get("objectId") != "p"):
+            delete_reqs = [{"deleteObject": {"objectId": s["objectId"]}} for s in existing_slides]
+            slides_svc.presentations().batchUpdate(
+                presentationId=deck_id, body={"requests": delete_reqs}
+            ).execute()
+            logger.info("Cleared %d existing slides from %s", len(existing_slides), persistent_title)
+    except Exception as e:
+        logger.warning("Could not clear existing slides: %s", e)
 
     reqs: list[dict[str, Any]] = []
 
-    # Title slide
+    # Title slide — shows dated title as content (index 0 since we cleared all slides)
     title_sid = "metrics_title"
-    append_slide(reqs, title_sid, 1)
+    append_slide(reqs, title_sid, 0)
     background(reqs, title_sid, NAVY)
-    append_text_box(reqs, f"{title_sid}_h", title_sid, MARGIN, 140, SLIDE_W - 2 * MARGIN, 60, deck_title)
+    append_text_box(reqs, f"{title_sid}_h", title_sid, MARGIN, 140, SLIDE_W - 2 * MARGIN, 60, historical_title)
     reqs.append({
         "updateTextStyle": {
             "objectId": f"{title_sid}_h",
@@ -628,7 +728,7 @@ def generate_metrics_digest_deck(
     # KPI slides — 6 metrics per slide
     all_rows = off_target + on_target
     metrics_per_slide = 6
-    slide_idx = 2
+    slide_idx = 1  # starts at 1 since title slide is at index 0
 
     for chunk_start in range(0, len(all_rows), metrics_per_slide):
         chunk = all_rows[chunk_start : chunk_start + metrics_per_slide]
@@ -657,9 +757,9 @@ def generate_metrics_digest_deck(
 
         # KPI cards — 2 columns x 3 rows
         card_w = (SLIDE_W - 3 * MARGIN) / 2
-        card_h = 95
-        y_start = 60
-        gap = 10
+        card_h = 105  # taller to fit context line
+        y_start = 56
+        gap = 6
 
         for i, row in enumerate(chunk):
             col = i % 2
@@ -672,7 +772,7 @@ def generate_metrics_digest_deck(
             rect(reqs, f"{sid}_c{i}", sid, cx, cy, card_w, card_h, card_fill)
 
             # Metric name
-            append_text_box(reqs, f"{sid}_n{i}", sid, cx + 8, cy + 6, card_w - 16, 20, row.name)
+            append_text_box(reqs, f"{sid}_n{i}", sid, cx + 8, cy + 5, card_w - 16, 18, row.name)
             reqs.append({
                 "updateTextStyle": {
                     "objectId": f"{sid}_n{i}",
@@ -689,13 +789,13 @@ def generate_metrics_digest_deck(
 
             # Value
             value_color = {"red": 0.8, "green": 0.2, "blue": 0.2} if row.off_target else BLUE
-            append_text_box(reqs, f"{sid}_v{i}", sid, cx + 8, cy + 30, card_w - 16, 36, row.value_display)
+            append_text_box(reqs, f"{sid}_v{i}", sid, cx + 8, cy + 26, card_w - 16, 32, row.value_display)
             reqs.append({
                 "updateTextStyle": {
                     "objectId": f"{sid}_v{i}",
                     "style": {
                         "fontFamily": FONT,
-                        "fontSize": {"magnitude": 28, "unit": "PT"},
+                        "fontSize": {"magnitude": 26, "unit": "PT"},
                         "bold": True,
                         "foregroundColor": {"opaqueColor": {"rgbColor": value_color}},
                     },
@@ -704,16 +804,34 @@ def generate_metrics_digest_deck(
                 }
             })
 
+            # Context line (e.g. "$9,950 / 288 issues")
+            context_text = row.context or ""
+            if context_text:
+                append_text_box(reqs, f"{sid}_x{i}", sid, cx + 8, cy + 58, card_w - 16, 16, context_text)
+                reqs.append({
+                    "updateTextStyle": {
+                        "objectId": f"{sid}_x{i}",
+                        "style": {
+                            "fontFamily": FONT,
+                            "fontSize": {"magnitude": 9, "unit": "PT"},
+                            "foregroundColor": {"opaqueColor": {"rgbColor": {"red": 0.35, "green": 0.35, "blue": 0.4}}},
+                        },
+                        "textRange": {"type": "ALL"},
+                        "fields": "fontFamily,fontSize,foregroundColor",
+                    }
+                })
+
             # Target line
             dir_arrow = "↑" if row.direction == "higher" else "↓" if row.direction == "lower" else ""
             target_text = f"Target: {row.target_display} {dir_arrow}".strip()
-            append_text_box(reqs, f"{sid}_t{i}", sid, cx + 8, cy + 70, card_w - 16, 18, target_text)
+            target_y = cy + 76 if context_text else cy + 70
+            append_text_box(reqs, f"{sid}_t{i}", sid, cx + 8, cy + 86, card_w - 16, 16, target_text)
             reqs.append({
                 "updateTextStyle": {
                     "objectId": f"{sid}_t{i}",
                     "style": {
                         "fontFamily": FONT,
-                        "fontSize": {"magnitude": 10, "unit": "PT"},
+                        "fontSize": {"magnitude": 9, "unit": "PT"},
                         "foregroundColor": {"opaqueColor": {"rgbColor": {"red": 0.4, "green": 0.4, "blue": 0.45}}},
                     },
                     "textRange": {"type": "ALL"},
@@ -724,16 +842,73 @@ def generate_metrics_digest_deck(
         slide_idx += 1
 
     # Execute batch update
-    from .slides_api import _get_service
-
-    slides_svc, _, _ = _get_service()
     if reqs:
         slides_svc.presentations().batchUpdate(
             presentationId=deck_id, body={"requests": reqs}
         ).execute()
 
+    # Delete default blank slide(s) that Google auto-creates
+    try:
+        pres = slides_svc.presentations().get(presentationId=deck_id).execute()
+        slides_in_pres = pres.get("slides") or []
+        our_slide_ids = {"metrics_title"} | {f"metrics_s{i}" for i in range(1, slide_idx)}
+        delete_reqs = []
+        for s in slides_in_pres:
+            sid = s.get("objectId", "")
+            if sid and sid not in our_slide_ids:
+                delete_reqs.append({"deleteObject": {"objectId": sid}})
+        if delete_reqs:
+            slides_svc.presentations().batchUpdate(
+                presentationId=deck_id, body={"requests": delete_reqs}
+            ).execute()
+            logger.info("Deleted %d default/stale slide(s)", len(delete_reqs))
+    except Exception as e:
+        logger.warning("Could not clean up default slides: %s", e)
+
     deck_url = f"https://docs.google.com/presentation/d/{deck_id}/edit"
-    return {"deck_id": deck_id, "deck_url": deck_url}
+
+    # Copy to Historical Data/{YYYY-MM-DD}/ with dated title
+    historical_url: str | None = None
+    try:
+        from .export_drive_layout import ensure_portfolio_output_folders
+
+        folders = ensure_portfolio_output_folders()
+        historical_folder_id = folders.get("historical_folder_id")
+        if historical_folder_id:
+            day = date.fromisoformat(as_of_s) if as_of_s else date.today()
+            day_folder_id = ensure_historical_day_folder(historical_folder_id, day)
+            day_label = historical_day_folder_label(day)
+
+            # Remove any existing copy with same dated name
+            for old in list_files_by_name_in_folder(
+                historical_title,
+                day_folder_id,
+                mime_type="application/vnd.google-apps.presentation",
+            ):
+                old_id = str(old.get("id") or "")
+                if old_id:
+                    drive_svc.files().update(fileId=old_id, body={"trashed": True}).execute()
+
+            # Copy persistent deck to Historical Data
+            copied = drive_svc.files().copy(
+                fileId=deck_id,
+                body={"name": historical_title, "parents": [day_folder_id]},
+                fields="id",
+            ).execute()
+            historical_id = str(copied["id"])
+            historical_url = f"https://docs.google.com/presentation/d/{historical_id}/edit"
+            logger.info(
+                "Copied metrics deck → Historical Data/%s/%s",
+                day_label,
+                historical_title,
+            )
+    except Exception as e:
+        logger.warning("Could not copy to Historical Data: %s", e)
+
+    result: dict[str, Any] = {"deck_id": deck_id, "deck_url": deck_url}
+    if historical_url:
+        result["historical_url"] = historical_url
+    return result
 
 
 def add_metrics_digest_arguments(ap: argparse.ArgumentParser) -> None:
