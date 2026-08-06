@@ -428,24 +428,28 @@ def test_build_step_argv_export_pendo_detailed_and_top_arr() -> None:
         "--days",
         "30",
     ]
-    assert build_step_argv({"command": "export-pendo-top-arr", "top_n": 5, "days": 30, "no_drive": True}) == [
+    assert build_step_argv({"command": "export-pendo-top-arr", "top_n": 10, "days": 30, "no_drive": True}) == [
         "--export-pendo-top-arr",
         "--top-n",
-        "5",
+        "10",
         "--days",
         "30",
         "--no-drive",
     ]
 
 
-def test_load_job_spec_pendo_top_arr_30d() -> None:
+def test_load_job_spec_pendo_top_10_arr() -> None:
     from src.job_runner import load_job_spec
 
-    spec = load_job_spec("pendo-top-arr-30d")
-    assert spec.name == "pendo-top-arr-30d"
-    assert len(spec.steps) == 1
-    step = spec.steps[0]
-    assert step["command"] == "export-pendo-top-arr"
-    assert step["top_n"] == 5
-    assert step["days"] == 30
-    assert step["compare_days"] == 30
+    spec = load_job_spec("pendo-top-10-arr")
+    assert spec.name == "pendo-top-10-arr"
+    assert len(spec.steps) == 2
+    step_30, step_7 = spec.steps
+    assert step_30["command"] == "export-pendo-top-arr"
+    assert step_30["top_n"] == 10
+    assert step_30["days"] == 30
+    assert step_30["compare_days"] == 30
+    assert step_7["command"] == "export-pendo-top-arr"
+    assert step_7["top_n"] == 10
+    assert step_7["days"] == 7
+    assert step_7["compare_days"] == 7

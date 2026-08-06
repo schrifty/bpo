@@ -139,6 +139,7 @@ def create_health_deck(
             return {"error": resolved["error"]}
 
         deck_name = resolved.get("name", "Health Review")
+        report["deck_purpose"] = str(resolved.get("purpose") or "").strip()
         date_str = _date_range(days, quarter_label, report.get("quarter_start"), report.get("quarter_end"))
 
         slide_plan: list[dict[str, Any]] = list(resolved.get("slides") or [])
@@ -220,11 +221,30 @@ def create_health_deck(
 
         if deck_id in ("support", "support-kpis", "supply_chain_review") and customer:
             _set_support_deck_corner_customer(str(customer).strip())
-        reqs, slides_created, note_targets, notable_deferred, plan_work = render_slide_plan(
-            report,
-            slide_plan,
-            deck_id,
-        )
+        try:
+            reqs, slides_created, note_targets, notable_deferred, plan_work = render_slide_plan(
+                report,
+                slide_plan,
+                deck_id,
+            )
+        except Exception as e:
+            from .eng_portfolio_claude_slides import EngPortfolioClaudeError
+
+            if isinstance(e, EngPortfolioClaudeError):
+                _set_support_deck_corner_customer(None)
+                logger.error("Claude eng-portfolio slide generation failed: %s", e)
+                return {
+                    "error": str(e),
+                    "customer": customer,
+                    "deck_id": deck_id,
+                    "hint": (
+                        "Set ANTHROPIC_API_KEY, or CORTEX_ENG_PORTFOLIO_LLM_SLIDES=false "
+                        "to use hand-built builders, or CORTEX_ENG_PORTFOLIO_LLM_ALLOW_FALLBACK=true "
+                        "for partial hand-built fallback. "
+                        "Default model is claude-opus-5 (override with CORTEX_ENG_PORTFOLIO_LLM_MODEL)."
+                    ),
+                }
+            raise
 
         append_default_slide_delete_if_needed(
             slides_service,

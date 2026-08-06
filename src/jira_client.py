@@ -1278,7 +1278,12 @@ class JiraClient:
         # Atlassian Teams (org-level rosters). orgId is required for the API path; the
         # admin API key (if present) is the preferred Bearer credential, with the site
         # gateway + Jira auth as a fallback. See get_atlassian_teams().
-        self.atlassian_org_id = (os.environ.get("ATLASSIAN_ORG_ID") or "").strip() or None
+        # ``JIRA_ORGANIZATION`` is accepted as a legacy alias for ``ATLASSIAN_ORG_ID``.
+        self.atlassian_org_id = (
+            (os.environ.get("ATLASSIAN_ORG_ID") or "").strip()
+            or (os.environ.get("JIRA_ORGANIZATION") or "").strip()
+            or None
+        )
         self.atlassian_api_key = (os.environ.get("ATLASSIAN_API_KEY") or "").strip() or None
         self._atlassian_user_name_cache: dict[str, str] = {}
         self._atlassian_user_email_cache: dict[str, str] = {}
@@ -1457,9 +1462,10 @@ class JiraClient:
     ) -> dict[str, Any]:
         """Fetch org Teams (and members) from the Atlassian Teams API.
 
-        Requires ``ATLASSIAN_ORG_ID``; uses ``ATLASSIAN_API_KEY`` when present, else the
-        site gateway with the existing Jira auth. Returns ``{"teams": [...], "error": ...}``
-        where each team has ``team_id``, ``name``, ``members`` (display names), and counts.
+        Requires ``ATLASSIAN_ORG_ID`` (or legacy ``JIRA_ORGANIZATION``); uses
+        ``ATLASSIAN_API_KEY`` when present, else the site gateway with the existing
+        Jira auth. Returns ``{"teams": [...], "error": ...}`` where each team has
+        ``team_id``, ``name``, ``members`` (display names), and counts.
         Fails loud with an ``error`` string rather than silently returning empty.
         """
         if not self.atlassian_org_id:

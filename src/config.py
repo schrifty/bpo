@@ -219,18 +219,43 @@ CURSOR_API_BASE_URL = (
     os.environ.get("CURSOR_API_BASE_URL", "https://api.cursor.com").strip().rstrip("/")
     or "https://api.cursor.com"
 )
-# Cursor read cache: daily-usage + usage-events are aggregated hourly server-side, so
-# Cursor advises polling at most once/hour. Default 1h on-disk cache (keyed by hour) so
-# repeated deck builds reuse data instead of re-paginating under the 20 req/min ceiling.
+# Cursor read cache: daily-usage + members/spend are cached for
+# ``CORTEX_CURSOR_CACHE_TTL_HOURS`` (default 1h). ``filtered-usage-events`` is
+# heavier (paginated under a 20 req/min ceiling), so it uses a longer default of
+# ``CORTEX_CURSOR_USAGE_EVENTS_CACHE_TTL_HOURS`` (23h). Disable all with
+# ``CORTEX_CURSOR_CACHE_DISABLED``.
 try:
     _cursor_cache_hours = float(os.environ.get("CORTEX_CURSOR_CACHE_TTL_HOURS", "1").strip())
 except ValueError:
     _cursor_cache_hours = 1.0
 CORTEX_CURSOR_CACHE_TTL_SECONDS = max(0, int(_cursor_cache_hours * 3600))
+try:
+    _cursor_usage_events_cache_hours = float(
+        os.environ.get("CORTEX_CURSOR_USAGE_EVENTS_CACHE_TTL_HOURS", "23").strip()
+    )
+except ValueError:
+    _cursor_usage_events_cache_hours = 23.0
+CORTEX_CURSOR_USAGE_EVENTS_CACHE_TTL_SECONDS = max(0, int(_cursor_usage_events_cache_hours * 3600))
 if os.environ.get("CORTEX_CURSOR_CACHE_DISABLED", "").strip().lower() in ("1", "true", "yes", "on"):
     CORTEX_CURSOR_CACHE_TTL_SECONDS = 0
+    CORTEX_CURSOR_USAGE_EVENTS_CACHE_TTL_SECONDS = 0
 _cursor_slides_only = os.environ.get("CORTEX_CURSOR_SLIDES_ONLY", "").strip().lower()
 CORTEX_CURSOR_SLIDES_ONLY = _cursor_slides_only in ("1", "true", "yes", "on")
+
+# Monthly engineering headcount/opex (USD), excluding AI tooling.
+# Used by AI Spend % (AI ÷ this) and Headcount + AI Spend / Issue (this prorated + AI).
+# Set from finance; required for those generators. Not a secret — still keep in local .env.
+def _parse_engineering_monthly_spend_usd() -> float | None:
+    raw = (os.environ.get("CORTEX_ENGINEERING_MONTHLY_SPEND_USD") or "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw.replace(",", ""))
+    except ValueError:
+        return None
+
+
+CORTEX_ENGINEERING_MONTHLY_SPEND_USD = _parse_engineering_monthly_spend_usd()
 
 # Atlassian Teams roster (org membership) — reused across eng portfolio, Cursor scope, identity map.
 try:
@@ -557,18 +582,62 @@ CORTEX_SIGNALS_TRENDS_MOM = _stm in ("1", "true", "yes", "on")
 _sty = os.environ.get("CORTEX_SIGNALS_TRENDS_YOY", "false").strip().lower()
 CORTEX_SIGNALS_TRENDS_YOY = _sty in ("1", "true", "yes", "on")
 
-# LLM provider — set LLM_PROVIDER=gemini or LLM_PROVIDER=openai in .env.
-# Defaults to gemini if GEMINI_API_KEY is present, otherwise openai.
+# LLM provider — set LLM_PROVIDER=gemini | openai | anthropic in .env.
+# Defaults to gemini if GEMINI_API_KEY is present, else anthropic if ANTHROPIC_API_KEY,
+# otherwise openai.
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-_default_provider = "gemini" if GEMINI_API_KEY else "openai"
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+if GEMINI_API_KEY:
+    _default_provider = "gemini"
+elif ANTHROPIC_API_KEY:
+    _default_provider = "anthropic"
+else:
+    _default_provider = "openai"
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", _default_provider).lower()
+if LLM_PROVIDER in ("claude", "anthropic-claude"):
+    LLM_PROVIDER = "anthropic"
 
 _GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+_ANTHROPIC_OPENAI_BASE_URL = "https://api.anthropic.com/v1/"
+
+# Engineering portfolio: LLM designs each slide (layout + content). Deck YAML
+# still defines which slides/order; Python builders are bypassed when this is on.
+# Provider: Anthropic Claude (high-end Opus by default). On when ANTHROPIC_API_KEY
+# is set; otherwise legacy builders remain.
+# Env aliases: CORTEX_ENG_PORTFOLIO_LLM_* preferred; CORTEX_ENG_PORTFOLIO_CLAUDE_* still accepted.
+_eng_llm_raw = (
+    os.environ.get("CORTEX_ENG_PORTFOLIO_LLM_SLIDES")
+    or os.environ.get("CORTEX_ENG_PORTFOLIO_CLAUDE_SLIDES")
+    or ""
+).strip().lower()
+if _eng_llm_raw in ("0", "false", "no", "off"):
+    CORTEX_ENG_PORTFOLIO_CLAUDE_SLIDES = False
+elif _eng_llm_raw in ("1", "true", "yes", "on"):
+    CORTEX_ENG_PORTFOLIO_CLAUDE_SLIDES = True
+else:
+    CORTEX_ENG_PORTFOLIO_CLAUDE_SLIDES = bool(ANTHROPIC_API_KEY)
+CORTEX_ENG_PORTFOLIO_LLM_SLIDES = CORTEX_ENG_PORTFOLIO_CLAUDE_SLIDES
+_eng_fb = (
+    os.environ.get("CORTEX_ENG_PORTFOLIO_LLM_ALLOW_FALLBACK")
+    or os.environ.get("CORTEX_ENG_PORTFOLIO_CLAUDE_ALLOW_FALLBACK")
+    or ""
+).strip().lower()
+CORTEX_ENG_PORTFOLIO_CLAUDE_ALLOW_FALLBACK = _eng_fb in ("1", "true", "yes", "on", "allow")
+CORTEX_ENG_PORTFOLIO_LLM_ALLOW_FALLBACK = CORTEX_ENG_PORTFOLIO_CLAUDE_ALLOW_FALLBACK
+CORTEX_ENG_PORTFOLIO_CLAUDE_MODEL = (
+    os.environ.get("CORTEX_ENG_PORTFOLIO_LLM_MODEL", "").strip()
+    or os.environ.get("CORTEX_ENG_PORTFOLIO_CLAUDE_MODEL", "").strip()
+    or "claude-opus-5"
+)
+CORTEX_ENG_PORTFOLIO_LLM_MODEL = CORTEX_ENG_PORTFOLIO_CLAUDE_MODEL
 
 if LLM_PROVIDER == "gemini":
     LLM_MODEL = "gemini-2.5-flash"
     LLM_MODEL_FAST = "gemini-2.5-flash"
+elif LLM_PROVIDER == "anthropic":
+    LLM_MODEL = os.environ.get("LLM_MODEL", "").strip() or "claude-sonnet-4-6"
+    LLM_MODEL_FAST = os.environ.get("LLM_MODEL_FAST", "").strip() or "claude-haiku-4-5"
 else:
     LLM_MODEL = "gpt-4o"
     LLM_MODEL_FAST = "gpt-4o-mini"
@@ -581,6 +650,37 @@ def llm_client():
         if not GEMINI_API_KEY:
             raise RuntimeError("LLM_PROVIDER=gemini but GEMINI_API_KEY is not set")
         return OpenAI(api_key=GEMINI_API_KEY, base_url=_GEMINI_BASE_URL)
+    if LLM_PROVIDER == "anthropic":
+        if not ANTHROPIC_API_KEY:
+            raise RuntimeError("LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set")
+        return OpenAI(api_key=ANTHROPIC_API_KEY, base_url=_ANTHROPIC_OPENAI_BASE_URL)
     if not OPENAI_API_KEY:
         raise RuntimeError("LLM_PROVIDER=openai but OPENAI_API_KEY is not set")
     return OpenAI(api_key=OPENAI_API_KEY)
+
+
+def anthropic_llm_client():
+    """OpenAI-SDK client pointed at Anthropic's Claude compatibility endpoint."""
+    from openai import OpenAI
+
+    if not ANTHROPIC_API_KEY:
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
+    return OpenAI(api_key=ANTHROPIC_API_KEY, base_url=_ANTHROPIC_OPENAI_BASE_URL)
+
+
+def gemini_llm_client():
+    """OpenAI-SDK client pointed at Gemini's OpenAI-compatible endpoint."""
+    from openai import OpenAI
+
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is not set")
+    return OpenAI(api_key=GEMINI_API_KEY, base_url=_GEMINI_BASE_URL)
+
+
+def eng_portfolio_llm_client():
+    """Client for eng-portfolio generative slides (Anthropic Claude)."""
+    if not ANTHROPIC_API_KEY:
+        raise RuntimeError(
+            "ANTHROPIC_API_KEY is not set (required for eng-portfolio LLM slides)"
+        )
+    return anthropic_llm_client()

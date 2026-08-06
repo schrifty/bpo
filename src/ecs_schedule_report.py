@@ -51,34 +51,23 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "rule_name": "cortex-ford-pendo-30d",
         "summary": "Ford Pendo usage export (cortex --export-pendo --customer Ford --days 30 --compare-days 30)",
     },
-    "pendo-top-arr-30d": {
+    "pendo-top-10-arr": {
         "schedule_expression": "cron(0 8 * * ? *)",
-        "command": ["pendo-top-arr-30d"],
+        "command": ["pendo-top-10-arr"],
         "enabled": True,
-        "rule_name": "cortex-pendo-top-arr-30d",
-        "summary": "Top-5 ARR Pendo detailed export (cortex --export-pendo-top-arr --top-n 5 --days 30 --compare-days 30)",
-    },
-    "carrier-pendo-detailed-30d": {
-        "schedule_expression": "cron(30 8 * * ? *)",
-        "command": ["carrier-pendo-detailed-30d"],
-        "enabled": True,
-        "rule_name": "cortex-carrier-pendo-detailed-30d",
-        "summary": "Carrier Pendo detailed export (30d)",
+        "rule_name": "cortex-pendo-top-10-arr",
+        "summary": (
+            "Top-10 ARR Pendo detailed export "
+            "(30d + 7d via cortex --export-pendo-top-arr --top-n 10)"
+        ),
     },
 
-    "metrics-eng-cycle-lead-weekly": {
-        "schedule_expression": "cron(0 9 ? * MON *)",
-        "command": ["metrics-eng-cycle-lead-weekly"],
-        "enabled": True,
-        "rule_name": "cortex-metrics-eng-cycle-lead-weekly",
-        "summary": "LeanDNA metrics upsert: 2024, 2179, 2028, 2035 — weekly Mon 09:00 UTC",
-    },
     "metrics-daily-digest": {
         "schedule_expression": "cron(0 12 * * ? *)",
         "command": ["metrics-daily-digest"],
-        "enabled": True,
+        "enabled": False,
         "rule_name": "cortex-metrics-daily-digest",
-        "summary": "Morning KPI digest email (all generators vs target/direction via SES)",
+        "summary": "Morning report email (overnight jobs + KPI generators vs target/direction via SES) — disabled until SES domain DNS/DKIM",
     },
 }
 

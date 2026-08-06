@@ -45,8 +45,24 @@ _MAX_PAGES = 100
 _RATE_LIMIT_MAX_RETRIES = 5
 _RATE_LIMIT_BACKOFF_BASE_S = 5.0
 _RATE_LIMIT_BACKOFF_CAP_S = 120.0
+_SECONDARY_RATE_LIMIT_MIN_WAIT_S = 10.0
 _GITHUB_API_VERSION = "2022-11-28"
 _LINK_NEXT_RE = re.compile(r'<([^>]+)>\s*;\s*rel="next"')
+
+# In-process cache so digest KPIs that all call list_merged_pulls_since (PRs Merged,
+# % AI-Assisted / Automated) share one Search API pass per repo/window.
+_MERGED_PULLS_CACHE: dict[tuple[str, str, str, int], list[dict[str, Any]]] = {}
+_PULL_COMMITS_CACHE: dict[tuple[str, str, int], list[dict[str, Any]]] = {}
+
+
+def clear_merged_pulls_cache() -> None:
+    """Drop cached merged-PR search results (tests / forced refresh)."""
+    _MERGED_PULLS_CACHE.clear()
+
+
+def clear_pull_commits_cache() -> None:
+    """Drop cached PR commit lists (tests / forced refresh)."""
+    _PULL_COMMITS_CACHE.clear()
 
 
 class GitHubError(RuntimeError):
@@ -268,6 +284,21 @@ class GitHubClient:
         base = _RATE_LIMIT_BACKOFF_BASE_S * (2 ** attempt)
         return min(base, _RATE_LIMIT_BACKOFF_CAP_S) + random.uniform(0.0, 1.0)
 
+    @staticmethod
+    def _is_secondary_rate_limit(resp: requests.Response) -> bool:
+        """True when GitHub returns 403 for abuse / secondary rate limits (often Search)."""
+        if getattr(resp, "status_code", None) != 403:
+            return False
+        text = (getattr(resp, "text", "") or "").lower()
+        if "secondary rate limit" in text or "abuse detection" in text:
+            return True
+        if "rate limit" in text and "saml" not in text:
+            return True
+        # Search/abuse responses often include Retry-After without a 429 status.
+        if (resp.headers or {}).get("Retry-After"):
+            return True
+        return False
+
     def _raise_for_status(self, resp: requests.Response, url: str) -> None:
         if getattr(resp, "ok", False):
             return
@@ -276,7 +307,18 @@ class GitHubClient:
         if status == 401:
             hint = "invalid or expired GITHUB_TOKEN"
         elif status == 403:
-            hint = "forbidden — check token scopes (repo/read:org) and org membership"
+            if "SAML" in snippet or "saml" in snippet.lower():
+                hint = (
+                    "org SAML SSO — authorize this PAT for the org "
+                    "(GitHub → Settings → Developer settings → Personal access tokens → Configure SSO)"
+                )
+            elif self._is_secondary_rate_limit(resp):
+                hint = (
+                    "secondary rate limit (often /search) — back off; "
+                    "digest KPIs share a merged-PR cache to reduce Search calls"
+                )
+            else:
+                hint = "forbidden — check token scopes (repo/read:org) and org membership"
         elif status == 404:
             hint = "not found — verify org/repo names and token access"
         elif status == 429:
@@ -322,6 +364,19 @@ class GitHubClient:
                 wait = self._backoff_seconds(attempt, retry_after=resp.headers.get("Retry-After"))
                 logger.warning(
                     "GitHub API rate limited (429); retry %d/%d in %.0fs",
+                    attempt + 1,
+                    self._max_retries,
+                    wait,
+                )
+                time.sleep(wait)
+                continue
+            if self._is_secondary_rate_limit(resp) and not last:
+                wait = max(
+                    self._backoff_seconds(attempt, retry_after=resp.headers.get("Retry-After")),
+                    _SECONDARY_RATE_LIMIT_MIN_WAIT_S,
+                )
+                logger.warning(
+                    "GitHub API secondary rate limit (403); retry %d/%d in %.0fs",
                     attempt + 1,
                     self._max_retries,
                     wait,
@@ -496,10 +551,44 @@ class GitHubClient:
         since: datetime,
         max_pulls: int | None = None,
     ) -> list[dict[str, Any]]:
-        """Merged PRs in a repo since *since* via search API (avoids pulls-list pagination gaps)."""
+        """Merged PRs in a repo since *since* via search API (avoids pulls-list pagination gaps).
+
+        Results are cached in-process per ``(owner, repo, since_day, max_pulls)`` so multiple
+        scorecard KPIs in one digest run share Search API quota.
+        """
         since_str = since.astimezone(timezone.utc).strftime("%Y-%m-%d")
+        cap = 500 if max_pulls is None else max(1, int(max_pulls))
+        cache_key = (owner.strip().lower(), repo.strip().lower(), since_str, cap)
+        cached = _MERGED_PULLS_CACHE.get(cache_key)
+        if cached is not None:
+            return list(cached)
         q = f"repo:{owner}/{repo} is:pr is:merged merged:>={since_str}"
-        return self.search_issues(q, max_items=max_pulls)
+        results = self.search_issues(q, max_items=cap)
+        _MERGED_PULLS_CACHE[cache_key] = list(results)
+        return results
+
+    def list_pull_commits(
+        self,
+        owner: str,
+        repo: str,
+        number: int,
+        *,
+        max_commits: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Commits on a pull request (``GET /repos/.../pulls/{n}/commits``), cached in-process."""
+        pull_number = int(number)
+        cap = 250 if max_commits is None else max(1, int(max_commits))
+        cache_key = (owner.strip().lower(), repo.strip().lower(), pull_number)
+        cached = _PULL_COMMITS_CACHE.get(cache_key)
+        if cached is not None:
+            return list(cached)[:cap]
+        results = self._paginate(
+            f"/repos/{owner}/{repo}/pulls/{pull_number}/commits",
+            params={"per_page": _DEFAULT_PAGE_SIZE},
+            max_items=cap,
+        )
+        _PULL_COMMITS_CACHE[cache_key] = list(results)
+        return results
 
     def list_org_members(self, org: str, *, max_members: int = 500) -> list[dict[str, Any]]:
         org_name = (org or "").strip()

@@ -43,6 +43,9 @@ def _stalling_builder(reqs, sid, report, idx):
 def test_render_slide_plan_deduplicates_colliding_page_ids(monkeypatch):
     # Two entries share the same id; the stalling builder keeps idx fixed so both would resolve
     # to the same base object ID without the guard.
+    import src.config as cfg
+
+    monkeypatch.setattr(cfg, "CORTEX_ENG_PORTFOLIO_CLAUDE_SLIDES", False)
     monkeypatch.setattr(deck_renderer, "get_slide_builder", lambda slide_type: _stalling_builder)
     plan = [
         {"id": "ai_productivity_matrix", "slide_type": "ai_productivity_matrix"},

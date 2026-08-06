@@ -77,34 +77,6 @@ def test_build_step_argv_metrics_upsert() -> None:
     ]
 
 
-def test_load_metrics_eng_cycle_lead_weekly_job() -> None:
-    spec = load_job_spec("metrics-eng-cycle-lead-weekly")
-    assert spec.name == "metrics-eng-cycle-lead-weekly"
-    assert len(spec.steps) == 4
-    assert build_step_argv(spec.steps[0]) == [
-        "metrics-upsert",
-        "--metric",
-        "Engineering Cycle Time (Sprint)",
-        "--days",
-        "30",
-    ]
-    assert build_step_argv(spec.steps[1]) == [
-        "metrics-upsert",
-        "--metric",
-        "Engineering Lead Time (Days)",
-        "--days",
-        "30",
-    ]
-    assert build_step_argv(spec.steps[2]) == [
-        "metrics-upsert",
-        "--metric",
-        "Tickets Beyond Service Thresholds",
-    ]
-    assert build_step_argv(spec.steps[3]) == [
-        "metrics-upsert",
-        "--metric",
-        "Customer-Reported Bugs",
-    ]
 
 
 def test_run_job_dry_run(capsys) -> None:

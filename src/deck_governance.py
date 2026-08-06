@@ -221,7 +221,10 @@ def _cursor_source_status(report: dict[str, Any] | None, slide_plan: list[dict[s
 def _atlassian_teams_source_status(report: dict[str, Any] | None, slide_plan: list[dict[str, Any]] | None) -> str:
     if "atlassian_teams" not in collect_source_ids_for_slide_plan(slide_plan):
         return "omitted"
-    if not (os.environ.get("ATLASSIAN_ORG_ID") or "").strip():
+    if not (
+        (os.environ.get("ATLASSIAN_ORG_ID") or "").strip()
+        or (os.environ.get("JIRA_ORGANIZATION") or "").strip()
+    ):
         return "unconfigured"
     roster = ((report or {}).get("eng_portfolio") or {}).get("team_roster") or {}
     if isinstance(roster, dict) and roster.get("error"):
@@ -381,8 +384,12 @@ def _build_freshness_lines(report: dict[str, Any]) -> list[str]:
         lines.append(f"Salesforce: live or cached (TTL {sf_ttl}h via CORTEX_SALESFORCE_CACHE_TTL_HOURS)")
 
     cursor_ttl = (os.environ.get("CORTEX_CURSOR_CACHE_TTL_HOURS") or "1").strip()
+    cursor_events_ttl = (os.environ.get("CORTEX_CURSOR_USAGE_EVENTS_CACHE_TTL_HOURS") or "23").strip()
     if isinstance(cu, dict) and cu.get("configured"):
-        lines.append(f"Cursor cache TTL: {cursor_ttl}h (CORTEX_CURSOR_CACHE_TTL_HOURS)")
+        lines.append(
+            f"Cursor cache TTL: {cursor_ttl}h general / {cursor_events_ttl}h usage-events "
+            f"(CORTEX_CURSOR_CACHE_TTL_HOURS / CORTEX_CURSOR_USAGE_EVENTS_CACHE_TTL_HOURS)"
+        )
 
     return lines[:_FRESHNESS_CAP]
 

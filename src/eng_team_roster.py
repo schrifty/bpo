@@ -64,6 +64,10 @@ def _is_dev_team(team_name: Any) -> bool:
     return str(team_name or "").lower().startswith(_DEV_TEAM_PREFIX)
 
 
+def _normalize_team_name(team_name: Any) -> str:
+    return str(team_name or "").strip().casefold()
+
+
 def _normalize_person_name(name: Any) -> str | None:
     s = str(name or "").strip()
     return s.casefold() if s else None
@@ -130,12 +134,19 @@ def _roster_from_atlassian_teams(
 
 
 def build_engineer_audience_scope(
-    client: JiraClient, *, timeout: float = 60.0
+    client: JiraClient,
+    *,
+    timeout: float = 60.0,
+    exclude_teams: frozenset[str] | set[str] | None = None,
 ) -> dict[str, Any]:
     """Engineer vs non-engineer audience for Cursor slides.
 
     **Engineers** = unique display names on Atlassian ``dev-*`` teams (``Dev - *`` prefix).
     **Non-engineers** = unique display names on other teams that are not engineers.
+
+    *exclude_teams* is an optional set of Atlassian team names (case-insensitive) to omit
+    from the engineer set — e.g. ``{"Dev - Data Implementation"}`` for WAU. People who
+    also belong to a non-excluded ``Dev - *`` team still count as engineers.
 
     Cursor usage is joined by resolving those names to corporate email via the Atlassian
     Teams membership API. Returns normalized name sets plus email sets for filtering.
@@ -148,6 +159,7 @@ def build_engineer_audience_scope(
         "non_engineer_emails": set(),
         "headcount": 0,
         "non_engineer_headcount": 0,
+        "excluded_teams": [],
     }
     if not getattr(client, "atlassian_org_id", None):
         return {**empty, "error": "ATLASSIAN_ORG_ID is not set"}
@@ -158,8 +170,14 @@ def build_engineer_audience_scope(
     if payload.get("error"):
         return {**empty, "error": str(payload["error"])}
 
+    excluded = {_normalize_team_name(t) for t in (exclude_teams or ()) if str(t).strip()}
     teams = payload.get("teams") or []
-    dev_teams = [t for t in teams if _is_dev_team(t.get("name"))]
+    dev_teams = [
+        t
+        for t in teams
+        if _is_dev_team(t.get("name"))
+        and _normalize_team_name(t.get("name")) not in excluded
+    ]
     if not dev_teams:
         return {**empty, "error": "no dev-* Atlassian teams found"}
 
@@ -167,11 +185,20 @@ def build_engineer_audience_scope(
     all_names: set[str] = set()
     dev_account_ids: set[str] = set()
     all_account_ids: set[str] = set()
+    excluded_applied: list[str] = []
 
     for team in teams:
         ids = team.get("member_account_ids") or []
         all_account_ids.update(ids)
-        if _is_dev_team(team.get("name")):
+        name = str(team.get("name") or "")
+        if _is_dev_team(name) and _normalize_team_name(name) in excluded:
+            excluded_applied.append(name)
+            for raw in team.get("members") or []:
+                norm = _normalize_person_name(raw)
+                if norm:
+                    all_names.add(norm)
+            continue
+        if _is_dev_team(name):
             dev_account_ids.update(ids)
             for raw in team.get("members") or []:
                 norm = _normalize_person_name(raw)
@@ -218,6 +245,7 @@ def build_engineer_audience_scope(
         "non_engineer_emails": non_engineer_emails,
         "headcount": len(engineer_names),
         "non_engineer_headcount": len(non_engineer_names),
+        "excluded_teams": sorted(set(excluded_applied), key=str.casefold),
         "source": "atlassian_teams",
     }
 

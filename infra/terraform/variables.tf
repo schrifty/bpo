@@ -158,28 +158,16 @@ variable "scheduled_jobs" {
       enabled             = true
       rule_name           = "cortex-ford-pendo-30d"
     }
-    pendo-top-arr-30d = {
+    pendo-top-10-arr = {
       schedule_expression = "cron(0 8 * * ? *)"
-      command             = ["pendo-top-arr-30d"]
+      command             = ["pendo-top-10-arr"]
       enabled             = true
-      rule_name           = "cortex-pendo-top-arr-30d"
-    }
-    carrier-pendo-detailed-30d = {
-      schedule_expression = "cron(30 8 * * ? *)"
-      command             = ["carrier-pendo-detailed-30d"]
-      enabled             = true
-      rule_name           = "cortex-carrier-pendo-detailed-30d"
-    }
-    metrics-eng-cycle-lead-weekly = {
-      schedule_expression = "cron(0 9 ? * MON *)"
-      command             = ["metrics-eng-cycle-lead-weekly"]
-      enabled             = true
-      rule_name           = "cortex-metrics-eng-cycle-lead-weekly"
+      rule_name           = "cortex-pendo-top-10-arr"
     }
     metrics-daily-digest = {
       schedule_expression = "cron(0 12 * * ? *)"
       command             = ["metrics-daily-digest"]
-      enabled             = true
+      enabled             = false
       rule_name           = "cortex-metrics-daily-digest"
     }
   }

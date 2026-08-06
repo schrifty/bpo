@@ -18,12 +18,16 @@
 #   metric-generator  — Python function that computes the value when wired in Cortex;
 #                       null when no generator exists in this repo yet
 #   tags              — Optional list of lowercase labels for grouping/filtering KPIs
-#                       (e.g. [engineering, delivery]). One KPI may carry many tags. Query
+#                       (e.g. [engineering, impact]). One KPI may carry many tags. Query
 #                       with `metrics-by-tag <tag>` (live by default).
 #   target            — Optional numeric goal (same unit as the generator value). Used by
 #                       metrics-digest for off-target classification.
 #   direction         — higher | lower — required when target is set. lower = off when
 #                       value > target; higher = off when value < target.
+#   unit              — Optional display unit for metrics-digest: ``currency`` (USD),
+#                       ``percent`` (append %). Names ending/starting with ``%`` are
+#                       treated as percent when unit is omitted. Plain numbers use
+#                       thousands separators.
 #
 # Generator names refer to functions under src/ (e.g. jira_cycle_time.get_dev_team_cycle_times).
 # Resolve modes: live (default) | stored inspection (see src/kpi_service.py).
@@ -41,14 +45,11 @@ metrics:
     description: null
     metric-id: 1745
     metric-generator: null
-    tags: [supply-chain, delivery]
+    tags: [supply-chain]
 
   # Customer-Reported Bugs
   "Customer-Reported Bugs":
-    description: >-
-      Count of open LEAN Bug issues in active engineering statuses (Open,
-      Reopened, In Progress, In Review)—the same slice as the engineering
-      portfolio Bug Health slide. Computed from Jira by get_customer_reported_bugs.
+    description: Open LEAN bugs in active statuses.
     metric-id: 2035
     metric-generator: get_customer_reported_bugs
     tags: [engineering, quality]
@@ -57,11 +58,7 @@ metrics:
 
   # Tickets Beyond Service Thresholds
   "Tickets Beyond Service Thresholds":
-    description: >-
-      Count of open HELP (JSM) tickets at high priority (Critical, Blocker, or
-      Major) that are not yet resolved, excluding operational noise labelled
-      Outage or healthcheck. Computed from a Jira JQL count by
-      get_service_threshold_tickets.
+    description: Open high-priority HELP tickets (excl. outage/healthcheck).
     metric-id: 2028
     metric-generator: get_service_threshold_tickets
     tags: [support, sla]
@@ -77,29 +74,33 @@ metrics:
 
   # AI Token Usage
   "AI Token Usage":
-    description: >-
-      Total AI tokens (input + output) consumed by the team's Cursor usage over a
-      trailing 30-day window, summed from Cursor Admin API usage events by
-      get_ai_token_usage.
+    description: Cursor tokens used in the last 30 days.
     metric-id: null
     metric-generator: get_ai_token_usage
-    tags: [ai, engineering, adoption]
+    tags: [ai, engineering]
     target: 1
     direction: higher
+
+  "Monthly AI Spend":
+    description: Projected Cursor AI spend (USD) for this calendar month.
+    metric-id: null
+    metric-generator: get_monthly_ai_spend
+    tags: [enterprise, finance]
+    unit: currency
 
   # Median Time to Complete SUT (Weeks)
   "Median Time to Complete SUT (Weeks)":
     description: null
     metric-id: 2175
     metric-generator: null
-    tags: [onboarding, delivery]
+    tags: [onboarding]
 
   # Sprint Delivery % - AUTOMATABLE
   "Sprint Delivery %":
     description: null
     metric-id: 2086
     metric-generator: null
-    tags: [engineering, delivery]
+    tags: [engineering]
 
   # TTFR (30 Days) - AUTOMATABLE
   "TTFR (30 Days)":
@@ -110,11 +111,7 @@ metrics:
 
   # Median TTR
   "Median TTR":
-    description: >-
-      Median completed JSM Time-to-resolution SLA elapsed time in hours for HELP
-      tickets resolved in a trailing window (default 30 days), excluding Outage /
-      Healthcheck labels. Computed from customfield_10665 completedCycles by
-      get_median_ttr.
+    description: Median HELP time-to-resolution (hours), last 30 days.
     metric-id: 2171
     metric-generator: get_median_ttr
     tags: [support, sla]
@@ -129,24 +126,18 @@ metrics:
     tags: [support, sla]
 
   "Engineering Cycle Time (Sprint)":
-    description: >-
-      Median active in-progress cycle time across development boards, in days —
-      time issues spend in working statuses (e.g. In Progress, In Review), not
-      counting backlog wait. Computed from Jira changelogs by get_dev_team_cycle_times.
+    description: Median in-progress cycle time (days) across dev boards, last 30 days.
     metric-id: 2024
     metric-generator: get_dev_team_cycle_times
-    tags: [engineering, delivery]
+    tags: [engineering]
     target: 5
     direction: lower
 
   "Engineering Lead Time (Days)":
-    description: >-
-      Median lead time across development boards, in days — calendar time from
-      issue created to resolved. Reported as the median of each board's median
-      lead time by get_dev_team_lead_time.
+    description: Median create-to-resolve lead time (days) across dev boards, last 30 days.
     metric-id: 2179
     metric-generator: get_dev_team_lead_time
-    tags: [engineering, delivery]
+    tags: [engineering]
     target: 14
     direction: lower
 
@@ -166,13 +157,11 @@ metrics:
 
   # 2076
   "KPI Automation %":
-    description: >-
-      Count of fully-defined metrics in this registry (those having both a
-      metric-id and a metric-generator), produced by get_kpi_automation_pct as
-      the KPI automation numerator.
+    description: Share of registry KPIs with both an id and a generator.
     metric-id: null
     metric-generator: get_kpi_automation_pct
     tags: [automation, ops]
+    unit: percent
     target: 50
     direction: higher
 
@@ -188,15 +177,13 @@ metrics:
     description: null
     metric-id: null
     metric-generator: null
-    tags: [engineering, delivery]
+    tags: [engineering]
 
   "Sprint Story Points Delivered":
-    description: >-
-      Total story points completed in the most recent sprint across development
-      boards, aggregated from Jira by get_sprint_story_points_by_team.
+    description: Story points completed in the latest sprint across boards.
     metric-id: null
     metric-generator: get_sprint_story_points_by_team
-    tags: [engineering, delivery]
+    tags: [engineering]
     target: 40
     direction: higher
 
@@ -205,119 +192,116 @@ metrics:
     description: null
     metric-id: null
     metric-generator: null
-    tags: [ai, adoption]
+    tags: [ai]
 
   # ── Engineering MFR scorecard (board-level AI adoption & impact) ──
-  "% WAU":
-    description: >-
-      Percentage of engineers actively using AI tools each week. Weekly active
-      Cursor users on Dev - * Atlassian teams ÷ engineering headcount
-      (get_wau_pct).
+  "Weekly Active AI Users":
+    description: "% of Engineering using Cursor in the last 7 days (excl. Data Implementation)."
     metric-id: null
-    metric-generator: get_wau_pct
-    tags: [mfr, engineering, adoption, ai]
+    metric-generator: get_weekly_active_ai_users
+    tags: [engineering, ai, AKKR]
+    unit: percent
     target: 80
     direction: higher
 
   "% AI-Assisted PRs":
-    description: >-
-      Percentage of code changes significantly supported by AI
-      (AI-assisted PRs ÷ total PRs). Generator blocked until a reliable
-      per-PR AI-assistance signal exists (Cursor/GitHub agent attribution,
-      label, check, or commit trailer).
+    description: Merged PRs with Cursor attribution ÷ total, last 30 days.
     metric-id: null
-    metric-generator: null
-    tags: [mfr, engineering, adoption, ai]
+    metric-generator: get_ai_assisted_prs_pct
+    tags: [engineering, ai, AKKR]
+    unit: percent
+    target: 50
+    direction: higher
 
-  "% AI-Assisted Automated PRs":
+  "AI Code Share":
     description: >-
-      Percentage of code changes created by AI (AI-automated PRs ÷ total PRs).
-      Generator blocked until an explicit AI-created/agent PR flag is available
-      (distinct from assisted).
+      Cursor-attributed lines ÷ total changed lines in commits, last 30 days
+      (Engineering Department; Cursor daily-usage AI Share signal).
     metric-id: null
-    metric-generator: null
-    tags: [mfr, engineering, adoption, ai]
+    metric-generator: get_ai_code_share
+    tags: [engineering, ai, AKKR]
+    unit: percent
+    target: 80
+    direction: higher
 
-  "Tokens / Dev":
-    description: >-
-      How heavily engineers are using AI tools: total Cursor model tokens
-      (input + output) over the trailing window ÷ Dev - * engineering
-      headcount (get_tokens_per_dev).
+  "Tokens per Dev":
+    description: Cursor tokens ÷ Engineering headcount, last 30 days (excl. Data Implementation).
     metric-id: null
     metric-generator: get_tokens_per_dev
-    tags: [mfr, engineering, adoption, ai]
-    target: 1
+    tags: [engineering, ai, AKKR]
+    target: 10000000
+    direction: higher
+
+  "Token Cost per Dev":
+    description: Engineer Cursor spend (USD) ÷ Engineering headcount, last 30 days (excl. Data Implementation).
+    metric-id: null
+    metric-generator: get_token_cost_per_dev
+    tags: [engineering, ai, AKKR]
+    unit: currency
+    target: 250
     direction: higher
 
   "AI Spend %":
-    description: >-
-      Share of engineering spend dedicated to AI tools and models
-      ((AI tooling + model/API spend) ÷ total engineering spend). Generator
-      blocked until total engineering spend (payroll/opex) is available;
-      Cursor AI spend alone is not enough.
+    description: This-month Cursor AI spend ÷ monthly engineering spend.
     metric-id: null
-    metric-generator: null
-    tags: [mfr, engineering, adoption, ai]
-
-  "PRs Merged":
-    description: >-
-      Amount of development work completed and approved: engineer-scoped
-      GitHub pull requests merged in the trailing window (get_prs_merged).
-    metric-id: null
-    metric-generator: get_prs_merged
-    tags: [mfr, engineering, impact, delivery]
-    target: 10
+    metric-generator: get_ai_spend_pct
+    tags: [engineering, ai, AKKR]
+    unit: percent
+    target: 5
     direction: higher
 
-  "Defect Introduction Rate":
-    description: >-
-      Percentage of new bugs introduced into released software (new defects
-      tied to recent releases ÷ total shipped work). Generator blocked until
-      a defined defect→release link exists (fix version, release notes, or
-      post-deploy window).
+  "PRs Merged":
+    description: Engineer GitHub PRs merged in the last 30 days.
     metric-id: null
-    metric-generator: null
-    tags: [mfr, engineering, impact, quality]
+    metric-generator: get_prs_merged
+    tags: [engineering, impact, AKKR]
+    target: 500
+    direction: higher
+
+  "Defects per 100 Issues":
+    description: LEAN bugs created ÷ issues shipped × 100, last 30 days.
+    metric-id: null
+    metric-generator: get_defects_per_100_issues
+    tags: [engineering, impact, quality, AKKR]
+    unit: percent
+    target: 15
+    direction: lower
 
   "Issues Shipped":
     description: >-
-      Completed engineering tasks delivered in the period: LEAN issues in
-      statusCategory Done with resolved date in the trailing window
-      (get_issues_shipped).
+      LEAN issues Done in the current calendar month (MTD count, extrapolated
+      to month-end when run before the last day).
     metric-id: null
     metric-generator: get_issues_shipped
-    tags: [mfr, engineering, impact, delivery]
-    target: 20
+    tags: [engineering, impact, AKKR]
+    target: 280
     direction: higher
 
   "% Growth Allocation":
     description: >-
-      Share of engineering capacity on growth/roadmap work: planned (non-reactive)
-      LEAN Done issues ÷ all LEAN Done issues in the window. Reactive =
-      Bug/Incident/Escalation types and escalation labels
-      (get_growth_allocation_pct).
+      Planned LEAN Done work ÷ eligible Done work (excludes bugs and tech-debt),
+      last 30 days.
     metric-id: null
     metric-generator: get_growth_allocation_pct
-    tags: [mfr, engineering, impact, delivery]
+    tags: [engineering, impact, AKKR]
+    unit: percent
     target: 70
     direction: higher
 
   "Headcount + AI Spend / Issue":
-    description: >-
-      Total cost to deliver one unit of engineering work
-      ((engineering headcount cost + AI spend) ÷ issues shipped). Generator
-      blocked until engineering headcount cost ($) is available from finance/HR.
+    description: (Prorated eng headcount + AI spend) ÷ issues shipped, last 30 days.
     metric-id: null
-    metric-generator: null
-    tags: [mfr, engineering, impact, ai]
+    metric-generator: get_headcount_plus_ai_spend_per_issue
+    tags: [engineering, impact, ai, AKKR]
+    unit: currency
+    target: 5
+    direction: lower
 
   "AI Spend / Issue":
-    description: >-
-      AI cost associated with delivering one unit of engineering work:
-      engineer-scoped Cursor spend (USD) ÷ Issues Shipped in the same window
-      (get_ai_spend_per_issue).
+    description: Engineer Cursor spend (USD) ÷ issues shipped, last 30 days.
     metric-id: null
     metric-generator: get_ai_spend_per_issue
-    tags: [mfr, engineering, impact, ai]
+    tags: [engineering, impact, ai, AKKR]
+    unit: currency
     target: 50
     direction: lower

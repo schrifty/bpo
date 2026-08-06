@@ -30,7 +30,7 @@ metrics:
   "Alpha":
     metric-id: 10
     metric-generator: gen_a
-    tags: [Engineering, Delivery]
+    tags: [Engineering]
   "Beta":
     metric-id: null
     metric-generator: gen_b
@@ -87,7 +87,6 @@ def test_all_registry_tags_counts_sorted(tmp_path: Path) -> None:
     assert all_registry_tags(registry=reg) == [
         ("engineering", 2),
         ("data-integration", 1),
-        ("delivery", 1),
         ("support", 1),
     ]
 
@@ -129,7 +128,7 @@ def test_fetch_recent_datapoints_by_tag(monkeypatch: pytest.MonkeyPatch, tmp_pat
     alpha = rows[0]
     assert alpha.metric_id == 10
     assert alpha.recent[0].value == 42
-    assert alpha.tags == ("engineering", "delivery")
+    assert alpha.tags == ("engineering",)
 
     beta = rows[1]
     assert beta.metric_id == 0  # no metric-id → listed without value

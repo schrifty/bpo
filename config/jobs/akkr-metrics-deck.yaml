@@ -1,0 +1,8 @@
+name: akkr-metrics-deck
+stop_on_failure: true
+fail_on_warnings: false
+steps:
+  - name: akkr-metrics-deck
+    command: metrics-deck
+    tag: akkr
+    days: 30

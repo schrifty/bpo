@@ -1,6 +1,6 @@
 ---
 description: Keep Cortex Export user guide in sync with all export and Drive layout changes
-globs: docs/Cortex Export - User Guide.md,src/export_*.py,src/export_user_guide_drive.py,src/export_drive_layout.py,src/export_output_archive.py,src/deck_orchestrator.py,src/data_sources/llm_export_report.py,config/jobs/export-nightly.yaml,config/jobs/ford-pendo-*.yaml,config/jobs/carrier-pendo-*.yaml,config/jobs/pendo-top-arr-*.yaml,tests/test_export_*.py,tests/test_portfolio_deck_drive_layout.py
+globs: docs/Cortex Export - User Guide.md,src/export_*.py,src/export_user_guide_drive.py,src/export_drive_layout.py,src/export_output_archive.py,src/deck_orchestrator.py,src/data_sources/llm_export_report.py,config/jobs/export-nightly.yaml,config/jobs/ford-pendo-*.yaml,config/jobs/pendo-top-10-arr.yaml,tests/test_export_*.py,tests/test_portfolio_deck_drive_layout.py
 alwaysApply: false
 ---
 

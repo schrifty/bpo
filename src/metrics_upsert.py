@@ -155,6 +155,16 @@ def _invoke_get_ai_token_usage(ctx: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _invoke_get_monthly_ai_spend(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.cursor_ai_usage_metrics import get_monthly_ai_spend
+    from src.cursor_client import get_shared_cursor_client
+
+    return get_monthly_ai_spend(
+        get_shared_cursor_client(),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
 def _invoke_get_service_threshold_tickets(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.jira_client import get_shared_jira_client
     from src.jira_service_threshold_tickets import get_service_threshold_ticket_count
@@ -213,18 +223,24 @@ def _invoke_get_sprint_story_points_by_team(ctx: dict[str, Any]) -> dict[str, An
     )
 
 
-def _invoke_get_wau_pct(ctx: dict[str, Any]) -> dict[str, Any]:
+def _invoke_get_weekly_active_ai_users(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.cursor_client import get_shared_cursor_client
-    from src.eng_scorecard_metrics import WAU_WINDOW_DAYS, get_wau_pct
+    from src.eng_scorecard_metrics import WAU_WINDOW_DAYS, get_weekly_active_ai_users
     from src.jira_client import get_shared_jira_client
 
-    # Weekly active users — always a 7-day window regardless of upsert --days default.
-    return get_wau_pct(
+    # Weekly active AI users (Engineering Department) — always a 7-day window
+    # regardless of upsert --days default.
+    return get_weekly_active_ai_users(
         get_shared_cursor_client(),
         get_shared_jira_client(),
         days=WAU_WINDOW_DAYS,
         timeout=float(ctx.get("timeout") or 60.0),
     )
+
+
+def _invoke_get_wau_pct(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Deprecated alias for :func:`_invoke_get_weekly_active_ai_users`."""
+    return _invoke_get_weekly_active_ai_users(ctx)
 
 
 def _invoke_get_tokens_per_dev(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -240,17 +256,73 @@ def _invoke_get_tokens_per_dev(ctx: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _invoke_get_token_cost_per_dev(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.cursor_client import get_shared_cursor_client
+    from src.eng_scorecard_metrics import get_token_cost_per_dev
+    from src.jira_client import get_shared_jira_client
+
+    return get_token_cost_per_dev(
+        get_shared_cursor_client(),
+        get_shared_jira_client(),
+        days=int(ctx.get("days") or 30),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
 def _invoke_get_prs_merged(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.eng_scorecard_metrics import get_prs_merged
 
     return get_prs_merged(days=int(ctx.get("days") or 30), timeout=float(ctx.get("timeout") or 60.0))
 
 
+def _invoke_get_ai_assisted_prs_pct(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.eng_scorecard_metrics import get_ai_assisted_prs_pct
+
+    return get_ai_assisted_prs_pct(
+        days=int(ctx.get("days") or 30),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
+def _invoke_get_ai_code_share(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.cursor_client import get_shared_cursor_client
+    from src.eng_scorecard_metrics import get_ai_code_share
+    from src.jira_client import get_shared_jira_client
+
+    return get_ai_code_share(
+        get_shared_cursor_client(),
+        get_shared_jira_client(),
+        days=int(ctx.get("days") or 30),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
+def _invoke_get_ai_automated_prs_pct(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Deprecated alias — prefer get_ai_code_share."""
+    return _invoke_get_ai_code_share(ctx)
+
+
+def _invoke_get_ai_assisted_automated_prs_pct(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Deprecated alias for :func:`_invoke_get_ai_assisted_prs_pct`."""
+    return _invoke_get_ai_assisted_prs_pct(ctx)
+
+
 def _invoke_get_issues_shipped(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.eng_scorecard_metrics import get_issues_shipped
     from src.jira_client import get_shared_jira_client
 
+    # Calendar month (MTD + pace extrapolation) — independent of --days.
     return get_issues_shipped(
+        get_shared_jira_client(),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
+def _invoke_get_defects_per_100_issues(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.eng_scorecard_metrics import get_defects_per_100_issues
+    from src.jira_client import get_shared_jira_client
+
+    return get_defects_per_100_issues(
         get_shared_jira_client(),
         days=int(ctx.get("days") or 30),
         timeout=float(ctx.get("timeout") or 60.0),
@@ -268,6 +340,16 @@ def _invoke_get_growth_allocation_pct(ctx: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _invoke_get_ai_spend_pct(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.cursor_client import get_shared_cursor_client
+    from src.eng_scorecard_metrics import get_ai_spend_pct
+
+    return get_ai_spend_pct(
+        get_shared_cursor_client(),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
 def _invoke_get_ai_spend_per_issue(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.cursor_client import get_shared_cursor_client
     from src.eng_scorecard_metrics import get_ai_spend_per_issue
@@ -281,22 +363,46 @@ def _invoke_get_ai_spend_per_issue(ctx: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _invoke_get_headcount_plus_ai_spend_per_issue(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.cursor_client import get_shared_cursor_client
+    from src.eng_scorecard_metrics import get_headcount_plus_ai_spend_per_issue
+    from src.jira_client import get_shared_jira_client
+
+    return get_headcount_plus_ai_spend_per_issue(
+        get_shared_cursor_client(),
+        get_shared_jira_client(),
+        days=int(ctx.get("days") or 30),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
 _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_kpi_automation_pct": lambda ctx: get_kpi_automation_pct(registry=ctx["registry"]),
     "get_dev_team_cycle_times": _invoke_get_dev_team_cycle_times,
     "get_dev_team_lead_time": _invoke_get_dev_team_lead_time,
     "get_ai_token_usage": _invoke_get_ai_token_usage,
+    "get_monthly_ai_spend": _invoke_get_monthly_ai_spend,
     "get_service_threshold_tickets": _invoke_get_service_threshold_tickets,
     "get_customer_reported_bugs": _invoke_get_customer_reported_bugs,
     "get_median_ttr": _invoke_get_median_ttr,
     "get_sprint_delivery_by_team": _invoke_get_sprint_delivery_by_team,
     "get_sprint_story_points_by_team": _invoke_get_sprint_story_points_by_team,
-    "get_wau_pct": _invoke_get_wau_pct,
+    "get_weekly_active_ai_users": _invoke_get_weekly_active_ai_users,
+    "get_wau_pct": _invoke_get_wau_pct,  # deprecated alias
     "get_tokens_per_dev": _invoke_get_tokens_per_dev,
+    "get_token_cost_per_dev": _invoke_get_token_cost_per_dev,
     "get_prs_merged": _invoke_get_prs_merged,
+    "get_ai_assisted_prs_pct": _invoke_get_ai_assisted_prs_pct,
+    "get_ai_code_share": _invoke_get_ai_code_share,
+    "get_ai_automated_prs_pct": _invoke_get_ai_automated_prs_pct,  # deprecated → AI Code Share
+    "get_ai_assisted_automated_prs_pct": _invoke_get_ai_assisted_automated_prs_pct,  # deprecated
     "get_issues_shipped": _invoke_get_issues_shipped,
+    "get_defects_per_100_issues": _invoke_get_defects_per_100_issues,
+    "get_defect_introduction_rate": _invoke_get_defects_per_100_issues,  # deprecated alias
     "get_growth_allocation_pct": _invoke_get_growth_allocation_pct,
+    "get_ai_spend_pct": _invoke_get_ai_spend_pct,
     "get_ai_spend_per_issue": _invoke_get_ai_spend_per_issue,
+    "get_headcount_plus_ai_spend_per_issue": _invoke_get_headcount_plus_ai_spend_per_issue,
 }
 
 

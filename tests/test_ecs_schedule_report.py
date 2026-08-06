@@ -53,15 +53,16 @@ def test_build_schedule_rows_merges_catalog_when_aws_empty(monkeypatch):
     snap = next(r for r in rows if r.job_key == "pendo-snapshot-refresh")
     assert snap.rule_name == "cortex-pendo-snapshot-refresh"
     assert snap.schedule_expression == "cron(0 3 * * ? *)"
-    top_arr = next(r for r in rows if r.job_key == "pendo-top-arr-30d")
-    assert top_arr.rule_name == "cortex-pendo-top-arr-30d"
+    top_arr = next(r for r in rows if r.job_key == "pendo-top-10-arr")
+    assert top_arr.rule_name == "cortex-pendo-top-10-arr"
     assert top_arr.schedule_expression == "cron(0 8 * * ? *)"
-    weekly = next(r for r in rows if r.job_key == "metrics-eng-cycle-lead-weekly")
-    assert weekly.rule_name == "cortex-metrics-eng-cycle-lead-weekly"
-    assert weekly.schedule_expression == "cron(0 9 ? * MON *)"
+    assert not any(r.job_key == "pendo-top-arr-30d" for r in rows)
+    assert not any(r.job_key == "carrier-pendo-detailed-30d" for r in rows)
+    assert not any(r.job_key == "metrics-eng-cycle-lead-weekly" for r in rows)
     digest = next(r for r in rows if r.job_key == "metrics-daily-digest")
     assert digest.rule_name == "cortex-metrics-daily-digest"
     assert digest.schedule_expression == "cron(0 12 * * ? *)"
+    assert digest.state == "DISABLED"
     eng = next(r for r in rows if r.job_key == "engineering-portfolio")
     assert eng.rule_name == "cortex-engineering-portfolio"
     assert eng.schedule_expression == "cron(30 6 * * ? *)"

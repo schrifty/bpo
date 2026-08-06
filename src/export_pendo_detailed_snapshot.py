@@ -2,8 +2,8 @@
 """Site- and user-level Pendo usage exports (extends account-level Ford-style reports).
 
 Usage:
-  cortex --export-pendo-detailed --customer Ford [--days 30] [--compare-days 30]
-  cortex --export-pendo-top-arr [--top-n 5] [--days 30] [--compare-days 30]
+  cortex --export-pendo-detailed --customer <name> [--days N] [--compare-days N] [--no-drive] [-o PATH]
+  cortex --export-pendo-top-arr [--top-n 10] [--days 30] [--compare-days 30]
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from .pendo_client import PendoClient, _name_matches
 
 _PROFILE_ID = "customer_pendo_detailed_export"
 _MS_PER_DAY = 86_400_000
-_DEFAULT_TOP_N = 5
+_DEFAULT_TOP_N = 10
 _DEFAULT_USER_ROSTER_MD_CAP = 250
 _DEFAULT_SITE_USERS_CAP = 50
 _DEFAULT_SITE_DETAIL_USER_SITES = 20
@@ -870,7 +870,7 @@ def export_pendo_top_arr_main(cli_args: list[str] | None = None, *, prog: str | 
         description="Run site/user Pendo detailed export for top Salesforce ultimate parents by ARR.",
         prog=prog or "cortex --export-pendo-top-arr",
     )
-    ap.add_argument("--top-n", type=int, default=_DEFAULT_TOP_N, help="Number of customers (default 5)")
+    ap.add_argument("--top-n", type=int, default=_DEFAULT_TOP_N, help="Number of customers (default 10)")
     ap.add_argument("--days", type=int, default=30, help="Lookback window in days (default 30)")
     ap.add_argument("--compare-days", type=int, default=None, help="Prior comparison window (default: --days)")
     ap.add_argument("--no-drive", action="store_true", help="Skip Drive upload")

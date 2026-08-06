@@ -206,6 +206,38 @@ def registry_metric_direction(entry: Any) -> MetricDirection | None:
     return text
 
 
+VALID_METRIC_UNITS: frozenset[str] = frozenset({"currency", "percent"})
+
+
+def registry_metric_unit(entry: Any) -> str | None:
+    """Optional display ``unit`` (``currency`` / ``percent``) for metrics-digest."""
+    if not isinstance(entry, dict):
+        return None
+    raw = entry.get("unit")
+    if raw is None:
+        return None
+    text = str(raw).strip().lower()
+    if not text:
+        return None
+    if text not in VALID_METRIC_UNITS:
+        raise ValueError(f"unit must be one of {sorted(VALID_METRIC_UNITS)}, got {raw!r}")
+    return text
+
+
+def digest_display_unit(metric_name: str, entry: Any) -> str | None:
+    """Resolve digest display unit from registry ``unit`` or metric name heuristics."""
+    try:
+        unit = registry_metric_unit(entry)
+    except ValueError:
+        raise
+    if unit:
+        return unit
+    name = str(metric_name or "").strip()
+    if name.endswith("%") or name.startswith("%"):
+        return "percent"
+    return None
+
+
 def validate_metric_target_direction(entry: Any) -> str | None:
     """Return an error string when target/direction pairing is invalid; else ``None``."""
     if not isinstance(entry, dict):

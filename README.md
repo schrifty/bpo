@@ -35,11 +35,10 @@ Set `CORTEX_LOG_FORMAT=json` (auto on ECS) for CloudWatch filters; stdout includ
 |-----|-----------------------------|------|
 | Shared Pendo ingest | Daily 03:00 UTC (`cortex-pendo-snapshot-refresh`) | `pendo-snapshot-refresh` (preload 7/14/30/60/90 + Drive portfolio 90d) |
 | LLM export | Daily 06:00 UTC (`cortex-export-nightly`) | `export-nightly` (`cortex export-all`, 90-day window; requires shared snapshot) |
-| Engineering portfolio | Daily 06:30 UTC (`cortex-engineering-portfolio`) | `engineering-portfolio` |
+| Engineering portfolio | Daily 06:30 UTC (`cortex-engineering-portfolio`) | `engineering-portfolio` (Claude Opus designs each slide when `ANTHROPIC_API_KEY` is set; else legacy Python builders) |
 | Ford Pendo export (7d) | Daily 07:00 UTC (`cortex-ford-pendo-7d`) | `ford-pendo-7d` (`cortex --export-pendo --customer Ford --days 7 --compare-days 7`) |
 | Ford Pendo export (30d) | Daily 07:30 UTC (`cortex-ford-pendo-30d`) | `ford-pendo-30d` (`cortex --export-pendo --customer Ford --days 30 --compare-days 30`) |
-| Top-ARR Pendo detailed | Daily 08:00 UTC (`cortex-pendo-top-arr-30d`) | `pendo-top-arr-30d` |
-| Engineering KPIs (cycle, lead time, thresholds, bugs) | Weekly Mon 08:30 UTC (`cortex-metrics-eng-cycle-lead-weekly`) | `metrics-eng-cycle-lead-weekly` (LeanDNA metrics 2024, 2179, 2028, 2035) |
+| Top-10 ARR Pendo detailed | Daily 08:00 UTC (`cortex-pendo-top-10-arr`) | `pendo-top-10-arr` (top 10 · 30d + 7d detailed) |
 | Portfolio batch | Manual / `run-task` | `portfolio-batch` |
 | Full nightly chain | Manual | `nightly-core` |
 
