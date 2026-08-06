@@ -136,52 +136,92 @@ class DigestRow:
 
 
 def _build_context_string(name: str, raw: dict[str, Any], unit: str | None) -> str | None:
-    """Build a short context string from generator output (e.g. '48 / 408 PRs')."""
+    """Build a short context string from generator output with methodology notes."""
     if not isinstance(raw, dict):
         return None
 
-    # AI Spend / Issue, Headcount + AI Spend / Issue
-    if "issues" in name.lower() and raw.get("spend_usd") is not None:
+    name_lower = name.lower()
+    window = raw.get("window_days", 30)
+
+    # Headcount + AI Spend / Issue — monthly eng budget prorated to window
+    if "headcount" in name_lower and "spend" in name_lower and "issue" in name_lower:
+        hc_usd = raw.get("headcount_usd", 0)  # monthly budget prorated to window
+        ai_usd = raw.get("ai_spend_usd", 0)
+        issues = raw.get("issues_shipped") or raw.get("issues", 0)
+        if issues and hc_usd:
+            return f"(${hc_usd/1000:.0f}K monthly HC + ${ai_usd/1000:.1f}K Cursor) / {issues} issues ({window}d)"
+
+    # AI Spend / Issue — clarify Cursor spend
+    if "spend" in name_lower and "issue" in name_lower and "headcount" not in name_lower:
         spend = raw.get("spend_usd") or raw.get("ai_spend_usd", 0)
         issues = raw.get("issues_shipped") or raw.get("issues", 0)
         if issues:
-            return f"${spend:,.0f} / {issues:,} issues"
+            return f"${spend:,.0f} Cursor spend / {issues} issues shipped ({window}d)"
 
-    # Token Cost per Dev, Tokens per Dev
-    if raw.get("headcount") and (raw.get("spend_usd") is not None or raw.get("tokens") is not None):
-        hc = raw["headcount"]
-        if raw.get("spend_usd") is not None:
-            return f"${raw['spend_usd']:,.0f} / {hc} devs"
-        if raw.get("tokens") is not None:
-            tok = raw["tokens"]
-            if tok >= 1_000_000:
-                return f"{tok / 1_000_000:.1f}M tokens / {hc} devs"
-            return f"{tok:,} tokens / {hc} devs"
+    # Token Cost per Dev — clarify Cursor
+    if raw.get("headcount") and raw.get("spend_usd") is not None and "token" in name_lower:
+        return f"${raw['spend_usd']:,.0f} Cursor / {raw['headcount']} devs ({window}d)"
 
-    # AI Spend %
-    if "ai_spend_usd" in raw and "engineering_spend_usd" in raw:
-        return f"${raw['ai_spend_usd']:,.0f} / ${raw['engineering_spend_usd']:,.0f}"
+    # Tokens per Dev
+    if raw.get("headcount") and raw.get("tokens") is not None and "token" in name_lower:
+        tok = raw["tokens"]
+        if tok >= 1_000_000:
+            return f"{tok / 1_000_000:.1f}M tokens / {raw['headcount']} devs ({window}d)"
+        return f"{tok:,} tokens / {raw['headcount']} devs ({window}d)"
 
-    # Percentages with matched/total (AI-Assisted PRs, Weekly Active AI Users)
+    # AI Spend % — monthly Cursor vs monthly eng budget
+    if "ai_spend_usd" in raw and "engineering_spend_usd" in raw and "%" in name:
+        method = raw.get("method", "")
+        note = " (projected)" if "extrapolat" in method or "pace" in method else ""
+        return f"${raw['ai_spend_usd']:,.0f} Cursor{note} / ${raw['engineering_spend_usd']/1000:.0f}K monthly eng"
+
+    # Monthly AI Spend — show projection method
+    if "monthly" in name_lower and "spend" in name_lower:
+        method = raw.get("method", "actual")
+        mtd = raw.get("mtd", 0)
+        return f"${mtd:,.0f} MTD → projected via {method}"
+
+    # AI-Assisted PRs — note attribution method
     if raw.get("matched_prs") is not None and raw.get("total_prs") is not None:
-        return f"{raw['matched_prs']} / {raw['total_prs']} PRs"
+        mode = raw.get("mode", "commit")
+        caveat = " (commit-msg match)" if "commit" in mode else ""
+        return f"{raw['matched_prs']} / {raw['total_prs']} merged PRs{caveat}"
+
+    # Weekly Active AI Users — show inactive names if available
     if raw.get("active_users") is not None and raw.get("headcount") is not None:
-        return f"{raw['active_users']} / {raw['headcount']} devs"
+        inactive = raw.get("inactive_emails") or []
+        if inactive:
+            # Show first names only for brevity
+            names = [e.split("@")[0].split(".")[0].title() for e in inactive[:5]]
+            inactive_str = ", ".join(names)
+            if len(inactive) > 5:
+                inactive_str += f" +{len(inactive) - 5} more"
+            return f"{raw['active_users']}/{raw['headcount']} active; inactive: {inactive_str}"
+        return f"{raw['active_users']} active / {raw['headcount']} eng dept ({window}d)"
 
     # AI Code Share
     if raw.get("ai_lines") is not None and raw.get("total_lines") is not None:
         ai = raw["ai_lines"]
         total = raw["total_lines"]
         if total >= 1000:
-            return f"{ai:,} / {total:,} lines"
+            return f"{ai:,} AI-generated / {total:,} total lines ({window}d)"
 
-    # Defects per 100 Issues
+    # Defects per 100 Issues — clarify it's a rate not %
     if raw.get("bugs_created") is not None and raw.get("issues_shipped") is not None:
-        return f"{raw['bugs_created']} bugs / {raw['issues_shipped']} issues"
+        bugs = raw["bugs_created"]
+        issues = raw["issues_shipped"]
+        return f"{bugs} LEAN Bugs created / {issues} issues shipped ({window}d)"
+
+    # Issues Shipped — show if extrapolated
+    if "issues shipped" in name_lower and raw.get("extrapolated"):
+        mtd = raw.get("mtd", 0)
+        method = raw.get("method", "pace")
+        return f"{mtd} shipped MTD → {method} extrapolation"
 
     # Growth Allocation
     if raw.get("planned_count") is not None and raw.get("total_count") is not None:
-        return f"{raw['planned_count']} / {raw['total_count']} issues"
+        excluded = raw.get("excluded_bugs", 0) + raw.get("excluded_tech_debt", 0)
+        return f"{raw['planned_count']} planned / {raw['total_count']} total ({excluded} bugs/debt excluded)"
 
     # Generic numerator/denominator fallback
     if raw.get("numerator") is not None and raw.get("denominator") is not None:
@@ -720,6 +760,265 @@ def generate_metrics_digest_deck(
             "fields": "fontFamily,fontSize,foregroundColor",
         }
     })
+    from datetime import datetime
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    timestamp_text = f"Generated {generated_at}"
+    append_text_box(reqs, f"{title_sid}_ts", title_sid, MARGIN, 245, SLIDE_W - 2 * MARGIN, 20, timestamp_text)
+    reqs.append({
+        "updateTextStyle": {
+            "objectId": f"{title_sid}_ts",
+            "style": {
+                "fontFamily": FONT,
+                "fontSize": {"magnitude": 11, "unit": "PT"},
+                "foregroundColor": {"opaqueColor": {"rgbColor": {"red": 0.5, "green": 0.6, "blue": 0.7}}},
+            },
+            "textRange": {"type": "ALL"},
+            "fields": "fontFamily,fontSize,foregroundColor",
+        }
+    })
+
+    # AKKR Actions slide (only for akkr tag)
+    next_slide_idx = 1
+    if tag and tag.lower() == "akkr":
+        actions_sid = "metrics_actions"
+        append_slide(reqs, actions_sid, next_slide_idx)
+        background(reqs, actions_sid, WHITE)
+
+        # Header bar
+        rect(reqs, f"{actions_sid}_hdr", actions_sid, 0, 0, SLIDE_W, 48, NAVY)
+        append_text_box(reqs, f"{actions_sid}_htxt", actions_sid, MARGIN, 12, SLIDE_W - 2 * MARGIN, 28, "AKKR Engineering Required Actions")
+        reqs.append({
+            "updateTextStyle": {
+                "objectId": f"{actions_sid}_htxt",
+                "style": {
+                    "fontFamily": FONT,
+                    "fontSize": {"magnitude": 20, "unit": "PT"},
+                    "bold": True,
+                    "foregroundColor": {"opaqueColor": {"rgbColor": WHITE}},
+                },
+                "textRange": {"type": "ALL"},
+                "fields": "fontFamily,fontSize,bold,foregroundColor",
+            }
+        })
+
+        # Actions list with per-row Status/Progress/Risks columns
+        akkr_actions = [
+            ("E1", "Approve engineering AI tool stack and provision employee access."),
+            ("E2", "Publish AI Development Lifecycle (AIDLC) standards for AI-assisted software delivery."),
+            ("E3", "Define security, IP, customer data, and human-review requirements for AI-assisted engineering."),
+            ("E4", "Submit an AI engineering adoption and impact scorecard."),
+            ("E5", "Track AI usage, token consumption, tool spend, and model spend."),
+        ]
+
+        # Column headers
+        col_headers = ["Action", "Status", "Progress", "Risks"]
+        col_x = [MARGIN, 320, 430, 540]
+        col_w = [295, 100, 100, 155]
+        header_y = 54
+
+        for i, hdr in enumerate(col_headers):
+            append_text_box(reqs, f"{actions_sid}_hdr_{i}", actions_sid, col_x[i], header_y, col_w[i], 16, hdr)
+            reqs.append({
+                "updateTextStyle": {
+                    "objectId": f"{actions_sid}_hdr_{i}",
+                    "style": {
+                        "fontFamily": FONT,
+                        "fontSize": {"magnitude": 9, "unit": "PT"},
+                        "bold": True,
+                        "foregroundColor": {"opaqueColor": {"rgbColor": NAVY}},
+                    },
+                    "textRange": {"type": "ALL"},
+                    "fields": "fontFamily,fontSize,bold,foregroundColor",
+                }
+            })
+
+        action_y = 74
+        action_h = 32
+        for code, desc in akkr_actions:
+            # Row background (alternating)
+            row_idx = int(code[1]) - 1
+            row_fill = LIGHT if row_idx % 2 == 0 else WHITE
+            rect(reqs, f"{actions_sid}_{code}_bg", actions_sid, MARGIN, action_y, SLIDE_W - 2 * MARGIN, action_h, row_fill)
+
+            # Code + Description
+            action_text = f"{code} — {desc}"
+            append_text_box(reqs, f"{actions_sid}_{code}", actions_sid, col_x[0] + 4, action_y + 4, col_w[0] - 8, action_h - 8, action_text)
+            reqs.append({
+                "updateTextStyle": {
+                    "objectId": f"{actions_sid}_{code}",
+                    "style": {
+                        "fontFamily": FONT,
+                        "fontSize": {"magnitude": 8, "unit": "PT"},
+                        "foregroundColor": {"opaqueColor": {"rgbColor": {"red": 0.15, "green": 0.15, "blue": 0.2}}},
+                    },
+                    "textRange": {"type": "ALL"},
+                    "fields": "fontFamily,fontSize,foregroundColor",
+                }
+            })
+
+            # Status, Progress, Risks input boxes
+            for j, col_name in enumerate(["Status", "Progress", "Risks"]):
+                box_id = f"{actions_sid}_{code}_{col_name[:3].lower()}"
+                rect(reqs, box_id, actions_sid, col_x[j + 1] + 2, action_y + 2, col_w[j + 1] - 4, action_h - 4, WHITE)
+
+            action_y += action_h
+
+        next_slide_idx += 1
+
+        # Product Actions slide
+        prod_sid = "metrics_prod_actions"
+        append_slide(reqs, prod_sid, next_slide_idx)
+        background(reqs, prod_sid, WHITE)
+
+        # Header bar
+        rect(reqs, f"{prod_sid}_hdr", prod_sid, 0, 0, SLIDE_W, 48, NAVY)
+        append_text_box(reqs, f"{prod_sid}_htxt", prod_sid, MARGIN, 12, SLIDE_W - 2 * MARGIN, 28, "AKKR Product Required Actions")
+        reqs.append({
+            "updateTextStyle": {
+                "objectId": f"{prod_sid}_htxt",
+                "style": {
+                    "fontFamily": FONT,
+                    "fontSize": {"magnitude": 20, "unit": "PT"},
+                    "bold": True,
+                    "foregroundColor": {"opaqueColor": {"rgbColor": WHITE}},
+                },
+                "textRange": {"type": "ALL"},
+                "fields": "fontFamily,fontSize,bold,foregroundColor",
+            }
+        })
+
+        # Product actions list with per-row columns
+        prod_actions = [
+            ("P1", "Prioritize AI in product roadmap with delivery dates and monetization plan based on customer value, differentiation, and retention."),
+            ("P2", "Map customer data, permissions, entitlements, and ownership rights for AI-enabled product use cases (optional — depends on use case)."),
+            ("P3", "Apply AI across multiple product development lifecycle steps, from discovery through launch."),
+            ("P4", "Submit adoption, quality, monetization, and PM productivity KPIs scorecard."),
+        ]
+
+        # Column headers
+        for i, hdr in enumerate(col_headers):
+            append_text_box(reqs, f"{prod_sid}_hdr_{i}", prod_sid, col_x[i], header_y, col_w[i], 16, hdr)
+            reqs.append({
+                "updateTextStyle": {
+                    "objectId": f"{prod_sid}_hdr_{i}",
+                    "style": {
+                        "fontFamily": FONT,
+                        "fontSize": {"magnitude": 9, "unit": "PT"},
+                        "bold": True,
+                        "foregroundColor": {"opaqueColor": {"rgbColor": NAVY}},
+                    },
+                    "textRange": {"type": "ALL"},
+                    "fields": "fontFamily,fontSize,bold,foregroundColor",
+                }
+            })
+
+        action_y = 74
+        action_h = 38  # slightly taller for longer text
+        for code, desc in prod_actions:
+            row_idx = int(code[1]) - 1
+            row_fill = LIGHT if row_idx % 2 == 0 else WHITE
+            rect(reqs, f"{prod_sid}_{code}_bg", prod_sid, MARGIN, action_y, SLIDE_W - 2 * MARGIN, action_h, row_fill)
+
+            action_text = f"{code} — {desc}"
+            append_text_box(reqs, f"{prod_sid}_{code}", prod_sid, col_x[0] + 4, action_y + 4, col_w[0] - 8, action_h - 8, action_text)
+            reqs.append({
+                "updateTextStyle": {
+                    "objectId": f"{prod_sid}_{code}",
+                    "style": {
+                        "fontFamily": FONT,
+                        "fontSize": {"magnitude": 8, "unit": "PT"},
+                        "foregroundColor": {"opaqueColor": {"rgbColor": {"red": 0.15, "green": 0.15, "blue": 0.2}}},
+                    },
+                    "textRange": {"type": "ALL"},
+                    "fields": "fontFamily,fontSize,foregroundColor",
+                }
+            })
+
+            for j, col_name in enumerate(["Status", "Progress", "Risks"]):
+                box_id = f"{prod_sid}_{code}_{col_name[:3].lower()}"
+                rect(reqs, box_id, prod_sid, col_x[j + 1] + 2, action_y + 2, col_w[j + 1] - 4, action_h - 4, WHITE)
+
+            action_y += action_h
+
+        next_slide_idx += 1
+
+        # Foundations Actions slide
+        found_sid = "metrics_found_actions"
+        append_slide(reqs, found_sid, next_slide_idx)
+        background(reqs, found_sid, WHITE)
+
+        # Header bar
+        rect(reqs, f"{found_sid}_hdr", found_sid, 0, 0, SLIDE_W, 48, NAVY)
+        append_text_box(reqs, f"{found_sid}_htxt", found_sid, MARGIN, 12, SLIDE_W - 2 * MARGIN, 28, "AKKR Foundations Required Actions")
+        reqs.append({
+            "updateTextStyle": {
+                "objectId": f"{found_sid}_htxt",
+                "style": {
+                    "fontFamily": FONT,
+                    "fontSize": {"magnitude": 20, "unit": "PT"},
+                    "bold": True,
+                    "foregroundColor": {"opaqueColor": {"rgbColor": WHITE}},
+                },
+                "textRange": {"type": "ALL"},
+                "fields": "fontFamily,fontSize,bold,foregroundColor",
+            }
+        })
+
+        # Foundations actions list with per-row columns
+        found_actions = [
+            ("F1", "Approve the default AI workspace (ChatGPT, Claude, Gemini) and provision employee access — prioritize short-term/usage-based contracts."),
+            ("F2", "Enable SSO, logging, policy acknowledgement, and approved user groups consistent with AKKR policy recommendations."),
+            ("F3", "Publish KPI and OKR definitions, source-of-truth logic, warehouse/BI lineage, and known caveats."),
+            ("F4", "Confirm warehouse/lake/lakehouse path; map priority sources with owners and permissions."),
+            ("F5", "Define human review, exception, and audit rules for live workflows consistent with AKKR policy recommendations."),
+        ]
+
+        # Column headers
+        for i, hdr in enumerate(col_headers):
+            append_text_box(reqs, f"{found_sid}_hdr_{i}", found_sid, col_x[i], header_y, col_w[i], 16, hdr)
+            reqs.append({
+                "updateTextStyle": {
+                    "objectId": f"{found_sid}_hdr_{i}",
+                    "style": {
+                        "fontFamily": FONT,
+                        "fontSize": {"magnitude": 9, "unit": "PT"},
+                        "bold": True,
+                        "foregroundColor": {"opaqueColor": {"rgbColor": NAVY}},
+                    },
+                    "textRange": {"type": "ALL"},
+                    "fields": "fontFamily,fontSize,bold,foregroundColor",
+                }
+            })
+
+        action_y = 74
+        action_h = 32
+        for code, desc in found_actions:
+            row_idx = int(code[1]) - 1
+            row_fill = LIGHT if row_idx % 2 == 0 else WHITE
+            rect(reqs, f"{found_sid}_{code}_bg", found_sid, MARGIN, action_y, SLIDE_W - 2 * MARGIN, action_h, row_fill)
+
+            action_text = f"{code} — {desc}"
+            append_text_box(reqs, f"{found_sid}_{code}", found_sid, col_x[0] + 4, action_y + 4, col_w[0] - 8, action_h - 8, action_text)
+            reqs.append({
+                "updateTextStyle": {
+                    "objectId": f"{found_sid}_{code}",
+                    "style": {
+                        "fontFamily": FONT,
+                        "fontSize": {"magnitude": 8, "unit": "PT"},
+                        "foregroundColor": {"opaqueColor": {"rgbColor": {"red": 0.15, "green": 0.15, "blue": 0.2}}},
+                    },
+                    "textRange": {"type": "ALL"},
+                    "fields": "fontFamily,fontSize,foregroundColor",
+                }
+            })
+
+            for j, col_name in enumerate(["Status", "Progress", "Risks"]):
+                box_id = f"{found_sid}_{code}_{col_name[:3].lower()}"
+                rect(reqs, box_id, found_sid, col_x[j + 1] + 2, action_y + 2, col_w[j + 1] - 4, action_h - 4, WHITE)
+
+            action_y += action_h
+
+        next_slide_idx += 1
 
     # Split rows: off-target first, then on-target
     off_target = [r for r in rows if r.off_target]
@@ -728,7 +1027,7 @@ def generate_metrics_digest_deck(
     # KPI slides — 6 metrics per slide
     all_rows = off_target + on_target
     metrics_per_slide = 6
-    slide_idx = 1  # starts at 1 since title slide is at index 0
+    slide_idx = next_slide_idx
 
     for chunk_start in range(0, len(all_rows), metrics_per_slide):
         chunk = all_rows[chunk_start : chunk_start + metrics_per_slide]
@@ -851,7 +1150,7 @@ def generate_metrics_digest_deck(
     try:
         pres = slides_svc.presentations().get(presentationId=deck_id).execute()
         slides_in_pres = pres.get("slides") or []
-        our_slide_ids = {"metrics_title"} | {f"metrics_s{i}" for i in range(1, slide_idx)}
+        our_slide_ids = {"metrics_title", "metrics_actions", "metrics_prod_actions", "metrics_found_actions"} | {f"metrics_s{i}" for i in range(next_slide_idx, slide_idx)}
         delete_reqs = []
         for s in slides_in_pres:
             sid = s.get("objectId", "")

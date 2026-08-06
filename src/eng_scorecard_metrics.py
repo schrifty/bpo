@@ -92,8 +92,11 @@ def _engineer_event_stats(
         in_t, out_t = _event_io_tokens(event)
         tokens += in_t + out_t
         charged_cents += _event_cost_cents(event)
+    inactive = engineer_emails - active
     return {
         "active_users": len(active),
+        "active_emails": sorted(active),
+        "inactive_emails": sorted(inactive),
         "tokens": tokens,
         "charged_cents": round(charged_cents, 2),
     }
@@ -127,6 +130,7 @@ def get_weekly_active_ai_users(
     active = int(stats["active_users"])
     pct = round(100.0 * active / headcount, 2) if headcount else 0.0
     excluded = scope.get("excluded_teams") or []
+    inactive_emails = stats.get("inactive_emails") or []
     logger.info(
         "Weekly Active AI Users: %s / %s Engineering Department (window=%sd%s) = %s%%",
         active,
@@ -135,6 +139,8 @@ def get_weekly_active_ai_users(
         f", excl={excluded}" if excluded else "",
         pct,
     )
+    if inactive_emails:
+        logger.info("  Inactive (%sd): %s", window, ", ".join(inactive_emails[:10]))
     return {
         "numerator": float(active),
         "denominator": float(headcount),
@@ -144,6 +150,7 @@ def get_weekly_active_ai_users(
         "window_days": window,
         "scope": "engineering_department",
         "excluded_teams": excluded,
+        "inactive_emails": inactive_emails,
     }
 
 
@@ -1071,16 +1078,17 @@ def get_headcount_plus_ai_spend_per_issue(
 ) -> dict[str, Any]:
     """Headcount + AI Spend / Issue: (prorated headcount cost + AI spend) ÷ issues shipped.
 
-    Headcount cost is ``CORTEX_ENGINEERING_MONTHLY_SPEND_USD`` prorated to the window
-    (``monthly × days / 30``). Treat that env as engineering headcount/opex **excluding**
-    AI tooling so AI is not double-counted. AI spend is engineer-scoped Cursor charged
-    USD over the same window (same numerator as :func:`get_ai_spend_per_issue`).
+    Headcount cost is ``CORTEX_ENGINEERING_MONTHLY_SPEND_USD`` (monthly engineering
+    headcount/opex, excluding AI tooling) prorated to the window
+    (``monthly × days / 30``). AI spend is engineer-scoped Cursor charged USD over
+    the same window (same numerator as :func:`get_ai_spend_per_issue`).
     """
     hc = _engineering_headcount_monthly_usd()
     if hc.get("error"):
         return hc
     window_days = max(1, int(days))
-    headcount_usd = round(float(hc["value"]) * (window_days / 30.0), 4)
+    monthly_spend = float(hc["value"])
+    headcount_usd = round(monthly_spend * (window_days / 30.0), 4)
 
     scope = _engineer_scope(jira_client, timeout=timeout)
     if scope.get("error"):
@@ -1105,13 +1113,15 @@ def get_headcount_plus_ai_spend_per_issue(
     total_usd = round(headcount_usd + ai_usd, 4)
     per_issue = round(total_usd / issues, 4)
     logger.info(
-        "Headcount + AI Spend / Issue: ($%s headcount + $%s AI) / %s issues = $%s "
-        "(window=%sd)",
+        "Headcount + AI Spend / Issue: ($%s HC %sd + $%s Cursor %sd) / %s issues = $%s "
+        "(monthly HC=$%s)",
         headcount_usd,
+        window_days,
         ai_usd,
+        window_days,
         issues,
         per_issue,
-        window_days,
+        monthly_spend,
     )
     return {
         "numerator": total_usd,
@@ -1122,5 +1132,5 @@ def get_headcount_plus_ai_spend_per_issue(
         "total_usd": total_usd,
         "issues_shipped": issues,
         "window_days": window_days,
-        "engineering_monthly_spend_usd": float(hc["value"]),
+        "engineering_monthly_spend_usd": monthly_spend,
     }
