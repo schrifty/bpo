@@ -142,6 +142,7 @@ def _build_context_string(name: str, raw: dict[str, Any], unit: str | None) -> s
 
     name_lower = name.lower()
     window = raw.get("window_days", 30)
+    period = raw.get("month") or f"{window}d"
 
     # Headcount + AI Spend / Issue — monthly eng budget prorated to window
     if "headcount" in name_lower and "spend" in name_lower and "issue" in name_lower:
@@ -149,25 +150,25 @@ def _build_context_string(name: str, raw: dict[str, Any], unit: str | None) -> s
         ai_usd = raw.get("ai_spend_usd", 0)
         issues = raw.get("issues_shipped") or raw.get("issues", 0)
         if issues and hc_usd:
-            return f"(${hc_usd/1000:.0f}K monthly HC + ${ai_usd/1000:.1f}K Cursor) / {issues} issues ({window}d)"
+            return f"(${hc_usd/1000:.0f}K monthly HC + ${ai_usd/1000:.1f}K Cursor) / {issues} issues ({period})"
 
     # AI Spend / Issue — clarify Cursor spend
     if "spend" in name_lower and "issue" in name_lower and "headcount" not in name_lower:
         spend = raw.get("spend_usd") or raw.get("ai_spend_usd", 0)
         issues = raw.get("issues_shipped") or raw.get("issues", 0)
         if issues:
-            return f"${spend:,.0f} Cursor spend / {issues} issues shipped ({window}d)"
+            return f"${spend:,.0f} Cursor spend / {issues} issues shipped ({period})"
 
     # Token Cost per Dev — clarify Cursor
     if raw.get("headcount") and raw.get("spend_usd") is not None and "token" in name_lower:
-        return f"${raw['spend_usd']:,.0f} Cursor / {raw['headcount']} devs ({window}d)"
+        return f"${raw['spend_usd']:,.0f} Cursor / {raw['headcount']} devs ({period})"
 
     # Tokens per Dev
     if raw.get("headcount") and raw.get("tokens") is not None and "token" in name_lower:
         tok = raw["tokens"]
         if tok >= 1_000_000:
-            return f"{tok / 1_000_000:.1f}M tokens / {raw['headcount']} devs ({window}d)"
-        return f"{tok:,} tokens / {raw['headcount']} devs ({window}d)"
+            return f"{tok / 1_000_000:.1f}M tokens / {raw['headcount']} devs ({period})"
+        return f"{tok:,} tokens / {raw['headcount']} devs ({period})"
 
     # AI Spend % — monthly Cursor vs monthly eng budget
     if "ai_spend_usd" in raw and "engineering_spend_usd" in raw and "%" in name:
@@ -181,10 +182,16 @@ def _build_context_string(name: str, raw: dict[str, Any], unit: str | None) -> s
         mtd = raw.get("mtd", 0)
         return f"${mtd:,.0f} MTD → projected via {method}"
 
-    # AI-Assisted PRs — note attribution method
+    # AI-Assisted PRs — prefer AI code-share proxy wording
     if raw.get("matched_prs") is not None and raw.get("total_prs") is not None:
-        mode = raw.get("mode", "commit")
-        caveat = " (commit-msg match)" if "commit" in mode else ""
+        mode = str(raw.get("mode") or "")
+        if mode == "ai_code_share_proxy" or raw.get("ai_code_share_pct") is not None:
+            share = raw.get("ai_code_share_pct", raw.get("value"))
+            return (
+                f"~{raw['matched_prs']} / {raw['total_prs']} PRs "
+                f"(via {share}% AI code share, {period})"
+            )
+        caveat = " (commit-msg match)" if "commit" in mode or mode == "assisted" else ""
         return f"{raw['matched_prs']} / {raw['total_prs']} merged PRs{caveat}"
 
     # Weekly Active AI Users — show inactive names if available
@@ -204,19 +211,20 @@ def _build_context_string(name: str, raw: dict[str, Any], unit: str | None) -> s
         ai = raw["ai_lines"]
         total = raw["total_lines"]
         if total >= 1000:
-            return f"{ai:,} AI-generated / {total:,} total lines ({window}d)"
+            return f"{ai:,} AI-generated / {total:,} total lines ({period})"
 
     # Defects per 100 Issues — clarify it's a rate not %
     if raw.get("bugs_created") is not None and raw.get("issues_shipped") is not None:
         bugs = raw["bugs_created"]
         issues = raw["issues_shipped"]
-        return f"{bugs} LEAN Bugs created / {issues} issues shipped ({window}d)"
+        return f"{bugs} LEAN Bugs created / {issues} issues shipped ({period})"
 
-    # Issues Shipped — show if extrapolated
-    if "issues shipped" in name_lower and raw.get("extrapolated"):
-        mtd = raw.get("mtd", 0)
-        method = raw.get("method", "pace")
-        return f"{mtd} shipped MTD → {method} extrapolation"
+    # Issues Shipped — actual previous calendar month
+    if (
+        "issues shipped" in name_lower
+        and raw.get("method") == "actual_previous_month"
+    ):
+        return f"{raw.get('value', 0)} shipped in {raw.get('month')} (actual)"
 
     # Growth Allocation
     if raw.get("planned_count") is not None and raw.get("total_count") is not None:

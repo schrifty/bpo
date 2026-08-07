@@ -3682,6 +3682,333 @@ class JiraClient:
             "jql_queries": self._jql_since(jql_start),
         }
 
+    def get_help_p90_ttr(
+        self,
+        *,
+        days: int = 30,
+        customer_name: str | None = None,
+        match_terms: list[str] | None = None,
+        max_results: int | None = None,
+    ) -> dict[str, Any]:
+        """HELP **P90 TTR** from completed JSM Time-to-resolution SLA cycles.
+
+        Same resolved-window JQL as :meth:`get_help_median_ttr`, but the value is the
+        90th percentile ``elapsedTime.millis`` across tickets with a completed
+        ``customfield_10665`` cycle. Returned ``value`` is that P90 in **hours** (rounded).
+        """
+        jql_start = self._jql_log_len()
+        if days < 1:
+            return {"error": "days must be >= 1", "days": days, "project": "HELP"}
+
+        cap = max_results if max_results is not None else HELP_TTR_RESOLVED_MAX_RESULTS
+        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
+            customer_name, match_terms
+        )
+        jql = (
+            f"project = HELP AND {base_filter} AND {_TRANSIENT_LABELS_EXCLUSION} "
+            f"AND resolution is not EMPTY AND resolved >= -{int(days)}d "
+            "ORDER BY resolved DESC"
+        )
+        jql_total = self._jql_match_total(jql)
+
+        try:
+            raw = self._search(
+                jql,
+                max_results=cap,
+                fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
+                data_description=(
+                    f"HELP P90 TTR SLA (resolved in last {int(days)}d"
+                    + (f", customer {customer_name!r}" if customer_name else ", portfolio")
+                    + ")"
+                ),
+            )
+        except Exception as e:
+            logger.warning(
+                "HELP P90 TTR fetch failed (days=%s customer=%r): %s",
+                days,
+                customer_name,
+                e,
+            )
+            return {
+                "error": str(e),
+                "project": "HELP",
+                "metric": "p90_ttr_hours",
+                "window_days": int(days),
+                "customer": customer_name,
+                "jsm_organizations_resolved": resolved_jsm_orgs,
+                "jql_queries": self._jql_since(jql_start),
+            }
+
+        issues = [self._normalize_issue(i) for i in raw]
+        values = [
+            int(i["ttr_ms"])
+            for i in issues
+            if i.get("project") == "HELP" and i.get("ttr_ms") is not None
+        ]
+        measured = len(values)
+        if measured < 1:
+            return {
+                "error": (
+                    "no completed Time to resolution SLA cycles "
+                    f"for HELP tickets resolved in the last {int(days)}d"
+                ),
+                "project": "HELP",
+                "metric": "p90_ttr_hours",
+                "definition": (
+                    "90th percentile completed JSM Time to resolution SLA elapsed time "
+                    "(hours) for HELP tickets resolved in a trailing window"
+                ),
+                "sla_field": TTR_FIELD,
+                "window_days": int(days),
+                "customer": customer_name,
+                "jsm_organizations_resolved": resolved_jsm_orgs,
+                "resolved_in_window": len(issues),
+                "jql_total": jql_total,
+                "fetch_cap": cap,
+                "truncated": jql_total is not None and jql_total > len(issues),
+                "measured": 0,
+                "jql_queries": self._jql_since(jql_start),
+            }
+
+        p90_ms = self._percentile_ms(values, 90)
+        assert p90_ms is not None
+        hours = p90_ms / 3_600_000.0
+        value = int(round(hours))
+        return {
+            "value": value,
+            "project": "HELP",
+            "metric": "p90_ttr_hours",
+            "definition": (
+                "90th percentile completed JSM Time to resolution SLA elapsed time "
+                "(hours) for HELP tickets resolved in a trailing window"
+            ),
+            "sla_field": TTR_FIELD,
+            "window_days": int(days),
+            "customer": customer_name,
+            "jsm_organizations_resolved": resolved_jsm_orgs,
+            "resolved_in_window": len(issues),
+            "jql_total": jql_total,
+            "fetch_cap": cap,
+            "truncated": jql_total is not None and jql_total > len(issues),
+            "p90_ms": p90_ms,
+            "p90_hours": round(hours, 2),
+            "measured": measured,
+            "jql_queries": self._jql_since(jql_start),
+        }
+
+    def get_help_median_ttfr(
+        self,
+        *,
+        days: int = 30,
+        customer_name: str | None = None,
+        match_terms: list[str] | None = None,
+        max_results: int | None = None,
+    ) -> dict[str, Any]:
+        """HELP **median TTFR** from completed JSM Time-to-first-response SLA cycles.
+
+        Same resolved-window JQL as :meth:`get_help_median_ttr`, but the value is the
+        median ``elapsedTime.millis`` across tickets with a completed ``customfield_10666``
+        cycle. Returned ``value`` is that median in **hours** (rounded).
+        """
+        jql_start = self._jql_log_len()
+        if days < 1:
+            return {"error": "days must be >= 1", "days": days, "project": "HELP"}
+
+        cap = max_results if max_results is not None else HELP_TTR_RESOLVED_MAX_RESULTS
+        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
+            customer_name, match_terms
+        )
+        jql = (
+            f"project = HELP AND {base_filter} AND {_TRANSIENT_LABELS_EXCLUSION} "
+            f"AND resolution is not EMPTY AND resolved >= -{int(days)}d "
+            "ORDER BY resolved DESC"
+        )
+        jql_total = self._jql_match_total(jql)
+
+        try:
+            raw = self._search(
+                jql,
+                max_results=cap,
+                fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
+                data_description=(
+                    f"HELP median TTFR SLA (resolved in last {int(days)}d"
+                    + (f", customer {customer_name!r}" if customer_name else ", portfolio")
+                    + ")"
+                ),
+            )
+        except Exception as e:
+            logger.warning(
+                "HELP median TTFR fetch failed (days=%s customer=%r): %s",
+                days,
+                customer_name,
+                e,
+            )
+            return {
+                "error": str(e),
+                "project": "HELP",
+                "metric": "median_ttfr_hours",
+                "window_days": int(days),
+                "customer": customer_name,
+                "jsm_organizations_resolved": resolved_jsm_orgs,
+                "jql_queries": self._jql_since(jql_start),
+            }
+
+        issues = [self._normalize_issue(i) for i in raw]
+        sla = self._compute_sla(issues, "ttfr", project_key="HELP")
+        measured = int(sla.get("measured") or 0)
+        if measured < 1:
+            return {
+                "error": (
+                    "no completed Time to first response SLA cycles "
+                    f"for HELP tickets resolved in the last {int(days)}d"
+                ),
+                "project": "HELP",
+                "metric": "median_ttfr_hours",
+                "definition": (
+                    "Median completed JSM Time to first response SLA elapsed time (hours) "
+                    "for HELP tickets resolved in a trailing window"
+                ),
+                "sla_field": TTFR_FIELD,
+                "window_days": int(days),
+                "customer": customer_name,
+                "jsm_organizations_resolved": resolved_jsm_orgs,
+                "resolved_in_window": len(issues),
+                "jql_total": jql_total,
+                "fetch_cap": cap,
+                "truncated": jql_total is not None and jql_total > len(issues),
+                "ttfr": sla,
+                "jql_queries": self._jql_since(jql_start),
+            }
+
+        median_ms = float(sla["median_ms"])
+        hours = median_ms / 3_600_000.0
+        value = int(round(hours))
+        return {
+            "value": value,
+            "project": "HELP",
+            "metric": "median_ttfr_hours",
+            "definition": (
+                "Median completed JSM Time to first response SLA elapsed time (hours) "
+                "for HELP tickets resolved in a trailing window"
+            ),
+            "sla_field": TTFR_FIELD,
+            "window_days": int(days),
+            "customer": customer_name,
+            "jsm_organizations_resolved": resolved_jsm_orgs,
+            "resolved_in_window": len(issues),
+            "jql_total": jql_total,
+            "fetch_cap": cap,
+            "truncated": jql_total is not None and jql_total > len(issues),
+            "median_ms": median_ms,
+            "median_hours": round(hours, 2),
+            "ttfr": sla,
+            "jql_queries": self._jql_since(jql_start),
+        }
+
+    def get_help_sla_adherence(
+        self,
+        *,
+        days: int = 30,
+        customer_name: str | None = None,
+        match_terms: list[str] | None = None,
+        max_results: int | None = None,
+    ) -> dict[str, Any]:
+        """HELP **SLA adherence %** for tickets resolved in the last *days*.
+
+        Among resolved HELP tickets with at least one completed TTFR or TTR SLA cycle,
+        the percent that did not breach any measured cycle (same definition as deck
+        ``sla_adherence_1y``).
+        """
+        jql_start = self._jql_log_len()
+        if days < 1:
+            return {"error": "days must be >= 1", "days": days, "project": "HELP"}
+
+        cap = max_results if max_results is not None else HELP_TTR_RESOLVED_MAX_RESULTS
+        base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
+            customer_name, match_terms
+        )
+        jql = (
+            f"project = HELP AND {base_filter} AND {_TRANSIENT_LABELS_EXCLUSION} "
+            f"AND resolution is not EMPTY AND resolved >= -{int(days)}d "
+            "ORDER BY resolved DESC"
+        )
+        jql_total = self._jql_match_total(jql)
+
+        try:
+            raw = self._search(
+                jql,
+                max_results=cap,
+                fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
+                data_description=(
+                    f"HELP SLA adherence (resolved in last {int(days)}d"
+                    + (f", customer {customer_name!r}" if customer_name else ", portfolio")
+                    + ")"
+                ),
+            )
+        except Exception as e:
+            logger.warning(
+                "HELP SLA adherence fetch failed (days=%s customer=%r): %s",
+                days,
+                customer_name,
+                e,
+            )
+            return {
+                "error": str(e),
+                "project": "HELP",
+                "metric": "sla_adherence_pct",
+                "window_days": int(days),
+                "customer": customer_name,
+                "jsm_organizations_resolved": resolved_jsm_orgs,
+                "jql_queries": self._jql_since(jql_start),
+            }
+
+        issues = [self._normalize_issue(i) for i in raw]
+        adherence = self._compute_sla_adherence(issues, project_key="HELP")
+        measured = int(adherence.get("measured") or 0)
+        if measured < 1 or adherence.get("pct") is None:
+            return {
+                "error": (
+                    "no completed TTFR/TTR SLA cycles "
+                    f"for HELP tickets resolved in the last {int(days)}d"
+                ),
+                "project": "HELP",
+                "metric": "sla_adherence_pct",
+                "definition": (
+                    "Percent of resolved HELP tickets with at least one completed "
+                    "TTFR or TTR SLA cycle that did not breach any measured cycle"
+                ),
+                "window_days": int(days),
+                "customer": customer_name,
+                "jsm_organizations_resolved": resolved_jsm_orgs,
+                "resolved_in_window": len(issues),
+                "jql_total": jql_total,
+                "fetch_cap": cap,
+                "truncated": jql_total is not None and jql_total > len(issues),
+                "sla_adherence": adherence,
+                "jql_queries": self._jql_since(jql_start),
+            }
+
+        return {
+            "value": float(adherence["pct"]),
+            "project": "HELP",
+            "metric": "sla_adherence_pct",
+            "definition": (
+                "Percent of resolved HELP tickets with at least one completed "
+                "TTFR or TTR SLA cycle that did not breach any measured cycle"
+            ),
+            "window_days": int(days),
+            "customer": customer_name,
+            "jsm_organizations_resolved": resolved_jsm_orgs,
+            "resolved_in_window": len(issues),
+            "jql_total": jql_total,
+            "fetch_cap": cap,
+            "truncated": jql_total is not None and jql_total > len(issues),
+            "sla_adherence": adherence,
+            "numerator": float(adherence.get("met") or 0),
+            "denominator": float(measured),
+            "jql_queries": self._jql_since(jql_start),
+        }
+
     @staticmethod
     def _compute_sla_field_adherence_pct(
         issues: list[dict],

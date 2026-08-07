@@ -8,7 +8,6 @@ and ``{"error": …}`` on failure so ``metrics-upsert`` fails loud.
 
 from __future__ import annotations
 
-import calendar
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -24,13 +23,18 @@ WAU_EXCLUDED_DEV_TEAMS = ENG_AI_ADOPTION_EXCLUDED_DEV_TEAMS  # backward-compatib
 ISSUES_SHIPPED_JQL_TEMPLATE = (
     "project = LEAN AND statusCategory = Done AND resolved >= -{days}d"
 )
-ISSUES_SHIPPED_MTD_JQL = (
-    "project = LEAN AND statusCategory = Done AND resolved >= startOfMonth()"
+ISSUES_SHIPPED_PREVIOUS_MONTH_JQL = (
+    "project = LEAN AND statusCategory = Done "
+    'AND resolved >= startOfMonth("-1") AND resolved < startOfMonth()'
 )
 
 # New LEAN bugs filed in the window (proxy for release defects until fixVersion/link exists).
 BUGS_CREATED_JQL_TEMPLATE = (
     "project = LEAN AND issuetype = Bug AND created >= -{days}d"
+)
+BUGS_CREATED_PREVIOUS_MONTH_JQL = (
+    "project = LEAN AND issuetype = Bug "
+    'AND created >= startOfMonth("-1") AND created < startOfMonth()'
 )
 
 # % Growth Allocation excludes these from both numerator and denominator.
@@ -64,12 +68,51 @@ def _engineer_scope(
     }
 
 
-def _cursor_events(client: Any, *, days: int) -> list[dict[str, Any]] | dict[str, Any]:
+def _previous_calendar_month_bounds(
+    as_of: datetime | None = None,
+) -> tuple[datetime, datetime, str]:
+    """Return the previous completed month as a UTC half-open interval."""
+    now = as_of or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    else:
+        now = now.astimezone(timezone.utc)
+    end = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+    previous = end - timedelta(days=1)
+    start = datetime(previous.year, previous.month, 1, tzinfo=timezone.utc)
+    return start, end, f"{previous.year:04d}-{previous.month:02d}"
+
+
+def _scorecard_period(
+    *, days: int | None, as_of: datetime | None = None
+) -> tuple[datetime, datetime, dict[str, Any]]:
+    """Resolve an explicit trailing window or the default previous calendar month."""
+    if days is None:
+        start, end, month = _previous_calendar_month_bounds(as_of)
+        return start, end, {
+            "month": month,
+            "method": "actual_previous_month",
+        }
     window = max(1, int(days))
-    end = datetime.now(timezone.utc)
-    start = end - timedelta(days=window)
+    end = as_of or datetime.now(timezone.utc)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    else:
+        end = end.astimezone(timezone.utc)
+    return end - timedelta(days=window), end, {"window_days": window}
+
+
+def _cursor_events(
+    client: Any,
+    *,
+    days: int | None,
+    as_of: datetime | None = None,
+) -> list[dict[str, Any]] | dict[str, Any]:
+    start, end, _ = _scorecard_period(days=days, as_of=as_of)
+    # Cursor's API treats the end as inclusive; remain inside the half-open month.
+    request_end = end - timedelta(milliseconds=1) if days is None else end
     try:
-        return client.get_usage_events(start, end)
+        return client.get_usage_events(start, request_end)
     except Exception as e:  # noqa: BLE001 — surface as metric error
         return {"error": f"Cursor usage events unavailable: {e}"}
 
@@ -171,7 +214,8 @@ def get_tokens_per_dev(
     cursor_client: Any,
     jira_client: Any,
     *,
-    days: int = DEFAULT_WINDOW_DAYS,
+    days: int | None = None,
+    as_of: datetime | None = None,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
     """Tokens per Dev: total model tokens ÷ Engineering Department headcount.
@@ -184,7 +228,7 @@ def get_tokens_per_dev(
     )
     if scope.get("error"):
         return scope
-    events = _cursor_events(cursor_client, days=days)
+    events = _cursor_events(cursor_client, days=days, as_of=as_of)
     if isinstance(events, dict) and events.get("error"):
         return events
     stats = _engineer_event_stats(events, engineer_emails=scope["emails"])
@@ -199,15 +243,16 @@ def get_tokens_per_dev(
         per_dev,
         f" (excl={excluded})" if excluded else "",
     )
+    _, _, period = _scorecard_period(days=days, as_of=as_of)
     return {
         "numerator": float(tokens),
         "denominator": float(headcount),
         "value": per_dev,
         "tokens": tokens,
         "headcount": headcount,
-        "window_days": max(1, int(days)),
         "scope": "engineering_department",
         "excluded_teams": excluded,
+        **period,
     }
 
 
@@ -215,7 +260,8 @@ def get_token_cost_per_dev(
     cursor_client: Any,
     jira_client: Any,
     *,
-    days: int = DEFAULT_WINDOW_DAYS,
+    days: int | None = None,
+    as_of: datetime | None = None,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
     """Token Cost per Dev: engineer Cursor spend (USD) ÷ Engineering Department headcount.
@@ -229,7 +275,7 @@ def get_token_cost_per_dev(
     )
     if scope.get("error"):
         return scope
-    events = _cursor_events(cursor_client, days=days)
+    events = _cursor_events(cursor_client, days=days, as_of=as_of)
     if isinstance(events, dict) and events.get("error"):
         return events
     stats = _engineer_event_stats(events, engineer_emails=scope["emails"])
@@ -237,12 +283,18 @@ def get_token_cost_per_dev(
     spend_usd = round(float(stats["charged_cents"]) / 100.0, 4)
     per_dev = round(spend_usd / headcount, 4) if headcount else 0.0
     excluded = scope.get("excluded_teams") or []
+    _, _, period = _scorecard_period(days=days, as_of=as_of)
+    period_label = (
+        f"month={period['month']}"
+        if period.get("month")
+        else f"window={period['window_days']}d"
+    )
     logger.info(
-        "Token Cost per Dev: $%s / %s Engineering Department = $%s (window=%sd%s)",
+        "Token Cost per Dev: $%s / %s Engineering Department = $%s (%s%s)",
         spend_usd,
         headcount,
         per_dev,
-        max(1, int(days)),
+        period_label,
         f", excl={excluded}" if excluded else "",
     )
     return {
@@ -251,15 +303,16 @@ def get_token_cost_per_dev(
         "value": per_dev,
         "spend_usd": spend_usd,
         "headcount": headcount,
-        "window_days": max(1, int(days)),
         "scope": "engineering_department",
         "excluded_teams": excluded,
+        **period,
     }
 
 
 def _load_merged_prs_for_scorecard(
     *,
-    days: int = DEFAULT_WINDOW_DAYS,
+    days: int | None = None,
+    as_of: datetime | None = None,
     timeout: float = 60.0,  # noqa: ARG001
     label: str = "merged PRs",
 ) -> dict[str, Any]:
@@ -282,8 +335,7 @@ def _load_merged_prs_for_scorecard(
     if not github_configured():
         return {"error": "GitHub not configured (GITHUB_TOKEN / org)"}
 
-    window = max(1, int(days))
-    since = datetime.now(timezone.utc) - timedelta(days=window)
+    since, until, period = _scorecard_period(days=days, as_of=as_of)
 
     engineer_emails: set[str] = set()
     login_to_email: dict[str, str] = {}
@@ -321,7 +373,12 @@ def _load_merged_prs_for_scorecard(
     pulls: list[dict[str, Any]] = []
     for owner, repo in repo_specs:
         try:
-            repo_pulls = gh.list_merged_pulls_since(owner, repo, since=since)
+            if days is None:
+                repo_pulls = gh.list_merged_pulls_since(
+                    owner, repo, since=since, until=until
+                )
+            else:
+                repo_pulls = gh.list_merged_pulls_since(owner, repo, since=since)
         except GitHubError as e:
             return {"error": f"GitHub merged PR list failed for {owner}/{repo}: {e}"}
         for pull in repo_pulls:
@@ -345,29 +402,40 @@ def _load_merged_prs_for_scorecard(
     return {
         "pulls": pulls,
         "scope": "engineers" if engineer_emails else "org",
-        "window_days": window,
         "client": gh,
+        **period,
     }
 
 
 def get_prs_merged(
     *,
-    days: int = DEFAULT_WINDOW_DAYS,
+    days: int | None = None,
+    as_of: datetime | None = None,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
     """PRs Merged: engineer-scoped merged PRs in the window (falls back to org total)."""
-    inv = _load_merged_prs_for_scorecard(days=days, timeout=timeout, label="PRs Merged")
+    inv = _load_merged_prs_for_scorecard(
+        days=days, as_of=as_of, timeout=timeout, label="PRs Merged"
+    )
     if inv.get("error"):
         return inv
     merged = len(inv.get("pulls") or [])
     scope = str(inv.get("scope") or "org")
-    window = int(inv.get("window_days") or days)
-    logger.info("PRs Merged: %s (%s, window=%sd)", merged, scope, window)
-    return {
+    period_label = (
+        f"month={inv['month']}"
+        if inv.get("month")
+        else f"window={inv.get('window_days')}d"
+    )
+    logger.info("PRs Merged: %s (%s, %s)", merged, scope, period_label)
+    result = {
         "value": merged,
         "scope": scope,
-        "window_days": window,
     }
+    if inv.get("month"):
+        result.update(month=inv["month"], method=inv.get("method"))
+    else:
+        result["window_days"] = inv.get("window_days")
+    return result
 
 
 # Cursor attribution (assisted) vs agent-authored (automated) PR signals.
@@ -587,12 +655,84 @@ def _merged_prs_ai_pct(
 
 
 def get_ai_assisted_prs_pct(
+    cursor_client: Any | None = None,
+    jira_client: Any | None = None,
     *,
-    days: int = DEFAULT_WINDOW_DAYS,
+    days: int | None = None,
+    as_of: datetime | None = None,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
-    """% AI-Assisted PRs: Cursor attribution on PR body/labels/author or commit trailers ÷ total."""
-    return _merged_prs_ai_pct(mode="assisted", days=days, timeout=timeout)
+    """% AI-Assisted PRs: AI Code Share % applied to merged PR volume.
+
+    Commit-message / trailer attribution under-counts assisted work, so this KPI
+    uses Cursor's AI share of committed code as a proxy: the reported percentage
+    is AI Code Share, and ``matched_prs`` is ``round(total_prs × share / 100)``.
+    """
+    from .cursor_client import get_shared_cursor_client
+    from .jira_client import get_shared_jira_client
+
+    cursor = cursor_client or get_shared_cursor_client()
+    jira = jira_client or get_shared_jira_client()
+
+    share = get_ai_code_share(
+        cursor, jira, days=days, as_of=as_of, timeout=timeout
+    )
+    if share.get("error"):
+        return {
+            "error": f"% AI-Assisted PRs unavailable (AI Code Share failed): {share['error']}"
+        }
+
+    inv = _load_merged_prs_for_scorecard(
+        days=days, as_of=as_of, timeout=timeout, label="% AI-Assisted PRs"
+    )
+    if inv.get("error"):
+        return inv
+
+    pulls = inv.get("pulls") or []
+    total = len(pulls)
+    scope = str(inv.get("scope") or "org")
+    if total <= 0:
+        period_label = (
+            f"previous calendar month {inv['month']}"
+            if inv.get("month")
+            else f"last {inv.get('window_days')}d"
+        )
+        return {
+            "error": (
+                f"no merged PRs in {period_label} ({scope}) for % AI-Assisted PRs"
+            )
+        }
+
+    share_pct = float(share["value"])
+    estimated = int(round(total * share_pct / 100.0))
+    logger.info(
+        "%% AI-Assisted PRs: ~%s / %s PRs via AI Code Share %s%% "
+        "(%s lines AI / %s total, %s, period=%s)",
+        estimated,
+        total,
+        share_pct,
+        share.get("ai_lines"),
+        share.get("total_lines"),
+        scope,
+        inv.get("month") or f"{inv.get('window_days')}d",
+    )
+    result = {
+        "numerator": float(estimated),
+        "denominator": float(total),
+        "value": share_pct,
+        "matched_prs": estimated,
+        "total_prs": total,
+        "scope": scope,
+        "mode": "ai_code_share_proxy",
+        "ai_code_share_pct": share_pct,
+        "ai_lines": share.get("ai_lines"),
+        "total_lines": share.get("total_lines"),
+    }
+    if inv.get("month"):
+        result.update(month=inv["month"], method=inv.get("method"))
+    else:
+        result["window_days"] = inv.get("window_days")
+    return result
 
 
 def get_ai_automated_prs_pct(
@@ -605,19 +745,25 @@ def get_ai_automated_prs_pct(
 
 
 def get_ai_assisted_automated_prs_pct(
+    cursor_client: Any | None = None,
+    jira_client: Any | None = None,
     *,
-    days: int = DEFAULT_WINDOW_DAYS,
+    days: int | None = None,
+    as_of: datetime | None = None,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
     """Deprecated alias for :func:`get_ai_assisted_prs_pct`."""
-    return get_ai_assisted_prs_pct(days=days, timeout=timeout)
+    return get_ai_assisted_prs_pct(
+        cursor_client, jira_client, days=days, as_of=as_of, timeout=timeout
+    )
 
 
 def get_ai_code_share(
     cursor_client: Any,
     jira_client: Any,
     *,
-    days: int = DEFAULT_WINDOW_DAYS,
+    days: int | None = None,
+    as_of: datetime | None = None,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
     """AI Code Share: Cursor-attributed lines ÷ total changed lines in commits.
@@ -639,11 +785,10 @@ def get_ai_code_share(
     if scope.get("error"):
         return scope
 
-    window = max(1, int(days))
-    end = datetime.now(timezone.utc)
-    start = end - timedelta(days=window)
+    start, end, period = _scorecard_period(days=days, as_of=as_of)
+    request_end = end - timedelta(milliseconds=1) if days is None else end
     try:
-        rows = cursor_client.get_daily_usage(start, end, all_members=True)
+        rows = cursor_client.get_daily_usage(start, request_end, all_members=True)
     except Exception as e:  # noqa: BLE001
         return {"error": f"Cursor daily-usage unavailable for AI Code Share: {e}"}
 
@@ -667,18 +812,20 @@ def get_ai_code_share(
         return {
             "error": (
                 "AI Code Share denominator is 0 — no Cursor totalLinesAdded/"
-                f"Deleted for Engineering Department in last {window}d"
+                "Deleted for Engineering Department in "
+                f"{period.get('month') or str(period.get('window_days')) + 'd'}"
             )
         }
 
     pct = round(100.0 * ai_lines / total_lines, 2)
     excluded = scope.get("excluded_teams") or []
     logger.info(
-        "AI Code Share: %s / %s lines = %s%% (eng daily-usage, window=%sd%s, rows=%s)",
+        "AI Code Share: %s / %s lines = %s%% "
+        "(eng daily-usage, period=%s%s, rows=%s)",
         ai_lines,
         total_lines,
         pct,
-        window,
+        period.get("month") or f"{period.get('window_days')}d",
         f", excl={excluded}" if excluded else "",
         matched_rows,
     )
@@ -688,10 +835,10 @@ def get_ai_code_share(
         "value": pct,
         "ai_lines": ai_lines,
         "total_lines": total_lines,
-        "window_days": window,
         "scope": "engineering_department",
         "source": "cursor_daily_usage",
         "excluded_teams": excluded,
+        **period,
     }
 
 
@@ -702,15 +849,13 @@ def get_issues_shipped(
     as_of: datetime | None = None,
     timeout: float = 60.0,  # noqa: ARG001
 ) -> dict[str, Any]:
-    """Issues Shipped: LEAN Done issues for the current calendar month.
+    """Issues Shipped: actual LEAN Done issues for the previous calendar month.
 
-    Default (digest/upsert): count resolved since ``startOfMonth()``, then when the
-    month is incomplete extrapolate with MTD pace
-    ``mtd × days_in_month / days_elapsed``. On the last day of the month the value
-    is the actual MTD count (no extrapolation).
+    Default (digest/upsert): count issues resolved from the start of the previous
+    month up to, but not including, the start of the current month. The result is
+    always an actual count; it is never extrapolated.
 
-    Pass ``days`` for a raw trailing-window count (used by dependent KPIs such as
-    Defects per 100 Issues and spend-per-issue).
+    Pass ``days`` only for an explicit backward-compatible trailing-window count.
     """
     if days is not None:
         window = max(1, int(days))
@@ -736,15 +881,16 @@ def get_issues_shipped(
     else:
         now = now.astimezone(timezone.utc)
 
-    days_in_month = calendar.monthrange(now.year, now.month)[1]
-    days_elapsed = min(max(1, now.day), days_in_month)
-    days_remaining = max(0, days_in_month - days_elapsed)
-    month_key = f"{now.year:04d}-{now.month:02d}"
+    current_month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+    previous_month = current_month_start - timedelta(days=1)
+    month_key = f"{previous_month.year:04d}-{previous_month.month:02d}"
 
-    jql = ISSUES_SHIPPED_MTD_JQL
+    jql = ISSUES_SHIPPED_PREVIOUS_MONTH_JQL
     count = jira_client.jql_match_count(
         jql,
-        data_description=f"Issues Shipped (LEAN Done, resolved MTD {month_key})",
+        data_description=(
+            f"Issues Shipped (LEAN Done, resolved previous calendar month {month_key})"
+        ),
     )
     if count is None:
         return {
@@ -753,46 +899,26 @@ def get_issues_shipped(
                 "(POST /rest/api/3/search/approximate-count returned no count)"
             )
         }
-    mtd = int(count)
-    if days_remaining == 0:
-        value = float(mtd)
-        method = "actual_month_complete"
-        extrapolated = 0.0
-    elif mtd > 0:
-        value = round(mtd * (days_in_month / float(days_elapsed)), 1)
-        method = "mtd_pace"
-        extrapolated = round(value - mtd, 1)
-    else:
-        value = 0.0
-        method = "mtd_only"
-        extrapolated = 0.0
+    value = int(count)
 
     logger.info(
-        "Issues Shipped: %s for %s (mtd=%s, method=%s, day=%s/%s)",
+        "Issues Shipped: %s actual for previous calendar month %s",
         value,
         month_key,
-        mtd,
-        method,
-        days_elapsed,
-        days_in_month,
     )
     return {
         "value": value,
-        "mtd": mtd,
-        "extrapolated": extrapolated,
         "jql": jql,
         "month": month_key,
-        "days_in_month": days_in_month,
-        "days_elapsed": days_elapsed,
-        "days_remaining": days_remaining,
-        "method": method,
+        "method": "actual_previous_month",
     }
 
 
 def get_defects_per_100_issues(
     jira_client: Any,
     *,
-    days: int = DEFAULT_WINDOW_DAYS,
+    days: int | None = None,
+    as_of: datetime | None = None,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
     """Defects per 100 Issues: LEAN bugs created per 100 issues shipped.
@@ -806,11 +932,19 @@ def get_defects_per_100_issues(
     window) is available. Numerator is bugs *created* in the window; denominator is the
     same Issues Shipped count as :func:`get_issues_shipped`. Lower is better.
     """
-    window = max(1, int(days))
-    bugs_jql = BUGS_CREATED_JQL_TEMPLATE.format(days=window)
+    if days is None:
+        _, _, month_key = _previous_calendar_month_bounds(as_of)
+        bugs_jql = BUGS_CREATED_PREVIOUS_MONTH_JQL
+        period = {"month": month_key, "method": "actual_previous_month"}
+        description = f"LEAN Bugs created previous calendar month {month_key}"
+    else:
+        window = max(1, int(days))
+        bugs_jql = BUGS_CREATED_JQL_TEMPLATE.format(days=window)
+        period = {"window_days": window}
+        description = f"LEAN Bugs created last {window}d"
     bugs_count = jira_client.jql_match_count(
         bugs_jql,
-        data_description=f"LEAN Bugs created last {window}d (Defects per 100 Issues)",
+        data_description=f"{description} (Defects per 100 Issues)",
     )
     if bugs_count is None:
         return {
@@ -820,7 +954,9 @@ def get_defects_per_100_issues(
             )
         }
 
-    shipped = get_issues_shipped(jira_client, days=window, timeout=timeout)
+    shipped = get_issues_shipped(
+        jira_client, days=days, as_of=as_of, timeout=timeout
+    )
     if shipped.get("error"):
         return {
             "error": (
@@ -839,11 +975,11 @@ def get_defects_per_100_issues(
     bugs = int(bugs_count)
     rate = round(100.0 * bugs / issues, 2)
     logger.info(
-        "Defects per 100 Issues: %s bugs / %s issues shipped = %s (window=%sd)",
+        "Defects per 100 Issues: %s bugs / %s issues shipped = %s (period=%s)",
         bugs,
         issues,
         rate,
-        window,
+        period.get("month") or f"{period.get('window_days')}d",
     )
     return {
         "numerator": float(bugs),
@@ -853,7 +989,7 @@ def get_defects_per_100_issues(
         "issues_shipped": issues,
         "bugs_jql": bugs_jql,
         "shipped_jql": shipped.get("jql"),
-        "window_days": window,
+        **period,
     }
 
 
@@ -864,7 +1000,8 @@ get_defect_introduction_rate = get_defects_per_100_issues
 def get_growth_allocation_pct(
     jira_client: Any,
     *,
-    days: int = DEFAULT_WINDOW_DAYS,
+    days: int | None = None,
+    as_of: datetime | None = None,
     timeout: float = 60.0,  # noqa: ARG001
 ) -> dict[str, Any]:
     """% Growth Allocation: planned/roadmap closed work ÷ eligible closed work.
@@ -874,15 +1011,26 @@ def get_growth_allocation_pct(
     """
     from .jira_client import compute_eng_work_split
 
-    window = max(1, int(days))
+    if days is None:
+        _, _, month_key = _previous_calendar_month_bounds(as_of)
+        period = {"month": month_key, "method": "actual_previous_month"}
+        date_clause = (
+            'resolved >= startOfMonth("-1") AND resolved < startOfMonth()'
+        )
+        period_label = f"previous calendar month {month_key}"
+    else:
+        window = max(1, int(days))
+        period = {"window_days": window}
+        date_clause = f"resolved >= -{window}d"
+        period_label = f"last {window}d"
     fields = ["summary", "status", "issuetype", "labels", "resolved"]
     try:
         closed_raw = jira_client._search(
-            f"project = LEAN AND statusCategory = Done AND resolved >= -{window}d "
+            f"project = LEAN AND statusCategory = Done AND {date_clause} "
             "ORDER BY resolved DESC",
             max_results=2000,
             fields=fields,
-            data_description=f"LEAN Done issues for growth allocation ({window}d)",
+            data_description=f"LEAN Done issues for growth allocation ({period_label})",
         )
     except Exception as e:  # noqa: BLE001
         return {"error": f"Jira search unavailable for % Growth Allocation: {e}"}
@@ -912,18 +1060,18 @@ def get_growth_allocation_pct(
     if total <= 0:
         return {
             "error": (
-                f"no eligible LEAN Done issues in last {window}d for growth "
+                f"no eligible LEAN Done issues in {period_label} for growth "
                 "allocation (after excluding bugs and tech debt)"
             )
         }
     logger.info(
         "%% Growth Allocation: planned=%s / total=%s "
-        "(excluded bugs=%s tech_debt=%s, window=%sd)",
+        "(excluded bugs=%s tech_debt=%s, period=%s)",
         planned,
         total,
         excluded_bugs,
         excluded_tech_debt,
-        window,
+        period.get("month") or f"{period.get('window_days')}d",
     )
     return {
         "numerator": float(planned),
@@ -932,7 +1080,7 @@ def get_growth_allocation_pct(
         "unplanned": int(closed_split.get("unplanned") or 0),
         "excluded_bugs": excluded_bugs,
         "excluded_tech_debt": excluded_tech_debt,
-        "window_days": window,
+        **period,
     }
 
 
@@ -1001,18 +1149,21 @@ def get_ai_spend_per_issue(
     cursor_client: Any,
     jira_client: Any,
     *,
-    days: int = DEFAULT_WINDOW_DAYS,
+    days: int | None = None,
+    as_of: datetime | None = None,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
     """AI Spend / Issue: engineer Cursor spend (USD) ÷ issues shipped."""
     scope = _engineer_scope(jira_client, timeout=timeout)
     if scope.get("error"):
         return scope
-    events = _cursor_events(cursor_client, days=days)
+    events = _cursor_events(cursor_client, days=days, as_of=as_of)
     if isinstance(events, dict) and events.get("error"):
         return events
     stats = _engineer_event_stats(events, engineer_emails=scope["emails"])
-    shipped = get_issues_shipped(jira_client, days=days, timeout=timeout)
+    shipped = get_issues_shipped(
+        jira_client, days=days, as_of=as_of, timeout=timeout
+    )
     if shipped.get("error"):
         return shipped
     issues = int(shipped.get("value") or 0)
@@ -1020,12 +1171,13 @@ def get_ai_spend_per_issue(
         return {"error": "Issues Shipped is 0 — cannot compute AI Spend / Issue"}
     spend_usd = round(float(stats["charged_cents"]) / 100.0, 4)
     per_issue = round(spend_usd / issues, 4)
+    _, _, period = _scorecard_period(days=days, as_of=as_of)
     logger.info(
-        "AI Spend / Issue: $%s / %s issues = $%s (window=%sd)",
+        "AI Spend / Issue: $%s / %s issues = $%s (period=%s)",
         spend_usd,
         issues,
         per_issue,
-        days,
+        period.get("month") or f"{period.get('window_days')}d",
     )
     return {
         "numerator": spend_usd,
@@ -1033,7 +1185,7 @@ def get_ai_spend_per_issue(
         "value": per_issue,
         "spend_usd": spend_usd,
         "issues_shipped": issues,
-        "window_days": max(1, int(days)),
+        **period,
     }
 
 
@@ -1073,33 +1225,40 @@ def get_headcount_plus_ai_spend_per_issue(
     cursor_client: Any,
     jira_client: Any,
     *,
-    days: int = DEFAULT_WINDOW_DAYS,
+    days: int | None = None,
+    as_of: datetime | None = None,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
     """Headcount + AI Spend / Issue: (prorated headcount cost + AI spend) ÷ issues shipped.
 
     Headcount cost is ``CORTEX_ENGINEERING_MONTHLY_SPEND_USD`` (monthly engineering
-    headcount/opex, excluding AI tooling) prorated to the window
-    (``monthly × days / 30``). AI spend is engineer-scoped Cursor charged USD over
-    the same window (same numerator as :func:`get_ai_spend_per_issue`).
+    headcount/opex, excluding AI tooling). The default previous-month calculation
+    uses the full monthly amount; explicit trailing-day windows remain prorated.
+    AI spend is engineer-scoped Cursor charged USD over the same period.
     """
     hc = _engineering_headcount_monthly_usd()
     if hc.get("error"):
         return hc
-    window_days = max(1, int(days))
     monthly_spend = float(hc["value"])
-    headcount_usd = round(monthly_spend * (window_days / 30.0), 4)
+    _, _, period = _scorecard_period(days=days, as_of=as_of)
+    if days is None:
+        headcount_usd = round(monthly_spend, 4)
+    else:
+        window_days = max(1, int(days))
+        headcount_usd = round(monthly_spend * (window_days / 30.0), 4)
 
     scope = _engineer_scope(jira_client, timeout=timeout)
     if scope.get("error"):
         return scope
-    events = _cursor_events(cursor_client, days=window_days)
+    events = _cursor_events(cursor_client, days=days, as_of=as_of)
     if isinstance(events, dict) and events.get("error"):
         return events
     stats = _engineer_event_stats(events, engineer_emails=scope["emails"])
     ai_usd = round(float(stats["charged_cents"]) / 100.0, 4)
 
-    shipped = get_issues_shipped(jira_client, days=window_days, timeout=timeout)
+    shipped = get_issues_shipped(
+        jira_client, days=days, as_of=as_of, timeout=timeout
+    )
     if shipped.get("error"):
         return shipped
     issues = int(shipped.get("value") or 0)
@@ -1113,14 +1272,13 @@ def get_headcount_plus_ai_spend_per_issue(
     total_usd = round(headcount_usd + ai_usd, 4)
     per_issue = round(total_usd / issues, 4)
     logger.info(
-        "Headcount + AI Spend / Issue: ($%s HC %sd + $%s Cursor %sd) / %s issues = $%s "
-        "(monthly HC=$%s)",
+        "Headcount + AI Spend / Issue: ($%s HC + $%s Cursor) / %s issues = $%s "
+        "(period=%s, monthly HC=$%s)",
         headcount_usd,
-        window_days,
         ai_usd,
-        window_days,
         issues,
         per_issue,
+        period.get("month") or f"{period.get('window_days')}d",
         monthly_spend,
     )
     return {
@@ -1131,6 +1289,6 @@ def get_headcount_plus_ai_spend_per_issue(
         "ai_spend_usd": ai_usd,
         "total_usd": total_usd,
         "issues_shipped": issues,
-        "window_days": window_days,
         "engineering_monthly_spend_usd": monthly_spend,
+        **period,
     }

@@ -199,6 +199,80 @@ def _invoke_get_median_ttr(ctx: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _invoke_get_median_ttfr(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.jira_client import get_shared_jira_client
+    from src.jira_median_ttfr import DEFAULT_MEDIAN_TTFR_DAYS, get_median_ttfr
+
+    jira = get_shared_jira_client()
+    return get_median_ttfr(
+        jira,
+        days=int(ctx.get("days") or DEFAULT_MEDIAN_TTFR_DAYS),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
+def _invoke_get_sla_adherence(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.jira_client import get_shared_jira_client
+    from src.jira_sla_adherence import DEFAULT_SLA_ADHERENCE_DAYS, get_sla_adherence
+
+    jira = get_shared_jira_client()
+    return get_sla_adherence(
+        jira,
+        days=int(ctx.get("days") or DEFAULT_SLA_ADHERENCE_DAYS),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
+def _invoke_get_help_resolved_created_ratio(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.jira_client import get_shared_jira_client
+    from src.jira_support_ops_metrics import (
+        DEFAULT_SUPPORT_OPS_DAYS,
+        get_help_resolved_created_ratio,
+    )
+
+    return get_help_resolved_created_ratio(
+        get_shared_jira_client(),
+        days=int(ctx.get("days") or DEFAULT_SUPPORT_OPS_DAYS),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
+def _invoke_get_help_backlog_over_30d_pct(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.jira_client import get_shared_jira_client
+    from src.jira_support_ops_metrics import get_help_backlog_over_30d_pct
+
+    return get_help_backlog_over_30d_pct(
+        get_shared_jira_client(),
+        days=30,
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
+def _invoke_get_help_escalation_rate(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.jira_client import get_shared_jira_client
+    from src.jira_support_ops_metrics import (
+        DEFAULT_SUPPORT_OPS_DAYS,
+        get_help_escalation_rate,
+    )
+
+    return get_help_escalation_rate(
+        get_shared_jira_client(),
+        days=int(ctx.get("days") or DEFAULT_SUPPORT_OPS_DAYS),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
+def _invoke_get_p90_ttr(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.jira_client import get_shared_jira_client
+    from src.jira_p90_ttr import DEFAULT_P90_TTR_DAYS, get_p90_ttr
+
+    return get_p90_ttr(
+        get_shared_jira_client(),
+        days=int(ctx.get("days") or DEFAULT_P90_TTR_DAYS),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
 def _invoke_get_sprint_delivery_by_team(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.jira_client import get_shared_jira_client
     from src.jira_sprint_delivery import get_sprint_delivery_metric_value
@@ -251,7 +325,6 @@ def _invoke_get_tokens_per_dev(ctx: dict[str, Any]) -> dict[str, Any]:
     return get_tokens_per_dev(
         get_shared_cursor_client(),
         get_shared_jira_client(),
-        days=int(ctx.get("days") or 30),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -264,7 +337,6 @@ def _invoke_get_token_cost_per_dev(ctx: dict[str, Any]) -> dict[str, Any]:
     return get_token_cost_per_dev(
         get_shared_cursor_client(),
         get_shared_jira_client(),
-        days=int(ctx.get("days") or 30),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -272,14 +344,17 @@ def _invoke_get_token_cost_per_dev(ctx: dict[str, Any]) -> dict[str, Any]:
 def _invoke_get_prs_merged(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.eng_scorecard_metrics import get_prs_merged
 
-    return get_prs_merged(days=int(ctx.get("days") or 30), timeout=float(ctx.get("timeout") or 60.0))
+    return get_prs_merged(timeout=float(ctx.get("timeout") or 60.0))
 
 
 def _invoke_get_ai_assisted_prs_pct(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.cursor_client import get_shared_cursor_client
     from src.eng_scorecard_metrics import get_ai_assisted_prs_pct
+    from src.jira_client import get_shared_jira_client
 
     return get_ai_assisted_prs_pct(
-        days=int(ctx.get("days") or 30),
+        get_shared_cursor_client(),
+        get_shared_jira_client(),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -292,7 +367,6 @@ def _invoke_get_ai_code_share(ctx: dict[str, Any]) -> dict[str, Any]:
     return get_ai_code_share(
         get_shared_cursor_client(),
         get_shared_jira_client(),
-        days=int(ctx.get("days") or 30),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -311,7 +385,7 @@ def _invoke_get_issues_shipped(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.eng_scorecard_metrics import get_issues_shipped
     from src.jira_client import get_shared_jira_client
 
-    # Calendar month (MTD + pace extrapolation) — independent of --days.
+    # Actual previous calendar month — independent of --days.
     return get_issues_shipped(
         get_shared_jira_client(),
         timeout=float(ctx.get("timeout") or 60.0),
@@ -324,7 +398,6 @@ def _invoke_get_defects_per_100_issues(ctx: dict[str, Any]) -> dict[str, Any]:
 
     return get_defects_per_100_issues(
         get_shared_jira_client(),
-        days=int(ctx.get("days") or 30),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -335,7 +408,6 @@ def _invoke_get_growth_allocation_pct(ctx: dict[str, Any]) -> dict[str, Any]:
 
     return get_growth_allocation_pct(
         get_shared_jira_client(),
-        days=int(ctx.get("days") or 30),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -358,7 +430,6 @@ def _invoke_get_ai_spend_per_issue(ctx: dict[str, Any]) -> dict[str, Any]:
     return get_ai_spend_per_issue(
         get_shared_cursor_client(),
         get_shared_jira_client(),
-        days=int(ctx.get("days") or 30),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -371,7 +442,6 @@ def _invoke_get_headcount_plus_ai_spend_per_issue(ctx: dict[str, Any]) -> dict[s
     return get_headcount_plus_ai_spend_per_issue(
         get_shared_cursor_client(),
         get_shared_jira_client(),
-        days=int(ctx.get("days") or 30),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -385,6 +455,12 @@ _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_service_threshold_tickets": _invoke_get_service_threshold_tickets,
     "get_customer_reported_bugs": _invoke_get_customer_reported_bugs,
     "get_median_ttr": _invoke_get_median_ttr,
+    "get_median_ttfr": _invoke_get_median_ttfr,
+    "get_sla_adherence": _invoke_get_sla_adherence,
+    "get_help_resolved_created_ratio": _invoke_get_help_resolved_created_ratio,
+    "get_help_backlog_over_30d_pct": _invoke_get_help_backlog_over_30d_pct,
+    "get_help_escalation_rate": _invoke_get_help_escalation_rate,
+    "get_p90_ttr": _invoke_get_p90_ttr,
     "get_sprint_delivery_by_team": _invoke_get_sprint_delivery_by_team,
     "get_sprint_story_points_by_team": _invoke_get_sprint_story_points_by_team,
     "get_weekly_active_ai_users": _invoke_get_weekly_active_ai_users,

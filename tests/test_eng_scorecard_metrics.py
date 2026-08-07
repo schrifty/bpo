@@ -47,13 +47,17 @@ class _FakeJira:
         self.closed = closed
         self.search_error = search_error
         self.atlassian_org_id = "org"
+        self.count_jqls: list[str] = []
+        self.last_search_jql: str | None = None
 
     def jql_match_count(self, jql: str, **kwargs: object) -> int | None:
+        self.count_jqls.append(jql)
         if "issuetype = Bug" in jql and "created >=" in jql:
             return self.bugs_created_count
         return self.shipped_count
 
     def _search(self, jql: str, **kwargs: object) -> list[dict[str, Any]]:
+        self.last_search_jql = jql
         if self.search_error:
             raise RuntimeError(self.search_error)
         return self.closed or []
@@ -113,6 +117,38 @@ def test_get_tokens_per_dev(monkeypatch: pytest.MonkeyPatch) -> None:
     assert out["value"] == 100.0
 
 
+def test_get_tokens_per_dev_defaults_to_previous_calendar_month(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    jira = _FakeJira(headcount=1, emails={"a@ex.com"})
+    _patch_scope(monkeypatch, jira)
+
+    class _RecordingCursor(_FakeCursor):
+        bounds: tuple[datetime, datetime] | None = None
+
+        def get_usage_events(
+            self, start: datetime, end: datetime, **kwargs: object
+        ) -> list[dict[str, Any]]:
+            self.bounds = (start, end)
+            return [
+                {
+                    "userEmail": "a@ex.com",
+                    "tokenUsage": {"inputTokens": 10, "outputTokens": 5},
+                    "chargedCents": 1,
+                }
+            ]
+
+    cursor = _RecordingCursor()
+    out = get_tokens_per_dev(
+        cursor, jira, as_of=datetime(2026, 8, 7, tzinfo=timezone.utc)
+    )
+    assert out["month"] == "2026-07"
+    assert out["method"] == "actual_previous_month"
+    assert cursor.bounds is not None
+    assert cursor.bounds[0] == datetime(2026, 7, 1, tzinfo=timezone.utc)
+    assert cursor.bounds[1] < datetime(2026, 8, 1, tzinfo=timezone.utc)
+
+
 def test_get_token_cost_per_dev(monkeypatch: pytest.MonkeyPatch) -> None:
     jira = _FakeJira(headcount=2, emails={"a@ex.com", "b@ex.com"})
     _patch_scope(monkeypatch, jira)
@@ -135,25 +171,23 @@ def test_get_issues_shipped_trailing_window() -> None:
     assert "resolved >= -30d" in out["jql"]
 
 
-def test_get_issues_shipped_mtd_extrapolates_mid_month() -> None:
+def test_get_issues_shipped_previous_month_actual() -> None:
     as_of = datetime(2026, 8, 15, 12, 0, tzinfo=timezone.utc)
     out = get_issues_shipped(_FakeJira(shipped_count=150), as_of=as_of)
-    # 150 MTD × 31 / 15 = 310.0
-    assert out["mtd"] == 150
-    assert out["value"] == 310.0
-    assert out["method"] == "mtd_pace"
-    assert out["days_in_month"] == 31
-    assert out["days_elapsed"] == 15
-    assert "startOfMonth()" in out["jql"]
+    assert out["value"] == 150
+    assert out["month"] == "2026-07"
+    assert out["method"] == "actual_previous_month"
+    assert 'resolved >= startOfMonth("-1")' in out["jql"]
+    assert "resolved < startOfMonth()" in out["jql"]
+    assert "extrapolated" not in out
 
 
-def test_get_issues_shipped_month_complete_no_extrapolation() -> None:
-    as_of = datetime(2026, 8, 31, 18, 0, tzinfo=timezone.utc)
+def test_get_issues_shipped_previous_month_handles_year_boundary() -> None:
+    as_of = datetime(2026, 1, 7, 18, 0, tzinfo=timezone.utc)
     out = get_issues_shipped(_FakeJira(shipped_count=290), as_of=as_of)
-    assert out["value"] == 290.0
-    assert out["mtd"] == 290
-    assert out["method"] == "actual_month_complete"
-    assert out["extrapolated"] == 0.0
+    assert out["value"] == 290
+    assert out["month"] == "2025-12"
+    assert out["method"] == "actual_previous_month"
 
 
 def test_get_issues_shipped_fails_loud() -> None:
@@ -171,6 +205,18 @@ def test_get_defects_per_100_issues() -> None:
     assert out["value"] == 20.0
     assert "issuetype = Bug" in out["bugs_jql"]
     assert "created >= -30d" in out["bugs_jql"]
+
+
+def test_get_defects_per_100_issues_defaults_to_previous_month() -> None:
+    jira = _FakeJira(bugs_created_count=4, shipped_count=20)
+    out = get_defects_per_100_issues(
+        jira, as_of=datetime(2026, 8, 7, tzinfo=timezone.utc)
+    )
+    assert out["month"] == "2026-07"
+    assert out["value"] == 20.0
+    assert 'created >= startOfMonth("-1")' in out["bugs_jql"]
+    assert "created < startOfMonth()" in out["bugs_jql"]
+    assert 'resolved >= startOfMonth("-1")' in out["shipped_jql"]
 
 
 def test_get_defects_per_100_issues_zero_shipped() -> None:
@@ -211,6 +257,18 @@ def test_get_growth_allocation_pct(monkeypatch: pytest.MonkeyPatch) -> None:
     assert out["excluded_tech_debt"] == 2
 
 
+def test_get_growth_allocation_defaults_to_previous_month() -> None:
+    closed = [{"fields": {"issuetype": {"name": "Story"}, "labels": []}}]
+    jira = _FakeJira(closed=closed)
+    out = get_growth_allocation_pct(
+        jira, as_of=datetime(2026, 8, 7, tzinfo=timezone.utc)
+    )
+    assert out["month"] == "2026-07"
+    assert jira.last_search_jql is not None
+    assert 'resolved >= startOfMonth("-1")' in jira.last_search_jql
+    assert "resolved < startOfMonth()" in jira.last_search_jql
+
+
 def test_get_ai_spend_pct(monkeypatch: pytest.MonkeyPatch) -> None:
     import src.config as config_mod
 
@@ -241,10 +299,15 @@ def test_get_ai_spend_per_issue(monkeypatch: pytest.MonkeyPatch) -> None:
     events = [
         {"userEmail": "a@ex.com", "tokenUsage": {"inputTokens": 1, "outputTokens": 1, "totalCents": 0}, "chargedCents": 200},
     ]
-    out = get_ai_spend_per_issue(_FakeCursor(events), jira, days=30)
+    out = get_ai_spend_per_issue(
+        _FakeCursor(events),
+        jira,
+        as_of=datetime(2026, 8, 7, tzinfo=timezone.utc),
+    )
     assert out["spend_usd"] == 2.0
     assert out["issues_shipped"] == 4
     assert out["value"] == 0.5
+    assert out["month"] == "2026-07"
 
 
 def test_get_headcount_plus_ai_spend_per_issue(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -256,12 +319,17 @@ def test_get_headcount_plus_ai_spend_per_issue(monkeypatch: pytest.MonkeyPatch) 
     events = [
         {"userEmail": "a@ex.com", "tokenUsage": {"inputTokens": 1, "outputTokens": 1, "totalCents": 0}, "chargedCents": 200},
     ]
-    out = get_headcount_plus_ai_spend_per_issue(_FakeCursor(events), jira, days=30)
+    out = get_headcount_plus_ai_spend_per_issue(
+        _FakeCursor(events),
+        jira,
+        as_of=datetime(2026, 8, 7, tzinfo=timezone.utc),
+    )
     assert out["headcount_usd"] == 30_000.0
     assert out["ai_spend_usd"] == 2.0
     assert out["total_usd"] == 30_002.0
     assert out["issues_shipped"] == 4
     assert out["value"] == 7500.5
+    assert out["month"] == "2026-07"
 
 
 def test_get_headcount_plus_ai_spend_per_issue_prorates_window(
@@ -333,7 +401,90 @@ def test_pr_is_ai_assisted_and_automated_markers() -> None:
     )
 
 
-def test_get_ai_assisted_and_automated_prs_pct(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_ai_assisted_prs_pct_uses_ai_code_share_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """% AI-Assisted PRs = AI Code Share % applied to merged PR count."""
+    jira = _FakeJira(headcount=2, emails={"a@ex.com", "b@ex.com"})
+    _patch_scope(monkeypatch, jira)
+
+    pulls = [
+        {"number": i, "title": f"p{i}", "body": "", "user": {"login": "alice"}, "labels": []}
+        for i in range(1, 5)
+    ]
+
+    class _Gh:
+        bounds: tuple[datetime, datetime] | None = None
+
+        def list_merged_pulls_since(
+            self, owner, repo, *, since, until=None, max_pulls=None
+        ):
+            self.bounds = (since, until)
+            return pulls
+
+        def list_pull_commits(self, owner, repo, number, *, max_commits=None):
+            return []
+
+    class _CursorDaily:
+        def get_daily_usage(self, start: object, end: object, **kwargs: object) -> list[dict]:
+            return [
+                {
+                    "email": "a@ex.com",
+                    "acceptedLinesAdded": 80,
+                    "acceptedLinesDeleted": 20,
+                    "totalLinesAdded": 100,
+                    "totalLinesDeleted": 25,
+                },
+                {
+                    "email": "b@ex.com",
+                    "acceptedLinesAdded": 10,
+                    "acceptedLinesDeleted": 0,
+                    "totalLinesAdded": 50,
+                    "totalLinesDeleted": 25,
+                },
+            ]
+
+    monkeypatch.setattr("src.github_client.github_configured", lambda: True)
+    gh = _Gh()
+    monkeypatch.setattr("src.github_client.GitHubClient", lambda: gh)
+    monkeypatch.setattr(
+        "src.github_client._resolve_repo_specs",
+        lambda **kwargs: [("leandna-apex", "app")],
+    )
+    monkeypatch.setattr("src.github_client._github_org", lambda: "leandna-apex")
+    monkeypatch.setattr("src.github_client._github_repos_env", lambda: None)
+    monkeypatch.setattr(
+        "src.engineer_identity_map.build_engineer_identity_map",
+        lambda **kwargs: {"configured": False},
+    )
+    monkeypatch.setattr("src.engineer_identity_map.load_github_email_aliases", lambda: ({}, None))
+    monkeypatch.setenv("GITHUB_ORG", "leandna-apex")
+    monkeypatch.delenv("GITHUB_REPOS", raising=False)
+
+    out = get_ai_assisted_prs_pct(_CursorDaily(), jira, days=30)
+    assert "error" not in out
+    # AI code share 110/200 = 55% → round(4 * 0.55) = 2 assisted of 4 PRs
+    assert out["mode"] == "ai_code_share_proxy"
+    assert out["value"] == 55.0
+    assert out["ai_code_share_pct"] == 55.0
+    assert out["total_prs"] == 4
+    assert out["matched_prs"] == 2
+    assert out["numerator"] == 2.0
+    assert out["denominator"] == 4.0
+    assert out["ai_lines"] == 110
+    assert out["total_lines"] == 200
+
+    # Deprecated alias still points at assisted.
+    assert get_ai_assisted_automated_prs_pct(
+        cursor_client=_CursorDaily(),
+        jira_client=jira,
+        days=30,
+    )["value"] == out["value"]
+
+
+def test_get_automated_prs_pct_still_uses_commit_attribution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     pulls = [
         {"number": 1, "title": "a", "body": "Made with Cursor", "user": {"login": "alice"}},
         {"number": 2, "title": "b", "body": "plain", "user": {"login": "bob"}},
@@ -382,21 +533,10 @@ def test_get_ai_assisted_and_automated_prs_pct(monkeypatch: pytest.MonkeyPatch) 
     )
     monkeypatch.setattr("src.engineer_identity_map.load_github_email_aliases", lambda: ({}, None))
 
-    assisted = get_ai_assisted_prs_pct(days=30)
-    # a,c,d,e + f (co-authored trailer) + g (agent commit → automated ⊂ assisted); not b
-    assert assisted["numerator"] == 6.0
-    assert assisted["denominator"] == 7.0
-    assert assisted["value"] == round(100.0 * 6 / 7, 2)
-    assert assisted["commit_trailer_checks"] >= 1
-
-    # Deprecated automated PR metric still classifies agent signals.
     automated = get_ai_automated_prs_pct(days=30)
     assert automated["numerator"] == 3.0
     assert automated["denominator"] == 7.0
     assert automated["value"] == round(100.0 * 3 / 7, 2)
-
-    # Deprecated alias still points at assisted.
-    assert get_ai_assisted_automated_prs_pct(days=30)["value"] == assisted["value"]
 
 
 def test_get_ai_code_share(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -404,7 +544,12 @@ def test_get_ai_code_share(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_scope(monkeypatch, jira)
 
     class _CursorDaily:
-        def get_daily_usage(self, start: object, end: object, **kwargs: object) -> list[dict]:
+        bounds: tuple[datetime, datetime] | None = None
+
+        def get_daily_usage(
+            self, start: datetime, end: datetime, **kwargs: object
+        ) -> list[dict]:
+            self.bounds = (start, end)
             return [
                 {
                     "email": "a@ex.com",
@@ -429,13 +574,20 @@ def test_get_ai_code_share(monkeypatch: pytest.MonkeyPatch) -> None:
                 },
             ]
 
-    out = get_ai_code_share(_CursorDaily(), jira, days=30)
+    cursor = _CursorDaily()
+    out = get_ai_code_share(
+        cursor, jira, as_of=datetime(2026, 8, 7, tzinfo=timezone.utc)
+    )
     # eng only: ai=110, total=200 → 55%
     assert out["ai_lines"] == 110
     assert out["total_lines"] == 200
     assert out["value"] == 55.0
     assert out["scope"] == "engineering_department"
     assert out["source"] == "cursor_daily_usage"
+    assert out["month"] == "2026-07"
+    assert cursor.bounds is not None
+    assert cursor.bounds[0] == datetime(2026, 7, 1, tzinfo=timezone.utc)
+    assert cursor.bounds[1] < datetime(2026, 8, 1, tzinfo=timezone.utc)
 
 
 def test_get_ai_code_share_zero_total(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -460,8 +612,16 @@ def test_get_ai_code_share_zero_total(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_get_ai_assisted_prs_pct_github_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "src.eng_scorecard_metrics.get_ai_code_share",
+        lambda *a, **k: {
+            "value": 50.0,
+            "ai_lines": 50,
+            "total_lines": 100,
+        },
+    )
     monkeypatch.setattr("src.github_client.github_configured", lambda: False)
-    out = get_ai_assisted_prs_pct(days=30)
+    out = get_ai_assisted_prs_pct(MagicMock(), MagicMock(), days=30)
     assert "error" in out
 
 
@@ -473,14 +633,20 @@ def test_get_prs_merged(monkeypatch: pytest.MonkeyPatch) -> None:
     ]
 
     class _Gh:
-        def list_merged_pulls_since(self, owner, repo, *, since, max_pulls=None):
+        bounds: tuple[datetime, datetime] | None = None
+
+        def list_merged_pulls_since(
+            self, owner, repo, *, since, until=None, max_pulls=None
+        ):
+            self.bounds = (since, until)
             return pulls
 
         def list_pull_commits(self, owner, repo, number, *, max_commits=None):
             return []
 
+    gh = _Gh()
     monkeypatch.setattr("src.github_client.github_configured", lambda: True)
-    monkeypatch.setattr("src.github_client.GitHubClient", lambda: _Gh())
+    monkeypatch.setattr("src.github_client.GitHubClient", lambda: gh)
     monkeypatch.setattr(
         "src.github_client._resolve_repo_specs",
         lambda **kwargs: [("leandna-apex", "app")],
@@ -504,9 +670,14 @@ def test_get_prs_merged(monkeypatch: pytest.MonkeyPatch) -> None:
         }.get(login),
     )
     monkeypatch.setattr("src.jira_client.get_shared_jira_client", MagicMock)
-    out = get_prs_merged(days=30)
+    out = get_prs_merged(as_of=datetime(2026, 8, 7, tzinfo=timezone.utc))
     assert out["value"] == 2  # carol excluded (not in engineer map)
     assert out["scope"] == "engineers"
+    assert out["month"] == "2026-07"
+    assert gh.bounds == (
+        datetime(2026, 7, 1, tzinfo=timezone.utc),
+        datetime(2026, 8, 1, tzinfo=timezone.utc),
+    )
 
 
 def test_get_weekly_active_ai_users_cursor_failure(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -51,7 +51,9 @@ _LINK_NEXT_RE = re.compile(r'<([^>]+)>\s*;\s*rel="next"')
 
 # In-process cache so digest KPIs that all call list_merged_pulls_since (PRs Merged,
 # % AI-Assisted / Automated) share one Search API pass per repo/window.
-_MERGED_PULLS_CACHE: dict[tuple[str, str, str, int], list[dict[str, Any]]] = {}
+_MERGED_PULLS_CACHE: dict[
+    tuple[str, str, str, str, int], list[dict[str, Any]]
+] = {}
 _PULL_COMMITS_CACHE: dict[tuple[str, str, int], list[dict[str, Any]]] = {}
 
 
@@ -549,20 +551,33 @@ class GitHubClient:
         repo: str,
         *,
         since: datetime,
+        until: datetime | None = None,
         max_pulls: int | None = None,
     ) -> list[dict[str, Any]]:
         """Merged PRs in a repo since *since* via search API (avoids pulls-list pagination gaps).
 
-        Results are cached in-process per ``(owner, repo, since_day, max_pulls)`` so multiple
-        scorecard KPIs in one digest run share Search API quota.
+        When *until* is provided, it is an exclusive upper bound. Results are
+        cached in-process per repo and date bounds so sibling scorecard KPIs share
+        Search API quota.
         """
         since_str = since.astimezone(timezone.utc).strftime("%Y-%m-%d")
+        until_str = (
+            until.astimezone(timezone.utc).strftime("%Y-%m-%d") if until else ""
+        )
         cap = 500 if max_pulls is None else max(1, int(max_pulls))
-        cache_key = (owner.strip().lower(), repo.strip().lower(), since_str, cap)
+        cache_key = (
+            owner.strip().lower(),
+            repo.strip().lower(),
+            since_str,
+            until_str,
+            cap,
+        )
         cached = _MERGED_PULLS_CACHE.get(cache_key)
         if cached is not None:
             return list(cached)
         q = f"repo:{owner}/{repo} is:pr is:merged merged:>={since_str}"
+        if until_str:
+            q += f" merged:<{until_str}"
         results = self.search_issues(q, max_items=cap)
         _MERGED_PULLS_CACHE[cache_key] = list(results)
         return results

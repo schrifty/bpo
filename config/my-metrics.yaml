@@ -102,12 +102,16 @@ metrics:
     metric-generator: null
     tags: [engineering]
 
-  # TTFR (30 Days) - AUTOMATABLE
+  # TTFR (30 Days)
   "TTFR (30 Days)":
-    description: null
+    description: >-
+      Median HELP Time to first response (JSM SLA) in hours, last 30 days
+      (resolved tickets with a completed TTFR cycle).
     metric-id: null
-    metric-generator: null
+    metric-generator: get_median_ttfr
     tags: [support, sla]
+    target: 48
+    direction: lower
 
   # Median TTR
   "Median TTR":
@@ -118,12 +122,61 @@ metrics:
     target: 160
     direction: lower
 
-  # SLA Adherence (30 Days) - AUTOMATABLE
+  # SLA Adherence (30 Days)
   "SLA Adherence (30 Days)":
-    description: null
+    description: >-
+      Percent of HELP tickets resolved in the last 30 days with a completed
+      TTFR or TTR SLA cycle that did not breach any measured cycle.
     metric-id: null
-    metric-generator: null
+    metric-generator: get_sla_adherence
     tags: [support, sla]
+    unit: percent
+    target: 90
+    direction: higher
+
+  "HELP Resolved / Created (30 Days)":
+    description: >-
+      HELP tickets resolved ÷ HELP tickets created × 100, last 30 days
+      (excl. Outage/Healthcheck). Above 100% means backlog drawdown.
+    metric-id: null
+    metric-generator: get_help_resolved_created_ratio
+    tags: [support, throughput]
+    unit: percent
+    target: 100
+    direction: higher
+
+  "Open HELP Backlog >30d %":
+    description: >-
+      Percent of open HELP tickets (excl. Outage/Healthcheck) created more than
+      30 days ago.
+    metric-id: null
+    metric-generator: get_help_backlog_over_30d_pct
+    tags: [support, backlog]
+    unit: percent
+    target: 20
+    direction: lower
+
+  "Escalation Rate (30 Days)":
+    description: >-
+      LEAN + CUSTOMER tickets created with label jira_escalated ÷ HELP tickets
+      created, last 30 days (excl. Epic/SUT on escalations; excl. Outage/Healthcheck
+      on HELP).
+    metric-id: null
+    metric-generator: get_help_escalation_rate
+    tags: [support, escalation]
+    unit: percent
+    target: 15
+    direction: lower
+
+  "P90 TTR (30 Days)":
+    description: >-
+      90th percentile HELP Time to resolution (JSM SLA) in hours, last 30 days
+      (resolved tickets with a completed TTR cycle).
+    metric-id: null
+    metric-generator: get_p90_ttr
+    tags: [support, sla]
+    target: 240
+    direction: lower
 
   "Engineering Cycle Time (Sprint)":
     description: Median in-progress cycle time (days) across dev boards, last 30 days.
@@ -205,7 +258,9 @@ metrics:
     direction: higher
 
   "% AI-Assisted PRs":
-    description: Merged PRs with Cursor attribution ÷ total, last 30 days.
+    description: >-
+      Estimated share of merged PRs that are AI-assisted, previous calendar month —
+      AI Code Share % applied to merged PR volume (commit attribution is too weak).
     metric-id: null
     metric-generator: get_ai_assisted_prs_pct
     tags: [engineering, ai, AKKR]
@@ -215,7 +270,7 @@ metrics:
 
   "AI Code Share":
     description: >-
-      Cursor-attributed lines ÷ total changed lines in commits, last 30 days
+      Cursor-attributed lines ÷ total changed lines in commits, previous calendar month
       (Engineering Department; Cursor daily-usage AI Share signal).
     metric-id: null
     metric-generator: get_ai_code_share
@@ -225,7 +280,7 @@ metrics:
     direction: higher
 
   "Tokens per Dev":
-    description: Cursor tokens ÷ Engineering headcount, last 30 days (excl. Data Implementation).
+    description: Cursor tokens ÷ Engineering headcount, previous calendar month (excl. Data Implementation).
     metric-id: null
     metric-generator: get_tokens_per_dev
     tags: [engineering, ai, AKKR]
@@ -233,7 +288,7 @@ metrics:
     direction: higher
 
   "Token Cost per Dev":
-    description: Engineer Cursor spend (USD) ÷ Engineering headcount, last 30 days (excl. Data Implementation).
+    description: Engineer Cursor spend (USD) ÷ Engineering headcount, previous calendar month (excl. Data Implementation).
     metric-id: null
     metric-generator: get_token_cost_per_dev
     tags: [engineering, ai, AKKR]
@@ -251,7 +306,7 @@ metrics:
     direction: higher
 
   "PRs Merged":
-    description: Engineer GitHub PRs merged in the last 30 days.
+    description: Engineer GitHub PRs merged in the previous calendar month.
     metric-id: null
     metric-generator: get_prs_merged
     tags: [engineering, impact, AKKR]
@@ -259,7 +314,7 @@ metrics:
     direction: higher
 
   "Defects per 100 Issues":
-    description: LEAN bugs created ÷ issues shipped × 100, last 30 days.
+    description: LEAN bugs created ÷ issues shipped × 100, previous calendar month.
     metric-id: null
     metric-generator: get_defects_per_100_issues
     tags: [engineering, impact, quality, AKKR]
@@ -269,8 +324,7 @@ metrics:
 
   "Issues Shipped":
     description: >-
-      LEAN issues Done in the current calendar month (MTD count, extrapolated
-      to month-end when run before the last day).
+      Actual LEAN issues Done in the previous calendar month; no extrapolation.
     metric-id: null
     metric-generator: get_issues_shipped
     tags: [engineering, impact, AKKR]
@@ -280,7 +334,7 @@ metrics:
   "% Growth Allocation":
     description: >-
       Planned LEAN Done work ÷ eligible Done work (excludes bugs and tech-debt),
-      last 30 days.
+      previous calendar month.
     metric-id: null
     metric-generator: get_growth_allocation_pct
     tags: [engineering, impact, AKKR]
@@ -289,7 +343,7 @@ metrics:
     direction: higher
 
   "Headcount + AI Spend / Issue":
-    description: (Prorated eng headcount + AI spend) ÷ issues shipped, last 30 days.
+    description: (Monthly eng headcount + AI spend) ÷ issues shipped, previous calendar month.
     metric-id: null
     metric-generator: get_headcount_plus_ai_spend_per_issue
     tags: [engineering, impact, ai, AKKR]
@@ -298,7 +352,7 @@ metrics:
     direction: lower
 
   "AI Spend / Issue":
-    description: Engineer Cursor spend (USD) ÷ issues shipped, last 30 days.
+    description: Engineer Cursor spend (USD) ÷ issues shipped, previous calendar month.
     metric-id: null
     metric-generator: get_ai_spend_per_issue
     tags: [engineering, impact, ai, AKKR]

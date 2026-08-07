@@ -217,6 +217,25 @@ def test_list_merged_pulls_since_uses_search_api():
     assert len(pulls) == 1
 
 
+def test_list_merged_pulls_since_supports_exclusive_until():
+    clear_merged_pulls_cache()
+    since = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    until = datetime(2026, 8, 1, tzinfo=timezone.utc)
+
+    def router(method, url, params):
+        assert "merged:>=2026-07-01" in params["q"]
+        assert "merged:<2026-08-01" in params["q"]
+        return _FakeResponse(
+            200, {"items": [{"number": 1, "merged_at": "2026-07-31T23:00:00Z"}]}
+        )
+
+    gh = _client(_FakeSession(router=router))
+    pulls = gh.list_merged_pulls_since(
+        "acme", "web", since=since, until=until
+    )
+    assert len(pulls) == 1
+
+
 def test_list_merged_pulls_since_caches_search(monkeypatch):
     clear_merged_pulls_cache()
     since = datetime(2026, 5, 1, tzinfo=timezone.utc)
