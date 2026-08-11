@@ -83,6 +83,18 @@ def _previous_calendar_month_bounds(
     return start, end, f"{previous.year:04d}-{previous.month:02d}"
 
 
+def _jql_half_open_day_range(
+    field: str,
+    start: datetime,
+    end: datetime,
+) -> str:
+    """Jira date clause for ``field >= start AND field < end`` (UTC calendar days)."""
+    return (
+        f'{field} >= "{start.strftime("%Y-%m-%d")}" '
+        f'AND {field} < "{end.strftime("%Y-%m-%d")}"'
+    )
+
+
 def _scorecard_period(
     *, days: int | None, as_of: datetime | None = None
 ) -> tuple[datetime, datetime, dict[str, Any]]:
@@ -875,17 +887,11 @@ def get_issues_shipped(
         logger.info("Issues Shipped: %s (window=%sd)", raw, window)
         return {"value": raw, "jql": jql, "window_days": window}
 
-    now = as_of or datetime.now(timezone.utc)
-    if now.tzinfo is None:
-        now = now.replace(tzinfo=timezone.utc)
-    else:
-        now = now.astimezone(timezone.utc)
-
-    current_month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
-    previous_month = current_month_start - timedelta(days=1)
-    month_key = f"{previous_month.year:04d}-{previous_month.month:02d}"
-
-    jql = ISSUES_SHIPPED_PREVIOUS_MONTH_JQL
+    start, end, month_key = _previous_calendar_month_bounds(as_of)
+    jql = (
+        "project = LEAN AND statusCategory = Done AND "
+        + _jql_half_open_day_range("resolved", start, end)
+    )
     count = jira_client.jql_match_count(
         jql,
         data_description=(
@@ -933,8 +939,11 @@ def get_defects_per_100_issues(
     same Issues Shipped count as :func:`get_issues_shipped`. Lower is better.
     """
     if days is None:
-        _, _, month_key = _previous_calendar_month_bounds(as_of)
-        bugs_jql = BUGS_CREATED_PREVIOUS_MONTH_JQL
+        start, end, month_key = _previous_calendar_month_bounds(as_of)
+        bugs_jql = (
+            "project = LEAN AND issuetype = Bug AND "
+            + _jql_half_open_day_range("created", start, end)
+        )
         period = {"month": month_key, "method": "actual_previous_month"}
         description = f"LEAN Bugs created previous calendar month {month_key}"
     else:
@@ -1012,11 +1021,9 @@ def get_growth_allocation_pct(
     from .jira_client import compute_eng_work_split
 
     if days is None:
-        _, _, month_key = _previous_calendar_month_bounds(as_of)
+        start, end, month_key = _previous_calendar_month_bounds(as_of)
         period = {"month": month_key, "method": "actual_previous_month"}
-        date_clause = (
-            'resolved >= startOfMonth("-1") AND resolved < startOfMonth()'
-        )
+        date_clause = _jql_half_open_day_range("resolved", start, end)
         period_label = f"previous calendar month {month_key}"
     else:
         window = max(1, int(days))
@@ -1087,13 +1094,15 @@ def get_growth_allocation_pct(
 def get_ai_spend_pct(
     cursor_client: Any,
     *,
+    as_of: datetime | None = None,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
     """AI Spend %: monthly AI spend (USD) ÷ monthly engineering spend (USD).
 
-    Numerator is projected calendar-month Cursor spend (:func:`get_monthly_ai_spend`).
-    Denominator is ``CORTEX_ENGINEERING_MONTHLY_SPEND_USD`` (finance headcount/opex,
-    excluding AI tooling). Fails loud when unset/invalid or Cursor spend fails.
+    Numerator is projected calendar-month Cursor spend (:func:`get_monthly_ai_spend`)
+    for the month containing *as_of* (default: now). Denominator is
+    ``CORTEX_ENGINEERING_MONTHLY_SPEND_USD`` (finance headcount/opex, excluding AI
+    tooling). Fails loud when unset/invalid or Cursor spend fails.
     """
     import os
 
@@ -1123,7 +1132,7 @@ def get_ai_spend_pct(
             )
         }
 
-    ai = get_monthly_ai_spend(cursor_client, timeout=timeout)
+    ai = get_monthly_ai_spend(cursor_client, as_of=as_of, timeout=timeout)
     if ai.get("error"):
         return ai
     ai_usd = float(ai.get("value") if ai.get("value") is not None else ai.get("spend_usd") or 0)

@@ -6,7 +6,7 @@ import argparse
 import json
 import sys
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from statistics import median
 from typing import Any, Callable, Sequence
@@ -317,6 +317,34 @@ def _invoke_get_wau_pct(ctx: dict[str, Any]) -> dict[str, Any]:
     return _invoke_get_weekly_active_ai_users(ctx)
 
 
+def _as_of_from_ctx(ctx: dict[str, Any]) -> datetime | None:
+    """Parse ``as_of`` / ``entry_date`` from an invoker context into UTC datetime."""
+    from datetime import date as date_cls
+
+    raw = ctx.get("as_of") or ctx.get("entry_date")
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, datetime):
+        return raw if raw.tzinfo else raw.replace(tzinfo=timezone.utc)
+    if isinstance(raw, date_cls):
+        return datetime(raw.year, raw.month, raw.day, tzinfo=timezone.utc)
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        if "T" in text:
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        else:
+            d = date_cls.fromisoformat(text[:10])
+            dt = datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+            return dt
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def _invoke_get_tokens_per_dev(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.cursor_client import get_shared_cursor_client
     from src.eng_scorecard_metrics import get_tokens_per_dev
@@ -325,6 +353,7 @@ def _invoke_get_tokens_per_dev(ctx: dict[str, Any]) -> dict[str, Any]:
     return get_tokens_per_dev(
         get_shared_cursor_client(),
         get_shared_jira_client(),
+        as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -337,6 +366,7 @@ def _invoke_get_token_cost_per_dev(ctx: dict[str, Any]) -> dict[str, Any]:
     return get_token_cost_per_dev(
         get_shared_cursor_client(),
         get_shared_jira_client(),
+        as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -344,7 +374,10 @@ def _invoke_get_token_cost_per_dev(ctx: dict[str, Any]) -> dict[str, Any]:
 def _invoke_get_prs_merged(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.eng_scorecard_metrics import get_prs_merged
 
-    return get_prs_merged(timeout=float(ctx.get("timeout") or 60.0))
+    return get_prs_merged(
+        as_of=_as_of_from_ctx(ctx),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
 
 
 def _invoke_get_ai_assisted_prs_pct(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -355,6 +388,7 @@ def _invoke_get_ai_assisted_prs_pct(ctx: dict[str, Any]) -> dict[str, Any]:
     return get_ai_assisted_prs_pct(
         get_shared_cursor_client(),
         get_shared_jira_client(),
+        as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -367,6 +401,7 @@ def _invoke_get_ai_code_share(ctx: dict[str, Any]) -> dict[str, Any]:
     return get_ai_code_share(
         get_shared_cursor_client(),
         get_shared_jira_client(),
+        as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -388,6 +423,7 @@ def _invoke_get_issues_shipped(ctx: dict[str, Any]) -> dict[str, Any]:
     # Actual previous calendar month — independent of --days.
     return get_issues_shipped(
         get_shared_jira_client(),
+        as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -398,6 +434,7 @@ def _invoke_get_defects_per_100_issues(ctx: dict[str, Any]) -> dict[str, Any]:
 
     return get_defects_per_100_issues(
         get_shared_jira_client(),
+        as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -408,6 +445,7 @@ def _invoke_get_growth_allocation_pct(ctx: dict[str, Any]) -> dict[str, Any]:
 
     return get_growth_allocation_pct(
         get_shared_jira_client(),
+        as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -416,8 +454,18 @@ def _invoke_get_ai_spend_pct(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.cursor_client import get_shared_cursor_client
     from src.eng_scorecard_metrics import get_ai_spend_pct
 
+    # AI Spend % is "this month" relative to as_of. For a previous-month scorecard
+    # (e.g. June via --date 2026-07-01), use the last day of that previous month.
+    as_of = _as_of_from_ctx(ctx)
+    spend_as_of = as_of
+    if as_of is not None:
+        from src.eng_scorecard_metrics import _previous_calendar_month_bounds
+
+        _start, end, _month = _previous_calendar_month_bounds(as_of)
+        spend_as_of = end - timedelta(milliseconds=1)
     return get_ai_spend_pct(
         get_shared_cursor_client(),
+        as_of=spend_as_of,
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -430,6 +478,7 @@ def _invoke_get_ai_spend_per_issue(ctx: dict[str, Any]) -> dict[str, Any]:
     return get_ai_spend_per_issue(
         get_shared_cursor_client(),
         get_shared_jira_client(),
+        as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -442,6 +491,7 @@ def _invoke_get_headcount_plus_ai_spend_per_issue(ctx: dict[str, Any]) -> dict[s
     return get_headcount_plus_ai_spend_per_issue(
         get_shared_cursor_client(),
         get_shared_jira_client(),
+        as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -493,6 +543,8 @@ def invoke_metric_generator(name: str, *, registry: dict[str, Any], ctx: MetricU
         "max_issues_per_board": ctx.max_issues_per_board,
         "workers": ctx.workers,
         "timeout": ctx.timeout_seconds,
+        "entry_date": ctx.entry_date,
+        "as_of": ctx.entry_date,
     }
     return fn(call_ctx)
 

@@ -666,11 +666,15 @@ def generate_metrics_digest_deck(
     *,
     tag: str | None = None,
     as_of: str | None = None,
+    use_claude: bool | None = None,
 ) -> dict[str, Any]:
     """Generate a Google Slides deck from digest rows.
 
     Creates/updates a persistent deck in Output (e.g., "AKKR Metrics") whose link
     never changes, and archives a dated copy to Historical Data/{YYYY-MM-DD}/.
+
+    The scorecard slides are designed by Claude when enabled (default with an
+    Anthropic key); pass ``use_claude=False`` for the fixed KPI-card grid.
 
     Returns dict with deck_id, deck_url, historical_url, and any error.
     """
@@ -1028,12 +1032,36 @@ def generate_metrics_digest_deck(
 
         next_slide_idx += 1
 
+    # Scorecard slides — Claude designs them unless disabled
+    from .metrics_claude_slides import (
+        MetricsClaudeError,
+        metrics_claude_allow_fallback,
+        metrics_claude_slides_enabled,
+        render_metrics_claude_slides,
+    )
+
+    claude_on = metrics_claude_slides_enabled() if use_claude is None else bool(use_claude)
+    claude_sids: list[str] = []
+    if claude_on:
+        try:
+            next_slide_idx, claude_sids = render_metrics_claude_slides(
+                reqs, rows, tag=tag, as_of=as_of_s, start_index=next_slide_idx
+            )
+        except MetricsClaudeError as e:
+            if not metrics_claude_allow_fallback():
+                return {"error": f"Claude metrics slides failed: {e}"}
+            logger.warning(
+                "CORTEX_METRICS_CLAUDE_ALLOW_FALLBACK: using hand-built KPI cards (%s)",
+                e,
+            )
+            claude_on = False
+
     # Split rows: off-target first, then on-target
     off_target = [r for r in rows if r.off_target]
     on_target = [r for r in rows if not r.off_target]
 
     # KPI slides — 6 metrics per slide
-    all_rows = off_target + on_target
+    all_rows = [] if claude_on else off_target + on_target
     metrics_per_slide = 6
     slide_idx = next_slide_idx
 
@@ -1158,7 +1186,11 @@ def generate_metrics_digest_deck(
     try:
         pres = slides_svc.presentations().get(presentationId=deck_id).execute()
         slides_in_pres = pres.get("slides") or []
-        our_slide_ids = {"metrics_title", "metrics_actions", "metrics_prod_actions", "metrics_found_actions"} | {f"metrics_s{i}" for i in range(next_slide_idx, slide_idx)}
+        our_slide_ids = (
+            {"metrics_title", "metrics_actions", "metrics_prod_actions", "metrics_found_actions"}
+            | {f"metrics_s{i}" for i in range(next_slide_idx, slide_idx)}
+            | set(claude_sids)
+        )
         delete_reqs = []
         for s in slides_in_pres:
             sid = s.get("objectId", "")
