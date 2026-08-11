@@ -10,8 +10,9 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from calendar import month_name
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Sequence
 
 from src.metrics_registry import (
@@ -661,6 +662,30 @@ def run_metrics_digest(
     )
 
 
+def metrics_deck_scorecard_month(as_of: str | date | None = None) -> date:
+    """Return the first day of the scorecard calendar month for *as_of*.
+
+    AKKR / metrics-deck KPIs report the previous completed calendar month relative
+    to the as-of date (e.g. ``2026-08-01`` → July 2026).
+    """
+    if as_of is None:
+        day = date.today()
+    elif isinstance(as_of, date):
+        day = as_of
+    else:
+        day = date.fromisoformat(str(as_of).strip()[:10])
+    first_of_as_of_month = date(day.year, day.month, 1)
+    last_of_prev = first_of_as_of_month - timedelta(days=1)
+    return date(last_of_prev.year, last_of_prev.month, 1)
+
+
+def metrics_deck_display_title(tag: str | None, as_of: str | date | None = None) -> str:
+    """Display / historical title: ``{TAG} Metrics - {Month}`` (scorecard month)."""
+    tag_label = (tag or "KPI").strip().upper() or "KPI"
+    month = metrics_deck_scorecard_month(as_of)
+    return f"{tag_label} Metrics - {month_name[month.month]}"
+
+
 def generate_metrics_digest_deck(
     rows: list[DigestRow],
     *,
@@ -671,7 +696,8 @@ def generate_metrics_digest_deck(
     """Generate a Google Slides deck from digest rows.
 
     Creates/updates a persistent deck in Output (e.g., "AKKR Metrics") whose link
-    never changes, and archives a dated copy to Historical Data/{YYYY-MM-DD}/.
+    never changes, and archives a dated copy to Historical Data/{YYYY-MM-DD}/
+    named ``{TAG} Metrics - {Month}`` (scorecard month).
 
     The scorecard slides are designed by Claude when enabled (default with an
     Anthropic key); pass ``use_claude=False`` for the fixed KPI-card grid.
@@ -691,12 +717,12 @@ def generate_metrics_digest_deck(
         SLIDE_W, SLIDE_H, MARGIN, NAVY, WHITE, BLUE, LIGHT, FONT,
         BODY_Y, BODY_BOTTOM,
     )
-    from .export_drive_layout import ensure_historical_day_folder, historical_day_folder_label
+    from .export_drive_layout import ensure_historical_month_folder
 
     as_of_s = as_of or date.today().isoformat()
     tag_label = tag.upper() if tag else "KPI"
     persistent_title = f"{tag_label} Metrics"  # stable name for Output
-    historical_title = f"{tag_label} Metrics — {as_of_s}"  # dated name for Historical Data
+    historical_title = metrics_deck_display_title(tag, as_of_s)
 
     output_folder = get_qbr_output_root_folder_id()
     if not output_folder:
@@ -1206,7 +1232,7 @@ def generate_metrics_digest_deck(
 
     deck_url = f"https://docs.google.com/presentation/d/{deck_id}/edit"
 
-    # Copy to Historical Data/{YYYY-MM-DD}/ with dated title
+    # Copy to Historical Data/{YYYY-MM}/ (scorecard month) with month-named title
     historical_url: str | None = None
     try:
         from .export_drive_layout import ensure_portfolio_output_folders
@@ -1214,31 +1240,33 @@ def generate_metrics_digest_deck(
         folders = ensure_portfolio_output_folders()
         historical_folder_id = folders.get("historical_folder_id")
         if historical_folder_id:
-            day = date.fromisoformat(as_of_s) if as_of_s else date.today()
-            day_folder_id = ensure_historical_day_folder(historical_folder_id, day)
-            day_label = historical_day_folder_label(day)
+            scorecard = metrics_deck_scorecard_month(as_of_s)
+            month_key = f"{scorecard.year:04d}-{scorecard.month:02d}"
+            month_folder_id = ensure_historical_month_folder(historical_folder_id, month_key)
 
-            # Remove any existing copy with same dated name
-            for old in list_files_by_name_in_folder(
-                historical_title,
-                day_folder_id,
-                mime_type="application/vnd.google-apps.presentation",
-            ):
-                old_id = str(old.get("id") or "")
-                if old_id:
-                    drive_svc.files().update(fileId=old_id, body={"trashed": True}).execute()
+            # Remove any existing copy with same title (and legacy date-suffixed name)
+            legacy_title = f"{tag_label} Metrics — {as_of_s}"
+            for name in {historical_title, legacy_title}:
+                for old in list_files_by_name_in_folder(
+                    name,
+                    month_folder_id,
+                    mime_type="application/vnd.google-apps.presentation",
+                ):
+                    old_id = str(old.get("id") or "")
+                    if old_id:
+                        drive_svc.files().update(fileId=old_id, body={"trashed": True}).execute()
 
             # Copy persistent deck to Historical Data
             copied = drive_svc.files().copy(
                 fileId=deck_id,
-                body={"name": historical_title, "parents": [day_folder_id]},
+                body={"name": historical_title, "parents": [month_folder_id]},
                 fields="id",
             ).execute()
             historical_id = str(copied["id"])
             historical_url = f"https://docs.google.com/presentation/d/{historical_id}/edit"
             logger.info(
                 "Copied metrics deck → Historical Data/%s/%s",
-                day_label,
+                month_key,
                 historical_title,
             )
     except Exception as e:
