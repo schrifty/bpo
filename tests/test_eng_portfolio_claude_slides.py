@@ -8,7 +8,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.claude_slide_ir import normalize_slide_ir, render_slide_ir, rgb_from_hex
+from src.claude_slide_ir import (
+    CANVAS_H,
+    _fit_table_rows,
+    _table_column_widths,
+    _table_height,
+    normalize_slide_ir,
+    render_slide_ir,
+    rgb_from_hex,
+)
 from src.eng_portfolio_claude_slides import (
     EngPortfolioClaudeError,
     _extract_json_object,
@@ -81,6 +89,89 @@ def test_normalize_and_render_slide_ir() -> None:
     assert any("createSlide" in r for r in reqs)
     assert any("createShape" in r for r in reqs)
     assert any("insertText" in r for r in reqs)
+
+
+def test_table_column_widths_favor_wide_columns_and_fit() -> None:
+    rows = [
+        ["KPI", "Value", "Target"],
+        ["Escalation Rate (30 Days)", "163%", "15%"],
+    ]
+    widths = _table_column_widths(rows, 400.0, 3)
+    assert abs(sum(widths) - 400.0) < 1.0
+    assert widths[0] > widths[1] > 0
+
+
+def test_fit_table_rows_shrinks_font_before_dropping_rows() -> None:
+    rows = [["KPI", "Value"]] + [[f"Metric number {i}", "100"] for i in range(8)]
+    widths = _table_column_widths(rows, 400.0, 2)
+    size, kept = _fit_table_rows(rows, widths, available_h=CANVAS_H - 160)
+    assert len(kept) == len(rows)
+    assert size <= 10.0
+    assert _table_height(kept, widths, size) <= CANVAS_H - 160
+
+
+def test_fit_table_rows_trims_when_no_font_fits() -> None:
+    rows = [["KPI", "Value"]] + [[f"Metric {i}", "100"] for i in range(20)]
+    widths = _table_column_widths(rows, 400.0, 2)
+    size, kept = _fit_table_rows(rows, widths, available_h=100.0)
+    assert len(kept) < len(rows)
+    assert _table_height(kept, widths, size) <= 100.0
+
+
+def test_table_stops_short_of_a_takeaway_below_it() -> None:
+    rows = [["KPI", "Value"]] + [[f"Metric {i}", "100"] for i in range(6)]
+    widths = _table_column_widths(rows, 440.0, 2)
+    ir = normalize_slide_ir(
+        {
+            "elements": [
+                {"type": "table", "x": 500, "y": 190, "w": 440, "h": 120, "rows": rows},
+                {"type": "takeaway", "x": 500, "y": 356, "w": 440, "h": 32, "text": "So what"},
+            ]
+        }
+    )
+    reqs: list[dict[str, Any]] = []
+    render_slide_ir(reqs, "s_tbl", ir, 1)
+    created = next(r["createTable"] for r in reqs if "createTable" in r)
+    sizes = {
+        r["updateTextStyle"]["style"]["fontSize"]["magnitude"]
+        for r in reqs
+        if "updateTextStyle" in r and "cellLocation" in r["updateTextStyle"]
+    }
+    font = min(sizes)
+    # Only 160pt of clearance to the takeaway, so the table stops above it
+    # instead of rendering rows underneath the bar.
+    assert created["rows"] < len(rows)
+    assert _table_height(rows[: created["rows"]], widths, font) <= 160.0
+
+
+def test_kpi_row_value_clears_a_wrapped_label() -> None:
+    ir = normalize_slide_ir(
+        {
+            "elements": [
+                {
+                    "type": "kpi_row",
+                    "x": 48,
+                    "y": 60,
+                    "w": 110,
+                    "h": 76,
+                    "items": [
+                        {"label": "Aged backlog >30d (target 20%)", "value": "83.3%"}
+                    ],
+                }
+            ]
+        }
+    )
+    reqs: list[dict[str, Any]] = []
+    render_slide_ir(reqs, "s_kpi", ir, 1)
+    boxes = {
+        r["createShape"]["objectId"]: r["createShape"]["elementProperties"]["transform"]
+        for r in reqs
+        if "createShape" in r and r["createShape"]["shapeType"] == "TEXT_BOX"
+    }
+    label_y = boxes["s_kpi_e0_kl0"]["translateY"]
+    value_y = boxes["s_kpi_e0_kv0"]["translateY"]
+    # Two-line label pushes the number below it instead of overlapping.
+    assert value_y - label_y > 24
 
 
 def test_build_eng_portfolio_digest_trims() -> None:

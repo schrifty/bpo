@@ -632,6 +632,32 @@ CORTEX_ENG_PORTFOLIO_CLAUDE_MODEL = (
 )
 CORTEX_ENG_PORTFOLIO_LLM_MODEL = CORTEX_ENG_PORTFOLIO_CLAUDE_MODEL
 
+# Metrics deck (metrics-deck): Claude designs the scorecard slides instead of the
+# fixed KPI-card grid. On when ANTHROPIC_API_KEY is set; strict by default so a
+# Claude failure surfaces instead of silently reverting to the hand-built layout.
+_metrics_llm_raw = (
+    os.environ.get("CORTEX_METRICS_LLM_SLIDES")
+    or os.environ.get("CORTEX_METRICS_CLAUDE_SLIDES")
+    or ""
+).strip().lower()
+if _metrics_llm_raw in ("0", "false", "no", "off"):
+    CORTEX_METRICS_CLAUDE_SLIDES = False
+elif _metrics_llm_raw in ("1", "true", "yes", "on"):
+    CORTEX_METRICS_CLAUDE_SLIDES = True
+else:
+    CORTEX_METRICS_CLAUDE_SLIDES = bool(ANTHROPIC_API_KEY)
+_metrics_fb = (
+    os.environ.get("CORTEX_METRICS_LLM_ALLOW_FALLBACK")
+    or os.environ.get("CORTEX_METRICS_CLAUDE_ALLOW_FALLBACK")
+    or ""
+).strip().lower()
+CORTEX_METRICS_CLAUDE_ALLOW_FALLBACK = _metrics_fb in ("1", "true", "yes", "on", "allow")
+CORTEX_METRICS_CLAUDE_MODEL = (
+    os.environ.get("CORTEX_METRICS_LLM_MODEL", "").strip()
+    or os.environ.get("CORTEX_METRICS_CLAUDE_MODEL", "").strip()
+    or CORTEX_ENG_PORTFOLIO_CLAUDE_MODEL
+)
+
 if LLM_PROVIDER == "gemini":
     LLM_MODEL = "gemini-2.5-flash"
     LLM_MODEL_FAST = "gemini-2.5-flash"
@@ -682,5 +708,14 @@ def eng_portfolio_llm_client():
     if not ANTHROPIC_API_KEY:
         raise RuntimeError(
             "ANTHROPIC_API_KEY is not set (required for eng-portfolio LLM slides)"
+        )
+    return anthropic_llm_client()
+
+
+def metrics_llm_client():
+    """Client for Claude-designed metrics scorecard slides."""
+    if not ANTHROPIC_API_KEY:
+        raise RuntimeError(
+            "ANTHROPIC_API_KEY is not set (required for Claude metrics deck slides)"
         )
     return anthropic_llm_client()

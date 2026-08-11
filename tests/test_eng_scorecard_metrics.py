@@ -177,9 +177,17 @@ def test_get_issues_shipped_previous_month_actual() -> None:
     assert out["value"] == 150
     assert out["month"] == "2026-07"
     assert out["method"] == "actual_previous_month"
-    assert 'resolved >= startOfMonth("-1")' in out["jql"]
-    assert "resolved < startOfMonth()" in out["jql"]
+    assert 'resolved >= "2026-07-01"' in out["jql"]
+    assert 'resolved < "2026-08-01"' in out["jql"]
     assert "extrapolated" not in out
+
+
+def test_get_issues_shipped_previous_month_for_june() -> None:
+    as_of = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    out = get_issues_shipped(_FakeJira(shipped_count=200), as_of=as_of)
+    assert out["month"] == "2026-06"
+    assert 'resolved >= "2026-06-01"' in out["jql"]
+    assert 'resolved < "2026-07-01"' in out["jql"]
 
 
 def test_get_issues_shipped_previous_month_handles_year_boundary() -> None:
@@ -214,9 +222,9 @@ def test_get_defects_per_100_issues_defaults_to_previous_month() -> None:
     )
     assert out["month"] == "2026-07"
     assert out["value"] == 20.0
-    assert 'created >= startOfMonth("-1")' in out["bugs_jql"]
-    assert "created < startOfMonth()" in out["bugs_jql"]
-    assert 'resolved >= startOfMonth("-1")' in out["shipped_jql"]
+    assert 'created >= "2026-07-01"' in out["bugs_jql"]
+    assert 'created < "2026-08-01"' in out["bugs_jql"]
+    assert 'resolved >= "2026-07-01"' in out["shipped_jql"]
 
 
 def test_get_defects_per_100_issues_zero_shipped() -> None:
@@ -265,8 +273,8 @@ def test_get_growth_allocation_defaults_to_previous_month() -> None:
     )
     assert out["month"] == "2026-07"
     assert jira.last_search_jql is not None
-    assert 'resolved >= startOfMonth("-1")' in jira.last_search_jql
-    assert "resolved < startOfMonth()" in jira.last_search_jql
+    assert 'resolved >= "2026-07-01"' in jira.last_search_jql
+    assert 'resolved < "2026-08-01"' in jira.last_search_jql
 
 
 def test_get_ai_spend_pct(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -275,7 +283,10 @@ def test_get_ai_spend_pct(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config_mod, "CORTEX_ENGINEERING_MONTHLY_SPEND_USD", 500_000.0)
     monkeypatch.setattr(
         "src.cursor_ai_usage_metrics.get_monthly_ai_spend",
-        lambda client, timeout=60.0: {"value": 10000.0, "spend_usd": 10000.0},
+        lambda client, timeout=60.0, as_of=None: {
+            "value": 10000.0,
+            "spend_usd": 10000.0,
+        },
     )
     out = get_ai_spend_pct(_FakeCursor())
     assert out["numerator"] == 10000.0

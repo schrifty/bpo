@@ -29,6 +29,7 @@ def run_metrics_deck(
     as_of: str | None = None,
     registry: dict[str, Any] | None = None,
     tag: str | None = None,
+    use_claude: bool | None = None,
 ) -> dict[str, Any]:
     """Generate metrics deck and return result dict with deck_id, deck_url, or error."""
     as_of_s = as_of or date.today().isoformat()
@@ -45,7 +46,9 @@ def run_metrics_deck(
         metric_name_filter=None,
     )
     rows = build_digest_rows(registry=registry, ctx=ctx, tag=tag)
-    return generate_metrics_digest_deck(rows, tag=tag, as_of=as_of_s)
+    return generate_metrics_digest_deck(
+        rows, tag=tag, as_of=as_of_s, use_claude=use_claude
+    )
 
 
 def add_metrics_deck_arguments(ap: argparse.ArgumentParser) -> None:
@@ -63,6 +66,19 @@ def add_metrics_deck_arguments(ap: argparse.ArgumentParser) -> None:
         metavar="TAG",
         help="Only include KPIs with this registry tag (e.g. akkr, mfr, engineering)",
     )
+    ap.add_argument(
+        "--claude",
+        dest="use_claude",
+        action="store_true",
+        default=None,
+        help="Have Claude design the scorecard slides (default when ANTHROPIC_API_KEY is set)",
+    )
+    ap.add_argument(
+        "--no-claude",
+        dest="use_claude",
+        action="store_false",
+        help="Use the fixed KPI-card grid instead of Claude-designed slides",
+    )
     ap.add_argument("-v", "--verbose", action="store_true")
 
 
@@ -79,13 +95,22 @@ def run_metrics_deck_cli(argv: Sequence[str] | None = None, *, prog: str = "metr
     tag = (str(ns.tag).strip() or None) if ns.tag else None
     tag_label = tag.upper() if tag else "KPI"
 
-    print(f"Generating {tag_label} metrics deck...")
+    from .metrics_claude_slides import metrics_claude_slides_enabled
+
+    use_claude = ns.use_claude
+    designer = (
+        "Claude-designed slides"
+        if (metrics_claude_slides_enabled() if use_claude is None else use_claude)
+        else "fixed KPI-card layout"
+    )
+    print(f"Generating {tag_label} metrics deck ({designer})...")
 
     result = run_metrics_deck(
         days=int(ns.days),
         timeout_seconds=float(ns.timeout),
         as_of=str(ns.date),
         tag=tag,
+        use_claude=use_claude,
     )
 
     if result.get("error"):
