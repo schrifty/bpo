@@ -686,6 +686,124 @@ def metrics_deck_display_title(tag: str | None, as_of: str | date | None = None)
     return f"{tag_label} Metrics - {month_name[month.month]}"
 
 
+_AKKR_ROWS_PER_SLIDE = 6
+
+
+def akkr_kpi_list_pages(rows: list[DigestRow]) -> list[list[DigestRow]]:
+    """Return AKKR KPI rows alphabetically, paginated for a readable table."""
+    # Leading display punctuation (e.g. "% Growth Allocation") does not affect
+    # human alphabetical order.
+    ordered = sorted(rows, key=lambda row: row.name.lstrip(" %").casefold())
+    return [
+        ordered[start : start + _AKKR_ROWS_PER_SLIDE]
+        for start in range(0, len(ordered), _AKKR_ROWS_PER_SLIDE)
+    ]
+
+
+def _append_akkr_kpi_list_slides(
+    reqs: list[dict[str, Any]],
+    rows: list[DigestRow],
+    *,
+    as_of: str,
+) -> tuple[int, list[str]]:
+    """Render the intentionally simple AKKR deck: alphabetical KPI tables only."""
+    from .slide_primitives import simple_table
+    from .slide_requests import append_slide, append_text_box
+    from .slide_primitives import background, rect
+    from .slides_theme import (
+        BLUE,
+        CONTENT_W,
+        FONT,
+        GRAY,
+        MARGIN,
+        NAVY,
+        SLIDE_W,
+        WHITE,
+    )
+
+    pages = akkr_kpi_list_pages(rows)
+    display_title = metrics_deck_display_title("akkr", as_of)
+    sids: list[str] = []
+    for page_number, page_rows in enumerate(pages, 1):
+        sid = f"metrics_akkr_{page_number}"
+        slide_index = page_number - 1
+        append_slide(reqs, sid, slide_index)
+        background(reqs, sid, WHITE)
+        rect(reqs, f"{sid}_hdr", sid, 0, 0, SLIDE_W, 48, NAVY)
+
+        suffix = f" ({page_number} of {len(pages)})" if len(pages) > 1 else ""
+        title = f"{display_title}{suffix}"
+        append_text_box(reqs, f"{sid}_title", sid, MARGIN, 12, CONTENT_W, 28, title)
+        reqs.append({
+            "updateTextStyle": {
+                "objectId": f"{sid}_title",
+                "style": {
+                    "fontFamily": FONT,
+                    "fontSize": {"magnitude": 20, "unit": "PT"},
+                    "bold": True,
+                    "foregroundColor": {"opaqueColor": {"rgbColor": WHITE}},
+                },
+                "textRange": {"type": "ALL"},
+                "fields": "fontFamily,fontSize,bold,foregroundColor",
+            }
+        })
+
+        table_rows = [
+            [
+                row.name,
+                row.value_display,
+                row.target_display,
+                " ".join(str(row.description or "—").split()),
+            ]
+            for row in page_rows
+        ]
+        table_id = f"{sid}_table"
+        simple_table(
+            reqs,
+            table_id,
+            sid,
+            MARGIN,
+            60,
+            [150, 78, 78, CONTENT_W - 306],
+            44,
+            ["KPI", "Value", "Target", "Description"],
+            table_rows,
+        )
+        # Numeric columns align right; the native table owns wrapping/padding.
+        for row_index in range(len(table_rows) + 1):
+            for col_index in (1, 2):
+                reqs.append({
+                    "updateParagraphStyle": {
+                        "objectId": table_id,
+                        "cellLocation": {
+                            "rowIndex": row_index,
+                            "columnIndex": col_index,
+                        },
+                        "textRange": {"type": "ALL"},
+                        "style": {"alignment": "END"},
+                        "fields": "alignment",
+                    }
+                })
+
+        footer = f"Values for the previous completed calendar month • as of {as_of}"
+        append_text_box(reqs, f"{sid}_footer", sid, MARGIN, 382, CONTENT_W, 14, footer)
+        reqs.append({
+            "updateTextStyle": {
+                "objectId": f"{sid}_footer",
+                "style": {
+                    "fontFamily": FONT,
+                    "fontSize": {"magnitude": 8, "unit": "PT"},
+                    "foregroundColor": {"opaqueColor": {"rgbColor": GRAY}},
+                },
+                "textRange": {"type": "ALL"},
+                "fields": "fontFamily,fontSize,foregroundColor",
+            }
+        })
+        rect(reqs, f"{sid}_rule", sid, MARGIN, 374, 56, 2, BLUE)
+        sids.append(sid)
+    return len(pages), sids
+
+
 def generate_metrics_digest_deck(
     rows: list[DigestRow],
     *,
@@ -765,6 +883,74 @@ def generate_metrics_digest_deck(
         logger.warning("Could not clear existing slides: %s", e)
 
     reqs: list[dict[str, Any]] = []
+
+    # AKKR is intentionally a plain reference deck: alphabetical KPI tables only.
+    # It never invokes Claude and does not include cover, action, status, or insight slides.
+    if normalize_tag(tag) == "akkr":
+        _, akkr_sids = _append_akkr_kpi_list_slides(reqs, rows, as_of=as_of_s)
+        slides_svc.presentations().batchUpdate(
+            presentationId=deck_id, body={"requests": reqs}
+        ).execute()
+        try:
+            pres = slides_svc.presentations().get(presentationId=deck_id).execute()
+            delete_reqs = [
+                {"deleteObject": {"objectId": slide["objectId"]}}
+                for slide in (pres.get("slides") or [])
+                if slide.get("objectId") and slide["objectId"] not in set(akkr_sids)
+            ]
+            if delete_reqs:
+                slides_svc.presentations().batchUpdate(
+                    presentationId=deck_id, body={"requests": delete_reqs}
+                ).execute()
+        except Exception as e:
+            logger.warning("Could not clean up default AKKR slides: %s", e)
+
+        deck_url = f"https://docs.google.com/presentation/d/{deck_id}/edit"
+        historical_url: str | None = None
+        try:
+            from .export_drive_layout import ensure_portfolio_output_folders
+
+            folders = ensure_portfolio_output_folders()
+            historical_folder_id = folders.get("historical_folder_id")
+            if historical_folder_id:
+                scorecard = metrics_deck_scorecard_month(as_of_s)
+                month_key = f"{scorecard.year:04d}-{scorecard.month:02d}"
+                month_folder_id = ensure_historical_month_folder(
+                    historical_folder_id, month_key
+                )
+                legacy_title = f"{tag_label} Metrics — {as_of_s}"
+                for name in {historical_title, legacy_title}:
+                    for old in list_files_by_name_in_folder(
+                        name,
+                        month_folder_id,
+                        mime_type="application/vnd.google-apps.presentation",
+                    ):
+                        old_id = str(old.get("id") or "")
+                        if old_id:
+                            drive_svc.files().update(
+                                fileId=old_id, body={"trashed": True}
+                            ).execute()
+                copied = drive_svc.files().copy(
+                    fileId=deck_id,
+                    body={"name": historical_title, "parents": [month_folder_id]},
+                    fields="id",
+                ).execute()
+                historical_id = str(copied["id"])
+                historical_url = (
+                    f"https://docs.google.com/presentation/d/{historical_id}/edit"
+                )
+                logger.info(
+                    "Copied AKKR metrics deck → Historical Data/%s/%s",
+                    month_key,
+                    historical_title,
+                )
+        except Exception as e:
+            logger.warning("Could not copy AKKR deck to Historical Data: %s", e)
+
+        result: dict[str, Any] = {"deck_id": deck_id, "deck_url": deck_url}
+        if historical_url:
+            result["historical_url"] = historical_url
+        return result
 
     # Title slide — shows dated title as content (index 0 since we cleared all slides)
     title_sid = "metrics_title"

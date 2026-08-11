@@ -98,11 +98,14 @@ def run_metrics_deck_cli(argv: Sequence[str] | None = None, *, prog: str = "metr
     from .metrics_claude_slides import metrics_claude_slides_enabled
 
     use_claude = ns.use_claude
-    designer = (
-        "Claude-designed slides"
-        if (metrics_claude_slides_enabled() if use_claude is None else use_claude)
-        else "fixed KPI-card layout"
-    )
+    if tag and tag.casefold() == "akkr":
+        designer = "alphabetical KPI list"
+    else:
+        designer = (
+            "Claude-designed slides"
+            if (metrics_claude_slides_enabled() if use_claude is None else use_claude)
+            else "fixed KPI-card layout"
+        )
     print(f"Generating {tag_label} metrics deck ({designer})...")
 
     result = run_metrics_deck(
