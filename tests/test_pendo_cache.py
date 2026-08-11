@@ -36,6 +36,28 @@ def test_pendo_disk_cache_respects_disabled(monkeypatch, tmp_path) -> None:
     assert try_load_preload_payload(PRELOAD_KIND_VISITORS, 30) is None
 
 
+def test_clear_preload_keys_for_windows_removes_slices(monkeypatch, tmp_path) -> None:
+    from src.pendo_cache import (
+        PRELOAD_KIND_PAGE_CATALOG,
+        clear_preload_keys_for_windows,
+    )
+
+    monkeypatch.setattr("src.config.CORTEX_CACHE_ROOT", tmp_path)
+    monkeypatch.setattr("src.config.CORTEX_PENDO_DISK_CACHE_TTL_SECONDS", 24 * 3600)
+    clear_pendo_cache_for_tests()
+    save_preload_payload(PRELOAD_KIND_VISITORS, 7, {"days": 7})
+    save_preload_payload(PRELOAD_KIND_VISITORS, 30, {"days": 30})
+    save_preload_payload(PRELOAD_KIND_PAGE_CATALOG, None, {"ok": True})
+
+    cleared = clear_preload_keys_for_windows([7])
+    assert "visitors_days7" in cleared
+    assert "page_catalog" in cleared
+    assert try_load_preload_payload(PRELOAD_KIND_VISITORS, 7) is None
+    assert try_load_preload_payload(PRELOAD_KIND_PAGE_CATALOG, None) is None
+    # Unrelated window left intact for daytime reuse of other slices.
+    assert try_load_preload_payload(PRELOAD_KIND_VISITORS, 30) == {"days": 30}
+
+
 def test_visitor_partition_loads_from_disk_cache() -> None:
     from src.pendo_client import PendoClient
 

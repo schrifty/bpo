@@ -483,8 +483,9 @@ _pendo_cache_disabled = os.environ.get("CORTEX_PENDO_CACHE_DISABLED", "").strip(
 if _pendo_cache_disabled in ("1", "true", "yes", "on"):
     CORTEX_PENDO_CACHE_TTL_SECONDS = 0
 # Pendo preload disk cache (cross-run persistence under CORTEX_CACHE_DIR/pendo/).
-# Default 24h so nightly shared-snapshot ingest (early UTC) still covers late transforms
-# and allows same-day stale reuse when CORTEX_PENDO_SNAPSHOT_MAX_AGE_HOURS permits.
+# Default 24h for daytime transforms reusing the morning snapshot. Nightly
+# ``pendo-snapshot-refresh`` clears these keys and rewrites them from live Pendo
+# (do not lengthen TTL to "fix" overnight — morning ingest must be fresh).
 try:
     _pendo_disk_cache_hours = float(os.environ.get("CORTEX_PENDO_DISK_CACHE_TTL_HOURS", "24").strip())
 except ValueError:

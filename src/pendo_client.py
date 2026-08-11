@@ -1865,9 +1865,13 @@ class PendoClient:
         save_preload_payload(PRELOAD_KIND_USAGE_BY_SITE_ENTITY, days, result)
         return result
 
-    def preload(self, days: int = 30) -> None:
+    def preload(self, days: int = 30, *, raise_on_error: bool = False) -> None:
         """Prefetch all global data for a batch run. Sets TTL to 1 hour.
-        Fetches all data sources in parallel to minimize wall-clock time."""
+
+        Fetches all data sources in parallel to minimize wall-clock time.
+        When ``raise_on_error`` is True (nightly shared-snapshot refresh), any
+        slice failure aborts instead of logging a warning and continuing.
+        """
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         PendoClient._CACHE_TTL = 3600
@@ -1886,6 +1890,7 @@ class PendoClient:
             "usage by site": lambda: self._get_usage_by_site_cached(days),
         }
 
+        failures: list[str] = []
         with ThreadPoolExecutor(max_workers=len(loaders)) as pool:
             futures: dict[Any, str] = {}
             started: dict[Any, float] = {}
@@ -1901,8 +1906,13 @@ class PendoClient:
                     logger.info("Pendo: %s — complete (%.1fs)", name, elapsed)
                 except Exception as e:
                     logger.warning("Pendo: %s — FAILED after %.1fs (%s)", name, elapsed, e)
+                    failures.append(f"{name}: {e}")
 
         logger.info("Pendo: preload complete in %.1fs", time.time() - t0)
+        if failures and raise_on_error:
+            preview = "; ".join(failures[:5])
+            more = f" (+{len(failures) - 5} more)" if len(failures) > 5 else ""
+            raise RuntimeError(f"Pendo preload failed for {len(failures)} slice(s): {preview}{more}")
 
     def _filter_customer_visitors(self, customer_name: str, partition: dict) -> tuple[list[dict], list[dict]]:
         """From a visitor partition, extract this customer's visitors and internal visitors."""
