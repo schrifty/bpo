@@ -1,8 +1,9 @@
 """Shared multi-window Pendo ingest snapshot (pull once, transform many).
 
-Nightly ``pendo-snapshot-refresh`` warms disk preload slices for the windows used by
-export transforms (7/14/30/60/90), writes a manifest under ``CORTEX_CACHE_DIR/pendo/``,
-and uploads the 90d Drive portfolio rollup for deck reuse.
+Nightly ``pendo-snapshot-refresh`` clears disk preload slices for the target windows,
+warms them from live Pendo (7/14/30/60/90), writes a manifest under
+``CORTEX_CACHE_DIR/pendo/``, and uploads the 90d Drive portfolio rollup for deck reuse.
+Daytime transforms reuse those slices via the 24h disk TTL — they do not re-crawl.
 
 Transforms that set ``CORTEX_PENDO_SNAPSHOT_REQUIRE`` fail loud when the manifest is
 missing, too old, or does not cover the required windows — they do not silently
@@ -31,6 +32,7 @@ from .pendo_cache import (
     PRELOAD_KIND_USAGE_BY_SITE,
     PRELOAD_KIND_USAGE_BY_SITE_ENTITY,
     PRELOAD_KIND_VISITORS,
+    clear_preload_keys_for_windows,
     disk_cache_enabled,
     preload_cache_key,
     try_load_preload_payload,
@@ -253,10 +255,16 @@ def refresh_shared_pendo_snapshot(
     t0 = time.time()
     window_timings: dict[str, float] = {}
 
+    # Morning ingest must pull fresh Pendo data. Drop existing disk slices for these
+    # windows first so preload cannot "complete" from near-expiry cache hits and then
+    # fail validation seconds later. Daytime transforms still use the 24h disk TTL.
+    logger.info("Pendo shared snapshot: forcing fresh ingest (clearing disk keys) windows=%s", win)
+    clear_preload_keys_for_windows(win)
+
     for days in win:
         logger.info("Pendo shared snapshot: warming window days=%d", days)
         w0 = time.time()
-        client.preload(days)
+        client.preload(days, raise_on_error=True)
         # preload() does not fan out entity-level usage; warm it explicitly.
         client._get_usage_by_site_entity_cached(days)
         window_timings[str(days)] = round(time.time() - w0, 1)

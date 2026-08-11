@@ -67,5 +67,40 @@ def save_preload_payload(kind: str, days: int | None, payload: Any) -> None:
     logger.debug("Pendo disk cache: wrote %r", key)
 
 
+def clear_preload_keys_for_windows(windows: list[int] | tuple[int, ...] | set[int]) -> list[str]:
+    """Delete catalog + per-window preload slices so the next warm fetches fresh data.
+
+    Used by nightly ``pendo-snapshot-refresh`` so morning ingest does not reuse near-TTL
+    disk hits. Daytime transforms keep reading the 24h cache as usual.
+    """
+    from .config import logger
+
+    cleared: list[str] = []
+    for kind in (
+        PRELOAD_KIND_PAGE_CATALOG,
+        PRELOAD_KIND_FEATURE_CATALOG,
+        PRELOAD_KIND_GUIDE_CATALOG,
+    ):
+        key = preload_cache_key(kind, None)
+        if _dc.cache_delete(_NAMESPACE, key):
+            cleared.append(key)
+    for days in sorted({max(1, int(d)) for d in windows}):
+        for kind in (
+            PRELOAD_KIND_VISITORS,
+            PRELOAD_KIND_FEATURE_EVENTS,
+            PRELOAD_KIND_PAGE_EVENTS,
+            PRELOAD_KIND_TRACK_EVENTS,
+            PRELOAD_KIND_GUIDE_EVENTS,
+            PRELOAD_KIND_USAGE_BY_SITE,
+            PRELOAD_KIND_USAGE_BY_SITE_ENTITY,
+        ):
+            key = preload_cache_key(kind, days)
+            if _dc.cache_delete(_NAMESPACE, key):
+                cleared.append(key)
+    if cleared:
+        logger.info("Pendo disk cache: cleared %d key(s) for fresh snapshot ingest", len(cleared))
+    return cleared
+
+
 def clear_pendo_cache_for_tests() -> None:
     _dc.clear_namespace_for_tests(_NAMESPACE)

@@ -57,6 +57,22 @@ def cache_set(namespace: str, key: str, data: Any, ttl_seconds: int | None) -> N
             logger.debug("Disk cache write failed (%s/%s): %s", namespace, key[:8], exc)
 
 
+def cache_delete(namespace: str, key: str) -> bool:
+    """Remove a cache entry if present. Returns True when a file was deleted."""
+    path = cache_path(namespace, key)
+    with _LOCK:
+        removed = False
+        for candidate in (path, path.with_suffix(".json.tmp")):
+            try:
+                candidate.unlink()
+                removed = True
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                logger.debug("Disk cache delete failed (%s/%s): %s", namespace, key[:8], exc)
+        return removed
+
+
 def clear_namespace_for_tests(namespace: str) -> None:
     root = CORTEX_CACHE_ROOT / namespace
     with _LOCK:

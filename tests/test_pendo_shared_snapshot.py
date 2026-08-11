@@ -21,6 +21,7 @@ from src.pendo_cache import (
     PRELOAD_KIND_VISITORS,
     clear_pendo_cache_for_tests,
     save_preload_payload,
+    try_load_preload_payload,
 )
 from src.pendo_shared_snapshot import (
     PendoSnapshotError,
@@ -114,7 +115,7 @@ def test_check_fails_when_stale(pendo_cache_root, monkeypatch) -> None:
 def test_refresh_writes_manifest_and_verifies_keys(pendo_cache_root, monkeypatch) -> None:
     pc = MagicMock()
 
-    def _preload(days: int) -> None:
+    def _preload(days: int, **kwargs) -> None:
         _seed_catalogs()
         _seed_window(days)
 
@@ -136,11 +137,39 @@ def test_refresh_writes_manifest_and_verifies_keys(pendo_cache_root, monkeypatch
     disk = json.loads(path.read_text(encoding="utf-8"))
     assert disk["windows"] == [7, 14]
     assert pc.preload.call_count == 2
+    # Nightly refresh must force fresh Pendo pulls (not soft disk hits).
+    for call in pc.preload.call_args_list:
+        assert call.kwargs.get("raise_on_error") is True
+
+
+def test_refresh_clears_stale_disk_keys_before_warming(pendo_cache_root) -> None:
+    """Near-TTL leftovers must not satisfy preload before a fresh rewrite."""
+    _seed_catalogs()
+    _seed_window(7)
+    assert try_load_preload_payload(PRELOAD_KIND_VISITORS, 7) is not None
+
+    pc = MagicMock()
+    seen_cleared: list[bool] = []
+
+    def _preload(days: int, **kwargs) -> None:
+        # First warm after refresh starts: prior disk keys must already be gone.
+        seen_cleared.append(try_load_preload_payload(PRELOAD_KIND_VISITORS, 7) is None)
+        _seed_catalogs()
+        _seed_window(days)
+
+    pc.preload.side_effect = _preload
+    pc._get_usage_by_site_entity_cached.side_effect = lambda days: save_preload_payload(
+        PRELOAD_KIND_USAGE_BY_SITE_ENTITY, days, {"days": days}
+    )
+
+    refresh_shared_pendo_snapshot(windows=[7], upload_portfolio_days=None, pc=pc)
+    assert seen_cleared == [True]
+    assert try_load_preload_payload(PRELOAD_KIND_VISITORS, 7) is not None
 
 
 def test_refresh_fails_loud_on_incomplete_preload(pendo_cache_root) -> None:
     pc = MagicMock()
-    pc.preload.side_effect = lambda days: None
+    pc.preload.side_effect = lambda days, **kwargs: None
     pc._get_usage_by_site_entity_cached.side_effect = lambda days: None
     with pytest.raises(PendoSnapshotError, match="missing disk keys"):
         refresh_shared_pendo_snapshot(windows=[7], upload_portfolio_days=None, pc=pc)
