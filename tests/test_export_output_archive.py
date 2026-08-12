@@ -9,7 +9,7 @@ import pytest
 from src.export_drive_layout import CUSTOMER_EXPORTS_FOLDER, _LEGACY_CUSTOMER_EXPORTS_FOLDER
 from src.export_output_archive import (
     _MIME_FOLDER,
-    archive_previous_month_day_folders_in_historical_data,
+    archive_past_month_day_folders_in_historical_data,
     archive_previous_month_in_folder,
     clear_output_archive_guard,
     item_month_key,
@@ -129,7 +129,8 @@ def test_archive_previous_month_in_folder_moves_qualifying_children(monkeypatch)
     assert calls == [("f1", parent_id, archive_id)]
 
 
-def test_archive_previous_month_day_folders_moves_june_days(monkeypatch) -> None:
+def test_archive_past_month_day_folders_moves_june_days(monkeypatch) -> None:
+    """Current-month day folders stay at the root; past-month ones get nested."""
     historical_id = "historical-root"
     month_folder_id = "month-2026-06"
     calls: list[tuple[str, str, str]] = []
@@ -157,11 +158,54 @@ def test_archive_previous_month_day_folders_moves_june_days(monkeypatch) -> None
 
     monkeypatch.setattr("src.export_output_archive._move_drive_item", fake_move)
 
-    result = archive_previous_month_day_folders_in_historical_data(historical_id, "2026-06")
+    result = archive_past_month_day_folders_in_historical_data(
+        historical_id, today=dt.date(2026, 7, 6)
+    )
     assert [m["name"] for m in result["moved"]] == ["2026-06-23", "2026-06-30"]
     assert calls == [
         ("d1", historical_id, month_folder_id),
         ("d2", historical_id, month_folder_id),
+    ]
+
+
+def test_archive_past_month_day_folders_sweeps_older_stranded_months(monkeypatch) -> None:
+    """Day folders older than the previous month are nested too, not stranded at root."""
+    historical_id = "historical-root"
+    calls: list[tuple[str, str, str]] = []
+
+    monkeypatch.setattr(
+        "src.export_output_archive._list_folder_children",
+        lambda pid: (
+            [
+                {"id": "d1", "name": "2026-06-01", "mimeType": _MIME_FOLDER},
+                {"id": "d2", "name": "2026-07-01", "mimeType": _MIME_FOLDER},
+                {"id": "d3", "name": "2026-08-11", "mimeType": _MIME_FOLDER},
+            ]
+            if pid == historical_id
+            else []
+        ),
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive._ensure_month_archive_folder",
+        lambda hid, month: f"month-{month}",
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive.dedupe_child_folders_by_name", lambda pid: []
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive._move_drive_item",
+        lambda fid, src, dst: calls.append((fid, src, dst)),
+    )
+
+    result = archive_past_month_day_folders_in_historical_data(
+        historical_id, today=dt.date(2026, 8, 11)
+    )
+    # 2026-08-11 is the current month, so it stays at the Historical Data root.
+    assert [m["name"] for m in result["moved"]] == ["2026-06-01", "2026-07-01"]
+    assert result["archive_months"] == ["2026-06", "2026-07"]
+    assert calls == [
+        ("d1", historical_id, "month-2026-06"),
+        ("d2", historical_id, "month-2026-07"),
     ]
 
 
@@ -295,7 +339,7 @@ def test_migrate_legacy_dated_folder_moves_children_and_trashes_container(monkey
         lambda *_a, **_k: {"reorganized": []},
     )
     monkeypatch.setattr(
-        "src.export_output_archive.archive_previous_month_day_folders_in_historical_data",
+        "src.export_output_archive.archive_past_month_day_folders_in_historical_data",
         lambda *_a, **_k: {"moved": []},
     )
     monkeypatch.setattr(
@@ -364,7 +408,7 @@ def test_migrate_promotes_legacy_base_pendo_to_persistent(monkeypatch) -> None:
         lambda *_a, **_k: {"reorganized": []},
     )
     monkeypatch.setattr(
-        "src.export_output_archive.archive_previous_month_day_folders_in_historical_data",
+        "src.export_output_archive.archive_past_month_day_folders_in_historical_data",
         lambda *_a, **_k: {"moved": []},
     )
     monkeypatch.setattr(

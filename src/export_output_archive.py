@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+from collections import defaultdict
 from typing import Any
 
 from .config import logger
@@ -134,7 +135,7 @@ def _list_folder_children(parent_id: str) -> list[dict[str, Any]]:
                 drive.files()
                 .list(
                     q=q,
-                    fields="nextPageToken, files(id, name, mimeType, modifiedTime)",
+                    fields="nextPageToken, files(id, name, mimeType, createdTime, modifiedTime)",
                     pageSize=200,
                     pageToken=page_token,
                 )
@@ -798,9 +799,9 @@ def migrate_export_folder_to_historical_data(
         skip_names=skip_folder_names,
         context=context,
     )
-    archived_days = archive_previous_month_day_folders_in_historical_data(
+    archived_days = archive_past_month_day_folders_in_historical_data(
         historical_id,
-        archive_month,
+        today=today,
         context=context,
     )
     persistent_created = ensure_persistent_exports_in_base(parent_id, historical_id)
@@ -875,43 +876,118 @@ def archive_previous_month_in_folder(
     }
 
 
-def _historical_day_folder_belongs_to_month(day_folder_name: str, archive_month: str) -> bool:
-    if not is_historical_day_subfolder(day_folder_name):
-        return False
-    return day_folder_name.startswith(f"{archive_month}-")
+def _folder_recency(folder: dict[str, Any]) -> str:
+    """Recency key for a folder: prefer createdTime, fall back to modifiedTime."""
+    return str(folder.get("createdTime") or folder.get("modifiedTime") or "")
 
 
-def archive_previous_month_day_folders_in_historical_data(
+def _folder_has_children(folder_id: str) -> bool:
+    return bool(_list_folder_children(folder_id))
+
+
+def _dedupe_keeper_rank(folder: dict[str, Any]) -> tuple[int, str]:
+    """Rank same-name folders: keep the one with content, breaking ties by recency.
+
+    Empty duplicate folders (accidental stubs) never win over a sibling that holds
+    files, so cleanup can never trash the only copy that has data. Among folders
+    that all have (or all lack) content, the most recently created wins.
+    """
+    fid = str(folder.get("id") or "")
+    has_content = 1 if (fid and _folder_has_children(fid)) else 0
+    return (has_content, _folder_recency(folder))
+
+
+def find_child_folders_by_name(parent_id: str, name: str) -> list[dict[str, Any]]:
+    """Return non-trashed subfolders of *parent_id* named exactly *name*, best keeper first."""
+    matches = [
+        child
+        for child in _list_folder_children(parent_id)
+        if str(child.get("mimeType") or "") == _MIME_FOLDER
+        and str(child.get("name") or "") == name
+    ]
+    matches.sort(key=_dedupe_keeper_rank, reverse=True)
+    return matches
+
+
+def dedupe_child_folders_by_name(parent_id: str) -> list[dict[str, str]]:
+    """Trash duplicate same-name subfolders under *parent_id*, keeping the best copy.
+
+    Drive permits sibling folders to share a name; this enforces the invariant that
+    a folder name is unique within its parent. The kept folder is the one with
+    content (if any), and otherwise the most recently created — so a newer empty
+    stub never replaces an older folder that still holds files.
+    """
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for child in _list_folder_children(parent_id):
+        if str(child.get("mimeType") or "") != _MIME_FOLDER:
+            continue
+        groups[str(child.get("name") or "")].append(child)
+
+    trashed: list[dict[str, str]] = []
+    for name, items in groups.items():
+        if len(items) < 2:
+            continue
+        items.sort(key=_dedupe_keeper_rank, reverse=True)
+        for stale in items[1:]:
+            sid = str(stale.get("id") or "")
+            if not sid:
+                continue
+            _trash_drive_item(sid)
+            trashed.append({"id": sid, "name": name})
+            logger.info("Trashed duplicate folder %s (%s) under %s", name, sid, parent_id[:12])
+    return trashed
+
+
+def archive_past_month_day_folders_in_historical_data(
     historical_id: str,
-    archive_month: str,
     *,
+    today: dt.date | None = None,
     context: str = "",
 ) -> dict[str, Any]:
-    """Nest prior-month ``Historical Data/{YYYY-MM-DD}/`` folders under ``Historical Data/{YYYY-MM}/``."""
-    archive_folder_id = _ensure_month_archive_folder(historical_id, archive_month)
+    """Nest every past-month ``Historical Data/{YYYY-MM-DD}/`` folder under ``Historical Data/{YYYY-MM}/``.
+
+    Only day folders for the **current** month stay at the ``Historical Data`` root;
+    anything older is bucketed into its own month folder. Sweeping all past months
+    (not just the previous one) keeps older day folders from being stranded at the
+    root when the archive did not run during their month.
+    """
+    current_month = (today or dt.date.today()).strftime("%Y-%m")
+    month_folders: dict[str, str] = {}
     moved: list[dict[str, str]] = []
+    replaced: list[dict[str, str]] = []
     for child in _list_folder_children(historical_id):
         name = str(child.get("name") or "")
         mime = str(child.get("mimeType") or "")
         cid = str(child.get("id") or "")
         if not cid or mime != _MIME_FOLDER:
             continue
-        if not _historical_day_folder_belongs_to_month(name, archive_month):
+        if not is_historical_day_subfolder(name):
             continue
+        month_key = name[:7]
+        if month_key >= current_month:
+            continue
+        archive_folder_id = month_folders.get(month_key)
+        if archive_folder_id is None:
+            archive_folder_id = _ensure_month_archive_folder(historical_id, month_key)
+            month_folders[month_key] = archive_folder_id
         _move_drive_item(cid, historical_id, archive_folder_id)
-        moved.append({"id": cid, "name": name})
+        moved.append({"id": cid, "name": name, "month": month_key})
         logger.info(
             "Archived Drive day folder %s → %s/%s/%s (%s)",
             name,
             HISTORICAL_DATA_FOLDER,
-            archive_month,
+            month_key,
             name,
             context or historical_id[:12],
         )
+    # Collapse same-name day folders now sharing an archive (content-aware keeper).
+    for archive_folder_id in month_folders.values():
+        replaced.extend(dedupe_child_folders_by_name(archive_folder_id))
     return {
         "historical_folder_id": historical_id,
-        "archive_month": archive_month,
+        "archive_months": sorted(month_folders),
         "moved": moved,
+        "replaced": replaced,
     }
 
 
@@ -945,9 +1021,9 @@ def _archive_export_base_on_startup(
         skip_names=skip_folder_names,
         context=context,
     )
-    archived_days = archive_previous_month_day_folders_in_historical_data(
+    archived_days = archive_past_month_day_folders_in_historical_data(
         historical_id,
-        archive_month,
+        today=today,
         context=context,
     )
     return {

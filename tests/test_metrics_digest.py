@@ -6,9 +6,12 @@ import pytest
 
 from src.metrics_digest import (
     DigestRow,
+    akkr_kpi_list_pages,
     format_digest_body,
     format_digest_subject,
     is_off_target,
+    metrics_deck_display_title,
+    metrics_deck_scorecard_month,
     partition_digest_rows,
     run_metrics_digest,
     scalar_from_parts,
@@ -78,6 +81,42 @@ def test_digest_currency_value_and_target_display() -> None:
     )
     assert pct.value_display == "73.81%"
     assert pct.target_display == "80%"
+
+
+def test_metrics_deck_display_title_uses_scorecard_month_name() -> None:
+    from datetime import date
+
+    assert metrics_deck_scorecard_month("2026-08-01") == date(2026, 7, 1)
+    assert metrics_deck_scorecard_month("2026-07-01") == date(2026, 6, 1)
+    assert metrics_deck_scorecard_month("2026-01-15") == date(2025, 12, 1)
+    assert metrics_deck_display_title("akkr", "2026-08-01") == "AKKR Metrics - July"
+    assert metrics_deck_display_title("akkr", "2026-07-01") == "AKKR Metrics - June"
+    assert metrics_deck_display_title("akkr", "2026-06-01") == "AKKR Metrics - May"
+    assert metrics_deck_display_title(None, "2026-08-01") == "KPI Metrics - July"
+
+
+def test_akkr_kpi_list_pages_are_alphabetical_and_paginated() -> None:
+    rows = [
+        DigestRow(
+            name,
+            None,
+            float(index),
+            10.0,
+            "higher",
+            False,
+            description=f"Description for {name}",
+        )
+        for index, name in enumerate(
+            ["Zulu", "Bravo", "Echo", "% Alpha", "Golf", "Delta", "Foxtrot"], 1
+        )
+    ]
+
+    pages = akkr_kpi_list_pages(rows)
+
+    assert [[row.name for row in page] for page in pages] == [
+        ["% Alpha", "Bravo", "Delta", "Echo", "Foxtrot", "Golf"],
+        ["Zulu"],
+    ]
 
 
 def test_generate_digest_row_prefers_explicit_value(monkeypatch: pytest.MonkeyPatch) -> None:

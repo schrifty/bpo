@@ -1,7 +1,8 @@
 """Intermediate representation for Claude-designed slides → Google Slides batchUpdate.
 
-No LeanDNA Python design-standards: Claude owns layout. This module only translates a
-small element vocabulary into Slides API requests on a 720×405 pt canvas.
+Claude owns layout within the IR vocabulary. Visual policy lives in
+``docs/PRESENTATION/CLAUDE_DECK_STYLE_GUIDE.md`` (and ``IR_SCHEMA_FOR_PROMPT`` below).
+This module translates that IR into Slides API requests on a 720×405 pt canvas.
 """
 
 from __future__ import annotations
@@ -453,11 +454,15 @@ Hard limits:
 
 Table guidance:
 - Every row is 26pt tall (more if a cell wraps) and tables grow downward, so
-  budget 26pt × (header + data rows). A table at y=200 fits 6 rows total;
-  at y=140 it fits 8. Rows past the space available are dropped
+  calculate table_bottom = y + 26pt × (header + data rows)
+- Keep table_bottom ≤395 when nothing follows, or ≤next_element_y - 12 when
+  another overlapping-width element follows. Requested h does not prevent growth
+- Default full-width table position: x=48, w=624, y=72-140
+- At y=140 with a takeaway at y=360, use at most 8 total rows; use fewer if
+  cells may wrap. Side-by-side tables are limited to 4 total rows
 - Max 8 data rows; max 4 columns; keep cells ≤22 chars so they do not wrap
-- Anything you place below a table (takeaway, rule, bullets) shortens it — leave
-  26pt per row of clearance or move the table up
+- Never place a table under a KPI row without 12pt after the KPI row's bottom
+- If rows do not fit, paginate or omit lower-priority rows; never overflow
 
 KPI row guidance:
 - Use "fill" on items for colored tile backgrounds (#E8F4FC, #EEF0F3, #AEFFF6)

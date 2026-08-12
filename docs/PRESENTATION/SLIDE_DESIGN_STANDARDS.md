@@ -5,6 +5,8 @@ Version 1.7 (Internal Use)
 
 This document defines how LeanDNA presentations should be structured, styled, and visualized **when those slides are built by this application** (programmatic layout via `slides_client.py` and related builders). It is intended for automated slide generation systems (such as Cursor agents) and for humans authoring deck YAML that drives those builders.
 
+**Claude-designed slides** (engineering portfolio LLM path, Claude metrics decks) use a separate IR vocabulary and are governed by [`CLAUDE_DECK_STYLE_GUIDE.md`](./CLAUDE_DECK_STYLE_GUIDE.md). Shared philosophy (one takeaway, brand colors, data integrity) applies to both; layout mechanics differ.
+
 The goal is to produce slides that are:
 
 - information-dense but readable
