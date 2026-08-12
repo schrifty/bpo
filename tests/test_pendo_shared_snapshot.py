@@ -63,8 +63,48 @@ def pendo_cache_root(monkeypatch, tmp_path):
         "src.pendo_shared_snapshot._config.CORTEX_PENDO_DISK_CACHE_TTL_SECONDS",
         24 * 3600,
     )
+    # Avoid arming the hard-exit refresh deadline during unit tests.
+    monkeypatch.setenv("CORTEX_PENDO_SNAPSHOT_REFRESH_TIMEOUT_SECONDS", "0")
     clear_pendo_cache_for_tests()
     return tmp_path
+
+
+def test_refresh_deadline_fires_when_body_hangs(pendo_cache_root, monkeypatch) -> None:
+    """Deadline thread must invoke ``_on_refresh_timeout`` when the body stalls."""
+    import threading
+
+    monkeypatch.setenv("CORTEX_PENDO_SNAPSHOT_REFRESH_TIMEOUT_SECONDS", "0.2")
+    seen: list[float] = []
+    fired = threading.Event()
+
+    def _soft_timeout(seconds: float) -> None:
+        seen.append(seconds)
+        fired.set()
+
+    monkeypatch.setattr("src.pendo_shared_snapshot._on_refresh_timeout", _soft_timeout)
+
+    def _hang(**kwargs):
+        assert fired.wait(timeout=2.0), "refresh deadline did not fire"
+        return {"windows": [7]}
+
+    monkeypatch.setattr(
+        "src.pendo_shared_snapshot._refresh_shared_pendo_snapshot_body",
+        _hang,
+    )
+    out = refresh_shared_pendo_snapshot(windows=[7], upload_portfolio_days=None)
+    assert seen == [0.2]
+    assert out == {"windows": [7]}
+
+
+def test_refresh_timeout_seconds_default_and_override(monkeypatch) -> None:
+    from src.pendo_shared_snapshot import DEFAULT_REFRESH_TIMEOUT_SECONDS, refresh_timeout_seconds
+
+    monkeypatch.delenv("CORTEX_PENDO_SNAPSHOT_REFRESH_TIMEOUT_SECONDS", raising=False)
+    assert refresh_timeout_seconds() == DEFAULT_REFRESH_TIMEOUT_SECONDS
+    monkeypatch.setenv("CORTEX_PENDO_SNAPSHOT_REFRESH_TIMEOUT_SECONDS", "90")
+    assert refresh_timeout_seconds() == 90.0
+    monkeypatch.setenv("CORTEX_PENDO_SNAPSHOT_REFRESH_TIMEOUT_SECONDS", "0")
+    assert refresh_timeout_seconds() == 0.0
 
 
 def test_ensure_noop_when_require_disabled(pendo_cache_root, monkeypatch) -> None:

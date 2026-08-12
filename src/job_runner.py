@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -377,6 +378,11 @@ def run_step_subprocess(
         # Stream child stdout/stderr to CloudWatch (via cortex logger) while also
         # capturing for failure extraction. ``capture_output=True`` alone swallows
         # successful-run detail (e.g. Slack join/match logs).
+        #
+        # Timeout must be enforced by a watchdog while we block on ``proc.stdout``.
+        # Applying timeout only to ``proc.wait()`` after the read loop is a no-op when
+        # the child hangs silently (no further lines) — that left pendo-snapshot-refresh
+        # running for hours despite CORTEX_JOB_TIMEOUT_SECONDS.
         proc = subprocess.Popen(
             [sys.executable, str(_CORTEX_PY), *argv],
             cwd=str(_PROJECT_ROOT),
@@ -388,6 +394,35 @@ def run_step_subprocess(
         )
         collected: list[str] = []
         assert proc.stdout is not None
+        timed_out = False
+
+        def _kill_on_deadline() -> None:
+            nonlocal timed_out
+            if timeout_seconds <= 0:
+                return
+            deadline = time.monotonic() + float(timeout_seconds)
+            while proc.poll() is None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    logger.error(
+                        "job step timeout: %s after %ds — killing silent/hung child",
+                        name,
+                        timeout_seconds,
+                    )
+                    try:
+                        proc.kill()
+                    except OSError:
+                        pass
+                    return
+                time.sleep(min(1.0, max(0.05, remaining)))
+
+        watcher = threading.Thread(
+            target=_kill_on_deadline,
+            name=f"job-timeout-{name}",
+            daemon=True,
+        )
+        watcher.start()
         try:
             for line in proc.stdout:
                 collected.append(line)
@@ -395,12 +430,12 @@ def run_step_subprocess(
                 if stripped:
                     # Child already emits JSON/text logs; forward as-is at INFO.
                     logger.info("%s", stripped)
-            proc.wait(timeout=timeout_seconds if timeout_seconds > 0 else None)
-        except subprocess.TimeoutExpired:
-            proc.kill()
             proc.wait()
-            elapsed = time.monotonic() - t0
-            logger.error("job step timeout: %s after %ds", name, timeout_seconds)
+        finally:
+            watcher.join(timeout=2.0)
+
+        elapsed = time.monotonic() - t0
+        if timed_out:
             return StepResult(
                 name=name,
                 command=command,
@@ -409,7 +444,6 @@ def run_step_subprocess(
                 duration_s=elapsed,
                 error=f"timeout after {timeout_seconds}s",
             )
-        elapsed = time.monotonic() - t0
         combined = "".join(collected)
         ok = (proc.returncode or 0) == 0
         detail_messages = [] if ok else _extract_step_failure_messages(combined, "")

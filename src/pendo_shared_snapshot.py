@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,6 +48,10 @@ MANIFEST_FILENAME = f"shared_snapshot_manifest_v{SCHEMA_VERSION}.json"
 # - ford-pendo-30d / top-arr (30+30): 60
 # Plus exact 7/30 for any single-window callers.
 DEFAULT_REFRESH_WINDOWS: tuple[int, ...] = (7, 14, 30, 60, 90)
+
+# Wall-clock cap for a single refresh (preload + optional portfolio upload).
+# Job runner also enforces CORTEX_JOB_TIMEOUT_SECONDS; this fails faster inside the step.
+DEFAULT_REFRESH_TIMEOUT_SECONDS = 5400.0
 
 _DAY_KINDS = (
     PRELOAD_KIND_VISITORS,
@@ -84,6 +89,26 @@ def snapshot_max_age_hours() -> float:
         return max(0.0, float(raw))
     except ValueError:
         return float(getattr(_config, "CORTEX_PENDO_SNAPSHOT_MAX_AGE_HOURS", 18.0))
+
+
+def refresh_timeout_seconds() -> float:
+    """Wall-clock limit for ``refresh_shared_pendo_snapshot`` (0 disables)."""
+    raw = (os.environ.get("CORTEX_PENDO_SNAPSHOT_REFRESH_TIMEOUT_SECONDS") or "").strip()
+    if not raw:
+        return float(DEFAULT_REFRESH_TIMEOUT_SECONDS)
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        return float(DEFAULT_REFRESH_TIMEOUT_SECONDS)
+
+
+def _on_refresh_timeout(seconds: float) -> None:
+    """Hard-stop a hung refresh. Overridden in tests (``os._exit`` would kill pytest)."""
+    logger.error(
+        "Pendo shared snapshot refresh exceeded %.0fs — hard-exiting hung process",
+        seconds,
+    )
+    os._exit(124)
 
 
 def parse_windows(raw: str | None) -> list[int]:
@@ -238,7 +263,43 @@ def refresh_shared_pendo_snapshot(
     """Warm disk preload for ``windows``, optionally upload Drive portfolio snapshot, write manifest.
 
     Fails loud on preload gaps or Drive upload errors (when upload is requested).
+    Arms a wall-clock deadline (``CORTEX_PENDO_SNAPSHOT_REFRESH_TIMEOUT_SECONDS``, default
+    5400s) so a hung Drive/Pendo call cannot pin the ECS task indefinitely.
     """
+    timeout_s = refresh_timeout_seconds()
+    done = threading.Event()
+    watcher: threading.Thread | None = None
+    if timeout_s > 0:
+
+        def _deadline() -> None:
+            if done.wait(timeout=timeout_s):
+                return
+            _on_refresh_timeout(timeout_s)
+
+        watcher = threading.Thread(
+            target=_deadline,
+            name="pendo-snapshot-refresh-deadline",
+            daemon=True,
+        )
+        watcher.start()
+    try:
+        return _refresh_shared_pendo_snapshot_body(
+            windows=windows,
+            upload_portfolio_days=upload_portfolio_days,
+            pc=pc,
+        )
+    finally:
+        done.set()
+        if watcher is not None:
+            watcher.join(timeout=1.0)
+
+
+def _refresh_shared_pendo_snapshot_body(
+    *,
+    windows: Sequence[int] | None = None,
+    upload_portfolio_days: int | None = 90,
+    pc: Any | None = None,
+) -> dict[str, Any]:
     if not disk_cache_enabled():
         raise PendoSnapshotError(
             "Cannot refresh shared Pendo snapshot: disk cache disabled "

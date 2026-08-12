@@ -455,14 +455,18 @@ def _read_drive_file(file_id: str) -> str:
 
 def _upload_file(name: str, content: str, folder_id: str, file_id: str | None = None) -> str:
     """Upload or update a YAML file on Drive. Returns the file ID."""
+    from .network_utils import network_timeout
+
     with drive_api_lock:
         drive = _get_drive()
         media = MediaIoBaseUpload(io.BytesIO(content.encode("utf-8")), mimetype="text/yaml")
         if file_id:
-            f = drive.files().update(fileId=file_id, media_body=media).execute()
+            with network_timeout(30.0, f"Drive YAML update ({name})"):
+                f = drive.files().update(fileId=file_id, media_body=media).execute()
             return f["id"]
         meta: dict[str, Any] = {"name": name, "parents": [folder_id]}
-        f = drive.files().create(body=meta, media_body=media, fields="id").execute()
+        with network_timeout(30.0, f"Drive YAML create ({name})"):
+            f = drive.files().create(body=meta, media_body=media, fields="id").execute()
         return f["id"]
 
 
@@ -489,6 +493,11 @@ def upload_text_file_to_drive_folder(
     When ``replace_existing`` is True (default), updates the first non-trashed file with the
     same ``name`` in that folder (any mime); otherwise creates a new file (duplicates allowed).
     """
+    from .network_utils import network_timeout
+
+    fid: str | None = None
+    if replace_existing:
+        fid = find_file_in_folder(name, folder_id, mime_type=None)
     with drive_api_lock:
         drive = _get_drive()
         media = MediaIoBaseUpload(
@@ -496,14 +505,13 @@ def upload_text_file_to_drive_folder(
             mimetype=mime_type,
             resumable=False,
         )
-        fid: str | None = None
-        if replace_existing:
-            fid = find_file_in_folder(name, folder_id, mime_type=None)
         if fid:
-            f = drive.files().update(fileId=fid, media_body=media).execute()
+            with network_timeout(30.0, f"Drive file update ({name})"):
+                f = drive.files().update(fileId=fid, media_body=media).execute()
             return f["id"]
         meta: dict[str, Any] = {"name": name, "parents": [folder_id]}
-        f = drive.files().create(body=meta, media_body=media, fields="id").execute()
+        with network_timeout(30.0, f"Drive file create ({name})"):
+            f = drive.files().create(body=meta, media_body=media, fields="id").execute()
         return f["id"]
 
 

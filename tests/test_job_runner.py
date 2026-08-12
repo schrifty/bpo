@@ -14,6 +14,46 @@ from src.job_runner import (
 )
 
 
+def test_run_step_subprocess_kills_silent_hung_child(monkeypatch) -> None:
+    """Timeout must kill a child that hangs with no further stdout (not only wait())."""
+    import os
+    import subprocess
+    import sys
+    import time
+
+    import src.job_runner as jr
+    from src.job_runner import run_step_subprocess
+
+    real_popen = subprocess.Popen
+
+    def _silent_sleeper(args, **kwargs):
+        return real_popen(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            stdout=kwargs.get("stdout"),
+            stderr=kwargs.get("stderr"),
+            text=kwargs.get("text"),
+            bufsize=kwargs.get("bufsize", 1),
+        )
+
+    monkeypatch.setattr(jr.subprocess, "Popen", _silent_sleeper)
+    monkeypatch.setattr(jr, "build_step_argv", lambda step: ["noop"])
+    monkeypatch.setattr(jr, "set_run_phase", lambda *a, **k: None)
+    monkeypatch.setattr(jr, "_step_env", lambda *a, **k: os.environ.copy())
+
+    t0 = time.monotonic()
+    result = run_step_subprocess(
+        {"name": "hang", "command": "deck"},
+        run_id="test-run",
+        job_name="test-job",
+        timeout_seconds=1,
+    )
+    elapsed = time.monotonic() - t0
+    assert result.success is False
+    assert result.exit_code == 124
+    assert result.error == "timeout after 1s"
+    assert elapsed < 10.0
+
+
 def test_load_nightly_core_spec() -> None:
     spec = load_job_spec("nightly-core")
     assert spec.name == "nightly-core"
