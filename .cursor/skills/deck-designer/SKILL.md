@@ -1,6 +1,11 @@
 # Slide Style Guide Review Skill
 
-The Style Guide can be found in the project in the docs folder.
+Style guides live under `docs/PRESENTATION/`:
+
+* Hand-built / Python-builder slides → `SLIDE_DESIGN_STANDARDS.md`
+* Claude-IR decks (eng portfolio, Claude metrics) → `CLAUDE_DECK_STYLE_GUIDE.md`
+
+Use the guide that matches how the deck was generated.
 
 ## Purpose
 

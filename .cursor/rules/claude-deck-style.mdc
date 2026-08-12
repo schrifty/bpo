@@ -1,0 +1,20 @@
+---
+description: Claude-IR deck style guide for eng portfolio and Claude metrics slides
+globs:
+  - src/claude_slide_ir.py
+  - src/eng_portfolio_claude_slides.py
+  - src/metrics_claude_slides.py
+  - src/deck_renderer.py
+alwaysApply: false
+---
+
+# Claude-generated deck style
+
+When **adding or changing** Claude-designed slide behavior (IR schema, eng-portfolio / metrics Claude prompts, IR renderer):
+
+1. **Read** `docs/PRESENTATION/CLAUDE_DECK_STYLE_GUIDE.md`.
+2. Keep `IR_SCHEMA_FOR_PROMPT` in `src/claude_slide_ir.py` aligned with that guide (palette, element types, length caps).
+3. Do **not** apply hand-built builder helpers (`_kpi_metric_card`, embedded Sheets charts) to the Claude-IR path unless product explicitly extends the IR.
+4. **AKKR** metrics decks stay on the fixed alphabetical table path—never Claude IR.
+
+Hand-built slides still use `docs/PRESENTATION/SLIDE_DESIGN_STANDARDS.md` (see `.cursor/rules/slide-design-standards.mdc`).

@@ -221,7 +221,13 @@ def digest_for_slide(full: dict[str, Any], slide_type: str) -> dict[str, Any]:
 
 _SYSTEM = (
     "You design one Engineering Portfolio Review slide for a VP of Engineering. "
-    "Invent both visual structure and copy. No fixed layout template. "
+    "Invent both visual structure and copy within the IR vocabulary. "
+    "Follow LeanDNA Claude deck style: one primary takeaway in the title, navy "
+    "header with white title text, brand palette only (#0B1F33 / #009AFF / #38C0CE), "
+    "4-6 KPI tiles max per row with short labels, optional bottom takeaway that "
+    "states an implication (not filler), only numbers present in the data digest. "
+    "For every table, calculate its bottom from y + 26pt per total row, reserve "
+    "12pt before the next element, and paginate or omit rows instead of overflowing. "
     "Output MUST be valid compact JSON only — no markdown fences, no commentary. "
     "Prefer fewer, shorter strings over long prose. "
     + IR_SCHEMA_FOR_PROMPT
