@@ -14,6 +14,7 @@ purpose: |
 slides:
   # Bottom line → Team → Outcomes → Operational health → Quality → External pressure → Integrations → Hygiene
   - slide: eng_portfolio_title
+  - slide: eng_takeaways
   - slide: eng_toc
   - slide: eng_exec_summary
   - slide: eng_divider

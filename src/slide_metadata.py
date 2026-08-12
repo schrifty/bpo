@@ -67,6 +67,7 @@ SLIDE_DATA_REQUIREMENTS: dict[str, list[str]] = {
     "eng_portfolio_title": ["eng_portfolio", "cursor_usage"],
     "eng_toc": [],
     "eng_divider": [],
+    "eng_takeaways": ["eng_portfolio", "cursor_usage", "github_productivity", "ai_productivity"],
     "eng_exec_summary": ["eng_portfolio"],
     "eng_team_scorecard": ["eng_portfolio"],
     "eng_team_roster": ["eng_portfolio"],

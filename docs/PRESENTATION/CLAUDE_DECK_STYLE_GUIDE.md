@@ -1,6 +1,6 @@
 # Claude-Generated Deck Style Guide
 
-Version 1.0 (Internal Use)
+Version 1.1 (Internal Use)
 
 ## Purpose
 
@@ -30,7 +30,7 @@ Where this document and [`SLIDE_DESIGN_STANDARDS.md`](./SLIDE_DESIGN_STANDARDS.m
 - Executive / analytical density (not brochure layout)
 - Brand color meanings (navy, blue accent, teal, light fills)
 - KPI tiles: short labels, one primary value, shared accent in a row
-- Bottom takeaway: implication, not restatement; omit empty takeaways
+- Bottom takeaway: implication, not restatement (here it is **required** on data slides, not optional)
 - Text density: short bullets; no nested lists; no full-page prose
 - Data integrity: only numbers present in the supplied digest
 - Fail loud / say “no data” when a fact is missing—do not invent
@@ -64,6 +64,7 @@ Canonical schema text: `IR_SCHEMA_FOR_PROMPT` in `src/claude_slide_ir.py` (keep 
 - Answer **one** primary question.
 - Communicate **one** primary takeaway (title and/or `takeaway` element).
 - Title states the takeaway (e.g. “Cycle time improved 18% QoQ”)—not “Cycle Time Overview”.
+- Every data slide and every section divider carries a takeaway. A deck of data with no stated conclusions makes the reader do the analysis, which is the job the deck exists to do.
 
 ### Canvas and element budget
 
@@ -76,6 +77,7 @@ Canonical schema text: `IR_SCHEMA_FOR_PROMPT` in `src/claude_slide_ir.py` (keep 
   - `speaker_notes` ≤ **160** characters or omit
 - No overlapping elements; nothing may clip past the canvas edge.
 - Prefer **fewer, shorter strings** over long prose.
+- Size boxes for the copy: a 140-character takeaway needs about **2 lines** at 11 pt across the content width. The renderer shrinks copy that would overflow its box (down to 8 pt), so an undersized box costs readability rather than clipping.
 
 ### Data integrity
 
@@ -91,29 +93,31 @@ Canonical schema text: `IR_SCHEMA_FOR_PROMPT` in `src/claude_slide_ir.py` (keep 
 
 ---
 
-## Brand palette
+## Color: one meaning per hue
 
-Use only these colors (hex). Do not introduce purple gradients, glow effects, or off-brand hues.
+**Color is a data channel, not decoration.** A reader must be able to answer “why is that one a different color?” from the slide itself. If the answer is “so the row looks less flat”, the colors are wrong—five ordinary metrics get five identical tiles.
 
-| Role | Hex | Typical use |
-|------|-----|-------------|
-| Navy | `#0B1F33` | Header bars, dark titles, body text on light |
-| Primary accent | `#009AFF` | KPI values, highlights |
-| Soft blue | `#7BC4FA` | Secondary accent |
-| Teal | `#38C0CE` | Rules, tertiary accent |
-| Mint | `#AEFFF6` | Occasional callout fill |
-| Light gray | `#EEF0F3` | Takeaway band, alt fills |
-| Soft blue fill | `#E8F4FC` | KPI tile backgrounds |
-| White | `#FFFFFF` | Page background; text on navy |
-| Off-target / alert | `#C0392B` (text) or `#FDECEA` (fill) | Metrics decks: off-target KPIs only |
-| Neutral gray | `#6B7280` | Secondary labels, “no data” |
+Use only these colors (hex), each for the meaning listed. Do not introduce gradients, glows, or off-brand hues.
+
+| Meaning | Text / value | Fill | Where |
+|---------|--------------|------|-------|
+| **Structure** (not a signal) | `#FFFFFF` on navy | `#0B1F33` navy | Header bars, divider backgrounds, body text on light |
+| **Ordinary metric** — the default | `#009AFF` | `#E8F4FC` | Every KPI value or emphasis with no status attached |
+| **Needs attention** — off target, regressing, blocked, at risk | `#C0392B` | `#FDECEA` | Tiles, table rows, status words |
+| **No data / excluded / N/A** | `#6B7280` | `#EEF0F3` | Missing metrics, excluded cohorts, takeaway band |
+| **The one number to remember** | `#0B1F33` | `#AEFFF6` mint | At most **one** tile or callout per slide |
+| **Series 2 / series 3** in an explicit comparison | `#38C0CE` teal, then `#7BC4FA` | — | Period-over-period or A/B pairs; teal also for `rule` |
 
 **Rules**
 
 - White page background by default (`"background": "#FFFFFF"`).
 - Navy header bar with **white** title text is the default content-slide chrome.
-- KPI values in one row share the same accent (`#009AFF` or `#38C0CE`) unless a deliberate semantic exception (e.g. off-target red).
-- Never rely on color alone; labels must carry meaning.
+- Hue encodes **status** or **series identity**—never rank, ordinal position, team, or variety. Do not give each tile in a row its own color.
+- All tiles in a `kpi_row` share one fill/value pair unless a tile's **status** differs (attention, no data, or the single mint callout).
+- At most **3** hues per slide beyond navy structure and white.
+- Never rely on color alone; the label or copy must carry the same meaning.
+
+`normalize_slide_ir` enforces the `kpi_row` part of this. Tiles claiming a status (red text or the attention fill, gray “no data” text) always keep their colors. A mint callout survives only in a row that is otherwise uniform; once the remaining tiles disagree, the row is treated as decoration and every non-status tile snaps to `#009AFF` on `#E8F4FC`.
 
 ---
 
@@ -186,18 +190,30 @@ Thin accent line (teal `#38C0CE` or navy). Use as a divider above a takeaway—n
 
 ### `takeaway`
 
-Bottom “so what” band.
+Bottom “so what” band. **Every slide that shows data gets one.** A deck of 47 data slides with no takeaways has no message.
 
 - One implication sentence with at least one concrete figure when available.
 - Optional light fill (`#EEF0F3`).
-- **Omit** if you have nothing useful to say—never an empty takeaway.
+- Only exempt: cover, agenda/TOC, the Takeaways slide itself (all takeaway), and appendix data-governance pages.
+- If the digest genuinely supports no interpretation, say what is missing rather than padding.
 - Banned filler (same spirit as eng takeaway prompts): “strategic review”, “investigate further”, “demands attention”, “closely monitor”, “leverage synergies”, vague “optimize”.
+
+The eng portfolio generator logs a warning listing any non-exempt slide that came back without a takeaway element, so gaps are visible in the run output.
 
 ---
 
 ## Recommended slide archetypes (IR)
 
 Claude may invent layout, but these patterns stay on-brand.
+
+### 0. Takeaways (deck opener)
+
+Navy header → 3–5 numbered `bullets`, each one sentence carrying its supporting number and its implication → optional single mint callout tile for the one figure that frames the review.
+
+- Sits immediately after the cover; it is the deck's message on one page.
+- Ordered by what the reader must act on first, not by deck section order.
+- Spans the whole deck (delivery, quality, support pressure, AI spend vs output)—never a restatement of section titles.
+- A reader who sees only this slide should know what is going well, what is at risk, and what decision is being asked of them.
 
 ### 1. Standing / snapshot
 
@@ -217,7 +233,11 @@ Navy header → title as insight → mix of `kpi_row` + `bullets` and/or a small
 
 ### 5. Section divider
 
-Full navy (or light brand tint) background, large white (or navy) section title, minimal other elements. No KPI dump on dividers.
+Full navy background, large white section title, **plus a one-sentence takeaway** previewing that section's message with the number behind it. No KPI dump on dividers.
+
+Dividers argue, they do not just announce: “Quality — bug backlog grew 18% while fix rate held flat” beats “Quality”. Section identity is carried by the title, not by a per-section background color.
+
+No generic eyebrow labels (`SECTION`, `SECTION 3`). They add a line of text that carries no information.
 
 ### 6. Title / cover
 
@@ -266,6 +286,7 @@ Avoid:
 ### Engineering Portfolio
 
 - Audience: VP of Engineering.
+- Deck shape: cover → **Takeaways** (`eng_takeaways`) → agenda → exec summary → sections, each opening with a divider that states the section takeaway.
 - Slide YAML `prompt` + scoped digest are the brief—honor the slide’s job; do not wander into another chapter’s topic.
 - Cursor / GitHub / AI correlation slides: only cite numbers in the digest; if Cursor is missing from the plan, Claude never sees that slide.
 - Prefer operational insight over product marketing language.
@@ -289,7 +310,8 @@ Do not:
 - Invent charts, logos, or element types outside the IR list
 - Put long methodology paragraphs on the face
 - Use microtext (&lt; 8 pt) to cram more content
-- Rainbow every KPI in a different color
+- Color tiles, rows, or sections differently for variety, rank, or team identity
+- Ship a data slide with no takeaway, or a divider that only names the topic
 - Leave a takeaway label/band with empty or generic filler text
 - Restate the title in every bullet
 - Design a slide that would belong to another brand after removing LeanDNA navy/blue (weak branding)
@@ -312,7 +334,8 @@ When changing Claude slide behavior:
 - [ ] One question, one takeaway; title carries the insight  
 - [ ] ≤ 10 elements; strings within length caps  
 - [ ] Only digest facts; no invented numbers  
-- [ ] Brand palette only; shared KPI accent in a row  
+- [ ] Takeaway present (data slides and dividers), and it states an implication  
+- [ ] Every hue justified by status or series; shared KPI accent in a row  
 - [ ] KPI labels short; table cells short; clearance under tables  
 - [ ] Takeaway is a real implication—or omitted  
 - [ ] Readable at presentation scale (no microtext crush)  

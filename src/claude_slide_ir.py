@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .config import logger
 from .slide_primitives import background as _bg
 from .slide_primitives import rect as _rect
 from .slide_requests import append_slide as _slide
@@ -23,6 +24,14 @@ CANVAS_W = float(SLIDE_W)
 CANVAS_H = float(SLIDE_H)
 
 _HEX_RE = re.compile(r"^#?([0-9a-fA-F]{6})$")
+
+# A KPI tile only claims a status from its text color (or the attention fill, which
+# has no other use). Light fills alone are ambiguous, so they never imply status.
+_STATUS_TEXT_HEXES = frozenset({"#C0392B", "#6B7280"})
+_ATTENTION_FILL = "#FDECEA"
+_CALLOUT_FILL = "#AEFFF6"
+_NEUTRAL_TILE_FILL = "#E8F4FC"
+_NEUTRAL_TILE_COLOR = "#009AFF"
 
 
 def rgb_from_hex(value: str | None, default: dict[str, float] | None = None) -> dict[str, float]:
@@ -43,6 +52,47 @@ def rgb_from_hex(value: str | None, default: dict[str, float] | None = None) -> 
         "green": int(hx[2:4], 16) / 255.0,
         "blue": int(hx[4:6], 16) / 255.0,
     }
+
+
+def _hex_key(value: Any) -> str:
+    """Uppercase ``#RRGGBB`` form for palette comparisons ("" when unset/unparseable)."""
+    m = _HEX_RE.match(str(value or "").strip())
+    return f"#{m.group(1).upper()}" if m else ""
+
+
+def _tile_claims_status(item: dict[str, Any]) -> bool:
+    return (
+        _hex_key(item.get("color")) in _STATUS_TEXT_HEXES
+        or _hex_key(item.get("fill")) == _ATTENTION_FILL
+    )
+
+
+def unify_kpi_row_accents(items: list[Any]) -> list[Any]:
+    """Collapse decorative per-tile colors so a hue difference always means something.
+
+    Tiles claiming a status (attention, no data) always keep their colors. A single
+    mint callout survives only in a row that is otherwise uniform; once the remaining
+    tiles disagree, the whole row is decoration and snaps to the neutral pair, so five
+    ordinary metrics cannot arrive in five colors.
+    """
+    plain: list[int] = []
+    callouts: list[int] = []
+    for i, it in enumerate(items):
+        if not isinstance(it, dict) or _tile_claims_status(it):
+            continue
+        if _hex_key(it.get("fill")) == _CALLOUT_FILL:
+            callouts.append(i)
+        else:
+            plain.append(i)
+    pairs = {
+        (_hex_key(items[i].get("fill")), _hex_key(items[i].get("color"))) for i in plain
+    }
+    if len(pairs) <= 1 and len(callouts) <= 1:
+        return list(items)
+    out = list(items)
+    for i in plain + callouts:
+        out[i] = {**items[i], "fill": _NEUTRAL_TILE_FILL, "color": _NEUTRAL_TILE_COLOR}
+    return out
 
 
 def _clamp(n: float, lo: float, hi: float) -> float:
@@ -84,6 +134,21 @@ def _wrapped_lines(
 
 def _wrapped_height(text: str, width: float, font_size: float) -> float:
     return _wrapped_lines(text, width, font_size) * font_size * _LINE_H_RATIO
+
+
+def _fit_text_size(
+    text: str,
+    width: float,
+    height: float,
+    start_size: float,
+    *,
+    min_size: float = 8.0,
+) -> float:
+    """Shrink copy until it fits its box; Slides overflows the page instead of wrapping down."""
+    size = start_size
+    while size > min_size and _wrapped_height(text, width, size) > height:
+        size -= 1.0
+    return size
 
 
 def _fit_number_size(text: str, width: float, start_size: float) -> float:
@@ -188,6 +253,13 @@ def normalize_slide_ir(raw: dict[str, Any] | None) -> dict[str, Any]:
             raise ValueError(f"elements[{i}] unsupported type {et!r}")
         out_els.append(dict(el))
         out_els[-1]["type"] = et
+        if et == "kpi_row" and isinstance(el.get("items"), list):
+            unified = unify_kpi_row_accents(el["items"])
+            if unified != el["items"]:
+                logger.debug(
+                    "slide IR: collapsed decorative kpi_row tile colors to the neutral accent"
+                )
+                out_els[-1]["items"] = unified
     notes = raw.get("speaker_notes")
     return {
         "background": raw.get("background") or "#FFFFFF",
@@ -227,7 +299,12 @@ def render_slide_ir(
             text = str(el.get("text") or "").strip()
             if not text:
                 continue
-            size = _clamp(_f(el.get("size"), 14 if et == "text" else 11), 8, 48)
+            size = _fit_text_size(
+                text,
+                max(8.0, w - 8),
+                h,
+                _clamp(_f(el.get("size"), 14 if et == "text" else 11), 8, 48),
+            )
             color = rgb_from_hex(el.get("color"), BLACK)
             bold = bool(el.get("bold"))
             if et == "takeaway" and el.get("fill"):
@@ -255,7 +332,9 @@ def render_slide_ir(
             if not items:
                 continue
             body = "\n".join(f"• {t}" for t in items)
-            size = _clamp(_f(el.get("size"), 12), 8, 28)
+            size = _fit_text_size(
+                body, max(8.0, w - 8), h, _clamp(_f(el.get("size"), 12), 8, 28)
+            )
             _box(reqs, oid, sid, x, y, w, h, body)
             reqs.append(
                 {
@@ -437,20 +516,32 @@ Put "elements" BEFORE "speaker_notes" so layout is not truncated.
   "speaker_notes": "Optional; max 160 characters."
 }
 
-Brand palette (use for visual variety and hierarchy):
-- Navy header/dark text: #0B1F33
-- Primary accent (KPI values, highlights): #009AFF
-- Secondary accents: #7BC4FA, #38C0CE (teal)
-- Highlight/callout: #AEFFF6 (mint)
-- Light fills (KPI tiles, takeaway, alt rows): #EEF0F3, #E8F4FC
-- White: #FFFFFF — use for text on dark backgrounds
+Brand palette — every hue MUST carry meaning, never decoration:
+- #0B1F33 navy: structure and text (header bars, divider backgrounds, body copy)
+- #009AFF blue on #E8F4FC fill: the default for ANY ordinary metric or KPI value
+- #C0392B red on #FDECEA fill: needs attention — off target, regressing, blocked, at risk
+- #6B7280 gray on #EEF0F3 fill: no data, excluded, or not applicable
+- #AEFFF6 mint fill: at most ONE tile per slide — the single number to remember
+- #38C0CE teal, then #7BC4FA soft blue: second and third series in an explicit
+  comparison (e.g. this period vs last), and thin rules
+- #FFFFFF white: page background, and text on navy
+
+Color rules:
+- Hue encodes status or series identity only. Do NOT vary color per tile, row, or
+  team just for visual variety — five tiles about five ordinary metrics all use
+  #009AFF on #E8F4FC
+- A reader must be able to tell from the labels and copy why two colors differ
+- At most 3 hues per slide beyond navy structure and white
 
 Hard limits:
 - Canvas 720×405 points; coordinates (x,y,w,h) in points from top-left
 - At most 10 elements
 - Keep every string short (titles ≤60 chars; bullet lines ≤90 chars; takeaway ≤140 chars)
+- Give text/takeaway/bullets a box tall enough for the wrapped copy (~2 lines at 11pt
+  for a 140-char takeaway across the content width); text that would overflow is shrunk
 - speaker_notes ≤160 chars or omit it
 - Element types: rect, text, kpi_row, bullets, table, takeaway, rule
+- Include a takeaway element unless the slide has no data to interpret
 
 Table guidance:
 - Every row is 26pt tall (more if a cell wraps) and tables grow downward, so
@@ -465,8 +556,9 @@ Table guidance:
 - If rows do not fit, paginate or omit lower-priority rows; never overflow
 
 KPI row guidance:
-- Use "fill" on items for colored tile backgrounds (#E8F4FC, #EEF0F3, #AEFFF6)
-- Use "color" on items for accent-colored values (#009AFF, #38C0CE)
+- Use "fill" on items for tile backgrounds and "color" for the value
+- Tiles in one row share one fill/color pair; only a tile whose STATUS differs
+  (attention, no data, or the single mint callout) may differ
 - Keep labels ≤22 chars; long labels wrap and squeeze the number
 - 4-6 tiles per row; give the row h≥72 so label and value both breathe
 

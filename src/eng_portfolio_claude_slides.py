@@ -29,6 +29,20 @@ from .slide_utils import (
 )
 
 _MAX_DIGEST_CHARS = 12_000
+_MAX_SLIDE_DIGEST_CHARS = 8_000
+# The Jira portfolio blob runs ~700 KB, so each section gets its own budget instead of
+# the big one crowding the small integration payloads out of the digest entirely.
+# Generous: per-slide scoping below picks the sections a slide argues from, so the
+# shared digest must still hold them all when it reaches digest_for_slide.
+_MAX_ENG_SECTION_CHARS = 60_000
+_MAX_INTEGRATION_SECTION_CHARS = 2_500
+_PROTECTED_DIGEST_KEYS = (
+    "days",
+    "eng_portfolio",
+    "cursor_usage",
+    "github_productivity",
+    "ai_productivity",
+)
 # Claude Opus thinking models: max_tokens is total (reasoning + visible).
 _SLIDE_MAX_TOKENS = 16_384
 _SLIDE_MAX_ATTEMPTS = 2
@@ -84,37 +98,56 @@ def _parse_slide_ir_json(raw: str) -> dict[str, Any]:
     return json.loads(blob)
 
 
-def _trim(obj: Any, *, max_chars: int = _MAX_DIGEST_CHARS) -> Any:
-    raw = json.dumps(obj, default=str, ensure_ascii=False)
-    if len(raw) <= max_chars:
-        return obj
-    if not isinstance(obj, dict):
-        return obj
+def _json_len(obj: Any) -> int:
+    return len(json.dumps(obj, default=str, ensure_ascii=False))
+
+
+def _slim_value(value: Any, *, list_cap: int) -> Any:
+    """Cap the collections inside one section so a single blob cannot dominate."""
+    if isinstance(value, list):
+        return value[:list_cap]
+    if not isinstance(value, dict):
+        return value
     out: dict[str, Any] = {}
-    for k, v in obj.items():
-        if isinstance(v, list) and len(v) > 8:
-            out[k] = v[:8]
+    for k, v in value.items():
+        if isinstance(v, list):
+            out[k] = v[:list_cap]
         elif isinstance(v, dict):
-            nested = json.dumps(v, default=str, ensure_ascii=False)
-            if len(nested) > max_chars // 3:
-                # Keep only top-level scalars / short lists inside nested dicts
-                slim: dict[str, Any] = {}
-                for nk, nv in v.items():
-                    if isinstance(nv, list):
-                        slim[nk] = nv[:5]
-                    elif isinstance(nv, (str, int, float, bool)) or nv is None:
-                        slim[nk] = nv
-                out[k] = slim
-            else:
-                out[k] = v
+            out[k] = {
+                nk: (nv[:list_cap] if isinstance(nv, list) else nv)
+                for nk, nv in v.items()
+                if not isinstance(nv, dict)
+            }
         else:
             out[k] = v
-    raw2 = json.dumps(out, default=str, ensure_ascii=False)
-    if len(raw2) <= max_chars:
-        return out
-    # Last resort: keep only eng_portfolio + days
-    slim_root = {"days": out.get("days"), "eng_portfolio": out.get("eng_portfolio")}
-    return slim_root
+    return out
+
+
+def _trim(
+    obj: Any, *, max_chars: int = _MAX_DIGEST_CHARS, protect: tuple[str, ...] = ()
+) -> Any:
+    """Shrink *obj* to fit *max_chars*, thinning the biggest sections first.
+
+    Sections named in *protect* are never dropped: the integration payloads are small
+    and are the only source their slides have, so losing them would make a configured
+    integration look like missing data.
+    """
+    if not isinstance(obj, dict) or _json_len(obj) <= max_chars:
+        return obj
+    out = dict(obj)
+    for cap in (8, 5, 3, 1):
+        if _json_len(out) <= max_chars:
+            break
+        for key in sorted(out, key=lambda k: _json_len(out[k]), reverse=True):
+            if _json_len(out) <= max_chars:
+                break
+            out[key] = _slim_value(out[key], list_cap=cap)
+    while _json_len(out) > max_chars:
+        droppable = [k for k in out if k not in protect]
+        if not droppable:
+            break
+        out.pop(max(droppable, key=lambda k: _json_len(out[k])))
+    return out
 
 
 def build_eng_portfolio_digest(report: dict[str, Any]) -> dict[str, Any]:
@@ -153,35 +186,90 @@ def build_eng_portfolio_digest(report: dict[str, Any]) -> dict[str, Any]:
         blob = digest["eng_portfolio"].get(key)
         if isinstance(blob, list) and len(blob) > 15:
             digest["eng_portfolio"][key] = blob[:15]
+    digest["eng_portfolio"] = _trim(
+        digest["eng_portfolio"], max_chars=_MAX_ENG_SECTION_CHARS
+    )
     cu = report.get("cursor_usage")
     if isinstance(cu, dict) and cu.get("configured"):
-        digest["cursor_usage"] = {
-            k: cu.get(k)
-            for k in (
-                "window_days",
-                "totals",
-                "model_mix",
-                "top_users",
-                "engineer_scope",
-                "cost_summary",
-            )
-            if cu.get(k) is not None
-        }
+        digest["cursor_usage"] = _trim(
+            {
+                k: cu.get(k)
+                for k in (
+                    "window_days",
+                    "totals",
+                    "model_mix",
+                    "top_users",
+                    "engineer_scope",
+                    "cost_summary",
+                )
+                if cu.get(k) is not None
+            },
+            max_chars=_MAX_INTEGRATION_SECTION_CHARS,
+        )
     gp = report.get("github_productivity")
     if isinstance(gp, dict) and gp.get("configured"):
-        digest["github_productivity"] = {
-            k: gp.get(k)
-            for k in ("window_days", "totals", "by_engineer", "delivery", "change_profile")
-            if gp.get(k) is not None
-        }
+        digest["github_productivity"] = _trim(
+            {
+                k: gp.get(k)
+                for k in ("window_days", "totals", "by_engineer", "delivery", "change_profile")
+                if gp.get(k) is not None
+            },
+            max_chars=_MAX_INTEGRATION_SECTION_CHARS,
+        )
     ai = report.get("ai_productivity")
     if isinstance(ai, dict) and ai.get("configured"):
-        digest["ai_productivity"] = {
-            k: ai.get(k)
-            for k in ("window_days", "summary", "matrix", "trend", "coaching")
-            if ai.get(k) is not None
-        }
-    return _trim(digest)
+        digest["ai_productivity"] = _trim(
+            {
+                k: ai.get(k)
+                for k in ("window_days", "summary", "matrix", "trend", "coaching")
+                if ai.get(k) is not None
+            },
+            max_chars=_MAX_INTEGRATION_SECTION_CHARS,
+        )
+    return digest
+
+
+# Jira sections each slide actually argues from. Without this every eng slide sees the
+# same blob, trims to the same few scalars, and repeats the same numbers.
+_ENG_CORE_KEYS = ("sprint", "in_flight_count", "closed_count")
+_ENG_SLIDE_KEYS: dict[str, tuple[str, ...]] = {
+    "eng_team_roster": ("by_assignee", "by_assignee_active", "team_scorecard"),
+    "eng_team_scorecard": ("team_scorecard", "by_assignee_active"),
+    "eng_epic_progress": ("epic_progress", "themes"),
+    "eng_velocity": ("sprint_velocity", "by_status"),
+    "eng_current_sprint": ("by_status", "by_type", "flow"),
+    "eng_flow_bottlenecks": ("flow", "by_status", "backlog_staleness"),
+    "eng_capacity": ("by_assignee_active", "work_split", "flow"),
+    "eng_work_split": ("work_split", "by_type", "themes"),
+    "eng_bug_health": ("open_bugs", "blocker_critical", "bug_flow"),
+    "eng_bug_flow": ("bug_flow", "open_bugs"),
+    "eng_backlog_health": ("backlog_staleness", "by_status", "themes"),
+    "eng_support_pressure": ("support_pressure", "work_split"),
+    "eng_jira_project": ("project_snapshots",),
+}
+# Cover, agenda, dividers, exec summary and the Takeaways page argue across the whole
+# review, so they get headline sections from every area rather than one slide's slice.
+_ENG_OVERVIEW_KEYS = (
+    "by_status",
+    "by_type",
+    "themes",
+    "flow",
+    "work_split",
+    "support_pressure",
+    "bug_flow",
+    "blocker_critical",
+    "team_scorecard",
+    "sprint_velocity",
+    "epic_progress",
+)
+_ENG_OVERVIEW_SLIDE_TYPES = (
+    "eng_portfolio_title",
+    "eng_toc",
+    "eng_divider",
+    "data_quality",
+    "eng_exec_summary",
+    "eng_takeaways",
+)
 
 
 def digest_for_slide(full: dict[str, Any], slide_type: str) -> dict[str, Any]:
@@ -197,8 +285,12 @@ def digest_for_slide(full: dict[str, Any], slide_type: str) -> dict[str, Any]:
         ):
             # Light eng context only
             out["eng_portfolio"] = {
+                k: eng[k] for k in _ENG_CORE_KEYS if eng.get(k) is not None
+            }
+        elif st in _ENG_SLIDE_KEYS:
+            out["eng_portfolio"] = {
                 k: eng[k]
-                for k in ("sprint", "closed_count", "in_flight_count")
+                for k in _ENG_CORE_KEYS + _ENG_SLIDE_KEYS[st]
                 if eng.get(k) is not None
             }
         else:
@@ -213,19 +305,34 @@ def digest_for_slide(full: dict[str, Any], slide_type: str) -> dict[str, Any]:
             out["github_productivity"] = full["github_productivity"]
         if full.get("ai_productivity") is not None:
             out["ai_productivity"] = full["ai_productivity"]
-    if st in ("eng_portfolio_title", "eng_toc", "eng_divider", "data_quality", "eng_exec_summary"):
-        # Keep richer context for overview slides
+    if st in _ENG_OVERVIEW_SLIDE_TYPES:
+        # Cross-cutting context: headline sections from every area, plus integrations
         out = dict(full)
-    return _trim(out, max_chars=8_000)
+        if isinstance(eng, dict):
+            out["eng_portfolio"] = {
+                k: eng[k]
+                for k in _ENG_CORE_KEYS + _ENG_OVERVIEW_KEYS
+                if eng.get(k) is not None
+            }
+    return _trim(
+        out, max_chars=_MAX_SLIDE_DIGEST_CHARS, protect=_PROTECTED_DIGEST_KEYS
+    )
 
 
 _SYSTEM = (
     "You design one Engineering Portfolio Review slide for a VP of Engineering. "
     "Invent both visual structure and copy within the IR vocabulary. "
     "Follow LeanDNA Claude deck style: one primary takeaway in the title, navy "
-    "header with white title text, brand palette only (#0B1F33 / #009AFF / #38C0CE), "
-    "4-6 KPI tiles max per row with short labels, optional bottom takeaway that "
-    "states an implication (not filler), only numbers present in the data digest. "
+    "header with white title text, 4-6 KPI tiles max per row with short labels, "
+    "only numbers present in the data digest. "
+    "EVERY slide needs a takeaway element saying what the data means and what it "
+    "implies, with the number that supports it — omit it only when the digest gives "
+    "you no basis for one (cover, agenda). Never emit filler such as 'monitor "
+    "closely' or 'requires further review'. "
+    "On a section divider (slide_type eng_divider), put the section title plus a "
+    "one-sentence takeaway previewing that section's message. Never label a divider "
+    "with a generic eyebrow such as 'SECTION' or 'SECTION 3' — the section name and "
+    "its takeaway are the content. "
     "For every table, calculate its bottom from y + 26pt per total row, reserve "
     "12pt before the next element, and paginate or omit rows instead of overflowing. "
     "Output MUST be valid compact JSON only — no markdown fences, no commentary. "
@@ -390,7 +497,38 @@ def generate_eng_portfolio_slide_irs(
             out.append({"_claude_failed": True, "slide_id": slide_plan[i].get("id")})
         else:
             out.append(ir)
+    _warn_slides_without_takeaways(slide_plan, out)
     return out
+
+
+# Slides that carry no data of their own, so a "so what" bar would be filler.
+_TAKEAWAY_EXEMPT_SLIDE_TYPES = frozenset(
+    {"eng_portfolio_title", "eng_toc", "eng_takeaways", "data_quality"}
+)
+
+
+def _warn_slides_without_takeaways(
+    slide_plan: list[dict[str, Any]], irs: list[dict[str, Any]]
+) -> None:
+    """Surface slides Claude left without a takeaway so the gap is visible in logs."""
+    missing = [
+        str(entry.get("id") or "")
+        for entry, ir in zip(slide_plan, irs)
+        if not ir.get("_claude_failed")
+        and str(entry.get("slide_type") or entry.get("id") or "")
+        not in _TAKEAWAY_EXEMPT_SLIDE_TYPES
+        and not any(
+            str((el or {}).get("type") or "").lower() == "takeaway"
+            for el in (ir.get("elements") or [])
+            if isinstance(el, dict)
+        )
+    ]
+    if missing:
+        logger.warning(
+            "eng portfolio Claude slides: %d slide(s) have no takeaway element: %s",
+            len(missing),
+            ", ".join(missing[:10]),
+        )
 
 
 def render_eng_portfolio_claude_slide_plan(

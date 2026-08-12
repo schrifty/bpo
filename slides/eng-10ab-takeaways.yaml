@@ -1,0 +1,18 @@
+id: eng_takeaways
+type: standard
+order: 79
+title: Takeaways
+slide_type: eng_takeaways
+data_tools: []
+customers: all
+
+prompt: >
+  The deck's message on one page, placed immediately after the cover. Three to five
+  numbered takeaways that span the whole review — delivery and velocity, quality and
+  bug health, support pressure competing for capacity, and AI tooling spend versus
+  productivity. Each takeaway is one sentence that states the implication and carries
+  the number that supports it (e.g. "Reactive support consumed 31% of capacity, so the
+  Q3 roadmap needs either scope cuts or a rotation"). Order by what the VP must act on
+  first, not by deck section order. A reader who sees only this slide should know what
+  is going well, what is at risk, and what decision is being asked of them. Do not
+  restate section titles, and do not include a takeaway the digest cannot support.

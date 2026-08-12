@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+import yaml
 
 from src.claude_slide_ir import (
     CANVAS_H,
@@ -16,15 +18,18 @@ from src.claude_slide_ir import (
     normalize_slide_ir,
     render_slide_ir,
     rgb_from_hex,
+    unify_kpi_row_accents,
 )
 from src.eng_portfolio_claude_slides import (
     EngPortfolioClaudeError,
     _extract_json_object,
     _llm_slide_completion,
+    _warn_slides_without_takeaways,
     build_eng_portfolio_digest,
     digest_for_slide,
     generate_slide_ir_via_claude,
 )
+from src.slide_metadata import SLIDE_DATA_REQUIREMENTS
 
 
 def test_rgb_from_hex() -> None:
@@ -258,6 +263,167 @@ def test_extract_json_object_from_noise() -> None:
     blob = _extract_json_object(raw)
     data = json.loads(blob)
     assert data["elements"][0]["text"] == "Hi"
+
+
+def test_long_takeaway_shrinks_to_fit_its_box() -> None:
+    """Copy that would overflow a short band is set smaller, not left to run off-page."""
+    long_text = (
+        "Intake is balanced at 147 in and 146 out, so the drag is aged inventory: "
+        "clearing the 83 abandoned items frees more capacity than hiring would."
+    )
+    reqs: list[dict[str, Any]] = []
+    render_slide_ir(
+        reqs,
+        "s_fit",
+        {
+            "elements": [
+                {
+                    "type": "takeaway",
+                    "x": 48,
+                    "y": 360,
+                    "w": 300,
+                    "h": 24,
+                    "text": long_text,
+                    "size": 14,
+                }
+            ]
+        },
+        0,
+    )
+    sizes = [
+        r["updateTextStyle"]["style"]["fontSize"]["magnitude"]
+        for r in reqs
+        if "updateTextStyle" in r
+    ]
+    assert sizes and sizes[0] < 14
+
+
+def test_deck_plan_opens_with_takeaways_slide() -> None:
+    root = Path(__file__).resolve().parents[1]
+    deck = yaml.safe_load((root / "decks" / "engineering-portfolio.yaml").read_text())
+    plan = [str(e.get("slide")) for e in deck["slides"]]
+    assert plan[:2] == ["eng_portfolio_title", "eng_takeaways"]
+
+    slide = yaml.safe_load((root / "slides" / "eng-10ab-takeaways.yaml").read_text())
+    assert slide["id"] == "eng_takeaways"
+    assert slide["slide_type"] == "eng_takeaways"
+    assert SLIDE_DATA_REQUIREMENTS["eng_takeaways"]
+
+
+def test_unify_kpi_row_accents_collapses_decorative_colors() -> None:
+    items = [
+        {"label": "Closed", "value": "42", "fill": "#E8F4FC", "color": "#009AFF"},
+        {"label": "Open", "value": "18", "fill": "#AEFFF6", "color": "#38C0CE"},
+        {"label": "Merged", "value": "31", "fill": "#EEF0F3", "color": "#7BC4FA"},
+    ]
+    out = unify_kpi_row_accents(items)
+    assert {(it["fill"], it["color"]) for it in out} == {("#E8F4FC", "#009AFF")}
+
+
+def test_unify_kpi_row_accents_keeps_status_and_single_callout() -> None:
+    items = [
+        {"label": "Velocity", "value": "42", "fill": "#E8F4FC", "color": "#009AFF"},
+        {"label": "Escalations", "value": "7", "fill": "#FDECEA", "color": "#C0392B"},
+        {"label": "AI share", "value": "n/a", "fill": "#EEF0F3", "color": "#6B7280"},
+        {"label": "Reactive load", "value": "31%", "fill": "#AEFFF6", "color": "#0B1F33"},
+    ]
+    assert unify_kpi_row_accents(items) == items
+
+
+def test_normalize_slide_ir_unifies_kpi_row_colors() -> None:
+    ir = normalize_slide_ir(
+        {
+            "elements": [
+                {
+                    "type": "kpi_row",
+                    "x": 48,
+                    "y": 72,
+                    "w": 624,
+                    "h": 72,
+                    "items": [
+                        {"label": "A", "value": "1", "color": "#009AFF"},
+                        {"label": "B", "value": "2", "color": "#38C0CE"},
+                    ],
+                }
+            ]
+        }
+    )
+    assert {it["color"] for it in ir["elements"][0]["items"]} == {"#009AFF"}
+
+
+def test_warn_slides_without_takeaways_skips_exempt_slides(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    plan = [
+        {"id": "eng_portfolio_title", "slide_type": "eng_portfolio_title"},
+        {"id": "eng_takeaways", "slide_type": "eng_takeaways"},
+        {"id": "eng_divider_2", "slide_type": "eng_divider"},
+        {"id": "eng_velocity", "slide_type": "eng_velocity"},
+    ]
+    irs: list[dict[str, Any]] = [
+        {"elements": [{"type": "text", "text": "Cover"}]},
+        {"elements": [{"type": "bullets", "items": ["One"]}]},
+        {"elements": [{"type": "text", "text": "Quality"}]},
+        {"elements": [{"type": "takeaway", "text": "Velocity held flat."}]},
+    ]
+    with caplog.at_level("WARNING"):
+        _warn_slides_without_takeaways(plan, irs)
+    messages = " ".join(r.getMessage() for r in caplog.records)
+    assert "eng_divider_2" in messages
+    assert "eng_portfolio_title" not in messages
+    assert "eng_velocity" not in messages
+
+
+def test_build_digest_keeps_integrations_beside_a_huge_jira_blob() -> None:
+    """A 700 KB Jira payload must not push the small Cursor/GitHub facts out."""
+    report = {
+        "days": 30,
+        "eng_portfolio": {
+            "in_flight_count": 1083,
+            "closed_count": 346,
+            "by_assignee": [{"name": f"dev{i}", "detail": "x" * 400} for i in range(300)],
+            "open_bugs": [{"key": f"B-{i}", "summary": "y" * 300} for i in range(200)],
+        },
+        "cursor_usage": {"configured": True, "totals": {"tokens": 580799806, "seats": 57}},
+        "github_productivity": {"configured": True, "totals": {"prs": 214}},
+    }
+    digest = build_eng_portfolio_digest(report)
+    assert digest["cursor_usage"]["totals"]["tokens"] == 580799806
+    assert digest["github_productivity"]["totals"]["prs"] == 214
+
+    scoped = digest_for_slide(digest, "cursor_cost")
+    assert scoped["cursor_usage"]["totals"]["seats"] == 57
+
+
+def test_digest_for_slide_scopes_eng_sections_per_slide() -> None:
+    eng = {
+        "sprint": {"name": "S1"},
+        "in_flight_count": 5,
+        "closed_count": 3,
+        "sprint_velocity": [{"sprint": "S1", "points": 20}],
+        "support_pressure": {"reactive_pct": 31},
+        "team_scorecard": [{"name": "dev1"}],
+    }
+    velocity = digest_for_slide({"days": 30, "eng_portfolio": eng}, "eng_velocity")
+    assert "sprint_velocity" in velocity["eng_portfolio"]
+    assert "support_pressure" not in velocity["eng_portfolio"]
+
+    support = digest_for_slide({"days": 30, "eng_portfolio": eng}, "eng_support_pressure")
+    assert "support_pressure" in support["eng_portfolio"]
+    assert "sprint_velocity" not in support["eng_portfolio"]
+
+
+def test_digest_for_slide_gives_takeaways_slide_full_context() -> None:
+    full = {
+        "days": 30,
+        "eng_portfolio": {"closed_count": 9, "flow": {"active_count": 3}},
+        "cursor_usage": {"totals": {"tokens": 1}},
+        "github_productivity": {"totals": {"prs": 2}},
+    }
+    scoped = digest_for_slide(full, "eng_takeaways")
+    assert scoped["cursor_usage"]["totals"]["tokens"] == 1
+    assert scoped["github_productivity"]["totals"]["prs"] == 2
+    assert (scoped["eng_portfolio"] or {}).get("flow") == {"active_count": 3}
 
 
 def test_digest_for_slide_scopes_cursor() -> None:
