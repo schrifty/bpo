@@ -115,6 +115,18 @@ class RunDiagnostics:
         elif ctx.get("job_name"):
             summary["job"] = ctx["job_name"]
         summary.update(self._integration_meta)
+        # One-shot ECS retries (EventBridge Scheduler) set these on the container.
+        try:
+            from .job_retry_scheduler import retry_attempt_from_env, retry_of_from_env
+
+            retry_of = retry_of_from_env()
+            if retry_of:
+                summary["retry_of"] = retry_of
+            attempt = retry_attempt_from_env()
+            if attempt > 0:
+                summary["retry_attempt"] = attempt
+        except Exception:
+            pass
         return summary
 
     def emit_run_summary(

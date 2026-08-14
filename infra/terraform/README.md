@@ -91,6 +91,10 @@ terraform apply
 
 Jobs are defined in `variables.tf` → `scheduled_jobs` (default cron is UTC). Shared Pendo ingest (`pendo-snapshot-refresh`) runs at **03:00 UTC**; transform jobs then run 30 minutes apart from **06:00 UTC** (`export-nightly`, engineering portfolio, Ford 7d/30d, top-10 ARR detailed at 08:00). Daily: `metrics-daily-digest` **12:00 UTC** (≈07:00 Central; **disabled** until SES `leandna.com` DKIM DNS is in place — set `enabled = true` then). Override `rule_name` on a job when the EventBridge rule should not use `{name_prefix}-{job_key}`.
 
+### One-shot job retries
+
+When `enable_schedules` and `enable_job_retries` (default **true**) are on, a failed job whose errors look transient (Sheets/Drive **503/429**, timeouts, connection resets) schedules a single EventBridge Scheduler `at()` re-run after `job_retry_delay_minutes` (default **15**). The retry sets `CORTEX_RETRY_OF` / `CORTEX_RETRY_ATTEMPT` on the container; max attempts default to **1**. Non-retryable failures (preflight, missing Pendo snapshot, auth) are not rescheduled.
+
 ### Morning KPI digest (SES)
 
 `metrics-daily-digest` live-generates every `config/my-metrics.yaml` row with a `metric-generator`, compares to `target` / `direction`, and emails a plain-text digest via SES.

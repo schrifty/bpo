@@ -71,6 +71,24 @@ variable "job_timeout_seconds" {
   default = 7200
 }
 
+variable "enable_job_retries" {
+  description = "When schedules are enabled, allow failed jobs to create one-shot EventBridge Scheduler retries."
+  type        = bool
+  default     = true
+}
+
+variable "job_retry_delay_minutes" {
+  description = "Minutes to wait before a one-shot retry of a failed scheduled job."
+  type        = number
+  default     = 15
+}
+
+variable "job_retry_max_attempts" {
+  description = "Max retry attempts after the original run (1 = one delayed re-run)."
+  type        = number
+  default     = 1
+}
+
 variable "fail_on_integration_warnings" {
   type    = bool
   default = false

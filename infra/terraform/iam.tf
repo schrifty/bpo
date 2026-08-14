@@ -50,6 +50,38 @@ data "aws_iam_policy_document" "ecs_task" {
     ]
     resources = ["*"]
   }
+
+  dynamic "statement" {
+    for_each = var.enable_schedules && var.enable_job_retries ? [1] : []
+    content {
+      sid    = "CreateJobRetrySchedules"
+      effect = "Allow"
+      actions = [
+        "scheduler:CreateSchedule",
+        "scheduler:GetSchedule",
+        "scheduler:UpdateSchedule",
+        "scheduler:DeleteSchedule",
+      ]
+      resources = [
+        "arn:aws:scheduler:${var.aws_region}:${local.account_id}:schedule/${var.name_prefix}-job-retries/*",
+      ]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.enable_schedules && var.enable_job_retries ? [1] : []
+    content {
+      sid    = "PassSchedulerEcsRole"
+      effect = "Allow"
+      actions = [
+        "iam:PassRole",
+      ]
+      resources = [
+        # Created in scheduler.tf; reference by name pattern when count is 0 is avoided via dynamic.
+        "arn:aws:iam::${local.account_id}:role/${var.name_prefix}-scheduler-ecs",
+      ]
+    }
+  }
 }
 
 resource "aws_iam_role" "ecs_task" {

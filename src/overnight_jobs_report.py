@@ -217,6 +217,16 @@ def build_overnight_job_outcomes(
         fails_raw = data.get("failures") or []
         fails = tuple(str(f) for f in fails_raw) if isinstance(fails_raw, list) else ()
         dur = data.get("duration_s")
+        detail = None
+        retry_of = data.get("retry_of")
+        retry_attempt = data.get("retry_attempt")
+        if retry_of:
+            attempt_s = f" attempt={retry_attempt}" if retry_attempt else ""
+            detail = (
+                f"retry of {retry_of}{attempt_s}"
+                if ok
+                else f"retry of {retry_of}{attempt_s} still failed"
+            )
         outcomes.append(
             OvernightJobOutcome(
                 job=job_key,
@@ -224,6 +234,7 @@ def build_overnight_job_outcomes(
                 duration_s=float(dur) if isinstance(dur, (int, float)) else None,
                 finished_utc=ts,
                 failures=fails,
+                detail=detail,
             )
         )
 

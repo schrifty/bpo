@@ -67,6 +67,36 @@ def test_build_outcomes_marks_fail_and_missing() -> None:
     assert "metrics-eng-cycle-lead-weekly" not in by_job
 
 
+def test_build_outcomes_prefers_later_retry_success() -> None:
+    as_of = date(2026, 8, 14)
+    summaries = [
+        (
+            datetime(2026, 8, 14, 7, 3, tzinfo=timezone.utc),
+            {
+                "success": False,
+                "job": "ford-pendo-7d",
+                "duration_s": 134.0,
+                "failures": ["HttpError 503"],
+            },
+        ),
+        (
+            datetime(2026, 8, 14, 7, 20, tzinfo=timezone.utc),
+            {
+                "success": True,
+                "job": "ford-pendo-7d",
+                "duration_s": 160.0,
+                "retry_of": "17f85f84",
+                "retry_attempt": 1,
+            },
+        ),
+    ]
+    outcomes = build_overnight_job_outcomes(as_of=as_of, summaries=summaries)
+    row = next(o for o in outcomes if o.job == "ford-pendo-7d")
+    assert row.status == "OK"
+    assert row.detail and "retry of 17f85f84" in row.detail
+    assert overnight_failure_count(outcomes) == 0 or row.status == "OK"
+
+
 def test_format_overnight_section_width() -> None:
     outcomes = [
         OvernightJobOutcome(

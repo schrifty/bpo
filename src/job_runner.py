@@ -606,5 +606,17 @@ def run_job(
                 list(summary["failures"]),
                 step_results=step_results,
             )
+        if not summary.get("success"):
+            try:
+                from .job_retry_scheduler import maybe_schedule_job_retry_after_failure
+
+                maybe_schedule_job_retry_after_failure(
+                    job_name=spec.name,
+                    run_id=run_id,
+                    failures=list(summary.get("failures") or []),
+                    step_results=step_results,
+                )
+            except Exception as exc:
+                logger.warning("Job retry scheduling raised (continuing): %s", exc)
 
     return 0 if summary.get("success") else 1
