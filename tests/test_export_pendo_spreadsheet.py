@@ -118,6 +118,64 @@ def test_sheets_values_update_retries_on_429(monkeypatch) -> None:
     assert calls["n"] == 1
 
 
+def test_sheets_spreadsheet_create_retries_on_503(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    from googleapiclient.errors import HttpError
+    from httplib2 import Response
+
+    from src.slides_api import sheets_spreadsheet_create
+
+    sleeps: list[float] = []
+    resp = Response({"status": "503"})
+    err = HttpError(resp, b'{"error": {"message": "The service is currently unavailable."}}')
+
+    sheets_svc = MagicMock()
+    create = sheets_svc.spreadsheets.return_value.create.return_value
+    create.execute.side_effect = [err, {"spreadsheetId": "ss-ok"}]
+
+    monkeypatch.setattr("src.slides_api._sheets_write_interval_sec", lambda: 0.0)
+    monkeypatch.setattr("src.slides_api.time.sleep", lambda s: sleeps.append(s))
+
+    out = sheets_spreadsheet_create(
+        sheets_svc,
+        body={"properties": {"title": "t"}},
+        fields="spreadsheetId",
+    )
+    assert out == {"spreadsheetId": "ss-ok"}
+    assert create.execute.call_count == 2
+    assert len(sleeps) == 1
+    assert sleeps[0] >= 1.0
+
+
+def test_sheets_spreadsheet_create_does_not_retry_400(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    import pytest
+    from googleapiclient.errors import HttpError
+    from httplib2 import Response
+
+    from src.slides_api import sheets_spreadsheet_create
+
+    resp = Response({"status": "400"})
+    err = HttpError(resp, b'{"error": {"message": "Bad Request"}}')
+
+    sheets_svc = MagicMock()
+    create = sheets_svc.spreadsheets.return_value.create.return_value
+    create.execute.side_effect = err
+
+    monkeypatch.setattr("src.slides_api._sheets_write_interval_sec", lambda: 0.0)
+    monkeypatch.setattr("src.slides_api.time.sleep", lambda _s: (_ for _ in ()).throw(AssertionError("no sleep")))
+
+    with pytest.raises(HttpError):
+        sheets_spreadsheet_create(
+            sheets_svc,
+            body={"properties": {"title": "t"}},
+            fields="spreadsheetId",
+        )
+    assert create.execute.call_count == 1
+
+
 def test_rows_to_grid_json_encodes_nested_cell_values() -> None:
     from datetime import datetime
 

@@ -173,6 +173,21 @@ def _is_slides_write_rate_limit(err: BaseException) -> bool:
     return "rate_limit_exceeded" in s or "quota exceeded" in s and "write" in s
 
 
+# Sheets create/update often returns short-lived 5xx ("service currently unavailable")
+# during overnight bursts; retry like 429 rather than failing the whole export.
+_SHEETS_TRANSIENT_HTTP_STATUS = frozenset({502, 503, 504})
+
+
+def _is_sheets_write_retryable(err: BaseException) -> bool:
+    """True for Sheets write quota (429) and transient Google backend errors."""
+    if _is_slides_write_rate_limit(err):
+        return True
+    if not isinstance(err, HttpError):
+        return False
+    status = getattr(err.resp, "status", None)
+    return status in _SHEETS_TRANSIENT_HTTP_STATUS
+
+
 def slides_presentations_batch_update(
     slides_service: Any,
     presentation_id: str,
@@ -306,7 +321,7 @@ def _execute_sheets_write_with_retry(
     label: str,
     fn: Any,
 ) -> Any:
-    """Run a Sheets API mutating call with per-user throttling and 429 retries."""
+    """Run a Sheets API mutating call with throttling and retries on 429/502/503/504."""
     max_retries = _sheets_write_max_retries()
     last_err: HttpError | None = None
     for attempt in range(max_retries):
@@ -317,18 +332,29 @@ def _execute_sheets_write_with_retry(
             return result
         except HttpError as e:
             last_err = e
-            if not _is_slides_write_rate_limit(e) or attempt >= max_retries - 1:
+            if not _is_sheets_write_retryable(e) or attempt >= max_retries - 1:
                 raise
+            status = getattr(e.resp, "status", None)
             ra = _http_error_retry_after_seconds(e)
             base = min(120.0, (2**attempt) * 1.0 + random.random())
             delay = max(base, ra) if ra is not None else base
-            logger.warning(
-                "Sheets %s rate limited (429); sleeping %.1fs then retry %d/%d",
-                label,
-                delay,
-                attempt + 2,
-                max_retries,
-            )
+            if status in _SHEETS_TRANSIENT_HTTP_STATUS:
+                logger.warning(
+                    "Sheets %s transient HTTP %s; sleeping %.1fs then retry %d/%d",
+                    label,
+                    status,
+                    delay,
+                    attempt + 2,
+                    max_retries,
+                )
+            else:
+                logger.warning(
+                    "Sheets %s rate limited (429); sleeping %.1fs then retry %d/%d",
+                    label,
+                    delay,
+                    attempt + 2,
+                    max_retries,
+                )
             time.sleep(delay)
     assert last_err is not None
     raise last_err
@@ -342,7 +368,7 @@ def sheets_spreadsheet_values_update(
     values: list[list[Any]],
     value_input_option: str = "RAW",
 ) -> None:
-    """Update a tab range with throttling and 429 retries (Pendo export workbooks)."""
+    """Update a tab range with throttling and 429/5xx retries (Pendo export workbooks)."""
     body = {"values": values}
 
     def _call() -> Any:
@@ -367,7 +393,7 @@ def sheets_spreadsheet_create(
     body: dict[str, Any],
     fields: str,
 ) -> dict[str, Any]:
-    """Create a spreadsheet with throttling and 429 retries."""
+    """Create a spreadsheet with throttling and 429/5xx retries."""
 
     def _call() -> dict[str, Any]:
         return sheets_service.spreadsheets().create(body=body, fields=fields).execute()
