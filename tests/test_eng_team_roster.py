@@ -322,3 +322,65 @@ def test_audience_scope_excludes_named_dev_teams() -> None:
     assert "drew" in scope["non_engineer_names"] or "drew" not in scope["engineer_names"]
     assert scope["excluded_teams"] == ["Dev - Data Implementation"]
     assert "drew@x.com" not in scope["emails"]
+
+
+def test_is_dev_team_accepts_hyphenated_prefix() -> None:
+    from src.eng_team_roster import _dev_team_suffix, _is_dev_team, _normalize_team_name
+
+    assert _is_dev_team("Dev - Supply Insights")
+    assert _is_dev_team("Dev-Supply Insights")
+    assert _is_dev_team("Dev-IOP")
+    assert not _is_dev_team("Product")
+    assert not _is_dev_team("Data Implementation team")
+    assert _dev_team_suffix("Dev-IOP") == "IOP"
+    assert _normalize_team_name("Dev - Data Implementation") == _normalize_team_name(
+        "Dev-Data Implementation"
+    )
+
+
+def test_audience_scope_recognizes_hyphenated_dev_teams() -> None:
+    class _TeamsClient:
+        atlassian_org_id = "org-1"
+
+        def get_atlassian_teams(self, timeout=60.0):
+            return {
+                "error": None,
+                "teams": [
+                    {
+                        "name": "Dev-Data Implementation",
+                        "member_account_ids": ["di1"],
+                        "members": ["Drew"],
+                    },
+                    {
+                        "name": "Dev-Supply Insights",
+                        "member_account_ids": ["s1"],
+                        "members": ["Sam"],
+                    },
+                    {
+                        "name": "Product",
+                        "member_account_ids": ["p1"],
+                        "members": ["Pat"],
+                    },
+                ],
+            }
+
+        def resolve_account_names(self, account_ids, timeout=30.0):
+            return {"di1": "Drew", "s1": "Sam", "p1": "Pat"}
+
+        def resolve_account_emails(self, account_ids, timeout=30.0):
+            return {
+                "di1": "drew@x.com",
+                "s1": "sam@x.com",
+                "p1": "pat@x.com",
+            }
+
+    scope = build_engineer_audience_scope(
+        _TeamsClient(),
+        exclude_teams={"Dev-Data Implementation"},
+    )
+    assert scope["error"] is None
+    assert scope["engineer_names"] == {"sam"}
+    assert scope["emails"] == {"sam@x.com"}
+    assert scope["excluded_teams"] == ["Dev-Data Implementation"]
+    assert "drew@x.com" not in scope["emails"]
+    assert "pat@x.com" not in scope["emails"]

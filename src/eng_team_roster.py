@@ -55,17 +55,32 @@ def _agile_team_value(value: Any) -> str | None:
     return None
 
 
-# Atlassian Teams for the engineering org are named with this prefix (e.g.
-# "Dev - Supply Insights"); we strip it for display. Matching is case-insensitive.
-_DEV_TEAM_PREFIX = "dev - "
+# Atlassian Teams for engineering squads historically used "Dev - Supply Insights"
+# and now use "Dev-Supply Insights". Both forms count; we strip the prefix for display.
+_DEV_TEAM_PREFIXES = ("dev - ", "dev-")
+
+
+def _dev_team_suffix(team_name: Any) -> str | None:
+    """Return the display suffix after a Dev-/Dev - prefix, or None if not a Dev team."""
+    s = str(team_name or "").strip()
+    low = s.casefold()
+    for prefix in _DEV_TEAM_PREFIXES:
+        if low.startswith(prefix):
+            return s[len(prefix) :].strip() or None
+    return None
 
 
 def _is_dev_team(team_name: Any) -> bool:
-    return str(team_name or "").lower().startswith(_DEV_TEAM_PREFIX)
+    return _dev_team_suffix(team_name) is not None
 
 
 def _normalize_team_name(team_name: Any) -> str:
-    return str(team_name or "").strip().casefold()
+    """Casefold and unify ``Dev - `` / ``Dev-`` so exclude lists match either form."""
+    s = str(team_name or "").strip().casefold()
+    for prefix in _DEV_TEAM_PREFIXES:
+        if s.startswith(prefix):
+            return "dev-" + s[len(prefix) :].strip()
+    return s
 
 
 def _normalize_person_name(name: Any) -> str | None:
@@ -83,9 +98,10 @@ def _roster_from_atlassian_teams(
 ) -> dict[str, Any] | None:
     """Build the roster from Atlassian Teams (authoritative). Returns None to fall back.
 
-    Only teams whose name starts with ``Dev - `` are included (the engineering squads);
-    the prefix is stripped for display. Membership and headcount come straight from the
-    Teams API, so the slide stays accurate as the org maintains team membership.
+    Only teams whose name starts with ``Dev - `` or ``Dev-`` are included (the
+    engineering squads); the prefix is stripped for display. Membership and headcount
+    come straight from the Teams API, so the slide stays accurate as the org maintains
+    team membership.
     """
     if not getattr(client, "atlassian_org_id", None):
         return None
@@ -106,7 +122,7 @@ def _roster_from_atlassian_teams(
     unique_members: set[str] = set()
     for team in dev_teams:
         name = str(team.get("name") or "")
-        raw_display = name[len(_DEV_TEAM_PREFIX):].strip() or name
+        raw_display = _dev_team_suffix(name) or name
         display = _TEAM_DISPLAY_ALIASES.get(raw_display, raw_display)
         members = [str(m) for m in (team.get("members") or [])]
         lead = leads.get(display, "") or leads.get(raw_display, "") or leads.get(name, "")
@@ -141,12 +157,13 @@ def build_engineer_audience_scope(
 ) -> dict[str, Any]:
     """Engineer vs non-engineer audience for Cursor slides.
 
-    **Engineers** = unique display names on Atlassian ``dev-*`` teams (``Dev - *`` prefix).
+    **Engineers** = unique display names on Atlassian ``Dev - *`` / ``Dev-*`` teams.
     **Non-engineers** = unique display names on other teams that are not engineers.
 
     *exclude_teams* is an optional set of Atlassian team names (case-insensitive) to omit
-    from the engineer set — e.g. ``{"Dev - Data Implementation"}`` for WAU. People who
-    also belong to a non-excluded ``Dev - *`` team still count as engineers.
+    from the engineer set — e.g. ``{"Dev - Data Implementation"}`` or
+    ``{"Dev-Data Implementation"}`` for WAU. People who also belong to a non-excluded
+    Dev engineering team still count as engineers.
 
     Cursor usage is joined by resolving those names to corporate email via the Atlassian
     Teams membership API. Returns normalized name sets plus email sets for filtering.

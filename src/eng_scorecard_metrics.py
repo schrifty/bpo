@@ -17,7 +17,10 @@ logger = logging.getLogger("cortex")
 DEFAULT_WINDOW_DAYS = 30
 WAU_WINDOW_DAYS = 7
 # Omit from eng AI-adoption headcount KPIs (WAU, Tokens/Token Cost per Dev).
-ENG_AI_ADOPTION_EXCLUDED_DEV_TEAMS = frozenset({"dev - data implementation"})
+# Either historical ("Dev - …") or current ("Dev-…") Atlassian naming.
+ENG_AI_ADOPTION_EXCLUDED_DEV_TEAMS = frozenset(
+    {"dev - data implementation", "dev-data implementation"}
+)
 WAU_EXCLUDED_DEV_TEAMS = ENG_AI_ADOPTION_EXCLUDED_DEV_TEAMS  # backward-compatible alias
 
 ISSUES_SHIPPED_JQL_TEMPLATE = (
