@@ -35,6 +35,10 @@ _MANAGED_EXPORT_PREFIXES = (
 )
 EXPORT_USER_GUIDE_DRIVE_FILENAME = "Cortex Export - User Guide.md"
 OUTPUT_ROOT_STATIC_FILENAMES = frozenset({EXPORT_USER_GUIDE_DRIVE_FILENAME})
+# Persistent metrics decks in Output/ (e.g. ``AKKR Metrics``). Historical copies use
+# ``{TAG} Metrics - {Month}`` and must not match this pattern.
+_OUTPUT_ROOT_METRICS_DECK_RE = re.compile(r"^.+\sMetrics$")
+_OUTPUT_ROOT_METRICS_DECK_HISTORICAL_MARKERS = (" - ", " — ")
 _PORTFOLIO_DECK_EXPORT_STEMS: dict[str, str] = {
     "engineering-portfolio": "Engineering-Review-Portfolio",
 }
@@ -94,6 +98,27 @@ def is_managed_export_filename(name: str) -> bool:
 def is_output_root_static_filename(name: str) -> bool:
     """True for non-export files that may remain at ``Output/`` root (not archived at startup)."""
     return (name or "") in OUTPUT_ROOT_STATIC_FILENAMES
+
+
+def is_output_root_metrics_deck_filename(name: str) -> bool:
+    """True for bookmarkable metrics decks that live at ``Output/`` (not monthly archives).
+
+    Matches ``AKKR Metrics`` / ``{TAG} Metrics``. Rejects historical titles such as
+    ``AKKR Metrics - July`` or the legacy ``AKKR Metrics — YYYY-MM-DD``.
+    """
+    text = (name or "").strip()
+    if not text or not _OUTPUT_ROOT_METRICS_DECK_RE.match(text):
+        return False
+    return not any(marker in text for marker in _OUTPUT_ROOT_METRICS_DECK_HISTORICAL_MARKERS)
+
+
+def is_output_root_resident_filename(name: str) -> bool:
+    """True for files that must stay in an export base (Output or customer folder)."""
+    return (
+        is_persistent_export_name(name)
+        or is_output_root_static_filename(name)
+        or is_output_root_metrics_deck_filename(name)
+    )
 
 
 def export_stem_from_filename(name: str, *, mime_type: str = "") -> str | None:

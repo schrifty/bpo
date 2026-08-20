@@ -38,6 +38,8 @@ from .export_drive_layout import (
     is_historical_month_subfolder,
     is_legacy_dated_output_folder,
     is_legacy_export_container_folder,
+    is_output_root_metrics_deck_filename,
+    is_output_root_resident_filename,
     is_persistent_export_name,
     modified_time_to_date,
     parse_historical_flat_dated_name,
@@ -98,6 +100,8 @@ def should_archive_item(
     if skip_names and name in skip_names:
         return False
     if _ARCHIVE_MONTH_RE.match(name or ""):
+        return False
+    if is_output_root_resident_filename(name):
         return False
     month = item_month_key(name, modified_time, mime_type=mime_type)
     return month == archive_month
@@ -279,11 +283,7 @@ def _relocate_non_persistent_base_file(
     name = str(child.get("name") or "")
     mime = str(child.get("mimeType") or "")
     modified = str(child.get("modifiedTime") or "")
-    if not cid or not name or is_persistent_export_name(name):
-        return None
-    from .export_drive_layout import is_output_root_static_filename
-
-    if is_output_root_static_filename(name):
+    if not cid or not name or is_output_root_resident_filename(name):
         return None
 
     persistent_name = target_persistent_name(name, mime_type=mime)
@@ -768,6 +768,81 @@ def normalize_historical_data_folder(
     )
 
 
+def restore_misplaced_output_root_metrics_decks(
+    parent_id: str,
+    *,
+    historical_id: str,
+    context: str = "",
+) -> dict[str, Any]:
+    """Move ``{TAG} Metrics`` decks back to Output if startup archive misplaced them.
+
+    Historical copies must keep month titles (``AKKR Metrics - July``). Exact
+    persistent names under ``Historical Data/{YYYY-MM}/`` are restored (newest
+    wins) and extra duplicates are trashed.
+    """
+    restored: list[dict[str, str]] = []
+    trashed: list[dict[str, str]] = []
+
+    present_at_output = {
+        str(child.get("name") or "")
+        for child in _list_folder_children(parent_id)
+        if is_output_root_metrics_deck_filename(str(child.get("name") or ""))
+    }
+
+    misplaced: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for child in _list_folder_children(historical_id):
+        cid = str(child.get("id") or "")
+        name = str(child.get("name") or "")
+        mime = str(child.get("mimeType") or "")
+        if not cid:
+            continue
+        if mime == _MIME_FOLDER:
+            if not is_historical_month_subfolder(name):
+                continue
+            for inner in _list_folder_children(cid):
+                inner_name = str(inner.get("name") or "")
+                if is_output_root_metrics_deck_filename(inner_name):
+                    misplaced[inner_name].append({**inner, "_from_parent": cid})
+            continue
+        if is_output_root_metrics_deck_filename(name):
+            misplaced[name].append({**child, "_from_parent": historical_id})
+
+    for name, copies in misplaced.items():
+        ordered = sorted(
+            copies,
+            key=lambda item: str(item.get("modifiedTime") or ""),
+            reverse=True,
+        )
+        if name not in present_at_output:
+            winner = ordered[0]
+            move_drive_file(
+                str(winner["id"]),
+                from_parent_id=str(winner["_from_parent"]),
+                to_parent_id=parent_id,
+            )
+            restored.append({"id": str(winner["id"]), "name": name})
+            logger.info(
+                "Restored metrics deck %s → Output/ (%s)",
+                name,
+                context or parent_id[:12],
+            )
+            leftovers = ordered[1:]
+        else:
+            leftovers = ordered
+        for extra in leftovers:
+            extra_id = str(extra.get("id") or "")
+            if extra_id:
+                trash_drive_file(extra_id)
+                trashed.append({"id": extra_id, "name": name})
+                logger.info(
+                    "Removed duplicate misplaced metrics deck %s (%s)",
+                    name,
+                    context or parent_id[:12],
+                )
+
+    return {"restored": restored, "trashed": trashed}
+
+
 def migrate_export_folder_to_historical_data(
     parent_id: str,
     *,
@@ -805,6 +880,13 @@ def migrate_export_folder_to_historical_data(
         context=context,
     )
     persistent_created = ensure_persistent_exports_in_base(parent_id, historical_id)
+    metrics_restored: dict[str, Any] = {"restored": [], "trashed": []}
+    if portfolio_root:
+        metrics_restored = restore_misplaced_output_root_metrics_decks(
+            parent_id,
+            historical_id=historical_id,
+            context=context,
+        )
 
     return {
         "parent_id": parent_id,
@@ -814,6 +896,7 @@ def migrate_export_folder_to_historical_data(
             (promoted_result.get("moved") or [])
             + (archived.get("moved") or [])
             + (archived_days.get("moved") or [])
+            + (metrics_restored.get("restored") or [])
         ),
         "promoted": promoted_result.get("promoted") or [],
         "trashed_folders": promoted_result.get("trashed_folders") or [],
@@ -821,6 +904,7 @@ def migrate_export_folder_to_historical_data(
         "archived_previous_month": archived,
         "archived_previous_month_day_folders": archived_days,
         "persistent_created": persistent_created,
+        "metrics_decks": metrics_restored,
     }
 
 

@@ -13,6 +13,8 @@ from src.export_drive_layout import (
     is_legacy_dated_output_folder,
     is_legacy_export_container_folder,
     is_managed_export_filename,
+    is_output_root_metrics_deck_filename,
+    is_output_root_resident_filename,
     parse_historical_flat_dated_name,
     persistent_filename,
     persistent_spreadsheet_title,
@@ -162,3 +164,16 @@ def test_ensure_customer_exports_parent_folder_creates_when_missing(monkeypatch)
     )
 
     assert ensure_customer_exports_parent_folder("output-root") == "created-id"
+
+
+def test_output_root_metrics_deck_filename_keeps_persistent_not_month_copy() -> None:
+    assert is_output_root_metrics_deck_filename("AKKR Metrics")
+    assert is_output_root_metrics_deck_filename("KPI Metrics")
+    assert not is_output_root_metrics_deck_filename("AKKR Metrics - July")
+    assert not is_output_root_metrics_deck_filename("AKKR Metrics — 2026-08-01")
+    assert not is_output_root_metrics_deck_filename("Cortex Export - User Guide.md")
+    assert not is_output_root_metrics_deck_filename("LLM-Context-Portfolio-persistent.md")
+    assert is_output_root_resident_filename("AKKR Metrics")
+    assert is_output_root_resident_filename("Engineering-Review-Portfolio-persistent")
+    assert is_output_root_resident_filename("Cortex Export - User Guide.md")
+

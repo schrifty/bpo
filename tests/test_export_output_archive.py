@@ -17,6 +17,7 @@ from src.export_output_archive import (
     maybe_migrate_export_layout_on_startup,
     migrate_export_folder_to_historical_data,
     previous_month_key,
+    restore_misplaced_output_root_metrics_decks,
     should_archive_item,
 )
 
@@ -71,6 +72,27 @@ def test_should_archive_previous_month_file() -> None:
         "Pendo Export  (Ford, 30d).md",
         "2026-06-20T12:00:00.000Z",
         mime_type="text/markdown",
+        archive_month="2026-06",
+    )
+
+
+def test_should_archive_skips_persistent_exports_and_metrics_decks() -> None:
+    assert not should_archive_item(
+        "LLM-Context-Portfolio-persistent.md",
+        "2026-06-20T12:00:00.000Z",
+        mime_type="text/markdown",
+        archive_month="2026-06",
+    )
+    assert not should_archive_item(
+        "AKKR Metrics",
+        "2026-06-20T12:00:00.000Z",
+        mime_type="application/vnd.google-apps.presentation",
+        archive_month="2026-06",
+    )
+    assert should_archive_item(
+        "AKKR Metrics - June",
+        "2026-06-20T12:00:00.000Z",
+        mime_type="application/vnd.google-apps.presentation",
         archive_month="2026-06",
     )
 
@@ -364,6 +386,71 @@ def test_relocate_non_persistent_skips_user_guide_at_output_root() -> None:
         "modifiedTime": "2026-07-01T00:00:00.000Z",
     }
     assert _relocate_non_persistent_base_file(child, parent_id="out", historical_id="hist") is None
+
+
+def test_relocate_non_persistent_skips_akkr_metrics_deck() -> None:
+    from src.export_output_archive import _relocate_non_persistent_base_file
+
+    child = {
+        "id": "akkr-1",
+        "name": "AKKR Metrics",
+        "mimeType": "application/vnd.google-apps.presentation",
+        "modifiedTime": "2026-08-18T14:56:50.000Z",
+    }
+    assert _relocate_non_persistent_base_file(child, parent_id="out", historical_id="hist") is None
+
+
+def test_restore_misplaced_akkr_metrics_moves_newest_and_trashes_dupes(monkeypatch) -> None:
+    children = {
+        "out": [],
+        "hist": [
+            {
+                "id": "aug-folder",
+                "name": "2026-08",
+                "mimeType": _MIME_FOLDER,
+            }
+        ],
+        "aug-folder": [
+            {
+                "id": "older",
+                "name": "AKKR Metrics",
+                "mimeType": "application/vnd.google-apps.presentation",
+                "modifiedTime": "2026-08-11T23:49:42.000Z",
+            },
+            {
+                "id": "newer",
+                "name": "AKKR Metrics",
+                "mimeType": "application/vnd.google-apps.presentation",
+                "modifiedTime": "2026-08-18T14:56:50.000Z",
+            },
+            {
+                "id": "july-copy",
+                "name": "AKKR Metrics - July",
+                "mimeType": "application/vnd.google-apps.presentation",
+                "modifiedTime": "2026-08-18T14:56:51.000Z",
+            },
+        ],
+    }
+
+    def fake_list(pid: str):
+        return list(children.get(pid) or [])
+
+    moves: list[tuple[str, str, str]] = []
+    trashed: list[str] = []
+    monkeypatch.setattr("src.export_output_archive._list_folder_children", fake_list)
+    monkeypatch.setattr(
+        "src.export_output_archive.move_drive_file",
+        lambda fid, *, from_parent_id, to_parent_id, new_name=None: moves.append(
+            (fid, from_parent_id, to_parent_id)
+        ),
+    )
+    monkeypatch.setattr("src.export_output_archive.trash_drive_file", lambda fid: trashed.append(fid))
+
+    result = restore_misplaced_output_root_metrics_decks("out", historical_id="hist")
+    assert moves == [("newer", "aug-folder", "out")]
+    assert trashed == ["older"]
+    assert result["restored"] == [{"id": "newer", "name": "AKKR Metrics"}]
+    assert result["trashed"] == [{"id": "older", "name": "AKKR Metrics"}]
 
 
 def test_migrate_promotes_legacy_base_pendo_to_persistent(monkeypatch) -> None:

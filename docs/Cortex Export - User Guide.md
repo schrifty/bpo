@@ -295,10 +295,11 @@ All Cortex exports under the QBR generator use the same pattern:
 | Role | Location | Filename pattern |
 |------|----------|------------------|
 | **Bookmarkable “current” export** | Portfolio: `Output/` root · Per-customer Pendo: `Output/Customer Exports/{Customer}/` | `{stem}-persistent` (+ `.md` for markdown) |
+| **Bookmarkable metrics deck** | `Output/` root | `{TAG} Metrics` (e.g. `AKKR Metrics`) — not archived; month copies use `AKKR Metrics - July` |
 | **Same-day historical snapshot** | `…/Historical Data/{YYYY-MM-DD}/` | Plain `{stem}` (no `-persistent`) |
 | **Prior-month archives** | `…/Historical Data/{YYYY-MM}/{YYYY-MM-DD}/` | Rolled up at process startup |
 
-**Portfolio exports** (`export-all`, engineering portfolio deck) use `Output/` as the persistent base. **Per-customer Pendo** uses each customer’s folder under `Customer Exports/`.
+**Portfolio exports** (`export-all`, engineering portfolio deck) use `Output/` as the persistent base. **Per-customer Pendo** uses each customer’s folder under `Customer Exports/`. **AKKR / metrics decks** stay in `Output/` under `{TAG} Metrics`; only the month-named copy is stored under `Historical Data/{YYYY-MM}/`.
 
 This user guide is also published to **`Output/Cortex Export - User Guide.md`** on Cortex startup when the repo copy is newer than Drive or missing there. It is not archived into `Historical Data/` with export snapshots.
 

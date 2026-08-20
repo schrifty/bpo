@@ -814,7 +814,7 @@ def generate_metrics_digest_deck(
     """Generate a Google Slides deck from digest rows.
 
     Creates/updates a persistent deck in Output (e.g., "AKKR Metrics") whose link
-    never changes, and archives a dated copy to Historical Data/{YYYY-MM-DD}/
+    never changes, and archives a dated copy to Historical Data/{YYYY-MM}/
     named ``{TAG} Metrics - {Month}`` (scorecard month).
 
     The scorecard slides are designed by Claude when enabled (default with an
