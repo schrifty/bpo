@@ -8,7 +8,7 @@ Cortex produces three main kinds of markdown exports:
 |--------|----------------|----------------|
 | **Portfolio LLM context** (`LLM-Context-Portfolio`) | Leadership, CS, AMs — whole book | Pendo headlines, Jira, Salesforce, CS Report, signals, risk — **all customers** in one file |
 | **Per-customer export** (`Customer Export (Nd)`) | Account teams — one strategic customer | Deep **Pendo** usage plus **CS Report** factory metrics when matched — **one customer** per file (+ matching Sheet) |
-| **CSR dump** (`CustomerSuccessReport-DD-MMM-YYYY`) | Account teams — CS Report factories / BUs / entities | Full CS Report **`delta=week`** at site, business-unit, and entity grain (three Sheets + short markdown index) |
+| **CSR dump** (`CustomerSuccessReport-DD-MMM-YYYY`) | Account teams — CS Report factories / BUs / entities | Full CS Report **`delta=week`** at site, business-unit, and entity grain (three Sheets, each with a matching markdown twin) |
 
 Both Pendo exports and CSR dumps use the same **Drive layout** (see [Where files live on Drive](#where-files-live-on-drive)).
 
@@ -350,7 +350,7 @@ Each distinct CS Report `customer` (week delta only) gets three dated Google She
 - `CustomerSuccessReport-{DD-MMM-YYYY}` — **site** grain (one row per factory)
 - `BU_CustomerSuccessReport-{DD-MMM-YYYY}` — **business unit** grain
 - `Entity_CustomerSuccessReport-{DD-MMM-YYYY}` — **entity** grain
-- Matching `.md` indexes with links to those Sheets
+- A matching `.md` per grain carrying that grain's **full data table** (same rows and columns as its Sheet), plus links to the companion grains
 - Snapshots under `Customer Exports/{folder}/Historical Data/{YYYY-MM-DD}/{HHmm}/` (slot is the folder)
 
 Same-day runs replace the dated files. Prior-month dated files are archived with other customer-folder exports. BU/entity Sheets **sum** counts and dollar KPIs from site rows; percents and DOI are **unweighted site means** (not a native LeanDNA CSR rollup). US/EU datacenter splits are not separated in this export.

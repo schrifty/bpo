@@ -114,29 +114,63 @@ def test_rollup_sums_counts_and_means_percents() -> None:
     assert tijuana["factory_count"] == 2
 
 
-def test_render_csr_dump_markdown_index() -> None:
+def _render_md(level: str, presented, columns, **overrides) -> str:
     day = dt.date(2026, 8, 21)
-    titles = {level: csr_dump_report_title(level, day) for level in ("site", "bu", "entity")}
-    md = render_csr_dump_markdown(
+    titles = {lvl: csr_dump_report_title(lvl, day) for lvl in ("site", "bu", "entity")}
+    kwargs = dict(
         csr_customer="Ford",
         folder="Ford",
         slot="0600",
         export_date=day,
+        level=level,
         titles=titles,
-        site_count=12,
+        presented=presented,
+        columns=columns,
+        site_count=2,
         bu_count=1,
-        entity_count=12,
+        entity_count=2,
         source_meta={"file": "CS Report.xlsx", "modified": "2026-08-21T08:00:00.000Z"},
         spreadsheet_urls={"site": "https://docs.google.com/spreadsheets/d/abc/edit"},
         mapped=True,
     )
-    assert "CustomerSuccessReport-21-Aug-2026" in md
+    kwargs.update(overrides)
+    return render_csr_dump_markdown(**kwargs)
+
+
+def test_render_csr_dump_markdown_carries_grain_rows() -> None:
+    presented = [
+        {"Factory": "Chicago Assembly", "Shortages": 12},
+        {"Factory": "Dearborn Truck", "Shortages": 3},
+    ]
+    md = _render_md("site", presented, ["Factory", "Shortages"])
+    assert "site level" in md
+    assert "| Factory | Shortages |" in md
+    assert "| Chicago Assembly | 12 |" in md
+    assert "| Dearborn Truck | 3 |" in md
     assert "BU_CustomerSuccessReport-21-Aug-2026" in md
     assert "Entity_CustomerSuccessReport-21-Aug-2026" in md
     assert "`0600`" in md
     assert "Historical Data/2026-08-21/0600/" in md
     assert "abc" in md
     assert "Join note" not in md
+    # Site grain is raw CSR data, so the rollup caveat does not belong there.
+    assert "unweighted means" not in md
+
+
+def test_render_csr_dump_markdown_bu_notes_rollup_and_differs_from_site() -> None:
+    site_md = _render_md("site", [{"Factory": "Chicago Assembly"}], ["Factory"])
+    bu_md = _render_md("bu", [{"Business Unit": "Ford Blue", "Site count": 2}], ["Business Unit", "Site count"])
+    assert "business unit level" in bu_md
+    assert "| Ford Blue | 2 |" in bu_md
+    assert "unweighted means" in bu_md
+    assert bu_md != site_md
+
+
+def test_render_csr_dump_markdown_escapes_pipes_and_handles_empty() -> None:
+    md = _render_md("entity", [{"Entity": "A | B"}], ["Entity"])
+    assert "| A \\| B |" in md
+    empty = _render_md("entity", [], ["Entity"])
+    assert "No rows at this grain" in empty
 
 
 def test_build_step_argv_and_job_specs() -> None:

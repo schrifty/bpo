@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Full CS Report week dump per CSR customer (Sheet + short markdown).
+"""Full CS Report week dump per CSR customer at site, BU, and entity grain.
+
+Each grain gets a dated Google Sheet plus a markdown twin carrying the same rows.
 
 Usage:
   cortex --export-csr [--customer NAME] [--slot 0600] [--no-drive] [--out-dir DIR]
@@ -240,13 +242,36 @@ def build_csr_dump_tables(
     return {"meta": meta_rows, tab: grid}
 
 
+def _md_cell(value: Any) -> str:
+    text = "" if value is None else str(_cell_value(value))
+    return text.replace("|", "\\|").replace("\r", " ").replace("\n", " ").strip()
+
+
+def _markdown_grain_table(columns: list[str], presented: list[dict[str, Any]]) -> list[str]:
+    if not columns:
+        return ["_No columns available in this CS Report export._"]
+    header = f"| {' | '.join(_md_cell(c) for c in columns)} |"
+    divider = f"|{'---|' * len(columns)}"
+    lines = [header, divider]
+    for row in presented:
+        lines.append(f"| {' | '.join(_md_cell(row.get(c)) for c in columns)} |")
+    if not presented:
+        lines.append(f"|{' |' * len(columns)}")
+        lines.append("")
+        lines.append("_No rows at this grain for the latest CS Report week._")
+    return lines
+
+
 def render_csr_dump_markdown(
     *,
     csr_customer: str,
     folder: str,
     slot: str,
     export_date: dt.date,
+    level: str,
     titles: dict[str, str],
+    presented: list[dict[str, Any]],
+    columns: list[str],
     site_count: int,
     bu_count: int,
     entity_count: int,
@@ -254,12 +279,16 @@ def render_csr_dump_markdown(
     spreadsheet_urls: dict[str, str] | None = None,
     mapped: bool = True,
 ) -> str:
+    """Render the markdown twin of one grain's Sheet (full table, not a pointer)."""
     urls = spreadsheet_urls or {}
+    grain = _CSR_LEVEL_LABEL[level]
+    own_url = urls.get(level) or ""
     lines = [
-        f"# {csr_customer} Customer Success Report",
+        f"# {csr_customer} Customer Success Report — {grain} level",
         "",
         f"- **CSR customer:** {csr_customer}",
         f"- **Customer Exports folder:** `{CUSTOMER_EXPORTS_FOLDER}/{folder}/`",
+        f"- **Grain:** {grain} ({len(presented)} row(s))",
         f"- **Delta:** week",
         f"- **Run slot:** `{slot}` (America/Chicago; not in the filename)",
         f"- **Chicago date:** {export_date.isoformat()} (`{csr_report_date_label(export_date)}`)",
@@ -267,18 +296,10 @@ def render_csr_dump_markdown(
         f"- **Sites:** {site_count} · **Business units:** {bu_count} · **Entities:** {entity_count}",
         f"- **Source workbook:** {source_meta.get('file') or '(unknown)'}",
         f"- **Source modified:** {source_meta.get('modified') or '(unknown)'}",
-        "",
-        "| Grain | File | Sheet |",
-        "|-------|------|-------|",
+        f"- **Historical snapshot:** `Historical Data/{export_date.isoformat()}/{slot}/`",
     ]
-    for level, label in (("site", "Site"), ("bu", "Business unit"), ("entity", "Entity")):
-        title = titles[level]
-        link = urls.get(level) or ""
-        sheet = f"[open]({link})" if link else title
-        lines.append(f"| {label} | `{title}` | {sheet} |")
-    lines.append(
-        f"- **Historical snapshot:** `Historical Data/{export_date.isoformat()}/{slot}/`"
-    )
+    if own_url:
+        lines.append(f"- **This grain as a Sheet:** {own_url}")
     if not mapped:
         lines.append(
             "- **Join note:** no Pendo/cohort/CS Report alias matched this CSR name; "
@@ -288,10 +309,29 @@ def render_csr_dump_markdown(
     lines.extend(
         [
             "",
-            _CSR_ROLLUP_NOTE,
+            "## Companion files",
+            "",
+            "| Grain | File | Sheet |",
+            "|-------|------|-------|",
+        ]
+    )
+    for other, label in (("site", "Site"), ("bu", "Business unit"), ("entity", "Entity")):
+        title = titles[other]
+        link = urls.get(other) or ""
+        sheet = f"[open]({link})" if link else title
+        marker = " (this file)" if other == level else ""
+        lines.append(f"| {label}{marker} | `{title}` | {sheet} |")
+    if level != "site":
+        lines.extend(["", _CSR_ROLLUP_NOTE])
+    lines.extend(
+        [
+            "",
+            f"## {grain.title()} data (`delta=week`, CSR UI column labels)",
             "",
         ]
     )
+    lines.extend(_markdown_grain_table(columns, presented))
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -384,14 +424,27 @@ def export_csr_dumps(
                 source_meta=source_meta,
                 mapped=mapped,
             )
+
+            def _render(level: str, urls: dict[str, str] | None = None) -> str:
+                presented, columns, _count = payloads[level]
+                return render_csr_dump_markdown(
+                    level=level,
+                    presented=presented,
+                    columns=columns,
+                    spreadsheet_urls=urls,
+                    **md_kwargs,
+                )
+
             if no_drive:
                 from .export_customer_pendo_snapshot import _write_local
 
-                md = render_csr_dump_markdown(**md_kwargs)
-                dest = local_dir / folder / slot_label / f"{titles['site']}.md"
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                _write_local(dest, md)
-                uploaded.append({"customer": csr_name, "folder": folder, "local_md": str(dest)})
+                written: list[str] = []
+                for level in ("site", "bu", "entity"):
+                    dest = local_dir / folder / slot_label / f"{titles[level]}.md"
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    _write_local(dest, _render(level))
+                    written.append(str(dest))
+                uploaded.append({"customer": csr_name, "folder": folder, "local_md": written})
                 continue
 
             from .drive_config import upload_text_file_to_drive_folder
@@ -404,7 +457,6 @@ def export_csr_dumps(
             folders = ensure_customer_export_folders(folder)
             urls: dict[str, str] = {}
             last_upload: dict[str, str] = {}
-            md = render_csr_dump_markdown(**md_kwargs)
             for level in ("site", "bu", "entity"):
                 presented, columns, row_count = payloads[level]
                 tables = build_csr_dump_tables(
@@ -420,7 +472,7 @@ def export_csr_dumps(
                 )
                 last_upload = upload_csr_markdown_and_spreadsheet(
                     title=titles[level],
-                    md=md,
+                    md=_render(level),
                     tables=tables,
                     persistent_folder_id=folders["persistent_folder_id"],
                     historical_folder_id=folders["historical_folder_id"],
@@ -429,11 +481,10 @@ def export_csr_dumps(
                     export_date=export_date,
                 )
                 urls[level] = last_upload.get("persistent_spreadsheet_url") or ""
-            md = render_csr_dump_markdown(**md_kwargs, spreadsheet_urls=urls)
             for level in ("site", "bu", "entity"):
                 upload_text_file_to_drive_folder(
                     f"{titles[level]}.md",
-                    md,
+                    _render(level, urls),
                     folders["persistent_folder_id"],
                     mime_type="text/markdown",
                 )
@@ -442,7 +493,7 @@ def export_csr_dumps(
                 for level in ("site", "bu", "entity"):
                     upload_text_file_to_drive_folder(
                         f"{titles[level]}.md",
-                        md,
+                        _render(level, urls),
                         slot_folder_id,
                         mime_type="text/markdown",
                     )

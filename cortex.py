@@ -65,7 +65,7 @@ Flag commands (utilities)
       Prior-month base-folder exports are archived into ``Historical Data/{YYYY-MM}/`` at startup.
       Default: ``--days 30``.
       ``--export-csr`` writes dated CS Report ``delta=week`` Sheets (site, BU, and entity)
-      plus a short markdown index per CSR workbook customer under ``Customer Exports/{folder}/``.
+      plus a markdown twin of each grain per CSR workbook customer under ``Customer Exports/{folder}/``.
       Intra-day snapshots live under ``Historical Data/{ISO-date}/{HHmm}/``.
 
   cortex --schedule [--prefix NAME] [--region REGION]
