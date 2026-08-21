@@ -33,7 +33,7 @@ from .export_drive_layout import (
     upload_csr_markdown_and_spreadsheet,
 )
 from .export_pendo_spreadsheet import _cell_value
-from .export_run_diagnostics import export_diagnostics_scope, export_phase
+from .export_run_diagnostics import ExportRunDiagnostics, export_diagnostics_scope, export_phase
 
 _CHICAGO = ZoneInfo("America/Chicago")
 # EventBridge UTC hours locked to current CDT local times (midnight / 6am / noon / 6pm).
@@ -209,10 +209,14 @@ def export_csr_dumps(
     no_drive: bool = False,
     out_dir: Path | None = None,
     now: dt.datetime | None = None,
+    diag: ExportRunDiagnostics | None = None,
 ) -> dict[str, Any]:
     slot_label = historical_run_slot_label(slot)
     export_date = chicago_export_date(now)
-    with export_phase("csr-dump-load"):
+    if diag is not None:
+        with export_phase(diag, "csr-dump-load"):
+            rows = load_latest_csr_week_rows()
+    else:
         rows = load_latest_csr_week_rows()
     if not rows:
         raise RuntimeError(
@@ -362,12 +366,13 @@ def export_csr_main(argv: list[str] | None = None, *, prog: str = "cortex --expo
     parser.add_argument("--out-dir", type=Path, default=None)
     args = parser.parse_args(argv)
     slot = args.slot or infer_csr_dump_slot()
-    with export_diagnostics_scope("export-csr"):
+    with export_diagnostics_scope() as diag:
         export_csr_dumps(
             slot=slot,
             customer=args.customer,
             no_drive=args.no_drive,
             out_dir=args.out_dir,
+            diag=diag,
         )
 
 
