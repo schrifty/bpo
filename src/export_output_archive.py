@@ -36,6 +36,7 @@ from .export_drive_layout import (
     is_allowed_export_base_subfolder,
     is_historical_day_subfolder,
     is_historical_month_subfolder,
+    is_historical_run_slot_subfolder,
     is_legacy_dated_output_folder,
     is_legacy_export_container_folder,
     is_output_root_metrics_deck_filename,
@@ -480,6 +481,8 @@ def normalize_loose_historical_data(
         if mime == _MIME_FOLDER and is_historical_day_subfolder(name):
             continue
         if mime == _MIME_FOLDER and is_historical_month_subfolder(name):
+            continue
+        if mime == _MIME_FOLDER and is_historical_run_slot_subfolder(name):
             continue
         if mime == _MIME_FOLDER and _is_legacy_container_folder(
             name,

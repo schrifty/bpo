@@ -1,0 +1,7 @@
+name: csr-customer-dump-1800
+stop_on_failure: true
+fail_on_warnings: false
+steps:
+  - name: csr-customer-dump
+    command: export-csr
+    slot: "1800"

@@ -58,11 +58,15 @@ Flag commands (utilities)
   cortex --export-pendo --customer <name> [--days N] [--compare-days N] [--no-drive] [-o PATH]
   cortex --export-pendo-detailed --customer <name> [--days N] [--compare-days N] [--no-drive] [-o PATH]
   cortex --export-pendo-top-arr [--top-n 10] [--days N] [--compare-days N] [--no-drive] [--out-dir DIR]
+  cortex --export-csr [--customer NAME] [--slot 0000|0600|1200|1800] [--no-drive] [--out-dir DIR]
       Export **Pendo-only** product usage for one customer (sites, features, depth, Kei, trends).
       Uploads markdown + Google Sheet to ``Output/Customer Exports/{customer}/`` — only
       ``-persistent`` files in the customer folder; same-day snapshots under ``Historical Data/{ISO-date}/``.
       Prior-month base-folder exports are archived into ``Historical Data/{YYYY-MM}/`` at startup.
       Default: ``--days 30``.
+      ``--export-csr`` writes a full CS Report ``delta=week`` dump (Sheet + short markdown index)
+      per CSR workbook customer into the same ``Customer Exports/{folder}/`` tree. Intra-day
+      snapshots live under ``Historical Data/{ISO-date}/{HHmm}/``.
 
   cortex --schedule [--prefix NAME] [--region REGION]
       Show EventBridge cron schedules for ECS batch jobs (live AWS when credentials are available,
@@ -1311,6 +1315,13 @@ def main():
         export_pendo_top_arr_main(rest, prog="cortex --export-pendo-top-arr")
         return
 
+    if "--export-csr" in sys.argv:
+        from src.export_csr_dump import export_csr_main
+
+        rest = [a for a in sys.argv[1:] if a != "--export-csr"]
+        export_csr_main(rest, prog="cortex --export-csr")
+        return
+
     if len(sys.argv) > 1 and sys.argv[1] == "export-all":
         from src.export_llm_context_snapshot import export_main
 
@@ -1336,6 +1347,13 @@ def main():
 
         rest = [a for a in sys.argv[1:] if a != "--export-pendo-top-arr"]
         export_pendo_top_arr_main(rest, prog="cortex --export-pendo-top-arr")
+        return
+
+    if "--export-csr" in sys.argv:
+        from src.export_csr_dump import export_csr_main
+
+        rest = [a for a in sys.argv[1:] if a != "--export-csr"]
+        export_csr_main(rest, prog="cortex --export-csr")
         return
 
     if "--schedule" in sys.argv:

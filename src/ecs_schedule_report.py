@@ -61,7 +61,34 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
             "(30d + 7d via cortex --export-pendo-top-arr --top-n 10)"
         ),
     },
-
+    "csr-customer-dump-0000": {
+        "schedule_expression": "cron(0 5 * * ? *)",
+        "command": ["csr-customer-dump-0000"],
+        "enabled": True,
+        "rule_name": "cortex-csr-customer-dump-0000",
+        "summary": "CSR week dump (Sheet + index) — midnight CDT slot 0000",
+    },
+    "csr-customer-dump-0600": {
+        "schedule_expression": "cron(0 11 * * ? *)",
+        "command": ["csr-customer-dump-0600"],
+        "enabled": True,
+        "rule_name": "cortex-csr-customer-dump-0600",
+        "summary": "CSR week dump (Sheet + index) — 6am CDT slot 0600",
+    },
+    "csr-customer-dump-1200": {
+        "schedule_expression": "cron(0 17 * * ? *)",
+        "command": ["csr-customer-dump-1200"],
+        "enabled": True,
+        "rule_name": "cortex-csr-customer-dump-1200",
+        "summary": "CSR week dump (Sheet + index) — noon CDT slot 1200",
+    },
+    "csr-customer-dump-1800": {
+        "schedule_expression": "cron(0 23 * * ? *)",
+        "command": ["csr-customer-dump-1800"],
+        "enabled": True,
+        "rule_name": "cortex-csr-customer-dump-1800",
+        "summary": "CSR week dump (Sheet + index) — 6pm CDT slot 1800",
+    },
     "metrics-daily-digest": {
         "schedule_expression": "cron(0 12 * * ? *)",
         "command": ["metrics-daily-digest"],

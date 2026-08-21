@@ -400,6 +400,18 @@ def test_relocate_non_persistent_skips_akkr_metrics_deck() -> None:
     assert _relocate_non_persistent_base_file(child, parent_id="out", historical_id="hist") is None
 
 
+def test_relocate_non_persistent_skips_csr_dump_persistent() -> None:
+    from src.export_output_archive import _relocate_non_persistent_base_file
+
+    child = {
+        "id": "csr-1",
+        "name": "Ford CSR Dump-persistent.md",
+        "mimeType": "text/markdown",
+        "modifiedTime": "2026-08-21T11:00:00.000Z",
+    }
+    assert _relocate_non_persistent_base_file(child, parent_id="out", historical_id="hist") is None
+
+
 def test_restore_misplaced_akkr_metrics_moves_newest_and_trashes_dupes(monkeypatch) -> None:
     children = {
         "out": [],
@@ -451,6 +463,35 @@ def test_restore_misplaced_akkr_metrics_moves_newest_and_trashes_dupes(monkeypat
     assert trashed == ["older"]
     assert result["restored"] == [{"id": "newer", "name": "AKKR Metrics"}]
     assert result["trashed"] == [{"id": "older", "name": "AKKR Metrics"}]
+
+
+def test_normalize_loose_skips_run_slot_folder_at_historical_root(monkeypatch) -> None:
+    from src.export_output_archive import normalize_loose_historical_data
+
+    historical_id = "hist"
+    monkeypatch.setattr(
+        "src.export_output_archive._list_folder_children",
+        lambda pid: (
+            [
+                {"id": "slot", "name": "0600", "mimeType": _MIME_FOLDER},
+                {"id": "day", "name": "2026-08-21", "mimeType": _MIME_FOLDER},
+            ]
+            if pid == historical_id
+            else []
+        ),
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive.ensure_historical_data_folder",
+        lambda _pid: historical_id,
+    )
+    moves: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(
+        "src.export_output_archive._move_drive_item",
+        lambda fid, from_parent, to_parent: moves.append((fid, from_parent, to_parent)),
+    )
+    result = normalize_loose_historical_data("parent", historical_id=historical_id)
+    assert result["reorganized"] == []
+    assert moves == []
 
 
 def test_migrate_promotes_legacy_base_pendo_to_persistent(monkeypatch) -> None:

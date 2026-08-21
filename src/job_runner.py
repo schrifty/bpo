@@ -193,6 +193,17 @@ def build_step_argv(step: dict[str, Any]) -> list[str]:
         if step.get("out_dir"):
             argv.extend(["--out-dir", str(step["out_dir"])])
         return argv
+    if command == "export-csr":
+        argv = ["--export-csr"]
+        if step.get("customer"):
+            argv.extend(["--customer", str(step["customer"])])
+        if step.get("slot"):
+            argv.extend(["--slot", str(step["slot"])])
+        if step.get("no_drive"):
+            argv.append("--no-drive")
+        if step.get("out_dir"):
+            argv.extend(["--out-dir", str(step["out_dir"])])
+        return argv
     if command == "metrics-upsert":
         argv = ["metrics-upsert"]
         if step.get("metric"):

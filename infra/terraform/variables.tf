@@ -182,6 +182,33 @@ variable "scheduled_jobs" {
       enabled             = true
       rule_name           = "cortex-pendo-top-10-arr"
     }
+    # CSR full dumps: UTC crons locked to current CDT hours
+    # (midnight / 6am / noon / 6pm Chicago). After CST, these UTC hours shift
+    # one hour earlier on the Chicago clock.
+    csr-customer-dump-0000 = {
+      schedule_expression = "cron(0 5 * * ? *)"
+      command             = ["csr-customer-dump-0000"]
+      enabled             = true
+      rule_name           = "cortex-csr-customer-dump-0000"
+    }
+    csr-customer-dump-0600 = {
+      schedule_expression = "cron(0 11 * * ? *)"
+      command             = ["csr-customer-dump-0600"]
+      enabled             = true
+      rule_name           = "cortex-csr-customer-dump-0600"
+    }
+    csr-customer-dump-1200 = {
+      schedule_expression = "cron(0 17 * * ? *)"
+      command             = ["csr-customer-dump-1200"]
+      enabled             = true
+      rule_name           = "cortex-csr-customer-dump-1200"
+    }
+    csr-customer-dump-1800 = {
+      schedule_expression = "cron(0 23 * * ? *)"
+      command             = ["csr-customer-dump-1800"]
+      enabled             = true
+      rule_name           = "cortex-csr-customer-dump-1800"
+    }
     metrics-daily-digest = {
       schedule_expression = "cron(0 12 * * ? *)"
       command             = ["metrics-daily-digest"]

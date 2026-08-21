@@ -56,6 +56,10 @@ def test_build_schedule_rows_merges_catalog_when_aws_empty(monkeypatch):
     top_arr = next(r for r in rows if r.job_key == "pendo-top-10-arr")
     assert top_arr.rule_name == "cortex-pendo-top-10-arr"
     assert top_arr.schedule_expression == "cron(0 8 * * ? *)"
+    csr_6 = next(r for r in rows if r.job_key == "csr-customer-dump-0600")
+    assert csr_6.rule_name == "cortex-csr-customer-dump-0600"
+    assert csr_6.schedule_expression == "cron(0 11 * * ? *)"
+    assert csr_6.source == "catalog"
     assert not any(r.job_key == "pendo-top-arr-30d" for r in rows)
     assert not any(r.job_key == "carrier-pendo-detailed-30d" for r in rows)
     assert not any(r.job_key == "metrics-eng-cycle-lead-weekly" for r in rows)

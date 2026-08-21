@@ -283,6 +283,58 @@ def _fetch_latest_report() -> list[dict[str, Any]]:
         return rows
 
 
+def load_latest_csr_week_rows() -> list[dict[str, Any]]:
+    """Download/parse the latest CS Report workbook (all deltas); callers filter ``delta=week``."""
+    return _fetch_latest_report()
+
+
+def csr_latest_report_meta() -> dict[str, str]:
+    """Source filename and Drive modified time from the last successful workbook load."""
+    if _cache is None:
+        return {}
+    return {
+        "file": str(_cache.get("file") or ""),
+        "modified": str(_cache.get("modified") or ""),
+    }
+
+
+def distinct_csr_week_customers(rows: list[dict[str, Any]] | None = None) -> list[str]:
+    """Distinct ``customer`` values among ``delta=week`` rows (workbook casing preserved)."""
+    src = rows if rows is not None else load_latest_csr_week_rows()
+    seen: dict[str, str] = {}
+    for row in src:
+        if row.get("delta") != "week":
+            continue
+        name = str(row.get("customer") or "").strip()
+        if not name:
+            continue
+        seen.setdefault(name.lower(), name)
+    return sorted(seen.values(), key=str.lower)
+
+
+def csr_week_rows_for_exact_customer(
+    customer_name: str,
+    rows: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    needle = (customer_name or "").strip().lower()
+    if not needle:
+        return []
+    src = rows if rows is not None else load_latest_csr_week_rows()
+    return [
+        r
+        for r in src
+        if (r.get("customer") or "").strip().lower() == needle and r.get("delta") == "week"
+    ]
+
+
+def csr_site_entries_for_exact_week_customer(
+    customer_name: str,
+    rows: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Per-factory export rows for one CSR workbook ``customer`` (week delta only)."""
+    return [_build_csr_site_entry(r) for r in csr_week_rows_for_exact_customer(customer_name, rows)]
+
+
 def _load_cs_report_alias_map() -> dict[str, list[str]]:
     """Pendo (or QBR) customer name (lower) → list of exact CS `customer` column values."""
     global _cs_report_alias_map

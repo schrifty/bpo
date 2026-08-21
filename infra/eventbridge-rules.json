@@ -246,5 +246,129 @@
         "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"akkr-metrics-deck\"]}]}"
       }
     ]
+  },
+  {
+    "Name": "cortex-csr-customer-dump-0000",
+    "Description": "CSR week dump (Sheet + index) \u2014 midnight CDT / 05:00 UTC slot 0000",
+    "ScheduleExpression": "cron(0 5 * * ? *)",
+    "State": "ENABLED",
+    "Targets": [
+      {
+        "Id": "cortex-csr-customer-dump-0000",
+        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
+        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
+        "EcsParameters": {
+          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
+          "LaunchType": "FARGATE",
+          "PlatformVersion": "LATEST",
+          "NetworkConfiguration": {
+            "awsvpcConfiguration": {
+              "Subnets": [
+                "subnet-REPLACE"
+              ],
+              "SecurityGroups": [
+                "sg-REPLACE"
+              ],
+              "AssignPublicIp": "DISABLED"
+            }
+          },
+          "TaskCount": 1
+        },
+        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"csr-customer-dump-0000\"]}]}"
+      }
+    ]
+  },
+  {
+    "Name": "cortex-csr-customer-dump-0600",
+    "Description": "CSR week dump (Sheet + index) \u2014 6am CDT / 11:00 UTC slot 0600",
+    "ScheduleExpression": "cron(0 11 * * ? *)",
+    "State": "ENABLED",
+    "Targets": [
+      {
+        "Id": "cortex-csr-customer-dump-0600",
+        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
+        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
+        "EcsParameters": {
+          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
+          "LaunchType": "FARGATE",
+          "PlatformVersion": "LATEST",
+          "NetworkConfiguration": {
+            "awsvpcConfiguration": {
+              "Subnets": [
+                "subnet-REPLACE"
+              ],
+              "SecurityGroups": [
+                "sg-REPLACE"
+              ],
+              "AssignPublicIp": "DISABLED"
+            }
+          },
+          "TaskCount": 1
+        },
+        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"csr-customer-dump-0600\"]}]}"
+      }
+    ]
+  },
+  {
+    "Name": "cortex-csr-customer-dump-1200",
+    "Description": "CSR week dump (Sheet + index) \u2014 noon CDT / 17:00 UTC slot 1200",
+    "ScheduleExpression": "cron(0 17 * * ? *)",
+    "State": "ENABLED",
+    "Targets": [
+      {
+        "Id": "cortex-csr-customer-dump-1200",
+        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
+        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
+        "EcsParameters": {
+          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
+          "LaunchType": "FARGATE",
+          "PlatformVersion": "LATEST",
+          "NetworkConfiguration": {
+            "awsvpcConfiguration": {
+              "Subnets": [
+                "subnet-REPLACE"
+              ],
+              "SecurityGroups": [
+                "sg-REPLACE"
+              ],
+              "AssignPublicIp": "DISABLED"
+            }
+          },
+          "TaskCount": 1
+        },
+        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"csr-customer-dump-1200\"]}]}"
+      }
+    ]
+  },
+  {
+    "Name": "cortex-csr-customer-dump-1800",
+    "Description": "CSR week dump (Sheet + index) \u2014 6pm CDT / 23:00 UTC slot 1800",
+    "ScheduleExpression": "cron(0 23 * * ? *)",
+    "State": "ENABLED",
+    "Targets": [
+      {
+        "Id": "cortex-csr-customer-dump-1800",
+        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
+        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
+        "EcsParameters": {
+          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
+          "LaunchType": "FARGATE",
+          "PlatformVersion": "LATEST",
+          "NetworkConfiguration": {
+            "awsvpcConfiguration": {
+              "Subnets": [
+                "subnet-REPLACE"
+              ],
+              "SecurityGroups": [
+                "sg-REPLACE"
+              ],
+              "AssignPublicIp": "DISABLED"
+            }
+          },
+          "TaskCount": 1
+        },
+        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"csr-customer-dump-1800\"]}]}"
+      }
+    ]
   }
 ]

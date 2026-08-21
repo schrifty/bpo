@@ -2,14 +2,15 @@
 
 This guide explains **what’s in Cortex export files**, **how to read them**, and **how to ask an AI good questions** using the data. You do not need to know how exports are built to use them well.
 
-Cortex produces two main kinds of markdown exports:
+Cortex produces three main kinds of markdown exports:
 
 | Export | Who it’s for | What it covers |
 |--------|----------------|----------------|
 | **Portfolio LLM context** (`LLM-Context-Portfolio`) | Leadership, CS, AMs — whole book | Pendo headlines, Jira, Salesforce, CS Report, signals, risk — **all customers** in one file |
 | **Per-customer export** (`Customer Export (Nd)`) | Account teams — one strategic customer | Deep **Pendo** usage plus **CS Report** factory metrics when matched — **one customer** per file (+ matching Sheet) |
+| **CSR dump** (`{Customer} CSR Dump`) | Account teams — CS Report factories | Full CS Report **`delta=week`** workbook for one CSR customer (Sheet + short markdown index) |
 
-Both use the same **Drive layout** (see [Where files live on Drive](#where-files-live-on-drive)).
+Both Pendo exports and CSR dumps use the same **Drive layout** (see [Where files live on Drive](#where-files-live-on-drive)).
 
 ---
 
@@ -296,10 +297,10 @@ All Cortex exports under the QBR generator use the same pattern:
 |------|----------|------------------|
 | **Bookmarkable “current” export** | Portfolio: `Output/` root · Per-customer Pendo: `Output/Customer Exports/{Customer}/` | `{stem}-persistent` (+ `.md` for markdown) |
 | **Bookmarkable metrics deck** | `Output/` root | `{TAG} Metrics` (e.g. `AKKR Metrics`) — not archived; month copies use `AKKR Metrics - July` |
-| **Same-day historical snapshot** | `…/Historical Data/{YYYY-MM-DD}/` | Plain `{stem}` (no `-persistent`) |
+| **Same-day historical snapshot** | `…/Historical Data/{YYYY-MM-DD}/` (CSR dumps: `…/{YYYY-MM-DD}/{HHmm}/`) | Plain `{stem}` (no `-persistent`; slot is the folder, not the filename) |
 | **Prior-month archives** | `…/Historical Data/{YYYY-MM}/{YYYY-MM-DD}/` | Rolled up at process startup |
 
-**Portfolio exports** (`export-all`, engineering portfolio deck) use `Output/` as the persistent base. **Per-customer Pendo** uses each customer’s folder under `Customer Exports/`. **AKKR / metrics decks** stay in `Output/` under `{TAG} Metrics`; only the month-named copy is stored under `Historical Data/{YYYY-MM}/`.
+**Portfolio exports** (`export-all`, engineering portfolio deck) use `Output/` as the persistent base. **Per-customer Pendo** and **CSR dumps** use each customer’s folder under `Customer Exports/`. **AKKR / metrics decks** stay in `Output/` under `{TAG} Metrics`; only the month-named copy is stored under `Historical Data/{YYYY-MM}/`.
 
 This user guide is also published to **`Output/Cortex Export - User Guide.md`** on Cortex startup when the repo copy is newer than Drive or missing there. It is not archived into `Historical Data/` with export snapshots.
 
@@ -334,5 +335,22 @@ Scheduled jobs include `ford-pendo-7d`, `ford-pendo-30d`, and `pendo-top-10-arr`
 Business units for §2.1 / §13.1 come from `config/pendo_site_bu_map.yaml` (per Pendo prefix); customers with no entry simply omit the business-unit column and §2.1. Each rule carries a `confidence` (`high` = the site name self-labels its division; `inferred` = a location/brand guess); unmatched sites fall to the `default_business_unit` (`Unmapped — needs review`). Sites resolving to `inferred` or the default are surfaced every run (export log warning + §2.1 Confidence note) and collected in `docs/DATA-GOVERNANCE/BUSINESS_UNIT_MAPPING_REVIEW.md` for periodic CS review. For customers whose CS Report is split by division (e.g. Safran), `python scripts/build_csr_bu_map.py --customer <name> --live` joins Pendo sites to the CS Report factory list and prints an authoritative, CSR-confirmed rules fragment plus a coverage report to refresh the map. Safran is validated; **Carrier, Spirit, and Bombardier are provisional** (all rules `inferred`) pending CS-confirmed taxonomy. `CORTEX_PENDO_SITE_DETAIL_USER_SITES` (default 20) caps how many top sites get a per-site user table in §13.2.
 
 Drive output (per customer): `Output/Customer Exports/{Customer}/` persistent markdown + spreadsheet, plus matching copies under `Historical Data/{today}/`.
+
+### CSR dump (full week workbook by customer)
+
+```bash
+cortex --export-csr --slot 0600
+cortex --export-csr --customer Ford --slot 1200 --no-drive
+```
+
+Scheduled jobs `csr-customer-dump-0000` / `0600` / `1200` / `1800` run four times a day. EventBridge crons are UTC locked to current **CDT** hours (midnight / 6am / noon / 6pm Chicago → `cron(0 5|11|17|23 * * ? *)`). After the US switches to CST those UTC hours move one hour earlier on the Chicago clock.
+
+Each distinct CS Report `customer` (week delta only) gets:
+
+- `{Customer} CSR Dump-persistent` — Google Sheet (always latest)
+- `{Customer} CSR Dump-persistent.md` — short index with the Sheet link
+- Snapshots under `Customer Exports/{folder}/Historical Data/{YYYY-MM-DD}/{HHmm}/` (slot is the folder; the filename has no time)
+
+Folder names prefer Pendo/cohort prefixes (e.g. `Safran SA` → `Safran`). Unmatched CSR names keep the workbook string and log a warning; they are not dropped. Salesforce remains the system of record for commercial status — this dump is CS Report inventory.
 
 For field definitions and integration details, see [`DATA_DICTIONARY.md`](./DATA-GOVERNANCE/DATA_DICTIONARY.md) and [`SALESFORCE_REVENUE_AND_ARR.md`](./DATA-GOVERNANCE/SALESFORCE_REVENUE_AND_ARR.md).

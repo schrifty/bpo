@@ -3,9 +3,12 @@
 Persistent artifacts live in the export base folder with a ``-persistent`` suffix
 (always replaced in place). Each export also writes a same-day snapshot under
 ``Historical Data/{YYYY-MM-DD}/`` using the plain export stem (no ``-persistent``).
+CSR dumps write intra-day snapshots under ``Historical Data/{YYYY-MM-DD}/{HHmm}/``
+(``0000`` / ``0600`` / ``1200`` / ``1800``) so four runs a day do not overwrite each other;
+the persistent stem has no time suffix.
 Prior-month base-folder exports are bucketed into ``Historical Data/{YYYY-MM}/`` at startup via
 :func:`src.export_output_archive.archive_previous_month_in_folder`. Prior-month day subfolders
-under ``Historical Data/`` are nested under that same monthly bucket.
+under ``Historical Data/`` are nested under that same monthly bucket (slot folders ride along).
 """
 
 from __future__ import annotations
@@ -23,9 +26,12 @@ _LEGACY_CUSTOMER_EXPORTS_FOLDER = "customer-exports"
 _DATED_OUTPUT_FOLDER_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) - Output$")
 _ARCHIVE_MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
 _HISTORICAL_DAY_FOLDER_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_HISTORICAL_RUN_SLOT_RE = re.compile(r"^(0000|0600|1200|1800)$")
 _HISTORICAL_FLAT_DATED_NAME_RE = re.compile(r"^(.+) (\d{4}-\d{2}-\d{2})(\..+)?$")
 # Legacy ``Pendo Export  (Customer, Nd)`` and current ``Customer Export (Nd)`` stems.
 _CUSTOMER_EXPORT_STEM_RE = re.compile(r"^(?:Pendo Export  \(.+\)|.+ Export \(\d+d\))$")
+_CSR_DUMP_STEM_RE = re.compile(r"^.+ CSR Dump$")
+CSR_DUMP_RUN_SLOTS = ("0000", "0600", "1200", "1800")
 _MANAGED_EXPORT_PREFIXES = (
     "Pendo Export  ",  # legacy customer export stem prefix
     "LLM-Context-Portfolio",
@@ -79,6 +85,18 @@ def is_historical_day_subfolder(name: str) -> bool:
     return bool(_HISTORICAL_DAY_FOLDER_RE.match(name or ""))
 
 
+def is_historical_run_slot_subfolder(name: str) -> bool:
+    """True for CSR intra-day snapshot folders ``0000`` / ``0600`` / ``1200`` / ``1800``."""
+    return bool(_HISTORICAL_RUN_SLOT_RE.match((name or "").strip()))
+
+
+def historical_run_slot_label(slot: str) -> str:
+    text = (slot or "").strip()
+    if not is_historical_run_slot_subfolder(text):
+        raise ValueError(f"CSR dump run slot must be one of {CSR_DUMP_RUN_SLOTS}, got {slot!r}")
+    return text
+
+
 def is_managed_export_filename(name: str) -> bool:
     """True for portfolio/customer export artifacts governed by persistent/historical layout."""
     if not name or name.startswith("."):
@@ -89,6 +107,8 @@ def is_managed_export_filename(name: str) -> bool:
     if PERSISTENT_SUFFIX in stem:
         stem = stem[: stem.index(PERSISTENT_SUFFIX)]
     if _CUSTOMER_EXPORT_STEM_RE.match(stem):
+        return True
+    if _CSR_DUMP_STEM_RE.match(stem):
         return True
     if PERSISTENT_SUFFIX in name:
         return True
@@ -185,6 +205,18 @@ def ensure_historical_day_folder(historical_root_id: str, export_date: dt.date |
     from .drive_config import _find_or_create_folder
 
     return _find_or_create_folder(historical_day_folder_label(export_date), historical_root_id)
+
+
+def ensure_historical_run_slot_folder(
+    historical_root_id: str,
+    slot: str,
+    export_date: dt.date | None = None,
+) -> str:
+    """Return ``Historical Data/{YYYY-MM-DD}/{HHmm}/`` folder id."""
+    from .drive_config import _find_or_create_folder
+
+    day_id = ensure_historical_day_folder(historical_root_id, export_date)
+    return _find_or_create_folder(historical_run_slot_label(slot), day_id)
 
 
 def target_persistent_name(name: str, *, mime_type: str = "") -> str | None:
@@ -381,6 +413,66 @@ def upload_pendo_markdown_and_spreadsheet(
         "persistent_md_name": p_md,
         "historical_md_name": h_md,
         "historical_day_folder": day_label,
+        "historical_folder_id": historical_folder_id,
+        "persistent_spreadsheet_id": ss_p,
+        "historical_spreadsheet_id": ss_h,
+        "persistent_spreadsheet_url": spreadsheet_url(ss_p),
+        "historical_spreadsheet_url": spreadsheet_url(ss_h),
+    }
+
+
+def upload_csr_markdown_and_spreadsheet(
+    *,
+    stem: str,
+    md: str,
+    tables: dict[str, list[list[Any]]],
+    persistent_folder_id: str,
+    historical_folder_id: str,
+    base_label: str,
+    slot: str,
+    export_date: dt.date | None = None,
+) -> dict[str, str]:
+    """Upload CSR dump markdown + Sheet to persistent base and ``{day}/{slot}/`` snapshot."""
+    from .drive_config import dedupe_duplicate_names_in_folder, upload_text_file_to_drive_folder
+    from .export_csr_spreadsheet import spreadsheet_url, upload_csr_dump_spreadsheet
+
+    day = export_date or dt.date.today()
+    day_label = historical_day_folder_label(day)
+    slot_label = historical_run_slot_label(slot)
+    historical_slot_id = ensure_historical_run_slot_folder(historical_folder_id, slot_label, day)
+
+    p_md = persistent_filename(stem, ext=".md")
+    h_md = historical_snapshot_filename(stem, ext=".md")
+    p_ss = persistent_spreadsheet_title(stem)
+    h_ss = historical_snapshot_spreadsheet_title(stem)
+
+    dedupe_duplicate_names_in_folder(persistent_folder_id, p_md)
+    dedupe_duplicate_names_in_folder(persistent_folder_id, p_ss)
+    dedupe_duplicate_names_in_folder(historical_slot_id, h_md)
+    dedupe_duplicate_names_in_folder(historical_slot_id, h_ss)
+
+    fid_p = upload_text_file_to_drive_folder(p_md, md, persistent_folder_id, mime_type="text/markdown")
+    fid_h = upload_text_file_to_drive_folder(h_md, md, historical_slot_id, mime_type="text/markdown")
+    ss_p = upload_csr_dump_spreadsheet(tables, p_ss, persistent_folder_id)
+    ss_h = upload_csr_dump_spreadsheet(tables, h_ss, historical_slot_id)
+
+    logger.info(
+        "Uploaded %s → %s/%s and Historical Data/%s/%s/%s",
+        stem,
+        base_label,
+        p_md,
+        day_label,
+        slot_label,
+        h_md,
+    )
+    return {
+        "persistent_md_id": fid_p,
+        "historical_md_id": fid_h,
+        "persistent_md_name": p_md,
+        "historical_md_name": h_md,
+        "historical_day_folder": day_label,
+        "historical_run_slot": slot_label,
+        "historical_slot_folder_id": historical_slot_id,
         "historical_folder_id": historical_folder_id,
         "persistent_spreadsheet_id": ss_p,
         "historical_spreadsheet_id": ss_h,
