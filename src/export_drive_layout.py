@@ -3,9 +3,10 @@
 Persistent artifacts live in the export base folder with a ``-persistent`` suffix
 (always replaced in place). Each export also writes a same-day snapshot under
 ``Historical Data/{YYYY-MM-DD}/`` using the plain export stem (no ``-persistent``).
-CSR dumps write intra-day snapshots under ``Historical Data/{YYYY-MM-DD}/{HHmm}/``
-(``0000`` / ``0600`` / ``1200`` / ``1800``) so four runs a day do not overwrite each other;
-the persistent stem has no time suffix.
+CSR dumps write dated titles (``CustomerSuccessReport-DD-MMM-YYYY`` and BU/Entity
+prefixed variants) in the customer folder, plus intra-day snapshots under
+``Historical Data/{YYYY-MM-DD}/{HHmm}/``. Same-day runs replace the dated files;
+prior-month dated files are archived with other base-folder exports.
 Prior-month base-folder exports are bucketed into ``Historical Data/{YYYY-MM}/`` at startup via
 :func:`src.export_output_archive.archive_previous_month_in_folder`. Prior-month day subfolders
 under ``Historical Data/`` are nested under that same monthly bucket (slot folders ride along).
@@ -31,7 +32,25 @@ _HISTORICAL_FLAT_DATED_NAME_RE = re.compile(r"^(.+) (\d{4}-\d{2}-\d{2})(\..+)?$"
 # Legacy ``Pendo Export  (Customer, Nd)`` and current ``Customer Export (Nd)`` stems.
 _CUSTOMER_EXPORT_STEM_RE = re.compile(r"^(?:Pendo Export  \(.+\)|.+ Export \(\d+d\))$")
 _CSR_DUMP_STEM_RE = re.compile(r"^.+ CSR Dump$")
+_CSR_REPORT_TITLE_RE = re.compile(
+    r"^(?:BU_|Entity_)?CustomerSuccessReport-(\d{2}-[A-Za-z]{3}-\d{4})$"
+)
+_CSR_REPORT_MONTHS = (
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+)
 CSR_DUMP_RUN_SLOTS = ("0000", "0600", "1200", "1800")
+CSR_DUMP_LEVELS = ("site", "bu", "entity")
 _MANAGED_EXPORT_PREFIXES = (
     "Pendo Export  ",  # legacy customer export stem prefix
     "LLM-Context-Portfolio",
@@ -97,6 +116,43 @@ def historical_run_slot_label(slot: str) -> str:
     return text
 
 
+def csr_report_date_label(export_date: dt.date) -> str:
+    """``DD-MMM-YYYY`` with English month abbreviations (locale-independent)."""
+    return f"{export_date.day:02d}-{_CSR_REPORT_MONTHS[export_date.month - 1]}-{export_date.year}"
+
+
+def parse_csr_report_title_date(name: str) -> dt.date | None:
+    """Parse ``CustomerSuccessReport-21-Aug-2026`` / BU_ / Entity_ titles."""
+    stem, _ext = split_filename_stem_ext(name)
+    m = _CSR_REPORT_TITLE_RE.match(stem or "")
+    if not m:
+        return None
+    day_s, mon_s, year_s = m.group(1).split("-")
+    try:
+        month = _CSR_REPORT_MONTHS.index(mon_s) + 1
+        return dt.date(int(year_s), month, int(day_s))
+    except (ValueError, IndexError):
+        return None
+
+
+def csr_dump_report_title(level: str, export_date: dt.date) -> str:
+    """Drive title for a CSR dump Sheet (no ``-persistent``; date is in the name)."""
+    key = (level or "").strip().lower()
+    label = csr_report_date_label(export_date)
+    if key == "site":
+        return f"CustomerSuccessReport-{label}"
+    if key == "bu":
+        return f"BU_CustomerSuccessReport-{label}"
+    if key == "entity":
+        return f"Entity_CustomerSuccessReport-{label}"
+    raise ValueError(f"CSR dump level must be one of {CSR_DUMP_LEVELS}, got {level!r}")
+
+
+def is_csr_customer_success_report_filename(name: str) -> bool:
+    """True for dated CSR dump Sheets/markdown (site, BU, or entity)."""
+    return parse_csr_report_title_date(name) is not None
+
+
 def is_managed_export_filename(name: str) -> bool:
     """True for portfolio/customer export artifacts governed by persistent/historical layout."""
     if not name or name.startswith("."):
@@ -109,6 +165,8 @@ def is_managed_export_filename(name: str) -> bool:
     if _CUSTOMER_EXPORT_STEM_RE.match(stem):
         return True
     if _CSR_DUMP_STEM_RE.match(stem):
+        return True
+    if is_csr_customer_success_report_filename(stem):
         return True
     if PERSISTENT_SUFFIX in name:
         return True
@@ -423,7 +481,7 @@ def upload_pendo_markdown_and_spreadsheet(
 
 def upload_csr_markdown_and_spreadsheet(
     *,
-    stem: str,
+    title: str,
     md: str,
     tables: dict[str, list[list[Any]]],
     persistent_folder_id: str,
@@ -432,7 +490,10 @@ def upload_csr_markdown_and_spreadsheet(
     slot: str,
     export_date: dt.date | None = None,
 ) -> dict[str, str]:
-    """Upload CSR dump markdown + Sheet to persistent base and ``{day}/{slot}/`` snapshot."""
+    """Upload CSR dump markdown + Sheet to the customer folder and ``{day}/{slot}/`` snapshot.
+
+    ``title`` is the dated Drive name (no ``-persistent``), used for both copies.
+    """
     from .drive_config import dedupe_duplicate_names_in_folder, upload_text_file_to_drive_folder
     from .export_csr_spreadsheet import spreadsheet_url, upload_csr_dump_spreadsheet
 
@@ -441,10 +502,10 @@ def upload_csr_markdown_and_spreadsheet(
     slot_label = historical_run_slot_label(slot)
     historical_slot_id = ensure_historical_run_slot_folder(historical_folder_id, slot_label, day)
 
-    p_md = persistent_filename(stem, ext=".md")
-    h_md = historical_snapshot_filename(stem, ext=".md")
-    p_ss = persistent_spreadsheet_title(stem)
-    h_ss = historical_snapshot_spreadsheet_title(stem)
+    p_md = f"{title}.md"
+    h_md = f"{title}.md"
+    p_ss = title
+    h_ss = title
 
     dedupe_duplicate_names_in_folder(persistent_folder_id, p_md)
     dedupe_duplicate_names_in_folder(persistent_folder_id, p_ss)
@@ -458,7 +519,7 @@ def upload_csr_markdown_and_spreadsheet(
 
     logger.info(
         "Uploaded %s → %s/%s and Historical Data/%s/%s/%s",
-        stem,
+        title,
         base_label,
         p_md,
         day_label,

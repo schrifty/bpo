@@ -12,22 +12,31 @@ from src.export_csr_dump import (
     customer_exports_folder_for_csr_name,
     infer_csr_dump_slot,
     render_csr_dump_markdown,
+    rollup_csr_site_rows,
 )
 from src.export_drive_layout import (
+    csr_dump_report_title,
+    csr_report_date_label,
     historical_run_slot_label,
+    is_csr_customer_success_report_filename,
     is_historical_run_slot_subfolder,
     is_managed_export_filename,
+    parse_csr_report_title_date,
 )
 from src.cs_report_client import distinct_csr_week_customers
 from src.job_runner import build_step_argv, load_job_spec
 
 
-def test_csr_dump_stem_and_managed_filename() -> None:
-    stem = csr_dump_stem("Ford")
-    assert stem == "Ford CSR Dump"
-    assert is_managed_export_filename(f"{stem}-persistent.md")
-    assert is_managed_export_filename(stem)
-    assert is_managed_export_filename(f"{stem}-persistent")
+def test_csr_dump_titles_are_dated_site_bu_entity() -> None:
+    day = dt.date(2026, 8, 21)
+    assert csr_report_date_label(day) == "21-Aug-2026"
+    assert csr_dump_report_title("site", day) == "CustomerSuccessReport-21-Aug-2026"
+    assert csr_dump_report_title("bu", day) == "BU_CustomerSuccessReport-21-Aug-2026"
+    assert csr_dump_report_title("entity", day) == "Entity_CustomerSuccessReport-21-Aug-2026"
+    assert parse_csr_report_title_date("BU_CustomerSuccessReport-21-Aug-2026.md") == day
+    assert is_csr_customer_success_report_filename("Entity_CustomerSuccessReport-21-Aug-2026")
+    assert is_managed_export_filename("CustomerSuccessReport-21-Aug-2026.md")
+    assert is_managed_export_filename(csr_dump_stem("Ford") + "-persistent.md")
 
 
 def test_run_slot_labels() -> None:
@@ -60,21 +69,72 @@ def test_folder_mapping_prefers_cohort_and_aliases() -> None:
     assert customer_exports_folder_for_csr_name("Unmapped Widget Co") == "Unmapped Widget Co"
 
 
+def test_rollup_sums_counts_and_means_percents() -> None:
+    sites = [
+        {
+            "business_unit": "Cabin",
+            "entity": "Tijuana C40",
+            "factory": "Tijuana C44",
+            "health_score": "GREEN",
+            "shortages": 10,
+            "on_hand_value": 100,
+            "clear_to_build_pct": 80.0,
+        },
+        {
+            "business_unit": "Cabin",
+            "entity": "Tijuana C40",
+            "factory": "Tijuana C45",
+            "health_score": "RED",
+            "shortages": 5,
+            "on_hand_value": 50,
+            "clear_to_build_pct": 40.0,
+        },
+        {
+            "business_unit": "Seats",
+            "entity": "Montreal CG0",
+            "factory": "Montreal CG1",
+            "health_score": "YELLOW",
+            "shortages": 1,
+            "on_hand_value": 10,
+            "clear_to_build_pct": 90.0,
+        },
+    ]
+    bu = {r["business_unit"]: r for r in rollup_csr_site_rows(sites, level="bu")}
+    assert bu["Cabin"]["factory_count"] == 2
+    assert bu["Cabin"]["shortages"] == 15
+    assert bu["Cabin"]["on_hand_value"] == 150
+    assert bu["Cabin"]["clear_to_build_pct"] == 60.0
+    assert bu["Cabin"]["health_score"] == "RED"
+    assert "factory" not in bu["Cabin"]
+    assert bu["Seats"]["factory_count"] == 1
+    entities = rollup_csr_site_rows(sites, level="entity")
+    assert {r["entity"] for r in entities} == {"Tijuana C40", "Montreal CG0"}
+    tijuana = next(r for r in entities if r["entity"] == "Tijuana C40")
+    assert tijuana["shortages"] == 15
+    assert tijuana["factory_count"] == 2
+
+
 def test_render_csr_dump_markdown_index() -> None:
+    day = dt.date(2026, 8, 21)
+    titles = {level: csr_dump_report_title(level, day) for level in ("site", "bu", "entity")}
     md = render_csr_dump_markdown(
         csr_customer="Ford",
         folder="Ford",
         slot="0600",
-        export_date=dt.date(2026, 8, 21),
-        factory_count=12,
+        export_date=day,
+        titles=titles,
+        site_count=12,
+        bu_count=1,
+        entity_count=12,
         source_meta={"file": "CS Report.xlsx", "modified": "2026-08-21T08:00:00.000Z"},
-        spreadsheet_url="https://docs.google.com/spreadsheets/d/abc/edit",
+        spreadsheet_urls={"site": "https://docs.google.com/spreadsheets/d/abc/edit"},
         mapped=True,
     )
-    assert "Ford CSR Dump" in md
+    assert "CustomerSuccessReport-21-Aug-2026" in md
+    assert "BU_CustomerSuccessReport-21-Aug-2026" in md
+    assert "Entity_CustomerSuccessReport-21-Aug-2026" in md
     assert "`0600`" in md
     assert "Historical Data/2026-08-21/0600/" in md
-    assert "12" in md
     assert "abc" in md
     assert "Join note" not in md
 

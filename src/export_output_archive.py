@@ -36,6 +36,7 @@ from .export_drive_layout import (
     is_allowed_export_base_subfolder,
     is_historical_day_subfolder,
     is_historical_month_subfolder,
+    is_csr_customer_success_report_filename,
     is_historical_run_slot_subfolder,
     is_legacy_dated_output_folder,
     is_legacy_export_container_folder,
@@ -43,6 +44,7 @@ from .export_drive_layout import (
     is_output_root_resident_filename,
     is_persistent_export_name,
     modified_time_to_date,
+    parse_csr_report_title_date,
     parse_historical_flat_dated_name,
     target_historical_snapshot_name,
     target_persistent_name,
@@ -85,6 +87,9 @@ def item_month_key(name: str, modified_time: str, *, mime_type: str) -> str | No
             return dated.group(1)[:7]
         if _ARCHIVE_MONTH_RE.match(name or ""):
             return None
+    csr_day = parse_csr_report_title_date(name)
+    if csr_day is not None:
+        return csr_day.strftime("%Y-%m")
     if modified_time and len(modified_time) >= 7:
         return modified_time[:7]
     return None
@@ -285,6 +290,8 @@ def _relocate_non_persistent_base_file(
     mime = str(child.get("mimeType") or "")
     modified = str(child.get("modifiedTime") or "")
     if not cid or not name or is_output_root_resident_filename(name):
+        return None
+    if is_csr_customer_success_report_filename(name):
         return None
 
     persistent_name = target_persistent_name(name, mime_type=mime)

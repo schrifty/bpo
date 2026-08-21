@@ -400,16 +400,17 @@ def test_relocate_non_persistent_skips_akkr_metrics_deck() -> None:
     assert _relocate_non_persistent_base_file(child, parent_id="out", historical_id="hist") is None
 
 
-def test_relocate_non_persistent_skips_csr_dump_persistent() -> None:
-    from src.export_output_archive import _relocate_non_persistent_base_file
+def test_relocate_non_persistent_skips_csr_dated_report() -> None:
+    from src.export_output_archive import _relocate_non_persistent_base_file, item_month_key
 
     child = {
         "id": "csr-1",
-        "name": "Ford CSR Dump-persistent.md",
+        "name": "CustomerSuccessReport-21-Aug-2026.md",
         "mimeType": "text/markdown",
         "modifiedTime": "2026-08-21T11:00:00.000Z",
     }
     assert _relocate_non_persistent_base_file(child, parent_id="out", historical_id="hist") is None
+    assert item_month_key(child["name"], child["modifiedTime"], mime_type="text/markdown") == "2026-08"
 
 
 def test_restore_misplaced_akkr_metrics_moves_newest_and_trashes_dupes(monkeypatch) -> None:

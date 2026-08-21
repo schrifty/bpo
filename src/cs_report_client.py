@@ -804,6 +804,7 @@ for _col, _key in (
 _CSR_DERIVED_EXPORT_LABELS: dict[str, str] = {
     "automated_health_composite": "Automated Health Composite",
     "automated_health_override": "Automated Health Override",
+    "factory_count": "Site count",
 }
 
 

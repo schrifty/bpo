@@ -64,9 +64,9 @@ Flag commands (utilities)
       ``-persistent`` files in the customer folder; same-day snapshots under ``Historical Data/{ISO-date}/``.
       Prior-month base-folder exports are archived into ``Historical Data/{YYYY-MM}/`` at startup.
       Default: ``--days 30``.
-      ``--export-csr`` writes a full CS Report ``delta=week`` dump (Sheet + short markdown index)
-      per CSR workbook customer into the same ``Customer Exports/{folder}/`` tree. Intra-day
-      snapshots live under ``Historical Data/{ISO-date}/{HHmm}/``.
+      ``--export-csr`` writes dated CS Report ``delta=week`` Sheets (site, BU, and entity)
+      plus a short markdown index per CSR workbook customer under ``Customer Exports/{folder}/``.
+      Intra-day snapshots live under ``Historical Data/{ISO-date}/{HHmm}/``.
 
   cortex --schedule [--prefix NAME] [--region REGION]
       Show EventBridge cron schedules for ECS batch jobs (live AWS when credentials are available,

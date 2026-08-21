@@ -8,7 +8,7 @@ Cortex produces three main kinds of markdown exports:
 |--------|----------------|----------------|
 | **Portfolio LLM context** (`LLM-Context-Portfolio`) | Leadership, CS, AMs — whole book | Pendo headlines, Jira, Salesforce, CS Report, signals, risk — **all customers** in one file |
 | **Per-customer export** (`Customer Export (Nd)`) | Account teams — one strategic customer | Deep **Pendo** usage plus **CS Report** factory metrics when matched — **one customer** per file (+ matching Sheet) |
-| **CSR dump** (`{Customer} CSR Dump`) | Account teams — CS Report factories | Full CS Report **`delta=week`** workbook for one CSR customer (Sheet + short markdown index) |
+| **CSR dump** (`CustomerSuccessReport-DD-MMM-YYYY`) | Account teams — CS Report factories / BUs / entities | Full CS Report **`delta=week`** at site, business-unit, and entity grain (three Sheets + short markdown index) |
 
 Both Pendo exports and CSR dumps use the same **Drive layout** (see [Where files live on Drive](#where-files-live-on-drive)).
 
@@ -345,11 +345,15 @@ cortex --export-csr --customer Ford --slot 1200 --no-drive
 
 Scheduled jobs `csr-customer-dump-0000` / `0600` / `1200` / `1800` run four times a day. EventBridge crons are UTC locked to current **CDT** hours (midnight / 6am / noon / 6pm Chicago → `cron(0 5|11|17|23 * * ? *)`). After the US switches to CST those UTC hours move one hour earlier on the Chicago clock.
 
-Each distinct CS Report `customer` (week delta only) gets:
+Each distinct CS Report `customer` (week delta only) gets three dated Google Sheets in `Output/Customer Exports/{folder}/` (Chicago calendar date, `DD-MMM-YYYY`):
 
-- `{Customer} CSR Dump-persistent` — Google Sheet (always latest)
-- `{Customer} CSR Dump-persistent.md` — short index with the Sheet link
-- Snapshots under `Customer Exports/{folder}/Historical Data/{YYYY-MM-DD}/{HHmm}/` (slot is the folder; the filename has no time)
+- `CustomerSuccessReport-{DD-MMM-YYYY}` — **site** grain (one row per factory)
+- `BU_CustomerSuccessReport-{DD-MMM-YYYY}` — **business unit** grain
+- `Entity_CustomerSuccessReport-{DD-MMM-YYYY}` — **entity** grain
+- Matching `.md` indexes with links to those Sheets
+- Snapshots under `Customer Exports/{folder}/Historical Data/{YYYY-MM-DD}/{HHmm}/` (slot is the folder)
+
+Same-day runs replace the dated files. Prior-month dated files are archived with other customer-folder exports. BU/entity Sheets **sum** counts and dollar KPIs from site rows; percents and DOI are **unweighted site means** (not a native LeanDNA CSR rollup). US/EU datacenter splits are not separated in this export.
 
 Folder names prefer Pendo/cohort prefixes (e.g. `Safran SA` → `Safran`). Unmatched CSR names keep the workbook string and log a warning; they are not dropped. Salesforce remains the system of record for commercial status — this dump is CS Report inventory.
 
