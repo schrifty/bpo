@@ -7,17 +7,14 @@ Prior-month base-folder exports are moved into ``Historical Data/{YYYY-MM}/`` vi
 :func:`archive_previous_month_in_folder` at startup. Prior-month day subfolders
 under ``Historical Data/`` are nested under that same monthly bucket.
 Months that are **two or more calendar months** behind ``today`` are then pruned:
-keep exports generated on the **1st** of that month, trash the 2nd through month-end
+keep exports generated on the **1st** of that month, permanently delete the 2nd through month-end
 (e.g. on 1 Sep, delete 2 Jul–31 Jul and keep 1 Jul). Current and previous calendar
 months are left intact.
-
-Set ``CORTEX_SKIP_OUTPUT_ARCHIVE=1`` to disable startup enforcement.
 """
 
 from __future__ import annotations
 
 import datetime as dt
-import os
 from collections import defaultdict
 from typing import Any
 
@@ -59,7 +56,7 @@ from .drive_config import (
     drive_api_lock,
     move_drive_file,
     rename_drive_file,
-    trash_drive_file,
+    delete_drive_file,
 )
 
 _archive_ran = False
@@ -69,10 +66,6 @@ def clear_output_archive_guard() -> None:
     """Reset once-per-process guard (tests only)."""
     global _archive_ran
     _archive_ran = False
-
-
-def _truthy_env(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def previous_month_key(*, today: dt.date | None = None) -> str:
@@ -227,10 +220,8 @@ def _move_drive_item(file_id: str, from_parent_id: str, to_parent_id: str) -> No
         ).execute()
 
 
-def _trash_drive_item(file_id: str) -> None:
-    with drive_api_lock:
-        drive = _get_drive()
-        drive.files().update(fileId=file_id, body={"trashed": True}).execute()
+def _delete_drive_item(file_id: str) -> None:
+    delete_drive_file(file_id)
 
 
 def _is_legacy_container_folder(
@@ -416,7 +407,7 @@ def _flatten_legacy_container(
                 **archived,
             }
         )
-    trash_drive_file(container_id)
+    delete_drive_file(container_id)
     return moved, True
 
 def _migrate_legacy_containers_under_folder(
@@ -484,7 +475,7 @@ def _relocate_stray_base_month_folder(
                 "path": f"{HISTORICAL_DATA_FOLDER}/{month_name}/{inner_name}",
             }
         )
-    trash_drive_file(month_folder_id)
+    delete_drive_file(month_folder_id)
     return moved
 
 
@@ -520,7 +511,7 @@ def _flatten_legacy_container_into_historical(
                 **archived,
             }
         )
-    trash_drive_file(container_id)
+    delete_drive_file(container_id)
     return moved, True
 
 
@@ -900,7 +891,7 @@ def restore_misplaced_output_root_metrics_decks(
         for extra in leftovers:
             extra_id = str(extra.get("id") or "")
             if extra_id:
-                trash_drive_file(extra_id)
+                delete_drive_file(extra_id)
                 trashed.append({"id": extra_id, "name": name})
                 logger.info(
                     "Removed duplicate misplaced metrics deck %s (%s)",
@@ -1084,9 +1075,9 @@ def dedupe_child_folders_by_name(parent_id: str) -> list[dict[str, str]]:
             sid = str(stale.get("id") or "")
             if not sid:
                 continue
-            _trash_drive_item(sid)
+            _delete_drive_item(sid)
             trashed.append({"id": sid, "name": name})
-            logger.info("Trashed duplicate folder %s (%s) under %s", name, sid, parent_id[:12])
+            logger.info("Deleted duplicate folder %s (%s) under %s", name, sid, parent_id[:12])
     return trashed
 
 
@@ -1178,10 +1169,10 @@ def prune_stale_non_first_of_month_exports(
             skip_names=skip_frozen,
         ):
             return
-        _trash_drive_item(cid)
+        _delete_drive_item(cid)
         trashed.append({"id": cid, "name": name, "from": folder_id})
         logger.info(
-            "Trashed stale export %s (kept 1st-of-month only for months ≥%d old) (%s)",
+            "Deleted stale export %s (kept 1st-of-month only for months ≥%d old) (%s)",
             name,
             STALE_EXPORT_FULL_RETENTION_MONTHS,
             context or folder_id[:12],
@@ -1286,9 +1277,6 @@ def maybe_migrate_export_layout_on_startup(*, force: bool = False) -> dict[str, 
         return {"skipped": "already_ran"}
     _archive_ran = True
 
-    if _truthy_env("CORTEX_SKIP_OUTPUT_ARCHIVE"):
-        return {"skipped": "env"}
-
     from .drive_config import get_qbr_output_root_folder_id
 
     root_id = get_qbr_output_root_folder_id()
@@ -1342,7 +1330,7 @@ def maybe_migrate_export_layout_on_startup(*, force: bool = False) -> dict[str, 
         if summary["moved_count"] or summary["trashed_folder_count"] or summary["trashed_stale_count"]:
             logger.info(
                 "Export monthly archive: moved %d file(s), removed %d legacy folder(s), "
-                "trashed %d stale day-2+ snapshot(s) under Drive %s",
+                "deleted %d stale day-2+ snapshot(s) under Drive %s",
                 summary["moved_count"],
                 summary["trashed_folder_count"],
                 summary["trashed_stale_count"],

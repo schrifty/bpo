@@ -7,7 +7,7 @@ CSR dumps write dated titles (``CustomerSuccessReport-DD-MMM-YYYY`` and BU/Entit
 prefixed variants) in the customer folder, plus intra-day snapshots under
 ``Historical Data/{YYYY-MM-DD}/{HHmm}/``. Same-day runs replace the dated files;
 prior-month dated files are archived with other base-folder exports. Months two or
-more calendar months old keep only 1st-of-month snapshots (days 2–end are trashed).
+more calendar months old keep only 1st-of-month snapshots (days 2–end are permanently deleted).
 Prior-month base-folder exports are bucketed into ``Historical Data/{YYYY-MM}/`` at startup via
 :func:`src.export_output_archive.archive_previous_month_in_folder`. Prior-month day subfolders
 under ``Historical Data/`` are nested under that same monthly bucket (slot folders ride along).

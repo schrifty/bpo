@@ -248,6 +248,13 @@ def trash_drive_file(file_id: str) -> None:
         drive.files().update(fileId=file_id, body={"trashed": True}).execute()
 
 
+def delete_drive_file(file_id: str) -> None:
+    """Permanently delete a Drive file (not recoverable from trash)."""
+    with drive_api_lock:
+        drive = _get_drive()
+        drive.files().delete(fileId=file_id).execute()
+
+
 def export_google_doc_as_plain_text(file_id: str, *, _max_retries: int = 5) -> str:
     """Export a Google Doc to UTF-8 plain text (retries on rate-limit errors)."""
     import random, time

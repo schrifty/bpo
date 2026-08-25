@@ -327,7 +327,7 @@ def test_prune_stale_non_first_trashes_july_2_31_on_sept_1(monkeypatch) -> None:
         lambda _pid: historical_id,
     )
     monkeypatch.setattr(
-        "src.export_output_archive._trash_drive_item",
+        "src.export_output_archive._delete_drive_item",
         lambda fid: trashed.append(fid),
     )
 
@@ -350,18 +350,20 @@ def test_prune_stale_non_first_trashes_july_2_31_on_sept_1(monkeypatch) -> None:
     assert set(trashed) == {row["id"] for row in result["trashed"]}
 
 
-def test_maybe_archive_runs_once_and_honors_skip_env(monkeypatch) -> None:
+def test_maybe_archive_runs_once(monkeypatch) -> None:
     clear_output_archive_guard()
-    monkeypatch.setenv("CORTEX_SKIP_OUTPUT_ARCHIVE", "1")
+    monkeypatch.setattr(
+        "src.drive_config.get_qbr_output_root_folder_id",
+        lambda: "",
+    )
     first = maybe_archive_previous_month_exports()
     second = maybe_archive_previous_month_exports()
-    assert first == {"skipped": "env"}
+    assert first == {"skipped": "no_output_folder"}
     assert second == {"skipped": "already_ran"}
 
 
 def test_maybe_migrate_walks_customer_exports(monkeypatch) -> None:
     clear_output_archive_guard()
-    monkeypatch.delenv("CORTEX_SKIP_OUTPUT_ARCHIVE", raising=False)
     monkeypatch.setattr(
         "src.drive_config.get_qbr_output_root_folder_id",
         lambda: "output-root",
@@ -407,8 +409,11 @@ def test_maybe_migrate_walks_customer_exports(monkeypatch) -> None:
 
 def test_maybe_archive_alias_delegates_to_migration(monkeypatch) -> None:
     clear_output_archive_guard()
-    monkeypatch.setenv("CORTEX_SKIP_OUTPUT_ARCHIVE", "1")
-    assert maybe_archive_previous_month_exports() == {"skipped": "env"}
+    monkeypatch.setattr(
+        "src.drive_config.get_qbr_output_root_folder_id",
+        lambda: "",
+    )
+    assert maybe_archive_previous_month_exports() == {"skipped": "no_output_folder"}
 
 
 def test_migrate_legacy_dated_folder_moves_children_and_trashes_container(monkeypatch) -> None:
@@ -463,7 +468,7 @@ def test_migrate_legacy_dated_folder_moves_children_and_trashes_container(monkey
 
     monkeypatch.setattr("src.export_output_archive._move_drive_item", fake_move)
     monkeypatch.setattr(
-        "src.export_output_archive.trash_drive_file",
+        "src.export_output_archive.delete_drive_file",
         lambda fid: trashed.append(fid),
     )
     monkeypatch.setattr("src.export_output_archive.rename_drive_file", lambda *_a, **_k: None)
@@ -576,7 +581,7 @@ def test_restore_misplaced_akkr_metrics_moves_newest_and_trashes_dupes(monkeypat
             (fid, from_parent_id, to_parent_id)
         ),
     )
-    monkeypatch.setattr("src.export_output_archive.trash_drive_file", lambda fid: trashed.append(fid))
+    monkeypatch.setattr("src.export_output_archive.delete_drive_file", lambda fid: trashed.append(fid))
 
     result = restore_misplaced_output_root_metrics_decks("out", historical_id="hist")
     assert moves == [("newer", "aug-folder", "out")]
