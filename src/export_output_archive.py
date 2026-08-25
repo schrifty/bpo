@@ -5,7 +5,11 @@ only ``-persistent`` export files and allowed subfolders (``Customer Exports``, 
 Each export also writes a same-day snapshot under ``Historical Data/{YYYY-MM-DD}/`` (plain stem).
 Prior-month base-folder exports are moved into ``Historical Data/{YYYY-MM}/`` via
 :func:`archive_previous_month_in_folder` at startup. Prior-month day subfolders
-(``Historical Data/{YYYY-MM-DD}/``) are nested under that same monthly bucket.
+under ``Historical Data/`` are nested under that same monthly bucket.
+Months that are **two or more calendar months** behind ``today`` are then pruned:
+keep exports generated on the **1st** of that month, trash the 2nd through month-end
+(e.g. on 1 Sep, delete 2 Jul–31 Jul and keep 1 Jul). Current and previous calendar
+months are left intact.
 
 Set ``CORTEX_SKIP_OUTPUT_ARCHIVE=1`` to disable startup enforcement.
 """
@@ -77,6 +81,60 @@ def previous_month_key(*, today: dt.date | None = None) -> str:
     first_of_month = ref.replace(day=1)
     last_prev = first_of_month - dt.timedelta(days=1)
     return last_prev.strftime("%Y-%m")
+
+
+# Keep the current month and the previous calendar month fully. Months older than
+# that keep only the 1st-of-month snapshot (see ``should_trash_stale_non_first_export``).
+STALE_EXPORT_FULL_RETENTION_MONTHS = 2
+
+
+def calendar_months_between(later: dt.date, earlier: dt.date) -> int:
+    """Whole calendar months from *earlier*'s month to *later*'s month (same month → 0)."""
+    return (later.year - earlier.year) * 12 + (later.month - earlier.month)
+
+
+def export_item_date(name: str, modified_time: str, *, mime_type: str) -> dt.date | None:
+    """Best-effort generation date for an export artifact (folder or file)."""
+    if mime_type == _MIME_FOLDER:
+        dated = dated_output_folder_date(name)
+        if dated is not None:
+            return dated
+        if is_historical_day_subfolder(name):
+            try:
+                return dt.date.fromisoformat(name)
+            except ValueError:
+                return None
+        return None
+    csr_day = parse_csr_report_title_date(name)
+    if csr_day is not None:
+        return csr_day
+    flat = parse_historical_flat_dated_name(name)
+    if flat is not None:
+        return flat[1]
+    return modified_time_to_date(modified_time)
+
+
+def should_trash_stale_non_first_export(
+    name: str,
+    modified_time: str,
+    *,
+    mime_type: str,
+    today: dt.date,
+    skip_names: frozenset[str] | None = None,
+) -> bool:
+    """True when this artifact is from day 2+ of a month two or more months before *today*."""
+    if skip_names and name in skip_names:
+        return False
+    if is_output_root_resident_filename(name):
+        return False
+    if is_historical_month_subfolder(name):
+        return False
+    when = export_item_date(name, modified_time, mime_type=mime_type)
+    if when is None:
+        return False
+    if calendar_months_between(today, when) < STALE_EXPORT_FULL_RETENTION_MONTHS:
+        return False
+    return when.day != 1
 
 
 def item_month_key(name: str, modified_time: str, *, mime_type: str) -> str | None:
@@ -1085,6 +1143,82 @@ def archive_past_month_day_folders_in_historical_data(
     }
 
 
+def prune_stale_non_first_of_month_exports(
+    parent_id: str,
+    *,
+    historical_id: str | None = None,
+    today: dt.date | None = None,
+    skip_names: frozenset[str] | None = None,
+    context: str = "",
+) -> dict[str, Any]:
+    """Trash day-2+ exports from months two or more calendar months before *today*.
+
+    On 1 Sep 2026 this keeps 1 Jul (and earlier firsts) and removes 2 Jul–31 Jul
+    (and the same pattern for June, May, …). August and September stay complete.
+    """
+    ref = today or dt.date.today()
+    hist_id = historical_id or ensure_historical_data_folder(parent_id)
+    skip = set(skip_names or ())
+    skip.update({HISTORICAL_DATA_FOLDER, CUSTOMER_EXPORTS_FOLDER, _LEGACY_CUSTOMER_EXPORTS_FOLDER})
+    skip_frozen = frozenset(skip)
+    trashed: list[dict[str, str]] = []
+
+    def _maybe_trash(child: dict[str, Any], *, folder_id: str) -> None:
+        cid = str(child.get("id") or "")
+        name = str(child.get("name") or "")
+        mime = str(child.get("mimeType") or "")
+        modified = str(child.get("modifiedTime") or "")
+        if not cid or not name:
+            return
+        if not should_trash_stale_non_first_export(
+            name,
+            modified,
+            mime_type=mime,
+            today=ref,
+            skip_names=skip_frozen,
+        ):
+            return
+        _trash_drive_item(cid)
+        trashed.append({"id": cid, "name": name, "from": folder_id})
+        logger.info(
+            "Trashed stale export %s (kept 1st-of-month only for months ≥%d old) (%s)",
+            name,
+            STALE_EXPORT_FULL_RETENTION_MONTHS,
+            context or folder_id[:12],
+        )
+
+    for child in _list_folder_children(parent_id):
+        name = str(child.get("name") or "")
+        mime = str(child.get("mimeType") or "")
+        if name in skip_frozen:
+            continue
+        _maybe_trash(child, folder_id=parent_id)
+
+    for child in _list_folder_children(hist_id):
+        name = str(child.get("name") or "")
+        mime = str(child.get("mimeType") or "")
+        cid = str(child.get("id") or "")
+        if not cid:
+            continue
+        if mime == _MIME_FOLDER and is_historical_month_subfolder(name):
+            try:
+                month_first = dt.date.fromisoformat(f"{name}-01")
+            except ValueError:
+                continue
+            if calendar_months_between(ref, month_first) < STALE_EXPORT_FULL_RETENTION_MONTHS:
+                continue
+            for nested in _list_folder_children(cid):
+                _maybe_trash(nested, folder_id=cid)
+            continue
+        _maybe_trash(child, folder_id=hist_id)
+
+    return {
+        "parent_id": parent_id,
+        "historical_folder_id": hist_id,
+        "trashed": trashed,
+    }
+
+
 def _archive_export_base_on_startup(
     parent_id: str,
     *,
@@ -1120,6 +1254,13 @@ def _archive_export_base_on_startup(
         today=today,
         context=context,
     )
+    pruned = prune_stale_non_first_of_month_exports(
+        parent_id,
+        historical_id=historical_id,
+        today=today,
+        skip_names=skip_folder_names,
+        context=context,
+    )
     return {
         "parent_id": parent_id,
         "archive_month": archive_month,
@@ -1130,9 +1271,11 @@ def _archive_export_base_on_startup(
             + (archived_days.get("moved") or [])
         ),
         "trashed_folders": promoted_result.get("trashed_folders") or [],
+        "trashed_stale": pruned.get("trashed") or [],
         "historical_consolidated": consolidated,
         "archived_previous_month": archived,
         "archived_previous_month_day_folders": archived_days,
+        "pruned_stale_non_first": pruned,
     }
 
 
@@ -1158,6 +1301,7 @@ def maybe_migrate_export_layout_on_startup(*, force: bool = False) -> dict[str, 
         "customer_exports": [],
         "moved_count": 0,
         "trashed_folder_count": 0,
+        "trashed_stale_count": 0,
     }
 
     try:
@@ -1174,6 +1318,7 @@ def maybe_migrate_export_layout_on_startup(*, force: bool = False) -> dict[str, 
         summary["output_root"] = root_result
         summary["moved_count"] += len(root_result.get("moved") or [])
         summary["trashed_folder_count"] += len(root_result.get("trashed_folders") or [])
+        summary["trashed_stale_count"] += len(root_result.get("trashed_stale") or [])
 
         customer_exports_id = ensure_customer_exports_parent_folder(root_id)
         if customer_exports_id:
@@ -1192,12 +1337,15 @@ def maybe_migrate_export_layout_on_startup(*, force: bool = False) -> dict[str, 
                 summary["customer_exports"].append({"customer": customer_name, **cust_result})
                 summary["moved_count"] += len(cust_result.get("moved") or [])
                 summary["trashed_folder_count"] += len(cust_result.get("trashed_folders") or [])
+                summary["trashed_stale_count"] += len(cust_result.get("trashed_stale") or [])
 
-        if summary["moved_count"] or summary["trashed_folder_count"]:
+        if summary["moved_count"] or summary["trashed_folder_count"] or summary["trashed_stale_count"]:
             logger.info(
-                "Export monthly archive: moved %d file(s), removed %d legacy folder(s) under Drive %s",
+                "Export monthly archive: moved %d file(s), removed %d legacy folder(s), "
+                "trashed %d stale day-2+ snapshot(s) under Drive %s",
                 summary["moved_count"],
                 summary["trashed_folder_count"],
+                summary["trashed_stale_count"],
                 QBR_OUTPUT_SUBFOLDER,
             )
         else:

@@ -11,14 +11,17 @@ from src.export_output_archive import (
     _MIME_FOLDER,
     archive_past_month_day_folders_in_historical_data,
     archive_previous_month_in_folder,
+    calendar_months_between,
     clear_output_archive_guard,
     item_month_key,
     maybe_archive_previous_month_exports,
     maybe_migrate_export_layout_on_startup,
     migrate_export_folder_to_historical_data,
     previous_month_key,
+    prune_stale_non_first_of_month_exports,
     restore_misplaced_output_root_metrics_decks,
     should_archive_item,
+    should_trash_stale_non_first_export,
 )
 
 
@@ -229,6 +232,122 @@ def test_archive_past_month_day_folders_sweeps_older_stranded_months(monkeypatch
         ("d1", historical_id, "month-2026-06"),
         ("d2", historical_id, "month-2026-07"),
     ]
+
+
+def test_should_trash_stale_non_first_matches_september_july_example() -> None:
+    today = dt.date(2026, 9, 1)
+    assert calendar_months_between(today, dt.date(2026, 7, 15)) == 2
+    assert should_trash_stale_non_first_export(
+        "2026-07-15",
+        "",
+        mime_type=_MIME_FOLDER,
+        today=today,
+    )
+    assert not should_trash_stale_non_first_export(
+        "2026-07-01",
+        "",
+        mime_type=_MIME_FOLDER,
+        today=today,
+    )
+    assert not should_trash_stale_non_first_export(
+        "2026-08-15",
+        "",
+        mime_type=_MIME_FOLDER,
+        today=today,
+    )
+    assert should_trash_stale_non_first_export(
+        "CustomerSuccessReport-15-Jul-2026.md",
+        "",
+        mime_type="text/markdown",
+        today=today,
+    )
+    assert not should_trash_stale_non_first_export(
+        "CustomerSuccessReport-01-Jul-2026",
+        "",
+        mime_type="application/vnd.google-apps.spreadsheet",
+        today=today,
+    )
+    assert not should_trash_stale_non_first_export(
+        "Ford Export (30d)-persistent.md",
+        "2026-07-15T00:00:00.000Z",
+        mime_type="text/markdown",
+        today=today,
+    )
+
+
+def test_prune_stale_non_first_trashes_july_2_31_on_sept_1(monkeypatch) -> None:
+    parent_id = "ford-folder"
+    historical_id = "ford-hist"
+    july_id = "month-2026-07"
+    august_id = "month-2026-08"
+    trashed: list[str] = []
+
+    children = {
+        parent_id: [
+            {
+                "id": "csr-jul15",
+                "name": "CustomerSuccessReport-15-Jul-2026.md",
+                "mimeType": "text/markdown",
+                "modifiedTime": "2026-07-15T12:00:00.000Z",
+            },
+            {
+                "id": "csr-jul1",
+                "name": "CustomerSuccessReport-01-Jul-2026.md",
+                "mimeType": "text/markdown",
+                "modifiedTime": "2026-07-01T12:00:00.000Z",
+            },
+            {
+                "id": "csr-aug15",
+                "name": "CustomerSuccessReport-15-Aug-2026.md",
+                "mimeType": "text/markdown",
+                "modifiedTime": "2026-08-15T12:00:00.000Z",
+            },
+        ],
+        historical_id: [
+            {"id": july_id, "name": "2026-07", "mimeType": _MIME_FOLDER},
+            {"id": august_id, "name": "2026-08", "mimeType": _MIME_FOLDER},
+            {"id": "stray-jul20", "name": "2026-07-20", "mimeType": _MIME_FOLDER},
+        ],
+        july_id: [
+            {"id": "jul1", "name": "2026-07-01", "mimeType": _MIME_FOLDER},
+            {"id": "jul2", "name": "2026-07-02", "mimeType": _MIME_FOLDER},
+            {"id": "jul31", "name": "2026-07-31", "mimeType": _MIME_FOLDER},
+        ],
+        august_id: [
+            {"id": "aug2", "name": "2026-08-02", "mimeType": _MIME_FOLDER},
+        ],
+    }
+
+    monkeypatch.setattr(
+        "src.export_output_archive._list_folder_children",
+        lambda pid: list(children.get(pid, [])),
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive.ensure_historical_data_folder",
+        lambda _pid: historical_id,
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive._trash_drive_item",
+        lambda fid: trashed.append(fid),
+    )
+
+    result = prune_stale_non_first_of_month_exports(
+        parent_id,
+        historical_id=historical_id,
+        today=dt.date(2026, 9, 1),
+    )
+    names = {row["name"] for row in result["trashed"]}
+    assert names == {
+        "CustomerSuccessReport-15-Jul-2026.md",
+        "2026-07-20",
+        "2026-07-02",
+        "2026-07-31",
+    }
+    assert "2026-07-01" not in names
+    assert "CustomerSuccessReport-01-Jul-2026.md" not in names
+    assert "CustomerSuccessReport-15-Aug-2026.md" not in names
+    assert "2026-08-02" not in names
+    assert set(trashed) == {row["id"] for row in result["trashed"]}
 
 
 def test_maybe_archive_runs_once_and_honors_skip_env(monkeypatch) -> None:

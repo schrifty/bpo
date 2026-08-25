@@ -201,7 +201,7 @@ Output/Customer Exports/
         Ford Export (30d)                ← spreadsheet snapshot
 ```
 
-Prior-month day folders under **Historical Data** are rolled into monthly buckets (`Historical Data/2026-06/…`) automatically at startup, same as portfolio exports.
+Prior-month day folders under **Historical Data** are rolled into monthly buckets (`Historical Data/2026-06/…`) automatically at startup, same as portfolio exports. Once a month is **two or more calendar months** behind (for example on 1 Sep, that is July and earlier), Cortex **keeps the 1st-of-month snapshots** and **trashes the 2nd through month-end** (`2026-07-02` … `2026-07-31`). August and the current month stay complete.
 
 ### What’s inside (sections 1–12)
 
@@ -298,7 +298,7 @@ All Cortex exports under the QBR generator use the same pattern:
 | **Bookmarkable “current” export** | Portfolio: `Output/` root · Per-customer Pendo: `Output/Customer Exports/{Customer}/` | `{stem}-persistent` (+ `.md` for markdown) |
 | **Bookmarkable metrics deck** | `Output/` root | `{TAG} Metrics` (e.g. `AKKR Metrics`) — not archived; month copies use `AKKR Metrics - July` |
 | **Same-day historical snapshot** | `…/Historical Data/{YYYY-MM-DD}/` (CSR dumps: `…/{YYYY-MM-DD}/{HHmm}/`) | Plain `{stem}` (no `-persistent`; slot is the folder, not the filename) |
-| **Prior-month archives** | `…/Historical Data/{YYYY-MM}/{YYYY-MM-DD}/` | Rolled up at process startup |
+| **Prior-month archives** | `…/Historical Data/{YYYY-MM}/{YYYY-MM-DD}/` | Rolled up at process startup. Months ≥2 calendar months old keep only the **1st**; days 2–end are trashed |
 
 **Portfolio exports** (`export-all`, engineering portfolio deck) use `Output/` as the persistent base. **Per-customer Pendo** and **CSR dumps** use each customer’s folder under `Customer Exports/`. **AKKR / metrics decks** stay in `Output/` under `{TAG} Metrics`; only the month-named copy is stored under `Historical Data/{YYYY-MM}/`.
 
@@ -353,7 +353,7 @@ Each distinct CS Report `customer` (week delta only) gets three dated Google She
 - A matching `.md` per grain carrying that grain's **full data table** (same rows and columns as its Sheet), plus links to the companion grains
 - Snapshots under `Customer Exports/{folder}/Historical Data/{YYYY-MM-DD}/{HHmm}/` (slot is the folder)
 
-Same-day runs replace the dated files. Prior-month dated files are archived with other customer-folder exports. BU/entity Sheets **sum** counts and dollar KPIs from site rows; percents and DOI are **unweighted site means** (not a native LeanDNA CSR rollup). US/EU datacenter splits are not separated in this export.
+Same-day runs replace the dated files. Prior-month dated files are archived with other customer-folder exports. Months two or more calendar months old keep only the **1st-of-month** dumps (2nd–end are trashed). BU/entity Sheets **sum** counts and dollar KPIs from site rows; percents and DOI are **unweighted site means** (not a native LeanDNA CSR rollup). US/EU datacenter splits are not separated in this export.
 
 Folder names prefer Pendo/cohort prefixes (e.g. `Safran SA` → `Safran`). Unmatched CSR names keep the workbook string and log a warning; they are not dropped. Salesforce remains the system of record for commercial status — this dump is CS Report inventory.
 
