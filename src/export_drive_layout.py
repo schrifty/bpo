@@ -480,66 +480,66 @@ def upload_pendo_markdown_and_spreadsheet(
     }
 
 
-def upload_csr_markdown_and_spreadsheet(
-    *,
-    title: str,
-    md: str,
-    tables: dict[str, list[list[Any]]],
-    persistent_folder_id: str,
+def ensure_csr_dump_historical_slot_folder(
     historical_folder_id: str,
-    base_label: str,
     slot: str,
     export_date: dt.date | None = None,
-) -> dict[str, str]:
-    """Upload CSR dump markdown + Sheet to the customer folder and ``{day}/{slot}/`` snapshot.
-
-    ``title`` is the dated Drive name (no ``-persistent``), used for both copies.
-    """
-    from .drive_config import dedupe_duplicate_names_in_folder, upload_text_file_to_drive_folder
-    from .export_csr_spreadsheet import spreadsheet_url, upload_csr_dump_spreadsheet
-
+) -> tuple[str, str, str]:
+    """Return ``(slot_folder_id, day_label, slot_label)`` for a CSR dump snapshot."""
     day = export_date or dt.date.today()
     day_label = historical_day_folder_label(day)
     slot_label = historical_run_slot_label(slot)
-    historical_slot_id = ensure_historical_run_slot_folder(historical_folder_id, slot_label, day)
+    slot_id = ensure_historical_run_slot_folder(historical_folder_id, slot_label, day)
+    return slot_id, day_label, slot_label
 
-    p_md = f"{title}.md"
-    h_md = f"{title}.md"
-    p_ss = title
-    h_ss = title
 
-    dedupe_duplicate_names_in_folder(persistent_folder_id, p_md)
-    dedupe_duplicate_names_in_folder(persistent_folder_id, p_ss)
-    dedupe_duplicate_names_in_folder(historical_slot_id, h_md)
-    dedupe_duplicate_names_in_folder(historical_slot_id, h_ss)
-
-    fid_p = upload_text_file_to_drive_folder(p_md, md, persistent_folder_id, mime_type="text/markdown")
-    fid_h = upload_text_file_to_drive_folder(h_md, md, historical_slot_id, mime_type="text/markdown")
-    ss_p = upload_csr_dump_spreadsheet(tables, p_ss, persistent_folder_id)
-    ss_h = upload_csr_dump_spreadsheet(tables, h_ss, historical_slot_id)
-
-    logger.info(
-        "Uploaded %s → %s/%s and Historical Data/%s/%s/%s",
-        title,
-        base_label,
-        p_md,
-        day_label,
-        slot_label,
-        h_md,
+def upload_csr_spreadsheet_persistent_and_historical(
+    *,
+    title: str,
+    tables: dict[str, list[list[Any]]],
+    persistent_folder_id: str,
+    historical_slot_folder_id: str,
+) -> dict[str, str]:
+    """Update the customer-folder Sheet in place, then Drive-copy it into the slot folder."""
+    from .drive_config import dedupe_duplicate_names_in_folder
+    from .export_csr_spreadsheet import (
+        copy_csr_spreadsheet_into_folder,
+        spreadsheet_url,
+        upload_csr_dump_spreadsheet,
     )
+
+    dedupe_duplicate_names_in_folder(persistent_folder_id, title)
+    ss_p = upload_csr_dump_spreadsheet(tables, title, persistent_folder_id)
+    ss_h = copy_csr_spreadsheet_into_folder(ss_p, title, historical_slot_folder_id)
     return {
-        "persistent_md_id": fid_p,
-        "historical_md_id": fid_h,
-        "persistent_md_name": p_md,
-        "historical_md_name": h_md,
-        "historical_day_folder": day_label,
-        "historical_run_slot": slot_label,
-        "historical_slot_folder_id": historical_slot_id,
-        "historical_folder_id": historical_folder_id,
         "persistent_spreadsheet_id": ss_p,
         "historical_spreadsheet_id": ss_h,
         "persistent_spreadsheet_url": spreadsheet_url(ss_p),
         "historical_spreadsheet_url": spreadsheet_url(ss_h),
+        "historical_slot_folder_id": historical_slot_folder_id,
+    }
+
+
+def upload_csr_markdown_persistent_and_historical(
+    *,
+    title: str,
+    md: str,
+    persistent_folder_id: str,
+    historical_slot_folder_id: str,
+) -> dict[str, str]:
+    """Write the markdown twin once to the customer folder and the slot snapshot."""
+    from .drive_config import upload_text_file_to_drive_folder
+
+    name = f"{title}.md"
+    fid_p = upload_text_file_to_drive_folder(name, md, persistent_folder_id, mime_type="text/markdown")
+    fid_h = upload_text_file_to_drive_folder(
+        name, md, historical_slot_folder_id, mime_type="text/markdown"
+    )
+    return {
+        "persistent_md_id": fid_p,
+        "historical_md_id": fid_h,
+        "persistent_md_name": name,
+        "historical_md_name": name,
     }
 
 

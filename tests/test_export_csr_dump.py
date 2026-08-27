@@ -10,6 +10,7 @@ from src.export_csr_dump import (
     chicago_export_date,
     csr_dump_stem,
     customer_exports_folder_for_csr_name,
+    export_csr_dumps,
     infer_csr_dump_slot,
     render_csr_dump_markdown,
     rollup_csr_site_rows,
@@ -184,6 +185,71 @@ def test_build_step_argv_and_job_specs() -> None:
     assert spec.steps[0]["slot"] == "0600"
     assert load_job_spec("csr-customer-dump-0000").steps[0]["slot"] == "0000"
     assert load_job_spec("csr-customer-dump-1800").steps[0]["slot"] == "1800"
+
+
+def test_export_csr_dumps_writes_markdown_once_after_sheets(monkeypatch) -> None:
+    order: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "src.export_csr_dump.load_latest_csr_week_rows",
+        lambda: [{"customer": "Ford", "delta": "week"}],
+    )
+    monkeypatch.setattr("src.export_csr_dump.distinct_csr_week_customers", lambda _rows: ["Ford"])
+    monkeypatch.setattr(
+        "src.export_csr_dump.csr_latest_report_meta",
+        lambda: {"file": "CS Report.xlsx", "modified": "2026-08-21T08:00:00.000Z"},
+    )
+    monkeypatch.setattr(
+        "src.export_csr_dump.csr_site_entries_for_exact_week_customer",
+        lambda *_a, **_k: [{"factory": "Chicago Assembly", "business_unit": "Blue", "entity": "US"}],
+    )
+    monkeypatch.setattr(
+        "src.export_csr_dump.csr_sites_and_columns_for_export",
+        lambda rows: ([{"Factory": "Chicago Assembly"}], ["Factory"]),
+    )
+    monkeypatch.setattr(
+        "src.export_csr_dump.rollup_csr_site_rows",
+        lambda _sites, *, level: [{"grain": level}],
+    )
+    monkeypatch.setattr("src.export_output_archive.maybe_migrate_export_layout_on_startup", lambda: None)
+    monkeypatch.setattr(
+        "src.export_drive_layout.ensure_customer_export_folders",
+        lambda _folder: {
+            "persistent_folder_id": "p-id",
+            "historical_folder_id": "h-id",
+            "base_label": "Ford",
+        },
+    )
+    monkeypatch.setattr(
+        "src.export_drive_layout.ensure_csr_dump_historical_slot_folder",
+        lambda *_a, **_k: ("slot-id", "2026-08-21", "0000"),
+    )
+
+    def _sheet(*, title, tables, persistent_folder_id, historical_slot_folder_id):
+        order.append(("sheet", title))
+        assert persistent_folder_id == "p-id"
+        assert historical_slot_folder_id == "slot-id"
+        assert tables
+        return {"persistent_spreadsheet_url": f"https://docs.google.com/spreadsheets/d/{title}/edit"}
+
+    def _md(*, title, md, persistent_folder_id, historical_slot_folder_id):
+        order.append(("md", title))
+        assert persistent_folder_id == "p-id"
+        assert historical_slot_folder_id == "slot-id"
+        assert "https://docs.google.com/spreadsheets/d/CustomerSuccessReport-21-Aug-2026/edit" in md
+        assert "https://docs.google.com/spreadsheets/d/BU_CustomerSuccessReport-21-Aug-2026/edit" in md
+        assert "https://docs.google.com/spreadsheets/d/Entity_CustomerSuccessReport-21-Aug-2026/edit" in md
+        return {}
+
+    monkeypatch.setattr("src.export_csr_dump.upload_csr_spreadsheet_persistent_and_historical", _sheet)
+    monkeypatch.setattr("src.export_csr_dump.upload_csr_markdown_persistent_and_historical", _md)
+
+    result = export_csr_dumps(
+        slot="0000",
+        now=dt.datetime(2026, 8, 21, 5, 0, tzinfo=dt.timezone.utc),
+    )
+    assert result["uploaded"] == 1
+    kinds = [kind for kind, _title in order]
+    assert kinds == ["sheet", "sheet", "sheet", "md", "md", "md"]
 
 
 def test_distinct_csr_week_customers_filters_delta() -> None:

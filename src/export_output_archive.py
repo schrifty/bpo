@@ -52,6 +52,7 @@ from .export_drive_layout import (
 )
 from .drive_config import (
     QBR_OUTPUT_SUBFOLDER,
+    copy_drive_file_to_folder,
     dedupe_duplicate_names_in_folder,
     drive_api_lock,
     move_drive_file,
@@ -700,17 +701,6 @@ def promote_legacy_exports_in_base(
     }
 
 
-def _copy_drive_file_to_folder(file_id: str, *, name: str, parent_id: str) -> str:
-    with drive_api_lock:
-        drive = _get_drive()
-        copied = (
-            drive.files()
-            .copy(fileId=file_id, body={"name": name, "parents": [parent_id]}, fields="id")
-            .execute()
-        )
-        return str(copied["id"])
-
-
 def ensure_persistent_exports_in_base(parent_id: str, historical_id: str) -> list[dict[str, str]]:
     """Create missing ``-persistent`` exports in base from newest historical/archive snapshots."""
     from .export_drive_layout import (
@@ -789,7 +779,7 @@ def ensure_persistent_exports_in_base(parent_id: str, historical_id: str) -> lis
         persistent_name = persistent_filename(stem, ext=".md")
         if dedupe_duplicate_names_in_folder(parent_id, persistent_name):
             continue
-        new_id = _copy_drive_file_to_folder(
+        new_id = copy_drive_file_to_folder(
             str(child["id"]),
             name=persistent_name,
             parent_id=parent_id,
@@ -800,7 +790,7 @@ def ensure_persistent_exports_in_base(parent_id: str, historical_id: str) -> lis
         persistent_name = persistent_spreadsheet_title(stem)
         if dedupe_duplicate_names_in_folder(parent_id, persistent_name):
             continue
-        new_id = _copy_drive_file_to_folder(
+        new_id = copy_drive_file_to_folder(
             str(child["id"]),
             name=persistent_name,
             parent_id=parent_id,

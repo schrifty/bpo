@@ -353,8 +353,10 @@ Each distinct CS Report `customer` (week delta only) gets three dated Google She
 - A matching `.md` per grain carrying that grain's **full data table** (same rows and columns as its Sheet), plus links to the companion grains
 - Snapshots under `Customer Exports/{folder}/Historical Data/{YYYY-MM-DD}/{HHmm}/` (slot is the folder)
 
-Same-day runs replace the dated files. Prior-month dated files are archived with other customer-folder exports. Months two or more calendar months old keep only the **1st-of-month** dumps (2nd–end are permanently deleted). BU/entity Sheets **sum** counts and dollar KPIs from site rows; percents and DOI are **unweighted site means** (not a native LeanDNA CSR rollup). US/EU datacenter splits are not separated in this export.
+Same-day runs **update the dated Sheets in place** (no delete+create) and Drive-**copy** the filled workbook into the slot folder. Markdown twins are written **once** after Sheet URLs exist. Prior-month dated files are archived with other customer-folder exports. Months two or more calendar months old keep only the **1st-of-month** dumps (2nd–end are permanently deleted). BU/entity Sheets **sum** counts and dollar KPIs from site rows; percents and DOI are **unweighted site means** (not a native LeanDNA CSR rollup). US/EU datacenter splits are not separated in this export.
 
 Folder names prefer Pendo/cohort prefixes (e.g. `Safran SA` → `Safran`). Unmatched CSR names keep the workbook string and log a warning; they are not dropped. Salesforce remains the system of record for commercial status — this dump is CS Report inventory.
+
+Scheduled dump jobs use a **4-hour** step timeout. A timed-out or long-running failure is **not** one-shot retried (retries are for start / first-few-minutes blips only).
 
 For field definitions and integration details, see [`DATA_DICTIONARY.md`](./DATA-GOVERNANCE/DATA_DICTIONARY.md) and [`SALESFORCE_REVENUE_AND_ARR.md`](./DATA-GOVERNANCE/SALESFORCE_REVENUE_AND_ARR.md).

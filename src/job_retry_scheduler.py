@@ -3,6 +3,10 @@
 When a scheduled job exits with a *retryable* failure (transient Google Sheets/Drive
 outages, timeouts, etc.), schedule a single delayed re-run of the same job YAML.
 Retries are capped (default: one) and skipped when ECS/Scheduler env is unset (local).
+
+Long runs are not retried: a watchdog timeout or a failed step that already ran
+``CORTEX_JOB_RETRY_MAX_ELAPSED_SECONDS`` (default 300s) is treated as a full-book
+timeout, not a start-up blip.
 """
 
 from __future__ import annotations
@@ -17,7 +21,7 @@ from typing import Any, Sequence
 
 from .config import logger
 
-# Transient / infrastructure failures worth a delayed full-job re-run.
+_WATCHDOG_TIMEOUT_RE = re.compile(r"timeout after (\d+)s", re.IGNORECASE)
 _RETRYABLE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE)
     for p in (
@@ -96,6 +100,59 @@ def retry_delay_minutes() -> int:
         return max(1, int(raw))
     except ValueError:
         return 15
+
+
+def retry_max_elapsed_seconds() -> int:
+    """Failed steps that ran this long (or longer) do not get a one-shot retry.
+
+    ``0`` disables the guard. Default 300s so only start / first-few-minutes
+    failures are re-queued; a 2–4 hour CSR dump timeout is not.
+    """
+    raw = (os.environ.get("CORTEX_JOB_RETRY_MAX_ELAPSED_SECONDS") or "").strip()
+    if not raw:
+        return 300
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 300
+
+
+def _watchdog_timeout_seconds(text: str) -> int | None:
+    match = _WATCHDOG_TIMEOUT_RE.search(text or "")
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def long_run_retry_block_reason(
+    failures: Sequence[str],
+    *,
+    step_results: Sequence[Any] | None = None,
+) -> str | None:
+    """Return a skip reason when the failure is a long run / job watchdog timeout."""
+    limit = retry_max_elapsed_seconds()
+    if limit <= 0:
+        return None
+    for step in step_results or []:
+        if getattr(step, "success", False):
+            continue
+        if int(getattr(step, "exit_code", 0) or 0) == 124:
+            return "job watchdog timeout (exit 124); retries are for start / first-minutes failures only"
+        duration_s = float(getattr(step, "duration_s", 0) or 0)
+        if duration_s >= limit:
+            return (
+                f"failed step ran {duration_s:.0f}s "
+                f"(>= {limit}s; retries are for start / first-minutes failures only)"
+            )
+    texts = failure_texts_for_retry_classification(failures, step_results=step_results)
+    for text in texts:
+        watchdog = _watchdog_timeout_seconds(text)
+        if watchdog is not None and watchdog >= limit:
+            return (
+                f"job timeout after {watchdog}s "
+                "(retries are for start / first-minutes failures only)"
+            )
+    return None
 
 
 def job_retry_enabled() -> bool:
@@ -213,6 +270,9 @@ def schedule_job_retry(
             attempt=attempt,
         )
     classify_texts = failure_texts_for_retry_classification(failures, step_results=step_results)
+    long_run_reason = long_run_retry_block_reason(failures, step_results=step_results)
+    if long_run_reason:
+        return RetryScheduleResult(False, long_run_reason, attempt=attempt)
     if not any_failure_retryable(classify_texts):
         return RetryScheduleResult(False, "failure not classified as retryable", attempt=attempt)
 

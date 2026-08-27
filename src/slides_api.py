@@ -400,3 +400,42 @@ def sheets_spreadsheet_create(
 
     return _execute_sheets_write_with_retry("spreadsheets.create", _call)
 
+
+def sheets_spreadsheet_batch_update(
+    sheets_service: Any,
+    *,
+    spreadsheet_id: str,
+    requests: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Apply ``spreadsheets.batchUpdate`` with throttling and 429/5xx retries."""
+    if not requests:
+        return None
+
+    def _call() -> dict[str, Any]:
+        return (
+            sheets_service.spreadsheets()
+            .batchUpdate(spreadsheetId=spreadsheet_id, body={"requests": requests})
+            .execute()
+        )
+
+    return _execute_sheets_write_with_retry("spreadsheets.batchUpdate", _call)
+
+
+def sheets_spreadsheet_values_clear(
+    sheets_service: Any,
+    *,
+    spreadsheet_id: str,
+    range_str: str,
+) -> None:
+    """Clear a tab range with throttling and 429/5xx retries."""
+
+    def _call() -> Any:
+        return (
+            sheets_service.spreadsheets()
+            .values()
+            .clear(spreadsheetId=spreadsheet_id, range=range_str, body={})
+            .execute()
+        )
+
+    _execute_sheets_write_with_retry(f"values.clear {range_str!r}", _call)
+

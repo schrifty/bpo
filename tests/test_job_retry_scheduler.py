@@ -10,6 +10,7 @@ import pytest
 from src.job_retry_scheduler import (
     failures_are_retryable,
     is_retryable_failure_text,
+    long_run_retry_block_reason,
     maybe_schedule_job_retry_after_failure,
     schedule_job_retry,
 )
@@ -155,3 +156,82 @@ def test_maybe_schedule_wrapper_logs_skip(monkeypatch) -> None:
         failures=["HttpError 503"],
     )
     assert result.scheduled is False
+
+
+def test_long_run_retry_block_reason_watchdog_and_elapsed() -> None:
+    from src.job_runner import StepResult
+
+    watchdog = StepResult(
+        name="export-csr",
+        command="export-csr",
+        success=False,
+        exit_code=124,
+        duration_s=14400.0,
+        error="timeout after 14400s",
+    )
+    reason = long_run_retry_block_reason(
+        ["export-csr: timeout after 14400s"],
+        step_results=[watchdog],
+    )
+    assert reason and "watchdog" in reason
+
+    long_503 = StepResult(
+        name="export-csr",
+        command="export-csr",
+        success=False,
+        exit_code=1,
+        duration_s=7200.0,
+        error="HttpError 503",
+    )
+    reason = long_run_retry_block_reason(["HttpError 503"], step_results=[long_503])
+    assert reason and "7200s" in reason
+
+    quick = StepResult(
+        name="export-csr",
+        command="export-csr",
+        success=False,
+        exit_code=1,
+        duration_s=45.0,
+        error="HttpError 503",
+    )
+    assert long_run_retry_block_reason(["HttpError 503"], step_results=[quick]) is None
+    assert long_run_retry_block_reason(["timeout after 14400s"]) and "14400s" in (
+        long_run_retry_block_reason(["timeout after 14400s"]) or ""
+    )
+
+
+def test_schedule_job_retry_skips_watchdog_timeout(monkeypatch) -> None:
+    from src.job_runner import StepResult
+
+    monkeypatch.setenv("CORTEX_JOB_RETRY_ENABLED", "1")
+    monkeypatch.setenv("CORTEX_JOB_RETRY_MAX_ATTEMPTS", "1")
+    monkeypatch.setenv("CORTEX_ECS_CLUSTER_ARN", "arn:aws:ecs:us-east-1:1:cluster/cortex")
+    monkeypatch.setenv(
+        "CORTEX_ECS_TASK_DEFINITION_ARN",
+        "arn:aws:ecs:us-east-1:1:task-definition/cortex-decks",
+    )
+    monkeypatch.setenv("CORTEX_ECS_SUBNETS", "subnet-a")
+    monkeypatch.setenv("CORTEX_ECS_SECURITY_GROUPS", "sg-1")
+    monkeypatch.setenv("CORTEX_SCHEDULER_ROLE_ARN", "arn:aws:iam::1:role/cortex-scheduler-ecs")
+    monkeypatch.delenv("CORTEX_RETRY_ATTEMPT", raising=False)
+
+    client = MagicMock()
+    result = schedule_job_retry(
+        job_name="csr-customer-dump-0000",
+        run_id="abc123",
+        failures=["export-csr: timeout after 14400s"],
+        step_results=[
+            StepResult(
+                name="export-csr",
+                command="export-csr",
+                success=False,
+                exit_code=124,
+                duration_s=14401.0,
+                error="timeout after 14400s",
+            )
+        ],
+        scheduler_client=client,
+    )
+    assert result.scheduled is False
+    assert "watchdog" in result.reason or "timeout" in result.reason
+    client.create_schedule.assert_not_called()

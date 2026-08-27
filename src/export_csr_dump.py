@@ -38,7 +38,8 @@ from .export_drive_layout import (
     csr_dump_report_title,
     csr_report_date_label,
     historical_run_slot_label,
-    upload_csr_markdown_and_spreadsheet,
+    upload_csr_markdown_persistent_and_historical,
+    upload_csr_spreadsheet_persistent_and_historical,
 )
 from .export_pendo_spreadsheet import _cell_value
 from .export_run_diagnostics import ExportRunDiagnostics, export_diagnostics_scope, export_phase
@@ -447,16 +448,22 @@ def export_csr_dumps(
                 uploaded.append({"customer": csr_name, "folder": folder, "local_md": written})
                 continue
 
-            from .drive_config import upload_text_file_to_drive_folder
-            from .export_drive_layout import ensure_customer_export_folders
+            from .export_drive_layout import (
+                ensure_csr_dump_historical_slot_folder,
+                ensure_customer_export_folders,
+            )
             from .export_output_archive import maybe_migrate_export_layout_on_startup
 
             if not migrated:
                 maybe_migrate_export_layout_on_startup()
                 migrated = True
             folders = ensure_customer_export_folders(folder)
+            slot_folder_id, _day_label, _slot = ensure_csr_dump_historical_slot_folder(
+                folders["historical_folder_id"],
+                slot_label,
+                export_date,
+            )
             urls: dict[str, str] = {}
-            last_upload: dict[str, str] = {}
             for level in ("site", "bu", "entity"):
                 presented, columns, row_count = payloads[level]
                 tables = build_csr_dump_tables(
@@ -470,33 +477,20 @@ def export_csr_dumps(
                     columns=columns,
                     source_meta=source_meta,
                 )
-                last_upload = upload_csr_markdown_and_spreadsheet(
+                sheet_upload = upload_csr_spreadsheet_persistent_and_historical(
                     title=titles[level],
-                    md=_render(level),
                     tables=tables,
                     persistent_folder_id=folders["persistent_folder_id"],
-                    historical_folder_id=folders["historical_folder_id"],
-                    base_label=folders["base_label"],
-                    slot=slot_label,
-                    export_date=export_date,
+                    historical_slot_folder_id=slot_folder_id,
                 )
-                urls[level] = last_upload.get("persistent_spreadsheet_url") or ""
+                urls[level] = sheet_upload.get("persistent_spreadsheet_url") or ""
             for level in ("site", "bu", "entity"):
-                upload_text_file_to_drive_folder(
-                    f"{titles[level]}.md",
-                    _render(level, urls),
-                    folders["persistent_folder_id"],
-                    mime_type="text/markdown",
+                upload_csr_markdown_persistent_and_historical(
+                    title=titles[level],
+                    md=_render(level, urls),
+                    persistent_folder_id=folders["persistent_folder_id"],
+                    historical_slot_folder_id=slot_folder_id,
                 )
-            slot_folder_id = last_upload.get("historical_slot_folder_id")
-            if slot_folder_id:
-                for level in ("site", "bu", "entity"):
-                    upload_text_file_to_drive_folder(
-                        f"{titles[level]}.md",
-                        _render(level, urls),
-                        slot_folder_id,
-                        mime_type="text/markdown",
-                    )
             uploaded.append({"customer": csr_name, "folder": folder, "titles": titles, **urls})
         except Exception as exc:
             logger.exception("CSR dump failed for %s", csr_name)

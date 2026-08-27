@@ -417,7 +417,7 @@ def run_step_subprocess(
                 if remaining <= 0:
                     timed_out = True
                     logger.error(
-                        "job step timeout: %s after %ds — killing silent/hung child",
+                        "job step timeout: %s after %ds — killing child (deadline reached)",
                         name,
                         timeout_seconds,
                     )

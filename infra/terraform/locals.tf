@@ -44,6 +44,7 @@ locals {
       { name = "CORTEX_JOB_RETRY_ENABLED", value = "1" },
       { name = "CORTEX_JOB_RETRY_DELAY_MINUTES", value = tostring(var.job_retry_delay_minutes) },
       { name = "CORTEX_JOB_RETRY_MAX_ATTEMPTS", value = tostring(var.job_retry_max_attempts) },
+      { name = "CORTEX_JOB_RETRY_MAX_ELAPSED_SECONDS", value = tostring(var.job_retry_max_elapsed_seconds) },
       { name = "CORTEX_JOB_RETRY_SCHEDULE_GROUP", value = "${var.name_prefix}-job-retries" },
       { name = "CORTEX_ECS_CLUSTER_ARN", value = aws_ecs_cluster.cortex.arn },
       { name = "CORTEX_ECS_TASK_DEFINITION_ARN", value = "arn:aws:ecs:${var.aws_region}:${local.account_id}:task-definition/${local.task_family}" },

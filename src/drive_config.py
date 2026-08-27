@@ -255,6 +255,18 @@ def delete_drive_file(file_id: str) -> None:
         drive.files().delete(fileId=file_id).execute()
 
 
+def copy_drive_file_to_folder(file_id: str, *, name: str, parent_id: str) -> str:
+    """Copy a Drive file into ``parent_id`` with ``name``. Returns the new file id."""
+    with drive_api_lock:
+        drive = _get_drive()
+        copied = (
+            drive.files()
+            .copy(fileId=file_id, body={"name": name, "parents": [parent_id]}, fields="id")
+            .execute()
+        )
+        return str(copied["id"])
+
+
 def export_google_doc_as_plain_text(file_id: str, *, _max_retries: int = 5) -> str:
     """Export a Google Doc to UTF-8 plain text (retries on rate-limit errors)."""
     import random, time

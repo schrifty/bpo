@@ -67,8 +67,9 @@ variable "task_memory" {
 }
 
 variable "job_timeout_seconds" {
-  type    = number
-  default = 7200
+  description = "Wall-clock limit for a scheduled job step (CORTEX_JOB_TIMEOUT_SECONDS)."
+  type        = number
+  default     = 14400
 }
 
 variable "enable_job_retries" {
@@ -87,6 +88,12 @@ variable "job_retry_max_attempts" {
   description = "Max retry attempts after the original run (1 = one delayed re-run)."
   type        = number
   default     = 1
+}
+
+variable "job_retry_max_elapsed_seconds" {
+  description = "Skip one-shot retries when a failed step ran at least this long (start/quick failures still retry)."
+  type        = number
+  default     = 300
 }
 
 variable "fail_on_integration_warnings" {
