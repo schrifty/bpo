@@ -32,15 +32,17 @@ def _grid_values(grid: list[list[Any]]) -> list[list[Any]]:
 def _write_tables_to_spreadsheet(sheets_svc: Any, ss_id: str, tables: dict[str, list[list[Any]]]) -> None:
     from .slides_api import (
         sheets_spreadsheet_batch_update,
+        sheets_spreadsheet_get,
         sheets_spreadsheet_values_clear,
         sheets_spreadsheet_values_update,
     )
 
     wanted = [_safe_sheet_title(tab) for tab in tables]
-    meta = sheets_svc.spreadsheets().get(
-        spreadsheetId=ss_id,
+    meta = sheets_spreadsheet_get(
+        sheets_svc,
+        spreadsheet_id=ss_id,
         fields="spreadsheetId,sheets.properties.title",
-    ).execute()
+    )
     existing = {
         str(s.get("properties", {}).get("title") or "")
         for s in meta.get("sheets") or []

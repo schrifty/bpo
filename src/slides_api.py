@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import random
+import ssl
 import threading
 import time
 from pathlib import Path
@@ -173,19 +175,28 @@ def _is_slides_write_rate_limit(err: BaseException) -> bool:
     return "rate_limit_exceeded" in s or "quota exceeded" in s and "write" in s
 
 
-# Sheets create/update often returns short-lived 5xx ("service currently unavailable")
-# during overnight bursts; retry like 429 rather than failing the whole export.
-_SHEETS_TRANSIENT_HTTP_STATUS = frozenset({502, 503, 504})
+# Sheets/Drive often returns short-lived 5xx ("service currently unavailable")
+# during overnight bursts; retry like 429 rather than failing the customer.
+_SHEETS_TRANSIENT_HTTP_STATUS = frozenset({500, 502, 503, 504})
 
 
 def _is_sheets_write_retryable(err: BaseException) -> bool:
-    """True for Sheets write quota (429) and transient Google backend errors."""
+    """True for quota (429), transient Google HTTP 5xx, and dropped TLS/timeouts."""
     if _is_slides_write_rate_limit(err):
         return True
-    if not isinstance(err, HttpError):
-        return False
-    status = getattr(err.resp, "status", None)
-    return status in _SHEETS_TRANSIENT_HTTP_STATUS
+    if isinstance(err, HttpError):
+        status = getattr(err.resp, "status", None)
+        return status in _SHEETS_TRANSIENT_HTTP_STATUS
+    if isinstance(err, (TimeoutError, BrokenPipeError, ConnectionError)):
+        return True
+    if isinstance(err, ssl.SSLError):
+        return True
+    if isinstance(err, OSError):
+        n = getattr(err, "errno", None)
+        if n in (errno.ETIMEDOUT, errno.EPIPE, errno.ECONNRESET, errno.ECONNABORTED):
+            return True
+    s = str(err).lower()
+    return "timed out" in s or "eof occurred in violation of protocol" in s
 
 
 def slides_presentations_batch_update(
@@ -321,21 +332,21 @@ def _execute_sheets_write_with_retry(
     label: str,
     fn: Any,
 ) -> Any:
-    """Run a Sheets API mutating call with throttling and retries on 429/502/503/504."""
+    """Run a Sheets/Drive API call with throttling and retries on 429/5xx/timeouts."""
     max_retries = _sheets_write_max_retries()
-    last_err: HttpError | None = None
+    last_err: BaseException | None = None
     for attempt in range(max_retries):
         _throttle_before_sheets_write()
         try:
             result = fn()
             _mark_sheets_write_completed()
             return result
-        except HttpError as e:
+        except Exception as e:
             last_err = e
             if not _is_sheets_write_retryable(e) or attempt >= max_retries - 1:
                 raise
-            status = getattr(e.resp, "status", None)
-            ra = _http_error_retry_after_seconds(e)
+            status = getattr(getattr(e, "resp", None), "status", None)
+            ra = _http_error_retry_after_seconds(e) if isinstance(e, HttpError) else None
             base = min(120.0, (2**attempt) * 1.0 + random.random())
             delay = max(base, ra) if ra is not None else base
             if status in _SHEETS_TRANSIENT_HTTP_STATUS:
@@ -347,10 +358,19 @@ def _execute_sheets_write_with_retry(
                     attempt + 2,
                     max_retries,
                 )
-            else:
+            elif status == 429:
                 logger.warning(
                     "Sheets %s rate limited (429); sleeping %.1fs then retry %d/%d",
                     label,
+                    delay,
+                    attempt + 2,
+                    max_retries,
+                )
+            else:
+                logger.warning(
+                    "Sheets %s transient %s; sleeping %.1fs then retry %d/%d",
+                    label,
+                    type(e).__name__,
                     delay,
                     attempt + 2,
                     max_retries,
@@ -399,6 +419,24 @@ def sheets_spreadsheet_create(
         return sheets_service.spreadsheets().create(body=body, fields=fields).execute()
 
     return _execute_sheets_write_with_retry("spreadsheets.create", _call)
+
+
+def sheets_spreadsheet_get(
+    sheets_service: Any,
+    *,
+    spreadsheet_id: str,
+    fields: str,
+) -> dict[str, Any]:
+    """Read spreadsheet metadata with the same 429/5xx/timeout retries as writes."""
+
+    def _call() -> dict[str, Any]:
+        return (
+            sheets_service.spreadsheets()
+            .get(spreadsheetId=spreadsheet_id, fields=fields)
+            .execute()
+        )
+
+    return _execute_sheets_write_with_retry(f"spreadsheets.get {spreadsheet_id}", _call)
 
 
 def sheets_spreadsheet_batch_update(

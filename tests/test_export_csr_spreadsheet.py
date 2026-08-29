@@ -91,3 +91,23 @@ def test_copy_csr_spreadsheet_trashes_existing_then_copies(monkeypatch) -> None:
     assert copy_csr_spreadsheet_into_folder("ss-p", "Title", "slot") == "new-hist"
     assert trashed == ["old-hist"]
     assert copied == [("ss-p", "Title", "slot")]
+
+
+def test_copy_drive_file_retries_on_503(monkeypatch) -> None:
+    from googleapiclient.errors import HttpError
+    from httplib2 import Response
+
+    from src.drive_config import copy_drive_file_to_folder
+
+    sleeps: list[float] = []
+    resp = Response({"status": "503"})
+    err = HttpError(resp, b'{"error": {"message": "The service is currently unavailable."}}')
+    drive = MagicMock()
+    copy_exec = drive.files.return_value.copy.return_value
+    copy_exec.execute.side_effect = [err, {"id": "copied"}]
+    monkeypatch.setattr("src.drive_config._get_drive", lambda: drive)
+    monkeypatch.setattr("src.slides_api._sheets_write_interval_sec", lambda: 0.0)
+    monkeypatch.setattr("src.slides_api.time.sleep", lambda s: sleeps.append(s))
+    assert copy_drive_file_to_folder("src-id", name="Title", parent_id="folder") == "copied"
+    assert copy_exec.execute.call_count == 2
+    assert len(sleeps) == 1

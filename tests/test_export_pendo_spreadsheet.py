@@ -176,6 +176,50 @@ def test_sheets_spreadsheet_create_does_not_retry_400(monkeypatch) -> None:
     assert create.execute.call_count == 1
 
 
+def test_sheets_spreadsheet_get_retries_on_503(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    from googleapiclient.errors import HttpError
+    from httplib2 import Response
+
+    from src.slides_api import sheets_spreadsheet_get
+
+    sleeps: list[float] = []
+    resp = Response({"status": "503"})
+    err = HttpError(resp, b'{"error": {"message": "The service is currently unavailable."}}')
+
+    sheets_svc = MagicMock()
+    getter = sheets_svc.spreadsheets.return_value.get.return_value
+    getter.execute.side_effect = [err, {"spreadsheetId": "ss-ok", "sheets": []}]
+
+    monkeypatch.setattr("src.slides_api._sheets_write_interval_sec", lambda: 0.0)
+    monkeypatch.setattr("src.slides_api.time.sleep", lambda s: sleeps.append(s))
+
+    out = sheets_spreadsheet_get(sheets_svc, spreadsheet_id="ss-ok", fields="spreadsheetId")
+    assert out["spreadsheetId"] == "ss-ok"
+    assert getter.execute.call_count == 2
+    assert len(sleeps) == 1
+
+
+def test_sheets_api_retries_on_read_timeout(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    from src.slides_api import sheets_spreadsheet_get
+
+    sleeps: list[float] = []
+    sheets_svc = MagicMock()
+    getter = sheets_svc.spreadsheets.return_value.get.return_value
+    getter.execute.side_effect = [TimeoutError("The read operation timed out"), {"spreadsheetId": "ss-ok"}]
+
+    monkeypatch.setattr("src.slides_api._sheets_write_interval_sec", lambda: 0.0)
+    monkeypatch.setattr("src.slides_api.time.sleep", lambda s: sleeps.append(s))
+
+    out = sheets_spreadsheet_get(sheets_svc, spreadsheet_id="ss-ok", fields="spreadsheetId")
+    assert out == {"spreadsheetId": "ss-ok"}
+    assert getter.execute.call_count == 2
+    assert len(sleeps) == 1
+
+
 def test_rows_to_grid_json_encodes_nested_cell_values() -> None:
     from datetime import datetime
 

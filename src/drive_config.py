@@ -256,15 +256,23 @@ def delete_drive_file(file_id: str) -> None:
 
 
 def copy_drive_file_to_folder(file_id: str, *, name: str, parent_id: str) -> str:
-    """Copy a Drive file into ``parent_id`` with ``name``. Returns the new file id."""
-    with drive_api_lock:
-        drive = _get_drive()
-        copied = (
-            drive.files()
-            .copy(fileId=file_id, body={"name": name, "parents": [parent_id]}, fields="id")
-            .execute()
-        )
-        return str(copied["id"])
+    """Copy a Drive file into ``parent_id`` with ``name``. Returns the new file id.
+
+    Retries transient Google 5xx / timeouts with the same backoff as Sheets writes.
+    """
+    from .slides_api import _execute_sheets_write_with_retry
+
+    def _call() -> str:
+        with drive_api_lock:
+            drive = _get_drive()
+            copied = (
+                drive.files()
+                .copy(fileId=file_id, body={"name": name, "parents": [parent_id]}, fields="id")
+                .execute()
+            )
+            return str(copied["id"])
+
+    return _execute_sheets_write_with_retry(f"drive.files.copy {name!r}", _call)
 
 
 def export_google_doc_as_plain_text(file_id: str, *, _max_retries: int = 5) -> str:
