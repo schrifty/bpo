@@ -3,7 +3,7 @@
 
 Usage:
   cortex --export-pendo-detailed --customer <name> [--days N] [--compare-days N] [--no-drive] [-o PATH]
-  cortex --export-pendo-top-arr [--top-n 10] [--days 30] [--compare-days 30]
+  cortex --export-pendo-top-arr [--top-n 10] [--days 30] [--compare-days 30] [--windows 30,7]
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from .config import logger
 from .export_customer_pendo_snapshot import (
@@ -731,6 +731,50 @@ def render_customer_pendo_detailed_markdown(report: dict[str, Any]) -> str:
     return base + "\n\n" + extra.strip() + "\n"
 
 
+def pendo_top_arr_window_specs(
+    *,
+    days: int = 30,
+    compare_days: int | None = None,
+    windows: Sequence[int] | None = None,
+) -> list[tuple[int, int]]:
+    """Return ``(days, compare_days)`` pairs for a top-ARR batch.
+
+    ``windows`` (e.g. ``[30, 7]``) emits one artifact per lookback with
+    ``compare_days`` equal to that lookback. Otherwise a single pair from
+    ``days`` / ``compare_days`` is used (CLI default).
+    """
+    if windows:
+        seen: set[int] = set()
+        out: list[tuple[int, int]] = []
+        for raw in windows:
+            lookback = max(1, int(raw))
+            if lookback in seen:
+                continue
+            seen.add(lookback)
+            out.append((lookback, lookback))
+        if out:
+            return out
+    lookback = max(1, int(days))
+    compare = max(1, int(compare_days if compare_days is not None else lookback))
+    return [(lookback, compare)]
+
+
+def parse_pendo_top_arr_windows_arg(raw: str | None) -> list[int] | None:
+    """Parse ``--windows 30,7`` into lookback ints, or None when unset/empty."""
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    out: list[int] = []
+    for part in text.split(","):
+        piece = part.strip()
+        if not piece:
+            continue
+        out.append(int(piece))
+    return out or None
+
+
 def load_top_ultimate_parents_by_arr_for_pendo(top_n: int = _DEFAULT_TOP_N) -> list[dict[str, Any]]:
     """Rank current-book ultimate parents by ARR with Pendo prefix mapping."""
     from .llm_export_csr import top_active_ultimate_parents_by_arr_for_llm_export
@@ -873,6 +917,12 @@ def export_pendo_top_arr_main(cli_args: list[str] | None = None, *, prog: str | 
     ap.add_argument("--top-n", type=int, default=_DEFAULT_TOP_N, help="Number of customers (default 10)")
     ap.add_argument("--days", type=int, default=30, help="Lookback window in days (default 30)")
     ap.add_argument("--compare-days", type=int, default=None, help="Prior comparison window (default: --days)")
+    ap.add_argument(
+        "--windows",
+        default=None,
+        help="Comma-separated lookbacks (e.g. 30,7). Emits one export per window; "
+        "compare_days equals each lookback. Overrides --days / --compare-days.",
+    )
     ap.add_argument("--no-drive", action="store_true", help="Skip Drive upload")
     ap.add_argument(
         "-o",
@@ -881,6 +931,11 @@ def export_pendo_top_arr_main(cli_args: list[str] | None = None, *, prog: str | 
         help="Local output directory (default output/pendo-top-arr when --no-drive)",
     )
     args = ap.parse_args(cli_args)
+    window_specs = pendo_top_arr_window_specs(
+        days=args.days,
+        compare_days=args.compare_days,
+        windows=parse_pendo_top_arr_windows_arg(args.windows),
+    )
 
     selection = load_top_ultimate_parents_by_arr_for_pendo(args.top_n)
     if not selection:
@@ -896,46 +951,73 @@ def export_pendo_top_arr_main(cli_args: list[str] | None = None, *, prog: str | 
         for row in selection:
             customer_query = _customer_query_for_pendo_row(row)
             ultimate = str(row.get("ultimate_parent") or customer_query)
-            entry: dict[str, Any] = {"selection": row, "ultimate_parent": ultimate}
+            entry: dict[str, Any] = {"selection": row, "ultimate_parent": ultimate, "windows": []}
             if not customer_query:
                 entry.update({"status": "skipped", "error": "empty customer query"})
                 errors += 1
                 batch_results.append(entry)
                 continue
+            window_errors = 0
+            pendo_prefix = customer_query
             try:
-                with export_phase(diag, f"Pendo detailed {ultimate}"):
-                    report = export_pendo_detailed_for_customer(
-                        pc,
-                        customer_query,
-                        days=args.days,
-                        compare_days=args.compare_days,
-                    )
-                if report.get("error"):
-                    entry.update({"status": "error", "error": report["error"]})
-                    errors += 1
-                    batch_results.append(entry)
-                    continue
-                pendo_prefix = (report.get("meta") or {}).get("pendo_prefix") or customer_query
-                stem = _pendo_detailed_export_file_stem(pendo_prefix, args.days)
-                entry["stem"] = stem
-                entry["status"] = "ok"
-                entry["pendo_prefix"] = pendo_prefix
-                entry["site_count"] = len(report.get("site_detail") or [])
-                entry["user_count"] = len(report.get("user_roster") or [])
-                out_prefix = out_dir / stem if (args.no_drive or args.out_dir) else None
-                _upload_detailed_export(
-                    report,
-                    days=args.days,
-                    stem=stem,
-                    no_drive=args.no_drive,
-                    out=out_prefix,
-                )
-                batch_results.append(entry)
+                for days, compare_days in window_specs:
+                    window_row: dict[str, Any] = {"days": days, "compare_days": compare_days}
+                    try:
+                        with export_phase(diag, f"Pendo detailed {ultimate} {days}d"):
+                            report = export_pendo_detailed_for_customer(
+                                pc,
+                                customer_query,
+                                days=days,
+                                compare_days=compare_days,
+                            )
+                        if report.get("error"):
+                            window_row.update({"status": "error", "error": report["error"]})
+                            window_errors += 1
+                            entry["windows"].append(window_row)
+                            continue
+                        pendo_prefix = (report.get("meta") or {}).get("pendo_prefix") or customer_query
+                        stem = _pendo_detailed_export_file_stem(pendo_prefix, days)
+                        window_row.update(
+                            {
+                                "status": "ok",
+                                "stem": stem,
+                                "site_count": len(report.get("site_detail") or []),
+                                "user_count": len(report.get("user_roster") or []),
+                            }
+                        )
+                        out_prefix = out_dir / stem if (args.no_drive or args.out_dir) else None
+                        _upload_detailed_export(
+                            report,
+                            days=days,
+                            stem=stem,
+                            no_drive=args.no_drive,
+                            out=out_prefix,
+                        )
+                        entry["windows"].append(window_row)
+                    except Exception as e:
+                        logger.warning(
+                            "Pendo detailed export failed for %s (%sd): %s",
+                            ultimate,
+                            days,
+                            e,
+                        )
+                        window_row.update({"status": "error", "error": str(e)[:500]})
+                        window_errors += 1
+                        entry["windows"].append(window_row)
             except Exception as e:
                 logger.warning("Pendo detailed export failed for %s: %s", ultimate, e)
                 entry.update({"status": "error", "error": str(e)[:500]})
                 errors += 1
                 batch_results.append(entry)
+                continue
+            entry["pendo_prefix"] = pendo_prefix
+            if window_errors:
+                entry["status"] = "error"
+                entry["error"] = f"{window_errors} window(s) failed"
+                errors += 1
+            else:
+                entry["status"] = "ok"
+            batch_results.append(entry)
 
         from .data_source_health import integration_freshness_metadata
 

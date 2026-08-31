@@ -15,7 +15,10 @@ from src.export_pendo_detailed_snapshot import (
     build_customer_pendo_detailed_report,
     build_full_user_roster,
     build_site_detail_slices,
+    export_pendo_top_arr_main,
     load_top_ultimate_parents_by_arr_for_pendo,
+    parse_pendo_top_arr_windows_arg,
+    pendo_top_arr_window_specs,
     render_customer_pendo_detailed_markdown,
     render_site_detail_markdown,
     render_user_roster_markdown,
@@ -436,6 +439,64 @@ def test_build_step_argv_export_pendo_detailed_and_top_arr() -> None:
         "30",
         "--no-drive",
     ]
+    assert build_step_argv(
+        {"command": "export-pendo-top-arr", "top_n": 10, "windows": [30, 7], "no_drive": True}
+    ) == [
+        "--export-pendo-top-arr",
+        "--top-n",
+        "10",
+        "--windows",
+        "30,7",
+        "--no-drive",
+    ]
+
+
+def test_pendo_top_arr_window_specs() -> None:
+    assert pendo_top_arr_window_specs(days=30, compare_days=30) == [(30, 30)]
+    assert pendo_top_arr_window_specs(windows=[30, 7]) == [(30, 30), (7, 7)]
+    assert pendo_top_arr_window_specs(windows=[30, 7, 30]) == [(30, 30), (7, 7)]
+    assert parse_pendo_top_arr_windows_arg("30,7") == [30, 7]
+    assert parse_pendo_top_arr_windows_arg(None) is None
+    assert parse_pendo_top_arr_windows_arg("  ") is None
+
+
+def test_export_pendo_top_arr_emits_each_window_once_per_customer(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.export_pendo_detailed_snapshot.load_top_ultimate_parents_by_arr_for_pendo",
+        lambda _n: [{"ultimate_parent": "Ford", "pendo_customer_key": "Ford"}],
+    )
+    monkeypatch.setattr("src.export_pendo_detailed_snapshot.PendoClient", lambda: object())
+    monkeypatch.setattr(
+        "src.data_source_health.integration_freshness_metadata",
+        lambda: {},
+    )
+    exports: list[tuple[str, int, int]] = []
+
+    def _export(_pc, query, *, days, compare_days):
+        exports.append((query, days, compare_days))
+        return {"meta": {"pendo_prefix": "Ford"}, "site_detail": [{}], "user_roster": [{}, {}]}
+
+    uploads: list[tuple[int, str]] = []
+
+    def _upload(report, *, days, stem, no_drive, out):
+        uploads.append((days, stem))
+        assert no_drive is True
+        assert report["meta"]["pendo_prefix"] == "Ford"
+
+    monkeypatch.setattr(
+        "src.export_pendo_detailed_snapshot.export_pendo_detailed_for_customer",
+        _export,
+    )
+    monkeypatch.setattr(
+        "src.export_pendo_detailed_snapshot._upload_detailed_export",
+        _upload,
+    )
+    export_pendo_top_arr_main(["--top-n", "10", "--windows", "30,7", "--no-drive"])
+    assert exports == [("Ford", 30, 30), ("Ford", 7, 7)]
+    assert uploads == [
+        (30, "Pendo Detailed Export  (Ford, 30d)"),
+        (7, "Pendo Detailed Export  (Ford, 7d)"),
+    ]
 
 
 def test_load_job_spec_pendo_top_10_arr() -> None:
@@ -443,13 +504,16 @@ def test_load_job_spec_pendo_top_10_arr() -> None:
 
     spec = load_job_spec("pendo-top-10-arr")
     assert spec.name == "pendo-top-10-arr"
-    assert len(spec.steps) == 2
-    step_30, step_7 = spec.steps
-    assert step_30["command"] == "export-pendo-top-arr"
-    assert step_30["top_n"] == 10
-    assert step_30["days"] == 30
-    assert step_30["compare_days"] == 30
-    assert step_7["command"] == "export-pendo-top-arr"
-    assert step_7["top_n"] == 10
-    assert step_7["days"] == 7
-    assert step_7["compare_days"] == 7
+    assert len(spec.steps) == 1
+    step = spec.steps[0]
+    assert step["command"] == "export-pendo-top-arr"
+    assert step["top_n"] == 10
+    assert step["windows"] == [30, 7]
+    assert "days" not in step
+    assert build_step_argv(step)[:5] == [
+        "--export-pendo-top-arr",
+        "--top-n",
+        "10",
+        "--windows",
+        "30,7",
+    ]

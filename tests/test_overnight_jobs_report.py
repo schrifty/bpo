@@ -97,6 +97,33 @@ def test_build_outcomes_prefers_later_retry_success() -> None:
     assert overnight_failure_count(outcomes) == 0 or row.status == "OK"
 
 
+def test_build_outcomes_marks_skipped_csr_dump() -> None:
+    as_of = date(2026, 8, 31)
+    summaries = [
+        (
+            datetime(2026, 8, 31, 6, 5, tzinfo=timezone.utc),
+            {
+                "success": True,
+                "job": "csr-customer-dump-0000",
+                "duration_s": 22.0,
+                "skipped": True,
+                "skip_reason": "CS Report unchanged (CS Report.xlsx, modified 2026-08-30T12:00:00.000Z)",
+            },
+        ),
+        (
+            datetime(2026, 8, 31, 3, 20, tzinfo=timezone.utc),
+            {"success": True, "job": "pendo-snapshot-refresh", "duration_s": 900.0},
+        ),
+    ]
+    outcomes = build_overnight_job_outcomes(as_of=as_of, summaries=summaries)
+    by_job = {o.job: o for o in outcomes}
+    row = by_job["csr-customer-dump-0000"]
+    assert row.status == "SKIPPED"
+    assert "CS Report.xlsx" in (row.detail or "")
+    assert overnight_failure_count(outcomes) == 0 or by_job["pendo-snapshot-refresh"].status == "OK"
+    assert overnight_failure_count([row]) == 0
+
+
 def test_format_overnight_section_width() -> None:
     outcomes = [
         OvernightJobOutcome(

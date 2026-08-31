@@ -60,7 +60,10 @@ _MANAGED_EXPORT_PREFIXES = (
     "Portfolio - Engineering Review",  # legacy name — keep so pre-rename files stay managed
 )
 EXPORT_USER_GUIDE_DRIVE_FILENAME = "Cortex Export - User Guide.md"
-OUTPUT_ROOT_STATIC_FILENAMES = frozenset({EXPORT_USER_GUIDE_DRIVE_FILENAME})
+CSR_DUMP_SOURCE_MARKER_FILENAME = "CSR-Dump-source.json"
+OUTPUT_ROOT_STATIC_FILENAMES = frozenset(
+    {EXPORT_USER_GUIDE_DRIVE_FILENAME, CSR_DUMP_SOURCE_MARKER_FILENAME}
+)
 # Persistent metrics decks in Output/ (e.g. ``AKKR Metrics``). Historical copies use
 # ``{TAG} Metrics - {Month}`` and must not match this pattern.
 _OUTPUT_ROOT_METRICS_DECK_RE = re.compile(r"^.+\sMetrics$")

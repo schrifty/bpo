@@ -227,10 +227,17 @@ def build_overnight_job_outcomes(
                 if ok
                 else f"retry of {retry_of}{attempt_s} still failed"
             )
+        skipped = ok and bool(data.get("skipped"))
+        if skipped:
+            status = "SKIPPED"
+            skip_reason = str(data.get("skip_reason") or "").strip()
+            detail = skip_reason or detail or "source unchanged"
+        else:
+            status = "OK" if ok else "FAIL"
         outcomes.append(
             OvernightJobOutcome(
                 job=job_key,
-                status="OK" if ok else "FAIL",
+                status=status,
                 duration_s=float(dur) if isinstance(dur, (int, float)) else None,
                 finished_utc=ts,
                 failures=fails,

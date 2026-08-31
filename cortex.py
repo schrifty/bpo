@@ -57,8 +57,8 @@ Flag commands (utilities)
 
   cortex --export-pendo --customer <name> [--days N] [--compare-days N] [--no-drive] [-o PATH]
   cortex --export-pendo-detailed --customer <name> [--days N] [--compare-days N] [--no-drive] [-o PATH]
-  cortex --export-pendo-top-arr [--top-n 10] [--days N] [--compare-days N] [--no-drive] [--out-dir DIR]
-  cortex --export-csr [--customer NAME] [--slot 0000|0600|1200|1800] [--no-drive] [--out-dir DIR]
+  cortex --export-pendo-top-arr [--top-n 10] [--days N] [--compare-days N] [--windows 30,7] [--no-drive] [--out-dir DIR]
+  cortex --export-csr [--customer NAME] [--slot 0000|0600|1200|1800] [--force] [--no-drive] [--out-dir DIR]
       Export **Pendo-only** product usage for one customer (sites, features, depth, Kei, trends).
       Uploads markdown + Google Sheet to ``Output/Customer Exports/{customer}/`` — only
       ``-persistent`` files in the customer folder; same-day snapshots under ``Historical Data/{ISO-date}/``.
@@ -66,6 +66,7 @@ Flag commands (utilities)
       Default: ``--days 30``.
       ``--export-csr`` writes dated CS Report ``delta=week`` Sheets (site, BU, and entity)
       plus a markdown twin of each grain per CSR workbook customer under ``Customer Exports/{folder}/``.
+      Full Drive runs skip when the CS Report workbook ``modifiedTime`` is unchanged (``--force`` to rewrite).
       Intra-day snapshots live under ``Historical Data/{ISO-date}/{HHmm}/``.
 
   cortex --schedule [--prefix NAME] [--region REGION]

@@ -8,6 +8,8 @@ import pytest
 
 from src.export_csr_dump import (
     chicago_export_date,
+    csr_dump_source_fingerprint,
+    csr_dump_source_unchanged,
     csr_dump_stem,
     customer_exports_folder_for_csr_name,
     export_csr_dumps,
@@ -180,6 +182,12 @@ def test_build_step_argv_and_job_specs() -> None:
         "--slot",
         "0600",
     ]
+    assert build_step_argv({"command": "export-csr", "slot": "0600", "force": True}) == [
+        "--export-csr",
+        "--slot",
+        "0600",
+        "--force",
+    ]
     spec = load_job_spec("csr-customer-dump-0600")
     assert spec.steps[0]["command"] == "export-csr"
     assert spec.steps[0]["slot"] == "0600"
@@ -243,13 +251,156 @@ def test_export_csr_dumps_writes_markdown_once_after_sheets(monkeypatch) -> None
     monkeypatch.setattr("src.export_csr_dump.upload_csr_spreadsheet_persistent_and_historical", _sheet)
     monkeypatch.setattr("src.export_csr_dump.upload_csr_markdown_persistent_and_historical", _md)
 
+    monkeypatch.setattr("src.export_csr_dump.load_csr_dump_source_marker", lambda: None)
+    saved: list[dict] = []
+    monkeypatch.setattr("src.export_csr_dump.save_csr_dump_source_marker", lambda payload: saved.append(payload))
+
     result = export_csr_dumps(
         slot="0000",
         now=dt.datetime(2026, 8, 21, 5, 0, tzinfo=dt.timezone.utc),
     )
     assert result["uploaded"] == 1
+    assert result["skipped"] is False
     kinds = [kind for kind, _title in order]
     assert kinds == ["sheet", "sheet", "sheet", "md", "md", "md"]
+    assert saved and saved[0]["file"] == "CS Report.xlsx"
+    assert saved[0]["modified"] == "2026-08-21T08:00:00.000Z"
+
+
+def test_csr_dump_source_fingerprint_requires_file_and_modified() -> None:
+    assert csr_dump_source_fingerprint({"file": "CS Report.xlsx", "modified": "2026-08-21T08:00:00.000Z"}) == {
+        "file": "CS Report.xlsx",
+        "modified": "2026-08-21T08:00:00.000Z",
+    }
+    assert csr_dump_source_fingerprint({"file": "CS Report.xlsx"}) is None
+    assert csr_dump_source_fingerprint({}) is None
+    assert csr_dump_source_unchanged(
+        {"file": "CS Report.xlsx", "modified": "2026-08-21T08:00:00.000Z"},
+        {"file": "CS Report.xlsx", "modified": "2026-08-21T08:00:00.000Z", "slot": "0000"},
+    )
+    assert not csr_dump_source_unchanged(
+        {"file": "CS Report.xlsx", "modified": "2026-08-21T08:00:00.000Z"},
+        {"file": "CS Report.xlsx", "modified": "2026-08-22T08:00:00.000Z"},
+    )
+
+
+def _stub_csr_dump_load(monkeypatch, *, meta: dict | None = None) -> None:
+    monkeypatch.setattr(
+        "src.export_csr_dump.load_latest_csr_week_rows",
+        lambda: [{"customer": "Ford", "delta": "week"}],
+    )
+    monkeypatch.setattr("src.export_csr_dump.distinct_csr_week_customers", lambda _rows: ["Ford"])
+    monkeypatch.setattr(
+        "src.export_csr_dump.csr_latest_report_meta",
+        lambda: meta or {"file": "CS Report.xlsx", "modified": "2026-08-21T08:00:00.000Z"},
+    )
+    monkeypatch.setattr(
+        "src.export_csr_dump.csr_site_entries_for_exact_week_customer",
+        lambda *_a, **_k: [{"factory": "Chicago Assembly", "business_unit": "Blue", "entity": "US"}],
+    )
+    monkeypatch.setattr(
+        "src.export_csr_dump.csr_sites_and_columns_for_export",
+        lambda rows: ([{"Factory": "Chicago Assembly"}], ["Factory"]),
+    )
+    monkeypatch.setattr(
+        "src.export_csr_dump.rollup_csr_site_rows",
+        lambda _sites, *, level: [{"grain": level}],
+    )
+
+
+def test_export_csr_dumps_skips_when_source_unchanged(monkeypatch) -> None:
+    _stub_csr_dump_load(monkeypatch)
+    monkeypatch.setattr(
+        "src.export_csr_dump.load_csr_dump_source_marker",
+        lambda: {"file": "CS Report.xlsx", "modified": "2026-08-21T08:00:00.000Z", "slot": "0000"},
+    )
+    monkeypatch.setattr(
+        "src.export_csr_dump.save_csr_dump_source_marker",
+        lambda _payload: (_ for _ in ()).throw(AssertionError("should not save on skip")),
+    )
+    monkeypatch.setattr(
+        "src.export_csr_dump.upload_csr_spreadsheet_persistent_and_historical",
+        lambda **_k: (_ for _ in ()).throw(AssertionError("should not upload sheets")),
+    )
+
+    result = export_csr_dumps(
+        slot="0600",
+        now=dt.datetime(2026, 8, 21, 11, 0, tzinfo=dt.timezone.utc),
+    )
+    assert result["skipped"] is True
+    assert result["uploaded"] == 0
+    assert "CS Report.xlsx" in (result["skip_reason"] or "")
+
+
+def test_export_csr_dumps_force_rewrites_when_unchanged(monkeypatch) -> None:
+    _stub_csr_dump_load(monkeypatch)
+    monkeypatch.setattr("src.export_output_archive.maybe_migrate_export_layout_on_startup", lambda: None)
+    monkeypatch.setattr(
+        "src.export_drive_layout.ensure_customer_export_folders",
+        lambda _folder: {"persistent_folder_id": "p-id", "historical_folder_id": "h-id", "base_label": "Ford"},
+    )
+    monkeypatch.setattr(
+        "src.export_drive_layout.ensure_csr_dump_historical_slot_folder",
+        lambda *_a, **_k: ("slot-id", "2026-08-21", "0600"),
+    )
+    monkeypatch.setattr(
+        "src.export_csr_dump.load_csr_dump_source_marker",
+        lambda: {"file": "CS Report.xlsx", "modified": "2026-08-21T08:00:00.000Z"},
+    )
+    uploads = {"n": 0}
+    monkeypatch.setattr(
+        "src.export_csr_dump.upload_csr_spreadsheet_persistent_and_historical",
+        lambda **_k: uploads.__setitem__("n", uploads["n"] + 1) or {"persistent_spreadsheet_url": "https://example"},
+    )
+    monkeypatch.setattr(
+        "src.export_csr_dump.upload_csr_markdown_persistent_and_historical",
+        lambda **_k: None,
+    )
+    saved: list[dict] = []
+    monkeypatch.setattr("src.export_csr_dump.save_csr_dump_source_marker", lambda payload: saved.append(payload))
+
+    result = export_csr_dumps(
+        slot="0600",
+        force=True,
+        now=dt.datetime(2026, 8, 21, 11, 0, tzinfo=dt.timezone.utc),
+    )
+    assert result["skipped"] is False
+    assert uploads["n"] == 3
+    assert saved
+
+
+def test_export_csr_dumps_single_customer_does_not_skip(monkeypatch) -> None:
+    _stub_csr_dump_load(monkeypatch)
+    monkeypatch.setattr("src.export_output_archive.maybe_migrate_export_layout_on_startup", lambda: None)
+    monkeypatch.setattr(
+        "src.export_drive_layout.ensure_customer_export_folders",
+        lambda _folder: {"persistent_folder_id": "p-id", "historical_folder_id": "h-id", "base_label": "Ford"},
+    )
+    monkeypatch.setattr(
+        "src.export_drive_layout.ensure_csr_dump_historical_slot_folder",
+        lambda *_a, **_k: ("slot-id", "2026-08-21", "1200"),
+    )
+    monkeypatch.setattr(
+        "src.export_csr_dump.load_csr_dump_source_marker",
+        lambda: {"file": "CS Report.xlsx", "modified": "2026-08-21T08:00:00.000Z"},
+    )
+    monkeypatch.setattr(
+        "src.export_csr_dump.save_csr_dump_source_marker",
+        lambda _payload: (_ for _ in ()).throw(AssertionError("partial dump must not write marker")),
+    )
+    monkeypatch.setattr(
+        "src.export_csr_dump.upload_csr_spreadsheet_persistent_and_historical",
+        lambda **_k: {"persistent_spreadsheet_url": "https://example"},
+    )
+    monkeypatch.setattr("src.export_csr_dump.upload_csr_markdown_persistent_and_historical", lambda **_k: None)
+
+    result = export_csr_dumps(
+        slot="1200",
+        customer="Ford",
+        now=dt.datetime(2026, 8, 21, 17, 0, tzinfo=dt.timezone.utc),
+    )
+    assert result["skipped"] is False
+    assert result["uploaded"] == 1
 
 
 def test_distinct_csr_week_customers_filters_delta() -> None:

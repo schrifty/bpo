@@ -58,7 +58,7 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "rule_name": "cortex-pendo-top-10-arr",
         "summary": (
             "Top-10 ARR Pendo detailed export "
-            "(30d + 7d via cortex --export-pendo-top-arr --top-n 10)"
+            "(30d + 7d in one pass via cortex --export-pendo-top-arr --top-n 10 --windows 30,7)"
         ),
     },
     "csr-customer-dump-0000": {

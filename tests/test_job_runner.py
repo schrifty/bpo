@@ -119,6 +119,21 @@ def test_build_step_argv_metrics_upsert() -> None:
 
 
 
+def test_extract_child_run_summary_skipped() -> None:
+    from src.job_runner import _extract_child_run_summary
+
+    blob = (
+        "loading...\n"
+        'CORTEX_RUN_SUMMARY={"success":true,"job":"export-csr","skipped":true,'
+        '"skip_reason":"CS Report unchanged"}\n'
+        "done\n"
+    )
+    summary = _extract_child_run_summary(blob)
+    assert summary is not None
+    assert summary["skipped"] is True
+    assert summary["skip_reason"] == "CS Report unchanged"
+
+
 def test_run_job_dry_run(capsys) -> None:
     code = run_job("engineering-portfolio", dry_run=True)
     assert code == 0

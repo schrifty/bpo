@@ -459,6 +459,11 @@ def _list_drive_files(folder_id: str) -> list[dict[str, Any]]:
     return _dedupe_drive_yaml_files_by_name(raw, folder_id=folder_id)
 
 
+def read_drive_file_text(file_id: str) -> str:
+    """Download a Drive file as UTF-8 text."""
+    return _read_drive_file(file_id)
+
+
 def _read_drive_file(file_id: str) -> str:
     """Download a Drive file as UTF-8 text."""
     from .network_utils import network_timeout

@@ -156,7 +156,7 @@
   },
   {
     "Name": "cortex-pendo-top-10-arr",
-    "Description": "Top-10 ARR Pendo detailed export (30d + 7d via cortex --export-pendo-top-arr --top-n 10) \u2014 daily 08:00 UTC",
+    "Description": "Top-10 ARR Pendo detailed export (30d + 7d in one pass via cortex --export-pendo-top-arr --top-n 10 --windows 30,7) \u2014 daily 08:00 UTC",
     "ScheduleExpression": "cron(0 8 * * ? *)",
     "State": "ENABLED",
     "Targets": [

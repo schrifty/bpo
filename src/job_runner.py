@@ -37,6 +37,8 @@ class StepResult:
     detail_messages: list[str] = field(default_factory=list)
     stdout_tail: str | None = None
     stderr_tail: str | None = None
+    skipped: bool = False
+    skip_reason: str | None = None
 
 
 @dataclass
@@ -184,10 +186,17 @@ def build_step_argv(step: dict[str, Any]) -> list[str]:
         argv = ["--export-pendo-top-arr"]
         if step.get("top_n") is not None:
             argv.extend(["--top-n", str(int(step["top_n"]))])
-        if step.get("days") is not None:
-            argv.extend(["--days", str(int(step["days"]))])
-        if step.get("compare_days") is not None:
-            argv.extend(["--compare-days", str(int(step["compare_days"]))])
+        windows = step.get("windows")
+        if windows is not None:
+            if isinstance(windows, (list, tuple)):
+                argv.extend(["--windows", ",".join(str(int(w)) for w in windows)])
+            else:
+                argv.extend(["--windows", str(windows)])
+        else:
+            if step.get("days") is not None:
+                argv.extend(["--days", str(int(step["days"]))])
+            if step.get("compare_days") is not None:
+                argv.extend(["--compare-days", str(int(step["compare_days"]))])
         if step.get("no_drive"):
             argv.append("--no-drive")
         if step.get("out_dir"):
@@ -203,6 +212,8 @@ def build_step_argv(step: dict[str, Any]) -> list[str]:
             argv.append("--no-drive")
         if step.get("out_dir"):
             argv.extend(["--out-dir", str(step["out_dir"])])
+        if step.get("force"):
+            argv.append("--force")
         return argv
     if command == "metrics-upsert":
         argv = ["metrics-upsert"]
@@ -310,6 +321,21 @@ def _summarize_step_error(
             if s and not s.startswith("CORTEX_RUN_SUMMARY="):
                 return s[:240]
     return f"exit code {exit_code}"
+
+
+def _extract_child_run_summary(combined: str) -> dict[str, Any] | None:
+    last: dict[str, Any] | None = None
+    for line in (combined or "").splitlines():
+        if "CORTEX_RUN_SUMMARY=" not in line:
+            continue
+        payload = line.split("CORTEX_RUN_SUMMARY=", 1)[1].strip()
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            last = parsed
+    return last
 
 
 def _step_result_to_dict(result: StepResult) -> dict[str, Any]:
@@ -457,6 +483,12 @@ def run_step_subprocess(
             )
         combined = "".join(collected)
         ok = (proc.returncode or 0) == 0
+        child_summary = _extract_child_run_summary(combined) if ok else None
+        skipped = bool(child_summary and child_summary.get("skipped"))
+        skip_reason = None
+        if skipped:
+            raw_reason = child_summary.get("skip_reason") if child_summary else None
+            skip_reason = str(raw_reason).strip() if raw_reason else "source unchanged"
         detail_messages = [] if ok else _extract_step_failure_messages(combined, "")
         err = None
         if not ok:
@@ -478,6 +510,8 @@ def run_step_subprocess(
             detail_messages=detail_messages,
             stdout_tail=None if ok else _tail_text(combined),
             stderr_tail=None if ok else _tail_text(combined),
+            skipped=skipped,
+            skip_reason=skip_reason,
         )
     except Exception as exc:
         elapsed = time.monotonic() - t0
@@ -603,6 +637,10 @@ def run_job(
                 diag.add_failure(f"{result.name}: {result.error or 'failed'}")
                 if spec.stop_on_failure:
                     break
+
+        if step_results and all(r.success and r.skipped for r in step_results):
+            reason = next((r.skip_reason for r in step_results if r.skip_reason), "source unchanged")
+            diag.set_integration_meta({"skipped": True, "skip_reason": reason})
 
         summary = diag.emit_run_summary(
             job_name=spec.name,

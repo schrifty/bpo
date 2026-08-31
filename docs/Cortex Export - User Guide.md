@@ -231,7 +231,7 @@ Prior-month day folders under **Historical Data** are rolled into monthly bucket
 
 Every Pendo export also opens with a short **“How to read this export”** note that pins the key rules: Pendo usage plus CS Report when matched (no ARR/churn/Jira), “sites” means *active* sites (idle ones are counted in §1), and **per-site visitor counts overlap** so you shouldn’t add them up for unique headcount (use §1 total visitors).
 
-The **top-ARR batch** (`--export-pendo-top-arr`) runs the detailed export for the largest Salesforce ultimate parents by current ARR.
+The **top-ARR batch** (`--export-pendo-top-arr`) runs the detailed export for the largest Salesforce ultimate parents by current ARR. Pass `--windows 30,7` to write both lookbacks in **one pass per customer** (same Pendo client; 30d first so the 7d slice can reuse cached aggregates). Scheduled `pendo-top-10-arr` uses that.
 
 ### Prompts you might find valuable — Pendo export
 
@@ -327,10 +327,10 @@ Drive output: `Output/LLM-Context-Portfolio-persistent.md` and `Output/Historica
 ```bash
 cortex --export-pendo --customer Ford --days 30
 cortex --export-pendo-detailed --customer Ford --days 30
-cortex --export-pendo-top-arr --top-n 10 --days 30
+cortex --export-pendo-top-arr --top-n 10 --windows 30,7
 ```
 
-Scheduled jobs include `ford-pendo-7d`, `ford-pendo-30d`, and `pendo-top-10-arr` (top 10 ARR · 30d + 7d detailed). Add `--no-drive` to write locally only; `-o` / `--out-dir` set local paths.
+Scheduled jobs include `ford-pendo-7d`, `ford-pendo-30d`, and `pendo-top-10-arr` (top 10 ARR · 30d + 7d detailed in one job step). Add `--no-drive` to write locally only; `-o` / `--out-dir` set local paths.
 
 Business units for §2.1 / §13.1 come from `config/pendo_site_bu_map.yaml` (per Pendo prefix); customers with no entry simply omit the business-unit column and §2.1. Each rule carries a `confidence` (`high` = the site name self-labels its division; `inferred` = a location/brand guess); unmatched sites fall to the `default_business_unit` (`Unmapped — needs review`). Sites resolving to `inferred` or the default are surfaced every run (export log warning + §2.1 Confidence note) and collected in `docs/DATA-GOVERNANCE/BUSINESS_UNIT_MAPPING_REVIEW.md` for periodic CS review. For customers whose CS Report is split by division (e.g. Safran), `python scripts/build_csr_bu_map.py --customer <name> --live` joins Pendo sites to the CS Report factory list and prints an authoritative, CSR-confirmed rules fragment plus a coverage report to refresh the map. Safran is validated; **Carrier, Spirit, and Bombardier are provisional** (all rules `inferred`) pending CS-confirmed taxonomy. `CORTEX_PENDO_SITE_DETAIL_USER_SITES` (default 20) caps how many top sites get a per-site user table in §13.2.
 
@@ -341,9 +341,12 @@ Drive output (per customer): `Output/Customer Exports/{Customer}/` persistent ma
 ```bash
 cortex --export-csr --slot 0600
 cortex --export-csr --customer Ford --slot 1200 --no-drive
+cortex --export-csr --slot 0000 --force
 ```
 
 Scheduled jobs `csr-customer-dump-0000` / `0600` / `1200` / `1800` run four times a day. EventBridge crons are UTC locked to current **CDT** hours (midnight / 6am / noon / 6pm Chicago → `cron(0 5|11|17|23 * * ? *)`). After the US switches to CST those UTC hours move one hour earlier on the Chicago clock.
+
+The CS Report workbook is **weekly**. After a full Drive dump succeeds, Cortex stores the workbook name and Drive `modifiedTime` in `Output/CSR-Dump-source.json`. Later slots **skip** the customer rewrite when that fingerprint still matches (job succeeds as skipped; no new `{HHmm}` snapshots). `--customer` and `--no-drive` always write. `--force` rewrites even when the workbook is unchanged.
 
 Each distinct CS Report `customer` (week delta only) gets three dated Google Sheets in `Output/Customer Exports/{folder}/` (Chicago calendar date, `DD-MMM-YYYY`):
 

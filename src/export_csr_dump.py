@@ -4,13 +4,15 @@
 Each grain gets a dated Google Sheet plus a markdown twin carrying the same rows.
 
 Usage:
-  cortex --export-csr [--customer NAME] [--slot 0600] [--no-drive] [--out-dir DIR]
+  cortex --export-csr [--customer NAME] [--slot 0600] [--force] [--no-drive] [--out-dir DIR]
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -34,6 +36,7 @@ from .cs_report_client import (
 )
 from .export_drive_layout import (
     CSR_DUMP_RUN_SLOTS,
+    CSR_DUMP_SOURCE_MARKER_FILENAME,
     CUSTOMER_EXPORTS_FOLDER,
     csr_dump_report_title,
     csr_report_date_label,
@@ -65,6 +68,68 @@ _CSR_ROLLUP_NOTE = (
     "and similar rates are unweighted means of sites that have a value. These are not "
     "native LeanDNA CSR rollups."
 )
+
+
+def csr_dump_source_fingerprint(meta: dict[str, Any] | None) -> dict[str, str] | None:
+    """Return ``{file, modified}`` when both are present; otherwise None (cannot skip)."""
+    if not isinstance(meta, dict):
+        return None
+    file_name = str(meta.get("file") or "").strip()
+    modified = str(meta.get("modified") or "").strip()
+    if not file_name or not modified:
+        return None
+    return {"file": file_name, "modified": modified}
+
+
+def csr_dump_source_unchanged(
+    current: dict[str, str] | None,
+    previous: dict[str, Any] | None,
+) -> bool:
+    """True when the CS Report workbook name and Drive modifiedTime match the last dump."""
+    if not current or not isinstance(previous, dict):
+        return False
+    prev_file = str(previous.get("file") or "").strip()
+    prev_modified = str(previous.get("modified") or "").strip()
+    return current["file"] == prev_file and current["modified"] == prev_modified
+
+
+def load_csr_dump_source_marker() -> dict[str, Any] | None:
+    """Read ``CSR-Dump-source.json`` from Drive ``Output/``. Missing/unreadable → None (dump)."""
+    try:
+        from .drive_config import find_file_in_folder, get_qbr_output_root_folder_id, read_drive_file_text
+
+        root_id = get_qbr_output_root_folder_id()
+        if not root_id:
+            return None
+        file_id = find_file_in_folder(CSR_DUMP_SOURCE_MARKER_FILENAME, root_id)
+        if not file_id:
+            return None
+        raw = read_drive_file_text(file_id)
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else None
+    except Exception as exc:
+        logger.warning("CSR dump source marker unread (%s); rewriting dumps", exc)
+        return None
+
+
+def save_csr_dump_source_marker(payload: dict[str, Any]) -> None:
+    """Replace ``CSR-Dump-source.json`` on Drive ``Output/``. Failures are warnings only."""
+    try:
+        from .drive_config import get_qbr_output_root_folder_id, upload_text_file_to_drive_folder
+
+        root_id = get_qbr_output_root_folder_id()
+        if not root_id:
+            logger.warning("CSR dump source marker not written: Drive Output folder unresolved")
+            return
+        body = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+        upload_text_file_to_drive_folder(
+            CSR_DUMP_SOURCE_MARKER_FILENAME,
+            body,
+            root_id,
+            mime_type="application/json",
+        )
+    except Exception as exc:
+        logger.warning("CSR dump source marker not written (%s); next run will dump again", exc)
 
 
 def csr_dump_stem(csr_customer: str) -> str:
@@ -368,6 +433,7 @@ def export_csr_dumps(
     out_dir: Path | None = None,
     now: dt.datetime | None = None,
     diag: ExportRunDiagnostics | None = None,
+    force: bool = False,
 ) -> dict[str, Any]:
     slot_label = historical_run_slot_label(slot)
     export_date = chicago_export_date(now)
@@ -385,6 +451,25 @@ def export_csr_dumps(
         raise RuntimeError("CS Report has no delta=week rows — cannot build CSR dumps")
     targets = _customers_for_run(all_customers, customer_filter=customer)
     source_meta = csr_latest_report_meta()
+    fingerprint = csr_dump_source_fingerprint(source_meta)
+    full_drive_dump = not no_drive and not (customer or "").strip()
+    if full_drive_dump and not force and csr_dump_source_unchanged(fingerprint, load_csr_dump_source_marker()):
+        skip_reason = (
+            f"CS Report unchanged ({fingerprint['file']}, modified {fingerprint['modified']})"
+        )
+        logger.info("CSR dump skipped: %s slot=%s", skip_reason, slot_label)
+        if diag is not None:
+            diag.set_integration_meta({"skipped": True, "skip_reason": skip_reason})
+        return {
+            "slot": slot_label,
+            "export_date": export_date.isoformat(),
+            "customers": len(targets),
+            "uploaded": 0,
+            "failures": [],
+            "skipped": True,
+            "skip_reason": skip_reason,
+        }
+
     failures: list[str] = []
     uploaded: list[dict[str, Any]] = []
     local_dir = out_dir or Path("output") / "csr-dump"
@@ -502,11 +587,21 @@ def export_csr_dumps(
         "customers": len(targets),
         "uploaded": len(uploaded),
         "failures": failures,
+        "skipped": False,
     }
     if failures:
         raise RuntimeError(
             f"CSR dump incomplete: {len(failures)}/{len(targets)} customer(s) failed: "
             + "; ".join(failures[:8])
+        )
+    if full_drive_dump and fingerprint:
+        save_csr_dump_source_marker(
+            {
+                **fingerprint,
+                "exported_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "slot": slot_label,
+                "customers": len(uploaded),
+            }
         )
     logger.info(
         "CSR dump complete: %d customer(s) slot=%s chicago_date=%s",
@@ -528,16 +623,31 @@ def export_csr_main(argv: list[str] | None = None, *, prog: str = "cortex --expo
     )
     parser.add_argument("--no-drive", action="store_true")
     parser.add_argument("--out-dir", type=Path, default=None)
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Rewrite Drive dumps even if the CS Report workbook is unchanged.",
+    )
     args = parser.parse_args(argv)
     slot = args.slot or infer_csr_dump_slot()
     with export_diagnostics_scope() as diag:
-        export_csr_dumps(
+        result = export_csr_dumps(
             slot=slot,
             customer=args.customer,
             no_drive=args.no_drive,
             out_dir=args.out_dir,
+            force=args.force,
             diag=diag,
         )
+        if result.get("skipped"):
+            diag.set_integration_meta(
+                {
+                    "skipped": True,
+                    "skip_reason": result.get("skip_reason") or "source unchanged",
+                }
+            )
+        job_name = os.environ.get("CORTEX_JOB_NAME", "").strip() or "export-csr"
+        diag.emit_run_summary(job_name=job_name, fail_on_warnings=False)
 
 
 if __name__ == "__main__":
