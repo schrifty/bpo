@@ -15,7 +15,7 @@ from src.ecs_running_report import (
 
 def test_job_from_container_command_reads_run_job_override():
     assert _job_from_container_command(["engineering-portfolio"]) == "engineering-portfolio"
-    assert _job_from_container_command(["/app/scripts/run_job.sh", "export-nightly"]) == "export-nightly"
+    assert _job_from_container_command(["/app/scripts/run_job.sh", "llm-context-portfolio-daily"]) == "llm-context-portfolio-daily"
     assert _job_from_container_command(["python3", "cortex.py", "run-job", "--job", "portfolio-batch"]) == (
         "portfolio-batch"
     )
@@ -29,12 +29,12 @@ def test_running_row_from_task_uses_overrides():
         "taskDefinitionArn": "arn:aws:ecs:us-east-1:123:task-definition/cortex-decks:4",
         "startedBy": "events.amazonaws.com",
         "overrides": {
-            "containerOverrides": [{"name": "cortex-decks", "command": ["export-nightly"]}],
+            "containerOverrides": [{"name": "cortex-decks", "command": ["llm-context-portfolio-daily"]}],
         },
     }
     row = _running_row_from_task(task)
     assert row.task_id == "abc123"
-    assert row.job == "export-nightly"
+    assert row.job == "llm-context-portfolio-daily"
     assert row.status == "RUNNING"
     assert "2026-06-17 03:15:00 UTC" in row.started_at
     assert row.task_definition == "cortex-decks:4"
@@ -44,7 +44,7 @@ def test_format_running_table_aligns_columns():
     rows = [
         RunningRow(
             task_id="abc123",
-            job="export-nightly",
+            job="llm-context-portfolio-daily",
             status="RUNNING",
             started_at="2026-06-17 03:15:00 UTC",
             task_definition="cortex-decks:4",
@@ -53,7 +53,7 @@ def test_format_running_table_aligns_columns():
     ]
     text = format_running_table(rows)
     assert "abc123" in text
-    assert "export-nightly" in text
+    assert "llm-context-portfolio-daily" in text
     assert "RUNNING" in text
 
 

@@ -20,7 +20,7 @@ from src.job_retry_scheduler import (
     "text,expected",
     [
         (
-            'ford-pendo-export-7d: googleapiclient.errors.HttpError: <HttpError 503 when requesting https://sheets.googleapis.com/',
+            'pendo-ford-export-7d: googleapiclient.errors.HttpError: <HttpError 503 when requesting https://sheets.googleapis.com/',
             True,
         ),
         ("HttpError 429 rateLimitExceeded", True),
@@ -59,7 +59,7 @@ def test_any_failure_retryable_uses_step_tail_for_top_arr_style() -> None:
     from src.job_runner import StepResult
 
     step = StepResult(
-        name="pendo-top-10-arr-export-30d",
+        name="pendo-top-arr-detailed-export",
         command="export-pendo-top-arr",
         success=False,
         exit_code=1,
@@ -71,7 +71,7 @@ def test_any_failure_retryable_uses_step_tail_for_top_arr_style() -> None:
         ),
     )
     texts = failure_texts_for_retry_classification(
-        ["pendo-top-10-arr-export-30d: Completed with 1 error(s) of 10 customer(s)"],
+        ["pendo-top-arr-detailed-export: Completed with 1 error(s) of 10 customer(s)"],
         step_results=[step],
     )
     assert any_failure_retryable(texts)
@@ -81,7 +81,7 @@ def test_schedule_job_retry_skips_when_not_configured(monkeypatch) -> None:
     monkeypatch.delenv("CORTEX_ECS_CLUSTER_ARN", raising=False)
     monkeypatch.delenv("CORTEX_JOB_RETRY_ENABLED", raising=False)
     result = schedule_job_retry(
-        job_name="ford-pendo-7d",
+        job_name="pendo-ford-7d",
         run_id="abc123",
         failures=["ford: HttpError 503"],
     )
@@ -95,7 +95,7 @@ def test_schedule_job_retry_skips_when_budget_exhausted(monkeypatch) -> None:
     monkeypatch.setenv("CORTEX_JOB_RETRY_MAX_ATTEMPTS", "1")
     monkeypatch.setenv("CORTEX_ECS_CLUSTER_ARN", "arn:aws:ecs:us-east-1:1:cluster/cortex")
     result = schedule_job_retry(
-        job_name="ford-pendo-7d",
+        job_name="pendo-ford-7d",
         run_id="abc123",
         failures=["ford: HttpError 503"],
     )
@@ -121,10 +121,10 @@ def test_schedule_job_retry_creates_scheduler_at_expression(monkeypatch) -> None
     client = MagicMock()
     now = datetime(2026, 8, 14, 12, 0, 0, tzinfo=timezone.utc)
     result = schedule_job_retry(
-        job_name="ford-pendo-7d",
+        job_name="pendo-ford-7d",
         run_id="17f85f8455b94209be1239c10ae9dc97",
         failures=[
-            'ford-pendo-export-7d: googleapiclient.errors.HttpError: <HttpError 503 when requesting https://sheets.googleapis.com/'
+            'pendo-ford-export-7d: googleapiclient.errors.HttpError: <HttpError 503 when requesting https://sheets.googleapis.com/'
         ],
         scheduler_client=client,
         now=now,
@@ -132,7 +132,7 @@ def test_schedule_job_retry_creates_scheduler_at_expression(monkeypatch) -> None
     assert result.scheduled is True
     assert result.attempt == 1
     assert result.run_at_utc == "2026-08-14T12:15:00Z"
-    assert result.schedule_name and result.schedule_name.startswith("cortex-retry-ford-pendo-7d-")
+    assert result.schedule_name and result.schedule_name.startswith("cortex-retry-pendo-ford-7d-")
     client.create_schedule.assert_called_once()
     kwargs = client.create_schedule.call_args.kwargs
     assert kwargs["ScheduleExpression"] == "at(2026-08-14T12:15:00)"
@@ -145,13 +145,13 @@ def test_schedule_job_retry_creates_scheduler_at_expression(monkeypatch) -> None
     env = {e["name"]: e["value"] for e in payload["containerOverrides"][0]["environment"]}
     assert env["CORTEX_RETRY_OF"] == "17f85f8455b94209be1239c10ae9dc97"
     assert env["CORTEX_RETRY_ATTEMPT"] == "1"
-    assert payload["containerOverrides"][0]["command"] == ["ford-pendo-7d"]
+    assert payload["containerOverrides"][0]["command"] == ["pendo-ford-7d"]
 
 
 def test_maybe_schedule_wrapper_logs_skip(monkeypatch) -> None:
     monkeypatch.setenv("CORTEX_JOB_RETRY_DISABLE", "1")
     result = maybe_schedule_job_retry_after_failure(
-        job_name="ford-pendo-7d",
+        job_name="pendo-ford-7d",
         run_id="x",
         failures=["HttpError 503"],
     )
@@ -217,7 +217,7 @@ def test_schedule_job_retry_skips_watchdog_timeout(monkeypatch) -> None:
 
     client = MagicMock()
     result = schedule_job_retry(
-        job_name="csr-customer-dump-0000",
+        job_name="csr-dump-0000",
         run_id="abc123",
         failures=["export-csr: timeout after 14400s"],
         step_results=[

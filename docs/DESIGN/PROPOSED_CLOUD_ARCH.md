@@ -28,7 +28,7 @@ Optional unattended strictness (matches AWS default):
 ```bash
 export CORTEX_FAIL_ON_INTEGRATION_WARNINGS=1
 export CORTEX_LOG_FORMAT=json
-python3 cortex.py run-job --job export-weekly
+python3 cortex.py run-job --job llm-context-portfolio-weekly
 ```
 
 ### AWS (ECS Fargate + EventBridge)

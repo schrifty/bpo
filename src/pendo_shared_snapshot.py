@@ -43,9 +43,9 @@ SCHEMA_VERSION = 1
 MANIFEST_FILENAME = f"shared_snapshot_manifest_v{SCHEMA_VERSION}.json"
 
 # Windows used by scheduled transforms:
-# - export-nightly: 90
-# - ford-pendo-7d (7+7 compare): 14
-# - ford-pendo-30d / top-arr (30+30): 60
+# - llm-context-portfolio-daily: 90
+# - pendo-ford-7d (7+7 compare): 14
+# - pendo-ford-30d / pendo-top-arr-detailed (30+30): 60
 # Plus exact 7/30 for any single-window callers.
 DEFAULT_REFRESH_WINDOWS: tuple[int, ...] = (7, 14, 30, 60, 90)
 

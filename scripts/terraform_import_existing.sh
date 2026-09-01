@@ -80,15 +80,19 @@ fi
 
 # EventBridge rules (only when schedules are enabled in tfvars)
 if grep -qE '^[[:space:]]*enable_schedules[[:space:]]*=[[:space:]]*true' terraform.tfvars 2>/dev/null; then
-  for job_key in pendo-snapshot-refresh engineering-portfolio export-nightly ford-pendo-7d ford-pendo-30d pendo-top-10-arr metrics-eng-cycle-lead-weekly; do
+  for job_key in pendo-snapshot-refresh llm-context-portfolio-daily engineering-portfolio pendo-ford-7d pendo-ford-30d pendo-top-arr-detailed csr-dump-0000 csr-dump-0600 csr-dump-1200 csr-dump-1800 morning-report; do
     case "$job_key" in
       pendo-snapshot-refresh) rule_name="cortex-pendo-snapshot-refresh" ;;
+      llm-context-portfolio-daily) rule_name="cortex-llm-context-portfolio-daily" ;;
       engineering-portfolio) rule_name="cortex-engineering-portfolio" ;;
-      export-nightly) rule_name="cortex-export-nightly" ;;
-      ford-pendo-7d) rule_name="cortex-ford-pendo-7d" ;;
-      ford-pendo-30d) rule_name="cortex-ford-pendo-30d" ;;
-      pendo-top-10-arr) rule_name="cortex-pendo-top-10-arr" ;;
-      metrics-eng-cycle-lead-weekly) rule_name="cortex-metrics-eng-cycle-lead-weekly" ;;
+      pendo-ford-7d) rule_name="cortex-pendo-ford-7d" ;;
+      pendo-ford-30d) rule_name="cortex-pendo-ford-30d" ;;
+      pendo-top-arr-detailed) rule_name="cortex-pendo-top-arr-detailed" ;;
+      csr-dump-0000) rule_name="cortex-csr-dump-0000" ;;
+      csr-dump-0600) rule_name="cortex-csr-dump-0600" ;;
+      csr-dump-1200) rule_name="cortex-csr-dump-1200" ;;
+      csr-dump-1800) rule_name="cortex-csr-dump-1800" ;;
+      morning-report) rule_name="cortex-morning-report" ;;
       *) rule_name="${PREFIX}-${job_key}" ;;
     esac
     if aws events describe-rule --region "$REGION" --name "$rule_name" >/dev/null 2>&1; then

@@ -87,15 +87,15 @@ output "run_task_engineering_portfolio" {
   EOT
 }
 
-output "run_task_export_nightly" {
-  description = "One-off smoke test for portfolio LLM export job"
+output "run_task_llm_context_portfolio_daily" {
+  description = "One-off smoke test for daily portfolio LLM context job"
   value       = <<-EOT
     aws ecs run-task \
       --cluster ${aws_ecs_cluster.cortex.name} \
       --launch-type FARGATE \
       --task-definition ${aws_ecs_task_definition.decks.family} \
       --network-configuration "awsvpcConfiguration={subnets=[${join(",", local.subnet_ids)}],securityGroups=[${aws_security_group.ecs_tasks.id}],assignPublicIp=${var.assign_public_ip ? "ENABLED" : "DISABLED"}}" \
-      --overrides '{"containerOverrides":[{"name":"cortex-decks","command":["export-nightly"]}]}' \
+      --overrides '{"containerOverrides":[{"name":"cortex-decks","command":["llm-context-portfolio-daily"]}]}' \
       --region ${var.aws_region}
   EOT
 }

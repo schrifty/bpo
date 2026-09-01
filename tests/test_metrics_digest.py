@@ -200,7 +200,7 @@ def test_morning_report_leads_with_overnight_jobs() -> None:
     rows = [DigestRow("Alpha", 2, 3.0, 5.0, "lower", False)]
     overnight = [
         OvernightJobOutcome(
-            job="export-nightly",
+            job="llm-context-portfolio-daily",
             status="OK",
             duration_s=540.0,
             finished_utc=datetime(2026, 8, 3, 6, 10, tzinfo=timezone.utc),
@@ -215,7 +215,7 @@ def test_morning_report_leads_with_overnight_jobs() -> None:
     ]
     body = format_digest_body(rows, as_of="2026-08-03", overnight=overnight)
     assert body.index("LAST NIGHT'S JOBS") < body.index("OFF TARGET")
-    assert "export-nightly" in body and "OK" in body
+    assert "llm-context-portfolio-daily" in body and "OK" in body
     assert "FAIL" in body and "deck: FAIL 401" in body
     subj = format_digest_subject(rows, as_of="2026-08-03", overnight=overnight)
     assert subj == "Morning report 2026-08-03 — 1 job issue(s), 0 off target"
@@ -390,7 +390,7 @@ def test_tag_filter_omits_overnight_even_when_passed(monkeypatch) -> None:
     )
     overnight = [
         OvernightJobOutcome(
-            job="export-nightly",
+            job="llm-context-portfolio-daily",
             status="FAIL",
             duration_s=1.0,
             finished_utc=datetime(2026, 8, 3, 6, 0, tzinfo=timezone.utc),
@@ -491,8 +491,8 @@ def test_send_email_fails_loud_without_from(monkeypatch) -> None:
 def test_metrics_digest_job_argv() -> None:
     from src.job_runner import build_step_argv, load_job_spec
 
-    spec = load_job_spec("metrics-daily-digest")
-    assert spec.name == "metrics-daily-digest"
+    spec = load_job_spec("morning-report")
+    assert spec.name == "morning-report"
     argv = build_step_argv(spec.steps[0])
     assert argv[0] == "metrics-digest"
     assert "--days" in argv

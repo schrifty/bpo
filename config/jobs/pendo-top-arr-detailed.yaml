@@ -1,8 +1,8 @@
-name: pendo-top-10-arr
+name: pendo-top-arr-detailed
 stop_on_failure: true
 fail_on_warnings: false
 steps:
-  - name: pendo-top-10-arr-export
+  - name: pendo-top-arr-detailed-export
     command: export-pendo-top-arr
     top_n: 10
     windows: [30, 7]

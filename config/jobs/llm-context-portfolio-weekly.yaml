@@ -1,7 +1,7 @@
-name: export-weekly
+name: llm-context-portfolio-weekly
 stop_on_failure: true
 fail_on_warnings: false
 steps:
-  - name: llm-export
+  - name: llm-context-export
     command: export-all
     days: 90

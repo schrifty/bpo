@@ -25,7 +25,7 @@ def test_extract_run_summary_from_json_log() -> None:
     summary = {
         "event": "run_complete",
         "success": True,
-        "job": "export-nightly",
+        "job": "llm-context-portfolio-daily",
         "duration_s": 540.0,
     }
     wrapped = json.dumps(
@@ -37,7 +37,7 @@ def test_extract_run_summary_from_json_log() -> None:
     )
     out = extract_run_summary(wrapped)
     assert out is not None
-    assert out["job"] == "export-nightly"
+    assert out["job"] == "llm-context-portfolio-daily"
     assert out["success"] is True
 
 
@@ -62,7 +62,7 @@ def test_build_outcomes_marks_fail_and_missing() -> None:
     by_job = {o.job: o for o in outcomes}
     assert by_job["pendo-snapshot-refresh"].status == "OK"
     assert by_job["engineering-portfolio"].status == "FAIL"
-    assert by_job["export-nightly"].status == "MISSING"
+    assert by_job["llm-context-portfolio-daily"].status == "MISSING"
     assert overnight_failure_count(outcomes) >= 2
     assert "metrics-eng-cycle-lead-weekly" not in by_job
 
@@ -74,7 +74,7 @@ def test_build_outcomes_prefers_later_retry_success() -> None:
             datetime(2026, 8, 14, 7, 3, tzinfo=timezone.utc),
             {
                 "success": False,
-                "job": "ford-pendo-7d",
+                "job": "pendo-ford-7d",
                 "duration_s": 134.0,
                 "failures": ["HttpError 503"],
             },
@@ -83,7 +83,7 @@ def test_build_outcomes_prefers_later_retry_success() -> None:
             datetime(2026, 8, 14, 7, 20, tzinfo=timezone.utc),
             {
                 "success": True,
-                "job": "ford-pendo-7d",
+                "job": "pendo-ford-7d",
                 "duration_s": 160.0,
                 "retry_of": "17f85f84",
                 "retry_attempt": 1,
@@ -91,7 +91,7 @@ def test_build_outcomes_prefers_later_retry_success() -> None:
         ),
     ]
     outcomes = build_overnight_job_outcomes(as_of=as_of, summaries=summaries)
-    row = next(o for o in outcomes if o.job == "ford-pendo-7d")
+    row = next(o for o in outcomes if o.job == "pendo-ford-7d")
     assert row.status == "OK"
     assert row.detail and "retry of 17f85f84" in row.detail
     assert overnight_failure_count(outcomes) == 0 or row.status == "OK"
@@ -104,7 +104,7 @@ def test_build_outcomes_marks_skipped_csr_dump() -> None:
             datetime(2026, 8, 31, 6, 5, tzinfo=timezone.utc),
             {
                 "success": True,
-                "job": "csr-customer-dump-0000",
+                "job": "csr-dump-0000",
                 "duration_s": 22.0,
                 "skipped": True,
                 "skip_reason": "CS Report unchanged (CS Report.xlsx, modified 2026-08-30T12:00:00.000Z)",
@@ -117,7 +117,7 @@ def test_build_outcomes_marks_skipped_csr_dump() -> None:
     ]
     outcomes = build_overnight_job_outcomes(as_of=as_of, summaries=summaries)
     by_job = {o.job: o for o in outcomes}
-    row = by_job["csr-customer-dump-0000"]
+    row = by_job["csr-dump-0000"]
     assert row.status == "SKIPPED"
     assert "CS Report.xlsx" in (row.detail or "")
     assert overnight_failure_count(outcomes) == 0 or by_job["pendo-snapshot-refresh"].status == "OK"

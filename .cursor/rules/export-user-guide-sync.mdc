@@ -1,6 +1,6 @@
 ---
 description: Keep Cortex Export user guide in sync with all export and Drive layout changes
-globs: docs/Cortex Export - User Guide.md,src/export_*.py,src/export_user_guide_drive.py,src/export_drive_layout.py,src/export_output_archive.py,src/deck_orchestrator.py,src/data_sources/llm_export_report.py,config/jobs/export-nightly.yaml,config/jobs/ford-pendo-*.yaml,config/jobs/pendo-top-10-arr.yaml,tests/test_export_*.py,tests/test_portfolio_deck_drive_layout.py
+globs: docs/Cortex Export - User Guide.md,src/export_*.py,src/export_user_guide_drive.py,src/export_drive_layout.py,src/export_output_archive.py,src/deck_orchestrator.py,src/data_sources/llm_export_report.py,config/jobs/llm-context-portfolio-daily.yaml,config/jobs/pendo-ford-*.yaml,config/jobs/pendo-top-arr-detailed.yaml,tests/test_export_*.py,tests/test_portfolio_deck_drive_layout.py
 alwaysApply: false
 ---
 
@@ -12,7 +12,7 @@ The end-user doc is **`docs/Cortex Export - User Guide.md`**. When **any Cortex 
 
 | Family | Code / CLI | User guide sections |
 |--------|------------|---------------------|
-| **Portfolio LLM context** | `cortex export-all`, `export-nightly` job · `src/export_llm_context_snapshot.py` | Portfolio LLM context · §1–§7 · status · ARR · portfolio prompts |
+| **Portfolio LLM context** | `cortex export-all`, `llm-context-portfolio-daily` job · `src/export_llm_context_snapshot.py` | Portfolio LLM context · §1–§7 · status · ARR · portfolio prompts |
 | **Per-customer Pendo** | `cortex --export-pendo`, `--export-pendo-detailed`, `--export-pendo-top-arr` · `src/export_customer_pendo_snapshot.py`, `src/export_pendo_detailed_snapshot.py`, `src/export_pendo_spreadsheet.py` | Per-customer Pendo export · §1–§12 · §13–§14 (detailed) · Pendo prompts |
 | **Shared Drive layout** | `src/export_drive_layout.py`, `src/export_output_archive.py` · portfolio deck placement in `src/deck_orchestrator.py` | Where files live on Drive · For operators (paths) |
 

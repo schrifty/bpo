@@ -89,8 +89,8 @@ def test_load_pendo_snapshot_refresh_job() -> None:
     assert build_step_argv(spec.steps[0])[0] == "--refresh-pendo-snapshot"
 
 
-def test_export_nightly_requires_pendo_snapshot() -> None:
-    spec = load_job_spec("export-nightly")
+def test_llm_context_portfolio_requires_pendo_snapshot() -> None:
+    spec = load_job_spec("llm-context-portfolio-daily")
     assert spec.steps[0].get("require_pendo_snapshot") is True
     assert spec.steps[0].get("require_pendo_windows") == [90]
 
@@ -203,7 +203,7 @@ def test_build_step_argv_metrics_digest() -> None:
     assert argv == ["metrics-digest", "--days", "30", "--dry-run"]
 
 
-def test_load_metrics_daily_digest_spec() -> None:
-    spec = load_job_spec("metrics-daily-digest")
-    assert spec.name == "metrics-daily-digest"
+def test_load_morning_report_spec() -> None:
+    spec = load_job_spec("morning-report")
+    assert spec.name == "morning-report"
     assert spec.steps[0]["command"] == "metrics-digest"

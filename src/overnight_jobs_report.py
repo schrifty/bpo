@@ -14,7 +14,7 @@ from src.ecs_schedule_report import SCHEDULED_JOBS_CATALOG
 logger = logging.getLogger("cortex")
 
 # Morning report itself — excluded from "last night" expectations.
-_MORNING_REPORT_JOB = "metrics-daily-digest"
+_MORNING_REPORT_JOB = "morning-report"
 _DEFAULT_LOG_GROUP = "/cortex/decks"
 # Overnight batch window on the as-of UTC calendar day (before 12:00 morning report).
 _WINDOW_START_HOUR_UTC = 2

@@ -89,7 +89,9 @@ enable_schedules = true
 terraform apply
 ```
 
-Jobs are defined in `variables.tf` → `scheduled_jobs` (default cron is UTC). Shared Pendo ingest (`pendo-snapshot-refresh`) runs at **03:00 UTC**; transform jobs then run 30 minutes apart from **06:00 UTC** (`export-nightly`, engineering portfolio, Ford 7d/30d, top-10 ARR detailed at 08:00). CSR customer dumps run four times a day at **05:00 / 11:00 / 17:00 / 23:00 UTC** (locked to current CDT midnight / 6am / noon / 6pm). A full Drive dump rewrites ~97 customer workbooks; later slots **skip** when `Output/CSR-Dump-source.json` still matches the CS Report workbook name and Drive `modifiedTime` (`cortex --export-csr --force` to rewrite). Daily: `metrics-daily-digest` **12:00 UTC** (≈07:00 Central; **disabled** until SES `leandna.com` DKIM DNS is in place — set `enabled = true` then). Override `rule_name` on a job when the EventBridge rule should not use `{name_prefix}-{job_key}`.
+Jobs are defined in `variables.tf` → `scheduled_jobs` (default cron is UTC). Shared Pendo ingest (`pendo-snapshot-refresh`) runs at **03:00 UTC**. Snapshot consumers start at **07:00 UTC** (after EventBridge’s 2h RunTask retry window plus snapshot runtime): `llm-context-portfolio-daily`, engineering portfolio at 07:30, `pendo-ford-7d` / `pendo-ford-30d`, then `pendo-top-arr-detailed` at 09:00. CSR dumps run four times a day at **05:00 / 11:00 / 17:00 / 23:00 UTC** (locked to current CDT midnight / 6am / noon / 6pm). A full Drive dump rewrites ~97 customer workbooks; later slots **skip** when `Output/CSR-Dump-source.json` still matches the CS Report workbook name and Drive `modifiedTime` (`cortex --export-csr --force` to rewrite). Daily: `morning-report` **12:00 UTC** (≈07:00 Central; **disabled** until SES `leandna.com` DKIM DNS is in place — set `enabled = true` then). Override `rule_name` on a job when the EventBridge rule should not use `{name_prefix}-{job_key}`.
+
+Renaming job keys recreates EventBridge rules on `terraform apply` (old `cortex-export-nightly` / `cortex-ford-pendo-*` / `cortex-csr-customer-dump-*` rules are replaced).
 
 ### One-shot job retries
 
@@ -97,13 +99,13 @@ When `enable_schedules` and `enable_job_retries` (default **true**) are on, a fa
 
 ### Morning KPI digest (SES)
 
-`metrics-daily-digest` live-generates every `config/my-metrics.yaml` row with a `metric-generator`, compares to `target` / `direction`, and emails a plain-text digest via SES.
+`morning-report` live-generates every `config/my-metrics.yaml` row with a `metric-generator`, compares to `target` / `direction`, and emails a plain-text digest via SES.
 
 1. Verify the SES **From** identity in `us-east-1` (sandbox: verify recipient too).
 2. Put these keys in Secrets Manager (`cortex/prod/env` JSON, same as `.env.example`):
    - `CORTEX_METRICS_DIGEST_TO` — comma-separated recipients (e.g. `marc.schriftman@leandna.com`)
    - `CORTEX_METRICS_DIGEST_FROM` — verified SES identity
-3. `terraform apply` so rule `cortex-metrics-daily-digest` and task-role `ses:SendEmail` land.
+3. `terraform apply` so rule `cortex-morning-report` and task-role `ses:SendEmail` land.
 4. Smoke locally: `./bin/metrics-digest --dry-run`
 
 ## Variables (common)

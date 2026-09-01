@@ -150,77 +150,78 @@ variable "scheduled_jobs" {
     rule_name           = optional(string)
   }))
   default = {
-    # EventBridge cron is UTC. Shared Pendo ingest runs first (03:00) so disk
-    # preload + manifest are ready before export transforms start at 06:00.
-    # Remaining jobs stay 30 minutes apart from 06:00 UTC.
+    # EventBridge cron is UTC. Shared Pendo ingest runs first (03:00). Snapshot
+    # consumers start at 07:00 so they sit after EventBridge's 2h RunTask retry
+    # window plus snapshot runtime (~20m). Remaining Pendo transforms stay 30
+    # minutes apart. CSR dumps stay locked to CDT wall-clock slots.
     pendo-snapshot-refresh = {
       schedule_expression = "cron(0 3 * * ? *)"
       command             = ["pendo-snapshot-refresh"]
       enabled             = true
       rule_name           = "cortex-pendo-snapshot-refresh"
     }
-    export-nightly = {
-      schedule_expression = "cron(0 6 * * ? *)"
-      command             = ["export-nightly"]
+    llm-context-portfolio-daily = {
+      schedule_expression = "cron(0 7 * * ? *)"
+      command             = ["llm-context-portfolio-daily"]
       enabled             = true
-      rule_name           = "cortex-export-nightly"
+      rule_name           = "cortex-llm-context-portfolio-daily"
     }
     engineering-portfolio = {
-      schedule_expression = "cron(30 6 * * ? *)"
+      schedule_expression = "cron(30 7 * * ? *)"
       command             = ["engineering-portfolio"]
       enabled             = true
       rule_name           = "cortex-engineering-portfolio"
     }
-    ford-pendo-7d = {
-      schedule_expression = "cron(0 7 * * ? *)"
-      command             = ["ford-pendo-7d"]
-      enabled             = true
-      rule_name           = "cortex-ford-pendo-7d"
-    }
-    ford-pendo-30d = {
-      schedule_expression = "cron(30 7 * * ? *)"
-      command             = ["ford-pendo-30d"]
-      enabled             = true
-      rule_name           = "cortex-ford-pendo-30d"
-    }
-    pendo-top-10-arr = {
+    pendo-ford-7d = {
       schedule_expression = "cron(0 8 * * ? *)"
-      command             = ["pendo-top-10-arr"]
+      command             = ["pendo-ford-7d"]
       enabled             = true
-      rule_name           = "cortex-pendo-top-10-arr"
+      rule_name           = "cortex-pendo-ford-7d"
+    }
+    pendo-ford-30d = {
+      schedule_expression = "cron(30 8 * * ? *)"
+      command             = ["pendo-ford-30d"]
+      enabled             = true
+      rule_name           = "cortex-pendo-ford-30d"
+    }
+    pendo-top-arr-detailed = {
+      schedule_expression = "cron(0 9 * * ? *)"
+      command             = ["pendo-top-arr-detailed"]
+      enabled             = true
+      rule_name           = "cortex-pendo-top-arr-detailed"
     }
     # CSR full dumps: UTC crons locked to current CDT hours
     # (midnight / 6am / noon / 6pm Chicago). After CST, these UTC hours shift
     # one hour earlier on the Chicago clock.
-    csr-customer-dump-0000 = {
+    csr-dump-0000 = {
       schedule_expression = "cron(0 5 * * ? *)"
-      command             = ["csr-customer-dump-0000"]
+      command             = ["csr-dump-0000"]
       enabled             = true
-      rule_name           = "cortex-csr-customer-dump-0000"
+      rule_name           = "cortex-csr-dump-0000"
     }
-    csr-customer-dump-0600 = {
+    csr-dump-0600 = {
       schedule_expression = "cron(0 11 * * ? *)"
-      command             = ["csr-customer-dump-0600"]
+      command             = ["csr-dump-0600"]
       enabled             = true
-      rule_name           = "cortex-csr-customer-dump-0600"
+      rule_name           = "cortex-csr-dump-0600"
     }
-    csr-customer-dump-1200 = {
+    csr-dump-1200 = {
       schedule_expression = "cron(0 17 * * ? *)"
-      command             = ["csr-customer-dump-1200"]
+      command             = ["csr-dump-1200"]
       enabled             = true
-      rule_name           = "cortex-csr-customer-dump-1200"
+      rule_name           = "cortex-csr-dump-1200"
     }
-    csr-customer-dump-1800 = {
+    csr-dump-1800 = {
       schedule_expression = "cron(0 23 * * ? *)"
-      command             = ["csr-customer-dump-1800"]
+      command             = ["csr-dump-1800"]
       enabled             = true
-      rule_name           = "cortex-csr-customer-dump-1800"
+      rule_name           = "cortex-csr-dump-1800"
     }
-    metrics-daily-digest = {
+    morning-report = {
       schedule_expression = "cron(0 12 * * ? *)"
-      command             = ["metrics-daily-digest"]
+      command             = ["morning-report"]
       enabled             = false
-      rule_name           = "cortex-metrics-daily-digest"
+      rule_name           = "cortex-morning-report"
     }
   }
 }

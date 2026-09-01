@@ -536,8 +536,8 @@ def test_build_step_argv_export_pendo() -> None:
 
 
 def test_load_ford_pendo_7d_job() -> None:
-    spec = load_job_spec("ford-pendo-7d")
-    assert spec.name == "ford-pendo-7d"
+    spec = load_job_spec("pendo-ford-7d")
+    assert spec.name == "pendo-ford-7d"
     step = spec.steps[0]
     assert step["customer"] == "Ford"
     assert step["days"] == 7
@@ -554,8 +554,8 @@ def test_load_ford_pendo_7d_job() -> None:
 
 
 def test_load_ford_pendo_30d_job() -> None:
-    spec = load_job_spec("ford-pendo-30d")
-    assert spec.name == "ford-pendo-30d"
+    spec = load_job_spec("pendo-ford-30d")
+    assert spec.name == "pendo-ford-30d"
     step = spec.steps[0]
     assert step["customer"] == "Ford"
     assert step["days"] == 30

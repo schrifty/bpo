@@ -62,7 +62,7 @@ decks metrics-upsert                    # upsert for today (use EXECUTION_ENV=St
 decks metrics-upsert --metric "KPI Automation %"
 ```
 
-**Morning KPI digest email:** EventBridge job ``metrics-daily-digest`` (12:00 UTC) runs ``metrics-digest``, which live-generates every registry row with a generator, compares to ``target`` / ``direction``, and emails via SES. Set ``CORTEX_METRICS_DIGEST_TO`` and ``CORTEX_METRICS_DIGEST_FROM`` in `.env` / Secrets Manager (see ``infra/terraform/README.md``). Local smoke::
+**Morning KPI digest email:** EventBridge job ``morning-report`` (12:00 UTC) runs ``metrics-digest``, which live-generates every registry row with a generator, compares to ``target`` / ``direction``, and emails via SES. Set ``CORTEX_METRICS_DIGEST_TO`` and ``CORTEX_METRICS_DIGEST_FROM`` in `.env` / Secrets Manager (see ``infra/terraform/README.md``). Local smoke::
 
 ```bash
 ./bin/metrics-digest --dry-run

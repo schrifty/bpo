@@ -188,11 +188,11 @@ def test_build_step_argv_and_job_specs() -> None:
         "0600",
         "--force",
     ]
-    spec = load_job_spec("csr-customer-dump-0600")
+    spec = load_job_spec("csr-dump-0600")
     assert spec.steps[0]["command"] == "export-csr"
     assert spec.steps[0]["slot"] == "0600"
-    assert load_job_spec("csr-customer-dump-0000").steps[0]["slot"] == "0000"
-    assert load_job_spec("csr-customer-dump-1800").steps[0]["slot"] == "1800"
+    assert load_job_spec("csr-dump-0000").steps[0]["slot"] == "0000"
+    assert load_job_spec("csr-dump-1800").steps[0]["slot"] == "1800"
 
 
 def test_export_csr_dumps_writes_markdown_once_after_sheets(monkeypatch) -> None:

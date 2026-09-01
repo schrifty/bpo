@@ -499,11 +499,11 @@ def test_export_pendo_top_arr_emits_each_window_once_per_customer(monkeypatch) -
     ]
 
 
-def test_load_job_spec_pendo_top_10_arr() -> None:
+def test_load_job_spec_pendo_top_arr_detailed() -> None:
     from src.job_runner import load_job_spec
 
-    spec = load_job_spec("pendo-top-10-arr")
-    assert spec.name == "pendo-top-10-arr"
+    spec = load_job_spec("pendo-top-arr-detailed")
+    assert spec.name == "pendo-top-arr-detailed"
     assert len(spec.steps) == 1
     step = spec.steps[0]
     assert step["command"] == "export-pendo-top-arr"

@@ -1,8 +1,8 @@
-name: export-nightly
+name: llm-context-portfolio-daily
 stop_on_failure: true
 fail_on_warnings: false
 steps:
-  - name: llm-export
+  - name: llm-context-export
     command: export-all
     days: 90
     require_pendo_snapshot: true

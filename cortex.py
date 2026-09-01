@@ -30,7 +30,7 @@ Flag commands (utilities)
       Shared Pendo ingest: warm disk preload slices for multiple windows (EFS/local
       ``CORTEX_CACHE_DIR/pendo/``), write ``shared_snapshot_manifest_v1.json``, and
       optionally upload the Drive portfolio rollup. Scheduled as ``pendo-snapshot-refresh``
-      at 03:00 UTC so transforms (export-nightly / Ford / top-ARR) can require a fresh
+      at 03:00 UTC so transforms (llm-context-portfolio-daily / pendo-ford-* / pendo-top-arr-detailed) can require a fresh
       snapshot instead of each re-crawling Pendo cold.
 
   cortex --customer "Customer Name" [--days N] [--quarter Q1 2026] [--thumbnails] [--workers N]
@@ -100,7 +100,7 @@ Generate one deck (explicit)
       Jira-backed org decks (same payloads as ``--portfolio`` batch).
 
   cortex export-all [--days N] [--max-tokens N] [--signals-cap N]
-      All-customers LLM context snapshot (same as the ``export-nightly`` job).
+      All-customers LLM context snapshot (same as the ``llm-context-portfolio-daily`` job).
 
   cortex regenerate-slides --deck engineering-portfolio --cursor [--presentation-id ID|URL]
       Rebuild Cursor slides in the latest (or specified) Engineering Review presentation in Drive.

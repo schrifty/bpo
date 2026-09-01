@@ -1,4 +1,4 @@
-name: metrics-daily-digest
+name: morning-report
 stop_on_failure: true
 fail_on_warnings: false
 steps:

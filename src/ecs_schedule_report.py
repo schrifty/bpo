@@ -23,77 +23,77 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "rule_name": "cortex-pendo-snapshot-refresh",
         "summary": "Shared Pendo ingest (preload 7/14/30/60/90 + Drive portfolio 90d)",
     },
-    "export-nightly": {
-        "schedule_expression": "cron(0 6 * * ? *)",
-        "command": ["export-nightly"],
+    "llm-context-portfolio-daily": {
+        "schedule_expression": "cron(0 7 * * ? *)",
+        "command": ["llm-context-portfolio-daily"],
         "enabled": True,
-        "rule_name": "cortex-export-nightly",
-        "summary": "LLM export (cortex export-all, 90-day window; requires shared Pendo snapshot)",
+        "rule_name": "cortex-llm-context-portfolio-daily",
+        "summary": "Portfolio LLM context (cortex export-all, 90-day window; requires shared Pendo snapshot)",
     },
     "engineering-portfolio": {
-        "schedule_expression": "cron(30 6 * * ? *)",
+        "schedule_expression": "cron(30 7 * * ? *)",
         "command": ["engineering-portfolio"],
         "enabled": True,
         "rule_name": "cortex-engineering-portfolio",
         "summary": "Engineering portfolio deck",
     },
-    "ford-pendo-7d": {
-        "schedule_expression": "cron(0 7 * * ? *)",
-        "command": ["ford-pendo-7d"],
+    "pendo-ford-7d": {
+        "schedule_expression": "cron(0 8 * * ? *)",
+        "command": ["pendo-ford-7d"],
         "enabled": True,
-        "rule_name": "cortex-ford-pendo-7d",
+        "rule_name": "cortex-pendo-ford-7d",
         "summary": "Ford Pendo usage export (cortex --export-pendo --customer Ford --days 7 --compare-days 7)",
     },
-    "ford-pendo-30d": {
-        "schedule_expression": "cron(30 7 * * ? *)",
-        "command": ["ford-pendo-30d"],
+    "pendo-ford-30d": {
+        "schedule_expression": "cron(30 8 * * ? *)",
+        "command": ["pendo-ford-30d"],
         "enabled": True,
-        "rule_name": "cortex-ford-pendo-30d",
+        "rule_name": "cortex-pendo-ford-30d",
         "summary": "Ford Pendo usage export (cortex --export-pendo --customer Ford --days 30 --compare-days 30)",
     },
-    "pendo-top-10-arr": {
-        "schedule_expression": "cron(0 8 * * ? *)",
-        "command": ["pendo-top-10-arr"],
+    "pendo-top-arr-detailed": {
+        "schedule_expression": "cron(0 9 * * ? *)",
+        "command": ["pendo-top-arr-detailed"],
         "enabled": True,
-        "rule_name": "cortex-pendo-top-10-arr",
+        "rule_name": "cortex-pendo-top-arr-detailed",
         "summary": (
-            "Top-10 ARR Pendo detailed export "
+            "Top-ARR Pendo detailed export "
             "(30d + 7d in one pass via cortex --export-pendo-top-arr --top-n 10 --windows 30,7)"
         ),
     },
-    "csr-customer-dump-0000": {
+    "csr-dump-0000": {
         "schedule_expression": "cron(0 5 * * ? *)",
-        "command": ["csr-customer-dump-0000"],
+        "command": ["csr-dump-0000"],
         "enabled": True,
-        "rule_name": "cortex-csr-customer-dump-0000",
-        "summary": "CSR week dump (Sheet + index) — midnight CDT slot 0000",
+        "rule_name": "cortex-csr-dump-0000",
+        "summary": "CSR week dump (Sheet + markdown) — midnight CDT slot 0000",
     },
-    "csr-customer-dump-0600": {
+    "csr-dump-0600": {
         "schedule_expression": "cron(0 11 * * ? *)",
-        "command": ["csr-customer-dump-0600"],
+        "command": ["csr-dump-0600"],
         "enabled": True,
-        "rule_name": "cortex-csr-customer-dump-0600",
-        "summary": "CSR week dump (Sheet + index) — 6am CDT slot 0600",
+        "rule_name": "cortex-csr-dump-0600",
+        "summary": "CSR week dump (Sheet + markdown) — 6am CDT slot 0600",
     },
-    "csr-customer-dump-1200": {
+    "csr-dump-1200": {
         "schedule_expression": "cron(0 17 * * ? *)",
-        "command": ["csr-customer-dump-1200"],
+        "command": ["csr-dump-1200"],
         "enabled": True,
-        "rule_name": "cortex-csr-customer-dump-1200",
-        "summary": "CSR week dump (Sheet + index) — noon CDT slot 1200",
+        "rule_name": "cortex-csr-dump-1200",
+        "summary": "CSR week dump (Sheet + markdown) — noon CDT slot 1200",
     },
-    "csr-customer-dump-1800": {
+    "csr-dump-1800": {
         "schedule_expression": "cron(0 23 * * ? *)",
-        "command": ["csr-customer-dump-1800"],
+        "command": ["csr-dump-1800"],
         "enabled": True,
-        "rule_name": "cortex-csr-customer-dump-1800",
-        "summary": "CSR week dump (Sheet + index) — 6pm CDT slot 1800",
+        "rule_name": "cortex-csr-dump-1800",
+        "summary": "CSR week dump (Sheet + markdown) — 6pm CDT slot 1800",
     },
-    "metrics-daily-digest": {
+    "morning-report": {
         "schedule_expression": "cron(0 12 * * ? *)",
-        "command": ["metrics-daily-digest"],
+        "command": ["morning-report"],
         "enabled": False,
-        "rule_name": "cortex-metrics-daily-digest",
+        "rule_name": "cortex-morning-report",
         "summary": "Morning report email (overnight jobs + KPI generators vs target/direction via SES) — disabled until SES domain DNS/DKIM",
     },
 }

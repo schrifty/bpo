@@ -1,7 +1,7 @@
 [
   {
     "Name": "cortex-pendo-snapshot-refresh",
-    "Description": "Shared Pendo ingest (preload 7/14/30/60/90 + Drive portfolio 90d) \u2014 daily 03:00 UTC (3h before export-nightly)",
+    "Description": "Shared Pendo ingest (preload 7/14/30/60/90 + Drive portfolio 90d) \u2014 daily 03:00 UTC",
     "ScheduleExpression": "cron(0 3 * * ? *)",
     "State": "ENABLED",
     "Targets": [
@@ -31,13 +31,13 @@
     ]
   },
   {
-    "Name": "cortex-export-nightly",
-    "Description": "LLM context export (cortex export-all) \u2014 daily 06:00 UTC",
-    "ScheduleExpression": "cron(0 6 * * ? *)",
+    "Name": "cortex-llm-context-portfolio-daily",
+    "Description": "Portfolio LLM context (cortex export-all, 90d) \u2014 daily 07:00 UTC",
+    "ScheduleExpression": "cron(0 7 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {
-        "Id": "cortex-export-nightly",
+        "Id": "cortex-llm-context-portfolio-daily",
         "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
         "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
         "EcsParameters": {
@@ -57,14 +57,14 @@
           },
           "TaskCount": 1
         },
-        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"export-nightly\"]}]}"
+        "Input": "{\"containerOverrides\": [{\"name\": \"cortex-decks\", \"command\": [\"llm-context-portfolio-daily\"]}]}"
       }
     ]
   },
   {
     "Name": "cortex-engineering-portfolio",
-    "Description": "Engineering portfolio deck \u2014 daily 06:30 UTC",
-    "ScheduleExpression": "cron(30 6 * * ? *)",
+    "Description": "Engineering portfolio deck \u2014 daily 07:30 UTC",
+    "ScheduleExpression": "cron(30 7 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {
@@ -88,80 +88,18 @@
           },
           "TaskCount": 1
         },
-        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"engineering-portfolio\"]}]}"
+        "Input": "{\"containerOverrides\": [{\"name\": \"cortex-decks\", \"command\": [\"engineering-portfolio\"]}]}"
       }
     ]
   },
   {
-    "Name": "cortex-ford-pendo-7d",
-    "Description": "Ford Pendo usage export (cortex --export-pendo --customer Ford --days 7 --compare-days 7) \u2014 daily 07:00 UTC",
-    "ScheduleExpression": "cron(0 7 * * ? *)",
-    "State": "ENABLED",
-    "Targets": [
-      {
-        "Id": "cortex-ford-pendo-7d",
-        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
-        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
-        "EcsParameters": {
-          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
-          "LaunchType": "FARGATE",
-          "PlatformVersion": "LATEST",
-          "NetworkConfiguration": {
-            "awsvpcConfiguration": {
-              "Subnets": [
-                "subnet-REPLACE"
-              ],
-              "SecurityGroups": [
-                "sg-REPLACE"
-              ],
-              "AssignPublicIp": "DISABLED"
-            }
-          },
-          "TaskCount": 1
-        },
-        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"ford-pendo-7d\"]}]}"
-      }
-    ]
-  },
-  {
-    "Name": "cortex-ford-pendo-30d",
-    "Description": "Ford Pendo usage export (cortex --export-pendo --customer Ford --days 30 --compare-days 30) \u2014 daily 07:30 UTC",
-    "ScheduleExpression": "cron(30 7 * * ? *)",
-    "State": "ENABLED",
-    "Targets": [
-      {
-        "Id": "cortex-ford-pendo-30d",
-        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
-        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
-        "EcsParameters": {
-          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
-          "LaunchType": "FARGATE",
-          "PlatformVersion": "LATEST",
-          "NetworkConfiguration": {
-            "awsvpcConfiguration": {
-              "Subnets": [
-                "subnet-REPLACE"
-              ],
-              "SecurityGroups": [
-                "sg-REPLACE"
-              ],
-              "AssignPublicIp": "DISABLED"
-            }
-          },
-          "TaskCount": 1
-        },
-        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"ford-pendo-30d\"]}]}"
-      }
-    ]
-  },
-  {
-    "Name": "cortex-pendo-top-10-arr",
-    "Description": "Top-10 ARR Pendo detailed export (30d + 7d in one pass via cortex --export-pendo-top-arr --top-n 10 --windows 30,7) \u2014 daily 08:00 UTC",
+    "Name": "cortex-pendo-ford-7d",
+    "Description": "Ford Pendo usage export 7d \u2014 daily 08:00 UTC",
     "ScheduleExpression": "cron(0 8 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {
-        "Id": "cortex-pendo-top-10-arr",
+        "Id": "cortex-pendo-ford-7d",
         "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
         "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
         "EcsParameters": {
@@ -181,18 +119,18 @@
           },
           "TaskCount": 1
         },
-        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"pendo-top-10-arr\"]}]}"
+        "Input": "{\"containerOverrides\": [{\"name\": \"cortex-decks\", \"command\": [\"pendo-ford-7d\"]}]}"
       }
     ]
   },
   {
-    "Name": "cortex-metrics-daily-digest",
-    "Description": "Morning report email (overnight jobs + KPI generators vs target) — daily 12:00 UTC (disabled until SES domain DNS)",
-    "ScheduleExpression": "cron(0 12 * * ? *)",
-    "State": "DISABLED",
+    "Name": "cortex-pendo-ford-30d",
+    "Description": "Ford Pendo usage export 30d \u2014 daily 08:30 UTC",
+    "ScheduleExpression": "cron(30 8 * * ? *)",
+    "State": "ENABLED",
     "Targets": [
       {
-        "Id": "cortex-metrics-daily-digest",
+        "Id": "cortex-pendo-ford-30d",
         "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
         "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
         "EcsParameters": {
@@ -212,13 +150,75 @@
           },
           "TaskCount": 1
         },
-        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"metrics-daily-digest\"]}]}"
+        "Input": "{\"containerOverrides\": [{\"name\": \"cortex-decks\", \"command\": [\"pendo-ford-30d\"]}]}"
+      }
+    ]
+  },
+  {
+    "Name": "cortex-pendo-top-arr-detailed",
+    "Description": "Top-ARR Pendo detailed export (30d+7d) \u2014 daily 09:00 UTC",
+    "ScheduleExpression": "cron(0 9 * * ? *)",
+    "State": "ENABLED",
+    "Targets": [
+      {
+        "Id": "cortex-pendo-top-arr-detailed",
+        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
+        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
+        "EcsParameters": {
+          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
+          "LaunchType": "FARGATE",
+          "PlatformVersion": "LATEST",
+          "NetworkConfiguration": {
+            "awsvpcConfiguration": {
+              "Subnets": [
+                "subnet-REPLACE"
+              ],
+              "SecurityGroups": [
+                "sg-REPLACE"
+              ],
+              "AssignPublicIp": "DISABLED"
+            }
+          },
+          "TaskCount": 1
+        },
+        "Input": "{\"containerOverrides\": [{\"name\": \"cortex-decks\", \"command\": [\"pendo-top-arr-detailed\"]}]}"
+      }
+    ]
+  },
+  {
+    "Name": "cortex-morning-report",
+    "Description": "Morning report email \u2014 daily 12:00 UTC (disabled until SES DKIM)",
+    "ScheduleExpression": "cron(0 12 * * ? *)",
+    "State": "DISABLED",
+    "Targets": [
+      {
+        "Id": "cortex-morning-report",
+        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
+        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
+        "EcsParameters": {
+          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
+          "LaunchType": "FARGATE",
+          "PlatformVersion": "LATEST",
+          "NetworkConfiguration": {
+            "awsvpcConfiguration": {
+              "Subnets": [
+                "subnet-REPLACE"
+              ],
+              "SecurityGroups": [
+                "sg-REPLACE"
+              ],
+              "AssignPublicIp": "DISABLED"
+            }
+          },
+          "TaskCount": 1
+        },
+        "Input": "{\"containerOverrides\": [{\"name\": \"cortex-decks\", \"command\": [\"morning-report\"]}]}"
       }
     ]
   },
   {
     "Name": "cortex-akkr-metrics-deck",
-    "Description": "AKKR metrics deck (AI adoption & productivity KPIs) — daily 12:30 UTC",
+    "Description": "AKKR metrics deck (AI adoption & productivity KPIs) \u2014 daily 12:30 UTC",
     "ScheduleExpression": "cron(30 12 * * ? *)",
     "State": "ENABLED",
     "Targets": [
@@ -248,13 +248,13 @@
     ]
   },
   {
-    "Name": "cortex-csr-customer-dump-0000",
-    "Description": "CSR week dump (Sheet + index) \u2014 midnight CDT / 05:00 UTC slot 0000",
+    "Name": "cortex-csr-dump-0000",
+    "Description": "CSR week dump \u2014 midnight CDT slot 0000",
     "ScheduleExpression": "cron(0 5 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {
-        "Id": "cortex-csr-customer-dump-0000",
+        "Id": "cortex-csr-dump-0000",
         "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
         "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
         "EcsParameters": {
@@ -274,18 +274,18 @@
           },
           "TaskCount": 1
         },
-        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"csr-customer-dump-0000\"]}]}"
+        "Input": "{\"containerOverrides\": [{\"name\": \"cortex-decks\", \"command\": [\"csr-dump-0000\"]}]}"
       }
     ]
   },
   {
-    "Name": "cortex-csr-customer-dump-0600",
-    "Description": "CSR week dump (Sheet + index) \u2014 6am CDT / 11:00 UTC slot 0600",
+    "Name": "cortex-csr-dump-0600",
+    "Description": "CSR week dump \u2014 6am CDT slot 0600",
     "ScheduleExpression": "cron(0 11 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {
-        "Id": "cortex-csr-customer-dump-0600",
+        "Id": "cortex-csr-dump-0600",
         "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
         "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
         "EcsParameters": {
@@ -305,18 +305,18 @@
           },
           "TaskCount": 1
         },
-        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"csr-customer-dump-0600\"]}]}"
+        "Input": "{\"containerOverrides\": [{\"name\": \"cortex-decks\", \"command\": [\"csr-dump-0600\"]}]}"
       }
     ]
   },
   {
-    "Name": "cortex-csr-customer-dump-1200",
-    "Description": "CSR week dump (Sheet + index) \u2014 noon CDT / 17:00 UTC slot 1200",
+    "Name": "cortex-csr-dump-1200",
+    "Description": "CSR week dump \u2014 noon CDT slot 1200",
     "ScheduleExpression": "cron(0 17 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {
-        "Id": "cortex-csr-customer-dump-1200",
+        "Id": "cortex-csr-dump-1200",
         "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
         "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
         "EcsParameters": {
@@ -336,18 +336,18 @@
           },
           "TaskCount": 1
         },
-        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"csr-customer-dump-1200\"]}]}"
+        "Input": "{\"containerOverrides\": [{\"name\": \"cortex-decks\", \"command\": [\"csr-dump-1200\"]}]}"
       }
     ]
   },
   {
-    "Name": "cortex-csr-customer-dump-1800",
-    "Description": "CSR week dump (Sheet + index) \u2014 6pm CDT / 23:00 UTC slot 1800",
+    "Name": "cortex-csr-dump-1800",
+    "Description": "CSR week dump \u2014 6pm CDT slot 1800",
     "ScheduleExpression": "cron(0 23 * * ? *)",
     "State": "ENABLED",
     "Targets": [
       {
-        "Id": "cortex-csr-customer-dump-1800",
+        "Id": "cortex-csr-dump-1800",
         "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
         "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
         "EcsParameters": {
@@ -367,7 +367,7 @@
           },
           "TaskCount": 1
         },
-        "Input": "{\"containerOverrides\":[{\"name\":\"cortex-decks\",\"command\":[\"csr-customer-dump-1800\"]}]}"
+        "Input": "{\"containerOverrides\": [{\"name\": \"cortex-decks\", \"command\": [\"csr-dump-1800\"]}]}"
       }
     ]
   }

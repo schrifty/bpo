@@ -194,7 +194,7 @@ def failure_texts_for_retry_classification(
 ) -> list[str]:
     """Flatten summary failures plus step error/detail/tails for retry classification.
 
-    Jobs like ``pendo-top-10-arr`` often summarize as ``Completed with 1 error(s)`` while
+    Jobs like ``pendo-top-arr-detailed`` often summarize as ``Completed with 1 error(s)`` while
     the retryable Sheets 503 lives in step stdout / detail messages.
     """
     texts: list[str] = [str(f) for f in failures if str(f).strip()]
