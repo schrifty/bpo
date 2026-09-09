@@ -150,6 +150,23 @@ def fetch_cloud_id_from_tenant_info(site_url: str, *, timeout: float = 30.0) -> 
     return cid
 
 
+def resolve_atlassian_teams_site_id(
+    *,
+    browse_base_url: str,
+    cloud_id: str = "",
+    timeout: float = 30.0,
+) -> str:
+    """Jira site UUID for Teams Public API ``siteId`` (required on list-all-teams).
+
+    Prefers an explicit cloud id (gateway connection / ``JIRA_CLOUD_ID``), then
+    unauthenticated ``GET {site}/_edge/tenant_info``.
+    """
+    explicit = (cloud_id or "").strip() or (_env("JIRA_CLOUD_ID") or "")
+    if explicit:
+        return explicit
+    return fetch_cloud_id_from_tenant_info(browse_base_url, timeout=timeout)
+
+
 def resolve_jira_cloud_id(*, token: str, email: str | None) -> str:
     """``JIRA_CLOUD_ID`` or resolve from ``JIRA_URL`` when ``JIRA_CLOUD_ID_AUTO=true`` (gateway only)."""
     explicit = _env("JIRA_CLOUD_ID")

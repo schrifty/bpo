@@ -16,7 +16,7 @@ def _clear_atlassian_teams_cache() -> None:
     clear_atlassian_teams_cache_for_tests()
 
 
-def _client(*, org="ORG123", api_key=None):
+def _client(*, org="ORG123", api_key=None, site_id="site-uuid-1"):
     c = JiraClient.__new__(JiraClient)  # bypass real connection setup
     c.api_base_url = "https://jira.example"
     c.base_url = "https://jira.example"
@@ -24,6 +24,9 @@ def _client(*, org="ORG123", api_key=None):
     c.atlassian_org_id = org
     c.atlassian_api_key = api_key
     c._atlassian_user_name_cache = {}
+    c._atlassian_user_email_cache = {}
+    c._jsm_cache_key = "test-jira-cache"
+    c._connection = type("Conn", (), {"cloud_id": site_id})()
     return c
 
 
@@ -65,12 +68,16 @@ def test_get_atlassian_teams_parses_teams_members_and_names() -> None:
 
     def fake_get(url, **kw):
         if url.endswith("/teams"):
+            params = kw.get("params") or {}
+            assert params.get("siteId") == "site-uuid-1"
             return _Resp(200, teams_page)
         if "/rest/api/3/user/bulk" in url:
             return _Resp(200, bulk)
         return _Resp(404, {})
 
     def fake_post(url, **kw):
+        params = kw.get("params") or {}
+        assert params.get("siteId") == "site-uuid-1"
         for tid, payload in members.items():
             if url.endswith(f"/teams/{tid}/members"):
                 return _Resp(200, payload)
@@ -114,3 +121,38 @@ def test_get_atlassian_teams_uses_in_process_cache(monkeypatch) -> None:
     assert out1["error"] is None and out2["error"] is None
     assert n_after_first >= 1
     assert calls["n"] == n_after_first  # second call served from in-process cache
+
+
+def test_get_atlassian_teams_resolves_site_id_from_tenant_info() -> None:
+    c = _client(site_id="")
+    seen: list[dict] = []
+
+    def fake_get(url, **kw):
+        if url.endswith("/teams"):
+            seen.append(dict(kw.get("params") or {}))
+            return _Resp(200, {"entities": [], "cursor": None})
+        return _Resp(404, {})
+
+    with (
+        patch(
+            "src.jira_connection.fetch_cloud_id_from_tenant_info",
+            return_value="from-tenant-info",
+        ),
+        patch("src.jira_client.requests.get", side_effect=fake_get),
+    ):
+        out = c.get_atlassian_teams(with_members=False, resolve_names=False)
+    assert out["error"] is None
+    assert seen
+    assert all(p.get("siteId") == "from-tenant-info" for p in seen)
+
+
+def test_get_atlassian_teams_site_id_unavailable_fails_loud() -> None:
+    c = _client(site_id="")
+    with patch(
+        "src.jira_connection.fetch_cloud_id_from_tenant_info",
+        side_effect=RuntimeError("tenant_info down"),
+    ):
+        out = c.get_atlassian_teams()
+    assert out["teams"] == []
+    assert "siteId unavailable" in out["error"]
+    assert "tenant_info down" in out["error"]

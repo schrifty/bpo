@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 
@@ -168,3 +170,37 @@ def test_jira_client_uses_gateway_api_base_when_configured(monkeypatch):
     jc = jc_mod.JiraClient()
     assert jc.api_base_url == "https://api.atlassian.com/ex/jira/cid"
     assert jc.base_url == "https://acme.atlassian.net"
+
+
+def test_resolve_atlassian_teams_site_id_prefers_explicit(monkeypatch):
+    monkeypatch.delenv("JIRA_CLOUD_ID", raising=False)
+    from src.jira_connection import resolve_atlassian_teams_site_id
+
+    assert (
+        resolve_atlassian_teams_site_id(
+            browse_base_url="https://acme.atlassian.net", cloud_id="explicit-id"
+        )
+        == "explicit-id"
+    )
+
+
+def test_resolve_atlassian_teams_site_id_uses_env(monkeypatch):
+    monkeypatch.setenv("JIRA_CLOUD_ID", "env-cloud-id")
+    from src.jira_connection import resolve_atlassian_teams_site_id
+
+    assert resolve_atlassian_teams_site_id(browse_base_url="https://acme.atlassian.net") == "env-cloud-id"
+
+
+def test_resolve_atlassian_teams_site_id_falls_back_to_tenant_info(monkeypatch):
+    monkeypatch.delenv("JIRA_CLOUD_ID", raising=False)
+    from src.jira_connection import resolve_atlassian_teams_site_id
+
+    with patch(
+        "src.jira_connection.fetch_cloud_id_from_tenant_info",
+        return_value="tenant-cloud-id",
+    ) as mock_tenant:
+        assert (
+            resolve_atlassian_teams_site_id(browse_base_url="https://acme.atlassian.net")
+            == "tenant-cloud-id"
+        )
+        mock_tenant.assert_called_once()

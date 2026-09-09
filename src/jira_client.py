@@ -1325,6 +1325,7 @@ class JiraClient:
         Prefer the public api.atlassian.com endpoint with the org admin key (Bearer);
         fall back to the site gateway, which is reachable with the existing Jira auth.
         Both require the real Atlassian orgId in the path (not the cloudId).
+        List-all-teams also requires ``siteId`` (Jira cloud UUID) as a query param.
         """
         routes: list[tuple[str, dict[str, str]]] = []
         org = self.atlassian_org_id
@@ -1342,6 +1343,25 @@ class JiraClient:
             {**self._headers, "Content-Type": "application/json"},
         ))
         return routes
+
+    def _atlassian_teams_site_id(self) -> str:
+        """Jira cloud UUID for Teams ``siteId`` (cached on this client)."""
+        cached = getattr(self, "_atlassian_teams_site_id_resolved", None)
+        if isinstance(cached, str) and cached.strip():
+            return cached.strip()
+        conn = getattr(self, "_connection", None)
+        cid = str(getattr(conn, "cloud_id", "") or "").strip() if conn is not None else ""
+        from .jira_connection import resolve_atlassian_teams_site_id
+
+        sid = resolve_atlassian_teams_site_id(browse_base_url=self.base_url, cloud_id=cid)
+        self._atlassian_teams_site_id_resolved = sid
+        return sid
+
+    def _atlassian_teams_list_params(self, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+        params: dict[str, Any] = {"size": 50, "siteId": self._atlassian_teams_site_id()}
+        if extra:
+            params.update(extra)
+        return params
 
     def _resolve_account_names(self, account_ids: set[str], *, timeout: float = 30.0) -> dict[str, str]:
         """Resolve Atlassian accountIds → display names via Jira's bulk user API (cached)."""
@@ -1413,18 +1433,29 @@ class JiraClient:
         return {a: self._atlassian_user_email_cache[a] for a in ids if a in self._atlassian_user_email_cache}
 
     def _atlassian_team_member_ids(
-        self, base: str, headers: dict[str, str], team_id: str, *, timeout: float = 30.0
+        self,
+        base: str,
+        headers: dict[str, str],
+        team_id: str,
+        *,
+        timeout: float = 30.0,
+        site_id: str | None = None,
     ) -> list[str]:
         """All member accountIds for one team (paginated via POST .../members)."""
         ids: list[str] = []
         after: str | None = None
+        member_params = {"siteId": site_id} if site_id else None
         for _ in range(100):  # hard page cap
             body: dict[str, Any] = {"first": 50}
             if after:
                 body["after"] = after
             try:
                 resp = requests.post(
-                    f"{base}/teams/{team_id}/members", headers=headers, json=body, timeout=timeout
+                    f"{base}/teams/{team_id}/members",
+                    headers=headers,
+                    json=body,
+                    params=member_params,
+                    timeout=timeout,
                 )
             except requests.RequestException as e:
                 logger.warning("Atlassian team members fetch failed (%s): %s", team_id, e)
@@ -1449,8 +1480,12 @@ class JiraClient:
         with_members: bool,
         resolve_names: bool,
         max_teams: int,
+        site_id: str = "",
     ) -> str:
-        return f"{self.atlassian_org_id}|m={int(with_members)}|n={int(resolve_names)}|max={max_teams}"
+        return (
+            f"{self.atlassian_org_id}|s={site_id}|m={int(with_members)}"
+            f"|n={int(resolve_names)}|max={max_teams}"
+        )
 
     def get_atlassian_teams(
         self,
@@ -1464,7 +1499,9 @@ class JiraClient:
 
         Requires ``ATLASSIAN_ORG_ID`` (or legacy ``JIRA_ORGANIZATION``); uses
         ``ATLASSIAN_API_KEY`` when present, else the site gateway with the existing
-        Jira auth. Returns ``{"teams": [...], "error": ...}`` where each team has
+        Jira auth. List-all-teams requires ``siteId`` (Jira cloud UUID): gateway
+        ``cloud_id`` / ``JIRA_CLOUD_ID``, else ``{JIRA_URL}/_edge/tenant_info``.
+        Returns ``{"teams": [...], "error": ...}`` where each team has
         ``team_id``, ``name``, ``members`` (display names), and counts.
         Fails loud with an ``error`` string rather than silently returning empty.
         """
@@ -1473,10 +1510,16 @@ class JiraClient:
 
         from .config import CORTEX_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS
 
+        try:
+            site_id = self._atlassian_teams_site_id()
+        except Exception as e:  # noqa: BLE001 — fail loud into the payload
+            return {"error": f"Atlassian Teams siteId unavailable: {e}", "teams": []}
+
         cache_key = self._atlassian_teams_cache_key(
             with_members=with_members,
             resolve_names=resolve_names,
             max_teams=max_teams,
+            site_id=site_id,
         )
         if CORTEX_ATLASSIAN_TEAMS_CACHE_TTL_SECONDS > 0:
             with _ATLASSIAN_TEAMS_CACHE_LOCK:
@@ -1487,9 +1530,12 @@ class JiraClient:
 
         chosen: tuple[str, dict[str, str]] | None = None
         last_err: str | None = None
+        list_params = self._atlassian_teams_list_params()
         for base, headers in self._atlassian_teams_routes():
             try:
-                resp = requests.get(f"{base}/teams", headers=headers, params={"size": 50}, timeout=timeout)
+                resp = requests.get(
+                    f"{base}/teams", headers=headers, params=list_params, timeout=timeout
+                )
                 if resp.status_code == 200:
                     chosen = (base, headers)
                     break
@@ -1503,9 +1549,7 @@ class JiraClient:
         raw_teams: list[dict[str, Any]] = []
         cursor: str | None = None
         while len(raw_teams) < max_teams:
-            params = {"size": 50}
-            if cursor:
-                params["cursor"] = cursor
+            params = self._atlassian_teams_list_params({"cursor": cursor} if cursor else None)
             try:
                 resp = requests.get(f"{base}/teams", headers=headers, params=params, timeout=timeout)
                 resp.raise_for_status()
@@ -1528,7 +1572,9 @@ class JiraClient:
                 tid = team.get("teamId")
                 if not tid:
                     continue
-                ids = self._atlassian_team_member_ids(base, headers, tid, timeout=timeout)
+                ids = self._atlassian_team_member_ids(
+                    base, headers, tid, timeout=timeout, site_id=site_id
+                )
                 member_ids_by_team[tid] = ids
                 all_ids.update(ids)
 
