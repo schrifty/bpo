@@ -23,6 +23,7 @@ from .export_customer_pendo_snapshot import (
     _sum_activity_in_window,
     _write_local,
     build_customer_pendo_export_report,
+    pendo_visitor_id,
     render_customer_pendo_markdown,
     render_csr_markdown,
     resolve_site_business_unit,
@@ -636,13 +637,14 @@ def render_site_detail_markdown(
         block = [
             f"#### {site.get('sitename')}",
             "",
-            "| User | Role | Last visit | Days inactive |",
-            "| --- | --- | --- | ---: |",
+            "| Visitor ID | Email | Role | Last visit | Days inactive |",
+            "| --- | --- | --- | --- | ---: |",
         ]
         for u in site_users[:15]:
             block.append(
-                f"| {_md_cell(u.get('email'))} | {_md_cell(u.get('role'))} | "
-                f"{_md_cell(u.get('last_visit'))} | {u.get('days_inactive', '')} |"
+                f"| {_md_cell(pendo_visitor_id(u))} | {_md_cell(u.get('email'))} | "
+                f"{_md_cell(u.get('role'))} | {_md_cell(u.get('last_visit'))} | "
+                f"{u.get('days_inactive', '')} |"
             )
         shown = min(15, len(site_users))
         if users_total > shown:
@@ -679,12 +681,12 @@ def render_user_roster_markdown(
     if roster_scope:
         lines[0] += f" ({roster_scope})"
     if show_bu:
-        lines.extend(["", "| Email | Role | Primary BU | Sites | Status | Last visit | Days inactive | Events | Minutes | Feature clicks | Δ events % |",
-            "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
+        lines.extend(["", "| Visitor ID | Email | Role | Primary BU | Sites | Status | Last visit | Days inactive | Events | Minutes | Feature clicks | Δ events % |",
+            "| --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
         ])
     else:
-        lines.extend(["", "| Email | Role | Sites | Status | Last visit | Days inactive | Events | Minutes | Feature clicks | Δ events % |",
-            "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
+        lines.extend(["", "| Visitor ID | Email | Role | Sites | Status | Last visit | Days inactive | Events | Minutes | Feature clicks | Δ events % |",
+            "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
         ])
     shown = user_roster[:cap]
     for u in shown:
@@ -697,7 +699,8 @@ def render_user_roster_markdown(
         if show_bu:
             bu_cell = f" {_primary_business_unit(customer_prefix, u.get('sites')) or '—'} |"
         lines.append(
-            f"| {_md_cell(u.get('email'))} | {_md_cell(u.get('role'))} |{bu_cell} {_md_cell(sites)} | "
+            f"| {_md_cell(pendo_visitor_id(u))} | {_md_cell(u.get('email'))} | "
+            f"{_md_cell(u.get('role'))} |{bu_cell} {_md_cell(sites)} | "
             f"{u.get('engagement_status', '')} | "
             f"{u.get('last_visit', '')} | {u.get('days_inactive', '')} | "
             f"{int(u.get('events_current') or 0):,} | {int(u.get('page_minutes_current') or 0):,} | "

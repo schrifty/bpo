@@ -2395,6 +2395,7 @@ class PendoClient:
             lv = auto.get("lastvisit", 0)
             days_ago = (now_ms - lv) / (86400 * 1000) if lv else 999
             users.append({
+                "visitor_id": str(v.get("visitorId") or ""),
                 "email": agent.get("emailaddress", ""),
                 "role": agent.get("role", "Unknown"),
                 "language": (agent.get("language") or "").strip(),
@@ -2485,13 +2486,14 @@ class PendoClient:
         return results
 
     def _visitor_info_map(self, visitors: list[dict]) -> dict[str, dict]:
-        """Build {visitorId: {email, role}} from visitor records."""
+        """Build {visitorId: {visitor_id, email, role}} from visitor records."""
         m = {}
         for v in visitors:
             vid = v.get("visitorId")
             if vid:
                 agent = (v.get("metadata") or {}).get("agent") or {}
                 m[vid] = {
+                    "visitor_id": str(vid),
                     "email": agent.get("emailaddress", ""),
                     "role": agent.get("role", "Unknown"),
                 }
@@ -2622,7 +2624,12 @@ class PendoClient:
         top_exporters = []
         for vid, count in sorted(by_user.items(), key=lambda x: -x[1])[:5]:
             info = vid_to_info.get(vid, {})
-            top_exporters.append({"email": info.get("email", ""), "role": info.get("role", "Unknown"), "exports": count})
+            top_exporters.append({
+                "visitor_id": str(vid),
+                "email": info.get("email", ""),
+                "role": info.get("role", "Unknown"),
+                "exports": count,
+            })
 
         active = self._count_active_users(customer_visitors, partition["now_ms"])
         return {
@@ -2689,6 +2696,7 @@ class PendoClient:
                 exec_users += 1
                 exec_queries += count
             users.append({
+                "visitor_id": str(vid),
                 "email": info.get("email", ""),
                 "role": role,
                 "queries": count,

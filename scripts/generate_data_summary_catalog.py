@@ -108,7 +108,13 @@ def build_entries() -> list[dict[str, Any]]:
     rows.extend(
         [
             _e("champions", "[Pendo] champion user rows"),
+            _e("champions[].visitor_id", "[Pendo] visitorId on champion rows"),
             _e("at_risk_users", "[Pendo] at-risk user rows"),
+            _e("at_risk_users[].visitor_id", "[Pendo] visitorId on at-risk rows"),
+            _e("people.champions[].visitor_id", "[Pendo export] visitorId on champion rows"),
+            _e("people.at_risk_users[].visitor_id", "[Pendo export] visitorId on at-risk rows"),
+            _e("user_roster[].visitor_id", "[Pendo detailed export] visitorId on roster rows"),
+            _e("site_detail[].users[].visitor_id", "[Pendo detailed export] visitorId on per-site user rows"),
         ]
     )
 
@@ -131,6 +137,7 @@ def build_entries() -> list[dict[str, Any]]:
             _e("exports.active_users", "[Pendo exports]"),
             _e("exports.by_feature", "[Pendo exports] ranked export features"),
             _e("exports.top_exporters", "[Pendo exports] top users"),
+            _e("exports.top_exporters[].visitor_id", "[Pendo exports] visitorId on top exporter rows"),
             _e("kei.customer", "[Pendo Kei]"),
             _e("kei.days", "[Pendo Kei]"),
             _e("kei.total_queries", "[Pendo Kei] chat / Kei events"),
@@ -139,7 +146,8 @@ def build_entries() -> list[dict[str, Any]]:
             _e("kei.adoption_rate", "[Pendo Kei] %"),
             _e("kei.executive_users", "[Pendo Kei] exec role count"),
             _e("kei.executive_queries", "[Pendo Kei] exec query volume"),
-            _e("kei.users", "[Pendo Kei] top user rows (email, role, queries, is_executive)"),
+            _e("kei.users", "[Pendo Kei] top user rows (visitor_id, email, role, queries, is_executive)"),
+            _e("kei.users[].visitor_id", "[Pendo Kei] visitorId on Kei user rows"),
             _e("guides.customer", "[Pendo guides]"),
             _e("guides.days", "[Pendo guides]"),
             _e("guides.total_guide_events", "[Pendo guides]"),

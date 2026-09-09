@@ -252,7 +252,11 @@ def _build_kei_rows(report: dict[str, Any], customer: str) -> list[dict[str, Any
     kei = report.get("kei") or {}
     if not kei or kei.get("error"):
         return [{"customerndx": customer, "note": kei.get("error") or "no Kei data"}]
-    return [{"customerndx": customer, **_flatten_scalars(kei)}]
+    rows: list[dict[str, Any]] = [{"customerndx": customer, "section": "summary", **_flatten_scalars(kei)}]
+    for user in kei.get("users") or []:
+        if isinstance(user, dict):
+            rows.append({"customerndx": customer, "section": "user", **user})
+    return rows
 
 
 def _build_trends_rows(report: dict[str, Any], customer: str) -> list[dict[str, Any]]:

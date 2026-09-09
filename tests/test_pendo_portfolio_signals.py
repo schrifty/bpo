@@ -95,3 +95,21 @@ def test_compute_portfolio_signals_prefers_higher_severity_and_caps_read_heavy()
     rh_lines = [x for x in out if "read-heavy" in str(x.get("signal", "")).lower()]
     assert len(rh_lines) <= 4
     assert any("declining" in str(x.get("signal", "")).lower() for x in out)
+
+
+def test_build_user_activity_includes_visitor_id() -> None:
+    client = PendoClient(integration_key="test-key-for-unit-tests", base_url="https://example.invalid")
+    users = client._build_user_activity(
+        [
+            {
+                "visitorId": "v99",
+                "metadata": {
+                    "agent": {"emailaddress": "a@ford.com", "role": "Buyer"},
+                    "auto": {"lastvisit": 1_700_000_000_000},
+                },
+            }
+        ],
+        1_700_100_000_000,
+    )
+    assert users[0]["visitor_id"] == "v99"
+    assert users[0]["email"] == "a@ford.com"

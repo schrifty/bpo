@@ -212,6 +212,7 @@ def test_render_customer_pendo_markdown_includes_sections() -> None:
     assert "## 4. Core feature checklist" in md
     assert "## 5. Unused product features" in md
     assert "## 7. People" in md
+    assert "| Visitor ID | Email | Role | Last visit | Days inactive |" in md
     assert "## 8. Export behavior" in md
     assert "## 9. Frustration signals" in md
     assert "## 10. Kei AI" in md

@@ -315,10 +315,52 @@
       ]
     },
     {
+      "path": "champions[].visitor_id",
+      "terms": [
+        "champions[].visitor_id",
+        "[Pendo] visitorId on champion rows"
+      ]
+    },
+    {
       "path": "at_risk_users",
       "terms": [
         "at_risk_users",
         "[Pendo] at-risk user rows"
+      ]
+    },
+    {
+      "path": "at_risk_users[].visitor_id",
+      "terms": [
+        "at_risk_users[].visitor_id",
+        "[Pendo] visitorId on at-risk rows"
+      ]
+    },
+    {
+      "path": "people.champions[].visitor_id",
+      "terms": [
+        "people.champions[].visitor_id",
+        "[Pendo export] visitorId on champion rows"
+      ]
+    },
+    {
+      "path": "people.at_risk_users[].visitor_id",
+      "terms": [
+        "people.at_risk_users[].visitor_id",
+        "[Pendo export] visitorId on at-risk rows"
+      ]
+    },
+    {
+      "path": "user_roster[].visitor_id",
+      "terms": [
+        "user_roster[].visitor_id",
+        "[Pendo detailed export] visitorId on roster rows"
+      ]
+    },
+    {
+      "path": "site_detail[].users[].visitor_id",
+      "terms": [
+        "site_detail[].users[].visitor_id",
+        "[Pendo detailed export] visitorId on per-site user rows"
       ]
     },
     {
@@ -434,6 +476,13 @@
       ]
     },
     {
+      "path": "exports.top_exporters[].visitor_id",
+      "terms": [
+        "exports.top_exporters[].visitor_id",
+        "[Pendo exports] visitorId on top exporter rows"
+      ]
+    },
+    {
       "path": "kei.customer",
       "terms": [
         "kei.customer",
@@ -493,7 +542,14 @@
       "path": "kei.users",
       "terms": [
         "kei.users",
-        "[Pendo Kei] top user rows (email, role, queries, is_executive)"
+        "[Pendo Kei] top user rows (visitor_id, email, role, queries, is_executive)"
+      ]
+    },
+    {
+      "path": "kei.users[].visitor_id",
+      "terms": [
+        "kei.users[].visitor_id",
+        "[Pendo Kei] visitorId on Kei user rows"
       ]
     },
     {

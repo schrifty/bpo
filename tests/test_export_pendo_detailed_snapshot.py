@@ -147,6 +147,7 @@ def test_build_site_detail_slices_and_user_roster() -> None:
     )
     assert len(roster) == 3
     assert roster[0]["email"]
+    assert roster[0]["visitor_id"]
     assert roster[0]["events_current"] >= 0
 
 
@@ -227,7 +228,16 @@ def _site_detail_fixture(sitename: str, events: int, *, users: int = 1) -> dict:
         "activity_pct_change": {"total_events": 5.0, "page_minutes": 4.0, "feature_events": 3.0},
         "top_pages": [{"name": "Purchase orders (PO)", "events": events, "minutes": 10}],
         "top_features": [{"name": "Export to Excel", "events": events}],
-        "users": [{"email": f"u{i}@safrangroup.com", "role": "Buyer", "last_visit": "2026-07-08", "days_inactive": 0.1} for i in range(users)],
+        "users": [
+            {
+                "visitor_id": f"v{i}",
+                "email": f"u{i}@safrangroup.com",
+                "role": "Buyer",
+                "last_visit": "2026-07-08",
+                "days_inactive": 0.1,
+            }
+            for i in range(users)
+        ],
         "users_total": users,
     }
 
@@ -246,6 +256,7 @@ def test_render_site_detail_markdown_is_table_first_with_business_unit() -> None
     assert "Cabin & Seats" in md
     # Per-site user drill-down for busiest sites
     assert "### 13.2 Site user detail" in md
+    assert "| Visitor ID | Email | Role | Last visit | Days inactive |" in md
     assert "u0@safrangroup.com" in md
     # No legacy prose-per-site format
     assert "**Top pages:**" not in md
@@ -301,7 +312,7 @@ def test_render_user_roster_adds_business_unit_for_mapped_customer() -> None:
         {"email": "a@safrangroup.com", "role": "Buyer", "sites": ["Safran Montreal CG1"], "engagement_status": "active_7d", "last_visit": "2026-07-08", "days_inactive": 0.1, "events_current": 100, "page_minutes_current": 10, "feature_events_current": 90, "events_pct_change": 5.0},
     ]
     md = render_user_roster_markdown(roster, total_visitors=1, roster_scope="active", customer_prefix="Safran")
-    assert "| Email | Role | Primary BU | Sites |" in md
+    assert "| Visitor ID | Email | Role | Primary BU | Sites |" in md
     assert "Cabin & Seats" in md
 
 
@@ -311,7 +322,7 @@ def test_render_user_roster_omits_business_unit_for_unmapped_customer() -> None:
     ]
     md = render_user_roster_markdown(roster, total_visitors=1, roster_scope="active", customer_prefix="Ford")
     assert "Primary BU" not in md
-    assert "| Email | Role | Sites | Status |" in md
+    assert "| Visitor ID | Email | Role | Sites | Status |" in md
 
 
 @patch("src.export_pendo_detailed_snapshot.build_customer_pendo_export_report")

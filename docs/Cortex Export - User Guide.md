@@ -214,10 +214,10 @@ Prior-month day folders under **Historical Data** are rolled into monthly bucket
 | **4. Core feature checklist** | Expected capabilities vs observed usage |
 | **5. Unused product features** | Features with no recent activity |
 | **6. Behavioral depth** | How deeply users engage beyond logins |
-| **7. People** | Champions and at-risk users (by recency) |
-| **8. Export behavior** | Data export / download usage patterns |
+| **7. People** | Champions and at-risk users (by recency), with **Pendo visitor ID** and email |
+| **8. Export behavior** | Data export / download usage patterns (top exporters include visitor ID) |
 | **9. Frustration signals** | Rage clicks and similar friction signals |
-| **10. Kei AI** | Kei assistant usage for this customer |
+| **10. Kei AI** | Kei assistant usage, including named users with visitor ID |
 | **11. Usage trends** | Weekly active users and period-over-period comparison |
 | **12. Engagement context** | Cohort benchmarks and auto-detected usage signals |
 | **13. CS Report** | Weekly **factory-level** CS Report when this customer matches CSR: customer summary (§13.1) and **every factory** with merged health, supply-chain, and value metrics (§13.2). **All CSR workbook metric columns** for the week export are included (full factory table) using **CSR display labels** (e.g. `Current shortages (purchased)`). Companion spreadsheet tabs: **`csr_factories`** (per-factory rows) and **`csr_summary`** (customer rollups). No site sampling. If CSR has no match, the section explains what was tried. |
@@ -225,8 +225,8 @@ Prior-month day folders under **Historical Data** are rolled into monthly bucket
 **Detailed variant** (`--export-pendo-detailed`) adds **§13 Site detail**, **§14 User roster**, and moves CS Report to **§15**:
 
 - **§13.1 Site activity** — one **table** with every active site: business unit, visitors, 7d/30d/dormant, events, minutes, feature clicks, change vs prior period, and each site’s top page and top feature. Best for cross-site questions (“which sites are declining?”).
-- **§13.2 Site user detail** — per-site user samples for the **busiest sites by events** only (the full user list is in §14).
-- **§14 User roster** — per-user table across the account. For customers with a business-unit mapping, it includes a **Primary BU** column (the unit of each user’s most-used sites).
+- **§13.2 Site user detail** — per-site user samples for the **busiest sites by events** only (the full user list is in §14). Tables include **Pendo visitor ID** and email.
+- **§14 User roster** — per-user table across the account, including **Pendo visitor ID**. For customers with a business-unit mapping, it includes a **Primary BU** column (the unit of each user’s most-used sites). The companion spreadsheet `user_roster` tab has the same ID column.
 - **§15. CS Report** — same CS Report content as §13 in the standard export (all factories, merged metrics).
 
 Every Pendo export also opens with a short **“How to read this export”** note that pins the key rules: Pendo usage plus CS Report when matched (no ARR/churn/Jira), “sites” means *active* sites (idle ones are counted in §1), and **per-site visitor counts overlap** so you shouldn’t add them up for unique headcount (use §1 total visitors).
@@ -260,8 +260,8 @@ Copy/paste and adapt. Start with “Use only the attached Pendo export for {Cust
 
 **People & champions**
 
-- “List champions and at-risk users from Section 7 with their roles and last-visit dates.”
-- “From Section 14, who are the 10 most active users, and what roles and business units are they in?”
+- “List champions and at-risk users from Section 7 with visitor IDs, emails, roles, and last-visit dates.”
+- “From Section 14, who are the 10 most active users, and what visitor IDs, roles, and business units are they in?”
 - “Which business unit (Primary BU) do the most active users belong to? (Section 14)”
 - “Who are the at-risk users we should re-engage, and which sites are they on? (Sections 7 / 13.2 / 14)”
 

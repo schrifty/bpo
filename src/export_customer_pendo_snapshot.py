@@ -29,6 +29,12 @@ _PROFILE_ID = "customer_pendo_export"
 _MS_PER_DAY = 86_400_000
 
 
+def pendo_visitor_id(person: dict[str, Any] | None) -> str:
+    """Pendo visitor ID from an export person row (``visitor_id`` or ``visitorId``)."""
+    row = person or {}
+    return str(row.get("visitor_id") or row.get("visitorId") or "").strip()
+
+
 def merge_active_site_rows(
     site_rows: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], int, int]:
@@ -899,6 +905,7 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
         "- **Visitor counts can overlap across sites** — a user assigned to several sites "
         "is counted on each — so do **not** sum per-site or per-business-unit visitors to "
         "get unique headcount; use §1 total visitors for that.",
+        "- Person tables include **Pendo visitor ID** (the app user id) alongside email.",
         "- When a **business unit** mapping exists for this customer, §2.1 rolls sites up "
         "by unit and §2 / §13.1 / §14 carry a business-unit column.",
         "- Sections are numbered (§1 headline; §2 sites, §2.1 business units; §3–§12 "
@@ -1087,21 +1094,21 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
         at_risk = people.get("at_risk_users") or []
         if champions:
             people_lines.append("### Champions (most recently active)")
-            people_lines.append("| Email | Role | Last visit | Days inactive |")
-            people_lines.append("| --- | --- | --- | ---: |")
+            people_lines.append("| Visitor ID | Email | Role | Last visit | Days inactive |")
+            people_lines.append("| --- | --- | --- | --- | ---: |")
             for u in champions[:5]:
                 people_lines.append(
-                    f"| {u.get('email', '')} | {u.get('role', '')} | "
+                    f"| {pendo_visitor_id(u)} | {u.get('email', '')} | {u.get('role', '')} | "
                     f"{u.get('last_visit', '')} | {u.get('days_inactive', '')} |"
                 )
             people_lines.append("")
         if at_risk:
             people_lines.append("### At-risk users (2 wk – ~6 mo inactive)")
-            people_lines.append("| Email | Role | Last visit | Days inactive |")
-            people_lines.append("| --- | --- | --- | ---: |")
+            people_lines.append("| Visitor ID | Email | Role | Last visit | Days inactive |")
+            people_lines.append("| --- | --- | --- | --- | ---: |")
             for u in at_risk[:5]:
                 people_lines.append(
-                    f"| {u.get('email', '')} | {u.get('role', '')} | "
+                    f"| {pendo_visitor_id(u)} | {u.get('email', '')} | {u.get('role', '')} | "
                     f"{u.get('last_visit', '')} | {u.get('days_inactive', '')} |"
                 )
         if not champions and not at_risk:
@@ -1132,7 +1139,8 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
             export_lines.append("**Top exporters:**")
             for row in top_exporters[:5]:
                 export_lines.append(
-                    f"- {row.get('email', '')} ({row.get('role', '')}): {row.get('exports', 0):,}"
+                    f"- {pendo_visitor_id(row)} · {row.get('email', '')} ({row.get('role', '')}): "
+                    f"{row.get('exports', 0):,}"
                 )
         if exports.get("note"):
             export_lines.append("")
@@ -1186,6 +1194,20 @@ def render_customer_pendo_markdown(report: dict[str, Any]) -> str:
         f"- Executive users: **{kei.get('executive_users', 0)}** "
         f"({kei.get('executive_queries', 0):,} queries)",
     ]
+    kei_users = kei.get("users") or []
+    if kei_users:
+        kei_lines.extend(
+            [
+                "",
+                "| Visitor ID | Email | Role | Queries |",
+                "| --- | --- | --- | ---: |",
+            ]
+        )
+        for u in kei_users[:10]:
+            kei_lines.append(
+                f"| {pendo_visitor_id(u)} | {u.get('email', '')} | {u.get('role', '')} | "
+                f"{int(u.get('queries') or 0):,} |"
+            )
     md += _md_section("10. Kei AI", "\n".join(kei_lines))
 
     trends = report.get("trends") or {}

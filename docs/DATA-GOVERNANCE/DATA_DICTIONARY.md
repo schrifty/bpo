@@ -308,6 +308,7 @@
 - `at_risk_users[].language`
 - `at_risk_users[].last_visit`
 - `at_risk_users[].role`
+- `at_risk_users[].visitor_id`
 - `benchmarks.cohort`
 - `benchmarks.cohort_count`
 - `benchmarks.cohort_median_rate`
@@ -321,6 +322,7 @@
 - `champions[].language`
 - `champions[].last_visit`
 - `champions[].role`
+- `champions[].visitor_id`
 - `engagement.active_30d`
 - `engagement.active_7d`
 - `engagement.active_rate_7d`
@@ -336,13 +338,17 @@
 - `pendo.visitors[].metadata.agent.role`
 - `pendo.visitors[].metadata.auto.lastvisit`
 - `pendo.visitors[].visitorId`
+- `people.at_risk_users[].visitor_id`
+- `people.champions[].visitor_id`
 - `poll_events`
 - `signals`
 - `signals_trend_context`
+- `site_detail[].users[].visitor_id`
 - `sites`
 - `top_features`
 - `top_pages`
 - `track_events_breakdown`
+- `user_roster[].visitor_id`
 - `visitor_languages`
 
 ## Pendo depth
@@ -363,6 +369,7 @@
 - `exports.days`
 - `exports.exports_per_active_user`
 - `exports.top_exporters`
+- `exports.top_exporters[].visitor_id`
 - `exports.total_exports`
 
 ## Pendo guides
@@ -389,6 +396,7 @@
 - `kei.total_queries`
 - `kei.unique_users`
 - `kei.users`
+- `kei.users[].visitor_id`
 
 ## Pendo→summary
 - `site_details.events`

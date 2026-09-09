@@ -33,7 +33,7 @@ _SAMPLE_REPORT = {
     },
     "unused_features": {"catalog_total": 2, "unused_count": 1, "unused_features": [{"name": "Widget"}]},
     "depth": {"total_feature_events": 50, "breakdown": [{"category": "read", "events": 40}]},
-    "people": {"champions": [{"email": "a@ford.com", "role": "Buyer"}]},
+    "people": {"champions": [{"visitor_id": "v1", "email": "a@ford.com", "role": "Buyer"}]},
     "exports": {"total_exports": 5, "by_feature": [{"feature": "Excel export", "exports": 5}]},
     "frustration": {"total_frustration_signals": 1, "top_pages": [{"page": "Shortages", "rageClickCount": 1}]},
     "kei": {"adoption_pct": 12.5},
@@ -80,6 +80,22 @@ def test_build_workbook_tables_has_all_tabs_and_customerndx() -> None:
     assert sites[0][0] == "customerndx"
     assert sites[1][0] == "Ford"
     assert "Essex" in sites[1]
+
+
+def test_people_and_kei_tabs_include_visitor_id() -> None:
+    report = {
+        **_SAMPLE_REPORT,
+        "kei": {
+            "adoption_pct": 12.5,
+            "users": [{"visitor_id": "v1", "email": "a@ford.com", "role": "Buyer", "queries": 3}],
+        },
+    }
+    tables = build_pendo_export_workbook_tables(report)
+    people = tables["people"]
+    assert "visitor_id" in people[0]
+    assert "v1" in people[1]
+    kei = tables["kei"]
+    assert any(row and "v1" in row for row in kei)
 
 
 def test_write_pendo_export_xlsx(tmp_path: Path) -> None:
