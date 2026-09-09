@@ -46,9 +46,9 @@ When **`EXECUTION_ENV` is unset**, behavior is **unchanged**: use the unprefixed
 
 Implementation: [`src/config.py`](../../src/config.py) (`CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET`, `resolve_leandna_data_api_base_url`).
 
-**Production / CI is read-only for LeanDNA mutations:** When `EXECUTION_ENV` is `Production` or `CI`, all Data API **POST**, **PUT**, and **DELETE** calls are rejected in-process (`data_api_mutate_json`, agent tool `leandna_data_api_mutate`). **GET** remains allowed. To run integration tests or emergency writes against prod, set `CORTEX_ALLOW_PRODUCTION_MUTATIONS=true` (logged; not recommended for routine use). Use `EXECUTION_ENV=Staging` for normal write testing.
+Data API **POST**, **PUT**, and **DELETE** (metric datapoints, Lean projects, write-back) are allowed whenever credentials resolve, including `EXECUTION_ENV=Production`. Use `EXECUTION_ENV=Staging` with `ST_*` credentials when you intend to write to staging instead of production.
 
-The same mutation guard applies to **Data API** writes (`entry-insert`, `entry-upsert`, `entry-delete` via `src/leandna_metrics_write.py`).
+**Data API** writes include `entry-insert`, `entry-upsert`, `entry-delete`, and `metrics-upsert` (`src/leandna_metrics_write.py`).
 
 CLI (from repo root, with `.env` loaded): `metrics-get`, `metrics-get-mine`, `metrics-get-latest`, `metric-get-with-data`, `entry-insert`, `entry-upsert`, `entry-delete`, `metrics-upsert`, and **`decks metrics-upsert`** (see `bin/` wrappers; scripts live under `scripts/`).
 
@@ -123,7 +123,7 @@ configured for staging.
 python3 -m pytest tests/test_integration_leandna_data_api.py tests/test-metrics.py -v -m leandna_data_api
 ```
 
-Metric **display** (integration): ``tests/test-metrics.py`` — chart + field dump for metric **id 638**; **POST** then **DELETE** ``2026-05-12`` (POST failure ignored if row exists); DELETE must succeed. Mutations run on staging without ``CORTEX_ALLOW_PRODUCTION_MUTATIONS``.
+Metric **display** (integration): ``tests/test-metrics.py`` — chart + field dump for metric **id 638**; **POST** then **DELETE** ``2026-05-12`` (POST failure ignored if row exists); DELETE must succeed. Prefer ``EXECUTION_ENV=Staging`` so those writes hit staging.
 
 ## Related docs
 

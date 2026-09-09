@@ -4,7 +4,7 @@
 Examples::
 
   entry-delete --metric-ndx 2076 --date 2026-05-23 --requested-sites 416
-  CORTEX_ALLOW_PRODUCTION_MUTATIONS=true entry-delete --metric-ndx 2076 --date 2026-05-23
+  entry-delete --metric-ndx 2076 --date 2026-05-23
 """
 from __future__ import annotations
 

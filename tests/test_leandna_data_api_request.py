@@ -121,24 +121,32 @@ def test_data_api_mutate_json_post_success_envelope() -> None:
     resp.text = '{"created": true}'
     resp.reason = "OK"
 
-    with patch("src.leandna_data_api_request.leandna_http_mutation_blocked_envelope", return_value=None), patch(
-        "src.leandna_data_api_request.requests.request", return_value=resp
-    ):
+    with patch("src.leandna_data_api_request.requests.request", return_value=resp):
         out = data_api_mutate_json("POST", "LeanProject", json_body={"name": "Test"}, requested_sites="172")
     assert out["ok"] is True
     assert out["body"] == {"created": True}
 
 
-def test_data_api_mutate_json_blocked_when_production_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_data_api_mutate_json_not_blocked_when_production_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import MagicMock, patch
+
     import src.config as cfg
     from src.leandna_data_api_request import data_api_mutate_json
 
     monkeypatch.setattr(cfg, "CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET", "production")
-    monkeypatch.delenv("CORTEX_ALLOW_PRODUCTION_MUTATIONS", raising=False)
-    out = data_api_mutate_json("DELETE", "Metric/1/MetricDataPoint")
-    assert out["ok"] is False
-    assert "disabled" in out["error"].lower()
-    assert out["method"] == "DELETE"
+    resp = MagicMock()
+    resp.ok = True
+    resp.status_code = 200
+    resp.text = "{}"
+    resp.reason = "OK"
+    with patch("src.leandna_data_api_request.data_api_base_url", return_value="https://app.leandna.com/api"), patch(
+        "src.leandna_data_api_request.build_leandna_data_api_headers",
+        return_value={"Authorization": "Bearer test"},
+    ), patch("src.leandna_data_api_request.requests.request", return_value=resp) as mock_req:
+        out = data_api_mutate_json("DELETE", "Metric/1/MetricDataPoint")
+    assert out["ok"] is True
+    mock_req.assert_called_once()
+    assert mock_req.call_args.args[0] == "DELETE"
 
 
 def test_leandna_data_api_mutate_tool_rejects_non_object_body() -> None:

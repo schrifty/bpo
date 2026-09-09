@@ -155,14 +155,6 @@ def env_mutate_json(
     max_response_chars: int = 500_000,
     user_agent_suffix: str = "leandna-data-api-env/1.0",
 ) -> dict[str, Any]:
-    if config.bucket == "production":
-        from .config import leandna_http_mutations_allowed
-
-        if not leandna_http_mutations_allowed():
-            return {
-                "ok": False,
-                "error": "Refusing to mutate LeanDNA production (set CORTEX_ALLOW_PRODUCTION_MUTATIONS=true to override).",
-            }
     m = (method or "").strip().upper()
     if m not in ("POST", "PUT", "DELETE"):
         return {"ok": False, "error": f"method must be POST, PUT, or DELETE, not {method!r}"}
