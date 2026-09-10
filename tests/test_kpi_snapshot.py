@@ -44,8 +44,11 @@ metrics:
   "PRs Merged":
     metric-generator: get_prs_merged
     tags: [engineering]
-  "Customer-Reported Bugs":
+  "Open Customer-Reported Bugs":
     metric-generator: get_customer_reported_bugs
+    tags: [engineering, quality]
+  "Customer-Reported Bugs":
+    metric-generator: get_customer_reported_bugs_eom
     tags: [engineering, quality]
   "No Gen":
     metric-generator: null
@@ -57,6 +60,7 @@ metrics:
 def test_grain_and_period_key() -> None:
     assert grain_for_generator("get_prs_merged") == GRAIN_MONTH
     assert grain_for_generator("get_customer_reported_bugs") == GRAIN_DAILY
+    assert grain_for_generator("get_customer_reported_bugs_eom") == GRAIN_MONTH
     assert period_key_for(GRAIN_DAILY, date(2026, 9, 10)) == "2026-09-10"
     assert period_key_for(GRAIN_MONTH, date(2026, 9, 10)) == "2026-08"
     assert period_key_for(GRAIN_MONTH, date(2026, 1, 3)) == "2025-12"
@@ -65,13 +69,17 @@ def test_grain_and_period_key() -> None:
 def test_iter_snapshot_metrics_skips_null_generator_and_honors_tag() -> None:
     reg = _registry()
     names = [n for n, _ in iter_snapshot_metrics(reg)]
-    assert names == ["PRs Merged", "Customer-Reported Bugs"]
+    assert names == [
+        "PRs Merged",
+        "Open Customer-Reported Bugs",
+        "Customer-Reported Bugs",
+    ]
     tagged = [n for n, _ in iter_snapshot_metrics(reg, tag="quality")]
-    assert tagged == ["Customer-Reported Bugs"]
+    assert tagged == ["Open Customer-Reported Bugs", "Customer-Reported Bugs"]
     month_only = [n for n, _ in iter_snapshot_metrics(reg, grain=GRAIN_MONTH)]
-    assert month_only == ["PRs Merged"]
+    assert month_only == ["PRs Merged", "Customer-Reported Bugs"]
     daily_only = [n for n, _ in iter_snapshot_metrics(reg, grain=GRAIN_DAILY)]
-    assert daily_only == ["Customer-Reported Bugs"]
+    assert daily_only == ["Open Customer-Reported Bugs"]
     one = [n for n, _ in iter_snapshot_metrics(reg, metric_name_filter="PRs Merged")]
     assert one == ["PRs Merged"]
 
@@ -92,7 +100,7 @@ def test_dry_run_does_not_write_db(tmp_path: Path) -> None:
     )
     assert summary["ok"] is True
     assert summary["written"] == 0
-    assert summary["considered"] == 2
+    assert summary["considered"] == 3
     assert not db.exists()
 
 
@@ -113,15 +121,16 @@ def test_persist_skip_s3_upserts_rows(tmp_path: Path) -> None:
         invoke=invoke,
     )
     assert summary["ok"] is True
-    assert summary["written"] == 2
+    assert summary["written"] == 3
     conn = connect(db)
     month = list_kpis(conn, grain=GRAIN_MONTH)
     daily = list_kpis(conn, grain=GRAIN_DAILY)
     conn.close()
-    assert month[0].metric_name == "PRs Merged"
-    assert month[0].period_key == "2026-08"
-    assert month[0].observation.value == 500
-    assert daily[0].metric_name == "Customer-Reported Bugs"
+    assert {r.metric_name for r in month} == {"PRs Merged", "Customer-Reported Bugs"}
+    assert {r.period_key for r in month} == {"2026-08"}
+    prs = next(r for r in month if r.metric_name == "PRs Merged")
+    assert prs.observation.value == 500
+    assert daily[0].metric_name == "Open Customer-Reported Bugs"
     assert daily[0].period_key == "2026-09-10"
 
 
@@ -142,7 +151,7 @@ def test_generator_error_fails_run_and_still_writes_error_row(tmp_path: Path) ->
         invoke=invoke,
     )
     assert kpi_snapshot_exit_code(summary) == 1
-    assert summary["written"] == 2
+    assert summary["written"] == 3
     conn = connect(db)
     prs = [r for r in list_kpis(conn) if r.metric_name == "PRs Merged"][0]
     conn.close()

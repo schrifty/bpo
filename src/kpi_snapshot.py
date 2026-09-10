@@ -136,7 +136,13 @@ def run_kpi_snapshot(
         row_grain = grain_for_generator(gen)
         period_key = period_key_for(row_grain, as_of)
         try:
-            raw = invoke(gen, registry=reg, ctx=ctx)
+            raw = invoke(
+                gen,
+                registry=reg,
+                ctx=ctx,
+                kpi_store_path=path,
+                skip_s3=True if persist else skip_s3,
+            )
             obs = observation_from_generator_raw(raw, metric_name=name, origin="live")
         except (MetricUpsertError, TypeError, ValueError) as exc:
             obs = observation_from_generator_raw(

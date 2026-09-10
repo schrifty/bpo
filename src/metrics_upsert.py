@@ -187,6 +187,18 @@ def _invoke_get_customer_reported_bugs(ctx: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _invoke_get_customer_reported_bugs_eom(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.jira_customer_reported_bugs import get_customer_reported_bugs_eom
+
+    db_raw = ctx.get("db_path")
+    skip_raw = ctx.get("skip_s3")
+    return get_customer_reported_bugs_eom(
+        as_of=_as_of_from_ctx(ctx),
+        db_path=db_raw,
+        skip_s3=bool(skip_raw) if skip_raw is not None else False,
+    )
+
+
 def _invoke_get_median_ttr(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.jira_client import get_shared_jira_client
     from src.jira_median_ttr import DEFAULT_MEDIAN_TTR_DAYS, get_median_ttr
@@ -504,6 +516,7 @@ _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_monthly_ai_spend": _invoke_get_monthly_ai_spend,
     "get_service_threshold_tickets": _invoke_get_service_threshold_tickets,
     "get_customer_reported_bugs": _invoke_get_customer_reported_bugs,
+    "get_customer_reported_bugs_eom": _invoke_get_customer_reported_bugs_eom,
     "get_median_ttr": _invoke_get_median_ttr,
     "get_median_ttfr": _invoke_get_median_ttfr,
     "get_sla_adherence": _invoke_get_sla_adherence,
@@ -532,7 +545,14 @@ _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
 }
 
 
-def invoke_metric_generator(name: str, *, registry: dict[str, Any], ctx: MetricUpsertContext) -> Any:
+def invoke_metric_generator(
+    name: str,
+    *,
+    registry: dict[str, Any],
+    ctx: MetricUpsertContext,
+    kpi_store_path: Path | str | None = None,
+    skip_s3: bool | None = None,
+) -> Any:
     """Call a registry ``metric-generator`` by name."""
     fn = _GENERATORS.get(name)
     if fn is None:
@@ -545,6 +565,8 @@ def invoke_metric_generator(name: str, *, registry: dict[str, Any], ctx: MetricU
         "timeout": ctx.timeout_seconds,
         "entry_date": ctx.entry_date,
         "as_of": ctx.entry_date,
+        "db_path": str(kpi_store_path) if kpi_store_path is not None else None,
+        "skip_s3": skip_s3,
     }
     return fn(call_ctx)
 

@@ -9,12 +9,16 @@ from botocore.exceptions import ClientError
 
 from src.kpi_observation import KPIObservation
 from src.kpi_store import (
+    CUSTOMER_REPORTED_BUGS_METRIC,
     GRAIN_DAILY,
     GRAIN_MONTH,
     KPIStoreError,
+    OPEN_CUSTOMER_REPORTED_BUGS_METRIC,
     connect,
     get_kpi,
+    get_open_customer_reported_bugs_eom,
     list_kpis,
+    previous_calendar_month_end,
     stored_kpi_from_observation,
     upsert_kpi,
 )
@@ -94,7 +98,7 @@ def test_daily_and_month_grains_are_independent(tmp_path: Path) -> None:
     upsert_kpi(
         conn,
         stored_kpi_from_observation(
-            metric_name="Customer-Reported Bugs",
+            metric_name="Open Customer-Reported Bugs",
             grain=GRAIN_DAILY,
             period_key="2026-09-10",
             observation=_obs(value=18),
@@ -113,8 +117,75 @@ def test_daily_and_month_grains_are_independent(tmp_path: Path) -> None:
     )
     daily = list_kpis(conn, grain=GRAIN_DAILY)
     month = list_kpis(conn, grain=GRAIN_MONTH)
-    assert [r.metric_name for r in daily] == ["Customer-Reported Bugs"]
+    assert [r.metric_name for r in daily] == ["Open Customer-Reported Bugs"]
     assert [r.metric_name for r in month] == ["Issues Shipped"]
+    conn.close()
+
+
+def test_legacy_daily_customer_reported_bugs_renamed_on_connect(tmp_path: Path) -> None:
+    db = tmp_path / "kpi.sqlite"
+    conn = connect(db)
+    conn.execute(
+        """
+        INSERT INTO kpi_observation (
+            metric_name, grain, period_key, captured_at,
+            value, numerator, denominator, generator,
+            tags_json, meta_json, error, as_of, window_days
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', '{}', NULL, ?, NULL)
+        """,
+        (
+            CUSTOMER_REPORTED_BUGS_METRIC,
+            GRAIN_DAILY,
+            "2026-08-31",
+            "2026-09-01T00:00:00Z",
+            22.0,
+            22.0,
+            1.0,
+            "get_customer_reported_bugs",
+            "2026-08-31",
+        ),
+    )
+    conn.commit()
+    conn.close()
+    conn = connect(db)
+    assert get_kpi(conn, CUSTOMER_REPORTED_BUGS_METRIC, GRAIN_DAILY, "2026-08-31") is None
+    got = get_kpi(conn, OPEN_CUSTOMER_REPORTED_BUGS_METRIC, GRAIN_DAILY, "2026-08-31")
+    assert got is not None
+    assert got.observation.value == 22
+    conn.close()
+
+
+def test_open_customer_reported_bugs_eom_reads_last_day_of_prior_month(
+    tmp_path: Path,
+) -> None:
+    from datetime import date
+
+    conn = connect(tmp_path / "kpi.sqlite")
+    upsert_kpi(
+        conn,
+        stored_kpi_from_observation(
+            metric_name=OPEN_CUSTOMER_REPORTED_BUGS_METRIC,
+            grain=GRAIN_DAILY,
+            period_key="2026-08-31",
+            observation=_obs(value=19, as_of="2026-08-31"),
+            generator="get_customer_reported_bugs",
+        ),
+    )
+    upsert_kpi(
+        conn,
+        stored_kpi_from_observation(
+            metric_name=OPEN_CUSTOMER_REPORTED_BUGS_METRIC,
+            grain=GRAIN_DAILY,
+            period_key="2026-08-30",
+            observation=_obs(value=40, as_of="2026-08-30"),
+            generator="get_customer_reported_bugs",
+        ),
+    )
+    assert previous_calendar_month_end(date(2026, 9, 10)) == date(2026, 8, 31)
+    row = get_open_customer_reported_bugs_eom(conn, date(2026, 9, 10))
+    assert row is not None
+    assert row.observation.value == 19
+    assert get_open_customer_reported_bugs_eom(conn, date(2026, 8, 15)) is None
     conn.close()
 
 

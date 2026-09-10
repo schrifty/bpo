@@ -1,18 +1,32 @@
-"""Count of open customer-reported LEAN bugs (LeanDNA metric 2035).
+"""Open customer-reported LEAN bugs: live stock and month-end stock.
 
-The metric counts unresolved ``Bug`` issues in the LEAN engineering project that
-are in active engineering statuses—the same slice the engineering portfolio
-**Bug Health** slide uses (``open_bugs`` from in-flight LEAN work).
+The live metric counts unresolved ``Bug`` issues in the LEAN engineering project
+that are in active engineering statuses—the same slice the engineering portfolio
+**Bug Health** slide uses (``open_bugs`` from in-flight LEAN work). That value is
+written to LeanDNA metric 2035 (**Open Customer-Reported Bugs**).
 
-The count is the value written to LeanDNA by ``metrics-upsert``.
+**Customer-Reported Bugs** (month-close) is end-of-month stock: the daily open
+count on the last calendar day of the previous month, read from the KPI store.
+Jira cannot reconstruct that as-of date after the fact.
 """
 
 from __future__ import annotations
 
 import logging
+from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 
 from .jira_client import JiraClient
+from .kpi_store import (
+    CUSTOMER_REPORTED_BUGS_METRIC,
+    GRAIN_DAILY,
+    OPEN_CUSTOMER_REPORTED_BUGS_METRIC,
+    connect,
+    get_open_customer_reported_bugs_eom,
+    previous_calendar_month_end,
+)
+from .kpi_store_s3 import prepare_kpi_store_for_read
 
 logger = logging.getLogger("cortex")
 
@@ -43,18 +57,83 @@ def get_customer_reported_bug_count(
     """
     count = client.jql_match_count(
         CUSTOMER_REPORTED_BUGS_JQL,
-        data_description="Customer-Reported Bugs (open LEAN Bug issues)",
+        data_description="Open Customer-Reported Bugs (open LEAN Bug issues)",
     )
     if count is None:
         return {
             "error": (
-                "Jira count unavailable for Customer-Reported Bugs "
+                "Jira count unavailable for Open Customer-Reported Bugs "
                 "(POST /rest/api/3/search/approximate-count returned no count)"
             )
         }
-    logger.info("Customer-Reported Bugs: %s open LEAN bug(s)", count)
+    logger.info("Open Customer-Reported Bugs: %s open LEAN bug(s)", count)
     return {
         "value": int(count),
         "jql": CUSTOMER_REPORTED_BUGS_JQL,
         "statuses": list(_CUSTOMER_REPORTED_BUG_STATUSES),
+    }
+
+
+def get_customer_reported_bugs_eom(
+    *,
+    as_of: date | datetime | None = None,
+    db_path: str | Path | None = None,
+    skip_s3: bool = False,
+) -> dict[str, Any]:
+    """Return previous-calendar-month EOM open-bug stock from the daily KPI store.
+
+    Fails loud when the last day of that month has no successful daily snapshot
+    of **Open Customer-Reported Bugs** (or the pre-split daily name).
+    """
+    if as_of is None:
+        as_of_d = date.today()
+    elif isinstance(as_of, datetime):
+        as_of_d = as_of.date()
+    else:
+        as_of_d = as_of
+    eom = previous_calendar_month_end(as_of_d)
+    month_key = f"{eom.year:04d}-{eom.month:02d}"
+    path = prepare_kpi_store_for_read(db_path, skip_s3=skip_s3)
+    conn = connect(path)
+    try:
+        row = get_open_customer_reported_bugs_eom(conn, as_of_d)
+    finally:
+        conn.close()
+    if row is None:
+        return {
+            "error": (
+                f"No daily {OPEN_CUSTOMER_REPORTED_BUGS_METRIC} snapshot for "
+                f"{eom.isoformat()} (EOM stock for {month_key} "
+                f"{CUSTOMER_REPORTED_BUGS_METRIC})"
+            )
+        }
+    err = (row.observation.error or "").strip()
+    if err:
+        return {
+            "error": (
+                f"Daily {row.metric_name} snapshot for {eom.isoformat()} failed: {err}"
+            )
+        }
+    if row.observation.value is None:
+        return {
+            "error": (
+                f"Daily {row.metric_name} snapshot for {eom.isoformat()} has no value"
+            )
+        }
+    value = int(row.observation.value)
+    logger.info(
+        "%s: %s open LEAN bug(s) on %s (source=%s %s/%s)",
+        CUSTOMER_REPORTED_BUGS_METRIC,
+        value,
+        eom.isoformat(),
+        row.metric_name,
+        GRAIN_DAILY,
+        eom.isoformat(),
+    )
+    return {
+        "value": value,
+        "as_of": eom.isoformat(),
+        "source_metric": row.metric_name,
+        "source_grain": GRAIN_DAILY,
+        "source_period_key": eom.isoformat(),
     }

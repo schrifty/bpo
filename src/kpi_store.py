@@ -9,9 +9,9 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence
 
 from .kpi_observation import KPIObservation
 
@@ -19,6 +19,11 @@ SCHEMA_VERSION = 1
 GRAIN_DAILY = "daily"
 GRAIN_MONTH = "month"
 GRAINS = frozenset({GRAIN_DAILY, GRAIN_MONTH})
+
+# Live / daily open-bug stock (LeanDNA metric 2035).
+OPEN_CUSTOMER_REPORTED_BUGS_METRIC = "Open Customer-Reported Bugs"
+# Headline month-close name; also the pre-split daily series name in older stores.
+CUSTOMER_REPORTED_BUGS_METRIC = "Customer-Reported Bugs"
 
 # Previous-calendar-month scorecard generators (period_key = YYYY-MM of that month).
 MONTH_CLOSE_GENERATORS = frozenset(
@@ -37,6 +42,7 @@ MONTH_CLOSE_GENERATORS = frozenset(
         "get_ai_spend_pct",
         "get_ai_spend_per_issue",
         "get_headcount_plus_ai_spend_per_issue",
+        "get_customer_reported_bugs_eom",
     }
 )
 
@@ -158,7 +164,51 @@ def init_schema(conn: sqlite3.Connection) -> None:
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (str(SCHEMA_VERSION),),
     )
+    migrate_legacy_daily_customer_reported_bugs(conn)
     conn.commit()
+
+
+def migrate_legacy_daily_customer_reported_bugs(conn: sqlite3.Connection) -> None:
+    """Rename daily stock rows off the month-close headline name."""
+    conn.execute(
+        """
+        UPDATE kpi_observation
+        SET metric_name = ?
+        WHERE grain = ? AND metric_name = ?
+        """,
+        (OPEN_CUSTOMER_REPORTED_BUGS_METRIC, GRAIN_DAILY, CUSTOMER_REPORTED_BUGS_METRIC),
+    )
+
+
+def previous_calendar_month_end(as_of: date) -> date:
+    """Last calendar day of the month before *as_of*."""
+    return as_of.replace(day=1) - timedelta(days=1)
+
+
+def get_daily_stock_on(
+    conn: sqlite3.Connection,
+    metric_names: Sequence[str],
+    period_key: str,
+) -> StoredKPI | None:
+    """First matching daily row among *metric_names* for *period_key* (YYYY-MM-DD)."""
+    pk = validate_period_key(GRAIN_DAILY, period_key)
+    for name in metric_names:
+        row = get_kpi(conn, str(name), GRAIN_DAILY, pk)
+        if row is not None:
+            return row
+    return None
+
+
+def get_open_customer_reported_bugs_eom(
+    conn: sqlite3.Connection, as_of: date
+) -> StoredKPI | None:
+    """Daily open-bug stock on the last day of the previous calendar month."""
+    eom = previous_calendar_month_end(as_of)
+    return get_daily_stock_on(
+        conn,
+        (OPEN_CUSTOMER_REPORTED_BUGS_METRIC, CUSTOMER_REPORTED_BUGS_METRIC),
+        eom.isoformat(),
+    )
 
 
 def stored_kpi_from_observation(

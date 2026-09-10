@@ -47,9 +47,20 @@ metrics:
     metric-generator: null
     tags: [supply-chain]
 
-  # Customer-Reported Bugs
+  # Customer-Reported Bugs (month-close EOM stock)
   "Customer-Reported Bugs":
-    description: Open LEAN bugs in active statuses.
+    description: >-
+      Open LEAN bugs in active statuses as of the last calendar day of the
+      previous month (KPI-store daily snapshot). Not a Jira as-of query.
+    metric-id: null
+    metric-generator: get_customer_reported_bugs_eom
+    tags: [engineering, quality]
+    target: 25
+    direction: lower
+
+  # Open Customer-Reported Bugs (live / daily stock)
+  "Open Customer-Reported Bugs":
+    description: Open LEAN bugs in active statuses right now.
     metric-id: 2035
     metric-generator: get_customer_reported_bugs
     tags: [engineering, quality]
