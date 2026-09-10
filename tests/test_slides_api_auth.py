@@ -45,6 +45,16 @@ def test_get_service_impersonate_uses_subject(tmp_path, monkeypatch) -> None:
     assert build.call_count == 2
 
 
+def test_cs_report_drive_uses_impersonated_owner_not_service_account() -> None:
+    """CS Report lives on Data Exports; SA membership is Cortex Output only."""
+    from src.cs_report_client import _get_drive
+
+    with patch("src.slides_api._get_service") as get_service:
+        get_service.return_value = (None, MagicMock(), None)
+        _get_drive()
+    get_service.assert_called_once_with(impersonate=True)
+
+
 def test_get_service_without_impersonate_skips_subject(tmp_path, monkeypatch) -> None:
     import src.slides_api as sa
 

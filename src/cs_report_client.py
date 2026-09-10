@@ -48,7 +48,11 @@ _cs_report_column_labels_lock = threading.Lock()
 
 def _get_drive():
     from .slides_api import _get_service
-    _x, drive, _sh = _get_service(impersonate=False)
+
+    # Data Exports is a shared drive the delegated Workspace user can read.
+    # The Cortex service account is not a member of that drive; listing as the
+    # SA returns zero files and CSR dumps fail loud as "workbook missing".
+    _x, drive, _sh = _get_service(impersonate=True)
     return drive
 
 
@@ -231,7 +235,12 @@ def _fetch_latest_report() -> list[dict[str, Any]]:
             ).execute()
             files = results.get("files", [])
             if not files:
-                logger.warning("No CS Report found in Data Exports drive")
+                logger.warning(
+                    "No CS Report found in Data Exports drive "
+                    "(folder=%s drive=%s; listed as impersonated Drive owner)",
+                    _CS_REPORT_FOLDER_ID,
+                    _DATA_EXPORTS_DRIVE_ID,
+                )
                 return []
 
             latest = files[0]

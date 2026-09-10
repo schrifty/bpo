@@ -64,7 +64,7 @@ See `infra/terraform/README.md` for build/push and smoke-test steps.
 To create slide decks in Drive (using a Workspace user's quota instead of the service account's 15 GB):
 
 1. Create your **QBR Generator** folder in Google Drive (or pick an existing one) and share it with `bpo-slides-account@bpo-slides.iam.gserviceaccount.com` (Editor). Prefer a **dedicated Cortex robot user**, not a person's mailbox.
-2. Add the same service account as a member of the **Data Exports** shared drive (CS Report). CS Report reads use the SA identity — not domain-wide delegation.
+2. Ensure `GOOGLE_DRIVE_OWNER_EMAIL` can open the **Data Exports** shared drive (CS Report). CSR dumps list that folder via domain-wide delegation — not the service-account identity. Adding the SA as a Data Exports member is optional and does not replace DWD for this read.
 3. Add to `.env`: `GOOGLE_QBR_GENERATOR_FOLDER_ID=<folder-id-from-url>`, `GOOGLE_DRIVE_OWNER_EMAIL=<cortex-robot@your-domain>`, `GOOGLE_APPLICATION_CREDENTIALS=<path-to-service-account.json>`.
 4. **Enable domain-wide delegation** (requires Google Workspace Super Admin):
    - **GCP Console** → [IAM & Admin → Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts?project=bpo-slides) → click `bpo-slides-account` → Details → Advanced settings → copy **Client ID** (numeric).
