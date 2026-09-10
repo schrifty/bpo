@@ -223,8 +223,10 @@ def test_list_merged_pulls_since_supports_exclusive_until():
     until = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
     def router(method, url, params):
-        assert "merged:>=2026-07-01" in params["q"]
-        assert "merged:<2026-08-01" in params["q"]
+        q = params["q"]
+        assert "merged:2026-07-01..2026-07-31" in q
+        assert "merged:<" not in q
+        assert q.count("merged:") == 1
         return _FakeResponse(
             200, {"items": [{"number": 1, "merged_at": "2026-07-31T23:00:00Z"}]}
         )
@@ -234,6 +236,50 @@ def test_list_merged_pulls_since_supports_exclusive_until():
         "acme", "web", since=since, until=until
     )
     assert len(pulls) == 1
+
+
+def test_list_merged_pulls_since_does_not_reuse_cache_across_windows():
+    clear_merged_pulls_cache()
+    queries: list[str] = []
+
+    def router(method, url, params):
+        queries.append(params["q"])
+        n = 1 if "2026-08-01..2026-08-31" in params["q"] else 2
+        return _FakeResponse(200, {"items": [{"number": i} for i in range(n)]})
+
+    gh = _client(_FakeSession(router=router))
+    aug = gh.list_merged_pulls_since(
+        "acme",
+        "web",
+        since=datetime(2026, 8, 1, tzinfo=timezone.utc),
+        until=datetime(2026, 9, 1, tzinfo=timezone.utc),
+    )
+    jul = gh.list_merged_pulls_since(
+        "acme",
+        "web",
+        since=datetime(2026, 7, 1, tzinfo=timezone.utc),
+        until=datetime(2026, 8, 1, tzinfo=timezone.utc),
+    )
+    assert len(aug) == 1
+    assert len(jul) == 2
+    assert len(queries) == 2
+
+
+def test_list_merged_pulls_since_fails_loud_when_truncated():
+    clear_merged_pulls_cache()
+
+    def router(method, url, params):
+        return _FakeResponse(200, {"items": [{"number": 1}, {"number": 2}]})
+
+    gh = _client(_FakeSession(router=router))
+    with pytest.raises(GitHubError, match="truncated at 2"):
+        gh.list_merged_pulls_since(
+            "acme",
+            "web",
+            since=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            until=datetime(2026, 9, 1, tzinfo=timezone.utc),
+            max_pulls=2,
+        )
 
 
 def test_list_merged_pulls_since_caches_search(monkeypatch):

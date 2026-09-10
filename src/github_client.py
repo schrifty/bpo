@@ -560,11 +560,19 @@ class GitHubClient:
         cached in-process per repo and date bounds so sibling scorecard KPIs share
         Search API quota.
         """
-        since_str = since.astimezone(timezone.utc).strftime("%Y-%m-%d")
-        until_str = (
-            until.astimezone(timezone.utc).strftime("%Y-%m-%d") if until else ""
-        )
-        cap = 500 if max_pulls is None else max(1, int(max_pulls))
+        since_utc = since.astimezone(timezone.utc)
+        since_str = since_utc.strftime("%Y-%m-%d")
+        until_utc = until.astimezone(timezone.utc) if until is not None else None
+        until_str = until_utc.strftime("%Y-%m-%dT%H:%M:%SZ") if until_utc else ""
+        # GitHub Search keeps one ``merged:`` qualifier. A second ``merged:<`` is
+        # ignored, so month-close backfills all looked like ``merged:>=since``
+        # (same capped total every month). Use a single inclusive day range.
+        if until_utc is None:
+            merged_clause = f"merged:>={since_str}"
+        else:
+            last_day = (until_utc - timedelta(milliseconds=1)).strftime("%Y-%m-%d")
+            merged_clause = f"merged:{since_str}..{last_day}"
+        cap = 1000 if max_pulls is None else max(1, int(max_pulls))
         cache_key = (
             owner.strip().lower(),
             repo.strip().lower(),
@@ -575,10 +583,13 @@ class GitHubClient:
         cached = _MERGED_PULLS_CACHE.get(cache_key)
         if cached is not None:
             return list(cached)
-        q = f"repo:{owner}/{repo} is:pr is:merged merged:>={since_str}"
-        if until_str:
-            q += f" merged:<{until_str}"
+        q = f"repo:{owner}/{repo} is:pr is:merged {merged_clause}"
         results = self.search_issues(q, max_items=cap)
+        if len(results) >= cap:
+            raise GitHubError(
+                f"Merged PR search truncated at {cap} for {owner}/{repo} "
+                f"({merged_clause}); raise max_pulls or narrow the window"
+            )
         _MERGED_PULLS_CACHE[cache_key] = list(results)
         return results
 
