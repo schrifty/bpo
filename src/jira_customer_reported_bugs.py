@@ -7,7 +7,7 @@ written to LeanDNA metric 2035 (**Open Customer-Reported Bugs**).
 
 **Customer-Reported Bugs** (month-close) is end-of-month stock: the daily open
 count on the last calendar day of the previous month, read from the KPI store.
-Jira cannot reconstruct that as-of date after the fact.
+Historical daily points use Jira ``status WAS IN (…) ON \"YYYY-MM-DD\"``.
 """
 
 from __future__ import annotations
@@ -45,18 +45,41 @@ CUSTOMER_REPORTED_BUGS_JQL: str = (
 )
 
 
+def _as_of_date(as_of: date | datetime | None) -> date | None:
+    if as_of is None:
+        return None
+    if isinstance(as_of, datetime):
+        return as_of.date()
+    return as_of
+
+
+def customer_reported_bugs_jql(*, as_of: date | datetime | None = None) -> str:
+    """Live ``status in`` for today; ``status WAS IN … ON`` for a past calendar day."""
+    as_of_d = _as_of_date(as_of)
+    if as_of_d is None or as_of_d >= date.today():
+        return CUSTOMER_REPORTED_BUGS_JQL
+    return (
+        f"project = LEAN AND issuetype = Bug "
+        f'AND status WAS IN ({_STATUS_JQL}) ON "{as_of_d.isoformat()}"'
+    )
+
+
 def get_customer_reported_bug_count(
     client: JiraClient,
     *,
+    as_of: date | datetime | None = None,
     timeout: float = 60.0,  # noqa: ARG001 - count endpoint uses its own fixed timeout
 ) -> dict[str, Any]:
     """Return ``{"value": <count>}`` of open LEAN bugs in active engineering statuses.
 
-    Fails loud (``{"error": ...}``) when the Jira count endpoint is unavailable so
+    *as_of* in the past uses Jira history (``WAS ON``). Today or omitted uses current
+    status. Fails loud when the Jira count endpoint is unavailable so
     ``metrics-upsert`` does not write a placeholder value.
     """
+    jql = customer_reported_bugs_jql(as_of=as_of)
+    as_of_d = _as_of_date(as_of)
     count = client.jql_match_count(
-        CUSTOMER_REPORTED_BUGS_JQL,
+        jql,
         data_description="Open Customer-Reported Bugs (open LEAN Bug issues)",
     )
     if count is None:
@@ -66,12 +89,19 @@ def get_customer_reported_bug_count(
                 "(POST /rest/api/3/search/approximate-count returned no count)"
             )
         }
-    logger.info("Open Customer-Reported Bugs: %s open LEAN bug(s)", count)
-    return {
+    logger.info(
+        "Open Customer-Reported Bugs: %s open LEAN bug(s) as_of=%s",
+        count,
+        as_of_d.isoformat() if as_of_d else "today",
+    )
+    payload: dict[str, Any] = {
         "value": int(count),
-        "jql": CUSTOMER_REPORTED_BUGS_JQL,
+        "jql": jql,
         "statuses": list(_CUSTOMER_REPORTED_BUG_STATUSES),
     }
+    if as_of_d is not None:
+        payload["as_of"] = as_of_d.isoformat()
+    return payload
 
 
 def get_customer_reported_bugs_eom(

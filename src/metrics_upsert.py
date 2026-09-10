@@ -183,6 +183,7 @@ def _invoke_get_customer_reported_bugs(ctx: dict[str, Any]) -> dict[str, Any]:
     jira = get_shared_jira_client()
     return get_customer_reported_bug_count(
         jira,
+        as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 

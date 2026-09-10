@@ -7,6 +7,7 @@ from pathlib import Path
 
 from src.jira_customer_reported_bugs import (
     CUSTOMER_REPORTED_BUGS_JQL,
+    customer_reported_bugs_jql,
     get_customer_reported_bug_count,
     get_customer_reported_bugs_eom,
 )
@@ -43,6 +44,22 @@ def test_get_customer_reported_bug_count_returns_value() -> None:
     assert result["value"] == 12
     assert result["jql"] == CUSTOMER_REPORTED_BUGS_JQL
     assert client.last_jql == CUSTOMER_REPORTED_BUGS_JQL
+
+
+def test_customer_reported_bugs_jql_uses_was_on_for_past_dates() -> None:
+    jql = customer_reported_bugs_jql(as_of=date(2026, 8, 31))
+    assert "status WAS IN" in jql
+    assert 'ON "2026-08-31"' in jql
+    assert customer_reported_bugs_jql(as_of=date.today()) == CUSTOMER_REPORTED_BUGS_JQL
+
+
+def test_get_customer_reported_bug_count_historical_uses_was_on() -> None:
+    client = _FakeClient(9)
+    result = get_customer_reported_bug_count(client, as_of=date(2026, 8, 31))
+    assert result["value"] == 9
+    assert result["as_of"] == "2026-08-31"
+    assert "WAS IN" in result["jql"]
+    assert client.last_jql == result["jql"]
 
 
 def test_get_customer_reported_bug_count_fails_loud_when_count_missing() -> None:
