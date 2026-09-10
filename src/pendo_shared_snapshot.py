@@ -2,7 +2,9 @@
 
 Nightly ``pendo-snapshot-refresh`` clears disk preload slices for the target windows,
 warms them from live Pendo (7/14/30/60/90), writes a manifest under
-``CORTEX_CACHE_DIR/pendo/``, and uploads the 90d Drive portfolio rollup for deck reuse.
+``CORTEX_CACHE_DIR/pendo/``, then uploads the 90d Drive portfolio rollup for deck reuse.
+The disk manifest is written before Drive work so a hung rollup cannot leave
+daytime jobs on a stale ingest.
 Daytime transforms reuse those slices via the 24h disk TTL — they do not re-crawl.
 
 Transforms that set ``CORTEX_PENDO_SNAPSHOT_REQUIRE`` fail loud when the manifest is
@@ -338,39 +340,46 @@ def _refresh_shared_pendo_snapshot_body(
             f"Pendo shared snapshot refresh incomplete: missing disk keys {preview}{more}"
         )
 
-    portfolio: dict[str, Any] | None = None
-    if upload_portfolio_days is not None and int(upload_portfolio_days) > 0:
-        from .pendo_portfolio_snapshot_drive import run_upload_portfolio_snapshot_cli
+    def _write(portfolio: dict[str, Any] | None) -> dict[str, Any]:
+        now = time.time()
+        saved_at = datetime.fromtimestamp(now, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        payload: dict[str, Any] = {
+            "schema_version": SCHEMA_VERSION,
+            "saved_at": saved_at,
+            "ts": now,
+            "windows": win,
+            "upload_portfolio_days": int(upload_portfolio_days) if upload_portfolio_days else None,
+            "portfolio": portfolio,
+            "window_timings_s": window_timings,
+            "duration_s": round(now - t0, 1),
+            "disk_cache_ttl_h": round(_config.CORTEX_PENDO_DISK_CACHE_TTL_SECONDS / 3600.0, 2),
+        }
+        path = write_manifest(payload)
+        logger.info(
+            "Pendo shared snapshot: wrote manifest %s windows=%s duration_s=%.1f",
+            path,
+            win,
+            payload["duration_s"],
+        )
+        return payload
 
-        days_up = int(upload_portfolio_days)
-        logger.info("Pendo shared snapshot: uploading Drive portfolio rollup days=%d", days_up)
-        portfolio = run_upload_portfolio_snapshot_cli(days_up, None)
-        if portfolio.get("error"):
-            raise PendoSnapshotError(
-                f"Pendo shared snapshot Drive portfolio upload failed: {portfolio['error']}"
-            )
+    # Persist disk ingest before Drive work. Daytime jobs (Ford export, LLM context)
+    # only require this manifest. The 90d Drive rollup used to run first and, when
+    # it hung on YAML/config, the watchdog killed the task with a stale manifest.
+    manifest = _write(None)
+    if upload_portfolio_days is None or int(upload_portfolio_days) <= 0:
+        return manifest
 
-    now = time.time()
-    saved_at = datetime.fromtimestamp(now, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    manifest: dict[str, Any] = {
-        "schema_version": SCHEMA_VERSION,
-        "saved_at": saved_at,
-        "ts": now,
-        "windows": win,
-        "upload_portfolio_days": int(upload_portfolio_days) if upload_portfolio_days else None,
-        "portfolio": portfolio,
-        "window_timings_s": window_timings,
-        "duration_s": round(now - t0, 1),
-        "disk_cache_ttl_h": round(_config.CORTEX_PENDO_DISK_CACHE_TTL_SECONDS / 3600.0, 2),
-    }
-    path = write_manifest(manifest)
-    logger.info(
-        "Pendo shared snapshot: wrote manifest %s windows=%s duration_s=%.1f",
-        path,
-        win,
-        manifest["duration_s"],
-    )
-    return manifest
+    from .pendo_portfolio_snapshot_drive import run_upload_portfolio_snapshot_cli
+
+    days_up = int(upload_portfolio_days)
+    logger.info("Pendo shared snapshot: uploading Drive portfolio rollup days=%d", days_up)
+    portfolio = run_upload_portfolio_snapshot_cli(days_up, None)
+    if portfolio.get("error"):
+        raise PendoSnapshotError(
+            f"Pendo shared snapshot Drive portfolio upload failed: {portfolio['error']}"
+        )
+    return _write(portfolio)
 
 
 def refresh_pendo_snapshot_main(argv: list[str] | None = None, *, prog: str = "cortex --refresh-pendo-snapshot") -> int:

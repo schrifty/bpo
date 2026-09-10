@@ -182,6 +182,33 @@ def test_refresh_writes_manifest_and_verifies_keys(pendo_cache_root, monkeypatch
         assert call.kwargs.get("raise_on_error") is True
 
 
+def test_refresh_writes_manifest_even_when_drive_upload_fails(pendo_cache_root, monkeypatch) -> None:
+    """Daytime require-snapshot jobs need the disk manifest before Drive rollup."""
+    pc = MagicMock()
+
+    def _preload(days: int, **kwargs) -> None:
+        _seed_catalogs()
+        _seed_window(days)
+
+    pc.preload.side_effect = _preload
+    pc._get_usage_by_site_entity_cached.side_effect = lambda days: save_preload_payload(
+        PRELOAD_KIND_USAGE_BY_SITE_ENTITY, days, {"days": days}
+    )
+
+    with patch(
+        "src.pendo_portfolio_snapshot_drive.run_upload_portfolio_snapshot_cli",
+        side_effect=RuntimeError("Drive hung"),
+    ):
+        with pytest.raises(RuntimeError, match="Drive hung"):
+            refresh_shared_pendo_snapshot(windows=[7], upload_portfolio_days=90, pc=pc)
+
+    path = pendo_cache_root / "pendo" / "shared_snapshot_manifest_v1.json"
+    assert path.is_file()
+    disk = json.loads(path.read_text(encoding="utf-8"))
+    assert disk["windows"] == [7]
+    assert disk.get("portfolio") is None
+
+
 def test_refresh_clears_stale_disk_keys_before_warming(pendo_cache_root) -> None:
     """Near-TTL leftovers must not satisfy preload before a fresh rewrite."""
     _seed_catalogs()

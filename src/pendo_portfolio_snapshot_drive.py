@@ -595,7 +595,11 @@ def run_upload_portfolio_snapshot_cli(days: int, max_customers: int | None) -> d
     from .pendo_client import PendoClient
 
     client = PendoClient()
-    report = client.get_portfolio_report(days=days, max_customers=max_customers)
+    report = client.get_portfolio_report(
+        days=days,
+        max_customers=max_customers,
+        cohort_rollup_from_slide_yaml=False,
+    )
     fid = upload_portfolio_snapshot_to_drive(
         report,
         folder_id,
