@@ -34,7 +34,7 @@ def test_upload_csr_dump_spreadsheet_updates_existing_in_place(monkeypatch) -> N
         ]
     }
     monkeypatch.setattr("src.charts._build_sheets_service", lambda: sheets_svc)
-    monkeypatch.setattr("src.slides_api._get_service", lambda: (None, MagicMock(), None))
+    monkeypatch.setattr("src.slides_api._get_service", lambda **_k: (None, MagicMock(), None))
     monkeypatch.setattr(
         "src.slides_api.sheets_spreadsheet_create",
         lambda *_a, **_k: creates.append("created") or {"spreadsheetId": "new"},
@@ -61,7 +61,7 @@ def test_upload_csr_dump_spreadsheet_creates_when_missing(monkeypatch) -> None:
     monkeypatch.setattr("src.drive_config.find_file_in_folder", lambda *_a, **_k: None)
     monkeypatch.setattr("src.charts._build_sheets_service", lambda: MagicMock())
     drive = MagicMock()
-    monkeypatch.setattr("src.slides_api._get_service", lambda: (None, drive, None))
+    monkeypatch.setattr("src.slides_api._get_service", lambda **_k: (None, drive, None))
     monkeypatch.setattr(
         "src.slides_api.sheets_spreadsheet_create",
         lambda *_a, **_k: {"spreadsheetId": "ss-new"},

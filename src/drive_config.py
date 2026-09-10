@@ -22,6 +22,9 @@ The QBR Generator folder (``GOOGLE_QBR_GENERATOR_FOLDER_ID``) typically contains
 
 :func:`get_qbr_generator_folder_id_for_drive_config` returns the folder id from
 ``GOOGLE_QBR_GENERATOR_FOLDER_ID`` (required).
+
+Job outputs also dual-write to the hardcoded Cortex shared drive
+(``CORTEX_SHARED_DRIVE_ID``) unless ``CORTEX_DUAL_WRITE_OUTPUT`` is false.
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ from __future__ import annotations
 import datetime
 import errno
 import io
+import os
 import threading
 import time
 from pathlib import Path
@@ -58,8 +62,38 @@ _drive_repo_sync_ran = False
 
 # Drive output folder name under the generator root.
 QBR_OUTPUT_SUBFOLDER = "Output"
+# Shared drive "Cortex" — job outputs dual-write here in addition to GOOGLE_QBR_*.
+CORTEX_SHARED_DRIVE_ID = "0ADEZ-wT2uvnqUk9PVA"
 _MIME_FOLDER = "application/vnd.google-apps.folder"
 _MIME_PRESENTATION = "application/vnd.google-apps.presentation"
+
+
+def _cortex_output_dual_write_enabled() -> bool:
+    """Write Output/Cache artifacts to the hardcoded Cortex shared drive as well as env folders.
+
+    Disabled in pytest (avoids live Drive) and when ``CORTEX_DUAL_WRITE_OUTPUT`` is 0/false.
+    """
+    flag = (os.environ.get("CORTEX_DUAL_WRITE_OUTPUT") or "1").strip().lower()
+    if flag in ("0", "false", "no", "off"):
+        return False
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return False
+    return True
+
+
+def _drive_list_kwargs(**extra: Any) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "supportsAllDrives": True,
+        "includeItemsFromAllDrives": True,
+    }
+    params.update(extra)
+    return params
+
+
+def _drive_write_kwargs(**extra: Any) -> dict[str, Any]:
+    params: dict[str, Any] = {"supportsAllDrives": True}
+    params.update(extra)
+    return params
 
 
 def _get_drive():
@@ -108,7 +142,9 @@ def _find_or_create_folder(name: str, parent_id: str | None = None) -> str:
         try:
             with drive_api_lock:
                 drive = _get_drive()
-                results = drive.files().list(q=q, fields="files(id, name)", pageSize=5).execute()
+                results = drive.files().list(
+                    **_drive_list_kwargs(q=q, fields="files(id, name)", pageSize=5)
+                ).execute()
                 files = results.get("files", [])
                 if files:
                     return files[0]["id"]
@@ -119,7 +155,9 @@ def _find_or_create_folder(name: str, parent_id: str | None = None) -> str:
                 }
                 if parent_id:
                     meta["parents"] = [parent_id]
-                folder = drive.files().create(body=meta, fields="id").execute()
+                folder = drive.files().create(
+                    **_drive_write_kwargs(body=meta, fields="id")
+                ).execute()
                 logger.info("Created Drive folder: %s (%s)", name, folder["id"])
                 return folder["id"]
         except Exception as e:
@@ -157,7 +195,7 @@ def find_file_in_folder(
             with drive_api_lock:
                 drive = _get_drive()
                 results = drive.files().list(
-                    q=q, fields="files(id, name, modifiedTime)", pageSize=25
+                    **_drive_list_kwargs(q=q, fields="files(id, name, modifiedTime)", pageSize=25)
                 ).execute()
                 files = results.get("files", [])
                 if not files:
@@ -193,7 +231,7 @@ def list_files_by_name_in_folder(
     with drive_api_lock:
         drive = _get_drive()
         results = drive.files().list(
-            q=q, fields="files(id, name, modifiedTime)", pageSize=25
+            **_drive_list_kwargs(q=q, fields="files(id, name, modifiedTime)", pageSize=25)
         ).execute()
         files = results.get("files") or []
         files.sort(key=lambda x: x.get("modifiedTime") or "", reverse=True)
@@ -214,7 +252,9 @@ def dedupe_duplicate_names_in_folder(parent_id: str, name: str) -> str | None:
             fid = str(extra.get("id") or "")
             if not fid or fid == keep_id:
                 continue
-            drive.files().update(fileId=fid, body={"trashed": True}).execute()
+            drive.files().update(
+                **_drive_write_kwargs(fileId=fid, body={"trashed": True})
+            ).execute()
             logger.info("Removed duplicate Drive file %r (id=%s)", name, fid)
     return keep_id
 
@@ -222,7 +262,9 @@ def dedupe_duplicate_names_in_folder(parent_id: str, name: str) -> str | None:
 def rename_drive_file(file_id: str, new_name: str) -> None:
     with drive_api_lock:
         drive = _get_drive()
-        drive.files().update(fileId=file_id, body={"name": new_name}, fields="id,name").execute()
+        drive.files().update(
+            **_drive_write_kwargs(fileId=file_id, body={"name": new_name}, fields="id,name")
+        ).execute()
 
 
 def move_drive_file(
@@ -234,25 +276,29 @@ def move_drive_file(
     with drive_api_lock:
         drive = _get_drive()
         drive.files().update(
-            fileId=file_id,
-            addParents=to_parent_id,
-            removeParents=from_parent_id,
-            body=body or None,
-            fields="id,name",
+            **_drive_write_kwargs(
+                fileId=file_id,
+                addParents=to_parent_id,
+                removeParents=from_parent_id,
+                body=body or None,
+                fields="id,name",
+            )
         ).execute()
 
 
 def trash_drive_file(file_id: str) -> None:
     with drive_api_lock:
         drive = _get_drive()
-        drive.files().update(fileId=file_id, body={"trashed": True}).execute()
+        drive.files().update(
+            **_drive_write_kwargs(fileId=file_id, body={"trashed": True})
+        ).execute()
 
 
 def delete_drive_file(file_id: str) -> None:
     """Permanently delete a Drive file (not recoverable from trash)."""
     with drive_api_lock:
         drive = _get_drive()
-        drive.files().delete(fileId=file_id).execute()
+        drive.files().delete(**_drive_write_kwargs(fileId=file_id)).execute()
 
 
 def copy_drive_file_to_folder(file_id: str, *, name: str, parent_id: str) -> str:
@@ -267,7 +313,13 @@ def copy_drive_file_to_folder(file_id: str, *, name: str, parent_id: str) -> str
             drive = _get_drive()
             copied = (
                 drive.files()
-                .copy(fileId=file_id, body={"name": name, "parents": [parent_id]}, fields="id")
+                .copy(
+                    **_drive_write_kwargs(
+                        fileId=file_id,
+                        body={"name": name, "parents": [parent_id]},
+                        fields="id",
+                    )
+                )
                 .execute()
             )
             return str(copied["id"])
@@ -357,6 +409,71 @@ def get_deck_output_folder_id() -> str | None:
     return get_qbr_output_folder_id()
 
 
+def get_cortex_shared_output_root_folder_id() -> str | None:
+    """Return ``Output/`` on the hardcoded Cortex shared drive, or None if dual-write is off/failed."""
+    if not _cortex_output_dual_write_enabled():
+        return None
+    try:
+        return _find_or_create_folder(QBR_OUTPUT_SUBFOLDER, CORTEX_SHARED_DRIVE_ID)
+    except Exception as e:
+        logger.error(
+            "Cortex shared-drive Output folder unavailable (%s); continuing with env Output only",
+            e,
+        )
+        return None
+
+
+def iter_qbr_output_root_folder_ids() -> list[str]:
+    """Env Output root first, then Cortex shared-drive Output when dual-write is on."""
+    ids: list[str] = []
+    primary = get_qbr_output_root_folder_id()
+    if primary:
+        ids.append(primary)
+    mirror = get_cortex_shared_output_root_folder_id()
+    if mirror and mirror not in ids:
+        ids.append(mirror)
+    return ids
+
+
+def parallel_output_folder_ids(source_parent_id: str) -> list[str]:
+    """Sibling Output roots or today's dated Output folders for dual-write copies."""
+    if not source_parent_id:
+        return []
+    roots = iter_qbr_output_root_folder_ids()
+    if source_parent_id in roots:
+        return [rid for rid in roots if rid != source_parent_id]
+    dated_name = f"{datetime.date.today().isoformat()} - Output"
+    dated: list[str] = []
+    for root in roots:
+        try:
+            dated.append(_find_or_create_folder(dated_name, root))
+        except Exception as e:
+            logger.error("Could not resolve dated Output under %s: %s", root, e)
+    if source_parent_id in dated:
+        return [did for did in dated if did != source_parent_id]
+    return []
+
+
+def mirror_finished_drive_file(
+    file_id: str,
+    *,
+    name: str,
+    source_parent_id: str | None,
+) -> None:
+    """Copy a finished presentation (or other Drive file) into parallel Output folders."""
+    if not file_id or not source_parent_id:
+        return
+    for dest in parallel_output_folder_ids(source_parent_id):
+        try:
+            existing = find_file_in_folder(name, dest)
+            if existing:
+                trash_drive_file(existing)
+            copy_drive_file_to_folder(file_id, name=name, parent_id=dest)
+            logger.info("Dual-wrote Drive file %r → %s", name, dest)
+        except Exception as e:
+            logger.error("Dual-write copy failed for %r → %s: %s", name, dest, e)
+
+
 def _get_config_folder_ids() -> tuple[str, str, str]:
     """Return (qbr_generator_root_id, decks_id, slides_id) on Drive."""
     qbr_gen = get_qbr_generator_folder_id_for_drive_config()
@@ -439,10 +556,12 @@ def _list_drive_yaml_raw_paginated(folder_id: str) -> list[dict[str, Any]]:
                 req = (
                     drive.files()
                     .list(
-                        q=q,
-                        fields="nextPageToken, files(id, name, modifiedTime)",
-                        pageSize=1000,
-                        pageToken=page_token,
+                        **_drive_list_kwargs(
+                            q=q,
+                            fields="nextPageToken, files(id, name, modifiedTime)",
+                            pageSize=1000,
+                            pageToken=page_token,
+                        )
                     )
                 )
                 results = req.execute()
@@ -494,11 +613,15 @@ def _upload_file(name: str, content: str, folder_id: str, file_id: str | None = 
         media = MediaIoBaseUpload(io.BytesIO(content.encode("utf-8")), mimetype="text/yaml")
         if file_id:
             with network_timeout(30.0, f"Drive YAML update ({name})"):
-                f = drive.files().update(fileId=file_id, media_body=media).execute()
+                f = drive.files().update(
+                    **_drive_write_kwargs(fileId=file_id, media_body=media)
+                ).execute()
             return f["id"]
         meta: dict[str, Any] = {"name": name, "parents": [folder_id]}
         with network_timeout(30.0, f"Drive YAML create ({name})"):
-            f = drive.files().create(body=meta, media_body=media, fields="id").execute()
+            f = drive.files().create(
+                **_drive_write_kwargs(body=meta, media_body=media, fields="id")
+            ).execute()
         return f["id"]
 
 
@@ -539,11 +662,15 @@ def upload_text_file_to_drive_folder(
         )
         if fid:
             with network_timeout(30.0, f"Drive file update ({name})"):
-                f = drive.files().update(fileId=fid, media_body=media).execute()
+                f = drive.files().update(
+                    **_drive_write_kwargs(fileId=fid, media_body=media)
+                ).execute()
             return f["id"]
         meta: dict[str, Any] = {"name": name, "parents": [folder_id]}
         with network_timeout(30.0, f"Drive file create ({name})"):
-            f = drive.files().create(body=meta, media_body=media, fields="id").execute()
+            f = drive.files().create(
+                **_drive_write_kwargs(body=meta, media_body=media, fields="id")
+            ).execute()
         return f["id"]
 
 
@@ -557,25 +684,39 @@ def upload_to_qbr_output_folders(
 
     Same layout as LLM context export and dated deck outputs under the QBR Generator tree.
     Raises ``RuntimeError`` when Drive output folders cannot be resolved.
+    Dual-writes the same files to Cortex shared-drive Output when enabled.
     """
-    root_id = get_qbr_output_root_folder_id()
-    dated_id = get_qbr_output_folder_id()
-    if not root_id or not dated_id:
+    roots = iter_qbr_output_root_folder_ids()
+    if not roots:
         raise RuntimeError(
             "Could not resolve Drive Output folders (set GOOGLE_QBR_GENERATOR_FOLDER_ID "
             "and verify Drive access)."
         )
-    fid_root = upload_text_file_to_drive_folder(name, content, root_id, mime_type=mime_type)
-    fid_dated = upload_text_file_to_drive_folder(name, content, dated_id, mime_type=mime_type)
-    dated_label = f"{datetime.date.today().isoformat()} - Output"
-    return {
-        "filename": name,
-        "dated_label": dated_label,
-        "file_id_root": fid_root,
-        "file_id_dated": fid_dated,
-        "root_folder_id": root_id,
-        "dated_folder_id": dated_id,
-    }
+    dated_name = f"{datetime.date.today().isoformat()} - Output"
+    meta: dict[str, str] | None = None
+    for i, root_id in enumerate(roots):
+        try:
+            dated_id = _find_or_create_folder(dated_name, root_id)
+            fid_root = upload_text_file_to_drive_folder(name, content, root_id, mime_type=mime_type)
+            fid_dated = upload_text_file_to_drive_folder(name, content, dated_id, mime_type=mime_type)
+        except Exception as e:
+            if i == 0:
+                raise
+            logger.error("Dual-write to Cortex Output failed for %s: %s", name, e)
+            continue
+        if i == 0:
+            meta = {
+                "filename": name,
+                "dated_label": dated_name,
+                "file_id_root": fid_root,
+                "file_id_dated": fid_dated,
+                "root_folder_id": root_id,
+                "dated_folder_id": dated_id,
+            }
+        else:
+            logger.info("Dual-wrote %s to Cortex Output %s", name, root_id)
+    assert meta is not None
+    return meta
 
 
 def _normalize_config_text(text: str) -> str:

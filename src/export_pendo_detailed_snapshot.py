@@ -858,6 +858,7 @@ def _upload_detailed_export(
             persistent_folder_id=folders["persistent_folder_id"],
             historical_folder_id=folders["historical_folder_id"],
             base_label=folders["base_label"],
+            mirror_layouts=folders.get("mirror_layouts"),
         )
         print(
             f"Persistent markdown: https://drive.google.com/file/d/{urls['persistent_md_id']}/view",

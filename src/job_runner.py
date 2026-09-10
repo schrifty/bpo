@@ -555,21 +555,36 @@ def _write_failures_artifact(
         return str(path)
     try:
         from .export_drive_layout import ensure_historical_data_folder, ensure_historical_day_folder, historical_day_folder_label
-        from .drive_config import get_qbr_output_root_folder_id, upload_text_file_to_drive_folder
+        from .drive_config import (
+            get_qbr_output_root_folder_id,
+            iter_qbr_output_root_folder_ids,
+            upload_text_file_to_drive_folder,
+        )
 
         root_id = get_qbr_output_root_folder_id()
         if not root_id:
             return None
-        historical_id = ensure_historical_data_folder(root_id)
-        day_folder_id = ensure_historical_day_folder(historical_id)
         fname = f"failures-{job_name}-{run_id[:8]}.json"
-        fid = upload_text_file_to_drive_folder(fname, body, day_folder_id, mime_type="application/json")
-        logger.info(
-            "Uploaded failures artifact to Drive Historical Data/%s/%s (id=%s)",
-            historical_day_folder_label(),
-            fname,
-            fid,
-        )
+        fid: str | None = None
+        for i, out_root in enumerate(iter_qbr_output_root_folder_ids() or [root_id]):
+            try:
+                historical_id = ensure_historical_data_folder(out_root)
+                day_folder_id = ensure_historical_day_folder(historical_id)
+                uploaded = upload_text_file_to_drive_folder(
+                    fname, body, day_folder_id, mime_type="application/json"
+                )
+                if i == 0:
+                    fid = uploaded
+                    logger.info(
+                        "Uploaded failures artifact to Drive Historical Data/%s/%s (id=%s)",
+                        historical_day_folder_label(),
+                        fname,
+                        fid,
+                    )
+            except Exception as exc:
+                if i == 0:
+                    raise
+                logger.error("Cortex dual-write failures.json failed: %s", exc)
         return fid
     except Exception as exc:
         logger.warning("Could not upload failures.json to Drive: %s", exc)

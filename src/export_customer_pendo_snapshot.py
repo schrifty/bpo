@@ -1333,6 +1333,7 @@ def export_pendo_main(cli_args: list[str] | None = None, *, prog: str | None = N
                     persistent_folder_id=folders["persistent_folder_id"],
                     historical_folder_id=folders["historical_folder_id"],
                     base_label=folders["base_label"],
+                    mirror_layouts=folders.get("mirror_layouts"),
                 )
                 print(
                     f"Persistent markdown: https://drive.google.com/file/d/{urls['persistent_md_id']}/view",

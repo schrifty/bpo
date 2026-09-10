@@ -61,14 +61,19 @@ See `infra/terraform/README.md` for build/push and smoke-test steps.
 
 ### Google Slides (domain-wide delegation)
 
-To create slide decks in your Drive (using your quota instead of the service account's 15 GB):
+To create slide decks in Drive (using a Workspace user's quota instead of the service account's 15 GB):
 
-1. Create your **QBR Generator** folder in Google Drive (or pick an existing one) and share it with `bpo-slides-account@bpo-slides.iam.gserviceaccount.com` (Editor).
-2. Add to `.env`: `GOOGLE_QBR_GENERATOR_FOLDER_ID=<folder-id-from-url>`, `GOOGLE_DRIVE_OWNER_EMAIL=<your-google-email>`, `GOOGLE_APPLICATION_CREDENTIALS=<path-to-service-account.json>`.
-3. **Enable domain-wide delegation** (requires Google Workspace Super Admin):
+1. Create your **QBR Generator** folder in Google Drive (or pick an existing one) and share it with `bpo-slides-account@bpo-slides.iam.gserviceaccount.com` (Editor). Prefer a **dedicated Cortex robot user**, not a person's mailbox.
+2. Add the same service account as a member of the **Data Exports** shared drive (CS Report). CS Report reads use the SA identity — not domain-wide delegation.
+3. Add to `.env`: `GOOGLE_QBR_GENERATOR_FOLDER_ID=<folder-id-from-url>`, `GOOGLE_DRIVE_OWNER_EMAIL=<cortex-robot@your-domain>`, `GOOGLE_APPLICATION_CREDENTIALS=<path-to-service-account.json>`.
+4. **Enable domain-wide delegation** (requires Google Workspace Super Admin):
    - **GCP Console** → [IAM & Admin → Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts?project=bpo-slides) → click `bpo-slides-account` → Details → Advanced settings → copy **Client ID** (numeric).
-   - **Google Workspace Admin** → [Manage Domain Wide Delegation](https://admin.google.com/ac/owl/domainwidedelegation) → Add new → paste Client ID → add scopes: `https://www.googleapis.com/auth/drive`, `https://www.googleapis.com/auth/presentations` → Authorize.
-4. Run `python scripts/test_slides_auth.py` to verify.
+   - **Google Workspace Admin** → [Manage Domain Wide Delegation](https://admin.google.com/ac/owl/domainwidedelegation) → Add/edit the Client ID → scopes:
+     `https://www.googleapis.com/auth/presentations`,
+     `https://www.googleapis.com/auth/drive`
+     → Authorize. The delegated scopes must match `GOOGLE_IMPERSONATED_SCOPES` in `src/slides_api.py` exactly, or token exchange fails with `unauthorized_client`.
+   - Narrowing delegation to `drive.file` + `spreadsheets` is the goal, but it hides QBR config files the app did not create. Move the QBR tree onto the Cortex shared drive and switch those reads to the service-account identity (`_get_service(impersonate=False)`) before changing the grant.
+5. Run `python scripts/test_slides_auth.py` to verify.
 
 ### JIRA (optional)
 

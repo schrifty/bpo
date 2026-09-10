@@ -631,8 +631,7 @@ def embed_chart(
 def _build_sheets_service():
     """Build an authenticated Sheets API service reusing existing credentials.
 
-    The drive scope (already authorized for domain-wide delegation) covers
-    Sheets API access, so we reuse the same credential chain as Slides/Drive.
+    Reuses impersonated credentials (presentations, drive.file, spreadsheets).
     """
     from .slides_api import _get_service
     from googleapiclient.discovery import build

@@ -133,6 +133,32 @@ def resolve_portfolio_snapshot_folder_id() -> str | None:
         return None
 
 
+def iter_portfolio_snapshot_folder_ids() -> list[str]:
+    """Env Cache folder first, then Cortex shared-drive Cache when dual-write is on."""
+    from .drive_config import (
+        CORTEX_SHARED_DRIVE_ID,
+        _cortex_output_dual_write_enabled,
+        _find_or_create_folder,
+    )
+
+    ids: list[str] = []
+    primary = resolve_portfolio_snapshot_folder_id()
+    if primary:
+        ids.append(primary)
+    if not _cortex_output_dual_write_enabled():
+        return ids
+    try:
+        mirror = _find_or_create_folder(
+            PORTFOLIO_SNAPSHOT_CACHE_FOLDER_NAME,
+            CORTEX_SHARED_DRIVE_ID,
+        )
+        if mirror and mirror not in ids:
+            ids.append(mirror)
+    except Exception as e:
+        logger.error("Cortex Cache dual-write folder failed: %s", e)
+    return ids
+
+
 def portfolio_snapshot_filename(days: int, max_customers: int | None) -> str:
     """Stable Drive object name for a (days, max_customers) portfolio snapshot."""
     cap = "all" if max_customers is None else f"max{int(max_customers)}"
@@ -487,6 +513,34 @@ def upload_portfolio_snapshot_to_drive(
     payload = json.dumps(envelope, ensure_ascii=False, indent=2, default=str)
     name = portfolio_snapshot_filename(days, max_customers)
 
+    fid = _upload_portfolio_snapshot_to_one_folder(
+        folder_id,
+        force_weekday_write=force_weekday_write,
+        payload=payload,
+        name=name,
+    )
+    for extra in iter_portfolio_snapshot_folder_ids():
+        if extra == folder_id:
+            continue
+        try:
+            _upload_portfolio_snapshot_to_one_folder(
+                extra,
+                force_weekday_write=force_weekday_write,
+                payload=payload,
+                name=name,
+            )
+        except Exception as e:
+            logger.error("Cortex dual-write portfolio snapshot failed: %s", e)
+    return fid
+
+
+def _upload_portfolio_snapshot_to_one_folder(
+    folder_id: str,
+    *,
+    force_weekday_write: bool,
+    payload: str,
+    name: str,
+) -> str:
     if not force_weekday_write:
         existing_early = find_file_in_folder(name, folder_id, mime_type=None)
         if existing_early and not is_weekend_in_snapshot_tz():
@@ -497,7 +551,7 @@ def upload_portfolio_snapshot_to_drive(
             return existing_early
 
     from .network_utils import network_timeout
-    
+
     with drive_api_lock:
         drive = _get_drive()
         media = MediaIoBaseUpload(
@@ -507,11 +561,21 @@ def upload_portfolio_snapshot_to_drive(
         existing_id = find_file_in_folder(name, folder_id, mime_type=None)
         if existing_id:
             with network_timeout(30.0, "Drive file update"):
-                f = drive.files().update(fileId=existing_id, media_body=media, fields="id").execute()
+                f = drive.files().update(
+                    fileId=existing_id,
+                    media_body=media,
+                    fields="id",
+                    supportsAllDrives=True,
+                ).execute()
         else:
             meta: dict[str, Any] = {"name": name, "parents": [folder_id]}
             with network_timeout(30.0, "Drive file creation"):
-                f = drive.files().create(body=meta, media_body=media, fields="id").execute()
+                f = drive.files().create(
+                    body=meta,
+                    media_body=media,
+                    fields="id",
+                    supportsAllDrives=True,
+                ).execute()
         logger.info("Portfolio snapshot: uploaded %r to Drive", name)
         return f["id"]
 

@@ -48,7 +48,7 @@ _cs_report_column_labels_lock = threading.Lock()
 
 def _get_drive():
     from .slides_api import _get_service
-    _x, drive, _sh = _get_service()
+    _x, drive, _sh = _get_service(impersonate=False)
     return drive
 
 

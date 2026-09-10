@@ -392,15 +392,9 @@ def ensure_customer_exports_parent_folder(parent_id: str) -> str:
     return _find_or_create_folder(CUSTOMER_EXPORTS_FOLDER, parent_id)
 
 
-def ensure_customer_export_folders(customer: str) -> dict[str, str]:
-    """Return persistent (account) and historical root folder ids under Customer Exports."""
-    from .drive_config import _find_or_create_folder, get_qbr_output_root_folder_id
+def _customer_export_layout_for_root(root: str, customer: str) -> dict[str, str]:
+    from .drive_config import _find_or_create_folder
 
-    root = get_qbr_output_root_folder_id()
-    if not root:
-        raise RuntimeError(
-            "Could not resolve Drive Output folder (set GOOGLE_QBR_GENERATOR_FOLDER_ID)."
-        )
     customer_exports = ensure_customer_exports_parent_folder(root)
     account_folder = _find_or_create_folder(customer, customer_exports)
     historical_id = ensure_historical_data_folder(account_folder)
@@ -411,21 +405,79 @@ def ensure_customer_export_folders(customer: str) -> dict[str, str]:
     }
 
 
-def ensure_portfolio_output_folders() -> dict[str, str]:
-    """Return persistent (Output root) and historical root folder ids."""
-    from .drive_config import get_qbr_output_root_folder_id
+def iter_export_folder_layouts(folders: dict[str, Any]) -> list[dict[str, str]]:
+    """Primary layout first, then Cortex dual-write layouts (no ``mirror_layouts`` key)."""
+    extra = folders.get("mirror_layouts") or []
+    primary = {k: v for k, v in folders.items() if k != "mirror_layouts"}
+    layouts: list[dict[str, str]] = [primary]  # type: ignore[list-item]
+    for row in extra:
+        layouts.append({k: v for k, v in row.items() if k != "mirror_layouts"})
+    return layouts
 
-    root = get_qbr_output_root_folder_id()
-    if not root:
+
+def ensure_customer_export_folders(customer: str) -> dict[str, Any]:
+    """Return persistent (account) and historical root folder ids under Customer Exports."""
+    from .drive_config import get_qbr_output_root_folder_id, iter_qbr_output_root_folder_ids
+
+    roots = iter_qbr_output_root_folder_ids()
+    if not roots:
+        root = get_qbr_output_root_folder_id()
+        if not root:
+            raise RuntimeError(
+                "Could not resolve Drive Output folder (set GOOGLE_QBR_GENERATOR_FOLDER_ID)."
+            )
+        roots = [root]
+    layouts: list[dict[str, str]] = []
+    for i, root in enumerate(roots):
+        try:
+            layouts.append(_customer_export_layout_for_root(root, customer))
+        except Exception as e:
+            if i == 0:
+                raise
+            logger.error("Cortex dual-write Customer Exports folders failed for %s: %s", customer, e)
+    if not layouts:
         raise RuntimeError(
             "Could not resolve Drive Output folder (set GOOGLE_QBR_GENERATOR_FOLDER_ID)."
         )
-    historical_id = ensure_historical_data_folder(root)
-    return {
-        "persistent_folder_id": root,
-        "historical_folder_id": historical_id,
-        "base_label": "Output",
-    }
+    primary: dict[str, Any] = dict(layouts[0])
+    primary["mirror_layouts"] = layouts[1:]
+    return primary
+
+
+def ensure_portfolio_output_folders() -> dict[str, Any]:
+    """Return persistent (Output root) and historical root folder ids."""
+    from .drive_config import get_qbr_output_root_folder_id, iter_qbr_output_root_folder_ids
+
+    roots = iter_qbr_output_root_folder_ids()
+    if not roots:
+        root = get_qbr_output_root_folder_id()
+        if not root:
+            raise RuntimeError(
+                "Could not resolve Drive Output folder (set GOOGLE_QBR_GENERATOR_FOLDER_ID)."
+            )
+        roots = [root]
+    layouts: list[dict[str, str]] = []
+    for i, root in enumerate(roots):
+        try:
+            historical_id = ensure_historical_data_folder(root)
+            layouts.append(
+                {
+                    "persistent_folder_id": root,
+                    "historical_folder_id": historical_id,
+                    "base_label": "Output",
+                }
+            )
+        except Exception as e:
+            if i == 0:
+                raise
+            logger.error("Cortex dual-write portfolio Output folders failed: %s", e)
+    if not layouts:
+        raise RuntimeError(
+            "Could not resolve Drive Output folder (set GOOGLE_QBR_GENERATOR_FOLDER_ID)."
+        )
+    primary: dict[str, Any] = dict(layouts[0])
+    primary["mirror_layouts"] = layouts[1:]
+    return primary
 
 
 def upload_pendo_markdown_and_spreadsheet(
@@ -437,8 +489,50 @@ def upload_pendo_markdown_and_spreadsheet(
     historical_folder_id: str,
     base_label: str,
     export_date: dt.date | None = None,
+    mirror_layouts: list[dict[str, str]] | None = None,
 ) -> dict[str, str]:
     """Upload markdown + workbook to persistent base and today's historical day folder."""
+    layouts = [
+        {
+            "persistent_folder_id": persistent_folder_id,
+            "historical_folder_id": historical_folder_id,
+            "base_label": base_label,
+        },
+        *(mirror_layouts or []),
+    ]
+    result: dict[str, str] | None = None
+    for i, layout in enumerate(layouts):
+        try:
+            uploaded = _upload_pendo_markdown_and_spreadsheet_once(
+                stem=stem,
+                md=md,
+                report=report,
+                persistent_folder_id=layout["persistent_folder_id"],
+                historical_folder_id=layout["historical_folder_id"],
+                base_label=layout["base_label"],
+                export_date=export_date,
+            )
+        except Exception as e:
+            if i == 0:
+                raise
+            logger.error("Cortex dual-write Pendo export failed (%s): %s", layout.get("base_label"), e)
+            continue
+        if i == 0:
+            result = uploaded
+    assert result is not None
+    return result
+
+
+def _upload_pendo_markdown_and_spreadsheet_once(
+    *,
+    stem: str,
+    md: str,
+    report: dict[str, Any],
+    persistent_folder_id: str,
+    historical_folder_id: str,
+    base_label: str,
+    export_date: dt.date | None = None,
+) -> dict[str, str]:
     from .drive_config import dedupe_duplicate_names_in_folder, upload_text_file_to_drive_folder
     from .export_pendo_spreadsheet import spreadsheet_url, upload_pendo_export_spreadsheet
 
@@ -502,8 +596,49 @@ def upload_csr_spreadsheet_persistent_and_historical(
     tables: dict[str, list[list[Any]]],
     persistent_folder_id: str,
     historical_slot_folder_id: str,
+    mirror_layouts: list[dict[str, str]] | None = None,
 ) -> dict[str, str]:
     """Update the customer-folder Sheet in place, then Drive-copy it into the slot folder."""
+    layouts = [
+        {
+            "persistent_folder_id": persistent_folder_id,
+            "historical_slot_folder_id": historical_slot_folder_id,
+        }
+    ]
+    for extra in mirror_layouts or []:
+        layouts.append(
+            {
+                "persistent_folder_id": extra["persistent_folder_id"],
+                "historical_slot_folder_id": extra["historical_slot_folder_id"],
+            }
+        )
+    result: dict[str, str] | None = None
+    for i, layout in enumerate(layouts):
+        try:
+            uploaded = _upload_csr_spreadsheet_once(
+                title=title,
+                tables=tables,
+                persistent_folder_id=layout["persistent_folder_id"],
+                historical_slot_folder_id=layout["historical_slot_folder_id"],
+            )
+        except Exception as e:
+            if i == 0:
+                raise
+            logger.error("Cortex dual-write CSR spreadsheet failed (%s): %s", title, e)
+            continue
+        if i == 0:
+            result = uploaded
+    assert result is not None
+    return result
+
+
+def _upload_csr_spreadsheet_once(
+    *,
+    title: str,
+    tables: dict[str, list[list[Any]]],
+    persistent_folder_id: str,
+    historical_slot_folder_id: str,
+) -> dict[str, str]:
     from .drive_config import dedupe_duplicate_names_in_folder
     from .export_csr_spreadsheet import (
         copy_csr_spreadsheet_into_folder,
@@ -529,8 +664,49 @@ def upload_csr_markdown_persistent_and_historical(
     md: str,
     persistent_folder_id: str,
     historical_slot_folder_id: str,
+    mirror_layouts: list[dict[str, str]] | None = None,
 ) -> dict[str, str]:
     """Write the markdown twin once to the customer folder and the slot snapshot."""
+    layouts = [
+        {
+            "persistent_folder_id": persistent_folder_id,
+            "historical_slot_folder_id": historical_slot_folder_id,
+        }
+    ]
+    for extra in mirror_layouts or []:
+        layouts.append(
+            {
+                "persistent_folder_id": extra["persistent_folder_id"],
+                "historical_slot_folder_id": extra["historical_slot_folder_id"],
+            }
+        )
+    result: dict[str, str] | None = None
+    for i, layout in enumerate(layouts):
+        try:
+            uploaded = _upload_csr_markdown_once(
+                title=title,
+                md=md,
+                persistent_folder_id=layout["persistent_folder_id"],
+                historical_slot_folder_id=layout["historical_slot_folder_id"],
+            )
+        except Exception as e:
+            if i == 0:
+                raise
+            logger.error("Cortex dual-write CSR markdown failed (%s): %s", title, e)
+            continue
+        if i == 0:
+            result = uploaded
+    assert result is not None
+    return result
+
+
+def _upload_csr_markdown_once(
+    *,
+    title: str,
+    md: str,
+    persistent_folder_id: str,
+    historical_slot_folder_id: str,
+) -> dict[str, str]:
     from .drive_config import upload_text_file_to_drive_folder
 
     name = f"{title}.md"
@@ -556,8 +732,56 @@ def upload_text_persistent_and_historical(
     base_label: str,
     mime_type: str = "text/markdown",
     export_date: dt.date | None = None,
+    mirror_layouts: list[dict[str, str]] | None = None,
 ) -> dict[str, str]:
     """Upload persistent base copy and same-day historical snapshot (plain stem)."""
+    layouts = [
+        {
+            "persistent_folder_id": persistent_folder_id,
+            "historical_folder_id": historical_folder_id,
+            "base_label": base_label,
+        },
+        *(mirror_layouts or []),
+    ]
+    result: dict[str, str] | None = None
+    for i, layout in enumerate(layouts):
+        try:
+            uploaded = _upload_text_persistent_and_historical_once(
+                stem=stem,
+                content=content,
+                ext=ext,
+                persistent_folder_id=layout["persistent_folder_id"],
+                historical_folder_id=layout["historical_folder_id"],
+                base_label=layout["base_label"],
+                mime_type=mime_type,
+                export_date=export_date,
+            )
+        except Exception as e:
+            if i == 0:
+                raise
+            logger.error(
+                "Cortex dual-write text export failed (%s): %s",
+                layout.get("base_label"),
+                e,
+            )
+            continue
+        if i == 0:
+            result = uploaded
+    assert result is not None
+    return result
+
+
+def _upload_text_persistent_and_historical_once(
+    *,
+    stem: str,
+    content: str,
+    ext: str,
+    persistent_folder_id: str,
+    historical_folder_id: str,
+    base_label: str,
+    mime_type: str = "text/markdown",
+    export_date: dt.date | None = None,
+) -> dict[str, str]:
     from .drive_config import dedupe_duplicate_names_in_folder, upload_text_file_to_drive_folder
 
     day = export_date or dt.date.today()
@@ -643,6 +867,7 @@ def resolve_portfolio_deck_output(
         "persistent_title": persistent_title,
         "snapshot_title": snapshot_title,
         "base_label": folders["base_label"],
+        "mirror_layouts": folders.get("mirror_layouts") or [],
     }
 
 
@@ -664,41 +889,49 @@ def snapshot_presentation_to_historical_day(
     folders = ensure_portfolio_output_folders()
     day = export_date or dt.date.today()
     day_label = historical_day_folder_label(day)
-    day_folder_id = ensure_historical_day_folder(folders["historical_folder_id"], day)
-
-    for row in list_files_by_name_in_folder(
-        snapshot_title,
-        day_folder_id,
-        mime_type=_MIME_PRESENTATION,
-    ):
-        fid = str(row.get("id") or "")
-        if fid:
-            trash_drive_file(fid)
-
-    dedupe_duplicate_names_in_folder(day_folder_id, snapshot_title)
-
-    copied = (
-        drive_service.files()
-        .copy(
-            fileId=presentation_id,
-            body={"name": snapshot_title, "parents": [day_folder_id]},
-            fields="id",
-        )
-        .execute()
-    )
-    historical_id = str(copied["id"])
-    logger.info(
-        "Copied portfolio deck %s → %s/%s and Historical Data/%s/%s",
-        deck_id,
-        folders["base_label"],
-        portfolio_deck_persistent_title(deck_id, cursor_suffix=cursor_suffix),
-        day_label,
-        snapshot_title,
-    )
-    return {
-        "historical_file_id": historical_id,
-        "historical_filename": snapshot_title,
-        "historical_day_folder": day_label,
-        "historical_folder_id": folders["historical_folder_id"],
-        "historical_url": f"https://docs.google.com/presentation/d/{historical_id}/edit",
-    }
+    primary_result: dict[str, str] | None = None
+    for i, layout in enumerate(iter_export_folder_layouts(folders)):
+        try:
+            day_folder_id = ensure_historical_day_folder(layout["historical_folder_id"], day)
+            for row in list_files_by_name_in_folder(
+                snapshot_title,
+                day_folder_id,
+                mime_type=_MIME_PRESENTATION,
+            ):
+                fid = str(row.get("id") or "")
+                if fid:
+                    trash_drive_file(fid)
+            dedupe_duplicate_names_in_folder(day_folder_id, snapshot_title)
+            copied = (
+                drive_service.files()
+                .copy(
+                    fileId=presentation_id,
+                    body={"name": snapshot_title, "parents": [day_folder_id]},
+                    fields="id",
+                    supportsAllDrives=True,
+                )
+                .execute()
+            )
+            historical_id = str(copied["id"])
+            logger.info(
+                "Copied portfolio deck %s → %s/%s and Historical Data/%s/%s",
+                deck_id,
+                layout["base_label"],
+                portfolio_deck_persistent_title(deck_id, cursor_suffix=cursor_suffix),
+                day_label,
+                snapshot_title,
+            )
+            if i == 0:
+                primary_result = {
+                    "historical_file_id": historical_id,
+                    "historical_filename": snapshot_title,
+                    "historical_day_folder": day_label,
+                    "historical_folder_id": layout["historical_folder_id"],
+                    "historical_url": f"https://docs.google.com/presentation/d/{historical_id}/edit",
+                }
+        except Exception as e:
+            if i == 0:
+                raise
+            logger.error("Cortex dual-write portfolio snapshot failed: %s", e)
+    assert primary_result is not None
+    return primary_result

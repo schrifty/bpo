@@ -87,7 +87,9 @@ def _create_spreadsheet(
     )
     ss_id = ss["spreadsheetId"]
     with drive_api_lock:
-        drive_svc.files().update(fileId=ss_id, addParents=folder_id, fields="id,parents").execute()
+        drive_svc.files().update(
+            fileId=ss_id, addParents=folder_id, fields="id,parents", supportsAllDrives=True
+        ).execute()
     for tab_title, grid in tables.items():
         sheets_spreadsheet_values_update(
             sheets_svc,

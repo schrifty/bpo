@@ -115,19 +115,29 @@ def load_csr_dump_source_marker() -> dict[str, Any] | None:
 def save_csr_dump_source_marker(payload: dict[str, Any]) -> None:
     """Replace ``CSR-Dump-source.json`` on Drive ``Output/``. Failures are warnings only."""
     try:
-        from .drive_config import get_qbr_output_root_folder_id, upload_text_file_to_drive_folder
+        from .drive_config import (
+            get_qbr_output_root_folder_id,
+            iter_qbr_output_root_folder_ids,
+            upload_text_file_to_drive_folder,
+        )
 
         root_id = get_qbr_output_root_folder_id()
         if not root_id:
             logger.warning("CSR dump source marker not written: Drive Output folder unresolved")
             return
         body = json.dumps(payload, indent=2, sort_keys=True) + "\n"
-        upload_text_file_to_drive_folder(
-            CSR_DUMP_SOURCE_MARKER_FILENAME,
-            body,
-            root_id,
-            mime_type="application/json",
-        )
+        for i, fid_root in enumerate(iter_qbr_output_root_folder_ids() or [root_id]):
+            try:
+                upload_text_file_to_drive_folder(
+                    CSR_DUMP_SOURCE_MARKER_FILENAME,
+                    body,
+                    fid_root,
+                    mime_type="application/json",
+                )
+            except Exception as exc:
+                if i == 0:
+                    raise
+                logger.error("Cortex dual-write CSR dump source marker failed: %s", exc)
     except Exception as exc:
         logger.warning("CSR dump source marker not written (%s); next run will dump again", exc)
 
@@ -536,6 +546,7 @@ def export_csr_dumps(
             from .export_drive_layout import (
                 ensure_csr_dump_historical_slot_folder,
                 ensure_customer_export_folders,
+                iter_export_folder_layouts,
             )
             from .export_output_archive import maybe_migrate_export_layout_on_startup
 
@@ -543,39 +554,52 @@ def export_csr_dumps(
                 maybe_migrate_export_layout_on_startup()
                 migrated = True
             folders = ensure_customer_export_folders(folder)
-            slot_folder_id, _day_label, _slot = ensure_csr_dump_historical_slot_folder(
-                folders["historical_folder_id"],
-                slot_label,
-                export_date,
-            )
             urls: dict[str, str] = {}
-            for level in ("site", "bu", "entity"):
-                presented, columns, row_count = payloads[level]
-                tables = build_csr_dump_tables(
-                    csr_customer=csr_name,
-                    folder=folder,
-                    slot=slot_label,
-                    export_date=export_date,
-                    level=level,
-                    row_count=row_count,
-                    presented=presented,
-                    columns=columns,
-                    source_meta=source_meta,
-                )
-                sheet_upload = upload_csr_spreadsheet_persistent_and_historical(
-                    title=titles[level],
-                    tables=tables,
-                    persistent_folder_id=folders["persistent_folder_id"],
-                    historical_slot_folder_id=slot_folder_id,
-                )
-                urls[level] = sheet_upload.get("persistent_spreadsheet_url") or ""
-            for level in ("site", "bu", "entity"):
-                upload_csr_markdown_persistent_and_historical(
-                    title=titles[level],
-                    md=_render(level, urls),
-                    persistent_folder_id=folders["persistent_folder_id"],
-                    historical_slot_folder_id=slot_folder_id,
-                )
+            for layout_i, layout in enumerate(iter_export_folder_layouts(folders)):
+                try:
+                    slot_folder_id, _day_label, _slot = ensure_csr_dump_historical_slot_folder(
+                        layout["historical_folder_id"],
+                        slot_label,
+                        export_date,
+                    )
+                    layout_urls: dict[str, str] = {}
+                    for level in ("site", "bu", "entity"):
+                        presented, columns, row_count = payloads[level]
+                        tables = build_csr_dump_tables(
+                            csr_customer=csr_name,
+                            folder=folder,
+                            slot=slot_label,
+                            export_date=export_date,
+                            level=level,
+                            row_count=row_count,
+                            presented=presented,
+                            columns=columns,
+                            source_meta=source_meta,
+                        )
+                        sheet_upload = upload_csr_spreadsheet_persistent_and_historical(
+                            title=titles[level],
+                            tables=tables,
+                            persistent_folder_id=layout["persistent_folder_id"],
+                            historical_slot_folder_id=slot_folder_id,
+                        )
+                        layout_urls[level] = sheet_upload.get("persistent_spreadsheet_url") or ""
+                    for level in ("site", "bu", "entity"):
+                        upload_csr_markdown_persistent_and_historical(
+                            title=titles[level],
+                            md=_render(level, layout_urls),
+                            persistent_folder_id=layout["persistent_folder_id"],
+                            historical_slot_folder_id=slot_folder_id,
+                        )
+                    if layout_i == 0:
+                        urls = layout_urls
+                except Exception as exc:
+                    if layout_i == 0:
+                        raise
+                    logger.error(
+                        "Cortex dual-write CSR dump failed for %s: %s",
+                        csr_name,
+                        exc,
+                    )
             uploaded.append({"customer": csr_name, "folder": folder, "titles": titles, **urls})
         except Exception as exc:
             logger.exception("CSR dump failed for %s", csr_name)

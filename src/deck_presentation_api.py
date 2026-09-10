@@ -27,7 +27,9 @@ def create_presentation(
             output_folder = output_folder_id if output_folder_id else _get_deck_output_folder()
             if output_folder:
                 file_meta["parents"] = [output_folder]
-            file = drive_service.files().create(body=file_meta).execute()
+            file = drive_service.files().create(
+                body=file_meta, supportsAllDrives=True
+            ).execute()
             pres_id = file["id"]
             logger.info("Created presentation %s: %s", pres_id, title)
             return pres_id, None

@@ -128,16 +128,14 @@ def test_load_yaml_from_drive_skips_drive_file_without_top_level_id(
     assert result[0]["_source"] == "drive"
 
 
-def test_upload_to_qbr_output_folders_writes_persistent_and_historical(monkeypatch) -> None:
+def test_upload_to_qbr_output_folders_writes_env_output_and_dated(monkeypatch) -> None:
     uploads: list[tuple[str, str, str]] = []
 
+    monkeypatch.setattr("src.drive_config.get_qbr_output_root_folder_id", lambda: "root-folder")
+    monkeypatch.setattr("src.drive_config.get_cortex_shared_output_root_folder_id", lambda: None)
     monkeypatch.setattr(
-        "src.export_drive_layout.ensure_portfolio_output_folders",
-        lambda: {
-            "persistent_folder_id": "root-folder",
-            "historical_folder_id": "historical-folder",
-            "base_label": "Output",
-        },
+        "src.drive_config._find_or_create_folder",
+        lambda name, parent: f"dated-{parent}",
     )
 
     def _fake_upload(name: str, content: str, folder_id: str, *, mime_type: str = "text/markdown"):
@@ -145,29 +143,48 @@ def test_upload_to_qbr_output_folders_writes_persistent_and_historical(monkeypat
         return f"file-{folder_id}"
 
     monkeypatch.setattr("src.drive_config.upload_text_file_to_drive_folder", _fake_upload)
-    monkeypatch.setattr(
-        "src.export_drive_layout.ensure_historical_day_folder",
-        lambda _hid, _day=None: "historical-day-folder",
-    )
-    monkeypatch.setattr("src.drive_config.dedupe_duplicate_names_in_folder", lambda *_a, **_k: None)
 
     meta = upload_to_qbr_output_folders("match-customer-names.txt", "hello", mime_type="text/plain")
 
     assert meta["file_id_root"] == "file-root-folder"
-    assert meta["file_id_historical"] == "file-historical-day-folder"
-    assert meta["dated_label"] == "Historical Data"
+    assert meta["file_id_dated"] == "file-dated-root-folder"
+    assert meta["root_folder_id"] == "root-folder"
     assert len(uploads) == 2
-    assert uploads[0] == ("match-customer-names-persistent.txt", "hello", "root-folder")
-    assert uploads[1] == ("match-customer-names.txt", "hello", "historical-day-folder")
+    assert uploads[0] == ("match-customer-names.txt", "hello", "root-folder")
+    assert uploads[1] == ("match-customer-names.txt", "hello", "dated-root-folder")
+
+
+def test_upload_to_qbr_output_folders_dual_writes_cortex_output(monkeypatch) -> None:
+    folders: list[str] = []
+
+    monkeypatch.setattr("src.drive_config.get_qbr_output_root_folder_id", lambda: "env-out")
+    monkeypatch.setattr("src.drive_config.get_cortex_shared_output_root_folder_id", lambda: "cortex-out")
+    monkeypatch.setattr(
+        "src.drive_config._find_or_create_folder",
+        lambda name, parent: f"dated-{parent}",
+    )
+
+    def _fake_upload(name: str, content: str, folder_id: str, *, mime_type: str = "text/markdown"):
+        folders.append(folder_id)
+        return f"file-{folder_id}"
+
+    monkeypatch.setattr("src.drive_config.upload_text_file_to_drive_folder", _fake_upload)
+
+    meta = upload_to_qbr_output_folders("n.txt", "c", mime_type="text/plain")
+    assert meta["root_folder_id"] == "env-out"
+    assert folders == ["env-out", "dated-env-out", "cortex-out", "dated-cortex-out"]
+
+
+def test_iter_qbr_output_root_folder_ids_skips_duplicate_cortex(monkeypatch) -> None:
+    from src.drive_config import iter_qbr_output_root_folder_ids
+
+    monkeypatch.setattr("src.drive_config.get_qbr_output_root_folder_id", lambda: "same")
+    monkeypatch.setattr("src.drive_config.get_cortex_shared_output_root_folder_id", lambda: "same")
+    assert iter_qbr_output_root_folder_ids() == ["same"]
 
 
 def test_upload_to_qbr_output_folders_fails_without_folders(monkeypatch) -> None:
-    def _boom() -> dict[str, str]:
-        raise RuntimeError(
-            "Could not resolve Drive Output folder (set GOOGLE_QBR_GENERATOR_FOLDER_ID)."
-        )
-
-    monkeypatch.setattr("src.export_drive_layout.ensure_portfolio_output_folders", _boom)
+    monkeypatch.setattr("src.drive_config.iter_qbr_output_root_folder_ids", lambda: [])
 
     with pytest.raises(RuntimeError, match="Could not resolve Drive Output"):
         upload_to_qbr_output_folders("match-customer-names.txt", "x")

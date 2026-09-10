@@ -2711,6 +2711,7 @@ def export_main(cli_args: list[str] | None = None, *, prog: str | None = None) -
                 historical_folder_id=folders["historical_folder_id"],
                 base_label=folders["base_label"],
                 mime_type="text/markdown",
+                mirror_layouts=folders.get("mirror_layouts"),
             )
 
         print(

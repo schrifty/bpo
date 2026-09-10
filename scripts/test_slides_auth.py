@@ -27,11 +27,11 @@ def main():
         from googleapiclient.discovery import build
         from googleapiclient.errors import HttpError
 
-        SCOPES = [
-            "https://www.googleapis.com/auth/presentations",
-            "https://www.googleapis.com/auth/drive",
-        ]
-        creds = service_account.Credentials.from_service_account_file(creds_path, scopes=SCOPES)
+        from src.slides_api import GOOGLE_IMPERSONATED_SCOPES
+
+        creds = service_account.Credentials.from_service_account_file(
+            creds_path, scopes=GOOGLE_IMPERSONATED_SCOPES
+        )
         # Create via Drive API. If storage quota exceeded, share your QBR Generator folder with the
         # service account (Editor) and set GOOGLE_QBR_GENERATOR_FOLDER_ID in .env
         drive = build("drive", "v3", credentials=creds)
@@ -77,7 +77,7 @@ def main():
                 print("  1. Create or pick your QBR Generator folder in Google Drive")
                 print("  2. Share it with bpo-slides-account@bpo-slides.iam.gserviceaccount.com (Editor)")
                 print("  3. Add to .env: GOOGLE_QBR_GENERATOR_FOLDER_ID=<folder-id>")
-                print("  4. Enable domain-wide delegation (see README) and add GOOGLE_DRIVE_OWNER_EMAIL=<your-email>")
+                print("  4. Enable domain-wide delegation (see README) and add GOOGLE_DRIVE_OWNER_EMAIL=<cortex-robot@domain>")
                 return 1
             print("\n403 FIX - Run (requires gcloud auth login first):")
             if sa_email:

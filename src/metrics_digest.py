@@ -804,6 +804,67 @@ def _append_akkr_kpi_list_slides(
     return len(pages), sids
 
 
+def _copy_metrics_presentation_to_historical(
+    *,
+    drive_svc: Any,
+    deck_id: str,
+    historical_title: str,
+    tag_label: str,
+    as_of_s: str,
+) -> str | None:
+    """Copy the finished metrics deck into Historical Data/{YYYY-MM}/ on each Output root."""
+    from .drive_config import list_files_by_name_in_folder
+    from .export_drive_layout import (
+        ensure_historical_month_folder,
+        ensure_portfolio_output_folders,
+        iter_export_folder_layouts,
+    )
+
+    folders = ensure_portfolio_output_folders()
+    scorecard = metrics_deck_scorecard_month(as_of_s)
+    month_key = f"{scorecard.year:04d}-{scorecard.month:02d}"
+    historical_url: str | None = None
+    legacy_title = f"{tag_label} Metrics — {as_of_s}"
+    for i, layout in enumerate(iter_export_folder_layouts(folders)):
+        try:
+            historical_folder_id = layout.get("historical_folder_id")
+            if not historical_folder_id:
+                continue
+            month_folder_id = ensure_historical_month_folder(historical_folder_id, month_key)
+            for name in {historical_title, legacy_title}:
+                for old in list_files_by_name_in_folder(
+                    name,
+                    month_folder_id,
+                    mime_type="application/vnd.google-apps.presentation",
+                ):
+                    old_id = str(old.get("id") or "")
+                    if old_id:
+                        drive_svc.files().update(
+                            fileId=old_id,
+                            body={"trashed": True},
+                            supportsAllDrives=True,
+                        ).execute()
+            copied = drive_svc.files().copy(
+                fileId=deck_id,
+                body={"name": historical_title, "parents": [month_folder_id]},
+                fields="id",
+                supportsAllDrives=True,
+            ).execute()
+            if i == 0:
+                historical_url = f"https://docs.google.com/presentation/d/{copied['id']}/edit"
+                logger.info(
+                    "Copied metrics deck → Historical Data/%s/%s",
+                    month_key,
+                    historical_title,
+                )
+        except Exception as e:
+            if i == 0:
+                logger.warning("Could not copy metrics deck to Historical Data: %s", e)
+            else:
+                logger.error("Cortex dual-write metrics historical copy failed: %s", e)
+    return historical_url
+
+
 def generate_metrics_digest_deck(
     rows: list[DigestRow],
     *,
@@ -835,7 +896,6 @@ def generate_metrics_digest_deck(
         SLIDE_W, SLIDE_H, MARGIN, NAVY, WHITE, BLUE, LIGHT, FONT,
         BODY_Y, BODY_BOTTOM,
     )
-    from .export_drive_layout import ensure_historical_month_folder
 
     as_of_s = as_of or date.today().isoformat()
     tag_label = tag.upper() if tag else "KPI"
@@ -906,46 +966,18 @@ def generate_metrics_digest_deck(
             logger.warning("Could not clean up default AKKR slides: %s", e)
 
         deck_url = f"https://docs.google.com/presentation/d/{deck_id}/edit"
-        historical_url: str | None = None
-        try:
-            from .export_drive_layout import ensure_portfolio_output_folders
+        historical_url = _copy_metrics_presentation_to_historical(
+            drive_svc=drive_svc,
+            deck_id=deck_id,
+            historical_title=historical_title,
+            tag_label=tag_label,
+            as_of_s=as_of_s,
+        )
+        from .drive_config import mirror_finished_drive_file
 
-            folders = ensure_portfolio_output_folders()
-            historical_folder_id = folders.get("historical_folder_id")
-            if historical_folder_id:
-                scorecard = metrics_deck_scorecard_month(as_of_s)
-                month_key = f"{scorecard.year:04d}-{scorecard.month:02d}"
-                month_folder_id = ensure_historical_month_folder(
-                    historical_folder_id, month_key
-                )
-                legacy_title = f"{tag_label} Metrics — {as_of_s}"
-                for name in {historical_title, legacy_title}:
-                    for old in list_files_by_name_in_folder(
-                        name,
-                        month_folder_id,
-                        mime_type="application/vnd.google-apps.presentation",
-                    ):
-                        old_id = str(old.get("id") or "")
-                        if old_id:
-                            drive_svc.files().update(
-                                fileId=old_id, body={"trashed": True}
-                            ).execute()
-                copied = drive_svc.files().copy(
-                    fileId=deck_id,
-                    body={"name": historical_title, "parents": [month_folder_id]},
-                    fields="id",
-                ).execute()
-                historical_id = str(copied["id"])
-                historical_url = (
-                    f"https://docs.google.com/presentation/d/{historical_id}/edit"
-                )
-                logger.info(
-                    "Copied AKKR metrics deck → Historical Data/%s/%s",
-                    month_key,
-                    historical_title,
-                )
-        except Exception as e:
-            logger.warning("Could not copy AKKR deck to Historical Data: %s", e)
+        mirror_finished_drive_file(
+            deck_id, name=persistent_title, source_parent_id=output_folder
+        )
 
         result: dict[str, Any] = {"deck_id": deck_id, "deck_url": deck_url}
         if historical_url:
@@ -1418,45 +1450,18 @@ def generate_metrics_digest_deck(
 
     deck_url = f"https://docs.google.com/presentation/d/{deck_id}/edit"
 
-    # Copy to Historical Data/{YYYY-MM}/ (scorecard month) with month-named title
-    historical_url: str | None = None
-    try:
-        from .export_drive_layout import ensure_portfolio_output_folders
+    historical_url = _copy_metrics_presentation_to_historical(
+        drive_svc=drive_svc,
+        deck_id=deck_id,
+        historical_title=historical_title,
+        tag_label=tag_label,
+        as_of_s=as_of_s,
+    )
+    from .drive_config import mirror_finished_drive_file
 
-        folders = ensure_portfolio_output_folders()
-        historical_folder_id = folders.get("historical_folder_id")
-        if historical_folder_id:
-            scorecard = metrics_deck_scorecard_month(as_of_s)
-            month_key = f"{scorecard.year:04d}-{scorecard.month:02d}"
-            month_folder_id = ensure_historical_month_folder(historical_folder_id, month_key)
-
-            # Remove any existing copy with same title (and legacy date-suffixed name)
-            legacy_title = f"{tag_label} Metrics — {as_of_s}"
-            for name in {historical_title, legacy_title}:
-                for old in list_files_by_name_in_folder(
-                    name,
-                    month_folder_id,
-                    mime_type="application/vnd.google-apps.presentation",
-                ):
-                    old_id = str(old.get("id") or "")
-                    if old_id:
-                        drive_svc.files().update(fileId=old_id, body={"trashed": True}).execute()
-
-            # Copy persistent deck to Historical Data
-            copied = drive_svc.files().copy(
-                fileId=deck_id,
-                body={"name": historical_title, "parents": [month_folder_id]},
-                fields="id",
-            ).execute()
-            historical_id = str(copied["id"])
-            historical_url = f"https://docs.google.com/presentation/d/{historical_id}/edit"
-            logger.info(
-                "Copied metrics deck → Historical Data/%s/%s",
-                month_key,
-                historical_title,
-            )
-    except Exception as e:
-        logger.warning("Could not copy to Historical Data: %s", e)
+    mirror_finished_drive_file(
+        deck_id, name=persistent_title, source_parent_id=output_folder
+    )
 
     result: dict[str, Any] = {"deck_id": deck_id, "deck_url": deck_url}
     if historical_url:

@@ -181,7 +181,13 @@ def _find_folder_in_parent(name: str, parent_id: str) -> str | None:
     )
     with drive_api_lock:
         drive = _get_drive()
-        results = drive.files().list(q=q, fields="files(id)", pageSize=5).execute()
+        results = drive.files().list(
+            q=q,
+            fields="files(id)",
+            pageSize=5,
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+        ).execute()
         files = results.get("files") or []
         return files[0]["id"] if files else None
 
@@ -200,6 +206,8 @@ def _list_folder_children(parent_id: str) -> list[dict[str, Any]]:
                     fields="nextPageToken, files(id, name, mimeType, createdTime, modifiedTime)",
                     pageSize=200,
                     pageToken=page_token,
+                    supportsAllDrives=True,
+                    includeItemsFromAllDrives=True,
                 )
                 .execute()
             )
@@ -218,6 +226,7 @@ def _move_drive_item(file_id: str, from_parent_id: str, to_parent_id: str) -> No
             addParents=to_parent_id,
             removeParents=from_parent_id,
             fields="id",
+            supportsAllDrives=True,
         ).execute()
 
 
@@ -1267,71 +1276,83 @@ def maybe_migrate_export_layout_on_startup(*, force: bool = False) -> dict[str, 
         return {"skipped": "already_ran"}
     _archive_ran = True
 
-    from .drive_config import get_qbr_output_root_folder_id
+    from .drive_config import get_qbr_output_root_folder_id, iter_qbr_output_root_folder_ids
 
-    root_id = get_qbr_output_root_folder_id()
-    if not root_id:
-        logger.debug("Export layout migration: no Drive Output folder configured")
-        return {"skipped": "no_output_folder"}
+    roots = iter_qbr_output_root_folder_ids()
+    if not roots:
+        root_id = get_qbr_output_root_folder_id()
+        if not root_id:
+            logger.debug("Export layout migration: no Drive Output folder configured")
+            return {"skipped": "no_output_folder"}
+        roots = [root_id]
 
-    summary: dict[str, Any] = {
-        "output_root": None,
-        "customer_exports": [],
-        "moved_count": 0,
-        "trashed_folder_count": 0,
-        "trashed_stale_count": 0,
-    }
+    combined: dict[str, Any] | None = None
+    for i, root_id in enumerate(roots):
+        try:
+            summary: dict[str, Any] = {
+                "output_root": None,
+                "customer_exports": [],
+                "moved_count": 0,
+                "trashed_folder_count": 0,
+                "trashed_stale_count": 0,
+            }
 
-    try:
-        root_result = _archive_export_base_on_startup(
-            root_id,
-            skip_folder_names=frozenset({
-                CUSTOMER_EXPORTS_FOLDER,
-                _LEGACY_CUSTOMER_EXPORTS_FOLDER,
-                HISTORICAL_DATA_FOLDER,
-            }),
-            context=QBR_OUTPUT_SUBFOLDER,
-            portfolio_root=True,
-        )
-        summary["output_root"] = root_result
-        summary["moved_count"] += len(root_result.get("moved") or [])
-        summary["trashed_folder_count"] += len(root_result.get("trashed_folders") or [])
-        summary["trashed_stale_count"] += len(root_result.get("trashed_stale") or [])
-
-        customer_exports_id = ensure_customer_exports_parent_folder(root_id)
-        if customer_exports_id:
-            for customer_folder in _list_folder_children(customer_exports_id):
-                if str(customer_folder.get("mimeType") or "") != _MIME_FOLDER:
-                    continue
-                customer_name = str(customer_folder.get("name") or "")
-                if not customer_name:
-                    continue
-                cust_result = _archive_export_base_on_startup(
-                    str(customer_folder["id"]),
-                    skip_folder_names=frozenset({HISTORICAL_DATA_FOLDER}),
-                    context=f"{CUSTOMER_EXPORTS_FOLDER}/{customer_name}",
-                    portfolio_root=False,
-                )
-                summary["customer_exports"].append({"customer": customer_name, **cust_result})
-                summary["moved_count"] += len(cust_result.get("moved") or [])
-                summary["trashed_folder_count"] += len(cust_result.get("trashed_folders") or [])
-                summary["trashed_stale_count"] += len(cust_result.get("trashed_stale") or [])
-
-        if summary["moved_count"] or summary["trashed_folder_count"] or summary["trashed_stale_count"]:
-            logger.info(
-                "Export monthly archive: moved %d file(s), removed %d legacy folder(s), "
-                "deleted %d stale day-2+ snapshot(s) under Drive %s",
-                summary["moved_count"],
-                summary["trashed_folder_count"],
-                summary["trashed_stale_count"],
-                QBR_OUTPUT_SUBFOLDER,
+            root_result = _archive_export_base_on_startup(
+                root_id,
+                skip_folder_names=frozenset({
+                    CUSTOMER_EXPORTS_FOLDER,
+                    _LEGACY_CUSTOMER_EXPORTS_FOLDER,
+                    HISTORICAL_DATA_FOLDER,
+                }),
+                context=QBR_OUTPUT_SUBFOLDER,
+                portfolio_root=True,
             )
-        else:
-            logger.debug("Export monthly archive: nothing to move under Drive %s", QBR_OUTPUT_SUBFOLDER)
-        return summary
-    except Exception as e:
-        logger.warning("Export layout migration failed (continuing): %s", e)
-        return {"skipped": "error", "error": str(e)}
+            summary["output_root"] = root_result
+            summary["moved_count"] += len(root_result.get("moved") or [])
+            summary["trashed_folder_count"] += len(root_result.get("trashed_folders") or [])
+            summary["trashed_stale_count"] += len(root_result.get("trashed_stale") or [])
+
+            customer_exports_id = ensure_customer_exports_parent_folder(root_id)
+            if customer_exports_id:
+                for customer_folder in _list_folder_children(customer_exports_id):
+                    if str(customer_folder.get("mimeType") or "") != _MIME_FOLDER:
+                        continue
+                    customer_name = str(customer_folder.get("name") or "")
+                    if not customer_name:
+                        continue
+                    cust_result = _archive_export_base_on_startup(
+                        str(customer_folder["id"]),
+                        skip_folder_names=frozenset({HISTORICAL_DATA_FOLDER}),
+                        context=f"{CUSTOMER_EXPORTS_FOLDER}/{customer_name}",
+                        portfolio_root=False,
+                    )
+                    summary["customer_exports"].append({"customer": customer_name, **cust_result})
+                    summary["moved_count"] += len(cust_result.get("moved") or [])
+                    summary["trashed_folder_count"] += len(cust_result.get("trashed_folders") or [])
+                    summary["trashed_stale_count"] += len(cust_result.get("trashed_stale") or [])
+
+            if summary["moved_count"] or summary["trashed_folder_count"] or summary["trashed_stale_count"]:
+                logger.info(
+                    "Export monthly archive: moved %d file(s), removed %d legacy folder(s), "
+                    "deleted %d stale day-2+ snapshot(s) under Drive %s",
+                    summary["moved_count"],
+                    summary["trashed_folder_count"],
+                    summary["trashed_stale_count"],
+                    QBR_OUTPUT_SUBFOLDER,
+                )
+            else:
+                logger.debug(
+                    "Export monthly archive: nothing to move under Drive %s",
+                    QBR_OUTPUT_SUBFOLDER,
+                )
+            if i == 0:
+                combined = summary
+        except Exception as e:
+            if i == 0:
+                logger.warning("Export layout migration failed (continuing): %s", e)
+                return {"skipped": "error", "error": str(e)}
+            logger.error("Cortex dual-write export layout migration failed: %s", e)
+    return combined or {"skipped": "no_output_folder"}
 
 
 def maybe_archive_previous_month_exports(*, force: bool = False) -> dict[str, Any]:

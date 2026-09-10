@@ -298,6 +298,10 @@ def create_health_deck(
             slides_created,
             thumbnails=thumbnails,
         )
+        if "error" not in result and create_folder_id:
+            from .drive_config import mirror_finished_drive_file
+
+            mirror_finished_drive_file(pres_id, name=title, source_parent_id=create_folder_id)
         if portfolio_output and "error" not in result:
             try:
                 hist = snapshot_presentation_to_historical_day(

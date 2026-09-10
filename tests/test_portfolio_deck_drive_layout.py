@@ -49,6 +49,7 @@ def test_resolve_portfolio_deck_output(monkeypatch) -> None:
         "persistent_title": "Engineering-Review-Portfolio-persistent",
         "snapshot_title": "Engineering-Review-Portfolio",
         "base_label": "Output",
+        "mirror_layouts": [],
     }
 
 

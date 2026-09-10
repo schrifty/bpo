@@ -49,7 +49,7 @@ def create_empty_deck(customer: str, days: int = 30, deck_name: str | None = Non
         old_timeout = socket.getdefaulttimeout()
         try:
             socket.setdefaulttimeout(30.0)  # 30 second timeout for Drive operations
-            f = drive_service.files().create(body=file_meta).execute()
+            f = drive_service.files().create(body=file_meta, supportsAllDrives=True).execute()
         finally:
             socket.setdefaulttimeout(old_timeout)
 

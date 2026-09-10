@@ -22,39 +22,64 @@ GOOGLE_API_TIMEOUT_S = 120
 
 from .config import GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_DRIVE_OWNER_EMAIL, logger
 
-SCOPES = [
+# Domain-wide delegation (with_subject) must request exactly the scopes authorized for
+# this client ID in the Workspace Admin console, or token exchange fails with
+# ``unauthorized_client``. Narrowing to ``drive.file`` also hides QBR config files the
+# app did not create, so it needs the shared-drive migration first.
+GOOGLE_IMPERSONATED_SCOPES = [
     "https://www.googleapis.com/auth/presentations",
     "https://www.googleapis.com/auth/drive",
 ]
+# Service-account identity (no impersonation): Shared Drives and folders shared
+# with the SA. Does not use domain-wide delegation.
+GOOGLE_SERVICE_ACCOUNT_SCOPES = [
+    "https://www.googleapis.com/auth/drive",
+]
+SCOPES = GOOGLE_IMPERSONATED_SCOPES
 
 
-def _get_service():
-    """Build authenticated Slides + Drive API services."""
+def _attach_quota_project(creds: Any, creds_path: Path) -> Any:
+    try:
+        with open(creds_path) as f:
+            proj_id = json.load(f).get("project_id")
+        if proj_id:
+            return creds.with_quota_project(proj_id)
+    except Exception:
+        pass
+    return creds
+
+
+def _get_service(*, impersonate: bool = True):
+    """Build authenticated Slides + Drive API services.
+
+    ``impersonate=True`` (default) uses :data:`GOOGLE_IMPERSONATED_SCOPES` and
+    ``GOOGLE_DRIVE_OWNER_EMAIL`` domain-wide delegation when set.
+
+    ``impersonate=False`` uses the service account itself with
+    :data:`GOOGLE_SERVICE_ACCOUNT_SCOPES` (Shared Drive / shared-folder access).
+    """
     creds = None
     creds_path = GOOGLE_APPLICATION_CREDENTIALS
+    scopes = GOOGLE_IMPERSONATED_SCOPES if impersonate else GOOGLE_SERVICE_ACCOUNT_SCOPES
     if creds_path:
         path = Path(creds_path)
         if path.exists():
             creds = service_account.Credentials.from_service_account_file(
-                str(path), scopes=SCOPES
+                str(path), scopes=scopes
             )
-            try:
-                with open(path) as f:
-                    proj_id = json.load(f).get("project_id")
-                if proj_id:
-                    creds = creds.with_quota_project(proj_id)
-            except Exception:
-                pass
-            if GOOGLE_DRIVE_OWNER_EMAIL:
+            creds = _attach_quota_project(creds, path)
+            if impersonate and GOOGLE_DRIVE_OWNER_EMAIL:
                 owner = GOOGLE_DRIVE_OWNER_EMAIL.strip()
                 if owner:
                     creds = creds.with_subject(owner)
                     logger.debug("Impersonating %s (domain-wide delegation)", owner)
+            elif not impersonate:
+                logger.debug("Google APIs as service account (no impersonation)")
             logger.debug("Using service account: %s", creds_path)
     if creds is None:
         try:
             import google.auth
-            creds, _ = google.auth.default(scopes=SCOPES)
+            creds, _ = google.auth.default(scopes=scopes)
         except Exception as e:
             raise ValueError(
                 "No valid credentials. Set GOOGLE_APPLICATION_CREDENTIALS or run: gcloud auth application-default login"

@@ -61,7 +61,12 @@ def maybe_sync_export_user_guide_on_startup(*, force: bool = False) -> dict[str,
         )
         return {"skipped": "missing_local", "path": str(_USER_GUIDE_REPO_PATH)}
 
-    from .drive_config import get_qbr_output_root_folder_id, list_files_by_name_in_folder, upload_text_file_to_drive_folder
+    from .drive_config import (
+        get_qbr_output_root_folder_id,
+        iter_qbr_output_root_folder_ids,
+        list_files_by_name_in_folder,
+        upload_text_file_to_drive_folder,
+    )
 
     output_root_id = get_qbr_output_root_folder_id()
     if not output_root_id:
@@ -92,13 +97,22 @@ def maybe_sync_export_user_guide_on_startup(*, force: bool = False) -> dict[str,
             }
 
     try:
-        file_id = upload_text_file_to_drive_folder(
-            EXPORT_USER_GUIDE_DRIVE_FILENAME,
-            content,
-            output_root_id,
-            mime_type="text/markdown",
-            replace_existing=True,
-        )
+        file_id = None
+        for i, rid in enumerate(iter_qbr_output_root_folder_ids() or [output_root_id]):
+            try:
+                fid = upload_text_file_to_drive_folder(
+                    EXPORT_USER_GUIDE_DRIVE_FILENAME,
+                    content,
+                    rid,
+                    mime_type="text/markdown",
+                    replace_existing=True,
+                )
+                if i == 0:
+                    file_id = fid
+            except Exception as exc:
+                if i == 0:
+                    raise
+                logger.error("Cortex dual-write user guide failed: %s", exc)
     except Exception as exc:
         logger.warning("Export user guide sync failed (continuing): %s", exc)
         return {"skipped": "error", "error": str(exc)}

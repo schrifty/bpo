@@ -27,6 +27,7 @@ from .pendo_portfolio_snapshot_drive import (
     _read_drive_file_text_retrying,
     classify_drive_cache_age,
     is_weekend_in_snapshot_tz,
+    iter_portfolio_snapshot_folder_ids,
     resolve_portfolio_snapshot_folder_id,
 )
 
@@ -184,12 +185,6 @@ def save_integration_payload(kind: str, customer: str | None, payload: dict[str,
         return
     customer_key = integration_customer_key(customer)
     name = integration_cache_filename(kind, customer_key)
-    if find_file_in_folder(name, folder_id, mime_type=None) and not is_weekend_in_snapshot_tz():
-        logger.debug(
-            "Integration Drive cache: skip write %r — weekday (weekend-only Drive updates)",
-            name,
-        )
-        return
     envelope: dict[str, Any] = {
         "schema_version": INTEGRATION_CACHE_SCHEMA_VERSION,
         "kind": kind,
@@ -203,37 +198,54 @@ def save_integration_payload(kind: str, customer: str | None, payload: dict[str,
         separators=(",", ":"),
         default=str,
     ).encode("utf-8")
+    dest_ids = iter_portfolio_snapshot_folder_ids() or [folder_id]
     with _SAVE_LOCK:
-        last_err: BaseException | None = None
-        for attempt in range(4):
-            try:
-                from .network_utils import network_timeout
-
-                with drive_api_lock:
-                    drive = _get_drive()
-                    media = MediaIoBaseUpload(io.BytesIO(body), mimetype="application/json")
-                    fid = find_file_in_folder(name, folder_id, mime_type=None)
-                    if fid:
-                        with network_timeout(120.0, "Drive file update"):
-                            drive.files().update(fileId=fid, media_body=media, fields="id").execute()
-                    else:
-                        with network_timeout(120.0, "Drive file creation"):
-                            drive.files().create(
-                                body={"name": name, "parents": [folder_id]},
-                                media_body=media,
-                                fields="id",
-                            ).execute()
+        for dest_i, dest in enumerate(dest_ids):
+            if find_file_in_folder(name, dest, mime_type=None) and not is_weekend_in_snapshot_tz():
                 logger.debug(
-                    "Integration Drive cache: wrote %r (%d bytes)",
+                    "Integration Drive cache: skip write %r — weekday (weekend-only Drive updates)",
                     name,
-                    len(body),
                 )
-                last_err = None
-                break
-            except Exception as e:
-                last_err = e
-                if not _drive_io_transient(e) or attempt >= 3:
+                continue
+            last_err: BaseException | None = None
+            for attempt in range(4):
+                try:
+                    from .network_utils import network_timeout
+
+                    with drive_api_lock:
+                        drive = _get_drive()
+                        media = MediaIoBaseUpload(io.BytesIO(body), mimetype="application/json")
+                        fid = find_file_in_folder(name, dest, mime_type=None)
+                        if fid:
+                            with network_timeout(120.0, "Drive file update"):
+                                drive.files().update(
+                                    fileId=fid,
+                                    media_body=media,
+                                    fields="id",
+                                    supportsAllDrives=True,
+                                ).execute()
+                        else:
+                            with network_timeout(120.0, "Drive file creation"):
+                                drive.files().create(
+                                    body={"name": name, "parents": [dest]},
+                                    media_body=media,
+                                    fields="id",
+                                    supportsAllDrives=True,
+                                ).execute()
+                    logger.debug(
+                        "Integration Drive cache: wrote %r (%d bytes)",
+                        name,
+                        len(body),
+                    )
+                    last_err = None
                     break
-                time.sleep(0.35 * (attempt + 1))
-        if last_err is not None:
-            logger.warning("Integration Drive cache: failed to write %r — %s", name, last_err)
+                except Exception as e:
+                    last_err = e
+                    if not _drive_io_transient(e) or attempt >= 3:
+                        break
+                    time.sleep(0.35 * (attempt + 1))
+            if last_err is not None:
+                if dest_i == 0:
+                    logger.warning("Integration Drive cache: failed to write %r — %s", name, last_err)
+                else:
+                    logger.error("Cortex dual-write integration cache failed for %r — %s", name, last_err)
