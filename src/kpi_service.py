@@ -1,20 +1,21 @@
-"""Resolve KPIs live from generators.
+"""Resolve KPIs live from generators, or inspect stored SQLite history.
 
-Reads are always live: registry generators compute the value each time. The
-LeanDNA Data API is the system of record for *stored* KPI history — this module
-never reads a stored datapoint to satisfy a normal read, and generating never
-writes. Persist explicitly with ``metrics-upsert`` / ``materialize_kpi``.
+Reads are live by default: registry generators compute the value each time.
+Generating never writes. Persist with ``kpi-snapshot`` (SQLite/S3) or
+``metrics-upsert`` / ``materialize_kpi`` (LeanDNA, metric-id required).
 
-An explicit ``mode="stored"`` is offered only to *inspect* what the Data API
-currently holds; it is not part of the default read path.
+``mode="stored"`` reads the SQLite KPI store (S3-backed). ``mode="leandna"``
+inspects LeanDNA Data API datapoints and is not the default stored path.
 """
 
 from __future__ import annotations
 
 import logging
+import sqlite3
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 from typing import Any, Literal
 
 from src.kpi_observation import (
@@ -22,6 +23,8 @@ from src.kpi_observation import (
     observation_from_generator_raw,
     observation_from_stored_datapoint,
 )
+from src.kpi_store import connect, grain_for_generator, list_kpis
+from src.kpi_store_s3 import prepare_kpi_store_for_read
 from src.metrics_latest import (
     DEFAULT_RECENT_DATAPOINT_COUNT,
     DatapointValue,
@@ -42,8 +45,8 @@ from src.metrics_upsert import MetricUpsertContext, MetricUpsertError, invoke_me
 
 logger = logging.getLogger(__name__)
 
-ResolveMode = Literal["live", "stored"]
-RESOLVE_MODES: tuple[str, ...] = ("live", "stored")
+ResolveMode = Literal["live", "stored", "leandna"]
+RESOLVE_MODES: tuple[str, ...] = ("live", "stored", "leandna")
 DEFAULT_RESOLVE_MODE: ResolveMode = "live"
 
 
@@ -124,6 +127,38 @@ def generate_live_observation(
     return observation_from_generator_raw(raw, metric_name=metric_name, origin="live")
 
 
+def _datapoint_from_stored_row(row: Any) -> DatapointValue:
+    date_s = (row.observation.as_of or row.period_key or "").strip()
+    return DatapointValue(date=date_s, value=row.observation.display_value)
+
+
+def observations_from_kpi_store(
+    conn: sqlite3.Connection,
+    metric_name: str,
+    entry: dict[str, Any],
+    *,
+    recent_count: int = DEFAULT_RECENT_DATAPOINT_COUNT,
+) -> tuple[KPIObservation, tuple[DatapointValue, ...]]:
+    """Newest SQLite observations for *metric_name* (grain from the generator)."""
+    gen = str(entry.get("metric-generator") or "").strip()
+    grain = grain_for_generator(gen) if gen else None
+    rows = list_kpis(conn, metric_name=metric_name, grain=grain, limit=max(1, recent_count))
+    if not rows:
+        warning = (
+            "no observation in KPI store"
+            if gen
+            else "no metric-generator — nothing stored by kpi-snapshot"
+        )
+        return _empty_observation(warning=warning), ()
+    current = rows[0].observation
+    recent = tuple(
+        _datapoint_from_stored_row(row)
+        for i, row in enumerate(rows)
+        if row.observation.ok or i == 0
+    )
+    return current, recent
+
+
 def fetch_stored_recent(
     entry: dict[str, Any],
     *,
@@ -132,7 +167,7 @@ def fetch_stored_recent(
     timeout_seconds: float = 60.0,
     limit: int = DEFAULT_RECENT_DATAPOINT_COUNT,
 ) -> tuple[tuple[DatapointValue, ...], str | None]:
-    """Read recent Data API datapoints for a registry entry (empty if no metric-id)."""
+    """Read recent LeanDNA Data API datapoints for a registry entry (empty if no metric-id)."""
     if not has_metric_id(entry):
         return (), None
     metric_id = int(entry["metric-id"])
@@ -142,6 +177,38 @@ def fetch_stored_recent(
         lookback_days=lookback_days,
         timeout_seconds=timeout_seconds,
         limit=limit,
+    )
+
+
+def _observation_from_leandna(
+    entry: dict[str, Any],
+    *,
+    metric_id: int | None,
+    requested_sites: str | None,
+    lookback_days: int,
+    timeout_seconds: float,
+    recent_count: int,
+) -> tuple[KPIObservation, tuple[DatapointValue, ...]]:
+    if metric_id is None:
+        return _empty_observation(warning="no metric-id in registry — no stored value"), ()
+    recent, stored_error = fetch_stored_recent(
+        entry,
+        requested_sites=requested_sites,
+        lookback_days=lookback_days,
+        timeout_seconds=timeout_seconds,
+        limit=recent_count,
+    )
+    if stored_error:
+        return KPIObservation(error=stored_error, origin="stored", as_of=None), recent
+    if not recent:
+        return _empty_observation(warning="no datapoints"), ()
+    return (
+        observation_from_stored_datapoint(
+            date_s=recent[0].date,
+            value=recent[0].value,
+            metric_id=metric_id,
+        ),
+        recent,
     )
 
 
@@ -156,13 +223,14 @@ def resolve_kpi(
     lookback_days: int = 365,
     timeout_seconds: float = 60.0,
     recent_count: int = DEFAULT_RECENT_DATAPOINT_COUNT,
+    store_conn: sqlite3.Connection | None = None,
 ) -> KPIResolved:
-    """Resolve one KPI under ``mode`` (``live`` default, or ``stored``).
+    """Resolve one KPI under ``mode`` (``live`` default, ``stored``, or ``leandna``).
 
-    * **live** (default) — run the ``metric-generator`` and return a freshly
-      computed value. The Data API is never read.
-    * **stored** — read the LeanDNA Data API only, to inspect what is persisted
-      (``metric-id`` required for a value). Not part of the default read path.
+    * **live** (default) — run the ``metric-generator``. The KPI store and Data API
+      are never read.
+    * **stored** — read the SQLite KPI store (requires ``store_conn``).
+    * **leandna** — inspect LeanDNA Data API datapoints (``metric-id`` required).
     """
     if mode not in RESOLVE_MODES:
         raise ValueError(f"mode must be one of {RESOLVE_MODES}, got {mode!r}")
@@ -181,27 +249,24 @@ def resolve_kpi(
 
     if mode == "live":
         observation = generate_live_observation(metric_name, entry, registry=reg, ctx=resolve_ctx)
-    else:  # stored — explicit Data API inspection only
-        if metric_id is None:
-            observation = _empty_observation(warning="no metric-id in registry — no stored value")
-        else:
-            recent, stored_error = fetch_stored_recent(
-                entry,
-                requested_sites=requested_sites,
-                lookback_days=lookback_days,
-                timeout_seconds=timeout_seconds,
-                limit=recent_count,
-            )
-            if stored_error:
-                observation = KPIObservation(error=stored_error, origin="stored", as_of=None)
-            elif not recent:
-                observation = _empty_observation(warning="no datapoints")
-            else:
-                observation = observation_from_stored_datapoint(
-                    date_s=recent[0].date,
-                    value=recent[0].value,
-                    metric_id=metric_id,
-                )
+    elif mode == "stored":
+        if store_conn is None:
+            raise ValueError("mode='stored' requires store_conn (SQLite KPI store)")
+        observation, recent = observations_from_kpi_store(
+            store_conn,
+            metric_name,
+            entry,
+            recent_count=recent_count,
+        )
+    else:
+        observation, recent = _observation_from_leandna(
+            entry,
+            metric_id=metric_id,
+            requested_sites=requested_sites,
+            lookback_days=lookback_days,
+            timeout_seconds=timeout_seconds,
+            recent_count=recent_count,
+        )
 
     return KPIResolved(
         metric_name=metric_name,
@@ -225,6 +290,11 @@ def iter_resolve_kpis_by_tag(
     lookback_days: int = 365,
     timeout_seconds: float = 60.0,
     recent_count: int = DEFAULT_RECENT_DATAPOINT_COUNT,
+    store_conn: sqlite3.Connection | None = None,
+    db_path: str | Path | None = None,
+    skip_s3: bool = False,
+    s3_client: Any | None = None,
+    s3_uri: str | None = None,
 ) -> Iterator[KPIResolved]:
     """Yield each registry KPI carrying *tag* as soon as it resolves (live by default)."""
     reg = registry if registry is not None else load_metrics_registry()
@@ -232,18 +302,34 @@ def iter_resolve_kpis_by_tag(
         timeout_seconds=timeout_seconds,
         requested_sites=requested_sites,
     )
-    for name, entry in iter_metrics_by_tag(tag, registry=reg):
-        yield resolve_kpi(
-            name,
-            entry,
-            mode=mode,
-            registry=reg,
-            ctx=resolve_ctx,
-            requested_sites=requested_sites,
-            lookback_days=lookback_days,
-            timeout_seconds=timeout_seconds,
-            recent_count=recent_count,
+    own_conn: sqlite3.Connection | None = None
+    conn = store_conn
+    if mode == "stored" and conn is None:
+        path = prepare_kpi_store_for_read(
+            Path(db_path) if db_path else None,
+            s3_client=s3_client,
+            uri=s3_uri,
+            skip_s3=skip_s3,
         )
+        own_conn = connect(path)
+        conn = own_conn
+    try:
+        for name, entry in iter_metrics_by_tag(tag, registry=reg):
+            yield resolve_kpi(
+                name,
+                entry,
+                mode=mode,
+                registry=reg,
+                ctx=resolve_ctx,
+                requested_sites=requested_sites,
+                lookback_days=lookback_days,
+                timeout_seconds=timeout_seconds,
+                recent_count=recent_count,
+                store_conn=conn,
+            )
+    finally:
+        if own_conn is not None:
+            own_conn.close()
 
 
 def resolve_kpis_by_tag(
@@ -256,6 +342,11 @@ def resolve_kpis_by_tag(
     lookback_days: int = 365,
     timeout_seconds: float = 60.0,
     recent_count: int = DEFAULT_RECENT_DATAPOINT_COUNT,
+    store_conn: sqlite3.Connection | None = None,
+    db_path: str | Path | None = None,
+    skip_s3: bool = False,
+    s3_client: Any | None = None,
+    s3_uri: str | None = None,
 ) -> list[KPIResolved]:
     """Resolve every registry KPI carrying *tag* (live by default)."""
     return list(
@@ -268,6 +359,11 @@ def resolve_kpis_by_tag(
             lookback_days=lookback_days,
             timeout_seconds=timeout_seconds,
             recent_count=recent_count,
+            store_conn=store_conn,
+            db_path=db_path,
+            skip_s3=skip_s3,
+            s3_client=s3_client,
+            s3_uri=s3_uri,
         )
     )
 

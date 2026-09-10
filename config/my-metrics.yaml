@@ -4,17 +4,17 @@
 # Populated from metrics-get-mine (Data API GET /data/identity + /data/Metric).
 #
 # KPI definitions are storage-independent: a generator produces a live value for decks
-# and CLIs without a LeanDNA catalog id. Reads are always live. The Data API is the
-# system of record for stored KPI history; persistence there is explicit
+# and CLIs without a LeanDNA catalog id. Reads are live by default. SQLite (kpi-snapshot)
+# is Cortex stored history; LeanDNA Data API persistence is explicit
 # (`metrics-upsert` / kpi_service.materialize_kpi) — generating never writes.
 #
 # Fields:
 #   description       — Human-readable summary of what the metric measures; filled in for
 #                       entries with a generator, null when not yet defined
 #   metric-id         — Optional Data API catalog id (same as app ndx). Required only to
-#                       write stored MetricDataPoint rows, or to inspect them via
-#                       `metrics-by-tag --mode stored` (create metrics in LeanDNA UI).
-#                       Live resolve does not need it.
+#                       write LeanDNA MetricDataPoint rows, or to inspect them via
+#                       `metrics-by-tag --mode leandna` (create metrics in LeanDNA UI).
+#                       Live and SQLite stored resolve do not need it.
 #   metric-generator  — Python function that computes the value when wired in Cortex;
 #                       null when no generator exists in this repo yet
 #   tags              — Optional list of lowercase labels for grouping/filtering KPIs
@@ -30,7 +30,7 @@
 #                       thousands separators.
 #
 # Generator names refer to functions under src/ (e.g. jira_cycle_time.get_dev_team_cycle_times).
-# Resolve modes: live (default) | stored inspection (see src/kpi_service.py).
+# Resolve modes: live (default) | stored (SQLite) | leandna (see src/kpi_service.py).
 
 metrics:
   # Control Tower

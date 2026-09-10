@@ -168,12 +168,86 @@ def test_live_is_default_mode_and_never_reads_storage(monkeypatch: pytest.Monkey
     assert row.recent_stored == ()
 
 
-def test_resolve_stored_without_id_warns(tmp_path: Path) -> None:
+def test_resolve_stored_without_rows_warns(tmp_path: Path) -> None:
+    from src.kpi_store import connect
+
     reg = _write_registry(tmp_path)
+    conn = connect(tmp_path / "kpi.sqlite")
     row = resolve_kpi(
         "Live Only",
         reg["metrics"]["Live Only"],
         mode="stored",
+        registry=reg,
+        ctx=_ctx(),
+        store_conn=conn,
+    )
+    conn.close()
+    assert row.observation.origin == "none"
+    assert row.observation.display_value is None
+    assert any("no observation in KPI store" in w for w in row.observation.warnings)
+
+
+def test_resolve_stored_requires_conn(tmp_path: Path) -> None:
+    reg = _write_registry(tmp_path)
+    with pytest.raises(ValueError, match="store_conn"):
+        resolve_kpi(
+            "Live Only",
+            reg["metrics"]["Live Only"],
+            mode="stored",
+            registry=reg,
+            ctx=_ctx(),
+        )
+
+
+def test_resolve_stored_reads_sqlite(tmp_path: Path) -> None:
+    from src.kpi_observation import KPIObservation
+    from src.kpi_store import GRAIN_MONTH, connect, stored_kpi_from_observation, upsert_kpi
+
+    reg = _write_registry(tmp_path)
+    conn = connect(tmp_path / "kpi.sqlite")
+    upsert_kpi(
+        conn,
+        stored_kpi_from_observation(
+            metric_name="Live Only",
+            grain=GRAIN_MONTH,
+            period_key="2026-08",
+            observation=KPIObservation(value=7, origin="live", as_of="2026-08-01"),
+            generator="gen_live",
+        ),
+    )
+    # Daily grain must not be preferred over the month-close generator grain.
+    from src.kpi_store import GRAIN_DAILY
+
+    upsert_kpi(
+        conn,
+        stored_kpi_from_observation(
+            metric_name="Live Only",
+            grain=GRAIN_DAILY,
+            period_key="2026-09-10",
+            observation=KPIObservation(value=99, origin="live", as_of="2026-09-10"),
+            generator="gen_live",
+        ),
+    )
+    row = resolve_kpi(
+        "Live Only",
+        {**reg["metrics"]["Live Only"], "metric-generator": "get_prs_merged"},
+        mode="stored",
+        registry=reg,
+        ctx=_ctx(),
+        store_conn=conn,
+    )
+    conn.close()
+    assert row.observation.origin == "stored"
+    assert row.observation.display_value == 7
+    assert row.recent_stored[0].value == 7
+
+
+def test_resolve_leandna_without_id_warns(tmp_path: Path) -> None:
+    reg = _write_registry(tmp_path)
+    row = resolve_kpi(
+        "Live Only",
+        reg["metrics"]["Live Only"],
+        mode="leandna",
         registry=reg,
         ctx=_ctx(),
     )
@@ -182,7 +256,7 @@ def test_resolve_stored_without_id_warns(tmp_path: Path) -> None:
     assert any("no metric-id" in w for w in row.observation.warnings)
 
 
-def test_resolve_stored_reads_data_api(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_resolve_leandna_reads_data_api(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     reg = _write_registry(tmp_path)
 
     def fake_fetch(entry, **kwargs):
@@ -190,7 +264,7 @@ def test_resolve_stored_reads_data_api(monkeypatch: pytest.MonkeyPatch, tmp_path
 
     monkeypatch.setattr("src.kpi_service.fetch_stored_recent", fake_fetch)
 
-    row = resolve_kpi("Both", reg["metrics"]["Both"], mode="stored", registry=reg, ctx=_ctx())
+    row = resolve_kpi("Both", reg["metrics"]["Both"], mode="leandna", registry=reg, ctx=_ctx())
     assert row.observation.origin == "stored"
     assert row.observation.display_value == 99
 
@@ -244,6 +318,44 @@ def test_iter_resolve_kpis_by_tag_yields_incrementally(monkeypatch: pytest.Monke
     assert third.metric_name == "Both"
     assert third.observation.display_value == 2
     assert calls == ["gen_live", "gen_both"]
+
+
+def test_resolve_kpis_by_tag_stored_does_not_invoke_generators(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from src.kpi_observation import KPIObservation
+    from src.kpi_service import resolve_kpis_by_tag
+    from src.kpi_store import GRAIN_DAILY, connect, stored_kpi_from_observation, upsert_kpi
+
+    reg = _write_registry(tmp_path)
+    conn = connect(tmp_path / "kpi.sqlite")
+    upsert_kpi(
+        conn,
+        stored_kpi_from_observation(
+            metric_name="Both",
+            grain=GRAIN_DAILY,
+            period_key="2026-09-10",
+            observation=KPIObservation(value=5, origin="live", as_of="2026-09-10"),
+            generator="gen_both",
+        ),
+    )
+
+    def boom_invoke(name, *, registry, ctx):
+        raise AssertionError("stored mode must not run generators")
+
+    monkeypatch.setattr("src.kpi_service.invoke_metric_generator", boom_invoke)
+    rows = resolve_kpis_by_tag(
+        "engineering",
+        mode="stored",
+        registry=reg,
+        ctx=_ctx(),
+        store_conn=conn,
+    )
+    conn.close()
+    by_name = {r.metric_name: r for r in rows}
+    assert by_name["Both"].observation.display_value == 5
+    assert by_name["Live Only"].observation.origin == "none"
+    assert by_name["Neither"].observation.origin == "none"
 
 
 def test_observation_passthrough() -> None:

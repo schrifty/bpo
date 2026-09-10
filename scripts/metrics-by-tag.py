@@ -2,8 +2,9 @@
 """List every ``config/my-metrics.yaml`` KPI carrying a tag, with current value.
 
 Tags live under each metric's ``tags:`` list. One KPI may carry many tags. Values
-come from live generators by default (``--mode live``). Use ``--mode stored`` only
-to inspect LeanDNA Data API datapoints.
+come from live generators by default (``--mode live``). ``--mode stored`` reads
+the SQLite KPI store (S3-backed). ``--mode leandna`` inspects LeanDNA Data API
+datapoints.
 
 Text output streams each KPI as soon as it resolves. JSON still buffers the full
 list so the document is valid.
@@ -12,7 +13,8 @@ Examples::
 
   metrics-by-tag                     # list tags
   metrics-by-tag engineering         # KPIs + live values (streamed)
-  metrics-by-tag engineering --mode stored
+  metrics-by-tag engineering --mode stored --skip-s3 --db /tmp/kpi.sqlite
+  metrics-by-tag engineering --mode leandna
   metrics-by-tag ai --json
 """
 from __future__ import annotations
@@ -44,6 +46,7 @@ from src.kpi_service import (  # noqa: E402
     iter_resolve_kpis_by_tag,
     kpi_resolved_to_json,
 )
+from src.kpi_store_s3 import kpi_store_s3_uri  # noqa: E402
 from src.leandna_data_api_request import data_api_base_url  # noqa: E402
 from src.leandna_metric_registry_resolve import METRICS_REGISTRY_DEFAULT_SITE_ID  # noqa: E402
 from src.leandna_metrics_cli import configure_cortex_logging  # noqa: E402
@@ -79,8 +82,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description=(
             "List KPIs for a tag with current values (config/my-metrics.yaml). "
-            "Reads are live by default: values come from generators, not stored datapoints. "
-            "Use --mode stored only to inspect what the LeanDNA Data API holds. "
+            "Reads are live by default: values come from generators. "
+            "Use --mode stored to read the SQLite KPI store, or --mode leandna "
+            "to inspect LeanDNA Data API datapoints. "
             "Text mode prints each KPI as soon as it resolves."
         ),
     )
@@ -102,7 +106,21 @@ def main() -> int:
         "--mode",
         choices=RESOLVE_MODES,
         default=DEFAULT_RESOLVE_MODE,
-        help="live=compute from generators (default); stored=inspect LeanDNA Data API datapoints",
+        help=(
+            "live=compute from generators (default); "
+            "stored=SQLite KPI store; "
+            "leandna=inspect LeanDNA Data API datapoints"
+        ),
+    )
+    ap.add_argument(
+        "--db",
+        default=None,
+        help="SQLite path for --mode stored (default: $CORTEX_CACHE_DIR/kpi/observations.sqlite)",
+    )
+    ap.add_argument(
+        "--skip-s3",
+        action="store_true",
+        help="(--mode stored) read the local SQLite file only (no S3 download)",
     )
     ap.add_argument(
         "--requested-sites",
@@ -115,7 +133,7 @@ def main() -> int:
         type=int,
         default=_DEFAULT_LOOKBACK_DAYS,
         metavar="N",
-        help=f"Stored datapoint search window ending today (default: {_DEFAULT_LOOKBACK_DAYS})",
+        help=f"(leandna mode) datapoint search window ending today (default: {_DEFAULT_LOOKBACK_DAYS})",
     )
     ap.add_argument(
         "--days",
@@ -129,7 +147,7 @@ def main() -> int:
         type=int,
         default=DEFAULT_RECENT_DATAPOINT_COUNT,
         metavar="N",
-        help=f"(stored mode) newest datapoints to show per KPI (default: {DEFAULT_RECENT_DATAPOINT_COUNT})",
+        help=f"newest stored points to show per KPI (default: {DEFAULT_RECENT_DATAPOINT_COUNT})",
     )
     ap.add_argument("--timeout", type=float, default=_READ_TIMEOUT_S, metavar="SEC")
     ap.add_argument("-v", "--verbose", action="store_true")
@@ -142,8 +160,7 @@ def main() -> int:
     if ns.list or not tag:
         return _print_tag_catalog()
 
-    # Stored mode inspects the Data API, so it requires the Data API to be configured.
-    if ns.mode == "stored" and not _data_api_configured():
+    if ns.mode == "leandna" and not _data_api_configured():
         try:
             data_api_base_url()
         except ValueError as e:
@@ -152,7 +169,14 @@ def main() -> int:
 
     if ns.mode == "stored":
         print(
-            f"KPI inspect (stored): tag={tag!r} lookback={ns.lookback_days}d recent={ns.recent_count} "
+            f"KPI inspect (stored): tag={tag!r} recent={ns.recent_count} "
+            f"db={ns.db or '(default)'} skip_s3={ns.skip_s3} "
+            f"s3={kpi_store_s3_uri() or '(unset)'}",
+            file=sys.stderr,
+        )
+    elif ns.mode == "leandna":
+        print(
+            f"KPI inspect (leandna): tag={tag!r} lookback={ns.lookback_days}d recent={ns.recent_count} "
             f"requestedSites={ns.requested_sites!r} "
             f"EXECUTION_ENV bucket={CORTEX_LEANDNA_DATA_API_EXECUTION_BUCKET}",
             file=sys.stderr,
@@ -184,11 +208,13 @@ def main() -> int:
             lookback_days=ns.lookback_days,
             timeout_seconds=ns.timeout,
             recent_count=ns.recent_count,
+            db_path=ns.db,
+            skip_s3=bool(ns.skip_s3),
         ):
             rows.append(row)
             if widths is not None:
                 print("\n".join(format_kpi_resolved_line(row, widths=widths)), flush=True)
-    except Exception as e:  # noqa: BLE001 — surface resolve/Data API failures cleanly
+    except Exception as e:  # noqa: BLE001 — surface resolve/store/Data API failures cleanly
         print(f"Failed to resolve KPIs for tag {tag!r}: {e}", file=sys.stderr)
         return 1
 

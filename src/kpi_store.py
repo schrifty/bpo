@@ -20,6 +20,39 @@ GRAIN_DAILY = "daily"
 GRAIN_MONTH = "month"
 GRAINS = frozenset({GRAIN_DAILY, GRAIN_MONTH})
 
+# Previous-calendar-month scorecard generators (period_key = YYYY-MM of that month).
+MONTH_CLOSE_GENERATORS = frozenset(
+    {
+        "get_tokens_per_dev",
+        "get_token_cost_per_dev",
+        "get_prs_merged",
+        "get_ai_assisted_prs_pct",
+        "get_ai_code_share",
+        "get_ai_automated_prs_pct",
+        "get_ai_assisted_automated_prs_pct",
+        "get_issues_shipped",
+        "get_defects_per_100_issues",
+        "get_defect_introduction_rate",
+        "get_growth_allocation_pct",
+        "get_ai_spend_pct",
+        "get_ai_spend_per_issue",
+        "get_headcount_plus_ai_spend_per_issue",
+    }
+)
+
+
+def grain_for_generator(generator: str) -> str:
+    name = (generator or "").strip()
+    if name in MONTH_CLOSE_GENERATORS:
+        return GRAIN_MONTH
+    return GRAIN_DAILY
+
+
+def default_kpi_store_path() -> Path:
+    from .config import CORTEX_CACHE_ROOT
+
+    return Path(CORTEX_CACHE_ROOT) / "kpi" / "observations.sqlite"
+
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS kpi_store_meta (
     key TEXT PRIMARY KEY,

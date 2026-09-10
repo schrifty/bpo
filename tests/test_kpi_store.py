@@ -216,6 +216,51 @@ def test_s3_roundtrip_preserves_rows(tmp_path: Path) -> None:
     conn.close()
 
 
+def test_prepare_kpi_store_for_read_skip_s3_and_local(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from src.kpi_store_s3 import KPIStoreS3Error, prepare_kpi_store_for_read
+
+    missing = tmp_path / "missing.sqlite"
+    with pytest.raises(KPIStoreS3Error, match="does not exist"):
+        prepare_kpi_store_for_read(missing, skip_s3=True)
+
+    local = tmp_path / "kpi.sqlite"
+    connect(local).close()
+    assert prepare_kpi_store_for_read(local, skip_s3=True) == local
+    monkeypatch.delenv("CORTEX_KPI_STORE_S3_URI", raising=False)
+    assert prepare_kpi_store_for_read(local) == local
+    with pytest.raises(KPIStoreS3Error, match="CORTEX_KPI_STORE_S3_URI"):
+        prepare_kpi_store_for_read(tmp_path / "nope.sqlite")
+
+
+def test_prepare_kpi_store_for_read_downloads_s3(tmp_path: Path) -> None:
+    from src.kpi_store_s3 import prepare_kpi_store_for_read
+
+    src = tmp_path / "src.sqlite"
+    conn = connect(src)
+    upsert_kpi(
+        conn,
+        stored_kpi_from_observation(
+            metric_name="Issues Shipped",
+            grain=GRAIN_MONTH,
+            period_key="2026-08",
+            observation=_obs(value=280),
+            generator="get_issues_shipped",
+        ),
+    )
+    conn.close()
+    s3 = _MemoryS3()
+    uri = "s3://cortex-kpi/kpi/observations.sqlite"
+    upload_kpi_store(src, s3_client=s3, uri=uri)
+    dest = tmp_path / "from-s3.sqlite"
+    got = prepare_kpi_store_for_read(dest, s3_client=s3, uri=uri)
+    assert got == dest
+    conn = connect(dest)
+    assert list_kpis(conn, metric_name="Issues Shipped")[0].observation.value == 280
+    conn.close()
+
+
 def test_s3_requires_uri(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("CORTEX_KPI_STORE_S3_URI", raising=False)
     with pytest.raises(KPIStoreS3Error, match="CORTEX_KPI_STORE_S3_URI"):

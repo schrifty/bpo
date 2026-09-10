@@ -13,12 +13,13 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Sequence
 
-from src.config import CORTEX_CACHE_ROOT, logger
+from src.config import logger
 from src.kpi_observation import observation_from_generator_raw
 from src.kpi_store import (
-    GRAIN_DAILY,
     GRAIN_MONTH,
     connect,
+    default_kpi_store_path,
+    grain_for_generator,
     stored_kpi_from_observation,
     upsert_kpi,
 )
@@ -41,34 +42,6 @@ from src.metrics_upsert import (
     metrics_upsert_context_from_namespace,
 )
 
-# Previous-calendar-month scorecard generators (period_key = YYYY-MM of that month).
-MONTH_CLOSE_GENERATORS = frozenset(
-    {
-        "get_tokens_per_dev",
-        "get_token_cost_per_dev",
-        "get_prs_merged",
-        "get_ai_assisted_prs_pct",
-        "get_ai_code_share",
-        "get_ai_automated_prs_pct",
-        "get_ai_assisted_automated_prs_pct",
-        "get_issues_shipped",
-        "get_defects_per_100_issues",
-        "get_defect_introduction_rate",
-        "get_growth_allocation_pct",
-        "get_ai_spend_pct",
-        "get_ai_spend_per_issue",
-        "get_headcount_plus_ai_spend_per_issue",
-    }
-)
-
-
-def grain_for_generator(generator: str) -> str:
-    name = (generator or "").strip()
-    if name in MONTH_CLOSE_GENERATORS:
-        return GRAIN_MONTH
-    return GRAIN_DAILY
-
-
 def period_key_for(grain: str, as_of: date) -> str:
     if grain == GRAIN_MONTH:
         first = as_of.replace(day=1)
@@ -82,7 +55,7 @@ def _parse_as_of(raw: str) -> date:
 
 
 def _default_db_path() -> Path:
-    return Path(CORTEX_CACHE_ROOT) / "kpi" / "observations.sqlite"
+    return default_kpi_store_path()
 
 
 def iter_snapshot_metrics(
