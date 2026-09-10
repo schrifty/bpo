@@ -119,6 +119,25 @@ def test_build_step_argv_metrics_upsert() -> None:
 
 
 
+def test_build_step_argv_kpi_snapshot() -> None:
+    argv = build_step_argv(
+        {
+            "command": "kpi-snapshot",
+            "tag": "engineering",
+            "dry_run": True,
+            "days": 30,
+        }
+    )
+    assert argv == [
+        "kpi-snapshot",
+        "--days",
+        "30",
+        "--tag",
+        "engineering",
+        "--dry-run",
+    ]
+
+
 def test_extract_child_run_summary_skipped() -> None:
     from src.job_runner import _extract_child_run_summary
 

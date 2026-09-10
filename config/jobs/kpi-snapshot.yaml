@@ -1,0 +1,9 @@
+name: kpi-snapshot
+stop_on_failure: true
+fail_on_warnings: false
+steps:
+  - name: snapshot-kpis
+    command: kpi-snapshot
+    dry_run: true
+    days: 30
+    timeout: 120

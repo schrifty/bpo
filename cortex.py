@@ -121,6 +121,10 @@ Generate one deck (explicit)
       List LeanDNA metrics owned by you (``metrics-get-mine``; Data API only).
       Pass ``--values`` for per-metric datapoint charts.
 
+  cortex kpi-snapshot [--date YYYY-MM-DD] [--dry-run] [--tag TAG] [--metric NAME]
+      Generate registry KPIs and persist them to the SQLite store (S3). ``--dry-run``
+      runs generators without writing S3.
+
   cortex metrics-upsert [--date YYYY-MM-DD] [--dry-run] [--metric NAME] [--requested-sites ID]
       For each row in ``config/my-metrics.yaml`` with ``metric-generator`` set, call the generator
       and upsert ``MetricDataPoint`` for that date via the Data API. Rows without a generator
@@ -857,6 +861,16 @@ def _run_kpi_cli(rest: list[str]) -> None:
     raise SystemExit(rc)
 
 
+def _run_kpi_snapshot_cli(rest: list[str]) -> None:
+    """``cortex kpi-snapshot`` — generate KPIs and persist to SQLite/S3."""
+    from dotenv import load_dotenv
+
+    from src.kpi_snapshot import run_kpi_snapshot_cli
+
+    load_dotenv(Path(__file__).resolve().parent / ".env")
+    raise SystemExit(run_kpi_snapshot_cli(rest, prog="cortex kpi-snapshot"))
+
+
 def _run_metrics_upsert_cli(rest: list[str]) -> None:
     """``cortex metrics-upsert`` — generate registry metrics and upsert via Data API."""
     from dotenv import load_dotenv
@@ -1506,6 +1520,9 @@ def main():
         return
     if sub == "kpi":
         _run_kpi_cli(sys.argv[2:])
+        return
+    if sub == "kpi-snapshot":
+        _run_kpi_snapshot_cli(sys.argv[2:])
         return
     if sub == "metrics-upsert":
         _run_metrics_upsert_cli(sys.argv[2:])

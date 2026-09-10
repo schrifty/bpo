@@ -228,6 +228,25 @@ def build_step_argv(step: dict[str, Any]) -> list[str]:
         if step.get("dry_run"):
             argv.append("--dry-run")
         return argv
+    if command == "kpi-snapshot":
+        argv = ["kpi-snapshot"]
+        if step.get("metric"):
+            argv.extend(["--metric", str(step["metric"])])
+        if step.get("date"):
+            argv.extend(["--date", str(step["date"])])
+        if step.get("days") is not None:
+            argv.extend(["--days", str(int(step["days"]))])
+        if step.get("tag"):
+            argv.extend(["--tag", str(step["tag"])])
+        if step.get("db"):
+            argv.extend(["--db", str(step["db"])])
+        if step.get("skip_s3"):
+            argv.append("--skip-s3")
+        if step.get("dry_run"):
+            argv.append("--dry-run")
+        if step.get("timeout") is not None:
+            argv.extend(["--timeout", str(float(step["timeout"]))])
+        return argv
     if command == "metrics-digest":
         argv = ["metrics-digest"]
         if step.get("days") is not None:
