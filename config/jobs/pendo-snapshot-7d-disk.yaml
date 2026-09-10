@@ -1,0 +1,8 @@
+name: pendo-snapshot-7d-disk
+stop_on_failure: true
+fail_on_warnings: false
+steps:
+  - name: refresh-shared-pendo-snapshot-7d-disk
+    command: refresh-pendo-snapshot
+    windows: [7]
+    upload_portfolio_days: 0
