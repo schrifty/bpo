@@ -63,11 +63,13 @@ def iter_snapshot_metrics(
     *,
     metric_name_filter: str | None = None,
     tag: str | None = None,
+    grain: str | None = None,
 ) -> list[tuple[str, dict[str, Any]]]:
     metrics = registry.get("metrics")
     if not isinstance(metrics, dict):
         return []
     want = (metric_name_filter or "").strip().casefold()
+    want_grain = (grain or "").strip().lower() or None
     out: list[tuple[str, dict[str, Any]]] = []
     for name, entry in metrics.items():
         if not isinstance(entry, dict) or not has_metric_generator(entry):
@@ -75,6 +77,9 @@ def iter_snapshot_metrics(
         if want and str(name).casefold() != want:
             continue
         if tag and not entry_has_tag(entry, tag):
+            continue
+        gen = str(entry.get("metric-generator") or "").strip()
+        if want_grain and grain_for_generator(gen) != want_grain:
             continue
         out.append((str(name), entry))
     return out
@@ -91,6 +96,7 @@ def run_kpi_snapshot(
     *,
     dry_run: bool,
     tag: str | None = None,
+    grain: str | None = None,
     db_path: Path | None = None,
     s3_client: Any | None = None,
     s3_uri: str | None = None,
@@ -105,7 +111,7 @@ def run_kpi_snapshot(
     as_of = _parse_as_of(ctx.entry_date)
     reg = registry if registry is not None else load_metrics_registry()
     targets = iter_snapshot_metrics(
-        reg, metric_name_filter=ctx.metric_name_filter, tag=tag
+        reg, metric_name_filter=ctx.metric_name_filter, tag=tag, grain=grain
     )
     persist = not dry_run
     uri = (s3_uri if s3_uri is not None else kpi_store_s3_uri()) or ""
@@ -127,8 +133,8 @@ def run_kpi_snapshot(
 
     for name, entry in targets:
         gen = str(entry.get("metric-generator") or "").strip()
-        grain = grain_for_generator(gen)
-        period_key = period_key_for(grain, as_of)
+        row_grain = grain_for_generator(gen)
+        period_key = period_key_for(row_grain, as_of)
         try:
             raw = invoke(gen, registry=reg, ctx=ctx)
             obs = observation_from_generator_raw(raw, metric_name=name, origin="live")
@@ -145,7 +151,7 @@ def run_kpi_snapshot(
 
         stored = stored_kpi_from_observation(
             metric_name=name,
-            grain=grain,
+            grain=row_grain,
             period_key=period_key,
             observation=obs,
             generator=gen,
@@ -153,7 +159,7 @@ def run_kpi_snapshot(
         )
         rec = {
             "metric": name,
-            "grain": grain,
+            "grain": row_grain,
             "period_key": period_key,
             "generator": gen,
             "ok": obs.ok,
@@ -167,7 +173,7 @@ def run_kpi_snapshot(
             logger.info(
                 "kpi-snapshot %s grain=%s period=%s value=%s",
                 name,
-                grain,
+                row_grain,
                 period_key,
                 obs.display_value,
             )
@@ -234,6 +240,12 @@ def add_kpi_snapshot_arguments(ap: argparse.ArgumentParser) -> None:
     add_metrics_upsert_arguments(ap)
     ap.add_argument("--tag", default=None, help="Only KPIs carrying this registry tag")
     ap.add_argument(
+        "--grain",
+        choices=("daily", "month"),
+        default=None,
+        help="Only daily snapshot KPIs or previous-calendar-month (scorecard) KPIs",
+    )
+    ap.add_argument(
         "--db",
         default=None,
         help="SQLite path (default: $CORTEX_CACHE_DIR/kpi/observations.sqlite)",
@@ -258,6 +270,7 @@ def run_kpi_snapshot_cli(argv: Sequence[str] | None = None, *, prog: str = "kpi-
         ctx,
         dry_run=bool(ns.dry_run),
         tag=ns.tag,
+        grain=ns.grain,
         db_path=db,
         skip_s3=bool(ns.skip_s3) or bool(ns.dry_run),
     )

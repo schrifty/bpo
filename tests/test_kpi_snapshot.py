@@ -68,6 +68,10 @@ def test_iter_snapshot_metrics_skips_null_generator_and_honors_tag() -> None:
     assert names == ["PRs Merged", "Customer-Reported Bugs"]
     tagged = [n for n, _ in iter_snapshot_metrics(reg, tag="quality")]
     assert tagged == ["Customer-Reported Bugs"]
+    month_only = [n for n, _ in iter_snapshot_metrics(reg, grain=GRAIN_MONTH)]
+    assert month_only == ["PRs Merged"]
+    daily_only = [n for n, _ in iter_snapshot_metrics(reg, grain=GRAIN_DAILY)]
+    assert daily_only == ["Customer-Reported Bugs"]
     one = [n for n, _ in iter_snapshot_metrics(reg, metric_name_filter="PRs Merged")]
     assert one == ["PRs Merged"]
 
