@@ -1,4 +1,6 @@
 name: pendo-snapshot-7d-disk
+# Smoke-only. Partial refresh merges remaining disk windows into the shared
+# manifest; it does not replace coverage with [7] alone.
 stop_on_failure: true
 fail_on_warnings: false
 steps:

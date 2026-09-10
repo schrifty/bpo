@@ -240,3 +240,90 @@ def test_refresh_fails_loud_on_incomplete_preload(pendo_cache_root) -> None:
     pc._get_usage_by_site_entity_cached.side_effect = lambda days: None
     with pytest.raises(PendoSnapshotError, match="missing disk keys"):
         refresh_shared_pendo_snapshot(windows=[7], upload_portfolio_days=None, pc=pc)
+
+
+def test_partial_refresh_keeps_other_windows_and_their_saved_at(pendo_cache_root) -> None:
+    """A 7d-only smoke must not drop 14/90 from the shared manifest."""
+    _seed_catalogs()
+    for days in (7, 14, 90):
+        _seed_window(days)
+    write_manifest(
+        {
+            "schema_version": 1,
+            "saved_at": "2026-09-09T22:22:00Z",
+            "ts": time.time() - 3600,
+            "windows": [7, 14, 90],
+            "window_saved_at": {
+                "7": "2026-09-09T22:22:00Z",
+                "14": "2026-09-09T22:22:00Z",
+                "90": "2026-09-09T22:22:00Z",
+            },
+            "portfolio": {"file_id": "keep-me"},
+        }
+    )
+
+    pc = MagicMock()
+
+    def _preload(days: int, **kwargs) -> None:
+        _seed_catalogs()
+        _seed_window(days)
+
+    pc.preload.side_effect = _preload
+    pc._get_usage_by_site_entity_cached.side_effect = lambda days: save_preload_payload(
+        PRELOAD_KIND_USAGE_BY_SITE_ENTITY, days, {"days": days}
+    )
+
+    manifest = refresh_shared_pendo_snapshot(windows=[7], upload_portfolio_days=None, pc=pc)
+    assert manifest["windows"] == [7, 14, 90]
+    assert manifest["window_saved_at"]["14"] == "2026-09-09T22:22:00Z"
+    assert manifest["window_saved_at"]["90"] == "2026-09-09T22:22:00Z"
+    assert manifest["window_saved_at"]["7"] != "2026-09-09T22:22:00Z"
+    assert manifest["saved_at"] == "2026-09-09T22:22:00Z"
+    assert (manifest.get("portfolio") or {}).get("file_id") == "keep-me"
+
+
+def test_partial_refresh_drops_windows_whose_disk_keys_are_gone(pendo_cache_root) -> None:
+    _seed_catalogs()
+    _seed_window(7)
+    write_manifest(
+        {
+            "schema_version": 1,
+            "saved_at": "2026-09-09T22:22:00Z",
+            "windows": [7, 14],
+            "window_saved_at": {"7": "2026-09-09T22:22:00Z", "14": "2026-09-09T22:22:00Z"},
+        }
+    )
+    pc = MagicMock()
+
+    def _preload(days: int, **kwargs) -> None:
+        _seed_catalogs()
+        _seed_window(days)
+
+    pc.preload.side_effect = _preload
+    pc._get_usage_by_site_entity_cached.side_effect = lambda days: save_preload_payload(
+        PRELOAD_KIND_USAGE_BY_SITE_ENTITY, days, {"days": days}
+    )
+    manifest = refresh_shared_pendo_snapshot(windows=[7], upload_portfolio_days=None, pc=pc)
+    assert manifest["windows"] == [7]
+    assert "14" not in manifest["window_saved_at"]
+
+
+def test_check_uses_required_window_age_not_fresh_sibling(pendo_cache_root, monkeypatch) -> None:
+    monkeypatch.setenv("CORTEX_PENDO_SNAPSHOT_MAX_AGE_HOURS", "18")
+    _seed_catalogs()
+    _seed_window(7)
+    _seed_window(14)
+    write_manifest(
+        {
+            "schema_version": 1,
+            "saved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "windows": [7, 14],
+            "window_saved_at": {
+                "7": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "14": "2020-01-01T00:00:00Z",
+            },
+        }
+    )
+    with pytest.raises(PendoSnapshotError, match="exceeds max"):
+        check_shared_pendo_snapshot(required_windows=[7, 14])
+    assert check_shared_pendo_snapshot(required_windows=[7])["ok"] is True

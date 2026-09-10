@@ -5,6 +5,8 @@ warms them from live Pendo (7/14/30/60/90), writes a manifest under
 ``CORTEX_CACHE_DIR/pendo/``, then uploads the 90d Drive portfolio rollup for deck reuse.
 The disk manifest is written before Drive work so a hung rollup cannot leave
 daytime jobs on a stale ingest.
+Partial refreshes (e.g. 7d-only smoke) merge with existing windows that still have
+disk keys and stamp per-window ``saved_at`` so they cannot hide a missing 14/30/90.
 Daytime transforms reuse those slices via the 24h disk TTL — they do not re-crawl.
 
 Transforms that set ``CORTEX_PENDO_SNAPSHOT_REQUIRE`` fail loud when the manifest is
@@ -158,23 +160,107 @@ def write_manifest(payload: dict[str, Any]) -> Path:
     return path
 
 
-def _manifest_age_hours(manifest: dict[str, Any], *, now: float | None = None) -> float | None:
-    saved_at = manifest.get("saved_at")
+def _parse_saved_at_timestamp(saved_at: Any) -> float | None:
     if not saved_at:
-        ts = manifest.get("ts")
-        if ts is None:
-            return None
-        try:
-            return max(0.0, (now or time.time()) - float(ts)) / 3600.0
-        except (TypeError, ValueError):
-            return None
+        return None
     try:
         dt = datetime.fromisoformat(str(saved_at).replace("Z", "+00:00"))
     except ValueError:
         return None
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    return max(0.0, ((now or time.time()) - dt.timestamp()) / 3600.0)
+    return dt.timestamp()
+
+
+def _age_hours_from_saved_at(saved_at: Any, now: float) -> float | None:
+    ts = _parse_saved_at_timestamp(saved_at)
+    if ts is None:
+        return None
+    return max(0.0, (now - ts) / 3600.0)
+
+
+def _manifest_age_hours(manifest: dict[str, Any], *, now: float | None = None) -> float | None:
+    clock = now if now is not None else time.time()
+    saved_at = manifest.get("saved_at")
+    if saved_at:
+        return _age_hours_from_saved_at(saved_at, clock)
+    ts = manifest.get("ts")
+    if ts is None:
+        return None
+    try:
+        return max(0.0, clock - float(ts)) / 3600.0
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_window_days(raw: Any) -> int | None:
+    try:
+        if isinstance(raw, bool) or raw is None:
+            return None
+        return max(1, int(raw))
+    except (TypeError, ValueError):
+        return None
+
+
+def _window_saved_at_map(manifest: dict[str, Any]) -> dict[str, str]:
+    """Per-window ISO timestamps; fall back to global ``saved_at`` for older manifests."""
+    out: dict[str, str] = {}
+    raw = manifest.get("window_saved_at")
+    if isinstance(raw, dict):
+        for key, value in raw.items():
+            days = _coerce_window_days(key)
+            if days is None or not value:
+                continue
+            out[str(days)] = str(value)
+    if out:
+        return out
+    saved = manifest.get("saved_at")
+    if not saved:
+        return {}
+    for item in manifest.get("windows") or []:
+        days = _coerce_window_days(item)
+        if days is None:
+            continue
+        out[str(days)] = str(saved)
+    return out
+
+
+def _required_windows_age_hours(
+    manifest: dict[str, Any],
+    windows: Sequence[int],
+    *,
+    now: float | None = None,
+) -> tuple[float | None, str | None]:
+    """Oldest age among *required* windows (not every window listed on the manifest)."""
+    clock = now if now is not None else time.time()
+    stamps = _window_saved_at_map(manifest)
+    oldest_age = -1.0
+    oldest_saved: str | None = None
+    for days in windows:
+        iso = stamps.get(str(days))
+        if iso:
+            age = _age_hours_from_saved_at(iso, clock)
+            label = iso
+        else:
+            age = _manifest_age_hours(manifest, now=clock)
+            label = str(manifest.get("saved_at") or "")
+        if age is None:
+            return None, None
+        if age >= oldest_age:
+            oldest_age = age
+            oldest_saved = label
+    if oldest_age < 0:
+        return None, None
+    return oldest_age, oldest_saved
+
+
+def missing_day_preload_keys(days: int) -> list[str]:
+    """Disk keys for one day-window (catalogs are shared and checked separately)."""
+    missing: list[str] = []
+    for kind in _DAY_KINDS:
+        if try_load_preload_payload(kind, days) is None:
+            missing.append(preload_cache_key(kind, days))
+    return missing
 
 
 def missing_preload_keys(windows: Iterable[int]) -> list[str]:
@@ -184,10 +270,24 @@ def missing_preload_keys(windows: Iterable[int]) -> list[str]:
         if try_load_preload_payload(kind, None) is None:
             missing.append(preload_cache_key(kind, None))
     for days in sorted({max(1, int(d)) for d in windows}):
-        for kind in _DAY_KINDS:
-            if try_load_preload_payload(kind, days) is None:
-                missing.append(preload_cache_key(kind, days))
+        missing.extend(missing_day_preload_keys(days))
     return missing
+
+
+def merge_manifest_coverage(refreshed_windows: Sequence[int]) -> tuple[list[int], dict[str, str]]:
+    """Union this refresh with prior windows that still have day-window disk keys."""
+    refreshed = sorted({max(1, int(d)) for d in refreshed_windows})
+    existing = load_manifest() or {}
+    prev_stamps = _window_saved_at_map(existing)
+    kept = set(refreshed)
+    for item in existing.get("windows") or []:
+        days = _coerce_window_days(item)
+        if days is None or days in kept:
+            continue
+        if missing_day_preload_keys(days):
+            continue
+        kept.add(days)
+    return sorted(kept), prev_stamps
 
 
 def check_shared_pendo_snapshot(
@@ -212,14 +312,14 @@ def check_shared_pendo_snapshot(
             "(run pendo-snapshot-refresh / cortex --refresh-pendo-snapshot first)"
         )
 
-    age_h = _manifest_age_hours(manifest)
     cap = snapshot_max_age_hours() if max_age_hours is None else max(0.0, float(max_age_hours))
+    age_h, age_saved_at = _required_windows_age_hours(manifest, windows)
     if age_h is None:
         raise PendoSnapshotError("shared Pendo snapshot require: manifest missing saved_at/ts")
     if age_h > cap:
         raise PendoSnapshotError(
             f"shared Pendo snapshot require: manifest age {age_h:.1f}h exceeds max {cap:.1f}h "
-            f"(saved_at={manifest.get('saved_at')!r})"
+            f"(saved_at={age_saved_at!r})"
         )
 
     covered = {int(d) for d in (manifest.get("windows") or []) if str(d).strip().isdigit() or isinstance(d, int)}
@@ -342,15 +442,31 @@ def _refresh_shared_pendo_snapshot_body(
 
     def _write(portfolio: dict[str, Any] | None) -> dict[str, Any]:
         now = time.time()
-        saved_at = datetime.fromtimestamp(now, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_iso = datetime.fromtimestamp(now, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        covered, prev_stamps = merge_manifest_coverage(win)
+        refreshed = set(win)
+        window_saved_at: dict[str, str] = {}
+        for days in covered:
+            key = str(days)
+            if days in refreshed:
+                window_saved_at[key] = now_iso
+            else:
+                window_saved_at[key] = prev_stamps.get(key) or now_iso
+        oldest_iso = min(window_saved_at.values()) if window_saved_at else now_iso
+        oldest_ts = _parse_saved_at_timestamp(oldest_iso) or now
+        existing = load_manifest() or {}
+        merged_timings = dict(existing.get("window_timings_s") or {})
+        merged_timings.update(window_timings)
+        keep_portfolio = portfolio if portfolio is not None else existing.get("portfolio")
         payload: dict[str, Any] = {
             "schema_version": SCHEMA_VERSION,
-            "saved_at": saved_at,
-            "ts": now,
-            "windows": win,
+            "saved_at": oldest_iso,
+            "ts": oldest_ts,
+            "windows": covered,
+            "window_saved_at": window_saved_at,
             "upload_portfolio_days": int(upload_portfolio_days) if upload_portfolio_days else None,
-            "portfolio": portfolio,
-            "window_timings_s": window_timings,
+            "portfolio": keep_portfolio,
+            "window_timings_s": merged_timings,
             "duration_s": round(now - t0, 1),
             "disk_cache_ttl_h": round(_config.CORTEX_PENDO_DISK_CACHE_TTL_SECONDS / 3600.0, 2),
         }
@@ -358,7 +474,7 @@ def _refresh_shared_pendo_snapshot_body(
         logger.info(
             "Pendo shared snapshot: wrote manifest %s windows=%s duration_s=%.1f",
             path,
-            win,
+            covered,
             payload["duration_s"],
         )
         return payload
