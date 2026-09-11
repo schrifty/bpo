@@ -39,7 +39,7 @@ locals {
       { name = "CORTEX_JOB_TIMEOUT_SECONDS", value = tostring(var.job_timeout_seconds) },
       { name = "CORTEX_SECRETS_ARN", value = aws_secretsmanager_secret.cortex.arn },
       # Finance constant (not a secret); SM blob should match so local/.env and ECS agree.
-      { name = "CORTEX_ENGINEERING_MONTHLY_SPEND_USD", value = "436000" },
+      { name = "CORTEX_MONTHLY_SPEND_USD_ENGINEERING", value = "436000" },
     ],
     var.enable_schedules && var.enable_job_retries ? [
       { name = "CORTEX_JOB_RETRY_ENABLED", value = "1" },

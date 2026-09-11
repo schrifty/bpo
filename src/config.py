@@ -246,7 +246,7 @@ CORTEX_CURSOR_SLIDES_ONLY = _cursor_slides_only in ("1", "true", "yes", "on")
 # Used by AI Spend % (AI ÷ this) and Headcount + AI Spend / Issue (this prorated + AI).
 # Set from finance; required for those generators. Not a secret — still keep in local .env.
 def _parse_engineering_monthly_spend_usd() -> float | None:
-    raw = (os.environ.get("CORTEX_ENGINEERING_MONTHLY_SPEND_USD") or "").strip()
+    raw = (os.environ.get("CORTEX_MONTHLY_SPEND_USD_ENGINEERING") or "").strip()
     if not raw:
         return None
     try:
@@ -255,7 +255,7 @@ def _parse_engineering_monthly_spend_usd() -> float | None:
         return None
 
 
-CORTEX_ENGINEERING_MONTHLY_SPEND_USD = _parse_engineering_monthly_spend_usd()
+CORTEX_MONTHLY_SPEND_USD_ENGINEERING = _parse_engineering_monthly_spend_usd()
 
 # Atlassian Teams roster (org membership) — reused across eng portfolio, Cursor scope, identity map.
 try:

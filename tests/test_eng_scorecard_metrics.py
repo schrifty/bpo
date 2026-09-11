@@ -280,7 +280,7 @@ def test_get_growth_allocation_defaults_to_previous_month() -> None:
 def test_get_ai_spend_pct(monkeypatch: pytest.MonkeyPatch) -> None:
     import src.config as config_mod
 
-    monkeypatch.setattr(config_mod, "CORTEX_ENGINEERING_MONTHLY_SPEND_USD", 500_000.0)
+    monkeypatch.setattr(config_mod, "CORTEX_MONTHLY_SPEND_USD_ENGINEERING", 500_000.0)
     monkeypatch.setattr(
         "src.cursor_ai_usage_metrics.get_monthly_ai_spend",
         lambda client, timeout=60.0, as_of=None: {
@@ -297,11 +297,11 @@ def test_get_ai_spend_pct(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_get_ai_spend_pct_missing_eng_spend(monkeypatch: pytest.MonkeyPatch) -> None:
     import src.config as config_mod
 
-    monkeypatch.setattr(config_mod, "CORTEX_ENGINEERING_MONTHLY_SPEND_USD", None)
-    monkeypatch.delenv("CORTEX_ENGINEERING_MONTHLY_SPEND_USD", raising=False)
+    monkeypatch.setattr(config_mod, "CORTEX_MONTHLY_SPEND_USD_ENGINEERING", None)
+    monkeypatch.delenv("CORTEX_MONTHLY_SPEND_USD_ENGINEERING", raising=False)
     out = get_ai_spend_pct(_FakeCursor())
     assert "error" in out
-    assert "CORTEX_ENGINEERING_MONTHLY_SPEND_USD" in out["error"]
+    assert "CORTEX_MONTHLY_SPEND_USD_ENGINEERING" in out["error"]
 
 
 def test_get_ai_spend_per_issue(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -324,7 +324,7 @@ def test_get_ai_spend_per_issue(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_get_headcount_plus_ai_spend_per_issue(monkeypatch: pytest.MonkeyPatch) -> None:
     import src.config as config_mod
 
-    monkeypatch.setattr(config_mod, "CORTEX_ENGINEERING_MONTHLY_SPEND_USD", 30_000.0)
+    monkeypatch.setattr(config_mod, "CORTEX_MONTHLY_SPEND_USD_ENGINEERING", 30_000.0)
     jira = _FakeJira(headcount=2, emails={"a@ex.com"}, shipped_count=4)
     _patch_scope(monkeypatch, jira)
     events = [
@@ -348,7 +348,7 @@ def test_get_headcount_plus_ai_spend_per_issue_prorates_window(
 ) -> None:
     import src.config as config_mod
 
-    monkeypatch.setattr(config_mod, "CORTEX_ENGINEERING_MONTHLY_SPEND_USD", 30_000.0)
+    monkeypatch.setattr(config_mod, "CORTEX_MONTHLY_SPEND_USD_ENGINEERING", 30_000.0)
     jira = _FakeJira(headcount=2, emails={"a@ex.com"}, shipped_count=2)
     _patch_scope(monkeypatch, jira)
     events = [
@@ -365,13 +365,13 @@ def test_get_headcount_plus_ai_spend_per_issue_requires_env(
 ) -> None:
     import src.config as config_mod
 
-    monkeypatch.setattr(config_mod, "CORTEX_ENGINEERING_MONTHLY_SPEND_USD", None)
-    monkeypatch.delenv("CORTEX_ENGINEERING_MONTHLY_SPEND_USD", raising=False)
+    monkeypatch.setattr(config_mod, "CORTEX_MONTHLY_SPEND_USD_ENGINEERING", None)
+    monkeypatch.delenv("CORTEX_MONTHLY_SPEND_USD_ENGINEERING", raising=False)
     jira = _FakeJira(headcount=2, emails={"a@ex.com"}, shipped_count=4)
     _patch_scope(monkeypatch, jira)
     out = get_headcount_plus_ai_spend_per_issue(_FakeCursor([]), jira, days=30)
     assert "error" in out
-    assert "CORTEX_ENGINEERING_MONTHLY_SPEND_USD" in out["error"]
+    assert "CORTEX_MONTHLY_SPEND_USD_ENGINEERING" in out["error"]
 
 
 def test_pr_is_ai_assisted_and_automated_markers() -> None:

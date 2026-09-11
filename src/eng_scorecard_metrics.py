@@ -1104,34 +1104,34 @@ def get_ai_spend_pct(
 
     Numerator is projected calendar-month Cursor spend (:func:`get_monthly_ai_spend`)
     for the month containing *as_of* (default: now). Denominator is
-    ``CORTEX_ENGINEERING_MONTHLY_SPEND_USD`` (finance headcount/opex, excluding AI
+    ``CORTEX_MONTHLY_SPEND_USD_ENGINEERING`` (finance headcount/opex, excluding AI
     tooling). Fails loud when unset/invalid or Cursor spend fails.
     """
     import os
 
-    from .config import CORTEX_ENGINEERING_MONTHLY_SPEND_USD
+    from .config import CORTEX_MONTHLY_SPEND_USD_ENGINEERING
     from .cursor_ai_usage_metrics import get_monthly_ai_spend
 
-    eng_spend = CORTEX_ENGINEERING_MONTHLY_SPEND_USD
+    eng_spend = CORTEX_MONTHLY_SPEND_USD_ENGINEERING
     if eng_spend is None:
-        raw = (os.environ.get("CORTEX_ENGINEERING_MONTHLY_SPEND_USD") or "").strip()
+        raw = (os.environ.get("CORTEX_MONTHLY_SPEND_USD_ENGINEERING") or "").strip()
         if raw:
             return {
                 "error": (
-                    "CORTEX_ENGINEERING_MONTHLY_SPEND_USD is not a valid number "
+                    "CORTEX_MONTHLY_SPEND_USD_ENGINEERING is not a valid number "
                     f"(got {raw!r})"
                 )
             }
         return {
             "error": (
-                "CORTEX_ENGINEERING_MONTHLY_SPEND_USD is not set — required for AI Spend % "
+                "CORTEX_MONTHLY_SPEND_USD_ENGINEERING is not set — required for AI Spend % "
                 "(total monthly engineering spend in USD)"
             )
         }
     if float(eng_spend) <= 0:
         return {
             "error": (
-                f"CORTEX_ENGINEERING_MONTHLY_SPEND_USD must be > 0 (got {eng_spend})"
+                f"CORTEX_MONTHLY_SPEND_USD_ENGINEERING must be > 0 (got {eng_spend})"
             )
         }
 
@@ -1205,21 +1205,21 @@ def _engineering_headcount_monthly_usd() -> dict[str, Any]:
     """Finance-configured monthly engineering headcount/opex (USD). Fail loud if unset."""
     import os
 
-    from .config import CORTEX_ENGINEERING_MONTHLY_SPEND_USD
+    from .config import CORTEX_MONTHLY_SPEND_USD_ENGINEERING
 
-    eng_spend = CORTEX_ENGINEERING_MONTHLY_SPEND_USD
+    eng_spend = CORTEX_MONTHLY_SPEND_USD_ENGINEERING
     if eng_spend is None:
-        raw = (os.environ.get("CORTEX_ENGINEERING_MONTHLY_SPEND_USD") or "").strip()
+        raw = (os.environ.get("CORTEX_MONTHLY_SPEND_USD_ENGINEERING") or "").strip()
         if raw:
             return {
                 "error": (
-                    "CORTEX_ENGINEERING_MONTHLY_SPEND_USD is not a valid number "
+                    "CORTEX_MONTHLY_SPEND_USD_ENGINEERING is not a valid number "
                     f"(got {raw!r})"
                 )
             }
         return {
             "error": (
-                "CORTEX_ENGINEERING_MONTHLY_SPEND_USD is not set — required for "
+                "CORTEX_MONTHLY_SPEND_USD_ENGINEERING is not set — required for "
                 "Headcount + AI Spend / Issue (monthly engineering headcount/opex USD, "
                 "excluding AI tooling)"
             )
@@ -1227,7 +1227,7 @@ def _engineering_headcount_monthly_usd() -> dict[str, Any]:
     if float(eng_spend) <= 0:
         return {
             "error": (
-                f"CORTEX_ENGINEERING_MONTHLY_SPEND_USD must be > 0 (got {eng_spend})"
+                f"CORTEX_MONTHLY_SPEND_USD_ENGINEERING must be > 0 (got {eng_spend})"
             )
         }
     return {"value": float(eng_spend)}
@@ -1243,7 +1243,7 @@ def get_headcount_plus_ai_spend_per_issue(
 ) -> dict[str, Any]:
     """Headcount + AI Spend / Issue: (prorated headcount cost + AI spend) ÷ issues shipped.
 
-    Headcount cost is ``CORTEX_ENGINEERING_MONTHLY_SPEND_USD`` (monthly engineering
+    Headcount cost is ``CORTEX_MONTHLY_SPEND_USD_ENGINEERING`` (monthly engineering
     headcount/opex, excluding AI tooling). The default previous-month calculation
     uses the full monthly amount; explicit trailing-day windows remain prorated.
     AI spend is engineer-scoped Cursor charged USD over the same period.
