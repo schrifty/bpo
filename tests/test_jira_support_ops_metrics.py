@@ -15,9 +15,13 @@ from src.jira_support_ops_metrics import (
     get_engineering_escalation_rate,
     get_help_resolved_created_ratio,
     get_help_ticket_count,
+    get_help_fully_loaded_spend_per_ticket,
     get_open_help,
     get_open_help_over_30d_pct,
+    get_support_fte,
+    get_support_spend_per_resolved,
     get_support_spend_per_ticket,
+    get_tickets_per_fte,
     help_ticket_count_jql,
     open_help_jql,
 )
@@ -140,6 +144,80 @@ def test_get_support_spend_per_ticket_zero_tickets(monkeypatch: pytest.MonkeyPat
     out = get_support_spend_per_ticket(client, as_of=date(2026, 9, 10))
     assert "error" in out
     assert "Ticket Count is 0" in out["error"]
+
+
+def test_get_support_fte(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.config as config_mod
+
+    monkeypatch.setattr(config_mod, "CORTEX_SUPPORT_FTE", 1.0)
+    out = get_support_fte(as_of=date(2026, 9, 10))
+    assert out["value"] == 1.0
+    assert out["month"] == "2026-08"
+    assert out["method"] == "finance_constant"
+
+
+def test_get_tickets_per_fte(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.config as config_mod
+
+    monkeypatch.setattr(config_mod, "CORTEX_SUPPORT_FTE", 2.0)
+    client = MagicMock()
+    client.jql_match_count.return_value = 100
+    out = get_tickets_per_fte(client, as_of=date(2026, 9, 10))
+    assert out["value"] == 50.0
+    assert out["tickets_created"] == 100
+    assert out["support_fte"] == 2.0
+
+
+def test_get_support_spend_per_resolved(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.config as config_mod
+
+    monkeypatch.setattr(config_mod, "CORTEX_MONTHLY_SPEND_USD_SUPPORT", 10_000.0)
+    client = MagicMock()
+    client.jql_match_count.return_value = 80
+    out = get_support_spend_per_resolved(client, as_of=date(2026, 9, 10))
+    assert out["value"] == 125.0
+    assert out["tickets_resolved"] == 80
+    assert "resolved >=" in out["resolved_jql"]
+
+
+def test_get_help_fully_loaded_spend_per_ticket(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.config as config_mod
+
+    monkeypatch.setattr(config_mod, "CORTEX_MONTHLY_SPEND_USD_SUPPORT", 10_000.0)
+    monkeypatch.setattr(config_mod, "CORTEX_MONTHLY_SPEND_USD_ENGINEERING", 400_000.0)
+    client = MagicMock()
+    # Ticket Count; Eng help+esc; Data help+esc
+    client.jql_match_count.side_effect = [100, 100, 10, 100, 20]
+    monkeypatch.setattr(
+        "src.eng_scorecard_metrics.get_issues_shipped",
+        lambda *a, **k: {"value": 200},
+    )
+    out = get_help_fully_loaded_spend_per_ticket(client, as_of=date(2026, 9, 10))
+    assert out["escalation_unit_cost_usd"] == 2000.0
+    assert out["engineering_follow_on_usd"] == 20_000.0
+    assert out["data_follow_on_usd"] == 40_000.0
+    assert out["total_usd"] == 70_000.0
+    assert out["value"] == 700.0
+    assert out["tickets_created"] == 100
+
+
+def test_finance_pack_is_registered_without_targets() -> None:
+    from src.metrics_registry import load_metrics_registry
+    from src.metrics_upsert import _GENERATORS
+
+    metrics = load_metrics_registry()["metrics"]
+    for name, gen in (
+        ("Support FTE", "get_support_fte"),
+        ("Tickets per FTE", "get_tickets_per_fte"),
+        ("Support Spend / Ticket", "get_support_spend_per_ticket"),
+        ("Support Spend / Resolved", "get_support_spend_per_resolved"),
+        ("HELP Fully Loaded $ / Ticket", "get_help_fully_loaded_spend_per_ticket"),
+    ):
+        entry = metrics[name]
+        assert entry["metric-generator"] == gen
+        assert entry.get("target") in (None, "")
+        assert gen in _GENERATORS
+        assert "finance" in entry["tags"]
 
 
 def test_get_help_ticket_count_fails_loud_when_count_missing() -> None:

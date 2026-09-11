@@ -42,3 +42,19 @@ def test_require_monthly_spend_usd_fail_loud(monkeypatch: pytest.MonkeyPatch) ->
         required_for="Support Spend / Ticket",
     )
     assert ok == {"value": 12000.0}
+
+
+def test_require_support_fte(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CORTEX_SUPPORT_FTE", raising=False)
+    missing = require_monthly_spend_usd(
+        env_name="CORTEX_SUPPORT_FTE",
+        configured=None,
+        required_for="Support FTE",
+    )
+    assert "not set" in missing["error"]
+    assert "opex" not in missing["error"]
+    assert require_monthly_spend_usd(
+        env_name="CORTEX_SUPPORT_FTE",
+        configured=1.0,
+        required_for="Support FTE",
+    ) == {"value": 1.0}

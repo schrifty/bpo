@@ -192,15 +192,66 @@ metrics:
     metric-generator: get_help_ticket_count
     tags: [support, volume]
 
+  "Support FTE":
+    description: >-
+      Finance-configured support headcount (CORTEX_SUPPORT_FTE). Not inferred
+      from ticket volume.
+    mgmt_guidance: >-
+      This is the finance headcount constant for support.
+      Confirm it when people join or leave; do not infer FTE from Ticket Count.
+    metric-id: null
+    metric-generator: get_support_fte
+    tags: [support, finance]
+
+  "Tickets per FTE":
+    description: >-
+      HELP tickets created in the previous calendar month ÷ CORTEX_SUPPORT_FTE
+      (same window as Ticket Count).
+    mgmt_guidance: >-
+      Created HELP per support FTE in the previous calendar month.
+      A drop with unchanged FTE is utilization, not a quality win — check P90 TTR and Open HELP >30d %.
+    metric-id: null
+    metric-generator: get_tickets_per_fte
+    tags: [support, finance]
+
   "Support Spend / Ticket":
     description: >-
       Monthly support headcount/opex (CORTEX_MONTHLY_SPEND_USD_SUPPORT) ÷ HELP
-      tickets created in the previous calendar month (same window as Ticket Count).
+      tickets created in the previous calendar month. Derived demand-side cost;
+      same window as Ticket Count. No target until the volume regime is named.
     mgmt_guidance: >-
-      Use this as cost per intake ticket on the same month as Ticket Count.
-      A rising number with stable spend usually means volume fell, not that support got more expensive.
+      Treat this as demand-side cost (opex ÷ created HELP), not the number to staff from.
+      Rising $ with flat opex is a volume story; pair with P90 TTR, SLA, and Open HELP >30d % before calling it efficiency.
     metric-id: null
     metric-generator: get_support_spend_per_ticket
+    tags: [support, finance]
+    unit: currency
+
+  "Support Spend / Resolved":
+    description: >-
+      Monthly support headcount/opex (CORTEX_MONTHLY_SPEND_USD_SUPPORT) ÷ HELP
+      tickets resolved in the previous calendar month. Fairer than spend per
+      created ticket during a backlog drawdown. No target until the volume
+      regime is named.
+    mgmt_guidance: >-
+      This is cost per closed ticket in the same month as Ticket Count.
+      During a drawdown (Resolved/Created well above 100%) this is the fairer efficiency read than spend per created ticket.
+    metric-id: null
+    metric-generator: get_support_spend_per_resolved
+    tags: [support, finance]
+    unit: currency
+
+  "HELP Fully Loaded $ / Ticket":
+    description: >-
+      (Support opex + engineering and data jira_escalated tickets × engineering
+      opex per LEAN issue shipped) ÷ HELP created, previous calendar month.
+      Crude fully loaded cost of a HELP-originated problem. Not a target match
+      to engineering Headcount + AI Spend / Issue.
+    mgmt_guidance: >-
+      Support opex plus Data and Engineering follow-on priced at engineering opex per shipped issue.
+      Do not compare this to the engineering $1,600/issue target; it is the HELP-originated cost of a customer problem.
+    metric-id: null
+    metric-generator: get_help_fully_loaded_spend_per_ticket
     tags: [support, finance]
     unit: currency
 

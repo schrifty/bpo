@@ -64,7 +64,11 @@ def test_grain_and_period_key() -> None:
     assert grain_for_generator("get_customer_reported_bugs_created") == GRAIN_MONTH
     assert grain_for_generator("get_customer_reported_bugs_eom") == GRAIN_MONTH
     assert grain_for_generator("get_help_ticket_count") == GRAIN_MONTH
+    assert grain_for_generator("get_support_fte") == GRAIN_MONTH
+    assert grain_for_generator("get_tickets_per_fte") == GRAIN_MONTH
     assert grain_for_generator("get_support_spend_per_ticket") == GRAIN_MONTH
+    assert grain_for_generator("get_support_spend_per_resolved") == GRAIN_MONTH
+    assert grain_for_generator("get_help_fully_loaded_spend_per_ticket") == GRAIN_MONTH
     assert grain_for_generator("get_help_resolved_created_ratio") == GRAIN_MONTH
     assert grain_for_generator("get_engineering_escalation_count") == GRAIN_MONTH
     assert grain_for_generator("get_open_help") == GRAIN_DAILY

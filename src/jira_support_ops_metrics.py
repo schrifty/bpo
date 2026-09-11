@@ -424,6 +424,85 @@ def get_open_help_over_30d_pct(
     }
 
 
+def _require_support_opex(*, required_for: str) -> dict[str, Any]:
+    from .config import (
+        CORTEX_MONTHLY_SPEND_USD_SUPPORT,
+        require_monthly_spend_usd,
+    )
+
+    return require_monthly_spend_usd(
+        env_name="CORTEX_MONTHLY_SPEND_USD_SUPPORT",
+        configured=CORTEX_MONTHLY_SPEND_USD_SUPPORT,
+        required_for=required_for,
+    )
+
+
+def _require_support_fte(*, required_for: str) -> dict[str, Any]:
+    from .config import CORTEX_SUPPORT_FTE, require_monthly_spend_usd
+
+    return require_monthly_spend_usd(
+        env_name="CORTEX_SUPPORT_FTE",
+        configured=CORTEX_SUPPORT_FTE,
+        required_for=required_for,
+    )
+
+
+def get_support_fte(
+    *,
+    as_of: date | datetime | None = None,
+    timeout: float = 60.0,  # noqa: ARG001
+) -> dict[str, Any]:
+    """Finance-configured support headcount (FTE)."""
+    fte = _require_support_fte(required_for="Support FTE")
+    if fte.get("error"):
+        return fte
+    start, _end, month_key = _previous_calendar_month_bounds(_as_of_datetime(as_of))
+    value = float(fte["value"])
+    logger.info("Support FTE: %s (%s)", value, month_key)
+    return {
+        "value": value,
+        "month": month_key,
+        "as_of": start.date().isoformat(),
+        "method": "finance_constant",
+    }
+
+
+def get_tickets_per_fte(
+    client: JiraClient,
+    *,
+    as_of: date | datetime | None = None,
+    timeout: float = 60.0,
+) -> dict[str, Any]:
+    """HELP tickets created ÷ support FTE in the previous calendar month."""
+    fte = _require_support_fte(required_for="Tickets per FTE")
+    if fte.get("error"):
+        return fte
+    headcount = float(fte["value"])
+    tickets = get_help_ticket_count(client, as_of=as_of, timeout=timeout)
+    if tickets.get("error"):
+        return tickets
+    created = int(tickets["value"])
+    per_fte = round(created / headcount, 4)
+    logger.info(
+        "Tickets per FTE: %s created / %s FTE = %s (%s)",
+        created,
+        headcount,
+        per_fte,
+        tickets.get("month"),
+    )
+    return {
+        "numerator": float(created),
+        "denominator": headcount,
+        "value": per_fte,
+        "support_fte": headcount,
+        "tickets_created": created,
+        "month": tickets.get("month"),
+        "as_of": tickets.get("as_of"),
+        "jql": tickets.get("jql"),
+        "method": "actual_previous_month",
+    }
+
+
 def get_support_spend_per_ticket(
     client: JiraClient,
     *,
@@ -431,16 +510,7 @@ def get_support_spend_per_ticket(
     timeout: float = 60.0,
 ) -> dict[str, Any]:
     """Support opex ÷ HELP tickets created in the previous calendar month."""
-    from .config import (
-        CORTEX_MONTHLY_SPEND_USD_SUPPORT,
-        require_monthly_spend_usd,
-    )
-
-    spend = require_monthly_spend_usd(
-        env_name="CORTEX_MONTHLY_SPEND_USD_SUPPORT",
-        configured=CORTEX_MONTHLY_SPEND_USD_SUPPORT,
-        required_for="Support Spend / Ticket",
-    )
+    spend = _require_support_opex(required_for="Support Spend / Ticket")
     if spend.get("error"):
         return spend
     monthly = float(spend["value"])
@@ -477,4 +547,156 @@ def get_support_spend_per_ticket(
         "business_days": tickets.get("business_days"),
         "created_per_business_day": tickets.get("created_per_business_day"),
         "method": "actual_previous_month",
+    }
+
+
+def get_support_spend_per_resolved(
+    client: JiraClient,
+    *,
+    as_of: date | datetime | None = None,
+    timeout: float = 60.0,  # noqa: ARG001
+) -> dict[str, Any]:
+    """Support opex ÷ HELP tickets resolved in the previous calendar month."""
+    spend = _require_support_opex(required_for="Support Spend / Resolved")
+    if spend.get("error"):
+        return spend
+    monthly = float(spend["value"])
+    start, end, month_key = _previous_calendar_month_bounds(_as_of_datetime(as_of))
+    resolved_jql = (
+        f"project = HELP AND {_HELP_TRANSIENT} AND resolution is not EMPTY AND "
+        + _jql_half_open_day_range("resolved", start, end)
+    )
+    resolved = _count_or_error(
+        client, resolved_jql, label=f"HELP resolved {month_key}"
+    )
+    if resolved.get("error"):
+        return resolved
+    resolved_n = int(resolved["value"])
+    if resolved_n <= 0:
+        return {
+            "error": (
+                f"HELP resolved count is 0 in {month_key} — "
+                "cannot compute Support Spend / Resolved"
+            ),
+            "month": month_key,
+            "support_monthly_spend_usd": monthly,
+        }
+    per_ticket = round(monthly / resolved_n, 4)
+    logger.info(
+        "Support Spend / Resolved: $%s / %s HELP resolved = $%s (%s)",
+        monthly,
+        resolved_n,
+        per_ticket,
+        month_key,
+    )
+    return {
+        "numerator": monthly,
+        "denominator": float(resolved_n),
+        "value": per_ticket,
+        "support_monthly_spend_usd": monthly,
+        "tickets_resolved": resolved_n,
+        "month": month_key,
+        "as_of": start.date().isoformat(),
+        "resolved_jql": resolved_jql,
+        "method": "actual_previous_month",
+    }
+
+
+def get_help_fully_loaded_spend_per_ticket(
+    client: JiraClient,
+    *,
+    as_of: date | datetime | None = None,
+    timeout: float = 60.0,
+) -> dict[str, Any]:
+    """Support opex plus crude Data/Eng follow-on, ÷ HELP created.
+
+    Follow-on uses engineering monthly opex ÷ Issues Shipped as the unit cost
+    for each LEAN and CUSTOMER ``jira_escalated`` ticket that month.
+    """
+    from .config import (
+        CORTEX_MONTHLY_SPEND_USD_ENGINEERING,
+        require_monthly_spend_usd,
+    )
+    from .eng_scorecard_metrics import get_issues_shipped
+
+    support = _require_support_opex(required_for="HELP Fully Loaded $ / Ticket")
+    if support.get("error"):
+        return support
+    eng_opex = require_monthly_spend_usd(
+        env_name="CORTEX_MONTHLY_SPEND_USD_ENGINEERING",
+        configured=CORTEX_MONTHLY_SPEND_USD_ENGINEERING,
+        required_for="HELP Fully Loaded $ / Ticket",
+    )
+    if eng_opex.get("error"):
+        return eng_opex
+    tickets = get_help_ticket_count(client, as_of=as_of, timeout=timeout)
+    if tickets.get("error"):
+        return tickets
+    created = int(tickets["value"])
+    if created <= 0:
+        return {
+            "error": (
+                f"Ticket Count is 0 in {tickets.get('month')} — "
+                "cannot compute HELP Fully Loaded $ / Ticket"
+            ),
+            "month": tickets.get("month"),
+        }
+    eng_esc = get_engineering_escalation_count(
+        client, as_of=as_of, timeout=timeout
+    )
+    if eng_esc.get("error"):
+        return eng_esc
+    data_esc = get_data_escalation_count(client, as_of=as_of, timeout=timeout)
+    if data_esc.get("error"):
+        return data_esc
+    shipped = get_issues_shipped(
+        client, as_of=_as_of_datetime(as_of), timeout=timeout
+    )
+    if shipped.get("error"):
+        return shipped
+    issues = int(shipped.get("value") or 0)
+    if issues <= 0:
+        return {
+            "error": (
+                "Issues Shipped is 0 — cannot price HELP fully loaded follow-on "
+                "(engineering opex ÷ shipped issues)"
+            ),
+            "month": tickets.get("month"),
+        }
+    support_usd = float(support["value"])
+    eng_usd = float(eng_opex["value"])
+    unit = round(eng_usd / issues, 4)
+    eng_n = int(eng_esc["value"])
+    data_n = int(data_esc["value"])
+    eng_follow_on = round(eng_n * unit, 4)
+    data_follow_on = round(data_n * unit, 4)
+    follow_on = round(eng_follow_on + data_follow_on, 4)
+    total = round(support_usd + follow_on, 4)
+    per_ticket = round(total / created, 4)
+    logger.info(
+        "HELP Fully Loaded $ / Ticket: ($%s support + $%s follow-on) / %s = $%s (%s)",
+        support_usd,
+        follow_on,
+        created,
+        per_ticket,
+        tickets.get("month"),
+    )
+    return {
+        "numerator": total,
+        "denominator": float(created),
+        "value": per_ticket,
+        "support_monthly_spend_usd": support_usd,
+        "engineering_follow_on_usd": eng_follow_on,
+        "data_follow_on_usd": data_follow_on,
+        "follow_on_usd": follow_on,
+        "total_usd": total,
+        "escalation_unit_cost_usd": unit,
+        "engineering_escalations": eng_n,
+        "data_escalations": data_n,
+        "issues_shipped": issues,
+        "tickets_created": created,
+        "month": tickets.get("month"),
+        "as_of": tickets.get("as_of"),
+        "method": "actual_previous_month",
+        "unit_cost_basis": "engineering_opex_per_issue_shipped",
     }

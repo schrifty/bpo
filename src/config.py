@@ -244,7 +244,8 @@ CORTEX_CURSOR_SLIDES_ONLY = _cursor_slides_only in ("1", "true", "yes", "on")
 
 # Monthly department headcount/opex (USD), excluding AI tooling. Finance constants,
 # not secrets — still keep in local .env. Engineering is used by AI Spend % and
-# Headcount + AI Spend / Issue. Support is used by Support Spend / Ticket.
+# Headcount + AI Spend / Issue. Support is used by the support finance pack.
+# Support FTE is the headcount constant for Tickets per FTE.
 def _parse_monthly_spend_usd(env_name: str) -> float | None:
     raw = (os.environ.get(env_name) or "").strip()
     if not raw:
@@ -267,10 +268,14 @@ def require_monthly_spend_usd(
         raw = (os.environ.get(env_name) or "").strip()
         if raw:
             return {"error": f"{env_name} is not a valid number (got {raw!r})"}
+        extra = (
+            " (monthly headcount/opex USD, excluding AI tooling)"
+            if env_name.startswith("CORTEX_MONTHLY_SPEND_USD_")
+            else ""
+        )
         return {
             "error": (
-                f"{env_name} is not set — required for {required_for} "
-                "(monthly headcount/opex USD, excluding AI tooling)"
+                f"{env_name} is not set — required for {required_for}{extra}"
             )
         }
     if float(spend) <= 0:
@@ -284,6 +289,7 @@ CORTEX_MONTHLY_SPEND_USD_ENGINEERING = _parse_monthly_spend_usd(
 CORTEX_MONTHLY_SPEND_USD_SUPPORT = _parse_monthly_spend_usd(
     "CORTEX_MONTHLY_SPEND_USD_SUPPORT"
 )
+CORTEX_SUPPORT_FTE = _parse_monthly_spend_usd("CORTEX_SUPPORT_FTE")
 
 # Atlassian Teams roster (org membership) — reused across eng portfolio, Cursor scope, identity map.
 try:
