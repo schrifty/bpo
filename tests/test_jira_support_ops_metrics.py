@@ -162,9 +162,9 @@ def test_split_escalation_kpis_are_registered() -> None:
     data = metrics["Data Escalation Rate (30 Days)"]
     assert "Escalation Rate (30 Days)" not in metrics
     assert eng["metric-generator"] == "get_engineering_escalation_rate"
-    assert eng["target"] == 10
+    assert eng.get("target") in (None, "")
     assert data["metric-generator"] == "get_data_escalation_rate"
-    assert data["target"] == 5
+    assert data.get("target") in (None, "")
     assert "get_engineering_escalation_rate" in _GENERATORS
     assert "get_data_escalation_rate" in _GENERATORS
 
@@ -199,4 +199,5 @@ def test_get_p90_ttr_wrapper(jira_client) -> None:
     assert "error" not in out
     assert out["window_days"] == 30
     assert out["measured"] == 5
-    assert out["value"] == 100  # p90 index on 5 values → last sample (100h)
+    assert out["value"] == 4.17  # 100h / 24
+    assert out["p90_hours"] == 100.0

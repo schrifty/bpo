@@ -1,6 +1,6 @@
 """Median HELP TTR from JSM Time-to-resolution SLA (LeanDNA metric 2171).
 
-Value is the median completed ``customfield_10665`` elapsed time, in hours, for
+Value is the median completed ``customfield_10665`` elapsed time, in days, for
 HELP tickets resolved in a trailing window. Written to LeanDNA by ``metrics-upsert``.
 """
 
@@ -22,7 +22,7 @@ def get_median_ttr(
     days: int = DEFAULT_MEDIAN_TTR_DAYS,
     timeout: float = 60.0,  # noqa: ARG001 - search uses client timeouts
 ) -> dict[str, Any]:
-    """Return ``{"value": <hours>}`` median JSM TTR SLA elapsed time.
+    """Return ``{"value": <days>}`` median JSM TTR SLA elapsed time.
 
     Fails loud (``{"error": ...}``) when Jira is unavailable or no completed
     TTR SLA cycles exist in the window so ``metrics-upsert`` does not write a
@@ -42,15 +42,18 @@ def get_median_ttr(
             "window_days": int(days),
         }
 
+    hours = float(value)
+    days_value = round(hours / 24.0, 2)
     logger.info(
-        "Median TTR: %s hour(s) (measured=%s, window=%sd)",
-        value,
+        "Median TTR: %s day(s) (%s h, measured=%s, window=%sd)",
+        days_value,
+        hours,
         (result.get("ttr") or {}).get("measured"),
         days,
     )
     return {
-        "value": int(value),
-        "median_hours": result.get("median_hours"),
+        "value": days_value,
+        "median_hours": hours,
         "median_ms": result.get("median_ms"),
         "measured": (result.get("ttr") or {}).get("measured"),
         "window_days": int(days),

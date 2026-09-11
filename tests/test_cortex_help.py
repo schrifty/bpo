@@ -23,9 +23,9 @@ def test_cortex_module_help_has_organized_sections() -> None:
         "--customer",
         "--portfolio",
         "export-all",
+        "--kpi",
+        "kpi add",
         "kpi-snapshot",
-        "kpis",
-        "kpis add",
         "metrics-digest",
         "run-job",
     ):
@@ -47,4 +47,27 @@ def test_cortex_help_flag_prints_docstring() -> None:
     assert proc.returncode == 0
     assert "Start here" in proc.stdout
     assert "Metrics & KPIs" in proc.stdout
+    assert "error:" not in proc.stderr.lower()
+
+
+def test_cortex_kpi_flag_prints_kpi_help_only() -> None:
+    import subprocess
+    import sys
+
+    import cortex
+
+    root = Path(__file__).resolve().parents[1]
+    proc = subprocess.run(
+        [sys.executable, str(root / "cortex.py"), "--kpi"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0
+    assert "cortex KPI commands" in proc.stdout
+    assert "cortex kpi add" in proc.stdout
+    assert "cortex kpi-snapshot" in proc.stdout
+    assert "Start here" not in proc.stdout
+    assert proc.stdout.strip() == cortex.KPI_HELP
     assert "error:" not in proc.stderr.lower()

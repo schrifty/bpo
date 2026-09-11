@@ -14,6 +14,7 @@ Subcommands have their own ``--help`` (e.g. ``cortex run --help``).
 Start here
 ────────────────────────────────────────────────────────────────
   -h, --help              This reference
+  --kpi                   KPI command reference only
   --list                  Deck ids and display names (customer vs portfolio)
 
 ────────────────────────────────────────────────────────────────
@@ -85,16 +86,11 @@ Exports & data
 ────────────────────────────────────────────────────────────────
 Metrics & KPIs
 ────────────────────────────────────────────────────────────────
-  kpi                     LeanDNA metrics you own (Data API)
-                          [--values] [--requested-sites ID]
-  kpis                    Registry KPI values: all, one tag, or AND tag-set
+  kpi                     Registry KPI values: all, one tag, or AND tag-set
                           [--all] [TAG ...] [--mode live|stored|leandna]
-                          [--json] [--skip-s3]
-  kpis add|edit|delete|show
-                          Internal catalog edits to config/my-metrics.yaml
-                          add NAME [--tags …] [--generator …] [--target N]
-                          edit NAME [--new-name …] [--add-tag …] [--clear-…]
-                          delete NAME [--yes]   show NAME [--json]
+                          mine [--values]     LeanDNA metrics you own
+  kpi add|edit|delete|show
+                          Catalog edits to config/my-metrics.yaml
   kpi-snapshot            Run registry generators into the SQLite KPI store
                           [--date YYYY-MM-DD] [--dry-run] [--tag TAG]
                           [--metric NAME]
@@ -107,9 +103,7 @@ Metrics & KPIs
   metrics-deck            Google Slides from my-metrics.yaml
                           [--days N] [--timeout SEC] [--tag TAG]
 
-  --tag filters registry tags (e.g. akkr). kpi-snapshot --dry-run does not write.
-  kpis --all --mode stored --skip-s3 is one store read for the full catalog.
-  kpis add|edit|delete writes config/my-metrics.yaml (use --dry-run to preview).
+  Full KPI command help: cortex --kpi
 
 ────────────────────────────────────────────────────────────────
 Pendo snapshots
@@ -150,6 +144,44 @@ from pathlib import Path
 from src.cli_warning_filters import apply_cli_warning_filters
 
 apply_cli_warning_filters()
+
+# Printed by ``cortex --kpi`` (and ``cortex kpi --help``). Kept out of the main
+# ``--help`` blob so operators can open the catalog CLI without the full reference.
+KPI_HELP = """
+cortex KPI commands
+────────────────────────────────────────────────────────────────
+  cortex --kpi            This reference (no Drive / export startup)
+
+Values (config/my-metrics.yaml)
+  cortex kpi --all [--mode live|stored|leandna] [--json] [--skip-s3]
+  cortex kpi TAG [TAG ...]              AND tag-set (every listed tag)
+  cortex kpi                            List defined tags
+
+Catalog (writes config/my-metrics.yaml)
+  cortex kpi add NAME [--tags a,b] [--generator FN] [--description TEXT]
+                      [--metric-id N] [--unit currency|percent]
+                      [--target N --direction higher|lower] [--dry-run]
+  cortex kpi edit NAME [--new-name NAME] [--add-tag T] [--remove-tag T]
+                       [--clear-target] [--clear-generator] …
+  cortex kpi delete NAME [--yes] [--dry-run]
+  cortex kpi show NAME [--json]
+
+LeanDNA owned metrics (Data API)
+  cortex kpi mine [--values] [--requested-sites ID]
+
+Snapshot / digest / deck
+  cortex kpi-snapshot [--date YYYY-MM-DD] [--dry-run] [--tag TAG] [--metric NAME]
+  cortex metrics-upsert [--date YYYY-MM-DD] [--dry-run] [--metric NAME]
+  cortex metrics-digest [--dry-run] [--days N] [--timeout SEC] [--tag TAG]
+  cortex metrics-report               Same as metrics-digest --dry-run
+  cortex metrics-deck [--days N] [--timeout SEC] [--tag TAG]
+
+Notes
+  --tag filters registry tags (e.g. akkr). kpi-snapshot --dry-run does not write.
+  kpi --all --mode stored --skip-s3 is one store read for the full catalog.
+  kpi add|edit|delete writes config/my-metrics.yaml (--dry-run to preview).
+  delete requires --yes when stdin is not a TTY.
+""".strip()
 
 # Same split as ``cortex --list`` and batch commands (customer-scoped vs portfolio / cross-customer).
 _PORTFOLIO_SCOPE_DECK_IDS: frozenset[str] = frozenset(
@@ -847,7 +879,11 @@ def _run_support_kpis_deck(rest: list[str]) -> None:
     print(f"  OK   {result.get('url', '')}")
 
 
-def _run_kpi_cli(rest: list[str]) -> None:
+def _print_kpi_help() -> None:
+    print(KPI_HELP)
+
+
+def _run_kpi_mine_cli(rest: list[str]) -> None:
     """Run ``scripts/metrics-get-mine.py`` (Data API owned-metrics list)."""
     root = Path(__file__).resolve().parent
     script = root / "scripts" / "metrics-get-mine.py"
@@ -858,12 +894,18 @@ def _run_kpi_cli(rest: list[str]) -> None:
     raise SystemExit(rc)
 
 
-def _run_kpis_cli(rest: list[str]) -> None:
-    """``cortex kpis`` — resolve values, or add/edit/delete registry rows."""
+def _run_kpi_cli(rest: list[str]) -> None:
+    """``cortex kpi`` — resolve values, catalog add/edit/delete, or owned LeanDNA list."""
     from src.kpi_manage_cli import is_kpi_manage_command, run_kpi_manage_cli
 
+    if rest and rest[0] in ("-h", "--help", "--kpi"):
+        _print_kpi_help()
+        return
+    if rest and rest[0] in ("mine", "owned"):
+        _run_kpi_mine_cli(rest[1:])
+        return
     if rest and is_kpi_manage_command(rest[0]):
-        raise SystemExit(run_kpi_manage_cli(rest, prog="cortex kpis"))
+        raise SystemExit(run_kpi_manage_cli(rest, prog="cortex kpi"))
     root = Path(__file__).resolve().parent
     script = root / "scripts" / "metrics-by-tag.py"
     if not script.is_file():
@@ -1306,6 +1348,9 @@ def main():
     if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help"):
         print(__doc__.strip())
         return
+    if len(sys.argv) >= 2 and sys.argv[1] == "--kpi":
+        _print_kpi_help()
+        return
     if len(sys.argv) <= 1:
         print(__doc__.strip())
         sys.exit(1)
@@ -1528,11 +1573,8 @@ def main():
     if sub in ("support-kpis", "support_kpis"):
         _run_support_kpis_deck(sys.argv[2:])
         return
-    if sub == "kpi":
+    if sub in ("kpi", "kpis"):
         _run_kpi_cli(sys.argv[2:])
-        return
-    if sub == "kpis":
-        _run_kpis_cli(sys.argv[2:])
         return
     if sub == "kpi-snapshot":
         _run_kpi_snapshot_cli(sys.argv[2:])

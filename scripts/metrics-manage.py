@@ -3,10 +3,11 @@
 
 Examples::
 
+  cortex kpi add "My KPI" --tags engineering --description "..."
+  cortex kpi edit "My KPI" --target 10 --direction lower
+  cortex kpi delete "My KPI" --yes
+  cortex kpi show "My KPI"
   metrics-manage add "My KPI" --tags engineering --description "..."
-  metrics-manage edit "My KPI" --target 10 --direction lower
-  metrics-manage delete "My KPI" --yes
-  metrics-manage show "My KPI"
 """
 from __future__ import annotations
 

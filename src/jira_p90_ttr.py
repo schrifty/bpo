@@ -1,7 +1,7 @@
 """P90 HELP TTR from JSM Time-to-resolution SLA (trailing window).
 
 Value is the 90th percentile completed ``customfield_10665`` elapsed time, in
-hours, for HELP tickets resolved in the window.
+days, for HELP tickets resolved in the window.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ def get_p90_ttr(
     days: int = DEFAULT_P90_TTR_DAYS,
     timeout: float = 60.0,  # noqa: ARG001 - search uses client timeouts
 ) -> dict[str, Any]:
-    """Return ``{"value": <hours>}`` P90 JSM TTR SLA elapsed time.
+    """Return ``{"value": <days>}`` P90 JSM TTR SLA elapsed time.
 
     Fails loud when Jira is unavailable or no completed TTR SLA cycles exist.
     """
@@ -40,15 +40,18 @@ def get_p90_ttr(
             "window_days": int(days),
         }
 
+    hours = float(value)
+    days_value = round(hours / 24.0, 2)
     logger.info(
-        "P90 TTR: %s hour(s) (measured=%s, window=%sd)",
-        value,
+        "P90 TTR: %s day(s) (%s h, measured=%s, window=%sd)",
+        days_value,
+        hours,
         result.get("measured"),
         days,
     )
     return {
-        "value": int(value),
-        "p90_hours": result.get("p90_hours"),
+        "value": days_value,
+        "p90_hours": hours,
         "p90_ms": result.get("p90_ms"),
         "measured": result.get("measured"),
         "window_days": int(days),

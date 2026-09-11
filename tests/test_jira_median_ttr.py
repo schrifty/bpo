@@ -101,7 +101,8 @@ def test_get_median_ttr_wrapper_returns_value(jira_client) -> None:
     ):
         out = get_median_ttr(jira_client, days=30)
 
-    assert out["value"] == 42
+    assert out["value"] == 1.75  # 42h / 24
+    assert out["median_hours"] == 42.0
     assert out["window_days"] == 30
     assert out["measured"] == 2
     assert "error" not in out

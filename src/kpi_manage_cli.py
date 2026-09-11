@@ -205,12 +205,12 @@ def _cmd_show(ns: argparse.Namespace) -> int:
     return 0
 
 
-def build_parser(*, prog: str = "cortex kpis") -> argparse.ArgumentParser:
+def build_parser(*, prog: str = "cortex kpi") -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog=prog,
         description=(
             "Add, edit, delete, or show KPI definitions in config/my-metrics.yaml. "
-            "Value lookup remains: cortex kpis --all | cortex kpis TAG ..."
+            "Value lookup: cortex kpi --all | cortex kpi TAG ...  Help: cortex --kpi"
         ),
     )
     sub = ap.add_subparsers(dest="manage_command", required=True)
@@ -243,7 +243,7 @@ def build_parser(*, prog: str = "cortex kpis") -> argparse.ArgumentParser:
     return ap
 
 
-def run_kpi_manage_cli(argv: Sequence[str] | None = None, *, prog: str = "cortex kpis") -> int:
+def run_kpi_manage_cli(argv: Sequence[str] | None = None, *, prog: str = "cortex kpi") -> int:
     ap = build_parser(prog=prog)
     ns = ap.parse_args(list(argv) if argv is not None else None)
     command = ns.manage_command

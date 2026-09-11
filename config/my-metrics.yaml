@@ -7,7 +7,7 @@
 # and CLIs without a LeanDNA catalog id. Reads are live by default. SQLite (kpi-snapshot)
 # is Cortex stored history; LeanDNA Data API persistence is explicit
 # (`metrics-upsert` / kpi_service.materialize_kpi) — generating never writes.
-# Add/edit/delete rows with `cortex kpis add|edit|delete|show` (writes this file).
+# Add/edit/delete rows with `cortex kpi add|edit|delete|show` (``cortex --kpi``).
 #
 # Fields:
 #   description       — Human-readable summary of what the metric measures; filled in for
@@ -112,11 +112,11 @@ metrics:
 
   # Median TTR
   "Median TTR":
-    description: Median HELP time-to-resolution (hours), last 30 days.
+    description: Median HELP time-to-resolution (days), last 30 days.
     metric-id: 2171
     metric-generator: get_median_ttr
     tags: [support, sla]
-    target: 160
+    target: 6.67
     direction: lower
 
   # SLA Adherence (30 Days)
@@ -158,8 +158,6 @@ metrics:
     metric-generator: get_engineering_escalation_rate
     tags: [support, escalation, engineering]
     unit: percent
-    target: 10
-    direction: lower
 
   "Data Escalation Rate (30 Days)":
     description: >-
@@ -170,17 +168,15 @@ metrics:
     metric-generator: get_data_escalation_rate
     tags: [support, escalation, data-integration]
     unit: percent
-    target: 5
-    direction: lower
 
   "P90 TTR (30 Days)":
     description: >-
-      90th percentile HELP Time to resolution (JSM SLA) in hours, last 30 days
+      90th percentile HELP Time to resolution (JSM SLA) in days, last 30 days
       (resolved tickets with a completed TTR cycle).
     metric-id: null
     metric-generator: get_p90_ttr
     tags: [support, sla]
-    target: 240
+    target: 10
     direction: lower
 
   "Engineering Cycle Time (Sprint)":

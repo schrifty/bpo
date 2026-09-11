@@ -177,7 +177,7 @@ def test_cli_add_edit_delete_show(tmp_path: Path) -> None:
             str(path),
             "--json",
         ],
-        prog="cortex kpis",
+        prog="cortex kpi",
     )
     assert rc == 0
     found = get_registry_metric("CLI KPI", registry=load_metrics_registry(path=path))
@@ -186,7 +186,7 @@ def test_cli_add_edit_delete_show(tmp_path: Path) -> None:
 
     rc = run_kpi_manage_cli(
         ["edit", "CLI KPI", "--add-tag", "ops", "--target", "12", "--direction", "lower", "--registry", str(path)],
-        prog="cortex kpis",
+        prog="cortex kpi",
     )
     assert rc == 0
     found = get_registry_metric("CLI KPI", registry=load_metrics_registry(path=path))
@@ -194,12 +194,12 @@ def test_cli_add_edit_delete_show(tmp_path: Path) -> None:
     assert "ops" in found[1]["tags"]
     assert found[1]["target"] == 12.0
 
-    rc = run_kpi_manage_cli(["show", "CLI KPI", "--registry", str(path), "--json"], prog="cortex kpis")
+    rc = run_kpi_manage_cli(["show", "CLI KPI", "--registry", str(path), "--json"], prog="cortex kpi")
     assert rc == 0
 
     rc = run_kpi_manage_cli(
         ["delete", "CLI KPI", "--yes", "--registry", str(path)],
-        prog="cortex kpis",
+        prog="cortex kpi",
     )
     assert rc == 0
     assert get_registry_metric("CLI KPI", registry=load_metrics_registry(path=path)) is None
@@ -208,14 +208,14 @@ def test_cli_add_edit_delete_show(tmp_path: Path) -> None:
 def test_cli_delete_requires_yes_without_tty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = _write_registry(tmp_path)
     monkeypatch.setattr("src.kpi_manage_cli.sys.stdin.isatty", lambda: False)
-    rc = run_kpi_manage_cli(["delete", "Alpha", "--registry", str(path)], prog="cortex kpis")
+    rc = run_kpi_manage_cli(["delete", "Alpha", "--registry", str(path)], prog="cortex kpi")
     assert rc == 1
     assert get_registry_metric("Alpha", registry=load_metrics_registry(path=path)) is not None
 
 
 def test_cli_help_lists_subcommands() -> None:
     with pytest.raises(SystemExit) as caught:
-        run_kpi_manage_cli(["--help"], prog="cortex kpis")
+        run_kpi_manage_cli(["--help"], prog="cortex kpi")
     assert caught.value.code == 0
 
 
