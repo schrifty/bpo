@@ -62,7 +62,7 @@ def enrich_report_with_item_master(
     
     # Check if LeanDNA is configured
     if not leandna_data_api_credentials_configured():
-        logger.debug("LeanDNA enrichment skipped: no LEANDNA_DATA_API_BEARER_TOKEN or LEANDNA_DATA_API_COOKIE")
+        logger.debug("LeanDNA enrichment skipped: no LEANDNA_DATA_API_API_KEY, BEARER_TOKEN, or COOKIE")
         report.setdefault("leandna_item_master", {"enabled": False, "reason": "bearer_token_not_configured"})
         return report
     

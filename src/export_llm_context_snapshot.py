@@ -375,7 +375,7 @@ def build_leandna_data_api_reference() -> dict[str, Any]:
     return {
         "note": (
             "LeanDNA Data API payloads attach to **single-customer** QBR/health reports when "
-            "`LEANDNA_DATA_API_BEARER_TOKEN` is set and enrichment runs. This all-customers file still "
+            "`LEANDNA_DATA_API_API_KEY` is set and enrichment runs. This all-customers file still "
             "omits live §1–§6 values for those sources; use this block for **path and endpoint vocabulary**."
         ),
         "data_summary_catalog_path": str(_DATA_SUMMARY_PATH.relative_to(_ROOT)),

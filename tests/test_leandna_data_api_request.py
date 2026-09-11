@@ -31,6 +31,30 @@ def test_normalize_allows_lean_project_path_template_chars() -> None:
     assert normalize_data_api_relative_path("LeanProject/1,2/Savings") == "LeanProject/1,2/Savings"
 
 
+def test_build_leandna_data_api_headers_uses_auth_session_when_api_key_set() -> None:
+    from unittest.mock import patch
+
+    from src.leandna_data_api_http import build_leandna_data_api_headers
+
+    with patch.multiple(
+        "src.leandna_data_api_http",
+        LEANDNA_DATA_API_API_KEY="id:passcode",
+        LEANDNA_DATA_API_BEARER_TOKEN="stale-session",
+        LEANDNA_DATA_API_COOKIE="",
+    ), patch(
+        "src.leandna_data_api_http._resolved_data_api_base_url",
+        return_value="https://app.leandna.com/api",
+    ), patch(
+        "src.leandna_data_api_http.fetch_data_api_session_id",
+        return_value="fresh-session-id",
+    ) as mock_fetch:
+        h = build_leandna_data_api_headers()
+    assert h["Authorization"] == "Bearer fresh-session-id"
+    mock_fetch.assert_called_once()
+    assert mock_fetch.call_args.kwargs["auth_base_url"] == "https://app.leandna.com/auth"
+    assert mock_fetch.call_args.args[0] == "id:passcode"
+
+
 def test_build_leandna_data_api_headers_strips_redundant_bearer_prefix() -> None:
     from unittest.mock import patch
 
@@ -38,6 +62,7 @@ def test_build_leandna_data_api_headers_strips_redundant_bearer_prefix() -> None
 
     with patch.multiple(
         "src.leandna_data_api_http",
+        LEANDNA_DATA_API_API_KEY="",
         LEANDNA_DATA_API_BEARER_TOKEN="Bearer  abc123",
         LEANDNA_DATA_API_COOKIE="",
     ):
@@ -59,7 +84,7 @@ def test_format_data_api_error_envelope_parses_json_reason() -> None:
     )
     assert "401" in msg
     assert "Session not found" in msg
-    assert "PR_LEANDNA_DATA_API_BEARER_TOKEN" in msg
+    assert "PR_LEANDNA_DATA_API_API_KEY" in msg
 
 
 def test_data_api_get_json_missing_credentials_envelope() -> None:
@@ -67,7 +92,7 @@ def test_data_api_get_json_missing_credentials_envelope() -> None:
 
     with patch("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", ""), patch(
         "src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", ""
-    ):
+    ), patch("src.leandna_data_api_http.LEANDNA_DATA_API_API_KEY", ""):
         out = data_api_get_json("Metric")
     assert out["ok"] is False
     assert "error" in out
@@ -104,7 +129,7 @@ def test_data_api_mutate_json_missing_credentials_envelope() -> None:
 
     with patch("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", ""), patch(
         "src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", ""
-    ):
+    ), patch("src.leandna_data_api_http.LEANDNA_DATA_API_API_KEY", ""):
         out = data_api_mutate_json("POST", "LeanProject", json_body={"name": "x"})
     assert out["ok"] is False
     assert "error" in out
@@ -121,7 +146,9 @@ def test_data_api_mutate_json_post_success_envelope() -> None:
     resp.text = '{"created": true}'
     resp.reason = "OK"
 
-    with patch("src.leandna_data_api_request.requests.request", return_value=resp):
+    with patch("src.leandna_data_api_http.requests.request", return_value=resp), patch(
+        "src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "tok"
+    ), patch("src.leandna_data_api_http.LEANDNA_DATA_API_API_KEY", ""):
         out = data_api_mutate_json("POST", "LeanProject", json_body={"name": "Test"}, requested_sites="172")
     assert out["ok"] is True
     assert out["body"] == {"created": True}
@@ -140,9 +167,10 @@ def test_data_api_mutate_json_not_blocked_when_production_bucket(monkeypatch: py
     resp.text = "{}"
     resp.reason = "OK"
     with patch("src.leandna_data_api_request.data_api_base_url", return_value="https://app.leandna.com/api"), patch(
-        "src.leandna_data_api_request.build_leandna_data_api_headers",
-        return_value={"Authorization": "Bearer test"},
-    ), patch("src.leandna_data_api_request.requests.request", return_value=resp) as mock_req:
+        "src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "test"
+    ), patch("src.leandna_data_api_http.LEANDNA_DATA_API_API_KEY", ""), patch(
+        "src.leandna_data_api_http.requests.request", return_value=resp
+    ) as mock_req:
         out = data_api_mutate_json("DELETE", "Metric/1/MetricDataPoint")
     assert out["ok"] is True
     mock_req.assert_called_once()

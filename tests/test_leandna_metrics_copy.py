@@ -145,7 +145,7 @@ def test_copy_metric_catalog_auth_failure(env_configs) -> None:
     assert out["ok"] is False
     assert "401" in out["error"]
     assert "Session not found" in out["error"]
-    assert "PR_LEANDNA_DATA_API_BEARER_TOKEN" in out["error"]
+    assert "PR_LEANDNA_DATA_API_API_KEY" in out["error"]
 
 
 def test_copy_metric_not_found(env_configs) -> None:

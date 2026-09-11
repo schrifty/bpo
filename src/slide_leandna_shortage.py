@@ -26,7 +26,7 @@ def leandna_shortage_unavailable_message(ldna: dict[str, Any]) -> str:
         reason = (ldna.get("reason") or "").strip()
         if reason == "bearer_token_not_configured":
             return (
-                "LeanDNA Material Shortage — set LEANDNA_DATA_API_BEARER_TOKEN or LEANDNA_DATA_API_COOKIE "
+                "LeanDNA Material Shortage — set LEANDNA_DATA_API_API_KEY (or BEARER_TOKEN / COOKIE) "
                 "(see src/leandna_data_api_http.py)"
             )
         if reason:

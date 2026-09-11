@@ -210,12 +210,13 @@ def test_summarize_metric_datapoint_values() -> None:
 def test_missing_token_raises(monkeypatch):
     monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_BEARER_TOKEN", "")
     monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_COOKIE", "")
+    monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_API_KEY", "")
     from src.leandna_metrics_client import list_metric_definitions
 
     try:
         list_metric_definitions()
     except ValueError as e:
-        assert "LEANDNA_DATA_API_COOKIE" in str(e) or "LEANDNA_DATA_API_BEARER_TOKEN" in str(e)
+        assert "LEANDNA_DATA_API_COOKIE" in str(e) or "LEANDNA_DATA_API_BEARER_TOKEN" in str(e) or "LEANDNA_DATA_API_API_KEY" in str(e)
     else:
         raise AssertionError("expected ValueError")
 

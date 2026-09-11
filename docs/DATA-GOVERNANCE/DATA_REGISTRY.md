@@ -259,7 +259,7 @@ Column names, KPI JSON shape, and how Cortex reads the workbook are documented i
 
 ## LeanDNA Data API
 
-REST Data API (auth: Bearer and/or session cookie — [`../SETUP/LEANDNA_SETUP.md`](../SETUP/LEANDNA_SETUP.md); optional `RequestedSites` header). Schema: [`LEANDNA_DATA_API_SCHEMA.md`](./LEANDNA_DATA_API_SCHEMA.md). Clients: `src/leandna_*_client.py`, enrich: `src/leandna_*_enrich.py`. Tool notes: [`LEANDNA_DATA_API_TOOLS.md`](./LEANDNA_DATA_API_TOOLS.md). OpenAPI: `scripts/fetch_leandna_swagger.py` when authenticated.
+REST Data API (auth: API key → session Bearer, and/or session cookie — [`../SETUP/LEANDNA_SETUP.md`](../SETUP/LEANDNA_SETUP.md); optional `RequestedSites` header). Schema: [`LEANDNA_DATA_API_SCHEMA.md`](./LEANDNA_DATA_API_SCHEMA.md). Clients: `src/leandna_*_client.py`, enrich: `src/leandna_*_enrich.py`. Tool notes: [`LEANDNA_DATA_API_TOOLS.md`](./LEANDNA_DATA_API_TOOLS.md). OpenAPI: `scripts/fetch_leandna_swagger.py` when authenticated.
 
 ### Query Surfaces
 
@@ -304,7 +304,7 @@ REST Data API (auth: Bearer and/or session cookie — [`../SETUP/LEANDNA_SETUP.m
 | `WEEKLY-DEMAND-STD-DEV` | Weekly demand standard deviation (volatility). | `weeklyDemandStdDev` (ItemMasterData) | `src/leandna_item_master_client.py` | **NEW** — forecasting/planning |
 | `FUTURE-DEMAND-DAILY` | Forecast daily demand. | `futureDemandDaily` (ItemMasterData) | `src/leandna_item_master_client.py` | **NEW** |
 
-**Note:** LeanDNA fields are **optional** and only available when at least one of `LEANDNA_DATA_API_BEARER_TOKEN` or `LEANDNA_DATA_API_COOKIE` is configured (see [`../SETUP/LEANDNA_SETUP.md`](../SETUP/LEANDNA_SETUP.md)). QBR slides gracefully degrade if enrichment is disabled or fails.
+**Note:** LeanDNA fields are **optional** and only available when at least one of `LEANDNA_DATA_API_API_KEY`, `LEANDNA_DATA_API_BEARER_TOKEN`, or `LEANDNA_DATA_API_COOKIE` is configured (see [`../SETUP/LEANDNA_SETUP.md`](../SETUP/LEANDNA_SETUP.md)). QBR slides gracefully degrade if enrichment is disabled or fails.
 
 ### Registry Entries (Material Shortages)
 

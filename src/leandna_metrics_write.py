@@ -58,8 +58,8 @@ def _configure_logging(verbose: bool) -> None:
 def _require_data_api_credentials() -> str | None:
     if not leandna_data_api_credentials_configured():
         return (
-            "Missing LeanDNA Data API credentials — set PR_LEANDNA_DATA_API_BEARER_TOKEN "
-            "or LEANDNA_DATA_API_COOKIE in .env."
+            "Missing LeanDNA Data API credentials — set PR_LEANDNA_DATA_API_API_KEY "
+            "(or BEARER_TOKEN / COOKIE) in .env."
         )
     return None
 
@@ -104,10 +104,10 @@ def _unauthorized_site_hint(requested_sites: str | None) -> str:
     auth_s = ", ".join(str(s) for s in authorized) if authorized else "(none from GET /data/identity)"
     req_s = requested_sites if requested_sites is not None else "(omitted)"
     return (
-        f"RequestedSites={req_s} but your bearer token authorizes site id(s): {auth_s}.\n"
-        "Copy PR_LEANDNA_DATA_API_BEARER_TOKEN from DevTools while logged into the site "
-        "where this metric lives (often site 416 for internal KPIs), or pass --requested-sites "
-        "with a site your token can access."
+        f"RequestedSites={req_s} but your Data API session authorizes site id(s): {auth_s}.\n"
+        "Use PR_LEANDNA_DATA_API_API_KEY for an account that can access this site "
+        "(often site 416 for internal KPIs), or pass --requested-sites "
+        "with a site your session can access."
     )
 
 

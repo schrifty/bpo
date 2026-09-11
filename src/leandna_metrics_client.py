@@ -6,7 +6,7 @@ Surfaces from the OpenAPI **Metrics** group (same host as Item Master / Lean Pro
 - ``GET /data/MetricReport`` — fiscal-year metric report (monthly aggregates), optionally filtered.
 - :func:`format_first_kpi_line_from_metric_report` — one-line summary of the first ``metricValues`` row (for logs / smoke tests).
 
-Auth: see :mod:`leandna_data_api_http` — **Bearer** and/or **browser session cookie**
+Auth: see :mod:`leandna_data_api_http` — **API key** (Auth session) and/or **browser session cookie**
 (``LEANDNA_DATA_API_COOKIE``). Optional ``RequestedSites`` header.
 
 Exact query parameter names can vary by LeanDNA release — defaults use camelCase
@@ -50,9 +50,8 @@ def _raise_for_status(resp: requests.Response) -> None:
     snippet = (resp.text or "").strip().replace("\n", " ")[:500]
     if resp.status_code == 401:
         logger.error(
-            "LeanDNA Data API 401 — invalid/expired Bearer, wrong LEANDNA_DATA_API_BASE_URL, or session "
-            "expired. Try LEANDNA_DATA_API_COOKIE from the browser while logged in (see "
-            "src/leandna_data_api_http.py). URL=%s body_prefix=%r",
+            "LeanDNA Data API 401 — Auth session expired or invalid API key, wrong "
+            "LEANDNA_DATA_API_BASE_URL, or cookie session expired. URL=%s body_prefix=%r",
             resp.url,
             snippet,
         )

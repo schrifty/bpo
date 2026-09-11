@@ -59,7 +59,7 @@ def enrich_report_with_shortage_trends(
     # Check if LeanDNA is configured
     if not leandna_data_api_credentials_configured():
         logger.debug(
-            "LeanDNA shortage trends skipped: no LEANDNA_DATA_API_BEARER_TOKEN or LEANDNA_DATA_API_COOKIE",
+            "LeanDNA shortage trends skipped: no LEANDNA_DATA_API_API_KEY, BEARER_TOKEN, or COOKIE",
         )
         report.setdefault("leandna_shortage_trends", {"enabled": False, "reason": "bearer_token_not_configured"})
         return report

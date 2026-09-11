@@ -47,6 +47,19 @@ def _deterministic_test_env(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _block_leandna_auth_session_in_unit_tests(request: pytest.FixtureRequest, monkeypatch):
+    """Unit tests must not call Auth ``/data/session`` with a developer API key from ``.env``."""
+    from src.leandna_auth_session import reset_auth_session_cache
+
+    reset_auth_session_cache()
+    if request.node.get_closest_marker("leandna_data_api") is None:
+        monkeypatch.setattr("src.leandna_data_api_http.LEANDNA_DATA_API_API_KEY", "")
+        monkeypatch.setattr("src.config.LEANDNA_DATA_API_API_KEY", "")
+    yield
+    reset_auth_session_cache()
+
+
+@pytest.fixture(autouse=True)
 def _isolated_process_caches():
     """Module-level integration/config caches must not leak mocked responses between tests."""
     from src import drive_config, salesforce_client, slide_loader

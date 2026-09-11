@@ -144,8 +144,8 @@ def test_leandna_metric_report_live_displays_first_kpi(capsys) -> None:
 
     if not leandna_data_api_credentials_configured():
         pytest.skip(
-            "LeanDNA Data API credentials missing — set LEANDNA_DATA_API_BEARER_TOKEN "
-            "and/or LEANDNA_DATA_API_COOKIE"
+            "LeanDNA Data API credentials missing — set LEANDNA_DATA_API_API_KEY "
+            "(or BEARER_TOKEN / COOKIE)"
         )
 
     fiscal_year = date.today().year
@@ -225,8 +225,8 @@ def test_leandna_metrics_list_endpoint_live() -> None:
 
     if not leandna_data_api_credentials_configured():
         pytest.skip(
-            "LeanDNA Data API credentials missing — set LEANDNA_DATA_API_BEARER_TOKEN "
-            "and/or LEANDNA_DATA_API_COOKIE"
+            "LeanDNA Data API credentials missing — set LEANDNA_DATA_API_API_KEY "
+            "(or BEARER_TOKEN / COOKIE)"
         )
 
     base = (_config.LEANDNA_DATA_API_BASE_URL or "https://app.leandna.com/api").rstrip("/")

@@ -124,8 +124,8 @@ def print_result_env(env: dict[str, Any]) -> None:
     err = str((insert or env).get("error") or "")
     if (insert or env).get("status") == 401 or "session not found" in err.lower():
         print(
-            "Bearer token expired or invalid — refresh PR_LEANDNA_DATA_API_BEARER_TOKEN "
-            "from DevTools (Authorization header on any /api/data/… request while logged in).",
+            "Auth session expired — Cortex will refresh from PR_LEANDNA_DATA_API_API_KEY; "
+            "if this persists, check that API key is valid for this Data API host.",
             file=sys.stderr,
         )
     elif (insert or env).get("status") == 504 or "504" in err:

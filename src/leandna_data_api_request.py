@@ -19,7 +19,7 @@ from typing import Any
 import requests
 
 from .config import logger, resolve_leandna_data_api_base_url
-from .leandna_data_api_http import build_leandna_data_api_headers
+from .leandna_data_api_http import leandna_data_api_http_request
 
 # Path under /data/ — letters, digits, slashes, hyphens, underscores, dots,
 # commas (e.g. LeanProject id lists), braces (OpenAPI path templates — caller passes literal segment).
@@ -86,8 +86,8 @@ def format_data_api_error_envelope(
         line = f"LeanDNA Data API: {detail}"
     if status == 401 and cred_prefix:
         line += (
-            f" — refresh {cred_prefix}LEANDNA_DATA_API_BEARER_TOKEN or set "
-            f"{cred_prefix}LEANDNA_DATA_API_COOKIE from browser DevTools while logged into app.leandna.com"
+            f" — check {cred_prefix}LEANDNA_DATA_API_API_KEY (Auth session) or "
+            f"{cred_prefix}LEANDNA_DATA_API_COOKIE"
         )
     return line
 
@@ -161,17 +161,18 @@ def data_api_get_json(
     url = f"{base}/data/{rel}"
     params = {k: v for k, v in (query or {}).items() if v is not None and v != ""}
 
-    try:
-        headers = build_leandna_data_api_headers(
-            requested_sites=requested_sites,
-            user_agent_suffix=user_agent_suffix,
-        )
-    except ValueError as e:
-        return {"ok": False, "error": str(e), "hint": "Set LEANDNA_DATA_API_BEARER_TOKEN and/or LEANDNA_DATA_API_COOKIE"}
-
     logger.info("LeanDNA Data API GET %s params=%s", url, list(params.keys()) if params else "none")
     try:
-        r = requests.get(url, headers=headers, params=params or None, timeout=timeout_seconds)
+        r = leandna_data_api_http_request(
+            "GET",
+            url,
+            requested_sites=requested_sites,
+            user_agent_suffix=user_agent_suffix,
+            timeout=timeout_seconds,
+            params=params or None,
+        )
+    except ValueError as e:
+        return {"ok": False, "error": str(e), "hint": "Set LEANDNA_DATA_API_API_KEY (or BEARER_TOKEN / COOKIE)"}
     except requests.RequestException as e:
         return {"ok": False, "error": f"request failed: {e}", "url": url}
 
@@ -213,24 +214,25 @@ def data_api_mutate_json(
     url = f"{base}/data/{rel}"
     params = {k: v for k, v in (query or {}).items() if v is not None and v != ""}
 
-    try:
-        headers = build_leandna_data_api_headers(
-            requested_sites=requested_sites,
-            user_agent_suffix=user_agent_suffix,
-            content_type_json=m in ("POST", "PUT") and json_body is not None,
-        )
-    except ValueError as e:
-        return {"ok": False, "error": str(e), "hint": "Set LEANDNA_DATA_API_BEARER_TOKEN and/or LEANDNA_DATA_API_COOKIE"}
-
-    kw: dict[str, Any] = {"headers": headers, "timeout": timeout_seconds}
+    extra_kw: dict[str, Any] = {}
     if params:
-        kw["params"] = params
+        extra_kw["params"] = params
     if m in ("POST", "PUT") and json_body is not None:
-        kw["json"] = json_body
+        extra_kw["json"] = json_body
 
     logger.info("LeanDNA Data API %s %s params=%s has_json_body=%s", m, url, list(params.keys()) if params else "none", json_body is not None)
     try:
-        r = requests.request(m, url, **kw)
+        r = leandna_data_api_http_request(
+            m,
+            url,
+            requested_sites=requested_sites,
+            user_agent_suffix=user_agent_suffix,
+            content_type_json=m in ("POST", "PUT") and json_body is not None,
+            timeout=timeout_seconds,
+            **extra_kw,
+        )
+    except ValueError as e:
+        return {"ok": False, "error": str(e), "hint": "Set LEANDNA_DATA_API_API_KEY (or BEARER_TOKEN / COOKIE)"}
     except requests.RequestException as e:
         return {"ok": False, "error": f"request failed: {e}", "url": url}
 

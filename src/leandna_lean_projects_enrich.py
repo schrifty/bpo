@@ -129,7 +129,7 @@ def enrich_report_with_lean_projects(
     # Check if LeanDNA is configured
     if not leandna_data_api_credentials_configured():
         logger.debug(
-            "LeanDNA Lean Projects skipped: no LEANDNA_DATA_API_BEARER_TOKEN or LEANDNA_DATA_API_COOKIE",
+            "LeanDNA Lean Projects skipped: no LEANDNA_DATA_API_API_KEY, BEARER_TOKEN, or COOKIE",
         )
         report.setdefault("leandna_lean_projects", {
             "enabled": False,

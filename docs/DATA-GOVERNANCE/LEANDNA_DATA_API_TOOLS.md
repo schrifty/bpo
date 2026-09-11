@@ -5,7 +5,7 @@ This document analyzes the LeanDNA Data API swagger spec and outlines what tools
 ## API Overview
 
 **Base URL:** `https://app.leandna.com/api`  
-**Auth:** Bearer (`LEANDNA_DATA_API_BEARER_TOKEN`) and/or browser cookie (`LEANDNA_DATA_API_COOKIE`) — see [`../SETUP/LEANDNA_SETUP.md`](../SETUP/LEANDNA_SETUP.md).  
+**Auth:** API key (`LEANDNA_DATA_API_API_KEY`) exchanged via Auth API for a session Bearer, and/or browser cookie (`LEANDNA_DATA_API_COOKIE`) — see [`../SETUP/LEANDNA_SETUP.md`](../SETUP/LEANDNA_SETUP.md).  
 **Scope Control:** `RequestedSites` header (comma-separated site IDs)  
 **Total Endpoints:** 40+ operations across 10 tag groups
 

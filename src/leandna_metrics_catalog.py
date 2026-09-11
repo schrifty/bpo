@@ -35,8 +35,8 @@ class MetricIdentity:
 def require_data_api_credentials() -> None:
     if not leandna_data_api_credentials_configured():
         raise MetricsCatalogError(
-            "Missing LeanDNA Data API credentials — set PR_LEANDNA_DATA_API_BEARER_TOKEN and/or "
-            "LEANDNA_DATA_API_COOKIE in .env."
+            "Missing LeanDNA Data API credentials — set PR_LEANDNA_DATA_API_API_KEY "
+            "(or BEARER_TOKEN / COOKIE) in .env."
         )
 
 
