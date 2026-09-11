@@ -148,10 +148,18 @@ def resolve_board_sprint(
     return closed[0] if closed else None
 
 
-def average_team_delivery_pct(teams: list[Any]) -> float:
-    """Unweighted mean of per-board sprint delivery % (teams with committed work only)."""
-    pcts: list[float] = []
-    for team in teams:
+def _delivery_dedupe_key(team: dict[str, Any], index: int) -> tuple[str, str]:
+    """Sprint id when known, else the team's own slot — several boards can share one sprint."""
+    sprint = team.get("sprint")
+    if isinstance(sprint, dict) and sprint.get("id") is not None:
+        return ("sprint", str(sprint["id"]))
+    return ("team", str(index))
+
+
+def distinct_team_delivery_pcts(teams: list[Any]) -> dict[tuple[str, str], float]:
+    """Delivery % per distinct sprint (teams with committed work only), first board wins."""
+    pcts: dict[tuple[str, str], float] = {}
+    for index, team in enumerate(teams):
         if not isinstance(team, dict) or team.get("error"):
             continue
         pct = team.get("delivery_pct")
@@ -166,12 +174,18 @@ def average_team_delivery_pct(teams: list[Any]) -> float:
             if committed_f <= 0:
                 continue
             pct = (delivered_f / committed_f) * 100.0
-        pcts.append(float(pct))
+        pcts.setdefault(_delivery_dedupe_key(team, index), float(pct))
+    return pcts
+
+
+def average_team_delivery_pct(teams: list[Any]) -> float:
+    """Unweighted mean of sprint delivery %, counting a sprint shared by boards once."""
+    pcts = distinct_team_delivery_pcts(teams)
     if not pcts:
         errors = [str(t.get("error")) for t in teams if isinstance(t, dict) and t.get("error")]
         detail = errors[0] if errors else "no teams with committed sprint issues"
         raise ValueError(detail)
-    return round(sum(pcts) / len(pcts), 3)
+    return round(sum(pcts.values()) / len(pcts), 3)
 
 
 def _issue_is_done(fields: dict[str, Any], status_map: dict[str, str]) -> bool:
@@ -684,8 +698,8 @@ def get_sprint_delivery_by_team(
         definition = "Delivery % for the sprint matching selector on each board"
     else:
         definition = (
-            "Unweighted average of per-board sprint delivery % for the latest closed sprint "
-            "on each board (Done / committed issues)"
+            "Unweighted average of sprint delivery % for the latest closed sprint on each board "
+            "(Done / committed issues); a sprint shared by several boards counts once"
         )
 
     teams: list[dict[str, Any]] = []
@@ -731,6 +745,7 @@ def get_sprint_delivery_by_team(
         if sel.is_set()
         else None,
         "average_delivery_pct": average_pct,
+        "distinct_sprints": len(distinct_team_delivery_pcts(teams)),
         "excluded_issue_types": list(excluded),
         "boards": [b["board_id"] for b in boards],
         "teams": teams,

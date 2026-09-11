@@ -106,12 +106,17 @@ metrics:
     metric-generator: null
     tags: [onboarding]
 
-  # Sprint Delivery % - AUTOMATABLE
+  # Sprint Delivery %
   "Sprint Delivery %":
-    description: null
+    description: >-
+      Unweighted mean of per-board delivery % (issues Done ÷ issues committed)
+      for the latest closed sprint on each configured scrum board.
     metric-id: 2086
-    metric-generator: null
+    metric-generator: get_sprint_delivery_by_team
     tags: [engineering]
+    unit: percent
+    target: 80
+    direction: higher
 
   # TTFR (30 Days)
   "TTFR (30 Days)":

@@ -183,6 +183,17 @@ def test_average_team_delivery_pct() -> None:
     assert average_team_delivery_pct(teams) == 85.0
 
 
+def test_average_team_delivery_pct_counts_shared_sprint_once() -> None:
+    from src.jira_sprint_delivery import average_team_delivery_pct
+
+    teams = [
+        {"team": "A", "sprint": {"id": 3031}, "delivery_pct": 100.0},
+        {"team": "B", "sprint": {"id": 3111}, "delivery_pct": 46.078},
+        {"team": "C", "sprint": {"id": 3111}, "delivery_pct": 46.078},
+    ]
+    assert average_team_delivery_pct(teams) == 73.039
+
+
 def test_get_sprint_delivery_by_team_returns_average() -> None:
     client = MagicMock()
     payload = {
