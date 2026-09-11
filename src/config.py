@@ -242,11 +242,11 @@ if os.environ.get("CORTEX_CURSOR_CACHE_DISABLED", "").strip().lower() in ("1", "
 _cursor_slides_only = os.environ.get("CORTEX_CURSOR_SLIDES_ONLY", "").strip().lower()
 CORTEX_CURSOR_SLIDES_ONLY = _cursor_slides_only in ("1", "true", "yes", "on")
 
-# Monthly engineering headcount/opex (USD), excluding AI tooling.
-# Used by AI Spend % (AI ÷ this) and Headcount + AI Spend / Issue (this prorated + AI).
-# Set from finance; required for those generators. Not a secret — still keep in local .env.
-def _parse_engineering_monthly_spend_usd() -> float | None:
-    raw = (os.environ.get("CORTEX_MONTHLY_SPEND_USD_ENGINEERING") or "").strip()
+# Monthly department headcount/opex (USD), excluding AI tooling. Finance constants,
+# not secrets — still keep in local .env. Engineering is used by AI Spend % and
+# Headcount + AI Spend / Issue. Support is used by Support Spend / Ticket.
+def _parse_monthly_spend_usd(env_name: str) -> float | None:
+    raw = (os.environ.get(env_name) or "").strip()
     if not raw:
         return None
     try:
@@ -255,7 +255,35 @@ def _parse_engineering_monthly_spend_usd() -> float | None:
         return None
 
 
-CORTEX_MONTHLY_SPEND_USD_ENGINEERING = _parse_engineering_monthly_spend_usd()
+def require_monthly_spend_usd(
+    *,
+    env_name: str,
+    configured: float | None,
+    required_for: str,
+) -> dict[str, Any]:
+    """Return ``{"value": float}`` or a fail-loud ``{"error": ...}`` payload."""
+    spend = configured
+    if spend is None:
+        raw = (os.environ.get(env_name) or "").strip()
+        if raw:
+            return {"error": f"{env_name} is not a valid number (got {raw!r})"}
+        return {
+            "error": (
+                f"{env_name} is not set — required for {required_for} "
+                "(monthly headcount/opex USD, excluding AI tooling)"
+            )
+        }
+    if float(spend) <= 0:
+        return {"error": f"{env_name} must be > 0 (got {spend})"}
+    return {"value": float(spend)}
+
+
+CORTEX_MONTHLY_SPEND_USD_ENGINEERING = _parse_monthly_spend_usd(
+    "CORTEX_MONTHLY_SPEND_USD_ENGINEERING"
+)
+CORTEX_MONTHLY_SPEND_USD_SUPPORT = _parse_monthly_spend_usd(
+    "CORTEX_MONTHLY_SPEND_USD_SUPPORT"
+)
 
 # Atlassian Teams roster (org membership) — reused across eng portfolio, Cursor scope, identity map.
 try:

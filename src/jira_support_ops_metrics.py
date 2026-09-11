@@ -422,3 +422,59 @@ def get_open_help_over_30d_pct(
         "aged_jql": aged_jql,
         "method": "open_as_of",
     }
+
+
+def get_support_spend_per_ticket(
+    client: JiraClient,
+    *,
+    as_of: date | datetime | None = None,
+    timeout: float = 60.0,
+) -> dict[str, Any]:
+    """Support opex ÷ HELP tickets created in the previous calendar month."""
+    from .config import (
+        CORTEX_MONTHLY_SPEND_USD_SUPPORT,
+        require_monthly_spend_usd,
+    )
+
+    spend = require_monthly_spend_usd(
+        env_name="CORTEX_MONTHLY_SPEND_USD_SUPPORT",
+        configured=CORTEX_MONTHLY_SPEND_USD_SUPPORT,
+        required_for="Support Spend / Ticket",
+    )
+    if spend.get("error"):
+        return spend
+    monthly = float(spend["value"])
+    tickets = get_help_ticket_count(client, as_of=as_of, timeout=timeout)
+    if tickets.get("error"):
+        return tickets
+    created = int(tickets["value"])
+    if created <= 0:
+        return {
+            "error": (
+                f"Ticket Count is 0 in {tickets.get('month')} — "
+                "cannot compute Support Spend / Ticket"
+            ),
+            "month": tickets.get("month"),
+            "support_monthly_spend_usd": monthly,
+        }
+    per_ticket = round(monthly / created, 4)
+    logger.info(
+        "Support Spend / Ticket: $%s / %s HELP created = $%s (%s)",
+        monthly,
+        created,
+        per_ticket,
+        tickets.get("month"),
+    )
+    return {
+        "numerator": monthly,
+        "denominator": float(created),
+        "value": per_ticket,
+        "support_monthly_spend_usd": monthly,
+        "tickets_created": created,
+        "month": tickets.get("month"),
+        "as_of": tickets.get("as_of"),
+        "jql": tickets.get("jql"),
+        "business_days": tickets.get("business_days"),
+        "created_per_business_day": tickets.get("created_per_business_day"),
+        "method": "actual_previous_month",
+    }

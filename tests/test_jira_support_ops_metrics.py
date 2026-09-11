@@ -17,6 +17,7 @@ from src.jira_support_ops_metrics import (
     get_help_ticket_count,
     get_open_help,
     get_open_help_over_30d_pct,
+    get_support_spend_per_ticket,
     help_ticket_count_jql,
     open_help_jql,
 )
@@ -107,6 +108,40 @@ def test_get_help_ticket_count() -> None:
     assert out["created_per_business_day"] == round(142 / 21, 2)
 
 
+def test_get_support_spend_per_ticket(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.config as config_mod
+
+    monkeypatch.setattr(config_mod, "CORTEX_MONTHLY_SPEND_USD_SUPPORT", 50_000.0)
+    client = MagicMock()
+    client.jql_match_count.return_value = 100
+    out = get_support_spend_per_ticket(client, as_of=date(2026, 9, 10))
+    assert out["value"] == 500.0
+    assert out["tickets_created"] == 100
+    assert out["support_monthly_spend_usd"] == 50_000.0
+    assert out["month"] == "2026-08"
+
+
+def test_get_support_spend_per_ticket_missing_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.config as config_mod
+
+    monkeypatch.setattr(config_mod, "CORTEX_MONTHLY_SPEND_USD_SUPPORT", None)
+    monkeypatch.delenv("CORTEX_MONTHLY_SPEND_USD_SUPPORT", raising=False)
+    out = get_support_spend_per_ticket(MagicMock(), as_of=date(2026, 9, 10))
+    assert "error" in out
+    assert "CORTEX_MONTHLY_SPEND_USD_SUPPORT" in out["error"]
+
+
+def test_get_support_spend_per_ticket_zero_tickets(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.config as config_mod
+
+    monkeypatch.setattr(config_mod, "CORTEX_MONTHLY_SPEND_USD_SUPPORT", 50_000.0)
+    client = MagicMock()
+    client.jql_match_count.return_value = 0
+    out = get_support_spend_per_ticket(client, as_of=date(2026, 9, 10))
+    assert "error" in out
+    assert "Ticket Count is 0" in out["error"]
+
+
 def test_get_help_ticket_count_fails_loud_when_count_missing() -> None:
     client = MagicMock()
     client.jql_match_count.return_value = None
@@ -190,6 +225,8 @@ def test_split_escalation_kpis_are_registered() -> None:
     assert "get_engineering_escalation_count" in _GENERATORS
     assert "get_open_help" in _GENERATORS
     assert "get_open_help_over_30d_pct" in _GENERATORS
+    assert metrics["Support Spend / Ticket"]["metric-generator"] == "get_support_spend_per_ticket"
+    assert "get_support_spend_per_ticket" in _GENERATORS
 
 
 def test_open_help_jql_is_as_of_snapshot() -> None:

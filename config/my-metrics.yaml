@@ -192,6 +192,18 @@ metrics:
     metric-generator: get_help_ticket_count
     tags: [support, volume]
 
+  "Support Spend / Ticket":
+    description: >-
+      Monthly support headcount/opex (CORTEX_MONTHLY_SPEND_USD_SUPPORT) ÷ HELP
+      tickets created in the previous calendar month (same window as Ticket Count).
+    mgmt_guidance: >-
+      Use this as cost per intake ticket on the same month as Ticket Count.
+      A rising number with stable spend usually means volume fell, not that support got more expensive.
+    metric-id: null
+    metric-generator: get_support_spend_per_ticket
+    tags: [support, finance]
+    unit: currency
+
   "Engineering Escalations":
     description: >-
       LEAN tickets created with label jira_escalated in the previous calendar

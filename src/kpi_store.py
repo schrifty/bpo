@@ -51,6 +51,7 @@ MONTH_CLOSE_GENERATORS = frozenset(
         "get_customer_reported_bugs_created",
         "get_customer_reported_bugs_eom",
         "get_help_ticket_count",
+        "get_support_spend_per_ticket",
         "get_help_resolved_created_ratio",
         "get_engineering_escalation_count",
         "get_data_escalation_count",
