@@ -1,146 +1,133 @@
 #!/usr/bin/env python3
-"""cortex — build Google Slides decks (CS health, portfolio, Jira) and run tooling.
+"""cortex — Google Slides decks, exports, KPIs, and batch jobs.
 
-All deck generation uses explicit flags or subcommands (no natural-language / LLM parsing).
-
-────────────────────────────────────────────────────────────────
-Flag commands (utilities)
-────────────────────────────────────────────────────────────────
-  cortex --help, -h
-      Show this text.
-
+Usage:
+  cortex --help
   cortex --list
-      Print configured deck ids and display names (from local YAML), grouped into
-      customer-scoped vs portfolio / cross-customer decks.
+  cortex run --deck <id> [--customer NAME] [options]
+  cortex <command> [options]
 
-  cortex --qa <url-or-presentation-id>
-      Visual QA for one presentation (URL may contain /presentation/d/<id>/).
-
-  cortex --sync-config [--sync-overwrite]
-      Upload deck/slide YAML config to Google Drive.
-
-  cortex --upload-portfolio-snapshot [--days N] [--max-customers M]
-      Run full Pendo portfolio crawl and upload JSON to the portfolio snapshot
-      folder: CORTEX_PORTFOLIO_SNAPSHOT_FOLDER_ID if set, else "Cache" under QBR generator
-      under GOOGLE_QBR_GENERATOR_FOLDER_ID. If you omit --days, uses the same
-      calendar length as resolve_quarter(). Portfolio runs may auto-refresh this snapshot on weekends when Drive needs an update (see
-      ``pendo_portfolio_snapshot_drive.ensure_weekend_portfolio_snapshot``).
-
-  cortex --refresh-pendo-snapshot [--windows 7,14,30,60,90] [--upload-portfolio-days 90]
-      Shared Pendo ingest: warm disk preload slices for multiple windows (EFS/local
-      ``CORTEX_CACHE_DIR/pendo/``), write ``shared_snapshot_manifest_v1.json``, and
-      optionally upload the Drive portfolio rollup. Scheduled as ``pendo-snapshot-refresh``
-      at 03:00 UTC so transforms (llm-context-portfolio-daily / pendo-ford-* / pendo-top-arr-detailed) can require a fresh
-      snapshot instead of each re-crawling Pendo cold.
-
-  cortex --customer "Customer Name" [--days N] [--quarter Q1 2026] [--thumbnails] [--workers N]
-      Run every **customer-scoped** deck id (see ``cortex --list``) for one account, in sequence.
-      Pauses briefly between decks to reduce Drive rate limits.
-
-  cortex --portfolio [--days N] [--max-customers M] [--quarter …] [--thumbnails] [--csm "Name"]
-      Run every **portfolio** deck: portfolio_review, cohort_review, engineering-portfolio,
-      implementations_review, support_review_portfolio. Optional ``--csm`` also runs ``csm_book_of_business``
-      for that Pendo CSM substring. No customer name — these decks are org- or all-customer scoped.
-
-  cortex --data
-      Print canonical data element paths from ``config/comprehensive_data_element_list.json``.
-
-  cortex export-all [--days N] [--max-tokens N] [--signals-cap N]
-      [--customers-sf-allowlist] [--customers-exclude-sf-churned]
-      [--exclude-customer LABEL ...]
-      Build the all-customers LLM context markdown snapshot and upload it to Drive **twice**: under
-      ``<QBR Generator>/Output/LLM-Context-Portfolio-persistent.md`` (bookmarkable current export)
-      and under ``Output/Historical Data/{ISO-date}/LLM-Context-Portfolio.md`` (same-day snapshot).
-      Prior-month base-folder exports are archived into ``Output/Historical Data/{YYYY-MM}/`` at startup.
-      ``cortex --export`` is a deprecated alias for the same command.
-      Section 7 LLM churn/account-risk insights are always appended to the export markdown.
-
-  cortex --export-pendo --customer <name> [--days N] [--compare-days N] [--no-drive] [-o PATH]
-  cortex --export-pendo-detailed --customer <name> [--days N] [--compare-days N] [--no-drive] [-o PATH]
-  cortex --export-pendo-top-arr [--top-n 10] [--days N] [--compare-days N] [--windows 30,7] [--no-drive] [--out-dir DIR]
-  cortex --export-csr [--customer NAME] [--slot 0000|0600|1200|1800] [--force] [--no-drive] [--out-dir DIR]
-      Export **Pendo-only** product usage for one customer (sites, features, depth, Kei, trends).
-      Uploads markdown + Google Sheet to ``Output/Customer Exports/{customer}/`` — only
-      ``-persistent`` files in the customer folder; same-day snapshots under ``Historical Data/{ISO-date}/``.
-      Prior-month base-folder exports are archived into ``Historical Data/{YYYY-MM}/`` at startup.
-      Default: ``--days 30``.
-      ``--export-csr`` writes dated CS Report ``delta=week`` Sheets (site, BU, and entity)
-      plus a markdown twin of each grain per CSR workbook customer under ``Customer Exports/{folder}/``.
-      Full Drive runs skip when the CS Report workbook ``modifiedTime`` is unchanged (``--force`` to rewrite).
-      Intra-day snapshots live under ``Historical Data/{ISO-date}/{HHmm}/``.
-
-  cortex --schedule [--prefix NAME] [--region REGION]
-      Show EventBridge cron schedules for ECS batch jobs (live AWS when credentials are available,
-      plus catalog defaults from ``infra/terraform/variables.tf``). Cron times are UTC.
-      Default prefix: ``CORTEX_SCHEDULE_NAME_PREFIX`` or ``cortex`` (matches deployed AWS ``name_prefix``).
-
-  cortex --running [--cluster NAME] [--family FAMILY] [--region REGION]
-      List ECS Fargate tasks currently running Cortex batch jobs (``desiredStatus=RUNNING``).
-      Defaults: ``CORTEX_ECS_*``, ``terraform.tfvars`` ``name_prefix``, or ``cortex`` / ``cortex-decks``.
-
-  cortex run-job --job <name> [--dry-run] [--no-json-summary]
-      Run a declarative batch job from ``config/jobs/<name>.yaml`` (or ``CORTEX_JOB=<name>``).
-      Steps invoke ``cortex.py`` subcommands sequentially; emits ``CORTEX_RUN_SUMMARY=…`` on stdout.
+Deck ids come from ``cortex --list``. There is no natural-language parser.
+Subcommands have their own ``--help`` (e.g. ``cortex run --help``).
 
 ────────────────────────────────────────────────────────────────
-Generate one deck (explicit)
+Start here
 ────────────────────────────────────────────────────────────────
-  cortex run --deck <id> [options]
-      ``--deck`` must be an id from ``cortex --list``. Typical options:
-      ``--customer NAME`` (repeatable), ``--all-customers``, ``--quarter``, ``--days``,
-      ``--max-customers``, ``--workers``, ``--thumbnails``. For ``csm_book_of_business`` use ``--csm``.
-      Portfolio follow-on deck runs only when using ``--all-customers`` or more than three
-      explicit ``--customer`` values (same rule as the old batch behavior).
+  -h, --help              This reference
+  --list                  Deck ids and display names (customer vs portfolio)
 
-  cortex cohort [--days N] [--quarter …] [--max-customers M] [--thumbnails]
-      Manufacturing cohort review only.
+────────────────────────────────────────────────────────────────
+Decks
+────────────────────────────────────────────────────────────────
+  Generate one deck
+    run --deck <id>       Any configured deck. Common options:
+                            --customer NAME   (repeatable)
+                            --all-customers
+                            --quarter "Q1 2026" | prev | current
+                            --days N          --max-customers M
+                            --workers N       --thumbnails
+                            --csm NAME        (csm_book_of_business only)
+                          Portfolio follow-on decks run only with
+                          --all-customers or more than three --customer values.
 
-  cortex engineering-portfolio
-  cortex implementations-review
-      Jira-backed org decks (same payloads as ``--portfolio`` batch).
+  Batch many decks
+    --customer NAME       Every customer-scoped deck for one account
+                          [--days N] [--quarter …] [--thumbnails] [--workers N]
+    --portfolio           Every org / all-customer deck
+                          [--days N] [--max-customers M] [--quarter …]
+                          [--thumbnails] [--csm NAME]
 
-  cortex export-all [--days N] [--max-tokens N] [--signals-cap N]
-      All-customers LLM context snapshot (same as the ``llm-context-portfolio-daily`` job).
+  Shortcuts (same payloads as run --deck / --portfolio)
+    cohort                Manufacturing cohort review
+    engineering-portfolio Jira engineering org deck
+    implementations-review
+    support               Support review (one customer or all)
+    support-portfolio     All-customers support portfolio
+    support-kpis          HELP operational KPIs
+    csm book --csm NAME   CSM book of business (Pendo owner filter)
+    regenerate-slides --deck engineering-portfolio --cursor
+                          Rebuild Cursor slides in an Engineering Review
+                          [--presentation-id ID|URL]
 
-  cortex regenerate-slides --deck engineering-portfolio --cursor [--presentation-id ID|URL]
-      Rebuild Cursor slides in the latest (or specified) Engineering Review presentation in Drive.
+────────────────────────────────────────────────────────────────
+Exports & data
+────────────────────────────────────────────────────────────────
+  export-all              All-customers LLM context markdown (Drive persistent
+                          + Historical Data/{ISO-date}). Same as job
+                          llm-context-portfolio-daily.
+                          [--days N] [--max-tokens N] [--signals-cap N]
+                          [--customers-sf-allowlist]
+                          [--customers-exclude-sf-churned]
+                          [--exclude-customer LABEL] …
+                          Alias: --export (deprecated)
 
-  cortex support [--customer NAME]
-      Support review deck (single customer or all).
+  --export-pendo --customer NAME
+                          Pendo usage for one customer (markdown + Sheet)
+                          [--days N] [--compare-days N] [--no-drive] [-o PATH]
+  --export-pendo-detailed --customer NAME
+                          Same, detailed feature/site tables
+  --export-pendo-top-arr  Top ARR customers, Pendo detailed
+                          [--top-n 10] [--windows 30,7] [--out-dir DIR]
+  --export-csr            CS Report delta=week Sheets + markdown twins
+                          [--customer NAME] [--slot 0000|0600|1200|1800]
+                          [--force] [--no-drive] [--out-dir DIR]
 
-  cortex support-portfolio [--days N]
-      All-customers support portfolio deck.
+  Drive layout: Output/Customer Exports/{customer}/ holds -persistent files;
+  same-day copies go under Historical Data/{ISO-date}/. Prior-month files
+  archive to Historical Data/{YYYY-MM}/ at startup. Default --days 30.
+  --export-csr intra-day snapshots: Historical Data/{ISO-date}/{HHmm}/.
+  Full CSR Drive runs skip when the workbook modifiedTime is unchanged
+  (--force to rewrite).
 
-  cortex support-kpis [--customer NAME] [--days N]
-      HELP operational KPI deck (intake, flow, backlog, SLA, etc.).
+  --data                  Print catalog paths from
+                          config/comprehensive_data_element_list.json
 
-  cortex csm book --csm "<name>" [--days N] [--max-customers M] [--quarter …]
-      CSM book of business (Pendo ownername filter).
+────────────────────────────────────────────────────────────────
+Metrics & KPIs
+────────────────────────────────────────────────────────────────
+  kpi                     LeanDNA metrics you own (Data API)
+                          [--values] [--requested-sites ID]
+  kpi-snapshot            Run registry generators into the SQLite KPI store
+                          [--date YYYY-MM-DD] [--dry-run] [--tag TAG]
+                          [--metric NAME]
+  metrics-upsert          Upsert generator values to LeanDNA MetricDataPoint
+                          [--date YYYY-MM-DD] [--dry-run] [--metric NAME]
+                          [--requested-sites ID]
+  metrics-digest          Morning email: ECS jobs + live KPIs vs target
+                          [--dry-run] [--days N] [--timeout SEC] [--tag TAG]
+  metrics-report          Same as metrics-digest --dry-run (print only)
+  metrics-deck            Google Slides from my-metrics.yaml
+                          [--days N] [--timeout SEC] [--tag TAG]
 
-  cortex kpi [--values] [--requested-sites ID]
-      List LeanDNA metrics owned by you (``metrics-get-mine``; Data API only).
-      Pass ``--values`` for per-metric datapoint charts.
+  --tag filters registry tags (e.g. akkr). kpi-snapshot --dry-run does not write.
 
-  cortex kpi-snapshot [--date YYYY-MM-DD] [--dry-run] [--tag TAG] [--metric NAME]
-      Generate registry KPIs and persist them to the SQLite store (S3). ``--dry-run``
-      runs generators without writing S3.
+────────────────────────────────────────────────────────────────
+Pendo snapshots
+────────────────────────────────────────────────────────────────
+  --refresh-pendo-snapshot
+                          Warm disk Pendo slices, write
+                          shared_snapshot_manifest_v1.json, optional Drive
+                          portfolio rollup. Job pendo-snapshot-refresh (03:00 UTC).
+                          [--windows 7,14,30,60,90]
+                          [--upload-portfolio-days 90]
+  --upload-portfolio-snapshot
+                          Full Pendo portfolio crawl → Drive Cache JSON
+                          [--days N] [--max-customers M]
+                          Default --days is the current quarter length.
+                          Weekend portfolio runs may refresh this automatically.
 
-  cortex metrics-upsert [--date YYYY-MM-DD] [--dry-run] [--metric NAME] [--requested-sites ID]
-      For each row in ``config/my-metrics.yaml`` with ``metric-generator`` set, call the generator
-      and upsert ``MetricDataPoint`` for that date via the Data API. Rows without a generator
-      are skipped.
-
-  cortex metrics-digest [--dry-run] [--days N] [--timeout SEC] [--tag TAG]
-      Morning report: last night's ECS jobs, then live KPIs vs ``target`` /
-      ``direction``, emailed via SES (off-target KPIs first).
-      ``--tag`` limits KPIs to those carrying the registry tag (e.g. ``akkr``).
-
-  cortex metrics-report [--days N] [--timeout SEC] [--tag TAG]
-      Same as ``metrics-digest --dry-run``: print the morning report without emailing.
-
-  cortex metrics-deck [--days N] [--timeout SEC] [--tag TAG]
-      Generate a Google Slides deck from my-metrics.yaml KPIs in the Output folder.
-      ``--tag`` limits KPIs to those carrying the registry tag (e.g. ``akkr``).
+────────────────────────────────────────────────────────────────
+Ops
+────────────────────────────────────────────────────────────────
+  run-job --job NAME      YAML job from config/jobs/ (or CORTEX_JOB)
+                          [--dry-run] [--no-json-summary]
+  --schedule              EventBridge cron for ECS batch jobs (UTC)
+                          [--prefix NAME] [--region REGION]
+  --running               ECS Fargate tasks with desiredStatus=RUNNING
+                          [--cluster NAME] [--family FAMILY] [--region REGION]
+  --sync-config           Upload deck/slide YAML to Drive
+                          [--sync-overwrite]
+  --qa URL-or-id          Visual QA for one Google Slides presentation
 """
 
 import json
@@ -1291,6 +1278,13 @@ def _run_run_job_cli(rest: list[str]) -> None:
 
 
 def main():
+    if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help"):
+        print(__doc__.strip())
+        return
+    if len(sys.argv) <= 1:
+        print(__doc__.strip())
+        sys.exit(1)
+
     from src.export_output_archive import maybe_archive_previous_month_exports
     from src.export_user_guide_drive import maybe_sync_export_user_guide_on_startup
 
@@ -1467,11 +1461,6 @@ def main():
         rest = [a for a in sys.argv[1:] if a != "--refresh-pendo-snapshot"]
         raise SystemExit(refresh_pendo_snapshot_main(rest, prog="cortex --refresh-pendo-snapshot"))
 
-    # Top-level help only when the first argument is -h/--help (not ``cortex run --help``).
-    if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help"):
-        print(__doc__.strip())
-        return
-
     # Batch shortcuts only when the *first* argument is the flag (not ``support --customer X`` or
     # ``run --deck … --customer X``, which also contain ``--customer``).
     if len(sys.argv) >= 2 and sys.argv[1] in ("--customer", "--all-customer-decks"):
@@ -1480,10 +1469,6 @@ def main():
     if len(sys.argv) >= 2 and sys.argv[1] in ("--portfolio", "--all-portfolio-decks"):
         _run_all_portfolio_decks()
         return
-
-    if len(sys.argv) <= 1:
-        print(__doc__.strip())
-        sys.exit(1)
 
     sub = sys.argv[1]
     if sub == "run":
