@@ -20,6 +20,7 @@ def get_median_ttr(
     client: JiraClient,
     *,
     days: int = DEFAULT_MEDIAN_TTR_DAYS,
+    as_of=None,
     timeout: float = 60.0,  # noqa: ARG001 - search uses client timeouts
 ) -> dict[str, Any]:
     """Return ``{"value": <days>}`` median JSM TTR SLA elapsed time.
@@ -31,7 +32,7 @@ def get_median_ttr(
     if days < 1:
         return {"error": "days must be >= 1", "days": days}
 
-    result = client.get_help_median_ttr(days=int(days))
+    result = client.get_help_median_ttr(days=int(days), as_of=as_of)
     if result.get("error"):
         return result
 

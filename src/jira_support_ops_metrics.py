@@ -16,6 +16,7 @@ from .eng_scorecard_metrics import (
     _previous_calendar_month_bounds,
 )
 from .jira_client import JiraClient
+from .jira_jql_window import jql_trailing_clause
 
 logger = logging.getLogger("cortex")
 
@@ -47,6 +48,7 @@ def get_help_resolved_created_ratio(
     client: JiraClient,
     *,
     days: int = DEFAULT_SUPPORT_OPS_DAYS,
+    as_of: date | datetime | None = None,
     timeout: float = 60.0,  # noqa: ARG001
 ) -> dict[str, Any]:
     """HELP resolved ÷ created × 100 over a trailing window.
@@ -54,12 +56,12 @@ def get_help_resolved_created_ratio(
     Returns percent-scale ``value`` plus ``numerator``/``denominator`` counts.
     """
     window = max(1, int(days))
-    created_jql = (
-        f"project = HELP AND {_HELP_TRANSIENT} AND created >= -{window}d"
-    )
+    created_clause = jql_trailing_clause("created", window, as_of)
+    resolved_clause = jql_trailing_clause("resolved", window, as_of)
+    created_jql = f"project = HELP AND {_HELP_TRANSIENT} AND {created_clause}"
     resolved_jql = (
         f"project = HELP AND {_HELP_TRANSIENT} AND resolution is not EMPTY "
-        f"AND resolved >= -{window}d"
+        f"AND {resolved_clause}"
     )
     created = _count_or_error(
         client, created_jql, label=f"HELP created last {window}d"
@@ -102,6 +104,7 @@ def get_help_resolved_created_ratio(
         "window_days": window,
         "created_jql": created_jql,
         "resolved_jql": resolved_jql,
+        "as_of": as_of.isoformat()[:10] if as_of is not None else None,
     }
 
 
@@ -155,6 +158,7 @@ def get_engineering_escalation_rate(
     client: JiraClient,
     *,
     days: int = DEFAULT_SUPPORT_OPS_DAYS,
+    as_of: date | datetime | None = None,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
     """LEAN ``jira_escalated`` created ÷ HELP created (trailing window)."""
@@ -163,6 +167,7 @@ def get_engineering_escalation_rate(
         project="LEAN",
         rate_label="Engineering Escalation Rate",
         days=days,
+        as_of=as_of,
         timeout=timeout,
     )
 
@@ -171,6 +176,7 @@ def get_data_escalation_rate(
     client: JiraClient,
     *,
     days: int = DEFAULT_SUPPORT_OPS_DAYS,
+    as_of: date | datetime | None = None,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
     """CUSTOMER ``jira_escalated`` created ÷ HELP created (trailing window)."""
@@ -179,6 +185,7 @@ def get_data_escalation_rate(
         project="CUSTOMER",
         rate_label="Data Escalation Rate",
         days=days,
+        as_of=as_of,
         timeout=timeout,
     )
 
@@ -189,15 +196,15 @@ def _escalation_rate_for_project(
     project: str,
     rate_label: str,
     days: int,
+    as_of: date | datetime | None = None,
     timeout: float = 60.0,  # noqa: ARG001
 ) -> dict[str, Any]:
     window = max(1, int(days))
-    help_created_jql = (
-        f"project = HELP AND {_HELP_TRANSIENT} AND created >= -{window}d"
-    )
+    created_clause = jql_trailing_clause("created", window, as_of)
+    help_created_jql = f"project = HELP AND {_HELP_TRANSIENT} AND {created_clause}"
     escalated_jql = (
         f'project = {project} AND labels = "jira_escalated" AND {_CUSTOMER_LEAN_EXCL} '
-        f"AND created >= -{window}d"
+        f"AND {created_clause}"
     )
 
     help_created = _count_or_error(
@@ -247,4 +254,5 @@ def _escalation_rate_for_project(
         "window_days": window,
         "help_created_jql": help_created_jql,
         "escalated_jql": escalated_jql,
+        "as_of": as_of.isoformat()[:10] if as_of is not None else None,
     }

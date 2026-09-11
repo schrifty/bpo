@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Sequence
@@ -16,6 +17,7 @@ from typing import Any, Sequence
 from src.config import logger
 from src.kpi_observation import observation_from_generator_raw
 from src.kpi_store import (
+    GRAIN_DAILY,
     GRAIN_MONTH,
     connect,
     default_kpi_store_path,
@@ -48,6 +50,37 @@ def period_key_for(grain: str, as_of: date) -> str:
         prev = first - timedelta(days=1)
         return f"{prev.year:04d}-{prev.month:02d}"
     return as_of.isoformat()
+
+
+def iter_history_snapshot_plan(until: date, months: int) -> list[tuple[date, str]]:
+    """Month-end daily points plus previous-calendar-month scorecard as-ofs.
+
+    ``until`` is included as both a daily and a month-close as-of (so today's
+    trailing window and the latest completed month are stored). Then each of
+    the previous *months* completed months gets a last-day daily snapshot and
+    a 1st-of-following-month scorecard snapshot.
+    """
+    if months < 1:
+        raise ValueError(f"history months must be >= 1, got {months}")
+    seen: set[tuple[date, str]] = set()
+    out: list[tuple[date, str]] = []
+
+    def add(as_of: date, grain: str) -> None:
+        key = (as_of, grain)
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(key)
+
+    add(until, GRAIN_DAILY)
+    add(until, GRAIN_MONTH)
+    cursor = until.replace(day=1)
+    for _ in range(int(months)):
+        month_end = cursor - timedelta(days=1)
+        add(month_end, GRAIN_DAILY)
+        add(cursor, GRAIN_MONTH)
+        cursor = month_end.replace(day=1)
+    return out
 
 
 def _parse_as_of(raw: str) -> date:
@@ -85,7 +118,16 @@ def iter_snapshot_metrics(
     return out
 
 
-def _s3_client() -> Any:
+def _is_historical_sla_gap(error: str | None) -> bool:
+    """JSM completed-cycle fields are often missing on older resolved tickets."""
+    if not error:
+        return False
+    text = str(error)
+    return (
+        "no completed Time to first response SLA cycles" in text
+        or "no completed Time to resolution SLA cycles" in text
+        or "no completed TTFR/TTR SLA cycles" in text
+    )
     import boto3
 
     return boto3.client("s3")
@@ -103,16 +145,30 @@ def run_kpi_snapshot(
     skip_s3: bool = False,
     registry: dict[str, Any] | None = None,
     invoke=invoke_metric_generator,
+    history_months: int | None = None,
 ) -> dict[str, Any]:
     """Generate registry KPIs and optionally persist them.
 
     ``dry_run`` or ``skip_s3`` skips S3. Persist to *db_path* when not ``dry_run``.
+    ``history_months`` rebuilds month-end trailing windows plus month-close
+    scorecard rows (requires ``--tag`` or ``--metric``).
     """
-    as_of = _parse_as_of(ctx.entry_date)
+    if history_months:
+        if not (tag or (ctx.metric_name_filter or "").strip()):
+            raise ValueError(
+                "--history-months requires --tag or --metric so unrelated "
+                "generators are not stamped onto historical period keys"
+            )
+        until = _parse_as_of(ctx.entry_date)
+        plan = [
+            (as_of, g)
+            for as_of, g in iter_history_snapshot_plan(until, int(history_months))
+            if grain is None or g == grain
+        ]
+    else:
+        plan = [(_parse_as_of(ctx.entry_date), grain)]
+
     reg = registry if registry is not None else load_metrics_registry()
-    targets = iter_snapshot_metrics(
-        reg, metric_name_filter=ctx.metric_name_filter, tag=tag, grain=grain
-    )
     persist = not dry_run
     uri = (s3_uri if s3_uri is not None else kpi_store_s3_uri()) or ""
     use_s3 = persist and not skip_s3
@@ -130,63 +186,84 @@ def run_kpi_snapshot(
     written = 0
     failed: list[str] = []
     rows: list[dict[str, Any]] = []
+    considered = 0
 
-    for name, entry in targets:
-        gen = str(entry.get("metric-generator") or "").strip()
-        row_grain = grain_for_generator(gen)
-        period_key = period_key_for(row_grain, as_of)
-        try:
-            raw = invoke(
-                gen,
-                registry=reg,
-                ctx=ctx,
-                kpi_store_path=path,
-                skip_s3=True if persist else skip_s3,
-            )
-            obs = observation_from_generator_raw(raw, metric_name=name, origin="live")
-        except (MetricUpsertError, TypeError, ValueError) as exc:
-            obs = observation_from_generator_raw(
-                {"error": str(exc)}, metric_name=name, origin="live"
-            )
-        except Exception as exc:  # noqa: BLE001 — persist/report, then fail the run
-            obs = observation_from_generator_raw(
-                {"error": f"{type(exc).__name__}: {exc}"},
-                metric_name=name,
-                origin="live",
-            )
-
-        stored = stored_kpi_from_observation(
-            metric_name=name,
-            grain=row_grain,
-            period_key=period_key,
-            observation=obs,
-            generator=gen,
-            tags=registry_metric_tags(entry),
+    for as_of, grain_filter in plan:
+        day_ctx = replace(ctx, entry_date=as_of.isoformat())
+        targets = iter_snapshot_metrics(
+            reg,
+            metric_name_filter=day_ctx.metric_name_filter,
+            tag=tag,
+            grain=grain_filter,
         )
-        rec = {
-            "metric": name,
-            "grain": row_grain,
-            "period_key": period_key,
-            "generator": gen,
-            "ok": obs.ok,
-            "value": obs.display_value,
-            "error": obs.error,
-        }
-        if obs.error:
-            failed.append(f"{name}: {obs.error}")
-            logger.error("kpi-snapshot %s failed: %s", name, obs.error)
-        else:
-            logger.info(
-                "kpi-snapshot %s grain=%s period=%s value=%s",
-                name,
-                row_grain,
-                period_key,
-                obs.display_value,
+        considered += len(targets)
+        for name, entry in targets:
+            gen = str(entry.get("metric-generator") or "").strip()
+            row_grain = grain_for_generator(gen)
+            period_key = period_key_for(row_grain, as_of)
+            try:
+                raw = invoke(
+                    gen,
+                    registry=reg,
+                    ctx=day_ctx,
+                    kpi_store_path=path,
+                    skip_s3=True if persist else skip_s3,
+                )
+                obs = observation_from_generator_raw(raw, metric_name=name, origin="live")
+            except (MetricUpsertError, TypeError, ValueError) as exc:
+                obs = observation_from_generator_raw(
+                    {"error": str(exc)}, metric_name=name, origin="live"
+                )
+            except Exception as exc:  # noqa: BLE001 — persist/report, then fail the run
+                obs = observation_from_generator_raw(
+                    {"error": f"{type(exc).__name__}: {exc}"},
+                    metric_name=name,
+                    origin="live",
+                )
+
+            stored = stored_kpi_from_observation(
+                metric_name=name,
+                grain=row_grain,
+                period_key=period_key,
+                observation=obs,
+                generator=gen,
+                tags=registry_metric_tags(entry),
             )
-        if persist and conn is not None:
-            upsert_kpi(conn, stored)
-            written += 1
-        rows.append(rec)
+            rec = {
+                "metric": name,
+                "grain": row_grain,
+                "period_key": period_key,
+                "generator": gen,
+                "ok": obs.ok,
+                "value": obs.display_value,
+                "error": obs.error,
+            }
+            if obs.error:
+                if history_months and _is_historical_sla_gap(obs.error):
+                    logger.warning(
+                        "kpi-snapshot %s grain=%s period=%s skipped (no JSM SLA cycles in window)",
+                        name,
+                        row_grain,
+                        period_key,
+                    )
+                    rec["ok"] = False
+                    rec["skipped"] = True
+                    rows.append(rec)
+                    continue
+                failed.append(f"{name} {row_grain}/{period_key}: {obs.error}")
+                logger.error("kpi-snapshot %s failed: %s", name, obs.error)
+            else:
+                logger.info(
+                    "kpi-snapshot %s grain=%s period=%s value=%s",
+                    name,
+                    row_grain,
+                    period_key,
+                    obs.display_value,
+                )
+            if persist and conn is not None:
+                upsert_kpi(conn, stored)
+                written += 1
+            rows.append(rec)
 
     if conn is not None:
         conn.close()
@@ -198,7 +275,8 @@ def run_kpi_snapshot(
     summary = {
         "date": ctx.entry_date,
         "dry_run": dry_run,
-        "considered": len(targets),
+        "history_months": history_months,
+        "considered": considered,
         "written": written,
         "failed": failed,
         "ok": len(failed) == 0,
@@ -226,7 +304,12 @@ def print_kpi_snapshot_summary(summary: dict[str, Any], *, as_json: bool = False
         flush=True,
     )
     for rec in summary.get("rows") or []:
-        if rec.get("ok"):
+        if rec.get("skipped"):
+            print(
+                f"  SKIP  {rec['metric']}  {rec['grain']}/{rec['period_key']}  {rec.get('error')}",
+                flush=True,
+            )
+        elif rec.get("ok"):
             print(
                 f"  OK  {rec['metric']}  {rec['grain']}/{rec['period_key']}  {rec.get('value')}",
                 flush=True,
@@ -261,6 +344,16 @@ def add_kpi_snapshot_arguments(ap: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Write the local SQLite file only (no download/upload)",
     )
+    ap.add_argument(
+        "--history-months",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Rebuild N completed months of history (month-end trailing windows "
+            "plus month-close KPIs). Requires --tag or --metric."
+        ),
+    )
 
 
 def run_kpi_snapshot_cli(argv: Sequence[str] | None = None, *, prog: str = "kpi-snapshot") -> int:
@@ -279,6 +372,7 @@ def run_kpi_snapshot_cli(argv: Sequence[str] | None = None, *, prog: str = "kpi-
         grain=ns.grain,
         db_path=db,
         skip_s3=bool(ns.skip_s3) or bool(ns.dry_run),
+        history_months=ns.history_months,
     )
     print_kpi_snapshot_summary(summary, as_json=ns.format == "json")
     return kpi_snapshot_exit_code(summary)

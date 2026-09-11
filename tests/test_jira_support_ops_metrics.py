@@ -72,6 +72,17 @@ def test_get_help_resolved_created_ratio() -> None:
     assert "resolved >= -30d" in out["resolved_jql"]
 
 
+def test_get_help_resolved_created_ratio_as_of_uses_calendar_bounds() -> None:
+    client = MagicMock()
+    client.jql_match_count.side_effect = [100, 85]
+    out = get_help_resolved_created_ratio(client, days=30, as_of=date(2026, 8, 31))
+    assert out["value"] == 85.0
+    assert 'created >= "2026-08-02"' in out["created_jql"]
+    assert 'created < "2026-09-01"' in out["created_jql"]
+    assert 'resolved >= "2026-08-02"' in out["resolved_jql"]
+    assert 'resolved < "2026-09-01"' in out["resolved_jql"]
+
+
 def test_get_help_resolved_created_ratio_zero_created() -> None:
     client = MagicMock()
     client.jql_match_count.side_effect = [0, 5]
@@ -133,6 +144,15 @@ def test_get_engineering_escalation_rate() -> None:
     assert "project = CUSTOMER" not in out["escalated_jql"]
 
 
+def test_get_engineering_escalation_rate_as_of_uses_calendar_bounds() -> None:
+    client = MagicMock()
+    client.jql_match_count.side_effect = [200, 10]
+    out = get_engineering_escalation_rate(client, days=30, as_of=date(2026, 8, 31))
+    assert out["value"] == 5.0
+    assert 'created >= "2026-08-02"' in out["help_created_jql"]
+    assert 'created < "2026-09-01"' in out["escalated_jql"]
+
+
 def test_get_data_escalation_rate() -> None:
     client = MagicMock()
     client.jql_match_count.side_effect = [200, 5]
@@ -181,6 +201,18 @@ def test_get_help_p90_ttr_hours(jira_client) -> None:
     assert out["metric"] == "p90_ttr_hours"
     assert out["value"] == 90  # 9th of 0..9 index for p90 on 10 items → 90h
     assert "resolved >= -30d" in mock_search.call_args.args[0]
+
+
+def test_get_help_p90_ttr_as_of_uses_calendar_bounds(jira_client) -> None:
+    raw = [_issue(f"HELP-{i}", i * 10 * 3600 * 1000) for i in range(1, 11)]
+    with patch.object(jira_client, "_jql_match_total", return_value=10), patch.object(
+        jira_client, "_search", return_value=raw
+    ) as mock_search:
+        jira_client.get_help_p90_ttr(days=30, as_of=date(2026, 8, 31))
+
+    jql = mock_search.call_args.args[0]
+    assert 'resolved >= "2026-08-02"' in jql
+    assert 'resolved < "2026-09-01"' in jql
 
 
 def test_get_p90_ttr_wrapper(jira_client) -> None:

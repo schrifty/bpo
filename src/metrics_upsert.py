@@ -185,6 +185,7 @@ def _invoke_get_median_ttr(ctx: dict[str, Any]) -> dict[str, Any]:
     return get_median_ttr(
         jira,
         days=int(ctx.get("days") or DEFAULT_MEDIAN_TTR_DAYS),
+        as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -197,6 +198,7 @@ def _invoke_get_median_ttfr(ctx: dict[str, Any]) -> dict[str, Any]:
     return get_median_ttfr(
         jira,
         days=int(ctx.get("days") or DEFAULT_MEDIAN_TTFR_DAYS),
+        as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -209,6 +211,7 @@ def _invoke_get_sla_adherence(ctx: dict[str, Any]) -> dict[str, Any]:
     return get_sla_adherence(
         jira,
         days=int(ctx.get("days") or DEFAULT_SLA_ADHERENCE_DAYS),
+        as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -223,6 +226,7 @@ def _invoke_get_help_resolved_created_ratio(ctx: dict[str, Any]) -> dict[str, An
     return get_help_resolved_created_ratio(
         get_shared_jira_client(),
         days=int(ctx.get("days") or DEFAULT_SUPPORT_OPS_DAYS),
+        as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -248,6 +252,7 @@ def _invoke_get_engineering_escalation_rate(ctx: dict[str, Any]) -> dict[str, An
     return get_engineering_escalation_rate(
         get_shared_jira_client(),
         days=int(ctx.get("days") or DEFAULT_SUPPORT_OPS_DAYS),
+        as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -262,6 +267,7 @@ def _invoke_get_data_escalation_rate(ctx: dict[str, Any]) -> dict[str, Any]:
     return get_data_escalation_rate(
         get_shared_jira_client(),
         days=int(ctx.get("days") or DEFAULT_SUPPORT_OPS_DAYS),
+        as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -273,6 +279,7 @@ def _invoke_get_p90_ttr(ctx: dict[str, Any]) -> dict[str, Any]:
     return get_p90_ttr(
         get_shared_jira_client(),
         days=int(ctx.get("days") or DEFAULT_P90_TTR_DAYS),
+        as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
     )
 

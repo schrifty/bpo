@@ -93,7 +93,7 @@ Metrics & KPIs
                           Catalog edits to config/my-metrics.yaml
   kpi-snapshot            Run registry generators into the SQLite KPI store
                           [--date YYYY-MM-DD] [--dry-run] [--tag TAG]
-                          [--metric NAME]
+                          [--metric NAME] [--history-months N]
   metrics-upsert          Upsert generator values to LeanDNA MetricDataPoint
                           [--date YYYY-MM-DD] [--dry-run] [--metric NAME]
                           [--requested-sites ID]
@@ -171,6 +171,7 @@ LeanDNA owned metrics (Data API)
 
 Snapshot / digest / deck
   cortex kpi-snapshot [--date YYYY-MM-DD] [--dry-run] [--tag TAG] [--metric NAME]
+                      [--history-months N]
   cortex metrics-upsert [--date YYYY-MM-DD] [--dry-run] [--metric NAME]
   cortex metrics-digest [--dry-run] [--days N] [--timeout SEC] [--tag TAG]
   cortex metrics-report               Same as metrics-digest --dry-run
@@ -178,6 +179,8 @@ Snapshot / digest / deck
 
 Notes
   --tag filters registry tags (e.g. akkr). kpi-snapshot --dry-run does not write.
+  --history-months N rebuilds month-end trailing windows plus month-close rows
+  (requires --tag or --metric).
   kpi --all --mode stored --skip-s3 is one store read for the full catalog.
   kpi add|edit|delete writes config/my-metrics.yaml (--dry-run to preview).
   delete requires --yes when stdin is not a TTY.

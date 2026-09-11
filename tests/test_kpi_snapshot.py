@@ -10,6 +10,7 @@ import yaml
 
 from src.kpi_snapshot import (
     grain_for_generator,
+    iter_history_snapshot_plan,
     iter_snapshot_metrics,
     kpi_snapshot_exit_code,
     period_key_for,
@@ -134,6 +135,83 @@ def test_persist_skip_s3_upserts_rows(tmp_path: Path) -> None:
     assert prs.observation.value == 500
     assert daily[0].metric_name == "SLA Adherence (30 Days)"
     assert daily[0].period_key == "2026-09-10"
+
+
+def test_history_snapshot_plan_includes_until_and_month_ends() -> None:
+    plan = iter_history_snapshot_plan(date(2026, 9, 11), 2)
+    assert (date(2026, 9, 11), GRAIN_DAILY) in plan
+    assert (date(2026, 9, 11), GRAIN_MONTH) in plan
+    assert (date(2026, 8, 31), GRAIN_DAILY) in plan
+    assert (date(2026, 9, 1), GRAIN_MONTH) in plan
+    assert (date(2026, 7, 31), GRAIN_DAILY) in plan
+    assert (date(2026, 8, 1), GRAIN_MONTH) in plan
+
+
+def test_history_months_requires_tag_or_metric() -> None:
+    with pytest.raises(ValueError, match="--history-months"):
+        run_kpi_snapshot(
+            _ctx(dry_run=True),
+            dry_run=True,
+            registry=_registry(),
+            skip_s3=True,
+            history_months=2,
+            invoke=lambda *a, **k: {"value": 1},
+        )
+
+
+def test_history_months_persists_multiple_period_keys(tmp_path: Path) -> None:
+    db = tmp_path / "kpi.sqlite"
+    seen_dates: list[str] = []
+
+    def invoke(name, **kwargs):
+        seen_dates.append(kwargs["ctx"].entry_date)
+        return {"value": 18, "numerator": 18, "denominator": 1}
+
+    summary = run_kpi_snapshot(
+        _ctx(dry_run=False, metric_name_filter="SLA Adherence (30 Days)"),
+        dry_run=False,
+        registry=_registry(),
+        db_path=db,
+        skip_s3=True,
+        history_months=2,
+        invoke=invoke,
+    )
+    assert summary["ok"] is True
+    conn = connect(db)
+    daily = list_kpis(conn, grain=GRAIN_DAILY)
+    conn.close()
+    keys = {r.period_key for r in daily}
+    assert "2026-09-10" in keys
+    assert "2026-08-31" in keys
+    assert "2026-07-31" in keys
+
+
+def test_history_months_skips_sla_gaps_without_failing(tmp_path: Path) -> None:
+    db = tmp_path / "kpi.sqlite"
+
+    def invoke(name, **kwargs):
+        date_s = kwargs["ctx"].entry_date
+        if date_s < "2026-08-01":
+            return {"error": "no completed Time to resolution SLA cycles for HELP tickets resolved in the last 30d"}
+        return {"value": 18, "numerator": 18, "denominator": 1}
+
+    summary = run_kpi_snapshot(
+        _ctx(dry_run=False, metric_name_filter="SLA Adherence (30 Days)"),
+        dry_run=False,
+        registry=_registry(),
+        db_path=db,
+        skip_s3=True,
+        history_months=2,
+        invoke=invoke,
+    )
+    assert summary["ok"] is True
+    conn = connect(db)
+    daily = list_kpis(conn, grain=GRAIN_DAILY)
+    conn.close()
+    assert all(r.observation.ok for r in daily)
+    keys = {r.period_key for r in daily}
+    assert "2026-09-10" in keys
+    assert "2026-07-31" not in keys
 
 
 def test_generator_error_fails_run_and_still_writes_error_row(tmp_path: Path) -> None:

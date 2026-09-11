@@ -20,6 +20,7 @@ def get_sla_adherence(
     client: JiraClient,
     *,
     days: int = DEFAULT_SLA_ADHERENCE_DAYS,
+    as_of=None,
     timeout: float = 60.0,  # noqa: ARG001 - search uses client timeouts
 ) -> dict[str, Any]:
     """Return ``{"value": <percent>}`` HELP SLA adherence.
@@ -30,7 +31,7 @@ def get_sla_adherence(
     if days < 1:
         return {"error": "days must be >= 1", "days": days}
 
-    result = client.get_help_sla_adherence(days=int(days))
+    result = client.get_help_sla_adherence(days=int(days), as_of=as_of)
     if result.get("error"):
         return result
 

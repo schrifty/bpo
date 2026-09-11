@@ -3510,6 +3510,22 @@ class JiraClient:
             "jql_queries": self._jql_since(jql_start),
         }
 
+    def _help_resolved_window_jql(
+        self,
+        *,
+        days: int,
+        base_filter: str,
+        as_of: date | datetime | None = None,
+    ) -> str:
+        from .jira_jql_window import jql_trailing_clause
+
+        clause = jql_trailing_clause("resolved", int(days), as_of)
+        return (
+            f"project = HELP AND {base_filter} AND {_TRANSIENT_LABELS_EXCLUSION} "
+            f"AND resolution is not EMPTY AND {clause} "
+            "ORDER BY resolved DESC"
+        )
+
     def get_help_time_to_resolution(
         self,
         *,
@@ -3623,6 +3639,7 @@ class JiraClient:
         self,
         *,
         days: int = 30,
+        as_of: date | datetime | None = None,
         customer_name: str | None = None,
         match_terms: list[str] | None = None,
         max_results: int | None = None,
@@ -3641,10 +3658,8 @@ class JiraClient:
         base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
             customer_name, match_terms
         )
-        jql = (
-            f"project = HELP AND {base_filter} AND {_TRANSIENT_LABELS_EXCLUSION} "
-            f"AND resolution is not EMPTY AND resolved >= -{int(days)}d "
-            "ORDER BY resolved DESC"
+        jql = self._help_resolved_window_jql(
+            days=int(days), base_filter=base_filter, as_of=as_of
         )
         jql_total = self._jql_match_total(jql)
 
@@ -3732,6 +3747,7 @@ class JiraClient:
         self,
         *,
         days: int = 30,
+        as_of: date | datetime | None = None,
         customer_name: str | None = None,
         match_terms: list[str] | None = None,
         max_results: int | None = None,
@@ -3750,10 +3766,8 @@ class JiraClient:
         base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
             customer_name, match_terms
         )
-        jql = (
-            f"project = HELP AND {base_filter} AND {_TRANSIENT_LABELS_EXCLUSION} "
-            f"AND resolution is not EMPTY AND resolved >= -{int(days)}d "
-            "ORDER BY resolved DESC"
+        jql = self._help_resolved_window_jql(
+            days=int(days), base_filter=base_filter, as_of=as_of
         )
         jql_total = self._jql_match_total(jql)
 
@@ -3846,6 +3860,7 @@ class JiraClient:
         self,
         *,
         days: int = 30,
+        as_of: date | datetime | None = None,
         customer_name: str | None = None,
         match_terms: list[str] | None = None,
         max_results: int | None = None,
@@ -3864,10 +3879,8 @@ class JiraClient:
         base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
             customer_name, match_terms
         )
-        jql = (
-            f"project = HELP AND {base_filter} AND {_TRANSIENT_LABELS_EXCLUSION} "
-            f"AND resolution is not EMPTY AND resolved >= -{int(days)}d "
-            "ORDER BY resolved DESC"
+        jql = self._help_resolved_window_jql(
+            days=int(days), base_filter=base_filter, as_of=as_of
         )
         jql_total = self._jql_match_total(jql)
 
@@ -3955,6 +3968,7 @@ class JiraClient:
         self,
         *,
         days: int = 30,
+        as_of: date | datetime | None = None,
         customer_name: str | None = None,
         match_terms: list[str] | None = None,
         max_results: int | None = None,
@@ -3973,10 +3987,8 @@ class JiraClient:
         base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
             customer_name, match_terms
         )
-        jql = (
-            f"project = HELP AND {base_filter} AND {_TRANSIENT_LABELS_EXCLUSION} "
-            f"AND resolution is not EMPTY AND resolved >= -{int(days)}d "
-            "ORDER BY resolved DESC"
+        jql = self._help_resolved_window_jql(
+            days=int(days), base_filter=base_filter, as_of=as_of
         )
         jql_total = self._jql_match_total(jql)
 
