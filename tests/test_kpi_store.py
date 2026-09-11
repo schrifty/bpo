@@ -95,11 +95,11 @@ def test_daily_and_month_grains_are_independent(tmp_path: Path) -> None:
     upsert_kpi(
         conn,
         stored_kpi_from_observation(
-            metric_name="Tickets Beyond Service Thresholds",
+            metric_name="SLA Adherence (30 Days)",
             grain=GRAIN_DAILY,
             period_key="2026-09-10",
             observation=_obs(value=18),
-            generator="get_service_threshold_tickets",
+            generator="get_sla_adherence",
         ),
     )
     upsert_kpi(
@@ -114,7 +114,7 @@ def test_daily_and_month_grains_are_independent(tmp_path: Path) -> None:
     )
     daily = list_kpis(conn, grain=GRAIN_DAILY)
     month = list_kpis(conn, grain=GRAIN_MONTH)
-    assert [r.metric_name for r in daily] == ["Tickets Beyond Service Thresholds"]
+    assert [r.metric_name for r in daily] == ["SLA Adherence (30 Days)"]
     assert [r.metric_name for r in month] == ["Issues Shipped"]
     conn.close()
 

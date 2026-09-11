@@ -165,17 +165,6 @@ def _invoke_get_monthly_ai_spend(ctx: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _invoke_get_service_threshold_tickets(ctx: dict[str, Any]) -> dict[str, Any]:
-    from src.jira_client import get_shared_jira_client
-    from src.jira_service_threshold_tickets import get_service_threshold_ticket_count
-
-    jira = get_shared_jira_client()
-    return get_service_threshold_ticket_count(
-        jira,
-        timeout=float(ctx.get("timeout") or 60.0),
-    )
-
-
 def _invoke_get_customer_reported_bugs_created(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.jira_client import get_shared_jira_client
     from src.jira_customer_reported_bugs import get_customer_reported_bugs_created
@@ -492,7 +481,6 @@ _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_dev_team_lead_time": _invoke_get_dev_team_lead_time,
     "get_ai_token_usage": _invoke_get_ai_token_usage,
     "get_monthly_ai_spend": _invoke_get_monthly_ai_spend,
-    "get_service_threshold_tickets": _invoke_get_service_threshold_tickets,
     "get_customer_reported_bugs_created": _invoke_get_customer_reported_bugs_created,
     "get_customer_reported_bugs_eom": _invoke_get_customer_reported_bugs_created,
     "get_median_ttr": _invoke_get_median_ttr,

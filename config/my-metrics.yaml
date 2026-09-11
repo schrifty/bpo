@@ -58,15 +58,6 @@ metrics:
     target: 25
     direction: lower
 
-  # Tickets Beyond Service Thresholds
-  "Tickets Beyond Service Thresholds":
-    description: Open high-priority HELP tickets (excl. outage/healthcheck).
-    metric-id: 2028
-    metric-generator: get_service_threshold_tickets
-    tags: [support, sla]
-    target: 50
-    direction: lower
-
   # Site Uptime %
   "Site Uptime %":
     description: null
@@ -80,8 +71,6 @@ metrics:
     metric-id: null
     metric-generator: get_ai_token_usage
     tags: [ai, engineering]
-    target: 1
-    direction: higher
 
   "Monthly AI Spend":
     description: Projected Cursor AI spend (USD) for this calendar month.
@@ -179,7 +168,7 @@ metrics:
     metric-id: 2024
     metric-generator: get_dev_team_cycle_times
     tags: [engineering]
-    target: 5
+    target: 1
     direction: lower
 
   "Engineering Lead Time (Days)":
@@ -211,7 +200,7 @@ metrics:
     metric-generator: get_kpi_automation_pct
     tags: [automation, ops]
     unit: percent
-    target: 50
+    target: 90
     direction: higher
 
   # 2085
@@ -226,7 +215,7 @@ metrics:
     metric-id: null
     metric-generator: get_sprint_story_points_by_team
     tags: [engineering]
-    target: 40
+    target: 150
     direction: higher
 
   # 2087
@@ -328,7 +317,7 @@ metrics:
     metric-generator: get_growth_allocation_pct
     tags: [engineering, impact, AKKR]
     unit: percent
-    target: 70
+    target: 90
     direction: higher
 
   "Headcount + AI Spend / Issue":
