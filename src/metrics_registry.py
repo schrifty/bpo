@@ -43,6 +43,17 @@ def registry_metric_description(entry: Any) -> str | None:
     return text or None
 
 
+def registry_metric_mgmt_guidance(entry: Any) -> str | None:
+    """Optional ``mgmt_guidance`` (how to manage to the KPI)."""
+    if not isinstance(entry, dict):
+        return None
+    raw = entry.get("mgmt_guidance")
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    return text or None
+
+
 def normalize_tag(raw: Any) -> str:
     """Canonical tag form: trimmed, lowercased, inner whitespace/underscores → hyphen."""
     text = str(raw or "").strip().lower()

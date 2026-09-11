@@ -25,6 +25,11 @@ GRAINS = frozenset({GRAIN_DAILY, GRAIN_MONTH})
 CUSTOMER_REPORTED_BUGS_METRIC = "Customer-Reported Bugs"
 _RETIRED_OPEN_CUSTOMER_REPORTED_BUGS_METRIC = "Open Customer-Reported Bugs"
 _RETIRED_COMBINED_ESCALATION_RATE_METRIC = "Escalation Rate (30 Days)"
+_RETIRED_TRAILING_SUPPORT_METRICS = (
+    "HELP Resolved / Created (30 Days)",
+    "Engineering Escalation Rate (30 Days)",
+    "Data Escalation Rate (30 Days)",
+)
 
 # Previous-calendar-month scorecard generators (period_key = YYYY-MM of that month).
 MONTH_CLOSE_GENERATORS = frozenset(
@@ -46,6 +51,11 @@ MONTH_CLOSE_GENERATORS = frozenset(
         "get_customer_reported_bugs_created",
         "get_customer_reported_bugs_eom",
         "get_help_ticket_count",
+        "get_help_resolved_created_ratio",
+        "get_engineering_escalation_count",
+        "get_data_escalation_count",
+        "get_engineering_escalation_rate",
+        "get_data_escalation_rate",
     }
 )
 
@@ -169,6 +179,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
     )
     migrate_legacy_daily_customer_reported_bugs(conn)
     migrate_retired_combined_escalation_rate(conn)
+    migrate_retired_trailing_support_metrics(conn)
     conn.commit()
 
 
@@ -192,6 +203,14 @@ def migrate_retired_combined_escalation_rate(conn: sqlite3.Connection) -> None:
     conn.execute(
         "DELETE FROM kpi_observation WHERE metric_name = ?",
         (_RETIRED_COMBINED_ESCALATION_RATE_METRIC,),
+    )
+
+
+def migrate_retired_trailing_support_metrics(conn: sqlite3.Connection) -> None:
+    """Drop trailing-30d support KPI names replaced by month-close rows."""
+    conn.execute(
+        f"DELETE FROM kpi_observation WHERE metric_name IN ({','.join('?' * len(_RETIRED_TRAILING_SUPPORT_METRICS))})",
+        _RETIRED_TRAILING_SUPPORT_METRICS,
     )
 
 

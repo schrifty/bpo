@@ -218,14 +218,10 @@ def _invoke_get_sla_adherence(ctx: dict[str, Any]) -> dict[str, Any]:
 
 def _invoke_get_help_resolved_created_ratio(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.jira_client import get_shared_jira_client
-    from src.jira_support_ops_metrics import (
-        DEFAULT_SUPPORT_OPS_DAYS,
-        get_help_resolved_created_ratio,
-    )
+    from src.jira_support_ops_metrics import get_help_resolved_created_ratio
 
     return get_help_resolved_created_ratio(
         get_shared_jira_client(),
-        days=int(ctx.get("days") or DEFAULT_SUPPORT_OPS_DAYS),
         as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
     )
@@ -244,14 +240,10 @@ def _invoke_get_help_ticket_count(ctx: dict[str, Any]) -> dict[str, Any]:
 
 def _invoke_get_engineering_escalation_rate(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.jira_client import get_shared_jira_client
-    from src.jira_support_ops_metrics import (
-        DEFAULT_SUPPORT_OPS_DAYS,
-        get_engineering_escalation_rate,
-    )
+    from src.jira_support_ops_metrics import get_engineering_escalation_rate
 
     return get_engineering_escalation_rate(
         get_shared_jira_client(),
-        days=int(ctx.get("days") or DEFAULT_SUPPORT_OPS_DAYS),
         as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
     )
@@ -259,14 +251,54 @@ def _invoke_get_engineering_escalation_rate(ctx: dict[str, Any]) -> dict[str, An
 
 def _invoke_get_data_escalation_rate(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.jira_client import get_shared_jira_client
-    from src.jira_support_ops_metrics import (
-        DEFAULT_SUPPORT_OPS_DAYS,
-        get_data_escalation_rate,
-    )
+    from src.jira_support_ops_metrics import get_data_escalation_rate
 
     return get_data_escalation_rate(
         get_shared_jira_client(),
-        days=int(ctx.get("days") or DEFAULT_SUPPORT_OPS_DAYS),
+        as_of=_as_of_from_ctx(ctx),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
+def _invoke_get_engineering_escalation_count(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.jira_client import get_shared_jira_client
+    from src.jira_support_ops_metrics import get_engineering_escalation_count
+
+    return get_engineering_escalation_count(
+        get_shared_jira_client(),
+        as_of=_as_of_from_ctx(ctx),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
+def _invoke_get_data_escalation_count(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.jira_client import get_shared_jira_client
+    from src.jira_support_ops_metrics import get_data_escalation_count
+
+    return get_data_escalation_count(
+        get_shared_jira_client(),
+        as_of=_as_of_from_ctx(ctx),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
+def _invoke_get_open_help(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.jira_client import get_shared_jira_client
+    from src.jira_support_ops_metrics import get_open_help
+
+    return get_open_help(
+        get_shared_jira_client(),
+        as_of=_as_of_from_ctx(ctx),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
+def _invoke_get_open_help_over_30d_pct(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.jira_client import get_shared_jira_client
+    from src.jira_support_ops_metrics import get_open_help_over_30d_pct
+
+    return get_open_help_over_30d_pct(
+        get_shared_jira_client(),
         as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
     )
@@ -522,6 +554,10 @@ _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_help_ticket_count": _invoke_get_help_ticket_count,
     "get_engineering_escalation_rate": _invoke_get_engineering_escalation_rate,
     "get_data_escalation_rate": _invoke_get_data_escalation_rate,
+    "get_engineering_escalation_count": _invoke_get_engineering_escalation_count,
+    "get_data_escalation_count": _invoke_get_data_escalation_count,
+    "get_open_help": _invoke_get_open_help,
+    "get_open_help_over_30d_pct": _invoke_get_open_help_over_30d_pct,
     "get_p90_ttr": _invoke_get_p90_ttr,
     "get_sprint_delivery_by_team": _invoke_get_sprint_delivery_by_team,
     "get_sprint_story_points_by_team": _invoke_get_sprint_story_points_by_team,

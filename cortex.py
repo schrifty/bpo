@@ -159,9 +159,11 @@ Values (config/my-metrics.yaml)
 
 Catalog (writes config/my-metrics.yaml)
   cortex kpi add NAME [--tags a,b] [--generator FN] [--description TEXT]
-                      [--metric-id N] [--unit currency|percent]
+                      [--mgmt-guidance TEXT] [--metric-id N]
+                      [--unit currency|percent]
                       [--target N --direction higher|lower] [--dry-run]
   cortex kpi edit NAME [--new-name NAME] [--add-tag T] [--remove-tag T]
+                       [--mgmt-guidance TEXT] [--clear-mgmt-guidance]
                        [--clear-target] [--clear-generator] …
   cortex kpi delete NAME [--yes] [--dry-run]
   cortex kpi show NAME [--json]

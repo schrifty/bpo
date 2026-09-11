@@ -12,6 +12,7 @@
 # Fields:
 #   description       — Human-readable summary of what the metric measures; filled in for
 #                       entries with a generator, null when not yet defined
+#   mgmt_guidance     — Two sentences max: how to manage to this KPI
 #   metric-id         — Optional Data API catalog id (same as app ndx). Required only to
 #                       write LeanDNA MetricDataPoint rows, or to inspect them via
 #                       `metrics-by-tag --mode leandna` (create metrics in LeanDNA UI).
@@ -37,6 +38,9 @@ metrics:
   # Control Tower
   "Time to Value":
     description: null
+    mgmt_guidance: >-
+      Track onboarding cycle time and intervene when implementations stall.
+      This is not a HELP-queue metric.
     metric-id: 1860
     metric-generator: null
     tags: [control-tower, onboarding]
@@ -44,6 +48,9 @@ metrics:
   # On-Time Performance
   "On Time Performance":
     description: null
+    mgmt_guidance: >-
+      Manage supply-chain delivery against the committed date.
+      Misses are execution issues, not ticket volume.
     metric-id: 1745
     metric-generator: null
     tags: [supply-chain]
@@ -53,6 +60,9 @@ metrics:
     description: >-
       LEAN Bug issues labeled jira_escalated created in the previous calendar
       month (HELP escalations into engineering).
+    mgmt_guidance: >-
+      Drive the monthly LEAN jira_escalated Bug count toward 25 or below.
+      A jump is product quality or intake change, not more HELP volume.
     metric-id: null
     metric-generator: get_customer_reported_bugs_created
     tags: [engineering, quality]
@@ -62,6 +72,9 @@ metrics:
   # Site Uptime %
   "Site Uptime %":
     description: null
+    mgmt_guidance: >-
+      Protect platform availability and page on sustained drops below high-nines.
+      This is infrastructure, not support staffing.
     metric-id: 1769
     metric-generator: null
     tags: [reliability, platform]
@@ -69,12 +82,18 @@ metrics:
   # AI Token Usage
   "AI Token Usage":
     description: Cursor tokens used in the last 30 days.
+    mgmt_guidance: >-
+      Watch 30-day Cursor token volume as an adoption and cost leading indicator.
+      Investigate spikes for waste or a new team rollout.
     metric-id: null
     metric-generator: get_ai_token_usage
     tags: [ai, engineering]
 
   "Monthly AI Spend":
     description: Projected Cursor AI spend (USD) for this calendar month.
+    mgmt_guidance: >-
+      Manage in-month Cursor spend against finance expectations.
+      Pair with Token Cost per Dev before cutting tools.
     metric-id: null
     metric-generator: get_monthly_ai_spend
     tags: [enterprise, finance]
@@ -83,6 +102,9 @@ metrics:
   # Median Time to Complete SUT (Weeks)
   "Median Time to Complete SUT (Weeks)":
     description: null
+    mgmt_guidance: >-
+      Shorten new-site SUT cycle time; long values mean onboarding is stuck.
+      Do not mix this with HELP time to resolution.
     metric-id: 2175
     metric-generator: null
     tags: [onboarding]
@@ -92,6 +114,9 @@ metrics:
     description: >-
       Unweighted mean of per-board delivery % (issues Done ÷ issues committed)
       for the latest closed sprint on each configured scrum board.
+    mgmt_guidance: >-
+      Hold teams to completing the committed sprint (target 80% or higher).
+      Chronic misses are planning or WIP problems.
     metric-id: 2086
     metric-generator: get_sprint_delivery_by_team
     tags: [engineering]
@@ -104,6 +129,9 @@ metrics:
     description: >-
       Median HELP Time to first response (JSM SLA) in hours, last 30 days
       (resolved tickets with a completed TTFR cycle).
+    mgmt_guidance: >-
+      Customers should hear back within 48 hours; about one hour is healthy.
+      Do not celebrate TTFR if P90 TTR and SLA adherence are still failing.
     metric-id: null
     metric-generator: get_median_ttfr
     tags: [support, sla]
@@ -113,6 +141,9 @@ metrics:
   # Median TTR
   "Median TTR":
     description: Median HELP time-to-resolution (days), last 30 days.
+    mgmt_guidance: >-
+      Keep typical resolution at or below 6.67 days.
+      Use this for the median customer; the tail is P90 TTR.
     metric-id: 2171
     metric-generator: get_median_ttr
     tags: [support, sla]
@@ -124,6 +155,9 @@ metrics:
     description: >-
       Percent of HELP tickets resolved in the last 30 days with a completed
       TTFR or TTR SLA cycle that did not breach any measured cycle.
+    mgmt_guidance: >-
+      Hold at least 90% of measured resolved tickets to TTFR or TTR.
+      Below that, inspect breaches by queue before adding headcount.
     metric-id: null
     metric-generator: get_sla_adherence
     tags: [support, sla]
@@ -131,10 +165,13 @@ metrics:
     target: 90
     direction: higher
 
-  "HELP Resolved / Created (30 Days)":
+  "HELP Resolved / Created":
     description: >-
-      HELP tickets resolved ÷ HELP tickets created × 100, last 30 days
-      (excl. Outage/Healthcheck). Above 100% means backlog drawdown.
+      HELP tickets resolved ÷ HELP tickets created × 100 in the previous
+      calendar month (excl. Outage/Healthcheck). Same month as Ticket Count.
+    mgmt_guidance: >-
+      Below 100% means the backlog grew that month; a healthy steady state is
+      about 95–110%. Readings at 160%+ are a drawdown phase, not a forever target.
     metric-id: null
     metric-generator: get_help_resolved_created_ratio
     tags: [support, throughput]
@@ -145,34 +182,95 @@ metrics:
   "Ticket Count":
     description: >-
       HELP tickets created in the previous calendar month (excl. Outage/Healthcheck).
+      Payload includes created_per_business_day. HELP volume dropped sharply after
+      January 2026 (457 created that month vs ~80–120 thereafter); treat that as a
+      series break until the cause is named.
+    mgmt_guidance: >-
+      Use this month-close count as the volume baseline and compare months with
+      created per business day. Do not set a target until the February 2026 drop is explained.
     metric-id: null
     metric-generator: get_help_ticket_count
     tags: [support, volume]
 
-  "Engineering Escalation Rate (30 Days)":
+  "Engineering Escalations":
     description: >-
-      LEAN tickets created with label jira_escalated ÷ HELP tickets created, last
-      30 days (excl. Epic/SUT on escalations; excl. Outage/Healthcheck on HELP).
-      Engineering queue for support-to-product escalations.
+      LEAN tickets created with label jira_escalated in the previous calendar
+      month (excl. Epic/SUT). Primary engineering-escalation KPI; same month as
+      Ticket Count.
+    mgmt_guidance: >-
+      Manage the LEAN jira_escalated count, not the rate, on the same month as Ticket Count.
+      A stable count with a rising rate usually means HELP volume fell, not that engineering got worse.
+    metric-id: null
+    metric-generator: get_engineering_escalation_count
+    tags: [support, escalation, engineering]
+
+  "Engineering Escalation Rate":
+    description: >-
+      LEAN jira_escalated created ÷ HELP tickets created, previous calendar month
+      (excl. Epic/SUT on escalations; excl. Outage/Healthcheck on HELP). Derived
+      from Engineering Escalations and Ticket Count.
+    mgmt_guidance: >-
+      Use this percentage as context only after a volume-regime change.
+      Do not steer staffing off the rate when the underlying count is stable.
     metric-id: null
     metric-generator: get_engineering_escalation_rate
     tags: [support, escalation, engineering]
     unit: percent
 
-  "Data Escalation Rate (30 Days)":
+  "Data Escalations":
     description: >-
-      CUSTOMER tickets created with label jira_escalated ÷ HELP tickets created,
-      last 30 days (excl. Epic/SUT on escalations; excl. Outage/Healthcheck on
-      HELP). Data Engineering queue for support-to-data escalations.
+      CUSTOMER tickets created with label jira_escalated in the previous calendar
+      month (excl. Epic/SUT). Primary data-escalation KPI; same month as Ticket Count.
+    mgmt_guidance: >-
+      Manage the CUSTOMER jira_escalated count on the same month as Ticket Count.
+      Decide whether Data tickets are the intended path before treating a high count as a support miss.
+    metric-id: null
+    metric-generator: get_data_escalation_count
+    tags: [support, escalation, data-integration]
+
+  "Data Escalation Rate":
+    description: >-
+      CUSTOMER jira_escalated created ÷ HELP tickets created, previous calendar
+      month (excl. Epic/SUT on escalations; excl. Outage/Healthcheck on HELP).
+      Derived from Data Escalations and Ticket Count.
+    mgmt_guidance: >-
+      This is the share of HELP that spawned Data work, often 60%+ recently.
+      Do not apply a lower-is-better target until routing intent is explicit.
     metric-id: null
     metric-generator: get_data_escalation_rate
     tags: [support, escalation, data-integration]
+    unit: percent
+
+  "Open HELP":
+    description: >-
+      HELP tickets still open at the snapshot date (excl. Outage/Healthcheck),
+      including tickets later resolved after that date when rebuilding history.
+    mgmt_guidance: >-
+      Manage the open stock; a falling count with Resolved/Created at or above 100% is a healthy drawdown.
+      This is the missing stock counterpart to monthly flow.
+    metric-id: null
+    metric-generator: get_open_help
+    tags: [support, backlog]
+
+  "Open HELP >30d %":
+    description: >-
+      Share of open HELP (as of the snapshot date) whose created date is more
+      than 30 days earlier (excl. Outage/Healthcheck).
+    mgmt_guidance: >-
+      Drive the share of open HELP older than 30 days down; that is stuck work, not new intake.
+      Pair with P90 TTR when the tail of resolved work is also long.
+    metric-id: null
+    metric-generator: get_open_help_over_30d_pct
+    tags: [support, backlog]
     unit: percent
 
   "P90 TTR (30 Days)":
     description: >-
       90th percentile HELP Time to resolution (JSM SLA) in days, last 30 days
       (resolved tickets with a completed TTR cycle).
+    mgmt_guidance: >-
+      Kill the long tail; target is 10 days or less.
+      If median TTR is fine and P90 is not, the problem is stuck tickets, not average speed.
     metric-id: null
     metric-generator: get_p90_ttr
     tags: [support, sla]
@@ -181,6 +279,9 @@ metrics:
 
   "Engineering Cycle Time (Sprint)":
     description: Median in-progress cycle time (days) across dev boards, last 30 days.
+    mgmt_guidance: >-
+      Keep in-progress work moving (target at most 1 day median).
+      Rising cycle time is a WIP or review bottleneck.
     metric-id: 2024
     metric-generator: get_dev_team_cycle_times
     tags: [engineering]
@@ -189,6 +290,9 @@ metrics:
 
   "Engineering Lead Time (Days)":
     description: Median create-to-resolve lead time (days) across dev boards, last 30 days.
+    mgmt_guidance: >-
+      Keep create-to-resolve near 14 days or less.
+      This is delivery latency, not HELP TTR.
     metric-id: 2179
     metric-generator: get_dev_team_lead_time
     tags: [engineering]
@@ -198,6 +302,9 @@ metrics:
   # Data Sync Failures (Month) - 2029
   "Data Sync Failures (Month)":
     description: null
+    mgmt_guidance: >-
+      Drive monthly sync failures down; each failure is a customer-visible data miss.
+      Wire a generator before managing to a number.
     metric-id: null
     metric-generator: null
     tags: [reliability, data-integration]
@@ -205,6 +312,9 @@ metrics:
   # Data Sync Failures (YTD) - 2031
   "Data Sync Failures (YTD)":
     description: null
+    mgmt_guidance: >-
+      Watch year-to-date accumulation; a calm month can still leave residual YTD risk.
+      Wire a generator before managing to a number.
     metric-id: null
     metric-generator: null
     tags: [reliability, data-integration]
@@ -212,6 +322,9 @@ metrics:
   # 2076
   "KPI Automation %":
     description: Share of registry KPIs with both an id and a generator.
+    mgmt_guidance: >-
+      Raise the share of catalog rows that are actually generated (target 90%).
+      Gaps here mean the scorecard is still manual.
     metric-id: null
     metric-generator: get_kpi_automation_pct
     tags: [automation, ops]
@@ -222,12 +335,18 @@ metrics:
   # 2085
   "Team Performance (Onshore vs. Offshore)":
     description: null
+    mgmt_guidance: >-
+      Use this only once it is defined and wired; do not infer it from sprint delivery alone.
+      Until then this row is a placeholder.
     metric-id: null
     metric-generator: null
     tags: [engineering]
 
   "Sprint Story Points Delivered":
     description: Story points completed in the latest sprint across boards.
+    mgmt_guidance: >-
+      Track completed points (target 150) as capacity output, not quality.
+      Pair with defects and cycle time.
     metric-id: null
     metric-generator: get_sprint_story_points_by_team
     tags: [engineering]
@@ -237,6 +356,9 @@ metrics:
   # 2087
   "AI Usage/Effectiveness":
     description: null
+    mgmt_guidance: >-
+      Placeholder until the generator exists.
+      Do not manage the org to this name until it has a definition.
     metric-id: null
     metric-generator: null
     tags: [ai]
@@ -244,6 +366,9 @@ metrics:
   # ── Engineering MFR scorecard (board-level AI adoption & impact) ──
   "Weekly Active AI Users":
     description: "% of Engineering using Cursor in the last 7 days (excl. Data Implementation)."
+    mgmt_guidance: >-
+      Keep at least 80% of Engineering on Cursor in the last 7 days.
+      Drops are adoption or access issues.
     metric-id: null
     metric-generator: get_weekly_active_ai_users
     tags: [engineering, ai, AKKR]
@@ -255,6 +380,9 @@ metrics:
     description: >-
       Estimated share of merged PRs that are AI-assisted, previous calendar month —
       AI Code Share % applied to merged PR volume (commit attribution is too weak).
+    mgmt_guidance: >-
+      Hold at least 50% of merged PRs as AI-assisted.
+      This is the same series family as AI Code Share; do not tell conflicting stories.
     metric-id: null
     metric-generator: get_ai_assisted_prs_pct
     tags: [engineering, ai, AKKR]
@@ -266,6 +394,9 @@ metrics:
     description: >-
       Cursor-attributed lines ÷ total changed lines in commits, previous calendar month
       (Engineering Department; Cursor daily-usage AI Share signal).
+    mgmt_guidance: >-
+      Hold at least 80% of changed lines as Cursor-attributed.
+      Investigate if this and % AI-Assisted PRs diverge sharply.
     metric-id: null
     metric-generator: get_ai_code_share
     tags: [engineering, ai, AKKR]
@@ -275,6 +406,9 @@ metrics:
 
   "Tokens per Dev":
     description: Cursor tokens ÷ Engineering headcount, previous calendar month (excl. Data Implementation).
+    mgmt_guidance: >-
+      Aim for at least 10 million tokens per engineer per month as a usage floor.
+      Collapses mean the tool is not in the workflow.
     metric-id: null
     metric-generator: get_tokens_per_dev
     tags: [engineering, ai, AKKR]
@@ -283,6 +417,9 @@ metrics:
 
   "Token Cost per Dev":
     description: Engineer Cursor spend (USD) ÷ Engineering headcount, previous calendar month (excl. Data Implementation).
+    mgmt_guidance: >-
+      Aim for about $250 per engineer as spend that matches usage, not as a cost-cut target.
+      Pair with Tokens per Dev.
     metric-id: null
     metric-generator: get_token_cost_per_dev
     tags: [engineering, ai, AKKR]
@@ -292,6 +429,9 @@ metrics:
 
   "AI Spend %":
     description: This-month Cursor AI spend ÷ monthly engineering spend.
+    mgmt_guidance: >-
+      Grow Cursor spend toward 5% of engineering opex if adoption is working.
+      Do not cut this in isolation when delivery KPIs are up.
     metric-id: null
     metric-generator: get_ai_spend_pct
     tags: [engineering, ai, AKKR]
@@ -301,6 +441,9 @@ metrics:
 
   "PRs Merged":
     description: Engineer GitHub PRs merged in the previous calendar month.
+    mgmt_guidance: >-
+      Hit at least 500 engineer PRs in the month.
+      A miss with high AI share is a throughput problem, not an AI problem.
     metric-id: null
     metric-generator: get_prs_merged
     tags: [engineering, impact, AKKR]
@@ -309,6 +452,9 @@ metrics:
 
   "Defects per 100 Issues":
     description: LEAN bugs created ÷ issues shipped × 100, previous calendar month.
+    mgmt_guidance: >-
+      Keep at most 15 bugs per 100 shipped issues.
+      Rising defects with high growth allocation means quality is the constraint.
     metric-id: null
     metric-generator: get_defects_per_100_issues
     tags: [engineering, impact, quality, AKKR]
@@ -319,6 +465,9 @@ metrics:
   "Issues Shipped":
     description: >-
       Actual LEAN issues Done in the previous calendar month; no extrapolation.
+    mgmt_guidance: >-
+      Hit at least 280 Done issues in the month.
+      This is the output denominator for several impact KPIs.
     metric-id: null
     metric-generator: get_issues_shipped
     tags: [engineering, impact, AKKR]
@@ -329,6 +478,9 @@ metrics:
     description: >-
       Planned LEAN Done work ÷ eligible Done work (excludes bugs and tech-debt),
       previous calendar month.
+    mgmt_guidance: >-
+      Keep at least 90% of eligible Done work as planned or growth.
+      Bugs and tech-debt crowding this out is what to manage down.
     metric-id: null
     metric-generator: get_growth_allocation_pct
     tags: [engineering, impact, AKKR]
@@ -338,6 +490,9 @@ metrics:
 
   "Headcount + AI Spend / Issue":
     description: (Monthly eng headcount + AI spend) ÷ issues shipped, previous calendar month.
+    mgmt_guidance: >-
+      Drive fully loaded cost per shipped issue toward $1,600 or less.
+      Improvements can be more output or less cost, not vanity savings.
     metric-id: null
     metric-generator: get_headcount_plus_ai_spend_per_issue
     tags: [engineering, impact, ai, AKKR]
@@ -347,6 +502,9 @@ metrics:
 
   "AI Spend / Issue":
     description: Engineer Cursor spend (USD) ÷ issues shipped, previous calendar month.
+    mgmt_guidance: >-
+      Keep Cursor dollars per shipped issue near $50 or less.
+      Rising spend per issue with flat output is waste.
     metric-id: null
     metric-generator: get_ai_spend_per_issue
     tags: [engineering, impact, ai, AKKR]

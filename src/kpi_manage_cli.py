@@ -72,6 +72,12 @@ def _add_shared_write_args(ap: argparse.ArgumentParser) -> None:
 
 def _add_field_args(ap: argparse.ArgumentParser, *, for_edit: bool) -> None:
     ap.add_argument("--description", default=UNSET, help="Human-readable summary")
+    ap.add_argument(
+        "--mgmt-guidance",
+        dest="mgmt_guidance",
+        default=UNSET,
+        help="How to manage to this KPI (two sentences max)",
+    )
     ap.add_argument("--metric-id", dest="metric_id", default=UNSET, help="LeanDNA catalog id (integer)")
     ap.add_argument("--generator", dest="generator", default=UNSET, help="metric-generator function name")
     ap.add_argument(
@@ -100,6 +106,7 @@ def _add_field_args(ap: argparse.ArgumentParser, *, for_edit: bool) -> None:
         ap.add_argument("--add-tag", dest="add_tags", action="append", default=None, metavar="NAME")
         ap.add_argument("--remove-tag", dest="remove_tags", action="append", default=None, metavar="NAME")
         ap.add_argument("--clear-description", action="store_true")
+        ap.add_argument("--clear-mgmt-guidance", action="store_true")
         ap.add_argument("--clear-metric-id", action="store_true")
         ap.add_argument("--clear-generator", action="store_true")
         ap.add_argument("--clear-tags", action="store_true")
@@ -137,6 +144,7 @@ def _cmd_add(ns: argparse.Namespace) -> int:
         ns.name,
         path=_registry_path(ns),
         description=ns.description,
+        mgmt_guidance=ns.mgmt_guidance,
         metric_id=ns.metric_id,
         generator=ns.generator,
         tags=_merged_tags(ns),
@@ -155,6 +163,7 @@ def _cmd_edit(ns: argparse.Namespace) -> int:
         path=_registry_path(ns),
         new_name=ns.new_name,
         description=ns.description,
+        mgmt_guidance=ns.mgmt_guidance,
         metric_id=ns.metric_id,
         generator=ns.generator,
         tags=_merged_tags(ns),
@@ -164,6 +173,7 @@ def _cmd_edit(ns: argparse.Namespace) -> int:
         target=ns.target,
         direction=ns.direction,
         clear_description=bool(ns.clear_description),
+        clear_mgmt_guidance=bool(ns.clear_mgmt_guidance),
         clear_metric_id=bool(ns.clear_metric_id),
         clear_generator=bool(ns.clear_generator),
         clear_tags=bool(ns.clear_tags),

@@ -46,6 +46,7 @@ metrics:
     metric-id: null
     metric-generator: gen_live
     tags: [engineering]
+    mgmt_guidance: Manage the live value. This is a test.
   "Stored Only":
     metric-id: 10
     metric-generator: null
@@ -118,8 +119,10 @@ def test_resolve_live_without_metric_id(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert row.observation.ok
     assert row.observation.display_value == 0.3
     assert row.metric_id is None
+    assert row.mgmt_guidance == "Manage the live value. This is a test."
 
     block = format_kpi_resolved_block(row)
+    assert any("manage: Manage the live value." in line for line in block)
     assert "Live Only" in block[0]
     assert "engineering" in block[0]
     assert "0.3" in block[0]
@@ -156,6 +159,26 @@ def test_format_kpi_resolved_line_columnar() -> None:
         f"{'Neither':<20}  {'—':<28}  no metric-generator — cannot compute live value"
     ]
     assert widths.header == f"{'KPI':<20}  {'TAGS':<28}  VALUE"
+
+
+def test_format_kpi_resolved_line_includes_mgmt_guidance() -> None:
+    from src.kpi_observation import KPIObservation
+    from src.kpi_service import KPIColumnWidths, KPIResolved, format_kpi_resolved_line
+
+    widths = KPIColumnWidths(name=12, tags=8)
+    row = KPIResolved(
+        metric_name="Ticket Count",
+        entry={},
+        observation=KPIObservation(value=102, origin="stored", as_of="2026-08-01"),
+        tags=("support",),
+        automated=True,
+        description=None,
+        metric_id=None,
+        mgmt_guidance="Use month-close volume. Do not set a target until the drop is explained.",
+    )
+    lines = format_kpi_resolved_line(row, widths=widths)
+    assert lines[0].startswith("Ticket Count")
+    assert lines[1].startswith("  manage: Use month-close volume.")
 
 
 def test_live_is_default_mode_and_never_reads_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

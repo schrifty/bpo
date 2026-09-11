@@ -72,6 +72,7 @@ def test_format_metric_block_matches_house_style() -> None:
     )
     assert block.startswith('  # Sprint Delivery %\n  "Sprint Delivery %":\n')
     assert "    metric-id: null\n" in block
+    assert "    mgmt_guidance: null\n" in block
     assert "    metric-generator: get_sprint_delivery_by_team\n" in block
     assert "    tags: [engineering]\n" in block
     assert "    unit: percent\n" in block
@@ -228,3 +229,40 @@ def test_special_name_roundtrip(tmp_path: Path) -> None:
     delete_registry_metric("% AI-Assisted PRs (Test)", path=path)
     loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert "% AI-Assisted PRs (Test)" not in loaded["metrics"]
+
+
+def test_every_catalog_kpi_has_mgmt_guidance() -> None:
+    from src.metrics_registry import iter_all_metrics, registry_metric_mgmt_guidance
+
+    missing = [
+        name
+        for name, entry in iter_all_metrics()
+        if not registry_metric_mgmt_guidance(entry)
+    ]
+    assert missing == []
+
+
+def test_catalog_mgmt_guidance_is_at_most_two_sentences() -> None:
+    import re
+
+    from src.metrics_registry import iter_all_metrics, registry_metric_mgmt_guidance
+
+    too_long: list[tuple[str, int]] = []
+    for name, entry in iter_all_metrics():
+        text = registry_metric_mgmt_guidance(entry) or ""
+        sentences = [s for s in re.split(r"[.!?]+(?:\s+|$)", text.strip()) if s]
+        if len(sentences) > 2:
+            too_long.append((name, len(sentences)))
+    assert too_long == []
+
+
+def test_edit_sets_mgmt_guidance(tmp_path: Path) -> None:
+    path = _write_registry(tmp_path)
+    edit_registry_metric(
+        "Alpha",
+        path=path,
+        mgmt_guidance="Hit the target. Investigate misses.",
+    )
+    alpha = get_registry_metric("Alpha", registry=load_metrics_registry(path=path))
+    assert alpha is not None
+    assert alpha[1]["mgmt_guidance"] == "Hit the target. Investigate misses."

@@ -40,6 +40,7 @@ from src.metrics_registry import (
     iter_metrics_by_tags,
     load_metrics_registry,
     registry_metric_description,
+    registry_metric_mgmt_guidance,
     registry_metric_tags,
 )
 from src.metrics_upsert import MetricUpsertContext, MetricUpsertError, invoke_metric_generator
@@ -63,6 +64,7 @@ class KPIResolved:
     description: str | None
     metric_id: int | None
     recent_stored: tuple[DatapointValue, ...] = ()
+    mgmt_guidance: str | None = None
 
 
 def default_resolve_context(
@@ -252,6 +254,7 @@ def resolve_kpi(
     )
     tags = tuple(registry_metric_tags(entry))
     description = registry_metric_description(entry)
+    mgmt_guidance = registry_metric_mgmt_guidance(entry)
     automated = is_automated_metric(entry)
     metric_id = _metric_id_or_none(entry)
 
@@ -286,6 +289,7 @@ def resolve_kpi(
         tags=tags,
         automated=automated,
         description=description,
+        mgmt_guidance=mgmt_guidance,
         metric_id=metric_id,
         recent_stored=recent,
     )
@@ -601,6 +605,9 @@ def format_kpi_resolved_line(
         for point in row.recent_stored[1:]:
             lines.append(f"{indent}history: {format_datapoint_line(date=point.date, value=point.value)}")
 
+    if row.mgmt_guidance:
+        lines.append(f"{indent}manage: {row.mgmt_guidance}")
+
     return lines
 
 
@@ -617,6 +624,7 @@ def kpi_resolved_to_json(row: KPIResolved) -> dict[str, Any]:
         "automated": row.automated,
         "tags": list(row.tags),
         "description": row.description,
+        "mgmt_guidance": row.mgmt_guidance,
         "origin": obs.origin,
         "current_value": obs.display_value,
         "current_value_date": obs.as_of,

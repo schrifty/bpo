@@ -9,11 +9,16 @@ import pytest
 
 from src.jira_p90_ttr import get_p90_ttr
 from src.jira_support_ops_metrics import (
+    get_data_escalation_count,
     get_data_escalation_rate,
+    get_engineering_escalation_count,
     get_engineering_escalation_rate,
     get_help_resolved_created_ratio,
     get_help_ticket_count,
+    get_open_help,
+    get_open_help_over_30d_pct,
     help_ticket_count_jql,
+    open_help_jql,
 )
 
 
@@ -59,34 +64,24 @@ def jira_client(monkeypatch):
     return JiraClient()
 
 
-def test_get_help_resolved_created_ratio() -> None:
+def test_get_help_resolved_created_ratio_previous_calendar_month() -> None:
     client = MagicMock()
     client.jql_match_count.side_effect = [100, 85]
-    out = get_help_resolved_created_ratio(client, days=30)
+    out = get_help_resolved_created_ratio(client, as_of=date(2026, 9, 10))
     assert out["created"] == 100
     assert out["resolved"] == 85
     assert out["value"] == 85.0
-    assert out["numerator"] == 85.0
-    assert out["denominator"] == 100.0
-    assert "created >= -30d" in out["created_jql"]
-    assert "resolved >= -30d" in out["resolved_jql"]
-
-
-def test_get_help_resolved_created_ratio_as_of_uses_calendar_bounds() -> None:
-    client = MagicMock()
-    client.jql_match_count.side_effect = [100, 85]
-    out = get_help_resolved_created_ratio(client, days=30, as_of=date(2026, 8, 31))
-    assert out["value"] == 85.0
-    assert 'created >= "2026-08-02"' in out["created_jql"]
-    assert 'created < "2026-09-01"' in out["created_jql"]
-    assert 'resolved >= "2026-08-02"' in out["resolved_jql"]
+    assert out["month"] == "2026-08"
+    assert 'createdDate >= "2026-08-01"' in out["created_jql"]
+    assert 'createdDate < "2026-09-01"' in out["created_jql"]
+    assert 'resolved >= "2026-08-01"' in out["resolved_jql"]
     assert 'resolved < "2026-09-01"' in out["resolved_jql"]
 
 
 def test_get_help_resolved_created_ratio_zero_created() -> None:
     client = MagicMock()
     client.jql_match_count.side_effect = [0, 5]
-    out = get_help_resolved_created_ratio(client, days=30)
+    out = get_help_resolved_created_ratio(client, as_of=date(2026, 9, 10))
     assert "error" in out
 
 
@@ -108,6 +103,8 @@ def test_get_help_ticket_count() -> None:
     assert out["created_start"] == "2026-08-01"
     assert out["created_end_exclusive"] == "2026-09-01"
     assert "project = HELP" in out["jql"]
+    assert out["business_days"] == 21
+    assert out["created_per_business_day"] == round(142 / 21, 2)
 
 
 def test_get_help_ticket_count_fails_loud_when_count_missing() -> None:
@@ -132,43 +129,46 @@ def test_ticket_count_kpi_is_registered_without_target() -> None:
 def test_get_engineering_escalation_rate() -> None:
     client = MagicMock()
     client.jql_match_count.side_effect = [200, 10]
-    out = get_engineering_escalation_rate(client, days=30)
+    out = get_engineering_escalation_rate(client, as_of=date(2026, 9, 10))
     assert out["help_created"] == 200
     assert out["escalated"] == 10
     assert out["project"] == "LEAN"
     assert out["value"] == 5.0
-    assert out["numerator"] == 10.0
-    assert out["denominator"] == 200.0
-    assert "project = LEAN" in out["escalated_jql"]
-    assert 'labels = "jira_escalated"' in out["escalated_jql"]
+    assert out["month"] == "2026-08"
+    assert 'createdDate >= "2026-08-01"' in out["help_created_jql"]
+    assert 'createdDate < "2026-09-01"' in out["escalated_jql"]
     assert "project = CUSTOMER" not in out["escalated_jql"]
 
 
-def test_get_engineering_escalation_rate_as_of_uses_calendar_bounds() -> None:
+def test_get_engineering_escalation_count() -> None:
     client = MagicMock()
     client.jql_match_count.side_effect = [200, 10]
-    out = get_engineering_escalation_rate(client, days=30, as_of=date(2026, 8, 31))
-    assert out["value"] == 5.0
-    assert 'created >= "2026-08-02"' in out["help_created_jql"]
-    assert 'created < "2026-09-01"' in out["escalated_jql"]
+    out = get_engineering_escalation_count(client, as_of=date(2026, 9, 10))
+    assert out["value"] == 10
+    assert out["help_created"] == 200
+    assert out["month"] == "2026-08"
 
 
 def test_get_data_escalation_rate() -> None:
     client = MagicMock()
     client.jql_match_count.side_effect = [200, 5]
-    out = get_data_escalation_rate(client, days=30)
-    assert out["help_created"] == 200
-    assert out["escalated"] == 5
-    assert out["project"] == "CUSTOMER"
+    out = get_data_escalation_rate(client, as_of=date(2026, 9, 10))
     assert out["value"] == 2.5
-    assert "project = CUSTOMER" in out["escalated_jql"]
+    assert out["project"] == "CUSTOMER"
     assert "project = LEAN" not in out["escalated_jql"]
+
+
+def test_get_data_escalation_count() -> None:
+    client = MagicMock()
+    client.jql_match_count.side_effect = [200, 5]
+    out = get_data_escalation_count(client, as_of=date(2026, 9, 10))
+    assert out["value"] == 5
 
 
 def test_get_engineering_escalation_rate_zero_help() -> None:
     client = MagicMock()
     client.jql_match_count.side_effect = [0, 3]
-    out = get_engineering_escalation_rate(client, days=30)
+    out = get_engineering_escalation_rate(client, as_of=date(2026, 9, 10))
     assert "error" in out
     assert "Engineering Escalation Rate" in out["error"]
 
@@ -178,15 +178,43 @@ def test_split_escalation_kpis_are_registered() -> None:
     from src.metrics_upsert import _GENERATORS
 
     metrics = load_metrics_registry()["metrics"]
-    eng = metrics["Engineering Escalation Rate (30 Days)"]
-    data = metrics["Data Escalation Rate (30 Days)"]
-    assert "Escalation Rate (30 Days)" not in metrics
+    assert "Engineering Escalation Rate (30 Days)" not in metrics
+    assert "HELP Resolved / Created (30 Days)" not in metrics
+    eng = metrics["Engineering Escalation Rate"]
+    data = metrics["Data Escalation Rate"]
+    assert metrics["Engineering Escalations"]["metric-generator"] == "get_engineering_escalation_count"
+    assert metrics["Data Escalations"]["metric-generator"] == "get_data_escalation_count"
     assert eng["metric-generator"] == "get_engineering_escalation_rate"
     assert eng.get("target") in (None, "")
     assert data["metric-generator"] == "get_data_escalation_rate"
-    assert data.get("target") in (None, "")
-    assert "get_engineering_escalation_rate" in _GENERATORS
-    assert "get_data_escalation_rate" in _GENERATORS
+    assert "get_engineering_escalation_count" in _GENERATORS
+    assert "get_open_help" in _GENERATORS
+    assert "get_open_help_over_30d_pct" in _GENERATORS
+
+
+def test_open_help_jql_is_as_of_snapshot() -> None:
+    jql = open_help_jql(as_of=date(2026, 8, 31))
+    assert 'createdDate < "2026-09-01"' in jql
+    assert 'resolved >= "2026-09-01"' in jql
+    aged = open_help_jql(as_of=date(2026, 8, 31), min_age_days=30)
+    assert 'createdDate < "2026-08-01"' in aged
+
+
+def test_get_open_help() -> None:
+    client = MagicMock()
+    client.jql_match_count.return_value = 40
+    out = get_open_help(client, as_of=date(2026, 8, 31))
+    assert out["value"] == 40
+    assert out["as_of"] == "2026-08-31"
+
+
+def test_get_open_help_over_30d_pct() -> None:
+    client = MagicMock()
+    client.jql_match_count.side_effect = [40, 10]
+    out = get_open_help_over_30d_pct(client, as_of=date(2026, 8, 31))
+    assert out["value"] == 25.0
+    assert out["numerator"] == 10.0
+    assert out["denominator"] == 40.0
 
 
 def test_get_help_p90_ttr_hours(jira_client) -> None:

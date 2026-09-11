@@ -23,6 +23,7 @@ from .metrics_registry import (
     get_registry_metric,
     load_metrics_registry,
     normalize_tag,
+    registry_metric_mgmt_guidance,
     registry_metric_tags,
     validate_metric_target_direction,
 )
@@ -119,14 +120,14 @@ def _dump_scalar(value: Any) -> str:
     return dumped
 
 
-def _format_description(text: str | None) -> list[str]:
+def _format_folded_text(field: str, text: str | None) -> list[str]:
     if text is None:
-        return ["    description: null"]
+        return [f"    {field}: null"]
     cleaned = str(text).strip()
     if not cleaned:
-        return ["    description: null"]
+        return [f"    {field}: null"]
     if "\n" in str(text) or len(cleaned) > 80:
-        lines = ["    description: >-"]
+        lines = [f"    {field}: >-"]
         for para in str(text).strip().splitlines() or [cleaned]:
             wrapped = textwrap.fill(
                 para.strip() or para,
@@ -137,7 +138,11 @@ def _format_description(text: str | None) -> list[str]:
             for wrap_line in wrapped.splitlines() or [para]:
                 lines.append(f"      {wrap_line}")
         return lines
-    return [f"    description: {_dump_scalar(cleaned)}"]
+    return [f"    {field}: {_dump_scalar(cleaned)}"]
+
+
+def _format_description(text: str | None) -> list[str]:
+    return _format_folded_text("description", text)
 
 
 def _format_tags(tags: list[str]) -> str:
@@ -199,6 +204,7 @@ def normalize_tag_list(tags: Any) -> list[str]:
 def default_metric_entry() -> dict[str, Any]:
     return {
         "description": None,
+        "mgmt_guidance": None,
         "metric-id": None,
         "metric-generator": None,
         "tags": [],
@@ -209,6 +215,7 @@ def public_metric_entry(entry: dict[str, Any]) -> dict[str, Any]:
     """Stable JSON/YAML-friendly view of a registry row."""
     out: dict[str, Any] = {
         "description": entry.get("description"),
+        "mgmt_guidance": registry_metric_mgmt_guidance(entry),
         "metric-id": entry.get("metric-id"),
         "metric-generator": entry.get("metric-generator"),
         "tags": list(registry_metric_tags(entry)),
@@ -233,6 +240,13 @@ def format_metric_block(name: str, entry: dict[str, Any], *, leading_comment: bo
     lines.append(f"  {json.dumps(display, ensure_ascii=False)}:")
     desc = entry.get("description")
     lines.extend(_format_description(desc if isinstance(desc, str) else None if desc is None else str(desc)))
+    guidance = entry.get("mgmt_guidance")
+    lines.extend(
+        _format_folded_text(
+            "mgmt_guidance",
+            guidance if isinstance(guidance, str) else None if guidance is None else str(guidance),
+        )
+    )
     metric_id = entry.get("metric-id")
     if metric_id is None or metric_id == "":
         lines.append("    metric-id: null")
@@ -289,6 +303,7 @@ def apply_metric_fields(
     base: dict[str, Any],
     *,
     description: Any = UNSET,
+    mgmt_guidance: Any = UNSET,
     metric_id: Any = UNSET,
     generator: Any = UNSET,
     tags: Any = UNSET,
@@ -298,6 +313,7 @@ def apply_metric_fields(
     target: Any = UNSET,
     direction: Any = UNSET,
     clear_description: bool = False,
+    clear_mgmt_guidance: bool = False,
     clear_metric_id: bool = False,
     clear_generator: bool = False,
     clear_tags: bool = False,
@@ -312,6 +328,11 @@ def apply_metric_fields(
     elif description is not UNSET:
         text = None if description is None else str(description).strip()
         entry["description"] = text or None
+    if clear_mgmt_guidance:
+        entry["mgmt_guidance"] = None
+    elif mgmt_guidance is not UNSET:
+        text = None if mgmt_guidance is None else str(mgmt_guidance).strip()
+        entry["mgmt_guidance"] = text or None
     if clear_metric_id:
         entry["metric-id"] = None
     elif metric_id is not UNSET:
@@ -393,6 +414,7 @@ def add_registry_metric(
     *,
     path: Path | None = None,
     description: Any = UNSET,
+    mgmt_guidance: Any = UNSET,
     metric_id: Any = UNSET,
     generator: Any = UNSET,
     tags: Any = UNSET,
@@ -413,6 +435,7 @@ def add_registry_metric(
     entry = apply_metric_fields(
         default_metric_entry(),
         description=description,
+        mgmt_guidance=mgmt_guidance,
         metric_id=metric_id,
         generator=generator,
         tags=[] if tags is UNSET else tags,
@@ -439,6 +462,7 @@ def edit_registry_metric(
     path: Path | None = None,
     new_name: str | None = None,
     description: Any = UNSET,
+    mgmt_guidance: Any = UNSET,
     metric_id: Any = UNSET,
     generator: Any = UNSET,
     tags: Any = UNSET,
@@ -448,6 +472,7 @@ def edit_registry_metric(
     target: Any = UNSET,
     direction: Any = UNSET,
     clear_description: bool = False,
+    clear_mgmt_guidance: bool = False,
     clear_metric_id: bool = False,
     clear_generator: bool = False,
     clear_tags: bool = False,
@@ -473,6 +498,7 @@ def edit_registry_metric(
     entry = apply_metric_fields(
         current,
         description=description,
+        mgmt_guidance=mgmt_guidance,
         metric_id=metric_id,
         generator=generator,
         tags=tags,
@@ -482,6 +508,7 @@ def edit_registry_metric(
         target=target,
         direction=direction,
         clear_description=clear_description,
+        clear_mgmt_guidance=clear_mgmt_guidance,
         clear_metric_id=clear_metric_id,
         clear_generator=clear_generator,
         clear_tags=clear_tags,
