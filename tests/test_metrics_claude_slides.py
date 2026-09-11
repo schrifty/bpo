@@ -82,7 +82,7 @@ def test_row_fact_signs_gap_by_direction() -> None:
 def test_row_fact_uses_points_for_percent_kpis() -> None:
     """A percent-of-a-percent gap reads as nonsense (163% vs 15% is not -989%)."""
     fact = row_fact(
-        _row("Escalation Rate", 163.33, 15.0, unit="percent", off_target=True)
+        _row("Engineering Escalation Rate", 163.33, 15.0, unit="percent", off_target=True)
     )
     assert "pct_vs_target" not in fact
     assert fact["points_vs_target"] == -148.3

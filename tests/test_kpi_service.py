@@ -14,6 +14,7 @@ from src.kpi_observation import (
 from src.kpi_service import (
     format_kpi_resolved_block,
     resolve_kpi,
+    resolve_kpis,
     resolve_kpis_by_tag,
 )
 from src.metrics_latest import DatapointValue
@@ -57,6 +58,14 @@ metrics:
     metric-id: null
     metric-generator: null
     tags: [engineering]
+  "Support Only":
+    metric-id: null
+    metric-generator: null
+    tags: [support]
+  "Eng AI":
+    metric-id: null
+    metric-generator: gen_live
+    tags: [engineering, ai]
 """.strip(),
         encoding="utf-8",
     )
@@ -284,7 +293,7 @@ def test_resolve_kpis_by_tag_live(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     monkeypatch.setattr("src.kpi_service.invoke_metric_generator", fake_invoke)
 
     rows = resolve_kpis_by_tag("engineering", registry=reg, ctx=_ctx())
-    assert [r.metric_name for r in rows] == ["Live Only", "Stored Only", "Both", "Neither"]
+    assert [r.metric_name for r in rows] == ["Live Only", "Stored Only", "Both", "Neither", "Eng AI"]
     by_name = {r.metric_name: r for r in rows}
     # Live mode: everything with a generator resolves live, regardless of metric-id.
     assert by_name["Live Only"].observation.origin == "live"
@@ -318,6 +327,11 @@ def test_iter_resolve_kpis_by_tag_yields_incrementally(monkeypatch: pytest.Monke
     assert third.metric_name == "Both"
     assert third.observation.display_value == 2
     assert calls == ["gen_live", "gen_both"]
+    fourth = next(it)
+    assert fourth.metric_name == "Neither"
+    fifth = next(it)
+    assert fifth.metric_name == "Eng AI"
+    assert calls == ["gen_live", "gen_both", "gen_live"]
 
 
 def test_resolve_kpis_by_tag_stored_does_not_invoke_generators(
@@ -356,6 +370,59 @@ def test_resolve_kpis_by_tag_stored_does_not_invoke_generators(
     assert by_name["Both"].observation.display_value == 5
     assert by_name["Live Only"].observation.origin == "none"
     assert by_name["Neither"].observation.origin == "none"
+
+
+def test_resolve_kpis_all_and_tag_set(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    reg = _write_registry(tmp_path)
+
+    def fake_invoke(name, *, registry, ctx):
+        return {"value": 1}
+
+    monkeypatch.setattr("src.kpi_service.invoke_metric_generator", fake_invoke)
+
+    all_rows = resolve_kpis(registry=reg, ctx=_ctx())
+    assert [r.metric_name for r in all_rows] == [
+        "Live Only",
+        "Stored Only",
+        "Both",
+        "Neither",
+        "Support Only",
+        "Eng AI",
+    ]
+    tagged = resolve_kpis(tags=("engineering", "ai"), registry=reg, ctx=_ctx())
+    assert [r.metric_name for r in tagged] == ["Eng AI"]
+
+
+def test_resolve_kpis_stored_reads_store_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from src.kpi_observation import KPIObservation
+    from src.kpi_store import GRAIN_DAILY, connect, list_kpis as real_list_kpis
+    from src.kpi_store import stored_kpi_from_observation, upsert_kpi
+
+    reg = _write_registry(tmp_path)
+    conn = connect(tmp_path / "kpi.sqlite")
+    upsert_kpi(
+        conn,
+        stored_kpi_from_observation(
+            metric_name="Both",
+            grain=GRAIN_DAILY,
+            period_key="2026-09-10",
+            observation=KPIObservation(value=5, origin="live", as_of="2026-09-10"),
+            generator="gen_both",
+        ),
+    )
+    calls = {"n": 0}
+
+    def counting_list_kpis(*args, **kwargs):
+        calls["n"] += 1
+        return real_list_kpis(*args, **kwargs)
+
+    monkeypatch.setattr("src.kpi_service.list_kpis", counting_list_kpis)
+    rows = resolve_kpis(mode="stored", registry=reg, ctx=_ctx(), store_conn=conn)
+    conn.close()
+    assert calls["n"] == 1
+    by_name = {r.metric_name: r for r in rows}
+    assert by_name["Both"].observation.display_value == 5
+    assert by_name["Support Only"].observation.origin == "none"
 
 
 def test_observation_passthrough() -> None:

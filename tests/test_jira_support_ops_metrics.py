@@ -8,7 +8,8 @@ import pytest
 
 from src.jira_p90_ttr import get_p90_ttr
 from src.jira_support_ops_metrics import (
-    get_help_escalation_rate,
+    get_data_escalation_rate,
+    get_engineering_escalation_rate,
     get_help_resolved_created_ratio,
 )
 
@@ -75,18 +76,55 @@ def test_get_help_resolved_created_ratio_zero_created() -> None:
     assert "error" in out
 
 
-def test_get_help_escalation_rate() -> None:
+def test_get_engineering_escalation_rate() -> None:
     client = MagicMock()
-    # help created, lean, customer
-    client.jql_match_count.side_effect = [200, 10, 5]
-    out = get_help_escalation_rate(client, days=30)
+    client.jql_match_count.side_effect = [200, 10]
+    out = get_engineering_escalation_rate(client, days=30)
     assert out["help_created"] == 200
-    assert out["lean_escalated"] == 10
-    assert out["customer_escalated"] == 5
-    assert out["escalated"] == 15
-    assert out["value"] == 7.5
-    assert 'labels = "jira_escalated"' in out["lean_jql"]
-    assert "project = CUSTOMER" in out["customer_jql"]
+    assert out["escalated"] == 10
+    assert out["project"] == "LEAN"
+    assert out["value"] == 5.0
+    assert out["numerator"] == 10.0
+    assert out["denominator"] == 200.0
+    assert "project = LEAN" in out["escalated_jql"]
+    assert 'labels = "jira_escalated"' in out["escalated_jql"]
+    assert "project = CUSTOMER" not in out["escalated_jql"]
+
+
+def test_get_data_escalation_rate() -> None:
+    client = MagicMock()
+    client.jql_match_count.side_effect = [200, 5]
+    out = get_data_escalation_rate(client, days=30)
+    assert out["help_created"] == 200
+    assert out["escalated"] == 5
+    assert out["project"] == "CUSTOMER"
+    assert out["value"] == 2.5
+    assert "project = CUSTOMER" in out["escalated_jql"]
+    assert "project = LEAN" not in out["escalated_jql"]
+
+
+def test_get_engineering_escalation_rate_zero_help() -> None:
+    client = MagicMock()
+    client.jql_match_count.side_effect = [0, 3]
+    out = get_engineering_escalation_rate(client, days=30)
+    assert "error" in out
+    assert "Engineering Escalation Rate" in out["error"]
+
+
+def test_split_escalation_kpis_are_registered() -> None:
+    from src.metrics_registry import load_metrics_registry
+    from src.metrics_upsert import _GENERATORS
+
+    metrics = load_metrics_registry()["metrics"]
+    eng = metrics["Engineering Escalation Rate (30 Days)"]
+    data = metrics["Data Escalation Rate (30 Days)"]
+    assert "Escalation Rate (30 Days)" not in metrics
+    assert eng["metric-generator"] == "get_engineering_escalation_rate"
+    assert eng["target"] == 10
+    assert data["metric-generator"] == "get_data_escalation_rate"
+    assert data["target"] == 5
+    assert "get_engineering_escalation_rate" in _GENERATORS
+    assert "get_data_escalation_rate" in _GENERATORS
 
 
 def test_get_help_p90_ttr_hours(jira_client) -> None:

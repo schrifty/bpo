@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -92,24 +93,56 @@ def all_registry_tags(*, registry: dict[str, Any] | None = None) -> list[tuple[s
     return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
 
 
-def iter_metrics_by_tag(
-    tag: str,
+def iter_all_metrics(
     *,
     registry: dict[str, Any] | None = None,
 ) -> list[tuple[str, dict[str, Any]]]:
-    """Registry rows carrying *tag* as ``(display name, entry dict)`` in file order."""
-    target = normalize_tag(tag)
-    if not target:
-        return []
+    """Every registry row as ``(display name, entry dict)`` in file order."""
     reg = registry if registry is not None else load_metrics_registry()
     metrics = reg.get("metrics")
     if not isinstance(metrics, dict):
         return []
     out: list[tuple[str, dict[str, Any]]] = []
     for name, entry in metrics.items():
-        if isinstance(entry, dict) and entry_has_tag(entry, target):
+        if isinstance(entry, dict):
             out.append((str(name), entry))
     return out
+
+
+def _normalized_tag_set(tags: Sequence[str]) -> list[str]:
+    wanted: list[str] = []
+    seen: set[str] = set()
+    for raw in tags:
+        tag = normalize_tag(raw)
+        if tag and tag not in seen:
+            seen.add(tag)
+            wanted.append(tag)
+    return wanted
+
+
+def iter_metrics_by_tags(
+    tags: Sequence[str],
+    *,
+    registry: dict[str, Any] | None = None,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Registry rows that carry every tag in *tags* (AND), in file order."""
+    wanted = _normalized_tag_set(tags)
+    if not wanted:
+        return []
+    out: list[tuple[str, dict[str, Any]]] = []
+    for name, entry in iter_all_metrics(registry=registry):
+        if all(entry_has_tag(entry, tag) for tag in wanted):
+            out.append((name, entry))
+    return out
+
+
+def iter_metrics_by_tag(
+    tag: str,
+    *,
+    registry: dict[str, Any] | None = None,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Registry rows carrying *tag* as ``(display name, entry dict)`` in file order."""
+    return iter_metrics_by_tags((tag,), registry=registry)
 
 
 def registry_datapoint_metric_id(entry: Any) -> int | None:

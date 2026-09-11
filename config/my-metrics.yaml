@@ -141,16 +141,28 @@ metrics:
     target: 100
     direction: higher
 
-  "Escalation Rate (30 Days)":
+  "Engineering Escalation Rate (30 Days)":
     description: >-
-      LEAN + CUSTOMER tickets created with label jira_escalated ÷ HELP tickets
-      created, last 30 days (excl. Epic/SUT on escalations; excl. Outage/Healthcheck
-      on HELP).
+      LEAN tickets created with label jira_escalated ÷ HELP tickets created, last
+      30 days (excl. Epic/SUT on escalations; excl. Outage/Healthcheck on HELP).
+      Engineering queue for support-to-product escalations.
     metric-id: null
-    metric-generator: get_help_escalation_rate
-    tags: [support, escalation]
+    metric-generator: get_engineering_escalation_rate
+    tags: [support, escalation, engineering]
     unit: percent
-    target: 15
+    target: 10
+    direction: lower
+
+  "Data Escalation Rate (30 Days)":
+    description: >-
+      CUSTOMER tickets created with label jira_escalated ÷ HELP tickets created,
+      last 30 days (excl. Epic/SUT on escalations; excl. Outage/Healthcheck on
+      HELP). Data Engineering queue for support-to-data escalations.
+    metric-id: null
+    metric-generator: get_data_escalation_rate
+    tags: [support, escalation, data-integration]
+    unit: percent
+    target: 5
     direction: lower
 
   "P90 TTR (30 Days)":

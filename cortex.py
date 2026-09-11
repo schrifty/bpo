@@ -87,6 +87,9 @@ Metrics & KPIs
 ────────────────────────────────────────────────────────────────
   kpi                     LeanDNA metrics you own (Data API)
                           [--values] [--requested-sites ID]
+  kpis                    Registry KPI values: all, one tag, or AND tag-set
+                          [--all] [TAG ...] [--mode live|stored|leandna]
+                          [--json] [--skip-s3]
   kpi-snapshot            Run registry generators into the SQLite KPI store
                           [--date YYYY-MM-DD] [--dry-run] [--tag TAG]
                           [--metric NAME]
@@ -100,6 +103,7 @@ Metrics & KPIs
                           [--days N] [--timeout SEC] [--tag TAG]
 
   --tag filters registry tags (e.g. akkr). kpi-snapshot --dry-run does not write.
+  kpis --all --mode stored --skip-s3 is one store read for the full catalog.
 
 ────────────────────────────────────────────────────────────────
 Pendo snapshots
@@ -848,6 +852,17 @@ def _run_kpi_cli(rest: list[str]) -> None:
     raise SystemExit(rc)
 
 
+def _run_kpis_cli(rest: list[str]) -> None:
+    """Run ``scripts/metrics-by-tag.py`` (all KPIs or tag-set)."""
+    root = Path(__file__).resolve().parent
+    script = root / "scripts" / "metrics-by-tag.py"
+    if not script.is_file():
+        print(f"error: missing {script}", file=sys.stderr)
+        sys.exit(1)
+    rc = subprocess.run([sys.executable, str(script), *rest], cwd=str(root)).returncode
+    raise SystemExit(rc)
+
+
 def _run_kpi_snapshot_cli(rest: list[str]) -> None:
     """``cortex kpi-snapshot`` — generate KPIs and persist to SQLite/S3."""
     from dotenv import load_dotenv
@@ -1505,6 +1520,9 @@ def main():
         return
     if sub == "kpi":
         _run_kpi_cli(sys.argv[2:])
+        return
+    if sub == "kpis":
+        _run_kpis_cli(sys.argv[2:])
         return
     if sub == "kpi-snapshot":
         _run_kpi_snapshot_cli(sys.argv[2:])

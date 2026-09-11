@@ -82,6 +82,17 @@ def test_iter_metrics_by_tag(tmp_path: Path) -> None:
     assert iter_metrics_by_tag("missing", registry=reg) == []
 
 
+def test_iter_all_metrics_and_tag_set_and(tmp_path: Path) -> None:
+    from src.metrics_registry import iter_all_metrics, iter_metrics_by_tags
+
+    reg = _write_registry(tmp_path)
+    assert [n for n, _ in iter_all_metrics(registry=reg)] == ["Alpha", "Beta", "Gamma", "Delta"]
+    assert [n for n, _ in iter_metrics_by_tags(["engineering"], registry=reg)] == ["Alpha", "Beta"]
+    assert [n for n, _ in iter_metrics_by_tags(["engineering", "data-integration"], registry=reg)] == ["Beta"]
+    assert iter_metrics_by_tags(["engineering", "support"], registry=reg) == []
+    assert iter_metrics_by_tags([], registry=reg) == []
+
+
 def test_all_registry_tags_counts_sorted(tmp_path: Path) -> None:
     reg = _write_registry(tmp_path)
     assert all_registry_tags(registry=reg) == [

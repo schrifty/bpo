@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -23,7 +23,7 @@ from src.kpi_observation import (
     observation_from_generator_raw,
     observation_from_stored_datapoint,
 )
-from src.kpi_store import connect, grain_for_generator, list_kpis
+from src.kpi_store import StoredKPI, connect, grain_for_generator, list_kpis
 from src.kpi_store_s3 import prepare_kpi_store_for_read
 from src.metrics_latest import (
     DEFAULT_RECENT_DATAPOINT_COUNT,
@@ -36,7 +36,8 @@ from src.metrics_registry import (
     has_metric_generator,
     has_metric_id,
     is_automated_metric,
-    iter_metrics_by_tag,
+    iter_all_metrics,
+    iter_metrics_by_tags,
     load_metrics_registry,
     registry_metric_description,
     registry_metric_tags,
@@ -138,11 +139,19 @@ def observations_from_kpi_store(
     entry: dict[str, Any],
     *,
     recent_count: int = DEFAULT_RECENT_DATAPOINT_COUNT,
+    stored_rows: Sequence[StoredKPI] | None = None,
 ) -> tuple[KPIObservation, tuple[DatapointValue, ...]]:
-    """Newest SQLite observations for *metric_name* (grain from the generator)."""
+    """Newest SQLite observations for *metric_name* (grain from the generator).
+
+    Pass *stored_rows* to skip a per-KPI ``list_kpis`` query (bulk resolve).
+    """
     gen = str(entry.get("metric-generator") or "").strip()
     grain = grain_for_generator(gen) if gen else None
-    rows = list_kpis(conn, metric_name=metric_name, grain=grain, limit=max(1, recent_count))
+    limit = max(1, recent_count)
+    if stored_rows is not None:
+        rows = list(stored_rows)[:limit]
+    else:
+        rows = list_kpis(conn, metric_name=metric_name, grain=grain, limit=limit)
     if not rows:
         warning = (
             "no observation in KPI store"
@@ -224,6 +233,7 @@ def resolve_kpi(
     timeout_seconds: float = 60.0,
     recent_count: int = DEFAULT_RECENT_DATAPOINT_COUNT,
     store_conn: sqlite3.Connection | None = None,
+    stored_rows: Sequence[StoredKPI] | None = None,
 ) -> KPIResolved:
     """Resolve one KPI under ``mode`` (``live`` default, ``stored``, or ``leandna``).
 
@@ -257,6 +267,7 @@ def resolve_kpi(
             metric_name,
             entry,
             recent_count=recent_count,
+            stored_rows=stored_rows,
         )
     else:
         observation, recent = _observation_from_leandna(
@@ -280,6 +291,150 @@ def resolve_kpi(
     )
 
 
+def _index_stored_kpis(
+    conn: sqlite3.Connection,
+) -> tuple[dict[str, list[StoredKPI]], dict[tuple[str, str], list[StoredKPI]]]:
+    """One ``list_kpis`` pass, indexed by name and by (name, grain). Newest first."""
+    by_name: dict[str, list[StoredKPI]] = {}
+    by_name_grain: dict[tuple[str, str], list[StoredKPI]] = {}
+    for row in list_kpis(conn):
+        by_name.setdefault(row.metric_name, []).append(row)
+        by_name_grain.setdefault((row.metric_name, row.grain), []).append(row)
+    return by_name, by_name_grain
+
+
+def _stored_rows_for_entry(
+    metric_name: str,
+    entry: dict[str, Any],
+    *,
+    by_name: dict[str, list[StoredKPI]],
+    by_name_grain: dict[tuple[str, str], list[StoredKPI]],
+) -> list[StoredKPI]:
+    gen = str(entry.get("metric-generator") or "").strip()
+    if gen:
+        return by_name_grain.get((metric_name, grain_for_generator(gen)), [])
+    return by_name.get(metric_name, [])
+
+
+def _registry_metrics_for_tags(
+    tags: Sequence[str] | None,
+    *,
+    registry: dict[str, Any],
+) -> list[tuple[str, dict[str, Any]]]:
+    if tags:
+        return iter_metrics_by_tags(tags, registry=registry)
+    return iter_all_metrics(registry=registry)
+
+
+def iter_resolve_kpis(
+    *,
+    tags: Sequence[str] | None = None,
+    mode: ResolveMode = DEFAULT_RESOLVE_MODE,
+    registry: dict[str, Any] | None = None,
+    ctx: MetricUpsertContext | None = None,
+    requested_sites: str | None = None,
+    lookback_days: int = 365,
+    timeout_seconds: float = 60.0,
+    recent_count: int = DEFAULT_RECENT_DATAPOINT_COUNT,
+    store_conn: sqlite3.Connection | None = None,
+    db_path: str | Path | None = None,
+    skip_s3: bool = False,
+    s3_client: Any | None = None,
+    s3_uri: str | None = None,
+) -> Iterator[KPIResolved]:
+    """Yield registry KPIs (all, or AND tag-set) as each one resolves.
+
+    ``tags=None`` or empty is the full catalog. Non-empty *tags* require every
+    tag (AND). Stored mode reads SQLite once, then attaches rows in memory.
+    Live and LeanDNA still compute/fetch per KPI (generators / Data API have
+    no bulk value endpoint).
+    """
+    reg = registry if registry is not None else load_metrics_registry()
+    resolve_ctx = ctx or default_resolve_context(
+        timeout_seconds=timeout_seconds,
+        requested_sites=requested_sites,
+    )
+    own_conn: sqlite3.Connection | None = None
+    conn = store_conn
+    if mode == "stored" and conn is None:
+        path = prepare_kpi_store_for_read(
+            Path(db_path) if db_path else None,
+            s3_client=s3_client,
+            uri=s3_uri,
+            skip_s3=skip_s3,
+        )
+        own_conn = connect(path)
+        conn = own_conn
+    stored_by_name: dict[str, list[StoredKPI]] = {}
+    stored_by_name_grain: dict[tuple[str, str], list[StoredKPI]] = {}
+    if mode == "stored" and conn is not None:
+        stored_by_name, stored_by_name_grain = _index_stored_kpis(conn)
+    try:
+        for name, entry in _registry_metrics_for_tags(tags, registry=reg):
+            stored_rows = (
+                _stored_rows_for_entry(
+                    name,
+                    entry,
+                    by_name=stored_by_name,
+                    by_name_grain=stored_by_name_grain,
+                )
+                if mode == "stored"
+                else None
+            )
+            yield resolve_kpi(
+                name,
+                entry,
+                mode=mode,
+                registry=reg,
+                ctx=resolve_ctx,
+                requested_sites=requested_sites,
+                lookback_days=lookback_days,
+                timeout_seconds=timeout_seconds,
+                recent_count=recent_count,
+                store_conn=conn,
+                stored_rows=stored_rows,
+            )
+    finally:
+        if own_conn is not None:
+            own_conn.close()
+
+
+def resolve_kpis(
+    *,
+    tags: Sequence[str] | None = None,
+    mode: ResolveMode = DEFAULT_RESOLVE_MODE,
+    registry: dict[str, Any] | None = None,
+    ctx: MetricUpsertContext | None = None,
+    requested_sites: str | None = None,
+    lookback_days: int = 365,
+    timeout_seconds: float = 60.0,
+    recent_count: int = DEFAULT_RECENT_DATAPOINT_COUNT,
+    store_conn: sqlite3.Connection | None = None,
+    db_path: str | Path | None = None,
+    skip_s3: bool = False,
+    s3_client: Any | None = None,
+    s3_uri: str | None = None,
+) -> list[KPIResolved]:
+    """Resolve every registry KPI, or those matching an AND tag-set."""
+    return list(
+        iter_resolve_kpis(
+            tags=tags,
+            mode=mode,
+            registry=registry,
+            ctx=ctx,
+            requested_sites=requested_sites,
+            lookback_days=lookback_days,
+            timeout_seconds=timeout_seconds,
+            recent_count=recent_count,
+            store_conn=store_conn,
+            db_path=db_path,
+            skip_s3=skip_s3,
+            s3_client=s3_client,
+            s3_uri=s3_uri,
+        )
+    )
+
+
 def iter_resolve_kpis_by_tag(
     tag: str,
     *,
@@ -297,39 +452,21 @@ def iter_resolve_kpis_by_tag(
     s3_uri: str | None = None,
 ) -> Iterator[KPIResolved]:
     """Yield each registry KPI carrying *tag* as soon as it resolves (live by default)."""
-    reg = registry if registry is not None else load_metrics_registry()
-    resolve_ctx = ctx or default_resolve_context(
-        timeout_seconds=timeout_seconds,
+    yield from iter_resolve_kpis(
+        tags=(tag,),
+        mode=mode,
+        registry=registry,
+        ctx=ctx,
         requested_sites=requested_sites,
+        lookback_days=lookback_days,
+        timeout_seconds=timeout_seconds,
+        recent_count=recent_count,
+        store_conn=store_conn,
+        db_path=db_path,
+        skip_s3=skip_s3,
+        s3_client=s3_client,
+        s3_uri=s3_uri,
     )
-    own_conn: sqlite3.Connection | None = None
-    conn = store_conn
-    if mode == "stored" and conn is None:
-        path = prepare_kpi_store_for_read(
-            Path(db_path) if db_path else None,
-            s3_client=s3_client,
-            uri=s3_uri,
-            skip_s3=skip_s3,
-        )
-        own_conn = connect(path)
-        conn = own_conn
-    try:
-        for name, entry in iter_metrics_by_tag(tag, registry=reg):
-            yield resolve_kpi(
-                name,
-                entry,
-                mode=mode,
-                registry=reg,
-                ctx=resolve_ctx,
-                requested_sites=requested_sites,
-                lookback_days=lookback_days,
-                timeout_seconds=timeout_seconds,
-                recent_count=recent_count,
-                store_conn=conn,
-            )
-    finally:
-        if own_conn is not None:
-            own_conn.close()
 
 
 def resolve_kpis_by_tag(
@@ -349,22 +486,20 @@ def resolve_kpis_by_tag(
     s3_uri: str | None = None,
 ) -> list[KPIResolved]:
     """Resolve every registry KPI carrying *tag* (live by default)."""
-    return list(
-        iter_resolve_kpis_by_tag(
-            tag,
-            mode=mode,
-            registry=registry,
-            ctx=ctx,
-            requested_sites=requested_sites,
-            lookback_days=lookback_days,
-            timeout_seconds=timeout_seconds,
-            recent_count=recent_count,
-            store_conn=store_conn,
-            db_path=db_path,
-            skip_s3=skip_s3,
-            s3_client=s3_client,
-            s3_uri=s3_uri,
-        )
+    return resolve_kpis(
+        tags=(tag,),
+        mode=mode,
+        registry=registry,
+        ctx=ctx,
+        requested_sites=requested_sites,
+        lookback_days=lookback_days,
+        timeout_seconds=timeout_seconds,
+        recent_count=recent_count,
+        store_conn=store_conn,
+        db_path=db_path,
+        skip_s3=skip_s3,
+        s3_client=s3_client,
+        s3_uri=s3_uri,
     )
 
 
@@ -430,8 +565,17 @@ def column_widths_for_tag(
     registry: dict[str, Any] | None = None,
 ) -> KPIColumnWidths:
     """Column widths for every KPI carrying *tag* (cheap; no generators/API)."""
+    return column_widths_for_tags((tag,), registry=registry)
+
+
+def column_widths_for_tags(
+    tags: Sequence[str] | None = None,
+    *,
+    registry: dict[str, Any] | None = None,
+) -> KPIColumnWidths:
+    """Column widths for all KPIs, or an AND tag-set (cheap; no generators/API)."""
     reg = registry if registry is not None else load_metrics_registry()
-    return column_widths_for_metrics(iter_metrics_by_tag(tag, registry=reg))
+    return column_widths_for_metrics(_registry_metrics_for_tags(tags, registry=reg))
 
 
 def format_kpi_resolved_line(

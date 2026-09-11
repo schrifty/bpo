@@ -227,14 +227,28 @@ def _invoke_get_help_resolved_created_ratio(ctx: dict[str, Any]) -> dict[str, An
     )
 
 
-def _invoke_get_help_escalation_rate(ctx: dict[str, Any]) -> dict[str, Any]:
+def _invoke_get_engineering_escalation_rate(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.jira_client import get_shared_jira_client
     from src.jira_support_ops_metrics import (
         DEFAULT_SUPPORT_OPS_DAYS,
-        get_help_escalation_rate,
+        get_engineering_escalation_rate,
     )
 
-    return get_help_escalation_rate(
+    return get_engineering_escalation_rate(
+        get_shared_jira_client(),
+        days=int(ctx.get("days") or DEFAULT_SUPPORT_OPS_DAYS),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
+def _invoke_get_data_escalation_rate(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.jira_client import get_shared_jira_client
+    from src.jira_support_ops_metrics import (
+        DEFAULT_SUPPORT_OPS_DAYS,
+        get_data_escalation_rate,
+    )
+
+    return get_data_escalation_rate(
         get_shared_jira_client(),
         days=int(ctx.get("days") or DEFAULT_SUPPORT_OPS_DAYS),
         timeout=float(ctx.get("timeout") or 60.0),
@@ -487,7 +501,8 @@ _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_median_ttfr": _invoke_get_median_ttfr,
     "get_sla_adherence": _invoke_get_sla_adherence,
     "get_help_resolved_created_ratio": _invoke_get_help_resolved_created_ratio,
-    "get_help_escalation_rate": _invoke_get_help_escalation_rate,
+    "get_engineering_escalation_rate": _invoke_get_engineering_escalation_rate,
+    "get_data_escalation_rate": _invoke_get_data_escalation_rate,
     "get_p90_ttr": _invoke_get_p90_ttr,
     "get_sprint_delivery_by_team": _invoke_get_sprint_delivery_by_team,
     "get_sprint_story_points_by_team": _invoke_get_sprint_story_points_by_team,

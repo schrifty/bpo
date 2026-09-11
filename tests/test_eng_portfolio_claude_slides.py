@@ -99,7 +99,7 @@ def test_normalize_and_render_slide_ir() -> None:
 def test_table_column_widths_favor_wide_columns_and_fit() -> None:
     rows = [
         ["KPI", "Value", "Target"],
-        ["Escalation Rate (30 Days)", "163%", "15%"],
+        ["Engineering Escalation Rate (30 Days)", "163%", "10%"],
     ]
     widths = _table_column_widths(rows, 400.0, 3)
     assert abs(sum(widths) - 400.0) < 1.0

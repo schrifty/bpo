@@ -99,23 +99,52 @@ def get_help_resolved_created_ratio(
     }
 
 
-def get_help_escalation_rate(
+def get_engineering_escalation_rate(
     client: JiraClient,
     *,
     days: int = DEFAULT_SUPPORT_OPS_DAYS,
+    timeout: float = 60.0,
+) -> dict[str, Any]:
+    """LEAN ``jira_escalated`` created ÷ HELP created (trailing window)."""
+    return _escalation_rate_for_project(
+        client,
+        project="LEAN",
+        rate_label="Engineering Escalation Rate",
+        days=days,
+        timeout=timeout,
+    )
+
+
+def get_data_escalation_rate(
+    client: JiraClient,
+    *,
+    days: int = DEFAULT_SUPPORT_OPS_DAYS,
+    timeout: float = 60.0,
+) -> dict[str, Any]:
+    """CUSTOMER ``jira_escalated`` created ÷ HELP created (trailing window)."""
+    return _escalation_rate_for_project(
+        client,
+        project="CUSTOMER",
+        rate_label="Data Escalation Rate",
+        days=days,
+        timeout=timeout,
+    )
+
+
+def _escalation_rate_for_project(
+    client: JiraClient,
+    *,
+    project: str,
+    rate_label: str,
+    days: int,
     timeout: float = 60.0,  # noqa: ARG001
 ) -> dict[str, Any]:
-    """LEAN+CUSTOMER ``jira_escalated`` created ÷ HELP created (trailing window)."""
     window = max(1, int(days))
     help_created_jql = (
         f"project = HELP AND {_HELP_TRANSIENT} AND created >= -{window}d"
     )
-    lean_jql = (
-        f'project = LEAN AND labels = "jira_escalated" AND {_CUSTOMER_LEAN_EXCL} '
-        f"AND created >= -{window}d"
-    )
-    customer_jql = (
-        f'project = CUSTOMER AND labels = "jira_escalated" AND {_CUSTOMER_LEAN_EXCL} '
+    escalated_jql = (
+        f'project = {project} AND labels = "jira_escalated" AND {_CUSTOMER_LEAN_EXCL} '
         f"AND created >= -{window}d"
     )
 
@@ -124,56 +153,46 @@ def get_help_escalation_rate(
     )
     if help_created.get("error"):
         return help_created
-    lean = _count_or_error(
-        client, lean_jql, label=f"LEAN jira_escalated created last {window}d"
-    )
-    if lean.get("error"):
-        return lean
-    customer = _count_or_error(
+    escalated = _count_or_error(
         client,
-        customer_jql,
-        label=f"CUSTOMER jira_escalated created last {window}d",
+        escalated_jql,
+        label=f"{project} jira_escalated created last {window}d",
     )
-    if customer.get("error"):
-        return customer
+    if escalated.get("error"):
+        return escalated
 
     help_n = int(help_created["value"])
-    lean_n = int(lean["value"])
-    customer_n = int(customer["value"])
-    escalated = lean_n + customer_n
+    escalated_n = int(escalated["value"])
     if help_n <= 0:
         return {
             "error": (
                 f"HELP created count is 0 in last {window}d — "
-                "cannot compute Escalation Rate"
+                f"cannot compute {rate_label}"
             ),
             "help_created": help_n,
-            "lean_escalated": lean_n,
-            "customer_escalated": customer_n,
+            "escalated": escalated_n,
+            "project": project,
             "window_days": window,
         }
 
-    pct = round(100.0 * escalated / help_n, 2)
+    pct = round(100.0 * escalated_n / help_n, 2)
     logger.info(
-        "Escalation Rate: %s (LEAN %s + CUSTOMER %s) / %s HELP created = %s%% "
-        "(window=%sd)",
-        escalated,
-        lean_n,
-        customer_n,
+        "%s: %s %s / %s HELP created = %s%% (window=%sd)",
+        rate_label,
+        escalated_n,
+        project,
         help_n,
         pct,
         window,
     )
     return {
         "value": pct,
-        "numerator": float(escalated),
+        "numerator": float(escalated_n),
         "denominator": float(help_n),
-        "escalated": escalated,
-        "lean_escalated": lean_n,
-        "customer_escalated": customer_n,
+        "escalated": escalated_n,
         "help_created": help_n,
+        "project": project,
         "window_days": window,
         "help_created_jql": help_created_jql,
-        "lean_jql": lean_jql,
-        "customer_jql": customer_jql,
+        "escalated_jql": escalated_jql,
     }

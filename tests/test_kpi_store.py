@@ -160,6 +160,36 @@ def test_retired_daily_open_bug_rows_deleted_on_connect(tmp_path: Path) -> None:
     conn.close()
 
 
+def test_retired_combined_escalation_rate_deleted_on_connect(tmp_path: Path) -> None:
+    db = tmp_path / "kpi.sqlite"
+    conn = connect(db)
+    conn.execute(
+        """
+        INSERT INTO kpi_observation (
+            metric_name, grain, period_key, captured_at,
+            value, numerator, denominator, generator,
+            tags_json, meta_json, error, as_of, window_days
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', '{}', NULL, ?, NULL)
+        """,
+        (
+            "Escalation Rate (30 Days)",
+            GRAIN_DAILY,
+            "2026-09-10",
+            "2026-09-10T00:00:00Z",
+            87.5,
+            14.0,
+            16.0,
+            "get_help_escalation_rate",
+            "2026-09-10",
+        ),
+    )
+    conn.commit()
+    conn.close()
+    conn = connect(db)
+    assert get_kpi(conn, "Escalation Rate (30 Days)", GRAIN_DAILY, "2026-09-10") is None
+    conn.close()
+
+
 def test_error_row_is_persisted(tmp_path: Path) -> None:
     conn = connect(tmp_path / "kpi.sqlite")
     upsert_kpi(

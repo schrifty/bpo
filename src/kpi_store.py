@@ -24,6 +24,7 @@ GRAINS = frozenset({GRAIN_DAILY, GRAIN_MONTH})
 # ``Open Customer-Reported Bugs`` and are dropped on connect.
 CUSTOMER_REPORTED_BUGS_METRIC = "Customer-Reported Bugs"
 _RETIRED_OPEN_CUSTOMER_REPORTED_BUGS_METRIC = "Open Customer-Reported Bugs"
+_RETIRED_COMBINED_ESCALATION_RATE_METRIC = "Escalation Rate (30 Days)"
 
 # Previous-calendar-month scorecard generators (period_key = YYYY-MM of that month).
 MONTH_CLOSE_GENERATORS = frozenset(
@@ -166,6 +167,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
         (str(SCHEMA_VERSION),),
     )
     migrate_legacy_daily_customer_reported_bugs(conn)
+    migrate_retired_combined_escalation_rate(conn)
     conn.commit()
 
 
@@ -181,6 +183,14 @@ def migrate_legacy_daily_customer_reported_bugs(conn: sqlite3.Connection) -> Non
             _RETIRED_OPEN_CUSTOMER_REPORTED_BUGS_METRIC,
             CUSTOMER_REPORTED_BUGS_METRIC,
         ),
+    )
+
+
+def migrate_retired_combined_escalation_rate(conn: sqlite3.Connection) -> None:
+    """Drop the former combined HELP→LEAN+CUSTOMER escalation rate KPI."""
+    conn.execute(
+        "DELETE FROM kpi_observation WHERE metric_name = ?",
+        (_RETIRED_COMBINED_ESCALATION_RATE_METRIC,),
     )
 
 
