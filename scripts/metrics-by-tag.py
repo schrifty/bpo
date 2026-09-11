@@ -10,6 +10,9 @@ datapoints.
 AND tag-set (every listed tag). Text output streams each KPI as soon as it
 resolves. JSON still buffers the full list so the document is valid.
 
+To add, edit, or delete KPI *definitions* in ``config/my-metrics.yaml`` (internal
+catalog maintenance), use ``cortex kpis add|edit|delete|show`` or ``bin/metrics-manage``.
+
 Examples::
 
   metrics-by-tag                          # list tags

@@ -109,6 +109,21 @@ def iter_all_metrics(
     return out
 
 
+def get_registry_metric(
+    name: str,
+    *,
+    registry: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any]] | None:
+    """Return ``(display name, entry)`` for an exact registry name, else ``None``."""
+    needle = str(name or "").strip()
+    if not needle:
+        return None
+    for metric_name, entry in iter_all_metrics(registry=registry):
+        if metric_name == needle:
+            return metric_name, entry
+    return None
+
+
 def _normalized_tag_set(tags: Sequence[str]) -> list[str]:
     wanted: list[str] = []
     seen: set[str] = set()

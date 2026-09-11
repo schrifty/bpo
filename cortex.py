@@ -90,6 +90,11 @@ Metrics & KPIs
   kpis                    Registry KPI values: all, one tag, or AND tag-set
                           [--all] [TAG ...] [--mode live|stored|leandna]
                           [--json] [--skip-s3]
+  kpis add|edit|delete|show
+                          Internal catalog edits to config/my-metrics.yaml
+                          add NAME [--tags …] [--generator …] [--target N]
+                          edit NAME [--new-name …] [--add-tag …] [--clear-…]
+                          delete NAME [--yes]   show NAME [--json]
   kpi-snapshot            Run registry generators into the SQLite KPI store
                           [--date YYYY-MM-DD] [--dry-run] [--tag TAG]
                           [--metric NAME]
@@ -104,6 +109,7 @@ Metrics & KPIs
 
   --tag filters registry tags (e.g. akkr). kpi-snapshot --dry-run does not write.
   kpis --all --mode stored --skip-s3 is one store read for the full catalog.
+  kpis add|edit|delete writes config/my-metrics.yaml (use --dry-run to preview).
 
 ────────────────────────────────────────────────────────────────
 Pendo snapshots
@@ -853,7 +859,11 @@ def _run_kpi_cli(rest: list[str]) -> None:
 
 
 def _run_kpis_cli(rest: list[str]) -> None:
-    """Run ``scripts/metrics-by-tag.py`` (all KPIs or tag-set)."""
+    """``cortex kpis`` — resolve values, or add/edit/delete registry rows."""
+    from src.kpi_manage_cli import is_kpi_manage_command, run_kpi_manage_cli
+
+    if rest and is_kpi_manage_command(rest[0]):
+        raise SystemExit(run_kpi_manage_cli(rest, prog="cortex kpis"))
     root = Path(__file__).resolve().parent
     script = root / "scripts" / "metrics-by-tag.py"
     if not script.is_file():

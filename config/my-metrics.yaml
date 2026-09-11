@@ -7,6 +7,7 @@
 # and CLIs without a LeanDNA catalog id. Reads are live by default. SQLite (kpi-snapshot)
 # is Cortex stored history; LeanDNA Data API persistence is explicit
 # (`metrics-upsert` / kpi_service.materialize_kpi) — generating never writes.
+# Add/edit/delete rows with `cortex kpis add|edit|delete|show` (writes this file).
 #
 # Fields:
 #   description       — Human-readable summary of what the metric measures; filled in for
