@@ -45,6 +45,7 @@ MONTH_CLOSE_GENERATORS = frozenset(
         "get_headcount_plus_ai_spend_per_issue",
         "get_customer_reported_bugs_created",
         "get_customer_reported_bugs_eom",
+        "get_help_ticket_count",
     }
 )
 

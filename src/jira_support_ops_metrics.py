@@ -1,14 +1,20 @@
 """Operational HELP support KPIs for the metrics registry.
 
-Includes trailing-window throughput (resolved/created) and escalation rate into
-Engineering (LEAN) / Data Integration (CUSTOMER).
+Includes trailing-window throughput (resolved/created), month-close ticket
+volume, and escalation rate into Engineering (LEAN) / Data Integration
+(CUSTOMER).
 """
 
 from __future__ import annotations
 
 import logging
+from datetime import date, datetime, timezone
 from typing import Any
 
+from .eng_scorecard_metrics import (
+    _jql_half_open_day_range,
+    _previous_calendar_month_bounds,
+)
 from .jira_client import JiraClient
 
 logger = logging.getLogger("cortex")
@@ -96,6 +102,52 @@ def get_help_resolved_created_ratio(
         "window_days": window,
         "created_jql": created_jql,
         "resolved_jql": resolved_jql,
+    }
+
+
+def _as_of_datetime(as_of: date | datetime | None) -> datetime | None:
+    if as_of is None:
+        return None
+    if isinstance(as_of, datetime):
+        if as_of.tzinfo is None:
+            return as_of.replace(tzinfo=timezone.utc)
+        return as_of.astimezone(timezone.utc)
+    return datetime(as_of.year, as_of.month, as_of.day, tzinfo=timezone.utc)
+
+
+def help_ticket_count_jql(*, as_of: date | datetime | None = None) -> str:
+    """HELP tickets created in the previous completed calendar month."""
+    start, end, _month = _previous_calendar_month_bounds(_as_of_datetime(as_of))
+    return (
+        f"project = HELP AND {_HELP_TRANSIENT} AND "
+        + _jql_half_open_day_range("createdDate", start, end)
+    )
+
+
+def get_help_ticket_count(
+    client: JiraClient,
+    *,
+    as_of: date | datetime | None = None,
+    timeout: float = 60.0,  # noqa: ARG001
+) -> dict[str, Any]:
+    """HELP tickets created in the previous calendar month (excl. Outage/Healthcheck)."""
+    start, end, month_key = _previous_calendar_month_bounds(_as_of_datetime(as_of))
+    jql = help_ticket_count_jql(as_of=as_of)
+    counted = _count_or_error(
+        client, jql, label=f"HELP tickets created {month_key}"
+    )
+    if counted.get("error"):
+        return counted
+    value = int(counted["value"])
+    logger.info("Ticket Count: %s HELP ticket(s) created in %s", value, month_key)
+    return {
+        "value": value,
+        "jql": jql,
+        "month": month_key,
+        "method": "actual_previous_month",
+        "as_of": start.date().isoformat(),
+        "created_start": start.date().isoformat(),
+        "created_end_exclusive": end.date().isoformat(),
     }
 
 

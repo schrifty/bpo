@@ -227,6 +227,17 @@ def _invoke_get_help_resolved_created_ratio(ctx: dict[str, Any]) -> dict[str, An
     )
 
 
+def _invoke_get_help_ticket_count(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.jira_client import get_shared_jira_client
+    from src.jira_support_ops_metrics import get_help_ticket_count
+
+    return get_help_ticket_count(
+        get_shared_jira_client(),
+        as_of=_as_of_from_ctx(ctx),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
 def _invoke_get_engineering_escalation_rate(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.jira_client import get_shared_jira_client
     from src.jira_support_ops_metrics import (
@@ -501,6 +512,7 @@ _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_median_ttfr": _invoke_get_median_ttfr,
     "get_sla_adherence": _invoke_get_sla_adherence,
     "get_help_resolved_created_ratio": _invoke_get_help_resolved_created_ratio,
+    "get_help_ticket_count": _invoke_get_help_ticket_count,
     "get_engineering_escalation_rate": _invoke_get_engineering_escalation_rate,
     "get_data_escalation_rate": _invoke_get_data_escalation_rate,
     "get_p90_ttr": _invoke_get_p90_ttr,

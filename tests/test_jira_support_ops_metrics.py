@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,6 +12,8 @@ from src.jira_support_ops_metrics import (
     get_data_escalation_rate,
     get_engineering_escalation_rate,
     get_help_resolved_created_ratio,
+    get_help_ticket_count,
+    help_ticket_count_jql,
 )
 
 
@@ -74,6 +77,45 @@ def test_get_help_resolved_created_ratio_zero_created() -> None:
     client.jql_match_count.side_effect = [0, 5]
     out = get_help_resolved_created_ratio(client, days=30)
     assert "error" in out
+
+
+def test_help_ticket_count_jql_is_previous_calendar_month() -> None:
+    jql = help_ticket_count_jql(as_of=date(2026, 9, 10))
+    assert "project = HELP" in jql
+    assert "Outage" in jql
+    assert 'createdDate >= "2026-08-01"' in jql
+    assert 'createdDate < "2026-09-01"' in jql
+
+
+def test_get_help_ticket_count() -> None:
+    client = MagicMock()
+    client.jql_match_count.return_value = 142
+    out = get_help_ticket_count(client, as_of=date(2026, 9, 10))
+    assert out["value"] == 142
+    assert out["month"] == "2026-08"
+    assert out["method"] == "actual_previous_month"
+    assert out["created_start"] == "2026-08-01"
+    assert out["created_end_exclusive"] == "2026-09-01"
+    assert "project = HELP" in out["jql"]
+
+
+def test_get_help_ticket_count_fails_loud_when_count_missing() -> None:
+    client = MagicMock()
+    client.jql_match_count.return_value = None
+    out = get_help_ticket_count(client, as_of=date(2026, 9, 10))
+    assert "error" in out
+    assert "value" not in out
+
+
+def test_ticket_count_kpi_is_registered_without_target() -> None:
+    from src.metrics_registry import load_metrics_registry
+    from src.metrics_upsert import _GENERATORS
+
+    entry = load_metrics_registry()["metrics"]["Ticket Count"]
+    assert entry["metric-generator"] == "get_help_ticket_count"
+    assert entry.get("target") in (None, "")
+    assert "direction" not in entry or entry.get("direction") in (None, "")
+    assert "get_help_ticket_count" in _GENERATORS
 
 
 def test_get_engineering_escalation_rate() -> None:

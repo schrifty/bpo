@@ -141,6 +141,13 @@ metrics:
     target: 100
     direction: higher
 
+  "Ticket Count":
+    description: >-
+      HELP tickets created in the previous calendar month (excl. Outage/Healthcheck).
+    metric-id: null
+    metric-generator: get_help_ticket_count
+    tags: [support, volume]
+
   "Engineering Escalation Rate (30 Days)":
     description: >-
       LEAN tickets created with label jira_escalated ÷ HELP tickets created, last
