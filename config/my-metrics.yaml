@@ -47,22 +47,13 @@ metrics:
     metric-generator: null
     tags: [supply-chain]
 
-  # Customer-Reported Bugs (month-close EOM stock)
+  # Customer-Reported Bugs (month-close created count)
   "Customer-Reported Bugs":
     description: >-
-      Open LEAN bugs in active statuses as of the last calendar day of the
-      previous month (KPI-store daily snapshot). Not a Jira as-of query.
+      LEAN Bug issues labeled jira_escalated created in the previous calendar
+      month (HELP escalations into engineering).
     metric-id: null
-    metric-generator: get_customer_reported_bugs_eom
-    tags: [engineering, quality]
-    target: 25
-    direction: lower
-
-  # Open Customer-Reported Bugs (live / daily stock)
-  "Open Customer-Reported Bugs":
-    description: Open LEAN bugs in active statuses right now.
-    metric-id: 2035
-    metric-generator: get_customer_reported_bugs
+    metric-generator: get_customer_reported_bugs_created
     tags: [engineering, quality]
     target: 25
     direction: lower
@@ -160,17 +151,6 @@ metrics:
     unit: percent
     target: 100
     direction: higher
-
-  "Open HELP Backlog >30d %":
-    description: >-
-      Percent of open HELP tickets (excl. Outage/Healthcheck) created more than
-      30 days ago.
-    metric-id: null
-    metric-generator: get_help_backlog_over_30d_pct
-    tags: [support, backlog]
-    unit: percent
-    target: 20
-    direction: lower
 
   "Escalation Rate (30 Days)":
     description: >-

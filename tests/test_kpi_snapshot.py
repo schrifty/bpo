@@ -44,11 +44,11 @@ metrics:
   "PRs Merged":
     metric-generator: get_prs_merged
     tags: [engineering]
-  "Open Customer-Reported Bugs":
-    metric-generator: get_customer_reported_bugs
-    tags: [engineering, quality]
+  "Tickets Beyond Service Thresholds":
+    metric-generator: get_service_threshold_tickets
+    tags: [support, sla]
   "Customer-Reported Bugs":
-    metric-generator: get_customer_reported_bugs_eom
+    metric-generator: get_customer_reported_bugs_created
     tags: [engineering, quality]
   "No Gen":
     metric-generator: null
@@ -59,7 +59,8 @@ metrics:
 
 def test_grain_and_period_key() -> None:
     assert grain_for_generator("get_prs_merged") == GRAIN_MONTH
-    assert grain_for_generator("get_customer_reported_bugs") == GRAIN_DAILY
+    assert grain_for_generator("get_service_threshold_tickets") == GRAIN_DAILY
+    assert grain_for_generator("get_customer_reported_bugs_created") == GRAIN_MONTH
     assert grain_for_generator("get_customer_reported_bugs_eom") == GRAIN_MONTH
     assert period_key_for(GRAIN_DAILY, date(2026, 9, 10)) == "2026-09-10"
     assert period_key_for(GRAIN_MONTH, date(2026, 9, 10)) == "2026-08"
@@ -71,15 +72,15 @@ def test_iter_snapshot_metrics_skips_null_generator_and_honors_tag() -> None:
     names = [n for n, _ in iter_snapshot_metrics(reg)]
     assert names == [
         "PRs Merged",
-        "Open Customer-Reported Bugs",
+        "Tickets Beyond Service Thresholds",
         "Customer-Reported Bugs",
     ]
     tagged = [n for n, _ in iter_snapshot_metrics(reg, tag="quality")]
-    assert tagged == ["Open Customer-Reported Bugs", "Customer-Reported Bugs"]
+    assert tagged == ["Customer-Reported Bugs"]
     month_only = [n for n, _ in iter_snapshot_metrics(reg, grain=GRAIN_MONTH)]
     assert month_only == ["PRs Merged", "Customer-Reported Bugs"]
     daily_only = [n for n, _ in iter_snapshot_metrics(reg, grain=GRAIN_DAILY)]
-    assert daily_only == ["Open Customer-Reported Bugs"]
+    assert daily_only == ["Tickets Beyond Service Thresholds"]
     one = [n for n, _ in iter_snapshot_metrics(reg, metric_name_filter="PRs Merged")]
     assert one == ["PRs Merged"]
 
@@ -130,7 +131,7 @@ def test_persist_skip_s3_upserts_rows(tmp_path: Path) -> None:
     assert {r.period_key for r in month} == {"2026-08"}
     prs = next(r for r in month if r.metric_name == "PRs Merged")
     assert prs.observation.value == 500
-    assert daily[0].metric_name == "Open Customer-Reported Bugs"
+    assert daily[0].metric_name == "Tickets Beyond Service Thresholds"
     assert daily[0].period_key == "2026-09-10"
 
 

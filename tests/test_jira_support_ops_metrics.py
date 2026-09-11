@@ -8,7 +8,6 @@ import pytest
 
 from src.jira_p90_ttr import get_p90_ttr
 from src.jira_support_ops_metrics import (
-    get_help_backlog_over_30d_pct,
     get_help_escalation_rate,
     get_help_resolved_created_ratio,
 )
@@ -74,17 +73,6 @@ def test_get_help_resolved_created_ratio_zero_created() -> None:
     client.jql_match_count.side_effect = [0, 5]
     out = get_help_resolved_created_ratio(client, days=30)
     assert "error" in out
-
-
-def test_get_help_backlog_over_30d_pct() -> None:
-    client = MagicMock()
-    client.jql_match_count.side_effect = [200, 40]
-    out = get_help_backlog_over_30d_pct(client, days=30)
-    assert out["open_total"] == 200
-    assert out["over_age"] == 40
-    assert out["value"] == 20.0
-    assert "statusCategory != Done" in out["open_jql"]
-    assert "created <= -30d" in out["over_jql"]
 
 
 def test_get_help_escalation_rate() -> None:

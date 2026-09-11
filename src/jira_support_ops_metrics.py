@@ -1,7 +1,7 @@
 """Operational HELP support KPIs for the metrics registry.
 
-Includes trailing-window throughput (resolved/created), open backlog aging,
-and escalation rate into Engineering (LEAN) / Data Integration (CUSTOMER).
+Includes trailing-window throughput (resolved/created) and escalation rate into
+Engineering (LEAN) / Data Integration (CUSTOMER).
 """
 
 from __future__ import annotations
@@ -96,62 +96,6 @@ def get_help_resolved_created_ratio(
         "window_days": window,
         "created_jql": created_jql,
         "resolved_jql": resolved_jql,
-    }
-
-
-def get_help_backlog_over_30d_pct(
-    client: JiraClient,
-    *,
-    days: int = 30,
-    timeout: float = 60.0,  # noqa: ARG001
-) -> dict[str, Any]:
-    """Percent of open HELP tickets with age greater than *days* (default 30)."""
-    age_days = max(1, int(days))
-    open_jql = (
-        f"project = HELP AND {_HELP_TRANSIENT} AND statusCategory != Done"
-    )
-    over_jql = f"{open_jql} AND created <= -{age_days}d"
-
-    open_total = _count_or_error(
-        client, open_jql, label="Open HELP backlog"
-    )
-    if open_total.get("error"):
-        return open_total
-    over_age = _count_or_error(
-        client,
-        over_jql,
-        label=f"Open HELP backlog older than {age_days}d",
-    )
-    if over_age.get("error"):
-        return over_age
-
-    total = int(open_total["value"])
-    over = int(over_age["value"])
-    if total <= 0:
-        return {
-            "error": "Open HELP backlog is 0 — cannot compute backlog >30d %",
-            "open_total": total,
-            "over_age": over,
-            "age_days": age_days,
-        }
-
-    pct = round(100.0 * over / total, 2)
-    logger.info(
-        "Open HELP Backlog >%sd %%: %s / %s = %s%%",
-        age_days,
-        over,
-        total,
-        pct,
-    )
-    return {
-        "value": pct,
-        "numerator": float(over),
-        "denominator": float(total),
-        "over_age": over,
-        "open_total": total,
-        "age_days": age_days,
-        "open_jql": open_jql,
-        "over_jql": over_jql,
     }
 
 

@@ -176,27 +176,15 @@ def _invoke_get_service_threshold_tickets(ctx: dict[str, Any]) -> dict[str, Any]
     )
 
 
-def _invoke_get_customer_reported_bugs(ctx: dict[str, Any]) -> dict[str, Any]:
+def _invoke_get_customer_reported_bugs_created(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.jira_client import get_shared_jira_client
-    from src.jira_customer_reported_bugs import get_customer_reported_bug_count
+    from src.jira_customer_reported_bugs import get_customer_reported_bugs_created
 
     jira = get_shared_jira_client()
-    return get_customer_reported_bug_count(
+    return get_customer_reported_bugs_created(
         jira,
         as_of=_as_of_from_ctx(ctx),
         timeout=float(ctx.get("timeout") or 60.0),
-    )
-
-
-def _invoke_get_customer_reported_bugs_eom(ctx: dict[str, Any]) -> dict[str, Any]:
-    from src.jira_customer_reported_bugs import get_customer_reported_bugs_eom
-
-    db_raw = ctx.get("db_path")
-    skip_raw = ctx.get("skip_s3")
-    return get_customer_reported_bugs_eom(
-        as_of=_as_of_from_ctx(ctx),
-        db_path=db_raw,
-        skip_s3=bool(skip_raw) if skip_raw is not None else False,
     )
 
 
@@ -246,17 +234,6 @@ def _invoke_get_help_resolved_created_ratio(ctx: dict[str, Any]) -> dict[str, An
     return get_help_resolved_created_ratio(
         get_shared_jira_client(),
         days=int(ctx.get("days") or DEFAULT_SUPPORT_OPS_DAYS),
-        timeout=float(ctx.get("timeout") or 60.0),
-    )
-
-
-def _invoke_get_help_backlog_over_30d_pct(ctx: dict[str, Any]) -> dict[str, Any]:
-    from src.jira_client import get_shared_jira_client
-    from src.jira_support_ops_metrics import get_help_backlog_over_30d_pct
-
-    return get_help_backlog_over_30d_pct(
-        get_shared_jira_client(),
-        days=30,
         timeout=float(ctx.get("timeout") or 60.0),
     )
 
@@ -516,13 +493,12 @@ _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_ai_token_usage": _invoke_get_ai_token_usage,
     "get_monthly_ai_spend": _invoke_get_monthly_ai_spend,
     "get_service_threshold_tickets": _invoke_get_service_threshold_tickets,
-    "get_customer_reported_bugs": _invoke_get_customer_reported_bugs,
-    "get_customer_reported_bugs_eom": _invoke_get_customer_reported_bugs_eom,
+    "get_customer_reported_bugs_created": _invoke_get_customer_reported_bugs_created,
+    "get_customer_reported_bugs_eom": _invoke_get_customer_reported_bugs_created,
     "get_median_ttr": _invoke_get_median_ttr,
     "get_median_ttfr": _invoke_get_median_ttfr,
     "get_sla_adherence": _invoke_get_sla_adherence,
     "get_help_resolved_created_ratio": _invoke_get_help_resolved_created_ratio,
-    "get_help_backlog_over_30d_pct": _invoke_get_help_backlog_over_30d_pct,
     "get_help_escalation_rate": _invoke_get_help_escalation_rate,
     "get_p90_ttr": _invoke_get_p90_ttr,
     "get_sprint_delivery_by_team": _invoke_get_sprint_delivery_by_team,
