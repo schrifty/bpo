@@ -21,6 +21,7 @@ logger = logging.getLogger("cortex")
 _HELP_TRANSIENT = "NOT (labels = Outage OR labels = Healthcheck)"
 _CUSTOMER_LEAN_EXCL = "issuetype not in (Epic, SUT)"
 OPEN_HELP_AGE_DAYS = 30
+WAITING_FOR_CUSTOMER_STATUS = "Waiting for customer"
 
 
 def _count_or_error(
@@ -420,6 +421,215 @@ def get_open_help_over_30d_pct(
         "age_days": OPEN_HELP_AGE_DAYS,
         "open_jql": open_jql,
         "aged_jql": aged_jql,
+        "method": "open_as_of",
+    }
+
+
+def _waiting_for_customer_clause(*, as_of: date | datetime | None) -> str:
+    day, _end = _snapshot_day_and_end(as_of)
+    return f'status WAS "{WAITING_FOR_CUSTOMER_STATUS}" ON "{day.isoformat()}"'
+
+
+def waiting_for_customer_jql(
+    *,
+    as_of: date | datetime | None = None,
+    min_age_days: int | None = None,
+) -> str:
+    """Open HELP that was Waiting for customer on *as_of*'s calendar day."""
+    return (
+        f"{open_help_jql(as_of=as_of, min_age_days=min_age_days)} AND "
+        f"{_waiting_for_customer_clause(as_of=as_of)}"
+    )
+
+
+def waiting_on_us_jql(
+    *,
+    as_of: date | datetime | None = None,
+    min_age_days: int | None = None,
+) -> str:
+    """Open HELP that was not Waiting for customer on *as_of*'s calendar day."""
+    day, _end = _snapshot_day_and_end(as_of)
+    return (
+        f"{open_help_jql(as_of=as_of, min_age_days=min_age_days)} AND "
+        f'status WAS NOT "{WAITING_FOR_CUSTOMER_STATUS}" ON "{day.isoformat()}"'
+    )
+
+
+def help_reopen_jql(*, as_of: date | datetime | None = None) -> str:
+    """HELP tickets that left Closed or Resolved in the previous calendar month."""
+    start, end, _month = _previous_calendar_month_bounds(_as_of_datetime(as_of))
+    start_s = start.date().isoformat()
+    end_s = end.date().isoformat()
+    changed = (
+        f'(status CHANGED FROM Closed AFTER "{start_s}" BEFORE "{end_s}" '
+        f'OR status CHANGED FROM Resolved AFTER "{start_s}" BEFORE "{end_s}")'
+    )
+    return f"project = HELP AND {_HELP_TRANSIENT} AND {changed}"
+
+
+def get_help_reopen_pct(
+    client: JiraClient,
+    *,
+    as_of: date | datetime | None = None,
+    timeout: float = 60.0,  # noqa: ARG001
+) -> dict[str, Any]:
+    """HELP left Closed/Resolved ÷ HELP resolved, previous calendar month."""
+    start, end, month_key = _previous_calendar_month_bounds(_as_of_datetime(as_of))
+    resolved_jql = (
+        f"project = HELP AND {_HELP_TRANSIENT} AND resolution is not EMPTY AND "
+        + _jql_half_open_day_range("resolved", start, end)
+    )
+    reopen_jql = help_reopen_jql(as_of=as_of)
+    resolved = _count_or_error(
+        client, resolved_jql, label=f"HELP resolved {month_key}"
+    )
+    if resolved.get("error"):
+        return resolved
+    reopened = _count_or_error(
+        client, reopen_jql, label=f"HELP reopened {month_key}"
+    )
+    if reopened.get("error"):
+        return reopened
+    resolved_n = int(resolved["value"])
+    reopen_n = int(reopened["value"])
+    if resolved_n <= 0:
+        return {
+            "error": (
+                f"HELP resolved count is 0 in {month_key} — "
+                "cannot compute HELP Reopen %"
+            ),
+            "resolved": resolved_n,
+            "reopened": reopen_n,
+            "month": month_key,
+        }
+    pct = round(100.0 * reopen_n / resolved_n, 2)
+    logger.info(
+        "HELP Reopen %%: %s / %s resolved = %s%% (%s)",
+        reopen_n,
+        resolved_n,
+        pct,
+        month_key,
+    )
+    return {
+        "value": pct,
+        "numerator": float(reopen_n),
+        "denominator": float(resolved_n),
+        "reopened": reopen_n,
+        "resolved": resolved_n,
+        "month": month_key,
+        "method": "actual_previous_month",
+        "reopen_jql": reopen_jql,
+        "resolved_jql": resolved_jql,
+        "created_start": start.date().isoformat(),
+        "created_end_exclusive": end.date().isoformat(),
+        "as_of": start.date().isoformat(),
+    }
+
+
+def get_open_help_waiting_on_customer_pct(
+    client: JiraClient,
+    *,
+    as_of: date | datetime | None = None,
+    timeout: float = 60.0,  # noqa: ARG001
+) -> dict[str, Any]:
+    """Share of open HELP that was Waiting for customer on *as_of*."""
+    day, _end = _snapshot_day_and_end(as_of)
+    open_jql = open_help_jql(as_of=as_of)
+    customer_jql = waiting_for_customer_jql(as_of=as_of)
+    opened = _count_or_error(client, open_jql, label=f"Open HELP as of {day.isoformat()}")
+    if opened.get("error"):
+        return opened
+    waiting = _count_or_error(
+        client,
+        customer_jql,
+        label=f"Open HELP waiting on customer as of {day.isoformat()}",
+    )
+    if waiting.get("error"):
+        return waiting
+    open_n = int(opened["value"])
+    waiting_n = int(waiting["value"])
+    if open_n <= 0:
+        return {
+            "error": (
+                f"Open HELP count is 0 as of {day.isoformat()} — "
+                "cannot compute Open HELP Waiting on Customer %"
+            ),
+            "open": open_n,
+            "waiting_on_customer": waiting_n,
+            "as_of": day.isoformat(),
+        }
+    pct = round(100.0 * waiting_n / open_n, 2)
+    logger.info(
+        "Open HELP Waiting on Customer %%: %s / %s = %s%% as of %s",
+        waiting_n,
+        open_n,
+        pct,
+        day.isoformat(),
+    )
+    return {
+        "value": pct,
+        "numerator": float(waiting_n),
+        "denominator": float(open_n),
+        "open": open_n,
+        "waiting_on_customer": waiting_n,
+        "waiting_on_us": max(0, open_n - waiting_n),
+        "as_of": day.isoformat(),
+        "open_jql": open_jql,
+        "waiting_on_customer_jql": customer_jql,
+        "method": "open_as_of",
+    }
+
+
+def get_open_help_waiting_on_us_over_30d_pct(
+    client: JiraClient,
+    *,
+    as_of: date | datetime | None = None,
+    timeout: float = 60.0,  # noqa: ARG001
+) -> dict[str, Any]:
+    """Share of open HELP that is >30d old and not Waiting for customer on *as_of*."""
+    day, _end = _snapshot_day_and_end(as_of)
+    open_jql = open_help_jql(as_of=as_of)
+    aged_us_jql = waiting_on_us_jql(as_of=as_of, min_age_days=OPEN_HELP_AGE_DAYS)
+    opened = _count_or_error(client, open_jql, label=f"Open HELP as of {day.isoformat()}")
+    if opened.get("error"):
+        return opened
+    aged_us = _count_or_error(
+        client,
+        aged_us_jql,
+        label=f"Open HELP waiting on us >{OPEN_HELP_AGE_DAYS}d as of {day.isoformat()}",
+    )
+    if aged_us.get("error"):
+        return aged_us
+    open_n = int(opened["value"])
+    aged_us_n = int(aged_us["value"])
+    if open_n <= 0:
+        return {
+            "error": (
+                f"Open HELP count is 0 as of {day.isoformat()} — "
+                "cannot compute Open HELP Waiting on Us >30d %"
+            ),
+            "open": open_n,
+            "aged_waiting_on_us": aged_us_n,
+            "as_of": day.isoformat(),
+        }
+    pct = round(100.0 * aged_us_n / open_n, 2)
+    logger.info(
+        "Open HELP Waiting on Us >30d %%: %s / %s = %s%% as of %s",
+        aged_us_n,
+        open_n,
+        pct,
+        day.isoformat(),
+    )
+    return {
+        "value": pct,
+        "numerator": float(aged_us_n),
+        "denominator": float(open_n),
+        "open": open_n,
+        "aged_waiting_on_us": aged_us_n,
+        "as_of": day.isoformat(),
+        "age_days": OPEN_HELP_AGE_DAYS,
+        "open_jql": open_jql,
+        "aged_waiting_on_us_jql": aged_us_jql,
         "method": "open_as_of",
     }
 

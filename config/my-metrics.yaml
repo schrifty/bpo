@@ -134,7 +134,7 @@ metrics:
       Do not celebrate TTFR if P90 TTR and SLA adherence are still failing.
     metric-id: null
     metric-generator: get_median_ttfr
-    tags: [support, sla]
+    tags: [support, sla, care]
     target: 48
     direction: lower
 
@@ -146,7 +146,7 @@ metrics:
       Use this for the median customer; the tail is P90 TTR.
     metric-id: 2171
     metric-generator: get_median_ttr
-    tags: [support, sla]
+    tags: [support, sla, care]
     target: 6.67
     direction: lower
 
@@ -160,7 +160,7 @@ metrics:
       Below that, inspect breaches by queue before adding headcount.
     metric-id: null
     metric-generator: get_sla_adherence
-    tags: [support, sla]
+    tags: [support, sla, care]
     unit: percent
     target: 90
     direction: higher
@@ -321,10 +321,47 @@ metrics:
       than 30 days earlier (excl. Outage/Healthcheck).
     mgmt_guidance: >-
       Drive the share of open HELP older than 30 days down; that is stuck work, not new intake.
-      Pair with P90 TTR when the tail of resolved work is also long.
+      Pair with Open HELP Waiting on Us >30d % so customer-held tickets are not mixed in.
     metric-id: null
     metric-generator: get_open_help_over_30d_pct
-    tags: [support, backlog]
+    tags: [support, backlog, care]
+    unit: percent
+
+  "HELP Reopen %":
+    description: >-
+      HELP tickets whose status left Closed or Resolved in the previous
+      calendar month ÷ HELP tickets resolved that month × 100 (excl.
+      Outage/Healthcheck). Quality of resolution; no target until volume is visible.
+    mgmt_guidance: >-
+      This is tickets that left Done and came back, as a share of tickets resolved that month.
+      A rising reopen share means TTR may look better because work was closed too early.
+    metric-id: null
+    metric-generator: get_help_reopen_pct
+    tags: [support, care]
+    unit: percent
+
+  "Open HELP Waiting on Customer %":
+    description: >-
+      Share of open HELP (as of the snapshot date) whose status that day was
+      Waiting for customer (excl. Outage/Healthcheck).
+    mgmt_guidance: >-
+      This is customer-held open work; do not treat it as a support delay.
+      Pair with Open HELP Waiting on Us >30d % when P90 TTR is long.
+    metric-id: null
+    metric-generator: get_open_help_waiting_on_customer_pct
+    tags: [support, care, backlog]
+    unit: percent
+
+  "Open HELP Waiting on Us >30d %":
+    description: >-
+      Share of open HELP (as of the snapshot date) that is more than 30 days
+      old and was not Waiting for customer that day (excl. Outage/Healthcheck).
+    mgmt_guidance: >-
+      Drive aged open HELP that is still on us (support, engineering, or data).
+      That is stuck customer-visible work; do not mix it with waiting-on-customer stock.
+    metric-id: null
+    metric-generator: get_open_help_waiting_on_us_over_30d_pct
+    tags: [support, care, backlog]
     unit: percent
 
   "P90 TTR (30 Days)":
@@ -336,7 +373,7 @@ metrics:
       If median TTR is fine and P90 is not, the problem is stuck tickets, not average speed.
     metric-id: null
     metric-generator: get_p90_ttr
-    tags: [support, sla]
+    tags: [support, sla, care]
     target: 10
     direction: lower
 

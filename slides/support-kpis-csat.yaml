@@ -1,7 +1,7 @@
 id: support_kpis_csat
 type: standard
 order: 19
-title: CSAT
+title: Ticket sentiment
 slide_type: support_kpis_csat
 data_tools:
   - customer_jira

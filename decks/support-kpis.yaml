@@ -4,8 +4,8 @@ audience: Support / Engineering Leadership
 
 purpose: |
   HELP operational KPI deck: intake, flow, backlog aging, tail risk, SLA adherence,
-  TTFR, resolution time by type, LEAN/CUSTOMER jira_escalated flow, customer health, sentiment
-  (supplementary), and tickets beyond first-response / resolution service thresholds.
+  TTFR, resolution time by type, LEAN/CUSTOMER jira_escalated flow, customer health, ticket
+  sentiment (not survey CSAT), and tickets beyond first-response / resolution service thresholds.
   Scoped to the HELP Jira project (JSM Organizations for per-customer runs).
   Single-customer runs omit the account name in slide titles (cover + corner badge).
 
@@ -37,7 +37,7 @@ slides:
   - slide: support_kpis_customer_health
     title: Customer Health
   - slide: support_kpis_csat
-    title: CSAT
+    title: Ticket sentiment
   - slide: support_kpis_aging_thresholds
     title: Aging Tickets Beyond Service Thresholds
   - slide: data_quality

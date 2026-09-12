@@ -56,6 +56,7 @@ MONTH_CLOSE_GENERATORS = frozenset(
         "get_support_spend_per_ticket",
         "get_support_spend_per_resolved",
         "get_help_fully_loaded_spend_per_ticket",
+        "get_help_reopen_pct",
         "get_help_resolved_created_ratio",
         "get_engineering_escalation_count",
         "get_data_escalation_count",

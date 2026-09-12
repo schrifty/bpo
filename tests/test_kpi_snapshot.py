@@ -73,6 +73,9 @@ def test_grain_and_period_key() -> None:
     assert grain_for_generator("get_engineering_escalation_count") == GRAIN_MONTH
     assert grain_for_generator("get_open_help") == GRAIN_DAILY
     assert grain_for_generator("get_open_help_over_30d_pct") == GRAIN_DAILY
+    assert grain_for_generator("get_help_reopen_pct") == GRAIN_MONTH
+    assert grain_for_generator("get_open_help_waiting_on_customer_pct") == GRAIN_DAILY
+    assert grain_for_generator("get_open_help_waiting_on_us_over_30d_pct") == GRAIN_DAILY
     assert period_key_for(GRAIN_DAILY, date(2026, 9, 10)) == "2026-09-10"
     assert period_key_for(GRAIN_MONTH, date(2026, 9, 10)) == "2026-08"
     assert period_key_for(GRAIN_MONTH, date(2026, 1, 3)) == "2025-12"

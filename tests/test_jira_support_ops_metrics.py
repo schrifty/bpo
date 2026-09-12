@@ -16,14 +16,20 @@ from src.jira_support_ops_metrics import (
     get_help_resolved_created_ratio,
     get_help_ticket_count,
     get_help_fully_loaded_spend_per_ticket,
+    get_help_reopen_pct,
     get_open_help,
     get_open_help_over_30d_pct,
+    get_open_help_waiting_on_customer_pct,
+    get_open_help_waiting_on_us_over_30d_pct,
     get_support_fte,
     get_support_spend_per_resolved,
     get_support_spend_per_ticket,
     get_tickets_per_fte,
+    help_reopen_jql,
     help_ticket_count_jql,
     open_help_jql,
+    waiting_for_customer_jql,
+    waiting_on_us_jql,
 )
 
 
@@ -303,6 +309,9 @@ def test_split_escalation_kpis_are_registered() -> None:
     assert "get_engineering_escalation_count" in _GENERATORS
     assert "get_open_help" in _GENERATORS
     assert "get_open_help_over_30d_pct" in _GENERATORS
+    assert "get_help_reopen_pct" in _GENERATORS
+    assert "get_open_help_waiting_on_customer_pct" in _GENERATORS
+    assert "get_open_help_waiting_on_us_over_30d_pct" in _GENERATORS
     assert metrics["Support Spend / Ticket"]["metric-generator"] == "get_support_spend_per_ticket"
     assert "get_support_spend_per_ticket" in _GENERATORS
 
@@ -330,6 +339,88 @@ def test_get_open_help_over_30d_pct() -> None:
     assert out["value"] == 25.0
     assert out["numerator"] == 10.0
     assert out["denominator"] == 40.0
+
+
+def test_help_reopen_jql_is_previous_calendar_month() -> None:
+    jql = help_reopen_jql(as_of=date(2026, 9, 10))
+    assert "project = HELP" in jql
+    assert 'status CHANGED FROM Closed AFTER "2026-08-01" BEFORE "2026-09-01"' in jql
+    assert 'status CHANGED FROM Resolved AFTER "2026-08-01" BEFORE "2026-09-01"' in jql
+
+
+def test_get_help_reopen_pct() -> None:
+    client = MagicMock()
+    client.jql_match_count.side_effect = [80, 8]
+    out = get_help_reopen_pct(client, as_of=date(2026, 9, 10))
+    assert out["value"] == 10.0
+    assert out["reopened"] == 8
+    assert out["resolved"] == 80
+    assert out["month"] == "2026-08"
+    assert "CHANGED FROM Closed" in out["reopen_jql"]
+    assert 'resolved >= "2026-08-01"' in out["resolved_jql"]
+
+
+def test_get_help_reopen_pct_zero_resolved() -> None:
+    client = MagicMock()
+    client.jql_match_count.side_effect = [0, 2]
+    out = get_help_reopen_pct(client, as_of=date(2026, 9, 10))
+    assert "error" in out
+    assert "HELP Reopen %" in out["error"]
+
+
+def test_waiting_for_customer_jql_uses_was_on() -> None:
+    jql = waiting_for_customer_jql(as_of=date(2026, 8, 31))
+    assert 'status WAS "Waiting for customer" ON "2026-08-31"' in jql
+    assert 'createdDate < "2026-09-01"' in jql
+    aged_us = waiting_on_us_jql(as_of=date(2026, 8, 31), min_age_days=30)
+    assert 'status WAS NOT "Waiting for customer" ON "2026-08-31"' in aged_us
+    assert 'createdDate < "2026-08-01"' in aged_us
+
+
+def test_get_open_help_waiting_on_customer_pct() -> None:
+    client = MagicMock()
+    client.jql_match_count.side_effect = [40, 10]
+    out = get_open_help_waiting_on_customer_pct(client, as_of=date(2026, 8, 31))
+    assert out["value"] == 25.0
+    assert out["waiting_on_customer"] == 10
+    assert out["waiting_on_us"] == 30
+    assert out["as_of"] == "2026-08-31"
+
+
+def test_get_open_help_waiting_on_us_over_30d_pct() -> None:
+    client = MagicMock()
+    client.jql_match_count.side_effect = [40, 6]
+    out = get_open_help_waiting_on_us_over_30d_pct(client, as_of=date(2026, 8, 31))
+    assert out["value"] == 15.0
+    assert out["aged_waiting_on_us"] == 6
+    assert out["open"] == 40
+
+
+def test_care_pack_is_registered() -> None:
+    from src.metrics_registry import load_metrics_registry
+    from src.metrics_upsert import _GENERATORS
+
+    metrics = load_metrics_registry()["metrics"]
+    for name in (
+        "TTFR (30 Days)",
+        "Median TTR",
+        "SLA Adherence (30 Days)",
+        "P90 TTR (30 Days)",
+        "Open HELP >30d %",
+        "HELP Reopen %",
+        "Open HELP Waiting on Customer %",
+        "Open HELP Waiting on Us >30d %",
+    ):
+        assert "care" in metrics[name]["tags"]
+    for name, gen in (
+        ("HELP Reopen %", "get_help_reopen_pct"),
+        ("Open HELP Waiting on Customer %", "get_open_help_waiting_on_customer_pct"),
+        ("Open HELP Waiting on Us >30d %", "get_open_help_waiting_on_us_over_30d_pct"),
+    ):
+        entry = metrics[name]
+        assert entry["metric-generator"] == gen
+        assert entry.get("target") in (None, "")
+        assert gen in _GENERATORS
 
 
 def test_get_help_p90_ttr_hours(jira_client) -> None:

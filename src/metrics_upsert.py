@@ -357,6 +357,39 @@ def _invoke_get_open_help_over_30d_pct(ctx: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _invoke_get_help_reopen_pct(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.jira_client import get_shared_jira_client
+    from src.jira_support_ops_metrics import get_help_reopen_pct
+
+    return get_help_reopen_pct(
+        get_shared_jira_client(),
+        as_of=_as_of_from_ctx(ctx),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
+def _invoke_get_open_help_waiting_on_customer_pct(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.jira_client import get_shared_jira_client
+    from src.jira_support_ops_metrics import get_open_help_waiting_on_customer_pct
+
+    return get_open_help_waiting_on_customer_pct(
+        get_shared_jira_client(),
+        as_of=_as_of_from_ctx(ctx),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
+def _invoke_get_open_help_waiting_on_us_over_30d_pct(ctx: dict[str, Any]) -> dict[str, Any]:
+    from src.jira_client import get_shared_jira_client
+    from src.jira_support_ops_metrics import get_open_help_waiting_on_us_over_30d_pct
+
+    return get_open_help_waiting_on_us_over_30d_pct(
+        get_shared_jira_client(),
+        as_of=_as_of_from_ctx(ctx),
+        timeout=float(ctx.get("timeout") or 60.0),
+    )
+
+
 def _invoke_get_p90_ttr(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.jira_client import get_shared_jira_client
     from src.jira_p90_ttr import DEFAULT_P90_TTR_DAYS, get_p90_ttr
@@ -616,6 +649,9 @@ _GENERATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "get_data_escalation_count": _invoke_get_data_escalation_count,
     "get_open_help": _invoke_get_open_help,
     "get_open_help_over_30d_pct": _invoke_get_open_help_over_30d_pct,
+    "get_help_reopen_pct": _invoke_get_help_reopen_pct,
+    "get_open_help_waiting_on_customer_pct": _invoke_get_open_help_waiting_on_customer_pct,
+    "get_open_help_waiting_on_us_over_30d_pct": _invoke_get_open_help_waiting_on_us_over_30d_pct,
     "get_p90_ttr": _invoke_get_p90_ttr,
     "get_sprint_delivery_by_team": _invoke_get_sprint_delivery_by_team,
     "get_sprint_story_points_by_team": _invoke_get_sprint_story_points_by_team,
