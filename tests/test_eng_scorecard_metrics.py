@@ -696,3 +696,19 @@ def test_get_weekly_active_ai_users_cursor_failure(monkeypatch: pytest.MonkeyPat
     _patch_scope(monkeypatch, jira)
     out = get_weekly_active_ai_users(_FakeCursor(fail=True), jira)
     assert "error" in out
+
+
+def test_engineering_ai_and_quality_target_policy() -> None:
+    from src.metrics_registry import load_metrics_registry, registry_metric_target
+
+    metrics = load_metrics_registry()["metrics"]
+    assert registry_metric_target(metrics["Weekly Active AI Users"]) == 100.0
+    assert metrics["Weekly Active AI Users"]["direction"] == "higher"
+    assert registry_metric_target(metrics["% AI-Assisted PRs"]) == 90.0
+    assert metrics["% AI-Assisted PRs"]["direction"] == "higher"
+    assert registry_metric_target(metrics["Tokens per Dev"]) is None
+    assert metrics["Tokens per Dev"].get("direction") in (None, "")
+    assert registry_metric_target(metrics["AI Spend / Issue"]) is None
+    assert metrics["AI Spend / Issue"].get("direction") in (None, "")
+    assert "no target" in metrics["Tokens per Dev"]["mgmt_guidance"].lower()
+    assert "no target" in metrics["AI Spend / Issue"]["mgmt_guidance"].lower()

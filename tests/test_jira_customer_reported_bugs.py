@@ -47,3 +47,14 @@ def test_get_customer_reported_bugs_created_fails_loud_when_count_missing() -> N
     assert "error" in result
     assert "value" not in result
     assert "2026-08" in result["error"]
+
+
+def test_customer_reported_bugs_target_is_provisional_fifteen() -> None:
+    from src.metrics_registry import load_metrics_registry, registry_metric_target
+
+    entry = load_metrics_registry()["metrics"]["Customer-Reported Bugs"]
+    assert registry_metric_target(entry) == 15.0
+    assert entry["direction"] == "lower"
+    guidance = entry["mgmt_guidance"]
+    assert "15" in guidance
+    assert "asterisk" in guidance.lower() or "enhancement" in guidance.lower()

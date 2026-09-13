@@ -22,6 +22,20 @@
 #   tags              — Optional list of lowercase labels for grouping/filtering KPIs
 #                       (e.g. [engineering, impact]). One KPI may carry many tags. Query
 #                       with `metrics-by-tag <tag>` (live by default).
+#
+# SDD transition taxonomy (tags, because `cortex kpi edit` only round-trips the fields
+# listed here — a bespoke top-level key would be silently dropped on the next edit):
+#   legacy   — Measures delivery in the pre-SDD unit of work (ticket, sprint, PR).
+#              Keep reporting until Spec-Driven Dev is adopted, then sunset.
+#   forward  — Still meaningful after full SDD adoption: spec-based flow, durable
+#              quality/reliability outcomes, and cost measured against business value.
+#   pending  — Registered on purpose but not instrumentable yet. No generator, no target.
+#              The description records what unblocks it. Never treat a pending row as a
+#              miss; it has no value, not a bad value.
+# Every `engineering`-tagged row carries exactly one of legacy | forward, except rows
+# that are also tagged `support` — on those, `engineering` names the escalation target,
+# not the owning function. Support and implementation KPIs are out of scope for this
+# taxonomy: SDD does not retire them.
 #   target            — Optional numeric goal (same unit as the generator value). Used by
 #                       metrics-digest for off-target classification.
 #   direction         — higher | lower — required when target is set. lower = off when
@@ -59,25 +73,28 @@ metrics:
   "Customer-Reported Bugs":
     description: >-
       LEAN Bug issues labeled jira_escalated created in the previous calendar
-      month (HELP escalations into engineering).
+      month (HELP escalations into engineering). Intake still sometimes includes
+      enhancement requests; treat the count as provisional until that is fixed.
     mgmt_guidance: >-
-      Drive the monthly LEAN jira_escalated Bug count toward 25 or below.
-      A jump is product quality or intake change, not more HELP volume.
+      Drive the monthly LEAN jira_escalated Bug count toward 15 or below, but treat the
+      target as asterisked: some rows are enhancement requests, not defects.
+      A jump may be product quality or intake change, not more HELP volume.
     metric-id: null
     metric-generator: get_customer_reported_bugs_created
-    tags: [engineering, quality]
-    target: 25
+    tags: [engineering, quality, legacy]
+    target: 15
     direction: lower
 
   # Site Uptime %
   "Site Uptime %":
     description: null
     mgmt_guidance: >-
-      Protect platform availability and page on sustained drops below high-nines.
-      This is infrastructure, not support staffing.
+      Protect platform availability and page on sustained drops below high-nines;
+      this is infrastructure, not support staffing.
+      Superseded by SLO Attainment % once error budgets are defined.
     metric-id: 1769
     metric-generator: null
-    tags: [reliability, platform]
+    tags: [reliability, platform, legacy]
 
   # AI Token Usage
   "AI Token Usage":
@@ -87,7 +104,7 @@ metrics:
       Investigate spikes for waste or a new team rollout.
     metric-id: null
     metric-generator: get_ai_token_usage
-    tags: [ai, engineering]
+    tags: [ai, engineering, forward]
 
   "Monthly AI Spend":
     description: Projected Cursor AI spend (USD) for this calendar month.
@@ -119,7 +136,7 @@ metrics:
       Chronic misses are planning or WIP problems.
     metric-id: 2086
     metric-generator: get_sprint_delivery_by_team
-    tags: [engineering]
+    tags: [engineering, legacy]
     unit: percent
     target: 80
     direction: higher
@@ -384,7 +401,7 @@ metrics:
       Rising cycle time is a WIP or review bottleneck.
     metric-id: 2024
     metric-generator: get_dev_team_cycle_times
-    tags: [engineering]
+    tags: [engineering, legacy]
     target: 1
     direction: lower
 
@@ -395,7 +412,7 @@ metrics:
       This is delivery latency, not HELP TTR.
     metric-id: 2179
     metric-generator: get_dev_team_lead_time
-    tags: [engineering]
+    tags: [engineering, legacy]
     target: 14
     direction: lower
 
@@ -440,7 +457,7 @@ metrics:
       Until then this row is a placeholder.
     metric-id: null
     metric-generator: null
-    tags: [engineering]
+    tags: [engineering, legacy]
 
   "Sprint Story Points Delivered":
     description: Story points completed in the latest sprint across boards.
@@ -449,7 +466,7 @@ metrics:
       Pair with defects and cycle time.
     metric-id: null
     metric-generator: get_sprint_story_points_by_team
-    tags: [engineering]
+    tags: [engineering, legacy]
     target: 150
     direction: higher
 
@@ -467,13 +484,13 @@ metrics:
   "Weekly Active AI Users":
     description: "% of Engineering using Cursor in the last 7 days (excl. Data Implementation)."
     mgmt_guidance: >-
-      Keep at least 80% of Engineering on Cursor in the last 7 days.
-      Drops are adoption or access issues.
+      Keep 100% of Engineering on Cursor in the last 7 days.
+      Any drop is an adoption or access issue, not a utilization tradeoff.
     metric-id: null
     metric-generator: get_weekly_active_ai_users
-    tags: [engineering, ai, AKKR]
+    tags: [engineering, ai, AKKR, forward]
     unit: percent
-    target: 80
+    target: 100
     direction: higher
 
   "% AI-Assisted PRs":
@@ -481,13 +498,13 @@ metrics:
       Estimated share of merged PRs that are AI-assisted, previous calendar month —
       AI Code Share % applied to merged PR volume (commit attribution is too weak).
     mgmt_guidance: >-
-      Hold at least 50% of merged PRs as AI-assisted.
+      Hold at least 90% of merged PRs as AI-assisted.
       This is the same series family as AI Code Share; do not tell conflicting stories.
     metric-id: null
     metric-generator: get_ai_assisted_prs_pct
-    tags: [engineering, ai, AKKR]
+    tags: [engineering, ai, AKKR, legacy]
     unit: percent
-    target: 50
+    target: 90
     direction: higher
 
   "AI Code Share":
@@ -499,7 +516,7 @@ metrics:
       Investigate if this and % AI-Assisted PRs diverge sharply.
     metric-id: null
     metric-generator: get_ai_code_share
-    tags: [engineering, ai, AKKR]
+    tags: [engineering, ai, AKKR, forward]
     unit: percent
     target: 80
     direction: higher
@@ -507,13 +524,12 @@ metrics:
   "Tokens per Dev":
     description: Cursor tokens ÷ Engineering headcount, previous calendar month (excl. Data Implementation).
     mgmt_guidance: >-
-      Aim for at least 10 million tokens per engineer per month as a usage floor.
-      Collapses mean the tool is not in the workflow.
+      Track tokens per engineer over time; there is no target, because a floor would be
+      arbitrary until we know what healthy usage looks like.
+      Collapses still mean the tool is not in the workflow.
     metric-id: null
     metric-generator: get_tokens_per_dev
-    tags: [engineering, ai, AKKR]
-    target: 10000000
-    direction: higher
+    tags: [engineering, ai, AKKR, forward]
 
   "Token Cost per Dev":
     description: Engineer Cursor spend (USD) ÷ Engineering headcount, previous calendar month (excl. Data Implementation).
@@ -522,7 +538,7 @@ metrics:
       Pair with Tokens per Dev.
     metric-id: null
     metric-generator: get_token_cost_per_dev
-    tags: [engineering, ai, AKKR]
+    tags: [engineering, ai, AKKR, forward]
     unit: currency
     target: 250
     direction: higher
@@ -534,7 +550,7 @@ metrics:
       Do not cut this in isolation when delivery KPIs are up.
     metric-id: null
     metric-generator: get_ai_spend_pct
-    tags: [engineering, ai, AKKR]
+    tags: [engineering, ai, AKKR, forward]
     unit: percent
     target: 5
     direction: higher
@@ -546,7 +562,7 @@ metrics:
       A miss with high AI share is a throughput problem, not an AI problem.
     metric-id: null
     metric-generator: get_prs_merged
-    tags: [engineering, impact, AKKR]
+    tags: [engineering, impact, AKKR, legacy]
     target: 500
     direction: higher
 
@@ -557,7 +573,7 @@ metrics:
       Rising defects with high growth allocation means quality is the constraint.
     metric-id: null
     metric-generator: get_defects_per_100_issues
-    tags: [engineering, impact, quality, AKKR]
+    tags: [engineering, impact, quality, AKKR, legacy]
     unit: percent
     target: 15
     direction: lower
@@ -570,7 +586,7 @@ metrics:
       This is the output denominator for several impact KPIs.
     metric-id: null
     metric-generator: get_issues_shipped
-    tags: [engineering, impact, AKKR]
+    tags: [engineering, impact, AKKR, legacy]
     target: 280
     direction: higher
 
@@ -583,7 +599,7 @@ metrics:
       Bugs and tech-debt crowding this out is what to manage down.
     metric-id: null
     metric-generator: get_growth_allocation_pct
-    tags: [engineering, impact, AKKR]
+    tags: [engineering, impact, AKKR, legacy]
     unit: percent
     target: 90
     direction: higher
@@ -595,7 +611,7 @@ metrics:
       Improvements can be more output or less cost, not vanity savings.
     metric-id: null
     metric-generator: get_headcount_plus_ai_spend_per_issue
-    tags: [engineering, impact, ai, AKKR]
+    tags: [engineering, impact, ai, AKKR, legacy]
     unit: currency
     target: 1600
     direction: lower
@@ -603,11 +619,125 @@ metrics:
   "AI Spend / Issue":
     description: Engineer Cursor spend (USD) ÷ issues shipped, previous calendar month.
     mgmt_guidance: >-
-      Keep Cursor dollars per shipped issue near $50 or less.
-      Rising spend per issue with flat output is waste.
+      Track Cursor dollars per shipped issue over time; there is no target.
+      A cap would be arbitrary until spend and output have a stable relationship.
     metric-id: null
     metric-generator: get_ai_spend_per_issue
-    tags: [engineering, impact, ai, AKKR]
+    tags: [engineering, impact, ai, AKKR, legacy]
     unit: currency
-    target: 50
-    direction: lower
+
+  # ── Forward scorecard (SDD era) ──
+  # Registered ahead of the Gemba go-live so the adoption curve has a baseline.
+  # All pending: no generator, no target. Each description records its unblocker.
+  # Spec-to-Production Cycle Time and SDD Adoption % must be instrumented BEFORE
+  # go-live — Jira cannot backfill a status that did not exist at the time.
+  "SDD Adoption %":
+    description: >-
+      Eligible production changes completed through the defined SDD workflow ÷ all
+      eligible production changes × 100, excluding emergency fixes and pre-approved
+      exceptions. Explicitly temporary: retire once adoption holds at target.
+      PENDING — needs an eligibility definition and a workflow-evidence field in Jira.
+    mgmt_guidance: >-
+      This is an input metric; never report it alone.
+      AI Code Share reached 88.85% while Issues Shipped stayed flat, so adoption
+      without a paired outcome metric proves only that the process changed.
+    metric-id: null
+    metric-generator: null
+    tags: [engineering, sdd, forward, pending]
+    unit: percent
+
+  "Spec-to-Production Cycle Time":
+    description: >-
+      Production deployment timestamp minus the timestamp an approved,
+      implementation-ready spec entered Engineering. Report median and P85 by month;
+      exclude paused time only against a documented external dependency.
+      PENDING — LEAN has no spec-approved state (Open, In Progress, In Review,
+      Reopened, Done), and Jira cannot reconstruct a status retroactively.
+    mgmt_guidance: >-
+      This is latency, not throughput — halving it proves nothing about volume,
+      because throughput equals WIP ÷ cycle time.
+      Pair it with a throughput measure before claiming a 2×–3× delivery gain.
+    metric-id: null
+    metric-generator: null
+    tags: [engineering, sdd, forward, pending]
+
+  "Escaped Defect Rate":
+    description: >-
+      Severity-weighted defects first discovered after production release ÷ releases
+      (or customer-active change units) in the period. Fixed weights Sev1=10, Sev2=5,
+      Sev3=2, Sev4=1; always publish the unweighted count alongside.
+      PENDING — needs release records, a severity field, and the Customer-Reported
+      Bugs intake cleanup (enhancement requests are still landing as bugs).
+    mgmt_guidance: >-
+      Supersedes Defects per 100 Issues, whose denominator is ticket count.
+      Prefer change units over release count as the denominator: releases get more
+      frequent under SDD, which would improve the rate mechanically.
+    metric-id: null
+    metric-generator: null
+    tags: [engineering, quality, forward, pending]
+
+  "QA Cycle Time":
+    description: >-
+      QA accepted/complete timestamp minus ready-for-QA timestamp per change, median
+      and P85 monthly, splitting queue time from active test time.
+      PENDING — the LEAN workflow has no QA state to measure between.
+    mgmt_guidance: >-
+      Use this to detect QA becoming the delivery bottleneck as upstream speeds up.
+      The split matters more than the total: queue time is a staffing or WIP problem,
+      active test time is a tooling problem.
+    metric-id: null
+    metric-generator: null
+    tags: [engineering, quality, forward, pending]
+
+  "SLO Attainment %":
+    description: >-
+      Per customer-facing SLI, good events ÷ total valid events over the SLO window
+      against its target; report share of SLOs met and error-budget consumption.
+      PENDING — no SLIs or error budgets are defined yet.
+    mgmt_guidance: >-
+      Supersedes Site Uptime %, which is a single number with no error budget.
+      Manage the budget burn, not the headline nine; this sits with Infrastructure.
+    metric-id: null
+    metric-generator: null
+    tags: [reliability, platform, forward, pending]
+    unit: percent
+
+  "MTTR (Production Incidents)":
+    description: >-
+      Service-restored minus incident-start per qualifying production incident,
+      median and P85 by severity monthly, excluding planned maintenance.
+      PENDING — needs an incident record with consistent start/restore timestamps.
+    mgmt_guidance: >-
+      This is incident recovery, not ticket resolution — do not conflate it with
+      support P90 TTR, which measures a different population.
+    metric-id: null
+    metric-generator: null
+    tags: [reliability, platform, forward, pending]
+
+  "Engineering + Infrastructure Cost % of ARR":
+    description: >-
+      Trailing-12-month Engineering and infrastructure expense ÷ period-end ARR × 100.
+      Includes payroll, benefits, contractors, cloud, hosting, observability, and
+      developer tooling against a published, stable cost-account mapping.
+      PENDING — needs the finance cost-account mapping; ARR is already in Salesforce.
+    mgmt_guidance: >-
+      Supersedes Headcount + AI Spend / Issue, which divides fixed opex by ticket
+      count and so penalises discovery and compliance work.
+      This is the one pending row not blocked on Gemba — it can clear first.
+    metric-id: null
+    metric-generator: null
+    tags: [engineering, finance, forward, pending]
+    unit: percent
+
+  "Idea-to-Value Cycle Time":
+    description: >-
+      Problem identified → discovery → spec ready → production → meaningful customer
+      adoption, measured end to end across Product, Engineering, and GTM.
+      PENDING — needs a per-feature adoption threshold (Pendo) and a discovery start
+      timestamp.
+    mgmt_guidance: >-
+      A thermometer for pipeline health, not a steering wheel: no single team owns it.
+      Do not confuse it with Time to Value, which measures customer onboarding.
+    metric-id: null
+    metric-generator: null
+    tags: [engineering, product, forward, pending]
