@@ -359,7 +359,12 @@ def _build_scope_lines(
             "non-engineers = other team members."
         )
 
-    if deck_id in ("engineering-portfolio", "implementations_review"):
+    if deck_id == "engineering-portfolio":
+        lines.append(
+            "Engineering metrics: Jira LEAN project (customer-reported bugs = label "
+            "jira_escalated); team field on LEAN board. HELP desk volume excluded."
+        )
+    elif deck_id == "implementations_review":
         lines.append("Engineering metrics: Jira LEAN + HELP projects; team field on LEAN board.")
 
     if deck_id in ("portfolio_review", "csm_book_of_business"):

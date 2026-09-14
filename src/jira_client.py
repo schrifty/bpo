@@ -1013,10 +1013,10 @@ def _generate_eng_insights(eng: dict) -> dict[str, list[str]]:
     avg_closed = sum(w.get("resolved", 0) for w in recent_tp) / len(recent_tp) if recent_tp else 0
     avg_created = sum(w.get("created", 0) for w in recent_tp) / len(recent_tp) if recent_tp else 0
 
-    sp = eng.get("support_pressure") or {}
-    sp_total = sp.get("total", 0)
-    sp_esc = sp.get("escalated_to_eng", 0)
-    sp_bugs = sp.get("open_bugs", 0)
+    crb = eng.get("customer_reported_bugs") or {}
+    crb_total = crb.get("total", 0)
+    crb_open = crb.get("open", 0)
+    crb_critical = crb.get("open_blocker_critical", 0)
     days = eng.get("days", 30)
 
     enhancements = eng.get("enhancements") or {}
@@ -1044,12 +1044,12 @@ def _generate_eng_insights(eng: dict) -> dict[str, list[str]]:
             f"Total in-flight: {in_flight}. Total closed this period: {closed}. "
             "Write 2-3 insight bullets about team throughput, backlog trend, and delivery pace."
         )),
-        ("support_pressure", (
-            f"Support tickets in last {days} days: {sp_total} total, {sp_esc} escalated to engineering. "
-            f"Open support bugs: {sp_bugs}. "
-            f"Escalation rate: {(sp_esc / sp_total * 100):.0f}% of total."
-        ) if sp_total else (
-            f"Support ticket data unavailable for last {days} days. Write a note that data is unavailable."
+        ("customer_reported_bugs", (
+            f"Customer-reported bugs in last {days} days: {crb_total} reported, {crb_open} still open. "
+            f"Open blocker/critical: {crb_critical}. "
+            f"Still-open rate: {(crb_open / crb_total * 100):.0f}% of reported."
+        ) if crb_total else (
+            f"No customer-reported bugs for last {days} days. Write a note that escalated-bug inflow was zero or unavailable."
         )),
     ]
 
@@ -1089,6 +1089,8 @@ def _generate_eng_takeaways(eng: dict) -> dict[str, str]:
                         "(who/what to do), not a vague gesture\n"
                         "- BANNED vague filler: 'strategic review', 'root causes', 'investigate', 'demands attention', "
                         "'requires immediate action', 'closely monitor', 'reassess' — say the concrete action instead\n"
+                        "- 'Portfolio' means the customer book of business, never tickets or bugs: call work items "
+                        "the backlog, bug backlog, or queue\n"
                         "- No markdown, no leading bullet/dash, no label, no preamble\n"
                         "- Tone: direct, analytical, board-room; never salesy or hedging"
                     )},
@@ -1113,7 +1115,7 @@ def _generate_eng_takeaways(eng: dict) -> dict[str, str]:
     sflow = flow.get("status_flow") or {}
     lean = (eng.get("project_snapshots") or {}).get("LEAN") or {}
     split = eng.get("work_split") or {}
-    sp = eng.get("support_pressure") or {}
+    crb = eng.get("customer_reported_bugs") or {}
     bug_flow = eng.get("bug_flow") or {}
     epic_progress = eng.get("epic_progress") or {}
 
@@ -1241,13 +1243,14 @@ def _generate_eng_takeaways(eng: dict) -> dict[str, str]:
             "Implication about the delivery trend — consider BOTH story points and ticket throughput "
             "(ticket count can fall even when SP looks flat); avoid over-reading a one-sprint move?"
         )),
-        ("support_pressure", (
-            f"Support tickets last {days} days: {sp.get('total')} total, {sp.get('escalated_to_eng')} escalated to engineering, "
-            f"{sp.get('open_bugs')} open support bugs, priority mix {sp.get('by_priority')}. "
-            "Implication about inbound pressure on engineering capacity?"
-        )) if sp.get("total") else (
-            "support_pressure",
-            f"No support ticket data for the last {days} days. State that inbound support volume is unavailable.",
+        ("customer_reported_bugs", (
+            f"Customer-reported bugs (LEAN bugs customers escalated) last {days} days: "
+            f"{crb.get('total')} reported, {crb.get('open')} still open, "
+            f"{crb.get('open_blocker_critical')} open blocker/critical, priority mix {crb.get('by_priority')}. "
+            "Implication about externally-reported quality and the capacity it consumes?"
+        )) if crb.get("total") else (
+            "customer_reported_bugs",
+            f"No customer-reported bugs in the last {days} days. State that escalated-bug inflow was zero or unavailable.",
         ),
     ]
 
@@ -5469,7 +5472,7 @@ class JiraClient:
         """Fetch a product/engineering-wide SDLC snapshot — not per-customer.
 
         Returns sprint state, work-in-progress by theme, velocity, bug health,
-        enhancement backlog, and aggregate support pressure.
+        enhancement backlog, and customer-reported bug inflow.
         """
         import re
         import requests as _req
@@ -5777,71 +5780,16 @@ class JiraClient:
             "days": days,
         }
 
-        # ── Aggregate support pressure (HELP tickets across all customers) ──
+        # ── Customer-reported bugs (LEAN bugs customers escalated into engineering) ──
+        # Raw HELP desk volume is support-deck scope; this deck only carries the bugs
+        # customers reported.
         try:
-            help_raw = self._search(
-                f"project = HELP AND {_TRANSIENT_LABELS_EXCLUSION} AND created >= -{days}d ORDER BY created DESC",
-                max_results=2000,
-                fields=["summary", "status", "issuetype", "priority",
-                        "created", "resolution", "labels"],
-                data_description=f"HELP aggregate desk load (created last {days} days)",
-            )
+            from .jira_customer_reported_bugs import build_customer_reported_bug_pressure
+
+            customer_reported_bugs = build_customer_reported_bug_pressure(self, days=days)
         except Exception as e:
-            logger.warning("HELP global fetch failed: %s", e)
-            help_raw = []
-
-        help_open = sum(1 for i in help_raw if not i["fields"].get("resolution"))
-        help_escalated = sum(
-            1 for i in help_raw
-            if i["fields"].get("status", {}).get("name") == "In Engineering Queue"
-            or "customer_escalation" in (i["fields"].get("labels") or [])
-        )
-        help_bugs = sum(
-            1 for i in help_raw
-            if i["fields"].get("issuetype", {}).get("name") == "Bug"
-        )
-        help_by_priority: dict[str, int] = {}
-        priority_to_full_name: dict[str, str] = {}
-        for i in help_raw:
-            pr = i["fields"].get("priority") or {}
-            full = (pr.get("name") or "").strip()
-            if not full:
-                short = "Unknown"
-            else:
-                short = full.split(":")[0] if ":" in full else full
-            help_by_priority[short] = help_by_priority.get(short, 0) + 1
-            if short not in priority_to_full_name and full:
-                priority_to_full_name[short] = full
-
-        base_help_scope = (
-            f"project = HELP AND {_TRANSIENT_LABELS_EXCLUSION} AND created >= -{days}d"
-        )
-        aggregate_help_jql = f"{base_help_scope} ORDER BY created DESC"
-        jql_by_priority_short: dict[str, str] = {}
-        for short in help_by_priority:
-            if short == "Unknown":
-                jql_by_priority_short[short] = (
-                    f"{base_help_scope} AND priority is EMPTY ORDER BY created DESC"
-                )
-            else:
-                fulln = priority_to_full_name.get(short)
-                if fulln:
-                    jql_by_priority_short[short] = (
-                        f'{base_help_scope} AND priority = "{_jql_escape_string(fulln)}" '
-                        "ORDER BY created DESC"
-                    )
-                else:
-                    jql_by_priority_short[short] = aggregate_help_jql
-
-        support_pressure = {
-            "total": len(help_raw),
-            "open": help_open,
-            "escalated_to_eng": help_escalated,
-            "open_bugs": help_bugs,
-            "by_priority": dict(sorted(help_by_priority.items(), key=lambda x: -x[1])),
-            "jql_by_priority_short": jql_by_priority_short,
-            "aggregate_jql": aggregate_help_jql,
-        }
+            logger.warning("Customer-reported bug pressure failed: %s", e)
+            customer_reported_bugs = {"error": str(e), "total": 0, "days": days}
 
         # ── Weekly LEAN throughput ──
         all_lean = in_flight + closed
@@ -5925,7 +5873,7 @@ class JiraClient:
             flow["status_flow"] = status_flow
             flow["blocked_count"] = status_flow.get("blocked_count", flow.get("blocked_count", 0))
         work_split = compute_eng_work_split(
-            in_flight, closed, escalated_to_eng=support_pressure.get("escalated_to_eng", 0)
+            in_flight, closed, escalated_to_eng=customer_reported_bugs.get("total", 0)
         )
 
         eng_data = {
@@ -5947,7 +5895,7 @@ class JiraClient:
             "velocity": velocity,
             "throughput": throughput,
             "enhancements": enhancements,
-            "support_pressure": support_pressure,
+            "customer_reported_bugs": customer_reported_bugs,
             "project_snapshots": project_snapshots,
             "help_ticket_trends": help_ticket_trends,
             "team_scorecard": team_scorecard,

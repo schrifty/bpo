@@ -199,7 +199,6 @@ def eng_toc_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], 
         "Outcomes",
         "Operational Health",
         "Quality",
-        "Backlog & Support",
         "Engineering Output",
         "AI Tooling",
         "Productivity",
@@ -4586,29 +4585,29 @@ def eng_enhancements_shipped_slide(reqs: list[dict[str, Any]], sid: str, report:
     return idx + 1
 
 
-def eng_support_pressure_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
-    """Cross-customer support pressure feeding into engineering."""
+def eng_customer_reported_bugs_slide(reqs: list[dict[str, Any]], sid: str, report: dict[str, Any], idx: int) -> int:
+    """Bugs customers escalated into engineering (LEAN, ``jira_escalated``)."""
     eng = report.get("eng_portfolio") or {}
     if not eng:
         return _missing_data_slide(reqs, sid, report, idx, "Engineering portfolio data (Jira LEAN project)")
 
-    support_pressure = eng.get("support_pressure") or {}
-    total = support_pressure.get("total", 0)
-    open_count = support_pressure.get("open", 0)
-    escalated = support_pressure.get("escalated_to_eng", 0)
-    bugs = support_pressure.get("open_bugs", 0)
-    days = eng.get("days", 30)
+    customer_reported = eng.get("customer_reported_bugs") or {}
+    total = customer_reported.get("total", 0)
+    open_count = customer_reported.get("open", 0)
+    resolved = customer_reported.get("resolved", 0)
+    open_critical = customer_reported.get("open_blocker_critical", 0)
+    days = customer_reported.get("days") or eng.get("days", 30)
 
     if total == 1:
-        subtitle = "1 escalation from support"
+        subtitle = f"1 customer-reported bug in the last {days} days"
     elif total:
-        subtitle = f"{total:,} escalations from support"
+        subtitle = f"{total:,} customer-reported bugs in the last {days} days"
     else:
-        subtitle = "No ticket data available"
+        subtitle = "No customer-reported bugs in the window"
 
     _slide(reqs, sid, idx)
     _bg(reqs, sid, WHITE)
-    _eng_title(reqs, sid, "Support Pressure", subtitle)
+    _eng_title(reqs, sid, "Customer-Reported Bugs", subtitle)
 
     body_top = BODY_Y + 4
     col_gap = 24
@@ -4617,14 +4616,14 @@ def eng_support_pressure_slide(reqs: list[dict[str, Any]], sid: str, report: dic
     left_x = MARGIN
     right_x = MARGIN + left_w + col_gap
 
-    by_priority = support_pressure.get("by_priority") or {}
+    by_priority = customer_reported.get("by_priority") or {}
     jira_base = (eng.get("base_url") or "").rstrip("/")
-    jql_by_short = support_pressure.get("jql_by_priority_short")
+    jql_by_short = customer_reported.get("jql_by_priority_short")
     if not isinstance(jql_by_short, dict):
         jql_by_short = {}
 
     left_y = body_top
-    priority_header = "Ticket Volume by Priority"
+    priority_header = "Reported Bugs by Priority"
     _box(reqs, f"{sid}_ph", sid, left_x, left_y, left_w, 16, priority_header)
     _style(reqs, f"{sid}_ph", 0, len(priority_header), bold=True, size=12, color=NAVY, font=FONT)
     left_y += 22
@@ -4697,10 +4696,10 @@ def eng_support_pressure_slide(reqs: list[dict[str, Any]], sid: str, report: dic
     kpi_gap = 6
     right_y = body_top
     kpi_cards = [
-        ("Total", total, None),
-        ("Open", open_count, None),
-        ("Escalated to Eng", escalated, RED if escalated > 5 else BLUE),
-        ("Open Bugs", bugs, RED if bugs > 3 else BLUE),
+        ("Reported", total, None),
+        ("Still Open", open_count, RED if open_count > 5 else BLUE),
+        ("Open Blocker / Critical", open_critical, RED if open_critical else BLUE),
+        ("Resolved", resolved, None),
     ]
     for card_index, (label, value, color) in enumerate(kpi_cards):
         accent = color or BLUE
@@ -4719,7 +4718,7 @@ def eng_support_pressure_slide(reqs: list[dict[str, Any]], sid: str, report: dic
         )
         right_y += kpi_h + kpi_gap
 
-    _eng_takeaway_bar(reqs, sid, report, "support_pressure")
+    _eng_takeaway_bar(reqs, sid, report, "customer_reported_bugs")
     return idx + 1
 
 

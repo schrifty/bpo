@@ -212,7 +212,7 @@ Navy header → 3–5 numbered `bullets`, each one sentence carrying its support
 
 - Sits immediately after the cover; it is the deck's message on one page.
 - Ordered by what the reader must act on first, not by deck section order.
-- Spans the whole deck (delivery, quality, support pressure, AI spend vs output)—never a restatement of section titles.
+- Spans the whole deck (delivery, quality, customer-reported bugs, AI spend vs output)—never a restatement of section titles.
 - A reader who sees only this slide should know what is going well, what is at risk, and what decision is being asked of them.
 
 ### 1. Standing / snapshot

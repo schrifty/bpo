@@ -170,7 +170,7 @@ def build_eng_portfolio_digest(report: dict[str, Any]) -> dict[str, Any]:
                 "by_assignee_active",
                 "flow",
                 "work_split",
-                "support_pressure",
+                "customer_reported_bugs",
                 "bug_flow",
                 "epic_progress",
                 "team_scorecard",
@@ -244,7 +244,7 @@ _ENG_SLIDE_KEYS: dict[str, tuple[str, ...]] = {
     "eng_bug_health": ("open_bugs", "blocker_critical", "bug_flow"),
     "eng_bug_flow": ("bug_flow", "open_bugs"),
     "eng_backlog_health": ("backlog_staleness", "by_status", "themes"),
-    "eng_support_pressure": ("support_pressure", "work_split"),
+    "eng_customer_reported_bugs": ("customer_reported_bugs", "open_bugs"),
     "eng_jira_project": ("project_snapshots",),
 }
 # Cover, agenda, dividers, exec summary and the Takeaways page argue across the whole
@@ -255,7 +255,7 @@ _ENG_OVERVIEW_KEYS = (
     "themes",
     "flow",
     "work_split",
-    "support_pressure",
+    "customer_reported_bugs",
     "bug_flow",
     "blocker_critical",
     "team_scorecard",
@@ -329,6 +329,8 @@ _SYSTEM = (
     "implies, with the number that supports it — omit it only when the digest gives "
     "you no basis for one (cover, agenda). Never emit filler such as 'monitor "
     "closely' or 'requires further review'. "
+    "'Portfolio' in this deck's name means the customer book of business, never "
+    "tickets or bugs — call work items the backlog, bug backlog, or queue. "
     "On a section divider (slide_type eng_divider), put the section title plus a "
     "one-sentence takeaway previewing that section's message. Never label a divider "
     "with a generic eyebrow such as 'SECTION' or 'SECTION 3' — the section name and "

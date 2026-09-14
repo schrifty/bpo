@@ -5,14 +5,17 @@ audience: VP / Director of Engineering
 purpose: |
   A product-level engineering review — not per customer, but across the entire
   LEAN project. Covers what's in flight this sprint, bug health, weekly velocity,
-  and the aggregate support burden coming in from customers.
+  and the bugs customers escalated into engineering.
 
   The narrative arc: "Here's what the team is working on, how fast we're shipping,
-  where the bugs are, and how much unplanned support work is competing for
-  engineering capacity."
+  where the bugs are, and how much unplanned work is competing for engineering
+  capacity."
+
+  Support desk (HELP) ticket volume is out of scope — that lives in the support
+  decks. Customer-reported bugs (LEAN, label jira_escalated) are in scope.
 
 slides:
-  # Bottom line → Team → Outcomes → Operational health → Quality → External pressure → Integrations → Hygiene
+  # Bottom line → Team → Outcomes → Operational health → Quality → Integrations → Hygiene
   - slide: eng_portfolio_title
   - slide: eng_takeaways
   - slide: eng_toc
@@ -35,10 +38,8 @@ slides:
     title: Quality
   - slide: eng_bug_health
   - slide: eng_bug_flow
+  - slide: eng_customer_reported_bugs
   - slide: eng_backlog_health
-  - slide: eng_divider
-    title: Backlog & Support
-  - slide: eng_support_pressure
   - slide: eng_divider
     title: Engineering Output
   - slide: github_engineering_output

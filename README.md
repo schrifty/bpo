@@ -81,7 +81,7 @@ For the Support Summary slide (HELP tickets, SLAs, engineering pipeline):
 
 Add to `.env`: `JIRA_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` (site REST, default). For Atlassian API gateway + service account token, set `JIRA_AUTH_MODE=gateway` and `JIRA_CLOUD_ID` (or `JIRA_CLOUD_ID_AUTO=true`). See `.env.example`.
 
-The engineering portfolio deck (`cortex engineering-portfolio` or `cortex run --deck engineering-portfolio`) uses the shared Jira portfolio payload: **LEAN**-focused SDLC slides, a **LEAN** project snapshot (status and assignee charts), **Support Pressure** (HELP aggregates), and related metadata. The **implementations review** deck (`implementations_review`) is the **CUSTOMER** project snapshot only (same payload; dedicated deck). Agents can call the **`jira_project_snapshot`** tool with a project key for the same JSON payload.
+The engineering portfolio deck (`cortex engineering-portfolio` or `cortex run --deck engineering-portfolio`) uses the shared Jira portfolio payload: **LEAN**-focused SDLC slides, a **LEAN** project snapshot (status and assignee charts), **Customer-Reported Bugs** (LEAN bugs labeled `jira_escalated`; HELP desk volume stays in the support decks), and related metadata. The **implementations review** deck (`implementations_review`) is the **CUSTOMER** project snapshot only (same payload; dedicated deck). Agents can call the **`jira_project_snapshot`** tool with a project key for the same JSON payload.
 
 ## Generating Decks
 
@@ -207,7 +207,7 @@ These use a **portfolio- or org-shaped** report (all customers, cohorts, CSM own
 |----|------|
 | `cohort_review` | Manufacturing Cohort Review (`config/cohorts.yaml`) |
 | `csm_book_of_business` | CSM Book of Business (Pendo owner filter) |
-| `engineering-portfolio` | Engineering Portfolio Review (LEAN SDLC + HELP support pressure + LEAN snapshot) |
+| `engineering-portfolio` | Engineering Portfolio Review (LEAN SDLC + customer-reported bugs + LEAN snapshot) |
 | `implementations_review` | Implementations Review (Jira CUSTOMER escalations) |
 | `portfolio_review` | Portfolio Health Review |
 | `support_review_portfolio` | Support Review Portfolio |

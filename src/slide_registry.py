@@ -151,7 +151,7 @@ _register(
     eng_divider="eng_divider_slide",
     eng_toc="eng_toc_slide",
     eng_sprint_snapshot="eng_sprint_snapshot_slide",
-    eng_support_pressure="eng_support_pressure_slide",
+    eng_customer_reported_bugs="eng_customer_reported_bugs_slide",
     eng_velocity="eng_velocity_slide",
     lean_project_volume_trends="lean_project_volume_trends_slide",
     cursor_cost="cursor_cost_slide",

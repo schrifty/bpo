@@ -7,6 +7,7 @@ from datetime import date
 from src.jira_client import compute_eng_flow, compute_eng_work_split
 from src.slide_engineering_portfolio import (
     _ENG_CONTENT_BOTTOM,
+    eng_customer_reported_bugs_slide,
     eng_exec_summary_slide,
     eng_flow_bottlenecks_slide,
     eng_toc_slide,
@@ -274,9 +275,11 @@ def test_toc_slide_registered_and_renders_sections() -> None:
     body = _all_text(reqs)
     for section in (
         "Executive Summary", "Team & Org", "Outcomes", "Operational Health", "Quality",
-        "Backlog & Support", "Engineering Output", "AI Tooling", "Productivity", "Appendix",
+        "Engineering Output", "AI Tooling", "Productivity", "Appendix",
     ):
         assert section in body
+    # Support desk volume is out of scope for this deck, so no support section.
+    assert "Support" not in body
 
 
 def test_eng_divider_slide_renders_jira_section_on_navy_bg():
@@ -299,6 +302,49 @@ def test_eng_divider_slide_renders_jira_section_on_navy_bg():
         and r.get("updateTextStyle", {}).get("objectId") == "div_j_sec"
     )
     assert title_style == WHITE
+
+
+def test_customer_reported_bugs_slide_titles_reported_inflow() -> None:
+    report = {
+        "eng_portfolio": {
+            "days": 30,
+            "base_url": "https://leandna.atlassian.net",
+            "customer_reported_bugs": {
+                "total": 18,
+                "open": 7,
+                "resolved": 11,
+                "open_blocker_critical": 2,
+                "days": 30,
+                "by_priority": {"Major": 10, "Critical": 5, "Minor": 3},
+                "jql_by_priority_short": {"Major": "project = LEAN AND priority = \"Major\""},
+            },
+        }
+    }
+    reqs: list = []
+    nxt = eng_customer_reported_bugs_slide(reqs, "sid_crb", report, 2)
+    assert nxt == 3
+    assert _title(reqs, "sid_crb") == "Customer-Reported Bugs"
+    assert "18 customer-reported bugs in the last 30 days" == _subtitle(reqs, "sid_crb")
+    body = _all_text(reqs)
+    assert "Reported Bugs by Priority" in body
+    # KPI row reports escalated-bug inflow, not support desk volume.
+    for label in ("Reported", "Still Open", "Resolved"):
+        assert label in body
+    assert "Escalated to Eng" not in body
+
+
+def test_customer_reported_bugs_slide_handles_empty_window() -> None:
+    reqs: list = []
+    eng_customer_reported_bugs_slide(
+        reqs, "sid_crb0", {"eng_portfolio": {"days": 14, "customer_reported_bugs": {}}}, 0
+    )
+    assert _subtitle(reqs, "sid_crb0") == "No customer-reported bugs in the window"
+
+
+def test_customer_reported_bugs_slide_registered() -> None:
+    assert "eng_customer_reported_bugs" in _SLIDE_BUILDERS
+    assert SLIDE_DATA_REQUIREMENTS["eng_customer_reported_bugs"] == ["eng_portfolio"]
+    assert "eng_support_pressure" not in _SLIDE_BUILDERS
 
 
 def test_work_split_titles_reactive_dominance() -> None:

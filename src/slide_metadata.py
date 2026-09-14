@@ -81,7 +81,7 @@ SLIDE_DATA_REQUIREMENTS: dict[str, list[str]] = {
     "eng_bug_health": ["eng_portfolio"],
     "eng_bug_flow": ["eng_portfolio"],
     "eng_velocity": ["eng_portfolio"],
-    "eng_support_pressure": ["eng_portfolio"],
+    "eng_customer_reported_bugs": ["eng_portfolio"],
     "eng_jira_project": ["eng_portfolio"],
     "eng_help_volume_trends": ["eng_help_volume_jql_trace"],
     "cursor_cost": ["cursor_usage"],

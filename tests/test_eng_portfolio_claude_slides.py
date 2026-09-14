@@ -401,16 +401,16 @@ def test_digest_for_slide_scopes_eng_sections_per_slide() -> None:
         "in_flight_count": 5,
         "closed_count": 3,
         "sprint_velocity": [{"sprint": "S1", "points": 20}],
-        "support_pressure": {"reactive_pct": 31},
+        "customer_reported_bugs": {"total": 31, "open": 12},
         "team_scorecard": [{"name": "dev1"}],
     }
     velocity = digest_for_slide({"days": 30, "eng_portfolio": eng}, "eng_velocity")
     assert "sprint_velocity" in velocity["eng_portfolio"]
-    assert "support_pressure" not in velocity["eng_portfolio"]
+    assert "customer_reported_bugs" not in velocity["eng_portfolio"]
 
-    support = digest_for_slide({"days": 30, "eng_portfolio": eng}, "eng_support_pressure")
-    assert "support_pressure" in support["eng_portfolio"]
-    assert "sprint_velocity" not in support["eng_portfolio"]
+    reported = digest_for_slide({"days": 30, "eng_portfolio": eng}, "eng_customer_reported_bugs")
+    assert "customer_reported_bugs" in reported["eng_portfolio"]
+    assert "sprint_velocity" not in reported["eng_portfolio"]
 
 
 def test_digest_for_slide_gives_takeaways_slide_full_context() -> None:

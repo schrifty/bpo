@@ -1,0 +1,14 @@
+id: eng_customer_reported_bugs
+type: standard
+order: 85
+title: Customer-Reported Bugs
+slide_type: eng_customer_reported_bugs
+data_tools: []
+customers: all
+
+prompt: >
+  Customer-reported bug slide for the engineering portfolio deck.
+  LEAN bugs customers escalated into engineering (label jira_escalated):
+  reported, still open, open blocker/critical, resolved.
+  Priority breakdown as a horizontal bar chart.
+  Support desk ticket volume is out of scope for this deck.
