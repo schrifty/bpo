@@ -25,15 +25,17 @@ locals {
   log_group_name      = "/${var.name_prefix}/decks"
   secret_name         = "${var.name_prefix}/${var.environment}/env"
   secret_bundles      = ["google", "integrations", "llm", "slack"]
+  # Path only; var is marked sensitive so plans hide it — for_each needs a non-sensitive map.
+  secrets_json_file_path = nonsensitive(var.secrets_json_file)
   bundle_secret_files = {
     for b in local.secret_bundles :
     b => (
       var.secrets_json_dir != "" && fileexists("${var.secrets_json_dir}/${b}.json") ? "${var.secrets_json_dir}/${b}.json" :
-      (b == "integrations" && var.secrets_json_file != "" ? var.secrets_json_file : null)
+      (b == "integrations" && local.secrets_json_file_path != "" ? local.secrets_json_file_path : null)
     )
     if(
       (var.secrets_json_dir != "" && fileexists("${var.secrets_json_dir}/${b}.json")) ||
-      (b == "integrations" && var.secrets_json_file != "")
+      (b == "integrations" && local.secrets_json_file_path != "")
     )
   }
   secrets_arns_csv = join(",", concat(

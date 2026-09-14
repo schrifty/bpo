@@ -7,10 +7,10 @@ resource "aws_secretsmanager_secret" "cortex" {
 }
 
 resource "aws_secretsmanager_secret_version" "cortex" {
-  count = var.secrets_json_file != "" && var.secrets_json_dir == "" ? 1 : 0
+  count = local.secrets_json_file_path != "" && var.secrets_json_dir == "" ? 1 : 0
 
   secret_id     = aws_secretsmanager_secret.cortex.id
-  secret_string = file(var.secrets_json_file)
+  secret_string = file(local.secrets_json_file_path)
 }
 
 resource "aws_secretsmanager_secret" "bundle" {
