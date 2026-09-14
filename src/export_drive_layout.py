@@ -328,7 +328,13 @@ def dated_output_folder_date(name: str) -> dt.date | None:
         return None
 
 
-PORTFOLIO_EXPORT_BASE_ALLOWED_SUBFOLDERS = frozenset({CUSTOMER_EXPORTS_FOLDER, HISTORICAL_DATA_FOLDER})
+PORTFOLIO_EXPORT_BASE_ALLOWED_SUBFOLDERS = frozenset({
+    CUSTOMER_EXPORTS_FOLDER,
+    HISTORICAL_DATA_FOLDER,
+    "customer",
+    "history",
+    "decks",
+})
 CUSTOMER_EXPORT_BASE_ALLOWED_SUBFOLDERS = frozenset({HISTORICAL_DATA_FOLDER})
 
 
@@ -417,66 +423,71 @@ def iter_export_folder_layouts(folders: dict[str, Any]) -> list[dict[str, str]]:
 
 def ensure_customer_export_folders(customer: str) -> dict[str, Any]:
     """Return persistent (account) and historical root folder ids under Customer Exports."""
-    from .drive_config import get_qbr_output_root_folder_id, iter_qbr_output_root_folder_ids
+    from .drive_config import (
+        _find_or_create_folder,
+        get_cortex_exports_customer_folder_id,
+        get_qbr_output_root_folder_id,
+    )
 
-    roots = iter_qbr_output_root_folder_ids()
-    if not roots:
-        root = get_qbr_output_root_folder_id()
-        if not root:
-            raise RuntimeError(
-                "Could not resolve Drive Output folder (set GOOGLE_QBR_GENERATOR_FOLDER_ID)."
-            )
-        roots = [root]
-    layouts: list[dict[str, str]] = []
-    for i, root in enumerate(roots):
-        try:
-            layouts.append(_customer_export_layout_for_root(root, customer))
-        except Exception as e:
-            if i == 0:
-                raise
-            logger.error("Cortex dual-write Customer Exports folders failed for %s: %s", customer, e)
-    if not layouts:
+    root = get_qbr_output_root_folder_id()
+    if not root:
         raise RuntimeError(
             "Could not resolve Drive Output folder (set GOOGLE_QBR_GENERATOR_FOLDER_ID)."
         )
-    primary: dict[str, Any] = dict(layouts[0])
-    primary["mirror_layouts"] = layouts[1:]
+    primary: dict[str, Any] = dict(_customer_export_layout_for_root(root, customer))
+    mirrors: list[dict[str, str]] = []
+    cortex_parent = get_cortex_exports_customer_folder_id()
+    if cortex_parent:
+        try:
+            account_folder = _find_or_create_folder(customer, cortex_parent)
+            historical_id = ensure_historical_data_folder(account_folder)
+            mirrors.append(
+                {
+                    "persistent_folder_id": account_folder,
+                    "historical_folder_id": historical_id,
+                    "base_label": f"exports/customer/{customer}",
+                }
+            )
+        except Exception as e:
+            logger.error("Cortex dual-write Customer Exports folders failed for %s: %s", customer, e)
+    primary["mirror_layouts"] = mirrors
     return primary
 
 
 def ensure_portfolio_output_folders() -> dict[str, Any]:
     """Return persistent (Output root) and historical root folder ids."""
-    from .drive_config import get_qbr_output_root_folder_id, iter_qbr_output_root_folder_ids
+    from .drive_config import (
+        get_cortex_exports_history_folder_id,
+        get_cortex_exports_root_folder_id,
+        get_qbr_output_root_folder_id,
+    )
 
-    roots = iter_qbr_output_root_folder_ids()
-    if not roots:
-        root = get_qbr_output_root_folder_id()
-        if not root:
-            raise RuntimeError(
-                "Could not resolve Drive Output folder (set GOOGLE_QBR_GENERATOR_FOLDER_ID)."
-            )
-        roots = [root]
-    layouts: list[dict[str, str]] = []
-    for i, root in enumerate(roots):
-        try:
-            historical_id = ensure_historical_data_folder(root)
-            layouts.append(
-                {
-                    "persistent_folder_id": root,
-                    "historical_folder_id": historical_id,
-                    "base_label": "Output",
-                }
-            )
-        except Exception as e:
-            if i == 0:
-                raise
-            logger.error("Cortex dual-write portfolio Output folders failed: %s", e)
-    if not layouts:
+    root = get_qbr_output_root_folder_id()
+    if not root:
         raise RuntimeError(
             "Could not resolve Drive Output folder (set GOOGLE_QBR_GENERATOR_FOLDER_ID)."
         )
-    primary: dict[str, Any] = dict(layouts[0])
-    primary["mirror_layouts"] = layouts[1:]
+    historical_id = ensure_historical_data_folder(root)
+    primary: dict[str, Any] = {
+        "persistent_folder_id": root,
+        "historical_folder_id": historical_id,
+        "base_label": "Output",
+    }
+    mirrors: list[dict[str, str]] = []
+    cortex_exports = get_cortex_exports_root_folder_id()
+    cortex_history = get_cortex_exports_history_folder_id()
+    if cortex_exports and cortex_history:
+        try:
+            mirrors.append(
+                {
+                    "persistent_folder_id": cortex_exports,
+                    "historical_folder_id": cortex_history,
+                    "base_label": "exports",
+                }
+            )
+        except Exception as e:
+            logger.error("Cortex dual-write portfolio Output folders failed: %s", e)
+    primary["mirror_layouts"] = mirrors
     return primary
 
 

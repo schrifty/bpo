@@ -132,7 +132,7 @@ def test_upload_to_qbr_output_folders_writes_env_output_and_dated(monkeypatch) -
     uploads: list[tuple[str, str, str]] = []
 
     monkeypatch.setattr("src.drive_config.get_qbr_output_root_folder_id", lambda: "root-folder")
-    monkeypatch.setattr("src.drive_config.get_cortex_shared_output_root_folder_id", lambda: None)
+    monkeypatch.setattr("src.drive_config.get_cortex_exports_root_folder_id", lambda: None)
     monkeypatch.setattr(
         "src.drive_config._find_or_create_folder",
         lambda name, parent: f"dated-{parent}",
@@ -154,11 +154,11 @@ def test_upload_to_qbr_output_folders_writes_env_output_and_dated(monkeypatch) -
     assert uploads[1] == ("match-customer-names.txt", "hello", "dated-root-folder")
 
 
-def test_upload_to_qbr_output_folders_dual_writes_cortex_output(monkeypatch) -> None:
+def test_upload_to_qbr_output_folders_dual_writes_cortex_exports(monkeypatch) -> None:
     folders: list[str] = []
 
     monkeypatch.setattr("src.drive_config.get_qbr_output_root_folder_id", lambda: "env-out")
-    monkeypatch.setattr("src.drive_config.get_cortex_shared_output_root_folder_id", lambda: "cortex-out")
+    monkeypatch.setattr("src.drive_config.get_cortex_exports_root_folder_id", lambda: "cortex-exports")
     monkeypatch.setattr(
         "src.drive_config._find_or_create_folder",
         lambda name, parent: f"dated-{parent}",
@@ -172,19 +172,27 @@ def test_upload_to_qbr_output_folders_dual_writes_cortex_output(monkeypatch) -> 
 
     meta = upload_to_qbr_output_folders("n.txt", "c", mime_type="text/plain")
     assert meta["root_folder_id"] == "env-out"
-    assert folders == ["env-out", "dated-env-out", "cortex-out", "dated-cortex-out"]
+    assert folders == ["env-out", "dated-env-out", "cortex-exports"]
 
 
-def test_iter_qbr_output_root_folder_ids_skips_duplicate_cortex(monkeypatch) -> None:
+def test_iter_qbr_output_root_folder_ids_is_qbr_only(monkeypatch) -> None:
     from src.drive_config import iter_qbr_output_root_folder_ids
 
-    monkeypatch.setattr("src.drive_config.get_qbr_output_root_folder_id", lambda: "same")
-    monkeypatch.setattr("src.drive_config.get_cortex_shared_output_root_folder_id", lambda: "same")
-    assert iter_qbr_output_root_folder_ids() == ["same"]
+    monkeypatch.setattr("src.drive_config.get_qbr_output_root_folder_id", lambda: "qbr-out")
+    monkeypatch.setattr("src.drive_config.get_cortex_exports_root_folder_id", lambda: "cortex-exports")
+    assert iter_qbr_output_root_folder_ids() == ["qbr-out"]
+
+
+def test_parallel_output_folder_ids_mirrors_to_cortex_decks(monkeypatch) -> None:
+    from src.drive_config import parallel_output_folder_ids
+
+    monkeypatch.setattr("src.drive_config.get_cortex_decks_folder_id", lambda: "cortex-decks")
+    assert parallel_output_folder_ids("qbr-output") == ["cortex-decks"]
+    assert parallel_output_folder_ids("cortex-decks") == []
 
 
 def test_upload_to_qbr_output_folders_fails_without_folders(monkeypatch) -> None:
-    monkeypatch.setattr("src.drive_config.iter_qbr_output_root_folder_ids", lambda: [])
+    monkeypatch.setattr("src.drive_config.get_qbr_output_root_folder_id", lambda: None)
 
     with pytest.raises(RuntimeError, match="Could not resolve Drive Output"):
         upload_to_qbr_output_folders("match-customer-names.txt", "x")

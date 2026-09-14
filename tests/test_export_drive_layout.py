@@ -96,6 +96,8 @@ def test_is_allowed_export_base_subfolder_rejects_monthly_bucket_at_base() -> No
     assert not is_allowed_export_base_subfolder("2026-06", portfolio_root=True)
     assert not is_allowed_export_base_subfolder("2026-06", portfolio_root=False)
     assert is_allowed_export_base_subfolder("Historical Data", portfolio_root=True)
+    assert is_allowed_export_base_subfolder("customer", portfolio_root=True)
+    assert is_allowed_export_base_subfolder("history", portfolio_root=True)
 
 
 def test_portfolio_deck_persistent_title_matches_export_pattern() -> None:
@@ -177,4 +179,55 @@ def test_output_root_metrics_deck_filename_keeps_persistent_not_month_copy() -> 
     assert is_output_root_resident_filename("Engineering-Review-Portfolio-persistent")
     assert is_output_root_resident_filename("Cortex Export - User Guide.md")
     assert is_output_root_resident_filename("CSR-Dump-source.json")
+
+
+def test_ensure_customer_export_folders_mirrors_to_cortex_exports_customer(monkeypatch) -> None:
+    from src.export_drive_layout import ensure_customer_export_folders
+
+    created: list[tuple[str, str]] = []
+
+    monkeypatch.setattr("src.drive_config.get_qbr_output_root_folder_id", lambda: "qbr-out")
+    monkeypatch.setattr("src.drive_config.get_cortex_exports_customer_folder_id", lambda: "cx-cust")
+    monkeypatch.setattr(
+        "src.export_drive_layout.ensure_customer_exports_parent_folder",
+        lambda parent: "qbr-ce" if parent == "qbr-out" else pytest.fail(parent),
+    )
+
+    def fake_create(name: str, parent: str) -> str:
+        created.append((name, parent))
+        return f"{parent}/{name}"
+
+    monkeypatch.setattr("src.drive_config._find_or_create_folder", fake_create)
+
+    folders = ensure_customer_export_folders("Ford")
+    assert folders["persistent_folder_id"] == "qbr-ce/Ford"
+    assert folders["historical_folder_id"] == "qbr-ce/Ford/Historical Data"
+    assert folders["mirror_layouts"][0]["persistent_folder_id"] == "cx-cust/Ford"
+    assert folders["mirror_layouts"][0]["historical_folder_id"] == "cx-cust/Ford/Historical Data"
+    assert folders["mirror_layouts"][0]["base_label"] == "exports/customer/Ford"
+    assert ("Ford", "qbr-ce") in created
+    assert ("Ford", "cx-cust") in created
+
+
+def test_ensure_portfolio_output_folders_mirrors_to_cortex_exports_history(monkeypatch) -> None:
+    from src.export_drive_layout import ensure_portfolio_output_folders
+
+    monkeypatch.setattr("src.drive_config.get_qbr_output_root_folder_id", lambda: "qbr-out")
+    monkeypatch.setattr("src.drive_config.get_cortex_exports_root_folder_id", lambda: "cx-exports")
+    monkeypatch.setattr("src.drive_config.get_cortex_exports_history_folder_id", lambda: "cx-history")
+    monkeypatch.setattr(
+        "src.export_drive_layout.ensure_historical_data_folder",
+        lambda parent: f"{parent}/Historical Data",
+    )
+
+    folders = ensure_portfolio_output_folders()
+    assert folders["persistent_folder_id"] == "qbr-out"
+    assert folders["historical_folder_id"] == "qbr-out/Historical Data"
+    assert folders["mirror_layouts"] == [
+        {
+            "persistent_folder_id": "cx-exports",
+            "historical_folder_id": "cx-history",
+            "base_label": "exports",
+        }
+    ]
 

@@ -575,8 +575,8 @@ def _write_failures_artifact(
     try:
         from .export_drive_layout import ensure_historical_data_folder, ensure_historical_day_folder, historical_day_folder_label
         from .drive_config import (
+            get_cortex_exports_history_folder_id,
             get_qbr_output_root_folder_id,
-            iter_qbr_output_root_folder_ids,
             upload_text_file_to_drive_folder,
         )
 
@@ -585,9 +585,15 @@ def _write_failures_artifact(
             return None
         fname = f"failures-{job_name}-{run_id[:8]}.json"
         fid: str | None = None
-        for i, out_root in enumerate(iter_qbr_output_root_folder_ids() or [root_id]):
+        targets: list[tuple[str, bool]] = [(root_id, True)]
+        cortex_history = get_cortex_exports_history_folder_id()
+        if cortex_history:
+            targets.append((cortex_history, False))
+        for i, (folder_id, is_output_root) in enumerate(targets):
             try:
-                historical_id = ensure_historical_data_folder(out_root)
+                historical_id = (
+                    ensure_historical_data_folder(folder_id) if is_output_root else folder_id
+                )
                 day_folder_id = ensure_historical_day_folder(historical_id)
                 uploaded = upload_text_file_to_drive_folder(
                     fname, body, day_folder_id, mime_type="application/json"

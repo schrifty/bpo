@@ -25,6 +25,7 @@ The QBR Generator folder (``GOOGLE_QBR_GENERATOR_FOLDER_ID``) typically contains
 
 Job outputs also dual-write to the hardcoded Cortex shared drive
 (``CORTEX_SHARED_DRIVE_ID``) unless ``CORTEX_DUAL_WRITE_OUTPUT`` is false.
+Cortex uses ``exports/customer``, ``exports/history``, and ``decks`` — not QBR ``Output/``.
 """
 
 from __future__ import annotations
@@ -64,12 +65,17 @@ _drive_repo_sync_ran = False
 QBR_OUTPUT_SUBFOLDER = "Output"
 # Shared drive "Cortex" — job outputs dual-write here in addition to GOOGLE_QBR_*.
 CORTEX_SHARED_DRIVE_ID = "0ADEZ-wT2uvnqUk9PVA"
+# Cortex shared-drive layout (QBR Generator still uses Output/).
+CORTEX_EXPORTS_FOLDER = "exports"
+CORTEX_EXPORTS_CUSTOMER_FOLDER = "customer"
+CORTEX_EXPORTS_HISTORY_FOLDER = "history"
+CORTEX_DECKS_FOLDER = "decks"
 _MIME_FOLDER = "application/vnd.google-apps.folder"
 _MIME_PRESENTATION = "application/vnd.google-apps.presentation"
 
 
 def _cortex_output_dual_write_enabled() -> bool:
-    """Write Output/Cache artifacts to the hardcoded Cortex shared drive as well as env folders.
+    """Write artifacts to the hardcoded Cortex shared drive as well as env folders.
 
     Disabled in pytest (avoids live Drive) and when ``CORTEX_DUAL_WRITE_OUTPUT`` is 0/false.
     """
@@ -79,6 +85,11 @@ def _cortex_output_dual_write_enabled() -> bool:
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return False
     return True
+
+
+def _env_folder_id(name: str) -> str | None:
+    value = (os.environ.get(name) or "").strip()
+    return value or None
 
 
 def _drive_list_kwargs(**extra: Any) -> dict[str, Any]:
@@ -409,49 +420,80 @@ def get_deck_output_folder_id() -> str | None:
     return get_qbr_output_folder_id()
 
 
-def get_cortex_shared_output_root_folder_id() -> str | None:
-    """Return ``Output/`` on the hardcoded Cortex shared drive, or None if dual-write is off/failed."""
+def _find_or_create_cortex_folder(name: str, parent_id: str) -> str | None:
     if not _cortex_output_dual_write_enabled():
         return None
     try:
-        return _find_or_create_folder(QBR_OUTPUT_SUBFOLDER, CORTEX_SHARED_DRIVE_ID)
+        return _find_or_create_folder(name, parent_id)
     except Exception as e:
         logger.error(
-            "Cortex shared-drive Output folder unavailable (%s); continuing with env Output only",
+            "Cortex shared-drive folder %r unavailable (%s); continuing with env Output only",
+            name,
             e,
         )
         return None
 
 
+def get_cortex_exports_root_folder_id() -> str | None:
+    """Return ``exports/`` on the Cortex shared drive (portfolio persistent files)."""
+    explicit = _env_folder_id("CORTEX_DRIVE_EXPORTS_FOLDER_ID")
+    if explicit:
+        return explicit if _cortex_output_dual_write_enabled() else None
+    return _find_or_create_cortex_folder(CORTEX_EXPORTS_FOLDER, CORTEX_SHARED_DRIVE_ID)
+
+
+def get_cortex_exports_customer_folder_id() -> str | None:
+    """Return ``exports/customer/`` (maps from QBR ``Output/Customer Exports``)."""
+    explicit = _env_folder_id("CORTEX_DRIVE_EXPORTS_CUSTOMER_FOLDER_ID")
+    if explicit:
+        return explicit if _cortex_output_dual_write_enabled() else None
+    parent = get_cortex_exports_root_folder_id()
+    if not parent:
+        return None
+    return _find_or_create_cortex_folder(CORTEX_EXPORTS_CUSTOMER_FOLDER, parent)
+
+
+def get_cortex_exports_history_folder_id() -> str | None:
+    """Return ``exports/history/`` (maps from QBR ``Output/Historical Data``)."""
+    explicit = _env_folder_id("CORTEX_DRIVE_EXPORTS_HISTORY_FOLDER_ID")
+    if explicit:
+        return explicit if _cortex_output_dual_write_enabled() else None
+    parent = get_cortex_exports_root_folder_id()
+    if not parent:
+        return None
+    return _find_or_create_cortex_folder(CORTEX_EXPORTS_HISTORY_FOLDER, parent)
+
+
+def get_cortex_decks_folder_id() -> str | None:
+    """Return ``decks/`` on the Cortex shared drive (all presentations)."""
+    explicit = _env_folder_id("CORTEX_DRIVE_DECKS_FOLDER_ID")
+    if explicit:
+        return explicit if _cortex_output_dual_write_enabled() else None
+    return _find_or_create_cortex_folder(CORTEX_DECKS_FOLDER, CORTEX_SHARED_DRIVE_ID)
+
+
+def get_cortex_shared_output_root_folder_id() -> str | None:
+    """Cortex dual-write root for non-deck Output files: ``exports/`` (not QBR ``Output/``)."""
+    return get_cortex_exports_root_folder_id()
+
+
 def iter_qbr_output_root_folder_ids() -> list[str]:
-    """Env Output root first, then Cortex shared-drive Output when dual-write is on."""
+    """QBR ``Output/`` only. Cortex uses ``exports/`` and ``decks/`` (see Cortex helpers)."""
     ids: list[str] = []
     primary = get_qbr_output_root_folder_id()
     if primary:
         ids.append(primary)
-    mirror = get_cortex_shared_output_root_folder_id()
-    if mirror and mirror not in ids:
-        ids.append(mirror)
     return ids
 
 
 def parallel_output_folder_ids(source_parent_id: str) -> list[str]:
-    """Sibling Output roots or today's dated Output folders for dual-write copies."""
+    """Cortex ``decks/`` for finished presentation copies (QBR layout unchanged)."""
     if not source_parent_id:
         return []
-    roots = iter_qbr_output_root_folder_ids()
-    if source_parent_id in roots:
-        return [rid for rid in roots if rid != source_parent_id]
-    dated_name = f"{datetime.date.today().isoformat()} - Output"
-    dated: list[str] = []
-    for root in roots:
-        try:
-            dated.append(_find_or_create_folder(dated_name, root))
-        except Exception as e:
-            logger.error("Could not resolve dated Output under %s: %s", root, e)
-    if source_parent_id in dated:
-        return [did for did in dated if did != source_parent_id]
-    return []
+    dest = get_cortex_decks_folder_id()
+    if not dest or dest == source_parent_id:
+        return []
+    return [dest]
 
 
 def mirror_finished_drive_file(
@@ -684,39 +726,33 @@ def upload_to_qbr_output_folders(
 
     Same layout as LLM context export and dated deck outputs under the QBR Generator tree.
     Raises ``RuntimeError`` when Drive output folders cannot be resolved.
-    Dual-writes the same files to Cortex shared-drive Output when enabled.
+    Dual-writes the persistent file (not a dated Output folder) to Cortex ``exports/``.
     """
-    roots = iter_qbr_output_root_folder_ids()
-    if not roots:
+    root_id = get_qbr_output_root_folder_id()
+    if not root_id:
         raise RuntimeError(
             "Could not resolve Drive Output folders (set GOOGLE_QBR_GENERATOR_FOLDER_ID "
             "and verify Drive access)."
         )
     dated_name = f"{datetime.date.today().isoformat()} - Output"
-    meta: dict[str, str] | None = None
-    for i, root_id in enumerate(roots):
+    dated_id = _find_or_create_folder(dated_name, root_id)
+    fid_root = upload_text_file_to_drive_folder(name, content, root_id, mime_type=mime_type)
+    fid_dated = upload_text_file_to_drive_folder(name, content, dated_id, mime_type=mime_type)
+    cortex = get_cortex_exports_root_folder_id()
+    if cortex:
         try:
-            dated_id = _find_or_create_folder(dated_name, root_id)
-            fid_root = upload_text_file_to_drive_folder(name, content, root_id, mime_type=mime_type)
-            fid_dated = upload_text_file_to_drive_folder(name, content, dated_id, mime_type=mime_type)
+            upload_text_file_to_drive_folder(name, content, cortex, mime_type=mime_type)
+            logger.info("Dual-wrote %s to Cortex exports %s", name, cortex)
         except Exception as e:
-            if i == 0:
-                raise
-            logger.error("Dual-write to Cortex Output failed for %s: %s", name, e)
-            continue
-        if i == 0:
-            meta = {
-                "filename": name,
-                "dated_label": dated_name,
-                "file_id_root": fid_root,
-                "file_id_dated": fid_dated,
-                "root_folder_id": root_id,
-                "dated_folder_id": dated_id,
-            }
-        else:
-            logger.info("Dual-wrote %s to Cortex Output %s", name, root_id)
-    assert meta is not None
-    return meta
+            logger.error("Dual-write to Cortex exports failed for %s: %s", name, e)
+    return {
+        "filename": name,
+        "dated_label": dated_name,
+        "file_id_root": fid_root,
+        "file_id_dated": fid_dated,
+        "root_folder_id": root_id,
+        "dated_folder_id": dated_id,
+    }
 
 
 def _normalize_config_text(text: str) -> str:

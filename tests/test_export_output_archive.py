@@ -672,3 +672,125 @@ def test_migrate_promotes_legacy_base_pendo_to_persistent(monkeypatch) -> None:
     result = migrate_export_folder_to_historical_data(parent_id)
     assert renames == [("legacy", "Pendo Export  (Ford, 30d)-persistent.md")]
     assert result["promoted"][0]["target"] == "Pendo Export  (Ford, 30d)-persistent.md"
+
+
+def test_migrate_cortex_shared_drive_layout_relocates_output(monkeypatch) -> None:
+    from src.drive_config import _MIME_PRESENTATION
+    from src.export_output_archive import migrate_cortex_shared_drive_layout
+
+    children = {
+        "drive-root": [
+            {"id": "output-id", "name": "Output", "mimeType": _MIME_FOLDER},
+        ],
+        "output-id": [
+            {"id": "ce-id", "name": "Customer Exports", "mimeType": _MIME_FOLDER},
+            {"id": "hd-id", "name": "Historical Data", "mimeType": _MIME_FOLDER},
+            {
+                "id": "deck-1",
+                "name": "AKKR Metrics",
+                "mimeType": _MIME_PRESENTATION,
+            },
+            {
+                "id": "dated",
+                "name": "2026-09-13 - Output",
+                "mimeType": _MIME_FOLDER,
+            },
+            {
+                "id": "guide",
+                "name": "Cortex Export - User Guide.md",
+                "mimeType": "text/markdown",
+            },
+        ],
+        "dated": [
+            {
+                "id": "qbr-deck",
+                "name": "QBR",
+                "mimeType": _MIME_PRESENTATION,
+            },
+        ],
+        "exports-id": [],
+        "customer-id": [],
+        "history-id": [],
+        "decks-id": [],
+        "ce-id": [],
+        "hd-id": [],
+    }
+    moves: list[tuple[str, str, str]] = []
+    deletes: list[str] = []
+    renames: list[tuple[str, str]] = []
+
+    def fake_list(pid: str):
+        return list(children.get(pid, []))
+
+    def fake_move(fid: str, src: str, dest: str) -> None:
+        moves.append((fid, src, dest))
+        item = next(c for c in children[src] if c["id"] == fid)
+        children[src] = [c for c in children[src] if c["id"] != fid]
+        children.setdefault(dest, []).append(item)
+
+    def fake_find(name: str, parent: str, mime_type: str | None = None):
+        for child in children.get(parent, []):
+            if child["name"] == name:
+                return child["id"]
+        return None
+
+    monkeypatch.setattr(
+        "src.export_output_archive._cortex_output_dual_write_enabled",
+        lambda: True,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "src.drive_config._cortex_output_dual_write_enabled",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "src.drive_config.get_cortex_exports_root_folder_id",
+        lambda: "exports-id",
+    )
+    monkeypatch.setattr(
+        "src.drive_config.get_cortex_exports_customer_folder_id",
+        lambda: "customer-id",
+    )
+    monkeypatch.setattr(
+        "src.drive_config.get_cortex_exports_history_folder_id",
+        lambda: "history-id",
+    )
+    monkeypatch.setattr(
+        "src.drive_config.get_cortex_decks_folder_id",
+        lambda: "decks-id",
+    )
+    monkeypatch.setattr("src.export_output_archive._list_folder_children", fake_list)
+    monkeypatch.setattr("src.export_output_archive._move_drive_item", fake_move)
+    monkeypatch.setattr("src.export_output_archive.find_file_in_folder", fake_find)
+    monkeypatch.setattr(
+        "src.export_output_archive.rename_drive_file",
+        lambda fid, name: renames.append((fid, name)),
+    )
+    def fake_delete(fid: str) -> None:
+        deletes.append(fid)
+        for pid, items in list(children.items()):
+            children[pid] = [c for c in items if c["id"] != fid]
+
+    monkeypatch.setattr("src.export_output_archive.delete_drive_file", fake_delete)
+    monkeypatch.setattr(
+        "src.drive_config.CORTEX_SHARED_DRIVE_ID",
+        "drive-root",
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive.CORTEX_SHARED_DRIVE_ID",
+        "drive-root",
+    )
+
+    result = migrate_cortex_shared_drive_layout()
+    assert result["customer"]["action"] == "relocated"
+    assert result["history"]["action"] == "relocated"
+    assert {row["id"] for row in result["presentations"]} == {"deck-1", "qbr-deck"}
+    assert any(row["id"] == "guide" for row in result["export_files"])
+    assert ("ce-id", "output-id", "exports-id") in moves
+    assert ("hd-id", "output-id", "exports-id") in moves
+    assert ("deck-1", "output-id", "decks-id") in moves
+    assert ("qbr-deck", "dated", "decks-id") in moves
+    assert "dated" in deletes
+    assert result["output_deleted"] is True
+    assert ("ce-id", "customer") in renames
+    assert ("hd-id", "history") in renames

@@ -83,6 +83,7 @@ def find_latest_presentation_for_deck(
     from .config import CORTEX_CURSOR_SLIDES_ONLY
     from .drive_config import (
         _drive_q_escape,
+        get_cortex_decks_folder_id,
         get_deck_output_folder_id,
         get_qbr_output_root_folder_id,
     )
@@ -110,11 +111,13 @@ def find_latest_presentation_for_deck(
 
     best: dict[str, Any] | None = None
     output_root_id = get_qbr_output_root_folder_id()
-    folder_ids: list[str | None] = [output_root_id, get_deck_output_folder_id()]
+    cortex_decks_id = get_cortex_decks_folder_id()
+    folder_ids: list[str | None] = [output_root_id, get_deck_output_folder_id(), cortex_decks_id]
+    persistent_parents = {fid for fid in (output_root_id, cortex_decks_id) if fid}
     for folder_id in folder_ids:
         if not folder_id:
             continue
-        if persistent_title and folder_id == output_root_id:
+        if persistent_title and folder_id in persistent_parents:
             esc = _drive_q_escape(persistent_title)
             q = (
                 f"'{folder_id}' in parents and "

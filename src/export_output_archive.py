@@ -51,10 +51,17 @@ from .export_drive_layout import (
     target_persistent_name,
 )
 from .drive_config import (
+    CORTEX_DECKS_FOLDER,
+    CORTEX_EXPORTS_CUSTOMER_FOLDER,
+    CORTEX_EXPORTS_FOLDER,
+    CORTEX_EXPORTS_HISTORY_FOLDER,
+    CORTEX_SHARED_DRIVE_ID,
     QBR_OUTPUT_SUBFOLDER,
+    _MIME_PRESENTATION,
     copy_drive_file_to_folder,
     dedupe_duplicate_names_in_folder,
     drive_api_lock,
+    find_file_in_folder,
     move_drive_file,
     rename_drive_file,
     delete_drive_file,
@@ -1216,8 +1223,9 @@ def _archive_export_base_on_startup(
     context: str = "",
     portfolio_root: bool = False,
     today: dt.date | None = None,
+    historical_id: str | None = None,
 ) -> dict[str, Any]:
-    historical_id = ensure_historical_data_folder(parent_id)
+    historical_id = historical_id or ensure_historical_data_folder(parent_id)
     archive_month = previous_month_key(today=today)
     promoted_result = promote_legacy_exports_in_base(
         parent_id,
@@ -1269,6 +1277,204 @@ def _archive_export_base_on_startup(
     }
 
 
+def _summarize_archive_walk(
+    *,
+    root_id: str,
+    customer_parent_id: str,
+    skip_folder_names: frozenset[str],
+    context: str,
+    historical_id: str | None = None,
+) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "output_root": None,
+        "customer_exports": [],
+        "moved_count": 0,
+        "trashed_folder_count": 0,
+        "trashed_stale_count": 0,
+    }
+    root_result = _archive_export_base_on_startup(
+        root_id,
+        skip_folder_names=skip_folder_names,
+        context=context,
+        portfolio_root=True,
+        historical_id=historical_id,
+    )
+    summary["output_root"] = root_result
+    summary["moved_count"] += len(root_result.get("moved") or [])
+    summary["trashed_folder_count"] += len(root_result.get("trashed_folders") or [])
+    summary["trashed_stale_count"] += len(root_result.get("trashed_stale") or [])
+
+    if customer_parent_id:
+        for customer_folder in _list_folder_children(customer_parent_id):
+            if str(customer_folder.get("mimeType") or "") != _MIME_FOLDER:
+                continue
+            customer_name = str(customer_folder.get("name") or "")
+            if not customer_name:
+                continue
+            cust_result = _archive_export_base_on_startup(
+                str(customer_folder["id"]),
+                skip_folder_names=frozenset({HISTORICAL_DATA_FOLDER}),
+                context=f"{context}/{customer_name}",
+                portfolio_root=False,
+            )
+            summary["customer_exports"].append({"customer": customer_name, **cust_result})
+            summary["moved_count"] += len(cust_result.get("moved") or [])
+            summary["trashed_folder_count"] += len(cust_result.get("trashed_folders") or [])
+            summary["trashed_stale_count"] += len(cust_result.get("trashed_stale") or [])
+    return summary
+
+
+def _move_folder_children(src_id: str, dest_id: str) -> list[dict[str, str]]:
+    moved: list[dict[str, str]] = []
+    if src_id == dest_id:
+        return moved
+    for child in _list_folder_children(src_id):
+        cid = str(child.get("id") or "")
+        if not cid:
+            continue
+        _move_drive_item(cid, src_id, dest_id)
+        moved.append({"id": cid, "name": str(child.get("name") or "")})
+    return moved
+
+
+def _relocate_named_folder(
+    *,
+    src_parent_id: str,
+    src_names: tuple[str, ...],
+    dest_parent_id: str,
+    dest_name: str,
+) -> dict[str, Any]:
+    """Move or merge a named folder into dest_parent/dest_name."""
+    src_id = None
+    src_name = None
+    for name in src_names:
+        found = find_file_in_folder(name, src_parent_id, mime_type=_MIME_FOLDER)
+        if found:
+            src_id = found
+            src_name = name
+            break
+    dest_id = find_file_in_folder(dest_name, dest_parent_id, mime_type=_MIME_FOLDER)
+    if not src_id:
+        return {"moved": [], "src": src_name, "dest_id": dest_id, "action": "missing"}
+    if src_id == dest_id:
+        return {"moved": [], "src": src_name, "dest_id": dest_id, "action": "already"}
+    if dest_id:
+        moved = _move_folder_children(src_id, dest_id)
+        if not _list_folder_children(src_id):
+            delete_drive_file(src_id)
+        return {"moved": moved, "src": src_name, "dest_id": dest_id, "action": "merged"}
+    _move_drive_item(src_id, src_parent_id, dest_parent_id)
+    if src_name != dest_name:
+        rename_drive_file(src_id, dest_name)
+    return {"moved": [{"id": src_id, "name": dest_name}], "src": src_name, "dest_id": src_id, "action": "relocated"}
+
+
+def migrate_cortex_shared_drive_layout() -> dict[str, Any]:
+    """Move Cortex shared-drive ``Output/`` artifacts into ``exports/`` and ``decks/``.
+
+    Idempotent. QBR Generator ``Output/`` is not touched.
+    """
+    from .drive_config import (
+        _cortex_output_dual_write_enabled,
+        get_cortex_decks_folder_id,
+        get_cortex_exports_customer_folder_id,
+        get_cortex_exports_history_folder_id,
+        get_cortex_exports_root_folder_id,
+    )
+
+    if not _cortex_output_dual_write_enabled():
+        return {"skipped": "dual_write_off"}
+    exports_id = get_cortex_exports_root_folder_id()
+    customer_id = get_cortex_exports_customer_folder_id()
+    history_id = get_cortex_exports_history_folder_id()
+    decks_id = get_cortex_decks_folder_id()
+    if not exports_id or not customer_id or not history_id or not decks_id:
+        return {"skipped": "cortex_folders_unresolved"}
+
+    output_id = find_file_in_folder(
+        QBR_OUTPUT_SUBFOLDER, CORTEX_SHARED_DRIVE_ID, mime_type=_MIME_FOLDER
+    )
+    result: dict[str, Any] = {
+        "exports_id": exports_id,
+        "customer_id": customer_id,
+        "history_id": history_id,
+        "decks_id": decks_id,
+        "presentations": [],
+        "export_files": [],
+        "customer": None,
+        "history": None,
+        "output_deleted": False,
+    }
+    if not output_id:
+        return {**result, "skipped": "no_legacy_output"}
+
+    result["customer"] = _relocate_named_folder(
+        src_parent_id=output_id,
+        src_names=(CUSTOMER_EXPORTS_FOLDER, _LEGACY_CUSTOMER_EXPORTS_FOLDER),
+        dest_parent_id=exports_id,
+        dest_name=CORTEX_EXPORTS_CUSTOMER_FOLDER,
+    )
+    result["history"] = _relocate_named_folder(
+        src_parent_id=output_id,
+        src_names=(HISTORICAL_DATA_FOLDER,),
+        dest_parent_id=exports_id,
+        dest_name=CORTEX_EXPORTS_HISTORY_FOLDER,
+    )
+
+    dated_empty: list[str] = []
+    for child in _list_folder_children(output_id):
+        cid = str(child.get("id") or "")
+        name = str(child.get("name") or "")
+        mime = str(child.get("mimeType") or "")
+        if not cid:
+            continue
+        if mime == _MIME_PRESENTATION:
+            _move_drive_item(cid, output_id, decks_id)
+            result["presentations"].append({"id": cid, "name": name, "from": "Output"})
+            continue
+        if mime == _MIME_FOLDER and dated_output_folder_date(name) is not None:
+            leftover = False
+            for nested in _list_folder_children(cid):
+                nid = str(nested.get("id") or "")
+                nname = str(nested.get("name") or "")
+                nmime = str(nested.get("mimeType") or "")
+                if not nid:
+                    continue
+                if nmime == _MIME_PRESENTATION:
+                    _move_drive_item(nid, cid, decks_id)
+                    result["presentations"].append(
+                        {"id": nid, "name": nname, "from": name}
+                    )
+                else:
+                    _move_drive_item(nid, cid, exports_id)
+                    result["export_files"].append(
+                        {"id": nid, "name": nname, "from": name}
+                    )
+                    leftover = True
+            if not _list_folder_children(cid):
+                delete_drive_file(cid)
+                dated_empty.append(cid)
+            elif leftover:
+                dated_empty.append(cid)
+            continue
+        if mime == _MIME_FOLDER:
+            continue
+        _move_drive_item(cid, output_id, exports_id)
+        result["export_files"].append({"id": cid, "name": name, "from": "Output"})
+
+    result["dated_folders_removed"] = dated_empty
+    if not _list_folder_children(output_id):
+        delete_drive_file(output_id)
+        result["output_deleted"] = True
+
+    logger.info(
+        "Cortex Drive layout: moved %d presentation(s) to decks/, %d export file(s) to exports/",
+        len(result["presentations"]),
+        len(result["export_files"]),
+    )
+    return result
+
+
 def maybe_migrate_export_layout_on_startup(*, force: bool = False) -> dict[str, Any]:
     """Promote persistent exports, normalize loose Historical Data files, archive prior month."""
     global _archive_ran
@@ -1276,83 +1482,74 @@ def maybe_migrate_export_layout_on_startup(*, force: bool = False) -> dict[str, 
         return {"skipped": "already_ran"}
     _archive_ran = True
 
-    from .drive_config import get_qbr_output_root_folder_id, iter_qbr_output_root_folder_ids
+    from .drive_config import (
+        get_cortex_exports_customer_folder_id,
+        get_cortex_exports_history_folder_id,
+        get_cortex_exports_root_folder_id,
+        get_qbr_output_root_folder_id,
+    )
 
-    roots = iter_qbr_output_root_folder_ids()
-    if not roots:
-        root_id = get_qbr_output_root_folder_id()
-        if not root_id:
-            logger.debug("Export layout migration: no Drive Output folder configured")
-            return {"skipped": "no_output_folder"}
-        roots = [root_id]
+    try:
+        migrate_cortex_shared_drive_layout()
+    except Exception as e:
+        logger.error("Cortex shared-drive layout migration failed: %s", e)
 
-    combined: dict[str, Any] | None = None
-    for i, root_id in enumerate(roots):
-        try:
-            summary: dict[str, Any] = {
-                "output_root": None,
-                "customer_exports": [],
-                "moved_count": 0,
-                "trashed_folder_count": 0,
-                "trashed_stale_count": 0,
-            }
+    root_id = get_qbr_output_root_folder_id()
+    if not root_id:
+        logger.debug("Export layout migration: no Drive Output folder configured")
+        return {"skipped": "no_output_folder"}
 
-            root_result = _archive_export_base_on_startup(
-                root_id,
+    try:
+        customer_exports_id = ensure_customer_exports_parent_folder(root_id)
+        combined = _summarize_archive_walk(
+            root_id=root_id,
+            customer_parent_id=customer_exports_id,
+            skip_folder_names=frozenset({
+                CUSTOMER_EXPORTS_FOLDER,
+                _LEGACY_CUSTOMER_EXPORTS_FOLDER,
+                HISTORICAL_DATA_FOLDER,
+            }),
+            context=QBR_OUTPUT_SUBFOLDER,
+        )
+        if combined["moved_count"] or combined["trashed_folder_count"] or combined["trashed_stale_count"]:
+            logger.info(
+                "Export monthly archive: moved %d file(s), removed %d legacy folder(s), "
+                "deleted %d stale day-2+ snapshot(s) under Drive %s",
+                combined["moved_count"],
+                combined["trashed_folder_count"],
+                combined["trashed_stale_count"],
+                QBR_OUTPUT_SUBFOLDER,
+            )
+        else:
+            logger.debug(
+                "Export monthly archive: nothing to move under Drive %s",
+                QBR_OUTPUT_SUBFOLDER,
+            )
+    except Exception as e:
+        logger.warning("Export layout migration failed (continuing): %s", e)
+        return {"skipped": "error", "error": str(e)}
+
+    try:
+        cortex_exports = get_cortex_exports_root_folder_id()
+        cortex_customer = get_cortex_exports_customer_folder_id()
+        cortex_history = get_cortex_exports_history_folder_id()
+        if cortex_exports and cortex_customer and cortex_history:
+            _summarize_archive_walk(
+                root_id=cortex_exports,
+                customer_parent_id=cortex_customer,
                 skip_folder_names=frozenset({
+                    CORTEX_EXPORTS_CUSTOMER_FOLDER,
+                    CORTEX_EXPORTS_HISTORY_FOLDER,
+                    CORTEX_DECKS_FOLDER,
                     CUSTOMER_EXPORTS_FOLDER,
-                    _LEGACY_CUSTOMER_EXPORTS_FOLDER,
                     HISTORICAL_DATA_FOLDER,
                 }),
-                context=QBR_OUTPUT_SUBFOLDER,
-                portfolio_root=True,
+                context=f"{CORTEX_EXPORTS_FOLDER}",
+                historical_id=cortex_history,
             )
-            summary["output_root"] = root_result
-            summary["moved_count"] += len(root_result.get("moved") or [])
-            summary["trashed_folder_count"] += len(root_result.get("trashed_folders") or [])
-            summary["trashed_stale_count"] += len(root_result.get("trashed_stale") or [])
-
-            customer_exports_id = ensure_customer_exports_parent_folder(root_id)
-            if customer_exports_id:
-                for customer_folder in _list_folder_children(customer_exports_id):
-                    if str(customer_folder.get("mimeType") or "") != _MIME_FOLDER:
-                        continue
-                    customer_name = str(customer_folder.get("name") or "")
-                    if not customer_name:
-                        continue
-                    cust_result = _archive_export_base_on_startup(
-                        str(customer_folder["id"]),
-                        skip_folder_names=frozenset({HISTORICAL_DATA_FOLDER}),
-                        context=f"{CUSTOMER_EXPORTS_FOLDER}/{customer_name}",
-                        portfolio_root=False,
-                    )
-                    summary["customer_exports"].append({"customer": customer_name, **cust_result})
-                    summary["moved_count"] += len(cust_result.get("moved") or [])
-                    summary["trashed_folder_count"] += len(cust_result.get("trashed_folders") or [])
-                    summary["trashed_stale_count"] += len(cust_result.get("trashed_stale") or [])
-
-            if summary["moved_count"] or summary["trashed_folder_count"] or summary["trashed_stale_count"]:
-                logger.info(
-                    "Export monthly archive: moved %d file(s), removed %d legacy folder(s), "
-                    "deleted %d stale day-2+ snapshot(s) under Drive %s",
-                    summary["moved_count"],
-                    summary["trashed_folder_count"],
-                    summary["trashed_stale_count"],
-                    QBR_OUTPUT_SUBFOLDER,
-                )
-            else:
-                logger.debug(
-                    "Export monthly archive: nothing to move under Drive %s",
-                    QBR_OUTPUT_SUBFOLDER,
-                )
-            if i == 0:
-                combined = summary
-        except Exception as e:
-            if i == 0:
-                logger.warning("Export layout migration failed (continuing): %s", e)
-                return {"skipped": "error", "error": str(e)}
-            logger.error("Cortex dual-write export layout migration failed: %s", e)
-    return combined or {"skipped": "no_output_folder"}
+    except Exception as e:
+        logger.error("Cortex dual-write export layout migration failed: %s", e)
+    return combined
 
 
 def maybe_archive_previous_month_exports(*, force: bool = False) -> dict[str, Any]:

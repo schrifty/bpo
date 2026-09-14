@@ -62,8 +62,8 @@ def maybe_sync_export_user_guide_on_startup(*, force: bool = False) -> dict[str,
         return {"skipped": "missing_local", "path": str(_USER_GUIDE_REPO_PATH)}
 
     from .drive_config import (
+        get_cortex_exports_root_folder_id,
         get_qbr_output_root_folder_id,
-        iter_qbr_output_root_folder_ids,
         list_files_by_name_in_folder,
         upload_text_file_to_drive_folder,
     )
@@ -98,7 +98,11 @@ def maybe_sync_export_user_guide_on_startup(*, force: bool = False) -> dict[str,
 
     try:
         file_id = None
-        for i, rid in enumerate(iter_qbr_output_root_folder_ids() or [output_root_id]):
+        targets = [output_root_id]
+        cortex = get_cortex_exports_root_folder_id()
+        if cortex and cortex not in targets:
+            targets.append(cortex)
+        for i, rid in enumerate(targets):
             try:
                 fid = upload_text_file_to_drive_folder(
                     EXPORT_USER_GUIDE_DRIVE_FILENAME,

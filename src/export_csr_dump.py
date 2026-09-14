@@ -116,8 +116,8 @@ def save_csr_dump_source_marker(payload: dict[str, Any]) -> None:
     """Replace ``CSR-Dump-source.json`` on Drive ``Output/``. Failures are warnings only."""
     try:
         from .drive_config import (
+            get_cortex_exports_root_folder_id,
             get_qbr_output_root_folder_id,
-            iter_qbr_output_root_folder_ids,
             upload_text_file_to_drive_folder,
         )
 
@@ -126,7 +126,11 @@ def save_csr_dump_source_marker(payload: dict[str, Any]) -> None:
             logger.warning("CSR dump source marker not written: Drive Output folder unresolved")
             return
         body = json.dumps(payload, indent=2, sort_keys=True) + "\n"
-        for i, fid_root in enumerate(iter_qbr_output_root_folder_ids() or [root_id]):
+        targets = [root_id]
+        cortex = get_cortex_exports_root_folder_id()
+        if cortex and cortex not in targets:
+            targets.append(cortex)
+        for i, fid_root in enumerate(targets):
             try:
                 upload_text_file_to_drive_folder(
                     CSR_DUMP_SOURCE_MARKER_FILENAME,
