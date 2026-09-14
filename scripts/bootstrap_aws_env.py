@@ -42,6 +42,21 @@ def _load_secret_string(arn: str) -> str:
     return raw
 
 
+def _write_google_sa_json(sa_text: str, *, sa_dir: str | None = None) -> str:
+    """Write the service-account JSON to a temp file readable only by this user (0600)."""
+    if sa_dir:
+        Path(sa_dir).mkdir(parents=True, exist_ok=True)
+        fd, path = tempfile.mkstemp(prefix="cortex-google-sa-", suffix=".json", dir=sa_dir)
+    else:
+        fd, path = tempfile.mkstemp(prefix="cortex-google-sa-", suffix=".json")
+    try:
+        os.write(fd, sa_text.encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.chmod(path, 0o600)
+    return path
+
+
 def build_secret_env(payload: dict[str, Any], *, sa_dir: str | None = None) -> dict[str, str]:
     """Return env vars to set from a Secrets Manager JSON object."""
     data = dict(payload)
@@ -59,21 +74,7 @@ def build_secret_env(payload: dict[str, Any], *, sa_dir: str | None = None) -> d
             sa_text = sa_raw
         else:
             sa_text = json.dumps(sa_raw)
-        if sa_dir:
-            Path(sa_dir).mkdir(parents=True, exist_ok=True)
-            sa_path = tempfile.NamedTemporaryFile(
-                prefix="cortex-google-sa-",
-                suffix=".json",
-                dir=sa_dir,
-                delete=False,
-            )
-            sa_path.close()
-            path = sa_path.name
-        else:
-            fd, path = tempfile.mkstemp(prefix="cortex-google-sa-", suffix=".json")
-            os.close(fd)
-        Path(path).write_text(sa_text, encoding="utf-8")
-        env["GOOGLE_APPLICATION_CREDENTIALS"] = path
+        env["GOOGLE_APPLICATION_CREDENTIALS"] = _write_google_sa_json(sa_text, sa_dir=sa_dir)
     env.setdefault("CORTEX_SKIP_DOTENV", "1")
     return env
 

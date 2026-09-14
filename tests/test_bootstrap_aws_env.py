@@ -17,20 +17,41 @@ def _bootstrap_module():
 
 
 def test_apply_secret_payload_writes_google_sa(monkeypatch, tmp_path) -> None:
-    mod = _bootstrap_module()
-    monkeypatch.setattr(mod.tempfile, "mkstemp", lambda **kw: (1, str(tmp_path / "sa.json")))
-    mod.apply_secret_payload(
-        {
-            "PENDO_INTEGRATION_KEY": "pendo-key",
-            "GOOGLE_SERVICE_ACCOUNT_JSON": {"type": "service_account", "client_email": "x@y.iam.gserviceaccount.com"},
-        }
-    )
     import os
 
+    mod = _bootstrap_module()
+    env = mod.build_secret_env(
+        {
+            "PENDO_INTEGRATION_KEY": "pendo-key",
+            "GOOGLE_SERVICE_ACCOUNT_JSON": {
+                "type": "service_account",
+                "client_email": "x@y.iam.gserviceaccount.com",
+            },
+        },
+        sa_dir=str(tmp_path),
+    )
+    for key, val in env.items():
+        monkeypatch.setenv(key, val)
     assert os.environ["PENDO_INTEGRATION_KEY"] == "pendo-key"
-    assert os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
-    sa = json.loads((tmp_path / "sa.json").read_text(encoding="utf-8"))
+    sa_path = Path(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
+    assert sa_path.parent == tmp_path
+    sa = json.loads(sa_path.read_text(encoding="utf-8"))
     assert sa["client_email"] == "x@y.iam.gserviceaccount.com"
+
+
+def test_google_sa_temp_file_mode_is_0600(tmp_path) -> None:
+    import os
+    import stat
+
+    mod = _bootstrap_module()
+    env = mod.build_secret_env(
+        {"GOOGLE_SERVICE_ACCOUNT_JSON": {"type": "service_account"}},
+        sa_dir=str(tmp_path),
+    )
+    path = Path(env["GOOGLE_APPLICATION_CREDENTIALS"])
+    assert path.parent == tmp_path
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    assert json.loads(path.read_text(encoding="utf-8"))["type"] == "service_account"
 
 
 def test_build_secret_env_and_shell_exports() -> None:
