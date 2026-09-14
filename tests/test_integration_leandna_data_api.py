@@ -1,8 +1,5 @@
 """Live checks against LeanDNA Data API (read-only).
 
-**This file logs whether credentials are set and may emit curl replay** when a test runs — intended
-for disposable sandbox tokens only. Do not log full Bearer values.
-
 Tests **skip** when LeanDNA credentials are missing. **Fail** when ``EXECUTION_ENV=Production`` or
 ``CI``. Require ``EXECUTION_ENV=Staging`` with ``ST_LEANDNA_DATA_API_*`` in ``.env``::
 
@@ -10,12 +7,11 @@ Tests **skip** when LeanDNA credentials are missing. **Fail** when ``EXECUTION_E
 
 Each test loads ``.env`` with ``override=True`` so values there replace any ``LEANDNA_*`` already
 set in the process environment (stale exports otherwise win with ``override=False``).
-Logs include the bearer token **parsed from the on-disk** ``.env`` so you can tell unsaved-editor
-drift from what ``load_dotenv`` applies.
+Logs record whether credentials are set, not the secret values. Request/curl dumps redact
+``Authorization`` and ``Cookie`` headers.
 
 Uses the OpenAPI **Metrics** catalog list — ``GET {LEANDNA_DATA_API_BASE_URL}/data/Metric`` — same
-path as ``src.leandna_metrics_client.list_metric_definitions``, with the same auth headers as
-item master / shortages / lean projects.
+path as ``src.leandna_metrics_client.list_metric_definitions``.
 
 Also includes a **MetricReport** check that fetches ``GET /data/MetricReport`` for the
 current fiscal year and prints the first KPI line from tenant data (read-only).
@@ -39,6 +35,10 @@ import requests
 _ROOT = Path(__file__).resolve().parents[1]
 
 _LOG = logging.getLogger("integration_leandna_data_api")
+
+_SENSITIVE_HEADER_NAMES = frozenset(
+    {"authorization", "cookie", "set-cookie", "proxy-authorization"}
+)
 
 # ``build_leandna_data_api_headers`` defaults to ``cortex-…`` User-Agent; Swagger runs in a browser.
 # If staging returns 401 only from Python, try matching a normal browser UA (see LEANDNA_SETUP).
@@ -73,7 +73,7 @@ def _last_dotenv_value(dotenv_path: Path, key: str) -> str | None:
 
 
 def _ensure_verbose_logging() -> None:
-    """Emit DEBUG to stderr for this test and LeanDNA / urllib3."""
+    """Emit DEBUG to stderr for this test and LeanDNA clients (not urllib3 — it dumps auth)."""
     fmt = "%(asctime)s %(levelname)-5s [%(name)s] %(message)s"
     root = logging.getLogger()
     if not any(type(h) is logging.StreamHandler for h in root.handlers):
@@ -86,9 +86,10 @@ def _ensure_verbose_logging() -> None:
         "cortex",
         "src.leandna_data_api_http",
         "src.leandna_data_api_request",
-        "urllib3.connectionpool",
     ):
         logging.getLogger(name).setLevel(logging.DEBUG)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
 
 
 def _credential_summary(_config: object) -> None:
@@ -98,18 +99,54 @@ def _credential_summary(_config: object) -> None:
     _LOG.info("LEANDNA_DATA_API_BEARER_TOKEN_set=%s", bool(bt))
 
 
+def _redact_header_value(name: str, value: str) -> str:
+    if name.lower() not in _SENSITIVE_HEADER_NAMES:
+        return value
+    if name.lower() == "authorization" and value.lower().startswith("bearer "):
+        return "Bearer <redacted>"
+    return "<redacted>"
+
+
+def _redacted_headers(headers: dict[str, str]) -> dict[str, str]:
+    return {k: _redact_header_value(k, v) for k, v in headers.items()}
+
+
 def _log_headers(headers: dict[str, str]) -> None:
-    _LOG.info("Request headers: %s", dict(headers))
+    _LOG.info("Request headers: %s", _redacted_headers(headers))
 
 
 def _curl_equivalent(url: str, params: dict[str, str], headers: dict[str, str]) -> str:
-    """Single-line curl for logs (redact Authorization before sharing)."""
+    """Single-line curl for logs with Authorization/Cookie redacted."""
     q = urlencode(sorted(params.items())) if params else ""
     full_url = f"{url}?{q}" if q else url
     bits: list[str] = ["curl", "-sS", "-X", "GET", shlex.quote(full_url)]
-    for name, val in sorted(headers.items()):
+    for name, val in sorted(_redacted_headers(headers).items()):
         bits.extend(["-H", shlex.quote(f"{name}: {val}")])
     return " ".join(bits)
+
+
+def test_redacted_headers_hides_bearer_and_cookie() -> None:
+    raw = {
+        "Accept": "application/json",
+        "Authorization": "Bearer super-secret-session",
+        "Cookie": "sid=abc; other=xyz",
+        "User-Agent": "cortex-test",
+    }
+    out = _redacted_headers(raw)
+    assert out["Accept"] == "application/json"
+    assert out["User-Agent"] == "cortex-test"
+    assert out["Authorization"] == "Bearer <redacted>"
+    assert out["Cookie"] == "<redacted>"
+    assert "super-secret-session" not in str(out)
+    assert "sid=abc" not in str(out)
+    curl = _curl_equivalent(
+        "https://app.staging.leandna.com/api/data/Metric",
+        {"metricTypes": "Manual"},
+        raw,
+    )
+    assert "super-secret-session" not in curl
+    assert "sid=abc" not in curl
+    assert "Bearer <redacted>" in curl
 
 
 @pytest.mark.leandna_data_api
@@ -250,7 +287,7 @@ def test_leandna_metrics_list_endpoint_live() -> None:
         resp.headers.get("Content-Length"),
         resp.encoding,
     )
-    _LOG.debug("Response headers: %s", dict(resp.headers))
+    _LOG.debug("Response headers: %s", _redacted_headers(dict(resp.headers)))
     body_preview = (resp.text or "")[:1200]
     _LOG.info("Response body length=%s prefix (up to 1200 chars): %s", len(resp.text or ""), body_preview)
 
