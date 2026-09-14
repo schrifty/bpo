@@ -33,6 +33,7 @@ from .leandna_lean_projects_client import (
     aggregate_monthly_savings,
     get_top_projects_by_savings,
 )
+from .leandna_site_map import resolve_customer_sites
 
 
 def _lean_project_row_for_report(p: dict[str, Any]) -> dict[str, Any]:
@@ -49,21 +50,6 @@ def _lean_project_row_for_report(p: dict[str, Any]) -> dict[str, Any]:
     sp = p.get("sponsor")
     row["sponsor_name"] = sp.get("name") if isinstance(sp, dict) else None
     return row
-
-
-def _resolve_customer_sites(customer: str) -> str | None:
-    """Resolve customer name to LeanDNA site IDs (comma-separated).
-    
-    Args:
-        customer: Cortex customer name.
-    
-    Returns:
-        Comma-separated site IDs or None for all authorized sites.
-    
-    TODO: Implement site mapping logic (same as Item Master/Shortage enrichment).
-    For now: return None (all sites).
-    """
-    return None
 
 
 def _get_quarter_date_range(report: dict[str, Any]) -> tuple[str, str]:
@@ -139,7 +125,7 @@ def enrich_report_with_lean_projects(
     
     try:
         # Resolve sites
-        sites = _resolve_customer_sites(customer)
+        sites = resolve_customer_sites(customer)
         date_from, date_to = _get_quarter_date_range(report)
         
         logger.info(

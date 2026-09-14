@@ -321,7 +321,8 @@ def _extract_step_failure_messages(stdout: str, stderr: str) -> list[str]:
                 for item in payload.get("failures") or []:
                     _add(str(item))
                 for item in payload.get("warnings") or []:
-                    if messages:
+                    _add(str(item))
+                    if len(messages) >= _MAX_FAILURE_MESSAGES:
                         break
             continue
         if stripped.startswith("• "):

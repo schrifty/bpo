@@ -8,7 +8,6 @@ Thread-safe caching with Drive backup for expensive API calls.
 from __future__ import annotations
 
 import hashlib
-import json
 import threading
 from datetime import datetime, timezone
 from typing import Any
@@ -62,98 +61,25 @@ def _is_cache_valid() -> bool:
 
 
 def _try_load_from_drive(cache_key: str) -> list[dict] | None:
-    """Attempt to load cached data from Drive.
-    
-    Simplified implementation: searches for cache file by name pattern,
-    checks age, and downloads if valid.
-    """
-    try:
-        from .config import GOOGLE_QBR_GENERATOR_FOLDER_ID
-        if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
-            return None
-        
-        from .network_utils import network_timeout
-        from .slides_api import _get_service
-        _, drive, _ = _get_service()
-        
-        # Search for today's cache file
-        date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
-        filename = f"item_master_{cache_key}_{date_str}.json"
-        
-        # Query for file in cache subfolder (if exists) or generator root
-        query = f"name='{filename}' and trashed=false"
-        with network_timeout(30.0, "Drive file listing"):
-            results = drive.files().list(
-                q=query,
-                fields="files(id, name, modifiedTime)",
-                spaces="drive",
-                pageSize=5,
-            ).execute()
-        
-        files = results.get("files", [])
-        if not files:
-            logger.debug("LeanDNA Item Master: no Drive cache found for %s", filename)
-            return None
-        
-        file_info = files[0]
-        
-        # Check file age
-        modified = file_info.get("modifiedTime", "")
-        if modified:
-            from dateutil import parser
-            mod_dt = parser.parse(modified)
-            age_hours = (datetime.now(timezone.utc) - mod_dt).total_seconds() / 3600
-            if age_hours >= _get_cache_ttl_hours():
-                logger.debug("LeanDNA Item Master: Drive cache is stale (%.1fh old)", age_hours)
-                return None
-        
-        # Download and parse
-        request = drive.files().get_media(fileId=file_info["id"])
-        with network_timeout(30.0, "Drive file download"):
-            content = request.execute()
-        data = json.loads(content.decode("utf-8"))
+    """Load Fernet-encrypted Item Master JSON from Drive if still within TTL."""
+    from . import leandna_drive_cache
+
+    date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+    filename = f"item_master_{cache_key}_{date_str}.json"
+    data = leandna_drive_cache.load_json(filename, ttl_hours=_get_cache_ttl_hours())
+    if isinstance(data, list):
         logger.info("LeanDNA Item Master: loaded %d items from Drive cache (%s)", len(data), filename)
         return data
-        
-    except Exception as e:
-        logger.debug("Failed to load LeanDNA Item Master from Drive cache: %s", e)
-        return None
+    return None
 
 
 def _save_to_drive(data: list[dict], cache_key: str) -> None:
-    """Save data to Drive cache.
-    
-    Simplified implementation: creates JSON file in generator root folder.
-    """
-    try:
-        from .config import GOOGLE_QBR_GENERATOR_FOLDER_ID
-        if not GOOGLE_QBR_GENERATOR_FOLDER_ID:
-            return
-        
-        from .network_utils import network_timeout
-        from .slides_api import _get_service
-        from googleapiclient.http import MediaInMemoryUpload
-        
-        _, drive, _ = _get_service()
-        
-        date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
-        filename = f"item_master_{cache_key}_{date_str}.json"
-        
-        content = json.dumps(data, indent=2).encode("utf-8")
-        media = MediaInMemoryUpload(content, mimetype="application/json", resumable=True)
-        
-        meta = {
-            "name": filename,
-            "parents": [GOOGLE_QBR_GENERATOR_FOLDER_ID],
-            "mimeType": "application/json",
-        }
-        
-        with network_timeout(30.0, "Drive file creation"):
-            file_obj = drive.files().create(body=meta, media_body=media, fields="id").execute()
-        logger.info("LeanDNA Item Master: saved %d items to Drive cache (%s, id=%s)", len(data), filename, file_obj["id"][:16])
-        
-    except Exception as e:
-        logger.warning("Failed to save LeanDNA Item Master to Drive cache: %s", e)
+    """Save Item Master JSON to Drive as a Fernet envelope."""
+    from . import leandna_drive_cache
+
+    date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+    filename = f"item_master_{cache_key}_{date_str}.json"
+    leandna_drive_cache.save_json(filename, data)
 
 
 def get_item_master_data(sites: str | None = None, force_refresh: bool = False) -> list[dict]:

@@ -19,25 +19,7 @@ from .leandna_item_master_client import (
 )
 
 
-def _resolve_customer_sites(customer: str) -> str | None:
-    """Resolve customer name to LeanDNA site IDs (comma-separated).
-    
-    Args:
-        customer: Cortex customer name.
-    
-    Returns:
-        Comma-separated site IDs or None for all authorized sites.
-    
-    TODO: Implement site mapping logic. Options:
-      1. Add `leandna_site_ids` to `config/teams.yaml` per customer
-      2. Call /data/identity API and fuzzy-match siteName
-      3. Use customer-specific env var LEANDNA_SITES_{customer}
-    
-    For now: return None (all sites) and rely on RequestedSites header behavior.
-    """
-    # Placeholder: no mapping yet
-    # Future: load from config/teams.yaml or identity API
-    return None
+from .leandna_site_map import resolve_customer_sites
 
 
 def enrich_report_with_item_master(
@@ -68,7 +50,7 @@ def enrich_report_with_item_master(
     
     try:
         # Resolve sites
-        sites = _resolve_customer_sites(customer)
+        sites = resolve_customer_sites(customer)
         logger.info("LeanDNA enrichment: fetching Item Master Data for customer=%s sites=%s", customer, sites or "all")
         
         # Fetch items

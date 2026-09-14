@@ -72,8 +72,8 @@ def create_empty_deck(customer: str, days: int = 30, deck_name: str | None = Non
             )
         finally:
             socket.setdefaulttimeout(old_timeout)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Could not delete default blank slide on %s: %s", deck_id, e)
 
     return {
         "deck_id": deck_id,

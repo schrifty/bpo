@@ -58,6 +58,31 @@ def test_compact_salesforce_comprehensive_keeps_top_arr_and_samples():
     assert len(contacts["sample"]) == 3
 
 
+def test_compact_salesforce_comprehensive_does_not_invent_arr_rank(monkeypatch):
+    def _boom(*_a, **_k):
+        raise RuntimeError("salesforce allowlist failed")
+
+    monkeypatch.setattr(
+        "src.llm_export_csr.top_active_ultimate_parents_by_arr_for_llm_export",
+        _boom,
+    )
+    block = {
+        "configured": True,
+        "by_customer": {
+            "Aaa": {"matched": True, "categories": {}},
+            "Zzz": {"matched": True, "categories": {}},
+        },
+    }
+    slim = mod._compact_salesforce_comprehensive_portfolio(
+        block,
+        report={"_llm_export_salesforce_revenue_book": {}},
+        top_customers=1,
+        rows_per_category=3,
+    )
+    assert slim["by_customer"] == {}
+    assert "salesforce_arr_rank_failed" in str(slim.get("error") or "")
+
+
 def test_build_snapshot_compacts_sf_comprehensive_when_caps_enabled():
     report = {
         "customer": "All Customers",

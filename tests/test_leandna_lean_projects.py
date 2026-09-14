@@ -348,3 +348,19 @@ def test_format_lean_projects_speaker_notes_disabled():
     result = format_lean_projects_speaker_notes_supplement(enrichment)
     
     assert result == ""
+
+
+@patch("src.leandna_lean_projects_client.requests.get")
+@patch("src.leandna_lean_projects_client._headers")
+def test_check_reachable_treats_401_as_error(mock_headers, mock_get):
+    from src.leandna_lean_projects_client import check_reachable
+    from requests import HTTPError
+
+    mock_headers.return_value = {}
+    mock_response = MagicMock()
+    mock_response.status_code = 401
+    mock_response.raise_for_status.side_effect = HTTPError("401")
+    mock_get.return_value = mock_response
+    out = check_reachable()
+    assert out["status"] == "error"
+    assert "error" in out

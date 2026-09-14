@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 
-from src.jira_client import JiraClient
+from src.jira_client import JiraClient, jira_parallel_workers, help_jira_body_max_results
 
 
 def _issue(status_cat: str, *, resolution=None, created="2025-06-01T10:00:00.000+0000", res_date=None):
@@ -45,3 +45,12 @@ def test_shared_jira_client_singleton():
         # Jira env not configured in CI — skip
         return
     assert a is b
+
+
+def test_jira_env_helpers_read_live_environ(monkeypatch) -> None:
+    monkeypatch.setenv("CORTEX_JIRA_PARALLEL_WORKERS", "4")
+    monkeypatch.setenv("CORTEX_HELP_JIRA_BODY_MAX", "12")
+    assert jira_parallel_workers() == 4
+    assert help_jira_body_max_results() == 12
+    monkeypatch.setenv("CORTEX_JIRA_PARALLEL_WORKERS", "99")
+    assert jira_parallel_workers() == 4

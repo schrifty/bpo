@@ -48,6 +48,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from src.cli_warning_filters import apply_cli_warning_filters
+from src.config import logger
 
 apply_cli_warning_filters()
 
@@ -1803,8 +1804,16 @@ def _compact_salesforce_comprehensive_portfolio(
                 ).strip()
                 if label and label not in priority:
                     priority.append(label)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(
+                "Salesforce ARR ranking failed; not inventing an alphabetical top-customer list: %s",
+                e,
+            )
+            out["error"] = f"salesforce_arr_rank_failed: {type(e).__name__}: {e}"
+            out["by_customer"] = {}
+            out["by_customer_exported"] = 0
+            out["by_customer_total"] = len(by_customer)
+            return out
     for label in sorted(by_customer.keys()):
         if label not in priority:
             priority.append(label)

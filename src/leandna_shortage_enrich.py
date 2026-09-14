@@ -19,19 +19,7 @@ from .leandna_shortage_client import (
 )
 
 
-def _resolve_customer_sites(customer: str) -> str | None:
-    """Resolve customer name to LeanDNA site IDs (comma-separated).
-    
-    Args:
-        customer: Cortex customer name.
-    
-    Returns:
-        Comma-separated site IDs or None for all authorized sites.
-    
-    TODO: Implement site mapping logic (same as Item Master enrichment).
-    For now: return None (all sites).
-    """
-    return None
+from .leandna_site_map import resolve_customer_sites
 
 
 def enrich_report_with_shortage_trends(
@@ -66,7 +54,7 @@ def enrich_report_with_shortage_trends(
     
     try:
         # Resolve sites
-        sites = _resolve_customer_sites(customer)
+        sites = resolve_customer_sites(customer)
         logger.info("LeanDNA shortage trends: fetching weekly data for customer=%s sites=%s", customer, sites or "all")
         
         # Fetch weekly shortage data

@@ -27,23 +27,55 @@ _JSM_ORG_GLOBAL_CACHE: dict[str, tuple[float, list[str]]] = {}
 _ATLASSIAN_TEAMS_RESPONSE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _ATLASSIAN_TEAMS_CACHE_LOCK = threading.Lock()
 # TTL for JSM organization list in-process L1 (disk cache uses CORTEX_JIRA_CACHE_TTL_SECONDS).
-_JSM_ORG_CACHE_TTL_S = float(os.environ.get("CORTEX_JSM_ORG_CACHE_TTL_S", "900"))
+def jsm_org_cache_ttl_s() -> float:
+    raw = (os.environ.get("CORTEX_JSM_ORG_CACHE_TTL_S") or "").strip()
+    try:
+        val = float(raw) if raw else 900.0
+    except ValueError:
+        val = 900.0
+    return max(0.0, val)
+
+
+def _env_int(name: str, default: int, *, lo: int | None = None, hi: int | None = None) -> int:
+    raw = (os.environ.get(name) or "").strip()
+    try:
+        val = int(raw) if raw else int(default)
+    except ValueError:
+        val = int(default)
+    if lo is not None:
+        val = max(lo, val)
+    if hi is not None:
+        val = min(hi, val)
+    return val
+
+
+# Cap HELP body fetch (slide lists / histograms); extra issues are omitted from breakdowns.
+def help_jira_body_max_results() -> int:
+    return _env_int("CORTEX_HELP_JIRA_BODY_MAX", 750, lo=1)
+
+
+def help_metrics_merged_max_results() -> int:
+    return _env_int("CORTEX_HELP_JIRA_METRICS_MAX", 2000, lo=1)
+
+
+def help_escalation_llm_max_issues() -> int:
+    return _env_int("CORTEX_help_escalation_llm_max_issues()", 200, lo=1)
+
+
+def help_trends_max_results() -> int:
+    return _env_int("CORTEX_HELP_TRENDS_MAX", 12000, lo=1)
+
+
+def help_ttr_resolved_max_results() -> int:
+    return _env_int("CORTEX_HELP_TTR_RESOLVED_MAX", 2000, lo=1)
+
+
+def jira_parallel_workers() -> int:
+    return _env_int("CORTEX_JIRA_PARALLEL_WORKERS", 3, lo=1, hi=4)
+
 
 _SHARED_JIRA_CLIENT_LOCK = threading.Lock()
 _shared_jira_client: Any = None
-
-# Cap HELP body fetch (slide lists / histograms); extra issues are omitted from breakdowns.
-HELP_JIRA_BODY_MAX_RESULTS = int(os.environ.get("CORTEX_HELP_JIRA_BODY_MAX", "750"))
-# Single merged JQL for ticket metrics (open ∪ 365d resolved ∪ 365d created).
-HELP_METRICS_MERGED_MAX_RESULTS = int(os.environ.get("CORTEX_HELP_JIRA_METRICS_MAX", "2000"))
-# Full Jira field fetch for LLM + Escalation metrics slide (capped; totals use _jql_match_total).
-HELP_ESCALATION_LLM_MAX_ISSUES = int(os.environ.get("CORTEX_HELP_ESCALATION_LLM_MAX_ISSUES", "200"))
-# HELP trend fetch cap (created/resolved monthly trend series).
-HELP_TRENDS_MAX_RESULTS = int(os.environ.get("CORTEX_HELP_TRENDS_MAX", "12000"))
-# HELP resolved-window TTR (JSM SLA ``Time to resolution``, customfield_10665).
-HELP_TTR_RESOLVED_MAX_RESULTS = int(os.environ.get("CORTEX_HELP_TTR_RESOLVED_MAX", "2000"))
-# Parallel Jira fetches (rate-limit aware).
-_JIRA_PARALLEL_WORKERS = max(1, min(4, int(os.environ.get("CORTEX_JIRA_PARALLEL_WORKERS", "3"))))
 
 CUSTOMER_FIELD = "customfield_10100"   # "Customer" multi-select
 ORG_FIELD = "customfield_10502"        # "Organizations" (JSM)
@@ -252,7 +284,8 @@ def _merge_jsm_customer_alias_terms(terms: list[str | None]) -> list[str]:
 
         csr_map = _load_cs_report_alias_map()
         cohort_map = _load_cohort_customer_alias_map()
-    except Exception:
+    except Exception as e:
+        logger.warning("JSM customer aliases: CS Report / cohort maps failed to load: %s", e)
         csr_map = {}
         cohort_map = {}
 
@@ -1718,7 +1751,7 @@ class JiraClient:
             ent = _JSM_ORG_GLOBAL_CACHE.get(self._jsm_cache_key)
             if ent is not None:
                 ts, names = ent
-                if now - ts < _JSM_ORG_CACHE_TTL_S:
+                if now - ts < jsm_org_cache_ttl_s():
                     return names
 
         names: list[str] = []
@@ -2309,7 +2342,7 @@ class JiraClient:
         clause_bundle = (base_filter, resolved_jsm_orgs)
 
         def _fetch_help_body() -> tuple[list[dict], int | None]:
-            cap = HELP_JIRA_BODY_MAX_RESULTS
+            cap = help_jira_body_max_results()
             total_hint = self._jql_match_total(jql)
             fetch_n = cap
             if total_hint is not None and total_hint > 0:
@@ -2339,7 +2372,7 @@ class JiraClient:
         eng: dict[str, Any] = {}
         enhancements: dict[str, Any] = {}
         try:
-            with ThreadPoolExecutor(max_workers=_JIRA_PARALLEL_WORKERS) as pool:
+            with ThreadPoolExecutor(max_workers=jira_parallel_workers()) as pool:
                 f_body = pool.submit(_fetch_help_body)
                 f_met = pool.submit(_safe_metrics)
                 f_eng = pool.submit(self._get_engineering_tickets, customer_name)
@@ -2535,7 +2568,7 @@ class JiraClient:
         try:
             raw = self._search(
                 jql,
-                max_results=HELP_TRENDS_MAX_RESULTS,
+                max_results=help_trends_max_results(),
                 fields=_TREND_FIELDS,
                 data_description=(
                     f"{proj} jira_escalated volume ({int(window_days)}d window; excl. Epic, SUT)"
@@ -2606,7 +2639,7 @@ class JiraClient:
         try:
             raw = self._search(
                 jql,
-                max_results=HELP_TRENDS_MAX_RESULTS,
+                max_results=help_trends_max_results(),
                 fields=_CUSTOMER_TICKET_SLIDE_FIELDS,
                 data_description=f"{proj} open jira_escalated backlog (excl. Epic, SUT)",
             )
@@ -2918,7 +2951,7 @@ class JiraClient:
         base_filter, resolved_jsm_orgs = self._resolve_help_customer_filter(
             customer_name, match_terms, _prebuilt_clause=_prebuilt_clause
         )
-        max_fetch = HELP_METRICS_MERGED_MAX_RESULTS
+        max_fetch = help_metrics_merged_max_results()
         proj = "project = HELP AND "
 
         def _norm_snapshot_issue(issue: dict) -> dict[str, Any]:
@@ -3045,7 +3078,7 @@ class JiraClient:
             customer_name, match_terms
         )
 
-        max_fetch = HELP_METRICS_MERGED_MAX_RESULTS
+        max_fetch = help_metrics_merged_max_results()
         proj_prefix = f"project = {proj} AND "
 
         def _norm_snapshot_issue(issue: dict) -> dict[str, Any]:
@@ -3167,7 +3200,7 @@ class JiraClient:
         try:
             raw = self._search(
                 jql,
-                max_results=HELP_TRENDS_MAX_RESULTS,
+                max_results=help_trends_max_results(),
                 fields=_TREND_FIELDS,
                 data_description=f"{proj} volume trends (12-month; excl. Epic, SUT)",
             )
@@ -3556,7 +3589,7 @@ class JiraClient:
         if days < 1:
             return {"error": "days must be >= 1", "days": days, "project": "HELP"}
 
-        cap = max_results if max_results is not None else HELP_TTR_RESOLVED_MAX_RESULTS
+        cap = max_results if max_results is not None else help_ttr_resolved_max_results()
         base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
             customer_name, match_terms
         )
@@ -3657,7 +3690,7 @@ class JiraClient:
         if days < 1:
             return {"error": "days must be >= 1", "days": days, "project": "HELP"}
 
-        cap = max_results if max_results is not None else HELP_TTR_RESOLVED_MAX_RESULTS
+        cap = max_results if max_results is not None else help_ttr_resolved_max_results()
         base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
             customer_name, match_terms
         )
@@ -3765,7 +3798,7 @@ class JiraClient:
         if days < 1:
             return {"error": "days must be >= 1", "days": days, "project": "HELP"}
 
-        cap = max_results if max_results is not None else HELP_TTR_RESOLVED_MAX_RESULTS
+        cap = max_results if max_results is not None else help_ttr_resolved_max_results()
         base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
             customer_name, match_terms
         )
@@ -3878,7 +3911,7 @@ class JiraClient:
         if days < 1:
             return {"error": "days must be >= 1", "days": days, "project": "HELP"}
 
-        cap = max_results if max_results is not None else HELP_TTR_RESOLVED_MAX_RESULTS
+        cap = max_results if max_results is not None else help_ttr_resolved_max_results()
         base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
             customer_name, match_terms
         )
@@ -3986,7 +4019,7 @@ class JiraClient:
         if days < 1:
             return {"error": "days must be >= 1", "days": days, "project": "HELP"}
 
-        cap = max_results if max_results is not None else HELP_TTR_RESOLVED_MAX_RESULTS
+        cap = max_results if max_results is not None else help_ttr_resolved_max_results()
         base_filter, resolved_jsm_orgs = self._help_project_customer_filter(
             customer_name, match_terms
         )
@@ -4196,7 +4229,7 @@ class JiraClient:
         try:
             merged_raw = self._search(
                 union_jql,
-                max_results=HELP_METRICS_MERGED_MAX_RESULTS,
+                max_results=help_metrics_merged_max_results(),
                 fields=list(dict.fromkeys(_CUSTOMER_TICKET_SLIDE_FIELDS + ["assignee"])),
                 data_description="HELP support KPIs (merged open / 365d resolved / 365d created)",
             )
@@ -4623,7 +4656,7 @@ class JiraClient:
             customer_name, match_terms, _prebuilt_clause=_prebuilt_clause
         )
         excl = _TRANSIENT_LABELS_EXCLUSION
-        max_open = HELP_METRICS_MERGED_MAX_RESULTS
+        max_open = help_metrics_merged_max_results()
 
         def _label_names(fields: dict) -> list[str]:
             lbs = fields.get("labels")
@@ -4714,7 +4747,7 @@ class JiraClient:
                 logger.warning("HELP escalation metrics (90d resolved count) failed: %s", e)
                 n_90c = 0
 
-        cap = HELP_ESCALATION_LLM_MAX_ISSUES
+        cap = help_escalation_llm_max_issues()
         jql_lbl_open = (
             f'project = HELP AND ({base_filter}) AND {excl} AND labels = "customer_escalation" '
             "AND statusCategory != Done ORDER BY updated DESC"
@@ -4998,7 +5031,7 @@ class JiraClient:
         try:
             raw = self._search(
                 jql,
-                max_results=HELP_TRENDS_MAX_RESULTS,
+                max_results=help_trends_max_results(),
                 fields=_TREND_FIELDS,
                 data_description="HELP volume trends (12-month created vs resolved)",
             )
@@ -5118,7 +5151,7 @@ class JiraClient:
 
         counts: dict[str, int | None] = {}
         partial_failure = False
-        max_workers = max(1, min(10, _JIRA_PARALLEL_WORKERS * 3))
+        max_workers = max(1, min(10, jira_parallel_workers() * 3))
 
         def _run_one(item: tuple[str, str]) -> tuple[str, int | None]:
             key, jql = item
@@ -5386,7 +5419,7 @@ class JiraClient:
                 logger.debug("changelog fetch failed for %s: %s", key, e)
                 return key, None
 
-        with ThreadPoolExecutor(max_workers=max(1, min(max_workers, _JIRA_PARALLEL_WORKERS * 2))) as pool:
+        with ThreadPoolExecutor(max_workers=max(1, min(max_workers, jira_parallel_workers() * 2))) as pool:
             for key, val in pool.map(_one, keys):
                 if val is not None:
                     out[key] = val
@@ -5511,6 +5544,7 @@ class JiraClient:
         # ``/rest/api/3/search/jql`` caps each page at ~100 issues regardless of
         # ``maxResults``; ``_search`` follows ``nextPageToken`` so we get the full set
         # (in-flight LEAN WIP is ~1k issues, not the 100 a single page returns).
+        lean_core_errors: list[str] = []
         try:
             in_flight_raw = self._search(
                 "project = LEAN AND status in (\"In Progress\", \"In Review\", \"Open\", \"Reopened\") ORDER BY updated DESC",
@@ -5520,6 +5554,7 @@ class JiraClient:
             )
         except Exception as e:
             logger.warning("LEAN in-flight fetch failed: %s", e)
+            lean_core_errors.append(f"LEAN in-flight: {e}")
             in_flight_raw = []
 
         # ── Recent closed LEAN tickets ──
@@ -5532,6 +5567,7 @@ class JiraClient:
             )
         except Exception as e:
             logger.warning("LEAN closed fetch failed: %s", e)
+            lean_core_errors.append(f"LEAN closed: {e}")
             closed_raw = []
 
         def _lean_norm(issue: dict) -> dict:
@@ -5907,6 +5943,8 @@ class JiraClient:
             "work_split": work_split,
             "jql_queries": self._jql_since(jql_start),
         }
+        if lean_core_errors:
+            eng_data["error"] = "; ".join(lean_core_errors)
 
         # ── Generate per-slide "what this means" takeaways in parallel ──
         eng_data["takeaways"] = _generate_eng_takeaways(eng_data)

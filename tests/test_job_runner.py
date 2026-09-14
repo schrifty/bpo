@@ -176,6 +176,16 @@ def test_extract_step_failure_messages_from_deck_fail_line() -> None:
     assert messages == ["FAIL: Rate limit: quota exceeded. Wait and retry."]
 
 
+def test_extract_step_failure_messages_includes_run_summary_warnings() -> None:
+    import json
+
+    payload = json.dumps({"failures": ["Jira timeout"], "warnings": ["Pendo snapshot stale"]})
+    stdout = f"CORTEX_RUN_SUMMARY={payload}\n"
+    messages = _extract_step_failure_messages(stdout, "")
+    assert "Jira timeout" in messages
+    assert "Pendo snapshot stale" in messages
+
+
 def test_build_failures_payload_includes_failed_step_details() -> None:
     from src.job_runner import StepResult
 

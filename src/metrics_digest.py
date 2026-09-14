@@ -865,6 +865,38 @@ def _copy_metrics_presentation_to_historical(
     return historical_url
 
 
+def _open_or_create_persistent_metrics_deck(
+    persistent_title: str,
+    output_folder: str,
+) -> dict[str, Any]:
+    """Reuse or create the persistent metrics presentation. Returns deck_id or error."""
+    from .drive_config import (
+        _get_drive,
+        list_files_by_name_in_folder,
+        dedupe_duplicate_names_in_folder,
+    )
+    from .deck_presentation_api import create_presentation
+
+    try:
+        drive_svc = _get_drive()
+        existing = list_files_by_name_in_folder(
+            persistent_title,
+            output_folder,
+            mime_type="application/vnd.google-apps.presentation",
+        )
+        if existing:
+            deck_id = str(existing[0]["id"])
+            dedupe_duplicate_names_in_folder(output_folder, persistent_title)
+            logger.info("Reusing persistent presentation %s: %s", deck_id, persistent_title)
+            return {"deck_id": deck_id}
+        deck_id, err = create_presentation(drive_svc, persistent_title, output_folder_id=output_folder)
+        if err or not deck_id:
+            return {"error": f"Failed to create presentation: {err}"}
+        return {"deck_id": deck_id}
+    except Exception as e:
+        return {"error": f"Failed to create/find presentation: {e}"}
+
+
 def generate_metrics_digest_deck(
     rows: list[DigestRow],
     *,
@@ -883,13 +915,7 @@ def generate_metrics_digest_deck(
 
     Returns dict with deck_id, deck_url, historical_url, and any error.
     """
-    from .drive_config import (
-        get_qbr_output_root_folder_id,
-        _get_drive,
-        list_files_by_name_in_folder,
-        dedupe_duplicate_names_in_folder,
-    )
-    from .deck_presentation_api import create_presentation
+    from .drive_config import get_qbr_output_root_folder_id
     from .slide_requests import append_slide, append_text_box
     from .slide_primitives import background, rect
     from .slides_theme import (
@@ -906,25 +932,10 @@ def generate_metrics_digest_deck(
     if not output_folder:
         return {"error": "No Output folder configured (set GOOGLE_QBR_GENERATOR_FOLDER_ID)"}
 
-    try:
-        drive_svc = _get_drive()
-
-        # Look for existing persistent deck by name
-        existing = list_files_by_name_in_folder(
-            persistent_title,
-            output_folder,
-            mime_type="application/vnd.google-apps.presentation",
-        )
-        if existing:
-            deck_id = str(existing[0]["id"])
-            dedupe_duplicate_names_in_folder(output_folder, persistent_title)
-            logger.info("Reusing persistent presentation %s: %s", deck_id, persistent_title)
-        else:
-            deck_id, err = create_presentation(drive_svc, persistent_title, output_folder_id=output_folder)
-            if err or not deck_id:
-                return {"error": f"Failed to create presentation: {err}"}
-    except Exception as e:
-        return {"error": f"Failed to create/find presentation: {e}"}
+    opened = _open_or_create_persistent_metrics_deck(persistent_title, output_folder)
+    if opened.get("error"):
+        return opened
+    deck_id = str(opened["deck_id"])
 
     # Get Slides service and clear existing slides if reusing
     from .slides_api import _get_service

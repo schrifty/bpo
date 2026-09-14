@@ -8,7 +8,6 @@ Endpoints: /data/LeanProject, /data/LeanProject/{projectIds}/Savings, etc.
 """
 from __future__ import annotations
 
-import json
 import threading
 from datetime import datetime, timezone
 from typing import Any
@@ -40,70 +39,26 @@ def _get_cache_key(sites: str | None, date_from: str | None, date_to: str | None
     return f"{sites or 'all'}_{date_from or 'none'}_{date_to or 'none'}"
 
 
-def _load_from_drive_cache(cache_prefix: str, cache_key: str, ttl_hours: int) -> dict[str, Any] | None:
-    """Load cached JSON from Drive if still valid."""
-    try:
-        from .network_utils import network_timeout
-        from .slides_api import _get_service
-        _, drive, _ = _get_service()
-        
-        # Search for cache file
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        file_pattern = f"{cache_prefix}_{cache_key}_{today}.json"
-        
-        q = f"name = '{file_pattern}' and trashed = false"
-        with network_timeout(30.0, "Drive file listing"):
-            results = drive.files().list(q=q, pageSize=5, fields="files(id, name, createdTime)").execute()
-        files = results.get("files", [])
-        
-        if not files:
-            return None
-        
-        # Check age
-        file_info = files[0]
-        created = datetime.fromisoformat(file_info["createdTime"].replace("Z", "+00:00"))
-        age_hours = (datetime.now(timezone.utc) - created).total_seconds() / 3600
-        
-        if age_hours > ttl_hours:
-            logger.debug("Drive cache %s expired (%.1fh old, TTL=%dh)", file_pattern, age_hours, ttl_hours)
-            return None
-        
-        # Download
-        request = drive.files().get_media(fileId=file_info["id"])
-        with network_timeout(30.0, "Drive file download"):
-            content = request.execute()
-        data = json.loads(content)
-        
-        logger.info("LeanDNA Lean Projects: loaded from Drive cache %s (%.1fh old)", file_pattern, age_hours)
-        return data
-        
-    except Exception as e:
-        logger.debug("Drive cache load failed for %s: %s", cache_prefix, e)
+def _load_from_drive_cache(cache_prefix: str, cache_key: str, ttl_hours: int) -> Any | None:
+    """Load Fernet-encrypted Lean Projects JSON from Drive if still within TTL."""
+    from . import leandna_drive_cache
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    filename = f"{cache_prefix}_{cache_key}_{today}.json"
+    data = leandna_drive_cache.load_json(filename, ttl_hours=float(ttl_hours))
+    if data is None:
         return None
+    logger.info("LeanDNA Lean Projects: loaded from Drive cache %s", filename)
+    return data
 
 
-def _save_to_drive_cache(cache_prefix: str, cache_key: str, data: dict[str, Any]) -> None:
-    """Save JSON to Drive cache."""
-    try:
-        from .network_utils import network_timeout
-        from .slides_api import _get_service
-        from googleapiclient.http import MediaInMemoryUpload
-        
-        _, drive, _ = _get_service()
-        
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        filename = f"{cache_prefix}_{cache_key}_{today}.json"
-        content = json.dumps(data, indent=2).encode("utf-8")
-        
-        media = MediaInMemoryUpload(content, mimetype="application/json", resumable=False)
-        meta = {"name": filename, "mimeType": "application/json"}
-        
-        with network_timeout(30.0, "Drive file creation"):
-            drive.files().create(body=meta, media_body=media, fields="id").execute()
-        logger.debug("LeanDNA Lean Projects: saved to Drive cache %s", filename)
-        
-    except Exception as e:
-        logger.warning("Drive cache save failed for %s: %s", cache_prefix, e)
+def _save_to_drive_cache(cache_prefix: str, cache_key: str, data: Any) -> None:
+    """Save Lean Projects JSON to Drive as a Fernet envelope under the QBR folder."""
+    from . import leandna_drive_cache
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    filename = f"{cache_prefix}_{cache_key}_{today}.json"
+    leandna_drive_cache.save_json(filename, data)
 
 
 def get_lean_projects(
@@ -342,17 +297,25 @@ def get_top_projects_by_savings(
     return sorted_projects[:max_projects]
 
 
-def check_reachable(sites: str | None = None) -> bool:
-    """Test if LeanDNA Lean Projects API is accessible.
-    
-    Returns:
-        True if API responds with 200 (or 401 if token is invalid).
-    """
-    url = f"{data_api_base_url()}/data/LeanProject"
-    params = {"dateFrom": "2026-01-01", "dateTo": "2026-01-01"}  # minimal query
-    
+def check_reachable(sites: str | None = None) -> dict[str, Any]:
+    """Health check: verify Lean Projects API is reachable and the token is valid."""
+    import time
+
     try:
+        start = time.time()
+        url = f"{data_api_base_url()}/data/LeanProject"
+        params = {"dateFrom": "2026-01-01", "dateTo": "2026-01-01"}
         response = requests.get(url, headers=_headers(sites), params=params, timeout=30)
-        return response.status_code in (200, 401)
-    except Exception:
-        return False
+        elapsed_ms = (time.time() - start) * 1000
+        response.raise_for_status()
+        data = response.json()
+        return {
+            "status": "ok",
+            "item_count": len(data) if isinstance(data, list) else 0,
+            "response_time_ms": round(elapsed_ms, 1),
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+        }

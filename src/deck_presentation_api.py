@@ -76,8 +76,12 @@ def append_default_slide_delete_if_needed(
                 customer,
                 slide_plan_len,
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(
+            "create_health_deck: could not delete default slide (deck_id=%s): %s",
+            presentation_id,
+            e,
+        )
 
 
 def submit_slide_requests(

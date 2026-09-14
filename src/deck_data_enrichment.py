@@ -642,7 +642,7 @@ def _fetch_support_jira_products(
     if not jobs:
         return
 
-    from .jira_client import _JIRA_PARALLEL_WORKERS
+    from .jira_client import jira_parallel_workers
 
     if len(jobs) == 1:
         product, fn = jobs[0]
@@ -650,7 +650,7 @@ def _fetch_support_jira_products(
         jira[product] = fn()
         return
 
-    workers = max(1, min(_JIRA_PARALLEL_WORKERS, len(jobs)))
+    workers = max(1, min(jira_parallel_workers(), len(jobs)))
     logger.info(
         "Support deck: fetching %d Jira products in parallel (workers=%d) for %s",
         len(jobs),

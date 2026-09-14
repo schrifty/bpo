@@ -314,8 +314,8 @@ def enrich_supply_chain_with_leandna(report: dict, customer: str) -> dict:
         return report  # skip if not configured
     
     from .leandna_data_client import get_item_master_data
-    # Map customer → site IDs (from config/teams.yaml or identity endpoint)
-    sites = _resolve_customer_sites(customer)
+    from .leandna_site_map import resolve_customer_sites
+    sites = resolve_customer_sites(customer)
     items = get_item_master_data(sites=sites)
     
     # Add fields not in CSR: daysOfInventoryBackward, aggregateRiskScore, etc.

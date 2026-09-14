@@ -1763,23 +1763,15 @@ def support_breakdown_slide(reqs, sid, report, idx):
     return idx + 1
 
 
-def jira_slide(reqs, sid, report, idx):
-    jira = report.get("jira")
-    if not jira or jira.get("total_issues", 0) == 0:
-        return _missing_data_slide(reqs, sid, report, idx, "Jira support ticket data")
-    jira_base = jira.get("base_url", "")
-
-    total = jira["total_issues"]
-    esc = jira["escalated"]
-    days = jira.get("days", 90)
-
+def _jira_support_window_and_sla(jira: dict[str, Any]) -> tuple[str, str, int]:
+    """Return date-range header, SLA text, and body Y offset for the support slide."""
     from datetime import date, timedelta
+
+    days = jira.get("days", 90)
     end = date.today()
     start = end - timedelta(days=days)
-    date_range = f"{start.strftime('%b %-d')} – {end.strftime('%b %-d, %Y')}  ({days}d)"
-    header = date_range
-
-    sla_lines = []
+    header = f"{start.strftime('%b %-d')} – {end.strftime('%b %-d, %Y')}  ({days}d)"
+    sla_lines: list[str] = []
     ttfr = jira.get("ttfr", {})
     if ttfr.get("measured", 0) > 0:
         parts = [f"First Response:  median {ttfr['median']}  ·  avg {ttfr['avg']}"]
@@ -1797,11 +1789,19 @@ def jira_slide(reqs, sid, report, idx):
             parts.append(f"  ·  {ttr['waiting']} unresolved")
         sla_lines.append("".join(parts))
     if sla_lines:
-        sla_text = "\n".join(sla_lines)
-        body_offset = 22 + 12 * len(sla_lines)
-    else:
-        sla_text = ""
-        body_offset = 28
+        return header, "\n".join(sla_lines), 22 + 12 * len(sla_lines)
+    return header, "", 28
+
+
+def jira_slide(reqs, sid, report, idx):
+    jira = report.get("jira")
+    if not jira or jira.get("total_issues", 0) == 0:
+        return _missing_data_slide(reqs, sid, report, idx, "Jira support ticket data")
+    jira_base = jira.get("base_url", "")
+
+    total = jira["total_issues"]
+    esc = jira["escalated"]
+    header, sla_text, body_offset = _jira_support_window_and_sla(jira)
 
     status_items = list(jira.get("by_status", {}).items())
     sum_status = sum(c for _, c in status_items)
