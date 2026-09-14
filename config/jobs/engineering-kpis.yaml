@@ -1,0 +1,8 @@
+name: engineering-kpis
+stop_on_failure: true
+fail_on_warnings: false
+steps:
+  - name: engineering-kpis
+    command: engineering-kpis
+    days: 30
+    timeout: 180

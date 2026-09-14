@@ -226,3 +226,13 @@ def test_load_morning_report_spec() -> None:
     spec = load_job_spec("morning-report")
     assert spec.name == "morning-report"
     assert spec.steps[0]["command"] == "metrics-digest"
+
+
+def test_load_engineering_kpis_job() -> None:
+    spec = load_job_spec("engineering-kpis")
+    assert spec.name == "engineering-kpis"
+    assert spec.steps[0]["command"] == "engineering-kpis"
+    argv = build_step_argv(spec.steps[0])
+    assert argv[:1] == ["engineering-kpis"]
+    assert "--days" in argv
+    assert "--timeout" in argv

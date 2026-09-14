@@ -41,6 +41,7 @@ Decks
   Shortcuts (same payloads as run --deck / --portfolio)
     cohort                Manufacturing cohort review
     engineering-portfolio Jira engineering org deck
+    engineering-kpis      Active engineering KPIs (charts + notable changes)
     implementations-review
     support               Support review (one customer or all)
     support-portfolio     All-customers support portfolio
@@ -103,6 +104,8 @@ Metrics & KPIs
   metrics-report          Same as metrics-digest --dry-run (print only)
   metrics-deck            Google Slides from my-metrics.yaml
                           [--days N] [--timeout SEC] [--tag TAG]
+  engineering-kpis        Active engineering KPIs, charts, notable changes
+                          [--days N] [--timeout SEC] [--date YYYY-MM-DD]
 
   Full KPI command help: cortex --kpi
 
@@ -179,6 +182,7 @@ Snapshot / digest / deck
   cortex metrics-digest [--dry-run] [--days N] [--timeout SEC] [--tag TAG]
   cortex metrics-report               Same as metrics-digest --dry-run
   cortex metrics-deck [--days N] [--timeout SEC] [--tag TAG]
+  cortex engineering-kpis [--days N] [--timeout SEC] [--date YYYY-MM-DD]
 
 Notes
   --tag filters registry tags (e.g. akkr). kpi-snapshot --dry-run does not write.
@@ -972,6 +976,16 @@ def _run_metrics_deck_cli(rest: list[str]) -> None:
     raise SystemExit(run_metrics_deck_cli(rest, prog="cortex metrics-deck"))
 
 
+def _run_engineering_kpis_cli(rest: list[str]) -> None:
+    """``cortex engineering-kpis`` — active engineering KPIs with history charts."""
+    from dotenv import load_dotenv
+
+    from src.eng_kpi_deck import run_engineering_kpi_deck_cli
+
+    load_dotenv(Path(__file__).resolve().parent / ".env")
+    raise SystemExit(run_engineering_kpi_deck_cli(rest, prog="cortex engineering-kpis"))
+
+
 def _run_csm_book_deck() -> None:
     """CSM book of business from ``cortex csm book --csm \"Name\"`` (flags after ``book``)."""
     import argparse
@@ -1596,6 +1610,9 @@ def main():
         return
     if sub == "metrics-deck":
         _run_metrics_deck_cli(sys.argv[2:])
+        return
+    if sub in ("engineering-kpis", "engineering_kpis"):
+        _run_engineering_kpis_cli(sys.argv[2:])
         return
 
     from src.deck_variants import csm_book_cli_argv_anchor
