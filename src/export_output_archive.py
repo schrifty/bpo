@@ -55,6 +55,7 @@ from .export_drive_layout import (
 from .drive_config import (
     CORTEX_DECKS_FOLDER,
     CORTEX_EXPORTS_CUSTOMER_FOLDER,
+    CORTEX_EXPORTS_CUSTOMER_FOLDER_LEGACY,
     CORTEX_EXPORTS_FOLDER,
     CORTEX_EXPORTS_HISTORY_FOLDER,
     CORTEX_SHARED_DRIVE_ID,
@@ -1365,6 +1366,15 @@ def _relocate_named_folder(
         if not _list_folder_children(src_id):
             delete_drive_file(src_id)
         return {"moved": moved, "src": src_name, "dest_id": dest_id, "action": "merged"}
+    if src_parent_id == dest_parent_id:
+        if src_name != dest_name:
+            rename_drive_file(src_id, dest_name)
+        return {
+            "moved": [{"id": src_id, "name": dest_name}],
+            "src": src_name,
+            "dest_id": src_id,
+            "action": "relocated",
+        }
     _move_drive_item(src_id, src_parent_id, dest_parent_id)
     if src_name != dest_name:
         rename_drive_file(src_id, dest_name)
@@ -1491,6 +1501,13 @@ def migrate_cortex_shared_drive_layout() -> dict[str, Any]:
             dest_parent_id=sys_id,
             name=CSR_DUMP_SOURCE_MARKER_FILENAME,
         )
+
+    result["customer_folder_rename"] = _relocate_named_folder(
+        src_parent_id=exports_id,
+        src_names=(CORTEX_EXPORTS_CUSTOMER_FOLDER_LEGACY,),
+        dest_parent_id=exports_id,
+        dest_name=CORTEX_EXPORTS_CUSTOMER_FOLDER,
+    )
 
     output_id = find_file_in_folder(
         QBR_OUTPUT_SUBFOLDER, CORTEX_SHARED_DRIVE_ID, mime_type=_MIME_FOLDER
@@ -1639,6 +1656,7 @@ def maybe_migrate_export_layout_on_startup(*, force: bool = False) -> dict[str, 
                 customer_parent_id=cortex_customer,
                 skip_folder_names=frozenset({
                     CORTEX_EXPORTS_CUSTOMER_FOLDER,
+                    CORTEX_EXPORTS_CUSTOMER_FOLDER_LEGACY,
                     CORTEX_EXPORTS_HISTORY_FOLDER,
                     CORTEX_DECKS_FOLDER,
                     CUSTOMER_EXPORTS_FOLDER,

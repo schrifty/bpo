@@ -207,7 +207,7 @@ def test_ensure_customer_export_folders_mirrors_to_cortex_exports_customer(monke
     assert folders["historical_folder_id"] == "qbr-ce/Ford/Historical Data"
     assert folders["mirror_layouts"][0]["persistent_folder_id"] == "cx-cust/Ford"
     assert folders["mirror_layouts"][0]["historical_folder_id"] == "cx-cust/Ford/Historical Data"
-    assert folders["mirror_layouts"][0]["base_label"] == "exports/customer/Ford"
+    assert folders["mirror_layouts"][0]["base_label"] == "exports/customer exports/Ford"
     assert ("Ford", "qbr-ce") in created
     assert ("Ford", "cx-cust") in created
 

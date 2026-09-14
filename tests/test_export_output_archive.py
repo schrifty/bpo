@@ -50,6 +50,40 @@ def test_relocate_named_file_moves_into_dest(monkeypatch) -> None:
     assert moves == [("src-id", "exports", "sys")]
 
 
+def test_relocate_named_folder_renames_in_same_parent(monkeypatch) -> None:
+    from src.export_output_archive import _relocate_named_folder
+
+    moves: list[tuple[str, str, str]] = []
+    renames: list[tuple[str, str]] = []
+    folders = {"customer": "old-id"}
+
+    def fake_find(name: str, parent: str, mime_type: str | None = None) -> str | None:
+        return folders.get(name)
+
+    monkeypatch.setattr("src.export_output_archive.find_file_in_folder", fake_find)
+    monkeypatch.setattr(
+        "src.export_output_archive._move_drive_item",
+        lambda fid, src, dest: moves.append((fid, src, dest)),
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive.rename_drive_file",
+        lambda fid, new: renames.append((fid, new)),
+    )
+    monkeypatch.setattr(
+        "src.export_output_archive.delete_drive_file",
+        lambda *_a, **_k: pytest.fail("unexpected delete"),
+    )
+    result = _relocate_named_folder(
+        src_parent_id="exports",
+        src_names=("customer",),
+        dest_parent_id="exports",
+        dest_name="customer exports",
+    )
+    assert result["action"] == "relocated"
+    assert moves == []
+    assert renames == [("old-id", "customer exports")]
+
+
 def test_rename_drive_titles_in_folder_renames_legacy(monkeypatch) -> None:
     from src.export_output_archive import _rename_drive_titles_in_folder
 
@@ -850,5 +884,58 @@ def test_migrate_cortex_shared_drive_layout_relocates_output(monkeypatch) -> Non
     assert ("qbr-deck", "dated", "decks-id") in moves
     assert "dated" in deletes
     assert result["output_deleted"] is True
-    assert ("ce-id", "customer") in renames
+    assert ("ce-id", "customer exports") in renames
     assert ("hd-id", "history") in renames
+
+
+def test_migrate_cortex_renames_legacy_exports_customer_folder(monkeypatch) -> None:
+    from src.export_output_archive import migrate_cortex_shared_drive_layout
+
+    children = {
+        "drive-root": [{"id": "exports-id", "name": "exports", "mimeType": _MIME_FOLDER}],
+        "exports-id": [
+            {"id": "old-cust", "name": "customer", "mimeType": _MIME_FOLDER},
+        ],
+    }
+    moves: list[tuple[str, str, str]] = []
+    renames: list[tuple[str, str]] = []
+
+    def fake_list(pid: str):
+        return list(children.get(pid, []))
+
+    def fake_find(name: str, parent: str, mime_type: str | None = None):
+        for child in children.get(parent, []):
+            if child["name"] == name:
+                return child["id"]
+        return None
+
+    monkeypatch.setattr("src.drive_config._cortex_output_dual_write_enabled", lambda: True)
+    monkeypatch.setattr(
+        "src.export_output_archive._cortex_output_dual_write_enabled",
+        lambda: True,
+        raising=False,
+    )
+    monkeypatch.setattr("src.drive_config.get_cortex_exports_root_folder_id", lambda: "exports-id")
+    monkeypatch.setattr("src.drive_config.get_cortex_exports_customer_folder_id", lambda: "old-cust")
+    monkeypatch.setattr("src.drive_config.get_cortex_exports_history_folder_id", lambda: "history-id")
+    monkeypatch.setattr("src.drive_config.get_cortex_decks_folder_id", lambda: "decks-id")
+    monkeypatch.setattr("src.drive_config.get_cortex_sys_folder_id", lambda: None)
+    monkeypatch.setattr("src.export_output_archive._list_folder_children", fake_list)
+    monkeypatch.setattr(
+        "src.export_output_archive._move_drive_item",
+        lambda fid, src, dest: moves.append((fid, src, dest)),
+    )
+    monkeypatch.setattr("src.export_output_archive.find_file_in_folder", fake_find)
+    monkeypatch.setattr(
+        "src.export_output_archive.rename_drive_file",
+        lambda fid, name: renames.append((fid, name)),
+    )
+    monkeypatch.setattr("src.export_output_archive.delete_drive_file", lambda *_a, **_k: None)
+    monkeypatch.setattr("src.drive_config.CORTEX_SHARED_DRIVE_ID", "drive-root")
+    monkeypatch.setattr("src.export_output_archive.CORTEX_SHARED_DRIVE_ID", "drive-root")
+
+    result = migrate_cortex_shared_drive_layout()
+    assert result["customer_folder_rename"]["action"] == "relocated"
+    assert moves == []
+    assert renames == [("old-cust", "customer exports")]
+    assert result.get("skipped") == "no_legacy_output"

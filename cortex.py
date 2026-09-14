@@ -76,7 +76,7 @@ Exports & data
   Drive layout: Output/Customer Exports/{customer}/ holds -persistent files;
   same-day copies go under Historical Data/{ISO-date}/. Prior-month files
   archive to Historical Data/{YYYY-MM}/ at startup. Cortex shared drive
-  mirrors those as exports/customer, exports/history, and decks/.
+  mirrors those as exports/customer exports, exports/history, and decks/.
   --export-csr intra-day snapshots: Historical Data/{ISO-date}/{HHmm}/.
   Full CSR Drive runs skip when the workbook modifiedTime is unchanged
   (--force to rewrite).

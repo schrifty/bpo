@@ -25,7 +25,7 @@ The QBR Generator folder (``GOOGLE_QBR_GENERATOR_FOLDER_ID``) typically contains
 
 Job outputs also dual-write to the hardcoded Cortex shared drive
 (``CORTEX_SHARED_DRIVE_ID``) unless ``CORTEX_DUAL_WRITE_OUTPUT`` is false.
-Cortex uses ``exports/customer``, ``exports/history``, and ``decks`` — not QBR ``Output/``.
+Cortex uses ``exports/customer exports``, ``exports/history``, and ``decks`` — not QBR ``Output/``.
 """
 
 from __future__ import annotations
@@ -67,7 +67,8 @@ QBR_OUTPUT_SUBFOLDER = "Output"
 CORTEX_SHARED_DRIVE_ID = "0ADEZ-wT2uvnqUk9PVA"
 # Cortex shared-drive layout (QBR Generator still uses Output/).
 CORTEX_EXPORTS_FOLDER = "exports"
-CORTEX_EXPORTS_CUSTOMER_FOLDER = "customer"
+CORTEX_EXPORTS_CUSTOMER_FOLDER = "customer exports"
+CORTEX_EXPORTS_CUSTOMER_FOLDER_LEGACY = "customer"
 CORTEX_EXPORTS_HISTORY_FOLDER = "history"
 CORTEX_DECKS_FOLDER = "decks"
 CORTEX_SYS_FOLDER = "sys"
@@ -446,13 +447,24 @@ def get_cortex_exports_root_folder_id() -> str | None:
 
 
 def get_cortex_exports_customer_folder_id() -> str | None:
-    """Return ``exports/customer/`` (maps from QBR ``Output/Customer Exports``)."""
+    """Return ``exports/customer exports/`` (maps from QBR ``Output/Customer Exports``)."""
     explicit = _env_folder_id("CORTEX_DRIVE_EXPORTS_CUSTOMER_FOLDER_ID")
     if explicit:
         return explicit if _cortex_output_dual_write_enabled() else None
     parent = get_cortex_exports_root_folder_id()
     if not parent:
         return None
+    current = find_file_in_folder(
+        CORTEX_EXPORTS_CUSTOMER_FOLDER, parent, mime_type=_MIME_FOLDER
+    )
+    if current:
+        return current
+    # Prefer the pre-rename folder over creating an empty twin; migrate renames it.
+    legacy = find_file_in_folder(
+        CORTEX_EXPORTS_CUSTOMER_FOLDER_LEGACY, parent, mime_type=_MIME_FOLDER
+    )
+    if legacy:
+        return legacy
     return _find_or_create_cortex_folder(CORTEX_EXPORTS_CUSTOMER_FOLDER, parent)
 
 

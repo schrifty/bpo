@@ -459,7 +459,7 @@ def ensure_customer_export_folders(customer: str) -> dict[str, Any]:
                 {
                     "persistent_folder_id": account_folder,
                     "historical_folder_id": historical_id,
-                    "base_label": f"exports/customer/{customer}",
+                    "base_label": f"exports/customer exports/{customer}",
                 }
             )
         except Exception as e:
