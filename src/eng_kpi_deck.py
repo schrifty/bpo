@@ -721,5 +721,7 @@ def run_engineering_kpi_deck_cli(
     print()
     print("=" * 60)
     print(f"  OK   {result['deck_url']}")
+    if result.get("historical_url"):
+        print(f"  Hist {result['historical_url']}")
     print("=" * 60)
     return 0

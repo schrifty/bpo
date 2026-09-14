@@ -37,6 +37,13 @@ SCHEDULED_JOBS_CATALOG: dict[str, dict[str, Any]] = {
         "rule_name": "cortex-engineering-portfolio",
         "summary": "Engineering portfolio deck",
     },
+    "engineering-kpis": {
+        "schedule_expression": "cron(45 7 * * ? *)",
+        "command": ["engineering-kpis"],
+        "enabled": True,
+        "rule_name": "cortex-engineering-kpis",
+        "summary": "Active engineering KPIs with history charts and notable period-to-period moves",
+    },
     "pendo-ford-7d": {
         "schedule_expression": "cron(0 8 * * ? *)",
         "command": ["pendo-ford-7d"],

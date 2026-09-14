@@ -47,6 +47,7 @@ def test_build_schedule_rows_merges_catalog_when_aws_empty(monkeypatch):
     assert any(r.job_key == "pendo-snapshot-refresh" for r in rows)
     assert any(r.job_key == "llm-context-portfolio-daily" for r in rows)
     assert any(r.job_key == "engineering-portfolio" for r in rows)
+    assert any(r.job_key == "engineering-kpis" for r in rows)
     assert any(r.job_key == "pendo-ford-7d" for r in rows)
     assert any(r.job_key == "pendo-ford-30d" for r in rows)
     assert any(r.job_key == "morning-report" for r in rows)
@@ -70,6 +71,9 @@ def test_build_schedule_rows_merges_catalog_when_aws_empty(monkeypatch):
     eng = next(r for r in rows if r.job_key == "engineering-portfolio")
     assert eng.rule_name == "cortex-engineering-portfolio"
     assert eng.schedule_expression == "cron(30 7 * * ? *)"
+    kpis = next(r for r in rows if r.job_key == "engineering-kpis")
+    assert kpis.rule_name == "cortex-engineering-kpis"
+    assert kpis.schedule_expression == "cron(45 7 * * ? *)"
     export = next(r for r in rows if r.job_key == "llm-context-portfolio-daily")
     assert export.rule_name == "cortex-llm-context-portfolio-daily"
     assert export.schedule_expression == "cron(0 7 * * ? *)"

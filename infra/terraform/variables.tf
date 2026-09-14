@@ -172,6 +172,12 @@ variable "scheduled_jobs" {
       enabled             = true
       rule_name           = "cortex-engineering-portfolio"
     }
+    engineering-kpis = {
+      schedule_expression = "cron(45 7 * * ? *)"
+      command             = ["engineering-kpis"]
+      enabled             = true
+      rule_name           = "cortex-engineering-kpis"
+    }
     pendo-ford-7d = {
       schedule_expression = "cron(0 8 * * ? *)"
       command             = ["pendo-ford-7d"]

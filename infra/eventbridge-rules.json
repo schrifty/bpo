@@ -93,6 +93,37 @@
     ]
   },
   {
+    "Name": "cortex-engineering-kpis",
+    "Description": "Engineering KPIs deck \u2014 daily 07:45 UTC",
+    "ScheduleExpression": "cron(45 7 * * ? *)",
+    "State": "ENABLED",
+    "Targets": [
+      {
+        "Id": "cortex-engineering-kpis",
+        "Arn": "arn:aws:ecs:REGION:ACCOUNT_ID:cluster/cortex",
+        "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/cortex-eventbridge-ecs",
+        "EcsParameters": {
+          "TaskDefinitionArn": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/cortex-decks",
+          "LaunchType": "FARGATE",
+          "PlatformVersion": "LATEST",
+          "NetworkConfiguration": {
+            "awsvpcConfiguration": {
+              "Subnets": [
+                "subnet-REPLACE"
+              ],
+              "SecurityGroups": [
+                "sg-REPLACE"
+              ],
+              "AssignPublicIp": "DISABLED"
+            }
+          },
+          "TaskCount": 1
+        },
+        "Input": "{\"containerOverrides\": [{\"name\": \"cortex-decks\", \"command\": [\"engineering-kpis\"]}]}"
+      }
+    ]
+  },
+  {
     "Name": "cortex-pendo-ford-7d",
     "Description": "Ford Pendo usage export 7d \u2014 daily 08:00 UTC",
     "ScheduleExpression": "cron(0 8 * * ? *)",
