@@ -9,11 +9,16 @@ from src.jira_client import JiraClient, jira_customer_search_terms
 from src.salesforce_client import (
     MAINSTREAM_OBJECT_FALLBACK_FIELDS,
     SalesforceClient,
+    SoqlWhere,
     _customer_name_matches_entity_account,
     _parse_salesforce_rest_errors,
     _relationship_json_key_for_lookup,
     _soql_like_literal,
     _strip_sf_attributes,
+    soql_where_eq_bool,
+    soql_where_eq_id,
+    soql_where_in,
+    soql_where_like_any,
     clear_salesforce_read_cache,
 )
 from src.slide_salesforce import sf_records_to_table
@@ -106,7 +111,7 @@ def test_query_mainstream_object_retries_with_fallback_fields_on_400():
     good.headers["Content-Type"] = "application/json"
 
     with patch("src.salesforce_client.requests.get", side_effect=[bad, good]) as g:
-        rows = client.query_mainstream_object("Case", where="AccountId = '001XX'", limit=5)
+        rows = client.query_mainstream_object("Case", where=soql_where_eq_id("AccountId", "001XX"), limit=5)
 
     assert len(rows) == 1 and rows[0].get("Id") == "500xx"
     assert g.call_count == 2
@@ -121,6 +126,27 @@ def test_soql_like_literal_escapes_percent_and_quote():
     s = _soql_like_literal("O'Reilly 100%")
     assert "''" in s or "O''Reilly" in s
     assert "\\%" in s
+
+
+def test_soql_where_in_rejects_injection_and_builds_in_list() -> None:
+    clause = soql_where_in("AccountId", ["001XX0000000001", "001YY0000000002"])
+    assert clause.clause == "AccountId IN ('001XX0000000001', '001YY0000000002')"
+    with pytest.raises(ValueError, match="Invalid Salesforce Id"):
+        soql_where_in("AccountId", ["001' OR Type = 'Customer Entity"])
+    with pytest.raises(ValueError, match="Invalid SOQL field"):
+        soql_where_in("AccountId; DELETE", ["001XX"])
+    with pytest.raises(TypeError):
+        SoqlWhere("1 = 1", object())
+    with pytest.raises(TypeError, match="soql_where_"):
+        SalesforceClient().query_mainstream_object("Case", where="AccountId = '001XX'")  # type: ignore[arg-type]
+
+
+def test_soql_where_like_any_escapes_quotes() -> None:
+    w = soql_where_like_any(("Company", "LastName"), "O'Reilly")
+    assert w is not None
+    assert "O''Reilly" in w.clause
+    assert "OR LastName LIKE" in w.clause
+    assert soql_where_eq_bool("IsActive", True).clause == "IsActive = true"
 
 
 def test_get_customer_salesforce_comprehensive_skips_queries_when_unmatched():
@@ -239,8 +265,8 @@ def test_salesforce_comprehensive_uses_account_id_when_event_what_id_hidden():
                             with patch.multiple(SalesforceClient, **mocks):
                                 client.get_customer_salesforce_comprehensive("Acme", row_limit=5)
 
-    assert mocks["query_tasks"].call_args.kwargs["where"] == "WhatId IN ('001XX')"
-    assert mocks["query_events"].call_args.kwargs["where"] == "AccountId IN ('001XX')"
+    assert mocks["query_tasks"].call_args.kwargs["where"].clause == "WhatId IN ('001XX')"
+    assert mocks["query_events"].call_args.kwargs["where"].clause == "AccountId IN ('001XX')"
 
 
 def test_get_customer_salesforce_comprehensive_isolates_query_errors():

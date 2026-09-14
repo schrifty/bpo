@@ -16,6 +16,7 @@ import datetime
 import hashlib
 import threading
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -379,6 +380,91 @@ def _soql_like_literal(s: str) -> str:
     return _soql_string_escape(t)
 
 
+_SOQL_IDENT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,79}$")
+_SOQL_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9]{1,18}$")
+_SOQL_WHERE_TOKEN = object()
+
+
+def _soql_ident(name: str, *, kind: str = "identifier") -> str:
+    raw = (name or "").strip()
+    if not _SOQL_IDENT_RE.fullmatch(raw):
+        raise ValueError(f"Invalid SOQL {kind} {name!r}")
+    return raw
+
+
+def _soql_safe_id(value: str) -> str:
+    raw = (value or "").strip()
+    if not _SOQL_SAFE_ID_RE.fullmatch(raw):
+        raise ValueError(f"Invalid Salesforce Id {value!r}")
+    return raw
+
+
+def _soql_quoted_id_list(ids: Sequence[str]) -> str:
+    cleaned = [_soql_safe_id(i) for i in ids]
+    if not cleaned:
+        raise ValueError("SOQL IN list is empty")
+    return ", ".join(f"'{i}'" for i in cleaned)
+
+
+class SoqlWhere:
+    """Sanitized SOQL condition (no leading WHERE). Build with ``soql_where_*`` helpers."""
+
+    __slots__ = ("clause",)
+
+    def __init__(self, clause: str, token: object) -> None:
+        if token is not _SOQL_WHERE_TOKEN:
+            raise TypeError(
+                "Build WHERE clauses with soql_where_in, soql_where_eq_id, "
+                "soql_where_eq_bool, soql_where_like_any, or soql_where_in_subquery"
+            )
+        self.clause = clause
+
+
+def soql_where_in(field: str, ids: Sequence[str]) -> SoqlWhere:
+    return SoqlWhere(
+        f"{_soql_ident(field, kind='field')} IN ({_soql_quoted_id_list(ids)})",
+        _SOQL_WHERE_TOKEN,
+    )
+
+
+def soql_where_eq_id(field: str, value: str) -> SoqlWhere:
+    return SoqlWhere(
+        f"{_soql_ident(field, kind='field')} = '{_soql_safe_id(value)}'",
+        _SOQL_WHERE_TOKEN,
+    )
+
+
+def soql_where_eq_bool(field: str, value: bool) -> SoqlWhere:
+    lit = "true" if value else "false"
+    return SoqlWhere(f"{_soql_ident(field, kind='field')} = {lit}", _SOQL_WHERE_TOKEN)
+
+
+def soql_where_in_subquery(
+    field: str,
+    *,
+    select_field: str,
+    from_object: str,
+    where_field: str,
+    ids: Sequence[str],
+) -> SoqlWhere:
+    clause = (
+        f"{_soql_ident(field, kind='field')} IN ("
+        f"SELECT {_soql_ident(select_field, kind='field')} "
+        f"FROM {_soql_ident(from_object, kind='object')} "
+        f"WHERE {_soql_ident(where_field, kind='field')} IN ({_soql_quoted_id_list(ids)}))"
+    )
+    return SoqlWhere(clause, _SOQL_WHERE_TOKEN)
+
+
+def soql_where_like_any(fields: Sequence[str], raw: str, *, max_len: int = 120) -> SoqlWhere | None:
+    body = (raw or "").strip()[:max_len]
+    if not body:
+        return None
+    frag = _soql_like_literal(body)
+    parts = [f"{_soql_ident(f, kind='field')} LIKE '%{frag}%'" for f in fields]
+    return SoqlWhere("(" + " OR ".join(parts) + ")", _SOQL_WHERE_TOKEN)
+
+
 def _strip_sf_attributes(rec: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in rec.items() if k != "attributes"}
 
@@ -622,18 +708,19 @@ class SalesforceClient:
         object_api_name: str,
         *,
         fields: tuple[str, ...] | None = None,
-        where: str | None = None,
+        where: SoqlWhere | None = None,
         limit: int | None = 2000,
     ) -> list[dict[str, Any]]:
         """SELECT default field sets for a known standard object (see MAINSTREAM_OBJECT_FIELDS).
 
-        ``where`` is the SOQL condition only (no leading ``WHERE``). Use bind-safe literals;
-        this does not escape user input.
+        ``where`` must be a :class:`SoqlWhere` from ``soql_where_*`` helpers (identifiers and
+        Id/boolean/LIKE values are validated). Raw SOQL fragments are rejected.
 
         Raises ``ValueError`` if ``object_api_name`` is unknown and ``fields`` is omitted.
         """
+        object_api_name = _soql_ident(object_api_name, kind="object")
         if fields is not None:
-            cols = fields
+            cols = tuple(_soql_ident(c, kind="field") for c in fields)
         elif object_api_name in MAINSTREAM_OBJECT_FIELDS:
             cols = MAINSTREAM_OBJECT_FIELDS[object_api_name]
         else:
@@ -643,8 +730,13 @@ class SalesforceClient:
             )
         field_list = ", ".join(cols)
         soql = f"SELECT {field_list} FROM {object_api_name}"
-        if where:
-            soql += f" WHERE {where}"
+        if where is not None:
+            if not isinstance(where, SoqlWhere):
+                raise TypeError(
+                    "where must be a SoqlWhere from soql_where_in / soql_where_eq_id / "
+                    "soql_where_eq_bool / soql_where_like_any / soql_where_in_subquery"
+                )
+            soql += f" WHERE {where.clause}"
         if limit is not None:
             cap = max(1, min(int(limit), 2000))
             soql += f" LIMIT {cap}"
@@ -664,87 +756,87 @@ class SalesforceClient:
             raise
 
     def query_leads(
-        self, *, where: str | None = None, limit: int | None = 2000
+        self, *, where: SoqlWhere | None = None, limit: int | None = 2000
     ) -> list[dict[str, Any]]:
         return self.query_mainstream_object("Lead", where=where, limit=limit)
 
     def query_accounts(
-        self, *, where: str | None = None, limit: int | None = 2000
+        self, *, where: SoqlWhere | None = None, limit: int | None = 2000
     ) -> list[dict[str, Any]]:
         return self.query_mainstream_object("Account", where=where, limit=limit)
 
     def query_contacts(
-        self, *, where: str | None = None, limit: int | None = 2000
+        self, *, where: SoqlWhere | None = None, limit: int | None = 2000
     ) -> list[dict[str, Any]]:
         return self.query_mainstream_object("Contact", where=where, limit=limit)
 
     def query_opportunities(
-        self, *, where: str | None = None, limit: int | None = 2000
+        self, *, where: SoqlWhere | None = None, limit: int | None = 2000
     ) -> list[dict[str, Any]]:
         return self.query_mainstream_object("Opportunity", where=where, limit=limit)
 
     def query_cases(
-        self, *, where: str | None = None, limit: int | None = 2000
+        self, *, where: SoqlWhere | None = None, limit: int | None = 2000
     ) -> list[dict[str, Any]]:
         return self.query_mainstream_object("Case", where=where, limit=limit)
 
     def query_tasks(
-        self, *, where: str | None = None, limit: int | None = 2000
+        self, *, where: SoqlWhere | None = None, limit: int | None = 2000
     ) -> list[dict[str, Any]]:
         return self.query_mainstream_object("Task", where=where, limit=limit)
 
     def query_events(
-        self, *, where: str | None = None, limit: int | None = 2000
+        self, *, where: SoqlWhere | None = None, limit: int | None = 2000
     ) -> list[dict[str, Any]]:
         return self.query_mainstream_object("Event", where=where, limit=limit)
 
     def query_campaigns(
-        self, *, where: str | None = None, limit: int | None = 2000
+        self, *, where: SoqlWhere | None = None, limit: int | None = 2000
     ) -> list[dict[str, Any]]:
         return self.query_mainstream_object("Campaign", where=where, limit=limit)
 
     def query_campaign_members(
-        self, *, where: str | None = None, limit: int | None = 2000
+        self, *, where: SoqlWhere | None = None, limit: int | None = 2000
     ) -> list[dict[str, Any]]:
         return self.query_mainstream_object("CampaignMember", where=where, limit=limit)
 
     def query_users(
-        self, *, where: str | None = None, limit: int | None = 2000
+        self, *, where: SoqlWhere | None = None, limit: int | None = 2000
     ) -> list[dict[str, Any]]:
         return self.query_mainstream_object("User", where=where, limit=limit)
 
     def query_products(
-        self, *, where: str | None = None, limit: int | None = 2000
+        self, *, where: SoqlWhere | None = None, limit: int | None = 2000
     ) -> list[dict[str, Any]]:
         return self.query_mainstream_object("Product2", where=where, limit=limit)
 
     def query_pricebooks(
-        self, *, where: str | None = None, limit: int | None = 2000
+        self, *, where: SoqlWhere | None = None, limit: int | None = 2000
     ) -> list[dict[str, Any]]:
         return self.query_mainstream_object("Pricebook2", where=where, limit=limit)
 
     def query_contracts(
-        self, *, where: str | None = None, limit: int | None = 2000
+        self, *, where: SoqlWhere | None = None, limit: int | None = 2000
     ) -> list[dict[str, Any]]:
         return self.query_mainstream_object("Contract", where=where, limit=limit)
 
     def query_orders(
-        self, *, where: str | None = None, limit: int | None = 2000
+        self, *, where: SoqlWhere | None = None, limit: int | None = 2000
     ) -> list[dict[str, Any]]:
         return self.query_mainstream_object("Order", where=where, limit=limit)
 
     def query_quotes(
-        self, *, where: str | None = None, limit: int | None = 2000
+        self, *, where: SoqlWhere | None = None, limit: int | None = 2000
     ) -> list[dict[str, Any]]:
         return self.query_mainstream_object("Quote", where=where, limit=limit)
 
     def query_assets(
-        self, *, where: str | None = None, limit: int | None = 2000
+        self, *, where: SoqlWhere | None = None, limit: int | None = 2000
     ) -> list[dict[str, Any]]:
         return self.query_mainstream_object("Asset", where=where, limit=limit)
 
     def query_opportunity_line_items(
-        self, *, where: str | None = None, limit: int | None = 2000
+        self, *, where: SoqlWhere | None = None, limit: int | None = 2000
     ) -> list[dict[str, Any]]:
         return self.query_mainstream_object("OpportunityLineItem", where=where, limit=limit)
 
@@ -759,7 +851,7 @@ class SalesforceClient:
         """Count Opportunities (Type in OPP_TYPES, CreatedDate = THIS YEAR) for given Account IDs."""
         if not account_ids:
             return 0
-        ids_comma = ", ".join(f"'{aid}'" for aid in account_ids)
+        ids_comma = _soql_quoted_id_list(account_ids)
         types_comma = ", ".join(f"'{t}'" for t in OPP_TYPES)
         soql = (
             f"SELECT COUNT() FROM Opportunity "
@@ -784,7 +876,7 @@ class SalesforceClient:
         """Sum ARR__c for Opportunities in pipeline stages for given Account IDs."""
         if not account_ids:
             return 0.0
-        ids_comma = ", ".join(f"'{aid}'" for aid in account_ids)
+        ids_comma = _soql_quoted_id_list(account_ids)
         types_comma = ", ".join(f"'{t}'" for t in OPP_TYPES)
         stages_comma = ", ".join(f"'{s}'" for s in PIPELINE_STAGES)
         closed = " AND IsClosed = false" if open_only else ""
@@ -808,7 +900,7 @@ class SalesforceClient:
         """Open Opportunities in pipeline stages (for renewal-in-flight on churned entities)."""
         if not account_ids or limit <= 0:
             return []
-        ids_comma = ", ".join(f"'{aid}'" for aid in account_ids)
+        ids_comma = _soql_quoted_id_list(account_ids)
         types_comma = ", ".join(f"'{t}'" for t in OPP_TYPES)
         stages_comma = ", ".join(f"'{s}'" for s in PIPELINE_STAGES)
         soql = (
@@ -844,7 +936,7 @@ class SalesforceClient:
         """Closed-won Renewal opportunities (signed renewals no longer in open pipeline)."""
         if not account_ids or limit <= 0:
             return []
-        ids_comma = ", ".join(f"'{aid}'" for aid in account_ids)
+        ids_comma = _soql_quoted_id_list(account_ids)
         soql = (
             f"SELECT Id, Name, StageName, Type, ARR__c, CloseDate, AccountId "
             f"FROM Opportunity WHERE AccountId IN ({ids_comma}) AND Type = 'Renewal' "
@@ -958,7 +1050,7 @@ class SalesforceClient:
         chunk_size = 60
         for i in range(0, len(account_ids), chunk_size):
             chunk = account_ids[i : i + chunk_size]
-            ids_in = ", ".join(f"'{aid}'" for aid in chunk)
+            ids_in = _soql_quoted_id_list(chunk)
             soql = (
                 f"SELECT AccountId, Type, Amount FROM Opportunity "
                 f"WHERE AccountId IN ({ids_in}) "
@@ -1335,7 +1427,7 @@ class SalesforceClient:
         fields = ", ".join(_entity_account_select_field_names())
         matching: list[dict[str, Any]] = []
         for chunk in _chunk_list(seen, 50):
-            ids_in = ", ".join(f"'{x}'" for x in chunk)
+            ids_in = _soql_quoted_id_list(chunk)
             soql = (
                 f"SELECT {fields} FROM Account "
                 f"WHERE Id IN ({ids_in}) AND Type = 'Customer Entity'"
@@ -1467,7 +1559,7 @@ class SalesforceClient:
         while frontier and depth < max_depth and len(seen) < max_total_accounts:
             next_frontier: list[str] = []
             for chunk in _chunk_list(frontier, chunk_size):
-                ids_in = ", ".join(f"'{x}'" for x in chunk)
+                ids_in = _soql_quoted_id_list(chunk)
                 soql = f"SELECT Id FROM Account WHERE ParentId IN ({ids_in})"
                 rows = self._query(soql)
                 for r in rows:
@@ -1543,7 +1635,7 @@ class SalesforceClient:
             )
         )
 
-        ids_in = ", ".join(f"'{aid}'" for aid in expanded)
+        ids_in = expanded
         cap = out["row_limit"]
 
         try:
@@ -1577,7 +1669,7 @@ class SalesforceClient:
                 logger.warning("Salesforce comprehensive %s failed: %s", label, e)
                 out["categories"][label] = []
 
-        def _account_activity_where(sobject: str) -> str | None:
+        def _account_activity_where(sobject: str) -> SoqlWhere | None:
             """Best available relationship filter for Task/Event in orgs with restricted fields."""
             try:
                 fields = self.get_sobject_field_names(sobject)
@@ -1587,11 +1679,11 @@ class SalesforceClient:
                     sobject,
                     e,
                 )
-                return f"WhatId IN ({ids_in})"
+                return soql_where_in("WhatId", ids_in)
             if "WhatId" in fields:
-                return f"WhatId IN ({ids_in})"
+                return soql_where_in("WhatId", ids_in)
             if "AccountId" in fields:
-                return f"AccountId IN ({ids_in})"
+                return soql_where_in("AccountId", ids_in)
             out["category_errors"][sobject.lower() + "s"] = (
                 f"SObject {sobject!r} is queryable, but neither WhatId nor AccountId is visible "
                 "to this integration user for account-scoped activity export."
@@ -1605,25 +1697,31 @@ class SalesforceClient:
 
         _run(
             "contacts",
-            lambda: self.query_contacts(where=f"AccountId IN ({ids_in})", limit=cap),
+            lambda: self.query_contacts(where=soql_where_in("AccountId", ids_in), limit=cap),
             sobject="Contact",
         )
         _run(
             "opportunities",
-            lambda: self.query_opportunities(where=f"AccountId IN ({ids_in})", limit=cap),
+            lambda: self.query_opportunities(where=soql_where_in("AccountId", ids_in), limit=cap),
             sobject="Opportunity",
         )
         _run(
             "opportunity_line_items",
             lambda: self.query_opportunity_line_items(
-                where=f"OpportunityId IN (SELECT Id FROM Opportunity WHERE AccountId IN ({ids_in}))",
+                where=soql_where_in_subquery(
+                    "OpportunityId",
+                    select_field="Id",
+                    from_object="Opportunity",
+                    where_field="AccountId",
+                    ids=ids_in,
+                ),
                 limit=cap,
             ),
             sobject="OpportunityLineItem",
         )
         _run(
             "cases",
-            lambda: self.query_cases(where=f"AccountId IN ({ids_in})", limit=cap),
+            lambda: self.query_cases(where=soql_where_in("AccountId", ids_in), limit=cap),
             sobject="Case",
         )
         task_where = _account_activity_where("Task")
@@ -1642,28 +1740,34 @@ class SalesforceClient:
             )
         _run(
             "contracts",
-            lambda: self.query_contracts(where=f"AccountId IN ({ids_in})", limit=cap),
+            lambda: self.query_contracts(where=soql_where_in("AccountId", ids_in), limit=cap),
             sobject="Contract",
         )
         _run(
             "orders",
-            lambda: self.query_orders(where=f"AccountId IN ({ids_in})", limit=cap),
+            lambda: self.query_orders(where=soql_where_in("AccountId", ids_in), limit=cap),
             sobject="Order",
         )
         _run(
             "quotes",
-            lambda: self.query_quotes(where=f"AccountId IN ({ids_in})", limit=cap),
+            lambda: self.query_quotes(where=soql_where_in("AccountId", ids_in), limit=cap),
             sobject="Quote",
         )
         _run(
             "assets",
-            lambda: self.query_assets(where=f"AccountId IN ({ids_in})", limit=cap),
+            lambda: self.query_assets(where=soql_where_in("AccountId", ids_in), limit=cap),
             sobject="Asset",
         )
         _run(
             "owners_sample",
             lambda: self.query_users(
-                where=f"Id IN (SELECT OwnerId FROM Account WHERE Id IN ({ids_in}))",
+                where=soql_where_in_subquery(
+                    "Id",
+                    select_field="OwnerId",
+                    from_object="Account",
+                    where_field="Id",
+                    ids=ids_in,
+                ),
                 limit=min(40, cap),
             ),
             sobject="User",
@@ -1679,9 +1783,8 @@ class SalesforceClient:
                 seen: set[str] = set()
                 acc: list[dict[str, Any]] = []
                 for ch in _chunk_list(cids, contact_in_chunk):
-                    c_in = ", ".join(f"'{x}'" for x in ch)
                     batch = self.query_campaign_members(
-                        where=f"ContactId IN ({c_in})", limit=cap
+                        where=soql_where_in("ContactId", ch), limit=cap
                     )
                     for r in batch:
                         rid = r.get("Id")
@@ -1698,11 +1801,13 @@ class SalesforceClient:
                 seen_camp: set[str] = set()
                 acc: list[dict[str, Any]] = []
                 for ch in _chunk_list(cids, contact_in_chunk):
-                    c_in = ", ".join(f"'{x}'" for x in ch)
                     batch = self.query_campaigns(
-                        where=(
-                            "Id IN (SELECT CampaignId FROM CampaignMember "
-                            f"WHERE ContactId IN ({c_in}))"
+                        where=soql_where_in_subquery(
+                            "Id",
+                            select_field="CampaignId",
+                            from_object="CampaignMember",
+                            where_field="ContactId",
+                            ids=ch,
                         ),
                         limit=cap,
                     )
@@ -1722,12 +1827,12 @@ class SalesforceClient:
             out["categories"]["campaign_members"] = []
             out["categories"]["campaigns_related"] = []
 
-        frag = _soql_like_literal((customer_name or "").strip()[:120])
-        if frag:
+        lead_where = soql_where_like_any(("Company", "LastName"), customer_name)
+        if lead_where is not None:
             _run(
                 "leads_name_match",
                 lambda: self.query_leads(
-                    where=f"(Company LIKE '%{frag}%' OR LastName LIKE '%{frag}%')",
+                    where=lead_where,
                     limit=min(40, cap),
                 ),
                 sobject="Lead",
@@ -1737,7 +1842,7 @@ class SalesforceClient:
 
         _run(
             "products_org_sample",
-            lambda: self.query_products(where="IsActive = true", limit=min(40, cap)),
+            lambda: self.query_products(where=soql_where_eq_bool("IsActive", True), limit=min(40, cap)),
             sobject="Product2",
         )
         _run(

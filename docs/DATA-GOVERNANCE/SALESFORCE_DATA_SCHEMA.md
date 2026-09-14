@@ -45,7 +45,7 @@ Version: `SF_REST_API_VERSION` in code (e.g. `v59.0`). Not used here: Bulk/Compo
 
 ## 4. Mainstream helpers
 
-`MAINSTREAM_OBJECT_FIELDS` plus **`query_leads`**, **`query_contacts`**, **`query_opportunities`**, … **`query_mainstream_object`**, **`query_soql`**, **`list_sobject_types`**. Not wired to decks by default. Override **`fields=`** if your org renames or omits a column.
+`MAINSTREAM_OBJECT_FIELDS` plus **`query_leads`**, **`query_contacts`**, **`query_opportunities`**, … **`query_mainstream_object`**, **`query_soql`**, **`list_sobject_types`**. Filters on mainstream helpers must be **`soql_where_*`** (`SoqlWhere`), not raw SOQL. Not wired to decks by default. Override **`fields=`** if your org renames or omits a column.
 
 ## 5. Operations
 
@@ -191,7 +191,7 @@ Formal **price quote** (often CPQ) linked to an **Opportunity** and **Account**;
 
 **Commercial agreement** (subscription, MSA, etc.) with **term** and **status**; often used for **renewal** and entitlement tracking.
 
-**Cortex implementation** — Canonical column list: **`MAINSTREAM_OBJECT_FIELDS["Contract"]`** in [`src/salesforce_client.py`](../../src/salesforce_client.py) (must stay in sync with this table). Call **`SalesforceClient.query_contracts(where=..., limit=...)`** or **`query_mainstream_object("Contract", ...)`** with a custom **`fields=`** tuple if your org adds columns (e.g. custom **ARR / MRR**). **`get_customer_salesforce_comprehensive`** stores rows under **`categories["contracts"]`**, filtered with **`AccountId IN (...)`** on the expanded account Id set. **Cohort summary and similar deck ARR** still use **`Account.ARR__c`** on Customer Entity accounts, not this object, unless you extend the code to aggregate Contract fields.
+**Cortex implementation** — Canonical column list: **`MAINSTREAM_OBJECT_FIELDS["Contract"]`** in [`src/salesforce_client.py`](../../src/salesforce_client.py) (must stay in sync with this table). Call **`SalesforceClient.query_contracts(where=soql_where_in("AccountId", ids), limit=...)`** or **`query_mainstream_object("Contract", ...)`** with a custom **`fields=`** tuple if your org adds columns (e.g. custom **ARR / MRR**). **`get_customer_salesforce_comprehensive`** stores rows under **`categories["contracts"]`**, filtered with **`AccountId IN (...)`** on the expanded account Id set. **Cohort summary and similar deck ARR** still use **`Account.ARR__c`** on Customer Entity accounts, not this object, unless you extend the code to aggregate Contract fields.
 
 **Not in Cortex’s default Contract SELECT** — Standard Salesforce may expose **`CustomerSignedId`**, **`CompanySignedDate`**, **`SpecialTerms`**, CPQ-related fields, or custom **`__c`** currency fields; use **`…/sobjects/Contract/describe`** or Object Manager, then **`fields=`** or raw **`query_soql`**.
 
